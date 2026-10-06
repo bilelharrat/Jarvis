@@ -362,17 +362,22 @@ function messageStream(model = 'claude-opus-5-5', input = 1000, output = 2000) {
 }
 
 test('costs are counted at list prices, caches and searches included', () => {
-  assert.equal(costOf('claude-opus-5-5', { input_tokens: 1e6, output_tokens: 1e6 }), 30);
-  assert.equal(costOf('claude-sonnet-5-5', { input_tokens: 1e6 }), 3);
+  // Opus 5.5 $4 / $20 (cache reads $0.20), Sonnet 5.5 $2 / $10, Opus 4.8 $5 / $25: Anthropic's list prices.
+  assert.equal(costOf('claude-opus-5-5', { input_tokens: 1e6, output_tokens: 1e6 }), 24);
+  assert.equal(costOf('claude-opus-4-8', { input_tokens: 1e6, output_tokens: 1e6 }), 30);
+  assert.equal(costOf('claude-sonnet-5-5', { input_tokens: 1e6 }), 2);
+  assert.equal(costOf('claude-sonnet-4-6', { input_tokens: 1e6 }), 3);
+  assert.equal(costOf('claude-fable-5-1', { output_tokens: 1e6 }), 50);
   assert.equal(costOf('claude-haiku-4-5-20251001', { output_tokens: 1e6 }), 5);
-  assert.equal(costOf('claude-opus-5-5', { cache_read_input_tokens: 1e6, cache_creation_input_tokens: 1e6 }), 0.5 + 6.25);
+  assert.equal(costOf('claude-opus-5-5', { cache_read_input_tokens: 1e6, cache_creation_input_tokens: 1e6 }), 0.2 + 5);
+  assert.equal(costOf('claude-opus-4-8', { cache_read_input_tokens: 1e6, cache_creation_input_tokens: 1e6 }), 0.5 + 6.25);
   assert.equal(costOf('claude-sonnet-5-5', { server_tool_use: { web_search_requests: 3 } }), 0.03);
   assert.equal(costOf('claude-mystery-9', { output_tokens: 1e6 }), 75);
 });
 
 test('included AI streams through, counts what it cost, and stops at the allowance', async () => {
   const phone = await signIn();
-  anthropicAnswer = messageStream('claude-opus-5-5', 20000, 30000); // 0.10 + 0.75 = $0.85
+  anthropicAnswer = messageStream('claude-opus-5-5', 20000, 30000); // 0.08 + 0.60 = $0.68
   const ask = (headers = { authorization: `Bearer ${phone.token}` }, model = 'claude-opus-5-5') =>
     api('/anthropic/v1/messages', { method: 'POST', headers: { ...headers, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'x-test' }, body: { model, stream: true, max_tokens: 10, messages: [] } });
   const first = await ask();
@@ -384,7 +389,7 @@ test('included AI streams through, counts what it cost, and stops at the allowan
   assert.equal(sent.init.headers.get('anthropic-beta'), 'x-test');
   assert.equal(sent.init.headers.get('authorization'), null, 'the Jarvis token never goes to Anthropic');
   let account = await (await api('/account', { token: phone.token })).json();
-  assert.equal(account.usage.trial_left_usd, 0.15);
+  assert.equal(account.usage.trial_left_usd, 0.32);
   // Claude Code's way: x-api-key carries the Jarvis token.
   assert.equal((await ask({ 'x-api-key': phone.token })).status, 200);
   await (await ask({ 'x-api-key': phone.token })).text().catch(() => {});
@@ -412,7 +417,7 @@ test('included AI: only Claude, only signed in, counting tokens is free', async 
   anthropicAnswer = () => Response.json({ model: 'claude-sonnet-5-5', usage: { input_tokens: 100000, output_tokens: 0 } });
   await (await post('/anthropic/v1/messages', { model: 'claude-sonnet-5-5', messages: [] })).json();
   const account = await (await api('/account', { token: phone.token })).json();
-  assert.equal(account.usage.trial_left_usd, 0.7);
+  assert.equal(account.usage.trial_left_usd, 0.8);
   env = makeEnv({});
   const again = await signIn();
   assert.equal((await post('/anthropic/v1/messages', { model: 'claude-opus-5-5' }, again.token)).status, 503);

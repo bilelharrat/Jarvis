@@ -1,6 +1,7 @@
 """JARVIS for other apps: the endpoint (jarvis.mcp_endpoint) behind `jarvis mcp`
-(jarvis.mcp_bridge), so Claude Code and Claude Desktop can use the owner's second brain,
-memory and calendar, and send them heads-ups; and its part of Settings.
+(jarvis.mcp_bridge), so Claude Code, Claude Desktop and Eden can use the owner's second
+brain, memory, calendar and email (an email goes only on the owner's yes), and send them
+heads-ups; and its part of Settings.
 
 Settings (prefs.features):
 - mcp_enabled: off until the owner turns it on; while off there's no socket at all.
@@ -25,15 +26,15 @@ from pathlib import Path
 from typing import Any
 
 from .. import lang
-from ..mcp_endpoint import ASK_DETAIL, Endpoint
+from ..mcp_endpoint import ASK_DETAIL, ASK_QUESTION, Endpoint
 from ..prefs import register_feature_pref
 
 register_feature_pref("mcp_enabled", False)
 register_feature_pref("mcp_ask", True)
 
 ZH = {
-    "Let {app} use your second brain, memory and calendar?": "允许 {app} 使用你的第二大脑、记忆和日历吗？",
-    ASK_DETAIL: "在它关闭之前，它可以搜索你的第二大脑、读取你的笔记、查看我记住的关于你的事、读取你的日历，并给你发提醒。它读到的内容会发给那个应用，以及它背后的模型。",
+    ASK_QUESTION: "允许 {app} 使用你的第二大脑、记忆、日历和邮件吗？",
+    ASK_DETAIL: "在它关闭之前，它可以搜索你的第二大脑、读取你的笔记、查看我记住的关于你的事、读取你的日历和邮件、打开邮件草稿，并给你发提醒。它想发送的邮件会先给你看，只有你同意才会发出。它读到的内容会发给那个应用，以及它背后的模型。",
 }
 lang.add_texts(ZH)
 

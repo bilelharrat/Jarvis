@@ -9,10 +9,14 @@ EventKit answers on the main run loop, so like maps.py this runs as a short help
     python -m jarvis.calendar_kit remove <start> <id> <calendar> <future: 0|1>
     python -m jarvis.calendar_kit create <event-json>
     python -m jarvis.calendar_kit add <event-json>
+    python -m jarvis.calendar_kit range <start> <end>
 
 It prints one JSON object: {"events": [...]}, {"removed": {...}}, {"created": {...}} or
 {"error": "..."}. create makes a whole event (notes, alerts, repeats, all-day, a link) from
-the spec mac_tools.clean_event made; the owner has seen it on a card first.
+the spec mac_tools.clean_event made; the owner has seen it on a card first. `range` is for
+other apps (Eden's calendar, through the MCP endpoint): every event from one local time to
+another as JSON (json_event), with exact times, its people and its calendar, plus every
+calendar ({"events", "calendars", "timeZone"}).
 macOS asks once for calendar access on behalf of the J.A.R.V.I.S. app. `at` lists what
 starts at a time; which of those a request means is decided here in the app (choose), and
 `remove` deletes exactly that one, by its id, start and calendar.
@@ -201,6 +205,222 @@ def _row(event, details: bool = False) -> dict[str, Any] | None:
 
 def _event_id(event) -> str:
     return str(event.calendarItemExternalIdentifier() or event.eventIdentifier() or "")
+
+
+# ── For other apps: a span of the calendar as JSON (`range`) ──
+
+RANGE_DAYS = 62  # the longest span `range` reads
+MAX_PEOPLE = 20  # attendees a JSON row lists
+MAX_EVENT_NOTES = 4000  # characters of an event's notes a JSON row carries
+# How each person answered (EKParticipantStatus), as the JSON rows say it.
+_STATUSES = {
+    0: "unknown",
+    1: "pending",
+    2: "accepted",
+    3: "declined",
+    4: "tentative",
+    5: "delegated",
+    6: "completed",
+    7: "in-process",
+}
+
+
+def _zone(name: str | None) -> Any:
+    """The time zone with this IANA name, or None (the Mac's own) when there's none."""
+    if not name:
+        return None
+    from zoneinfo import ZoneInfo
+
+    try:
+        return ZoneInfo(name)
+    except (ValueError, KeyError, OSError):  # (ZoneInfoNotFoundError is a KeyError)
+        return None
+
+
+def iso_span(begin: float, end: float, all_day: bool, zone: str | None = None) -> tuple[str, str]:
+    """An event's start and end (seconds since 1970) as other apps take them. Timed: ISO
+    8601 to the second with the UTC offset at that instant (2026-10-06T10:00:00+01:00), in
+    the zone named (the Mac's own when None). All-day: dates, the end the day after the last
+    day (EventKit keeps that end at 23:59:59 on the last day, or at the next midnight)."""
+    tz = _zone(zone)
+
+    def local(stamp: float) -> datetime:
+        if tz is not None:
+            return datetime.fromtimestamp(stamp, tz)
+        return datetime.fromtimestamp(stamp).astimezone()
+
+    first, last = local(begin), local(end)
+    if not all_day:
+        return first.isoformat(timespec="seconds"), max(first, last).isoformat(timespec="seconds")
+    midnight = (last.hour, last.minute, last.second, last.microsecond) == (0, 0, 0, 0)
+    after = last.date() if midnight else last.date() + timedelta(days=1)
+    after = max(after, first.date() + timedelta(days=1))
+    return first.date().isoformat(), after.isoformat()
+
+
+def hex_color(color: Any, srgb: Any = None) -> str:
+    """#RRGGBB from an NSColor, by its sRGB components; "" for none, or one that can't be
+    read. srgb is the sRGB colour space (looked up when not given; tests pass a fake)."""
+    if color is None:
+        return ""
+    try:
+        if srgb is None:  # AppKit is loaded: there's an NSColor
+            import objc
+
+            srgb = objc.lookUpClass("NSColorSpace").sRGBColorSpace()
+        rgb = color.colorUsingColorSpace_(srgb)
+        if rgb is None:
+            return ""
+        parts = (rgb.redComponent(), rgb.greenComponent(), rgb.blueComponent())
+        return "#" + "".join(f"{round(min(1.0, max(0.0, float(p))) * 255):02X}" for p in parts)
+    except Exception:  # a pattern or catalog colour with no RGB, a missing framework
+        return ""
+
+
+def calendar_color(calendar: Any, srgb: Any = None) -> str:
+    """A calendar's colour as #RRGGBB: its NSColor, else its CGColor; "" when neither reads."""
+    try:
+        found = hex_color(calendar.color(), srgb) if hasattr(calendar, "color") else ""
+        if not found and hasattr(calendar, "CGColor"):
+            import objc
+
+            ns_color = objc.lookUpClass("NSColor").colorWithCGColor_(calendar.CGColor())
+            found = hex_color(ns_color, srgb)
+        return found
+    except Exception:
+        return ""
+
+
+def json_calendar(calendar: Any, srgb: Any = None) -> dict[str, Any]:
+    """One calendar as other apps read it: {id, title, color, writable, source}."""
+    source = calendar.source() if hasattr(calendar, "source") else None
+    return {
+        "id": str(calendar.calendarIdentifier() or ""),
+        "title": str(calendar.title() or ""),
+        "color": calendar_color(calendar, srgb),
+        "writable": bool(calendar.allowsContentModifications()),
+        "source": str(source.title() or "") if source is not None else "",
+    }
+
+
+def json_event(event: Any, zone: str | None = None) -> dict[str, Any] | None:
+    """One event as other apps read it (the calendar tool's JSON); None for a cancelled one.
+    Times are iso_span's in that zone. The owner's own attendee record is left out."""
+    status = event.status() if hasattr(event, "status") else 0
+    if status == 3:  # cancelled
+        return None
+    all_day = bool(event.isAllDay())
+    start, end = iso_span(
+        float(event.startDate().timeIntervalSince1970()),
+        float(event.endDate().timeIntervalSince1970()),
+        all_day,
+        zone,
+    )
+    people = []
+    for person in (event.attendees() if hasattr(event, "attendees") else None) or []:
+        if len(people) >= MAX_PEOPLE:
+            break
+        try:
+            if person.isCurrentUser():
+                continue
+            people.append(
+                {
+                    "name": str(person.name() or ""),
+                    "email": _mail(person),
+                    "status": _STATUSES.get(int(person.participantStatus()), "unknown"),
+                }
+            )
+        except Exception:  # an odd participant record: skip it
+            continue
+    link = event.URL() if hasattr(event, "URL") else None
+    url = str(link.absoluteString()) if link else ""
+    if not url.lower().startswith(("https://", "http://")):
+        url = ""  # only a web address: another app may show it as a link
+    if not url:
+        try:
+            url = _link(event)
+        except Exception:
+            url = ""
+    calendar = event.calendar()
+    own_zone = event.timeZone() if hasattr(event, "timeZone") else None
+    return {
+        "id": _event_id(event),
+        "calendarId": str(calendar.calendarIdentifier() or "") if calendar else "",
+        "calendar": str(calendar.title() or "") if calendar else "",
+        "title": str(event.title() or "Untitled"),  # as _row names it: the change tools find it
+        "start": start,
+        "end": end,
+        "allDay": all_day,
+        "timeZone": str(own_zone.name()) if own_zone is not None else None,
+        "location": str(event.location() or ""),
+        "notes": str(event.notes() or "")[:MAX_EVENT_NOTES] if hasattr(event, "notes") else "",
+        "url": url[:2000],
+        "attendees": people,
+        "recurring": bool(event.hasRecurrenceRules()),
+        "writable": bool(calendar and calendar.allowsContentModifications()),
+    }
+
+
+def mac_zone(foundation: Any = None) -> str | None:
+    """The Mac's time zone, by its IANA name (Europe/London); None when it can't be read."""
+    try:
+        if foundation is None:
+            import Foundation as foundation
+        name = foundation.NSTimeZone.localTimeZone().name()
+        return str(name) if name else None
+    except Exception:
+        return None
+
+
+def between(
+    start: str, end: str, ek: Any = None, foundation: Any = None, srgb: Any = None
+) -> dict[str, Any]:
+    """Every event from start to end (local times, 2026-10-05T00:00), as json_event rows
+    sorted by start, with every calendar and the Mac's time zone. ek, foundation and srgb are
+    EventKit, Foundation and the sRGB colour space (tests pass fakes)."""
+    first, last = datetime.fromisoformat(start), datetime.fromisoformat(end)
+    if first.tzinfo is not None or last.tzinfo is not None:
+        raise ValueError("Give the span in local times, without an offset.")
+    if not timedelta(0) < last - first <= timedelta(days=RANGE_DAYS):
+        return {"error": f"The span must end after it starts, at most {RANGE_DAYS} days on."}
+    if ek is None:
+        import EventKit as ek
+
+        try:  # NSColor's framework, for the calendars' colours
+            import AppKit
+
+            srgb = AppKit.NSColorSpace.sRGBColorSpace()
+        except Exception:
+            srgb = None
+    if foundation is None:
+        import Foundation as foundation
+    NSDate = foundation.NSDate
+    store = ek.EKEventStore.alloc().init()
+    if not _authorized(store, ek):
+        return {"error": NO_ACCESS}
+    zone = mac_zone(foundation)
+    predicate = store.predicateForEventsWithStartDate_endDate_calendars_(
+        NSDate.dateWithTimeIntervalSince1970_(first.timestamp()),
+        NSDate.dateWithTimeIntervalSince1970_(last.timestamp()),
+        None,
+    )
+    found = []
+    for event in store.eventsMatchingPredicate_(predicate) or []:
+        try:
+            row = json_event(event, zone)
+            if row is not None:
+                begin = float(event.startDate().timeIntervalSince1970())
+                found.append((begin, not row["allDay"], row))
+        except Exception:  # an odd record: skip it, not the whole span
+            continue
+    found.sort(key=lambda f: f[:2])
+    calendars = []
+    for calendar in store.calendarsForEntityType_(ek.EKEntityTypeEvent) or []:
+        try:
+            calendars.append(json_calendar(calendar, srgb))
+        except Exception:
+            continue
+    return {"events": [row for *_, row in found], "calendars": calendars, "timeZone": zone}
 
 
 def when(start: str) -> tuple[datetime, bool]:
@@ -521,6 +741,12 @@ async def add_event(event: dict[str, Any]) -> dict:
     return await _helper("add", json.dumps({k: event.get(k) for k in keep}))
 
 
+async def fetch_between(start: str, end: str, timeout: float = 70) -> dict:
+    """Every event from start to end, local times (see between()): {"events": [...],
+    "calendars": [...], "timeZone": ...} or {"error": ...}."""
+    return await _helper("range", start, end, timeout=timeout)
+
+
 async def _helper(*argv: str, timeout: float = 70) -> dict:
     """One helper at a time: while macOS shows the access prompt, a second would only
     wait on it too."""
@@ -597,11 +823,13 @@ def main() -> None:
         elif len(args) == 2 and args[0] == "add":
             event = json.loads(args[1])
             result = add(event) if isinstance(event, dict) else {"error": "not an event"}
+        elif len(args) == 3 and args[0] == "range":
+            result = between(args[1], args[2])
         else:
             result = {
                 "error": "usage: events <back> <ahead> | at <start> | "
                 "remove <start> <id> <calendar> <0|1> | edit <start> <id> <calendar> <0|1> "
-                "<changes-json> | create <event-json> | add <event-json>"
+                "<changes-json> | create <event-json> | add <event-json> | range <start> <end>"
             }
     except (ValueError, KeyError) as exc:  # a start that isn't one, a spec that isn't
         result = {"error": str(exc)}

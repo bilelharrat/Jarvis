@@ -787,3 +787,376 @@ async def test_ready_starts_the_relay_only_when_a_session_needs_it(tmp_path, mon
     await openai_relay.ready(store, ref)
     await openai_relay.ready(store)
     assert len(started) == 2 and started[0] == store.relay_target
+
+
+# ── OpenAI's Responses API: reasoning models with function tools ──
+
+LUNA_REFUSAL = (
+    "Function tools with reasoning_effort are not supported for gpt-6-luna in "
+    "/v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort "
+    "to 'none'."
+)
+WEATHER_TOOL = {
+    "name": "weather_report",
+    "description": "Weather.",
+    "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}},
+}
+
+
+def responses_sse(*events):
+    return "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in events)
+
+
+LUNA_EVENTS = (
+    {"type": "response.created", "response": {"id": "resp_1", "status": "in_progress"}},
+    {"type": "response.output_item.added", "output_index": 0, "item": {"type": "reasoning"}},
+    {"type": "response.reasoning_summary_text.delta", "delta": "thinking..."},
+    {"type": "response.output_text.delta", "output_index": 1, "delta": "Checking "},
+    {"type": "response.output_text.delta", "output_index": 1, "delta": "Paris."},
+    {
+        "type": "response.output_item.added",
+        "output_index": 2,
+        "item": {"type": "function_call", "call_id": "call_7", "name": "weather_report"},
+    },
+    {"type": "response.function_call_arguments.delta", "output_index": 2, "delta": '{"ci'},
+    {
+        "type": "response.output_item.done",
+        "output_index": 2,
+        "item": {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_7",
+            "name": "weather_report",
+            "arguments": '{"city": "Paris"}',
+        },
+    },
+    {
+        "type": "response.completed",
+        "response": {
+            "status": "completed",
+            "usage": {"input_tokens": 80, "output_tokens": 12},
+        },
+    },
+)
+
+
+def test_a_messages_request_becomes_a_responses_request():
+    picture = {"type": "base64", "media_type": "image/png", "data": "iVBOR"}
+    out = openai_relay.to_responses(
+        {
+            "model": "gpt-6-luna",
+            "max_tokens": 1,
+            "stream": True,
+            "system": "You are JARVIS.",
+            "temperature": 1,
+            "stop_sequences": ["X"],
+            "output_config": {"effort": "max"},
+            "tools": [WEATHER_TOOL],
+            "tool_choice": {"type": "tool", "name": "weather_report"},
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Weather here?"},
+                        {"type": "image", "source": picture},
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Checking."},
+                        {
+                            "type": "tool_use",
+                            "id": "call_1",
+                            "name": "weather_report",
+                            "input": {"city": "Paris"},
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "call_1", "content": "Sunny"},
+                        {"type": "text", "text": "Thanks"},
+                    ],
+                },
+            ],
+        }
+    )
+    assert out["model"] == "gpt-6-luna" and out["stream"] is True and out["store"] is False
+    assert out["max_output_tokens"] == 16  # the least the Responses API takes
+    assert out["instructions"].startswith("You are JARVIS.")
+    assert "messages" not in out and "stop" not in out and "stream_options" not in out
+    assert "reasoning_effort" not in out and out["reasoning"] == {"effort": "high"}
+    assert out["temperature"] == 1
+    user, said, call, result, thanks = out["input"]
+    assert user == {
+        "role": "user",
+        "content": [
+            {"type": "input_text", "text": "Weather here?"},
+            {"type": "input_image", "image_url": "data:image/png;base64,iVBOR", "detail": "auto"},
+        ],
+    }
+    assert said == {"role": "assistant", "content": "Checking."}
+    assert call == {
+        "type": "function_call",
+        "call_id": "call_1",
+        "name": "weather_report",
+        "arguments": '{"city": "Paris"}',
+    }
+    assert result == {"type": "function_call_output", "call_id": "call_1", "output": "Sunny"}
+    assert thanks == {"role": "user", "content": "Thanks"}
+    [tool] = out["tools"]
+    assert tool["type"] == "function" and tool["name"] == "weather_report"
+    assert tool["parameters"]["properties"] == {"city": {"type": "string"}}
+    assert out["tool_choice"] == {"type": "function", "name": "weather_report"}
+    plain = openai_relay.to_responses({"model": "m", "messages": []})
+    assert "reasoning" not in plain and "tools" not in plain and "instructions" not in plain
+
+
+def test_streamed_responses_events_become_anthropic_events():
+    stream = Stream("gpt-6-luna")
+    out = stream.start() + "".join(stream.responses_event(e) for e in LUNA_EVENTS) + stream.end()
+    events = events_of(out)
+    text = "".join(
+        e["delta"]["text"] for e in events if e.get("delta", {}).get("type") == "text_delta"
+    )
+    assert text == "Checking Paris."  # the reasoning summary is left out
+    tool = next(e for e in events if e.get("content_block", {}).get("type") == "tool_use")
+    assert tool["content_block"]["id"] == "call_7"
+    args = next(e for e in events if e.get("delta", {}).get("type") == "input_json_delta")
+    assert json.loads(args["delta"]["partial_json"]) == {"city": "Paris"}
+    assert events[-2]["delta"]["stop_reason"] == "tool_use"
+    assert events[-2]["usage"] == {"output_tokens": 12} and stream.input_tokens == 80
+    cut = Stream("m")
+    cut.responses_event({"type": "response.output_text.delta", "delta": "Half"})
+    cut.responses_event(
+        {
+            "type": "response.incomplete",
+            "response": {
+                "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
+            },
+        }
+    )
+    assert cut.stop_reason() == "max_tokens"
+
+
+def test_a_whole_responses_reply_reads_into_one_message():
+    stream = Stream("gpt-6-luna")
+    stream.responses_whole(
+        {
+            "status": "completed",
+            "output": [
+                {"type": "reasoning", "summary": []},
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Two meetings."}],
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call_2",
+                    "name": "a",
+                    "arguments": '{"x": 1}',
+                },
+            ],
+            "usage": {"input_tokens": 9, "output_tokens": 4},
+        }
+    )
+    message = stream.message()
+    assert message["content"] == [
+        {"type": "text", "text": "Two meetings."},
+        {"type": "tool_use", "id": "call_2", "name": "a", "input": {"x": 1}},
+    ]
+    assert message["stop_reason"] == "tool_use"
+    assert message["usage"] == {"input_tokens": 9, "output_tokens": 4}
+
+
+async def test_openai_itself_is_asked_on_its_responses_api():
+    seen = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200, text=responses_sse(*LUNA_EVENTS), headers={"content-type": "text/event-stream"}
+        )
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    body = {
+        "model": "gpt-6-luna",
+        "stream": True,
+        "max_tokens": 300,
+        "tools": [WEATHER_TOOL],
+        "messages": [{"role": "user", "content": "Weather in Paris?"}],
+    }
+    status, _, events = await relay.messages("https://api.openai.com", "sk-x", body)
+    got = events_of("".join([p async for p in events]))
+    assert status == 200 and got[-1]["type"] == "message_stop"
+    assert got[-2]["delta"]["stop_reason"] == "tool_use"
+    [request] = seen
+    assert str(request.url) == "https://api.openai.com/v1/responses"
+    sent = json.loads(request.content)
+    assert sent["tools"][0]["name"] == "weather_report" and "reasoning_effort" not in sent
+    assert sent["input"] == [{"role": "user", "content": "Weather in Paris?"}]
+    # A whole reply, too.
+    whole = {
+        "status": "completed",
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": "Hi."}]}],
+    }
+    relay = OpenAIRelay(
+        httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=whole)))
+    )
+    status, data, _ = await relay.messages(
+        "https://api.openai.com", "sk-x", {**body, "stream": False}
+    )
+    assert status == 200 and data["content"] == [{"type": "text", "text": "Hi."}]
+
+
+async def test_a_server_that_sends_a_model_to_the_responses_api_gets_it_there_from_then_on():
+    urls = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        urls.append(request.url.path)
+        if request.url.path.endswith("/chat/completions"):
+            return httpx.Response(400, json={"error": {"message": LUNA_REFUSAL}})
+        return httpx.Response(200, text=responses_sse(*LUNA_EVENTS))
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    body = {
+        "model": "gpt-6-luna",
+        "stream": True,
+        "tools": [WEATHER_TOOL],
+        "messages": [{"role": "user", "content": "Weather?"}],
+    }
+    for _ in range(2):
+        status, _, events = await relay.messages("https://gateway.example.com/openai", "k", body)
+        got = events_of("".join([p async for p in events]))
+        assert status == 200 and got[-1]["type"] == "message_stop"
+    assert urls == [
+        "/openai/v1/chat/completions",
+        "/openai/v1/responses",
+        "/openai/v1/responses",  # remembered: no second refusal
+    ]
+    # Another model on that server is still asked on Chat Completions first.
+    assert relay.api_for("https://gateway.example.com/openai", "gpt-4.1") == openai_relay.CHAT
+
+
+async def test_a_parameter_a_model_doesnt_take_is_left_out_from_then_on():
+    bodies = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "temperature" in body:
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": "Unsupported parameter: 'temperature' is not supported "
+                        "with this model."
+                    }
+                },
+            )
+        return httpx.Response(200, text=responses_sse(*LUNA_EVENTS))
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    body = {"model": "gpt-6-sol", "stream": True, "temperature": 1, "messages": []}
+    for _ in range(2):
+        status, _, events = await relay.messages("https://api.openai.com", "k", body)
+        assert status == 200 and [p async for p in events]
+    assert ["temperature" in b for b in bodies] == [True, False, False]
+
+
+async def test_a_responses_stream_that_fails_says_so():
+    def answer(request):
+        text = responses_sse(
+            {"type": "response.output_text.delta", "delta": "Part"},
+            {
+                "type": "response.failed",
+                "response": {"status": "failed", "error": {"message": "server overloaded"}},
+            },
+        )
+        return httpx.Response(200, text=text)
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    _, _, events = await relay.messages(
+        "https://api.openai.com", "k", {"model": "gpt-6-luna", "stream": True, "messages": []}
+    )
+    got = events_of("".join([p async for p in events]))
+    assert got[-1]["type"] == "error" and "server overloaded" in got[-1]["error"]["message"]
+    assert "message_stop" not in [e["type"] for e in got]
+
+
+# ── the session's effort as the model's reasoning effort (Model Router, D11) ──
+
+
+def test_the_sessions_effort_becomes_the_reasoning_effort():
+    def body(effort):
+        return {"model": "m", "messages": [], "output_config": {"effort": effort}}
+
+    assert [openai_relay.reasoning_effort(body(e)) for e in ("low", "medium", "high")] == [
+        "low",
+        "medium",
+        "high",
+    ]
+    assert openai_relay.reasoning_effort(body("xhigh")) == "high"  # (the highest all take)
+    assert openai_relay.reasoning_effort(body("max")) == "high"
+    assert openai_relay.reasoning_effort({"model": "m", "messages": []}) is None
+    assert openai_relay.reasoning_effort({**body("low"), "output_config": "x"}) is None
+    # Chat Completions carries it; the Responses API keeps its own reasoning.effort.
+    assert openai_relay.chat_to_responses(to_openai(body("low")), body("low"))["reasoning"] == {
+        "effort": "low"
+    }
+
+
+async def test_chat_completions_get_the_sessions_reasoning_effort():
+    bodies = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, text=sse(chunk("ok", finish="stop")))
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    body = {"model": "kimi-k3", "stream": True, "messages": [], "output_config": {"effort": "low"}}
+    status, _, events = await relay.messages("https://api.moonshot.ai", "sk-x", body)
+    assert status == 200 and [p async for p in events]
+    assert bodies[-1]["reasoning_effort"] == "low"
+    plain = {"model": "kimi-k3", "stream": True, "messages": []}
+    status, _, events = await relay.messages("https://api.moonshot.ai", "sk-x", plain)
+    assert status == 200 and [p async for p in events]
+    assert "reasoning_effort" not in bodies[-1]  # (no effort asked: none sent)
+
+
+async def test_a_model_that_takes_no_reasoning_effort_is_asked_without_it_from_then_on():
+    bodies = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "reasoning_effort" in body:  # in words of its own, naming no parameter
+            return httpx.Response(400, json={"error": {"message": "llama3.2 can't think"}})
+        return httpx.Response(200, text=sse(chunk("ok", finish="stop")))
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    body = {
+        "model": "llama3.2",
+        "stream": True,
+        "messages": [],
+        "output_config": {"effort": "high"},
+    }
+    for _ in range(2):
+        status, _, events = await relay.messages("http://localhost:11434", KEY, body)
+        assert status == 200 and [p async for p in events]
+    assert ["reasoning_effort" in b for b in bodies] == [True, False, False]
+    # A request that fails for another reason isn't held against the effort.
+    failing = []
+
+    def broken(request: httpx.Request) -> httpx.Response:
+        failing.append(json.loads(request.content))
+        return httpx.Response(400, json={"error": {"message": "context too long"}})
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(broken)))
+    status, _, _ = await relay.messages("http://localhost:11434", KEY, body)
+    assert status == 400 and len(failing) == 2
+    assert not relay.refused  # (it failed without the effort too: nothing remembered)

@@ -12,6 +12,7 @@ import {
   cleanName,
   cleanVersion,
   deviceKind,
+  isPhone,
   json,
   makeToken,
   newDevice,
@@ -23,6 +24,18 @@ import {
 
 const SEEN_EVERY = 3600_000; // last_seen is saved at most hourly
 const MAX_DEVICES = 20;
+export const WEB_SESSION_DAYS = 30; // a browser's sign-in at askeden.com ends after this
+const WEB_DEVICES = 5; // browsers signed in at once; a sixth signs out the oldest
+// Hosted Eden's turns in flight per account, and how long a hold on the allowance lasts at most.
+export const EDEN_TURNS = 2;
+const HOLD_MS = 15 * 60_000;
+// A browser signed in at askeden.com (a `web` device) uses the included AI and its own
+// artifacts, and signs itself out. It can't delete the account, change devices, send
+// pushes, buy, read or write sync, use the voice or the relay, or approve any link.
+const WEB_FORBIDDEN = new Set(['delete', 'device-update', 'push-check', 'subscription', 'voice', 'sync-get', 'sync-put', 'sync-delete', 'sync-wipe']);
+// Eden's artifacts (HTML the page previews): kept a few hours, then gone (an alarm).
+// Stored in pieces small enough for any Durable Object storage (128 KiB a value).
+export const ARTIFACTS = { hours: 6, max: 30, bytes: 2 * 1024 * 1024, chunk: 60_000 };
 const SYNC_KEY = /^[A-Za-z0-9._:-]{1,128}$/;
 const SYNC_DATA_CHARS = Math.ceil((512 * 1024 * 4) / 3) + 4; // 512 KiB, in base64
 const SYNC_MAX_ITEMS = 2000;
@@ -60,6 +73,7 @@ export class Account {
     this.now = () => Date.now();
     this.pending = new Map(); // relay stream id -> { size, chunks }: what a phone sent before its Mac answered
     this.pushTimes = [];
+    this.holds = new Map(); // hosted Eden's turns in flight: id → { usd, bucket, until }
     if (ctx.setWebSocketAutoResponse && globalThis.WebSocketRequestResponsePair) {
       ctx.setWebSocketAutoResponse(new globalThis.WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
     }
@@ -72,10 +86,15 @@ export class Account {
       if (op.startsWith('relay/')) return await this.relay(op.slice(6), request, url);
       const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
       if (op === 'signin') return json(await this.signIn(body));
+      if (op === 'web-signin') return json(await this.webSignIn(body));
       if (op === 'notification') return json(await this.notification(body));
       if (op === 'spend') return json(await this.spend(body));
+      if (op === 'release-ai') return json(this.release(body));
       if (op === 'push-gone') return json(await this.pushGone(body));
       const device = await this.authenticate(request);
+      if (device.kind === 'web' && WEB_FORBIDDEN.has(op)) {
+        throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the J.A.R.V.I.S. app on your iPhone or Mac.");
+      }
       switch (op) {
         case 'get': return json(await this.view(device));
         case 'whoami': return json({ account_id: (await this.storage.get('account')).id, device: this.publicDevice(device, device.id) });
@@ -83,7 +102,13 @@ export class Account {
         case 'device-update': return json(await this.updateDevice(device, body));
         case 'device-delete': return json(await this.deleteDevice(device, body.id));
         case 'add-device': return json(await this.addLinkedDevice(device, body));
-        case 'allow-ai': return json(await this.allowAi());
+        case 'allow-ai':
+          // A browser spends the included AI only through hosted Eden (its caps), never the raw proxy.
+          if (device.kind === 'web' && body.eden !== true) throw new ApiError(403, 'forbidden', "A browser's sign-in is for Eden at askeden.com only.");
+          return json(await this.allowAi());
+        case 'hold-ai':
+          if (body.eden !== true) throw new ApiError(400, 'bad_request', 'Holds are for hosted Eden.');
+          return json(await this.holdAi(body));
         case 'push-check': return json(await this.pushCheck(body));
         case 'voice': return json(await this.voice(body));
         case 'subscription': return json(await this.subscription(device, body));
@@ -91,6 +116,8 @@ export class Account {
         case 'sync-put': return json(await this.syncPut(body));
         case 'sync-delete': return json(await this.syncDelete(body));
         case 'sync-wipe': return json(await this.syncWipe());
+        case 'artifact-put': return json(await this.artifactPut(body));
+        case 'artifact-get': return json(await this.artifactGet(body));
         default: throw new ApiError(404, 'not_found', 'No such thing.');
       }
     } catch (error) {
@@ -107,6 +134,10 @@ export class Account {
     if (!validDeviceId(id) || !secret) throw signedOut();
     const device = await this.storage.get(`dev:${id}`);
     if (!device || !sameText(device.secret_hash, await sha256Hex(secret))) throw signedOut();
+    if (device.expires && device.expires <= this.now()) {
+      await this.storage.delete(`dev:${id}`); // a browser's sign-in ran out
+      throw signedOut();
+    }
     if (this.now() - (device.last_seen || 0) > SEEN_EVERY) {
       device.last_seen = this.now();
       await this.storage.put(`dev:${id}`, device);
@@ -119,7 +150,22 @@ export class Account {
   }
 
   async makeDevice(accountId, { name, kind, app_version }) {
-    if ((await this.devices()).length >= MAX_DEVICES) {
+    // Browsers' sign-ins that ran out go first, then (past WEB_DEVICES of them) the oldest
+    // browser: abandoned ones never use up the room the apps need.
+    const now0 = this.now();
+    let live = [];
+    for (const d of await this.devices()) {
+      if (d.expires && d.expires <= now0) await this.storage.delete(`dev:${d.id}`);
+      else live.push(d);
+    }
+    if (deviceKind(kind) === 'web') {
+      const browsers = live.filter((d) => d.kind === 'web').sort((a, b) => a.created - b.created);
+      for (const d of browsers.slice(0, Math.max(0, browsers.length - (WEB_DEVICES - 1)))) {
+        await this.storage.delete(`dev:${d.id}`);
+        live = live.filter((x) => x !== d);
+      }
+    }
+    if (live.length >= MAX_DEVICES) {
       throw new ApiError(409, 'too_many_devices', `An account has at most ${MAX_DEVICES} devices. Remove one in Settings › Account first.`);
     }
     const { id, secret } = newDevice();
@@ -127,7 +173,7 @@ export class Account {
     const device = {
       id,
       kind: deviceKind(kind),
-      name: cleanName(name, kind === 'mac' ? 'Mac' : 'iPhone'),
+      name: cleanName(name, kind === 'mac' ? 'Mac' : kind === 'web' ? 'Eden on the web' : 'iPhone'),
       app_version: cleanVersion(app_version),
       created: now,
       last_seen: now,
@@ -135,6 +181,7 @@ export class Account {
       apns_token: null,
       apns_env: null,
     };
+    if (device.kind === 'web') device.expires = now + WEB_SESSION_DAYS * 86400_000;
     await this.storage.put(`dev:${id}`, device);
     return { device, token: makeToken(accountId, id, secret) };
   }
@@ -151,10 +198,25 @@ export class Account {
     return { token: made.token, device_id: made.device.id, new: fresh, account: await this.view(made.device) };
   }
 
+  // A Mac's link: approved from an iPhone (or iPad, watch). A browser's sign-in at
+  // askeden.com (kind `web`): from an iPhone or a linked Mac. A browser approves nothing.
   async addLinkedDevice(approver, { name, kind, app_version }) {
-    if (approver.kind === 'mac') throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
+    const web = kind === 'web';
+    if (approver.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+    if (!web && !isPhone(approver.kind)) throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
     const account = await this.storage.get('account');
     const made = await this.makeDevice(account.id, { name, kind, app_version });
+    return { token: made.token, device_id: made.device.id, account_id: account.id, name: made.device.name, kind: made.device.kind };
+  }
+
+  // Sign in with Apple on the web (when the owner has set it up): only into an account the
+  // iPhone app made, and only as a browser.
+  async webSignIn({ account_id, device = {} }) {
+    const account = await this.storage.get('account');
+    if (!account || account.id !== account_id) {
+      throw new ApiError(404, 'no_account', 'There is no Jarvis account for this Apple ID yet. Make it in the J.A.R.V.I.S. app on your iPhone first.');
+    }
+    const made = await this.makeDevice(account.id, { ...device, kind: 'web' });
     return { token: made.token, device_id: made.device.id, account_id: account.id, name: made.device.name };
   }
 
@@ -183,6 +245,9 @@ export class Account {
 
   async deleteDevice(caller, id) {
     const target = id === 'me' || !id ? caller.id : String(id);
+    if (caller.kind === 'web' && target !== caller.id) {
+      throw new ApiError(403, 'forbidden', 'Remove devices in the J.A.R.V.I.S. app on your iPhone.');
+    }
     if (!(await this.storage.get(`dev:${target}`))) throw new ApiError(404, 'not_found', 'That device is already gone.');
     await this.storage.delete(`dev:${target}`);
     this.closeSockets([`listen:${target}`, `dev:${target}`, `from:${target}`, `to:${target}`], 4001, 'signed out');
@@ -207,6 +272,7 @@ export class Account {
       push: Boolean(device.apns_token),
       relay: this.socketsTagged(`listen:${device.id}`).length > 0,
       this: device.id === me,
+      ...(device.expires ? { expires: device.expires } : {}),
     };
   }
 
@@ -307,18 +373,56 @@ export class Account {
     return usage;
   }
 
+  // Hosted Eden's holds still running (expired ones go), in dollars, for one bucket.
+  held(bucket) {
+    const now = this.now();
+    let usd = 0;
+    for (const [id, h] of this.holds) {
+      if (h.until <= now) this.holds.delete(id);
+      else if (h.bucket === bucket) usd += h.usd;
+    }
+    return usd;
+  }
+
   async allowAi() {
     const plan = await this.planNow();
     const usage = await this.usageNow();
     const caps = allowances(this.env);
-    if (plan.active && usage.spent < caps.plus) return { ok: true, bucket: 'plus' };
-    if (usage.trial_spent < caps.trial) return { ok: true, bucket: 'trial' };
+    // `left`: what that allowance still holds, less hosted Eden's turns in flight (Eden fits a
+    // reply's size to it). The apps' proxy needs only `ok`, as before.
+    const left = (bucket, cap, spent) => round(Math.max(0, cap - spent - this.held(bucket)));
+    if (plan.active && usage.spent < caps.plus) return { ok: true, bucket: 'plus', left: left('plus', caps.plus, usage.spent) };
+    if (usage.trial_spent < caps.trial) return { ok: true, bucket: 'trial', left: left('trial', caps.trial, usage.trial_spent) };
     return {
       ok: false,
       why: plan.active
         ? "This month's Jarvis Plus AI allowance is used up. It starts again on the 1st."
         : 'The free trial of Jarvis AI is used up. Jarvis Plus includes more every month (Settings › Account).',
     };
+  }
+
+  // A hosted Eden turn holds its worst case (what it may cost at most) until it's done, so
+  // turns at once can't spend past the allowance; at most EDEN_TURNS at once.
+  async holdAi({ usd }) {
+    const want = Number(usd);
+    if (!(want >= 0)) throw new ApiError(400, 'bad_request', 'usd must be a number');
+    this.held(''); // drop expired holds
+    if (this.holds.size >= EDEN_TURNS) {
+      throw new ApiError(429, 'slow_down', `Eden is already writing ${EDEN_TURNS} replies for this account; wait for one to finish.`, { 'retry-after': '10' });
+    }
+    const allow = await this.allowAi();
+    if (!allow.ok) return allow;
+    if (want > allow.left) {
+      return { ok: false, why: 'Not enough of your included AI is left for this reply. Start a new chat, or wait for the allowance to renew.' };
+    }
+    const id = crypto.randomUUID();
+    this.holds.set(id, { usd: want, bucket: allow.bucket, until: this.now() + HOLD_MS });
+    return { ok: true, bucket: allow.bucket, hold: id, left: allow.left };
+  }
+
+  release({ hold }) {
+    this.holds.delete(String(hold || ''));
+    return {};
   }
 
   async spend({ usd, bucket }) {
@@ -437,6 +541,60 @@ export class Account {
     return {};
   }
 
+  // ── Eden's artifacts: HTML a browser previews, kept a few hours (never longer) ──
+  //
+  // arth:<id> → { at, expires, parts }, artc:<id>:<n> → a piece of the HTML (two prefixes, so
+  // listing the heads never loads the pieces). Only the account's own browsers reach them
+  // (hosted Eden, src/eden/chat.js); an alarm clears what's expired.
+
+  async artifactPut({ html }) {
+    if (typeof html !== 'string' || !html) throw new ApiError(400, 'bad_request', 'html must be a non-empty string');
+    if (new TextEncoder().encode(html).length > ARTIFACTS.bytes) throw new ApiError(413, 'too_big', 'The artifact is larger than 2 MB.');
+    const now = this.now();
+    const id = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const parts = Math.ceil(html.length / ARTIFACTS.chunk);
+    const expires = now + ARTIFACTS.hours * 3600_000;
+    const entries = [];
+    for (let i = 0; i < parts; i++) entries.push([`artc:${id}:${i}`, html.slice(i * ARTIFACTS.chunk, (i + 1) * ARTIFACTS.chunk)]);
+    entries.push([`arth:${id}`, { at: now, expires, parts }]); // the head last: a half-written one is never found
+    for (let i = 0; i < entries.length; i += 100) await this.storage.put(Object.fromEntries(entries.slice(i, i + 100)));
+    await this.artifactSweep(now, id);
+    return { id, expires };
+  }
+
+  async artifactGet({ id }) {
+    if (!/^[0-9a-f]{24}$/.test(String(id))) throw new ApiError(404, 'not_found', 'No such artifact.');
+    const head = await this.storage.get(`arth:${id}`);
+    if (!head || head.expires <= this.now()) throw new ApiError(404, 'not_found', 'This artifact is gone (artifacts are kept for a few hours).');
+    const keys = Array.from({ length: head.parts }, (_, i) => `artc:${id}:${i}`);
+    let html = '';
+    for (let i = 0; i < keys.length; i += 100) {
+      const got = await this.storage.get(keys.slice(i, i + 100));
+      for (const key of keys.slice(i, i + 100)) html += got.get(key) ?? '';
+    }
+    return { html };
+  }
+
+  // Expired ones go, then the oldest past the limit; the alarm is set for the next expiry.
+  async artifactSweep(now = this.now(), keep = null) {
+    const heads = [...(await this.storage.list({ prefix: 'arth:' })).entries()]
+      .map(([key, head]) => ({ id: key.slice(5), ...head }))
+      .sort((a, b) => a.at - b.at);
+    const live = heads.filter((h) => h.expires > now);
+    const extra = live.filter((h) => h.id !== keep).slice(0, Math.max(0, live.length - ARTIFACTS.max));
+    const gone = [...heads.filter((h) => h.expires <= now), ...extra];
+    for (const h of gone) {
+      const keys = [`arth:${h.id}`, ...Array.from({ length: h.parts }, (_, i) => `artc:${h.id}:${i}`)];
+      for (let i = 0; i < keys.length; i += 128) await this.storage.delete(keys.slice(i, i + 128));
+    }
+    const next = live.filter((h) => !gone.includes(h)).reduce((t, h) => Math.min(t, h.expires), Infinity);
+    if (Number.isFinite(next) && this.storage.setAlarm) await this.storage.setAlarm(next + 1000);
+  }
+
+  async alarm() {
+    await this.artifactSweep();
+  }
+
   // ── the relay: a phone's bytes to its Mac's companion port and back ──
 
   socketsTagged(tag) {
@@ -472,6 +630,7 @@ export class Account {
       throw new ApiError(426, 'bad_request', 'The relay speaks WebSocket.');
     }
     const device = await this.authenticate(request);
+    if (device.kind === 'web') throw new ApiError(403, 'forbidden', "A browser can't use the relay.");
     if (kind === 'listen') {
       if (device.kind !== 'mac') throw new ApiError(403, 'forbidden', 'Only a Mac listens on the relay.');
       this.closeSockets([`listen:${device.id}`], 4000, 'replaced');

@@ -31,13 +31,14 @@ function env({ latest = { version: '0.1.0', size: BYTES.length, file: FILE }, fi
 
 const get = (path, e, init = {}) => worker.fetch(new Request(`https://www.askeden.com${path}`, init), e);
 
-test('the page is the root and /jarvis; its images by path; old addresses go home', async () => {
+test('the landing page is at /jarvis and /download, / is Eden (its sign-in page signed out); images stay by path', async () => {
   const e = env();
   await get('/', e);
   await get('/jarvis', e);
   await get('/jarvis/', e);
+  await get('/download', e);
   await get('/jarvis/icon.png', e);
-  assert.deepEqual(e.assets, ['/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
+  assert.deepEqual(e.assets, ['/signin/', '/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
   const old = await get('/pricing', e);
   assert.equal(old.status, 302);
   assert.equal(old.headers.get('location'), 'https://www.askeden.com/');
@@ -57,9 +58,11 @@ test('/messenger is Eden Messenger, at messenger.askeden.com; its download butto
   assert.notEqual(button.headers.get('location'), 'https://messenger.askeden.com/iphone');
 });
 
-test('/download and /latest.json work at the root as well', async () => {
-  assert.equal((await get('/download', env())).status, 200);
-  assert.equal((await (await get('/latest.json', env())).json()).version, '0.1.0');
+test('/download serves the landing page, while /latest.json still provides release details', async () => {
+  const e = env();
+  assert.equal((await get('/download', e)).status, 200);
+  assert.deepEqual(e.assets, ['/jarvis/']);
+  assert.equal((await (await get('/latest.json', e)).json()).version, '0.1.0');
 });
 
 test('the download is the latest disk image, whole and resumable', async () => {
@@ -111,7 +114,7 @@ test('without the R2 bucket bound, the download is the latest GitHub release', a
   }));
   const e = env();
   delete e.DOWNLOADS;
-  const r = await get('/download', e);
+  const r = await get('/jarvis/download', e);
   assert.equal(r.status, 302);
   assert.equal(r.headers.get('location'), 'https://github.com/bilelharrat/Jarvis/releases/latest/download/J.A.R.V.I.S.-0.1.1.dmg');
   assert.equal((await (await get('/latest.json', e)).json()).version, '0.1.1');
@@ -121,7 +124,7 @@ test('with the feed unreadable, the download still goes somewhere real', async (
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('offline'); });
   const e = env();
   delete e.DOWNLOADS;
-  assert.match((await get('/download', e)).headers.get('location'), /J\.A\.R\.V\.I\.S\.-0\.1\.\d\.dmg$/);
+  assert.match((await get('/jarvis/download', e)).headers.get('location'), /J\.A\.R\.V\.I\.S\.-0\.1\.\d\.dmg$/);
 });
 
 // ── the hosted JARVIS voice ──

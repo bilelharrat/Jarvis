@@ -431,6 +431,27 @@ def test_a_call_gemini_never_made_carries_googles_stand_in_signature():
         ("gemini-3.8-flash", {"thinking": {"type": "disabled"}}, "low"),
         ("gemini-pro-latest", {"thinking": {"type": "enabled", "budget_tokens": 16000}}, None),
         ("gemini-flash-latest", {"output_config": {"effort": "high"}}, None),
+        # Jarvis Code's own effort (the session's, or Model Router's pick), below high:
+        (
+            "gemini-3.8-flash",
+            {"thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}},
+            "low",
+        ),
+        (
+            "gemini-3.8-flash",
+            {"thinking": {"type": "adaptive"}, "output_config": {"effort": "medium"}},
+            "medium",
+        ),
+        (
+            "gemini-3.8-flash",
+            {"thinking": {"type": "adaptive"}, "output_config": {"effort": "xhigh"}},
+            None,
+        ),
+        (
+            "gemini-pro-latest",
+            {"thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}},
+            None,
+        ),
         ("gemini-pro-latest", {}, None),  # Pro thinking lightly leaks stray words
         ("gemini-2.5-flash", {}, None),  # older models take no level
         ("gemma-4-31b-it", {}, None),

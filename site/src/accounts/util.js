@@ -127,8 +127,19 @@ export function newDevice() {
 
 export const makeToken = (account, device, secret) => `jv1.${account}.${device}.${secret}`;
 
-const DEVICE_KINDS = new Set(['iphone', 'ipad', 'watch', 'mac']);
+// `web` is a browser signed in at askeden.com (Eden): made only by the web sign-in, and
+// restricted (account.js WEB_FORBIDDEN). Anything unknown is an iPhone, as before.
+const DEVICE_KINDS = new Set(['iphone', 'ipad', 'watch', 'mac', 'web']);
 export const deviceKind = (kind) => (DEVICE_KINDS.has(kind) ? kind : 'iphone');
+// The apps' own devices: the ones that may approve a Mac's link.
+export const isPhone = (kind) => kind !== 'mac' && kind !== 'web';
+
+// Which accounts may sign in to Eden on the web: the Worker var EDEN_ACCOUNTS (account ids,
+// separated by commas or spaces), or every account when it's empty.
+export function webAllowed(env, accountId) {
+  const list = String(env.EDEN_ACCOUNTS || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
+  return !list.length || list.includes(String(accountId).toLowerCase());
+}
 
 export function cleanName(name, fallback) {
   const text = typeof name === 'string' ? name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) : '';

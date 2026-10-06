@@ -377,6 +377,50 @@ class Comms:
             return _text(f"No email {what}{about} in the last {days} days.".replace("  ", " "))
         return _text(mailkit.describe(found))
 
+    async def latest(
+        self, query: str = "", mailbox: str = "inbox", account: str = "", limit: int = 20
+    ) -> list[dict[str, Any]] | str:
+        """mailkit.latest on Mail's index, for the owner's other apps (mcp_endpoint): the
+        emails, or why not in words (Full Disk Access, an account that isn't theirs)."""
+        ids = None
+        if account.strip():
+            try:
+                accounts = await self.accounts()
+            except mac_tools.ToolFailure as exc:
+                return f"I couldn't ask Mail for your accounts: {exc}"
+            picked = mailkit.pick_account(accounts, account)
+            if isinstance(picked, str):
+                return picked
+            ids = [a["id"] for a in accounts if picked[1] in a["emails"] and a.get("id")]
+            if not ids:
+                return "Mail didn't say which mailboxes are that account's."
+        db = self.mail_db()
+        if db is None:
+            return mailkit.FULL_DISK_ACCESS
+        try:
+            return await asyncio.to_thread(
+                mailkit.latest, Path(db), query=query, mailbox=mailbox, accounts=ids, limit=limit
+            )
+        except PermissionError:
+            return mailkit.FULL_DISK_ACCESS
+        except mailkit.MailError as exc:
+            return str(exc)
+
+    async def read_email(self, message_id: str) -> dict[str, Any] | str:
+        """One email in full from Mail (inbox, Sent or Drafts), by its id: mailkit.parse_read's
+        fields, or why not in words."""
+        try:
+            raw = await self.jxa(mailkit.READ_JXA, message_id, str(mailkit.MAX_READ), timeout=60)
+        except mac_tools.ToolFailure as exc:
+            return f"Mail couldn't look that email up: {exc}"
+        try:
+            found = mailkit.parse_read(raw, message_id)
+        except mailkit.MailError as exc:
+            return str(exc)
+        if found is None:
+            return "That email isn't in the inbox, Sent or Drafts (it may have been moved or deleted)."
+        return found
+
     def _asked(self, action: str) -> bool:
         from ..hub import _asks, user_asked
 

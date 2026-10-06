@@ -4897,11 +4897,12 @@ class Hub:
 
     def double_clap(self) -> None:
         """Two claps: hand control on (never off, so a stray pair can't end it mid-use).
-        Not while JARVIS itself is talking, and not when Settings turns claps off."""
+        Not while JARVIS itself is talking, and not when Settings turns claps off; the
+        window uses `source` to switch it off again when no hand shows."""
         if not self.prefs.clap_hands or self.state == "speaking":
             return
         log.info("two claps: hand control on")
-        self.emit("ui", action="hands", on=True)
+        self.emit("ui", action="hands", on=True, source="claps")
 
     async def window_apply(self, command: ui.Command) -> str | None:
         """Open or close a panel, change the look or its tone, turn hand control on or off."""
@@ -5465,6 +5466,9 @@ class Hub:
             done = data.get("status") == "done"
             if done and (data.get("elapsed") or 0) < CODE_ANNOUNCE_SECONDS:
                 return  # a quick back-and-forth in the deck needs no announcement
+            # Voice is off for this session (a focused one spoke for itself above), so
+            # it's the card and a macOS notification, in silence: reading every turn's
+            # result aloud was a heads-up the owner never asked for.
             self.notify(
                 Alert(
                     f"code:{data.get('id')}:{time.monotonic():.0f}",
@@ -5472,7 +5476,8 @@ class Hub:
                     str(data.get("label", "Jarvis Code")),
                     f"Jarvis Code {'finished' if done else 'stopped'} in {data.get('folder')}."
                     + (f" {data['result']}" if done and data.get("result") else ""),
-                )
+                ),
+                speak=False,
             )
 
     async def _task_approval(self, question, detail="", choices=None, context=None) -> str:

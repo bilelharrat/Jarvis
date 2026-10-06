@@ -1,5 +1,6 @@
-"""Mail: the owner's accounts, finding email in Mail's own index, and the scripts that send,
-reply, archive, flag, mark and unsubscribe in Mail.app.
+"""Mail: the owner's accounts, finding email in Mail's own index (by person or subject, or the
+latest of a mailbox), reading one in full, and the scripts that send, reply, archive, flag,
+mark and unsubscribe in Mail.app.
 
 Reading comes from Mail's index (read-only, the same Full Disk Access the interrupter and
 the second brain use) or from Mail itself by script. Values always go in through `on run
@@ -295,6 +296,147 @@ def search(
         conn.close()
 
 
+MAILBOXES = ("inbox", "sent", "drafts")  # what latest() looks in
+MAX_READ = 100 * 1024  # an email's text, as read_email() gives it, at most (bytes)
+
+
+def account_of(url: str) -> str:
+    """The account a mailbox belongs to, from its URL ("imap://<account id>/INBOX"): Mail's
+    own account id, lowercased, as ACCOUNTS_JXA gives it."""
+    return urlsplit(str(url or "")).netloc.rsplit("@", 1)[-1].lower()
+
+
+def latest(
+    db: Path,
+    *,
+    query: str = "",
+    mailbox: str = "inbox",
+    accounts: list[str] | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """The newest email in one kind of mailbox (inbox, sent or drafts) across every account,
+    or only these accounts' (Mail's account ids): all of it, or what matches query in the
+    subject, the sender, or (sent and drafts) a recipient. Each has its id, sender,
+    recipients, subject, date, Mail's preview and whether it's unread. Raises
+    PermissionError without Full Disk Access, MailError when the index can't be read."""
+    if mailbox not in MAILBOXES:
+        raise MailError(f"mailbox is one of {', '.join(MAILBOXES)}.")
+    query = " ".join(str(query or "").split())[:200]
+    limit = max(1, min(50, int(limit)))
+    wanted_accounts = {a.lower() for a in accounts or [] if a}
+    conn = _open(db)
+    try:
+        tables = _tables(conn)
+        cols = _columns(conn, "messages")
+        boxes = [
+            r[0]
+            for r in conn.execute("SELECT ROWID, url FROM mailboxes")
+            if _mailbox_kind(r[1]) == mailbox
+            and (accounts is None or account_of(r[1]) in wanted_accounts)
+        ]
+        if not boxes:
+            return []
+        where = [f"m.mailbox IN ({','.join('?' * len(boxes))})"]
+        args: list[Any] = [*boxes]
+        if "deleted" in cols:
+            where.append("COALESCE(m.deleted, 0) = 0")
+        if query:
+            pattern = _like(query)
+            subjects = [
+                r[0]
+                for r in conn.execute(
+                    f"SELECT ROWID FROM subjects WHERE subject LIKE ? ESCAPE '\\' LIMIT {MAX_IDS * 3}",
+                    (pattern,),
+                )
+            ]
+            people = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT ROWID FROM addresses WHERE address LIKE ? ESCAPE '\\' "
+                    f"OR comment LIKE ? ESCAPE '\\' LIMIT {MAX_IDS}",
+                    (pattern, pattern),
+                )
+            ]
+            matches, extra = [], []
+            if subjects:
+                matches.append(f"m.subject IN ({','.join('?' * len(subjects))})")
+                extra += subjects
+            if people:
+                matches.append(f"m.sender IN ({','.join('?' * len(people))})")
+                extra += people
+                if mailbox != "inbox" and "recipients" in tables:
+                    matches.append(
+                        "m.ROWID IN (SELECT message FROM recipients WHERE address IN "
+                        f"({','.join('?' * len(people))}))"
+                    )
+                    extra += people
+            if not matches:
+                return []
+            where.append("(" + " OR ".join(matches) + ")")
+            args += extra
+        summary_join, summary_col = "", "''"
+        if "summaries" in tables and "summary" in cols:
+            summary_join, summary_col = (
+                "LEFT JOIN summaries su ON m.summary = su.ROWID",
+                "su.summary",
+            )
+        header_join, header_col = "", "''"
+        if "message_global_data" in tables and "global_message_id" in cols:
+            if "message_id_header" in _columns(conn, "message_global_data"):
+                header_join = "LEFT JOIN message_global_data g ON m.global_message_id = g.ROWID"
+                header_col = "g.message_id_header"
+        read = "m.read" if "read" in cols else "(m.flags & 1)" if "flags" in cols else "1"
+        prefix = "m.subject_prefix" if "subject_prefix" in cols else "''"
+        rows = conn.execute(
+            f"""SELECT m.ROWID, a.address, a.comment, {prefix}, s.subject, {summary_col},
+                       m.date_received, {read}, {header_col}
+                FROM messages m
+                LEFT JOIN addresses a ON m.sender = a.ROWID
+                LEFT JOIN subjects s ON m.subject = s.ROWID
+                {summary_join} {header_join}
+                WHERE {" AND ".join(where)}
+                ORDER BY m.date_received DESC, m.ROWID DESC
+                LIMIT ?""",
+            (*args, limit * 3),
+        ).fetchall()
+        found: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, int]] = set()
+        for rowid, address, comment, pre, subj, summary, received, is_read, header in rows:
+            title = one_line(f"{pre or ''}{subj or ''}") or "(no subject)"
+            key = (str(header or rowid), title, int(received or 0))
+            if key in seen:  # one email in two mailboxes (a label, a copy)
+                continue
+            seen.add(key)
+            found.append(
+                {
+                    "id": clean_id(header),
+                    "from": shown(one_line(comment).strip('"'), str(address or "")),
+                    "to": [one_line(t) for t in _recipients(conn, rowid)]
+                    if "recipients" in tables
+                    else [],
+                    "subject": title[:300],
+                    "date": datetime.fromtimestamp(received).isoformat(timespec="seconds")
+                    if received
+                    else "",
+                    "snippet": one_line(summary)[:500],
+                    "unread": not is_read,
+                }
+            )
+            if len(found) >= limit:
+                break
+        return found
+    except sqlite3.OperationalError as exc:
+        if "interrupt" in str(exc).lower():
+            raise MailError(
+                f"Mail's index took over {READ_SECONDS:.0f} seconds; try a narrower search."
+            ) from exc
+        raise MailError(f"Couldn't read Mail's index: {exc}") from exc
+    except sqlite3.DatabaseError as exc:
+        raise MailError(f"Couldn't read Mail's index: {exc}") from exc
+    finally:
+        conn.close()
+
+
 def headlines(db: Path, ids: list[str]) -> list[str]:
     """ "Ann Lee <ann@x.com> — Q3 plan" for each of these Message-IDs the index knows, in
     their order: what a card about them shows."""
@@ -423,10 +565,76 @@ for (const a of Mail.accounts()) {
   if (!on) continue;
   let full = '';
   try { full = a.fullName(); } catch (e) {}
-  out.push({name: a.name(), full: full, emails: a.emailAddresses()});
+  let id = '';
+  try { id = a.id(); } catch (e) {}
+  out.push({name: a.name(), full: full, emails: a.emailAddresses(), id: id});
 }
 JSON.stringify(out);
 """
+
+# One email by its Message-ID, in full, from the inbox, Sent or Drafts (every account's):
+# who it's from and to, its subject, date, plain text (argv[1]: at most this many
+# characters) and the names of its attachments.
+READ_JXA = """
+function run(argv) {
+  const Mail = Application('Mail');
+  const boxes = [['inbox', () => Mail.inbox], ['sent', () => Mail.sentMailbox],
+                 ['drafts', () => Mail.draftsMailbox]];
+  for (const [kind, box] of boxes) {
+    let hits = [];
+    try { hits = box().messages.whose({messageId: argv[0]})(); } catch (e) { continue; }
+    if (!hits.length) continue;
+    const m = hits[0];
+    const who = (list) => list.map((r) => ({name: r.name() || '', address: r.address() || ''}));
+    let body = '', files = [], date = '', to = [], cc = [];
+    try { body = String(m.content() || '').slice(0, Number(argv[1])); } catch (e) {}
+    try { files = m.mailAttachments().map((a) => String(a.name())); } catch (e) {}
+    try { date = m.dateReceived().toISOString(); } catch (e) {
+      try { date = m.dateSent().toISOString(); } catch (e2) {}
+    }
+    try { to = who(m.toRecipients()); } catch (e) {}
+    try { cc = who(m.ccRecipients()); } catch (e) {}
+    return JSON.stringify({found: true, mailbox: kind, sender: m.sender(), subject: m.subject(),
+                           to: to, cc: cc, date: date, body: body, attachments: files});
+  }
+  return JSON.stringify({found: false});
+}
+"""
+
+
+def parse_read(raw: str, message_id: str) -> dict[str, Any] | None:
+    """READ_JXA's answer as the email: {id, from, to, cc, subject, date, body, attachments}
+    (body cut to MAX_READ bytes; names one line each). None when Mail didn't find it."""
+    try:
+        data = json.loads(raw or "{}")
+    except ValueError:
+        raise MailError("Mail's answer about that email couldn't be read.") from None
+    if not isinstance(data, dict) or not data.get("found"):
+        return None
+
+    def people(values: Any) -> list[str]:
+        out = []
+        for person in values if isinstance(values, list) else []:
+            if isinstance(person, dict) and str(person.get("address") or "").strip():
+                out.append(shown(one_line(person.get("name")), one_line(person.get("address"))))
+        return out[:100]
+
+    body = str(data.get("body") or "")
+    cut = body.encode()[:MAX_READ].decode(errors="ignore")
+    return {
+        "id": message_id,
+        "mailbox": str(data.get("mailbox") or ""),
+        "from": one_line(data.get("sender")),
+        "to": people(data.get("to")),
+        "cc": people(data.get("cc")),
+        "subject": one_line(data.get("subject"))[:300],
+        "date": one_line(data.get("date")),
+        "body": cut,
+        "truncated": len(cut) < len(body),
+        "attachments": [
+            one_line(a) for a in data.get("attachments") or [] if isinstance(a, str) and a
+        ][:100],
+    }
 
 # One email in the inbox by its Message-ID: who it's from (and to), what it says it's about,
 # and the headers an unsubscribe needs.
@@ -646,6 +854,7 @@ def parse_accounts(raw: str) -> list[dict[str, Any]]:
                 "name": " ".join(str(item.get("name") or "").split())[:80],
                 "full": " ".join(str(item.get("full") or "").split())[:80],
                 "emails": emails[:20],
+                "id": " ".join(str(item.get("id") or "").split())[:80].lower(),
             }
         )
     return accounts

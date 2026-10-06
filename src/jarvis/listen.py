@@ -407,10 +407,13 @@ class ClapDetector:
 
     The stream is read in 5 ms frames. A clap is a sharp click: the level jumps from quiet
     to loud within one frame, and has mostly died away 20-80 ms later (echo included); a
-    spoken "p" or "t" runs on into a vowel instead. Two claps 0.15-0.8 s apart, of about
-    the same loudness, with nothing else heard from `quiet` before the first to `quiet`
-    after the second, are a double clap. Typing (a stream of clicks), talking and a third
-    clap all break the pattern. feed() says True once, about `quiet` after the second clap.
+    spoken "p" or "t" runs on into a vowel instead. A clap by the Mac is loud too: its
+    loudest frame is at least `level` (0.2 RMS, full scale 1.0), where keys, mouse clicks
+    and a cup set down measured 0.05-0.12 here, the odd one 0.3; below that a click is
+    not a clap, however sharp. Two claps 0.15-0.8 s apart, of about the same loudness,
+    with nothing else heard from `quiet` before the first to `quiet` after the second, are
+    a double clap. Typing (a stream of clicks), talking and a third clap all break the
+    pattern. feed() says True once, about `quiet` after the second clap.
     """
 
     FRAME = 80  # samples: 5 ms at 16 kHz
@@ -421,15 +424,18 @@ class ClapDetector:
         min_gap: float = 0.15,
         max_gap: float = 0.8,
         quiet: float = 0.35,
-        level: float = 0.05,
+        level: float = 0.2,
         on_clap: Callable[[float], None] | None = None,
     ) -> None:
         per_second = sample_rate / self.FRAME
+        self._per_second = per_second  # frames a second, to say a gap in seconds
         self.min_gap = round(min_gap * per_second)
         self.max_gap = round(max_gap * per_second)
         self.quiet = round(quiet * per_second)
-        self.level = level  # a clap's loudest frame is at least this loud (RMS)
+        self.level = level  # a clap's loudest 5 ms frame is at least this loud (RMS; see above)
         self.on_clap = on_clap  # each single clap, with its level (for tuning from the log)
+        # The pair last heard (both peaks, and the gap in seconds), for tuning from the log.
+        self.last_pair: tuple[float, float, float] | None = None
         self.window = round(0.15 * per_second)  # a clap's own sound, echo included
         self.echo = round(0.35 * per_second)  # after that, a fading echo still isn't "noise"
         self._energy: deque[float] = deque(maxlen=2 * self.quiet + self.max_gap + self.echo + 8)
@@ -504,6 +510,7 @@ class ClapDetector:
                 return False  # still loud long after the click: not a clap's echo
         self._claps.clear()
         self._cooldown_until = self._frame + self.quiet * 3
+        self.last_pair = (one, two, (second - first) / self._per_second)
         return True
 
 
@@ -724,6 +731,11 @@ class ContinuousListener:
                             block, segmenter.threshold
                         ):
                             segmenter.drop()  # the claps, not words: nothing to transcribe
+                            if claps.last_pair is not None:  # how loud, for tuning the floor
+                                log.info(
+                                    "two claps heard (%.2f and %.2f, %.2f s apart)",
+                                    *claps.last_pair,
+                                )
                             self.on_double_clap()
                         if self.on_block is not None:
                             try:

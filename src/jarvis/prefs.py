@@ -22,14 +22,18 @@ APP_SUPPORT = Path.home() / "Library" / "Application Support" / "Jarvis"
 # a file from before keeps the hosted one it had.
 # 5: Stark Glass matches the Mac's appearance by default. The first build with tones saved
 # "dark" as its default without anyone choosing it, so a file from before follows (once).
-VERSION = 5
+# 6: two claps turning hand control on is off unless chosen. It was on by default and heard
+# everyday clicks as claps, so a file from before turns it off (once).
+VERSION = 6
 LEGACY_RESEARCH_URL = "http://127.0.0.1:8010"
 HOSTED_RESEARCH_URL = "https://app.bshventures.com/research"
 
 # What a damaged settings file must never switch on by itself: the always-on microphone,
-# indexing private mail, messages, photos and files, and what watches the screen or acts.
+# indexing private mail, messages, photos and files, and what watches the screen, opens the
+# camera (two claps) or acts.
 CAUTIOUS = {
     "hands_free": False,
+    "clap_hands": False,
     "brain_mail": False,
     "brain_messages": False,
     "brain_photos": False,
@@ -92,7 +96,10 @@ class Prefs:
     voice_effect: bool = True
     mic: str = "builtin"  # builtin | default
     hands_free: bool = True
-    clap_hands: bool = True  # two claps (heard while hands-free listens) turn hand control on
+    # Two claps (heard while hands-free listens) turn hand control on. It heard everyday
+    # clicks (keys, the mouse, a cup set down) as claps, so it's off until the owner turns
+    # it on in Settings › Listening.
+    clap_hands: bool = False
     desktop_hands: bool = False  # hand control steers the whole Mac
     phone_me: str = ""  # the owner's own number: the only one JARVIS calls on its own
     phone_from: str = ""  # their Twilio number, that calls come from
@@ -502,6 +509,10 @@ class PrefsStore:
             prefs.control_always = True
         if (not isinstance(version, int) or version < 5) and prefs.glass_tone == "dark":
             prefs.glass_tone = "auto"
+        if not isinstance(version, int) or version < 6:
+            # Two claps for hand control was on by default and fired on everyday clicks, so
+            # it goes off for everyone who had that default; whoever wants it turns it back on.
+            prefs.clap_hands = False
         if how == "restored":
             self.notice = (
                 "Your settings file was damaged, so I went back to its last good copy (the "

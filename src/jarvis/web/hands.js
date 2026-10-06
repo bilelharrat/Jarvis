@@ -11,9 +11,12 @@
 // timer; either needs the window's background throttling off (main.js).
 
 import { FilesetResolver, HandLandmarker } from '/vision/vision_bundle.mjs';
-import { createDesktopGestures, createGestures, createPageGestures, desktopMessages, wellFormed } from './gestures.js';
+import {
+  NO_HAND_MS, createDesktopGestures, createGestures, createPageGestures, desktopMessages, noHandSeen, wellFormed,
+} from './gestures.js';
 
-export { desktopMessages };
+// app.js is a classic script: the clap-started session's rule reaches it through here.
+export { desktopMessages, NO_HAND_MS, noHandSeen };
 
 let landmarker = null;
 let video = null;
@@ -31,6 +34,8 @@ let pumping = false; // desktop mode: frames come from pump(), not the video cal
 let pumpStop = null;
 let busy = false;
 let lastFeedback = null;
+let lastHandAt = 0; // frame stamp (performance.now() clock) of the last frame with a hand in it
+let starting = 0; // bumped by stopHands(), so a start still waiting on the camera stops there
 
 function setStatus(text) { if (status) status.textContent = text; }
 
@@ -68,6 +73,7 @@ function letGoOf(target) {
 function onFrame(result, stamp) {
   // Whole hands only: a malformed one would throw in drawOverlay and lose the good hand's frame.
   const hands = (result.landmarks || []).filter(wellFormed);
+  if (hands.length > 0) lastHandAt = stamp; // loop() and the desktop pump both come through here
   const view = step(hands, stamp) || { hand: 0, pinch: 0 };
   if (overlay && !document.hidden) drawOverlay(hands, view); // nobody sees it behind other apps
   if (galaxyRef && galaxyRef.kind === 'desktop' && galaxyRef.feedback) {
@@ -225,6 +231,10 @@ export function setTarget(target, close) {
 export async function startHands(target, { overlayCanvas, statusEl, cursorEl, close }) {
   setTarget(target, close);
   if (running) return;
+  // A stopHands() while this waits (the backend refusing to steer the Mac answers within
+  // milliseconds; the camera takes longer to open) wins: the camera must not stay on with
+  // hand control shown as off.
+  const gen = starting;
   overlay = overlayCanvas;
   status = statusEl;
   cursor = cursorEl;
@@ -242,12 +252,20 @@ export async function startHands(target, { overlayCanvas, statusEl, cursorEl, cl
       minTrackingConfidence: 0.5,
     });
   }
-  stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, frameRate: 30 }, audio: false });
+  if (gen !== starting) return; // stopped while the tracker loaded: the camera stays shut
+  lastHandAt = 0; // a hand from the last session doesn't count for this one
+  const camera = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, frameRate: 30 }, audio: false });
+  if (gen !== starting) { // stopped while the camera opened: shut it again at once
+    camera.getTracks().forEach((t) => t.stop());
+    return;
+  }
+  stream = camera;
   video = document.createElement('video');
   video.srcObject = stream;
   video.muted = true;
   video.playsInline = true;
   await video.play();
+  if (gen !== starting) return; // stopped meanwhile: stopHands() closed the stream itself
   running = true;
   setStatus('Show me your hand');
   video.requestVideoFrameCallback(loop);
@@ -255,6 +273,7 @@ export async function startHands(target, { overlayCanvas, statusEl, cursorEl, cl
 }
 
 export function stopHands() {
+  starting += 1; // a startHands() still waiting on the camera stops there
   letGoOf(galaxyRef); // desktop mode first: its held button is let go before the camera stops
   galaxyRef = null;
   running = false;
@@ -265,6 +284,10 @@ export function stopHands() {
 }
 
 export function handsRunning() { return running; }
+
+// When the camera last saw a hand (0 since the camera opened: none yet), so app.js can
+// tell a session real claps started from one a loud click set off.
+export function handSeenAt() { return lastHandAt; }
 
 // Desktop mode: whether it's steering the Mac, and pausing it from elsewhere (a spoken
 // "stop", the indicator's button). Pausing lets go of anything held at once.

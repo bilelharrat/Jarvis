@@ -1,21 +1,33 @@
-// askeden.com: Eden's site (J.A.R.V.I.S. and Eden Messenger) and the J.A.R.V.I.S. download, on
-// Cloudflare (the whole domain; the old Eden site on Vercel is no longer shown there).
+// askeden.com: Eden (the routed chat), Eden's site (J.A.R.V.I.S. and Eden Messenger) and the
+// J.A.R.V.I.S. download, on Cloudflare (the whole domain; the old Eden site on Vercel is no
+// longer shown there).
 //
-//   /, /jarvis              the page (./public/jarvis/index.html)
+//   /                        Eden for a signed-in browser, else Eden's sign-in page (eden/pages.js)
+//   /<Eden's files>, /signin/…, /artifact/<id>   the same (eden/pages.js)
+//   /download, /jarvis       the J.A.R.V.I.S. and Eden Messenger landing page (./public/jarvis/index.html)
 //   /jarvis/…               its images
-//   /download, /jarvis/download   the latest disk image, from R2 (resumable: Range requests)
+//   /jarvis/download         the latest disk image, from R2 (resumable: Range requests)
 //   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
 //   /jarvis/iphone, /messenger/download, /messenger/iphone   the other apps (SOON, below)
 //   /messenger, /messenger/…   Eden Messenger itself, at messenger.askeden.com (MESSENGER)
 //   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
+//   /api/web/…              signing a browser in to Eden (eden/session.js)
+//   /api/chat/…, /api/route hosted Eden (eden/chat.js)
 //   /api/…                  Jarvis accounts (accounts/index.js, docs/accounts.md)
-//   anything else           back to the page
+//   anything else           back to /
+//
+// Every /api request that changes something, and the relay's WebSocket upgrade, is refused
+// when a browser sends it from another origin (the apps send no Origin at all).
 //
 // What "latest" is lives in R2 itself: latest.json, written by the release script after the
 // disk image is up, so a half-uploaded release is never offered.
 
 import { api } from './accounts/index.js';
 import { tokenFrom } from './accounts/util.js';
+import { chatApi } from './eden/chat.js';
+import { edenPage } from './eden/pages.js';
+import { APPLE_CALLBACK, web } from './eden/session.js';
+import { LANDING_CSP, baseline, foreignOrigin, page, problem } from './eden/web.js';
 
 export { Account, Link } from './accounts/index.js';
 
@@ -33,29 +45,56 @@ const FALLBACK = {
 
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const path = url.pathname.replace(/\/+$/, '') || '/';
-    if (path === '/api/voice') return voice(request, env);
-    if (path.startsWith('/api/')) return api(request, env, ctx);
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
-    }
-    if (path === '/download' || path === '/jarvis/download') return download(request, env);
-    if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
-    if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
-    if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
-    if (path === '/' || path === '/jarvis') {
-      // The page itself, at the domain's root and at /jarvis, without a redirect.
-      return env.ASSETS.fetch(new Request(new URL('/jarvis/', url), request));
-    }
-    if (path.startsWith('/jarvis/')) {
-      const asset = await env.ASSETS.fetch(request);
-      if (asset.status !== 404) return asset;
-    }
-    // An old Eden address, a typo: the page, not a dead end.
-    return Response.redirect(new URL('/', url).toString(), 302);
+    return baseline(await route(request, env, ctx));
   },
 };
+
+async function route(request, env, ctx) {
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/\/+$/, '') || '/';
+  if (path === '/api' || path.startsWith('/api/')) {
+    const refused = fromElsewhere(request, path);
+    if (refused) return refused;
+    if (path === '/api/voice') return voice(request, env);
+    if (path === '/api/route' || path === '/api/chat' || path.startsWith('/api/chat/')) return chatApi(request, env, ctx, path);
+    if (path.startsWith('/api/web/')) return web(request, env, ctx, path);
+    return api(request, env, ctx);
+  }
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
+  }
+  if (path === '/jarvis/download') return download(request, env);
+  if (path === '/download' || path === '/jarvis') return landing(request, env, url);
+  if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
+  if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
+  if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
+  const eden = await edenPage(request, env, path);
+  if (eden) return eden;
+  if (path.startsWith('/jarvis/')) {
+    const asset = await env.ASSETS.fetch(request);
+    if (asset.status !== 404) return asset;
+  }
+  // An old Eden address, a typo: home, not a dead end.
+  return Response.redirect(new URL('/', url).toString(), 302);
+}
+
+// The landing page (J.A.R.V.I.S. and Eden Messenger), at /download and /jarvis, without a redirect.
+async function landing(request, env, url) {
+  const asset = await env.ASSETS.fetch(new Request(new URL('/jarvis/', url), request));
+  return page(asset, LANDING_CSP, { cache: asset.headers.get('cache-control') || 'public, max-age=0, must-revalidate' });
+}
+
+// No other site may make a browser change anything here: an /api request that isn't a plain
+// read, or a WebSocket upgrade, with a foreign Origin is refused. (Apple's sign-in posts back
+// from appleid.apple.com, to that one address, where its state cookie and nonce guard it; a
+// browser may send that Origin as "null".)
+function fromElsewhere(request, path) {
+  const upgrade = (request.headers.get('upgrade') || '').toLowerCase() === 'websocket';
+  if ((request.method === 'GET' || request.method === 'HEAD') && !upgrade) return null;
+  if (!foreignOrigin(request)) return null;
+  if (path === APPLE_CALLBACK && request.method === 'POST' && ['https://appleid.apple.com', 'null'].includes(request.headers.get('origin'))) return null;
+  return problem(403, 'Not from another site.', 'forbidden');
+}
 
 // Eden Messenger lives at its own host (deploy/gcp in its repo): a redirect, not a proxy, since
 // its session cookie, live events and calls belong to that host. The rest of the path and the
@@ -80,7 +119,7 @@ function elsewhere(path, env) {
   const { variable, app } = SOON[path];
   const target = String(env[variable] || '').trim();
   if (/^https:\/\//.test(target)) return Response.redirect(target, 302);
-  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>${app}: almost ready</title>
 <link rel="icon" type="image/png" href="/jarvis/eden-favicon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300&family=Instrument+Sans:wght@400;600&display=swap">
@@ -88,7 +127,7 @@ function elsewhere(path, env) {
 h1{margin:0 0 12px;font:300 clamp(34px,6vw,52px)/1.1 Fraunces,Georgia,serif}p{margin:0 auto 28px;max-width:440px;color:rgba(244,245,247,.72)}
 a{display:inline-block;padding:13px 24px;border-radius:999px;border:1px solid rgba(255,255,255,.22);color:#f4f5f7;text-decoration:none;font-weight:600}a:hover{background:rgba(255,255,255,.06)}</style>
 </head><body><main><h1>${app} is almost ready.</h1><p>It isn't out yet. Check back soon: this button will download it.</p><a href="/">Back to askeden.com</a></main></body></html>`;
-  return new Response(page, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+  return page(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), LANDING_CSP);
 }
 
 async function readLatest(env) {
