@@ -201,72 +201,7 @@ html body[data-skin="obsidian"] .deck.jc .lb-ctxnames { font: 11px var(--mono); 
 html body[data-skin="obsidian"] .deck.jc .jc-dock { padding: 0 var(--lb-pad) 14px; }
 html body[data-skin="obsidian"] .deck.jc .jc-dock .jc-column { max-width: 900px; }
 html body[data-skin="obsidian"] .deck.jc .jc-dock .jc-column > :is(.jc-bg, .jc-todos, .jc-queue, .cs-goal, .cs-asides) { margin-left: calc(var(--lb-gut) + 16px); }
-html body[data-skin="obsidian"] .deck.jc .jc-statusline { display: none; }  /* (the mode chip's tooltip says it) */
-html body[data-skin="obsidian"] .deck.jc .jc-composer {
-  display: flex; flex-direction: column; gap: 6px; padding: 14px 16px 10px; border-radius: 14px;
-  background: var(--ob-surface); box-shadow: inset 0 0 0 1px var(--ob-hair-2); -webkit-backdrop-filter: none; backdrop-filter: none;
-  transition: box-shadow 140ms ease;
-}
-html body[data-skin="obsidian"] .deck.jc .jc-composer:focus-within { box-shadow: inset 0 0 0 1px var(--ob-arc), 0 0 0 3px rgba(var(--ob-arc-rgb), 0.14); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer.drag { box-shadow: inset 0 0 0 1px var(--ob-arc), 0 0 0 3px rgba(var(--ob-arc-rgb), 0.24); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer textarea { min-height: 24px; padding: 0 2px; font: 15px/1.5 var(--sans); color: var(--ink); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer textarea::placeholder { color: var(--muted); }
-/* the files to send, as chips above the words */
-html body[data-skin="obsidian"] .deck.jc .jc-composer > .jc-attach { margin: 0; gap: 6px; }
-html body[data-skin="obsidian"] .deck.jc .jc-composer .jc-file-chip { height: 28px; padding: 0 4px 0 8px; gap: 6px; border-radius: 8px; background: var(--ob-raised); box-shadow: none; font: 12.5px var(--sans); color: var(--ink-2); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer .jc-file-chip small { color: var(--muted); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer .jc-thumb-img { width: 44px; height: 44px; border-radius: 8px; box-shadow: 0 0 0 1px var(--ob-hair-2); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer .jc-file-chip .jc-chip-x { background: transparent; color: var(--muted); }
-/* the row: attach, mode, model, effort … mic, send */
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row { gap: 2px; margin: 0 -6px; font: 13px var(--sans); }
-/* left: attach · mode · model · effort (and a switch or two); right: what it's used · mic · send */
-html body[data-skin="obsidian"] .deck.jc #jc-plus { order: 1; }
-html body[data-skin="obsidian"] .deck.jc #jc-mode-btn { order: 2; }
-html body[data-skin="obsidian"] .deck.jc #jc-model { order: 3; }
-html body[data-skin="obsidian"] .deck.jc #jc-effort { order: 4; }
-html body[data-skin="obsidian"] .deck.jc :is(#jcx-cloud-switch, #jcx-iso-switch) { order: 5; }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-spacer { order: 6; }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > :is(#cc-meta, #jc-ctx) { order: 7; }
-html body[data-skin="obsidian"] .deck.jc #jc-dictate { order: 8; }
-html body[data-skin="obsidian"] .deck.jc #jc-steer { order: 9; }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > :is(.jc-send, .lb-stop) { order: 10; }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-pill {
-  height: 30px; padding: 0 8px; gap: 6px; border: 0; border-radius: 8px; background: transparent; box-shadow: none;
-  font: 13px var(--sans); color: var(--ink-2);
-}
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > :is(.jc-pill, .jc-round):hover { background: var(--ob-raised); color: var(--ink); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > :is(.jc-pill, .jc-round, .jc-send):focus-visible { outline: 2px solid var(--ob-focus-ring); outline-offset: 1px; }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-pill[aria-pressed="true"] { color: var(--ob-arc); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-pill:disabled { display: none; }  /* what can't be had here isn't offered */
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-round { width: 30px; height: 30px; border-radius: 8px; color: var(--ink-2); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row .lb-ic { display: block; flex: none; }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row :is(#jc-mode-label, #jc-effort-label, #jcx-cloud-switch > span, #jcx-iso-switch > span) { display: inline; }  /* (words, however narrow the pane) */
-html body[data-skin="obsidian"] .deck.jc #jc-plus > svg:not(.lb-ic) { display: none; }  /* a paper clip for the plus */
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row :is(#cc-meta, #jc-ctx) { font: 12px var(--sans); color: var(--muted); }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row #jc-ctx { height: 30px; border-radius: 8px; }
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-send {
-  width: 32px; height: 32px; margin-left: 4px; border-radius: 16px; background: var(--ink); color: var(--bg); box-shadow: none;
-}
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .jc-send:hover { background: var(--ink); opacity: 0.86; }
-/* while it works with nothing typed: a stop square where send was */
-html body[data-skin="obsidian"] .deck.jc .jc-composer-row > .lb-stop {
-  width: 32px; height: 32px; margin-left: 4px; border-radius: 16px; background: var(--ink); color: var(--bg);
-}
-html body[data-skin="obsidian"] .deck.jc.lb-busy .jc-composer-row > .lb-stop { display: inline-flex; }
-html body[data-skin="obsidian"] .deck.jc.lb-busy .jc-composer-row > .jc-send { display: none; }
-html body[data-skin="obsidian"] .deck.jc .lb-stop .lb-ic { display: block; }
-/* the mode's words, on hover or focus of its chip */
-html body[data-skin="obsidian"] .deck.jc #jc-mode-btn { position: relative; }
-html body[data-skin="obsidian"] .deck.jc #jc-mode-btn > .lb-tip {
-  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 7; width: max-content; max-width: 320px;
-  padding: 7px 10px; border-radius: 8px; background: var(--ob-raised); color: var(--ink); outline: 1px solid var(--ob-hair-2);
-  font: 12px/1.45 var(--sans); white-space: normal; text-align: left; pointer-events: none;
-  box-shadow: var(--ob-shadow);
-}
-html body[data-skin="obsidian"] .deck.jc #jc-mode-btn:is(:hover, :focus-visible) > .lb-tip:not(:empty) { display: block; }
-html body[data-skin="obsidian"] .deck.jc #jc-mode-btn[aria-expanded="true"] > .lb-tip { display: none; }
-/* ⏎ send · esc stop, under the field while it has the focus */
-html body[data-skin="obsidian"] .deck.jc .jc-composer:focus-within + .lb-hint { display: block; margin: 6px 0 0 2px; font: 12px var(--sans); color: var(--muted); }
+/* The bar itself is the Ambient Orb's, unchanged (app.css pins its tokens under Obsidian). */
 
 /* ── 6. the session index: by day, a glyph and a time on each row ── */
 html body[data-skin="obsidian"] .deck.jc .jc-side { top: 0; left: 0; bottom: 0; width: 256px; box-sizing: border-box; padding: 22px 10px 18px 22px; border-radius: 0; gap: 16px; }

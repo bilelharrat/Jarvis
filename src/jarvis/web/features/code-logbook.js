@@ -349,7 +349,8 @@
   form.after(hint);
   $('deck-input').addEventListener('input', () => schedule());
   function renderComposer(t) {
-    if (attachBox.parentElement !== form) form.prepend(attachBox);
+    // (the files to send stay above the bar, where the Ambient Orb has them)
+    if (attachBox.parentElement !== attachHome) attachHome.insertBefore(attachBox, $('jc-queue'));
     const busy = !!(t && t.busy) && !$('deck-input').value.trim();
     cc.classList.toggle('lb-busy', busy);
     const tip = ($('cc-mode') && $('cc-mode').textContent) || '';
