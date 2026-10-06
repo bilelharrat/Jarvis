@@ -1088,6 +1088,8 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-composer-top textarea { flex: 1; width: 100%; resize: none; border: 0; outline: none; background: transparent; color: rgb(var(--c-ink)); font: inherit; font-size: 14.5px; line-height: 1.5; min-height: 24px; max-height: 220px; padding: 5px 0 5px; }
 .jc-composer-top textarea::placeholder { color: rgb(var(--c-subtle)); }
 .jc-composer-top .jc-round, .jc-composer-top .jc-steer, .jc-composer-top .jc-send { flex: none; margin-bottom: 1px; }
+.jc-composer-top #jc-dictate { margin-left: -2px; }
+.jc-composer-top #jc-dictate + .jc-send { margin-left: -2px; }
 /* the reactor toggle — Jarvis blue, fills when the drawer is open */
 .jc-orb { width: 30px; height: 30px; flex: none; margin-bottom: 1px; border: 0; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: rgb(var(--c-accent)); background: rgb(var(--c-accent) / 0.13); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.32); transition: background 200ms ease, box-shadow 200ms ease, transform 120ms ease; }
 .jc-orb:hover { background: rgb(var(--c-accent) / 0.2); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.45), 0 0 14px rgb(var(--c-glow) / 0.3); }
