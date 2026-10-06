@@ -1,4 +1,5 @@
-// Brings Eden (the Model Router repo's web/chat website) into this Worker, for askeden.com/:
+// Brings Eden (the askeden repo's web/chat website, github.com/bilelharrat/askeden, which also
+// holds a copy of the Model Router) into this Worker, for askeden.com/:
 //
 //   1. copies web/chat into public/eden/ (that folder is replaced each time; never edit it by
 //      hand) and adds two lines to its index.html: the hosted additions (web/hosted.js, copied
@@ -12,8 +13,9 @@
 //
 // Re-run it whenever web/chat or the router changes (it's quick and idempotent):
 //
-//   node scripts/sync-eden.mjs [--model-router <path>]      (default: ~/Model Router, or $MODEL_ROUTER_HOME)
-//   node scripts/sync-eden.mjs --check                      (exit 1 if public/eden is out of date)
+//   node scripts/sync-eden.mjs [--eden <path>]      (default: ~/askeden, or $EDEN_HOME; --model-router and
+//                                                   $MODEL_ROUTER_HOME still work as older names)
+//   node scripts/sync-eden.mjs --check              (exit 1 if public/eden is out of date)
 
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -37,11 +39,12 @@ const RESERVED = new Set(['download', 'latest.json', 'jarvis', 'messenger', 'api
 const ADDED_HEAD = '<meta name="robots" content="noindex, nofollow">\n<script type="module" src="hosted.js"></script>\n';
 
 function args(argv) {
-  const out = { router: process.env.MODEL_ROUTER_HOME || path.join(os.homedir(), 'Model Router'), check: false };
+  // Eden moved out of the Model Router folder into its own repo (askeden) on 2026-10-06.
+  const out = { router: process.env.EDEN_HOME || process.env.MODEL_ROUTER_HOME || path.join(os.homedir(), 'askeden'), check: false };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--model-router' && argv[i + 1]) out.router = path.resolve(argv[++i]);
+    if ((argv[i] === '--eden' || argv[i] === '--model-router') && argv[i + 1]) out.router = path.resolve(argv[++i]);
     else if (argv[i] === '--check') out.check = true;
-    else throw new Error(`usage: sync-eden.mjs [--model-router <path>] [--check]  (unexpected ${argv[i]})`);
+    else throw new Error(`usage: sync-eden.mjs [--eden <path>] [--check]  (unexpected ${argv[i]})`);
   }
   return out;
 }
@@ -136,14 +139,14 @@ async function main() {
   const source = gitDescribe(opts.router);
   const code = await bundleRouter(opts.router);
   const pkg = JSON.parse(fs.readFileSync(path.join(opts.router, 'package.json'), 'utf8'));
-  const header = `// model-router ${pkg.version} (${source.commit || 'unknown commit'}${source.dirty ? ', with uncommitted changes' : ''}), bundled ${new Date().toISOString().slice(0, 10)} from src/browser.ts by site/scripts/sync-eden.mjs. Generated: edit the Model Router repo, not this file.\n`;
+  const header = `// model-router ${pkg.version} (${source.commit || 'unknown commit'}${source.dirty ? ', with uncommitted changes' : ''}), bundled ${new Date().toISOString().slice(0, 10)} from src/browser.ts by site/scripts/sync-eden.mjs. Generated: edit the askeden repo (router changes come from Model-Router), not this file.\n`;
   fs.mkdirSync(path.dirname(VENDOR), { recursive: true });
   fs.writeFileSync(VENDOR, header + code);
 
   const manifest = {
     files: files.map((f) => f.name),
     hashes: Object.fromEntries(files.map((f) => [f.name, sha(f.bytes)])),
-    source: { repo: 'Model Router', commit: source.commit, dirty: source.dirty, synced: new Date().toISOString() },
+    source: { repo: 'askeden', commit: source.commit, dirty: source.dirty, synced: new Date().toISOString() },
   };
   fs.writeFileSync(
     MANIFEST,
