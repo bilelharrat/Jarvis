@@ -124,14 +124,27 @@ const featureMentions = [];  // Jarvis Code composer: (query, textBefore) -> mor
 // Jarvis Code / commands: name -> { name, help, run?(arg, task), insert?, needsArg?, withoutSession? }
 // (insert: text the palette puts in the composer, a snippet; run: the command itself).
 const featureSlash = new Map();
-const featureSessionOptions = [];  // () => fields a new session's task_new carries ({ isolated })
-function featureSessionFields() {
+const featureSessionOptions = [];  // (prompt) => fields a new session's task_new carries ({ isolated })
+function featureSessionFields(prompt = '') {
   const fields = {};
   for (const fn of featureSessionOptions) {
-    try { Object.assign(fields, fn() || {}); } catch (err) { console.error('feature session option', err); }
+    try { Object.assign(fields, fn(prompt) || {}); } catch (err) { console.error('feature session option', err); }
   }
   return fields;
 }
+const featureSendOptions = [];  // (task, text) => fields a task_send carries (model-router: { route })
+function featureSendFields(t, text) {
+  const fields = {};
+  for (const fn of featureSendOptions) {
+    try { Object.assign(fields, fn(t, text) || {}); } catch (err) { console.error('feature send option', err); }
+  }
+  return fields;
+}
+// The model picker's other choices (model-router): { items(state) -> menu items above
+// Claude's, active(state) -> true when one of them is chosen (no model is ticked then),
+// picked(ref, state) when a model is picked from the menu }.
+const featureModelChoices = [];
+const featureComposerRenders = [];  // (state) after the composer's pills are drawn
 const featureEntries = new Map();  // transcript entry role -> render(entry): an <li>, or null for none
 // An approval drawn by a feature: view(approval, 'sheet' | 'card', answer(choice, feedback)) gives
 // its element (an <li> for a sheet), or null for the usual buttons.
@@ -195,6 +208,9 @@ window.jarvisFeatures = {
   registerMoreItem(item) { featureMoreItems.push(item); },
   registerMentions(suggest) { featureMentions.push(suggest); },
   registerSessionOption(fn) { featureSessionOptions.push(fn); },
+  registerSendOption(fn) { featureSendOptions.push(fn); },
+  registerModelChoice(choice) { featureModelChoices.push(choice); renderComposer(); },
+  registerComposerRender(fn) { featureComposerRenders.push(fn); renderComposer(); },
   registerEntry(role, render) { featureEntries.set(role, render); },
   registerApprovalView(view) { featureApprovalViews.push(view); },
   registerCheck(check) { featureChecks.push(check); },
@@ -2927,7 +2943,7 @@ function newSession(voice) {
   if (!deckProject) return;
   awaitingNewSession = true;
   if (voice) send({ type: 'voicecode_start', directory: deckProject });
-  else send({ type: 'task_new', directory: deckProject, prompt: '', ...takePending(), ...featureSessionFields() });
+  else send({ type: 'task_new', directory: deckProject, prompt: '', ...takePending(), ...featureSessionFields('') });
 }
 $('cc-start-voice').addEventListener('click', () => newSession(true));
 $('cc-start-typed').addEventListener('click', () => newSession(false));
@@ -3545,7 +3561,7 @@ function slashWithoutSession(text) {
   if (SLASH_MODE_IDS[name]) {
     const mode = SLASH_MODE_IDS[name];
     if (mode === 'smart' && !autoCapable(composerState().modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return true; }
-    const msg = { type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins], ...featureSessionFields() };
+    const msg = { type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins], ...featureSessionFields(arg) };
     const start = () => { if (!send(msg)) return unsent(); takePending(); awaitingNewSession = true; return true; };
     if (mode === 'auto') { confirmBypass('bypass', 'Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', start); return true; }
     return start();
@@ -3641,7 +3657,7 @@ function sendToSession(text, steer) {
     if (!deckProject) return false;
     if (text.startsWith('/') && !images.length && slashWithoutSession(text)) return true;
     const extra = { add_dirs: [...pending.dirs], plugins: [...pending.plugins] };
-    if (!send({ type: 'task_new', directory: deckProject, prompt: text, images, ...extra, ...featureSessionFields() })) return unsent();
+    if (!send({ type: 'task_new', directory: deckProject, prompt: text, images, ...extra, ...featureSessionFields(text) })) return unsent();
     takePending();  // the folders and plugins went with it
     clearAttachments();
     awaitingNewSession = true;
@@ -3661,7 +3677,7 @@ function sendToSession(text, steer) {
     const blocks = ran.map((r) => `$ ${r.command}\n${r.output.trim() || '(no output)'}${r.code ? `\n(exit ${r.code})` : ''}`);
     text = `I ran this in the project first:\n\n\`\`\`\n${blocks.join('\n\n')}\n\`\`\`\n\n${text}`;
   }
-  if (!send({ type: 'task_send', id: t.id, text, images, ...(steer === undefined ? {} : { steer }) })) return unsent();
+  if (!send({ type: 'task_send', id: t.id, text, images, ...(steer === undefined ? {} : { steer }), ...featureSendFields(t, text) })) return unsent();
   bangContext.delete(t.id);  // only once it went with this message
   clearAttachments();
   return true;
@@ -3717,6 +3733,29 @@ function steerSubmit() {
   $('deck-composer').requestSubmit();
   return true;
 }
+// — composer morph: minimal by default; the reactor orb unfolds the full control row —
+let composerExpanded = false;
+let composerPinned = false;
+try {
+  composerPinned = localStorage.getItem('jc-composer-pinned') === '1';
+  composerExpanded = composerPinned || localStorage.getItem('jc-composer-open') === '1';
+} catch { }
+function setComposerExpanded(v, { focus = true } = {}) {
+  composerExpanded = v;
+  $('deck-composer').classList.toggle('expanded', v);
+  $('jc-orb').setAttribute('aria-expanded', v ? 'true' : 'false');
+  try { localStorage.setItem('jc-composer-open', v ? '1' : '0'); } catch { }
+  if (v && focus) $('deck-input').focus();
+}
+$('jc-orb').addEventListener('click', () => setComposerExpanded(!composerExpanded));
+$('jc-orb').addEventListener('contextmenu', (e) => {  // right-click pins it open, like pinning a toolbar
+  e.preventDefault();
+  composerPinned = !composerPinned;
+  try { localStorage.setItem('jc-composer-pinned', composerPinned ? '1' : '0'); } catch { }
+  if (composerPinned) setComposerExpanded(true);
+});
+if (composerExpanded) setComposerExpanded(true, { focus: false });
+
 $('jc-steer').addEventListener('click', steerSubmit);
 $('deck-composer').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -3727,6 +3766,7 @@ $('deck-composer').addEventListener('submit', (e) => {
   $('deck-input').value = '';
   $('deck-input').style.height = '';
   $('cc-slash').hidden = true;
+  if (!composerPinned) setComposerExpanded(false, { focus: true });
 });
 
 const MODE_CYCLE = ['ask', 'edits', 'plan', 'smart'];
@@ -3956,6 +3996,7 @@ function jcEscape(e) {
   if (!$('jc-effort-pop').hidden) { closeEffort(true); return true; }
   if (!$('jc-menu').hidden) { closeMenu(true); return true; }
   if (!$('cc-slash').hidden) { $('cc-slash').hidden = true; return true; }
+  if (composerExpanded && !composerPinned && $('deck-composer').contains(e.target)) { setComposerExpanded(false); return true; }
   if (!$('jc-find').hidden) { closeJcFind(true); return true; }
   if ($('jc-title').isContentEditable) return true;
   // Esc in a pane's text box (a search, a rule being typed) only leaves the box: stopping
@@ -4090,6 +4131,9 @@ function renderComposer() {
   $('jc-gauge-fill').style.strokeDashoffset = String(100 - GAUGE[stop]);
   $('jc-dictate').setAttribute('aria-pressed', String(dictating));
   $('jc-dictate').classList.toggle('live', dictating);
+  for (const fn of featureComposerRenders) {
+    try { fn(s); } catch (err) { console.error('feature composer render', err); }
+  }
 }
 
 // ── menus: glass, with icons, notes, submenus and the keyboard ──
@@ -4253,6 +4297,9 @@ $('jc-mode-btn').addEventListener('click', () => { if ($('jc-menu').hidden || $(
 
 function pickModel(ref) {
   const s = composerState();
+  for (const c of featureModelChoices) {
+    try { if (c.picked) c.picked(ref, s); } catch (err) { console.error('feature model choice', err); }
+  }
   if (s.t) send({ type: 'task_model', id: s.t.id, ref });
   else { codeDefaults.model = ref; send({ type: 'code_defaults', code_model: ref }); renderComposer(); }
 }
@@ -4262,10 +4309,16 @@ function modelMenu() {
   const builtins = modelList.filter((m) => m.builtin);
   const mine = modelList.filter((m) => !m.builtin);
   const claude = builtins.length ? builtins : [['opus', 'claude-opus-5-5'], ['sonnet', 'claude-sonnet-5-5'], ['haiku', 'claude-haiku-4-5'], ['fable', 'claude-fable-5-1']].map(([ref, model]) => ({ ref, model, label: MODEL_LABELS[model] }));
+  const extra = [];
+  let routed = false;
+  for (const c of featureModelChoices) {
+    try { extra.push(...(c.items(s) || [])); routed = routed || !!(c.active && c.active(s)); } catch (err) { console.error('feature model choice', err); }
+  }
   openMenu($('jc-model'), [
+    ...extra,
     { heading: 'Claude' },
-    ...claude.map((m) => ({ label: m.label, checked: s.ref === m.ref || s.modelId === m.model, run: () => pickModel(m.ref) })),
-    ...(mine.length ? [{ heading: 'Your models' }, ...mine.map((m) => ({ label: m.label, note: m.provider_name, checked: s.ref === m.ref, run: () => pickModel(m.ref) }))] : []),
+    ...claude.map((m) => ({ label: m.label, checked: !routed && (s.ref === m.ref || s.modelId === m.model), run: () => pickModel(m.ref) })),
+    ...(mine.length ? [{ heading: 'Your models' }, ...mine.map((m) => ({ label: m.label, note: m.provider_name, checked: !routed && s.ref === m.ref, run: () => pickModel(m.ref) }))] : []),
     '-',
     { icon: 'key', label: mine.length ? 'Models & API keys…' : 'Add a model with an API key…', run: () => openJcSettings('models') },
   ]);
