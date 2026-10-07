@@ -151,9 +151,9 @@ const account = async (session) => {
 // ── Google ──
 
 test('config says which buttons to show; Google needs its client id, secret and the IDENTITIES binding', async () => {
-  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: true, code: true, billing: false, billing_in_app: false });
+  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: true, passkey: true, turnstile: null, code: true, billing: false, billing_in_app: false });
   env.GOOGLE_CLIENT_SECRET = '';
-  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: false, code: true, billing: false, billing_in_app: false });
+  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: false, passkey: true, turnstile: null, code: true, billing: false, billing_in_app: false });
   const off = await hit('/api/web/google');
   assert.equal(off.status, 303);
   assert.equal(off.headers.get('location'), '/signin?error=not_set_up&provider=google');

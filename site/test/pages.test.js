@@ -75,7 +75,8 @@ async function signedIn() {
 }
 
 const LANDING = /fonts\.googleapis\.com/;
-const SIGNIN = /^default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;/;
+// /signin adds only Turnstile's script and frame (accounts/turnstile.js) and its own form posts.
+const SIGNIN = /^default-src 'none'; script-src 'self' https:\/\/challenges\.cloudflare\.com; frame-src https:\/\/challenges\.cloudflare\.com; style-src 'self'; img-src 'self' data:;/;
 
 test('signed out, / is the landing page (its own CSP), never cached, varying by cookie', async () => {
   const home = await hit('/');
@@ -161,4 +162,20 @@ test('the sign-in page keeps to its CSP: no inline script or style, nothing from
 test('the landing page has "Sign in to Eden" for the sign-in page', () => {
   const html = read('public/jarvis/index.html');
   assert.ok((html.match(/href="\/signin"[^>]*>Sign in to Eden</g) || []).length >= 1);
+});
+
+test('/privacy and /terms: everyone, static, their own strict CSP; linked from the landing page and /signin', async () => {
+  for (const p of ['/privacy', '/terms']) {
+    env.assets.length = 0;
+    const res = await hit(p);
+    assert.equal(res.status, 200, p);
+    assert.deepEqual(env.assets, [`${p}/`]);
+    assert.match(res.headers.get('content-security-policy'), /^default-src 'none'; style-src 'self';/);
+    assert.doesNotMatch(res.headers.get('content-security-policy'), /script-src/);
+  }
+  const pub = (f) => read(`public/${f}`);
+  for (const f of ['jarvis/index.html', 'signin/index.html']) assert.match(pub(f), /href="\/privacy"[\s\S]*href="\/terms"/, f);
+  const privacy = pub('privacy/index.html');
+  for (const must of ['Harrat Global Holdings, Inc.', 'support@askeden.com', 'October 7, 2026', 'Limited Use', 'Stripe', 'Cloudflare', 'Moonshot', 'don’t sell']) assert.ok(privacy.includes(must), must);
+  assert.match(pub('terms/index.html'), /Delaware/);
 });

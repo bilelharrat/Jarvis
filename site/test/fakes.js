@@ -4,6 +4,12 @@ import { Account } from '../src/accounts/account.js';
 import { Link } from '../src/accounts/link.js';
 import { Identity } from '../src/accounts/identity.js';
 import { b64url, b64urlText, sha256Hex } from '../src/accounts/util.js';
+import { testOnlyServiceClaude } from '../src/eden/providers.js';
+
+// The suites below were written for Claude on a Worker key (ANTHROPIC_API_KEY). askeden.com never
+// does that now (Claude is bring-your-own-key, providers.js BYOK_ONLY); they keep exercising the
+// same streaming and metering with it switched back on. test/byok.test.js checks the real rule.
+testOnlyServiceClaude(true);
 
 export class Storage {
   constructor() {

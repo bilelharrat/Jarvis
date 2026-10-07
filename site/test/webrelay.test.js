@@ -11,6 +11,7 @@ import { bytesToB64, parseToken } from '../src/accounts/util.js';
 import { MAC_OFFLINE, MAC_ROUTES, WEB_RELAY, frame, macRoute, unframe } from '../src/accounts/webrelay.js';
 import { PRIVACY_MAC_OFFLINE, PRIVACY_NEEDS_MAC } from '../src/eden/chat.js';
 import { forgetSessions } from '../src/eden/session.js';
+import { CLAUDE_NEEDS_KEY, testOnlyServiceClaude } from '../src/eden/providers.js';
 import { Account, Link, appleJwk, identityToken, namespace } from './fakes.js';
 
 const ORIGIN = 'https://askeden.com';
@@ -570,4 +571,36 @@ test('only a Mac opens the web channel; only a browser forwards; a Mac answers o
   say(o, ws, frame(m.head.id, enc.encode('{}')));
   say(o, ws, { t: 'end', id: m.head.id });
   assert.equal((await mine).status, 200);
+});
+
+test('Claude without a key here: the owner gets it through their Mac while it’s online; a Claude pick goes to the Mac', async () => {
+  testOnlyServiceClaude(false);
+  env.ANTHROPIC_API_KEY = 'sk-fake'; // never used for hosted chat
+  env.GEMINI_API_KEY = 'gm-fake'; // hosted chat runs here, on Gemini
+  try {
+    const o = await owner();
+    const offline = await (await chat('/api/chat/meta', o.session)).json();
+    assert.ok(offline.models.filter((m) => m.provider === 'anthropic').every((m) => !m.available && m.reason === CLAUDE_NEEDS_KEY));
+    const ws = await connect(o);
+    const seen = [];
+    autoAnswer(o, ws, ({ head, body }) => {
+      seen.push({ path: head.path, body });
+      if (head.path === '/api/chat/send') return { type: 'text/event-stream', chunks: ['event: done\ndata: {"finish":"stop"}\n\n'] };
+      return { chunks: [JSON.stringify({ available: true, reason: null })] };
+    });
+    const meta = await (await chat('/api/chat/meta', o.session)).json();
+    const claude = meta.models.filter((m) => m.provider === 'anthropic');
+    assert.ok(claude.length && claude.every((m) => m.available && m.keySource === 'mac' && !m.needsKey));
+    assert.equal(meta.providers.find((p) => p.id === 'anthropic').via, 'your Mac');
+    // The turn itself goes to Eden on the Mac, as sent.
+    const sent = { messages: [{ role: 'user', content: 'hi' }], override: { model: 'claude-sonnet-5-5' } };
+    const response = await chat('/api/chat/send', o.session, { method: 'POST', body: sent });
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /event: done/);
+    assert.deepEqual(JSON.parse(seen.find((x) => x.path === '/api/chat/send').body), sent);
+  } finally {
+    testOnlyServiceClaude(true);
+    delete env.ANTHROPIC_API_KEY;
+    delete env.GEMINI_API_KEY;
+  }
 });

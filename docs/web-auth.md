@@ -3,7 +3,7 @@
 The contract between askeden.com's Worker (`site/src/eden/session.js`, `site/src/eden/google.js`,
 `site/src/accounts/`), the sign-in page (`site/public/signin/`, served at `/signin`), Eden's account
 page (`~/askeden/web/chat/account.js`) and the apps (Eden iOS, J.A.R.V.I.S. iPhone and Mac).
-Status: built and tested (2026-10-06), not deployed. Real Apple and Google sign-ins need the owner
+Status: built and tested (2026-10-06; passkeys, Turnstile, /privacy and /terms 2026-10-07), not deployed. Real Apple and Google sign-ins need the owner
 steps below before they can be tried end to end.
 
 ## One account, many ways in
@@ -41,6 +41,31 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
 - Unlinking: allowed while at least one other method remains (`409 last_method` otherwise). An
   unlinked identity becomes a tombstone, so it opens a new account next time. Apple on a legacy
   account needs one more Apple sign-in first (`409 needs_proof`), because its sub hash isn't known.
+- Passkeys (2026-10-07, `site/src/accounts/webauthn.js`): an identity like the others,
+  `passkey:<SHA-256 of "passkey:<credential id>">`, whose Identity record also keeps the public key
+  and signature counter (`cred: { alg, jwk, count }`). One per account. `POST /api/web/passkey/options
+  { mode: signin | signup | add, turnstile? }` → `{ publicKey }` (RP ID = the request's host:
+  askeden.com, www, preview.askeden.com each their own; UV required; attestation `none`; ES256 and
+  RS256; discoverable). The challenge (32 random bytes) is stashed server-side as `pk:<challenge>`
+  in `LINKS` for 5 minutes, taken once, with its mode, host and (for `add`) the browser.
+  `POST /api/web/passkey/verify { credential, return? }` reads the challenge from clientDataJSON,
+  takes the stash, then checks type, challenge, origin (no cross-origin frame), rpIdHash, UP and UV
+  flags, `fmt: none` with an empty statement, credential id, the COSE key (EC2 P-256 or RSA ≥ 2048),
+  the signature (authenticatorData ‖ SHA-256(clientDataJSON)) and that signCount went up whenever
+  either side counts (`passkey-count`, checked and set in the Identity object). Sign-in and sign-up set
+  `__Host-eden` and answer `{ signed_in, to }`; `add` (signed-in browser only, the same browser that
+  asked) answers `{ identities }`. Both endpoints need this site's own Origin. No library: the CBOR
+  and COSE reading is ~100 lines, tested in `test/passkey.test.js`.
+- Turnstile on sign-up (`site/src/accounts/turnstile.js`): with `TURNSTILE_SITE_KEY` ([vars]) and
+  the secret `TURNSTILE_SECRET` set, `/api/web/config` gives the page the site key, `/signin` shows
+  the widget, and every new web account needs a passed check, verified once with siteverify and the
+  visitor's IP: a passkey sign-up sends the token with its options; Apple and Google from `/signin`
+  are form posts (`POST /api/web/apple|google`, `cf-turnstile-response`) whose start checks it and
+  stashes `human:<state>` for the callback, which needs it only when it would make a new account
+  (plain GET starts still sign existing accounts in; a new one ends at `/signin?error=verify`).
+  Unset: no check, logged once per isolate. The Eden iOS app's native Apple sign-in isn't checked.
+  `/signin`'s CSP adds `https://challenges.cloudflare.com` to script-src and frame-src (that page
+  only) and form-action `'self'` plus Apple's and Google's sign-in hosts.
 - Deleting the account (`DELETE /api/account`, apps only) forgets its identities. An Apple ID goes
   back to its derived account id (a fresh account), and a Google account gets a new one.
 
@@ -167,7 +192,7 @@ askeden.com's chat routes across every provider it has a key for (docs/accounts.
 providers"). The keys are optional Worker secrets; each one turns its provider's models on in the
 model menu, the routing preview, send and compare:
 
-    npx wrangler secret put ANTHROPIC_API_KEY     # Claude (also the apps' included AI)
+    npx wrangler secret put ANTHROPIC_API_KEY     # the apps' included AI only: never hosted chat (below)
     npx wrangler secret put OPENAI_API_KEY        # GPT
     npx wrangler secret put GEMINI_API_KEY        # Gemini, the Gemini rating, Gemini search
     npx wrangler secret put MOONSHOT_API_KEY      # Kimi
@@ -175,6 +200,14 @@ model menu, the routing preview, send and compare:
 (preview: `scripts/preview-secrets.sh OPENAI_API_KEY GEMINI_API_KEY MOONSHOT_API_KEY`). Every call
 counts on the included AI at the registry's list price; with no usable key, the owner's chats go
 through their Mac.
+
+Claude is bring-your-own-key only (2026-10-07, `providers.js` `BYOK_ONLY`): hosted chat never uses
+a service Anthropic key, for anyone. Claude's models are candidates only with the person's own
+Anthropic key (Settings › Models & API keys), or for the owner while their Mac is online (the turn
+goes through the Mac). Elsewhere meta lists them `available: false, needsKey: true` with "Add your
+Anthropic API key in Settings to use Claude" and `link: "/#settings=keys"`; a Claude pick answers
+422 `needs_key`; the router only ever sees the models the person can use. `meta.defaultModel` is
+`gemini-3.8-flash` (else the cheapest non-Claude model).
 
 ## Billing on the web (Stripe)
 
@@ -236,6 +269,20 @@ purchase in the J.A.R.V.I.S. iPhone app, never instead of it. Built for **test m
 
 Nothing here needs a private key: Sign in with Apple on the web returns the identity token in the
 form post, and Google's client secret is the only secret.
+
+### Turnstile (dash.cloudflare.com › Turnstile)
+
+Add a widget (Managed) for askeden.com, www.askeden.com and preview.askeden.com; put its site key in
+`wrangler.toml` `TURNSTILE_SITE_KEY` and `npx wrangler secret put TURNSTILE_SECRET` (preview:
+`scripts/preview-secrets.sh TURNSTILE_SECRET`, and the site key in the preview config). Until both are
+set, sign-ups aren't checked.
+
+### Privacy and Terms
+
+`/privacy` and `/terms` (`site/public/privacy/`, `site/public/terms/`, effective 2026-10-07, operator
+Harrat Global Holdings, Inc., support@askeden.com). The owner should confirm the governing law and venue
+(placeholder: Delaware, USA) and have them reviewed before launch. Account deletion is in the apps only
+(web devices can't delete); the policy says so and offers email.
 
 ### Sign in with Apple on the web (developer.apple.com): done
 

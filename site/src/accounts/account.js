@@ -251,13 +251,13 @@ export class Account {
     return { token: made.token, device_id: made.device.id, account_id: account.id, name: made.device.name, kind: made.device.kind };
   }
 
-  // Sign in with Apple or Google on the web, or the Eden app's handoff: always as a browser.
+  // Sign in with Apple, Google or a passkey on the web, or the Eden app's handoff: always as a browser.
   // `create`: a sign-in seen for the first time makes the account (on the trial allowance).
   async webSignIn({ account_id, device = {}, create = false, identity = null }) {
     let account = await this.storage.get('account');
     const fresh = !account;
     if (fresh && create) {
-      account = { id: account_id, created: this.now(), origin: identity?.provider === 'google' ? 'google' : 'apple' };
+      account = { id: account_id, created: this.now(), origin: ['google', 'passkey'].includes(identity?.provider) ? identity.provider : 'apple' };
       await this.storage.put('account', account);
       if (identity?.provider) await this.storage.put('identities', []);
     }
@@ -315,7 +315,7 @@ export class Account {
     if (!provider || !sub) throw new ApiError(400, 'bad_request', 'No identity to link.');
     const list = await this.identities();
     const entry = list.find((i) => i.provider === provider);
-    const name = provider === 'google' ? 'a Google account' : 'an Apple ID';
+    const name = provider === 'google' ? 'a Google account' : provider === 'passkey' ? 'a passkey' : 'an Apple ID';
     const taken = new ApiError(409, 'already_linked', `This Eden account already has ${name}. Unlink it first.`);
     if (entry && entry.sub_hash && entry.sub_hash !== sub) throw taken;
     // The app's own Apple ID, not known here yet: only that one Apple ID may fill it in.

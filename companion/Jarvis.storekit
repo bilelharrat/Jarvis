@@ -41,7 +41,7 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Claude included each month, and more JARVIS voice.",
+              "description" : "AI included each month, and more JARVIS voice.",
               "displayName" : "Jarvis Plus Monthly",
               "locale" : "en_US"
             }
@@ -69,7 +69,7 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Claude included each month, and more JARVIS voice. Two months free.",
+              "description" : "AI included each month, and more JARVIS voice. Two months free.",
               "displayName" : "Jarvis Plus Yearly",
               "locale" : "en_US"
             }

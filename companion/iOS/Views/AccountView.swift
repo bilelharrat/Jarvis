@@ -265,7 +265,7 @@ struct AccountView: View {
         } header: {
             Text("Plan")
         } footer: {
-            Text("The included AI is Claude, through askeden.com, and answers on this iPhone whenever you haven’t added a Claude key of your own. Your own keys always come first.")
+            Text("The included AI comes through askeden.com and answers on this iPhone whenever you haven’t added a key of your own. Claude needs your own Anthropic API key. Your own keys always come first.")
         }
     }
 
@@ -531,7 +531,7 @@ private struct UpgradeSheet: View {
                 OrbMark(size: 64)
                 Text("Jarvis Plus")
                     .font(.largeTitle.weight(.bold))
-                Text("AI included: Jarvis answers on your iPhone, and on your Mac, without an API key of your own, with a generous monthly allowance of Claude and more JARVIS voice each day.")
+                Text("AI included: Jarvis answers on your iPhone, and on your Mac, without an API key of your own, with a monthly allowance of included AI and more JARVIS voice each day. Claude needs your own Anthropic API key.")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
                     .multilineTextAlignment(.center)

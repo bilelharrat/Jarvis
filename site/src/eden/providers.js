@@ -7,8 +7,11 @@
 //   providerKey(env, who, provider) → Promise<{ key, source: 'user' | 'service' } | null>
 //
 // Every provider key used by hosted chat comes from here. Today: the Worker secret
-// (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, MOONSHOT_API_KEY), source 'service', unless
-// the provider is switched off (EDEN_ANTHROPIC / EDEN_OPENAI / EDEN_GEMINI / EDEN_KIMI = "off").
+// (OPENAI_API_KEY, GEMINI_API_KEY, MOONSHOT_API_KEY), source 'service', unless the provider is
+// switched off (EDEN_ANTHROPIC / EDEN_OPENAI / EDEN_GEMINI / EDEN_KIMI = "off"). Claude is
+// bring-your-own-key only (BYOK_ONLY): ANTHROPIC_API_KEY is never used for hosted chat, so Claude
+// runs only on the asker's own Anthropic key, or for the owner through their Mac (via-mac.js);
+// elsewhere its models are listed as locked (CLAUDE_NEEDS_KEY, hostedFor's `locked`).
 // Bring-your-own-key: the account owner's own key comes first (source 'user', user-keys.js). The candidate set and
 // /api/chat/meta are computed per asker from it (hostedFor), and a 'user' key's calls are metered
 // for display only: never held or spent on the included AI (metered()).
@@ -38,6 +41,21 @@ export const GEMINI_GROUNDED_USD = 0.035; // Gemini 2.5 grounding, per grounded 
 export const CHARS_PER_TOKEN = 3;
 export const HIDDEN_REASONING_TPS = 100;
 
+/** Providers hosted Eden never runs on a service key: only the asker's own (or the owner's Mac). */
+export const BYOK_ONLY = ['anthropic'];
+export const CLAUDE_NEEDS_KEY = 'Add your Anthropic API key in Settings to use Claude';
+/** Where the page links a locked model's words: Settings › Models & API keys. */
+export const KEYS_SETTINGS = '/#settings=keys';
+/** The model a new account starts on when it picks one: cheap, good, and on the service keys. */
+export const DEFAULT_MODEL = 'gemini-3.8-flash';
+
+// Tests only (test/fakes.js): the suites written for Claude on a Worker key keep running it. Never
+// set from config or a request: nothing deployed can turn it on.
+let serviceClaudeForTests = false;
+export const testOnlyServiceClaude = (on) => {
+  serviceClaudeForTests = Boolean(on);
+};
+
 const switchedOff = (env, p) => /^(off|0|false|no)$/i.test(String(env[SWITCH_VARS[p]] ?? '').trim());
 
 /** The key a provider's calls use for this asker, and whose it is; null: none. Stable contract (top of file). */
@@ -45,6 +63,7 @@ export async function providerKey(env, who, provider) {
   if (!PROVIDER_IDS.includes(provider) || switchedOff(env, provider)) return null;
   const own = await userKeyFor(env, who, provider); // the owner's own key first (accounts/user-keys.js)
   if (own) return own;
+  if (BYOK_ONLY.includes(provider) && !serviceClaudeForTests) return null; // Claude: never a service key (top of file)
   const key = String(env[KEY_VARS[provider]] || '').trim();
   return key ? { key, source: 'service' } : null;
 }
@@ -54,12 +73,22 @@ export const metered = (keys, provider) => Boolean(keys[provider] && keys[provid
 
 /**
  * The hosted settings for this asker: the models narrowed to the providers they have a key for,
- * plus `keys` (each provider's providerKey) and `base` (devProviderBase, dev and tests only).
+ * plus `keys` (each provider's providerKey), `locked` (the BYOK-only models they have no key for:
+ * listed, disabled, with CLAUDE_NEEDS_KEY) and `base` (devProviderBase, dev and tests only).
  */
 export async function hostedFor(env, who, cfg, request = null) {
   const keys = {};
   for (const p of PROVIDER_IDS) keys[p] = await providerKey(env, who, p);
-  return { ...cfg, models: cfg.models.filter((m) => keys[m.provider]), keys, base: devProviderBase(env, request) };
+  const locked = cfg.models.filter((m) => !keys[m.provider] && BYOK_ONLY.includes(m.provider) && !switchedOff(env, m.provider) && !serviceClaudeForTests);
+  return { ...cfg, models: cfg.models.filter((m) => keys[m.provider]), locked, keys, base: devProviderBase(env, request) };
+}
+
+/** The model a new account starts on: DEFAULT_MODEL when the asker has it, else the cheapest non-Claude one; null: none. */
+export function defaultModel(cfg) {
+  const pool = cfg.models.filter((m) => !BYOK_ONLY.includes(m.provider));
+  if (pool.some((m) => m.id === DEFAULT_MODEL)) return DEFAULT_MODEL;
+  const out = (m) => ratesOf(m)[1];
+  return pool.length ? [...pool].sort((a, b) => out(a) - out(b))[0].id : null;
 }
 
 const hasImages = (messages) => messages.some((m) => (m.attachments || []).some((a) => a.kind === 'image'));
@@ -89,6 +118,7 @@ export function narrowFor(cfg, { settings = {}, mode = 'chat', messages = [], ov
   }
   if (override && !models.some((m) => m.id === override.model)) {
     const m = modelOf(override.model);
+    if ((cfg.locked || []).some((x) => x.id === override.model)) throw new ApiError(422, 'needs_key', `${CLAUDE_NEEDS_KEY}.`);
     const why = mode !== 'chat' ? ' for web search here' : hasImages(messages) && m && !hasVision(m) ? ': it can’t read images' : ' with the providers you have on';
     throw new ApiError(422, 'not_here', `${m ? m.name : override.model} can’t be used${why}.`);
   }
@@ -102,11 +132,12 @@ export function providerStates(keys, cfg) {
     const k = keys[id];
     const some = cfg.models.some((m) => m.provider === id);
     if (k && some) return { id, name, available: true, via: k.source === 'user' ? 'your API key' : 'your Jarvis account', reason: null };
+    if (!k && BYOK_ONLY.includes(id)) return { id, name, available: false, via: null, reason: CLAUDE_NEEDS_KEY, needsKey: true, link: KEYS_SETTINGS };
     return { id, name, available: false, via: null, reason: k ? `No ${name} models are set up on askeden.com` : `No ${name.split(' ').pop()} API key on askeden.com` };
   });
 }
 
-/** Web search here: Gemini grounding when Gemini is keyed (as on the Mac), else Claude's search tool; null: none. */
+/** Web search here: Gemini grounding when Gemini is keyed (as on the Mac), else Claude's search tool (own key only); null: none. */
 export function searchProvider(cfg) {
   if (cfg.models.some((m) => m.provider === 'gemini')) return 'gemini';
   if (cfg.models.some((m) => m.provider === 'anthropic')) return 'anthropic';

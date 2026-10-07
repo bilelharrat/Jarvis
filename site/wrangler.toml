@@ -44,8 +44,10 @@ MESSENGER_MAC_URL = "https://askeden.com/jarvis/eden/Eden-Messenger.dmg"
 MESSENGER_IPHONE_URL = ""
 # Eden at askeden.com/ (src/eden/, providers.js): the models hosted Eden routes among, on the
 # account's included AI. A model is a candidate only while its provider has a key: secrets
-# ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY (also the Gemini rating), MOONSHOT_API_KEY,
-# each optional (wrangler secret put NAME). EDEN_ANTHROPIC / EDEN_OPENAI / EDEN_GEMINI /
+# OPENAI_API_KEY, GEMINI_API_KEY (also the Gemini rating), MOONSHOT_API_KEY, each optional
+# (wrangler secret put NAME). Claude is bring-your-own-key only: hosted chat never uses
+# ANTHROPIC_API_KEY; a person's own Anthropic key (Settings › Models & API keys) or the owner's
+# Mac runs it, and elsewhere Claude's models show locked. EDEN_ANTHROPIC / EDEN_OPENAI / EDEN_GEMINI /
 # EDEN_KIMI = "off" switch one off with its key in place. EDEN_MODELS = "all": every registry
 # model not deprecated. Then the highest effort, the longest reply and conversation, web searches
 # a search turn may make (twice that for research). Model ids are the Model Router's.
@@ -82,6 +84,10 @@ GOOGLE_CLIENT_ID = "276467237017-cr8pkfhbunm94on8vbi6o0pj11tq7bdm.apps.googleuse
 STRIPE_PRICE_PLUS = "price_1UNkUWRqjDshFbQicaYCqIeb"
 STRIPE_LIVE = ""
 STRIPE_IN_EDEN_APP = ""
+# Cloudflare Turnstile on sign-up (src/accounts/turnstile.js; docs/web-auth.md "Turnstile"): the
+# widget's site key here, and the secret TURNSTILE_SECRET (npx wrangler secret put TURNSTILE_SECRET).
+# Either empty: no person check on new accounts (logged once per isolate).
+TURNSTILE_SITE_KEY = ""
 
 # Dictation by recording where the browser has no speech recognition (Firefox; ROADMAP G7.2):
 # Workers AI's Whisper (src/eden/transcribe.js), counted on the account's included AI. A new

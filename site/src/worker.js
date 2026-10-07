@@ -4,7 +4,8 @@
 //
 //   /                        Eden for a signed-in browser, else the landing page below, with
 //                            "Sign in to Eden" (eden/pages.js)
-//   /signin                  Eden's sign-in page (Apple, Google, a code the iPhone approves)
+//   /signin                  Eden's sign-in page (Apple, Google, a passkey, a code the iPhone approves)
+//   /privacy, /terms         the Privacy Policy and Terms of Service (eden/pages.js)
 //   /help, /help/…           Help: the FAQ, signed out too (eden/help.js, via eden/pages.js)
 //   POST /api/help/ask       Ask Help, grounded in the FAQ (eden/help.js)
 //   /<Eden's files>, /signin/…, /artifact/<id>   the same (eden/pages.js)

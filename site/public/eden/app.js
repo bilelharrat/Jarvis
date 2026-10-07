@@ -1033,6 +1033,11 @@ function init() {
     toast(gh[1] === 'connected' ? (toCalendar ? 'Google Calendar connected' : 'Gmail connected') : 'Google sign-in didn’t finish. Try again.');
     if (gh[1] === 'connected') setTimeout(() => (toCalendar ? openCalendar() : openSpace('mail')), 300);
   }
+  // a link to Settings › Models & API keys (askeden.com's "Add your Anthropic API key…")
+  if (location.hash === '#settings=keys') {
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(() => openSettings(0), 0);
+  }
   // G3 background tasks (their approval card shows anywhere) and H9 saved workflows.
   initTasks({ beforeOpen: clearPhoneOverlays });
   initWorkflows({

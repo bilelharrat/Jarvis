@@ -9,6 +9,13 @@
 //     (GOOGLE_CLIENT_ID + the secret GOOGLE_CLIENT_SECRET; eden/google.js): the identity opens
 //     its account (accounts/index.js accountForIdentity), a new one for a first-time sign-in.
 //     `?link=1` from a signed-in browser adds the identity to that browser's account instead.
+//   - A passkey (WebAuthn; accounts/webauthn.js): POST /api/web/passkey/options, then
+//     /api/web/passkey/verify. Sign in with one, make an account with one (sign-up), or add one to
+//     a signed-in browser's account (`add`). The RP ID is this request's host; each challenge is
+//     kept server-side (`pk:<challenge>`, five minutes, taken once). The passkey is an identity
+//     like Apple and Google (`passkey:<hash of its credential id>`), opening the same account.
+//   - A new account made on the web (first Apple or Google sign-in, passkey sign-up) needs a passed
+//     Turnstile check from /signin (accounts/turnstile.js), when TURNSTILE_SITE_KEY and _SECRET are set.
 //   - The Eden iOS app: Sign in with Apple natively (POST /api/web/native/apple), then a
 //     one-time handoff code its web view redeems (GET /api/web/handoff?code=…) for the cookie.
 //
@@ -17,7 +24,9 @@
 // cookie __Host-eden: HttpOnly, Secure, SameSite=Strict. No page ever sees it.
 
 import { EDEN_APP_ID, verifyIdentityToken } from '../accounts/apple.js';
-import { accountForIdentity, call, callLink, clientIp, limited, linkIdentity, subHashOf, unlinkIdentity } from '../accounts/index.js';
+import { accountForIdentity, call, callIdentity, callLink, clientIp, limited, linkIdentity, subHashOf, unlinkIdentity } from '../accounts/index.js';
+import { ALGS, verifyAssertion, verifyRegistration } from '../accounts/webauthn.js';
+import { HUMAN_SECONDS, checkHuman, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
 import { WEB_LINK_MAC_MS, WEB_LINK_MAC_STALE, WEB_SESSION_DAYS } from '../accounts/account.js';
 import { cleanCode, newCode } from '../accounts/link.js';
 import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
@@ -108,14 +117,16 @@ export async function currentSession(request, env, { fresh = false, acting = fal
 
 const DEVICE_SIGNOUT = /^\/api\/web\/devices\/([0-9a-f]{16})\/signout$/;
 const APP_REVOKE = /^\/api\/web\/apps\/([0-9a-f]{16})\/revoke$/;
-const UNLINK = /^\/api\/web\/identities\/(apple|google)\/unlink$/;
+const UNLINK = /^\/api\/web\/identities\/(apple|google|passkey)\/unlink$/;
 const MAC_LINK = /^\/api\/web\/mac-link\/([^/]+)(?:\/(approve|deny))?$/;
 
 export async function web(request, env, ctx, path) {
   const method = request.method;
   try {
     if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Jarvis accounts are not set up here yet.');
-    if (path === '/api/web/config' && method === 'GET') return json({ apple: appleReady(env), google: googleReady(env), code: true, ...billingConfig(env) });
+    if (path === '/api/web/config' && method === 'GET') return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), code: true, ...billingConfig(env) });
+    if (path === '/api/web/passkey/options' && method === 'POST') return await passkeyOptions(request, env);
+    if (path === '/api/web/passkey/verify' && method === 'POST') return await passkeyVerify(request, env);
     if (path === '/api/web/link' && method === 'POST') return await linkStart(request, env);
     if (path === '/api/web/link/poll' && method === 'POST') return await linkPoll(request, env);
     if (path === '/api/web/session' && method === 'GET') return await session(request, env);
@@ -134,9 +145,10 @@ export async function web(request, env, ctx, path) {
     if (path === '/api/web/apps' && method === 'GET') return await connectedApps(request, env);
     const revoke = APP_REVOKE.exec(path);
     if (revoke && method === 'POST') return await revokeApp(request, env, revoke[1]);
-    if (path === '/api/web/apple' && method === 'GET') return await appleStart(request, env);
+    // GET: a plain link (the account page's "Add"); POST: /signin's buttons, with the Turnstile token.
+    if (path === '/api/web/apple' && (method === 'GET' || method === 'POST')) return await appleStart(request, env);
     if (path === APPLE_CALLBACK && method === 'POST') return await appleCallback(request, env);
-    if (path === '/api/web/google' && method === 'GET') return await googleStart(request, env);
+    if (path === '/api/web/google' && (method === 'GET' || method === 'POST')) return await googleStart(request, env);
     if (path === GOOGLE_CALLBACK && method === 'GET') return await googleCallback(request, env);
     if (path === '/api/web/native/apple' && method === 'POST') return await nativeApple(request, env);
     if (path === '/api/web/handoff' && method === 'GET') return await handoff(request, env);
@@ -373,7 +385,7 @@ const PROVIDERS = new Set(['apple', 'google']);
 // or the place it was started from (`?return=` on /signin and on the provider's start, checked
 // by public/signin/return.js and kept in the attempt's own cookie: never an address taken from
 // the provider's callback). Failures carry one of these codes:
-export const ERROR_CODES = new Set(['cancelled', 'access_denied', 'expired', 'state', 'taken', 'identity_taken', 'not_allowed', 'not_set_up', 'rate_limited', 'email', 'signed_out', 'server']);
+export const ERROR_CODES = new Set(['cancelled', 'access_denied', 'expired', 'state', 'taken', 'identity_taken', 'not_allowed', 'not_set_up', 'rate_limited', 'email', 'signed_out', 'verify', 'server']);
 
 /** The checked return address a provider's start was given (`?return=`), "/" by default. */
 const returnOf = (request) => safeReturn(new URL(request.url).searchParams.get('return'));
@@ -394,7 +406,7 @@ function unpackReturn(packed) {
 export function errorCode(error) {
   if (!(error instanceof ApiError)) return 'server';
   if (error.status === 429) return 'rate_limited';
-  const byCode = { identity_taken: 'identity_taken', already_linked: 'taken', not_allowed: 'not_allowed', not_set_up: 'not_set_up', signed_out: 'signed_out', expired: 'expired', not_found: 'expired', google_email: 'email', apple_refused: 'state', google_refused: 'state' };
+  const byCode = { identity_taken: 'identity_taken', already_linked: 'taken', not_allowed: 'not_allowed', not_set_up: 'not_set_up', signed_out: 'signed_out', expired: 'expired', not_found: 'expired', google_email: 'email', apple_refused: 'state', google_refused: 'state', turnstile: 'verify' };
   return byCode[error.code] || 'server';
 }
 
@@ -442,9 +454,12 @@ const failed = (error, mode) => {
  * remembers which browser server-side (`oauth:<state>`, ten minutes, once): the callback comes
  * from the provider's site, so the SameSite=Strict session cookie isn't sent with it.
  */
-async function providerAttempt(request, env) {
+async function providerAttempt(request, env, form = null) {
   await limited(env, 'AUTH_RATE', `start:${clientIp(request)}`);
   const link = new URL(request.url).searchParams.get('link') === '1';
+  // /signin's buttons post the Turnstile token: checked now, and remembered for this attempt
+  // (`human:<state>`) so its callback may make a new account (accounts/turnstile.js).
+  const human = Boolean(form) && !link && turnstileOn(env) && (await checkHuman(env, form.get('cf-turnstile-response'), clientIp(request)));
   const state = b64url(randomBytes(24));
   const nonce = b64url(randomBytes(24));
   if (link) {
@@ -452,7 +467,30 @@ async function providerAttempt(request, env) {
     if (!who) throw new ApiError(401, 'signed_out', 'Sign in to Eden in this browser first, then add another way in.');
     await callLink(env, `oauth:${state}`, 'stash', { value: { account: who.account, device: who.device.id }, seconds: STATE_SECONDS });
   }
-  return { state, nonce, link, back: link ? '/' : returnOf(request) };
+  if (human) await callLink(env, `human:${state}`, 'stash', { value: { ok: true }, seconds: HUMAN_SECONDS });
+  return { state, nonce, link, back: link ? '/' : form ? safeReturn(form.get('return')) : returnOf(request) };
+}
+
+/** Before a provider sign-in makes a new account: this attempt passed Turnstile at its start (when it's on). */
+async function humanFor(env, state) {
+  if (!turnstileOn(env)) return checkHuman(env, '', null); // off: passes (and says so once)
+  try {
+    await callLink(env, `human:${state}`, 'take');
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    throw new ApiError(403, 'turnstile', 'Finish the check on the sign-in page, then continue.');
+  }
+  return true;
+}
+
+/** A /signin form post's fields (the Turnstile token, where to go back to); null for a GET. */
+async function startForm(request) {
+  if (request.method !== 'POST') return null;
+  try {
+    return new URLSearchParams((await request.text()).slice(0, 8192));
+  } catch {
+    return new URLSearchParams();
+  }
 }
 
 /** A provider's verified sign-in, finished: the session cookie (and on to `back`), or (link mode) the identity added. */
@@ -468,15 +506,15 @@ async function finish(request, env, { provider, sub, email, state, link, back = 
     await linkIdentity(env, { provider, sub, email, account_id: pending.account, device_id: pending.device });
     return ending({ link: true });
   }
-  const made = await signInBrowser(request, env, { provider, sub, email });
+  const made = await signInBrowser(request, env, { provider, sub, email, beforeCreate: () => humanFor(env, state) });
   return withCookies(ending({ back }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }));
 }
 
-const PROVIDER_NAME = { apple: 'Apple', google: 'Google' };
+const PROVIDER_NAME = { apple: 'Apple', google: 'Google', passkey: 'passkey' };
 
 /** A browser device on the account this identity opens (made now if it's the first time). */
-async function signInBrowser(request, env, { provider, sub, email, label = PROVIDER_NAME[provider] }) {
-  const { account_id } = await accountForIdentity(env, { provider, sub, email, ip: clientIp(request) });
+async function signInBrowser(request, env, { provider, sub, email, label = PROVIDER_NAME[provider], cred = null, beforeCreate = null }) {
+  const { account_id } = await accountForIdentity(env, { provider, sub, email, ip: clientIp(request), cred, beforeCreate });
   if (!webAllowed(env, account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
   return call(env, account_id, 'web-signin', {
     account_id,
@@ -492,11 +530,12 @@ const linkMode = (request) => new URL(request.url).searchParams.get('link') === 
 // Apple: a Services ID (docs/web-auth.md "Owner steps"), response_mode form_post. No scope is
 // asked for, so no name or email ever comes back: Apple's sign-in keeps no email here.
 async function appleStart(request, env) {
-  const mode = { provider: 'apple', link: linkMode(request), back: returnOf(request) };
+  const form = await startForm(request);
+  const mode = { provider: 'apple', link: linkMode(request), back: form ? safeReturn(form.get('return')) : returnOf(request) };
   if (!appleReady(env)) return ending({ ...mode, error: 'not_set_up' });
   let attempt;
   try {
-    attempt = await providerAttempt(request, env);
+    attempt = await providerAttempt(request, env, form);
   } catch (error) {
     return failed(error, error.code === 'signed_out' ? { provider: 'apple' } : mode);
   }
@@ -539,11 +578,12 @@ async function appleCallback(request, env) {
 
 // Google: authorization code + PKCE (S256), state and nonce; `openid email profile` only.
 async function googleStart(request, env) {
-  const mode = { provider: 'google', link: linkMode(request), back: returnOf(request) };
+  const form = await startForm(request);
+  const mode = { provider: 'google', link: linkMode(request), back: form ? safeReturn(form.get('return')) : returnOf(request) };
   if (!googleReady(env) || !env.IDENTITIES) return ending({ ...mode, error: 'not_set_up' });
   let attempt;
   try {
-    attempt = await providerAttempt(request, env);
+    attempt = await providerAttempt(request, env, form);
   } catch (error) {
     return failed(error, error.code === 'signed_out' ? { provider: 'google' } : mode);
   }
@@ -579,6 +619,127 @@ async function googleCallback(request, env) {
   } catch (error) {
     return withCookies(failed(error, mode), clear);
   }
+}
+
+// ── passkeys (WebAuthn; accounts/webauthn.js) ──
+//
+// options → the browser's navigator.credentials call → verify. The RP ID is this request's host
+// (askeden.com, preview.askeden.com, www.askeden.com each their own); the challenge is kept here,
+// never trusted from the browser: verify reads it from clientDataJSON and takes `pk:<challenge>`
+// (once, five minutes), which says what it was for and, for `add`, which browser asked.
+
+const PASSKEY_SECONDS = 300;
+const PASSKEY_TIMEOUT_MS = 120_000;
+const PASSKEY_MODES = new Set(['signin', 'signup', 'add']);
+const PASSKEY_PARAMS = ALGS.map((alg) => ({ type: 'public-key', alg }));
+
+/** Browsers only, from this site's own page: a passkey sign-in can't be posted from elsewhere. */
+function ownPage(request) {
+  const origin = request.headers.get('origin');
+  if (!origin || origin !== new URL(request.url).origin) throw new ApiError(403, 'forbidden', 'Only askeden.com’s own page may do that.');
+}
+
+async function passkeyOptions(request, env) {
+  ownPage(request);
+  if (!env.IDENTITIES) throw new ApiError(503, 'not_set_up', 'Passkeys aren’t set up here yet.');
+  await limited(env, 'AUTH_RATE', `pk:${clientIp(request)}`);
+  const body = await readJson(request, 8 * 1024);
+  const mode = PASSKEY_MODES.has(body.mode) ? body.mode : null;
+  if (!mode) throw new ApiError(400, 'bad_request', 'mode must be signin, signup or add');
+  const url = new URL(request.url);
+  const rpId = url.hostname;
+  const value = { mode, rpId, origin: url.origin };
+  let who = null;
+  if (mode === 'add') {
+    who = await signedIn(request, env);
+    if (who.grant) throw new ApiError(403, 'owner_only', 'Only the account’s owner can add a passkey.');
+    const account = await call(env, who.account, 'get', {}, who.token);
+    if ((account.identities || []).some((i) => i.provider === 'passkey')) throw new ApiError(409, 'already_linked', 'This Eden account already has a passkey. Remove it first to add another.');
+    Object.assign(value, { account: who.account, device: who.device.id });
+  }
+  // A new account: the person check now, before the device makes a passkey for nothing.
+  if (mode === 'signup') await checkHuman(env, body.turnstile, clientIp(request));
+  const challenge = b64url(randomBytes(32));
+  await callLink(env, `pk:${challenge}`, 'stash', { value, seconds: PASSKEY_SECONDS });
+  if (mode === 'signin') {
+    return json({ mode, publicKey: { challenge, rpId, timeout: PASSKEY_TIMEOUT_MS, userVerification: 'required', allowCredentials: [] } });
+  }
+  return json({
+    mode,
+    publicKey: {
+      challenge,
+      rp: { id: rpId, name: 'Eden' },
+      // A fresh random handle: Eden finds the account by the credential id, never by this.
+      user: { id: b64url(randomBytes(16)), name: 'Eden account', displayName: 'Eden' },
+      pubKeyCredParams: PASSKEY_PARAMS,
+      authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+      attestation: 'none',
+      timeout: PASSKEY_TIMEOUT_MS,
+    },
+  });
+}
+
+/** The challenge clientDataJSON names, before anything else is trusted. */
+function challengeOf(credential) {
+  try {
+    const client = JSON.parse(new TextDecoder().decode(b64ToBytes(credential.response.clientDataJSON)));
+    if (typeof client.challenge === 'string' && /^[A-Za-z0-9_-]{43}$/.test(client.challenge)) return client.challenge;
+  } catch {
+    // below
+  }
+  throw new ApiError(400, 'passkey', 'That passkey answer can’t be read.');
+}
+
+async function passkeyVerify(request, env) {
+  ownPage(request);
+  if (!env.IDENTITIES) throw new ApiError(503, 'not_set_up', 'Passkeys aren’t set up here yet.');
+  await limited(env, 'AUTH_RATE', `pkv:${clientIp(request)}`);
+  const body = await readJson(request, 64 * 1024);
+  const credential = body.credential;
+  const challenge = challengeOf(credential);
+  let issued;
+  try {
+    issued = (await callLink(env, `pk:${challenge}`, 'take')).body.value;
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    throw new ApiError(400, 'expired', 'That passkey request ran out or was already used. Try again.');
+  }
+  const url = new URL(request.url);
+  if (issued.rpId !== url.hostname || issued.origin !== url.origin) throw new ApiError(400, 'passkey', 'That passkey request was for another site.');
+  const where = { challenge, origin: url.origin, rpId: url.hostname };
+  const back = safeReturn(body.return);
+
+  if (issued.mode === 'signin') {
+    const id = String(credential.rawId || credential.id || '');
+    if (!/^[A-Za-z0-9_-]{16,1400}$/.test(id)) throw new ApiError(400, 'passkey', 'That passkey answer has no id.');
+    const subHash = await subHashOf('passkey', id);
+    const found = await callIdentity(env, 'passkey', subHash, 'passkey');
+    if (found.state !== 'linked' || !found.cred) throw new ApiError(404, 'unknown_passkey', 'This passkey isn’t on an Eden account (it may have been removed). Sign in another way, or make an account with it.');
+    const { count } = await verifyAssertion({ credential, ...where, stored: found.cred });
+    await callIdentity(env, 'passkey', subHash, 'passkey-count', { count });
+    if (!webAllowed(env, found.account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
+    const made = await call(env, found.account_id, 'web-signin', {
+      account_id: found.account_id,
+      identity: { provider: 'passkey', sub_hash: subHash, email: null },
+      device: { name: browserName(request), app_version: 'askeden.com (passkey)' },
+    });
+    return withCookies(json({ signed_in: true, to: back }), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }));
+  }
+
+  const made = await verifyRegistration({ credential, ...where });
+  const cred = { alg: made.alg, jwk: made.jwk, count: made.count };
+  if (issued.mode === 'add') {
+    const who = await signedIn(request, env);
+    if (who.account !== issued.account || who.device.id !== issued.device) throw new ApiError(400, 'expired', 'That passkey request was started in another window. Try again.');
+    await linkIdentity(env, { provider: 'passkey', sub: made.id, cred, account_id: who.account, device_id: who.device.id });
+    const account = await call(env, who.account, 'get', {}, who.token);
+    return json({ identities: account.identities || [] });
+  }
+  // signup: Turnstile passed when this challenge was issued (passkeyOptions).
+  const subHash = await subHashOf('passkey', made.id);
+  if ((await callIdentity(env, 'passkey', subHash, 'get')).state !== 'none') throw new ApiError(409, 'identity_taken', 'This passkey is already used by an Eden account. Sign in with it instead.');
+  const opened = await signInBrowser(request, env, { provider: 'passkey', sub: made.id, email: null, cred });
+  return withCookies(json({ signed_in: true, created: true, to: back }), cookie(SESSION_COOKIE, opened.token, { maxAge: SESSION_SECONDS }));
 }
 
 // ── the Eden iOS app: native Sign in with Apple, handed to its web view ──

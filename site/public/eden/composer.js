@@ -362,6 +362,8 @@ function menuItem(item) {
   if (isSwitch) b.setAttribute('aria-checked', String(!!item.switch));
   else if (item.checked !== undefined) b.setAttribute('aria-checked', String(!!item.checked));
   if (item.disabled) { b.disabled = true; b.setAttribute('aria-disabled', 'true'); }
+  if (item.muted) b.classList.add('muted'); // looks unavailable, still opens something (a locked model: its keys)
+  if (item.title) b.title = item.title;
   if (item.icon) b.append(icon(item.icon, 16));
   const text = el('span', 'mi-text', el('span', 'mi-label', item.label));
   if (item.note) text.append(el('small', '', item.note));
@@ -482,9 +484,11 @@ export function modelMenu() {
     for (const m of list) items.push({
       label: m.name, checked: !!o && o.model === m.id,
       // askeden.com: whose key the model runs on (meta's keySource, accounts/user-keys.js)
-      note: !m.available ? 'Unavailable' : m.keySource === 'user' ? 'your key' : m.keySource === 'service' ? 'included' : m.note ? m.note : code && p !== 'anthropic' ? 'Code mode runs Claude' : m.tier === 'frontier' ? 'Frontier' : m.tier === 'fast' ? 'Fast' : '',
-      disabled: !m.available || (code && p !== 'anthropic'),
-      run: () => setOverride(m.id),
+      note: !m.available ? (m.needsKey ? m.reason || 'Add your Anthropic API key in Settings to use Claude' : 'Unavailable') : m.keySource === 'user' ? 'your key' : m.keySource === 'service' ? 'included' : m.note ? m.note : code && p !== 'anthropic' ? 'Code mode runs Claude' : m.tier === 'frontier' ? 'Frontier' : m.tier === 'fast' ? 'Fast' : '',
+      // askeden.com: Claude is bring-your-own-key: its locked models open the keys settings instead
+      disabled: (!m.available && !m.needsKey) || (code && p !== 'anthropic'),
+      muted: !!m.needsKey, title: m.needsKey ? m.reason : undefined,
+      run: () => (m.needsKey ? H.openSettings(0) : setOverride(m.id)),
     });
   }
   if (!models.length) items.push({ label: state.metaError ? 'The model list didn’t load' : 'Loading models…', disabled: true });

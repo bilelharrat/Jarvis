@@ -1,7 +1,8 @@
 // The account page, in Eden at askeden.com (site/docs/web-auth.md, GET /api/web/account): the
 // plan and what's left of the included AI, the devices and browsers signed in (a browser may
 // sign browsers out; the apps are removed in the J.A.R.V.I.S. app), the ways to sign in (Apple,
-// Google: add one, unlink one while another remains) and, without Plus, where to get it: by card
+// Google, a passkey: add one, unlink one while another remains; a passkey is made right here with
+// WebAuthn, /api/web/passkey/options and /verify in "add" mode) and, without Plus, where to get it: by card
 // with Stripe Checkout once askeden.com's billing is set up (config `billing`), or in the
 // J.A.R.V.I.S. iPhone app. Inside the Eden iOS app only the iPhone app is offered (Apple's in-app
 // purchase rules) unless the server's `billing_in_app` flag says otherwise. With Plus: "Manage
@@ -37,7 +38,7 @@ let busy = false;
 // Where a signed-out browser goes: askeden.com/ (the landing page); in mock mode, this page again.
 const HOME = () => (isMock ? location.pathname + location.search : '/');
 
-const PROVIDERS = { apple: 'Apple', google: 'Google' };
+const PROVIDERS = { apple: 'Apple', google: 'Google', passkey: 'Passkey' };
 const APPS = { iphone: 'iPhone', ipad: 'iPad', watch: 'Apple Watch', mac: 'Mac' };
 // What came back in #account?error=…: only these, in plain words (never text from the address).
 const ERRORS = {
@@ -130,6 +131,11 @@ function glyph(kind) {
 }
 // The providers' own marks, as on their buttons.
 function mark(provider) {
+  if (provider === 'passkey') {
+    const k = svgEl('svg', { class: 'acct-mark passkey', viewBox: '0 0 24 24', 'aria-hidden': 'true', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.7', 'stroke-linecap': 'round' });
+    for (const d of ['M13 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0z', 'M2.75 20.25c.6-3.6 3.2-5.75 6.25-5.75 1.2 0 2.3.3 3.25.85', 'M20 13.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z', 'M17.5 16v5.25M17.5 19h1.75']) k.append(svgEl('path', { d }));
+    return k;
+  }
   const s = svgEl('svg', { class: `acct-mark ${provider}`, viewBox: provider === 'google' ? '0 0 48 48' : '0 0 24 24', 'aria-hidden': 'true' });
   if (provider === 'google') {
     for (const [fill, d] of [
@@ -677,18 +683,47 @@ function methodsSection(a, config) {
         ? el('button', { type: 'button', class: 'cap', disabled: true, title: 'Your only way to sign in: add another first', 'aria-describedby': 'acctLastNote' }, 'Unlink')
         : confirmButton('Unlink', `Stop signing in with ${label}?`, async () => { await post(`/api/web/identities/${p}/unlink`); toast(`${label} unlinked`); draw(); });
       return el('li', 'acct-dev', el('span', 'acct-ico', mark(p)),
-        el('div', 'grow', el('div', 'p-n', label), el('div', 'p-c', [linked.email || (p === 'apple' ? 'Apple ID' : 'Google account'), linked.added ? `added ${day(linked.added)}` : ''].filter(Boolean).join(' · '))),
+        el('div', 'grow', el('div', 'p-n', label), el('div', 'p-c', [linked.email || ({ apple: 'Apple ID', google: 'Google account', passkey: 'On your device or password manager' })[p], linked.added ? `added ${day(linked.added)}` : ''].filter(Boolean).join(' · '))),
         unlink);
     }
-    const ready = config && config[p] === true;
+    const ready = config && config[p] === true && (p !== 'passkey' || typeof window.PublicKeyCredential === 'function');
+    const add = p === 'passkey'
+      ? el('button', { type: 'button', class: 'cap primary', onclick: (e) => addPasskey(e.currentTarget) }, 'Add a passkey')
+      : el('a', { class: 'cap primary', href: `/api/web/${p}?link=1`, onclick: isMock ? (e) => mockLink(e, p) : undefined }, `Add ${label}`);
     return el('li', 'acct-dev off', el('span', 'acct-ico', mark(p)),
-      el('div', 'grow', el('div', 'p-n', label), el('div', 'p-c', ready ? 'Not linked' : 'Not available yet')),
-      ready ? el('a', { class: 'cap primary', href: `/api/web/${p}?link=1`, onclick: isMock ? (e) => mockLink(e, p) : undefined }, `Add ${label}`) : null);
+      el('div', 'grow', el('div', 'p-n', label), el('div', 'p-c', ready ? (p === 'passkey' ? 'Sign in with Face ID, Touch ID or your device’s PIN' : 'Not linked') : 'Not available yet')),
+      ready ? add : null);
   });
   const last = ids.length <= 1;
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctWaysH' }, el('h3', { id: 'acctWaysH' }, 'Ways to sign in'),
     el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)),
-    el('p', { class: 'sp-note', id: 'acctLastNote' }, `${last && ids.length ? 'This is your only way to sign in, so it can’t be unlinked. ' : ''}Any of them opens the same account. A browser can also be approved from the J.A.R.V.I.S. app on your iPhone.`));
+    el('p', { class: 'sp-note', id: 'acctLastNote' }, `${last && ids.length ? 'This is your only way to sign in, so it can’t be unlinked. ' : ''}Any of them opens the same account. A browser can also be approved from the J.A.R.V.I.S. app on your iPhone.`),
+    el('p', 'sp-note', el('a', { href: '/privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'), ' · ', el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, 'Terms of Service')));
+}
+
+/* ---------- a passkey for this account (WebAuthn) ---------- */
+
+const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const fromB64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0));
+
+/** "Add a passkey": askeden.com's options, the browser makes it (Face ID, Touch ID, a PIN), askeden.com checks and links it. */
+async function addPasskey(button) {
+  if (isMock) { toast('Passkeys need askeden.com.'); return; }
+  button.disabled = true;
+  try {
+    const o = await post('/api/web/passkey/options', { mode: 'add' });
+    const pk = o.publicKey;
+    const made = await navigator.credentials.create({ publicKey: { ...pk, challenge: fromB64u(pk.challenge), user: { ...pk.user, id: fromB64u(pk.user.id) } } });
+    if (!made) return;
+    const r = made.response;
+    await post('/api/web/passkey/verify', { credential: { id: made.id, rawId: b64u(made.rawId), type: made.type, response: { clientDataJSON: b64u(r.clientDataJSON), attestationObject: b64u(r.attestationObject) } } });
+    toast('Passkey added');
+    draw();
+  } catch (e) {
+    toast(e && e.name === 'NotAllowedError' ? 'The passkey was cancelled. Nothing changed.' : e && e.name === 'InvalidStateError' ? 'This device already has a passkey for Eden.' : (e && e.message) || 'The passkey wasn’t added.');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // ?mock=1: "Add" can't go to Apple or Google; the mock links it at once.

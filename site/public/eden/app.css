@@ -748,6 +748,7 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 .jc-menu .jc-mi[disabled] { opacity: 0.45; cursor: default; }
 .jc-menu .jc-mi[disabled]:hover { background: transparent; color: rgb(var(--c-ink)); }
 .jc-menu .jc-mi[disabled]:hover .ic, .jc-menu .jc-mi[disabled]:hover small { color: rgb(var(--c-muted)); }
+.jc-menu .jc-mi.muted .mi-label { opacity: 0.5; } /* a locked model (askeden.com: Claude without your key): opens Settings › Models & API keys */
 .jc-menu-head { margin: 6px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: rgb(var(--c-muted)); text-transform: uppercase; }
 .jc-menu-foot { margin: 4px 10px 3px; padding-top: 6px; border-top: 0.5px solid rgb(var(--c-border)); font-size: 11.5px; color: rgb(var(--c-muted)); }
 .jc-round { width: 30px; height: 30px; flex: none; border: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: transparent; color: rgb(var(--c-ink-2)); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }

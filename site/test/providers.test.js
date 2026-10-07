@@ -7,7 +7,7 @@ import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { forgetSessions } from '../src/eden/session.js';
-import { devProviderBase, modelOf, usageUSD } from '../src/eden/providers.js';
+import { CLAUDE_NEEDS_KEY, DEFAULT_MODEL, KEYS_SETTINGS, defaultModel, devProviderBase, modelOf, providerKey, testOnlyServiceClaude, usageUSD } from '../src/eden/providers.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, readEvents, sseBody } from './fakes.js';
 
 const PROVIDER_URLS = [
@@ -264,4 +264,43 @@ test('fake provider endpoints are honoured only for a local request and a loopba
   assert.equal(devProviderBase(env2, new Request('http://multi.localhost:8814/api/chat/send')), 'http://127.0.0.1:8899');
   assert.equal(devProviderBase(env2, new Request('https://askeden.com/api/chat/send')), null);
   assert.equal(devProviderBase({ EDEN_FAKE_PROVIDER_BASE: 'https://evil.example' }, new Request('http://localhost/')), null);
+});
+
+test('Claude is bring-your-own-key: no service Anthropic key for anyone; its models are listed locked; Gemini is the default; the router never picks Claude', async () => {
+  testOnlyServiceClaude(false); // the real rule (fakes.js turns it back on for the older suites)
+  try {
+    assert.equal(await providerKey(env, null, 'anthropic'), null, 'ANTHROPIC_API_KEY is set, and still not used');
+    assert.deepEqual(await providerKey(env, null, 'gemini'), { key: 'gm-test', source: 'service' });
+    const owner = await phone();
+    const value = await signedInBrowser(owner);
+    const meta = await (await chat('/api/chat/meta', value)).json();
+    const claude = meta.providers.find((p) => p.id === 'anthropic');
+    assert.deepEqual([claude.available, claude.reason, claude.needsKey, claude.link], [false, CLAUDE_NEEDS_KEY, true, KEYS_SETTINGS]);
+    const locked = meta.models.filter((m) => m.provider === 'anthropic');
+    assert.ok(locked.length > 0 && locked.every((m) => m.available === false && m.needsKey === true && m.reason === CLAUDE_NEEDS_KEY && m.link === KEYS_SETTINGS));
+    assert.ok(meta.models.filter((m) => m.provider !== 'anthropic').every((m) => m.available && m.keySource === 'service'));
+    assert.equal(meta.defaultModel, DEFAULT_MODEL);
+    assert.equal(modelOf(DEFAULT_MODEL).provider, 'gemini');
+    // The router, at every level, over the hard prompts Claude used to win: never Claude.
+    for (const level of [1, 3, 5]) {
+      const preview = await (await hit('/api/route', { method: 'POST', session: value, body: { prompt: 'Refactor this 2,000-line TypeScript service and prove the invariants hold.', level } })).json();
+      assert.notEqual(preview.pick.provider ?? modelOf(preview.pick.model).provider, 'anthropic', `level ${level}`);
+    }
+    const events = await readEvents(await turn(value, { settings: { level: 5, classifier: 'off' } }));
+    assert.notEqual(events.find((e) => e.type === 'route').data.provider, 'anthropic');
+    // A Claude pick (a stale override) is refused in words, and nothing goes to Anthropic.
+    const picked = await turn(value, { override: { model: 'claude-sonnet-5-5' } });
+    assert.equal(picked.status, 422);
+    assert.deepEqual(await picked.json(), { error: `${CLAUDE_NEEDS_KEY}.`, code: 'needs_key' });
+    assert.ok(calls.every((c) => c.provider !== 'anthropic'));
+  } finally {
+    testOnlyServiceClaude(true);
+  }
+});
+
+test('the default model: Gemini Flash when there, else the cheapest non-Claude model, never Claude', () => {
+  const cfg = (ids) => ({ models: ids.map(modelOf) });
+  assert.equal(defaultModel(cfg(['claude-haiku-4-5', 'gpt-6-luna', 'gemini-3.8-flash'])), 'gemini-3.8-flash');
+  assert.equal(modelOf(defaultModel(cfg(['claude-haiku-4-5', 'gpt-6-sol', 'gpt-6-luna']))).provider, 'openai');
+  assert.equal(defaultModel(cfg(['claude-haiku-4-5', 'claude-opus-5-5'])), null);
 });

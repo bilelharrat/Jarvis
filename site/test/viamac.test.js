@@ -250,7 +250,7 @@ test('offline and no Mac: said plainly, nothing to pick', async () => {
   const off = await post('/api/chat/send', TURN, { session: owner });
   assert.equal(off.status, 503);
   assert.deepEqual(await off.json(), { error: VIA_MAC_OFFLINE, code: 'mac_offline' });
-  assert.equal(VIA_MAC_OFFLINE, 'Your Mac is offline. Eden on askeden.com answers through your Mac until an Anthropic API key is added.');
+  assert.equal(VIA_MAC_OFFLINE, 'Your Mac is offline. Eden on askeden.com answers through your Mac until askeden.com has AI provider keys set up.');
   const preview = await post('/api/route', { prompt: 'hi' }, { session: owner, chat: false });
   assert.equal((await preview.json()).code, 'mac_offline');
   const meta = await (await hit('/api/chat/meta', { session: owner })).json();

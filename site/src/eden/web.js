@@ -7,6 +7,10 @@ export const EDEN_CSP =
 // The sign-in page: its own script and stylesheet, nothing else.
 export const SIGNIN_CSP =
   "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// /signin itself: that, plus Cloudflare Turnstile's script and challenge frame (accounts/turnstile.js),
+// and its forms (Apple and Google with the Turnstile token) posting here and redirecting on to them.
+export const SIGNIN_PAGE_CSP =
+  "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self' https://appleid.apple.com https://accounts.google.com; frame-ancestors 'none'";
 // An artifact: its own inline scripts run in an opaque origin, with no network, no cookies,
 // no storage and no way to the page (docs/chat-api.md), framed only by Eden itself.
 export const ARTIFACT_CSP =

@@ -236,7 +236,7 @@
    "id": "where-eden-runs",
    "cat": "start",
    "q": "Where can I use Eden?",
-   "a": "Three places, one account:\n- **askeden.com** in any browser.\n- **The Eden iPhone and iPad app**, which shows the same page.\n- **Eden on your Mac** (it comes with J.A.R.V.I.S.), at http://localhost:5174.\n\nOn askeden.com, Eden runs Claude on the AI included with your account. On your Mac it can use every model you have keys for.",
+   "a": "Three places, one account:\n- **askeden.com** in any browser.\n- **The Eden iPhone and iPad app**, which shows the same page.\n- **Eden on your Mac** (it comes with J.A.R.V.I.S.), at http://localhost:5174.\n\nOn askeden.com, Eden runs GPT, Gemini and Kimi on the AI included with your account; Claude needs your own Anthropic API key (Settings › Models & API keys). On your Mac it can use every model you have keys for.",
    "keywords": [
     "web",
     "website",
@@ -547,7 +547,7 @@
    "id": "plans",
    "cat": "account",
    "q": "What does Eden cost?",
-   "a": "- **Trial**: every new account gets $1 of included AI, once.\n- **Plus**: $20 a month, which includes $20 of AI each month at list prices.\n\nOn your own Mac, Eden can also use your own API keys or your Claude subscription; those never touch the allowance.",
+   "a": "- **Trial**: every new account gets $1 of included AI, once.\n- **Plus**: $20 a month, which includes $20 of AI each month at list prices.\n\nThe included AI covers GPT, Gemini and Kimi. Claude is bring-your-own-key: add your Anthropic API key in Settings › Models & API keys. On your own Mac, Eden can also use your own API keys or your Claude subscription; those never touch the allowance.",
    "keywords": [
     "price",
     "cost",

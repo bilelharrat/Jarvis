@@ -42,7 +42,7 @@ import { keysApi } from '../accounts/user-keys.js';
 import { transcribeApi } from './transcribe.js';
 import { LIMITS } from '../accounts/account.js';
 // Every provider (Anthropic, OpenAI, Gemini, Kimi) with the Mac's own stream code and the registry's prices (providers.js).
-import { PROVIDER_IDS, capRequest, computedWhere, fitCall, maxTokensOf, hasVision, hostedFor, metered, modelOf, narrowFor, providerStates, ratesOf, ratingRouter, searchProvider, searchTool, streamCall, usageUSD } from './providers.js';
+import { CLAUDE_NEEDS_KEY, KEYS_SETTINGS, PROVIDER_IDS, capRequest, defaultModel, computedWhere, fitCall, maxTokensOf, hasVision, hostedFor, metered, modelOf, narrowFor, providerStates, ratesOf, ratingRouter, searchProvider, searchTool, streamCall, usageUSD } from './providers.js';
 // The router that learns from you (H2) and the spending autopilot (H3): Eden's own pure modules
 // (askeden web/chat, copied here by scripts/sync-eden.mjs), so the stepping and the caps are the page's.
 import { capabilityOverrides, cleanAdjustments, taskClass } from '../../public/eden/learned-model.js';
@@ -336,12 +336,28 @@ function meta(cfg) {
       keySource: keys[m.provider] ? keys[m.provider].source : 'service', // the badge: your own key, or the included AI
     };
   });
+  // Claude without the asker's own key (providers.js BYOK_ONLY): listed, disabled, pointing at the keys
+  // (withMac turns them on for the owner while their Mac is online: those turns go through it).
+  const locked = (cfg.locked || []).map((m) => ({
+    id: m.id,
+    name: m.name,
+    provider: m.provider,
+    tier: m.tier,
+    efforts: effortsFor(m, cfg.maxEffort),
+    defaultEffort: nearestEffort(effortsFor(m, cfg.maxEffort), m.defaultEffort),
+    available: false,
+    vision: hasVision(m),
+    needsKey: true,
+    reason: CLAUDE_NEEDS_KEY,
+    link: KEYS_SETTINGS,
+  }));
   const sp = searchProvider(cfg);
   const rating = Boolean(keys.gemini) && models.length > 0;
   const names = [...new Set(cfg.models.map((m) => m.provider))];
   return {
     providers: providerStates(keys, cfg),
-    models,
+    models: [...models, ...locked],
+    defaultModel: defaultModel(cfg), // a new account's model when it picks one: never Claude (providers.js)
     levels: OPTIMIZATION_LEVELS,
     classifier: rating
       ? { mode: 'always', available: true, reason: null, model: DEFAULT_CLASSIFIER_MODEL }
@@ -433,6 +449,9 @@ async function withMac(m, request, env, ctx, who) {
   const asking = () => new Request(request.url, { method: 'GET', headers: request.headers });
   [m.jarvis, m.local] = await Promise.all([jarvisStatus(asking(), env, ctx, who, mac), localModels(asking(), env, ctx, who, mac)]);
   m.code = { available: true, reason: null, via: 'your Mac' };
+  // Claude without a key here: the owner's own Mac answers it (send → viaMacTurn), on its keys or subscription.
+  m.models = m.models.map((x) => (x.needsKey ? { ...x, available: true, needsKey: undefined, reason: null, link: undefined, keySource: 'mac', via: 'your Mac' } : x));
+  m.providers = m.providers.map((p) => (p.needsKey ? { id: p.id, name: p.name, available: true, via: 'your Mac', reason: null } : p));
   return m;
 }
 
@@ -759,6 +778,10 @@ async function send(request, env, ctx, who, cfg) {
   const raw = await readBody(request, MAX_BODY);
   if (raw.privacy !== undefined && raw.privacy !== null && raw.privacy !== false) return await privateTurn(request, env, ctx, who, raw);
   if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMacTurn(request, env, ctx, who, raw); // the owner's Mac answers (via-mac.js)
+  // Claude picked without the asker's own Anthropic key: only the owner's Mac may answer it (BYOK, providers.js).
+  const lockedPick = isObj(raw.override) && (cfg.locked || []).some((m) => m.id === raw.override.model);
+  if (lockedPick && !who.grant && (await macStatus(env, who)).online) return await viaMacTurn(request, env, ctx, who, raw);
+  if (lockedPick) throw new ApiError(422, 'needs_key', `${CLAUDE_NEEDS_KEY}.`);
   if (!cfg.models.length) throw new ApiError(503, 'not_set_up', 'No models are set up on askeden.com.');
   const body = parseSend(raw, cfg);
   const system = systemPrompt(body);

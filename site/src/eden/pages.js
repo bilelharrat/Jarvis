@@ -10,6 +10,8 @@
 //   /p/<id>            a published page (accounts/published.js): signed in as its owner, or anyone with the link
 //   /help, /help/<file>  the Help page and FAQ (help.js): everyone, signed in or not
 //   /link, /link/<file>  linking a Mac from this browser (public/link/), signed in only
+//   /privacy, /terms   the Privacy Policy and Terms of Service (public/privacy/, public/terms/):
+//                      everyone, no script, the sign-in page's stylesheet
 //
 // Each answer at / and /signin depends on the cookie (vary: cookie, never cached), and a
 // session cookie that no longer works is cleared on the way.
@@ -21,9 +23,11 @@ import { helpPage } from './help.js';
 import { publishedPage } from '../accounts/published.js';
 import { EDEN_FILES } from './manifest.js';
 import { currentSession } from './session.js';
-import { EDEN_CSP, EDEN_PERMISSIONS, LANDING_CSP, SESSION_COOKIE, SIGNIN_CSP, clearCookie, page, withHeaders } from './web.js';
+import { EDEN_CSP, EDEN_PERMISSIONS, LANDING_CSP, SESSION_COOKIE, SIGNIN_CSP, SIGNIN_PAGE_CSP, clearCookie, page, withHeaders } from './web.js';
 import { safeReturn } from '../../public/signin/return.js';
 
+// The legal pages: static text and the sign-in page's stylesheet, nothing else.
+const LEGAL_CSP = "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const SIGNIN_FILES = new Set(['signin.css', 'signin.js', 'return.js']);
 const LINK_FILES = new Set(['link.css', 'link.js']);
 const EDEN = new Set(EDEN_FILES);
@@ -43,6 +47,7 @@ const redirect = (to) => new Response(null, { status: 302, headers: { location: 
 /** The response for this path, or null when it isn't one of Eden's. */
 export async function edenPage(request, env, path) {
   if (path === '/help' || path.startsWith('/help/')) return helpPage(request, env, path);
+  if (path === '/privacy' || path === '/terms') return page(await asset(env, request, `${path}/`), LEGAL_CSP, { cache: 'public, max-age=300' });
   const signinFile = /^\/signin\/([\w.-]+)$/.exec(path);
   if (signinFile) {
     if (!SIGNIN_FILES.has(signinFile[1])) return null;
@@ -66,7 +71,7 @@ export async function edenPage(request, env, path) {
   if (path === '/signin') {
     const { session, stale } = await currentSession(request, env);
     if (session) return byCookie(redirect(safeReturn(new URL(request.url).searchParams.get('return'))), false);
-    return byCookie(page(await asset(env, request, '/signin/'), SIGNIN_CSP), stale);
+    return byCookie(page(await asset(env, request, '/signin/'), SIGNIN_PAGE_CSP), stale);
   }
   const name = path === '/' ? 'index.html' : path.slice(1);
   if (!EDEN.has(name)) return null;

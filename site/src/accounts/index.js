@@ -210,7 +210,7 @@ const accountExists = async (env, id) => (await call(env, id, 'exists')).exists 
  * since, or a Google account seen for the first time, gets a new account (random UUID v4).
  * A new account counts against AUTH_RATE per network. Never matched by email.
  */
-export async function accountForIdentity(env, { provider, sub, email = null, ip = 'unknown' }) {
+export async function accountForIdentity(env, { provider, sub, email = null, ip = 'unknown', cred = null, beforeCreate = null }) {
   const derived = provider === 'apple' ? await accountIdFor(sub) : null;
   if (!env.IDENTITIES) {
     // Before the IDENTITIES binding is deployed: Apple as it always was, nothing else.
@@ -222,10 +222,12 @@ export async function accountForIdentity(env, { provider, sub, email = null, ip 
   if (found.state === 'linked') return { account_id: found.account_id };
   let proposed = found.state === 'none' ? derived : null;
   if (!proposed || !(await accountExists(env, proposed))) {
+    // A new Eden account: the person check first (Turnstile, accounts/turnstile.js), then the rate.
+    if (beforeCreate) await beforeCreate();
     await limited(env, 'AUTH_RATE', `new:${ip}`);
     proposed ||= crypto.randomUUID();
   }
-  const { account_id } = await callIdentity(env, provider, subHash, 'resolve', { proposed, email });
+  const { account_id } = await callIdentity(env, provider, subHash, 'resolve', { proposed, email, ...(cred ? { cred } : {}) });
   return { account_id };
 }
 
@@ -233,7 +235,7 @@ export async function accountForIdentity(env, { provider, sub, email = null, ip 
  * Attaches a freshly verified identity to the account of a signed-in browser (`device_id`, a
  * live `web` device of `account_id`). 409 identity_taken when it opens another account.
  */
-export async function linkIdentity(env, { provider, sub, email = null, account_id, device_id }) {
+export async function linkIdentity(env, { provider, sub, email = null, account_id, device_id, cred = null }) {
   if (!env.IDENTITIES) throw new ApiError(503, 'not_set_up', 'Linking sign-ins is not set up here yet.');
   const subHash = await subHashOf(provider, sub);
   const found = await callIdentity(env, provider, subHash, 'get');
@@ -243,7 +245,7 @@ export async function linkIdentity(env, { provider, sub, email = null, account_i
     // An Apple ID the iPhone app already made an account for belongs to that account.
     if (derived !== account_id && (await accountExists(env, derived))) throw new ApiError(409, 'identity_taken', takenWords(provider));
   }
-  const claimed = await callIdentity(env, provider, subHash, 'claim', { account_id, email });
+  const claimed = await callIdentity(env, provider, subHash, 'claim', { account_id, email, ...(cred ? { cred } : {}) });
   try {
     await call(env, account_id, 'identity-link', { device_id, identity: { provider, sub_hash: subHash, email, derived } });
   } catch (error) {

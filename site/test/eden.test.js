@@ -302,7 +302,7 @@ test('every /api request that changes something refuses a foreign Origin; the ap
 // ── Sign in with Apple on the web (behind its flag) ──
 
 test('Sign in with Apple for the web stays off until WEB_APPLE_SERVICES_ID is set', async () => {
-  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: false, google: false, code: true, billing: false, billing_in_app: false });
+  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: false, google: false, passkey: false, turnstile: null, code: true, billing: false, billing_in_app: false });
   const off = await hit('/api/web/apple');
   assert.equal(off.status, 303);
   assert.equal(off.headers.get('location'), '/signin?error=not_set_up&provider=apple');
@@ -312,7 +312,7 @@ test('Sign in with Apple for the web stays off until WEB_APPLE_SERVICES_ID is se
 
 test('Sign in with Apple on the web: state and nonce checked; a new Apple ID gets an account', async () => {
   env.WEB_APPLE_SERVICES_ID = 'com.askeden.eden.web';
-  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: false, code: true, billing: false, billing_in_app: false });
+  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: false, passkey: false, turnstile: null, code: true, billing: false, billing_in_app: false });
   const go = await hit('/api/web/apple');
   assert.equal(go.status, 302);
   const to = new URL(go.headers.get('location'));
@@ -361,7 +361,7 @@ test('/signin is the sign-in page signed out and Eden signed in, each with a str
   const signin = await hit('/signin');
   assert.equal(signin.status, 200);
   assert.deepEqual(env.assets, ['/signin/']);
-  assert.match(signin.headers.get('content-security-policy'), /^default-src 'none'; script-src 'self'; style-src 'self';/);
+  assert.match(signin.headers.get('content-security-policy'), /^default-src 'none'; script-src 'self' https:\/\/challenges\.cloudflare\.com; frame-src https:\/\/challenges\.cloudflare\.com; style-src 'self';/);
   assert.equal(signin.headers.get('x-frame-options'), 'DENY');
   assert.equal(signin.headers.get('strict-transport-security'), 'max-age=31536000');
   assert.equal(signin.headers.get('x-content-type-options'), 'nosniff');

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Privacy Policy · Eden</title>
+<meta name="description" content="How Eden at askeden.com handles your data.">
+<link rel="icon" type="image/png" href="/jarvis/eden-favicon.png">
+<link rel="stylesheet" href="/signin/signin.css">
+</head>
+<body>
+<a class="home" href="/">‹ askeden.com</a>
+<main class="card legal" aria-labelledby="title">
+  <h1 id="title">Privacy Policy</h1>
+  <p class="eff">Effective October 7, 2026</p>
+
+  <p>Eden (askeden.com, the Eden apps and J.A.R.V.I.S.) is run by Harrat Global Holdings, Inc. (“we”, “us”). This policy says, in plain English, what we keep, what we pass on and why. Questions: <a href="mailto:support@askeden.com">support@askeden.com</a>.</p>
+
+  <h2>The short version</h2>
+  <ul>
+    <li>We don’t sell your data, and there are no ads.</li>
+    <li>Your chats are sent to the AI company whose model answers them, and askeden.com keeps none of them. Your chat history stays in your browser unless you turn on sync, which is end-to-end encrypted.</li>
+    <li>We keep what’s needed to run your account: who you are when you sign in, your devices, your plan and what you’ve used.</li>
+  </ul>
+
+  <h2>What we keep</h2>
+  <ul>
+    <li><b>Your account:</b> a random account id, when it was made, your plan (trial or Plus), and how much of the included AI you’ve used.</li>
+    <li><b>How you sign in:</b> for Apple and Google, a one-way hash of the id they give us (never the raw id); for Google, the email address it shares. For a passkey, its public key and signature counter (never anything secret). Apple’s sign-in shares no email with us.</li>
+    <li><b>Your devices and browsers:</b> each one’s name (like “Safari on a Mac”), app version, and when it was added and last used. A browser stays signed in for at most 30 days.</li>
+    <li><b>Your own API keys,</b> if you add any (OpenAI, Google Gemini, Moonshot, Anthropic): encrypted, used only to call that provider for you, never shown back in full.</li>
+    <li><b>Sync,</b> if you turn it on: your conversations are encrypted on your device before they reach us, with a key we don’t have. We store data we can’t read.</li>
+    <li><b>Things you choose to make:</b> pages you publish, background tasks and saved workflows, team spaces and delegates. Previews of generated pages (“artifacts”) are kept for a few hours, then deleted.</li>
+    <li><b>Gmail and Google Calendar,</b> only if you connect them (see below): the access Google grants, encrypted.</li>
+    <li><b>Operational records:</b> rate-limit counters and short error logs that help us keep the service working. We don’t log the contents of your chats.</li>
+  </ul>
+
+  <h2>Who we pass data to, and why</h2>
+  <ul>
+    <li><b>AI model providers:</b> the messages, files and images in a conversation go to the provider of the model that answers: OpenAI, Google (Gemini) or Moonshot AI (Kimi) on the AI included with your account, and Anthropic (Claude) only when you’ve added your own Anthropic API key. To pick a model, Eden may ask Google’s Gemini to rate how hard a message is. Each provider handles that data under its own API terms.</li>
+    <li><b>Cloudflare</b> hosts askeden.com and runs it (including speech-to-text for dictation in browsers that can’t do it themselves).</li>
+    <li><b>Stripe</b> processes payments for Plus on the web. We never see your full card number. Plus bought in the iPhone app goes through Apple.</li>
+    <li><b>Apple and Google</b> when you sign in with them, and Apple for app notifications.</li>
+    <li><b>Fish Audio</b> turns text into the JARVIS voice, if you use read-aloud with that voice.</li>
+    <li><b>Your own Mac,</b> if you link one: requests for things that live on it (Jarvis, Code mode, local models) are passed to it.</li>
+    <li><b>Connected apps</b> you approve, such as Eden Messenger: they can only ask Eden what you choose to send them, and you can revoke them any time.</li>
+  </ul>
+  <p>We may also share information if the law requires it, or to protect people and the service from fraud and abuse.</p>
+
+  <h2>Gmail and Google Calendar</h2>
+  <p>Eden reads your Gmail or Google Calendar only after you connect them, and only to do what you ask: show and search your mail, draft, send or schedule a message, read and add events. You can disconnect them in Eden, which also revokes Eden’s access at Google.</p>
+  <p>Eden’s use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. In particular, we use Google user data only to provide the features you use in Eden; we don’t use it for advertising, don’t sell it, and don’t let people read it unless you ask us to (for example, for support), it’s needed for security or the law requires it. When you ask Eden about your mail or calendar, the parts it needs are sent to the AI model that answers, for that answer only. Google user data is not used to train AI models.</p>
+
+  <h2>How long we keep it</h2>
+  <p>We keep your account data while your account exists. Browser sessions end after 30 days; artifacts after a few hours; sign-in and payment attempts after minutes. When you delete your account, everything stored with it is deleted, connected Google access is revoked and an active web subscription is cancelled. Payment records Stripe and Apple must keep for tax and accounting stay with them.</p>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li><b>See and change:</b> your account page in Eden shows your plan, devices, ways to sign in and connected apps. You can remove a sign-in method, sign browsers out, revoke apps and disconnect Google there.</li>
+    <li><b>Delete your account:</b> in the J.A.R.V.I.S. app (Settings › Account › Delete Account), or email <a href="mailto:support@askeden.com">support@askeden.com</a> from an address on your account and we’ll delete it for you.</li>
+    <li><b>Ask us:</b> for a copy of your data, a correction, or anything else about your privacy, email us. We answer within 30 days.</li>
+  </ul>
+
+  <h2>Security</h2>
+  <p>Everything travels over HTTPS. Session cookies can’t be read by scripts. API keys and Google access are encrypted at rest; synced chats are end-to-end encrypted. No system is perfect: if something goes wrong that affects you, we’ll tell you.</p>
+
+  <h2>Children</h2>
+  <p>Eden isn’t meant for children under 13 (or the minimum age where you live), and we don’t knowingly collect their data. If you think a child has an account, email us and we’ll delete it.</p>
+
+  <h2>Changes</h2>
+  <p>If we change this policy, we’ll update the date at the top, and tell you in Eden before a significant change takes effect.</p>
+
+  <p class="legal-links"><a href="/terms">Terms of Service</a> · <a href="/help">Help</a> · <a href="/">askeden.com</a></p>
+</main>
+</body>
+</html>
