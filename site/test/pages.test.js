@@ -74,15 +74,14 @@ async function signedIn() {
   return setCookies(done).find((c) => c.startsWith('__Host-eden=')).split(';')[0].slice('__Host-eden='.length);
 }
 
-const LANDING = /fonts\.googleapis\.com/;
 // /signin adds only Turnstile's script and frame (accounts/turnstile.js) and its own form posts.
 const SIGNIN = /^default-src 'none'; script-src 'self' https:\/\/challenges\.cloudflare\.com; frame-src https:\/\/challenges\.cloudflare\.com; style-src 'self'; img-src 'self' data:;/;
 
-test('signed out, / is the landing page (its own CSP), never cached, varying by cookie', async () => {
+test('signed out, / is Eden\'s front page (its own CSP, no script), never cached, varying by cookie', async () => {
   const home = await hit('/');
   assert.equal(home.status, 200);
-  assert.deepEqual(env.assets, ['/jarvis/']);
-  assert.match(home.headers.get('content-security-policy'), LANDING);
+  assert.deepEqual(env.assets, ['/home/']);
+  assert.match(home.headers.get('content-security-policy'), /^default-src 'none'; style-src 'self'; img-src 'self' data:;/);
   assert.equal(home.headers.get('cache-control'), 'no-store');
   assert.equal(home.headers.get('vary'), 'cookie');
   assert.equal(home.headers.get('x-frame-options'), 'DENY');
@@ -94,7 +93,7 @@ test('signed out, / is the landing page (its own CSP), never cached, varying by 
   // Eden's own files stay closed.
   assert.equal((await hit('/app.js')).status, 401);
   assert.equal((await hit('/index.html')).status, 200);
-  assert.equal(env.assets.at(-1), '/jarvis/');
+  assert.equal(env.assets.at(-1), '/home/');
 });
 
 test('a session cookie that no longer works is cleared at / and at /signin', async () => {

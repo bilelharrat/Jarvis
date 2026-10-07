@@ -109,7 +109,8 @@
   @media (max-width: 860px) {
     .apps, .features { grid-template-columns: 1fr; }
     .app { padding: 28px; }
-    header nav a:not(.keep):not(.signin) { display: none; }
+    header nav a:not(.signin):not(.home) { display: none; }
+    header nav a { white-space: nowrap; }
     header nav a { margin-left: 14px; }
   }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .orb::before, .orb span { animation: none; } }
@@ -119,7 +120,7 @@
 <div class="wrap">
   <header>
     <a class="brand" href="/"><span class="mark"><svg width="18" height="19" viewBox="43 81 410 422" fill="#fff" stroke="#fff" stroke-width="18" stroke-linejoin="round" aria-hidden="true"><polygon points="211,93 314,90 444,236 343,353 249,352 333,251"/><polygon points="252,235 160,346 282,491 186,494 52,350 151,234"/></svg></span>Eden</a>
-    <nav><a href="#jarvis">J.A.R.V.I.S.</a><a href="#messenger">Messenger</a><a class="keep" href="#get">Download</a><a class="signin" href="/signin">Sign in to Eden</a></nav>
+    <nav><a class="home" href="/">Eden home</a><a href="#jarvis">J.A.R.V.I.S.</a><a href="#messenger">Messenger</a><a class="keep" href="#get">Download</a><a class="signin" href="/signin">Sign in to Eden</a></nav>
   </header>
 
   <main>

@@ -1,7 +1,9 @@
-// askeden.com/ itself: Eden for a signed-in browser, the J.A.R.V.I.S. and Eden Messenger landing
-// page (with "Sign in to Eden") for everyone else, and Eden's sign-in page.
+// askeden.com/ itself: Eden for a signed-in browser, Eden's front page (sign in, download the
+// apps) for everyone else, and Eden's sign-in page.
 //
-//   /, /index.html     Eden (public/eden/index.html), or signed out the landing page (public/jarvis/)
+//   /, /index.html     Eden (public/eden/index.html), or signed out the front page (public/home/),
+//                      which links to the apps page at /download (public/jarvis/, worker.js)
+//   /home/home.css     the front page's stylesheet
 //   /signin            the sign-in page (public/signin/): Apple, Google, or a code the iPhone
 //                      approves; signed in, back to / (or to `?return=`, public/signin/return.js)
 //   /<Eden file>       public/eden/<file> (the files src/eden/manifest.js lists), signed in only
@@ -23,11 +25,13 @@ import { helpPage } from './help.js';
 import { publishedPage } from '../accounts/published.js';
 import { EDEN_FILES } from './manifest.js';
 import { currentSession } from './session.js';
-import { EDEN_CSP, EDEN_PERMISSIONS, LANDING_CSP, SESSION_COOKIE, SIGNIN_CSP, SIGNIN_PAGE_CSP, clearCookie, page, withHeaders } from './web.js';
+import { EDEN_CSP, EDEN_PERMISSIONS, SESSION_COOKIE, SIGNIN_CSP, SIGNIN_PAGE_CSP, clearCookie, page, withHeaders } from './web.js';
 import { safeReturn } from '../../public/signin/return.js';
 
 // The legal pages: static text and the sign-in page's stylesheet, nothing else.
 const LEGAL_CSP = "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// Eden's signed-out front page: its stylesheet (the mark is a data: image in it) and the apps' icons.
+const HOME_CSP = "default-src 'none'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const SIGNIN_FILES = new Set(['signin.css', 'signin.js', 'return.js']);
 const LINK_FILES = new Set(['link.css', 'link.js']);
 const EDEN = new Set(EDEN_FILES);
@@ -48,6 +52,7 @@ const redirect = (to) => new Response(null, { status: 302, headers: { location: 
 export async function edenPage(request, env, path) {
   if (path === '/help' || path.startsWith('/help/')) return helpPage(request, env, path);
   if (path === '/privacy' || path === '/terms') return page(await asset(env, request, `${path}/`), LEGAL_CSP, { cache: 'public, max-age=300' });
+  if (path === '/home/home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   const signinFile = /^\/signin\/([\w.-]+)$/.exec(path);
   if (signinFile) {
     if (!SIGNIN_FILES.has(signinFile[1])) return null;
@@ -82,7 +87,7 @@ export async function edenPage(request, env, path) {
       // A sign-in that came back here with ?error=…: the sign-in page says what happened.
       const { search, searchParams } = new URL(request.url);
       if (searchParams.has('error')) return byCookie(redirect(`/signin${search}`), stale);
-      return byCookie(page(await asset(env, request, '/jarvis/'), LANDING_CSP), stale);
+      return byCookie(page(await asset(env, request, '/home/'), HOME_CSP), stale);
     }
     return byCookie(page(await asset(env, request, '/eden/'), EDEN_CSP, { permissions: EDEN_PERMISSIONS }), false);
   }

@@ -31,14 +31,14 @@ function env({ latest = { version: '0.1.0', size: BYTES.length, file: FILE }, fi
 
 const get = (path, e, init = {}) => worker.fetch(new Request(`https://www.askeden.com${path}`, init), e);
 
-test('the landing page is at /jarvis and /download, and at / signed out; images stay by path', async () => {
+test('the apps page is at /jarvis and /download, Eden\'s front page at / signed out; images stay by path', async () => {
   const e = env();
   await get('/', e);
   await get('/jarvis', e);
   await get('/jarvis/', e);
   await get('/download', e);
   await get('/jarvis/icon.png', e);
-  assert.deepEqual(e.assets, ['/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
+  assert.deepEqual(e.assets, ['/home/', '/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
   const old = await get('/pricing', e);
   assert.equal(old.status, 302);
   assert.equal(old.headers.get('location'), 'https://www.askeden.com/');

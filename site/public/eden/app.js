@@ -5,6 +5,8 @@ import './practice.js'; // first: practice mode (the tour's sandbox) scopes stor
 import { $, el, ico, qsa, toast, copyText, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
+// The apps page (J.A.R.V.I.S., Eden Messenger) lives on askeden.com; a local Eden links there.
+const DOWNLOAD_URL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? 'https://askeden.com/download' : '/download';
 import { initMail, connectGmail, emailText } from './mail.js';
 import { openCompose, initSignatures } from './compose.js';
 import { renderMessage, emptyState, ui_open, artifactsIn } from './render.js';
@@ -522,6 +524,7 @@ function commands() {
     { t: 'Settings & API keys', s: '⌘,', i: 'gear', run: () => openSettings(0) },
     { t: 'Switch appearance', s: 'Light / Dark / System', i: 'moon', run: cycleTheme },
     { t: 'Take the tour', s: 'Try every feature, safely', i: 'spark', run: () => startTour() },
+    { t: 'Download apps', s: 'J.A.R.V.I.S. for Mac, Eden Messenger', i: 'down', run: () => { location.href = DOWNLOAD_URL; } },
     ...helpCommands(),
   ];
   if (c) list.push(
@@ -706,7 +709,7 @@ async function drawSettings() {
       el('p', '', state.meta && state.meta.scope ? state.meta.scope : ''),
       el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the JARVIS voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
       isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null,
-      el('div', 'dlg-acts', helpButton(closeSettings), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))));
+      el('div', 'dlg-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))));
   }
 }
 async function drawAccounts(body) {

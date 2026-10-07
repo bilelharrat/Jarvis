@@ -699,7 +699,7 @@ function methodsSection(a, config) {
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctWaysH' }, el('h3', { id: 'acctWaysH' }, 'Ways to sign in'),
     el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)),
     el('p', { class: 'sp-note', id: 'acctLastNote' }, `${last && ids.length ? 'This is your only way to sign in, so it can’t be unlinked. ' : ''}Any of them opens the same account. A browser can also be approved from the J.A.R.V.I.S. app on your iPhone.`),
-    el('p', 'sp-note', el('a', { href: '/privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'), ' · ', el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, 'Terms of Service')));
+    el('p', 'sp-note', el('a', { href: '/privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'), ' · ', el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, 'Terms of Service'), ' · ', el('a', { href: '/download' }, 'Download apps')));
 }
 
 /* ---------- deleting the account (POST /api/web/account/delete; site/src/eden/session.js) ---------- */

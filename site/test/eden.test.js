@@ -261,7 +261,7 @@ test('a browser session ends after 30 days, or when the app signs it out', async
   await hit(`/api/devices/${parseToken(value).device}`, { method: 'DELETE', browser: false, token: owner.token });
   forgetSessions();
   const page = await hit('/', { session: value });
-  assert.equal(env.assets.at(-1), '/jarvis/');
+  assert.equal(env.assets.at(-1), '/home/');
   assert.ok(setCookies(page).some((c) => c.startsWith('__Host-eden=;')));
   // Thirty days on, a session simply stops working.
   const later = await signedInBrowser(owner);
@@ -390,7 +390,28 @@ test('/signin is the sign-in page signed out and Eden signed in, each with a str
   forgetSessions();
   env.assets.length = 0;
   await hit('/', { session: owner.token });
-  assert.deepEqual(env.assets, ['/jarvis/']);
+  assert.deepEqual(env.assets, ['/home/']);
+});
+
+test('signed out, / is Eden\'s front page: sign in, and Download apps to the apps page', async () => {
+  env.assets.length = 0;
+  const home = await hit('/');
+  assert.equal(home.status, 200);
+  assert.deepEqual(env.assets, ['/home/']);
+  const csp = home.headers.get('content-security-policy');
+  assert.match(csp, /default-src 'none'/);
+  assert.doesNotMatch(csp, /script-src/);
+  assert.equal(home.headers.get('cache-control'), 'no-store');
+  assert.equal((await hit('/home/home.css')).status, 200);
+  assert.equal(env.assets.at(-1), '/home/home.css');
+  assert.equal((await hit('/?error=cancelled')).headers.get('location'), '/signin?error=cancelled');
+  const html = fs.readFileSync(new URL('../public/home/index.html', import.meta.url), 'utf8');
+  assert.match(html, /href="\/signin"/);
+  assert.match(html, /href="\/download"[^>]*>[\s\S]*Download apps/);
+  for (const href of ['/help', '/privacy', '/terms']) assert.ok(html.includes(`href="${href}"`), href);
+  assert.doesNotMatch(html, /<script/);
+  const apps = fs.readFileSync(new URL('../public/jarvis/index.html', import.meta.url), 'utf8');
+  assert.match(apps, /<a class="home" href="\/">Eden home<\/a>/);
 });
 
 test('the landing page, downloads, latest.json and Messenger keep working, the landing page with its own CSP', async () => {

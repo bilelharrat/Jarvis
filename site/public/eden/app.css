@@ -533,6 +533,7 @@ select:disabled{opacity:.55}
 .dlg-acts{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;flex-wrap:wrap}
 .dlg-acts .grow{flex:1}
 .btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;padding:6px 14px;border-radius:9px;background:rgba(120,120,128,.14);color:var(--text)}
+a.btn{text-decoration:none}
 .btn:hover{background:rgba(120,120,128,.22)}
 .btn.primary{background:var(--accent);color:#fff}
 .btn.primary:hover{filter:brightness(1.06)}
