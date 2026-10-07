@@ -214,8 +214,11 @@ function writeDictation(words) {
   ta.dispatchEvent(new Event('input', { bubbles: true })); // the composer grows and routes it
   ta.selectionStart = ta.selectionEnd = ta.value.length;
 }
+// Speech recognition this browser has but won't run (Chrome on iPhone: the microphone is allowed,
+// yet recognition says "not allowed"): record and transcribe instead, from then on.
+let recognitionRefused = false;
 function startDictation() {
-  const R = Recognition();
+  const R = recognitionRefused ? null : Recognition();
   if (!R) { startRecording(); return; }
   if (talk.on) return;
   speaker.stop();
@@ -237,7 +240,14 @@ function startDictation() {
   };
   rec.onerror = (e) => {
     if (dict.rec !== rec) return;
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast(MIC_BLOCKED);
+    if ((e.error === 'not-allowed' || e.error === 'service-not-allowed') && Recorder() && !dict.said) {
+      // Not necessarily the microphone: record instead (startRecording says so if the microphone is blocked).
+      recognitionRefused = true;
+      dict.rec = null;
+      try { rec.abort(); } catch { /* ended */ }
+      paintMic();
+      startRecording();
+    } else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast(MIC_BLOCKED);
     else if (e.error === 'audio-capture') toast('No microphone found.');
     else if (e.error === 'network') toast('Dictation needs the network in this browser.');
   };
@@ -455,7 +465,8 @@ function listen() {
   };
   rec.onerror = (e) => {
     if (talk.rec !== rec) return;
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { closeTalk(); toast(MIC_BLOCKED); }
+    if (e.error === 'service-not-allowed') { closeTalk(); toast('Talk needs speech recognition, which this browser won’t run. Use the microphone button to dictate instead.'); }
+    else if (e.error === 'not-allowed') { closeTalk(); toast(MIC_BLOCKED); }
     else if (e.error === 'audio-capture') talk.error = 'No microphone found.';
     else if (e.error === 'network') talk.error = 'Speech recognition needs the network in this browser.';
   };
