@@ -1290,8 +1290,12 @@ document.addEventListener('scroll', (e) => {
     if (!g) return;
     const t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
     if (!g.lock) {
-      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-      g.lock = Math.abs(dx) > Math.abs(dy) * 1.2 && (g.open ? dx < 0 : dx > 0) ? 'x' : 'y';
+      // A finger rolls a few px sideways as it starts to scroll; claiming that (preventDefault) froze
+      // the page's scrolling. Any real vertical movement means a scroll; only a clearly sideways drag is ours.
+      const ax = Math.abs(dx), ay = Math.abs(dy);
+      if (ay >= 8) g.lock = 'y';
+      else if (ax < 16) return;
+      else g.lock = ax > ay * 2 && (g.open ? dx < 0 : dx > 0) ? 'x' : 'y';
       if (g.lock === 'y' || (window.getSelection && String(window.getSelection()))) { g = null; return; }
     }
     g.dx = dx;

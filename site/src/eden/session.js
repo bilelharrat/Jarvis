@@ -271,6 +271,7 @@ async function accountView(request, env) {
     acting_ended: Boolean(as && as.ended),
     plan: account.plan,
     usage: account.usage,
+    credits: account.credits || null, // pay-as-you-go (accounts/credits.js)
     devices: account.devices.map((d) => ({
       id: d.id,
       name: d.name,

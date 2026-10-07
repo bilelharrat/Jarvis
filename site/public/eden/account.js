@@ -181,7 +181,7 @@ export const accountOpen = () => !!($('accountSheet') && $('accountSheet').class
  * Opens the account page; `notice` is a line shown above it (what came back in #account), `ok`
  * shows it as good news, `waitPlus` watches for Plus to arrive (back from Stripe Checkout).
  */
-export async function openAccount({ notice = null, ok = false, waitPlus = false, focusPlus = false } = {}) {
+export async function openAccount({ notice = null, ok = false, waitPlus = false, focusPlus = false, focusCredits = false } = {}) {
   if (H.beforeOpen) H.beforeOpen();
   const s = sheet();
   if (!s.classList.contains('open')) returnFocus = document.activeElement;
@@ -189,6 +189,7 @@ export async function openAccount({ notice = null, ok = false, waitPlus = false,
   $('btnAcctClose').focus();
   const account = await draw(notice, { ok });
   if (focusPlus && account) showPlus();
+  if (focusCredits && account) showCredits();
   if (!waitPlus || !account) return;
   const shown = document.querySelector('#acctBody .acct-notice.ok');
   if (account.plan && account.plan.active) { if (shown) shown.textContent = 'Thank you! Plus is on.'; } // the webhook was first
@@ -530,14 +531,15 @@ function meter(leftUsd, totalUsd, label) {
 const SOURCE_WORDS = { app_store: 'bought in the iPhone app', stripe: 'billed on askeden.com', both: 'in the App Store and on askeden.com' };
 
 // Stripe Checkout or its Customer Portal: askeden.com makes the session, then the browser goes there.
-async function openBilling(button, kind) {
+// kind: checkout ({ plan: "monthly" | "yearly" }), credits ({ pack }), or portal.
+async function openBilling(button, kind, payload = {}) {
   button = button || el('button'); // from the ring popover or the palette: no button of its own
   const label = button.textContent;
   button.disabled = true;
-  button.textContent = kind === 'checkout' ? 'Opening checkout…' : 'Opening billing…';
+  button.textContent = kind === 'portal' ? 'Opening billing…' : 'Opening checkout…';
   if (kind === 'portal' && !document.contains(button)) toast('Opening billing…');
   try {
-    const { url } = await post(`/api/web/billing/${kind}`);
+    const { url } = await post(`/api/web/billing/${kind}`, payload);
     if (!/^https:\/\//.test(url || '') && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(url || '')) throw new Error('askeden.com sent back no billing page. Try again.');
     location.assign(url);
   } catch (e) {
@@ -587,15 +589,18 @@ function planSection(a, config = {}) {
 
   const iPhone = (a.devices || []).some((d) => d.kind === 'iphone');
   const included = typeof u.plus_usd === 'number' ? money(u.plus_usd) : 'more';
-  const price = a.plus && typeof a.plus.price_usd === 'number' ? `$${a.plus.price_usd}` : '$20';
+  const price = a.plus && typeof a.plus.price_usd === 'number' ? `$${a.plus.price_usd}` : '$10';
+  const yearly = a.plus && typeof a.plus.yearly_usd === 'number' ? a.plus.yearly_usd : null;
   let getPlus = null;
   if (!plus && web) {
     getPlus = el('div', 'acct-plus',
       el('div', 'grow',
         el('b', '', 'Plus'),
-        el('p', '', `Includes ${included} of AI every month. Pay by card with Stripe; cancel any time.`),
+        el('p', '', `Includes ${included} of AI every month, and credits cost less. Pay by card with Stripe; cancel any time.`),
         el('p', 'acct-alt', 'or in the J.A.R.V.I.S. iPhone app')),
-      el('button', { type: 'button', class: 'btn primary', onclick: (e) => openBilling(e.currentTarget, 'checkout') }, `Get Plus: ${price}/month`));
+      el('div', 'acct-plus-btns',
+        el('button', { type: 'button', class: 'btn primary', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'monthly' }) }, `Get Plus: ${price}/month`),
+        yearly ? el('button', { type: 'button', class: 'btn', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'yearly' }) }, `$${yearly}/year`) : null));
   } else if (!plus) {
     getPlus = el('div', 'acct-plus',
       el('div', 'grow',
@@ -607,7 +612,71 @@ function planSection(a, config = {}) {
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctPlanH' }, el('h3', { id: 'acctPlanH' }, 'Plan'),
     ...warnings.filter(Boolean),
     el('div', 'icard acct-card', head, allowance, manageRow),
-    el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Models & API keys).'), getPlus);
+    el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Models & API keys).'), getPlus,
+    creditsSection(a, web));
+}
+
+/* ---------- credits: pay as you go, after the included AI ---------- */
+
+const SOURCE_TOPUP = { stripe: 'Pack', auto_topup: 'Auto top-up', app_store: 'Pack (App Store)' };
+
+async function setAutoTopUp(input, on) {
+  input.disabled = true;
+  try {
+    await post('/api/web/billing/autotopup', { enabled: on });
+    toast(on ? 'Auto top-up is on' : 'Auto top-up is off');
+  } catch (e) {
+    input.checked = !on;
+    toast(e.message);
+  }
+  input.disabled = false;
+  draw();
+}
+
+function creditsSection(a, web) {
+  const c = a.credits;
+  const offer = a.plus || {};
+  const packs = web && Array.isArray(offer.credit_packs) ? offer.credit_packs : [];
+  if (!c || (!packs.length && !(c.balance_usd > 0) && !(c.history || []).length)) return null;
+  const pct = Math.round(((Number(c.markup) || 1) - 1) * 100);
+  const auto = c.auto_topup || {};
+  const plus = a.plan && a.plan.active;
+  const rows = [
+    el('div', 'acct-allow',
+      el('div', 'acct-row-top', el('span', 'acct-k', 'Balance'), el('b', 'acct-v', `${money(c.balance_usd)} left`)),
+      el('div', 'acct-sub', `Used after your included AI, at the AI’s cost + ${pct}%${plus ? ' (Plus price)' : ' (+25% with Plus)'}.${c.next_expiry ? ` Oldest expire ${day(c.next_expiry)}.` : ' Credits last 12 months.'}`)),
+  ];
+  if (packs.length) {
+    rows.push(el('div', 'acct-row-actions acct-packs',
+      ...packs.map((n) => el('button', { type: 'button', class: 'cap', onclick: (e) => openBilling(e.currentTarget, 'credits', { pack: n }) }, `Add $${n}`))));
+  }
+  if (web && offer.auto_topup) {
+    const input = el('input', { type: 'checkbox', role: 'switch', checked: Boolean(auto.enabled), disabled: !auto.card_on_file && !auto.enabled, onchange: (e) => setAutoTopUp(e.currentTarget, e.currentTarget.checked) });
+    rows.push(el('label', 'acct-auto', input,
+      el('span', 'grow', el('b', '', 'Auto top-up'),
+        el('span', 'acct-sub', ` When credits fall below ${money(auto.threshold_usd ?? 2)}, add ${money(auto.amount_usd ?? 10)} with your saved card.${auto.card_on_file ? '' : ' Buy a pack first to save a card.'}`))));
+  }
+  const warn = auto.last && auto.last.ok === false ? el('div', 'sp-warn acct-notice', el('b', '', 'Auto top-up stopped'), auto.last.why || 'The last top-up didn’t go through.') : null;
+  const history = (c.history || []).length ? el('details', 'acct-history',
+    el('summary', '', 'Top-up history'),
+    el('ul', '', ...c.history.map((h) => el('li', '',
+      el('span', '', `${SOURCE_TOPUP[h.source] || 'Pack'} · ${day(h.at)}`),
+      el('b', '', money(h.usd)),
+      el('span', 'acct-sub', h.expired ? 'expired' : `${money(h.left)} left · expires ${day(h.expires)}`))))) : null;
+  return el('section', { class: 'set-sec acct-credits', 'aria-labelledby': 'acctCreditsH' }, el('h3', { id: 'acctCreditsH' }, 'Credits'),
+    warn, el('div', 'icard acct-card', ...rows), history);
+}
+
+// "Add credits" from elsewhere (plan.js): the Credits, highlighted.
+function showCredits() {
+  const card = document.querySelector('#acctBody .acct-credits');
+  if (!card) return showPlus();
+  card.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  card.classList.remove('flash');
+  void card.offsetWidth;
+  card.classList.add('flash');
+  const b = card.querySelector('.acct-packs button');
+  if (b) b.focus({ preventScroll: true });
 }
 
 /* ---------- devices and browsers ---------- */
@@ -814,6 +883,7 @@ function fromHash() {
   // Back from Stripe Checkout (eden/billing.js success_url, cancel_url).
   if (q.get('billing') === 'success') return { notice: 'Thank you! Your payment went through, and Plus is being switched on.', ok: true, waitPlus: true };
   if (q.get('billing') === 'cancelled') return { notice: 'Checkout was cancelled. Nothing was charged.' };
+  if (q.get('billing') === 'credits') return { notice: 'Thank you! Your credits are being added: they can take a moment to show.', ok: true, focusCredits: true };
   if (q.get('linked')) toast(`${p} added`);
   return { notice: null };
 }
@@ -841,6 +911,7 @@ export async function initAccount(handlers = {}) {
   if (!res.ok) return;
   available = true;
   addEventListener('eden:get-plus', () => openAccount({ focusPlus: true }));
+  addEventListener('eden:add-credits', () => openAccount({ focusCredits: true }));
   addEventListener('eden:manage-billing', () => openBilling(null, 'portal'));
   enableWorkflowSharing(); // Workflows › Share to a space… (spaces.js)
   const me = await read(res);

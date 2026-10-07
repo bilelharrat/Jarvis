@@ -5,6 +5,11 @@
 //                                    someone) → { url }: a Stripe Checkout Session for a
 //                                    subscription to STRIPE_PRICE_PLUS. 409 already_plus when the
 //                                    account has Plus from either the App Store or Stripe.
+//                                    { plan: "yearly" } STRIPE_PRICE_PLUS_YEARLY instead.
+//   POST /api/web/billing/credits    { pack: 5 | 10 | 25 } → { url }: a one-time Checkout (mode
+//                                    payment) for a credit pack, STRIPE_PRICE_CREDITS_<pack>; the
+//                                    card is saved for auto top-up (setup_future_usage)
+//   POST /api/web/billing/autotopup  { enabled } → the credits: auto top-up on or off
 //   POST /api/web/billing/portal     → { url }: a Stripe Customer Portal session (cancel, card)
 //   GET  /api/web/billing/return     where Stripe sends the browser back: a small page of ours
 //                                    that moves on to #account (see billingReturn)
@@ -22,11 +27,21 @@
 // (loopback only, test keys only); anything else turns billing off.
 
 import { call, limited } from '../accounts/index.js';
+import { AUTO, PACKS } from '../accounts/credits.js';
+import { legacyPrices, legacyPrice } from '../accounts/stripe-plan.js';
 import { ApiError, hex, json, sameText, validAccountId } from '../accounts/util.js';
 import { SIGNIN_CSP, page } from './web.js';
 
-/** What STRIPE_PRICE_PLUS charges a month, for the button ("Get Plus: $20/month"). Change both together. */
-export const PLUS_PRICE_USD = 20;
+// What the prices charge, for the buttons. Change them with the prices in Stripe.
+//   STRIPE_PRICE_PLUS          today's Plus, $10/month ($6 of AI a month); more ids after commas
+//                              are honoured too. The first is sold.
+//   STRIPE_PRICE_PLUS_LEGACY   the old $20/month ($20 of AI): honoured, never sold, unless it is
+//                              STRIPE_PRICE_PLUS's first (before today's price exists)
+//   STRIPE_PRICE_PLUS_YEARLY   $96/year ($6 of AI a month); empty: no yearly option
+//   STRIPE_PRICE_CREDITS_5/_10/_25   one-time credit packs; an empty one isn't offered
+export const PLUS_PRICE_USD = 10;
+export const PLUS_LEGACY_PRICE_USD = 20;
+export const PLUS_YEARLY_PRICE_USD = 96;
 const STRIPE = 'https://api.stripe.com';
 export const SIGNATURE_TOLERANCE_S = 300; // a webhook signed more than 5 minutes ago (or ahead) is refused
 const WEBHOOK_BYTES = 1 << 20;
@@ -39,8 +54,21 @@ const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 const stripeKey = (env) => String(env.STRIPE_SECRET_KEY || '').trim();
 const webhookSecret = (env) => String(env.STRIPE_WEBHOOK_SECRET || '').trim();
 
-/** The price ids STRIPE_PRICE_PLUS lists (commas): the first for new subscriptions, all honoured. */
-const prices = (env) => String(env.STRIPE_PRICE_PLUS || '').split(/[\s,]+/).filter((p) => /^price_[A-Za-z0-9]{4,}$/.test(p));
+const priceList = (v) => String(v || '').split(/[\s,]+/).filter((p) => /^price_[A-Za-z0-9]{4,}$/.test(p));
+/** The price ids STRIPE_PRICE_PLUS lists (commas): the first for new subscriptions. */
+const prices = (env) => priceList(env.STRIPE_PRICE_PLUS);
+const yearlyPrice = (env) => priceList(env.STRIPE_PRICE_PLUS_YEARLY)[0] || null;
+/** Every Plus price a subscription may have: today's, the yearly and the grandfathered. */
+const honoured = (env) => [...prices(env), ...priceList(env.STRIPE_PRICE_PLUS_YEARLY), ...legacyPrices(env)];
+/** The credit packs whose price is set: { 5: price_…, … }. */
+export function packPrices(env) {
+  const out = {};
+  for (const pack of PACKS) {
+    const id = priceList(env[`STRIPE_PRICE_CREDITS_${pack}`])[0];
+    if (id) out[pack] = id;
+  }
+  return out;
+}
 
 /** Why billing is off here, or null when it's on. */
 export function billingProblem(env) {
@@ -64,7 +92,17 @@ export function billingConfig(env) {
 
 /** GET /api/web/account's `plus`: how Plus is bought. */
 export function plusOffer(env) {
-  return billingReady(env) ? { web_purchase: true, how: 'stripe', price_usd: PLUS_PRICE_USD } : { web_purchase: false, how: 'ios' };
+  if (!billingReady(env)) return { web_purchase: false, how: 'ios' };
+  const legacy = legacyPrice(env, prices(env)[0]); // today's price not created yet: the old one is sold
+  const packs = Object.keys(packPrices(env)).map(Number);
+  return {
+    web_purchase: true,
+    how: 'stripe',
+    price_usd: legacy ? PLUS_LEGACY_PRICE_USD : PLUS_PRICE_USD,
+    yearly_usd: yearlyPrice(env) ? PLUS_YEARLY_PRICE_USD : null,
+    credit_packs: packs,
+    auto_topup: packs.includes(AUTO.amount),
+  };
 }
 
 // A fake Stripe for dev and tests: loopback, and never with a live key.
@@ -94,7 +132,7 @@ export function stripeForm(params, prefix = '', out = new URLSearchParams()) {
   return out;
 }
 
-async function stripe(env, method, path, params = null, { idempotency = null } = {}) {
+async function stripe(env, method, path, params = null, { idempotency = null, raw = false } = {}) {
   const headers = { authorization: `Bearer ${stripeKey(env)}` };
   if (idempotency) headers['idempotency-key'] = idempotency;
   const init = { method, headers };
@@ -109,9 +147,10 @@ async function stripe(env, method, path, params = null, { idempotency = null } =
     throw new ApiError(502, 'stripe', 'Stripe didn’t answer. Try again in a moment.');
   }
   const out = await response.json().catch(() => ({}));
+  if (raw) return { ok: response.ok, status: response.status, body: out };
   if (!response.ok) {
     const e = out.error || {};
-    console.error('stripe refused', method, path.replace(/\/(sub|cus|cs)_[A-Za-z0-9]+/, '/$1_…'), response.status, e.type || '', e.code || '');
+    console.error('stripe refused', method, path.replace(/\/(sub|cus|cs|pi)_[A-Za-z0-9]+/, '/$1_…'), response.status, e.type || '', e.code || '');
     throw new ApiError(502, 'stripe', 'Stripe said no. Try again in a moment.');
   }
   return out;
@@ -139,15 +178,44 @@ export async function cancelSubscription(env, subscription) {
 // ── /api/web/billing/<op> (eden/session.js: the browser's own session, checked fresh) ──
 
 export async function billingApi(request, env, who, op, { acting = null, origin = '' } = {}) {
-  if (request.method !== 'POST' || !['checkout', 'portal'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  if (request.method !== 'POST' || !['checkout', 'portal', 'credits', 'autotopup'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
   if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in the J.A.R.V.I.S. iPhone app.');
   if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
   await limited(env, 'EDEN_RATE', `billing:${who.account}`);
+  const body = await request.json().catch(() => ({}));
+  if (op === 'credits') {
+    const pack = Number(body && body.pack);
+    const price = packPrices(env)[pack];
+    if (!price) throw new ApiError(404, 'not_found', 'That credit pack isn’t on sale here.');
+    const begun = await call(env, who.account, 'stripe-credits', { pack }, who.token);
+    const metadata = { account_id: who.account, kind: 'credits', pack: String(pack) };
+    const session = await stripe(env, 'POST', '/checkout/sessions', {
+      mode: 'payment',
+      line_items: [{ price, quantity: 1 }],
+      client_reference_id: who.account,
+      metadata,
+      // The card is kept for auto top-up (the person turns it on); the PaymentIntent names the
+      // pack so payment_intent.* events can be told apart from auto top-ups.
+      payment_intent_data: { metadata, setup_future_usage: 'off_session' },
+      success_url: `${origin}/api/web/billing/return?to=credits`,
+      cancel_url: `${origin}/api/web/billing/return?to=cancelled`,
+      ...(begun.customer ? { customer: begun.customer } : { customer_creation: 'always' }),
+    }, { idempotency: `eden-credits-${begun.key}` });
+    if (!stripePage(env, session.url, 'checkout.stripe.com')) throw new ApiError(502, 'stripe', 'Stripe sent back no checkout page. Try again.');
+    return json({ url: session.url });
+  }
+  if (op === 'autotopup') {
+    if (!plusOffer(env).auto_topup) throw new ApiError(404, 'not_found', 'Auto top-up isn’t offered here.');
+    return json(await call(env, who.account, 'stripe-autotopup', { enabled: body && body.enabled === true }, who.token)); // 409 no_card
+  }
   if (op === 'checkout') {
-    const begun = await call(env, who.account, 'stripe-checkout', { origin }, who.token); // 409 already_plus
+    const yearly = body && body.plan === 'yearly';
+    const price = yearly ? yearlyPrice(env) : prices(env)[0];
+    if (!price) throw new ApiError(404, 'not_found', 'Yearly Plus isn’t on sale here.');
+    const begun = await call(env, who.account, 'stripe-checkout', { origin: `${origin}#${yearly ? 'yearly' : 'monthly'}` }, who.token); // 409 already_plus
     const session = await stripe(env, 'POST', '/checkout/sessions', {
       mode: 'subscription',
-      line_items: [{ price: prices(env)[0], quantity: 1 }],
+      line_items: [{ price, quantity: 1 }],
       client_reference_id: who.account,
       metadata: { account_id: who.account },
       subscription_data: { metadata: { account_id: who.account } }, // so every subscription event names the account
@@ -167,7 +235,7 @@ export async function billingApi(request, env, who, op, { acting = null, origin 
 
 // Where Stripe sends the browser back, and where that goes next: fixed places, nothing taken
 // from the address but which one.
-const RETURNS = { success: '/#account?billing=success', cancelled: '/#account?billing=cancelled', portal: '/#account' };
+const RETURNS = { success: '/#account?billing=success', credits: '/#account?billing=credits', cancelled: '/#account?billing=cancelled', portal: '/#account' };
 
 /**
  * GET /api/web/billing/return?to=success|cancelled|portal. Coming back from Stripe's site is a
@@ -259,7 +327,7 @@ async function webhook(request, env) {
 
 /** The Plus price among a subscription's items, or null. */
 function plusPrice(sub, env) {
-  const list = prices(env);
+  const list = honoured(env);
   for (const item of (sub.items && sub.items.data) || []) {
     const price = idOf(item.price) || idOf(item.plan);
     if (list.includes(price)) return price;
@@ -294,6 +362,57 @@ const accountIn = (...ids) => {
   return found.length === 1 && validAccountId(found[0]) ? found[0] : null;
 };
 
+/** A credit pack's Checkout, paid: its credits, and the card for auto top-up. */
+async function creditsPaid(env, session, apply) {
+  const meta = session.metadata || {};
+  if (meta.kind !== 'credits') return { ignored: 'not_credits' };
+  if (session.payment_status !== 'paid') return { ignored: 'unpaid' };
+  const usd = Number(meta.pack);
+  if (!PACKS.includes(usd)) return { ignored: 'no_pack' };
+  const account = accountIn(session.client_reference_id, meta.account_id);
+  if (!account) return { ignored: 'no_account' };
+  const intent = idOf(session.payment_intent);
+  let payment_method = null;
+  if (intent) {
+    const pi = await stripe(env, 'GET', `/payment_intents/${encodeURIComponent(intent)}`, null, { raw: true });
+    if (pi.ok) payment_method = idOf(pi.body.payment_method);
+  }
+  return apply(account, { credit: { id: intent || String(session.id), usd, source: 'stripe', customer: idOf(session.customer), payment_method } });
+}
+
+/**
+ * An automatic top-up (accounts/credits.js maybeTopUp): an off-session PaymentIntent for `usd`
+ * with the customer's default card (else the one saved with a pack), confirmed at once. Its
+ * idempotency key is the top-up's own: the same top-up is never charged twice. → { status:
+ * "succeeded" | "requires_action" | "failed" | "processing", id, usd, why }.
+ */
+export async function chargeTopUp(env, { account, customer, payment_method, usd, key }) {
+  if (!billingReady(env) || !plusOffer(env).auto_topup) return { status: 'failed', id: null, usd, why: 'auto top-up is off here' };
+  let method = null;
+  const cus = await stripe(env, 'GET', `/customers/${encodeURIComponent(customer)}`, null, { raw: true });
+  if (cus.ok) method = idOf(cus.body.invoice_settings && cus.body.invoice_settings.default_payment_method) || idOf(cus.body.default_source);
+  method = method || payment_method;
+  if (!method) return { status: 'failed', id: null, usd, why: 'no card on file' };
+  const out = await stripe(env, 'POST', '/payment_intents', {
+    amount: Math.round(usd * 100),
+    currency: 'usd',
+    customer,
+    payment_method: method,
+    off_session: true,
+    confirm: true,
+    description: `Eden credits: automatic top-up of $${usd}`,
+    metadata: { account_id: account, kind: 'auto_topup', pack: String(usd), topup_key: key },
+  }, { idempotency: key, raw: true });
+  if (out.status >= 500 || out.status === 429) throw new ApiError(502, 'stripe', 'Stripe didn’t answer.');
+  const pi = out.ok ? out.body : (out.body.error && out.body.error.payment_intent) || {};
+  const status = pi.status === 'succeeded' ? 'succeeded'
+    : pi.status === 'requires_action' || (out.body.error && out.body.error.code === 'authentication_required') ? 'requires_action'
+    : pi.status === 'processing' ? 'processing'
+    : 'failed';
+  const e = out.body.error || {};
+  return { status, id: pi.id || null, usd, why: status === 'failed' ? e.decline_code || e.code || null : null };
+}
+
 async function handle(env, event) {
   const object = event.data.object;
   const base = { id: event.id, type: event.type, created: Number(event.created) || 0, livemode: Boolean(event.livemode) };
@@ -303,6 +422,7 @@ async function handle(env, event) {
   };
   switch (event.type) {
     case 'checkout.session.completed': {
+      if (object.mode === 'payment') return creditsPaid(env, object, apply);
       if (object.mode !== 'subscription' || !idOf(object.subscription)) return { ignored: 'not_a_subscription' };
       const account = accountIn(object.client_reference_id, object.metadata && object.metadata.account_id);
       if (!account) return { ignored: 'no_account' };
@@ -314,6 +434,18 @@ async function handle(env, event) {
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted':
       return apply(accountIn(object.metadata && object.metadata.account_id), { customer: idOf(object.customer), subscription: subscriptionFacts(object, env) });
+    case 'payment_intent.succeeded':
+    case 'payment_intent.payment_failed': {
+      const meta = object.metadata || {};
+      if (meta.kind !== 'auto_topup') return { ignored: 'not_a_top_up' }; // a pack's: checkout.session.completed adds it
+      const account = accountIn(meta.account_id);
+      const usd = Number(meta.pack);
+      if (!PACKS.includes(usd)) return { ignored: 'no_pack' };
+      const ok = event.type === 'payment_intent.succeeded';
+      if (ok && Number(object.amount_received) < usd * 100) return { ignored: 'short' };
+      const why = !ok && object.last_payment_error ? object.last_payment_error.code || object.last_payment_error.decline_code || null : null;
+      return apply(account, { topup: { key: String(meta.topup_key || ''), status: ok ? 'succeeded' : 'failed', id: String(object.id), usd, why } });
+    }
     case 'invoice.payment_failed': {
       const details = (object.parent && object.parent.subscription_details) || object.subscription_details || {};
       const subscription = idOf(object.subscription) || idOf(details.subscription);

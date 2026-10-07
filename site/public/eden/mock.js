@@ -506,7 +506,12 @@ function acctState() {
   const a = {
     account_id: '6f1c2b9e-0d4a-4c1e-9a77-2b6f0e5d1a42',
     plan: { name: plus ? 'plus' : 'free', active: plus, expires: plus ? now + 18 * 86400000 : null, renews: plus ? true : null },
-    usage: { period_start: month.toISOString(), period_end: next.toISOString(), spent_usd: plus ? 7.6 : 0, budget_usd: plus ? 20 : 0, left_usd: plus ? 12.4 : 0, trial_left_usd: plus ? 0 : 0.62, trial_usd: 1 },
+    usage: { period_start: month.toISOString(), period_end: next.toISOString(), spent_usd: plus ? 3.6 : 0, budget_usd: plus ? 6 : 0, left_usd: plus ? 2.4 : 0, trial_left_usd: plus ? 0 : 0.62, trial_usd: 1, plus_usd: 6 },
+    credits: {
+      balance_usd: plus ? 7.35 : 0, markup: plus ? 1.25 : 1.4, next_expiry: plus ? now + 300 * 86400000 : null,
+      history: plus ? [{ usd: 10, left: 7.35, at: now - 65 * 86400000, expires: now + 300 * 86400000, source: 'stripe', expired: false }] : [],
+      auto_topup: { enabled: false, threshold_usd: 2, amount_usd: 10, card_on_file: plus, last: null },
+    },
     devices: [
       ...(kind === 'single' ? [] : [{ id: 'd-iphone', name: 'Owner’s iPhone', kind: 'iphone', created: now - 90 * 86400000, last_seen: now - 3 * 3600000 },
         { id: 'd-mac', name: 'MacBook Pro', kind: 'mac', created: now - 60 * 86400000, last_seen: now - 20 * 60000 }]),
@@ -515,7 +520,7 @@ function acctState() {
     ],
     identities: kind === 'single' ? [{ provider: 'google', sub_hash: 'g1', email: 'owner@gmail.com', added: now - 2 * 86400000 }]
       : [{ provider: 'apple', sub_hash: 'a1', email: 'owner@icloud.com', added: now - 90 * 86400000 }],
-    plus: acctQ.get('billing') === 'off' ? { web_purchase: false, how: 'ios' } : { web_purchase: true, how: 'stripe', price_usd: 20 },
+    plus: acctQ.get('billing') === 'off' ? { web_purchase: false, how: 'ios' } : { web_purchase: true, how: 'stripe', price_usd: 10, yearly_usd: 96, credit_packs: [5, 10, 25], auto_topup: true },
   };
   if (plus && acctQ.get('billing') !== 'off') Object.assign(a.plan, { source: 'stripe', manage: { stripe: true } });
   // acct=delegate | acct=space: this browser is using a delegate's grant (chat and mail) or a team space (acting.js).

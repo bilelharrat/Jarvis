@@ -17,8 +17,19 @@
 //                     → { account_id, key, expires_at, customer }; 409 already_plus
 //   stripe-portal     the same device: → { customer }; 404 no_billing
 //   stripe-event      the Worker only, after the signature checked: apply one event, once
+//   stripe-credits    the device: may it buy a credit pack? → { account_id, key, customer }
+//   stripe-autotopup  the device: { enabled } → the credits as the account page shows them
+//
+// Credits (credits.js) arrive in stripe-event too: `credit` { id, usd, source, customer,
+// payment_method } adds a purchase once; `topup` { key, status, id, usd, why } is what became of
+// an automatic top-up.
 
 import { ApiError, hex, json, randomBytes } from './util.js';
+import { PACKS, creditsOf, creditsView, grantCredits, setAutoTopUp, topUpOutcome } from './credits.js';
+
+/** The grandfathered Plus prices (STRIPE_PRICE_PLUS_LEGACY, commas): the old $20/month with $20 of AI. */
+export const legacyPrices = (env) => String((env && env.STRIPE_PRICE_PLUS_LEGACY) || '').split(/[\s,]+/).filter((p) => /^price_[A-Za-z0-9]{4,}$/.test(p));
+export const legacyPrice = (env, price) => Boolean(price) && legacyPrices(env).includes(price);
 
 export const APP_STORE_SUBSCRIPTIONS = 'https://apps.apple.com/account/subscriptions';
 const LIVE = new Set(['active', 'trialing']);
@@ -93,6 +104,11 @@ export async function stripeOp(account, op, request) {
     if (device.grant) throw new ApiError(403, 'grant_forbidden', 'Only the account’s owner can buy or manage Plus.');
     if (op === 'stripe-checkout') return json(await checkoutBegin(account, body));
     if (op === 'stripe-portal') return json(await portalBegin(account));
+    if (op === 'stripe-credits') return json(await creditsBegin(account, body));
+    if (op === 'stripe-autotopup') {
+      await setAutoTopUp(account, body);
+      return json(await creditsView(account, await account.planNow()));
+    }
     throw new ApiError(404, 'not_found', 'No such thing.');
   } catch (error) {
     if (error instanceof ApiError) return error.response();
@@ -118,8 +134,17 @@ async function checkoutBegin(account, { origin }) {
   return { account_id: (await account.storage.get('account')).id, key: pending.key, expires_at: pending.expires_at, customer: (stripe && stripe.customer) || null };
 }
 
+async function creditsBegin(account, { pack }) {
+  if (!PACKS.includes(Number(pack))) throw new ApiError(400, 'bad_request', 'No such credit pack.');
+  const stripe = await account.storage.get('stripe_plan');
+  const credits = await creditsOf(account);
+  return { account_id: (await account.storage.get('account')).id, key: hex(randomBytes(16)), customer: credits.customer || (stripe && stripe.customer) || null };
+}
+
 async function portalBegin(account) {
   const stripe = await account.storage.get('stripe_plan');
+  const credits = await creditsOf(account);
+  if ((!stripe || !stripe.customer) && credits.customer) return { customer: credits.customer };
   if (!stripe || !stripe.customer) throw new ApiError(404, 'no_billing', 'This account has no billing on askeden.com.');
   return { customer: stripe.customer };
 }
@@ -139,6 +164,16 @@ async function applyEvent(account, facts) {
   const now = account.now();
   let seen = ((await storage.get('stripe_seen')) || []).filter(([, at]) => now - at < SEEN.days * 86400_000);
   if (seen.some(([e]) => e === id)) return { duplicate: true, applied: false };
+  if (facts.credit || facts.topup) {
+    // Credits are idempotent by their purchase's own id too (credits.js), whatever the event.
+    let out;
+    if (facts.topup) out = await topUpOutcome(account, facts.topup);
+    else out = await grantCredits(account, { ...facts.credit, at: Number(facts.created) * 1000 || null });
+    seen.push([id, now]);
+    if (seen.length > SEEN.max) seen = seen.slice(-SEEN.max);
+    await storage.put('stripe_seen', seen);
+    return { duplicate: false, applied: Boolean(out.added || out.charged || out.failed) };
+  }
   const before = (await storage.get('stripe_plan')) || null;
   let after = before;
   if (facts.subscription) after = takeSubscription(before, facts);

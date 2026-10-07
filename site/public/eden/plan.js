@@ -14,6 +14,8 @@ let offer = null;
 export const currentOffer = () => offer;
 export const getPlus = () => dispatchEvent(new CustomEvent('eden:get-plus'));
 export const manageBilling = () => dispatchEvent(new CustomEvent('eden:manage-billing'));
+export const addCredits = () => dispatchEvent(new CustomEvent('eden:add-credits'));
+const usd = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
 export function setPlanOffer(account, config) {
   offer = planOffer(account, config, IN_APP);
@@ -34,14 +36,19 @@ function drawPill() {
 
 /** The usage ring popover's plan rows; `close` closes the popover first. */
 export function planRows(close = () => {}) {
-  if (!offer || (!offer.plus && !offer.upgrade)) return [];
+  if (!offer || (!offer.plus && !offer.upgrade && !offer.credits && !(offer.balance > 0))) return [];
   const head = el('div', 'cp-t ap-t2', 'Plan');
+  // Credits: the balance (spent after the included AI), and "Add credits" where packs are sold.
+  const credits = offer.credits || offer.balance > 0 ? [
+    el('div', 'ap-row', el('span', '', 'Credits'), el('b', '', usd(offer.balance))),
+    offer.credits ? el('button', { type: 'button', class: 'cp-link plan-manage', onclick: () => { close(); addCredits(); } }, 'Add credits →') : null,
+  ] : [];
   if (offer.plus) {
     return [head, el('div', 'ap-row', el('span', '', 'Eden Plus'), el('span', 'plan-badge', 'Plus')),
-      offer.portal ? el('button', { type: 'button', class: 'cp-link plan-manage', onclick: () => { close(); manageBilling(); } }, 'Manage billing →') : null].filter(Boolean);
+      offer.portal ? el('button', { type: 'button', class: 'cp-link plan-manage', onclick: () => { close(); manageBilling(); } }, 'Manage billing →') : null, ...credits].filter(Boolean);
   }
   return [head, el('div', 'ap-row', el('span', '', 'Free'), el('b', '', offer.price ? `Plus $${offer.price}/month` : 'Plus')),
-    el('button', { type: 'button', class: 'plan-up', onclick: () => { close(); getPlus(); } }, ico('spark'), 'Get Eden Plus')];
+    offer.upgrade ? el('button', { type: 'button', class: 'plan-up', onclick: () => { close(); getPlus(); } }, ico('spark'), 'Get Eden Plus') : null, ...credits].filter(Boolean);
 }
 
 /** The ⌘K palette's entry, or null. */
@@ -51,7 +58,10 @@ export function planCommand() {
   return null;
 }
 
-/** "Get Plus" under an error that says the included AI ran out, or null. */
+/** "Get Plus" (or, with Plus, "Add credits") under an error that says the included AI ran out, or null. */
 export function limitAction(message) {
-  return offer && offer.upgrade && isLimitError(message) ? el('button', { type: 'button', class: 'cap primary', onclick: getPlus }, ico('spark'), 'Get Plus') : null;
+  if (!offer || !isLimitError(message)) return null;
+  if (offer.upgrade) return el('button', { type: 'button', class: 'cap primary', onclick: getPlus }, ico('spark'), 'Get Plus');
+  if (offer.credits) return el('button', { type: 'button', class: 'cap primary', onclick: addCredits }, ico('spark'), 'Add credits');
+  return null;
 }

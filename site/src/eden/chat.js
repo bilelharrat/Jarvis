@@ -606,6 +606,9 @@ export function learnedOf(raw, cfg) {
   return Object.keys(adj).length ? { adj, on: raw.learned.on !== false } : null;
 }
 
+/** What a reply's provider cost is multiplied by for the user: the markup on credits, else 1. */
+export const creditFactor = (allow) => (allow && allow.bucket === 'credits' && Number(allow.markup) > 1 ? Number(allow.markup) : 1);
+
 /** Plus's monthly allowance in dollars (accounts/account.js allowances). */
 function plusUSD(env) {
   const v = env.PLUS_BUDGET_USD;
@@ -629,9 +632,10 @@ export function hostedAutopilot(env, allow, now = Date.now()) {
   }
   const bucket = String(allow.bucket || '');
   if (bucket !== 'plus' && bucket !== 'trial') return null;
-  const budget = bucket === 'plus' ? plusUSD(env) : trialUSD(env);
+  // The allowance alone (`budget`, `allowance_left`: the plan's own size, credits apart).
+  const budget = Number(allow.budget) > 0 ? Number(allow.budget) : bucket === 'plus' ? plusUSD(env) : trialUSD(env);
   if (!(budget > 0)) return null;
-  const spent = Math.max(0, budget - (Number(allow.left) || 0));
+  const spent = Math.max(0, budget - (Number(allow.allowance_left ?? allow.left) || 0));
   if (bucket === 'plus') return { ...autopilotState({ spent, budget, now, start, end, utc: true }), bucket };
   const stage = autopilotStage({ spent, budget, forecastUSD: spent });
   const st = STAGES[stage];
@@ -919,7 +923,9 @@ async function send(request, env, ctx, who, cfg) {
     if (r.citations.length) write('citations', { sources: r.citations });
     const u = r.usage;
     // topUSD: the top model's price for the same tokens ("Saved $X vs always-Opus", H3)
-    write('usage', { inputTokens: u.inputTokens, outputTokens: u.outputTokens, reasoningTokens: u.reasoningTokens, ...(u.webSearches ? { webSearches: u.webSearches } : {}), costUSD: r.costUSD, notional: false, ...(metered(cfg.keys, model.provider) ? {} : { ownKey: true }), ...(top ? { topUSD: usageUSD(top, { ...u, webSearches: 0 }) } : {}) });
+    // On credits, the reply's cost is the user's price (provider cost × the markup, credits.js).
+    const f = metered(cfg.keys, model.provider) ? creditFactor(hold || allow) : 1;
+    write('usage', { inputTokens: u.inputTokens, outputTokens: u.outputTokens, reasoningTokens: u.reasoningTokens, ...(u.webSearches ? { webSearches: u.webSearches } : {}), costUSD: round6(r.costUSD * f), notional: false, ...(metered(cfg.keys, model.provider) ? {} : { ownKey: true }), ...(top ? { topUSD: round6(usageUSD(top, { ...u, webSearches: 0 }) * f) } : {}) });
     return { finish: r.finish };
   };
 
@@ -1245,7 +1251,8 @@ async function compare(request, env, ctx, who, cfg) {
     if (r.citations.length) write('citations', { lane: tag, sources: r.citations });
     if (r.usage && !r.stopped) {
       const u = r.usage;
-      write('usage', { lane: tag, inputTokens: u.inputTokens, outputTokens: u.outputTokens, reasoningTokens: u.reasoningTokens, costUSD: r.costUSD, notional: false, ...(metered(cfg.keys, model.provider) ? {} : { ownKey: true }), ...(top ? { topUSD: usageUSD(top, u) } : {}) });
+      const f = metered(cfg.keys, model.provider) ? creditFactor(hold || allow) : 1;
+      write('usage', { lane: tag, inputTokens: u.inputTokens, outputTokens: u.outputTokens, reasoningTokens: u.reasoningTokens, costUSD: round6(r.costUSD * f), notional: false, ...(metered(cfg.keys, model.provider) ? {} : { ownKey: true }), ...(top ? { topUSD: round6(usageUSD(top, u) * f) } : {}) });
     }
     const finish = r.stopped ? 'aborted' : r.finish || 'stop';
     write('done', { lane: tag, finish });

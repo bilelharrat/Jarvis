@@ -31,7 +31,8 @@ import { delegateOp, grantAllow, grantGuard, grantView, poolSpend } from './dele
 import { mailDue, mailOp, runAlarms, scheduleJob, unscheduleJob } from './schedule.js';
 import { taskDue, taskOp } from './tasks.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
-import { combinePlans, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
+import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
+import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
 
 const SEEN_EVERY = 3600_000; // last_seen is saved at most hourly
 const MAX_DEVICES = 20;
@@ -63,12 +64,15 @@ const PUSHES_A_MINUTE = 60;
 const VOICE = { free: 20000, plus: 100000 };
 const RELAY = { frame: 64 * 1024, held: 256 * 1024, streams: 16 };
 
-export const LIMITS = { plus: 20, trial: 1 }; // dollars: a month of Plus, and the trial
+// Dollars: a month of Plus (today's price), a month of Plus at the old $20 price (grandfathered:
+// its Stripe price in STRIPE_PRICE_PLUS_LEGACY, and the App Store's), and the trial.
+export const LIMITS = { plus: 6, legacy: 20, trial: 1 };
 
 function allowances(env = {}) {
   const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== '' && v !== undefined ? Number(v) : d);
   return {
     plus: n(env.PLUS_BUDGET_USD, LIMITS.plus),
+    legacy: n(env.PLUS_LEGACY_BUDGET_USD, LIMITS.legacy),
     trial: n(env.TRIAL_BUDGET_USD, LIMITS.trial),
     voiceFree: n(env.VOICE_DAILY_FREE, VOICE.free),
     voicePlus: n(env.VOICE_DAILY_PLUS, VOICE.plus),
@@ -440,7 +444,7 @@ export class Account {
     const caps = allowances(this.env);
     const voice = (await this.storage.get('voice')) || {};
     const voiceToday = voice.day === today(this.now()) ? voice.chars : 0;
-    const budget = plan.active ? caps.plus : 0;
+    const budget = plan.active ? await this.plusCap(plan) : 0;
     const devices = (await this.devices()).filter((d) => !d.grant).sort((a, b) => a.created - b.created).map((d) => this.publicDevice(d, device.id));
     return {
       id: account.id,
@@ -462,10 +466,11 @@ export class Account {
         left_usd: round(Math.max(0, budget - usage.spent)),
         trial_left_usd: round(Math.max(0, caps.trial - usage.trial_spent)),
         trial_usd: caps.trial, // the trial's size and a month of Plus, for the meters
-        plus_usd: caps.plus,
+        plus_usd: plan.active ? budget : caps.plus,
         voice_today: voiceToday,
         voice_daily: plan.active ? caps.voicePlus : caps.voiceFree,
       },
+      credits: await creditsView(this, plan), // pay-as-you-go, after the included AI (credits.js)
       devices,
       identities: this.publicIdentities(await this.identities()),
       sync: { rev: (await this.storage.get('syncrev')) || 0, items: (await this.storage.get('synccount')) || 0 },
@@ -552,22 +557,52 @@ export class Account {
     return usd;
   }
 
-  async allowAi(device = null) {
+  // A month of Plus in dollars: the plan's price decides (grandfathered $20 subscribers, and the
+  // App Store's, keep the old allowance; today's monthly and yearly prices get PLUS_BUDGET_USD).
+  async plusCap(plan) {
+    const caps = allowances(this.env);
+    if (!plan.active) return 0;
+    const stripe = (await this.storage.get('stripe_plan')) || {};
+    const apple = plan.source === 'app_store' || plan.source === 'both';
+    const web = plan.source === 'stripe' || plan.source === 'both';
+    let cap = apple ? caps.legacy : 0;
+    if (web) cap = Math.max(cap, legacyPrice(this.env, stripe.price) ? caps.legacy : caps.plus);
+    return cap;
+  }
+
+  // What the AI may spend now, in dollars of provider cost: the month's Plus allowance, then the
+  // trial, then the credits (at the user's price: the markup divides them). `bucket` says where a
+  // turn starts; spend() moves on to the credits when the allowance runs out under it. `left`
+  // counts the credits after the allowance (less hosted Eden's turns in flight: Eden fits a
+  // reply's size to it); `allowance_left` the allowance alone. `credits: false` (a grant's pool)
+  // never reaches the owner's credits.
+  async allowAi(device = null, { credits = true } = {}) {
     const plan = await this.planNow();
     // A grant (a delegate, a space member): the owner's allowance, narrowed to its own pool.
-    if (device && device.grant) return grantAllow(this, device, await this.allowAi(), plan);
+    if (device && device.grant) return grantAllow(this, device, await this.allowAi(null, { credits: false }), plan);
     const usage = await this.usageNow();
     const caps = allowances(this.env);
-    // `left`: what that allowance still holds, less hosted Eden's turns in flight (Eden fits a
-    // reply's size to it). The apps' proxy needs only `ok`, as before.
-    const left = (bucket, cap, spent) => round(Math.max(0, cap - spent - this.held(bucket)));
-    if (plan.active && usage.spent < caps.plus) return { ok: true, bucket: 'plus', left: left('plus', caps.plus, usage.spent) };
-    if (usage.trial_spent < caps.trial) return { ok: true, bucket: 'trial', left: left('trial', caps.trial, usage.trial_spent) };
+    const cap = await this.plusCap(plan);
+    const markup = markupFor(plan);
+    const creditUSD = credits ? balanceOf(await creditsOf(this), this.now()) : 0;
+    const creditLeft = creditUSD / markup - this.held('credits');
+    const withCredits = (bucket, raw) => ({
+      ok: true,
+      bucket,
+      left: round(Math.max(0, raw) + Math.max(0, creditLeft + Math.min(0, raw))),
+      allowance_left: round(Math.max(0, raw)),
+      budget: bucket === 'plus' ? cap : caps.trial,
+      markup: 1,
+      credits_usd: creditUSD,
+    });
+    if (plan.active && usage.spent < cap) return withCredits('plus', cap - usage.spent - this.held('plus'));
+    if (usage.trial_spent < caps.trial) return withCredits('trial', caps.trial - usage.trial_spent - this.held('trial'));
+    if (creditLeft > 0) return { ok: true, bucket: 'credits', left: round(creditLeft), allowance_left: 0, budget: 0, markup, credits_usd: creditUSD };
     return {
       ok: false,
       why: plan.active
-        ? "This month's Jarvis Plus AI allowance is used up. It starts again on the 1st."
-        : 'The free trial of Jarvis AI is used up. Jarvis Plus includes more every month (Settings › Account).',
+        ? "This month's Plus AI allowance is used up. It starts again on the 1st, or add credits in Settings › Account."
+        : 'The free trial of Eden’s AI is used up. Get Plus, or add credits (Settings › Account).',
     };
   }
 
@@ -587,7 +622,7 @@ export class Account {
     }
     const id = crypto.randomUUID();
     this.holds.set(id, { usd: want, bucket: allow.bucket, until: this.now() + HOLD_MS, pool: allow.pool || null });
-    return { ok: true, bucket: allow.bucket, hold: id, left: allow.left };
+    return { ok: true, bucket: allow.bucket, hold: id, left: allow.left, markup: allow.markup || 1 };
   }
 
   // One request of the apps' proxy (index.js anthropic): at most PROXY_TURNS at once, each holding
@@ -612,17 +647,50 @@ export class Account {
     return {};
   }
 
+  // `usd`: provider cost. The allowance takes what it still holds; the rest (the account has
+  // credits, and it's not a grant's turn) comes off the credits at the user's price. Without
+  // credits, the allowance takes all of it, as before. → { charged_usd }: the user's price.
   async spend({ usd, bucket }) {
     const cost = Number(usd);
-    if (!(cost > 0)) return {};
+    if (!(cost > 0)) return { charged_usd: 0 };
     const usage = await this.usageNow();
     // "plus|dlg:<id>|<by>": a grant's turn, also counted on its pool (delegates.js grantAllow).
     const [base, pool, by] = String(bucket || '').split('|');
-    if (base === 'trial') usage.trial_spent = round(usage.trial_spent + cost);
-    else usage.spent = round(usage.spent + cost);
-    await this.storage.put('usage', usage);
+    const plan = await this.planNow();
+    const markup = markupFor(plan);
+    let charged = 0;
+    let fromCredits = 0;
+    if (base === 'credits' && !pool) fromCredits = round(cost * markup);
+    else {
+      const trial = base === 'trial';
+      const cap = trial ? allowances(this.env).trial : await this.plusCap(plan);
+      const room = Math.max(0, cap - (trial ? usage.trial_spent : usage.spent));
+      let inAllowance = cost;
+      if (!pool && cost > room && balanceOf(await creditsOf(this), this.now()) > 0) {
+        inAllowance = room;
+        fromCredits = round((cost - room) * markup);
+      }
+      if (trial) usage.trial_spent = round(usage.trial_spent + inAllowance);
+      else usage.spent = round(usage.spent + inAllowance);
+      await this.storage.put('usage', usage);
+      charged = inAllowance;
+    }
+    if (fromCredits > 0) {
+      charged += await spendCredits(this, fromCredits);
+      await this.topUpSoon();
+    }
     if (pool) await poolSpend(this, pool, by, cost);
-    return {};
+    return { charged_usd: round(charged) };
+  }
+
+  // Auto top-up (credits.js maybeTopUp) through Stripe (eden/billing.js chargeTopUp); never fails a spend.
+  async topUpSoon() {
+    try {
+      const { chargeTopUp } = await import('../eden/billing.js');
+      await maybeTopUp(this, (args) => chargeTopUp(this.env, args));
+    } catch (error) {
+      console.error('auto top-up failed', error && error.message);
+    }
   }
 
   // ── the JARVIS voice, counted per account ──

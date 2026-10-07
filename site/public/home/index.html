@@ -42,7 +42,8 @@
   </ul>
 
   <!-- Plans: the numbers are the Worker's own (accounts/account.js LIMITS and VOICE, browser/rules.js
-       MINUTES, eden/billing.js PLUS_PRICE_USD; wrangler.toml may override them). Change them together. -->
+       MINUTES, eden/billing.js PLUS_PRICE_USD and PLUS_YEARLY_PRICE_USD, accounts/credits.js PACKS
+       and MARKUP; wrangler.toml may override them). Change them together. -->
   <section class="pricing" id="pricing" aria-labelledby="pricingH">
     <h2 id="pricingH">Pricing</h2>
     <p class="sub">Start free. Upgrade when you want more of Eden&rsquo;s included AI.</p>
@@ -61,9 +62,10 @@
       </article>
       <article class="plan plus">
         <h3>Eden Plus</h3>
-        <p class="price"><b>$20</b><span>/month</span></p>
+        <p class="price"><b>$10</b><span>/month</span></p>
         <ul>
-          <li><b>$20 of included AI</b> every month</li>
+          <li><b>$6 of included AI</b> every month</li>
+          <li>Or <b>$96 a year</b> (two months free)</li>
           <li><b>600 minutes</b> of Eden&rsquo;s cloud browser a month</li>
           <li><b>100,000 characters</b> of JARVIS voice a day</li>
           <li>Team spaces, with a shared AI budget</li>
@@ -71,8 +73,20 @@
         </ul>
         <a class="btn primary" href="/signin?return=%2F%23plus">Get Plus</a>
       </article>
+      <article class="plan wide">
+        <h3>Pay as you go</h3>
+        <p class="price"><b>$5</b><span>, $10 or $25</span></p>
+        <ul>
+          <li><b>Credits</b> for more AI, on Free or Plus</li>
+          <li>Used after your included AI runs out</li>
+          <li>AI at <b>cost + 40%</b>, or <b>cost + 25%</b> with Plus</li>
+          <li>Optional auto top-up when you run low</li>
+          <li>Credits last <b>12 months</b></li>
+        </ul>
+        <a class="btn" href="/signin?return=%2F%23plus">Add credits</a>
+      </article>
     </div>
-    <p class="fine">Plus is billed monthly by card through Stripe; cancel any time from your account.</p>
+    <p class="fine">Plus is billed monthly or yearly by card through Stripe; cancel any time from your account. Credits are a one-time purchase (see the <a href="/terms">Terms</a>).</p>
   </section>
 </main>
 

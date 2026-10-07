@@ -97,6 +97,7 @@ h2{margin:0;font-size:32px;line-height:1.15;letter-spacing:-.8px;font-weight:700
 .plan li b{color:var(--text);font-weight:600}
 .plan li::before{content:"";position:absolute;left:2px;top:.42em;width:10px;height:6px;border-left:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:rotate(-45deg)}
 .plan .btn{width:100%;min-width:0}
+.plan.wide{grid-column:1/-1}
 .pricing .fine{margin-top:16px}
 html{scroll-behavior:smooth}
 

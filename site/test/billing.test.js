@@ -160,7 +160,11 @@ test('billing stays off until the key, the webhook secret and the price are set;
   const config = await (await hit('/api/web/config')).json();
   assert.equal(config.billing, true);
   const session = await browser(A);
-  assert.deepEqual((await (await hit('/api/web/account', { session })).json()).plus, { web_purchase: true, how: 'stripe', price_usd: 20 });
+  assert.deepEqual((await (await hit('/api/web/account', { session })).json()).plus, { web_purchase: true, how: 'stripe', price_usd: 10, yearly_usd: null, credit_packs: [], auto_topup: false });
+  // Before today's price exists, the old one is sold (and shown) as before.
+  env.STRIPE_PRICE_PLUS_LEGACY = PRICE;
+  assert.equal((await (await hit('/api/web/account', { session })).json()).plus.price_usd, 20);
+  delete env.STRIPE_PRICE_PLUS_LEGACY;
   env.STRIPE_SECRET_KEY = 'sk_live_51RealLookingKey';
   assert.equal((await (await hit('/api/web/config')).json()).billing, false);
   assert.deepEqual((await (await hit('/api/web/account', { session })).json()).plus, { web_purchase: false, how: 'ios' });

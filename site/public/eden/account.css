@@ -38,6 +38,20 @@
 .acct-manage{margin-top:0;padding:10px 0 12px;border-top:.5px solid var(--sep)}
 .acct-manage a.cap{text-decoration:none}
 .acct-notice.ok{background:rgba(48,209,88,.1);box-shadow:inset 0 0 0 .5px rgba(48,209,88,.35)}
+/* Plus monthly / yearly, and credits: packs, auto top-up, history */
+.acct-plus-btns{display:flex;flex-direction:column;gap:6px;flex:none}
+.acct-plus-btns .btn{justify-content:center}
+.acct-packs{padding:10px 0 12px;border-top:.5px solid var(--sep);flex-wrap:wrap}
+.acct-auto{display:flex;align-items:flex-start;gap:10px;padding:10px 0 12px;border-top:.5px solid var(--sep);cursor:pointer;font-size:13px}
+.acct-auto input{margin-top:2px;flex:none}
+.acct-auto .grow{flex:1;min-width:0;line-height:1.45}
+.acct-auto .acct-sub{display:inline}
+.acct-history{margin-top:8px;font-size:12.5px}
+.acct-history summary{cursor:pointer;color:var(--text2)}
+.acct-history ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.acct-history li{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-variant-numeric:tabular-nums}
+.acct-history li .acct-sub{grid-column:1/-1}
+.acct-credits.flash .acct-card{animation:acct-flash 2.4s ease-out 1}
 .set-sec > .acct-notice{margin:0 0 10px}
 
 .acct-list{list-style:none}
@@ -104,6 +118,7 @@
 @media (max-width: 560px){
   .acct-plus{flex-direction:column;align-items:stretch}
   .acct-plus .btn{justify-content:center}
+  .acct-plus-btns{flex-direction:column}
   .acct-foot{flex-direction:column;gap:0}
   .acct-foot .acct-confirm{justify-content:flex-start}
   .acct-note{max-width:110px}

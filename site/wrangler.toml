@@ -30,7 +30,10 @@ VOICE_DAILY_TOTAL = "400000"
 # Jarvis accounts (docs/accounts.md): allowances in dollars of AI at list prices, and the
 # JARVIS voice per account a day. Secrets: ANTHROPIC_API_KEY, APNS_KEY, APNS_KEY_ID, and
 # optionally SIWA_KEY, SIWA_KEY_ID (wrangler secret put NAME).
-PLUS_BUDGET_USD = "20"
+# PLUS_BUDGET_USD: a month of today's Plus ($10/month or $96/year); PLUS_LEGACY_BUDGET_USD: a
+# month of grandfathered Plus (the old $20 Stripe price, STRIPE_PRICE_PLUS_LEGACY, and the App Store).
+PLUS_BUDGET_USD = "6"
+PLUS_LEGACY_BUDGET_USD = "20"
 TRIAL_BUDGET_USD = "1"
 VOICE_DAILY_FREE = "20000"
 VOICE_DAILY_PLUS = "100000"
@@ -77,11 +80,27 @@ WEB_APPLE_SERVICES_ID = "com.askeden.eden.web"
 GOOGLE_CLIENT_ID = "276467237017-cr8pkfhbunm94on8vbi6o0pj11tq7bdm.apps.googleusercontent.com"
 # Plus on the web with Stripe (src/eden/billing.js; docs/web-auth.md "Billing on the web (Stripe)"),
 # beside the App Store. Secrets: STRIPE_SECRET_KEY (sk_test_… for now) and STRIPE_WEBHOOK_SECRET
-# (whsec_…). STRIPE_PRICE_PLUS: the $20/month "Eden Plus" price id (several, commas: the first
+# (whsec_…). STRIPE_PRICE_PLUS: the "Eden Plus" price ids (several, commas: the first
 # for new subscriptions). Any of the three missing keeps billing off. A live key is refused unless
 # STRIPE_LIVE = "1". STRIPE_IN_EDEN_APP = "1" also offers it inside the Eden iOS app (off: Apple's
 # in-app purchase rules; for the US link-out later).
+#
+# Pricing (src/eden/billing.js): the owner creates these in Stripe's LIVE mode, then fills them in.
+# Until then each empty one stays hidden, and Plus is sold at the old $20 price as before.
+#   STRIPE_PRICE_PLUS: put today's "Eden Plus" $10/month price FIRST, then keep the old $20 one:
+#     STRIPE_PRICE_PLUS = "price_NEW10,price_1UNyviRqjDshFbQioPdAvCuu"
+#   STRIPE_PRICE_PLUS_LEGACY: the old $20/month price: honoured with $20 of AI a month, never sold
+#     (unless it is STRIPE_PRICE_PLUS's first).
+#   STRIPE_PRICE_PLUS_YEARLY: "Eden Plus" $96/year (recurring yearly). Empty: no yearly option.
+#   STRIPE_PRICE_CREDITS_5/_10/_25: "Eden credits" one-time prices $5, $10, $25. Empty: that pack
+#     isn't offered; auto top-up needs the $10 one. Webhook events to add to the Stripe endpoint:
+#     payment_intent.succeeded and payment_intent.payment_failed (checkout.session.completed already).
 STRIPE_PRICE_PLUS = "price_1UNyviRqjDshFbQioPdAvCuu"
+STRIPE_PRICE_PLUS_LEGACY = "price_1UNyviRqjDshFbQioPdAvCuu"
+STRIPE_PRICE_PLUS_YEARLY = ""
+STRIPE_PRICE_CREDITS_5 = ""
+STRIPE_PRICE_CREDITS_10 = ""
+STRIPE_PRICE_CREDITS_25 = ""
 STRIPE_LIVE = "1"
 STRIPE_IN_EDEN_APP = ""
 # Cloudflare Turnstile on sign-up (src/accounts/turnstile.js; docs/web-auth.md "Turnstile"): the
