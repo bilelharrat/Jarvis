@@ -112,10 +112,16 @@ a:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px s
   width: 56px;
   height: 56px;
   margin: 0 auto 16px;
-  border-radius: 50%;
-  background: var(--orb);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.5), 0 2px 12px rgba(22, 119, 201, 0.45);
-  animation: breathe 8s ease-in-out infinite;
+  /* The Ask Eden mark (askeden.com's, as in Eden's own .orb): navy with a white mark; flipped in dark mode. */
+  border-radius: 26%;
+  background: #0e2747 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%23ffffff' stroke='%23ffffff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E") center / 56% no-repeat;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 12px rgba(14, 39, 71, 0.3);
+}
+@media (prefers-color-scheme: dark) {
+  .orb {
+    background: #f4f5f7 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%230E2747' stroke='%230E2747' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E") center / 56% no-repeat;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 2px 12px rgba(0, 0, 0, 0.35);
+  }
 }
 @keyframes breathe { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.08); } }
 h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4px; }
