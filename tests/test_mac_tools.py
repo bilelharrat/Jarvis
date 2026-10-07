@@ -91,6 +91,15 @@ async def test_tool_failures_become_error_results(monkeypatch):
         raise mac_tools.ToolFailure("Not authorized to send Apple events")
 
     monkeypatch.setattr(mac_tools, "run_command", boom)
+
+    # EventKit is tried first; on a Mac that has granted calendar access it would answer with the
+    # owner's real events and never reach the AppleScript path this test is about.
+    async def no_eventkit(*_a, **_k):
+        return {"error": "no calendar access"}
+
+    from jarvis import calendar_kit
+
+    monkeypatch.setattr(calendar_kit, "fetch", no_eventkit)
     result = await mac_tools.list_events.handler({})
     assert result["is_error"]
     assert "Not authorized" in result["content"][0]["text"]
