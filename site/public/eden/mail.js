@@ -13,7 +13,7 @@ import { el, ico, toast, debounce } from './util.js';
 import { api } from './api.js';
 import { state } from './state.js';
 import { initCompose, openCompose } from './compose.js';
-import { routeSettings } from './router.js';
+import { routeSettings, modelInfo } from './router.js';
 import { renderMarkdown } from './markdown.js';
 import {
   nameOf, emailOf, avatarFor, groupByDay, dayLabel, mailLines, AI_MAX, RANKS, RANK_LABEL, RANK_SYSTEM, DIGEST_SYSTEM, SUMMARY_SYSTEM,
@@ -316,8 +316,9 @@ export async function mailPanel(body) {
     mail.rankState = { busy: true, text: `Eden is ranking ${todo.length} email${todo.length === 1 ? '' : 's'}…` };
     drawList();
     try {
-      const { out } = await askEden(RANK_SYSTEM, 'Inbox: emails to rank', mailLines(todo));
-      const ranks = parseRanks(out, todo.map((m) => String(m.id)));
+      const ids = todo.map((m) => String(m.id));
+      let ranks = parseRanks((await askEden(RANK_SYSTEM, 'Inbox: emails to rank', mailLines(todo))).out, ids);
+      if (!ranks.size) ranks = parseRanks((await askEden(`${RANK_SYSTEM}\nYour last answer wasn’t that JSON object. Reply with the JSON object only.`, 'Inbox: emails to rank', mailLines(todo))).out, ids);
       if (!ranks.size) throw new Error('Eden’s answer had no ranks in it.');
       for (const [id, v] of ranks) rankCache.set(ck(id), v);
       mail.rankState = null;
@@ -341,8 +342,9 @@ export async function mailPanel(body) {
     const d = mail.digest;
     try {
       const { out, model } = await askEden(DIGEST_SYSTEM, 'Inbox: emails to summarize', mailLines(pick));
-      const j = parseDigest(out, pick.map((m) => String(m.id)));
-      if (!j) throw new Error('Eden’s answer wasn’t a summary.');
+      // Not the JSON asked for: the answer's own words as the overview, never an error over a summary.
+      const j = parseDigest(out, pick.map((m) => String(m.id))) || (out ? { overview: out.replace(/```[a-z]*|```/gi, '').trim().slice(0, 1200), bullets: [] } : null);
+      if (!j) throw new Error('Eden’s answer was empty. Try again.');
       Object.assign(d, j, { model, state: 'ready' });
       digestCache.set(key, { ...j, model });
     } catch (e) { Object.assign(d, { state: 'error', error: e.message }); }
@@ -398,11 +400,16 @@ export async function mailPanel(body) {
 }
 
 /** A cheap routed model (router level 1, as the brief uses), the emails as an untrusted context block (H8). */
+// Mail's AI (Summarize, Rank by priority, a message's summary): always a cheap, fast Gemini Flash,
+// not whatever the router would pick, when this account can use it.
+const MAIL_MODEL = { model: 'gemini-3.6-flash', effort: 'low' };
 async function askEden(system, title, text, onText) {
   const settings = { ...routeSettings(), level: 1, efficiency: 80, performance: 30 };
   if (!settings.providers || !settings.providers.length) throw new Error('no model is available. Add a key in Settings.');
+  const m = modelInfo(MAIL_MODEL.model);
+  const override = !state.meta || (m && m.available) ? MAIL_MODEL : null;
   let out = '', model = '';
-  await api.send({ messages: [{ role: 'user', content: 'Do it for the emails in the context.' }], context: [{ title, text, source: 'mail' }], system, settings, mode: 'chat' }, {
+  await api.send({ messages: [{ role: 'user', content: 'Do it for the emails in the context. Follow the answer format exactly.' }], context: [{ title, text, source: 'mail' }], system, settings, mode: 'chat', ...(override ? { override } : {}) }, {
     onEvent: (t, d) => {
       if (t === 'route') model = d.modelName || d.model || '';
       else if (t === 'text') { out += d.text || ''; if (onText) onText(out, model); }
