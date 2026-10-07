@@ -198,8 +198,13 @@ function say(words) {
 }
 
 /** Apple or Google with Turnstile on: a form post carrying the token (the server checks it). */
+// The Eden iOS app (its user agent says EdenApp/): its Apple and Google buttons are plain links
+// the app catches (Apple's native sheet; Google in Apple's web sign-in sheet, since Google
+// refuses app web views), and the server makes app accounts at a tighter rate without Turnstile.
+const IN_APP = /\bEdenApp\//.test(navigator.userAgent || '');
+
 function postStart(e, provider) {
-  if (!turnstileOn) return; // a plain link, as always
+  if (!turnstileOn || IN_APP) return; // a plain link, as always
   e.preventDefault();
   if (!human) return say(ERRORS.verify);
   const form = document.createElement('form');

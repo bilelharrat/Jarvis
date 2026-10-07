@@ -145,7 +145,7 @@ after(() => {
 
 async function hit(p, { method = 'GET', body, headers = {}, session, origin = ORIGIN, host = ORIGIN, form = false } = {}) {
   const h = { 'cf-connecting-ip': '198.51.100.7', 'user-agent': SAFARI, ...headers };
-  if (method !== 'GET') h.origin ??= origin;
+  if (method !== 'GET' && origin !== null) h.origin ??= origin; // null: the app (no Origin)
   if (session) h.cookie = [`__Host-eden=${session}`, h.cookie].filter(Boolean).join('; ');
   const init = { method, headers: h };
   if (body !== undefined) {
@@ -321,6 +321,42 @@ test('add a passkey from the account page: it opens the same account as Google; 
   const un = await hit('/api/web/identities/passkey/unlink', { method: 'POST', session, headers: { 'x-jarvis-chat': '1' } });
   assert.equal(un.status, 200, await un.clone().text());
   assert.equal((await signIn(key)).response.status, 404);
+});
+
+test('the Eden app’s own passkey sheet: native options/verify (no Origin, no Turnstile) end in a handoff code', async () => {
+  env = makeEnv({ TURNSTILE_SITE_KEY: '0x4AAAAAAAtest', TURNSTILE_SECRET: '0x4AAAAAAAsecret' });
+  const app = { origin: null };
+  const nativeOptions = async (mode) => {
+    const r = await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode }, ...app });
+    return { status: r.status, body: await r.json() };
+  };
+  const nativeVerify = (credential) => hit('/api/web/native/passkey/verify', { method: 'POST', body: { credential }, ...app });
+  // A page can't use them (it always sends its Origin), and the app can't add to an account.
+  assert.equal((await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signin' } })).status, 403);
+  assert.equal((await nativeOptions('add')).status, 400);
+  const key = await authenticator();
+  const o = await nativeOptions('signup');
+  assert.equal(o.status, 200, JSON.stringify(o.body));
+  assert.equal(o.body.publicKey.rp.id, 'askeden.com');
+  const up = await nativeVerify(await key.create(o.body.publicKey));
+  const made = await up.json();
+  assert.equal(up.status, 200, JSON.stringify(made));
+  assert.match(made.handoff, /^[A-Za-z0-9_-]{43}$/);
+  assert.ok(!cookieValue(up, '__Host-eden'), 'no cookie for the app: the web view redeems the code');
+  const opened = await hit(`/api/web/handoff?code=${made.handoff}`, { headers: { 'sec-fetch-site': 'none' } });
+  assert.equal(opened.headers.get('location'), '/');
+  const first = await accountOf(cookieValue(opened, '__Host-eden'));
+  assert.deepEqual(first.identities.map((i) => i.provider), ['passkey']);
+  // Sign in again with it, natively: the same account.
+  const s = await nativeOptions('signin');
+  const back = await (await nativeVerify(await key.get(s.body.publicKey))).json();
+  const again = await hit(`/api/web/handoff?code=${back.handoff}`, { headers: { 'sec-fetch-site': 'none' } });
+  assert.equal((await accountOf(cookieValue(again, '__Host-eden'))).account_id, first.account_id);
+  // A challenge the web page asked for can't be finished by the app, and the other way round.
+  const web = await options('signin');
+  assert.equal((await nativeVerify(await key.get(web.body.publicKey))).status, 400);
+  const nat = await nativeOptions('signin');
+  assert.equal((await verify(await key.get(nat.body.publicKey))).status, 400);
 });
 
 test('Turnstile: off without its keys (logged once); on, a passkey sign-up needs a passing token checked with siteverify and the IP', async () => {

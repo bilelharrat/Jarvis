@@ -127,6 +127,9 @@ export async function web(request, env, ctx, path) {
     if (path === '/api/web/config' && method === 'GET') return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env) });
     if (path === '/api/web/passkey/options' && method === 'POST') return await passkeyOptions(request, env);
     if (path === '/api/web/passkey/verify' && method === 'POST') return await passkeyVerify(request, env);
+    // The Eden iOS app's own passkey sheet (no web view): the same ceremony, ending in a handoff code.
+    if (path === '/api/web/native/passkey/options' && method === 'POST') return await passkeyOptions(request, env, { native: true });
+    if (path === '/api/web/native/passkey/verify' && method === 'POST') return await passkeyVerify(request, env, { native: true });
     if (path === '/api/web/link' && method === 'POST') return await linkStart(request, env);
     if (path === '/api/web/link/poll' && method === 'POST') return await linkPoll(request, env);
     if (path === '/api/web/session' && method === 'GET') return await session(request, env);
@@ -664,16 +667,22 @@ function ownPage(request) {
   if (!origin || origin !== new URL(request.url).origin) throw new ApiError(403, 'forbidden', 'Only askeden.com’s own page may do that.');
 }
 
-async function passkeyOptions(request, env) {
-  ownPage(request);
+/** The app only (a plain URLSession call): never a page, which always sends its Origin. */
+function noPage(request) {
+  if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the Eden app may do that.');
+}
+
+async function passkeyOptions(request, env, { native = false } = {}) {
+  if (native) noPage(request);
+  else ownPage(request);
   if (!env.IDENTITIES) throw new ApiError(503, 'not_set_up', 'Passkeys aren’t set up here yet.');
   await limited(env, 'AUTH_RATE', `pk:${clientIp(request)}`);
   const body = await readJson(request, 8 * 1024);
-  const mode = PASSKEY_MODES.has(body.mode) ? body.mode : null;
+  const mode = PASSKEY_MODES.has(body.mode) && !(native && body.mode === 'add') ? body.mode : null;
   if (!mode) throw new ApiError(400, 'bad_request', 'mode must be signin, signup or add');
   const url = new URL(request.url);
   const rpId = url.hostname;
-  const value = { mode, rpId, origin: url.origin };
+  const value = { mode, rpId, origin: url.origin, native };
   let who = null;
   if (mode === 'add') {
     who = await signedIn(request, env);
@@ -685,7 +694,8 @@ async function passkeyOptions(request, env) {
   // A new account: sign-ups open, and the person check now, before the device makes a passkey for nothing.
   if (mode === 'signup') {
     checkSignups(env);
-    await checkHuman(env, body.turnstile, clientIp(request), { host: new URL(request.url).hostname });
+    // The app has no Turnstile: its new accounts cost more of AUTH_RATE instead (stashHandoff).
+    if (!native) await checkHuman(env, body.turnstile, clientIp(request), { host: new URL(request.url).hostname });
   }
   const challenge = b64url(randomBytes(32));
   await callLink(env, `pk:${challenge}`, 'stash', { value, seconds: PASSKEY_SECONDS });
@@ -718,8 +728,9 @@ function challengeOf(credential) {
   throw new ApiError(400, 'passkey', 'That passkey answer can’t be read.');
 }
 
-async function passkeyVerify(request, env) {
-  ownPage(request);
+async function passkeyVerify(request, env, { native = false } = {}) {
+  if (native) noPage(request);
+  else ownPage(request);
   if (!env.IDENTITIES) throw new ApiError(503, 'not_set_up', 'Passkeys aren’t set up here yet.');
   await limited(env, 'AUTH_RATE', `pkv:${clientIp(request)}`);
   const body = await readJson(request, 64 * 1024);
@@ -734,6 +745,7 @@ async function passkeyVerify(request, env) {
   }
   const url = new URL(request.url);
   if (issued.rpId !== url.hostname || issued.origin !== url.origin) throw new ApiError(400, 'passkey', 'That passkey request was for another site.');
+  if (Boolean(issued.native) !== native) throw new ApiError(400, 'expired', 'That passkey request was started elsewhere. Try again.');
   const where = { challenge, origin: url.origin, rpId: url.hostname };
   const back = safeReturn(body.return);
 
@@ -746,6 +758,7 @@ async function passkeyVerify(request, env) {
     const { count } = await verifyAssertion({ credential, ...where, stored: found.cred });
     await callIdentity(env, 'passkey', subHash, 'passkey-count', { count });
     if (!webAllowed(env, found.account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
+    if (native) return json({ handoff: await stashCode(env, { account_id: found.account_id, provider: 'passkey', sub_hash: subHash, email: null }), expires_in: HANDOFF_SECONDS });
     const made = await call(env, found.account_id, 'web-signin', {
       account_id: found.account_id,
       identity: { provider: 'passkey', sub_hash: subHash, email: null },
@@ -766,6 +779,7 @@ async function passkeyVerify(request, env) {
   // signup: Turnstile passed when this challenge was issued (passkeyOptions).
   const subHash = await subHashOf('passkey', made.id);
   if ((await callIdentity(env, 'passkey', subHash, 'get')).state !== 'none') throw new ApiError(409, 'identity_taken', 'This passkey is already used by an Eden account. Sign in with it instead.');
+  if (native) return json({ handoff: await stashHandoff(request, env, { provider: 'passkey', sub: made.id, email: null, cred }), created: true, expires_in: HANDOFF_SECONDS });
   const opened = await signInBrowser(request, env, { provider: 'passkey', sub: made.id, email: null, cred });
   return withCookies(json({ signed_in: true, created: true, to: back }), cookie(SESSION_COOKIE, opened.token, { maxAge: SESSION_SECONDS }));
 }
@@ -786,12 +800,17 @@ async function nativeApple(request, env) {
 }
 
 /** The account a sign-in in the app opens (no Turnstile in an app: a tighter rate), as a one-time handoff code. */
-async function stashHandoff(request, env, { provider, sub, email }) {
+async function stashHandoff(request, env, { provider, sub, email, cred = null }) {
   const ip = clientIp(request);
-  const { account_id } = await accountForIdentity(env, { provider, sub, email, ip, beforeCreate: () => nativeNewAccount(env, ip) });
+  const { account_id } = await accountForIdentity(env, { provider, sub, email, ip, cred, beforeCreate: () => nativeNewAccount(env, ip) });
   if (!webAllowed(env, account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
+  return stashCode(env, { account_id, provider, sub_hash: await subHashOf(provider, sub), email });
+}
+
+/** A one-time handoff code (32 random bytes, a minute, taken once) for this account and identity. */
+async function stashCode(env, value) {
   const code = b64url(randomBytes(32));
-  await callLink(env, `handoff:${code}`, 'stash', { value: { account_id, provider, sub_hash: await subHashOf(provider, sub), email }, seconds: HANDOFF_SECONDS });
+  await callLink(env, `handoff:${code}`, 'stash', { value, seconds: HANDOFF_SECONDS });
   return code;
 }
 

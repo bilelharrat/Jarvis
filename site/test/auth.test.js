@@ -529,6 +529,38 @@ test('the Eden app: native Apple sign-in → a one-time handoff code → the coo
   assert.equal(env.LINKS.objects.get(`handoff:${slow.handoff}`).storage.map.size, 0, 'and it is gone');
 });
 
+test('the Eden app: Google in Apple’s web sheet (?app=1) ends on the app’s scheme with a handoff code', async () => {
+  const start = await hit('/api/web/google?app=1');
+  assert.equal(start.status, 302);
+  const to = new URL(start.headers.get('location'));
+  assert.equal(to.searchParams.get('redirect_uri'), 'https://askeden.com/api/web/google/callback', 'the same callback Google knows');
+  const attempt = cookieValue(start, '__Host-eden-google');
+  assert.match(attempt, /\.a$/);
+  nextGoogle = { sub: 'google-app-1', email: 'App@Example.com', nonce: to.searchParams.get('nonce'), challenge: to.searchParams.get('code_challenge') };
+  const back = await hit(`/api/web/google/callback?state=${to.searchParams.get('state')}&code=4%2Fcode`, { headers: { cookie: `__Host-eden-google=${attempt}` } });
+  assert.equal(back.status, 302);
+  const end = new URL(back.headers.get('location'));
+  assert.equal(`${end.protocol}//${end.host}${end.pathname}`, 'com.askeden.eden://signin');
+  assert.ok(!cookieValue(back, '__Host-eden'), 'no session in the sheet: it goes to the web view');
+  const code = end.searchParams.get('code');
+  assert.match(code, /^[A-Za-z0-9_-]{43}$/);
+  const ok = await hit(`/api/web/handoff?code=${code}`, { headers: { 'sec-fetch-site': 'none' } });
+  assert.equal(ok.headers.get('location'), '/');
+  const view = await account(cookieValue(ok, '__Host-eden'));
+  assert.deepEqual(view.identities.map(({ provider, email }) => ({ provider, email })), [{ provider: 'google', email: 'app@example.com' }]);
+  assert.match(view.devices[0].name, /^Eden app/);
+  // The same Google account on the web: the same Eden account.
+  const web = await googleFlow({ sub: 'google-app-1', email: 'app@example.com' });
+  assert.equal((await account(web.session)).account_id, view.account_id);
+  // Google said no: back to the app, which says so.
+  const again = await hit('/api/web/google?app=1');
+  const state = new URL(again.headers.get('location')).searchParams.get('state');
+  const no = await hit(`/api/web/google/callback?state=${state}&error=access_denied`, { headers: { cookie: `__Host-eden-google=${cookieValue(again, '__Host-eden-google')}` } });
+  assert.equal(no.headers.get('location'), 'com.askeden.eden://signin?error=cancelled');
+  // Link mode and form posts never become app mode.
+  assert.match(cookieValue(await hit('/api/web/google?app=1&link=1', { session: web.session }), '__Host-eden-google'), /\.l$/);
+});
+
 // ── browsers signing browsers out ──
 
 test('a browser signs out another browser at once (this isolate’s 30 s cache too), never the apps; or every browser', async () => {
