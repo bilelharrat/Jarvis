@@ -210,8 +210,11 @@
   // own: sent, the request goes marked as a link's (from_link), so the backend treats it as
   // outside content, and no word in it counts as the owner asking for anything. The mark
   // stays until the box is emptied: words typed after a link's don't make its words theirs.
+  // From the Services menu's "Ask JARVIS" (service: the owner's own click, as the app vouches)
+  // it's sent at once, still marked as a link's, unless Settings › This Mac › "Ask before
+  // sending messages to J.A.R.V.I.S." is on.
   let fromLink = false;
-  function prefill(text) {
+  function prefill(text, service = false) {
     if (!F.$('cc').hidden) toggleCC(false);
     if (!F.$('settings').hidden) toggleSettings(false);
     if (!F.$('accounts').hidden) toggleAccounts(false);
@@ -227,6 +230,9 @@
       F.$('ask-form').after(note);
     }
     note.hidden = !input.value;
+    if (service && input.value && feature('shell_ask_confirm', false) !== true) {
+      F.$('ask-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    }
   }
 
   // Return in the box while it holds a link's words: sent here, marked, instead of by the
@@ -302,7 +308,7 @@
         break;
       }
       case 'reveal': reveal(cmd); break;
-      case 'prefill': prefill(cmd.text); break;
+      case 'prefill': prefill(cmd.text, cmd.service === true); break;
       case 'library': if (['history', 'bookmarks'].includes(cmd.kind)) openLibraryPanel(cmd.kind); break;
       case 'project': openProject(cmd.name); break;
       default: break;
@@ -369,7 +375,7 @@
     const words = F.el('span');
     words.append(
       F.el('strong', '', 'Ask about a selection'),
-      F.el('small', '', 'Adds “Ask JARVIS” to the Services menu: select text in any app, then right-click › Services. The text lands in the request box; nothing is sent until you press Return.'),
+      F.el('small', '', 'Adds “Ask JARVIS” to the Services menu: select text in any app, then right-click › Services. The text is sent to JARVIS at once (or waits in the request box, with the switch below).'),
     );
     const button = F.el('button', 'btn', 'Add');
     button.type = 'button';
@@ -504,6 +510,7 @@
       note,
       serviceRow(),
       serviceNote,
+      switchRow('sw-shell-ask-confirm', 'Ask before sending messages to J.A.R.V.I.S.', 'For “Ask JARVIS” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.'),
       ...wakeRows(),
     );
     const settings = F.$('settings');
@@ -514,11 +521,15 @@
     F.$('sw-shell-menubar').addEventListener('click', () => {
       F.send({ type: 'feature_prefs', changes: { shell_menu_bar: feature('shell_menu_bar', true) === false } });
     });
+    F.$('sw-shell-ask-confirm').addEventListener('click', () => {
+      F.send({ type: 'feature_prefs', changes: { shell_ask_confirm: feature('shell_ask_confirm', false) !== true } });
+    });
   }
 
   function renderGroup() {
     if (!group) return;
     F.$('sw-shell-menubar').setAttribute('aria-checked', String(feature('shell_menu_bar', true) !== false));
+    F.$('sw-shell-ask-confirm').setAttribute('aria-checked', String(feature('shell_ask_confirm', false) === true));
     renderShortcuts();
     renderWake();
     askWake();

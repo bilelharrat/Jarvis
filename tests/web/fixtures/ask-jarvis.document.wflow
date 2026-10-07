@@ -59,8 +59,8 @@
 				<key>ActionParameters</key>
 				<dict>
 					<key>COMMAND_STRING</key>
-					<string># Ask J.A.R.V.I.S. about the selected text: it opens in the request box, and nothing
-# is sent until you press Return there.
+					<string># Ask J.A.R.V.I.S. about the selected text: it is sent to J.A.R.V.I.S. (or, if you
+# chose to confirm first in Settings, waits in the request box for Return).
 url=$(/usr/bin/osascript -l JavaScript -e 'ObjC.import("Foundation");
 const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
 const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || "";

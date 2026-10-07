@@ -13,6 +13,7 @@
 'use strict';
 
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -342,7 +343,29 @@ function install(ctx) {
 
   // ── jarvis:// links ──
   // Any web page can open one, so a link only ever shows JARVIS: the request box filled in
-  // (never sent), a panel, a Jarvis Code project. At most five every ten seconds.
+  // (never sent), a panel, a Jarvis Code project. At most five every ten seconds. The one
+  // exception: "Ask JARVIS" from the Services menu, the owner's own click, carries this Mac's
+  // key (service-key, 0600; only the Quick Action has it), so the window may send it at once
+  // (marked as outside words all the same) unless the owner chose to confirm first.
+
+  const keyFile = path.join(app.getPath('userData'), 'service-key');
+  function serviceKey(make) {
+    const kept = readText(keyFile).trim();
+    if (links.SERVICE_KEY.test(kept) || !make) return links.SERVICE_KEY.test(kept) ? kept : '';
+    const key = crypto.randomBytes(16).toString('hex');
+    try {
+      fs.mkdirSync(path.dirname(keyFile), { recursive: true });
+      fs.writeFileSync(keyFile, key, { mode: 0o600 });
+    } catch (err) {
+      console.warn(`shell: couldn't save the Quick Action's key: ${err && err.message}`);
+      return '';
+    }
+    return key;
+  }
+  function fromService(key) {
+    const mine = key ? serviceKey(false) : '';
+    return Boolean(mine) && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(mine));
+  }
 
   function openLink(raw) {
     const allowed = lib.allowAgain(linkTimes, now(), { max: 5, windowMs: 10_000 });
@@ -351,7 +374,7 @@ function install(ctx) {
     const link = links.parseLink(raw);
     if (!link) { console.warn('shell: ignored a jarvis:// link JARVIS doesn\'t open'); return; }
     showWindow();
-    if (link.action === 'ask') toWindow({ action: 'prefill', text: link.text });
+    if (link.action === 'ask') toWindow({ action: 'prefill', text: link.text, ...(fromService(link.key) ? { service: true } : {}) });
     else if (link.action === 'open' && link.panel) toWindow({ action: 'open', panel: link.panel });
     else if (link.action === 'code') toWindow({ action: 'project', name: link.project });
   }
@@ -378,7 +401,7 @@ function install(ctx) {
     const staging = path.join(servicesDir, `.jarvis-service-${process.pid}`);
     try {
       fs.rmSync(staging, { recursive: true, force: true });
-      for (const [rel, text] of Object.entries(links.serviceFiles())) {
+      for (const [rel, text] of Object.entries(links.serviceFiles(serviceKey(true)))) {
         fs.mkdirSync(path.dirname(path.join(staging, rel)), { recursive: true });
         fs.writeFileSync(path.join(staging, rel), text);
       }
@@ -403,6 +426,12 @@ function install(ctx) {
     }
     run('/System/Library/CoreServices/pbs', ['-update']);
     return serviceStatus();
+  }
+
+  // One written before it carried this Mac's key (or with an old one): rewritten, once.
+  if (installed && links.isOurService(serviceInfo())) {
+    const want = links.serviceFiles(serviceKey(true))['Contents/document.wflow'];
+    if (readText(path.join(serviceDir, 'Contents', 'document.wflow')) !== want) addService();
   }
 
   ipcMain.handle(`${CH}service`, (event, req) => {

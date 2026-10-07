@@ -3,7 +3,10 @@
 //
 // Any web page or app can open a jarvis:// link, so a link only ever shows JARVIS: it fills
 // in the request box (never sends it: the owner presses Return), opens a panel, or opens a
-// Jarvis Code project. Everything in one is checked and capped here.
+// Jarvis Code project. Everything in one is checked and capped here. The one exception is the
+// owner's own click on "Ask JARVIS" in the Services menu: its Quick Action carries this Mac's
+// key (key=, written only into ~/Library/Services, never known to a web page), and that
+// request is sent at once unless the owner asked to confirm first (Settings).
 'use strict';
 
 const PANELS = ['settings', 'code', 'browser', 'brain'];
@@ -38,7 +41,10 @@ function parseLink(raw) {
   const action = (url.hostname || url.pathname.replace(/^\/+|\/+$/g, '')).toLowerCase();
   const params = url.searchParams;
   if (action === 'ask') {
-    return { action: 'ask', text: Array.from(cleanText(params.get('text') || '')).slice(0, ASK_MAX).join('') };
+    const ask = { action: 'ask', text: Array.from(cleanText(params.get('text') || '')).slice(0, ASK_MAX).join('') };
+    const key = params.get('key') || '';
+    if (SERVICE_KEY.test(key)) ask.key = key;
+    return ask;
   }
   if (action === 'open') {
     const panel = String(params.get('panel') || '').toLowerCase();
@@ -57,19 +63,22 @@ function parseLink(raw) {
 const SERVICE_NAME = 'Ask JARVIS';
 const SERVICE_BUNDLE = `${SERVICE_NAME}.workflow`;
 const SERVICE_ID = 'com.bshventures.jarvis.ask-service'; // what marks the Quick Action as ours
+const SERVICE_KEY = /^[0-9a-f]{32}$/; // this Mac's Quick Action key: 16 random bytes, in hex
 
 // Its one step, a shell script as Apple's own "Show Map" Quick Action has: the selection
 // comes in on stdin, JavaScript for Automation URL-encodes it (as UTF-8, whatever the
 // language), and macOS opens the link. The text never passes through the shell.
-const SERVICE_SCRIPT = [
-  '# Ask J.A.R.V.I.S. about the selected text: it opens in the request box, and nothing',
-  '# is sent until you press Return there.',
+// With this Mac's key (serviceScript(key)) the link says it's the owner's own click.
+const serviceScript = (key = '') => [
+  '# Ask J.A.R.V.I.S. about the selected text: it is sent to J.A.R.V.I.S. (or, if you',
+  '# chose to confirm first in Settings, waits in the request box for Return).',
   "url=$(/usr/bin/osascript -l JavaScript -e 'ObjC.import(\"Foundation\");",
   'const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;',
   'const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || "";',
-  `"jarvis://ask?text=" + encodeURIComponent(Array.from(text.trim()).slice(0, ${ASK_MAX}).join(""))')`,
+  `"jarvis://ask?${SERVICE_KEY.test(key) ? `key=${key}&` : ''}text=" + encodeURIComponent(Array.from(text.trim()).slice(0, ${ASK_MAX}).join(""))')`,
   '[ -n "$url" ] && /usr/bin/open "$url"',
 ].join('\n');
+const SERVICE_SCRIPT = serviceScript();
 
 // ── property lists, written the way Xcode and Automator write them ──
 
@@ -105,8 +114,8 @@ function plist(value) {
 }
 
 // The bundle's two files, by their path inside it. Always the same bytes: the tests keep a
-// copy (tests/web/fixtures/) to compare with.
-function serviceFiles() {
+// copy (tests/web/fixtures/, without a key) to compare with.
+function serviceFiles(key = '') {
   const info = {
     CFBundleDevelopmentRegion: 'en_US',
     CFBundleIdentifier: SERVICE_ID,
@@ -136,7 +145,7 @@ function serviceFiles() {
         ActionBundlePath: '/System/Library/Automator/Run Shell Script.action',
         ActionName: 'Run Shell Script',
         ActionParameters: {
-          COMMAND_STRING: SERVICE_SCRIPT,
+          COMMAND_STRING: serviceScript(key),
           CheckedForUserDefaultShell: true,
           inputMethod: 0, // the selection on stdin
           shell: '/bin/zsh',
@@ -188,4 +197,4 @@ function serviceFiles() {
 // Is the Info.plist given (its text) one this app wrote? Only ours is ever replaced or removed.
 const isOurService = (infoText) => typeof infoText === 'string' && infoText.includes(`<string>${SERVICE_ID}</string>`);
 
-module.exports = { PANELS, ASK_MAX, cleanText, parseLink, SERVICE_NAME, SERVICE_BUNDLE, SERVICE_ID, SERVICE_SCRIPT, plist, serviceFiles, isOurService };
+module.exports = { PANELS, ASK_MAX, cleanText, parseLink, SERVICE_NAME, SERVICE_BUNDLE, SERVICE_ID, SERVICE_KEY, SERVICE_SCRIPT, serviceScript, plist, serviceFiles, isOurService };

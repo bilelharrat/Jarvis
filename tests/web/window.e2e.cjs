@@ -1184,6 +1184,33 @@ test('A jarvis:// link fills in the request box and sends nothing; Return sends 
   ]), JSON.stringify(r));
 });
 
+test('"Ask JARVIS" from the Services menu is sent at once (marked as a link’s); with "Ask before sending" on, it waits', async () => {
+  await loadShell();
+  await js(`__event({ type: 'prefs', language: 'en', features: {} }); __sent.length = 0; true`);
+  await js('__app.on["feature:shell:command"]({ action: "prefill", text: "What does idempotent mean?", service: true }); true');
+  let r = await js('({ asked: __sent.filter((m) => m.type === "ask"), value: $("ask-input").value, note: $("shell-link-note").hidden })');
+  assert(JSON.stringify(r.asked) === JSON.stringify([{ type: 'ask', text: 'What does idempotent mean?', from_link: true }]) && r.value === '' && r.note, JSON.stringify(r));
+  // The switch: off by default; on, the Services request waits for Return like any link.
+  await js('toggleSettings(true); true');
+  await sleep(80);
+  assert(await js('$("sw-shell-ask-confirm").getAttribute("aria-checked")') === 'false', 'off by default');
+  await js('__sent.length = 0; $("sw-shell-ask-confirm").click(); true');
+  r = await js('__sent.filter((m) => m.type === "feature_prefs")');
+  assert(JSON.stringify(r) === JSON.stringify([{ type: 'feature_prefs', changes: { shell_ask_confirm: true } }]), JSON.stringify(r));
+  await js(`__event({ type: 'prefs', language: 'en', features: { shell_ask_confirm: true } }); __sent.length = 0; true`);
+  await js('__app.on["feature:shell:command"]({ action: "prefill", text: "Summarize this", service: true }); true');
+  await sleep(200);
+  r = await js('({ asked: __sent.some((m) => m.type === "ask"), value: $("ask-input").value, note: !$("shell-link-note").hidden })');
+  assert(!r.asked && r.value === 'Summarize this' && r.note, JSON.stringify(r));
+  await js('$("ask-input").value = ""; $("ask-input").dispatchEvent(new Event("input")); true');
+  // A web page's link never sends by itself, whatever the switch says.
+  await js(`__event({ type: 'prefs', language: 'en', features: {} }); __sent.length = 0; true`);
+  await js('__app.on["feature:shell:command"]({ action: "prefill", text: "Delete everything" }); true');
+  await sleep(200);
+  assert(!(await js('__sent.some((m) => m.type === "ask")')), 'a web link was sent by itself');
+  await js('$("ask-input").value = ""; $("ask-input").dispatchEvent(new Event("input")); true');
+});
+
 test('A jarvis:// link opens a Jarvis Code project, once the list of projects is in', async () => {
   await loadShell();
   await js('__sent.length = 0; __app.on["feature:shell:command"]({ action: "project", name: "beta" }); true');

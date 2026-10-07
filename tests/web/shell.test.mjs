@@ -2,7 +2,7 @@
 // Electron, with no window, menu bar or file outside a temp folder. node --test tests/web/
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,6 +14,7 @@ const require = createRequire(import.meta.url);
 const lib = require('../../app/features/shell-lib.js');
 const icon = require('../../app/features/shell-icon.js');
 const shell = require('../../app/features/shell.js');
+const links = require('../../app/features/shell-links.js');
 const windowSide = require('../../src/jarvis/web/features/shell.js');
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -723,6 +724,39 @@ test('a link shows JARVIS and fills in the request box, opens a panel or a proje
   assert.equal(t.win.shown, 4);
 });
 
+test('"Ask JARVIS" from the Services menu (this Mac’s key) is marked to send; any other link only fills in', async () => {
+  const t = fakeContext({ packaged: true });
+  shell.install(t.ctx);
+  await t.hello();
+  t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action: 'add' });
+  const key = readFileSync(path.join(t.userData, 'service-key'), 'utf8');
+  t.ctx.openLink(`jarvis://ask?key=${key}&text=What%20is%20this`);
+  t.ctx.openLink('jarvis://ask?key=0123456789abcdef0123456789abcdef&text=forged'); // a web page guessing
+  t.ctx.openLink('jarvis://ask?text=from%20a%20page');
+  assert.deepEqual(t.commands(), [
+    { action: 'prefill', text: 'What is this', service: true },
+    { action: 'prefill', text: 'forged' },
+    { action: 'prefill', text: 'from a page' },
+  ]);
+});
+
+test('a Quick Action written before it had a key is rewritten with this Mac’s, once', () => {
+  const t = fakeContext({ packaged: true });
+  const bundle = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow');
+  for (const [rel, text] of Object.entries(links.serviceFiles())) {
+    mkdirSync(path.dirname(path.join(bundle, rel)), { recursive: true });
+    writeFileSync(path.join(bundle, rel), text);
+  }
+  shell.install(t.ctx);
+  const key = readFileSync(path.join(t.userData, 'service-key'), 'utf8');
+  assert.ok(readFileSync(path.join(bundle, 'Contents/document.wflow'), 'utf8').includes(`key=${key}`));
+  assert.equal(t.ctx.ran.length, 1);
+  const again = fakeContext({ packaged: true, userData: t.userData });
+  again.ctx.servicesDir = t.ctx.servicesDir;
+  shell.install(again.ctx);
+  assert.equal(again.ctx.ran.length, 0, 'already current: left alone');
+});
+
 test('links coming too fast are dropped, five every ten seconds at most', async () => {
   let clock = 5_000_000;
   const t = fakeContext();
@@ -758,7 +792,12 @@ test('Add writes the Quick Action (its golden copy) and refreshes the Services m
   const bundle = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow');
   const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url));
   assert.equal(readFileSync(path.join(bundle, 'Contents/Info.plist'), 'utf8'), readFileSync(path.join(fixtures, 'ask-jarvis.Info.plist'), 'utf8'));
-  assert.equal(readFileSync(path.join(bundle, 'Contents/document.wflow'), 'utf8'), readFileSync(path.join(fixtures, 'ask-jarvis.document.wflow'), 'utf8'));
+  const key = readFileSync(path.join(t.userData, 'service-key'), 'utf8');
+  assert.match(key, /^[0-9a-f]{32}$/, 'this Mac’s own key');
+  assert.equal((statSync(path.join(t.userData, 'service-key')).mode & 0o777), 0o600);
+  const written = readFileSync(path.join(bundle, 'Contents/document.wflow'), 'utf8');
+  assert.ok(written.includes(`jarvis://ask?key=${key}&amp;text=`), 'the Quick Action carries it');
+  assert.equal(written.replace(`key=${key}&amp;`, ''), readFileSync(path.join(fixtures, 'ask-jarvis.document.wflow'), 'utf8'));
   assert.deepEqual(t.ctx.ran, [['/System/Library/CoreServices/pbs', '-update']]);
   assert.deepEqual(service('add').installed, true, 'again: rewritten, still one');
   assert.deepEqual(service('remove'), { available: true, installed: false, taken: false, error: '' });

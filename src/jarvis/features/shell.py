@@ -35,6 +35,9 @@ log = logging.getLogger(__name__)
 
 PAUSE_KEY = "shell_pause_until"  # seconds since 1970 (0: not paused)
 MENU_BAR_KEY = "shell_menu_bar"
+# "Ask JARVIS" from the Services menu: off (the default) sends it at once; on, it waits in the
+# request box for Return. (Links from anywhere else always wait.)
+ASK_CONFIRM_KEY = "shell_ask_confirm"
 ASK_SHORTCUT_KEY = "shell_shortcut_ask"
 WHATS_THIS_SHORTCUT_KEY = "shell_shortcut_whats_this"
 PAUSE_MAX_MINUTES = 12 * 60
@@ -116,6 +119,7 @@ lang.add_texts({"a request a link wrote": "链接写下的请求"})
 
 register_feature_pref(PAUSE_KEY, 0.0, _clean_until)
 register_feature_pref(MENU_BAR_KEY, True)
+register_feature_pref(ASK_CONFIRM_KEY, False)
 register_feature_pref(ASK_SHORTCUT_KEY, "Alt+Space", clean_accelerator)
 register_feature_pref(WHATS_THIS_SHORTCUT_KEY, "Alt+Shift+Space", clean_accelerator)
 
