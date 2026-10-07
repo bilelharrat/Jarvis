@@ -86,6 +86,31 @@ def test_heteronyms_follow_the_word_before(lexicon):
     assert lp.phonemize("to record", lexicon)[0] == "tə ɹᵻkˈɔɹd"
 
 
+def test_the_word_before_passes_over_punctuation_and_a_run_on_stays_quick(lexicon):
+    """A heteronym reads the word before it with any punctuation between passed over,
+    found in one pass: looked back for at every word, a long run-on sentence took time with
+    the square of its length (54 ms for 8,000 words, 217 ms for 16,000; 6 and 13 now)."""
+    assert lp.phonemize("I have, read", lexicon)[0] == "ˈI hˈæv, ɹˈɛd"
+    assert lp.phonemize("to, record", lexicon)[0] == "tə, ɹᵻkˈɔɹd"
+    assert lp.phonemize("my — record!", lexicon)[0] == "mˈI— ɹˈɛkɚd!"
+    assert lp.phonemize(", read", lexicon)[0] == "ɹˈid"  # nothing before it: the default
+
+    def cpu(words: int) -> float:
+        """This thread's CPU time for a sentence of so many words (a busy Mac's other work
+        doesn't count)."""
+        text = " ".join(["I have read my record to the cat"] * (words // 8)) + "."
+        started = time.thread_time()
+        found, unknown = lp.phonemize(text, lexicon)
+        spent = time.thread_time() - started
+        assert found and not unknown and found.count("ɹˈɛd") == words // 8
+        return spent
+
+    # Four times the words take about four times as long, never sixteen. Each pair is
+    # timed back to back, the best of three: a busy Mac moves a thread between cores.
+    pairs = [(cpu(4000), cpu(16000)) for _ in range(3)]
+    assert min(large / small for small, large in pairs) < 8, pairs
+
+
 def test_articles_suffixes_compounds_and_acronyms(lexicon):
     assert lp.phonemize("the apple", lexicon)[0] == "ði ˈæpəl"  # before a vowel
     assert lp.phonemize("the cat", lexicon)[0] == "ðə kˈæt"

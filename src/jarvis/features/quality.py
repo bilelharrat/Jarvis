@@ -53,17 +53,19 @@ class Quality:
         data = {}
         with contextlib.suppress(jsonstore.Unreadable):
             data = jsonstore.load_json(self.path, dict) or {}
-        self.latency: list[float] = [float(x) for x in data.get("latency", [])][-LATENCY_KEEP:]
-        self.wake: list[float] = [float(x) for x in data.get("wake", [])][-LATENCY_KEEP:]
+        # Each field read for what it must be: one a hand edit (or another build) left as
+        # something else starts empty, never failing the feature's install or the pane.
+        self.latency: list[float] = _seconds(data.get("latency"))[-LATENCY_KEEP:]
+        self.wake: list[float] = _seconds(data.get("wake"))[-LATENCY_KEEP:]
         self.woke_at: float | None = None
-        self.days: dict[str, dict[str, int]] = dict(data.get("days", {}))
-        self.since: str = data.get("since") or date.today().isoformat()
-        self.lost: int = int(data.get("lost", 0))
-        self.known: list[str] = list(data.get("chat_keys", []))
+        self.days: dict[str, dict[str, int]] = _counts(data.get("days"))
+        self.since: str = _saved_day(data.get("since")) or date.today().isoformat()
+        self.lost: int = jsonstore.whole(data.get("lost"))
+        self.known: list[str] = _names(data.get("chat_keys"))
         # kind -> {"shown", "opened", "dismissed"}, and the kinds quieted / brought back
-        self.kinds: dict[str, dict[str, int]] = dict(data.get("kinds", {}))
-        self.quiet: list[str] = list(data.get("quiet", []))
-        self.unquiet: list[str] = list(data.get("unquiet", []))
+        self.kinds: dict[str, dict[str, int]] = _counts(data.get("kinds"))
+        self.quiet: list[str] = _names(data.get("quiet"))
+        self.unquiet: list[str] = _names(data.get("unquiet"))
         self.heard_at: float | None = None
         # What this run last wrote (as JSON) and the file it made: a save of the same, to
         # the same file, is skipped.
@@ -235,6 +237,38 @@ class Quality:
             },
             "quiet": list(self.quiet),
         }
+
+
+def _seconds(value: Any) -> list[float]:
+    """Waits as saved (a list of seconds); any that isn't a number is left out."""
+    out = []
+    for item in value if isinstance(value, list) else []:
+        with contextlib.suppress(TypeError, ValueError, OverflowError):
+            out.append(float(item))
+    return out
+
+
+def _counts(value: Any) -> dict[str, dict[str, int]]:
+    """Counts by day or by kind as saved ({key: {name: count}}); anything else is left out."""
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: {name: jsonstore.whole(n) for name, n in counts.items()}
+        for key, counts in value.items()
+        if isinstance(counts, dict)
+    }
+
+
+def _names(value: Any) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _saved_day(value: Any) -> str:
+    """A day as saved (YYYY-MM-DD), or "" for one that isn't."""
+    try:
+        return value if isinstance(value, str) and date.fromisoformat(value) else ""
+    except ValueError:
+        return ""
 
 
 def _stamp(path: Any) -> tuple[int, int, int] | None:

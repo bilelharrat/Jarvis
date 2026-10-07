@@ -88,6 +88,20 @@ def test_a_damaged_or_odd_file_never_stops_the_start(tmp_path):
     assert PersonaStore(path).items == []
 
 
+def test_a_humor_no_number_can_hold_is_the_one_it_starts_with(tmp_path):
+    """JSON can hold NaN and Infinity, which no humor is: the persona keeps the usual 60,
+    and the file still reads (it lost every persona at startup before)."""
+    path = tmp_path / "personas.json"
+    path.write_text(
+        '[{"id": "alfred", "name": "Alfred", "description": "A butler.", "humor": NaN},'
+        ' {"id": "ada", "name": "Ada", "description": "A mathematician.", "humor": -Infinity}]'
+    )
+    store = PersonaStore(path)
+    assert [(p.id, p.humor) for p in store.items] == [("alfred", 60), ("ada", 60)]
+    assert store.put({**ALFRED, "humor": float("inf")}).humor == 60
+    assert store.put({**ALFRED, "name": "Bruce", "humor": 250}).humor == 100
+
+
 def test_registered_ones_are_chosen_like_the_built_in_three(tmp_path):
     store = PersonaStore(tmp_path / "personas.json")
     alfred = store.put(ALFRED)

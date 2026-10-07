@@ -86,6 +86,19 @@ def test_a_torn_or_odd_line_is_skipped_never_an_error(tmp_path):
     ]
 
 
+def test_a_line_nested_past_reason_is_skipped_too(tmp_path):
+    """A hand edit nested deeper than JSON can be read is a line that can't be read: skipped,
+    so the day, and every search through it, still reads."""
+    folder = tmp_path / "action_log"
+    folder.mkdir()
+    (folder / "2026-09-29.jsonl").write_text(
+        "[" * 100_000 + "]" * 100_000 + "\n" + json.dumps(entry("2026-09-29T08:00:00")) + "\n"
+    )
+    log = ActionLog(folder)
+    assert log.day(date(2026, 9, 29)) == [entry("2026-09-29T08:00:00")]
+    assert log.search("Safari") == [entry("2026-09-29T08:00:00")]
+
+
 def test_search_finds_every_word_newest_first_and_pages_back(tmp_path):
     log = ActionLog(tmp_path)
     log.add(

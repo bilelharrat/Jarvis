@@ -264,12 +264,5 @@ export function stopHands() {
   if (cursor) cursor.hidden = true;
 }
 
-export function handsRunning() { return running; }
-
-// Desktop mode: whether it's steering the Mac, and pausing it from elsewhere (a spoken
-// "stop", the indicator's button). Pausing lets go of anything held at once.
-export function desktopMode() { return !!desk; }
-export function pauseDesktop(on = true) { if (desk) desk.pause(on); }
-
 // A window closing mid-drag: the backend's watchdog would let go within a second anyway.
 addEventListener('pagehide', () => { if (desk) desk.stop(); });

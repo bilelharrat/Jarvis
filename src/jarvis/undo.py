@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from . import brain, lang
+from .action_log import short_name
 
 log = logging.getLogger("jarvis")
 
@@ -165,17 +166,13 @@ class Action:
         return {"id": self.id, "tool": self.tool, "label": self.label, "when": self.when}
 
 
-def short(tool_name: str) -> str:
-    return str(tool_name or "").split("__")[-1]
-
-
 def _asked_words(which: str) -> list[str]:
     return [w for w in re.findall(r"\w+", str(which or "").casefold()) if w not in _FILLER]
 
 
 def looking(tool_name: str) -> bool:
     """A tool that only reads: never an action."""
-    name = short(tool_name)
+    name = short_name(tool_name)
     return (
         name in LOOKING
         or bool(_LOOKING_NAME.search(name))
@@ -232,7 +229,7 @@ class Undo:
         """Just before a call runs (before its card, if it has one): what it may change."""
         if looking(tool_name):
             return
-        name, hub = short(tool_name), self.hub
+        name, hub = short_name(tool_name), self.hub
         try:
             if tool_name.startswith("mcp__memory__"):
                 self._before[tool_id] = copy.deepcopy(list(hub.memory.facts))
@@ -260,7 +257,7 @@ class Undo:
         before = self._before.pop(tool_id, None)
         if looking(tool_name):
             return
-        name = short(tool_name)
+        name = short_name(tool_name)
         try:
             action = await self._action(tool_name, name, tool_input, before)
         except Exception:

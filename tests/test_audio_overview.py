@@ -135,3 +135,58 @@ def test_the_first_line_that_fails_is_the_error(tmp_path, monkeypatch):
         ao.render([(0, f"Line {i}.") for i in range(12)], ("Ava", "Evan"), tmp_path / "x.m4a")
     assert failed.value.stderr == b"line 2"
     assert not (tmp_path / "x.m4a").exists()
+
+
+class Hub:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, kind, **data):
+        self.events.append((kind, data))
+
+
+def test_hidden_characters_never_reach_say_or_the_file_name(tmp_path, monkeypatch):
+    """A NUL in the title or a line (the model writes both) can't be handed to `say` or
+    afconvert (subprocess refuses it): it's taken out, and the overview is made as usual.
+    It failed with the NUL's ValueError, the title's only after every line was voiced."""
+    from jarvis import mac_tools
+
+    tools, revealed = FakeTools(), []
+
+    def strict(args, **kwargs):
+        if any("\x00" in str(arg) for arg in args):
+            raise ValueError("embedded null byte")  # as subprocess says it
+        return tools(args, **kwargs)
+
+    async def reveal(*args, **_kw):
+        revealed.append(args)
+        return ""
+
+    monkeypatch.setattr(ao.subprocess, "run", strict)
+    monkeypatch.setattr(ao, "installed_voices", lambda: ["Ava", "Evan"])
+    monkeypatch.setattr(ao, "folder", lambda: tmp_path)
+    monkeypatch.setattr(mac_tools, "run_command", reveal)
+    hub = Hub()
+    lines = [{"speaker": "A", "text": "Wel\x00come back."}, {"speaker": "B", "text": "Thanks."}]
+    text, error = asyncio.run(ao.AudioOverview(hub).make("Lease\x00 notes", lines))
+    assert not error, text
+    assert (tmp_path / "Lease notes.m4a").exists() and tools.voices == {0: "Ava", 1: "Evan"}
+    assert hub.events == [("caption", {"text": "Saved the audio overview “Lease notes”."})]
+    assert revealed == [("open", "-R", str(tmp_path / "Lease notes.m4a"))]
+    assert ao.clean_lines(lines)[0] == (0, "Welcome back.")
+
+
+def test_control_characters_that_part_words_still_part_them():
+    """A form feed, a vertical tab, \\x1c-\\x1f or NEL between two words is a space, as it
+    always was: taking hidden characters out mustn't glue "Hello" and "world" together in
+    what `say` reads or in the file's name; hidden ones alone leave no extra space."""
+    for gap in ("\x0b", "\x0c", "\x1c", "\x1f", "\x85", "\u2028"):
+        assert ao.clean_lines([{"speaker": "A", "text": f"Hello{gap}world"}]) == [
+            (0, "Hello world")
+        ]
+    assert ao.clean_lines([{"speaker": "B", "text": "Café\x85au lait"}]) == [(1, "Café au lait")]
+    assert ao.clean_lines([{"speaker": "A", "text": "Hi \x00 there\x00\u200b"}]) == [
+        (0, "Hi there")
+    ]
+    assert ao._one_line("  Lease:\x1cthe   notes\n", 120) == "Lease: the notes"
+    assert ao._one_line("x" * 300, 120) == "x" * 120

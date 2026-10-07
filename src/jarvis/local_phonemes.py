@@ -340,6 +340,14 @@ def phonemize(text: str, lexicon: Lexicon) -> tuple[str | None, list[str]]:
     """A sentence's phonemes and the words that weren't known. The phonemes are None when
     any word is unknown (the Mac voice says that sentence instead)."""
     words = tokens(normalize(text))
+    # The word before each one (punctuation passed over), found in one pass: looked back
+    # for at every word, a long run-on sentence took time with the square of its length.
+    before: list[str] = []
+    last = ""
+    for word in words:
+        before.append(last)
+        if word[0].isalpha():
+            last = word
     looked: list[str | None] = [None] * len(words)
     following = ""  # the next word's phonemes, "" after a pause (read right to left)
     for i in range(len(words) - 1, -1, -1):
@@ -347,8 +355,7 @@ def phonemize(text: str, lexicon: Lexicon) -> tuple[str | None, list[str]]:
         if not word[0].isalpha():
             following = ""
             continue
-        prev = next((w for w in reversed(words[:i]) if w[0].isalpha()), "")
-        looked[i] = lexicon.word(word, prev.lower(), following)
+        looked[i] = lexicon.word(word, before[i].lower(), following)
         following = looked[i] or ""
     unknown = [w for w, found in zip(words, looked, strict=True) if w[0].isalpha() and not found]
     if unknown:

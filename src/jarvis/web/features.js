@@ -29,6 +29,8 @@
         document.body.append(script);
       })));
     })
-    .catch(() => {})
+    // A list that couldn't be read (the backend gone mid-start, a damaged answer) leaves the
+    // window without its features: said once, in the console, rather than not at all.
+    .catch((err) => { console.error('features.json failed:', err); })
     .then(() => window.dispatchEvent(new Event('jarvis-features-ready')));
 })();

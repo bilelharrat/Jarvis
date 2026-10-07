@@ -198,6 +198,17 @@ async def mac_audio(text: str, voice: str, rate: int) -> tuple[Any, int]:
         return read_wav(path)
 
 
+async def _say_once(cloud: CloudVoice, text: str) -> tuple[Any, int]:
+    """A sentence in a cloud voice made for it alone (a preview): its audio, with the
+    voice's connection closed after, however it went."""
+    try:
+        return await cloud.synthesize(text)
+    finally:
+        if cloud._client is not None:
+            with contextlib.suppress(Exception):
+                await cloud._client.aclose()
+
+
 def _same(a: Any, b: Any) -> bool:
     """Two cloud voices that would say things the same way."""
     if not isinstance(a, CloudVoice) or not isinstance(b, CloudVoice):
@@ -543,13 +554,7 @@ class Speaking:
                     return
                 audio, rate = await mac_audio(text, name, getattr(speaker, "rate", 190))
             elif provider == "jarvis":
-                cloud = await self.jarvis_voice(self.speed() / 100)
-                try:
-                    audio, rate = await cloud.synthesize(text)
-                finally:
-                    if cloud._client is not None:
-                        with contextlib.suppress(Exception):
-                            await cloud._client.aclose()
+                audio, rate = await _say_once(await self.jarvis_voice(self.speed() / 100), text)
             elif provider == "local":
                 audio, rate = await self._local_preview(text, voice)
                 if audio is None:
@@ -564,12 +569,7 @@ class Speaking:
                 cloud = CloudVoice(
                     provider, key, voice_id, self.model(provider), self.speed() / 100
                 )
-                try:
-                    audio, rate = await cloud.synthesize(text)
-                finally:
-                    if cloud._client is not None:
-                        with contextlib.suppress(Exception):
-                            await cloud._client.aclose()
+                audio, rate = await _say_once(cloud, text)
             await speaker.play(audio, rate)
         except ValueError as exc:
             self.error = str(exc)

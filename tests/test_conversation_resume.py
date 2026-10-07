@@ -288,3 +288,19 @@ def test_a_save_that_finishes_late_never_puts_back_an_older_record(tmp_path):
     assert ConversationState(path).titles() == {SID: "Lisbon"}
     store.save({"current": "", "branch": None, "sessions": {}})  # given as it is: written
     assert ConversationState(path).current == ""
+
+
+def test_one_title_is_read_as_titles_has_it_and_a_record_made_once(tmp_path):
+    """state.title(sid) (what the window's list, the transcript and a branch's note show)
+    is titles()'s, without making the whole list; state.entry(sid) makes a blank record
+    once and hands back the same one after."""
+    store = ConversationState(tmp_path / "conversation.json")
+    store.turn_over(SID, {"private": False, "web": False, "what": []}, 0.0, "  Trip  to Lisbon ")
+    store.relate("other-1", SID, "fork")  # a record with no title yet
+    assert store.title(SID) == store.titles()[SID] == "Trip to Lisbon"
+    assert store.title("other-1") == store.title("nobody") == ""
+    assert "other-1" not in store.titles()
+    assert store.entry(SID) is store.sessions[SID]
+    made = store.entry("new-1")
+    assert made == {"reads": None, "cost": 0.0, "at": "", "title": ""}
+    assert store.entry("new-1") is made

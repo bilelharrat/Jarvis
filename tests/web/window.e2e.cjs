@@ -870,6 +870,43 @@ test('features.js asks for every module at once and runs them in name order, pas
   }
 });
 
+test('features.js says once in the console when its list can’t be read, and the window still gets ready', async () => {
+  WIDGET_DOCS.set('/features.json', '{ "scripts": [');  // cut off mid-answer
+  expectedErrors = [/^features\.json failed/];
+  try {
+    const seen = await js(`new Promise((resolve) => {
+      const seen = [];
+      const real = console.error;
+      console.error = (...a) => { seen.push(a.map(String).join(' ')); real.apply(console, a); };
+      window.addEventListener('jarvis-features-ready', () => { console.error = real; resolve(seen); }, { once: true });
+      const loader = document.createElement('script');
+      loader.src = '/static/features.js';
+      document.body.append(loader);
+    })`);
+    assert(seen.length === 1 && /^features\.json failed: SyntaxError/.test(seen[0]), JSON.stringify(seen));
+  } finally {
+    WIDGET_DOCS.delete('/features.json');
+  }
+});
+
+test('中文 whose dictionary can’t be read says so once in the console and leaves the window in English', async () => {
+  WIDGET_DOCS.set('/static/i18n-zh.json', '{ "strings": {');  // cut off mid-answer
+  expectedErrors = [/^i18n-zh\.json failed/];
+  try {
+    const r = await js(`(async () => {
+      const seen = [];
+      const real = console.error;
+      console.error = (...a) => { seen.push(a.map(String).join(' ')); real.apply(console, a); };
+      try { await jarvisI18n.setLang('zh'); await jarvisI18n.setLang('en'); await jarvisI18n.setLang('zh'); } finally { console.error = real; }
+      return { seen, lang: jarvisI18n.lang(), shown: $('settings-search').placeholder, said: jarvisI18n.t('Search settings') };
+    })()`);
+    assert(r.seen.length === 1 && /^i18n-zh\.json failed: SyntaxError/.test(r.seen[0]), JSON.stringify(r.seen));
+    assert(r.lang === 'zh' && r.shown === 'Search settings' && r.said === 'Search settings', JSON.stringify(r));
+  } finally {
+    WIDGET_DOCS.delete('/static/i18n-zh.json');
+  }
+});
+
 test('Jarvis Code tells the backend which session the owner looked at, once in a while', async () => {
   await loadFeature('code-voice.js');
   await open(3);
@@ -8210,6 +8247,43 @@ test('Jarvis Code’s title, the same on a step, is told again in its own text n
   // A title holding more than its text (a line break left by a rename) is written whole.
   await js(`$('jc-title').append(document.createElement('br')); onEvent({ type: 'tasks', items: [__task(1, { title: 'Renamed' })] }); true`);
   assert(await js(`$('jc-title').childNodes.length === 1 && $('jc-title').textContent === 'Renamed'`), `left: ${await js('$("jc-title").innerHTML')}`);
+});
+
+test('Steps that leave the sidebar as it was measure its pill once, at the next frame', async () => {
+  // Measuring a row lays the page out: done on every step while the transcript grew on the
+  // same steps, it was most of the window's work while a session ran.
+  await open(1);
+  await frames(2);
+  await js(`window.__rects = 0; window.__realRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function () { if (this.closest('.jc-projects-wrap')) __rects++; return __realRect.call(this); };
+    for (let i = 0; i < 20; i++) onEvent({ type: 'tasks', items: [__task(1, { last_action: 'Editing ' + i + '.py' })] });
+    true`);
+  assert(await js('__rects') === 0, `the sidebar was measured ${await js('__rects')} times on the steps themselves`);
+  await frames(2);
+  const r = await js(`(() => { Element.prototype.getBoundingClientRect = __realRect;
+    const glider = $('jc-glider'), wrap = glider.parentElement, row = document.querySelector('#deck-project-list .jc-session[aria-current="true"]');
+    return { rects: __rects, top: parseFloat(glider.style.top), want: row.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop, opacity: glider.style.opacity }; })()`);
+  assert(r.rects === 2, `measured ${r.rects} times at the frame (the row and its list: 2)`);
+  assert(Math.abs(r.top - r.want) < 0.5 && r.opacity === '1', `the pill is not on the open session's row: ${JSON.stringify(r)}`);
+});
+
+test('A step that changes nothing writes nothing to the composer, the welcome or the activity', async () => {
+  const items = '[__task(1), __task(2, { busy: false, status: "waiting" })]';
+  await open(1, `onEvent({ type: 'tasks', items: ${items} }); onEvent({ type: 'task_context', id: 1, percent: 40 })`);
+  await frames(1);
+  await js(`window.__recs = [];
+    window.__mo = new MutationObserver((r) => { for (const x of r) __recs.push((x.target.id || x.target.className || x.target.nodeName) + ' ' + (x.attributeName || x.type)); });
+    for (const id of ['cc-welcome', 'cc-working', 'jc-todos', 'jc-bg', 'jc-ctx', 'jc-ctx-text', 'jc-mode-btn', 'jc-bypass', 'jc-model', 'jc-effort', 'jc-dictate', 'activity-empty', 'tasks-list']) {
+      __mo.observe($(id), { attributes: true, childList: true, characterData: true, subtree: id === 'tasks-list' || id === 'jc-ctx-text' });
+    }
+    for (let i = 0; i < 5; i++) { onEvent({ type: 'tasks', items: ${items} }); onEvent({ type: 'task_context', id: 1, percent: 40 }); }
+    true`);
+  await frames(1);
+  assert(JSON.stringify(await js('__recs')) === '[]', `written again as it was: ${JSON.stringify(await js('__recs'))}`);
+  // What does change is still written.
+  await js(`onEvent({ type: 'tasks', items: [__task(1, { mode: 'plan', busy: false, status: 'waiting' }), __task(2, { busy: false, status: 'waiting' })] }); true`);
+  const r = await js(`({ mode: $('jc-mode-btn').dataset.mode, title: $('jc-mode-btn').title, working: $('cc-working').hidden, box: document.querySelector('#tasks-list [data-task="1"]').className })`);
+  assert(r.mode === 'plan' && r.title.startsWith('Plan:') && r.working === true && r.box === 'task waiting', JSON.stringify(r));
 });
 
 test('A rename called off with Esc, or kept as it was, leaves the title unselected', async () => {

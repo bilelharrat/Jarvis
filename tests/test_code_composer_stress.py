@@ -43,6 +43,19 @@ async def test_bang_output_is_unicode_safe_and_bounded(hub, tmp_path, monkeypatc
     assert len(data["output"]) <= 20_001
 
 
+async def test_an_id_in_digits_no_number_reads_names_no_session(hub, tmp_path, monkeypatch):
+    """Digits Python can't read as a number ("①", "²") name no session: the folder the
+    message names is used, never a traceback that leaves the window waiting."""
+    sent = _record(hub)
+    project = tmp_path / "proj"
+    project.mkdir()
+    monkeypatch.setattr(hub.tasks, "resolve_dir", lambda _d: project)
+    for odd in ("①", "²"):
+        hub.task_memory({"id": odd, "directory": "proj", "text": f"note {odd}"})
+        assert sent[-1][1]["ok"] is True
+    assert (project / "CLAUDE.md").read_text() == "- note ①\n- note ²\n"
+
+
 async def test_a_memory_that_cannot_be_saved_says_so(hub, tmp_path, monkeypatch):
     sent = _record(hub)
     project = tmp_path / "proj"

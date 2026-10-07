@@ -16,10 +16,12 @@
 
   const isMajor = (i) => i % 12 === 0;
   const live = (state) => state === 'listening' || state === 'speaking' || state === 'thinking' || state === 'transcribing';
+  // The voice level as the dial reads it: 0..1, and anything else (none, NaN) as silence.
+  const levelOf = (level) => Math.max(0, Math.min(1, Number(level) || 0));
 
   // How long tick i is (dial units) in a state, t seconds in, at a voice level of 0..1.
   function tickLength(i, state, t, level) {
-    const lv = Math.max(0, Math.min(1, Number(level) || 0));
+    const lv = levelOf(level);
     if (state === 'listening') {
       const w = Math.abs(Math.sin(i * 0.31 + t * 2.1) * Math.cos(i * 0.087 - t * 1.3 + 0.9));
       return 4 + (8 + 34 * lv) * Math.pow(w, 1.3);
@@ -130,7 +132,7 @@
     circle(104, `rgba(${RING}, 0.07)`, 1, [1.5, 7]);
 
     // the core: two soft discs, a fine ring and a bright point
-    const lv = Math.max(0, Math.min(1, Number(level) || 0));
+    const lv = levelOf(level);
     for (const [r, a] of [[72, on ? 0.08 : 0.04], [50, (on ? 0.12 : 0.07) + lv * 0.08]]) {
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -156,7 +158,7 @@
   // ring don't move there) and the core's two figures that follow the level.
   function stillKey(state, t, level) {
     if (live(state)) return null;
-    const lv = Math.max(0, Math.min(1, Number(level) || 0));
+    const lv = levelOf(level);
     let bright = '';
     for (let i = 0; i < TICKS; i++) bright += tickBright(i, state, tickLength(i, state, t, level), t) ? '1' : '0';
     return `${state}|${bright}|${0.07 + lv * 0.08}|${30 + lv * 4}`;

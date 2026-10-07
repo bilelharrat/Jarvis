@@ -125,6 +125,11 @@ def total_size(files: dict[str, dict[str, Any]] | None = None) -> int:
     return sum(int(f.get("size") or 0) for f in files.values())
 
 
+def _all_here(folder: Path, files: dict[str, dict[str, Any]]) -> bool:
+    """Every one of the files is in the folder (downloaded)."""
+    return all((folder / name).is_file() for name in files)
+
+
 def _session(path: Path) -> Any:
     try:
         import onnxruntime
@@ -163,7 +168,7 @@ class Engine:
         self.error = ""  # why it couldn't run last
 
     def downloaded(self) -> bool:
-        return all((self.folder / name).is_file() for name in self.files)
+        return _all_here(self.folder, self.files)
 
     # ── loading (blocking: call off the event loop) ──
 
@@ -329,7 +334,7 @@ class Store:
         return configured(self.files)
 
     def ready(self) -> bool:
-        return all((self.folder / name).is_file() for name in self.files)
+        return _all_here(self.folder, self.files)
 
     def engine(self) -> Engine:
         if self._engine is None:

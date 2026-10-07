@@ -386,7 +386,6 @@ function onEvent(ev) {
     }
     case 'task_log': if (ev.id === ccSelected) appendEntry(ev.entry); break;
     case 'task_log_update': if (ev.id === ccSelected) updateEntry(ev); break;
-    case 'project_git': if (ev.directory === deckProject) renderGit(ev); break;
     case 'task_transcript': if (ev.id === ccSelected) replayTranscript(ev.entries || []); break;
     case 'claude_projects': renderProjects(ev.items); break;
     case 'browser_cmd': runBrowserCommand(ev); break;
@@ -1921,7 +1920,7 @@ function closeWeather(animate = true) {
     wxClosing = null;
     const back = wxReturnFocus;
     wxReturnFocus = null;
-    if (back && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
+    focusBack(back);
   };
   if (!animate) { done(); return; }
   const reduced = wxReduced();
@@ -1932,6 +1931,12 @@ function closeWeather(animate = true) {
   const scrim = $('wx-scrim').animate([{ opacity: 1 }, { opacity: 0 }], { duration: reduced ? 140 : 260, easing: 'ease-in', fill: 'forwards' });
   wxClosing = { cancel() { flight.cancel(); scrim.cancel(); } };
   flight.onfinish = () => { flight.cancel(); scrim.cancel(); done(); };
+}
+
+// A pop-out that closes gives the focus back to what had it when it opened, if that's
+// still on the page.
+function focusBack(back) {
+  if (back && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
 }
 
 $('p-weather').addEventListener('click', openWeather);
@@ -2109,6 +2114,14 @@ function renderUsagePop(u) {
   body.replaceChildren(...parts);
 }
 
+// Usage and System stats open alike: the scrim fades in and the card rises (with reduced
+// motion, it only fades in).
+function popIn(scrim, pop) {
+  scrim.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
+  pop.animate(wxReduced() ? [{ opacity: 0 }, { opacity: 1 }] : [{ transform: 'translateY(14px) scale(0.97)', opacity: 0 }, { transform: 'none', opacity: 1 }],
+    { duration: 320, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+}
+
 function usageIsOpen() { return !$('usage-layer').hidden; }
 function openUsage() {
   if (!lastUsage || usageIsOpen()) return;
@@ -2116,9 +2129,7 @@ function openUsage() {
   renderUsagePop(lastUsage);
   $('usage-layer').hidden = false;
   $('usage-pop').scrollTop = 0;
-  $('usage-scrim').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
-  $('usage-pop').animate(wxReduced() ? [{ opacity: 0 }, { opacity: 1 }] : [{ transform: 'translateY(14px) scale(0.97)', opacity: 0 }, { transform: 'none', opacity: 1 }],
-    { duration: 320, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+  popIn($('usage-scrim'), $('usage-pop'));
   $('usage-close').focus({ preventScroll: true });
 }
 function closeUsage() {
@@ -2126,7 +2137,7 @@ function closeUsage() {
   $('usage-layer').hidden = true;
   const back = usageReturnFocus;
   usageReturnFocus = null;
-  if (back && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
+  focusBack(back);
 }
 $('p-uptime').addEventListener('click', openUsage);
 $('p-uptime').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openUsage(); } });
@@ -2322,9 +2333,7 @@ function openSys() {
   sysReturnFocus = document.activeElement;
   $('sys-layer').hidden = false;
   $('sys-pop').scrollTop = 0;
-  $('sys-scrim').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
-  $('sys-pop').animate(wxReduced() ? [{ opacity: 0 }, { opacity: 1 }] : [{ transform: 'translateY(14px) scale(0.97)', opacity: 0 }, { transform: 'none', opacity: 1 }],
-    { duration: 320, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' });
+  popIn($('sys-scrim'), $('sys-pop'));
   selectSysTab(sysTab);
   $('sys-close').focus({ preventScroll: true });
 }
@@ -2334,7 +2343,7 @@ function closeSys() {
   send({ type: 'sysmon_close' });
   const back = sysReturnFocus;
   sysReturnFocus = null;
-  if (back && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
+  focusBack(back);
 }
 $('p-system').addEventListener('click', openSys);
 $('p-system').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSys(); } });
@@ -2442,15 +2451,14 @@ function mkPrice(q) {
 }
 
 function sparkline(points, up) {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
+  const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 80 24');
   svg.setAttribute('preserveAspectRatio', 'none');
   svg.setAttribute('class', `mk-spark ${up ? 'up' : 'down'}`);
   svg.setAttribute('aria-hidden', 'true');
   if (points && points.length > 1) {
     const lo = Math.min(...points), hi = Math.max(...points), span = hi - lo || 1;
-    const line = document.createElementNS(ns, 'polyline');
+    const line = document.createElementNS(SVG_NS, 'polyline');
     line.setAttribute('points', points.map((p, i) => `${(i / (points.length - 1)) * 80},${22 - ((p - lo) / span) * 20}`).join(' '));
     svg.append(line);
   }
@@ -2490,7 +2498,6 @@ let ccSelected = null;
 let ccTasks = [];
 let deckProject = null;
 let deckProjects = [];
-let deckTab = 'active';
 let pastSessions = [];
 // Past sessions in every project, newest first, from Claude Code's own records (the hub's
 // claude_history): the sidebar lists them under each project, so they outlast a restart.
@@ -2557,7 +2564,7 @@ function renderProjects(items) {
   const shown = [filter, deckProject, ccSelected, marked, voiceFocus && voiceFocus.id, [...openProjects], deckProjects.map((p) => [p.name, p.branch]),
     ccTasks.map((t) => [t.id, t.folder, t.title || t.prompt, statusOf(t), statusText(t), t.mode, t.session_id]),
     [...showAllPast], new Date().toDateString()];
-  if (!changed('projects', shown, historySignature())) { moveGlider(); return; }
+  if (!changed('projects', shown, historySignature())) { moveGliderSoon(); return; }
   $('deck-project-list').replaceChildren(...deckProjects.filter((p) => !filter || p.name.toLowerCase().includes(filter)).map((p) => {
     const li = el('li');
     const open = openProjects.has(p.name) || p.name === deckProject;
@@ -2699,6 +2706,16 @@ function moveGlider() {
   glider.style.opacity = '1';
 }
 
+// The same, at the next frame (once, however many ask before it), for a sidebar left as it
+// was: the hub sends the list on every step of every session, and measuring the row there
+// and then laid the page out again for each one while the transcript grew on the same steps
+// (two thirds and more of the window's work while a session ran). It's the frame that shows
+// the step, so the pill is in place when it's painted.
+let gliderFrame = 0;
+function moveGliderSoon() {
+  if (!gliderFrame) gliderFrame = requestAnimationFrame(() => { gliderFrame = 0; moveGlider(); });
+}
+
 function selectProject(name) {
   const other = deckProject !== name;
   if (other) pastSessions = [];
@@ -2726,10 +2743,6 @@ function renderPast() {
     return li;
   }));
 }
-
-function renderDeckList() { renderProjects(deckProjects); renderPast(); }
-function renderGit() { /* the Changes pane shows the diff */ }
-function showPane() { /* one column now: the transcript, with the welcome above it */ }
 
 function statusOf(t) { return t.busy ? 'busy' : t.status === 'failed' ? 'failed' : t.status === 'waiting' ? 'waiting' : 'idle'; }
 function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', failed: 'failed', stopped: 'ended', closed: 'ended', running: 'starting' }[t.status] || t.status; }
@@ -2790,14 +2803,14 @@ function renderCC(items) {
   renderProjects(deckProjects);
   const t = currentTask();
   renderHeader(t);
-  $('cc-welcome').hidden = !!t && $('deck-timeline').children.length > 0;
+  setProp($('cc-welcome'), 'hidden', !!t && $('deck-timeline').children.length > 0);
   renderComposer();
   if (!t) {
     setText($('cc-mode'), 'Pick a session, or start one. ? for shortcuts');
     setText($('cc-meta'), '');
-    $('cc-working').hidden = true;
-    $('jc-todos').hidden = true;
-    $('jc-bg').hidden = true;
+    setProp($('cc-working'), 'hidden', true);
+    setProp($('jc-todos'), 'hidden', true);
+    setProp($('jc-bg'), 'hidden', true);
     drawnParts.delete('todos');  // hidden here: drawn again when a session shows
     drawnParts.delete('background');
     setCtx(null);
@@ -2813,7 +2826,7 @@ function renderCC(items) {
   setCtx(ccContext[t.id] ? ccContext[t.id].percent : null);
   if (t.busy && !workingSince) workingSince = Date.now();
   if (!t.busy) workingSince = 0;
-  $('cc-working').hidden = !t.busy;
+  setProp($('cc-working'), 'hidden', !t.busy);
   setText($('cc-working-text'), `${t.last_action && t.last_action !== 'Working' ? t.last_action : 'Working'}…`);
   if (changed('todos', [t.id, t.todos])) renderTodos(t.todos || []);
   if (changed('background', [t.id, t.background])) renderBackground(t.background || []);
@@ -2828,11 +2841,11 @@ function renderCC(items) {
 
 function setCtx(percent) {
   const ring = $('jc-ctx-ring');
-  $('jc-ctx').hidden = percent == null;
+  setProp($('jc-ctx'), 'hidden', percent == null);
   if (percent == null) return;
   ring.style.strokeDashoffset = String(50.3 * (1 - Math.min(100, percent) / 100));
   ring.style.stroke = percent > 80 ? 'rgb(var(--c-warning))' : '';
-  $('jc-ctx-text').textContent = `${percent}%`;
+  setText($('jc-ctx-text'), `${percent}%`);
 }
 
 function renderTodos(todos) {
@@ -3128,7 +3141,7 @@ function appendEntry(e, replaying = false) {
     try { decorate(e, li); } catch (err) { console.error('feature entry decorator', err); }
   }
   tl.insertBefore(li, tl.querySelector(':scope > .jc-ask'));
-  $('cc-welcome').hidden = true;
+  setProp($('cc-welcome'), 'hidden', true);
   // Oldest out first; approval sheets and the live reply sit at the end and stay. The sheets
   // are counted from this entry on (it went in before the first of them), not by a second
   // walk through the inside of every entry: a transcript is hundreds of them.
@@ -3254,7 +3267,7 @@ function onStream(ev) {
       live.frame = wait > 16 ? setTimeout(() => requestAnimationFrame(draw), wait) : requestAnimationFrame(draw);
     }
   }
-  $('cc-welcome').hidden = true;
+  setProp($('cc-welcome'), 'hidden', true);
 }
 
 // An approval, as a sheet in the conversation: capsule answers, number keys, and a
@@ -3274,7 +3287,7 @@ function renderInlineApprovals() {
     added = true;
   }
   if (!added) return;
-  $('cc-welcome').hidden = true;
+  setProp($('cc-welcome'), 'hidden', true);
   const first = tl.querySelector(':scope > .jc-ask .jc-choices button');
   if (first && document.activeElement === $('deck-input') && !$('deck-input').value) first.focus();
   followBottom('show');
@@ -3577,7 +3590,7 @@ function localSlash(text) {
     case 'mcp': openPane('mcp'); return true;
     case 'permissions': openPane('rules'); return true;
     case 'diff': openPane('diff'); return false;  // also says it out loud / in the log
-    case 'fork': if (t) { awaitingNewSession = true; send({ type: 'task_fork', id: t.id }); } return true;
+    case 'fork': if (t) awakeNewSessionFork(t); return true;
     case 'rename':
       if (t && arg) send({ type: 'task_rename', id: t.id, title: arg });
       else if (t) $('jc-title').dispatchEvent(new MouseEvent('dblclick'));  // name it in place
@@ -3816,7 +3829,6 @@ function addFile(file) {
   };
   if (kind === 'text') reader.readAsText(file); else reader.readAsDataURL(file);
 }
-const addImageFile = addFile;
 
 function removeChip(label, onRemove) {
   const x = el('button', 'jc-chip-x', '×');
@@ -4078,17 +4090,17 @@ function renderComposer() {
   const mode = JC_MODES.find((m) => m.id === s.mode) || JC_MODES[0];
   if ($('jc-mode-btn').dataset.mode !== mode.id) $('jc-mode-ic').replaceChildren(icon(mode.id, 14));
   setText($('jc-mode-label'), mode.label);
-  $('jc-mode-btn').dataset.mode = mode.id;
-  $('jc-bypass').setAttribute('aria-pressed', String(mode.id === 'auto'));
-  $('jc-mode-btn').title = `${mode.label}: ${mode.note} (⌘⇧M or ⇧⇥ to switch)`;
+  setAttr($('jc-mode-btn'), 'data-mode', mode.id);
+  setAttr($('jc-bypass'), 'aria-pressed', String(mode.id === 'auto'));
+  setProp($('jc-mode-btn'), 'title', `${mode.label}: ${mode.note} (⌘⇧M or ⇧⇥ to switch)`);
   setText($('jc-model-label'), s.label);
-  $('jc-model').title = `Model: ${s.label} (⌘⇧I)`;
+  setProp($('jc-model'), 'title', `Model: ${s.label} (⌘⇧I)`);
   const stop = effortStop(s);
   setText($('jc-effort-label'), `${effortName(stop)}${s.pending ? ' · next step' : ''}`);
   $('jc-effort').classList.toggle('ultra', stop === 5);
-  $('jc-effort').title = `Effort: ${effortName(stop)} (⌘⇧E)`;
+  setProp($('jc-effort'), 'title', `Effort: ${effortName(stop)} (⌘⇧E)`);
   $('jc-gauge-fill').style.strokeDashoffset = String(100 - GAUGE[stop]);
-  $('jc-dictate').setAttribute('aria-pressed', String(dictating));
+  setAttr($('jc-dictate'), 'aria-pressed', String(dictating));
   $('jc-dictate').classList.toggle('live', dictating);
 }
 
@@ -4569,12 +4581,9 @@ function renderJcGeneral() {
   yours.append(...mine.map((m) => option(m.ref, `${m.label} · ${m.provider_name}`, codeDefaults.model === m.ref)));
   sel.replaceChildren(claude, ...(mine.length ? [yours] : []));
   $('jcs-mode').replaceChildren(...JC_MODES.map((m) => option(m.id, m.label, (codeDefaults.mode || 'ask') === m.id)));
-  const stop = codeDefaults.ultracode ? 5 : Math.max(0, EFFORTS.indexOf(codeDefaults.effort || 'high'));
+  const stop = effortStop(codeDefaults);
   $('jcs-effort').value = String(stop);
-  $('jcs-effort').style.setProperty('--fill', `${(stop / 5) * 100}%`);
-  $('jcs-effort').parentElement.style.setProperty('--p', String(stop / 5));
-  $('jcs-effort-out').textContent = effortName(stop);
-  $('jcs-effort-out').classList.toggle('ultra', stop === 5);
+  showJcsEffort(stop);
   $('jcs-queue').setAttribute('aria-checked', String(!prefs || prefs.code_queue !== false));
   $('jcs-awake').setAttribute('aria-checked', String(awake));
 }
@@ -4585,13 +4594,15 @@ $('jcs-mode').addEventListener('change', () => {
   if (id === 'auto') confirmBypass('bypass-default', 'New sessions would run any command and change any file without asking. Start them in Bypass permissions?', go, renderJcGeneral);
   else go();
 });
-$('jcs-effort').addEventListener('input', () => {
-  const stop = Number($('jcs-effort').value);
+// The default effort slider's fill and the name of the stop it's on, as it opens and as it's
+// dragged.
+function showJcsEffort(stop) {
   $('jcs-effort').style.setProperty('--fill', `${(stop / 5) * 100}%`);
   $('jcs-effort').parentElement.style.setProperty('--p', String(stop / 5));
   $('jcs-effort-out').textContent = effortName(stop);
   $('jcs-effort-out').classList.toggle('ultra', stop === 5);
-});
+}
+$('jcs-effort').addEventListener('input', () => showJcsEffort(Number($('jcs-effort').value)));
 $('jcs-effort').addEventListener('change', () => {
   const stop = Number($('jcs-effort').value);
   Object.assign(codeDefaults, { effort: stop === 5 ? 'xhigh' : EFFORTS[stop], ultracode: stop === 5 });
@@ -4809,10 +4820,11 @@ function renderAuditList(list) {
     || (auditFilter === 'asked' ? a.decision === 'allowed' || a.decision === 'denied' : auditFilter === 'denied' ? a.decision === 'denied' : auditKind(a) === auditFilter))
     && (!q || `${a.tool} ${a.what} ${a.why}`.toLowerCase().includes(q)));
   if (!shown.length) { list.replaceChildren(el('li', 'jc-empty', auditItems.length ? 'Nothing matches.' : 'Nothing yet: steps show up here as the session works.')); return; }
+  const timeOf = dateFormat({ hour: 'numeric', minute: '2-digit', second: '2-digit' });
   list.replaceChildren(...shown.slice(0, 500).map((a) => {
     const li = el('li', `jc-audit-row ${a.decision}`);
     const head = el('div', 'jc-audit-head');
-    const time = new Date(a.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    const time = timeOf(a.at);
     head.append(el('span', `jc-audit-chip ${a.decision}`, { auto: 'Automatic', allowed: 'You allowed', denied: 'Denied', bypass: 'Bypass' }[a.decision] || a.decision),
       el('strong', '', a.tool.split('__').pop()), el('span', 'jc-audit-time', time));
     li.append(head, mine(el('code', 'jc-audit-what', a.what)), el('small', 'jc-audit-why', a.why));
@@ -5151,12 +5163,11 @@ function onTermData(ev) {
 
 // ── voice coding: which session your voice goes to ──
 let voiceFocus = null;
-const MODE_LABELS = MODE_NAMES;
 
 function onVoiceCode(focus) {
   voiceFocus = focus || null;
   $('code-pill').hidden = !voiceFocus;
-  if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_LABELS[voiceFocus.mode] || voiceFocus.mode}`;
+  if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_NAMES[voiceFocus.mode] || voiceFocus.mode}`;
   $('cc-voice-head').setAttribute('aria-pressed', String(!!voiceFocus));
   $('cc-voice-label').textContent = voiceFocus ? `Voice · ${voiceFocus.folder}` : 'Voice off';
   $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected ? 'Listening: just talk (say “exit code mode” to stop), or type…' : 'Ask Jarvis Code to plan, build or fix something…';
@@ -5226,7 +5237,6 @@ let noteUntil = 0;
 let researchShown = false;
 let lastResearchPath = '/markets';
 
-function browserOpen() { return browserOpenNow; }
 // '' when none is set (a new install): Markets is then only the markets.
 function researchBaseUrl() { return (prefs && prefs.research_url) || ''; }
 
@@ -5516,9 +5526,11 @@ function renderLibrary() {
     .filter((x) => !q || `${x.title} ${x.url}`.toLowerCase().includes(q)).slice(0, 300);
   let day = '';
   const rows = [];
+  const dayOf = dateFormat({ weekday: 'long', month: 'short', day: 'numeric' });
+  const timeOf = dateFormat({ hour: 'numeric', minute: '2-digit' });
   for (const x of items) {
     if (libKind === 'history') {
-      const d = new Date(x.at).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+      const d = dayOf(x.at);
       if (d !== day) { day = d; rows.push(el('li', 'bd-lib-day', d)); }
     }
     const li = el('li', 'bd-lib-row');
@@ -5527,7 +5539,7 @@ function renderLibrary() {
     let host = x.url;
     try { host = new URL(x.url).host; } catch (_) { /* shown as it is */ }
     go.append(mine(el('span', 'bd-lib-title', x.title || host)), mine(el('span', 'bd-lib-url', host)));
-    if (libKind === 'history') go.append(el('span', 'bd-lib-time', new Date(x.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })));
+    if (libKind === 'history') go.append(el('span', 'bd-lib-time', timeOf(x.at)));
     go.addEventListener('click', (e) => {
       if (e.metaKey) app.browser.tab('new', null, x.url);
       else app.browser.nav('go', x.url);
@@ -6307,6 +6319,18 @@ function clockText(at, style = 'hm') {
   return timeFormats.get(key).format(when);
 }
 
+// A long list's dates in the Mac's own format, with one formatter made for the list:
+// toLocale…String makes one a call (some 20 µs), so the History panel's 300 rows took
+// about 12 ms on every key typed in its search. The words are toLocale…String's own,
+// "Invalid Date" and all.
+function dateFormat(options) {
+  const format = new Intl.DateTimeFormat(undefined, options);
+  return (at) => {
+    const when = new Date(at);
+    return Number.isNaN(when.getTime()) ? 'Invalid Date' : format.format(when);
+  };
+}
+
 // Redraw a part of the window only when what it shows has changed. The hub resends whole
 // lists on every step of every session; rebuilding each time replaced the buttons under
 // the pointer (a click that straddled an update was lost), dropped the keyboard focus and
@@ -6519,7 +6543,7 @@ function renderActivity() {
     li.append(t, el('span', '', a.label), el('span', 'st', st));
     return li;
   }));
-  $('activity-empty').hidden = activity.length > 0 || $('tasks-list').childElementCount > 0;
+  setProp($('activity-empty'), 'hidden', activity.length > 0 || $('tasks-list').childElementCount > 0);
 }
 
 const TASKS_SHOWN = 20;  // besides everything still running
@@ -6541,7 +6565,7 @@ function renderTasks(items) {
       top.append(el('span'), el('span'));
       box.append(top, el('div', 'task-prompt'), el('div', 'task-state'));
     }
-    box.className = `task ${t.status}`;
+    setProp(box, 'className', `task ${t.status}`);
     const [label, status] = box.firstElementChild.children;
     setText(label, t.label || `Jarvis Code · ${t.folder}`);
     setText(status, t.status);
@@ -6551,10 +6575,16 @@ function renderTasks(items) {
     if (list.children[i] !== box) list.insertBefore(box, list.children[i] || null);
   });
   old.forEach((box) => box.remove());
-  $('activity-empty').hidden = activity.length > 0 || list.childElementCount > 0;
+  setProp($('activity-empty'), 'hidden', activity.length > 0 || list.childElementCount > 0);
 }
 
 function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
+// The same for a property or an attribute (hidden, a class, a title, aria-pressed): writing
+// back what's already there still counts as a change (the page matches its styles against it
+// again, and every observer hears of it), and these are written on every step of every
+// session (the hub's list of sessions comes with each one) and every word streamed.
+function setProp(node, key, value) { if (node[key] !== value) node[key] = value; }
+function setAttr(node, name, value) { if (node.getAttribute(name) !== value) node.setAttribute(name, value); }
 
 function taskButton(box, t) {
   const kind = t.status === 'running' ? 'stop' : t.report_path ? 'report' : '';

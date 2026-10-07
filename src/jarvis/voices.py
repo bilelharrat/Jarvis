@@ -139,6 +139,8 @@ async def list_cloud_voices(client: Any, provider: str, key: str) -> list[dict[s
         data = response.json()
     except ValueError:
         raise ValueError("The provider's answer wasn't a voice list.") from None
+    if not isinstance(data, dict):  # a list or a number has no voices to look up
+        raise ValueError("The provider's answer wasn't a voice list.")
     items = data.get("voices") if provider == "elevenlabs" else data.get("items")
     if not isinstance(items, list):
         raise ValueError("The provider's answer wasn't a voice list.")

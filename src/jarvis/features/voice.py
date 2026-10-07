@@ -8,10 +8,11 @@ Listening
   threshold. If the model can't load, loudness decides and Settings says why.
 - Wake words (wakewords.py): "Jarvis", the persona's own name, and any the owner adds;
   wake.py hears them (configured here), "Jarvis" anywhere, the others when called.
-- Talk over Jarvis (duplex.py, on by default): while hands-free listens, JARVIS's voice and
-  the microphone go through the Mac's echo cancellation, so talking over a reply
-  interrupts it without the wake word. Anything in the way (AirPods as the Mac's input, no
-  voice processing) falls back to the usual microphone, and the pane says why.
+- Talk over Jarvis (duplex.py, off until the owner turns it on): while hands-free listens,
+  JARVIS's voice and the microphone go through the Mac's echo cancellation, so talking
+  over a reply interrupts it without the wake word. Anything in the way (AirPods as the
+  Mac's input, no voice processing) falls back to the usual microphone, and the pane says
+  why.
 - Speech recognition: Whisper (the default), or Apple's on-device recognizer (stt_apple.py),
   which hears utterances as they're said: live captions, the wake word spotted before you
   finish, and the words ready about 0.2 s after you stop (hub.heard_live), on the Neural

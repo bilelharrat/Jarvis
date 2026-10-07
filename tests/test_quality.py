@@ -1,6 +1,8 @@
 """Jarvis's quality numbers (features/quality.py): answer time, crash-free days, lost chats
 and heads-ups a day, kept across runs."""
 
+import json
+from datetime import date
 from types import SimpleNamespace as NS
 
 from jarvis.features import quality
@@ -115,3 +117,30 @@ def test_a_save_with_nothing_new_writes_nothing_but_a_change_or_a_lost_file_does
     assert len(writes) == 4 and (tmp_path / "quality.json").read_text() == kept
     again = quality.Quality(hub(tmp_path))
     assert again.kinds == {"rain": {"shown": 2, "opened": 0, "dismissed": 0}}
+
+
+def test_an_odd_file_starts_those_numbers_afresh_never_failing(tmp_path):
+    """Each field read for what it must be: one a hand edit (or another build) left as
+    something else starts empty, and the feature still installs and the pane still reads
+    (a word for a number, a list for the days, a date that isn't one, stopped both)."""
+    (tmp_path / "quality.json").write_text(
+        json.dumps(
+            {
+                "latency": "fast",
+                "wake": [1.5, "x", None, [2]],
+                "days": [["2026-10-01", {"crashes": 1}]],
+                "since": "last week",
+                "lost": None,
+                "chat_keys": "abc",
+                "kinds": {"rain": 5, "mail": {"shown": "3"}},
+                "quiet": [7, "rain"],
+                "unquiet": {},
+            }
+        )
+    )
+    desk = quality.Quality(hub(tmp_path))
+    assert desk.latency == [] and desk.wake == [1.5] and desk.days == {}
+    assert desk.since == date.today().isoformat() and desk.lost == 0 and desk.known == []
+    assert desk.kinds == {"mail": {"shown": 3}} and desk.quiet == ["rain"] and desk.unquiet == []
+    desk.started()
+    assert desk.public()["lost_chats"] == 0 and desk.public()["crash_free_days"] == 1

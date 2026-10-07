@@ -134,6 +134,22 @@ def test_a_damaged_voiceprint_is_no_voiceprint(tmp_path, content):
     assert voiceprint.Voiceprint.load(path) is None
 
 
+@pytest.mark.parametrize(
+    "field, value",
+    [("clips", "1e999"), ("threshold", "1" + "0" * 400), ("made", "-" + "9" * 400),
+     ("vector", "[" + "1" * 400 + "]")],
+)  # fmt: skip
+def test_a_voiceprint_with_an_endless_number_is_no_voiceprint(tmp_path, field, value):
+    """A number no float or whole number holds (1e999 reads back as infinity; 400 digits
+    don't fit a float) is no voiceprint, never an OverflowError each time the check loads
+    it: every hands-free utterance tried it again."""
+    fields = {"vector": "[" + ", ".join(["1.0"] * 64) + "]", "threshold": "0.3"}
+    fields.update({"clips": "1", "made": "1", field: value})
+    path = tmp_path / "voiceprint.json"
+    path.write_text("{" + ", ".join(f'"{k}": {v}' for k, v in fields.items()) + "}")
+    assert voiceprint.Voiceprint.load(path) is None
+
+
 async def test_download_checks_the_checksum_before_the_model_is_kept(tmp_path):
     body = b"onnx" * 1000
     model = {"url": "https://example.test/speaker.onnx", "sha256": hashlib.sha256(body).hexdigest(), "size": len(body)}  # fmt: skip

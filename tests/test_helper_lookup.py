@@ -20,8 +20,9 @@ SRC = Path(swift_helper.__file__).parent
 
 
 def builders():
-    """Each helper's source and its builder. Helpers in native/ and audio/ go through the
-    shared builders (swift_helper.ensure, audio.build); the rest have their own."""
+    """Each helper's source and its builder. Helpers in native/ and audio/, and the voice
+    player, go through the shared builders (swift_helper.ensure, audio.build); the rest have
+    their own."""
     table = {
         "jarvis-player": (speech.PLAYER_SOURCE, speech.ensure_player),
         "jarvis-look": (codelook.HELPER_SOURCE, lambda: codelook.ensure_helper()),

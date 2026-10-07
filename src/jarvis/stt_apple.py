@@ -37,6 +37,8 @@ from typing import Any
 
 import numpy as np
 
+from .speech import to_pcm
+
 log = logging.getLogger("jarvis")
 
 HELPER = "jarvis-hear"
@@ -49,12 +51,13 @@ IDLE_SECONDS = 120.0  # no audio for this long (hands-free off): the helper is l
 QUEUE_FRAMES = 600  # frames waiting for the helper (30 s of audio) before it's given up on
 
 
+def _code(language: str) -> str:
+    """The helper's language for one of JARVIS's: "zh" (Mandarin), else "en"."""
+    return "zh" if language == "zh" else "en"
+
+
 def _digest(block: np.ndarray) -> bytes:
     return hashlib.blake2b(np.ascontiguousarray(block).tobytes(), digest_size=8).digest()
-
-
-def _pcm(block: np.ndarray) -> bytes:
-    return (np.clip(block, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
 def _frame(kind: bytes, body: bytes = b"") -> bytes:
@@ -63,7 +66,7 @@ def _frame(kind: bytes, body: bytes = b"") -> bytes:
 
 def run_json(path: Path, mode: str, language: str, timeout: float = 30.0) -> dict[str, Any]:
     """One answer from the helper (status or size), or {"error"} when it gives none."""
-    code = "zh" if language == "zh" else "en"
+    code = _code(language)
     try:
         done = subprocess.run(
             [str(path), mode, code], capture_output=True, text=True, timeout=timeout, check=False
@@ -80,7 +83,7 @@ def run_json(path: Path, mode: str, language: str, timeout: float = 30.0) -> dic
 def install(path: Path, language: str, progress: Callable[[float, int], None]) -> str:
     """Have macOS download Apple's model for the language: "" when done, else why not.
     progress(fraction, bytes) as it goes. Blocks: run it in a thread."""
-    code = "zh" if language == "zh" else "en"
+    code = _code(language)
     try:
         proc = subprocess.Popen(
             [str(path), "install", code], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
@@ -133,7 +136,7 @@ class Recognizer:
 
     def start(self, timeout: float = READY_SECONDS) -> bool:
         """Start the helper and wait for its model (blocks: run it in a thread)."""
-        code = "zh" if self.language == "zh" else "en"
+        code = _code(self.language)
         try:
             self.proc = subprocess.Popen(
                 [str(self.path), "listen", code],
@@ -178,7 +181,7 @@ class Recognizer:
         while len(self._ends) > REMEMBER:
             self._ends.popitem(last=False)
         self.last_audio = time.monotonic()
-        self._send(_frame(b"A", _pcm(block)))
+        self._send(_frame(b"A", to_pcm(block)))
 
     def _send(self, data: bytes) -> None:
         try:
@@ -318,6 +321,10 @@ class LiveEars:
     def wanted(self) -> bool:
         return self.hub.prefs.feature("voice_engine") == "apple"
 
+    def _language(self) -> str:
+        """The recognizer's language for the one JARVIS listens in now."""
+        return _code(self.hub.prefs.language)
+
     def public(self) -> dict[str, Any]:
         return {
             "state": self.state,
@@ -349,7 +356,7 @@ class LiveEars:
         from . import audio
 
         self._asked = False
-        language = "zh" if self.hub.prefs.language == "zh" else "en"
+        language = self._language()
         current = self.recognizer
         if not self.wanted():
             self._stop()
@@ -398,7 +405,7 @@ class LiveEars:
 
         if self.state != "needs_model" or self.path is None:
             return
-        language = "zh" if self.hub.prefs.language == "zh" else "en"
+        language = self._language()
         loop = asyncio.get_running_loop()
         self.progress = 0.0
         self._set("downloading")
@@ -455,7 +462,7 @@ class LiveEars:
     def tap(self, block: np.ndarray, speaking: bool) -> None:
         recognizer = self.recognizer
         if recognizer is not None and recognizer.alive:
-            if recognizer.language != ("zh" if self.hub.prefs.language == "zh" else "en"):
+            if recognizer.language != self._language():
                 self._ask_refresh()  # the language changed: its model follows
             recognizer.tap(block, speaking)
         elif self.wanted() and self.state in ("on", "off"):
@@ -481,7 +488,7 @@ class LiveEars:
         recognizer = self.recognizer
         if recognizer is None or not recognizer.alive:
             return None
-        language = "zh" if self.hub.prefs.language == "zh" else "en"
+        language = self._language()
         if recognizer.language != language:
             return None
         recognizer.context(self.words_to_hear())
@@ -519,7 +526,7 @@ class LiveEars:
         self._parts = [p for p in self._parts if p["end"] <= start or p["start"] >= end]
         self._parts.append({"start": start, "end": end, "text": str(event.get("text") or "")})
         self._parts.sort(key=lambda p: p["start"])
-        language = "zh" if self.hub.prefs.language == "zh" else "en"
+        language = self._language()
         text = lang.clean_transcript(" ".join(p["text"].strip() for p in self._parts), language)
         text = text.lstrip(" ,.;:…")  # a reading that starts mid-sentence
         if not text:

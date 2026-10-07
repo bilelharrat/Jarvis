@@ -335,3 +335,167 @@ def test_the_hub_builds_its_speaker_without_listing_the_macs_voices(
     assert isinstance(hub.speaker, speech.Speaker)
     assert hub.speaker.voice == settings.voice == "Daniel"  # English's voice, as before
     assert asked == []
+
+
+async def test_each_cloud_voice_asks_as_it_always_has():
+    """A sentence whole (WAV) and as it streams (PCM), from each provider: the address, the
+    headers and the body, field by field and in order, at the voice's own speed and at
+    another."""
+    import json
+
+    import httpx
+
+    from jarvis.speech import HOSTED_VOICE_URL, JARVIS_VOICE_ID, CloudVoice, wav_bytes
+
+    asked = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        whole = request.url.path.endswith("/tts") and b'"pcm"' not in request.content
+        if request.url.host == "api.elevenlabs.io":
+            whole = "wav" in request.url.params.get("output_format", "")
+        if request.url == HOSTED_VOICE_URL:
+            whole = json.loads(request.content)["format"] == "wav"
+        body = wav_bytes(np.zeros(8, np.float32), 24000) if whole else b"\x01\x00" * 8
+        return httpx.Response(200, content=body)
+
+    def made(provider: str, speed: float) -> CloudVoice:
+        key = "a" * 32 if provider == "hosted" else f"{provider}-key"
+        voice = CloudVoice(provider, key, JARVIS_VOICE_ID, "", speed, bearer=lambda: "tok")
+        voice._client = httpx.AsyncClient(transport=httpx.MockTransport(answer))
+        return voice
+
+    def seen(request: httpx.Request) -> tuple:
+        body = json.loads(request.content)
+        headers = {
+            k: request.headers[k]
+            for k in ("authorization", "model", "xi-api-key", "x-jarvis-install")
+            if k in request.headers
+        }
+        return request.method, str(request.url), headers, list(body.items())
+
+    eleven = f"https://api.elevenlabs.io/v1/text-to-speech/{JARVIS_VOICE_ID}"
+    for speed in (1.0, 1.3):
+        for provider in ("hosted", "elevenlabs", "fish"):
+            voice = made(provider, speed)
+            audio, rate = await voice.synthesize("Hi there.")
+            assert audio.size == 8 and rate == 24000
+            assert b"".join([c async for c in voice.stream("Hi there.")]) == b"\x01\x00" * 8
+            await voice._client.aclose()
+        hosted = [("text", "Hi there.")]
+        fast = {"hosted": [], "eleven": [], "fish": []}
+        if speed != 1.0:
+            fast = {
+                "hosted": [("speed", 1.3)],
+                "eleven": [("voice_settings", {"speed": 1.2})],
+                "fish": [("prosody", {"speed": 1.3})],
+            }
+        fish = [("text", "Hi there."), ("reference_id", JARVIS_VOICE_ID)]
+        tail = [("sample_rate", 24000), ("latency", "low"), *fast["fish"]]
+        eleven_body = [("text", "Hi there."), ("model_id", "eleven_flash_v2_5"), *fast["eleven"]]
+        own = {"authorization": "Bearer tok", "x-jarvis-install": "a" * 32}
+        assert [seen(r) for r in asked[-6:]] == [
+            ("POST", HOSTED_VOICE_URL, own, [*hosted, ("format", "wav"), *fast["hosted"]]),
+            ("POST", HOSTED_VOICE_URL, own, [*hosted, ("format", "pcm"), *fast["hosted"]]),
+            (
+                "POST",
+                f"{eleven}?output_format=wav_22050",
+                {"xi-api-key": "elevenlabs-key"},
+                eleven_body,
+            ),
+            (
+                "POST",
+                f"{eleven}/stream?output_format=pcm_22050",
+                {"xi-api-key": "elevenlabs-key"},
+                eleven_body,
+            ),
+            (
+                "POST",
+                "https://api.fish.audio/v1/tts",
+                {"authorization": "Bearer fish-key", "model": "s2.1-pro"},
+                [*fish, ("format", "wav"), *tail],
+            ),
+            (
+                "POST",
+                "https://api.fish.audio/v1/tts",
+                {"authorization": "Bearer fish-key", "model": "s2.1-pro"},
+                [*fish, ("format", "pcm"), *tail],
+            ),
+        ]
+
+
+def test_the_player_is_built_as_before_so_a_built_one_is_kept(monkeypatch, tmp_path):
+    """The voice player is built with the same command and timeout, in the same place,
+    named by its source's hash alone: a player a Mac already built is used as it is."""
+    import hashlib
+    import subprocess
+
+    from jarvis import prefs, speech, swift_helper
+
+    monkeypatch.setattr(prefs, "APP_SUPPORT", tmp_path)
+    monkeypatch.delenv(swift_helper.HELPERS_ENV, raising=False)
+    digest = hashlib.sha256(speech.PLAYER_SOURCE.read_bytes()).hexdigest()[:10]
+    built = tmp_path / "bin" / f"jarvis-player-{digest}"
+    runs = []
+
+    def swiftc(args, **kwargs):
+        runs.append((args, kwargs))
+        Path(args[args.index("-o") + 1]).write_bytes(b"player")
+
+    monkeypatch.setattr(subprocess, "run", swiftc)
+    assert speech.ensure_player() == built and built.read_bytes() == b"player"
+    [(args, kwargs)] = runs
+    assert args[:3] == ["swiftc", "-O", "-o"] and args[4:] == [str(speech.PLAYER_SOURCE)]
+    assert args[3].startswith(f"{built}.") and args[3].endswith(".part")
+    assert kwargs == {"check": True, "capture_output": True, "timeout": 300}
+    assert speech.ensure_player() == built and len(runs) == 1  # built once
+
+
+async def test_the_mac_voice_says_it_into_a_file_or_gives_nothing(quiet_speaker):
+    """A whole sentence (synthesize) and a streamed one (the Mac voice standing in) are
+    both `say -o` into a WAV: its audio, in the fallback voice once a cloud voice failed,
+    and nothing (None, or no samples) when `say` wrote no file."""
+    from jarvis import speech
+
+    ran, writes = [], [True]
+
+    async def run(args, spoken):
+        ran.append((args, spoken))
+        if writes[0]:
+            out = Path(args[args.index("-o") + 1])
+            speech.write_wav(out, np.full(50, 0.25, np.float32), speech.EFFECT_RATE)
+
+    quiet_speaker._run, quiet_speaker.muted = run, False
+    quiet_speaker.voice, quiet_speaker.fallback_voice = "Daniel", "Daniel (Enhanced)"
+    audio, rate = await quiet_speaker.synthesize("Hello.")
+    assert rate == speech.EFFECT_RATE and audio.size == 50 and abs(audio[0] - 0.25) < 1e-3
+    said = ["say", "-r", "190", "-v", "Daniel", f"--data-format=LEI16@{speech.EFFECT_RATE}"]
+    assert ran[-1][0][:-2] == said and ran[-1][0][-2] == "-o" and ran[-1][1] == "Hello."
+
+    class Down:  # a cloud voice that fails: the fallback voice says it
+        async def synthesize(self, _text):
+            raise RuntimeError("no credit")
+
+    quiet_speaker.cloud = Down()
+    audio, _rate = await quiet_speaker.synthesize("Hello.")
+    assert audio.size == 50 and ran[-1][0][4] == "Daniel (Enhanced)"
+    assert quiet_speaker.cloud_error == "no credit"
+    audio, _rate = await quiet_speaker._mac_voice("Hi.", fallback=True)
+    assert audio.size == 50 and ran[-1][0][4] == "Daniel (Enhanced)"
+    writes[0] = False  # `say` made nothing
+    assert await quiet_speaker.synthesize("Hello.") is None
+    audio, rate = await quiet_speaker._mac_voice("Hi.")
+    assert audio.size == 0 and rate == speech.EFFECT_RATE and ran[-1][0][4] == "Daniel"
+
+
+def test_a_final_split_keeps_every_word_and_no_blank_sentence():
+    """What voicecode reads a reply by (speakable, "read the rest"): with final=True nothing
+    is left over and no sentence is blank, however the text runs, so there's nothing to
+    put back or filter out after it."""
+    texts = ["", "   ", "Sure. ", "a.  b!\n\n?  ", "Hi", "One. Two? … ;", "x" * 30 + ".  \n "]
+    texts += ["Sure. The quick ", " . . . ", "ok:\n\n\n\n;\t", "Done.\u3000Next one here."]
+    for text in texts:
+        for min_chars in (1, 12):
+            parts, rest = split_sentences(text, final=True, min_chars=min_chars)
+            assert rest.strip() == "" and all(p.strip() for p in parts), (text, parts, rest)
+            assert "".join("".join(parts).split()) == "".join(text.split())

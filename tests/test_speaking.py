@@ -272,6 +272,40 @@ async def test_a_rejected_key_or_odd_answer_is_said(settings, real_speaker, isol
             await voices.list_cloud_voices(Client(), "fish", "k")
 
 
+async def test_a_voice_list_that_isnt_an_object_is_said(
+    settings, real_speaker, isolated, mac, monkeypatch
+):
+    """JSON that isn't an object (a list, a number) is the usual "wasn't a voice list": it
+    was an AttributeError out of the pane's button, which left the pane showing "Listing…"
+    with nothing said."""
+    import httpx
+
+    class Client:
+        def __init__(self, body=None, **_kw):
+            self.body = body
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, **_kw):
+            return httpx.Response(200, json=self.body, request=httpx.Request("GET", url))
+
+    for body in ([], [{"voice_id": "Rachel1"}], 42, "voices", None):
+        for provider in ("elevenlabs", "fish"):
+            with pytest.raises(ValueError, match="wasn't a voice list"):
+                await voices.list_cloud_voices(Client(body), provider, "k")
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: Client([], **kw))
+    hub = make_hub(settings, real_speaker, isolated)
+    sent = events(hub)
+    vault(hub).set("voice:fish", "api_key", "fish-key-5678")
+    await hub._handle({"type": "voice_list", "provider": "fish"})
+    assert sent[-1][1]["speaking_error"] == "The provider's answer wasn't a voice list."
+    assert sent[-1][1]["busy"] == ""
+
+
 async def test_preview_plays_the_voice_picked_or_says_why_not(
     settings, real_speaker, isolated, mac, monkeypatch
 ):

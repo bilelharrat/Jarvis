@@ -15,6 +15,7 @@ import errno
 import fcntl
 import json
 import logging
+import math
 import os
 import tempfile
 import time
@@ -161,6 +162,28 @@ def shallow(value: Any, depth: int = 32) -> bool:
     if isinstance(value, list):
         return all(shallow(v, depth - 1) for v in value)
     return True
+
+
+def whole(value: Any) -> int:
+    """A whole number as a file or a window's message gave it (a count, a time, an id): 0
+    for one that isn't (null, words, a list, infinity), so one odd field never stops a store
+    loading, nor fails a command with a traceback in the log."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def finite(value: Any) -> float | None:
+    """A number as a file gave it, as a float; None for anything else: true and false,
+    words, NaN and infinity, or a whole number past what a float holds (a hand edit)."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        value = float(value)
+    except OverflowError:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def claim_folder(folder: Path, wait: float = 0) -> IO[str] | None:

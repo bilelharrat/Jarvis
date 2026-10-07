@@ -13,7 +13,6 @@ it aside and reads the last good copy), and a record that doesn't fit is left ou
 from __future__ import annotations
 
 import logging
-import math
 import re
 import threading
 from datetime import datetime
@@ -21,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import jsonstore
-from .textclean import clean_text
+from .textclean import clean_text, one_line
 
 log = logging.getLogger("jarvis")
 
@@ -65,17 +64,12 @@ def clean_reads(raw: Any) -> dict[str, Any] | None:
 
 def title_line(value: Any) -> str:
     """A conversation's title: one line of its first request, short."""
-    return " ".join(clean_text(value).split())[:TITLE_CHARS] if isinstance(value, str) else ""
+    return one_line(value, TITLE_CHARS)
 
 
 def _cost(value: Any) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return 0.0
-    try:
-        value = float(value)
-    except OverflowError:  # a whole number past what a float holds (a hand edit)
-        return 0.0
-    return round(value, 6) if math.isfinite(value) and value >= 0 else 0.0
+    amount = jsonstore.finite(value)  # (a hand edit's words or infinity: no cost)
+    return round(amount, 6) if amount is not None and amount >= 0 else 0.0
 
 
 def clean_branch(raw: Any) -> dict[str, Any] | None:
@@ -185,6 +179,13 @@ class ConversationState:
             jsonstore.save_json(self.path, data)
             self._written = max(self._written, taken)
 
+    def entry(self, session_id: str) -> dict[str, Any]:
+        """That conversation's record (session_id a valid one), a blank one made for it when
+        there's none yet."""
+        return self.sessions.setdefault(
+            session_id, {"reads": None, "cost": 0.0, "at": "", "title": ""}
+        )
+
     def turn_over(
         self, session_id: str, reads: dict[str, Any], cost: float, title: str = ""
     ) -> None:
@@ -193,7 +194,7 @@ class ConversationState:
         sid = valid_id(session_id)
         if not sid:
             return
-        entry = self.sessions.setdefault(sid, {"reads": None, "cost": 0.0, "at": "", "title": ""})
+        entry = self.entry(sid)
         entry["reads"] = clean_reads(reads)
         entry["cost"] = _cost(entry["cost"] + max(0.0, cost))
         entry["at"] = datetime.now().isoformat(timespec="seconds")
@@ -213,7 +214,7 @@ class ConversationState:
             return False
         if sid not in self.sessions and not (reads["private"] or reads["web"]):
             return False  # nothing to add: one not on record still counts as UNKNOWN_READS
-        entry = self.sessions.setdefault(sid, {"reads": None, "cost": 0.0, "at": "", "title": ""})
+        entry = self.entry(sid)
         kept = entry.get("reads") or {"private": False, "web": False, "what": []}
         merged = {
             "private": kept["private"] or reads["private"],
@@ -235,7 +236,7 @@ class ConversationState:
         sid, parent = valid_id(session_id), valid_id(parent)
         if not sid or not parent or sid == parent or relation not in RELATIONS:
             return
-        entry = self.sessions.setdefault(sid, {"reads": None, "cost": 0.0, "at": "", "title": ""})
+        entry = self.entry(sid)
         entry["parent"], entry["relation"] = parent, relation
 
     def relation_of(self, session_id: str) -> tuple[str, str]:
@@ -253,6 +254,11 @@ class ConversationState:
 
     def titles(self) -> dict[str, str]:
         return {sid: e["title"] for sid, e in self.sessions.items() if e.get("title")}
+
+    def title(self, session_id: str) -> str:
+        """That conversation's title, as titles() has it ("" when none is kept): one looked
+        up without making the whole list."""
+        return (self.sessions.get(session_id) or {}).get("title") or ""
 
     def reads_of(self, session_id: str) -> dict[str, Any]:
         """What that conversation has read, as the hub keeps it: UNKNOWN_READS when there's

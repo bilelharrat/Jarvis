@@ -658,8 +658,7 @@ def speakable(text: str, sentences: int = 3) -> str:
     text = re.sub(r"^[^\S\n]*#+\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"^[^\S\n]*(?:[-*]|\d+[.)])\s+", "", text, flags=re.MULTILINE)
     text = clean_for_speech(text)
-    parts, rest = split_sentences(text, final=True)
-    parts = [p for p in parts + ([rest] if rest.strip() else []) if p.strip()]
+    parts, _ = split_sentences(text, final=True)  # final: every word, and no blank sentence
     if len(parts) <= sentences:
         return " ".join(parts).strip()
     return " ".join(parts[:sentences]).strip() + " The rest is on screen."
@@ -984,8 +983,7 @@ class VoiceCoder:
     def _rest_of_reply(self) -> str:
         """The next few sentences of the last reply ('read the rest')."""
         full = speakable(self._last_reply, sentences=200).removesuffix(" The rest is on screen.")
-        parts, tail = split_sentences(full, final=True)
-        parts = [p for p in parts + ([tail] if tail.strip() else []) if p.strip()]
+        parts, _ = split_sentences(full, final=True)
         start, self._reply_said = self._reply_said, self._reply_said + 4
         chunk = parts[start : start + 4]
         if not chunk:

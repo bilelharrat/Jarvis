@@ -133,8 +133,7 @@ def read_wav(source: Path | bytes) -> tuple[np.ndarray, int]:
     bits = int.from_bytes(fmt[14:16], "little")
     if bits != 16:
         raise ValueError(f"expected 16-bit audio, got {bits}-bit")
-    data = data[: len(data) - len(data) % (2 * channels)]
-    audio = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
+    audio = from_pcm(data[: len(data) - len(data) % (2 * channels)])
     if channels > 1:
         audio = audio.reshape(-1, channels).mean(axis=1)
     return audio, rate
@@ -146,7 +145,7 @@ def write_wav(path: Path, audio: np.ndarray, rate: int) -> None:
 
 def wav_bytes(audio: np.ndarray, rate: int) -> bytes:
     """float mono -> a 16-bit PCM WAV file's bytes."""
-    pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+    pcm = to_pcm(audio)
     header = (
         b"RIFF"
         + (36 + len(pcm)).to_bytes(4, "little")
@@ -234,37 +233,41 @@ class CloudVoice:
             headers["Authorization"] = f"Bearer {token}"
         return {"url": HOSTED_VOICE_URL, "headers": headers, "json": body}
 
-    async def synthesize(self, text: str) -> tuple[np.ndarray, int]:
-        client = self._http()
+    def _request(self, text: str, fmt: str) -> dict[str, Any]:
+        """The request for a sentence, whole ("wav") or as it's made ("pcm"): its address,
+        headers and body, the same for the two ways but for the format."""
         if self.provider == "hosted":
-            response = await client.post(**self._hosted(text, "wav"))
-        elif self.provider == "elevenlabs":
-            response = await client.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}",
-                params={"output_format": "wav_22050"},
-                headers={"xi-api-key": self.api_key},
-                json={
+            return self._hosted(text, fmt)
+        if self.provider == "elevenlabs":
+            address = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}"
+            return {
+                "url": address + "/stream" if fmt == "pcm" else address,
+                "params": {"output_format": f"{fmt}_22050"},
+                "headers": {"xi-api-key": self.api_key},
+                "json": {
                     "text": text,
                     "model_id": self.model or "eleven_flash_v2_5",
                     **self._options(),
                 },
-            )
-        else:
-            response = await client.post(
-                "https://api.fish.audio/v1/tts",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "model": self.model or "s2.1-pro",
-                },
-                json={
-                    "text": text,
-                    "reference_id": self.voice_id,
-                    "format": "wav",
-                    "sample_rate": 24000,
-                    "latency": "low",
-                    **self._options(),
-                },
-            )
+            }
+        return {
+            "url": "https://api.fish.audio/v1/tts",
+            "headers": {
+                "Authorization": f"Bearer {self.api_key}",
+                "model": self.model or "s2.1-pro",
+            },
+            "json": {
+                "text": text,
+                "reference_id": self.voice_id,
+                "format": fmt,
+                "sample_rate": 24000,
+                "latency": "low",
+                **self._options(),
+            },
+        }
+
+    async def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        response = await self._http().post(**self._request(text, "wav"))
         response.raise_for_status()
         return read_wav(response.content)
 
@@ -275,39 +278,7 @@ class CloudVoice:
     async def stream(self, text: str):
         """Raw 16-bit mono PCM chunks as the service generates them (first bytes ~0.6s,
         long before the whole sentence is ready)."""
-        client = self._http()
-        if self.provider == "hosted":
-            request = client.stream("POST", **self._hosted(text, "pcm"))
-        elif self.provider == "elevenlabs":
-            request = client.stream(
-                "POST",
-                f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream",
-                params={"output_format": "pcm_22050"},
-                headers={"xi-api-key": self.api_key},
-                json={
-                    "text": text,
-                    "model_id": self.model or "eleven_flash_v2_5",
-                    **self._options(),
-                },
-            )
-        else:
-            request = client.stream(
-                "POST",
-                "https://api.fish.audio/v1/tts",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "model": self.model or "s2.1-pro",
-                },
-                json={
-                    "text": text,
-                    "reference_id": self.voice_id,
-                    "format": "pcm",
-                    "sample_rate": 24000,
-                    "latency": "low",
-                    **self._options(),
-                },
-            )
-        async with request as response:
+        async with self._http().stream("POST", **self._request(text, "pcm")) as response:
             response.raise_for_status()
             async for chunk in response.aiter_bytes():
                 if chunk:
@@ -327,41 +298,12 @@ PLAYER_SOURCE = Path(__file__).parent / "player" / "jarvis-player.swift"
 
 def ensure_player() -> Path | None:
     """Build the native streaming player once (a few seconds with swiftc), cached by the
-    source's hash. None if it can't be built; playback then falls back to afplay."""
-    import hashlib
-    import os
-    import subprocess
+    source's hash, as the other audio helpers are (audio.build: under a temporary name,
+    moved into place when done). None if it can't be built; playback then falls back to
+    afplay."""
+    from . import audio
 
-    from .prefs import APP_SUPPORT
-    from .swift_helper import prebuilt
-
-    if not PLAYER_SOURCE.exists():
-        return None
-    found = prebuilt("jarvis-player", PLAYER_SOURCE)
-    if found is not None:
-        return found
-    digest = hashlib.sha256(PLAYER_SOURCE.read_bytes()).hexdigest()[:10]
-    binary = APP_SUPPORT / "bin" / f"jarvis-player-{digest}"
-    if binary.exists():
-        return binary
-    binary.parent.mkdir(parents=True, exist_ok=True)
-    # Built under a temporary name and renamed into place in one step, so a build cut
-    # short (the app quit mid-swiftc) never leaves a half-written player that looks done.
-    partial = binary.with_name(f"{binary.name}.{os.getpid()}.part")
-    try:
-        subprocess.run(
-            ["swiftc", "-O", "-o", str(partial), str(PLAYER_SOURCE)],
-            check=True,
-            capture_output=True,
-            timeout=300,
-        )
-        partial.replace(binary)
-    except (OSError, subprocess.SubprocessError) as exc:
-        log.warning("couldn't build the streaming player (%s); using afplay", exc)
-        return None
-    finally:
-        partial.unlink(missing_ok=True)
-    return binary
+    return audio.build("jarvis-player", (), source=PLAYER_SOURCE, timeout=300)
 
 
 MARK_SLACK = 10.0  # seconds a sentence's end marker may lag its audio before we give up
@@ -695,20 +637,19 @@ class Source:
         self.chunks: asyncio.Queue = asyncio.Queue()
         self.task: asyncio.Task | None = None
 
-    @classmethod
-    def ready(cls, pcm: bytes, rate: int) -> Source:
-        src = cls(rate)
-        src.chunks.put_nowait(pcm)
-        src.chunks.put_nowait(None)
-        return src
-
     def cancel(self) -> None:
         if self.task is not None and not self.task.done():
             self.task.cancel()
 
 
 def to_pcm(audio: np.ndarray) -> bytes:
+    """float audio -> 16-bit little-endian PCM (what the players and the services take)."""
     return (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+
+
+def from_pcm(pcm: bytes) -> np.ndarray:
+    """16-bit little-endian PCM (whole samples) -> float32 audio (to_pcm the other way)."""
+    return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
 
 
 class Speaker:
@@ -894,7 +835,9 @@ class Speaker:
             audio, rate = await self._mac_voice(text, fallback=True)
             yield resample(to_pcm(audio), rate, LOCAL_RATE)
 
-    async def _mac_voice(self, spoken: str, fallback: bool = False) -> tuple[np.ndarray, int]:
+    async def _say_wav(self, spoken: str, fallback: bool) -> tuple[np.ndarray, int] | None:
+        """The Mac voice saying it into a WAV file (nothing plays): its audio, or None when
+        `say` wrote none. fallback: the cloud voice failed, so the fallback voice."""
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "reply.wav"
             args = self._say_args(fallback) + [
@@ -903,7 +846,11 @@ class Speaker:
                 str(path),
             ]
             await self._run(args, spoken)
-            return read_wav(path) if path.exists() else (np.zeros(0, np.float32), EFFECT_RATE)
+            return read_wav(path) if path.exists() else None
+
+    async def _mac_voice(self, spoken: str, fallback: bool = False) -> tuple[np.ndarray, int]:
+        clip = await self._say_wav(spoken, fallback)
+        return clip if clip is not None else (np.zeros(0, np.float32), EFFECT_RATE)
 
     async def play_source(self, src: Source) -> None:
         """Play audio as it arrives through the native player (effect applied there).
@@ -943,8 +890,7 @@ class Speaker:
             while (chunk := await src.chunks.get()) is not None:
                 parts.append(chunk)
             data = b"".join(parts)
-            data = data[: len(data) - len(data) % 2]  # a dropped stream can end mid-sample
-            audio = np.frombuffer(data, dtype="<i2").astype(np.float32) / 32768.0
+            audio = from_pcm(data[: len(data) - len(data) % 2])  # it can end mid-sample
             if self.effect:
                 audio = await asyncio.to_thread(ai_voice_effect, audio, src.rate)
             await self.play(audio, src.rate)
@@ -994,22 +940,14 @@ class Speaker:
         local = self._local_for(spoken)
         if local is not None:
             pcm = b"".join([chunk async for chunk in self._local_pcm(local, spoken)])
-            audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+            audio = from_pcm(pcm)
             if self.effect and self.player_path is None:
                 audio = await asyncio.to_thread(ai_voice_effect, audio, LOCAL_RATE)
             return audio, LOCAL_RATE
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "reply.wav"
-            fallback = self.cloud is not None
-            args = self._say_args(fallback) + [
-                f"--data-format=LEI16@{EFFECT_RATE}",
-                "-o",
-                str(path),
-            ]
-            await self._run(args, spoken)
-            if not path.exists():
-                return None
-            audio, rate = read_wav(path)
+        clip = await self._say_wav(spoken, fallback=self.cloud is not None)
+        if clip is None:
+            return None
+        audio, rate = clip
         if self.effect and self.player_path is None:
             audio = await asyncio.to_thread(ai_voice_effect, audio, rate)
         return audio, rate
@@ -1245,7 +1183,3 @@ class SpeechQueue:
         the microphone may hear back."""
         now = time.monotonic()
         return " ".join(text for text, done in self._said if done is None or now - done < seconds)
-
-    @property
-    def spoken_text(self) -> str:
-        return self.said_recently()

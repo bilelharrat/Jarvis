@@ -1,7 +1,8 @@
 """Small native helpers for Jarvis's audio (Swift sources in this folder), built with swiftc
-the first time they're needed and kept by their source's hash, as speech.ensure_player
-builds the voice player. A helper that can't be built is left out and said so once; what
-needed it falls back (Whisper for jarvis-hear)."""
+the first time they're needed and kept by their source's hash; speech.ensure_player builds
+the voice player (player/jarvis-player.swift) here too. A helper that can't be built is
+left out and said so once; what needed it falls back (Whisper for jarvis-hear, afplay for
+the player)."""
 
 from __future__ import annotations
 
@@ -17,13 +18,21 @@ HERE = Path(__file__).parent
 _told: set[str] = set()  # helpers whose failed build was said in the log
 
 
-def build(name: str, flags: tuple[str, ...] = ("-parse-as-library",)) -> Path | None:
-    """HERE/<name>.swift built into Application Support/Jarvis/bin/<name>-<hash> (once;
-    a few seconds to a minute with swiftc). None when it can't be built."""
+def build(
+    name: str,
+    flags: tuple[str, ...] = ("-parse-as-library",),
+    *,
+    source: Path | None = None,
+    timeout: float = 600,
+) -> Path | None:
+    """HERE/<name>.swift (or `source`) built into Application Support/Jarvis/bin/<name>-<hash>
+    (once; a few seconds to a minute with swiftc). None when it can't be built. The hash is
+    the source's with the flags after it, so one built with none (the voice player) is kept
+    by its source's hash alone."""
     from ..prefs import APP_SUPPORT
     from ..swift_helper import prebuilt
 
-    source = HERE / f"{name}.swift"
+    source = source if source is not None else HERE / f"{name}.swift"
     if not source.exists():
         return None
     found = prebuilt(name, source)
@@ -42,7 +51,7 @@ def build(name: str, flags: tuple[str, ...] = ("-parse-as-library",)) -> Path | 
             ["swiftc", "-O", *flags, "-o", str(partial), str(source)],
             check=True,
             capture_output=True,
-            timeout=600,
+            timeout=timeout,
         )
         partial.replace(binary)
     except (OSError, subprocess.SubprocessError) as exc:

@@ -162,6 +162,27 @@ async def test_used_up_minutes_leave_the_wake_word_to_hands_free(settings, quiet
     assert feature.conv is None
 
 
+async def test_a_damaged_usage_count_never_costs_the_wake_word(settings, quiet_speaker, isolated):
+    """A hand-edited count too big for a float (400 digits) reads as 1e400 does: today's
+    minutes used, said, and the wake word goes to hands-free. It was an OverflowError at
+    every wake word, and the request with it was lost; one as negative is none used."""
+    from datetime import date
+
+    hub, feature, _ = await ready_hub(settings, quiet_speaker, isolated)
+    path = hub.feature_path(feature_module.USAGE_FILE)
+    today = date.today().isoformat()
+    path.write_text(f'{{"day": "{today}", "seconds": {"9" * 400}}}')
+    q = hub.subscribe()
+    await hub.on_heard("Jarvis, what's on tomorrow?")
+    await wait_for(lambda: hub.client.said)
+    assert feature_module.USED_UP in said(drain(q)) and feature.conv is None
+    assert feature.left_seconds() == 0 and feature.public()["on"] is True
+    path.write_text(f'{{"day": "{today}", "seconds": -{"9" * 400}}}')
+    assert feature.used_seconds() == 0.0 and feature.left_seconds() == 20 * 60
+    path.write_text(f'{{"day": "{today}", "seconds": 1e400}}')  # as it always read
+    assert feature.left_seconds() == 0
+
+
 async def test_hands_free_utterances_are_skipped_while_it_listens(
     settings, quiet_speaker, isolated
 ):

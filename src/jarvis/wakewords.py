@@ -141,12 +141,6 @@ def remove(prefs: Any, word: Any) -> tuple[dict[str, list[str]] | None, str]:
     return {"added": added, "removed": removed}, ""
 
 
-def hotwords(words: list[str], language: str) -> list[str]:
-    """The wake words a recognizer should listen for in this language (Chinese ones only
-    in Chinese)."""
-    return [w for w in words if is_zh(language) or not has_cjk(w)]
-
-
 def _own_personas(items: list[Any]) -> None:
     """The owner's own personas answer to their names too, as TARS and Friday do: each
     one's name, in English and in Chinese, when it can be a wake word at all (clean_word:

@@ -8,8 +8,8 @@ usual player (Speaker.player_factory makes a DuplexPlayer, the same live protoco
 hands back the microphone, echo cancelled, through a pipe; the hands-free listener reads
 that (ContinuousListener.source) instead of PortAudio.
 
-- It runs only while hands-free listens and the setting is on (the default). Hands-free
-  off closes it, and the microphone with it.
+- It runs only while hands-free listens and the setting is on (it's off until the owner
+  turns it on). Hands-free off closes it, and the microphone with it.
 - With AirPods (or any headset) as the Mac's input and the built-in microphone chosen in
   Settings, it doesn't start: opening their microphone would drop them into call quality.
   Anything else that goes wrong (it can't be built, voice processing won't start, the
@@ -36,9 +36,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
-from .speech import LivePlayer, Speaker
+from .speech import LivePlayer, Speaker, from_pcm
 
 log = logging.getLogger("jarvis")
 
@@ -331,7 +329,7 @@ class Duplex:
                     with self._lock:
                         target = self._queue if player is self.player else None
                     if target is not None:
-                        target.put(np.frombuffer(chunk, dtype="<i2").astype(np.float32) / 32768.0)
+                        target.put(from_pcm(chunk))
         with self._lock:
             target = self._queue if player is self.player else None
         if target is not None:

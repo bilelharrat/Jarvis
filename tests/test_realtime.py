@@ -313,3 +313,41 @@ async def test_a_voice_that_fails_hands_back_to_the_models_audio():
         assert len(player.written) == 1  # the model's own voice again
     finally:
         speaker.cancel()
+
+
+async def test_a_failing_state_hook_is_said_once_and_the_state_still_moves(caplog):
+    """on_state raising (the window's side broken) never costs the conversation, and is
+    said in the log once, not at every change of state (it was never said at all)."""
+
+    def broken(_state):
+        raise RuntimeError("no window")
+
+    conv = make("openai", "ws://127.0.0.1:9", [], FakePlayer(), on_state=broken)
+    with caplog.at_level("ERROR", logger="jarvis"):
+        for state in ("listening", "speaking", "thinking", "listening", ""):
+            conv._set_state(state)
+    assert conv.state == ""
+    failed = [r for r in caplog.records if "conversation's state failed" in r.getMessage()]
+    assert len(failed) == 1 and failed[0].exc_info is not None
+
+
+def test_both_providers_hand_over_a_tool_call_the_same_way():
+    """A tool call from either provider is ("call", {"id", "name", "args"}): the id and the
+    name as text, arguments that aren't an object as none."""
+    openai = realtime.OpenAIRealtime("k")
+    done = "response.function_call_arguments.done"
+    found = openai.parse(
+        {"type": done, "call_id": 7, "name": "ask_jarvis", "arguments": '{"request": "hi"}'}
+    )
+    assert found == [("call", {"id": "7", "name": "ask_jarvis", "args": {"request": "hi"}})]
+    for arguments in ("[1, 2]", "not json", "", None):
+        found = openai.parse({"type": done, "arguments": arguments})
+        assert found == [("call", {"id": "", "name": "", "args": {}})]
+    gemini = realtime.GeminiLive("k")
+    calls = [{"id": "a", "name": "ask_jarvis", "args": {"request": "hi"}}, {"args": [1]}, "x"]
+    calls.append({"id": 3, "name": None, "args": None})
+    assert gemini.parse({"toolCall": {"functionCalls": calls}}) == [
+        ("call", {"id": "a", "name": "ask_jarvis", "args": {"request": "hi"}}),
+        ("call", {"id": "", "name": "", "args": {}}),
+        ("call", {"id": "3", "name": "None", "args": {}}),
+    ]

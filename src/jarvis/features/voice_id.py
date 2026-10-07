@@ -65,12 +65,11 @@ CHECK_WAIT = 2.0  # a check this late (a busy Mac) allows, as before
 # While someone talks, a look-ahead check of what they've said so far runs every this many
 # seconds of new audio, so the verdict is ready when the utterance ends, even when its
 # words are too (Apple's live recognizer). Only over its first LOOK_SECONDS (who spoke
-# shows early) and never while the last look is still running: a busy room or a TV used
-# to start a check every half second of every utterance, on the threads transcription
-# needs too.
+# shows early; no more of it is kept) and never while the last look is still running: a
+# busy room or a TV used to start a check every half second of every utterance, on the
+# threads transcription needs too.
 LOOK_AHEAD = 0.5
 LOOK_SECONDS = 3.0
-MAX_BUFFER = voiceprint.MAX_CHECK_SECONDS  # seconds of one utterance kept for look-aheads
 FOLDER = "voice_id"
 
 # A verdict between the owner's threshold and REJECT (voiceprint.py): answered, but not
@@ -219,8 +218,6 @@ class VoiceGuard:
         samples = np.array(block, dtype=np.float32).ravel()
         if not self._heard:
             self._heard_began = time.monotonic() - samples.size / voiceprint.SAMPLE_RATE
-        if self._heard_size > MAX_BUFFER * voiceprint.SAMPLE_RATE:
-            return
         self._heard.append(samples)
         self._heard_size += samples.size
         rate = voiceprint.SAMPLE_RATE

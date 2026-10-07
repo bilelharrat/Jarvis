@@ -215,7 +215,7 @@ class Voiceprint:
             vector = unit([float(x) for x in data.get("vector") or []])
             threshold = float(data.get("threshold", THRESHOLD))
             clips, made = int(data.get("clips") or 0), float(data.get("made") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # 1e999 reads as infinity: no int
             return None
         if vector is None or vector.size < 16 or not math.isfinite(threshold):
             return None

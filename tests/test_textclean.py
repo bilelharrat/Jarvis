@@ -5,7 +5,7 @@ import unicodedata
 
 import pytest
 
-from jarvis.textclean import argv_text, clean_text
+from jarvis.textclean import argv_text, clean_text, one_line
 
 HIDDEN_KINDS = {"Cc", "Cf", "Co", "Cs", "Cn"}
 
@@ -68,6 +68,12 @@ def test_hidden_characters_are_taken_out(hidden, shown):
 
 def test_anything_becomes_text():
     assert clean_text(None) == "None" and clean_text(5) == "5"
+
+
+def test_one_line_is_a_name_or_a_title_on_one_line():
+    assert one_line("  Trip\n to\tLisbon \u200b ", 100) == "Trip to Lisbon"
+    assert one_line("abcdef", 3) == "abc"
+    assert one_line(5, 10) == "" and one_line(None, 10) == ""  # only text is a line
 
 
 def test_a_command_line_can_carry_what_argv_text_gives_it():

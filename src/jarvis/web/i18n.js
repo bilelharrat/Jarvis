@@ -153,7 +153,9 @@
             try { return [[new RegExp(p), rep]]; } catch (_) { return []; }
           });
         })
-        .catch(() => { state.strings = {}; state.patterns = []; });
+        // A dictionary that couldn't be read leaves the window in English: said once, in the
+        // console, rather than not at all.
+        .catch((err) => { console.error('i18n-zh.json failed:', err); state.strings = {}; state.patterns = []; });
     }
     await state.loading;
   }

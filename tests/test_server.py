@@ -219,6 +219,44 @@ async def test_a_command_failing_in_a_loop_is_logged_once_a_minute(
     assert hub._command_failures["task_cancel"][1] == 49
 
 
+async def test_a_feature_failing_on_every_event_is_logged_once_a_minute(
+    settings, quiet_speaker, isolated, caplog
+):
+    """A feature's sink, quiet check, heads-up gate or browser check that fails each time
+    it's asked (a sink on Jarvis Code's events: twenty a second) is logged as a window
+    command is: its traceback once a minute, then how many more came."""
+    from datetime import datetime
+
+    hub = Hub(settings, speaker=quiet_speaker, transcriber=object(), poll=False, **isolated)
+
+    def broken(_event):
+        raise KeyError("id")
+
+    def no_view(_now):
+        raise ValueError("no clock")
+
+    heard = []
+    hub.add_event_sink(("tasks",), broken)
+    hub.add_event_sink(("tasks",), heard.append)
+    hub.add_quiet_check(no_view)
+    with caplog.at_level("ERROR", logger="jarvis"):
+        for _ in range(50):
+            hub.emit("tasks", items=[])
+            assert hub.quiet_verdict(datetime.now()) is None  # a check that fails: no view
+        assert len(heard) == 50  # the other sinks heard every one
+        assert hub._feature_failures[id(broken)][1] == hub._feature_failures[id(no_view)][1] == 49
+        logged, skipped = hub._feature_failures[id(broken)]
+        hub._feature_failures[id(broken)] = (logged - 61, skipped)  # a minute later
+        hub.emit("tasks", items=[])
+    said = [r.getMessage() for r in caplog.records if "sink failed" in r.getMessage()]
+    assert said == [
+        "a feature's sink failed",
+        "a feature's sink failed (49 more times since the last report)",
+    ]
+    assert len([r for r in caplog.records if "quiet check failed" in r.getMessage()]) == 1
+    assert all(r.exc_info for r in caplog.records)  # each with its traceback
+
+
 async def test_background_tasks_that_finish_are_not_logged_as_failed_commands(
     settings, quiet_speaker, isolated, caplog
 ):

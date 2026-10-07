@@ -63,6 +63,7 @@ from . import (
     hearing,
     interrupts,
     invoices,
+    jsonstore,
     lang,
     livecontext,
     mac_tools,
@@ -101,7 +102,7 @@ from .config import Settings
 from .connectors import ConnectorManager
 from .desktop_hands import DesktopHands
 from .home import Shortcuts
-from .knowledge import Collector, KnowledgeBase
+from .knowledge import KnowledgeBase
 from .memory import MemoryStore
 from .prefs import (
     MODEL_NAMES,
@@ -373,13 +374,10 @@ def _hold_cut(text: str, limit: int) -> int:
 
 
 def _msg_int(msg: dict[str, Any], key: str) -> int:
-    """A window command's number (a session's id, a queued item, a terminal's size): 0 when
-    it isn't one (null, words, a list, infinity), which names no session, so the command
-    does nothing instead of failing with a traceback in the log."""
-    try:
-        return int(msg.get(key, 0))
-    except (TypeError, ValueError, OverflowError):
-        return 0
+    """A window command's number (a session's id, a queued item, a terminal's size), or a
+    tool call's: 0 when it isn't one (null, words, a list, infinity), which names no
+    session, so the command does nothing instead of failing with a traceback in the log."""
+    return jsonstore.whole(msg.get(key, 0))
 
 
 def _settable(changes: Any) -> Any:
@@ -396,6 +394,23 @@ def _settable(changes: Any) -> Any:
             continue
         kept[name] = value
     return kept
+
+
+def _log_rarely(book: dict[Any, tuple[float, int]], key: Any, message: str, *args: Any) -> None:
+    """The exception being handled, with its traceback, at most once a minute per key, and
+    then how many more times it came: something failing over and over (a window's command
+    sent in a loop, a feature's sink on every event) can't flood the log. book: when each
+    key was last logged, and how many have come since."""
+    now = time.monotonic()
+    last, skipped = book.get(key, (float("-inf"), 0))
+    if now - last < 60:
+        book[key] = (last, skipped + 1)
+        return
+    if len(book) > 200:
+        book.clear()
+    book[key] = (now, 0)
+    more = f" ({skipped} more times since the last report)" if skipped else ""
+    log.exception(message + "%s", *args, more)
 
 
 def _text_size(event: dict[str, Any]) -> int:
@@ -676,16 +691,13 @@ def tool_label(name: str) -> str:
     return TOOL_LABELS.get(short, short.replace("_", " ").capitalize())
 
 
-async def _last_bytes(stream: asyncio.StreamReader | None, keep: int) -> bytes:
-    """Read a stream to its end, keeping only the last `keep` bytes (a traceback's end)."""
-    last = b""
-    while stream is not None and (chunk := await stream.read(65536)):
-        last = (last + chunk)[-keep:]
-    return last
-
-
 def _text(text: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}]}
+
+
+def _error(text: str) -> dict[str, Any]:
+    """A tool's answer that it couldn't do it, and why."""
+    return {**_text(text), "is_error": True}
 
 
 class Hub:
@@ -778,6 +790,9 @@ class Hub:
         self._reply_sent = 0.0  # when the reply so far last went to the windows
         self._reply_later: asyncio.TimerHandle | None = None
         self._command_failures: dict[str, tuple[float, int]] = {}  # kind -> (logged, since)
+        # The same for a feature's sink, quiet check, heads-up gate or browser check (each is
+        # asked over and over), by which one it is.
+        self._feature_failures: dict[int, tuple[float, int]] = {}
         self._lock = asyncio.Lock()
         self._tools: dict[str, dict[str, Any]] = {}
         self._turn_progress = False  # this request ran a tool, showed a card or said something
@@ -801,7 +816,6 @@ class Hub:
         # Voice typing ("Jarvis, start typing"): what the owner says is typed at the focus.
         self.voice_typing = voicetype.VoiceTyping()
         self._voice_typing_at = 0.0  # when it last typed (it turns itself off when idle)
-        self._dictation = 0  # which press of the composer's mic is current
         self._remote_turns: set[asyncio.Task] = set()
         self._listen_gen = 0  # push-to-talk: Stop bumps it, and a stale recording is dropped
         self._mic_cancel: threading.Event | None = None  # the recording Stop should end
@@ -811,7 +825,6 @@ class Hub:
         self.kb = kb or KnowledgeBase()
         if kb is None:
             self.kb.load()
-        self.collector = Collector(self.kb, settings.bsh_dir)
         self.brain_state: dict[str, Any] = {"state": "idle", "detail": ""}
         # The second brain's newer sources and search by meaning (jarvis.features.brain):
         # build_args(), recent_sources() and open_note(note). None without that feature.
@@ -993,8 +1006,6 @@ class Hub:
         from .remote import RemoteServer
 
         self.remote = RemoteServer(self, devices)
-        self._approval_at = 0.0
-        self._last_said = ""
         self._voice_link: tuple[Any, str] = (None, "")  # (task, words) it just said aloud
         self._voice_asked: dict[str, dict[str, Any]] = {}  # questions put by voice: what, when
         self._utterance_began: float | None = None  # when the utterance being handled began
@@ -1254,7 +1265,7 @@ class Hub:
             try:
                 said.append(check(now))
             except Exception:
-                log.exception("a feature's quiet check failed")
+                _log_rarely(self._feature_failures, id(check), "a feature's quiet check failed")
         if any(s is True for s in said):
             return True
         return False if any(s is False for s in said) else None
@@ -1347,7 +1358,7 @@ class Hub:
                 if gate(alert) is False:
                     return True
             except Exception:
-                log.exception("a feature's heads-up gate failed")
+                _log_rarely(self._feature_failures, id(gate), "a feature's heads-up gate failed")
         return False
 
     def add_event_sink(
@@ -1390,8 +1401,8 @@ class Hub:
                 # the sinks themselves, twenty of them on every Jarvis Code event.
                 if result is not None and asyncio.iscoroutine(result):
                     self._spawn(result)
-            except Exception:
-                log.exception("a feature's sink failed")
+            except Exception:  # (one failing on every event is said once a minute)
+                _log_rarely(self._feature_failures, id(sink), "a feature's sink failed")
 
     async def _feature_loop(self, name: str, factory: Callable[[], Any]) -> None:
         try:
@@ -1857,7 +1868,7 @@ class Hub:
         that has read nothing that could have put the words in Claude's mouth."""
         try:
             task_id = int(args.get("task_id") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # no number (infinity too): no session
             task_id = -1
         directory = str(args.get("directory") or "").strip()
         request = str(args.get("request") or "").strip()
@@ -1925,10 +1936,7 @@ class Hub:
         words this turn asked to tell that session something, in a turn that has read
         nothing that could have written the message instead. Otherwise the card shows the
         message, and short ones are read out."""
-        try:
-            task = self.tasks.tasks.get(int(args.get("task_id") or 0))
-        except (TypeError, ValueError):
-            task = None
+        task = self.tasks.tasks.get(_msg_int(args, "task_id"))
         message = str(args.get("message") or "").strip()
         if task is None or task.kind != "code" or not message:
             return True  # nothing is sent: the tool says there's no such session
@@ -2674,7 +2682,6 @@ class Hub:
             spoken = linked_words
         self._voice_link = (None, "")
         future = asyncio.get_running_loop().create_future()
-        self._approval_at = time.monotonic()
         self.approvals[approval_id] = approval
         self._futures[approval_id] = future
         if spoken:
@@ -2907,12 +2914,19 @@ class Hub:
             return False
         log.info("instant mac command: %s", command.kind)
         self.emit("tool", id=f"mac-{rid}", label="Controlled the Mac", status="done", at=_now())
+        self._instant_reply(rid, reply)
+        return True
+
+    def _instant_reply(self, rid: str, reply: str, speak: bool = True) -> None:
+        """What an instant command (one answered without Claude) says: in the language
+        chosen (a sentence it already has in that language stays as it is), as the turn's
+        reply in the windows, and out loud unless speak is off."""
         if lang.is_zh(self.language):
             reply = lang.translate(reply, self.language)
         self.turn["reply"] = reply
         self.emit("reply", rid=rid, text=reply)
-        self._speak(reply)
-        return True
+        if speak:
+            self._speak(reply)
 
     async def _instant_feature(self, rid: str, text: str) -> bool:
         """A feature module's instant words (register_instant), answered without Claude."""
@@ -2925,11 +2939,7 @@ class Hub:
             if reply is None:
                 continue
             if reply:
-                if lang.is_zh(self.language):
-                    reply = lang.translate(reply, self.language)
-                self.turn["reply"] = reply
-                self.emit("reply", rid=rid, text=reply)
-                self._speak(reply)
+                self._instant_reply(rid, reply)
             return True
         return False
 
@@ -2946,9 +2956,7 @@ class Hub:
         except mac_tools.ToolFailure as exc:
             reply, status = f"The shortcut {name} didn't work: {exc}", "failed"
         self.emit("tool", id=f"sc-{rid}", label="Ran a Shortcut", status=status, at=_now())
-        self.turn["reply"] = reply
-        self.emit("reply", rid=rid, text=reply)
-        self._speak(reply)
+        self._instant_reply(rid, reply)
         return True
 
     async def ask(
@@ -3578,6 +3586,17 @@ class Hub:
 
         return on_level
 
+    def _recorder(self, cancel: threading.Event) -> Callable[..., Any]:
+        """What records one utterance (push-to-talk, the composer's mic): the stand-in a
+        test gives, else the microphone Settings picked, ended early once cancel is set."""
+        if self.recorder is not None:
+            return self.recorder
+        from .listen import pick_input_device, record_utterance
+
+        return functools.partial(
+            record_utterance, device=pick_input_device(self.prefs.mic), cancel=cancel
+        )
+
     async def listen(self) -> None:
         if self._listener is not None and self._listener.running:
             self._arm()
@@ -3589,15 +3608,8 @@ class Hub:
         cancel = self._mic_cancel = threading.Event()
         self.set_state("listening")
         try:
-            recorder = self.recorder
-            if recorder is None:
-                from .listen import pick_input_device, record_utterance
-
-                recorder = functools.partial(
-                    record_utterance, device=pick_input_device(self.prefs.mic), cancel=cancel
-                )
             audio = await asyncio.to_thread(
-                recorder, self.settings.silence_seconds, self._level_callback()
+                self._recorder(cancel), self.settings.silence_seconds, self._level_callback()
             )
             if audio is None or gen != self._listen_gen:  # silence, or Stop meanwhile
                 self.emit("heard", text="")
@@ -3627,7 +3639,6 @@ class Hub:
         the text box for them to read and send; nothing is asked. Pressed again, it stops
         (the recording ends there). One recording at a time: pressed on again while one is
         running, that one's words are what arrive."""
-        self._dictation += 1
         if not on:
             self._dictating_until = 0.0
             if self._dictation_cancel is not None:
@@ -3668,15 +3679,8 @@ class Hub:
         self.set_state("listening")
         text = ""
         try:
-            recorder = self.recorder
-            if recorder is None:
-                from .listen import pick_input_device, record_utterance
-
-                recorder = functools.partial(
-                    record_utterance, device=pick_input_device(self.prefs.mic), cancel=cancel
-                )
             audio = await asyncio.to_thread(
-                recorder, self.settings.silence_seconds, self._level_callback()
+                self._recorder(cancel), self.settings.silence_seconds, self._level_callback()
             )
             if audio is not None and not cancel.is_set():
                 self.set_state("transcribing")
@@ -3764,16 +3768,7 @@ class Hub:
             self._start_voice_check(audio)
             transcribing = time.monotonic()
             try:
-                if self.voicecode.focus is not None and self._code_hotwords:
-                    stt = (
-                        self._code_stt
-                        if self._code_stt and self._code_stt.loaded()
-                        else self.transcriber
-                    )
-                    text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
-                else:
-                    text = await asyncio.to_thread(self._transcribe, self.transcriber, audio)
-                text = self.hearing.fix(text)
+                text = await self._words_heard(audio)
             except Exception as exc:  # model still loading, odd audio
                 log.warning("hands-free transcription failed: %s", exc)
                 continue
@@ -3797,6 +3792,19 @@ class Hub:
                 self._utterance_began = self._utterance_ended = None
                 self._voice_stages = None
 
+    async def _words_heard(self, audio: Any) -> str:
+        """A hands-free utterance in words, the owner's corrections applied: while voice
+        coding, with the project's names as hints (and the larger model, once it's loaded),
+        else as _transcribe hears it. In a thread: transcribing takes a while."""
+        if self.voicecode.focus is not None and self._code_hotwords:
+            stt = self._code_stt
+            if stt is None or not stt.loaded():
+                stt = self.transcriber
+            text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
+        else:
+            text = await asyncio.to_thread(self._transcribe, self.transcriber, audio)
+        return self.hearing.fix(text)
+
     async def _early_utterance(self, number: int, audio: Any, at: float | None = None) -> None:
         """An utterance 0.2s into the silence after it. If it reads as a finished request
         for JARVIS, answer now instead of waiting out the full silence (it saves the rest
@@ -3810,14 +3818,7 @@ class Hub:
             return  # they kept talking, or the whole utterance is already here: not worth it
         heard_at = time.monotonic()
         self._start_voice_check(audio)
-        stt = self.transcriber
-        if self.voicecode.focus is not None and self._code_hotwords:
-            if self._code_stt is not None and self._code_stt.loaded():
-                stt = self._code_stt
-            text = await asyncio.to_thread(stt.transcribe, audio, self._code_hotwords)
-        else:
-            text = await asyncio.to_thread(self._transcribe, stt, audio)
-        text = self.hearing.fix(text)
+        text = await self._words_heard(audio)
         transcribed = time.monotonic()
 
         began = (at or heard_at) - _audio_seconds(audio)
@@ -4180,7 +4181,6 @@ class Hub:
         if not text:
             return
         text = lang.translate(text, self.language) if lang.is_zh(self.language) else text
-        self._last_said = text
         self.emit("caption", text=text)
         if self._silent or self.speaker.muted:
             return
@@ -4479,7 +4479,7 @@ class Hub:
         """Relay the rebuild's progress until it's done and gone. True once it has said
         it's done (the index is saved by then). A builder that says so but doesn't leave
         is stopped: only a reader stuck on some file is left in it."""
-        tail = asyncio.create_task(_last_bytes(proc.stderr, 2000))
+        tail = asyncio.create_task(runproc.stream_tail(proc.stderr, 2000))
         done = False
         try:
             async for line in proc.stdout:
@@ -4532,10 +4532,7 @@ class Hub:
         async def read_note(args):
             note = hub.kb.get(str(args["id"]))
             if note is None:
-                return {
-                    "content": [{"type": "text", "text": "No note with that id."}],
-                    "is_error": True,
-                }
+                return _error("No note with that id.")
             hub.emit(
                 "sources",
                 rid=hub._rid,
@@ -4739,17 +4736,14 @@ class Hub:
             else (command.reply or result.get("message") or "")
         )
         self._research_follow_until = time.monotonic() + RESEARCH_FOLLOW_UP
-        self.turn["reply"] = reply
-        self.emit("reply", rid=rid, text=reply)
-        if reply and (failed or command.speak):
-            self._speak(reply)
+        self._instant_reply(rid, reply, speak=bool(reply) and bool(failed or command.speak))
         return True
 
     # ── Jarvis Code: ! runs a command, # saves a memory (as in Claude Code) ──
 
     def _code_folder(self, msg: dict[str, Any]) -> Path | None:
         task = (
-            self.tasks.tasks.get(int(msg.get("id") or 0))
+            self.tasks.tasks.get(_msg_int(msg, "id"))
             if str(msg.get("id") or "").isdigit()
             else None
         )
@@ -4957,8 +4951,8 @@ class Hub:
         for check in list(self._browser_checks):  # a feature's say first (browser_ai)
             try:
                 refusal = await check(action, args)
-            except Exception:
-                log.exception("a feature's browser check failed")
+            except Exception:  # (one failing on every call is said once a minute)
+                _log_rarely(self._feature_failures, id(check), "a feature's browser check failed")
                 continue
             if isinstance(refusal, dict):
                 return refusal
@@ -4969,7 +4963,9 @@ class Hub:
             try:
                 result = await hook(action, args, result) or result
             except Exception:
-                log.exception("a feature's look at a browser result failed")
+                _log_rarely(
+                    self._feature_failures, id(hook), "a feature's look at a browser result failed"
+                )
         return result
 
     async def _browser_routed(
@@ -5013,14 +5009,9 @@ class Hub:
 
         def done(result: dict[str, Any], summary: str = "") -> dict[str, Any]:
             if result.get("error"):
-                return {"content": [{"type": "text", "text": result["error"]}], "is_error": True}
+                return _error(result["error"])
             if result.get("ok") is False:
-                return {
-                    "content": [
-                        {"type": "text", "text": result.get("message", "That didn't work.")}
-                    ],
-                    "is_error": True,
-                }
+                return _error(result.get("message", "That didn't work."))
             where = f"{result.get('title', '')} — {result.get('url', '')}".strip(" —")
             text = " ".join(p for p in (result.get("message", ""), summary, where) if p)
             return _text(text or "Done.")
@@ -5207,15 +5198,9 @@ class Hub:
             if hub.location is None:
                 await hub._refresh_location()
             if hub.location is None:
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "I don't have a location fix. Location Services may be off for J.A.R.V.I.S.",
-                        }
-                    ],
-                    "is_error": True,
-                }
+                return _error(
+                    "I don't have a location fix. Location Services may be off for J.A.R.V.I.S."
+                )
             return _text(json.dumps(hub.location))
 
         @tool(
@@ -5227,15 +5212,7 @@ class Hub:
         async def weather_report(_args):
             await hub._refresh_weather()
             if not hub.weather or hub.weather.get("error"):
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "No weather: set a city in Settings or allow location.",
-                        }
-                    ],
-                    "is_error": True,
-                }
+                return _error("No weather: set a city in Settings or allow location.")
             return _text(json.dumps(hub.weather))
 
         @tool(
@@ -5255,15 +5232,9 @@ class Hub:
             if hub.location is None:
                 await hub._refresh_location()
             if hub.location is None:
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "I need your location for that; allow Location Services for J.A.R.V.I.S.",
-                        }
-                    ],
-                    "is_error": True,
-                }
+                return _error(
+                    "I need your location for that; allow Location Services for J.A.R.V.I.S."
+                )
             result = await run_helper(
                 "eta",
                 str(hub.location["lat"]),
@@ -5272,7 +5243,7 @@ class Hub:
                 str(args.get("mode") or "driving"),
             )
             if result.get("error"):
-                return {"content": [{"type": "text", "text": result["error"]}], "is_error": True}
+                return _error(result["error"])
             return _text(json.dumps(result))
 
         @tool(
@@ -5294,10 +5265,7 @@ class Hub:
             if stale:
                 summary = await hub.refresh_markets()
             if not summary:
-                return {
-                    "content": [{"type": "text", "text": "No market data right now."}],
-                    "is_error": True,
-                }
+                return _error("No market data right now.")
             watch = "; ".join(
                 f"{q['symbol']} {q['last']:,.2f} ({q['pct']:+.2f}%)" for q in summary["watchlist"]
             )
@@ -6446,17 +6414,7 @@ class Hub:
     def _log_command_failure(self, kind: str) -> None:
         """A failing window command's traceback, at most once a minute per command: a
         window sending the same bad command in a loop can't flood the log."""
-        now = time.monotonic()
-        failures = self._command_failures
-        last, skipped = failures.get(kind, (float("-inf"), 0))
-        if now - last < 60:
-            failures[kind] = (last, skipped + 1)
-            return
-        if len(failures) > 200:
-            failures.clear()
-        failures[kind] = (now, 0)
-        more = f" ({skipped} more times since the last report)" if skipped else ""
-        log.exception("window command %r failed%s", kind, more)
+        _log_rarely(self._command_failures, kind, "window command %r failed", kind)
 
     @staticmethod
     def _attachments(msg: dict[str, Any]) -> list[dict[str, str]] | None:

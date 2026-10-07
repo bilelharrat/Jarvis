@@ -320,7 +320,7 @@ class Conversation:
 
     def _title_of(self, sid: str, info: Any) -> str:
         return (
-            self.state.titles().get(sid)
+            self.state.title(sid)
             or past.owner_words(getattr(info, "custom_title", "") or "")
             or past.owner_words(getattr(info, "first_prompt", "") or "")
         )[:100]
@@ -417,7 +417,7 @@ class Conversation:
             hub._session_id = sid
             hub._session_reads = self.state.reads_of(sid)
             hub.turn = {}
-            self._title = self.state.titles().get(sid, "")
+            self._title = self.state.title(sid)
             await self._show_carried_on(
                 sid,
                 info,
@@ -460,7 +460,7 @@ class Conversation:
                     "cost": self.state.cost_of(sid),
                     "relation": relation,
                     "parent": parent,
-                    "parent_title": (titles.get(parent) or self.state.titles().get(parent, ""))
+                    "parent_title": (titles.get(parent) or self.state.title(parent))
                     if parent
                     else "",
                     "rewound": sid in rewound,
@@ -484,7 +484,7 @@ class Conversation:
         hub.emit(
             "conversation_transcript",
             session_id=sid,
-            title=self.state.titles().get(sid, ""),
+            title=self.state.title(sid),
             current=current,
             live=live,
             entries=entries or [],
@@ -793,7 +793,7 @@ class Conversation:
             else:
                 hub._session_id = sid
                 hub._session_reads = before.get("reads") or self.state.reads_of(sid)
-                self._title = before.get("title") or self.state.titles().get(sid, "")
+                self._title = before.get("title") or self.state.title(sid)
                 return True
         await hub._connect()  # a new conversation: on_connect forgets the one to carry on
         hub._session_id = ""
@@ -841,7 +841,7 @@ class Conversation:
             return
         reads = clean_reads(hub._session_reads) or {}
         self.state.turn_over(sid, reads, cost, title=self._title)
-        self._title = self.state.titles().get(sid, "") or self._title
+        self._title = self.state.title(sid) or self._title
         self._save_soon()
 
     # ── the window ──
@@ -863,7 +863,7 @@ class Conversation:
             "thinking_hard": self._hard_turn,
             "incognito": hub.incognito,
             "session_id": sid,
-            "title": self.state.titles().get(sid, "") if sid and not hub.incognito else "",
+            "title": self.state.title(sid) if sid and not hub.incognito else "",
             # A rewind or a fork that hasn't been spoken in yet ("" when none).
             "branch": (self.state.branch or {}).get("relation", "")
             if self.pending_branch()

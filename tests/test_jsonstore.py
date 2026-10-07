@@ -276,3 +276,15 @@ def test_two_writers_never_fail_or_tear_the_file(tmp_path):
     assert [out.strip() for out, _err in outs] == ["0", "0"], outs
     assert torn == 0 and reads > 0
     assert not list(tmp_path.glob("*.tmp")) and not list(tmp_path.glob(".*.tmp*"))
+
+
+def test_numbers_a_file_or_a_message_holds_are_read_as_what_they_must_be():
+    """whole: what hub._msg_int and the stores read counts, times and ids with; finite: an
+    amount or a time as a float. Anything else is none of either, never a traceback."""
+    assert [jsonstore.whole(v) for v in (7, "12", 3.9, True, " 5 ", -2)] == [7, 12, 3, 1, 5, -2]
+    odd = (None, "", "twelve", "1e3", [], [1], {}, float("inf"), float("nan"), 0.0)
+    assert [jsonstore.whole(v) for v in odd] == [0] * len(odd)
+    assert [jsonstore.finite(v) for v in (2, 0.5, -3, 10**300)] == [2.0, 0.5, -3.0, 1e300]
+    for value in (True, False, "2", None, [], {}, float("inf"), float("-inf"), float("nan")):
+        assert jsonstore.finite(value) is None, value
+    assert jsonstore.finite(10**400) is None  # a whole number past what a float holds

@@ -17,7 +17,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import math
 import re
 import threading
 from datetime import datetime
@@ -180,20 +179,9 @@ def _strings(value: Any, limit: int, each: int = 1000) -> list[str]:
     return [v[:each] for v in value[:limit] if isinstance(v, str) and v]
 
 
-def _amount(value: Any) -> float | None:
-    """A finite number, or None (a whole number past what a float holds is no amount)."""
-    if not isinstance(value, int | float) or isinstance(value, bool):
-        return None
-    try:
-        value = float(value)
-    except OverflowError:
-        return None
-    return value if math.isfinite(value) else None
-
-
 def _moment(value: Any) -> float:
     """A time (seconds since the epoch), or 0 for none."""
-    amount = _amount(value)
+    amount = jsonstore.finite(value)
     return amount if amount is not None and amount > 0 else 0.0
 
 
@@ -214,7 +202,7 @@ def clean_record(data: Any, key: str) -> dict[str, Any] | None:
     cwd = data.get("cwd")
     if not isinstance(cwd, str) or not cwd.startswith("/") or "\x00" in cwd or len(cwd) > 1000:
         return None
-    cost = _amount(data.get("cost_usd"))
+    cost = jsonstore.finite(data.get("cost_usd"))
     commands = data.get("commands")
     queue = []
     for item in data.get("queue") if isinstance(data.get("queue"), list) else []:

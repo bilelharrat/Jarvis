@@ -146,7 +146,7 @@ class ConversationManage:
         if not entries:
             hub.emit("toast", title="Conversations", text="That conversation couldn’t be read.")
             return None
-        title = convo.state.titles().get(sid, "") or "Conversation"
+        title = convo.state.title(sid) or "Conversation"
         path = await asyncio.to_thread(write_markdown, CONVERSATIONS_DIR, title, entries)
         hub.emit("caption", text=f"Saved “{title}” to {path.name}.")
         with contextlib.suppress(Exception):

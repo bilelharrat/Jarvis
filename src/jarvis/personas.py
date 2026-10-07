@@ -19,13 +19,14 @@ hand-edited file never stops the app starting.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from . import jsonstore
-from .textclean import clean_text
+from .textclean import clean_text, one_line
 
 log = logging.getLogger("jarvis")
 
@@ -53,10 +54,6 @@ def register_field(name: str, clean: Any) -> None:
     FIELDS[name] = clean
 
 
-def _line(value: Any, limit: int) -> str:
-    return " ".join(clean_text(value).split())[:limit] if isinstance(value, str) else ""
-
-
 def _text(value: Any, limit: int) -> str:
     if not isinstance(value, str):
         return ""
@@ -67,6 +64,8 @@ def _text(value: Any, limit: int) -> str:
 def _humor(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None  # NaN or infinity (a file's JSON can hold either): no humor of its own
     return max(0, min(100, int(value)))
 
 
@@ -108,7 +107,7 @@ def persona_from(raw: Any) -> Persona | None:
     if not isinstance(raw, dict):
         return None
     ident = str(raw.get("id") or "")
-    name = _line(raw.get("name"), NAME_CHARS)
+    name = one_line(raw.get("name"), NAME_CHARS)
     description = _text(raw.get("description"), DESCRIPTION_CHARS)
     if not _ID.fullmatch(ident) or ident in BUILT_IN or not name or not description:
         return None
@@ -117,7 +116,7 @@ def persona_from(raw: Any) -> Persona | None:
         id=ident,
         name=name,
         description=description,
-        zh_name=_line(raw.get("zh_name"), NAME_CHARS),
+        zh_name=one_line(raw.get("zh_name"), NAME_CHARS),
         zh_description=_text(raw.get("zh_description"), DESCRIPTION_CHARS),
         humor=60 if humor is None else humor,
         extra=clean_extra(raw.get("extra")),
@@ -173,7 +172,7 @@ class PersonaStore:
             raise ValueError("That persona isn't there any more.")
         if old is None and len(self.items) >= MAX_PERSONAS:
             raise ValueError(f"There's room for {MAX_PERSONAS} personas of your own.")
-        name = _line(raw.get("name"), NAME_CHARS)
+        name = one_line(raw.get("name"), NAME_CHARS)
         if not name:
             raise ValueError("Give the persona a name.")
         if not _text(raw.get("description"), DESCRIPTION_CHARS):
@@ -239,9 +238,3 @@ def register(items: list[Persona], dropped: list[str] = ()) -> None:
             listener(list(KNOWN.values()))
         except Exception:  # another feature's trouble never costs the owner their personas
             log.exception("personas: a listener failed")
-
-
-def custom_ids() -> list[str]:
-    from . import prefs
-
-    return [k for k in prefs.PERSONAS if k not in BUILT_IN]

@@ -488,7 +488,7 @@ export function pageBox(center, box = PAGE_BOX) {
 export function toPage(p, b) {
   const x = 0.5 - (p.x - b.cx) / b.width;
   const y = 0.5 + (p.y - b.cy) / b.height;
-  return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+  return { x: clamp01(x), y: clamp01(y) };
 }
 
 // page: { move(x, y, mode), hide(), press(x, y), drag(dx, dy), release({ tap, vx, vy }),

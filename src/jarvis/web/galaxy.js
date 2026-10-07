@@ -387,17 +387,13 @@ class Galaxy {
       this.dragging = false;
       if (!moved) {
         const r = this.canvas.getBoundingClientRect();
-        const id = this.pick(e.clientX - r.left, e.clientY - r.top);
-        if (id) {
-          this.flyTo(id);
-          if (this.onSelect) this.onSelect(id);
-        }
+        this.select(this.pick(e.clientX - r.left, e.clientY - r.top));
       }
     });
     this.canvas.addEventListener('wheel', (e) => {
       if (!this.interactive) return;
       e.preventDefault();
-      this.goalDist = Math.max(0.35, Math.min(6, this.goalDist * Math.exp(e.deltaY * 0.0012)));
+      this.zoomBy(Math.exp(e.deltaY * 0.0012));
     }, { passive: false });
   }
 }

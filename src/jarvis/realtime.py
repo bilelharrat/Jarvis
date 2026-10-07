@@ -111,6 +111,15 @@ def _b64(pcm: bytes) -> str:
     return base64.b64encode(pcm).decode("ascii")
 
 
+def _call_event(call_id: Any, name: Any, args: Any) -> tuple[str, dict[str, Any]]:
+    """A provider's tool call as the ("call", {"id", "name", "args"}) event: the id and the
+    name as text, the arguments a dict (none when they aren't one)."""
+    return (
+        "call",
+        {"id": str(call_id), "name": str(name), "args": args if isinstance(args, dict) else {}},
+    )
+
+
 # ── the two providers ──
 
 
@@ -249,12 +258,7 @@ class OpenAIRealtime(Backend):
                 args = json.loads(message.get("arguments") or "{}")
             except ValueError:
                 args = {}
-            call = {
-                "id": str(message.get("call_id", "")),
-                "name": str(message.get("name", "")),
-                "args": args if isinstance(args, dict) else {},
-            }
-            return [("call", call)]
+            return [_call_event(message.get("call_id", ""), message.get("name", ""), args)]
         if kind == "response.done":
             return [("done",)]
         if kind == "error":
@@ -371,16 +375,8 @@ class GeminiLive(Backend):
             self._flush_heard(events)
             for call in tool_call.get("functionCalls") or []:
                 if isinstance(call, dict):
-                    args = call.get("args")
                     events.append(
-                        (
-                            "call",
-                            {
-                                "id": str(call.get("id", "")),
-                                "name": str(call.get("name", "")),
-                                "args": args if isinstance(args, dict) else {},
-                            },
-                        )
+                        _call_event(call.get("id", ""), call.get("name", ""), call.get("args"))
                     )
         if "goAway" in message:
             events.append(("error", "the session is ending", True))
@@ -476,6 +472,7 @@ class Conversation:
         self._live: Any = None
         self._tool: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
+        self._state_failed = False  # on_state raised (said in the log once)
 
     # ── the microphone (any thread) ──
 
@@ -760,8 +757,12 @@ class Conversation:
     def _set_state(self, state: str) -> None:
         if state != self.state:
             self.state = state
-            with contextlib.suppress(Exception):
+            try:
                 self.on_state(state)
+            except Exception:  # never costs the conversation; said once, not at every change
+                if not self._state_failed:
+                    self._state_failed = True
+                    log.exception("realtime: showing the conversation's state failed")
 
 
 def sentences(text: str, final: bool) -> tuple[list[str], str]:

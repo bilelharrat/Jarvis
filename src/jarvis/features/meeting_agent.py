@@ -73,6 +73,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .. import lang, prefs, utility_model
 from ..interrupts import looks_like_injection
+from ..meeting import _plain  # a line's words as compared: lowercase, no punctuation
 from ..textclean import clean_text
 
 log = logging.getLogger("jarvis")
@@ -257,10 +258,6 @@ def spoken_line(text: str) -> str:
         end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind("。"))
         words = cut[: end + 1] if end > 40 else cut.rstrip() + "…"
     return words
-
-
-def _plain(text: str) -> str:
-    return " ".join(re.sub(r"[^\w\s]", " ", str(text).lower()).split())
 
 
 def fence(transcript: str) -> str:

@@ -290,7 +290,6 @@ _WAKE_ZH = LazyPattern(
 )
 WAKE_NAMES_ZH = ("贾维斯", "加维斯", "贾维思", "杰维斯", "嘉维斯", "佳维斯")
 WAKE_HINT_ZH = "贾维斯"  # Whisper's hotword in Mandarin mode
-GREETINGS_ZH = ("你好", "您好", "哈喽", "哈啰", "嘿", "喂", "嗨")
 _LATIN_WORD = LazyPattern(r"[A-Za-z][A-Za-z'’]*")
 _GREETING_ONLY = LazyPattern(r"(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|hey|hi|hello|ok|okay|yo)")
 # "Jarvis Code" (贾维斯代码), the coding panel: a name JARVIS says itself, never a wake word.
@@ -1972,13 +1971,6 @@ INDEX_NAMES_ZH = {
     "Nasdaq": "纳斯达克",
     "Dow": "道琼斯",
     "Russell 2000": "罗素2000",
-}
-MACRO_NAMES_ZH = {
-    "10-yr": "十年期美债收益率",
-    "VIX": "VIX恐慌指数",
-    "Oil": "原油",
-    "Gold": "黄金",
-    "Bitcoin": "比特币",
 }
 
 

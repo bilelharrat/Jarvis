@@ -351,3 +351,88 @@ def test_names_in_memory_facts():
     )
     assert "Ann Lee" not in names  # a sentence's first word could be anything
     assert {"Lee", "Priya", "Zainar", "Mondays"} <= set(names)
+
+
+def test_spelled_out_letters_are_the_word():
+    """Spelled-out letters are the word, however they come: after the word, after "spelled",
+    alone, and at the end of a correction. They start a word of their own: "spelled K-A-I"
+    was learned as "dKAI" (the d of spelled taken for a letter), "O K I N" as "Kin" and
+    "Okin O K I N" as "nOKIN"."""
+    assert hearing._spelled("Okin, O-K-I-N") == "Okin"
+    assert hearing._spelled("Kai, spelled K-A-I") == "Kai"
+    assert hearing._spelled("spelled K-A-I") == hearing._spelled("Spelled K-A-I") == "Kai"
+    assert hearing._spelled("spelt O K I N") == hearing._spelled("that's O-K-I-N.") == "Okin"
+    assert hearing._spelled("O K I N") == hearing._spelled("Okin O K I N") == "Okin"
+    assert hearing._spelled("Hormuz H O R M U Z") == "Hormuz"
+    assert hearing._spelled("k.a.i") == "kai"  # lowercase letters keep their case
+    assert hearing._spelled("Okin") == "Okin"  # nothing spelled: as it was
+    assert hearing._spelled("Okin O O") == "Okin O O"  # two letters spell nothing
+    assert hearing._spelled("A B C") == "Abc"
+    assert parse_correction("no, I said Kai, K A I") == ("Kai", "")
+    assert parse_correction("no, I said Okin O K I N") == ("Okin", "")
+
+
+def test_an_initialism_written_with_its_periods_is_kept(ear):
+    """Letters with a period after each one are an initialism as it's written, never a word
+    spelled out: "W.H.O." isn't the common word who (which can't be learned), "R.E.M." isn't
+    Rem, and four letters don't lose the first ("N.A.S.A." was learned as Asa). Spelled-out
+    letters with a full stop after them, or after "spelled", are still the word."""
+    for written in ("W.H.O.", "R.E.M.", "U.S.A.", "S.O.S.", "U. S. A.", "N.A.S.A."):
+        assert hearing._spelled(written) == written
+    assert ear.teach("W.H.O.") == "W.H.O"
+    assert ear.teach("N.A.S.A.") == "N.A.S.A"
+    assert ear.correct("are am", "R.E.M.").meant == "R.E.M"
+    assert hearing._spelled("O-K-I-N.") == hearing._spelled("O K I N.") == "Okin"
+    assert hearing._spelled("O. K-I N.") == "Okin"  # one gap without a period: spelled
+    assert hearing._spelled("spelled R.E.M.") == "Rem"
+
+
+def test_a_long_word_from_a_tool_is_read_in_no_time(ear):
+    """The learn_word tool's word can be any length: letters and spaces that end in
+    something else took time with the square of their length (a third of a second for 4 KB,
+    seconds for more, on the event loop). Past a sentence's length nothing is spelled."""
+    import time
+
+    hostile = "a " * 20_000 + "!!"
+    started = time.thread_time()
+    assert hearing._spelled(hostile) == hostile
+    tools = {t.name: t for t in hearing.build_tools(ear)}
+    out = asyncio.run(tools["learn_word"].handler({"word": hostile}))
+    assert time.thread_time() - started < 0.5
+    assert out["content"][0]["text"].startswith("Learned the word")  # its first 40 characters
+
+
+def test_hints_are_read_from_a_copy_while_a_request_counts_words(ear):
+    """The hub asks for the hints from a transcription's thread while a request on the
+    event loop may be counting the owner's words: they're read from a copy of the words
+    taken at once, so a word added meanwhile never ends the transcription with "dictionary
+    changed size during iteration"."""
+
+    class Busy(dict):
+        """A word whose first look adds another, as the loop's thread could meanwhile."""
+
+        def __getitem__(self, key):
+            if key == "why" and "zainar" not in ear.words:
+                ear.words["zainar"] = {"word": "Zainar", "count": 1, "at": "", "why": "said"}
+            return super().__getitem__(key)
+
+    ear.teach("Okin")
+    ear.words["okin"] = Busy(ear.words["okin"])
+    assert ear.hotwords() == "Jarvis Okin"
+    assert "zainar" in ear.words  # added while the hints were read, and harmlessly
+
+
+def test_settings_and_the_tool_show_the_same_words_listened_for(ear):
+    """The words it listens for, the most used first: taught and corrected ones, and those
+    the owner said often enough; a name said once isn't one yet."""
+    ear.teach("Okin")
+    for _ in range(hearing.SAID_ENOUGH):
+        ear.owner_said("call Zainar now")
+    ear.owner_said("meet Priya")
+    assert ear.public()["words"] == [
+        {"word": "Okin", "count": hearing.SAID_ENOUGH + 1, "why": "taught"},
+        {"word": "Zainar", "count": hearing.SAID_ENOUGH, "why": "said"},
+    ]
+    assert ear.describe() == "Words I listen for: Okin, Zainar."
+    assert ear.describe("zai") == "Words I listen for: Zainar."
+    assert ear.describe("priya") == "Nothing learned about that yet."

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .brain import url_host
-from .textclean import clean_text
+from .textclean import one_line
 
 log = logging.getLogger("jarvis")
 
@@ -37,13 +37,8 @@ OUTCOMES = ("done", "failed", "stopped")
 _DAY_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.jsonl$")
 
 
-def _line(value: Any, limit: int) -> str:
-    text = " ".join(clean_text(value).split()) if isinstance(value, str) else ""
-    return text[:limit]
-
-
 def _name(value: Any) -> str:
-    return _line(value, 40)
+    return one_line(value, 40)
 
 
 def _host(value: Any) -> str:
@@ -122,8 +117,8 @@ def clean_entry(raw: Any) -> dict[str, str] | None:
     return {
         "t": when.replace(tzinfo=None).isoformat(timespec="seconds"),
         "tool": _tool(raw.get("tool")),
-        "label": _line(raw.get("label"), LABEL_CHARS) or "Used a tool",
-        "summary": _line(raw.get("summary"), SUMMARY_CHARS),
+        "label": one_line(raw.get("label"), LABEL_CHARS) or "Used a tool",
+        "summary": one_line(raw.get("summary"), SUMMARY_CHARS),
         "outcome": outcome,
     }
 
@@ -193,7 +188,7 @@ class ActionLog:
         for line in text.splitlines():
             try:
                 entry = clean_entry(json.loads(line))
-            except ValueError:
+            except (ValueError, RecursionError):  # not JSON, or nested past reason
                 continue
             if entry is not None:
                 out.append(entry)

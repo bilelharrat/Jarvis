@@ -37,6 +37,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .. import jsonstore
 from ..conversation_state import valid_id
 
 log = logging.getLogger("jarvis")
@@ -66,15 +67,6 @@ def _list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
-def _whole(value: Any) -> int:
-    """A count or a time as a whole number; 0 for one a hand edit (or another build) left
-    as something else: one odd field never loses the projects."""
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError, OverflowError):
-        return 0
-
-
 def _pdf_text(data: bytes) -> str:
     from ..browser_pdf import extract
 
@@ -83,7 +75,6 @@ def _pdf_text(data: bytes) -> str:
 
 class ChatProjects:
     def __init__(self, hub: Any, folder: Path | None = None) -> None:
-        from .. import jsonstore
         from ..prefs import APP_SUPPORT
 
         self.hub = hub
@@ -123,8 +114,8 @@ class ChatProjects:
                 files.append(
                     {
                         "name": _file_name(f.get("name")),
-                        "chars": _whole(f.get("chars")),
-                        "added": _whole(f.get("added")),
+                        "chars": jsonstore.whole(f.get("chars")),
+                        "added": jsonstore.whole(f.get("added")),
                     }
                 )
         sessions = [s for s in (valid_id(x) for x in _list(raw.get("sessions"))) if s]
@@ -134,7 +125,7 @@ class ChatProjects:
             "instructions": str(raw.get("instructions") or "")[:INSTRUCTIONS_MAX],
             "files": files[:MAX_FILES],
             "sessions": sessions[-MAX_SESSIONS:],
-            "created": _whole(raw.get("created")),
+            "created": jsonstore.whole(raw.get("created")),
         }
 
     def find(self, pid: Any) -> dict[str, Any] | None:
@@ -144,8 +135,6 @@ class ChatProjects:
         return next((p for p in self.projects if session_id in p["sessions"]), None)
 
     def _save(self) -> None:
-        from .. import jsonstore
-
         if self.unreadable:
             raise jsonstore.refusal(self.path, self.unreadable)
         jsonstore.save_json(self.path, {"active": self.active, "projects": self.projects})

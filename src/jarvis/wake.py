@@ -109,6 +109,12 @@ def _key(name: str) -> str:
     return "".join(_WORD.findall(name.lower().replace("’", "'"))).replace("'", "")
 
 
+def _keyed(pieces: list[str]) -> list[tuple[int, str]]:
+    """The pieces of a sentence split at its spaces that hold a word, each with where it is
+    and the word as it's matched ("Jarvis," -> "jarvis")."""
+    return [(i, key) for i, piece in enumerate(pieces) if (key := _key(piece))]
+
+
 def _names() -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
     """(whether "Jarvis" wakes it, the other Latin names' keys, the other names as written)."""
     global _names_cache
@@ -158,8 +164,7 @@ def _find_named(raw: str) -> tuple[bool, str]:
     # The name is the first or second word: only the start is split (the rest stays one
     # piece), so a long announcement costs no more than a short one.
     pieces = re.split(r"(\s+)", raw, maxsplit=6)
-    tokens = [(i, "".join(_WORD.findall(p.lower())).replace("'", "")) for i, p in enumerate(pieces)]
-    tokens = [(i, t) for i, t in tokens if t]
+    tokens = _keyed(pieces)
     greeted = len(tokens) > 1 and tokens[0][1] in CALL_GREETINGS
     if not tokens or len(tokens) <= int(greeted):
         return False, ""
@@ -213,9 +218,8 @@ def find_wake(text: str) -> tuple[bool, str]:
 def find_jarvis(text: str) -> tuple[bool, str]:
     """find_wake for the name "Jarvis" alone (whether or not it's a wake word now)."""
     raw = text.strip()
-    pieces = [p for p in re.split(r"(\s+)", raw)]
-    tokens = [(i, "".join(_WORD.findall(p.lower())).replace("'", "")) for i, p in enumerate(pieces)]
-    tokens = [(i, t) for i, t in tokens if t]
+    pieces = re.split(r"(\s+)", raw)
+    tokens = _keyed(pieces)
     for n, (i, token) in enumerate(tokens):
         span = None
         greeted = n == 1 and tokens[0][1] in GREETINGS

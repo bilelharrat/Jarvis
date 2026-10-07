@@ -45,6 +45,12 @@ def clean_text(text: Any) -> str:
     return "".join(out)
 
 
+def one_line(value: Any, limit: int) -> str:
+    """Text kept as one line (a name, a label, a title): cleaned, each run of spaces and
+    line breaks made one space, at most limit characters; "" for anything but a string."""
+    return " ".join(clean_text(value).split())[:limit] if isinstance(value, str) else ""
+
+
 def argv_text(text: str) -> str:
     """Text that can ride on a command line (Claude Code gets its system prompt there): no
     NUL, and no half of a surrogate pair, which can't be encoded at all."""

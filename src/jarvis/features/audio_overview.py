@@ -24,6 +24,8 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from ..textclean import clean_text
+
 log = logging.getLogger("jarvis")
 
 MAX_LINES = 120
@@ -72,13 +74,21 @@ def pick_voices(installed: list[str]) -> tuple[str, str]:
     return a, first(HOST_B, a)
 
 
+def _one_line(text: str, limit: int) -> str:
+    """The words of the text on one line, at most limit characters, with nothing hidden in
+    them: a NUL can't be handed to `say` or afconvert. Split before cleaning, so the control
+    characters that part words as a space does (a form feed, \\x1c-\\x1f, NEL) still part
+    them rather than gluing "Hello" and "world" into one word."""
+    return " ".join(w for w in map(clean_text, text.split()) if w)[:limit]
+
+
 def clean_lines(raw: Any) -> list[tuple[int, str]]:
     """(host 0 or 1, words) for each line of the dialogue, at most MAX_LINES."""
     out: list[tuple[int, str]] = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        words = " ".join(str(item.get("text") or "").split())[:MAX_LINE]
+        words = _one_line(str(item.get("text") or ""), MAX_LINE)
         if not words:
             continue
         who = str(item.get("speaker") or "A").strip().upper()
@@ -155,7 +165,9 @@ class AudioOverview:
         voices = pick_voices(await asyncio.to_thread(installed_voices))
         if not all(voices):
             return "This Mac has no voices to read it with.", True
-        title = " ".join(str(title or "").split())[:120] or "Audio overview"
+        # Nothing hidden in it: a NUL in the file's name can't be handed to afconvert, and
+        # failed the overview after every line had been voiced.
+        title = _one_line(str(title or ""), 120) or "Audio overview"
         out = file_name(title, folder())
         try:
             await asyncio.to_thread(render, lines, voices, out)

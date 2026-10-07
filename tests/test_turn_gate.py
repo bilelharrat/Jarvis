@@ -313,6 +313,19 @@ async def test_a_message_for_a_session_goes_unasked_only_when_the_user_asked(
     assert hub.spoken[-1].endswith("Do you want this passed on?")
 
 
+async def test_a_session_number_that_is_no_number_names_no_session(
+    settings, quiet_speaker, isolated
+):
+    """A task_id no whole number reads (words, a list, infinity, which a tool's JSON can
+    hold): message_claude_task names no session and sends nothing (the tool says so),
+    and voice_code's gate never starts one on it, instead of either check raising."""
+    hub = await started(settings, quiet_speaker, isolated, said="tell Jarvis Code to run tests")
+    for odd in ("three", [3], float("inf"), float("nan"), None):
+        assert await hub.turn_gate(MESSAGE, {"task_id": odd, "message": "Run it."}) is True
+    for odd in ("three", [3], float("inf")):
+        assert await hub.turn_gate(VOICE_CODE, {"task_id": odd}) is False
+
+
 # ── "did the user ask for this?" ──
 
 

@@ -80,3 +80,32 @@ async def test_chinese_requests_count_for_the_ask_gates(settings, quiet_speaker,
     hub._turn_text = "记住我的会议都在上午"
     assert await hub.feature_gate("remember", "Remember it?")
     assert asked == []
+
+
+async def test_instant_replies_are_in_chinese_too(settings, quiet_speaker, isolated, monkeypatch):
+    """A shortcut run at once, and a Research Center command that failed, answer in the
+    language chosen, as the other instant commands do (they answered in English)."""
+    from jarvis import home
+
+    async def ran(*_args, **_kw):
+        return ""
+
+    monkeypatch.setattr(home.mac_tools, "run_command", ran)
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    hub.prefs.language = "zh"
+    hub.prefs.instant_shortcuts = ["电影模式"]
+    assert await hub._instant_shortcut("r1", "电影模式")
+    assert hub.turn["reply"] == "好了。"
+    hub.research_available = True
+    hub.research = {"open": True, "title": "Markets", "url": "u", "locked": True}
+    sent = []
+
+    def emit(kind, **data):
+        sent.append((kind, data))
+        if kind == "research_cmd":
+            late = {"error": "The Research Center didn't answer in time."}
+            hub._research_calls[data["id"]].set_result(late)
+
+    hub.emit = emit
+    assert await hub._instant_research("r2", "返回")
+    assert ("reply", {"rid": "r2", "text": "研究中心没有及时响应。"}) in sent

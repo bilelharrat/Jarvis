@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import re
 import time
 from datetime import date
@@ -207,8 +208,13 @@ class Realtime:
         if not isinstance(data, dict) or data.get("day") != today:
             return {"day": today, "seconds": 0.0}
         seconds = data.get("seconds")
-        ok = isinstance(seconds, (int, float)) and not isinstance(seconds, bool)
-        return {"day": today, "seconds": max(0.0, float(seconds)) if ok else 0.0}
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            return {"day": today, "seconds": 0.0}
+        try:
+            used = max(0.0, float(seconds))
+        except OverflowError:  # a whole number past what a float holds (a hand edit)
+            used = math.inf if seconds > 0 else 0.0  # as 1e400 reads: the day's minutes used
+        return {"day": today, "seconds": used}
 
     def used_seconds(self) -> float:
         return self._usage()["seconds"]

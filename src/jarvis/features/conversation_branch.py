@@ -355,7 +355,7 @@ class Branching:
         fresh = at == "-"
         at = "" if fresh else at
         was, was_reads, was_branch = hub._session_id, hub._session_reads, state.branch
-        title = state.titles().get(source, "")
+        title = state.title(source)
         self._switching = True
         try:
             with contextlib.suppress(Exception):
@@ -457,7 +457,7 @@ class Branching:
                 if live
                 else "Leave incognito to branch a past conversation."
             )
-        title = state.titles().get(sid, "") or next(
+        title = state.title(sid) or next(
             (e["text"] for e in entries if e.get("role") == "user"), ""
         )
         if entry is None:

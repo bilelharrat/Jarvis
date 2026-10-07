@@ -118,9 +118,20 @@ _ZH_PATTERNS = (
     re.compile(rf"^不是(?P<heard>{_ZH_BIT})[，,\s]*(?:而)?是(?P<meant>{_ZH_BIT})[。！!]*$"),
     re.compile(rf"^(?:不对|不是)[，,\s]*是(?P<meant>{_ZH_BIT})[。！!]*$"),
 )
+# The letters start a word of their own: "Okin O K I N" is Okin, never the n of Okin with
+# them ("nOKIN"), and "spelled K-A-I" is Kai, not "dKAI".
 _SPELLED = re.compile(
-    r"^(?P<word>.+?)\s*,?\s*(?:spelled|spelt|that'?s)?\s*,?\s*(?P<letters>(?:[A-Za-z][\s.-]+){2,}[A-Za-z])\.?$"
+    r"^(?P<word>.+?)\s*,?\s*(?:spelled|spelt|that'?s)?\s*,?\s*\b(?P<letters>(?:[A-Za-z][\s.-]+){2,}[A-Za-z])\.?$"
 )
+# Letters alone, perhaps after "spelled": all of them are the word ("O K I N" is Okin, not
+# a word O and the letters K I N).
+_LETTERS_ALONE = re.compile(
+    r"(?P<lead>(?:spelled|spelt|that'?s)\s+)?"
+    r"(?P<letters>(?:[A-Za-z][\s.-]+){2,}[A-Za-z])(?P<dot>\.?)"
+)
+# Longer is a sentence, not a spelling: the patterns above take time with the square of
+# what they read, and a tool's word can be any length.
+SPELLED_CHARS = 200
 
 _SPELL_TAIL = re.compile(r"\s*,\s*(?:spelled\s+|spelt\s+)?((?:[A-Za-z][\s.-]+){2,}[A-Za-z])\.?$")
 
@@ -209,17 +220,33 @@ def _common(term: str) -> bool:
     return bool(words) and all(w in COMMON for w in words)
 
 
-def _spelled(meant: str) -> str:
-    """ "Okin, O-K-I-N" -> Okin; "spelled K-A-I" -> Kai."""
-    m = _SPELLED.match(meant.strip())
-    if not m:
-        letters = re.fullmatch(r"(?:spelled\s+)?((?:[A-Za-z][\s.-]+){2,}[A-Za-z])", meant.strip())
-        if letters:
-            joined = re.sub(r"[\s.-]", "", letters.group(1))
-            return joined.capitalize() if joined.isupper() else joined
-        return meant
-    joined = re.sub(r"[\s.-]", "", m.group("letters"))
+def _from_letters(letters: str) -> str:
+    """Letters spelled out, as the word: "O-K-I-N" -> Okin, "k.a.i" -> kai."""
+    joined = re.sub(r"[\s.-]", "", letters)
     return joined.capitalize() if joined.isupper() else joined
+
+
+def _initialism(alone: re.Match[str]) -> bool:
+    """Letters alone with a period after every one of them, the last too ("W.H.O.",
+    "U. S. A."): an initialism as it's written, not a word spelled out. After "spelled"
+    they are spelled all the same."""
+    if alone.group("lead") or not alone.group("dot"):
+        return False
+    return all("." in gap for gap in re.findall(r"[\s.-]+", alone.group("letters")))
+
+
+def _spelled(meant: str) -> str:
+    """ "Okin, O-K-I-N" -> Okin; "spelled K-A-I" -> Kai; "W.H.O." stays as it's written."""
+    text = meant.strip()
+    if len(text) > SPELLED_CHARS:
+        return meant
+    alone = _LETTERS_ALONE.fullmatch(text)
+    if alone:
+        # Kept whole: read as letters, "N.A.S.A." would be learned as Nasa and "W.H.O." as
+        # the common word who (the pattern below took all but the first: "Asa").
+        return meant if _initialism(alone) else _from_letters(alone.group("letters"))
+    m = _SPELLED.match(text)
+    return _from_letters(m.group("letters")) if m else meant
 
 
 @dataclass
@@ -655,17 +682,20 @@ class Hearing:
                 chars[0] += len(term) + 1
             return True
 
+        # The words as they are now, copied in one step: the hub asks from a transcription's
+        # thread while a request on the event loop may be adding to them.
+        words = list(self.words.items())
         learned = sorted(
-            (w for w in self.words.values() if w["why"] != "said"),
+            (w for _k, w in words if w["why"] != "said"),
             key=lambda w: (w["count"], w["at"]),
             reverse=True,
         )
         often = sorted(
-            (w for w in self.words.values() if w["why"] == "said" and w["count"] >= SAID_ENOUGH),
+            (w for _k, w in words if w["why"] == "said" and w["count"] >= SAID_ENOUGH),
             key=lambda w: (w["count"], w["at"]),
             reverse=True,
         )
-        said = {k for k, w in self.words.items() if w["count"] >= 1}
+        said = {k for k, w in words if w["count"] >= 1}
         mentioned = [
             n for n in self.seeds.get("contacts", []) if any(p.lower() in said for p in n.split())
         ]
@@ -713,12 +743,7 @@ class Hearing:
             for h, c in reversed(self.corrections.items())
             if not query or query in h or query in c["meant"].lower()
         ]
-        words = [
-            w["word"]
-            for w in sorted(self.words.values(), key=lambda w: w["count"], reverse=True)
-            if (w["why"] != "said" or w["count"] >= SAID_ENOUGH)
-            and (not query or query in w["word"].lower())
-        ]
+        words = [w["word"] for w in self._listened_for() if not query or query in w["word"].lower()]
         if not fixes and not words:
             return "Nothing learned about that yet." if query else "Nothing learned yet."
         parts = []
@@ -737,10 +762,18 @@ class Hearing:
             ],
             "words": [
                 {"word": w["word"], "count": w["count"], "why": w["why"]}
-                for w in sorted(self.words.values(), key=lambda w: w["count"], reverse=True)
-                if w["why"] != "said" or w["count"] >= SAID_ENOUGH
+                for w in self._listened_for()
             ][:200],
         }
+
+    def _listened_for(self) -> list[dict[str, Any]]:
+        """The words it listens for, as describe() and Settings show them: corrected and
+        taught ones, and those the owner says often; the most used first."""
+        return [
+            w
+            for w in sorted(self.words.values(), key=lambda w: w["count"], reverse=True)
+            if w["why"] != "said" or w["count"] >= SAID_ENOUGH
+        ]
 
 
 def names_in(texts: Iterable[str]) -> list[str]:
@@ -784,8 +817,7 @@ def parse_correction(text: str, lang: str = "en") -> tuple[str, str] | None:
     spelled = ""
     tail = _SPELL_TAIL.search(text)
     if tail:  # "no, I said Kai, K-A-I": the letters are the word
-        letters = re.sub(r"[\s.-]", "", tail.group(1))
-        spelled = letters.capitalize() if letters.isupper() else letters
+        spelled = _from_letters(tail.group(1))
         text = text[: tail.start()]
     for pattern in (_EN_SAID, _EN_ITS, _EN_NOT):
         m = pattern.match(text)
