@@ -15,7 +15,8 @@ words out, for Eden's dictation in a browser without speech recognition (jarvis.
 behind the same token and card). Each call names its MCP session (one bridge
 process) and the app behind it (Claude Code, Claude Desktop): the first call of a session
 puts up a card, said aloud too ("Let Claude Desktop use Jarvis…?"), unless the owner turned
-that off; a no holds for ten minutes, so an app can't pile up cards. The heads-up tool shows
+that off; "Always allow" remembers the app (prefs: mcp_trusted) so it isn't asked again; a no
+holds for ten minutes, so an app can't pile up cards. The heads-up tool shows
 (and may say) the owner a line from that app, at most NOTIFY_PER_HOUR an hour, titled with
 the app's name, and its words never ride into a request of the owner's as instructions.
 
@@ -57,6 +58,7 @@ NOTIFY_PER_HOUR = 10
 DENIED_SECONDS = 600  # a session the owner said no to isn't asked again this soon
 SESSION_HOURS = 12  # a session the owner allowed is trusted this long at most
 MAX_SESSIONS = 50
+TRUSTED_APPS = 20  # apps the owner chose "Always allow" for, kept in prefs
 MAX_BODY = 64 * 1024
 SEARCH_RESULTS = 8
 # messaging.MAX_RECIPIENTS, which the send itself enforces (not imported: the bridge
@@ -899,10 +901,12 @@ class Endpoint:
         return True
 
     async def session_ok(self, session: str, app: str) -> bool:
-        """Whether this session may use Jarvis: asked once, on a card (and said). Calls that
-        come while the card is up wait for the same answer; one given up on (the app
-        closed) never leaves the others waiting."""
+        """Whether this session may use Jarvis: asked once, on a card (and said), unless the
+        owner chose "Always allow" for the app. Calls that come while the card is up wait for
+        the same answer; one given up on (the app closed) never leaves the others waiting."""
         if not self.hub.prefs.feature("mcp_ask"):
+            return True
+        if self.trusted(app):  # "Always allow": never asked again, even after a restart
             return True
         known = self.sessions.get(session)
         if known is not None and time.monotonic() < known[1]:
@@ -924,7 +928,9 @@ class Endpoint:
             answer = False
         if answer is None:
             return False  # the card ran out unanswered (the owner was away): ask again next time
-        allowed = answer
+        if answer == "always":
+            self.trust(app)
+        allowed = bool(answer)
         until = time.monotonic() + (SESSION_HOURS * 3600 if allowed else DENIED_SECONDS)
         self.sessions[session] = (allowed, until, app)
         while len(self.sessions) > MAX_SESSIONS:
@@ -932,8 +938,25 @@ class Endpoint:
         self._changed()
         return allowed
 
-    async def _ask(self, app: str) -> bool | None:
-        """True/False: the owner's answer; None: the card ran out with no answer."""
+    def trusted(self, app: str) -> bool:
+        return app in (self.hub.prefs.feature("mcp_trusted") or [])
+
+    def trust(self, app: str, on: bool = True) -> None:
+        """Remember (or forget) an app the owner always allows, in prefs: it outlives this
+        run. The name is the one its bridge gives; only a holder of the private token gets
+        this far, so it's this Mac's own apps naming themselves."""
+        kept = [a for a in (self.hub.prefs.feature("mcp_trusted") or []) if a != app]
+        if on:
+            kept.append(app)
+        self.hub.set_feature_prefs({"mcp_trusted": kept[-TRUSTED_APPS:]})
+        if not on:  # forgotten: its sessions ask again
+            for key in [k for k, (_ok, _until, name) in self.sessions.items() if name == app]:
+                self.sessions.pop(key, None)
+        self._changed()
+
+    async def _ask(self, app: str) -> str | bool | None:
+        """ "always", True or False: the owner's answer; None: the card ran out with no
+        answer."""
         from . import hub as hub_module
         from . import lang
 
@@ -945,8 +968,15 @@ class Endpoint:
         choice = await self.hub.request_approval(
             question,
             detail,
-            [("allow", lang.tr("Allow", language)), ("deny", lang.tr("Not now", language))],
+            [
+                ("always", lang.tr("Always allow", language)),
+                ("allow", lang.tr("Allow this time", language)),
+                ("deny", lang.tr("Not now", language)),
+            ],
+            context={"mcp_app": app},  # the window raises a notification while it's behind
         )
+        if choice == "always":
+            return "always"
         if choice == "allow":
             return True
         if time.monotonic() - started >= hub_module.APPROVAL_TIMEOUT:
@@ -1450,6 +1480,7 @@ class Endpoint:
                 if until > now
             ][-10:],
             "recent": list(self.recent)[:10],
+            "trusted": list(self.hub.prefs.feature("mcp_trusted") or []),
             "tools": TOOL_NAMES,
         }
 

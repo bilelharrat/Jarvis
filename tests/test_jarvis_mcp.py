@@ -207,7 +207,10 @@ async def test_each_app_session_asks_once_on_a_card(settings, quiet_speaker, iso
     )
     (allowed, again), _ = await asyncio.gather(first, answer("allow"))
     assert allowed and again and len(cards) == 1  # two calls, one card
-    assert cards[0]["question"] == "Let Claude Desktop use your second brain, memory, calendar and email?"
+    assert (
+        cards[0]["question"]
+        == "Let Claude Desktop use your second brain, memory, calendar and email?"
+    )
     assert "goes to that app" in cards[0]["detail"]
     assert await endpoint.session_ok(SESSION, "Claude Desktop") and len(cards) == 1
     other = "f" * 16
@@ -432,11 +435,12 @@ def test_jarvis_mcp_puts_nothing_but_protocol_on_stdout(tmp_path):
 
 
 async def test_settings_turn_it_on_and_show_how_to_set_up_each_app(
-    settings, quiet_speaker, isolated, short_folder
+    settings, quiet_speaker, isolated, short_folder, monkeypatch
 ):
     hub = make_hub(settings, quiet_speaker, isolated)
     desk = hub.jarvis_mcp
     desk.endpoint.folder = short_folder
+    pretend_apps(desk, short_folder.parent, monkeypatch)
     events = []
     hub.emit = lambda kind, **data: events.append((kind, data))
     await hub._handle({"type": "mcp_state"})
@@ -466,3 +470,201 @@ async def test_settings_turn_it_on_and_show_how_to_set_up_each_app(
 def test_its_chinese():
     for english, chinese in jarvis_mcp.ZH.items():
         assert lang.translate(english, "zh") == chinese or "{" in english
+
+
+# ── approve once per app, remembered ──
+
+
+async def answer_card(hub, choice):
+    for _ in range(200):
+        await asyncio.sleep(0)
+        if hub.approvals:
+            card = next(iter(hub.approvals.values()))
+            assert hub.resolve(card["id"], choice)
+            return card
+    raise AssertionError("no card went up")
+
+
+async def test_always_allow_remembers_the_app_across_sessions_and_restarts(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    endpoint = endpoint_for(hub)
+    allowed, card = await asyncio.gather(
+        endpoint.session_ok(SESSION, "Claude Code"), answer_card(hub, "always")
+    )
+    assert allowed and card["mcp_app"] == "Claude Code"
+    assert [c["id"] for c in card["choices"]] == ["always", "allow", "deny"]
+    assert [c["label"] for c in card["choices"]] == ["Always allow", "Allow this time", "Not now"]
+    assert hub.prefs.feature("mcp_trusted") == ["Claude Code"]
+    restarted = endpoint_for(hub)  # a new run: no sessions in memory, the pref kept
+    assert await restarted.session_ok("b" * 16, "Claude Code") and not hub.approvals
+    assert restarted.public()["trusted"] == ["Claude Code"]
+    # "Allow this time" is this session only
+    once, _ = await asyncio.gather(
+        restarted.session_ok("c" * 16, "Claude Desktop"), answer_card(hub, "allow")
+    )
+    assert once and hub.prefs.feature("mcp_trusted") == ["Claude Code"]
+    # Forgotten from Settings: it asks again
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    hub.jarvis_mcp.endpoint = restarted
+    await hub._handle({"type": "mcp_forget", "app": "Claude Code"})
+    assert hub.prefs.feature("mcp_trusted") == [] and events[-1][1]["trusted"] == []
+    denied, _ = await asyncio.gather(
+        restarted.session_ok("d" * 16, "Claude Code"), answer_card(hub, "deny")
+    )
+    assert denied is False
+    # Asking off still means never asking
+    hub.set_feature_prefs({"mcp_ask": False})
+    assert await restarted.session_ok("e" * 16, "Someone else") and not hub.approvals
+
+
+def test_remembered_apps_are_kept_clean():
+    from jarvis.prefs import FEATURE_PREFS
+
+    cleaner = FEATURE_PREFS["mcp_trusted"][1]
+    assert cleaner(["claude-code", "Claude Code", "  ", 3, "x\ny"]) == ["Claude Code", "xy"]
+    assert cleaner("Claude Code") is None
+
+
+# ── one-click connect ──
+
+
+def pretend_apps(desk, root, monkeypatch, code_cli=True, desktop=True):
+    """Both apps' settings in a temp folder: never the owner's real files."""
+    support = root / "Claude"
+    if desktop:
+        support.mkdir(parents=True, exist_ok=True)
+    desk.desktop_path = support / "claude_desktop_config.json"
+    desk.desktop_apps = ()
+    desk.code_state = root / ".claude.json"
+    desk.apps = {}
+    monkeypatch.setattr(
+        jarvis_mcp.codemcp, "cli_path", lambda: "/pretend/claude" if code_cli else None
+    )
+
+    async def no_cli(args, cwd, timeout=0):  # a test that didn't set one up never runs the CLI
+        raise AssertionError(f"claude {args} ran")
+
+    monkeypatch.setattr(jarvis_mcp.codemcp, "run_cli", no_cli)
+
+
+async def test_connect_claude_desktop_keeps_everything_else(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    desk = hub.jarvis_mcp
+    pretend_apps(desk, tmp_path, monkeypatch)
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    path = desk.desktop_path
+    original = {
+        "globalShortcut": "Alt+Space",
+        "mcpServers": {"files": {"command": "npx", "args": ["fs"]}},
+    }
+    path.write_text(json.dumps(original))
+    await hub._handle({"type": "mcp_state"})
+    assert events[-1][1]["apps"]["desktop"]["status"] == "off"
+    await hub._handle({"type": "mcp_connect", "app": "desktop"})
+    saved = json.loads(path.read_text())
+    assert (
+        saved["globalShortcut"] == "Alt+Space" and saved["mcpServers"]["files"]["command"] == "npx"
+    )
+    command = jarvis_mcp.jarvis_command()
+    assert saved["mcpServers"]["jarvis"] == {"command": command[0], "args": command[1:]}
+    desktop = events[-1][1]["apps"]["desktop"]
+    assert desktop["status"] == "connected" and "Restart Claude Desktop" in desktop["message"]
+    backup = path.with_name(path.name + ".bak")
+    assert json.loads(backup.read_text()) == original
+    await hub._handle({"type": "mcp_disconnect", "app": "desktop"})
+    assert json.loads(path.read_text()) == original
+    assert json.loads(backup.read_text()) == original  # the first copy, kept
+    assert events[-1][1]["apps"]["desktop"]["status"] == "off"
+    assert [
+        p.name for p in tmp_path.joinpath("Claude").iterdir() if p.name.startswith(".jarvis-")
+    ] == []
+
+
+async def test_a_desktop_config_that_isnt_json_is_left_alone(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    desk = hub.jarvis_mcp
+    pretend_apps(desk, tmp_path, monkeypatch)
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    desk.desktop_path.write_text('{"mcpServers": {')
+    await hub._handle({"type": "mcp_connect", "app": "desktop"})
+    assert desk.desktop_path.read_text() == '{"mcpServers": {'
+    assert "isn't valid JSON" in events[-1][1]["apps"]["desktop"]["message"]
+    assert not desk.desktop_path.with_name("claude_desktop_config.json.bak").exists()
+    # No file yet: made with just Jarvis
+    desk.desktop_path.unlink()
+    await hub._handle({"type": "mcp_connect", "app": "desktop"})
+    assert list(json.loads(desk.desktop_path.read_text())["mcpServers"]) == ["jarvis"]
+
+
+async def test_connect_claude_code_through_its_own_cli(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    desk = hub.jarvis_mcp
+    pretend_apps(desk, tmp_path, monkeypatch)
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    ran = []
+    command = jarvis_mcp.jarvis_command()
+
+    async def cli(args, cwd, timeout=0):  # what the real CLI does to ~/.claude.json
+        ran.append(args)
+        state = json.loads(desk.code_state.read_text()) if desk.code_state.exists() else {}
+        servers = state.setdefault("mcpServers", {})
+        if args[:2] == ["mcp", "add"]:
+            servers[args[4]] = {"type": "stdio", "command": args[6], "args": args[7:], "env": {}}
+        else:
+            servers.pop(args[4], None)
+        desk.code_state.write_text(json.dumps(state))
+        return 0, "done"
+
+    monkeypatch.setattr(jarvis_mcp.codemcp, "run_cli", cli)
+    desk.code_state.write_text(
+        json.dumps({"mcpServers": {"jarvis": {"command": "/old/jarvis", "args": ["mcp"]}}})
+    )
+    await hub._handle({"type": "mcp_state"})
+    assert events[-1][1]["apps"]["code"]["status"] == "other"
+    await hub._handle({"type": "mcp_connect", "app": "code"})
+    assert ran == [
+        ["mcp", "remove", "--scope", "user", "jarvis"],
+        ["mcp", "add", "--scope", "user", "jarvis", "--", *command],
+    ]
+    assert events[-1][1]["apps"]["code"]["status"] == "connected"
+    ran.clear()
+    await hub._handle({"type": "mcp_connect", "app": "code"})  # already there: nothing runs
+    assert ran == []
+    await hub._handle({"type": "mcp_disconnect", "app": "code"})
+    assert ran == [["mcp", "remove", "--scope", "user", "jarvis"]]
+    assert events[-1][1]["apps"]["code"]["status"] == "off"
+
+    async def fails(args, cwd, timeout=0):
+        return 1, "claude: something went wrong"
+
+    monkeypatch.setattr(jarvis_mcp.codemcp, "run_cli", fails)
+    await hub._handle({"type": "mcp_connect", "app": "code"})
+    assert events[-1][1]["apps"]["code"] == {
+        "status": "off",
+        "message": "claude: something went wrong",
+    }
+
+
+async def test_an_app_not_installed_says_so(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    desk = hub.jarvis_mcp
+    pretend_apps(desk, tmp_path, monkeypatch, code_cli=False, desktop=False)
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    await hub._handle({"type": "mcp_state"})
+    apps = events[-1][1]["apps"]
+    assert apps["code"]["status"] == "missing" and apps["desktop"]["status"] == "missing"
