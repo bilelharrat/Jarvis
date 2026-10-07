@@ -489,7 +489,8 @@ export async function mockFetch(path, init = {}) {
    GET /api/web/account and what the account page does with it (site/docs/web-auth.md). QA
    switches in the page's URL: acct=free|plus|single|delegate|space|none (delegate, space: acting
    for someone; none: no accounts, as the local
-   server), webcfg=none (Apple and Google not set up), apps=none (no connected apps). Kept in
+   server), webcfg=none (Apple and Google not set up), apps=none (no connected apps),
+   billing=off (askeden.com takes no payments: no Get Plus anywhere). Kept in
    sessionStorage. */
 
 const acctQ = new URLSearchParams(location.search);
@@ -514,8 +515,9 @@ function acctState() {
     ],
     identities: kind === 'single' ? [{ provider: 'google', sub_hash: 'g1', email: 'owner@gmail.com', added: now - 2 * 86400000 }]
       : [{ provider: 'apple', sub_hash: 'a1', email: 'owner@icloud.com', added: now - 90 * 86400000 }],
-    plus: { web_purchase: false, how: 'ios' },
+    plus: acctQ.get('billing') === 'off' ? { web_purchase: false, how: 'ios' } : { web_purchase: true, how: 'stripe', price_usd: 20 },
   };
+  if (plus && acctQ.get('billing') !== 'off') Object.assign(a.plan, { source: 'stripe', manage: { stripe: true } });
   // acct=delegate | acct=space: this browser is using a delegate's grant (chat and mail) or a team space (acting.js).
   if (kind === 'delegate') a.acting = { type: 'delegate', id: 'dlg1', label: 'Bilel', features: ['chat', 'mail'], expires: now + 20 * 86400000 };
   if (kind === 'space') a.acting = { type: 'space', id: 'spc1', label: 'Launch team', features: ['chat'], expires: now + 86400000 };
@@ -527,7 +529,12 @@ const setAcct = (a) => sessionStorage.setItem(AKEY, JSON.stringify(a));
 function webMock(p, method, url, body = {}) {
   if (acctQ.get('acct') === 'none') return json({ error: 'No such thing here.', code: 'not_found' }, 404);
   const a = acctState();
-  if (p === '/api/web/config') return json(acctQ.get('webcfg') === 'none' ? { apple: false, google: false, code: true } : { apple: true, google: true, code: true });
+  if (p === '/api/web/config') {
+    const billing = acctQ.get('billing') === 'off' ? { billing: false, billing_in_app: false } : { billing: true, billing_in_app: false };
+    return json({ ...(acctQ.get('webcfg') === 'none' ? { apple: false, google: false, code: true } : { apple: true, google: true, code: true }), ...billing });
+  }
+  // Stripe isn't simulated: nothing is bought from ?mock=1.
+  if (p.startsWith('/api/web/billing/') && method === 'POST') return json({ error: 'Checkout and billing open Stripe on askeden.com; ?mock=1 doesn’t simulate them.', code: 'mock' }, 400);
   if (p === '/api/web/account' && method === 'GET') return json(a);
   // Connected apps (account.js appsSection): Eden Messenger connected five days ago.
   if (!a.apps) a.apps = acctQ.get('apps') === 'none' ? [] : [{ id: 'a1b2c3d4e5f60718', client: 'messenger', name: 'Eden Messenger', scope: 'ask', created: Date.now() - 5 * 86400000, expires: Date.now() + 85 * 86400000, last_used: Date.now() - 3 * 3600000 }];

@@ -17,6 +17,7 @@ import { sendMessage, runChat, stop, retry, regenerate, editResend, answerPermis
 import { initArtifact, openArtifact, closeArtifact, artifactOpen, refreshArtifact } from './artifact.js';
 import { initPanels, openSpace, closeSpace, spaceOpen, checkJarvis, renderMemoryTab, searchNotes, attachNote, notify } from './panels.js';
 import { initAccount } from './account.js';
+import { planCommand } from './plan.js';
 import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
 import { initPublish } from './publish.js';
 import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
@@ -530,6 +531,8 @@ function commands() {
     { t: 'Download apps', s: 'J.A.R.V.I.S. for Mac, Eden Messenger', i: 'down', run: () => { location.href = DOWNLOAD_URL; } },
     ...helpCommands(),
   ];
+  const plus = planCommand(); // Eden Plus (plan.js): free with billing here, or Manage billing
+  if (plus) list.push(plus);
   if (c) list.push(
     { t: c.pinned ? 'Unpin this chat' : 'Pin this chat', s: 'Chat', i: 'pin', run: () => togglePin(c) },
     { t: 'Rename this chat', s: 'Double-click the title', i: 'edit', run: startRename },

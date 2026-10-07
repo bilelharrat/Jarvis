@@ -13,6 +13,7 @@ import { compareView, openGroupOf, reopenButton, setLaneRenderer, strongerButton
 import { approvalCard, isTainted, sourceStrip } from './guard.js';
 import { macCard } from './files.js';
 import { feedbackButtons } from './learned.js';
+import { limitAction } from './plan.js';
 
 export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), editing: null };
 // an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
@@ -139,8 +140,9 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   for (const a of node.approvals || []) bubble.append(approvalCard(c, node, a)); // actions the server's gate holds (H8)
   for (const n of node.notes || []) bubble.append(el('div', 'notice warn', n));
   if (node.error) {
-    bubble.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', node.error),
-      el('button', { type: 'button', class: 'cap primary', 'data-act': 'retry' }, ico('retry'), 'Retry')));
+    const plus = limitAction(node.error); // the included AI ran out: Get Plus (plan.js), where it's sold here
+    bubble.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', node.error), plus,
+      el('button', { type: 'button', class: `cap${plus ? '' : ' primary'}`, 'data-act': 'retry' }, ico('retry'), 'Retry')));
   } else if (node.finish === 'aborted') bubble.append(el('div', 'stopped', 'Stopped.'));
   else if (node.finish === 'length') bubble.append(el('div', 'notice warn', 'Cut off at the model’s output limit.'));
   wrap.append(bubble);

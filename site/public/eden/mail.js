@@ -169,7 +169,10 @@ export async function mailPanel(body) {
   const head = el('div', 'mx-head', top);
   const list = el('div', { class: 'mx-list', 'aria-live': 'polite' }, skeleton());
   const read = el('div', { class: 'mx-read' }, emptyState('mail', 'No message selected', 'Pick an email to read it here. Eden can summarize it or draft your reply.'));
-  const root = el('div', 'mx', head, el('div', 'mx-main', list, read));
+  const split = el('div', { class: 'mx-split', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the message list', title: 'Drag to resize · double-click to reset' });
+  const main = el('div', 'mx-main', list, read, split);
+  const root = el('div', 'mx', head, main);
+  splitter(root, main, list, split);
   body.append(root);
   acct.hidden = true;
 
@@ -659,4 +662,49 @@ export function initMail(handlers) {
     jarvisReason: handlers.jarvisReason,
     onSent: () => { if (panelBody && document.contains(panelBody) && mail.refresh && (mail.mailbox === 'drafts' || mail.mailbox === 'sent' || mail.mailbox === 'scheduled')) mail.refresh(); },
   });
+}
+
+/** The list | reading-pane divider: drag to set the list's width (kept in this browser), double-click to reset. */
+function splitter(root, main, list, handle) {
+  const KEY = 'eden:mail:listW';
+  const place = () => { handle.style.left = `${list.offsetWidth}px`; };
+  const set = (px) => {
+    const max = Math.max(330, main.clientWidth - 360);
+    const w = Math.round(Math.min(max, Math.max(260, px)));
+    main.style.setProperty('--mx-list-w', `${w}px`);
+    place();
+    return w;
+  };
+  try { const saved = Number(localStorage.getItem(KEY)); if (saved > 0) main.style.setProperty('--mx-list-w', `${saved}px`); } catch { /* blocked */ }
+  if (typeof ResizeObserver === 'function') new ResizeObserver(place).observe(list);
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('drag');
+    root.classList.add('resizing');
+    const left = main.getBoundingClientRect().left;
+    let w = list.offsetWidth;
+    const move = (ev) => { w = set(ev.clientX - left); };
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.classList.remove('drag');
+      root.classList.remove('resizing');
+      try { localStorage.setItem(KEY, String(w)); } catch { /* blocked */ }
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up, { once: true });
+    handle.addEventListener('pointercancel', up, { once: true });
+  });
+  handle.addEventListener('dblclick', () => {
+    main.style.removeProperty('--mx-list-w');
+    try { localStorage.removeItem(KEY); } catch { /* blocked */ }
+    requestAnimationFrame(place);
+  });
+  handle.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const w = set(list.offsetWidth + (e.key === 'ArrowRight' ? 24 : -24));
+    try { localStorage.setItem(KEY, String(w)); } catch { /* blocked */ }
+  });
+  handle.tabIndex = 0;
 }

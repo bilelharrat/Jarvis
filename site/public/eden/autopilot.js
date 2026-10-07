@@ -14,6 +14,7 @@ import { $, el, toast, placePopup } from './util.js';
 import { state, ui } from './state.js';
 import { getJSON, postJSON } from './api.js';
 import { autopilotWhy, savedVsTop, usd, monthBounds } from './autopilot-model.js';
+import { planRows } from './plan.js';
 
 let status = null; // the last GET /api/chat/spend
 let loading = null;
@@ -154,6 +155,7 @@ function fillPop(p) {
   p.replaceChildren(
     el('div', 'cp-t', 'This chat'), el('div', 'ap-row', el('span', '', `Context window ${ctx}`), el('b', '', cost)),
     el('div', 'cp-t ap-t2', 'This month'), ...monthView({ compact: true }),
+    ...planRows(() => closePop()),
     el('button', { type: 'button', class: 'cp-link', onclick: () => { closePop(); dispatchEvent(new CustomEvent('eden:open-inspector', { detail: { tab: 'Route' } })); } }, 'Open Route console →'));
 }
 function openPop() {

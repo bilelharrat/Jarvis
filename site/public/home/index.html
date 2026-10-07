@@ -13,7 +13,7 @@
 <body>
 <header class="top">
   <a class="brand" href="/" aria-label="Eden, askeden.com"><span class="orb" aria-hidden="true"></span><span>Eden</span></a>
-  <nav><a href="/download">Apps</a><a class="pill" href="/signin">Sign in</a></nav>
+  <nav><a href="#pricing">Pricing</a><a href="/download">Apps</a><a class="pill" href="/signin">Sign in</a></nav>
 </header>
 
 <main>
@@ -40,6 +40,40 @@
     <li><b>Your Mac</b><span>Link J.A.R.V.I.S. and Eden can reach your second brain, memory and calendar.</span></li>
     <li><b>Yours</b><span>No ads, no selling your data. Read the policy below.</span></li>
   </ul>
+
+  <!-- Plans: the numbers are the Worker's own (accounts/account.js LIMITS and VOICE, browser/rules.js
+       MINUTES, eden/billing.js PLUS_PRICE_USD; wrangler.toml may override them). Change them together. -->
+  <section class="pricing" id="pricing" aria-labelledby="pricingH">
+    <h2 id="pricingH">Pricing</h2>
+    <p class="sub">Start free. Upgrade when you want more of Eden&rsquo;s included AI.</p>
+    <div class="plans">
+      <article class="plan">
+        <h3>Free</h3>
+        <p class="price"><b>$0</b></p>
+        <ul>
+          <li><b>$1 of included AI</b> to try Eden, once</li>
+          <li><b>60 minutes</b> of Eden&rsquo;s cloud browser a month</li>
+          <li><b>20,000 characters</b> of JARVIS voice a day</li>
+          <li>Your own API keys too, which never use the included AI</li>
+          <li>Routing across every model, on the web and in the apps</li>
+        </ul>
+        <a class="btn" href="/signin">Get started</a>
+      </article>
+      <article class="plan plus">
+        <h3>Eden Plus</h3>
+        <p class="price"><b>$20</b><span>/month</span></p>
+        <ul>
+          <li><b>$20 of included AI</b> every month</li>
+          <li><b>600 minutes</b> of Eden&rsquo;s cloud browser a month</li>
+          <li><b>100,000 characters</b> of JARVIS voice a day</li>
+          <li>Team spaces, with a shared AI budget</li>
+          <li>Everything in Free</li>
+        </ul>
+        <a class="btn primary" href="/signin?return=%2F%23plus">Get Plus</a>
+      </article>
+    </div>
+    <p class="fine">Plus is billed monthly by card through Stripe; cancel any time from your account.</p>
+  </section>
 </main>
 
 <footer>

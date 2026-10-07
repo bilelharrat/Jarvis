@@ -82,8 +82,28 @@ footer nav{display:flex;gap:18px}
 footer a{color:var(--text2)}
 footer a:hover{color:var(--text)}
 
+.pricing{margin-top:56px;scroll-margin-top:16px;text-align:center}
+h2{margin:0;font-size:32px;line-height:1.15;letter-spacing:-.8px;font-weight:700}
+.pricing .sub{margin:8px 0 0;color:var(--text2);font-size:16px}
+.plans{margin-top:24px;display:grid;grid-template-columns:repeat(2,1fr);gap:14px;text-align:left}
+.plan{display:flex;flex-direction:column;padding:20px;border-radius:20px;background:var(--content);border:1px solid var(--hairline);box-shadow:var(--sh1)}
+.plan.plus{border-color:rgba(10,132,255,.45);box-shadow:var(--sh1),0 0 0 1px rgba(10,132,255,.25)}
+.plan h3{margin:0;font-size:17px;font-weight:600;letter-spacing:-.2px}
+.plan.plus h3{color:var(--accent)}
+.price{margin:6px 0 0;color:var(--text2);font-size:15px}
+.price b{font-size:34px;font-weight:700;letter-spacing:-1px;color:var(--text);margin-right:2px}
+.plan ul{list-style:none;margin:16px 0 20px;padding:0;display:flex;flex-direction:column;gap:9px;flex:1}
+.plan li{position:relative;padding-left:22px;font-size:14px;color:var(--text2)}
+.plan li b{color:var(--text);font-weight:600}
+.plan li::before{content:"";position:absolute;left:2px;top:.42em;width:10px;height:6px;border-left:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:rotate(-45deg)}
+.plan .btn{width:100%;min-width:0}
+.pricing .fine{margin-top:16px}
+html{scroll-behavior:smooth}
+
 @media (max-width:600px){
   main{padding-top:3vh}
+  .plans{grid-template-columns:1fr}
+  h2{font-size:28px}
   h1{font-size:44px}
   .orb.big{width:64px;height:64px}
   .lede{font-size:17px}
@@ -91,4 +111,4 @@ footer a:hover{color:var(--text)}
   .btn{width:100%}
   .points{grid-template-columns:1fr}
 }
-@media (prefers-reduced-motion:reduce){.apps{transition:none}}
+@media (prefers-reduced-motion:reduce){.apps{transition:none}html{scroll-behavior:auto}}

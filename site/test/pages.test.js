@@ -96,6 +96,28 @@ test('signed out, / is Eden\'s front page (its own CSP, no script), never cached
   assert.equal(env.assets.at(-1), '/home/');
 });
 
+test('the front page shows the plans: Free and Eden Plus, with the Worker\'s own numbers, and /pricing goes there', async () => {
+  const pricing = await hit('/pricing');
+  assert.equal(pricing.status, 302);
+  assert.equal(pricing.headers.get('location'), '/#pricing');
+  const html = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'home', 'index.html'), 'utf8');
+  assert.match(html, /<a href="#pricing">Pricing<\/a>/);
+  assert.match(html, /id="pricing"/);
+  const { PLUS_PRICE_USD } = await import('../src/eden/billing.js');
+  const { MINUTES } = await import('../src/browser/rules.js');
+  const { LIMITS } = await import('../src/accounts/account.js');
+  assert.match(html, new RegExp(`<b>\\$${PLUS_PRICE_USD}</b><span>/month</span>`));
+  assert.match(html, new RegExp(`\\$${LIMITS.plus} of included AI</b> every month`));
+  assert.match(html, new RegExp(`\\$${LIMITS.trial} of included AI</b> to try Eden, once`));
+  assert.match(html, new RegExp(`<b>${MINUTES.free} minutes</b>`));
+  assert.match(html, new RegExp(`<b>${MINUTES.plus} minutes</b>`));
+  // Get Plus signs in, then opens Eden's account page at Plus (account.js #plus); never Stripe from here.
+  assert.match(html, /href="\/signin\?return=%2F%23plus">Get Plus</);
+  assert.doesNotMatch(html, /<script|stripe\.com/i);
+  const { safeReturn } = await import('../public/signin/return.js');
+  assert.equal(safeReturn('/#plus'), '/#plus');
+});
+
 test('a session cookie that no longer works is cleared at / and at /signin', async () => {
   for (const p of ['/', '/signin']) {
     const res = await hit(p, { session: 'jv1.not-a-real.session' });

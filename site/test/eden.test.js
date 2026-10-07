@@ -422,7 +422,7 @@ test('the landing page, downloads, latest.json and Messenger keep working, the l
   assert.equal((await hit('/jarvis')).status, 200);
   assert.equal((await hit('/messenger/settings')).headers.get('location'), 'https://messenger.askeden.com/settings');
   assert.match((await hit('/messenger/iphone')).headers.get('content-security-policy'), /frame-ancestors 'none'/);
-  assert.equal((await hit('/pricing')).headers.get('location'), 'https://askeden.com/');
+  assert.equal((await hit('/pricing')).headers.get('location'), '/#pricing'); // the front page's plans
 });
 
 test('the Eden copy is web/chat plus the hosted script, and stays inside the page CSP', () => {

@@ -39,7 +39,7 @@ test('the apps page is at /jarvis and /download, Eden\'s front page at / signed 
   await get('/download', e);
   await get('/jarvis/icon.png', e);
   assert.deepEqual(e.assets, ['/home/', '/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
-  const old = await get('/pricing', e);
+  const old = await get('/features', e); // an old address: home (/pricing is the front page's plans now)
   assert.equal(old.status, 302);
   assert.equal(old.headers.get('location'), 'https://www.askeden.com/');
 });

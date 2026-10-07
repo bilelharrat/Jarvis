@@ -30,6 +30,7 @@ import { passphraseProblem, suggestPassphrase, verifyCode } from './eden-crypto.
 import { spacesSection, inviteCard, enableWorkflowSharing } from './spaces.js';
 import { publishedSection } from './publish.js';
 import { IN_APP } from './native.js';
+import { setPlanOffer } from './plan.js';
 
 let H = {};
 let available = false;
@@ -180,17 +181,31 @@ export const accountOpen = () => !!($('accountSheet') && $('accountSheet').class
  * Opens the account page; `notice` is a line shown above it (what came back in #account), `ok`
  * shows it as good news, `waitPlus` watches for Plus to arrive (back from Stripe Checkout).
  */
-export async function openAccount({ notice = null, ok = false, waitPlus = false } = {}) {
+export async function openAccount({ notice = null, ok = false, waitPlus = false, focusPlus = false } = {}) {
   if (H.beforeOpen) H.beforeOpen();
   const s = sheet();
   if (!s.classList.contains('open')) returnFocus = document.activeElement;
   s.classList.add('open');
   $('btnAcctClose').focus();
   const account = await draw(notice, { ok });
+  if (focusPlus && account) showPlus();
   if (!waitPlus || !account) return;
   const shown = document.querySelector('#acctBody .acct-notice.ok');
   if (account.plan && account.plan.active) { if (shown) shown.textContent = 'Thank you! Plus is on.'; } // the webhook was first
   else watchForPlus();
+}
+
+// "Get Plus" from elsewhere (plan.js, /#plus from the front page): the Plan, highlighted, its
+// button focused. Never on to Stripe by itself: the person presses it.
+function showPlus() {
+  const card = document.querySelector('#acctBody .acct-plus') || document.querySelector('#acctBody .acct-card');
+  if (!card) return;
+  card.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  card.classList.remove('flash');
+  void card.offsetWidth; // restart the highlight
+  card.classList.add('flash');
+  const b = card.querySelector('.btn.primary, button.cap.primary');
+  if (b) b.focus({ preventScroll: true });
 }
 
 // Back from Checkout before Stripe's webhook got here: look again for a little while.
@@ -218,6 +233,7 @@ async function draw(notice, { ok = false } = {}) {
   const body = $('acctBody');
   if (!body.firstChild || notice) body.replaceChildren(el('div', 'muted', 'Loading…'));
   const { account, config, error } = await load();
+  if (account) setPlanOffer(account, config);
   if (error) {
     body.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t read your account'), error),
       el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => draw() }, 'Try again')));
@@ -515,9 +531,11 @@ const SOURCE_WORDS = { app_store: 'bought in the iPhone app', stripe: 'billed on
 
 // Stripe Checkout or its Customer Portal: askeden.com makes the session, then the browser goes there.
 async function openBilling(button, kind) {
+  button = button || el('button'); // from the ring popover or the palette: no button of its own
   const label = button.textContent;
   button.disabled = true;
   button.textContent = kind === 'checkout' ? 'Opening checkout…' : 'Opening billing…';
+  if (kind === 'portal' && !document.contains(button)) toast('Opening billing…');
   try {
     const { url } = await post(`/api/web/billing/${kind}`);
     if (!/^https:\/\//.test(url || '') && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(url || '')) throw new Error('askeden.com sent back no billing page. Try again.');
@@ -780,10 +798,16 @@ function fromHash() {
     pendingInvite = { kind: inv[1], code: inv[2].toUpperCase() };
     return { notice: inv[1] === 'space' ? 'You’re invited to a team space. Add your name and join it below (Team spaces).' : 'You’re invited to help someone with their Eden. Accept it below (Delegates).' };
   }
+  // #plus (the front page's "Get Plus", through sign-in): the Plan, ready to buy.
+  if (location.hash === '#plus') {
+    history.replaceState(null, '', location.pathname + location.search);
+    return { notice: null, focusPlus: true };
+  }
   const m = /^#account(?:\?(.*))?$/.exec(location.hash);
   if (!m) return null;
   const q = new URLSearchParams(m[1] || '');
   history.replaceState(null, '', location.pathname + location.search);
+  if (q.has('plus')) return { notice: null, focusPlus: true };
   const p = PROVIDERS[q.get('provider')] || 'sign-in';
   const code = q.get('error');
   if (code) return { notice: Object.hasOwn(ERRORS, code) ? ERRORS[code](p) : `Adding ${p === 'sign-in' ? 'that sign-in' : p} didn’t finish. Try again.` };
@@ -816,6 +840,8 @@ export async function initAccount(handlers = {}) {
   try { res = await call('/api/web/account'); } catch { return; }
   if (!res.ok) return;
   available = true;
+  addEventListener('eden:get-plus', () => openAccount({ focusPlus: true }));
+  addEventListener('eden:manage-billing', () => openBilling(null, 'portal'));
   enableWorkflowSharing(); // Workflows › Share to a space… (spaces.js)
   const me = await read(res);
   // What the page assumed at load (acting.js keeps it between loads) against what's true now.
@@ -830,6 +856,7 @@ export async function initAccount(handlers = {}) {
     // The access this browser was using ended (revoked, run out, removed from the space).
     if (me.acting_ended) { post('/api/web/deleg/leave').catch(() => {}); toast('Your access to that account or space ended. You’re back on your own.'); }
   }
+  call('/api/web/config').then((c) => (c.ok ? read(c) : {})).catch(() => ({})).then((config) => setPlanOffer(me, config));
   if (!isMock) Sync.initSync(me.account_id);
   const button = $('btnAccount');
   if (button) {

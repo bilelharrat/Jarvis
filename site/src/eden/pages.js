@@ -4,6 +4,7 @@
 //   /, /index.html     Eden (public/eden/index.html), or signed out the front page (public/home/),
 //                      which links to the apps page at /download (public/jarvis/, worker.js)
 //   /home/home.css     the front page's stylesheet
+//   /pricing           → /#pricing, the front page's plans
 //   /signin            the sign-in page (public/signin/): Apple, Google, or a code the iPhone
 //                      approves; signed in, back to / (or to `?return=`, public/signin/return.js)
 //   /<Eden file>       public/eden/<file> (the files src/eden/manifest.js lists), signed in only
@@ -52,6 +53,7 @@ const redirect = (to) => new Response(null, { status: 302, headers: { location: 
 export async function edenPage(request, env, path) {
   if (path === '/help' || path.startsWith('/help/')) return helpPage(request, env, path);
   if (path === '/privacy' || path === '/terms') return page(await asset(env, request, `${path}/`), LEGAL_CSP, { cache: 'public, max-age=300' });
+  if (path === '/pricing') return redirect('/#pricing'); // the front page's plans (public/home/)
   if (path === '/home/home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   const signinFile = /^\/signin\/([\w.-]+)$/.exec(path);
   if (signinFile) {
