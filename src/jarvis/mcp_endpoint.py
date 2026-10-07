@@ -916,12 +916,15 @@ class Endpoint:
 
     async def _decide(self, session: str, app: str) -> bool:
         try:
-            allowed = await self._ask(app)
+            answer = await self._ask(app)
         except asyncio.CancelledError:
             raise
         except Exception:
             log.warning("jarvis mcp: couldn't ask about %s", app, exc_info=True)
-            allowed = False
+            answer = False
+        if answer is None:
+            return False  # the card ran out unanswered (the owner was away): ask again next time
+        allowed = answer
         until = time.monotonic() + (SESSION_HOURS * 3600 if allowed else DENIED_SECONDS)
         self.sessions[session] = (allowed, until, app)
         while len(self.sessions) > MAX_SESSIONS:
@@ -929,19 +932,26 @@ class Endpoint:
         self._changed()
         return allowed
 
-    async def _ask(self, app: str) -> bool:
+    async def _ask(self, app: str) -> bool | None:
+        """True/False: the owner's answer; None: the card ran out with no answer."""
+        from . import hub as hub_module
         from . import lang
 
         language = self.hub.language
         question = lang.tr(ASK_QUESTION, language, app=app)
         detail = lang.translate(ASK_DETAIL, language)
+        started = time.monotonic()
         self.hub._say(question)
         choice = await self.hub.request_approval(
             question,
             detail,
             [("allow", lang.tr("Allow", language)), ("deny", lang.tr("Not now", language))],
         )
-        return choice == "allow"
+        if choice == "allow":
+            return True
+        if time.monotonic() - started >= hub_module.APPROVAL_TIMEOUT:
+            return None
+        return False
 
     def _changed(self) -> None:
         if self.on_change is not None:

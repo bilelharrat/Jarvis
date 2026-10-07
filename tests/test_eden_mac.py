@@ -433,3 +433,33 @@ def test_settings_show_and_change_what_eden_may_do(home, hub):
         and seen[-1][1]["home"] is True
         and seen[-1][1]["allowed"] == ["~"]
     )
+
+
+def test_a_card_nobody_answers_is_not_a_no(home, hub, monkeypatch):
+    """The owner away from the Mac: the files card runs out, nothing is kept, the next call asks
+    again (a real "Not now" is kept for 10 minutes: the test above)."""
+    from jarvis import hub as hub_module
+
+    hub.set_feature_prefs({"mcp_ask": True})
+    endpoint = endpoint_for(hub)
+    endpoint.sessions[SESSION] = (True, time.monotonic() + 3600, "Eden")
+    monkeypatch.setattr(hub_module, "APPROVAL_TIMEOUT", 0)  # every card "runs out"
+    asked = cards(hub, "deny", "deny")
+    client = TestClient(build_app(endpoint))
+    first = post(client, "files_search", {"query": "lease"})
+    assert first["is_error"] and "didn't answer" in first["text"]
+    second = post(client, "files_search", {"query": "lease"})
+    assert second["is_error"] and len(asked) == 2, "asked again, not refused from memory"
+
+
+def test_a_session_card_nobody_answers_is_asked_again(home, hub, monkeypatch):
+    from jarvis import hub as hub_module
+
+    hub.set_feature_prefs({"mcp_ask": True})
+    endpoint = endpoint_for(hub)
+    monkeypatch.setattr(hub_module, "APPROVAL_TIMEOUT", 0)
+    asked = cards(hub, "deny", "deny")
+    client = TestClient(build_app(endpoint))
+    post(client, "recall", {})
+    post(client, "recall", {})
+    assert len(asked) == 2 and SESSION not in endpoint.sessions

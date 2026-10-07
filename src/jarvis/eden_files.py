@@ -737,6 +737,7 @@ ASK_FILES_DETAIL = (
 )
 FILES_OFF = "Files are off for other apps in Jarvis (Settings › Jarvis in other apps)."
 FILES_DENIED = "The owner didn't allow that app to read their files just now."
+FILES_UNANSWERED = "The owner didn't answer the card on their Mac in time. Open the J.A.R.V.I.S. window and try again."
 
 
 class Access:
@@ -775,10 +776,15 @@ async def files_allowed(endpoint: Any, app: str) -> str:
         state._asking[app] = task
         task.add_done_callback(lambda _t: state._asking.pop(app, None))
     yes = await asyncio.shield(task)
+    if yes is None:
+        return FILES_UNANSWERED
     return "" if yes else FILES_DENIED
 
 
-async def _ask_files(endpoint: Any, app: str) -> bool:
+async def _ask_files(endpoint: Any, app: str) -> bool | None:
+    """True/False: the owner's answer (kept); None: the card ran out unanswered (not kept,
+    so the next call asks again: an owner away from the Mac hasn't said no)."""
+    from . import hub as hub_module
     from . import lang
 
     hub = endpoint.hub
@@ -791,6 +797,7 @@ async def _ask_files(endpoint: Any, app: str) -> bool:
     )
     question = lang.tr(ASK_FILES, language, app=app)
     detail = lang.tr(ASK_FILES_DETAIL, language, app=app, where=where)
+    started = time.monotonic()
     try:
         hub._say(question)
         choice = await hub.request_approval(
@@ -804,6 +811,8 @@ async def _ask_files(endpoint: Any, app: str) -> bool:
         log.warning("eden files: couldn't ask about %s", app, exc_info=True)
         choice = "deny"
     yes = choice == "allow"
+    if not yes and time.monotonic() - started >= hub_module.APPROVAL_TIMEOUT:
+        return None
     hours = GRANT_HOURS * 3600 if yes else DENIED_SECONDS
     access(endpoint).files[app] = (yes, time.monotonic() + hours)
     return yes
