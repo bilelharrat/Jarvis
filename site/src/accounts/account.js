@@ -120,7 +120,9 @@ export class Account {
       if (op.startsWith('google-')) return json(await googleOp(this, op, body, request)); // hosted Gmail/Calendar tokens (tokens.js checks the caller)
       if (op.startsWith('scoped-')) return json(await scopedOp(this, op, body, request)); // other apps' scoped tokens, @Eden (scoped.js checks the caller)
       const device = await this.authenticate(request);
-      if (device.kind === 'web' && WEB_FORBIDDEN.has(op)) {
+      // A browser may delete the account only when the person typed DELETE (the account page).
+      const webDelete = op === 'delete' && body.confirm === 'DELETE' && !device.grant;
+      if (device.kind === 'web' && WEB_FORBIDDEN.has(op) && !webDelete) {
         throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the J.A.R.V.I.S. app on your iPhone or Mac.");
       }
       if (op.startsWith('mail-')) return json(await mailOp(this, op, body)); // scheduled Gmail sends (schedule.js)
@@ -399,10 +401,11 @@ export class Account {
     const grant = await this.storage.get('apple_grant');
     const stripe = await stripeToCancel(this); // the Worker cancels it at Stripe (eden/billing.js)
     const identities = (await this.identities()).filter((i) => i.sub_hash).map(({ provider, sub_hash }) => ({ provider, sub_hash }));
+    const published = [...(await this.storage.list({ prefix: 'pubh:' })).keys()].map((k) => k.slice(5)); // the Worker drops their /p/ links
     this.closeSockets(['listen', 'web', 'phone', 'mac'], 4001, 'account deleted');
     await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
     await this.storage.deleteAll();
-    return { apple_grant: grant || null, identities, stripe_subscription: stripe };
+    return { apple_grant: grant || null, identities, stripe_subscription: stripe, published };
   }
 
   publicDevice(device, me) {

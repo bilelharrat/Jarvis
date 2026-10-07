@@ -303,6 +303,7 @@ test('the decision: through the Mac with no key for the turn, or when asked to',
   assert.equal(viaMacFor({ ANTHROPIC_API_KEY: 'k' }), false);
   assert.equal(viaMacFor({ ANTHROPIC_API_KEY: 'k', EDEN_CHAT_VIA_MAC: '1' }), true);
   assert.equal(viaMacFor({}, null, { hasKeys: true }), false, 'the caller may say it has other providers’ keys');
+  assert.equal(viaMacFor({ GEMINI_API_KEY: 'g' }), false, 'a service Gemini or OpenAI key counts too (service-ai.js)');
 });
 
 test('route events: a Mac’s local or API-key turns say where they ran; other events pass untouched', async () => {

@@ -25,6 +25,7 @@
 // so, any text the page read off it is wrapped, and its metadata is stripped again here.
 
 import { limited } from '../accounts/index.js';
+import { serviceAiReady, serviceFallback, serviceFetch } from '../accounts/service-ai.js';
 import { ApiError } from '../accounts/util.js';
 import { currentSession } from './session.js';
 import { crossSite, json, page, problem, sameOrigin, withHeaders } from './web.js';
@@ -180,9 +181,11 @@ async function ask(request, env, session) {
   const worst = worstCaseUSD({ model: cfg.model, system, question: req.question + req.imageText, history: req.history, images: req.image ? 1 : 0, maxTokens: cfg.maxTokens });
   const budget = await take(env, 'help-budget', 'all', 'all', Math.ceil(worst * 1e6), 1e15, Math.round(cfg.budgetUSD * 1e6));
   if (!budget.ok) throw new ApiError(503, 'help_busy', 'Help’s chat is resting for today. The Help pages still work, and Contact support reaches a person.', resetsAt());
-  if (!env.ANTHROPIC_API_KEY) throw new ApiError(503, 'not_set_up', 'Help’s chat isn’t set up here yet. The Help pages above still work.');
+  if (!serviceAiReady(env)) throw new ApiError(503, 'not_set_up', 'Help’s chat isn’t set up here yet. The Help pages above still work.');
 
-  const reply = await callModel(env, request, { model: cfg.model, max_tokens: cfg.maxTokens, system, messages });
+  // No Anthropic key: the service's Gemini or OpenAI answers instead (service-ai.js).
+  const fallback = serviceFallback(env);
+  const reply = await callModel(env, request, { model: fallback ? fallback.model : cfg.model, max_tokens: cfg.maxTokens, system, messages });
   const checked = checkAnswer(reply.text, g.allowed);
   return { ...checked, pages, model: cfg.model, left };
 }
@@ -194,12 +197,7 @@ async function ask(request, env, session) {
 async function callModel(env, request, payload) {
   let upstream;
   try {
-    upstream = await fetch(modelUrl(env, request), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify(payload),
-      signal: request.signal,
-    });
+    upstream = await serviceFetch(env, payload, { signal: request.signal, url: modelUrl(env, request) });
   } catch {
     throw new ApiError(502, 'upstream', 'Help couldn’t reach its model just now. Try again in a moment.');
   }

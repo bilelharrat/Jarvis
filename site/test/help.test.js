@@ -238,3 +238,23 @@ test('config defaults and the fake model only on a local host', () => {
   assert.equal(modelUrl({ HELP_MODEL_BASE: 'http://127.0.0.1:8811' }, new Request('https://askeden.com/api/help/ask')), 'https://api.anthropic.com/v1/messages');
   assert.equal(modelUrl({ HELP_MODEL_BASE: 'https://evil.example' }, local), 'https://api.anthropic.com/v1/messages');
 });
+
+test('no Anthropic key: Help’s chat answers on the service’s Gemini key instead (service-ai.js)', async () => {
+  env = makeEnv({ ANTHROPIC_API_KEY: '', GEMINI_API_KEY: 'g-test' });
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.startsWith('https://generativelanguage.googleapis.com/')) {
+      calls.push({ url, init });
+      return Response.json({ candidates: [{ content: { parts: [{ text: 'Check the link is on. [#err-mac-offline]' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 40 } });
+    }
+    return inner(input, init);
+  };
+  const session = await signedIn();
+  const r = await ask(session, { question: 'askeden says Your Mac is offline, what now?' });
+  assert.equal(r.status, 200, await r.clone().text());
+  const a = await r.json();
+  assert.deepEqual(a.cited, ['err-mac-offline']);
+  assert.equal(anthropicCalls().length, 0);
+  assert.equal(calls.filter((c) => c.url.includes('gemini-3.8-flash:generateContent')).length, 1);
+});

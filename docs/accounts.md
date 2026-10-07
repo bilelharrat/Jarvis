@@ -763,10 +763,26 @@ account id.
   `…/use { id }`, `…/key-register|key-init|key-seal|key-mine`, `…/conv-get|conv-put|conv-delete`
   (`conv-put` takes `kind: "conv" | "workflow"`, default `conv`; `view` and `conv-get` return it).
 
+### Included AI without an Anthropic key
+
+Help's chat (`eden/help.js`), @Eden for Messenger (`eden/ask.js`), background tasks
+(`accounts/tasks.js`) and the J.A.R.V.I.S. apps' included AI (`POST /api/anthropic/v1/messages`,
+`accounts/proxy.js`) ask Claude on `ANTHROPIC_API_KEY` when it's set. Without it they don't stop:
+`accounts/service-ai.js` answers the same Anthropic Messages request on the service's Gemini key
+(`gemini-3.8-flash`), else its OpenAI key (`gpt-6-luna`), either switched off by `EDEN_GEMINI` /
+`EDEN_OPENAI = "off"`. The request is translated (system, text, images and PDFs, tools and tool
+results, tool_choice, a JSON-schema answer), asked once without streaming, and returned in
+Anthropic's shape (a streamed request gets the whole answer as one burst of events); `model` is the
+stand-in's id, so the allowance (or Help's own budget) is charged at its registry list price
+(`proxy.js` `priceOf`). Token counts (`/count_tokens`) are estimated (a token per 3 bytes). Only
+with none of the three keys do these answer 503 `not_set_up`.
+
 ## What the owner sets up once
 
 Worker secrets (`cd site && npx wrangler secret put NAME`):
-- `ANTHROPIC_API_KEY`: the key Jarvis Plus spends.
+- `ANTHROPIC_API_KEY` (optional): the key Jarvis Plus, Help, @Eden and background tasks spend on
+  Claude; without it they run on `GEMINI_API_KEY` or `OPENAI_API_KEY` ("Included AI without an
+  Anthropic key").
 - optional `GOOGLE_CLIENT_SECRET` (with the var `GOOGLE_CLIENT_ID`): Sign in with Google on
   the web. The var `WEB_APPLE_SERVICES_ID` turns on Sign in with Apple on the web. Steps:
   docs/web-auth.md "Owner steps".

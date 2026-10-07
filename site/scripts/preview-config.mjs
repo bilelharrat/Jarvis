@@ -29,6 +29,8 @@ export function previewConfig(text) {
   swap(/^routes = \[[\s\S]*?^\]$/m, 'routes = [\n  { pattern = "preview.askeden.com", custom_domain = true },\n]', 'routes');
   // Rate limits count per namespace across the account: the preview gets its own (10NN → 20NN).
   swap(/namespace_id = "10(\d\d)"/g, 'namespace_id = "20$1"', 'rate-limit namespaces');
+  // Sign-ups: open on the preview, Turnstile or not (live stays as wrangler.toml says, fail-closed).
+  swap(/^SIGNUPS = "[a-z]*"$/m, 'SIGNUPS = "open"\nTURNSTILE_OPTIONAL = "1"', 'SIGNUPS');
   // No R2: the preview never reads or writes the live downloads bucket (it is last in the file).
   swap(/\n# Keep the R2 bucket last[\s\S]*$/, '\n', 'R2 bucket');
   if (/r2_buckets|jarvis-download"|askeden\.com\/\*/.test(out)) throw new Error('the preview config still points at the live site');

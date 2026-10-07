@@ -36,6 +36,7 @@ const ERRORS = {
   email: 'Google didn’t share a verified email address for that account. Try another way.',
   signed_out: 'You were signed out. Sign in again to carry on.',
   verify: 'Finish the check below (it confirms you’re a person), then continue.',
+  signups_closed: 'Eden is opening soon — sign-ups are closed for now. If you already have an Eden account, sign in with the way you used before.',
   server: 'Something went wrong on our side. Try again in a moment.',
 };
 
@@ -294,8 +295,12 @@ async function main() {
   const providers = ways.apple === true || ways.google === true || passkeys;
   $('ways').removeAttribute('aria-busy');
   $('ways').hidden = !providers;
-  $('newHere').hidden = !providers;
-  $('newApp').hidden = providers;
+  // Sign-ups closed (SIGNUPS, docs/web-auth.md): existing accounts only, said once, no "make an account".
+  const closed = ways.signups === 'closed';
+  if (closed) $('newPasskey').hidden = true;
+  $('newHere').hidden = !providers || closed;
+  $('newApp').hidden = providers || closed;
+  $('closed').hidden = !closed;
   if (providers) {
     // Apple or Google first; the code waits for a click, so no code is made for nothing.
     $('or').hidden = false;

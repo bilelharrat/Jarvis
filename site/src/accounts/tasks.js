@@ -37,6 +37,7 @@
 
 import { ApiError, isPhone, json } from './util.js';
 import { costOf, priceOf } from './proxy.js';
+import { serviceAiReady, serviceFetch } from './service-ai.js';
 import { GONE, MAX_PAYLOAD, pushReady, sendPush } from './apns.js';
 import { TOKEN_RECORD, openTokens } from './tokens.js';
 import { backgroundFetch, calendarScopesOk, gmailScopesOk, googleInAccount, scheduleJob, unscheduleJob } from './schedule.js';
@@ -350,15 +351,15 @@ export function checkRun(v) {
 
 /** One structured answer from Claude: { ok, value?, error?, costUSD, model }. Never throws for Claude's own refusals. */
 export async function askModel(env, { system, user, schema, maxTokens, model, fetch: f }) {
-  if (!env.ANTHROPIC_API_KEY) return { ok: false, error: 'The included AI is not set up on askeden.com yet.', costUSD: 0, model };
+  if (!serviceAiReady(env)) return { ok: false, error: 'The included AI is not set up on askeden.com yet.', costUSD: 0, model };
   let res;
   try {
-    res = await f(ANTHROPIC, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }], output_config: { format: { type: 'json_schema', schema } } }),
-      signal: AbortSignal.timeout ? AbortSignal.timeout(60_000) : undefined,
-    });
+    // Claude on the service's key, or without one the service's Gemini or OpenAI (service-ai.js).
+    res = await serviceFetch(
+      env,
+      { model, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }], output_config: { format: { type: 'json_schema', schema } } },
+      { fetch: f, url: ANTHROPIC, signal: AbortSignal.timeout ? AbortSignal.timeout(60_000) : undefined },
+    );
   } catch (e) {
     return { ok: false, error: `Couldn’t reach Claude: ${e.message}`, costUSD: 0, model };
   }

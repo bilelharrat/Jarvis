@@ -497,3 +497,26 @@ function deviceHeaders(session) {
   const t = parseToken(session);
   return { 'x-jarvis-device': t.device, 'x-jarvis-secret': t.secret };
 }
+
+test('no Anthropic key: an ask is answered on the service’s Gemini key, billed at its price (service-ai.js)', async () => {
+  env = makeEnv({ ANTHROPIC_API_KEY: '', GEMINI_API_KEY: 'g-test' });
+  const inner = globalThis.fetch;
+  const gemini = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.startsWith('https://generativelanguage.googleapis.com/')) {
+      gemini.push(url);
+      return Response.json({ candidates: [{ content: { parts: [{ text: 'You agreed on Lyon.' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 200 } });
+    }
+    return inner(input, init);
+  };
+  const { owner, access_token } = await connected();
+  const response = await askEden(access_token);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'You agreed on Lyon.');
+  await settle();
+  assert.equal(sent.length, 0, 'Anthropic is never asked');
+  assert.match(gemini[0], /gemini-3\.8-flash:generateContent/);
+  const usage = await env.ACCOUNTS.objects.get(owner.account.id).storage.get('usage');
+  assert.equal(usage.trial_spent, 0.0015); // $0.75/$3.75 a million: 1000 in, 200 out
+});

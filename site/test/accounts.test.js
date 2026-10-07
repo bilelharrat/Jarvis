@@ -613,3 +613,13 @@ test('Apple identifiers: team 8CV4X23Y2T and the askeden names, in the code and 
     assert.match(text, /^WEB_APPLE_SERVICES_ID = "com\.askeden\.eden\.web"$/m, which);
   }
 });
+
+test('sign-ups: live is "owner" (no TURNSTILE_OPTIONAL); the preview is "open" with Turnstile optional', async () => {
+  const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const { previewConfig } = await import('../scripts/preview-config.mjs');
+  assert.match(toml, /^SIGNUPS = "owner"$/m);
+  assert.doesNotMatch(toml, /^TURNSTILE_OPTIONAL/m);
+  const preview = previewConfig(toml);
+  assert.match(preview, /^SIGNUPS = "open"$/m);
+  assert.match(preview, /^TURNSTILE_OPTIONAL = "1"$/m);
+});

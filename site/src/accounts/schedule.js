@@ -129,7 +129,7 @@ export async function runAlarms(account, handlers) {
 // ── Google from inside the account object (scheduled sends, background tasks) ──
 
 const local = (h) => h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '[::1]';
-const FAKE_HOSTS = /^https:\/\/(accounts\.google\.com|oauth2\.googleapis\.com|gmail\.googleapis\.com|www\.googleapis\.com|api\.anthropic\.com|api\.push\.apple\.com|api\.sandbox\.push\.apple\.com)\//;
+const FAKE_HOSTS = /^https:\/\/(accounts\.google\.com|oauth2\.googleapis\.com|gmail\.googleapis\.com|www\.googleapis\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|api\.openai\.com|api\.push\.apple\.com|api\.sandbox\.push\.apple\.com)\//;
 
 /**
  * The fetch background work uses. A job or task made from a page served by `wrangler dev` on

@@ -20,6 +20,26 @@ export const turnstileOn = (env) => Boolean(String(env.TURNSTILE_SITE_KEY || '')
 /** The site key for the page, or null when the check is off. */
 export const turnstileSiteKey = (env) => (turnstileOn(env) ? String(env.TURNSTILE_SITE_KEY).trim() : null);
 
+// Who may make a new Eden account (docs/web-auth.md "Sign-ups"): SIGNUPS = "open" | "owner".
+// "owner": no new account by any way in (Apple, Google, a passkey, the iOS apps); every existing
+// identity still signs in and links more. "open" is fail-closed: without Turnstile (both keys
+// set) it means "owner", unless TURNSTILE_OPTIONAL = "1" (the preview, scripts/preview-config.mjs).
+// Unset: open as it always was (local dev and tests; wrangler.toml always sets it).
+export const SIGNUPS_CLOSED = 'Eden is opening soon — sign-ups are closed for now. If you already have an Eden account, sign in with the way you used before.';
+
+/** Whether a new account may be made here. */
+export function signupsOpen(env = {}) {
+  const raw = env.SIGNUPS;
+  if (raw === undefined || raw === null) return true;
+  if (String(raw).trim().toLowerCase() !== 'open') return false;
+  return turnstileOn(env) || String(env.TURNSTILE_OPTIONAL || '').trim() === '1';
+}
+
+/** Throws 403 `signups_closed` unless a new account may be made here. */
+export function checkSignups(env) {
+  if (!signupsOpen(env)) throw new ApiError(403, 'signups_closed', SIGNUPS_CLOSED);
+}
+
 /** Forgets the "off" note (tests). */
 export const forgetTurnstileNote = () => {
   warned = false;

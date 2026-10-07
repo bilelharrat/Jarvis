@@ -63,17 +63,35 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
   are form posts (`POST /api/web/apple|google`, `cf-turnstile-response`) whose start checks it and
   stashes `human:<state>` for the callback, which needs it only when it would make a new account
   (plain GET starts still sign existing accounts in; a new one ends at `/signin?error=verify`).
-  Unset: no check, logged once per isolate. The Eden iOS app's native Apple sign-in isn't checked.
+  Unset: no check, logged once per isolate. The apps' native Apple sign-ins (`POST /api/web/native/apple`
+  for the Eden iOS app, `POST /api/account/apple` for J.A.R.V.I.S.) can't show Turnstile (a native
+  sheet, no page): a new account from them instead costs 5 tries of `AUTH_RATE` on `native-new:<ip>`
+  (`accounts/index.js` `nativeNewAccount`), so at most 4 new accounts a minute from one network, on
+  top of every new account's `new:<ip>`; a returning sign-in costs nothing there.
   `/signin`'s CSP adds `https://challenges.cloudflare.com` to script-src and frame-src (that page
   only) and form-action `'self'` plus Apple's and Google's sign-in hosts.
-- Deleting the account (`DELETE /api/account`, apps only) forgets its identities. An Apple ID goes
-  back to its derived account id (a fresh account), and a Google account gets a new one.
+- Sign-ups (`SIGNUPS` in [vars], `accounts/turnstile.js` `signupsOpen`): `"owner"` refuses every new
+  account, whatever the way in (Apple and Google on the web, a passkey sign-up, the Eden app's native
+  Apple, the J.A.R.V.I.S. app's `POST /api/account/apple`), with 403 `signups_closed` ("Eden is opening
+  soon — sign-ups are closed for now…"; a provider sign-in ends at `/signin?error=signups_closed`).
+  The check sits where an account would be made (`accountForIdentity`), so every identity that
+  already opens an account (an Identity record, or an Apple ID whose derived account exists) signs in
+  and links more ways in as always. `"open"` is fail-closed: without both Turnstile keys it means
+  `"owner"`, unless `TURNSTILE_OPTIONAL = "1"` (only the preview: `scripts/preview-config.mjs` sets
+  `SIGNUPS = "open"` and that). Unset (local dev, tests): open. `/api/web/config` says
+  `signups: "open" | "closed"`. Live: `"owner"` until launch.
+- Deleting the account forgets its identities (passkeys included) and its published pages' links:
+  the apps' `DELETE /api/account`, or the account page's Delete account (`POST /api/web/account/delete`
+  `{ confirm: "DELETE" }`; the account object refuses a browser's delete without it). Every device
+  is signed out at once, the account object's storage is wiped, Google access revoked, a web Plus
+  subscription cancelled at Stripe (`STRIPE_SECRET_KEY` set). An Apple ID goes back to its derived
+  account id (a fresh account, if sign-ups are open), and a Google account gets a new one.
 
 ## Endpoints (all `/api/web/*`; JSON errors `{ error, code }`)
 
 | Method & path | Who | What |
 | --- | --- | --- |
-| `GET /api/web/config` | anyone | `{ apple: bool, google: bool, code: true, billing: bool, billing_in_app: bool }` (which buttons to show) |
+| `GET /api/web/config` | anyone | `{ apple: bool, google: bool, passkey: bool, turnstile: siteKey \| null, signups: "open" \| "closed", code: true, billing: bool, billing_in_app: bool }` (which buttons to show) |
 | `GET /api/web/apple[?link=1]` | anyone / signed in for link | 302 to Apple (form_post) |
 | `POST /api/web/apple/callback` | Apple | see "Where a sign-in ends" |
 | `GET /api/web/google[?link=1]` | anyone / signed in for link | 302 to Google (code + PKCE, `openid email profile` only) |
@@ -90,6 +108,7 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
 | `POST /api/web/devices/<id>/signout` | signed in | 204: sign out one browser (kind `web`) of this account |
 | `POST /api/web/signout-everywhere` | signed in | 204: sign out every browser of this account, this one included |
 | `POST /api/web/identities/<apple\|google>/unlink` | signed in | 200 `{ identities }`; 409 `last_method` / `needs_proof`, 404 `not_linked` |
+| `POST /api/web/account/delete` | signed in, this site's page | `{ confirm: "DELETE" }` → 204 and the cookie cleared: the account deleted for good (above); 400 `confirm` otherwise |
 | `POST /api/web/signout` | signed in | 204: sign out this browser (and end any delegate's session it held) |
 | `GET /api/web/apps` | signed in | `{ connections: [{ id, client, name, scope, created, expires, last_used }] }`: connected apps (Eden Messenger's scoped tokens, `accounts/scoped.js`) |
 | `POST /api/web/apps/<id>/revoke` | signed in | `{ revoked: true }`, the app's token stops at once; 404 `not_found` if it's gone |
@@ -178,7 +197,9 @@ provider's callback. Error codes:
 
 - `AUTH_RATE` (namespace 1004, 20 per key): `start:<ip>` sign-in starts, `cb:<ip>` callbacks,
   `new:<ip>` new accounts (counted only when a sign-in would make one, in the app's
-  `POST /api/account/apple` too), `native:<ip>` app sign-ins, `handoff:<ip>` redemptions.
+  `POST /api/account/apple` too), `native:<ip>` app sign-ins, `native-new:<ip>` new accounts from
+  the apps' native Apple sign-in (5 tries each: no Turnstile there), `handoff:<ip>` redemptions,
+  `delete:<account>` account deletions.
 - `LINK_RATE` (existing, 30 per key): `web:<ip>` web code starts, `start:<ip>` Mac code starts,
   `poll:<code>` polls per code, `look:<account>` code lookups and approvals per approving account.
   The code space is 32^8, so guessing is hopeless at 30 tries a minute per account.

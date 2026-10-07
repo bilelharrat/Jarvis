@@ -10,6 +10,7 @@ import { cleanCode, newCode } from './link.js';
 import { edenSyncApi } from './eden-sync.js';
 import { anthropicError, costOf, forward } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
+import { checkSignups } from './turnstile.js';
 import { cancelSubscription } from '../eden/billing.js';
 import {
   ApiError,
@@ -171,7 +172,8 @@ function callAs(env, request, op, body = {}) {
 async function signIn(request, env) {
   const body = await readJson(request);
   const claims = await verifyIdentityToken(body.identity_token, body.nonce, { now: Date.now() / 1000 });
-  const { account_id: accountId } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip: clientIp(request) });
+  const ip = clientIp(request);
+  const { account_id: accountId } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip, beforeCreate: () => nativeNewAccount(env, ip) });
   const refreshToken = await exchangeCode(env, body.authorization_code);
   const device = body.device && typeof body.device === 'object' ? body.device : {};
   return call(env, accountId, 'signin', {
@@ -184,18 +186,39 @@ async function signIn(request, env) {
 
 async function deleteAccount(request, env) {
   const token = auth(request);
-  const { apple_grant: grant, identities = [], stripe_subscription: stripeSub } = await call(env, token.account, 'delete', {}, token);
+  await eraseAccount(env, token.account, token); // an app's token: a browser's is refused here
+  return new Response(null, { status: 204 });
+}
+
+/**
+ * Deletes an account for good (the iPhone app's Delete Account, the account page's): its object
+ * (devices, so every sign-in everywhere; usage, chats kept here, keys, published pages), then
+ * what lives elsewhere. `auth`: the device token asking; a browser's only with `confirm: "DELETE"`
+ * (the account page's typed confirmation, eden/session.js).
+ */
+export async function eraseAccount(env, accountId, auth, { confirm = null } = {}) {
+  const { apple_grant: grant, identities = [], stripe_subscription: stripeSub, published = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
   if (grant) await revoke(env, grant);
   // Plus bought on the web stops now (best effort); the App Store's is the person's to cancel.
   if (stripeSub) await cancelSubscription(env, stripeSub);
-  // Its sign-ins open nothing now: an Apple ID goes back to the account its id derives
-  // from (a new one), a Google account to a new one.
+  // Its published pages' links go too (accounts/published.js `pub:<id>`).
+  for (const id of published) await call(env, `pub:${id}`, 'pub-index-drop', { account: accountId }).catch(() => {});
+  // Its sign-ins open nothing now (passkeys included): an Apple ID goes back to the account its
+  // id derives from (a new one), a Google account to a new one.
   if (env.IDENTITIES) {
     for (const { provider, sub_hash: subHash } of identities) {
-      if (subHash) await callIdentity(env, provider, subHash, 'forget', { account_id: token.account }).catch(() => {});
+      if (subHash) await callIdentity(env, provider, subHash, 'forget', { account_id: accountId }).catch(() => {});
     }
   }
-  return new Response(null, { status: 204 });
+}
+
+// A new account from an app's own Sign in with Apple (the J.A.R.V.I.S. and Eden iOS apps): no
+// Turnstile there (a native sheet, no page), so it costs NATIVE_NEW_WEIGHT tries of AUTH_RATE
+// on a counter of its own per network: at most 20 / 5 = 4 new accounts a minute from one network,
+// on top of every new account's own `new:` count (docs/web-auth.md "Turnstile").
+export const NATIVE_NEW_WEIGHT = 5;
+export async function nativeNewAccount(env, ip) {
+  for (let i = 0; i < NATIVE_NEW_WEIGHT; i++) await limited(env, 'AUTH_RATE', `native-new:${ip}`);
 }
 
 export const clientIp = (request) => request.headers.get('cf-connecting-ip') || 'unknown';
@@ -215,6 +238,7 @@ export async function accountForIdentity(env, { provider, sub, email = null, ip 
   if (!env.IDENTITIES) {
     // Before the IDENTITIES binding is deployed: Apple as it always was, nothing else.
     if (!derived) throw new ApiError(503, 'not_set_up', 'This sign-in is not set up here yet.');
+    if (!(await accountExists(env, derived))) checkSignups(env); // sign-ups closed: existing accounts only
     return { account_id: derived };
   }
   const subHash = await subHashOf(provider, sub);
@@ -222,7 +246,9 @@ export async function accountForIdentity(env, { provider, sub, email = null, ip 
   if (found.state === 'linked') return { account_id: found.account_id };
   let proposed = found.state === 'none' ? derived : null;
   if (!proposed || !(await accountExists(env, proposed))) {
-    // A new Eden account: the person check first (Turnstile, accounts/turnstile.js), then the rate.
+    // A new Eden account: open to sign-ups at all (SIGNUPS), the person check (Turnstile,
+    // accounts/turnstile.js), then the rate.
+    checkSignups(env);
     if (beforeCreate) await beforeCreate();
     await limited(env, 'AUTH_RATE', `new:${ip}`);
     proposed ||= crypto.randomUUID();

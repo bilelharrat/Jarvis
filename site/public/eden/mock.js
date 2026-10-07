@@ -547,6 +547,12 @@ function webMock(p, method, url, body = {}) {
     setAcct(a);
     return json({ ok: true });
   }
+  if (p === '/api/web/account/delete' && method === 'POST') {
+    if ((body || {}).confirm !== 'DELETE') return json({ error: 'Type DELETE to delete your Eden account.', code: 'confirm' }, 400);
+    a.devices = [];
+    setAcct(a);
+    return json({ ok: true }); // the page then goes to / (signed out): in mock mode, Eden again
+  }
   if ((p === '/api/web/signout-everywhere' || p === '/api/web/signout') && method === 'POST') {
     a.devices = a.devices.filter((x) => x.kind !== 'web' || (p === '/api/web/signout' && !x.this));
     setAcct(a);

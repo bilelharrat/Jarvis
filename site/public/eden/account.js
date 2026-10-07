@@ -236,6 +236,7 @@ async function draw(notice, { ok = false } = {}) {
     devicesSection(account),
     appsSection(),
     methodsSection(account, config),
+    account.acting ? null : deleteSection(),
   ].filter(Boolean));
   return account;
 }
@@ -699,6 +700,34 @@ function methodsSection(a, config) {
     el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)),
     el('p', { class: 'sp-note', id: 'acctLastNote' }, `${last && ids.length ? 'This is your only way to sign in, so it can’t be unlinked. ' : ''}Any of them opens the same account. A browser can also be approved from the J.A.R.V.I.S. app on your iPhone.`),
     el('p', 'sp-note', el('a', { href: '/privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'), ' · ', el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, 'Terms of Service')));
+}
+
+/* ---------- deleting the account (POST /api/web/account/delete; site/src/eden/session.js) ---------- */
+
+/** Delete account: the person types DELETE, then everything goes and every device is signed out. */
+function deleteSection() {
+  const input = el('input', { type: 'text', class: 'acct-del-input', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', 'aria-label': 'Type DELETE to confirm', placeholder: 'DELETE' });
+  const go = el('button', { type: 'button', class: 'cap rev', disabled: true }, 'Delete my account');
+  input.addEventListener('input', () => { go.disabled = input.value.trim() !== 'DELETE'; });
+  let busy = false;
+  go.addEventListener('click', async () => {
+    if (busy || input.value.trim() !== 'DELETE') return;
+    busy = true;
+    go.disabled = true;
+    go.textContent = 'Deleting…';
+    try {
+      await post('/api/web/account/delete', { confirm: 'DELETE' });
+      try { await Sync.forgetAllKeys(); } catch { /* the account is gone either way */ }
+      location.replace(HOME());
+    } catch (e) {
+      toast(e.message);
+      go.textContent = 'Delete my account';
+      go.disabled = input.value.trim() !== 'DELETE';
+    } finally { busy = false; }
+  });
+  return el('section', { class: 'set-sec acct-delete', 'aria-labelledby': 'acctDelH' }, el('h3', { id: 'acctDelH' }, 'Delete account'),
+    el('p', 'sp-note', 'Deletes your Eden account for good: every device and browser is signed out, and your account’s data, ways to sign in, passkeys and published pages are deleted. Plus bought on askeden.com is cancelled; Plus from the App Store is cancelled in your iPhone’s Settings. This can’t be undone.'),
+    el('div', 'acct-foot', el('label', 'sp-note', 'Type DELETE to confirm ', input), go));
 }
 
 /* ---------- a passkey for this account (WebAuthn) ---------- */

@@ -151,9 +151,9 @@ const account = async (session) => {
 // ── Google ──
 
 test('config says which buttons to show; Google needs its client id, secret and the IDENTITIES binding', async () => {
-  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: true, passkey: true, turnstile: null, code: true, billing: false, billing_in_app: false });
+  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: true, passkey: true, turnstile: null, signups: 'open', code: true, billing: false, billing_in_app: false });
   env.GOOGLE_CLIENT_SECRET = '';
-  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: false, passkey: true, turnstile: null, code: true, billing: false, billing_in_app: false });
+  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: false, passkey: true, turnstile: null, signups: 'open', code: true, billing: false, billing_in_app: false });
   const off = await hit('/api/web/google');
   assert.equal(off.status, 303);
   assert.equal(off.headers.get('location'), '/signin?error=not_set_up&provider=google');
@@ -582,4 +582,97 @@ test('EDEN_RATE caps chat turns per account; LINK_RATE covers code starts, polls
   await hit('/api/web/link/poll', { method: 'POST', body: {}, headers: { cookie: `__Host-eden-link=${cookieValue(start, '__Host-eden-link')}` } });
   await hit(`/api/link/${code}`, { browser: false, token: owner.token });
   assert.deepEqual(env.LINK_RATE.keys, ['web:192.0.2.5', `poll:${code}`, `look:${owner.account.id}`]);
+});
+
+// ── sign-ups (SIGNUPS; accounts/turnstile.js) ──
+
+test('SIGNUPS = "owner": no new account by any way in; existing identities still sign in and link', async () => {
+  // Made while sign-ups were open: a Google account, and an Apple ID through the iPhone app.
+  const g = await googleFlow({ sub: 'google-old' });
+  const id = (await account(g.session)).account_id;
+  const app = await phone('apple-old');
+  env.SIGNUPS = 'owner';
+  assert.equal((await (await hit('/api/web/config')).json()).signups, 'closed');
+  // New: refused everywhere, friendly.
+  const google = await googleFlow({ sub: 'google-new' });
+  assert.equal(await landing(google.response), '/signin?error=signups_closed&provider=google');
+  assert.equal(await landing((await appleFlow({ sub: 'apple-new-web' })).response), '/signin?error=signups_closed&provider=apple');
+  const native = await hit('/api/web/native/apple', { method: 'POST', browser: false, body: { identity_token: await identityToken({ sub: 'apple-new-eden', nonce: 'n', aud: 'com.askeden.eden' }), nonce: 'n' } });
+  assert.equal(native.status, 403);
+  assert.deepEqual(await native.json(), { error: 'Eden is opening soon — sign-ups are closed for now. If you already have an Eden account, sign in with the way you used before.', code: 'signups_closed' });
+  const jarvis = await hit('/api/account/apple', { method: 'POST', browser: false, body: { identity_token: await identityToken({ sub: 'apple-new-phone' }), nonce: 'raw-nonce', device: {} } });
+  assert.equal(jarvis.status, 403);
+  const passkey = await hit('/api/web/passkey/options', { method: 'POST', body: { mode: 'signup' } });
+  assert.equal((await passkey.json()).code, 'signups_closed');
+  assert.equal((await hit('/api/web/passkey/options', { method: 'POST', body: { mode: 'signin' } })).status, 200, 'passkey sign-in still works');
+  const looked = env.ACCOUNTS.objects.get(await accountIdFor('apple-new-phone'));
+  assert.equal(looked ? await looked.storage.get('account') : undefined, undefined, 'nothing was made');
+  // Existing: sign in as always, and add another way in.
+  const back = await googleFlow({ sub: 'google-old' });
+  assert.equal((await account(back.session)).account_id, id);
+  assert.equal((await phone('apple-old')).account.id, app.account.id);
+  const web = await appleFlow({ sub: 'apple-old' });
+  assert.equal((await account(web.session)).account_id, app.account.id, 'an Apple ID the iPhone app made an account for opens it on the web');
+  await appleFlow({ sub: 'apple-link', link: true, session: g.session });
+  assert.deepEqual((await account(g.session)).identities.map((i) => i.provider).sort(), ['apple', 'google']);
+});
+
+test('SIGNUPS = "open" is fail-closed without Turnstile, unless TURNSTILE_OPTIONAL (the preview)', async () => {
+  const { signupsOpen } = await import('../src/accounts/turnstile.js');
+  assert.equal(signupsOpen({}), true, 'unset: local dev and tests');
+  assert.equal(signupsOpen({ SIGNUPS: 'owner' }), false);
+  assert.equal(signupsOpen({ SIGNUPS: 'open' }), false, 'no Turnstile: closed');
+  assert.equal(signupsOpen({ SIGNUPS: 'open', TURNSTILE_SITE_KEY: 'k' }), false, 'no secret: closed');
+  assert.equal(signupsOpen({ SIGNUPS: 'open', TURNSTILE_SITE_KEY: 'k', TURNSTILE_SECRET: 's' }), true);
+  assert.equal(signupsOpen({ SIGNUPS: 'open', TURNSTILE_OPTIONAL: '1' }), true);
+  assert.equal(signupsOpen({ SIGNUPS: 'owner', TURNSTILE_OPTIONAL: '1' }), false);
+  env.SIGNUPS = 'open';
+  assert.equal(await landing((await googleFlow({ sub: 'google-x' })).response), '/signin?error=signups_closed&provider=google');
+});
+
+test('a new account from an app’s own Sign in with Apple costs five tries of AUTH_RATE per network', async () => {
+  env.AUTH_RATE.max = 10; // two new accounts a minute from one network, then a wait
+  const native = async (sub, ip) => hit('/api/web/native/apple', { method: 'POST', browser: false, ip, body: { identity_token: await identityToken({ sub, nonce: 'n', aud: 'com.askeden.eden' }), nonce: 'n' } });
+  assert.equal((await native('apple-n1', '203.0.113.20')).status, 200);
+  assert.equal((await native('apple-n2', '203.0.113.20')).status, 200);
+  assert.equal((await native('apple-n3', '203.0.113.20')).status, 429);
+  assert.equal((await native('apple-n1', '203.0.113.20')).status, 200, 'signing in again isn’t a new account');
+  assert.equal((await native('apple-n4', '203.0.113.21')).status, 200, 'another network');
+  assert.equal(env.AUTH_RATE.keys.filter((k) => k === 'native-new:203.0.113.20').length, 11, 'the third stopped at its first try over');
+});
+
+// ── Delete account on the web ──
+
+test('Delete account from the account page: typed DELETE, then every device, sign-in, passkey and page is gone', async () => {
+  const g = await googleFlow({ sub: 'google-gone' });
+  const id = (await account(g.session)).account_id;
+  await appleFlow({ sub: 'apple-gone', link: true, session: g.session });
+  const app = await phone('apple-gone'); // the iPhone app on the same account
+  assert.equal(app.account.id, id);
+  // A published page (accounts/published.js): its `pub:<id>` link, to check it goes too.
+  await env.ACCOUNTS.get(env.ACCOUNTS.idFromName('pub:page-1')).fetch(new Request('https://do/pub-index-claim', { method: 'POST', body: JSON.stringify({ account: id }) }));
+  await env.ACCOUNTS.objects.get(id).storage.put('pubh:page-1', { id: 'page-1', title: 't', access: 'link', bytes: 1, created: 1, updated: 1 });
+
+  const del = (body, opts = {}) => hit('/api/web/account/delete', { method: 'POST', session: g.session, body, ...opts });
+  assert.equal((await del({ confirm: 'delete' })).status, 400, 'exactly DELETE');
+  assert.equal((await del({ confirm: 'DELETE' }, { headers: { origin: 'https://evil.example' } })).status, 403, 'only this site’s page');
+  assert.equal((await hit('/api/web/account/delete', { method: 'POST', body: { confirm: 'DELETE' } })).status, 401, 'signed in only');
+  const done = await del({ confirm: 'DELETE' });
+  assert.equal(done.status, 204, await done.clone().text());
+  assert.ok(cleared(done, '__Host-eden'));
+  assert.equal((await hit('/api/web/account', { session: g.session })).status, 401, 'this browser is signed out');
+  assert.equal((await hit('/api/account', { browser: false, token: app.token })).status, 401, 'and the iPhone app');
+  assert.equal(env.ACCOUNTS.objects.get(id).storage.map.size, 0, 'the account’s data is gone');
+  assert.equal(env.ACCOUNTS.objects.get('pub:page-1').storage.map.size, 0, 'its published page’s link is gone');
+  assert.notEqual((await account((await googleFlow({ sub: 'google-gone' })).session)).account_id, id, 'Google opens a new account now');
+});
+
+test('a browser can’t delete the account without typing DELETE, even straight at its object', async () => {
+  const g = await googleFlow({ sub: 'google-keep' });
+  const id = (await account(g.session)).account_id;
+  const { call } = await import('../src/accounts/index.js');
+  const [, device, secret] = /^jv1\.[^.]+\.([^.]+)\.(.+)$/.exec(decodeURIComponent(g.session));
+  await assert.rejects(call(env, id, 'delete', {}, { device, secret }), (e) => e.status === 403);
+  await assert.rejects(call(env, id, 'delete', { confirm: 'yes' }, { device, secret }), (e) => e.status === 403);
+  assert.equal((await hit('/api/web/account', { session: g.session })).status, 200);
 });

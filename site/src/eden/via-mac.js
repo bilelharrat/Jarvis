@@ -11,6 +11,7 @@
 //
 // chat.js keeps one decision point per route: `if (viaMacFor(env, who)) → viaMac…`.
 
+import { serviceAiReady } from '../accounts/service-ai.js';
 import { ApiError } from '../accounts/util.js';
 import { MAC_OFFLINE, WEB_RELAY, askMac, macStatus } from '../accounts/webrelay.js';
 import { DEFAULT_CLASSIFIER_MODEL } from './vendor/model-router.js';
@@ -39,7 +40,7 @@ const capText = (v, n = 200) => (typeof v === 'string' ? v.slice(0, n) : '');
  * or EDEN_CHAT_VIA_MAC = "1". Who may then use it (the owner only) and whether the Mac is online
  * are checked by viaMacTurn, viaMacRoute and viaMacMeta, which say why not in words.
  */
-export function viaMacFor(env = {}, _who = null, { hasKeys = Boolean(env.ANTHROPIC_API_KEY) } = {}) {
+export function viaMacFor(env = {}, _who = null, { hasKeys = serviceAiReady(env) } = {}) {
   return env.EDEN_CHAT_VIA_MAC === '1' || !hasKeys;
 }
 

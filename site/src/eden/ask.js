@@ -31,6 +31,7 @@
 
 import { call, clientIp, limited } from '../accounts/index.js';
 import { costOf, priceOf, usageMeter } from '../accounts/proxy.js';
+import { serviceAiReady, serviceFallback, serviceFetch } from '../accounts/service-ai.js';
 import { CLIENTS, SCOPED, makeScopedToken, parseConnectCode, parseScopedToken } from '../accounts/scoped.js';
 import { ApiError, webAllowed } from '../accounts/util.js';
 import { hostedConfig } from './chat.js';
@@ -330,8 +331,9 @@ export function askModel(env) {
 
 async function ask(request, env, ctx) {
   const who = bearer(request, env);
-  if (!env.ANTHROPIC_API_KEY) throw new ApiError(503, 'not_set_up', 'The included AI is not set up on askeden.com yet.');
-  const model = askModel(env);
+  if (!serviceAiReady(env)) throw new ApiError(503, 'not_set_up', 'The included AI is not set up on askeden.com yet.');
+  const fallback = serviceFallback(env); // no Anthropic key: the service's Gemini or OpenAI (service-ai.js)
+  const model = fallback ? fallback.model : askModel(env);
   if (!model) throw new ApiError(503, 'not_set_up', 'No Claude models are set up on askeden.com.');
   await limited(env, 'API_RATE', who.account);
   await limited(env, 'EDEN_RATE', `ask:${who.account}`);
@@ -347,12 +349,7 @@ async function ask(request, env, ctx) {
   const abort = new AbortController();
   let upstream;
   try {
-    upstream = await fetch(ANTHROPIC, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: ASK.answerTokens, system: prompt.system, messages: [{ role: 'user', content: prompt.user }], stream: true }),
-      signal: abort.signal,
-    });
+    upstream = await serviceFetch(env, { model, max_tokens: ASK.answerTokens, system: prompt.system, messages: [{ role: 'user', content: prompt.user }], stream: true }, { signal: abort.signal, url: ANTHROPIC });
   } catch {
     await release();
     throw new ApiError(502, 'upstream', 'Eden couldn’t reach Claude. Try again.');

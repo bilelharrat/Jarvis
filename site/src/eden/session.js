@@ -24,9 +24,9 @@
 // cookie __Host-eden: HttpOnly, Secure, SameSite=Strict. No page ever sees it.
 
 import { EDEN_APP_ID, verifyIdentityToken } from '../accounts/apple.js';
-import { accountForIdentity, call, callIdentity, callLink, clientIp, limited, linkIdentity, subHashOf, unlinkIdentity } from '../accounts/index.js';
+import { accountForIdentity, call, callIdentity, callLink, clientIp, eraseAccount, limited, linkIdentity, nativeNewAccount, subHashOf, unlinkIdentity } from '../accounts/index.js';
 import { ALGS, verifyAssertion, verifyRegistration } from '../accounts/webauthn.js';
-import { HUMAN_SECONDS, checkHuman, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
+import { HUMAN_SECONDS, checkHuman, checkSignups, signupsOpen, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
 import { WEB_LINK_MAC_MS, WEB_LINK_MAC_STALE, WEB_SESSION_DAYS } from '../accounts/account.js';
 import { cleanCode, newCode } from '../accounts/link.js';
 import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
@@ -124,13 +124,14 @@ export async function web(request, env, ctx, path) {
   const method = request.method;
   try {
     if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Jarvis accounts are not set up here yet.');
-    if (path === '/api/web/config' && method === 'GET') return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), code: true, ...billingConfig(env) });
+    if (path === '/api/web/config' && method === 'GET') return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env) });
     if (path === '/api/web/passkey/options' && method === 'POST') return await passkeyOptions(request, env);
     if (path === '/api/web/passkey/verify' && method === 'POST') return await passkeyVerify(request, env);
     if (path === '/api/web/link' && method === 'POST') return await linkStart(request, env);
     if (path === '/api/web/link/poll' && method === 'POST') return await linkPoll(request, env);
     if (path === '/api/web/session' && method === 'GET') return await session(request, env);
     if (path === '/api/web/account' && method === 'GET') return await accountView(request, env);
+    if (path === '/api/web/account/delete' && method === 'POST') return await deleteWebAccount(request, env);
     if (path === '/api/web/signout' && method === 'POST') return await signOut(request, env);
     if (path === '/api/web/signout-everywhere' && method === 'POST') return await signOutBrowsers(request, env, { all: true });
     const device = DEVICE_SIGNOUT.exec(path);
@@ -281,6 +282,20 @@ async function accountView(request, env) {
   });
 }
 
+// Delete account, from the account page: the person types DELETE. Everything goes (eraseAccount:
+// every device signed out, the account's data, its sign-ins and passkeys, published pages, a web
+// Plus subscription cancelled at Stripe), and this browser's cookie with it.
+async function deleteWebAccount(request, env) {
+  ownPage(request);
+  const who = await signedIn(request, env);
+  const body = await readJson(request, 4096);
+  if (body.confirm !== 'DELETE') throw new ApiError(400, 'confirm', 'Type DELETE to delete your Eden account.');
+  await limited(env, 'AUTH_RATE', `delete:${who.account}`);
+  await eraseAccount(env, who.account, who.token, { confirm: body.confirm });
+  forgetSessions(who.account);
+  return withCookies(noContent(), clearCookie(SESSION_COOKIE));
+}
+
 async function signOut(request, env) {
   const token = sessionToken(request);
   if (token) {
@@ -385,7 +400,7 @@ const PROVIDERS = new Set(['apple', 'google']);
 // or the place it was started from (`?return=` on /signin and on the provider's start, checked
 // by public/signin/return.js and kept in the attempt's own cookie: never an address taken from
 // the provider's callback). Failures carry one of these codes:
-export const ERROR_CODES = new Set(['cancelled', 'access_denied', 'expired', 'state', 'taken', 'identity_taken', 'not_allowed', 'not_set_up', 'rate_limited', 'email', 'signed_out', 'verify', 'server']);
+export const ERROR_CODES = new Set(['cancelled', 'access_denied', 'expired', 'state', 'taken', 'identity_taken', 'not_allowed', 'not_set_up', 'rate_limited', 'email', 'signed_out', 'verify', 'signups_closed', 'server']);
 
 /** The checked return address a provider's start was given (`?return=`), "/" by default. */
 const returnOf = (request) => safeReturn(new URL(request.url).searchParams.get('return'));
@@ -406,7 +421,7 @@ function unpackReturn(packed) {
 export function errorCode(error) {
   if (!(error instanceof ApiError)) return 'server';
   if (error.status === 429) return 'rate_limited';
-  const byCode = { identity_taken: 'identity_taken', already_linked: 'taken', not_allowed: 'not_allowed', not_set_up: 'not_set_up', signed_out: 'signed_out', expired: 'expired', not_found: 'expired', google_email: 'email', apple_refused: 'state', google_refused: 'state', turnstile: 'verify' };
+  const byCode = { identity_taken: 'identity_taken', already_linked: 'taken', not_allowed: 'not_allowed', not_set_up: 'not_set_up', signed_out: 'signed_out', expired: 'expired', not_found: 'expired', google_email: 'email', apple_refused: 'state', google_refused: 'state', turnstile: 'verify', signups_closed: 'signups_closed' };
   return byCode[error.code] || 'server';
 }
 
@@ -657,8 +672,11 @@ async function passkeyOptions(request, env) {
     if ((account.identities || []).some((i) => i.provider === 'passkey')) throw new ApiError(409, 'already_linked', 'This Eden account already has a passkey. Remove it first to add another.');
     Object.assign(value, { account: who.account, device: who.device.id });
   }
-  // A new account: the person check now, before the device makes a passkey for nothing.
-  if (mode === 'signup') await checkHuman(env, body.turnstile, clientIp(request));
+  // A new account: sign-ups open, and the person check now, before the device makes a passkey for nothing.
+  if (mode === 'signup') {
+    checkSignups(env);
+    await checkHuman(env, body.turnstile, clientIp(request));
+  }
   const challenge = b64url(randomBytes(32));
   await callLink(env, `pk:${challenge}`, 'stash', { value, seconds: PASSKEY_SECONDS });
   if (mode === 'signin') {
@@ -753,7 +771,8 @@ async function nativeApple(request, env) {
   await limited(env, 'AUTH_RATE', `native:${clientIp(request)}`);
   const body = await readJson(request, 64 * 1024);
   const claims = await verifyIdentityToken(body.identity_token, body.nonce, { audience: EDEN_APP_ID, now: Date.now() / 1000 });
-  const { account_id } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip: clientIp(request) });
+  const ip = clientIp(request);
+  const { account_id } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip, beforeCreate: () => nativeNewAccount(env, ip) }); // no Turnstile in an app: a tighter rate
   if (!webAllowed(env, account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
   const code = b64url(randomBytes(32));
   await callLink(env, `handoff:${code}`, 'stash', { value: { account_id, sub_hash: await subHashOf('apple', claims.sub) }, seconds: HANDOFF_SECONDS });

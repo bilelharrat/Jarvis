@@ -88,6 +88,11 @@ STRIPE_IN_EDEN_APP = ""
 # widget's site key here, and the secret TURNSTILE_SECRET (npx wrangler secret put TURNSTILE_SECRET).
 # Either empty: no person check on new accounts (logged once per isolate).
 TURNSTILE_SITE_KEY = ""
+# Who may make a new Eden account (src/accounts/turnstile.js; docs/web-auth.md "Sign-ups"): "open",
+# or "owner" (existing accounts sign in and link as always; every new one is refused with
+# "Eden is opening soon — sign-ups are closed for now"). "open" without both Turnstile keys counts
+# as "owner" (fail closed). The preview is "open" with TURNSTILE_OPTIONAL (scripts/preview-config.mjs).
+SIGNUPS = "owner"
 
 # Dictation by recording where the browser has no speech recognition (Firefox; ROADMAP G7.2):
 # Workers AI's Whisper (src/eden/transcribe.js), counted on the account's included AI. A new
