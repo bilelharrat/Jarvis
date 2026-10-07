@@ -406,6 +406,31 @@ test('included AI streams through, counts what it cost, and stops at the allowan
   assert.equal(account.usage.trial_left_usd, 0);
 });
 
+test('included AI: requests at once hold their worst case, so they cannot spend past the allowance', async () => {
+  const phone = await signIn();
+  anthropicAnswer = messageStream('claude-opus-5-5', 1000, 1000);
+  // Each may cost $0.80 (40 000 tokens out at $20/M): the $1 trial holds one, then the $0.20 left.
+  const ask = () => api('/anthropic/v1/messages', { method: 'POST', token: phone.token, body: { model: 'claude-opus-5-5', stream: true, max_tokens: 40000, messages: [] } });
+  const first = await ask();
+  const second = await ask();
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  const third = await ask();
+  assert.equal(third.status, 429, 'nothing left but what the requests in flight hold');
+  assert.equal((await third.json()).error.type, 'rate_limit_error');
+  // Done: each spends what it really cost and lets go of its hold.
+  await first.text();
+  await second.text();
+  await Promise.all(waits.splice(0));
+  const fourth = await ask();
+  assert.equal(fourth.status, 200);
+  await fourth.text();
+  await Promise.all(waits.splice(0));
+  // A refused request lets go too.
+  anthropicAnswer = () => Response.json({ type: 'error', error: { type: 'overloaded_error' } }, { status: 529 });
+  for (let i = 0; i < 12; i++) assert.equal((await ask()).status, 529);
+});
+
 test('included AI: only Claude, only signed in, counting tokens is free', async () => {
   const phone = await signIn();
   const post = (path, body, token = phone.token) => api(path, { method: 'POST', token, body });

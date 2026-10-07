@@ -12,6 +12,8 @@ const SKEW = 300; // seconds of clock difference forgiven
 export const EDEN_APP_ID = 'com.askeden.eden';
 
 let cachedKeys = null; // { at, keys }
+let lastForced = 0; // when an unknown kid last made the keys be read again
+const REFETCH_MS = 60_000; // at most once a minute, so junk tokens can't make the Worker hammer Apple
 
 async function appleKeys(fetcher = fetch) {
   if (cachedKeys && Date.now() - cachedKeys.at < 3600_000) return cachedKeys.keys;
@@ -24,6 +26,7 @@ async function appleKeys(fetcher = fetch) {
 
 export function forgetAppleKeys() {
   cachedKeys = null;
+  lastForced = 0;
 }
 
 function decodePart(part) {
@@ -45,8 +48,10 @@ export async function verifyIdentityToken(token, rawNonce, { audience = BUNDLE_I
   }
   if (header.alg !== 'RS256') throw refused('algorithm');
   let jwk = (await appleKeys(fetcher)).find((k) => k.kid === header.kid);
-  if (!jwk) {
-    forgetAppleKeys(); // Apple may have rotated its keys since they were read
+  if (!jwk && Date.now() - lastForced >= REFETCH_MS) {
+    // Apple may have rotated its keys since they were read
+    lastForced = Date.now();
+    cachedKeys = null;
     jwk = (await appleKeys(fetcher)).find((k) => k.kid === header.kid);
   }
   if (!jwk) throw refused('unknown key');

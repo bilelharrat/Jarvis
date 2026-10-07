@@ -8,7 +8,7 @@ import { MAX_PAYLOAD, GONE, pushReady, sendPush } from './apns.js';
 import { takenWords } from './identity.js';
 import { cleanCode, newCode } from './link.js';
 import { edenSyncApi } from './eden-sync.js';
-import { anthropicError, costOf, forward } from './proxy.js';
+import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
 import { checkSignups } from './turnstile.js';
 import { cancelSubscription } from '../eden/billing.js';
@@ -453,7 +453,8 @@ async function anthropic(request, env, ctx, path) {
   let allow;
   try {
     await limited(env, 'API_RATE', token.account);
-    if (path === '/v1/messages') allow = await call(env, token.account, 'allow-ai', {}, token);
+    // Its worst case held until it's done (account.js holdProxy): parallel requests can't spend past the allowance.
+    if (path === '/v1/messages') allow = await call(env, token.account, 'hold-proxy', { usd: await worstCase(request.clone()) }, token);
     else {
       // Counting tokens is free, but only for the account's own apps (the token is checked).
       const { device } = await call(env, token.account, 'whoami', {}, token);
@@ -468,9 +469,41 @@ async function anthropic(request, env, ctx, path) {
     throw error;
   }
   if (!allow.ok) return anthropicError(402, 'billing_error', allow.why);
-  const record = async (model, usage) => {
-    const usd = costOf(model, usage);
-    if (usd > 0 && allow.bucket !== 'none') await call(env, token.account, 'spend', { usd, bucket: allow.bucket });
+  let held = allow.hold || null;
+  const release = async () => {
+    if (!held) return;
+    const hold = held;
+    held = null;
+    await call(env, token.account, 'release-ai', { hold }).catch(() => {});
   };
-  return forward(request, env, ctx, path, record);
+  const record = async (model, usage) => {
+    try {
+      const usd = costOf(model, usage);
+      if (usd > 0 && allow.bucket !== 'none') await call(env, token.account, 'spend', { usd, bucket: allow.bucket });
+    } finally {
+      await release();
+    }
+  };
+  let response;
+  try {
+    response = await forward(request, env, ctx, path, record);
+  } catch (error) {
+    await release();
+    throw error;
+  }
+  if (!response.ok) ctx.waitUntil(release()); // nothing was spent
+  return response;
+}
+
+/** A request's most it can cost: its body as input (CHARS_PER_TOKEN) and all of max_tokens out. */
+async function worstCase(request) {
+  const text = await request.text().catch(() => '');
+  let body = {};
+  try {
+    body = JSON.parse(text) || {};
+  } catch {
+    // forward() refuses it
+  }
+  const out = Number(body.max_tokens) > 0 ? Number(body.max_tokens) : 4096;
+  return costOf(String(body.model || ''), { input_tokens: Math.ceil(text.length / CHARS_PER_TOKEN), output_tokens: out });
 }

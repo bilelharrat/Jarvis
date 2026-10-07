@@ -345,7 +345,11 @@ Only `claude-*` models. Before a request: 402 `no_allowance` (in Anthropic's err
 `{"type":"error","error":{"type":"billing_error","message":"…"}}`) when the plan's monthly
 allowance and the trial are both spent. After it, the cost is counted from the reply's
 `usage` (streamed or not) at list prices, web searches included. A request that starts
-inside the allowance always finishes.
+inside the allowance always finishes. While it runs it holds its worst case (the body as
+input, all of `max_tokens` out), capped at what's left: at most 8 requests at once per
+account, and when everything left is held by requests in flight the next one gets 429
+`rate_limit_error` (`retry-after: 10`) until one finishes. So requests at once can't spend
+past the allowance by more than one request.
 
 Allowances (Worker vars): Plus `PLUS_BUDGET_USD` (20) a month, trial `TRIAL_BUDGET_USD` (1)
 once per account.

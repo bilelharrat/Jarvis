@@ -42,6 +42,9 @@ export const WEB_LINK_MAC_STALE = 'To link a Mac here, sign in again first: a br
 const WEB_DEVICES = 5; // browsers signed in at once; a sixth signs out the oldest
 // Hosted Eden's turns in flight per account, and how long a hold on the allowance lasts at most.
 export const EDEN_TURNS = 2;
+// The apps' raw proxy (/api/anthropic, index.js): its requests in flight per account. Each holds
+// its worst case too (capped at what's left), so parallel requests can't spend past the allowance.
+export const PROXY_TURNS = 8;
 const HOLD_MS = 15 * 60_000;
 // A browser signed in at askeden.com (a `web` device) uses the included AI and its own
 // artifacts, and signs itself out. It can't delete the account, change devices, send
@@ -143,6 +146,9 @@ export class Account {
         case 'hold-ai':
           if (body.eden !== true) throw new ApiError(400, 'bad_request', 'Holds are for hosted Eden.');
           return json(await this.holdAi(body, device));
+        case 'hold-proxy':
+          if (device.kind === 'web') throw new ApiError(403, 'forbidden', "A browser's sign-in is for Eden at askeden.com only.");
+          return json(await this.holdProxy(body, device));
         case 'push-check': return json(await this.pushCheck(body));
         case 'voice':
           if (device.kind === 'web' && body.eden !== true) throw new ApiError(403, 'forbidden', "A browser's sign-in uses the voice through Eden at askeden.com only.");
@@ -571,7 +577,7 @@ export class Account {
     const want = Number(usd);
     if (!(want >= 0)) throw new ApiError(400, 'bad_request', 'usd must be a number');
     this.held(''); // drop expired holds
-    if (this.holds.size >= EDEN_TURNS) {
+    if ([...this.holds.values()].filter((h) => !h.proxy).length >= EDEN_TURNS) {
       throw new ApiError(429, 'slow_down', `Eden is already writing ${EDEN_TURNS} replies for this account; wait for one to finish.`, { 'retry-after': '10' });
     }
     const allow = await this.allowAi(device);
@@ -582,6 +588,23 @@ export class Account {
     const id = crypto.randomUUID();
     this.holds.set(id, { usd: want, bucket: allow.bucket, until: this.now() + HOLD_MS, pool: allow.pool || null });
     return { ok: true, bucket: allow.bucket, hold: id, left: allow.left };
+  }
+
+  // One request of the apps' proxy (index.js anthropic): at most PROXY_TURNS at once, each holding
+  // its worst case, capped at what's left (so a big request near the end still goes, alone).
+  // Nothing left but what other requests hold: 429, wait for them.
+  async holdProxy({ usd }, device = null) {
+    const want = Number(usd);
+    if (!(want >= 0)) throw new ApiError(400, 'bad_request', 'usd must be a number');
+    this.held(''); // drop expired holds
+    const busy = () => new ApiError(429, 'slow_down', 'Your other AI requests are still running; try again in a moment.', { 'retry-after': '10' });
+    if ([...this.holds.values()].filter((h) => h.proxy).length >= PROXY_TURNS) throw busy();
+    const allow = await this.allowAi(device);
+    if (!allow.ok) return allow;
+    if (!(allow.left > 0)) throw busy();
+    const id = crypto.randomUUID();
+    this.holds.set(id, { usd: Math.min(want, allow.left), bucket: allow.bucket, until: this.now() + HOLD_MS, pool: null, proxy: true });
+    return { ok: true, bucket: allow.bucket, hold: id };
   }
 
   release({ hold }) {

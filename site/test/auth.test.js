@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
-import { forgetAppleKeys } from '../src/accounts/apple.js';
+import { forgetAppleKeys, verifyIdentityToken } from '../src/accounts/apple.js';
 import { accountIdFor, b64url, parseToken, sha256 } from '../src/accounts/util.js';
 import { forgetGoogleKeys, verifyIdToken } from '../src/eden/google.js';
 import { forgetSessions } from '../src/eden/session.js';
@@ -298,6 +298,27 @@ test('Google id_token checks: issuer forms, expiry, signature, unknown keys and 
 });
 
 // ── Apple ──
+
+test('Apple identity tokens: an unknown kid reads the keys again at most once a minute', async () => {
+  forgetAppleKeys();
+  let n = 0;
+  const f = async () => {
+    n += 1;
+    return Response.json({ keys: [appleJwk] });
+  };
+  const opts = { audience: 'com.askeden.jarvis', fetcher: f };
+  assert.equal((await verifyIdentityToken(await identityToken(), 'raw-nonce', opts)).sub, 'apple-user-1');
+  assert.equal(n, 1);
+  const stranger = await rsaSigner('NOBODY');
+  const junk = await stranger.sign({ iss: 'https://appleid.apple.com', aud: 'com.askeden.jarvis', exp: Date.now() / 1000 + 600, sub: 'x', nonce: 'y' });
+  await assert.rejects(verifyIdentityToken(junk, 'raw-nonce', opts), /unknown key/);
+  assert.equal(n, 2, 'read again once (Apple may have rotated)');
+  for (let i = 0; i < 5; i++) await assert.rejects(verifyIdentityToken(junk, 'raw-nonce', opts), /unknown key/);
+  assert.equal(n, 2, 'junk tokens within the minute read nothing');
+  assert.equal((await verifyIdentityToken(await identityToken(), 'raw-nonce', opts)).sub, 'apple-user-1');
+  assert.equal(n, 2);
+  forgetAppleKeys();
+});
 
 test('Sign in with Apple on the web: a new Apple ID gets its account (the one the iPhone app opens too)', async () => {
   const web = await appleFlow({ sub: 'apple-new' });
