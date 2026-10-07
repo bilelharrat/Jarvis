@@ -78,7 +78,11 @@ export async function checkHuman(env, token, ip, { fetch: f = (u, i) => fetch(u,
   } catch {
     throw new ApiError(503, 'turnstile_down', 'The person check couldn’t be reached. Try again in a moment.');
   }
-  if (!body || body.success !== true) throw refuse();
+  if (!body || body.success !== true) {
+    // Its error codes only (never the token or secret): "invalid-input-secret" means TURNSTILE_SECRET is wrong.
+    console.log('Turnstile refused:', JSON.stringify((body && body['error-codes']) || null));
+    throw refuse();
+  }
   if (host && String(body.hostname || '').toLowerCase() !== String(host).toLowerCase()) throw refuse();
   return true;
 }
