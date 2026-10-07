@@ -52,6 +52,7 @@ let projects = [
 function meta() {
   return {
     providers: PROVIDERS,
+    ...(new URLSearchParams(location.search).get('hosted') === '1' ? { hosted: true } : {}), // QA: askeden.com's wording (included AI, keys on the account)
     models: MODELS.map((m) => ({ id: m.id, name: m.name, provider: m.provider, tier: m.tier, efforts: m.efforts, defaultEffort: m.defaultEffort, available: PROVIDERS.find((p) => p.id === m.provider).available, vision: !m.id.startsWith('kimi-k2') })),
     levels: LEVELS,
     classifier: { mode: 'always', available: true, reason: null },
@@ -444,7 +445,7 @@ export async function mockFetch(path, init = {}) {
   { const r = privacyMock.route(p, method, body); if (r) return r; } // /api/chat/local, publish (the privacy section)
   if (p === '/api/chat/send' && method === 'POST') {
     if (!(body.settings && body.settings.providers && body.settings.providers.length) && !body.override) return json({ error: 'No provider is available: add an API key in Settings.' }, 422);
-    return composeMock(body, init.signal) || chatStream(body, init.signal); // compose windows' "Ask Eden": the Gmail section
+    return mailAiMock(body, init.signal) || composeMock(body, init.signal) || chatStream(body, init.signal); // compose windows' "Ask Eden": the Gmail section
   }
   if (p === '/api/chat/signatures') { // signatures.ts: one copy for the "Mac" (sessionStorage here), the later `at` wins
     const kept = JSON.parse(sessionStorage.getItem('mock:signatures') || 'null') || { list: [], defaults: {}, at: 0 };
@@ -812,6 +813,41 @@ GMAILS.push(
   { id: 'g3', threadId: 't3', messageId: '<CAF3@mail.gmail.com>', references: '<CAF0@mail.gmail.com>', box: 'inbox', from: 'Alex Kim <alex@example.com>', replyTo: 'Q4 Planning <q4-planning@example.com>', to: ['owner@gmail.com', 'Sam Lee <sam@example.com>'], cc: ['"Ortiz, Dana" <dana@example.com>'], subject: 'Q4 offsite — pick a date', date: ago(26), unread: true, attachments: [], body: 'Hi all,\n\nCan everyone do Nov 12 or Nov 19 for the offsite? Reply-all with your pick so we can book the venue.\n\nThanks,\nAlex' },
   { id: 'g4', threadId: 't4', messageId: '<CAF4@mail.gmail.com>', box: 'sent', from: 'owner@gmail.com', to: ['Priya Shah <priya@example.org>'], cc: [], subject: 'Re: Contract draft for review', date: ago(50), unread: false, attachments: [], body: 'Thanks Priya, reading it tonight.' },
 );
+// a fuller inbox for the Mail panel's day groups, avatars and Eden's card (mail.js)
+GMAILS.push(
+  { id: 'g5', threadId: 't5', box: 'inbox', from: 'Stripe <receipts@stripe.com>', to: ['owner@gmail.com'], cc: [], subject: 'Your receipt from Linear Orbit Inc. #2291-4410', date: ago(3), unread: false, attachments: [], body: 'Receipt for $96.00 paid on Visa ending 4242. Thanks for your business.' },
+  { id: 'g6', threadId: 't6', box: 'inbox', from: 'Marco Rossi <marco@studio-rossi.it>', to: ['owner@gmail.com'], cc: [], subject: 'Lisbon offsite — venue shortlist', date: ago(7), unread: true, attachments: ['venues.pdf'], body: 'Hi! Three venues made the shortlist for the offsite: Palácio Chiado, LX Factory and a quinta in Sintra. Could you pick one by Thursday so I can hold the dates (Nov 12–14)?\n\nMarco' },
+  { id: 'g7', threadId: 't7', box: 'inbox', from: 'Linear <notifications@linear.app>', to: ['owner@gmail.com'], cc: [], subject: 'ENG-412 was assigned to you: Router fallback on 529', date: ago(26), unread: false, attachments: [], body: 'Sam Lee assigned ENG-412 to you. Priority: High. Due: Friday.' },
+  { id: 'g8', threadId: 't8', box: 'inbox', from: 'Hannah Becker <hannah.becker@northwind.vc>', to: ['owner@gmail.com'], cc: [], subject: 'Intro: Eden × Northwind', date: ago(30), unread: true, attachments: [], body: 'Great to meet last week. I’d love to introduce you to our portfolio lead for AI tooling. Are you free for 30 minutes next Tuesday or Wednesday?\n\nBest,\nHannah' },
+  { id: 'g10', threadId: 't10', box: 'inbox', from: 'Figma <no-reply@figma.com>', to: ['owner@gmail.com'], cc: [], subject: 'Config 2026: your replay is ready', date: ago(75), unread: false, attachments: [], body: 'Watch every keynote and session from Config 2026, now on demand.' },
+  { id: 'g11', threadId: 't11', box: 'inbox', from: 'Sam Lee <sam@example.com>', to: ['owner@gmail.com'], cc: [], subject: 'Re: Thursday', date: ago(98), unread: false, attachments: [], body: 'Friday at 10 works. I’ll send the invite.' },
+);
+/** Mail's Eden tools (mail-model.js): Rank by priority, the digest card, one email's summary. */
+function mailAiMock(body, signal) {
+  const sys = String(body.system || '');
+  const kind = /^You triage the owner/.test(sys) ? 'rank' : /^You write a short digest of the owner/.test(sys) ? 'digest' : /^You summarize one email/.test(sys) ? 'one' : '';
+  if (!kind) return null;
+  const ctx = String(((body.context || [])[0] || {}).text || '');
+  const items = ctx.split('\n').map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  const name = (f) => (/^\s*"?([^"<]*?)"?\s*</.exec(f || '') || [])[1] || f;
+  const level = (m) => (/overdue|invoice|contract|by (wednesday|friday|thursday)|assigned/i.test(`${m.subject} ${m.snippet}`) ? (/contract|invoice|overdue/i.test(m.subject) ? 'urgent' : 'reply')
+    : /\?|free for|could you|pick one/i.test(m.snippet) ? 'reply' : /receipt|replay|newsletter|ci passed/i.test(`${m.subject}`) ? 'low' : 'fyi');
+  const why = { urgent: 'Deadline this week, money involved', reply: 'Asks you a direct question', fyi: 'Worth knowing, nothing to do', low: 'Automated notice' };
+  let text;
+  if (kind === 'rank') text = JSON.stringify({ ranks: items.map((m) => { const lv = level(m); return { id: m.id, level: lv, reason: /contract/i.test(m.subject) ? 'Confirm contract terms by Wednesday' : /invoice/i.test(m.subject) ? '$2,480 overdue, due Friday' : /venue/i.test(m.subject) ? 'Pick a venue by Thursday' : /intro/i.test(m.subject) ? 'Wants a call next week' : why[lv] }; }) });
+  else if (kind === 'digest') {
+    const top = items.slice().sort((a, b) => ['urgent', 'reply', 'fyi', 'low'].indexOf(level(a)) - ['urgent', 'reply', 'fyi', 'low'].indexOf(level(b))).slice(0, 6);
+    text = JSON.stringify({ overview: `${items.length} emails; ${top.filter((m) => level(m) !== 'low' && level(m) !== 'fyi').length} need you. Start with the contract and the overdue invoice, both due this week.`,
+      bullets: top.map((m) => ({ id: m.id, who: name(m.from), gist: `${m.subject}. ${String(m.snippet || '').slice(0, 110)}`, needs_reply: level(m) === 'urgent' || level(m) === 'reply' })) });
+  } else {
+    const subj = (/^Subject: (.*)$/m.exec(ctx) || [])[1] || 'the email';
+    text = `**${subj}** — a short note that needs a decision from you.\n\n- The main ask is in the first paragraph\n- A date is mentioned: reply this week\n- Nothing is attached that needs signing\n\n**Needs reply:** yes`;
+  }
+  const steps = [[500, 'route', { model: 'gemini-3.6-flash', modelName: 'Gemini 3.6 Flash', provider: 'gemini', effort: 'low', costUSD: 0.0003, quality: 79, rationale: 'Cheap model for triage (mock).', candidates: [] }]];
+  for (const t of chunks(text, kind === 'one' ? 10 : 60)) steps.push([kind === 'one' ? 40 : 15, 'text', { text: t }]);
+  steps.push([60, 'usage', { inputTokens: 700, outputTokens: Math.round(text.length / 4), reasoningTokens: 0, costUSD: 0.0003 }], [30, 'done', { finish: 'stop' }]);
+  return sse(steps, signal);
+}
 const GM_DRAFTS = new Map();
 const GM_JOBS = [];
 function gmDetail(m) {

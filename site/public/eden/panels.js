@@ -87,6 +87,8 @@ export function openSpace(key, opts = {}) {
   $('spacePanel').classList.toggle('wide', key === 'mail' || !!s.load);
   const body = $('spBody');
   body.replaceChildren();
+  body.classList.toggle('mailx', key === 'mail'); // the Mail panel lays out its own panes (mail.js)
+  $('spacePanel').classList.toggle('mailp', key === 'mail');
   if (key === 'mail') { mailPanel(body).catch((e) => { failed(body, e); focusFirst(); }); requestAnimationFrame(() => focusMail(body) || focusFirst()); return; }
   if (key === 'memory') { memory(body); return; } // the Memory page shows its own needs-your-Mac state
   if (!state.jarvis.available && key !== 'routines' && !s.offMac) { body.append(unavailable(key)); focusFirst(); return; }

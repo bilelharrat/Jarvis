@@ -2,6 +2,7 @@
 // transcript, conversations, palette, settings, dialogs, shortcuts and Esc order.
 
 import './practice.js'; // first: practice mode (the tour's sandbox) scopes storage before any module reads it
+import { keyStatus, providerGlyph } from './settings-model.js';
 import { $, el, ico, qsa, toast, copyText, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
@@ -10,7 +11,7 @@ const DOWNLOAD_URL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname
 import { initMail, connectGmail, emailText } from './mail.js';
 import { openCompose, initSignatures } from './compose.js';
 import { renderMessage, emptyState, ui_open, artifactsIn } from './render.js';
-import { routeSettings, initRouteControls, renderRouteControls, renderTurnCard, routePopContent, openChipPop, closeChipPop, chipPopOpenFor, initChipPop, hoverIntent, setOverride, setLevel, availableModels, currentOverride, modelInfo, schedulePreview } from './router.js';
+import { routeSettings, initRouteControls, renderRouteControls, renderTurnCard, routePopContent, openChipPop, closeChipPop, chipPopOpenFor, initChipPop, hoverIntent, setOverride, setLevel, availableModels, currentOverride, modelInfo, schedulePreview, levels } from './router.js';
 import { initComposer, renderComposer, composerEscape, focusComposer, setComposerText, addContext, setMode, modelMenu, openMenu, closeMenu, clearAttachments, renderAttachments, addFile } from './composer.js';
 import { sendMessage, runChat, stop, retry, regenerate, editResend, answerPermission, queueFollowUp, steerNow, dropQueued, runCode } from './chat.js';
 import { initArtifact, openArtifact, closeArtifact, artifactOpen, refreshArtifact } from './artifact.js';
@@ -683,51 +684,90 @@ function openSettings(i = 0) {
   requestAnimationFrame(() => $('setSeg').querySelectorAll('button')[i].focus());
 }
 function closeSettings() { if (!$('settingsSheet').classList.contains('open')) return false; $('settingsSheet').classList.remove('open'); focusComposer(); return true; }
+/** A settings page's header: its icon tile, title and a line on what it's for. */
+function setHero(icon, title, desc, tone) {
+  return el('div', `set-hero t-${tone}`, el('span', 'set-tile', ico(icon, 18)), el('div', 'grow', el('h3', 'set-h', title), el('p', 'set-d', desc)));
+}
 async function drawSettings() {
   setSeg($('setSeg'), setTabI);
   const body = $('setBody');
+  body.scrollTop = 0;
+  body.dataset.tab = String(setTabI);
+  const hosted = !!(state.meta && state.meta.hosted);
   if (setTabI === 0) {
-    body.replaceChildren(el('div', 'muted', 'Loading…'));
+    body.replaceChildren(setHero('key', 'API keys', 'Which AI your chats run on, provider by provider.', 'key'), el('div', 'set-skel', el('span', 'sk'), el('span', 'sk'), el('span', 'sk')));
     let keys;
-    try { keys = await api.keys(); } catch (e) { body.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t read the keys'), e.message)); return; }
+    try { keys = await api.keys(); } catch (e) { body.replaceChildren(setHero('key', 'API keys', 'Which AI your chats run on, provider by provider.', 'key'), el('div', 'sp-warn', el('b', '', 'Couldn’t read the keys'), e.message)); return; }
+    if (setTabI !== 0) return;
     const provs = (state.meta && state.meta.providers) || Object.keys(keys).map((id) => ({ id, name: id }));
     const rows = provs.map((p) => keyRow(p, keys[p.id] || { set: false, source: null }));
-    body.replaceChildren(el('div', 'set-sec', el('h3', '', 'API keys'),
-      el('p', 'sp-note', state.meta && state.meta.hosted
-        ? 'Your keys are stored encrypted on your account and used only for your chats, never by delegates or team spaces. They’re never shown again once saved; remove one any time. Chats on your own key don’t use your included AI.'
-        : 'Keys stay on this Mac (~/.config/model-router/keys.json, readable only by you); the page never sees them again once saved. Environment variables win over the file.'),
-      el('div', 'icard', ...rows)));
+    const explain = hosted
+      ? el('div', 'key-explain',
+        el('div', 'kx', el('span', 'kx-ic inc', ico('spark', 15)), el('div', '', el('b', '', 'Included AI'), el('p', '', 'Comes with your plan and counts toward its monthly allowance. Nothing to set up.'))),
+        el('div', 'kx', el('span', 'kx-ic own', ico('key', 15)), el('div', '', el('b', '', 'Your own key'), el('p', '', 'Billed by the provider to you, not your allowance. Used only for your own chats.'))))
+      : el('div', 'key-explain',
+        el('div', 'kx', el('span', 'kx-ic inc', ico('lock', 15)), el('div', '', el('b', '', 'Stays on this Mac'), el('p', '', 'Keys live in ~/.config/model-router/keys.json, readable only by you.'))),
+        el('div', 'kx', el('span', 'kx-ic own', ico('key', 15)), el('div', '', el('b', '', 'Environment wins'), el('p', '', 'A key set in the environment is used over a saved one.'))));
+    body.replaceChildren(setHero('key', 'API keys', 'Which AI your chats run on, provider by provider.', 'key'), explain,
+      el('div', 'set-sec', el('h3', '', 'Providers'), el('div', 'icard keys', ...rows),
+        el('p', 'sp-note', hosted
+          ? 'Your keys are stored encrypted on your account and used only for your chats, never by delegates or team spaces. They’re never shown again once saved; remove one any time. Chats on your own key don’t use your included AI.'
+          : 'The page never sees a key again once it’s saved.')));
   } else if (setTabI === 1) {
     drawAccounts(body);
   } else if (setTabI === 2) {
     const cur = state.settings.theme || 'system';
-    const seg = el('div', { class: 'seg', style: { '--n': 3 }, role: 'radiogroup', 'aria-label': 'Appearance' }, el('div', 'seg-thumb'),
-      ...['system', 'light', 'dark'].map((t) => el('button', { type: 'button', role: 'radio', onclick: () => { setTheme(t); drawSettings(); } }, t[0].toUpperCase() + t.slice(1))));
-    setSeg(seg, ['system', 'light', 'dark'].indexOf(cur));
-    body.replaceChildren(el('div', 'set-sec', el('h3', '', 'Appearance'), seg,
-      el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')), voiceSettings());
+    const tiles = el('div', { class: 'theme-tiles', role: 'radiogroup', 'aria-label': 'Appearance' },
+      ...[['system', 'System', 'Follows macOS'], ['light', 'Light', 'Bright and airy'], ['dark', 'Dark', 'Easy at night']].map(([t, label, sub]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(cur === t), class: `theme-tile${cur === t ? ' on' : ''}`, onclick: () => { setTheme(t); drawSettings(); } },
+        el('span', `tt-prev tt-${t}`, el('span', 'tt-win', el('span', 'tt-side', el('i'), el('i'), el('i')), el('span', 'tt-main', el('i', 'b1'), el('i', 'b2'), el('i', 'b3')))),
+        el('span', 'tt-label', el('span', 'tt-radio'), el('b', '', label), el('span', '', sub)))));
+    body.replaceChildren(setHero('palette', 'Appearance', 'How Eden looks, and how it sounds.', 'pal'),
+      el('div', 'set-sec', el('h3', '', 'Theme'), tiles,
+        el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')), voiceSettings());
   } else if (setTabI === 3) {
     const sw = el('input', { type: 'checkbox', 'aria-label': 'Claude counts as subscription' });
     sw.checked = !!state.settings.subscriptionClaude;
     sw.addEventListener('change', () => { state.settings.subscriptionClaude = sw.checked; saveSettings(); schedulePreview(); toast(sw.checked ? 'Claude priced as subscription quota' : 'Claude priced at API rates'); });
-    body.replaceChildren(el('div', 'set-sec', el('h3', '', 'Routing'),
-      el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Claude counts as subscription'), el('div', 'p-c', 'Claude through the Claude Code CLI is priced as a fraction of your plan’s quota, not API dollars, so the router uses it more freely.')), el('label', 'switch', sw, el('span', 'tr')))),
-      el('p', 'sp-note', `Level ${state.settings.level}${currentOverride() ? ` · pinned to ${modelInfo(currentOverride().model)?.name || currentOverride().model}` : ' · auto'}. Levels, sliders, providers and the override live in the inspector’s Route tab.`),
-      el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, 'Open Route console'))), privacySettings(), autopilotSettings(), learnedSettings()); // H3, H2
+    const ov = currentOverride();
+    const lv = Number(state.settings.level) || 3;
+    const info = levels().find((x) => x.level === lv) || {};
+    body.replaceChildren(setHero('route', 'Routing', 'How Eden picks a model for each message.', 'route'),
+      el('div', 'route-cards',
+        el('button', { type: 'button', class: 'route-card', onclick: () => { closeSettings(); openInspector('Route'); } },
+          el('span', 'rc-k', 'Level'),
+          el('span', 'rc-v', info.label || `Level ${lv}`),
+          el('span', { class: 'rc-meter', 'aria-hidden': 'true' }, ...[1, 2, 3, 4, 5].map((i) => el('i', i <= lv ? 'on' : ''))),
+          el('span', 'rc-s', 'Efficiency ⟷ performance')),
+        el('button', { type: 'button', class: 'route-card', onclick: () => { closeSettings(); openInspector('Route'); } },
+          el('span', 'rc-k', 'Model'),
+          el('span', 'rc-v', ov ? (modelInfo(ov.model)?.name || ov.model) : 'Auto'),
+          el('span', 'rc-s', ov ? 'Pinned for every message' : 'The router picks per message'))),
+      el('div', 'set-sec', el('h3', '', 'Pricing'),
+        el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Claude counts as subscription'), el('div', 'p-c', 'Claude through the Claude Code CLI is priced as a fraction of your plan’s quota, not API dollars, so the router uses it more freely.')), el('label', 'switch', sw, el('span', 'tr')))),
+        el('p', 'sp-note', `Level ${state.settings.level}${ov ? ` · pinned to ${modelInfo(ov.model)?.name || ov.model}` : ' · auto'}. Levels, sliders, providers and the override live in the inspector’s Route tab.`),
+        el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, ico('sliders', 14), 'Open Route console'))), privacySettings(), autopilotSettings(), learnedSettings()); // H3, H2
   } else {
-    body.replaceChildren(el('div', 'set-sec about', el('h3', '', 'About'),
-      el('p', '', el('b', '', 'Eden'), ' — one chat for every model you have: each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Jarvis app on your Mac, and Code sessions for your projects.'),
-      el('p', '', 'Eden · design: Kimi K3 (Atelier). Input bar: from Jarvis Code.'),
-      el('p', '', state.meta && state.meta.scope ? state.meta.scope : ''),
-      el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the JARVIS voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
-      isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null,
-      el('div', 'dlg-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))));
+    const ver = state.meta && state.meta.version;
+    body.replaceChildren(el('div', 'about-hero',
+      el('span', { class: 'orb about-orb', 'aria-hidden': 'true' }),
+      el('h3', '', 'Eden'),
+      el('p', 'about-tag', 'One chat for every model you have.'),
+      el('div', 'about-chips', ver ? el('span', 'chip-s', `Version ${ver}`) : null, el('span', 'chip-s', hosted ? 'askeden.com' : 'On this Mac'), isMock ? el('span', 'chip-s warn', 'Mock mode') : null)),
+    el('div', 'set-sec about',
+      el('div', 'icard about-card',
+        el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Jarvis app on your Mac, and Code sessions for your projects.'),
+        el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the JARVIS voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
+        state.meta && state.meta.scope ? el('p', '', state.meta.scope) : null,
+        isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null),
+      el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Jarvis Code.'),
+      el('div', 'dlg-acts about-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, ico('down', 14), 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))));
   }
 }
+const accountsHero = () => setHero('user', 'Accounts', 'The mail and calendars Eden can read for you.', 'acct');
 async function drawAccounts(body) {
-  body.replaceChildren(el('div', 'muted', 'Loading…'));
+  body.replaceChildren(accountsHero(), el('div', 'muted', 'Loading…'));
   let st;
-  try { st = await api.googleStatus(); } catch (e) { body.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t read the Gmail status'), e.message)); return; }
+  try { st = await api.googleStatus(); } catch (e) { body.replaceChildren(accountsHero(), el('div', 'sp-warn', el('b', '', 'Couldn’t read the Gmail status'), e.message)); return; }
   if (setTabI !== 1) return;
   if (st.hosted || (state.meta && state.meta.hosted)) { drawHostedAccounts(body, st); return; } // askeden.com: no client to set up
   const id = el('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'xxxxxxxx.apps.googleusercontent.com', 'aria-label': 'Google OAuth client ID' });
@@ -742,9 +782,9 @@ async function drawAccounts(body) {
     catch (e) { toast(`Couldn’t save: ${e.message}`); }
   };
   const status = st.connected ? `Connected as ${st.email || 'your Google account'}` : st.configured ? 'Set up — not connected yet' : 'Not set up';
-  body.replaceChildren(el('div', 'set-sec', el('h3', '', 'Gmail'),
+  body.replaceChildren(accountsHero(), el('div', 'set-sec', el('h3', '', 'Gmail'),
     el('div', 'icard',
-      el('div', 'prov', el('span', { class: 'pdot gemini', 'aria-hidden': 'true' }), el('div', 'grow', el('div', 'p-n', 'Gmail'), el('div', `p-c${st.connected ? ' ok' : ''}`, status)),
+      el('div', 'prov', el('span', { class: 'pglyph', style: { '--g1': '#ff6b5e', '--g2': '#d93025' }, 'aria-hidden': 'true' }, ico('mail', 17)), el('div', 'grow', el('div', 'p-n', 'Gmail'), el('div', `p-c${st.connected ? ' ok' : ''}`, status)),
         st.connected ? el('button', { type: 'button', class: 'cap rev', onclick: async () => { try { await api.googleDisconnect(); toast('Gmail disconnected'); drawAccounts(body); } catch (e) { toast(e.message); } } }, 'Disconnect')
           : st.configured ? el('button', { type: 'button', class: 'cap primary', onclick: connectGmail }, 'Connect Gmail') : null),
       el('div', { class: 'field', style: { marginTop: '10px' } }, 'OAuth client ID', id),
@@ -769,8 +809,9 @@ function drawHostedAccounts(body, st) {
       location.assign(r.url);
     } catch (e) { toast(`Couldn’t connect Google Calendar: ${e.message}`); }
   };
-  const row = (name, on, button) => el('div', 'prov', el('span', { class: 'pdot gemini', 'aria-hidden': 'true' }), el('div', 'grow', el('div', 'p-n', name), el('div', `p-c${on ? ' ok' : ''}`, on ? as : 'Not connected')), button);
-  body.replaceChildren(el('div', 'set-sec', el('h3', '', 'Google'),
+  const tile = (name) => el('span', { class: 'pglyph', style: name === 'Gmail' ? { '--g1': '#ff6b5e', '--g2': '#d93025' } : { '--g1': '#7aa2f7', '--g2': '#1a73e8' }, 'aria-hidden': 'true' }, ico(name === 'Gmail' ? 'mail' : 'cal', 17));
+  const row = (name, on, button) => el('div', 'prov', tile(name), el('div', 'grow', el('div', 'p-n', name, el('span', `kpill ${on ? 'k-own' : 'k-off'}`, on ? 'Connected' : 'Not connected')), el('div', `p-c${on ? ' ok' : ''}`, on ? as : 'Connect it to let Eden read it for you')), button);
+  body.replaceChildren(accountsHero(), el('div', 'set-sec', el('h3', '', 'Google'),
     el('div', 'icard',
       row('Gmail', st.gmail, st.gmail ? null : el('button', { type: 'button', class: 'cap primary', onclick: connectGmail }, 'Connect Gmail')),
       row('Google Calendar', st.calendar, st.calendar ? null : el('button', { type: 'button', class: 'cap primary', onclick: connectCalendar }, 'Connect Calendar')),
@@ -783,8 +824,8 @@ function drawHostedAccounts(body, st) {
 function keyRow(p, k) {
   const hosted = !!(state.meta && state.meta.hosted);
   // askeden.com keeps the key sealed in the account: only its last 4 characters and when it was added come back
-  const status = k.set ? (k.source === 'env' ? 'Set in the environment' : k.source === 'account' ? `Set ····${k.last4 || ''}${k.added ? ` · added ${new Date(k.added).toLocaleDateString()}` : ''}` : 'Saved on this Mac')
-    : hosted ? (p.available ? 'Not set: chats use your included AI' : 'Not set') : p.id === 'anthropic' && p.available ? 'No key — Claude works through your Claude Code subscription' : 'Not set';
+  const st = keyStatus(p, k, hosted);
+  const g = providerGlyph(p.id, p.name);
   const row = el('div', 'key-row');
   const draw = (editing) => {
     const input = el('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: `${p.name || p.id} API key`, 'aria-label': `${p.name || p.id} API key` });
@@ -797,9 +838,9 @@ function keyRow(p, k) {
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.stopPropagation(); draw(false); } });
     // (replaceChildren turns a null into the text "null": the parts not shown are dropped first)
     row.replaceChildren(...[
-      el('span', { class: `pdot ${p.id}`, 'aria-hidden': 'true' }),
-      el('div', 'grow', el('div', 'p-n', p.name || p.id), el('div', `p-c${k.set || (p.id === 'anthropic' && p.available) ? ' ok' : ''}`, status), !hosted && !p.available && p.reason && !k.set ? el('div', 'p-c', p.reason) : null),
-      editing ? null : el('button', { type: 'button', class: 'cap', onclick: () => draw(true) }, k.set ? 'Replace' : 'Set key'),
+      el('span', { class: 'pglyph', style: { '--g1': g.from, '--g2': g.to }, 'aria-hidden': 'true' }, g.mark),
+      el('div', 'grow', el('div', 'p-n', p.name || p.id, el('span', `kpill k-${st.tone}`, st.pill)), el('div', `p-c${st.tone === 'own' || st.tone === 'sub' ? ' ok' : ''}`, st.detail)),
+      editing ? null : el('button', { type: 'button', class: `cap${k.set ? '' : ' primary'}`, onclick: () => draw(true) }, k.set ? 'Replace' : 'Set key'),
       editing || !k.set || k.source === 'env' ? null : el('button', { type: 'button', class: 'cap rev', onclick: async () => {
         try { await api.setKey(p.id, ''); toast('Key removed'); await reloadMeta(); drawSettings(); } catch (e) { toast(`Couldn’t remove: ${e.message}`); }
       } }, 'Remove'),
@@ -1030,6 +1071,11 @@ function init() {
       closeSpace();
       if (state.current && (state.current.kind === 'code' || state.streams.has(state.current.id))) newChat();
       sendFromComposer('Summarize this email: key points, asks, deadlines.', [], [{ title: `Email: ${m.subject}`.slice(0, 80), text: emailText(m), source: 'mail', hidden: m.hidden || 0 }]);
+    },
+    askEden: (m) => { // a row's or the reading pane's "Ask Eden": the email goes with the next message
+      closeSpace();
+      addContext({ title: `Email: ${m.subject}`.slice(0, 80), text: emailText(m), source: 'mail', hidden: m.hidden || 0 });
+      focusComposer();
     },
     writeReply: async (m) => {
       let out = '';
