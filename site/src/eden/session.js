@@ -607,6 +607,10 @@ async function googleStart(request, env) {
     return failed(error, error.code === 'signed_out' ? { provider: 'google' } : mode);
   }
   const { state, nonce, link, back } = attempt;
+  // The Eden iOS app (`?app=1`, a GET from its ASWebAuthenticationSession): Google refuses
+  // sign-in inside an app's web view, so the app opens this in Apple's web sign-in sheet; the
+  // callback ends on the app's own URL scheme with a one-time handoff code (as native Apple's).
+  const app = !link && request.method === 'GET' && new URL(request.url).searchParams.get('app') === '1';
   const { verifier, challenge } = await pkcePair();
   const to = buildAuthUrl(env, {
     redirectUri: `${new URL(request.url).origin}${GOOGLE_CALLBACK}`,
@@ -616,7 +620,7 @@ async function googleStart(request, env) {
     scopes: SIGN_IN_SCOPES,
     prompt: 'select_account',
   });
-  return withCookies(redirect(to), cookie(GOOGLE_COOKIE, withReturn(`${state}.${nonce}.${verifier}.${link ? 'l' : 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'Lax' }));
+  return withCookies(redirect(to), cookie(GOOGLE_COOKIE, withReturn(`${state}.${nonce}.${verifier}.${link ? 'l' : app ? 'a' : 's'}`, back), { maxAge: STATE_SECONDS, sameSite: 'Lax' }));
 }
 
 async function googleCallback(request, env) {
@@ -626,16 +630,18 @@ async function googleCallback(request, env) {
   const mode = { provider: 'google', link: flag === 'l', back: flag === 'l' ? '/' : unpackReturn(packed) };
   if (!googleReady(env) || !env.IDENTITIES) return withCookies(ending({ ...mode, error: 'not_set_up' }), clear);
   const refusal = url.searchParams.get('error');
-  if (refusal) return withCookies(ending({ ...mode, error: refusal === 'access_denied' ? 'access_denied' : 'cancelled' }), clear);
-  if (!state || !nonce || !verifier || !sameText(url.searchParams.get('state') || '', state)) return withCookies(ending({ ...mode, error: 'state' }), clear);
+  if (refusal) return withCookies(flag === 'a' ? toApp({ error: 'cancelled' }) : ending({ ...mode, error: refusal === 'access_denied' ? 'access_denied' : 'cancelled' }), clear);
+  if (!state || !nonce || !verifier || !sameText(url.searchParams.get('state') || '', state)) return withCookies(flag === 'a' ? toApp({ error: 'state' }) : ending({ ...mode, error: 'state' }), clear);
   try {
     await limited(env, 'AUTH_RATE', `cb:${clientIp(request)}`);
     const redirectUri = `${url.origin}${GOOGLE_CALLBACK}`;
     const tokens = await exchangeCode(env, { code: url.searchParams.get('code'), verifier, redirectUri });
     const claims = await verifyIdToken(tokens.id_token, { audience: env.GOOGLE_CLIENT_ID, nonce, now: Date.now() / 1000 });
     const email = typeof claims.email === 'string' ? claims.email.toLowerCase().slice(0, 200) : null;
+    if (flag === 'a') return withCookies(await appHandoff(request, env, { provider: 'google', sub: claims.sub, email }), clear);
     return withCookies(await finish(request, env, { provider: 'google', sub: claims.sub, email, state, link: mode.link, back: mode.back }), clear);
   } catch (error) {
+    if (flag === 'a') return withCookies(toApp({ error: errorCode(error) }), clear);
     return withCookies(failed(error, mode), clear);
   }
 }
@@ -775,12 +781,27 @@ async function nativeApple(request, env) {
   await limited(env, 'AUTH_RATE', `native:${clientIp(request)}`);
   const body = await readJson(request, 64 * 1024);
   const claims = await verifyIdentityToken(body.identity_token, body.nonce, { audience: EDEN_APP_ID, now: Date.now() / 1000 });
+  const code = await stashHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null });
+  return json({ handoff: code, expires_in: HANDOFF_SECONDS });
+}
+
+/** The account a sign-in in the app opens (no Turnstile in an app: a tighter rate), as a one-time handoff code. */
+async function stashHandoff(request, env, { provider, sub, email }) {
   const ip = clientIp(request);
-  const { account_id } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip, beforeCreate: () => nativeNewAccount(env, ip) }); // no Turnstile in an app: a tighter rate
+  const { account_id } = await accountForIdentity(env, { provider, sub, email, ip, beforeCreate: () => nativeNewAccount(env, ip) });
   if (!webAllowed(env, account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
   const code = b64url(randomBytes(32));
-  await callLink(env, `handoff:${code}`, 'stash', { value: { account_id, sub_hash: await subHashOf('apple', claims.sub) }, seconds: HANDOFF_SECONDS });
-  return json({ handoff: code, expires_in: HANDOFF_SECONDS });
+  await callLink(env, `handoff:${code}`, 'stash', { value: { account_id, provider, sub_hash: await subHashOf(provider, sub), email }, seconds: HANDOFF_SECONDS });
+  return code;
+}
+
+// Where a sign-in started by the app in Apple's web sheet ends: the app's own scheme, which
+// only closes that sheet (ASWebAuthenticationSession), with a handoff code or an error code.
+export const APP_CALLBACK = 'com.askeden.eden://signin';
+const toApp = (fields) => redirect(`${APP_CALLBACK}?${new URLSearchParams(fields)}`);
+
+async function appHandoff(request, env, identity) {
+  return toApp({ code: await stashHandoff(request, env, identity) });
 }
 
 async function handoff(request, env) {
@@ -796,7 +817,7 @@ async function handoff(request, env) {
     const made = await call(env, kept.account_id, 'web-signin', {
       account_id: kept.account_id,
       create: true,
-      identity: { provider: 'apple', sub_hash: kept.sub_hash, email: null },
+      identity: { provider: kept.provider || 'apple', sub_hash: kept.sub_hash, email: kept.email || null },
       device: { name: cleanName(`Eden app: ${browserName(request).replace(/^Eden on the web: /, '')}`, 'Eden app'), app_version: 'askeden.com (Eden app)' },
     });
     // The web view started this load itself (no other site in the chain): a plain redirect

@@ -1255,3 +1255,59 @@ document.addEventListener('scroll', (e) => {
     save(set(side.offsetWidth + (e.key === 'ArrowRight' ? 20 : -20)));
   });
 })();
+
+// Phone: swipe the sidebar open (a rightward swipe anywhere on the chat) and shut (leftward, on it or the dimmed
+// page), following the finger like ChatGPT's. Horizontal scrollers (code, tables), sheets and text selection keep their gestures.
+(() => {
+  const side = $('sidebar'), scrim = $('scrim');
+  if (!side || !('ontouchstart' in window)) return;
+  let g = null; // { x0, y0, t0, open, lock: null|'x'|'y', w, dx }
+  const blocked = (el) => {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (n.matches?.('input, textarea, [contenteditable="true"], .sheet, .sheet-card, dialog, .mx, .bw, .pal-box, #inspector, [data-noswipe]')) return true;
+      if (n.scrollWidth > n.clientWidth + 2 && /(auto|scroll)/.test(getComputedStyle(n).overflowX)) return true;
+    }
+    return false;
+  };
+  const paint = (x) => { // x: 0 = shut, w = open
+    side.style.transition = 'none';
+    side.style.visibility = 'visible';
+    side.style.transform = `translateX(${-(g.w + 12) * (1 - x / g.w)}px)`; // 0 = docked open, past the left edge = shut
+    scrim.classList.add('on');
+    scrim.style.transition = 'none';
+    scrim.style.opacity = String(Math.max(0, Math.min(1, x / g.w)));
+  };
+  const reset = () => { side.style.transition = side.style.transform = side.style.visibility = ''; scrim.style.opacity = scrim.style.transition = ''; };
+  document.addEventListener('touchstart', (e) => {
+    if (!isMobile() || e.touches.length !== 1) return;
+    const open = side.classList.contains('open');
+    if (!open && (blocked(e.target) || document.querySelector('.sheet.on, .sheet-card.on, dialog[open]'))) return;
+    if (open && !side.contains(e.target) && e.target !== scrim) return;
+    const t = e.touches[0];
+    g = { x0: t.clientX, y0: t.clientY, t0: performance.now(), open, lock: null, w: side.offsetWidth || 300, dx: 0 };
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x0, dy = t.clientY - g.y0;
+    if (!g.lock) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      g.lock = Math.abs(dx) > Math.abs(dy) * 1.2 && (g.open ? dx < 0 : dx > 0) ? 'x' : 'y';
+      if (g.lock === 'y' || (window.getSelection && String(window.getSelection()))) { g = null; return; }
+    }
+    g.dx = dx;
+    e.preventDefault(); // the page doesn't scroll sideways under the drawer
+    paint(g.open ? Math.max(0, g.w + dx) : Math.min(g.w, dx));
+  }, { passive: false });
+  const end = () => {
+    if (!g) return;
+    const { dx, open, w, t0, lock } = g;
+    g = null;
+    if (lock !== 'x') return;
+    const v = dx / Math.max(1, performance.now() - t0); // px per ms
+    const shouldOpen = open ? !(dx < -w * 0.3 || v < -0.4) : dx > w * 0.3 || v > 0.4;
+    reset();
+    toggleSidebar(shouldOpen);
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', () => { if (g) { g = null; reset(); syncScrim(); } }, { passive: true });
+})();
