@@ -983,3 +983,14 @@ export function desktopMessages(send) {
     stop: () => msg('stop'),
   };
 }
+
+// Hand control that two claps started. A pair of loud clicks (a key or a cup set down
+// reached 0.3 here, over the detector's 0.2 floor) can still pass for two claps, so a
+// clap-started session with no hand in sight within NO_HAND_MS switches the camera off
+// again. A hand seen before the session began doesn't count: only one the camera saw
+// after startedAt keeps it on.
+export const NO_HAND_MS = 12000;
+
+export function noHandSeen({ startedAt, seenAt, now }) {
+  return now - startedAt >= NO_HAND_MS && !(seenAt > startedAt);
+}

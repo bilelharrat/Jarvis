@@ -99,7 +99,15 @@ def test_calls_must_name_their_session_and_a_real_tool(settings, quiet_speaker, 
         "read_note",
         "recall",
         "calendar",
+        "calendar_create",
+        "calendar_update",
+        "calendar_delete",
         "notify_me",
+        "mail_accounts",
+        "mail_search",
+        "mail_read",
+        "mail_draft",
+        "mail_send",
     ]
 
 
@@ -179,7 +187,7 @@ async def test_each_app_session_asks_once_on_a_card(settings, quiet_speaker, iso
     )
     (allowed, again), _ = await asyncio.gather(first, answer("allow"))
     assert allowed and again and len(cards) == 1  # two calls, one card
-    assert cards[0]["question"] == "Let Claude Desktop use your second brain, memory and calendar?"
+    assert cards[0]["question"] == "Let Claude Desktop use your second brain, memory, calendar and email?"
     assert "goes to that app" in cards[0]["detail"]
     assert await endpoint.session_ok(SESSION, "Claude Desktop") and len(cards) == 1
     other = "f" * 16
@@ -191,7 +199,7 @@ async def test_each_app_session_asks_once_on_a_card(settings, quiet_speaker, iso
     hub.prefs.language = "zh"
     third = "e" * 16
     _, _ = await asyncio.gather(endpoint.session_ok(third, "Claude Code"), answer("allow"))
-    assert cards[-1]["question"] == "允许 Claude Code 使用你的第二大脑、记忆和日历吗？"
+    assert cards[-1]["question"] == "允许 Claude Code 使用你的第二大脑、记忆、日历和邮件吗？"
     assert [s["app"] for s in endpoint.public()["sessions"]] == [
         "Claude Desktop",
         "Claude Code",
@@ -359,7 +367,7 @@ async def test_a_whole_call_from_the_bridge_over_the_apps_private_socket(
             }
         )
         listed = await bridge.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        assert len(listed["result"]["tools"]) == 5
+        assert len(listed["result"]["tools"]) == 13
         result = await bridge.handle(
             {
                 "jsonrpc": "2.0",

@@ -680,6 +680,8 @@ $('galaxy-close').addEventListener('click', () => setGalaxyMode('off'));
 // The same hands drive the galaxy while it's open and the rest of the app otherwise.
 let handsModule = null;
 let handsOn = false;
+let handsFromClaps = false; // the session running (or starting) is two claps' doing: on trial
+let noHandTimer = 0; // a clap-started session's deadline to show a hand (see startHandControl)
 let handHover = null;
 let handPoint = { x: 0, y: 0 };
 const LOOK_ORDER = ['orb', 'obsidian', 'console', 'glass'];
@@ -706,8 +708,13 @@ function desktopTarget() {
   return deskTarget;
 }
 let handsBlockedCard = null;
+// Whether the session a refusal ended was two claps' doing. Once Accessibility is granted,
+// features/hands-allowed.js starts hand control again by itself, but only a session the
+// owner started: nobody asked for the clap-started one, so it stays off.
+let handsBlockedFromClaps = false;
 function onDesktopHands(ev) {
   if (ev.state === 'blocked' || ev.state === 'error') {
+    handsBlockedFromClaps = handsOn && handsFromClaps;
     handHud({ blocked: true, status: ev.text });
     if (ev.state === 'error') notice('Hand control', 'Can’t steer the Mac', ev.text, 15000);
     else if (!handsBlockedCard || !handsBlockedCard.isConnected) {
@@ -792,7 +799,15 @@ function setHandButtons(on) {
   if (browserOpenNow) requestAnimationFrame(syncBrowserBounds); // the guide strip changes the slot
 }
 
-async function startHandControl() {
+// Hand control started by two claps (fromClaps) is on trial. The clap detector can still
+// take a pair of loud clicks (the odd key or cup set down) for claps, so a session it
+// started with no hand in sight within NO_HAND_MS switches the camera off again. The
+// buttons and the voice command are deliberate: no timer for them.
+async function startHandControl({ fromClaps = false } = {}) {
+  clearTimeout(noHandTimer);
+  noHandTimer = 0;
+  handsFromClaps = fromClaps;
+  handsBlockedFromClaps = false; // a new session, however it ends, is the one that counts
   handsOn = true;
   setHandButtons(true);
   $('hand-panel').hidden = false;
@@ -802,12 +817,29 @@ async function startHandControl() {
     const { target, close, help } = handTarget(); // now that the Mac's target can be made
     $('hand-help').textContent = help;
     if (target.kind === 'desktop' && window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(true);
+    const startedAt = performance.now(); // the same clock as hands.js's frame stamps
     await handsModule.startHands(target, {
       overlayCanvas: $('hand-overlay'),
       statusEl: $('hand-status'),
       cursorEl: $('hand-cursor'),
       close,
     });
+    if (!handsOn) {
+      // A "blocked" from the backend (or the owner's own stop) raced the camera opening and
+      // stopped hand control while nothing was open yet: close what opened since.
+      handsModule.stopHands();
+      return;
+    }
+    if (handsFromClaps) {
+      noHandTimer = setTimeout(() => {
+        noHandTimer = 0;
+        if (!handsOn) return;
+        if (handsModule.noHandSeen({ startedAt, seenAt: handsModule.handSeenAt(), now: performance.now() })) {
+          stopHandControl();
+          notice('Hand control', '', 'I heard two claps but saw no hand, so hand control is off again.', 8000);
+        }
+      }, handsModule.NO_HAND_MS + 50);
+    }
   } catch (err) {
     $('hand-status').textContent = `Hand control couldn't start: ${err.message || err}`;
     handsOn = false;
@@ -816,7 +848,17 @@ async function startHandControl() {
   }
 }
 
+// A spoken "turn on hand control" while a clap-started session is on trial (or still
+// starting): asked for now, so the trial ends and it stays on.
+function keepHandControl() {
+  handsFromClaps = false;
+  clearTimeout(noHandTimer);
+  noHandTimer = 0;
+}
+
 function stopHandControl() {
+  clearTimeout(noHandTimer);
+  noHandTimer = 0;
   handsOn = false;
   if (handsModule) handsModule.stopHands();
   if (window.jarvisApp && window.jarvisApp.desktopHands) window.jarvisApp.desktopHands(false);
@@ -2425,7 +2467,11 @@ function onSaved(ev) {
 // "Jarvis, open Jarvis Code / close the browser / turn on hand control."
 function applyUi(ev) {
   if (ev.action === 'hands') {
-    if (ev.on && !handsOn) startHandControl();
+    // Two claps (hub.double_clap says source "claps") get a session on trial; a spoken
+    // "turn on hand control" is deliberate and stays on, and said during a trial it ends
+    // the trial rather than being ignored as "already on".
+    if (ev.on && !handsOn) startHandControl({ fromClaps: ev.source === 'claps' });
+    else if (ev.on && handsOn && ev.source !== 'claps') keepHandControl();
     else if (!ev.on && handsOn) stopHandControl();
     return;
   }

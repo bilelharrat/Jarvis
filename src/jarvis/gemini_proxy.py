@@ -235,8 +235,10 @@ def to_gemini(body: dict[str, Any], signatures: Signatures | None = None) -> dic
 
 def thinking_level(body: dict[str, Any]) -> str | None:
     """How hard Gemini 3 Flash thinks, from what the request asked of Claude: a session that
-    thinks (Jarvis Code at high effort and up) gets Gemini's full thinking; one with thinking
-    off (JARVIS's voice turns) thinks lightly, about three times faster to the first word.
+    thinks (Jarvis Code at high effort and up) gets Gemini's full thinking, one that thinks
+    at low or medium effort (the session's effort, Model Router's pick) that level; one with
+    thinking off (JARVIS's voice turns) thinks lightly, about three times faster to the first
+    word.
     None leaves Gemini's default: Pro (thinking lightly, it leaks stray words into its reply
     and writes tool calls out as text instead of making them) and older models, which take
     no level."""
@@ -247,6 +249,8 @@ def thinking_level(body: dict[str, Any]) -> str | None:
         return None
     thinking = body.get("thinking") if isinstance(body.get("thinking"), dict) else {}
     effort = str((body.get("output_config") or {}).get("effort") or "").lower()
+    if thinking.get("type") in ("enabled", "adaptive") and effort in ("low", "medium"):
+        return effort  # a session's own effort below high (Jarvis Code's, or Model Router's)
     if thinking.get("type") in ("enabled", "adaptive") or effort in ("high", "xhigh", "max"):
         return None
     return "low"

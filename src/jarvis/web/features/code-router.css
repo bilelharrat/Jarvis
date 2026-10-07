@@ -1,0 +1,8 @@
+/* Model Router's ✦ chip in Jarvis Code's composer row (code-router.js); the chip and its
+   Route popover style themselves (in their shadow root), as in the Model Router app. */
+#jc-router { flex: none; }
+#jc-router[hidden] { display: none !important; }
+/* The router picks the effort: no effort pill while it's on (.jc-pill's display beats [hidden]). */
+#jc-effort[hidden] { display: none !important; }
+/* Obsidian orders the composer's pills (code-logbook.css): the chip goes right after the model's. */
+html body[data-skin="obsidian"] .deck.jc #jc-router { order: 3; }

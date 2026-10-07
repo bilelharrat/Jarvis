@@ -527,6 +527,32 @@ async def test_short_claude_code_turns_are_not_announced(settings, quiet_speaker
     assert [e for e in drain(q) if e["type"] == "alert"]
 
 
+async def test_code_finished_without_voice_is_a_card_not_speech(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """Voice off for the session: the finished turn is a card, never read aloud."""
+    hub = make_hub(settings, quiet_speaker, isolated=isolated)
+    await hub.start()
+    q = hub.subscribe()
+    hub.prefs.proactive_voice = True
+    spoken: list[str] = []
+    monkeypatch.setattr(hub, "_announce_later", spoken.append)
+    assert hub.voicecode.focus is None
+    hub._task_event(
+        "task_finished",
+        task_kind="code",
+        id=1,
+        label="Jarvis Code · x",
+        folder="x",
+        status="done",
+        elapsed=95,
+        result="Added the tests.",
+    )
+    alerts = [e for e in drain(q) if e["type"] == "alert"]
+    assert alerts and "Added the tests." in alerts[0]["text"]
+    assert spoken == []
+
+
 async def test_quiet_hours_routine_runs_without_a_sound(
     settings, quiet_speaker, isolated, monkeypatch
 ):
@@ -888,11 +914,11 @@ async def test_two_claps_turn_hand_control_on(settings, quiet_speaker, isolated)
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     hub.listener_factory = Listener
     await hub.start()
-    hub.set_prefs({"hands_free": True})
+    hub.set_prefs({"hands_free": True, "clap_hands": True})  # the clap gesture is opt-in
     q = hub.subscribe()
     hub._listener.on_double_clap()  # as the microphone's thread calls it
     await asyncio.sleep(0.01)
-    assert {"type": "ui", "action": "hands", "on": True} in drain(q)
+    assert {"type": "ui", "action": "hands", "on": True, "source": "claps"} in drain(q)
 
     hub.state = "speaking"  # JARVIS's own voice never counts
     hub._listener.on_double_clap()

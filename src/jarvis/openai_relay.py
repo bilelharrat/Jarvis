@@ -3,6 +3,12 @@ Messages API on one side and OpenAI's Chat Completions API on the other, so JARV
 Code can run on Ollama or LM Studio on this Mac, or on OpenRouter's, OpenAI's or any other
 server that speaks OpenAI's API, with their tools and streamed words.
 
+OpenAI's own API (api.openai.com) gets the Responses API (/v1/responses) instead: its
+reasoning models take function tools there at their reasoning effort, where Chat Completions
+refuses them ("Function tools with reasoning_effort are not supported ... use /v1/responses")
+or takes no request at all ("Responses API only" models). Any other server that answers Chat
+Completions that way gets that model's requests on its Responses API from then on.
+
 It listens on 127.0.0.1 only. Each provider has its own path on it (/p/<provider id>), which
 a session's ANTHROPIC_BASE_URL names (providers.session_pins). The key never lives here: each
 request carries it (Claude Code gets it from the Keychain through the provider's
@@ -36,6 +42,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import re
 import secrets
 from collections.abc import AsyncIterator, Callable
 from typing import Any
@@ -212,6 +219,117 @@ def to_openai(body: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# Claude Code's effort (output_config.effort) as OpenAI's reasoning effort.
+EFFORTS = {"low": "low", "medium": "medium", "high": "high", "max": "high"}
+EFFORTS["xhigh"] = "high"  # (as max: the highest every reasoning model takes)
+
+
+def reasoning_effort(body: dict[str, Any]) -> str | None:
+    """The session's effort (Claude Code sends it as output_config.effort, for every model)
+    as Chat Completions' reasoning_effort, so the effort Jarvis Code (or Model Router) chose
+    applies to other providers' models too. None when the request names none."""
+    config = body.get("output_config")
+    return EFFORTS.get(str(config.get("effort") or "")) if isinstance(config, dict) else None
+
+
+# Fewest output tokens the Responses API takes.
+MIN_OUTPUT_TOKENS = 16
+
+
+def _responses_content(content: Any) -> str | list[dict[str, Any]]:
+    """A Chat Completions user turn's content as Responses input content."""
+    if isinstance(content, str):
+        return content
+    parts: list[dict[str, Any]] = []
+    for part in content if isinstance(content, list) else []:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text":
+            parts.append({"type": "input_text", "text": str(part.get("text", ""))})
+        elif part.get("type") == "image_url":
+            url = (part.get("image_url") or {}).get("url")
+            if url:
+                parts.append({"type": "input_image", "image_url": str(url), "detail": "auto"})
+    return parts
+
+
+def to_responses(body: dict[str, Any]) -> dict[str, Any]:
+    """An Anthropic Messages request as an OpenAI Responses request (/v1/responses): the
+    API where OpenAI's reasoning models take function tools at their own reasoning effort
+    (Chat Completions refuses tools with reasoning for some of them)."""
+    return chat_to_responses(to_openai(body), body)
+
+
+def chat_to_responses(chat: dict[str, Any], body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A Chat Completions request (to_openai's) as a Responses one."""
+    instructions: list[str] = []
+    items: list[dict[str, Any]] = []
+    for message in chat.get("messages") or []:
+        role = message.get("role")
+        if role == "system":
+            instructions.append(str(message.get("content") or ""))
+        elif role == "assistant":
+            if message.get("content"):
+                items.append({"role": "assistant", "content": str(message["content"])})
+            for call in message.get("tool_calls") or []:
+                function = call.get("function") or {}
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": str(call.get("id") or _new_id("call")),
+                        "name": str(function.get("name", "")),
+                        "arguments": str(function.get("arguments") or "{}"),
+                    }
+                )
+        elif role == "tool":
+            items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": str(message.get("tool_call_id", "")),
+                    "output": str(message.get("content") or ""),
+                }
+            )
+        elif role == "user":
+            items.append({"role": "user", "content": _responses_content(message.get("content"))})
+    out: dict[str, Any] = {
+        "model": chat.get("model", ""),
+        "input": items,
+        "max_output_tokens": max(
+            MIN_OUTPUT_TOKENS,
+            int(chat.get("max_tokens") or chat.get("max_completion_tokens") or DEFAULT_MAX_TOKENS),
+        ),
+        "stream": bool(chat.get("stream")),
+        "store": False,  # nothing kept at OpenAI: each request carries the whole conversation
+    }
+    if instructions:
+        out["instructions"] = "\n\n".join(instructions)
+    if chat.get("tools"):
+        out["tools"] = [
+            {
+                "type": "function",
+                "name": t["function"]["name"],
+                "description": t["function"].get("description", ""),
+                "parameters": t["function"].get("parameters") or {"type": "object"},
+                "strict": False,
+            }
+            for t in chat["tools"]
+        ]
+        choice = chat.get("tool_choice", "auto")
+        if isinstance(choice, dict):
+            out["tool_choice"] = {"type": "function", "name": choice["function"]["name"]}
+        else:
+            out["tool_choice"] = choice
+    for key in ("temperature", "top_p"):
+        if chat.get(key) is not None:
+            out[key] = chat[key]
+    config = (body or {}).get("output_config")
+    effort = EFFORTS.get(str(config.get("effort") or "")) if isinstance(config, dict) else None
+    if effort:
+        out["reasoning"] = {"effort": effort}
+    # Stop sequences: the Responses API has none; Claude Code's own are never needed here.
+    return out
+
+
 def _json_object(text: str) -> dict[str, Any]:
     """A tool call's gathered arguments as an object; {} when they aren't one (a model that
     wrote half a call, or none)."""
@@ -346,7 +464,8 @@ class Stream:
     def _usage(self, usage: Any) -> None:
         if not isinstance(usage, dict):
             return
-        prompt, completion = usage.get("prompt_tokens"), usage.get("completion_tokens")
+        prompt = usage.get("prompt_tokens", usage.get("input_tokens"))  # Chat / Responses
+        completion = usage.get("completion_tokens", usage.get("output_tokens"))
         if isinstance(prompt, int) and not isinstance(prompt, bool):
             self.input_tokens = prompt
         if isinstance(completion, int) and not isinstance(completion, bool):
@@ -393,6 +512,75 @@ class Stream:
                     self._call(position, call)
             if choice.get("finish_reason"):
                 self.finish = str(choice["finish_reason"])
+        self._flush_calls()
+        self._close_text()
+
+    # ── the Responses API (/v1/responses) ──
+
+    def _ended(self, response: Any) -> None:
+        """How a Responses reply ended, and what it used."""
+        if not isinstance(response, dict):
+            return
+        self._usage(response.get("usage"))
+        if response.get("status") == "incomplete":
+            details = response.get("incomplete_details")
+            reason = details.get("reason") if isinstance(details, dict) else ""
+            self.finish = {"max_output_tokens": "length", "content_filter": "content_filter"}.get(
+                str(reason or ""), "stop"
+            )
+        elif response.get("status") == "completed" and not self.finish:
+            self.finish = "stop"
+
+    def _item_call(self, position: int, item: dict[str, Any]) -> None:
+        self._call(
+            position,
+            {
+                "id": item.get("call_id") or item.get("id"),
+                "function": {"name": item.get("name"), "arguments": item.get("arguments") or ""},
+            },
+        )
+
+    def responses_event(self, data: dict[str, Any]) -> str:
+        """One streamed Responses event: words go out at once; a tool call once it's whole
+        (response.output_item.done carries it with all its arguments)."""
+        kind = data.get("type")
+        if kind in ("response.output_text.delta", "response.refusal.delta"):
+            delta = data.get("delta")
+            if kind == "response.refusal.delta":
+                self.finish = "content_filter"
+            return self._text(delta) if isinstance(delta, str) and delta else ""
+        if kind == "response.output_item.done":
+            item = data.get("item")
+            if isinstance(item, dict) and item.get("type") == "function_call":
+                position = data.get("output_index")
+                position = position if isinstance(position, int) else len(self.calls)
+                out = self._close_text()
+                self._item_call(position, item)
+                return out
+            return ""
+        if kind in ("response.completed", "response.incomplete"):
+            self._ended(data.get("response"))
+        # Reasoning (and its summaries) is the model's own thinking, not part of the reply.
+        return ""
+
+    def responses_whole(self, data: dict[str, Any]) -> None:
+        """A non-streamed Responses reply, read into the same blocks."""
+        for position, item in enumerate(data.get("output") or []):
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "message":
+                for part in item.get("content") or []:
+                    if not isinstance(part, dict):
+                        continue
+                    if part.get("type") == "output_text" and part.get("text"):
+                        self._text(str(part["text"]))
+                    elif part.get("type") == "refusal" and part.get("refusal"):
+                        self.finish = "content_filter"
+                        self._text(str(part["refusal"]))
+            elif item.get("type") == "function_call":
+                self._close_text()
+                self._item_call(position, item)
+        self._ended(data)
         self._flush_calls()
         self._close_text()
 
@@ -492,6 +680,36 @@ def _said(body: bytes, key: str) -> str:
     return text
 
 
+CHAT, RESPONSES = "/v1/chat/completions", "/v1/responses"
+# Hosts whose every chat model takes the Responses API: OpenAI's own. There it's the API
+# for reasoning models (Chat Completions refuses function tools at a reasoning effort for
+# some, like the gpt-6 family, and takes none at all for the "Responses API only" ones).
+RESPONSES_HOSTS = frozenset({"api.openai.com"})
+# What a refusal that points to the Responses API says ("use /v1/responses", "only
+# supported in v1/responses").
+_POINTS_TO_RESPONSES = re.compile(r"v1/responses", re.IGNORECASE)
+# A parameter a model doesn't take ("Unsupported parameter: 'temperature' ...",
+# "Unsupported value: 'top_p' ...", "... 'reasoning.effort' ...").
+_UNSUPPORTED = re.compile(r"unsupported (?:parameter|value)s?:?\s*'([\w.]+)'", re.IGNORECASE)
+_ESSENTIAL = frozenset({"model", "messages", "input", "stream", "tools", "tool_choice"})
+
+
+def _stream_error(data: dict[str, Any]) -> str | None:
+    """The message of a streamed error: a Chat Completions chunk with an error in it, or the
+    Responses API's error and response.failed events. None when it isn't one."""
+    error = data.get("error")
+    if isinstance(error, dict | str):
+        said = error.get("message") if isinstance(error, dict) else error
+        return str(said or "")
+    if data.get("type") == "error":
+        return str(data.get("message") or data.get("code") or "")
+    if data.get("type") == "response.failed":
+        response = data.get("response") if isinstance(data.get("response"), dict) else {}
+        failure = response.get("error")
+        return str(failure.get("message") or "") if isinstance(failure, dict) else ""
+    return None
+
+
 class OpenAIRelay:
     """The translation and the calls to the provider; the HTTP server around it is below."""
 
@@ -499,13 +717,36 @@ class OpenAIRelay:
         self.client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(600, connect=15), follow_redirects=False
         )
+        # (upstream, model) a server sent to the Responses API: asked there from then on.
+        self.responses: set[tuple[str, str]] = set()
+        # (upstream, api, model) -> the parameters that model refused: left out from then on.
+        self.refused: dict[tuple[str, str, str], set[str]] = {}
+
+    def api_for(self, upstream: str, model: str) -> str:
+        """Which of OpenAI's APIs a request to this server and model goes to."""
+        host = (urlsplit(upstream).hostname or "").lower()
+        if host in RESPONSES_HOSTS or (upstream, model) in self.responses:
+            return RESPONSES
+        return CHAT
 
     async def _open(
-        self, upstream: str, key: str, payload: dict[str, Any], stream: bool
-    ) -> httpx.Response:
-        """POST it, and once more without what an older server refused (stream_options),
-        or with max_completion_tokens for a model that only takes that."""
-        url = f"{upstream.rstrip('/')}/v1/chat/completions"
+        self, upstream: str, key: str, body: dict[str, Any], stream: bool
+    ) -> tuple[httpx.Response, str]:
+        """POST it to the API this server and model take, and once more: without what an
+        older server refused (stream_options) or what a model doesn't take (temperature,
+        say); with max_completion_tokens for a model that only takes that; or to the
+        Responses API for a model Chat Completions sends there."""
+        chat = to_openai(body)
+        model = chat["model"]
+        api = self.api_for(upstream, model)
+        payload = chat if api == CHAT else chat_to_responses(chat, body)
+        effort = reasoning_effort(body)
+        if api == CHAT and effort:
+            # The session's effort, unless this server refused it for this model (below).
+            payload = {**payload, "reasoning_effort": effort}
+        for name in self.refused.get((upstream, api, model), ()):
+            payload.pop(name, None)
+        effort_dropped = False  # sent once more without the effort after a refusal
         headers = {
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
@@ -514,31 +755,55 @@ class OpenAIRelay:
         }
         attempts = 0
         while True:
+            url = f"{upstream.rstrip('/')}{api}"
             request = self.client.build_request("POST", url, json=payload, headers=headers)
             response = await self.client.send(request, stream=True)
             attempts += 1
-            if response.status_code != 400 or attempts >= 3:
-                return response
+            if response.status_code not in (400, 404) or attempts >= 5:
+                if effort_dropped and response.status_code < 400:
+                    # It went through without the effort: this model doesn't take one here.
+                    log.info("openai relay: %s doesn't take reasoning_effort", model)
+                    self.refused.setdefault((upstream, api, model), set()).add("reasoning_effort")
+                return response, api
             said = (await response.aread()).decode("utf-8", "replace")
             response._jarvis_body = said  # type: ignore[attr-defined]
-            if "stream_options" in said and "stream_options" in payload:
+            message = _said(said.encode(), key)  # the key never in it
+            unsupported = _UNSUPPORTED.search(message)
+            name = unsupported.group(1).split(".")[0] if unsupported else ""
+            if api == CHAT and _POINTS_TO_RESPONSES.search(message):
+                log.info("openai relay: %s sends %s to the Responses API", _where(upstream), model)
+                self.responses.add((upstream, model))
+                api, payload = RESPONSES, chat_to_responses(chat, body)
+                for dropped in self.refused.get((upstream, api, model), ()):
+                    payload.pop(dropped, None)
+            elif response.status_code != 400:
+                return response, api
+            elif "stream_options" in said and "stream_options" in payload:
                 payload = {k: v for k, v in payload.items() if k != "stream_options"}
             elif "max_completion_tokens" in said and "max_tokens" in payload:
                 payload = {**payload, "max_completion_tokens": payload["max_tokens"]}
                 del payload["max_tokens"]
+            elif name and name in payload and name not in _ESSENTIAL:
+                log.info("openai relay: %s doesn't take %s; sent without it", model, name)
+                self.refused.setdefault((upstream, api, model), set()).add(name)
+                payload = {k: v for k, v in payload.items() if k != name}
+            elif api == CHAT and "reasoning_effort" in payload and not effort_dropped:
+                # A server or model that doesn't take a reasoning effort and says so in words
+                # of its own (or not at all): once more without it, remembered if that works.
+                effort_dropped = True
+                payload = {k: v for k, v in payload.items() if k != "reasoning_effort"}
             else:
-                return response
+                return response, api
             await response.aclose()
 
     async def messages(
         self, upstream: str, key: str, body: dict[str, Any]
     ) -> tuple[int, dict[str, Any] | None, AsyncIterator[str] | None]:
         """(status, json, None) for an error or a whole reply; (200, None, events) to stream."""
-        payload = to_openai(body)
-        stream = bool(payload["stream"])
-        model = payload["model"]
+        stream = bool(body.get("stream"))
+        model = str(body.get("model") or "")
         try:
-            response = await self._open(upstream, key, payload, stream)
+            response, api = await self._open(upstream, key, body, stream)
         except httpx.ConnectError:
             return (*anthropic_error(400, _unreachable(upstream)), None)
         except httpx.TimeoutException:
@@ -552,6 +817,7 @@ class OpenAIRelay:
             said = _said(raw, key)
             where = _where(upstream)
             text = f"{where} answered {response.status_code}" + (f": {said}" if said else ".")
+            log.warning("openai relay: %s%s for %s: %s", where, api, model, text)
             return (*anthropic_error(response.status_code, text), None)
         converter = Stream(model)
         if not stream:
@@ -567,7 +833,11 @@ class OpenAIRelay:
                 data = json.loads(raw)
             except (ValueError, RecursionError):  # a web page, say: retrying won't help
                 return (*anthropic_error(400, f"{_where(upstream)} didn't answer in JSON."), None)
-            converter.whole(data if isinstance(data, dict) else {})
+            data = data if isinstance(data, dict) else {}
+            if api == RESPONSES:
+                converter.responses_whole(data)
+            else:
+                converter.whole(data)
             return 200, converter.message(), None
 
         async def events() -> AsyncIterator[str]:
@@ -585,14 +855,19 @@ class OpenAIRelay:
                         data = json.loads(text)
                     except (ValueError, RecursionError):
                         continue
-                    if isinstance(data, dict) and isinstance(data.get("error"), dict | str):
-                        error = data["error"]
-                        said = error.get("message") if isinstance(error, dict) else error
-                        said = _said(json.dumps({"error": str(said or "")}).encode(), key)
-                        log.warning("openai relay: the stream carried an error")
+                    if not isinstance(data, dict):
+                        continue
+                    error = _stream_error(data)
+                    if error is not None:
+                        said = _said(json.dumps({"error": error}).encode(), key)
+                        log.warning("openai relay: the stream carried an error: %s", said)
                         failed = f"{where} stopped with an error" + (f": {said}" if said else ".")
                         break
-                    piece = converter.chunk(data) if isinstance(data, dict) else ""
+                    piece = (
+                        converter.responses_event(data)
+                        if api == RESPONSES
+                        else converter.chunk(data)
+                    )
                     if piece:
                         yield piece
             except httpx.HTTPError as exc:

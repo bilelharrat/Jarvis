@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  APP_BOX, DESKTOP_BOX, classify, createDesktopGestures, createGestures, createPageGestures, desktopMessages, handSize, oneEuro,
-  pageBox, palmCenter, pinchGap, toDesktop, toPage, wellFormed,
+  APP_BOX, DESKTOP_BOX, NO_HAND_MS, classify, createDesktopGestures, createGestures, createPageGestures, desktopMessages, handSize,
+  noHandSeen, oneEuro, pageBox, palmCenter, pinchGap, toDesktop, toPage, wellFormed,
 } from '../../src/jarvis/web/gestures.js';
 
 // A right hand around (cx, cy): wrist at the bottom, fingers pointing up. `up` lists the
@@ -1048,4 +1048,30 @@ test('desktop: messages for the backend', () => {
     { type: 'desktop_hand', op: 'cancel' },
   ]);
   assert.equal(m.kind, 'desktop');
+});
+
+// ── a session two claps started (a key or a cup can sound like two claps) ──
+
+test('a clap-started session that showed a hand stays on past the deadline', () => {
+  const startedAt = 1000;
+  assert.equal(noHandSeen({ startedAt, seenAt: startedAt + 4000, now: startedAt + NO_HAND_MS }), false);
+  assert.equal(noHandSeen({ startedAt, seenAt: startedAt + 1, now: startedAt + NO_HAND_MS * 3 }), false);
+});
+
+test('a clap-started session is not judged before its deadline', () => {
+  const startedAt = 1000;
+  assert.equal(noHandSeen({ startedAt, seenAt: 0, now: startedAt }), false);
+  assert.equal(noHandSeen({ startedAt, seenAt: 0, now: startedAt + NO_HAND_MS - 1 }), false);
+});
+
+test('a clap-started session with no hand by the deadline switches off', () => {
+  const startedAt = 1000;
+  assert.equal(noHandSeen({ startedAt, seenAt: 0, now: startedAt + NO_HAND_MS }), true);
+  assert.equal(noHandSeen({ startedAt, seenAt: 0, now: startedAt + NO_HAND_MS + 50 }), true);
+});
+
+test('a hand seen before the session began does not count', () => {
+  const startedAt = 5000;
+  assert.equal(noHandSeen({ startedAt, seenAt: startedAt - 1, now: startedAt + NO_HAND_MS }), true);
+  assert.equal(noHandSeen({ startedAt, seenAt: startedAt, now: startedAt + NO_HAND_MS }), true);
 });

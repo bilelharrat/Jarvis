@@ -51,7 +51,7 @@ def test_the_old_local_research_address_moves_to_the_hosted_one(tmp_path):
     assert store.prefs.research_url == "https://app.bshventures.com/research"
     assert store.prefs.humor == 40
     store.save()
-    assert json.loads(path.read_text())["version"] == 5
+    assert json.loads(path.read_text())["version"] == 6
 
 
 def test_choosing_the_local_address_again_is_kept(tmp_path):
@@ -78,7 +78,7 @@ def test_a_new_install_has_no_research_center(tmp_path):
     assert store.prefs.research_url == ""
     store.save()
     saved = json.loads((tmp_path / "prefs.json").read_text())
-    assert saved["research_url"] == "" and saved["version"] == 5
+    assert saved["research_url"] == "" and saved["version"] == 6
     assert PrefsStore(tmp_path / "prefs.json").prefs.research_url == ""  # kept empty
 
 
@@ -145,3 +145,27 @@ def test_stark_glass_saved_dark_before_match_mac_was_the_default_follows_the_mac
     store.prefs.update({"glass_tone": "dark"})
     store.save()
     assert PrefsStore(path).prefs.glass_tone == "dark"
+
+
+def test_two_claps_for_hand_control_is_off_unless_turned_on():
+    """It heard everyday clicks as claps, so a first start has it off."""
+    assert Prefs().clap_hands is False
+
+
+def test_two_claps_saved_on_before_it_was_opt_in_go_off_once(tmp_path):
+    """It was on by default and fired on everyday clicks, so a file from before turns it off
+    (once, and the file moves to the format that says so); turned on since, it stays on."""
+    import json
+
+    path = tmp_path / "prefs.json"
+    path.write_text(json.dumps({"clap_hands": True, "version": 5}))
+    store = PrefsStore(path)
+    assert store.prefs.clap_hands is False
+    store.save()
+    assert json.loads(path.read_text())["version"] == 6
+    # Turned on in Settings since is kept.
+    store.prefs.update({"clap_hands": True})
+    store.save()
+    assert PrefsStore(path).prefs.clap_hands is True
+    path.write_text(json.dumps({"clap_hands": True, "version": 6}))
+    assert PrefsStore(path).prefs.clap_hands is True

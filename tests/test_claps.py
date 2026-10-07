@@ -1,4 +1,10 @@
-"""Two claps turn hand control on: the detector, on made-up microphone audio."""
+"""Two claps turn hand control on: the detector, on made-up microphone audio.
+
+A clap by the Mac is loud and everyday clicks (keys, the mouse, a cup set down) are not:
+clap(amp=A) peaks at about 0.7*A in 5 ms-frame RMS (down to about 0.5*A when its onset
+splits a frame), so amp 0.55 and up is surely a clap, amp 0.3-0.5 sits on the detector's
+0.2 floor (heard or not by where its onset falls in a frame), and amp 0.05-0.3 is the
+room's own clicking, which must never add up to a pair."""
 
 import numpy as np
 import pytest
@@ -37,9 +43,9 @@ def syllable(audio, at, amp=0.12, burst=True, length=0.18):
         clap(audio, at - 0.01, amp=0.3, echo=0)
 
 
-def run(audio, threshold=0.012):
+def run(audio, threshold=0.012, **options):
     """Feeds it block by block, as the microphone does; when each double clap was heard."""
-    detector = ClapDetector()
+    detector = ClapDetector(**options)
     block = int(RATE * BLOCK_SECONDS)
     heard = []
     for i in range(0, audio.size - block + 1, block):
@@ -93,10 +99,15 @@ def test_three_claps_are_not_two():
 
 
 def test_a_loud_and_a_faint_click_are_not_a_pair():
+    """Of about the same loudness: a clap and a click a third as loud are not a pair. Both
+    are over the floor (the faint one only just), so it's the loudness rule, not the floor,
+    that refuses them."""
     audio = room(3)
-    clap(audio, 1.0, amp=0.8)
-    clap(audio, 1.35, amp=0.08)
-    assert run(audio) == []
+    clap(audio, 1.0, amp=1.0)
+    clap(audio, 1.35, amp=0.32)
+    levels = []
+    assert run(audio, on_clap=levels.append) == []
+    assert len(levels) == 2 and min(levels) > 0.2  # both were claps: the floor had no say
 
 
 def test_talking_is_not_clapping():
@@ -120,6 +131,15 @@ def test_typing_is_not_clapping():
     while at < 4.2:
         clap(audio, at, amp=0.15, echo=0)
         at += rng.uniform(0.09, 0.3)
+    assert run(audio) == []
+
+
+def test_two_keys_a_pause_apart_are_not_claps():
+    """Two keystrokes (or mouse clicks) with a pause between and quiet around them have a
+    double clap's shape and timing, but not its loudness: the floor keeps them out."""
+    audio = room(3)
+    clap(audio, 1.0, amp=0.2, echo=0)
+    clap(audio, 1.4, amp=0.2, echo=0)
     assert run(audio) == []
 
 
@@ -147,16 +167,33 @@ def test_each_clap_is_reported_for_tuning():
     assert len(levels) == 1 and levels[0] > 0.05
 
 
+def test_the_pair_heard_is_kept_for_tuning():
+    """The two peaks and the gap of the pair just heard are kept, so the log can say how loud
+    a real double clap is next to the clicks the floor is meant to keep out."""
+    audio = room(3)
+    clap(audio, 1.0, amp=0.6)
+    clap(audio, 1.35, amp=0.6)
+    detector = ClapDetector()
+    block = int(RATE * BLOCK_SECONDS)
+    for i in range(0, audio.size - block + 1, block):
+        detector.feed(audio[i : i + block], 0.012)
+    assert detector.last_pair is not None
+    one, two, gap = detector.last_pair
+    assert one > 0.2 and two > 0.2
+    assert 0.3 <= gap <= 0.4
+
+
 def test_across_many_rooms_and_hands():
-    """Random loudness, pace and echo: nearly every pair is heard, and random talk and
-    typing almost never sound like one (the numbers this was tuned to; not a real room)."""
+    """Random loudness, pace and echo: nearly every pair of claps by the Mac (each clearly
+    over the floor, the two as uneven as a hand is) is heard, and random talk and typing
+    almost never sound like one (the numbers this was tuned to; not a real room)."""
     rng = np.random.default_rng(42)
     missed = 0
     for k in range(60):
         audio = room(3, seed=k)
-        gap, amp, echo = rng.uniform(0.18, 0.78), rng.uniform(0.12, 0.9), rng.uniform(0, 0.15)
-        clap(audio, 1.0, amp=amp, echo=echo, seed=k)
-        clap(audio, 1.0 + gap, amp=amp * rng.uniform(0.6, 1.4), echo=echo, seed=k + 7)
+        gap, echo = rng.uniform(0.18, 0.78), rng.uniform(0, 0.15)
+        clap(audio, 1.0, amp=rng.uniform(0.4, 0.9), echo=echo, seed=k)
+        clap(audio, 1.0 + gap, amp=rng.uniform(0.4, 0.9), echo=echo, seed=k + 7)
         missed += len(run(audio)) != 1
     false = 0
     for k in range(60):
@@ -168,7 +205,7 @@ def test_across_many_rooms_and_hands():
                 syllable(audio, at, amp=amp, burst=rng.random() < 0.5, length=length)
                 at += rng.uniform(0.15, 0.5)
             else:
-                clap(audio, at, amp=rng.uniform(0.05, 0.25), echo=0, seed=int(at * 100) + k)
+                clap(audio, at, amp=rng.uniform(0.05, 0.3), echo=0, seed=int(at * 100) + k)
                 at += rng.uniform(0.08, 0.35)
         false += bool(run(audio))
     assert missed <= 2
