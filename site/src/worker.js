@@ -61,6 +61,10 @@ const FALLBACK = {
 
 export default {
   async fetch(request, env, ctx) {
+    // Never serve anything over plain http: a sign-in from http:// would hand Google an http
+    // callback (redirect_uri_mismatch) and post forms unencrypted. 308 keeps a POST a POST.
+    const insecure = toHttps(request);
+    if (insecure) return insecure;
     return baseline(await route(request, env, ctx));
   },
 };
@@ -383,4 +387,14 @@ export class VoiceQuota {
     await this.storage.put(next);
     return Response.json({ ok: true, left: cap.install - next[keys.install] });
   }
+}
+
+/** A 308 to the https address for a plain-http request to a real host (local development excepted), else null. */
+export function toHttps(request) {
+  const url = new URL(request.url);
+  if (url.protocol !== 'http:') return null;
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(url.hostname) || url.hostname.endsWith('.localhost')) return null;
+  url.protocol = 'https:';
+  url.port = '';
+  return new Response(null, { status: 308, headers: { location: url.toString(), 'cache-control': 'public, max-age=3600' } });
 }

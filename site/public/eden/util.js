@@ -206,12 +206,13 @@ export function setSeg(seg, i) {
 }
 
 // Fit every segmented control's thumb to its chosen button once the page has laid out (setSeg does it afterwards).
-if (typeof document !== 'undefined') {
+if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'function') {
+  const later = (f) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(f) : setTimeout(f, 0));
   const fitAll = () => document.querySelectorAll('.seg').forEach((seg) => {
     if (!seg.querySelector('.seg-thumb') || segFit.has(seg)) return;
     const i = Math.max(0, [...seg.querySelectorAll('button')].findIndex((b) => b.classList.contains('on')));
     setSeg(seg, i);
   });
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(fitAll));
-  else requestAnimationFrame(fitAll);
+  if (document.readyState === 'loading' && typeof document.addEventListener === 'function') document.addEventListener('DOMContentLoaded', () => later(fitAll));
+  else later(fitAll);
 }

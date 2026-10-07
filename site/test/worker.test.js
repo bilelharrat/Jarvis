@@ -228,3 +228,13 @@ test('universal links: the Eden iOS app may open askeden.com links, never the AP
   for (const path of ['/api/*', '/signin*']) assert.ok(excluded.includes(path), `${path} stays in the browser`);
   assert.equal(detail.components.at(-1)['/'], '/*');
 });
+
+test('plain http is never served: every request goes to https (a POST stays a POST)', async () => {
+  const { toHttps } = await import('../src/worker.js');
+  const get = toHttps(new Request('http://askeden.com/signin?x=1'));
+  assert.equal(get.status, 308);
+  assert.equal(get.headers.get('location'), 'https://askeden.com/signin?x=1');
+  assert.equal(toHttps(new Request('http://askeden.com/api/web/google', { method: 'POST', body: 'a=1' })).status, 308);
+  assert.equal(toHttps(new Request('https://askeden.com/signin')), null);
+  assert.equal(toHttps(new Request('http://localhost:8787/')), null, 'local development');
+});
