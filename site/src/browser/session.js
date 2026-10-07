@@ -598,6 +598,13 @@ export class BrowserSession {
 
   frame(tab, e) {
     if (tab.id !== this.active || !this.ws) { tab.cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {}); return; }
+    // Taking the crisp picture makes Chrome paint once more: that frame is the same picture,
+    // only blurrier, so it's skipped (unless the viewer did something since).
+    if (this.crispAt && this.now() - this.crispAt < 600 && this.crispSeq === this.inputSeq) {
+      tab.cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {});
+      return;
+    }
+    this.crispAt = 0;
     this.send(bytesOf(e.data));
     if (this.flow.sent(e.sessionId)) tab.cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {});
     this.restSoon(tab);
@@ -613,11 +620,16 @@ export class BrowserSession {
     if (tab.id !== this.active || !this.ws || !this.browser) return;
     if (!this.flow.room) { this.restSoon(tab); return; }
     const seq = this.inputSeq;
+    // Once per burst of input; while a page keeps changing by itself, at most every 2 seconds.
+    if (this.lastCrisp && seq === this.lastCrisp.seq && this.now() - this.lastCrisp.at < 2000) return;
+    this.lastCrisp = { seq, at: this.now() };
     const r = await tab.cdp.send('Page.captureScreenshot', { format: 'webp', quality: CAST.rest, fromSurface: true });
     if (!r || !r.data || tab.id !== this.active || !this.ws) return;
     if (seq !== this.inputSeq) { this.restSoon(tab); return; }
     this.send(bytesOf(r.data));
     this.flow.sent(null);
+    this.crispAt = this.now();
+    this.crispSeq = seq;
   }
 
   async evaluate(tab, expression) {

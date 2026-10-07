@@ -418,6 +418,13 @@ test('session: the panel’s density reaches Chrome; a still picture gets one cr
   await new Promise((r) => setTimeout(r, 300));
   assert.equal(cdp.of('Page.captureScreenshot').length, 1);
   assert.equal(s.out.filter((m) => m instanceof Uint8Array).length, 2, 'the moving frame, then the crisp one');
+  await s.onMessage({ t: 'ack' });
+  cdp.emit('Page.screencastFrame', { sessionId: 2, data: btoa('JPEG') });
+  assert.equal(s.out.filter((m) => m instanceof Uint8Array).length, 2, 'the repaint the capture causes is skipped');
+  assert.equal(cdp.of('Page.screencastFrameAck').at(-1).sessionId, 2);
+  await s.onMessage({ t: 'mouse', e: 'move', x: 1, y: 1 });
+  cdp.emit('Page.screencastFrame', { sessionId: 3, data: btoa('JPEG') });
+  assert.equal(s.out.filter((m) => m instanceof Uint8Array).length, 3, 'after input, frames flow again');
   cdp.emit('Runtime.bindingCalled', { name: '__edenCursor', payload: 'pointer' });
   cdp.emit('Runtime.bindingCalled', { name: '__edenCursor', payload: 'pointer' });
   assert.deepEqual(s.out.filter((m) => m.t === 'cursor').map((m) => m.c), ['pointer'], 'told once per change');
