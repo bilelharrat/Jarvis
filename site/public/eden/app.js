@@ -1216,3 +1216,42 @@ document.addEventListener('scroll', (e) => {
   clearTimeout(scrollHide.get(box));
   scrollHide.set(box, setTimeout(() => box.classList.remove('is-scrolling'), 900));
 }, { capture: true, passive: true });
+
+// The sidebar's edge (#side-split, app.css): drag to set its width (200–480px, kept in this browser), double-click resets.
+(() => {
+  const side = document.getElementById('sidebar');
+  if (!side) return;
+  const KEY = 'eden:sideW';
+  const root = document.documentElement;
+  const set = (px) => { const w = Math.round(Math.min(480, Math.max(200, px))); root.style.setProperty('--side-w', `${w}px`); return w; };
+  try { const saved = Number(localStorage.getItem(KEY)); if (saved > 0) set(saved); } catch { /* blocked */ }
+  const h = document.createElement('div');
+  h.id = 'side-split';
+  h.tabIndex = 0;
+  h.setAttribute('role', 'separator');
+  h.setAttribute('aria-orientation', 'vertical');
+  h.setAttribute('aria-label', 'Resize the sidebar');
+  h.title = 'Drag to resize · double-click to reset';
+  side.after(h);
+  const save = (w) => { try { localStorage.setItem(KEY, String(w)); } catch { /* blocked */ } };
+  h.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    h.setPointerCapture(e.pointerId);
+    h.classList.add('drag');
+    document.body.classList.add('side-resizing');
+    const left = side.getBoundingClientRect().left;
+    let w = side.offsetWidth;
+    const move = (ev) => { w = set(ev.clientX - left); };
+    const up = () => { h.removeEventListener('pointermove', move); h.classList.remove('drag'); document.body.classList.remove('side-resizing'); save(w); };
+    h.addEventListener('pointermove', move);
+    h.addEventListener('pointerup', up, { once: true });
+    h.addEventListener('pointercancel', up, { once: true });
+  });
+  h.addEventListener('dblclick', () => { root.style.removeProperty('--side-w'); try { localStorage.removeItem(KEY); } catch { /* blocked */ } });
+  h.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    save(set(side.offsetWidth + (e.key === 'ArrowRight' ? 20 : -20)));
+  });
+})();

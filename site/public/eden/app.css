@@ -73,7 +73,7 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 #center{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
 
 /* ============ SIDEBAR ============ */
-#sidebar{width:260px;flex:none;border-radius:var(--r-lg);display:flex;flex-direction:column;overflow:hidden;
+#sidebar{width:var(--side-w,260px);flex:none;border-radius:var(--r-lg);display:flex;flex-direction:column;overflow:hidden;
   transition:width .38s var(--spring),transform .38s var(--spring),opacity .25s ease,margin .38s var(--spring),visibility 0s linear 0s}
 /* collapse animates (no display:none) and leaves the tab order once closed */
 #sidebar.closed{width:0;margin-right:-12px;opacity:0;pointer-events:none;visibility:hidden;
@@ -865,6 +865,7 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 /* ============ RESPONSIVE ============ */
 @media(max-width:1100px){
   #sidebar{width:64px}
+  #side-split{display:none}
   #sidebar .lbl,#sidebar .sub,#sidebar .dots,#sidebar .sec-h .txt,#sidebar .sec-add,#sidebar .side-foot .grow,#sidebar .fake span,#sidebar .fake kbd,#sidebar .sec-sub,#sidebar .side-empty,#sidebar .sitem.child,#sidebar .pin-ic{display:none}
   #sidebar .side-search{flex-direction:column}
   #sidebar .sitem{justify-content:center;padding:8px 0}
@@ -971,3 +972,11 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 @media (hover:none),(pointer:coarse){
   :root:not(.eden-kbd) :is(#cc-mode,.kbdhint,.pal-foot,.jc-menu-foot,.jc-mi .k,.side-search .fake kbd,#sidebar .fake kbd,#sidebar.expanded .fake kbd){display:none !important}
 }
+
+/* The sidebar's edge: drag to resize (double-click resets); kept per browser. */
+#side-split{flex:none;width:12px;margin:0 -12px;align-self:stretch;cursor:col-resize;position:relative;z-index:5;touch-action:none}
+#side-split::after{content:"";position:absolute;top:18px;bottom:18px;left:5px;width:2px;border-radius:2px;background:transparent;transition:background .15s}
+#side-split:hover::after,#side-split.drag::after,#side-split:focus-visible::after{background:rgb(var(--c-accent) / .55)}
+#sidebar.closed + #side-split{display:none}
+body.side-resizing{cursor:col-resize;user-select:none}
+body.side-resizing #sidebar{transition:none}
