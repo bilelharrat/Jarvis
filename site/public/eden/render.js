@@ -139,6 +139,11 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   }
   for (const a of node.approvals || []) bubble.append(approvalCard(c, node, a)); // actions the server's gate holds (H8)
   for (const n of node.notes || []) bubble.append(el('div', 'notice warn', n));
+  if (node.memory) { // memory across chats changed in this turn: the chip opens Settings › Memory (app.js)
+    const m = node.memory;
+    const label = m.action === 'deleted' || m.action === 'cleared' ? 'Memory updated · forgotten' : m.action === 'kept' ? 'Already in memory' : 'Memory updated';
+    bubble.append(el('button', { type: 'button', class: 'mem-chip', title: m.text || 'Manage memory', onclick: () => dispatchEvent(new CustomEvent('eden:open-memory')) }, ico('bulb', 12), label));
+  }
   if (node.error) {
     const plus = limitAction(node.error); // the included AI ran out: Get Plus (plan.js), where it's sold here
     bubble.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', node.error), plus,

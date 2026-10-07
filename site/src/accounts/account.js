@@ -27,6 +27,7 @@ import { userKeysOp } from './user-keys.js';
 import { webClosed, webListen, webMessage, webOp } from './webrelay.js';
 import { publishedOp } from './published.js';
 import { edenSyncOp } from './eden-sync.js';
+import { memoryOp } from '../eden/memory.js';
 import { delegateOp, grantAllow, grantGuard, grantView, poolSpend } from './delegates.js';
 import { mailDue, mailOp, runAlarms, scheduleJob, unscheduleJob } from './schedule.js';
 import { taskDue, taskOp } from './tasks.js';
@@ -116,6 +117,7 @@ export class Account {
       if (op.startsWith('stripe-')) return await stripeOp(this, op, request); // Plus bought on the web, F15 (stripe-plan.js)
       if (op.startsWith('mailup-')) return await mailUploadOp(this, op, request); // hosted Gmail's attachments uploaded ahead (mail-uploads.js)
       if (op.startsWith('ukeys-')) return await userKeysOp(this, op, request); // the owner's own API keys, sealed (user-keys.js)
+      if (op.startsWith('mem-')) return await memoryOp(this, op, request); // Eden's memory across chats, sealed (eden/memory.js)
       const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
       if (op === 'signin') return json(await this.signIn(body));
       if (op === 'notification') return json(await this.notification(body));

@@ -89,6 +89,7 @@ export function openSpace(key, opts = {}) {
   body.replaceChildren();
   body.classList.toggle('mailx', key === 'mail'); // the Mail panel lays out its own panes (mail.js)
   $('spacePanel').classList.toggle('mailp', key === 'mail');
+  paintFull(key === 'mail' && fullPref());
   if (key === 'mail') { mailPanel(body).catch((e) => { failed(body, e); focusFirst(); }); requestAnimationFrame(() => focusMail(body) || focusFirst()); return; }
   if (key === 'memory') { memory(body); return; } // the Memory page shows its own needs-your-Mac state
   if (!state.jarvis.available && key !== 'routines' && !s.offMac) { body.append(unavailable(key)); focusFirst(); return; }
@@ -253,3 +254,23 @@ export function initPanels(handlers) {
   });
 }
 export { ui };
+
+// Mail full screen: the header's expand button (and a double-click on the header) fills the window; remembered per browser.
+const FULL_KEY = 'eden:mail:full';
+function fullPref() { try { return localStorage.getItem(FULL_KEY) === '1'; } catch { return false; } }
+function paintFull(on) {
+  const p = $('spacePanel'), b = $('btnSpFull');
+  p.classList.toggle('full', on);
+  if (!b) return;
+  b.setAttribute('aria-pressed', String(on));
+  b.title = b.ariaLabel = on ? 'Exit full screen' : 'Full screen';
+  b.querySelector('use')?.setAttribute('href', on ? '#i-collapse' : '#i-expand');
+}
+function toggleFull() {
+  if (!$('spacePanel').classList.contains('mailp')) return;
+  const on = !$('spacePanel').classList.contains('full');
+  paintFull(on);
+  try { localStorage.setItem(FULL_KEY, on ? '1' : '0'); } catch { /* blocked */ }
+}
+$('btnSpFull')?.addEventListener('click', toggleFull);
+document.querySelector('#spacePanel .sp-head')?.addEventListener('dblclick', (e) => { if (!e.target.closest('button')) toggleFull(); });

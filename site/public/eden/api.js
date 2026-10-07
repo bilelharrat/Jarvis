@@ -159,6 +159,9 @@ export const api = {
   route: (body, signal) => postJSON('/api/route', body, { signal }),
   keys: () => getJSON('/api/chat/keys'),
   setKey: (provider, key) => postJSON('/api/chat/keys', { provider, key }),
+  // Eden's memory across chats on askeden.com (Settings › Memory): { on, notice, items }
+  memory: () => getJSON('/api/chat/memory'),
+  memoryDo: (body) => postJSON('/api/chat/memory', body),
   jarvisStatus: () => getJSON('/api/chat/jarvis/status'),
   jarvis: (tool, args = {}) => watchApproval(postJSON('/api/chat/jarvis', { tool, arguments: args })),
   projects: () => getJSON('/api/chat/projects'),

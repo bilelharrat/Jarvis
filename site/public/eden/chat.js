@@ -180,6 +180,8 @@ export async function runChat(c, node, { override } = {}) {
     ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac (first: it may drop a local sticky)
     ...macBody(c), // G2/H11: { mac: { files, knowledge } }: the server reads the Mac first (files.js)
     messages: [...historyFor(c, user), userPayload(user)],
+    // memory across chats: a temporary chat neither reads nor writes it; the chat's id is a memory's source
+    ...(c.temp ? { temporary: true } : { chatId: c.id }),
     settings: routeSettings(),
     mode: node.mode === 'search' || node.mode === 'research' ? node.mode : 'chat',
     ...(ov ? { override: ov } : {}),
@@ -226,6 +228,7 @@ export async function runChat(c, node, { override } = {}) {
           case 'error': node.error = d.message || 'The turn failed.'; break;
           // H8: what the turn read from outside (guard.js source strip), and actions the server's gate holds for the owner
           case 'provenance': node.provenance = d; break;
+          case 'memory': node.memory = d; break; // "Memory updated" chip under the reply (render.js), opens Settings › Memory
           case 'approval': (node.approvals = node.approvals || []).push(d); break;
           case 'mac': macEvent(c, node, d); break; // what the turn read on the Mac (files.js cards)
           case 'done': node.finish = d.finish || 'stop'; break;

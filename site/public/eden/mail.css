@@ -267,3 +267,9 @@
 .mx-split::after{content:"";position:absolute;top:0;bottom:0;left:5px;width:1px;background:transparent;transition:background .15s}
 .mx-split:hover::after,.mx-split.drag::after{background:var(--accent);width:2px;left:4.5px}
 .mx.resizing{user-select:none;cursor:col-resize}
+
+/* Mail full screen (the panel header's expand button, panels.js): the whole window, kept per browser. */
+#btnSpFull{display:none}
+#spacePanel.mailp #btnSpFull{display:flex}
+#spacePanel.mailp.full{left:12px;top:12px;right:12px;bottom:12px;width:auto;height:auto;max-height:none;transform:none;border-radius:18px}
+@media (max-width:640px){#spacePanel.mailp #btnSpFull{display:none}}

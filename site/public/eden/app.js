@@ -687,6 +687,37 @@ function openSettings(i = 0) {
   requestAnimationFrame(() => $('setSeg').querySelectorAll('button')[i].focus());
 }
 function closeSettings() { if (!$('settingsSheet').classList.contains('open')) return false; $('settingsSheet').classList.remove('open'); focusComposer(); return true; }
+/** Settings › Memory (askeden.com): memory across chats on/off, the saved memories, delete one or all. */
+async function drawMemory(body, hosted) {
+  const hero = setHero('bulb', 'Memory', 'Eden remembers helpful details across chats, like your name, preferences and projects.', 'mem');
+  if (!hosted) { body.replaceChildren(hero, el('div', 'set-sec', el('div', 'icard', el('p', '', 'On this Mac, memory across chats comes from J.A.R.V.I.S. Saved memories are an askeden.com feature.')))); return; }
+  body.replaceChildren(hero, el('div', 'set-skel', el('span', 'sk'), el('span', 'sk')));
+  let m;
+  try { m = await api.memory(); } catch (e) { body.replaceChildren(hero, el('div', 'sp-warn', el('b', '', 'Couldn’t read your memory'), e.message)); return; }
+  if (setTabI !== 4) return;
+  const act = async (req, done) => {
+    try { m = await api.memoryDo(req); if (done) toast(done); } catch (e) { toast(`Couldn’t change memory: ${e.message}`); }
+    if (setTabI === 4) paint();
+  };
+  const paint = () => {
+    const sw = el('input', { type: 'checkbox', 'aria-label': 'Use memory across chats' });
+    sw.checked = m.on !== false;
+    sw.addEventListener('change', () => act({ action: 'prefs', on: sw.checked }, sw.checked ? 'Memory on' : 'Memory off: nothing is read or saved'));
+    const rows = (m.items || []).map((x) => el('div', 'mem-row',
+      el('div', 'grow', x.text, el('span', 'muted', `${x.how === 'explicit' ? 'You asked' : x.how === 'manual' || x.how === 'edited' ? 'Added in Settings' : 'Picked up from a chat'} · ${new Date(x.updated).toLocaleDateString()}`)),
+      el('button', { type: 'button', class: 'btn icon', title: 'Delete this memory', 'aria-label': 'Delete this memory', onclick: () => act({ action: 'delete', id: x.id }, 'Memory deleted') }, ico('trash', 14))));
+    const clear = el('button', { type: 'button', class: 'btn', disabled: !rows.length, onclick: () => { if (confirm('Delete all saved memories? This can’t be undone.')) act({ action: 'clear' }, 'All memories deleted'); } }, ico('trash', 14), 'Delete all');
+    body.replaceChildren(hero,
+      m.notice ? el('div', 'notice', 'New: Eden now remembers helpful details across chats, and you can say “remember that…” or “forget that…”. Temporary chats never use memory. Turn it off here any time.') : null,
+      el('div', 'set-sec', el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Use memory across chats'), el('div', 'p-c', 'Eden saves useful details from your chats and uses them in later ones. Off: nothing is read or saved. Temporary chats never use memory.')), el('label', 'switch', sw, el('span', 'tr'))))),
+      el('div', 'set-sec', el('h3', '', `Saved memories (${rows.length})`), el('div', 'icard', ...(rows.length ? rows : [el('p', 'muted', 'Nothing saved yet. Say “remember that…” in a chat, or just chat: Eden picks up useful details.')])),
+        el('p', 'sp-note', 'Stored encrypted on your account, never shared with delegates or team spaces. Deleting your account deletes them.'),
+        el('div', 'dlg-acts', clear)));
+    if (m.notice) { m.notice = false; api.memoryDo({ action: 'prefs', noticed: true }).catch(() => {}); }
+  };
+  paint();
+}
+addEventListener('eden:open-memory', () => openSettings(4));
 /** A settings page's header: its icon tile, title and a line on what it's for. */
 function setHero(icon, title, desc, tone) {
   return el('div', `set-hero t-${tone}`, el('span', 'set-tile', ico(icon, 18)), el('div', 'grow', el('h3', 'set-h', title), el('p', 'set-d', desc)));
@@ -727,6 +758,8 @@ async function drawSettings() {
     body.replaceChildren(setHero('palette', 'Appearance', 'How Eden looks, and how it sounds.', 'pal'),
       el('div', 'set-sec', el('h3', '', 'Theme'), tiles,
         el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')), voiceSettings());
+  } else if (setTabI === 4) {
+    drawMemory(body, hosted);
   } else if (setTabI === 3) {
     const sw = el('input', { type: 'checkbox', 'aria-label': 'Claude counts as subscription' });
     sw.checked = !!state.settings.subscriptionClaude;

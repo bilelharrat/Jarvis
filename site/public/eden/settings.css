@@ -19,7 +19,8 @@
 #setSeg [data-i="1"] .st-ic,.t-acct .set-tile{--t1:#5ac8fa;--t2:#0a84ff}
 #setSeg [data-i="2"] .st-ic,.t-pal .set-tile{--t1:#da8fff;--t2:#9b51e0}
 #setSeg [data-i="3"] .st-ic,.t-route .set-tile{--t1:#4cd97b;--t2:#20a85a}
-#setSeg [data-i="4"] .st-ic,.t-info .set-tile{--t1:#a1a1a6;--t2:#6e6e73}
+#setSeg [data-i="4"] .st-ic,.t-mem .set-tile{--t1:#ff9ad5;--t2:#e0458f}
+#setSeg [data-i="5"] .st-ic,.t-info .set-tile{--t1:#a1a1a6;--t2:#6e6e73}
 #setSeg button.on .st-ic{box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}
 .set-card .sheet-body{padding:20px 26px 26px;scroll-behavior:smooth}
 .set-card .sheet-body>*{animation:setin .32s var(--spring) both}
@@ -147,3 +148,11 @@
   .theme-tiles{gap:8px}
   .tt-label span:last-child{display:none}
 }
+
+/* Memory (Settings › Memory): saved memories across chats */
+#setBody .mem-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:.5px solid var(--hairline)}
+#setBody .mem-row:first-child{border-top:0}
+#setBody .mem-row .grow{min-width:0;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+#setBody .mem-row .muted{display:block;margin-top:2px}
+.mem-chip{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;border:0;cursor:pointer;background:rgba(224,69,143,.12);color:var(--text2)}
+.mem-chip:hover{background:rgba(224,69,143,.2)}
