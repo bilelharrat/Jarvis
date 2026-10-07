@@ -309,7 +309,7 @@ function renderTitle() {
   $('tbCtxPct').textContent = `${pct}%`;
   $('ctxArc').setAttribute('stroke-dashoffset', String(40.2 * (1 - pct / 100)));
   $('tbCtx').title = `Context window: ${pct}% · session ${fmtCost(s.total)}`;
-  $('btnConvMenu').disabled = !c;
+  $('btnConvMenu').disabled = false; // ••• always opens: a new chat gets its own short menu (convMenu)
   paintPrivacy(); // G9: the title bar's lock follows the chat
 }
 
@@ -636,6 +636,16 @@ function editPersona(id) {
       el('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save'))));
 }
 function convMenu(anchor, c) {
+  if (!c) { // a new chat, nothing sent yet: still a menu, never a dead button
+    openMenu(anchor, [
+      { heading: 'New chat' },
+      { label: 'Rename', disabled: true, note: 'Send a message first' },
+      { label: 'Browser', key: '⌘⇧B', run: () => toggleBrowser() },
+      { label: 'Command palette', key: '⌘K', run: () => openPalette() },
+      { label: 'Settings', key: '⌘,', run: () => openSettings(0) },
+    ]);
+    return;
+  }
   openMenu(anchor, [
     { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } },
     ...(c.temp ? [] : [{ label: c.pinned ? 'Unpin' : 'Pin', run: () => togglePin(c) }]),
@@ -1084,7 +1094,7 @@ function init() {
   $('btnSidebarDesk').addEventListener('click', () => toggleSidebar());
   $('btnInspector').addEventListener('click', toggleInspector);
   $('btnInspClose').addEventListener('click', closeInspector);
-  $('btnConvMenu').addEventListener('click', () => { if (state.current) convMenu($('btnConvMenu'), state.current); });
+  $('btnConvMenu').addEventListener('click', () => { const b = $('btnConvMenu'); if (!$('jc-menu').hidden && $('jc-menu')._anchor === b) closeMenu(); else convMenu(b, state.current); });
   $('btnDrawerClose').addEventListener('click', () => toggleDrawer(false));
   $('scrim').addEventListener('click', closeOverlays);
   $('inspSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) inspTab(b.dataset.tab); });
@@ -1131,7 +1141,7 @@ function init() {
   addEventListener('eden:acting', () => { renderSidebar(); checkJarvis().then(() => renderComposer()); }); // account.js: acting for someone began or ended under the page
   addEventListener('eden:open-inspector', (e) => openInspector((e.detail && e.detail.tab) || 'Route'));
   loadProjects().then(() => renderSidebar());
-  initBrowserPane({ openSpace });
+  initBrowserPane({ openSpace, addContext, sendMessage, focusComposer, openPalette });
   checkJarvis().then(() => { renderComposer(); browserJarvisChanged(); if (curTab === 'Memory') renderMemoryTab(true); });
   // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {

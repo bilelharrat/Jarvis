@@ -142,6 +142,19 @@ new_sqlite_classes = ["Identity"]
 tag = "v4"
 new_sqlite_classes = ["Space"]
 
+# Eden's cloud browser (src/browser/session.js): one per account, a Chrome on Browser Rendering.
+[[durable_objects.bindings]]
+name = "BROWSER_SESSIONS"
+class_name = "BrowserSession"
+
+[[migrations]]
+tag = "v5"
+new_sqlite_classes = ["BrowserSession"]
+
+# Browser Rendering (Workers Paid: 10 browser hours and 10 concurrent browsers a month included).
+[browser]
+binding = "BROWSER"
+
 [[ratelimits]]
 name = "VOICE_RATE"
 namespace_id = "1001"
@@ -170,6 +183,12 @@ simple = { limit = 20, period = 60 }
 [[ratelimits]]
 name = "EDEN_RATE"
 namespace_id = "1005"
+simple = { limit = 20, period = 60 }
+
+# The cloud browser: connects a minute per account.
+[[ratelimits]]
+name = "BROWSER_RATE"
+namespace_id = "1006"
 simple = { limit = 20, period = 60 }
 
 # Keep the R2 bucket last: wrangler.nor2.toml is this file up to here (deploys before R2).

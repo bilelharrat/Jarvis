@@ -19,6 +19,7 @@
 //   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
 //   POST /api/chat/voice    the same for Eden's Read aloud and talk mode, on the signed-in browser's account
 //   /api/web/…              signing a browser in to Eden (eden/session.js)
+//   /api/chat/browser       the browser panel's cloud browser, a WebSocket (browser/api.js, browser/session.js)
 //   /api/chat/…, /api/route hosted Eden (eden/chat.js)
 //   /eden/connect, /api/eden/…   @Eden for Eden Messenger: connect, then ask (eden/ask.js)
 //   POST /api/stripe/webhook   Stripe's events for Plus bought on the web (eden/billing.js); nothing else under /api/stripe
@@ -42,6 +43,8 @@ import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
 import { LANDING_CSP, baseline, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
 
 export { Account, Identity, Link, Space } from './accounts/index.js';
+export { BrowserSession } from './browser/session.js';
+import { BROWSER_PATH, browserApi } from './browser/api.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
 
 const LATEST = 'latest.json';
@@ -72,6 +75,7 @@ async function route(request, env, ctx) {
     if (path === '/api/stripe' || path.startsWith('/api/stripe/')) return stripeApi(request, env, ctx, path);
     const refused = fromElsewhere(request, path);
     if (refused) return refused;
+    if (path === BROWSER_PATH) return browserApi(request, env); // the cloud browser's socket (browser/api.js)
     if (path === '/api/voice' || path === '/api/chat/voice') return voice(request, env, path);
     if (path === '/api/route' || path === '/api/chat' || path.startsWith('/api/chat/')) return chatApi(request, env, ctx, path);
     if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);
