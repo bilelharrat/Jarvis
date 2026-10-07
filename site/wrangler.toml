@@ -81,8 +81,8 @@ GOOGLE_CLIENT_ID = "276467237017-cr8pkfhbunm94on8vbi6o0pj11tq7bdm.apps.googleuse
 # for new subscriptions). Any of the three missing keeps billing off. A live key is refused unless
 # STRIPE_LIVE = "1". STRIPE_IN_EDEN_APP = "1" also offers it inside the Eden iOS app (off: Apple's
 # in-app purchase rules; for the US link-out later).
-STRIPE_PRICE_PLUS = "price_1UNkUWRqjDshFbQicaYCqIeb"
-STRIPE_LIVE = ""
+STRIPE_PRICE_PLUS = "price_1UNyviRqjDshFbQioPdAvCuu"
+STRIPE_LIVE = "1"
 STRIPE_IN_EDEN_APP = ""
 # Cloudflare Turnstile on sign-up (src/accounts/turnstile.js; docs/web-auth.md "Turnstile"): the
 # widget's site key here, and the secret TURNSTILE_SECRET (npx wrangler secret put TURNSTILE_SECRET).
