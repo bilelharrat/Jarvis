@@ -2,6 +2,9 @@
 // text nodes, so no HTML in a reply can run). Headings, lists (nested), bold/italic/strike,
 // links (http/https only, rel=noopener), inline code, fenced code with a header (language,
 // Copy, Open in canvas / code view), tables, blockquotes, rules, [n] citations.
+// Images never load here (they're drawn as links; the page CSP blocks other sites' images too).
+// With opts.untrusted (a reply that read content from outside: guard.js), each link also shows
+// its full destination and an image becomes a click-to-load placeholder (button.g-img).
 
 import { el, ico } from './util.js';
 
@@ -223,12 +226,25 @@ export function safeUrl(u) {
   } catch { return null; }
 }
 
-function link(href, kids, out) {
+function link(href, kids, out, opts = {}, image = false) {
   const safe = safeUrl(href);
   if (!safe) { out.append(...kids); return; }
-  const a = el('a', { href: safe, target: '_blank', rel: 'noopener noreferrer' });
+  if (opts.untrusted && image) { out.append(heldImage(kids, safe)); return; }
+  const a = el('a', { href: safe, target: '_blank', rel: 'noopener noreferrer', ...(opts.untrusted ? { referrerpolicy: 'no-referrer', title: safe } : {}) });
   a.append(...kids);
   out.append(a);
+  // A link in a reply that read untrusted content says where it really goes.
+  const shown = a.textContent.trim();
+  if (opts.untrusted && shown !== safe && shown !== href) out.append(el('span', 'g-dest', `(${safe})`));
+}
+
+/** An image from a reply that read untrusted content: not loaded; a click shows where it is (guard.js). */
+function heldImage(kids, url) {
+  const alt = kids.map((k) => k.textContent).join('').trim() || 'Image';
+  let host = url;
+  try { host = new URL(url).hostname; } catch { /* keep the URL */ }
+  return el('button', { type: 'button', class: 'g-img', 'data-url': url, title: url, 'aria-expanded': 'false', 'aria-label': `Image “${alt}” from ${host}, not loaded. Show where it is.` },
+    ico('art', 14), el('span', 'g-img-t', alt), el('span', 'g-img-h', `${host} · not loaded`));
 }
 
 export function inline(text, out, opts = {}) {
@@ -250,9 +266,9 @@ export function inline(text, out, opts = {}) {
     } else if (m[3] !== undefined) {
       const tmp = document.createDocumentFragment();
       inline(m[3], tmp, opts);
-      link(m[4], [...tmp.childNodes], out);
-    } else if (m[5] !== undefined) link(m[5], [document.createTextNode(m[5])], out);
-    else if (m[6] !== undefined) link(m[6], [document.createTextNode(m[6])], out);
+      link(m[4], [...tmp.childNodes], out, opts, m[0][0] === '!');
+    } else if (m[5] !== undefined) link(m[5], [document.createTextNode(m[5])], out, opts);
+    else if (m[6] !== undefined) link(m[6], [document.createTextNode(m[6])], out, opts);
     else if (m[7] !== undefined || m[8] !== undefined) { const b = el('strong'); inline(m[7] ?? m[8], b, opts); out.append(b); }
     else if (m[9] !== undefined) { const d = el('del'); inline(m[9], d, opts); out.append(d); }
     else if (m[10] !== undefined || m[11] !== undefined) { const e = el('em'); inline(m[10] ?? m[11], e, opts); out.append(e); }

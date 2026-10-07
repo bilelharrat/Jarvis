@@ -2,8 +2,13 @@
 // J.A.R.V.I.S. download, on Cloudflare (the whole domain; the old Eden site on Vercel is no
 // longer shown there).
 //
-//   /                        Eden for a signed-in browser, else Eden's sign-in page (eden/pages.js)
+//   /                        Eden for a signed-in browser, else the landing page below, with
+//                            "Sign in to Eden" (eden/pages.js)
+//   /signin                  Eden's sign-in page (Apple, Google, a code the iPhone approves)
+//   /help, /help/…           Help: the FAQ, signed out too (eden/help.js, via eden/pages.js)
+//   POST /api/help/ask       Ask Help, grounded in the FAQ (eden/help.js)
 //   /<Eden's files>, /signin/…, /artifact/<id>   the same (eden/pages.js)
+//   /p/<id>                  a published Eden page (accounts/published.js, via eden/pages.js)
 //   /download, /jarvis       the J.A.R.V.I.S. and Eden Messenger landing page (./public/jarvis/index.html)
 //   /jarvis/…               its images
 //   /jarvis/download         the latest disk image, from R2 (resumable: Range requests)
@@ -11,8 +16,11 @@
 //   /jarvis/iphone, /messenger/download, /messenger/iphone   the other apps (SOON, below)
 //   /messenger, /messenger/…   Eden Messenger itself, at messenger.askeden.com (MESSENGER)
 //   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
+//   POST /api/chat/voice    the same for Eden's Read aloud and talk mode, on the signed-in browser's account
 //   /api/web/…              signing a browser in to Eden (eden/session.js)
 //   /api/chat/…, /api/route hosted Eden (eden/chat.js)
+//   /eden/connect, /api/eden/…   @Eden for Eden Messenger: connect, then ask (eden/ask.js)
+//   POST /api/stripe/webhook   Stripe's events for Plus bought on the web (eden/billing.js); nothing else under /api/stripe
 //   /api/…                  Jarvis accounts (accounts/index.js, docs/accounts.md)
 //   anything else           back to /
 //
@@ -25,11 +33,15 @@
 import { api } from './accounts/index.js';
 import { tokenFrom } from './accounts/util.js';
 import { chatApi } from './eden/chat.js';
+import { connectPage, edenApi } from './eden/ask.js';
+import { stripeApi } from './eden/billing.js';
 import { edenPage } from './eden/pages.js';
-import { APPLE_CALLBACK, web } from './eden/session.js';
-import { LANDING_CSP, baseline, foreignOrigin, page, problem } from './eden/web.js';
+import { helpApi } from './eden/help.js';
+import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
+import { LANDING_CSP, baseline, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
 
-export { Account, Link } from './accounts/index.js';
+export { Account, Identity, Link, Space } from './accounts/index.js';
+import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
 
 const LATEST = 'latest.json';
 // Before the R2 bucket is bound (a deploy without it), the download is the notarized disk
@@ -53,21 +65,28 @@ async function route(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, '') || '/';
   if (path === '/api' || path.startsWith('/api/')) {
+    // @Eden for Eden Messenger: its own Origin rules (CORS for Messenger only; eden/ask.js).
+    if (path.startsWith('/api/eden/')) return edenApi(request, env, ctx, path);
+    // Stripe's webhook: a server, so no Origin and no session; its signature is the guard (eden/billing.js).
+    if (path === '/api/stripe' || path.startsWith('/api/stripe/')) return stripeApi(request, env, ctx, path);
     const refused = fromElsewhere(request, path);
     if (refused) return refused;
-    if (path === '/api/voice') return voice(request, env);
+    if (path === '/api/voice' || path === '/api/chat/voice') return voice(request, env, path);
     if (path === '/api/route' || path === '/api/chat' || path.startsWith('/api/chat/')) return chatApi(request, env, ctx, path);
+    if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);
     if (path.startsWith('/api/web/')) return web(request, env, ctx, path);
     return api(request, env, ctx);
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
   }
+  if (path === '/.well-known/apple-app-site-association') return appSiteAssociation(env);
   if (path === '/jarvis/download') return download(request, env);
   if (path === '/download' || path === '/jarvis') return landing(request, env, url);
   if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
   if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
   if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
+  if (path === '/eden/connect') return connectPage(request, env, url); // "Connect Eden Messenger?" (eden/ask.js)
   const eden = await edenPage(request, env, path);
   if (eden) return eden;
   if (path.startsWith('/jarvis/')) {
@@ -204,6 +223,30 @@ export function parseRange(header) {
   return end >= offset ? { offset, length: end - offset + 1 } : null;
 }
 
+// Universal links: askeden.com links tapped elsewhere (a task's push, Mail, Messages) open the
+// Eden iOS app when it's installed. The API and the sign-in pages stay in the browser (Apple's and
+// Google's callbacks must land where their cookies are). Apple fetches this file itself.
+export function appSiteAssociation(env) {
+  const team = String(env.APPLE_TEAM_ID || '8CV4X23Y2T');
+  const body = {
+    applinks: {
+      details: [{
+        appIDs: [`${team}.com.askeden.eden`],
+        components: [
+          { '/': '/api/*', exclude: true },
+          { '/': '/signin*', exclude: true },
+          { '/': '/download*', exclude: true },
+          { '/': '/jarvis/*', exclude: true },
+          { '/': '/p/*', exclude: true },
+          { '/': '/*' },
+        ],
+      }],
+    },
+    webcredentials: { apps: [`${team}.com.askeden.eden`] },
+  };
+  return json(body, 200, { 'cache-control': 'public, max-age=3600' });
+}
+
 function json(body, status, extra = {}) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...extra } });
 }
@@ -217,9 +260,11 @@ function json(body, status, extra = {}) {
 // the audio streams back. Each install, each network and everyone together have a daily
 // allowance in characters (VoiceQuota), so the owner's bill has a ceiling; past it the app
 // hears 429 and speaks with the Mac's voice.
+//
+// Eden at askeden.com posts {text} to /api/chat/voice (its X-Jarvis-Chat header, same origin,
+// the session cookie): the browser's account pays from its own daily voice allowance (the
+// Account's `voice` op, which a `web` device may use only this way, with eden: true).
 
-export const JARVIS_VOICE_ID = '612b878b113047d9a770c069c8b4fdfe';
-export const LIMITS = { text: 600, install: 20000, network: 40000, everyone: 400000 };
 
 function limits(env) {
   const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
@@ -231,11 +276,18 @@ function limits(env) {
   };
 }
 
-async function voice(request, env) {
+async function voice(request, env, path = '/api/voice') {
   if (request.method !== 'POST') return json({ error: 'POST only.' }, 405, { allow: 'POST' });
+  const eden = path === '/api/chat/voice';
+  if (eden && (request.headers.get('x-jarvis-chat') !== '1' || !sameOrigin(request))) return json({ error: 'Only askeden.com’s own page may do that.' }, 403);
   if (!env.FISH_API_KEY || !env.VOICE_QUOTA) return json({ error: 'The JARVIS voice is not set up here yet.' }, 503);
-  const install = String(request.headers.get('x-jarvis-install') || '');
-  const account = tokenFrom(request);
+  const install = eden ? '' : String(request.headers.get('x-jarvis-install') || '');
+  let account = eden ? null : tokenFrom(request);
+  if (eden) {
+    const { session } = await currentSession(request, env);
+    if (!session) return json({ error: 'Signed out. Sign in at askeden.com again.', code: 'signed_out' }, 401);
+    account = session.token;
+  }
   if (!account && !/^[0-9a-f]{32}$/.test(install)) return json({ error: 'Unknown install.' }, 400);
   let body;
   try {
@@ -259,10 +311,11 @@ async function voice(request, env) {
     const answer = await env.ACCOUNTS.get(env.ACCOUNTS.idFromName(account.account)).fetch('https://account/voice', {
       method: 'POST',
       headers: { 'x-jarvis-device': account.device, 'x-jarvis-secret': account.secret },
-      body: JSON.stringify({ chars: text.length }),
+      body: JSON.stringify({ chars: text.length, ...(eden ? { eden: true } : {}) }),
     });
     const verdict = await answer.json().catch(() => ({}));
     if (answer.status === 401) return json({ error: verdict.error || 'Signed out.', code: 'signed_out' }, 401);
+    if (answer.status === 403) return json({ error: verdict.error || 'Not allowed.', code: 'forbidden' }, 403);
     if (!verdict.ok) return json({ error: verdict.why || 'No voice allowance left today.', allowance: 'account' }, 429, { 'retry-after': '3600' });
   }
   const quota = env.VOICE_QUOTA.get(env.VOICE_QUOTA.idFromName('daily'));

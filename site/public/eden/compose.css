@@ -57,6 +57,13 @@
 .cw-chip.bad .cw-chip-t{color:var(--danger);text-decoration:underline wavy rgba(255,69,58,.6) 1px;text-underline-offset:3px}
 .cw-chip.off{opacity:.55}
 .cw-chip.off .cw-chip-t{text-decoration:line-through}
+/* moving a chip between To, Cc and Bcc: drag (mouse), hold then drag (touch), Alt+↑/↓ (keyboard) */
+.cw-chip{cursor:grab;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
+.cw-chip.lifted{opacity:.35}
+.cw-chip-ghost{position:absolute;z-index:60;pointer-events:none;background:var(--content);color:var(--text);box-shadow:inset 0 0 0 1px var(--accent),var(--sh2);transform:rotate(-2deg) scale(1.04)}
+.cw.chip-drag,.cw.chip-drag *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}
+.cw.chip-drag .cw-rcp{box-shadow:inset 0 0 0 1px transparent;transition:background .15s,box-shadow .15s}
+.cw.chip-drag .cw-rcp.drop-on{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)}
 .cw-ccbs{display:flex;gap:2px;margin-left:auto}
 .cw-ccb{font-size:12.5px;color:var(--text2);padding:3px 7px;border-radius:7px}
 .cw-ccb:hover{background:rgba(120,120,128,.14);color:var(--text)}
@@ -109,6 +116,10 @@
 .cw-att.reading .cw-att-s,.cw-att.loading .cw-att-s{color:var(--accent)}
 .cw-att.error{box-shadow:inset 0 0 0 1px rgba(255,69,58,.5)}
 .cw-att.error .cw-att-s{color:var(--danger)}
+.cw-att.uploading{background:linear-gradient(90deg,var(--accent-soft) var(--p,0%),var(--content2) var(--p,0%))}
+.cw-att.uploading .cw-att-s{color:var(--accent);font-variant-numeric:tabular-nums}
+.cw-att-r{height:22px;padding:0 8px;border-radius:7px;font-size:11.5px;font-weight:600;color:var(--accent)}
+.cw-att-r:hover{background:var(--accent-soft)}
 .cw-att-x{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:7px;color:var(--text3)}
 .cw-att-x:hover{background:rgba(120,120,128,.18);color:var(--text)}
 
@@ -159,6 +170,7 @@ u.cw-glyph{text-underline-offset:2px}
 .cw-trash:hover:not(:disabled){color:var(--danger)}
 .cw-size{font-size:11px;color:var(--text3);white-space:nowrap;margin-right:4px}
 .cw-size.near{color:var(--warn);font-weight:600}
+.cw-size.over{color:var(--danger)}
 
 /* popovers and suggestions (inside the window) */
 .cw-pop{position:absolute;z-index:6;min-width:200px;max-width:min(340px,calc(100% - 16px));max-height:calc(100% - 60px);overflow-y:auto;padding:6px;border-radius:14px;box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh2);animation:palin .26s var(--spring)}
@@ -258,6 +270,19 @@ u.cw-glyph{text-underline-offset:2px}
 .mail-sched .ms-acts{display:flex;gap:6px;margin-top:3px}
 .mail-acts-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .mail-acts-row .grow{flex:1}
+
+/* inline image sizes: a frame with a corner handle over the picked image, preset sizes above it */
+.cw-ed img{cursor:pointer}
+.cw-imgbox{position:absolute;z-index:3;pointer-events:none;border-radius:6px;box-shadow:0 0 0 2px var(--accent)}
+.cw-imgbox[hidden],.cw-imgbar[hidden]{display:none}
+.cw-img-h{position:absolute;right:-8px;bottom:-8px;width:16px;height:16px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--content),0 1px 4px rgba(0,0,0,.3);pointer-events:auto;cursor:nwse-resize;touch-action:none}
+.cw-img-h:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.cw.img-sizing,.cw.img-sizing *{cursor:nwse-resize!important;user-select:none;-webkit-user-select:none}
+.cw-imgbar{position:absolute;z-index:4;display:flex;align-items:center;gap:2px;padding:3px;border-radius:11px;box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh2)}
+.cw-imgb{display:flex;align-items:center;height:28px;padding:0 10px;border-radius:8px;font-size:12px;font-weight:500;color:var(--text);white-space:nowrap}
+.cw-imgb:hover{background:rgba(120,120,128,.14)}
+.cw-imgb[aria-pressed="true"]{background:var(--accent);color:#fff}
+@media (hover:none),(pointer:coarse){.cw-img-h{width:24px;height:24px;right:-12px;bottom:-12px}.cw-imgb{height:34px}}
 
 /* ============ phones: a full-screen sheet ============ */
 @media(max-width:640px){

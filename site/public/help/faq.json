@@ -1,0 +1,2317 @@
+{
+ "version": 1,
+ "updated": "2026-10-06",
+ "support": "support@askeden.com",
+ "categories": [
+  {
+   "id": "start",
+   "title": "Getting started",
+   "icon": "spark"
+  },
+  {
+   "id": "signin",
+   "title": "Signing in",
+   "icon": "lock"
+  },
+  {
+   "id": "account",
+   "title": "Plan and billing",
+   "icon": "gear"
+  },
+  {
+   "id": "chat",
+   "title": "Chat and routing",
+   "icon": "sliders"
+  },
+  {
+   "id": "privacy",
+   "title": "Privacy and security",
+   "icon": "lock"
+  },
+  {
+   "id": "voice",
+   "title": "Voice",
+   "icon": "speaker"
+  },
+  {
+   "id": "calendar",
+   "title": "Calendar",
+   "icon": "cal"
+  },
+  {
+   "id": "mail",
+   "title": "Mail",
+   "icon": "mail"
+  },
+  {
+   "id": "mac",
+   "title": "Your Mac",
+   "icon": "folder"
+  },
+  {
+   "id": "day",
+   "title": "Meetings, websites and undo",
+   "icon": "clock"
+  },
+  {
+   "id": "auto",
+   "title": "Tasks and workflows",
+   "icon": "list"
+  },
+  {
+   "id": "teams",
+   "title": "Teams and delegates",
+   "icon": "branch"
+  },
+  {
+   "id": "publish",
+   "title": "Publishing",
+   "icon": "globe"
+  },
+  {
+   "id": "messenger",
+   "title": "Messenger @Eden",
+   "icon": "chat"
+  },
+  {
+   "id": "iphone",
+   "title": "iPhone app",
+   "icon": "phone"
+  },
+  {
+   "id": "trouble",
+   "title": "Troubleshooting",
+   "icon": "alert"
+  }
+ ],
+ "images": {
+  "chat-empty": {
+   "src": "img/chat-empty.webp",
+   "dark": "img/chat-empty-dark.webp",
+   "alt": "Eden with a new, empty chat: the sidebar on the left and the message box at the bottom.",
+   "caption": "A new chat. Type in the box at the bottom."
+  },
+  "composer": {
+   "src": "img/composer.webp",
+   "dark": "img/composer-dark.webp",
+   "alt": "Eden on an iPhone-sized screen with a question and Eden’s reply.",
+   "caption": "On a phone, the sidebar hides behind the menu button.",
+   "phone": true
+  },
+  "estimate": {
+   "src": "img/estimate.webp",
+   "alt": "The line above the message box showing the model Eden will use, its cost and time.",
+   "caption": "The estimate updates as you type. Click it to upgrade one message."
+  },
+  "route-chip": {
+   "src": "img/route-chip.webp",
+   "dark": "img/route-chip-dark.webp",
+   "alt": "A reply’s model chip opened, with a chart of the candidate models by quality and cost.",
+   "caption": "Click the model name on a reply to see why Eden picked it."
+  },
+  "levels": {
+   "src": "img/levels.webp",
+   "alt": "The level switch from 1 to 5 in the Route console.",
+   "caption": "Levels live in the Route console (⌘K › Open Route console)."
+  },
+  "compare": {
+   "src": "img/compare.webp",
+   "alt": "Two answers side by side after Ask a stronger model, each with Keep this.",
+   "caption": "Keep the answer you prefer; Eden learns from it."
+  },
+  "canvas": {
+   "src": "img/canvas.webp",
+   "alt": "A reply with an HTML page, open live in the canvas on the right.",
+   "caption": "The canvas runs pages in a locked box: no network, no cookies."
+  },
+  "publish": {
+   "src": "img/publish.webp",
+   "alt": "The Publish dialog with Only me and Anyone with the link.",
+   "caption": "Publishing makes a page at askeden.com/p/… you can take down at any time."
+  },
+  "privacy": {
+   "src": "img/privacy.webp",
+   "dark": "img/privacy-dark.webp",
+   "alt": "A private chat: the Private button is on and the reply says On your Mac.",
+   "caption": "Every private reply says where it was computed."
+  },
+  "err-privacy": {
+   "src": "img/err-privacy.webp",
+   "alt": "A private chat that could not be sent because no local model is running.",
+   "caption": "Nothing is sent when no local model can answer."
+  },
+  "palette": {
+   "src": "img/palette.webp",
+   "alt": "The ⌘K palette searching for cal, listing Calendar actions.",
+   "caption": "⌘K finds chats and every action."
+  },
+  "calendar": {
+   "src": "img/calendar.webp",
+   "dark": "img/calendar-dark.webp",
+   "alt": "The Calendar in week view with sample events.",
+   "caption": "Week view (sample events). Drag to move, drag the bottom edge to resize."
+  },
+  "compose": {
+   "src": "img/compose.webp",
+   "alt": "The compose window with a recipient chip, subject, message and the Ask Eden box.",
+   "caption": "Compose floats over the chat; Ask Eden writes or rewrites for you."
+  },
+  "tasks": {
+   "src": "img/tasks.webp",
+   "alt": "The Tasks panel with a task waiting for approval and an active task.",
+   "caption": "Sends wait for Approve; drafts are made by themselves."
+  },
+  "activity": {
+   "src": "img/activity.webp",
+   "alt": "The Activity timeline listing Eden’s actions with Undo buttons.",
+   "caption": "Undo where possible; sends and website tasks say they can’t be undone."
+  },
+  "files": {
+   "src": "img/files.webp",
+   "alt": "The Files on your Mac panel.",
+   "caption": "Files are read on your Mac, never uploaded."
+  },
+  "account": {
+   "src": "img/account.webp",
+   "alt": "The account page with the plan, the allowance meter and devices (sample account).",
+   "caption": "Your plan and this month’s included AI are at the top."
+  },
+  "sync": {
+   "src": "img/sync.webp",
+   "alt": "The Sync section of the account page.",
+   "caption": "Turn on Sync in your account page."
+  },
+  "accounts": {
+   "src": "img/accounts.webp",
+   "alt": "Settings › Accounts with Gmail and Mail on your Mac.",
+   "caption": "Settings › Accounts (on your Mac it also has the Google client form)."
+  },
+  "voice": {
+   "src": "img/voice.webp",
+   "alt": "The message box with the microphone and the waveform Talk buttons on the right.",
+   "caption": "Microphone: dictate. Waveform: talk hands-free."
+  },
+  "guard": {
+   "src": "img/guard.webp",
+   "alt": "A reply that read an email with hidden instructions: a Read from outside strip and an approval card for a send Eden would not do on its own.",
+   "caption": "What outside text asks for waits on a card for you."
+  },
+  "err-mac-offline": {
+   "src": "img/err-mac-offline.webp",
+   "alt": "A reply showing the error: Your Mac is offline.",
+   "caption": "How the error looks in a chat."
+  },
+  "signin": {
+   "src": "img/signin.webp",
+   "alt": "The askeden.com sign-in page with Continue with Apple and Approve from your iPhone.",
+   "caption": "askeden.com/signin. The buttons shown depend on what’s switched on.",
+   "phone": true
+  },
+  "signin-code": {
+   "src": "img/signin-code.webp",
+   "alt": "The sign-in page showing a QR code and an eight-character code waiting for approval from the iPhone app.",
+   "caption": "Scan the QR code or type the code in the J.A.R.V.I.S. iPhone app.",
+   "phone": true
+  }
+ },
+ "entries": [
+  {
+   "id": "what-is-eden",
+   "cat": "start",
+   "q": "What is Eden?",
+   "a": "Eden is one chat for many AI models. You type, and Eden sends each message to the model that suits it: quick questions go to fast, cheap models, hard ones to the strongest.\n\nEden also works with your own Mac through the J.A.R.V.I.S. app: your calendar, mail, files and notes, without uploading them.",
+   "keywords": [
+    "about",
+    "overview",
+    "router",
+    "models",
+    "introduction"
+   ],
+   "tour": "basics",
+   "img": [
+    "chat-empty"
+   ]
+  },
+  {
+   "id": "where-eden-runs",
+   "cat": "start",
+   "q": "Where can I use Eden?",
+   "a": "Three places, one account:\n- **askeden.com** in any browser.\n- **The Eden iPhone and iPad app**, which shows the same page.\n- **Eden on your Mac** (it comes with J.A.R.V.I.S.), at http://localhost:5174.\n\nOn askeden.com, Eden runs Claude on the AI included with your account. On your Mac it can use every model you have keys for.",
+   "keywords": [
+    "web",
+    "website",
+    "app",
+    "ipad",
+    "mac",
+    "localhost",
+    "devices",
+    "platforms"
+   ]
+  },
+  {
+   "id": "first-message",
+   "cat": "start",
+   "q": "How do I send my first message?",
+   "a": "Click the box at the bottom that says **Message Eden**, type a question and press Return. Shift-Return adds a new line.\n\nThe reply shows which model answered and what it cost. Click the model name to see why Eden picked it.",
+   "keywords": [
+    "start",
+    "send",
+    "type",
+    "question",
+    "enter",
+    "return",
+    "composer"
+   ],
+   "tour": "basics",
+   "img": [
+    "composer"
+   ]
+  },
+  {
+   "id": "take-the-tour",
+   "cat": "start",
+   "q": "Is there a tour?",
+   "a": "Yes. The tour lets you try every feature in a practice sandbox: sample data only, so nothing reaches your real mail, calendar, Mac or bill.\n\nOpen it from ⌘K › **Take the tour**, Settings › About, or with **/tour** in the message box. You can skip a chapter and come back later.",
+   "keywords": [
+    "tour",
+    "walkthrough",
+    "practice",
+    "tutorial",
+    "learn",
+    "sandbox",
+    "onboarding"
+   ],
+   "open": {
+    "label": "Take the tour",
+    "command": "Take the tour"
+   },
+   "tour": "basics"
+  },
+  {
+   "id": "palette",
+   "cat": "start",
+   "q": "How do I find things quickly?",
+   "a": "Press **⌘K** (or the Search box at the top of the sidebar). It searches your chats and every action: Calendar, Mail, Tasks, Settings, Help and more. Use ↑ ↓ and Return.\n\nOther useful keys: **⌘N** new chat, **⌘B** sidebar, **⌘,** Settings, **?** in an empty box for the full list.",
+   "keywords": [
+    "command palette",
+    "cmd k",
+    "shortcuts",
+    "keyboard",
+    "search",
+    "find",
+    "keys"
+   ],
+   "open": {
+    "label": "Open ⌘K",
+    "command": "__palette"
+   },
+   "tour": "keys",
+   "img": [
+    "palette"
+   ]
+  },
+  {
+   "id": "conversations",
+   "cat": "start",
+   "q": "Where are my chats, and can I edit or redo a message?",
+   "a": "Your chats are in the sidebar. The **…** menu at the top right of a chat pins, renames, exports as Markdown or deletes it. **Temporary chat** (in ⌘K) isn't saved at all, and search finds words inside chats too.\n\nHover a message of yours and choose **Edit**: Eden answers the new version and keeps the old one as a branch you can flip back to. On a reply, **Regenerate** asks again, on the same model or another one.",
+   "keywords": [
+    "history",
+    "sidebar",
+    "pin",
+    "rename",
+    "delete",
+    "export",
+    "markdown",
+    "temporary",
+    "projects",
+    "edit",
+    "resend",
+    "regenerate",
+    "branch",
+    "retry",
+    "again",
+    "redo"
+   ],
+   "tour": "create"
+  },
+  {
+   "id": "attach-files",
+   "cat": "start",
+   "q": "What can I attach?",
+   "a": "Pictures and text or code files: up to six per message, pictures up to 6 MB and text files up to 400 KB. Use the **+** button or drag files onto the box.\n\nEvery picture is redrawn before it's sent, so its hidden location (GPS) and camera details are removed.",
+   "keywords": [
+    "attach",
+    "attachment",
+    "upload",
+    "image",
+    "photo",
+    "file",
+    "pdf",
+    "size",
+    "limit",
+    "drag",
+    "can i attach"
+   ],
+   "tour": "create"
+  },
+  {
+   "id": "canvas",
+   "cat": "start",
+   "q": "What is the canvas?",
+   "a": "When a reply contains a web page, a chart or a drawing (HTML or SVG), Eden can show it live in the canvas beside the chat. Switch between **Preview** and **Code**, and step through versions with the arrows.\n\nPages in the canvas run in a locked box: no network, no cookies.",
+   "keywords": [
+    "artifact",
+    "canvas",
+    "html",
+    "svg",
+    "preview",
+    "code",
+    "page"
+   ],
+   "tour": "create",
+   "img": [
+    "canvas"
+   ]
+  },
+  {
+   "id": "code-mode",
+   "cat": "start",
+   "q": "What is Code mode?",
+   "a": "Code mode works inside a project folder on your Mac, through Claude Code. It reads and edits files and asks before it runs anything. The **Plan** and **Changes** tabs in the inspector show its to-do list and the uncommitted changes.\n\nStart one from the sidebar (**+** next to Code) or ⌘K › **New code session…**. It needs your Mac.",
+   "keywords": [
+    "code",
+    "claude code",
+    "project",
+    "repo",
+    "programming",
+    "session",
+    "diff",
+    "changes"
+   ],
+   "tour": "code"
+  },
+  {
+   "id": "help-chat",
+   "cat": "start",
+   "q": "How does Ask Help work?",
+   "a": "Ask Help answers questions about Eden from this FAQ and links the answers it used. If the FAQ doesn't cover it, it says it's not sure rather than guess. It's free and separate from your chats: it never shows up in your history or uses your allowance, and it's limited to some questions and screenshots a day.\n\nIt can also look at a **screenshot** of a problem. The picture is redrawn in your browser first (location and camera details removed), used for that one answer and never stored. Crop or cover anything private before you send it.",
+   "keywords": [
+    "help",
+    "ask help",
+    "support",
+    "chat",
+    "screenshot",
+    "troubleshoot",
+    "limit",
+    "stored",
+    "private",
+    "exif",
+    "crop",
+    "attach"
+   ]
+  },
+  {
+   "id": "contact-support",
+   "cat": "start",
+   "q": "How do I contact a person?",
+   "a": "In Help, press **Contact support**. It opens an email to support@askeden.com with your Help conversation filled in, so you can check it before sending. Nothing is sent by itself.",
+   "keywords": [
+    "contact",
+    "support",
+    "email",
+    "human",
+    "person",
+    "bug report",
+    "feedback"
+   ]
+  },
+  {
+   "id": "signin-ways",
+   "cat": "signin",
+   "q": "How do I sign in to askeden.com?",
+   "a": "Go to **askeden.com/signin** and pick one:\n- **Sign in with Apple**\n- **Sign in with Google**\n- **Approve from your iPhone**: the page shows a code and a QR code; approve it in the J.A.R.V.I.S. iPhone app.\n\nAll three open the same Eden account. There's nothing to sign up for: the first sign-in makes your account, on the free trial. In the Eden iPhone app, **Sign in with Apple** uses Face ID. Already use the J.A.R.V.I.S. iPhone app? Sign in with the same Apple ID to open the same account.",
+   "keywords": [
+    "sign in",
+    "login",
+    "log in",
+    "apple",
+    "google",
+    "iphone",
+    "code",
+    "qr",
+    "approve",
+    "sign up",
+    "register",
+    "create account",
+    "new account",
+    "trial",
+    "join",
+    "ios",
+    "app",
+    "face id",
+    "native",
+    "sign in with google",
+    "sign in with apple",
+    "how to sign in",
+    "log in to eden"
+   ],
+   "open": {
+    "label": "Go to sign-in",
+    "href": "/signin"
+   },
+   "tour": "account",
+   "img": [
+    "signin"
+   ]
+  },
+  {
+   "id": "signin-code",
+   "cat": "signin",
+   "q": "How does signing in with a code from my iPhone work?",
+   "a": "On the sign-in page choose **Approve from your iPhone**. Eden shows an eight-character code and a QR code.\n\nOn your iPhone, open J.A.R.V.I.S. › Settings › Account › **Link a Mac or Approve a Sign-In**, scan the QR or type the code, then tap **Approve Sign-In**. The page signs in by itself. You can also approve from J.A.R.V.I.S. on your Mac (Settings › Account › Approve a sign-in to Eden).",
+   "keywords": [
+    "code",
+    "qr",
+    "iphone",
+    "approve",
+    "link",
+    "jarvis app",
+    "scan"
+   ],
+   "img": [
+    "signin-code"
+   ]
+  },
+  {
+   "id": "link-method",
+   "cat": "signin",
+   "q": "Can I add Google to an Apple account, or the other way?",
+   "a": "Yes. Open your account (Settings › **Account**) and, under **Sign-in methods**, add the other one. You can remove a method later, as long as one stays.\n\nEden never joins accounts by email address: only a method you add while signed in links them.",
+   "keywords": [
+    "link",
+    "unlink",
+    "second method",
+    "apple",
+    "google",
+    "merge",
+    "email"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "sign-out",
+   "cat": "signin",
+   "q": "How do I sign out, or sign out another browser?",
+   "a": "Settings › **Account** › **Devices** lists every browser and app on your account. Sign out one browser there, or choose **Sign out everywhere**.\n\nApps (iPhone, iPad, Mac) are removed from the J.A.R.V.I.S. app itself. A browser stays signed in for 30 days.",
+   "keywords": [
+    "sign out",
+    "logout",
+    "log out",
+    "devices",
+    "everywhere",
+    "lost",
+    "stolen",
+    "session"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "lost-access",
+   "cat": "signin",
+   "q": "I can't sign in at all. What can I do?",
+   "a": "Try another way in: if Apple fails, try **Approve from your iPhone** or Google (if you added it).\n\nCheck that cookies are allowed for askeden.com; private windows and strict blockers can stop the sign-in. Still stuck? Write to **support@askeden.com** with the error shown on the sign-in page (no passwords, please).",
+   "keywords": [
+    "cannot sign in",
+    "locked out",
+    "can't log in",
+    "help",
+    "support",
+    "cookies",
+    "blocked"
+   ],
+   "open": {
+    "label": "Go to sign-in",
+    "href": "/signin"
+   }
+  },
+  {
+   "id": "plans",
+   "cat": "account",
+   "q": "What does Eden cost?",
+   "a": "- **Trial**: every new account gets $1 of included AI, once.\n- **Plus**: $20 a month, which includes $20 of AI each month at list prices.\n\nOn your own Mac, Eden can also use your own API keys or your Claude subscription; those never touch the allowance.",
+   "keywords": [
+    "price",
+    "cost",
+    "plus",
+    "free",
+    "trial",
+    "subscription",
+    "plan",
+    "money",
+    "pay",
+    "per month",
+    "monthly price",
+    "how much",
+    "pricing"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "allowance",
+   "cat": "account",
+   "q": "What is the allowance, and what happens when it runs out?",
+   "a": "The allowance is the AI your plan includes, counted in dollars at the models' list prices. Each reply's cost shows on it, and the meter is on your account page.\n\nWhen it's used up, Eden on askeden.com stops answering until the next month (Plus) or until you get Plus (trial). Nothing is charged on top. Eden on your Mac keeps working with your own keys.",
+   "keywords": [
+    "allowance",
+    "budget",
+    "included ai",
+    "meter",
+    "run out",
+    "used up",
+    "limit",
+    "credit",
+    "usage"
+   ],
+   "open": {
+    "label": "See the meter",
+    "click": "#btnAccount"
+   },
+   "img": [
+    "account"
+   ]
+  },
+  {
+   "id": "get-plus",
+   "cat": "account",
+   "q": "How do I get Plus?",
+   "a": "Two ways, same Plus:\n- **On the web**: your account page › **Get Plus: $20/month** (paid with Stripe).\n- **In the J.A.R.V.I.S. iPhone app**: through the App Store.\n\nInside the Eden iPhone app you'll see \"Get Plus in the J.A.R.V.I.S. iPhone app\" instead, because of Apple's rules.",
+   "keywords": [
+    "buy",
+    "upgrade",
+    "plus",
+    "stripe",
+    "app store",
+    "purchase",
+    "subscribe",
+    "checkout"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   }
+  },
+  {
+   "id": "manage-billing",
+   "cat": "account",
+   "q": "How do I cancel, change my card, or fix a failed payment?",
+   "a": "- Bought on the web: account page › **Manage billing**. Stripe's page changes the card, shows invoices or cancels (Plus lasts to the end of the month you paid for).\n- Bought in the App Store: iPhone Settings › your name › **Subscriptions**.\n\nIf a payment fails, Plus stays on for 3 days while Stripe tries again: update the card in Manage billing. If the page says you're **paying for Plus twice** (App Store and web), cancel one of them; refunds aren't automatic, so write to support@askeden.com.",
+   "keywords": [
+    "cancel",
+    "refund",
+    "card",
+    "invoice",
+    "billing",
+    "manage",
+    "stripe portal",
+    "app store subscription",
+    "paid twice",
+    "double",
+    "both",
+    "two subscriptions",
+    "duplicate charge",
+    "payment failed",
+    "declined",
+    "past due",
+    "plus lost"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   }
+  },
+  {
+   "id": "delete-account",
+   "cat": "account",
+   "q": "How do I delete my account?",
+   "a": "Delete it from the J.A.R.V.I.S. app (Settings › Account › Delete Account). Everything goes: devices, sign-in methods, synced chats, published pages and Google access. A web Plus subscription is cancelled at once.",
+   "keywords": [
+    "delete account",
+    "remove account",
+    "close account",
+    "erase",
+    "gdpr"
+   ]
+  },
+  {
+   "id": "routing",
+   "cat": "chat",
+   "q": "How does Eden pick a model?",
+   "a": "Each message is rated (how hard, what kind of task) and Eden picks the model with the best quality for the cost, at your level. The chip on every reply shows the model, the cost and why; click it for the other candidates.\n\nYou can always pick a model yourself.",
+   "keywords": [
+    "router",
+    "routing",
+    "which model",
+    "why",
+    "choose",
+    "pick",
+    "chip",
+    "rationale"
+   ],
+   "tour": "basics",
+   "img": [
+    "route-chip"
+   ]
+  },
+  {
+   "id": "levels",
+   "cat": "chat",
+   "q": "What do the levels 1 to 5 mean?",
+   "a": "Levels trade cost for quality: **1** is the thriftiest, **5** the strongest, **3** is balanced (the default). Change it in the Route console (⌘K › Open Route console) or ⌘K › Router level.",
+   "keywords": [
+    "level",
+    "levels",
+    "optimization",
+    "efficiency",
+    "performance",
+    "slider",
+    "cheap",
+    "strong"
+   ],
+   "open": {
+    "label": "Open Route console",
+    "command": "Open Route console"
+   },
+   "tour": "basics",
+   "img": [
+    "levels"
+   ]
+  },
+  {
+   "id": "estimate",
+   "cat": "chat",
+   "q": "Can I see the cost before I send?",
+   "a": "Yes. While you type, the line above the box shows the model Eden will use, about what it costs and how long it takes. Click it to upgrade just this one message.",
+   "keywords": [
+    "estimate",
+    "cost",
+    "before",
+    "price",
+    "latency",
+    "preview",
+    "upgrade"
+   ],
+   "tour": "basics",
+   "img": [
+    "estimate"
+   ]
+  },
+  {
+   "id": "pick-model",
+   "cat": "chat",
+   "q": "How do I choose the model myself?",
+   "a": "Open the model menu in the box (**⌘⇧I**) and pick one. It stays for this chat until you choose **Model Router** again. The Route console's Manual override does the same for every chat.",
+   "keywords": [
+    "choose model",
+    "override",
+    "pin model",
+    "manual",
+    "specific model",
+    "opus",
+    "sonnet",
+    "gpt",
+    "gemini"
+   ],
+   "tour": "basics"
+  },
+  {
+   "id": "stronger",
+   "cat": "chat",
+   "q": "What does \"Ask a stronger model\" do?",
+   "a": "It sends the same question to a stronger model and shows both answers side by side (as tabs on a phone). **Keep this** keeps the one you prefer, and Eden learns from your choice.",
+   "keywords": [
+    "stronger",
+    "second opinion",
+    "side by side",
+    "keep this",
+    "better answer",
+    "upgrade"
+   ],
+   "tour": "models",
+   "img": [
+    "compare"
+   ]
+  },
+  {
+   "id": "compare",
+   "cat": "chat",
+   "q": "Can I ask several models at once?",
+   "a": "Yes: switch the mode to **Compare** in the box. Up to three models answer side by side, then a short summary says where they agree and differ. The cost of all of them shows before you send.",
+   "keywords": [
+    "compare",
+    "several models",
+    "multiple",
+    "claude gpt gemini",
+    "agree",
+    "disagree"
+   ],
+   "tour": "models"
+  },
+  {
+   "id": "stop-steer",
+   "cat": "chat",
+   "q": "Can I stop a reply, or add something while it's writing?",
+   "a": "Press the square **Stop** button. To add something without stopping, type it and press **Steer** (⌘↩): in a chat it's sent the moment the reply ends; in Code mode it reaches the running session at once. **Steer now** stops and sends.",
+   "keywords": [
+    "stop",
+    "cancel",
+    "steer",
+    "interrupt",
+    "follow up",
+    "queue"
+   ],
+   "tour": "basics"
+  },
+  {
+   "id": "search-mode",
+   "cat": "chat",
+   "q": "Can Eden search the web?",
+   "a": "Yes: switch the mode to **Search** for current answers with sources, or **Research** for a longer report with a list of links.",
+   "keywords": [
+    "search",
+    "web",
+    "internet",
+    "research",
+    "sources",
+    "citations",
+    "current",
+    "news"
+   ]
+  },
+  {
+   "id": "autopilot",
+   "cat": "chat",
+   "q": "What is the spending autopilot?",
+   "a": "Set a monthly budget in Settings › Routing. As it fills, Eden steps down: at 80% one level cheaper, at 95% two, and when it's spent only the cheapest models. **Use my level this time** skips it for one message. The ring in the title bar shows what you saved compared with always using the top model.",
+   "keywords": [
+    "autopilot",
+    "budget",
+    "spending",
+    "monthly",
+    "save",
+    "saved",
+    "forecast",
+    "cheaper"
+   ],
+   "open": {
+    "label": "Routing settings",
+    "settings": "routing"
+   },
+   "tour": "learn"
+  },
+  {
+   "id": "learns",
+   "cat": "chat",
+   "q": "Does Eden learn what I like?",
+   "a": "Yes, from numbers only: 👍/👎, **Keep this**, the models you pick and regenerate on. That tunes the router for each kind of task. See it, switch it off or reset it in Settings › Routing › Learned from you. Your words are never part of it.",
+   "keywords": [
+    "learn",
+    "thumbs",
+    "feedback",
+    "personal",
+    "profile",
+    "reset",
+    "like",
+    "dislike"
+   ],
+   "open": {
+    "label": "Routing settings",
+    "settings": "routing"
+   },
+   "tour": "learn"
+  },
+  {
+   "id": "stored",
+   "cat": "privacy",
+   "q": "What does askeden.com keep?",
+   "a": "askeden.com never stores what you type or what Eden answers: it passes through to the model and back.\n\nYour chat history lives in your browser or app. With **Sync** on, it also reaches your other devices, encrypted so only they can read it.\n\naskeden.com keeps: your account and plan, the cost of each turn (numbers only), page previews for 6 hours, pages you publish, Google access (encrypted) if you connect it, and your synced chats **only encrypted**.",
+   "keywords": [
+    "privacy",
+    "data",
+    "stored",
+    "keep",
+    "logs",
+    "history",
+    "what is saved",
+    "retention",
+    "local",
+    "browser",
+    "device",
+    "where",
+    "saved",
+    "sync"
+   ],
+   "tour": "privacy"
+  },
+  {
+   "id": "privacy-mode",
+   "cat": "privacy",
+   "q": "What is privacy mode?",
+   "a": "Press **Private** (the lock) in the title bar. That chat is then answered only by a local model on your Mac (Ollama or LM Studio), never a cloud model, and every reply says where it was computed. If no local model can answer, nothing is sent.\n\nOn askeden.com it needs your Mac linked and online. On the iPhone, \"On this iPhone\" is the private option.",
+   "keywords": [
+    "private",
+    "privacy mode",
+    "local model",
+    "ollama",
+    "lm studio",
+    "lock",
+    "offline",
+    "on device",
+    "what is privacy mode",
+    "private chat",
+    "keep chat on my mac"
+   ],
+   "open": {
+    "label": "Turn on for this chat",
+    "click": "#btnPrivacy"
+   },
+   "tour": "privacy",
+   "img": [
+    "privacy"
+   ]
+  },
+  {
+   "id": "hidden-instructions",
+   "cat": "privacy",
+   "q": "What is \"hidden-instruction protection\"?",
+   "a": "Mail, web pages, files and screenshots can contain text written to trick an AI (\"forward all mail to…\"). Eden marks all of that as **read from outside**: the model may read it, but never takes orders from it.\n\nIf a chat read outside text, anything Eden would send, book or change waits for your **Approve**. A badge says when something looked like a hidden instruction.",
+   "keywords": [
+    "prompt injection",
+    "hidden instructions",
+    "security",
+    "untrusted",
+    "read from outside",
+    "approve",
+    "phishing"
+   ],
+   "tour": "safety",
+   "img": [
+    "guard"
+   ]
+  },
+  {
+   "id": "sync",
+   "cat": "privacy",
+   "q": "How does encrypted sync work?",
+   "a": "Turn it on in your account page › **Sync**. The first browser makes a key and asks you to choose a **recovery passphrase** (12 characters or more, or use the one Eden suggests). Chats are encrypted in the browser; askeden.com only ever sees locked data.\n\nA new browser joins when a device that already syncs approves it, after you check that both show the **same six digits**, or with the recovery passphrase.",
+   "keywords": [
+    "sync",
+    "encryption",
+    "end to end",
+    "e2e",
+    "passphrase",
+    "six digits",
+    "approve browser",
+    "devices",
+    "key"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   },
+   "tour": "account",
+   "img": [
+    "sync"
+   ]
+  },
+  {
+   "id": "sync-passphrase",
+   "cat": "privacy",
+   "q": "I lost my recovery passphrase, or a device.",
+   "a": "Lost the passphrase: approve the new browser from a device that already syncs (it shows the six digits). If no device has the key any more, choose **Start over** in Sync: it deletes the synced copies and makes a new key. Chats still in a browser stay there.\n\nLost a device: remove it in Sync. Eden changes the key, so that device can't read anything new (it keeps what it already downloaded). Sign it out in Devices too.",
+   "keywords": [
+    "lost passphrase",
+    "forgot",
+    "recovery",
+    "start over",
+    "key lost",
+    "remove device",
+    "lost phone",
+    "rotate",
+    "revoke",
+    "sync key"
+   ]
+  },
+  {
+   "id": "voice-dictate",
+   "cat": "voice",
+   "q": "How do I talk instead of typing?",
+   "a": "Press the **microphone** in the box to dictate: say it, read it, then send. Press the **waveform** button for **Talk**: a hands-free conversation in the JARVIS voice that sends when you pause and loops until you press End or Esc. The microphone is only used while one of these is on.\n\nFirefox has no speech recognition, so there Eden records instead (up to 2 minutes) and turns it into text; on askeden.com that counts on your allowance.",
+   "keywords": [
+    "voice",
+    "dictate",
+    "microphone",
+    "talk",
+    "speak",
+    "hands free",
+    "speech",
+    "firefox",
+    "dictation",
+    "recording",
+    "transcribe",
+    "whisper",
+    "no microphone button"
+   ],
+   "tour": "voice",
+   "img": [
+    "voice"
+   ]
+  },
+  {
+   "id": "voice-read",
+   "cat": "voice",
+   "q": "Can Eden read replies aloud?",
+   "a": "Yes: the speaker button on any reply, or Settings › Appearance › **Read replies aloud** for every reply. It uses the JARVIS voice.",
+   "keywords": [
+    "read aloud",
+    "speaker",
+    "tts",
+    "voice",
+    "listen",
+    "jarvis voice"
+   ],
+   "open": {
+    "label": "Appearance settings",
+    "settings": "appearance"
+   },
+   "tour": "voice"
+  },
+  {
+   "id": "voice-allowance",
+   "cat": "voice",
+   "q": "Is there a limit on the voice?",
+   "a": "Yes, a daily one in characters: 20,000 a day free, 100,000 with Plus. It resets at midnight UTC. On your Mac, Eden falls back to the Mac's own voice when the day's JARVIS voice is used up.",
+   "keywords": [
+    "voice limit",
+    "allowance",
+    "characters",
+    "daily",
+    "reset",
+    "jarvis voice used up"
+   ]
+  },
+  {
+   "id": "calendar-open",
+   "cat": "calendar",
+   "q": "Which calendars does Eden show?",
+   "a": "Your Mac's calendars (through J.A.R.V.I.S.) and Google Calendar (connect it in Settings › Accounts). Open **Calendar** in the sidebar or ⌘K: month, week, day and agenda views.",
+   "keywords": [
+    "calendar",
+    "google calendar",
+    "mac calendar",
+    "events",
+    "week",
+    "month",
+    "agenda",
+    "schedule"
+   ],
+   "open": {
+    "label": "Open Calendar",
+    "command": "Calendar"
+   },
+   "tour": "calendar",
+   "img": [
+    "calendar"
+   ]
+  },
+  {
+   "id": "calendar-edit",
+   "cat": "calendar",
+   "q": "How do I add or move an event?",
+   "a": "Click **New** (or an empty slot), or drag an event to move it and drag its bottom edge to change its length (15-minute steps). Every change shows a review step first: nothing is saved until you confirm. On a phone, long-press then drag.\n\nChange a calendar's colour from the calendar list in the side panel (colours are kept in this browser).",
+   "keywords": [
+    "new event",
+    "add event",
+    "move",
+    "drag",
+    "resize",
+    "edit event",
+    "delete event",
+    "review",
+    "colour",
+    "color",
+    "calendar color",
+    "per browser"
+   ],
+   "open": {
+    "label": "New event",
+    "command": "New calendar event…"
+   },
+   "tour": "calendar"
+  },
+  {
+   "id": "calendar-readonly",
+   "cat": "calendar",
+   "q": "Why can't I change events from my Mac's calendar?",
+   "a": "Changing Mac calendar events needs the newest J.A.R.V.I.S. on your Mac. Update it and restart J.A.R.V.I.S.; until then Mac events are read-only. Google events can be changed once Calendar is connected.",
+   "keywords": [
+    "read only",
+    "can't edit",
+    "mac events",
+    "jarvis restart",
+    "update"
+   ]
+  },
+  {
+   "id": "gmail-connect",
+   "cat": "mail",
+   "q": "How do I connect Gmail?",
+   "a": "Settings › **Accounts** › **Connect Gmail** (and **Connect Calendar** separately). Sign in with Google and allow access. Eden keeps the access encrypted and you can disconnect at any time; that also removes it at Google.\n\nOn your Mac, the Mail panel also shows the Mail app's accounts through J.A.R.V.I.S.",
+   "keywords": [
+    "gmail",
+    "google",
+    "connect",
+    "mail",
+    "email",
+    "inbox",
+    "accounts",
+    "disconnect"
+   ],
+   "open": {
+    "label": "Accounts settings",
+    "settings": "accounts"
+   },
+   "tour": "mail",
+   "img": [
+    "accounts"
+   ]
+  },
+  {
+   "id": "composer",
+   "cat": "mail",
+   "q": "How do I write an email?",
+   "a": "⌘K › **New email…** opens a compose window over the chat. Add people in To, Cc and Bcc (drag them between rows), attach files (up to 25 MB each), and ask Eden to write or rewrite in the box at the bottom. Drafts save themselves.\n\nSending always asks you to confirm.",
+   "keywords": [
+    "compose",
+    "write email",
+    "new email",
+    "draft",
+    "reply",
+    "forward",
+    "cc",
+    "bcc",
+    "signature"
+   ],
+   "open": {
+    "label": "New email",
+    "command": "New email…"
+   },
+   "tour": "mail",
+   "img": [
+    "compose"
+   ]
+  },
+  {
+   "id": "schedule-send",
+   "cat": "mail",
+   "q": "Can I schedule an email?",
+   "a": "Yes, with Gmail: the arrow beside Send › **Schedule send**. Eden keeps it as a draft in your Gmail and sends it at that time. On your Mac it's sent while Eden is running; if it's more than 12 hours late, Eden waits for you instead of sending.",
+   "keywords": [
+    "schedule",
+    "send later",
+    "scheduled send",
+    "delay",
+    "timer"
+   ],
+   "tour": "mail"
+  },
+  {
+   "id": "mac-mail-limits",
+   "cat": "mail",
+   "q": "Why are some options missing with Mail on my Mac?",
+   "a": "Mail on your Mac sends plain text to one person, with no Bcc, attachments or scheduling, and up to 600 characters. Longer emails open as a draft in Mail for you to send. Use Gmail for the rest.",
+   "keywords": [
+    "mac mail",
+    "limits",
+    "plain text",
+    "attachments missing",
+    "600 characters",
+    "one recipient"
+   ]
+  },
+  {
+   "id": "mac-link",
+   "cat": "mac",
+   "q": "How do I connect askeden.com to my Mac?",
+   "a": "Install J.A.R.V.I.S. on your Mac and sign in with the same account. In J.A.R.V.I.S. › Settings › Account, turn on **Eden on the web reaches this Mac**. The status there says Connected, Connecting… or Offline.\n\nThen askeden.com and the Eden iPhone app can use your Mac's files, calendar, mail, notes, local models and Code mode. Only your own signed-in devices can use the link, and your Mac checks every request against a list of allowed actions. Traffic passes through askeden.com without being stored or logged (it isn't end-to-end encrypted yet).",
+   "keywords": [
+    "link mac",
+    "connect mac",
+    "jarvis",
+    "mac link",
+    "relay",
+    "reach my mac",
+    "needs your mac",
+    "mac link security",
+    "encrypted",
+    "safe",
+    "private"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "jarvis-approval",
+   "cat": "mac",
+   "q": "What is the \"Let Eden use Jarvis?\" card on my Mac?",
+   "a": "The first time Eden asks J.A.R.V.I.S. for something, your Mac shows **Let Eden use Jarvis?**. Click Allow. Eden remembers it, so you won't be asked again after a restart.\n\nWhile the card waits, Eden says **Approve Eden on your Mac**.",
+   "keywords": [
+    "let eden use jarvis",
+    "approval",
+    "card",
+    "allow",
+    "approve eden on your mac",
+    "permission"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "mac-files",
+   "cat": "mac",
+   "q": "Can Eden read files on my Mac?",
+   "a": "Yes, with **Use my Mac**: Eden searches, reads and summarises files without uploading them anywhere. It's read-only, looks in your home folder by default and never in hidden folders, Library or key files. Choose which folders it may use in J.A.R.V.I.S. › Settings › Eden on your Mac.",
+   "keywords": [
+    "files",
+    "documents",
+    "search files",
+    "pdf",
+    "word",
+    "read",
+    "summarize",
+    "mac files",
+    "use my mac"
+   ],
+   "tour": "mac",
+   "img": [
+    "files"
+   ]
+  },
+  {
+   "id": "mac-screen",
+   "cat": "mac",
+   "q": "Can I ask about what's on my Mac's screen?",
+   "a": "Yes: **+** › **Ask about my screen** adds the front window (app, title, its text) to your message. Your Mac asks each time unless screen awareness is on in J.A.R.V.I.S.",
+   "keywords": [
+    "screen",
+    "front window",
+    "what's on my screen",
+    "screen context"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "knowledge",
+   "cat": "mac",
+   "q": "What is project knowledge?",
+   "a": "Point Eden at a folder (Projects › Knowledge) and your Mac indexes it locally. Answers then cite it like **[K1]**. Nothing is uploaded.",
+   "keywords": [
+    "knowledge",
+    "index",
+    "folder",
+    "embeddings",
+    "project",
+    "cite",
+    "search docs"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "memory",
+   "cat": "mac",
+   "q": "Can I see and edit what Eden remembers?",
+   "a": "Yes: **Memory** in the sidebar shows every fact, where it came from, and lets you edit it, delete it (with undo) or switch it off. A switched-off fact is kept but never used.",
+   "keywords": [
+    "memory",
+    "remember",
+    "facts",
+    "second brain",
+    "forget",
+    "edit memory",
+    "delete memory"
+   ],
+   "open": {
+    "label": "Open Memory",
+    "command": "Memory"
+   },
+   "tour": "day"
+  },
+  {
+   "id": "brief",
+   "cat": "mac",
+   "q": "What is the morning brief?",
+   "a": "A short summary of your day from your calendar, mail, notes and commitments, with links to each item. Ten minutes before a meeting, a prep card summarises past threads with those people. Open it with **Morning brief** in ⌘K or /brief.",
+   "keywords": [
+    "brief",
+    "morning",
+    "summary",
+    "day",
+    "meeting prep",
+    "agenda"
+   ],
+   "open": {
+    "label": "Open the brief",
+    "command": "Morning brief"
+   },
+   "tour": "day"
+  },
+  {
+   "id": "meetings",
+   "cat": "day",
+   "q": "How do meeting notes become actions?",
+   "a": "Open **Meetings**. Pick a meeting to read its notes; Eden lists the action items. Each one can become a calendar event, an email draft or a commitment, and each asks you first. Eden never sends mail from here.",
+   "keywords": [
+    "meetings",
+    "notes",
+    "transcript",
+    "action items",
+    "commitments",
+    "follow up"
+   ],
+   "open": {
+    "label": "Open Meetings",
+    "command": "Meetings"
+   },
+   "tour": "day"
+  },
+  {
+   "id": "website-task",
+   "cat": "day",
+   "q": "Can Eden do something on a website for me?",
+   "a": "Yes: ⌘K › **Do this on a website…**. J.A.R.V.I.S.'s browser on your Mac does it and you see every step, with **Stop** at any time. Anything risky (a purchase, a form) waits for your OK on the Mac.",
+   "keywords": [
+    "website",
+    "browser",
+    "web task",
+    "automation",
+    "fill form",
+    "book",
+    "agent"
+   ],
+   "open": {
+    "label": "Do this on a website",
+    "command": "Do this on a website…"
+   },
+   "tour": "mac"
+  },
+  {
+   "id": "undo",
+   "cat": "day",
+   "q": "Can I undo something Eden did?",
+   "a": "Open **Activity** (⌘K › Activity: what Eden did). It lists Eden's actions on mail, calendar and files, with **Undo** where possible (for 7 days). Sent emails, website tasks and deleted repeating events can't be undone, and say so.",
+   "keywords": [
+    "undo",
+    "activity",
+    "revert",
+    "timeline",
+    "mistake",
+    "what did eden do"
+   ],
+   "open": {
+    "label": "Open Activity",
+    "command": "Activity: what Eden did"
+   },
+   "tour": "safety",
+   "img": [
+    "activity"
+   ]
+  },
+  {
+   "id": "tasks",
+   "cat": "auto",
+   "q": "What are background tasks?",
+   "a": "Tell Eden in one sentence, like \"tell me when the lawyer replies and draft an answer\". Eden proposes a plan; you confirm. It then watches in the background, even with your browser closed. Drafts are made by themselves; anything sent or put in your calendar waits for **Approve**. You get a notification on your iPhone.",
+   "keywords": [
+    "tasks",
+    "background",
+    "watch",
+    "notify",
+    "alert",
+    "automation",
+    "agent",
+    "approve"
+   ],
+   "open": {
+    "label": "Open Tasks",
+    "command": "Tasks"
+   },
+   "tour": "auto",
+   "img": [
+    "tasks"
+   ]
+  },
+  {
+   "id": "task-approvals",
+   "cat": "auto",
+   "q": "How do I approve what a task wants to do?",
+   "a": "In **Tasks** › the approval card, or from the notification on your iPhone (Approve or Deny). Nothing is sent before you approve.",
+   "keywords": [
+    "approve",
+    "deny",
+    "approval",
+    "notification",
+    "push"
+   ],
+   "tour": "auto"
+  },
+  {
+   "id": "workflows",
+   "cat": "auto",
+   "q": "What are workflows?",
+   "a": "A chat you want to repeat becomes a one-tap recipe: the conversation's **…** menu › **Save as workflow…**. Blanks become a small form. Run it from **Workflows**, or **Run on a schedule**. You can share a workflow to a team space.",
+   "keywords": [
+    "workflow",
+    "recipe",
+    "template",
+    "repeat",
+    "schedule",
+    "reuse",
+    "automation"
+   ],
+   "open": {
+    "label": "Open Workflows",
+    "command": "Workflows"
+   },
+   "tour": "auto"
+  },
+  {
+   "id": "spaces",
+   "cat": "teams",
+   "q": "What are team spaces?",
+   "a": "A shared project for up to 20 people, with its own monthly AI budget and starting level. Shared chats are encrypted with the space's key, which askeden.com never has. You need Plus to make one; members join with an invite and a six-digit check.",
+   "keywords": [
+    "team",
+    "space",
+    "shared",
+    "members",
+    "invite",
+    "budget",
+    "collaborate",
+    "group"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "delegates",
+   "cat": "teams",
+   "q": "Can my assistant or family use my Eden?",
+   "a": "Yes, as a **delegate**. In your account page, invite them: choose chat (and optionally Gmail and Calendar), a monthly limit and how long. They get a single-use code or link (7 days), sign in with their own account and tap **Use**.\n\nThey never see your settings, devices, sync, tasks or Mac. You can revoke it at any time. When they're done, **Switch back** in the banner returns them to their own Eden.",
+   "keywords": [
+    "delegate",
+    "assistant",
+    "family",
+    "share account",
+    "invite",
+    "limit",
+    "revoke",
+    "acting for",
+    "switch back",
+    "acting",
+    "someone else",
+    "banner"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "publish",
+   "cat": "publish",
+   "q": "How do I share a page Eden made?",
+   "a": "Open it in the canvas and press the **globe** (Publish). Choose **Only me** or **Anyone with the link**; it lives at askeden.com/p/… until you take it down. Up to 20 pages, 2 MB each. Your account page › **Published** lists them, with take-down buttons that work at once.\n\nOn your Mac, you can save the page as an HTML file instead.",
+   "keywords": [
+    "publish",
+    "share",
+    "link",
+    "page",
+    "app",
+    "artifact",
+    "public",
+    "take down",
+    "published",
+    "list",
+    "remove page",
+    "unpublish"
+   ],
+   "tour": "create",
+   "img": [
+    "publish"
+   ]
+  },
+  {
+   "id": "messenger-eden",
+   "cat": "messenger",
+   "q": "How do I use @Eden in Eden Messenger?",
+   "a": "In a Messenger chat, type **@e** and your question. Before anything leaves, a preview shows exactly what Eden will see: the question, the earlier messages you choose (0 to 50) and your name. The answer comes back as a draft you can edit, then posts as your own message ending \"via Eden\".\n\nThe first time, **Connect Eden** signs you in once (ask-only access, for 90 days). Disconnect in your account page › **Connected apps** › **Revoke**.",
+   "keywords": [
+    "messenger",
+    "@eden",
+    "group chat",
+    "mention",
+    "ask in chat",
+    "connect eden",
+    "revoke",
+    "connected apps",
+    "messenger token",
+    "disconnect"
+   ]
+  },
+  {
+   "id": "messenger-privacy",
+   "cat": "messenger",
+   "q": "Does @Eden break Messenger's end-to-end encryption?",
+   "a": "Only for what you choose to send, and only for that answer: the preview warns you before. Everything else stays end-to-end encrypted, and the answer is posted encrypted like any message.",
+   "keywords": [
+    "messenger encryption",
+    "e2e",
+    "privacy",
+    "leaves encryption"
+   ]
+  },
+  {
+   "id": "ios-share",
+   "cat": "iphone",
+   "q": "How do I send something to Eden from another app?",
+   "a": "Use the **Share** button in Safari, Photos, Files or any app and pick **Ask Eden**. A page brings its title and text, a photo arrives without its location, a PDF as text.",
+   "keywords": [
+    "share sheet",
+    "share",
+    "safari",
+    "photos",
+    "pdf",
+    "send to eden",
+    "extension"
+   ],
+   "tour": "basics"
+  },
+  {
+   "id": "ios-siri",
+   "cat": "iphone",
+   "q": "Can I ask Eden with Siri?",
+   "a": "Yes: say \"Ask Eden\" followed by your question, or add the Ask Eden action in Shortcuts.",
+   "keywords": [
+    "siri",
+    "shortcuts",
+    "voice",
+    "hey siri",
+    "app intent"
+   ]
+  },
+  {
+   "id": "ios-live",
+   "cat": "iphone",
+   "q": "What are Live Activities in Eden?",
+   "a": "Long jobs (a Code session, a compare, research, a website task) show their progress on the Lock Screen and in the Dynamic Island. iOS only allows short background updates, so it may lag a little until you open the app.",
+   "keywords": [
+    "live activity",
+    "lock screen",
+    "dynamic island",
+    "progress",
+    "long task"
+   ]
+  },
+  {
+   "id": "ios-ondevice",
+   "cat": "iphone",
+   "q": "Does Eden work offline on my iPhone?",
+   "a": "On iPhones with Apple Intelligence, yes: pick **On this iPhone** in the model menu. Apple's on-device model answers, and nothing leaves the phone. Eden uses it by itself when you're offline. The app's Settings shows if it's ready.",
+   "keywords": [
+    "offline",
+    "on device",
+    "on this iphone",
+    "apple intelligence",
+    "foundation models",
+    "no internet",
+    "airplane"
+   ]
+  },
+  {
+   "id": "ios-settings",
+   "cat": "iphone",
+   "q": "Where are the app's own settings?",
+   "a": "Shake the phone, or use the Settings button on the error screen. There you can open **Help**, reload Eden, and **Sign Out and Clear Data**.\n\n**Server** chooses which Eden the app shows: askeden.com, or Eden on your own Mac on your network. Each server keeps its own sign-in and chats. Everything else is in Eden's own Settings.",
+   "keywords": [
+    "app settings",
+    "server",
+    "reload",
+    "sign out",
+    "clear data",
+    "shake",
+    "custom server",
+    "mac",
+    "network",
+    "askeden.com"
+   ]
+  },
+  {
+   "id": "mac-hotkey",
+   "cat": "iphone",
+   "q": "Is there a shortcut to ask Eden from anywhere on my Mac?",
+   "a": "Yes: **⌃⌥Space** opens Ask Eden. Turn it on in J.A.R.V.I.S. › Settings › This Mac (it's off by default).",
+   "keywords": [
+    "hotkey",
+    "mac shortcut",
+    "control option space",
+    "anywhere",
+    "quick ask"
+   ]
+  },
+  {
+   "id": "err-mac-offline",
+   "cat": "trouble",
+   "q": "\"Your Mac is offline\"",
+   "a": "Your account has a Mac linked, but it isn't connected right now. Eden needs it for Jarvis, Code mode, files, mail on the Mac and privacy mode.\n\n**Fix:**\n- Wake the Mac and open **J.A.R.V.I.S.** (with Eden running there).\n- In J.A.R.V.I.S. › Settings › Account, check **Eden on the web reaches this Mac** is on and says Connected.\n- Then try again. Plain chat on askeden.com works without the Mac.",
+   "keywords": [
+    "mac offline",
+    "offline",
+    "not connected",
+    "relay",
+    "jarvis closed",
+    "asleep"
+   ],
+   "messages": [
+    "Your Mac is offline",
+    "Your Mac isn't connected to the relay right now",
+    "Your Mac isn’t connected",
+    "Your Mac didn’t answer in time",
+    "Your Mac stopped answering",
+    "Can’t reach your Mac"
+   ],
+   "open": {
+    "label": "Check the Mac link",
+    "command": "__jarvis"
+   },
+   "tour": "mac",
+   "img": [
+    "err-mac-offline"
+   ]
+  },
+  {
+   "id": "err-needs-mac",
+   "cat": "trouble",
+   "q": "\"Needs your Mac\"",
+   "a": "That feature runs on your own Mac (your files, Mail on the Mac, Code mode, API keys, local models), and askeden.com can't reach a Mac for this account.\n\n**Fix:** install J.A.R.V.I.S. on your Mac, sign in with the same account and turn on **Eden on the web reaches this Mac** (Settings › Account). If you don't have a Mac, use the parts that work on the web: chat, Compare, Gmail and Google Calendar.",
+   "keywords": [
+    "needs your mac",
+    "no mac",
+    "mac only",
+    "not available on the web",
+    "link a mac"
+   ],
+   "messages": [
+    "Needs your Mac",
+    "This needs your Mac",
+    "No Mac is linked to this account",
+    "It needs your Mac",
+    "Privacy mode needs your Mac, through its link to askeden.com"
+   ],
+   "open": {
+    "label": "How to link a Mac",
+    "faq": "mac-link"
+   },
+   "tour": "mac"
+  },
+  {
+   "id": "err-approve-mac",
+   "cat": "trouble",
+   "q": "\"Approve Eden on your Mac\"",
+   "a": "J.A.R.V.I.S. on your Mac is showing **Let Eden use Jarvis?** and waiting for you. Eden can't read your calendar, mail or notes until you allow it.\n\n**Fix:** go to the Mac and click **Allow** on that card. If you said no by mistake, just try again: the card comes back.",
+   "keywords": [
+    "approve eden on your mac",
+    "let eden use jarvis",
+    "waiting",
+    "card",
+    "asking"
+   ],
+   "messages": [
+    "Approve Eden on your Mac",
+    "Let Eden use Jarvis?",
+    "Waiting for you on your Mac",
+    "Waiting for your OK on your Mac",
+    "You said no on your Mac, so nothing changed",
+    "Nobody answered the card on your Mac in time"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "err-jarvis-not-running",
+   "cat": "trouble",
+   "q": "\"Jarvis is not running on this Mac\"",
+   "a": "Eden on your Mac talks to the J.A.R.V.I.S. app for calendar, mail, memory and files, and it isn't open (or is too old).\n\n**Fix:** open J.A.R.V.I.S. If it's open, quit and reopen it. If Eden says Jarvis \"sent something Eden can't read\" or a tool is missing, update J.A.R.V.I.S. and restart it.",
+   "keywords": [
+    "jarvis not running",
+    "jarvis app",
+    "mcp",
+    "restart jarvis",
+    "update jarvis",
+    "jarvis didn't answer"
+   ],
+   "messages": [
+    "Jarvis is not running on this Mac",
+    "Jarvis isn’t reachable on your Mac",
+    "The Jarvis app didn’t answer",
+    "Jarvis sent something Eden can’t read",
+    "Your Jarvis app is from before",
+    "Jarvis has no tool called"
+   ]
+  },
+  {
+   "id": "err-privacy-offline",
+   "cat": "trouble",
+   "q": "\"Privacy mode needs your Mac\" or \"Turn on Ollama or LM Studio\"",
+   "a": "A private chat is answered only by a local model on your Mac, and none is reachable. Nothing was sent.\n\n**Fix:**\n- On askeden.com: open J.A.R.V.I.S. on your linked Mac.\n- On the Mac: start **Ollama** or **LM Studio** and load a chat model.\n- Or press **Private** again to turn privacy off for this chat.",
+   "keywords": [
+    "privacy mode",
+    "ollama",
+    "lm studio",
+    "local model",
+    "private chat failed",
+    "nothing was sent"
+   ],
+   "messages": [
+    "privacy mode needs it",
+    "Privacy mode needs your Mac",
+    "Turn on Ollama or LM Studio to use privacy mode",
+    "is running but has no chat model loaded",
+    "Privacy mode isn’t available here",
+    "Compare in privacy mode"
+   ],
+   "open": {
+    "label": "Turn privacy off",
+    "click": "#btnPrivacy"
+   },
+   "tour": "privacy",
+   "img": [
+    "err-privacy"
+   ]
+  },
+  {
+   "id": "err-allowance",
+   "cat": "trouble",
+   "q": "\"The free trial is used up\" or \"allowance is used up\"",
+   "a": "Your included AI for askeden.com is spent, or what's left can't cover this reply. The trial is $1, once; Plus is $20 a month and starts again on the 1st. Before each reply Eden sets aside what it could cost at most, so a long chat, Compare or web search can need more than what's left.\n\n**Fix:** start a new chat (shorter is cheaper), ask one model, get Plus, wait for the 1st, or use Eden on your Mac with your own keys.",
+   "keywords": [
+    "allowance used up",
+    "trial used up",
+    "no allowance",
+    "out of credit",
+    "402",
+    "limit reached",
+    "not enough left",
+    "reply too expensive",
+    "long chat",
+    "new chat"
+   ],
+   "messages": [
+    "The free trial of Jarvis AI is used up",
+    "AI allowance is used up",
+    "No included AI is left",
+    "no_allowance",
+    "Not enough of your included AI is left"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   },
+   "img": [
+    "account"
+   ]
+  },
+  {
+   "id": "err-too-long",
+   "cat": "trouble",
+   "q": "\"This conversation is too long\"",
+   "a": "The chat has grown past what a model can read at once (on askeden.com, about 150,000 tokens).\n\n**Fix:** start a new chat, or use the ring's **Compact** to carry a summary into a new one.",
+   "keywords": [
+    "too long",
+    "context",
+    "tokens",
+    "150000",
+    "conversation too big"
+   ],
+   "messages": [
+    "This conversation is too long",
+    "too long for the on-device model",
+    "Cut off at the model’s output limit"
+   ]
+  },
+  {
+   "id": "err-signed-out",
+   "cat": "trouble",
+   "q": "\"This browser is signed out of Eden\"",
+   "a": "Your session ended: you signed out elsewhere, removed this browser from your account, or 30 days passed.\n\n**Fix:** reload the page and sign in again. Your chats in this browser are still there.",
+   "keywords": [
+    "signed out",
+    "session expired",
+    "logged out",
+    "reload",
+    "401"
+   ],
+   "messages": [
+    "This browser is signed out of Eden",
+    "Signed out. Sign in at askeden.com again",
+    "You were signed out",
+    "This device is signed out"
+   ],
+   "open": {
+    "label": "Sign in",
+    "href": "/signin"
+   }
+  },
+  {
+   "id": "err-signin-took-too-long",
+   "cat": "trouble",
+   "q": "\"That sign-in took too long\" or \"You cancelled the sign-in\"",
+   "a": "The sign-in didn't finish. Either the Apple or Google window was closed (nothing changed), or the sign-in started in another tab, sat too long, or came back from a link: for your safety, Eden only finishes a sign-in in the tab that started it, within 10 minutes.\n\n**Fix:** close other sign-in tabs, go to askeden.com/signin and start again in one tab. Allow cookies for askeden.com. If the Apple or Google window keeps failing, try **Approve from your iPhone**.",
+   "keywords": [
+    "sign in failed",
+    "took too long",
+    "another window",
+    "state",
+    "expired",
+    "cookies",
+    "cancelled",
+    "access denied",
+    "apple window",
+    "google window"
+   ],
+   "messages": [
+    "That sign-in took too long",
+    "That sign-in didn’t finish",
+    "The sign-in came back unreadable",
+    "That sign-in is gone",
+    "didn't check out",
+    "You cancelled the sign-in",
+    "Sign in with Apple didn’t finish",
+    "Adding it was cancelled"
+   ],
+   "open": {
+    "label": "Go to sign-in",
+    "href": "/signin"
+   }
+  },
+  {
+   "id": "err-identity-taken",
+   "cat": "trouble",
+   "q": "\"This Apple/Google account is already used by another Eden account\"",
+   "a": "That Apple ID or Google account already opens a different Eden account, so it can't be added to this one.\n\n**Fix:** sign in with it to open that other account. To use it here instead, remove it from the other account first (Account › Sign-in methods), then add it again.",
+   "keywords": [
+    "already used",
+    "identity taken",
+    "another account",
+    "link failed",
+    "taken"
+   ],
+   "messages": [
+    "is already used by another Eden account",
+    "already has",
+    "Unlink it first"
+   ]
+  },
+  {
+   "id": "err-not-open",
+   "cat": "trouble",
+   "q": "\"Eden on the web isn't open to this account yet\"",
+   "a": "askeden.com is in a private beta, open to some accounts only for now.\n\n**Fix:** use Eden on your Mac in the meantime, or write to support@askeden.com to ask for access.",
+   "keywords": [
+    "not open",
+    "beta",
+    "not allowed",
+    "access",
+    "waitlist"
+   ],
+   "messages": [
+    "Eden on the web isn’t open to this account yet",
+    "not_allowed"
+   ]
+  },
+  {
+   "id": "err-signin-not-ready",
+   "cat": "trouble",
+   "q": "\"That way of signing in isn't ready yet\" or \"Google didn't share a verified email\"",
+   "a": "Either that sign-in button isn't switched on for this site yet, or your Google account has no verified email (Eden needs one to tell accounts apart).\n\n**Fix:** use another way on the sign-in page, such as **Approve from your iPhone** or Sign in with Apple.",
+   "keywords": [
+    "not ready",
+    "not set up",
+    "google unavailable",
+    "apple unavailable",
+    "google email",
+    "verified",
+    "unverified"
+   ],
+   "messages": [
+    "That way of signing in isn’t ready yet",
+    "isn’t ready yet",
+    "Google didn’t share a verified email address"
+   ]
+  },
+  {
+   "id": "err-rate-limited",
+   "cat": "trouble",
+   "q": "\"Too many tries\" or \"wait a minute\"",
+   "a": "Too many sign-ins or messages came from your network or account in a minute. It's a safety limit.\n\n**Fix:** wait a minute, then try again.",
+   "keywords": [
+    "too many",
+    "rate limit",
+    "slow down",
+    "429",
+    "wait a minute"
+   ],
+   "messages": [
+    "Too many tries",
+    "Too many requests",
+    "Too many connections",
+    "wait a minute",
+    "Eden is already writing 2 replies"
+   ]
+  },
+  {
+   "id": "err-code-expired",
+   "cat": "trouble",
+   "q": "\"That code ran out\"",
+   "a": "Sign-in codes last about 10 minutes, and each works once.\n\n**Fix:** press **Get a new code** and approve it in the J.A.R.V.I.S. iPhone app within a few minutes. If it says \"Turned down in the app\", someone pressed Deny there: get a new code.",
+   "keywords": [
+    "code expired",
+    "code ran out",
+    "new code",
+    "turned down",
+    "qr expired"
+   ],
+   "messages": [
+    "That code ran out",
+    "Turned down in the app",
+    "That code expired",
+    "That code isn't one we know",
+    "That code was already used",
+    "That sign-in code is gone"
+   ],
+   "open": {
+    "label": "Go to sign-in",
+    "href": "/signin"
+   }
+  },
+  {
+   "id": "err-cant-reach",
+   "cat": "trouble",
+   "q": "\"Can't reach the server\" or \"Can't reach askeden.com\"",
+   "a": "Your device couldn't connect to Eden.\n\n**Fix:** check your internet connection and reload. On your Mac, check Eden is running (model-router-ui). In the iPhone app, pull down to reload, or check the server in the app's Settings.",
+   "keywords": [
+    "can't reach",
+    "no connection",
+    "network",
+    "offline",
+    "server down",
+    "connection dropped"
+   ],
+   "messages": [
+    "Can’t reach the server",
+    "Can’t reach askeden.com",
+    "The connection to the Eden server dropped",
+    "is the Eden server running",
+    "Can't reach",
+    "You're offline"
+   ]
+  },
+  {
+   "id": "err-gmail-reconnect",
+   "cat": "trouble",
+   "q": "\"Gmail needs to be reconnected\" or \"Gmail is rate-limiting Eden\"",
+   "a": "Google's permission for Eden expired or was removed (in test mode Google ends it after 7 days), or Google asked Eden to slow down for a moment.\n\n**Fix:** for a reconnect, Settings › Accounts › **Connect Gmail** (or **Connect Calendar**) again, and tick every box Google asks about. For \"busy\" or \"rate-limiting\", wait the seconds it says and try again.",
+   "keywords": [
+    "gmail reconnect",
+    "google expired",
+    "revoked",
+    "permission",
+    "calendar not connected",
+    "reconnect google",
+    "gmail busy",
+    "rate limit google",
+    "calendar busy",
+    "try again"
+   ],
+   "messages": [
+    "Gmail needs to be reconnected",
+    "Google needs to be reconnected",
+    "Eden lacks a Gmail permission",
+    "Reconnect Google to see your calendar",
+    "Connect Google Calendar to see your calendar",
+    "Gmail is not connected",
+    "Google isn’t connected",
+    "Google Calendar isn’t connected",
+    "Google sent no refresh token",
+    "Gmail is rate-limiting Eden",
+    "Google Calendar is busy",
+    "Could not reach Google"
+   ],
+   "open": {
+    "label": "Accounts settings",
+    "settings": "accounts"
+   },
+   "tour": "mail"
+  },
+  {
+   "id": "err-attachment-big",
+   "cat": "trouble",
+   "q": "\"Gmail sends at most 25 MB\" or \"attach it again\"",
+   "a": "Gmail won't send more than 25 MB in all, and refuses some file types (like .exe). Separately, attachments wait on Eden's server for up to 6 hours after you last touched the draft; after that (or a restart of Eden on your Mac) they're gone.\n\n**Fix:** share big files from Google Drive and paste the link. For \"attach it again\", remove the attachment and add it again.",
+   "keywords": [
+    "attachment too big",
+    "25 mb",
+    "file too large",
+    "blocked file type",
+    "exe",
+    "attach again",
+    "lost attachment",
+    "upload gone",
+    "6 hours"
+   ],
+   "messages": [
+    "Gmail sends at most 25 MB",
+    "Gmail doesn't allow",
+    "would take the email past 25 MB",
+    "At most 50 attachments",
+    "attach it again",
+    "is no longer on Eden’s server",
+    "hasn’t finished uploading",
+    "Retry or remove the attachments that failed"
+   ],
+   "tour": "mail"
+  },
+  {
+   "id": "err-mac-mail",
+   "cat": "trouble",
+   "q": "\"Mail on your Mac can't attach files\" (or Bcc, or schedule)",
+   "a": "Mail on your Mac (through J.A.R.V.I.S.) sends plain text only: one To, no Bcc, attachments or scheduling.\n\n**Fix:** switch **From** to your Gmail account in the compose window.",
+   "keywords": [
+    "mac mail",
+    "can't attach",
+    "bcc",
+    "schedule",
+    "from",
+    "switch to gmail"
+   ],
+   "messages": [
+    "Mail on your Mac can’t attach files",
+    "Mail on your Mac can’t schedule",
+    "Mail on your Mac can’t Bcc",
+    "Mail on your Mac needs one To",
+    "Mail on your Mac sends to 10 people at most"
+   ],
+   "open": {
+    "label": "How Mac Mail differs",
+    "faq": "mac-mail-limits"
+   }
+  },
+  {
+   "id": "err-scheduled-missed",
+   "cat": "trouble",
+   "q": "A scheduled email \"wasn't sent\"",
+   "a": "Eden sends scheduled mail while it's running. If it was more than 12 hours late (your Mac was off, say), Eden didn't send it, to avoid sending stale mail. It's still in Gmail Drafts.\n\n**Fix:** open it and send it now, or pick a new time. If it says it \"may or may not have gone\", check Gmail's Sent folder first.",
+   "keywords": [
+    "scheduled email",
+    "not sent",
+    "missed",
+    "late",
+    "drafts"
+   ],
+   "messages": [
+    "It couldn’t be sent at the scheduled time",
+    "may or may not have gone",
+    "Gmail is now connected to a different account",
+    "The draft is no longer in Gmail"
+   ],
+   "tour": "mail"
+  },
+  {
+   "id": "err-sync-key",
+   "cat": "trouble",
+   "q": "\"This browser doesn't have your sync key yet\"",
+   "a": "Sync is on for your account, but this browser hasn't been let in.\n\n**Fix:** in your account page › Sync, ask to join. On a device that already syncs, check the **six digits match** and approve. Or type your recovery passphrase. If the key changed after a device was removed, choose **Stop syncing here** first, then ask again.",
+   "keywords": [
+    "sync key",
+    "approve browser",
+    "six digits",
+    "passphrase",
+    "key changed",
+    "stop syncing"
+   ],
+   "messages": [
+    "This browser doesn’t have your sync key yet",
+    "Eden’s sync key changed",
+    "That isn’t the recovery passphrase",
+    "doesn’t open this account’s history",
+    "no longer unlocks",
+    "That browser’s key changed",
+    "That request ran out. Ask again"
+   ],
+   "open": {
+    "label": "Open your account",
+    "click": "#btnAccount"
+   },
+   "tour": "account",
+   "img": [
+    "sync"
+   ]
+  },
+  {
+   "id": "err-approval-expired",
+   "cat": "trouble",
+   "q": "An approval card says \"Expired: nothing was done\"",
+   "a": "Approval cards wait 15 minutes in a chat (7 days for a background task). After that nothing happens, on purpose.\n\n**Fix:** ask Eden again and press **Approve** in time. **Approve anyway** appears when Eden spotted something odd: read the warning first.",
+   "keywords": [
+    "approval expired",
+    "approve",
+    "deny",
+    "15 minutes",
+    "card",
+    "eden wants to"
+   ],
+   "messages": [
+    "Expired — nothing was done",
+    "Eden wants to",
+    "This turn read content from outside",
+    "That approval waited more than a week",
+    "Denied — nothing was done"
+   ],
+   "tour": "safety",
+   "img": [
+    "guard"
+   ]
+  },
+  {
+   "id": "err-task-paused",
+   "cat": "trouble",
+   "q": "A task is \"Paused after failed runs\" or its budget is used up",
+   "a": "A background task stops after 5 failed runs in a row, or when its monthly budget (by default $1) is spent.\n\n**Fix:** open **Tasks**, read the error (often \"Connect Gmail to run this task\"), fix it and press Resume. Raise the task's budget if it needs more.",
+   "keywords": [
+    "task paused",
+    "failed runs",
+    "task budget",
+    "resume",
+    "connect gmail to run"
+   ],
+   "messages": [
+    "Paused after",
+    "for this task is used up",
+    "Connect Gmail to run this task",
+    "Connect Google Calendar to run this task",
+    "An account has at most 20 tasks"
+   ],
+   "open": {
+    "label": "Open Tasks",
+    "command": "Tasks"
+   },
+   "tour": "auto"
+  },
+  {
+   "id": "err-delegate-ended",
+   "cat": "trouble",
+   "q": "\"Your delegated access ended\"",
+   "a": "The owner revoked your access, it ran out, or the team space is gone or paused.\n\n**Fix:** press **Switch back** to use your own Eden, and ask the owner for a new invitation if you still need it.",
+   "keywords": [
+    "delegate ended",
+    "access ended",
+    "space paused",
+    "switch back",
+    "invitation"
+   ],
+   "messages": [
+    "Your delegated access ended",
+    "This delegated access has ended",
+    "Your delegated AI limit is used up",
+    "This space’s shared AI budget is used up",
+    "its shared AI is paused",
+    "That invitation isn’t one we know",
+    "That invitation ran out"
+   ]
+  },
+  {
+   "id": "err-publish-limit",
+   "cat": "trouble",
+   "q": "\"A published page is at most 2 MB\" or \"20 published pages\"",
+   "a": "Each published page can be up to 2 MB, and you can keep 20.\n\n**Fix:** take an old one down (account page › Published), or make the page smaller (fewer embedded pictures).",
+   "keywords": [
+    "publish limit",
+    "2 mb",
+    "20 pages",
+    "page too big"
+   ],
+   "messages": [
+    "A published page is at most 2 MB",
+    "You have 20 published pages",
+    "This page isn’t here",
+    "This page is private"
+   ]
+  },
+  {
+   "id": "err-dictation",
+   "cat": "trouble",
+   "q": "Dictation or Talk doesn't work",
+   "a": "- **\"No microphone found\"**: plug one in, or allow the microphone for this site (the lock icon in the address bar).\n- **\"Talking needs speech recognition\"**: use Chrome, Edge or Safari for Talk.\n- **\"Nothing was heard\"**: speak a little closer.\n- Recordings are 2 minutes at most.",
+   "keywords": [
+    "microphone",
+    "dictation not working",
+    "talk not working",
+    "permission",
+    "speech recognition",
+    "nothing was heard"
+   ],
+   "messages": [
+    "No microphone found",
+    "Talking needs speech recognition",
+    "Nothing was heard",
+    "Dictation couldn’t start",
+    "Dictation didn’t work this time",
+    "Recordings are 2 minutes at most",
+    "No voice allowance left today",
+    "voice allowance is used up"
+   ],
+   "tour": "voice"
+  },
+  {
+   "id": "err-attach-refused",
+   "cat": "trouble",
+   "q": "\"can't be attached\" or \"is over 6 MB\"",
+   "a": "Messages take pictures (up to 6 MB) and text or code files (up to 400 KB), six at most. PDFs and Office files can't be attached in a chat yet.\n\n**Fix:** use a smaller picture or file. For a PDF on your Mac, use **Use my Mac**; on the iPhone, share it to Eden and it arrives as text.",
+   "keywords": [
+    "can't attach",
+    "pdf",
+    "too big",
+    "6 mb",
+    "400 kb",
+    "six attachments"
+   ],
+   "messages": [
+    "can’t be attached: pictures and text or code files only",
+    "Up to six attachments per message",
+    "is over 400 KB",
+    "is over 6 MB",
+    "would make this message too big to send",
+    "can’t see pictures"
+   ]
+  },
+  {
+   "id": "err-ios-load",
+   "cat": "trouble",
+   "q": "The iPhone app says \"Eden didn't load\" or \"needs HTTPS\"",
+   "a": "The app couldn't open the server it's set to.\n\n**Fix:** check your connection, then tap Try Again. If you changed the server, open the app's Settings (shake the phone) and pick askeden.com. A custom server must start with https:// (http:// only on your own network). Offline, \"On this iPhone\" can still answer.",
+   "keywords": [
+    "ios",
+    "app didn't load",
+    "https",
+    "certificate",
+    "server",
+    "offline iphone"
+   ],
+   "messages": [
+    "Eden didn't load",
+    "needs HTTPS",
+    "Not a secure connection",
+    "Is Eden running on your Mac",
+    "The address must start with https://",
+    "Offline · replies need a connection"
+   ],
+   "open": {
+    "label": "App settings",
+    "faq": "ios-settings"
+   }
+  },
+  {
+   "id": "err-ondevice",
+   "cat": "trouble",
+   "q": "\"On this iPhone\" isn't available",
+   "a": "Apple's on-device model needs iOS 26 or later, an iPhone 15 Pro or newer, and Apple Intelligence turned on (Settings › Apple Intelligence & Siri). Right after turning it on, the model may still be downloading.\n\n**Fix:** turn on Apple Intelligence and wait a few minutes. The app's Settings shows Ready when it works.",
+   "keywords": [
+    "on this iphone",
+    "apple intelligence",
+    "on device unavailable",
+    "iphone 15 pro",
+    "ios 26"
+   ],
+   "messages": [
+    "Answers on this iPhone need iOS 26",
+    "can’t run Apple Intelligence",
+    "Turn on Apple Intelligence",
+    "is still getting its model ready",
+    "The on-device model is busy"
+   ],
+   "open": {
+    "label": "About on-device",
+    "faq": "ios-ondevice"
+   }
+  },
+  {
+   "id": "err-claude-busy",
+   "cat": "trouble",
+   "q": "\"Claude is busy right now\" or a model \"failed\"",
+   "a": "The model's service was overloaded or failed. Eden retries once on the next-best model when nothing was written yet.\n\n**Fix:** wait a moment and press Retry, or pick another model.",
+   "keywords": [
+    "claude busy",
+    "overloaded",
+    "529",
+    "model failed",
+    "retry",
+    "server error"
+   ],
+   "messages": [
+    "Claude is busy right now",
+    "failed too",
+    "Something went wrong on the server",
+    "Something went wrong on our side",
+    "The model sent an empty reply",
+    "The turn failed",
+    "Claude declined this request"
+   ]
+  },
+  {
+   "id": "err-no-provider",
+   "cat": "trouble",
+   "q": "\"No provider is available\" (Eden on your Mac)",
+   "a": "Eden on your Mac has no model it can use: no API keys and no Claude Code.\n\n**Fix:** add a key in Settings › **API keys**, or install Claude Code (it lets Eden use Claude on your subscription).",
+   "keywords": [
+    "no provider",
+    "api key",
+    "claude code",
+    "not found",
+    "keys"
+   ],
+   "messages": [
+    "No provider is available",
+    "No model provider is available",
+    "The Claude Code CLI (claude) was not found",
+    "Code mode is unavailable",
+    "Web search needs a Gemini API key"
+   ],
+   "open": {
+    "label": "API keys",
+    "settings": "keys"
+   }
+  }
+ ]
+}

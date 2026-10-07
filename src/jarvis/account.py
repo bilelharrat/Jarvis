@@ -40,12 +40,19 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 log = logging.getLogger("jarvis")
 
 BASE = "https://askeden.com/api"
+# The servers a Mac may link to (Settings › Account › Server): askeden.com, or its preview
+# (preview.askeden.com, its own accounts). The one a Mac linked to is kept beside its token, so the
+# token only ever goes back there; another server needs unlinking first.
+SERVERS = ("askeden.com", "preview.askeden.com")
+SERVER_PREF = "account_server"  # Settings: the server to link to (askeden.com unless chosen)
+SERVER_KEY = "server"  # the Keychain: the server the token belongs to
 VAULT_ID = "jarvis-account"  # the Keychain entry: "Jarvis connectors" / jarvis-account:token
 TOKEN_KEY = "token"
 SYNC_KEY = "sync_key"  # the sync key, base64 (32 bytes)
@@ -199,6 +206,7 @@ class Link:
     state: str = "waiting"  # waiting | linked | expired | denied | error
     error: str = ""
     qr: list[str] = field(default_factory=list)
+    browser: bool = False  # approved in the owner's browser (<server>/link), not on the iPhone
 
     @property
     def url(self) -> str:
@@ -261,6 +269,7 @@ class Account:
     ) -> None:
         self.vault = vault
         self.base = base.rstrip("/")
+        self.server = urlsplit(self.base).hostname or SERVERS[0]  # the host the token is for
         self.transport = transport
         self.name = name or _mac_name
         self.version = version
@@ -302,6 +311,35 @@ class Account:
         ids = self.ids
         return ids[1] if ids else None
 
+    @property
+    def web_base(self) -> str:
+        """The server's site (https://askeden.com): its /link page."""
+        return self.base.removesuffix("/api")
+
+    @property
+    def ws_base(self) -> str:
+        """The server's relays (wss://askeden.com/api/relay): the phone's and Eden on the web's."""
+        return "wss://" + self.base.split("://", 1)[-1] + "/relay"
+
+    def use_server(self, host: Any) -> bool:
+        """Link to `host` (one of SERVERS) from now on: only while not linked or linking (a
+        token stays with the server that made it). False when it can't change now."""
+        if host not in SERVERS:
+            return False
+        if host == self.server:
+            return True
+        if self.linked or self.link is not None:
+            return False
+        self.server, self.base = host, f"https://{host}/api"
+        if self._client is not None:
+            client, self._client = self._client, None
+            with contextlib.suppress(RuntimeError):
+                asyncio.get_running_loop().create_task(client.aclose())
+        self.info, self._info_at = None, 0.0
+        log.info("account: links go to %s", host)
+        self._changed()
+        return True
+
     async def load(self) -> None:
         """The token and sync key from the Keychain, once (a locked Keychain: tried again
         next time)."""
@@ -311,11 +349,13 @@ class Account:
             if self._read:
                 return
             try:
-                token, key = await asyncio.to_thread(self._load)
+                token, key, server = await asyncio.to_thread(self._load)
             except Exception:
                 log.warning("account: the Keychain couldn't be read")
                 return
             self.token = token if parse_token(token) else ""
+            if self.token and server in SERVERS and server != self.server:
+                self.server, self.base = server, f"https://{server}/api"  # where this token lives
             try:
                 self.sync_key = b64decode(key) if key else None
             except ValueError:
@@ -324,15 +364,17 @@ class Account:
                 self.sync_key = None
             self._read = True
 
-    def _load(self) -> tuple[str, str]:
+    def _load(self) -> tuple[str, str, str]:
         return (
             self.vault.get(VAULT_ID, TOKEN_KEY) or "",
             self.vault.get(VAULT_ID, SYNC_KEY) or "",
+            self.vault.get(VAULT_ID, SERVER_KEY) or "",
         )
 
     async def _keep(self, token: str, sync_key: bytes | None) -> None:
         def write() -> None:
             self.vault.set(VAULT_ID, TOKEN_KEY, token)
+            self.vault.set(VAULT_ID, SERVER_KEY, self.server)
             if sync_key is not None:
                 self.vault.set(VAULT_ID, SYNC_KEY, b64encode(sync_key))
             else:
@@ -350,7 +392,7 @@ class Account:
         self._info_at = 0.0
 
         def remove() -> None:
-            for key in (TOKEN_KEY, SYNC_KEY, EDEN_DEVICE_KEY, EDEN_KEY):
+            for key in (TOKEN_KEY, SYNC_KEY, EDEN_DEVICE_KEY, EDEN_KEY, SERVER_KEY):
                 self.vault.delete(VAULT_ID, key)
 
         try:
@@ -446,9 +488,10 @@ class Account:
 
     # ── linking ──
 
-    async def link_start(self) -> Link:
+    async def link_start(self, browser: bool = False) -> Link:
         """A new code to show (the one before, if any, is let go). The poller runs until
-        it's approved, denied or expired."""
+        it's approved, denied or expired. browser: the owner approves it at the server's /link
+        page (link_page) rather than on the iPhone; the same code either way."""
         if self._poller is not None and not self._poller.done():
             self._poller.cancel()
         private, public = _new_key_pair()
@@ -471,7 +514,7 @@ class Account:
             raise AccountError(200, "bad_answer", "askeden.com's answer couldn't be read.")
         if not isinstance(seconds, int | float) or isinstance(seconds, bool) or seconds <= 0:
             seconds = 600
-        link = Link(code, poll, self.clock() + float(seconds), private)
+        link = Link(code, poll, self.clock() + float(seconds), private, browser=browser)
         from . import qr
 
         with contextlib.suppress(ValueError):
@@ -481,6 +524,14 @@ class Account:
         self._poller = asyncio.get_running_loop().create_task(self._poll(link))
         self._changed()
         return link
+
+    def link_page(self) -> str:
+        """The server's page that approves this Mac's code in the browser (the code after #,
+        so it never reaches a server log); "" without a code waiting."""
+        link = self.link
+        if link is None or link.state != "waiting":
+            return ""
+        return f"{self.web_base}/link#{link.code}"
 
     def cancel_link(self) -> None:
         if self._poller is not None and not self._poller.done():
@@ -689,6 +740,7 @@ class Account:
         link = self.link
         return {
             "linked": self.linked,
+            "server": self.server,
             "account_id": self.account_id,
             "device_id": self.device_id,
             "sync_key": self.sync_key is not None,
@@ -699,6 +751,8 @@ class Account:
                 "qr": link.qr,
                 "seconds": self.seconds_left(),
                 "error": link.error,
+                "browser": link.browser,
+                "page": self.link_page(),
             }
             if link is not None
             else None,

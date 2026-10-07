@@ -11,7 +11,8 @@ as they come. The browser never reaches the Mac itself.
 
 What the Mac checks, whatever askeden.com already did:
 - the route: only ALLOWED (Jarvis, its status, Code mode, its projects and changes, the
-  morning brief, privacy mode's private turns on a local model). Never
+  morning brief, privacy mode's private turns on a local model, and, for the account's owner
+  only, chat itself: any turn, the routing preview and the model list). Never
   API keys, adding a project folder, the router dashboard or anything else on that server;
 - the asking device: a `web` device (a browser signed in to Eden) of this same account, from
   GET /api/account's device list;
@@ -90,8 +91,16 @@ ALLOWED = frozenset(
         # models it may use, for the page's picker.
         ("POST", "/api/chat/send"),
         ("GET", "/api/chat/local"),
+        # Chat through this Mac (askeden.com without an API key; site/src/eden/via-mac.js): any
+        # turn, the routing preview and the model list, for the account's owner only (OWNER_ONLY).
+        ("POST", "/api/route"),
+        ("GET", "/api/chat/meta"),
     }
 )
+# What only the account's owner may ask (the relay marks such a request `owner`; a delegate's or a
+# team space member's never is): chat on this Mac's models and the owner's own Claude subscription,
+# which serves no one else. A send that isn't private is one of these too (_check).
+OWNER_ONLY = frozenset({("POST", "/api/route"), ("GET", "/api/chat/meta")})
 QUERIES = {"/api/chat/code/changes": {"project"}}  # the only route with a query, and its keys
 # Jarvis's tools Eden's page uses (docs/chat-api.md). A new tool isn't reachable from the web
 # until it's added here. Sends and calendar changes still need confirm: true (Eden's server)
@@ -141,6 +150,7 @@ JARVIS_TOOLS = frozenset(
     }
 )
 BRIEF_KINDS = frozenset({"brief", "events", "prep"})  # POST /api/chat/brief's kinds: all reads
+OWNER_WORDS = "Only the account’s owner chats through this Mac."
 _ID = re.compile(r"[0-9a-f]{16}")
 _DEVICE = re.compile(r"[0-9a-f]{16}")
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
@@ -228,6 +238,7 @@ class Incoming:
     browser: str
     headers: dict[str, str]
     began: float
+    owner: bool = False  # asked by the account owner's own browser (the relay's `owner`)
     body: bytearray = field(default_factory=bytearray)
     refused: bool = False
     task: asyncio.Task | None = None
@@ -245,7 +256,7 @@ class EdenLink:
         self,
         account: Any,
         *,
-        base: str = WS_BASE,
+        base: str | None = None,
         local: str | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         connect: Connect | None = None,
@@ -254,7 +265,7 @@ class EdenLink:
         bypass: Callable[[], bool] = lambda: False,
     ) -> None:
         self.account = account
-        self.base = base.rstrip("/")
+        self._base = base.rstrip("/") if base else None  # tests; else the account's server
         self.local = (local or local_url()).rstrip("/")
         self.transport = transport
         self.connect = connect or _connect()
@@ -273,6 +284,11 @@ class EdenLink:
         self._unknown: dict[str, float] = {}  # browser id → when it was last looked up fresh
 
     # ── the line ──
+
+    @property
+    def base(self) -> str:
+        """The server's relays: the account's (askeden.com or its preview), unless a test says."""
+        return self._base or getattr(self.account, "ws_base", WS_BASE)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.account.token}"}
@@ -478,6 +494,7 @@ class EdenLink:
             },
             began=now,
             refused=refused,
+            owner=m.get("owner") is True,
         )
 
     # ── one request ──
@@ -565,6 +582,8 @@ class EdenLink:
             raise Refused(
                 403, "Only browsers signed in to this account may use this Mac.", "forbidden"
             )
+        if (stream.method, stream.path) in OWNER_ONLY and not stream.owner:
+            raise Refused(403, OWNER_WORDS, "owner_only")
         if stream.method != "POST":
             return
         try:
@@ -581,9 +600,10 @@ class EdenLink:
             # Only what Jarvis did (its card asks the owner); Eden's own Google changes are
             # undone from Eden on the Mac, where its review step is.
             raise Refused(403, "Undo that from Eden on your Mac.", "not_allowed")
-        if stream.path == "/api/chat/send" and body.get("privacy") is not True:
-            # askeden.com answers its own turns; only privacy mode's come here.
-            raise Refused(403, "From the web, your Mac answers private chats only.", "not_allowed")
+        if stream.path == "/api/chat/send" and body.get("privacy") is not True and not stream.owner:
+            # A private turn may come from any of the owner's browsers; any other turn runs on
+            # this Mac's subscription, so only when the relay says the owner asked.
+            raise Refused(403, OWNER_WORDS, "owner_only")
         if stream.path == "/api/chat/brief" and body.get("kind", "brief") not in BRIEF_KINDS:
             raise Refused(400, "The brief is brief, events or prep.", "bad_request")
         if (

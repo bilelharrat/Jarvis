@@ -1,0 +1,54 @@
+/* J.A.R.V.I.S.'s voice in Eden (voice.js): the dictate and talk buttons in the input bar, the
+   Read aloud button's playing state, and the talk overlay (Liquid Glass, Atelier tokens). */
+
+/* the input bar: dictate (always) and talk (while the box is empty), between the text and send */
+.jc-composer-top .jc-dictate, .jc-composer-top .jc-talk { flex: none; margin-bottom: 1px; }
+.jc-composer-top .jc-talk { display: none; }
+.jc-composer-top:has(#deck-input:placeholder-shown) .jc-talk:not([hidden]) { display: inline-flex; }
+.jc-composer.busy .jc-talk { display: none !important; }
+.jc-dictate.live { color: #fff; background: rgb(var(--c-danger)); box-shadow: 0 0 0 4px rgb(var(--c-danger) / 0.18); animation: jc-dictate 1.3s ease-in-out infinite; }
+@keyframes jc-dictate { 50% { box-shadow: 0 0 0 7px rgb(var(--c-danger) / 0.08); } }
+/* a recording on its way to be transcribed (no speech recognition in this browser) */
+.jc-dictate.busy { opacity: 0.55; cursor: progress; animation: jc-dictate-wait 1s ease-in-out infinite alternate; }
+@keyframes jc-dictate-wait { to { opacity: 0.25; } }
+
+/* Read aloud on a reply: while it reads, the button is a stop button */
+.msg-acts .iconbtn[data-act="speak"].on { color: var(--accent); background: var(--accent-soft); }
+.msg-acts .iconbtn[data-act="speak"].on .ic { animation: speak-pulse 1.2s ease-in-out infinite; }
+@keyframes speak-pulse { 50% { opacity: 0.45; } }
+
+/* ── the talk overlay ── */
+.talk { position: fixed; inset: 0; z-index: 130; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.22); --lvl: 0; }
+.talk[hidden] { display: none; }
+.talk-card { width: min(440px, 100%); border-radius: 26px; padding: 14px 18px 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; animation: palin .4s var(--spring); max-height: calc(100dvh - 32px); overflow: hidden; }
+.talk-top { width: 100%; display: flex; align-items: center; gap: 8px; }
+.talk-title { font-size: 15px; font-weight: 600; }
+.talk-voice { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.talk-x { flex: none; }
+
+.talk-orb { position: relative; width: 132px; height: 132px; margin: 8px 0 4px; border: 0; padding: 0; background: none; border-radius: 50%; cursor: default; display: grid; place-items: center; }
+.talk[data-state="speaking"] .talk-orb { cursor: pointer; }
+.talk-orb:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.talk-ring { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle, rgba(63, 184, 242, 0.28), rgba(22, 119, 201, 0) 68%); transform: scale(calc(0.78 + var(--lvl) * 0.42)); transition: transform 90ms linear; }
+.talk-core { width: 76px; height: 76px; border-radius: 50%; background: var(--orb); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 8px 26px rgba(22, 119, 201, 0.35); transform: scale(calc(1 + var(--lvl) * 0.16)); transition: transform 90ms linear, filter .3s ease; }
+.talk[data-state="sending"] .talk-core, .talk[data-state="replying"] .talk-core { animation: talk-think 1.4s ease-in-out infinite; }
+.talk[data-state="speaking"] .talk-core { filter: saturate(1.25) brightness(1.06); }
+@keyframes talk-think { 50% { transform: scale(0.9); filter: brightness(1.12); } }
+
+.talk-state { font-size: 13px; font-weight: 500; color: var(--text2); text-align: center; min-height: 18px; }
+.talk-you { font-size: 16px; line-height: 1.4; color: var(--text); text-align: center; min-height: 22px; max-height: 6.4em; overflow: hidden; overflow-wrap: anywhere; }
+.talk-you.mid { color: var(--text2); }
+.talk-reply { width: 100%; font-size: 13.5px; line-height: 1.5; color: var(--text2); text-align: left; max-height: 9em; overflow: hidden; overflow-wrap: anywhere; display: flex; flex-direction: column; justify-content: flex-end; }
+.talk-reply:empty { display: none; }
+.talk-acts { display: flex; gap: 8px; margin-top: 4px; }
+.talk-acts .btn[hidden] { display: none; }
+
+@media (max-width: 640px) {
+  .talk { align-items: flex-end; padding: 0; }
+  .talk-card { width: 100%; border-radius: 26px 26px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .talk-ring, .talk-core { transition: none; }
+  .talk-core, .jc-dictate.live, .jc-dictate.busy, .msg-acts .iconbtn[data-act="speak"].on .ic { animation: none !important; }
+}
+.talk-acts .btn:disabled { opacity: 0.45; cursor: default; }

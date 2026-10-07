@@ -22,7 +22,8 @@ export const state = {
   jarvis: { available: false, reason: 'Checking…' },
   streams: new Map(), // conv id -> { abort(), node, kind }
   selectedNode: null, // for the inspector's Route tab
-  preview: null, // the router's live pick for the composer text
+  preview: null, // the router's live pick for the composer text (and, in Compare mode, the compare estimate)
+  turnOverride: null, // { model, effort }: a pick from the estimate line, for the next message only (compare.js)
   draftContext: [], // context blocks for the next send: { title, text, kind }
   draftPersona: undefined, // persona chosen in the composer before a conversation exists
 };
@@ -87,6 +88,7 @@ export function saveConversation(c, { now = false } = {}) {
     const ok = store.set(`jchat:conv:${c.id}`, stripForStorage(c));
     store.set('jchat:index', state.convs.filter((x) => !x.temp).map((x) => x.id));
     if (!ok) console.warn('Jarvis Chat: could not save the conversation (storage full?)');
+    dispatchEvent(new CustomEvent('eden:conv-saved', { detail: { id: c.id } })); // Eden sync (sync.js) pushes it
   };
   clearTimeout(saveTimers.get(c.id));
   if (now) write(); else saveTimers.set(c.id, setTimeout(write, 300));
@@ -101,6 +103,7 @@ export function deleteConversation(c) {
   state.convs = state.convs.filter((x) => x !== c);
   store.del(`jchat:conv:${c.id}`);
   store.set('jchat:index', state.convs.filter((x) => !x.temp).map((x) => x.id));
+  if (!c.temp) dispatchEvent(new CustomEvent('eden:conv-deleted', { detail: { id: c.id } })); // sync.js: a tombstone
 }
 
 /* ---------- the message tree ---------- */

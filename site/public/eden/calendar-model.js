@@ -175,6 +175,9 @@ export function normalizeMacJson(j) {
         : { name: String(a.name || ''), email: String(a.email || ''), status: String(a.status || ''), organizer: a.organizer === true, self: a.self === true })),
       recurrence: r.recurring === true || r.repeats === true ? { recurring: true, seriesId: null, rules: [] } : null,
       url: /^https:\/\//.test(String(r.url || '')) ? String(r.url) : '',
+      // its own link field and its alerts (minutes before), which Eden can change; null: this Jarvis doesn't say
+      eventUrl: /^https:\/\//.test(String(r.eventUrl || '')) ? String(r.eventUrl) : '',
+      alerts: Array.isArray(r.alerts) ? [...new Set(r.alerts.filter((m) => Number.isInteger(m) && m >= 0 && m <= ALERT_MOST))].sort((a, b) => a - b) : null,
       link: '',
       color: null,
       readOnly: !writable,
@@ -439,6 +442,20 @@ export function googleChanges(original, d, zone = localZone()) {
   return out;
 }
 
+/** Alerts Jarvis takes: minutes before the start, up to four weeks, three at most. */
+export const ALERT_MOST = 4 * 7 * 24 * 60;
+/** The editor's alert choices (minutes before), as Apple Calendar offers them. */
+export const ALERT_CHOICES = [0, 5, 10, 15, 30, 60, 120, 1440, 2880, 10080];
+/** An alert in words: "At time of event", "10 minutes before", "1 day before". */
+export function alertText(m) {
+  if (m === 0) return 'At time of event';
+  for (const [size, unit] of [[10080, 'week'], [1440, 'day'], [60, 'hour'], [1, 'minute']]) {
+    if (m % size === 0) return `${m / size} ${unit}${m / size === 1 ? '' : 's'} before`;
+  }
+  return `${m} minutes before`;
+}
+const sameAlerts = (a, b) => JSON.stringify([...(a || [])].sort((x, y) => x - y)) === JSON.stringify([...(b || [])].sort((x, y) => x - y));
+
 /** Jarvis's calendar_create arguments for a draft. */
 export function macCreateArgs(d, calendarTitle) {
   const a = { title: d.title, confirm: true };
@@ -446,6 +463,8 @@ export function macCreateArgs(d, calendarTitle) {
   else Object.assign(a, { start: isoWithOffset(d.start), end: isoWithOffset(d.end) });
   if (d.location) a.location = d.location;
   if (d.notes) a.notes = d.notes;
+  if (d.url) a.url = d.url;
+  if (Array.isArray(d.alerts) && d.alerts.length) a.alerts = d.alerts.slice(0, 3);
   if (calendarTitle) a.calendar = calendarTitle;
   return a;
 }
@@ -461,7 +480,11 @@ export function macIdentity(e) {
   return { title: (e.mac && e.mac.title) || e.title, start: e.allDay ? ymd(b.s) : written || isoWithOffset(b.s), ...(e.mac && e.mac.calendar ? { calendar: e.mac.calendar } : {}) };
 }
 
-/** Jarvis's calendar_update arguments: only what it can change (title, time, length, place). null when nothing changed. */
+/**
+ * Jarvis's calendar_update arguments: only what it can change (title, time, length, place,
+ * notes, link, alerts) and only what changed; a draft without `url` or `alerts` leaves those
+ * alone (a drag). null when nothing changed.
+ */
 export function macUpdateArgs(original, d, future = false) {
   const a = { ...macIdentity(original), confirm: true };
   const b = bounds(original);
@@ -469,10 +492,60 @@ export function macUpdateArgs(original, d, future = false) {
   if ((d.location || '') !== (original.location || '')) a.new_location = d.location || '';
   if (+d.start !== +b.s) a.new_start = original.allDay ? ymd(d.start) : isoWithOffset(d.start);
   if (!original.allDay && +d.end - +d.start !== +b.e - +b.s) a.new_duration_minutes = Math.round((d.end - d.start) / 60000);
+  if ('notes' in d && (d.notes || '') !== (original.notes || '')) a.new_notes = d.notes || '';
+  if ('url' in d && (d.url || '') !== (original.eventUrl || '')) a.new_url = d.url || '';
+  if (Array.isArray(d.alerts) && !(Array.isArray(original.alerts) && sameAlerts(d.alerts, original.alerts))) a.new_alerts = d.alerts.slice(0, 3);
   if (future) a.future = true;
-  return ['new_title', 'new_location', 'new_start', 'new_duration_minutes'].some((k) => k in a) ? a : null;
+  return ['new_title', 'new_location', 'new_start', 'new_duration_minutes', 'new_notes', 'new_url', 'new_alerts'].some((k) => k in a) ? a : null;
 }
 
 export function macDeleteArgs(original, future = false) {
   return { ...macIdentity(original), ...(future ? { future: true } : {}), confirm: true };
+}
+
+/* ----- moving and resizing in the time grid ----- */
+
+/** Drags and keyboard nudges land on quarter hours. */
+export const SNAP_MIN = 15;
+export const snap = (min, step = SNAP_MIN) => Math.round(min / step) * step;
+/** The next quarter hour above (dir -1) or below (dir 1) a wall-clock minute, as a change in minutes. */
+export function nudgeMinutes(min, dir) {
+  const to = dir > 0 ? Math.floor(min / SNAP_MIN) * SNAP_MIN + SNAP_MIN : Math.ceil(min / SNAP_MIN) * SNAP_MIN - SNAP_MIN;
+  return to - min;
+}
+
+/**
+ * Where a timed event lands after a drag (or a keyboard nudge), by the wall clock, so 10:00
+ * stays 10:00 across a DST change. 'move': `days` later and `minutes` later, its start snapped
+ * to a quarter hour and kept inside its day, its length kept. 'resize': the end `minutes`
+ * later, snapped, at least SNAP_MIN after the start and no later than that day's midnight.
+ * Returns { start, end } (Dates).
+ */
+export function dragTimes(e, mode, minutes, days = 0) {
+  const b = bounds(e);
+  const d0 = startOfDay(b.s);
+  const at = (day, min) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, min);
+  const startMin = minutesIntoDay(b.s);
+  if (mode === 'resize') {
+    const endMin = daysBetween(d0, startOfDay(b.e)) * 1440 + minutesIntoDay(b.e);
+    const want = Math.max(startMin + SNAP_MIN, Math.min(1440, snap(endMin + minutes)));
+    return { start: b.s, end: at(d0, want) };
+  }
+  const want = Math.max(0, Math.min(1440 - SNAP_MIN, snap(startMin + minutes)));
+  const start = at(addDays(d0, days), want);
+  return { start, end: new Date(start.getTime() + (b.e - b.s)) };
+}
+
+/** A drag's edit as an editor draft: only the time changes (it goes through the same review). */
+export function dragDraft(e, start, end) {
+  return { title: e.title, allDay: !!e.allDay, start, end, location: e.location || '', notes: e.notes || '' };
+}
+
+/**
+ * An event in the all-day rows (all-day, or a day or longer) moved by whole days, as month and
+ * week drags and ⌥←/⌥→ move it: same times of day, same number of days. Returns { start, end }.
+ */
+export function shiftDays(e, days) {
+  const b = bounds(e);
+  return { start: addDays(b.s, days), end: addDays(b.e, days) };
 }

@@ -1,11 +1,18 @@
 // Turns: a routed chat turn (POST /api/chat/send) or a Code turn (POST /api/chat/code),
 // streamed as SSE into the assistant node; edit & resend (branches), regenerate (drafts),
-// retry, stop, permissions (Allow once → "continue" with allowTools), steer queue.
+// retry, stop, permissions (Allow once → "continue" with allowTools), steer queue; Compare
+// (POST /api/chat/compare): one question to up to three models, each answer a draft.
 
 import { toast, effortLabel, store, uid } from './util.js';
 import { state, ui, addNode, path, parentOf, saveConversation, nodeText, attachmentData, persona, addConversation, newConversation } from './state.js';
 import { api } from './api.js';
 import { routeSettings, settingsSig, currentOverride, modelInfo } from './router.js';
+import { endTurnOverride, resolveOpenGroups, setCompareTurns } from './compare.js';
+import { privacyBody, privacyOn } from './privacy.js';
+import { macBody, macEvent } from './files.js';
+import { codeKnowledge } from './knowledge.js';
+import { learnedBody } from './learned.js';
+import { autopilotBody, endAutopilotSkip } from './autopilot.js';
 
 function touch(c) { c.updated = Date.now(); saveConversation(c); }
 
@@ -22,6 +29,8 @@ export function ensureConversation() {
   if (!state.current) {
     const c = newConversation({ personaId: state.draftPersona || null });
     state.draftPersona = undefined;
+    // the mode picked before the chat existed goes with its first message (Search, Compare…)
+    if (state.pendingMode && state.pendingMode !== 'chat') c.mode = state.pendingMode;
     addConversation(c);
     state.current = c;
     store.set('jchat:current', c.id);
@@ -34,20 +43,29 @@ export function ensureConversation() {
 export function sendMessage(text, attachments = [], { context = [], steered = false } = {}) {
   const c = ensureConversation();
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return false; }
+  resolveOpenGroups(c); // answers side by side: the selected one is the branch this continues
   const last = path(c).at(-1);
   const user = addNode(c, last ? last.id : null, {
     role: 'user', content: text,
     attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, mime: a.mime, size: a.size, ...(a.kind === 'text' ? { text: a.text } : {}) })),
-    context: context.map((x) => ({ title: x.title, text: x.text })),
+    context: context.map((x) => ({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) })),
     ...(steered ? { steered: true } : {}),
   });
   if (attachments.some((a) => a.kind === 'image')) attachmentData.set(user.id, attachments.filter((a) => a.kind === 'image'));
   autoTitle(c, text || (attachments[0] && attachments[0].name));
   if (c.kind === 'code') return codeTurn(c, user, text, attachments, context);
+  if (c.mode === 'compare') {
+    if (!privacyOn(c)) return compareTurn(c, user, text);
+    toast('Compare asks cloud models; in this private chat your Mac answers alone'); // G9
+  }
   const asst = addNode(c, user.id, { role: 'assistant', parts: [], mode: c.mode, topic: text });
   touch(c);
   ui.render();
+  // H2: a model picked for this message instead of the router's pick teaches the router (learned.js)
+  if (state.turnOverride) dispatchEvent(new CustomEvent('eden:choice', { detail: { kind: 'override', c, node: asst, model: state.turnOverride.model } }));
   runChat(c, asst);
+  endTurnOverride(); // a pick from the estimate line was for this message only
+  endAutopilotSkip(); // so was "Use my level this time" (autopilot.js)
   return true;
 }
 
@@ -67,7 +85,8 @@ function historyFor(c, upTo) {
       out.push({ role: 'user', content: n.content || '', ...(atts.length ? { attachments: atts } : {}) });
     } else {
       const t = nodeText(n);
-      if (t) out.push({ role: 'assistant', content: t });
+      // a reply written after reading untrusted content is itself untrusted (prompt-injection guard, H8)
+      if (t) out.push({ role: 'assistant', content: t, ...(n.provenance && n.provenance.tainted ? { untrusted: true } : {}) });
       else if (out.length && out.at(-1).role === 'user') out.pop(); // a failed turn: its question goes again below
     }
   }
@@ -78,7 +97,7 @@ function contextFor(c, user) {
   // context blocks attached to any user message on the path (Jarvis notes, memory)
   const blocks = [];
   for (const n of path(c)) {
-    if (n.role === 'user') for (const x of n.context || []) blocks.push({ title: x.title, text: x.text });
+    if (n.role === 'user') for (const x of n.context || []) blocks.push({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) });
     if (n.id === user.id) break;
   }
   return blocks;
@@ -152,19 +171,23 @@ function appendText(node, text) {
 export async function runChat(c, node, { override } = {}) {
   const user = parentOf(c, node);
   const ctrl = beginStream(c, node, 'chat');
-  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode });
+  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null });
   const ov = override || currentOverride();
   const sig = settingsSig();
   const p = persona(c.personaId);
   const ctx = contextFor(c, user);
   const body = {
+    ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac (first: it may drop a local sticky)
+    ...macBody(c), // G2/H11: { mac: { files, knowledge } }: the server reads the Mac first (files.js)
     messages: [...historyFor(c, user), userPayload(user)],
     settings: routeSettings(),
-    mode: node.mode || 'chat',
+    mode: node.mode === 'search' || node.mode === 'research' ? node.mode : 'chat',
     ...(ov ? { override: ov } : {}),
     ...(!ov && c.lastRoute && c.lastRoute.sig === sig ? { sticky: { model: c.lastRoute.model, effort: c.lastRoute.effort } } : {}),
     ...(p && p.system ? { system: p.system } : {}),
     ...(ctx.length ? { context: ctx } : {}),
+    ...learnedBody(), // H2 on askeden.com: the profile's per-class adjustments (numbers only)
+    ...autopilotBody(), // H3: `autopilot: false` for "Use my level this time"
   };
   let thinkStart = 0;
   ui.updateMessage(c, node);
@@ -175,6 +198,7 @@ export async function runChat(c, node, { override } = {}) {
         switch (type) {
           case 'route':
             node.route = { ...d, override: !!ov };
+            if (d.turnId) node.turnId = d.turnId; // names this turn to the action gate (guard.js proposeAction)
             if (!ov) c.lastRoute = { model: d.model, effort: d.effort, sig };
             if (state.selectedNode === null || state.selectedNode === undefined || state.selectedNode.parent === node.parent) { state.selectedNode = node; ui.renderInspector(); }
             break;
@@ -200,6 +224,10 @@ export async function runChat(c, node, { override } = {}) {
             break;
           }
           case 'error': node.error = d.message || 'The turn failed.'; break;
+          // H8: what the turn read from outside (guard.js source strip), and actions the server's gate holds for the owner
+          case 'provenance': node.provenance = d; break;
+          case 'approval': (node.approvals = node.approvals || []).push(d); break;
+          case 'mac': macEvent(c, node, d); break; // what the turn read on the Mac (files.js cards)
           case 'done': node.finish = d.finish || 'stop'; break;
           default: break;
         }
@@ -237,6 +265,7 @@ function userPayload(user) {
 
 export function stop(c = state.current) {
   const s = c && state.streams.get(c.id);
+  if (s && s.kind === 'chat') dispatchEvent(new CustomEvent('eden:choice', { detail: { kind: 'stop', c, node: s.node } })); // H2: a weak hint (learned.js)
   if (s) { s.abort(); return true; }
   return false;
 }
@@ -244,14 +273,19 @@ export function stop(c = state.current) {
 export function retry(c, node) {
   if (state.streams.has(c.id)) return;
   if (c.kind === 'code') { const user = parentOf(c, node); runCode(c, node, user.content || 'continue'); return; }
-  runChat(c, node, { override: node.route && node.route.override ? { model: node.route.model, effort: node.route.effort } : undefined });
+  // a compare lane, or a stronger model's answer, tries again on its own model
+  runChat(c, node, { override: node.route && (node.route.override || node.route.lane) ? { model: node.route.model, effort: node.route.effort } : undefined });
 }
 
-/** Try again: a new draft beside this one (same router, or a given model). */
-export function regenerate(c, node, override) {
+/**
+ * Try again: a new draft beside this one (same router, or a given model). With `compare`
+ * ("Ask a stronger model", compare.js) the two show side by side until you keep one.
+ */
+export function regenerate(c, node, override, { compare = false } = {}) {
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return; }
   const user = parentOf(c, node);
   const fresh = addNode(c, user.id, { role: 'assistant', parts: [], mode: node.mode || c.mode, topic: node.topic });
+  if (compare && user.role === 'user') user.compare = { kind: 'stronger', ids: [node.id, fresh.id], kept: null };
   ui.render();
   runChat(c, fresh, { override });
 }
@@ -261,11 +295,152 @@ export function editResend(c, node, text) {
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return; }
   const user = addNode(c, node.parent, { role: 'user', content: text, attachments: node.attachments || [], context: node.context || [] });
   if (attachmentData.has(node.id)) attachmentData.set(user.id, attachmentData.get(node.id));
+  if (c.mode === 'compare') { compareTurn(c, user, text); return; }
   const asst = addNode(c, user.id, { role: 'assistant', parts: [], mode: c.mode, topic: text });
   touch(c);
   ui.render();
   runChat(c, asst);
 }
+
+/* ---------- Compare (G6): one question, up to three models, side by side ---------- */
+
+const laneRoute = (l) => ({ ...l, lane: true, rated: false, ratedBy: 'rules', ratedLabel: 'compare', candidates: l.candidates || [] });
+const synthStub = (user, s) => (s ? { role: 'synthesis', synthOf: user.id, model: s.model, modelName: s.modelName, provider: s.provider, effort: s.effort, parts: [], pending: true } : null);
+
+/**
+ * A Compare turn: an answer node per lane under the question (drafts, so keeping one is
+ * choosing a branch), streamed together from POST /api/chat/compare. The lanes the estimate
+ * line showed are sent as `models`, so what was priced is what runs; without an estimate
+ * the server picks and the lanes appear when it says which.
+ */
+function compareTurn(c, user, text) {
+  const p = state.preview;
+  const est = p && p.compare && Array.isArray(p.compare.lanes) && p.text === String(text || '').trim() ? p.compare : null;
+  const lanes = est ? est.lanes : [null];
+  const ids = lanes.map((l) => addNode(c, user.id, { role: 'assistant', parts: [], mode: 'chat', topic: text, ...(l ? { route: laneRoute(l) } : {}) }).id);
+  user.sel = 0; // the first answer continues the conversation unless you keep another
+  user.compare = { kind: 'compare', ids, kept: null, synthesis: est ? synthStub(user, est.synthesis) : null };
+  if (est && p.taskClass) user.taskClass = p.taskClass; // what "Keep this" teaches is about this kind of task (learned.js)
+  touch(c);
+  ui.render();
+  runCompare(c, user, est ? est.lanes.map((l) => ({ model: l.model, effort: l.effort })) : undefined);
+  endTurnOverride(); // Compare picks its own models: a one-message pick doesn't carry over
+  return true;
+}
+
+export async function runCompare(c, user, models) {
+  const g = user.compare;
+  const ctrl = new AbortController();
+  const stopped = new Set();
+  let id = null;
+  const lanes = () => g.ids.map((x) => c.nodes[x]).filter(Boolean);
+  const laneNode = (lane) => (lane === 'synthesis' ? g.synthesis : c.nodes[g.ids[lane]]);
+  const finish = (n, patch = {}) => {
+    if (!n || !n.streaming && !n.pending) return;
+    Object.assign(n, patch, { streaming: false, pending: false, thinkingLive: false, doneAt: Date.now() });
+    if (n.role !== 'synthesis' && !n.error && n.finish === 'stop' && !nodeText(n)) n.error = 'The model sent an empty reply.';
+    ui.updateMessage(c, n, { final: true });
+  };
+  /** Stop one lane (or the summary): the server ends it and says so; if it can't be reached, it ends here. */
+  const stopLane = async (lane) => {
+    const n = laneNode(lane);
+    if (!n || !(n.streaming || n.pending)) return;
+    stopped.add(String(lane));
+    if (id) { try { await api.compareStop(id, lane); return; } catch { /* finished or gone: below */ } }
+    finish(n, { finish: 'aborted' });
+  };
+  state.streams.set(c.id, { abort: () => ctrl.abort(), node: lanes()[0], kind: 'compare', ctrl, stopLane });
+  const now = Date.now();
+  for (const n of lanes()) Object.assign(n, { streaming: true, startedAt: now, parts: [], thinking: '', thinkMs: 0, usage: null, citations: [], notes: [], error: null, finish: null, provenance: null });
+  c.status = 'running';
+  ui.renderSidebar();
+  ui.renderComposer();
+  const p = persona(c.personaId);
+  const ctx = contextFor(c, user);
+  const body = {
+    messages: [...historyFor(c, user), userPayload(user)],
+    settings: routeSettings(),
+    mode: 'chat',
+    ...(models ? { models } : {}),
+    ...(p && p.system ? { system: p.system } : {}),
+    ...(ctx.length ? { context: ctx } : {}),
+  };
+  const thinkStart = new Map();
+  try {
+    await api.compare(body, {
+      signal: ctrl.signal,
+      onEvent: (type, d) => {
+        if (type === 'compare') {
+          id = d.id;
+          // the server's lanes: adopt them (more or fewer than the placeholders when it picked)
+          const want = d.lanes || [];
+          while (g.ids.length < want.length) {
+            const n = addNode(c, user.id, { role: 'assistant', parts: [], mode: 'chat', topic: user.content, streaming: true, startedAt: now, usage: null, citations: [], notes: [], error: null, finish: null });
+            g.ids.push(n.id);
+          }
+          for (const extra of g.ids.splice(want.length)) { delete c.nodes[extra]; user.children = user.children.filter((x) => x !== extra); }
+          user.sel = Math.max(0, user.children.indexOf(g.ids[0]));
+          want.forEach((l, i) => { const n = c.nodes[g.ids[i]]; n.route = laneRoute(l); if (l.turnId) n.turnId = l.turnId; }); // turnId: the action gate's name for this turn (guard.js)
+          g.synthesis = synthStub(user, d.synthesis);
+          state.streams.get(c.id).node = lanes()[0];
+          ui.render();
+          return;
+        }
+        if (type === 'end') return;
+        if (type === 'provenance') { // H8: what the lanes read from outside; the summary read the lanes (guard.js strip, held links and images)
+          for (const n of [...lanes(), g.synthesis]) if (n) n.provenance = d;
+          for (const n of lanes()) paint(c, n);
+          return;
+        }
+        if (d.lane === undefined) { // the whole compare failed after it started
+          if (type === 'error') for (const n of [...lanes(), g.synthesis]) finish(n, { error: d.message || 'The comparison failed.' });
+          return;
+        }
+        const n = laneNode(d.lane);
+        if (!n) return;
+        if (stopped.has(String(d.lane)) && type !== 'done' && type !== 'error') return; // stopped: its last words are dropped
+        if (n.pending) Object.assign(n, { pending: false, streaming: true, startedAt: Date.now() });
+        if (!n.streaming) return;
+        switch (type) {
+          case 'thinking':
+            if (!thinkStart.has(n)) thinkStart.set(n, Date.now());
+            n.thinking = (n.thinking || '') + (d.text || '');
+            n.thinkingLive = true;
+            n.thinkMs = Date.now() - thinkStart.get(n);
+            break;
+          case 'text':
+            if (n.thinkingLive) { n.thinkingLive = false; n.thinkMs = Date.now() - thinkStart.get(n); }
+            appendText(n, d.text || '');
+            break;
+          case 'citations': {
+            n.citations = n.citations || [];
+            const seen = new Set(n.citations.map((s) => s.url));
+            for (const s of d.sources || []) if (s && s.url && !seen.has(s.url)) { n.citations.push({ title: s.title || '', url: s.url }); seen.add(s.url); }
+            break;
+          }
+          case 'usage': n.usage = d; break;
+          case 'error': finish(n, { error: d.message || 'This model failed.' }); return;
+          case 'done': finish(n, { finish: d.finish || 'stop', ...(d.reason ? { reason: d.reason } : {}) }); return;
+          default: return;
+        }
+        paint(c, n);
+      },
+    });
+  } catch (e) {
+    const msg = e.name === 'AbortError' ? null : failure(e);
+    for (const n of [...lanes(), g.synthesis]) finish(n, msg ? { error: msg } : { finish: 'aborted' });
+  }
+  for (const n of [...lanes(), g.synthesis]) finish(n, { finish: n && n.pending ? 'skipped' : 'aborted' }); // whatever the stream left open
+  state.streams.delete(c.id);
+  c.status = 'done';
+  touch(c);
+  ui.renderSidebar();
+  ui.renderComposer();
+  ui.renderTitle();
+  if (!lanes().some((n) => n.error) || lanes().some((n) => nodeText(n))) drainQueue(c);
+}
+
+setCompareTurns({ regenerate, stop: (c) => stop(c) });
 
 /* ---------- Code turns ---------- */
 
@@ -279,17 +454,19 @@ function codeTurn(c, user, text, attachments, context = []) {
   return true;
 }
 
-export async function runCode(c, node, prompt, { images = [], texts = [], allowTools = [], append = false, context = [] } = {}) {
+export async function runCode(c, node, prompt, { images = [], texts = [], allowTools = [], append = false, context = [], approval } = {}) {
   const ctrl = beginStream(c, node, 'code');
   if (!append) Object.assign(node, { parts: [], thinking: '', usage: null, error: null, finish: null, notes: [] });
+  if (!append) { const k = await codeKnowledge(c, node, prompt); if (k) context = [...context, k]; } // H11: the project's knowledge (knowledge.js)
   else { node.error = null; node.finish = null; }
   const ov = currentOverride();
   const om = ov && modelInfo(ov.model);
-  let fullPrompt = prompt;
-  for (const t of texts) fullPrompt += `\n\n<attached file="${t.name}">\n${t.text || ''}\n</attached>`;
-  if (context.length) fullPrompt = `${context.map((x) => `[${x.title}]\n${x.text}`).join('\n\n')}\n\n${fullPrompt}`;
+  // Attached files and context go apart from the prompt: the server wraps them as untrusted (H8, src/chat/guard.ts planCodeTurn).
   const body = {
-    project: c.project && c.project.path, prompt: fullPrompt, mode: CODE_MODE[c.mode] || 'default',
+    project: c.project && c.project.path, prompt, mode: CODE_MODE[c.mode] || 'default',
+    ...(texts.length ? { files: texts.map((t) => ({ name: t.name, text: t.text || '' })) } : {}),
+    ...(context.length ? { context: context.map((x) => ({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}) })) } : {}),
+    ...(approval ? { approval } : {}),
     ...(c.sessionId ? { sessionId: c.sessionId } : {}),
     ...(om && om.provider === 'anthropic' ? { model: ov.model, effort: ov.effort } : {}),
     ...([...new Set([...(c.allowTools || []), ...allowTools])].length ? { allowTools: [...new Set([...(c.allowTools || []), ...allowTools])] } : {}),
@@ -334,6 +511,10 @@ export async function runCode(c, node, prompt, { images = [], texts = [], allowT
             node.parts.push({ type: 'perm', denials: d.denials || [], state: 'pending' });
             c.status = 'waiting';
             break;
+          // H8: in a session that read untrusted content the server holds the permission as an approval (guard.js shows its card)
+          case 'approval': { const perm = [...node.parts].reverse().find((p) => p.type === 'perm' && !p.approval); if (perm) perm.approval = d; else (node.approvals = node.approvals || []).push(d); break; }
+          case 'provenance': node.provenance = d; break;
+          case 'guard': node.parts.push({ type: 'note', text: d.note || '' }); break;
           case 'usage': node.usage = { ...(node.usage || {}), ...d, costUSD: (append && node.usage && typeof node.usage.costUSD === 'number' ? node.usage.costUSD : 0) + (d.costUSD || 0) }; break;
           case 'error': node.error = d.message || 'The Code turn failed.'; break;
           case 'done': node.finish = d.finish || 'stop'; break;
@@ -367,7 +548,7 @@ function logActivity(c, k, t) {
   ui.renderActivity && ui.renderActivity();
 }
 
-export function answerPermission(c, node, index, choice) {
+export function answerPermission(c, node, index, choice, { approval } = {}) {
   const part = node.parts[index];
   if (!part || part.type !== 'perm') return;
   const tools = [...new Set((part.denials || []).map((d) => d.tool))];
@@ -385,7 +566,7 @@ export function answerPermission(c, node, index, choice) {
   if (choice === 'always') c.allowTools = [...new Set([...(c.allowTools || []), ...tools])];
   ui.updateMessage(c, node);
   toast(choice === 'always' ? `${tools.join(', ')} allowed for this session` : 'Allowed once');
-  runCode(c, node, 'continue', { allowTools: tools, append: true });
+  runCode(c, node, 'continue', { allowTools: tools, append: true, ...(approval ? { approval } : {}) });
 }
 
 /**

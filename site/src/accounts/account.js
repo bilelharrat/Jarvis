@@ -21,18 +21,34 @@ import {
   signedOut,
   validDeviceId,
 } from './util.js';
+import { forgetGoogleOnDelete, googleOp } from './tokens.js';
+import { scopedOp } from './scoped.js';
+import { userKeysOp } from './user-keys.js';
+import { webClosed, webListen, webMessage, webOp } from './webrelay.js';
+import { publishedOp } from './published.js';
+import { edenSyncOp } from './eden-sync.js';
+import { delegateOp, grantAllow, grantGuard, grantView, poolSpend } from './delegates.js';
+import { mailDue, mailOp, runAlarms, scheduleJob, unscheduleJob } from './schedule.js';
+import { taskDue, taskOp } from './tasks.js';
+import { mailUploadOp, uploadsDue } from './mail-uploads.js';
+import { combinePlans, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
 
 const SEEN_EVERY = 3600_000; // last_seen is saved at most hourly
 const MAX_DEVICES = 20;
 export const WEB_SESSION_DAYS = 30; // a browser's sign-in at askeden.com ends after this
+// A browser may approve linking a Mac only this soon after it signed in (docs/web-auth.md).
+export const WEB_LINK_MAC_MS = 10 * 60_000;
+export const WEB_LINK_MAC_STALE = 'To link a Mac here, sign in again first: a browser approves a Mac only within 10 minutes of signing in.';
 const WEB_DEVICES = 5; // browsers signed in at once; a sixth signs out the oldest
 // Hosted Eden's turns in flight per account, and how long a hold on the allowance lasts at most.
 export const EDEN_TURNS = 2;
 const HOLD_MS = 15 * 60_000;
 // A browser signed in at askeden.com (a `web` device) uses the included AI and its own
 // artifacts, and signs itself out. It can't delete the account, change devices, send
-// pushes, buy, read or write sync, use the voice or the relay, or approve any link.
-const WEB_FORBIDDEN = new Set(['delete', 'device-update', 'push-check', 'subscription', 'voice', 'sync-get', 'sync-put', 'sync-delete', 'sync-wipe']);
+// pushes, buy, read or write sync, use the relay, or approve any link. It may use the JARVIS
+// voice only through hosted Eden (Read aloud, talk mode: eden: true), on the account's daily
+// voice allowance like the apps.
+const WEB_FORBIDDEN = new Set(['delete', 'device-update', 'push-check', 'subscription', 'sync-get', 'sync-put', 'sync-delete', 'sync-wipe']);
 // Eden's artifacts (HTML the page previews): kept a few hours, then gone (an alarm).
 // Stored in pieces small enough for any Durable Object storage (128 KiB a value).
 export const ARTIFACTS = { hours: 6, max: 30, bytes: 2 * 1024 * 1024, chunk: 60_000 };
@@ -84,17 +100,31 @@ export class Account {
     const op = url.pathname.slice(1);
     try {
       if (op.startsWith('relay/')) return await this.relay(op.slice(6), request, url);
+      // Before the `web-` ops below (the Mac relay's): a browser's sign-in, made by the Worker.
+      if (op === 'web-signin') return json(await this.webSignIn(await request.json().catch(() => ({}))));
+      if (op.startsWith('web-')) return await webOp(this, op, request); // hosted Eden → the Mac (webrelay.js)
+      if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
+      if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
+      if (op.startsWith('deleg-')) return await delegateOp(this, op, request); // delegates and grants, H14/G8 (delegates.js)
+      if (op.startsWith('stripe-')) return await stripeOp(this, op, request); // Plus bought on the web, F15 (stripe-plan.js)
+      if (op.startsWith('mailup-')) return await mailUploadOp(this, op, request); // hosted Gmail's attachments uploaded ahead (mail-uploads.js)
+      if (op.startsWith('ukeys-')) return await userKeysOp(this, op, request); // the owner's own API keys, sealed (user-keys.js)
       const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
       if (op === 'signin') return json(await this.signIn(body));
-      if (op === 'web-signin') return json(await this.webSignIn(body));
       if (op === 'notification') return json(await this.notification(body));
       if (op === 'spend') return json(await this.spend(body));
       if (op === 'release-ai') return json(this.release(body));
       if (op === 'push-gone') return json(await this.pushGone(body));
+      if (op === 'exists') return json({ exists: Boolean(await this.storage.get('account')) });
+      if (op === 'identity-link') return json(await this.linkIdentity(body));
+      if (op.startsWith('google-')) return json(await googleOp(this, op, body, request)); // hosted Gmail/Calendar tokens (tokens.js checks the caller)
+      if (op.startsWith('scoped-')) return json(await scopedOp(this, op, body, request)); // other apps' scoped tokens, @Eden (scoped.js checks the caller)
       const device = await this.authenticate(request);
       if (device.kind === 'web' && WEB_FORBIDDEN.has(op)) {
         throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the J.A.R.V.I.S. app on your iPhone or Mac.");
       }
+      if (op.startsWith('mail-')) return json(await mailOp(this, op, body)); // scheduled Gmail sends (schedule.js)
+      if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
       switch (op) {
         case 'get': return json(await this.view(device));
         case 'whoami': return json({ account_id: (await this.storage.get('account')).id, device: this.publicDevice(device, device.id) });
@@ -102,15 +132,19 @@ export class Account {
         case 'device-update': return json(await this.updateDevice(device, body));
         case 'device-delete': return json(await this.deleteDevice(device, body.id));
         case 'add-device': return json(await this.addLinkedDevice(device, body));
+        case 'browsers-signout': return json(await this.webSignOut(device, body));
+        case 'identity-unlink': return json(await this.unlinkIdentity(body));
         case 'allow-ai':
           // A browser spends the included AI only through hosted Eden (its caps), never the raw proxy.
           if (device.kind === 'web' && body.eden !== true) throw new ApiError(403, 'forbidden', "A browser's sign-in is for Eden at askeden.com only.");
-          return json(await this.allowAi());
+          return json(await this.allowAi(device));
         case 'hold-ai':
           if (body.eden !== true) throw new ApiError(400, 'bad_request', 'Holds are for hosted Eden.');
-          return json(await this.holdAi(body));
+          return json(await this.holdAi(body, device));
         case 'push-check': return json(await this.pushCheck(body));
-        case 'voice': return json(await this.voice(body));
+        case 'voice':
+          if (device.kind === 'web' && body.eden !== true) throw new ApiError(403, 'forbidden', "A browser's sign-in uses the voice through Eden at askeden.com only.");
+          return json(await this.voice(body));
         case 'subscription': return json(await this.subscription(device, body));
         case 'sync-get': return json(await this.syncGet(Number(body.since) || 0));
         case 'sync-put': return json(await this.syncPut(body));
@@ -138,6 +172,8 @@ export class Account {
       await this.storage.delete(`dev:${id}`); // a browser's sign-in ran out
       throw signedOut();
     }
+    // A delegate's or a space member's session here: only what its grant allows (delegates.js).
+    if (device.grant) grantGuard(device, new URL(request.url).pathname.slice(1));
     if (this.now() - (device.last_seen || 0) > SEEN_EVERY) {
       device.last_seen = this.now();
       await this.storage.put(`dev:${id}`, device);
@@ -159,7 +195,7 @@ export class Account {
       else live.push(d);
     }
     if (deviceKind(kind) === 'web') {
-      const browsers = live.filter((d) => d.kind === 'web').sort((a, b) => a.created - b.created);
+      const browsers = live.filter((d) => d.kind === 'web' && !d.grant).sort((a, b) => a.created - b.created); // grants' sessions aren't the owner's browsers
       for (const d of browsers.slice(0, Math.max(0, browsers.length - (WEB_DEVICES - 1)))) {
         await this.storage.delete(`dev:${d.id}`);
         live = live.filter((x) => x !== d);
@@ -186,38 +222,143 @@ export class Account {
     return { device, token: makeToken(accountId, id, secret) };
   }
 
-  async signIn({ account_id, device = {}, refresh_token = null }) {
+  async signIn({ account_id, device = {}, refresh_token = null, identity = null }) {
     let account = await this.storage.get('account');
     const fresh = !account;
     if (fresh) {
-      account = { id: account_id, created: this.now() };
+      account = { id: account_id, created: this.now(), origin: 'apple' };
       await this.storage.put('account', account);
     }
+    await this.noteIdentity(identity);
     if (refresh_token) await this.storage.put('apple_grant', refresh_token);
     const made = await this.makeDevice(account.id, { ...device, kind: device.kind === 'mac' ? 'iphone' : device.kind });
     return { token: made.token, device_id: made.device.id, new: fresh, account: await this.view(made.device) };
   }
 
-  // A Mac's link: approved from an iPhone (or iPad, watch). A browser's sign-in at
-  // askeden.com (kind `web`): from an iPhone or a linked Mac. A browser approves nothing.
+  // A Mac's link: approved from an iPhone (or iPad, watch), or from the owner's browser just
+  // after it signed in (askeden.com/link, docs/web-auth.md "Linking a Mac from the browser"). A
+  // browser's sign-in at askeden.com (kind `web`): from an iPhone or a linked Mac.
   async addLinkedDevice(approver, { name, kind, app_version }) {
     const web = kind === 'web';
-    if (approver.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
-    if (!web && !isPhone(approver.kind)) throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
+    if (approver.kind === 'web') {
+      // A browser approves a Mac only: as the account's owner (never a delegate's or a space
+      // member's session), and only within WEB_LINK_MAC_MS of signing in.
+      if (kind !== 'mac' || approver.grant) throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+      if (!(this.now() - (approver.created || 0) <= WEB_LINK_MAC_MS)) throw new ApiError(403, 'sign_in_again', WEB_LINK_MAC_STALE);
+    } else if (!web && !isPhone(approver.kind)) throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
     const account = await this.storage.get('account');
     const made = await this.makeDevice(account.id, { name, kind, app_version });
     return { token: made.token, device_id: made.device.id, account_id: account.id, name: made.device.name, kind: made.device.kind };
   }
 
-  // Sign in with Apple on the web (when the owner has set it up): only into an account the
-  // iPhone app made, and only as a browser.
-  async webSignIn({ account_id, device = {} }) {
-    const account = await this.storage.get('account');
-    if (!account || account.id !== account_id) {
-      throw new ApiError(404, 'no_account', 'There is no Jarvis account for this Apple ID yet. Make it in the J.A.R.V.I.S. app on your iPhone first.');
+  // Sign in with Apple or Google on the web, or the Eden app's handoff: always as a browser.
+  // `create`: a sign-in seen for the first time makes the account (on the trial allowance).
+  async webSignIn({ account_id, device = {}, create = false, identity = null }) {
+    let account = await this.storage.get('account');
+    const fresh = !account;
+    if (fresh && create) {
+      account = { id: account_id, created: this.now(), origin: identity?.provider === 'google' ? 'google' : 'apple' };
+      await this.storage.put('account', account);
+      if (identity?.provider) await this.storage.put('identities', []);
     }
+    if (!account || account.id !== account_id) {
+      throw new ApiError(404, 'no_account', 'There is no Eden account for this sign-in yet.');
+    }
+    await this.noteIdentity(identity);
     const made = await this.makeDevice(account.id, { ...device, kind: 'web' });
-    return { token: made.token, device_id: made.device.id, account_id: account.id, name: made.device.name };
+    return { token: made.token, device_id: made.device.id, account_id: account.id, name: made.device.name, new: fresh };
+  }
+
+  // ── sign-in identities (docs/web-auth.md): { provider, sub_hash, email, added }, one per provider ──
+
+  // An account the iPhone app made before identities were kept lists its Apple ID, whose
+  // sub_hash is filled in at its next sign-in. (No raw sub is ever stored here.)
+  async identities() {
+    const stored = await this.storage.get('identities');
+    if (stored) return stored;
+    const account = await this.storage.get('account');
+    if (!account || (account.origin && account.origin !== 'apple')) return [];
+    return [{ provider: 'apple', sub_hash: null, email: null, added: account.created }];
+  }
+
+  publicIdentities(list) {
+    return list.map(({ provider, email, added }) => ({ provider, email: email || null, added }));
+  }
+
+  // A sign-in that opened this account: listed (its sub_hash filled in, its email brought up to date).
+  async noteIdentity(identity) {
+    if (!identity || !identity.provider || !identity.sub_hash) return;
+    const list = await this.identities();
+    const entry = list.find((i) => i.provider === identity.provider);
+    if (entry && entry.sub_hash && entry.sub_hash !== identity.sub_hash) return; // not this one's slot
+    if (entry) {
+      if (entry.sub_hash === identity.sub_hash && (!identity.email || entry.email === identity.email)) {
+        if (!(await this.storage.get('identities'))) await this.storage.put('identities', list);
+        return;
+      }
+      entry.sub_hash = identity.sub_hash;
+      if (identity.email) entry.email = identity.email;
+    } else {
+      list.push({ provider: identity.provider, sub_hash: identity.sub_hash, email: identity.email || null, added: this.now() });
+    }
+    await this.storage.put('identities', list);
+  }
+
+  // Linking (the Worker has checked the provider's proof and claimed the Identity): only for
+  // a browser of this account that is still signed in, one identity per provider.
+  async linkIdentity({ device_id, identity = {} }) {
+    const device = validDeviceId(device_id) ? await this.storage.get(`dev:${device_id}`) : null;
+    if (!device || device.kind !== 'web' || (device.expires && device.expires <= this.now())) {
+      throw new ApiError(401, 'signed_out', 'This browser was signed out. Sign in again, then link.');
+    }
+    const { provider, sub_hash: sub } = identity;
+    if (!provider || !sub) throw new ApiError(400, 'bad_request', 'No identity to link.');
+    const list = await this.identities();
+    const entry = list.find((i) => i.provider === provider);
+    const name = provider === 'google' ? 'a Google account' : 'an Apple ID';
+    const taken = new ApiError(409, 'already_linked', `This Eden account already has ${name}. Unlink it first.`);
+    if (entry && entry.sub_hash && entry.sub_hash !== sub) throw taken;
+    // The app's own Apple ID, not known here yet: only that one Apple ID may fill it in.
+    if (entry && !entry.sub_hash && provider === 'apple' && identity.derived !== (await this.storage.get('account')).id) throw taken;
+    if (entry) {
+      entry.sub_hash = sub;
+      entry.email = identity.email || entry.email || null;
+    } else {
+      list.push({ provider, sub_hash: sub, email: identity.email || null, added: this.now() });
+    }
+    await this.storage.put('identities', list);
+    return { identities: this.publicIdentities(list) };
+  }
+
+  async unlinkIdentity({ provider }) {
+    const list = await this.identities();
+    const entry = list.find((i) => i.provider === provider);
+    if (!entry) throw new ApiError(404, 'not_linked', 'That sign-in isn’t on this account.');
+    if (list.length <= 1) throw new ApiError(409, 'last_method', 'This is the only way to sign in to this account. Link another one first.');
+    if (!entry.sub_hash) {
+      throw new ApiError(409, 'needs_proof', 'Sign in with Apple once more (here or in the J.A.R.V.I.S. app), then unlink it.');
+    }
+    await this.storage.put('identities', list.filter((i) => i !== entry));
+    return { provider, sub_hash: entry.sub_hash };
+  }
+
+  // A browser signs out browsers: one (`id`) or every one (`all`), itself included. The apps'
+  // devices are removed only from the J.A.R.V.I.S. app.
+  async webSignOut(caller, { id, all = false }) {
+    const removed = [];
+    for (const d of await this.devices()) {
+      if (d.kind === 'web' && (all || d.id === id)) {
+        await this.storage.delete(`dev:${d.id}`);
+        removed.push(d.id);
+      }
+    }
+    if (!all && !removed.length) {
+      if (validDeviceId(id) && (await this.storage.get(`dev:${id}`))) {
+        throw new ApiError(403, 'forbidden', 'Remove the apps in the J.A.R.V.I.S. app on your iPhone.');
+      }
+      throw new ApiError(404, 'not_found', 'That browser is already signed out.');
+    }
+    return { removed, me: removed.includes(caller.id) };
   }
 
   async updateDevice(device, body) {
@@ -250,15 +391,18 @@ export class Account {
     }
     if (!(await this.storage.get(`dev:${target}`))) throw new ApiError(404, 'not_found', 'That device is already gone.');
     await this.storage.delete(`dev:${target}`);
-    this.closeSockets([`listen:${target}`, `dev:${target}`, `from:${target}`, `to:${target}`], 4001, 'signed out');
+    this.closeSockets([`listen:${target}`, `web:${target}`, `dev:${target}`, `from:${target}`, `to:${target}`], 4001, 'signed out');
     return {};
   }
 
   async deleteAll() {
     const grant = await this.storage.get('apple_grant');
-    this.closeSockets(['listen', 'phone', 'mac'], 4001, 'account deleted');
+    const stripe = await stripeToCancel(this); // the Worker cancels it at Stripe (eden/billing.js)
+    const identities = (await this.identities()).filter((i) => i.sub_hash).map(({ provider, sub_hash }) => ({ provider, sub_hash }));
+    this.closeSockets(['listen', 'web', 'phone', 'mac'], 4001, 'account deleted');
+    await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
     await this.storage.deleteAll();
-    return { apple_grant: grant || null };
+    return { apple_grant: grant || null, identities, stripe_subscription: stripe };
   }
 
   publicDevice(device, me) {
@@ -273,12 +417,14 @@ export class Account {
       relay: this.socketsTagged(`listen:${device.id}`).length > 0,
       this: device.id === me,
       ...(device.expires ? { expires: device.expires } : {}),
+      ...(device.grant ? { grant: device.grant } : {}),
     };
   }
 
   // ── what the app shows ──
 
   async view(device) {
+    if (device.grant) return grantView(this, device); // a delegate sees its own limit, nothing of the owner's
     const account = await this.storage.get('account');
     const plan = await this.planNow();
     const usage = await this.usageNow();
@@ -286,7 +432,7 @@ export class Account {
     const voice = (await this.storage.get('voice')) || {};
     const voiceToday = voice.day === today(this.now()) ? voice.chars : 0;
     const budget = plan.active ? caps.plus : 0;
-    const devices = (await this.devices()).sort((a, b) => a.created - b.created).map((d) => this.publicDevice(d, device.id));
+    const devices = (await this.devices()).filter((d) => !d.grant).sort((a, b) => a.created - b.created).map((d) => this.publicDevice(d, device.id));
     return {
       id: account.id,
       created: account.created,
@@ -297,6 +443,7 @@ export class Account {
         expires: plan.expires || null,
         renews: plan.renews ?? null,
         environment: plan.environment || null,
+        ...planSource(plan), // source "app_store" | "stripe" | "both", manage, payment_failed (stripe-plan.js)
       },
       usage: {
         period_start: monthStart(usage.month),
@@ -305,20 +452,24 @@ export class Account {
         budget_usd: budget,
         left_usd: round(Math.max(0, budget - usage.spent)),
         trial_left_usd: round(Math.max(0, caps.trial - usage.trial_spent)),
+        trial_usd: caps.trial, // the trial's size and a month of Plus, for the meters
+        plus_usd: caps.plus,
         voice_today: voiceToday,
         voice_daily: plan.active ? caps.voicePlus : caps.voiceFree,
       },
       devices,
+      identities: this.publicIdentities(await this.identities()),
       sync: { rev: (await this.storage.get('syncrev')) || 0, items: (await this.storage.get('synccount')) || 0 },
     };
   }
 
   // ── the plan (StoreKit 2) ──
 
+  // The App Store's plan and Stripe's (bought on the web), together: Plus while either is
+  // active, until the later one ends (stripe-plan.js combinePlans).
   async planNow() {
     const plan = (await this.storage.get('plan')) || {};
-    plan.active = Boolean(plan.expires && plan.expires > this.now() && !plan.revoked);
-    return plan;
+    return combinePlans(plan, await this.storage.get('stripe_plan'), this.now());
   }
 
   // A transaction already checked against Apple's chain (storekit.js), for this account.
@@ -379,13 +530,23 @@ export class Account {
     let usd = 0;
     for (const [id, h] of this.holds) {
       if (h.until <= now) this.holds.delete(id);
-      else if (h.bucket === bucket) usd += h.usd;
+      else if (h.bucket.split('|')[0] === bucket) usd += h.usd;
     }
     return usd;
   }
 
-  async allowAi() {
+  // Holds still running against one grant's pool (delegates.js), in dollars.
+  heldIn(pool) {
+    this.held('');
+    let usd = 0;
+    for (const h of this.holds.values()) if (h.pool === pool) usd += h.usd;
+    return usd;
+  }
+
+  async allowAi(device = null) {
     const plan = await this.planNow();
+    // A grant (a delegate, a space member): the owner's allowance, narrowed to its own pool.
+    if (device && device.grant) return grantAllow(this, device, await this.allowAi(), plan);
     const usage = await this.usageNow();
     const caps = allowances(this.env);
     // `left`: what that allowance still holds, less hosted Eden's turns in flight (Eden fits a
@@ -403,20 +564,20 @@ export class Account {
 
   // A hosted Eden turn holds its worst case (what it may cost at most) until it's done, so
   // turns at once can't spend past the allowance; at most EDEN_TURNS at once.
-  async holdAi({ usd }) {
+  async holdAi({ usd }, device = null) {
     const want = Number(usd);
     if (!(want >= 0)) throw new ApiError(400, 'bad_request', 'usd must be a number');
     this.held(''); // drop expired holds
     if (this.holds.size >= EDEN_TURNS) {
       throw new ApiError(429, 'slow_down', `Eden is already writing ${EDEN_TURNS} replies for this account; wait for one to finish.`, { 'retry-after': '10' });
     }
-    const allow = await this.allowAi();
+    const allow = await this.allowAi(device);
     if (!allow.ok) return allow;
     if (want > allow.left) {
       return { ok: false, why: 'Not enough of your included AI is left for this reply. Start a new chat, or wait for the allowance to renew.' };
     }
     const id = crypto.randomUUID();
-    this.holds.set(id, { usd: want, bucket: allow.bucket, until: this.now() + HOLD_MS });
+    this.holds.set(id, { usd: want, bucket: allow.bucket, until: this.now() + HOLD_MS, pool: allow.pool || null });
     return { ok: true, bucket: allow.bucket, hold: id, left: allow.left };
   }
 
@@ -429,9 +590,12 @@ export class Account {
     const cost = Number(usd);
     if (!(cost > 0)) return {};
     const usage = await this.usageNow();
-    if (bucket === 'trial') usage.trial_spent = round(usage.trial_spent + cost);
+    // "plus|dlg:<id>|<by>": a grant's turn, also counted on its pool (delegates.js grantAllow).
+    const [base, pool, by] = String(bucket || '').split('|');
+    if (base === 'trial') usage.trial_spent = round(usage.trial_spent + cost);
     else usage.spent = round(usage.spent + cost);
     await this.storage.put('usage', usage);
+    if (pool) await poolSpend(this, pool, by, cost);
     return {};
   }
 
@@ -588,11 +752,18 @@ export class Account {
       for (let i = 0; i < keys.length; i += 128) await this.storage.delete(keys.slice(i, i + 128));
     }
     const next = live.filter((h) => !gone.includes(h)).reduce((t, h) => Math.min(t, h.expires), Infinity);
-    if (Number.isFinite(next) && this.storage.setAlarm) await this.storage.setAlarm(next + 1000);
+    if (Number.isFinite(next)) await scheduleJob(this, 'artifacts', 'artifacts', next + 1000);
+    else await unscheduleJob(this, 'artifacts');
   }
 
+  // The one alarm, shared (schedule.js): artifacts' expiry, scheduled Gmail sends, tasks' checks.
   async alarm() {
-    await this.artifactSweep();
+    await runAlarms(this, {
+      artifacts: () => this.artifactSweep(),
+      mail: (job) => mailDue(this, job),
+      task: (job) => taskDue(this, job),
+      uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
+    });
   }
 
   // ── the relay: a phone's bytes to its Mac's companion port and back ──
@@ -631,6 +802,7 @@ export class Account {
     }
     const device = await this.authenticate(request);
     if (device.kind === 'web') throw new ApiError(403, 'forbidden', "A browser can't use the relay.");
+    if (kind === 'web') return webListen(this, device);
     if (kind === 'listen') {
       if (device.kind !== 'mac') throw new ApiError(403, 'forbidden', 'Only a Mac listens on the relay.');
       this.closeSockets([`listen:${device.id}`], 4000, 'replaced');
@@ -672,6 +844,7 @@ export class Account {
   }
 
   async webSocketMessage(ws, message) {
+    if (this.tagsOf(ws).includes('web')) return webMessage(this, ws, message);
     const route = this.peerOf(ws);
     if (!route) return; // the listen line: nothing to do (its pings answer themselves)
     const size = typeof message === 'string' ? message.length : message.byteLength;
@@ -695,6 +868,7 @@ export class Account {
   }
 
   async webSocketClose(ws, code) {
+    if (this.tagsOf(ws).includes('web')) return webClosed(this, ws);
     const route = this.peerOf(ws);
     if (!route) return;
     this.pending.delete(route.stream);

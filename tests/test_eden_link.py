@@ -124,7 +124,7 @@ async def started(link):
     return ws, task
 
 
-def request(ws, method, path, body=None, sid=SID, browser=BROWSER, headers=None):
+def request(ws, method, path, body=None, sid=SID, browser=BROWSER, headers=None, owner=None):
     data = json.dumps(body).encode() if body is not None else b""
     ws.push(
         {
@@ -136,6 +136,7 @@ def request(ws, method, path, body=None, sid=SID, browser=BROWSER, headers=None)
             or ({"content-type": "application/json"} if body is not None else {}),
             "from": browser,
             "size": len(data),
+            **({"owner": owner} if owner is not None else {}),
         }
     )
     for at in range(0, len(data), MAX_FRAME):
@@ -171,8 +172,10 @@ def test_frames_and_routes():
         ("GET", "/api/chat/actions"),
         ("POST", "/api/chat/actions/undo"),
         ("POST", "/api/chat/mac/send"),
-        ("POST", "/api/chat/send"),  # private turns only (_check)
+        ("POST", "/api/chat/send"),  # private turns, or any from the owner (_check)
         ("GET", "/api/chat/local"),
+        ("POST", "/api/route"),  # the owner only
+        ("GET", "/api/chat/meta"),  # the owner only
     }
     assert route_of("GET", "/api/chat/code/changes?project=%2FUsers%2Fme%2Fapp") == (
         "GET",
@@ -183,7 +186,8 @@ def test_frames_and_routes():
         ("GET", "/api/chat/keys"),
         ("POST", "/api/chat/projects"),
         ("GET", "/download"),
-        ("POST", "/api/route"),
+        ("GET", "/api/route"),
+        ("POST", "/api/chat/meta"),
         ("POST", "/api/chat/compare"),
         ("POST", "/api/chat/jarvis/../keys"),
         ("POST", "//evil.example/api/chat/jarvis"),
@@ -518,7 +522,42 @@ async def test_only_private_turns_and_the_local_models_reach_eden():
     ]
     assert json.loads(eden.requests[0].content) == turn
     codes = {t["id"][0]: (t["status"], t["code"]) for t in ws.texts() if t["t"] == "error"}
-    assert codes == {k: (403, "not_allowed") for k in "abcd"}
+    assert codes == {**{k: (403, "owner_only") for k in "abc"}, "d": (403, "not_allowed")}
+    await stop(ws, task)
+
+
+async def test_the_owner_chats_through_this_mac_and_no_one_else():
+    """Chat through the Mac (site/src/eden/via-mac.js): any turn, the routing preview and the
+    model list, only when the relay marks the request as the account owner's; else refused
+    before Eden is asked, and only for this account's own browsers either way."""
+    link, eden, _ = make()
+    ws, task = await started(link)
+    turn = {"messages": [{"role": "user", "content": "Plan my week"}]}
+    request(ws, "POST", "/api/chat/send", turn, sid="1" * 16, owner=True)
+    request(ws, "POST", "/api/route", {"prompt": "Plan"}, sid="2" * 16, owner=True)
+    request(ws, "GET", "/api/chat/meta", sid="3" * 16, owner=True)
+    # Not marked (or marked anything but true): refused.
+    request(ws, "POST", "/api/chat/send", turn, sid="a" * 16)
+    request(ws, "POST", "/api/route", {"prompt": "Plan"}, sid="b" * 16, owner=False)
+    request(ws, "GET", "/api/chat/meta", sid="c" * 16, owner="yes")
+    # Marked, but not one of this account's browsers: refused.
+    request(ws, "POST", "/api/chat/send", turn, sid="d" * 16, owner=True, browser="f" * 16)
+    for sid in "123abcd":
+        await ws.until(lambda sid=sid: ended(ws, sid * 16))
+    assert [(r.method, r.url.path) for r in eden.requests] == [
+        ("POST", "/api/chat/send"),
+        ("POST", "/api/route"),
+        ("GET", "/api/chat/meta"),
+    ]
+    assert json.loads(eden.requests[0].content) == turn
+    assert all(r.headers.get("x-jarvis-chat") == "1" for r in eden.requests)
+    codes = {t["id"][0]: (t["status"], t["code"]) for t in ws.texts() if t["t"] == "error"}
+    assert codes == {
+        "a": (403, "owner_only"),
+        "b": (403, "owner_only"),
+        "c": (403, "owner_only"),
+        "d": (403, "forbidden"),
+    }
     await stop(ws, task)
 
 

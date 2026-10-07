@@ -1,19 +1,35 @@
 // Jarvis Chat — the page's wiring: layout (source list, conversation, inspector), the
 // transcript, conversations, palette, settings, dialogs, shortcuts and Esc order.
 
+import './practice.js'; // first: practice mode (the tour's sandbox) scopes storage before any module reads it
 import { $, el, ico, qsa, toast, copyText, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
 import { initMail, connectGmail, emailText } from './mail.js';
-import { openCompose } from './compose.js';
+import { openCompose, initSignatures } from './compose.js';
 import { renderMessage, emptyState, ui_open, artifactsIn } from './render.js';
 import { routeSettings, initRouteControls, renderRouteControls, renderTurnCard, routePopContent, openChipPop, closeChipPop, chipPopOpenFor, initChipPop, hoverIntent, setOverride, setLevel, availableModels, currentOverride, modelInfo, schedulePreview } from './router.js';
-import { initComposer, renderComposer, composerEscape, focusComposer, setComposerText, addContext, setMode, modelMenu, openMenu, closeMenu, clearAttachments, renderAttachments } from './composer.js';
+import { initComposer, renderComposer, composerEscape, focusComposer, setComposerText, addContext, setMode, modelMenu, openMenu, closeMenu, clearAttachments, renderAttachments, addFile } from './composer.js';
 import { sendMessage, runChat, stop, retry, regenerate, editResend, answerPermission, queueFollowUp, steerNow, dropQueued, runCode } from './chat.js';
 import { initArtifact, openArtifact, closeArtifact, artifactOpen, refreshArtifact } from './artifact.js';
 import { initPanels, openSpace, closeSpace, spaceOpen, checkJarvis, renderMemoryTab, searchNotes, attachNote, notify } from './panels.js';
+import { initAccount } from './account.js';
+import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
+import { initPublish } from './publish.js';
 import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
 import { initCalendar, openCalendar, calendarReturnPending } from './calendar.js';
+import { initMemory } from './memory.js';
+import { initBrief, openBrief } from './brief.js';
+import { initFiles, openFiles, closePane } from './files.js';
+import { initKnowledge, knowledgeItem } from './knowledge.js';
+import { voiceSettings } from './voice.js';
+import { initTasks, openTasks, pendingApprovals } from './tasks.js';
+import { initWorkflows, openWorkflows, saveWorkflowFrom } from './workflows.js';
+import { initLearned, learnedSettings } from './learned.js';
+import { initAutopilot, autopilotSettings } from './autopilot.js';
+import { acting, actingHas } from './acting.js';
+import { initTour, startTour } from './tour.js'; // I1: the try-it tour
+import { initHelp, helpCommands, helpButton } from './help.js'; // Help Center: FAQ and Ask Help
 
 /* ================= theme ================= */
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
@@ -30,13 +46,13 @@ darkMQ.addEventListener('change', applyTheme);
 /* ================= layout ================= */
 function syncScrim() {
   const s = $('sidebar');
-  const on = (isMobile() && s.classList.contains('open')) || (isNarrow() && !isMobile() && s.classList.contains('expanded')) || (isMobile() && $('inspector').classList.contains('open'));
+  const on = (isMobile() && s.classList.contains('open')) || (isNarrow() && !isMobile() && !docksSidebar() && s.classList.contains('expanded')) || (isMobile() && $('inspector').classList.contains('open'));
   $('scrim').classList.toggle('on', on);
 }
 function toggleSidebar(force) {
   const s = $('sidebar');
   if (isMobile()) s.classList.toggle('open', force);
-  else if (isNarrow()) s.classList.toggle('expanded', force);
+  else if (isNarrow()) { s.classList.toggle('expanded', force); if (docksSidebar()) store.set('jchat:sidebar', s.classList.contains('expanded')); }
   else { s.classList.toggle('closed', force === undefined ? undefined : !force); store.set('jchat:sidebar', !s.classList.contains('closed')); }
   syncScrim();
 }
@@ -86,6 +102,21 @@ for (const q of ['(max-width:1100px)', '(max-width:640px)']) {
     closeChipPop(); closeMenu();
   });
 }
+// Eden's iPad app (it marks the page .eden-ipad): from 820 to 1100px the whole sidebar docks
+// beside the chat (mobile.css docks the rail's "expanded"), open unless closed with ⌘B or the
+// sidebar button, as on a wide screen (jchat:sidebar). Registered after the listeners above,
+// so it runs after they've cleared the classes.
+const dockMQ = matchMedia('(min-width:820px) and (max-width:1100px)');
+function docksSidebar() { return document.documentElement.classList.contains('eden-ipad') && dockMQ.matches; }
+function syncDock() {
+  if (!document.documentElement.classList.contains('eden-ipad')) return;
+  const open = store.get('jchat:sidebar', true) !== false;
+  $('sidebar').classList.toggle('expanded', docksSidebar() && open);
+  if (!isNarrow()) $('sidebar').classList.toggle('closed', !open);
+  syncScrim();
+}
+dockMQ.addEventListener('change', syncDock);
+matchMedia('(max-width:1100px)').addEventListener('change', syncDock);
 
 /* ================= conversations ================= */
 function switchTo(c) {
@@ -202,6 +233,7 @@ function renderSidebar() {
     if (expanded) for (const c of convs.slice(0, 6)) projItems.push(convItem(c, { child: true }));
   }
   if (!projItems.length) projItems.push(el('div', 'side-empty', 'No projects yet.'));
+  projItems.push(knowledgeItem()); // H11: folders indexed on the Mac, attached to projects (knowledge.js)
   // chats by day
   const chats = saved.filter((c) => c.kind !== 'code' && !c.pinned).sort((a, b) => b.updated - a.updated);
   const chatItems = [];
@@ -217,17 +249,31 @@ function renderSidebar() {
     el('button', { type: 'button', class: 'iconbtn srow-edit', title: `Edit ${p.name}`, 'aria-label': `Edit persona ${p.name}`, onclick: () => editPersona(p.id) }, ico('edit', 13))));
   if (!personaItems.length) personaItems.push(el('div', 'side-empty', 'Custom instructions for a chat. Add one with +.'));
   const temps = state.convs.filter((c) => c.temp);
+  // Acting for someone at askeden.com (acting.js): only what that grant can do here. The Mac,
+  // Code and background tasks stay with this person's own account (they'd be refused); a
+  // delegate's shared mail and calendar stay.
+  const as = acting();
+  const macItems = [
+    ['brief', el('button', { type: 'button', class: 'sitem', title: 'Brief: your day, and meeting prep', onclick: () => { clearPhoneOverlays(); openBrief(); } }, ico('sun'), el('span', 'lbl', 'Brief'))],
+    ['memory', el('button', { type: 'button', class: 'sitem', title: 'Memory', onclick: () => { clearPhoneOverlays(); openSpace('memory'); } }, ico('bulb'), el('span', 'lbl', 'Memory'))],
+    ['brain', el('button', { type: 'button', class: 'sitem', title: 'Second Brain', onclick: () => { clearPhoneOverlays(); openSpace('brain'); } }, ico('search'), el('span', 'lbl', 'Second Brain'))],
+    ['files', el('button', { type: 'button', class: 'sitem', title: 'Files on your Mac', onclick: () => openFiles() }, ico('folder'), el('span', 'lbl', 'Files'))],
+    ['calendar', el('button', { type: 'button', class: 'sitem', title: 'Calendar', onclick: () => { clearPhoneOverlays(); openCalendar(); } }, ico('cal'), el('span', 'lbl', 'Calendar'))],
+    ['mail', el('button', { type: 'button', class: 'sitem', title: 'Mail', onclick: () => { clearPhoneOverlays(); openSpace('mail'); } }, ico('mail'), el('span', 'lbl', 'Mail'))],
+    ['routines', el('button', { type: 'button', class: 'sitem', title: 'Routines', onclick: () => { clearPhoneOverlays(); openSpace('routines'); } }, ico('routine'), el('span', 'lbl', 'Routines'))],
+    ...[['meetings', 'Meetings', 'quote'], ['web', 'On a website', 'globe'], ['activity', 'Activity', 'clock']].map(([k, t, i]) =>
+      [k, el('button', { type: 'button', class: 'sitem', title: t, onclick: () => { clearPhoneOverlays(); openSpace(k); } }, ico(i), el('span', 'lbl', t))]), // H5–H7
+  ].filter(([k]) => !as || ((k === 'mail' || k === 'calendar') && actingHas(k))).map(([, b]) => b);
   nav.replaceChildren(
     pinned.length ? section('pinned', 'Pinned', pinned.map((c) => convItem(c))) : '',
-    section('projects', 'Projects', projItems, { add: { title: 'New code session', run: projectPicker } }),
+    as ? '' : section('projects', 'Projects', projItems, { add: { title: 'New code session', run: projectPicker } }),
     section('chats', 'Chats', chatItems, { add: { title: 'New chat (⌘N)', run: newChat } }),
     section('personas', 'Personas', personaItems, { add: { title: 'New persona', run: () => editPersona(null) } }),
-    section('jarvis', 'Your Mac', [
-      el('button', { type: 'button', class: 'sitem', title: 'Memory', onclick: () => { clearPhoneOverlays(); openSpace('memory'); } }, ico('bulb'), el('span', 'lbl', 'Memory')),
-      el('button', { type: 'button', class: 'sitem', title: 'Second Brain', onclick: () => { clearPhoneOverlays(); openSpace('brain'); } }, ico('search'), el('span', 'lbl', 'Second Brain')),
-      el('button', { type: 'button', class: 'sitem', title: 'Calendar', onclick: () => openCalendar() }, ico('cal'), el('span', 'lbl', 'Calendar')),
-      el('button', { type: 'button', class: 'sitem', title: 'Mail', onclick: () => { clearPhoneOverlays(); openSpace('mail'); } }, ico('mail'), el('span', 'lbl', 'Mail')),
-      el('button', { type: 'button', class: 'sitem', title: 'Routines', onclick: () => { clearPhoneOverlays(); openSpace('routines'); } }, ico('routine'), el('span', 'lbl', 'Routines')),
+    macItems.length ? section('jarvis', as ? 'Shared with you' : 'Your Mac', macItems) : '',
+    section('auto', 'Automations', [ // G3 background tasks, H9 saved workflows
+      as ? null : el('button', { type: 'button', class: 'sitem', title: 'Tasks: watches Eden runs in the background', onclick: () => openTasks() }, ico('list'), el('span', 'lbl', 'Tasks'),
+        pendingApprovals() ? el('span', { class: 'tk-badge', title: 'Waiting for your approval' }, String(pendingApprovals())) : null),
+      el('button', { type: 'button', class: 'sitem', title: 'Workflows: saved recipes you run in one tap', onclick: () => openWorkflows() }, ico('spark'), el('span', 'lbl', 'Workflows')),
     ]),
     section('temp', 'Temporary', [
       el('button', { type: 'button', class: 'sitem', title: 'New temporary chat', onclick: newTemp }, ico('clock'), el('span', 'lbl', 'New temporary chat')),
@@ -261,6 +307,7 @@ function renderTitle() {
   $('ctxArc').setAttribute('stroke-dashoffset', String(40.2 * (1 - pct / 100)));
   $('tbCtx').title = `Context window: ${pct}% · session ${fmtCost(s.total)}`;
   $('btnConvMenu').disabled = !c;
+  paintPrivacy(); // G9: the title bar's lock follows the chat
 }
 
 /* ================= transcript ================= */
@@ -347,7 +394,7 @@ function regenMenu(anchor, c, node) {
   const cur = node.route && node.route.model;
   openMenu(anchor, [
     { label: 'Try again', note: 'The router picks again (may choose the same model)', run: () => regenerate(c, node) },
-    { label: 'With another model', note: 'A new draft on the model you pick', sub: () => models.map((m) => ({ label: m.name, note: m.id === cur ? 'This draft’s model' : '', run: () => regenerate(c, node, { model: m.id, effort: m.defaultEffort }) })) },
+    { label: 'With another model', note: 'A new draft on the model you pick', sub: () => models.map((m) => ({ label: m.name, note: m.id === cur ? 'This draft’s model' : '', run: () => { dispatchEvent(new CustomEvent('eden:choice', { detail: { kind: 'regenerate', c, node, to: m.id } })); regenerate(c, node, { model: m.id, effort: m.defaultEffort }); } })) }, // H2: learned.js
     '-',
     { label: 'More capable (Level 5)', note: 'Max performance for this draft', run: () => { const prev = state.settings.level; setLevel(5); regenerate(c, node); setTimeout(() => setLevel(prev), 0); } },
     { label: 'Cheaper (Level 1)', note: 'Max efficiency for this draft', run: () => { const prev = state.settings.level; setLevel(1); regenerate(c, node); setTimeout(() => setLevel(prev), 0); } },
@@ -455,19 +502,27 @@ function commands() {
     { t: 'Toggle inspector', s: '⌘⌥0', i: 'insp', run: toggleInspector },
     { t: 'Toggle sidebar', s: '⌘B', i: 'side', run: () => toggleSidebar() },
     { t: 'Code activity', s: '⌘J', i: 'term', run: () => toggleDrawer() },
+    { t: 'Morning brief', s: 'Calendar · mail · notes', i: 'sun', run: () => openBrief() },
     { t: 'Memory', s: 'Your Mac', i: 'bulb', run: () => openSpace('memory') },
     { t: 'Search Second Brain', s: 'Your Mac', i: 'search', run: () => openSpace('brain') },
     { t: 'Calendar', s: 'Your Mac · Google', i: 'cal', run: () => openCalendar() },
     { t: 'New calendar event…', s: 'Calendar', i: 'cal', run: () => openCalendar({ newEvent: true }) },
     { t: 'Open Mail', s: 'Gmail · Mail on your Mac', i: 'mail', run: () => openSpace('mail') },
+    { t: 'Tasks', s: 'Background watches · approvals', i: 'list', run: () => openTasks() },
+    { t: 'Workflows', s: 'Saved recipes', i: 'spark', run: () => openWorkflows() },
     { t: 'New email…', s: 'Compose · Gmail or Mail on your Mac', i: 'mail', run: () => openCompose({}) },
     { t: 'Send me a heads-up…', s: 'Your Mac · notify', i: 'bell', run: () => openSpace('routines') },
+    { t: 'Meetings', s: 'Your Mac · notes and action items', i: 'quote', run: () => openSpace('meetings') },
+    { t: 'Do this on a website…', s: 'Your Mac · the built-in browser', i: 'globe', run: () => openSpace('web') },
+    { t: 'Activity: what Eden did', s: 'Undo', i: 'clock', run: () => openSpace('activity') },
     { t: 'Choose model…', s: '⌘⇧I', i: 'spark', run: () => { modelMenu(); } },
     { t: 'Use the router (auto)', s: 'Model', i: 'sliders', run: () => setOverride(null) },
     ...[1, 2, 3, 4, 5].map((n) => ({ t: `Router level ${n}`, s: 'Optimization', i: 'chart', run: () => { setLevel(n); toast(`Level ${n}`); } })),
     { t: 'New persona…', s: 'Personas', i: 'spark', run: () => editPersona(null) },
     { t: 'Settings & API keys', s: '⌘,', i: 'gear', run: () => openSettings(0) },
     { t: 'Switch appearance', s: 'Light / Dark / System', i: 'moon', run: cycleTheme },
+    { t: 'Take the tour', s: 'Try every feature, safely', i: 'spark', run: () => startTour() },
+    ...helpCommands(),
   ];
   if (c) list.push(
     { t: c.pinned ? 'Unpin this chat' : 'Pin this chat', s: 'Chat', i: 'pin', run: () => togglePin(c) },
@@ -483,7 +538,10 @@ function openPalette() {
   const inp = $('palInput');
   inp.value = '';
   renderPal('');
-  setTimeout(() => inp.focus(), 30);
+  // focus now: with a delay, keys typed straight after ⌘K went to the chat composer and Enter ran the
+  // unfiltered top item (a recent code session) instead of what was typed (ROADMAP F13)
+  inp.focus();
+  setTimeout(() => { if ($('palette').classList.contains('open') && document.activeElement !== inp) inp.focus(); }, 30);
 }
 function closePalette() { if (!$('palette').classList.contains('open')) return false; $('palette').classList.remove('open'); focusComposer(); return true; }
 function renderPal(q) {
@@ -577,6 +635,7 @@ function convMenu(anchor, c) {
     { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } },
     ...(c.temp ? [] : [{ label: c.pinned ? 'Unpin' : 'Pin', run: () => togglePin(c) }]),
     { label: 'Export as Markdown', run: () => exportConversation(c) },
+    ...(c.kind !== 'code' ? [{ label: 'Save as workflow…', run: () => saveWorkflowFrom(c) }] : []), // H9
     ...(c.kind === 'code' ? [{ label: 'Code activity', key: '⌘J', run: () => toggleDrawer(true) }, { label: 'Changes', run: () => openInspector('Changes') }] : []),
     '-',
     { label: 'Delete…', danger: true, run: () => removeConversation(c) },
@@ -619,7 +678,9 @@ async function drawSettings() {
     const provs = (state.meta && state.meta.providers) || Object.keys(keys).map((id) => ({ id, name: id }));
     const rows = provs.map((p) => keyRow(p, keys[p.id] || { set: false, source: null }));
     body.replaceChildren(el('div', 'set-sec', el('h3', '', 'API keys'),
-      el('p', 'sp-note', 'Keys stay on this Mac (~/.config/model-router/keys.json, readable only by you); the page never sees them again once saved. Environment variables win over the file.'),
+      el('p', 'sp-note', state.meta && state.meta.hosted
+        ? 'Your keys are stored encrypted on your account and used only for your chats, never by delegates or team spaces. They’re never shown again once saved; remove one any time. Chats on your own key don’t use your included AI.'
+        : 'Keys stay on this Mac (~/.config/model-router/keys.json, readable only by you); the page never sees them again once saved. Environment variables win over the file.'),
       el('div', 'icard', ...rows)));
   } else if (setTabI === 1) {
     drawAccounts(body);
@@ -629,7 +690,7 @@ async function drawSettings() {
       ...['system', 'light', 'dark'].map((t) => el('button', { type: 'button', role: 'radio', onclick: () => { setTheme(t); drawSettings(); } }, t[0].toUpperCase() + t.slice(1))));
     setSeg(seg, ['system', 'light', 'dark'].indexOf(cur));
     body.replaceChildren(el('div', 'set-sec', el('h3', '', 'Appearance'), seg,
-      el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')));
+      el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')), voiceSettings());
   } else if (setTabI === 3) {
     const sw = el('input', { type: 'checkbox', 'aria-label': 'Claude counts as subscription' });
     sw.checked = !!state.settings.subscriptionClaude;
@@ -637,14 +698,15 @@ async function drawSettings() {
     body.replaceChildren(el('div', 'set-sec', el('h3', '', 'Routing'),
       el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Claude counts as subscription'), el('div', 'p-c', 'Claude through the Claude Code CLI is priced as a fraction of your plan’s quota, not API dollars, so the router uses it more freely.')), el('label', 'switch', sw, el('span', 'tr')))),
       el('p', 'sp-note', `Level ${state.settings.level}${currentOverride() ? ` · pinned to ${modelInfo(currentOverride().model)?.name || currentOverride().model}` : ' · auto'}. Levels, sliders, providers and the override live in the inspector’s Route tab.`),
-      el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, 'Open Route console'))));
+      el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, 'Open Route console'))), privacySettings(), autopilotSettings(), learnedSettings()); // H3, H2
   } else {
     body.replaceChildren(el('div', 'set-sec about', el('h3', '', 'About'),
       el('p', '', el('b', '', 'Eden'), ' — one chat for every model you have: each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Jarvis app on your Mac, and Code sessions for your projects.'),
       el('p', '', 'Eden · design: Kimi K3 (Atelier). Input bar: from Jarvis Code.'),
       el('p', '', state.meta && state.meta.scope ? state.meta.scope : ''),
-      el('p', '', 'Voice lives in the Jarvis app on your Mac; this site has no microphone.'),
-      isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null));
+      el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the JARVIS voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
+      isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null,
+      el('div', 'dlg-acts', helpButton(closeSettings), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))));
   }
 }
 async function drawAccounts(body) {
@@ -652,6 +714,7 @@ async function drawAccounts(body) {
   let st;
   try { st = await api.googleStatus(); } catch (e) { body.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t read the Gmail status'), e.message)); return; }
   if (setTabI !== 1) return;
+  if (st.hosted || (state.meta && state.meta.hosted)) { drawHostedAccounts(body, st); return; } // askeden.com: no client to set up
   const id = el('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'xxxxxxxx.apps.googleusercontent.com', 'aria-label': 'Google OAuth client ID' });
   const secret = el('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: st.configured ? 'Saved (enter a new one to replace)' : 'Client secret', 'aria-label': 'Google OAuth client secret' });
   // the server always signs in with http://localhost:<port>/… (google-routes.ts localRedirectUri),
@@ -679,22 +742,48 @@ async function drawAccounts(body) {
     el('p', 'sp-note', state.jarvis.available ? 'Connected through the Jarvis app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${state.jarvis.reason || 'open the Jarvis app on your Mac'}.`)));
 }
 
+// askeden.com: Google is askeden.com's own sign-in client, so there's no client ID or secret to
+// enter (that form is the Mac's): connect Gmail and Calendar, or disconnect.
+function drawHostedAccounts(body, st) {
+  const as = `Connected as ${st.email || 'your Google account'}`;
+  const connectCalendar = async () => {
+    try {
+      const r = await api.googleConnect('calendar');
+      if (!r || !r.url) { toast('Couldn’t start the Google sign-in'); return; }
+      try { sessionStorage.setItem('eden:cal:return', '1'); } catch { /* private mode */ } // calendar.js's RETURN_KEY: back to the Calendar
+      location.assign(r.url);
+    } catch (e) { toast(`Couldn’t connect Google Calendar: ${e.message}`); }
+  };
+  const row = (name, on, button) => el('div', 'prov', el('span', { class: 'pdot gemini', 'aria-hidden': 'true' }), el('div', 'grow', el('div', 'p-n', name), el('div', `p-c${on ? ' ok' : ''}`, on ? as : 'Not connected')), button);
+  body.replaceChildren(el('div', 'set-sec', el('h3', '', 'Google'),
+    el('div', 'icard',
+      row('Gmail', st.gmail, st.gmail ? null : el('button', { type: 'button', class: 'cap primary', onclick: connectGmail }, 'Connect Gmail')),
+      row('Google Calendar', st.calendar, st.calendar ? null : el('button', { type: 'button', class: 'cap primary', onclick: connectCalendar }, 'Connect Calendar')),
+      st.gmail || st.calendar ? el('div', 'dlg-acts', el('button', { type: 'button', class: 'cap rev', onclick: async () => { try { await api.googleDisconnect(); toast('Google disconnected'); drawAccounts(body); } catch (e) { toast(e.message); } } }, 'Disconnect Google')) : null),
+    el('p', 'sp-note', 'On askeden.com, Eden asks Google for Gmail and for Calendar separately, through askeden.com’s own Google sign-in: there’s nothing to set up here. Your Google tokens are kept encrypted in your account and never reach this page; Disconnect also removes Eden’s access at Google.')),
+  el('div', 'set-sec', el('h3', '', 'Mail on your Mac'),
+    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Jarvis app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${String(state.jarvis.reason || 'open the Jarvis app on your Mac').replace(/\.+$/, '')}.`)));
+}
+
 function keyRow(p, k) {
-  const status = k.set ? (k.source === 'env' ? 'Set in the environment' : 'Saved on this Mac') : p.id === 'anthropic' && p.available ? 'No key — Claude works through your Claude Code subscription' : 'Not set';
+  const hosted = !!(state.meta && state.meta.hosted);
+  // askeden.com keeps the key sealed in the account: only its last 4 characters and when it was added come back
+  const status = k.set ? (k.source === 'env' ? 'Set in the environment' : k.source === 'account' ? `Set ····${k.last4 || ''}${k.added ? ` · added ${new Date(k.added).toLocaleDateString()}` : ''}` : 'Saved on this Mac')
+    : hosted ? (p.available ? 'Not set: chats use your included AI' : 'Not set') : p.id === 'anthropic' && p.available ? 'No key — Claude works through your Claude Code subscription' : 'Not set';
   const row = el('div', 'key-row');
   const draw = (editing) => {
     const input = el('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: `${p.name || p.id} API key`, 'aria-label': `${p.name || p.id} API key` });
     const save = async () => {
       const v = input.value.trim();
       if (!v) { input.focus(); return; }
-      try { await api.setKey(p.id, v); input.value = ''; toast(`${p.name || p.id} key saved`); await reloadMeta(); drawSettings(); }
+      try { const r = await api.setKey(p.id, v); input.value = ''; toast(r && r.check && r.check.ok ? `${p.name || p.id}: key works, saved` : `${p.name || p.id} key saved`); await reloadMeta(); drawSettings(); }
       catch (e) { toast(`Couldn’t save: ${e.message}`); }
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') { e.stopPropagation(); draw(false); } });
     // (replaceChildren turns a null into the text "null": the parts not shown are dropped first)
     row.replaceChildren(...[
       el('span', { class: `pdot ${p.id}`, 'aria-hidden': 'true' }),
-      el('div', 'grow', el('div', 'p-n', p.name || p.id), el('div', `p-c${k.set || (p.id === 'anthropic' && p.available) ? ' ok' : ''}`, status), !p.available && p.reason && !k.set ? el('div', 'p-c', p.reason) : null),
+      el('div', 'grow', el('div', 'p-n', p.name || p.id), el('div', `p-c${k.set || (p.id === 'anthropic' && p.available) ? ' ok' : ''}`, status), !hosted && !p.available && p.reason && !k.set ? el('div', 'p-c', p.reason) : null),
       editing ? null : el('button', { type: 'button', class: 'cap', onclick: () => draw(true) }, k.set ? 'Replace' : 'Set key'),
       editing || !k.set || k.source === 'env' ? null : el('button', { type: 'button', class: 'cap rev', onclick: async () => {
         try { await api.setKey(p.id, ''); toast('Key removed'); await reloadMeta(); drawSettings(); } catch (e) { toast(`Couldn’t remove: ${e.message}`); }
@@ -750,6 +839,10 @@ function slash(name, arg) {
     }
     case 'note': case 'brain': openSpace('brain', { query: arg }); return true;
     case 'memory': openSpace('memory'); return true;
+    case 'meetings': openSpace('meetings'); return true;
+    case 'web': openSpace('web', { goal: arg }); return true;
+    case 'undo': openSpace('activity'); return true; // (/activity is Code mode's tool activity)
+    case 'brief': openBrief(); return true;
     case 'calendar': openCalendar(); return true;
     case 'canvas': {
       const n = [...path(c)].reverse().find((x) => x.role === 'assistant' && artifactsIn(nodeText(x)).length);
@@ -769,6 +862,7 @@ function slash(name, arg) {
     case 'settings': openSettings(0); return true;
     case 'theme': if (['light', 'dark', 'system'].includes(arg)) setTheme(arg); else cycleTheme(); return true;
     case 'stop': if (!stop()) toast('Nothing to stop'); return true;
+    case 'tour': startTour(); return true;
     case 'help': setTimeout(() => setComposerText('?'), 0); setTimeout(() => $('deck-input').dispatchEvent(new Event('input')), 10); return true;
     default: return false;
   }
@@ -790,7 +884,7 @@ async function compact() {
   messages.push({ role: 'user', content: 'Summarize our conversation so far as compact notes: the goal, the decisions and facts established, open questions, and anything I asked you to remember. Under 300 words.' });
   let summary = '';
   try {
-    await api.send({ messages, settings: { ...(await import('./router.js')).routeSettings(), level: 1, efficiency: 80, performance: 30 }, mode: 'chat' }, {
+    await api.send({ ...privacyBody(c), messages, settings: { ...(await import('./router.js')).routeSettings(), level: 1, efficiency: 80, performance: 30 }, mode: 'chat' }, {
       onEvent: (t, d) => { if (t === 'text') summary += d.text || ''; if (t === 'error') throw new Error(d.message); },
     });
   } catch (e) { toast(`Couldn’t compact: ${e.message}`); return; }
@@ -841,6 +935,7 @@ function onKey(e) {
   if (closeChipPop(true)) return;
   if (composerEscape(e)) { e.preventDefault(); return; }
   if (closeSpace()) return;
+  if (closePane()) return;
   if (ui_open.editing) { ui_open.editing = null; renderTranscript(); return; }
   // the running turn stops before panes close (as Jarvis Code interrupts first)
   // Esc stops the running reply (as in Jarvis Code), never with unsent text in the composer
@@ -851,7 +946,7 @@ function onKey(e) {
   if (artifactOpen()) { closeArtifact(); return; }
   if ($('drawer').classList.contains('open')) { toggleDrawer(false); return; }
   if (isNarrow() && $('inspector').classList.contains('open')) { closeInspector(); return; }
-  if ($('sidebar').classList.contains('open') || $('sidebar').classList.contains('expanded')) { closeOverlays(); }
+  if ($('sidebar').classList.contains('open') || ($('sidebar').classList.contains('expanded') && !docksSidebar())) { closeOverlays(); }
 }
 
 /* ================= inspector sheet grabber (≤640px) ================= */
@@ -889,6 +984,7 @@ function init() {
     if (store.get('jchat:sidebar', true) === false) $('sidebar').classList.add('closed');
     $('inspector').classList.toggle('closed', !store.get('jchat:inspector', false));
   }
+  syncDock();
   Object.assign(ui, { render: () => { renderTranscript(); renderTitle(); renderComposer(); }, renderSidebar, renderTitle, renderComposer, updateMessage, renderInspector: () => renderTurnCard(state.selectedNode), renderPlan, loadChanges: (quiet) => { if (curTab === 'Changes' && inspectorVisible()) loadChanges(quiet); }, renderActivity });
 
   initRouteControls();
@@ -902,21 +998,27 @@ function init() {
     compact, clear: clearConversation,
   });
   initArtifact({ quote: (t) => setComposerText(t, { append: true }) });
+  initPrivacy({ confirm: (text, ok, run) => confirmDialog(text, ok, run, true), schedulePreview });
+  initPublish({ openDialog, closeDialog });
   initPanels({ addContext: (b) => { addContext(b); closeSpace(); } });
   initCalendar({ addContext: (b) => addContext(b), openSettings });
+  initMemory({ addContext: (b) => addContext(b) });
+  initBrief({ addContext: (b) => addContext(b) });
+  initFiles({ addContext: (b) => addContext(b), addFile, setComposerText, focusComposer, renderComposer, clearPhoneOverlays }); // G2/H4 (files.js)
+  initKnowledge({ switchTo, renderSidebar, renderComposer, clearPhoneOverlays }); // H11 (knowledge.js)
   initCode({ closeDialog, openDialog, newCodeSession, renderTitle, renderSidebar, quote: (t) => setComposerText(t, { append: true }) });
   initMail({
     openDialog, closeDialog, openSettings, jarvisAvailable: () => state.jarvis.available, jarvisReason: () => state.jarvis.reason,
     summarize: (m) => {
       closeSpace();
       if (state.current && (state.current.kind === 'code' || state.streams.has(state.current.id))) newChat();
-      sendFromComposer('Summarize this email: key points, asks, deadlines.', [], [{ title: `Email: ${m.subject}`.slice(0, 80), text: emailText(m) }]);
+      sendFromComposer('Summarize this email: key points, asks, deadlines.', [], [{ title: `Email: ${m.subject}`.slice(0, 80), text: emailText(m), source: 'mail', hidden: m.hidden || 0 }]);
     },
     writeReply: async (m) => {
       let out = '';
       await api.send({
         messages: [{ role: 'user', content: 'Write a reply to this email for me to send. Output only the body of the reply (greeting to sign-off), no subject line, no notes.' }],
-        settings: routeSettings(), mode: 'chat', context: [{ title: `Email: ${m.subject}`, text: emailText(m) }],
+        settings: routeSettings(), mode: 'chat', context: [{ title: `Email: ${m.subject}`, text: emailText(m), source: 'mail', hidden: m.hidden || 0 }],
       }, { onEvent: (t, d) => { if (t === 'text') out += d.text || ''; if (t === 'error') throw new Error(d.message || 'failed'); } });
       return out.trim();
     },
@@ -926,9 +1028,25 @@ function init() {
   const gh = /#gmail=(\w+)/.exec(location.hash);
   if (gh) {
     history.replaceState(null, '', location.pathname + location.search);
-    toast(gh[1] === 'connected' ? 'Gmail connected' : 'Gmail sign-in didn’t finish. Try again from the Mail panel.');
-    if (gh[1] === 'connected') setTimeout(() => (calendarReturnPending() ? openCalendar() : openSpace('mail')), 300);
+    // Calendar's own Connect (or Settings') left a note to come back to it: say what was connected.
+    const toCalendar = gh[1] === 'connected' && calendarReturnPending();
+    toast(gh[1] === 'connected' ? (toCalendar ? 'Google Calendar connected' : 'Gmail connected') : 'Google sign-in didn’t finish. Try again.');
+    if (gh[1] === 'connected') setTimeout(() => (toCalendar ? openCalendar() : openSpace('mail')), 300);
   }
+  // G3 background tasks (their approval card shows anywhere) and H9 saved workflows.
+  initTasks({ beforeOpen: clearPhoneOverlays });
+  initWorkflows({
+    beforeOpen: clearPhoneOverlays,
+    current: () => state.current,
+    messagesOf: (c) => path(c).filter((n) => n.role === 'user').map((n) => ({ role: 'user', content: n.content || '', attachments: n.attachments || [] })),
+    run: (text, attachments, { mode } = {}) => {
+      closeSpace();
+      newChat();
+      if (mode && mode !== 'chat' && !state.current) state.pendingMode = mode;
+      return sendFromComposer(text, attachments);
+    },
+    openTasks,
+  });
 
   $('transcript').addEventListener('click', onTranscriptClick);
   $('transcript').addEventListener('keydown', (e) => {
@@ -994,9 +1112,21 @@ function init() {
 
   renderRouteControls();
   renderAll();
-  reloadMeta().then(() => renderAll());
+  reloadMeta().then(() => { renderAll(); initAccount({ beforeOpen: clearPhoneOverlays, closeSettings }); initLearned(); initAutopilot(); initSignatures(); }); // H2/H3, signatures: after meta (askeden.com or the Mac)
+  initTour(); // I1: practice mode's tour, or the welcome on a first visit
+  initHelp({ runCommand: (t) => commands().find((x) => x.t === t)?.run(), hasCommand: (t) => commands().some((x) => x.t === t), openSettings, openPalette, startTour, beforeOpen: clearPhoneOverlays });
+  addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0)); // autopilot.js
+  addEventListener('eden:acting', () => { renderSidebar(); checkJarvis().then(() => renderComposer()); }); // account.js: acting for someone began or ended under the page
+  addEventListener('eden:open-inspector', (e) => openInspector((e.detail && e.detail.tab) || 'Route'));
   loadProjects().then(() => renderSidebar());
   checkJarvis().then(() => { renderComposer(); if (curTab === 'Memory') renderMemoryTab(true); });
+  // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
+  addEventListener('eden:jarvis-approval', (e) => {
+    const w = !!(e.detail && e.detail.waiting);
+    $('jarvisState').classList.toggle('wait', w);
+    $('jarvisState').title = w ? 'Jarvis is asking “Let Eden use Jarvis?” on your Mac' : state.jarvis.available ? 'Connected through the Jarvis app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Jarvis app on your Mac isn’t reachable');
+    $('jarvisStateText').textContent = w ? 'approve Eden on your Mac' : state.jarvis.available ? 'connected' : 'not connected';
+  });
   if (isMock) document.title = 'Eden (mock)';
   focusComposer();
 }

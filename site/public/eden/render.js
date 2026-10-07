@@ -7,12 +7,21 @@ import { el, ico, fmtCost, effortLabel, shortModel, sizeText, noKeys } from './u
 import { state, siblings, summarizeInput, nodeText, attachmentData, persona } from './state.js';
 import { renderMarkdown, CANVAS_LANGS } from './markdown.js';
 import { ratedBadge } from './router.js';
+import { whereBadge } from './privacy.js';
+import { isSpeaking } from './voice.js';
+import { compareView, openGroupOf, reopenButton, setLaneRenderer, strongerButton } from './compare.js';
+import { approvalCard, isTainted, sourceStrip } from './guard.js';
+import { macCard } from './files.js';
+import { feedbackButtons } from './learned.js';
 
 export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), editing: null };
+// an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
+setLaneRenderer((c, node) => assistantMessage(c, node, false, { lane: true }));
 
 const TOOL_ICONS = { Read: 'doc', Grep: 'search', Glob: 'search', LS: 'folder', Edit: 'edit', MultiEdit: 'edit', Write: 'edit', NotebookEdit: 'edit', Bash: 'term', BashOutput: 'term', WebSearch: 'globe', WebFetch: 'globe', TodoWrite: 'list', Task: 'spark' };
 
 export function renderMessage(c, node, { last } = {}) {
+  if (node.role !== 'user') { const g = openGroupOf(c, node); if (g) return compareView(c, g.user); } // answers side by side (G1, G6)
   return node.role === 'user' ? userMessage(c, node, last) : assistantMessage(c, node, last);
 }
 
@@ -75,15 +84,16 @@ function routeChip(node) {
     ratedBadge(r));
 }
 
-function assistantMessage(c, node, last) {
+function assistantMessage(c, node, last, { lane = false } = {}) {
   const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}`, 'data-id': node.id });
   if (node.route) {
     const head = el('div', 'msg-head');
-    head.append(el('div', 'chip-wrap', routeChip(node)));
-    if (node.route.rationale) head.append(el('div', 'rationale', node.route.rationale));
+    head.append(el('div', 'chip-wrap', routeChip(node), whereBadge(node.route)));
+    if (node.route.rationale && !lane) head.append(el('div', 'rationale', node.route.rationale));
     wrap.append(head);
   }
   const bubble = el('div', 'bubble');
+  { const strip = sourceStrip(node); if (strip) bubble.append(strip); } // what this reply read from outside (H8)
   const sources = node.citations || [];
   const research = node.mode === 'research';
   if (research) {
@@ -111,11 +121,12 @@ function assistantMessage(c, node, last) {
     if (part.type === 'text') {
       if (!part.text) continue;
       const md = el('div', 'md');
-      md.append(renderMarkdown(part.text, { sources }));
+      md.append(renderMarkdown(part.text, { sources, untrusted: isTainted(node) })); // H8: held images, visible link destinations
       bubble.append(md);
     } else if (part.type === 'tool') bubble.append(toolCard(c, node, part));
-    else if (part.type === 'perm') bubble.append(permCard(c, part, i));
+    else if (part.type === 'perm') bubble.append(part.approval ? approvalCard(c, node, part.approval, { perm: i }) : permCard(c, part, i));
     else if (part.type === 'note') bubble.append(el('div', 'notice', part.text));
+    else if (part.type === 'mac') bubble.append(macCard(c, node, part)); // what Eden read on the Mac (files.js)
   }
   if (node.streaming && !nodeText(node) && !parts.some((p) => p.type === 'tool') && !node.thinkingLive) bubble.append(el('div', { class: 'typing', 'aria-label': 'Working' }, el('i'), el('i'), el('i')));
   if (sources.length && !research) bubble.append(sourceList(sources));
@@ -125,6 +136,7 @@ function assistantMessage(c, node, last) {
       el('div', 'grow', el('b', '', a.title), el('span', '', `Artifact · ${a.lang} · live preview`)),
       el('button', { type: 'button', class: 'cap', 'data-act': 'open-art', 'data-k': String(k) }, 'Open'))));
   }
+  for (const a of node.approvals || []) bubble.append(approvalCard(c, node, a)); // actions the server's gate holds (H8)
   for (const n of node.notes || []) bubble.append(el('div', 'notice warn', n));
   if (node.error) {
     bubble.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', node.error),
@@ -134,9 +146,13 @@ function assistantMessage(c, node, last) {
   wrap.append(bubble);
   if (!node.streaming) {
     wrap.append(el('div', 'msg-acts',
-      pager(c, node, 'Draft'),
+      lane ? null : pager(c, node, 'Draft'),
       el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy reply' }, ico('copy')),
-      c.kind === 'code' ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'regen', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Try again', 'aria-label': 'Try again' }, ico('retry')),
+      lane ? null : strongerButton(c, node),
+      lane ? null : reopenButton(c, node),
+      lane ? null : feedbackButtons(c, node), // H2: 👍 / 👎 teach the router (learned.js)
+      nodeText(node).trim() ? el('button', { type: 'button', class: `iconbtn${isSpeaking(node.id) ? ' on' : ''}`, 'data-act': 'speak', 'aria-pressed': String(isSpeaking(node.id)), title: isSpeaking(node.id) ? 'Stop reading' : 'Read aloud', 'aria-label': 'Read aloud' }, ico('speaker')) : null,
+      c.kind === 'code' || lane ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'regen', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Try again', 'aria-label': 'Try again' }, ico('retry')),
       node.route ? el('button', { type: 'button', class: 'iconbtn', 'data-act': 'inspect', title: 'Route console', 'aria-label': 'Open in Route console' }, ico('sliders')) : null));
   }
   return wrap;

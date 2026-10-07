@@ -50,9 +50,13 @@ export function baseline(response) {
   return missing.length ? withHeaders(response, Object.fromEntries(missing)) : response;
 }
 
+// Eden's own page may use the microphone (dictation, talk mode), asked for only on a click;
+// every other page keeps it off, and no frame gets it.
+export const EDEN_PERMISSIONS = 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()';
+
 /** A page's headers: its CSP, no framing, no caching, the browser features it doesn't use off. */
-export function page(response, csp, { cache = 'no-store' } = {}) {
-  return withHeaders(response, { ...PAGE, 'content-security-policy': csp, 'cache-control': cache });
+export function page(response, csp, { cache = 'no-store', permissions } = {}) {
+  return withHeaders(response, { ...PAGE, ...(permissions ? { 'permissions-policy': permissions } : {}), 'content-security-policy': csp, 'cache-control': cache });
 }
 
 // ── cookies ──

@@ -1,8 +1,10 @@
 // Small pieces every part of the accounts API uses: JSON answers and errors in the
 // contract's shape (docs/accounts.md), base64 and hex, hashes, and device tokens.
 
-export const BUNDLE_ID = 'com.bshventures.jarvis.companion';
-export const PLUS_PRODUCTS = ['com.bshventures.jarvis.plus.monthly', 'com.bshventures.jarvis.plus.yearly'];
+export const BUNDLE_ID = 'com.askeden.jarvis';
+export const PLUS_PRODUCTS = ['com.askeden.jarvis.plus.monthly', 'com.askeden.jarvis.plus.yearly'];
+// The Apple Developer team the apps are signed by (wrangler.toml's APPLE_TEAM_ID overrides it).
+export const TEAM_ID = '8CV4X23Y2T';
 
 const encoder = new TextEncoder();
 

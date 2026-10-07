@@ -160,6 +160,22 @@ provider's callback. Error codes:
 - `EDEN_RATE` (namespace 1005, 20 per key): `turn:<account>` chat turns (`POST /api/chat/send`), on
   top of `API_RATE` and the included-AI allowance, which caps cost.
 
+
+## Hosted Eden's AI providers
+
+askeden.com's chat routes across every provider it has a key for (docs/accounts.md "Hosted Eden's
+providers"). The keys are optional Worker secrets; each one turns its provider's models on in the
+model menu, the routing preview, send and compare:
+
+    npx wrangler secret put ANTHROPIC_API_KEY     # Claude (also the apps' included AI)
+    npx wrangler secret put OPENAI_API_KEY        # GPT
+    npx wrangler secret put GEMINI_API_KEY        # Gemini, the Gemini rating, Gemini search
+    npx wrangler secret put MOONSHOT_API_KEY      # Kimi
+
+(preview: `scripts/preview-secrets.sh OPENAI_API_KEY GEMINI_API_KEY MOONSHOT_API_KEY`). Every call
+counts on the included AI at the registry's list price; with no usable key, the owner's chats go
+through their Mac.
+
 ## Billing on the web (Stripe)
 
 Plus ($20 a month of included AI) can be bought on the web with Stripe, **beside** the App Store
@@ -430,6 +446,32 @@ Added with billing on the web (Stripe, F15; `eden/billing.js`, `accounts/stripe-
     Stripe's error type and code). A live key needs `STRIPE_LIVE = "1"`; `STRIPE_API_BASE` (dev and
     tests) only takes a loopback address and a test key.
 
+Added with chat through the Mac and linking a Mac from the browser (`eden/via-mac.js`,
+`session.js` `linkMac`, `public/link/`):
+
+25. **A subscription serves only its owner.** With no provider key on the Worker (or
+    `EDEN_CHAT_VIA_MAC = "1"`), `POST /api/chat/send`, `POST /api/route` and `GET /api/chat/meta`
+    go to Eden on the owner's Mac through the web relay. Refused for a delegate's or a space
+    member's session three times: in hosted Eden (`who.grant`, 403 `owner_only`), in the account's
+    object (`web-forward` refuses a grant's device), and on the Mac (`eden_link.py` lets a
+    non-private turn, the preview or meta through only when the relay marks it `owner: true`, and
+    only from a `web` device in the account's own device list, which never lists grants). No
+    allowance is held or spent. Compare answers 503 `needs_key`.
+26. **Linking a Mac from the browser** (`GET /api/web/mac-link`, `GET /api/web/mac-link/<code>`,
+    `POST /api/web/mac-link/<code>/approve|deny`, the page `/link`). The tradeoff: until now only
+    an app (iPhone) could add a Mac, so a stolen browser session could never add a device. Now a
+    browser session can, so it is limited to sessions **created in the last 10 minutes**
+    (`WEB_LINK_MAC_MS`, checked in the Worker and again in `Account.addLinkedDevice`, 403
+    `sign_in_again`); an older one must sign in again (fresh Apple, Google or app approval). It is
+    the browser's own session and account (never the one it acts for), a code of kind `mac` only
+    (403 `not_a_mac`), same-Origin and `SameSite=Strict`, rate limited per account (`LINK_RATE`
+    `look:`), and the Mac gets a token with **no sync key** (`sealed_key: null`). The apps' bearer
+    route `/api/link/<code>/approve` still refuses every `web` device, and a browser may never add
+    a browser or a phone. Residual: a phished owner who approves an attacker's code within 10
+    minutes of signing in adds the attacker's Mac (as with the iPhone); the page shows the Mac's
+    name and code and says to approve only a code on their own Mac now. The Mac's code rides the
+    URL fragment (`/link#CODE`), never a query, so it reaches no server log.
+
 Accepted / residual:
 
 - A session lasts 30 days, and unlinking or signing out everywhere needs only the session.
@@ -446,3 +488,28 @@ Accepted / residual:
   account opens its derived account again. Google sign-in stops. Unlinked Apple IDs fall back to
   their derived accounts. Keep migration `v3` and the `IDENTITIES` binding in any later
   `wrangler.toml`: removing a class needs a `deleted_classes` migration, which destroys its data.
+
+## Your own API keys on askeden.com (security review, 2026-10-06)
+
+`GET/POST /api/chat/keys` (site/src/accounts/user-keys.js; the Mac's contract, docs/chat-api.md
+in askeden, with `source: "account"`, `last4`, `added`, and `check` on a save).
+
+- **Storage.** AES-256-GCM per account under the HKDF key tokens.js derives from `EDEN_TOKEN_KEY`
+  and the account id; associated data `ukey:<account>:<provider>`. The Account object holds
+  ciphertext, the last 4 characters and the date only. Deleting the account deletes them.
+- **Never back to a browser.** No response carries a key: the page sees set, `····1234` and the
+  date. A key leaves the Worker only to its own provider: the save's check (list models, 6 s
+  timeout, the key in a header, never a URL) and that provider's chats.
+- **No logging.** Nothing in user-keys.js logs; `userKeyFor` swallows errors silently; a
+  provider's error is passed through `scrub()` (the key and anything key-shaped become `[key]`).
+  Tests assert the key is absent from responses, errors and console output.
+- **Who.** Only the owner's own devices: the gate refuses delegates and spaces (the route isn't in
+  `CHAT_ROUTES`), `keysApi`/`userKeyFor` refuse any `who.grant`, and the object refuses a grant
+  device (grantGuard, and `ukeys-*` again).
+- **Origin.** POST goes through chat.js's gate: same origin, `X-Jarvis-Chat`, JSON only.
+- **Limits.** `API_RATE` per account, `EDEN_RATE` per save, 10 saves an hour in the object.
+- **CSP** unchanged: the page talks only to askeden.com.
+- **Tests and dev.** `EDEN_FAKE_PROVIDER_BASE` (http on loopback) is honoured only when the page is on
+  loopback too; never set it in production.
+- **Billing.** A turn on `source: 'user'` (`billsAllowance(source)` is false) holds and spends no
+  allowance; the per-model caps, per-account turn limit and abuse limits still apply.

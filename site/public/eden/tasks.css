@@ -1,0 +1,97 @@
+/* Background tasks (tasks.js): the Tasks panel, its confirm form, approval cards and the floating
+   "a task is waiting for you" card. Atelier tokens (app.css). */
+
+.tk-card{width:min(640px,100%)}
+.tk-card .sheet-head .ic{color:var(--accent)}
+.tk-body{display:flex;flex-direction:column;gap:14px}
+.tk-sec h3,.tk-form-h{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin:0 0 8px}
+.tk-form-h{text-transform:none;letter-spacing:0;font-size:14px;color:var(--text)}
+
+/* new task */
+.tk-new-row{display:flex;gap:8px;align-items:flex-end}
+.tk-new-row textarea{flex:1;min-width:0;border:0;resize:none;background:var(--content2);border-radius:10px;padding:9px 11px;font:inherit;font-size:13.5px;color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline);line-height:1.4}
+.tk-new-row .btn{flex:none;height:36px}
+.tk-new-foot{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.tk-new-foot .muted{flex:1;min-width:180px}
+
+/* confirm form */
+.tk-form{display:flex;flex-direction:column}
+.tk-field{margin-bottom:10px}
+.tk-field select,.tk-field input[type=datetime-local],.tk-field input[type=date],.tk-field input[type=number]{width:100%;border:0;background:var(--content2);border-radius:9px;padding:7px 10px;font:inherit;font-size:13px;color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.tk-field textarea{min-height:72px}
+.tk-hint{font-size:11.5px;color:var(--text3);line-height:1.4}
+.tk-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tk-kinds{display:flex;gap:6px;flex-wrap:wrap}
+.tk-kinds .cap{font-size:12px;padding:5px 12px}
+.tk-checks{display:flex;flex-wrap:wrap;gap:6px 14px}
+.tk-check{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text);cursor:pointer}
+.tk-check input{accent-color:var(--accent);width:15px;height:15px;padding:0;background:none;box-shadow:none;flex:none} /* not a .field text box */
+.tk-problems{margin-bottom:10px}
+.tk-problems div{margin-top:3px}
+
+/* lists */
+.tk-list{display:flex;flex-direction:column;gap:10px}
+.tk-task{background:var(--content);border-radius:var(--r-md);padding:12px 13px;box-shadow:inset 0 0 0 .5px var(--hairline),0 1px 3px rgba(0,0,0,.05);display:flex;flex-direction:column;gap:4px}
+.tk-task-h{display:flex;align-items:center;gap:8px;font-size:14px}
+.tk-task-h .grow{flex:1;min-width:0;overflow-wrap:anywhere}
+.tk-task-m{font-size:12px;color:var(--text2);overflow-wrap:anywhere}
+.tk-last{font-size:12.5px;color:var(--text);background:var(--content2);border-radius:9px;padding:7px 9px;margin-top:4px;line-height:1.4;overflow-wrap:anywhere}
+.tk-last-k{font-weight:600;margin-right:6px}
+.tk-last.error{background:rgba(255,69,58,.07)}
+.tk-last.skipped{background:rgba(255,159,10,.08)}
+.tk-more{font-size:12.5px;margin-top:2px}
+.tk-more summary{cursor:pointer;color:var(--accent);font-weight:500;padding:3px 0;width:max-content}
+.tk-plan{white-space:pre-wrap;margin:6px 0;color:var(--text);line-height:1.45}
+.tk-runs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tk-runs li{border-top:.5px solid var(--sep);padding-top:6px}
+.tk-run-t{font-size:11.5px;color:var(--text3);margin-left:6px}
+.tk-run-s{margin-top:3px;color:var(--text2);overflow-wrap:anywhere}
+.tk-run-e{font-size:11.5px;color:var(--text3);margin-top:2px}
+.tk-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.tk-pill{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:1px 8px;border-radius:8px;background:rgba(120,120,128,.14);color:var(--text2);white-space:nowrap;text-transform:capitalize}
+.tk-pill.ok{background:rgba(48,209,88,.15);color:#1f8f3c}
+.tk-pill.warn{background:rgba(255,159,10,.16);color:#b25e00}
+.tk-pill.bad{background:rgba(255,69,58,.13);color:#c4271f}
+[data-theme="dark"] .tk-pill.ok{color:#5be07f}
+[data-theme="dark"] .tk-pill.warn{color:#ffb340}
+[data-theme="dark"] .tk-pill.bad{color:#ff7a70}
+.tk-recent summary{cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:500}
+.tk-done-row{display:flex;align-items:baseline;gap:8px;font-size:12.5px;padding:6px 0;border-top:.5px solid var(--sep);flex-wrap:wrap}
+.tk-done-row .grow{flex:1;min-width:140px}
+
+/* an approval */
+.tk-appr{background:var(--content);border-radius:var(--r-md);padding:12px 13px;box-shadow:inset 0 0 0 1px rgba(10,132,255,.35),0 1px 3px rgba(0,0,0,.06);margin-bottom:8px}
+.tk-appr-h{display:flex;align-items:flex-start;gap:7px;font-size:13.5px;line-height:1.35}
+.tk-appr-h .ic{color:var(--accent);margin-top:1px}
+.tk-appr-h b{font-weight:600;overflow-wrap:anywhere}
+.tk-appr-from{font-size:11.5px;color:var(--text3);margin:3px 0 0 22px}
+.tk-appr-d{display:grid;grid-template-columns:max-content 1fr;gap:3px 10px;margin:8px 0 0;font-size:12.5px}
+.tk-appr-d dt{color:var(--text3)}
+.tk-appr-d dd{margin:0;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;max-height:9em;overflow:auto}
+.tk-flags{margin-top:8px;font-size:12px;color:#b25e00;background:rgba(255,159,10,.1);border-radius:9px;padding:7px 9px;line-height:1.4}
+.tk-flags div{display:flex;gap:6px;align-items:flex-start}
+.tk-flags .ic{margin-top:2px;flex:none}
+[data-theme="dark"] .tk-flags{color:#ffb340}
+.tk-appr-acts{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.tk-appr.compact{margin:0;box-shadow:none;padding:0;background:none}
+.tk-appr.compact .tk-appr-d{grid-template-columns:max-content 1fr}
+
+/* the floating card */
+.tk-float{position:fixed;z-index:95;right:18px;bottom:118px;width:min(360px,calc(100vw - 32px));border-radius:18px;padding:12px 14px;box-shadow:var(--sh2);animation:palin .4s var(--spring)}
+.tk-float-h{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px}
+.tk-float-h .grow{flex:1}
+.tk-float-h .iconbtn{width:24px;height:24px}
+.tk-float-all{margin-top:8px}
+/* out of the way while a sheet (Settings, a dialog, Tasks, Workflows) or the palette is open */
+body:has(.sheet.open) .tk-float,body:has(#palette.open) .tk-float{display:none}
+
+/* the sidebar's count */
+.tk-badge{margin-left:auto;font-size:10.5px;font-weight:700;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center}
+
+@media (max-width:640px){
+  .tk-two{grid-template-columns:1fr}
+  .tk-new-row{flex-direction:column;align-items:stretch}
+  .tk-new-row .btn{justify-content:center}
+  .tk-float{left:12px;right:12px;width:auto;top:calc(env(safe-area-inset-top,0px) + 66px);bottom:auto}
+  .tk-appr-acts .btn{flex:1;justify-content:center}
+}

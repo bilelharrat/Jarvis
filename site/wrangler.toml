@@ -3,6 +3,9 @@
 name = "jarvis-download"
 main = "src/worker.js"
 compatibility_date = "2026-09-01"
+# request.signal aborts when the browser goes away: Stop on a request answered by the owner's
+# Mac reaches the Mac (src/accounts/webrelay.js); a stream's cancel alone isn't always called.
+compatibility_flags = ["enable_request_signal"]
 workers_dev = false
 
 # The whole domain: the old Eden site on Vercel is no longer shown at askeden.com.
@@ -31,26 +34,62 @@ PLUS_BUDGET_USD = "20"
 TRIAL_BUDGET_USD = "1"
 VOICE_DAILY_FREE = "20000"
 VOICE_DAILY_PLUS = "100000"
-APPLE_TEAM_ID = "9ZSY5R8A5C"
+# The Apple Developer team (individual, Bilel Harrat) the apps, the push key and the Sign in
+# with Apple key belong to.
+APPLE_TEAM_ID = "8CV4X23Y2T"
 # The page's other download buttons (src/worker.js SOON): https addresses, e.g. a TestFlight
 # public link or the Messenger's notarized .dmg. Empty: the button shows "almost ready".
 JARVIS_IPHONE_URL = ""
 MESSENGER_MAC_URL = "https://askeden.com/jarvis/eden/Eden-Messenger.dmg"
 MESSENGER_IPHONE_URL = ""
-# Eden at askeden.com/ (src/eden/): the Claude models hosted Eden routes among (on the
-# account's included AI, ANTHROPIC_API_KEY), the highest effort, the longest reply and
-# conversation, web searches a search turn may make (twice that for research). Model ids are
-# the Model Router's (scripts/sync-eden.mjs bundles it).
-EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5"
+# Eden at askeden.com/ (src/eden/, providers.js): the models hosted Eden routes among, on the
+# account's included AI. A model is a candidate only while its provider has a key: secrets
+# ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY (also the Gemini rating), MOONSHOT_API_KEY,
+# each optional (wrangler secret put NAME). EDEN_ANTHROPIC / EDEN_OPENAI / EDEN_GEMINI /
+# EDEN_KIMI = "off" switch one off with its key in place. EDEN_MODELS = "all": every registry
+# model not deprecated. Then the highest effort, the longest reply and conversation, web searches
+# a search turn may make (twice that for research). Model ids are the Model Router's.
+EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5,gpt-6.1-sol,gpt-6-sol,gpt-6-luna,gemini-3.1-pro-preview,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3,kimi-k2.7-code"
 EDEN_MAX_EFFORT = "high"
 EDEN_MAX_TOKENS = "16000"
 EDEN_MAX_INPUT_TOKENS = "150000"
 EDEN_SEARCH_USES = "5"
 # Account ids (commas) that may sign in to Eden on the web; empty: every Jarvis account.
 EDEN_ACCOUNTS = ""
-# Sign in with Apple on the web: the Services ID for askeden.com once it exists (see
-# src/eden/session.js); empty keeps it off. Signing in with a code works without it.
-WEB_APPLE_SERVICES_ID = ""
+# Help's chat (src/eden/help.js, POST /api/help/ask): free to the person, capped per account a day
+# (UTC; four times that per network), on Eden's own daily budget for Help (not the account's allowance).
+HELP_DAILY_MESSAGES = "30"
+HELP_DAILY_SCREENSHOTS = "5"
+HELP_DAILY_BUDGET_USD = "5"
+HELP_MAX_TOKENS = "700"
+HELP_MODEL = "claude-haiku-4-5"
+# Sign in with Apple on the web: the Services ID for askeden.com, www and preview (primary App
+# ID com.askeden.jarvis; docs/web-auth.md "Owner steps"); empty keeps it off. Signing in with a
+# code works without it.
+WEB_APPLE_SERVICES_ID = "com.askeden.eden.web"
+# Sign in with Google: the OAuth client id (….apps.googleusercontent.com) once it exists, with
+# the secret GOOGLE_CLIENT_SECRET (npx wrangler secret put GOOGLE_CLIENT_SECRET). Either one
+# missing keeps Google off (docs/web-auth.md "Owner steps").
+# Gmail and Google Calendar on the web (src/eden/google-data.js) use the same client, plus the
+# secret EDEN_TOKEN_KEY (32 random bytes, base64) that seals their tokens; without it they stay "needs your Mac".
+GOOGLE_CLIENT_ID = "276467237017-cr8pkfhbunm94on8vbi6o0pj11tq7bdm.apps.googleusercontent.com"
+# Plus on the web with Stripe (src/eden/billing.js; docs/web-auth.md "Billing on the web (Stripe)"),
+# beside the App Store. Secrets: STRIPE_SECRET_KEY (sk_test_… for now) and STRIPE_WEBHOOK_SECRET
+# (whsec_…). STRIPE_PRICE_PLUS: the $20/month "Eden Plus" price id (several, commas: the first
+# for new subscriptions). Any of the three missing keeps billing off. A live key is refused unless
+# STRIPE_LIVE = "1". STRIPE_IN_EDEN_APP = "1" also offers it inside the Eden iOS app (off: Apple's
+# in-app purchase rules; for the US link-out later).
+STRIPE_PRICE_PLUS = "price_1UNkUWRqjDshFbQicaYCqIeb"
+STRIPE_LIVE = ""
+STRIPE_IN_EDEN_APP = ""
+
+# Dictation by recording where the browser has no speech recognition (Firefox; ROADMAP G7.2):
+# Workers AI's Whisper (src/eden/transcribe.js), counted on the account's included AI. A new
+# binding, no secret: Workers AI must be on for the Cloudflare account. Workers AI has no local
+# simulator, so `wrangler dev` (even --local) opens a remote session for it and a transcription
+# there is real and billed; QA configs can leave [ai] out and pass a fake AI (test/transcribe.test.js).
+[ai]
+binding = "AI"
 
 [[durable_objects.bindings]]
 name = "VOICE_QUOTA"
@@ -64,6 +103,16 @@ class_name = "Account"
 name = "LINKS"
 class_name = "Link"
 
+# Sign-in identities (Apple ID, Google account) → their Eden account (src/accounts/identity.js).
+[[durable_objects.bindings]]
+name = "IDENTITIES"
+class_name = "Identity"
+
+# Team spaces (ROADMAP G8): members, roles, the budget's settings and sealed shared conversations.
+[[durable_objects.bindings]]
+name = "SPACES"
+class_name = "Space"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["VoiceQuota"]
@@ -71,6 +120,15 @@ new_sqlite_classes = ["VoiceQuota"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["Account", "Link"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["Identity"]
+
+# Team spaces (src/accounts/space.js): one per space, plus its invitation index objects.
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["Space"]
 
 [[ratelimits]]
 name = "VOICE_RATE"
@@ -88,6 +146,19 @@ simple = { limit = 30, period = 60 }
 name = "API_RATE"
 namespace_id = "1003"
 simple = { limit = 120, period = 60 }
+
+# Signing in on the web (docs/web-auth.md): Apple and Google starts and callbacks, the Eden
+# app's handoffs, and new accounts, each a minute per network.
+[[ratelimits]]
+name = "AUTH_RATE"
+namespace_id = "1004"
+simple = { limit = 20, period = 60 }
+
+# Hosted Eden: chat turns a minute per account (the included-AI allowance caps the cost).
+[[ratelimits]]
+name = "EDEN_RATE"
+namespace_id = "1005"
+simple = { limit = 20, period = 60 }
 
 # Keep the R2 bucket last: wrangler.nor2.toml is this file up to here (deploys before R2).
 [[r2_buckets]]

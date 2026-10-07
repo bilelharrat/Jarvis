@@ -318,6 +318,18 @@ Mac linked: 503 `needs_mac`, as before. Eden on the Mac not running: 502 `eden_o
 Not end-to-end encrypted: askeden.com sees the requests and answers as they pass. Nothing is
 kept or logged (not bodies, not queries); the Mac logs only the method, the path and the status.
 
+### Chat through the Mac
+
+With no provider key on askeden.com (or `EDEN_CHAT_VIA_MAC = "1"`), hosted Eden's chat,
+`POST /api/route` and `GET /api/chat/meta` go through the web relay too (both route lists name
+them), answered by Eden on the Mac on its own models and the owner's subscription; the route
+event carries `viaMac` and `where.label` "via your Mac (Claude Max)". Owner's browsers only
+(docs/web-auth.md, item 25); offline: 503 `mac_offline` "Your Mac is offline. Eden on
+askeden.com answers through your Mac until an Anthropic API key is added." Code:
+`site/src/eden/via-mac.js` (`viaMacFor` is chat.js's decision point). The Mac's server is a
+setting (`account_server`: askeden.com or preview.askeden.com), kept with its token in the
+Keychain; a Mac can be linked in the browser at `<server>/link` (docs/web-auth.md, item 26).
+
 ### Included AI (Anthropic-compatible proxy)
 
 `POST /anthropic/v1/messages`, `POST /anthropic/v1/messages/count_tokens` (auth: Bearer or
@@ -466,6 +478,35 @@ Refusals: when Claude declines a request (`stop_reason: "refusal"`), the turn en
 declined this request." **Refusal fallbacks aren't enabled**: hosted Eden doesn't send a declined
 request on to another model. Its one fallback (the router's next choice) is only for a model that
 failed before writing anything.
+
+### Hosted Eden's providers (askeden.com)
+
+Hosted chat routes and streams across Anthropic, OpenAI, Google Gemini and Moonshot Kimi with Eden's
+own router and stream code (askeden `src/chat/stream.ts`, bundled by `scripts/sync-eden.mjs` as
+`src/eden/vendor/providers.js`; `src/eden/providers.js`). Every key comes from one function,
+`providerKey(env, who, provider) → { key, source: 'user' | 'service' } | null`: the asker's own key
+(BYOK) first, else the Worker secret (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
+`MOONSHOT_API_KEY`, each optional; `EDEN_<PROVIDER> = "off"` switches one off). The candidates are
+`EDEN_MODELS` (`all`: every registry model not deprecated) narrowed to the providers with a key;
+meta, the preview, send and compare all use that set, per asker.
+
+- **Billing** (service keys only; own keys are metered for display, never held or spent): the
+  registry's list price (input; output and reasoning at the output rate; the long-context rate
+  past its threshold), plus search: Claude $0.01 a search, Gemini 3 grounding $0.014 a query,
+  Gemini 2.5 $0.035 a grounded answer. The Gemini rating's cost counts too. The worst case is held
+  up front with the same holds, for every provider and across compare lanes (one hold); a pricier
+  fallback holds the difference.
+- **Stopped streams** count what the provider reported (Claude: input at once; Gemini: every
+  chunk; OpenAI and Kimi: only at the end). Missing parts are estimated: input a token per 3 bytes
+  (images 1,600), output a token per 3 streamed characters (text and thinking), and OpenAI's
+  hidden reasoning 100 tokens a second until the first text, capped by the request's output cap.
+- **Caps** per model: `EDEN_MAX_EFFORT`, `EDEN_MAX_TOKENS` (in each provider's field, thinking
+  budgets kept under it), `EDEN_MAX_INPUT_TOKENS`, and the model's own output limit.
+- **Search**: Gemini grounding when Gemini is keyed (as on the Mac), else Claude's search tool.
+  **Vision**: images only to vision models (not Kimi K2.x). **Fallback**: one retry on the router's
+  next choice, any provider. **Privacy** stays Mac-only.
+- **Dev only**: `EDEN_FAKE_PROVIDER_BASE` (plain http on loopback, honoured only for a request to a
+  local host) sends provider calls to `<base>/<host>/<path>`.
 
 ### Published pages (Eden, G10)
 

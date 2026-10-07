@@ -10,13 +10,19 @@
 // Jarvis) can't take HTML, Bcc, attachments or a schedule: the window says so up front.
 
 import { $, el, toast, uid, sizeText, store, isMobile, svgEl } from './util.js';
-import { api } from './api.js';
+import { api, getJSON, postJSON } from './api.js';
 import { routeSettings } from './router.js';
+import { state } from './state.js';
+import { syncItem } from './sync.js';
+import { carryMarks, close as markClose, leadingMarks, MARKS_NOTE, open as markOpen, parseInline, stripMarks } from './compose-marks.js';
+
+// askeden.com holds scheduled sends in the account (Mac off); on the Mac, Eden's server does while it runs.
+const hostedSend = () => Boolean(state.meta && state.meta.hosted);
 
 let H = {};
 
 /* ================= limits and capabilities ================= */
-export const MAX_ATTACH_BYTES = 17 * 1024 * 1024; // src/chat/gmail.ts MAX_ATTACHMENT_BYTES
+export const MAX_ATTACH_BYTES = 25 * 1024 * 1024; // src/chat/gmail.ts MAX_ATTACHMENT_BYTES (Gmail's own limit)
 const MAX_INLINE_BYTES = 5 * 1024 * 1024;
 const MAX_FILES = 50;
 const MAC_SEND_CHARS = 600;
@@ -63,6 +69,35 @@ const fmtLong = (d) => { const t = Date.parse(d); return Number.isNaN(t) ? Strin
 const extOf = (name) => (/\.([A-Za-z0-9_]{1,12})\s*$/.exec(name || '') || [])[1]?.toLowerCase() || '';
 const readAsDataURL = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error || new Error('Couldn’t read the file')); r.readAsDataURL(file); });
 const b64Bytes = (b64) => Math.floor((String(b64).replace(/=+$/, '').length * 3) / 4);
+const dataUrlBytes = (s) => Math.floor(((s.length - s.indexOf(',') - 1) * 3) / 4);
+const DRIVE_HINT = 'Gmail sends at most 25 MB: share bigger files from Google Drive and paste the link.';
+
+/* ================= uploads ================= */
+// A Gmail attachment goes to Eden's server once, in chunks (one ~4 MB request each), and drafts
+// and sends then refer to it by id (src/chat/gmail-uploads.ts): autosaves carry only the text
+// and headers. When the server has lost an upload (it restarted) it answers 410, and the window
+// uploads again from the file it still holds.
+const blobB64 = async (blob) => { const u = await readAsDataURL(blob); return u.slice(u.indexOf(',') + 1); };
+function b64Blob(b64, mime) {
+  const bin = atob(b64);
+  const a = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+  return new Blob([a], { type: mime });
+}
+async function uploadBlob(blob, name, mime, onProgress) {
+  const s = await gmail('uploadStart', { name, mime, size: blob.size });
+  const step = s.chunkBytes || 3 * 1048576;
+  for (let off = 0; off < blob.size; off += step) {
+    const data = await blobB64(blob.slice(off, off + step));
+    for (let tries = 0; ; tries++) {
+      try { await gmail('uploadChunk', { uploadId: s.uploadId, offset: off, data }); break; }
+      catch (e) { if (tries >= 2 || (e.status > 0 && e.status < 500)) throw e; await new Promise((r) => setTimeout(r, 800 * (tries + 1))); }
+    }
+    if (onProgress) onProgress(Math.min(blob.size, off + step));
+  }
+  return s.uploadId;
+}
+const freeUpload = (id) => { if (id) gmail('uploadDelete', { uploadId: id }).catch(() => undefined); };
 
 /* ================= icons (16×16 strokes) ================= */
 const P = {
@@ -182,8 +217,28 @@ export function sanitizeHtml(html, { editor = true } = {}) {
 /** Shown where a cid: image will go until its bytes arrive (a live <img src="cid:…"> would try to load). */
 const PENDING_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 const BLOCK = new Set('address blockquote center dd div dl dt h1 h2 h3 h4 h5 h6 ol p pre table tbody thead tfoot tr ul'.split(' '));
-/** An editor's DOM as plain text (md: keep **bold**, *italic*, lists and [links](…) for Eden). */
-export function textOf(root, md = false, raw = false) {
+/** Inline elements that carry formatting Markdown can't (a colour, a size, a font, underline…). */
+const STYLED = new Set(['font', 'span', 'u', 's', 'strike', 'del', 'ins', 'sub', 'sup', 'mark', 'small', 'big', 'tt', 'code']);
+/** Of a block's style, what reads as text formatting (kept on the words; its layout isn't). */
+const TEXT_STYLE = /^(color|background-color|font-size|font-family|font-weight|font-style|text-decoration)$/;
+/**
+ * The element that carries an element's formatting through a rewrite (compose-marks.js), or
+ * null: a styled inline element as it is (attributes only), a styled block as a <span> with the
+ * text part of its style. A span or font without attributes carries nothing.
+ */
+function styleShell(c) {
+  const tag = c.tagName.toLowerCase();
+  if (STYLED.has(tag)) return (tag === 'span' || tag === 'font') && !c.attributes.length ? null : c.cloneNode(false);
+  if (!BLOCK.has(tag) || !c.style) return null;
+  const keep = [...c.style].filter((k) => TEXT_STYLE.test(k)).map((k) => `${k}:${c.style.getPropertyValue(k)}`);
+  return keep.length ? el('span', { style: keep.join(';') }) : null;
+}
+/**
+ * An editor's DOM as plain text (md: keep **bold**, *italic*, lists and [links](…) for Eden).
+ * marks (an array, with md): each styled run goes between ⟦n⟧…⟦/n⟧ and its element into
+ * marks[n-1], so mdToNodes can put it back around what Eden writes there.
+ */
+export function textOf(root, md = false, raw = false, marks = null) {
   const lines = [];
   let cur = '';
   const flush = () => { lines.push(cur); cur = ''; };
@@ -195,16 +250,25 @@ export function textOf(root, md = false, raw = false) {
       if (c.nodeType !== 1) continue;
       const tag = c.tagName.toLowerCase();
       if (tag === 'br') { flush(); continue; }
+      const shell = marks && md && c.textContent.trim() ? styleShell(c) : null;
+      if (shell) {
+        const k = marks.push(shell);
+        const block = BLOCK.has(tag);
+        if (block && cur) flush();
+        add(`${markOpen(k)}${textOf(c, md, true, marks)}${markClose(k)}`);
+        if (block && cur) flush();
+        continue;
+      }
       if (tag === 'img') { if (!md) add(`[image: ${c.getAttribute('alt') || 'image'}]`); continue; }
       if (tag === 'hr') { if (cur) flush(); lines.push('---'); continue; }
-      if (tag === 'b' || tag === 'strong') { const t = textOf(c, md, true); add(md ? wrapMd(t, '**') : t); continue; }
-      if (tag === 'i' || tag === 'em') { const t = textOf(c, md, true); add(md ? wrapMd(t, '*') : t); continue; }
+      if (tag === 'b' || tag === 'strong') { const t = textOf(c, md, true, marks); add(md ? wrapMd(t, '**') : t); continue; }
+      if (tag === 'i' || tag === 'em') { const t = textOf(c, md, true, marks); add(md ? wrapMd(t, '*') : t); continue; }
       if (tag === 'a') {
-        const t = textOf(c, md, true), href = c.getAttribute('href') || '';
+        const t = textOf(c, md, true, marks), href = c.getAttribute('href') || '';
         add(!href || href === t || href === `mailto:${t}` ? t : md ? `[${t}](${href})` : `${t} <${href.replace(/^mailto:/, '')}>`);
         continue;
       }
-      if (tag === 'blockquote') { if (cur) flush(); for (const l of textOf(c, md).split('\n')) lines.push(l ? `> ${l}` : '>'); continue; }
+      if (tag === 'blockquote') { if (cur) flush(); for (const l of textOf(c, md, false, marks).split('\n')) lines.push(l ? `> ${l}` : '>'); continue; }
       if (tag === 'li') {
         if (cur) flush();
         const parent = c.parentElement;
@@ -224,35 +288,36 @@ export function textOf(root, md = false, raw = false) {
   const text = lines.join('\n');
   return raw ? text : text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
 }
-function inlineMd(parent, text) {
-  const re = /\*\*([^*\n]+)\*\*|__([^_\n]+)__|\*([^*\s][^*\n]*)\*|(?<![\w])_([^_\n]+)_(?![\w])|\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)/g;
-  let i = 0, m;
-  while ((m = re.exec(text))) {
-    if (m.index > i) parent.append(text.slice(i, m.index));
-    if (m[1] || m[2]) parent.append(el('b', '', m[1] || m[2]));
-    else if (m[3] || m[4]) parent.append(el('i', '', m[3] || m[4]));
-    else parent.append(el('a', { href: m[6] }, m[5]));
-    i = re.lastIndex;
-  }
-  if (i < text.length) parent.append(text.slice(i));
+/** One line of Eden's light Markdown into `parent`; marks: the styled runs' elements (textOf), put back around their words. */
+function inlineMd(parent, text, marks = []) {
+  const build = (into, nodes) => {
+    for (const n of nodes) {
+      if (typeof n === 'string') { into.append(n); continue; }
+      const e = n.mark ? marks[n.mark - 1].cloneNode(false) : n.b ? el('b') : n.i ? el('i') : el('a', { href: n.a });
+      build(e, n.kids);
+      into.append(e);
+    }
+  };
+  build(parent, parseInline(text, (k) => k >= 1 && k <= marks.length));
 }
-/** Eden's light Markdown → editor nodes (built with the DOM, never parsed as HTML). */
-export function mdToNodes(md) {
+/** Eden's light Markdown → editor nodes (built with the DOM, never parsed as HTML); marks as for inlineMd. */
+export function mdToNodes(md, marks = []) {
   const out = [];
   let list = null, kind = '';
-  for (const line of String(md || '').replace(/\r\n?/g, '\n').split('\n')) {
+  const lines = String(md || '').replace(/\r\n?/g, '\n').split('\n');
+  for (const line of marks.length ? carryMarks(lines).map(leadingMarks) : lines) {
     const ul = /^\s*[-*•]\s+(.*)$/.exec(line), ol = /^\s*\d{1,3}[.)]\s+(.*)$/.exec(line);
     if (ul || ol) {
       const k = ul ? 'ul' : 'ol';
       if (!list || kind !== k) { list = document.createElement(k); kind = k; out.push(list); }
       const li = document.createElement('li');
-      inlineMd(li, (ul || ol)[1]);
+      inlineMd(li, (ul || ol)[1], marks);
       list.append(li);
       continue;
     }
     list = null;
     const div = document.createElement('div');
-    if (line.trim()) inlineMd(div, line); else div.append(document.createElement('br'));
+    if (stripMarks(line).trim()) inlineMd(div, line, marks); else div.append(document.createElement('br'));
     out.push(div);
   }
   return out;
@@ -261,11 +326,50 @@ const textToNodes = (t) => String(t || '').replace(/\r\n?/g, '\n').split('\n').m
 const blankLine = () => el('div', '', el('br'));
 const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/* ================= signatures (this device; per account) ================= */
+/* ================= signatures (per address) =================
+   Kept by Eden's server on the Mac (GET/POST /api/chat/signatures: every browser there has the
+   same ones); on askeden.com, the `eden/signatures` item of the account's end-to-end encrypted
+   sync (when Sync is on; otherwise this browser only). This browser keeps a copy either way, so a
+   window opens with its signature at once; the later change (`at`) wins. */
+let sigSyncHook = null;
 const sigStore = {
-  get() { const v = store.get(K.sigs, null); return v && Array.isArray(v.list) ? { list: v.list, defaults: v.defaults || {} } : { list: [], defaults: {} }; },
-  set(v) { store.set(K.sigs, v); },
+  get() { const v = store.get(K.sigs, null); return v && Array.isArray(v.list) ? { list: v.list, defaults: v.defaults || {}, at: v.at || 0 } : { list: [], defaults: {}, at: 0 }; },
+  /** `from`: another browser's copy (the server's, or synced): kept here only. */
+  set(v, { from = false } = {}) {
+    const next = { list: v.list, defaults: v.defaults || {}, at: from ? v.at || 0 : Date.now() };
+    store.set(K.sigs, next);
+    if (from) return;
+    if (state.meta && state.meta.hosted) { if (sigSyncHook) sigSyncHook.changed(); return; }
+    postJSON('/api/chat/signatures', next).then((kept) => { if (kept && kept.at > next.at) sigStore.set(kept, { from: true }); }, () => { /* pushed again at the next load */ });
+  },
 };
+const hasSigs = (v) => v.list.length > 0 || Object.keys(v.defaults).length > 0;
+/** After the page knows where it runs (state.meta): the server's signatures, or the synced ones. */
+export async function initSignatures() {
+  if (state.meta && state.meta.hosted) {
+    syncItem({
+      key: 'eden/signatures',
+      value: () => sigStore.get(),
+      merge: (theirs) => {
+        if (!theirs || !Array.isArray(theirs.list) || !((theirs.at || 0) > sigStore.get().at)) return false;
+        sigStore.set(theirs, { from: true });
+        return true;
+      },
+      bind(hook) { sigSyncHook = hook; },
+    });
+    return;
+  }
+  try {
+    const kept = await getJSON('/api/chat/signatures');
+    const mine = sigStore.get();
+    if (kept && kept.at > mine.at) sigStore.set(kept, { from: true });
+    // this browser's own (from before they were kept by the server, or saved while it was away)
+    else if (hasSigs(mine) && (mine.at > kept.at || !hasSigs(kept))) {
+      const stored = await postJSON('/api/chat/signatures', { ...mine, at: mine.at || Date.now() });
+      if (stored) store.set(K.sigs, stored);
+    }
+  } catch { /* no server (or an older one): this browser's copy */ }
+}
 function sigFor(key, reply) {
   const s = sigStore.get();
   const d = s.defaults[key] || {};
@@ -280,9 +384,15 @@ function sigNode(sig) {
 const sigText = (sig) => { const d = document.createElement('div'); d.append(sanitizeHtml(sig.html || '')); return textOf(d); };
 
 /* ================= sources: Gmail status, Mac accounts ================= */
-const src = { google: null, mac: null };
+const src = { google: null, mac: null, sendAs: null, sendAsFor: '' };
 async function refreshSources() {
   try { src.google = await api.googleStatus(); } catch { src.google = null; }
+  // From aliases: Gmail's send-as addresses (users.settings.sendAs.list, covered by gmail.readonly)
+  if (src.google && src.google.connected) {
+    if (src.sendAsFor !== src.google.email || !src.sendAs) {
+      try { const r = await gmail('sendAs'); src.sendAs = ((r && r.sendAs) || []).filter((s) => s && s.email); src.sendAsFor = src.google.email; } catch { src.sendAs = src.sendAs || []; }
+    }
+  } else { src.sendAs = null; src.sendAsFor = ''; }
   if (H.jarvisAvailable && H.jarvisAvailable()) {
     if (!src.mac) {
       try {
@@ -292,17 +402,27 @@ async function refreshSources() {
     }
   } else src.mac = null;
 }
+/** Verified send-as aliases other than the account's own address ('' in a window's account means that one). */
+const gmailAliases = () => (src.sendAs || []).filter((s) => s.verified !== false && !s.isPrimary && s.email.toLowerCase() !== String((src.google && src.google.email) || '').toLowerCase());
+const aliasLabel = (s) => (s.name ? `${s.name} <${s.email}>` : s.email);
 function fromOptions() {
   const out = [];
-  if (src.google && src.google.connected) out.push({ key: 'gmail:', source: 'gmail', account: '', label: src.google.email || 'Gmail', sub: 'Gmail' });
+  if (src.google && src.google.connected) {
+    const primary = (src.sendAs || []).find((s) => s.isPrimary);
+    out.push({ key: 'gmail:', source: 'gmail', account: '', label: primary && primary.name ? `${primary.name} <${src.google.email}>` : src.google.email || 'Gmail', sub: 'Gmail' });
+    for (const s of gmailAliases()) out.push({ key: `gmail:${s.email.toLowerCase()}`, source: 'gmail', account: s.email.toLowerCase(), label: aliasLabel(s), sub: s.isDefault ? 'Gmail alias, Gmail’s default' : 'Gmail alias' });
+  }
   if (src.mac) {
     if (!src.mac.length) out.push({ key: 'mac:', source: 'mac', account: '', label: 'Default account', sub: 'Mail on your Mac' });
     for (const a of src.mac) out.push({ key: `mac:${a.id}`, source: 'mac', account: a.id, label: a.email && a.email !== a.name ? `${a.name} — ${a.email}` : a.name, sub: 'Mail on your Mac' });
   }
   return out;
 }
-const selfEmail = (w) => (w.source === 'gmail' ? (src.google && src.google.email) || '' : ((src.mac || []).find((a) => a.id === w.account) || {}).email || '').toLowerCase();
-const accountKey = (source, account) => (source === 'gmail' ? `gmail:${(src.google && src.google.email) || ''}` : `mac:${account || 'default'}`);
+const selfEmail = (w) => (w.source === 'gmail' ? w.account || (src.google && src.google.email) || '' : ((src.mac || []).find((a) => a.id === w.account) || {}).email || '').toLowerCase();
+/** The owner's own addresses for this window's source (reply all leaves them all out). */
+const selfEmails = (w) => new Set([selfEmail(w), ...(w.source === 'gmail' ? [(src.google && src.google.email) || '', ...(src.sendAs || []).map((s) => s.email)] : [])].map((e) => e.toLowerCase()).filter(Boolean));
+// signatures are per address: a Gmail alias has its own defaults (and "Import from Gmail" fills them in)
+const accountKey = (source, account) => (source === 'gmail' ? `gmail:${account || (src.google && src.google.email) || ''}` : `mac:${account || 'default'}`);
 
 /* ================= recipients autocomplete ================= */
 const contactCache = new Map();
@@ -428,6 +548,8 @@ class Compose {
     this.scheduled = o.scheduled || null;
     this.recip = { to: [], cc: [], bcc: [] };
     this.atts = [];
+    this.imgUploads = new Map(); // inline image Content-ID → { id, size } on Eden's server
+    this.imgJobs = new Map(); // Content-ID → its upload in progress
     this.plain = false;
     this.state = 'normal';
     this.view = 'edit';
@@ -473,6 +595,7 @@ class Compose {
     this.subj.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.focusBody(); } });
     this.fields = el('div', { class: 'cw-fields' }, this.fromRow, this.rows.to.wrap, this.rows.cc.wrap, this.rows.bcc.wrap, el('div', 'cw-row cw-srow', this.subj));
     this.notes = el('div', { class: 'cw-notes', 'aria-live': 'polite' });
+    this.live = el('div', { class: 'sr-only', 'aria-live': 'polite' });
     // body
     this.ed = el('div', { class: 'cw-ed', contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Message', spellcheck: 'true', 'data-ph': 'Write your message, or ask Eden below…' });
     this.pt = el('textarea', { class: 'cw-pt', 'aria-label': 'Message (plain text)', placeholder: 'Write your message, or ask Eden below…', spellcheck: 'true' });
@@ -482,7 +605,16 @@ class Compose {
     this.quote = el('div', { class: 'cw-quote', contenteditable: 'true', 'aria-label': 'Quoted message', spellcheck: 'false' });
     this.quote.hidden = true;
     this.attBox = el('div', { class: 'cw-atts', role: 'list', 'aria-label': 'Attachments' });
-    this.main = el('div', { class: 'cw-main' }, this.fields, this.notes, this.ed, this.pt, this.trimB, this.quote, this.attBox);
+    // inline image sizes: a frame with a drag handle over the picked image, and preset sizes
+    const sizeB = (label, w, title) => el('button', { type: 'button', class: 'cw-imgb', 'data-w': w, title, onclick: () => this.sizeImg(w === 'orig' ? null : Number(w)) }, label);
+    this.imgHandle = el('button', { type: 'button', class: 'cw-img-h', 'aria-label': 'Resize the image: drag, or Left and Right arrows', title: 'Drag to resize (keeps its shape)' });
+    this.imgBox = el('div', { class: 'cw-imgbox', 'aria-hidden': 'false' }, this.imgHandle);
+    this.imgBar = el('div', { class: 'cw-imgbar glass', role: 'toolbar', 'aria-label': 'Image size' },
+      sizeB('Small', '200', 'Small (200 px wide)'), sizeB('Medium', '400', 'Medium (400 px wide)'), sizeB('Original', 'orig', 'Original size (fits the width of the email)'),
+      el('span', 'cw-tsep'), el('button', { type: 'button', class: 'cw-imgb', title: 'Remove the image', 'aria-label': 'Remove the image', onclick: () => { const img = this.img; this.dropImg(); if (img) { img.remove(); this.paintBlank(); this.changed(); this.focusBody(); } } }, ic('trash', 13)));
+    this.imgBox.hidden = true;
+    this.imgBar.hidden = true;
+    this.main = el('div', { class: 'cw-main' }, this.fields, this.notes, this.live, this.ed, this.pt, this.trimB, this.quote, this.attBox, this.imgBox, this.imgBar);
     // Ask Eden (always visible)
     const chip = (kind, label, title) => el('button', { type: 'button', class: 'cw-chipb', 'data-ai': kind, title: title || label, onclick: () => this.runAI(kind) }, label);
     this.cReply = chip('reply', 'Write reply', 'Eden writes your reply to this thread');
@@ -644,6 +776,9 @@ class Compose {
     this.quote.addEventListener('paste', (e) => this.onPaste(e));
     this.ed.addEventListener('keyup', () => this.paintTools());
     this.ed.addEventListener('mouseup', () => this.paintTools());
+    this.ed.addEventListener('click', (e) => { if (e.target.tagName === 'IMG' && !e.target.closest('.gmail_signature') && !this.ai.busy) this.pickImg(e.target); else if (this.img) this.dropImg(); });
+    this.ed.addEventListener('input', () => { if (this.img) this.placeImg(); });
+    this.bindImgHandle();
     this.ed.addEventListener('click', (e) => { const a = e.target.closest('a'); if (a && (e.metaKey || e.ctrlKey)) { e.preventDefault(); const u = safeUrl(a.getAttribute('href') || '', ['http:', 'https:', 'mailto:']); if (u) window.open(u, '_blank', 'noopener'); } });
     this.fromSel.addEventListener('change', () => { const o = fromOptions().find((x) => x.key === this.fromSel.value); if (o) this.setSource(o.source, o.account); });
     // drag and drop
@@ -712,6 +847,7 @@ class Compose {
   setState(st) {
     this.state = st;
     this.apply();
+    if (this.img) requestAnimationFrame(() => this.placeImg());
     if (st !== 'min') raise(this);
     renderTray();
     persistAll();
@@ -752,6 +888,7 @@ class Compose {
       e.preventDefault(); e.stopPropagation();
       if (!this.sug.hidden) { this.hideSug(); return; }
       if (!this.pop.hidden) { this.closePop(true); return; }
+      if (this.img) { this.dropImg(); this.focusBody(); return; }
       if (this.countdown) { this.cancelCountdown(); return; }
       if (this.view === 'review') { this.backToEdit(); return; }
       if (this.ai.busy) { this.stopAI(); return; }
@@ -784,16 +921,131 @@ class Compose {
   }
   renderChips(kind) {
     const { chips, input } = this.rows[kind];
+    const others = this.kinds().filter((k) => k !== kind).map((k) => KIND[k]).join(' or ');
     chips.replaceChildren(...this.recip[kind].map((a, i) => {
       const label = a.name || a.email;
-      return el('span', { class: `cw-chip${a.valid ? '' : ' bad'}${kind === 'bcc' && !this.caps.bcc ? ' off' : ''}`, title: a.valid ? fmtAddr(a) : `Not a valid address: ${a.email}` },
-        el('button', { type: 'button', class: 'cw-chip-t', 'aria-label': `${KIND[kind]}: ${fmtAddr(a)}${a.valid ? '' : ' (not a valid address)'}. Press to edit.`, onclick: () => {
+      const chip = el('span', { class: `cw-chip${a.valid ? '' : ' bad'}${kind === 'bcc' && !this.caps.bcc ? ' off' : ''}`, title: `${a.valid ? fmtAddr(a) : `Not a valid address: ${a.email}`} · drag to ${others}` },
+        el('button', { type: 'button', class: 'cw-chip-t', 'aria-label': `${KIND[kind]}: ${fmtAddr(a)}${a.valid ? '' : ' (not a valid address)'}. Press to edit; Alt and arrow keys move it to ${others}.`, onclick: () => {
+          if (Date.now() - (this.dragEndAt || 0) < 400) return; // the click that ends a drag
           this.recip[kind].splice(i, 1); this.renderChips(kind);
           input.value = fmtAddr(a); input.focus(); input.select(); this.changed();
-        } }, label),
+        }, onkeydown: (e) => this.chipKey(e, kind, i) }, label),
         el('button', { type: 'button', class: 'cw-chip-x', 'aria-label': `Remove ${label}`, title: 'Remove', onclick: () => { this.recip[kind].splice(i, 1); this.renderChips(kind); this.changed(); input.focus(); } }, ic('x', 10)));
+      chip.addEventListener('pointerdown', (e) => this.chipDrag(e, kind, i, chip));
+      return chip;
     }));
     if (this.recip[kind].length && kind !== 'to') this.showRow(kind, false);
+  }
+
+  /* ---------- moving recipients between To, Cc and Bcc (drag, long-press on touch, or Alt+↑/↓) ---------- */
+  kinds() { return this.caps.bcc || this.recip.bcc.length ? ['to', 'cc', 'bcc'] : ['to', 'cc']; }
+  say(text) { this.live.textContent = ''; requestAnimationFrame(() => { this.live.textContent = text; }); }
+  /** Moves recipient i of `from` to the end of `to` (a duplicate there just disappears); returns its index in `to`. */
+  moveRecip(from, i, to) {
+    const a = this.recip[from][i];
+    if (from === to || !a) return -1;
+    this.recip[from].splice(i, 1);
+    if (!this.recip[to].some((x) => sameAddr(x, a))) this.recip[to].push(a);
+    this.showRow(to, false);
+    this.renderChips(from);
+    this.renderChips(to);
+    this.say(`${a.name || a.email} moved to ${KIND[to]}`);
+    this.changed();
+    return this.recip[to].findIndex((x) => sameAddr(x, a));
+  }
+  chipKey(e, kind, i) {
+    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ks = this.kinds();
+    const to = ks[ks.indexOf(kind) + (e.key === 'ArrowDown' ? 1 : -1)];
+    if (!to) return;
+    const j = this.moveRecip(kind, i, to);
+    const b = this.rows[to].chips.children[j];
+    if (b) b.querySelector('.cw-chip-t').focus();
+  }
+  /** Mouse and pen: drag past 5 px. Touch: hold 350 ms, then drag (a quick swipe still scrolls). Esc cancels. */
+  chipDrag(e, kind, i, chip) {
+    if (e.button !== 0 || e.target.closest('.cw-chip-x') || this.view !== 'edit') return;
+    const touch = e.pointerType === 'touch';
+    const x0 = e.clientX, y0 = e.clientY, pid = e.pointerId;
+    const shown = [];
+    let on = false, ghost = null, over = null, timer = 0;
+    const target = (x, y) => {
+      const t = document.elementFromPoint(x, y);
+      const row = t && t.closest('.cw-rcp');
+      return row && this.root.contains(row) && !row.hidden ? row.dataset.kind : null;
+    };
+    const place = (x, y) => {
+      const rr = this.root.getBoundingClientRect();
+      ghost.style.left = `${x - rr.left + 8}px`;
+      ghost.style.top = `${y - rr.top - (touch ? 34 : 12)}px`;
+      const k = target(x, y);
+      if (k === over) return;
+      if (over) this.rows[over].wrap.classList.remove('drop-on');
+      over = k;
+      if (k && k !== kind) this.rows[k].wrap.classList.add('drop-on');
+    };
+    const begin = (x, y) => {
+      on = true;
+      for (const k of this.kinds()) if (this.rows[k].wrap.hidden) { this.rows[k].wrap.hidden = false; shown.push(k); }
+      chip.classList.add('lifted');
+      this.root.classList.add('chip-drag');
+      ghost = chip.cloneNode(true);
+      ghost.className = 'cw-chip cw-chip-ghost';
+      ghost.setAttribute('aria-hidden', 'true');
+      for (const b of ghost.querySelectorAll('button')) b.tabIndex = -1;
+      this.root.append(ghost);
+      if (touch && navigator.vibrate) navigator.vibrate(8);
+      place(x, y);
+    };
+    const move = (ev) => {
+      if (ev.pointerId !== pid) return;
+      const far = Math.hypot(ev.clientX - x0, ev.clientY - y0);
+      if (!on) {
+        if (touch) { if (far > 8) end(); return; }
+        if (far < 5) return;
+        begin(ev.clientX, ev.clientY);
+      }
+      ev.preventDefault();
+      place(ev.clientX, ev.clientY);
+    };
+    const noScroll = (ev) => { if (on && ev.cancelable) ev.preventDefault(); };
+    const key = (ev) => { if (ev.key === 'Escape' && on) { ev.preventDefault(); ev.stopPropagation(); end(null, true); } };
+    const up = (ev) => { if (!ev || ev.pointerId === pid) end(ev, ev && ev.type === 'pointercancel'); };
+    const end = (ev, cancel = false) => {
+      clearTimeout(timer);
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      removeEventListener('pointercancel', up);
+      removeEventListener('keydown', key, true);
+      chip.removeEventListener('touchmove', noScroll);
+      chip.removeEventListener('contextmenu', noMenu);
+      if (!on) return;
+      on = false;
+      this.dragEndAt = Date.now();
+      ghost.remove();
+      chip.classList.remove('lifted');
+      this.root.classList.remove('chip-drag');
+      if (over) this.rows[over].wrap.classList.remove('drop-on');
+      const to = !cancel && over && over !== kind ? over : null;
+      for (const k of shown) if (k !== to && !this.recip[k].length) this.rows[k].wrap.hidden = true;
+      if (to) {
+        const j = this.moveRecip(kind, i, to);
+        const b = !touch && this.rows[to].chips.children[j];
+        if (b) b.querySelector('.cw-chip-t').focus();
+      }
+    };
+    const noMenu = (ev) => ev.preventDefault(); // a long press on touch is ours, not the callout's
+    addEventListener('pointermove', move, { passive: false });
+    addEventListener('pointerup', up);
+    addEventListener('pointercancel', up);
+    addEventListener('keydown', key, true);
+    if (touch) {
+      chip.addEventListener('touchmove', noScroll, { passive: false });
+      chip.addEventListener('contextmenu', noMenu);
+      timer = setTimeout(() => begin(x0, y0), 350);
+    }
   }
   showRow(kind, focus) {
     this.rows[kind].wrap.hidden = false;
@@ -851,11 +1103,12 @@ class Compose {
 
   /* ---------- body content ---------- */
   messageNodes() { return [...this.ed.childNodes].filter((n) => n !== this.sigEl); }
-  messageText(md = false) {
+  /** marks (with md): the styled runs for a rewrite (textOf). */
+  messageText(md = false, marks = null) {
     if (this.plain) { const v = this.pt.value; const i = v.lastIndexOf('\n-- \n'); return (i >= 0 ? v.slice(0, i) : v).trim(); }
     const d = document.createElement('div');
     d.append(...this.messageNodes().map((n) => n.cloneNode(true)));
-    return textOf(d, md);
+    return textOf(d, md, false, marks);
   }
   plainSig() { const v = this.pt.value; const i = v.lastIndexOf('\n-- \n'); return i >= 0 ? `\n\n-- \n${v.slice(i + 5)}` : ''; }
   paintBlank() { this.ed.classList.toggle('blank', !this.plain && !this.messageText().trim() && !this.ed.querySelector('img')); }
@@ -885,6 +1138,7 @@ class Compose {
   }
   setPlain(on, { quiet = false } = {}) {
     if (on === this.plain) return;
+    this.dropImg();
     if (on) {
       const imgs = [...this.ed.querySelectorAll('img')];
       const sig = this.sigEl ? textOf(this.sigEl) : '';
@@ -892,7 +1146,10 @@ class Compose {
       this.plain = true;
       for (const img of imgs) {
         const m = /^data:([^;]+);base64,(.*)$/.exec(img.getAttribute('src') || '');
-        if (m && this.caps.attach) this.atts.push({ id: uid('a'), name: img.alt || `image.${(m[1].split('/')[1] || 'png').replace('jpeg', 'jpg')}`, mime: m[1], size: b64Bytes(m[2]), data: m[2], state: 'ready' });
+        if (!m || !this.caps.attach) continue;
+        const up = this.imgUploads.get(img.getAttribute('data-cid'));
+        const a = { id: uid('a'), name: img.alt || `image.${(m[1].split('/')[1] || 'png').replace('jpeg', 'jpg')}`, mime: m[1], size: b64Bytes(m[2]), file: b64Blob(m[2], m[1]) };
+        if (up) { this.atts.push(Object.assign(a, { uploadId: up.id, state: 'ready' })); this.imgUploads.delete(img.getAttribute('data-cid')); } else this.addAtt(a);
       }
       if (imgs.length && !quiet) toast(this.caps.attach ? 'Plain text: the inline images are now attachments' : 'Plain text: the inline images were removed');
     } else {
@@ -1027,7 +1284,7 @@ class Compose {
     if (!this.caps.html || this.plain) { this.addFiles(files); return; }
     for (const f of files) {
       if (f.size > MAX_INLINE_BYTES) { toast(`${f.name} is over ${MAX_INLINE_BYTES / 1048576} MB: attached instead of inline`); this.addFiles([f]); continue; }
-      if (this.totalBytes() + f.size > MAX_ATTACH_BYTES) { toast(`That would pass ${MAX_ATTACH_BYTES / 1048576} MB in all`); continue; }
+      if (this.totalBytes() + f.size > MAX_ATTACH_BYTES) { toast(`${f.name || 'That image'} would take the email past 25 MB. ${DRIVE_HINT}`); continue; }
       let url;
       try { url = await readAsDataURL(f); } catch (err) { toast(err.message); continue; }
       const img = el('img', { src: url, alt: f.name || 'image', 'data-cid': `img${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}@eden`, style: { maxWidth: '100%' } });
@@ -1039,6 +1296,72 @@ class Compose {
     this.changed();
   }
 
+  /* ---------- inline image sizes (stored as the width attribute; height follows) ---------- */
+  pickImg(img) {
+    if (this.plain || !this.caps.html) return;
+    if (this.img && this.img !== img) this.img.classList.remove('cw-img-on');
+    this.img = img;
+    img.classList.add('cw-img-on');
+    this.imgBox.hidden = false;
+    this.imgBar.hidden = false;
+    if (!img.complete) img.addEventListener('load', () => this.placeImg(), { once: true });
+    this.placeImg();
+  }
+  dropImg() {
+    if (this.img) this.img.classList.remove('cw-img-on');
+    this.img = null;
+    this.imgBox.hidden = true;
+    this.imgBar.hidden = true;
+  }
+  placeImg() {
+    const img = this.img;
+    if (!img || !this.ed.contains(img) || this.plain || this.ed.hidden) { this.dropImg(); return; }
+    const mr = this.main.getBoundingClientRect(), r = img.getBoundingClientRect();
+    const top = r.top - mr.top + this.main.scrollTop, left = r.left - mr.left + this.main.scrollLeft;
+    Object.assign(this.imgBox.style, { top: `${top}px`, left: `${left}px`, width: `${r.width}px`, height: `${r.height}px` });
+    const bw = this.imgBar.offsetWidth || 260;
+    this.imgBar.style.left = `${clamp(left, 6, Math.max(6, mr.width - bw - 6))}px`;
+    this.imgBar.style.top = `${r.top - mr.top >= 46 ? top - 40 : top + r.height + 6}px`; // above the image, or below it near the top
+    const w = img.getAttribute('width');
+    for (const b of this.imgBar.querySelectorAll('[data-w]')) b.setAttribute('aria-pressed', String(b.dataset.w === 'orig' ? !w : b.dataset.w === w));
+  }
+  /** Width in px (null: the original size, which the window and Gmail still fit to the width). */
+  sizeImg(w) {
+    const img = this.img;
+    if (!img) return;
+    const max = Math.max(32, Math.round(this.ed.clientWidth - 28));
+    if (w) img.setAttribute('width', String(clamp(Math.round(w), 32, Math.min(max, img.naturalWidth || max)))); else img.removeAttribute('width');
+    img.removeAttribute('height');
+    img.style.removeProperty('width');
+    img.style.removeProperty('height');
+    this.placeImg();
+    this.changed();
+  }
+  bindImgHandle() {
+    const h = this.imgHandle;
+    h.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !this.img) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const img = this.img, x0 = e.clientX, w0 = img.getBoundingClientRect().width;
+      const max = Math.max(32, Math.round(this.ed.clientWidth - 28));
+      try { h.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+      this.root.classList.add('img-sizing');
+      const move = (ev) => { img.setAttribute('width', String(clamp(Math.round(w0 + ev.clientX - x0), 32, max))); img.removeAttribute('height'); this.placeImg(); };
+      const up = () => { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up); this.root.classList.remove('img-sizing'); this.changed(); };
+      h.addEventListener('pointermove', move);
+      h.addEventListener('pointerup', up);
+      h.addEventListener('pointercancel', up);
+    });
+    h.addEventListener('keydown', (e) => {
+      if (!this.img || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      e.preventDefault();
+      const w = this.img.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 50 : 10);
+      this.sizeImg(w);
+      this.say(`Image ${this.img.getAttribute('width')} pixels wide`);
+    });
+  }
+
   /* ---------- attachments ---------- */
   pickFiles() {
     if (!this.caps.attach) { toast('Mail on your Mac can’t attach files through Jarvis. Switch From to Gmail to attach.'); return; }
@@ -1046,9 +1369,11 @@ class Compose {
   }
   totalBytes() {
     let n = this.atts.reduce((s, a) => s + (a.size || 0), 0);
-    for (const img of this.ed.querySelectorAll('img')) { const s = img.getAttribute('src') || ''; if (s.startsWith('data:')) n += Math.floor(((s.length - s.indexOf(',') - 1) * 3) / 4); }
+    for (const img of this.ed.querySelectorAll('img')) { const s = img.getAttribute('src') || ''; if (s.startsWith('data:')) n += dataUrlBytes(s); }
     return n;
   }
+  /** An attachment: { id, name, mime, size, file (Blob, kept to upload again), gmailRef ({ messageId, attachmentId }: copied on the server), uploadId, state: uploading|ready|error }. */
+  addAtt(a) { this.atts.push(a); this.upload(a); return a; }
   async addFiles(files) {
     if (!files.length) return;
     if (!this.caps.attach) { toast('Mail on your Mac can’t attach files through Jarvis. Switch From to Gmail to attach.'); return; }
@@ -1056,30 +1381,81 @@ class Compose {
       const ext = extOf(f.name);
       if (BLOCKED.has(ext)) { toast(`Gmail doesn’t allow .${ext} files (they can carry harmful software)`); continue; }
       if (this.atts.length >= MAX_FILES) { toast(`At most ${MAX_FILES} attachments`); break; }
-      if (this.totalBytes() + f.size > MAX_ATTACH_BYTES) { toast(`${f.name} would take attachments past ${MAX_ATTACH_BYTES / 1048576} MB (Eden’s limit; Gmail’s is 25 MB)`); continue; }
-      const a = { id: uid('a'), name: f.name || 'file', mime: f.type || 'application/octet-stream', size: f.size, data: null, state: 'reading' };
-      this.atts.push(a);
+      if (this.totalBytes() + f.size > MAX_ATTACH_BYTES) { toast(`${f.name} would take the email past 25 MB (it comes to ${sizeText(this.totalBytes() + f.size)}). ${DRIVE_HINT}`); continue; }
+      this.addAtt({ id: uid('a'), name: f.name || 'file', mime: f.type || 'application/octet-stream', size: f.size, file: f });
+    }
+    this.renderAtts();
+  }
+  /** Uploads one attachment to Eden's server: from its file, or copied there from Gmail (the page never downloads it). */
+  upload(a) {
+    if (a.uploadId) freeUpload(a.uploadId);
+    Object.assign(a, { state: 'uploading', sent: 0, error: null, uploadId: null });
+    this.renderAtts();
+    a.job = (async () => {
+      try {
+        let id;
+        if (a.file) id = await uploadBlob(a.file, a.name, a.mime, (n) => { a.sent = n; this.renderAtts(); });
+        else if (a.gmailRef) { const r = await gmail('uploadFromGmail', { ...a.gmailRef, name: a.name, mime: a.mime }); id = r.uploadId; a.size = r.size || a.size; }
+        else throw new Error('Eden no longer has it: attach it again');
+        if (this.closed || !this.atts.includes(a)) { freeUpload(id); return; }
+        a.uploadId = id;
+        a.state = 'ready';
+      } catch (e) {
+        a.state = 'error';
+        a.error = e.message;
+      }
+      if (this.closed) return;
       this.renderAtts();
-      readAsDataURL(f).then((url) => { a.data = url.slice(url.indexOf(',') + 1); a.state = 'ready'; this.renderAtts(); this.changed(); })
-        .catch((err) => { a.state = 'error'; a.error = err.message; this.renderAtts(); });
+      if (a.state === 'ready') this.changed();
+    })();
+    return a.job;
+  }
+  removeAtt(a) {
+    this.atts = this.atts.filter((x) => x !== a);
+    freeUpload(a.uploadId);
+    this.renderAtts();
+    this.changed();
+  }
+  /** Inline images go to Eden's server too, once each (keyed by Content-ID, which survives Eden's rewrites and undo). */
+  syncImgUploads() {
+    if (this.source !== 'gmail' || this.plain || this.closed) return;
+    for (const img of [...this.ed.querySelectorAll('img'), ...this.quote.querySelectorAll('img')]) {
+      const s = img.getAttribute('src') || '';
+      const m = /^data:(image\/[a-z0-9.+-]+);base64,/i.exec(s);
+      if (!m) continue;
+      let cid = img.getAttribute('data-cid');
+      if (!cid) { cid = `img${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}@eden`; img.setAttribute('data-cid', cid); }
+      if (this.imgUploads.has(cid) || this.imgJobs.has(cid)) continue;
+      const name = img.getAttribute('alt') || `image.${(m[1].split('/')[1] || 'png').replace('jpeg', 'jpg')}`;
+      const job = uploadBlob(b64Blob(s.slice(s.indexOf(',') + 1), m[1]), name, m[1].toLowerCase())
+        .then((id) => { if (this.closed) freeUpload(id); else this.imgUploads.set(cid, { id, size: dataUrlBytes(s) }); })
+        .catch(() => undefined) // it then travels inside the save request, as before
+        .finally(() => { this.imgJobs.delete(cid); });
+      this.imgJobs.set(cid, job);
     }
   }
+  uploading() { return this.atts.some((a) => a.state === 'uploading') || this.imgJobs.size > 0; }
   renderAtts() {
-    this.attBox.replaceChildren(...this.atts.map((a) => el('span', { class: `cw-att ${a.state}`, role: 'listitem', title: a.error || `${a.name} · ${sizeText(a.size || 0)}` },
-      ic('clip', 12), el('span', 'cw-att-n', a.name), el('span', 'cw-att-s', a.state === 'ready' ? sizeText(a.size || 0) : a.state === 'error' ? 'failed' : 'loading…'),
-      el('button', { type: 'button', class: 'cw-att-x', 'aria-label': `Remove ${a.name}`, title: 'Remove', onclick: () => { this.atts = this.atts.filter((x) => x !== a); this.renderAtts(); this.changed(); } }, ic('x', 10)))));
+    this.attBox.replaceChildren(...this.atts.map((a) => {
+      const pct = a.state === 'uploading' && a.size ? Math.min(99, Math.round((100 * (a.sent || 0)) / a.size)) : 0;
+      return el('span', { class: `cw-att ${a.state}`, role: 'listitem', title: a.error ? `${a.name}: ${a.error}` : `${a.name} · ${sizeText(a.size || 0)}`, style: a.state === 'uploading' ? { '--p': `${pct}%` } : null },
+        ic('clip', 12), el('span', 'cw-att-n', a.name), el('span', 'cw-att-s', a.state === 'ready' ? sizeText(a.size || 0) : a.state === 'error' ? 'failed' : a.file ? `uploading ${pct}%` : 'copying…'),
+        a.state === 'error' && (a.file || a.gmailRef) ? el('button', { type: 'button', class: 'cw-att-r', onclick: () => this.upload(a) }, 'Retry') : null,
+        el('button', { type: 'button', class: 'cw-att-x', 'aria-label': `Remove ${a.name}`, title: 'Remove', onclick: () => this.removeAtt(a) }, ic('x', 10)));
+    }));
     const total = this.totalBytes();
     const files = this.atts.length + this.ed.querySelectorAll('img').length;
     this.sizeEl.textContent = files ? `${sizeText(total)} of ${MAX_ATTACH_BYTES / 1048576} MB` : '';
     this.sizeEl.classList.toggle('near', total > MAX_ATTACH_BYTES * 0.85);
-    this.sizeEl.title = files ? `${files} attachment${files === 1 ? '' : 's'} and inline image${files === 1 ? '' : 's'}: ${sizeText(total)}. Eden sends up to ${MAX_ATTACH_BYTES / 1048576} MB (Gmail’s own limit is 25 MB; Eden’s server takes 25 MB per request and attachments grow by a third when encoded).` : '';
+    this.sizeEl.classList.toggle('over', total > MAX_ATTACH_BYTES);
+    this.sizeEl.title = files ? `${files} attachment${files === 1 ? '' : 's'} and inline image${files === 1 ? '' : 's'}: ${sizeText(total)}. Gmail sends up to 25 MB; for bigger files share a Google Drive link. Each file uploads to Eden once; autosaves don’t send it again.` : '';
   }
 
   /* ---------- source, capabilities, From ---------- */
   paintFrom() {
     const opts = fromOptions();
-    const key = this.source === 'gmail' ? 'gmail:' : `mac:${this.account}`;
-    if (!opts.some((o) => o.key === key)) opts.unshift({ key, source: this.source, account: this.account, label: this.source === 'gmail' ? (src.google && src.google.email) || 'Gmail (not connected)' : this.account || 'Default account', sub: CAPS[this.source].label });
+    const key = `${this.source}:${this.account}`;
+    if (!opts.some((o) => o.key === key)) opts.unshift({ key, source: this.source, account: this.account, label: this.source === 'gmail' ? this.account || (src.google && src.google.email) || 'Gmail (not connected)' : this.account || 'Default account', sub: this.source === 'gmail' && this.account ? 'Gmail alias' : CAPS[this.source].label });
     this.fromSel.replaceChildren(...opts.map((o) => el('option', { value: o.key }, `${o.label} · ${o.sub}`)));
     this.fromSel.value = key;
     this.fromSel.disabled = opts.length < 2;
@@ -1113,7 +1489,7 @@ class Compose {
       notes.push(el('div', 'cw-note mac', ic('info', 13), el('span', '', el('b', '', 'Mail on your Mac '), 'sends through Jarvis: plain text, one To recipient (others in Cc, ', String(MAC_MAX_PEOPLE), ' people at most), no Bcc, attachments or scheduling, and at most ', String(MAC_SEND_CHARS), ' characters per send — longer emails open as a draft in Mail for you to send there. Jarvis asks you on your Mac before anything goes.')));
     }
     if (this.scheduled && this.scheduled.status === 'scheduled') {
-      notes.push(el('div', 'cw-note sched', ic('clock', 13), el('span', '', el('b', '', `Scheduled for ${fmtWhen(this.scheduled.sendAt)}. `), 'Eden holds this draft and sends it then, only while Eden is running on your Mac. Edits here save into it.'),
+      notes.push(el('div', 'cw-note sched', ic('clock', 13), el('span', '', el('b', '', `Scheduled for ${fmtWhen(this.scheduled.sendAt)}. `), hostedSend() ? 'Your askeden.com account holds this draft and sends it then, even with your Mac off. Edits here save into it.' : 'Eden holds this draft and sends it then, only while Eden is running on your Mac. Edits here save into it.'),
         el('button', { type: 'button', class: 'cap', onclick: () => this.cancelSchedule() }, 'Cancel schedule')));
     }
     if (this.sendError) notes.push(el('div', 'cw-note err', el('span', '', el('b', '', this.sendCheck ? 'Before you send: ' : 'Not sent. '), this.sendError), el('button', { type: 'button', class: 'cap', onclick: () => { this.sendError = null; this.paintCaps(); } }, 'Dismiss')));
@@ -1206,7 +1582,9 @@ class Compose {
       el('div', 'cw-pt-h', 'Schedule send'),
       ...presets.map(([label, d]) => el('button', { type: 'button', class: 'cw-mi', onclick: () => choose(d) }, el('span', 'grow', label), el('span', 'cw-mi-k', fmtWhen(d)))),
       el('label', 'cw-fl', 'Pick date & time', custom),
-      el('p', 'cw-hold', el('b', '', 'Eden holds this email and sends it only while Eden is running on your Mac. '), 'Gmail’s API has no scheduled send, so it waits in your Drafts until then. If the Mac is asleep or Eden isn’t running at that time, it goes when Eden next runs — or, if that’s more than 12 hours late, it waits for you.'),
+      hostedSend()
+        ? el('p', 'cw-hold', el('b', '', 'Your askeden.com account sends it at that time, even with your Mac off and this page closed. '), 'Gmail’s API has no scheduled send, so it waits in your Drafts until then. If it can’t go within 12 hours, it waits for you.')
+        : el('p', 'cw-hold', el('b', '', 'Eden holds this email and sends it only while Eden is running on your Mac. '), 'Gmail’s API has no scheduled send, so it waits in your Drafts until then. If the Mac is asleep or Eden isn’t running at that time, it goes when Eden next runs — or, if that’s more than 12 hours late, it waits for you.'),
       el('div', 'cw-pacts', el('span', 'grow'), el('button', { type: 'button', class: 'btn', onclick: () => this.closePop(true) }, 'Cancel'), el('button', { type: 'button', class: 'btn primary', onclick: () => choose(new Date(custom.value)) }, 'Schedule…'))));
   }
   moreMenu(anchor) {
@@ -1227,11 +1605,18 @@ class Compose {
     this.openPop(anchor, el('div', { role: 'menu', 'aria-label': 'More options' }, ...items));
   }
   confirmBar(text, ok, run, { danger = false, alt } = {}) {
+    // Run the choice while its button still has focus (destroy() then hands focus back), and
+    // when the window stays, put focus in it: removing the focused button dropped it on <body>.
+    const choose = (fn) => () => {
+      if (fn) fn();
+      bar.remove();
+      if (!this.closed && (document.activeElement === document.body || !document.activeElement)) this.firstField().focus();
+    };
     const bar = el('div', { class: 'cw-confirm', role: 'alertdialog', 'aria-label': text },
       el('span', 'grow', text),
-      alt ? el('button', { type: 'button', class: 'btn', onclick: () => { bar.remove(); alt.run(); } }, alt.label) : null,
-      el('button', { type: 'button', class: 'btn', onclick: () => bar.remove() }, 'Keep editing'),
-      el('button', { type: 'button', class: `btn ${danger ? 'danger' : 'primary'}`, onclick: () => { bar.remove(); run(); } }, ok));
+      alt ? el('button', { type: 'button', class: 'btn', onclick: choose(alt.run) }, alt.label) : null,
+      el('button', { type: 'button', class: 'btn', onclick: choose(null) }, 'Keep editing'),
+      el('button', { type: 'button', class: `btn ${danger ? 'danger' : 'primary'}`, onclick: choose(run) }, ok));
     this.notes.prepend(bar);
     bar.querySelector('.btn:last-child').focus();
   }
@@ -1240,6 +1625,7 @@ class Compose {
   snapshot() { return { plain: this.plain, nodes: [...this.ed.childNodes].map((n) => n.cloneNode(true)), text: this.pt.value, subject: this.subj.value, sigId: this.sigId }; }
   restoreSnap(s) {
     if (!s) return;
+    this.dropImg();
     if (s.plain !== this.plain) { this.plain = s.plain; this.ed.hidden = this.plain; this.pt.hidden = !this.plain; }
     this.ed.replaceChildren(...s.nodes.map((n) => n.cloneNode(true)));
     this.sigEl = this.ed.querySelector(':scope > .gmail_signature');
@@ -1272,7 +1658,9 @@ class Compose {
   stopAI() { if (this.ai.ctrl) this.ai.ctrl.abort(); }
   async runAI(kind, prompt = '') {
     if (this.ai.busy || this.view !== 'edit') return;
-    const current = this.messageText(true);
+    // colours, sizes and fonts go to Eden as numbered markers and come back around the same words (compose-marks.js)
+    const marks = [];
+    const current = this.messageText(true, marks);
     const blank = !current.trim();
     if (kind === 'custom') { if (!prompt.trim()) { this.askIn.focus(); return; } kind = blank ? (this.orig ? 'reply' : 'write') : 'change'; }
     if (['shorten', 'formal', 'friendly', 'grammar'].includes(kind) && blank) { this.aiStatus('There’s nothing to change yet: tell Eden what to write.', true); this.askIn.focus(); return; }
@@ -1283,6 +1671,7 @@ class Compose {
     if (names.length) instruction += ` It goes to ${names.slice(0, 6).join(', ')}.`;
     if (this.subj.value.trim()) instruction += ` The subject is “${this.subj.value.trim()}”.`;
     if (wantSubject) instruction += ' Start with one line "Subject: <a short subject>", then a blank line, then the email.';
+    if (marks.length && kind !== 'write') instruction += ` ${MARKS_NOTE}`;
     const context = [];
     if (this.orig) context.push({ title: `The email I’m replying to${this.orig.subject ? `: ${this.orig.subject}` : ''}`.slice(0, 120), text: String(this.orig.text || '').slice(0, 40_000) });
     if (!blank && kind !== 'write' && kind !== 'reply') context.push({ title: 'My current draft', text: current.slice(0, 40_000) });
@@ -1291,6 +1680,7 @@ class Compose {
     if (this.ai.undo.length > 20) this.ai.undo.shift();
     this.ai.redo = [];
     this.ai.busy = true;
+    this.dropImg();
     const ctrl = new AbortController();
     this.ai.ctrl = ctrl;
     this.paintAI();
@@ -1306,12 +1696,12 @@ class Compose {
       let text = out;
       if (wantSubject) {
         const m = /^\s*\**subject:?\**\s*(.*)\n/i.exec(text);
-        if (m) { this.subj.value = m[1].replace(/\*+/g, '').trim().slice(0, 200); this.tEl.textContent = this.title(); text = text.slice(m[0].length); }
+        if (m) { this.subj.value = stripMarks(m[1]).replace(/\*+/g, '').trim().slice(0, 200); this.tEl.textContent = this.title(); text = text.slice(m[0].length); }
         else if (/^\s*\**s(u(b(j(e(c(t(:[^\n]*)?)?)?)?)?)?)?$/i.test(text)) text = '';
       }
-      text = text.replace(/^\s*```[a-z]*\n?/i, '').replace(/\n?```\s*$/, '').replace(/^\n+/, '');
-      if (this.plain) this.pt.value = `${text}${this.plainSigCache || ''}`;
-      else { this.ed.replaceChildren(...mdToNodes(text), ...keepImgs.map((i) => el('div', '', i.cloneNode(true)))); if (sigEl) { this.ed.append(blankLine(), sigEl); this.sigEl = sigEl; } }
+      text = text.replace(/^\s*```[a-z]*\n?/i, '').replace(/\n?```\s*$/, '').replace(/^\n+/, '').replace(/⟦\/?\d{0,3}$/, ''); // (a marker still arriving)
+      if (this.plain) this.pt.value = `${stripMarks(text)}${this.plainSigCache || ''}`;
+      else { this.ed.replaceChildren(...mdToNodes(text, marks), ...keepImgs.map((i) => el('div', '', i.cloneNode(true)))); if (sigEl) { this.ed.append(blankLine(), sigEl); this.sigEl = sigEl; } }
       this.paintBlank();
     };
     this.plainSigCache = this.plain ? this.plainSig() || (sig ? `\n\n-- \n${sigText(sig)}` : '') : '';
@@ -1350,6 +1740,7 @@ class Compose {
   /* ---------- saving ---------- */
   changed() {
     this.sv.dirty = true;
+    this.syncImgUploads();
     this.tEl.textContent = this.title();
     if (this.caps.autosave && !this.ai.busy) this.saveSoon();
     else if (!this.caps.autosave) this.paintSave('local');
@@ -1373,13 +1764,13 @@ class Compose {
     if (!force && !this.sv.dirty) return true;
     if (this.isEmpty() && !this.draftId) return true;
     if (this.ai.busy) { this.saveSoon(); return false; }
-    if (this.atts.some((a) => a.state === 'reading' || a.state === 'loading')) { this.saveSoon(); return false; }
+    if (this.uploading()) { this.saveSoon(); return false; }
     if (this.sv.inflight) { this.sv.again = true; return this.sv.inflight; }
     this.sv.dirty = false;
     this.paintSave('saving');
     this.sv.inflight = (async () => {
       try {
-        const r = await gmail('draft', this.payload());
+        const r = await this.withUploads('draft');
         if (r && r.id) this.draftId = r.id;
         this.sv.at = Date.now();
         this.sv.error = null;
@@ -1398,21 +1789,35 @@ class Compose {
     })();
     return this.sv.inflight;
   }
+  /** A Gmail call with this window's payload; when Eden's server has lost the uploads (410: it restarted), upload them again and retry once. */
+  async withUploads(action, extra = {}) {
+    try { return await gmail(action, { ...this.payload(), ...extra }); }
+    catch (e) {
+      if (e.status !== 410) throw e;
+      this.imgUploads.clear(); // the inline images then travel inside the request
+      await Promise.all(this.atts.map((a) => this.upload(a)));
+      const lost = this.atts.filter((a) => a.state !== 'ready');
+      if (lost.length) throw new Error(`Eden lost ${lost.map((a) => a.name).join(', ')} (its server restarted): attach ${lost.length === 1 ? 'it' : 'them'} again`);
+      return gmail(action, { ...this.payload(), ...extra });
+    }
+  }
   collect() {
     if (this.plain || !this.caps.html) {
       let text = this.plain ? this.pt.value : textOf(this.ed);
       if (this.source === 'gmail' && this.quote.childNodes.length) text += `\n\n${textOf(this.quote)}`;
-      return { text, html: '', inline: [] };
+      return { text, html: '', inline: [], shown: [] };
     }
     const doc = document.implementation.createHTMLDocument(''); // inert: setting src there loads nothing
     const root = doc.createElement('div');
     root.append(...[...this.ed.childNodes].map((n) => doc.importNode(n, true)));
     if (this.quote.childNodes.length) root.append(...[...this.quote.childNodes].map((n) => doc.importNode(n, true)));
-    const inline = [];
+    // inline: what the request carries ({ uploadId, contentId } once uploaded, else the bytes); shown: for the review
+    const inline = [], shown = [];
     const seen = new Map();
     for (const img of [...root.querySelectorAll('img')]) {
       const s = img.getAttribute('src') || '';
       const m = /^data:(image\/[a-z0-9.+-]+);base64,(.*)$/i.exec(s);
+      img.removeAttribute('class');
       if (img.hasAttribute('data-pending')) { img.setAttribute('src', `cid:${img.getAttribute('data-cid')}`); img.removeAttribute('data-pending'); }
       else if (m) {
         let cid = seen.get(m[2]);
@@ -1420,7 +1825,10 @@ class Compose {
           cid = img.getAttribute('data-cid') || `img${inline.length + 1}.${Date.now().toString(36)}@eden`;
           if (inline.some((x) => x.contentId === cid)) cid = `img${inline.length + 1}.${Math.random().toString(36).slice(2, 8)}@eden`;
           seen.set(m[2], cid);
-          inline.push({ name: img.getAttribute('alt') || `image${inline.length + 1}.${(m[1].split('/')[1] || 'png').replace('jpeg', 'jpg')}`, mime: m[1].toLowerCase(), data: m[2], contentId: cid });
+          const name = img.getAttribute('alt') || `image${inline.length + 1}.${(m[1].split('/')[1] || 'png').replace('jpeg', 'jpg')}`;
+          const up = this.imgUploads.get(img.getAttribute('data-cid'));
+          inline.push(up && img.getAttribute('data-cid') === cid ? { uploadId: up.id, contentId: cid } : { name, mime: m[1].toLowerCase(), data: m[2], contentId: cid });
+          shown.push({ contentId: cid, name, src: s, size: dataUrlBytes(s) });
         }
         img.setAttribute('src', `cid:${cid}`);
       } else if (!/^(https?:|cid:)/i.test(s)) img.remove();
@@ -1428,7 +1836,7 @@ class Compose {
       if (!img.getAttribute('alt')) img.setAttribute('alt', 'image');
     }
     for (const bq of root.querySelectorAll('blockquote')) if (!bq.getAttribute('style')) bq.setAttribute('style', 'margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex');
-    return { text: textOf(root), html: `<div dir="ltr">${root.innerHTML}</div>`, inline };
+    return { text: textOf(root), html: `<div dir="ltr">${root.innerHTML}</div>`, inline, shown };
   }
   payload() {
     const b = this.collect();
@@ -1437,7 +1845,8 @@ class Compose {
     return {
       to: ok('to'), cc: ok('cc'), ...(this.caps.bcc ? { bcc: ok('bcc') } : {}),
       subject: this.subj.value.trim(), body: b.text, ...(b.html ? { html: b.html } : {}),
-      attachments: this.atts.filter((a) => a.state === 'ready').map(({ name, mime, data }) => ({ name, mime, data })),
+      ...(this.source === 'gmail' && this.account ? { from: this.account } : {}),
+      attachments: this.atts.filter((a) => a.state === 'ready' && a.uploadId).map((a) => ({ uploadId: a.uploadId })),
       inline: b.inline,
       ...(t.threadId ? { threadId: t.threadId } : {}),
       ...(t.inReplyTo && /^<[^<>\s]+>$/.test(t.inReplyTo) ? { inReplyTo: t.inReplyTo, ...(t.references && /^(<[^<>\s]+>\s*)+$/.test(t.references.trim()) ? { references: t.references.trim() } : {}) } : {}),
@@ -1463,9 +1872,9 @@ class Compose {
     if (!all.length) blocks.push('Add at least one recipient.');
     const bad = all.filter((a) => !a.valid);
     if (bad.length) blocks.push(`Check ${bad.length === 1 ? 'this address' : 'these addresses'}: ${bad.map((a) => a.email).join(', ')}.`);
-    if (this.atts.some((a) => a.state === 'reading' || a.state === 'loading')) blocks.push('Wait for the attachments to finish loading.');
-    if (this.atts.some((a) => a.state === 'error')) blocks.push('Remove the attachments that failed to load.');
-    if (this.totalBytes() > MAX_ATTACH_BYTES) blocks.push(`Attachments come to ${sizeText(this.totalBytes())}; Eden sends at most ${MAX_ATTACH_BYTES / 1048576} MB.`);
+    if (this.atts.some((a) => a.state === 'uploading')) blocks.push('Wait for the attachments to finish uploading.');
+    if (this.atts.some((a) => a.state === 'error')) blocks.push('Retry or remove the attachments that failed to upload.');
+    if (this.totalBytes() > MAX_ATTACH_BYTES) blocks.push(`Attachments come to ${sizeText(this.totalBytes())}. ${DRIVE_HINT}`);
     if (this.source === 'mac') {
       if (this.recip.bcc.length) blocks.push('Mail on your Mac can’t Bcc through Jarvis: remove the Bcc recipients, or switch From to Gmail.');
       if (this.atts.length) blocks.push('Mail on your Mac can’t send attachments through Jarvis: remove them, or switch From to Gmail.');
@@ -1492,22 +1901,23 @@ class Compose {
     }
     this.sendError = null;
     this.paintCaps();
+    this.dropImg();
     this.view = 'review';
     const b = this.collect();
     const macTooLong = this.source === 'mac' && b.text.length > MAC_SEND_CHARS;
     const row = (k, v) => (v ? el('div', 'cw-rv-r', el('span', 'k', k), el('span', 'v', v)) : null);
     const names = (k) => this.recip[k].map(fmtAddr).join(', ');
-    const from = this.source === 'gmail' ? (src.google && src.google.email) || 'your Gmail' : `${this.fromSel.selectedOptions[0] ? this.fromSel.selectedOptions[0].textContent : 'Mail on your Mac'}`;
+    const from = this.source === 'gmail' ? (this.fromSel.selectedOptions[0] && this.fromSel.value === `gmail:${this.account}` ? this.fromSel.selectedOptions[0].textContent.replace(/ · .*$/, '') : this.account || (src.google && src.google.email) || 'your Gmail') : `${this.fromSel.selectedOptions[0] ? this.fromSel.selectedOptions[0].textContent : 'Mail on your Mac'}`;
     const macTo = this.source === 'mac' ? this.macPayload() : null;
     const preview = el('div', { class: 'cw-rv-body', tabindex: '0', 'aria-label': 'Message preview' });
     if (b.html) {
-      const cidSrc = new Map(b.inline.map((x) => [x.contentId, `data:${x.mime};base64,${x.data}`]));
+      const cidSrc = new Map(b.shown.map((x) => [x.contentId, x.src]));
       const frag = sanitizeHtml(b.html);
       for (const img of frag.querySelectorAll('img[data-pending]')) { const c = img.getAttribute('data-cid'); if (cidSrc.has(c)) { img.setAttribute('src', cidSrc.get(c)); img.removeAttribute('data-pending'); } }
       for (const a of frag.querySelectorAll('a')) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer'); }
       preview.append(frag);
     } else preview.append(el('div', 'cw-rv-plain', b.text || '(empty message)'));
-    const files = [...this.atts.map((a) => `${a.name} (${sizeText(a.size || 0)})`), ...b.inline.map((x) => `${x.name} (inline, ${sizeText(b64Bytes(x.data))})`)];
+    const files = [...this.atts.map((a) => `${a.name} (${sizeText(a.size || 0)})`), ...b.shown.map((x) => `${x.name} (inline, ${sizeText(x.size)})`)];
     const when = this.scheduleAt;
     const go = el('button', { type: 'button', class: 'btn primary cw-go' },
       macTooLong ? 'Open in Mail on your Mac' : when ? `Schedule for ${fmtWhen(when)}` : this.source === 'mac' ? 'Send (Jarvis asks on your Mac)' : `Send to ${this.recip.to.length + this.recip.cc.length + this.recip.bcc.length} recipient${this.recip.to.length + this.recip.cc.length + this.recip.bcc.length === 1 ? '' : 's'}`);
@@ -1523,7 +1933,9 @@ class Compose {
         when ? row('Sends', `${fmtWhen(when)} (your time)`) : null),
       preview,
       warns.length ? el('ul', 'cw-rv-warn', ...warns.map((w) => el('li', '', w))) : null,
-      when ? el('p', 'cw-hold', el('b', '', 'Eden holds this email and sends it only while Eden is running on your Mac. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If the Mac is asleep or Eden is off at that time, it goes when Eden next runs — more than 12 hours late, it waits for you instead.') : null,
+      when ? (hostedSend()
+        ? el('p', 'cw-hold', el('b', '', 'Your askeden.com account sends it at that time, even with your Mac off. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If it can’t go within 12 hours, it waits for you instead.')
+        : el('p', 'cw-hold', el('b', '', 'Eden holds this email and sends it only while Eden is running on your Mac. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If the Mac is asleep or Eden is off at that time, it goes when Eden next runs — more than 12 hours late, it waits for you instead.')) : null,
       this.source === 'mac' ? el('p', 'cw-hold', macTooLong ? `Jarvis sends at most ${MAC_SEND_CHARS} characters (this is ${b.text.length}). Eden opens it as a draft in Mail on your Mac instead, for you to send there.` : 'Jarvis shows its own confirmation on your Mac; the email goes only when you approve it there too. Formatting is sent as plain text.') : null,
       el('div', 'cw-rv-acts', el('button', { type: 'button', class: 'btn', onclick: () => this.backToEdit() }, 'Back to edit'), el('span', 'grow'), go)].filter(Boolean));
     this.rv.hidden = false;
@@ -1562,12 +1974,13 @@ class Compose {
         clearTimeout(this.sv.timer);
         if (this.sv.inflight) await this.sv.inflight;
         if (this.scheduleAt) {
-          const r = await gmail('schedule', { ...this.payload(), sendAt: this.scheduleAt.toISOString(), confirm: true });
+          const r = await this.withUploads('schedule', { sendAt: this.scheduleAt.toISOString(), confirm: true });
           if (r && r.draftId) this.draftId = r.draftId;
-          toast(`Scheduled for ${fmtWhen(this.scheduleAt)}. Eden sends it then, while Eden runs on your Mac.`);
+          toast(`Scheduled for ${fmtWhen(this.scheduleAt)}. ${hostedSend() ? 'Your askeden.com account sends it then.' : 'Eden sends it then, while Eden runs on your Mac.'}`);
         } else {
-          await gmail('send', { ...this.payload(), confirm: true });
+          await this.withUploads('send', { confirm: true });
           this.draftId = null;
+          this.freeUploads();
           toast('Message sent');
         }
       } else {
@@ -1601,13 +2014,15 @@ class Compose {
       if (!this.isEmpty() && (this.sv.dirty || this.sv.inflight)) {
         this.paintSave('saving');
         const ok = await this.saveNow({ force: true });
-        if (!ok) { this.confirmBar(`Couldn’t save the draft to Gmail (${this.sv.error || 'unknown error'}).`, 'Close without saving', () => this.destroy(), { danger: true }); return; }
+        if (!ok) { if (this.state === 'min') this.restoreWin(); this.confirmBar(`Couldn’t save the draft to Gmail (${this.sv.error || 'unknown error'}).`, 'Close without saving', () => this.destroy(), { danger: true }); return; }
         toast('Saved to Drafts');
       }
+      if (!this.sv.dirty) this.freeUploads(); // reopening the draft copies its attachments from Gmail
       this.destroy();
       return;
     }
     if (this.isEmpty()) { this.destroy(); return; }
+    if (this.state === 'min') this.restoreWin(); // closed from its pill: the question has to be visible
     this.confirmBar('This email isn’t saved anywhere yet.', 'Discard', () => this.destroy(), { danger: true, alt: { label: 'Open in Mail as a draft', run: async () => { if (await this.openInMail()) this.destroy(); } } });
   }
   async discard() {
@@ -1622,16 +2037,24 @@ class Compose {
       try { await gmail('deleteDraft', { id }); } catch (e) { toast(`Couldn’t delete the draft: ${e.message}`); return; }
     }
     this.destroy();
-    toast('Draft discarded', { label: 'Undo', run: () => { const w = openCompose({ ...snap, draftId: null, restore: true }); w.atts = atts; w.renderAtts(); w.changed(); } });
+    toast('Draft discarded', { label: 'Undo', run: () => { const w = openCompose({ ...snap, draftId: null, restore: true }); w.atts = atts; for (const a of atts) if (a.state !== 'ready') w.upload(a); w.renderAtts(); w.changed(); } });
+  }
+  /** Frees this window's uploads on Eden's server (after a send, or once the draft is safe in Gmail). */
+  freeUploads() {
+    for (const a of this.atts) { freeUpload(a.uploadId); a.uploadId = null; }
+    for (const u of this.imgUploads.values()) freeUpload(u.id);
+    this.imgUploads.clear();
   }
   destroy() {
     this.closed = true;
+    this.dropImg();
     clearTimeout(this.sv.timer);
     clearInterval(this.countdown);
     if (this.ai.ctrl) this.ai.ctrl.abort();
     const i = wins.indexOf(this);
     if (i >= 0) wins.splice(i, 1);
-    const hadFocus = this.root.contains(document.activeElement);
+    // closed from its pill: the pill goes, so focus must land somewhere (it fell to <body> before)
+    const hadFocus = this.root.contains(document.activeElement) || (!!tray && tray.contains(document.activeElement));
     this.root.remove();
     renderTray();
     persistAll();
@@ -1643,7 +2066,7 @@ class Compose {
   }
   serialize() {
     if (this.closed) return null;
-    const html = this.plain ? null : this.ed.innerHTML;
+    const html = this.plain ? null : this.ed.innerHTML.replace(/ class="cw-img-on"/g, '');
     const quote = this.quote.innerHTML;
     return {
       id: this.id, source: this.source, account: this.account, mode: this.mode, draftId: this.draftId, thread: this.thread,
@@ -1669,6 +2092,9 @@ class Compose {
     this.thread = { threadId: d.threadId || undefined, inReplyTo: d.inReplyTo || undefined, references: d.references || undefined };
     this.scheduled = d.scheduled || null;
     this.fillFrom({ to: [d.to], cc: [d.cc], bcc: [d.bcc], subject: d.subject });
+    // the draft's From: one of the account's aliases, or the account itself
+    const fromEmail = parseAddress(splitAddresses(d.from || '')[0] || '').email.toLowerCase();
+    if (fromEmail && fromEmail !== String((src.google && src.google.email) || '').toLowerCase()) this.account = fromEmail;
     if (d.html) {
       const frag = sanitizeHtml(d.html);
       const box = document.createElement('div');
@@ -1697,10 +2123,8 @@ class Compose {
         }).catch(() => undefined);
         continue;
       }
-      const att = { id: uid('a'), name: a.name, mime: a.mime, size: a.size, data: null, state: 'loading' };
-      this.atts.push(att);
-      gmail('attachment', { messageId: d.id, attachmentId: a.attachmentId }).then((r) => { att.data = r.data; att.size = r.size || att.size; att.state = 'ready'; this.renderAtts(); })
-        .catch((e) => { att.state = 'error'; att.error = `Couldn’t load it from Gmail: ${e.message}`; this.renderAtts(); });
+      // copied to Eden's server from Gmail (the page never downloads it); saves then refer to it by id
+      this.addAtt({ id: uid('a'), name: a.name, mime: a.mime, size: a.size, gmailRef: { messageId: d.id, attachmentId: a.attachmentId } });
     }
     this.renderAtts();
     this.paintBlank();
@@ -1769,8 +2193,14 @@ export function openCompose(opts = {}) {
   } else {
     const reply = mode === 'reply' || mode === 'replyAll' || mode === 'forward';
     if (m && reply) {
-      const self = selfEmail(w);
-      const notSelf = (a) => a.email && a.email.toLowerCase() !== self;
+      const self = selfEmails(w);
+      const notSelf = (a) => a.email && !self.has(a.email.toLowerCase());
+      // like Gmail: reply from the alias the message was sent to
+      if (source === 'gmail' && !opts.account) {
+        const mine = new Set(gmailAliases().map((x) => x.email.toLowerCase()));
+        const hit = [...(m.to || []), ...(m.cc || [])].flatMap(splitAddresses).map(parseAddress).find((a) => mine.has(a.email.toLowerCase()));
+        if (hit) w.account = hit.email.toLowerCase();
+      }
       const sender = splitAddresses(m.replyTo || m.from).map(parseAddress).filter(notSelf);
       const fromSelf = !sender.length;
       let to = mode === 'forward' ? [] : fromSelf ? (m.to || []).flatMap(splitAddresses).map(parseAddress) : sender;
@@ -1792,9 +2222,7 @@ export function openCompose(opts = {}) {
       w.setQuote(quoteNodes(m, mode), mode === 'forward');
       if (mode === 'forward' && source === 'gmail') for (const a of m.attachmentsFull || []) {
         if (!a.attachmentId || (a.inline && a.contentId)) continue;
-        const att = { id: uid('a'), name: a.name, mime: a.mime, size: a.size, data: null, state: 'loading' };
-        w.atts.push(att);
-        gmail('attachment', { messageId: m.id, attachmentId: a.attachmentId }).then((r) => { att.data = r.data; att.size = r.size || att.size; att.state = 'ready'; w.renderAtts(); }).catch((e) => { att.state = 'error'; att.error = e.message; w.renderAtts(); });
+        w.addAtt({ id: uid('a'), name: a.name, mime: a.mime, size: a.size, gmailRef: { messageId: m.id, attachmentId: a.attachmentId } });
       }
     } else {
       w.fillFrom({ to: opts.to || [], cc: opts.cc || [], bcc: opts.bcc || [], subject: opts.subject || '' });
@@ -1830,7 +2258,7 @@ function ensureLayer() {
   tray.hidden = true;
   tray.addEventListener('pointerdown', (e) => e.stopPropagation()); // like the windows: the Mail panel stays open
   document.body.append(layer, tray);
-  addEventListener('resize', () => { for (const w of wins) { if (w.state === 'normal') w.clampGeom(); w.apply(); } renderTray(); });
+  addEventListener('resize', () => { for (const w of wins) { if (w.state === 'normal') w.clampGeom(); w.apply(); if (w.img) w.placeImg(); } renderTray(); });
   matchMedia('(max-width:640px)').addEventListener('change', () => { if (isMobile()) visible().slice(0, -1).forEach((w) => w.setState('min')); for (const w of wins) w.apply(); });
   addEventListener('pagehide', () => { clearTimeout(persistT); store.set(K.open, wins.map((w) => w.serialize()).filter(Boolean)); });
 }
@@ -1886,7 +2314,9 @@ function manageSignatures(win) {
       for (const s of found) {
         const sig = { id: uid('sig'), name: `Gmail — ${s.email}`, html: s.signature };
         data.list.push(sig);
-        if (s.isDefault || s.isPrimary) { data.defaults[`gmail:${s.email}`] = { new: sig.id, reply: sig.id }; cur = sig; }
+        // each address (the account's own and every alias) gets its Gmail signature as its default
+        data.defaults[accountKey('gmail', s.isPrimary ? '' : s.email.toLowerCase())] = { new: sig.id, reply: sig.id };
+        if (s.isDefault || s.isPrimary) cur = sig;
       }
       paint();
       toast(`Imported ${found.length} Gmail signature${found.length === 1 ? '' : 's'}`);
@@ -1900,7 +2330,9 @@ function manageSignatures(win) {
       el('div', 'cw-sig-main', el('label', 'field', 'Name', name), el('div', 'field', 'Signature', ed), delBtn)),
     key ? el('div', 'set-sec', el('h3', '', `Defaults for ${key.startsWith('gmail:') ? key.slice(6) || 'Gmail' : `Mail on your Mac (${key.slice(4)})`}`),
       el('label', 'field', 'For new emails', defNew), el('label', 'field', 'On reply and forward', defReply)) : null,
-    el('p', 'sp-note', 'Signatures stay on this device. Eden adds the default one when you start an email from that account.'),
+    el('p', 'sp-note', state.meta && state.meta.hosted
+      ? 'Eden adds the default one when you start an email from that account. With Sync on (Account › Sync), signatures reach your other browsers end-to-end encrypted; otherwise they stay in this browser.'
+      : 'Eden adds the default one when you start an email from that account. Eden keeps them on this Mac, so every browser here has them.'),
     el('div', 'dlg-acts', src.google && src.google.connected ? el('button', { type: 'button', class: 'btn', onclick: importGmail }, 'Import from Gmail') : null, el('span', 'grow'),
       el('button', { type: 'button', class: 'btn', onclick: () => H.closeDialog() }, 'Cancel'), el('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save'))));
 }

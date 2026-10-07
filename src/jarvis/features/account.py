@@ -7,13 +7,16 @@ Settings it keeps (prefs.features):
 - account_relay: reach this Mac through the account from anywhere (on unless turned off).
 - account_plus_ai: Jarvis Plus answers instead of the Claude sign-in or an API key. Off
   unless chosen; a linked Mac with no other way in to Claude uses it anyway.
+- account_server: the server this Mac links to, askeden.com or preview.askeden.com (its own
+  accounts). Changes only while unlinked; a linked Mac stays with the server its token is for.
 - account_eden_link: Eden on the web (askeden.com) reaches Jarvis and Code mode through this
   Mac (jarvis.eden_link; on unless turned off). The "account" event carries
   eden_link: {on, state: off | connecting | open | waiting, error}, sent again as the line
   connects and drops.
 
-Window commands: account (the state, asked of askeden.com now), account_link (a new code),
-account_link_cancel, account_unlink, account_sync (sync now), and approving a browser's
+Window commands: account (the state, asked of askeden.com now), account_link (a new code;
+{browser: true}: approved in the owner's browser, so the server's /link page opens with it),
+account_link_open (that page again), account_link_cancel, account_unlink, account_sync (sync now), and approving a browser's
 sign-in to Eden: account_web_peek {code}, account_web_approve {code}, account_web_deny
 {code}, account_web_clear; each answered with an "account" event: {linked, account_id,
 device_id, sync_key, link: {state, code, url, qr, seconds, error} | null, approval: {code,
@@ -44,7 +47,7 @@ import logging
 from typing import Any
 
 from .. import claude_signin, lang
-from ..account import PLUS_PREF, RELAY_PREF, Account, AccountError
+from ..account import PLUS_PREF, RELAY_PREF, SERVER_PREF, SERVERS, Account, AccountError
 from ..account_sync import Sync
 from ..eden_link import EDEN_LINK_PREF, EdenLink
 from ..eden_trust import EdenTrust
@@ -56,11 +59,13 @@ log = logging.getLogger("jarvis")
 register_feature_pref(RELAY_PREF, True)
 register_feature_pref(PLUS_PREF, False)
 register_feature_pref(EDEN_LINK_PREF, True)
+register_feature_pref(SERVER_PREF, SERVERS[0], lambda v: v if v in SERVERS else None)
 
 COMMANDS = (
     "account",
     "account_link",
     "account_link_cancel",
+    "account_link_open",
     "account_unlink",
     "account_sync",
     "account_web_peek",
@@ -182,7 +187,28 @@ class AccountDesk:
         """Sync changed memory or settings here: the window shows them."""
         self.hub.emit("memory", items=self.hub.memory.public())
 
+    def use_server(self) -> None:
+        """The server Settings chose, while this Mac isn't linked (account.use_server)."""
+        self.account.use_server(self.hub.prefs.feature(SERVER_PREF))
+
+    def open_link_page(self) -> None:
+        """The server's /link page, with this Mac's code, in the owner's own browser."""
+        page = self.account.link_page()
+        if not page:
+            return
+        opener = getattr(getattr(self.hub, "connectors", None), "open_url", None)
+        try:
+            if callable(opener):
+                opener(page)
+            else:
+                import subprocess
+
+                subprocess.Popen(["open", page])  # noqa: S603, S607
+        except Exception:
+            log.warning("account: the browser couldn't be opened")
+
     def prefs_changed(self, _event: dict[str, Any]) -> None:
+        self.use_server()
         self.keeper.poke()
         self.eden_keeper.poke()
         self.sync.poke()
@@ -218,6 +244,8 @@ class AccountDesk:
         sender = getattr(extension, "sender", None)
         return {
             **self.account.public(),
+            "server_choice": self.hub.prefs.feature(SERVER_PREF),
+            "servers": list(SERVERS),
             "relay": {"on": self.relay_on(), "state": self.relay.state},
             "eden_link": {"on": self.eden_link_on(), **self.eden_link.public()},
             "plus": {
@@ -241,10 +269,17 @@ class AccountDesk:
                 await account.status(fresh=True)
             self.emit()
         elif kind == "account_link":
+            browser = msg.get("browser") is True
+            self.use_server()
             try:
-                await account.link_start()
+                await account.link_start(browser=browser)
             except AccountError as exc:
                 self.emit(error=lang.translate(exc.message, self.hub.language))
+                return
+            if browser:
+                self.open_link_page()
+        elif kind == "account_link_open":
+            self.open_link_page()
         elif kind == "account_link_cancel":
             account.cancel_link()
         elif kind == "account_unlink":
@@ -339,6 +374,7 @@ class AccountDesk:
 
     async def loop(self) -> None:
         await self.account.load()
+        self.use_server()
         self._was_linked = self.account.linked
         if self.account.linked:
             log.info("account: this Mac is linked to a Jarvis account")

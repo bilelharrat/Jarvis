@@ -1,0 +1,26 @@
+/* askeden.com/link: linking a Mac from the owner's browser (link.js), on the sign-in page's look. */
+.enter, .stale { margin-top: 18px; text-align: left; }
+.enter .how, .stale .how { display: block; }
+.codein {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 14px;
+  font: 600 24px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--inset);
+  box-shadow: inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px var(--hairline);
+}
+.codein:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.codein::placeholder { color: var(--text3); opacity: 0.6; }
+.enter .button, .stale .button { width: 100%; }
+.ask { display: block; }
+.ask .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.ask .row .button { flex: 1 1 140px; }
+#macName { overflow-wrap: anywhere; }
+.done { margin-top: 4px; }

@@ -69,7 +69,7 @@ async function settle() {
 }
 
 /** A request to the Worker; `browser` adds what a browser on askeden.com sends. */
-async function hit(p, { method = 'GET', body, headers = {}, browser = true, session, token, raw = false } = {}) {
+async function hit(p, { method = 'GET', body, headers = {}, browser = true, session, token, raw = false, signal } = {}) {
   const h = { ...headers };
   if (browser) {
     h['user-agent'] ??= SAFARI;
@@ -80,7 +80,7 @@ async function hit(p, { method = 'GET', body, headers = {}, browser = true, sess
   if (h.cookie) jar.push(h.cookie);
   if (jar.length) h.cookie = jar.join('; ');
   if (token) h.authorization = `Bearer ${token}`;
-  const init = { method, headers: h };
+  const init = { method, headers: h, ...(signal ? { signal } : {}) };
   if (body !== undefined) {
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
     h['content-type'] ??= 'application/json';
@@ -257,11 +257,11 @@ test('a browser session ends after 30 days, or when the app signs it out', async
   const value = await signedInBrowser(owner);
   assert.equal((await hit('/', { session: value })).status, 200);
   assert.equal(env.assets.at(-1), '/eden/');
-  // Signed out from the iPhone: the next page load is the sign-in page, and the cookie goes.
+  // Signed out from the iPhone: the next page load is the landing page, and the cookie goes.
   await hit(`/api/devices/${parseToken(value).device}`, { method: 'DELETE', browser: false, token: owner.token });
   forgetSessions();
   const page = await hit('/', { session: value });
-  assert.equal(env.assets.at(-1), '/signin/');
+  assert.equal(env.assets.at(-1), '/jarvis/');
   assert.ok(setCookies(page).some((c) => c.startsWith('__Host-eden=;')));
   // Thirty days on, a session simply stops working.
   const later = await signedInBrowser(owner);
@@ -302,23 +302,26 @@ test('every /api request that changes something refuses a foreign Origin; the ap
 // ── Sign in with Apple on the web (behind its flag) ──
 
 test('Sign in with Apple for the web stays off until WEB_APPLE_SERVICES_ID is set', async () => {
-  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: false });
-  assert.equal((await hit('/api/web/apple')).status, 404);
-  assert.equal((await hit('/api/web/apple/callback', { method: 'POST', body: 'state=x', headers: { origin: 'https://appleid.apple.com', 'content-type': 'application/x-www-form-urlencoded' } })).status, 404);
+  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: false, google: false, code: true, billing: false, billing_in_app: false });
+  const off = await hit('/api/web/apple');
+  assert.equal(off.status, 303);
+  assert.equal(off.headers.get('location'), '/signin?error=not_set_up&provider=apple');
+  const back = await hit('/api/web/apple/callback', { method: 'POST', body: 'state=x', headers: { origin: 'https://appleid.apple.com', 'content-type': 'application/x-www-form-urlencoded' } });
+  assert.equal(back.headers.get('location'), '/signin?error=not_set_up&provider=apple');
 });
 
-test('Sign in with Apple on the web: state and nonce checked, only into an account the app made', async () => {
-  env.WEB_APPLE_SERVICES_ID = 'com.bshventures.eden.web';
-  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true });
+test('Sign in with Apple on the web: state and nonce checked; a new Apple ID gets an account', async () => {
+  env.WEB_APPLE_SERVICES_ID = 'com.askeden.eden.web';
+  assert.deepEqual(await (await hit('/api/web/config')).json(), { apple: true, google: false, code: true, billing: false, billing_in_app: false });
   const go = await hit('/api/web/apple');
   assert.equal(go.status, 302);
   const to = new URL(go.headers.get('location'));
   assert.equal(to.origin + to.pathname, 'https://appleid.apple.com/auth/authorize');
-  assert.equal(to.searchParams.get('client_id'), 'com.bshventures.eden.web');
+  assert.equal(to.searchParams.get('client_id'), 'com.askeden.eden.web');
   assert.equal(to.searchParams.get('redirect_uri'), 'https://askeden.com/api/web/apple/callback');
   assert.equal(to.searchParams.get('response_mode'), 'form_post');
   const attempt = setCookies(go)[0];
-  assert.match(attempt, /^__Host-eden-apple=[\w-]+\.[\w-]+; Path=\/; Secure; HttpOnly; SameSite=None; Max-Age=600$/);
+  assert.match(attempt, /^__Host-eden-apple=[\w-]+\.[\w-]+\.s; Path=\/; Secure; HttpOnly; SameSite=None; Max-Age=600$/);
   const [state, nonce] = cookieValue(go, '__Host-eden-apple').split('.');
 
   const back = async (fields, cookie = `__Host-eden-apple=${state}.${nonce}`) =>
@@ -327,15 +330,18 @@ test('Sign in with Apple on the web: state and nonce checked, only into an accou
       body: new URLSearchParams(fields).toString(),
       headers: { origin: 'https://appleid.apple.com', 'content-type': 'application/x-www-form-urlencoded', cookie },
     });
-  const forApp = await identityToken({ nonce, aud: 'com.bshventures.eden.web' });
-  // No account yet: refused (the app makes accounts).
+  const forApp = await identityToken({ nonce, aud: 'com.askeden.eden.web' });
+  // No account yet: a new one on the trial allowance (the same one the app opens later).
   const none = await back({ id_token: forApp, state });
-  assert.equal(none.status, 404);
-  assert.match(await none.text(), /iPhone first/);
+  assert.equal(none.status, 200);
+  const first = await (await hit('/api/web/session', { session: cookieValue(none, '__Host-eden') })).json();
+  assert.equal(first.usage.trial_left_usd, 1);
   const owner = await phone();
-  assert.equal((await back({ id_token: forApp, state: 'other' })).status, 400, 'another state');
-  assert.equal((await back({ id_token: await identityToken({ nonce: 'other', aud: 'com.bshventures.eden.web' }), state })).status, 401, 'another nonce');
-  assert.equal((await back({ id_token: await identityToken({ nonce }), state })).status, 401, 'the app’s audience, not the Services ID');
+  const refusedWith = async (fields) => (await back(fields)).headers.get('location');
+  assert.equal(await refusedWith({ id_token: forApp, state: 'other' }), '/signin?error=state&provider=apple', 'another state');
+  assert.equal(await refusedWith({ id_token: await identityToken({ nonce: 'other', aud: 'com.askeden.eden.web' }), state }), '/signin?error=state&provider=apple', 'another nonce');
+  assert.equal(await refusedWith({ id_token: await identityToken({ nonce }), state }), '/signin?error=state&provider=apple', 'the app’s audience, not the Services ID');
+  assert.equal(await refusedWith({ error: 'user_cancelled_authorize', state }), '/signin?error=cancelled&provider=apple');
   const ok = await back({ id_token: forApp, state });
   assert.equal(ok.status, 200);
   const html = await ok.text();
@@ -351,8 +357,8 @@ test('Sign in with Apple on the web: state and nonce checked, only into an accou
 
 // ── the pages ──
 
-test('/ is the sign-in page signed out and Eden signed in, each with a strict CSP; Eden’s files need the session', async () => {
-  const signin = await hit('/');
+test('/signin is the sign-in page signed out and Eden signed in, each with a strict CSP; Eden’s files need the session', async () => {
+  const signin = await hit('/signin');
   assert.equal(signin.status, 200);
   assert.deepEqual(env.assets, ['/signin/']);
   assert.match(signin.headers.get('content-security-policy'), /^default-src 'none'; script-src 'self'; style-src 'self';/);
@@ -384,7 +390,7 @@ test('/ is the sign-in page signed out and Eden signed in, each with a strict CS
   forgetSessions();
   env.assets.length = 0;
   await hit('/', { session: owner.token });
-  assert.deepEqual(env.assets, ['/signin/']);
+  assert.deepEqual(env.assets, ['/jarvis/']);
 });
 
 test('the landing page, downloads, latest.json and Messenger keep working, the landing page with its own CSP', async () => {
@@ -411,13 +417,13 @@ test('the Eden copy is web/chat plus the hosted script, and stays inside the pag
 
 // ── hosted chat ──
 
-test('meta: Claude on the account, everything else "needs your Mac"; Mac-only routes say so', async () => {
+test('meta: with only an Anthropic key, Claude on the account; the other providers name the missing key; Mac-only routes say so', async () => {
   const value = await signedInBrowser(await phone());
   const meta = await (await chat('/api/chat/meta', value)).json();
   assert.deepEqual(meta.models.map((m) => m.id), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5']);
   assert.ok(meta.models.every((m) => m.available && !m.efforts.includes('xhigh') && !m.efforts.includes('max')), 'effort capped at high');
   assert.deepEqual(meta.providers.map((p) => [p.id, p.available]), [['anthropic', true], ['openai', false], ['gemini', false], ['kimi', false]]);
-  assert.match(meta.providers[1].reason, /Needs your Mac/);
+  assert.match(meta.providers[1].reason, /No OpenAI API key/);
   assert.equal(meta.classifier.available, false);
   assert.equal(meta.jarvis.available, false);
   assert.equal(meta.code.available, false);
@@ -490,7 +496,9 @@ test('a turn streams route, text, usage and done; Claude on the Worker key with 
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /^text\/event-stream/);
   const events = await readEvents(response);
-  assert.deepEqual(events.map((e) => e.type), ['route', 'thinking', 'text', 'text', 'usage', 'done']);
+  // The turn read a note and files (untrusted, H8): a provenance event follows the route.
+  assert.deepEqual(events.map((e) => e.type), ['route', 'provenance', 'thinking', 'text', 'text', 'usage', 'done']);
+  assert.deepEqual(events[1].data.sources.map((x) => x.kind), ['attachment', 'image', 'note']);
   const route = events[0].data;
   assert.ok(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5'].includes(route.model));
   assert.equal(route.provider, 'anthropic');
@@ -514,7 +522,8 @@ test('a turn streams route, text, usage and done; Claude on the Worker key with 
   assert.match(sent.body.system, /Jarvis note: Trip[\s\S]*Lyon in May[\s\S]*Be brief\./);
   assert.equal(sent.body.messages.length, 3);
   assert.deepEqual(sent.body.messages[0].content.map((b) => b.type), ['image', 'text']);
-  assert.match(sent.body.messages[0].content[1].text, /<attachment name="notes.md">\nsome notes/);
+  assert.match(sent.body.messages[0].content[1].text, /<<<EDEN_UNTRUSTED b=([0-9a-f]{24}) id=S1 kind=attachment>>>\n## Attached file: notes.md\nsome notes\n<<<END_EDEN_UNTRUSTED b=\1 id=S1>>>/);
+  assert.match(sent.body.system, /Untrusted content\.[\s\S]*never an instruction/);
   if (sent.body.thinking?.type === 'adaptive') assert.equal(sent.body.thinking.display, 'summarized');
   assert.ok(!['xhigh', 'max'].includes(sent.body.output_config?.effort));
 
@@ -540,6 +549,26 @@ test('a turn the browser stops is still counted: input in full, output as far as
   assert.ok(upstream.wasCancelled(), 'the request to Anthropic is cancelled');
   const account = await (await hit('/api/account', { browser: false, token: owner.token })).json();
   // Sonnet 5.5 at $2 / $10: 100,000 in = $0.20, 3,000 chars ≈ 1,000 out = $0.01.
+  assert.equal(account.usage.trial_left_usd, 0.79);
+});
+
+test('a turn whose request is aborted (the browser went away) stops Anthropic and is still counted', async () => {
+  const owner = await phone();
+  const value = await signedInBrowser(owner);
+  let upstream;
+  anthropic = () => {
+    upstream = sseBody(claudeAnswer({ model: 'claude-sonnet-5-5', input: 100000, text: ['x'.repeat(3000)], final: false }), { hold: true });
+    return new Response(upstream, { headers: { 'content-type': 'text/event-stream' } });
+  };
+  const gone = new AbortController();
+  const response = await turn(value, { override: { model: 'claude-sonnet-5-5', effort: 'low' } }, { raw: true, signal: gone.signal });
+  const reader = response.body.getReader();
+  let seen = '';
+  while (!seen.includes('event: text')) seen += new TextDecoder().decode((await reader.read()).value);
+  gone.abort(); // no stream cancel: only the request's signal says the browser left
+  await settle();
+  assert.ok(upstream.wasCancelled(), 'the request to Anthropic is cancelled');
+  const account = await (await hit('/api/account', { browser: false, token: owner.token })).json();
   assert.equal(account.usage.trial_left_usd, 0.79);
 });
 
@@ -739,4 +768,61 @@ test('hosted settings come from Worker vars, with safe defaults', () => {
   assert.equal(hostedConfig({ EDEN_MAX_EFFORT: 'ultra' }).maxEffort, 'high');
   const opus48 = hostedConfig({ EDEN_MODELS: 'claude-opus-4-8' }).models[0];
   assert.deepEqual(effortsFor(opus48, 'high'), ['none', 'low', 'medium', 'high']);
+});
+
+// ── Eden's Read aloud and talk mode: the JARVIS voice on the browser's account ──
+
+test('a signed-in browser speaks through /api/chat/voice on its account’s daily allowance; never through the apps’ route', async () => {
+  const owner = await phone();
+  const value = await signedInBrowser(owner);
+  env.FISH_API_KEY = 'owner-fish-key';
+  env.VOICE_DAILY_FREE = '20';
+  const taken = [];
+  const quota = { fetch: async (u, init) => (taken.push(JSON.parse(init.body)), Response.json({ ok: true })) };
+  env.VOICE_QUOTA = { idFromName: () => 'daily', get: () => quota };
+  const fished = [];
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url === 'https://api.fish.audio/v1/tts') {
+      fished.push({ headers: init.headers, body: JSON.parse(init.body) });
+      return new Response('RIFFwav', { headers: { 'content-type': 'audio/wav' } });
+    }
+    return inner(input, init);
+  };
+  const speak = (text, opts = {}) => chat('/api/chat/voice', value, { method: 'POST', body: { text }, ...opts });
+
+  const ok = await speak('Good evening.');
+  assert.equal(ok.status, 200, await ok.clone().text());
+  assert.equal(ok.headers.get('content-type'), 'audio/wav');
+  assert.equal(await ok.text(), 'RIFFwav');
+  assert.equal(fished.length, 1);
+  assert.equal(fished[0].body.format, 'wav');
+  assert.ok(!JSON.stringify(await (await speak('Hi')).text()).includes('owner-fish-key'), 'the key never comes back');
+  assert.equal(taken[0].install, `a:${owner.account.id}`, 'counted for the account, not an install');
+  const account = await (await hit('/api/account', { browser: false, token: owner.token })).json();
+  assert.equal(account.usage.voice_today, 'Good evening.'.length + 'Hi'.length);
+
+  const over = await speak('This is far more than twenty.');
+  assert.equal(over.status, 429, 'past the account’s free daily voice');
+  assert.equal((await over.json()).allowance, 'account');
+
+  // Only Eden's own page: its header, same origin, the session cookie.
+  assert.equal((await hit('/api/chat/voice', { method: 'POST', body: { text: 'x' }, session: value })).status, 403, 'no X-Jarvis-Chat');
+  assert.equal((await speak('x', { headers: { origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await chat('/api/chat/voice', undefined, { method: 'POST', body: { text: 'x' } })).status, 401, 'signed out');
+  // The browser's token on the apps' route (as a Bearer) is refused by the account.
+  const bearer = await hit('/api/voice', { method: 'POST', browser: false, token: value, body: { text: 'x' } });
+  assert.equal(bearer.status, 403);
+  assert.equal(fished.length, 2);
+});
+
+test('Eden’s page may ask for the microphone; the landing and sign-in pages may not', async () => {
+  const owner = await phone();
+  const value = await signedInBrowser(owner);
+  assert.match((await hit('/', { session: value })).headers.get('permissions-policy'), /microphone=\(self\)/);
+  assert.match((await hit('/signin')).headers.get('permissions-policy'), /microphone=\(\)/);
+  forgetSessions();
+  assert.match((await hit('/')).headers.get('permissions-policy'), /microphone=\(\)/);
+  assert.match((await hit('/download')).headers.get('permissions-policy'), /microphone=\(\)/);
 });

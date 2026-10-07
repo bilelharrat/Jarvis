@@ -5,9 +5,13 @@
 import { $, el, svgEl, ico, toast, fmtCost, effortLabel, shortModel, debounce, setSeg, placePopup, EFFORT_SHORT, confidencePct } from './util.js';
 import { state, ui, saveSettings } from './state.js';
 import { api } from './api.js';
+import { privacyOn } from './privacy.js';
+import { learnedBody } from './learned.js';
+import { autopilotBody } from './autopilot.js';
+import { taskClass, CLASS_WORDS } from './learned-model.js';
 
 const PROVIDER_COLORS = { anthropic: '#d08159', openai: '#4d9f8a', gemini: '#5b7fd0', kimi: '#8b6fc0' };
-const PROVIDER_NAMES = { anthropic: 'Anthropic Claude', openai: 'OpenAI GPT', gemini: 'Google Gemini', kimi: 'Moonshot Kimi' };
+const PROVIDER_NAMES = { anthropic: 'Anthropic Claude', openai: 'OpenAI GPT', gemini: 'Google Gemini', kimi: 'Moonshot Kimi', apple: 'This iPhone' }; // apple: the Eden app's on-device model (native.js)
 // secondary encoding (the colours alone aren't colour-blind safe): a shape per provider
 const PROVIDER_SHAPES = { anthropic: 'circle', openai: 'square', gemini: 'diamond', kimi: 'triangle' };
 
@@ -44,13 +48,15 @@ export function settingsSig() { const r = routeSettings(); return JSON.stringify
 function classifierUsable() { return !state.meta || !state.meta.classifier || state.meta.classifier.available !== false; }
 
 export function currentOverride() {
-  const o = state.settings.override;
+  // a pick from the estimate line's alternatives (compare.js) wins, for the next message only
+  const o = state.turnOverride || state.settings.override;
   if (!o || !o.model) return null;
   const m = modelInfo(o.model);
   if (state.meta && (!m || !m.available)) return null;
   return { model: o.model, effort: o.effort || (m && m.defaultEffort) || undefined };
 }
 export function setOverride(model, effort) {
+  state.turnOverride = null; // choosing a model (or effort) yourself replaces a one-message pick
   if (!model) state.settings.override = null;
   else {
     const m = modelInfo(model);
@@ -219,6 +225,9 @@ export function initRouteControls() {
 }
 
 /* ---------- live preview (POST /api/route, debounced 600 ms) ---------- */
+// Rules only while typing (G1): the Gemini rating runs once, on send. With an override the
+// rows still come, so the estimate line can price the pinned model. In Compare mode the
+// compare estimate (POST /api/chat/compare/estimate) comes with it: its lanes are what runs.
 
 let previewAbort = null;
 let previewText = '';
@@ -230,7 +239,7 @@ const runPreview = debounce(async () => {
   if (previewAbort) previewAbort.abort();
   const text = previewText.trim();
   const conv = state.current;
-  if (!text || currentOverride() || (conv && conv.kind === 'code')) {
+  if (!text || (conv && conv.kind === 'code') || privacyOn(conv)) { // a private chat isn't routed (G9)
     state.preview = null;
     ui.renderComposer(); renderReadout();
     return;
@@ -239,13 +248,19 @@ const runPreview = debounce(async () => {
   if (!r.providers.length) { state.preview = { error: 'no providers available' }; ui.renderComposer(); renderReadout(); return; }
   previewAbort = new AbortController();
   const mine = previewAbort;
+  const comparing = (conv ? conv.mode : state.pendingMode) === 'compare';
   state.preview = { ...(state.preview || {}), loading: true, text };
   ui.renderComposer();
   try {
-    const res = await api.route({ prompt: text, ...r }, mine.signal);
+    const [res, compare] = await Promise.all([
+      // eden: the owner's routing (H2 profile, H3 autopilot) shapes the preview as it will the send
+      api.route({ prompt: text, ...r, classifier: 'off', eden: true, ...learnedBody(), ...autopilotBody({ preview: true }) }, mine.signal),
+      comparing ? api.compareEstimate({ prompt: text, settings: r }, mine.signal).catch((e) => (e.name === 'AbortError' ? Promise.reject(e) : { error: e.message })) : null,
+    ]);
     if (mine !== previewAbort) return;
     const rated = !!(res.classification && res.classification.used);
-    state.preview = { text, pick: res.pick, rows: res.rows || [], rated, classification: res.classification, loading: false };
+    state.preview = { text, pick: res.pick, rows: res.rows || [], rated, classification: res.classification, compare, loading: false,
+      taskClass: res.taskClass || taskClass(res.task && res.task.weights), learned: res.learned || null, autopilot: res.autopilot || null };
   } catch (e) {
     if (e.name === 'AbortError') return;
     state.preview = { text, error: e.message, loading: false };
@@ -254,6 +269,7 @@ const runPreview = debounce(async () => {
   renderReadout();
 }, 600);
 export function schedulePreview() { runPreview(); }
+addEventListener('eden:reroute', () => schedulePreview()); // the profile or the autopilot changed (learned.js, autopilot.js)
 
 /* ---------- the scatter: quality vs cost (log), from candidates ---------- */
 
@@ -407,7 +423,7 @@ export function renderTurnCard(node) {
   if (node.usage && (node.usage.inputTokens || node.usage.outputTokens)) kids.push(el('div', 'tc-row', el('span', '', 'Tokens in / out'), el('b', '', `${node.usage.inputTokens || 0} / ${node.usage.outputTokens || 0}${node.usage.reasoningTokens ? ` (+${node.usage.reasoningTokens} thinking)` : ''}`)));
   const conf = confidencePct(r.confidence);
   kids.push(el('div', 'tc-row', el('span', '', 'Expected quality'), el('b', '', `${typeof r.quality === 'number' ? r.quality : '—'}${conf !== null ? ` · conf. ${conf}%` : ''}`)));
-  if (r.complexity) kids.push(el('div', 'tc-row', el('span', '', 'Task'), el('b', '', String(r.complexity))));
+  if (r.complexity) kids.push(el('div', 'tc-row', el('span', '', 'Task'), el('b', '', `${r.complexity}${r.taskClass && CLASS_WORDS[r.taskClass] ? ` · ${CLASS_WORDS[r.taskClass]}` : ''}`)));
   kids.push(el('div', 'tc-row', el('span', '', 'Quality signal'), el('span', '', ratedBadge(r))));
   if (r.rationale) kids.push(el('div', 'tc-why', r.rationale));
   const extra = [...(r.warnings || []), ...(r.notes || [])].filter(Boolean);

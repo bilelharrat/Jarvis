@@ -2,11 +2,14 @@
 // signature, issuer, audience, expiry and the nonce), and, when the owner has given the
 // Worker a Sign in with Apple key, the grant kept so deleting the account can revoke it.
 
-import { ApiError, BUNDLE_ID, b64ToBytes, b64url, b64urlText, sha256Hex } from './util.js';
+import { ApiError, BUNDLE_ID, TEAM_ID, b64ToBytes, b64url, b64urlText, sameText, sha256Hex } from './util.js';
 
 const ISSUER = 'https://appleid.apple.com';
 const KEYS_URL = 'https://appleid.apple.com/auth/keys';
 const SKEW = 300; // seconds of clock difference forgiven
+// The Eden iOS app: its identity tokens are accepted only by POST /api/web/native/apple
+// (eden/session.js), which passes this as `audience`; everything else keeps BUNDLE_ID.
+export const EDEN_APP_ID = 'com.askeden.eden';
 
 let cachedKeys = null; // { at, keys }
 
@@ -55,7 +58,7 @@ export async function verifyIdentityToken(token, rawNonce, { audience = BUNDLE_I
   if (!audiences.includes(audience)) throw refused('audience');
   if (!(Number(claims.exp) + SKEW > now)) throw refused('expired');
   if (typeof claims.sub !== 'string' || !claims.sub) throw refused('no user');
-  if (!rawNonce || claims.nonce !== (await sha256Hex(String(rawNonce)))) throw refused('nonce');
+  if (!rawNonce || typeof claims.nonce !== 'string' || !sameText(claims.nonce, await sha256Hex(String(rawNonce)))) throw refused('nonce');
   return claims;
 }
 
@@ -65,7 +68,7 @@ async function clientSecret(env, now = Math.floor(Date.now() / 1000)) {
   const pem = String(env.SIWA_KEY).replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
   const key = await crypto.subtle.importKey('pkcs8', b64ToBytes(pem), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
   const head = b64urlText(JSON.stringify({ alg: 'ES256', kid: env.SIWA_KEY_ID }));
-  const body = b64urlText(JSON.stringify({ iss: env.APPLE_TEAM_ID || '9ZSY5R8A5C', iat: now, exp: now + 3000, aud: ISSUER, sub: BUNDLE_ID }));
+  const body = b64urlText(JSON.stringify({ iss: env.APPLE_TEAM_ID || TEAM_ID, iat: now, exp: now + 3000, aud: ISSUER, sub: BUNDLE_ID }));
   // WebCrypto signs ECDSA as raw r‖s, which is what a JWT wants.
   const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(`${head}.${body}`)));
   return `${head}.${body}.${b64url(sig)}`;

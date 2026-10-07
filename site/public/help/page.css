@@ -1,0 +1,52 @@
+/* askeden.com/help: the page around the Help Center (help.css), signed in or not. Eden's
+   Atelier tokens (web/chat/app.css), light and dark by the system's setting. */
+:root{
+  --accent:#0a84ff; --accent-soft:rgba(10,132,255,.12);
+  --orb:linear-gradient(135deg,#3fb8f2,#1677c9);
+  --bg:#f5f5f7; --wash1:rgba(216,232,250,.9); --wash2:rgba(251,244,236,.9);
+  --content:#ffffff; --content2:#f2f2f5;
+  --text:#1d1d1f; --text2:#6e6e73; --text3:#86868b;
+  --glass:rgba(255,255,255,.66); --hairline:rgba(0,0,0,.07); --sep:rgba(0,0,0,.07); --rim:rgba(255,255,255,.6);
+  --warn:#ff9f0a; --danger:#ff453a;
+  --sh:0 2px 6px rgba(0,0,0,.05),0 24px 64px rgba(0,0,0,.10);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#161618; --wash1:rgba(20,42,66,.55); --wash2:rgba(30,26,20,.5);
+    --content:#1e1e20; --content2:#262628;
+    --text:#f5f5f7; --text2:#a1a1a6; --text3:#8e8e93;
+    --glass:rgba(32,32,34,.66); --hairline:rgba(255,255,255,.09); --sep:rgba(255,255,255,.09); --rim:rgba(255,255,255,.14);
+    --sh:0 2px 6px rgba(0,0,0,.4),0 24px 64px rgba(0,0,0,.5);
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:400 15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(900px 620px at 8% -10%,var(--wash1),transparent 60%),radial-gradient(900px 700px at 105% 115%,var(--wash2),transparent 60%)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:var(--accent)}
+.hp-head{display:flex;align-items:center;justify-content:space-between;gap:12px;width:min(880px,100%);margin:0 auto;padding:18px 16px}
+.hp-brand{display:inline-flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font-weight:650;font-size:17px;letter-spacing:-.2px}
+.hp-mark{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--orb);box-shadow:0 2px 8px rgba(22,119,201,.35)}
+.hp-mark svg{fill:#fff;stroke:#fff;stroke-width:18;stroke-linejoin:round}
+.hp-sub{font-weight:400;color:var(--text2)}
+.hp-nav{display:flex;align-items:center;gap:14px}
+.hp-nav a{text-decoration:none;font-size:14.5px;font-weight:500}
+.hp-pill{padding:7px 14px;border-radius:999px;background:var(--accent);color:#fff!important}
+.hp-main{flex:1;width:min(880px,100%);margin:0 auto;padding:8px 16px 28px}
+.hp-hero{padding:18px 4px 18px}
+.hp-hero h1{font-size:clamp(28px,5vw,40px);line-height:1.1;font-weight:700;letter-spacing:-.8px}
+.hp-hero p{margin-top:8px;color:var(--text2);font-size:16px}
+.hp-card{padding:16px;border-radius:22px;background:var(--glass);border:1px solid var(--rim);box-shadow:var(--sh);-webkit-backdrop-filter:blur(30px) saturate(1.6);backdrop-filter:blur(30px) saturate(1.6);--hc-fade:transparent}
+.hp-card .hc{height:auto;min-height:60vh}
+.hp-card .hc-body{overflow:visible}
+.hp-loading,.hp-noscript{color:var(--text2);padding:12px}
+.hp-foot{width:min(880px,100%);margin:0 auto;padding:18px 16px 28px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;color:var(--text3);font-size:13.5px}
+.hp-foot span{display:flex;flex-wrap:wrap;gap:16px}
+.hp-foot a{color:var(--text2);text-decoration:none}
+@media (max-width:640px){
+  .hp-hero{padding:6px 2px 14px}
+  .hp-card{padding:12px;border-radius:18px}
+}

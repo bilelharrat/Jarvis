@@ -9,11 +9,11 @@ import { join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { Account } from '../src/accounts/account.js';
-import { forgetAppleKeys } from '../src/accounts/apple.js';
+import { EDEN_APP_ID, forgetAppleKeys } from '../src/accounts/apple.js';
 import { forgetProviderToken } from '../src/accounts/apns.js';
 import { Link, cleanCode } from '../src/accounts/link.js';
 import { costOf } from '../src/accounts/proxy.js';
-import { accountIdFor, b64url, b64urlText, bytesToB64, hex, parseToken, sha256Hex } from '../src/accounts/util.js';
+import { BUNDLE_ID, PLUS_PRODUCTS, TEAM_ID, accountIdFor, b64url, b64urlText, bytesToB64, hex, parseToken, sha256Hex } from '../src/accounts/util.js';
 
 // ── Durable Objects in memory ──
 
@@ -93,7 +93,7 @@ Account.prototype.upgrade = function upgrade(tags) {
 const rsa = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
 const appleJwk = { ...(await crypto.subtle.exportKey('jwk', rsa.publicKey)), kid: 'TESTKID', alg: 'RS256', use: 'sig' };
 
-async function identityToken({ sub = 'apple-user-1', nonce = 'raw-nonce', aud = 'com.bshventures.jarvis.companion', exp = Date.now() / 1000 + 600, kid = 'TESTKID', iss = 'https://appleid.apple.com' } = {}) {
+async function identityToken({ sub = 'apple-user-1', nonce = 'raw-nonce', aud = 'com.askeden.jarvis', exp = Date.now() / 1000 + 600, kid = 'TESTKID', iss = 'https://appleid.apple.com' } = {}) {
   const head = b64urlText(JSON.stringify({ alg: 'RS256', kid }));
   const body = b64urlText(JSON.stringify({ iss, aud, exp, iat: Date.now() / 1000, sub, nonce: await sha256Hex(nonce), nonce_supported: true }));
   const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', rsa.privateKey, new TextEncoder().encode(`${head}.${body}`)));
@@ -331,12 +331,13 @@ test('pushes go through only to the account’s own devices', async () => {
   assert.deepEqual(ok, { status: 200, apns_id: 'ID-1' });
   const call = calls.find((c) => c.url.includes('/3/device/'));
   assert.equal(call.url, `https://api.sandbox.push.apple.com/3/device/${device}`);
-  assert.equal(call.init.headers['apns-topic'], 'com.bshventures.jarvis.companion');
+  assert.equal(call.init.headers['apns-topic'], 'com.askeden.jarvis');
   assert.match(call.init.headers.authorization, /^bearer [\w-]+\.[\w-]+\.[\w-]+$/);
+  assert.equal(JSON.parse(Buffer.from(call.init.headers.authorization.split('.')[1], 'base64url')).iss, '8CV4X23Y2T', 'the push key is the team’s');
   // A Live Activity's token isn't registered, and goes to its own topic.
   calls = [];
   await send(again.token, { ...alert, apns_token: 'ef'.repeat(32), push_type: 'liveactivity' });
-  assert.equal(calls.find((c) => c.url.includes('/3/device/')).init.headers['apns-topic'], 'com.bshventures.jarvis.companion.push-type.liveactivity');
+  assert.equal(calls.find((c) => c.url.includes('/3/device/')).init.headers['apns-topic'], 'com.askeden.jarvis.push-type.liveactivity');
   // Apple says the app is gone: the token goes.
   apnsAnswer = { status: 410, body: JSON.stringify({ reason: 'Unregistered' }) };
   assert.deepEqual(await (await send(again.token, alert)).json(), { status: 410, reason: 'Unregistered' });
@@ -456,8 +457,8 @@ async function signedJws(payload) {
 }
 
 const transaction = (accountId, extra = {}) => ({
-  bundleId: 'com.bshventures.jarvis.companion',
-  productId: 'com.bshventures.jarvis.plus.monthly',
+  bundleId: 'com.askeden.jarvis',
+  productId: 'com.askeden.jarvis.plus.monthly',
   transactionId: '2000000001',
   originalTransactionId: '2000000000',
   appAccountToken: accountId.toUpperCase(),
@@ -497,7 +498,7 @@ test('App Store notifications renew, expire and refund the plan', async () => {
       body: {
         signedPayload: await signedJws({
           notificationType: 'DID_RENEW',
-          data: { bundleId: 'com.bshventures.jarvis.companion', signedTransactionInfo: await signedJws(tx), ...(renewal ? { signedRenewalInfo: await signedJws(renewal) } : {}) },
+          data: { bundleId: 'com.askeden.jarvis', signedTransactionInfo: await signedJws(tx), ...(renewal ? { signedRenewalInfo: await signedJws(renewal) } : {}) },
         }),
       },
     });
@@ -598,4 +599,17 @@ test('signed in, the JARVIS voice counts against the account', async () => {
   assert.equal((await say('Hello again')).status, 429);
   const account = await (await api('/account', { token: phone.token })).json();
   assert.equal(account.usage.voice_today, 5);
+});
+
+test('Apple identifiers: team 8CV4X23Y2T and the askeden names, in the code and both Worker configs', async () => {
+  assert.equal(TEAM_ID, '8CV4X23Y2T');
+  assert.equal(BUNDLE_ID, 'com.askeden.jarvis');
+  assert.equal(EDEN_APP_ID, 'com.askeden.eden');
+  assert.deepEqual(PLUS_PRODUCTS, ['com.askeden.jarvis.plus.monthly', 'com.askeden.jarvis.plus.yearly']);
+  const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const { previewConfig } = await import('../scripts/preview-config.mjs');
+  for (const [which, text] of [['wrangler.toml', toml], ['the preview', previewConfig(toml)]]) {
+    assert.match(text, /^APPLE_TEAM_ID = "8CV4X23Y2T"$/m, which);
+    assert.match(text, /^WEB_APPLE_SERVICES_ID = "com\.askeden\.eden\.web"$/m, which);
+  }
 });

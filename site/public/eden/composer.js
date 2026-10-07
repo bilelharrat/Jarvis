@@ -5,12 +5,15 @@
 // menu engine with keyboard navigation, the context ring and the effort slider.
 // Adapted: model menu = Model Router (auto) + the available models (an override); the
 // effort gauge sets the override's effort and hides under the router; modes are Chat /
-// Search / Research, or Manual / Accept edits / Plan / Auto in Code conversations. No
-// dictation here: voice belongs to Jarvis.
+// Search / Research, or Manual / Accept edits / Plan / Auto in Code conversations. Dictate
+// and Talk (the mic and the waveform beside send) live in voice.js.
 
 import { $, el, toast, fmtCost, fmtTokens, sizeText, placePopup, shortModel, effortLabel, EFFORT_SHORT, store, isTouch, noKeys } from './util.js';
 import { state, path, nodeText, sessionCost, persona, ui } from './state.js';
-import { currentOverride, setOverride, availableModels, modelInfo, setPreviewText, levels, setLevel, scatter, rowsToCandidates, openChipPop, closeChipPop, chipPopOpenFor, PROVIDER_NAMES } from './router.js';
+import { initVoice, voiceEscape } from './voice.js';
+import { currentOverride, setOverride, availableModels, modelInfo, setPreviewText, levels, setLevel, scatter, rowsToCandidates, openChipPop, closeChipPop, chipPopOpenFor, PROVIDER_NAMES, schedulePreview } from './router.js';
+import { initCompare, renderEstimate } from './compare.js';
+import { macChips, macMenuItems } from './files.js';
 
 let H = {}; // handlers from app.js
 
@@ -30,13 +33,17 @@ const ICON_PATHS = {
   persona: ['M8 2.4a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2z', 'M3 13.6c.6-2.6 2.6-4 5-4s4.4 1.4 5 4'],
   clock: ['M8 1.8a6.2 6.2 0 1 1 0 12.4A6.2 6.2 0 0 1 8 1.8z', 'M8 4.6V8l2.4 1.6'],
   slash: ['M10.6 2.4L5.4 13.6'],
-  gear: ['M8 5.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6z', 'M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M3.5 12.5l1.2-1.2M11.3 4.7l1.2-1.2'],
+  gear: ['M8.15 1.33h-0.293a1.33 1.33 0 0 0 -1.33 1.33v0.12a1.33 1.33 0 0 1 -0.667 1.15l-0.287 0.167a1.33 1.33 0 0 1 -1.33 0l-0.1 -0.0533a1.33 1.33 0 0 0 -1.82 0.487l-0.147 0.253a1.33 1.33 0 0 0 0.487 1.82l0.1 0.0667a1.33 1.33 0 0 1 0.667 1.15v0.34a1.33 1.33 0 0 1 -0.667 1.16l-0.1 0.06a1.33 1.33 0 0 0 -0.487 1.82l0.147 0.253a1.33 1.33 0 0 0 1.82 0.487l0.1 -0.0533a1.33 1.33 0 0 1 1.33 0l0.287 0.167a1.33 1.33 0 0 1 0.667 1.15V13.3a1.33 1.33 0 0 0 1.33 1.33h0.293a1.33 1.33 0 0 0 1.33 -1.33v-0.12a1.33 1.33 0 0 1 0.667 -1.15l0.287 -0.167a1.33 1.33 0 0 1 1.33 0l0.1 0.0533a1.33 1.33 0 0 0 1.82 -0.487l0.147 -0.26a1.33 1.33 0 0 0 -0.487 -1.82l-0.1 -0.0533a1.33 1.33 0 0 1 -0.667 -1.16v-0.333a1.33 1.33 0 0 1 0.667 -1.16l0.1 -0.06a1.33 1.33 0 0 0 0.487 -1.82l-0.147 -0.253a1.33 1.33 0 0 0 -1.82 -0.487l-0.1 0.0533a1.33 1.33 0 0 1 -1.33 0l-0.287 -0.167a1.33 1.33 0 0 1 -0.667 -1.15V2.67a1.33 1.33 0 0 0 -1.33 -1.33z', 'M8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'], // Lucide "settings" (ISC), scaled to 16
   key: ['M10.3 2.2a3.5 3.5 0 1 1-2.9 5.4L2.6 12.4V14h2.2v-1.3h1.4v-1.4h1.3l1.4-1.4', 'M10.9 4.5h.01'],
   router: ['M8 1.6l1.5 3.9 3.9 1.5-3.9 1.5L8 12.4 6.5 8.5 2.6 7l3.9-1.5z'],
   chev: ['M6 3.5l4.5 4.5L6 12.5'],
   doc: ['M4 1.8h5.2L12.4 5v8.6a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.4a.6.6 0 0 1 .6-.6z', 'M9 1.8V5.2h3.4', 'M5.6 8.2h4.8M5.6 10.6h4.8'],
   check: ['M3.4 8.6l3 3 6.2-7.2'],
   plus: ['M8 3v10M3 8h10'],
+  compare: ['M2.4 3.4h4.4v9.2H2.4z', 'M9.2 3.4h4.4v9.2H9.2z'],
+  up: ['M8 13V3.8', 'M4.4 7.4L8 3.8l3.6 3.6'],
+  mac: ['M3 3.4h10a.6.6 0 0 1 .6.6v6.8H2.4V4a.6.6 0 0 1 .6-.6z', 'M1.2 12.6h13.6'],
+  screen: ['M2.4 2.8h11.2a.6.6 0 0 1 .6.6v7.2a.6.6 0 0 1-.6.6H2.4a.6.6 0 0 1-.6-.6V3.4a.6.6 0 0 1 .6-.6z', 'M6 13.6h4M8 11.2v2.4', 'M5 5.6h6M5 8h3.6'],
 };
 export function icon(name, size = 16) {
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -50,7 +57,12 @@ export const CHAT_MODES = [
   { id: 'chat', icon: 'chat', label: 'Chat', note: 'Routed to the best model for each message' },
   { id: 'search', icon: 'search', label: 'Search', note: 'Searches the web and cites its sources' },
   { id: 'research', icon: 'research', label: 'Research', note: 'Searches widely, then writes a structured report (high effort)' },
+  { id: 'compare', icon: 'compare', label: 'Compare', note: 'Up to 3 models answer side by side, then a short summary' },
 ];
+/** Compare needs two models you can use (askeden.com: the hosted Claude models). */
+const compareOff = () => (state.meta && availableModels().length < 2 ? 'Compare needs at least two models: add another API key in Settings' : '');
+/** Search and Research need a search provider; Chat and Compare don't. */
+const needsSearch = (id) => id === 'search' || id === 'research';
 export const CODE_MODES = [
   { id: 'default', css: 'ask', icon: 'ask', label: 'Manual', note: 'Asks before each edit and command' },
   { id: 'acceptEdits', css: 'edits', icon: 'edits', label: 'Accept edits', note: 'Edits files without asking; commands still ask' },
@@ -65,7 +77,8 @@ const SLASH_CHAT = [
   ['new', 'New chat'], ['temp', 'New temporary chat (not saved)'], ['chat', 'Chat mode'], ['search', 'Search mode: web, with sources'],
   ['research', 'Research mode: a sourced report'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
   ['level', 'Router level: /level 1–5'], ['persona', 'Persona: /persona name (or none)'], ['note', 'Attach a note from your Mac: /note query'],
-  ['memory', 'What your Mac remembers'], ['calendar', 'Your calendar this week'], ['brain', 'Search your second brain'],
+  ['memory', 'What your Mac remembers'], ['calendar', 'Your calendar this week'], ['brief', 'Your day: the brief and meeting prep'], ['brain', 'Search your second brain'],
+  ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['undo', 'What Eden did, with Undo'],
   ['canvas', 'Open the canvas'], ['rename', 'Rename: /rename New name'], ['export', 'Save the chat as Markdown'], ['pin', 'Pin or unpin this chat'],
   ['copy', 'Copy the last reply'], ['clear', 'Start over in a new chat'], ['compact', 'Summarize into a new chat'],
   ['route', 'Route console'], ['settings', 'Settings and API keys'], ['theme', 'Light, dark or system'], ['stop', 'Stop the reply'], ['help', 'Commands and shortcuts'],
@@ -285,6 +298,34 @@ export function addFile(file) {
   };
   if (kind === 'text') reader.readAsText(file); else reader.readAsDataURL(file);
 }
+/**
+ * eden:attach: what the Eden iPhone app's share sheet or Siri's "Ask Eden" brings (native.js
+ * passes it on): { prompt, send, fresh, files: [{ name, mime, data (base64) }] }. The files are
+ * attached as if picked (pictures redrawn), the words go in the box, and with `send` the
+ * message goes once every file has been read.
+ */
+addEventListener('eden:attach', async (e) => {
+  const d = e.detail && typeof e.detail === 'object' ? e.detail : {};
+  if (d.fresh) { attachments = []; state.draftContext = []; renderAttachments(); } // only what was shared goes
+  for (const f of (Array.isArray(d.files) ? d.files : []).slice(0, MAX_FILES)) {
+    let file = null;
+    try {
+      const bin = atob(String(f.data || ''));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      file = new File([bytes], String(f.name || 'Shared item').slice(0, 120), { type: String(f.mime || '') });
+    } catch { toast('A shared item couldn’t be read.'); continue; }
+    if (fileKind(file) === 'image') file = await cleanPicture(file);
+    if (file) addFile(file); else toast('A shared picture couldn’t be read.');
+  }
+  for (let waited = 0; reading.size && waited < 10000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+  const text = String(d.prompt || '');
+  if (text) setComposerText(text); else focusComposer();
+  if (d.send && text.trim()) {
+    $('deck-composer').requestSubmit();
+    if (isTouch()) input().blur(); // asked from elsewhere: the reply, not the keyboard
+  }
+});
 function removeChip(label, onRemove) {
   return el('button', { type: 'button', class: 'jc-chip-x', 'aria-label': `Remove ${label}`, onclick: onRemove }, '×');
 }
@@ -299,6 +340,7 @@ export function renderAttachments() {
   const pid = state.current ? state.current.personaId : state.draftPersona;
   const p = persona(pid);
   if (p) chips.push(el('span', { class: 'jc-file-chip persona', title: `Persona: ${p.name}` }, icon('persona', 15), el('span', 'nm', p.name), el('small', '', 'persona'), removeChip(p.name, () => H.setPersona(null))));
+  chips.push(...macChips()); // Use my Mac, project knowledge (files.js): whose model the files go to
   box.hidden = !chips.length;
   box.replaceChildren(...chips);
 }
@@ -394,9 +436,12 @@ export function setMode(id) {
   const m = modes.find((x) => x.id === id);
   if (!m) return;
   const meta = state.meta;
-  if (id !== 'chat' && !(c && c.kind === 'code') && meta && meta.search && meta.search.available === false) { toast(`Search isn’t available: ${meta.search.reason || 'no search provider'}`); return; }
+  if (needsSearch(id) && !(c && c.kind === 'code') && meta && meta.search && meta.search.available === false) { toast(`Search isn’t available: ${meta.search.reason || 'no search provider'}`); return; }
+  if (id === 'compare' && compareOff()) { toast(compareOff()); return; }
   const go = () => {
+    const was = curMode();
     if (c) { c.mode = id; H.save(c); } else state.pendingMode = id;
+    if ((was === 'compare') !== (id === 'compare')) schedulePreview(); // Compare prices its lanes
     renderComposer();
     toast(`${c && c.kind === 'code' ? 'Permission mode' : 'Mode'}: ${m.label}`);
   };
@@ -416,8 +461,8 @@ function modeMenu() {
   openMenu($('jc-mode-btn'), [
     ...modesFor(c).map((m) => ({
       icon: m.icon, label: m.label, danger: m.danger, checked: cur === m.id,
-      note: m.id !== 'chat' && !(c && c.kind === 'code') && searchOff ? (state.meta.search.reason || 'Search isn’t available') : m.note,
-      disabled: m.id !== 'chat' && !(c && c.kind === 'code') && searchOff,
+      note: needsSearch(m.id) && !(c && c.kind === 'code') && searchOff ? (state.meta.search.reason || 'Search isn’t available') : m.id === 'compare' && compareOff() ? compareOff() : m.note,
+      disabled: (needsSearch(m.id) && !(c && c.kind === 'code') && searchOff) || (m.id === 'compare' && !!compareOff()),
       run: () => setMode(m.id),
     })),
     isTouch() ? null : { foot: '⌘⇧M or ⇧⇥ to switch' },
@@ -436,7 +481,8 @@ export function modelMenu() {
     items.push({ heading: PROVIDER_NAMES[p] || p });
     for (const m of list) items.push({
       label: m.name, checked: !!o && o.model === m.id,
-      note: !m.available ? 'Unavailable' : code && p !== 'anthropic' ? 'Code mode runs Claude' : m.tier === 'frontier' ? 'Frontier' : m.tier === 'fast' ? 'Fast' : '',
+      // askeden.com: whose key the model runs on (meta's keySource, accounts/user-keys.js)
+      note: !m.available ? 'Unavailable' : m.keySource === 'user' ? 'your key' : m.keySource === 'service' ? 'included' : m.note ? m.note : code && p !== 'anthropic' ? 'Code mode runs Claude' : m.tier === 'frontier' ? 'Frontier' : m.tier === 'fast' ? 'Fast' : '',
       disabled: !m.available || (code && p !== 'anthropic'),
       run: () => setOverride(m.id),
     });
@@ -567,6 +613,7 @@ function plusMenu() {
   openMenu($('jc-plus'), [
     { icon: 'clip', label: 'Add files or photos', key: '⌘U', run: () => $('jc-file').click() },
     { icon: 'note', label: 'Note from your Mac', note: state.jarvis.available ? 'Search your second brain, attach as context' : (state.jarvis.reason || 'Your Mac isn’t connected'), run: () => H.openBrain() },
+    ...macMenuItems(), // Use my Mac, Ask about my screen (files.js)
     { icon: 'persona', label: 'Persona', note: persona(pid) ? persona(pid).name : 'Custom instructions', sub: () => [
       { label: 'None', checked: !pid, run: () => H.setPersona(null) },
       ...state.personas.map((p) => ({ label: p.name, note: p.system ? p.system.slice(0, 60) : '', checked: pid === p.id, run: () => H.setPersona(p.id) })),
@@ -687,7 +734,9 @@ export function renderComposer() {
   $('jc-steer').hidden = !streaming;
   $('deck-composer').classList.toggle('busy', !!streaming);
   input().placeholder = code ? `Ask Eden to plan, build or fix something in ${c.project ? c.project.name : 'this project'}…`
-    : curMode() === 'search' ? 'Search the web — answers with sources…' : curMode() === 'research' ? 'What should I research? A sourced report…' : 'Message Eden — routed automatically…';
+    : curMode() === 'search' ? 'Search the web — answers with sources…' : curMode() === 'research' ? 'What should I research? A sourced report…'
+    : curMode() === 'compare' ? 'Ask several models at once — answers side by side…' : 'Message Eden — routed automatically…';
+  renderEstimate(); // the routed model, its cost and time, above the input (compare.js)
   // the queue (steer)
   const q = (c && c.queue) || [];
   $('jc-queue').hidden = !q.length;
@@ -714,6 +763,7 @@ export function composerEscape(e) {
   if (!$('cc-slash').hidden) { $('cc-slash').hidden = true; return true; }
   if (closeCostPop(true)) return true;
   if (composerExpanded && !composerPinned && $('deck-composer').contains(e.target)) { setComposerExpanded(false); return true; }
+  if (voiceEscape()) return true; // dictating, or reading aloud
   return false;
 }
 
@@ -733,6 +783,8 @@ export function clearAttachments() { attachments = []; renderAttachments(); }
 let steerThis = false;
 export function initComposer(handlers) {
   H = handlers;
+  initVoice();
+  initCompare({ openMenu, closeMenu }); // after voice: lanes of a comparison redraw in place
   const inp = input();
   if (composerExpanded) setComposerExpanded(true, { focus: false });
   $('deck-composer').classList.toggle('pinned', composerPinned);

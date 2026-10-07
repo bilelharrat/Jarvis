@@ -14,6 +14,8 @@
   const RELAY = 'account_relay';
   const PLUS = 'account_plus_ai';
   const EDEN_LINK = 'account_eden_link';
+  const SERVER = 'account_server';
+  const SERVER_NAMES = { 'askeden.com': 'askeden.com', 'preview.askeden.com': 'preview.askeden.com (test accounts)' };
   const PERKS = [
     ['AI included', 'Jarvis Plus answers without a Claude sign-in or an API key of your own.'],
     ['Notifications without a push key', 'Approvals and heads-ups reach your iPhone through the account’s Apple push key.'],
@@ -50,10 +52,10 @@
   // How a link in progress is going, in words.
   function linkLine(link) {
     if (!link) return '';
-    if (link.state === 'waiting') return 'Waiting for your iPhone…';
+    if (link.state === 'waiting') return link.browser ? 'Waiting for you to approve it in the browser…' : 'Waiting for your iPhone…';
     if (link.state === 'linked') return 'Linked.';
     if (link.state === 'expired') return 'That code expired. Get a new one.';
-    if (link.state === 'denied') return 'Your iPhone said no. Get a new code to try again.';
+    if (link.state === 'denied') return `${link.browser ? 'It was turned down' : 'Your iPhone said no'}. Get a new code to try again.`;
     return link.error || 'Linking didn’t work. Get a new code to try again.';
   }
 
@@ -193,9 +195,12 @@
     }
     const text = el('div', 'account-link-text');
     if (link.state === 'waiting') {
+      const server = (status && status.server) || 'askeden.com';
       text.append(
         data('code', 'account-code', link.code),
-        el('small', '', 'In the J.A.R.V.I.S. app on your iPhone, open Settings › Account, then scan this or type the code.'),
+        link.browser
+          ? el('small', '', `In your browser, signed in to Eden at ${server} in the last 10 minutes, approve this Mac on the page that opened. Check it shows this code.`)
+          : el('small', '', 'In the J.A.R.V.I.S. app on your iPhone, open Settings › Account, then scan this or type the code.'),
       );
       const left = el('small', 'account-left');
       left.id = 'account-left';
@@ -204,6 +209,7 @@
     const line = el('p', link.state === 'waiting' ? 'small-status' : 'small-status need', linkLine(link));
     text.append(line);
     const actions = el('div', 'row-actions');
+    if (link.state === 'waiting' && link.browser) actions.append(button(`Open ${(status && status.server) || 'askeden.com'}/link`, 'btn primary', () => send({ type: 'account_link_open' })));
     if (link.state === 'waiting') actions.append(button('Cancel', 'btn', () => send({ type: 'account_link_cancel' })));
     else actions.append(button('Get a new code', 'btn primary', () => send({ type: 'account_link' })));
     text.append(actions);
@@ -215,7 +221,30 @@
     const link = status && status.link;
     // While a code is up, it's what matters: what the account adds was read already.
     if (link && link.state !== 'linked') show(linkBox(link));
-    else show(perks(), button('Link with your iPhone', 'btn primary account-start', () => send({ type: 'account_link' })));
+    else {
+      const server = (status && status.server) || 'askeden.com';
+      const actions = el('div', 'row-actions account-start');
+      actions.append(
+        button(`Link this Mac to ${server}`, 'btn primary', () => send({ type: 'account_link', browser: true })),
+        button('Link with your iPhone', 'btn', () => send({ type: 'account_link' })),
+      );
+      show(perks(), serverRow(), actions);
+    }
+  }
+
+  // Which server this Mac links to: askeden.com, or the preview with its own test accounts.
+  function serverRow() {
+    const pick = el('select', 'account-server');
+    pick.setAttribute('aria-label', 'Server');
+    const chosen = (status && (status.server_choice || status.server)) || 'askeden.com';
+    for (const host of (status && status.servers) || ['askeden.com']) {
+      const option = el('option', '', SERVER_NAMES[host] || host);
+      option.value = host;
+      option.selected = host === chosen;
+      pick.append(option);
+    }
+    pick.addEventListener('change', () => send({ type: 'feature_prefs', changes: { [SERVER]: pick.value } }));
+    return row('Server', 'Link this Mac in the browser, signed in to Eden there, or approve it on your iPhone.', pick);
   }
 
   // ── linked ──
@@ -441,6 +470,7 @@
     const relay = status.relay || {};
     const plus = status.plus || {};
     const nodes = [planBox(info)];
+    if (status.server && status.server !== 'askeden.com') nodes.push(row('Server', data('small', '', status.server)));
     nodes.push(row('Reach this Mac from anywhere', el('small', '', relayLine(relay)),
       toggle('Reach this Mac from anywhere', relay.on, (on) => send({ type: 'feature_prefs', changes: { [RELAY]: on } }))));
     const eden = status.eden_link || {};
