@@ -638,13 +638,12 @@ function creditsSection(a, web) {
   const offer = a.plus || {};
   const packs = web && Array.isArray(offer.credit_packs) ? offer.credit_packs : [];
   if (!c || (!packs.length && !(c.balance_usd > 0) && !(c.history || []).length)) return null;
-  const pct = Math.round(((Number(c.markup) || 1) - 1) * 100);
   const auto = c.auto_topup || {};
   const plus = a.plan && a.plan.active;
   const rows = [
     el('div', 'acct-allow',
       el('div', 'acct-row-top', el('span', 'acct-k', 'Balance'), el('b', 'acct-v', `${money(c.balance_usd)} left`)),
-      el('div', 'acct-sub', `Used after your included AI, at the AI’s cost + ${pct}%${plus ? ' (Plus price)' : ' (+25% with Plus)'}.${c.next_expiry ? ` Oldest expire ${day(c.next_expiry)}.` : ' Credits last 12 months.'}`)),
+      el('div', 'acct-sub', `Used after your included AI runs out${plus ? ', at the Plus price' : '; Plus members get more from every credit'}. Each reply shows what it cost.${c.next_expiry ? ` Oldest expire ${day(c.next_expiry)}.` : ' Credits last 12 months.'}`)),
   ];
   if (packs.length) {
     rows.push(el('div', 'acct-row-actions acct-packs',
