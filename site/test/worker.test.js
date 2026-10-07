@@ -238,3 +238,11 @@ test('plain http is never served: every request goes to https (a POST stays a PO
   assert.equal(toHttps(new Request('https://askeden.com/signin')), null);
   assert.equal(toHttps(new Request('http://localhost:8787/')), null, 'local development');
 });
+
+test('plain http behind a custom domain (Cloudflare says so in its headers) goes to https too', async () => {
+  const { toHttps } = await import('../src/worker.js');
+  const r = toHttps(new Request('https://preview.askeden.com/signin', { headers: { 'x-forwarded-proto': 'http' } }));
+  assert.equal(r.status, 308);
+  assert.equal(r.headers.get('location'), 'https://preview.askeden.com/signin');
+  assert.equal(toHttps(new Request('https://askeden.com/', { headers: { 'cf-visitor': '{"scheme":"https"}' } })), null);
+});

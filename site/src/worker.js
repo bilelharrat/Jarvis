@@ -392,7 +392,11 @@ export class VoiceQuota {
 /** A 308 to the https address for a plain-http request to a real host (local development excepted), else null. */
 export function toHttps(request) {
   const url = new URL(request.url);
-  if (url.protocol !== 'http:') return null;
+  // A custom domain can hand the Worker an https URL for a plain-http visit: Cloudflare's headers say.
+  const proto = (request.headers.get('x-forwarded-proto') || '').toLowerCase();
+  const visitor = (request.headers.get('cf-visitor') || '').toLowerCase();
+  const plain = url.protocol === 'http:' || proto === 'http' || visitor.includes('"scheme":"http"');
+  if (!plain) return null;
   if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(url.hostname) || url.hostname.endsWith('.localhost')) return null;
   url.protocol = 'https:';
   url.port = '';
