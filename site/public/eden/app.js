@@ -32,6 +32,7 @@ import { initAutopilot, autopilotSettings } from './autopilot.js';
 import { acting, actingHas } from './acting.js';
 import { initTour, startTour } from './tour.js'; // I1: the try-it tour
 import { initHelp, helpCommands, helpButton } from './help.js'; // Help Center: FAQ and Ask Help
+import { initBrowserPane, toggleBrowser, closeBrowser, browserJarvisChanged } from './browser-pane.js'; // the browser panel
 
 /* ================= theme ================= */
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
@@ -515,6 +516,7 @@ function commands() {
     { t: 'New email…', s: 'Compose · Gmail or Mail on your Mac', i: 'mail', run: () => openCompose({}) },
     { t: 'Send me a heads-up…', s: 'Your Mac · notify', i: 'bell', run: () => openSpace('routines') },
     { t: 'Meetings', s: 'Your Mac · notes and action items', i: 'quote', run: () => openSpace('meetings') },
+    { t: 'Browser', s: '⌘⇧B', i: 'globe', run: () => toggleBrowser() },
     { t: 'Do this on a website…', s: 'Your Mac · the built-in browser', i: 'globe', run: () => openSpace('web') },
     { t: 'Activity: what Eden did', s: 'Undo', i: 'clock', run: () => openSpace('activity') },
     { t: 'Choose model…', s: '⌘⇧I', i: 'spark', run: () => { modelMenu(); } },
@@ -927,6 +929,7 @@ function onKey(e) {
   if (mod && !e.altKey && !e.shiftKey && k === 'n') { e.preventDefault(); newChat(); return; }
   if (mod && e.shiftKey && k === 'o') { e.preventDefault(); newChat(); return; }
   if (mod && !e.altKey && !e.shiftKey && k === 'b') { e.preventDefault(); toggleSidebar(); return; }
+  if (mod && !e.altKey && e.shiftKey && k === 'b') { e.preventDefault(); toggleBrowser(); return; }
   if (mod && e.altKey && e.code === 'Digit0') { e.preventDefault(); toggleInspector(); return; }
   if (mod && !e.altKey && !e.shiftKey && k === 'j') { e.preventDefault(); toggleDrawer(); return; }
   if (mod && !e.altKey && k === ',') { e.preventDefault(); openSettings(0); return; }
@@ -947,6 +950,7 @@ function onKey(e) {
   const draft = document.activeElement && document.activeElement.id === 'deck-input' && $('deck-input').value.trim();
   if (!inField && !draft && stop()) { toast('Stopped'); return; }
   if (artifactOpen()) { closeArtifact(); return; }
+  if (document.activeElement && document.activeElement.closest('#browserPane') && closeBrowser()) return;
   if ($('drawer').classList.contains('open')) { toggleDrawer(false); return; }
   if (isNarrow() && $('inspector').classList.contains('open')) { closeInspector(); return; }
   if ($('sidebar').classList.contains('open') || ($('sidebar').classList.contains('expanded') && !docksSidebar())) { closeOverlays(); }
@@ -1127,7 +1131,8 @@ function init() {
   addEventListener('eden:acting', () => { renderSidebar(); checkJarvis().then(() => renderComposer()); }); // account.js: acting for someone began or ended under the page
   addEventListener('eden:open-inspector', (e) => openInspector((e.detail && e.detail.tab) || 'Route'));
   loadProjects().then(() => renderSidebar());
-  checkJarvis().then(() => { renderComposer(); if (curTab === 'Memory') renderMemoryTab(true); });
+  initBrowserPane({ openSpace });
+  checkJarvis().then(() => { renderComposer(); browserJarvisChanged(); if (curTab === 'Memory') renderMemoryTab(true); });
   // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {
     const w = !!(e.detail && e.detail.waiting);

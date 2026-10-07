@@ -361,6 +361,13 @@ let agentInput = false; // true while the browser agent's own keys and clicks go
 let browserZoom = 1; // the zoom last set (each site keeps its own: browser-parity.js)
 let researchBase = '';
 let browserAsked = false; // a page was asked for: showing the view must not load the start page over it
+// The window the dock is in: Jarvis's own, or the Ask Eden window's browser panel while it's
+// open there (features/eden-window.js, through featureContext.browserDock). Jarvis's window
+// gets it back when that panel closes, as it was (mainWants, mainBounds).
+let dockWin = null;
+let mainWants = false;
+let mainBounds = null;
+const dockHost = () => (dockWin && !dockWin.isDestroyed() ? dockWin : win);
 const pageCalls = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -395,7 +402,7 @@ function sendBrowserState(extra = {}) {
   const wc = browserView.webContents;
   const url = wc.getURL();
   const guard = shields();
-  win.webContents.send('browser:state', {
+  const payload = {
     tabs: tabList(),
     shields: { on: guard.adblock && Boolean(blocker), ready: Boolean(blocker), site: hostOf(url), allowed: guard.allow.includes(hostOf(url)), research: onResearch(url), blocked: blockedOn.get(wc.id) || 0, total: blockedTotal },
     url,
@@ -408,7 +415,10 @@ function sendBrowserState(extra = {}) {
     research: onResearch(url),
     zoom: Math.round(wc.getZoomFactor() * 100),
     ...extra,
-  });
+  };
+  win.webContents.send('browser:state', payload);
+  const eden = dockWin && !dockWin.isDestroyed() ? dockWin : null;
+  if (eden) eden.webContents.send('feature:eden:browser:state', { ...payload, docked: browserShown });
 }
 
 function updateLock() {
@@ -455,11 +465,11 @@ function ensureBrowser() {
 function selectTab(view) {
   if (!view || view === browserView) return;
   if (parity.poppedOut(view)) { parity.focusPopout(view); return; } // a tab in a window of its own
-  if (browserShown && browserView) win.contentView.removeChildView(browserView);
+  if (browserShown && browserView) dockHost().contentView.removeChildView(browserView);
   browserView = view;
   parity.selected(view);
   if (browserShown) {
-    win.contentView.addChildView(view);
+    dockHost().contentView.addChildView(view);
     if (lastBounds) view.setBounds(lastBounds);
   }
   view.webContents.setZoomFactor(parity.zoomFor(view.webContents)); // the site's own zoom
@@ -1330,8 +1340,8 @@ async function runBrowserCommand({ action, args = {} }) {
 
 // The slot's place in the window's CSS pixels, as the view's bounds: the same unless the
 // window's page is zoomed.
-function fitBounds(b) {
-  const z = win && !win.isDestroyed() ? win.webContents.getZoomFactor() || 1 : 1;
+function fitBounds(b, host = win) {
+  const z = host && !host.isDestroyed() ? host.webContents.getZoomFactor() || 1 : 1;
   const x = Math.round(b.x * z);
   const y = Math.round(b.y * z);
   return { x, y, width: Math.max(0, Math.round((b.x + b.width) * z) - x), height: Math.max(0, Math.round((b.y + b.height) * z) - y) };
@@ -1339,6 +1349,9 @@ function fitBounds(b) {
 
 ipcMain.handle('browser:show', (event, bounds) => {
   if (!fromWindow(event)) return;
+  mainWants = true;
+  mainBounds = bounds;
+  if (dockWin) undock(dockWin, { back: false }); // Jarvis's window takes it back
   const view = ensureBrowser();
   if (!browserShown) {
     win.contentView.addChildView(view);
@@ -1353,6 +1366,8 @@ ipcMain.handle('browser:show', (event, bounds) => {
 });
 ipcMain.handle('browser:hide', (event) => {
   if (!fromWindow(event)) return;
+  mainWants = false;
+  if (dockWin) return; // it's in the Ask Eden window just now
   if (browserView && browserShown) {
     win.contentView.removeChildView(browserView);
     browserShown = false;
@@ -1360,6 +1375,8 @@ ipcMain.handle('browser:hide', (event) => {
 });
 ipcMain.handle('browser:bounds', (event, bounds) => {
   if (!fromWindow(event)) return;
+  mainBounds = bounds;
+  if (dockWin) return;
   lastBounds = fitBounds(bounds);
   if (browserView && browserShown) browserView.setBounds(lastBounds);
 });
@@ -1486,6 +1503,71 @@ ipcMain.on('jarvis:attention', () => {
   if (win && !win.isFocused()) app.dock?.bounce('informational');
 });
 
+// ── the dock in another window: the Ask Eden window's browser panel (features/eden-window.js) ──
+// The same tabs, adblock and gates as in Jarvis's window: only where the tab on show is drawn
+// changes. That window's page draws the address bar and buttons around it.
+function dockIn(host, bounds) {
+  if (!host || host.isDestroyed()) return;
+  const view = ensureBrowser();
+  if (browserShown && dockHost() !== host) dockHost().contentView.removeChildView(view);
+  if (!browserShown || dockWin !== host) {
+    dockWin = host === win ? null : host;
+    host.contentView.addChildView(view);
+    browserShown = true;
+  }
+  lastBounds = fitBounds(bounds, host);
+  view.setBounds(lastBounds);
+  if (!view.webContents.getURL() && !view.webContents.isLoading() && !browserAsked) view.webContents.loadURL(homeUrl());
+  sendBrowserState();
+}
+// Out of that window; back in Jarvis's when its own dock was open there (back: true).
+function undock(host, { back = true } = {}) {
+  if (!dockWin || dockWin !== host) return;
+  if (browserView && browserShown && !host.isDestroyed()) host.contentView.removeChildView(browserView);
+  browserShown = false;
+  dockWin = null;
+  if (back && mainWants && mainBounds && win && !win.isDestroyed()) {
+    win.contentView.addChildView(ensureBrowser());
+    browserShown = true;
+    lastBounds = fitBounds(mainBounds);
+    browserView.setBounds(lastBounds);
+    sendBrowserState();
+  }
+}
+const browserDock = {
+  show: (host, bounds) => dockIn(host, bounds),
+  hide: (host) => undock(host),
+  bounds: (host, bounds) => {
+    if (dockWin !== host || !browserView || !browserShown) return;
+    lastBounds = fitBounds(bounds, host);
+    browserView.setBounds(lastBounds);
+  },
+  nav: (action, url) => {
+    const wc = ensureBrowser().webContents;
+    if (action === 'go' && url) { browserAsked = true; wc.loadURL(toUrl(String(url).slice(0, 2000))).catch(() => {}); }
+    if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
+    if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
+    if (action === 'reload') wc.reload();
+    if (action === 'stop') wc.stop();
+  },
+  tab: (action, id) => {
+    ensureBrowser();
+    if (action === 'new') newTab();
+    if (action === 'select') selectTab(tabById(id));
+    if (action === 'close') closeTab(tabById(id) || browserView, { owner: true });
+    sendBrowserState();
+  },
+  shields: () => {
+    if (!browserView) return;
+    const guard = shields();
+    guard.adblock = !guard.adblock;
+    browserView.webContents.reload();
+    saveBrowserStore();
+    sendBrowserState();
+  },
+  state: () => { if (browserView) sendBrowserState(); },
+};
+
 // ── feature modules for the app itself: app/features/*.js, each exporting install(ctx), in
 // name order. A feature adds its own IPC ('feature:<name>:…', which preload.js passes
 // through for the window), menus or windows; one that throws is logged and skipped. ──
@@ -1518,6 +1600,7 @@ const featureContext = {
     focused: () => Boolean(win && !win.isDestroyed() && win.isFocused()),
     menu: (fn) => { pageMenuExtras.push(fn); },
   },
+  browserDock, // the dock in the Ask Eden window (eden-window.js)
 };
 function loadAppFeatures() {
   const dir = path.join(__dirname, 'features');

@@ -136,6 +136,7 @@ JARVIS_TOOLS = frozenset(
         "browser_task",
         "browser_task_status",
         "browser_task_stop",
+        "browser_view",
         "actions_list",
         "action_undo",
         # "Use my Mac" (eden_files, eden_screen, eden_knowledge): all read only; files ask once

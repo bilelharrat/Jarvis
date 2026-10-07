@@ -1,0 +1,84 @@
+/* The browser panel (browser-pane.js): docked beside the conversation like the canvas on a wide
+   screen, over it from the right on a narrower one, full screen on a phone. Atelier's tokens. */
+
+#btnBrowser[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft)}
+
+#browserPane{display:none;flex-direction:column;width:42%;min-width:340px;max-width:900px;flex:none;margin-left:12px;border-radius:var(--r-lg);overflow:hidden;min-height:0}
+body.browser-open #browserPane{display:flex}
+
+.br-head{display:flex;align-items:center;gap:8px;padding:8px 8px 4px 14px;flex:none;min-width:0}
+.br-title{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text)}
+.br-title .ic{color:var(--accent)}
+.br-where{font-size:11px;font-weight:600;color:var(--text3);background:var(--content2);border-radius:8px;padding:2px 7px;box-shadow:inset 0 0 0 .5px var(--hairline)}
+.br-where:empty{display:none}
+.br-sp{flex:1}
+
+/* the tabs (in the J.A.R.V.I.S. app) */
+.br-tabs{display:flex;align-items:center;gap:4px;padding:2px 10px 4px;overflow-x:auto;scrollbar-width:none;flex:none}
+.br-tabs::-webkit-scrollbar{display:none}
+.br-tabs[hidden]{display:none}
+.br-tab{display:flex;align-items:center;min-width:0;max-width:180px;flex:0 1 auto;border-radius:9px;color:var(--text2)}
+.br-tab.on{background:var(--content);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.06),inset 0 0 0 .5px var(--hairline)}
+.br-tab:not(.on):hover{background:rgba(120,120,128,.12)}
+.br-tab-b{display:flex;align-items:center;gap:6px;min-width:0;padding:5px 4px 5px 9px;font-size:12px;flex:1}
+.br-tab-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.br-tab-x{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;color:var(--text3);margin-right:3px;flex:none}
+.br-tab-x:hover{background:rgba(120,120,128,.18);color:var(--text)}
+.br-tab-new{width:26px;height:26px}
+
+/* the address bar */
+.br-bar{display:flex;align-items:center;gap:2px;padding:4px 10px 8px;flex:none;min-width:0}
+.br-nav{width:30px;height:30px}
+.br-nav:disabled{opacity:.35;cursor:default}
+.br-addr{flex:1;min-width:0;display:flex;align-items:center;gap:6px;margin-left:4px;background:var(--content);border-radius:10px;padding:0 10px;height:32px;box-shadow:inset 0 0 0 .5px var(--hairline)}
+.br-addr:focus-within{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.br-lock{display:none;color:var(--text3);flex:none}
+.br-lock.on{display:flex}
+.br-url{flex:1;min-width:0;border:0;background:none;font:inherit;font-size:13px;color:var(--text);outline:none}
+.br-url::placeholder{color:var(--text3)}
+.br-url:disabled{opacity:.6}
+.br-shield{display:flex;align-items:center;gap:3px;height:30px;padding:0 8px;margin-left:4px;border-radius:8px;font-size:11px;font-weight:650;color:#e0623a;flex:none}
+.br-shield:hover{background:rgba(120,120,128,.12)}
+.br-shield.off{color:var(--text3)}
+.br-shield[hidden]{display:none}
+.br-shield-ico{font-size:14px;line-height:1}
+
+/* the page */
+.br-body{flex:1;min-height:0;position:relative;background:var(--content);border-top:.5px solid var(--sep);display:flex}
+.br-slot{flex:1;min-width:0;background:var(--content);display:flex;align-items:center;justify-content:center}
+.br-slot-note{font-size:12px;color:var(--text3);padding:16px;text-align:center;pointer-events:none}
+.br-live{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;overflow:auto}
+.br-shot{width:100%;height:auto;display:block;user-select:none;-webkit-user-drag:none}
+.br-shot[hidden]{display:none}
+.br-status{display:flex;flex-direction:column}
+.br-shot:not([hidden]) + .br-status{position:absolute;left:10px;right:10px;bottom:10px}
+.br-card{margin:auto;max-width:380px;padding:28px 20px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+.br-status:has(.br-card){flex:1}
+.br-card .ic{width:26px;height:26px;color:var(--accent)}
+.br-card b{font-size:15px;font-weight:650}
+.br-card p{font-size:13px;line-height:1.45;color:var(--text2)}
+.br-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+.br-acts a{text-decoration:none}
+.br-note{font-size:12px;color:var(--text2);background:var(--glass2);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:10px;padding:8px 10px;box-shadow:inset 0 0 0 .5px var(--hairline)}
+.br-note.warn{color:var(--text)}
+.br-status > .br-note{margin:10px}
+
+.br-foot{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:11px;color:var(--text3);flex:none;border-top:.5px solid var(--sep);background:var(--content)}
+.br-foot:empty{display:none}
+.br-foot-t{flex:1;min-width:0}
+.br-foot .cap[hidden]{display:none}
+
+/* narrower screens: over the conversation, from the right */
+@media (max-width:1100px){
+  #browserPane{position:fixed;top:8px;right:8px;bottom:8px;width:min(560px,calc(100% - 16px));min-width:0;margin:0;z-index:52;box-shadow:var(--sh2)}
+}
+/* phones: the whole screen, with its close button */
+@media (max-width:640px){
+  #browserPane{inset:0;width:auto;border-radius:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+  .br-head{padding:8px 8px 4px 16px}
+  .br-close{width:36px;height:36px}
+  .br-bar{padding:4px 8px 8px}
+  .br-nav{width:34px;height:34px}
+  .br-url{font-size:16px} /* no zoom on focus */
+  .br-foot{padding:8px 16px}
+}

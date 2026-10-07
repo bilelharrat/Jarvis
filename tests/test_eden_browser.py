@@ -428,3 +428,111 @@ async def test_a_damaged_tasks_file_is_ignored(settings, quiet_speaker, isolated
     assert seen["steps"][0]["detail"] == "tap.pt"
     text, error = await endpoint.call("browser_task_status", {"id": "bt-0000000000"}, "Eden")
     assert error and "keeps the last 10" in text
+
+
+# ── Eden's browser panel: browser_view ──
+
+
+async def view(endpoint, **args):
+    text, error = await endpoint.call("browser_view", args, "Eden")
+    assert not error, text
+    return json.loads(text)
+
+
+async def test_a_view_shows_only_on_a_yes_and_steers_by_address_only(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    endpoint = endpoint_for(hub)
+    desk = browser_for(endpoint)
+    calls = []
+
+    async def browser_call(action, args=None):
+        calls.append((action, dict(args or {})))
+        if action == "open":
+            return {"ok": True, "tab": 9, "url": args["url"], "title": "Page"}
+        if action == "screenshot":
+            return {
+                "ok": True,
+                "png": "iVBORw0KGgo=",
+                "url": "https://example.com/",
+                "title": "Example",
+            }
+        return {"ok": True, "url": "https://example.com/back", "title": "Back"}
+
+    hub.browser_call = browser_call
+    desk.make_view_shot = lambda png: "data:image/jpeg;base64,dmlldw=="
+    started = await view(endpoint, op="start", url="example.com")
+    assert started["status"] == "waiting_owner" and started["shot"] == ""
+    seen = await view(endpoint, op="status", id=started["id"])
+    assert seen["status"] == "waiting_owner" and calls == []  # nothing before the yes
+    card = await answer_card(hub, "allow", "tab of the built-in browser")
+    assert [c["id"] for c in card["choices"]] == ["allow", "deny"]
+    assert "never clicks or types" in card["detail"]
+    await asyncio.wait_for(asyncio.shield(desk.views[started["id"]].handle), 5)
+    assert calls[0] == (
+        "open",
+        {
+            "url": "https://example.com",
+            "newTab": True,
+            "background": True,
+            "owner": f"eden:{started['id']}",
+        },
+    )
+    seen = await view(endpoint, op="status", id=started["id"])
+    assert seen["status"] == "live" and seen["shot"] == "data:image/jpeg;base64,dmlldw=="
+    assert calls[-1] == ("screenshot", {"tab": 9, "owner": f"eden:{started['id']}"})
+    await view(endpoint, op="back", id=started["id"])
+    assert ("back", {"tab": 9, "owner": f"eden:{started['id']}"}) in calls
+    await view(endpoint, op="go", id=started["id"], url="cheap flights lisbon")
+    assert (
+        "open",
+        {"url": "cheap flights lisbon", "tab": 9, "owner": f"eden:{started['id']}"},
+    ) in calls
+    text, error = await endpoint.call(
+        "browser_view", {"op": "go", "id": started["id"], "url": "javascript:alert(1)"}, "Eden"
+    )
+    assert error and "web address" in text
+    for bad in ("javascript:1", "file:///etc/passwd"):
+        text, error = await endpoint.call(
+            "browser_view", {"op": "go", "id": started["id"], "url": bad}, "Eden"
+        )
+        assert error, bad
+    text, error = await endpoint.call("browser_view", {"op": "click", "id": started["id"]}, "Eden")
+    assert error and "op must be one of" in text  # no clicking or typing from the panel
+    ended = await view(endpoint, op="stop", id=started["id"])
+    assert ended["status"] == "ended" and ended["shot"] == ""
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert calls[-1] == ("tabs", {"op": "close", "id": 9, "owner": f"eden:{started['id']}"})
+
+
+async def test_a_view_said_no_to_or_stopped_while_asking_does_nothing(
+    settings, quiet_speaker, isolated
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    endpoint = endpoint_for(hub)
+    desk = browser_for(endpoint)
+    calls = []
+
+    async def browser_call(action, args=None):
+        calls.append(action)
+        return {"ok": True, "tab": 3}
+
+    hub.browser_call = browser_call
+    first = await view(endpoint, op="start")
+    await answer_card(hub, "deny", "tab of the built-in browser")
+    await asyncio.gather(desk.views[first["id"]].handle, return_exceptions=True)
+    assert (await view(endpoint, op="status", id=first["id"]))["status"] == "declined"
+    second = await view(endpoint, op="start")
+    for _ in range(50):
+        await asyncio.sleep(0)
+    assert hub.approvals
+    assert (await view(endpoint, op="stop", id=second["id"]))["status"] == "ended"
+    await asyncio.gather(desk.views[second["id"]].handle, return_exceptions=True)
+    assert not hub.approvals and calls == []
+    hub.browser_available = False
+    text, error = await endpoint.call("browser_view", {"op": "start"}, "Eden")
+    assert error and "J.A.R.V.I.S. app window" in text
+    text, error = await endpoint.call("browser_view", {"op": "status", "id": "bv-nope"}, "Eden")
+    assert error

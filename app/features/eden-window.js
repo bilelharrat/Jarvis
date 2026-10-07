@@ -8,6 +8,11 @@
 // ('feature:eden:try': macOS's own and JARVIS's other shortcuts are refused), and the last
 // setting is kept in eden-window.json so the shortcut works before the backend answers.
 // While Settings records any shortcut ('feature:shell:recording') this one steps aside too.
+// Eden's browser panel in this window (askeden web/chat/browser-pane.js) is Jarvis's own built-in
+// browser: eden-preload.js gives the page window.jarvisBrowser, and the tab on show is drawn
+// in the panel's slot (ctx.browserDock in main.js: the same tabs, adblock and gates). Only
+// Eden's own page in this window may ask ('feature:eden:browser:…'); the window widens while
+// the panel is open and goes back to its size after.
 // Electron comes from ctx.electron in the tests, else the real one.
 'use strict';
 
@@ -136,7 +141,7 @@ function install(ctx) {
       ...SIZE, minWidth: 360, minHeight: 440, show: false, title: 'Eden',
       alwaysOnTop: true, fullscreenable: false, skipTaskbar: true,
       backgroundColor: nativeTheme && nativeTheme.shouldUseDarkColors ? '#161618' : '#f5f5f7',
-      webPreferences: { partition: 'persist:eden', contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
+      webPreferences: { partition: 'persist:eden', preload: path.join(__dirname, '..', 'eden-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
     });
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     const wc = win.webContents;
@@ -151,8 +156,53 @@ function install(ctx) {
       openOutside(url);
     });
     wc.on('did-finish-load', focusComposer);
-    win.on('closed', () => { win = null; loadedFrom = ''; });
+    win.on('hide', () => dock().hide(win));
+    win.on('closed', () => { dock().hide(win); win = null; loadedFrom = ''; narrow = null; });
   }
+
+  // ── Eden's browser panel: Jarvis's browser, docked in this window ──
+
+  const dock = () => ctx.browserDock || { show() {}, hide() {}, bounds() {}, nav() {}, tab() {}, shields() {}, state() {} };
+  let narrow = null; // the window's size before the panel widened it
+  const fromEden = (event) => Boolean(win && !win.isDestroyed() && event && event.sender === win.webContents
+    && (!event.senderFrame || event.senderFrame === win.webContents.mainFrame) && sameSite(win.webContents.getURL(), loadedFrom));
+  const rect = (b) => {
+    const n = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0);
+    return b && typeof b === 'object' ? { x: n(b.x), y: n(b.y), width: n(b.width), height: n(b.height) } : null;
+  };
+  function widen() {
+    if (!win || narrow || win.isFullScreen()) return;
+    const [w, h] = win.getSize();
+    if (w >= 980) return;
+    narrow = { width: w, height: h };
+    const area = screen ? screen.getDisplayMatching(win.getBounds()).workArea : null;
+    const width = Math.min(1180, area ? area.width - 40 : 1180);
+    const height = Math.max(h, Math.min(780, area ? area.height - 40 : 780));
+    win.setSize(width, height, true);
+    if (area) { const [x, y] = win.getPosition(); win.setPosition(Math.max(area.x, Math.min(x, area.x + area.width - width)), Math.max(area.y, Math.min(y, area.y + area.height - height)), true); }
+  }
+  function unwiden() {
+    if (!win || !narrow) return;
+    win.setSize(narrow.width, narrow.height, true);
+    narrow = null;
+  }
+  ipcMain.handle(`${CH}browser:open`, (event, want) => {
+    if (!fromEden(event)) return false;
+    if (want === false) { dock().hide(win); unwiden(); return true; }
+    widen();
+    return true;
+  });
+  ipcMain.handle(`${CH}browser:show`, (event, bounds) => { if (fromEden(event) && rect(bounds)) dock().show(win, rect(bounds)); });
+  ipcMain.handle(`${CH}browser:hide`, (event) => { if (fromEden(event)) dock().hide(win); });
+  ipcMain.handle(`${CH}browser:bounds`, (event, bounds) => { if (fromEden(event) && rect(bounds)) dock().bounds(win, rect(bounds)); });
+  ipcMain.handle(`${CH}browser:nav`, (event, action, url) => {
+    if (fromEden(event) && ['go', 'back', 'forward', 'reload', 'stop'].includes(action)) dock().nav(action, typeof url === 'string' ? url : '');
+  });
+  ipcMain.handle(`${CH}browser:tab`, (event, action, id) => {
+    if (fromEden(event) && ['new', 'select', 'close'].includes(action)) dock().tab(action, Number(id) || 0);
+  });
+  ipcMain.handle(`${CH}browser:shields`, (event) => { if (fromEden(event)) dock().shields(); });
+  ipcMain.handle(`${CH}browser:state`, (event) => { if (fromEden(event)) dock().state(); });
 
   // Centred on the display with the pointer, in its upper part (where Spotlight opens).
   function place() {

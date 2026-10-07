@@ -35,13 +35,14 @@ export function browserTaskPanel(body, opts = {}) {
   const root = el('div', 'act-root');
   body.append(root);
   const id = remembered();
-  if (id) watch(root, id); else form(root, opts.goal || '');
+  if (id) watch(root, id); else form(root, opts.goal || '', opts.url || '');
 }
 
-async function form(root, goal = '') {
+async function form(root, goal = '', start = '') {
   const ta = el('textarea', { rows: 3, maxlength: 1000, placeholder: 'e.g. Find the cheapest TAP flight to Lisbon on 18 October and put it in the basket', 'aria-label': 'What to do on a website' });
   ta.value = goal;
   const url = el('input', { type: 'url', placeholder: 'https://… (optional)', 'aria-label': 'Where to start' });
+  if (/^https?:\/\//.test(start)) url.value = start; // from the browser panel: the page it's on
   const shots = el('input', { type: 'checkbox', id: 'webShots' });
   const go = el('button', { type: 'submit', class: 'btn primary' }, ico('globe', 14), 'Start');
   const recent = el('div', 'act-recent');

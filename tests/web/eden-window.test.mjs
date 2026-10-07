@@ -33,10 +33,16 @@ function fake({ userData = mkdtempSync(path.join(tmpdir(), 'eden-window-')), up 
       this.webContents = new EventEmitter();
       this.webContents.setWindowOpenHandler = (fn) => { this.openHandler = fn; };
       this.webContents.executeJavaScript = (code) => { this.js.push(code); return Promise.resolve(); };
+      this.webContents.mainFrame = { main: true };
+      this.webContents.getURL = () => this.loaded.at(-1) || '';
       windows.push(this);
     }
     setVisibleOnAllWorkspaces() {}
     loadURL(url) { this.loaded.push(url); return Promise.resolve(); }
+    isFullScreen() { return false; }
+    setSize(width, height) { this.options = { ...this.options, width, height }; }
+    getBounds() { return { x: 0, y: 0, width: this.options.width, height: this.options.height }; }
+    getPosition() { return this.at || [0, 0]; }
     isDestroyed() { return false; }
     isVisible() { return this.visible; }
     isFocused() { return this.focused; }
@@ -53,6 +59,7 @@ function fake({ userData = mkdtempSync(path.join(tmpdir(), 'eden-window-')), up 
     screen: {
       getCursorScreenPoint: () => ({ x: 10, y: 10 }),
       getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 38, width: 1512, height: 870 } }),
+      getDisplayMatching: () => ({ workArea: { x: 0, y: 38, width: 1512, height: 870 } }),
     },
     shell: { openExternal: (url) => { opened.push(url); return Promise.resolve(); } },
   };
@@ -151,4 +158,36 @@ test('kept for the next launch, and out of the way while Settings records a shor
   await new Promise((r) => setTimeout(r, 80)); // a recording that never said it ended
   assert.ok(keys.mine.has('Control+Alt+E'));
   assert.deepEqual(eden.normalize({ on: 'yes', accelerator: 'Command+Tab' }), { on: false, accelerator: eden.DEFAULT_KEYS });
+});
+
+test('Eden’s browser panel: Jarvis’s own browser docked in the window, asked for by Eden’s page only', async () => {
+  const t = fake();
+  const calls = [];
+  t.ctx.browserDock = {
+    show: (host, b) => calls.push(['show', host, b]), hide: (host) => calls.push(['hide', host]),
+    bounds: (host, b) => calls.push(['bounds', host, b]), nav: (a, u) => calls.push(['nav', a, u]),
+    tab: (a, id) => calls.push(['tab', a, id]), shields: () => calls.push(['shields']), state: () => calls.push(['state']),
+  };
+  await t.feature.toggle();
+  const win = t.electron.windows[0];
+  assert.match(win.options.webPreferences.preload, /eden-preload\.js$/);
+  const h = (ch) => t.ipcMain.handlers.get(`feature:eden:browser:${ch}`);
+  const mine = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+  const frame = { sender: win.webContents, senderFrame: { main: false } };
+  const other = { sender: 'someone else' };
+  assert.equal(await h('open')(mine, true), true);
+  assert.deepEqual(win.getSize(), [1180, 780], 'the window widens for the panel');
+  h('show')(mine, { x: 500, y: 52.4, width: 600, height: 'x' });
+  h('nav')(mine, 'go', 'example.com');
+  h('nav')(mine, 'eval', 'x');
+  h('tab')(mine, 'new');
+  h('show')(frame, { x: 1, y: 1, width: 1, height: 1 });
+  h('nav')(other, 'go', 'evil.example');
+  assert.deepEqual(calls, [['show', win, { x: 500, y: 52, width: 600, height: 0 }], ['nav', 'go', 'example.com'], ['tab', 'new', 0]]);
+  assert.equal(await h('open')(other, false), false);
+  assert.equal(await h('open')(mine, false), true);
+  assert.deepEqual(calls.at(-1), ['hide', win]);
+  assert.deepEqual(win.getSize(), [440, 660], 'and goes back to its size');
+  win.emit('hide');
+  assert.deepEqual(calls.at(-1), ['hide', win], 'hiding the window takes the browser out of it');
 });
