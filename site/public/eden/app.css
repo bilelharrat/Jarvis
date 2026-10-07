@@ -109,7 +109,10 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 .side-foot{display:flex;align-items:center;gap:9px;padding:10px 12px;border-top:.5px solid var(--sep)}
 .side-foot .grow{flex:1;min-width:0}
 .side-foot .who{font-size:12px;font-weight:600}
-.orb{width:26px;height:26px;border-radius:50%;background:var(--orb);box-shadow:inset 0 1px 1px rgba(255,255,255,.5),0 2px 8px rgba(22,119,201,.4);flex:none;animation:breathe 8s ease-in-out infinite}
+.orb{width:26px;height:26px;border-radius:26%;background:#0E2747 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%23ffffff' stroke='%23ffffff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E") center/56% no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 2px 8px rgba(14,39,71,.25);flex:none}
+/* The Ask Eden mark (askeden.com's header): navy with a white mark; flipped in dark mode. */
+[data-theme="dark"] .orb{background:#f4f5f7 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%230E2747' stroke='%230E2747' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E") center/56% no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 2px 8px rgba(0,0,0,.35)}
+@media (prefers-color-scheme:dark){:root:not([data-theme]) .orb{background:#f4f5f7 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%230E2747' stroke='%230E2747' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E") center/56% no-repeat}}
 @keyframes breathe{0%,100%{filter:brightness(1)}50%{filter:brightness(1.06)}}
 .listen{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)}
 .listen .ld{width:6px;height:6px;border-radius:50%;background:var(--done)}
