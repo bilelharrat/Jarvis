@@ -1137,6 +1137,13 @@ function init() {
     history.replaceState(null, '', location.pathname + location.search);
     setTimeout(() => openSettings(0), 0);
   }
+  // The native iOS app opens a secondary space in a sheet: /#open=mail (calendar, tasks, brief…).
+  const op = /^#open=(\w+)$/.exec(location.hash);
+  const opens = { brief: openBrief, calendar: openCalendar, files: openFiles, mail: () => openSpace('mail'), routines: () => openSpace('routines'), brain: () => openSpace('brain'), memory: () => openSpace('memory'), meetings: () => openSpace('meetings'), activity: () => openSpace('activity') };
+  if (op && opens[op[1]]) {
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(opens[op[1]], 300);
+  }
   // G3 background tasks (their approval card shows anywhere) and H9 saved workflows.
   initTasks({ beforeOpen: clearPhoneOverlays });
   initWorkflows({

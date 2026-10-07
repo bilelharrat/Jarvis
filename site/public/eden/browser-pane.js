@@ -106,7 +106,7 @@ function build() {
     el('div', 'browser-bar', back, fwd, reload, form, zoom, ai, lib, more, progress),
     suggest, find, slot, downloads);
   Object.assign(P, { back, fwd, reload, addr, site, shield, star, suggest, zoom, ai, lib, more, progress, tabs, find, findIn, findCount, slot, downloads, wide, url: '', loading: false });
-  $('split').append(pane);
+  $('center').append(pane); // beside the chat column, title bar to bottom; the input bar stays under the chat (browser.css)
   edgeResize(pane);
 }
 /** Wide: the panel over the whole window (and on request truly full screen, where ⌘T and ⌘W reach it too). */
