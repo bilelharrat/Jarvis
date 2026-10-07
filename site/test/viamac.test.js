@@ -324,7 +324,9 @@ test('route events: a Mac’s local or API-key turns say where they ran; other e
 
 test('a browser signed in within 10 minutes links a Mac to its own account; the Mac gets no sync key', async () => {
   const owner = await browser(A);
-  assert.deepEqual(await (await hit('/api/web/mac-link', { session: owner })).json(), { fresh: true, seconds: 599 });
+  const fresh = await (await hit('/api/web/mac-link', { session: owner })).json();
+  assert.equal(fresh.fresh, true);
+  assert.ok(fresh.seconds === 599 || fresh.seconds === 600, `seconds: ${fresh.seconds}`); // the clock may or may not tick between sign-in and asking
   const started = await macStart('Bilel’s MacBook Pro');
   assert.equal((await macPoll(started)).status, 202);
   const peek = await (await hit(`/api/web/mac-link/${started.code.toLowerCase()}`, { session: owner })).json();

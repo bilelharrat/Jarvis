@@ -380,14 +380,14 @@ test('included AI streams through, counts what it cost, and stops at the allowan
   const phone = await signIn();
   anthropicAnswer = messageStream('claude-opus-5-5', 20000, 30000); // 0.08 + 0.60 = $0.68
   const ask = (headers = { authorization: `Bearer ${phone.token}` }, model = 'claude-opus-5-5') =>
-    api('/anthropic/v1/messages', { method: 'POST', headers: { ...headers, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'x-test' }, body: { model, stream: true, max_tokens: 10, messages: [] } });
+    api('/anthropic/v1/messages', { method: 'POST', headers: { ...headers, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'x-test, interleaved-thinking-2025-05-14,code-execution-2025-08-25' }, body: { model, stream: true, max_tokens: 10, messages: [] } });
   const first = await ask();
   assert.equal(first.status, 200);
   assert.match(await first.text(), /Good evening\./);
   await Promise.all(waits.splice(0));
   const sent = calls.find((c) => c.url === 'https://api.anthropic.com/v1/messages');
   assert.equal(sent.init.headers.get('x-api-key'), 'sk-test');
-  assert.equal(sent.init.headers.get('anthropic-beta'), 'x-test');
+  assert.equal(sent.init.headers.get('anthropic-beta'), 'interleaved-thinking-2025-05-14', 'only allowlisted betas pass');
   assert.equal(sent.init.headers.get('authorization'), null, 'the Jarvis token never goes to Anthropic');
   let account = await (await api('/account', { token: phone.token })).json();
   assert.equal(account.usage.trial_left_usd, 0.32);

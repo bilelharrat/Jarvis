@@ -474,7 +474,7 @@ async function providerAttempt(request, env, form = null) {
   const link = new URL(request.url).searchParams.get('link') === '1';
   // /signin's buttons post the Turnstile token: checked now, and remembered for this attempt
   // (`human:<state>`) so its callback may make a new account (accounts/turnstile.js).
-  const human = Boolean(form) && !link && turnstileOn(env) && (await checkHuman(env, form.get('cf-turnstile-response'), clientIp(request)));
+  const human = Boolean(form) && !link && turnstileOn(env) && (await checkHuman(env, form.get('cf-turnstile-response'), clientIp(request), { host: new URL(request.url).hostname }));
   const state = b64url(randomBytes(24));
   const nonce = b64url(randomBytes(24));
   if (link) {
@@ -675,7 +675,7 @@ async function passkeyOptions(request, env) {
   // A new account: sign-ups open, and the person check now, before the device makes a passkey for nothing.
   if (mode === 'signup') {
     checkSignups(env);
-    await checkHuman(env, body.turnstile, clientIp(request));
+    await checkHuman(env, body.turnstile, clientIp(request), { host: new URL(request.url).hostname });
   }
   const challenge = b64url(randomBytes(32));
   await callLink(env, `pk:${challenge}`, 'stash', { value, seconds: PASSKEY_SECONDS });

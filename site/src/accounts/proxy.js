@@ -9,7 +9,33 @@ import { MODELS } from '../eden/vendor/model-router.js';
 import { serviceFallback, serviceFetch, sseOf as sseText } from './service-ai.js';
 
 const ANTHROPIC = 'https://api.anthropic.com';
-const PASS_HEADERS = ['anthropic-version', 'anthropic-beta', 'content-type'];
+const PASS_HEADERS = ['anthropic-version', 'content-type'];
+
+// The anthropic-beta values passed through: only those whose cost is all tokens (or web
+// searches), which costOf counts. Any other beta (code execution's container time, the Files
+// API, MCP connectors, 1M-context pricing, …) is dropped, so it can't spend what isn't counted
+// (docs/security-review-2026-10-07.md, finding 4).
+export const BETAS = new Set([
+  'claude-code-20250219',
+  'interleaved-thinking-2025-05-14',
+  'fine-grained-tool-streaming-2025-05-14',
+  'token-efficient-tools-2025-02-19',
+  'prompt-caching-2024-07-31',
+  'extended-cache-ttl-2025-04-11',
+  'context-management-2025-06-27',
+  'output-128k-2025-02-19',
+  'server-side-fallback-2026-07-01',
+]);
+
+/** The allowed betas of an anthropic-beta header, comma-joined, or '' for none. */
+export function allowedBetas(header) {
+  const seen = new Set();
+  for (const raw of String(header || '').split(',')) {
+    const beta = raw.trim().toLowerCase();
+    if (BETAS.has(beta)) seen.add(beta);
+  }
+  return [...seen].join(',');
+}
 
 // List prices, dollars per million tokens: [input, output, cache reads as a share of input].
 // Cache writes are 1.25× input (5 minutes) or 2× (an hour). Unknown models cost the most.
@@ -209,6 +235,8 @@ export async function forward(request, env, ctx, path, record) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  const betas = allowedBetas(request.headers.get('anthropic-beta'));
+  if (betas) headers.set('anthropic-beta', betas);
   if (!headers.has('anthropic-version')) headers.set('anthropic-version', '2023-06-01');
   if (!headers.has('content-type')) headers.set('content-type', 'application/json');
   const upstream = await fetch(`${ANTHROPIC}${path}`, { method: 'POST', headers, body: bodyText });

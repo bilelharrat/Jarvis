@@ -333,8 +333,8 @@ Keychain; a Mac can be linked in the browser at `<server>/link` (docs/web-auth.m
 ### Included AI (Anthropic-compatible proxy)
 
 `POST /anthropic/v1/messages`, `POST /anthropic/v1/messages/count_tokens` (auth: Bearer or
-`x-api-key`). The body and headers are Anthropic's (`anthropic-version`, `anthropic-beta`
-pass through); the server swaps in its own key. So:
+`x-api-key`). The body and headers are Anthropic's (`anthropic-version` passes through; `anthropic-beta`
+only for the allowlisted betas in `proxy.js` `BETAS`); the server swaps in its own key. So:
 
 - the iPhone's `ClaudeClient` points its base URL at `https://askeden.com/api/anthropic`
   with `Authorization: Bearer <token>`;

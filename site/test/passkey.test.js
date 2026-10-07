@@ -126,7 +126,7 @@ beforeEach(() => {
   forgetSessions();
   forgetGoogleKeys();
   forgetTurnstileNote();
-  siteverify = (form) => ({ success: form.get('response') === 'good-token' });
+  siteverify = (form) => ({ success: ['good-token', 'elsewhere-token'].includes(form.get('response')), hostname: form.get('response') === 'elsewhere-token' ? 'evil.example' : 'askeden.com' });
   nextGoogle = { sub: 'google-user-1', email: 'person@example.com' };
   globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input.url;
@@ -342,6 +342,8 @@ test('Turnstile: off without its keys (logged once); on, a passkey sign-up needs
   assert.equal(none.status, 403);
   assert.equal(none.body.code, 'turnstile');
   assert.equal((await options('signup', { turnstile: 'bad-token' })).status, 403);
+  // A passed check from another site's widget: its hostname isn't this request's.
+  assert.equal((await options('signup', { turnstile: 'elsewhere-token' })).status, 403);
   const ok = await signUp(await authenticator(), { turnstile: 'good-token' });
   assert.equal(ok.response.status, 200);
   const asked = calls.filter((c) => c.url === SITEVERIFY).map((c) => new URLSearchParams(c.init.body));

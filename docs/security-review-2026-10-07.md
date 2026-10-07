@@ -21,8 +21,8 @@ and security headers.
 | 1 | Medium | `accounts/index.js` `anthropic`, `accounts/account.js` `allowAi` | Fixed |
 | 2 | Low | `accounts/apple.js` `verifyIdentityToken` | Fixed |
 | 3 | Low | `eden/session.js` `deleteWebAccount` | Open (product decision) |
-| 4 | Low | `accounts/proxy.js` `PASS_HEADERS` (`anthropic-beta`) | Open |
-| 5 | Low | `accounts/turnstile.js` `checkHuman` | Open |
+| 4 | Low | `accounts/proxy.js` `PASS_HEADERS` (`anthropic-beta`) | Fixed |
+| 5 | Low | `accounts/turnstile.js` `checkHuman` | Fixed |
 | 6 | Low | `eden/web.js` `BASELINE` (HSTS) | Open |
 | 7 | Low | `/api/web/link`, `/api/web/native/apple` | Accepted |
 
@@ -63,7 +63,7 @@ Linking a Mac already needs a sign-in within the last 10 minutes (`WEB_LINK_MAC_
 Recommendation: put the same freshness rule on deletion, or ask for a passkey or provider
 re-auth. Left open because it changes the product flow.
 
-### 4. Low: the `anthropic-beta` header passes through to Anthropic, but some costs aren't counted (open)
+### 4. Low: the `anthropic-beta` header passes through to Anthropic, but some costs aren't counted (fixed)
 
 The proxy forwards `anthropic-beta`, which lets the apps' token turn on server-side tools.
 `costOf` counts tokens and web searches only. A billed extra that isn't tokens, such as
@@ -71,19 +71,25 @@ code-execution container time past the free allowance, is never counted against 
 It's bounded by the rate limit and finding 1's holds. Recommendation: forward only an allowlist
 of beta values the apps use, or refuse `tools` of server types other than web search.
 
-### 5. Low: Turnstile's answer isn't checked for hostname (open)
+**Fixed:** `anthropic-beta` is no longer passed as is. Only the betas in `proxy.js` `BETAS`
+(Claude Code's and the iPhone's, all priced in tokens) are forwarded; any other value is dropped.
+
+### 5. Low: Turnstile's answer isn't checked for hostname (fixed)
 
 `checkHuman` accepts any answer with `success: true` and doesn't compare `hostname` (or
 `action`) with this site's. Cloudflare already limits a site key to its configured hostnames,
 so the remaining risk is small. Recommendation: refuse an answer whose `hostname` isn't the
 request's host.
 
+**Fixed:** `checkHuman` takes the request's host and refuses an answer whose `hostname` differs.
+
 ### 6. Low: HSTS has no `includeSubDomains` (open)
 
 `strict-transport-security: max-age=31536000` covers only the exact host, not `messenger.` or
 `preview.`. The session cookies are `__Host-` and every POST checks the exact Origin, so a
 subdomain can't use the session. Recommendation: once every subdomain serves HTTPS, add
-`includeSubDomains` (and then preload).
+`includeSubDomains` (and then preload). Still open on 2026-10-07: not every askeden.com
+subdomain could be confirmed HTTPS-only, so it was left out.
 
 ### 7. Low: accepted residuals
 

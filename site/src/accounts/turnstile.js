@@ -48,10 +48,11 @@ export const forgetTurnstileNote = () => {
 const refuse = () => new ApiError(403, 'turnstile', 'Finish the check on the sign-in page (it confirms you’re a person), then try again.');
 
 /**
- * Checks a Turnstile token with siteverify; throws 403 `turnstile` unless it passed. With the
- * check off, passes (logged once). `f`: fetch (tests).
+ * Checks a Turnstile token with siteverify; throws 403 `turnstile` unless it passed (for
+ * `host`, when given: the answer's hostname must be the request's). With the check off, passes
+ * (logged once). `f`: fetch (tests).
  */
-export async function checkHuman(env, token, ip, { fetch: f = (u, i) => fetch(u, i) } = {}) {
+export async function checkHuman(env, token, ip, { fetch: f = (u, i) => fetch(u, i), host = null } = {}) {
   if (!turnstileOn(env)) {
     if (!warned) {
       warned = true;
@@ -70,5 +71,6 @@ export async function checkHuman(env, token, ip, { fetch: f = (u, i) => fetch(u,
     throw new ApiError(503, 'turnstile_down', 'The person check couldn’t be reached. Try again in a moment.');
   }
   if (!body || body.success !== true) throw refuse();
+  if (host && String(body.hostname || '').toLowerCase() !== String(host).toLowerCase()) throw refuse();
   return true;
 }
