@@ -980,3 +980,12 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 #sidebar.closed + #side-split{display:none}
 body.side-resizing{cursor:col-resize;user-select:none}
 body.side-resizing #sidebar{transition:none}
+
+/* The route line (model, cost, where it ran, why) sits under the reply and shows on hover/focus;
+   while it streams, on touch screens, or with its popover open, it stays shown. */
+.msg.assistant > .msg-head{order:99;margin:6px 0 0 4px}
+@media (hover:hover){
+  .msg.assistant > .msg-head{opacity:0;max-height:0;overflow:hidden;margin-top:0;transition:opacity .18s ease,max-height .22s ease,margin .22s ease}
+  .msg.assistant:hover > .msg-head,.msg.assistant > .msg-head:focus-within,.msg.assistant.streaming > .msg-head,.msg.assistant > .msg-head:has([aria-expanded="true"]){opacity:1;max-height:240px;overflow:visible;margin-top:6px}
+}
+@media (prefers-reduced-motion:reduce){.msg.assistant > .msg-head{transition:none}}

@@ -86,7 +86,7 @@ function routeChip(node) {
 }
 
 function assistantMessage(c, node, last, { lane = false } = {}) {
-  const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}`, 'data-id': node.id });
+  const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}${node.streaming ? ' streaming' : ''}`, 'data-id': node.id });
   if (node.route) {
     const head = el('div', 'msg-head');
     head.append(el('div', 'chip-wrap', routeChip(node), whereBadge(node.route)));

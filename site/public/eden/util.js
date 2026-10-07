@@ -180,12 +180,38 @@ export function placePopup(pop, anchor, side) {
 }
 
 /** Same seg control logic everywhere: thumb + .on + aria. */
+// The thumb sits exactly under the chosen button (labels of different lengths make unequal buttons);
+// before layout (hidden), the CSS's equal-width estimate stands. Re-fitted when the control resizes.
+const segFit = new WeakMap();
+function fitThumb(seg) {
+  const thumb = seg.querySelector('.seg-thumb');
+  const b = seg.querySelectorAll('button')[segFit.get(seg)?.i ?? 0];
+  if (!thumb || !b || !b.offsetWidth) return;
+  thumb.style.width = `${b.offsetWidth}px`;
+  thumb.style.transform = `translateX(${b.offsetLeft - thumb.offsetLeft}px)`;
+}
 export function setSeg(seg, i) {
   const thumb = seg.querySelector('.seg-thumb');
   if (thumb) thumb.style.setProperty('--i', i);
+  if (thumb) {
+    if (!segFit.has(seg) && typeof ResizeObserver === 'function') new ResizeObserver(() => fitThumb(seg)).observe(seg);
+    segFit.set(seg, { i });
+    fitThumb(seg);
+  }
   [...seg.querySelectorAll('button')].forEach((b, j) => {
     b.classList.toggle('on', j === i);
     if (b.getAttribute('role') === 'tab') b.setAttribute('aria-selected', String(j === i));
     if (b.getAttribute('role') === 'radio') b.setAttribute('aria-checked', String(j === i));
   });
+}
+
+// Fit every segmented control's thumb to its chosen button once the page has laid out (setSeg does it afterwards).
+if (typeof document !== 'undefined') {
+  const fitAll = () => document.querySelectorAll('.seg').forEach((seg) => {
+    if (!seg.querySelector('.seg-thumb') || segFit.has(seg)) return;
+    const i = Math.max(0, [...seg.querySelectorAll('button')].findIndex((b) => b.classList.contains('on')));
+    setSeg(seg, i);
+  });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(fitAll));
+  else requestAnimationFrame(fitAll);
 }
