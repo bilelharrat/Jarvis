@@ -10,7 +10,10 @@
 // as Eden Messenger has them (mail-model.js holds the logic; answers are cached per message).
 
 import { el, ico, toast, debounce } from './util.js';
-import { api } from './api.js';
+import { api, getJSON, postJSON } from './api.js';
+import { openCalendar } from './calendar.js';
+import { parseIcs, icsToDraft, icsStatusFor, draftFromEmail } from './calendar-rules.js';
+import { timeText } from './calendar-model.js';
 import { state } from './state.js';
 import { initCompose, openCompose } from './compose.js';
 import { routeSettings, modelInfo } from './router.js';
@@ -95,6 +98,7 @@ function normMsg(m) {
     attachments: atts.filter((a) => !(a && a.inline && a.contentId)).map((a) => (typeof a === 'string' ? a : a && a.name) || 'attachment'),
     attachmentsFull: atts.filter((a) => a && typeof a === 'object'),
     scheduledAt: m.scheduledAt || null,
+    calendar: m.calendar && typeof m.calendar.ics === 'string' ? { ics: m.calendar.ics, method: m.calendar.method || null } : null,
   };
 }
 const mail = { accounts: [], account: '', mailbox: 'inbox', query: '', source: 'gmail', google: null, rows: [], open: null, ranked: false, filter: 'all', counts: {}, digest: null };
@@ -524,7 +528,9 @@ async function openMessage(body, m) {
       el('span', 'mv-eden-l', ico('spark', 13), 'Eden'),
       btn('doc', 'Summarize', () => summarize(false), 'mx-chip'),
       isMacDraft ? null : btn('spark', 'Draft reply with Eden', () => compose('reply', { ai: 'reply' }), 'mx-chip accent'),
-      btn('chat', 'Ask Eden', () => H.askEden(msg), 'mx-chip')),
+      btn('chat', 'Ask Eden', () => H.askEden(msg), 'mx-chip'),
+      isMacDraft ? null : btn('cal', 'Add to calendar', () => addToCalendar(msg), 'mx-chip')),
+    inviteCard(msg),
     sumBox,
     el('div', { class: 'note-full mail-body', tabindex: '0', 'aria-label': 'Message' }, msg.body || msg.snippet || '(empty message)'),
     msg.attachments.length ? el('div', 'mv-atts', ...msg.attachments.map((a) => el('span', 'mv-att', ico('clip', 13), a))) : null,
@@ -535,6 +541,93 @@ async function openMessage(body, m) {
       isMacDraft ? null : btn('fwd', 'Forward', () => compose('forward'))),
     isMacDraft ? el('p', 'sp-note', 'Saving from Eden makes a new draft in Mail; Jarvis can’t edit this one in place.') : null].filter(Boolean));
   if (sumCache.get(ck(msg.id))) summarize(false); // already summarized: shown again, not billed again
+}
+
+/* ---------------- invitations and "Add to calendar" ---------------- */
+
+const INV_WORD = { accepted: 'Going', declined: 'Not going', tentative: 'Maybe', needsAction: 'Not answered yet', delegated: 'Delegated' };
+const icsWhen = (ev) => { const d = icsToDraft(ev); return d ? timeText({ allDay: d.allDay, start: d.allDay ? ymdOf(d.start) : d.start.toISOString(), end: d.allDay ? ymdOf(d.end) : d.end.toISOString() }, navigator.language || 'en-US') : ''; };
+const ymdOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Opens the calendar's editor with what this email says (its invitation, else the first date in it); nothing is added until the owner reviews it there. */
+function addToCalendar(msg, ev = null) {
+  if (!ev && msg.calendar) { const ics = parseIcs(msg.calendar.ics); ev = ics.events.find((e) => !e.recurrenceId) || ics.events[0] || null; }
+  const d = ev ? icsToDraft(ev) : null;
+  const draft = d ? { ...d, from: `From the invitation in “${msg.subject}”. Guests aren’t copied: this adds it to your own calendar only.` }
+    : (() => { const x = draftFromEmail(msg); return { ...x, from: x.found ? `Found “${x.found}” in the email: check the time.` : 'No date found in the email: pick one.' }; })();
+  openCalendar({ date: draft.start, newEvent: draft });
+}
+
+/**
+ * An invitation (a text/calendar part or .ics attachment Gmail found): what, when, where, who
+ * asks, the owner's answer, and Yes / No / Maybe through Google Calendar when the event is in it
+ * (Google sends the answer to the organizer), plus Add to calendar. Shown as data, set as text.
+ */
+function inviteCard(msg) {
+  if (!msg.calendar || !msg.calendar.ics) return null;
+  let ics;
+  try { ics = parseIcs(msg.calendar.ics); } catch { return null; }
+  const ev = ics.events.find((e) => !e.recurrenceId) || ics.events[0];
+  if (!ev || !ev.start) return null;
+  const method = String(msg.calendar.method || ics.method || '').toUpperCase();
+  const mine = [mail.google && mail.google.email, msg.account, ...((msg.to || []).length === 1 ? msg.to : [])].map((a) => emailOf(String(a || '')) || String(a || '')).filter(Boolean);
+  const icsStatus = icsStatusFor(ev, mine);
+  const kind = method === 'CANCEL' || ev.status === 'CANCELLED' ? 'Cancelled event' : method === 'REPLY' ? 'Reply to your invitation' : ev.sequence > 0 ? 'Updated invitation' : 'Invitation';
+  const status = el('span', 'inv-status');
+  const note = el('p', { class: 'inv-note', 'aria-live': 'polite' });
+  const btns = [['accepted', 'Yes'], ['declined', 'No'], ['tentative', 'Maybe']].map(([v, t]) => el('button', { type: 'button', class: 'inv-rs', 'data-rsvp': v, disabled: true, 'aria-pressed': 'false' }, t));
+  const openBtn = el('button', { type: 'button', class: 'mx-chip', hidden: true }, ico('cal', 13), el('span', '', 'Open in calendar'));
+  const addBtn = el('button', { type: 'button', class: 'mx-chip', onclick: () => addToCalendar(msg, ev) }, ico('plus', 13), el('span', '', 'Add to calendar'));
+  const paintStatus = (s) => {
+    status.textContent = s ? INV_WORD[s] || s : '';
+    status.className = `inv-status st-${s || 'none'}`;
+    btns.forEach((b) => { const on = b.dataset.rsvp === s; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  };
+  paintStatus(icsStatus);
+  const reply = method === 'REPLY' ? (ev.attendees || []).find((a) => a.status !== 'needsAction') : null;
+  const asking = method !== 'REPLY' && method !== 'CANCEL' && ev.status !== 'CANCELLED';
+  const card = el('section', { class: `mx-inv${asking ? '' : ' quiet'}`, 'aria-label': kind },
+    el('div', 'inv-top', el('span', 'inv-ico', ico('cal', 16)), el('span', 'inv-kind', kind), status),
+    el('h4', 'inv-title', ev.summary || '(No title)'),
+    el('div', 'inv-row', ico('clock', 13), el('span', '', icsWhen(ev)), ev.rrule ? el('small', '', ' · repeats') : null),
+    ev.location ? el('div', 'inv-row', ico('globe', 13), el('span', '', ev.location)) : null,
+    ev.organizer ? el('div', 'inv-row', ico('user', 13), el('span', '', `Organizer: ${ev.organizer.name || ev.organizer.email}`)) : null,
+    ev.attendees.length ? el('div', 'inv-row', ico('user', 13), el('span', '', `${ev.attendees.length} guest${ev.attendees.length === 1 ? '' : 's'}${['accepted', 'declined', 'tentative'].map((k) => [k, ev.attendees.filter((a) => a.status === k).length]).filter(([, n]) => n).map(([k, n]) => ` · ${n} ${k === 'accepted' ? 'yes' : k === 'declined' ? 'no' : 'maybe'}`).join('')}`)) : null,
+    reply ? el('div', 'inv-row', ico('check', 13), el('span', '', `${reply.name || reply.email} answered: ${INV_WORD[reply.status] || reply.status}`)) : null,
+    asking ? el('div', 'inv-acts', el('span', 'inv-going', 'Going?'), el('div', { class: 'inv-btns', role: 'group', 'aria-label': 'Your answer' }, ...btns), el('span', 'grow'), addBtn, openBtn) : el('div', 'inv-acts', el('span', 'grow'), openBtn),
+    note);
+  // Is it in Google Calendar? Then Yes / No / Maybe answer there (Google tells the organizer).
+  if (ev.uid) (async () => {
+    let st;
+    try { st = await getJSON('/api/chat/gcal/status'); } catch { st = null; }
+    if (!st || !st.calendar) { if (asking) note.textContent = 'Connect Google Calendar (Calendar › Connect) to answer here.'; return; }
+    let found;
+    try { found = await postJSON('/api/chat/gcal', { action: 'findInvite', args: { iCalUID: ev.uid } }); } catch (e) { note.textContent = `Couldn’t look in your calendar: ${e.message}`; return; }
+    if (!document.contains(card)) return;
+    const gev = found && found.event;
+    if (!gev) { if (asking) note.textContent = 'Not in your Google Calendar yet: answer from the organizer’s email, or add it to your calendar.'; return; }
+    const self = (gev.attendees || []).find((a) => a.self);
+    paintStatus(gev.selfStatus || (self && self.status) || icsStatus);
+    openBtn.hidden = false;
+    openBtn.onclick = () => openCalendar({ date: new Date(gev.allDay ? `${gev.start}T00:00` : gev.start) });
+    addBtn.hidden = true;
+    if (!self || self.organizer) { note.textContent = self && self.organizer ? 'You organized this event.' : ''; return; }
+    btns.forEach((b) => {
+      b.disabled = false;
+      b.onclick = async () => {
+        btns.forEach((x) => { x.disabled = true; });
+        note.textContent = 'Sending your answer…';
+        try {
+          await postJSON('/api/chat/gcal', { action: 'respond', args: { calendarId: found.calendarId || gev.calendarId, id: gev.id, status: b.dataset.rsvp, sendUpdates: 'all', confirm: true } });
+          paintStatus(b.dataset.rsvp);
+          note.textContent = `Answered ${b.textContent}: Google Calendar has it and the organizer is told.`;
+        } catch (e) { note.textContent = `Couldn’t answer: ${e.message}`; }
+        btns.forEach((x) => { x.disabled = false; });
+      };
+    });
+    note.textContent = '';
+  })();
+  return card;
 }
 
 export function emailText(m) {

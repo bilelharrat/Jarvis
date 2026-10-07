@@ -8,6 +8,8 @@
 import { el as baseEl, ico, toast, store, isMobile, placePopup, setSeg } from './util.js';
 import { api, getJSON, postJSON, jarvisApprovalWaiting } from './api.js';
 import * as M from './calendar-model.js';
+import * as RR from './calendar-rules.js';
+import { openCompose, sanitizeHtml } from './compose.js';
 
 const LOCALE = (navigator.languages && navigator.languages[0]) || navigator.language || 'en-US';
 const FIRST_DAY = M.firstDayOfWeek(LOCALE);
@@ -15,7 +17,13 @@ const HOUR_PX = 48;
 const LANE_PX = 21;
 const ALLDAY_LANES = 3;
 const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
-const VIEW_LABEL = { day: 'Day', week: 'Week', month: 'Month', agenda: 'Agenda' };
+const VIEW_LABEL = { day: 'Day', week: 'Week', month: 'Month', year: 'Year', agenda: 'Schedule' };
+const VIEW_KEY = { day: 'D', week: 'W', month: 'M', year: 'Y', agenda: 'A' };
+/** Working hours, shaded outside in the day and week views (kept in this browser). */
+const WORK = (() => { const w = store.get('eden:cal:workhours', null); return w && w.start >= 0 && w.end <= 24 && w.start < w.end ? w : { start: 9, end: 17 }; })();
+/** Google's event colours (colorId), as Google Calendar names them. */
+const G_COLORS = [['1', 'Lavender', '#7986cb'], ['2', 'Sage', '#33b679'], ['3', 'Grape', '#8e24aa'], ['4', 'Flamingo', '#e67c73'], ['5', 'Banana', '#f6bf26'], ['6', 'Tangerine', '#f4511e'], ['7', 'Peacock', '#039be5'], ['8', 'Graphite', '#616161'], ['9', 'Blueberry', '#3f51b5'], ['10', 'Basil', '#0b8043'], ['11', 'Tomato', '#d50000']];
+const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 const RETURN_KEY = 'eden:cal:return';
 /** Calendar colours to choose from: the design tokens (accent, run, wait, warn, danger), then Apple's other system colours. */
 const COLOURS = [
@@ -43,6 +51,7 @@ const S = {
   scroll: null, alldayOpen: false, selectedDay: null, sideOpen: false,
   approval: jarvisApprovalWaiting(), // a Jarvis call is waiting on the "Let Eden use Jarvis?" card
   drag: null, preview: null, dragDirty: false, justDragged: 0, colorMenu: null,
+  query: '', contacts: null, seriesRules: new Map(),
 };
 let R = {}; // the surface's elements
 
@@ -71,6 +80,20 @@ function colorOf(e, cals = calendarsById()) { const c = cals.get(evCalKey(e)); r
 function visibleEvents() {
   return [...S.mac.events, ...S.google.events].filter((e) => !S.hidden.has(evCalKey(e)));
 }
+/** Events matching the search (title, place, notes, guests), across what's loaded. */
+function searchHits() {
+  const q = S.query.trim().toLowerCase();
+  if (!q) return [];
+  return visibleEvents().filter((e) => `${e.title} ${e.location} ${e.notes} ${(e.attendees || []).map((a) => `${a.name} ${a.email}`).join(' ')}`.toLowerCase().includes(q))
+    .sort((a, b) => M.bounds(a).s - M.bounds(b).s);
+}
+/** The owner's answer to an invitation shown on the event: declined, maybe, or not answered yet. */
+function rsvpClass(e) {
+  const s = e.selfStatus || ((e.attendees || []).find((a) => a.self) || {}).status;
+  const organizer = (e.attendees || []).some((a) => a.self && a.organizer) || (e.organizer && e.organizer.self);
+  if (!s || organizer) return '';
+  return s === 'declined' ? ' declined' : s === 'tentative' ? ' maybe' : s === 'needsAction' ? ' invited' : '';
+}
 const covers = (have, want) => have && have.start <= want.start && have.end >= want.end;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 const fmtTime = (d) => d.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' });
@@ -85,8 +108,15 @@ function range() { return M.rangeFor(S.view, S.anchor, FIRST_DAY); }
 
 /* ---------------- loading ---------------- */
 
+/** What to read: the view's days; a search reads 30 days back and 60 ahead; the year view reads nothing more (its months show what's loaded). */
+function loadRange() {
+  if (S.query) { const t = M.startOfDay(new Date()); return { start: M.addDays(t, -30), end: M.addDays(t, 60), days: [] }; }
+  if (S.view === 'year') return null;
+  return range();
+}
 async function load(force = false) {
-  const r = range();
+  const r = loadRange();
+  if (!r) { render(); return; }
   const work = [loadMac(r, ++S.macSeq, force), loadGoogle(r, ++S.gSeq, force)];
   render();
   await Promise.allSettled(work);
@@ -173,8 +203,8 @@ function toggleCalendar(c) {
 function build() {
   if (S.built) return;
   S.built = true;
-  const seg = el('div', { class: 'seg cal-seg', style: { '--n': 4 }, role: 'tablist', 'aria-label': 'View' }, el('div', 'seg-thumb'),
-    ...M.VIEWS.map((v) => el('button', { type: 'button', role: 'tab', 'data-view': v, title: `${VIEW_LABEL[v]} (${v[0].toUpperCase()})` }, VIEW_LABEL[v])));
+  const seg = el('div', { class: 'seg cal-seg', style: { '--n': M.VIEWS.length }, role: 'tablist', 'aria-label': 'View' }, el('div', 'seg-thumb'),
+    ...M.VIEWS.map((v) => el('button', { type: 'button', role: 'tab', 'data-view': v, title: `${VIEW_LABEL[v]} (${VIEW_KEY[v]})` }, VIEW_LABEL[v])));
   seg.addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
   R.title = el('h2', { class: 'cal-title', id: 'calTitle' });
   R.busy = el('span', { class: 'cal-busy', 'aria-hidden': 'true' });
@@ -182,17 +212,25 @@ function build() {
   R.prev = el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Previous', title: 'Previous (←)', onclick: () => step(-1) }, ico('chevl'));
   R.next = el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Next', title: 'Next (→)', onclick: () => step(1) }, ico('chevr'));
   R.today = el('button', { type: 'button', class: 'btn cal-today', title: 'Today (T)', onclick: goToday }, 'Today');
+  R.search = el('input', { type: 'search', class: 'cal-search-in', placeholder: 'Search events', 'aria-label': 'Search events (/)', autocomplete: 'off', spellcheck: 'false' });
+  let searchT = 0;
+  R.search.addEventListener('input', () => {
+    clearTimeout(searchT);
+    searchT = setTimeout(() => { const was = !!S.query; S.query = R.search.value.trim(); closePop(); if (!!S.query !== was) load(false); else renderView(); }, 160);
+  });
+  R.search.addEventListener('keydown', (e) => { if (e.key === 'Escape' && R.search.value) { e.preventDefault(); e.stopPropagation(); R.search.value = ''; S.query = ''; load(false); } });
   R.sideBtn = el('button', { type: 'button', class: 'iconbtn cal-side-btn', 'aria-label': 'Calendars', title: 'Calendars', 'aria-expanded': 'false', onclick: () => { S.sideOpen = !S.sideOpen; renderSideState(); } }, ico('side'));
   const head = el('header', 'cal-head',
     R.sideBtn,
     el('div', 'cal-titlewrap', ico('cal', 18, 'cal-ico'), R.title, R.busy),
     el('span', 'cal-sp'),
+    el('label', 'cal-search', ico('search', 13), R.search),
     seg,
     el('div', 'cal-nav', R.prev, R.today, R.next),
     el('div', 'cal-acts',
       el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Refresh', title: 'Refresh', onclick: () => load(true) }, ico('retry', 15)),
       el('button', { type: 'button', class: 'cap cal-use', title: 'Add what this view shows to your next message', onclick: useRange }, ico('chat', 12), el('span', '', 'Use in chat')),
-      el('button', { type: 'button', class: 'cap primary cal-newbtn', title: 'New event (N)', onclick: () => newEvent() }, ico('plus', 12), el('span', '', 'New event')),
+      el('button', { type: 'button', class: 'cap primary cal-newbtn', title: 'New event (C)', onclick: () => newEvent() }, ico('plus', 12), el('span', '', 'New event')),
       el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Close calendar', title: 'Close · esc', onclick: closeCalendar }, ico('x'))));
   R.mini = el('div', 'cal-mini');
   R.cals = el('div', 'cal-cals');
@@ -291,8 +329,12 @@ function onKey(e) {
   else if (k === 'd') setView('day');
   else if (k === 'w') setView('week');
   else if (k === 'm') setView('month');
+  else if (k === 'y') setView('year');
   else if (k === 'a') setView('agenda');
-  else if (k === 'n') newEvent();
+  else if (k === 'n' || k === 'c') newEvent();
+  else if (e.key === '/') { R.search.focus(); R.search.select(); }
+  else if (e.key === 'ArrowUp' && S.view !== 'agenda' && !e.target.closest('.seg')) step(-1);
+  else if (e.key === 'ArrowDown' && S.view !== 'agenda' && !e.target.closest('.seg')) step(1);
   else return;
   e.preventDefault();
 }
@@ -351,7 +393,7 @@ function renderSide() {
     const cls = ['cal-mini-day'];
     if (d.getMonth() !== m.getMonth()) cls.push('other');
     if (M.sameDay(d, today)) cls.push('today');
-    if (S.view !== 'month' && S.view !== 'agenda' && d >= r.start && d < r.end) cls.push('inrange');
+    if (S.view !== 'month' && S.view !== 'agenda' && S.view !== 'year' && d >= r.start && d < r.end) cls.push('inrange');
     if (M.sameDay(d, S.anchor)) cls.push('sel');
     if (withEvents.has(M.ymd(d))) cls.push('dot');
     return el('button', { type: 'button', class: cls.join(' '), 'aria-label': d.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' }), onclick: () => goDay(d, S.view === 'agenda' ? 'agenda' : null) }, String(d.getDate()));
@@ -484,17 +526,19 @@ function renderView() {
   const events = visibleEvents();
   const cals = calendarsById();
   let body;
-  if (S.view === 'month') body = isMobile() ? monthMobile(r, events, cals) : monthView(r, events, cals);
+  if (S.query) body = searchView(cals);
+  else if (S.view === 'year') body = yearView(r, events);
+  else if (S.view === 'month') body = isMobile() ? monthMobile(r, events, cals) : monthView(r, events, cals);
   else if (S.view === 'agenda') body = agendaView(r, events, cals);
   else body = timeGrid(r.days, events, cals);
-  R.view.className = `cal-view v-${S.view}`;
+  R.view.className = `cal-view v-${S.query ? 'search' : S.view}`;
   R.view.replaceChildren(body);
   const anyHere = events.some((e) => M.overlaps(e, r.start, r.end));
-  if (!busy() && !anyHere && (usable(S.mac) || usable(S.google)) && S.view !== 'agenda') {
+  if (!busy() && !anyHere && (usable(S.mac) || usable(S.google)) && S.view !== 'agenda' && S.view !== 'year' && !S.query) {
     R.view.append(el('div', 'cal-empty', S.view === 'day' ? 'Nothing on your calendar this day.' : S.view === 'week' ? 'Nothing on your calendar this week.' : 'Nothing on your calendar this month.'));
   }
   // while Jarvis waits on its card the banner says "Approve Eden on your Mac" instead of a spinner
-  if (busy() && !anyHere && !(S.approval && S.mac.state === 'loading')) R.view.append(el('div', 'cal-loading', el('span', 'cal-spin'), 'Loading your calendars…'));
+  if (busy() && !anyHere && !S.query && S.view !== 'year' && !(S.approval && S.mac.state === 'loading')) R.view.append(el('div', 'cal-loading', el('span', 'cal-spin'), 'Loading your calendars…'));
   const sc = R.view.querySelector('.cal-tg-scroll');
   if (sc) {
     const now = new Date();
@@ -516,7 +560,7 @@ function chip(e, cals, extra = {}) {
   const v = extra.shown || e, moved = v !== e;
   const can = canDayDrag(e);
   const b = el('button', {
-    type: 'button', class: `cal-chip${e.allDay || M.isLong(e) ? ' bar' : ''}${extra.cls ? ` ${extra.cls}` : ''}${moved ? ' moved' : ''}${can ? ' can-drag' : ''}`,
+    type: 'button', class: `cal-chip${e.allDay || M.isLong(e) ? ' bar' : ''}${extra.cls ? ` ${extra.cls}` : ''}${moved ? ' moved' : ''}${can ? ' can-drag' : ''}${rsvpClass(e)}`,
     style: { '--c': c, ...(extra.style || {}) }, 'aria-label': `${evLabel(v, cals)}${moved ? ' (moved, press Return to review)' : ''}`, 'data-key': M.eventKey(e),
     ...(can ? { 'aria-keyshortcuts': S.view === 'month' ? 'Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown' : 'Alt+ArrowLeft Alt+ArrowRight', title: `Drag to another day · ⌥←/⌥→ moves a day${S.view === 'month' ? ', ⌥↑/⌥↓ a week' : ''}` } : {}),
   });
@@ -634,7 +678,7 @@ function timeGrid(days, events, cals) {
   // the hours
   const nowMin = days.some((d) => M.sameDay(d, today)) ? M.minutesIntoDay(today) : -999;
   const gutter = el('div', 'cal-tg-gutter', ...Array.from({ length: 23 }, (_, i) => el('span', { class: Math.abs((i + 1) * 60 - nowMin) < 14 ? 'near-now' : null, 'data-min': (i + 1) * 60, style: { top: `${(i + 1) * HOUR_PX}px` } }, hourLabel(i + 1))));
-  const grid = el('div', { class: 'cal-tg-grid', style: { gridTemplateColumns: cols, height: `${24 * HOUR_PX}px`, '--hour': `${HOUR_PX}px` } }, gutter);
+  const grid = el('div', { class: 'cal-tg-grid', style: { gridTemplateColumns: cols, height: `${24 * HOUR_PX}px`, '--hour': `${HOUR_PX}px`, '--ws': `${WORK.start * HOUR_PX}px`, '--we': `${WORK.end * HOUR_PX}px` } }, gutter);
   days.forEach((d) => {
     const col = el('div', { class: `cal-col${M.sameDay(d, today) ? ' today' : ''}${d.getDay() === 0 || d.getDay() === 6 ? ' wkend' : ''}` });
     const segs = [];
@@ -649,7 +693,7 @@ function timeGrid(days, events, cals) {
       const h = Math.max(18, ((s.endMin - s.startMin) / 60) * HOUR_PX - 2);
       const can = !s.before && canDrag(e, v); // dragged by its first day
       const b = el('button', {
-        type: 'button', class: `cal-tev${h < 30 ? ' short' : ''}${s.before ? ' cont-t' : ''}${s.after ? ' cont-b' : ''}${new Date(v.end) < today ? ' past' : ''}${v !== e ? ' moved' : ''}${can ? ' can-drag' : ''}`,
+        type: 'button', class: `cal-tev${h < 30 ? ' short' : ''}${s.before ? ' cont-t' : ''}${s.after ? ' cont-b' : ''}${new Date(v.end) < today ? ' past' : ''}${v !== e ? ' moved' : ''}${can ? ' can-drag' : ''}${rsvpClass(e)}`,
         style: { '--c': colorOf(e, cals), top: `${(s.startMin / 60) * HOUR_PX + 1}px`, height: `${h}px`, left: `calc(${(s.col / s.cols) * 100}% + 1px)`, width: `calc(${(s.span / s.cols) * 100}% - 3px)` },
         'aria-label': `${evLabel(v, cals)}${v !== e ? ' (moved, press Return to review)' : ''}`, 'data-key': M.eventKey(e),
         ...(can ? { 'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown Alt+Shift+ArrowUp Alt+Shift+ArrowDown', title: `Drag to move${!s.before && !s.after ? ', drag the bottom edge to change the length' : ''} · ⌥↑↓ moves, ⌥⇧↑↓ changes the length` } : {}),
@@ -673,8 +717,9 @@ function timeGrid(days, events, cals) {
       }
       col.append(b);
     }
+    col.addEventListener('pointerdown', (ev) => { if (ev.target === col && ev.button === 0 && ev.pointerType === 'mouse' && !S.sheet && !S.drag) startCreateDrag(ev, col, d); });
     col.addEventListener('click', (ev) => {
-      if (ev.target !== col) return;
+      if (ev.target !== col || Date.now() - S.justDragged < 400) return;
       const y = ev.offsetY;
       const min = Math.max(0, Math.min(23 * 60 + 30, Math.floor((y / HOUR_PX) * 2) * 30));
       const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(min / 60), min % 60);
@@ -782,6 +827,52 @@ function startDrag(ev, e, b, mode) {
   addEventListener('pointerup', up);
   addEventListener('pointercancel', up);
   if (st.touch) st.timer = setTimeout(activate, LONG_PRESS_MS);
+}
+/** Drag down an empty part of a day to make an event of that length (a plain click makes an hour). */
+function startCreateDrag(ev, col, day) {
+  const top = () => col.getBoundingClientRect().top;
+  const minAt = (y) => Math.max(0, Math.min(1440, M.snap(((y - top()) / HOUR_PX) * 60)));
+  const m0 = Math.min(1440 - M.SNAP_MIN, Math.floor((((ev.clientY - top()) / HOUR_PX) * 60) / M.SNAP_MIN) * M.SNAP_MIN);
+  const st = { id: ev.pointerId, y0: ev.clientY, active: false, ghost: null, a: m0, b: m0 + 60 };
+  S.drag = st;
+  const at = (min) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, min);
+  const paint = () => {
+    const a = Math.min(st.a, st.b), b = Math.max(st.a, st.b);
+    Object.assign(st.ghost.style, { top: `${(a / 60) * HOUR_PX + 1}px`, height: `${Math.max(18, ((b - a) / 60) * HOUR_PX - 2)}px` });
+    st.ghost.querySelector('.tm').textContent = `${fmtTime(at(a))} – ${fmtTime(at(b))}`;
+  };
+  const move = (m) => {
+    if (m.pointerId !== st.id) return;
+    if (!st.active) {
+      if (Math.abs(m.clientY - st.y0) < 6) return;
+      st.active = true;
+      st.ghost = el('div', { class: 'cal-tev cal-ghost cal-newghost', 'aria-hidden': 'true', style: { left: '1px', width: 'calc(100% - 3px)' } }, el('span', 't', '(No title)'), el('span', 'tm', ''));
+      col.append(st.ghost);
+      document.body.classList.add('cal-resizing');
+    }
+    m.preventDefault();
+    const cur = minAt(m.clientY);
+    st.b = cur >= m0 ? Math.max(m0 + M.SNAP_MIN, cur) : cur;
+    st.a = cur >= m0 ? m0 : Math.min(1440 - M.SNAP_MIN, m0 + M.SNAP_MIN);
+    paint();
+  };
+  const end = (u) => {
+    if (u.pointerId !== st.id) return;
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', end);
+    removeEventListener('pointercancel', end);
+    S.drag = null;
+    document.body.classList.remove('cal-resizing');
+    if (!st.active) return;
+    S.justDragged = Date.now();
+    if (st.ghost) st.ghost.remove();
+    if (u.type !== 'pointerup') return;
+    const a = Math.min(st.a, st.b), b = Math.max(st.a, st.b);
+    newEvent({ start: at(a), end: at(b) });
+  };
+  addEventListener('pointermove', move, { passive: false });
+  addEventListener('pointerup', end);
+  addEventListener('pointercancel', end);
 }
 function cancelDrag() {
   if (!S.drag) return false;
@@ -946,7 +1037,7 @@ function reviewMove(e) {
   if (!p || p.key !== M.eventKey(e)) return;
   const cal = calendarsById().get(evCalKey(e));
   if (!cal) { clearPreview(); return; }
-  reviewWrite({ mode: 'update', original: e, cal, draft: M.dragDraft(e, p.start, p.end), future: false });
+  seriesRules(e).catch(() => []).then((rules) => reviewWrite({ mode: 'update', original: e, cal, draft: M.dragDraft(e, p.start, p.end), baseRules: rules }));
 }
 function clearPreview() {
   if (!S.preview) return false;
@@ -977,6 +1068,50 @@ function tickNow() {
   if (line && !M.sameDay(new Date(), new Date(Date.now() - 60_000))) renderView(); // midnight
 }
 
+/* ----- year (twelve small months: a day opens it; dots for what's loaded) ----- */
+
+function yearView(r, events) {
+  const y = S.anchor.getFullYear();
+  const today = new Date();
+  const withEvents = new Set();
+  for (const e of events) {
+    const b = M.bounds(e);
+    for (let d = M.startOfDay(b.s), i = 0; d < b.e && i < 62; d = M.addDays(d, 1), i++) withEvents.add(M.ymd(d));
+    if (+b.e === +b.s) withEvents.add(M.ymd(b.s));
+  }
+  const months = Array.from({ length: 12 }, (_, mo) => {
+    const first = new Date(y, mo, 1);
+    const grid = M.rangeFor('month', first, FIRST_DAY);
+    const cells = grid.days.map((d) => {
+      if (d.getMonth() !== mo) return el('span', 'cal-yr-pad', '');
+      const cls = ['cal-yr-day'];
+      if (M.sameDay(d, today)) cls.push('today');
+      if (withEvents.has(M.ymd(d))) cls.push('dot');
+      return el('button', { type: 'button', class: cls.join(' '), 'aria-label': d.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), onclick: () => goDay(d, 'day') }, String(d.getDate()));
+    });
+    return el('section', 'cal-yr-m',
+      el('button', { type: 'button', class: 'cal-yr-h', onclick: () => goDay(first, 'month') }, first.toLocaleDateString(LOCALE, { month: 'long' })),
+      el('div', 'cal-yr-grid', ...grid.days.slice(0, 7).map((d) => el('span', { class: 'cal-yr-dow', 'aria-hidden': 'true' }, d.toLocaleDateString(LOCALE, { weekday: 'narrow' }))), ...cells));
+  });
+  return el('div', 'cal-year', ...months);
+}
+
+/* ----- search results (30 days back to 60 ahead) ----- */
+
+function searchView(cals) {
+  const hits = searchHits();
+  const head = el('div', 'cal-sr-h', busy() ? 'Searching…' : `${hits.length} event${hits.length === 1 ? '' : 's'} matching “${S.query}”`, el('small', '', ' · from 30 days ago to 60 days ahead'));
+  if (!hits.length) return el('div', 'cal-agenda', head, el('div', 'cal-ad-empty', busy() ? '' : 'Nothing matches. Try another word.'));
+  const out = [head];
+  let day = null;
+  for (const e of hits) {
+    const d = M.startOfDay(M.bounds(e).s);
+    if (!day || !M.sameDay(day, d)) { day = d; out.push(el('div', `cal-ad-h${M.sameDay(d, new Date()) ? ' today' : ''}`, d.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))); }
+    out.push(agendaRow(e, d, cals));
+  }
+  return el('div', 'cal-agenda', ...out);
+}
+
 /* ----- agenda ----- */
 
 function dayList(d, events, cals) {
@@ -994,7 +1129,7 @@ function agendaRow(e, d, cals) {
     const s = b.s < d ? null : b.s, en = b.e > M.addDays(d, 1) ? null : b.e;
     when = el('span', 'when', el('b', '', s ? fmtTime(s) : '…'), el('span', '', en ? fmtTime(en) : '…'));
   }
-  const row = el('button', { type: 'button', class: 'cal-arow', style: { '--c': colorOf(e, cals) }, 'aria-label': evLabel(e, cals), 'data-key': M.eventKey(e) },
+  const row = el('button', { type: 'button', class: `cal-arow${rsvpClass(e)}`, style: { '--c': colorOf(e, cals) }, 'aria-label': evLabel(e, cals), 'data-key': M.eventKey(e) },
     el('span', 'bar'), when,
     el('span', 'what', el('b', '', e.title), e.location || c ? el('span', '', [e.location, c && c.title].filter(Boolean).join(' · ')) : null),
     e.recurrence && e.recurrence.recurring ? ico('retry', 12, 'rep') : null);
@@ -1051,30 +1186,50 @@ function drawPop(e) {
   const color = colorOf(e, cals);
   const zone = M.localZone();
   const w = writableFor(e);
+  const me = (e.attendees || []).find((a) => a.self);
+  const organizer = e.organizer && !e.organizer.self ? e.organizer : (e.attendees || []).find((a) => a.organizer && !a.self);
+  const guests = (e.attendees || []).filter((a) => !a.resource);
+  const counts = guests.reduce((n, a) => { n[a.status] = (n[a.status] || 0) + 1; return n; }, {});
+  const rec = e.recurrence && e.recurrence.recurring;
+  const rules = rec ? (e.recurrence.rules && e.recurrence.rules.length ? e.recurrence.rules : S.seriesRules.get(`${e.calendarId}|${e.recurrence.seriesId}`)) : null;
+  const spec = rules ? RR.parseRRule(RR.splitRecurrence(rules).rrule) : null;
   const rows = [
     el('div', 'cev-row', ico('clock', 14), el('span', '', M.timeText(e, LOCALE), e.timeZone && zone && e.timeZone !== zone && !e.allDay ? el('small', '', ` · ${e.timeZone}`) : null)),
-    e.recurrence && e.recurrence.recurring ? el('div', 'cev-row', ico('retry', 14), el('span', '', e.recurrence.seriesId || e.source === 'mac' ? 'Repeats (this is one occurrence)' : 'Repeats')) : null,
+    rec ? el('div', 'cev-row', ico('retry', 14), el('span', '', spec ? RR.repeatText(spec, M.bounds(e).s, LOCALE) : e.recurrence.seriesId || e.source === 'mac' ? 'Repeats (this is one occurrence)' : 'Repeats')) : null,
     e.location ? el('div', 'cev-row', ico('globe', 14), el('span', 'wrap', e.location)) : null,
-    el('div', 'cev-row', el('i', { class: 'cev-dot', style: { background: color } }), el('span', '', c ? c.title : 'Calendar', el('small', '', ` · ${sourceLabel(e, c)}`))),
-    e.attendees && e.attendees.length ? el('div', 'cev-row people', ico('chat', 14), el('div', 'cev-people',
-      ...e.attendees.slice(0, 8).map((a) => el('span', 'cev-person', a.self ? 'You' : a.name || a.email, a.organizer ? el('small', '', ' · organizer') : statusWord(a.status) ? el('small', '', ` · ${statusWord(a.status)}`) : null)),
-      e.attendees.length > 8 ? el('span', 'cev-person', `+${e.attendees.length - 8} more`) : null)) : null,
+    el('div', 'cev-row', el('i', { class: 'cev-dot', style: { background: color } }), el('span', '', c ? c.title : 'Calendar', el('small', '', ` · ${sourceLabel(e, c)}`)), e.visibility === 'private' ? ico('lock', 12, 'ro') : null),
+    organizer ? el('div', 'cev-row', ico('user', 14), el('span', '', `Organized by ${organizer.name || organizer.email}`)) : null,
+    guests.length ? el('div', 'cev-row people', ico('user', 14), el('div', 'cev-people',
+      el('span', 'cev-gsum', `${guests.length} guest${guests.length === 1 ? '' : 's'}${['accepted', 'declined', 'tentative', 'needsAction'].filter((k) => counts[k]).map((k) => ` · ${counts[k]} ${statusWord(k) === 'going' ? 'yes' : statusWord(k) === 'maybe' ? 'maybe' : statusWord(k) === 'declined' ? 'no' : 'awaiting'}`).join('')}`),
+      ...guests.slice(0, 8).map((a) => el('span', `cev-person st-${a.status || 'none'}`, el('i', { class: 'cev-st', 'aria-hidden': 'true' }), a.self ? 'You' : a.name || a.email, a.organizer ? el('small', '', ' · organizer') : a.optional ? el('small', '', ' · optional') : statusWord(a.status) ? el('small', '', ` · ${statusWord(a.status)}`) : null)),
+      guests.length > 8 ? el('span', 'cev-person', `+${guests.length - 8} more`) : null)) : null,
     e.alerts && e.alerts.length ? el('div', 'cev-row', ico('bell', 14), el('span', '', `Alerts: ${alertWords(e.alerts)}`)) : null,
-    e.notes ? el('div', { class: 'cev-notes', tabindex: '0', 'aria-label': 'Notes' }, e.notes) : null,
+    e.source === 'google' && e.reminders && !e.reminders.useDefault && e.reminders.overrides.length ? el('div', 'cev-row', ico('bell', 14), el('span', '', e.reminders.overrides.map((o) => `${M.alertText(o.minutes).replace(/ before$/, '')}${o.method === 'email' ? ' (email)' : ''}`).join(', ') + ' before')) : null,
+    e.transparency === 'transparent' ? el('div', 'cev-row', ico('info', 14), el('span', '', 'Shown as free')) : null,
+    e.notesHtml ? el('div', { class: 'cev-notes rich', tabindex: '0', 'aria-label': 'Description' }, sanitizeHtml(e.notesHtml, { editor: false }))
+      : e.notes ? el('div', { class: 'cev-notes', tabindex: '0', 'aria-label': 'Notes' }, e.notes) : null,
+    (e.attachments || []).length ? el('div', 'cev-row', ico('clip', 14), el('div', 'cev-files', ...e.attachments.map((f) => safeHref(f.fileUrl) ? el('a', { href: safeHref(f.fileUrl), target: '_blank', rel: 'noopener noreferrer' }, f.title || 'Attachment') : null))) : null,
   ];
   const links = [];
-  const safe = (u) => { try { const x = new URL(u); return x.protocol === 'https:' ? x.href : null; } catch { return null; } };
   // Jarvis's url is the event's own link field when it has one (eventUrl), else a call link from its notes or place
-  if (e.url && safe(e.url)) links.push(el('a', { class: 'cap', href: safe(e.url), target: '_blank', rel: 'noopener noreferrer' }, ico('ext', 11), e.eventUrl && e.url === e.eventUrl ? 'Open link' : 'Join call'));
-  if (e.link && safe(e.link)) links.push(el('a', { class: 'cap', href: safe(e.link), target: '_blank', rel: 'noopener noreferrer' }, ico('ext', 11), 'Open in Google'));
+  if (e.url && safeHref(e.url)) links.push(el('a', { class: `cap${/meet\.google\.com/.test(e.url) ? ' meet' : ''}`, href: safeHref(e.url), target: '_blank', rel: 'noopener noreferrer' }, ico('ext', 11), e.eventUrl && e.url === e.eventUrl ? 'Open link' : /meet\.google\.com/.test(e.url) ? 'Join with Google Meet' : 'Join call'));
+  if (e.link && safeHref(e.link)) links.push(el('a', { class: 'cap', href: safeHref(e.link), target: '_blank', rel: 'noopener noreferrer' }, ico('ext', 11), 'Open in Google'));
+  // Going? Yes / No / Maybe — an invitation in Google Calendar (not the organizer's own event)
+  const canRsvp = e.source === 'google' && me && !me.organizer && !(e.organizer && e.organizer.self) && !(c && c.readOnly);
+  const rsvp = canRsvp ? el('div', 'cev-rsvp', el('span', 'k', 'Going?'),
+    el('div', { class: 'cev-rsvp-btns', role: 'group', 'aria-label': 'Your answer' },
+      ...[['accepted', 'Yes'], ['declined', 'No'], ['tentative', 'Maybe']].map(([v, t]) => el('button', { type: 'button', class: `cev-rs${(e.selfStatus || me.status) === v ? ' on' : ''}`, 'aria-pressed': String((e.selfStatus || me.status) === v), 'data-rsvp': v, onclick: (ev) => respondTo(e, v, ev.currentTarget) }, t)))) : null;
+  const mailable = guests.filter((a) => !a.self && a.email && EMAIL.test(a.email));
   R.pop.replaceChildren(...[
     el('div', 'cev-head', el('span', { class: 'cev-bar', style: { background: color } }), el('h3', '', e.title),
       el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Close', onclick: closePop }, ico('x', 14))),
     ...rows.filter(Boolean),
+    rsvp,
     links.length ? el('div', 'cev-links', ...links) : null,
     w.why && (!w.edit || !w.del) ? el('div', 'cev-why', w.why) : null,
     el('div', 'cev-acts',
       el('button', { type: 'button', class: 'cap', onclick: () => useEvent(e) }, ico('chat', 11), 'Use in chat'),
+      mailable.length ? el('button', { type: 'button', class: 'cap', onclick: () => emailGuests(e, mailable) }, ico('mail', 11), 'Email guests') : null,
       el('span', 'grow'),
       w.del ? el('button', { type: 'button', class: 'cap rev', onclick: () => reviewDelete(e) }, ico('trash', 11), 'Delete…') : null,
       w.edit ? el('button', { type: 'button', class: 'cap primary', onclick: () => editEvent(e) }, ico('edit', 11), 'Edit…') : null)].filter(Boolean));
@@ -1086,6 +1241,51 @@ function drawPop(e) {
     placeInCard(R.pop, a, a.classList.contains('cal-tev') ? 'right' : 'below');
   }
   requestAnimationFrame(() => { const f = R.pop.querySelector('.cev-acts button'); if (f && S.pop) f.focus({ preventScroll: true }); });
+  if (rec && !spec && e.source === 'google' && e.recurrence.seriesId && !S.seriesRules.has(`${e.calendarId}|${e.recurrence.seriesId}`)) seriesRules(e).then(() => { if (S.pop && S.pop.key === M.eventKey(e)) drawPop(e); }, () => {});
+}
+const safeHref = (u) => { try { const x = new URL(u); return x.protocol === 'https:' ? x.href : null; } catch { return null; } };
+
+/** A repeating Google event's series lines (RRULE…), read once from its first event (an occurrence carries none). */
+async function seriesRules(e) {
+  if (!e.recurrence) return [];
+  if (e.recurrence.rules && e.recurrence.rules.length) return e.recurrence.rules;
+  if (e.source !== 'google' || !e.recurrence.seriesId) return [];
+  const k = `${e.calendarId}|${e.recurrence.seriesId}`;
+  if (S.seriesRules.has(k)) return S.seriesRules.get(k);
+  const j = await postJSON('/api/chat/gcal', { action: 'get', args: { calendarId: e.calendarId, id: e.recurrence.seriesId } });
+  const rules = (j && j.event && j.event.recurrence && j.event.recurrence.rules) || [];
+  S.seriesRules.set(k, rules);
+  return rules;
+}
+
+/** Yes / No / Maybe on an invitation: Google records it on the event and tells the organizer (a repeating one asks which). */
+async function respondTo(e, status, btn) {
+  const go = async (scope) => {
+    const btns = R.pop.querySelectorAll('.cev-rs');
+    btns.forEach((b) => { b.disabled = true; });
+    try {
+      await postJSON('/api/chat/gcal', { action: 'respond', args: { calendarId: e.calendarId, id: scope === 'all' ? e.recurrence.seriesId : e.id, status, scope, sendUpdates: 'all', confirm: true } });
+      toast(`${status === 'accepted' ? 'Going' : status === 'declined' ? 'Declined' : 'Maybe'}: the organizer is told`);
+      load(true);
+    } catch (err) { toast(`Couldn’t answer: ${err.message}`); btns.forEach((b) => { b.disabled = false; }); }
+  };
+  const choices = RR.scopeChoices(e, 'rsvp');
+  if (choices.length < 2) { go('this'); return; }
+  scopeMenu(btn, choices, go);
+}
+
+/** A small menu of scopes under a button (RSVP on a repeating event). */
+function scopeMenu(anchor, choices, pick) {
+  const old = R.pop.querySelector('.cev-scope');
+  if (old) old.remove();
+  const menu = el('div', { class: 'cev-scope', role: 'menu' }, ...choices.map((c) => el('button', { type: 'button', role: 'menuitem', onclick: () => { menu.remove(); pick(c); } }, RR.SCOPE_LABEL[c])));
+  anchor.closest('.cev-rsvp').after(menu);
+  menu.querySelector('button').focus();
+}
+
+function emailGuests(e, guests) {
+  closeCalendar();
+  openCompose({ source: 'gmail', to: guests.map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)), subject: e.title, body: `\n\n— ${e.title}, ${M.timeText(e, LOCALE)}${e.location ? `, ${e.location}` : ''}` });
 }
 function statusWord(s) { const w = { accepted: 'going', declined: 'declined', tentative: 'maybe', needsAction: 'invited', pending: 'invited', delegated: 'delegated' }; return w[s] || ''; }
 
@@ -1160,42 +1360,105 @@ function newEvent(at = {}) {
     e = new Date(s.getTime() + 3600e3);
   }
   const last = store.get('eden:cal:lastcal', null);
-  const cal = cals.find((c) => calKey(c.source, c.id) === last) || cals.find((c) => c.primary) || cals[0];
-  editor({ mode: 'create', draft: { title: at.title || '', allDay: false, start: s, end: e, location: at.location || '', notes: at.notes || '' }, cal });
+  // something with guests, a repeat or a zone (an invitation from Mail) goes to Google when it can
+  const wantsGoogle = (at.recurrence && at.recurrence.length) || (at.attendees && at.attendees.length);
+  const cal = (wantsGoogle && (cals.find((c) => c.source === 'google' && c.primary) || cals.find((c) => c.source === 'google')))
+    || cals.find((c) => calKey(c.source, c.id) === last) || cals.find((c) => c.primary) || cals[0];
+  editor({ mode: 'create', draft: { title: at.title || '', allDay: !!at.allDay, start: s, end: e, location: at.location || '', notes: at.notes || '', recurrence: at.recurrence || [], timeZone: at.timeZone || null, attendees: at.attendees || [] }, cal, from: at.from || '' });
 }
 
-function editEvent(e) {
+async function editEvent(e) {
   const c = calendarsById().get(evCalKey(e));
   const b = M.bounds(e);
-  editor({ mode: 'update', original: e, cal: c, draft: { title: e.title, allDay: e.allDay, start: b.s, end: b.e, location: e.location, notes: e.notes } });
+  let rules = [];
+  if (e.source === 'google' && e.recurrence && e.recurrence.recurring) {
+    try { rules = await seriesRules(e); } catch (err) { toast(`Couldn’t read how it repeats: ${err.message}`); }
+  }
+  editor({ mode: 'update', original: e, cal: c, baseRules: rules, draft: { title: e.title, allDay: e.allDay, start: b.s, end: b.e, location: e.location, notes: e.notes, recurrence: rules, timeZone: e.timeZone } });
 }
+
+/** Every IANA zone the browser knows (the editor's zone menu), the common ones first. */
+function zoneList(cur) {
+  let all = [];
+  try { all = Intl.supportedValuesOf('timeZone'); } catch { all = ['UTC', 'Europe/London', 'Europe/Paris', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo']; }
+  const local = M.localZone();
+  return [...new Set([cur, local, 'UTC', ...all].filter(Boolean))];
+}
+const zoneLabel = (z) => { try { const p = new Intl.DateTimeFormat('en-US', { timeZone: z, timeZoneName: 'shortOffset' }).formatToParts(new Date()).find((x) => x.type === 'timeZoneName'); return `(${p ? p.value : 'GMT'}) ${z.replace(/_/g, ' ')}`; } catch { return z; } };
+
+const UNITS = [['minutes', 1], ['hours', 60], ['days', 1440], ['weeks', 10080]];
+const unitOf = (m) => (m && m % 10080 === 0 ? 'weeks' : m && m % 1440 === 0 ? 'days' : m && m % 60 === 0 ? 'hours' : 'minutes');
+
+/** The contacts Gmail suggests for guests (recent correspondents), read once. */
+async function contacts() {
+  if (S.contacts) return S.contacts;
+  try { const j = await api.gmail('contacts', {}); S.contacts = Array.isArray(j && j.contacts) ? j.contacts.filter((c) => c && EMAIL.test(c.email || '')) : []; } catch { S.contacts = []; }
+  return S.contacts;
+}
+
+/** Plain text as the description editor's HTML. */
+const textHtml = (t) => String(t || '').split('\n').map((l) => l.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])).join('<br>');
 
 function editor(ctx) {
   const { mode, original } = ctx;
   const d = ctx.draft;
-  const mac = (ctx.cal && ctx.cal.source === 'mac');
-  const fTitle = el('input', { type: 'text', maxlength: 200, placeholder: 'New event', 'aria-label': 'Title' });
-  fTitle.value = d.title;
   const cals = writableCalendars();
+  const calOf = () => cals.find((c) => calKey(c.source, c.id) === fCal.value) || ctx.cal;
+  const isGoogle = () => { const c = calOf(); return !!c && c.source === 'google'; };
+  const local = M.localZone();
+
+  /* title, calendar */
+  const fTitle = el('input', { type: 'text', class: 'cal-ftitle', maxlength: 200, placeholder: 'Add title', 'aria-label': 'Title' });
+  fTitle.value = d.title;
   const fCal = el('select', { 'aria-label': 'Calendar' }, ...cals.map((c) => el('option', { value: calKey(c.source, c.id) }, `${c.title} — ${c.source === 'google' ? 'Google' : 'Mac'}`)));
   if (ctx.cal && !cals.includes(ctx.cal)) fCal.append(el('option', { value: calKey(ctx.cal.source, ctx.cal.id) }, `${ctx.cal.title} — ${ctx.cal.source === 'google' ? 'Google' : 'Mac'}`));
   fCal.value = ctx.cal ? calKey(ctx.cal.source, ctx.cal.id) : '';
   fCal.disabled = mode === 'update';
+  const calDot = el('i', { class: 'cev-dot cal-fdot' });
+
+  /* when, and the zone it's written in */
+  let zone = (d.timeZone && !d.allDay ? d.timeZone : null) || local;
+  const fZone = el('select', { 'aria-label': 'Time zone', class: 'cal-fzone' }, ...zoneList(zone).map((z) => el('option', { value: z }, zoneLabel(z))));
+  fZone.value = zone;
   const fAll = el('input', { type: 'checkbox', 'aria-label': 'All-day' });
   fAll.checked = d.allDay;
-  const lastDay = d.allDay ? M.addDays(d.end, -1) : d.end;
-  const fSd = el('input', { type: 'date', 'aria-label': 'Start date' }); fSd.value = M.ymd(d.start);
-  const fSt = el('input', { type: 'time', step: 300, 'aria-label': 'Start time' }); fSt.value = `${M.pad(d.start.getHours())}:${M.pad(d.start.getMinutes())}`;
-  const fEd = el('input', { type: 'date', 'aria-label': 'End date' }); fEd.value = M.ymd(lastDay);
-  const fEt = el('input', { type: 'time', step: 300, 'aria-label': 'End time' }); fEt.value = `${M.pad(d.end.getHours())}:${M.pad(d.end.getMinutes())}`;
-  const fLoc = el('input', { type: 'text', maxlength: 300, placeholder: 'Add a place', 'aria-label': 'Location' }); fLoc.value = d.location || '';
-  const fNotes = el('textarea', { rows: 3, maxlength: 2000, placeholder: 'Notes', 'aria-label': 'Notes' }); fNotes.value = d.notes || '';
-  // notes longer than the editor takes stay as they are (never cut to fit)
-  const longNotes = (d.notes || '').length > 2000;
+  const fSd = el('input', { type: 'date', 'aria-label': 'Start date' });
+  const fSt = el('input', { type: 'time', step: 300, 'aria-label': 'Start time' });
+  const fEd = el('input', { type: 'date', 'aria-label': 'End date' });
+  const fEt = el('input', { type: 'time', step: 300, 'aria-label': 'End time' });
+  const showTimes = () => {
+    const ws = RR.instantToWall(d.start, zone), we = RR.instantToWall(d.end, zone);
+    const lastDay = d.allDay ? M.addDays(d.end, -1) : null;
+    fSd.value = d.allDay ? M.ymd(d.start) : `${ws.y}-${M.pad(ws.m)}-${M.pad(ws.d)}`;
+    fSt.value = `${M.pad(ws.h)}:${M.pad(ws.mi)}`;
+    fEd.value = d.allDay ? M.ymd(lastDay) : `${we.y}-${M.pad(we.m)}-${M.pad(we.d)}`;
+    fEt.value = `${M.pad(we.h)}:${M.pad(we.mi)}`;
+  };
+  showTimes();
+  const wall = (dv, tv) => { const [y, m, dd] = dv.split('-').map(Number); const [h, mi] = (tv || '00:00').split(':').map(Number); return zone === local ? new Date(y, m - 1, dd, h, mi) : RR.wallToInstant(y, m, dd, h, mi, zone); };
+  const readStart = () => wall(fSd.value, fSt.value);
+  const readEnd = () => wall(fEd.value, fEt.value);
+  fZone.addEventListener('change', () => { if (fSd.value && fEd.value) { d.start = readStart(); d.end = readEnd(); } zone = fZone.value; showTimes(); renderRepeat(); });
+
+  /* place, description */
+  const fLoc = el('input', { type: 'text', maxlength: 300, placeholder: 'Add location', 'aria-label': 'Location' }); fLoc.value = d.location || '';
+  const fNotes = el('textarea', { rows: 3, maxlength: 2000, placeholder: 'Add description', 'aria-label': 'Description' }); fNotes.value = d.notes || '';
+  const longNotes = (d.notes || '').length > 2000 && !(original && original.notesHtml);
   if (longNotes) fNotes.disabled = true;
-  // On your Mac (Jarvis): the event's link and its alerts too
+  const fRich = el('div', { class: 'cal-rich', contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Description', 'data-placeholder': 'Add description' });
+  fRich.append(sanitizeHtml(d.description !== undefined ? d.description : original && original.notesHtml ? original.notesHtml : textHtml(d.notes || '')));
+  const richBtn = (cmd, label, icon, arg) => el('button', { type: 'button', class: 'cal-rb', title: label, 'aria-label': label, onmousedown: (ev) => ev.preventDefault(), onclick: () => {
+    fRich.focus();
+    if (cmd === 'createLink') { const u = prompt('Link (https://…)', 'https://'); if (!u || !/^https:\/\/\S+$/i.test(u)) return; document.execCommand(cmd, false, u); } else document.execCommand(cmd, false, arg);
+  } }, icon);
+  const richBar = el('div', { class: 'cal-richbar', role: 'toolbar', 'aria-label': 'Formatting' }, richBtn('bold', 'Bold', el('b', '', 'B')), richBtn('italic', 'Italic', el('i', '', 'I')), richBtn('underline', 'Underline', el('u', '', 'U')), richBtn('insertUnorderedList', 'Bulleted list', '•≡'), richBtn('insertOrderedList', 'Numbered list', '1≡'), richBtn('createLink', 'Link', ico('ext', 12)), richBtn('removeFormat', 'Clear formatting', '⌫'));
+  const richHtml = () => { const box = el('div'); box.append(sanitizeHtml(fRich.innerHTML, { editor: false })); return box.innerHTML.trim(); };
+  const richHasFormat = () => !!fRich.querySelector('b, strong, i, em, u, a, ul, ol, li, h1, h2, h3');
+
+  /* Mac only: its link and alerts */
   const fUrl = el('input', { type: 'url', maxlength: 1000, placeholder: 'https://…', 'aria-label': 'Link', inputmode: 'url', autocomplete: 'off' }); fUrl.value = (original ? original.eventUrl : d.url) || '';
   const known = original ? (Array.isArray(original.alerts) ? original.alerts : null) : [];
+  let alertsTouched = false;
   const alertSel = (label, v) => {
     const sel = el('select', { 'aria-label': label }, ...ALERTS.map(([m, t]) => el('option', { value: m === null ? '' : String(m) }, t)));
     if (v !== undefined && v !== null && !ALERTS.some(([m]) => m === v)) sel.append(el('option', { value: String(v) }, alertText(v)));
@@ -1203,37 +1466,230 @@ function editor(ctx) {
     sel.addEventListener('change', () => { alertsTouched = true; });
     return sel;
   };
-  let alertsTouched = false;
   const fAlerts = [alertSel('Alert', known ? known[0] : null), alertSel('Second alert', known ? known[1] : null)];
-  const extraAlerts = known ? known.slice(2) : []; // a third alert (set elsewhere) is kept
-  const fFuture = el('input', { type: 'checkbox', 'aria-label': 'Also change later occurrences' });
+  const extraAlerts = known ? known.slice(2) : [];
+
+  /* repeat */
+  const rr = RR.splitRecurrence(d.recurrence);
+  let spec = rr.rrule ? RR.parseRRule(rr.rrule) || RR.noRepeat() : RR.noRepeat();
+  const keepRaw = spec.unsupported ? spec : null;
+  let forceCustom = false; // "Custom…" stays open while its choices still match a preset
+  const fRepeat = el('select', { 'aria-label': 'Repeat' });
+  const fEvery = el('input', { type: 'number', min: 1, max: 99, 'aria-label': 'Repeat every', class: 'cal-fnum' });
+  const fUnit = el('select', { 'aria-label': 'Unit' }, ...[['DAILY', 'day'], ['WEEKLY', 'week'], ['MONTHLY', 'month'], ['YEARLY', 'year']].map(([v, t]) => el('option', { value: v }, t)));
+  const dayBtns = RR.WEEKDAYS.map((w, i) => el('button', { type: 'button', class: 'cal-wd', 'data-wd': w, 'aria-pressed': 'false', 'aria-label': new Date(2026, 0, 4 + i).toLocaleDateString(LOCALE, { weekday: 'long' }) }, new Date(2026, 0, 4 + i).toLocaleDateString(LOCALE, { weekday: 'narrow' })));
+  const fMonthly = el('select', { 'aria-label': 'Monthly on' });
+  const endName = `calend${Date.now()}`;
+  const endRadio = (v) => { const r = el('input', { type: 'radio', name: endName, value: v }); r.addEventListener('change', () => { spec.end = v; syncCustom(); }); return r; };
+  const fEndNever = endRadio('never'), fEndOn = endRadio('until'), fEndAfter = endRadio('count');
+  const fUntil = el('input', { type: 'date', 'aria-label': 'Ends on' });
+  const fCount = el('input', { type: 'number', min: 1, max: 730, 'aria-label': 'Occurrences', class: 'cal-fnum' });
+  const custom = el('div', { class: 'cal-custom', hidden: true },
+    el('div', 'cal-frow', el('span', 'k', 'Repeat every'), fEvery, fUnit),
+    el('div', { class: 'cal-wds', role: 'group', 'aria-label': 'Repeat on' }, ...dayBtns),
+    el('div', 'cal-frow cal-mon', fMonthly),
+    el('div', 'cal-ends', el('span', 'k', 'Ends'),
+      el('label', 'cal-fcheck', fEndNever, el('span', '', 'Never')),
+      el('label', 'cal-fcheck', fEndOn, el('span', '', 'On'), fUntil),
+      el('label', 'cal-fcheck', fEndAfter, el('span', '', 'After'), fCount, el('span', '', 'occurrences'))));
+  const startDate = () => (fSd.value ? M.parseYmd(fSd.value) : d.start);
+  function renderRepeat() {
+    const st = startDate();
+    const key = keepRaw && spec === keepRaw ? 'keep' : forceCustom ? 'custom' : RR.presetOf(spec, st);
+    const opts = [['none', 'Does not repeat'], ['daily', 'Daily'], ['weekly', RR.repeatText(RR.presetSpec('weekly', st), st, LOCALE)], ['monthly-weekday', RR.repeatText(RR.presetSpec('monthly-weekday', st), st, LOCALE)],
+      ['monthly-date', RR.repeatText(RR.presetSpec('monthly-date', st), st, LOCALE)], ['yearly', RR.repeatText(RR.presetSpec('yearly', st), st, LOCALE)], ['weekdays', 'Every weekday (Monday to Friday)']];
+    if (keepRaw) opts.push(['keep', 'Custom repeat (kept as it is)']);
+    opts.push(['custom', key === 'custom' ? RR.repeatText(spec, st, LOCALE) : 'Custom…']);
+    fRepeat.replaceChildren(...opts.map(([v, t]) => el('option', { value: v }, t)));
+    fRepeat.value = key;
+    fMonthly.replaceChildren(el('option', { value: 'date' }, `Monthly on day ${st.getDate()}`), el('option', { value: 'weekday' }, RR.repeatText(RR.presetSpec('monthly-weekday', st), st, LOCALE)));
+    syncCustom();
+  }
+  function syncCustom() {
+    const on = fRepeat.value === 'custom';
+    custom.hidden = !on;
+    if (!on) return;
+    fEvery.value = String(spec.interval || 1);
+    fUnit.value = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'].includes(spec.freq) ? spec.freq : 'WEEKLY';
+    dayBtns.forEach((b) => { const onDay = (spec.byDay || []).includes(b.dataset.wd); b.setAttribute('aria-pressed', String(onDay)); b.classList.toggle('on', onDay); });
+    custom.querySelector('.cal-wds').hidden = fUnit.value !== 'WEEKLY';
+    custom.querySelector('.cal-mon').hidden = fUnit.value !== 'MONTHLY';
+    fMonthly.value = spec.monthMode || 'date';
+    fEndNever.checked = spec.end === 'never'; fEndOn.checked = spec.end === 'until'; fEndAfter.checked = spec.end === 'count';
+    fUntil.value = spec.until || M.ymd(M.addMonths(startDate(), 3)); fUntil.disabled = spec.end !== 'until';
+    fCount.value = String(spec.count || 10); fCount.disabled = spec.end !== 'count';
+    relabel();
+  }
+  function relabel() { const opt = fRepeat.querySelector('option[value="custom"]'); if (opt && fRepeat.value === 'custom') opt.textContent = RR.repeatText(spec, startDate(), LOCALE); }
+  fRepeat.addEventListener('change', () => {
+    const v = fRepeat.value, st = startDate();
+    forceCustom = v === 'custom';
+    if (v === 'keep') spec = keepRaw;
+    else if (v === 'custom') { if (spec.freq === 'none' || spec === keepRaw) spec = { ...RR.presetSpec('weekly', st) }; spec = { ...spec, unsupported: false, raw: undefined }; }
+    else spec = RR.presetSpec(v, st);
+    renderRepeat();
+    if (v === 'custom') fEvery.focus();
+  });
+  fEvery.addEventListener('input', () => { spec.interval = Math.max(1, Math.min(99, Number(fEvery.value) || 1)); relabel(); });
+  fUnit.addEventListener('change', () => { spec.freq = fUnit.value; if (spec.freq === 'WEEKLY' && !(spec.byDay || []).length) spec.byDay = [RR.WEEKDAYS[startDate().getDay()]]; syncCustom(); });
+  dayBtns.forEach((b) => b.addEventListener('click', () => { const set = new Set(spec.byDay || []); if (set.has(b.dataset.wd)) { if (set.size > 1) set.delete(b.dataset.wd); } else set.add(b.dataset.wd); spec.byDay = RR.WEEKDAYS.filter((x) => set.has(x)); syncCustom(); }));
+  fMonthly.addEventListener('change', () => { spec.monthMode = fMonthly.value; spec.nth = undefined; spec.monthDay = undefined; relabel(); });
+  fUntil.addEventListener('change', () => { spec.until = fUntil.value; relabel(); });
+  fCount.addEventListener('input', () => { spec.count = Math.max(1, Math.min(730, Number(fCount.value) || 1)); relabel(); });
+  let repeatTouched = false; // untouched, the series keeps its lines word for word
+  custom.addEventListener('input', () => { repeatTouched = true; });
+  custom.addEventListener('change', () => { repeatTouched = true; });
+  custom.addEventListener('click', () => { repeatTouched = true; });
+  fRepeat.addEventListener('change', () => { repeatTouched = true; });
+  const repeatLines = () => {
+    if (!repeatTouched) return Array.isArray(d.recurrence) ? d.recurrence : [];
+    if (spec.end === 'until' && !spec.until) spec.until = fUntil.value;
+    const line = RR.buildRRule(spec, startDate(), fAll.checked, fAll.checked ? null : zone);
+    return line ? [line, ...rr.others] : [];
+  };
+
+  /* guests */
+  const was = original ? (original.attendees || []).filter((a) => !a.resource) : [];
+  const guests = (d.attendees !== undefined ? d.attendees : was.filter((a) => !(a.self && a.organizer)))
+    .map((a) => { const o = was.find((x) => String(x.email).toLowerCase() === String(a.email).toLowerCase()) || a; return { email: String(a.email || '').toLowerCase(), name: o.name || a.name || '', optional: !!a.optional, status: o.status || 'needsAction', self: !!o.self, organizer: !!o.organizer }; });
+  const fGuest = el('input', { type: 'email', placeholder: 'Add guests', 'aria-label': 'Add guests', autocomplete: 'off', list: 'calGuestList', multiple: true });
+  const guestList = el('datalist', { id: 'calGuestList' });
+  const chips = el('div', { class: 'cal-guests', 'aria-live': 'polite' });
+  const perm = (label, key, def) => { const i = el('input', { type: 'checkbox' }); i.checked = d[key] !== undefined ? !!d[key] : original && original[key] !== undefined ? !!original[key] : def; return { i, row: el('label', 'cal-fcheck', i, el('span', '', label)), key }; };
+  const pModify = perm('Modify event', 'guestsCanModify', false), pInvite = perm('Invite others', 'guestsCanInviteOthers', true), pSee = perm('See guest list', 'guestsCanSeeOtherGuests', true);
+  const fbBox = el('div', { class: 'cal-fb', hidden: true, 'aria-live': 'polite' });
+  const renderGuests = () => {
+    chips.replaceChildren(...guests.map((g, i) => el('div', 'cal-guest',
+      el('span', { class: 'cal-gav', style: { '--h': String(([...g.email].reduce((n, ch) => n + ch.charCodeAt(0), 0) * 37) % 360) } }, (g.name || g.email)[0].toUpperCase()),
+      el('span', 'cal-gname', g.name ? el('b', '', g.name) : null, el('span', '', g.email), g.self ? el('small', '', ' · you') : g.organizer ? el('small', '', ' · organizer') : statusWord(g.status) && original ? el('small', '', ` · ${statusWord(g.status)}`) : null),
+      g.organizer || g.self ? null : el('button', { type: 'button', class: `cal-gopt${g.optional ? ' on' : ''}`, 'aria-pressed': String(g.optional), title: 'Mark optional', onclick: () => { g.optional = !g.optional; renderGuests(); } }, g.optional ? 'Optional' : 'Required'),
+      g.organizer || g.self ? null : el('button', { type: 'button', class: 'iconbtn', 'aria-label': `Remove ${g.email}`, onclick: () => { guests.splice(i, 1); renderGuests(); if (!fbBox.hidden) findTime(); } }, ico('x', 12)))));
+    permsBox.hidden = !guests.some((g) => !g.self);
+    fbBtn.hidden = !guests.some((g) => !g.self);
+  };
+  const addGuest = (raw) => {
+    let added = 0;
+    for (const part of String(raw).split(/[,;\s]+/)) {
+      const m = /<([^>]+)>/.exec(part); const email = (m ? m[1] : part).trim().toLowerCase();
+      if (!email) continue;
+      if (!EMAIL.test(email)) { err.textContent = `“${email}” isn’t an email address.`; continue; }
+      if (guests.some((g) => g.email === email)) continue;
+      const known = (S.contacts || []).find((c) => c.email.toLowerCase() === email);
+      guests.push({ email, name: known ? known.name || '' : '', optional: false, status: 'needsAction', self: false, organizer: false });
+      added++;
+    }
+    if (added) { err.textContent = ''; renderGuests(); if (!fbBox.hidden) findTime(); }
+  };
+  fGuest.addEventListener('focus', async () => { const list = await contacts(); guestList.replaceChildren(...list.slice(0, 200).map((c) => el('option', { value: c.email }, c.name || c.email))); }, { once: true });
+  fGuest.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ',' || ev.key === 'Tab' && fGuest.value.trim()) { if (fGuest.value.trim()) { ev.preventDefault(); addGuest(fGuest.value); fGuest.value = ''; } } });
+  fGuest.addEventListener('change', () => { if (fGuest.value.trim() && EMAIL.test(fGuest.value.trim())) { addGuest(fGuest.value); fGuest.value = ''; } });
+  const permsBox = el('div', 'cal-perms', el('span', 'k', 'Guests can'), pModify.row, pInvite.row, pSee.row);
+  const fbBtn = el('button', { type: 'button', class: 'cap', onclick: () => { fbBox.hidden = !fbBox.hidden; if (!fbBox.hidden) findTime(); } }, ico('clock', 11), 'Find a time');
+
+  /* Find a time: everyone's busy times on the start day (Google free/busy) */
+  async function findTime() {
+    const day = startDate();
+    const people = [...new Set([S.google.email, ...guests.map((g) => g.email)].filter(Boolean))].slice(0, 20);
+    fbBox.replaceChildren(el('div', 'cal-fb-h', el('b', '', `Find a time · ${day.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'short' })}`), el('span', 'cal-spin')));
+    let j;
+    try { j = await postJSON('/api/chat/gcal', { action: 'freebusy', args: { start: M.isoWithOffset(day), end: M.isoWithOffset(M.addDays(day, 1)), emails: people, timeZone: local } }); }
+    catch (e) { fbBox.replaceChildren(el('div', 'cal-err', `Couldn’t read free/busy: ${e.message}`)); return; }
+    if (fbBox.hidden) return;
+    const H0 = 7, H1 = 21, span = (H1 - H0) * 60;
+    const pct = (t) => `${Math.max(0, Math.min(100, ((M.minutesIntoDay(t) - H0 * 60 + (M.startOfDay(t) > day ? 1440 : 0)) / span) * 100))}%`;
+    const s0 = fAll.checked ? null : readStart(), e0 = fAll.checked ? null : readEnd();
+    const rowsEl = people.map((p) => {
+      const bar = el('div', { class: 'cal-fb-bar', title: 'Click a free time to move the event there' });
+      for (const b of (j.busy && j.busy[p]) || []) {
+        const bs = new Date(b.start), be = new Date(b.end);
+        bar.append(el('i', { class: 'busy', style: { left: pct(bs < day ? day : bs), right: `calc(100% - ${pct(be > M.addDays(day, 1) ? M.addDays(day, 1) : be)})` } }));
+      }
+      if (s0) bar.append(el('i', { class: 'slot', style: { left: pct(s0), right: `calc(100% - ${pct(e0)})` } }));
+      bar.addEventListener('click', (ev) => {
+        if (fAll.checked) return;
+        const r = bar.getBoundingClientRect();
+        const min = M.snap(H0 * 60 + ((ev.clientX - r.left) / r.width) * span, 15);
+        const len = readEnd() - readStart();
+        const ns = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, min);
+        d.start = ns; d.end = new Date(+ns + len);
+        showTimes(); findTime();
+      });
+      const why = j.errors && j.errors[p];
+      return el('div', 'cal-fb-row', el('span', 'who', p === S.google.email ? 'You' : (guests.find((g) => g.email === p) || {}).name || p), why ? el('span', 'cal-fb-na', 'Calendar not shared') : bar);
+    });
+    const ticks = el('div', 'cal-fb-ticks', ...Array.from({ length: (H1 - H0) / 2 + 1 }, (_, i) => el('span', { style: { left: `${((i * 2) / (H1 - H0)) * 100}%` } }, hourLabel(H0 + i * 2))));
+    fbBox.replaceChildren(el('div', 'cal-fb-h', el('b', '', `Find a time · ${day.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'short' })}`), el('small', '', 'Busy times; click a free spot to move the event')), ...rowsEl, el('div', 'cal-fb-row', el('span', 'who', ''), ticks));
+  }
+
+  /* Google Meet */
+  const fMeet = el('input', { type: 'checkbox', 'aria-label': 'Google Meet video conferencing' });
+  fMeet.checked = d.conference !== undefined ? !!d.conference : original ? !!(original.conference || /meet\.google\.com/.test(original.url || '')) : false;
+
+  /* notifications (Google: several, popup or email) */
+  const rem = d.reminders || (original && original.reminders) || { useDefault: true, overrides: [] };
+  const fDefRem = el('input', { type: 'checkbox' });
+  fDefRem.checked = !!rem.useDefault;
+  const remList = el('div', 'cal-rems');
+  const remRows = (rem.useDefault ? [] : rem.overrides || []).map((o) => ({ ...o }));
+  const renderRems = () => {
+    remList.replaceChildren(...remRows.map((o, i) => {
+      const unit = unitOf(o.minutes);
+      const mult = UNITS.find((u) => u[0] === unit)[1];
+      const fMethod = el('select', { 'aria-label': 'Notification type' }, el('option', { value: 'popup' }, 'Notification'), el('option', { value: 'email' }, 'Email'));
+      fMethod.value = o.method;
+      const fN = el('input', { type: 'number', min: 0, max: 4 * 7 * 24 * 60, class: 'cal-fnum', 'aria-label': 'How long before' }); fN.value = String(o.minutes / mult);
+      const fU = el('select', { 'aria-label': 'Unit' }, ...UNITS.map(([u]) => el('option', { value: u }, u)));
+      fU.value = unit;
+      const upd = () => { const m = (UNITS.find((u) => u[0] === fU.value) || UNITS[0])[1]; o.method = fMethod.value; o.minutes = Math.max(0, Math.min(40320, Math.round((Number(fN.value) || 0) * m))); };
+      [fMethod, fN, fU].forEach((f) => f.addEventListener('change', upd));
+      return el('div', 'cal-frow cal-rem', fMethod, fN, fU, el('span', 'k', 'before'), el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Remove notification', onclick: () => { remRows.splice(i, 1); renderRems(); } }, ico('x', 12)));
+    }), remRows.length < 5 ? el('button', { type: 'button', class: 'cap', onclick: () => { fDefRem.checked = false; remRows.push({ method: 'popup', minutes: 10 }); renderRems(); } }, ico('plus', 11), 'Add notification') : null);
+    remList.classList.toggle('dim', fDefRem.checked);
+  };
+  fDefRem.addEventListener('change', () => { if (fDefRem.checked) remRows.length = 0; renderRems(); });
+
+  /* colour, visibility, busy/free */
+  let colorId = d.colorId !== undefined ? d.colorId || '' : original ? original.colorId || '' : '';
+  const colorBox = el('div', { class: 'cal-ecolors', role: 'radiogroup', 'aria-label': 'Event colour' });
+  const renderColors = () => {
+    const c = calOf();
+    colorBox.replaceChildren(...[['', 'Calendar colour', c ? calColor(c) : '#8e8e93'], ...G_COLORS].map(([id, name, hexv]) => el('button', { type: 'button', class: `cal-sw${id === '' ? ' own' : ''}`, role: 'radio', 'aria-checked': String(colorId === id), 'aria-label': name, title: name, style: { '--c': hexv }, onclick: () => { colorId = id; renderColors(); } }, colorId === id ? ico('check', 11) : null)));
+  };
+  const fVis = el('select', { 'aria-label': 'Visibility' }, el('option', { value: 'default' }, 'Default visibility'), el('option', { value: 'public' }, 'Public'), el('option', { value: 'private' }, 'Private'));
+  const vis = d.visibility || (original && original.visibility);
+  fVis.value = vis && vis !== 'confidential' ? vis : 'default';
+  const fBusy = el('select', { 'aria-label': 'Show as' }, el('option', { value: 'opaque' }, 'Busy'), el('option', { value: 'transparent' }, 'Free'));
+  fBusy.value = (d.transparency || (original && original.transparency)) === 'transparent' ? 'transparent' : 'opaque';
+
   const err = el('div', { class: 'cal-err', role: 'alert' });
-  const macEdit = mode === 'update' && mac;
+  const macEdit = mode === 'update' && original && original.source === 'mac';
   if (macEdit) { fAll.disabled = true; fEd.disabled = true; }
-  const syncAll = () => { fSt.hidden = fAll.checked; fEt.hidden = fAll.checked; };
-  syncAll();
+  const syncAll = () => { fSt.hidden = fAll.checked; fEt.hidden = fAll.checked; fZone.hidden = fAll.checked || !isGoogle(); };
   fAll.addEventListener('change', syncAll);
   // moving the start keeps the length, as calendars do
   let len = d.end - d.start;
-  const readStart = () => { const [y, m, dd] = fSd.value.split('-').map(Number); const [h, mi] = (fSt.value || '00:00').split(':').map(Number); return new Date(y, m - 1, dd, h, mi); };
-  const readEnd = () => { const [y, m, dd] = fEd.value.split('-').map(Number); const [h, mi] = (fEt.value || '00:00').split(':').map(Number); return new Date(y, m - 1, dd, h, mi); };
   const onStart = () => {
     if (!fSd.value) return;
     const s = readStart();
-    if (fAll.checked) { const days = Math.max(0, M.daysBetween(M.parseYmd(M.ymd(d.start)), M.parseYmd(fEd.value || fSd.value))); fEd.value = M.ymd(M.addDays(s, days)); d.start = s; return; }
+    if (fAll.checked) { const days = Math.max(0, M.daysBetween(M.parseYmd(M.ymd(d.start)), M.parseYmd(fEd.value || fSd.value))); fEd.value = M.ymd(M.addDays(M.parseYmd(fSd.value), days)); d.start = M.parseYmd(fSd.value); renderRepeat(); return; }
     const en = new Date(s.getTime() + len);
-    fEd.value = M.ymd(en); fEt.value = `${M.pad(en.getHours())}:${M.pad(en.getMinutes())}`;
-    d.start = s;
+    d.start = s; d.end = en;
+    showTimes();
+    renderRepeat();
   };
   fSd.addEventListener('change', onStart); fSt.addEventListener('change', onStart);
   const onEnd = () => { if (fSd.value && fEd.value && !fAll.checked) { const l = readEnd() - readStart(); if (l > 0) len = l; } };
   fEd.addEventListener('change', onEnd); fEt.addEventListener('change', onEnd);
-  const rec = original && original.recurrence && original.recurrence.recurring;
+
   const review = () => {
-    const out = M.draftFromForm({ title: fTitle.value, allDay: fAll.checked, startDate: fSd.value, startTime: fSt.value, endDate: fEd.value, endTime: fEt.value, location: fLoc.value, notes: fNotes.value });
+    err.textContent = '';
+    if (fGuest.value.trim()) { addGuest(fGuest.value); fGuest.value = ''; if (err.textContent) return; }
+    const google = isGoogle();
+    const out = M.draftFromForm({ title: fTitle.value, allDay: fAll.checked, startDate: fSd.value, startTime: fSt.value, endDate: fEd.value, endTime: fEt.value, location: fLoc.value, notes: google ? fRich.innerText.replace(/\n{3,}/g, '\n\n').trim() : fNotes.value });
     if (out.error) { err.textContent = out.error; return; }
+    if (!out.draft.allDay && zone !== local) { out.draft.start = readStart(); out.draft.end = readEnd(); if (out.draft.end <= out.draft.start) { err.textContent = 'The end must be after the start.'; return; } }
     if (longNotes) out.draft.notes = d.notes;
-    const cal = cals.find((c) => calKey(c.source, c.id) === fCal.value) || ctx.cal;
+    const cal = calOf();
     if (!cal) { err.textContent = 'Pick a calendar.'; return; }
     if (cal.source === 'mac') {
       const url = fUrl.value.trim();
@@ -1241,99 +1697,159 @@ function editor(ctx) {
       out.draft.url = url;
       // alerts go only when known or set here (an older Jarvis doesn't say what they are)
       if (known || alertsTouched) out.draft.alerts = [...new Set([...fAlerts.map((f) => f.value).filter((v) => v !== '').map(Number), ...extraAlerts])].sort((a, b) => a - b).slice(0, 3);
+    } else {
+      const g = out.draft;
+      g.timeZone = g.allDay ? null : zone;
+      if (spec.end === 'until' && spec.until && spec.until < fSd.value) { err.textContent = 'The repeat can’t end before the event starts.'; return; }
+      g.recurrence = repeatLines();
+      g.attendees = guests.filter((x) => !x.organizer || !x.self).map((x) => ({ email: x.email, ...(x.optional ? { optional: true } : {}) }));
+      if (!guests.some((x) => !x.self) && !(original && (original.attendees || []).length)) delete g.attendees;
+      g.guestsCanModify = pModify.i.checked; g.guestsCanInviteOthers = pInvite.i.checked; g.guestsCanSeeOtherGuests = pSee.i.checked;
+      g.conference = fMeet.checked;
+      g.reminders = fDefRem.checked ? { useDefault: true } : { useDefault: false, overrides: remRows.map((o) => ({ method: o.method, minutes: o.minutes })) };
+      g.colorId = colorId;
+      g.visibility = fVis.value;
+      g.transparency = fBusy.value;
+      if (richHasFormat() || (original && original.notesHtml)) g.description = richHtml();
     }
-    const next = { ...ctx, cal, draft: out.draft, future: fFuture.checked };
+    const next = { ...ctx, cal, draft: out.draft };
     if (mode === 'update') {
-      const changed = cal.source === 'google' ? Object.keys(M.googleChanges(original, out.draft)).length > 0 : !!M.macUpdateArgs(original, out.draft);
+      const changed = cal.source === 'google' ? Object.keys(M.googleChanges(original, out.draft, local, ctx.baseRules)).length > 0 : !!M.macUpdateArgs(original, out.draft);
       if (!changed) { err.textContent = 'Nothing has changed.'; return; }
     }
     reviewWrite(next);
   };
   [fTitle, fLoc, fUrl].forEach((f) => f.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); review(); } }));
-  // the link and alerts: Mac calendars only (Google's events here have neither)
+
+  // Google's parts, and the Mac's (Jarvis: a link and alerts; no repeats, guests or zones)
+  const gOnly = el('div', 'cal-gonly',
+    el('div', 'cal-fsec', el('span', 'k', ico('user', 13), 'Guests'), el('div', 'cal-fbody', el('div', 'cal-frow', fGuest, guestList, fbBtn), chips, fbBox, permsBox)),
+    el('div', 'cal-fsec', el('span', 'k', ico('cal', 13), 'Meet'), el('label', 'cal-fcheck', fMeet, el('span', '', 'Add Google Meet video conferencing'))),
+    el('div', 'cal-fsec', el('span', 'k', ico('bell', 13), 'Notifications'), el('div', 'cal-fbody', el('label', 'cal-fcheck', fDefRem, el('span', '', 'The calendar’s default notifications')), remList)),
+    el('div', 'cal-fsec', el('span', 'k', ico('palette', 13), 'Colour'), colorBox),
+    el('div', 'cal-fsec', el('span', 'k', ico('lock', 13), 'Visibility'), el('div', 'cal-frow', fVis, el('span', 'k', 'Show as'), fBusy)));
+  const repeatRow = el('div', 'cal-fsec cal-repeat', el('span', 'k', ico('retry', 13), 'Repeat'), el('div', 'cal-fbody', fRepeat, custom));
   const macFields = el('div', 'cal-macf', el('label', 'field', 'Link', fUrl), el('div', 'field cal-alerts', el('span', '', 'Alerts'), el('div', 'cal-frow', ...fAlerts)));
-  const syncCal = () => { const c = cals.find((x) => calKey(x.source, x.id) === fCal.value) || ctx.cal; macFields.hidden = !(c && c.source === 'mac'); };
-  syncCal();
+  const notesMac = el('label', 'field cal-notes-mac', 'Notes', fNotes);
+  const notesG = el('div', 'field cal-notes-g', el('span', '', 'Description'), richBar, fRich);
+  const syncCal = () => {
+    const c = calOf(), g = !!c && c.source === 'google';
+    macFields.hidden = g; notesMac.hidden = g; gOnly.hidden = !g; repeatRow.hidden = !g; notesG.hidden = !g;
+    calDot.style.background = c ? calColor(c) : '';
+    syncAll(); renderColors();
+  };
   fCal.addEventListener('change', syncCal);
+  renderRepeat(); renderGuests(); renderRems(); syncCal();
   openSheet(mode === 'create' ? 'New event' : 'Edit event',
-    el('label', 'field', 'Title', fTitle),
-    el('label', 'field', 'Calendar', fCal),
-    el('div', 'cal-fallday', el('label', 'switch', fAll, el('span', 'tr')), el('span', '', 'All-day')),
+    fTitle,
+    el('div', 'cal-fsec', el('span', 'k', calDot, 'Calendar'), fCal),
     el('div', 'cal-ftimes',
       el('span', 'k', 'Starts'), el('div', 'cal-frow', fSd, fSt),
       el('span', 'k', 'Ends'), el('div', 'cal-frow', fEd, fEt)),
+    el('div', 'cal-fallday', el('label', 'switch', fAll, el('span', 'tr')), el('span', '', 'All-day'), el('span', 'grow'), fZone),
+    repeatRow,
+    ctx.from ? el('p', 'sp-note', ctx.from) : null,
     el('label', 'field', 'Location', fLoc),
-    el('label', 'field', 'Notes', fNotes),
+    notesMac, notesG,
     longNotes ? el('p', 'sp-note', 'These notes are longer than Eden edits; they stay as they are.') : null,
+    gOnly,
     macFields,
     macEdit ? el('p', 'sp-note', 'On your Mac, Jarvis does the change; an all-day event’s days and the calendar stay as they are.') : null,
-    rec && mac ? el('label', 'cal-fcheck', fFuture, el('span', '', 'Also change the later occurrences')) : null,
-    rec && !mac ? el('p', 'sp-note', 'This repeats: the change applies to this occurrence only.') : null,
     err,
     el('div', 'dlg-acts cal-sheet-acts',
       el('button', { type: 'button', class: 'btn', onclick: closeSheet }, 'Cancel'),
       el('button', { type: 'button', class: 'btn primary', onclick: review }, 'Review…')));
+  R.sheet.firstChild.classList.add('cal-editor');
   if (ctx.focusTitle !== false) requestAnimationFrame(() => fTitle.focus());
 }
 
 function summaryRows(e, cal) {
-  const color = calColor(cal);
+  const color = e.colorId ? (G_COLORS.find((c) => c[0] === e.colorId) || [])[2] || calColor(cal) : calColor(cal);
+  const rules = e.recurrence && Array.isArray(e.recurrence) ? e.recurrence : null;
+  const spec = rules && rules.length ? RR.parseRRule(RR.splitRecurrence(rules).rrule) : null;
+  const b = M.bounds(e);
+  const guests = (Array.isArray(e.attendees) ? e.attendees : []).filter((a) => !a.self);
   return el('div', 'cal-review',
     el('div', 'rv-title', el('span', { class: 'cev-bar', style: { background: color } }), el('b', '', e.title)),
-    el('div', 'rv-row', ico('clock', 13), M.timeText(e, LOCALE)),
-    el('div', 'rv-row', el('i', { class: 'cev-dot', style: { background: color } }), `${cal ? cal.title : ''} · ${cal && cal.source === 'google' ? `Google${S.google.email ? ` (${S.google.email})` : ''}` : 'your Mac'}`),
+    el('div', 'rv-row', ico('clock', 13), M.timeText(e, LOCALE), e.timeZone && e.timeZone !== M.localZone() && !e.allDay ? ` (${e.timeZone})` : ''),
+    spec ? el('div', 'rv-row', ico('retry', 13), RR.repeatText(spec, b.s, LOCALE)) : null,
+    el('div', 'rv-row', el('i', { class: 'cev-dot', style: { background: calColor(cal) } }), `${cal ? cal.title : ''} · ${cal && cal.source === 'google' ? `Google${S.google.email ? ` (${S.google.email})` : ''}` : 'your Mac'}`),
     e.location ? el('div', 'rv-row', ico('globe', 13), e.location) : null,
+    guests.length ? el('div', 'rv-row', ico('user', 13), guests.map((g) => `${g.email}${g.optional ? ' (optional)' : ''}`).join(', ')) : null,
+    e.conference ? el('div', 'rv-row', ico('cal', 13), 'Google Meet') : null,
     e.eventUrl ? el('div', 'rv-row', ico('ext', 13), e.eventUrl) : null,
     e.alerts && e.alerts.length ? el('div', 'rv-row', ico('bell', 13), `Alerts: ${alertWords(e.alerts)}`) : null,
+    e.reminders && !e.reminders.useDefault ? el('div', 'rv-row', ico('bell', 13), e.reminders.overrides.length ? e.reminders.overrides.map((o) => `${M.alertText(o.minutes)}${o.method === 'email' ? ' (email)' : ''}`).join(', ') : 'No notifications') : null,
     e.notes ? el('div', 'rv-notes', e.notes.length > 400 ? `${e.notes.slice(0, 400)}…` : e.notes) : null);
 }
 const alertWords = (list) => (list.length ? list.map((m) => alertText(m).replace(/ before$/, '')).join(', ') + (list.some((m) => m > 0) ? ' before' : '') : 'none');
-const asEvent = (d, cal) => ({ title: d.title, allDay: d.allDay, start: d.allDay ? M.ymd(d.start) : d.start.toISOString(), end: d.allDay ? M.ymd(d.end) : d.end.toISOString(), location: d.location, notes: d.notes, eventUrl: d.url || '', alerts: d.alerts || [], source: cal.source, calendarId: cal.id });
+const asEvent = (d, cal) => ({ title: d.title, allDay: d.allDay, start: d.allDay ? M.ymd(d.start) : d.start.toISOString(), end: d.allDay ? M.ymd(d.end) : d.end.toISOString(), location: d.location, notes: d.notes, eventUrl: d.url || '', alerts: d.alerts || [], source: cal.source, calendarId: cal.id,
+  timeZone: d.timeZone || null, recurrence: d.recurrence || null, attendees: d.attendees || [], conference: !!d.conference, reminders: d.reminders || null, colorId: d.colorId || '' });
+
+/** A radio group of scopes (which occurrences of a repeating event). */
+function scopeRadios(choices, on, set) {
+  const name = `calscope${Date.now()}`;
+  return el('div', { class: 'cal-which', role: 'radiogroup', 'aria-label': 'Which events' }, ...choices.map((v) => {
+    const r = el('input', { type: 'radio', name, value: v });
+    r.checked = v === on;
+    r.addEventListener('change', () => set(v));
+    return el('label', 'cal-fcheck', r, el('span', '', RR.SCOPE_LABEL[v]));
+  }));
+}
 
 function reviewWrite(ctx) {
   const { mode, cal, draft, original } = ctx;
   const after = asEvent(draft, cal);
   const parts = [];
+  let changes = {};
   if (mode === 'create') parts.push(summaryRows(after, cal));
   else {
-    const changes = [];
-    if (draft.title !== original.title) changes.push(['Title', original.title, draft.title]);
-    if (M.timeText(after, LOCALE) !== M.timeText(original, LOCALE)) changes.push(['When', M.timeText(original, LOCALE), M.timeText(after, LOCALE)]);
-    if ((draft.location || '') !== (original.location || '')) changes.push(['Place', original.location || '—', draft.location || '—']);
-    if ((draft.notes || '') !== (original.notes || '')) changes.push(['Notes', original.notes ? 'old notes' : '—', draft.notes ? 'new notes' : '—']);
-    if ('url' in draft && (draft.url || '') !== (original.eventUrl || '')) changes.push(['Link', original.eventUrl || '—', draft.url || '—']);
-    if (Array.isArray(draft.alerts) && JSON.stringify(draft.alerts) !== JSON.stringify(original.alerts || [])) changes.push(['Alerts', Array.isArray(original.alerts) ? alertWords(original.alerts) : 'as they are', alertWords(draft.alerts)]);
-    parts.push(summaryRows(original, cal), el('div', 'cal-changes', ...changes.map(([k, a, b]) => el('div', 'chg', el('span', 'k', k), el('span', 'a', a), el('span', 'arr', '→'), el('b', '', b)))));
-    if (original.recurrence && original.recurrence.recurring) parts.push(el('p', 'sp-note', cal.source === 'mac' && ctx.future ? 'It repeats: this one and every later one change.' : 'It repeats: only this occurrence changes.'));
+    const rows = [];
+    if (cal.source === 'google') changes = M.googleChanges(original, draft, M.localZone(), ctx.baseRules);
+    if (draft.title !== original.title) rows.push(['Title', original.title, draft.title]);
+    if (M.timeText(after, LOCALE) !== M.timeText(original, LOCALE) || changes.timeZone && changes.start) rows.push(['When', M.timeText(original, LOCALE), `${M.timeText(after, LOCALE)}${draft.timeZone && draft.timeZone !== M.localZone() ? ` (${draft.timeZone})` : ''}`]);
+    if ((draft.location || '') !== (original.location || '')) rows.push(['Place', original.location || '—', draft.location || '—']);
+    if (changes.description !== undefined || (draft.description === undefined && (draft.notes || '') !== (original.notes || ''))) rows.push(['Description', original.notes ? 'old' : '—', draft.notes ? 'new' : '—']);
+    if (changes.recurrence) { const s0 = M.bounds(original).s; const was = RR.parseRRule(RR.splitRecurrence(ctx.baseRules || []).rrule), now = RR.parseRRule(RR.splitRecurrence(changes.recurrence).rrule); rows.push(['Repeat', RR.repeatText(was, s0, LOCALE), RR.repeatText(now, draft.start, LOCALE)]); }
+    if (changes.attendees) rows.push(['Guests', `${(original.attendees || []).length}`, changes.attendees.map((a) => a.email).join(', ') || 'none']);
+    if (changes.conference !== undefined) rows.push(['Google Meet', changes.conference ? 'off' : 'on', changes.conference ? 'on' : 'off']);
+    if (changes.reminders) rows.push(['Notifications', 'as they were', changes.reminders.useDefault ? 'default' : changes.reminders.overrides.map((o) => M.alertText(o.minutes)).join(', ') || 'none']);
+    if (changes.colorId !== undefined) rows.push(['Colour', original.colorId ? (G_COLORS.find((c) => c[0] === original.colorId) || [])[1] : 'calendar', changes.colorId ? (G_COLORS.find((c) => c[0] === changes.colorId) || [])[1] : 'calendar']);
+    if (changes.visibility) rows.push(['Visibility', original.visibility || 'default', changes.visibility]);
+    if (changes.transparency) rows.push(['Show as', original.transparency === 'transparent' ? 'free' : 'busy', changes.transparency === 'transparent' ? 'free' : 'busy']);
+    for (const k of ['guestsCanModify', 'guestsCanInviteOthers', 'guestsCanSeeOtherGuests']) if (changes[k] !== undefined) rows.push([{ guestsCanModify: 'Guests modify', guestsCanInviteOthers: 'Guests invite', guestsCanSeeOtherGuests: 'Guests see list' }[k], changes[k] ? 'no' : 'yes', changes[k] ? 'yes' : 'no']);
+    if ('url' in draft && (draft.url || '') !== (original.eventUrl || '')) rows.push(['Link', original.eventUrl || '—', draft.url || '—']);
+    if (Array.isArray(draft.alerts) && JSON.stringify(draft.alerts) !== JSON.stringify(original.alerts || [])) rows.push(['Alerts', Array.isArray(original.alerts) ? alertWords(original.alerts) : 'as they are', alertWords(draft.alerts)]);
+    parts.push(summaryRows(original, cal), el('div', 'cal-changes', ...rows.map(([k, a, b]) => el('div', 'chg', el('span', 'k', k), el('span', 'a', a), el('span', 'arr', '→'), el('b', '', b)))));
   }
+  // a repeating event: which occurrences (a new repeat can't go on one occurrence alone)
+  const choices = mode === 'update' ? RR.scopeChoices(original, changes.recurrence ? 'repeat' : 'edit') : [];
+  let scope = choices[0] || 'this';
+  if (choices.length > 1) parts.push(el('div', 'cal-scope-h', 'This event repeats. Change:'), scopeRadios(choices, scope, (v) => { scope = v; }));
+  else if (choices.length === 1 && mode === 'update' && original.recurrence) parts.push(el('p', 'sp-note', 'Every event in the series changes.'));
+  const guestsNow = cal.source === 'google' && (mode === 'create' ? (draft.attendees || []).length > 0 : M.guestsAffected(original, changes));
   const verb = mode === 'create' ? 'Add event' : 'Save changes';
-  commitSheet(mode === 'create' ? 'Add this event?' : 'Save these changes?', parts, cal, verb, () => (mode === 'create' ? doCreate(cal, draft) : doUpdate(original, cal, draft, ctx.future)), () => editor({ ...ctx, focusTitle: false }), original && original.attendees && original.attendees.length);
+  commitSheet(mode === 'create' ? 'Add this event?' : 'Save these changes?', parts, cal, verb, (send) => (mode === 'create' ? doCreate(cal, draft, send) : doUpdate(original, cal, draft, scope, send, ctx.baseRules)), () => editor({ ...ctx, draft: { ...draft }, focusTitle: false }), guestsNow, false, mode === 'create' ? 'Send invitations to the guests' : 'Email the guests about the change');
 }
 
 function reviewDelete(e) {
   const cal = calendarsById().get(evCalKey(e));
   if (!cal) return;
-  let which = 'this';
-  const rec = e.recurrence && e.recurrence.recurring;
+  const choices = RR.scopeChoices(e, 'edit');
+  let scope = choices.length ? choices[0] : 'this';
   const parts = [summaryRows(e, cal)];
-  if (rec && (cal.source === 'mac' || e.recurrence.seriesId)) {
-    const opt = (v, label, on) => {
-      const r = el('input', { type: 'radio', name: 'calwhich', value: v });
-      r.checked = on;
-      r.addEventListener('change', () => { which = v; });
-      return el('label', 'cal-fcheck', r, el('span', '', label));
-    };
-    parts.push(el('div', { class: 'cal-which', role: 'radiogroup', 'aria-label': 'Which occurrences' },
-      opt('this', 'Only this event', true),
-      opt('all', cal.source === 'mac' ? 'This and all later events' : 'All events in the series', false)));
-  }
-  commitSheet('Delete this event?', parts, cal, 'Delete event', () => doDelete(e, cal, which === 'all'), null, e.attendees && e.attendees.length, true);
+  if (choices.length > 1) parts.push(el('div', 'cal-scope-h', 'This event repeats. Delete:'), scopeRadios(choices, scope, (v) => { scope = v; }));
+  const guests = cal.source === 'google' && (e.attendees || []).some((a) => !a.self) && (!e.organizer || e.organizer.self);
+  commitSheet('Delete this event?', parts, cal, 'Delete event', (send) => doDelete(e, cal, scope, send), null, guests, true, 'Tell the guests it’s cancelled');
 }
 
-function commitSheet(title, parts, cal, verb, run, back, hasGuests, danger) {
+function commitSheet(title, parts, cal, verb, run, back, hasGuests, danger, sendLabel = 'Email the guests') {
   const err = el('div', { class: 'cal-err', role: 'alert' });
+  const fSend = el('input', { type: 'checkbox' });
+  fSend.checked = true;
+  const sendRow = cal.source === 'google' && hasGuests ? el('label', 'cal-fcheck cal-send', fSend, el('span', '', sendLabel)) : null;
   const note = cal.source === 'google'
-    ? el('div', 'sp-warn', el('b', '', `Google Calendar changes when you press ${verb}`), hasGuests ? 'Guests aren’t emailed about it.' : 'No one is emailed.')
+    ? el('div', 'sp-warn', el('b', '', `Google Calendar changes when you press ${verb}`), hasGuests ? 'Google emails the guests only if “' + sendLabel + '” is ticked.' : 'No one is emailed.')
     : el('div', 'sp-warn', el('b', '', 'Jarvis will ask you on your Mac too'), 'After you press ' + verb + ', the Jarvis app shows its own card on your Mac; the calendar changes only when you approve it there.');
   const go = el('button', { type: 'button', class: `btn ${danger ? 'danger solid' : 'primary'} cal-commit` }, verb);
   go.addEventListener('click', async () => {
@@ -1342,10 +1858,11 @@ function commitSheet(title, parts, cal, verb, run, back, hasGuests, danger) {
     if (cal.source === 'mac') go.dataset.mac = '';
     err.textContent = '';
     try {
-      const msg = await run();
+      const msg = await run(sendRow && fSend.checked ? 'all' : 'none');
       closeSheet({ keepPreview: true }); // the moved event stays put until the calendar reloads
       closePop();
       toast(msg);
+      S.seriesRules.clear();
       load(true).finally(() => { if (S.preview) { S.preview = null; renderView(); } });
     } catch (e) {
       err.textContent = e.message;
@@ -1354,7 +1871,7 @@ function commitSheet(title, parts, cal, verb, run, back, hasGuests, danger) {
       go.textContent = verb;
     }
   });
-  openSheet(title, ...parts, note, err,
+  openSheet(title, ...parts, sendRow, note, err,
     el('div', 'dlg-acts cal-sheet-acts',
       el('button', { type: 'button', class: 'btn', 'data-autofocus': '', onclick: back || closeSheet }, back ? 'Back to edit' : 'Cancel'),
       el('span', 'grow'), go));
@@ -1372,30 +1889,31 @@ async function macWrite(tool, args, done) {
   throw new Error((j && j.text) || strip(r.text) || 'Jarvis couldn’t change the calendar.');
 }
 
-async function doCreate(cal, d) {
+async function doCreate(cal, d, send = 'none') {
   store.set('eden:cal:lastcal', calKey(cal.source, cal.id));
   if (cal.source === 'google') {
-    await postJSON('/api/chat/gcal', { action: 'create', args: { calendarId: cal.id, event: M.googleInput(d), confirm: true } });
-    return `Added “${d.title}” to ${cal.title}`;
+    const event = M.googleInput(d);
+    if (!event.recurrence || !event.recurrence.length) delete event.recurrence;
+    await postJSON('/api/chat/gcal', { action: 'create', args: { calendarId: cal.id, event, sendUpdates: send, confirm: true } });
+    return `Added “${d.title}” to ${cal.title}${send === 'all' ? ' and invited the guests' : ''}`;
   }
   return macWrite('calendar_create', M.macCreateArgs(d, cal.title), `Added “${d.title}” to ${cal.title} on your Mac`);
 }
-async function doUpdate(e, cal, d, future) {
+async function doUpdate(e, cal, d, scope = 'this', send = 'none', baseRules = null) {
   if (cal.source === 'google') {
-    await postJSON('/api/chat/gcal', { action: 'update', args: { calendarId: cal.id, id: e.id, event: M.googleChanges(e, d), confirm: true } });
-    return `Saved “${d.title}”`;
+    await postJSON('/api/chat/gcal', { action: 'update', args: { calendarId: cal.id, ...RR.scopeArgs(e, scope), event: M.googleChanges(e, d, M.localZone(), baseRules), sendUpdates: send, confirm: true } });
+    return `Saved “${d.title}”${scope === 'following' ? ' (this and following)' : scope === 'all' && e.recurrence ? ' (all events)' : ''}`;
   }
-  const args = M.macUpdateArgs(e, d, future);
+  const args = M.macUpdateArgs(e, d, RR.scopeArgs(e, scope).future);
   if (!args) throw new Error('Nothing that Jarvis can change has changed.');
   return macWrite('calendar_update', args, `Saved “${d.title}” on your Mac`);
 }
-async function doDelete(e, cal, all) {
+async function doDelete(e, cal, scope = 'this', send = 'none') {
   if (cal.source === 'google') {
-    const id = all && e.recurrence && e.recurrence.seriesId ? e.recurrence.seriesId : e.id;
-    await postJSON('/api/chat/gcal', { action: 'delete', args: { calendarId: cal.id, id, confirm: true } });
-    return `Deleted “${e.title}”`;
+    await postJSON('/api/chat/gcal', { action: 'delete', args: { calendarId: cal.id, ...RR.scopeArgs(e, scope), sendUpdates: send, confirm: true } });
+    return `Deleted “${e.title}”${scope === 'following' ? ' and the events after it' : scope === 'all' && e.recurrence ? ' (all events)' : ''}`;
   }
-  return macWrite('calendar_delete', M.macDeleteArgs(e, all), `Deleted “${e.title}” on your Mac`);
+  return macWrite('calendar_delete', M.macDeleteArgs(e, RR.scopeArgs(e, scope).future), `Deleted “${e.title}” on your Mac`);
 }
 
 /* ---------------- wiring ---------------- */

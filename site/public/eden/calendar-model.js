@@ -55,7 +55,7 @@ export function firstDayOfWeek(locale) {
 
 /* ---------- views and ranges ---------- */
 
-export const VIEWS = ['day', 'week', 'month', 'agenda'];
+export const VIEWS = ['day', 'week', 'month', 'year', 'agenda'];
 export const AGENDA_DAYS = 30;
 
 /** The days a view shows around `anchor`: { start, end (exclusive), days }. Month grids are whole weeks. */
@@ -64,6 +64,7 @@ export function rangeFor(view, anchor, firstDay = 0) {
   if (view === 'day') { start = startOfDay(anchor); n = 1; }
   else if (view === 'week') { start = startOfWeek(anchor, firstDay); n = 7; }
   else if (view === 'agenda') { start = startOfDay(anchor); n = AGENDA_DAYS; }
+  else if (view === 'year') { start = new Date(anchor.getFullYear(), 0, 1); n = daysBetween(start, new Date(anchor.getFullYear() + 1, 0, 1)); }
   else {
     const first = startOfMonth(anchor);
     start = startOfWeek(first, firstDay);
@@ -76,6 +77,7 @@ export function rangeFor(view, anchor, firstDay = 0) {
 /** The anchor one step back or forward in a view. */
 export function shiftAnchor(view, anchor, dir) {
   if (view === 'month') return addMonths(anchor, dir);
+  if (view === 'year') return addMonths(anchor, 12 * dir);
   if (view === 'week') return addDays(anchor, 7 * dir);
   if (view === 'agenda') return addDays(anchor, 7 * dir);
   return addDays(anchor, dir);
@@ -90,6 +92,7 @@ export function formatRange(a, b, locale, opts) {
 /** The header's title for a view: the month (as Apple Calendar's week view does), the day, or the agenda's dates. */
 export function rangeTitle(view, anchor, range, locale) {
   if (view === 'month') return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+  if (view === 'year') return String(anchor.getFullYear());
   if (view === 'day') return anchor.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const a = range.start, b = addDays(range.end, -1);
   if (view === 'week') return formatRange(a, b, locale, a.getFullYear() === b.getFullYear() ? { month: 'long', year: 'numeric' } : { month: 'short', year: 'numeric' });
@@ -423,23 +426,54 @@ export function draftFromForm(f) {
   return { draft: { title, allDay: false, start: s, end: e, location, notes } };
 }
 
-/** A Google event body's fields for a draft (gcal.ts EventInput). */
+/** A Google event body's fields for a draft (gcal.ts EventInput), with the Google-only parts the editor set. */
 export function googleInput(d, zone = localZone()) {
-  return d.allDay
+  const z = d.timeZone || zone;
+  const base = d.allDay
     ? { title: d.title, allDay: true, start: ymd(d.start), end: ymd(d.end), location: d.location, notes: d.notes }
-    : { title: d.title, allDay: false, start: isoWithOffset(d.start), end: isoWithOffset(d.end), ...(zone ? { timeZone: zone } : {}), location: d.location, notes: d.notes };
+    : { title: d.title, allDay: false, start: isoWithOffset(d.start), end: isoWithOffset(d.end), ...(z ? { timeZone: z } : {}), location: d.location, notes: d.notes };
+  for (const k of GOOGLE_EXTRAS) if (d[k] !== undefined) base[k] = d[k];
+  if (d.description !== undefined) base.description = d.description;
+  return base;
 }
 
-/** Only what changed, for an update (Google patches; nothing else is touched). */
-export function googleChanges(original, d, zone = localZone()) {
+/** The Google-only fields the editor sets (gcal.ts EventInput). */
+export const GOOGLE_EXTRAS = ['recurrence', 'attendees', 'guestsCanModify', 'guestsCanInviteOthers', 'guestsCanSeeOtherGuests', 'conference', 'reminders', 'colorId', 'visibility', 'transparency'];
+const GUEST_DEFAULTS = { guestsCanModify: false, guestsCanInviteOthers: true, guestsCanSeeOtherGuests: true };
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const guestKey = (list) => (list || []).filter((a) => !a.resource && !a.organizer).map((a) => `${String(a.email).toLowerCase()}${a.optional ? '?' : ''}`).sort();
+const reminderKey = (r) => (!r ? null : r.useDefault ? 'default' : (r.overrides || []).map((o) => `${o.method}:${o.minutes}`).sort().join(','));
+
+/**
+ * Only what changed, for an update (Google patches; nothing else is touched). `baseRules`: the
+ * series' recurrence lines as they are (an occurrence carries none itself).
+ */
+export function googleChanges(original, d, zone = localZone(), baseRules = null) {
   const next = googleInput(d, zone);
   const out = {};
   if (next.title !== original.title) out.title = next.title;
   if ((next.location || '') !== (original.location || '')) out.location = next.location;
-  if ((next.notes || '') !== (original.notes || '')) out.notes = next.notes;
+  if (d.description !== undefined) { if (d.description !== (original.notesHtml || original.notes || '')) out.description = d.description; }
+  else if ((next.notes || '') !== (original.notes || '')) out.notes = next.notes;
   const ob = bounds(original);
-  if (d.allDay !== original.allDay || +d.start !== +ob.s || +d.end !== +ob.e) Object.assign(out, { allDay: next.allDay, start: next.start, end: next.end, ...(next.timeZone ? { timeZone: next.timeZone } : {}) });
+  const zoneChanged = !d.allDay && d.timeZone && original.timeZone && d.timeZone !== original.timeZone;
+  if (d.allDay !== original.allDay || +d.start !== +ob.s || +d.end !== +ob.e || zoneChanged) Object.assign(out, { allDay: next.allDay, start: next.start, end: next.end, ...(next.timeZone ? { timeZone: next.timeZone } : {}) });
+  if (d.recurrence !== undefined && !sameJson(d.recurrence, baseRules || (original.recurrence && original.recurrence.rules) || [])) out.recurrence = d.recurrence;
+  if (d.attendees !== undefined && !sameJson(guestKey(d.attendees), guestKey(original.attendees))) out.attendees = d.attendees;
+  for (const k of Object.keys(GUEST_DEFAULTS)) if (d[k] !== undefined && d[k] !== (original[k] ?? GUEST_DEFAULTS[k])) out[k] = d[k];
+  if (d.conference !== undefined && d.conference !== !!(original.conference || original.url)) out.conference = d.conference;
+  if (d.reminders !== undefined && reminderKey(d.reminders) !== reminderKey(original.reminders || { useDefault: true })) out.reminders = d.reminders;
+  if (d.colorId !== undefined && (d.colorId || '') !== (original.colorId || '')) out.colorId = d.colorId || '';
+  if (d.visibility !== undefined && d.visibility !== (original.visibility || 'default')) out.visibility = d.visibility;
+  if (d.transparency !== undefined && d.transparency !== (original.transparency || 'opaque')) out.transparency = d.transparency;
   return out;
+}
+
+/** Whether a change needs the guests told (sendUpdates): it has guests, and something they see changed. */
+export function guestsAffected(original, changes) {
+  const had = original && (original.attendees || []).some((a) => !a.self);
+  const will = changes.attendees ? changes.attendees.length > 0 : had;
+  return Boolean((had || will) && Object.keys(changes).some((k) => !['colorId', 'reminders', 'transparency'].includes(k)));
 }
 
 /** Alerts Jarvis takes: minutes before the start, up to four weeks, three at most. */

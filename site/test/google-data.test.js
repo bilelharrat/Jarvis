@@ -140,6 +140,15 @@ function fakeGoogle() {
         g.events.push(e);
         return Response.json(e);
       }
+      // free/busy, and one event read and patched (answers to invitations)
+      if (p === '/freeBusy' && method === 'POST') {
+        const { items } = JSON.parse(init.body);
+        return Response.json({ calendars: Object.fromEntries(items.map(({ id }) => [id, id.startsWith('ghost') ? { errors: [{ domain: 'global', reason: 'notFound' }], busy: [] } : { busy: [{ start: '2026-10-08T09:00:00Z', end: '2026-10-08T10:00:00Z' }] }])) });
+      }
+      const one = /\/events\/([^/]+)$/.exec(p);
+      const found = one && g.events.find((e) => e.id === decodeURIComponent(one[1]));
+      if (found && method === 'GET') return Response.json(found);
+      if (found && method === 'PATCH') return Response.json(Object.assign(found, JSON.parse(init.body)));
     }
     throw new Error(`unexpected fetch ${method} ${url}`);
   };
@@ -409,6 +418,40 @@ test('Connect Google Calendar adds to the same grant; writes need confirm and em
   assert.match(google.calls.at(-1).url, /sendUpdates=none/);
   // Refreshes still use the first refresh token.
   google.grant.expires = 1;
+});
+
+test('Calendar on the Worker: freebusy and respond (an answer to an invitation) reach Google through the bundled core', async () => {
+  const session = await signedInBrowser(await phone());
+  google.grant = { ...google.grant, scopes: [...google.grant.scopes, ...CAL] };
+  await connect(session, 'calendar');
+  const fb = await gcal(session, 'freebusy', { start: '2026-10-08T00:00:00+02:00', end: '2026-10-09T00:00:00+02:00', emails: ['ana@example.com', 'ghost@example.com'] });
+  assert.equal(fb.status, 200, await fb.clone().text());
+  const call = google.calls.at(-1);
+  assert.deepEqual([call.method, call.url], ['POST', 'https://www.googleapis.com/calendar/v3/freeBusy']);
+  assert.deepEqual(JSON.parse(call.body).items, [{ id: 'ana@example.com' }, { id: 'ghost@example.com' }]);
+  assert.deepEqual(await fb.json(), {
+    busy: { 'ana@example.com': [{ start: '2026-10-08T09:00:00Z', end: '2026-10-08T10:00:00Z' }], 'ghost@example.com': [] },
+    errors: { 'ghost@example.com': 'Not found, or not shared with you.' },
+  });
+
+  google.events.push({
+    id: 'inv1',
+    status: 'confirmed',
+    summary: 'Lunch with Ana',
+    start: { dateTime: '2026-10-09T12:00:00+02:00' },
+    end: { dateTime: '2026-10-09T13:00:00+02:00' },
+    organizer: { email: 'ana@example.com' },
+    attendees: [{ email: 'ana@example.com', organizer: true, responseStatus: 'accepted' }, { email: 'owner@gmail.com', self: true, responseStatus: 'needsAction' }],
+  });
+  const before = google.calls.length;
+  assert.equal((await gcal(session, 'respond', { calendarId: 'primary@gmail.com', id: 'inv1', status: 'accepted' })).status, 400);
+  assert.equal(google.calls.length, before, 'no answer without confirm');
+  const res = await gcal(session, 'respond', { calendarId: 'primary@gmail.com', id: 'inv1', status: 'accepted', sendUpdates: 'all', confirm: true });
+  assert.equal(res.status, 200, await res.clone().text());
+  const patch = google.calls.at(-1);
+  assert.deepEqual([patch.method, patch.url], ['PATCH', `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent('primary@gmail.com')}/events/inv1?sendUpdates=all`]);
+  assert.deepEqual(JSON.parse(patch.body).attendees.map((a) => a.responseStatus), ['accepted', 'accepted']);
+  assert.equal((await res.json()).event.selfStatus, 'accepted');
 });
 
 test('a Calendar-only connection: Mail still says Connect Gmail; a refused calendar scope is an error', async () => {

@@ -624,8 +624,56 @@ function gEv(calId, title, s, e, x = {}) {
   const allDay = typeof s === 'string';
   return { id: x.id || `g${++calSeq}`, source: 'google', calendarId: calId, title, start: allDay ? s : s.toISOString(), end: allDay ? e : e.toISOString(), allDay, timeZone: allDay ? null : 'Europe/London',
     location: x.location || '', notes: x.notes || '', attendees: x.attendees || [], recurrence: x.seriesId ? { recurring: true, seriesId: x.seriesId, rules: [] } : null,
-    url: x.url || '', link: 'https://www.google.com/calendar/event?eid=mock', color: null, readOnly: c.readOnly, canEdit: !c.readOnly && x.canEdit !== false };
+    url: x.url || '', link: 'https://www.google.com/calendar/event?eid=mock', color: x.colorId ? GCOLOR[x.colorId] : null, readOnly: c.readOnly, canEdit: !c.readOnly && x.canEdit !== false,
+    // the fields gcal.ts adds for the editor (docs/chat-api.md "Calendar")
+    notesHtml: x.notesHtml || '', organizer: x.organizer || { email: 'owner@gmail.com', name: '', self: true },
+    selfStatus: ((x.attendees || []).find((a) => a.self) || {}).status || null,
+    reminders: x.reminders || { useDefault: true, overrides: [] }, colorId: x.colorId || null, visibility: x.visibility || 'default', transparency: x.transparency || 'opaque',
+    guestsCanModify: !!x.guestsCanModify, guestsCanInviteOthers: x.guestsCanInviteOthers !== false, guestsCanSeeOtherGuests: x.guestsCanSeeOtherGuests !== false,
+    conference: /meet\.google\.com/.test(x.url || ''), iCalUID: x.iCalUID || `${x.id || calSeq}@google.com`, originalStart: x.seriesId ? (allDay ? s : s.toISOString()) : null, attachments: x.attachments || [], eventType: 'default' };
 }
+const GCOLOR = { 1: '#7986cb', 2: '#33b679', 3: '#8e24aa', 4: '#e67c73', 5: '#f6bf26', 6: '#f4511e', 7: '#039be5', 8: '#616161', 9: '#3f51b5', 10: '#0b8043', 11: '#d50000' };
+/** Each series' RRULE lines (an occurrence carries none; `get` on the series id answers them). */
+const G_SERIES = { sprint: ['RRULE:FREQ=WEEKLY;BYDAY=TU'], qp: ['RRULE:FREQ=MONTHLY;BYDAY=1TH'] };
+/** Occurrences of a simple rule from `start`, at most 90 days ahead (enough for the mock's views). */
+function mockExpand(rule, start, allDay) {
+  const kv = Object.fromEntries(String(rule).replace(/^RRULE:/, '').split(';').map((p) => p.split('=')));
+  const every = Number(kv.INTERVAL) || 1, count = Number(kv.COUNT) || 0;
+  const until = kv.UNTIL ? new Date(kv.UNTIL.length === 8 ? `${kv.UNTIL.slice(0, 4)}-${kv.UNTIL.slice(4, 6)}-${kv.UNTIL.slice(6)}T23:59:59` : kv.UNTIL.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z')) : null;
+  const days = (kv.BYDAY || '').split(',').filter(Boolean).map((d) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(d.slice(-2)));
+  const out = [], limit = new Date(Date.now() + 90 * 864e5);
+  for (let i = 0, d = new Date(start); out.length < (count || 200) && d < limit && i < 800; i++) {
+    let ok = true;
+    if (kv.FREQ === 'DAILY') ok = Math.round((d - start) / 864e5) % every === 0;
+    else if (kv.FREQ === 'WEEKLY') ok = (days.length ? days : [start.getDay()]).includes(d.getDay()) && Math.floor(Math.round((d - start) / 864e5) / 7) % every === 0;
+    else if (kv.FREQ === 'MONTHLY') ok = d.getDate() === start.getDate() && ((d.getFullYear() - start.getFullYear()) * 12 + d.getMonth() - start.getMonth()) % every === 0;
+    else if (kv.FREQ === 'YEARLY') ok = d.getDate() === start.getDate() && d.getMonth() === start.getMonth();
+    if (until && d > until) break;
+    if (ok) out.push(new Date(d));
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, d.getHours(), d.getMinutes());
+  }
+  return out;
+}
+// Mail with invitations (gmail.ts `calendar`: the text/calendar part): one that is in Google
+// Calendar (Yes / No / Maybe answer there) and one that isn't (Add to calendar), as Outlook writes it.
+const icsUtc = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+const icsLocal = (d) => `${calYmd(d).replace(/-/g, '')}T${CAL_PAD(d.getHours())}${CAL_PAD(d.getMinutes())}00`;
+GMAILS.push(
+  { id: 'g12', threadId: 't12', box: 'inbox', from: 'Hannah Becker <hannah.becker@northwind.vc>', to: ['owner@gmail.com'], cc: [], subject: 'Invitation: Northwind × Eden intro', date: ago(2), unread: true, attachments: ['invite.ics'],
+    body: 'Hannah Becker has invited you to an event.\n\nNorthwind × Eden intro\nJoin with Google Meet: https://meet.google.com/nwd-eden-int\n\nReply for owner@gmail.com: Yes / No / Maybe',
+    calendar: { method: 'REQUEST', ics: ['BEGIN:VCALENDAR', 'PRODID:-//Google Inc//Google Calendar 70.9054//EN', 'VERSION:2.0', 'METHOD:REQUEST', 'BEGIN:VEVENT',
+      `DTSTART:${icsUtc(calAt(2, 14))}`, `DTEND:${icsUtc(calAt(2, 14, 30))}`, 'UID:inv-northwind-2026@google.com', 'ORGANIZER;CN=Hannah Becker:mailto:hannah.becker@northwind.vc',
+      'ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Hannah Becker:mailto:hannah.becker@northwind.vc',
+      'ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=owner@gmail.com:mailto:owner@gmail.com',
+      'ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=OPT-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Leo Park:mailto:leo@northwind.vc',
+      'SUMMARY:Northwind × Eden intro', 'LOCATION:Google Meet', 'DESCRIPTION:Portfolio intro: AI tooling.\\nEden demo\\, router numbers.', 'SEQUENCE:0', 'STATUS:CONFIRMED', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') } },
+  { id: 'g13', threadId: 't13', box: 'inbox', from: 'Marco Rossi <marco@studio-rossi.it>', to: ['owner@gmail.com'], cc: [], subject: 'Venue walkthrough — Palácio Chiado', date: ago(4), unread: false, attachments: ['meeting.ics'],
+    body: 'Hi! I booked a walkthrough of the venue. The invite is attached.\n\nMarco',
+    calendar: { method: 'REQUEST', ics: ['BEGIN:VCALENDAR', 'PRODID:-//Microsoft Corporation//Outlook 16.0 MIMEDIR//EN', 'METHOD:REQUEST', 'BEGIN:VTIMEZONE', 'TZID:GMT Standard Time', 'END:VTIMEZONE', 'BEGIN:VEVENT',
+      `DTSTART;TZID=GMT Standard Time:${icsLocal(calAt(5, 16))}`, `DTEND;TZID=GMT Standard Time:${icsLocal(calAt(5, 17))}`, 'UID:040000008200E00074C5B7101A82E0080000000-marco', 'ORGANIZER;CN="Rossi, Marco":mailto:marco@studio-rossi.it',
+      'ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:owner@gmail.com', 'SUMMARY;LANGUAGE=en-GB:Venue walkthrough — Palácio Chiado', 'LOCATION:Rua Garrett 12\\, Lisbon',
+      'RRULE:FREQ=WEEKLY;COUNT=2', 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') } },
+);
 let MAC_EVENTS = null, G_EVENTS = null;
 function seedCalendar() {
   if (MAC_EVENTS) return;
@@ -635,7 +683,7 @@ function seedCalendar() {
     const d = calDay(n), wd = d.getDay();
     if (wd >= 1 && wd <= 5) MAC_EVENTS.push(macEv('Work', 'Standup', calAt(n, 9, 30), calAt(n, 9, 45), { id: 'mac-standup', recurring: true, location: 'Zoom', url: 'https://zoom.us/j/123456789' }));
     if (wd === 1 || wd === 3 || wd === 5) MAC_EVENTS.push(macEv('Home', 'Gym', calAt(n, 7), calAt(n, 8), { id: 'mac-gym', recurring: true, location: 'Third Space' }));
-    if (wd === 2) G_EVENTS.push(gEv('team@group.calendar.google.com', 'Sprint review', calAt(n, 15), calAt(n, 16), { id: `sprint_${calYmd(d).replace(/-/g, '')}`, seriesId: 'sprint', attendees: [{ name: 'Team', email: 'team@example.org', status: 'accepted', organizer: true, self: false }] }));
+    if (wd === 2) G_EVENTS.push(gEv('team@group.calendar.google.com', 'Sprint review', calAt(n, 15), calAt(n, 16), { id: `sprint_${calYmd(d).replace(/-/g, '')}`, seriesId: 'sprint', url: 'https://meet.google.com/spr-int-rev', attendees: [{ name: 'Team', email: 'team@example.org', status: 'accepted', organizer: true, self: false }, { name: 'Priya Shah', email: 'priya@example.org', status: 'accepted', organizer: false, self: false }, { name: '', email: 'owner@gmail.com', status: 'accepted', organizer: false, self: true }], organizer: { email: 'team@example.org', name: 'Team', self: false }, canEdit: false, reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 10 }] } }));
   }
   MAC_EVENTS.push(
     macEv('Work', 'Design sync — Liquid Glass pass', calAt(0, 10), calAt(0, 10, 30), { attendees: people, location: 'Studio 2', notes: 'Agenda:\n- sidebar blur\n- calendar surface\n- dark mode contrast' }),
@@ -654,7 +702,11 @@ function seedCalendar() {
   G_EVENTS.push(
     gEv('owner@gmail.com', 'Contract review with Priya', calAt(0, 11), calAt(0, 12), { url: 'https://meet.google.com/abc-defg-hij', attendees: [{ name: 'Priya Shah', email: 'priya@example.org', status: 'accepted', organizer: true, self: false }, { name: '', email: 'owner@gmail.com', status: 'accepted', organizer: false, self: true }], notes: 'v2 of the contract: payment terms 30 days, termination 60 days.', canEdit: false }),
     gEv('team@group.calendar.google.com', 'Roadmap review', calAt(0, 10), calAt(0, 11)),
-    gEv('owner@gmail.com', 'Coffee chat', calAt(1, 15), calAt(1, 15, 30), { location: 'Monmouth Coffee' }),
+    gEv('owner@gmail.com', 'Coffee chat', calAt(1, 15), calAt(1, 15, 30), { location: 'Monmouth Coffee', colorId: '5' }),
+    gEv('owner@gmail.com', 'Northwind × Eden intro', calAt(2, 14), calAt(2, 14, 30), { iCalUID: 'inv-northwind-2026@google.com', url: 'https://meet.google.com/nwd-eden-int', organizer: { email: 'hannah.becker@northwind.vc', name: 'Hannah Becker', self: false }, canEdit: false,
+      attendees: [{ name: 'Hannah Becker', email: 'hannah.becker@northwind.vc', status: 'accepted', organizer: true, self: false }, { name: '', email: 'owner@gmail.com', status: 'needsAction', organizer: false, self: true }, { name: 'Leo Park', email: 'leo@northwind.vc', status: 'tentative', organizer: false, self: false, optional: true }],
+      notesHtml: '<p>Portfolio intro: <b>AI tooling</b>.</p><ul><li>Eden demo</li><li>Router numbers</li></ul>', notes: 'Portfolio intro: AI tooling.\n- Eden demo\n- Router numbers' }),
+    gEv('owner@gmail.com', 'Board prep (declined)', calAt(1, 9), calAt(1, 10), { organizer: { email: 'alex@example.com', name: 'Alex Kim', self: false }, canEdit: false, attendees: [{ name: 'Alex Kim', email: 'alex@example.com', status: 'accepted', organizer: true, self: false }, { name: '', email: 'owner@gmail.com', status: 'declined', organizer: false, self: true }] }),
     gEv('owner@gmail.com', 'Quarterly planning', calAt(3, 10), calAt(3, 11, 30), { id: 'qp_1', seriesId: 'qp' }),
     gEv('owner@gmail.com', 'Lunch & learn: Liquid Glass', calAt(7, 12), calAt(7, 13)),
     gEv('en.uk#holiday@group.v.calendar.google.com', 'Bank holiday', calYmd(calDay(20)), calYmd(calDay(21))),
@@ -752,6 +804,31 @@ async function calendarMock(p, method, body) {
     await sleep(220);
     switch (body.action) {
       case 'calendars': return json({ calendars: GCALS });
+      case 'get': {
+        if (G_SERIES[a.id]) { const first = G_EVENTS.find((x) => x.recurrence && x.recurrence.seriesId === a.id); return json({ event: first ? { ...first, id: a.id, recurrence: { recurring: true, seriesId: null, rules: G_SERIES[a.id] } } : null }); }
+        const ev = G_EVENTS.find((x) => x.id === a.id);
+        return ev ? json({ event: ev }) : json({ error: 'That event isn’t in Google Calendar (any more).', code: 'not_found' }, 404);
+      }
+      case 'findInvite': return json({ event: G_EVENTS.find((x) => x.iCalUID === a.iCalUID) || null, calendarId: 'owner@gmail.com' });
+      case 'respond': {
+        if (a.confirm !== true) return json({ error: 'respond needs args.confirm: true', code: 'bad_request' }, 400);
+        const hits = G_EVENTS.filter((x) => x.calendarId === a.calendarId && (x.id === a.id || (x.recurrence && x.recurrence.seriesId === a.id)));
+        if (!hits.length) return json({ error: 'That event isn’t in Google Calendar (any more).', code: 'not_found' }, 404);
+        for (const ev of hits) { const me = ev.attendees.find((x) => x.self); if (!me) return json({ error: 'You aren’t a guest of this event.', code: 'bad_request' }, 400); me.status = a.status; ev.selfStatus = a.status; }
+        return json({ event: hits[0] });
+      }
+      case 'freebusy': {
+        const s = new Date(a.start), en = new Date(a.end);
+        const at = (h, m = 0) => new Date(s.getFullYear(), s.getMonth(), s.getDate(), h, m).toISOString();
+        const busy = {}, errors = {};
+        const fake = { 'priya@example.org': [[10, 0, 11, 0], [15, 0, 16, 30]], 'alex@example.com': [[9, 0, 10, 0], [13, 0, 14, 0]], 'sam@example.com': [[11, 30, 12, 30]], 'team@example.org': [[15, 0, 16, 0]] };
+        for (const p of a.emails || []) {
+          if (p === 'owner@gmail.com') busy[p] = G_EVENTS.filter((x) => !x.allDay && x.calendarId === 'owner@gmail.com' && calOverlaps(x, s, en) && x.transparency !== 'transparent').map((x) => ({ start: x.start, end: x.end }));
+          else if (fake[p]) busy[p] = fake[p].map(([h1, m1, h2, m2]) => ({ start: at(h1, m1), end: at(h2, m2) }));
+          else { busy[p] = []; errors[p] = 'Not found, or not shared with you.'; }
+        }
+        return json({ busy, errors });
+      }
       case 'events': {
         const ids = Array.isArray(a.calendars) ? a.calendars : GCALS.filter((c) => c.selected).map((c) => c.id);
         const s = new Date(a.start), en = new Date(a.end);
@@ -760,26 +837,55 @@ async function calendarMock(p, method, body) {
       case 'create': {
         if (a.confirm !== true) return json({ error: 'create needs args.confirm: true', code: 'bad_request' }, 400);
         const e = a.event;
-        const ev = e.allDay ? gEv(a.calendarId, e.title, e.start, e.end) : gEv(a.calendarId, e.title, new Date(e.start), new Date(e.end));
-        Object.assign(ev, { location: e.location || '', notes: e.notes || '' });
-        G_EVENTS.push(ev);
-        return json({ event: ev });
+        const x = { colorId: e.colorId || null, visibility: e.visibility, transparency: e.transparency, reminders: e.reminders, guestsCanModify: e.guestsCanModify, guestsCanInviteOthers: e.guestsCanInviteOthers, guestsCanSeeOtherGuests: e.guestsCanSeeOtherGuests,
+          url: e.conference ? `https://meet.google.com/new-${calSeq + 1}` : '', notesHtml: e.description || '', attendees: (e.attendees || []).map((g) => ({ name: '', email: g.email, status: 'needsAction', organizer: false, self: false, optional: !!g.optional })) };
+        const one = (s0, e0, extra = {}) => { const ev = e.allDay ? gEv(a.calendarId, e.title, s0, e0, { ...x, ...extra }) : gEv(a.calendarId, e.title, s0, e0, { ...x, ...extra }); Object.assign(ev, { location: e.location || '', notes: e.notes || '' }); G_EVENTS.push(ev); return ev; };
+        const rule = (e.recurrence || []).find((r) => r.startsWith('RRULE:'));
+        if (!rule) return json({ event: e.allDay ? one(e.start, e.end) : one(new Date(e.start), new Date(e.end)) });
+        const base = `rec${++calSeq}`;
+        G_SERIES[base] = e.recurrence;
+        const s0 = e.allDay ? new Date(`${e.start}T00:00`) : new Date(e.start), len = (e.allDay ? new Date(`${e.end}T00:00`) : new Date(e.end)) - s0;
+        let first = null;
+        for (const d of mockExpand(rule, s0, e.allDay)) {
+          const ev = e.allDay ? one(calYmd(d), calYmd(new Date(+d + len)), { id: `${base}_${calYmd(d).replace(/-/g, '')}`, seriesId: base }) : one(d, new Date(+d + len), { id: `${base}_${calYmd(d).replace(/-/g, '')}`, seriesId: base });
+          first = first || ev;
+        }
+        return json({ event: first });
       }
       case 'update': {
         if (a.confirm !== true) return json({ error: 'update needs args.confirm: true', code: 'bad_request' }, 400);
         const ev = G_EVENTS.find((x) => x.id === a.id && x.calendarId === a.calendarId);
         if (!ev) return json({ error: 'That event isn’t in Google Calendar (any more).', code: 'not_found' }, 404);
         const e = a.event || {};
-        if (e.title !== undefined) ev.title = e.title;
-        if (e.location !== undefined) ev.location = e.location;
-        if (e.notes !== undefined) ev.notes = e.notes;
-        if (e.start !== undefined) { ev.allDay = e.allDay; ev.start = e.allDay ? e.start : new Date(e.start).toISOString(); ev.end = e.allDay ? e.end : new Date(e.end).toISOString(); }
+        const sid = ev.recurrence && ev.recurrence.seriesId;
+        const all = sid && (a.scope === 'all' || a.scope === 'following') ? G_EVENTS.filter((x) => x.recurrence && x.recurrence.seriesId === sid && (a.scope === 'all' || x.start >= ev.start)) : [ev];
+        const shift = e.start !== undefined && !e.allDay && !ev.allDay ? new Date(e.start) - new Date(ev.start) : 0;
+        const len = e.end !== undefined && !e.allDay ? new Date(e.end) - new Date(e.start) : null;
+        for (const x of all) {
+          if (e.title !== undefined) x.title = e.title;
+          if (e.location !== undefined) x.location = e.location;
+          if (e.notes !== undefined) x.notes = e.notes;
+          if (e.description !== undefined) x.notesHtml = e.description;
+          for (const k of ['colorId', 'visibility', 'transparency', 'reminders', 'guestsCanModify', 'guestsCanInviteOthers', 'guestsCanSeeOtherGuests']) if (e[k] !== undefined) x[k] = e[k];
+          if (e.colorId !== undefined) x.color = e.colorId ? GCOLOR[e.colorId] : null;
+          if (e.conference !== undefined) { x.conference = e.conference; x.url = e.conference ? x.url || 'https://meet.google.com/new-call' : ''; }
+          if (e.attendees) x.attendees = e.attendees.map((g) => ({ ...(x.attendees.find((o) => o.email === g.email) || { name: '', status: 'needsAction', organizer: false, self: false }), email: g.email, optional: !!g.optional }));
+          if (e.start !== undefined) {
+            if (x === ev || e.allDay || ev.allDay) { x.allDay = e.allDay; x.start = e.allDay ? e.start : new Date(e.start).toISOString(); x.end = e.allDay ? e.end : new Date(e.end).toISOString(); }
+            else { const ns = new Date(+new Date(x.start) + shift); x.start = ns.toISOString(); x.end = new Date(+ns + (len ?? (new Date(x.end) - new Date(x.start)))).toISOString(); }
+          }
+        }
+        if (e.recurrence && sid) G_SERIES[sid] = e.recurrence;
         return json({ event: ev });
       }
       case 'delete': {
         if (a.confirm !== true) return json({ error: 'delete needs args.confirm: true', code: 'bad_request' }, 400);
         const before = G_EVENTS.length;
-        G_EVENTS = G_EVENTS.filter((x) => !(x.calendarId === a.calendarId && (x.id === a.id || (x.recurrence && x.recurrence.seriesId === a.id))));
+        const one = G_EVENTS.find((x) => x.id === a.id);
+        const sid = one && one.recurrence && one.recurrence.seriesId;
+        if (sid && a.scope === 'all') G_EVENTS = G_EVENTS.filter((x) => !(x.recurrence && x.recurrence.seriesId === sid));
+        else if (sid && a.scope === 'following') G_EVENTS = G_EVENTS.filter((x) => !(x.recurrence && x.recurrence.seriesId === sid && x.start >= one.start));
+        else G_EVENTS = G_EVENTS.filter((x) => !(x.calendarId === a.calendarId && (x.id === a.id || (x.recurrence && x.recurrence.seriesId === a.id))));
         return before === G_EVENTS.length ? json({ error: 'That event isn’t in Google Calendar (any more).', code: 'not_found' }, 404) : json({ deleted: true });
       }
       default: return json({ error: 'unknown action' }, 400);
@@ -857,6 +963,7 @@ function gmDetail(m) {
     subject: m.subject || '', date: m.date || null, snippet: String(m.body || '').slice(0, 90), unread: !!m.unread,
     messageId: m.messageId || null, inReplyTo: m.inReplyTo || null, references: m.references || null, labelIds: [],
     body: m.body || '', bodyType: m.html ? 'html' : 'text', truncated: false, html: m.html || null, ...(m.hidden ? { hidden: m.hidden } : {}),
+    ...(m.calendar ? { calendar: m.calendar } : {}),
     attachments: (m.attachments || []).map((a, i) => (typeof a === 'string' ? { name: a, mime: 'application/octet-stream', size: 1024, attachmentId: gmFile(`att-${m.id}-${i}`, `mock ${a}`) } : a)),
   };
 }
