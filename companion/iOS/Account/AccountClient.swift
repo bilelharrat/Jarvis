@@ -140,7 +140,7 @@ struct AccountClient: Sendable {
         try await decode(Account.self, call("POST", "subscription", body: ["signed_transaction": .string(jws)]))
     }
 
-    // MARK: - Linking a Mac
+    // MARK: - Linking a Mac, approving a browser's sign-in
 
     struct LinkInfo: Decodable, Equatable, Sendable {
         var name: String
@@ -164,10 +164,13 @@ struct AccountClient: Sendable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Key.self)
             kind = c.text(.kind) ?? "mac"
-            name = c.text(.name)?.trimmed.nilIfEmpty ?? "your Mac"
+            name = c.text(.name)?.trimmed.nilIfEmpty ?? (kind == "web" ? "Eden on the web" : "your Mac")
             publicKey = c.text(.publicKey)
             expiresIn = c.integer(.expiresIn)
         }
+
+        /// A browser signing in to Eden at askeden.com, not a Mac joining the account.
+        var isWeb: Bool { kind == "web" }
     }
 
     struct Linked: Decodable, Equatable, Sendable {
@@ -274,6 +277,55 @@ struct AccountClient: Sendable {
         _ = try await call("DELETE", "sync")
     }
 
+    // MARK: - Eden's tasks
+
+    /// One of Eden's task approvals as askeden.com tells it after a decision.
+    struct TaskApproval: Decodable, Equatable, Sendable {
+        var id: String
+        /// "approved", "denied", or "failed" (approved, but doing it went wrong: see `error`).
+        var status: String
+        /// What approving did, in words ("Sent to …").
+        var result: String?
+        var error: String?
+        var taskTitle: String?
+
+        init(id: String, status: String, result: String? = nil, error: String? = nil, taskTitle: String? = nil) {
+            self.id = id
+            self.status = status
+            self.result = result
+            self.error = error
+            self.taskTitle = taskTitle
+        }
+
+        private enum Key: String, CodingKey {
+            case id, status, result, error
+            case taskTitle = "task_title"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Key.self)
+            id = c.text(.id) ?? ""
+            status = c.text(.status) ?? ""
+            result = c.text(.result)
+            error = c.text(.error)
+            taskTitle = c.text(.taskTitle)
+        }
+
+        var didFail: Bool { status == "failed" }
+    }
+
+    private struct DecidedApproval: Decodable {
+        var approval: TaskApproval
+    }
+
+    /// Approves or denies one of Eden's task approvals (Approve / Deny on its notification).
+    /// Approving does the thing (sends the draft, adds the event) before answering.
+    func decideTaskApproval(id: String, approve: Bool) async throws -> TaskApproval {
+        guard EdenTaskPush.isID(id) else { throw AccountError.notFound("That approval is gone.") }
+        let body: JSONValue = ["decision": .string(approve ? "approve" : "deny")]
+        return try await decode(DecidedApproval.self, call("POST", "tasks/approvals/\(id)", body: body)).approval
+    }
+
     // MARK: - Plumbing
 
     struct Reply: Sendable {
@@ -281,7 +333,7 @@ struct AccountClient: Sendable {
         var data: Data
     }
 
-    private func call(
+    func call(
         _ method: String, _ path: String, query: [URLQueryItem] = [], body: JSONValue? = nil,
         authorized: Bool = true, conflictBody: Bool = false
     ) async throws -> Reply {
@@ -317,7 +369,7 @@ struct AccountClient: Sendable {
         throw AccountError.from(status: http.statusCode, body: data, retryAfter: http.value(forHTTPHeaderField: "retry-after"))
     }
 
-    private func decode<T: Decodable>(_ type: T.Type, _ reply: Reply) throws -> T {
+    func decode<T: Decodable>(_ type: T.Type, _ reply: Reply) throws -> T {
         do {
             return try JSONDecoder().decode(T.self, from: reply.data)
         } catch {

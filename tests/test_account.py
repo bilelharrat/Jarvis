@@ -30,7 +30,7 @@ FIXTURE = (
     / "Fixtures"
     / "link-seal-vector.json"
 )
-BUNDLE = "com.bshventures.jarvis.companion"
+BUNDLE = "com.askeden.jarvis"
 
 
 async def instant(_seconds):
@@ -421,6 +421,14 @@ async def test_settings_link_shows_the_code_and_qr_then_the_account(setup):
     last = [e for e in drain(q) if e["type"] == "account"][-1]
     assert last["linked"] and last["info"]["plan"]["name"] == "free"
     assert last["relay"]["on"] is True and last["plus"] == {"chosen": False, "in_use": False}
+    assert last["eden_link"]["on"] is True and set(last["eden_link"]) == {"on", "state", "error"}
+    # The line's changes reach Settings by themselves (jarvis.eden_link's on_change).
+    hub.account_desk.eden_link._set("waiting", "Couldn’t reach askeden.com.")
+    heard = [e for e in drain(q) if e["type"] == "account"][-1]["eden_link"]
+    assert heard == {"on": True, "state": "waiting", "error": "Couldn’t reach askeden.com."}
+    hub.set_feature_prefs({"account_eden_link": False})
+    await asyncio.sleep(0)
+    assert [e for e in drain(q) if e["type"] == "account"][-1]["eden_link"]["on"] is False
     assert TOKEN not in json.dumps(last)
     await hub._handle({"type": "account_unlink"})
     assert not hub.account.linked
@@ -544,3 +552,65 @@ async def test_the_speaking_desk_hands_the_hosted_voice_the_token(setup):
     await hub.account._keep(TOKEN, None)
     voice = await desk.jarvis_voice(1.0)
     assert voice._hosted("Hi", "wav")["headers"]["Authorization"] == f"Bearer {TOKEN}"
+
+
+# ── the server: askeden.com or its preview ──
+
+
+async def test_the_server_is_chosen_while_unlinked_and_stays_with_the_token():
+    fake = FakeAskeden(sync_key=None)
+    fake.polls = ["waiting", "approve"]
+    vault = MemoryVault()
+    made = client(fake, vault)
+    assert made.server == "askeden.com" and made.ws_base == "wss://askeden.com/api/relay"
+    assert made.use_server("evil.example") is False and made.server == "askeden.com"
+    assert made.use_server("preview.askeden.com") is True
+    assert made.base == "https://preview.askeden.com/api"
+    assert made.ws_base == "wss://preview.askeden.com/api/relay"
+    link = await made.link_start(browser=True)
+    assert link.browser and made.link_page() == "https://preview.askeden.com/link#K7QM-4ZTR"
+    assert made.public()["link"]["page"] == made.link_page()
+    assert made.use_server("askeden.com") is False, "not while a code is up"
+    await finish(made)
+    assert made.linked and made.link_page() == ""
+    assert vault.data["jarvis-account:server"] == "preview.askeden.com"
+    assert made.use_server("askeden.com") is False and made.server == "preview.askeden.com"
+    # The next launch talks to the server the token is for, whatever the default.
+    again = client(fake, vault)
+    await again.load()
+    assert again.server == "preview.askeden.com" and again.token == TOKEN
+    await again.forget()
+    assert vault.data == {}
+    assert again.use_server("askeden.com") is True
+
+
+async def test_settings_links_this_mac_in_the_browser_at_the_chosen_server(setup):
+    hub, fake = setup
+    opened = []
+    hub.connectors.open_url = opened.append
+    q = hub.subscribe()
+    hub.set_feature_prefs({"account_server": "preview.askeden.com"})
+    await asyncio.sleep(0)
+    assert hub.account.server == "preview.askeden.com"
+    assert hub.account_desk.eden_link.base == "wss://preview.askeden.com/api/relay"
+    fake.polls = ["waiting", "approve"]
+    await hub._handle({"type": "account_link", "browser": True})
+    await asyncio.sleep(0)
+    assert opened == ["https://preview.askeden.com/link#K7QM-4ZTR"]
+    waiting = next(
+        e for e in drain(q) if e["type"] == "account" and e["link"] and e["link"]["browser"]
+    )
+    assert waiting["server"] == "preview.askeden.com" and waiting["link"]["page"] == opened[0]
+    await hub._handle({"type": "account_link_open"})
+    assert opened == [opened[0]] * 2
+    await finish(hub.account)
+    await hub._handle({"type": "account"})
+    last = [e for e in drain(q) if e["type"] == "account"][-1]
+    assert last["linked"] and last["server"] == "preview.askeden.com"
+    assert last["servers"] == ["askeden.com", "preview.askeden.com"]
+    # Linked: the setting changing doesn't move the token elsewhere.
+    hub.set_feature_prefs({"account_server": "askeden.com"})
+    await asyncio.sleep(0)
+    assert hub.account.server == "preview.askeden.com"
+    await hub._handle({"type": "account_link_open"})
+    assert len(opened) == 2, "no code waiting: nothing opens"

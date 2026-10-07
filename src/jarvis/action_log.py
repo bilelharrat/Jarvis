@@ -110,7 +110,9 @@ def summary(tool_name: str, tool_input: Any) -> str:
 
 
 def clean_entry(raw: Any) -> dict[str, str] | None:
-    """An entry as it's kept and shown, or None when it can't be one."""
+    """An entry as it's kept and shown, or None when it can't be one. An app's action over
+    Jarvis's MCP endpoint (eden_actions) also carries its source (the app, as a slug: "eden")
+    and a ref (the id of what's kept to undo it); JARVIS's own entries have neither."""
     if not isinstance(raw, dict):
         return None
     at = raw.get("t")
@@ -119,13 +121,22 @@ def clean_entry(raw: Any) -> dict[str, str] | None:
     except (TypeError, ValueError):
         return None
     outcome = raw.get("outcome") if raw.get("outcome") in OUTCOMES else "done"
-    return {
+    entry = {
         "t": when.replace(tzinfo=None).isoformat(timespec="seconds"),
         "tool": _tool(raw.get("tool")),
         "label": _line(raw.get("label"), LABEL_CHARS) or "Used a tool",
         "summary": _line(raw.get("summary"), SUMMARY_CHARS),
         "outcome": outcome,
     }
+    for key, shape in (("source", _SOURCE), ("ref", _REF)):
+        value = raw.get(key)
+        if isinstance(value, str) and shape.fullmatch(value):
+            entry[key] = value
+    return entry
+
+
+_SOURCE = re.compile(r"[a-z0-9-]{1,30}")
+_REF = re.compile(r"[\w-]{1,40}")
 
 
 class ActionLog:
@@ -199,9 +210,12 @@ class ActionLog:
                 out.append(entry)
         return out
 
-    def search(self, query: str = "", before: str = "", limit: int = SEARCH_LIMIT) -> list[dict]:
+    def search(
+        self, query: str = "", before: str = "", limit: int = SEARCH_LIMIT, source: str = ""
+    ) -> list[dict]:
         """Entries whose label, summary or tool hold every word of query (any case), newest
-        first, older than before (an entry's "t") when given; at most limit."""
+        first, older than before (an entry's "t") when given; at most limit. source: only
+        that app's ("eden"), "" for every entry."""
         words = str(query or "").casefold().split()
         found: list[dict[str, str]] = []
         for day in self.days():
@@ -209,6 +223,8 @@ class ActionLog:
                 continue
             for entry in reversed(self.day(day)):
                 if before and entry["t"] >= before:
+                    continue
+                if source and entry.get("source") != source:
                     continue
                 text = f"{entry['label']} {entry['summary']} {entry['tool']}".casefold()
                 if all(w in text for w in words):

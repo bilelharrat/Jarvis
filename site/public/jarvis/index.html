@@ -40,6 +40,16 @@
   .brand .mark { width: 32px; height: 32px; border-radius: 8px; background: var(--navy); display: grid; place-items: center; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18); }
   header nav a { color: var(--ink-2); text-decoration: none; font-size: 15px; margin-left: 22px; }
   header nav a:hover { color: var(--ink); }
+  header nav { display: flex; align-items: center; }
+  header nav a.signin {
+    padding: 8px 16px; border-radius: 999px; color: var(--ink); font-weight: 600; font-size: 14px;
+    background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: inset 0 1px 0 var(--rim);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6);
+  }
+  header nav a.signin:hover { background: rgba(255, 255, 255, 0.14); }
+  a:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 999px; }
+  .hero-cta { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px 16px; margin-top: 30px; }
+  .hero-cta .note { color: var(--muted); font-size: 15px; }
 
   .hero { text-align: center; padding: 64px 0 44px; }
   .eyebrow { margin: 0 0 16px; font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
@@ -99,7 +109,8 @@
   @media (max-width: 860px) {
     .apps, .features { grid-template-columns: 1fr; }
     .app { padding: 28px; }
-    header nav a:not(.keep) { display: none; }
+    header nav a:not(.keep):not(.signin) { display: none; }
+    header nav a { margin-left: 14px; }
   }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .orb::before, .orb span { animation: none; } }
 </style>
@@ -108,7 +119,7 @@
 <div class="wrap">
   <header>
     <a class="brand" href="/"><span class="mark"><svg width="18" height="19" viewBox="43 81 410 422" fill="#fff" stroke="#fff" stroke-width="18" stroke-linejoin="round" aria-hidden="true"><polygon points="211,93 314,90 444,236 343,353 249,352 333,251"/><polygon points="252,235 160,346 282,491 186,494 52,350 151,234"/></svg></span>Eden</a>
-    <nav><a href="#jarvis">J.A.R.V.I.S.</a><a href="#messenger">Messenger</a><a class="keep" href="#get">Download</a></nav>
+    <nav><a href="#jarvis">J.A.R.V.I.S.</a><a href="#messenger">Messenger</a><a class="keep" href="#get">Download</a><a class="signin" href="/signin">Sign in to Eden</a></nav>
   </header>
 
   <main>
@@ -116,6 +127,10 @@
       <p class="eyebrow">Two apps from Eden</p>
       <h1>Your Mac at your word.<br>Your team in private.</h1>
       <p class="lede">J.A.R.V.I.S. runs your Mac by voice. Eden Messenger keeps your team's conversations and calls between the people in them.</p>
+      <div class="hero-cta">
+        <a class="btn blue" href="/signin">Sign in to Eden</a>
+        <span class="note">Eden, the chat: one conversation for every model, in your browser.</span>
+      </div>
     </div>
 
     <div class="apps" id="apps">
@@ -199,7 +214,7 @@
 
   <footer>
     <span>© <span data-year>2026</span> Eden</span>
-    <span class="links"><a href="/jarvis/download">J.A.R.V.I.S. for Mac</a><a href="/messenger/download">Eden Messenger for Mac</a></span>
+    <span class="links"><a href="/jarvis/download">J.A.R.V.I.S. for Mac</a><a href="/messenger/download">Eden Messenger for Mac</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></span>
   </footer>
 </div>
 <script>
@@ -210,6 +225,11 @@
     const mb = latest.size ? `${Math.round(latest.size / 1e6)} MB · ` : '';
     document.querySelectorAll('[data-meta]').forEach((n) => { n.textContent = `Version ${latest.version} · ${mb}Apple silicon · macOS 14 or later`; });
   }).catch(() => {});
+  // A link into Eden (askeden.com/#tasks, #account, an invitation #delegate=… or #space=…) opened
+  // signed out lands here: signing in goes back to it (/signin?return=, checked again there).
+  if (/^#(?:account|tasks)(?:[?=&][\w.=&%-]{0,200})?$|^#(?:delegate|space)=[0-9A-Za-z-]{12,16}$/.test(location.hash)) {
+    document.querySelectorAll('a[href="/signin"]').forEach((a) => { a.href = `/signin?return=${encodeURIComponent(`/${location.hash}`)}`; });
+  }
 </script>
 </body>
 </html>

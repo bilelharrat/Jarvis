@@ -1,10 +1,8 @@
 {
   "strings": {
     "Jarvis in other apps": "在其他应用中使用 Jarvis",
-    "Let Claude Code and Claude Desktop use Jarvis": "让 Claude Code 和 Claude Desktop 使用 Jarvis",
     "They can search your second brain and read a note, recall what Jarvis remembers, read your calendar and send you heads-ups. Only apps on this Mac, through a private connection.": "它们可以搜索你的第二大脑并读取笔记、查看 Jarvis 记住的事、读取你的日历，并给你发提醒。只限这台 Mac 上的应用，通过私密连接。",
     "Ask when an app starts using Jarvis": "应用开始使用 Jarvis 时先询问",
-    "A card, said aloud, the first time each app session reaches in. What it reads goes to that app and the model behind it.": "每个应用会话第一次接入时，会显示一张卡片并念出来。它读到的内容会发给那个应用以及它背后的模型。",
     "Copy": "拷贝",
     "Copied": "已拷贝",
     "Run this once in Terminal:": "在“终端”里运行一次：",
@@ -16,7 +14,25 @@
     "Read your calendar": "读取了你的日历",
     "Sent you a heads-up": "给你发了提醒",
     "Claude Code": "Claude Code",
-    "Claude Desktop": "Claude Desktop"
+    "Claude Desktop": "Claude Desktop",
+    "Let Claude Code, Claude Desktop and Eden use Jarvis": "让 Claude Code、Claude Desktop 和 Eden 使用 Jarvis",
+    "A card, said aloud, the first time each app session reaches in, unless you chose Always allow for that app. What it reads goes to that app and the model behind it.": "每个应用会话第一次接入时，会显示一张卡片并念出来，除非你已对那个应用选择“始终允许”。它读到的内容会发给那个应用以及它背后的模型。",
+    "Connect": "连接",
+    "Disconnect": "断开连接",
+    "Connected": "已连接",
+    "Not connected": "未连接",
+    "Set up for another copy of Jarvis: Connect points it at this one.": "已为另一份 Jarvis 设置：点“连接”改为指向这一份。",
+    "Claude Code isn’t installed on this Mac.": "这台 Mac 上没有安装 Claude Code。",
+    "Claude Desktop isn’t installed on this Mac.": "这台 Mac 上没有安装 Claude Desktop。",
+    "Set up by hand": "手动设置",
+    "New Claude Code sessions can use Jarvis.": "新的 Claude Code 会话可以使用 Jarvis 了。",
+    "Restart Claude Desktop to use Jarvis there.": "重新启动 Claude Desktop 后即可在其中使用 Jarvis。",
+    "Restart Claude Desktop to finish disconnecting.": "重新启动 Claude Desktop 以完成断开连接。",
+    "Claude Desktop's settings file isn't valid JSON, so Jarvis left it alone. Fix it in Claude Desktop (Settings › Developer › Edit Config), or set it up by hand.": "Claude Desktop 的设置文件不是有效的 JSON，所以 Jarvis 没有改动它。请在 Claude Desktop 中修正（设置 › 开发者 › 编辑配置），或者手动设置。",
+    "Always allowed": "始终允许",
+    "These apps use Jarvis without asking. Forget one and it asks again.": "这些应用使用 Jarvis 时不会询问。移除后，它会再次询问。",
+    "Forget": "忘记",
+    "Jarvis needs your OK": "Jarvis 需要你的同意"
   },
   "patterns": [
     [

@@ -2,7 +2,14 @@
 // same fakes as accounts.test.js, shared here so the new tests don't reach into that file.
 import { Account } from '../src/accounts/account.js';
 import { Link } from '../src/accounts/link.js';
+import { Identity } from '../src/accounts/identity.js';
 import { b64url, b64urlText, sha256Hex } from '../src/accounts/util.js';
+import { testOnlyServiceClaude } from '../src/eden/providers.js';
+
+// The suites below were written for Claude on a Worker key (ANTHROPIC_API_KEY). askeden.com never
+// does that now (Claude is bring-your-own-key, providers.js BYOK_ONLY); they keep exercising the
+// same streaming and metering with it switched back on. test/byok.test.js checks the real rule.
+testOnlyServiceClaude(true);
 
 export class Storage {
   constructor() {
@@ -84,7 +91,7 @@ export { Account, Link };
 const rsa = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
 export const appleJwk = { ...(await crypto.subtle.exportKey('jwk', rsa.publicKey)), kid: 'TESTKID', alg: 'RS256', use: 'sig' };
 
-export async function identityToken({ sub = 'apple-user-1', nonce = 'raw-nonce', aud = 'com.bshventures.jarvis.companion', exp = Date.now() / 1000 + 600 } = {}) {
+export async function identityToken({ sub = 'apple-user-1', nonce = 'raw-nonce', aud = 'com.askeden.jarvis', exp = Date.now() / 1000 + 600 } = {}) {
   const head = b64urlText(JSON.stringify({ alg: 'RS256', kid: 'TESTKID' }));
   const body = b64urlText(JSON.stringify({ iss: 'https://appleid.apple.com', aud, exp, iat: Date.now() / 1000, sub, nonce: await sha256Hex(nonce) }));
   const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', rsa.privateKey, new TextEncoder().encode(`${head}.${body}`)));
@@ -136,4 +143,43 @@ export async function readEvents(response) {
     if (data.length) out.push({ type, data: JSON.parse(data.join('\n')) });
   }
   return out;
+}
+
+// ── sign-in identities and Google (auth.test.js) ──
+
+export { Identity };
+
+/** An RSA signing key as an OpenID provider has one: { jwk, sign(claims, header?) → JWT }. */
+export async function rsaSigner(kid) {
+  const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+  const jwk = { ...(await crypto.subtle.exportKey('jwk', pair.publicKey)), kid, alg: 'RS256', use: 'sig' };
+  async function sign(claims, header = {}) {
+    const head = b64urlText(JSON.stringify({ alg: 'RS256', kid, typ: 'JWT', ...header }));
+    const body = b64urlText(JSON.stringify(claims));
+    const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, new TextEncoder().encode(`${head}.${body}`)));
+    return `${head}.${body}.${b64url(sig)}`;
+  }
+  return { jwk, sign };
+}
+
+export const GOOGLE_CLIENT = 'test-client.apps.googleusercontent.com';
+export const google = await rsaSigner('GOOGLEKID1');
+
+/** A Google id_token: valid unless told otherwise. */
+export function googleIdToken({ sub = 'google-user-1', nonce, aud = GOOGLE_CLIENT, email = 'person@example.com', email_verified = true, iss = 'https://accounts.google.com', exp = Date.now() / 1000 + 600, signer = google } = {}) {
+  return signer.sign({ iss, aud, azp: aud, sub, email, email_verified, nonce, iat: Math.floor(Date.now() / 1000), exp });
+}
+
+/** A Workers rate-limit binding that allows `limit` per key; `keys` records every key asked. */
+export function rateLimiter(limit = 1000) {
+  const counts = new Map();
+  return {
+    keys: [],
+    max: limit,
+    async limit({ key }) {
+      this.keys.push(key);
+      counts.set(key, (counts.get(key) || 0) + 1);
+      return { success: counts.get(key) <= this.max };
+    },
+  };
 }

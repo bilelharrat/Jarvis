@@ -5,8 +5,37 @@
 // from the answer's usage once it's done. A request that starts inside the allowance always
 // finishes; the next one is refused when it's spent.
 
+import { MODELS } from '../eden/vendor/model-router.js';
+import { serviceFallback, serviceFetch, sseOf as sseText } from './service-ai.js';
+
 const ANTHROPIC = 'https://api.anthropic.com';
-const PASS_HEADERS = ['anthropic-version', 'anthropic-beta', 'content-type'];
+const PASS_HEADERS = ['anthropic-version', 'content-type'];
+
+// The anthropic-beta values passed through: only those whose cost is all tokens (or web
+// searches), which costOf counts. Any other beta (code execution's container time, the Files
+// API, MCP connectors, 1M-context pricing, …) is dropped, so it can't spend what isn't counted
+// (docs/security-review-2026-10-07.md, finding 4).
+export const BETAS = new Set([
+  'claude-code-20250219',
+  'interleaved-thinking-2025-05-14',
+  'fine-grained-tool-streaming-2025-05-14',
+  'token-efficient-tools-2025-02-19',
+  'prompt-caching-2024-07-31',
+  'extended-cache-ttl-2025-04-11',
+  'context-management-2025-06-27',
+  'output-128k-2025-02-19',
+  'server-side-fallback-2026-07-01',
+]);
+
+/** The allowed betas of an anthropic-beta header, comma-joined, or '' for none. */
+export function allowedBetas(header) {
+  const seen = new Set();
+  for (const raw of String(header || '').split(',')) {
+    const beta = raw.trim().toLowerCase();
+    if (BETAS.has(beta)) seen.add(beta);
+  }
+  return [...seen].join(',');
+}
 
 // List prices, dollars per million tokens: [input, output, cache reads as a share of input].
 // Cache writes are 1.25× input (5 minutes) or 2× (an hour). Unknown models cost the most.
@@ -28,6 +57,9 @@ export const WEB_SEARCH_USD = WEB_SEARCH;
 
 export function priceOf(model) {
   for (const [pattern, price] of PRICES) if (pattern.test(String(model))) return price;
+  // The stand-in for Claude without an Anthropic key (service-ai.js): its own registry price.
+  const other = MODELS.find((m) => m.id === model);
+  if (other) return [other.pricing.inputPer1M, other.pricing.outputPer1M, 0.1];
   return UNKNOWN;
 }
 
@@ -155,6 +187,27 @@ export function meteredBody(body, onDone) {
   });
 }
 
+// No Anthropic key here: the same request answered by the service's Gemini or OpenAI key
+// (service-ai.js), in Anthropic's shape, counted at the stand-in's price. Token counts are estimated.
+async function standIn(body, env, ctx, path, record) {
+  const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
+  if (path.endsWith('/count_tokens')) {
+    return new Response(JSON.stringify({ input_tokens: Math.ceil(new TextEncoder().encode(JSON.stringify(body)).length / CHARS_PER_TOKEN) }), { status: 200, headers });
+  }
+  let upstream;
+  try {
+    upstream = await serviceFetch(env, { ...body, stream: false });
+  } catch {
+    return anthropicError(502, 'api_error', 'The included AI couldn’t be reached. Try again.');
+  }
+  const text = await upstream.text();
+  if (!upstream.ok) return new Response(text, { status: upstream.status, headers });
+  const answer = JSON.parse(text);
+  ctx.waitUntil(record(answer.model, answer.usage || {}));
+  if (!body.stream) return new Response(text, { status: 200, headers });
+  return new Response(sseText(answer), { status: 200, headers: { ...headers, 'content-type': 'text/event-stream' } });
+}
+
 export const anthropicError = (status, type, message, headers = {}) =>
   new Response(JSON.stringify({ type: 'error', error: { type, message } }), {
     status,
@@ -164,7 +217,8 @@ export const anthropicError = (status, type, message, headers = {}) =>
 // Forward one request. `allow` is what the account said ({ ok, why }); `record(model,
 // usage)` counts the cost afterwards (through ctx.waitUntil).
 export async function forward(request, env, ctx, path, record) {
-  if (!env.ANTHROPIC_API_KEY) return anthropicError(503, 'api_error', 'Jarvis Plus AI is not set up on the server yet.');
+  const fallback = serviceFallback(env);
+  if (!env.ANTHROPIC_API_KEY && !fallback) return anthropicError(503, 'api_error', 'Jarvis Plus AI is not set up on the server yet.');
   const bodyText = await request.text();
   let body;
   try {
@@ -175,11 +229,14 @@ export async function forward(request, env, ctx, path, record) {
   if (typeof body.model !== 'string' || !/^claude-[\w.-]+$/.test(body.model)) {
     return anthropicError(400, 'invalid_request_error', 'Only Claude models are included.');
   }
+  if (!env.ANTHROPIC_API_KEY) return standIn(body, env, ctx, path, record);
   const headers = new Headers({ 'x-api-key': env.ANTHROPIC_API_KEY });
   for (const name of PASS_HEADERS) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  const betas = allowedBetas(request.headers.get('anthropic-beta'));
+  if (betas) headers.set('anthropic-beta', betas);
   if (!headers.has('anthropic-version')) headers.set('anthropic-version', '2023-06-01');
   if (!headers.has('content-type')) headers.set('content-type', 'application/json');
   const upstream = await fetch(`${ANTHROPIC}${path}`, { method: 'POST', headers, body: bodyText });

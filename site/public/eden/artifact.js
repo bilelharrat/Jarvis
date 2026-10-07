@@ -8,6 +8,7 @@ import { state, path, nodeText } from './state.js';
 import { api, apiUrl } from './api.js';
 import { artifactsIn } from './render.js';
 import { CANVAS_LANGS } from './markdown.js';
+import { openPublish } from './publish.js';
 
 let H = {};
 const art = { versions: [], i: 0, view: 0, urls: new Map() };
@@ -62,6 +63,7 @@ function show() {
   $('artPreview').hidden = art.view !== 0;
   $('artCode').hidden = art.view !== 1;
   $('btnArtExt').hidden = !canvas;
+  $('btnArtPublish').hidden = !canvas;
   const lines = v.code.split('\n').length;
   $('artCapText').textContent = `v${art.i + 1} · ${v.lang || 'text'} · ${lines} line${lines === 1 ? '' : 's'}${canvas ? ' · runs sandboxed: no network, no cookies' : ''}`;
   renderCode(v);
@@ -121,6 +123,7 @@ export function initArtifact(handlers) {
   $('btnArtClose').addEventListener('click', closeArtifact);
   $('btnArtCloseM').addEventListener('click', closeArtifact);
   $('btnArtCopy').addEventListener('click', () => { const v = art.versions[art.i]; if (v) copyText(v.code); });
+  $('btnArtPublish').addEventListener('click', () => { const v = art.versions[art.i]; if (v && CANVAS_LANGS.has(v.lang)) openPublish({ title: v.title, html: htmlFor(v) }); }); // G10
   $('btnArtExt').addEventListener('click', () => { if (art.url) window.open(art.url, '_blank', 'noopener'); else toast('The preview isn’t ready yet'); });
   $('mobSeg').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-i]');

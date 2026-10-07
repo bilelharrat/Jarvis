@@ -224,6 +224,7 @@
 .cal-frow input{flex:1;min-width:0;border:0;background:var(--content2);border-radius:9px;padding:7px 10px;font:inherit;font-size:13px;color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline)}
 .cal-frow input[type=time]{flex:0 0 112px}
 .cal-frow input:disabled{opacity:.55}
+.cal-alerts .cal-frow select{flex:1;min-width:0}
 .cal-sheet-body textarea{min-height:76px}
 .cal-sheet-body textarea:disabled{opacity:.55}
 .cal-fcheck{display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0 8px;cursor:pointer}
@@ -288,6 +289,54 @@
   .cal-frow input[type=time]{flex-basis:112px}
 }
 body.cal-open #toast{z-index:121}
+
+/* moving and resizing events: drag (touch: after a long press), the bottom edge resizes */
+.cal-tev{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.cal-tev.can-drag{cursor:grab}
+.cal-rsz{position:absolute;left:0;right:0;bottom:0;height:7px;cursor:ns-resize}
+.cal-rsz::after{content:"";position:absolute;left:50%;bottom:2px;width:18px;height:3px;margin-left:-9px;border-radius:2px;background:color-mix(in srgb,var(--c) 70%,var(--text));opacity:0;transition:opacity .15s}
+.cal-tev:hover .cal-rsz::after,.cal-tev:focus-visible .cal-rsz::after{opacity:.55}
+@media (pointer:coarse){.cal-rsz{height:14px}.cal-rsz::after{opacity:.4}}
+.cal-tev.drag-src{opacity:.35}
+.cal-ghost{z-index:6;pointer-events:none;background:color-mix(in srgb,var(--c) 30%,var(--content) 60%);box-shadow:inset 3px 0 0 var(--c),0 0 0 1px var(--c),0 8px 22px rgba(0,0,0,.18);transition:none}
+.cal-ghost .cal-rsz{display:none}
+.cal-tev.moved{box-shadow:inset 3px 0 0 var(--c),0 0 0 1.5px var(--c);background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--c) 22%,var(--content) 55%) 0 6px,color-mix(in srgb,var(--c) 14%,var(--content) 60%) 6px 12px)}
+body.cal-dragging,body.cal-dragging *{cursor:grabbing!important;-webkit-user-select:none;user-select:none}
+body.cal-resizing,body.cal-resizing *{cursor:ns-resize!important;-webkit-user-select:none;user-select:none}
+/* all-day rows (month, the week's strip): dragged to another day; the days it would cover light up */
+.cal-chip.can-drag{cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.cal-chip.drag-src{opacity:.35}
+.cal-chip.cal-ghost{margin:1px 3px}
+.cal-chip.moved{box-shadow:0 0 0 1.5px var(--c);background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--c) 26%,var(--content) 50%) 0 6px,color-mix(in srgb,var(--c) 16%,var(--content) 58%) 6px 12px)}
+.cal-mday.drop{background:color-mix(in srgb,var(--accent) 12%,transparent);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--accent) 55%,transparent)}
+.cal-tg-day.drop{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+
+/* a calendar's colour: a swatch beside each calendar, a small picker */
+.cal-calrow{display:flex;align-items:center;min-width:0}
+.cal-calrow .cal-cal{flex:1}
+.cal-swatch{flex:none;width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s,background .15s}
+.cal-swatch::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--c);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.18)}
+.cal-calrow:hover .cal-swatch,.cal-swatch:focus-visible,.cal-swatch[aria-expanded="true"]{opacity:1}
+.cal-swatch:hover{background:rgba(120,120,128,.14)}
+@media (hover:none){.cal-swatch{opacity:.9}}
+.cal-colors{position:absolute;z-index:9;width:214px;border-radius:16px;padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.cal-colors[hidden]{display:none}
+.cal-colors-h{display:flex;flex-direction:column;gap:1px;font-size:12.5px}
+.cal-colors-h b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-colors-h span{font-size:11px;color:var(--text3)}
+.cal-sw-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.cal-sw{width:26px;height:26px;border-radius:50%;background:var(--c);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.18);transition:transform .15s var(--spring)}
+.cal-sw:hover{transform:scale(1.1)}
+.cal-sw svg{stroke-width:3;filter:drop-shadow(0 0 1px rgba(0,0,0,.35))}
+.cal-sw[aria-checked="true"]{box-shadow:0 0 0 2px var(--content),0 0 0 3.5px var(--c)}
+.cal-sw.own{background:conic-gradient(var(--c) 0 50%,color-mix(in srgb,var(--c) 45%,var(--content)) 50% 100%)}
+.cal-sw:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+/* waiting on the owner's "Let Eden use Jarvis?" card */
+.cal-banner.wait{background:color-mix(in srgb,var(--wait) 14%,transparent);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--wait) 45%,transparent)}
+.cal-banner.wait .ic{color:var(--warn)}
+.listen.wait .ld{background:var(--wait);animation:pulse 1.2s ease-in-out infinite}
+.listen.wait{color:var(--text2)}
 @media (prefers-reduced-transparency: reduce){
   .cal,.cal-pop,.cal-sheet-card,.cal-connect{background:#f2f2f7}
   [data-theme="dark"] .cal,[data-theme="dark"] .cal-pop,[data-theme="dark"] .cal-sheet-card,[data-theme="dark"] .cal-connect{background:#2c2c2e}

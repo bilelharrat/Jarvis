@@ -5,9 +5,13 @@
 
 import { exchangeCode, revoke, verifyIdentityToken } from './apple.js';
 import { MAX_PAYLOAD, GONE, pushReady, sendPush } from './apns.js';
+import { takenWords } from './identity.js';
 import { cleanCode, newCode } from './link.js';
-import { anthropicError, costOf, forward } from './proxy.js';
+import { edenSyncApi } from './eden-sync.js';
+import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
+import { checkSignups } from './turnstile.js';
+import { cancelSubscription } from '../eden/billing.js';
 import {
   ApiError,
   BUNDLE_ID,
@@ -19,6 +23,7 @@ import {
   json,
   randomBytes,
   readJson,
+  sha256Hex,
   signedOut,
   tokenFrom,
   validAccountId,
@@ -27,9 +32,15 @@ import {
 
 export { Account } from './account.js';
 export { Link } from './link.js';
+export { Identity } from './identity.js';
+export { Space } from './space.js';
 
 const accountStub = (env, id) => env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id));
 const linkStub = (env, code) => env.LINKS.get(env.LINKS.idFromName(code));
+const identityStub = (env, provider, subHash) => env.IDENTITIES.get(env.IDENTITIES.idFromName(`${provider}:${subHash}`));
+
+/** What an identity is known by everywhere here (no raw sub is stored): SHA-256 hex of "<provider>:<sub>". */
+export const subHashOf = (provider, sub) => sha256Hex(`${provider}:${sub}`);
 
 // One op on an account's object; its JSON, or its refusal thrown as an ApiError. (Hosted
 // Eden, src/eden/, uses these too.)
@@ -46,6 +57,12 @@ export async function call(env, accountId, op, body = {}, auth = null) {
 export async function callLink(env, code, op, body = {}) {
   const response = await linkStub(env, code).fetch(`https://link/${op}`, { method: 'POST', body: JSON.stringify(body) });
   return { status: response.status, body: await unwrap(response) };
+}
+
+// One op on an identity's object (named `<provider>:<sub hash>`).
+export async function callIdentity(env, provider, subHash, op, body = {}) {
+  const response = await identityStub(env, provider, subHash).fetch(`https://identity/${op}`, { method: 'POST', body: JSON.stringify({ provider, ...body }) });
+  return unwrap(response);
 }
 
 async function unwrap(response) {
@@ -100,8 +117,16 @@ export async function api(request, env, ctx) {
     const link = /^\/link\/([^/]+)(?:\/(approve|deny))?$/.exec(path);
     if (link) return await linkByCode(request, env, link[1], link[2] || '', method);
     if (path === '/push' && method === 'POST') return json(await push(request, env));
+    const approval = /^\/tasks\/approvals\/([0-9a-f]{16})$/.exec(path);
+    if (approval && method === 'POST') return json(await taskApproval(request, env, approval[1]));
     if (path === '/subscription' && method === 'POST') return json(await subscription(request, env));
     if (path === '/appstore/notifications' && method === 'POST') return await appStoreNotification(request, env);
+    // Eden sync for the apps (docs/accounts.md "Eden sync"): the same ops a browser has, by token.
+    const esync = /^\/esync(?:\/([a-z]+))?$/.exec(path);
+    if (esync) {
+      const token = auth(request);
+      return await edenSyncApi(request, env, { account: token.account, token }, esync[1] || '');
+    }
     if (path === '/sync' && method === 'GET') {
       return json(await callAs(env, request, 'sync-get', { since: Number(url.searchParams.get('since')) || 0 }));
     }
@@ -123,6 +148,19 @@ export async function api(request, env, ctx) {
   }
 }
 
+// Approve or Deny a background task's approval from its notification (the iPhone app's actions,
+// accounts/tasks.js): the same decision as Eden's Tasks panel, by the app's own device token. Apps
+// send no Origin; a page can't make this call (no cookie counts here, and an Origin is refused).
+async function taskApproval(request, env, id) {
+  if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the J.A.R.V.I.S. app answers from a notification.');
+  const token = auth(request);
+  await limited(env, 'API_RATE', token.account);
+  const { decision } = await readJson(request, 4096);
+  if (decision !== 'approve' && decision !== 'deny') throw new ApiError(400, 'bad_request', 'decision is approve or deny.');
+  const approve = decision === 'approve';
+  return call(env, token.account, approve ? 'task-approve' : 'task-deny', { id, from_app: true, ...(approve ? { confirm: true } : {}) }, token);
+}
+
 // call(), as the device whose token the request carries.
 function callAs(env, request, op, body = {}) {
   const token = auth(request);
@@ -134,20 +172,123 @@ function callAs(env, request, op, body = {}) {
 async function signIn(request, env) {
   const body = await readJson(request);
   const claims = await verifyIdentityToken(body.identity_token, body.nonce, { now: Date.now() / 1000 });
-  const accountId = await accountIdFor(claims.sub);
+  const ip = clientIp(request);
+  const { account_id: accountId } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip, beforeCreate: () => nativeNewAccount(env, ip) });
   const refreshToken = await exchangeCode(env, body.authorization_code);
   const device = body.device && typeof body.device === 'object' ? body.device : {};
   return call(env, accountId, 'signin', {
     account_id: accountId,
     refresh_token: refreshToken,
+    identity: { provider: 'apple', sub_hash: await subHashOf('apple', claims.sub), email: null },
     device: { name: cleanName(device.name, 'iPhone'), kind: device.kind, app_version: cleanVersion(device.app_version) },
   });
 }
 
 async function deleteAccount(request, env) {
-  const { apple_grant: grant } = await callAs(env, request, 'delete');
-  if (grant) await revoke(env, grant);
+  const token = auth(request);
+  await eraseAccount(env, token.account, token); // an app's token: a browser's is refused here
   return new Response(null, { status: 204 });
+}
+
+/**
+ * Deletes an account for good (the iPhone app's Delete Account, the account page's): its object
+ * (devices, so every sign-in everywhere; usage, chats kept here, keys, published pages), then
+ * what lives elsewhere. `auth`: the device token asking; a browser's only with `confirm: "DELETE"`
+ * (the account page's typed confirmation, eden/session.js).
+ */
+export async function eraseAccount(env, accountId, auth, { confirm = null } = {}) {
+  const { apple_grant: grant, identities = [], stripe_subscription: stripeSub, published = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
+  if (grant) await revoke(env, grant);
+  // Plus bought on the web stops now (best effort); the App Store's is the person's to cancel.
+  if (stripeSub) await cancelSubscription(env, stripeSub);
+  // Its published pages' links go too (accounts/published.js `pub:<id>`).
+  for (const id of published) await call(env, `pub:${id}`, 'pub-index-drop', { account: accountId }).catch(() => {});
+  // Its sign-ins open nothing now (passkeys included): an Apple ID goes back to the account its
+  // id derives from (a new one), a Google account to a new one.
+  if (env.IDENTITIES) {
+    for (const { provider, sub_hash: subHash } of identities) {
+      if (subHash) await callIdentity(env, provider, subHash, 'forget', { account_id: accountId }).catch(() => {});
+    }
+  }
+}
+
+// A new account from an app's own Sign in with Apple (the J.A.R.V.I.S. and Eden iOS apps): no
+// Turnstile there (a native sheet, no page), so it costs NATIVE_NEW_WEIGHT tries of AUTH_RATE
+// on a counter of its own per network: at most 20 / 5 = 4 new accounts a minute from one network,
+// on top of every new account's own `new:` count (docs/web-auth.md "Turnstile").
+export const NATIVE_NEW_WEIGHT = 5;
+export async function nativeNewAccount(env, ip) {
+  for (let i = 0; i < NATIVE_NEW_WEIGHT; i++) await limited(env, 'AUTH_RATE', `native-new:${ip}`);
+}
+
+export const clientIp = (request) => request.headers.get('cf-connecting-ip') || 'unknown';
+
+const accountExists = async (env, id) => (await call(env, id, 'exists')).exists === true;
+
+// ── sign-in identities (docs/web-auth.md "One account, many ways in") ──
+
+/**
+ * The account a verified sign-in opens: { account_id }. Apple: the account its Identity names,
+ * else (every account the iPhone app made) the one its id derives from; an Apple ID unlinked
+ * since, or a Google account seen for the first time, gets a new account (random UUID v4).
+ * A new account counts against AUTH_RATE per network. Never matched by email.
+ */
+export async function accountForIdentity(env, { provider, sub, email = null, ip = 'unknown', cred = null, beforeCreate = null }) {
+  const derived = provider === 'apple' ? await accountIdFor(sub) : null;
+  if (!env.IDENTITIES) {
+    // Before the IDENTITIES binding is deployed: Apple as it always was, nothing else.
+    if (!derived) throw new ApiError(503, 'not_set_up', 'This sign-in is not set up here yet.');
+    if (!(await accountExists(env, derived))) checkSignups(env); // sign-ups closed: existing accounts only
+    return { account_id: derived };
+  }
+  const subHash = await subHashOf(provider, sub);
+  const found = await callIdentity(env, provider, subHash, 'get');
+  if (found.state === 'linked') return { account_id: found.account_id };
+  let proposed = found.state === 'none' ? derived : null;
+  if (!proposed || !(await accountExists(env, proposed))) {
+    // A new Eden account: open to sign-ups at all (SIGNUPS), the person check (Turnstile,
+    // accounts/turnstile.js), then the rate.
+    checkSignups(env);
+    if (beforeCreate) await beforeCreate();
+    await limited(env, 'AUTH_RATE', `new:${ip}`);
+    proposed ||= crypto.randomUUID();
+  }
+  const { account_id } = await callIdentity(env, provider, subHash, 'resolve', { proposed, email, ...(cred ? { cred } : {}) });
+  return { account_id };
+}
+
+/**
+ * Attaches a freshly verified identity to the account of a signed-in browser (`device_id`, a
+ * live `web` device of `account_id`). 409 identity_taken when it opens another account.
+ */
+export async function linkIdentity(env, { provider, sub, email = null, account_id, device_id, cred = null }) {
+  if (!env.IDENTITIES) throw new ApiError(503, 'not_set_up', 'Linking sign-ins is not set up here yet.');
+  const subHash = await subHashOf(provider, sub);
+  const found = await callIdentity(env, provider, subHash, 'get');
+  if (found.state === 'linked' && found.account_id !== account_id) throw new ApiError(409, 'identity_taken', takenWords(provider));
+  const derived = provider === 'apple' ? await accountIdFor(sub) : null;
+  if (found.state === 'none' && derived) {
+    // An Apple ID the iPhone app already made an account for belongs to that account.
+    if (derived !== account_id && (await accountExists(env, derived))) throw new ApiError(409, 'identity_taken', takenWords(provider));
+  }
+  const claimed = await callIdentity(env, provider, subHash, 'claim', { account_id, email, ...(cred ? { cred } : {}) });
+  try {
+    await call(env, account_id, 'identity-link', { device_id, identity: { provider, sub_hash: subHash, email, derived } });
+  } catch (error) {
+    if (claimed.created) {
+      // Put it back the way it was: never seen (Apple falls back to its own account again) or unlinked.
+      await callIdentity(env, provider, subHash, found.state === 'none' ? 'forget' : 'release', { account_id }).catch(() => {});
+    }
+    throw error;
+  }
+  return { provider, email };
+}
+
+/** Takes a sign-in method off the signed-in browser's account (never the last one). */
+export async function unlinkIdentity(env, token, provider) {
+  const removed = await call(env, token.account, 'identity-unlink', { provider }, token);
+  if (env.IDENTITIES && removed.sub_hash) await callIdentity(env, provider, removed.sub_hash, 'release', { account_id: token.account });
+  return { provider };
 }
 
 // ── linking a Mac ──
@@ -291,7 +432,7 @@ async function appStoreNotification(request, env) {
 
 async function relay(request, env, kind) {
   const token = auth(request);
-  if (!['listen', 'connect', 'accept'].includes(kind)) throw new ApiError(404, 'not_found', 'No such relay door.');
+  if (!['listen', 'connect', 'accept', 'web'].includes(kind)) throw new ApiError(404, 'not_found', 'No such relay door.');
   const url = new URL(request.url);
   const inner = new URL(`https://account/relay/${kind}${url.search}`);
   const headers = new Headers(request.headers);
@@ -312,7 +453,8 @@ async function anthropic(request, env, ctx, path) {
   let allow;
   try {
     await limited(env, 'API_RATE', token.account);
-    if (path === '/v1/messages') allow = await call(env, token.account, 'allow-ai', {}, token);
+    // Its worst case held until it's done (account.js holdProxy): parallel requests can't spend past the allowance.
+    if (path === '/v1/messages') allow = await call(env, token.account, 'hold-proxy', { usd: await worstCase(request.clone()) }, token);
     else {
       // Counting tokens is free, but only for the account's own apps (the token is checked).
       const { device } = await call(env, token.account, 'whoami', {}, token);
@@ -327,9 +469,41 @@ async function anthropic(request, env, ctx, path) {
     throw error;
   }
   if (!allow.ok) return anthropicError(402, 'billing_error', allow.why);
-  const record = async (model, usage) => {
-    const usd = costOf(model, usage);
-    if (usd > 0 && allow.bucket !== 'none') await call(env, token.account, 'spend', { usd, bucket: allow.bucket });
+  let held = allow.hold || null;
+  const release = async () => {
+    if (!held) return;
+    const hold = held;
+    held = null;
+    await call(env, token.account, 'release-ai', { hold }).catch(() => {});
   };
-  return forward(request, env, ctx, path, record);
+  const record = async (model, usage) => {
+    try {
+      const usd = costOf(model, usage);
+      if (usd > 0 && allow.bucket !== 'none') await call(env, token.account, 'spend', { usd, bucket: allow.bucket });
+    } finally {
+      await release();
+    }
+  };
+  let response;
+  try {
+    response = await forward(request, env, ctx, path, record);
+  } catch (error) {
+    await release();
+    throw error;
+  }
+  if (!response.ok) ctx.waitUntil(release()); // nothing was spent
+  return response;
+}
+
+/** A request's most it can cost: its body as input (CHARS_PER_TOKEN) and all of max_tokens out. */
+async function worstCase(request) {
+  const text = await request.text().catch(() => '');
+  let body = {};
+  try {
+    body = JSON.parse(text) || {};
+  } catch {
+    // forward() refuses it
+  }
+  const out = Number(body.max_tokens) > 0 ? Number(body.max_tokens) : 4096;
+  return costOf(String(body.model || ''), { input_tokens: Math.ceil(text.length / CHARS_PER_TOKEN), output_tokens: out });
 }

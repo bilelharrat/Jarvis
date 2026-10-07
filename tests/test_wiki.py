@@ -264,6 +264,28 @@ async def test_the_window_opens_pages_and_settles_through_memory(hub, desk):
     assert [e for e in drain(q) if e["type"] == "wiki_page"][-1]["missing"] is True
 
 
+async def test_a_fact_switched_off_leaves_the_pages_until_switched_on(hub, desk):
+    # Eden's Memory page switches a fact off (memory.switch): kept, but used nowhere, the wiki
+    # included; switched on again, it's back. Its people stay on the map from other facts.
+    hub.memory.add("Ann Lee is the user's co-founder.", category="people")
+    secret = hub.memory.add("Ann is allergic to peanuts.")
+    q = hub.subscribe()
+    await desk.cmd_open({"page": "person:ann-lee"})
+    page = next(e for e in drain(q) if e["type"] == "wiki_page")["page"]
+    assert "peanuts" in json.dumps(page)
+    hub.memory.switch(secret.id, False)
+    await desk.cmd_page({"id": "person:ann-lee"})
+    page = [e for e in drain(q) if e["type"] == "wiki_page"][-1]["page"]
+    assert "peanuts" not in json.dumps(page) and "co-founder" in json.dumps(page)
+    await desk.cmd_search({"q": "peanuts", "seq": "1"})
+    found = [e for e in drain(q) if e["type"] == "wiki_results"][-1]["items"]
+    assert "peanuts" not in json.dumps([desk.wiki.page(r["id"]) for r in found])
+    hub.memory.switch(secret.id, True)
+    await desk.cmd_page({"id": "person:ann-lee"})
+    page = [e for e in drain(q) if e["type"] == "wiki_page"][-1]["page"]
+    assert "peanuts" in json.dumps(page)
+
+
 async def test_both_true_at_different_times_from_the_window(hub, desk):
     hub.memory.add("Ann lives in Oakland.", category="people")
     hub.memory.add("Ann moved to Seattle.", category="people")

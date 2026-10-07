@@ -1,0 +1,135 @@
+/* The try-it tour (tour.js, ROADMAP I1): the welcome sheet, the spotlight, the glass callout,
+   the success check, and practice mode's badge. Atelier tokens from app.css; above every
+   surface Eden has (their z-index tops out near 120). */
+
+/* ============ practice badge ============ */
+html.eden-practice #app{padding-top:40px}
+.tour-badge{position:fixed;top:7px;left:50%;transform:translateX(-50%);z-index:1003;display:flex;align-items:center;gap:8px;
+  padding:4px 5px 4px 12px;border-radius:20px;font-size:12px;white-space:nowrap;max-width:calc(100vw - 24px);
+  background:var(--glass2);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);
+  box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh1)}
+.tour-badge b{font-weight:650;color:var(--warn)}
+.tour-badge-dot{width:7px;height:7px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 3px rgba(255,159,10,.18);flex:none}
+.tour-badge-sub{color:var(--text2);overflow:hidden;text-overflow:ellipsis}
+.tour-badge-btn{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:14px;background:rgba(120,120,128,.14);color:var(--text)}
+.tour-badge-btn:hover{background:rgba(120,120,128,.22)}
+
+/* Eden's full-page surfaces start under the badge */
+html.eden-practice :is(#memSurface,#calSurface,#briefSurface,.sheet){padding-top:44px}
+html.eden-practice .mac-pane{top:44px}
+
+/* the sample task's floating approval card would sit over other steps' targets: it waits for the Tasks step */
+html.eden-practice:not([data-tour-step="tasks"]) #tkFloat{display:none!important}
+
+/* ============ spotlight ============ */
+.tour-layer{position:fixed;inset:0;z-index:1000;pointer-events:none}
+.tour-hole{position:fixed;border-radius:14px;pointer-events:none;
+  box-shadow:0 0 0 2px var(--accent),0 0 0 6px rgba(10,132,255,.22),0 0 0 200vmax rgba(10,14,22,.34);
+  transition:left .45s var(--spring),top .45s var(--spring),width .45s var(--spring),height .45s var(--spring),box-shadow .3s ease}
+.tour-hole.nodim{box-shadow:0 0 0 2px var(--accent),0 0 0 6px rgba(10,132,255,.22)}
+.tour-hole::after{content:"";position:absolute;inset:-2px;border-radius:inherit;box-shadow:0 0 0 2px var(--accent);animation:tourPulse 1.8s ease-out infinite}
+@keyframes tourPulse{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(1.08)}}
+
+/* ============ callout ============ */
+.tour-card{position:fixed;right:24px;bottom:24px;width:min(360px,calc(100vw - 24px));padding:14px 16px 12px;border-radius:var(--r-lg);
+  pointer-events:auto;color:var(--text);font-size:13.5px;line-height:1.42;
+  background:var(--glass2);box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh2);
+  transition:left .45s var(--spring),top .45s var(--spring),transform .45s var(--spring)}
+.tour-card.enter{animation:tourIn .42s var(--spring)}
+@keyframes tourIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+.tour-top{display:flex;align-items:center;gap:4px;margin:-4px -6px 6px 0}
+.tour-top .grow{flex:1}
+.tour-top .iconbtn{width:26px;height:26px}
+.tour-chap{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.2px;color:var(--text2);text-transform:uppercase}
+.tour-chap .ic{color:var(--accent)}
+.tour-bar{height:3px;border-radius:2px;background:rgba(120,120,128,.18);overflow:hidden;margin-bottom:10px}
+.tour-bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:2px;transition:width .6s var(--spring)}
+.tour-card h2{font-size:17px;font-weight:650;letter-spacing:-.3px;margin-bottom:4px;outline:none}
+.tour-body{color:var(--text2)}
+.tour-avail{margin-top:8px;padding:7px 10px;border-radius:10px;font-size:12.5px;color:var(--text2);background:rgba(255,159,10,.10);box-shadow:inset 0 0 0 .5px rgba(255,159,10,.3)}
+.tour-avail b{color:var(--text)}
+.tour-try{display:flex;align-items:flex-start;gap:8px;margin-top:10px;padding:9px 11px;border-radius:12px;background:var(--accent-soft)}
+.tour-try b{color:var(--accent);font-weight:650;white-space:nowrap}
+.tour-try-t{color:var(--text)}
+.tour-try-ic{position:relative;width:10px;height:10px;margin-top:4px;flex:none}
+.tour-try-ic i{position:absolute;inset:0;border-radius:50%;background:var(--accent)}
+.tour-try-ic::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--accent);animation:tourPing 1.6s ease-out infinite}
+@keyframes tourPing{0%{opacity:.6;transform:scale(1)}100%{opacity:0;transform:scale(2.6)}}
+.tour-extra:not(:empty){margin-top:9px}
+.tour-ok{display:flex;align-items:center;gap:10px;margin-top:10px;padding:9px 11px;border-radius:12px;background:rgba(48,209,88,.12);font-weight:550}
+.tour-check{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--run);color:#fff;flex:none}
+.tour-check svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:0}
+.tour-card.ok .tour-check{animation:tourPop .55s var(--spring)}
+.tour-card.ok .tour-check svg{animation:tourDraw .45s .12s ease-out both}
+@keyframes tourPop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
+@keyframes tourDraw{from{stroke-dashoffset:24}to{stroke-dashoffset:0}}
+.tour-acts{display:flex;align-items:center;gap:6px;margin-top:12px}
+.tour-acts .grow{flex:1}
+.tour-acts .cap:disabled{opacity:.4}
+.tour-card.min{width:auto;max-width:min(360px,calc(100vw - 24px))}
+.tour-card:is(.min,.squeeze) :is(.tour-bar,h2,#tourDesc,.tour-extra,.tour-acts){display:none}
+.tour-card.min .tour-try{margin-top:2px}
+.tour-card.min .tour-min svg{transform:rotate(180deg)}
+.tour-talk{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:12px;background:var(--content2);font-size:12.5px}
+.tour-talk-orb{width:22px;height:22px;align-self:center;animation:breathe 2s ease-in-out infinite}
+.tour-talk p{animation:tourIn .35s var(--spring)}
+.tour-talk-eden b{color:var(--accent)}
+
+/* a phone: a sheet at the bottom (or the top, when the target is down there) */
+.tour-card.sheet-mode{left:8px!important;right:8px!important;width:auto;top:auto;bottom:calc(8px + env(safe-area-inset-bottom));border-radius:22px}
+.tour-card.sheet-mode.at-top{top:calc(44px + env(safe-area-inset-top));bottom:auto}
+.tour-card.sheet-mode.min{left:auto!important}
+
+/* ============ welcome sheet ============ */
+.tour-scrim{position:fixed;inset:0;z-index:1002;display:grid;place-items:center;padding:16px;background:rgba(10,14,22,.32);animation:tourFade .25s ease}
+@keyframes tourFade{from{opacity:0}to{opacity:1}}
+.tour-welcome{width:min(580px,100%);max-height:min(88vh,800px);overflow:auto;padding:24px 22px 18px;border-radius:24px;color:var(--text);
+  background:var(--glass2);box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh2);animation:tourIn .45s var(--spring)}
+.tour-welcome.tour-small{width:min(420px,100%)}
+.tour-hero{text-align:center;padding:0 8px}
+.tour-orb{width:52px;height:52px;margin:0 auto 12px}
+.tour-hero h2,.tour-small h2{font-size:24px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
+.tour-small h2{font-size:19px}
+.tour-hero p,.tour-small>p{font-size:14px;line-height:1.45;color:var(--text2)}
+.tour-check.big{width:58px;height:58px;margin-bottom:12px}
+.tour-check.big .ic{width:30px;height:30px;stroke-width:2.6}
+.tour-finale .tour-check.big{animation:tourPop .6s var(--spring)}
+.tour-sub{display:flex;justify-content:space-between;gap:8px;margin:16px 4px 8px;font-size:12px;color:var(--text3)}
+.tour-chapters{list-style:none;display:flex;flex-direction:column;gap:4px}
+.tour-ch{display:flex;align-items:center;gap:12px;width:100%;padding:9px 10px;border-radius:14px;text-align:left;transition:background .15s}
+.tour-ch:hover,.tour-ch.sel{background:rgba(120,120,128,.12)}
+.tour-ch.sel{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.tour-ch-ic{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:11px;background:var(--accent-soft);color:var(--accent);flex:none}
+.tour-ch-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.tour-ch-t b{font-size:14px;font-weight:600}
+.tour-ch-t>span{font-size:12px;color:var(--text2)}
+.tour-tag{align-self:flex-start;margin-top:3px;font-size:10.5px!important;font-weight:600;color:var(--warn)!important;background:rgba(255,159,10,.12);padding:1px 7px;border-radius:9px}
+.tour-ch-meta{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--text3);flex:none;min-width:40px}
+.tour-ring{width:18px;height:18px;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p,0) * 1%),rgba(120,120,128,.2) 0);-webkit-mask:radial-gradient(circle,transparent 5px,#000 5.5px);mask:radial-gradient(circle,transparent 5px,#000 5.5px)}
+.tour-ch-done{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--run);color:#fff}
+.tour-ch-done .ic{width:12px;height:12px;stroke-width:2.6}
+.tour-ch.complete b{color:var(--text2)}
+.tour-foot{display:flex;align-items:center;gap:8px;margin-top:18px}
+.tour-foot .grow{flex:1}
+.tour-foot .btn{padding:8px 16px;font-size:14px}
+
+/* ============ "What's this?" ============ */
+.tour-whats{width:24px!important;height:24px!important;font-size:12px;font-weight:700;color:var(--text3);border-radius:50%!important;box-shadow:inset 0 0 0 1px var(--hairline)}
+.tour-whats:hover{color:var(--accent)}
+
+@media (max-width:640px){
+  html.eden-practice #app{padding-top:calc(max(8px, env(safe-area-inset-top)) + 34px)}
+  .tour-badge{top:calc(env(safe-area-inset-top) + 5px)}
+  .tour-badge-sub{display:none}
+  html.eden-practice :is(#memSurface,#calSurface,#briefSurface,.sheet){padding-top:calc(env(safe-area-inset-top) + 40px)}
+  html.eden-practice .mac-pane{top:calc(env(safe-area-inset-top) + 40px)}
+  html.eden-practice .cw-layer{top:calc(env(safe-area-inset-top) + 40px)}
+  .tour-scrim{place-items:end stretch;padding:0}
+  .tour-welcome{width:100%;max-height:92vh;border-radius:24px 24px 0 0;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
+  .tour-welcome.tour-small{width:100%}
+  .tour-hero h2{font-size:22px}
+}
+@media (prefers-reduced-motion:reduce){
+  .tour-hole,.tour-card,.tour-bar i{transition:none}
+  .tour-hole::after,.tour-try-ic::after,.tour-card.enter,.tour-card.ok .tour-check,.tour-card.ok .tour-check svg,.tour-scrim,.tour-welcome,.tour-talk p,.tour-talk-orb,.tour-finale .tour-check.big{animation:none}
+}

@@ -85,6 +85,10 @@ class FakeAskeden:
         self.rev = 0
         self.conflicts = 0  # PUTs to answer 409 (another device wrote first)
         self.plan = {}
+        # What else waits with a code for this account to approve: code -> {name, kind},
+        # or "expired"; answered in waiting_answers (code -> "approved" | "denied").
+        self.waiting = {}
+        self.waiting_answers = {}
         self.transport = httpx.MockTransport(self.handle)
 
     # what the phone does
@@ -143,6 +147,8 @@ class FakeAskeden:
             )
         if not self._authed(request):
             return httpx.Response(401, json={"error": "Signed out.", "code": "signed_out"})
+        if path.startswith("/link/") and path.count("/") in (2, 3):
+            return self._waiting(request.method, path.split("/")[2:], body)
         if path == "/account" and request.method == "GET":
             return httpx.Response(200, json=account_json(**self.plan))
         if path == "/devices/me" and request.method == "DELETE":
@@ -194,6 +200,27 @@ class FakeAskeden:
             self.rev += 1
             self.items[key] = {"rev": self.rev, "data": None, "deleted": True, "updated": 3}
             return httpx.Response(200, json={"rev": self.rev})
+        return httpx.Response(404, json={"error": "Not here.", "code": "not_found"})
+
+    def _waiting(self, method, parts, body):
+        code = parts[0]
+        link = self.waiting.get(code)
+        if link is None:
+            return httpx.Response(404, json={"error": "No such code.", "code": "not_found"})
+        if link == "expired":
+            return httpx.Response(410, json={"error": "Expired.", "code": "expired"})
+        if method == "GET" and len(parts) == 1:
+            return httpx.Response(200, json={**link, "public_key": None, "expires_in": 300})
+        if method == "POST" and len(parts) == 2 and parts[1] in ("approve", "deny"):
+            if parts[1] == "approve" and link["kind"] != "web":  # as the server: never a Mac
+                return httpx.Response(
+                    403, json={"error": "Approve a Mac from your iPhone.", "code": "forbidden"}
+                )
+            del self.waiting[code]
+            self.waiting_answers[code] = ("approved" if parts[1] == "approve" else "denied", body)
+            if parts[1] == "deny":
+                return httpx.Response(204)
+            return httpx.Response(200, json={"device_id": "b0b0b0b0b0b0b0b0", "name": link["name"]})
         return httpx.Response(404, json={"error": "Not here.", "code": "not_found"})
 
     def _conflict(self, key):

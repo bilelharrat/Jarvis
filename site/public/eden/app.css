@@ -109,7 +109,10 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 .side-foot{display:flex;align-items:center;gap:9px;padding:10px 12px;border-top:.5px solid var(--sep)}
 .side-foot .grow{flex:1;min-width:0}
 .side-foot .who{font-size:12px;font-weight:600}
-.orb{width:26px;height:26px;border-radius:50%;background:var(--orb);box-shadow:inset 0 1px 1px rgba(255,255,255,.5),0 2px 8px rgba(22,119,201,.4);flex:none;animation:breathe 8s ease-in-out infinite}
+.orb{width:26px;height:26px;border-radius:26%;background:#0E2747 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%23ffffff' stroke='%23ffffff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E") center/56% no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 2px 8px rgba(14,39,71,.25);flex:none}
+/* The Ask Eden mark (askeden.com's header): navy with a white mark; flipped in dark mode. */
+[data-theme="dark"] .orb{background:#f4f5f7 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%230E2747' stroke='%230E2747' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E") center/56% no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 2px 8px rgba(0,0,0,.35)}
+@media (prefers-color-scheme:dark){:root:not([data-theme]) .orb{background:#f4f5f7 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%230E2747' stroke='%230E2747' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E") center/56% no-repeat}}
 @keyframes breathe{0%,100%{filter:brightness(1)}50%{filter:brightness(1.06)}}
 .listen{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)}
 .listen .ld{width:6px;height:6px;border-radius:50%;background:var(--done)}
@@ -717,6 +720,8 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 /* menus: glass, items highlight in the accent */
 .jc-menu { position: fixed; z-index: 110; min-width: 250px; max-width: 340px; max-height: min(460px, calc(100vh - 24px)); overflow-y: auto; border-radius: 16px; padding: 6px; background: var(--menu-fill); -webkit-backdrop-filter: blur(40px) saturate(200%); backdrop-filter: blur(40px) saturate(200%); box-shadow: var(--clear-rim), var(--glass-edge), var(--shadow-sheet); display: flex; flex-direction: column; font-size: 13.5px; }
 .jc-menu.rich { min-width: 292px; }
+/* Rows keep their own height and the menu scrolls: a squeezed two-line row spilled into the next. */
+.jc-menu > * { flex-shrink: 0; }
 .jc-menu button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; text-align: left; padding: 7px 10px; border-radius: 9px; cursor: pointer; color: rgb(var(--c-ink)); transition: background-color 90ms ease; }
 .jc-menu button:hover, .jc-menu button:focus-visible { background: rgb(var(--c-accent)); color: #fff; outline: none; }
 .jc-menu button .k { margin-left: auto; font-size: 12px; opacity: 0.6; }
@@ -743,6 +748,7 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 .jc-menu .jc-mi[disabled] { opacity: 0.45; cursor: default; }
 .jc-menu .jc-mi[disabled]:hover { background: transparent; color: rgb(var(--c-ink)); }
 .jc-menu .jc-mi[disabled]:hover .ic, .jc-menu .jc-mi[disabled]:hover small { color: rgb(var(--c-muted)); }
+.jc-menu .jc-mi.muted .mi-label { opacity: 0.5; } /* a locked model (askeden.com: Claude without your key): opens Settings › Models & API keys */
 .jc-menu-head { margin: 6px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: rgb(var(--c-muted)); text-transform: uppercase; }
 .jc-menu-foot { margin: 4px 10px 3px; padding-top: 6px; border-top: 0.5px solid rgb(var(--c-border)); font-size: 11.5px; color: rgb(var(--c-muted)); }
 .jc-round { width: 30px; height: 30px; flex: none; border: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: transparent; color: rgb(var(--c-ink-2)); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
@@ -891,7 +897,7 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
   #btnHamburger{display:flex}
   #btnSidebarDesk{display:none}
   #inspector,#inspector.closed{left:8px;right:8px;top:auto;bottom:8px;width:auto;height:62vh;height:62dvh;border-radius:24px;transform:translateY(112%)}
-  #inspector.open{transform:none}
+  #inspector.open{transform:none;z-index:60} /* above #scrim (59), which closes it on a tap outside */
   #inspector.full{height:94dvh}
   #inspector.peek{height:30dvh}
   .grab{display:block}
@@ -935,6 +941,20 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 @media(max-width:1100px){#sidebar:not(.expanded) .srow-edit{display:none}}
 @media(max-width:640px){#sidebar .srow-edit{display:flex}}
 
+/* the narrow sidebar (an icon rail, 641–1100px, not expanded): icons only. A section's header
+   would leave just its chevron (a stray "⌄" between the icons), so sections are set apart by a
+   hairline instead; every section shows its items (a closed one has no header to open here),
+   sections with nothing to show go, and each item's title is its tooltip. A count (Tasks
+   waiting for approval) sits on the icon's corner. The phone drawer and the expanded rail
+   keep the full sidebar. */
+@media(min-width:641px) and (max-width:1100px){
+  #sidebar:not(.expanded) .sec-h{display:none}
+  #sidebar:not(.expanded) .sec:not(:has(.sitem:not(.child))){display:none}
+  #sidebar:not(.expanded) .sec~.sec{margin-top:6px;padding-top:6px;border-top:.5px solid var(--hairline)}
+  #sidebar:not(.expanded) .sec.closed .sec-items{grid-template-rows:1fr;opacity:1;visibility:visible}
+  #sidebar:not(.expanded) .sitem .tk-badge{position:absolute;top:1px;right:9px;min-width:15px;height:15px;padding:0 4px;font-size:9.5px}
+}
+
 /* mail */
 #spacePanel.wide{width:min(720px,94vw)}
 .mail-top{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
@@ -957,7 +977,8 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 .mail-body{max-height:44vh;font-size:13px;color:var(--text)}
 .mail-confirm .sp-warn{margin-top:10px}
 .mail-draft .field textarea{min-height:180px}
-/* Touch screens: no keyboard hints ("? for shortcuts", ⌘K, menu shortcuts, the palette's key legend) */
+/* Touch screens: no keyboard hints ("? for shortcuts", ⌘K, menu shortcuts, the palette's key legend),
+   unless Eden's iPad app has a hardware keyboard attached (it marks the page .eden-kbd) */
 @media (hover:none),(pointer:coarse){
-  #cc-mode,.kbdhint,.pal-foot,.jc-menu-foot,.jc-mi .k,.side-search .fake kbd,#sidebar .fake kbd,#sidebar.expanded .fake kbd{display:none !important}
+  :root:not(.eden-kbd) :is(#cc-mode,.kbdhint,.pal-foot,.jc-menu-foot,.jc-mi .k,.side-search .fake kbd,#sidebar .fake kbd,#sidebar.expanded .fake kbd){display:none !important}
 }

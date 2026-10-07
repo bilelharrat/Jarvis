@@ -1,0 +1,115 @@
+/* The account page (account.js): a Settings-style sheet in Atelier's Liquid Glass. */
+.acct{width:min(560px,100%)}
+.acct .sheet-body{padding-bottom:22px}
+.acct-notice{margin-top:6px}
+.acct-card{padding:4px 14px}
+.acct-plan{display:flex;align-items:center;gap:12px;padding:12px 0 10px}
+.acct-plan .orb{width:40px;height:40px}
+.acct-plan .grow{flex:1;min-width:0}
+.acct-plan-name{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:700;letter-spacing:-.3px}
+.acct-sub{font-size:12px;color:var(--text3);margin-top:2px;line-height:1.4}
+.acct-badge{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;letter-spacing:0;color:var(--text2);background:rgba(120,120,128,.14);padding:2px 8px;border-radius:12px;white-space:nowrap;margin-left:6px;vertical-align:1px}
+.acct-badge.plus{color:#fff;background:var(--orb);box-shadow:inset 0 .5px 0 rgba(255,255,255,.45)}
+.acct-plan-name .acct-badge{margin-left:0}
+.acct-allow{padding:10px 0 12px;border-top:.5px solid var(--sep)}
+.acct-row-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+.acct-k{font-size:13px;font-weight:500}
+.acct-v{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* the glass meter: a frosted track, a lit fill */
+.acct-meter{position:relative;height:12px;border-radius:999px;overflow:hidden;
+  background:rgba(120,120,128,.14);box-shadow:inset 0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px var(--hairline)}
+.acct-meter .fill{position:absolute;inset:0 auto 0 0;border-radius:inherit;min-width:12px;
+  background:linear-gradient(90deg,#3fb8f2,var(--accent));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -1px 2px rgba(0,40,90,.18),0 0 10px rgba(10,132,255,.35);
+  transition:width .6s var(--spring)}
+.acct-meter .fill::after{content:"";position:absolute;inset:1px 6px auto;height:40%;border-radius:999px;background:linear-gradient(rgba(255,255,255,.55),rgba(255,255,255,0))}
+.acct-meter.low .fill{background:linear-gradient(90deg,#ffb340,var(--warn));box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 0 10px rgba(255,159,10,.35)}
+.acct-allow .acct-sub{margin-top:7px;font-variant-numeric:tabular-nums}
+
+.acct-plus{display:flex;align-items:center;gap:12px;margin-top:10px;padding:12px 14px;border-radius:var(--r-md);
+  background:linear-gradient(135deg,rgba(63,184,242,.12),rgba(22,119,201,.08));box-shadow:inset 0 0 0 .5px rgba(10,132,255,.25)}
+.acct-plus .grow{flex:1;min-width:0}
+.acct-plus b{font-size:13px}
+.acct-plus p{font-size:12px;color:var(--text2);margin-top:3px;line-height:1.45}
+.acct-plus .btn{flex:none;text-decoration:none}
+/* Plus on the web (Stripe): the other way to buy it, managing it, and good news back from Checkout */
+.acct-plus .acct-alt{font-size:11.5px;color:var(--text3);margin-top:4px}
+.acct-manage{margin-top:0;padding:10px 0 12px;border-top:.5px solid var(--sep)}
+.acct-manage a.cap{text-decoration:none}
+.acct-notice.ok{background:rgba(48,209,88,.1);box-shadow:inset 0 0 0 .5px rgba(48,209,88,.35)}
+.set-sec > .acct-notice{margin:0 0 10px}
+
+.acct-list{list-style:none}
+.acct-dev{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:.5px solid var(--sep);min-height:52px}
+.acct-dev:last-child{border:0}
+.acct-dev .grow{flex:1;min-width:0}
+.acct-dev .p-n{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.acct-dev .p-c{font-size:11px;color:var(--text3);margin-top:1px}
+.acct-dev.off .p-n{color:var(--text2)}
+.acct-ico{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;flex:none;color:var(--text2);
+  background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.acct-dev.this .acct-ico{color:var(--accent);background:var(--accent-soft)}
+.acct-mark{width:16px;height:16px}
+.acct-mark.apple{color:var(--text)}
+.acct-note{font-size:11px;color:var(--text3);text-align:right;max-width:130px;line-height:1.3}
+.acct-confirm{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.acct-q{font-size:11.5px;color:var(--text2)}
+.acct-dev a.cap{text-decoration:none}
+.acct-foot{display:flex;align-items:flex-start;gap:12px;justify-content:space-between}
+.acct-foot .sp-note{flex:1}
+.acct-foot .acct-confirm{margin-top:10px}
+.acct-del-input{width:110px;margin-left:6px;border:0;background:var(--content2);border-radius:8px;padding:6px 9px;font:inherit;font-size:12.5px;color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline);letter-spacing:.04em}
+.acct-delete .acct-foot{align-items:center;margin-top:8px}
+
+/* Sync, Delegates, Team spaces, Published (H1, H14, G8, G10) */
+.acct-input{width:100%;font:inherit;font-size:13px;color:var(--text);background:var(--content2);border:0;border-radius:9px;padding:8px 10px;box-shadow:inset 0 0 0 .5px var(--hairline);min-width:0}
+.acct-input:focus,.acct select:focus{outline:2px solid var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.acct-form{display:flex;flex-direction:column;gap:9px;padding:12px 14px}
+.acct-form>b{font-size:13px}
+.acct-field{display:flex;flex-direction:column;gap:5px}
+.acct-check{display:flex;align-items:center;gap:8px;font-size:13px}
+.acct-row-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+.acct-form .acct-row-actions{margin-top:2px}
+.acct-join{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.acct-join-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.acct-join-row .acct-input,.acct-join-row select{flex:1}
+.acct-join-row .cap{flex:none}
+.acct-gap{margin:14px 0 6px}
+.acct-more{margin-top:12px;font-size:13px}
+.acct-more summary{cursor:pointer;color:var(--accent);font-size:12.5px;font-weight:500}
+.acct-more .acct-form{padding:10px 0 0}
+.acct-code{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:12px 14px;margin-top:10px}
+.acct-code-big{font:600 22px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:2px;font-variant-numeric:tabular-nums;color:var(--text);margin:4px 0}
+.acct-code-big.small{font-size:15px;letter-spacing:1.5px;margin:2px 0 0}
+.acct-wait{display:flex;flex-direction:column;gap:4px;padding:12px 14px}
+.acct-wait .acct-code-big{color:var(--accent)}
+.acct-dot{width:10px;height:10px;border-radius:50%;background:var(--orb)}
+.acct-ico{font-size:12px;font-weight:600}
+.acct-dev .acct-meter{height:6px;margin-top:6px;max-width:220px}
+.acct-published .pub-head b{display:none}
+.acct-acting{display:flex;align-items:center;gap:12px;margin:6px 0 4px;padding:12px 14px;border-radius:var(--r-md);
+  background:linear-gradient(135deg,rgba(63,184,242,.14),rgba(22,119,201,.08));box-shadow:inset 0 0 0 .5px rgba(10,132,255,.3)}
+.acct-acting .grow{flex:1;min-width:0}
+.acct-acting b{font-size:13.5px}
+.acct-acting p{font-size:12px;color:var(--text2);margin-top:2px;line-height:1.4}
+.acct-acting .btn{flex:none}
+/* while acting for someone: a pill in the corner, on every screen */
+.acting-pill{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;
+  padding:5px 6px 5px 12px;border-radius:999px;font-size:12px;font-weight:500;max-width:calc(100vw - 32px)}
+.acting-pill .acting-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acting-pill .acting-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);flex:none}
+.acting-pill .cap{flex:none}
+
+@media (max-width: 560px){
+  .acct-plus{flex-direction:column;align-items:stretch}
+  .acct-plus .btn{justify-content:center}
+  .acct-foot{flex-direction:column;gap:0}
+  .acct-foot .acct-confirm{justify-content:flex-start}
+  .acct-note{max-width:110px}
+  .acct-acting{flex-direction:column;align-items:stretch}
+  .acct-join-row{flex-wrap:wrap}
+  .acct-join-row .acct-input{flex:1 1 140px}
+  .acting-pill{top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 86px)}
+}
+@media (prefers-reduced-motion: reduce){ .acct-meter .fill{transition:none} }

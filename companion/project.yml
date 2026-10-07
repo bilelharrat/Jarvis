@@ -2,7 +2,7 @@
 # Generate the Xcode project with:  xcodegen generate   (from this folder)
 name: JarvisCompanion
 options:
-  bundleIdPrefix: com.bshventures.jarvis
+  bundleIdPrefix: com.askeden.jarvis
   deploymentTarget:
     iOS: "26.0"
     watchOS: "26.0"
@@ -14,8 +14,8 @@ fileGroups:
   - Jarvis.storekit
 settings:
   SWIFT_VERSION: "5.10"
-  # BSH Ventures' paid Apple Developer Program team (same as the BSH Research apps).
-  DEVELOPMENT_TEAM: 9ZSY5R8A5C
+  # The owner's Apple Developer Program team (individual, Bilel Harrat), the same as the Eden app's.
+  DEVELOPMENT_TEAM: 8CV4X23Y2T
   CODE_SIGN_STYLE: Automatic
   MARKETING_VERSION: "1.0"
   CURRENT_PROJECT_VERSION: "1"
@@ -37,7 +37,7 @@ targets:
       - target: JarvisShare
         embed: true
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis
       INFOPLIST_FILE: iOS/Info.plist
       GENERATE_INFOPLIST_FILE: false
       TARGETED_DEVICE_FAMILY: "1"
@@ -71,15 +71,15 @@ targets:
         NSHealthShareUsageDescription: Only if you turn on the daily health summary. Steps, sleep, resting heart rate and workouts go to Jarvis on your Mac for your briefing. Nothing is written to Health.
         NSHealthUpdateUsageDescription: J.A.R.V.I.S. never writes to Apple Health. It only reads the daily summary you turn on.
         CFBundleURLTypes:
-          - CFBundleURLName: com.bshventures.jarvis.companion.pairing
+          - CFBundleURLName: com.askeden.jarvis.pairing
             CFBundleURLSchemes:
               - jarvis-pair
           # Places in the app (widgets, Live Activities); links only ever navigate.
-          - CFBundleURLName: com.bshventures.jarvis.companion.open
+          - CFBundleURLName: com.askeden.jarvis.open
             CFBundleURLSchemes:
               - jarvis-companion
           # A Mac's account link code (its QR code, read by the Camera app); asked about first.
-          - CFBundleURLName: com.bshventures.jarvis.companion.link
+          - CFBundleURLName: com.askeden.jarvis.link
             CFBundleURLSchemes:
               - jarvis-link
         UILaunchScreen:
@@ -96,7 +96,7 @@ targets:
           # "Hey Jarvis" in the background, only while the owner has it turned on.
           - audio
         BGTaskSchedulerPermittedIdentifiers:
-          - com.bshventures.jarvis.companion.refresh
+          - com.askeden.jarvis.refresh
         NSSupportsLiveActivities: true
         # "Ask Jarvis" to Siri: the display name is J.A.R.V.I.S.
         INAlternativeAppNames:
@@ -109,7 +109,7 @@ targets:
         # checks); setting it here would break the development-signed archive.
         aps-environment: development
         com.apple.security.application-groups:
-          - group.com.bshventures.jarvis.companion
+          - group.com.askeden.jarvis
         # Read-only: the daily health summary, off until the owner turns it on.
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
@@ -134,9 +134,9 @@ targets:
       path: Watch/JarvisCompanionWatch.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.bshventures.jarvis.companion
+          - group.com.askeden.jarvis
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.watchkitapp
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.watchkitapp
       INFOPLIST_FILE: Watch/Info.plist
       GENERATE_INFOPLIST_FILE: false
       WATCHOS_DEPLOYMENT_TARGET: "26.0"
@@ -151,7 +151,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: true
-        WKCompanionAppBundleIdentifier: com.bshventures.jarvis.companion
+        WKCompanionAppBundleIdentifier: com.askeden.jarvis
         WKRunsIndependentlyOfCompanionApp: true
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: JARVIS talks to Jarvis on your Mac over your network.
@@ -166,7 +166,7 @@ targets:
       - path: WidgetsCommon
       - path: Widgets
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.widgets
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.widgets
       INFOPLIST_FILE: Widgets/Info.plist
       GENERATE_INFOPLIST_FILE: false
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
@@ -185,7 +185,7 @@ targets:
       path: Widgets/JarvisWidgets.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.bshventures.jarvis.companion
+          - group.com.askeden.jarvis
 
   # "Send to Jarvis" in the share sheet.
   JarvisShare:
@@ -198,7 +198,7 @@ targets:
       - path: iOS/Views/Components.swift
       - path: iOS/Views/SpaceBackground.swift
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.share
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.share
       INFOPLIST_FILE: Share/Info.plist
       GENERATE_INFOPLIST_FILE: false
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
@@ -224,7 +224,7 @@ targets:
       path: Share/JarvisShare.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.bshventures.jarvis.companion
+          - group.com.askeden.jarvis
 
   # Watch complications.
   JarvisWatchWidgets:
@@ -235,7 +235,7 @@ targets:
       - path: WidgetsCommon
       - path: WatchWidgets
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.watchkitapp.widgets
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.watchkitapp.widgets
       INFOPLIST_FILE: WatchWidgets/Info.plist
       GENERATE_INFOPLIST_FILE: false
       WATCHOS_DEPLOYMENT_TARGET: "26.0"
@@ -255,7 +255,7 @@ targets:
       path: WatchWidgets/JarvisWatchWidgets.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.bshventures.jarvis.companion
+          - group.com.askeden.jarvis
 
   JarvisCompanionTests:
     type: bundle.unit-test
@@ -265,7 +265,7 @@ targets:
     dependencies:
       - target: JarvisCompanion
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.tests
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.tests
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       GENERATE_INFOPLIST_FILE: true
 
@@ -278,7 +278,7 @@ targets:
     dependencies:
       - target: JarvisCompanion
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.bshventures.jarvis.companion.uitests
+      PRODUCT_BUNDLE_IDENTIFIER: com.askeden.jarvis.uitests
       IPHONEOS_DEPLOYMENT_TARGET: "26.0"
       GENERATE_INFOPLIST_FILE: true
 

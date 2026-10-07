@@ -1,11 +1,11 @@
 // Jarvis spaces through POST /api/chat/jarvis: Second Brain (search_notes → read_note →
-// "Use in chat"), Memory (recall), Calendar (7 days), Routines (heads-up via notify_me),
-// plus the inspector's Memory tab. Everything Jarvis returns is data: shown as text only.
+// "Use in chat"), Memory (its own page now: memory.js), Calendar (calendar.js), Routines
+// (heads-up via notify_me), plus the inspector's Memory tab (recall, with a way into the page). Everything Jarvis returns is data: shown as text only.
 
 import { $, el, ico, toast, debounce } from './util.js';
 import { state, ui } from './state.js';
 import { api } from './api.js';
-import { mailPanel } from './mail.js';
+import { mailPanel, focusMail } from './mail.js';
 
 let H = {};
 const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
@@ -68,6 +68,10 @@ const SPACES = {
   cal: { t: 'Calendar', i: 'cal' }, // its own surface now (calendar.js): calendar() hands over to it
   routines: { t: 'Routines', i: 'routine' },
   mail: { t: 'Mail', i: 'mail' },
+  // H5–H7, each its own module (loaded when first opened)
+  meetings: { t: 'Meetings', i: 'quote', load: () => import('./meetings.js').then((m) => m.meetingsPanel) },
+  web: { t: 'On a website', i: 'globe', load: () => import('./browser-task.js').then((m) => m.browserTaskPanel) },
+  activity: { t: 'Activity', i: 'clock', load: () => import('./activity.js').then((m) => m.activityPanel), offMac: true },
 };
 let openKey = null;
 let returnFocus = null;
@@ -80,11 +84,13 @@ export function openSpace(key, opts = {}) {
   $('spTitle').textContent = s.t;
   $('spIco').firstElementChild.setAttribute('href', `#i-${s.i}`);
   $('spacePanel').classList.add('open');
-  $('spacePanel').classList.toggle('wide', key === 'mail');
+  $('spacePanel').classList.toggle('wide', key === 'mail' || !!s.load);
   const body = $('spBody');
   body.replaceChildren();
-  if (key === 'mail') { mailPanel(body).then(focusFirst); return; }
-  if (!state.jarvis.available && key !== 'routines') { body.append(unavailable(key)); focusFirst(); return; }
+  if (key === 'mail') { mailPanel(body).catch((e) => { failed(body, e); focusFirst(); }); requestAnimationFrame(() => focusMail(body) || focusFirst()); return; }
+  if (key === 'memory') { memory(body); return; } // the Memory page shows its own needs-your-Mac state
+  if (!state.jarvis.available && key !== 'routines' && !s.offMac) { body.append(unavailable(key)); focusFirst(); return; }
+  if (s.load) { s.load().then((open) => open(body, opts)).then(focusFirst, (e) => failed(body, e)); return; }
   if (key === 'brain') brain(body, opts.query || '');
   else if (key === 'memory') memory(body);
   else if (key === 'cal') calendar(body);
@@ -99,11 +105,14 @@ export function closeSpace() {
   // so the next Enter pressed that button ("Toggle inspector"). Only Esc, the close button
   // and the panel's own actions hand focus back.
   const byPointer = !!(window.event && window.event.type === 'pointerdown');
+  const hadFocus = $('spacePanel').contains(document.activeElement);
   $('spacePanel').classList.remove('open');
   openKey = null;
   const back = returnFocus;
   returnFocus = null;
   if (!byPointer && back && back !== document.body && document.contains(back)) back.focus();
+  // opened from somewhere gone or hidden now (the ⌘K palette): the composer, not the page
+  if (!byPointer && hadFocus && document.activeElement !== back) { const c = document.getElementById('deck-input'); if (c) c.focus(); }
   return true;
 }
 export const spaceOpen = () => $('spacePanel').classList.contains('open');
@@ -170,21 +179,15 @@ export async function attachNote(n) {
   } catch (e) { toast(e.message); }
 }
 
-function memory(body) {
-  const q = el('input', { class: 'sp-search', type: 'search', placeholder: 'Filter what your Mac remembers (empty lists everything)', 'aria-label': 'Filter memory' });
-  const res = el('div', { 'aria-live': 'polite' });
-  const run = async () => {
-    loading(res);
-    try {
-      const facts = parseRecall(await call('recall', { query: q.value.trim() }));
-      if (!facts.length) { res.replaceChildren(el('div', 'muted', 'Nothing remembered about that.')); return; }
-      res.replaceChildren(...facts.map((f) => el('div', 'mem-row', el('span', 'mem-txt', f),
-        el('button', { type: 'button', class: 'cap', onclick: () => H.addContext({ title: `Memory: ${f.slice(0, 40)}${f.length > 40 ? '…' : ''}`, text: f }) }, 'Use'))));
-    } catch (e) { failed(res, e); }
-  };
-  q.addEventListener('input', debounce(run, 400));
-  body.append(q, res, el('p', 'sp-note', 'This is what the Jarvis app on your Mac remembers; change it there. "Use" sends a fact with your next message.'));
-  run();
+async function memory(body, opts = {}) {
+  // Memory is a page of its own (memory.js: search, topics, where each fact came from, edit,
+  // forget, a switch per fact); this panel only hands over to it.
+  loading(body, 'Opening Memory…');
+  try {
+    const { openMemory } = await import('./memory.js');
+    closeSpace();
+    openMemory(opts);
+  } catch (e) { failed(body, e); }
 }
 
 async function calendar(body) {
@@ -227,12 +230,20 @@ export async function renderMemoryTab(force) {
     const facts = parseRecall(await call('recall', { query: $('memQ').value.trim() }));
     if (!facts.length) { card.replaceChildren(el('div', 'muted', 'Nothing remembered about that.')); return; }
     card.replaceChildren(...facts.map((f) => el('div', 'mem-row', el('span', 'mem-txt', f),
-      el('button', { type: 'button', class: 'iconbtn', style: { width: '24px', height: '24px' }, title: 'Use in the next message', 'aria-label': 'Use in the next message', onclick: () => H.addContext({ title: `Memory: ${f.slice(0, 40)}${f.length > 40 ? '…' : ''}`, text: f }) }, ico('plus', 12)))));
+      el('button', { type: 'button', class: 'iconbtn', style: { width: '24px', height: '24px' }, title: 'Use in the next message', 'aria-label': 'Use in the next message', onclick: () => H.addContext({ title: `Memory: ${f.slice(0, 40)}${f.length > 40 ? '…' : ''}`, text: f }) }, ico('plus', 12)))),
+      el('div', { style: { paddingTop: '8px' } }, el('button', { type: 'button', class: 'cap', onclick: () => openMemoryPage({ query: $('memQ').value.trim() }) }, ico('bulb', 12), 'Open Memory: sources, edit, switch')));
   } catch (e) { card.replaceChildren(el('div', 'muted', `Couldn’t read memory: ${e.message}`)); }
+}
+
+/** The Memory page (memory.js), loaded when first opened. */
+export async function openMemoryPage(opts = {}) {
+  try { (await import('./memory.js')).openMemory(opts); } catch (e) { toast(e.message); }
 }
 
 export function initPanels(handlers) {
   H = handlers;
+  const note = document.querySelector('#tab-Memory .mem-note');
+  if (note) note.textContent = 'Through the Jarvis app on your Mac. "Use" adds a fact to your next message; Open Memory to see where each came from, edit, forget or switch one off.';
   $('btnSpClose').addEventListener('click', closeSpace);
   $('memQ').addEventListener('input', debounce(() => renderMemoryTab(true), 400));
   document.addEventListener('pointerdown', (e) => {

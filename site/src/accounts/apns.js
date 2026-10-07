@@ -3,7 +3,7 @@
 // token made once and used for 50 minutes, HTTP/2 to api.push.apple.com (Workers speak it),
 // and Apple's answer passed back as it is.
 
-import { BUNDLE_ID, b64ToBytes, b64url, b64urlText } from './util.js';
+import { BUNDLE_ID, TEAM_ID, b64ToBytes, b64url, b64urlText } from './util.js';
 
 const HOSTS = { production: 'https://api.push.apple.com', sandbox: 'https://api.sandbox.push.apple.com' };
 const TOKEN_MS = 50 * 60 * 1000;
@@ -20,7 +20,7 @@ async function providerToken(env, now = Date.now()) {
   const pem = String(env.APNS_KEY).replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
   const key = await crypto.subtle.importKey('pkcs8', b64ToBytes(pem), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
   const head = b64urlText(JSON.stringify({ alg: 'ES256', kid: env.APNS_KEY_ID }));
-  const body = b64urlText(JSON.stringify({ iss: env.APPLE_TEAM_ID || '9ZSY5R8A5C', iat: Math.floor(now / 1000) }));
+  const body = b64urlText(JSON.stringify({ iss: env.APPLE_TEAM_ID || TEAM_ID, iat: Math.floor(now / 1000) }));
   const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(`${head}.${body}`)));
   cached = { keyId: env.APNS_KEY_ID, at: now, token: `${head}.${body}.${b64url(sig)}` };
   return cached.token;

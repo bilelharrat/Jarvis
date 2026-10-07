@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>Link a Mac</title>
+<link rel="icon" type="image/png" href="/jarvis/eden-favicon.png">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<link rel="stylesheet" href="/signin/signin.css">
+<link rel="stylesheet" href="/link/link.css">
+<script type="module" src="/link/link.js"></script>
+</head>
+<body>
+<a class="home" href="/">‹ Eden</a>
+<main class="card" aria-labelledby="title">
+  <div class="orb" aria-hidden="true"></div>
+  <h1 id="title">Link a Mac</h1>
+  <p class="lead">Your Mac joins your Eden account. Eden here can then answer through it: Jarvis, Code mode, and chat on your Mac’s own models.</p>
+
+  <p class="alert" id="alert" role="alert" hidden></p>
+
+  <section class="stale" id="stale" hidden>
+    <p class="how">For your safety, a browser can link a Mac only within 10 minutes of signing in. Sign in again, then come back here.</p>
+    <button type="button" class="button" id="again">Sign in again</button>
+  </section>
+
+  <form class="enter" id="enter" hidden>
+    <label class="how" for="code">In <b>J.A.R.V.I.S.</b> on your Mac, open <span class="path">Settings › Account</span> and choose <b>Link this Mac in the browser</b>. Type the code it shows.</label>
+    <input id="code" class="codein" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" maxlength="12" placeholder="K7QM-4ZTR" aria-describedby="status">
+    <button type="submit" class="button" id="find">Find my Mac</button>
+  </form>
+
+  <section class="link ask" id="ask" aria-labelledby="askTitle" hidden>
+    <div class="steps">
+      <h2 id="askTitle" tabindex="-1">Link “<span id="macName"></span>”?</h2>
+      <p class="how">Approve only if this is your own Mac, showing <b id="askCode"></b> right now. A linked Mac can use your account.</p>
+      <div class="row">
+        <button type="button" class="button" id="approve">Link this Mac</button>
+        <button type="button" class="button ghost" id="deny">Don’t link</button>
+      </div>
+    </div>
+  </section>
+
+  <p class="status" id="status" aria-live="polite"></p>
+  <p class="done" id="done" hidden><a class="button" href="/">Open Eden</a></p>
+
+  <p class="fine">Linking from the browser gives the Mac no keys to your synced chats. <a href="/help">Get help</a>.</p>
+</main>
+</body>
+</html>

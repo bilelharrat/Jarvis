@@ -43,3 +43,39 @@ test('the plan, the money and the relay in words', () => {
 test('with no Settings group to add to, the script does nothing', () => {
   assert.doesNotThrow(() => helpers());
 });
+
+test('a sign-in code is read as typed, and a browser sign-in says how it went', () => {
+  const { codeOf, approvalLine } = helpers();
+  assert.equal(codeOf('k7qm4ztr'), 'K7QM-4ZTR');
+  assert.equal(codeOf(' K7QM-4ZTR '), 'K7QM-4ZTR');
+  assert.equal(codeOf('jarvis-link://K7QM-4ZTR'), 'K7QM-4ZTR');
+  assert.equal(codeOf('K7QM-4ZTU'), null);
+  assert.equal(codeOf('hello'), null);
+  assert.match(approvalLine({ state: 'approved' }), /signed in to Eden/);
+  assert.match(approvalLine({ state: 'denied' }), /isn’t signed in/);
+  assert.equal(approvalLine({ state: 'error', error: 'That code expired.' }), 'That code expired.');
+  assert.equal(approvalLine({ state: 'asking' }), '');
+});
+
+test('Eden sync on this Mac says where it stands and what to do next', () => {
+  const { esyncLine } = helpers();
+  assert.match(esyncLine(null), /Checking/);
+  assert.equal(esyncLine({ state: 'unknown', error: 'Couldn’t reach askeden.com.' }), 'Couldn’t reach askeden.com.');
+  assert.match(esyncLine({ state: 'off' }), /isn’t on for your account/);
+  assert.match(esyncLine({ state: 'locked' }), /recovery passphrase/);
+  assert.match(esyncLine({ state: 'asking' }), /same code/);
+  assert.match(esyncLine({ state: 'on', requests: [] }), /No browser is waiting/);
+  assert.match(esyncLine({ state: 'on', requests: [{}] }), /^A device is waiting/);
+  assert.match(esyncLine({ state: 'on', requests: [{}, {}] }), /^2 devices are waiting/);
+});
+
+test('Eden on the web reaching this Mac says whether its line is up, and why not', () => {
+  const { edenLinkLine } = helpers();
+  assert.deepEqual(edenLinkLine({ on: false, state: 'off' }), ['Off: Eden at askeden.com can’t reach Jarvis, Code mode or privacy mode on this Mac.', false]);
+  assert.equal(edenLinkLine(null)[0].startsWith('Off'), true);
+  assert.deepEqual(edenLinkLine({ on: true, state: 'open', error: '' }), ['Connected: Eden at askeden.com reaches Jarvis, Code mode and privacy mode here.', false]);
+  assert.deepEqual(edenLinkLine({ on: true, state: 'waiting', error: 'Couldn’t reach askeden.com.' }), ['Offline: Couldn’t reach askeden.com. Trying again…', true]);
+  assert.deepEqual(edenLinkLine({ on: true, state: 'waiting', error: '' }), ['Offline. Trying again…', true]);
+  assert.deepEqual(edenLinkLine({ on: true, state: 'connecting' }), ['Connecting to askeden.com…', false]);
+  assert.deepEqual(edenLinkLine({ on: true, state: 'off' }), ['Connecting to askeden.com…', false]);
+});

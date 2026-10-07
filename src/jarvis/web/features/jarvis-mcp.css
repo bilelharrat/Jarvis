@@ -9,3 +9,14 @@
 .mcp-recent li { display: flex; gap: 8px; font-size: 12.5px; color: var(--muted); }
 .mcp-recent .mcp-app { color: var(--ink-2); font-weight: 600; }
 .mcp-recent .mcp-failed { color: var(--warn); }
+.mcp-app-row { display: flex; flex-direction: column; gap: 4px; }
+.mcp-app-row .row strong + small { display: block; }
+.mcp-app-row.connected .mcp-app-status { color: var(--ok, var(--ink-2)); }
+.mcp-app-buttons { display: flex; gap: 6px; flex-shrink: 0; }
+.mcp-app-message { margin: 0; overflow-wrap: anywhere; }
+.mcp-by-hand summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.mcp-by-hand[open] summary { margin-bottom: 6px; }
+.mcp-trusted { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.mcp-trusted small { color: var(--muted); font-size: 12.5px; }
+.mcp-trusted-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mcp-trusted-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }

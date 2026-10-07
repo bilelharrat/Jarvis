@@ -547,6 +547,14 @@ class Undo:
         if not old.get("all_day"):
             begin, end = datetime.fromisoformat(old["begin"]), datetime.fromisoformat(old["end"])
             changes["duration_minutes"] = max(1, int((end - begin) / timedelta(minutes=1)))
+        # notes, link and alerts go back only when the change touched them
+        for arg, key, empty in (
+            ("new_notes", "notes", ""),
+            ("new_url", "url", ""),
+            ("new_alerts", "alerts", []),
+        ):
+            if args.get(arg) is not None:
+                changes[key] = old.get(key, empty)
         title = old["title"]
 
         async def inverse() -> str:

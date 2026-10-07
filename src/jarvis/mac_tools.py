@@ -1146,9 +1146,43 @@ def _event_changes(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
         if not 1 <= minutes <= 24 * 60:
             return {}, "Length must be between 1 minute and 24 hours."
         changes["duration_minutes"] = minutes
+    # notes, link and alerts, checked as create_event's are (clean_event); "" or [] clears them
+    if args.get("new_notes") is not None:
+        from .textclean import clean_text
+
+        changes["notes"] = clean_text(str(args["new_notes"])).strip()[:MAX_NOTES]
+    if args.get("new_url") is not None:
+        from .brain import url_host
+
+        url = str(args["new_url"]).strip()
+        if url and (
+            not url.lower().startswith("https://") or url_host(url) is None or len(url) > 1000
+        ):
+            return {}, "The link must be a plain web address starting with https://."
+        changes["url"] = url
+    if args.get("new_alerts") is not None:
+        raw = args["new_alerts"] if isinstance(args["new_alerts"], list) else [args["new_alerts"]]
+        try:
+            alerts = sorted({_int(a, 0, 0, ALERT_MOST, "An alert") for a in raw})
+        except ValueError as exc:
+            return {}, str(exc)
+        if len(alerts) > MAX_ALERTS:
+            return {}, f"At most {MAX_ALERTS} alerts."
+        changes["alerts"] = alerts
     if not changes:
-        return {}, "Say what to change: a new title, start, length or location."
+        return (
+            {},
+            "Say what to change: a new title, start, length, location, notes, link or alerts.",
+        )
     return changes, ""
+
+
+def alert_words(minutes: list[int]) -> str:
+    """Alerts as the change card says them ("when it starts, 1 hour before"), or "none"."""
+    return (
+        ", ".join("when it starts" if m == 0 else f"{_span_words(m, 'en')} before" for m in minutes)
+        or "none"
+    )
 
 
 async def edit_question(args: dict[str, Any], language: str = "en") -> tuple[str, str]:
@@ -1177,6 +1211,14 @@ async def edit_question(args: dict[str, Any], language: str = "en") -> tuple[str
         lines.append(
             f"Location → “{changes['location']}”" if changes["location"] else "Clear the location"
         )
+    if "notes" in changes:
+        short = " ".join(changes["notes"].split())
+        short = short if len(short) <= 120 else short[:119] + "…"
+        lines.append(f"Notes → “{short}”" if short else "Clear the notes")
+    if "url" in changes:
+        lines.append(f"Link → {changes['url']}" if changes["url"] else "Clear the link")
+    if "alerts" in changes:
+        lines.append(f"Alerts → {alert_words(changes['alerts'])}")
     parts.append("\n".join(lines))
     if e.get("repeats"):
         parts.append(

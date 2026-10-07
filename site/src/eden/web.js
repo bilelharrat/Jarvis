@@ -7,6 +7,10 @@ export const EDEN_CSP =
 // The sign-in page: its own script and stylesheet, nothing else.
 export const SIGNIN_CSP =
   "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// /signin itself: that, plus Cloudflare Turnstile's script and challenge frame (accounts/turnstile.js),
+// and its forms (Apple and Google with the Turnstile token) posting here and redirecting on to them.
+export const SIGNIN_PAGE_CSP =
+  "default-src 'none'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self' https://appleid.apple.com https://accounts.google.com; frame-ancestors 'none'";
 // An artifact: its own inline scripts run in an opaque origin, with no network, no cookies,
 // no storage and no way to the page (docs/chat-api.md), framed only by Eden itself.
 export const ARTIFACT_CSP =
@@ -50,9 +54,13 @@ export function baseline(response) {
   return missing.length ? withHeaders(response, Object.fromEntries(missing)) : response;
 }
 
+// Eden's own page may use the microphone (dictation, talk mode), asked for only on a click;
+// every other page keeps it off, and no frame gets it.
+export const EDEN_PERMISSIONS = 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()';
+
 /** A page's headers: its CSP, no framing, no caching, the browser features it doesn't use off. */
-export function page(response, csp, { cache = 'no-store' } = {}) {
-  return withHeaders(response, { ...PAGE, 'content-security-policy': csp, 'cache-control': cache });
+export function page(response, csp, { cache = 'no-store', permissions } = {}) {
+  return withHeaders(response, { ...PAGE, ...(permissions ? { 'permissions-policy': permissions } : {}), 'content-security-policy': csp, 'cache-control': cache });
 }
 
 // ── cookies ──

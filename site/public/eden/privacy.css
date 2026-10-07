@@ -1,0 +1,78 @@
+/* Privacy mode (G9: privacy.js) and Publish (G10: publish.js), in Atelier's tokens (app.css).
+   The bar above the composer uses Jarvis Code's glass, like the steer queue beside it. */
+
+/* ---------- where a reply was computed ---------- */
+.where-badge{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:20px;white-space:nowrap;
+  color:var(--text2);background:rgba(120,120,128,.12);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.where-badge svg.ic{width:11px;height:11px;stroke-width:2}
+.where-badge.mac,.where-badge.phone{color:#1f8a43;background:rgba(48,209,88,.13);box-shadow:inset 0 0 0 .5px rgba(48,209,88,.35)}
+[data-theme="dark"] .where-badge.mac,[data-theme="dark"] .where-badge.phone{color:#5fe08a}
+.pdot.local{background:var(--run)}
+
+/* ---------- the title bar's lock ---------- */
+.tb-private{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border-radius:14px;font-size:11.5px;font-weight:600;color:var(--text2);flex:none;transition:background .15s,color .15s}
+.tb-private:hover{background:rgba(120,120,128,.14);color:var(--text)}
+.tb-private .tbp-l{display:none}
+.tb-private.on{color:#1f8a43;background:rgba(48,209,88,.14);box-shadow:inset 0 0 0 .5px rgba(48,209,88,.4)}
+.tb-private.on .tbp-l{display:inline}
+[data-theme="dark"] .tb-private.on{color:#5fe08a}
+
+/* ---------- the line above the composer ---------- */
+.jc .privacy-bar{display:flex;align-items:center;gap:8px;margin:0 0 8px;padding:6px 6px 6px 12px;border-radius:12px;font-size:12.5px;line-height:1.35;
+  background:var(--glass-fill);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);box-shadow:var(--glass-rim),var(--glass-edge);color:rgb(var(--c-ink-2))}
+.jc .privacy-bar[hidden]{display:none}
+.jc .privacy-bar > svg.ic{width:13px;height:13px;flex:none}
+.jc .privacy-bar.on > svg.ic{color:var(--run)}
+.jc .privacy-bar.warn > svg.ic,.jc .privacy-bar.hint > svg.ic{color:var(--warn)}
+.jc .privacy-bar .pb-t{min-width:0}
+.jc .privacy-bar.hint .pb-t{flex:1}
+.jc .privacy-bar.warn .pb-t{flex:1}
+.jc .privacy-bar .pb-sub{color:rgb(var(--c-muted))}
+.jc .privacy-bar b{font-weight:600}
+.jc .privacy-bar select{font:inherit;font-size:12px;font-weight:600;color:inherit;background:transparent;border:0;border-radius:8px;padding:2px 4px;max-width:46%;min-width:0}
+.jc .privacy-bar select:hover{background:rgba(120,120,128,.12)}
+.jc .privacy-bar .cap{flex:none}
+.jc .privacy-bar .pb-x{width:24px;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:rgb(var(--c-muted));flex:none}
+.jc .privacy-bar .pb-x:hover{background:rgba(120,120,128,.14)}
+.privacy-set select{font:inherit;font-size:12px;border:0;border-radius:8px;padding:4px 6px;background:var(--content2);color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline);max-width:180px}
+.privacy-set .prov{gap:10px;flex-wrap:wrap}
+
+/* ---------- Publish ---------- */
+.publish .pub-lead{font-size:14px;line-height:1.45;color:var(--text2);margin-bottom:12px}
+.publish .pub-lead b{color:var(--text)}
+.publish .pub-note{font-size:12px;line-height:1.45;color:var(--text3);margin:-2px 0 12px}
+.publish .sp-warn{margin-bottom:12px}
+.pub-access{display:flex;flex-direction:column;gap:6px}
+.pub-opt{display:flex;align-items:flex-start;gap:10px;text-align:left;padding:10px 12px;border-radius:12px;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline);color:var(--text2)}
+.pub-opt svg.ic{margin-top:1px;color:var(--text3)}
+.pub-opt .po-t{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.4}
+.pub-opt .po-t b{font-size:13px;color:var(--text)}
+.pub-opt.on{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.pub-opt.on svg.ic{color:var(--accent)}
+.publish .dlg-acts .grow-l{margin-right:auto}
+.pub-link{display:flex;gap:6px;align-items:center;margin-bottom:10px}
+.pub-link input{flex:1;min-width:0;border:0;background:var(--content2);border-radius:9px;padding:7px 10px;font:inherit;font-size:12.5px;color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.pub-link .btn{text-decoration:none;flex:none}
+.pub-list{margin:4px 0 12px;display:flex;flex-direction:column}
+.pub-head{display:flex;align-items:baseline;justify-content:space-between;font-size:12px;margin-bottom:4px}
+.pub-head b{font-size:11px;letter-spacing:.3px;text-transform:uppercase;color:var(--text3)}
+.pub-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:.5px solid var(--sep)}
+.pub-row:last-child{border:0}
+.pub-row.new .pr-t{color:var(--accent)}
+.pub-row .grow{flex:1;min-width:0}
+.pub-row .pr-t{display:block;font-size:13px;font-weight:500;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pub-row .pr-t:hover{text-decoration:underline}
+.pub-row .pr-c{font-size:10.5px;color:var(--text3)}
+.pub-row select{font:inherit;font-size:11.5px;border:0;border-radius:8px;padding:3px 4px;background:var(--content2);color:var(--text);box-shadow:inset 0 0 0 .5px var(--hairline);max-width:150px}
+
+@media (max-width:640px){
+  .tb-private{padding:0 7px}
+  .tb-private.on .tbp-l{display:none}
+  .jc .privacy-bar{font-size:12px;flex-wrap:wrap}
+  .jc .privacy-bar.hint .pb-t{flex-basis:calc(100% - 60px)}
+  .jc .privacy-bar.hint .cap{margin-left:21px}
+  .jc .privacy-bar.hint .pb-x{margin-left:auto}
+  .pub-row{flex-wrap:wrap}
+  .pub-row .grow{flex-basis:100%}
+  .publish .dlg-acts .grow-l{margin-right:0;flex-basis:100%;justify-content:center}
+}

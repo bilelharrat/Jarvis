@@ -2,16 +2,33 @@ import Foundation
 import UserNotifications
 
 /// The notification categories the Mac's pushes use, registered by the iPhone and the Watch
-/// at launch (the companion contract). A yes needs an unlocked device (or a Watch on the
-/// wrist); a no never does.
+/// at launch (the companion contract), plus, on the iPhone, askeden.com's for Eden's task
+/// approvals. A yes needs an unlocked device (or a Watch on the wrist); a no never does.
 enum NotificationSetup {
     static func categories() -> Set<UNNotificationCategory> {
-        [
+        var categories: Set<UNNotificationCategory> = [
             approvalCategory(NotificationCategories.approval, yes: "Allow", no: "Not now"),
             approvalCategory(NotificationCategories.codeApproval, yes: "Yes", no: "No"),
             UNNotificationCategory(identifier: NotificationCategories.headsUp, actions: [], intentIdentifiers: [], options: []),
         ]
+        #if os(iOS)
+        categories.insert(edenTaskCategory())
+        #endif
+        return categories
     }
+
+    #if os(iOS)
+    /// Eden's task approvals (sending a draft, adding an event): Approve or Deny goes to
+    /// askeden.com without opening an app. Only the iPhone has the account to answer with.
+    private static func edenTaskCategory() -> UNNotificationCategory {
+        let approve = UNNotificationAction(identifier: NotificationCategories.edenApprove, title: "Approve", options: [.authenticationRequired])
+        let deny = UNNotificationAction(identifier: NotificationCategories.edenDeny, title: "Deny", options: [.destructive])
+        return UNNotificationCategory(
+            identifier: NotificationCategories.edenTaskApproval, actions: [approve, deny], intentIdentifiers: [],
+            hiddenPreviewsBodyPlaceholder: "Eden needs your OK", options: []
+        )
+    }
+    #endif
 
     private static func approvalCategory(_ identifier: String, yes: String, no: String) -> UNNotificationCategory {
         let allow = UNNotificationAction(identifier: NotificationCategories.allow, title: yes, options: [.authenticationRequired])
@@ -88,6 +105,38 @@ enum NotificationActionHandler {
         content.title = push.title.isEmpty ? "Jarvis needs your OK" : push.title
         content.body = "Your Mac didn’t get that answer. Try again, or open J.A.R.V.I.S."
         content.categoryIdentifier = push.kind == .codeApproval ? NotificationCategories.codeApproval : NotificationCategories.approval
+        content.userInfo = userInfo
+        content.sound = .default
+        return content
+    }
+}
+
+/// Approve and Deny on askeden.com's notification for one of Eden's task approvals. The
+/// iPhone sends the decision to POST /api/tasks/approvals/<id> in the background
+/// (PushCoordinator); when it doesn't go through, a notification says so.
+enum EdenTaskActions {
+    enum Decision: String, Equatable, Sendable {
+        case approve, deny
+    }
+
+    /// The decision an action means; nil for a tap, a dismiss or anything else.
+    static func decision(forAction identifier: String) -> Decision? {
+        switch identifier {
+        case NotificationCategories.edenApprove: return .approve
+        case NotificationCategories.edenDeny: return .deny
+        default: return nil
+        }
+    }
+
+    /// The notification that says an answer didn't go through, in `words`. It carries the
+    /// push's userInfo, so a tap still opens Eden's Tasks; with `retry` (askeden.com couldn't be
+    /// reached, or had a problem) Approve and Deny come back to try again.
+    static func followUp(for push: EdenTaskPush, words: String, retry: Bool, userInfo: [AnyHashable: Any]) -> UNNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = push.title.isEmpty ? "Eden needs your OK" : push.title
+        content.body = words
+        content.categoryIdentifier = retry ? NotificationCategories.edenTaskApproval : ""
+        content.threadIdentifier = "eden-tasks"
         content.userInfo = userInfo
         content.sound = .default
         return content

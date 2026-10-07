@@ -217,6 +217,7 @@ class Fact:
     origin: str = ""  # the owner's words it came from, the file, the tool
     learned: str = ""  # when it was first learned (at changes with every edit)
     agent: str = ""  # the agent it belongs to (features.agents); "" for shared
+    off: bool = False  # switched off (Eden's Memory page): kept and shown, never used or recalled
 
 
 def _words(text: str) -> set[str]:
@@ -404,6 +405,7 @@ def _fact_from(raw: Any) -> Fact | None:
         origin=tidy_origin(raw.get("origin")) if isinstance(raw.get("origin"), str) else "",
         learned=learned[:40] if isinstance(learned, str) and learned else at,
         agent=_agent_of(raw.get("agent")),
+        off=raw.get("off") is True,
     )
 
 
@@ -564,6 +566,7 @@ class MemoryStore:
             fact.category = kind or fact.category
             fact.source, fact.origin = source, origin
             fact.learned = fact.learned or now
+            fact.off = False  # said again: in use again
         else:
             if not make_room and not self.room():
                 raise ValueError(f"My memory is full ({MAX_FACTS} facts); forget some first.")
@@ -814,6 +817,26 @@ class MemoryStore:
         self._saved(before, undo)
         return fact, was
 
+    def switch(self, ident: str, on: bool) -> tuple[Fact, Fact]:
+        """Switch a fact on or off: an off fact is kept (and listed), but never rides in the
+        prompt or comes back from search. Its provenance stays; `at` says when it changed.
+        Returns (the fact now, a copy of it before); ValueError says what's wrong."""
+        fact = self.get(ident)
+        if fact is None:
+            raise ValueError("I don't have that fact any more.")
+        was = replace(fact)
+        if fact.off == (not on):
+            return fact, was
+        before = list(self.facts)
+        fact.off, fact.at = not on, _now()
+        fact.learned = fact.learned or was.at
+
+        def undo() -> None:
+            fact.off, fact.at, fact.learned = was.off, was.at, was.learned
+
+        self._saved(before, undo)
+        return fact, was
+
     def where(
         self,
         source: str = "",
@@ -877,7 +900,7 @@ class MemoryStore:
         return gone
 
     def search(self, query: str) -> list[Fact]:
-        live = [f for f in self._visible() if not expired(f)]
+        live = [f for f in self._visible() if not expired(f) and not f.off]
         kind = clean_category(query)
         if kind:  # "people", "preferences": that category's facts
             return [f for f in reversed(live) if f.category == kind]
@@ -890,7 +913,7 @@ class MemoryStore:
     def prompt_block(self) -> str:
         """The newest facts still true, grouped by category, with how sure and until when
         where that isn't plain."""
-        live = [f for f in self._visible() if not expired(f)][-PROMPT_FACTS:]
+        live = [f for f in self._visible() if not expired(f) and not f.off][-PROMPT_FACTS:]
         if not live:
             return ""
         lines: list[str] = []

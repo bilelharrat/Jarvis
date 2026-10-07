@@ -2564,10 +2564,10 @@ test('Notifications: the key is pasted once, each phone chooses what it is sent,
     form.querySelectorAll('input')[0].value = 'ABC123DEFG'; __sent.length = 0; })(); true`);
   await clickText('.companion-key-form', 'Save in the Keychain');
   const saved = await js('__sent[0]');
-  assert(saved && saved.type === 'companion_push_key' && saved.key_id === 'ABC123DEFG' && saved.team_id === '9ZSY5R8A5C'
-    && saved.bundle_id === 'com.bshventures.jarvis.companion' && saved.key.includes('BEGIN PRIVATE KEY'), JSON.stringify(saved));
+  assert(saved && saved.type === 'companion_push_key' && saved.key_id === 'ABC123DEFG' && saved.team_id === '8CV4X23Y2T'
+    && saved.bundle_id === 'com.askeden.jarvis' && saved.key.includes('BEGIN PRIVATE KEY'), JSON.stringify(saved));
   await feature({ type: 'companion_push', saved: true });
-  await feature(status({ known: true, configured: true, key_id: 'ABC123DEFG', team_id: '9ZSY5R8A5C', bundle_id: 'com.bshventures.jarvis.companion', error: '' }));
+  await feature(status({ known: true, configured: true, key_id: 'ABC123DEFG', team_id: '8CV4X23Y2T', bundle_id: 'com.askeden.jarvis', error: '' }));
   const shown = await js(`({ form: document.querySelector('.companion-key-form').hidden, key: document.querySelector('.companion-key').value,
     status: document.querySelector('.companion-push .small-status').textContent })`);
   assert(shown.form && shown.key === '' && shown.status.includes('ABC123DEFG'), JSON.stringify(shown));

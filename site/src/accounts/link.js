@@ -4,6 +4,10 @@
 // and leaves its token here, with the sync key sealed to the Mac) or denies. The first poll
 // after that takes the answer and the link is gone; ten minutes after starting it's gone
 // anyway (an alarm).
+//
+// The same class keeps the web sign-in's short-lived one-time values (eden/session.js), each
+// in an object of its own named `handoff:<code>` or `oauth:<state>`: `stash { value, seconds }`
+// keeps one, `take` hands it over once and forgets it (404 unknown or already taken, 410 late).
 
 import { ApiError, json, sameText, sha256Hex } from './util.js';
 
@@ -37,6 +41,8 @@ export class Link {
     const op = new URL(request.url).pathname.slice(1);
     const body = await request.json().catch(() => ({}));
     try {
+      if (op === 'stash') return json(await this.stash(body));
+      if (op === 'take') return json(await this.take());
       const link = await this.storage.get('link');
       if (op === 'start') return json(await this.start(link, body));
       if (!link || link.expires <= this.now()) {
@@ -96,6 +102,22 @@ export class Link {
     await this.storage.deleteAll();
     if (link.status === 'denied') throw new ApiError(410, 'denied', 'The link was turned down on the iPhone.');
     return json(link.result);
+  }
+
+  async stash({ value, seconds }) {
+    if (await this.storage.get('stash')) throw new ApiError(409, 'conflict', 'That one is taken.');
+    const expires = this.now() + Math.min(600, Math.max(1, Number(seconds) || 60)) * 1000;
+    await this.storage.put('stash', { value, expires });
+    if (this.storage.setAlarm) await this.storage.setAlarm(expires + 1000);
+    return { expires_in: Math.round((expires - this.now()) / 1000) };
+  }
+
+  async take() {
+    const kept = await this.storage.get('stash');
+    if (!kept) throw new ApiError(404, 'not_found', 'That sign-in is gone. Try again.');
+    await this.storage.deleteAll(); // once, whatever happens next
+    if (kept.expires <= this.now()) throw new ApiError(410, 'expired', 'That sign-in took too long. Try again.');
+    return { value: kept.value };
   }
 
   async alarm() {

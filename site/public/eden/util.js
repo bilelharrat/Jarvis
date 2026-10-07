@@ -14,7 +14,14 @@ export function el(tag, attrs, ...kids) {
       if (v === undefined || v === null || v === false) continue;
       if (k === 'class') n.className = v;
       else if (k === 'text') n.textContent = v;
-      else if (k === 'style' && typeof v === 'object') Object.assign(n.style, v);
+      else if (k === 'style' && typeof v === 'object') {
+        // Custom properties (--n, --c) only take through setProperty; Object.assign drops them.
+        for (const [p, x] of Object.entries(v)) {
+          if (x === undefined || x === null) continue;
+          if (p.startsWith('--')) n.style.setProperty(p, String(x));
+          else n.style[p] = x;
+        }
+      }
       else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
       else if (k === 'dataset') Object.assign(n.dataset, v);
       else n.setAttribute(k, v === true ? '' : String(v));
@@ -142,8 +149,10 @@ export function relDay(ts) {
 }
 
 export const isMobile = () => matchMedia('(max-width:640px)').matches;
-/** A touch screen (no hover, or a finger as the main pointer): keyboard hints mean nothing there. */
-export const isTouch = () => matchMedia('(hover:none), (pointer:coarse)').matches;
+/** A touch screen (no hover, or a finger as the main pointer): keyboard hints mean nothing there.
+ *  Not while Eden's iPad app has a hardware keyboard attached (the app marks the page .eden-kbd). */
+export const isTouch = () => !(typeof document !== 'undefined' && document.documentElement.classList.contains('eden-kbd'))
+  && matchMedia('(hover:none), (pointer:coarse)').matches;
 const KEY_HINT = /\s*\((?:[^()]*?(?:[⌘⇧⌥⇥⏎↵]|\bEsc\b))[^()]*\)|\s*·?\s*\bEsc stops\b/g;
 /** Text without its keyboard hints ("(⇧Tab)", "(⌘⇧I)", "Esc stops") on a touch screen; unchanged elsewhere. */
 export function noKeys(text, touch = isTouch()) {

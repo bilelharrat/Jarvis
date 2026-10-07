@@ -1006,3 +1006,73 @@ struct JarvisPush: Equatable, Sendable {
         }
     }
 }
+
+/// The `eden` key of a push from askeden.com's background tasks (site/src/accounts/tasks.js
+/// `notifyOwner`): an approval waiting for the owner (sending a draft, adding an event), or a
+/// task that finished or needs a look. Never one of the Mac's: those carry `jarvis`.
+struct EdenTaskPush: Equatable, Sendable {
+    enum Kind: String, Sendable {
+        case approval, task, unknown
+    }
+
+    var kind: Kind
+    /// The task it's about; nil when missing or not one of Eden's ids.
+    var taskID: String?
+    /// The approval waiting; only an approval push has one, and only a well-formed one counts.
+    var approvalID: String?
+    /// The page to open, as sent: a path on askeden.com ("/#tasks").
+    var page: String?
+    var title: String
+    var body: String
+
+    /// Where every Eden push leads when its own page can't be trusted.
+    static let tasksPage = URL(string: "https://askeden.com/#tasks")!
+
+    /// Reads a notification's userInfo; nil when it isn't one of Eden's.
+    init?(userInfo: [AnyHashable: Any]) {
+        guard userInfo["jarvis"] == nil, let eden = userInfo["eden"] as? [String: Any] else { return nil }
+        kind = Kind(rawValue: (eden["kind"] as? String ?? "").lowercased()) ?? .unknown
+        taskID = (eden["task"] as? String).flatMap { Self.isID($0) ? $0 : nil }
+        approvalID = kind == .approval ? (eden["approval"] as? String).flatMap { Self.isID($0) ? $0 : nil } : nil
+        page = eden["url"] as? String
+        let alert = (userInfo["aps"] as? [String: Any])?["alert"]
+        if let alert = alert as? [String: Any] {
+            title = alert["title"] as? String ?? ""
+            body = alert["body"] as? String ?? ""
+        } else {
+            title = ""
+            body = alert as? String ?? ""
+        }
+    }
+
+    /// An approval Approve or Deny can answer from the notification.
+    var isApproval: Bool { kind == .approval && approvalID != nil }
+
+    /// Eden's ids: 16 lowercase hex characters, nothing else.
+    static func isID(_ text: String) -> Bool {
+        text.utf8.count == 16 && text.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+
+    /// What a tap opens: the push's page on the account's site (`base` is the API,
+    /// https://askeden.com/api, so "/#tasks" is https://askeden.com/#tasks). Only a plain path
+    /// is taken; an absolute URL, another host, "//host" or `javascript:` opens Eden's Tasks
+    /// instead. A universal link: the Eden app when it's installed, Safari otherwise.
+    func openURL(base: URL) -> URL {
+        Self.resolve(page, on: base) ?? Self.resolve("/#tasks", on: base) ?? Self.tasksPage
+    }
+
+    private static func resolve(_ path: String?, on base: URL) -> URL? {
+        guard let path, path.hasPrefix("/"), !path.hasPrefix("//"),
+              !path.unicodeScalars.contains(where: { $0 == "\\" || CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }),
+              let scheme = base.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              let host = base.host(), !host.isEmpty else { return nil }
+        var origin = URLComponents()
+        origin.scheme = scheme
+        origin.host = host
+        origin.port = base.port
+        origin.path = "/"
+        guard let root = origin.url, let url = URL(string: path, relativeTo: root)?.absoluteURL,
+              url.scheme == scheme, url.host() == host, url.port == base.port else { return nil }
+        return url
+    }
+}

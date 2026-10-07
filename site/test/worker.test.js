@@ -31,14 +31,14 @@ function env({ latest = { version: '0.1.0', size: BYTES.length, file: FILE }, fi
 
 const get = (path, e, init = {}) => worker.fetch(new Request(`https://www.askeden.com${path}`, init), e);
 
-test('the landing page is at /jarvis and /download, / is Eden (its sign-in page signed out); images stay by path', async () => {
+test('the landing page is at /jarvis and /download, and at / signed out; images stay by path', async () => {
   const e = env();
   await get('/', e);
   await get('/jarvis', e);
   await get('/jarvis/', e);
   await get('/download', e);
   await get('/jarvis/icon.png', e);
-  assert.deepEqual(e.assets, ['/signin/', '/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
+  assert.deepEqual(e.assets, ['/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
   const old = await get('/pricing', e);
   assert.equal(old.status, 302);
   assert.equal(old.headers.get('location'), 'https://www.askeden.com/');
@@ -129,7 +129,8 @@ test('with the feed unreadable, the download still goes somewhere real', async (
 
 // ── the hosted JARVIS voice ──
 
-import { VoiceQuota, JARVIS_VOICE_ID } from '../src/worker.js';
+import { VoiceQuota } from '../src/worker.js';
+import { JARVIS_VOICE_ID } from '../src/voice-config.js';
 
 function quotaEnv(extra = {}) {
   const store = new Map();
@@ -214,4 +215,16 @@ test('the other apps\' buttons: "almost ready" until their address is set, then 
   assert.equal(mac.headers.get('location'), 'https://example.com/Eden-Messenger.dmg');
   assert.equal((await get('/jarvis/iphone', e)).status, 200);
   assert.equal((await get('/messenger/nonsense', e)).status, 302);
+});
+
+test('universal links: the Eden iOS app may open askeden.com links, never the API or sign-in pages', async () => {
+  const response = await worker.fetch(new Request('https://askeden.com/.well-known/apple-app-site-association'), { APPLE_TEAM_ID: '8CV4X23Y2T' }, { waitUntil() {} });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /application\/json/);
+  const body = await response.json();
+  const detail = body.applinks.details[0];
+  assert.deepEqual(detail.appIDs, ['8CV4X23Y2T.com.askeden.eden']);
+  const excluded = detail.components.filter((c) => c.exclude).map((c) => c['/']);
+  for (const path of ['/api/*', '/signin*']) assert.ok(excluded.includes(path), `${path} stays in the browser`);
+  assert.equal(detail.components.at(-1)['/'], '/*');
 });

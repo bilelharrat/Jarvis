@@ -1,7 +1,11 @@
 // The Jarvis account in Settings › iPhone & Watch (jarvis.features.account): what it adds,
 // linking this Mac with the iPhone (the code, big, and its QR code), and once linked the
-// plan, this month's usage, the account's devices, the relay and Jarvis Plus switches,
-// sync and Unlink. The token and the sync key never come to the window.
+// plan, this month's usage, the account's devices, the relay, Eden on the web (whether
+// askeden.com reaches this Mac, and how its line is) and Jarvis Plus switches, sync,
+// approving a browser's sign-in to Eden at askeden.com (its code, typed here),
+// trusting a browser for Eden sync (this Mac holds Eden's key once a browser that syncs, or
+// the recovery passphrase, gave it; then it approves browsers whose six digits match), and
+// Unlink. The token, the sync key and Eden's key never come to the window.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
@@ -9,6 +13,9 @@
   const $ = (id) => document.getElementById(id);
   const RELAY = 'account_relay';
   const PLUS = 'account_plus_ai';
+  const EDEN_LINK = 'account_eden_link';
+  const SERVER = 'account_server';
+  const SERVER_NAMES = { 'askeden.com': 'askeden.com', 'preview.askeden.com': 'preview.askeden.com (test accounts)' };
   const PERKS = [
     ['AI included', 'Jarvis Plus answers without a Claude sign-in or an API key of your own.'],
     ['Notifications without a push key', 'Approvals and heads-ups reach your iPhone through the account’s Apple push key.'],
@@ -20,6 +27,9 @@
   let status = null;  // the latest account event
   let tick = null;
   let confirming = false;
+  let approvalError = '';  // why the code typed for a browser's sign-in didn't go
+  let esync = null;  // Eden sync's key on this Mac: the latest account_esync event
+  let esyncStopping = false;
 
   // ── pure helpers (tests/web/account.test.mjs runs these) ──
 
@@ -42,11 +52,39 @@
   // How a link in progress is going, in words.
   function linkLine(link) {
     if (!link) return '';
-    if (link.state === 'waiting') return 'Waiting for your iPhone…';
+    if (link.state === 'waiting') return link.browser ? 'Waiting for you to approve it in the browser…' : 'Waiting for your iPhone…';
     if (link.state === 'linked') return 'Linked.';
     if (link.state === 'expired') return 'That code expired. Get a new one.';
-    if (link.state === 'denied') return 'Your iPhone said no. Get a new code to try again.';
+    if (link.state === 'denied') return `${link.browser ? 'It was turned down' : 'Your iPhone said no'}. Get a new code to try again.`;
     return link.error || 'Linking didn’t work. Get a new code to try again.';
+  }
+
+  // A link code as it's shown (XXXX-XXXX), from what was typed: any case, with or without
+  // the dash or spaces; null when it isn't one (Crockford base32: no I, L, O or U).
+  function codeOf(text) {
+    const clean = String(text || '').trim().replace(/^jarvis-link:\/\//i, '').replace(/[\s-]/g, '').toUpperCase();
+    if (!/^[0-9A-HJKMNP-TV-Z]{8}$/.test(clean)) return null;
+    return `${clean.slice(0, 4)}-${clean.slice(4)}`;
+  }
+
+  // How a browser's sign-in, approved here, went.
+  function approvalLine(approval) {
+    if (!approval) return '';
+    if (approval.state === 'approved') return 'Approved. The browser is signed in to Eden.';
+    if (approval.state === 'denied') return 'Turned down. The browser isn’t signed in.';
+    if (approval.state === 'error') return approval.error || 'That didn’t work. Get a new code in the browser.';
+    return '';
+  }
+
+  // Where Eden sync stands on this Mac, in words (the box's first line).
+  function esyncLine(e) {
+    if (!e || e.state === 'unknown') return e && e.error ? e.error : 'Checking with askeden.com…';
+    if (e.state === 'off') return 'Eden sync isn’t on for your account yet. Turn it on in Eden at askeden.com (Account › Sync); then this Mac can let your other browsers in.';
+    if (e.state === 'locked') return 'To approve browsers, this Mac needs Eden’s key once: ask a browser that already syncs, or use your recovery passphrase.';
+    if (e.state === 'asking') return 'In Eden on a browser that already syncs, open Account › Sync and approve this Mac if it shows the same code:';
+    const n = (e.requests || []).length;
+    if (!n) return 'No browser is waiting. On the new browser, open Account › Sync in Eden and choose “Ask a device that syncs”.';
+    return n === 1 ? 'A device is waiting. Approve it only if it shows the same code.' : `${n} devices are waiting. Approve each only if it shows the same code.`;
   }
 
   // Dollars as the account counts them.
@@ -69,7 +107,15 @@
     return 'Waits for the phone companion to be on';
   }
 
-  if (typeof window.__accountTest === 'function') window.__accountTest({ qrPath, linkLine, dollars, planLine, relayLine });
+  // Eden on the web's line to this Mac (jarvis.eden_link), in words: [text, needs attention].
+  function edenLinkLine(link) {
+    if (!link || !link.on) return ['Off: Eden at askeden.com can’t reach Jarvis, Code mode or privacy mode on this Mac.', false];
+    if (link.state === 'open') return ['Connected: Eden at askeden.com reaches Jarvis, Code mode and privacy mode here.', false];
+    if (link.state === 'waiting') return [`Offline${link.error ? `: ${link.error.replace(/\.$/, '')}` : ''}. Trying again…`, true];
+    return ['Connecting to askeden.com…', false];
+  }
+
+  if (typeof window.__accountTest === 'function') window.__accountTest({ qrPath, linkLine, codeOf, approvalLine, esyncLine, dollars, planLine, relayLine, edenLinkLine });
 
   // ── where it goes: before iPhone & Watch ──
 
@@ -105,7 +151,7 @@
   const group = el('section', 'group account-group');
   group.id = 'account-group';
   group.dataset.settingsPane = 'devices';
-  group.dataset.keywords = 'account jarvis plus askeden link relay sync subscription iphone';
+  group.dataset.keywords = 'account jarvis plus askeden link relay sync subscription iphone eden web privacy';
   const heading = el('h3', '', 'Jarvis account');
   const intro = el('p', 'small-status', 'An optional account at askeden.com, for what your devices can’t do alone. Everything works without it, as before.');
   const problem = el('p', 'warn-line small-status');
@@ -149,9 +195,12 @@
     }
     const text = el('div', 'account-link-text');
     if (link.state === 'waiting') {
+      const server = (status && status.server) || 'askeden.com';
       text.append(
         data('code', 'account-code', link.code),
-        el('small', '', 'In the J.A.R.V.I.S. app on your iPhone, open Settings › Account › Link a Mac, then scan this or type the code.'),
+        link.browser
+          ? el('small', '', `In your browser, signed in to Eden at ${server} in the last 10 minutes, approve this Mac on the page that opened. Check it shows this code.`)
+          : el('small', '', 'In the J.A.R.V.I.S. app on your iPhone, open Settings › Account, then scan this or type the code.'),
       );
       const left = el('small', 'account-left');
       left.id = 'account-left';
@@ -160,6 +209,7 @@
     const line = el('p', link.state === 'waiting' ? 'small-status' : 'small-status need', linkLine(link));
     text.append(line);
     const actions = el('div', 'row-actions');
+    if (link.state === 'waiting' && link.browser) actions.append(button(`Open ${(status && status.server) || 'askeden.com'}/link`, 'btn primary', () => send({ type: 'account_link_open' })));
     if (link.state === 'waiting') actions.append(button('Cancel', 'btn', () => send({ type: 'account_link_cancel' })));
     else actions.append(button('Get a new code', 'btn primary', () => send({ type: 'account_link' })));
     text.append(actions);
@@ -171,7 +221,30 @@
     const link = status && status.link;
     // While a code is up, it's what matters: what the account adds was read already.
     if (link && link.state !== 'linked') show(linkBox(link));
-    else show(perks(), button('Link with your iPhone', 'btn primary account-start', () => send({ type: 'account_link' })));
+    else {
+      const server = (status && status.server) || 'askeden.com';
+      const actions = el('div', 'row-actions account-start');
+      actions.append(
+        button(`Link this Mac to ${server}`, 'btn primary', () => send({ type: 'account_link', browser: true })),
+        button('Link with your iPhone', 'btn', () => send({ type: 'account_link' })),
+      );
+      show(perks(), serverRow(), actions);
+    }
+  }
+
+  // Which server this Mac links to: askeden.com, or the preview with its own test accounts.
+  function serverRow() {
+    const pick = el('select', 'account-server');
+    pick.setAttribute('aria-label', 'Server');
+    const chosen = (status && (status.server_choice || status.server)) || 'askeden.com';
+    for (const host of (status && status.servers) || ['askeden.com']) {
+      const option = el('option', '', SERVER_NAMES[host] || host);
+      option.value = host;
+      option.selected = host === chosen;
+      pick.append(option);
+    }
+    pick.addEventListener('change', () => send({ type: 'feature_prefs', changes: { [SERVER]: pick.value } }));
+    return row('Server', 'Link this Mac in the browser, signed in to Eden there, or approve it on your iPhone.', pick);
   }
 
   // ── linked ──
@@ -245,13 +318,165 @@
     return el('small', '', 'Not synced yet');
   }
 
+  // ── approving a browser's sign-in to Eden ──
+
+  // One field for the code, kept across renders (an account event mid-typing keeps it).
+  const codeField = el('input', 'account-approve-code');
+  codeField.type = 'text';
+  codeField.id = 'account-approve-code';
+  codeField.placeholder = 'K7QM-4ZTR';
+  codeField.maxLength = 24;
+  codeField.autocomplete = 'off';
+  codeField.spellcheck = false;
+  codeField.setAttribute('autocapitalize', 'characters');
+  codeField.setAttribute('aria-label', 'Sign-in code');
+  codeField.addEventListener('input', () => {
+    if (!approvalError) return;
+    approvalError = '';
+    render();
+  });
+
+  function approveBox() {
+    const box = el('div', 'account-approve');
+    box.append(el('strong', '', 'Approve a sign-in to Eden'));
+    const asked = status.approval;
+    const actions = el('div', 'row-actions');
+    if (asked && asked.state === 'asking') {
+      const who = el('div', 'account-approve-who');
+      who.append(el('small', '', 'Asking to sign in to your account at askeden.com:'), data('strong', '', asked.name), data('small', 'account-mono', asked.code));
+      box.append(who, el('small', '', 'It can use Eden and the AI included with your plan for 30 days, until you sign it out. Only approve a sign-in you just started yourself.'));
+      actions.append(
+        button('Approve sign-in', 'btn primary', () => send({ type: 'account_web_approve', code: asked.code })),
+        button('Deny', 'btn', () => send({ type: 'account_web_deny', code: asked.code })),
+      );
+      box.append(actions);
+      return box;
+    }
+    if (asked) {
+      box.append(el('small', asked.state === 'error' ? 'need' : '', approvalLine(asked)));
+      actions.append(button('Done', 'btn', () => { codeField.value = ''; send({ type: 'account_web_clear' }); }));
+      box.append(actions);
+      return box;
+    }
+    box.append(el('small', '', 'Signing in to Eden at askeden.com shows a code like K7QM-4ZTR. Type it here to let that browser in.'));
+    const form = el('form', 'account-approve-form');
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const code = codeOf(codeField.value);
+      if (!code) {
+        approvalError = 'That isn’t a sign-in code. It has eight letters and numbers, like K7QM-4ZTR.';
+        render();
+        return;
+      }
+      approvalError = '';
+      codeField.value = code;
+      send({ type: 'account_web_peek', code });
+    });
+    const go = el('button', 'btn', 'Continue');
+    go.type = 'submit';
+    form.append(codeField, go);
+    box.append(form);
+    if (approvalError) box.append(el('small', 'need', approvalError));
+    return box;
+  }
+
+  // ── trusting a browser for Eden sync ──
+
+  // Its own node, kept across renders and redrawn alone (askeden.com is asked every few
+  // seconds while it's shown), so an open details or a half-typed passphrase stays.
+  const esyncNode = el('div', 'account-approve account-esync');
+  const phraseField = el('input', 'account-esync-phrase');
+  phraseField.type = 'password';
+  phraseField.autocomplete = 'off';
+  phraseField.spellcheck = false;
+  phraseField.placeholder = 'Recovery passphrase';
+  phraseField.setAttribute('aria-label', 'Recovery passphrase');
+  const KIND = { web: 'Browser', iphone: 'iPhone', ipad: 'iPad', mac: 'Mac' };
+
+  function drawEsync() {
+    const e = esync;
+    const typing = document.activeElement === phraseField;
+    const nodes = [el('strong', '', 'Trust a browser for Eden sync'), el('small', '', esyncLine(e))];
+    const actions = el('div', 'row-actions');
+    if (e && e.state === 'asking' && e.asking) {
+      nodes.push(data('code', 'account-code', e.asking.code));
+      actions.append(button('Cancel', 'btn', () => send({ type: 'account_esync_cancel' })));
+      nodes.push(actions);
+    } else if (e && e.state === 'locked') {
+      actions.append(button('Ask a browser that syncs', 'btn primary', () => send({ type: 'account_esync_ask' })));
+      nodes.push(actions);
+      if (e.asking && e.asking.state !== 'waiting' && e.asking.state !== 'joined') {
+        const why = { denied: 'The browser said no.', expired: 'That request ran out. Ask again.' }[e.asking.state] || e.asking.error;
+        if (why) nodes.push(el('small', 'need', why));
+      }
+      if (e.wrap) {
+        const form = el('form', 'account-approve-form account-esync-form');
+        const go = el('button', 'btn', 'Unlock');
+        go.type = 'submit';
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          if (!phraseField.value) return;
+          const passphrase = phraseField.value;
+          phraseField.value = '';
+          go.disabled = true;
+          go.textContent = 'Unlocking…';
+          send({ type: 'account_esync_unlock', passphrase });
+        });
+        form.append(phraseField, go);
+        nodes.push(form);
+      }
+    } else if (e && e.state === 'on') {
+      if ((e.requests || []).length) {
+        const list = el('ul', 'account-esync-list');
+        for (const r of e.requests) {
+          const li = el('li');
+          const who = el('div', 'account-approve-who');
+          who.append(data('strong', '', r.name), el('small', '', `${KIND[r.kind] || 'Device'} · approve only if it shows`));
+          const row = el('div', 'account-esync-row');
+          row.append(data('code', 'account-code', r.code));
+          const act = el('div', 'row-actions');
+          act.append(
+            button('Approve', 'btn primary', () => send({ type: 'account_esync_approve', device_id: r.device_id, public_key: r.public_key })),
+            button('Deny', 'btn', () => send({ type: 'account_esync_deny', device_id: r.device_id })),
+          );
+          row.append(act);
+          li.append(who, row);
+          list.append(li);
+        }
+        nodes.push(list);
+      }
+      const others = (e.trusted || []).filter((t) => !t.this).length;
+      const foot = el('small', '', `This Mac has Eden’s key${others ? `, with ${others} other ${others === 1 ? 'device' : 'devices'}` : ''}. It never reads your chats; it only hands the key on.`);
+      nodes.push(foot);
+      if (esyncStopping) {
+        const ask = el('div', 'row-actions');
+        ask.append(
+          button('Stop holding the key', 'btn', () => { esyncStopping = false; send({ type: 'account_esync_forget' }); }),
+          button('Cancel', 'btn', () => { esyncStopping = false; drawEsync(); }),
+        );
+        nodes.push(el('small', '', 'Browsers that sync keep syncing; this Mac just can’t approve new ones until it gets the key again.'), ask);
+      } else {
+        nodes.push(button('Stop here…', 'btn account-esync-stop', () => { esyncStopping = true; drawEsync(); }));
+      }
+    }
+    if (e && e.problem) nodes.push(el('small', 'need', e.problem));
+    else if (e && e.done) nodes.push(el('small', 'account-esync-done', e.done));
+    esyncNode.replaceChildren(...nodes);
+    if (typing && phraseField.isConnected) phraseField.focus();
+  }
+
   function renderLinked() {
     const info = status.info;
     const relay = status.relay || {};
     const plus = status.plus || {};
     const nodes = [planBox(info)];
+    if (status.server && status.server !== 'askeden.com') nodes.push(row('Server', data('small', '', status.server)));
     nodes.push(row('Reach this Mac from anywhere', el('small', '', relayLine(relay)),
       toggle('Reach this Mac from anywhere', relay.on, (on) => send({ type: 'feature_prefs', changes: { [RELAY]: on } }))));
+    const eden = status.eden_link || {};
+    const [edenWords, edenNeed] = edenLinkLine(eden);
+    nodes.push(row('Eden on the web reaches this Mac', el('small', edenNeed ? 'need' : '', edenWords),
+      toggle('Eden on the web reaches this Mac', eden.on, (on) => send({ type: 'feature_prefs', changes: { [EDEN_LINK]: on } }))));
     const plusNote = plus.in_use && !plus.chosen
       ? 'In use: this Mac has no other way in to Claude.'
       : 'Claude in Jarvis and Jarvis Code runs on your account’s allowance.';
@@ -259,6 +484,9 @@
       toggle('Use Jarvis Plus for AI', plus.chosen, (on) => send({ type: 'feature_prefs', changes: { [PLUS]: on } }))));
     nodes.push(row('Notifications', status.push_via_account ? 'Through your Jarvis account' : 'With your own push key, or not set up (iPhone & Watch › Notifications)'));
     nodes.push(row('Sync', syncLine(status.sync), button('Sync now', 'btn', () => send({ type: 'account_sync' }))));
+    nodes.push(approveBox());
+    drawEsync();
+    nodes.push(esyncNode);
     const devices = el('details', 'watch-help account-devices-box');
     devices.append(el('summary', '', 'Devices on this account'), devicesList(info));
     nodes.push(devices);
@@ -283,6 +511,7 @@
   function render() {
     clearInterval(tick);
     tick = null;
+    const typing = document.activeElement === codeField;
     if (status && status.error && !status.linked) {
       problem.textContent = status.error;
       problem.hidden = false;
@@ -291,6 +520,7 @@
     }
     if (status && status.linked) renderLinked();
     else renderUnlinked();
+    if (typing && codeField.isConnected) codeField.focus();
     const link = status && status.link;
     if (link && link.state === 'waiting' && !(status && status.linked)) {
       let left = Number(link.seconds) || 0;
@@ -309,13 +539,32 @@
   // ── events ──
 
   F.on('hello', () => send({ type: 'account' }), { replay: true });
-  F.on('account', (ev) => { status = ev; if (!ev.linked) confirming = false; render(); });
+  F.on('account_esync', (ev) => {
+    esync = ev;
+    if (esyncNode.isConnected) drawEsync();
+  });
+  F.on('account', (ev) => {
+    if (ev.linked && !esync) send({ type: 'account_esync' });
+    if (!ev.linked) esync = null;
+    status = ev;
+    if (!ev.linked) confirming = false;
+    if (ev.approval_error) approvalError = ev.approval_error;
+    render();
+  });
 
   render();
   // Fresh usage and devices whenever Settings opens.
   const sheet = $('settings');
+  // Browsers waiting to sync show up while Settings is open (askeden.com asked every 6 s).
+  setInterval(() => {
+    if (sheet && !sheet.hidden && esyncNode.isConnected && esync && esync.state === 'on') send({ type: 'account_esync' });
+  }, 6000);
   if (sheet) {
-    new MutationObserver(() => { if (!sheet.hidden) send({ type: 'account' }); })
+    new MutationObserver(() => {
+      if (sheet.hidden) return;
+      send({ type: 'account' });
+      if (status && status.linked) send({ type: 'account_esync' });
+    })
       .observe(sheet, { attributes: true, attributeFilter: ['hidden'] });
   }
 })();

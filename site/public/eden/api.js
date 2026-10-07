@@ -1,6 +1,9 @@
 // The website ↔ server contract (docs/chat-api.md). With ?mock=1 every call is answered in
 // the browser by mock.js, through the same Response/stream path.
 
+import { nativeTransport } from './native.js';
+import { actingAnswer } from './acting.js';
+
 const MOCK = new URLSearchParams(location.search).get('mock') === '1';
 
 /**
@@ -20,6 +23,13 @@ export function apiUrl(path) {
 
 let mockFetch = null;
 async function transport(path, init) {
+  // acting for someone at askeden.com: what the grant can't do is answered here, unsent (acting.js)
+  const refused = actingAnswer(init && init.method, path);
+  if (refused) return refused;
+  // inside the Eden iPhone app, a turn may run on the phone itself (native.js); null elsewhere
+  return nativeTransport(path, init, network) || network(path, init);
+}
+async function network(path, init) {
   if (MOCK) {
     if (!mockFetch) mockFetch = (await import('./mock.js')).mockFetch;
     return mockFetch(path, init);
@@ -116,23 +126,56 @@ export async function streamSSE(path, body, { signal, onEvent }) {
   }
 }
 
+/**
+ * Jarvis's first call from Eden waits for the owner's "Let Eden use Jarvis?" card on the Mac.
+ * While any Jarvis call has run 3 s, the status is polled; when the server says the call is
+ * waiting on that card, `eden:jarvis-approval` fires on window with { waiting: true }, and with
+ * { waiting: false } once nothing is waiting. jarvisApprovalWaiting() reads the current state.
+ */
+let jarvisPending = 0, approvalPoll = null, approvalWaiting = false;
+function setApproval(w) {
+  if (w === approvalWaiting) return;
+  approvalWaiting = w;
+  dispatchEvent(new CustomEvent('eden:jarvis-approval', { detail: { waiting: w } }));
+}
+export const jarvisApprovalWaiting = () => approvalWaiting;
+async function watchApproval(p) {
+  jarvisPending++;
+  if (!approvalPoll) {
+    const me = {};
+    const poll = () => getJSON('/api/chat/jarvis/status')
+      .then((s) => { if (approvalPoll === me) setApproval(!!s && s.approval === 'waiting'); }, () => {})
+      .finally(() => { if (approvalPoll === me) me.t = setTimeout(poll, 1500); });
+    me.t = setTimeout(poll, 3000);
+    approvalPoll = me;
+  }
+  try { return await p; } finally {
+    if (!--jarvisPending) { clearTimeout(approvalPoll.t); approvalPoll = null; setApproval(false); }
+  }
+}
+
 export const api = {
   meta: () => getJSON('/api/chat/meta'),
   route: (body, signal) => postJSON('/api/route', body, { signal }),
   keys: () => getJSON('/api/chat/keys'),
   setKey: (provider, key) => postJSON('/api/chat/keys', { provider, key }),
   jarvisStatus: () => getJSON('/api/chat/jarvis/status'),
-  jarvis: (tool, args = {}) => postJSON('/api/chat/jarvis', { tool, arguments: args }),
+  jarvis: (tool, args = {}) => watchApproval(postJSON('/api/chat/jarvis', { tool, arguments: args })),
   projects: () => getJSON('/api/chat/projects'),
   addProject: (path) => postJSON('/api/chat/projects', { path }),
   changes: (project) => getJSON(`/api/chat/code/changes?project=${encodeURIComponent(project)}`),
   artifact: (html) => postJSON('/api/chat/artifact', { html }),
-  send: (body, opts) => streamSSE('/api/chat/send', body, opts),
+  // A turn that uses the Mac ("Use my Mac", project knowledge: files.js) goes to mac/send, which askeden.com forwards to the Mac.
+  send: (body, opts) => streamSSE(body && body.mac ? '/api/chat/mac/send' : '/api/chat/send', body, opts),
+  // Compare (G6): several models at once, lane-tagged events; its estimate; stop one lane.
+  compare: (body, opts) => streamSSE('/api/chat/compare', body, opts),
+  compareEstimate: (body, signal) => postJSON('/api/chat/compare/estimate', body, { signal }),
+  compareStop: (id, lane) => postJSON('/api/chat/compare/stop', { id, lane }),
   code: (body, opts) => streamSSE('/api/chat/code', body, opts),
   gmail: (action, args = {}) => postJSON('/api/chat/gmail', { action, args }),
   googleStatus: () => getJSON('/api/chat/google/status'),
   googleConfig: (clientId, clientSecret) => postJSON('/api/chat/google/config', { clientId, clientSecret }),
-  googleConnect: () => postJSON('/api/chat/google/connect', {}),
+  googleConnect: (scope) => postJSON('/api/chat/google/connect', scope ? { scope } : {}), // scope (askeden.com: its own consent): gmail | calendar
   googleDisconnect: () => postJSON('/api/chat/google/disconnect', {}),
   codeSteer: (turnId, text) => postJSON('/api/chat/code/steer', { turnId, text }),
 };

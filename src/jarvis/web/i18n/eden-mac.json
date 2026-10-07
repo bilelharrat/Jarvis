@@ -1,0 +1,18 @@
+{
+  "strings": {
+    "Eden on your Mac": "Mac 上的 Eden",
+    "Let apps search and read your files": "允许应用搜索和读取你的文件",
+    "Read only, after a card the first time each app asks. Never Library, hidden files, caches, keys or passwords. What they read goes to that app and the model behind it.": "只读，每个应用第一次请求时会先弹出卡片询问。绝不包括资源库、隐藏文件、缓存、密钥或密码。它们读到的内容会发给该应用以及它背后的模型。",
+    "Send a picture with \"What's on my screen?\"": "“我的屏幕上有什么？”时附上截图",
+    "Off: only the app, the window's title, its text and what you selected go. Every look asks you on a card first (unless screen awareness is on).": "关闭时：只发送应用、窗口标题、窗口文字和你选中的内容。每次查看都会先弹出卡片询问（除非已开启屏幕感知）。",
+    "Add a folder…": "添加文件夹…",
+    "Add iCloud Drive": "添加 iCloud 云盘",
+    "Project knowledge (indexed on this Mac)": "项目知识（在这台 Mac 上建立索引）",
+    "None yet: add one from Eden (Projects › Knowledge).": "还没有：在 Eden 中添加（项目 › 知识）。",
+    "Folders: your whole home folder (add folders to allow only those).": "文件夹：整个个人文件夹（添加文件夹后只允许这些）。",
+    "Only these folders:": "仅这些文件夹：",
+    "Remove": "移除",
+    "indexing…": "正在建立索引…"
+  },
+  "patterns": [["^(\\d+) files$", "$1 个文件"]]
+}

@@ -6,7 +6,7 @@ import Foundation
 /// outbox, answers the Mac's asks of the contacts and calendar (when those are on) and sends
 /// the calendar when it's due. No model calls: /api/state and the queued requests only.
 enum BackgroundRefresh {
-    static let identifier = "com.bshventures.jarvis.companion.refresh"
+    static let identifier = "com.askeden.jarvis.refresh"
 
     /// About every twenty minutes, as iOS allows.
     static func schedule() {

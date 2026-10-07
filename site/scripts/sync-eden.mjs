@@ -8,8 +8,18 @@
 //      scripts/build-browser.js) as an ES module for the Worker: src/eden/vendor/model-router.js.
 //      It's built straight from the router's TypeScript with the router repo's own esbuild,
 //      so the router's dist/ is neither read nor written;
-//   3. writes src/eden/manifest.js: the files the Worker may serve at the root, and where they
-//      came from.
+//   3. bundles Eden's Gmail and Google Calendar core (src/chat/gmail.ts and gcal.ts: written
+//      to run in a Worker, only fetch and Web Crypto) as src/eden/vendor/google.js, for hosted
+//      Gmail and Calendar (src/eden/google-data.js);
+//   3b. bundles Eden's provider streaming (src/chat/stream.ts with sse.ts, the router's prices in
+//      calibrate/providers.ts, and provider-info.ts: fetch only, no Node APIs) as
+//      src/eden/vendor/providers.js, so askeden.com builds and parses the Anthropic, OpenAI,
+//      Gemini and Moonshot streams with the Mac's own code (src/eden/providers.js);
+//   4. writes src/eden/manifest.js: the files the Worker may serve at the root, and where they
+//      came from;
+//   5. copies web/help (the FAQ, its pictures, the public Help page) into public/help/, served at
+//      askeden.com/help signed out too, and bundles web/help/help-core.js with the FAQ and its
+//      search index (built here, once) as src/eden/vendor/help.js, for Ask Help (src/eden/help.js).
 //
 // Re-run it whenever web/chat or the router changes (it's quick and idempotent):
 //
@@ -23,18 +33,39 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(SITE, 'public', 'eden');
 const VENDOR = path.join(SITE, 'src', 'eden', 'vendor', 'model-router.js');
+const GOOGLE_VENDOR = path.join(SITE, 'src', 'eden', 'vendor', 'google.js');
+// What src/eden/google-data.js uses of Eden's Gmail and Calendar core.
+const GOOGLE_EXPORTS = {
+  'src/chat/gmail.ts': ['GoogleError', 'createGmailApi', 'refreshAccessToken', 'revokeToken', 'runGmailAction',
+    // attachments uploaded ahead (src/eden/gmail-uploads.js, src/accounts/mail-uploads.js): the same checks and limits
+    'GMAIL_API', 'GMAIL_UPLOAD_API', 'MAX_ATTACHMENT_BYTES', 'MEDIA_UPLOAD_THRESHOLD', 'blockedExtension', 'googleHttpError', 'normalizeBase64', 'safeFileName'],
+  'src/chat/gmail-uploads.ts': ['UPLOAD_CHUNK_BYTES', 'UPLOAD_ID', 'UPLOAD_MAX_BYTES', 'missing'],
+  'src/chat/gcal.ts': ['CALENDAR_SCOPES', 'createCalendarApi', 'hasCalendarScopes', 'runCalendarAction'],
+  // Prompt-injection guard (ROADMAP H8): the hosted turns wrap untrusted content the same way (src/eden/chat.js).
+  'src/chat/provenance.ts': ['contextKind', 'createLedger'],
+};
+// What src/eden/providers.js uses of Eden's provider streaming (the Mac's code, unchanged).
+const PROVIDERS_VENDOR = path.join(SITE, 'src', 'eden', 'vendor', 'providers.js');
+const PROVIDER_EXPORTS = {
+  'src/chat/stream.ts': ['buildStreamRequest', 'createStreamParser'],
+  'src/chat/sse.ts': ['readSse'],
+  'src/calibrate/providers.ts': ['usageCost', 'requestMaxOutputTokens', 'withMaxOutputTokens', 'redact'],
+  'src/chat/provider-info.ts': ['PROVIDER_NAMES', 'computedWhere', 'hasVision'],
+};
 const MANIFEST = path.join(SITE, 'src', 'eden', 'manifest.js');
 const HOSTED = path.join(SITE, 'web');
+const HELP_OUT = path.join(SITE, 'public', 'help');
+const HELP_VENDOR = path.join(SITE, 'src', 'eden', 'vendor', 'help.js');
 
 // What the page may be made of. Anything else in web/chat is left out (and named).
 const TYPES = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.woff2', '.woff', '.json', '.txt']);
 // Root paths the Worker already answers: an Eden file may never take one.
-const RESERVED = new Set(['download', 'latest.json', 'jarvis', 'messenger', 'api', 'artifact', 'signin', 'eden', 'favicon.ico', 'robots.txt']);
+const RESERVED = new Set(['download', 'latest.json', 'jarvis', 'messenger', 'api', 'artifact', 'signin', 'eden', 'help', 'favicon.ico', 'robots.txt']);
 // Lines added to the copy's index.html, just before </head>.
 const ADDED_HEAD = '<meta name="robots" content="noindex, nofollow">\n<script type="module" src="hosted.js"></script>\n';
 
@@ -104,6 +135,76 @@ async function bundleRouter(router) {
   return result.outputFiles[0].text;
 }
 
+async function bundleGoogle(router, exportsMap = GOOGLE_EXPORTS) {
+  for (const file of Object.keys(exportsMap)) {
+    if (!fs.existsSync(path.join(router, file))) throw new Error(`No ${file} in ${router}.`);
+  }
+  const esbuild = createRequire(path.join(router, 'package.json'))('esbuild');
+  const result = await esbuild.build({
+    stdin: {
+      contents: Object.entries(exportsMap).map(([file, names]) => `export { ${names.join(', ')} } from './${file}';`).join('\n'),
+      resolveDir: router,
+      sourcefile: 'google-entry.ts',
+      loader: 'ts',
+    },
+    bundle: true,
+    format: 'esm',
+    platform: 'neutral',
+    target: ['es2022'],
+    minify: true,
+    legalComments: 'none',
+    write: false,
+    logLevel: 'error',
+  });
+  return result.outputFiles[0].text;
+}
+
+/** web/help's files (and its img/ folder), as { name, bytes }; name is the path under /help/. */
+function helpFiles(router) {
+  const root = path.join(router, 'web', 'help');
+  if (!fs.existsSync(path.join(root, 'faq.json'))) throw new Error(`No Help at ${root} (faq.json missing).`);
+  const files = [];
+  for (const dir of ['', 'img']) {
+    if (!fs.existsSync(path.join(root, dir))) continue;
+    for (const entry of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      if (!entry.isFile() || entry.name.startsWith('.') || entry.name === 'package.json' || !TYPES.has(path.extname(entry.name).toLowerCase()) || !/^[\w.-]+$/.test(entry.name)) continue;
+      const name = dir ? `${dir}/${entry.name}` : entry.name;
+      files.push({ name, bytes: fs.readFileSync(path.join(root, name)) });
+    }
+  }
+  return files.sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+/** help-core.js with the FAQ, its index and the page's file list, as one module for the Worker. */
+async function bundleHelp(router, files) {
+  const core = path.join(router, 'web', 'help', 'help-core.js');
+  const faq = JSON.parse(fs.readFileSync(path.join(router, 'web', 'help', 'faq.json'), 'utf8'));
+  const { buildIndex } = await import(pathToFileURL(core).href);
+  const esbuild = createRequire(path.join(router, 'package.json'))('esbuild');
+  const result = await esbuild.build({
+    stdin: {
+      contents: [
+        "export * from './web/help/help-core.js';",
+        `export const FAQ = ${JSON.stringify(faq)};`,
+        `export const INDEX = ${JSON.stringify(buildIndex(faq))};`,
+        `export const HELP_FILES = ${JSON.stringify(files.map((f) => f.name))};`,
+      ].join('\n'),
+      resolveDir: router,
+      sourcefile: 'help-entry.js',
+      loader: 'js',
+    },
+    bundle: true,
+    format: 'esm',
+    platform: 'neutral',
+    target: ['es2022'],
+    minify: true,
+    legalComments: 'none',
+    write: false,
+    logLevel: 'error',
+  });
+  return result.outputFiles[0].text;
+}
+
 const sha = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16);
 
 async function main() {
@@ -117,7 +218,14 @@ async function main() {
   index.bytes = Buffer.from(withHostedHead(index.bytes.toString('utf8')));
   files.sort((a, b) => (a.name < b.name ? -1 : 1));
 
+  const help = helpFiles(opts.router);
+
   if (opts.check) {
+    const staleHelp = help.filter((f) => !fs.existsSync(path.join(HELP_OUT, f.name)) || !fs.readFileSync(path.join(HELP_OUT, f.name)).equals(f.bytes));
+    if (staleHelp.length) {
+      console.error(`public/help is out of date: ${staleHelp.map((f) => f.name).join(', ')}. Run node scripts/sync-eden.mjs.`);
+      process.exit(1);
+    }
     const stale = files.filter((f) => !fs.existsSync(path.join(OUT, f.name)) || !fs.readFileSync(path.join(OUT, f.name)).equals(f.bytes));
     const extra = fs.existsSync(OUT) ? fs.readdirSync(OUT).filter((n) => !files.some((f) => f.name === n)) : [];
     if (stale.length || extra.length) {
@@ -136,12 +244,26 @@ async function main() {
   fs.rmSync(OUT, { recursive: true, force: true });
   fs.renameSync(fresh, OUT);
 
+  // Help: the same swap, with its img/ folder
+  const freshHelp = `${HELP_OUT}.new`;
+  fs.rmSync(freshHelp, { recursive: true, force: true });
+  fs.mkdirSync(path.join(freshHelp, 'img'), { recursive: true });
+  for (const f of help) fs.writeFileSync(path.join(freshHelp, f.name), f.bytes);
+  fs.rmSync(HELP_OUT, { recursive: true, force: true });
+  fs.renameSync(freshHelp, HELP_OUT);
+
   const source = gitDescribe(opts.router);
   const code = await bundleRouter(opts.router);
   const pkg = JSON.parse(fs.readFileSync(path.join(opts.router, 'package.json'), 'utf8'));
   const header = `// model-router ${pkg.version} (${source.commit || 'unknown commit'}${source.dirty ? ', with uncommitted changes' : ''}), bundled ${new Date().toISOString().slice(0, 10)} from src/browser.ts by site/scripts/sync-eden.mjs. Generated: edit the askeden repo (router changes come from Model-Router), not this file.\n`;
   fs.mkdirSync(path.dirname(VENDOR), { recursive: true });
   fs.writeFileSync(VENDOR, header + code);
+  const google = await bundleGoogle(opts.router);
+  const googleHeader = `// Eden's Gmail and Google Calendar core (askeden ${source.commit || 'unknown commit'}${source.dirty ? ', with uncommitted changes' : ''}: src/chat/gmail.ts, gcal.ts), bundled ${new Date().toISOString().slice(0, 10)} by site/scripts/sync-eden.mjs. Generated: edit the askeden repo, not this file.\n`;
+  fs.writeFileSync(GOOGLE_VENDOR, googleHeader + google);
+  const providers = await bundleGoogle(opts.router, PROVIDER_EXPORTS);
+  const providersHeader = `// Eden's provider streaming (askeden ${source.commit || 'unknown commit'}${source.dirty ? ', with uncommitted changes' : ''}: src/chat/stream.ts, sse.ts, provider-info.ts, calibrate/providers.ts), bundled ${new Date().toISOString().slice(0, 10)} by site/scripts/sync-eden.mjs. Generated: edit the askeden repo, not this file.\n`;
+  fs.writeFileSync(PROVIDERS_VENDOR, providersHeader + providers);
 
   const manifest = {
     files: files.map((f) => f.name),
@@ -156,10 +278,17 @@ async function main() {
       `export const EDEN_SOURCE = ${JSON.stringify(manifest.source)};\n`,
   );
 
+  const helpCode = await bundleHelp(opts.router, help);
+  const helpHeader = `// Eden's Help core and FAQ (askeden ${source.commit || 'unknown commit'}${source.dirty ? ', with uncommitted changes' : ''}: web/help/help-core.js, faq.json, the search index built from it), bundled ${new Date().toISOString().slice(0, 10)} by site/scripts/sync-eden.mjs. Generated: edit the askeden repo, not this file.\n`;
+  fs.writeFileSync(HELP_VENDOR, helpHeader + helpCode);
+
   const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
   console.log(`public/eden: ${files.length} files (${kb(files.reduce((n, f) => n + f.bytes.length, 0))}) from ${webChat}${source.commit ? ` @ ${source.commit}${source.dirty ? '+' : ''}` : ''}`);
   if (skipped.length) console.log(`  left out: ${skipped.join(', ')}`);
   console.log(`src/eden/vendor/model-router.js: ${kb(Buffer.byteLength(header + code))}`);
+  console.log(`src/eden/vendor/google.js: ${kb(Buffer.byteLength(googleHeader + google))}`);
+  console.log(`src/eden/vendor/providers.js: ${kb(Buffer.byteLength(providersHeader + providers))}`);
+  console.log(`public/help: ${help.length} files (${kb(help.reduce((n, f) => n + f.bytes.length, 0))}); src/eden/vendor/help.js: ${kb(Buffer.byteLength(helpHeader + helpCode))}`);
 }
 
 main().catch((error) => {

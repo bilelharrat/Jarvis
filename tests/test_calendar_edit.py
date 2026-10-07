@@ -2,7 +2,8 @@
 shows each change as old → new, in the language the user speaks."""
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
+from types import SimpleNamespace
 
 import pytest
 from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
@@ -72,6 +73,193 @@ def test_the_changes_are_read_and_validated():
         "duration_minutes": 45,
         "start": "2026-09-30T16:00",
     }
+
+
+def test_notes_link_and_alerts_are_checked_as_a_new_events_are():
+    changes, why = mac_tools._event_changes(
+        {"new_notes": "  Bring\x00 the card.  ", "new_url": "", "new_alerts": [60, 0, 60]}
+    )
+    assert why == "" and changes == {"notes": "Bring the card.", "url": "", "alerts": [0, 60]}
+    assert mac_tools._event_changes({"new_alerts": []})[0] == {"alerts": []}  # removes them
+    assert mac_tools._event_changes({"new_notes": "x" * 5000})[0]["notes"] == "x" * 2000
+    for bad in (
+        {"new_url": "http://plain.example"},
+        {"new_url": "javascript:alert(1)"},
+        {"new_alerts": [10, 20, 30, 40]},
+        {"new_alerts": [-5]},
+        {"new_alerts": [99999999]},
+    ):
+        assert mac_tools._event_changes(bad)[1], bad
+    assert mac_tools.alert_words([0, 10, 60, 1440]) == (
+        "when it starts, 10 minutes before, 1 hour before, 1 day before"
+    )
+    assert mac_tools.alert_words([]) == "none"
+
+
+async def test_the_card_shows_notes_link_and_alerts(calendar):
+    calendar["events"] = [row()]
+    q, why = await mac_tools.edit_question(
+        {
+            "title": "dentist",
+            "start": "2026-09-30T15:00",
+            "new_notes": "Bring   the card.",
+            "new_url": "https://dent.example/booking",
+            "new_alerts": [30],
+        }
+    )
+    assert why == ""
+    assert "Notes → “Bring the card.”" in q
+    assert "Link → https://dent.example/booking" in q
+    assert "Alerts → 30 minutes before" in q
+    q, _ = await mac_tools.edit_question(
+        {
+            "title": "dentist",
+            "start": "2026-09-30T15:00",
+            "new_notes": "",
+            "new_url": "",
+            "new_alerts": [],
+        }
+    )
+    assert "Clear the notes" in q and "Clear the link" in q and "Alerts → none" in q
+
+
+class FakeAlarm:
+    def __init__(self, offset=None, absolute=None):
+        self.offset, self.absolute = offset, absolute
+
+    def relativeOffset(self):  # noqa: N802 - EventKit's names
+        return self.offset
+
+    def absoluteDate(self):  # noqa: N802
+        return self.absolute
+
+
+class FakeLink:
+    def __init__(self, text):
+        self.text = text
+
+    def absoluteString(self):  # noqa: N802
+        return self.text
+
+
+class FakeEvent:
+    """An EKEvent's few calls edit() and _row() make, over plain state."""
+
+    def __init__(self, begin, end, all_day=False):
+        self.begin, self.end, self.all_day = begin, end, all_day
+        self.note, self.link = "Old notes", FakeLink("https://old.example")
+        self.alarm_list = [FakeAlarm(-600.0), FakeAlarm(absolute=1.0)]
+        self.saved = 0
+
+    def __getattr__(self, name):  # anything else edit/_row asks: a quiet default
+        defaults = {
+            "status": 0,
+            "attendees": [],
+            "organizer": None,
+            "location": "",
+            "title": "Trip",
+            "hasRecurrenceRules": False,
+            "calendarItemExternalIdentifier": "ext-1",
+            "eventIdentifier": "ev-1",
+            "calendar": None,
+        }
+        if name in defaults:
+            return lambda: defaults[name]
+        raise AttributeError(name)
+
+    def startDate(self):  # noqa: N802
+        return SimpleNamespace(timeIntervalSince1970=self.begin.timestamp)
+
+    def endDate(self):  # noqa: N802
+        return SimpleNamespace(timeIntervalSince1970=self.end.timestamp)
+
+    def isAllDay(self):  # noqa: N802
+        return self.all_day
+
+    def setStartDate_(self, seconds):  # noqa: N802
+        self.begin = datetime.fromtimestamp(seconds)
+
+    def setEndDate_(self, seconds):  # noqa: N802
+        self.end = datetime.fromtimestamp(seconds)
+
+    def notes(self):
+        return self.note
+
+    def setNotes_(self, text):  # noqa: N802
+        self.note = text
+
+    def URL(self):  # noqa: N802
+        return self.link
+
+    def setURL_(self, link):  # noqa: N802
+        self.link = link
+
+    def alarms(self):
+        return list(self.alarm_list)
+
+    def removeAlarm_(self, alarm):  # noqa: N802
+        self.alarm_list.remove(alarm)
+
+    def addAlarm_(self, alarm):  # noqa: N802
+        self.alarm_list.append(alarm)
+
+
+def fake_frameworks(event):
+    class Store:
+        def init(self):
+            return self
+
+        def saveEvent_span_commit_error_(self, _event, _span, _commit, _error):  # noqa: N802
+            event.saved += 1
+            return True, None
+
+    ek = SimpleNamespace(
+        EKEventStore=SimpleNamespace(
+            alloc=Store, authorizationStatusForEntityType_=lambda _kind: 3
+        ),
+        EKEntityTypeEvent=0,
+        EKSpanThisEvent=0,
+        EKSpanFutureEvents=1,
+        EKAlarm=SimpleNamespace(alarmWithRelativeOffset_=lambda offset: FakeAlarm(offset)),
+    )
+    foundation = SimpleNamespace(
+        NSDate=SimpleNamespace(dateWithTimeIntervalSince1970_=lambda seconds: seconds),
+        NSURL=SimpleNamespace(URLWithString_=FakeLink),
+    )
+    return ek, foundation
+
+
+def edit_fake(monkeypatch, event, changes, all_day=False):
+    found = calendar_kit._row(event, details=True)
+    found |= {"writable": True, "calendar": "Home", "id": "ext-1"}
+    monkeypatch.setattr(calendar_kit, "_starting", lambda _store, _start: [(found, event)])
+    ek, foundation = fake_frameworks(event)
+    return calendar_kit.edit("2026-10-10", "ext-1", "Home", False, changes, ek, foundation)
+
+
+def test_edit_changes_notes_link_and_alerts_and_the_row_carries_them(monkeypatch):
+    event = FakeEvent(datetime(2026, 10, 10, 9, 0), datetime(2026, 10, 10, 10, 0))
+    before = calendar_kit._row(event, details=True)
+    assert before["notes"] == "Old notes" and before["url"] == "https://old.example"
+    assert before["alerts"] == [10]  # the alert at a fixed time isn't one of these
+    done = edit_fake(
+        monkeypatch, event, {"notes": "New", "url": "https://new.example", "alerts": [0, 30]}
+    )
+    assert "error" not in done and event.saved == 1
+    assert event.note == "New" and event.link.text == "https://new.example"
+    assert sorted(-a.offset / 60 for a in event.alarm_list) == [0, 30]
+    assert done["was"]["notes"] == "Old notes" and done["edited"]["alerts"] == [0, 30]
+    done = edit_fake(monkeypatch, event, {"notes": "", "url": "", "alerts": []})
+    assert event.note is None and event.link is None and event.alarm_list == []
+
+
+def test_moving_an_all_day_event_keeps_how_many_days_it_spans(monkeypatch):
+    # EventKit ends an all-day event on its last day: three days, 10–12 October
+    event = FakeEvent(datetime(2026, 10, 10), datetime(2026, 10, 12, 23, 59, 59), all_day=True)
+    done = edit_fake(monkeypatch, event, {"start": "2026-10-14"})
+    assert "error" not in done
+    assert event.begin == datetime(2026, 10, 14)
+    assert event.end.date() == date(2026, 10, 16)  # still three days (it was cut to one)
 
 
 async def test_the_card_shows_each_change(calendar):

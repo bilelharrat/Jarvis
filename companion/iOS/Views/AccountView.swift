@@ -3,8 +3,8 @@ import StoreKit
 import SwiftUI
 
 /// Settings › Account: the optional Jarvis account. Signed out, what it adds and Sign in with
-/// Apple; signed in, the plan and what's been used, the devices on it, linking a Mac, sync,
-/// and signing out or deleting it.
+/// Apple; signed in, the plan and what's been used, the devices on it, linking a Mac or
+/// approving a browser's sign-in to Eden, sync, and signing out or deleting it.
 struct AccountView: View {
     @Environment(AppModel.self) private var model
     private var store: AccountStore { AccountStore.shared }
@@ -63,17 +63,22 @@ struct AccountView: View {
         }
         .manageSubscriptionsSheet(isPresented: $manageSubscription)
         .confirmationDialog(
-            offered.map { "Link “\($0.info.name)”?" } ?? "", isPresented: Binding(get: { offered != nil }, set: { if !$0 { offered = nil } }),
+            offered.map { $0.info.isWeb ? "Sign in to Eden on the web?" : "Link “\($0.info.name)”?" } ?? "",
+            isPresented: Binding(get: { offered != nil }, set: { if !$0 { offered = nil } }),
             titleVisibility: .visible, presenting: offered
         ) { offer in
-            Button("Link") { Task { await approve(offer.code, offer.info) } }
-            Button("Don’t Link", role: .destructive) {
+            Button(offer.info.isWeb ? "Approve Sign-In" : "Link") { Task { await approve(offer.code, offer.info) } }
+            Button(offer.info.isWeb ? "Don’t Sign In" : "Don’t Link", role: .destructive) {
                 Task { await store.denyLink(offer.code) }
                 offered = nil
             }
             Button("Cancel", role: .cancel) { offered = nil }
-        } message: { _ in
-            Text("It joins your account: it can use the AI included with your plan, send notifications to this iPhone, be reached through the Jarvis relay, and read what you sync. Only link a Mac that’s yours.")
+        } message: { offer in
+            if offer.info.isWeb {
+                Text("“\(offer.info.name)” asks to sign in to your account at askeden.com. It can use Eden and the AI included with your plan for 30 days, until you sign it out. Only approve a sign-in you just started yourself.")
+            } else {
+                Text("It joins your account: it can use the AI included with your plan, send notifications to this iPhone, be reached through the Jarvis relay, and read what you sync. Only link a Mac that’s yours.")
+            }
         }
         .confirmationDialog("Sign out of your Jarvis account?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) { Task { await store.signOut() } }
@@ -175,6 +180,7 @@ struct AccountView: View {
         planSection
         devicesSection
         linkSection
+        EdenTrustSection()
         syncSection
         Section {
             Button("Sign Out") { confirmSignOut = true }
@@ -259,7 +265,7 @@ struct AccountView: View {
         } header: {
             Text("Plan")
         } footer: {
-            Text("The included AI is Claude, through askeden.com, and answers on this iPhone whenever you haven’t added a Claude key of your own. Your own keys always come first.")
+            Text("The included AI comes through askeden.com and answers on this iPhone whenever you haven’t added a key of your own. Claude needs your own Anthropic API key. Your own keys always come first.")
         }
     }
 
@@ -332,7 +338,7 @@ struct AccountView: View {
         return parts.isEmpty ? (device.isMac ? "Linked" : "Signed in") : parts.joined(separator: " · ")
     }
 
-    // MARK: - Linking a Mac
+    // MARK: - Linking a Mac, approving a browser's sign-in
 
     /// The paired Mac isn't on this account yet (and can say so).
     private var canLinkPairedMac: Bool {
@@ -363,7 +369,7 @@ struct AccountView: View {
             }
             HStack(spacing: Space.s) {
                 IconTile(symbol: "link", tint: .teal)
-                TextField("Code from your Mac", text: $code)
+                TextField("Code from your Mac or browser", text: $code)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .submitLabel(.go)
@@ -395,9 +401,9 @@ struct AccountView: View {
                     .foregroundStyle(Color.green)
             }
         } header: {
-            Text("Link a Mac")
+            Text("Link a Mac or Approve a Sign-In")
         } footer: {
-            Text("When you link it in JARVIS on your Mac, it shows a code like K7QM-4ZTR and a QR code. Type the code or scan it here.")
+            Text("Linking JARVIS on your Mac, or signing in to Eden at askeden.com, shows a code like K7QM-4ZTR and a QR code. Type the code or scan it here.")
         }
     }
 
@@ -415,7 +421,7 @@ struct AccountView: View {
             let info = try await store.lookUpLink(normalized)
             offered = (normalized, info)
         } catch AccountError.notFound {
-            linkProblem = "No Mac is waiting with that code. Check it, or make a new one on the Mac."
+            linkProblem = "Nothing is waiting with that code. Check it, or get a new one on your Mac or in the browser."
         } catch {
             linkProblem = AccountStore.words(error)
         }
@@ -426,8 +432,12 @@ struct AccountView: View {
         do {
             let linked = try await store.approveLink(code, info: info)
             self.code = ""
-            linkDone = "\(linked.name ?? info.name) is linked."
-            await checkPairedMac()
+            if info.isWeb {
+                linkDone = "\(linked.name ?? info.name) is signed in."
+            } else {
+                linkDone = "\(linked.name ?? info.name) is linked."
+                await checkPairedMac()
+            }
         } catch {
             Haptics.failure()
             linkProblem = AccountStore.words(error)
@@ -521,7 +531,7 @@ private struct UpgradeSheet: View {
                 OrbMark(size: 64)
                 Text("Jarvis Plus")
                     .font(.largeTitle.weight(.bold))
-                Text("AI included: Jarvis answers on your iPhone, and on your Mac, without an API key of your own, with a generous monthly allowance of Claude and more JARVIS voice each day.")
+                Text("AI included: Jarvis answers on your iPhone, and on your Mac, without an API key of your own, with a monthly allowance of included AI and more JARVIS voice each day. Claude needs your own Anthropic API key.")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
                     .multilineTextAlignment(.center)
@@ -543,7 +553,8 @@ private struct UpgradeSheet: View {
     }
 }
 
-/// Scan the QR code a Mac shows while it waits to be linked (`jarvis-link://XXXX-XXXX`).
+/// Scan the QR code a Mac (waiting to be linked) or a browser (signing in to Eden) shows
+/// (`jarvis-link://XXXX-XXXX`).
 private struct LinkScanSheet: View {
     let onScan: (String) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -579,7 +590,7 @@ private struct LinkScanSheet: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if access == .granted {
-                    Text(notALink ? "That isn’t a Jarvis link code." : "Point at the code JARVIS on your Mac shows.")
+                    Text(notALink ? "That isn’t a Jarvis link code." : "Point at the code on your Mac or in the browser.")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(notALink ? Palette.amber : Palette.ink)
                         .multilineTextAlignment(.center)

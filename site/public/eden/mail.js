@@ -7,6 +7,7 @@
 
 import { el, toast, debounce } from './util.js';
 import { api } from './api.js';
+import { state } from './state.js';
 import { initCompose, openCompose } from './compose.js';
 
 let H = {};
@@ -78,6 +79,7 @@ function normMsg(m) {
     subject: str(m.subject) || '(no subject)', date: str(m.date ?? m.received ?? m.sent),
     snippet: str(m.snippet ?? m.preview ?? m.excerpt), body: str(m.body ?? m.text ?? m.content ?? m.plain),
     html: typeof m.html === 'string' ? m.html : '',
+    hidden: Number(m.hidden) || 0, // hidden HTML parts the server left out of `body` (H8: the source card's badge)
     unread: m.unread === true || m.read === false, account: str(m.account), mailbox: str(m.mailbox),
     threadId: str(m.threadId ?? m.thread_id), messageId: str(m.messageId ?? m.message_id_header ?? ''), references: str(m.references),
     attachments: atts.filter((a) => !(a && a.inline && a.contentId)).map((a) => (typeof a === 'string' ? a : a && a.name) || 'attachment'),
@@ -96,6 +98,17 @@ const when = (d) => new Date(d).toLocaleString([], { weekday: 'short', day: 'num
 const mail = { accounts: [], account: '', mailbox: 'inbox', query: '', source: 'gmail', google: null };
 let panelBody = null;
 
+/**
+ * Keyboard focus into the panel: the selected source tab. It's drawn at once, before Gmail or
+ * your Mac answers (which can take seconds, or wait on Jarvis's card), so focus never waits on
+ * the network; re-rendering (another source, ‹ Back) would otherwise drop it on the page.
+ */
+export function focusMail(body = panelBody) {
+  const t = body && (body.querySelector('[data-src][aria-selected="true"]') || body.querySelector('button, input, select, textarea'));
+  if (t) t.focus();
+  return !!t;
+}
+
 export async function mailPanel(body) {
   panelBody = body;
   body.replaceChildren();
@@ -104,7 +117,7 @@ export async function mailPanel(body) {
   const si = mail.source === 'gmail' ? 0 : 1;
   srcSeg.querySelector('.seg-thumb').style.setProperty('--i', si);
   srcSeg.querySelectorAll('button').forEach((x, j) => { x.classList.toggle('on', j === si); x.setAttribute('aria-selected', String(j === si)); });
-  srcSeg.addEventListener('click', (e) => { const x = e.target.closest('[data-src]'); if (x && x.dataset.src !== mail.source) { mail.source = x.dataset.src; mail.account = ''; if (!SOURCES[mail.source].boxes.some(([b]) => b === mail.mailbox)) mail.mailbox = 'inbox'; mailPanel(body); } });
+  srcSeg.addEventListener('click', (e) => { const x = e.target.closest('[data-src]'); if (x && x.dataset.src !== mail.source) { mail.source = x.dataset.src; mail.account = ''; if (!SOURCES[mail.source].boxes.some(([b]) => b === mail.mailbox)) mail.mailbox = 'inbox'; mailPanel(body); focusMail(body); } });
   body.append(srcSeg);
   if (mail.source === 'gmail') {
     let st;
@@ -187,7 +200,9 @@ async function scheduledList(res, again) {
   res.replaceChildren(el('div', 'muted', 'Reading the schedule…'));
   let jobs;
   try { jobs = ((await gmail('scheduled')) || {}).jobs || []; } catch (e) { res.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t read the schedule'), e.message)); return; }
-  const note = el('p', 'sp-note', 'Eden holds these on your Mac and sends each one at its time, only while Eden is running. Each waits in your Gmail Drafts until then; cancelling leaves it there.');
+  const note = el('p', 'sp-note', state.meta && state.meta.hosted
+    ? 'Your askeden.com account sends each one at its time, even with your Mac off. Each waits in your Gmail Drafts until then; cancelling leaves it there.'
+    : 'Eden holds these on your Mac and sends each one at its time, only while Eden is running. Each waits in your Gmail Drafts until then; cancelling leaves it there.');
   if (!jobs.length) { res.replaceChildren(el('div', 'muted', 'Nothing scheduled. In a compose window, open the arrow next to Send › Schedule send.'), note); return; }
   const order = (j) => (j.status === 'scheduled' || j.status === 'sending' ? 0 : 1);
   jobs.sort((a, b) => order(a) - order(b) || (order(a) ? b.sendAt.localeCompare(a.sendAt) : a.sendAt.localeCompare(b.sendAt)));
@@ -205,7 +220,7 @@ async function scheduledList(res, again) {
 }
 
 async function openMessage(body, m) {
-  const back = el('button', { type: 'button', class: 'cap', onclick: () => { body.replaceChildren(); mailPanel(body); } }, '‹ Back');
+  const back = el('button', { type: 'button', class: 'cap', onclick: () => { body.replaceChildren(); mailPanel(body); focusMail(body); } }, '‹ Back');
   const view = el('div', { class: 'mail-view', 'aria-live': 'polite' }, el('div', 'muted', 'Opening…'));
   body.replaceChildren(el('div', 'mail-top', back), view);
   back.focus();
@@ -243,7 +258,7 @@ export function emailText(m) {
 
 export async function connectGmail() {
   try {
-    const r = await api.googleConnect();
+    const r = await api.googleConnect('gmail');
     if (r && r.url) location.assign(r.url); // top level: Google comes back to /#gmail=…
     else toast('Couldn’t start the Google sign-in');
   } catch (e) { toast(`Couldn’t connect Gmail: ${e.message}`); }

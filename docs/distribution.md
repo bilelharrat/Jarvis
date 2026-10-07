@@ -2,8 +2,8 @@
 
 `cd app && npm run dist` builds a J.A.R.V.I.S. anyone with an Apple-silicon Mac can download:
 a disk image with the app in it, self-contained (no Xcode, uv, Python or repo needed),
-signed with BSH Ventures' Developer ID and the hardened runtime, notarized by Apple and
-stapled.
+signed with the owner's Developer ID (team 8CV4X23Y2T) and the hardened runtime, notarized by
+Apple and stapled.
 
 Your own install doesn't change: `npm run install-app` still runs the backend from the repo
 with uv, and Python and web edits still need no rebuild.
@@ -45,14 +45,21 @@ The Mac that builds needs Xcode (for swiftc), uv with its own CPython 3.12 and t
 `git add`) a new file before building; the build names any it had to leave out.
 
 1. **Create the Developer ID Application certificate.** Only the account holder of team
-   9ZSY5R8A5C can. In Xcode: Settings › Accounts › your Apple ID › BSH Ventures ›
-   Manage Certificates… › + › Developer ID Application. It goes into your login keychain.
-   Check it's there:
+   8CV4X23Y2T can: in Xcode, Settings › Accounts › + (if it isn't listed) › sign in as
+   bilel.harrat@icloud.com › select the team "Bilel Harrat" › Manage Certificates… › + ›
+   Developer ID Application. It goes into your login keychain. Check it's there:
 
    ```sh
    security find-identity -v -p codesigning
-   # … "Developer ID Application: BSH Ventures … (9ZSY5R8A5C)"
+   # … "Developer ID Application: Bilel Harrat (8CV4X23Y2T)"
    ```
+
+   Until it exists, the old certificate still signs: `JARVIS_SIGN_IDENTITY="Developer ID
+   Application: Robert Parker (9ZSY5R8A5C)"` (and `--team-id 9ZSY5R8A5C` for its notary
+   profile in step 3). Local builds (`npm run package`, `app/scripts/finish-app.sh`) sign with
+   the first certificate of team 8CV4X23Y2T (an Apple Development one will do);
+   `JARVIS_TEAM_ID=9ZSY5R8A5C` picks the old team instead. Changing team changes the app's
+   identity, so macOS asks once more for its permissions.
 
 2. **Make a credential for Apple's notary service**, one of:
    - an app-specific password: account.apple.com › Sign-In and Security › App-Specific
@@ -65,7 +72,7 @@ The Mac that builds needs Xcode (for swiftc), uv with its own CPython 3.12 and t
 
    ```sh
    # with the app-specific password (it asks for it):
-   xcrun notarytool store-credentials jarvis-notary --apple-id you@example.com --team-id 9ZSY5R8A5C
+   xcrun notarytool store-credentials jarvis-notary --apple-id you@example.com --team-id 8CV4X23Y2T
    # or with the API key:
    xcrun notarytool store-credentials jarvis-notary --key ~/AuthKey_ABC123DEFG.p8 --key-id ABC123DEFG --issuer 01234567-89ab-cdef-0123-456789abcdef
    ```
@@ -74,7 +81,7 @@ The Mac that builds needs Xcode (for swiftc), uv with its own CPython 3.12 and t
 
    ```sh
    cd app
-   JARVIS_SIGN_IDENTITY="Developer ID Application: BSH Ventures … (9ZSY5R8A5C)" \
+   JARVIS_SIGN_IDENTITY="Developer ID Application: Bilel Harrat (8CV4X23Y2T)" \
    JARVIS_NOTARY_PROFILE=jarvis-notary \
    JARVIS_UPDATE_URL=https://github.com/bilelharrat/Jarvis/releases/latest/download/release.json \
    npm run dist
@@ -156,7 +163,9 @@ anyone: Gatekeeper refuses ad hoc apps from the internet, and it can't be update
    Anthropic's Developer ID with the hardened runtime and a timestamp: it keeps that
    signature. Python and the helpers get identifiers of the app's own
    (`com.bshventures.jarvis.python`, `com.bshventures.jarvis.jarvis-duplex`, …), which is how
-   the Keychain and macOS's privacy settings recognize them across updates.
+   the Keychain and macOS's privacy settings recognize them across updates. The Mac app keeps
+   its id `com.bshventures.jarvis` after the move to team 8CV4X23Y2T: Developer ID needs no
+   App ID for it.
 4. **Verify** (`verify.js`): `codesign --verify --strict` on the app and on every Mach-O;
    each has the hardened runtime, a secure timestamp and exactly the entitlements it should;
    nothing is unsigned; the Claude engine still carries Anthropic's signature;
@@ -238,8 +247,10 @@ meeting notes, a task running or waiting). The app reopens as it was, hidden if 
 hidden. Settings › About's Restart installs it at once; quitting installs it too.
 
 Squirrel.Mac installs an update only if its code signature satisfies the running app's
-designated requirement: the same bundle id, signed by the same Developer ID team
-(9ZSY5R8A5C). That is what keeps anyone else from pushing an update. It can't update a copy
+designated requirement: the same bundle id, signed by the same Developer ID team. That is
+what keeps anyone else from pushing an update. It also means a copy signed by the old team
+(9ZSY5R8A5C) won't take an update signed by 8CV4X23Y2T: testers download the first such
+release by hand. It can't update a copy
 that isn't in an Applications folder (a translocated one); the app says so instead.
 
 Builds without a feed (`npm start`, `--adhoc` without the variable) never look for

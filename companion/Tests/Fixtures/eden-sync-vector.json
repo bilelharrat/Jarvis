@@ -1,0 +1,68 @@
+{
+  "about": "Eden sync (docs/accounts.md): made by site/scripts/eden-sync-vector.mjs with eden-crypto.js. Base64 is standard and padded, the proof base64url.",
+  "labels": {
+    "seal": "eden-seal-v1",
+    "sync": "eden-sync-v1",
+    "wrap": "eden-wrap-v1"
+  },
+  "secret": "gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8=",
+  "proof": "_IGtcy1v6kRUAzPnQrfEl8Q8bKpD8HIlKJ7PjCIQJtg",
+  "x25519": {
+    "private": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "public": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw=",
+    "code": "959 500",
+    "browser_sealed": {
+      "sealed_key": "HgzpWR/g7kMk+h1n2CBuFgVn3RqnUzIPPbtjvP++tMXtfE0lzdF3dJRj9yTYDuVE0Ry5nsm8/xDsqJjH",
+      "sender_key": "/VvmsedKwylnxpoFSpDUZIyR82qgBoAKsolfOO9yQkc="
+    },
+    "app_sealed": {
+      "sender_private": "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=",
+      "nonce": "QUJDREVGR0hJSktM",
+      "sealed_key": "QUJDREVGR0hJSktMTng2FIWHq8H89alK+MKaVhBX4fPfW6iGfzqbN20SysJ+e/1MfjMLKkkvrzge1YgI",
+      "sender_key": "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns="
+    }
+  },
+  "p256": {
+    "private": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "public": "BFFcPW6545a5BNP+yn9U/c0MwemXvzddylFa0KbDtANfRTa+OlDzGPv5pUdZAqIhUCvvDVfgjFOyzApW8X2fk1Q=",
+    "code": "577 203",
+    "browser_sealed": {
+      "sealed_key": "wl28hGqB+9kp1XsSCmRYx8p4cToNJdfjtHTJ3uVkMXsfoYCIo4hfB/+Mke3tn7fHp2dtbxn16aj38Ren",
+      "sender_key": "BCduWEWU6WIa/OYOq3bgOGVX/c0mGbwmdAhZBoiYz6EeT5mN43epHcWRI3pl7cHy8qpR6Dup/MqpS5sUc8yp//4="
+    },
+    "app_sealed": {
+      "sender_private": "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=",
+      "nonce": "QUJDREVGR0hJSktM",
+      "sealed_key": "QUJDREVGR0hJSktM7Xy1rhDUtHCt5zp7cHVEn+Ej/evvu2+op9GHaCuMe6HeOYZdokxo/i3d9mx5z4+f",
+      "sender_key": "BB8UAUa/sbJR+E9N2+DUzc/Xev2YSpUg41eUAh+DErue7JlaCLH6dwTfPcwLUKlmUmP7dxH5X5+KRJxQluR8iSs="
+    }
+  },
+  "passphrase": {
+    "passphrase": "Crème brûlée, ﬁve spoons",
+    "wrap": {
+      "v": 1,
+      "kdf": "PBKDF2-SHA256",
+      "iterations": 310000,
+      "salt": "WpT/cz+VgDPNMdhs6SWSmw==",
+      "data": "E8bqhd/csp8s0TLgrCQIYfCxgxsVmsG4a/05jM9EAK9LDiWW93u9CBl9zN6v16e1H/7grJ7qbGJfVwWx"
+    }
+  },
+  "rotation": {
+    "gen": "gen-abcdef12",
+    "epoch": 2,
+    "next": "oKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr8=",
+    "chain": [
+      {
+        "epoch": 2,
+        "prev": "yN9UlbRVQ4PMrRtjOEK6V11fuumAyo6uA/MyiwuQO0cb8GNED57pDTsKlNiyqs3oPKEh4EXfHnJsS1wu"
+      }
+    ],
+    "mac": {
+      "x25519": "hlUrAqi2nsJBZmYJcpnG8Un9emBG9Jbl9Na_B_15HtA",
+      "p256": "70WTvfhIbBHGGHexFBv3JL1A9cUFWH8oKadV-35bPwY"
+    },
+    "next_mac": {
+      "x25519": "sAMtobYJZSyk0M47DKB_jUlDTAmpPmPBl7KTZYQ0ips"
+    }
+  }
+}

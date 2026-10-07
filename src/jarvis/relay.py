@@ -59,7 +59,7 @@ class Relay:
         account: Any,
         port: Callable[[], int | None],
         *,
-        base: str = WS_BASE,
+        base: str | None = None,
         host: str = "127.0.0.1",
         connect: Connect | None = None,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
@@ -67,7 +67,7 @@ class Relay:
     ) -> None:
         self.account = account
         self.port = port
-        self.base = base.rstrip("/")
+        self._base = base.rstrip("/") if base else None  # tests; else the account's server
         self.host = host
         self.connect = connect or _connect()
         self.sleep = sleep
@@ -75,6 +75,11 @@ class Relay:
         self.state = "off"  # off | connecting | listening | waiting (to reconnect)
         self.streams: set[asyncio.Task] = set()
         self.opened = 0  # streams opened since it started, for Settings and tests
+
+    @property
+    def base(self) -> str:
+        """The server's relays: the account's (askeden.com or its preview), unless a test says."""
+        return self._base or getattr(self.account, "ws_base", WS_BASE)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.account.token}"}

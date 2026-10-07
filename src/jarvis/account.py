@@ -18,6 +18,12 @@ never logged, shown or written to a file. A 401 from askeden.com means it was si
 (unlinked from the phone, the account deleted): it's forgotten here at once and Settings
 shows the Mac as not linked.
 
+Approving a browser: a linked Mac can let a browser into the account, as the iPhone can
+(Eden at askeden.com shows a code while it waits). The owner types the code in Settings; the
+Mac asks what's waiting (GET /link/<code>), shows its name, and approves or denies it with
+its own token. Only a browser's sign-in (kind `web`): a Mac is linked from the iPhone,
+never from another Mac (askeden.com refuses it too).
+
 Nothing here touches the network until the owner links, or a feature asks for the account's
 status while linked.
 """
@@ -34,15 +40,25 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 log = logging.getLogger("jarvis")
 
 BASE = "https://askeden.com/api"
+# The servers a Mac may link to (Settings › Account › Server): askeden.com, or its preview
+# (preview.askeden.com, its own accounts). The one a Mac linked to is kept beside its token, so the
+# token only ever goes back there; another server needs unlinking first.
+SERVERS = ("askeden.com", "preview.askeden.com")
+SERVER_PREF = "account_server"  # Settings: the server to link to (askeden.com unless chosen)
+SERVER_KEY = "server"  # the Keychain: the server the token belongs to
 VAULT_ID = "jarvis-account"  # the Keychain entry: "Jarvis connectors" / jarvis-account:token
 TOKEN_KEY = "token"
 SYNC_KEY = "sync_key"  # the sync key, base64 (32 bytes)
+# Eden sync's (eden_trust.py): this Mac's X25519 private key, and Eden's key with its generation.
+EDEN_DEVICE_KEY = "eden_device"
+EDEN_KEY = "eden_key"
 LINK_INFO = b"jarvis-link-v1"  # HKDF info and AEAD associated data for the sealed sync key
 LINK_SCHEME = "jarvis-link://"
 POLL_SECONDS = 2.0
@@ -55,6 +71,25 @@ _TOKEN = re.compile(
     r"[A-Za-z0-9_-]{43}"
 )
 _CODE = re.compile(r"[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}")
+NOT_A_CODE = "That isn't a sign-in code. It has eight letters and numbers, like K7QM-4ZTR."
+NOTHING_WAITING = "Nothing is waiting with that code. Check it, or get a new one in the browser."
+CODE_EXPIRED = "That code expired. Get a new one in the browser."
+MAC_CODE = "That code is for linking a Mac: approve it in the J.A.R.V.I.S. app on your iPhone."
+
+
+def normalize_code(text: Any) -> str | None:
+    """A link code as it's shown (XXXX-XXXX), from what the owner typed: any case, with or
+    without the dash, spaces or jarvis-link://. None when it isn't one."""
+    if not isinstance(text, str) or len(text) > 64:
+        return None
+    clean = text.strip()
+    if clean.lower().startswith(LINK_SCHEME):
+        clean = clean[len(LINK_SCHEME) :]
+    clean = re.sub(r"[\s-]", "", clean).upper()
+    if len(clean) != 8:
+        return None
+    code = f"{clean[:4]}-{clean[4:]}"
+    return code if _CODE.fullmatch(code) else None
 
 
 class AccountError(Exception):
@@ -171,10 +206,23 @@ class Link:
     state: str = "waiting"  # waiting | linked | expired | denied | error
     error: str = ""
     qr: list[str] = field(default_factory=list)
+    browser: bool = False  # approved in the owner's browser (<server>/link), not on the iPhone
 
     @property
     def url(self) -> str:
         return LINK_SCHEME + self.code
+
+
+@dataclass
+class Approval:
+    """A browser's sign-in this Mac was asked to approve: its code, what it's called, and
+    how it's going."""
+
+    code: str
+    name: str = ""
+    kind: str = ""
+    state: str = "asking"  # asking | approved | denied | error
+    error: str = ""
 
 
 def app_version() -> str:
@@ -221,6 +269,7 @@ class Account:
     ) -> None:
         self.vault = vault
         self.base = base.rstrip("/")
+        self.server = urlsplit(self.base).hostname or SERVERS[0]  # the host the token is for
         self.transport = transport
         self.name = name or _mac_name
         self.version = version
@@ -229,6 +278,7 @@ class Account:
         self.token = ""
         self.sync_key: bytes | None = None
         self.link: Link | None = None
+        self.approval: Approval | None = None  # a browser's sign-in, being approved here
         self.info: dict[str, Any] | None = None  # the latest GET /account
         self.error = ""  # the latest problem, in words for Settings
         # Whether Claude Code is signed in to a Claude account (the feature checks it);
@@ -261,6 +311,35 @@ class Account:
         ids = self.ids
         return ids[1] if ids else None
 
+    @property
+    def web_base(self) -> str:
+        """The server's site (https://askeden.com): its /link page."""
+        return self.base.removesuffix("/api")
+
+    @property
+    def ws_base(self) -> str:
+        """The server's relays (wss://askeden.com/api/relay): the phone's and Eden on the web's."""
+        return "wss://" + self.base.split("://", 1)[-1] + "/relay"
+
+    def use_server(self, host: Any) -> bool:
+        """Link to `host` (one of SERVERS) from now on: only while not linked or linking (a
+        token stays with the server that made it). False when it can't change now."""
+        if host not in SERVERS:
+            return False
+        if host == self.server:
+            return True
+        if self.linked or self.link is not None:
+            return False
+        self.server, self.base = host, f"https://{host}/api"
+        if self._client is not None:
+            client, self._client = self._client, None
+            with contextlib.suppress(RuntimeError):
+                asyncio.get_running_loop().create_task(client.aclose())
+        self.info, self._info_at = None, 0.0
+        log.info("account: links go to %s", host)
+        self._changed()
+        return True
+
     async def load(self) -> None:
         """The token and sync key from the Keychain, once (a locked Keychain: tried again
         next time)."""
@@ -270,11 +349,13 @@ class Account:
             if self._read:
                 return
             try:
-                token, key = await asyncio.to_thread(self._load)
+                token, key, server = await asyncio.to_thread(self._load)
             except Exception:
                 log.warning("account: the Keychain couldn't be read")
                 return
             self.token = token if parse_token(token) else ""
+            if self.token and server in SERVERS and server != self.server:
+                self.server, self.base = server, f"https://{server}/api"  # where this token lives
             try:
                 self.sync_key = b64decode(key) if key else None
             except ValueError:
@@ -283,15 +364,17 @@ class Account:
                 self.sync_key = None
             self._read = True
 
-    def _load(self) -> tuple[str, str]:
+    def _load(self) -> tuple[str, str, str]:
         return (
             self.vault.get(VAULT_ID, TOKEN_KEY) or "",
             self.vault.get(VAULT_ID, SYNC_KEY) or "",
+            self.vault.get(VAULT_ID, SERVER_KEY) or "",
         )
 
     async def _keep(self, token: str, sync_key: bytes | None) -> None:
         def write() -> None:
             self.vault.set(VAULT_ID, TOKEN_KEY, token)
+            self.vault.set(VAULT_ID, SERVER_KEY, self.server)
             if sync_key is not None:
                 self.vault.set(VAULT_ID, SYNC_KEY, b64encode(sync_key))
             else:
@@ -301,14 +384,16 @@ class Account:
         self.token, self.sync_key, self._read = token, sync_key, True
 
     async def forget(self) -> None:
-        """Not linked any more: the token and the sync key leave the Keychain."""
+        """Not linked any more: the token, the sync key and Eden sync's keys leave the
+        Keychain."""
         had = self.linked
         self.token, self.sync_key, self.info, self._read = "", None, None, True
+        self.approval = None
         self._info_at = 0.0
 
         def remove() -> None:
-            self.vault.delete(VAULT_ID, TOKEN_KEY)
-            self.vault.delete(VAULT_ID, SYNC_KEY)
+            for key in (TOKEN_KEY, SYNC_KEY, EDEN_DEVICE_KEY, EDEN_KEY, SERVER_KEY):
+                self.vault.delete(VAULT_ID, key)
 
         try:
             await asyncio.to_thread(remove)
@@ -403,9 +488,10 @@ class Account:
 
     # ── linking ──
 
-    async def link_start(self) -> Link:
+    async def link_start(self, browser: bool = False) -> Link:
         """A new code to show (the one before, if any, is let go). The poller runs until
-        it's approved, denied or expired."""
+        it's approved, denied or expired. browser: the owner approves it at the server's /link
+        page (link_page) rather than on the iPhone; the same code either way."""
         if self._poller is not None and not self._poller.done():
             self._poller.cancel()
         private, public = _new_key_pair()
@@ -428,7 +514,7 @@ class Account:
             raise AccountError(200, "bad_answer", "askeden.com's answer couldn't be read.")
         if not isinstance(seconds, int | float) or isinstance(seconds, bool) or seconds <= 0:
             seconds = 600
-        link = Link(code, poll, self.clock() + float(seconds), private)
+        link = Link(code, poll, self.clock() + float(seconds), private, browser=browser)
         from . import qr
 
         with contextlib.suppress(ValueError):
@@ -438,6 +524,14 @@ class Account:
         self._poller = asyncio.get_running_loop().create_task(self._poll(link))
         self._changed()
         return link
+
+    def link_page(self) -> str:
+        """The server's page that approves this Mac's code in the browser (the code after #,
+        so it never reaches a server log); "" without a code waiting."""
+        link = self.link
+        if link is None or link.state != "waiting":
+            return ""
+        return f"{self.web_base}/link#{link.code}"
 
     def cancel_link(self) -> None:
         if self._poller is not None and not self._poller.done():
@@ -520,6 +614,70 @@ class Account:
         self.info, self._info_at = None, 0.0
         log.info("account: linked (sync key: %s)", "yes" if sync_key else "no")
 
+    # ── approving a browser's sign-in ──
+
+    async def web_peek(self, text: Any) -> Approval:
+        """What's waiting with the code the owner typed (GET /link/<code>): kept as the
+        approval in hand when it's a browser; AccountError otherwise (a Mac's code is
+        refused here, before askeden.com would)."""
+        code = normalize_code(text)
+        self.approval = None
+        if code is None:
+            raise AccountError(400, "bad_code", NOT_A_CODE)
+        try:
+            data = await self.call("GET", f"/link/{code}")
+        except SignedOut:
+            raise
+        except AccountError as exc:
+            if exc.status == 404:
+                raise AccountError(404, "not_found", NOTHING_WAITING) from None
+            if exc.status == 410:
+                raise AccountError(410, "expired", CODE_EXPIRED) from None
+            raise
+        if not isinstance(data, dict):
+            raise AccountError(200, "bad_answer", "askeden.com's answer couldn't be read.")
+        kind = data.get("kind") if isinstance(data.get("kind"), str) else ""
+        if kind != "web":
+            raise AccountError(403, "not_web", MAC_CODE)
+        name = data.get("name") if isinstance(data.get("name"), str) else ""
+        self.approval = Approval(code, " ".join(name.split())[:120] or "Eden on the web", kind)
+        self._changed()
+        return self.approval
+
+    async def web_answer(self, text: Any, approve: bool) -> Approval:
+        """Approve (POST /link/<code>/approve, an empty body: a browser gets no sync key) or
+        deny the browser asked about. Only the code peeked at, and only a browser's."""
+        code = normalize_code(text)
+        held = self.approval
+        if held is None or code is None or held.code != code or held.kind != "web":
+            raise AccountError(409, "not_peeked", "Type the code again, then approve it.")
+        if held.state != "asking":
+            return held
+        action = "approve" if approve else "deny"
+        try:
+            await self.call("POST", f"/link/{code}/{action}", body={})
+        except SignedOut:
+            self.approval = None
+            raise
+        except AccountError as exc:
+            held.state = "error"
+            if exc.status == 404:
+                held.error = NOTHING_WAITING
+            elif exc.status == 410:
+                held.error = CODE_EXPIRED
+            else:
+                held.error = exc.message
+            self._changed()
+            return held
+        held.state = "approved" if approve else "denied"
+        log.info("account: a browser's sign-in %s", held.state)
+        self._changed()
+        return held
+
+    def web_clear(self) -> None:
+        self.approval = None
+        self._changed()
+
     # ── the account ──
 
     async def status(self, fresh: bool = False) -> dict[str, Any] | None:
@@ -582,6 +740,7 @@ class Account:
         link = self.link
         return {
             "linked": self.linked,
+            "server": self.server,
             "account_id": self.account_id,
             "device_id": self.device_id,
             "sync_key": self.sync_key is not None,
@@ -592,8 +751,18 @@ class Account:
                 "qr": link.qr,
                 "seconds": self.seconds_left(),
                 "error": link.error,
+                "browser": link.browser,
+                "page": self.link_page(),
             }
             if link is not None
+            else None,
+            "approval": {
+                "code": self.approval.code,
+                "name": self.approval.name,
+                "state": self.approval.state,
+                "error": self.approval.error,
+            }
+            if self.approval is not None
             else None,
             "info": self.info,
             "error": self.error,

@@ -61,7 +61,7 @@ final class AccountTests: XCTestCase {
     func testAccountDecodesTheContractsExample() throws {
         let json = """
         {"id": "0f8e2a64-5c1b-8d3e-9a7f-1b2c3d4e5f60", "created": 1790000000000,
-         "plan": {"name": "plus", "active": true, "product_id": "com.bshventures.jarvis.plus.monthly",
+         "plan": {"name": "plus", "active": true, "product_id": "com.askeden.jarvis.plus.monthly",
                   "expires": 1792000000000, "renews": true, "environment": "Sandbox"},
          "usage": {"period_start": 1790000000000, "period_end": null, "spent_usd": 0.42, "budget_usd": 20,
                    "left_usd": 19.58, "trial_left_usd": 1.0, "voice_today": 1200, "voice_daily": 100000},
@@ -76,7 +76,7 @@ final class AccountTests: XCTestCase {
         XCTAssertEqual(account.id, "0f8e2a64-5c1b-8d3e-9a7f-1b2c3d4e5f60")
         XCTAssertEqual(account.created, Date(timeIntervalSince1970: 1_790_000_000))
         XCTAssertTrue(account.plan.isPlus)
-        XCTAssertEqual(account.plan.productID, "com.bshventures.jarvis.plus.monthly")
+        XCTAssertEqual(account.plan.productID, "com.askeden.jarvis.plus.monthly")
         XCTAssertEqual(account.plan.expires, Date(timeIntervalSince1970: 1_792_000_000))
         XCTAssertEqual(account.plan.renews, true)
         XCTAssertEqual(account.usage.spentUSD, 0.42, accuracy: 0.0001)

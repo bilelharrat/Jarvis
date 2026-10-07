@@ -56,6 +56,7 @@
 		1F89CF8F1D2904A94B23E338 /* SnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9270FE580E551C3AF5EEEF6C /* SnapshotPublisher.swift */; };
 		213F6D57BFDEB2662E43F844 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 163B94886C70B9BD790D2409 /* PrivacyInfo.xcprivacy */; };
 		21C2B72A018E0983C5F4778F /* Decoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4809DF873287D0210801F6 /* Decoding.swift */; };
+		21D54C293292BF67C3D33906 /* LookTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408FC556EFB9E2A814D00217 /* LookTests.swift */; };
 		22EAB864C71B029306F134A2 /* code_stop.json in Resources */ = {isa = PBXBuildFile; fileRef = F563F130D9AC69FBD64F6F3B /* code_stop.json */; };
 		244A59B2DB1BC4EEA07669F2 /* tasks.json in Resources */ = {isa = PBXBuildFile; fileRef = 68391706B00B3AD31972973B /* tasks.json */; };
 		24911353B86939EACDF082D8 /* SensorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB0E7A6FB559F093710D2E4 /* SensorModels.swift */; };
@@ -84,10 +85,12 @@
 		34D25F2C7E3A0544E4F42C40 /* delegations.json in Resources */ = {isa = PBXBuildFile; fileRef = A44D64E99938ECC8DB9A9EA8 /* delegations.json */; };
 		351C16CD8554F5F9D681E4ED /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9098CB7F3B55BB1FCB077EB /* Account.swift */; };
 		36A3C789BF100653EFCB085B /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */; };
+		37325BCEEC737C5E60BA07A0 /* eden-sync-vector.json in Resources */ = {isa = PBXBuildFile; fileRef = 625E31B04166776DD430E2B1 /* eden-sync-vector.json */; };
 		37A26AC60B4992FB1385403E /* MacAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A36D13F368B90884D9B34D7 /* MacAddress.swift */; };
 		39900C8BCA3CA1EB5B8D822B /* timer_cancel.json in Resources */ = {isa = PBXBuildFile; fileRef = AB8DB36F9E4ACCFBF2891DB9 /* timer_cancel.json */; };
 		3BA485D2BF2FD5C5C150CD23 /* AppleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA64E32088300FBCAA41BA84 /* AppleClient.swift */; };
 		3BF701802E556523DCF8BC1C /* JarvisAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */; };
+		3C5E423FEF358C5FD25A8F4E /* EdenSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11874CD0A22090474F3F65CD /* EdenSyncTests.swift */; };
 		3C65D0B5BA02EF1FC099C4CF /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D5A381E219391CFE4DCD1CA /* AccountView.swift */; };
 		3E459981441139B2F9BC2B53 /* ApprovalResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0A028429ABED6733AE8 /* ApprovalResponse.swift */; };
 		3E944BA4F796F80B5DB7A5F7 /* shortcuts.json in Resources */ = {isa = PBXBuildFile; fileRef = 9E34E9124467CF0CDC26B748 /* shortcuts.json */; };
@@ -146,6 +149,7 @@
 		64FA9BE89207F29DFADF36F3 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1B880F8EBFB59008055677DC /* PrivacyInfo.xcprivacy */; };
 		652770FBC040A663B8A8F525 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC86D5DE428EECD6B4CA1A05 /* WidgetSnapshot.swift */; };
 		656D9209B4D4CCB3CC14F1F7 /* PairingLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E828C88E6726C861CCEDF1B1 /* PairingLink.swift */; };
+		6654FE1F56D57E43C6C12EAC /* EdenSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3AEA0747F723733A42D028 /* EdenSync.swift */; };
 		67761C35440508ABAF75F4A6 /* WatchNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F02F794B7B82868AC93F0E /* WatchNotifications.swift */; };
 		67E4FA380B9DF52156764BDB /* MacFeatureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305956617E37433F8E208BF2 /* MacFeatureView.swift */; };
 		6970AF652C89F75A41F873F9 /* Outbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A649152CDC719B11909C1BBC /* Outbox.swift */; };
@@ -214,6 +218,7 @@
 		9372B0C0CC954AFE5D3C6E1F /* HeadsUp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD49742A197EED317DEC04F /* HeadsUp.swift */; };
 		939BC155BB7255E44BB2206A /* code_send.json in Resources */ = {isa = PBXBuildFile; fileRef = 46EBCE3FF75B2711CBEC749C /* code_send.json */; };
 		941BA50A4EFCCACBD219F5D6 /* JarvisCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B478E423B94A7981AC6C870A /* JarvisCompanionApp.swift */; };
+		95AE3EF5A2112905DE0FA344 /* EdenTrustView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F2B0F187232EF4B3D6F1AB /* EdenTrustView.swift */; };
 		9629108C0AD211ED545AFECF /* PhoneTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8507B5BC74A2BC5278F2F939 /* PhoneTools.swift */; };
 		964ED726BD0077793BC22F23 /* MacRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD848CCE81CBCC050D5342E /* MacRoute.swift */; };
 		9671408682015C1E8DE997FF /* PendingRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BB1E1883C96F5B4EE2ED75 /* PendingRequest.swift */; };
@@ -452,6 +457,7 @@
 		0F9D5708789DADE23BD3F36D /* Pinning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pinning.swift; sourceTree = "<group>"; };
 		1026D031A91343564AB99990 /* ContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContractTests.swift; sourceTree = "<group>"; };
 		1031BE1284FEA6FEDCEF8146 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		11874CD0A22090474F3F65CD /* EdenSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdenSyncTests.swift; sourceTree = "<group>"; };
 		12C6FB0FFF39601E6F5D715A /* research.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = research.json; sourceTree = "<group>"; };
 		1450B2C90E8CEE9B64B16ABB /* link-seal-vector.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "link-seal-vector.json"; sourceTree = "<group>"; };
 		1604EFB55632F5BE9C9510EC /* PhoneSensorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneSensorTests.swift; sourceTree = "<group>"; };
@@ -502,6 +508,7 @@
 		3CD49742A197EED317DEC04F /* HeadsUp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadsUp.swift; sourceTree = "<group>"; };
 		3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxTests.swift; sourceTree = "<group>"; };
 		3E2D5B4892F9C5013D6940AD /* WatchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModel.swift; sourceTree = "<group>"; };
+		408FC556EFB9E2A814D00217 /* LookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookTests.swift; sourceTree = "<group>"; };
 		418C987D4F3C55B2D7BA96A9 /* journal_item.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = journal_item.json; sourceTree = "<group>"; };
 		42088B2A1308DBD79B7FA57A /* switches.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = switches.json; sourceTree = "<group>"; };
 		4260C4EBF01743E48E98095A /* Jarvis.storekit */ = {isa = PBXFileReference; path = Jarvis.storekit; sourceTree = "<group>"; };
@@ -520,6 +527,7 @@
 		4F6B1105848275818911C20A /* SwitcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwitcherTests.swift; sourceTree = "<group>"; };
 		4FC71188CB47ED31E0E8CBB6 /* JarvisAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisAPI.swift; sourceTree = "<group>"; };
 		4FD6E44D73309111F8165B58 /* error_no_task.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_no_task.json; sourceTree = "<group>"; };
+		51F2B0F187232EF4B3D6F1AB /* EdenTrustView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdenTrustView.swift; sourceTree = "<group>"; };
 		541AFF7BFD486FC563042E13 /* BrainProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainProvider.swift; sourceTree = "<group>"; };
 		551737142658F2F36993883B /* ApprovalCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalCard.swift; sourceTree = "<group>"; };
 		553840A16330097567B496CD /* LookRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookRoot.swift; sourceTree = "<group>"; };
@@ -532,6 +540,7 @@
 		5C10CAA1099883096BB500EA /* ReactorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactorView.swift; sourceTree = "<group>"; };
 		5F4E4A91528D6974EDB4343E /* NotificationActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationActions.swift; sourceTree = "<group>"; };
 		605C8C112D825C443576321F /* GeminiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiClient.swift; sourceTree = "<group>"; };
+		625E31B04166776DD430E2B1 /* eden-sync-vector.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "eden-sync-vector.json"; sourceTree = "<group>"; };
 		629C8FBF5FF3022276FF52C5 /* error_prefs_key.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_prefs_key.json; sourceTree = "<group>"; };
 		63DE027A0481F77F71E7176C /* error_no_meeting.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = error_no_meeting.json; sourceTree = "<group>"; };
 		6454BD1B8C9A7F4E4FBF9B27 /* RichText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichText.swift; sourceTree = "<group>"; };
@@ -551,6 +560,7 @@
 		750FD3968992EF82B0C57E89 /* JarvisWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JarvisWidgets.entitlements; sourceTree = "<group>"; };
 		773F088B2A5977AF075B38BB /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		783CA61E6D0AAB71F4013951 /* meeting.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = meeting.json; sourceTree = "<group>"; };
+		7B3AEA0747F723733A42D028 /* EdenSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdenSync.swift; sourceTree = "<group>"; };
 		7C9613B517E8A09272C7A2D6 /* CodeQuestionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeQuestionViews.swift; sourceTree = "<group>"; };
 		7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTests.swift; sourceTree = "<group>"; };
 		8507B5BC74A2BC5278F2F939 /* PhoneTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneTools.swift; sourceTree = "<group>"; };
@@ -714,6 +724,7 @@
 				E48550560333BEA63660AEFB /* CodeEntryField.swift */,
 				43AF13DCCF32B738186BDB9A /* Components.swift */,
 				9B863A9E3A963D70415AEA19 /* ComposerPictures.swift */,
+				51F2B0F187232EF4B3D6F1AB /* EdenTrustView.swift */,
 				F3C50D3AD496F5AA13AE8896 /* JarvisSwitcher.swift */,
 				1BB9FC3DBFBEC9BC943067FB /* JarvisView.swift */,
 				28566D1D0D90FC8C184C4FA2 /* LookPicker.swift */,
@@ -768,6 +779,7 @@
 				A9098CB7F3B55BB1FCB077EB /* Account.swift */,
 				5BC86CBD7FC82B35DB767D62 /* AccountClient.swift */,
 				BCA940829641EC08B725803D /* AccountStore.swift */,
+				7B3AEA0747F723733A42D028 /* EdenSync.swift */,
 				E47F48C61110FC71729DEE94 /* MacRouter.swift */,
 				344D5D7A990968706DDB0C2E /* RelayTunnel.swift */,
 				3763DD7075F32D5255A39F7E /* SyncCrypto.swift */,
@@ -835,6 +847,7 @@
 				CA9187772B3546FD0CD2B11D /* delegation_stop.json */,
 				A44D64E99938ECC8DB9A9EA8 /* delegations.json */,
 				04522EC9FEFA3E3622EF3C50 /* digest.json */,
+				625E31B04166776DD430E2B1 /* eden-sync-vector.json */,
 				E4194DB756BC6C72DA651C6E /* error_busy.json */,
 				63DE027A0481F77F71E7176C /* error_no_meeting.json */,
 				F046EDA1BF25F6A1EB1A0F1D /* error_no_memory.json */,
@@ -965,9 +978,11 @@
 				A3A2333A360287AAA2927BBE /* CompanionTests.swift */,
 				66EEDDDCF2CFC7A260E78903 /* ContractFixtureTests.swift */,
 				1026D031A91343564AB99990 /* ContractTests.swift */,
+				11874CD0A22090474F3F65CD /* EdenSyncTests.swift */,
 				3A7B89F01209381E1445CBA0 /* HeadsUpTests.swift */,
 				1A940FE619E3F9608364A41E /* IntentTests.swift */,
 				9DB3F292D439ABFFD2304B18 /* LiveActivityTests.swift */,
+				408FC556EFB9E2A814D00217 /* LookTests.swift */,
 				7E357AB0AA3FC1A97FE427CF /* NotificationTests.swift */,
 				3D3D9C3336D9A20FC0992224 /* OutboxTests.swift */,
 				1604EFB55632F5BE9C9510EC /* PhoneSensorTests.swift */,
@@ -1265,31 +1280,31 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					14F8D624DF54D121EDB1CD02 = {
-						DevelopmentTeam = 9ZSY5R8A5C;
+						DevelopmentTeam = 8CV4X23Y2T;
 						ProvisioningStyle = Automatic;
 					};
 					4DA8399862190A730096F8AB = {
-						DevelopmentTeam = 9ZSY5R8A5C;
+						DevelopmentTeam = 8CV4X23Y2T;
 						ProvisioningStyle = Automatic;
 					};
 					4FF75D57D127C28398667F69 = {
-						DevelopmentTeam = 9ZSY5R8A5C;
+						DevelopmentTeam = 8CV4X23Y2T;
 						ProvisioningStyle = Automatic;
 					};
 					A735C6C3ED41DD4F62823E55 = {
-						DevelopmentTeam = 9ZSY5R8A5C;
+						DevelopmentTeam = 8CV4X23Y2T;
 						ProvisioningStyle = Automatic;
 					};
 					B2DB737A94E9D64FE54BA041 = {
-						DevelopmentTeam = 9ZSY5R8A5C;
+						DevelopmentTeam = 8CV4X23Y2T;
 						ProvisioningStyle = Automatic;
 					};
 					F735214FE6CFCD0882DF839A = {
-						DevelopmentTeam = 9ZSY5R8A5C;
+						DevelopmentTeam = 8CV4X23Y2T;
 						ProvisioningStyle = Automatic;
 					};
 					F891A8CBBE618C835DEE0331 = {
-						DevelopmentTeam = 9ZSY5R8A5C;
+						DevelopmentTeam = 8CV4X23Y2T;
 						ProvisioningStyle = Automatic;
 						TestTargetID = 14F8D624DF54D121EDB1CD02;
 					};
@@ -1367,6 +1382,7 @@
 				E2C4E4377E721000703C8F79 /* delegation_stop.json in Resources */,
 				34D25F2C7E3A0544E4F42C40 /* delegations.json in Resources */,
 				5C3A15DF29843C1A17C1392C /* digest.json in Resources */,
+				37325BCEEC737C5E60BA07A0 /* eden-sync-vector.json in Resources */,
 				7D00505DD728CED1924DD1C1 /* error_busy.json in Resources */,
 				916E11291716D3A764F1E1D7 /* error_no_meeting.json in Resources */,
 				B30369CE3684F23E482DB634 /* error_no_memory.json in Resources */,
@@ -1644,6 +1660,8 @@
 				0DFC948BC5C16B943AE7FC22 /* Decoding.swift in Sources */,
 				72046399198327668EFBE4D1 /* Destination.swift in Sources */,
 				12C35BD9D520A9F7002A58C7 /* DigestView.swift in Sources */,
+				6654FE1F56D57E43C6C12EAC /* EdenSync.swift in Sources */,
+				95AE3EF5A2112905DE0FA344 /* EdenTrustView.swift in Sources */,
 				1F1F5F2781464592F7CE7B3A /* GeminiClient.swift in Sources */,
 				7A87977425D352C74CCB318E /* Haptics.swift in Sources */,
 				9372B0C0CC954AFE5D3C6E1F /* HeadsUp.swift in Sources */,
@@ -1739,9 +1757,11 @@
 				BF7F42EB13E252E34C1812B1 /* CompanionTests.swift in Sources */,
 				032E1ACF87B357B8015FBFA4 /* ContractFixtureTests.swift in Sources */,
 				A905455D985AF33F8E9A16DF /* ContractTests.swift in Sources */,
+				3C5E423FEF358C5FD25A8F4E /* EdenSyncTests.swift in Sources */,
 				8D9D0A0B5D8D869445626BCA /* HeadsUpTests.swift in Sources */,
 				B928340AF5498A79F4346FA4 /* IntentTests.swift in Sources */,
 				2AE5DCF5BF766A7F7680DA59 /* LiveActivityTests.swift in Sources */,
+				21D54C293292BF67C3D33906 /* LookTests.swift in Sources */,
 				5AD99594B7214E63138CD7EC /* NotificationTests.swift in Sources */,
 				03B4E9901CB2854CCC30AF88 /* OutboxTests.swift in Sources */,
 				DFFD3FD17031FF4AB6315B3E /* PhoneSensorTests.swift in Sources */,
@@ -1808,7 +1828,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -1827,7 +1847,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.widgets;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -1845,7 +1865,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.watchkitapp.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.watchkitapp.widgets;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
@@ -1866,7 +1886,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.share;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -1883,7 +1903,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JarvisCompanion.app/JarvisCompanion";
@@ -1902,7 +1922,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.watchkitapp.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.watchkitapp.widgets;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
@@ -1924,7 +1944,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -1967,7 +1987,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 9ZSY5R8A5C;
+				DEVELOPMENT_TEAM = 8CV4X23Y2T;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -2034,7 +2054,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 9ZSY5R8A5C;
+				DEVELOPMENT_TEAM = 8CV4X23Y2T;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -2065,7 +2085,7 @@
 				CODE_SIGN_ENTITLEMENTS = Watch/JarvisCompanionWatch.entitlements;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Watch/Info.plist;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.watchkitapp;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
@@ -2086,7 +2106,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.widgets;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -2103,7 +2123,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = JarvisCompanion;
@@ -2121,7 +2141,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JarvisCompanion.app/JarvisCompanion";
@@ -2136,7 +2156,7 @@
 				CODE_SIGN_ENTITLEMENTS = Watch/JarvisCompanionWatch.entitlements;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Watch/Info.plist;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.watchkitapp;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 4;
@@ -2157,7 +2177,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.share;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -2174,7 +2194,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.bshventures.jarvis.companion.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.askeden.jarvis.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = JarvisCompanion;
