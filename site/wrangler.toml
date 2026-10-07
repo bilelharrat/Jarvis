@@ -87,12 +87,12 @@ STRIPE_IN_EDEN_APP = ""
 # Cloudflare Turnstile on sign-up (src/accounts/turnstile.js; docs/web-auth.md "Turnstile"): the
 # widget's site key here, and the secret TURNSTILE_SECRET (npx wrangler secret put TURNSTILE_SECRET).
 # Either empty: no person check on new accounts (logged once per isolate).
-TURNSTILE_SITE_KEY = ""
+TURNSTILE_SITE_KEY = "0x4AAAAAAFQFdYSc-3A61zIC"
 # Who may make a new Eden account (src/accounts/turnstile.js; docs/web-auth.md "Sign-ups"): "open",
 # or "owner" (existing accounts sign in and link as always; every new one is refused with
 # "Eden is opening soon — sign-ups are closed for now"). "open" without both Turnstile keys counts
 # as "owner" (fail closed). The preview is "open" with TURNSTILE_OPTIONAL (scripts/preview-config.mjs).
-SIGNUPS = "owner"
+SIGNUPS = "open"
 OWNER_DOMAINS = "askeden.com" # verified emails here may make their account while sign-ups are closed
 
 # Dictation by recording where the browser has no speech recognition (Firefox; ROADMAP G7.2):
