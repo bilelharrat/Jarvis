@@ -53,7 +53,11 @@ button:focus-visible,[contenteditable]:focus-visible,input:focus-visible,select:
 ::selection{background:rgba(10,132,255,.25)}
 svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
 ::-webkit-scrollbar{width:8px;height:8px}
-::-webkit-scrollbar-thumb{background:rgba(120,120,128,.35);border-radius:4px}
+/* Scrollbars show only while something scrolls (.is-scrolling, set by app.js for a moment). */
+::-webkit-scrollbar-thumb{background:transparent;border-radius:4px}
+.is-scrolling::-webkit-scrollbar-thumb,.is-scrolling ::-webkit-scrollbar-thumb{background:rgba(120,120,128,.35)}
+*{scrollbar-color:transparent transparent}
+.is-scrolling,.is-scrolling *{scrollbar-color:rgba(120,120,128,.35) transparent}
 ::-webkit-scrollbar-track{background:transparent}
 
 /* ============ GLASS ============ */

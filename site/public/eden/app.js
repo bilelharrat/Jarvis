@@ -1142,3 +1142,13 @@ function init() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 
 export { runChat, runCode, notify, shortModel };
+
+// Scrollbars show only while scrolling (app.css .is-scrolling): on the element that scrolls, for a moment.
+const scrollHide = new WeakMap();
+document.addEventListener('scroll', (e) => {
+  const box = e.target === document ? document.documentElement : e.target;
+  if (!(box instanceof Element)) return;
+  box.classList.add('is-scrolling');
+  clearTimeout(scrollHide.get(box));
+  scrollHide.set(box, setTimeout(() => box.classList.remove('is-scrolling'), 900));
+}, { capture: true, passive: true });
