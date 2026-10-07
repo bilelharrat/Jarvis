@@ -59,9 +59,9 @@ when the other fails, and the Mac when both do.
 - **Extensions**: widgets and the Live Activities' views (`Widgets/`), complications
   (`WatchWidgets/`), the share sheet (`Share/`).
 
-Bundle IDs: `com.bshventures.jarvis.companion` and
-`com.bshventures.jarvis.companion.watchkitapp`, plus three extensions (see On a device
-and TestFlight); team 9ZSY5R8A5C, automatic signing. iOS 26+, watchOS 26+.
+Bundle IDs: `com.askeden.jarvis` and
+`com.askeden.jarvis.watchkitapp`, plus three extensions (see On a device
+and TestFlight); team 8CV4X23Y2T, automatic signing. iOS 26+, watchOS 26+.
 
 ## Build and run
 
@@ -95,19 +95,18 @@ with. `build-for-testing` followed by `test-without-building` gets through.
 ## On a device and TestFlight
 
 Simulator builds need nothing. For a device or TestFlight, open the project in Xcode
-signed in with team 9ZSY5R8A5C; automatic signing registers each target's bundle ID and
-capabilities on the first device build (or add them under Identifiers in the developer
-portal):
+signed in with team 8CV4X23Y2T (individual, Bilel Harrat). Every target's App ID is
+registered under Identifiers in the developer portal already, with these capabilities:
 
 | Target | Bundle ID | Capabilities |
 |---|---|---|
-| JarvisCompanion (iPhone) | `com.bshventures.jarvis.companion` | Push Notifications, App Groups, HealthKit |
-| JarvisCompanionWatch | `com.bshventures.jarvis.companion.watchkitapp` | App Groups |
-| JarvisWidgets | `com.bshventures.jarvis.companion.widgets` | App Groups |
-| JarvisWatchWidgets | `com.bshventures.jarvis.companion.watchkitapp.widgets` | App Groups |
-| JarvisShare | `com.bshventures.jarvis.companion.share` | App Groups |
+| JarvisCompanion (iPhone) | `com.askeden.jarvis` | Push Notifications, App Groups, HealthKit, HomeKit, Time Sensitive Notifications, In-App Purchase, Sign in with Apple (primary) |
+| JarvisCompanionWatch | `com.askeden.jarvis.watchkitapp` | App Groups |
+| JarvisWidgets | `com.askeden.jarvis.widgets` | App Groups |
+| JarvisWatchWidgets | `com.askeden.jarvis.watchkitapp.widgets` | App Groups |
+| JarvisShare | `com.askeden.jarvis.share` | App Groups |
 
-- The App Group is `group.com.bshventures.jarvis.companion`: the shared container and the
+- The App Group is `group.com.askeden.jarvis`: the shared container and the
   Keychain access group for the pairing (no Keychain Sharing capability needed).
 - `aps-environment` is `development` in the entitlements (the archive is signed for
   development first); the App Store Connect export signs it as `production`, and the app
@@ -158,14 +157,14 @@ companion/scripts/archive.sh              # xcodegen, archive, export and upload
 ```
 
 It needs xcodegen and Xcode signed in (Settings › Accounts) with an Admin or App Manager
-in team 9ZSY5R8A5C. With an App Store Connect API key instead:
+in team 8CV4X23Y2T. With an App Store Connect API key instead:
 `ASC_KEY_PATH=~/keys/AuthKey_ABC123.p8 ASC_KEY_ID=ABC123 ASC_ISSUER_ID=<issuer> companion/scripts/archive.sh`.
 
 In App Store Connect (appstoreconnect.apple.com):
 
 1. **The app record, once.** Apps › + › New App: iOS; a name (it must be unique on the
    App Store; the Home Screen keeps saying J.A.R.V.I.S. whatever the record is called);
-   English (U.S.); the bundle ID `com.bshventures.jarvis.companion` (automatic signing
+   English (U.S.); the bundle ID `com.askeden.jarvis` (automatic signing
    registers it on the first device build or archive); a SKU such as `jarvis-companion`.
    The Watch app comes inside the iPhone app: it has no record of its own.
 2. **Internal testers.** People on your App Store Connect team (Users and Access, up to
@@ -521,7 +520,7 @@ compiled into Release):
 | `-JARVISTestSpeak NO` | don't play spoken replies |
 
 ```sh
-xcrun simctl launch booted com.bshventures.jarvis.companion \
+xcrun simctl launch booted com.askeden.jarvis \
   -JARVISResetPairing YES -JARVISTestServer 127.0.0.1:8766 -JARVISTestCode 123456
 ```
 

@@ -272,7 +272,7 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
         {
             "token": "ab" * 32,
             "environment": "sandbox",
-            "bundle_id": "com.bshventures.jarvis.companion",
+            "bundle_id": "com.askeden.jarvis",
         },
     ).json() == {"ok": True}
     state = keep(mac, "state", get("/api/state"))
@@ -594,7 +594,7 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
                 "activity": "code:4",
                 "token": "cd" * 32,
                 "environment": "sandbox",
-                "bundle_id": "com.bshventures.jarvis.companion",
+                "bundle_id": "com.askeden.jarvis",
             },
         ),
     )
@@ -648,8 +648,9 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
         for name, fixture in mac.fixtures.items():
             text = json.dumps(fixture, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
             (FIXTURES / f"{name}.json").write_text(text)
-    # link-seal-vector is the account link's crypto vector (tests/test_account.py), not an answer
-    kept = {p.stem for p in FIXTURES.glob("*.json")} - {"link-seal-vector"}
+    # link-seal-vector and eden-sync-vector are crypto vectors (tests/test_account.py,
+    # tests/test_eden_trust.py), not answers
+    kept = {p.stem for p in FIXTURES.glob("*.json")} - {"link-seal-vector", "eden-sync-vector"}
     assert kept == set(mac.fixtures), (
         "fixtures missing or left over: write them again (see this file's docstring)",
         sorted(kept ^ set(mac.fixtures)),

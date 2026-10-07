@@ -92,7 +92,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.startMonitoringSignificantLocationChanges()
         guard events == nil else { return }
         events = Task {
-            let monitor = await CLMonitor("com.bshventures.jarvis.companion.places")
+            let monitor = await CLMonitor("com.askeden.jarvis.places")
             self.monitor = monitor
             for region in LocationReport.Region.allCases {
                 if let place = place(region) { await watch(region, at: place, in: monitor) }

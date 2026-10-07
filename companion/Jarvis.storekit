@@ -7,7 +7,7 @@
 
   ],
   "settings" : {
-    "_developerTeamID" : "9ZSY5R8A5C",
+    "_developerTeamID" : "8CV4X23Y2T",
     "_failTransactionsEnabled" : false,
     "_locale" : "en_US",
     "_storefront" : "USA",
@@ -46,7 +46,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.bshventures.jarvis.plus.monthly",
+          "productID" : "com.askeden.jarvis.plus.monthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Jarvis Plus Monthly",
           "subscriptionGroupID" : "21500001",
@@ -74,7 +74,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.bshventures.jarvis.plus.yearly",
+          "productID" : "com.askeden.jarvis.plus.yearly",
           "recurringSubscriptionPeriod" : "P1Y",
           "referenceName" : "Jarvis Plus Yearly",
           "subscriptionGroupID" : "21500001",

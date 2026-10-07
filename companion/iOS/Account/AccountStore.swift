@@ -168,7 +168,7 @@ final class AccountStore {
     }
 
     /// Forgets the account on this iPhone (the sync key stays: it's the owner's, in iCloud
-    /// Keychain).
+    /// Keychain; Eden sync's keys, this iPhone's alone, go).
     func forget() {
         AccountKeychain.clear()
         credential = nil
@@ -176,6 +176,7 @@ final class AccountStore {
         UserDefaults.standard.removeObject(forKey: Self.plusKey)
         UserDefaults.standard.removeObject(forKey: Self.pushSentKey)
         SyncEngine.shared.signedOut()
+        EdenTrust.shared.signedOut()
         Task { await MacRouter.shared.reload() }
     }
 
@@ -231,7 +232,8 @@ final class AccountStore {
     func approveLink(_ code: String, info: AccountClient.LinkInfo) async throws -> AccountClient.Linked {
         guard let client else { throw AccountError.signedOut }
         var sealed: LinkSeal.Sealed?
-        if let key = SyncKeyStore.load(), let publicKey = info.publicKey {
+        // The sync key goes only to a Mac; a browser never gets it.
+        if !info.isWeb, let key = SyncKeyStore.load(), let publicKey = info.publicKey {
             sealed = try LinkSeal.seal(syncKey: key.data, macPublicKey: publicKey)
         }
         do {
@@ -289,7 +291,7 @@ final class AccountStore {
 /// before it changes the plan.
 @MainActor
 final class Subscriptions {
-    static let productIDs = ["com.bshventures.jarvis.plus.monthly", "com.bshventures.jarvis.plus.yearly"]
+    static let productIDs = ["com.askeden.jarvis.plus.monthly", "com.askeden.jarvis.plus.yearly"]
 
     private var updates: Task<Void, Never>?
     private weak var store: AccountStore?

@@ -7,13 +7,27 @@ Settings it keeps (prefs.features):
 - account_relay: reach this Mac through the account from anywhere (on unless turned off).
 - account_plus_ai: Jarvis Plus answers instead of the Claude sign-in or an API key. Off
   unless chosen; a linked Mac with no other way in to Claude uses it anyway.
+- account_eden_link: Eden on the web (askeden.com) reaches Jarvis and Code mode through this
+  Mac (jarvis.eden_link; on unless turned off). The "account" event carries
+  eden_link: {on, state: off | connecting | open | waiting, error}, sent again as the line
+  connects and drops.
 
 Window commands: account (the state, asked of askeden.com now), account_link (a new code),
-account_link_cancel, account_unlink, account_sync (sync now); each answered with an
-"account" event: {linked, account_id, device_id, sync_key, link: {state, code, url, qr,
-seconds, error} | null, info: GET /account's answer | null, error, relay: {on, state},
+account_link_cancel, account_unlink, account_sync (sync now), and approving a browser's
+sign-in to Eden: account_web_peek {code}, account_web_approve {code}, account_web_deny
+{code}, account_web_clear; each answered with an "account" event: {linked, account_id,
+device_id, sync_key, link: {state, code, url, qr, seconds, error} | null, approval: {code,
+name, state, error} | null, info: GET /account's answer | null, error, relay: {on, state},
 plus: {chosen, in_use}, sync: {state, error, at}, push_via_account, claude_signed_in}. The
 token and the sync key never reach the window.
+
+Trusting a browser for Eden sync (jarvis.eden_trust): account_esync (askeden.com asked now),
+account_esync_ask (this Mac asks a browser that syncs for Eden's key), account_esync_cancel,
+account_esync_unlock {passphrase}, account_esync_approve {device_id, public_key},
+account_esync_deny {device_id}, account_esync_forget; each answered with an "account_esync"
+event: {state: off | locked | asking | on | unknown, wrap, asking: {code, state, error} | null,
+requests: [{device_id, name, kind, public_key, code, expires}], trusted: [{name, kind, this}],
+done, error}. Eden's key, this Mac's private key and the passphrase never reach the window.
 
 Its loop (the app's, never in tests): the Keychain read once, whether Claude Code is signed
 in to a Claude account (local, no model), the relay kept up while it's wanted, and sync.
@@ -32,6 +46,8 @@ from typing import Any
 from .. import claude_signin, lang
 from ..account import PLUS_PREF, RELAY_PREF, Account, AccountError
 from ..account_sync import Sync
+from ..eden_link import EDEN_LINK_PREF, EdenLink
+from ..eden_trust import EdenTrust
 from ..prefs import register_feature_pref
 from ..relay import Keeper, Relay
 
@@ -39,8 +55,26 @@ log = logging.getLogger("jarvis")
 
 register_feature_pref(RELAY_PREF, True)
 register_feature_pref(PLUS_PREF, False)
+register_feature_pref(EDEN_LINK_PREF, True)
 
-COMMANDS = ("account", "account_link", "account_link_cancel", "account_unlink", "account_sync")
+COMMANDS = (
+    "account",
+    "account_link",
+    "account_link_cancel",
+    "account_unlink",
+    "account_sync",
+    "account_web_peek",
+    "account_web_approve",
+    "account_web_deny",
+    "account_web_clear",
+    "account_esync",
+    "account_esync_ask",
+    "account_esync_cancel",
+    "account_esync_unlock",
+    "account_esync_approve",
+    "account_esync_deny",
+    "account_esync_forget",
+)
 SIGNIN_SECONDS = 30 * 60  # whether Claude Code is signed in, looked at again after this
 
 PLUS_USED_UP = (
@@ -85,6 +119,13 @@ class AccountDesk:
         )
         self.relay = Relay(self.account, self._port)
         self.keeper = Keeper(self.relay, self.relay_wanted)
+        # Eden on the web's link (askeden.com → Eden's server on this Mac), kept the same way.
+        self.eden_link = EdenLink(self.account)
+        self.eden_link.on_change.append(self.emit)  # Settings shows the line as it goes
+        self.eden_keeper = Keeper(self.eden_link, self.eden_link_wanted)
+        # Eden sync's key on this Mac, to approve browsers (jarvis.eden_trust).
+        self.trust = EdenTrust(self.account)
+        self.trust.on_change.append(self.emit_esync)
         self.account.on_change.append(self._changed)
         self._plus = False  # whether runs went through Jarvis Plus, as last seen
         self._was_linked = False
@@ -100,6 +141,12 @@ class AccountDesk:
 
     def relay_wanted(self) -> bool:
         return self.account.linked and self.relay_on() and self._port() is not None
+
+    def eden_link_on(self) -> bool:
+        return self.hub.prefs.feature(EDEN_LINK_PREF) is not False
+
+    def eden_link_wanted(self) -> bool:
+        return self.account.linked and self.eden_link_on()
 
     def plus_in_use(self) -> bool:
         return claude_signin.plus_of(self.hub) is not None
@@ -123,8 +170,10 @@ class AccountDesk:
         linked = self.account.linked
         if self._was_linked and not linked:
             self.sync.reset()  # what was synced was that account's
+            self.trust.reset()
         self._was_linked = linked
         self.keeper.poke()
+        self.eden_keeper.poke()
         self.sync.poke()
         self._plus_moved()
         self.emit()
@@ -135,6 +184,7 @@ class AccountDesk:
 
     def prefs_changed(self, _event: dict[str, Any]) -> None:
         self.keeper.poke()
+        self.eden_keeper.poke()
         self.sync.poke()
         self._plus_moved()
         self.emit()  # the switches as they are now
@@ -169,6 +219,7 @@ class AccountDesk:
         return {
             **self.account.public(),
             "relay": {"on": self.relay_on(), "state": self.relay.state},
+            "eden_link": {"on": self.eden_link_on(), **self.eden_link.public()},
             "plus": {
                 "chosen": self.hub.prefs.feature(PLUS_PREF) is True,
                 "in_use": self.plus_in_use(),
@@ -201,6 +252,48 @@ class AccountDesk:
         elif kind == "account_sync":
             await self.sync.sync()
             self.emit()
+        elif kind == "account_web_peek":
+            try:
+                await account.web_peek(msg.get("code"))
+            except AccountError as exc:
+                self.emit(approval_error=lang.translate(exc.message, self.hub.language))
+        elif kind in ("account_web_approve", "account_web_deny"):
+            try:
+                await account.web_answer(msg.get("code"), kind == "account_web_approve")
+            except AccountError as exc:
+                self.emit(approval_error=lang.translate(exc.message, self.hub.language))
+        elif kind == "account_web_clear":
+            account.web_clear()
+        elif kind.startswith("account_esync"):
+            await self.esync_command(kind, msg)
+
+    # ── Eden sync: trusting a browser ──
+
+    def emit_esync(self, **extra: Any) -> None:
+        self.hub.emit("account_esync", **{**self.trust.public(), **extra})
+
+    async def esync_command(self, kind: str, msg: dict[str, Any]) -> None:
+        trust = self.trust
+        try:
+            if kind == "account_esync":
+                await trust.refresh()
+            elif kind == "account_esync_ask":
+                await trust.refresh()
+                await trust.ask()
+            elif kind == "account_esync_cancel":
+                await trust.cancel()
+            elif kind == "account_esync_unlock":
+                await trust.unlock(msg.get("passphrase"))
+            elif kind == "account_esync_approve":
+                await trust.approve(msg.get("device_id"), msg.get("public_key"))
+            elif kind == "account_esync_deny":
+                await trust.deny(msg.get("device_id"))
+            elif kind == "account_esync_forget":
+                await trust.forget()
+        except AccountError as exc:
+            self.emit_esync(problem=lang.translate(exc.message, self.hub.language))
+            return
+        self.emit_esync()
 
     # ── the app's loop ──
 
@@ -250,10 +343,11 @@ class AccountDesk:
         if self.account.linked:
             log.info("account: this Mac is linked to a Jarvis account")
         self._plus_moved()
-        jobs = [self.keeper.loop(), self.sync.loop(), self._watch_signin()]
+        jobs = [self.keeper.loop(), self.eden_keeper.loop(), self.sync.loop(), self._watch_signin()]
         try:
             await asyncio.gather(*jobs)
         finally:
+            await self.trust.aclose()
             await self.account.aclose()
 
 
@@ -264,7 +358,8 @@ def install(hub: Any) -> None:
     hub.account = desk.account
     hub.account_desk = desk
     for kind in COMMANDS:
-        hub.register_command(kind, desk.command, slow=kind != "account_link_cancel")
+        fast = kind in ("account_link_cancel", "account_web_clear")
+        hub.register_command(kind, desk.command, slow=not fast)
     hub.add_event_sink(("prefs",), desk.prefs_changed)
     hub.add_event_sink(("remote",), desk.remote_changed)
     hub.claude_error_words = desk.error_words

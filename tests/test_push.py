@@ -26,7 +26,7 @@ def p8(curve=None) -> str:
 
 @pytest.fixture
 def creds():
-    return push.check(p8(), "ABC123DEFG", "9ZSY5R8A5C", "com.bshventures.jarvis.companion")
+    return push.check(p8(), "ABC123DEFG", "8CV4X23Y2T", "com.askeden.jarvis")
 
 
 def unb64(part: str) -> bytes:
@@ -77,7 +77,7 @@ def a_push(**extra):
     base = {
         "device_token": "ab" * 32,
         "environment": "production",
-        "topic": "com.bshventures.jarvis.companion",
+        "topic": "com.askeden.jarvis",
         "payload": push.alert("Send this to Ann?", "Answer here or on your Mac."),
     }
     return push.Push(**{**base, **extra})
@@ -90,8 +90,8 @@ def test_a_pasted_key_is_checked_and_tidied():
     made = push.check("  \r\n" + p8() + "\n\n", " abc123defg ", "", "")
     assert made.key_id == "ABC123DEFG" and made.team_id == push.TEAM_DEFAULT
     assert made.bundle_id == push.BUNDLE_DEFAULT and made.key.endswith("-----\n")
-    assert made.allows("com.bshventures.jarvis.companion.watchkitapp")
-    assert not made.allows("com.bshventures.jarvis.companionX")
+    assert made.allows("com.askeden.jarvis.watchkitapp")
+    assert not made.allows("com.askeden.jarvisX")
     rsa_pem = (
         rsa.generate_private_key(public_exponent=65537, key_size=2048)
         .private_bytes(
@@ -121,7 +121,7 @@ async def test_the_key_lives_in_the_vault_and_is_read_once(creds):
     stored = json.loads(vault.get(push.VAULT_ID, push.VAULT_KEY))
     assert stored["key"] == creds.key and stored["key_id"] == "ABC123DEFG"
     status = keys.status()
-    assert status["configured"] and status["team_id"] == "9ZSY5R8A5C"
+    assert status["configured"] and status["team_id"] == "8CV4X23Y2T"
     assert "key" not in status and creds.key not in json.dumps(status)
 
     again = push.Keys(vault)
@@ -139,7 +139,7 @@ def test_the_token_is_es256_signed_with_the_key(creds):
     token = push.make_token(creds, 1_700_000_123.9)
     header, claims, signature = token.split(".")
     assert json.loads(unb64(header)) == {"alg": "ES256", "kid": "ABC123DEFG"}
-    assert json.loads(unb64(claims)) == {"iss": "9ZSY5R8A5C", "iat": 1_700_000_123}
+    assert json.loads(unb64(claims)) == {"iss": "8CV4X23Y2T", "iat": 1_700_000_123}
     raw = unb64(signature)
     assert len(raw) == 64  # r and s, 32 bytes each (JOSE), not DER
     der = encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big"))
@@ -155,7 +155,7 @@ async def test_a_token_is_kept_fifty_minutes(creds):
     assert sender.token(creds) == first
     now[0] += 1
     assert sender.token(creds) != first  # made again once fifty minutes are up
-    other = push.check(p8(), "ZZZ123DEFG", "9ZSY5R8A5C", "com.bshventures.jarvis.companion")
+    other = push.check(p8(), "ZZZ123DEFG", "8CV4X23Y2T", "com.askeden.jarvis")
     assert json.loads(unb64(sender.token(other).split(".")[0]))["kid"] == "ZZZ123DEFG"
 
 
@@ -179,7 +179,7 @@ async def test_curl_gets_everything_on_stdin_never_its_command_line(creds):
     token = next(h for h in headers if h.startswith("authorization: bearer "))
     assert token.split()[-1].count(".") == 2
     for expected in (
-        "apns-topic: com.bshventures.jarvis.companion",
+        "apns-topic: com.askeden.jarvis",
         "apns-push-type: alert",
         "apns-priority: 5",
         "apns-collapse-id: a-123",

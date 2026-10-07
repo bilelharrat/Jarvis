@@ -127,7 +127,7 @@ actor MacRouter: MacRoute.Router {
         monitor.pathUpdateHandler = { [weak self] _ in
             Task { await self?.networkChanged() }
         }
-        monitor.start(queue: DispatchQueue(label: "com.bshventures.jarvis.route"))
+        monitor.start(queue: DispatchQueue(label: "com.askeden.jarvis.route"))
         self.monitor = monitor
     }
 
@@ -146,7 +146,7 @@ actor MacRouter: MacRoute.Router {
     static func probe(host: String, port: UInt16, timeout: TimeInterval) async -> Bool {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { return false }
         let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
-        let queue = DispatchQueue(label: "com.bshventures.jarvis.knock")
+        let queue = DispatchQueue(label: "com.askeden.jarvis.knock")
         return await withCheckedContinuation { continuation in
             let done = RelayPump.Flag()
             let finish: @Sendable (Bool) -> Void = { reachable in

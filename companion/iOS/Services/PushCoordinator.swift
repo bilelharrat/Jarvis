@@ -4,7 +4,8 @@ import UserNotifications
 /// Push notifications on the iPhone: permission, the device token the Mac pushes to, the
 /// Mac's categories, and what happens when a notification arrives or is answered. An answer
 /// (Allow, Not now, No because…) goes to the Mac from the background; the phone doesn't
-/// have to open.
+/// have to open. askeden.com's pushes for Eden's background tasks open Eden's Tasks when
+/// tapped, and their Approve / Deny go to askeden.com the same way.
 @MainActor
 final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
     static let shared = PushCoordinator()
@@ -124,6 +125,8 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
     /// In front: an approval still shows as a quiet banner (the card is on Home, which may be
     /// under a sheet); anything else as usual.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        // Eden's tasks, from askeden.com: nothing in this app changes, so just show it.
+        if EdenTaskPush(userInfo: notification.request.content.userInfo) != nil { return [.banner, .list, .sound] }
         let push = JarvisPush(userInfo: notification.request.content.userInfo)
         if let push { await LiveActivities.shared.handle(push) }  // a call or a video summary starts here
         await MainActor.run { self.onChange?() }
@@ -136,15 +139,25 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
         let userInfo = content.userInfo
         let action = response.actionIdentifier
         let text = (response as? UNTextInputNotificationResponse)?.userText
+        let eden = EdenTaskPush(userInfo: userInfo)
         switch action {
         case UNNotificationDefaultActionIdentifier:
+            if let eden {
+                // Eden's Tasks: a universal link, so the Eden app when it's installed, Safari otherwise.
+                await MainActor.run { self.openOutside(eden.openURL(base: AccountClient.base)) }
+                return
+            }
             guard let push = JarvisPush(userInfo: userInfo) else { return }
             await MainActor.run { self.open(Destination(push: push)) }
             await LiveActivities.shared.handle(push)
         case UNNotificationDismissActionIdentifier:
             return
         default:
-            await answer(action: action, text: text, userInfo: userInfo)
+            if let eden {
+                await answer(eden, action: action, userInfo: userInfo)
+            } else {
+                await answer(action: action, text: text, userInfo: userInfo)
+            }
         }
     }
 
@@ -153,6 +166,17 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
             onOpen(destination)
         } else {
             waitingDestination = destination  // launched by the tap: the app isn't up yet
+        }
+    }
+
+    /// Opens a page outside this app. After a tap that launched or woke the app, it waits
+    /// until the app is in front, so iOS doesn't drop it.
+    private func openOutside(_ url: URL) {
+        Task { @MainActor in
+            if UIApplication.shared.applicationState != .active {
+                for await _ in NotificationCenter.default.notifications(named: UIApplication.didBecomeActiveNotification) { break }
+            }
+            _ = await UIApplication.shared.open(url)
         }
     }
 
@@ -171,6 +195,94 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
         }
         await MainActor.run { self.onChange?() }
         await background.end()
+    }
+
+    /// Approve or Deny on one of Eden's task approvals, sent to askeden.com with this
+    /// iPhone's account, with background time to do it in; no app opens. When it doesn't go
+    /// through, a notification says why (with Approve and Deny again when worth retrying).
+    private nonisolated func answer(_ push: EdenTaskPush, action: String, userInfo: [AnyHashable: Any]) async {
+        let background = await BackgroundTime.begin("Answer Eden")
+        let decide = EdenTaskActions.decider(token: AccountKeychain.token)
+        if case .failed(let words, let retry)? = await EdenTaskActions.handle(actionIdentifier: action, push: push, decide: decide) {
+            let content = EdenTaskActions.followUp(for: push, words: words, retry: retry, userInfo: userInfo)
+            let request = UNNotificationRequest(identifier: "eden-\(push.approvalID ?? push.taskID ?? UUID().uuidString)", content: content, trigger: nil)
+            try? await UNUserNotificationCenter.current().add(request)
+        }
+        await background.end()
+    }
+}
+
+/// What came of an Approve or Deny on Eden's notification, in words for the notification
+/// that follows when it didn't go through.
+extension EdenTaskActions {
+    enum Outcome: Equatable, Sendable {
+        /// askeden.com did it (or recorded the no): nothing more to say.
+        case done
+        /// It didn't happen: why, and whether Approve and Deny are worth trying again.
+        case failed(String, retry: Bool)
+    }
+
+    typealias Decide = @Sendable (_ id: String, _ approve: Bool) async throws -> AccountClient.TaskApproval
+
+    /// Through askeden.com on this iPhone's account token (nil: signed out). A 401 forgets the
+    /// account, as everywhere else.
+    static func decider(token: String?) -> Decide? {
+        guard let token else { return nil }
+        let client = AccountClient(token: token)
+        return { id, approve in
+            do {
+                return try await client.decideTaskApproval(id: id, approve: approve)
+            } catch AccountError.signedOut {
+                await MainActor.run { AccountStore.shared.tokenRejected(token) }
+                throw AccountError.signedOut
+            }
+        }
+    }
+
+    /// Sends the action's decision through `decide` (nil: signed out); nil when the action
+    /// isn't Approve or Deny.
+    static func handle(actionIdentifier: String, push: EdenTaskPush, decide: Decide?) async -> Outcome? {
+        guard let decision = decision(forAction: actionIdentifier) else { return nil }
+        guard let id = push.approvalID else { return .failed("Open Eden’s Tasks to answer it.", retry: false) }
+        guard let decide else { return outcome(of: AccountError.signedOut) }
+        do {
+            return outcome(of: try await decide(id, decision == .approve))
+        } catch {
+            return outcome(of: error)
+        }
+    }
+
+    /// An approval that came back `failed`: approved, but doing it went wrong.
+    static func outcome(of approval: AccountClient.TaskApproval) -> Outcome {
+        guard approval.didFail else { return .done }
+        return .failed(approval.error?.trimmed.nilIfEmpty ?? "Eden couldn’t finish it. Open Eden’s Tasks to see why.", retry: false)
+    }
+
+    /// Only a network or server problem is worth another try from the notification; the rest
+    /// (answered elsewhere, ran out, gone, signed out) open Eden's Tasks.
+    static func outcome(of error: Error) -> Outcome {
+        switch error as? AccountError {
+        case .network?, nil:
+            return .failed("Couldn’t reach askeden.com. Try again, or open Eden’s Tasks to answer.", retry: true)
+        case .server(let status, let words)? where status >= 500:
+            return .failed(words ?? "askeden.com had a problem. Try again, or open Eden’s Tasks to answer.", retry: true)
+        case .notSetUp?:
+            return .failed("askeden.com had a problem. Try again, or open Eden’s Tasks to answer.", retry: true)
+        case .slowDown?:
+            return .failed("Too many tries just now. Try again in a minute.", retry: true)
+        case .conflict(let words)?:
+            return .failed(words ?? "Already answered.", retry: false)
+        case .expired(let words)?:
+            return .failed(words ?? "That approval ran out.", retry: false)
+        case .notFound(let words)?:
+            return .failed(words ?? "That approval is gone.", retry: false)
+        case .signedOut?:
+            return .failed("This iPhone isn’t signed in to your Jarvis account anymore. Open Eden’s Tasks to answer.", retry: false)
+        case .forbidden(let words)?:
+            return .failed(words ?? "This iPhone can’t answer Eden’s approvals. Open Eden’s Tasks to answer.", retry: false)
+        case let error?:
+            return .failed(error.errorDescription ?? "That didn’t go through. Open Eden’s Tasks to answer.", retry: false)
+        }
     }
 }
 

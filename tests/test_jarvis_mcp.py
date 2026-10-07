@@ -108,6 +108,26 @@ def test_calls_must_name_their_session_and_a_real_tool(settings, quiet_speaker, 
         "mail_read",
         "mail_draft",
         "mail_send",
+        "memory_list",
+        "memory_update",
+        "memory_delete",
+        "memory_toggle",
+        "commitments",
+        "meetings_list",
+        "meeting_read",
+        "commitment_add",
+        "browser_task",
+        "browser_task_status",
+        "browser_task_stop",
+        "actions_list",
+        "action_undo",
+        "files_search",
+        "file_read",
+        "file_summarize",
+        "screen_context",
+        "knowledge_add_folder",
+        "knowledge_list",
+        "knowledge_search",
     ]
 
 
@@ -367,7 +387,7 @@ async def test_a_whole_call_from_the_bridge_over_the_apps_private_socket(
             }
         )
         listed = await bridge.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        assert len(listed["result"]["tools"]) == 13
+        assert len(listed["result"]["tools"]) == len(mcp_endpoint.TOOLS)
         result = await bridge.handle(
             {
                 "jsonrpc": "2.0",

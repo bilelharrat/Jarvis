@@ -240,14 +240,15 @@ class WikiDesk:
         desk = self.memory_desk
         promises = desk.promises.items if desk is not None else []
         return wiki._hash(
-            [(f.id, f.text, f.at) for f in self.hub.memory.facts],
+            [(f.id, f.text, f.at, getattr(f, "off", False)) for f in self.hub.memory.facts],
             [(p.id, p.status, p.text) for p in promises],
         )
 
     def _gather(self) -> dict[str, Any]:
         """What the pages are made of, read now (in a thread: files and databases)."""
         hub, desk = self.hub, self.memory_desk
-        facts = [f for f in hub.memory.facts if not memory.expired(f)]
+        # A fact switched off (Eden's Memory page) is kept, but used nowhere: not on these pages either.
+        facts = [f for f in hub.memory.facts if not memory.expired(f) and not getattr(f, "off", False)]
         promises = list(desk.promises.items) if desk is not None else []
         intents = list(desk.intents.items) if desk is not None else []
         known = people.known_people(facts, promises, intents, hub.prefs.vips)

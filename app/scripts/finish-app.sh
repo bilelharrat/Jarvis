@@ -1,14 +1,15 @@
 #!/bin/sh
 # Give the packaged app its full name and re-sign it after editing Info.plist.
 #
-# Signing with a real certificate (BSH Ventures' team, 9ZSY5R8A5C) gives the app a
+# Signing with a real certificate (the owner's team, 8CV4X23Y2T) gives the app a
 # stable identity, so macOS keeps its permissions (Full Disk Access, microphone,
 # location, calendars) across rebuilds; an ad hoc signature changes every build and
-# silently voids them. JARVIS_SIGN_IDENTITY overrides the choice; with no certificate
-# in the keychain it falls back to ad hoc.
+# silently voids them. JARVIS_TEAM_ID picks another team (JARVIS_TEAM_ID=9ZSY5R8A5C keeps
+# the old Robert Parker identity, docs/distribution.md), JARVIS_SIGN_IDENTITY one
+# certificate; with no certificate of the team in the keychain it falls back to ad hoc.
 set -e
 APP="dist/J.A.R.V.I.S-darwin-arm64/J.A.R.V.I.S.app"
-TEAM="${JARVIS_TEAM_ID:-9ZSY5R8A5C}"
+TEAM="${JARVIS_TEAM_ID:-8CV4X23Y2T}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName J.A.R.V.I.S." "$APP/Contents/Info.plist"
 # CFBundleName stays "J.A.R.V.I.S": Electron finds "J.A.R.V.I.S Helper.app" by it, and a
 # mismatch crashes the app at launch. The menu bar name comes from app.setName in main.js.

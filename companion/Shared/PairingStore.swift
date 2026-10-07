@@ -95,7 +95,7 @@ enum PairingStore {
 /// app with its complications): a container for the widget snapshot and the outbox, and a
 /// keychain access group for the pairing.
 enum AppGroup {
-    static let identifier = "group.com.bshventures.jarvis.companion"
+    static let identifier = "group.com.askeden.jarvis"
 
     /// The shared container; nil when the build has no App Group entitlement (unsigned
     /// Simulator builds), when callers fall back to the app's own Application Support.
@@ -122,7 +122,7 @@ enum Keychain {
         var errorDescription: String? { "Couldn’t save to the Keychain (error \(status))." }
     }
 
-    private static let service = "com.bshventures.jarvis.companion"
+    private static let service = "com.askeden.jarvis"
 
     private static var sharedGroup: String? {
         #if os(iOS)

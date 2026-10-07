@@ -152,7 +152,7 @@ async def test_a_silent_push_wakes_the_phone_and_says_only_look(phone):  # noqa:
     companion = phone.companion
     curl = Curl()
     companion.sender.run = curl
-    await companion.keys.save(push.check(p8(), "ABC123DEFG", "9ZSY5R8A5C", BUNDLE))
+    await companion.keys.save(push.check(p8(), "ABC123DEFG", "8CV4X23Y2T", BUNDLE))
     companion.store.register(device(phone).id, "ab" * 32, "production", BUNDLE)
     companion.sensors.wait = 0.01
     await companion.sensors.contact_text("Anne Hathaway")

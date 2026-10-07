@@ -199,8 +199,32 @@ def _row(event, details: bool = False) -> dict[str, Any] | None:
             "repeats": bool(event.hasRecurrenceRules()),
             "mine": mine,  # the owner's own event, or one they were invited to
             "organizer": by,
+            # what edit() can also change, so a change can be put back (undo): never shown
+            "notes": str(event.notes() or "") if hasattr(event, "notes") else "",
+            "url": _own_url(event),
+            "alerts": _alerts(event),
         }
     return row
+
+
+def _own_url(event) -> str:
+    """The event's own link field (a web address), not a call link found in its notes."""
+    link = event.URL() if hasattr(event, "URL") else None
+    url = str(link.absoluteString()) if link else ""
+    return url if url.lower().startswith(("https://", "http://")) else ""
+
+
+def _alerts(event) -> list[int]:
+    """Its alerts as minutes before the start (alerts at a fixed time aren't counted)."""
+    found = set()
+    for alarm in (event.alarms() if hasattr(event, "alarms") else None) or []:
+        try:
+            if alarm.absoluteDate() is not None:
+                continue
+            found.add(max(0, round(-float(alarm.relativeOffset()) / 60)))
+        except Exception:  # an odd alarm: not one of ours
+            continue
+    return sorted(found)
 
 
 def _event_id(event) -> str:
@@ -355,6 +379,8 @@ def json_event(event: Any, zone: str | None = None) -> dict[str, Any] | None:
         "location": str(event.location() or ""),
         "notes": str(event.notes() or "")[:MAX_EVENT_NOTES] if hasattr(event, "notes") else "",
         "url": url[:2000],
+        "eventUrl": _own_url(event)[:2000],  # its own link field (url may be a call link)
+        "alerts": _alerts(event),  # minutes before the start
         "attendees": people,
         "recurring": bool(event.hasRecurrenceRules()),
         "writable": bool(calendar and calendar.allowsContentModifications()),
@@ -499,16 +525,27 @@ def remove(start: str, event_id: str, calendar: str, future: bool) -> dict[str, 
 
 
 def edit(
-    start: str, event_id: str, calendar: str, future: bool, changes: dict[str, Any]
+    start: str,
+    event_id: str,
+    calendar: str,
+    future: bool,
+    changes: dict[str, Any],
+    ek: Any = None,
+    foundation: Any = None,
 ) -> dict[str, Any]:
     """Change the one event with this id, start and calendar. changes may hold any of title,
-    location, start (a new time) and duration_minutes; for a repeating one, this occurrence,
-    or it and every later one when future."""
-    import EventKit
-    from Foundation import NSDate
+    location, start (a new time), duration_minutes, notes, url ("" clears either) and alerts
+    (minutes before; they replace its alerts); for a repeating one, this occurrence, or it
+    and every later one when future. ek and foundation are EventKit and Foundation (tests
+    pass fakes)."""
+    if ek is None:
+        import EventKit as ek
+    if foundation is None:
+        import Foundation as foundation
+    EventKit, NSDate = ek, foundation.NSDate  # noqa: N806 - the frameworks' names
 
     store = EventKit.EKEventStore.alloc().init()
-    if not _authorized(store):
+    if not _authorized(store, EventKit):
         return {"error": NO_ACCESS}
     hits = [
         (row, event)
@@ -526,15 +563,29 @@ def edit(
         event.setTitle_(str(changes["title"]).strip())
     if changes.get("location") is not None:
         event.setLocation_(str(changes["location"]))
+    if changes.get("notes") is not None:
+        event.setNotes_(str(changes["notes"]) or None)
+    if changes.get("url") is not None:
+        url = str(changes["url"])
+        event.setURL_(foundation.NSURL.URLWithString_(url) if url else None)
+    if changes.get("alerts") is not None:
+        for alarm in list(event.alarms() or []):
+            event.removeAlarm_(alarm)
+        for minutes in changes["alerts"]:
+            event.addAlarm_(EventKit.EKAlarm.alarmWithRelativeOffset_(-60.0 * int(minutes)))
     if changes.get("start") or changes.get("duration_minutes") is not None:
         old_start = datetime.fromisoformat(row["begin"])
         old_end = datetime.fromisoformat(row["end"])
         new_start, day_only = when(changes["start"]) if changes.get("start") else (old_start, False)
         if row["all_day"] or day_only:  # keep it all-day; move the day
             midnight = new_start.replace(hour=0, minute=0)
+            # as many days as before (EventKit ends an all-day event on its last day)
+            span = old_end - old_start if row["all_day"] and old_end > old_start else None
             event.setStartDate_(NSDate.dateWithTimeIntervalSince1970_(midnight.timestamp()))
             event.setEndDate_(
-                NSDate.dateWithTimeIntervalSince1970_((midnight + timedelta(days=1)).timestamp())
+                NSDate.dateWithTimeIntervalSince1970_(
+                    (midnight + (span or timedelta(days=1))).timestamp()
+                )
             )
         else:
             if changes.get("duration_minutes") is not None:

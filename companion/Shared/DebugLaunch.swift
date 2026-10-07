@@ -4,7 +4,7 @@ import Foundation
 /// Debug-build-only launch arguments for trying the app against a test server in the
 /// Simulator without typing, e.g.
 ///
-///     xcrun simctl launch booted com.bshventures.jarvis.companion \
+///     xcrun simctl launch booted com.askeden.jarvis \
 ///       -JARVISResetPairing YES -JARVISTestServer 127.0.0.1:8766 -JARVISTestCode 123456 \
 ///       -JARVISTestAsk "What's next today?"
 ///

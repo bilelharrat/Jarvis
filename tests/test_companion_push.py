@@ -16,7 +16,7 @@ from jarvis.companion import CompanionStore
 from jarvis.interrupts import Interruption
 from jarvis.proactive import Alert
 
-BUNDLE = "com.bshventures.jarvis.companion"
+BUNDLE = "com.askeden.jarvis"
 
 
 class Curl:
@@ -62,7 +62,7 @@ def setup(settings, quiet_speaker, isolated, monkeypatch):
 async def ready(s, *names, key=True):
     """Phones paired with push turned on in their app (tokens aa…, bb…), and the key set."""
     if key:
-        await s.companion.keys.save(push.check(p8(), "ABC123DEFG", "9ZSY5R8A5C", BUNDLE))
+        await s.companion.keys.save(push.check(p8(), "ABC123DEFG", "8CV4X23Y2T", BUNDLE))
     devices = []
     for i, name in enumerate(names or ("iPhone",)):
         s.hub.remote.devices.pair(s.hub.remote.devices.start_pairing(), name)

@@ -147,7 +147,7 @@ test("the build Mac's paths are found anywhere in the app, text or binary", () =
 
 test('the Developer ID build names what it needs before doing anything; --adhoc needs nothing', () => {
   assert.throws(() => dist.credentials({}, { adhoc: false }), /JARVIS_SIGN_IDENTITY[\s\S]*JARVIS_NOTARY_PROFILE[\s\S]*--adhoc/);
-  assert.throws(() => dist.credentials({ JARVIS_SIGN_IDENTITY: 'Developer ID Application: X (9ZSY5R8A5C)' }, { adhoc: false }), (err) => /JARVIS_NOTARY_PROFILE/.test(err.message) && !/JARVIS_SIGN_IDENTITY:/.test(err.message));
+  assert.throws(() => dist.credentials({ JARVIS_SIGN_IDENTITY: 'Developer ID Application: X (8CV4X23Y2T)' }, { adhoc: false }), (err) => /JARVIS_NOTARY_PROFILE/.test(err.message) && !/JARVIS_SIGN_IDENTITY:/.test(err.message));
   assert.deepEqual(dist.credentials({ JARVIS_SIGN_IDENTITY: ' ABC ', JARVIS_NOTARY_PROFILE: 'jarvis' }, { adhoc: false }), { identity: 'ABC', profile: 'jarvis' });
   assert.deepEqual(dist.credentials({}, { adhoc: true }), { identity: '-', profile: '' });
   assert.deepEqual(dist.parseArgs(['--adhoc']), { adhoc: true });

@@ -65,4 +65,10 @@ enum NotificationCategories {
     static let allow = "ALLOW"
     static let deny = "DENY"
     static let denyReason = "DENY_REASON"
+
+    /// askeden.com's push when one of Eden's background tasks needs the owner's OK (iPhone
+    /// only), and its two answers.
+    static let edenTaskApproval = "EDEN_TASK_APPROVAL"
+    static let edenApprove = "EDEN_APPROVE"
+    static let edenDeny = "EDEN_DENY"
 }

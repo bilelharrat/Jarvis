@@ -1,7 +1,7 @@
 #!/bin/bash
 # Archives the iPhone app (the Watch app and every extension inside it), then exports and
 # uploads it to App Store Connect for TestFlight. Run it on your Mac, signed in to Xcode
-# (Settings › Accounts) with a team 9ZSY5R8A5C account that may upload.
+# (Settings › Accounts) with a team 8CV4X23Y2T account that may upload.
 #
 #   companion/scripts/archive.sh              archive, export and upload
 #   companion/scripts/archive.sh --dry-run    print the commands, run nothing
@@ -95,7 +95,7 @@ if [[ $dry_run == 0 ]]; then
   echo "Every bundle in the archive is $version ($build)."
 fi
 
-# Export for App Store Connect and upload (ExportOptions.plist: team 9ZSY5R8A5C, upload).
+# Export for App Store Connect and upload (ExportOptions.plist: team 8CV4X23Y2T, upload).
 run xcodebuild -exportArchive \
   -archivePath "$archive" \
   -exportOptionsPlist "$companion/ExportOptions.plist" \

@@ -38,8 +38,8 @@ log = logging.getLogger("jarvis")
 
 VAULT_ID = "companion-apns"  # the Keychain entry: "Jarvis connectors" / companion-apns:config
 VAULT_KEY = "config"
-TEAM_DEFAULT = "9ZSY5R8A5C"  # BSH Ventures' Apple Developer team
-BUNDLE_DEFAULT = "com.bshventures.jarvis.companion"  # companion/project.yml
+TEAM_DEFAULT = "8CV4X23Y2T"  # the owner's Apple Developer team (individual, Bilel Harrat)
+BUNDLE_DEFAULT = "com.askeden.jarvis"  # companion/project.yml
 HOSTS = {"production": "api.push.apple.com", "sandbox": "api.sandbox.push.apple.com"}
 TOKEN_SECONDS = 50 * 60
 CURL = "/usr/bin/curl"
@@ -127,9 +127,9 @@ def check(key: Any, key_id: Any, team_id: Any, bundle_id: Any) -> Credentials:
     if not _TEN.fullmatch(key_id):
         raise KeyProblem("The Key ID is the 10 letters and digits beside the key in Apple's list.")
     if not _TEN.fullmatch(team_id):
-        raise KeyProblem("The Team ID is 10 letters and digits (yours is 9ZSY5R8A5C).")
+        raise KeyProblem("The Team ID is 10 letters and digits (yours is 8CV4X23Y2T).")
     if len(bundle_id) > 155 or not _BUNDLE.fullmatch(bundle_id):
-        raise KeyProblem("The bundle ID looks like com.bshventures.jarvis.companion.")
+        raise KeyProblem("The bundle ID looks like com.askeden.jarvis.")
     return Credentials(pem + "\n", key_id, team_id, bundle_id)
 
 

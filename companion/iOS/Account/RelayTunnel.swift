@@ -68,7 +68,7 @@ final class RelayTunnel: @unchecked Sendable {
 
     let macDeviceID: String
     private let makeUpstream: @Sendable () -> (any RelaySocket)?
-    private let queue = DispatchQueue(label: "com.bshventures.jarvis.relay")
+    private let queue = DispatchQueue(label: "com.askeden.jarvis.relay")
     private let lock = NSLock()
     private var listener: NWListener?
     private var readyPort: UInt16?

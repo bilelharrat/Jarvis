@@ -115,8 +115,8 @@
     return [wrap, input];
   };
   const [keyIdField, keyId] = field('Key ID', '');
-  const [teamField, teamId] = field('Team ID', '9ZSY5R8A5C');
-  const [bundleField, bundleId] = field('Bundle ID', 'com.bshventures.jarvis.companion');
+  const [teamField, teamId] = field('Team ID', '8CV4X23Y2T');
+  const [bundleField, bundleId] = field('Bundle ID', 'com.askeden.jarvis');
   const fields = el('div', 'companion-fields');
   fields.append(keyIdField, teamField, bundleField);
   const keyError = el('p', 'warn-line small-status');

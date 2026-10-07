@@ -166,7 +166,7 @@ struct QRCameraView: UIViewRepresentable {
     final class Coordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         var onCode: (String) -> Void
         private let session = AVCaptureSession()
-        private let queue = DispatchQueue(label: "com.bshventures.jarvis.qr")
+        private let queue = DispatchQueue(label: "com.askeden.jarvis.qr")
         private var last: String?
 
         init(onCode: @escaping (String) -> Void) {

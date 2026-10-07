@@ -17,7 +17,7 @@ from jarvis.delegate import Delegation
 from jarvis.proactive import Alert
 from jarvis.tasks import ClaudeTask
 
-BUNDLE = "com.bshventures.jarvis.companion"
+BUNDLE = "com.askeden.jarvis"
 
 
 class Curl:
@@ -60,7 +60,7 @@ def live(settings, quiet_speaker, isolated, tmp_path):
 
 
 async def keyed(s, environment="production"):
-    await s.companion.keys.save(push.check(p8(), "ABC123DEFG", "9ZSY5R8A5C", BUNDLE))
+    await s.companion.keys.save(push.check(p8(), "ABC123DEFG", "8CV4X23Y2T", BUNDLE))
     s.companion.store.register(s.device.id, "ab" * 32, environment, BUNDLE)
 
 

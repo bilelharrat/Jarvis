@@ -226,7 +226,7 @@ struct LiveCameraView: View {
 final class LiveCamera: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
     let session = AVCaptureSession()
     private let output = AVCapturePhotoOutput()
-    private let queue = DispatchQueue(label: "com.bshventures.jarvis.live-camera")
+    private let queue = DispatchQueue(label: "com.askeden.jarvis.live-camera")
     private var configured = false
     private var waiting: CheckedContinuation<UIImage?, Never>?  // touched on `queue` only
 

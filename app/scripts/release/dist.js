@@ -36,6 +36,9 @@ const STAGE = path.join(DIST, 'stage');
 const PKG = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'package.json'), 'utf8'));
 const NAME = 'J.A.R.V.I.S';
 const DISPLAY = 'J.A.R.V.I.S.';
+// The Mac app's own id, from before the move to team 8CV4X23Y2T. Developer ID needs no App ID
+// for it, so it stays (renaming it would also move the wake agent's label, the Quick Action's
+// and the helpers' identifiers).
 const BUNDLE_ID = 'com.bshventures.jarvis';
 
 function parseArgs(argv) {
@@ -53,7 +56,7 @@ function credentials(env, { adhoc }) {
   const identity = (env.JARVIS_SIGN_IDENTITY || '').trim();
   const profile = (env.JARVIS_NOTARY_PROFILE || '').trim();
   const missing = [];
-  if (!identity) missing.push('JARVIS_SIGN_IDENTITY: your "Developer ID Application: … (9ZSY5R8A5C)" certificate, by name or SHA-1 hash (security find-identity -v -p codesigning lists them)');
+  if (!identity) missing.push('JARVIS_SIGN_IDENTITY: your "Developer ID Application: Bilel Harrat (8CV4X23Y2T)" certificate, by name or SHA-1 hash (security find-identity -v -p codesigning lists them)');
   if (!profile) missing.push('JARVIS_NOTARY_PROFILE: the name you gave `xcrun notarytool store-credentials`');
   if (missing.length) throw new BuildError(`Can't sign for other Macs without:\n  ${missing.join('\n  ')}\nOr run npm run dist -- --adhoc to check the build on this Mac only.`);
   return { identity, profile };
