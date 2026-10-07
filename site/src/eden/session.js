@@ -282,14 +282,18 @@ async function accountView(request, env) {
   });
 }
 
-// Delete account, from the account page: the person types DELETE. Everything goes (eraseAccount:
+// Delete account, from the account page: the person types DELETE, within 10 minutes of signing in. Everything goes (eraseAccount:
 // every device signed out, the account's data, its sign-ins and passkeys, published pages, a web
 // Plus subscription cancelled at Stripe), and this browser's cookie with it.
+const DELETE_STALE = 'To delete your account, sign in again first: Eden deletes an account only within 10 minutes of signing in.';
+
 async function deleteWebAccount(request, env) {
   ownPage(request);
   const who = await signedIn(request, env);
   const body = await readJson(request, 4096);
   if (body.confirm !== 'DELETE') throw new ApiError(400, 'confirm', 'Type DELETE to delete your Eden account.');
+  // A fresh sign-in only (as for linking a Mac): an old or stolen session can't delete the account.
+  if (Date.now() - (who.device.created || 0) > WEB_LINK_MAC_MS) throw new ApiError(403, 'sign_in_again', DELETE_STALE);
   await limited(env, 'AUTH_RATE', `delete:${who.account}`);
   await eraseAccount(env, who.account, who.token, { confirm: body.confirm });
   forgetSessions(who.account);

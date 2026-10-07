@@ -678,6 +678,13 @@ test('Delete account from the account page: typed DELETE, then every device, sig
   assert.equal((await del({ confirm: 'delete' })).status, 400, 'exactly DELETE');
   assert.equal((await del({ confirm: 'DELETE' }, { headers: { origin: 'https://evil.example' } })).status, 403, 'only this site’s page');
   assert.equal((await hit('/api/web/account/delete', { method: 'POST', body: { confirm: 'DELETE' } })).status, 401, 'signed in only');
+  const realNow = Date.now;
+  Date.now = () => realNow() + 11 * 60_000; // signed in more than 10 minutes ago
+  try {
+    const stale = await del({ confirm: 'DELETE' });
+    assert.equal(stale.status, 403);
+    assert.equal((await stale.json()).code, 'sign_in_again', 'an old session must sign in again first');
+  } finally { Date.now = realNow; }
   const done = await del({ confirm: 'DELETE' });
   assert.equal(done.status, 204, await done.clone().text());
   assert.ok(cleared(done, '__Host-eden'));

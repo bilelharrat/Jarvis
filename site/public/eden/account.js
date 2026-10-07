@@ -73,7 +73,7 @@ async function post(path, payload = {}) {
   catch { throw new Error('Can’t reach askeden.com. Check your connection.'); }
   if (res.status === 401) { location.replace(HOME()); throw new Error('Signed out.'); }
   const body = await read(res);
-  if (!res.ok) throw new Error(body.error || `askeden.com said ${res.status}.`);
+  if (!res.ok) throw Object.assign(new Error(body.error || `askeden.com said ${res.status}.`), { code: body.code });
   return body;
 }
 
@@ -720,13 +720,20 @@ function deleteSection() {
       try { await Sync.forgetAllKeys(); } catch { /* the account is gone either way */ }
       location.replace(HOME());
     } catch (e) {
+      // Signed in too long ago: sign out, then back here after a fresh sign-in.
+      if (e.code === 'sign_in_again') {
+        toast(e.message);
+        try { await Sync.forgetAllKeys(); await post('/api/web/signout'); } catch { /* signed out either way below */ }
+        location.replace('/signin?return=%2Faccount');
+        return;
+      }
       toast(e.message);
       go.textContent = 'Delete my account';
       go.disabled = input.value.trim() !== 'DELETE';
     } finally { busy = false; }
   });
   return el('section', { class: 'set-sec acct-delete', 'aria-labelledby': 'acctDelH' }, el('h3', { id: 'acctDelH' }, 'Delete account'),
-    el('p', 'sp-note', 'Deletes your Eden account for good: every device and browser is signed out, and your account’s data, ways to sign in, passkeys and published pages are deleted. Plus bought on askeden.com is cancelled; Plus from the App Store is cancelled in your iPhone’s Settings. This can’t be undone.'),
+    el('p', 'sp-note', 'Deletes your Eden account for good (you’ll be asked to sign in again if you signed in more than 10 minutes ago): every device and browser is signed out, and your account’s data, ways to sign in, passkeys and published pages are deleted. Plus bought on askeden.com is cancelled; Plus from the App Store is cancelled in your iPhone’s Settings. This can’t be undone.'),
     el('div', 'acct-foot', el('label', 'sp-note', 'Type DELETE to confirm ', input), go));
 }
 
