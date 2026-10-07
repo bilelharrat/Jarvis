@@ -247,8 +247,9 @@ export async function accountForIdentity(env, { provider, sub, email = null, ip 
   let proposed = found.state === 'none' ? derived : null;
   if (!proposed || !(await accountExists(env, proposed))) {
     // A new Eden account: open to sign-ups at all (SIGNUPS), the person check (Turnstile,
-    // accounts/turnstile.js), then the rate.
-    checkSignups(env);
+    // accounts/turnstile.js), then the rate. The owner's verified email (OWNER_DOMAINS) may
+    // while sign-ups are closed.
+    checkSignups(env, email);
     if (beforeCreate) await beforeCreate();
     await limited(env, 'AUTH_RATE', `new:${ip}`);
     proposed ||= crypto.randomUUID();

@@ -697,3 +697,13 @@ test('a browser can’t delete the account without typing DELETE, even straight 
   await assert.rejects(call(env, id, 'delete', { confirm: 'yes' }, { device, secret }), (e) => e.status === 403);
   assert.equal((await hit('/api/web/account', { session: g.session })).status, 200);
 });
+
+test('sign-ups closed: the owner’s verified email (OWNER_DOMAINS) may still make its account', async () => {
+  const { checkSignups } = await import('../src/accounts/turnstile.js');
+  const env = { SIGNUPS: 'owner', OWNER_DOMAINS: 'askeden.com' };
+  assert.doesNotThrow(() => checkSignups(env, 'Bilel@AskEden.com'));
+  assert.throws(() => checkSignups(env, 'someone@gmail.com'), { code: 'signups_closed' });
+  assert.throws(() => checkSignups(env, 'x@notaskeden.com'), { code: 'signups_closed' });
+  assert.throws(() => checkSignups(env), { code: 'signups_closed' }, 'a passkey: no email');
+  assert.throws(() => checkSignups({ SIGNUPS: 'owner' }, 'bilel@askeden.com'), { code: 'signups_closed' }, 'unset: nobody');
+});

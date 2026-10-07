@@ -93,6 +93,7 @@ TURNSTILE_SITE_KEY = ""
 # "Eden is opening soon — sign-ups are closed for now"). "open" without both Turnstile keys counts
 # as "owner" (fail closed). The preview is "open" with TURNSTILE_OPTIONAL (scripts/preview-config.mjs).
 SIGNUPS = "owner"
+OWNER_DOMAINS = "askeden.com" # verified emails here may make their account while sign-ups are closed
 
 # Dictation by recording where the browser has no speech recognition (Firefox; ROADMAP G7.2):
 # Workers AI's Whisper (src/eden/transcribe.js), counted on the account's included AI. A new

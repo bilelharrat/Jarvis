@@ -35,9 +35,17 @@ export function signupsOpen(env = {}) {
   return turnstileOn(env) || String(env.TURNSTILE_OPTIONAL || '').trim() === '1';
 }
 
-/** Throws 403 `signups_closed` unless a new account may be made here. */
-export function checkSignups(env) {
-  if (!signupsOpen(env)) throw new ApiError(403, 'signups_closed', SIGNUPS_CLOSED);
+/** Whether a verified email is the owner's (OWNER_DOMAINS: comma-separated, e.g. "askeden.com"),
+ *  which may make its account while sign-ups are closed. */
+export function ownerEmail(env = {}, email = null) {
+  const domain = String(email || '').trim().toLowerCase().split('@')[1];
+  if (!domain) return false;
+  return String(env.OWNER_DOMAINS || '').toLowerCase().split(',').map((d) => d.trim()).filter(Boolean).includes(domain);
+}
+
+/** Throws 403 `signups_closed` unless a new account may be made here (`email`: a verified one). */
+export function checkSignups(env, email = null) {
+  if (!signupsOpen(env) && !ownerEmail(env, email)) throw new ApiError(403, 'signups_closed', SIGNUPS_CLOSED);
 }
 
 /** Forgets the "off" note (tests). */
