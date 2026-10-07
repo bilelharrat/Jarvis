@@ -37,6 +37,20 @@ APPLE_TEAM_ID = "9ZSY5R8A5C"
 JARVIS_IPHONE_URL = ""
 MESSENGER_MAC_URL = "https://askeden.com/jarvis/eden/Eden-Messenger.dmg"
 MESSENGER_IPHONE_URL = ""
+# Eden at askeden.com/ (src/eden/): the Claude models hosted Eden routes among (on the
+# account's included AI, ANTHROPIC_API_KEY), the highest effort, the longest reply and
+# conversation, web searches a search turn may make (twice that for research). Model ids are
+# the Model Router's (scripts/sync-eden.mjs bundles it).
+EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5"
+EDEN_MAX_EFFORT = "high"
+EDEN_MAX_TOKENS = "16000"
+EDEN_MAX_INPUT_TOKENS = "150000"
+EDEN_SEARCH_USES = "5"
+# Account ids (commas) that may sign in to Eden on the web; empty: every Jarvis account.
+EDEN_ACCOUNTS = ""
+# Sign in with Apple on the web: the Services ID for askeden.com once it exists (see
+# src/eden/session.js); empty keeps it off. Signing in with a code works without it.
+WEB_APPLE_SERVICES_ID = ""
 
 [[durable_objects.bindings]]
 name = "VOICE_QUOTA"

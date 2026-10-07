@@ -22,6 +22,7 @@ import {
   signedOut,
   tokenFrom,
   validAccountId,
+  webAllowed,
 } from './util.js';
 
 export { Account } from './account.js';
@@ -30,8 +31,9 @@ export { Link } from './link.js';
 const accountStub = (env, id) => env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id));
 const linkStub = (env, code) => env.LINKS.get(env.LINKS.idFromName(code));
 
-// One op on an account's object; its JSON, or its refusal thrown as an ApiError.
-async function call(env, accountId, op, body = {}, auth = null) {
+// One op on an account's object; its JSON, or its refusal thrown as an ApiError. (Hosted
+// Eden, src/eden/, uses these too.)
+export async function call(env, accountId, op, body = {}, auth = null) {
   const headers = { 'content-type': 'application/json' };
   if (auth) {
     headers['x-jarvis-device'] = auth.device;
@@ -41,7 +43,7 @@ async function call(env, accountId, op, body = {}, auth = null) {
   return unwrap(response);
 }
 
-async function callLink(env, code, op, body = {}) {
+export async function callLink(env, code, op, body = {}) {
   const response = await linkStub(env, code).fetch(`https://link/${op}`, { method: 'POST', body: JSON.stringify(body) });
   return { status: response.status, body: await unwrap(response) };
 }
@@ -66,7 +68,7 @@ function auth(request, options) {
   return token;
 }
 
-async function limited(env, binding, key) {
+export async function limited(env, binding, key) {
   const limiter = env[binding];
   if (!limiter) return;
   const { success } = await limiter.limit({ key });
@@ -150,6 +152,13 @@ async function deleteAccount(request, env) {
 
 // ── linking a Mac ──
 
+// A Mac's name as the iPhone shows it ("Link “…”?"). Whoever starts a link picks it, so it
+// may not pass for a browser's sign-in to Eden (which the iPhone approves the same way).
+export function macName(name) {
+  const clean = cleanName(name, 'Mac');
+  return /\b(eden|askeden|web|browser|sign[- ]?in)\b/i.test(clean) ? cleanName(`Mac: ${clean}`, 'Mac') : clean;
+}
+
 async function linkStart(request, env) {
   await limited(env, 'LINK_RATE', `start:${request.headers.get('cf-connecting-ip') || 'unknown'}`);
   const body = await readJson(request);
@@ -165,7 +174,7 @@ async function linkStart(request, env) {
     const code = newCode();
     try {
       const { body: started } = await callLink(env, code, 'start', {
-        name: cleanName(body.name, 'Mac'),
+        name: macName(body.name),
         kind: 'mac', // only Macs link; phones sign in with Apple
         public_key: body.public_key,
         app_version: cleanVersion(body.app_version),
@@ -194,18 +203,25 @@ async function linkByCode(request, env, rawCode, action, method) {
   const code = cleanCode(decodeURIComponent(rawCode));
   if (!code) throw new ApiError(404, 'not_found', "That code isn't one we know. Check it on the Mac.");
   const { device } = await call(env, token.account, 'whoami', {}, token);
-  if (device.kind === 'mac') throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
-  if (!action && method === 'GET') return json((await callLink(env, code, 'peek')).body);
+  // A browser approves nothing; a Mac approves a browser's sign-in (kind `web`), never a Mac.
+  if (device.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+  const link = (await callLink(env, code, 'peek')).body;
+  const web = link.kind === 'web';
+  if (!web && device.kind === 'mac') throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
+  if (web && !webAllowed(env, token.account) && action !== 'deny') {
+    throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
+  }
+  if (!action && method === 'GET') return json(link);
   if (method !== 'POST') throw new ApiError(405, 'bad_request', 'POST to approve or deny.');
   if (action === 'deny') {
     await callLink(env, code, 'deny');
     return new Response(null, { status: 204 });
   }
   const body = await readJson(request);
-  const link = (await callLink(env, code, 'peek')).body;
   const made = await call(env, token.account, 'add-device', { name: link.name, kind: link.kind, app_version: link.app_version }, token);
-  const sealed = typeof body.sealed_key === 'string' && body.sealed_key ? body.sealed_key : null;
-  const sender = typeof body.sender_key === 'string' && body.sender_key ? body.sender_key : null;
+  // A browser gets no sync key: it has no key pair, and askeden.com keeps nothing it could open.
+  const sealed = !web && typeof body.sealed_key === 'string' && body.sealed_key ? body.sealed_key : null;
+  const sender = !web && typeof body.sender_key === 'string' && body.sender_key ? body.sender_key : null;
   try {
     await callLink(env, code, 'approve', {
       result: { token: made.token, account_id: made.account_id, device_id: made.device_id, sealed_key: sealed, sender_key: sender },
@@ -296,10 +312,17 @@ async function anthropic(request, env, ctx, path) {
   let allow;
   try {
     await limited(env, 'API_RATE', token.account);
-    allow = path === '/v1/messages' ? await call(env, token.account, 'allow-ai', {}, token) : { ok: true, bucket: 'none' };
+    if (path === '/v1/messages') allow = await call(env, token.account, 'allow-ai', {}, token);
+    else {
+      // Counting tokens is free, but only for the account's own apps (the token is checked).
+      const { device } = await call(env, token.account, 'whoami', {}, token);
+      if (device.kind === 'web') throw new ApiError(403, 'forbidden', "A browser's sign-in is for Eden at askeden.com only.");
+      allow = { ok: true, bucket: 'none' };
+    }
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     if (error.status === 401) return anthropicError(401, 'authentication_error', error.message);
+    if (error.status === 403) return anthropicError(403, 'permission_error', error.message);
     if (error.status === 429) return anthropicError(429, 'rate_limit_error', error.message, error.headers);
     throw error;
   }

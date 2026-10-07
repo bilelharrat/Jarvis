@@ -1,0 +1,62 @@
+/* Eden on a phone: fixes that only show up at phone widths (the iOS app and mobile Safari).
+   Loaded after app.css, so equal selectors here win. Phone-only on purpose: every rule sits
+   under max-width:640px, app.css's own phone breakpoint. Owned by the iOS app work; app.css
+   is not edited for these. */
+
+@media (max-width: 640px) {
+  /* The page draws edge to edge (viewport-fit=cover), so keep the title bar out from under
+     the status bar and Dynamic Island, and the composer above the home indicator. The
+     status line under the composer is text only, so it may sit in the top of that zone. */
+  #app {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, calc(env(safe-area-inset-bottom) - 12px));
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+  #sidebar, #sidebar.closed {
+    top: max(8px, env(safe-area-inset-top));
+    bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  #inspector, #inspector.closed { bottom: max(8px, env(safe-area-inset-bottom)); }
+  .sheet-card, .sheet-card.sm, #spacePanel { padding-bottom: env(safe-area-inset-bottom); }
+  #toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
+
+  /* "? for shortcuts" and the search field's ⌘K are keyboard hints; a phone has no
+     keyboard shortcuts. */
+  #cc-mode, #sidebar .fake kbd { display: none; }
+  /* With the hint gone the status line is usually empty; give its height back (above the
+     keyboard, it read as a gap). It comes back while there's a status (replying, temporary). */
+  .jc-statusline:has(> #cc-status:empty) { display: none; }
+
+  /* While a reply streams, Steer narrows the field and the placeholder wrapped onto a
+     clipped second line. Keep it to one line. */
+  .jc-composer-top textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* In the iOS app (the app adds .eden-app): WebKit turns the page's scroll view off when the
+     body is overflow:hidden, which also turns off pull to refresh. The layout is exactly one
+     screen tall, so overflow:visible only lets it bounce. */
+  html.eden-app body { overflow: visible; }
+}
+
+/* iOS zooms the page into any text field under 16px when it's focused, and doesn't zoom
+   back out. 16px fields stop that. */
+@media (max-width: 640px) and (pointer: coarse) {
+  .jc-composer-top textarea,
+  .insp-input,
+  .field input, .field textarea,
+  .key-edit input,
+  #overrideCard select, #classifierSel, #overrideSel, #overrideEff,
+  .sheet-body input, .sheet-body select, .sheet-body textarea {
+    font-size: 16px;
+  }
+  /* …but keep the composer's long placeholder at its old size so it still fits on one line. */
+  .jc-composer-top textarea::placeholder { font-size: 14.5px; }
+
+  /* Menus list keyboard shortcuts (⌘U, ⌘,) that a phone can't type. */
+  .jc-menu .k { display: none; }
+
+  /* An attachment's × was 18px, too small to hit with a finger; 26px plus a wider hit area. */
+  .jc-chip-x { width: 26px; height: 26px; border-radius: 13px; line-height: 26px; font-size: 15px; position: relative; }
+  .jc-thumb-img .jc-chip-x { position: absolute; top: 2px; right: 2px; }
+  .jc-chip-x::after { content: ""; position: absolute; inset: -8px; }
+}
