@@ -27,11 +27,21 @@ export const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(nav
 /** The model id of Apple's on-device model, as the page knows it. */
 export const ON_DEVICE = 'apple-on-device';
 
-const caps = { online: true, serverLocal: false, activities: false, ondevice: { available: false, reason: 'unknown', words: '' } };
+const caps = { online: true, serverLocal: false, activities: false, browser: false, ondevice: { available: false, reason: 'unknown', words: '' } };
 const turns = new Map(); // turn id -> { push(event, data), end(), fail(error) }
 
 function toApp(msg) {
   document.dispatchEvent(new CustomEvent('eden:to-app', { detail: JSON.stringify(msg) }));
+}
+
+/**
+ * The app's own browser (iOS: native WebKit, Browser.swift) instead of the cloud browser panel:
+ * true when the app took it (in the app, once it said it has one), false on the website.
+ */
+export function openAppBrowser(url = '') {
+  if (!IN_APP || !caps.browser) return false;
+  toApp({ kind: 'browser', op: 'open', url: typeof url === 'string' ? url : '' });
+  return true;
 }
 
 /* ---------- the model list: "On this iPhone" ---------- */
@@ -255,6 +265,7 @@ function fromApp(e) {
     caps.online = m.online !== false;
     caps.serverLocal = !!m.serverLocal;
     caps.activities = !!m.activities;
+    caps.browser = !!m.browser;
     if (m.ondevice && typeof m.ondevice === 'object') {
       caps.ondevice = { available: !!m.ondevice.available, reason: String(m.ondevice.reason || ''), words: String(m.ondevice.words || '') };
     }

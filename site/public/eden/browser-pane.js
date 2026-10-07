@@ -17,6 +17,7 @@
 import { $, el, ico, toast, isMobile, isTouch, copyText } from './util.js';
 import { API_BASE, isMock } from './api.js';
 import { openMenu } from './composer.js';
+import { IN_APP, openAppBrowser } from './native.js';
 import {
   appBridge, paneMode, wasOpen, keepOpen, typed, shownUrl, isSecure, siteOf, socketUrl, reconnectDelay,
   pointerMsg, wheelMsg, touchScroll, TAP_SLOP, shortcut, keyMsg, downloadName, zoomLabel, blockedLabel,
@@ -46,6 +47,8 @@ export function initBrowserPane(hooks = {}) {
 /** Open or close it (force: true or false); remembered for this viewer. */
 export function toggleBrowser(force, { quiet = false } = {}) {
   const on = force === undefined ? !browserOpen() : !!force;
+  // In the Eden app the app's own browser opens instead (never on its own at load: quiet).
+  if (on && !browserOpen() && (quiet ? IN_APP : openAppBrowser())) return;
   if (on === browserOpen()) { if (on && !quiet) focusAddress(); return; }
   document.body.classList.toggle('browser-open', on);
   const btn = $('btnBrowser');
