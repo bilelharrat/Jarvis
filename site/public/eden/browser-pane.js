@@ -106,7 +106,8 @@ function build() {
     el('div', 'browser-bar', back, fwd, reload, form, zoom, ai, lib, more, progress),
     suggest, find, slot, downloads);
   Object.assign(P, { back, fwd, reload, addr, site, shield, star, suggest, zoom, ai, lib, more, progress, tabs, find, findIn, findCount, slot, downloads, wide, url: '', loading: false });
-  $('center').append(pane); // beside the chat column, from the title bar down to the bottom (browser.css)
+  $('split').append(pane);
+  edgeResize(pane);
 }
 /** Wide: the panel over the whole window (and on request truly full screen, where ⌘T and ⌘W reach it too). */
 function toggleWide(on = !pane.classList.contains('full')) {
@@ -924,4 +925,35 @@ class MockSocket {
       default:
     }
   }
+}
+
+/** The browser's left edge: drag to resize (320px up to all but 360px of the window), double-click resets; kept per browser. */
+function edgeResize(p) {
+  const KEY = 'eden:browserW';
+  const root = document.documentElement;
+  const set = (px) => { const w = Math.round(Math.min(innerWidth - 360, Math.max(320, px))); root.style.setProperty('--bw-w', `${w}px`); return w; };
+  try { const saved = Number(localStorage.getItem(KEY)); if (saved > 0) set(saved); } catch { /* blocked */ }
+  const h = el('div', { class: 'bw-resize', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the browser', title: 'Drag to resize · double-click to reset', tabindex: '0' });
+  p.prepend(h);
+  const save = (w) => { try { localStorage.setItem(KEY, String(w)); } catch { /* blocked */ } };
+  h.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    h.setPointerCapture(e.pointerId);
+    h.classList.add('drag');
+    document.body.classList.add('bw-resizing');
+    const right = p.getBoundingClientRect().right;
+    let w = p.offsetWidth;
+    const move = (ev) => { w = set(right - ev.clientX); };
+    const up = () => { h.removeEventListener('pointermove', move); h.classList.remove('drag'); document.body.classList.remove('bw-resizing'); save(w); };
+    h.addEventListener('pointermove', move);
+    h.addEventListener('pointerup', up, { once: true });
+    h.addEventListener('pointercancel', up, { once: true });
+  });
+  h.addEventListener('dblclick', () => { root.style.removeProperty('--bw-w'); try { localStorage.removeItem(KEY); } catch { /* blocked */ } });
+  h.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    save(set(p.offsetWidth + (e.key === 'ArrowLeft' ? 24 : -24)));
+  });
 }

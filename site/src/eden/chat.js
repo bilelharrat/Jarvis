@@ -41,6 +41,8 @@ import { tasksApi } from '../accounts/tasks.js';
 import { keysApi } from '../accounts/user-keys.js';
 import { EXTRACT_MODEL, extractMemory, memoryApi, memoryForTurn } from './memory.js';
 import { transcribeApi } from './transcribe.js';
+import { videoApi } from './video.js';
+import { NO_GEMINI, VIDEO, deleteFile, fileSeconds, getFile, videoAttachment, videoCapSeconds, videoModels, videoProblem, videoTokens, videosOf } from './video.js';
 import { LIMITS } from '../accounts/account.js';
 // Every provider (Anthropic, OpenAI, Gemini, Kimi) with the Mac's own stream code and the registry's prices (providers.js).
 import { CLAUDE_NEEDS_KEY, KEYS_SETTINGS, PROVIDER_IDS, capRequest, defaultModel, computedWhere, fitCall, maxTokensOf, hasVision, hostedFor, metered, modelOf, narrowFor, providerStates, ratesOf, ratingRouter, searchProvider, searchTool, streamCall, usageUSD } from './providers.js';
@@ -177,7 +179,8 @@ function attachment(a, i) {
     if (typeof a.text !== 'string') bad(`attachment ${name ?? i + 1}: text must be a string`);
     return { kind: 'text', name, text: a.text };
   }
-  return bad(`attachment ${i + 1}: kind must be "image" or "text"`);
+  if (a.kind === 'video') return videoAttachment(a, name ?? String(i + 1), bad);
+  return bad(`attachment ${i + 1}: kind must be "image", "text" or "video"`);
 }
 
 /** A message's text with its text attachments after it, each in a labelled block (the turn's untrusted block when `wrapped`). */
@@ -212,6 +215,12 @@ export function parseSend(body, cfg) {
     const attachments = (m.attachments || []).map(attachment);
     return { role: m.role, content: m.content, ...(attachments.length ? { attachments } : {}) };
   });
+  // A video is read in its own turn only (its file is deleted after it): earlier ones stay as a note.
+  messages.forEach((m, i) => {
+    if (i === messages.length - 1 && m.role === 'user') return;
+    if (!videosOf(m).length) return;
+    m.attachments = m.attachments.map((a) => (a.kind === 'video' ? { kind: 'text', name: a.name, text: `(A video, ${a.name || 'video'}, was shared here and read in that turn; it isn’t available any more.)` } : a));
+  });
   const last = messages[messages.length - 1];
   if (last.role !== 'user') bad('the last message must be the user’s');
   if (!messageText(last).trim() && !last.attachments?.length) bad('Type a message.');
@@ -237,7 +246,7 @@ export function parseSend(body, cfg) {
       ledger.trusted(m.content);
       for (const a of m.attachments || []) {
         if (a.kind === 'text') Object.assign(a, { text: ledger.untrusted('attachment', a.text, { title: `Attached file: ${a.name ?? 'file'}` }), wrapped: true });
-        else ledger.mark('image', `Image: ${a.name ?? 'attached image'}`);
+        else ledger.mark('image', a.kind === 'video' ? `Video: ${a.name ?? 'attached video'}` : `Image: ${a.name ?? 'attached image'}`);
       }
     } else if (body.messages[i].untrusted === true && !replyMarked) {
       replyMarked = true;
@@ -475,13 +484,15 @@ async function readBody(request, cap) {
 }
 
 /** Only this site's own page, signed in, may call these (docs/chat-api.md "Security rules"). */
-async function gate(request, env, { header = true, audio = false } = {}) {
+async function gate(request, env, { header = true, audio = false, video = false } = {}) {
   if (request.method === 'OPTIONS') throw new ApiError(403, 'forbidden', 'No cross-origin calls.');
   if (crossSite(request)) throw new ApiError(403, 'forbidden', 'Not from another site.');
   if (header && request.headers.get('x-jarvis-chat') !== '1') throw new ApiError(403, 'forbidden', 'Missing X-Jarvis-Chat header.');
   if (request.method === 'POST') {
     if (!sameOrigin(request)) throw new ApiError(403, 'forbidden', 'Only askeden.com’s own page may do that.');
-    if (audio) {
+    if (video) {
+      if (!/^video\//i.test(request.headers.get('content-type') || '')) throw new ApiError(415, 'bad_request', 'Send the video as MP4, MOV or WebM.');
+    } else if (audio) {
       if (!/^audio\//i.test(request.headers.get('content-type') || '')) throw new ApiError(415, 'bad_request', 'Send the recording as audio.');
     } else if (!/^application\/json\b/i.test(request.headers.get('content-type') || '')) throw new ApiError(415, 'bad_request', 'Send JSON (content-type: application/json).');
   } else if (request.method !== 'GET') {
@@ -514,6 +525,11 @@ export async function chatApi(request, env, ctx, path) {
     if (GOOGLE_DATA_ROUTES.has(`${request.method} ${path}`) && googleDataReady(env)) return await googleData(request, env, ctx, path, { gate, readBody, maxBody: MAX_BODY });
     // Dictation by recording, where the browser has no speech recognition: the audio is the body (transcribe.js).
     if (path === '/api/chat/transcribe') return await transcribeApi(request, env, await gate(request, env, { audio: true }), { call, limited });
+    // A video for the next turn: streamed on to Gemini's Files API (video.js).
+    if (path === '/api/chat/video') {
+      const vw = await gate(request, env, { video: true });
+      return await videoApi(request, env, vw, { cfg: await hostedFor(env, vw, cfg, request), call, limited });
+    }
     const who = await gate(request, env);
     cfg = await hostedFor(env, who, cfg, request); // the models this asker has keys for (providers.js)
     if (path === '/api/chat/publish' || path.startsWith('/api/chat/published')) return await publishedApi(request, env, who, path); // G10 (accounts/published.js)
@@ -805,11 +821,32 @@ async function send(request, env, ctx, who, cfg) {
   const chatId = typeof raw.chatId === 'string' ? raw.chatId.slice(0, 80) : null;
   const mem = await memoryForTurn(env, who, { prompt: lastText, temporary: raw.temporary === true, source: chatId });
   const system = systemPrompt({ ...body, memory: mem ? mem.block : '' });
-  const inputTokens = inputEstimate(body.messages, system);
-  if (inputTokens > cfg.maxInputTokens) {
-    throw new ApiError(413, 'too_long', `This conversation is too long for askeden.com (about ${inputTokens.toLocaleString('en-US')} tokens; at most ${cfg.maxInputTokens.toLocaleString('en-US')}). Start a new chat, or use Eden on your Mac.`);
+  const videos = videosOf(body.messages[body.messages.length - 1]);
+  const textTokens = inputEstimate(body.messages, system);
+  if (textTokens > cfg.maxInputTokens) {
+    throw new ApiError(413, 'too_long', `This conversation is too long for askeden.com (about ${textTokens.toLocaleString('en-US')} tokens; at most ${cfg.maxInputTokens.toLocaleString('en-US')}). Start a new chat, or use Eden on your Mac.`);
   }
   const allow = await call(env, who.account, 'allow-ai', { eden: true }, who.token);
+  // A video (video.js): checked again at Google (processed, within the plan's length), and the
+  // turn goes to the cheapest Gemini that reads video, whatever the router or a pick said.
+  let inputTokens = textTokens;
+  if (videos.length) {
+    const gk = cfg.keys.gemini;
+    const pool = videoModels(cfg.models.filter((m) => allow.ok || !metered(cfg.keys, m.provider)));
+    if (!gk || !pool.length) throw new ApiError(422, 'no_provider', NO_GEMINI);
+    const cap = videoCapSeconds(allow.bucket);
+    for (const v of videos) {
+      const f = await getFile(gk.key, v.file, cfg.base);
+      if (!f || f.state !== 'ACTIVE') throw new ApiError(410, 'gone', `The video ${v.name || ''} isn’t at Google any more (a video is read in one turn). Attach it again.`);
+      v.seconds = fileSeconds(f, v.seconds);
+      const over = videoProblem({ mime: v.mime, size: Number(f.sizeBytes) || 1, seconds: v.seconds }, cap);
+      if (over) throw new ApiError(413, 'too_big', over);
+      inputTokens += videoTokens(v.seconds);
+    }
+    body.override = null;
+    body.settings = { ...body.settings, classifier: 'off' };
+    cfg = { ...cfg, models: pool };
+  }
   if (!allow.ok) {
     // No included AI left: only the asker's own keys (providers.js providerKey, source 'user') can answer.
     const own = cfg.models.filter((m) => !metered(cfg.keys, m.provider));
@@ -817,7 +854,7 @@ async function send(request, env, ctx, who, cfg) {
     cfg = { ...cfg, models: own };
   }
   // The models this turn may use: the page's providers, the search provider, vision for images.
-  cfg = narrowFor(cfg, body);
+  if (!videos.length) cfg = narrowFor(cfg, body);
   const anyMetered = cfg.models.some((m) => metered(cfg.keys, m.provider));
 
   // Route (before the stream starts, so a bad request is a plain error).
@@ -830,7 +867,7 @@ async function send(request, env, ctx, who, cfg) {
     ...(body.sticky && cfg.models.some((m) => m.id === body.sticky.model) ? { sticky: { current: body.sticky } } : {}),
   };
   // H2/H3: the page's profile, and the autopilot on the allowance (a pick of your own, `autopilot: false`, or only your own keys skip it).
-  const autopilot = body.override || raw.autopilot === false || !allow.ok || !anyMetered ? null : hostedAutopilot(env, allow);
+  const autopilot = videos.length || body.override || raw.autopilot === false || !allow.ok || !anyMetered ? null : hostedAutopilot(env, allow);
   // The Gemini rating, as on the Mac, where askeden.com has a Gemini key (else the rules); its cost counts like a turn's.
   let rated = null;
   let ratingUSD = 0;
@@ -863,8 +900,9 @@ async function send(request, env, ctx, who, cfg) {
     const pick = pinned.pick;
     return { model, name: m.name, provider: m.provider, effort: pick.effort, request: pick.request, costUSD: pick.costUSD, quality: pick.quality };
   };
-  const first = body.override ? choose(body.override.model, body.override.effort) : choose(result.pick.model, result.pick.effort);
+  const first = videos.length ? choose(cfg.models[0].id, null) : body.override ? choose(body.override.model, body.override.effort) : choose(result.pick.model, result.pick.effort);
   if (body.override) notes.unshift(`you picked ${first.name}`);
+  if (videos.length) notes.unshift(`video: read by ${first.name}${isObj(raw.override) ? ' (a video goes to Gemini, whatever the pick)' : ''}`);
   // The turn's worst case is held on the allowance until it's done (a 402 now if not even a
   // short reply fits; a 429 with two turns already running). The asker's own keys hold nothing.
   const searches = body.mode === 'chat' ? 0 : body.mode === 'research' ? cfg.searchUses * 2 : cfg.searchUses;
@@ -930,7 +968,7 @@ async function send(request, env, ctx, who, cfg) {
   const attempt = async (choice, { request: req, uses }) => {
     const model = modelOf(choice.model);
     const r = await streamCall(
-      { model, request: req, messages: body.messages, system, search: body.mode !== 'chat', uses, key: cfg.keys[model.provider].key, base: cfg.base, inputTokens },
+      { model, request: req, messages: body.messages, system, search: body.mode !== 'chat', uses, key: cfg.keys[model.provider].key, base: cfg.base, inputTokens, videos },
       { signal: abort.signal, emit: write },
     );
     if (r.usage) charge(model.provider, r.costUSD); // counted however it ended: in full, or (stopped, failed) as far as it got
@@ -1018,8 +1056,9 @@ async function send(request, env, ctx, who, cfg) {
           // already gone
         }
       }
-      // Counted first, then the hold lets go.
+      // Counted first, then the hold lets go; the turn's videos are deleted at Google.
       await Promise.all(charges);
+      for (const v of videos) await deleteFile(cfg.keys.gemini.key, v.file, cfg.base);
       for (const h of [hold, ...extraHolds]) if (h) await call(env, who.account, 'release-ai', { hold: h.hold }).catch(() => {});
     }
   };
@@ -1169,6 +1208,7 @@ async function compare(request, env, ctx, who, cfg) {
   const body = parseSend({ ...raw, mode: 'chat', override: undefined, sticky: undefined }, cfg);
   cfg = narrowFor(cfg, body); // the page's providers; vision models when there are images
   if (models && models.some((x) => !cfg.models.some((m) => m.id === x.model))) throw new ApiError(422, 'not_here', 'One of those models can’t be used with the providers you have on (or can’t read images).');
+  if (body.messages.some((m) => videosOf(m).length)) throw new ApiError(422, 'not_here', 'Compare doesn’t take videos: ask one model (Gemini reads the video).');
   const system = systemPrompt(body);
   const inputTokens = inputEstimate(body.messages, system);
   if (inputTokens > cfg.maxInputTokens) {

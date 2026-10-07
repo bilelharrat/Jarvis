@@ -26,6 +26,7 @@
 
 import { ApiError } from '../accounts/util.js';
 import { userKeyFor } from '../accounts/user-keys.js';
+import { withVideoParts } from './video.js';
 import { MODELS, createLocalRouter } from './vendor/model-router.js';
 import { PROVIDER_NAMES, buildStreamRequest, computedWhere, createStreamParser, hasVision, readSse, redact, requestMaxOutputTokens, usageCost, withMaxOutputTokens } from './vendor/providers.js';
 
@@ -284,9 +285,10 @@ async function* chunks(reader) {
  * costUSD, citations }. A stopped or failed stream's usage is what was reported, else estimated
  * (top of file).
  */
-export async function streamCall({ model, request, messages, system, search = false, uses = 0, key, base = null, inputTokens = 0 }, { signal, emit }) {
+export async function streamCall({ model, request, messages, system, search = false, uses = 0, key, base = null, inputTokens = 0, videos = [] }, { signal, emit }) {
   const provider = model.provider;
   const http = buildStreamRequest({ request, model, messages, system, search: provider === 'gemini' && search }, key);
+  if (provider === 'gemini') withVideoParts(http.body, videos); // video.js: file_data parts
   if (provider === 'anthropic' && uses > 0) http.body.tools = [searchTool(model.apiId || model.id, uses)];
   const clean = (s) => redact(String(s), key);
   const started = Date.now();

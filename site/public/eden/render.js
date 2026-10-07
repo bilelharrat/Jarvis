@@ -14,6 +14,7 @@ import { approvalCard, isTainted, sourceStrip } from './guard.js';
 import { macCard } from './files.js';
 import { feedbackButtons } from './learned.js';
 import { limitAction } from './plan.js';
+import { clock } from './video-model.js';
 
 export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), editing: null };
 // an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
@@ -60,8 +61,8 @@ function userMessage(c, node, last) {
   const data = attachmentData.get(node.id) || [];
   for (const a of node.attachments || []) {
     const live = data.find((d) => d.name === a.name && d.kind === a.kind);
-    const thumb = a.kind === 'image' && live && live.url ? el('img', { class: 'thumb', src: live.url, alt: '' }) : el('span', 'thumb');
-    bubble.append(el('span', 'attach', thumb, `${a.name}${a.size ? ` · ${sizeText(a.size)}` : ''}${a.kind === 'image' && !live ? ' · image not kept after reload' : ''}`));
+    const thumb = a.kind === 'image' && live && live.url ? el('img', { class: 'thumb', src: live.url, alt: '' }) : a.kind === 'video' && a.thumb ? el('img', { class: 'thumb', src: a.thumb, alt: '' }) : el('span', 'thumb');
+    bubble.append(el('span', 'attach', thumb, `${a.name}${a.kind === 'video' && a.seconds ? ` · ${clock(a.seconds)}` : ''}${a.size ? ` · ${sizeText(a.size)}` : ''}${a.kind === 'image' && !live ? ' · image not kept after reload' : ''}`));
   }
   for (const ctx of node.context || []) bubble.append(el('span', 'ctxchip', `⧉ ${ctx.title}`));
   wrap.append(bubble);

@@ -156,6 +156,14 @@ async function watchApproval(p) {
 
 export const api = {
   meta: () => getJSON('/api/chat/meta'),
+  // A video for the next turn (askeden.com: on to Gemini's Files API, site src/eden/video.js) →
+  // { file, uri, mime, size, seconds, estimate { model, name, tokens, usd, confirm } }
+  video: async (file, seconds) => {
+    const name = String(file.name || 'video').replace(/[^\x20-\x7e]/g, '_').slice(0, 120);
+    const res = await transport('/api/chat/video', { method: 'POST', headers: headers('/api/chat/video', { 'content-type': file.type || 'video/mp4', 'x-eden-name': name, 'x-eden-seconds': String(Math.round(seconds || 0)) }), body: file });
+    if (!res.ok) throw await errorFrom(res);
+    return res.json();
+  },
   route: (body, signal) => postJSON('/api/route', body, { signal }),
   keys: () => getJSON('/api/chat/keys'),
   setKey: (provider, key) => postJSON('/api/chat/keys', { provider, key }),

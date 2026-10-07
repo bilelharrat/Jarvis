@@ -47,7 +47,7 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
   const last = path(c).at(-1);
   const user = addNode(c, last ? last.id : null, {
     role: 'user', content: text,
-    attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, mime: a.mime, size: a.size, ...(a.kind === 'text' ? { text: a.text } : {}) })),
+    attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, mime: a.mime, size: a.size, ...(a.kind === 'text' ? { text: a.text } : {}), ...(a.kind === 'video' ? { file: a.file, uri: a.uri, seconds: a.seconds, thumb: a.thumb } : {}) })),
     context: context.map((x) => ({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) })),
     ...(steered ? { steered: true } : {}),
   });
@@ -81,6 +81,7 @@ function historyFor(c, upTo) {
           const d = live.find((x) => x.name === a.name);
           if (d && d.data) atts.push({ kind: 'image', name: a.name, mime: a.mime, data: d.data });
         } else if (a.kind === 'text') atts.push({ kind: 'text', name: a.name, text: a.text || '' });
+        else if (a.kind === 'video' && a.uri) atts.push(videoPayload(a)); // read in its own turn; askeden.com notes it after
       }
       out.push({ role: 'user', content: n.content || '', ...(atts.length ? { attachments: atts } : {}) });
     } else {
@@ -256,12 +257,14 @@ function failure(e) {
   return (e && e.message) || String(e);
 }
 
+const videoPayload = (a) => ({ kind: 'video', name: a.name, mime: a.mime, file: a.file, uri: a.uri, seconds: a.seconds });
 function userPayload(user) {
   const live = attachmentData.get(user.id) || [];
   const atts = [];
   for (const a of user.attachments || []) {
     if (a.kind === 'image') { const d = live.find((x) => x.name === a.name); if (d && d.data) atts.push({ kind: 'image', name: a.name, mime: a.mime, data: d.data }); }
     else if (a.kind === 'text') atts.push({ kind: 'text', name: a.name, text: a.text || '' });
+    else if (a.kind === 'video' && a.uri) atts.push(videoPayload(a));
   }
   return { role: 'user', content: user.content || '', ...(atts.length ? { attachments: atts } : {}) };
 }

@@ -14,6 +14,8 @@ import { initVoice, voiceEscape } from './voice.js';
 import { currentOverride, setOverride, availableModels, modelInfo, setPreviewText, levels, setLevel, scatter, rowsToCandidates, openChipPop, closeChipPop, chipPopOpenFor, PROVIDER_NAMES, schedulePreview } from './router.js';
 import { initCompare, renderEstimate } from './compare.js';
 import { macChips, macMenuItems } from './files.js';
+import { api } from './api.js';
+import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
 
 let H = {}; // handlers from app.js
 
@@ -218,6 +220,7 @@ function grow() {
 const TEXT_FILE = /\.(md|markdown|txt|log|json|jsonl|csv|tsv|ya?ml|toml|ini|cfg|conf|xml|html?|css|scss|less|m?js|cjs|tsx?|jsx|vue|svelte|py|pyi|rb|go|rs|java|kt|kts|swift|m|mm|c|h|cc|cpp|hpp|cs|php|pl|lua|r|dart|scala|sh|bash|zsh|fish|sql|graphql|proto|env\.example|gitignore|dockerfile|makefile|gradle|plist|strings|diff|patch)$/i;
 const TEXT_TYPES = ['application/json', 'application/xml', 'application/javascript', 'application/x-yaml', 'application/yaml', 'application/toml', 'application/x-sh', 'application/sql'];
 function fileKind(file) {
+  if (isVideo(file)) return 'video';
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('text/') || TEXT_TYPES.includes(file.type) || TEXT_FILE.test(file.name) || /^(Makefile|Dockerfile|Gemfile|Procfile|LICENSE|README)$/i.test(file.name)) return 'text';
   return '';
@@ -268,16 +271,58 @@ async function cleanPicture(file) {
     if (url) URL.revokeObjectURL(url);
   }
 }
+/** A video's length and first frame (a small JPEG), read in the page: { seconds, thumb }. */
+function probeVideo(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    const done = (out) => { URL.revokeObjectURL(url); resolve(out); };
+    v.preload = 'metadata'; v.muted = true; v.playsInline = true;
+    v.onerror = () => done(null);
+    v.onloadedmetadata = () => { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); };
+    v.onseeked = () => {
+      let thumb = '';
+      try {
+        const w = 160, h = Math.round(160 * (v.videoHeight || 90) / (v.videoWidth || 160)) || 90;
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(v, 0, 0, w, h);
+        thumb = cv.toDataURL('image/jpeg', 0.7);
+      } catch { /* no frame */ }
+      done({ seconds: Number.isFinite(v.duration) ? v.duration : 0, thumb });
+    };
+    v.src = url;
+  });
+}
+/** A video: checked, read (length, first frame), then uploaded now so it's ready when the message goes. */
+async function addVideo(file) {
+  const big = videoProblem({ type: file.type, name: file.name, size: file.size, seconds: 0 });
+  if (big) { toast(`${file.name}: ${big}`); return; }
+  const slot = { kind: 'video', size: 0, name: file.name, uploading: true };
+  reading.add(slot); renderAttachments();
+  try {
+    const p = await probeVideo(file);
+    if (!p) { toast(`${file.name} couldn’t be read as a video.`); return; }
+    const long = videoProblem({ type: file.type, name: file.name, size: file.size, seconds: p.seconds });
+    if (long) { toast(`${file.name} is ${clock(p.seconds)} long. ${long}`); return; }
+    Object.assign(slot, { thumb: p.thumb, seconds: p.seconds, fileSize: file.size });
+    renderAttachments();
+    const up = await api.video(file, p.seconds);
+    attachments.push({ kind: 'video', name: file.name, mime: up.mime, size: file.size, seconds: up.seconds || p.seconds, thumb: p.thumb, file: up.file, uri: up.uri, estimate: up.estimate });
+  } catch (e) {
+    toast(e && e.status === 404 ? 'Video works on askeden.com.' : `${file.name}: ${(e && e.message) || 'the upload didn’t work'}`);
+  } finally { reading.delete(slot); renderAttachments(); }
+}
 export function addFile(file) {
   if (!file) return;
   const kind = fileKind(file);
-  if (!kind) { toast(`${file.name} can’t be attached: pictures and text or code files only.`); return; }
+  if (!kind) { toast(`${file.name} can’t be attached: pictures, videos and text or code files only.`); return; }
   const held = [...attachments, ...reading];
   if (held.length >= MAX_FILES) { toast('Up to six attachments per message.'); return; }
+  if (kind === 'video') { addVideo(file); return; }
   if (kind === 'image' && !cleaned.has(file)) { cleanPicture(file).then((f) => (f ? addFile(f) : toast(`${file.name} couldn’t be read.`))); return; }
   if (kind === 'text' && file.size > MAX_TEXT) { toast(`${file.name} is over 400 KB.`); return; }
   if (kind === 'image' && file.size > MAX_BINARY) { toast(`${file.name} is over 6 MB.`); return; }
-  if (held.reduce((n, a) => n + (a.size || 0), 0) + file.size > MAX_TOTAL) { toast(`${file.name} would make this message too big to send.`); return; }
+  if (held.reduce((n, a) => n + (a.kind === 'video' ? 0 : a.size || 0), 0) + file.size > MAX_TOTAL) { toast(`${file.name} would make this message too big to send.`); return; }
   if (kind === 'image' && state.current && state.current.kind !== 'code') {
     const o = currentOverride();
     const m = o && modelInfo(o.model);
@@ -326,6 +371,12 @@ addEventListener('eden:attach', async (e) => {
     if (isTouch()) input().blur(); // asked from elsewhere: the reply, not the keyboard
   }
 });
+/** A video's chip: its first frame, length and size (uploading: a note instead of ×). */
+function videoChip(a, x, uploading = false) {
+  return el('span', { class: 'jc-file-chip video', title: `${a.name}${uploading ? ' (uploading…)' : ''}` },
+    a.thumb ? el('img', { class: 'vthumb', src: a.thumb, alt: '' }) : icon('doc', 15),
+    el('span', 'nm', a.name), el('small', '', [a.seconds ? clock(a.seconds) : '', a.size ? sizeText(a.size) : '', uploading ? 'uploading…' : ''].filter(Boolean).join(' · ')), x || '');
+}
 function removeChip(label, onRemove) {
   return el('button', { type: 'button', class: 'jc-chip-x', 'aria-label': `Remove ${label}`, onclick: onRemove }, '×');
 }
@@ -334,8 +385,10 @@ export function renderAttachments() {
   const chips = attachments.map((a, i) => {
     const drop = () => { attachments.splice(i, 1); renderAttachments(); input().focus(); };
     if (a.kind === 'image') return el('span', 'jc-thumb-img', el('img', { src: a.url, alt: a.name || 'Attached image' }), removeChip(a.name || 'image', drop));
+    if (a.kind === 'video') return videoChip(a, removeChip(a.name || 'video', drop));
     return el('span', { class: 'jc-file-chip', title: a.name }, icon('doc', 15), el('span', 'nm', a.name), el('small', '', sizeText(a.size || 0)), removeChip(a.name, drop));
   });
+  for (const s of reading) if (s.kind === 'video') chips.push(videoChip({ ...s, size: s.fileSize }, null, true));
   state.draftContext.forEach((x, i) => chips.push(el('span', { class: 'jc-file-chip ctx', title: x.title }, icon('note', 15), el('span', 'nm', x.title), el('small', '', 'context'), removeChip(x.title, () => { state.draftContext.splice(i, 1); renderAttachments(); }))));
   const pid = state.current ? state.current.personaId : state.draftPersona;
   const p = persona(pid);
@@ -827,6 +880,9 @@ export function initComposer(handlers) {
       if (attachments.length) { toast('Attachments go with a new message: stop the reply first, or wait'); return; }
       H.queue(text); done(); return;
     }
+    if ([...reading].some((s) => s.kind === 'video')) { toast('Wait for the video to finish uploading'); return; }
+    const videos = attachments.filter((a) => a.kind === 'video');
+    if (needsConfirm(videos) && !confirm(confirmText(videos))) return; // a long video: its estimate first
     const ok = H.send(text, attachments.slice(), state.draftContext.slice());
     if (!ok) return; // not sent: the draft stays
     attachments = [];
