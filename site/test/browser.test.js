@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
   Bucket, LIMITS, addUse, addVisit, addressAllowed, allowance, closeReason, hostBlocked, keyEvent, minutesLeft,
   mouseEvent, privateHost, requestVerdict, suggest, textInput, toUrl, toggleBookmark, viewport, zoomStep,
+  FrameFlow, botWall, cursorOf, density, iconData, navFailure, recentSites,
 } from '../src/browser/rules.js';
 import { BrowserSession } from '../src/browser/session.js';
 import { browserApi } from '../src/browser/api.js';
@@ -357,4 +358,85 @@ test('connect: a WebSocket from this site only, signed in, with the binding', as
   assert.equal((await browserApi(req({ upgrade: 'websocket' }), {})).status, 403, 'no Origin: not a page of this site');
   assert.equal((await browserApi(req({ upgrade: 'websocket', origin: 'https://askeden.com' }), {})).status, 503);
   assert.equal((await browserApi(req({ upgrade: 'websocket', origin: 'https://askeden.com' }), { BROWSER: {}, BROWSER_SESSIONS: {}, ACCOUNTS: {} })).status, 401);
+});
+
+// ── feel: sharpness, flow, the cursor, failures ──
+
+test('the picture is drawn at the viewer’s density (Retina 2x), in the same CSS pixels; huge panels drop density', () => {
+  assert.deepEqual(viewport(800, 600, 1, 2), { width: 800, height: 600, deviceScaleFactor: 2, mobile: false });
+  assert.deepEqual(viewport(800, 600, 1.5, 2), { width: 533, height: 400, deviceScaleFactor: 3, mobile: false }, 'zoom and density multiply');
+  assert.equal(viewport(800, 600, 1, 3).deviceScaleFactor, 2, 'never past 2x');
+  assert.equal(viewport(390, 700, 1, 3, true).mobile, true);
+  assert.equal(density(2, 2560, 1600), 1);
+  assert.equal(density(2, 1600, 1000), 1.5);
+  assert.equal(density(2, 1280, 800), 2);
+  assert.equal(mouseEvent({ e: 'move', x: 100, y: 50 }, 1).x, 100, 'input stays in CSS pixels whatever the density');
+});
+
+test('frame flow: at most two on the way, crisp frames count too, acks release the waiting one', () => {
+  const f = new FrameFlow(2);
+  assert.equal(f.sent(1), true);
+  assert.equal(f.sent(2), false, 'the second waits for the viewer');
+  assert.equal(f.room, false);
+  assert.equal(f.acked(), 2);
+  assert.equal(f.acked(), null);
+  assert.equal(f.room, true);
+  assert.equal(f.sent(null), false, 'a crisp frame has nothing to ack');
+  assert.equal(f.inflight, 1);
+  f.reset();
+  assert.equal(f.inflight, 0);
+  assert.equal(f.acked(), null);
+  assert.equal(f.inflight, 0, 'never below zero');
+});
+
+test('cursor keywords only; bot walls and network failures in words; recent sites; small icons as data:', () => {
+  assert.equal(cursorOf('pointer'), 'pointer');
+  assert.equal(cursorOf('url(x.png) 2 2, text'), 'text');
+  assert.equal(cursorOf('javascript:alert(1)'), 'default');
+  assert.ok(botWall('Just a moment...'));
+  assert.ok(botWall('Access Denied'));
+  assert.ok(!botWall('The New York Times'));
+  assert.equal(navFailure('net::ERR_NAME_NOT_RESOLVED').title, 'Can’t find that site');
+  assert.equal(navFailure('net::ERR_CERT_DATE_INVALID').title, 'This site’s connection isn’t private');
+  assert.equal(navFailure('').title, 'Couldn’t open that page');
+  assert.deepEqual(recentSites([{ url: 'https://www.a.com/x', title: 'A x' }, { url: 'https://a.com/y' }, { url: 'https://b.org/', title: '' }]).map((r) => [r.site, r.title]), [['a.com', 'A x'], ['b.org', 'b.org']]);
+  assert.equal(iconData(new Uint8Array([1, 2, 3]), 'image/png; charset=x'), 'data:image/png;base64,AQID');
+  assert.equal(iconData(new Uint8Array([1]), 'text/html'), '');
+  assert.equal(iconData(new Uint8Array(60 * 1024), 'image/png'), '', 'small icons only');
+});
+
+test('session: the panel’s density reaches Chrome; a still picture gets one crisp frame; the cursor and right-click', async () => {
+  const { s, chrome } = session();
+  await s.onMessage({ t: 'hello', w: 600, h: 400, dpr: 2 });
+  await s.onMessage({ t: 'start' });
+  const cdp = chrome.pages[0].cdp;
+  assert.equal(cdp.of('Emulation.setDeviceMetricsOverride').at(-1).deviceScaleFactor, 2);
+  assert.equal(cdp.of('Page.startScreencast').at(-1).maxWidth, 1200);
+  assert.equal(cdp.of('Runtime.addBinding')[0].name, '__edenCursor');
+  cdp.answers['Page.captureScreenshot'] = { data: btoa('WEBP') };
+  cdp.emit('Page.screencastFrame', { sessionId: 1, data: btoa('JPEG') });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(cdp.of('Page.captureScreenshot').length, 1);
+  assert.equal(s.out.filter((m) => m instanceof Uint8Array).length, 2, 'the moving frame, then the crisp one');
+  cdp.emit('Runtime.bindingCalled', { name: '__edenCursor', payload: 'pointer' });
+  cdp.emit('Runtime.bindingCalled', { name: '__edenCursor', payload: 'pointer' });
+  assert.deepEqual(s.out.filter((m) => m.t === 'cursor').map((m) => m.c), ['pointer'], 'told once per change');
+  await s.onMessage({ t: 'resize', w: 600, h: 400, dpr: 2 });
+  assert.equal(cdp.of('Emulation.setDeviceMetricsOverride').length, 1, 'the same size again changes nothing');
+  await s.onMessage({ t: 'zoom', to: 1.5 });
+  assert.equal([...s.tabs.values()][0].zoom, 1.5);
+  await s.shutdown('', true);
+});
+
+test('session: a page that fails to open shows Eden’s own error, with its address', async () => {
+  const { s, chrome } = session();
+  await s.onMessage({ t: 'start' });
+  const cdp = chrome.pages[0].cdp;
+  cdp.answers['Page.navigate'] = { errorText: 'net::ERR_NAME_NOT_RESOLVED' };
+  await s.onMessage({ t: 'go', url: 'nosuch.example' });
+  assert.equal(last(s, 'state').failed.title, 'Can’t find that site');
+  assert.equal(last(s, 'state').failed.url, 'https://nosuch.example/');
+  cdp.emit('Page.frameStartedLoading', { frameId: 'main' });
+  assert.equal([...s.tabs.values()][0].failed, null, 'cleared by the next load');
+  await s.shutdown('', true);
 });

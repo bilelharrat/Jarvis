@@ -161,11 +161,25 @@ export function modifiers(m = {}) {
 const clampN = (v, lo, hi, d = lo) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : d);
 
 /** The page's size in CSS pixels for a panel of w×h at a zoom: zoomed in, the page is narrower. */
-export function viewport(w, h, zoom = 1) {
+/**
+ * The viewer's screen density for the picture: 1 to 2 (a 3x phone gets 2), lowered while the
+ * picture would pass about 4.5 million pixels, so frames stay small enough to keep up.
+ */
+export const MAX_PIXELS = 2560 * 1760;
+export function density(dpr, w, h) {
+  let d = clampN(dpr, 1, 2, 1);
+  while (d > 1 && w * h * d * d > MAX_PIXELS) d = Math.max(1, d - 0.25);
+  return d;
+}
+/** The page's size in its own CSS pixels at the zoom, drawn at the viewer's density (Retina: 2x). */
+export function viewport(w, h, zoom = 1, dpr = 1, mobile = false) {
   const z = clampN(zoom, ZOOM.min, ZOOM.max, 1);
-  const width = Math.round(clampN(w, 240, 2560, 1024) / z);
-  const height = Math.round(clampN(h, 240, 2000, 768) / z);
-  return { width, height, deviceScaleFactor: z, mobile: false };
+  const cw = clampN(w, 240, 2560, 1024);
+  const ch = clampN(h, 240, 2000, 768);
+  const width = Math.round(cw / z);
+  const height = Math.round(ch / z);
+  const d = density(dpr, cw, ch);
+  return { width, height, deviceScaleFactor: Math.round(z * d * 1000) / 1000, mobile: Boolean(mobile) };
 }
 
 /**
@@ -243,7 +257,7 @@ export class Bucket {
   }
 }
 /** Per socket: input events (mouse moves are many), and the costlier things (loads, finds, page text). */
-export const RATES = { input: [120, 240], action: [4, 20] };
+export const RATES = { input: [300, 600], action: [6, 24] }; // input: moves and wheels (each once a frame at most), keys, acks
 
 // ── zoom: ×1.1 steps, kept per site ──
 
@@ -372,3 +386,90 @@ export const CLOSED = {
   busy: 'The cloud browser is busy right now. Try again in a minute.',
   error: 'The browser stopped. Start it again.',
 };
+
+// ── the picture's flow ──
+
+/**
+ * The screencast: JPEG at CAST.moving while things move (scrolling, loading); once nothing has
+ * changed for CAST.restMs, one crisp WebP at CAST.rest. At most CAST.inflight frames are on the
+ * way to the viewer: Chrome's next frame waits for the viewer's ack, so frames never queue up
+ * (a slow connection skips frames rather than falling behind).
+ */
+export const CAST = { moving: 64, rest: 90, restMs: 220, inflight: 2 };
+export class FrameFlow {
+  constructor(max = CAST.inflight) { this.max = max; this.reset(); }
+  reset() { this.inflight = 0; this.stashed = null; }
+  /** Room for one more on the way. */
+  get room() { return this.inflight < this.max; }
+  /** A frame went out: true to ack Chrome now (id: the screencast's; null for a crisp frame). */
+  sent(id = null) {
+    this.inflight += 1;
+    if (id == null) return false;
+    if (this.inflight < this.max) return true;
+    this.stashed = id;
+    return false;
+  }
+  /** The viewer drew one: the screencast frame to ack now, if one was waiting. */
+  acked() {
+    this.inflight = Math.max(0, this.inflight - 1);
+    if (this.stashed != null && this.inflight < this.max) { const id = this.stashed; this.stashed = null; return id; }
+    return null;
+  }
+}
+
+/** The page's mouse cursor, as the panel shows it over the picture: CSS keywords only. */
+const CURSORS = new Set(['default', 'pointer', 'text', 'vertical-text', 'crosshair', 'move', 'grab', 'grabbing', 'not-allowed', 'no-drop', 'wait', 'progress', 'help', 'zoom-in', 'zoom-out', 'col-resize', 'row-resize', 'n-resize', 's-resize', 'e-resize', 'w-resize', 'ne-resize', 'nw-resize', 'se-resize', 'sw-resize', 'ew-resize', 'ns-resize', 'nesw-resize', 'nwse-resize', 'all-scroll', 'cell', 'copy', 'alias', 'context-menu', 'none']);
+export function cursorOf(c) {
+  const k = String(c || '').split(',').pop().trim().toLowerCase();
+  return CURSORS.has(k) ? k : 'default';
+}
+
+/** A page that turned the cloud browser away (a bot check or a block page), by its title. */
+export const botWall = (title) => /^(just a moment|attention required|access denied|access to this page has been denied|pardon our interruption|are you a robot|verify you are human|please verify you are a human|403 forbidden|request blocked|you have been blocked|robot or human)/i.test(String(title || '').trim());
+
+/** Why a page didn't open, in words, from Chrome's error (net::ERR_…). */
+const FAILS = {
+  ERR_NAME_NOT_RESOLVED: ['Can’t find that site', 'The address may be mistyped, or the site no longer exists.'],
+  ERR_NAME_RESOLUTION_FAILED: ['Can’t find that site', 'The address may be mistyped, or the site no longer exists.'],
+  ERR_CONNECTION_TIMED_OUT: ['The site took too long to answer', 'It may be down or very busy. Try again in a moment.'],
+  ERR_TIMED_OUT: ['The site took too long to answer', 'It may be down or very busy. Try again in a moment.'],
+  ERR_CONNECTION_REFUSED: ['The site refused to connect', 'It may not accept visits from a cloud browser. Your own browser may get in.'],
+  ERR_CONNECTION_RESET: ['The connection was cut', 'The site closed it, perhaps because the cloud browser isn’t welcome there.'],
+  ERR_CONNECTION_CLOSED: ['The connection was cut', 'The site closed it, perhaps because the cloud browser isn’t welcome there.'],
+  ERR_EMPTY_RESPONSE: ['The site sent nothing back', 'It may not accept visits from a cloud browser.'],
+  ERR_TOO_MANY_REDIRECTS: ['The site keeps redirecting', 'It sent the browser round in circles.'],
+  ERR_SSL_PROTOCOL_ERROR: ['This site’s connection isn’t secure', 'It couldn’t set up a private connection.'],
+  ERR_ADDRESS_UNREACHABLE: ['Can’t reach that address', 'The site may be down.'],
+  ERR_HTTP2_PROTOCOL_ERROR: ['The site sent something broken', 'Try again, or open it in your own browser.'],
+};
+export function navFailure(errorText) {
+  const code = String(errorText || '').replace(/^net::/, '').trim().slice(0, 60);
+  const [title, text] = FAILS[code] || (/^ERR_CERT/.test(code) ? ['This site’s connection isn’t private', 'Its certificate isn’t valid, so the cloud browser stopped.'] : ['Couldn’t open that page', 'Something went wrong on the way. Try again, or open it in your own browser.']);
+  return { code, title, text };
+}
+
+/** The new tab page's recent sites: the latest page of each site, newest first. */
+export function recentSites(history = [], n = 8) {
+  const seen = new Set();
+  const out = [];
+  for (const h of history) {
+    const site = siteOf(h.url);
+    if (!site || seen.has(site)) continue;
+    seen.add(site);
+    out.push({ url: h.url, title: h.title || site, site });
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+/** A site's icon as a data: address (small images only), or ''. */
+export const ICON_MAX = 48 * 1024;
+export function iconData(bytes, type) {
+  const t = String(type || '').split(';')[0].trim().toLowerCase();
+  if (!/^image\/(png|x-icon|vnd\.microsoft\.icon|svg\+xml|jpeg|gif|webp|avif)$/.test(t)) return '';
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (!b.length || b.length > ICON_MAX) return '';
+  let bin = '';
+  for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return `data:${t};base64,${btoa(bin)}`;
+}

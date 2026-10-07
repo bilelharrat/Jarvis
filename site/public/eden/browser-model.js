@@ -102,6 +102,7 @@ export function shortcut(e, mac = true) {
     if (k === '[' || k === '{') return 'prevtab';
     if (k === ']' || k === '}') return 'nexttab';
     if (k === 'b') return 'closepanel';
+    if (k === 'e') return 'wide';
     return '';
   }
   const map = { l: 'address', t: 'newtab', w: 'closetab', r: 'reload', '[': 'back', ']': 'forward', f: 'find', d: 'bookmark', y: 'history', '=': 'zoomin', '+': 'zoomin', '-': 'zoomout', 0: 'zoomreset', k: 'palette' };
@@ -138,3 +139,66 @@ export function downloadName(name, url) {
 export const zoomLabel = (z) => (Math.abs((Number(z) || 1) - 1) < 0.01 ? '' : `${Math.round((Number(z) || 1) * 100)}%`);
 /** The shield's count. */
 export const blockedLabel = (n) => (n > 99 ? '99+' : n > 0 ? String(n) : '');
+
+// ── feel: the picture, scrolling, touch, the address bar ──
+
+/** The viewer's screen density as the cloud browser draws for it (1 to 2; the server lowers it for huge panels). */
+export const densityOf = (win) => Math.min(2, Math.max(1, Number(win && win.devicePixelRatio) || 1));
+
+/** The panel's size for the cloud browser: its CSS pixels, its density, and whether it's touched. */
+export const viewSize = (rect, dpr, touch = false) => ({ w: Math.max(240, Math.round(rect.width)), h: Math.max(240, Math.round(rect.height)), dpr, touch: !!touch });
+
+/** A frame's size on screen (CSS pixels): its pixels at the density it was drawn for, never stretched. */
+export const frameBox = (w, h, dpr) => ({ width: w / (dpr || 1), height: h / (dpr || 1) });
+
+/** Wheel messages between two frames, as one (deltas added, the latest place and keys). */
+export function mergeWheel(a, b) {
+  if (!a) return { ...b };
+  return { ...b, dx: (a.dx || 0) + (b.dx || 0), dy: (a.dy || 0) + (b.dy || 0) };
+}
+
+/** A finger's last moves ([{ t, x, y }]) as a fling's speed (px/ms), from the last 100 ms. */
+export function flingVelocity(samples, now) {
+  const recent = samples.filter((s) => now - s.t <= 100);
+  if (recent.length < 2) return { vx: 0, vy: 0 };
+  const a = recent[0];
+  const b = recent.at(-1);
+  const dt = Math.max(8, b.t - a.t);
+  return { vx: (b.x - a.x) / dt, vy: (b.y - a.y) / dt };
+}
+/** One step of a fling (dt ms): the scroll for it and the speed after (it slows as iOS's does), or null when it's done. */
+export const FLING = { decay: 0.997, min: 0.02 };
+export function flingStep(v, dt) {
+  const k = FLING.decay ** dt;
+  const nv = { vx: v.vx * k, vy: v.vy * k };
+  if (Math.hypot(nv.vx, nv.vy) < FLING.min) return null;
+  return { v: nv, dx: nv.vx * dt, dy: nv.vy * dt };
+}
+
+/** Two fingers: the zoom for how far apart they are now (33% to 300%). */
+export function pinchZoom(startZoom, startDist, dist) {
+  if (!(startDist > 0) || !(dist > 0)) return startZoom;
+  return Math.round(Math.min(3, Math.max(0.33, startZoom * (dist / startDist))) * 100) / 100;
+}
+
+/**
+ * What Enter in the address bar does with what's typed: open an address (and which, as the
+ * server will), or search for the words. For the first row of the suggestions.
+ */
+export function omnibox(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  if (/^https?:\/\//i.test(t)) return { kind: 'url', url: t, label: t.replace(/^https?:\/\//i, '') };
+  if (!/\s/.test(t) && (/^(localhost|\[[0-9a-f:]+\]|\d{1,3}(\.\d{1,3}){3})(:\d+)?(\/|$)/i.test(t) || /^[^\s/?#]+\.[a-z][a-z0-9-]{1,62}(:\d+)?([/?#].*)?$/i.test(t))) return { kind: 'url', url: `https://${t}`, label: t };
+  return { kind: 'search', q: t, label: t };
+}
+
+/** The pointer over the picture, as the page's cursor said (CSS keywords only). */
+const CURSORS = new Set(['default', 'pointer', 'text', 'vertical-text', 'crosshair', 'move', 'grab', 'grabbing', 'not-allowed', 'no-drop', 'wait', 'progress', 'help', 'zoom-in', 'zoom-out', 'col-resize', 'row-resize', 'n-resize', 's-resize', 'e-resize', 'w-resize', 'ne-resize', 'nw-resize', 'se-resize', 'sw-resize', 'ew-resize', 'ns-resize', 'nesw-resize', 'nwse-resize', 'all-scroll', 'cell', 'copy', 'alias', 'context-menu', 'none']);
+export const cursorCss = (c) => (CURSORS.has(String(c)) ? String(c) : 'default');
+
+/** An icon the server sent: a data: image only (never a link the viewer's browser would fetch). */
+export const iconSrc = (s) => (typeof s === 'string' && /^data:image\/(png|x-icon|vnd\.microsoft\.icon|svg\+xml|jpeg|gif|webp|avif);base64,[a-z0-9+/=]+$/i.test(s) && s.length < 80000 ? s : '');
+
+/** The loading bar's width (0 to 1) after ms of loading: quick at first, never quite full until it's done. */
+export const progressAt = (ms) => Math.min(0.92, 1 - Math.exp(-Math.max(0, ms) / 900) * 0.9);

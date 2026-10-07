@@ -21,6 +21,7 @@ import { IN_APP, openAppBrowser } from './native.js';
 import {
   appBridge, paneMode, wasOpen, keepOpen, typed, shownUrl, isSecure, siteOf, socketUrl, reconnectDelay,
   pointerMsg, wheelMsg, touchScroll, TAP_SLOP, shortcut, keyMsg, downloadName, zoomLabel, blockedLabel,
+  densityOf, viewSize, frameBox, mergeWheel, flingVelocity, flingStep, pinchZoom, omnibox, cursorCss, iconSrc, progressAt,
 } from './browser-model.js';
 
 const H = { openSpace: null, addContext: null, sendMessage: null, focusComposer: null, openPalette: null }; // app.js hands these over
@@ -71,23 +72,24 @@ function build() {
   const reload = iconBtn('retry', 'Reload · ⌘R', () => act(P.loading ? 'stop' : 'reload'));
   const addr = el('input', { type: 'text', class: 'br-url', id: 'brUrl', inputmode: 'url', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: 'Search or enter address', 'aria-label': 'Address', role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': 'brSuggest' });
   const site = el('button', { type: 'button', class: 'bd-lock', title: 'Site settings', 'aria-label': 'Site settings', onclick: (e) => siteMenu(e.currentTarget) }, ico('lock', 12));
-  const shield = el('button', { type: 'button', class: 'bd-shield', hidden: true, title: 'Ad and tracker blocking', 'aria-pressed': 'true', onclick: () => act('shield') }, el('span', 'bd-shield-ico', '◈'), el('span', 'bd-blocked', ''));
+  const shield = el('button', { type: 'button', class: 'bd-shield', hidden: true, title: 'Ad and tracker blocking', 'aria-pressed': 'true', onclick: () => act('shield') }, el('span', 'bd-shield-ico', ico('shield', 13)), el('span', 'bd-blocked', ''));
   const star = el('button', { type: 'button', class: 'bd-star', hidden: true, title: 'Bookmark this page · ⌘D', 'aria-label': 'Bookmark this page', 'aria-pressed': 'false', onclick: () => act('bookmark') }, '☆');
   const suggest = el('ul', { class: 'bd-suggest', id: 'brSuggest', role: 'listbox', hidden: true });
   const form = el('form', { class: 'bd-url', role: 'search', onsubmit: (e) => { e.preventDefault(); go(addr.value); } }, site, addr, shield, star);
   addr.addEventListener('focus', () => { addr.value = P.url || addr.value; addr.select(); });
-  addr.addEventListener('blur', () => { setTimeout(() => hideSuggest(), 150); addr.value = shownUrl(P.url) || P.url || ''; });
-  addr.addEventListener('input', () => act('suggest', addr.value));
+  addr.addEventListener('blur', () => { setTimeout(() => hideSuggest(), 150); addr.value = barText(P.url); });
+  addr.addEventListener('input', () => suggestNow());
   addr.addEventListener('keydown', onAddrKey);
   const zoom = el('button', { type: 'button', class: 'bd-zoom', hidden: true, title: 'Reset zoom · ⌘0', onclick: () => act('zoom', 0) }, '');
-  const ai = iconBtn('spark', 'Ask Eden about this page', (e) => aiMenu(e.currentTarget));
+  const ai = el('button', { type: 'button', class: 'bd-ask', title: 'Ask Eden about this page', 'aria-haspopup': 'menu', onclick: (e) => aiMenu(e.currentTarget) }, ico('spark', 14), el('span', 'bd-ask-t', 'Ask Eden'));
+  const wide = iconBtn('expand', 'Wide · ⌘⇧E', () => toggleWide());
   const lib = iconBtn('list', 'Bookmarks and history · ⌘Y', () => act('library', 'bookmarks'));
   const more = iconBtn('more', 'More', (e) => moreMenu(e.currentTarget));
   more.setAttribute('aria-haspopup', 'menu');
-  const progress = el('div', { class: 'bd-progress', hidden: true });
+  const progress = el('div', { class: 'bd-progress', hidden: true }, el('i', ''));
   const close = el('button', { type: 'button', class: 'iconbtn br-close', title: 'Close browser · ⌘⇧B', 'aria-label': 'Close browser', onclick: () => closeBrowser() }, ico('x', 15));
   const tabs = el('div', { class: 'bd-tabs', role: 'tablist', 'aria-label': 'Tabs' });
-  const strip = el('div', 'bd-strip', tabs, close);
+  const strip = el('div', 'bd-strip', tabs, wide, close);
   const findIn = el('input', { type: 'search', class: 'bd-find-input', placeholder: 'Find in page', 'aria-label': 'Find in page', maxlength: '200' });
   const findCount = el('span', 'bd-find-count', '');
   const find = el('div', { class: 'bd-find', hidden: true, role: 'search' }, findIn, findCount,
@@ -103,8 +105,25 @@ function build() {
     strip,
     el('div', 'browser-bar', back, fwd, reload, form, zoom, ai, lib, more, progress),
     suggest, find, slot, downloads);
-  Object.assign(P, { back, fwd, reload, addr, site, shield, star, suggest, zoom, ai, lib, more, progress, tabs, find, findIn, findCount, slot, downloads, url: '', loading: false });
+  Object.assign(P, { back, fwd, reload, addr, site, shield, star, suggest, zoom, ai, lib, more, progress, tabs, find, findIn, findCount, slot, downloads, wide, url: '', loading: false });
   $('split').append(pane);
+}
+/** Wide: the panel over the whole window (and on request truly full screen, where ⌘T and ⌘W reach it too). */
+function toggleWide(on = !pane.classList.contains('full')) {
+  pane.classList.toggle('full', on);
+  P.wide.replaceChildren(ico(on ? 'collapse' : 'expand', 15));
+  P.wide.title = on ? 'Back to the side · ⌘⇧E' : 'Wide · ⌘⇧E';
+  P.wide.setAttribute('aria-pressed', String(on));
+  if (!on && document.fullscreenElement === pane) document.exitFullscreen().catch(() => {});
+}
+async function fullScreen() {
+  try {
+    if (document.fullscreenElement) { await document.exitFullscreen(); return; }
+    toggleWide(true);
+    await pane.requestFullscreen({ navigationUI: 'hide' });
+    // In full screen Chrome lets a page have ⌘T, ⌘W and ⌘N: the cloud browser's tabs get them.
+    if (navigator.keyboard && navigator.keyboard.lock) await navigator.keyboard.lock(['KeyT', 'KeyW', 'KeyN', 'KeyL', 'KeyR', 'Escape']).catch(() => {});
+  } catch { toast('Full screen isn’t available here'); }
 }
 function iconBtn(icon, label, run, cls = '') {
   return el('button', { type: 'button', class: `bd-icon ${cls}`.trim(), title: label, 'aria-label': label.replace(/ · .*$/, ''), onclick: run }, ico(icon, 15));
@@ -117,15 +136,33 @@ function setNav({ back = false, fwd = false, reload = false, addr = true } = {})
   P.reload.disabled = !reload;
   P.addr.disabled = !addr;
 }
+/** The bar at rest shows the site (as Safari does); the whole address once it has the focus. */
+const barText = (url) => siteOf(url) || shownUrl(url) || url || '';
+let optimistic = 0;
 function setUrl(url) {
   P.url = url || '';
   P.site.classList.toggle('secure', isSecure(url));
   P.site.hidden = !url;
-  if (document.activeElement !== P.addr) P.addr.value = shownUrl(url) || url || '';
+  if (document.activeElement !== P.addr) P.addr.value = barText(url);
 }
+let loadT0 = 0, loadRaf = 0, loadDone = 0;
 function setLoading(on) {
-  P.loading = !!on;
-  P.progress.hidden = !on;
+  on = !!on;
+  if (on !== P.loading) {
+    const bar = P.progress.firstChild;
+    cancelAnimationFrame(loadRaf); clearTimeout(loadDone);
+    if (on) {
+      loadT0 = performance.now();
+      P.progress.hidden = false; P.progress.classList.remove('done');
+      const step = () => { bar.style.transform = `scaleX(${progressAt(performance.now() - loadT0)})`; loadRaf = requestAnimationFrame(step); };
+      step();
+    } else if (!P.progress.hidden) {
+      bar.style.transform = 'scaleX(1)';
+      P.progress.classList.add('done');
+      loadDone = setTimeout(() => { P.progress.hidden = true; P.progress.classList.remove('done'); bar.style.transform = 'scaleX(0)'; }, 380);
+    }
+  }
+  P.loading = on;
   P.reload.replaceChildren(ico(on ? 'x' : 'retry', 15));
   P.reload.title = on ? 'Stop' : 'Reload · ⌘R';
   P.reload.setAttribute('aria-label', on ? 'Stop' : 'Reload');
@@ -140,7 +177,7 @@ function setShield({ ready, on, blocked }) {
 function drawTabs(list, onSelect, onClose, onNew) {
   P.tabs.replaceChildren(...list.map((t) => el('div', { class: `bd-tab${t.active ? ' active' : ''}${t.loading ? ' loading' : ''}`, role: 'presentation' },
     el('button', { type: 'button', class: 'bd-tab-b', role: 'tab', 'aria-selected': String(!!t.active), title: String(t.title || t.url || 'New tab'), onclick: () => onSelect(t.id) },
-      t.loading ? el('span', 'act-spin', '') : ico('globe', 11), el('span', 'bd-tab-title', String(t.title || shownUrl(t.url) || 'New tab'))),
+      t.loading ? el('span', 'act-spin', '') : iconSrc(t.icon) ? el('img', { class: 'bd-fav', src: iconSrc(t.icon), alt: '', width: '14', height: '14', draggable: 'false' }) : ico('globe', 12), el('span', 'bd-tab-title', String(t.title || shownUrl(t.url) || 'New tab'))),
     el('button', { type: 'button', class: 'bd-tab-x', 'aria-label': `Close ${String(t.title || 'tab')}`, onclick: () => onClose(t.id) }, ico('x', 10)))),
   el('button', { type: 'button', class: 'bd-tab-new', title: 'New tab · ⌘T', 'aria-label': 'New tab', onclick: onNew }, ico('plus', 13)));
   const on = P.tabs.querySelector('.bd-tab.active');
@@ -178,21 +215,30 @@ let act = () => {};
 let sugRows = [];
 let sugI = -1;
 function showSuggest(rows) {
-  sugRows = rows || [];
-  sugI = -1;
+  const guess = omnibox(P.addr.value);
+  const engine = ENGINES[(cloud.state && cloud.state.engine) || 'google'] || 'Google';
+  const first = guess ? [{ kind: 'go', url: guess.kind === 'url' ? guess.url : guess.q, title: guess.kind === 'url' ? guess.label : `${guess.label}`, note: guess.kind === 'url' ? 'Open' : `Search ${engine}`, search: guess.kind === 'search' }] : [];
+  sugRows = [...first, ...(rows || []).filter((r) => !guess || r.url !== guess.url).slice(0, 7)];
+  sugI = guess ? 0 : -1;
   if (!sugRows.length || document.activeElement !== P.addr) { hideSuggest(); return; }
-  P.suggest.replaceChildren(...sugRows.map((r, i) => el('li', { role: 'option', id: `brSug${i}`, class: `bd-sug ${r.kind}`, onmousedown: (e) => { e.preventDefault(); pick(r); } },
-    el('span', 'bd-sug-k', r.kind === 'tab' ? 'Tab' : r.kind === 'bookmark' ? '☆' : ''), el('span', 'bd-sug-t', r.title || shownUrl(r.url)), el('span', 'bd-sug-u', shownUrl(r.url)))));
+  P.suggest.replaceChildren(...sugRows.map((r, i) => el('li', { role: 'option', id: `brSug${i}`, class: `bd-sug ${r.kind}${i === sugI ? ' on' : ''}`, onmousedown: (e) => { e.preventDefault(); pick(r); } },
+    el('span', 'bd-sug-k', r.kind === 'go' ? ico(r.search ? 'search' : 'globe', 13) : r.kind === 'tab' ? 'Tab' : r.kind === 'bookmark' ? '★' : ico('clock', 12)),
+    el('span', 'bd-sug-t', r.title || shownUrl(r.url)), el('span', 'bd-sug-u', r.kind === 'go' ? r.note : shownUrl(r.url)))));
   P.suggest.hidden = false;
   P.addr.setAttribute('aria-expanded', 'true');
 }
 function hideSuggest() { if (!P.suggest) return; P.suggest.hidden = true; sugRows = []; P.addr.setAttribute('aria-expanded', 'false'); P.addr.removeAttribute('aria-activedescendant'); }
 function pick(r) { hideSuggest(); P.addr.blur(); if (r.kind === 'tab' && r.tab) act('tab', { op: 'select', id: r.tab }); else act('go', r.url); }
+function suggestNow() {
+  if (!P.addr.value.trim()) { hideSuggest(); return; }
+  showSuggest(sugRows.filter((r) => r.kind !== 'go')); // the first row at once, the rest when the server answers
+  act('suggest', P.addr.value);
+}
 function onAddrKey(e) {
   if (!P.suggest.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
     e.preventDefault();
-    if (e.key === 'ArrowDown') sugI = sugI + 1 >= sugRows.length ? -1 : sugI + 1;
-    else sugI = sugI - 1 < -1 ? sugRows.length - 1 : sugI - 1;
+    if (e.key === 'ArrowDown') sugI = sugI + 1 >= sugRows.length ? 0 : sugI + 1;
+    else sugI = sugI - 1 < 0 ? sugRows.length - 1 : sugI - 1;
     [...P.suggest.children].forEach((li, i) => li.classList.toggle('on', i === sugI));
     if (sugI >= 0) { P.addr.setAttribute('aria-activedescendant', `brSug${sugI}`); } else P.addr.removeAttribute('aria-activedescendant');
     return;
@@ -201,7 +247,7 @@ function onAddrKey(e) {
   if (e.key === 'Escape') {
     e.stopPropagation();
     if (!P.suggest.hidden) { hideSuggest(); return; }
-    P.addr.value = shownUrl(P.url) || '';
+    P.addr.value = barText(P.url);
     P.addr.blur();
   }
 }
@@ -238,7 +284,9 @@ function moreMenu(anchor) {
     '-',
     { label: 'Copy address', disabled: !page, run: () => copyText(s.url) },
     { label: 'Open in your browser', disabled: !page, run: () => openOutside(s.url) },
-    { label: pane.classList.contains('full') ? 'Back to the side' : 'Full window', run: () => pane.classList.toggle('full') },
+    { label: pane.classList.contains('full') ? 'Back to the side' : 'Wide', key: '⌘⇧E', run: () => toggleWide() },
+    { label: document.fullscreenElement ? 'Exit full screen' : 'Full screen', note: document.fullscreenElement ? '' : '⌘T and ⌘W work here too', disabled: !pane.requestFullscreen || isMobile(), run: () => fullScreen() },
+    { label: 'Clear browsing data…', run: () => clearData() },
     '-',
     { label: 'Block ads and trackers', switch: s.adblock !== false, run: () => cloud.send({ t: 'adblock', on: s.adblock === false }) },
     { label: `Search with ${ENGINES[s.engine] || 'Google'}`, sub: () => Object.entries(ENGINES).map(([id, name]) => ({ label: name, checked: (s.engine || 'google') === id, run: () => cloud.send({ t: 'engine', id }) })) },
@@ -266,6 +314,13 @@ function aiMenu(anchor) {
     { label: 'Summarize this page', disabled: !s.url, run: () => cloud.send({ t: 'pagetext', for: 'summarize' }) },
     { label: 'Use the selected text', disabled: !s.url, run: () => { cloud.wantSelection = true; cloud.send({ t: 'copy' }); } },
     { label: 'Do this on a website…', note: 'J.A.R.V.I.S.’s browser agent, on your Mac', run: () => { if (H.openSpace) H.openSpace('web', { url: s.url }); } },
+  ]);
+}
+function clearData() {
+  openMenu(P.more, [
+    { heading: 'Clear browsing data' },
+    { label: 'History', run: () => cloud.send({ t: 'history-clear' }) },
+    { label: 'Close the browser (cookies, sign-ins, tabs)', note: 'Each cloud browser starts fresh', disabled: !(cloud.state && cloud.state.running), run: () => cloud.send({ t: 'end' }) },
   ]);
 }
 function openOutside(url) {
@@ -349,24 +404,42 @@ function startCloud() {
   const sink = el('textarea', { class: 'bd-keys', 'aria-label': 'Type into the page', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', rows: '1' });
   const cover = el('div', { class: 'bd-cover', 'aria-live': 'polite' });
   const kbd = el('button', { type: 'button', class: 'bd-kbd', hidden: true, title: 'Keyboard', 'aria-label': 'Show the keyboard', onclick: () => sink.focus() }, '⌨︎');
-  const ctx2d = canvas.getContext('2d');
-  P.slot.append(canvas, sink, cover, kbd);
+  const ctx2d = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  const banner = el('div', { class: 'bd-banner', hidden: true, role: 'status' });
+  P.slot.append(canvas, sink, cover, banner, kbd);
   setNav({ addr: true });
-  const box = () => { const r = P.slot.getBoundingClientRect(); return { w: Math.max(240, Math.round(r.width)), h: Math.max(240, Math.round(r.height)) }; };
+  const box = () => viewSize(P.slot.getBoundingClientRect(), densityOf(window), isTouch());
+  let shownDpr = densityOf(window);
 
   const send = (m) => { if (cloud.ws && cloud.ws.readyState === 1) { cloud.ws.send(JSON.stringify(m)); return true; } return false; };
   cloud.send = send;
 
   const card = (title, text, ...buttons) => cover.replaceChildren(el('div', 'br-card', ico('globe', 22), el('b', '', title), text ? el('p', '', text) : null, buttons.length ? el('div', 'br-acts', ...buttons) : null));
   const btn = (label, run, primary = false) => el('button', { type: 'button', class: `btn${primary ? ' primary' : ''}`, onclick: run }, label);
+  const tile = (b) => el('button', { type: 'button', class: 'bd-ntp-mark', title: b.url, onclick: () => act('go', b.url) },
+    el('span', 'bd-ntp-i', iconSrc(b.icon) ? el('img', { src: iconSrc(b.icon), alt: '', width: '22', height: '22', draggable: 'false' }) : ((b.title || siteOf(b.url)).trim()[0] || '•').toUpperCase()),
+    el('span', '', b.title || siteOf(b.url)));
   const newTabPage = (s) => {
     const marks = (s.bookmarks || []).slice(0, 8);
+    const recent = (s.recent || []).filter((r) => !marks.some((b) => siteOf(b.url) === r.site)).slice(0, 8);
+    const ntpQ = el('input', { type: 'search', class: 'bd-ntp-q', placeholder: `Search ${ENGINES[s.engine] || 'Google'} or type an address`, 'aria-label': 'Search or enter address', enterkeyhint: 'go', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+    ntpQ.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go(ntpQ.value); } });
+    ntpQ.addEventListener('input', () => { if (!s.running) prewarm(); });
     cover.replaceChildren(el('div', 'bd-ntp',
-      el('div', 'bd-ntp-orb', ico('globe', 28)),
-      el('b', '', 'Eden’s browser'),
-      el('p', '', 'A real browser in the cloud, just for you: ads and trackers blocked, nothing to install. Type an address or a search above.'),
-      marks.length ? el('div', 'bd-ntp-marks', ...marks.map((b) => el('button', { type: 'button', class: 'bd-ntp-mark', title: b.url, onclick: () => send({ t: 'go', url: b.url }) }, el('span', 'bd-ntp-i', (siteOf(b.url)[0] || '•').toUpperCase()), el('span', '', b.title || siteOf(b.url))))) : null));
+      el('div', 'bd-ntp-orb', ico('globe', 26)),
+      ntpQ,
+      marks.length ? el('div', 'bd-ntp-sec', el('h3', '', 'Bookmarks'), el('div', 'bd-ntp-marks', ...marks.map(tile))) : null,
+      recent.length ? el('div', 'bd-ntp-sec', el('h3', '', 'Recent'), el('div', 'bd-ntp-marks', ...recent.map(tile))) : null,
+      el('p', 'bd-ntp-note', `A private browser in the cloud, ads and trackers blocked.${Number.isFinite(s.minutesLeft) ? ` ${s.minutesLeft} browser minutes left this month.` : ''}`)));
+    if (!isTouch()) requestAnimationFrame(() => { if (document.activeElement !== P.addr) ntpQ.focus({ preventScroll: true }); });
   };
+  const failPage = (f) => cover.replaceChildren(el('div', 'br-card bd-fail',
+    el('div', 'bd-fail-ico', ico('globe', 24)), el('b', '', f.title || 'Couldn’t open that page'), el('p', '', f.text || ''),
+    el('p', 'bd-fail-u', `${siteOf(f.url) || ''}${f.code ? ` · ${f.code}` : ''}`),
+    el('div', 'br-acts', btn('Try again', () => act('go', f.url), true), btn('Open in my browser', () => openOutside(f.url)))));
+  let warm = false;
+  const prewarm = () => { if (!warm && cloud.state && !cloud.state.running) { warm = true; send({ t: 'start' }); } };
+  let ntpKey = '';
 
   const draw = (s) => {
     cloud.state = s;
@@ -382,23 +455,43 @@ function startCloud() {
     const z = zoomLabel(s.zoom);
     P.zoom.hidden = !z;
     P.zoom.textContent = z;
-    drawTabs((s.tabs || []).map((t) => ({ ...t, active: t.id === s.active })), (id) => send({ t: 'tab', op: 'select', id }), (id) => send({ t: 'tab', op: 'close', id }), () => act('tab', { op: 'new' }));
-    canvas.hidden = !tab || !tab.url;
-    if (!s.running) card('Eden’s browser', `Browse the web right here, in a real browser that runs in the cloud for you. ${Number.isFinite(s.minutesLeft) ? `${s.minutesLeft} browser minutes left this month.` : ''}`, btn('Start browsing', () => { if (send({ t: 'start' })) card('Starting the browser…', ''); }, true));
-    else if (!tab || !tab.url) newTabPage(s);
-    else if (!cover.querySelector('.bd-dialog')) cover.replaceChildren();
+    const tabList = (s.tabs || []).length ? s.tabs.map((t) => ({ ...t, active: t.id === s.active })) : [{ id: '', title: 'New tab', active: true }];
+    drawTabs(tabList, (id) => { if (id) send({ t: 'tab', op: 'select', id }); }, (id) => { if (id) send({ t: 'tab', op: 'close', id }); }, () => act('tab', { op: 'new' }));
+    if (!s.running) warm = false;
+    canvas.hidden = !tab || !tab.url || Boolean(s.failed);
+    if (s.minutesLeft === 0 && !s.running) { ntpKey = ''; card('No browser minutes left this month', s.plus ? 'They come back on the 1st.' : 'They come back on the 1st, or get more with Eden Plus.'); }
+    else if (s.failed) { ntpKey = ''; failPage(s.failed); }
+    else if (!tab || !tab.url) {
+      // Drawn again only when what it shows changed (typing in its box survives state updates).
+      const key = JSON.stringify([s.running, s.engine, s.minutesLeft, (s.bookmarks || []).map((b) => [b.url, !!b.icon]), (s.recent || []).map((r) => [r.url, !!r.icon])]);
+      if (key !== ntpKey || !cover.querySelector('.bd-ntp')) { ntpKey = key; newTabPage(s); }
+    } else { ntpKey = ''; if (!cover.querySelector('.bd-dialog')) cover.replaceChildren(); }
+    banner.hidden = !s.wall || canvas.hidden;
+    if (!banner.hidden) banner.replaceChildren(ico('shield', 14), el('span', '', `${siteOf(s.url)} may turn away cloud browsers.`), el('button', { type: 'button', class: 'cap', onclick: () => openOutside(s.url) }, 'Open in my browser'));
     kbd.hidden = !isTouch() || canvas.hidden;
   };
 
-  // The picture: one frame at a time (each acked, so a slow connection drops frames rather than queueing).
-  let drawing = Promise.resolve();
+  // The picture: frames decode as they come and the newest is drawn on the next paint (each
+  // acked once drawn, so the server sends no more than the viewer can show). A frame is drawn at
+  // its own pixels (2x on Retina), sized to the CSS pixels it was made for: never stretched.
+  let next = null, paintRaf = 0, decoding = Promise.resolve();
+  const paint = () => {
+    paintRaf = 0;
+    const bmp = next; next = null;
+    if (!bmp) return;
+    if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; }
+    const fb = frameBox(bmp.width, bmp.height, shownDpr);
+    canvas.style.width = `${fb.width}px`; canvas.style.height = `${fb.height}px`;
+    ctx2d.drawImage(bmp, 0, 0);
+    bmp.close();
+  };
   const frame = (buf) => {
-    drawing = drawing.then(async () => {
+    decoding = decoding.then(async () => {
       try {
-        const bmp = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
-        if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; }
-        ctx2d.drawImage(bmp, 0, 0);
-        bmp.close();
+        const bmp = await createImageBitmap(new Blob([buf]));
+        if (next) next.close();
+        next = bmp;
+        if (!paintRaf) paintRaf = requestAnimationFrame(paint);
       } catch { /* a bad frame: the next one comes */ }
       send({ t: 'ack' });
     });
@@ -410,6 +503,8 @@ function startCloud() {
     try { m = JSON.parse(ev.data); } catch { return; }
     switch (m.t) {
       case 'state': draw(m); break;
+      case 'cursor': if (!touch) canvas.style.cursor = cursorCss(m.c); break;
+      case 'hit': if (hitWait && hitWait.id === m.id) { hitWait.done(m); hitWait = null; } break;
       case 'suggest': if (document.activeElement === P.addr && m.q === P.addr.value) showSuggest(m.rows); break;
       case 'find': P.findCount.textContent = m.q ? (m.n ? `${m.i} of ${m.n}${m.n >= 1000 ? '+' : ''}` : 'No matches') : ''; break;
       case 'error': toast(String(m.message || 'That didn’t work.')); break;
@@ -481,7 +576,12 @@ function startCloud() {
 
   act = (action, arg) => {
     switch (action) {
-      case 'go': if (!send({ t: 'go', url: arg })) toast('The browser isn’t connected yet'); break;
+      case 'go':
+        setLoading(true); // at once; the server's state takes over (or, if it never says so, it stops)
+        clearTimeout(optimistic);
+        optimistic = setTimeout(() => { if (!(cloud.state && cloud.state.loading)) setLoading(false); }, 4000);
+        if (!send({ t: 'go', url: arg })) { setLoading(false); toast('The browser isn’t connected yet'); }
+        break;
       case 'back': case 'forward': case 'reload': case 'stop': send({ t: action }); break;
       case 'shield': if (cloud.state && cloud.state.adblock === false) send({ t: 'adblock', on: true }); else send({ t: 'adblock', site: true, on: !(cloud.state && cloud.state.siteAdblock) }); break;
       case 'bookmark': send({ t: 'bookmark' }); break;
@@ -495,42 +595,156 @@ function startCloud() {
   };
 
   // ── the viewer's mouse, touch and keys ──
+  // Clicks and keys go at once; moves and wheel turns are merged into one per frame (wheel
+  // deltas added up, so nothing of a trackpad's scroll is lost); touch scrolls follow the finger
+  // and fling on with momentum; two fingers zoom; a long press is a right-click.
   const rectOf = () => canvas.getBoundingClientRect();
-  let moveRaf = 0, lastMove = null, touch = null;
+  let raf = 0, lastMove = null, wheel = null, touch = null, fling = 0, pinch = null, hitWait = null, hitSeq = 0;
+  const flush = () => {
+    raf = 0;
+    if (lastMove) { send(pointerMsg('move', lastMove, rectOf())); lastMove = null; }
+    if (wheel) { send(wheel); wheel = null; }
+  };
+  const soon = () => { if (!raf) raf = requestAnimationFrame(flush); };
+  const now = () => { if (raf) { cancelAnimationFrame(raf); flush(); } };
   const focusPage = () => { if (!isTouch()) sink.focus({ preventScroll: true }); };
+  const stopFling = () => { if (fling) { cancelAnimationFrame(fling); fling = 0; } };
+  const pointers = new Map();
   canvas.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'touch') { touch = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false }; canvas.setPointerCapture(e.pointerId); return; }
+    if (e.pointerType === 'touch') {
+      stopFling();
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      canvas.setPointerCapture(e.pointerId);
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        clearTimeout(touch && touch.long);
+        touch = null;
+        pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), z: (cloud.state && cloud.state.zoom) || 1, now: 0 };
+        return;
+      }
+      touch = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false, trail: [{ t: e.timeStamp, x: e.clientX, y: e.clientY }] };
+      touch.long = setTimeout(() => { if (touch && !touch.moved) { touch.held = true; contextAt(touch.sx, touch.sy); } }, 520);
+      return;
+    }
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
     focusPage();
+    now();
+    if (e.button === 2) return; // the menu is Eden's (contextmenu below)
     send(pointerMsg('down', e, rectOf()));
   });
   canvas.addEventListener('pointermove', (e) => {
     if (e.pointerType === 'touch') {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        pinch.now = pinchZoom(pinch.z, pinch.d, Math.hypot(a.x - b.x, a.y - b.y));
+        canvas.style.transformOrigin = `${(a.x + b.x) / 2 - rectOf().left}px ${(a.y + b.y) / 2 - rectOf().top}px`;
+        canvas.style.transform = `scale(${pinch.now / pinch.z})`;
+        return;
+      }
       if (!touch) return;
+      touch.trail.push({ t: e.timeStamp, x: e.clientX, y: e.clientY });
+      if (touch.trail.length > 12) touch.trail.shift();
       if (!touch.moved && Math.hypot(e.clientX - touch.sx, e.clientY - touch.sy) < TAP_SLOP) return;
       touch.moved = true;
+      clearTimeout(touch.long);
       const r = rectOf();
-      send(touchScroll(e.clientX - touch.x, e.clientY - touch.y, { x: Math.round(e.clientX - r.left), y: Math.round(e.clientY - r.top) }));
+      wheel = mergeWheel(wheel, touchScroll(e.clientX - touch.x, e.clientY - touch.y, { x: Math.round(e.clientX - r.left), y: Math.round(e.clientY - r.top) }));
+      soon();
       touch.x = e.clientX; touch.y = e.clientY;
       return;
     }
     lastMove = e;
-    if (!moveRaf) moveRaf = requestAnimationFrame(() => { moveRaf = 0; if (lastMove) send(pointerMsg('move', lastMove, rectOf())); lastMove = null; });
+    soon();
   });
-  canvas.addEventListener('pointerup', (e) => {
-    if (e.pointerType === 'touch') {
-      if (touch && !touch.moved) { const r = rectOf(); send(pointerMsg('down', e, r, { b: 0, n: 1 })); send(pointerMsg('up', e, r, { b: 0, n: 1 })); }
-      touch = null;
+  const endTouch = (e) => {
+    pointers.delete(e.pointerId);
+    if (pinch) {
+      if (!pointers.size) {
+        const z = pinch.now;
+        pinch = null;
+        canvas.style.transform = '';
+        if (z && Math.abs(z - ((cloud.state && cloud.state.zoom) || 1)) > 0.04) send({ t: 'zoom', to: z });
+      }
       return;
     }
+    if (!touch) return;
+    clearTimeout(touch.long);
+    const t = touch;
+    touch = null;
+    if (t.held) return;
+    const r = rectOf();
+    if (!t.moved) { send(pointerMsg('down', e, r, { b: 0, n: 1 })); send(pointerMsg('up', e, r, { b: 0, n: 1 })); return; }
+    // Let go while moving: the page keeps going and slows, as on iOS.
+    let v = flingVelocity(t.trail, e.timeStamp);
+    let at = performance.now();
+    const at0 = { x: Math.round(e.clientX - r.left), y: Math.round(e.clientY - r.top) };
+    const step = (ts) => {
+      const st = flingStep(v, Math.min(48, ts - at));
+      at = ts;
+      if (!st) { fling = 0; return; }
+      v = st.v;
+      wheel = mergeWheel(wheel, touchScroll(st.dx, st.dy, at0));
+      flush();
+      fling = requestAnimationFrame(step);
+    };
+    if (Math.hypot(v.vx, v.vy) > 0.25) fling = requestAnimationFrame(step);
+  };
+  canvas.addEventListener('pointerup', (e) => {
+    if (e.pointerType === 'touch') { endTouch(e); return; }
+    now();
+    if (e.button === 2) return;
     send(pointerMsg('up', e, rectOf()));
   });
-  canvas.addEventListener('pointercancel', () => { touch = null; });
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  canvas.addEventListener('wheel', (e) => { e.preventDefault(); send(wheelMsg(e, rectOf())); }, { passive: false });
+  canvas.addEventListener('pointercancel', (e) => { pointers.delete(e.pointerId); if (touch) clearTimeout(touch.long); touch = null; pinch = null; canvas.style.transform = ''; });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.ctrlKey) { // a trackpad pinch: zoom the page
+      pinchWheel += e.deltaY;
+      clearTimeout(pinchWheelT);
+      pinchWheelT = setTimeout(() => { const z = pinchZoom((cloud.state && cloud.state.zoom) || 1, 100, 100 - pinchWheel); pinchWheel = 0; send({ t: 'zoom', to: z }); }, 120);
+      return;
+    }
+    wheel = mergeWheel(wheel, wheelMsg(e, rectOf()));
+    soon();
+  }, { passive: false });
+  let pinchWheel = 0, pinchWheelT = 0;
+
+  // Right-click (or a long press): Eden's menu, for what's under the pointer in the page.
+  const contextAt = async (cx, cy) => {
+    const r = rectOf();
+    const x = Math.round(cx - r.left), y = Math.round(cy - r.top);
+    const id = ++hitSeq;
+    if (hitWait) hitWait.done({});
+    const hit = cloud.state && cloud.state.url ? await new Promise((done) => { hitWait = { id, done }; send({ t: 'hit', id, x, y }); setTimeout(() => { if (hitWait && hitWait.id === id) { hitWait = null; done({}); } }, 900); }) : {};
+    if (id !== hitSeq) return;
+    const spot = el('div', { class: 'bd-spot', style: `left:${cx}px;top:${cy}px` });
+    document.body.append(spot);
+    const s = cloud.state || {};
+    openMenu(spot, [
+      hit.link ? { label: 'Open link in new tab', run: () => send({ t: 'tab', op: 'new', url: hit.link }) } : null,
+      hit.link ? { label: 'Open link in my browser', run: () => openOutside(hit.link) } : null,
+      hit.link ? { label: 'Copy link', run: () => copyText(hit.link) } : null,
+      hit.image ? { label: 'Open image in new tab', run: () => send({ t: 'tab', op: 'new', url: hit.image }) } : null,
+      hit.image ? { label: 'Copy image address', run: () => copyText(hit.image) } : null,
+      hit.selection ? { label: 'Copy', key: '⌘C', run: () => copyText(hit.selection) } : null,
+      hit.selection ? { label: 'Ask Eden about the selection', run: () => { if (H.addContext) H.addContext({ title: `From ${siteOf(s.url) || 'the page'}`.slice(0, 70), text: hit.selection }); if (H.focusComposer) H.focusComposer(); } } : null,
+      hit.editable ? { label: 'Paste', key: '⌘V', run: async () => { try { const t = await navigator.clipboard.readText(); if (t) send({ t: 'text', text: t }); } catch { toast('Press ⌘V to paste'); } } } : null,
+      (hit.link || hit.image || hit.selection || hit.editable) ? '-' : null,
+      { label: 'Back', key: '⌘[', disabled: !s.canBack, run: () => send({ t: 'back' }) },
+      { label: 'Forward', key: '⌘]', disabled: !s.canForward, run: () => send({ t: 'forward' }) },
+      { label: 'Reload', key: '⌘R', run: () => send({ t: 'reload' }) },
+      '-',
+      { label: 'Copy page address', disabled: !s.url, run: () => copyText(s.url) },
+      { label: 'Ask Eden about this page', disabled: !s.url, run: () => send({ t: 'pagetext', for: 'ask' }) },
+    ], { noFocus: isTouch() });
+    setTimeout(() => spot.remove(), 0);
+  };
+  canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); if (e.pointerType === 'touch' || isTouch() && !e.button) return; contextAt(e.clientX, e.clientY); });
 
   sink.addEventListener('keydown', (e) => {
+    now(); // moves before a key, in order
     const sc = shortcut(e, MAC);
     if (sc) { e.preventDefault(); e.stopPropagation(); runShortcut(sc); return; }
     const k = keyMsg(e, 'down');
@@ -551,7 +765,7 @@ function startCloud() {
     if (e.target === sink) return;
     const sc = shortcut(e, MAC);
     if (!sc || sc === 'palette') return;
-    if (['address', 'newtab', 'closetab', 'reload', 'back', 'forward', 'find', 'bookmark', 'history', 'zoomin', 'zoomout', 'zoomreset', 'nexttab', 'prevtab'].includes(sc) || /^tab\d$/.test(sc)) {
+    if (['address', 'newtab', 'closetab', 'reload', 'back', 'forward', 'find', 'bookmark', 'history', 'zoomin', 'zoomout', 'zoomreset', 'nexttab', 'prevtab', 'wide'].includes(sc) || /^tab\d$/.test(sc)) {
       if (e.target === P.addr && ['back', 'forward'].includes(sc)) return;
       e.preventDefault(); e.stopPropagation(); runShortcut(sc);
     }
@@ -573,6 +787,7 @@ function startCloud() {
       case 'zoomin': send({ t: 'zoom', dir: 1 }); break;
       case 'zoomout': send({ t: 'zoom', dir: -1 }); break;
       case 'zoomreset': send({ t: 'zoom', dir: 0 }); break;
+      case 'wide': toggleWide(); break;
       case 'nexttab': case 'prevtab': if (tabs.length > 1) send({ t: 'tab', op: 'select', id: tabs[(at + (sc === 'nexttab' ? 1 : -1) + tabs.length) % tabs.length].id }); break;
       case 'closepanel': closeBrowser(); break;
       case 'palette': if (H.openPalette) H.openPalette(); break;
@@ -584,10 +799,21 @@ function startCloud() {
     }
   };
 
-  // ── size ──
+  // ── size: the cloud browser's viewport is the panel's, at the screen's density ──
   let sizeT = 0;
-  const ro = new ResizeObserver(() => { clearTimeout(sizeT); sizeT = setTimeout(() => send({ t: 'resize', ...box() }), 180); });
+  const resized = () => { clearTimeout(sizeT); sizeT = setTimeout(() => { shownDpr = densityOf(window); send({ t: 'resize', ...box() }); }, 90); };
+  const ro = new ResizeObserver(resized);
   ro.observe(P.slot);
+  let dprMq = matchMedia(`(resolution: ${densityOf(window)}dppx)`);
+  const dprChanged = () => { resized(); dprMq.removeEventListener('change', dprChanged); dprMq = matchMedia(`(resolution: ${densityOf(window)}dppx)`); dprMq.addEventListener('change', dprChanged); };
+  dprMq.addEventListener('change', dprChanged);
+
+  // ── warm: while the panel is open and looked at, the cloud browser isn't closed for idling ──
+  let touched = Date.now();
+  const mark = () => { touched = Date.now(); };
+  pane.addEventListener('pointerdown', mark, true);
+  pane.addEventListener('keydown', mark, true);
+  const ping = setInterval(() => { if (document.visibilityState === 'visible' && Date.now() - touched < 20 * 60000 && cloud.state && cloud.state.running) send({ t: 'ping' }); }, 60000);
 
   // ── the socket ──
   const connect = () => {
@@ -600,7 +826,7 @@ function startCloud() {
     ws.binaryType = 'arraybuffer';
     cloud.ws = ws;
     let opened = false;
-    ws.onopen = () => { opened = true; attempt = 0; send({ t: 'hello', ...box() }); };
+    ws.onopen = () => { opened = true; attempt = 0; shownDpr = densityOf(window); send({ t: 'hello', ...box() }); };
     ws.onmessage = (ev) => { if (cloud.ws === ws) onMsg(ev); };
     ws.onclose = () => {
       if (cloud.ws !== ws) return;
@@ -618,8 +844,11 @@ function startCloud() {
 
   return () => {
     alive = false;
-    clearTimeout(retry); clearTimeout(sizeT);
+    clearTimeout(retry); clearTimeout(sizeT); clearInterval(ping); stopFling();
     ro.disconnect();
+    dprMq.removeEventListener('change', dprChanged);
+    pane.removeEventListener('pointerdown', mark, true);
+    pane.removeEventListener('keydown', mark, true);
     pane.removeEventListener('keydown', paneKeys);
     document.removeEventListener('visibilitychange', vis);
     if (cloud.ws) { const w = cloud.ws; cloud.ws = null; try { w.close(1000, 'panel closed'); } catch { /* gone */ } }
@@ -644,9 +873,10 @@ class MockSocket {
   async paint() {
     const t = this.tab();
     if (!t || !t.url) return;
-    const { w, h } = this.size;
-    const c = new OffscreenCanvas(w, h);
+    const { w, h, dpr = 1 } = this.size;
+    const c = new OffscreenCanvas(Math.round(w * dpr), Math.round(h * dpr));
     const g = c.getContext('2d');
+    g.scale(dpr, dpr);
     g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
     g.fillStyle = '#f2f3f5'; g.fillRect(0, 0, w, 56);
     g.fillStyle = '#1d1d1f'; g.font = '600 18px -apple-system, Helvetica'; g.fillText(t.title, 20, 35);
@@ -670,7 +900,9 @@ class MockSocket {
   send(text) {
     const m = JSON.parse(text);
     switch (m.t) {
-      case 'hello': case 'resize': this.size = { w: m.w, h: m.h }; this.state(); this.paint(); break;
+      case 'hello': case 'resize': this.size = { w: m.w, h: m.h, dpr: m.dpr }; this.state(); this.paint(); break;
+      case 'hit': this.emit({ t: 'hit', id: m.id, link: 'https://en.wikipedia.org/wiki/Web_browser', image: '', selection: '', editable: false }); break;
+      case 'mouse': if (m.e === 'move') this.emit({ t: 'cursor', c: m.y > 90 && m.y < 110 ? 'pointer' : 'default' }); break;
       case 'start': this.s.running = true; this.open(''); break;
       case 'go': this.s.running = true; this.open(m.url); break;
       case 'tab':
@@ -679,7 +911,7 @@ class MockSocket {
         if (m.op === 'close') { this.s.tabs = this.s.tabs.filter((t) => t.id !== m.id); if (this.s.active === m.id) this.s.active = (this.s.tabs.at(-1) || {}).id || ''; }
         this.state(); this.paint(); break;
       case 'bookmark': { const t = this.tab(); if (!t) break; this.s.bookmarked = !this.s.bookmarked; this.s.bookmarks = this.s.bookmarked ? [{ url: t.url, title: t.title }, ...this.s.bookmarks] : this.s.bookmarks.filter((b) => b.url !== t.url); this.state(); break; }
-      case 'zoom': this.s.zoom = m.dir === 0 ? 1 : Math.round(this.s.zoom * (m.dir > 0 ? 1.1 : 1 / 1.1) * 100) / 100; this.state(); break;
+      case 'zoom': this.s.zoom = m.to ? m.to : m.dir === 0 ? 1 : Math.round(this.s.zoom * (m.dir > 0 ? 1.1 : 1 / 1.1) * 100) / 100; this.state(); break;
       case 'adblock': if (m.site) this.s.siteAdblock = m.on; else this.s.adblock = m.on; this.state(); break;
       case 'engine': this.s.engine = m.id; this.state(); break;
       case 'suggest': this.emit({ t: 'suggest', q: m.q, rows: [...this.s.bookmarks.map((b) => ({ ...b, kind: 'bookmark' })), ...this.hist.map((h) => ({ ...h, kind: 'history' }))].filter((r) => m.q && (r.url + r.title).toLowerCase().includes(m.q.toLowerCase())).slice(0, 8) }); break;

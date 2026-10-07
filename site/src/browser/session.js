@@ -17,9 +17,9 @@
 // engine, ad blocking (on, sites it's off for), zoom per site, and the month's minutes.
 
 import {
-  CLOSED, ENGINES, LIMITS, RATES, REFUSED, Bucket, addUse, addVisit, addressAllowed, allowance, closeReason,
-  hostOf, keyEvent, minutesLeft, mouseEvent, requestVerdict, setTitle, siteOf, suggest, textInput, toUrl,
-  toggleBookmark, viewport, zoomStep,
+  CAST, CLOSED, ENGINES, FrameFlow, LIMITS, RATES, REFUSED, Bucket, addUse, addVisit, addressAllowed, allowance,
+  botWall, closeReason, cursorOf, hostOf, iconData, keyEvent, minutesLeft, mouseEvent, navFailure, recentSites,
+  requestVerdict, setTitle, siteOf, suggest, textInput, toUrl, toggleBookmark, viewport, zoomStep, ZOOM,
 } from './rules.js';
 
 const TICK_MS = 20 * 1000;
@@ -52,7 +52,52 @@ const FIND = `(q, dir) => {
   return { n: S.ranges.length, i: S.i + 1 };
 }`;
 const SELECTION = `(() => { const a = document.activeElement; if (a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.selectionStart != null && a.type !== 'password') return a.value.slice(a.selectionStart, a.selectionEnd); return String(getSelection() || ''); })()`;
+// In the page's own isolated world (pages can't see or call it): the cursor under the mouse,
+// told to the panel only when it changes, so the viewer's pointer changes at once.
+const CURSOR = `(() => {
+  let last = '';
+  const tell = (c) => { if (c !== last) { last = c; try { __edenCursor(c); } catch {} } };
+  addEventListener('mousemove', (e) => {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    let c = getComputedStyle(t).cursor;
+    if (c === 'auto') {
+      c = 'default';
+      if (t.closest('textarea,[contenteditable=""],[contenteditable="true"]') || (t.tagName === 'INPUT' && !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/i.test(t.type))) c = 'text';
+      else if (document.caretRangeFromPoint) {
+        const r = document.caretRangeFromPoint(e.clientX, e.clientY);
+        if (r && r.startContainer.nodeType === 3 && r.startContainer.data.trim()) {
+          const rr = document.createRange(); rr.selectNodeContents(r.startContainer);
+          for (const b of rr.getClientRects()) if (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) { c = 'text'; break; }
+        }
+      }
+    }
+    tell(c);
+  }, { capture: true, passive: true });
+})()`;
+// What's under a right-click: the link, the image, the selection (for the panel's menu).
+const HIT = `(x, y) => {
+  const e = document.elementFromPoint(x, y); const sel = String(getSelection() || '').slice(0, 20000);
+  if (!e) return { selection: sel };
+  const a = e.closest('a[href]'); const img = e.closest('img');
+  return { link: a ? a.href : '', image: img ? (img.currentSrc || img.src || '') : '', selection: sel, editable: Boolean(e.closest('input,textarea,[contenteditable]')) };
+}`;
+// The page's icon: an SVG or a small PNG it names, else /favicon.ico.
+const ICON = `(() => {
+  const l = [...document.querySelectorAll('link[rel~="icon"],link[rel="shortcut icon"],link[rel="apple-touch-icon"]')].filter((x) => x.href);
+  const size = (x) => { const m = /(\\d+)x/.exec(x.sizes && x.sizes.value || ''); return m ? Number(m[1]) : 0; };
+  const pick = l.find((x) => /svg/.test(x.type || x.href)) || l.filter((x) => /icon/.test(x.rel)).sort((a, b) => Math.abs(size(a) - 32) - Math.abs(size(b) - 32))[0] || l[0];
+  return pick ? pick.href : location.origin + '/favicon.ico';
+})()`;
 const PAGE_TEXT = `(() => (document.body ? document.body.innerText : '').slice(0, ${LIMITS.textMax}))()`;
+
+/** base64 (CDP's pictures) as bytes for the socket. */
+function bytesOf(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 
 export class BrowserSession {
   constructor(ctx, env) {
@@ -65,10 +110,13 @@ export class BrowserSession {
     this.tabs = new Map(); // id -> tab
     this.active = '';
     this.seq = 0;
-    this.view = { w: 1024, h: 768 };
+    this.view = { w: 1024, h: 768, dpr: 1, touch: false };
     this.plus = false;
-    this.inflight = 0;
-    this.stashedAck = null;
+    this.flow = new FrameFlow();
+    this.inputSeq = 0;
+    this.restTimer = 0;
+    this.cursor = '';
+    this.icons = new Map(); // site -> data: address ('' when it has none)
     this.dialog = null;
   }
 
@@ -94,8 +142,8 @@ export class BrowserSession {
     server.accept();
     if (this.ws) { try { this.ws.send(JSON.stringify({ t: 'replaced' })); this.ws.close(4000, 'replaced'); } catch { /* gone */ } }
     this.ws = server;
-    this.inflight = 0;
-    this.stashedAck = null;
+    this.flow.reset();
+    this.cursor = '';
     this.disconnectedAt = 0;
     const input = new Bucket(...RATES.input, () => this.now());
     const action = new Bucket(...RATES.action, () => this.now());
@@ -105,7 +153,7 @@ export class BrowserSession {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
       if (!msg || typeof msg.t !== 'string') return;
-      const cheap = ['mouse', 'key', 'text', 'ack', 'suggest', 'hello', 'resize'].includes(msg.t);
+      const cheap = ['mouse', 'key', 'text', 'ack', 'suggest', 'hello', 'resize', 'ping'].includes(msg.t);
       if (!(cheap ? input : action).take()) { if (!cheap) this.send({ t: 'error', message: 'Slow down a little.' }); return; }
       this.onMessage(msg).catch((err) => this.failed(err));
     });
@@ -135,22 +183,37 @@ export class BrowserSession {
 
   async onMessage(msg) {
     const tab = this.tabs.get(this.active);
-    if (['mouse', 'key', 'text', 'go', 'tab', 'back', 'forward', 'reload', 'stop', 'find', 'zoom'].includes(msg.t)) this.lastInput = this.now();
+    if (['mouse', 'key', 'text', 'go', 'tab', 'back', 'forward', 'reload', 'stop', 'find', 'zoom', 'ping'].includes(msg.t)) this.lastInput = this.now();
+    if (['mouse', 'key', 'text'].includes(msg.t)) this.inputSeq += 1;
     switch (msg.t) {
       case 'hello':
-        this.view = { w: Number(msg.w) || 1024, h: Number(msg.h) || 768 };
+        this.view = this.viewOf(msg, { w: 1024, h: 768 });
         this.lastInput = this.now();
         await this.sendState();
-        if (this.browser) await this.startCast();
+        if (this.browser) { if (tab) await this.applyViewport(tab); await this.startCast(); }
         return;
-      case 'resize':
-        this.view = { w: Number(msg.w) || this.view.w, h: Number(msg.h) || this.view.h };
+      case 'resize': {
+        const v = this.viewOf(msg, this.view);
+        if (v.w === this.view.w && v.h === this.view.h && v.dpr === this.view.dpr && v.touch === this.view.touch) return;
+        this.view = v;
         if (tab) { await this.applyViewport(tab); await this.startCast(); }
         return;
-      case 'ack':
-        this.inflight = Math.max(0, this.inflight - 1);
-        if (this.stashedAck && tab) { const id = this.stashedAck; this.stashedAck = null; tab.cdp.send('Page.screencastFrameAck', { sessionId: id }).catch(() => {}); }
+      }
+      case 'ping': return; // the panel is open: the browser stays warm (the hour's limit still holds)
+      case 'ack': {
+        const id = this.flow.acked();
+        if (id != null && tab) tab.cdp.send('Page.screencastFrameAck', { sessionId: id }).catch(() => {});
         return;
+      }
+      case 'hit': {
+        if (!tab || !/^https?:/.test(tab.url)) return this.send({ t: 'hit', id: msg.id });
+        const z = tab.zoom || 1;
+        const x = Math.max(0, Math.min(4000, Number(msg.x) || 0)) / z;
+        const y = Math.max(0, Math.min(4000, Number(msg.y) || 0)) / z;
+        const r = (await this.evaluate(tab, `(${HIT})(${x}, ${y})`).catch(() => null)) || {};
+        const web = (u) => { const ok = addressAllowed(String(u || '')); return ok.ok ? ok.url : ''; };
+        return this.send({ t: 'hit', id: msg.id, link: web(r.link), image: web(r.image), selection: String(r.selection || '').slice(0, 20000), editable: Boolean(r.editable) });
+      }
       case 'start': await this.ensureBrowser(); if (!this.tabs.size) await this.openTab(NEW_TAB); return;
       case 'end': await this.shutdown('', true); return;
       case 'go': return this.go(msg.url);
@@ -179,7 +242,7 @@ export class BrowserSession {
       case 'copy': return tab && this.copy(tab);
       case 'zoom': {
         if (!tab) return;
-        tab.zoom = zoomStep(tab.zoom, Number(msg.dir) || 0);
+        tab.zoom = Number.isFinite(Number(msg.to)) && msg.to !== null ? Math.round(Math.min(ZOOM.max, Math.max(ZOOM.min, Number(msg.to))) * 100) / 100 : zoomStep(tab.zoom, Number(msg.dir) || 0);
         const prefs = await this.prefs();
         const site = siteOf(tab.url);
         if (site) {
@@ -327,20 +390,39 @@ export class BrowserSession {
   async setupTab(page) {
     const id = `t${++this.seq}`;
     const cdp = await page.createCDPSession();
-    const tab = { id, page, cdp, url: page.url() || NEW_TAB, title: '', loading: false, blocked: 0, zoom: 1, prefs: await this.prefs(), mainFrame: '' };
+    const tab = { id, page, cdp, url: page.url() || NEW_TAB, title: '', icon: '', wall: false, failed: null, loading: false, blocked: 0, zoom: 1, prefs: await this.prefs(), mainFrame: '' };
     this.tabs.set(id, tab);
     await Promise.all([
       cdp.send('Page.enable'),
       cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }),
       this.applyViewport(tab),
+      cdp.send('Runtime.enable').catch(() => {}), // for the cursor binding's calls
+      cdp.send('Runtime.addBinding', { name: '__edenCursor', executionContextName: 'eden' }).catch(() => {}),
+      cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: CURSOR, worldName: 'eden' }).catch(() => {}),
     ]);
+    cdp.on('Runtime.bindingCalled', (e) => {
+      if (e.name !== '__edenCursor' || tab.id !== this.active) return;
+      const c = cursorOf(e.payload);
+      if (c !== this.cursor) { this.cursor = c; this.send({ t: 'cursor', c }); }
+    });
     const tree = await cdp.send('Page.getFrameTree').catch(() => null);
     tab.mainFrame = tree ? tree.frameTree.frame.id : '';
     cdp.on('Fetch.requestPaused', (e) => this.paused(tab, e));
     cdp.on('Page.screencastFrame', (e) => this.frame(tab, e));
-    cdp.on('Page.frameStartedLoading', (e) => { if (e.frameId === tab.mainFrame) { tab.loading = true; this.sendState(); } });
+    cdp.on('Page.frameStartedLoading', (e) => { if (e.frameId === tab.mainFrame) { tab.loading = true; tab.failed = null; tab.wall = false; this.sendState(); } });
     cdp.on('Page.frameStoppedLoading', (e) => { if (e.frameId === tab.mainFrame) { tab.loading = false; this.titled(tab); } });
-    cdp.on('Page.frameNavigated', (e) => { if (!e.frame.parentId) this.navigated(tab, e.frame.url); });
+    cdp.on('Page.frameNavigated', (e) => {
+      if (e.frame.parentId) return;
+      // Chrome's own error page: the panel draws its own, for the address that failed.
+      if (e.frame.unreachableUrl || /^chrome-error:/.test(e.frame.url)) {
+        const url = e.frame.unreachableUrl || tab.url;
+        if (!tab.failed || tab.failed.url !== url) tab.failed = { url, ...navFailure('') };
+        tab.url = url;
+        this.sendState();
+        return;
+      }
+      this.navigated(tab, e.frame.url);
+    });
     cdp.on('Page.navigatedWithinDocument', (e) => { if (e.frameId === tab.mainFrame) this.navigated(tab, e.url); });
     cdp.on('Page.javascriptDialogOpening', (e) => this.dialogOpened(tab, e));
     page.on('close', () => this.closed(tab.id));
@@ -380,8 +462,45 @@ export class BrowserSession {
 
   async titled(tab) {
     try { tab.title = String(await tab.page.title()).slice(0, LIMITS.titleMax); } catch { /* closed */ }
+    tab.wall = botWall(tab.title);
     if (tab.title && /^https?:/.test(tab.url)) await this.storage.put('hist', setTitle((await this.storage.get('hist')) || [], tab.url, tab.title));
     await this.sendState();
+    if (/^https?:/.test(tab.url)) this.iconFor(tab).then((got) => { if (got) this.sendState(); }).catch(() => {});
+  }
+
+  /** The tab's site icon, fetched here (never by the viewer) and kept: true when it's new. */
+  async iconFor(tab) {
+    const site = siteOf(tab.url);
+    if (!site) return false;
+    if (!this.icons.has(site)) {
+      const kept = await this.storage.get(`icon:${site}`);
+      if (typeof kept === 'string') this.icons.set(site, kept);
+    }
+    if (this.icons.has(site)) { const was = tab.icon; tab.icon = this.icons.get(site); return was !== tab.icon; }
+    this.icons.set(site, ''); // one try per site while this browser lasts
+    const href = await this.evaluate(tab, ICON).catch(() => '');
+    if (typeof href !== 'string') { console.log('cloud browser icon: none named'); return false; }
+    let url = href;
+    let data = '';
+    for (let hop = 0; hop < 3 && !data; hop++) {
+      const ok = addressAllowed(url);
+      if (!ok.ok) return false;
+      const res = await this.fetchIcon(ok.url);
+      if (res.status >= 300 && res.status < 400 && res.headers.get('location')) { url = new URL(res.headers.get('location'), ok.url).href; continue; }
+      if (!res.ok || Number(res.headers.get('content-length') || 0) > 48 * 1024) { console.log('cloud browser icon: status', res.status); return false; }
+      data = iconData(new Uint8Array(await res.arrayBuffer()), res.headers.get('content-type'));
+      if (!data) return false;
+    }
+    if (!data) return false;
+    this.icons.set(site, data);
+    if (this.icons.size > 300) this.icons.delete(this.icons.keys().next().value);
+    await this.storage.put(`icon:${site}`, data);
+    tab.icon = data;
+    return true;
+  }
+
+  fetchIcon(url) {
+    return fetch(url, { redirect: 'manual', headers: { accept: 'image/*', 'user-agent': 'EdenBrowser/1.0 (site icons; +https://askeden.com)' }, signal: AbortSignal.timeout(4000) });
   }
 
   dialogOpened(tab, e) {
@@ -403,8 +522,13 @@ export class BrowserSession {
   async navigate(tab, url) {
     const ok = addressAllowed(url);
     if (!ok.ok) { this.send({ t: 'error', message: REFUSED[ok.why] }); return; }
+    tab.failed = null;
     const r = await tab.cdp.send('Page.navigate', { url: ok.url });
-    if (r && r.errorText && !/ERR_ABORTED|ERR_BLOCKED_BY_CLIENT/.test(r.errorText)) this.send({ t: 'error', message: `Couldn’t open that page (${r.errorText.replace(/^net::/, '')}).` });
+    if (r && r.errorText && !/ERR_ABORTED|ERR_BLOCKED_BY_CLIENT/.test(r.errorText)) {
+      tab.failed = { url: ok.url, ...navFailure(r.errorText) };
+      tab.loading = false;
+      await this.sendState();
+    }
   }
 
   async history(tab, dir) {
@@ -445,8 +569,12 @@ export class BrowserSession {
     await this.sendState();
   }
 
+  viewOf(msg, was) {
+    return { w: Number(msg.w) || was.w, h: Number(msg.h) || was.h, dpr: Math.min(3, Math.max(1, Number(msg.dpr) || 1)), touch: Boolean(msg.touch) };
+  }
+
   async applyViewport(tab) {
-    const v = viewport(this.view.w, this.view.h, tab.zoom);
+    const v = viewport(this.view.w, this.view.h, tab.zoom, this.view.dpr, this.view.touch && this.view.w < 600);
     await tab.cdp.send('Emulation.setDeviceMetricsOverride', v);
     tab.viewport = v;
   }
@@ -457,10 +585,10 @@ export class BrowserSession {
     const tab = this.tabs.get(this.active);
     if (!tab || !this.ws) return;
     await tab.cdp.send('Page.stopScreencast').catch(() => {});
-    this.inflight = 0;
-    this.stashedAck = null;
-    const v = tab.viewport || viewport(this.view.w, this.view.h, tab.zoom);
-    await tab.cdp.send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: Math.round(v.width * v.deviceScaleFactor), maxHeight: Math.round(v.height * v.deviceScaleFactor), everyNthFrame: 1 });
+    this.flow.reset();
+    const v = tab.viewport || viewport(this.view.w, this.view.h, tab.zoom, this.view.dpr);
+    await tab.cdp.send('Page.startScreencast', { format: 'jpeg', quality: CAST.moving, maxWidth: Math.round(v.width * v.deviceScaleFactor), maxHeight: Math.round(v.height * v.deviceScaleFactor), everyNthFrame: 1 });
+    this.restSoon(tab);
   }
 
   async stopCast() {
@@ -470,13 +598,26 @@ export class BrowserSession {
 
   frame(tab, e) {
     if (tab.id !== this.active || !this.ws) { tab.cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {}); return; }
-    const bin = atob(e.data);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    this.send(bytes);
-    this.inflight += 1;
-    if (this.inflight < 2) tab.cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {});
-    else this.stashedAck = e.sessionId;
+    this.send(bytesOf(e.data));
+    if (this.flow.sent(e.sessionId)) tab.cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {});
+    this.restSoon(tab);
+  }
+
+  /** Once the picture has been still a moment: one crisp frame, unless the viewer did something since. */
+  restSoon(tab) {
+    clearTimeout(this.restTimer);
+    this.restTimer = setTimeout(() => { this.restTimer = 0; this.crisp(tab).catch(() => {}); }, CAST.restMs);
+  }
+
+  async crisp(tab) {
+    if (tab.id !== this.active || !this.ws || !this.browser) return;
+    if (!this.flow.room) { this.restSoon(tab); return; }
+    const seq = this.inputSeq;
+    const r = await tab.cdp.send('Page.captureScreenshot', { format: 'webp', quality: CAST.rest, fromSurface: true });
+    if (!r || !r.data || tab.id !== this.active || !this.ws) return;
+    if (seq !== this.inputSeq) { this.restSoon(tab); return; }
+    this.send(bytesOf(r.data));
+    this.flow.sent(null);
   }
 
   async evaluate(tab, expression) {
@@ -498,7 +639,7 @@ export class BrowserSession {
 
   async sendState() {
     if (!this.ws) return;
-    const [prefs, bookmarks, usage] = await Promise.all([this.prefs(), this.storage.get('bm'), this.storage.get('usage')]);
+    const [prefs, bookmarks, usage, history] = await Promise.all([this.prefs(), this.storage.get('bm'), this.storage.get('usage'), this.storage.get('hist')]);
     const tab = this.tabs.get(this.active);
     let canBack = false;
     let canForward = false;
@@ -513,7 +654,7 @@ export class BrowserSession {
     this.send({
       t: 'state',
       running: Boolean(this.browser),
-      tabs: [...this.tabs.values()].map((t) => ({ id: t.id, title: t.title, url: t.url === NEW_TAB ? '' : t.url, loading: t.loading })),
+      tabs: [...this.tabs.values()].map((t) => ({ id: t.id, title: t.title, url: t.url === NEW_TAB ? '' : t.url, loading: t.loading, icon: t.icon || '' })),
       active: this.active,
       url: tab && tab.url !== NEW_TAB ? tab.url : '',
       title: tab ? tab.title : '',
@@ -524,7 +665,10 @@ export class BrowserSession {
       adblock: prefs.adblock,
       siteAdblock: !(site && prefs.allow.includes(site)),
       bookmarked: Boolean(tab && (bookmarks || []).some((b) => b.url === tab.url)),
-      bookmarks: (bookmarks || []).slice(0, 12).map((b) => ({ url: b.url, title: b.title })),
+      bookmarks: (bookmarks || []).slice(0, 12).map((b) => ({ url: b.url, title: b.title, icon: this.icons.get(siteOf(b.url)) || '' })),
+      recent: tab && tab.url !== NEW_TAB ? [] : recentSites(history || [], 8).map((r) => ({ ...r, icon: this.icons.get(r.site) || '' })),
+      failed: tab && tab.failed ? tab.failed : null,
+      wall: Boolean(tab && tab.wall),
       engine: prefs.engine,
       minutesLeft: Math.floor(minutesLeft(usage, allowance(this.env, this.plus), this.now())),
       plus: this.plus,
@@ -551,6 +695,7 @@ export class BrowserSession {
       await this.storage.put('usage', addUse(await this.storage.get('usage'), now - (this.lastTick || now), now)).catch(() => {});
     }
     this.browser = null;
+    clearTimeout(this.restTimer);
     this.tabs.clear();
     this.active = '';
     this.dialog = null;
