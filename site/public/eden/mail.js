@@ -402,12 +402,22 @@ export async function mailPanel(body) {
 /** A cheap routed model (router level 1, as the brief uses), the emails as an untrusted context block (H8). */
 // Mail's AI (Summarize, Rank by priority, a message's summary): always a cheap, fast Gemini Flash,
 // not whatever the router would pick, when this account can use it.
-const MAIL_MODEL = { model: 'gemini-3.6-flash', effort: 'minimal' }; // minimal thinking: the room goes to the answer
+// The first of these this account can use, with as little thinking as it allows (the room goes to the answer).
+const MAIL_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+function mailModel() {
+  for (const id of MAIL_MODELS) {
+    const m = modelInfo(id);
+    if (!m || !m.available) continue;
+    const efforts = (m.efforts || []).map((e) => (typeof e === 'string' ? e : e && e.id)).filter(Boolean);
+    const effort = ['minimal', 'none', 'low'].find((e) => efforts.includes(e));
+    return { model: id, ...(effort ? { effort } : {}) };
+  }
+  return null;
+}
 async function askEden(system, title, text, onText) {
   const settings = { ...routeSettings(), level: 1, efficiency: 80, performance: 30 };
   if (!settings.providers || !settings.providers.length) throw new Error('no model is available. Add a key in Settings.');
-  const m = modelInfo(MAIL_MODEL.model);
-  const override = !state.meta || (m && m.available) ? MAIL_MODEL : null;
+  const override = mailModel();
   let out = '', model = '';
   await api.send({ messages: [{ role: 'user', content: 'Do it for the emails in the context. Follow the answer format exactly.' }], context: [{ title, text, source: 'mail' }], system, settings, mode: 'chat', ...(override ? { override } : {}) }, {
     onEvent: (t, d) => {
