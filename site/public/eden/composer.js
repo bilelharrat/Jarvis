@@ -798,10 +798,10 @@ export function renderComposer() {
   // the queue (steer)
   const q = (c && c.queue) || [];
   $('jc-queue').hidden = !q.length;
-  $('jc-queue').replaceChildren(...q.map((item) => el('li', 'jc-queued',
-    el('span', 'jc-queued-kicker', item.state === 'sent' ? 'Steered' : item.state === 'sending' ? 'Steering…' : code ? 'Steer' : 'Next'),
+  $('jc-queue').replaceChildren(...q.map((item) => el('li', item.state === 'queued' && !code ? 'jc-queued jc-queued-wait' : 'jc-queued',
+    el('span', 'jc-queued-kicker', item.state === 'sent' ? 'Steered' : item.state === 'sending' ? 'Steering…' : code ? 'Steer' : 'Queued — sends when Eden finishes'),
     el('span', { class: 'jc-queued-text', title: item.text }, item.state === 'sent' ? `${item.text} — sent to the running step` : item.text),
-    item.state === 'queued' ? el('button', { type: 'button', class: 'jc-queued-steer', title: code ? 'Send into the running step now' : 'Stop this reply (keeping what it wrote) and send now', onclick: () => H.steerNow(item.id) }, 'Steer now') : null,
+    item.state === 'queued' ? el('button', { type: 'button', class: 'jc-queued-steer', title: code ? 'Send into the running step now' : 'Stop this reply (keeping what it wrote) and send this now', onclick: () => H.steerNow(item.id) }, code ? 'Steer now' : 'Send now (stop reply)') : null,
     item.state === 'sent' ? null : el('button', { type: 'button', class: 'jc-queued-x', 'aria-label': 'Remove from the queue', onclick: () => H.dropQueued(item.id) }, '×'))));
   // the status line
   const bits = [];

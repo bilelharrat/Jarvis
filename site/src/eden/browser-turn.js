@@ -167,7 +167,7 @@ export function parseToolResponse(provider, j) {
  *   afford(lastStepUSD) → false once the turn's cap would be passed
  * → { end: 'done' | 'stopped' | 'approval' | 'takeover' | 'paused' | 'cap' | 'failed', text, log, steps, needs? }
  */
-export async function runAgent({ call, act, emit = () => {}, signal = { aborted: false }, transcript, wrap = (t) => t, afford = () => true, maxSteps = MAX_STEPS }) {
+export async function runAgent({ call, act, emit = () => {}, signal = { aborted: false }, transcript, wrap = (t) => t, afford = () => true, maxSteps = MAX_STEPS, steer = null }) {
   const log = [];
   let steps = 0;
   let lastUSD = 0;
@@ -175,6 +175,8 @@ export async function runAgent({ call, act, emit = () => {}, signal = { aborted:
   for (let round = 0; round <= maxSteps + 1; round++) {
     if (signal.aborted) return stopped();
     if (!afford(lastUSD)) return { end: 'cap', text: '', log, steps };
+    // Steering: what the user sent while this run went on, as a note before the next step. It is the user's own words (not page content) and the run is not stopped.
+    if (steer) for (const note of await steer()) { transcript.push({ role: 'user', text: steerText(note), calls: [] }); emit('steered', { text: note }); }
     const final = steps >= maxSteps;
     let r;
     try { r = await call(transcript, { final }); } catch (err) {
@@ -213,6 +215,9 @@ export async function runAgent({ call, act, emit = () => {}, signal = { aborted:
   return { end: 'done', text: '', log, steps };
 }
 
+/** The user's steering message as the model reads it: guidance from the user, never to be confused with page text. */
+export const steerText = (note) => `(Eden note: the user sent this while you were working. It is the user's own message, steering you; follow it from your next step on, without starting over: ${String(note).slice(0, 2000)})`;
+
 // ── the turn (chat.js send hands it over) ──
 
 const sse = (type, data) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -247,7 +252,8 @@ export function browserTurn(request, env, ctx, who, raw, deps) {
   const stream = new ReadableStream({ start(c) { controller = c; }, cancel() { open = false; abort.abort(); } });
   if (request.signal) { const gone = () => { open = false; abort.abort(); }; if (request.signal.aborted) gone(); else request.signal.addEventListener('abort', gone, { once: true }); }
 
-  const run = async () => {
+  const run = crypto.randomUUID(); // this run's id: the page steers it with POST /api/chat/browser/steer
+  const go = async () => {
     const ping = setInterval(() => { if (open) { try { controller.enqueue(encoder.encode(': ping\n\n')); } catch { open = false; } } }, 15000);
     let hold = null;
     let charged = 0;
@@ -261,10 +267,10 @@ export function browserTurn(request, env, ctx, who, raw, deps) {
       }
       const limit = own ? cap : Math.min(cap, allow.left);
       write('route', { model: model.id, modelName: model.name, provider: model.provider, effort: null, effortLabel: '', via: 'api', costUSD: null, quality: null, confidence: null, rationale: `Browser: ${model.name} drives your cloud browser with tool calls (at most ${MAX_STEPS} steps).`, rated: false, ratedBy: 'rules', ratedLabel: '', complexity: null, candidates: [], fallbacks: [], warnings: [], notes: [`browser turn: at most $${limit.toFixed(2)} of model use`, own ? 'on askeden.com: your own API key (not counted on your included AI)' : 'on askeden.com: your Jarvis account’s included AI'], where: computedWhere(model.provider), ...(own ? { ownKey: true } : {}) });
-      write('browser', { open: true });
+      write('browser', { open: true, runId: run });
       let plus;
       try { plus = Boolean((await call(env, who.account, 'get', {}, who.token)).plan?.active); } catch { plus = undefined; }
-      const b = await browser({ op: 'begin', plus, resume: Boolean(raw.browser && raw.browser.resume) });
+      const b = await browser({ op: 'begin', plus, resume: Boolean(raw.browser && raw.browser.resume), run });
       if (b.paused) { write('text', { text: ENDINGS.paused() }); write('done', { finish: 'stop' }); return; }
       if (b.error) { write('error', { message: b.error }); return; }
       const where = b.url ? `The browser now shows ${b.url}${b.title ? ` (${b.title})` : ''}; ${b.tabs} tab${b.tabs === 1 ? '' : 's'} open.` : 'The browser is on a new tab.';
@@ -308,7 +314,10 @@ export function browserTurn(request, env, ctx, who, raw, deps) {
         transcript,
         wrap: (text, title) => ledger.untrusted('web', text, { title }),
         afford: (last) => charged + Math.max(last, 0.002) * 1.5 <= limit,
+        steer: async () => { try { return (await browser({ op: 'steers', run })).texts || []; } catch { return []; } },
       });
+      // A steering note that arrived after the last step: the page sends it as the next message.
+      try { const left = (await browser({ op: 'steers', run })).texts || []; if (left.length) write('steerleft', { texts: left }); } catch { /* the browser is gone */ }
       log = [...log, ...out.log];
       if (ledger.tainted) write('provenance', ledger.summary());
       if (out.end === 'failed') { write('error', { message: out.text }); return; }
@@ -329,6 +338,6 @@ export function browserTurn(request, env, ctx, who, raw, deps) {
       if (hold) await call(env, who.account, 'release-ai', { hold: hold.hold }).catch(() => {});
     }
   };
-  ctx.waitUntil(run());
+  ctx.waitUntil(go());
   return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-accel-buffering': 'no' } });
 }

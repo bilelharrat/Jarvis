@@ -569,6 +569,9 @@ export async function chatApi(request, env, ctx, path) {
       case 'POST /api/chat/compare/estimate':
         await limited(env, 'API_RATE', who.account);
         return json(compareEstimate(await readBody(request, 1 << 20), cfg));
+      case 'POST /api/chat/browser/steer': // a message sent while Eden drives the cloud browser: guidance for the run's next step, the run goes on
+        await limited(env, 'API_RATE', who.account);
+        return json(await steerBrowser(await readBody(request, 8192), env, who));
       case 'POST /api/chat/compare/stop':
         return json(stopCompare(await readBody(request, 4096), who));
       case 'POST /api/chat/artifact': {
@@ -1456,6 +1459,18 @@ function capRequestFor(s, max) {
   const r = capRequest(s.request, max);
   if (r.provider === 'anthropic' && r.params.thinking && r.params.thinking.type === 'enabled') delete r.params.thinking;
   return r;
+}
+
+/** POST /api/chat/browser/steer: hands the user's note to this account's running browser agent (browser-turn.js reads it before its next step). */
+async function steerBrowser(raw, env, who) {
+  if (typeof raw.runId !== 'string' || !/^[0-9a-f-]{8,40}$/.test(raw.runId)) bad('runId must be the id from the browser event');
+  const text = typeof raw.text === 'string' ? raw.text.trim().slice(0, 2000) : '';
+  if (!text) bad('text is empty');
+  if (!env.BROWSER_SESSIONS) throw new ApiError(404, 'not_running', 'Eden is not driving a browser.');
+  const stub = env.BROWSER_SESSIONS.get(env.BROWSER_SESSIONS.idFromName(who.account));
+  const r = await (await stub.fetch('https://browser/agent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ op: 'steer', run: raw.runId, text }) })).json();
+  if (r.error) throw new ApiError(404, 'not_running', 'That browser run has finished.');
+  return { ok: true };
 }
 
 /** POST /api/chat/compare/stop: one lane of this account's compare, while this copy runs it (404 otherwise). */

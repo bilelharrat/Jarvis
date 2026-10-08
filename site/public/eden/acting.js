@@ -42,7 +42,7 @@ export const actingHas = (feature) => !current || (current.features || []).inclu
 
 // The routes a grant may use (delegates.js CHAT_ROUTES, MAIL_ROUTES, CALENDAR_ROUTES), and the
 // person's own (their published pages, ownRoute). /api/web/* is always this browser's own session.
-const CHAT = new Set(['GET /api/chat/meta', 'POST /api/route', 'POST /api/chat/send', 'POST /api/chat/artifact', 'GET /api/chat/jarvis/status', 'POST /api/chat/compare', 'POST /api/chat/compare/estimate', 'POST /api/chat/compare/stop']);
+const CHAT = new Set(['GET /api/chat/meta', 'POST /api/route', 'POST /api/chat/send', 'POST /api/chat/artifact', 'GET /api/chat/jarvis/status', 'POST /api/chat/compare', 'POST /api/chat/compare/estimate', 'POST /api/chat/compare/stop', 'POST /api/chat/browser/steer']);
 const MAIL = new Set(['POST /api/chat/gmail', 'GET /api/chat/google/status']);
 const CALENDAR = new Set(['GET /api/chat/gcal/status', 'POST /api/chat/gcal', 'GET /api/chat/google/status']);
 

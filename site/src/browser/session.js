@@ -133,7 +133,7 @@ export class BrowserSession {
   }
 
   async prefs() {
-    return { engine: 'google', adblock: true, allow: [], zoom: {}, ...((await this.storage.get('prefs')) || {}) };
+    return { engine: 'duckduckgo', adblock: true, allow: [], zoom: {}, ...((await this.storage.get('prefs')) || {}) };
   }
 
   // ── the panel's socket ──
@@ -370,14 +370,15 @@ export class BrowserSession {
       if (!browser) return { error: 'The cloud browser couldn’t start (it may be busy, or this month’s browser minutes are used up).' };
       if (!this.tabs.size) await this.openTab(NEW_TAB);
       this.lastInput = now;
-      this.agent = { on: true, paused: false, at: now, step: '' };
+      this.agent = { on: true, paused: false, at: now, step: '', run: String(body.run || '') };
+      this.steers = [];
       this.agentState();
       const tab = this.tabs.get(this.active);
       return { ok: true, url: tab && tab.url !== NEW_TAB ? tab.url : '', title: tab ? tab.title : '', tabs: this.tabs.size, log: (await this.storage.get('agentLog')) || [], panel: Boolean(this.ws) };
     }
     if (op === 'end') {
       if (Array.isArray(body.log) && body.log.length) await this.storage.put('agentLog', [...((await this.storage.get('agentLog')) || []), ...body.log.map((x) => String(x).slice(0, 200))].slice(-30));
-      if (this.agent) { this.agent.on = false; this.agent.step = ''; }
+      if (this.agent) { this.agent.on = false; this.agent.step = ''; this.agent.run = ''; }
       this.agentState();
       return { ok: true };
     }
@@ -401,6 +402,21 @@ export class BrowserSession {
       const r = await runTool(this, name, v.args, { approved, vision: body.vision !== false });
       if (r.step) { this.agent.step = r.step; this.agentState(); }
       return r;
+    }
+    // Steering a running turn (eden/browser-turn.js reads these before each model step).
+    if (op === 'steer') {
+      const run = String(body.run || '');
+      if (!run || !this.agent || this.agent.run !== run) return { error: 'not_running' };
+      this.steers = this.steers || [];
+      if (this.steers.length >= 5) return { error: 'full' };
+      this.steers.push(String(body.text || '').slice(0, 2000));
+      return { ok: true };
+    }
+    if (op === 'steers') {
+      if (!this.agent || this.agent.run !== String(body.run || '')) return { texts: [] };
+      const texts = this.steers || [];
+      this.steers = [];
+      return { texts };
     }
     if (op === 'deny') {
       const p = await this.storage.get('agentPending');

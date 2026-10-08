@@ -374,3 +374,32 @@ test('session agent: private addresses are refused; a stale element number says 
   s.tabs.get(s.active).url = 'https://a.example/';
   assert.match((await s.agentOp({ op: 'act', name: 'click', args: { ref: 9 } })).error, /read_page again/);
 });
+
+// ── steering: a message sent mid-run reaches the next step; the run isn't stopped ──
+
+test('loop: steering notes are added as a user note before the next model step, and the run goes on', async () => {
+  const m = fakeModel((i) => (i === 0 ? { calls: [{ id: 'c1', name: 'scroll', args: { direction: 'down' } }] } : { text: 'done' }));
+  const acts = [];
+  const events = [];
+  const t = [{ role: 'user', text: 'open nytimes' }];
+  const pending = [[], ['use the Sports section instead']];
+  const out = await runAgent({ call: m.call, act: okAct(acts), emit: (n, d) => events.push([n, d]), transcript: t, steer: async () => pending.shift() || [] });
+  assert.equal(out.end, 'done');
+  assert.equal(acts.length, 1, 'the run was not stopped');
+  const note = t.find((e) => e.role === 'user' && /Sports section/.test(e.text));
+  assert.ok(note, 'the note is in the transcript');
+  assert.ok(t.indexOf(note) > t.findIndex((e) => e.role === 'tool'), 'after the tool result, before the next step');
+  assert.match(note.text, /user's own message/);
+  assert.ok(events.some(([n]) => n === 'steered'));
+});
+
+test('session: steer is accepted only for the run in flight, handed over once, and ends with the run', async () => {
+  const s = new BrowserSession({ storage: new Storage() }, { BROWSER: {} });
+  s.agent = { on: true, run: 'r1' };
+  assert.deepEqual(await s.agentOp({ op: 'steer', run: 'other', text: 'x' }), { error: 'not_running' });
+  assert.deepEqual(await s.agentOp({ op: 'steer', run: 'r1', text: 'go to sports' }), { ok: true });
+  assert.deepEqual(await s.agentOp({ op: 'steers', run: 'r1' }), { texts: ['go to sports'] });
+  assert.deepEqual(await s.agentOp({ op: 'steers', run: 'r1' }), { texts: [] });
+  await s.agentOp({ op: 'end', log: [] });
+  assert.deepEqual(await s.agentOp({ op: 'steer', run: 'r1', text: 'late' }), { error: 'not_running' });
+});

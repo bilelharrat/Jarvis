@@ -13,7 +13,7 @@ import { macBody, macEvent } from './files.js';
 import { codeKnowledge } from './knowledge.js';
 import { learnedBody } from './learned.js';
 import { autopilotBody, endAutopilotSkip } from './autopilot.js';
-import { browserBody, parseBrowse } from './browser-agent.js';
+import { browserBody, parseBrowse, followUpRoute, steerNote } from './browser-agent.js';
 
 function touch(c) { c.updated = Date.now(); saveConversation(c); }
 
@@ -246,8 +246,10 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
           case 'approval': (node.approvals = node.approvals || []).push(d); break;
           case 'mac': macEvent(c, node, d); break; // what the turn read on the Mac (files.js cards)
           case 'step': node.browserRun = true; (node.steps = node.steps || []).push({ text: String(d.text || ''), ok: d.ok !== false }); break; // browser-agent.js chips
+          case 'steerleft': for (const t of d.texts || []) (c.queue = c.queue || []).push({ id: uid('q'), text: String(t), state: 'queued' }); break; // the run ended before it read the steering: it goes as the next message
           case 'browser':
             node.browserRun = true;
+            if (d.runId) { const st = state.streams.get(c.id); if (st) { st.runId = d.runId; for (const q of c.queue || []) if (q.state === 'queued') steerBrowser(c, q); } }
             if (d.open) dispatchEvent(new CustomEvent('eden:browser-open'));
             else if (d.kind === 'approval' || d.kind === 'takeover' || d.kind === 'paused') node.browserCard = d;
             break;
@@ -622,8 +624,10 @@ export function queueFollowUp(c, text) {
   const item = { id: uid('q'), text, state: 'queued' };
   c.queue.push(item);
   const st = state.streams.get(c.id);
-  if (c.kind === 'code' && st && st.turnId) steerCode(c, item);
-  else if (st && st.kind === 'chat' && st.node && st.node.browserRun) st.abort(); // Eden in the browser: stop at once, the steer goes next (drainQueue)
+  // Never stops the run: a Code or browser run takes it as guidance for its next step; a plain reply finishes first, then this sends.
+  const route = followUpRoute({ kind: c.kind, browserRun: Boolean(st && st.node && st.node.browserRun), runId: st && st.runId, turnId: st && st.turnId });
+  if (route === 'steer-code') steerCode(c, item);
+  else if (route === 'steer-browser') steerBrowser(c, item);
   ui.renderComposer();
   return item;
 }
@@ -645,13 +649,34 @@ async function steerCode(c, item) {
   ui.renderComposer();
 }
 
+/** Eden in the cloud browser: the message reaches the running agent as steering for its next step (POST /api/chat/browser/steer); the run goes on. */
+async function steerBrowser(c, item) {
+  const st = state.streams.get(c.id);
+  if (!st || !st.runId || item.state !== 'queued') return;
+  item.state = 'sending';
+  ui.renderComposer();
+  try {
+    await api.browserSteer(st.runId, item.text);
+    item.state = 'sent';
+    if (st.node) { st.node.parts.push({ type: 'note', text: steerNote(item.text) }); ui.updateMessage(c, st.node); }
+  } catch (e) {
+    item.state = 'queued';
+    item.error = e.message;
+    toast('The browser run had finished: your message goes as the next one.');
+  }
+  ui.renderComposer();
+}
+
 export function steerNow(c, id) {
   const item = (c.queue || []).find((q) => q.id === id);
   if (!item) return;
-  if (c.kind === 'code' && state.streams.has(c.id)) {
-    if (item.state === 'queued') steerCode(c, item);
+  const run = state.streams.get(c.id);
+  const route = followUpRoute({ kind: c.kind, browserRun: Boolean(run && run.node && run.node.browserRun), runId: run && run.runId, turnId: run && run.turnId });
+  if (route === 'steer-code' || route === 'steer-browser') {
+    if (item.state === 'queued') (route === 'steer-code' ? steerCode : steerBrowser)(c, item);
     return;
   }
+  if (c.kind === 'code' && run) return; // the Code turn hasn't started yet: it stays queued
   // chat: to the front, stop the reply (its words stay), and the queue sends it
   c.queue = [item, ...c.queue.filter((q) => q !== item)];
   const st = state.streams.get(c.id);

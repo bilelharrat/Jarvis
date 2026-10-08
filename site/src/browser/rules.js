@@ -32,7 +32,7 @@ export const ENGINES = {
   brave: { name: 'Brave', search: 'https://search.brave.com/search?q=', home: 'https://search.brave.com' },
   kagi: { name: 'Kagi', search: 'https://kagi.com/search?q=', home: 'https://kagi.com' },
 };
-export const engineOf = (id) => ENGINES[id] || ENGINES.google;
+export const engineOf = (id) => ENGINES[id] || ENGINES.duckduckgo;
 export const searchUrl = (words, id) => engineOf(id).search + encodeURIComponent(String(words ?? '').trim());
 
 // ── which addresses ──
@@ -106,7 +106,7 @@ export const REFUSED = {
  * in the cloud): http(s) as it is, a host gets https, words are a search. Local addresses and
  * other schemes are refused, never searched for silently.
  */
-export function toUrl(input, engine = 'google') {
+export function toUrl(input, engine = 'duckduckgo') {
   const text = String(input ?? '').trim().slice(0, LIMITS.urlMax);
   if (!text) return { ok: false, why: 'bad' };
   if (/^https?:\/\//i.test(text)) return addressAllowed(text);

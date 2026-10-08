@@ -1102,7 +1102,7 @@ function init() {
   initChipPop();
   initComposer({
     send: sendFromComposer, stop: () => stop(), slash,
-    queue: (t) => { const c = state.current; queueFollowUp(c, t); if (c.kind !== 'code') toast('Steer queued: it goes as soon as this reply ends'); },
+    queue: (t) => { const c = state.current; queueFollowUp(c, t); if (c.kind !== 'code') toast('Queued: sends when Eden finishes'); },
     steerNow: (id) => steerNow(state.current, id), dropQueued: (id) => dropQueued(state.current, id),
     setPersona, editPersona, newTemp, openSettings, openInspector, openBrain: () => openSpace('brain'),
     searchNotes, attachNote, save: (c) => { saveConversation(c); renderTitle(); renderSidebar(); }, confirm: (text, ok, run) => confirmDialog(text, ok, run, true),

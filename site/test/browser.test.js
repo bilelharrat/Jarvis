@@ -37,8 +37,8 @@ test('the address bar: hosts get https, words a search, local and other schemes 
   assert.equal(toUrl('example.com').url, 'https://example.com/');
   assert.equal(toUrl('example.com/a?b=1').url, 'https://example.com/a?b=1');
   assert.equal(toUrl('http://example.com').url, 'http://example.com/');
-  assert.equal(toUrl('weather in paris').url, 'https://www.google.com/search?q=weather%20in%20paris');
-  assert.equal(toUrl('weather', 'duckduckgo').url, 'https://duckduckgo.com/?q=weather');
+  assert.equal(toUrl('weather in paris').url, 'https://duckduckgo.com/?q=weather%20in%20paris');
+  assert.equal(toUrl('weather', 'google').url, 'https://www.google.com/search?q=weather');
   assert.equal(toUrl('weather').search, true);
   assert.equal(toUrl('localhost:3000').why, 'private');
   assert.equal(toUrl('192.168.1.5').why, 'private');

@@ -83,7 +83,7 @@ export function grantGuard(device, op) {
 // Hosted Eden's routes a grant may use (chat.js gate asks, before anything runs).
 const CHAT_ROUTES = new Set([
   'GET /api/chat/meta', 'POST /api/route', 'POST /api/chat/send', 'POST /api/chat/artifact', 'GET /api/chat/jarvis/status',
-  'POST /api/chat/compare', 'POST /api/chat/compare/estimate', 'POST /api/chat/compare/stop',
+  'POST /api/chat/compare', 'POST /api/chat/compare/estimate', 'POST /api/chat/compare/stop', 'POST /api/chat/browser/steer',
 ]);
 const MAIL_ROUTES = new Set(['POST /api/chat/gmail', 'GET /api/chat/google/status']);
 const CALENDAR_ROUTES = new Set(['GET /api/chat/gcal/status', 'POST /api/chat/gcal', 'GET /api/chat/google/status']);

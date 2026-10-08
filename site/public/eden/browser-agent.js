@@ -72,3 +72,16 @@ export function browserCard(c, node) {
   }
   return null;
 }
+
+/**
+ * Where a message sent while Eden is still replying goes. It never stops the run (only Stop does):
+ * a Code turn or a browser run takes it as steering for the next step ('steer-code', 'steer-browser',
+ * once the run's id is known); anything else waits in the queue and is sent when the reply ends ('wait').
+ */
+export function followUpRoute({ kind, browserRun = false, runId = '', turnId = '' } = {}) {
+  if (kind === 'code') return turnId ? 'steer-code' : 'wait';
+  if (browserRun) return runId ? 'steer-browser' : 'wait';
+  return 'wait';
+}
+/** The chat note under a reply for a message the running agent took as guidance. */
+export const steerNote = (text) => `↳ Steered: ${String(text || '')}`;

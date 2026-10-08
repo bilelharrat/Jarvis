@@ -109,7 +109,7 @@ function build() {
     el('div', 'browser-bar', back, fwd, reload, form, zoom, ai, lib, more, progress),
     suggest, find, slot, downloads);
   Object.assign(P, { back, fwd, reload, addr, site, shield, star, suggest, zoom, ai, lib, more, progress, tabs, find, findIn, findCount, slot, downloads, wide, url: '', loading: false });
-  $('center').append(pane); // beside the chat column, title bar to bottom; the input bar stays under the chat (browser.css)
+  $('center').after(pane); // its own full-height column beside the title bar and chat, like the inspector (browser.css)
   edgeResize(pane);
 }
 /** Wide: the panel over the whole window (and on request truly full screen, where ⌘T and ⌘W reach it too). */
@@ -293,7 +293,7 @@ function moreMenu(anchor) {
     { label: 'Clear browsing data…', run: () => clearData() },
     '-',
     { label: 'Block ads and trackers', switch: s.adblock !== false, run: () => cloud.send({ t: 'adblock', on: s.adblock === false }) },
-    { label: `Search with ${ENGINES[s.engine] || 'Google'}`, sub: () => Object.entries(ENGINES).map(([id, name]) => ({ label: name, checked: (s.engine || 'google') === id, run: () => cloud.send({ t: 'engine', id }) })) },
+    { label: `Search with ${ENGINES[s.engine] || 'DuckDuckGo'}`, sub: () => Object.entries(ENGINES).map(([id, name]) => ({ label: name, checked: (s.engine || 'duckduckgo') === id, run: () => cloud.send({ t: 'engine', id }) })) },
     '-',
     { label: 'Close the cloud browser', disabled: !s.running, run: () => cloud.send({ t: 'end' }) },
     { label: 'A browser in the cloud, for you only', note: Number.isFinite(s.minutesLeft) ? `${s.minutesLeft} browser minutes left this month` : '', disabled: true },
@@ -437,7 +437,7 @@ function startCloud() {
   const newTabPage = (s) => {
     const marks = (s.bookmarks || []).slice(0, 8);
     const recent = (s.recent || []).filter((r) => !marks.some((b) => siteOf(b.url) === r.site)).slice(0, 8);
-    const ntpQ = el('input', { type: 'search', class: 'bd-ntp-q', placeholder: `Search ${ENGINES[s.engine] || 'Google'} or type an address`, 'aria-label': 'Search or enter address', enterkeyhint: 'go', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+    const ntpQ = el('input', { type: 'search', class: 'bd-ntp-q', placeholder: `Search ${ENGINES[s.engine] || 'DuckDuckGo'} or type an address`, 'aria-label': 'Search or enter address', enterkeyhint: 'go', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
     ntpQ.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go(ntpQ.value); } });
     ntpQ.addEventListener('input', () => { if (!s.running) prewarm(); });
     cover.replaceChildren(el('div', 'bd-ntp',
@@ -878,7 +878,7 @@ function startCloud() {
 class MockSocket {
   constructor() {
     this.readyState = 0;
-    this.s = { running: false, tabs: [], active: '', url: '', title: '', loading: false, canBack: false, canForward: false, zoom: 1, blocked: 0, adblock: true, siteAdblock: true, bookmarked: false, bookmarks: [{ url: 'https://en.wikipedia.org/', title: 'Wikipedia' }], engine: 'google', minutesLeft: 60 };
+    this.s = { running: false, tabs: [], active: '', url: '', title: '', loading: false, canBack: false, canForward: false, zoom: 1, blocked: 0, adblock: true, siteAdblock: true, bookmarked: false, bookmarks: [{ url: 'https://en.wikipedia.org/', title: 'Wikipedia' }], engine: 'duckduckgo', minutesLeft: 60 };
     this.n = 0; this.size = { w: 800, h: 600 }; this.hist = [];
     setTimeout(() => { this.readyState = 1; if (this.onopen) this.onopen(); }, 120);
   }
@@ -905,7 +905,7 @@ class MockSocket {
     let t = this.tab();
     if (!t) { t = { id: `t${++this.n}`, url: '', title: '', i: -1 }; this.s.tabs.push(t); this.s.active = t.id; }
     if (url) {
-      const u = /^https?:\/\//.test(url) ? url : /\s/.test(url) || !/\./.test(url) ? `https://www.google.com/search?q=${encodeURIComponent(url)}` : `https://${url}`;
+      const u = /^https?:\/\//.test(url) ? url : /\s/.test(url) || !/\./.test(url) ? `https://duckduckgo.com/?q=${encodeURIComponent(url)}` : `https://${url}`;
       Object.assign(t, { url: u, title: (() => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } })(), i: t.i + 1 });
       this.hist.unshift({ url: u, title: t.title });
       this.s.blocked = 3;

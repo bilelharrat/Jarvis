@@ -198,4 +198,5 @@ export const api = {
   googleConnect: (scope) => postJSON('/api/chat/google/connect', scope ? { scope } : {}), // scope (askeden.com: its own consent): gmail | calendar
   googleDisconnect: () => postJSON('/api/chat/google/disconnect', {}),
   codeSteer: (turnId, text) => postJSON('/api/chat/code/steer', { turnId, text }),
+  browserSteer: (runId, text) => postJSON('/api/chat/browser/steer', { runId, text }), // a message to the running browser agent: guidance for its next step
 };
