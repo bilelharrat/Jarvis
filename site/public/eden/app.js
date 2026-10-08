@@ -3,13 +3,14 @@
 
 import './practice.js'; // first: practice mode (the tour's sandbox) scopes storage before any module reads it
 import { keyStatus, providerGlyph } from './settings-model.js';
-import { $, el, ico, qsa, toast, copyText, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
+import { $, el, ico, qsa, toast, copyText, copyRich, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
 // The apps page (J.A.R.V.I.S., Eden Messenger) lives on askeden.com; a local Eden links there.
 const DOWNLOAD_URL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? 'https://askeden.com/download' : '/download';
 import { initMail, connectGmail, emailText } from './mail.js';
 import { openCompose, initSignatures } from './compose.js';
+import { parseEmailDraft } from './md-plain.js';
 import { renderMessage, emptyState, ui_open, artifactsIn } from './render.js';
 import { routeSettings, initRouteControls, renderRouteControls, renderTurnCard, routePopContent, openChipPop, closeChipPop, chipPopOpenFor, initChipPop, hoverIntent, setOverride, setLevel, availableModels, currentOverride, modelInfo, schedulePreview, levels } from './router.js';
 import { initComposer, renderComposer, composerEscape, focusComposer, setComposerText, addContext, setMode, modelMenu, openMenu, closeMenu, clearAttachments, renderAttachments, addFile } from './composer.js';
@@ -443,7 +444,8 @@ function onTranscriptClick(e) {
       if (n) { saveConversation(c); renderTranscript(); renderComposer(); renderTitle(); const m = $('transcript').querySelector(`.msg[data-id="${n.id}"] [data-act="${act}"]`); if (m && !m.disabled) m.focus(); }
       break;
     }
-    case 'copy-msg': copyText(node.role === 'user' ? node.content || '' : nodeText(node)); break;
+    case 'copy-msg': if (node.role === 'user') copyText(node.content || ''); else copyRich(nodeText(node)); break;
+    case 'open-mail': { const d = parseEmailDraft(nodeText(node)); if (d) openCompose({ to: d.to, cc: d.cc, subject: d.subject, body: d.body }); break; } // the user reviews and sends
     case 'expand-user':
       if (ui_open.expanded.has(node.id)) ui_open.expanded.delete(node.id); else ui_open.expanded.add(node.id);
       updateMessage(c, node);
@@ -944,7 +946,7 @@ function slash(name, arg) {
     case 'rename': if (arg) renameConversation(c, arg); else startRename(); return true;
     case 'export': exportConversation(c); return true;
     case 'pin': togglePin(c); return true;
-    case 'copy': { const n = [...path(c)].reverse().find((x) => x.role === 'assistant'); if (n) copyText(nodeText(n)); else toast('No reply to copy yet'); return true; }
+    case 'copy': { const n = [...path(c)].reverse().find((x) => x.role === 'assistant'); if (n) copyRich(nodeText(n)); else toast('No reply to copy yet'); return true; }
     case 'clear': clearConversation(); return true;
     case 'compact': compact(); return true;
     case 'route': openInspector('Route'); return true;

@@ -125,6 +125,22 @@ export async function copyText(text) {
   }
 }
 
+/** Copy a reply's Markdown as rich text (clean HTML for Gmail/Docs) plus a Markdown-free plain version. */
+export async function copyRich(markdown) {
+  const mod = import('./md-plain.js'); // lazily: tests load util.js on its own
+  const text = mod.then((m) => m.mdToPlain(markdown));
+  try {
+    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard.write) throw new Error('no rich clipboard');
+    // write() starts inside the click (Safari's rule); the blobs follow as promises
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/plain': text.then((t) => new Blob([t], { type: 'text/plain' })),
+      'text/html': mod.then((m) => new Blob([m.mdToHtml(markdown)], { type: 'text/html' })),
+    })]);
+    toast('Copied');
+    return true;
+  } catch { return copyText(await text); }
+}
+
 export function download(name, text, type = 'text/markdown') {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = el('a', { href: url, download: name });

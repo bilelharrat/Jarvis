@@ -6,6 +6,7 @@
 import { el, ico, fmtCost, effortLabel, shortModel, sizeText, noKeys } from './util.js';
 import { state, siblings, summarizeInput, nodeText, attachmentData, persona } from './state.js';
 import { renderMarkdown, CANVAS_LANGS } from './markdown.js';
+import { parseEmailDraft } from './md-plain.js';
 import { ratedBadge } from './router.js';
 import { whereBadge } from './privacy.js';
 import { isSpeaking } from './voice.js';
@@ -165,6 +166,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     wrap.append(el('div', 'msg-acts',
       lane ? null : pager(c, node, 'Draft'),
       el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy reply' }, ico('copy')),
+      lane || !parseEmailDraft(nodeText(node)) ? null : el('button', { type: 'button', class: 'cap', 'data-act': 'open-mail', title: 'Open this draft in Eden’s Mail composer to review and send' }, ico('mail', 14), 'Open in Mail'),
       lane ? null : strongerButton(c, node),
       lane ? null : reopenButton(c, node),
       lane ? null : feedbackButtons(c, node), // H2: 👍 / 👎 teach the router (learned.js)
