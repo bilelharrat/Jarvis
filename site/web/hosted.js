@@ -27,7 +27,9 @@ function describe(session) {
 }
 
 async function signOut() {
-  if (!window.confirm('Sign this browser out of Eden?')) return;
+  // In the Mac or iPhone app it's an app, not "this browser".
+  const inApp = document.documentElement.classList.contains('eden-desktop') || document.documentElement.classList.contains('eden-app');
+  if (!window.confirm(inApp ? 'Sign out of Eden?' : 'Sign this browser out of Eden?')) return;
   try {
     await fetch('/api/web/signout', { method: 'POST', headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: '{}' });
   } finally {
@@ -41,7 +43,7 @@ function mount(session) {
   button.className = 'iconbtn';
   button.id = 'btnSignOut';
   button.title = `${describe(session)}. Sign out`;
-  button.setAttribute('aria-label', 'Sign out of Eden on this browser');
+  button.setAttribute('aria-label', document.documentElement.classList.contains('eden-desktop') || document.documentElement.classList.contains('eden-app') ? 'Sign out of Eden' : 'Sign out of Eden on this browser');
   button.append(svgIcon());
   button.addEventListener('click', signOut);
   const foot = document.querySelector('#sidebar .side-foot');
