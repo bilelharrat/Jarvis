@@ -7,5 +7,6 @@ contextBridge.exposeInMainWorld('askEdenMac', {
   version: 1,
   badge: (n) => ipcRenderer.send('eden:badge', Math.max(0, Math.min(99, Number(n) || 0))),
   notify: (title, body) => ipcRenderer.send('eden:notify', String(title || '').slice(0, 120), String(body || '').slice(0, 300)),
+  relink: () => ipcRenderer.invoke('eden:relink'),
   engine: () => ipcRenderer.invoke('eden:engine'),
 });

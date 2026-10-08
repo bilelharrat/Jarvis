@@ -76,7 +76,10 @@ const DESKTOP_CSS = `
   html.eden-desktop #titlebar { -webkit-app-region: drag; }
   html.eden-desktop #titlebar button, html.eden-desktop #titlebar a, html.eden-desktop #titlebar input,
   html.eden-desktop #titlebar [contenteditable], html.eden-desktop #titlebar .tb-title { -webkit-app-region: no-drag; }
-  html.eden-desktop body::before { content: ''; position: fixed; top: 0; left: 84px; right: 0; height: 12px; -webkit-app-region: drag; pointer-events: none; }
+  html.eden-desktop:not(.eden-fullscreen) body { padding-top: 28px; box-sizing: border-box; }
+  html.eden-desktop:not(.eden-fullscreen) #app { height: calc(100dvh - 28px); }
+  html.eden-desktop:not(.eden-fullscreen) body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: 28px; -webkit-app-region: drag; z-index: 2147483647; }
+  html.eden-desktop.eden-fullscreen body::before { content: ''; position: fixed; top: 0; left: 84px; right: 0; height: 12px; -webkit-app-region: drag; pointer-events: none; }
 `;
 
 function guard(wc) {
@@ -97,8 +100,8 @@ function createMain() {
   win = new BrowserWindow({
     width: 1280, height: 840, minWidth: 760, minHeight: 560, title: NAME,
     titleBarStyle: 'hiddenInset',
-    // Over the sidebar card's free top margin: its search box starts 24px down.
-    trafficLightPosition: { x: 18, y: 10 },
+    // Centered in the 28px strip above the page (DESKTOP_CSS).
+    trafficLightPosition: { x: 18, y: 7 },
     backgroundColor: require('electron').nativeTheme.shouldUseDarkColors ? '#161618' : '#f5f5f7',
     show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
@@ -108,7 +111,10 @@ function createMain() {
     win.webContents.insertCSS(DESKTOP_CSS).catch(() => {});
     win.webContents.executeJavaScript("document.documentElement.classList.add('eden-desktop')").catch(() => {});
   };
-  win.webContents.on('dom-ready', apply);
+  const fs_ = (on) => win && !win.isDestroyed() && win.webContents.executeJavaScript(`document.documentElement.classList.toggle('eden-fullscreen', ${on})`).catch(() => {});
+  win.webContents.on('dom-ready', () => { apply(); fs_(win.isFullScreen()); });
+  win.on('enter-full-screen', () => fs_(true));
+  win.on('leave-full-screen', () => fs_(false));
   win.once('ready-to-show', () => win.show());
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } }); // stays in the menu bar
   win.on('closed', () => { win = null; });
@@ -195,6 +201,7 @@ ipcMain.on('eden:notify', (e, title, body) => {
   n.on('click', showMain);
   n.show();
 });
+ipcMain.handle('eden:relink', (e) => { if (!fromEden(e)) return false; linkLastAsk = 0; autoLink().catch(() => {}); return true; });
 ipcMain.handle('eden:engine', (e) => (fromEden(e) ? { running: Boolean(engine), shared: Boolean(engine && engine.shared) } : null));
 
 // ── the Mac engine ──

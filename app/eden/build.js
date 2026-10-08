@@ -51,6 +51,41 @@ function addEngine(resources) {
   fs.rmSync(path.join(server, 'dist', '__tests__'), { recursive: true, force: true });
 }
 
+// Developer ID signing for notarization: hardened runtime + secure timestamp on every Mach-O,
+// signed inside-out (no --deep): loose binaries/libraries first, then nested bundles deepest
+// first (frameworks, helper apps), then the app itself.
+const ENTITLEMENTS = path.join(__dirname, 'build', 'entitlements.plist');
+function isMachO(file) {
+  const fd = fs.openSync(file, 'r');
+  const b = Buffer.alloc(4);
+  const n = fs.readSync(fd, b, 0, 4, 0);
+  fs.closeSync(fd);
+  if (n < 4) return false;
+  const m = b.readUInt32BE(0);
+  if (m === 0xcafebabe) return /Mach-O/.test(execFileSync('/usr/bin/file', ['-b', file], { encoding: 'utf8' }));
+  return [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabf].includes(m);
+}
+function walk(dir, files, bundles) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isSymbolicLink()) continue;
+    if (e.isDirectory()) {
+      if (/\.(app|framework|xpc)$/.test(e.name)) bundles.push(p);
+      walk(p, files, bundles);
+    } else if (e.isFile() && isMachO(p)) files.push(p);
+  }
+}
+function signApp(app, identity) {
+  const sign = (target, ents) => execFileSync('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity,
+    ...(ents ? ['--entitlements', ENTITLEMENTS] : []), target], { stdio: 'inherit' });
+  const files = []; const bundles = [];
+  walk(path.join(app, 'Contents'), files, bundles);
+  for (const f of files) sign(f, !/\.(dylib|so)$/.test(f));
+  bundles.sort((a, b) => b.split('/').length - a.split('/').length);
+  for (const b of bundles) sign(b, true);
+  sign(app, true);
+}
+
 async function main() {
   const { packager } = await import('@electron/packager');
   const electron = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
@@ -72,7 +107,8 @@ async function main() {
   if (process.env.ASK_EDEN_NO_ENGINE_BUNDLE !== '1') addEngine(path.join(app, 'Contents', 'Resources'));
   fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'update.json'), `${JSON.stringify({ feed: process.env.ASK_EDEN_UPDATE_URL || DEFAULT_FEED })}\n`);
   const identity = teamIdentity();
-  execFileSync('codesign', ['--force', '--deep', '--sign', identity || '-', app], { stdio: 'inherit' });
+  if (identity) signApp(app, identity);
+  else execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
   if (identity) {
     const info = execSync(`codesign -dvv "${app}" 2>&1`, { encoding: 'utf8' });
     if (!info.includes(`TeamIdentifier=${TEAM}`)) throw new Error(`signed by a team other than ${TEAM}: refused`);
