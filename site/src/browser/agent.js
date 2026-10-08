@@ -306,7 +306,10 @@ export async function runTool(s, name, args, { approved = false, vision = true }
       if (!ok.ok || !/^https?:/.test(ok.url)) return fail('That isn’t a downloadable web address.');
       const gate = approvalFor('download', { url: ok.url }, d, page());
       if (gate && !approved) return hold(s, name, args, gate, '', tab);
-      const fileName = decodeURIComponent(ok.url.split(/[?#]/)[0].split('/').pop() || 'file').slice(0, 200);
+      const last = ok.url.split(/[?#]/)[0].split('/').pop() || 'file';
+      let fileName = last;
+      try { fileName = decodeURIComponent(last); } catch { /* a broken %-escape: the name as it is */ }
+      fileName = fileName.slice(0, 200);
       s.send({ t: 'download', url: ok.url, name: fileName });
       return done(s.ws ? `Offered ${fileName} to the user as a download in the browser panel.` : `The panel isn’t open: give the user this link: ${ok.url}`);
     }

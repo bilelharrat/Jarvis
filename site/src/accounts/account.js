@@ -419,6 +419,7 @@ export class Account {
     this.closeSockets(['listen', 'web', 'phone', 'mac'], 4001, 'account deleted');
     await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
     await this.storage.deleteAll();
+    await Promise.resolve(this.storage.deleteAlarm?.()).catch(() => {}); // deleteAll leaves the alarm set
     return { apple_grant: grant || null, identities, stripe_subscription: stripe, published };
   }
 

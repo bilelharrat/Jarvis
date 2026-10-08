@@ -148,6 +148,13 @@ export class BrowserSession {
         return Response.json({ error: 'That didn’t work in the cloud browser.' });
       }
     }
+    // The account was deleted (accounts/index.js eraseAccount): close the browser and forget everything it kept.
+    if (request.method === 'POST' && new URL(request.url).pathname === '/erase') {
+      if (this.ws) { try { this.ws.close(4001, 'account deleted'); } catch { /* gone */ } this.ws = null; }
+      await this.shutdown('').catch(() => {});
+      await this.storage.deleteAll();
+      return Response.json({ erased: true });
+    }
     if ((request.headers.get('upgrade') || '').toLowerCase() !== 'websocket') return new Response('websocket only', { status: 426 });
     this.plus = request.headers.get('x-eden-plus') === '1';
     const pair = new WebSocketPair();

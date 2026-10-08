@@ -1463,6 +1463,7 @@ function capRequestFor(s, max) {
 
 /** POST /api/chat/browser/steer: hands the user's note to this account's running browser agent (browser-turn.js reads it before its next step). */
 async function steerBrowser(raw, env, who) {
+  if (who.grant) throw new ApiError(403, 'grant_forbidden', 'The cloud browser stays with the account’s owner.');
   if (typeof raw.runId !== 'string' || !/^[0-9a-f-]{8,40}$/.test(raw.runId)) bad('runId must be the id from the browser event');
   const text = typeof raw.text === 'string' ? raw.text.trim().slice(0, 2000) : '';
   if (!text) bad('text is empty');

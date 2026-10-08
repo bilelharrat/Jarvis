@@ -70,7 +70,12 @@ export function privateHost(hostname) {
       const [hi, lo] = v6.slice(7).split(':').map((x) => parseInt(x, 16));
       return privateV4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
     }
-    return /^(f[cd]|fe[89ab]|ff)/.test(v6) || /^(64:ff9b|2001:db8|100::)/.test(v6) || /^::/.test(v6);
+    const sixToFour = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/.exec(v6); // 6to4: the IPv4 address sits in the next 32 bits
+    if (sixToFour) {
+      const [hi, lo] = [parseInt(sixToFour[1], 16), parseInt(sixToFour[2], 16)];
+      if (privateV4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)) return true;
+    }
+    return /^(f[cd]|fe[89a-f]|ff)/.test(v6) || /^(64:ff9b|2001:db8|100::)/.test(v6) || /^::/.test(v6);
   }
   return false;
 }

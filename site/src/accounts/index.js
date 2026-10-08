@@ -24,6 +24,7 @@ import {
   json,
   randomBytes,
   readJson,
+  safeDecode,
   sha256Hex,
   signedOut,
   tokenFrom,
@@ -142,7 +143,8 @@ export async function api(request, env, ctx) {
     }
     const item = /^\/sync\/(.+)$/.exec(path);
     if (item && (method === 'PUT' || method === 'DELETE')) {
-      const key = decodeURIComponent(item[1]);
+      const key = safeDecode(item[1]);
+      if (!key) throw new ApiError(400, 'bad_request', 'That isn’t a valid key.');
       const body = method === 'PUT' ? await readJson(request, 1 << 20) : { base_rev: Number(url.searchParams.get('base_rev')) || 0 };
       return json(await callAs(env, request, method === 'PUT' ? 'sync-put' : 'sync-delete', { ...body, key }));
     }
@@ -209,6 +211,10 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   if (stripeSub) await cancelSubscription(env, stripeSub);
   // Its published pages' links go too (accounts/published.js `pub:<id>`).
   for (const id of published) await call(env, `pub:${id}`, 'pub-index-drop', { account: accountId }).catch(() => {});
+  // The cloud browser's history, bookmarks and agent log live in its own per-account object.
+  if (env.BROWSER_SESSIONS) {
+    await env.BROWSER_SESSIONS.get(env.BROWSER_SESSIONS.idFromName(accountId)).fetch('https://browser/erase', { method: 'POST' }).catch((e) => console.error('cloud browser cleanup failed', e && e.message));
+  }
   // Its sign-ins open nothing now (passkeys included): an Apple ID goes back to the account its
   // id derives from (a new one), a Google account to a new one.
   if (env.IDENTITIES) {
@@ -348,7 +354,7 @@ async function linkPoll(request, env) {
 async function linkByCode(request, env, rawCode, action, method) {
   const token = auth(request);
   await limited(env, 'LINK_RATE', `look:${token.account}`);
-  const code = cleanCode(decodeURIComponent(rawCode));
+  const code = cleanCode(safeDecode(rawCode));
   if (!code) throw new ApiError(404, 'not_found', "That code isn't one we know. Check it on the Mac.");
   const { device } = await call(env, token.account, 'whoami', {}, token);
   // A browser approves nothing; a Mac approves a browser's sign-in (kind `web`), never a Mac.

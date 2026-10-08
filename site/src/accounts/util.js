@@ -153,6 +153,15 @@ export function cleanVersion(version) {
 }
 
 // DER ECDSA signature (SEQUENCE { r INTEGER, s INTEGER }) as WebCrypto's raw r‖s, and back.
+/** decodeURIComponent that answers '' for a broken %-escape instead of throwing (a 500 for a bad address). */
+export function safeDecode(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return '';
+  }
+}
+
 export function derToRaw(der, size) {
   let i = 2;
   if (der[1] & 0x80) i += der[1] & 0x7f;

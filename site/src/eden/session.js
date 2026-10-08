@@ -29,7 +29,7 @@ import { ALGS, verifyAssertion, verifyRegistration } from '../accounts/webauthn.
 import { HUMAN_SECONDS, checkHuman, checkSignups, signupsOpen, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
 import { WEB_LINK_MAC_MS, WEB_LINK_MAC_STALE, WEB_SESSION_DAYS } from '../accounts/account.js';
 import { cleanCode, newCode } from '../accounts/link.js';
-import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
+import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, safeDecode, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
 import { SIGN_IN_SCOPES, buildAuthUrl, exchangeCode, googleReady, pkcePair, verifyIdToken } from './google.js';
 import { qrRows } from './qr.js';
 import { edenSyncApi } from '../accounts/eden-sync.js';
@@ -371,7 +371,7 @@ async function linkMacReady(request, env) {
 async function linkMac(request, env, rawCode, action) {
   const who = await signedIn(request, env);
   await limited(env, 'LINK_RATE', `look:${who.account}`);
-  const code = cleanCode(decodeURIComponent(rawCode));
+  const code = cleanCode(safeDecode(rawCode));
   if (!code) throw new ApiError(404, 'not_found', 'That isn’t a code from J.A.R.V.I.S. on your Mac. It has eight letters and numbers, like K7QM-4ZTR.');
   const link = (await callLink(env, code, 'peek')).body;
   if (link.kind !== 'mac') throw new ApiError(403, 'not_a_mac', 'That code is for a browser’s sign-in, not a Mac. Approve it in the J.A.R.V.I.S. app.');
