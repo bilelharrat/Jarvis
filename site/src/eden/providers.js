@@ -37,6 +37,7 @@ export const KEY_VARS = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KE
 export const SWITCH_VARS = { anthropic: 'EDEN_ANTHROPIC', openai: 'EDEN_OPENAI', gemini: 'EDEN_GEMINI', kimi: 'EDEN_KIMI' };
 
 export const CLAUDE_SEARCH_USD = 0.01;
+export const OPENAI_SEARCH_USD = 0.01; // OpenAI web_search tool call (published price: $10 per 1,000 calls; the pages it reads are billed as input tokens)
 export const GEMINI_QUERY_USD = 0.014; // Gemini 3.x grounding, per search query
 export const GEMINI_GROUNDED_USD = 0.035; // Gemini 2.5 grounding, per grounded answer
 export const CHARS_PER_TOKEN = 3;
@@ -112,9 +113,9 @@ export function narrowFor(cfg, { settings = {}, mode = 'chat', messages = [], ov
     if (!models.length) refuse(`Pick at least one provider askeden.com has (here: ${[...new Set(cfg.models.map((m) => PROVIDER_NAMES[m.provider]))].join(', ') || 'none'}).`);
   }
   if (mode !== 'chat') {
-    const sp = searchProvider({ models });
-    if (!sp) refuse('Web search on askeden.com needs Gemini or Claude: turn one on in the providers.');
-    models = models.filter((m) => m.provider === sp);
+    // any model that can search (Gemini grounding, GPT's web_search, Claude's search tool) may answer; Gemini first, so a tie goes to it
+    models = models.filter(canSearch).sort((a, b) => Number(b.provider === 'gemini') - Number(a.provider === 'gemini'));
+    if (!models.length) refuse('Web search on askeden.com needs Gemini, GPT or Claude: turn one on in the providers.');
   }
   if (hasImages(messages)) {
     models = models.filter(hasVision);
@@ -141,11 +142,14 @@ export function providerStates(keys, cfg) {
   });
 }
 
-/** Web search here: Gemini grounding when Gemini is keyed (as on the Mac), else Claude's search tool (own key only); null: none. */
+/** Providers whose models search the web themselves: Gemini grounding, Claude's search tool (own key only), GPT's web_search. */
+export const SEARCH_PROVIDERS = ['gemini', 'anthropic', 'openai'];
+/** A model can answer a search turn: its own `search` flag, else its provider's (askeden src/chat/provider-info.ts). */
+export const canSearch = (m) => (typeof m.search === 'boolean' ? m.search : SEARCH_PROVIDERS.includes(m.provider));
+
+/** The preferred search provider on this page (Gemini, as on the Mac, then Claude, then GPT); null: none. */
 export function searchProvider(cfg) {
-  if (cfg.models.some((m) => m.provider === 'gemini')) return 'gemini';
-  if (cfg.models.some((m) => m.provider === 'anthropic')) return 'anthropic';
-  return null;
+  return ['gemini', 'anthropic', 'openai'].find((p) => cfg.models.some((m) => m.provider === p && canSearch(m))) || null;
 }
 
 export const modelOf = (id) => MODELS.find((m) => m.id === id);
@@ -163,6 +167,7 @@ export function ratesOf(model, inputTokens = 0) {
 export function searchUSD(model, n) {
   if (!(n > 0)) return 0;
   if (model.provider === 'anthropic') return n * CLAUDE_SEARCH_USD;
+  if (model.provider === 'openai') return n * OPENAI_SEARCH_USD;
   if (model.provider === 'gemini') return /gemini-2\./.test(model.id) ? GEMINI_GROUNDED_USD : n * GEMINI_QUERY_USD;
   return 0;
 }
@@ -210,7 +215,9 @@ export function fitCall(model, request, { leftUSD, inputTokens, searches = 0, ma
   const fixed = (n) =>
     model.provider === 'anthropic'
       ? usd(inputTokens * (n + 1) + (resultTokens * n * (n + 1)) / 2, inPrice) + searchUSD(model, n)
-      : usd(inputTokens, inPrice) + searchUSD(model, n);
+      : model.provider === 'openai'
+        ? usd(inputTokens + resultTokens * n, inPrice) + searchUSD(model, n) // each search's pages are read once as input
+        : usd(inputTokens, inPrice) + searchUSD(model, n);
   const money = Number.isFinite(leftUSD) ? leftUSD : Infinity;
   let uses = searches;
   while (uses > 0 && fixed(uses) + usd(minReply, outPrice) > money) uses--;
@@ -290,9 +297,10 @@ async function* chunks(reader) {
  */
 export async function streamCall({ model, request, messages, system, search = false, uses = 0, key, base = null, inputTokens = 0, videos = [] }, { signal, emit }) {
   const provider = model.provider;
-  const http = buildStreamRequest({ request, model, messages, system, search: provider === 'gemini' && search }, key);
+  const http = buildStreamRequest({ request, model, messages, system, search: (provider === 'gemini' || provider === 'openai') && search }, key);
   if (provider === 'gemini') withVideoParts(http.body, videos); // video.js: file_data parts
   if (provider === 'anthropic' && uses > 0) http.body.tools = [searchTool(model.apiId || model.id, uses)];
+  if (provider === 'openai' && search && uses > 0) http.body.max_tool_calls = uses; // the Responses API's cap on searches
   const clean = (s) => redact(String(s), key);
   const started = Date.now();
   let firstText = 0;
@@ -300,7 +308,7 @@ export async function streamCall({ model, request, messages, system, search = fa
   let chars = 0;
   let reported = null;
   const citations = [];
-  const parser = createStreamParser(provider, model);
+  const parser = createStreamParser(provider, model, { search: provider === 'openai' && search });
   const result = (extra) => {
     const p = parser.progress();
     let usage;

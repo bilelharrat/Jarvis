@@ -391,7 +391,7 @@ function meta(cfg) {
     classifier: rating
       ? { mode: 'always', available: true, reason: null, model: DEFAULT_CLASSIFIER_MODEL }
       : { mode: 'off', available: false, reason: 'No Gemini API key on askeden.com; the router’s rules pick', model: DEFAULT_CLASSIFIER_MODEL },
-    search: sp ? { available: true, via: sp } : { available: false, via: null, reason: 'Web search on askeden.com needs Gemini or Claude' },
+    search: sp ? { available: true, via: sp } : { available: false, via: null, reason: 'Web search on askeden.com needs Gemini, GPT or Claude' },
     jarvis: { available: false, reason: NEEDS_MAC },
     code: { available: false, reason: NEEDS_MAC },
     scope: models.length
