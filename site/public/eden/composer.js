@@ -16,6 +16,7 @@ import { currentOverride, setOverride, availableModels, modelInfo, setPreviewTex
 import { initCompare, renderEstimate } from './compare.js';
 import { macChips, macMenuItems } from './files.js';
 import { api } from './api.js';
+import { mentionEntries, setScope, dropScope } from './tools-ui.js'; // @calendar / @mail scope chips
 import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
 
 let H = {}; // handlers from app.js
@@ -119,8 +120,9 @@ function suggestions() {
   if (m) {
     if (mentionQuery !== m[1]) { mentionQuery = m[1]; fetchMentions(m[1]); }
     const q = m[1].toLowerCase();
+    const scopes = mentionEntries(m[1]);
     const personas = state.personas.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 5).map((p) => ({ label: `@${p.name}`, help: 'Persona', value: p.name, persona: p }));
-    return { kind: 'at', query: m[1], items: [...personas, ...mentionItems].slice(0, 14) };
+    return { kind: 'at', query: m[1], items: [...scopes, ...personas, ...mentionItems].slice(0, 14) };
   }
   mentionQuery = null;
   return { kind: '', items: [] };
@@ -175,7 +177,8 @@ function pick(s, item) {
   inp.value = before + inp.value.slice(inp.selectionStart);
   inp.selectionStart = inp.selectionEnd = before.length;
   $('cc-slash').hidden = true;
-  if (item.persona) H.setPersona(item.persona.id);
+  if (item.scope) { setScope(item.scope); renderAttachments(); }
+  else if (item.persona) H.setPersona(item.persona.id);
   else if (item.note) H.attachNote(item.note);
   inp.focus();
   grow();
@@ -390,7 +393,7 @@ export function renderAttachments() {
     return el('span', { class: 'jc-file-chip', title: a.name }, icon('doc', 15), el('span', 'nm', a.name), el('small', '', sizeText(a.size || 0)), removeChip(a.name, drop));
   });
   for (const s of reading) if (s.kind === 'video') chips.push(videoChip({ ...s, size: s.fileSize }, null, true));
-  state.draftContext.forEach((x, i) => chips.push(el('span', { class: 'jc-file-chip ctx', title: x.title }, icon('note', 15), el('span', 'nm', x.title), el('small', '', 'context'), removeChip(x.title, () => { state.draftContext.splice(i, 1); renderAttachments(); }))));
+  state.draftContext.forEach((x, i) => chips.push(el('span', { class: 'jc-file-chip ctx', title: x.title }, icon('note', 15), el('span', 'nm', x.title), el('small', '', x.scope ? 'scope' : 'context'), removeChip(x.title, () => { state.draftContext.splice(i, 1); renderAttachments(); }))));
   const pid = state.current ? state.current.personaId : state.draftPersona;
   const p = persona(pid);
   if (p) chips.push(el('span', { class: 'jc-file-chip persona', title: `Persona: ${p.name}` }, icon('persona', 15), el('span', 'nm', p.name), el('small', '', 'persona'), removeChip(p.name, () => H.setPersona(null))));
@@ -906,6 +909,7 @@ export function initComposer(handlers) {
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(s, s.items[pickIndex]); return; }
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); $('cc-slash').hidden = true; return; }
     }
+    if (e.key === 'Backspace' && !inp.value && inp.selectionStart === 0 && dropScope()) { e.preventDefault(); renderAttachments(); return; } // the @calendar / @mail chip
     if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); setMode(nextMode()); return; }
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !(e.shiftKey || e.metaKey || e.ctrlKey || e.altKey)) {
       const up = e.key === 'ArrowUp';

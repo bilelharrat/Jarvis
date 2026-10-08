@@ -64,4 +64,5 @@ test('persona: "jarvis" adds the Talk-mode line; anything else is a 400; identit
   assert.match(EDEN_IDENTITY, /Lead with what you can help with/);
   assert.match(EDEN_IDENTITY, /song lyrics/);
   assert.match(EDEN_IDENTITY, /built-in Mail composer.*Subject: .*never give a mailto link.*Open in Mail.*never sends email itself/);
+  assert.match(EDEN_IDENTITY, /connected Google.*add events to their Google Calendar.*approves each one.*read their Gmail and draft.*never say you can't add calendar events/);
 });

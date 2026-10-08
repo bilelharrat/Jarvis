@@ -14,6 +14,7 @@ import { compareView, openGroupOf, reopenButton, setLaneRenderer, strongerButton
 import { approvalCard, isTainted, sourceStrip } from './guard.js';
 import { macCard } from './files.js';
 import { browserCard, stepChips } from './browser-agent.js';
+import { toolCards } from './tools-ui.js'; // Google Calendar / Gmail approval cards
 import { feedbackButtons } from './learned.js';
 import { limitAction } from './plan.js';
 import { clock } from './video-model.js';
@@ -143,6 +144,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
       el('button', { type: 'button', class: 'cap', 'data-act': 'open-art', 'data-k': String(k) }, 'Open'))));
   }
   for (const a of node.approvals || []) bubble.append(approvalCard(c, node, a)); // actions the server's gate holds (H8)
+  for (const t of toolCards(c, node)) bubble.append(t); // Add to Calendar / Edit / Cancel, Open in Mail, Connect Google
   const bcard = browserCard(c, node); // a browser turn's approval / take-over card
   if (bcard) bubble.append(bcard);
   for (const n of node.notes || []) bubble.append(el('div', 'notice warn', n));

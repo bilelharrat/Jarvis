@@ -14,6 +14,7 @@ import { codeKnowledge } from './knowledge.js';
 import { learnedBody } from './learned.js';
 import { autopilotBody, endAutopilotSkip } from './autopilot.js';
 import { browserBody, parseBrowse, followUpRoute, steerNote } from './browser-agent.js';
+import { typedMention, fillScopes, toolsSystemFor } from './tools-ui.js'; // chat that acts on Google Calendar and Gmail (eden-tools.js)
 
 function touch(c) { c.updated = Date.now(); saveConversation(c); }
 
@@ -41,11 +42,12 @@ export function ensureConversation() {
 }
 
 /** The composer's send: text + attachments ([{kind,name,mime,size,data,url,text}]). */
-export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null } = {}) {
+export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null, toolResult = false } = {}) {
   const c = ensureConversation();
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return false; }
   // "/browse what to do": this message goes to the cloud browser (browser-agent.js); a steer of a browser run stays there.
-  const pb = parseBrowse(text);
+  ({ text, context } = typedMention(text, context)); // a typed "@calendar …" is the same as picking it
+  const pb = parseBrowse(context.some((x) => x.title === '@browser') ? `/browse ${text}` : text);
   text = pb.text;
   const prior = path(c).filter((n) => n.role === 'assistant').at(-1);
   const browse = pb.browse || (steered && prior && prior.browserRun) ? { browser: true } : {};
@@ -56,6 +58,7 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
     attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, mime: a.mime, size: a.size, ...(a.kind === 'text' ? { text: a.text } : {}), ...(a.kind === 'video' ? { file: a.file, uri: a.uri, seconds: a.seconds, thumb: a.thumb } : {}) })),
     context: context.map((x) => ({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) })),
     ...(steered ? { steered: true } : {}),
+    ...(toolResult ? { toolResult: true } : {}),
     ...browse,
     ...(browser ? { browserAnswer: browser } : {}),
   });
@@ -185,7 +188,9 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   const ov = override || currentOverride();
   const sig = settingsSig();
   const p = persona(c.personaId);
+  await fillScopes(user); // @calendar / @mail: this week's events / the recent inbox, read when the message is sent
   const ctx = contextFor(c, user);
+  const sys = await toolsSystemFor(user, p && p.system ? p.system : '');
   const body = {
     ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac (first: it may drop a local sticky)
     ...macBody(c), // G2/H11: { mac: { files, knowledge } }: the server reads the Mac first (files.js)
@@ -196,7 +201,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     mode: node.mode === 'search' || node.mode === 'research' ? node.mode : 'chat',
     ...(ov ? { override: ov } : {}),
     ...(!ov && c.lastRoute && c.lastRoute.sig === sig ? { sticky: { model: c.lastRoute.model, effort: c.lastRoute.effort } } : {}),
-    ...(p && p.system ? { system: p.system } : {}),
+    ...(sys ? { system: sys } : {}), // the persona's, plus the Google tools when connected (or the Connect hint)
     ...(ctx.length ? { context: ctx } : {}),
     ...learnedBody(), // H2 on askeden.com: the profile's per-class adjustments (numbers only)
     ...autopilotBody(), // H3: `autopilot: false` for "Use my level this time"
@@ -269,6 +274,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   endStream(c, node);
   // A benign refusal: once, a new draft on another provider's model ("2 of 2"); the queue goes on after it.
   if (!node.error && node.finish === 'stop' && node.refusal && node.refusal.action === 'retry' && retryRefused(c, node)) return;
+  if (!node.error) dispatchEvent(new CustomEvent('eden:turn-done', { detail: { c, node } })); // tools-ui.js: approval cards for a calendar change, mail lookups
   if (!node.error) drainQueue(c);
 }
 

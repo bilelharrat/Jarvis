@@ -214,6 +214,26 @@ function answerFor(prompt, mode, version) {
 }
 
 let sendCount = 0;
+/** QA for the Google tools (eden-tools.js): the model "asks" for tools when the system text offers them. */
+function toolAnswer(body, prompt) {
+  const sys = String(body.system || '');
+  const on = /Google tools\./.test(sys), off = /once they connect Google/.test(sys);
+  if (!on && !off) return null;
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const tool = (name, args) => `<eden-tool>${JSON.stringify({ name, args })}</eden-tool>`;
+  const mk = (text) => ({ text, thinking: '' });
+  if (off && /calendar|event|mail|inbox/i.test(prompt)) return mk(`Google needs connecting first.\n${tool('connect_google', {})}`);
+  if (/^\(Eden ran/.test(prompt)) return mk('Here is what I found: the latest message is from Priya Shah about the contract draft.');
+  if (/\badd\b.*\b(event|calendar)\b|\bschedule\b/i.test(prompt)) {
+    const t = new Date(Date.now() + 864e5), day = `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`;
+    const guest = (/[\w.]+@[\w.]+\.\w+/.exec(prompt) || [])[0];
+    return mk(`Here is the event for your calendar.\n${tool('calendar_create', { title: 'Respond to Google email', start: `${day}T14:00`, ...(guest ? { guests: [guest] } : {}) })}`);
+  }
+  if (/unread|inbox/i.test(prompt)) return mk(`Let me look.\n${tool('mail_unread', { limit: 5 })}`);
+  if (/draft.*email|email.*draft/i.test(prompt)) return mk(`Here is a draft.\n${tool('mail_draft', { to: ['priya@example.org'], subject: 'Contract v2', body: 'Hi Priya,\n\nConfirming Wednesday works.\n\nBest' })}`);
+  return null;
+}
+
 function chatStream(body, signal) {
   const msgs = body.messages || [];
   const last = msgs[msgs.length - 1] || { content: '' };
@@ -228,7 +248,7 @@ function chatStream(body, signal) {
   }
   const version = sendCount++;
   const g = guardTurn(body); // H8: what the turn read from outside (the guard section, at the end)
-  const a = g.answer || answerFor(prompt, mode, version);
+  const a = g.answer || toolAnswer(body, prompt) || answerFor(prompt, mode, version);
   const routeEvent = (pick, rationale) => ({
     turnId: g.turnId,
     model: pick.model, modelName: pick.name, provider: pick.provider, effort: pick.effort, effortLabel: { none: 'no thinking', minimal: 'minimal thinking' }[pick.effort] || `${pick.effort} effort`,
