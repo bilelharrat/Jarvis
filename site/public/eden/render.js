@@ -145,6 +145,10 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   const bcard = browserCard(c, node); // a browser turn's approval / take-over card
   if (bcard) bubble.append(bcard);
   for (const n of node.notes || []) bubble.append(el('div', 'notice warn', n));
+  if (!node.streaming && node.refusal && node.refusal.action === 'offer' && !node.refusalRetried) { // the picked model declined: offer another provider's (chat.js)
+    bubble.append(el('div', 'notice', 'The model declined this. ',
+      el('button', { type: 'button', class: 'cap', onclick: () => dispatchEvent(new CustomEvent('eden:refusal-retry', { detail: { c, node } })) }, `Try another model (${node.refusal.name || node.refusal.model})`)));
+  }
   if (node.memory) { // memory across chats changed in this turn: the chip opens Settings › Memory (app.js)
     const m = node.memory;
     const label = m.action === 'deleted' || m.action === 'cleared' ? 'Memory updated · forgotten' : m.action === 'kept' ? 'Already in memory' : 'Memory updated';

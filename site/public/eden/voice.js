@@ -18,7 +18,7 @@
 
 import { $, el, ico, toast, store } from './util.js';
 import { state, ui, nodeText } from './state.js';
-import { apiUrl, isMock } from './api.js';
+import { apiUrl, isMock, addSendExtra } from './api.js';
 import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S } from './voice-text.js';
 
 const prefs = { autoRead: false, ...store.get('jchat:voice', {}) };
@@ -354,6 +354,9 @@ const talk = {
   on: false, state: 'off', rec: null, heard: '', mid: '', pauseT: 0, awaiting: false, replyId: null, reply: '', error: '',
   stream: null, src: null, mic: null, raf: 0, floor: 0.01, loudFrames: 0, ends: 0, box: null, back: null,
 };
+
+// In Talk mode (the JARVIS voice) the server answers as J.A.R.V.I.S. (turn.ts JARVIS_PERSONA).
+addSendExtra(() => (talk.on ? { persona: 'jarvis' } : null));
 
 function talkBox() {
   if (talk.box) return talk.box;

@@ -154,6 +154,15 @@ async function watchApproval(p) {
   }
 }
 
+// Fields other modules add to every chat send (voice.js: `persona: 'jarvis'` while in Talk mode).
+const sendExtras = new Set();
+export function addSendExtra(fn) { sendExtras.add(fn); }
+function withSendExtras(body) {
+  let b = body;
+  for (const f of sendExtras) { try { const x = f(body); if (x) b = { ...b, ...x }; } catch { /* an extra never breaks a send */ } }
+  return b;
+}
+
 export const api = {
   meta: () => getJSON('/api/chat/meta'),
   // A video for the next turn (askeden.com: on to Gemini's Files API, site src/eden/video.js) →
@@ -177,7 +186,7 @@ export const api = {
   changes: (project) => getJSON(`/api/chat/code/changes?project=${encodeURIComponent(project)}`),
   artifact: (html) => postJSON('/api/chat/artifact', { html }),
   // A turn that uses the Mac ("Use my Mac", project knowledge: files.js) goes to mac/send, which askeden.com forwards to the Mac.
-  send: (body, opts) => streamSSE(body && body.mac ? '/api/chat/mac/send' : '/api/chat/send', body, opts),
+  send: (body, opts) => { const b = withSendExtras(body); return streamSSE(b && b.mac ? '/api/chat/mac/send' : '/api/chat/send', b, opts); },
   // Compare (G6): several models at once, lane-tagged events; its estimate; stop one lane.
   compare: (body, opts) => streamSSE('/api/chat/compare', body, opts),
   compareEstimate: (body, signal) => postJSON('/api/chat/compare/estimate', body, { signal }),

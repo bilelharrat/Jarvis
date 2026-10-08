@@ -177,10 +177,11 @@ function appendText(node, text) {
   else parts.push({ type: 'text', text });
 }
 
-export async function runChat(c, node, { override } = {}) {
+export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   const user = parentOf(c, node);
   const ctrl = beginStream(c, node, 'chat');
   Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null, steps: [], browserCard: null, browserRun: false });
+  if (refusalRetry) node.notes.push(`Retried with ${refusalRetry.name} — the first model declined`);
   const ov = override || currentOverride();
   const sig = settingsSig();
   const p = persona(c.personaId);
@@ -199,6 +200,7 @@ export async function runChat(c, node, { override } = {}) {
     ...(ctx.length ? { context: ctx } : {}),
     ...learnedBody(), // H2 on askeden.com: the profile's per-class adjustments (numbers only)
     ...autopilotBody(), // H3: `autopilot: false` for "Use my level this time"
+    ...(refusalRetry ? { refusalRetry: true } : {}), // a refusal's one retry: never retried again
 
     ...browserBody(user, { panelOpen: document.body.classList.contains('browser-open') }), // Eden drives the cloud browser (browser-agent.js)
   };
@@ -236,6 +238,7 @@ export async function runChat(c, node, { override } = {}) {
             node.notes.push(`${m ? m.name : (d.from && d.from.model) || 'The pick'} failed (${d.reason || 'error'}); retried on the next choice.`);
             break;
           }
+          case 'refusal': node.refusal = d; break; // the model declined (server refusal.js): retried below, or a "Try another model" button (render.js)
           case 'error': node.error = d.message || 'The turn failed.'; break;
           // H8: what the turn read from outside (guard.js source strip), and actions the server's gate holds for the owner
           case 'provenance': node.provenance = d; break;
@@ -262,8 +265,24 @@ export async function runChat(c, node, { override } = {}) {
   if (!node.finish && !node.error) node.finish = 'stop';
   if (!nodeText(node) && !node.error && node.finish === 'stop') node.error = 'The model sent an empty reply.';
   endStream(c, node);
+  // A benign refusal: once, a new draft on another provider's model ("2 of 2"); the queue goes on after it.
+  if (!node.error && node.finish === 'stop' && node.refusal && node.refusal.action === 'retry' && retryRefused(c, node)) return;
   if (!node.error) drainQueue(c);
 }
+
+/** The refusal's retry (refusal.js on the server picked the model): a new draft beside the declined one. */
+function retryRefused(c, node) {
+  const r = node.refusal;
+  if (!r || !r.model || node.refusalRetried || state.streams.has(c.id)) return false;
+  node.refusalRetried = true;
+  const user = parentOf(c, node);
+  const fresh = addNode(c, user.id, { role: 'assistant', parts: [], mode: node.mode || c.mode, topic: node.topic });
+  ui.render();
+  runChat(c, fresh, { override: { model: r.model, ...(r.effort ? { effort: r.effort } : {}) }, refusalRetry: { name: r.name || r.model } });
+  return true;
+}
+// "Try another model" under a refusal from a model the user picked (render.js)
+addEventListener('eden:refusal-retry', (e) => { const { c, node } = e.detail || {}; if (c && node && !retryRefused(c, node)) toast('Wait for the reply, or stop it first'); });
 
 /** The browser's bare "network error" when the stream breaks, said plainly. */
 function failure(e) {
