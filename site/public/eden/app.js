@@ -337,7 +337,22 @@ function renderTranscript() {
   box.replaceChildren(...nodes.map((n, i) => msgEl(c, n, i === nodes.length - 1)));
   requestAnimationFrame(toBottom);
 }
+// Ask Eden for Mac (window.askEdenMac, set by the app's preload; nothing on the web): a native
+// notification when something needs the person and the window is in the background.
+function macNotify(title, body) {
+  try {
+    const m = window.askEdenMac;
+    if (m && typeof m.notify === 'function' && (document.hidden || !document.hasFocus())) m.notify(String(title || 'Eden'), String(body || ''));
+  } catch (e) { /* the page works without it */ }
+}
+addEventListener('eden:notify', (e) => macNotify(e.detail && e.detail.title, e.detail && e.detail.body));
+function macNotifyTurn(c, node) {
+  if (node.error) return;
+  const waiting = c.status === 'waiting';
+  macNotify(c.title || 'Eden', waiting ? 'Eden is waiting for your approval.' : 'Your reply is ready.');
+}
 function updateMessage(c, node, { final } = {}) {
+  if (final) macNotifyTurn(c, node);
   if (c !== state.current) { if (final) renderSidebar(); return; }
   const old = $('transcript').querySelector(`.msg[data-id="${node.id}"]`);
   const stick = nearBottom();
@@ -1237,6 +1252,7 @@ function init() {
   // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {
     const w = !!(e.detail && e.detail.waiting);
+    if (w) macNotify('Eden', 'Eden is asking “Let Eden use Jarvis?” on your Mac.');
     $('jarvisState').classList.toggle('wait', w);
     $('jarvisState').title = w ? 'Jarvis is asking “Let Eden use Jarvis?” on your Mac' : state.jarvis.available ? 'Connected through the Jarvis app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Jarvis app on your Mac isn’t reachable');
     $('jarvisStateText').textContent = w ? 'approve Eden on your Mac' : state.jarvis.available ? 'connected' : 'not connected';

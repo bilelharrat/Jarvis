@@ -38,6 +38,7 @@ app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|Ask Eden|ask-
 app.setName(NAME);
 app.setPath('userData', path.join(app.getPath('appData'), NAME));
 const DATA_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'Jarvis'); // the engine's (prefs.APP_SUPPORT)
+const OWN_DIR = path.join(os.homedir(), 'Library', 'Application Support', NAME); // this app's own folder (the bundled engine runs from it)
 const LOG_DIR = path.join(os.homedir(), 'Library', 'Logs', NAME);
 const EXTRA_PATH = ['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.cargo', 'bin')];
 
@@ -240,7 +241,7 @@ async function startEngine() {
   const log = new BackendLog(path.join(LOG_DIR, 'backend.log'), { max: 5 * 1024 * 1024 });
   const how = backendCommand({
     packaged: app.isPackaged, resourcesPath: process.resourcesPath, env: process.env, port, token,
-    extraPath: EXTRA_PATH, uv: findUv, home: jarvisHome, dataDir: DATA_DIR, exists: fs.existsSync,
+    extraPath: EXTRA_PATH, uv: findUv, home: jarvisHome, dataDir: OWN_DIR, exists: fs.existsSync,
   });
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
   how.env.JARVIS_LAUNCHER_PID = String(process.pid);
@@ -391,7 +392,8 @@ function setupUpdates() {
 
 function buildTray() {
   if (!tray) {
-    const icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon-1024.png')).resize({ width: 18, height: 18 });
+    const icon = nativeImage.createFromPath(path.join(__dirname, 'build', 'trayTemplate.png')); // @2x beside it
+    icon.setTemplateImage(true); // monochrome: macOS tints it for light, dark and a selected menu bar
     tray = new Tray(icon);
     tray.setToolTip(NAME);
   }

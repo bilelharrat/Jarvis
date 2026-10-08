@@ -20,10 +20,20 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Eden uses your Mac's apps (Mail, Calendar, Notes) only when you ask it to.</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Eden reads your calendar when you ask about your schedule.</string>
+	<string>Ask Eden controls your Mac's apps (Mail, Calendar, Notes, Finder) only when you ask it to, for example to draft an email or add an event.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Eden listens only when you start dictation or a voice conversation.</string>
+	<string>Ask Eden listens only when you start dictation or a voice conversation with Eden.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Ask Eden reads your calendar when you ask about your schedule.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Ask Eden looks at your screen only when you ask it to, for example to help with what you are working on.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Ask Eden reads or saves files on your Desktop when you ask it to.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Ask Eden reads or saves files in Documents when you ask it to.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Ask Eden reads or saves files in Downloads when you ask it to.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Ask Eden uses the camera only when you start a video conversation.</string>
 </dict>
 </plist>

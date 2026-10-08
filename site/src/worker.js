@@ -12,6 +12,8 @@
 //   /p/<id>                  a published Eden page (accounts/published.js, via eden/pages.js)
 //   /download, /jarvis       the J.A.R.V.I.S. and Eden Messenger landing page (./public/jarvis/index.html)
 //   /jarvis/…               its images
+//   /download/mac            Ask Eden for Mac (beta): a redirect to the GitHub release ask-eden-v<version> (ASK_EDEN_TAG)
+//   /downloads/ask-eden/release.json   its update feed (Squirrel.Mac JSON), read from the same release
 //   /jarvis/download         the latest disk image, from R2 (resumable: Range requests)
 //   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
 //   /jarvis/iphone, /messenger/download, /messenger/iphone   the other apps (SOON, below)
@@ -93,6 +95,7 @@ async function route(request, env, ctx) {
   }
   if (path === '/.well-known/apple-app-site-association') return appSiteAssociation(env);
   if (path === '/jarvis/download') return download(request, env);
+  if (path === '/download/mac' || path === '/downloads/ask-eden/release.json') return askEdenMac(request, env, path);
   if (path === '/download' || path === '/jarvis') return landing(request, env, url);
   if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
   if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
@@ -190,6 +193,30 @@ async function latestInfo(env) {
   if (!latest) return json({ error: 'No release yet.' }, 404);
   const { version = '', size = 0, file, published = '' } = latest;
   return json({ version, size, file, published }, 200, { 'cache-control': 'public, max-age=60' });
+}
+
+// Ask Eden for Mac: its zip and update feed are assets of one GitHub release in the Jarvis
+// repo (no R2 needed). The tag decides the version; a new release is a new tag (ASK_EDEN_TAG).
+const ASK_EDEN_REPO = 'bilelharrrat/Jarvis';
+const ASK_EDEN_TAG = 'ask-eden-v0.1.0';
+export function askEdenAssets(env = {}) {
+  const tag = /^ask-eden-v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(String(env.ASK_EDEN_TAG || '')) ? env.ASK_EDEN_TAG : ASK_EDEN_TAG;
+  const version = tag.replace(/^ask-eden-v/, '');
+  const base = `https://github.com/${ASK_EDEN_REPO}/releases/download/${tag}`;
+  return { tag, version, zip: `${base}/Ask-Eden-${version}-arm64-mac.zip`, feed: `${base}/release.json` };
+}
+async function askEdenMac(request, env, path) {
+  const { zip, feed } = askEdenAssets(env);
+  if (path === '/download/mac') return Response.redirect(zip, 302);
+  try {
+    const upstream = await fetch(feed, { redirect: 'follow', cf: { cacheTtl: 300, cacheEverything: true } });
+    if (!upstream.ok) return json({ error: 'No release yet.' }, 404);
+    return new Response(request.method === 'HEAD' ? null : await upstream.text(), {
+      status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=300' },
+    });
+  } catch {
+    return json({ error: 'No release yet.' }, 502);
+  }
 }
 
 async function download(request, env) {

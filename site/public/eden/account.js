@@ -864,6 +864,7 @@ function fromHash() {
   if (inv) {
     history.replaceState(null, '', location.pathname + location.search);
     pendingInvite = { kind: inv[1], code: inv[2].toUpperCase() };
+    dispatchEvent(new CustomEvent('eden:notify', { detail: { title: 'Eden invitation', body: inv[1] === 'space' ? 'You’re invited to a team space.' : 'You’re invited to help with someone’s Eden.' } }));
     return { notice: inv[1] === 'space' ? 'You’re invited to a team space. Add your name and join it below (Team spaces).' : 'You’re invited to help someone with their Eden. Accept it below (Delegates).' };
   }
   // #plus (the front page's "Get Plus", through sign-in): the Plan, ready to buy.

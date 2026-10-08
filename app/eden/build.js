@@ -19,6 +19,9 @@ const APP_DIR = path.resolve(__dirname, '..');
 const NAME = 'Ask Eden';
 const BUNDLE_ID = 'com.askeden.eden.mac';
 const TEAM = '8CV4X23Y2T';
+const { buildBackend } = require('../scripts/release/backend');
+const EDEN_SRC = process.env.ASKEDEN_HOME || path.join(os.homedir(), 'askeden');
+const ENGINE_CACHE = process.env.ASK_EDEN_BACKEND || path.join(APP_DIR, 'dist', '.engine-cache');
 const DEFAULT_FEED = 'https://askeden.com/downloads/ask-eden/release.json';
 
 function teamIdentity() {
@@ -30,6 +33,24 @@ function teamIdentity() {
   return '';
 }
 
+// The engine inside the app, the way J.A.R.V.I.S.'s release carries its backend: uv's CPython,
+// the locked dependencies and the jarvis package (scripts/release/backend.js), built once and
+// cached (ASK_EDEN_REBUILD_ENGINE=1 builds it afresh), plus Eden's own server (no dependencies).
+function addEngine(resources) {
+  if (process.env.ASK_EDEN_REBUILD_ENGINE === '1' || !fs.existsSync(path.join(ENGINE_CACHE, 'python', 'bin', 'python3'))) {
+    buildBackend({ out: ENGINE_CACHE });
+  }
+  const backend = path.join(resources, 'backend');
+  fs.mkdirSync(backend, { recursive: true });
+  execFileSync('/usr/bin/ditto', [path.join(ENGINE_CACHE, 'python'), path.join(backend, 'python')]);
+  const server = path.join(resources, 'eden-server');
+  fs.mkdirSync(server, { recursive: true });
+  for (const f of ['dist', 'web', 'package.json', 'model-router.config.json']) {
+    if (fs.existsSync(path.join(EDEN_SRC, f))) fs.cpSync(path.join(EDEN_SRC, f), path.join(server, f), { recursive: true });
+  }
+  fs.rmSync(path.join(server, 'dist', '__tests__'), { recursive: true, force: true });
+}
+
 async function main() {
   const { packager } = await import('@electron/packager');
   const electron = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
@@ -38,6 +59,7 @@ async function main() {
   for (const f of ['backend-launch.js', 'backend-share.js', 'update-feed.js', 'features/updates.js']) put(f);
   for (const f of ['main.js', 'preload.js', 'quick.html', 'quick-preload.js']) put(`eden/${f}`);
   put('eden/build/icon-1024.png');
+  for (const f of fs.readdirSync(path.join(APP_DIR, 'eden', 'build')).filter((n) => /Template(@2x)?\.png$/.test(n))) put(`eden/build/${f}`);
   fs.copyFileSync(path.join(APP_DIR, 'eden', 'package.json'), path.join(stage, 'package.json'));
   try { put('jarvis-home.json', 'eden/jarvis-home.json'); } catch { /* JARVIS_HOME or ~/JARVIS V1 */ }
   const [folder] = await packager({
@@ -47,6 +69,7 @@ async function main() {
   });
   fs.rmSync(stage, { recursive: true, force: true });
   const app = path.join(folder, `${NAME}.app`);
+  if (process.env.ASK_EDEN_NO_ENGINE_BUNDLE !== '1') addEngine(path.join(app, 'Contents', 'Resources'));
   fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'update.json'), `${JSON.stringify({ feed: process.env.ASK_EDEN_UPDATE_URL || DEFAULT_FEED })}\n`);
   const identity = teamIdentity();
   execFileSync('codesign', ['--force', '--deep', '--sign', identity || '-', app], { stdio: 'inherit' });
