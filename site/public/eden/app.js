@@ -24,6 +24,7 @@ import { initPublish } from './publish.js';
 import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
 import { initCalendar, openCalendar, calendarReturnPending } from './calendar.js';
 import { initMemory } from './memory.js';
+import { initImportChatGPT, importCard, openImportChatGPT } from './import-chatgpt.js';
 import { initBrief, openBrief } from './brief.js';
 import { initFiles, openFiles, closePane } from './files.js';
 import { initKnowledge, knowledgeItem } from './knowledge.js';
@@ -134,6 +135,7 @@ function switchTo(c) {
   closeArtifact();
   closeChipPop();
   renderAll();
+  dispatchEvent(new CustomEvent('eden:conv-opened', { detail: { conv: c } })); // import-chatgpt.js loads an imported chat's images
   if (curTab === 'Changes' && inspectorVisible()) loadChanges();
   if (isMobile()) closeOverlays();
   schedulePreview();
@@ -207,7 +209,7 @@ function convItem(c, { child } = {}) {
   const lbl = el('span', 'lbl', c.title);
   if (c.kind === 'code' && !child) lbl.append(el('span', 'sub', c.project ? c.project.name : 'Code'));
   const st = streaming ? 'run' : c.status === 'waiting' ? 'wait' : null;
-  return el('button', { type: 'button', class: `sitem${child ? ' child' : ''}${state.current === c ? ' active' : ''}`, 'aria-current': state.current === c ? 'page' : null, title: c.title, onclick: () => switchTo(c),
+  return el('button', { type: 'button', class: `sitem${child ? ' child' : ''}${state.current === c ? ' active' : ''}`, 'aria-current': state.current === c ? 'page' : null, title: c.source === 'chatgpt' ? `${c.title} (imported from ChatGPT)` : c.title, onclick: () => switchTo(c),
     oncontextmenu: (e) => { e.preventDefault(); convMenu(e.currentTarget, c); } },
     ico(c.temp ? 'clock' : c.kind === 'code' ? 'term' : 'chat'), lbl,
     c.pinned && !child ? ico('pin', 11, 'pin-ic') : null,
@@ -301,6 +303,7 @@ function renderTitle() {
   $('tbDots').replaceChildren(...(code ? [el('span', { class: `dot ${statusDot(c)}`, title: statusDot(c) === 'run' ? 'running' : statusDot(c) === 'wait' ? 'waiting for you' : 'idle' })] : []));
   const tags = [];
   if (c && c.temp) tags.push(el('span', 'tag temp', 'Temporary'));
+  if (c && c.source === 'chatgpt') tags.push(el('span', 'tag', 'Imported from ChatGPT'));
   const p = persona(c ? c.personaId : state.draftPersona);
   if (p) tags.push(el('span', 'tag', p.name));
   if (code && c.project) tags.push(el('span', 'tag', c.project.name));
@@ -526,6 +529,7 @@ function commands() {
     { t: 'Code activity', s: '⌘J', i: 'term', run: () => toggleDrawer() },
     { t: 'Morning brief', s: 'Calendar · mail · notes', i: 'sun', run: () => openBrief() },
     { t: 'Memory', s: 'Your Mac', i: 'bulb', run: () => openSpace('memory') },
+    { t: 'Import from ChatGPT', s: 'Settings · your chats and memories', i: 'spark', run: () => openImportChatGPT() },
     { t: 'Search Second Brain', s: 'Your Mac', i: 'search', run: () => openSpace('brain') },
     { t: 'Calendar', s: 'Your Mac · Google', i: 'cal', run: () => openCalendar() },
     { t: 'New calendar event…', s: 'Calendar', i: 'cal', run: () => openCalendar({ newEvent: true }) },
@@ -707,7 +711,7 @@ function closeSettings() { if (!$('settingsSheet').classList.contains('open')) r
 /** Settings › Memory (askeden.com): memory across chats on/off, the saved memories, delete one or all. */
 async function drawMemory(body, hosted) {
   const hero = setHero('bulb', 'Memory', 'Eden remembers helpful details across chats, like your name, preferences and projects.', 'mem');
-  if (!hosted) { body.replaceChildren(hero, el('div', 'set-sec', el('div', 'icard', el('p', '', 'On this Mac, memory across chats comes from J.A.R.V.I.S. Saved memories are an askeden.com feature.')))); return; }
+  if (!hosted) { body.replaceChildren(hero, el('div', 'set-sec', el('div', 'icard', el('p', '', 'On this Mac, memory across chats comes from J.A.R.V.I.S. Saved memories are an askeden.com feature.'))), importCard()); return; }
   body.replaceChildren(hero, el('div', 'set-skel', el('span', 'sk'), el('span', 'sk')));
   let m;
   try { m = await api.memory(); } catch (e) { body.replaceChildren(hero, el('div', 'sp-warn', el('b', '', 'Couldn’t read your memory'), e.message)); return; }
@@ -729,7 +733,8 @@ async function drawMemory(body, hosted) {
       el('div', 'set-sec', el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Use memory across chats'), el('div', 'p-c', 'Eden saves useful details from your chats and uses them in later ones. Off: nothing is read or saved. Temporary chats never use memory.')), el('label', 'switch', sw, el('span', 'tr'))))),
       el('div', 'set-sec', el('h3', '', `Saved memories (${rows.length})`), el('div', 'icard', ...(rows.length ? rows : [el('p', 'muted', 'Nothing saved yet. Say “remember that…” in a chat, or just chat: Eden picks up useful details.')])),
         el('p', 'sp-note', 'Stored encrypted on your account, never shared with delegates or team spaces. Deleting your account deletes them.'),
-        el('div', 'dlg-acts', clear)));
+        el('div', 'dlg-acts', clear)),
+      importCard());
     if (m.notice) { m.notice = false; api.memoryDo({ action: 'prefs', noticed: true }).catch(() => {}); }
   };
   paint();
@@ -1242,6 +1247,7 @@ function init() {
   renderAll();
   reloadMeta().then(() => { renderAll(); initAccount({ beforeOpen: clearPhoneOverlays, closeSettings }); initLearned(); initAutopilot(); initSignatures(); }); // H2/H3, signatures: after meta (askeden.com or the Mac)
   initTour(); // I1: practice mode's tour, or the welcome on a first visit
+  initImportChatGPT({ openDialog, closeDialog, toast });
   initHelp({ runCommand: (t) => commands().find((x) => x.t === t)?.run(), hasCommand: (t) => commands().some((x) => x.t === t), openSettings, openPalette, startTour, beforeOpen: clearPhoneOverlays });
   addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0)); // autopilot.js
   addEventListener('eden:acting', () => { renderSidebar(); checkJarvis().then(() => renderComposer()); }); // account.js: acting for someone began or ended under the page
