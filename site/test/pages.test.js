@@ -107,8 +107,9 @@ test('the front page shows the plans: Free and Eden Plus, with the Worker\'s own
   const { MINUTES } = await import('../src/browser/rules.js');
   const { LIMITS } = await import('../src/accounts/account.js');
   assert.match(html, new RegExp(`<b>\\$${PLUS_PRICE_USD}</b><span>/month</span>`));
-  assert.match(html, new RegExp(`\\$${LIMITS.plus} of included AI</b> every month`));
-  assert.match(html, new RegExp(`\\$${LIMITS.trial} of included AI</b> to try Eden, once`));
+  assert.match(html, /Included AI every month<\/b>/); // no dollar figure for the allowance (the owner's choice)
+  assert.match(html, /Free included AI<\/b> to try Eden/);
+  assert.doesNotMatch(html, /\$\d+ of included AI/);
   assert.match(html, new RegExp(`<b>${MINUTES.free} minutes</b>`));
   assert.match(html, new RegExp(`<b>${MINUTES.plus} minutes</b>`));
   // Get Plus signs in, then opens Eden's account page at Plus (account.js #plus); never Stripe from here.
@@ -199,4 +200,25 @@ test('/privacy and /terms: everyone, static, their own strict CSP; linked from t
   const privacy = pub('privacy/index.html');
   for (const must of ['Harrat Global Holdings, Inc.', 'support@askeden.com', 'October 7, 2026', 'Limited Use', 'Stripe', 'Cloudflare', 'Moonshot', 'don’t sell']) assert.ok(privacy.includes(must), must);
   assert.match(pub('terms/index.html'), /Delaware/);
+});
+
+test('Eden for Education: /edu is its landing page signed out (no script), its app signed in; edu.askeden.com forwards there', async () => {
+  const out = await worker.fetch(new Request(`${ORIGIN}/edu`), env, {});
+  assert.equal(out.status, 200);
+  assert.equal(await out.text(), 'asset /edu-home/');
+  assert.match(out.headers.get('content-security-policy'), /default-src 'none'/);
+  assert.doesNotMatch(out.headers.get('content-security-policy'), /script-src/);
+  assert.equal(out.headers.get('cache-control'), 'no-store');
+  const css = await worker.fetch(new Request(`${ORIGIN}/edu-home/edu-home.css`), env, {});
+  assert.equal(css.status, 200);
+  const edu = await worker.fetch(new Request('https://edu.askeden.com/anything'), env, {});
+  assert.equal(edu.status, 301);
+  assert.equal(edu.headers.get('location'), 'https://askeden.com/edu');
+  const cookie = await signedIn();
+  const app = await worker.fetch(new Request(`${ORIGIN}/edu`, { headers: { cookie: `__Host-eden=${cookie}` } }), env, {});
+  assert.equal(await app.text(), 'asset /eden/edu');
+  assert.match(app.headers.get('content-security-policy'), /script-src 'self'/);
+  const home = read('public/edu-home/index.html');
+  assert.match(home, /href="\/signin\?return=%2Fedu"/);
+  assert.doesNotMatch(home, /<script/);
 });
