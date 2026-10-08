@@ -292,6 +292,8 @@ function watchApprovals() {
   const { port, token } = engine;
   approvalWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } });
   approvalWin.webContents.on('console-message', (_e, _lvl, message) => {
+    const a = /^eden-account:(.+)$/.exec(message);
+    if (a) { try { onAccount(JSON.parse(a[1])); } catch { /* ignore */ } return; }
     const m = /^eden-approvals:(\d+)$/.exec(message);
     if (!m) return;
     const n = Number(m[1]);
@@ -307,9 +309,67 @@ function watchApprovals() {
   approvalWin.loadURL(`http://127.0.0.1:${port}/health`).then(() => approvalWin.webContents.executeJavaScript(`
     (function open() {
       const ws = new WebSocket('ws://127.0.0.1:${port}/ws?token=${token}');
-      ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (Array.isArray(d.approvals)) console.log('eden-approvals:' + d.approvals.length); } catch (e) {} };
+      window.__edenWs = ws;
+      ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (Array.isArray(d.approvals)) console.log('eden-approvals:' + d.approvals.length);
+        if (d.type === 'account') console.log('eden-account:' + JSON.stringify({ linked: d.linked === true, server: d.server || '', link: d.link ? { state: d.link.state, code: d.link.code } : null })); } catch (e) {} };
       ws.onclose = () => setTimeout(open, 3000);
     })();`)).catch(() => {});
+}
+
+// ── linking this Mac to the signed-in account, automatically ──
+// The engine's own "account_link" command makes the code (as Settings › Account › Link this Mac
+// does); this window's askeden.com session approves it at /api/web/mac-link (as askeden.com/link
+// does), which the server only allows within 10 minutes of the sign-in.
+let linkBusy = false;
+let linkOpenedPage = '';
+let linkLastAsk = 0;
+const sendEngine = (obj) => (approvalWin && !approvalWin.isDestroyed()
+  ? approvalWin.webContents.executeJavaScript(`window.__edenWs && window.__edenWs.readyState === 1 && (window.__edenWs.send(${JSON.stringify(JSON.stringify(obj))}), true)`).catch(() => false)
+  : Promise.resolve(false));
+const webApi = (p, method = 'GET') => {
+  if (!win || win.isDestroyed()) return Promise.resolve(null);
+  return win.webContents.session.fetch(new URL(p, HOME_URL).toString(), {
+    method, credentials: 'include', headers: { accept: 'application/json', 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}),
+  }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) })).catch(() => null);
+};
+async function onAccount(acct) {
+  if (acct.linked || linkBusy) return;
+  if (!(acct.link && acct.link.state === 'waiting') && Date.now() - linkLastAsk > 60_000) {
+    linkLastAsk = Date.now();
+    await sendEngine({ type: 'account_link' }); // the engine answers with an "account" event holding the code
+    return;
+  }
+  const waiting = acct.link && acct.link.state === 'waiting' && acct.link.code;
+  if (!waiting) return;
+  linkBusy = true;
+  try {
+    const ready = await webApi('/api/web/mac-link');
+    if (!ready || ready.status !== 200) return; // not signed in here yet: tried again later
+    if (ready.body.fresh) {
+      const done = await webApi(`/api/web/mac-link/${encodeURIComponent(acct.link.code)}/approve`, 'POST');
+      console.log(`mac link: approve -> ${done && done.status}`);
+    } else if (linkOpenedPage !== acct.link.code) { // signed in too long ago: one click on the page after signing in again
+      linkOpenedPage = acct.link.code;
+      if (win && !win.isDestroyed()) win.loadURL(new URL(`/signin?return=${encodeURIComponent('/link#' + acct.link.code)}`, HOME_URL).toString()).catch(() => {});
+      showMain();
+    }
+  } finally { linkBusy = false; }
+}
+async function autoLink() {
+  if (!engine || !approvalWin || !win || win.isDestroyed()) return;
+  const ready = await webApi('/api/web/mac-link');
+  if (!ready || ready.status !== 200) return;
+  await sendEngine({ type: 'account' }); // answered with an "account" event
+}
+let linkTimer = null;
+function startAutoLink() {
+  if (linkTimer) return;
+  const tick = async () => {
+    // Ask for a code only when the engine says it's unlinked and has none waiting (onAccount).
+    await autoLink();
+  };
+  linkTimer = setInterval(tick, 15_000);
+  setTimeout(tick, 4000);
 }
 
 // ── updates, menu bar, menus ──
@@ -368,6 +428,7 @@ app.whenReady().then(async () => {
   await startEdenServer();
   await startEngine();
   buildTray();
+  startAutoLink();
 });
 
 app.on('activate', showMain);
