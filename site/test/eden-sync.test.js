@@ -474,3 +474,48 @@ test('migrations: v1–v5 in order, Space is new in v4 and BrowserSession in v5 
   assert.equal(mod.Space, Space);
   assert.equal(typeof mod.BrowserSession, 'function');
 });
+
+// ── account deletion: team spaces and delegations ──
+
+test('deleting an account erases its team data: memberships, shared items, owned spaces, invites, delegations', async () => {
+  const owner = await browser(A);
+  await iphone(A);
+  await plus(A);
+  const sam = await browser(B);
+  const spaceStore = (name) => env.SPACES.objects.get(name).storage;
+  const made = await (await post('/api/web/space/create', { name: 'Launch', budget_usd: 2, label: 'Owner' }, { session: owner })).json();
+  const id = made.space.id;
+  const invite = async () => (await (await post('/api/web/space/invite', { id }, { session: owner })).json()).code;
+  const code = await invite();
+  assert.equal((await post('/api/web/space/join', { code, label: 'Sam' }, { session: sam })).status, 200);
+  const open = await invite(); // an invitation nobody used: its index object lives on
+  const { sha256Hex } = await import('../src/accounts/util.js');
+  const openIndex = `inv:${await sha256Hex(open)}`;
+  assert.ok(env.SPACES.objects.has(openIndex));
+  // Sam shares something; Sam also holds a delegation from the owner, and the owner an open delegate invite.
+  const pair = await E.deviceKeyPair();
+  await post('/api/web/space/key-register', { id, public_key: pair.public, alg: pair.alg }, { session: owner });
+  const secret = E.newSecret();
+  await post('/api/web/space/key-init', { id, gen: 'space-gen-1', proof: await E.proofOf(secret, E.SPACE_LABEL), ...(await E.sealTo(pair.public, pair.alg, secret, E.SPACE_SEAL_LABEL)) }, { session: owner });
+  const put = await post('/api/web/space/conv-put', { id, conv: 'sams-note', data: 'c2VhbGVk', base_rev: 0 }, { session: sam });
+  assert.equal(put.status, 200, await put.clone().text());
+  const inv = await (await post('/api/web/deleg/invite', { name: 'Sam', from: 'Owner', cap_usd: 1, features: ['chat'], days: 30 }, { session: owner })).json();
+  assert.equal((await post('/api/web/deleg/accept', { code: inv.code }, { session: sam })).status, 200);
+  const inv2 = await (await post('/api/web/deleg/invite', { name: 'Open', cap_usd: 1, days: 7 }, { session: owner })).json();
+  const dinv = `dinv:${await sha256Hex(inv2.code)}`;
+  assert.ok(env.ACCOUNTS.objects.has(dinv));
+
+  // Sam (a member, a delegate) deletes the account: gone from the space, their note removed, the owner's delegation ended.
+  assert.equal((await post('/api/web/account/delete', { confirm: 'DELETE' }, { session: sam })).status, 204);
+  const members = [...(await spaceStore(id).list({ prefix: 'm:' })).values()];
+  assert.deepEqual(members.map((m) => m.role), ['owner']);
+  assert.equal((await spaceStore(id).get('c:sams-note')).deleted, true);
+  assert.equal([...(await env.ACCOUNTS.objects.get(A).storage.list({ prefix: 'dlg:' })).values()].filter((d) => d.delegate === B).length, 0, 'the owner’s record of Sam is gone');
+
+  // The owner deletes theirs: the space, its open invitation index and the open delegate invite go.
+  const del = await post('/api/web/account/delete', { confirm: 'DELETE' }, { session: owner });
+  assert.equal(del.status, 204, await del.clone().text());
+  assert.equal(await spaceStore(id).get('space'), undefined);
+  assert.equal([...(await spaceStore(openIndex).list()).keys()].length, 0, 'invitation index erased');
+  assert.equal([...(await env.ACCOUNTS.objects.get(dinv).storage.list()).keys()].length, 0, 'delegate invite index erased');
+});

@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
+import { approvalHash } from '../src/eden/google-data.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { b64url, bytesToB64, sha256 } from '../src/accounts/util.js';
 import { fakeBase, hasGmailScopes } from '../src/eden/google-data.js';
@@ -182,7 +183,16 @@ after(() => {
   globalThis.fetch = realFetch;
 });
 
-async function hit(p, { method = 'GET', body, headers = {}, session, cookie, token, origin = ORIGIN } = {}) {
+const WRITES = { '/api/chat/gmail': ['gmail', ['send', 'schedule']], '/api/chat/gcal': ['gcal', ['create', 'update', 'delete', 'respond']] };
+
+async function hit(p, { method = 'GET', body, headers = {}, session, cookie, token, origin = ORIGIN, noApproval = false } = {}) {
+  // The page mints an approval token as part of the click; the tests do the same unless asked not to.
+  const w = WRITES[p];
+  if (!noApproval && w && body && w[1].includes(body.action) && !headers['x-eden-approval']) {
+    const hash = await approvalHash(w[0], body.action, body.args === undefined ? {} : body.args);
+    const minted = await hit('/api/chat/approve', { method: 'POST', body: { kind: w[0], hash }, session, cookie, token, headers: { 'x-jarvis-chat': '1' } });
+    if (minted.status === 200) headers = { ...headers, 'x-eden-approval': (await minted.json()).token };
+  }
   const h = { 'user-agent': SAFARI, ...headers };
   if (method !== 'GET') h.origin ??= ORIGIN;
   const jar = [];
@@ -798,4 +808,49 @@ test('uploads ahead: a delegate with mail uploads into the owner’s account; on
   const chatOnly = await delegate('apple-sam-2', ['chat']);
   const refused = await chat('/api/chat/gmail', chatOnly.sam, { method: 'POST', cookie: chatOnly.cookie, body: { action: 'uploadStart', args: { name: 'a.pdf', size: 10 } } });
   assert.equal(refused.status, 403);
+});
+
+test('Gmail send and Calendar writes need a single-use, exact-payload, unexpired approval token', async () => {
+  const owner = await phone();
+  const session = await signedInBrowser(owner);
+  await connect(session, 'gmail');
+  google.grant = { ...google.grant, refresh: null, scopes: [...google.grant.scopes, ...CAL] };
+  await connect(session, 'calendar');
+  const send = { action: 'send', args: { to: ['a@example.com'], subject: 'Hi', text: 'Hello', confirm: true } };
+  const mint = async (kind, action, args, sess = session) => (await (await chat('/api/chat/approve', sess, { method: 'POST', body: { kind, hash: await approvalHash(kind, action, args) } })).json()).token;
+  const post = (path, body, token, sess = session) => chat(path, sess, { method: 'POST', body, headers: token ? { 'x-eden-approval': token } : {}, noApproval: true });
+  // No token: 403 for every guarded write, before Google is called.
+  const before = google.calls.length;
+  for (const [path, body] of [['/api/chat/gmail', send], ['/api/chat/gmail', { action: 'schedule', args: {} }], ['/api/chat/gcal', { action: 'create', args: { calendarId: 'primary', event: { summary: 'x' }, confirm: true } }], ['/api/chat/gcal', { action: 'update', args: {} }], ['/api/chat/gcal', { action: 'delete', args: {} }], ['/api/chat/gcal', { action: 'respond', args: {} }]]) {
+    const r = await post(path, body);
+    assert.equal(r.status, 403, `${path} ${body.action}`);
+    assert.equal((await r.json()).code, 'approval_required');
+  }
+  assert.equal(google.calls.length, before, 'nothing reached Google');
+  // Payload mismatch (token minted for another body) and a token for the other kind.
+  const forOther = await mint('gmail', 'send', { ...send.args, subject: 'Other' });
+  assert.equal((await post('/api/chat/gmail', send, forOther)).status, 403);
+  assert.equal((await post('/api/chat/gmail', send, forOther)).status, 403, 'a refused try used it up');
+  const wrongKind = await mint('gcal', 'send', send.args);
+  assert.equal((await post('/api/chat/gmail', send, wrongKind)).status, 403);
+  // Another browser session can't use it.
+  const other = await signedInBrowser(owner);
+  const mine = await mint('gmail', 'send', send.args);
+  assert.equal((await post('/api/chat/gmail', send, mine, other)).status, 403);
+  // A good token works once, then 403 on reuse. (Reads and drafts need none.)
+  const ok = await mint('gmail', 'send', send.args);
+  const first = await post('/api/chat/gmail', send, ok);
+  assert.notEqual(first.status, 403, await first.clone().text());
+  assert.equal((await post('/api/chat/gmail', send, ok)).status, 403, 'reuse');
+  assert.notEqual((await post('/api/chat/gmail', { action: 'search', args: { q: 'x' } })).status, 403);
+  // Expired: two minutes and a bit later.
+  const late = await mint('gmail', 'send', send.args);
+  const real = Date.now;
+  Date.now = () => real() + 121_000;
+  try { assert.equal((await post('/api/chat/gmail', send, late)).status, 403, 'expired'); } finally { Date.now = real; }
+  // Calendar create with a good token passes the guard once.
+  const ev = { action: 'create', args: { calendarId: 'primary', event: { summary: 'x', start: { dateTime: '2026-10-09T10:00:00Z' }, end: { dateTime: '2026-10-09T11:00:00Z' } }, confirm: true } };
+  const t = await mint('gcal', 'create', ev.args);
+  assert.notEqual((await post('/api/chat/gcal', ev, t)).status, 403);
+  assert.equal((await post('/api/chat/gcal', ev, t)).status, 403);
 });

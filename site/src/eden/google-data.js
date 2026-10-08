@@ -70,6 +70,7 @@ export const GOOGLE_DATA_ROUTES = new Set([
   'GET /api/chat/google/connect',
   `GET ${GDATA_CALLBACK}`,
   'POST /api/chat/google/disconnect',
+  'POST /api/chat/approve',
   'POST /api/chat/gmail',
   'GET /api/chat/gcal/status',
   'POST /api/chat/gcal',
@@ -338,8 +339,16 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
         if (tokens && (tokens.refresh || tokens.access)) await revokeToken(tokens.refresh || tokens.access, f);
         return json(statusOf(null));
       }
+      case 'POST /api/chat/approve': {
+        // The page calls this inside the click on Send / Add / Save; the write routes below take the token.
+        const body = await readBody(request, 4096);
+        if (body.kind !== 'gmail' && body.kind !== 'gcal') throw new ApiError(400, 'bad_request', 'kind must be gmail or gcal');
+        if (typeof body.hash !== 'string') throw new ApiError(400, 'bad_request', 'hash must be a string');
+        return json(await call(env, who.account, 'approve-mint', { hash: body.hash }, who.token));
+      }
       case 'POST /api/chat/gmail': {
         const { action, args } = actionBody(await readBody(request, maxBody));
+        if (GMAIL_WRITES.has(action)) await takeApproval(env, who, request, 'gmail', action, args);
         // Scheduled sends (accounts/schedule.js): the list and cancelling need no Gmail call.
         if (action === 'scheduled') return json(await call(env, who.account, 'mail-jobs', {}, who.token));
         if (action === 'cancelScheduled') {
@@ -374,6 +383,7 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
       }
       case 'POST /api/chat/gcal': {
         const { action, args } = actionBody(await readBody(request, 1 << 20));
+        if (CAL_WRITES.has(action)) await takeApproval(env, who, request, 'gcal', action, args);
         const found = await load(env, who);
         if (!found) throw new GoogleError('Google Calendar isn’t connected.', 'not_connected', 409);
         if (!hasCalendarScopes(found.tokens.scopes)) throw new GoogleError('Connect Google Calendar to see your calendar.', 'scope', 403);
@@ -386,6 +396,24 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
     if (error instanceof GoogleError) return googleProblem(error);
     throw error;
   }
+}
+
+// ── approvals: sends and calendar writes need the token the page's click minted (accounts/approvals.js) ──
+
+export const GMAIL_WRITES = new Set(['send', 'schedule']);
+export const CAL_WRITES = new Set(['create', 'update', 'delete', 'respond']);
+
+const canon = (v) => (Array.isArray(v) ? `[${v.map(canon).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}` : JSON.stringify(v));
+
+/** SHA-256 hex of the exact action: the page (web/chat/api.js) computes the same before it asks for a token. */
+export async function approvalHash(kind, action, args) {
+  const bytes = new TextEncoder().encode(`${kind}\n${canon({ action, args })}`);
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function takeApproval(env, who, request, kind, action, args) {
+  const token = request.headers.get('x-eden-approval') || '';
+  await call(env, who.account, 'approve-take', { token, hash: await approvalHash(kind, action, args) }, who.token);
 }
 
 function actionBody(body) {

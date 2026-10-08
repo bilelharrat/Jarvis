@@ -8,7 +8,7 @@ import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { ALARMS, backoff, queued, runAlarms, scheduleJob, unscheduleJob } from '../src/accounts/schedule.js';
 import { TASKS, checkRun, cleanTask, nextRun, neutralize, offsetMinutes, runLedger, runPrompt } from '../src/accounts/tasks.js';
 import { b64url, bytesToB64 } from '../src/accounts/util.js';
-import { CONTACTS_CAP, parseBatch } from '../src/eden/google-data.js';
+import { CONTACTS_CAP, approvalHash, parseBatch } from '../src/eden/google-data.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { Account, Link, Storage, appleJwk, identityToken, namespace } from './fakes.js';
 
@@ -204,7 +204,15 @@ async function signedInBrowser(owner) {
   return cookieValue(done, '__Host-eden');
 }
 const chat = (p, session, opts = {}) => hit(p, { session, ...opts, headers: { 'x-jarvis-chat': '1', ...(opts.headers || {}) } });
-const gmail = (session, action, args = {}) => chat('/api/chat/gmail', session, { method: 'POST', body: { action, args } });
+const gmail = async (session, action, args = {}) => {
+  // A send or schedule carries the approval the page's click mints.
+  const headers = {};
+  if (action === 'send' || action === 'schedule') {
+    const minted = await chat('/api/chat/approve', session, { method: 'POST', body: { kind: 'gmail', hash: await approvalHash('gmail', action, args) } });
+    headers['x-eden-approval'] = (await minted.json()).token;
+  }
+  return chat('/api/chat/gmail', session, { method: 'POST', body: { action, args }, headers });
+};
 const tasks = (session, action, args = {}) => chat('/api/chat/tasks', session, { method: 'POST', body: { action, args } });
 
 async function connect(session, scope = 'all') {

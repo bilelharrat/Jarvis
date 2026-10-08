@@ -419,3 +419,20 @@ test('the sign-in page allows Turnstile’s script and frame; other pages don’
   const link = await hit('/download');
   assert.doesNotMatch(link.headers.get('content-security-policy'), /challenges\.cloudflare\.com/);
 });
+
+test('native passkey sign-up is rate limited per network and globally; web sign-up still needs Origin', async () => {
+  env = makeEnv();
+  const nativeSignup = () => hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signup' }, origin: null });
+  assert.equal((await nativeSignup()).status, 200);
+  assert.ok(env.AUTH_RATE.keys.filter((k) => k.startsWith('native-new:')).length >= 5, 'costs the native new-account weight');
+  assert.ok(env.AUTH_RATE.keys.includes('native-pk-signup:global'));
+  env.AUTH_RATE.max = 3; // pk: counter fits, native-new's fourth try does not
+  assert.equal((await nativeSignup()).status, 429);
+  // Sign-in is not charged the sign-up buckets.
+  env.AUTH_RATE.max = 1000;
+  env.AUTH_RATE.keys.length = 0;
+  assert.equal((await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signin' }, origin: null })).status, 200);
+  assert.ok(!env.AUTH_RATE.keys.some((k) => k.startsWith('native-')));
+  // The web route refuses a request with no Origin.
+  assert.equal((await hit('/api/web/passkey/options', { method: 'POST', body: { mode: 'signup' }, origin: null })).status, 403);
+});

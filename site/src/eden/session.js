@@ -699,6 +699,12 @@ async function passkeyOptions(request, env, { native = false } = {}) {
     checkSignups(env);
     // The app has no Turnstile: its new accounts cost more of AUTH_RATE instead (stashHandoff).
     if (!native) await checkHuman(env, body.turnstile, clientIp(request), { host: new URL(request.url).hostname });
+    else {
+      // No Turnstile in the app and no App Attest yet: a strict per-network bucket (the same cost
+      // as a native Apple account) and one global bucket for all native passkey sign-ups.
+      await nativeNewAccount(env, clientIp(request));
+      await limited(env, 'AUTH_RATE', 'native-pk-signup:global');
+    }
   }
   const challenge = b64url(randomBytes(32));
   await callLink(env, `pk:${challenge}`, 'stash', { value, seconds: PASSKEY_SECONDS });

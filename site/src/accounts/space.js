@@ -92,6 +92,7 @@ export class Space {
         leave: () => this.leave(space, me),
         remove: () => this.remove(space, me, body),
         delete: () => this.destroy(space, me),
+        'erase-member': () => this.eraseMember(me),
         'key-register': () => this.keyRegister(space, me, body),
         'key-init': () => this.keyInit(space, me, body),
         'key-seal': () => this.keySeal(space, me, body),
@@ -240,8 +241,29 @@ export class Space {
   async destroy(space, me) {
     if (me.role !== 'owner') throw ownerOnly();
     const accounts = (await this.members()).map((m) => m.account);
+    const invites = [...(await this.storage.list({ prefix: 'inv:' })).keys()].map((k) => k.slice(4)); // their index objects (inv:<hash>) go too
     await this.storage.deleteAll();
-    return { deleted: space.id, accounts, owner: space.owner };
+    return { deleted: space.id, accounts, owner: space.owner, invites };
+  }
+
+  // A member's account is being deleted: their membership, their keys and what they shared go
+  // (the shared conversations they made are removed, as conv-delete would). The owner is not
+  // handled here: an owner's account erases the whole space (destroy).
+  async eraseMember(me) {
+    if (me.role === 'owner') throw new ApiError(409, 'owner', 'The owner erases the space instead.');
+    const rows = [...(await this.storage.list({ prefix: 'c:' })).values()].filter((c) => !c.deleted && c.by === me.member);
+    if (rows.length) {
+      let count = (await this.storage.get('count')) || 0;
+      let bytes = (await this.storage.get('bytes')) || 0;
+      let rev = (await this.storage.get('rev')) || 0;
+      for (const c of rows) {
+        rev += 1; count = Math.max(0, count - 1); bytes = Math.max(0, bytes - c.size);
+        await this.storage.put(`c:${c.id}`, { id: c.id, rev, data: null, deleted: true, by: c.by, updated: this.now(), size: 0 });
+      }
+      await this.storage.put({ rev, count, bytes });
+    }
+    await this.dropMember(me);
+    return { erased: me.member, removed_convs: rows.length, owner: (await this.storage.get('space')).owner };
   }
 
   // ── the space key ──
@@ -491,4 +513,46 @@ async function spaceOwner(env, who, id) {
   const g = grants.find((x) => x.type === 'space' && x.id === id);
   if (!g || !validAccountId(g.owner)) throw notMember();
   return g.owner;
+}
+
+/**
+ * Account deletion (accounts/index.js eraseAccount), the team half. `snap` is read BEFORE the
+ * account's own object is deleted ({ grants: deleg-mine, delegations: deleg-erase-info }).
+ *   - Spaces the account OWNS are deleted for everyone: the owner can't leave, and the space's AI
+ *     budget, pool and key authority live in the owner's account, so a space can't outlive it.
+ *     Every member's `grant-in` row for it is dropped, and its invitation index objects.
+ *   - Spaces it only belongs to: its membership and keys go, and so do the shared conversations
+ *     it made; the others' conversations stay. The owner's pool/sessions for it end.
+ *   - Delegations it owns: the delegate's `grant-in` row and any open invitation index go.
+ *   - Delegations it holds on other accounts: the owner's record (and its sessions) is ended.
+ * Best effort, each step on its own: one failing never stops the others.
+ */
+export async function teamSnapshot(env, accountId, auth) {
+  const grants = await ask(env, accountId, 'deleg-mine', {}, auth).then((r) => r.grants || []).catch(() => []);
+  const delegations = await ask(env, accountId, 'deleg-erase-info', {}, auth).then((r) => r.delegations || []).catch(() => []);
+  return { grants, delegations };
+}
+
+export async function eraseTeamData(env, accountId, snap) {
+  const quiet = (what) => (e) => console.error(`team cleanup failed (${what})`, e && e.message);
+  for (const g of snap.grants || []) {
+    if (g.type === 'space' && env.SPACES) {
+      if (g.owner === accountId) {
+        const gone = await askSpace(env, g.id, 'delete', { account: accountId }).catch(quiet('space delete'));
+        if (!gone) continue;
+        for (const account of gone.accounts) if (account !== accountId) await ask(env, account, 'deleg-mine-drop', { type: 'space', id: g.id }).catch(quiet('space member row'));
+        for (const hash of gone.invites || []) await askSpace(env, `inv:${hash}`, 'index-drop', { space: g.id }).catch(quiet('space invite'));
+      } else {
+        const left = await askSpace(env, g.id, 'erase-member', { account: accountId }).catch(quiet('space member'));
+        if (left && validAccountId(left.owner)) await ask(env, left.owner, 'deleg-grant-drop', { type: 'space', id: g.id, account: accountId }).catch(quiet('space grant'));
+      }
+    } else if (g.type === 'delegate') {
+      const [owner, id] = String(g.id || '').split('.');
+      if (validAccountId(owner)) await ask(env, owner, 'deleg-quit', { id, account: accountId }).catch(quiet('delegation quit'));
+    }
+  }
+  for (const d of snap.delegations || []) {
+    if (d.delegate) await ask(env, d.delegate, 'deleg-mine-drop', { type: 'delegate', id: `${accountId}.${d.id}` }).catch(quiet('delegate row'));
+    if (d.invite_hash) await ask(env, `dinv:${d.invite_hash}`, 'deleg-index-drop', { account: accountId }).catch(quiet('delegate invite'));
+  }
 }

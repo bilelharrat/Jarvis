@@ -22,6 +22,7 @@ import {
   validDeviceId,
 } from './util.js';
 import { forgetGoogleOnDelete, googleOp } from './tokens.js';
+import { approvalOp } from './approvals.js';
 import { scopedOp } from './scoped.js';
 import { userKeysOp } from './user-keys.js';
 import { webClosed, webListen, webMessage, webOp } from './webrelay.js';
@@ -136,6 +137,7 @@ export class Account {
       if (device.kind === 'web' && WEB_FORBIDDEN.has(op) && !webDelete) {
         throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the J.A.R.V.I.S. app on your iPhone or Mac.");
       }
+      if (op.startsWith('approve-')) return json(await approvalOp(this, op, body, device)); // one-click approvals for Gmail/Calendar writes (approvals.js)
       if (op.startsWith('mail-')) return json(await mailOp(this, op, body)); // scheduled Gmail sends (schedule.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
       switch (op) {

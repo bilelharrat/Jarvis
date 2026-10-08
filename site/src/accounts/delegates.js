@@ -76,6 +76,7 @@ export function grantGuard(device, op) {
   if (GRANT_OPS.has(op)) return;
   const f = grant.features || [];
   if ((op === 'google-get' || op === 'google-touch') && (f.includes('mail') || f.includes('calendar'))) return;
+  if (op.startsWith('approve-') && (f.includes('mail') || f.includes('calendar'))) return; // a delegate's own click approves a send or an event
   if (op.startsWith('mailup-') && f.includes('mail')) return; // Gmail attachments uploaded ahead (mail-uploads.js), as the owner's Gmail
   throw new ApiError(403, 'grant_forbidden', grant.type === 'space' ? 'A team space is for chat. That stays with the space’s owner.' : 'As a delegate you can’t do that. It stays with the account’s owner.');
 }
@@ -85,8 +86,8 @@ const CHAT_ROUTES = new Set([
   'GET /api/chat/meta', 'POST /api/route', 'POST /api/chat/send', 'POST /api/chat/artifact', 'GET /api/chat/jarvis/status',
   'POST /api/chat/compare', 'POST /api/chat/compare/estimate', 'POST /api/chat/compare/stop', 'POST /api/chat/browser/steer',
 ]);
-const MAIL_ROUTES = new Set(['POST /api/chat/gmail', 'GET /api/chat/google/status']);
-const CALENDAR_ROUTES = new Set(['GET /api/chat/gcal/status', 'POST /api/chat/gcal', 'GET /api/chat/google/status']);
+const MAIL_ROUTES = new Set(['POST /api/chat/gmail', 'POST /api/chat/approve', 'GET /api/chat/google/status']);
+const CALENDAR_ROUTES = new Set(['POST /api/chat/approve', 'GET /api/chat/gcal/status', 'POST /api/chat/gcal', 'GET /api/chat/google/status']);
 
 /** Whether an acting session (a delegate, a space member) may use this hosted Eden route. */
 export function grantAllows(grant, method, path) {
@@ -197,6 +198,7 @@ export async function delegateOp(account, op, request) {
       case 'deleg-update': return json(await update(account, body));
       case 'deleg-revoke': return json(await revoke(account, body));
       case 'deleg-mine': return json({ grants: await mine(account) });
+      case 'deleg-erase-info': return json({ delegations: (await records(account)).map((d) => ({ id: d.id, delegate: d.delegate || null, invite_hash: d.status === 'invited' ? d.invite_hash || null : null })) });
       default: throw new ApiError(404, 'not_found', 'No such thing.');
     }
   } catch (error) {

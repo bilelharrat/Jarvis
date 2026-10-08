@@ -205,10 +205,13 @@ async function deleteAccount(request, env) {
  * (the account page's typed confirmation, eden/session.js).
  */
 export async function eraseAccount(env, accountId, auth, { confirm = null } = {}) {
+  // Team spaces and delegations are read first (the account's own object is about to go), erased after.
+  const team = env.ACCOUNTS ? await import('./space.js').then((m) => m.teamSnapshot(env, accountId, auth).then((snap) => ({ m, snap }))).catch(() => null) : null;
   const { apple_grant: grant, identities = [], stripe_subscription: stripeSub, published = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
   if (grant) await revoke(env, grant);
   // Plus bought on the web stops now (best effort); the App Store's is the person's to cancel.
   if (stripeSub) await cancelSubscription(env, stripeSub);
+  if (team) await team.m.eraseTeamData(env, accountId, team.snap).catch((e) => console.error('team cleanup failed', e && e.message));
   // Its published pages' links go too (accounts/published.js `pub:<id>`).
   for (const id of published) await call(env, `pub:${id}`, 'pub-index-drop', { account: accountId }).catch(() => {});
   // The cloud browser's history, bookmarks and agent log live in its own per-account object.
@@ -217,6 +220,8 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   }
   // Its sign-ins open nothing now (passkeys included): an Apple ID goes back to the account its
   // id derives from (a new one), a Google account to a new one.
+  // Eden for Education: out of every course, its own courses deleted (edu/course.js)
+  await import('../edu/course.js').then((m) => m.eraseCourses(env, accountId)).catch((e) => console.error('course cleanup failed', e && e.message));
   if (env.IDENTITIES) {
     for (const { provider, sub_hash: subHash } of identities) {
       if (subHash) await callIdentity(env, provider, subHash, 'forget', { account_id: accountId }).catch(() => {});
