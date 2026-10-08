@@ -1090,9 +1090,9 @@ async function reloadMeta() {
 }
 
 /* ================= init ================= */
-function init() {
+async function init() {
   applyTheme();
-  loadConversations();
+  await loadConversations();
   const cur = store.get('jchat:current', null);
   state.current = state.convs.find((c) => c.id === cur) || null;
   if (state.current) state.selectedNode = [...path(state.current)].reverse().find((n) => n.role === 'assistant' && n.route) || null;

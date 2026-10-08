@@ -2,6 +2,7 @@
 // personas, and their persistence in localStorage. Image data is never persisted.
 
 import { store, uid } from './util.js';
+import * as Convs from './convstore.js';
 
 export const DEFAULT_SETTINGS = {
   level: 3, efficiency: 50, performance: 50, linked: true,
@@ -53,24 +54,22 @@ export function newConversation({ kind = 'chat', project = null, temp = false, p
   };
 }
 
-export function loadConversations() {
-  const ids = store.get('jchat:index', []);
+export async function loadConversations() {
   const out = [];
-  for (const id of ids) {
-    const c = store.get(`jchat:conv:${id}`, null);
-    if (c && c.id) {
-      c.queue = [];
-      c.status = c.status === 'running' ? 'idle' : (c.status || 'idle');
-      // a turn that was streaming when the page closed
-      for (const n of Object.values(c.nodes || {})) if (n.streaming) { n.streaming = false; n.finish = n.finish || 'aborted'; }
-      out.push(c);
-    }
+  for (const c of await Convs.loadAll()) {
+    c.queue = [];
+    c.status = c.status === 'running' ? 'idle' : (c.status || 'idle');
+    // a turn that was streaming when the page closed
+    for (const n of Object.values(c.nodes || {})) if (n.streaming) { n.streaming = false; n.finish = n.finish || 'aborted'; }
+    out.push(c);
   }
   state.convs = out;
+  store.set('jchat:index', out.filter((x) => !x.temp).map((x) => x.id));
 }
 
 function stripForStorage(c) {
   const copy = { ...c, queue: undefined, nodes: {} };
+  delete copy.loading;
   for (const [id, n] of Object.entries(c.nodes)) {
     const m = { ...n };
     if (m.attachments) m.attachments = m.attachments.map((a) => (a.kind === 'image' ? { kind: 'image', name: a.name, mime: a.mime, size: a.size } : a));
@@ -80,14 +79,21 @@ function stripForStorage(c) {
 }
 
 let saveTimers = new Map();
+let lastWrite = Promise.resolve(true);
+/** Resolves (true when kept) once the latest save reached this browser's storage (the importer checks it). */
+export const flushed = () => lastWrite;
+/** Writes a conversation now without telling sync (a copy that came from another device). */
+export function persistConversation(c) {
+  store.set('jchat:index', state.convs.filter((x) => !x.temp).map((x) => x.id));
+  return Convs.put(stripForStorage(c));
+}
 export function saveConversation(c, { now = false } = {}) {
   if (!c || c.temp) return;
   const write = () => {
     saveTimers.delete(c.id);
     if (!state.convs.includes(c)) return;
-    const ok = store.set(`jchat:conv:${c.id}`, stripForStorage(c));
     store.set('jchat:index', state.convs.filter((x) => !x.temp).map((x) => x.id));
-    if (!ok) console.warn('Jarvis Chat: could not save the conversation (storage full?)');
+    lastWrite = Convs.put(stripForStorage(c)).then((ok) => { if (!ok) console.warn('Eden: could not save the conversation (storage full?)'); return ok; });
     dispatchEvent(new CustomEvent('eden:conv-saved', { detail: { id: c.id } })); // Eden sync (sync.js) pushes it
   };
   clearTimeout(saveTimers.get(c.id));
@@ -101,7 +107,7 @@ export function addConversation(c) {
 
 export function deleteConversation(c) {
   state.convs = state.convs.filter((x) => x !== c);
-  store.del(`jchat:conv:${c.id}`);
+  Convs.del(c.id);
   store.set('jchat:index', state.convs.filter((x) => !x.temp).map((x) => x.id));
   if (!c.temp) dispatchEvent(new CustomEvent('eden:conv-deleted', { detail: { id: c.id } })); // sync.js: a tombstone
 }

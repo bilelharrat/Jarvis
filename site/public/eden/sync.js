@@ -23,15 +23,17 @@
 // the key it has, so askeden.com can't slip in a key of its own). Old keys stay in this browser
 // to read what they sealed; such items are sealed again under the new key a few at a time.
 
-import { state, ui } from './state.js';
+import { state, ui, persistConversation } from './state.js';
+import * as Convs from './convstore.js';
 import { store } from './util.js';
 import { apiUrl, isMock } from './api.js';
 import * as E from './eden-crypto.js';
+import { merge, wire, payload as payloadOf } from './sync-model.js';
 
 const PUSH_DELAY = 2500;
 const EVERY = 60_000;
 const BATCH = 25;
-const MAX_JSON = 450_000;
+const MAX_JSON = 450_000; // (sync-model.js)
 const POLL_MS = 3000;
 const WATCH_MS = 4000; // the account page's Sync, while it's open and the tab is visible
 const RESEAL = 20; // items sealed again under a new key, each pass
@@ -429,53 +431,14 @@ export async function forgetAllKeys() {
 
 /* ---------- the engine ---------- */
 
-/** A conversation as it's stored (state.js stripForStorage), image data never included. */
-function wire(c, { slim = false } = {}) {
-  const out = { ...c, queue: undefined, status: 'idle', nodes: {} };
-  delete out.queue;
-  for (const [id, n] of Object.entries(c.nodes || {})) {
-    const m = { ...n };
-    if (m.attachments) {
-      m.attachments = m.attachments.map((a) => (a.kind === 'image' ? { kind: 'image', name: a.name, mime: a.mime, size: a.size } : slim && a.kind === 'text' ? { kind: 'text', name: a.name, text: '', dropped: true } : a));
-    }
-    if (m.streaming) { m.streaming = false; m.finish = m.finish || 'aborted'; }
-    out.nodes[id] = m;
-  }
-  return out;
-}
-
 function payload(c) {
-  let w = wire(c);
-  let text = JSON.stringify(w);
-  if (text.length > MAX_JSON) { w = wire(c, { slim: true }); text = JSON.stringify(w); }
-  return text.length > MAX_JSON ? null : { value: { v: 1, conv: w }, text };
+  const p = payloadOf(c, MAX_JSON);
+  return p ? { value: { v: 1, conv: p.conv }, text: p.text } : null;
 }
 
-const textLen = (n) => (n.role === 'user' ? (n.content || '').length : (n.parts || []).reduce((t, p) => t + (p.text ? p.text.length : 0), 0));
-function better(a, b) {
-  if (a.streaming && !b.streaming) return b;
-  if (b.streaming && !a.streaming) return a;
-  if (b.finish && !a.finish) return b;
-  return textLen(b) > textLen(a) ? b : a;
-}
-const union = (a = [], b = []) => [...a, ...b.filter((x) => !a.includes(x))];
+export { merge };
 
-/** Two copies of one conversation as one: every message of both, the newer side's title and pins. */
-export function merge(mine, theirs) {
-  const out = { ...mine, nodes: { ...mine.nodes }, root: { ...mine.root, children: union(mine.root.children, theirs.root && theirs.root.children) } };
-  const newer = (theirs.updated || 0) > (mine.updated || 0) ? theirs : mine;
-  for (const k of ['title', 'titleSet', 'pinned', 'personaId', 'project', 'mode', 'kind', 'lastRoute', 'allowTools', 'todos', 'privacy']) if (k in newer) out[k] = newer[k];
-  out.updated = Math.max(mine.updated || 0, theirs.updated || 0);
-  for (const [id, n] of Object.entries(theirs.nodes || {})) {
-    const m = out.nodes[id];
-    if (!m) { out.nodes[id] = n; continue; }
-    const pick = better(m, n);
-    out.nodes[id] = { ...pick, children: union(m.children, n.children), sel: m.sel };
-  }
-  return out;
-}
-
-function applyConv(c) {
+export function applyConv(c) {
   c.queue = [];
   c.status = 'idle';
   const existing = state.convs.find((x) => x.id === c.id);
@@ -486,18 +449,17 @@ function applyConv(c) {
     const at = state.convs.findIndex((x) => (x.updated || 0) < (c.updated || 0));
     if (at < 0) state.convs.push(c); else state.convs.splice(at, 0, c);
   }
-  store.set(`jchat:conv:${c.id}`, wire(existing || c));
-  store.set('jchat:index', state.convs.filter((x) => !x.temp).map((x) => x.id));
+  persistConversation(existing || c);
   return existing || c;
 }
 
-function removeConv(id) {
+const deleteStored = (id) => { Convs.del(id); store.set('jchat:index', state.convs.filter((x) => !x.temp).map((x) => x.id)); };
+export function removeConv(id) {
   const c = state.convs.find((x) => x.id === id);
   if (!c) return false;
   if (state.current === c || state.streams.has(id)) return false; // open now: it goes next time
   state.convs = state.convs.filter((x) => x !== c);
-  store.del(`jchat:conv:${id}`);
-  store.set('jchat:index', state.convs.filter((x) => !x.temp).map((x) => x.id));
+  deleteStored(id);
   return true;
 }
 

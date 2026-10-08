@@ -8,6 +8,7 @@ import { MAX_PAYLOAD, GONE, pushReady, sendPush } from './apns.js';
 import { takenWords } from './identity.js';
 import { cleanCode, newCode } from './link.js';
 import { edenSyncApi } from './eden-sync.js';
+import { chatSyncApi } from './chat-sync.js';
 import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
 import { checkSignups } from './turnstile.js';
@@ -126,6 +127,11 @@ export async function api(request, env, ctx) {
     if (esync) {
       const token = auth(request);
       return await edenSyncApi(request, env, { account: token.account, token }, esync[1] || '');
+    }
+    const csync = /^\/csync\/([a-z]+)$/.exec(path);
+    if (csync) {
+      const token = auth(request);
+      return await chatSyncApi(request, env, { account: token.account, token }, csync[1]);
     }
     if (path === '/sync' && method === 'GET') {
       return json(await callAs(env, request, 'sync-get', { since: Number(url.searchParams.get('since')) || 0 }));

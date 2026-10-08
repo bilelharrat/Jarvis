@@ -33,6 +33,7 @@ import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, parseToken, random
 import { SIGN_IN_SCOPES, buildAuthUrl, exchangeCode, googleReady, pkcePair, verifyIdToken } from './google.js';
 import { qrRows } from './qr.js';
 import { edenSyncApi } from '../accounts/eden-sync.js';
+import { chatSyncApi } from '../accounts/chat-sync.js';
 import { actingSession, actingView, delegatesApi, endActing } from '../accounts/delegates.js';
 import { spacesApi } from '../accounts/space.js';
 import { billingApi, billingConfig, billingReturn, plusOffer } from './billing.js';
@@ -159,7 +160,7 @@ export async function web(request, env, ctx, path) {
     // Back from Stripe (another site, so no Strict cookie yet): a page that moves on (billing.js).
     if (path === '/api/web/billing/return' && method === 'GET') return billingReturn(request);
     // Eden sync (H1), delegates (H14), team spaces (G8): the browser's own session, never a delegate's.
-    const extra = /^\/api\/web\/(esync|deleg|space|billing)(?:\/([a-z-]+))?$/.exec(path); // billing: Plus with Stripe, F15 (billing.js)
+    const extra = /^\/api\/web\/(esync|csync|deleg|space|billing)(?:\/([a-z-]+))?$/.exec(path); // billing: Plus with Stripe, F15 (billing.js)
     if (extra) return await accountExtras(request, env, extra[1], extra[2] || '');
     throw new ApiError(404, 'not_found', 'No such thing here.');
   } catch (error) {
@@ -319,6 +320,7 @@ async function accountExtras(request, env, area, op) {
   const who = await signedIn(request, env);
   const origin = new URL(request.url).origin;
   if (area === 'esync') return edenSyncApi(request, env, who, op);
+  if (area === 'csync') return chatSyncApi(request, env, who, op);
   const found = await actingSession(request, env, who);
   const acting = found && !found.ended ? found : null;
   if (area === 'deleg') return delegatesApi(request, env, who, op, { acting, origin });

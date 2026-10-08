@@ -20,7 +20,7 @@
   <h2>The short version</h2>
   <ul>
     <li>We don’t sell your data, and there are no ads.</li>
-    <li>Your chats are sent to the AI company whose model answers them, and askeden.com keeps none of them. Your chat history stays in your browser unless you turn on sync, which is end-to-end encrypted.</li>
+    <li>Your chats are sent to the AI company whose model answers them, and askeden.com does not keep a copy for itself. To show your chat history on your other devices, we store it encrypted on askeden.com; deleting a chat, or your account, erases it there. Temporary chats are never stored. You can switch to end-to-end encryption, where we can’t read your chats at all.</li>
     <li>If you import your ChatGPT history, the export file is processed in your browser, never uploaded, and the chats are stored like your other chats.</li>
     <li>We keep what’s needed to run your account: who you are when you sign in, your devices, your plan and what you’ve used.</li>
   </ul>
@@ -31,7 +31,7 @@
     <li><b>How you sign in:</b> for Apple and Google, a one-way hash of the id they give us (never the raw id); for Google, the email address it shares. For a passkey, its public key and signature counter (never anything secret). Apple’s sign-in shares no email with us.</li>
     <li><b>Your devices and browsers:</b> each one’s name (like “Safari on a Mac”), app version, and when it was added and last used. A browser stays signed in for at most 30 days.</li>
     <li><b>Your own API keys,</b> if you add any (OpenAI, Google Gemini, Moonshot, Anthropic): encrypted, used only to call that provider for you, never shown back in full.</li>
-    <li><b>Sync,</b> if you turn it on: your conversations are encrypted on your device before they reach us, with a key we don’t have. We store data we can’t read.</li>
+    <li><b>Chat history,</b> to show it on every device where you sign in: your conversations are stored encrypted on askeden.com (images stay on the device they were added on). If you turn on end-to-end encryption, they are encrypted on your device with a key we don’t have, and we store data we can’t read.</li>
     <li><b>Things you choose to make:</b> pages you publish, background tasks and saved workflows, team spaces and delegates. Previews of generated pages (“artifacts”) are kept for a few hours, then deleted.</li>
     <li><b>Gmail and Google Calendar,</b> only if you connect them (see below): the access Google grants, encrypted.</li>
     <li><b>Operational records:</b> rate-limit counters and short error logs that help us keep the service working. We don’t log the contents of your chats.</li>
@@ -67,7 +67,7 @@
   </ul>
 
   <h2>Security</h2>
-  <p>Everything travels over HTTPS. Session cookies can’t be read by scripts. API keys and Google access are encrypted at rest; synced chats are end-to-end encrypted. No system is perfect: if something goes wrong that affects you, we’ll tell you.</p>
+  <p>Everything travels over HTTPS. Session cookies can’t be read by scripts. API keys and Google access are encrypted at rest; synced chats are encrypted at rest (or end-to-end, if you choose that). No system is perfect: if something goes wrong that affects you, we’ll tell you.</p>
 
   <h2>Children</h2>
   <p>Eden isn’t meant for children under 13 (or the minimum age where you live), and we don’t knowingly collect their data. If you think a child has an account, email us and we’ll delete it.</p>

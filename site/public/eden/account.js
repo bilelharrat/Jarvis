@@ -22,15 +22,18 @@
 // meta has no `hosted`. ?mock=1 answers it from mock.js.
 
 import { $, el, svgEl, ico, toast } from './util.js';
-import { state, ui } from './state.js';
+import { state, ui, deleteConversation } from './state.js';
 import { apiUrl, isMock } from './api.js';
 import { setActing } from './acting.js';
 import * as Sync from './sync.js';
+import * as Cloud from './cloud-sync.js';
 import { passphraseProblem, suggestPassphrase, verifyCode } from './eden-crypto.js';
 import { spacesSection, inviteCard, enableWorkflowSharing } from './spaces.js';
 import { publishedSection } from './publish.js';
 import { IN_APP } from './native.js';
 import { setPlanOffer } from './plan.js';
+// Included AI is shown as a share left, never in dollars.
+const pctLeft = (left, total) => `${Math.max(0, Math.min(100, Math.round((Number(left) || 0) / (Number(total) || 1) * 100)))}%`;
 
 let H = {};
 let available = false;
@@ -299,17 +302,20 @@ function syncSection() {
   const sec = el('section', { class: 'set-sec', 'aria-labelledby': 'acctSyncH' }, el('h3', { id: 'acctSyncH' }, 'Sync'), box);
   const draw = () => drawSync(box).catch((e) => box.replaceChildren(el('p', 'sp-note', `Sync isn’t available: ${e.message}`)));
   // Redrawn when what it shows changes, never under someone's typing.
-  const sig = () => { const i = Sync.info(); const s = i.server || {}; return JSON.stringify([i.on, i.hasKey, i.error, i.tooBig, s.items, s.key && s.key.gen, s.key && s.key.wrap, s.key && s.key.epoch, s.key && s.key.wrap_stale, (s.requests || []).map((r) => r.device_id), (s.trusted || []).map((t) => [t.device_id, t.pending]), Math.floor((i.last || 0) / 60000)]); };
+  const sig = () => { const i = Sync.info(); const s = i.server || {}; return JSON.stringify([i.on, i.hasKey, i.error, i.tooBig, s.items, s.key && s.key.gen, s.key && s.key.wrap, s.key && s.key.epoch, s.key && s.key.wrap_stale, (s.requests || []).map((r) => r.device_id), (s.trusted || []).map((t) => [t.device_id, t.pending]), Math.floor((i.last || 0) / 60000), Cloud.info().on, Cloud.info().error, Math.floor((Cloud.info().last || 0) / 60000)]); };
   let shown = '';
   if (syncWatch) syncWatch();
-  syncWatch = Sync.onSyncChange(() => {
+  const onChange = () => {
     if (!box.isConnected) return;
     const a = document.activeElement;
     if (a && box.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'SUMMARY')) return;
     if (box.querySelector('details[open]') || sig() === shown) return;
     shown = sig();
     draw();
-  });
+  };
+  const offA = Sync.onSyncChange(onChange);
+  const offB = Cloud.onCloudChange(onChange);
+  syncWatch = () => { offA(); offB(); };
   shown = sig();
   draw();
   // While it's open (and the tab visible): a browser asking to join shows up within seconds.
@@ -337,7 +343,31 @@ function passphraseFields({ confirm = true } = {}) {
   } };
 }
 
+const CLOUD_LEAD = 'Your chats follow your account: sign in on another browser, the Mac app or the iPhone app and they are there. They are stored encrypted on askeden.com. Temporary chats never sync.';
+
 async function drawSync(box) {
+  const i = Sync.info();
+  const s = i.server;
+  if (!s || s.key) { await drawE2e(box); return; }
+  const c = Cloud.info();
+  const when = c.running ? 'Syncing…' : c.last ? `Last synced ${agoShort(c.last)}` : 'Not synced yet';
+  const inner = el('div');
+  await drawE2e(inner);
+  fill(box,
+    el('p', 'sp-note', CLOUD_LEAD),
+    el('div', 'icard acct-card', el('div', 'acct-allow',
+      el('div', 'acct-row-top', el('span', 'acct-k', c.error ? 'Sync paused' : c.on ? 'Synced · all devices' : 'Sync is off'), el('b', 'acct-v', `${c.chats} ${c.chats === 1 ? 'chat' : 'chats'}`)),
+      el('div', 'acct-sub', [when, c.waiting ? `${c.waiting} download when opened` : '', c.tooBig ? `${c.tooBig} too big to sync` : '', c.error].filter(Boolean).join(' · ')),
+      el('div', 'acct-row-actions',
+        el('button', { type: 'button', class: 'cap primary', disabled: c.running, onclick: async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Syncing…'; await Cloud.syncNow(); drawSync(box); } }, 'Sync now'),
+        confirmButton('Delete all chats', 'Delete every chat here, on askeden.com and on your other devices?', async () => { await Cloud.deleteAllChats(deleteConversation); toast('All chats deleted'); drawSync(box); })))),
+    el('p', 'sp-note', 'Images stay on the device they were added on. Deleting your account erases synced chats too.'),
+    el('details', 'acct-more', el('summary', '', 'End-to-end encryption'),
+      el('p', 'sp-note', 'Optional: seal your chats with a key only your devices hold. askeden.com then can’t read them, but a new device needs approval from one you already use, or your recovery passphrase.'),
+      inner));
+}
+
+async function drawE2e(box) {
   const i = Sync.info();
   const s = i.server;
   if (!s) { box.replaceChildren(el('p', 'sp-note', i.error || (isMock ? 'Sync works at askeden.com, not in this preview.' : 'Checking…'))); return; }
@@ -523,7 +553,7 @@ function inviteForm(out, d, done) {
 function meter(leftUsd, totalUsd, label) {
   const ratio = totalUsd > 0 ? Math.max(0, Math.min(1, leftUsd / totalUsd)) : 0;
   const low = ratio < 0.15;
-  return el('div', { class: `acct-meter${low ? ' low' : ''}`, role: 'meter', 'aria-label': label, 'aria-valuemin': '0', 'aria-valuemax': String(totalUsd), 'aria-valuenow': String(leftUsd), 'aria-valuetext': `${money(leftUsd)} of ${money(totalUsd)} left` },
+  return el('div', { class: `acct-meter${low ? ' low' : ''}`, role: 'meter', 'aria-label': label, 'aria-valuemin': '0', 'aria-valuemax': String(totalUsd), 'aria-valuenow': String(leftUsd), 'aria-valuetext': `${pctLeft(leftUsd, totalUsd)} left` },
     el('span', { class: 'fill', style: { width: `${(ratio * 100).toFixed(1)}%` } }));
 }
 
@@ -576,15 +606,15 @@ function planSection(a, config = {}) {
   let allowance;
   if (plus) {
     allowance = el('div', 'acct-allow',
-      el('div', 'acct-row-top', el('span', 'acct-k', 'Included AI this month'), el('b', 'acct-v', `${money(u.left_usd)} left`)),
+      el('div', 'acct-row-top', el('span', 'acct-k', 'Included AI this month'), el('b', 'acct-v', `${pctLeft(u.left_usd, u.budget_usd)} left`)),
       meter(u.left_usd || 0, u.budget_usd || 0, 'Included AI left this month'),
-      el('div', 'acct-sub', `${money(u.left_usd)} of ${money(u.budget_usd)}${u.period_end ? ` · starts again ${day(u.period_end)}` : ''}`));
+      el('div', 'acct-sub', `${u.period_end ? `Starts again ${day(u.period_end)}` : 'Resets monthly'}`));
   } else {
     const total = typeof u.trial_usd === 'number' ? u.trial_usd : null; // the trial's size, when the server says it
     allowance = el('div', 'acct-allow',
-      el('div', 'acct-row-top', el('span', 'acct-k', 'Trial AI'), el('b', 'acct-v', `${money(u.trial_left_usd)} left`)),
+      el('div', 'acct-row-top', el('span', 'acct-k', 'Trial AI'), el('b', 'acct-v', `${pctLeft(u.trial_left_usd, total || u.trial_left_usd)} left`)),
       total ? meter(u.trial_left_usd || 0, total, 'Trial AI left') : null,
-      el('div', 'acct-sub', total ? `${money(u.trial_left_usd)} of ${money(total)} · used once, not monthly` : 'Used once, not monthly.'));
+      el('div', 'acct-sub', 'Used once, not monthly.'));
   }
 
   const iPhone = (a.devices || []).some((d) => d.kind === 'iphone');
@@ -928,7 +958,18 @@ export async function initAccount(handlers = {}) {
     if (me.acting_ended) { post('/api/web/deleg/leave').catch(() => {}); toast('Your access to that account or space ended. You’re back on your own.'); }
   }
   call('/api/web/config').then((c) => (c.ok ? read(c) : {})).catch(() => ({})).then((config) => setPlanOffer(me, config));
-  if (!isMock) Sync.initSync(me.account_id);
+  if (!isMock) {
+    Sync.initSync(me.account_id).then((i) => {
+      if (i.server) Cloud.initCloud(me.account_id, { e2e: Boolean(i.server.key) });
+      // End-to-end mode set up (or removed) later: the automatic sync steps aside (and its server copies go) or comes back.
+      Sync.onSyncChange((x) => {
+        if (!x.server) return;
+        const e2e = Boolean(x.server.key);
+        if (e2e && Cloud.info().on) { Cloud.wipeCloud().catch(() => {}); Cloud.turnOff(); }
+        else if (!e2e && !Cloud.info().on) Cloud.initCloud(me.account_id);
+      });
+    });
+  }
   const button = $('btnAccount');
   if (button) {
     button.hidden = false;

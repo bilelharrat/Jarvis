@@ -6,7 +6,7 @@
 // The reading and converting is import-chatgpt-model.js.
 
 import { el } from './util.js';
-import { state, ui, attachmentData, addConversation, saveConversation, savePersonas } from './state.js';
+import { state, ui, attachmentData, addConversation, saveConversation, savePersonas, flushed } from './state.js';
 import { api } from './api.js';
 import {
   readZip, entryStream, entryBytes, jsonArrayItems, indexExport, convertConversation, dedupeAction, replaceInto, mimeOf,
@@ -128,9 +128,7 @@ export async function runImport(file, { on = () => {}, shouldStop = () => false 
           sum.messages += r.stats.messages;
           if (act === 'new') { addConversation(c); sum.chats++; }
           else saveConversation(c, { now: true });
-          let stored = null;
-          try { stored = localStorage.getItem(`jchat:conv:${c.id}`); } catch { /* blocked */ }
-          if (!stored) { // the browser's storage is full: keep what fit, newest first
+          if (!(await flushed())) { // the browser's storage is full: keep what fit, newest first
             state.convs = state.convs.filter((x) => x !== c);
             sum.full = true; sum.chats -= act === 'new' ? 1 : 0; sum.messages -= r.stats.messages;
             break outer;

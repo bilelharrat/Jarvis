@@ -27,6 +27,7 @@ import { userKeysOp } from './user-keys.js';
 import { webClosed, webListen, webMessage, webOp } from './webrelay.js';
 import { publishedOp } from './published.js';
 import { edenSyncOp } from './eden-sync.js';
+import { chatSyncOp } from './chat-sync.js';
 import { memoryOp } from '../eden/memory.js';
 import { delegateOp, grantAllow, grantGuard, grantView, poolSpend } from './delegates.js';
 import { mailDue, mailOp, runAlarms, scheduleJob, unscheduleJob } from './schedule.js';
@@ -113,6 +114,7 @@ export class Account {
       if (op.startsWith('web-')) return await webOp(this, op, request); // hosted Eden → the Mac (webrelay.js)
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
       if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
+      if (op.startsWith('csync-')) return await chatSyncOp(this, op, request); // chat history on every device, sealed server-side (chat-sync.js)
       if (op.startsWith('deleg-')) return await delegateOp(this, op, request); // delegates and grants, H14/G8 (delegates.js)
       if (op.startsWith('stripe-')) return await stripeOp(this, op, request); // Plus bought on the web, F15 (stripe-plan.js)
       if (op.startsWith('mailup-')) return await mailUploadOp(this, op, request); // hosted Gmail's attachments uploaded ahead (mail-uploads.js)
