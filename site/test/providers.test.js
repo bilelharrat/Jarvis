@@ -266,10 +266,12 @@ test('fake provider endpoints are honoured only for a local request and a loopba
   assert.equal(devProviderBase({ EDEN_FAKE_PROVIDER_BASE: 'https://evil.example' }, new Request('http://localhost/')), null);
 });
 
-test('Claude is bring-your-own-key: no service Anthropic key for anyone; its models are listed locked; Gemini is the default; the router never picks Claude', async () => {
+test('Without a service Anthropic key, Claude is bring-your-own-key: its models are listed locked; Gemini is the default; the router never picks Claude', async () => {
   testOnlyServiceClaude(false); // the real rule (fakes.js turns it back on for the older suites)
+  const keepAnthropic = env.ANTHROPIC_API_KEY;
+  env.ANTHROPIC_API_KEY = ''; // no service Anthropic key: Claude is the asker's own key only
   try {
-    assert.equal(await providerKey(env, null, 'anthropic'), null, 'ANTHROPIC_API_KEY is set, and still not used');
+    assert.equal(await providerKey(env, null, 'anthropic'), null, 'no service key, no Claude');
     assert.deepEqual(await providerKey(env, null, 'gemini'), { key: 'gm-test', source: 'service' });
     const owner = await phone();
     const value = await signedInBrowser(owner);
@@ -295,6 +297,7 @@ test('Claude is bring-your-own-key: no service Anthropic key for anyone; its mod
     assert.ok(calls.every((c) => c.provider !== 'anthropic'));
   } finally {
     testOnlyServiceClaude(true);
+    env.ANTHROPIC_API_KEY = keepAnthropic;
   }
 });
 
@@ -303,4 +306,16 @@ test('the default model: Gemini Flash when there, else the cheapest non-Claude m
   assert.equal(defaultModel(cfg(['claude-haiku-4-5', 'gpt-6-luna', 'gemini-3.8-flash'])), 'gemini-3.8-flash');
   assert.equal(modelOf(defaultModel(cfg(['claude-haiku-4-5', 'gpt-6-sol', 'gpt-6-luna']))).provider, 'openai');
   assert.equal(defaultModel(cfg(['claude-haiku-4-5', 'claude-opus-5-5'])), null);
+});
+
+test('With a service Anthropic key, Claude is on the included AI for everyone (unless switched off)', async () => {
+  testOnlyServiceClaude(false);
+  const keep = env.ANTHROPIC_API_KEY;
+  env.ANTHROPIC_API_KEY = 'sk-ant-service';
+  try {
+    assert.deepEqual(await providerKey(env, null, 'anthropic'), { key: 'sk-ant-service', source: 'service' });
+  } finally {
+    testOnlyServiceClaude(true);
+    env.ANTHROPIC_API_KEY = keep;
+  }
 });

@@ -575,7 +575,7 @@ test('only a Mac opens the web channel; only a browser forwards; a Mac answers o
 
 test('Claude without a key here: the owner gets it through their Mac while it’s online; a Claude pick goes to the Mac', async () => {
   testOnlyServiceClaude(false);
-  env.ANTHROPIC_API_KEY = 'sk-fake'; // never used for hosted chat
+  delete env.ANTHROPIC_API_KEY; // no service Anthropic key here: Claude goes through the owner's Mac
   env.GEMINI_API_KEY = 'gm-fake'; // hosted chat runs here, on Gemini
   try {
     const o = await owner();

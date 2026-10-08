@@ -59,12 +59,15 @@ export const testOnlyServiceClaude = (on) => {
 
 const switchedOff = (env, p) => /^(off|0|false|no)$/i.test(String(env[SWITCH_VARS[p]] ?? '').trim());
 
+/** Claude for everyone on the included AI: an ANTHROPIC_API_KEY is set (and ANTHROPIC not switched off). Without it, Claude stays bring-your-own-key. */
+export const serviceClaude = (env) => Boolean(String(env.ANTHROPIC_API_KEY || '').trim()) && !switchedOff(env, 'anthropic');
+
 /** The key a provider's calls use for this asker, and whose it is; null: none. Stable contract (top of file). */
 export async function providerKey(env, who, provider) {
   if (!PROVIDER_IDS.includes(provider) || switchedOff(env, provider)) return null;
   const own = await userKeyFor(env, who, provider); // the owner's own key first (accounts/user-keys.js)
   if (own) return own;
-  if (BYOK_ONLY.includes(provider) && !serviceClaudeForTests) return null; // Claude: never a service key (top of file)
+  if (BYOK_ONLY.includes(provider) && !serviceClaudeForTests && !serviceClaude(env)) return null; // Claude: own key only, unless the service has an Anthropic key (serviceClaude)
   const key = String(env[KEY_VARS[provider]] || '').trim();
   return key ? { key, source: 'service' } : null;
 }
@@ -80,7 +83,7 @@ export const metered = (keys, provider) => Boolean(keys[provider] && keys[provid
 export async function hostedFor(env, who, cfg, request = null) {
   const keys = {};
   for (const p of PROVIDER_IDS) keys[p] = await providerKey(env, who, p);
-  const locked = cfg.models.filter((m) => !keys[m.provider] && BYOK_ONLY.includes(m.provider) && !switchedOff(env, m.provider) && !serviceClaudeForTests);
+  const locked = cfg.models.filter((m) => !keys[m.provider] && BYOK_ONLY.includes(m.provider) && !switchedOff(env, m.provider) && !serviceClaudeForTests && !serviceClaude(env));
   return { ...cfg, models: cfg.models.filter((m) => keys[m.provider]), locked, keys, base: devProviderBase(env, request) };
 }
 
