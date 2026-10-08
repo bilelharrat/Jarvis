@@ -204,7 +204,7 @@ test('Get Plus: a subscription Checkout Session for this account, form-encoded, 
   assert.equal(made.method, 'POST');
   assert.equal(made.headers.get('content-type'), 'application/x-www-form-urlencoded');
   assert.equal(made.headers.get('authorization'), `Bearer ${KEY}`);
-  assert.match(made.headers.get('idempotency-key'), /^eden-checkout-[0-9a-f]{32}$/);
+  assert.match(made.headers.get('idempotency-key'), /^eden-checkout-[0-9a-f]{32}-price_\w+$/);
   const f = Object.fromEntries(made.form);
   assert.equal(f.mode, 'subscription');
   assert.equal(f['line_items[0][price]'], PRICE);
