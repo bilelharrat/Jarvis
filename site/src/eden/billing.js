@@ -223,7 +223,7 @@ export async function billingApi(request, env, who, op, { acting = null, origin 
       cancel_url: `${origin}/api/web/billing/return?to=cancelled`, // on to /#account?billing=cancelled
       expires_at: begun.expires_at,
       customer: begun.customer, // a returning subscriber keeps one Stripe customer
-    }, { idempotency: `eden-checkout-${begun.key}` });
+    }, { idempotency: `eden-checkout-${begun.key}-${price}` }); // the price is part of it: a new price is a new checkout, not a replay
     if (!stripePage(env, session.url, 'checkout.stripe.com')) throw new ApiError(502, 'stripe', 'Stripe sent back no checkout page. Try again.');
     return json({ url: session.url });
   }
