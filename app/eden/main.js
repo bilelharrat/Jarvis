@@ -69,7 +69,7 @@ const staysIn = (url) => {
   if (isEdenSite(url)) return true;
   try { const u = new URL(url); return u.protocol === 'https:' && SIGN_IN_HOSTS.has(u.hostname); } catch { return false; }
 };
-const openOutside = (url) => { if (/^(https?|mailto):/i.test(url)) shell.openExternal(url).catch(() => {}); };
+const openOutside = (url) => { if (/^(https|mailto):/i.test(url)) shell.openExternal(url).catch(() => {}); };
 
 // The window chrome the page needs on a Mac, and nothing of the page's own look.
 const DESKTOP_CSS = `
@@ -133,6 +133,7 @@ function openDeepLink(link) {
   // askeden://chat/abc?x=1 -> https://askeden.com/chat/abc?x=1
   let target = HOME_URL;
   try { const u = new URL(link); target = new URL(`${u.hostname ? `/${u.hostname}` : ''}${u.pathname === '/' ? '' : u.pathname}${u.search}${u.hash}`, HOME_URL).toString(); } catch { /* home */ }
+  if (!isEdenSite(target)) target = HOME_URL; // askeden:////evil.com/x resolves to another host
   if (!win || win.isDestroyed()) { pendingUrl = target; showMain(); return; }
   win.loadURL(target).catch(() => {});
   showMain();
@@ -197,7 +198,7 @@ const setBadge = (n) => { if (app.dock) app.dock.setBadge(n > 0 ? String(n) : ''
 ipcMain.on('eden:badge', (e, n) => { if (fromEden(e)) setBadge(Number(n) || 0); });
 ipcMain.on('eden:notify', (e, title, body) => {
   if (!fromEden(e) || !Notification.isSupported()) return;
-  const n = new Notification({ title: title || NAME, body });
+  const n = new Notification({ title: String(title || NAME).slice(0, 120), body: String(body || '').slice(0, 300) });
   n.on('click', showMain);
   n.show();
 });
@@ -238,7 +239,7 @@ async function startEngine() {
   const found = await share.discover(DATA_DIR);
   if (found) { // J.A.R.V.I.S. or Eden Code runs it already: one engine per Mac
     engine = { port: found.port, token: found.token, shared: true };
-    stopWatching = share.watch(found.port, () => { engine = null; if (!quitting) startEngine(); });
+    stopWatching = share.watch(found.port, () => { engine = null; dropApprovalWin(); if (!quitting) startEngine(); });
     watchApprovals();
     return;
   }
@@ -263,7 +264,7 @@ async function startEngine() {
   child.on('error', (err) => console.error(`engine: ${err.message}`));
   child.on('exit', () => {
     share.withdraw(DATA_DIR, process.pid);
-    if (engine && engine.child === child) engine = null;
+    if (engine && engine.child === child) { engine = null; dropApprovalWin(); }
     if (!quitting) setTimeout(startEngine, 3000);
   });
   if (await waitForEngine(port)) watchApprovals();
@@ -295,6 +296,10 @@ async function startEdenServer() {
 
 // Pending approvals on the Dock icon: the engine's socket, read from a hidden page on the
 // engine's own origin (the socket accepts only that origin).
+function dropApprovalWin() { // it holds the old engine's port and token: the next engine gets a fresh one
+  if (approvalWin && !approvalWin.isDestroyed()) approvalWin.destroy();
+  approvalWin = null;
+}
 function watchApprovals() {
   if (!engine || approvalWin) return;
   const { port, token } = engine;
