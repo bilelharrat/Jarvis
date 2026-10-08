@@ -71,6 +71,7 @@
   <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 5 3.5 3.5V14h-11v-1.5L10 9 9 4z"/><path d="M12 14v6"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12.5h8L17 7"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></symbol>
   <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><!-- Lucide "settings" (ISC licence) --><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-quote" viewBox="0 0 24 24"><path d="M5 17V12a5 5 0 015-5M14 17V12a5 5 0 015-5"/></symbol>
@@ -175,8 +176,26 @@
           <button type="button" class="iconbtn" id="btnArtClose" title="Close · esc" aria-label="Close canvas"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
         </div>
         <div class="art-body" id="artPreview"></div>
-        <div class="art-body" id="artCode" hidden></div>
-        <div id="artCap"><span id="artCapText"></span><button type="button" class="cap" id="btnAskSel"><svg class="ic" aria-hidden="true"><use href="#i-quote"/></svg>Ask about selection</button></div>
+        <div class="art-body" id="artCode" hidden>
+          <div class="ed-bar">
+            <select id="artLang" aria-label="Language"></select>
+            <div class="seg ed-tabs" style="--n:2;width:150px" id="edTabs" role="tablist" aria-label="Editor or console">
+              <div class="seg-thumb"></div>
+              <button type="button" class="on" data-i="0">Editor</button><button type="button" data-i="1">Console</button>
+            </div>
+            <span style="flex:1"></span>
+            <button type="button" class="iconbtn" id="btnArtDl" title="Download file" aria-label="Download file"><svg class="ic" aria-hidden="true"><use href="#i-down"/></svg></button>
+            <button type="button" class="ed-run" id="btnArtRun" title="Run · ⌘↵"><svg class="ic" aria-hidden="true"><use href="#i-play"/></svg><span>Run</span></button>
+          </div>
+          <div class="ed" id="artEd"><div class="ed-gut" id="artGut" aria-hidden="true"></div><div class="ed-stack"><pre class="ed-hl" id="artHl" aria-hidden="true"></pre><textarea id="artTa" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Code editor"></textarea></div></div>
+          <div class="con-grip" id="conGrip" role="separator" aria-label="Resize console" tabindex="0"></div>
+          <div class="con" id="artCon" aria-label="Console">
+            <div class="con-head"><span class="con-t">Console</span><span id="conStat" class="con-stat"></span><span style="flex:1"></span><button type="button" class="cap" id="btnConClear">Clear</button><button type="button" class="cap" id="btnConStop" hidden>Stop</button></div>
+            <pre class="con-out" id="conOut" role="log" aria-live="polite"></pre>
+            <input class="con-in" id="conIn" type="text" placeholder="Input (stdin) for the next run: lines separated by ⏎ are read in order" aria-label="Standard input for the next run" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div id="artCap"><span id="artCapText"></span><button type="button" class="cap" id="btnAskSel"><svg class="ic" aria-hidden="true"><use href="#i-quote"/></svg>Ask about selection</button><button type="button" class="cap" id="btnEditSel"><svg class="ic" aria-hidden="true"><use href="#i-spark"/></svg>Ask Eden to edit</button><form id="editAsk" hidden><input id="editAskIn" type="text" placeholder="How should Eden change the selection?" aria-label="How should Eden change the selection?" autocomplete="off"><button type="submit" class="cap">Send</button></form></div>
       </section>
     </div>
 

@@ -1091,7 +1091,7 @@ function init() {
     searchNotes, attachNote, save: (c) => { saveConversation(c); renderTitle(); renderSidebar(); }, confirm: (text, ok, run) => confirmDialog(text, ok, run, true),
     compact, clear: clearConversation,
   });
-  initArtifact({ quote: (t) => setComposerText(t, { append: true }) });
+  initArtifact({ quote: (t) => setComposerText(t, { append: true }), send: (t) => sendMessage(t) });
   initPrivacy({ confirm: (text, ok, run) => confirmDialog(text, ok, run, true), schedulePreview });
   initPublish({ openDialog, closeDialog });
   initPanels({ addContext: (b) => { addContext(b); closeSpace(); } });

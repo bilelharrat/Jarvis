@@ -26,7 +26,7 @@ import { helpPage } from './help.js';
 import { publishedPage } from '../accounts/published.js';
 import { EDEN_FILES } from './manifest.js';
 import { currentSession } from './session.js';
-import { EDEN_CSP, EDEN_PERMISSIONS, SESSION_COOKIE, SIGNIN_CSP, SIGNIN_PAGE_CSP, clearCookie, page, withHeaders } from './web.js';
+import { EDEN_CSP, EDEN_PERMISSIONS, RUNNER_CSP, SESSION_COOKIE, SIGNIN_CSP, SIGNIN_PAGE_CSP, clearCookie, page, withHeaders } from './web.js';
 import { safeReturn } from '../../public/signin/return.js';
 
 // The legal pages: static text and the sign-in page's stylesheet, nothing else.
@@ -83,6 +83,8 @@ export async function edenPage(request, env, path) {
   const name = path === '/' ? 'index.html' : path.slice(1);
   if (!EDEN.has(name)) return null;
 
+  // The code canvas's runner: static, no secrets, its own sandbox policy; anyone may frame it (it runs only what its framer sends, in that viewer's browser).
+  if (name === 'runner.html') return withHeaders(await asset(env, request, '/eden/runner'), { 'content-security-policy': RUNNER_CSP, 'cache-control': 'public, max-age=300', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
   const { session, stale } = await currentSession(request, env);
   if (name === 'index.html') {
     if (!session) {

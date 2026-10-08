@@ -2,8 +2,16 @@
 // then <iframe sandbox="allow-scripts" src=url>); any code block opens in the Code view with
 // line numbers. Versions page through the same artifact across drafts; a selection in the
 // code can be quoted into the composer; the divider drags (and double-clicks to 50/50).
+// The Code view is an editor (canvas-model.js: language, highlighting; canvas-run.js: Run):
+// a highlighted layer under a transparent textarea, line numbers, a language picker, Copy and
+// Download, a console under it (stdout/stderr, exit code, time, stdin, Stop) that resizes, and
+// "Ask Eden to edit" on a selection: Eden's revised file comes back as a new version. Typing
+// makes a new version too (the first keystroke on a version forks it). On a phone the canvas
+// is a full-screen sheet with Editor and Console tabs.
 
-import { $, el, toast, copyText, setSeg, isMobile } from './util.js';
+import { $, el, toast, copyText, setSeg, isMobile, download } from './util.js';
+import { LANGS, detectLang, langInfo, runnerOf, tokenize, fileName, appendCapped, editRequest, revisedIn } from './canvas-model.js';
+import * as runner from './canvas-run.js';
 import { state, path, nodeText } from './state.js';
 import { api, apiUrl } from './api.js';
 import { artifactsIn } from './render.js';
@@ -43,6 +51,7 @@ export function closeArtifact() {
   $('split').classList.remove('art-open', 'chat-view');
   document.body.classList.remove('canvas-hidden');
   $('artPreview').replaceChildren();
+  runner.stop();
   return true;
 }
 export const artifactOpen = () => $('split').classList.contains('art-open');
@@ -65,15 +74,95 @@ function show() {
   $('btnArtExt').hidden = !canvas;
   $('btnArtPublish').hidden = !canvas;
   const lines = v.code.split('\n').length;
-  $('artCapText').textContent = `v${art.i + 1} · ${v.lang || 'text'} · ${lines} line${lines === 1 ? '' : 's'}${canvas ? ' · runs sandboxed: no network, no cookies' : ''}`;
+  if (!v.edLang) v.edLang = detectLang(v.code, v.lang);
+  const r = runnerOf(v.edLang);
+  const where = canvas ? ' · runs sandboxed: no network, no cookies' : r === 'js' || r === 'py' ? ' · runs in this browser, sandboxed' : r === 'cloud' ? ' · cloud runner: coming soon' : '';
+  $('artCapText').textContent = `v${art.i + 1}${v.local ? ' (edited)' : ''} · ${langInfo(v.edLang).label} · ${lines} line${lines === 1 ? '' : 's'}${where}`;
   renderCode(v);
   if (art.view === 0) renderPreview(v);
 }
 
 function renderCode(v) {
-  const box = el('div', { class: 'codeblk', tabindex: '0', 'aria-label': 'Code' });
-  v.code.split('\n').forEach((line, i) => box.append(el('span', 'ln', String(i + 1)), `${line}\n`));
-  $('artCode').replaceChildren(box);
+  const ta = $('artTa');
+  if (ta.value !== v.code) ta.value = v.code;
+  $('artLang').value = v.edLang;
+  const r = runnerOf(v.edLang);
+  $('btnArtRun').disabled = !r && !CANVAS_LANGS.has(v.lang);
+  $('btnArtRun').title = r === 'cloud' ? 'Run in the cloud (coming soon) · ⌘↵' : r ? 'Run · ⌘↵' : CANVAS_LANGS.has(v.lang) ? 'Show the preview' : `${langInfo(v.edLang).label} doesn’t run`;
+  paint();
+}
+
+/** Redraw the highlighted layer and the line numbers from the textarea. */
+function paint() {
+  const v = art.versions[art.i];
+  const code = $('artTa').value;
+  const frag = document.createDocumentFragment();
+  for (const { t, v: text } of tokenize(code, v ? v.edLang : 'text')) frag.append(t ? el('span', `tk-${t}`, text) : text);
+  frag.append('\n '); // the textarea's last empty line has height too
+  $('artHl').replaceChildren(frag);
+  const n = code.split('\n').length;
+  if ($('artGut').childElementCount !== n) $('artGut').replaceChildren(...Array.from({ length: n }, (_, i) => el('div', null, String(i + 1))));
+}
+
+function onType() {
+  let v = art.versions[art.i];
+  if (!v) return;
+  if (!v.local) { // the first keystroke on a version forks it into a new one
+    v = { ...v, code: v.code, local: true, nodeId: v.nodeId };
+    art.versions.push(v);
+    art.i = art.versions.length - 1;
+    v.code = $('artTa').value;
+    show();
+    return;
+  }
+  v.code = $('artTa').value;
+  paint();
+}
+
+// ── the console ──
+
+const con = { total: 0 };
+function conWrite(stream, text) {
+  const c = appendCapped(con.total, text);
+  con.total = c.total;
+  if (!c.text) return;
+  const out = $('conOut');
+  const near = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+  out.append(stream === 'stderr' ? el('span', 'con-err', c.text) : c.text);
+  if (near) out.scrollTop = out.scrollHeight;
+}
+function conStatus(text, cls = '') { const s = $('conStat'); s.textContent = text; s.className = `con-stat ${cls}`; }
+function setRunning(on) {
+  $('btnConStop').hidden = !on;
+  $('btnArtRun').classList.toggle('stop', on);
+  $('btnArtRun').querySelector('span').textContent = on ? 'Stop' : 'Run';
+}
+function showConsole() { if (isMobile()) setEdTab(1); }
+function setEdTab(i) { setSeg($('edTabs'), i); $('artCode').classList.toggle('con-tab', i === 1); }
+
+async function runCode() {
+  if (runner.running()) { runner.stop(); return; }
+  const v = art.versions[art.i];
+  if (!v) return;
+  if (CANVAS_LANGS.has(v.lang) && !runnerOf(v.edLang)) { art.view = 0; show(); return; }
+  $('conOut').replaceChildren();
+  con.total = 0;
+  conStatus('Running…', 'busy');
+  setRunning(true);
+  showConsole();
+  await runner.run({ lang: v.edLang, code: $('artTa').value, stdin: $('conIn').value }, {
+    out: conWrite,
+    status: (t) => { if (t) conStatus(t, 'busy'); else conStatus('Running…', 'busy'); },
+    exit: ({ code, ms, reason }) => {
+      setRunning(false);
+      const time = ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms} ms`;
+      if (reason === 'unavailable') conStatus('Cloud runner: coming soon', '');
+      else if (reason === 'refused') conStatus('Didn’t run', 'bad');
+      else if (reason === 'timeout') conStatus(`Stopped at the 30 s limit · exit ${code}`, 'bad');
+      else if (reason === 'stopped') conStatus(`Stopped · ${time}`, '');
+      else conStatus(`Exit ${code} · ${time}`, code === 0 ? 'ok' : 'bad');
+    },
+  });
 }
 
 function htmlFor(v) {
@@ -101,18 +190,33 @@ async function renderPreview(v) {
 export function refreshArtifact() {
   if (!artifactOpen() || !state.current) return;
   const v = art.versions[art.i];
-  if (!v || !CANVAS_LANGS.has(v.lang)) return;
+  if (!v) return;
+  if (art.pendingEdit) { takeRevision(); return; }
+  if (!CANVAS_LANGS.has(v.lang)) return;
   const list = versionsFor(state.current, v.title, v.lang);
   if (list.length > art.versions.length) { art.versions = list; art.i = list.length - 1; show(); }
 }
 
+/** Eden's reply to "Ask Eden to edit": its revised file becomes the newest version. */
+function takeRevision() {
+  const p = art.pendingEdit;
+  const n = Object.values(state.current.nodes).filter((x) => x.role === 'assistant' && x.created >= p.at).sort((a, b) => b.created - a.created)[0];
+  if (!n) return;
+  art.pendingEdit = null;
+  const code = revisedIn(nodeText(n), p.lang);
+  if (!code) { toast('Eden’s reply had no revised file'); return; }
+  const base = art.versions[art.i] || {};
+  art.versions.push({ ...base, code, local: false, edLang: p.lang, nodeId: n.id });
+  art.i = art.versions.length - 1;
+  art.view = 1;
+  show();
+  toast(`Eden’s edit is version ${art.i + 1}`);
+}
+
 function selectionInCode() {
-  const sel = getSelection();
-  if (!sel || sel.isCollapsed || !$('artCode').contains(sel.anchorNode)) return '';
-  // drop the line-number gutter
-  const frag = sel.getRangeAt(0).cloneContents();
-  frag.querySelectorAll('.ln').forEach((n) => n.remove());
-  return frag.textContent.replace(/\n$/, '');
+  const ta = $('artTa');
+  if ($('artCode').hidden || document.activeElement !== ta || ta.selectionStart === ta.selectionEnd) return '';
+  return ta.value.slice(ta.selectionStart, ta.selectionEnd);
 }
 
 export function initArtifact(handlers) {
@@ -138,7 +242,55 @@ export function initArtifact(handlers) {
     document.body.classList.remove('canvas-hidden');
     setSeg($('mobSeg'), 1);
   });
-  document.addEventListener('selectionchange', () => { $('btnAskSel').classList.toggle('show', !!selectionInCode()); });
+  const selUi = () => { const on = !!selectionInCode(); $('btnAskSel').classList.toggle('show', on); $('btnEditSel').classList.toggle('show', on); };
+  document.addEventListener('selectionchange', selUi);
+  ['select', 'keyup', 'mouseup'].forEach((ev) => $('artTa').addEventListener(ev, selUi));
+  // the editor
+  $('artLang').replaceChildren(...LANGS.map((l) => el('option', { value: l.id }, `${l.label}${l.runner === 'cloud' ? ' · cloud' : ''}`)));
+  $('artLang').addEventListener('change', () => { const v = art.versions[art.i]; if (v) { v.edLang = $('artLang').value; show(); } });
+  $('artTa').addEventListener('input', onType);
+  $('artTa').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); runCode(); return; }
+    if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); document.execCommand('insertText', false, '  '); }
+  });
+  $('btnArtRun').addEventListener('click', runCode);
+  $('btnConStop').addEventListener('click', () => runner.stop());
+  $('btnConClear').addEventListener('click', () => { $('conOut').replaceChildren(); con.total = 0; conStatus(''); });
+  $('btnArtDl').addEventListener('click', () => { const v = art.versions[art.i]; if (v) download(fileName(v.title, v.edLang), $('artTa').value, 'text/plain'); });
+  $('edTabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-i]'); if (b) setEdTab(Number(b.dataset.i)); });
+  // the console's grip
+  const grip = $('conGrip'), conBox = $('artCon');
+  let gripping = false;
+  const setConH = (h) => { const max = $('artCode').clientHeight * 0.75; conBox.style.height = `${Math.round(Math.min(max, Math.max(56, h)))}px`; };
+  grip.addEventListener('pointerdown', (e) => { gripping = true; grip.setPointerCapture(e.pointerId); document.body.classList.add('row-resize'); e.preventDefault(); });
+  grip.addEventListener('pointermove', (e) => { if (gripping) setConH($('artCode').getBoundingClientRect().bottom - e.clientY); });
+  const gripEnd = () => { gripping = false; document.body.classList.remove('row-resize'); };
+  grip.addEventListener('pointerup', gripEnd);
+  grip.addEventListener('pointercancel', gripEnd);
+  grip.addEventListener('keydown', (e) => { if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return; e.preventDefault(); setConH(conBox.offsetHeight + (e.key === 'ArrowUp' ? 24 : -24)); });
+  // Ask Eden to edit
+  $('btnEditSel').addEventListener('mousedown', (e) => e.preventDefault());
+  $('btnEditSel').addEventListener('click', () => {
+    const t = selectionInCode();
+    if (!t) return;
+    art.editSel = t;
+    $('editAsk').hidden = false;
+    $('artCapText').hidden = true;
+    $('editAskIn').value = '';
+    $('editAskIn').focus();
+  });
+  const closeAsk = () => { $('editAsk').hidden = true; $('artCapText').hidden = false; };
+  $('editAskIn').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeAsk(); } });
+  $('editAsk').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = art.versions[art.i];
+    if (!v || !art.editSel || !H.send) { closeAsk(); return; }
+    art.pendingEdit = { at: Date.now(), lang: v.edLang };
+    H.send(editRequest({ title: v.title, lang: v.edLang, code: $('artTa').value, selection: art.editSel, instruction: $('editAskIn').value }));
+    art.editSel = '';
+    closeAsk();
+    toast('Asked Eden for the edit: it arrives as a new version');
+  });
   $('btnAskSel').addEventListener('mousedown', (e) => e.preventDefault());
   $('btnAskSel').addEventListener('click', () => {
     const t = selectionInCode();

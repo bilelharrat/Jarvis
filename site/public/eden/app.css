@@ -372,6 +372,49 @@ sup.cite{color:var(--accent);font-weight:600;cursor:pointer;padding:0 1px;font-s
 #artCap span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #btnAskSel{display:none}
 #btnAskSel.show{display:inline-flex}
+#btnEditSel{display:none}
+#btnEditSel.show{display:inline-flex}
+#editAsk{flex:1;display:flex;gap:6px;min-width:0}
+#editAsk[hidden]{display:none}
+#editAsk input{flex:1;min-width:0;font:inherit;font-size:12px;padding:4px 8px;border-radius:7px;border:.5px solid var(--sep);background:var(--content);color:var(--text)}
+/* the code canvas: editor + console */
+#artCode:not([hidden]){display:flex;flex-direction:column;overflow:hidden}
+.ed-bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:.5px solid var(--sep);flex:none}
+.ed-bar select{font:inherit;font-size:12px;padding:3px 6px;border-radius:7px;border:.5px solid var(--sep);background:var(--content);color:var(--text)}
+.ed-tabs{display:none}
+.ed-run{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 11px;border-radius:8px;background:var(--accent);color:#fff}
+.ed-run .ic{width:11px;height:11px}
+.ed-run.stop{background:var(--danger)}
+.ed-run:disabled{opacity:.4}
+.ed{flex:1;min-height:0;overflow:auto;display:flex;align-items:flex-start;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px;line-height:1.6}
+.ed-gut{flex:none;position:sticky;left:0;z-index:1;padding:12px 8px 12px 10px;text-align:right;color:var(--text3);background:var(--content);user-select:none;min-width:34px;font-variant-numeric:tabular-nums}
+.ed-stack{position:relative;flex:1;min-width:max-content;min-height:100%}
+.ed-hl,#artTa{margin:0;padding:12px 14px 12px 4px;font:inherit;line-height:inherit;white-space:pre;tab-size:2;letter-spacing:0;border:0}
+.ed-hl{color:var(--text);pointer-events:none;min-height:100%}
+#artTa{position:absolute;inset:0;width:100%;height:100%;resize:none;overflow:hidden;background:transparent;color:transparent;caret-color:var(--text);outline:none}
+#artTa::selection{background:rgba(10,132,255,.28);color:transparent}
+.tk-kw{color:#c53ab6}.tk-str{color:#c4511b}.tk-com{color:#6e7781;font-style:italic}.tk-num{color:#1c6fd6}.tk-fn{color:#6f42c1}
+@media (prefers-color-scheme:dark){.tk-kw{color:#ff7ab2}.tk-str{color:#ff8170}.tk-com{color:#7f8c98}.tk-num{color:#d9c97c}.tk-fn{color:#b281eb}}
+:root[data-theme="dark"] .tk-kw{color:#ff7ab2}:root[data-theme="dark"] .tk-str{color:#ff8170}:root[data-theme="dark"] .tk-com{color:#7f8c98}:root[data-theme="dark"] .tk-num{color:#d9c97c}:root[data-theme="dark"] .tk-fn{color:#b281eb}
+.con-grip{flex:none;height:7px;cursor:row-resize;border-top:.5px solid var(--sep);background:var(--content);position:relative}
+.con-grip::after{content:"";position:absolute;left:50%;top:2px;width:34px;height:3px;margin-left:-17px;border-radius:2px;background:var(--text3);opacity:.4}
+body.row-resize{cursor:row-resize;user-select:none}
+.con{flex:none;height:170px;display:flex;flex-direction:column;background:var(--content);min-height:56px}
+.con-head{display:flex;align-items:center;gap:8px;padding:2px 10px 4px;font-size:11px;color:var(--text3)}
+.con-t{font-weight:600;color:var(--text2)}
+.con-stat.ok{color:var(--green,#2e9e4f)}.con-stat.bad{color:var(--danger)}.con-stat.busy{color:var(--accent)}
+.con-out{flex:1;min-height:0;overflow:auto;margin:0;padding:4px 12px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.con-err{color:var(--danger)}
+.con-in{flex:none;margin:4px 10px 8px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;padding:5px 8px;border-radius:7px;border:.5px solid var(--sep);background:rgba(120,120,128,.08);color:var(--text)}
+@media (max-width:640px){
+  .ed-tabs{display:flex}
+  .con-grip{display:none}
+  #artCode .con{display:none}
+  #artCode.con-tab .ed{display:none}
+  #artCode.con-tab .con{display:flex;flex:1;height:auto!important}
+  .ed{font-size:13px}
+  .con-in{font-size:16px}
+}
 .art-mobile-bar{display:none}
 
 /* ============ SEGMENTED ============ */
@@ -670,6 +713,14 @@ a.btn{text-decoration:none}
 .jc-orb { width: 30px; height: 30px; flex: none; margin-bottom: 1px; border: 0; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: rgb(var(--c-accent)); background: rgb(var(--c-accent) / 0.13); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.32); transition: background 200ms ease, box-shadow 200ms ease, transform 120ms ease; }
 .jc-orb:hover { background: rgb(var(--c-accent) / 0.2); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.45), 0 0 14px rgb(var(--c-glow) / 0.3); }
 .jc-orb:active { transform: scale(0.9); }
+/* Eden's mark on the input bar's left (as Eden Code has it): drawn in the orb's colour, white
+   once the drawer is open; the reactor rings stay in the markup but aren't shown. */
+.jc-orb .jc-reactor { display: none; }
+.jc-orb::before {
+  content: ""; width: 15px; height: 15px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23000' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23000' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+}
 .jc-orb:focus-visible { outline: 2px solid rgb(var(--c-accent) / 0.7); outline-offset: 1px; }
 .jc-composer.expanded .jc-orb { color: #fff; background: rgb(var(--c-accent)); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 0 16px rgb(var(--c-glow) / 0.45); }
 .jc-composer.pinned .jc-orb::after { content: ""; position: absolute; width: 5px; height: 5px; border-radius: 50%; background: rgb(var(--c-accent)); transform: translate(13px, 13px); box-shadow: 0 0 0 1.5px rgb(var(--c-surface)); }

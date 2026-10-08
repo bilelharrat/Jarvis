@@ -45,6 +45,7 @@ import { LANDING_CSP, baseline, foreignOrigin, page, problem, sameOrigin } from 
 export { Account, Identity, Link, Space } from './accounts/index.js';
 export { BrowserSession } from './browser/session.js';
 import { BROWSER_PATH, browserApi } from './browser/api.js';
+import { RUN_PATH, runApi } from './eden/run.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
 
 const LATEST = 'latest.json';
@@ -80,6 +81,7 @@ async function route(request, env, ctx) {
     const refused = fromElsewhere(request, path);
     if (refused) return refused;
     if (path === BROWSER_PATH) return browserApi(request, env); // the cloud browser's socket (browser/api.js)
+    if (path === RUN_PATH) return runApi(request, env); // the code canvas's cloud runner (eden/run.js)
     if (path === '/api/voice' || path === '/api/chat/voice') return voice(request, env, path);
     if (path === '/api/route' || path === '/api/chat' || path.startsWith('/api/chat/')) return chatApi(request, env, ctx, path);
     if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);

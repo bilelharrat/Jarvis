@@ -210,6 +210,12 @@ name = "BROWSER_RATE"
 namespace_id = "1006"
 simple = { limit = 20, period = 60 }
 
+# The code canvas's cloud runs a minute per account (src/eden/run.js).
+[[ratelimits]]
+name = "RUN_RATE"
+namespace_id = "1007"
+simple = { limit = 20, period = 60 }
+
 # Keep the R2 bucket last: wrangler.nor2.toml is this file up to here (deploys before R2).
 [[r2_buckets]]
 binding = "DOWNLOADS"

@@ -15,6 +15,10 @@ export const SIGNIN_PAGE_CSP =
 // no storage and no way to the page (docs/chat-api.md), framed only by Eden itself.
 export const ARTIFACT_CSP =
   "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; frame-ancestors 'self'";
+// The code canvas's runner (Eden's runner.html): an opaque-origin sandbox whose runs are Web
+// Workers; its only network is cdn.jsdelivr.net for Pyodide (Python in WebAssembly); framing it is harmless (static, no secrets).
+export const RUNNER_CSP =
+  "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src blob:; connect-src https://cdn.jsdelivr.net; style-src 'unsafe-inline'; img-src data:";
 // The J.A.R.V.I.S. landing page (/download, /jarvis): its inline script and styles, and Google Fonts.
 export const LANDING_CSP =
   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";

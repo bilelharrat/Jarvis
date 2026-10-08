@@ -192,7 +192,7 @@ function codeBlock(lang, code, opts, closed) {
   head.append(el('span', 'lang', lang || 'text'));
   if (!opts.noCanvas) {
     if (CANVAS_LANGS.has(lang)) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'canvas', title: 'Open in canvas' }, ico('art'), 'Open in canvas'));
-    else if (code.split('\n').length > 3) head.append(el('button', { type: 'button', 'data-act': 'codeview', title: 'Open in code view' }, ico('code'), 'Code view'));
+    else if (code.replace(/\n+$/, '').split('\n').length >= 4) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'codeview', title: 'Open in canvas: edit and run it' }, ico('code'), 'Open in canvas'));
   }
   head.append(el('button', { type: 'button', 'data-act': 'copy-code', title: 'Copy code', 'aria-label': `Copy ${lang || ''} code` }, ico('copy'), 'Copy'));
   const pre = el('pre');
