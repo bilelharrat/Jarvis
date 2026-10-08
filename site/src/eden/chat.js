@@ -42,9 +42,11 @@ import { keysApi } from '../accounts/user-keys.js';
 import { EXTRACT_MODEL, extractMemory, memoryApi, memoryForTurn } from './memory.js';
 import { transcribeApi } from './transcribe.js';
 import { videoApi } from './video.js';
+import { browserTurn, pickBrowserModel, wantsBrowser } from './browser-turn.js';
 import { NO_GEMINI, VIDEO, deleteFile, fileSeconds, getFile, videoAttachment, videoCapSeconds, videoModels, videoProblem, videoTokens, videosOf } from './video.js';
 import { LIMITS } from '../accounts/account.js';
 // Every provider (Anthropic, OpenAI, Gemini, Kimi) with the Mac's own stream code and the registry's prices (providers.js).
+import { viaBase } from './providers.js';
 import { CLAUDE_NEEDS_KEY, KEYS_SETTINGS, PROVIDER_IDS, capRequest, defaultModel, computedWhere, fitCall, maxTokensOf, hasVision, hostedFor, metered, modelOf, narrowFor, providerStates, ratesOf, ratingRouter, searchProvider, searchTool, streamCall, usageUSD } from './providers.js';
 // The router that learns from you (H2) and the spending autopilot (H3): Eden's own pure modules
 // (askeden web/chat, copied here by scripts/sync-eden.mjs), so the stepping and the caps are the page's.
@@ -855,6 +857,16 @@ async function send(request, env, ctx, who, cfg) {
   }
   // The models this turn may use: the page's providers, the search provider, vision for images.
   if (!videos.length) cfg = narrowFor(cfg, body);
+  // Eden at the controls of the cloud browser (browser-turn.js): the composer's toggle or /browse,
+  // an approval card's answer, or a message that plainly needs the web.
+  const browserAsk = raw.browser === true || isObj(raw.browser) || (raw.browser !== false && wantsBrowser(lastText, { panel: raw.browserPanel === true }));
+  if (browserAsk && !videos.length && !who.grant && env.BROWSER_SESSIONS && env.BROWSER) {
+    const model = pickBrowserModel(cfg.models, { override: body.override && body.override.model, preferred: defaultModel(cfg), rates: ratesOf });
+    if (model) {
+      const history = body.messages.slice(-10).map((m) => ({ role: m.role, text: messageText(m).replace(/^\s*\/browse\b\s*/i, '') }));
+      return browserTurn(request, env, ctx, who, raw, { call, metered, usageUSD, hasVision, viaBase, creditFactor, computedWhere, systemText: system, history, ledger: body.ledger, allow, cfg, model });
+    }
+  }
   const anyMetered = cfg.models.some((m) => metered(cfg.keys, m.provider));
 
   // Route (before the stream starts, so a bad request is a plain error).

@@ -43,6 +43,9 @@ export function initBrowserPane(hooks = {}) {
   const btn = $('btnBrowser');
   if (btn) btn.addEventListener('click', () => toggleBrowser());
   if (wasOpen(local())) toggleBrowser(true, { quiet: true });
+  // Eden at the controls (chat.js, browser-agent.js): the panel opens by itself; Take over from a chat card.
+  addEventListener('eden:browser-open', () => { if (!browserOpen()) toggleBrowser(true, { quiet: true }); });
+  addEventListener('eden:browser-takeover', () => { if (!browserOpen()) toggleBrowser(true, { quiet: true }); cloud.send({ t: 'agent', op: 'pause' }); });
 }
 
 /** Open or close it (force: true or false); remembered for this viewer. */
@@ -407,7 +410,18 @@ function startCloud() {
   const kbd = el('button', { type: 'button', class: 'bd-kbd', hidden: true, title: 'Keyboard', 'aria-label': 'Show the keyboard', onclick: () => sink.focus() }, '⌨︎');
   const ctx2d = canvas.getContext('2d', { alpha: false, desynchronized: true });
   const banner = el('div', { class: 'bd-banner', hidden: true, role: 'status' });
-  P.slot.append(canvas, sink, cover, banner, kbd);
+  // "Eden is controlling": the step it's on, and Take over (Eden pauses; the viewer's own click or key does the same) / Resume.
+  const agentBar = el('div', { class: 'bd-agent', hidden: true, role: 'status', 'aria-live': 'polite' });
+  const showAgent = (m) => {
+    agentBar.hidden = !m.on && !m.paused;
+    agentBar.classList.toggle('paused', Boolean(m.paused));
+    if (agentBar.hidden) return;
+    agentBar.replaceChildren(el('i', 'bd-agent-dot'), el('span', 'bd-agent-t', m.paused ? 'You have control. Eden is paused.' : `Eden is controlling${m.step ? ` · ${m.step}` : ''}`),
+      m.paused
+        ? el('button', { type: 'button', class: 'cap', onclick: () => { send({ t: 'agent', op: 'resume' }); dispatchEvent(new CustomEvent('eden:browser-resume')); } }, 'Resume')
+        : el('button', { type: 'button', class: 'cap', onclick: () => send({ t: 'agent', op: 'pause' }) }, 'Take over'));
+  };
+  P.slot.append(canvas, sink, cover, banner, kbd, agentBar);
   setNav({ addr: true });
   const box = () => viewSize(P.slot.getBoundingClientRect(), densityOf(window), isTouch());
   let shownDpr = densityOf(window);
@@ -520,6 +534,7 @@ function startCloud() {
       case 'pagetext': pageToChat(m); break;
       case 'download': addDownload(m); break;
       case 'dialog': showDialog(m); break;
+      case 'agent': showAgent(m); break;
       case 'library': showLibrary(m); break;
       default:
     }

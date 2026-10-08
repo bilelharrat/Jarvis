@@ -21,6 +21,10 @@ import {
   botWall, closeReason, cursorOf, hostOf, iconData, keyEvent, minutesLeft, mouseEvent, navFailure, recentSites,
   requestVerdict, setTitle, siteOf, suggest, textInput, toUrl, toggleBookmark, viewport, zoomStep, ZOOM,
 } from './rules.js';
+import { runTool, takePending } from './agent.js';
+import { TOOL_NAMES, validateCall } from './agent-tools.js';
+
+const AGENT_IDLE_MS = 90 * 1000; // "Eden is controlling" ends by itself if the chat's turn went away
 
 const TICK_MS = 20 * 1000;
 const NEW_TAB = 'about:blank';
@@ -135,6 +139,15 @@ export class BrowserSession {
   // ── the panel's socket ──
 
   async fetch(request) {
+    // Eden's chat driving this browser (eden/browser-turn.js), from this Worker only (a binding).
+    if (request.method === 'POST' && new URL(request.url).pathname === '/agent') {
+      let body = {};
+      try { body = await request.json(); } catch { /* empty */ }
+      try { return Response.json(await this.agentOp(body)); } catch (err) {
+        console.error('cloud browser agent', String((err && err.message) || err).slice(0, 200));
+        return Response.json({ error: 'That didn’t work in the cloud browser.' });
+      }
+    }
     if ((request.headers.get('upgrade') || '').toLowerCase() !== 'websocket') return new Response('websocket only', { status: 426 });
     this.plus = request.headers.get('x-eden-plus') === '1';
     const pair = new WebSocketPair();
@@ -153,6 +166,8 @@ export class BrowserSession {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
       if (!msg || typeof msg.t !== 'string') return;
+      // The viewer's own hands on the page while Eden is controlling: Eden pauses (Take over).
+      if (this.agent && this.agent.on && !this.agent.paused && ((msg.t === 'mouse' && msg.e === 'down') || msg.t === 'key' || msg.t === 'text')) this.agentPause(true);
       const cheap = ['mouse', 'key', 'text', 'ack', 'suggest', 'hello', 'resize', 'ping'].includes(msg.t);
       if (!(cheap ? input : action).take()) { if (!cheap) this.send({ t: 'error', message: 'Slow down a little.' }); return; }
       this.onMessage(msg).catch((err) => this.failed(err));
@@ -313,6 +328,10 @@ export class BrowserSession {
         const text = await this.evaluate(tab, PAGE_TEXT);
         return this.send({ t: 'pagetext', url: tab.url, title: tab.title, text: String(text || ''), for: String(msg.for || '').slice(0, 20) });
       }
+      case 'agent': // Take over / Resume in the panel
+        if (msg.op === 'pause') this.agentPause(true);
+        else if (msg.op === 'resume') this.agentPause(false);
+        return;
       case 'dialog': {
         const d = this.dialog;
         if (!d) return;
@@ -323,6 +342,73 @@ export class BrowserSession {
       }
       default:
     }
+  }
+
+  // ── Eden at the controls (eden/browser-turn.js calls these; browser/agent.js runs the tools) ──
+
+  agentPause(paused) {
+    if (!this.agent) this.agent = { on: false, paused: false, at: 0, step: '' };
+    this.agent.paused = paused;
+    this.agentState();
+  }
+
+  agentState() {
+    const a = this.agent || {};
+    this.send({ t: 'agent', on: Boolean(a.on), paused: Boolean(a.paused), step: a.step || '' });
+    clearTimeout(this.agentTimer);
+    if (a.on) this.agentTimer = setTimeout(() => { if (this.agent && this.agent.on && this.now() - this.agent.at >= AGENT_IDLE_MS) { this.agent.on = false; this.agentState(); } }, AGENT_IDLE_MS + 1000);
+  }
+
+  async agentOp(body) {
+    const op = String(body.op || '');
+    const now = this.now();
+    if (op === 'begin') {
+      if (typeof body.plus === 'boolean' && !this.ws) this.plus = body.plus;
+      const paused = Boolean(this.agent && this.agent.paused && body.resume !== true);
+      if (paused) return { paused: true };
+      const browser = await this.ensureBrowser();
+      if (!browser) return { error: 'The cloud browser couldn’t start (it may be busy, or this month’s browser minutes are used up).' };
+      if (!this.tabs.size) await this.openTab(NEW_TAB);
+      this.lastInput = now;
+      this.agent = { on: true, paused: false, at: now, step: '' };
+      this.agentState();
+      const tab = this.tabs.get(this.active);
+      return { ok: true, url: tab && tab.url !== NEW_TAB ? tab.url : '', title: tab ? tab.title : '', tabs: this.tabs.size, log: (await this.storage.get('agentLog')) || [], panel: Boolean(this.ws) };
+    }
+    if (op === 'end') {
+      if (Array.isArray(body.log) && body.log.length) await this.storage.put('agentLog', [...((await this.storage.get('agentLog')) || []), ...body.log.map((x) => String(x).slice(0, 200))].slice(-30));
+      if (this.agent) { this.agent.on = false; this.agent.step = ''; }
+      this.agentState();
+      return { ok: true };
+    }
+    if (op === 'act' || op === 'approve') {
+      if (!this.browser) return { error: 'The cloud browser closed. Start again (navigate) if needed.', closed: true };
+      if (this.agent && this.agent.paused) return { paused: true };
+      let name = body.name;
+      let args = body.args;
+      let approved = false;
+      if (op === 'approve') {
+        const t = await takePending(this, String(body.id || ''));
+        if (t.error) return { error: t.error, text: t.error };
+        ({ name, args } = t.pending);
+        approved = true;
+      }
+      if (!TOOL_NAMES.includes(name)) return { error: 'Unknown tool.' };
+      const v = validateCall(name, args);
+      if (!v.ok) return { error: v.error, text: v.error };
+      this.lastInput = now;
+      this.agent = { ...(this.agent || {}), on: true, at: now };
+      const r = await runTool(this, name, v.args, { approved, vision: body.vision !== false });
+      if (r.step) { this.agent.step = r.step; this.agentState(); }
+      return r;
+    }
+    if (op === 'deny') {
+      const p = await this.storage.get('agentPending');
+      if (p && p.id === body.id) await this.storage.delete('agentPending');
+      return { ok: true };
+    }
+    if (op === 'state') return { on: Boolean(this.agent && this.agent.on), paused: Boolean(this.agent && this.agent.paused), running: Boolean(this.browser) };
+    return { error: 'Unknown op.' };
   }
 
   // ── the browser ──
@@ -711,6 +797,7 @@ export class BrowserSession {
     this.tabs.clear();
     this.active = '';
     this.dialog = null;
+    if (this.agent) this.agent.on = false;
     if (browser) { try { await browser.close(); } catch { /* already gone */ } }
     await Promise.resolve(this.storage.deleteAlarm?.()).catch(() => {});
     if (why || asked) this.send({ t: 'closed', why: why || 'ended', message: CLOSED[why] || '' });

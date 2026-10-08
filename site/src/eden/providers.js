@@ -247,7 +247,7 @@ export function devProviderBase(env, request) {
   }
   return local(new URL(request.url).hostname) && local(target.hostname) && target.protocol === 'http:' ? base : null;
 }
-const viaBase = (base, url) => (base ? url.replace(PROVIDER_HOSTS, (_, h) => `${base}/${h}/`) : url);
+export const viaBase = (base, url) => (base ? url.replace(PROVIDER_HOSTS, (_, h) => `${base}/${h}/`) : url);
 
 // ── the Gemini rating ──
 

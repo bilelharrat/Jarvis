@@ -13,6 +13,7 @@ import { macBody, macEvent } from './files.js';
 import { codeKnowledge } from './knowledge.js';
 import { learnedBody } from './learned.js';
 import { autopilotBody, endAutopilotSkip } from './autopilot.js';
+import { browserBody, parseBrowse } from './browser-agent.js';
 
 function touch(c) { c.updated = Date.now(); saveConversation(c); }
 
@@ -40,9 +41,14 @@ export function ensureConversation() {
 }
 
 /** The composer's send: text + attachments ([{kind,name,mime,size,data,url,text}]). */
-export function sendMessage(text, attachments = [], { context = [], steered = false } = {}) {
+export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null } = {}) {
   const c = ensureConversation();
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return false; }
+  // "/browse what to do": this message goes to the cloud browser (browser-agent.js); a steer of a browser run stays there.
+  const pb = parseBrowse(text);
+  text = pb.text;
+  const prior = path(c).filter((n) => n.role === 'assistant').at(-1);
+  const browse = pb.browse || (steered && prior && prior.browserRun) ? { browser: true } : {};
   resolveOpenGroups(c); // answers side by side: the selected one is the branch this continues
   const last = path(c).at(-1);
   const user = addNode(c, last ? last.id : null, {
@@ -50,6 +56,8 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
     attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, mime: a.mime, size: a.size, ...(a.kind === 'text' ? { text: a.text } : {}), ...(a.kind === 'video' ? { file: a.file, uri: a.uri, seconds: a.seconds, thumb: a.thumb } : {}) })),
     context: context.map((x) => ({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) })),
     ...(steered ? { steered: true } : {}),
+    ...browse,
+    ...(browser ? { browserAnswer: browser } : {}),
   });
   if (attachments.some((a) => a.kind === 'image')) attachmentData.set(user.id, attachments.filter((a) => a.kind === 'image'));
   autoTitle(c, text || (attachments[0] && attachments[0].name));
@@ -172,7 +180,7 @@ function appendText(node, text) {
 export async function runChat(c, node, { override } = {}) {
   const user = parentOf(c, node);
   const ctrl = beginStream(c, node, 'chat');
-  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null });
+  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null, steps: [], browserCard: null, browserRun: false });
   const ov = override || currentOverride();
   const sig = settingsSig();
   const p = persona(c.personaId);
@@ -191,6 +199,8 @@ export async function runChat(c, node, { override } = {}) {
     ...(ctx.length ? { context: ctx } : {}),
     ...learnedBody(), // H2 on askeden.com: the profile's per-class adjustments (numbers only)
     ...autopilotBody(), // H3: `autopilot: false` for "Use my level this time"
+
+    ...browserBody(user, { panelOpen: document.body.classList.contains('browser-open') }), // Eden drives the cloud browser (browser-agent.js)
   };
   let thinkStart = 0;
   ui.updateMessage(c, node);
@@ -232,6 +242,12 @@ export async function runChat(c, node, { override } = {}) {
           case 'memory': node.memory = d; break; // "Memory updated" chip under the reply (render.js), opens Settings › Memory
           case 'approval': (node.approvals = node.approvals || []).push(d); break;
           case 'mac': macEvent(c, node, d); break; // what the turn read on the Mac (files.js cards)
+          case 'step': node.browserRun = true; (node.steps = node.steps || []).push({ text: String(d.text || ''), ok: d.ok !== false }); break; // browser-agent.js chips
+          case 'browser':
+            node.browserRun = true;
+            if (d.open) dispatchEvent(new CustomEvent('eden:browser-open'));
+            else if (d.kind === 'approval' || d.kind === 'takeover' || d.kind === 'paused') node.browserCard = d;
+            break;
           case 'done': node.finish = d.finish || 'stop'; break;
           default: break;
         }
@@ -588,6 +604,7 @@ export function queueFollowUp(c, text) {
   c.queue.push(item);
   const st = state.streams.get(c.id);
   if (c.kind === 'code' && st && st.turnId) steerCode(c, item);
+  else if (st && st.kind === 'chat' && st.node && st.node.browserRun) st.abort(); // Eden in the browser: stop at once, the steer goes next (drainQueue)
   ui.renderComposer();
   return item;
 }
@@ -636,3 +653,18 @@ function drainQueue(c) {
   ui.renderComposer();
   setTimeout(() => { if (!state.streams.has(c.id)) sendMessage(next.text, [], { steered: true }); else c.queue.unshift(next); }, 60);
 }
+
+// Eden in the cloud browser (browser-agent.js cards, the panel's Take over / Resume): the answer is the next turn.
+addEventListener('eden:browser-answer', (e) => {
+  const { c, node, approve, deny } = e.detail || {};
+  if (!c || !node || !node.browserCard || node.browserCard.answer) return;
+  if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return; }
+  node.browserCard.answer = approve ? 'approve' : 'deny';
+  ui.updateMessage(c, node, { final: true });
+  sendMessage(approve ? `Approved: ${node.browserCard.summary}` : `Don’t do that: ${node.browserCard.summary}`, [], { browser: approve ? { approve } : { deny } });
+});
+addEventListener('eden:browser-resume', () => {
+  const c = state.current;
+  if (!c || state.streams.has(c.id)) return;
+  sendMessage('Carry on in the browser.', [], { browser: { resume: true } });
+});

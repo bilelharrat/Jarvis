@@ -12,6 +12,7 @@ import { isSpeaking } from './voice.js';
 import { compareView, openGroupOf, reopenButton, setLaneRenderer, strongerButton } from './compare.js';
 import { approvalCard, isTainted, sourceStrip } from './guard.js';
 import { macCard } from './files.js';
+import { browserCard, stepChips } from './browser-agent.js';
 import { feedbackButtons } from './learned.js';
 import { limitAction } from './plan.js';
 import { clock } from './video-model.js';
@@ -118,6 +119,8 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     if (open) body.style.maxHeight = 'none';
     bubble.append(btn, body);
   }
+  const chips = stepChips(node); // what Eden did in the cloud browser (browser-agent.js)
+  if (chips) bubble.append(chips);
   const parts = node.parts || [];
   for (const [i, part] of parts.entries()) {
     if (part.type === 'text') {
@@ -139,6 +142,8 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
       el('button', { type: 'button', class: 'cap', 'data-act': 'open-art', 'data-k': String(k) }, 'Open'))));
   }
   for (const a of node.approvals || []) bubble.append(approvalCard(c, node, a)); // actions the server's gate holds (H8)
+  const bcard = browserCard(c, node); // a browser turn's approval / take-over card
+  if (bcard) bubble.append(bcard);
   for (const n of node.notes || []) bubble.append(el('div', 'notice warn', n));
   if (node.memory) { // memory across chats changed in this turn: the chip opens Settings › Memory (app.js)
     const m = node.memory;

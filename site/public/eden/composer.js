@@ -9,6 +9,7 @@
 // and Talk (the mic and the waveform beside send) live in voice.js.
 
 import { $, el, toast, fmtCost, fmtTokens, sizeText, placePopup, shortModel, effortLabel, EFFORT_SHORT, store, isTouch, noKeys } from './util.js';
+import { browseMode, setBrowseMode } from './browser-agent.js';
 import { state, path, nodeText, sessionCost, persona, ui } from './state.js';
 import { initVoice, voiceEscape } from './voice.js';
 import { currentOverride, setOverride, availableModels, modelInfo, setPreviewText, levels, setLevel, scatter, rowsToCandidates, openChipPop, closeChipPop, chipPopOpenFor, PROVIDER_NAMES, schedulePreview } from './router.js';
@@ -80,7 +81,7 @@ const SLASH_CHAT = [
   ['research', 'Research mode: a sourced report'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
   ['level', 'Router level: /level 1–5'], ['persona', 'Persona: /persona name (or none)'], ['note', 'Attach a note from your Mac: /note query'],
   ['memory', 'What your Mac remembers'], ['calendar', 'Your calendar this week'], ['brief', 'Your day: the brief and meeting prep'], ['brain', 'Search your second brain'],
-  ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['undo', 'What Eden did, with Undo'],
+  ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['browse', 'Eden uses the cloud browser: /browse what to do'], ['undo', 'What Eden did, with Undo'],
   ['canvas', 'Open the canvas'], ['rename', 'Rename: /rename New name'], ['export', 'Save the chat as Markdown'], ['pin', 'Pin or unpin this chat'],
   ['copy', 'Copy the last reply'], ['clear', 'Start over in a new chat'], ['compact', 'Summarize into a new chat'],
   ['route', 'Route console'], ['settings', 'Settings and API keys'], ['theme', 'Light, dark or system'], ['stop', 'Stop the reply'], ['help', 'Commands and shortcuts'],
@@ -943,6 +944,13 @@ export function initComposer(handlers) {
   $('split').addEventListener('drop', (e) => { if (e.dataTransfer.files.length) { e.preventDefault(); comp.classList.remove('drag'); [...e.dataTransfer.files].forEach(addFile); } });
   $('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(addFile); e.target.value = ''; });
 
+  const browseBtn = $('jc-browse');
+  if (browseBtn) {
+    const showBrowse = () => { browseBtn.setAttribute('aria-pressed', String(browseMode())); browseBtn.classList.toggle('on', browseMode()); };
+    browseBtn.addEventListener('click', () => { setBrowseMode(!browseMode()); toast(browseMode() ? 'Eden will use the browser for your messages' : 'Browser off: Eden uses it only when a message needs it'); });
+    addEventListener('eden:browse-mode', showBrowse);
+    showBrowse();
+  }
   $('jc-mode-btn').addEventListener('click', () => { if (menuOpenFor($('jc-mode-btn'))) closeMenu(); else modeMenu(); });
   $('jc-model').addEventListener('click', () => { if (menuOpenFor($('jc-model'))) closeMenu(); else modelMenu(); });
   $('jc-plus').addEventListener('click', () => { if (menuOpenFor($('jc-plus'))) closeMenu(); else plusMenu(); });
