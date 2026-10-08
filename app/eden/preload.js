@@ -1,0 +1,11 @@
+// The page's bridge to the Mac app (askeden.com's Eden in Ask Eden for Mac): a badge on the
+// Dock icon and a native notification. Nothing else; the page is the website as it is.
+'use strict';
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('askEdenMac', {
+  version: 1,
+  badge: (n) => ipcRenderer.send('eden:badge', Math.max(0, Math.min(99, Number(n) || 0))),
+  notify: (title, body) => ipcRenderer.send('eden:notify', String(title || '').slice(0, 120), String(body || '').slice(0, 300)),
+  engine: () => ipcRenderer.invoke('eden:engine'),
+});

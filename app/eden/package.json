@@ -1,0 +1,8 @@
+{
+  "name": "ask-eden-app",
+  "productName": "Ask Eden",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ask Eden for Mac: askeden.com's Eden as a Mac app, with J.A.R.V.I.S.'s Mac engine built in.",
+  "main": "eden/main.js"
+}
