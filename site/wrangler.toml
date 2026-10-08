@@ -95,9 +95,9 @@ GOOGLE_CLIENT_ID = "276467237017-cr8pkfhbunm94on8vbi6o0pj11tq7bdm.apps.googleuse
 #   STRIPE_PRICE_CREDITS_5/_10/_25: "Eden credits" one-time prices $5, $10, $25. Empty: that pack
 #     isn't offered; auto top-up needs the $10 one. Webhook events to add to the Stripe endpoint:
 #     payment_intent.succeeded and payment_intent.payment_failed (checkout.session.completed already).
-STRIPE_PRICE_PLUS = "price_1UNyviRqjDshFbQioPdAvCuu"
+STRIPE_PRICE_PLUS = "price_1UOCZhRqjDshFbQi1pFBWRp8"
 STRIPE_PRICE_PLUS_LEGACY = "price_1UNyviRqjDshFbQioPdAvCuu"
-STRIPE_PRICE_PLUS_YEARLY = ""
+STRIPE_PRICE_PLUS_YEARLY = "price_1UOCZRRqjDshFbQi1IDfzaWI"
 STRIPE_PRICE_CREDITS_5 = ""
 STRIPE_PRICE_CREDITS_10 = ""
 STRIPE_PRICE_CREDITS_25 = ""
