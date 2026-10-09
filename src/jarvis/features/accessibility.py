@@ -26,7 +26,15 @@ Settings (prefs.features, changed from Settings › Accessibility): a11y_mode, a
 ("auto": the screen reader when there is one, else JARVIS; "reader"; "jarvis"), a11y_colors
 and a11y_text_size (for low vision), a11y_cues (short sounds for listening, thinking, done, needs your
 OK and errors) and a11y_cue_volume, a11y_verbosity, a11y_focus (move the keyboard focus to
-a question that needs an answer), a11y_say_state (also say what JARVIS is doing).
+a question that needs an answer), a11y_say_state (also say what JARVIS is doing). Long
+reading (documents, emails, reports) has its own speed and amount: a11y_read_speed (0: as
+in conversation) and a11y_read_verbosity (features/accessibility_reading.py). Approvals by
+switch: a11y_switch ("off", "one": one switch moves through the choices and a long press
+chooses, "two": the second one chooses), a11y_switch_key (the key the first switch sends,
+"space" or "enter") and a11y_switch_hold (how long a press is long, in milliseconds). The
+first-run walkthrough: a11y_setup_done (features/accessibility_setup.py). Screen contents
+for the AI model: a11y_screen_share ("ask", "on", "off") and a11y_say_focus
+(features/accessibility_screen.py).
 
 Commands: a11y_state ({"screen_reader": bool}) from each window. Events: "a11y"
 ({"effective", "reader_speaks", "detected"}) whenever any of it changes.
@@ -42,6 +50,7 @@ from typing import Any
 
 from .. import osplat
 from ..prefs import register_feature_pref
+from ..speech import is_silent
 
 log = logging.getLogger("jarvis")
 
@@ -77,6 +86,30 @@ register_feature_pref("a11y_cue_volume", 60, _volume)
 register_feature_pref("a11y_verbosity", "normal", _one_of(VERBOSITY))
 register_feature_pref("a11y_focus", True)
 register_feature_pref("a11y_say_state", False)
+READ_VERBOSITY = ("full", "summary", "highlights")
+SWITCH = ("off", "one", "two")
+SWITCH_KEYS = ("space", "enter")
+
+
+def _read_speed(value: Any) -> Any:
+    """0 (as fast as conversation) or a speaking speed in percent, 50 to 250."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or value != value:
+        return None
+    return 0 if value <= 0 else int(round(min(250, max(50, value))))
+
+
+def _hold(value: Any) -> Any:
+    if isinstance(value, bool) or not isinstance(value, int | float) or value != value:
+        return None
+    return int(min(3000, max(300, value)))
+
+
+register_feature_pref("a11y_read_speed", 0, _read_speed)
+register_feature_pref("a11y_read_verbosity", "full", _one_of(READ_VERBOSITY))
+register_feature_pref("a11y_switch", "off", _one_of(SWITCH))
+register_feature_pref("a11y_switch_key", "space", _one_of(SWITCH_KEYS))
+register_feature_pref("a11y_switch_hold", 1000, _hold)
+register_feature_pref("a11y_setup_done", False)
 
 NOTE = (
     "The user is blind or has low vision and takes in your replies through a screen reader or "
@@ -92,8 +125,12 @@ NOTE = (
     "show nothing to read_window. After you do something for the "
     "user, say what you did and what changed, in one sentence. Before anything that sends, "
     "buys, deletes or posts, say exactly what and to whom, then wait for a yes or no. If you "
-    "are not sure what you see or read, say so plainly instead of guessing. No filler, and "
-    "don't repeat the question back."
+    "are not sure what you see or read, say so plainly instead of guessing. Medicine (names, "
+    "doses, how often), money (amounts, balances, account and payment details) and safety (what "
+    "is safe to eat, take, touch or do, emergency steps): when you are not certain, confirm the "
+    "fact from a second source (another search result, the document itself, the label) before "
+    "you say it, name both sources, and if they disagree say so and suggest asking a person. "
+    "No filler, and don't repeat the question back."
 )
 
 STYLE = {
@@ -106,8 +143,19 @@ STYLE = {
 }
 
 
-def note_for(verbosity: str) -> str:
-    return NOTE + STYLE.get(verbosity, STYLE["normal"])
+# Long reading (a document, an email, a report the user asked you to read): how much of it.
+READING = {
+    "full": " When the user asks you to read a document, an email or a report, read it in full, "
+    "in reading order, unless they ask for less.",
+    "summary": " When the user asks you to read a document, an email or a report, first say in "
+    "two or three sentences what it is and what it says, then offer to read it in full.",
+    "highlights": " When the user asks you to read a document, an email or a report, give only "
+    "the key points, one sentence each with a count first, then offer the full text.",
+}
+
+
+def note_for(verbosity: str, reading: str = "full") -> str:
+    return NOTE + STYLE.get(verbosity, STYLE["normal"]) + READING.get(reading, READING["full"])
 
 
 WATCH_SECONDS = 5  # how often a PC is asked whether its screen reader is still there
@@ -193,7 +241,28 @@ class Accessibility:
     async def context(self, _text: str, display: str | None) -> dict[str, Any] | None:
         if display is not None or not self.effective():  # (words someone else sent on)
             return None
-        return {"note": note_for(self.hub.prefs.feature("a11y_verbosity"))}
+        reading = self.hub.prefs.feature("a11y_read_verbosity") or "full"
+        return {"note": note_for(self.hub.prefs.feature("a11y_verbosity"), reading)}
+
+    # ── short things said on the side ──
+
+    def say(self, text: str, important: bool = False) -> None:
+        """A short line while the mode is on (a notice before something private is read, where
+        the focus went): to the screen reader through the window ("a11y_say"), and in JARVIS's
+        own voice when the screen reader doesn't read the replies."""
+        text = " ".join(str(text or "").split())
+        if not text or not self.effective():
+            return
+        self.hub.emit("a11y_say", text=text, important=important)
+        if self.reader_speaks():
+            return
+        speech = getattr(self.hub, "speech", None)
+        if speech is None or is_silent(self.hub.speaker):
+            return
+        try:
+            speech.push(text)
+        except Exception:  # a line the voice can't take is skipped, never the turn
+            log.exception("accessibility: couldn't say a line")
 
 
 def install(hub: Any) -> None:

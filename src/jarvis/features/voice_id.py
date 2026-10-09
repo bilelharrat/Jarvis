@@ -29,8 +29,16 @@ backup copy) and voice_id/speaker.onnx (the model, downloaded only when the owne
 Download after turning this on, its size shown first; its checksum is checked).
 
 Commands: voice_id_status, voice_id_settings ({"changes": {voice_id_on, voice_id_scope}}),
-voice_id_download, voice_id_enroll ({"action": "start" | "cancel"}), voice_id_forget.
-Event: "voice_id" (the pane's state).
+voice_id_download, voice_id_enroll ({"action": "start" | "cancel", "spoken": bool}),
+voice_id_forget. Event: "voice_id" (the pane's state).
+
+Set up by voice, with spoken feedback (for someone who can't see the pane, and in
+screen-reader mode always): "learn my voice" turns it on and starts, "download the voice
+model" fetches the model when it is missing (its size said first), "stop learning my voice"
+cancels. Each sentence is said before it is recorded ("Sentence 2 of 5. Say after me: ..."),
+then "Got it", "Once more", and "Done. I know your voice now." go to JARVIS's voice and to the
+screen reader (a caption). The recording starts only once the sentence has been said: after
+JARVIS's voice has finished, or after the time a screen reader takes to read it.
 
 Cost policy: no Claude model is called here. The embedding is a local ONNX model (tens of
 milliseconds of CPU per utterance while hands-free listens, only when this is on and a
@@ -42,6 +50,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import re
 import threading
 import time
 from collections import deque
@@ -76,6 +85,28 @@ FOLDER = "voice_id"
 # A verdict between the owner's threshold and REJECT (voiceprint.py): answered, but not
 # the owner's word for a risky step.
 UNSURE = voiceprint.UNSURE
+
+# The sentences read to teach JARVIS a voice, as the window shows them (web/features/voice_id.js):
+# said aloud first when enrollment is spoken.
+SENTENCE_TEXT = (
+    "The quick brown fox jumps over the lazy dog.",
+    "Jarvis, what’s on my calendar tomorrow morning?",
+    "Please remind me to call the office at half past four.",
+    "Seven sunny summer days are better than one rainy week.",
+    "Open the report and read me the first paragraph.",
+)
+READER_CHARS_PER_SECOND = 14.0  # how fast a screen reader is taken to say a prompt
+
+_LEARN = re.compile(
+    r"^(?:please\s+)?(?:(?:learn|teach\s+(?:jarvis|you))\s+my\s+voice|(?:set\s+up|start|turn\s+on)\s+(?:voice\s+(?:id|recognition)|recogni[sz]ing\s+my\s+voice)|"
+    r"recogni[sz]e\s+my\s+voice|(?:re)?train\s+(?:on\s+)?my\s+voice)\W*$",
+    re.I,
+)
+_DOWNLOAD = re.compile(r"^(?:please\s+)?download\s+the\s+voice\s+model\W*$", re.I)
+_CANCEL = re.compile(
+    r"^(?:please\s+)?(?:stop|cancel)\s+(?:learning\s+my\s+voice|(?:the\s+)?voice\s+(?:training|setup|id\s+setup))\W*$",
+    re.I,
+)
 
 # Checks run on a thread of their own, one at a time: they never wait behind other work
 # (a transcription, the file index) and never hold it up.
@@ -113,6 +144,9 @@ class VoiceGuard:
         self.enrolling: dict[str, Any] | None = None
         self._enroll_cancel: threading.Event | None = None
         self.error = ""  # a problem to show once
+        self.spoken = False  # enrollment says each step aloud (by voice, or screen-reader mode)
+        # How long to wait for a screen reader to say a prompt before recording (tests: 0).
+        self.reader_wait = lambda text: min(12.0, max(1.5, len(text) / READER_CHARS_PER_SECOND))
 
     # ── files ──
 
@@ -401,8 +435,13 @@ class VoiceGuard:
         if action != "start" or self.enrolling is not None:
             return
         await self.prepare()
+        a11y = getattr(self.hub, "accessibility", None)
+        self.spoken = msg.get("spoken") is True or (a11y is not None and a11y.effective())
         if self.embedder is None:
             self.error = self.why_off() or "Download the voice model first."
+            if self.spoken:
+                await self.tell(self.error, wait=False)
+                self.spoken = False
             return await self.status()
         cancel = self._enroll_cancel = threading.Event()
         self.enrolling = {"index": 0, "again": False}
@@ -415,10 +454,26 @@ class VoiceGuard:
         clips: list[Any] = []
         index, tries = 0, 0
         recorder = self._recorder(cancel)
+        heard = ""  # what was said about the last clip, said before the next prompt
         try:
+            if self.spoken:
+                heard = (
+                    f"Let's learn your voice. I'll say {SENTENCES} short sentences, one at a time. "
+                    "After each one, say it back in your normal voice. Say stop learning my voice to stop."
+                )
             while index < SENTENCES and not cancel.is_set():
                 self.enrolling = {"index": index, "again": tries > 0}
                 self.emit()
+                if self.spoken:
+                    lead = (
+                        "I didn't catch that. Once more."
+                        if tries
+                        else f"Sentence {index + 1} of {SENTENCES}."
+                    )
+                    await self.tell(f"{heard} {lead} Say after me: {SENTENCE_TEXT[index]}".strip())
+                    heard = ""
+                    if cancel.is_set():
+                        return
                 audio = await asyncio.to_thread(recorder, ENROLL_SILENCE, None)
                 if cancel.is_set():
                     return
@@ -433,10 +488,15 @@ class VoiceGuard:
                     continue
                 clips.append(embedding)
                 index, tries = index + 1, 0
+                heard = "Got it."
+            if cancel.is_set():
+                return
             owner = voiceprint.enroll(clips)
             await asyncio.to_thread(owner.save, self.print_path)
             self.print = owner
             log.info("voice recognition: voiceprint saved (%d clips)", owner.clips)
+            if self.spoken:
+                await self.tell("Done. I know your voice now.", wait=False)
         except Exception as exc:  # no microphone, permission denied
             log.warning("voice recognition: enrollment failed: %s", exc)
             self.error = f"I couldn’t record: {exc}"
@@ -444,7 +504,69 @@ class VoiceGuard:
             self.enrolling = None
             if self._enroll_cancel is cancel:
                 self._enroll_cancel = None
+            if self.spoken and self.error:
+                await self.tell(self.error, wait=False)
+            elif self.spoken and cancel.is_set():
+                await self.tell("Stopped. Your voice wasn't saved.", wait=False)
+            self.spoken = False
             self.emit()
+
+    async def tell(self, text: str, wait: bool = True) -> None:
+        """Say a step of a spoken enrollment: to the screen reader (a caption) and in JARVIS's
+        voice. wait: until it has been said, so the microphone doesn't record it."""
+        from ..speech import is_silent
+
+        text = " ".join(text.split())
+        self.hub.emit("caption", text=text)
+        speech = getattr(self.hub, "speech", None)
+        if speech is not None and not is_silent(self.hub.speaker):
+            speech.push(text)
+            if wait:
+                await speech.drain()
+                await asyncio.sleep(0.3)  # (the room's echo of the last word)
+        elif wait:
+            await asyncio.sleep(self.reader_wait(text))
+
+    # ── by voice ──
+
+    async def instant(self, words: str) -> str | None:
+        """ "Learn my voice", "download the voice model", "stop learning my voice"."""
+        text = " ".join(str(words or "").split())
+        if _CANCEL.match(text):
+            if self._enroll_cancel is None:
+                return "I'm not learning your voice just now."
+            self._enroll_cancel.set()
+            return ""  # (the enrollment says it stopped)
+        if _DOWNLOAD.match(text):
+            if self.model_path.is_file():
+                return "The voice model is already here. Say learn my voice to start."
+            if not self.configured():
+                return "The voice model isn't set up in this build, so I can't learn voices."
+            if not self.on():
+                self.hub.set_feature_prefs({"voice_id_on": True})
+            size = int(self.model.get("size") or 0)
+            await self.download()
+            return (
+                f"Downloading the voice model, {size / 1e6:.0f} megabytes. "
+                "When it's done, say learn my voice."
+            )
+        if not _LEARN.match(text):
+            return None
+        if not self.on():
+            self.hub.set_feature_prefs({"voice_id_on": True})
+            self.loaded = False
+        if self.enrolling is not None:
+            return "I'm already learning your voice."
+        if not self.model_path.is_file():
+            if not self.configured():
+                return "The voice model isn't set up in this build, so I can't learn voices."
+            size = int(self.model.get("size") or 0)
+            return (
+                f"First I need the voice model. It's {size / 1e6:.0f} megabytes and stays on this "
+                "computer. Say download the voice model to get it."
+            )
+        await self.enroll({"action": "start", "spoken": True})
+        return ""  # (the enrollment says each step)
 
     async def forget(self, _msg: dict[str, Any] | None = None) -> None:
         if self._enroll_cancel is not None:
@@ -469,3 +591,4 @@ def install(hub: Any) -> None:
     hub.register_command("voice_id_download", guard.download)
     hub.register_command("voice_id_enroll", guard.enroll)
     hub.register_command("voice_id_forget", guard.forget)
+    hub.register_instant(guard.instant)

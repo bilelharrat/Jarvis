@@ -246,7 +246,7 @@ test('the window’s labels and reports are taken only in their expected shapes'
   assert.deepEqual(lib.normalizeState({ state: 'dancing', online: 'yes', pausedUntil: 'soon', menuBar: 0 }),
     { state: 'idle', online: false, muted: false, handsFree: false, pausedUntil: 0, menuBar: true });
   assert.deepEqual(lib.normalizeState(null).state, 'idle');
-  const blank = { version: 1, menuBar: true, shortcuts: { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' }, places: {} };
+  const blank = { version: 1, menuBar: true, shortcuts: { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space', stop: lib.DEFAULT_SHORTCUTS.stop }, places: {} };
   assert.deepEqual(lib.readStore('{broken'), blank);
   assert.deepEqual(lib.readStore('[1,2]'), blank);
   assert.equal(lib.readStore('{"menuBar": false}').menuBar, false);
@@ -479,8 +479,12 @@ test('a shortcut needs ⌃ or ⌥ (or ⌘ with another), is spelled one way, and
   assert.equal(lib.shortcutLabel('Command+Shift+F5', 'win32'), 'Shift+Win+F5');
   assert.equal(lib.shortcutLabel('Control+Alt+PageDown', 'win32'), 'Ctrl+Alt+Page Down');
   assert.equal(lib.shortcutLabel('', 'win32'), '');
-  assert.deepEqual(lib.normalizeShortcuts({ ask: 'Command+J', whatsThis: 'Control+Alt+W' }), { ask: 'Alt+Space', whatsThis: 'Control+Alt+W' });
-  assert.deepEqual(lib.normalizeShortcuts({ ask: 'Alt+Shift+Space' }), { ask: 'Alt+Shift+Space', whatsThis: 'Alt+Space' }, 'never one combination for both');
+  const stop = lib.DEFAULT_SHORTCUTS.stop;
+  assert.deepEqual(lib.normalizeShortcuts({ ask: 'Command+J', whatsThis: 'Control+Alt+W' }), { ask: 'Alt+Space', whatsThis: 'Control+Alt+W', stop });
+  assert.deepEqual(lib.normalizeShortcuts({ ask: 'Alt+Shift+Space' }), { ask: 'Alt+Shift+Space', whatsThis: 'Alt+Space', stop }, 'never one combination for both');
+  // Stop talking never shares a key either: one that would is the default, or the next free one.
+  assert.deepEqual(lib.normalizeShortcuts({ stop: 'Alt+Space' }), { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space', stop });
+  assert.equal(lib.normalizeShortcuts({ ask: stop, stop }).stop, 'Control+Alt+F12');
   assert.deepEqual(lib.normalizeShortcuts(null), lib.DEFAULT_SHORTCUTS);
 });
 
@@ -506,7 +510,7 @@ test('the shortcuts are the app’s from launch; main.js leaves its own to them'
   shell.install(t.ctx);
   const keys = t.electron.globalShortcut;
   assert.equal(t.ctx.ownsShortcuts, true);
-  assert.deepEqual([...keys.mine.keys()], ['Alt+Space', 'Alt+Shift+Space']);
+  assert.deepEqual([...keys.mine.keys()], ['Alt+Space', 'Alt+Shift+Space', lib.DEFAULT_SHORTCUTS.stop]);
   keys.press('Alt+Space');
   assert.equal(t.ctx.summons, 1);
   keys.press('Alt+Shift+Space');
@@ -531,7 +535,8 @@ test('a new shortcut from Settings is tried at once; a taken one leaves the old 
   assert.deepEqual(tryIt('ask', 'Alt+Shift+Space'), { ok: false, error: 'same', label: '⌥⇧ Space' });
   assert.deepEqual(tryIt('nope', 'Control+Alt+K'), { ok: false, error: 'invalid' });
   assert.deepEqual(tryIt('ask', 'Control+Alt+K'), { ok: true, accelerator: 'Control+Alt+K', label: '⌃⌥K' });
-  assert.deepEqual([...keys.mine.keys()].sort(), ['Alt+Shift+Space', 'Control+Alt+K']);
+  assert.deepEqual([...keys.mine.keys()].sort(), ['Alt+Shift+Space', 'Control+Alt+K', lib.DEFAULT_SHORTCUTS.stop].sort());
+  assert.deepEqual(tryIt('stop', 'Control+Alt+K'), { ok: false, error: 'same', label: '⌃⌥K' }, 'Stop talking needs a key of its own');
   const pushed = t.wc.sent.filter(([c]) => c === 'feature:shell:shortcuts').at(-1)[1];
   assert.equal(pushed.ask.label, '⌃⌥K');
   assert.equal(JSON.parse(readFileSync(path.join(t.userData, 'shell.json'), 'utf8')).shortcuts.ask, 'Control+Alt+K');
@@ -576,7 +581,7 @@ test('on a PC, when the Talk key’s default is in use the next free one stands 
   t.electron.globalShortcut.taken.add('Control+Alt+J');
   shell.install(t.ctx);
   const keys = t.electron.globalShortcut;
-  assert.deepEqual([...keys.mine.keys()].sort(), ['Alt+Shift+Space', 'Control+Alt+K']);
+  assert.deepEqual([...keys.mine.keys()].sort(), ['Alt+Shift+Space', 'Control+Alt+K', lib.DEFAULT_SHORTCUTS.stop].sort());
   const hi = await t.hello();
   assert.deepEqual(hi.shortcuts.ask, { accelerator: 'Control+Alt+K', label: 'Ctrl+Alt+K', error: '', wanted: 'Ctrl+Alt+J' });
   keys.press('Control+Alt+K');
@@ -604,7 +609,7 @@ test('on a PC a key the person chose is never swapped for another: it is said to
   shell.install(t.ctx);
   const hi = await t.hello();
   assert.deepEqual(hi.shortcuts.ask, { accelerator: 'Control+Alt+L', label: 'Ctrl+Alt+L', error: 'taken', wanted: '' });
-  assert.deepEqual([...t.electron.globalShortcut.mine.keys()], ['Alt+Shift+Space']);
+  assert.deepEqual([...t.electron.globalShortcut.mine.keys()], ['Alt+Shift+Space', lib.DEFAULT_SHORTCUTS.stop]);
 });
 
 // ── the window's place, for each set of displays ──
@@ -1031,8 +1036,12 @@ test('on Windows the menu has no reload or developer-tools key, and a Help item 
 });
 
 test('a PC talks on Ctrl+Alt+J (J: the key a finger finds by touch) and keeps Windows’ own keys', () => {
-  assert.deepEqual(lib.defaultsFor('win32'), { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space' });
-  assert.deepEqual(lib.defaultsFor('darwin'), { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' });
+  // Stop talking: Ctrl+Alt+Backspace, which Windows, NVDA, JAWS and Narrator leave alone; ⌘⌥. on a Mac (VoiceOver has ⌃⌥).
+  assert.deepEqual(lib.defaultsFor('win32'), { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space', stop: 'Control+Alt+Backspace' });
+  assert.deepEqual(lib.defaultsFor('darwin'), { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space', stop: 'Command+Alt+.' });
+  assert.ok(!lib.WINDOWS_RESERVED.includes('Control+Alt+Backspace'));
+  assert.deepEqual(lib.checkAccelerator('Control+Alt+Backspace'), { ok: true, accelerator: 'Control+Alt+Backspace' });
+  assert.equal(lib.shortcutLabel('Control+Alt+Backspace', 'win32'), 'Ctrl+Alt+Backspace');
   for (const keys of ['Alt+Space', 'Alt+Tab', 'Alt+F4', 'Control+Shift+Escape', 'Control+Alt+Delete']) assert.ok(lib.WINDOWS_RESERVED.includes(keys), keys);
   assert.ok(!lib.WINDOWS_RESERVED.includes('Control+Alt+J'));
   assert.equal(lib.shortcutLabel('Control+Alt+J', 'darwin'), '⌃⌥J');
@@ -1084,4 +1093,20 @@ test('the arguments of a sign-in start and the first-run rule belong to Windows 
   assert.deepEqual(lib.loginArgs('darwin'), []);
   assert.equal(lib.loginOnFirstRun('win32'), true);
   assert.equal(lib.loginOnFirstRun('darwin'), false);
+});
+
+test('the Stop talking key works from any program: the window is told to stop, and never brought forward', async () => {
+  const t = fakeContext();
+  shell.install(t.ctx);
+  const keys = t.electron.globalShortcut;
+  const stop = lib.DEFAULT_SHORTCUTS.stop;
+  keys.press(stop); // (no window yet: nothing to stop, and nothing kept for later)
+  await t.hello();
+  await new Promise((r) => setTimeout(r, 5));
+  const before = t.wc.sent.length;
+  keys.press(stop);
+  assert.deepEqual(t.wc.sent.slice(before), [['feature:shell:command', { action: 'stop' }]]);
+  assert.equal(t.ctx.summons || 0, 0, 'it did not bring the window forward');
+  const hi = await t.hello();
+  assert.equal(hi.shortcuts.stop.accelerator, stop);
 });

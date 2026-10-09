@@ -36,6 +36,15 @@ html[data-sr="1"] :focus-visible {
 .sw-yellow-blue { background: #00164d; color: #ff0; }
 .sw-off { background: #2a2c31; color: #ece9e3; }
 
+/* The first-run setup (accessibility_setup.js): the keys list's panel, a step at a time. */
+.a11y-setup { max-height: 80vh; overflow: auto; }
+.a11y-setup .segmented { flex-wrap: wrap; margin: 8px 0; }
+.a11y-setup-row, .a11y-setup-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
+.a11y-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.a11y-field input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line, rgba(128, 128, 128, 0.6)); background: var(--bg, transparent); color: inherit; }
+.a11y-helper-group { margin-top: 16px; }
+.a11y-helper-group h4 { margin: 0 0 6px; }
+
 /* Windows' High Contrast: the system's colours, and edges on what had none. */
 @media (forced-colors: active) {
   .orb, .chip, .pill, .btn, .switch, .segmented button { border: 1px solid ButtonText; }

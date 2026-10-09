@@ -64,7 +64,10 @@
     "Wake the Mac for my briefing and routines": "为晨间简报和例行任务唤醒 Mac",
     "This Mac doesn’t wake on a schedule.": "这台 Mac 没有设置定时唤醒。",
     "Waiting for your password in macOS’s window…": "正在等待你在 macOS 的窗口中输入密码…",
-    "This Mac can’t schedule a wake.": "这台 Mac 无法设置定时唤醒。"
+    "This Mac can’t schedule a wake.": "这台 Mac 无法设置定时唤醒。",
+    "Talk, What’s this? and Stop talking need different shortcuts.": "“对话”“这是什么？”和“停止说话”需要不同的快捷键。",
+    "Stop talking": "停止说话",
+    "From any app: JARVIS stops speaking and stops reading at once.": "在任何应用中：JARVIS 立即停止说话和朗读。"
   },
   "patterns": [
     [

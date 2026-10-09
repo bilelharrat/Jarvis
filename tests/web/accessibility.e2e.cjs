@@ -671,6 +671,142 @@ test('J.A.R.V.I.S. Daredevil: on from the start with no screen reader, in yellow
   assert((await js('document.documentElement.dataset.sr')) === '0', 'Auto was on with no screen reader and no edition');
 });
 
+// ── the first-run setup, switches, stopping, and the backend's short lines ──
+
+// A fresh window with the setup (accessibility_setup.js) loaded too.
+async function freshSetup(features = { a11y_mode: 'on', a11y_voice: 'reader' }, opts = {}) {
+  await fresh(features, opts);
+  await script('accessibility_setup.js');
+  await sleep(800); // (it opens a moment after the welcome)
+}
+const setupState = () => js('jarvisAccessibility.setup.state()');
+const sentRaw = () => js('JSON.parse(JSON.stringify(__sent))');
+
+test('the first time, the setup opens as a dialog, takes the focus, is announced, and keeps Tab inside it', async () => {
+  await freshSetup();
+  const s = await setupState();
+  assert(s.open && s.step === 'welcome', JSON.stringify(s));
+  const d = await js(`(() => { const d = document.getElementById('a11y-setup'); return { role: d.getAttribute('role'), modal: d.getAttribute('aria-modal'), label: document.getElementById(d.getAttribute('aria-labelledby')).textContent, focus: document.activeElement.id }; })()`);
+  assert(d.role === 'dialog' && d.modal === 'true' && /^Step 1 of 8: Welcome$/.test(d.label) && d.focus === 'a11y-setup-title', JSON.stringify(d));
+  assert((await said()).some((l) => /^Step 1 of 8\. Welcome\./.test(l) && /say next, back, or skip setup/.test(l)), `announced ${JSON.stringify(await said())}`);
+  assert((await sentRaw()).some((m) => m.type === 'a11y_setup' && m.open === true && m.step === 'welcome'), 'the backend was not told it is open');
+  for (let i = 0; i < 6; i++) await press('Tab', 'Tab', 9);
+  assert(await js(`document.getElementById('a11y-setup').contains(document.activeElement)`), 'Tab left the dialog');
+});
+
+test('the setup moves by keyboard and by voice, sets what is chosen, and Escape ends it for good', async () => {
+  await freshSetup();
+  await js(`[...document.querySelectorAll('#a11y-setup button')].find((b) => b.textContent === 'Next').click(); true`);
+  assert((await setupState()).step === 'speed', 'Next did not move on');
+  await js(`[...document.querySelectorAll('#a11y-setup button')].find((b) => b.textContent === 'Faster').click(); true`);
+  const speed = (await sentRaw()).filter((m) => m.type === 'voice_settings').map((m) => m.changes.voice_speed);
+  assert(speed.at(-1) === 120, `speed sent ${speed}`);
+  assert((await sentRaw()).some((m) => m.type === 'a11y_setup' && m.sample === true), 'no sample was asked for');
+  // "Jarvis, next" (the backend hears it and says so)
+  await js(`heard({ type: 'a11y_setup_cmd', action: 'next' }); true`);
+  assert((await setupState()).step === 'look', 'the spoken next did not move on');
+  await js(`document.querySelector('#a11y-setup [aria-label="Colours"] [data-value="white"]').click(); true`);
+  assert((await sent()).includes('prefs {"a11y_colors":"white"}'), `sent ${await sent()}`);
+  await js(`heard({ type: 'a11y_setup_cmd', action: 'back' }); true`);
+  assert((await setupState()).step === 'speed', 'back did not go back');
+  await press('Escape', 'Escape', 27);
+  assert(!(await setupState()).open, 'Escape did not close it');
+  assert((await sentRaw()).some((m) => m.type === 'a11y_setup' && m.open === false && m.done === true), 'the backend was not told it is done');
+  // Done: it doesn't open by itself again, but Alt+Shift+W brings it back.
+  await js(`heard({ type: 'prefs', features: { a11y_mode: 'on', a11y_voice: 'reader', a11y_setup_done: true } }); true`);
+  await sleep(700);
+  assert(!(await setupState()).open, 'it opened again by itself');
+  await chord('W');
+  assert((await setupState()).open, 'Alt+Shift+W did not open it');
+});
+
+test('the setup’s trusted person is checked and saved, and Settings has the same fields and a way back to the setup', async () => {
+  await freshSetup();
+  await js(`heard({ type: 'a11y_setup_cmd', action: 'open' }); true`);
+  for (let i = 0; i < 6; i++) await js(`heard({ type: 'a11y_setup_cmd', action: 'next' }); true`);
+  assert((await setupState()).step === 'helper', JSON.stringify(await setupState()));
+  await js(`document.getElementById('a11y-setup-helper-name').value = 'Ann Lee'; document.getElementById('a11y-setup-helper-email').value = 'ann@'; true`);
+  await js(`heard({ type: 'a11y_setup_cmd', action: 'next' }); true`);
+  assert((await setupState()).step === 'helper', 'it moved on with an address that is not complete');
+  assert((await said()).some((l) => /not complete/.test(l)), `announced ${JSON.stringify(await said())}`);
+  await js(`document.getElementById('a11y-setup-helper-email').value = 'ann@example.com'; true`);
+  await js(`heard({ type: 'a11y_setup_cmd', action: 'next' }); true`);
+  assert((await setupState()).step === 'done', 'it did not move on');
+  assert((await sent()).includes('prefs {"a11y_helper_name":"Ann Lee","a11y_helper_email":"ann@example.com","a11y_helper_phone":""}'), `sent ${await sent()}`);
+  await js(`heard({ type: 'a11y_setup_cmd', action: 'finish' }); true`);
+  const r = await js(`(() => {
+    const names = ['name', 'email', 'phone'].map((id) => document.getElementById('a11y-settings-helper-' + id));
+    return { labelled: names.every((n) => n && n.closest('label') && n.closest('label').textContent.trim().length > 3), again: Boolean(document.getElementById('a11y-setup-again')) };
+  })()`);
+  assert(r.labelled && r.again, JSON.stringify(r));
+});
+
+test('with switch control, Space moves through a question’s choices, each said, and a long press chooses', async () => {
+  await fresh({ a11y_mode: 'on', a11y_voice: 'reader', a11y_switch: 'one', a11y_switch_hold: 500 });
+  await js(`heard({ type: 'approval', id: 's1', task_id: 0, tool: 'send', question: 'Send this email to Ann?', detail: '', choices: [{ id: 'allow', label: 'Send' }, { id: 'deny', label: 'Don’t send' }] }); true`);
+  await sleep(60);
+  const urgent = await said('sr-urgent');
+  assert(urgent.length === 1 && /Press Space to move through the choices, and hold it to choose\./.test(urgent[0]), `announced ${JSON.stringify(urgent)}`);
+  await sleep(450);
+  await press(' ', 'Space', 32);
+  assert(await js('document.activeElement.textContent') === 'Don’t send', `focus on ${await js('document.activeElement.textContent')}`);
+  assert((await said('sr-urgent')).some((l) => l === 'Don’t send. 2 of 2.'), `announced ${JSON.stringify(await said('sr-urgent'))}`);
+  await press(' ', 'Space', 32);
+  assert(await js('document.activeElement.textContent') === 'Send', 'it did not go round to the first choice');
+  assert(!(await sent()).some((m) => m.startsWith('approve')), 'a short press answered');
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+  await sleep(650);
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+  assert((await sent()).includes('approve s1 allow'), `sent ${await sent()}`);
+  assert((await said('sr-urgent')).some((l) => l === 'Chose Send.'), `announced ${JSON.stringify(await said('sr-urgent'))}`);
+});
+
+test('with two switches the second one chooses; with no question waiting the keys are the page’s', async () => {
+  await fresh({ a11y_mode: 'on', a11y_voice: 'reader', a11y_switch: 'two' });
+  await js(`document.getElementById('ask-input').focus(); document.getElementById('ask-input').value = 'what time is it'; true`);
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+  assert((await sent()).includes('ask'), `Enter in the request box did not send it: ${await sent()}`);
+  await js(`heard({ type: 'approval', id: 's2', task_id: 0, tool: 'send', question: 'Delete the file?', detail: '', choices: [{ id: 'allow', label: 'Delete' }, { id: 'deny', label: 'Keep it' }] }); true`);
+  await sleep(500);
+  await press(' ', 'Space', 32);
+  await press('Enter', 'Enter', 13);
+  assert((await sent()).includes('approve s2 deny'), `sent ${await sent()}`);
+});
+
+test('the Stop talking key (from any program) and Alt+Shift+S stop what is being read, cutting off the screen reader', async () => {
+  await fresh();
+  await js(`heard({ type: 'turn', rid: 'r9', user: 'read it' }); heard({ type: 'reply', rid: 'r9', text: 'A long letter.' }); heard({ type: 'turn_done', rid: 'r9' }); true`);
+  assert((await said()).length === 1, 'the reply was not read');
+  await js(`document.dispatchEvent(new Event('jarvis:stop-all')); true`);
+  assert((await said()).length === 0, `still waiting to be read: ${await said()}`);
+  assert(JSON.stringify(await said('sr-urgent')) === '["Stopped."]', `announced ${JSON.stringify(await said('sr-urgent'))}`);
+  await chord('S');
+  assert((await sent()).includes('stop'), `sent ${await sent()}`);
+});
+
+test('the backend’s short lines are announced: a private window, the screen sent, where the focus went', async () => {
+  await fresh();
+  await js(`heard({ type: 'a11y_say', text: 'This screen has private information, reading it aloud.', important: true }); heard({ type: 'a11y_say', text: 'Now in Outlook: Inbox.' }); true`);
+  assert(JSON.stringify(await said('sr-urgent')) === '["This screen has private information, reading it aloud."]', `urgent ${JSON.stringify(await said('sr-urgent'))}`);
+  assert(JSON.stringify(await said()) === '["Now in Outlook: Inbox."]', `polite ${JSON.stringify(await said())}`);
+  await fresh({ a11y_mode: 'on', a11y_voice: 'jarvis' });
+  await js(`heard({ type: 'a11y_say', text: 'Now in Word.' }); true`);
+  assert((await said()).length === 0, 'with Jarvis’s voice the screen reader was told too');
+});
+
+test('Settings › Accessibility has reading speed and amount, switch control and the screen choice, and the keys list names the new keys', async () => {
+  await fresh({ a11y_mode: 'on', a11y_read_speed: 150 });
+  const checked = await js(`[...document.querySelectorAll('#a11y-group [aria-label="Reading speed"] [role=radio]')].filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.textContent)`);
+  assert(checked.join() === '150%', `reading speed shows ${checked}`);
+  await js(`document.querySelector('#a11y-group [aria-label="How much of a long text to read"] [data-value=summary]').click(); document.querySelector('#a11y-group [aria-label="Send what is on my screen to the AI model"] [data-value=off]').click(); document.querySelector('#a11y-group [aria-label="Switch control for questions"] [data-value=one]').click(); true`);
+  const s = await sent();
+  for (const want of ['prefs {"a11y_read_verbosity":"summary"}', 'prefs {"a11y_screen_share":"off"}', 'prefs {"a11y_switch":"one"}']) assert(s.includes(want), `sent ${s}`);
+  await chord('H');
+  const text = await js(`document.querySelector('.sr-help').textContent`);
+  assert(/\+W/.test(text) && /Stop talking and reading, from any app/.test(text) && /Switch: move to the next choice/.test(text), text);
+});
+
 function chosen() {
   const only = process.env.A11Y_TESTS ? new RegExp(process.env.A11Y_TESTS) : null;
   return tests.filter((t) => !only || only.test(t.name));

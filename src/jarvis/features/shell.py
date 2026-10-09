@@ -5,8 +5,9 @@ other two parts).
   keeps heads-ups from showing until then, as Heads-ups off in Settings would (a
   conversation held for the user, a call or a voicemail still shows); minutes 0 resumes.
 - The app's settings kept with the others: whether JARVIS shows in the menu bar, and the
-  global shortcuts for Talk (⌥Space) and What's this? (⌥⇧Space), as Electron accelerators
-  (checked as app/features/shell-lib.js's checkAccelerator checks them).
+  global shortcuts for Talk (⌥Space), What's this? (⌥⇧Space) and Stop talking (⌘⌥. on a Mac,
+  Ctrl+Alt+Backspace on a PC: speech and any reading stop at once, from any program), as
+  Electron accelerators (checked as app/features/shell-lib.js's checkAccelerator checks them).
 - "Wake the Mac for my briefing and routines" in Settings: {"type": "shell_wake",
   "action": "status" | "set" | "clear"}. Status reads the schedule (pmset -g sched);
   set makes the Mac wake (or power on) every day 5 minutes before the briefing or the
@@ -40,6 +41,7 @@ MENU_BAR_KEY = "shell_menu_bar"
 ASK_CONFIRM_KEY = "shell_ask_confirm"
 ASK_SHORTCUT_KEY = "shell_shortcut_ask"
 WHATS_THIS_SHORTCUT_KEY = "shell_shortcut_whats_this"
+STOP_SHORTCUT_KEY = "shell_shortcut_stop"
 PAUSE_MAX_MINUTES = 12 * 60
 # What shows even with heads-ups off (Hub.notify): a pause holds back what the switch would.
 # (Hub.notify's own list: a timer, an alarm or a reminder the owner set, their routines.)
@@ -142,6 +144,9 @@ register_feature_pref(MENU_BAR_KEY, True)
 register_feature_pref(ASK_CONFIRM_KEY, False)
 register_feature_pref(ASK_SHORTCUT_KEY, ASK_DEFAULT, clean_accelerator)
 register_feature_pref(WHATS_THIS_SHORTCUT_KEY, "Alt+Shift+Space", clean_accelerator)
+# Stop talking, from any program (app/features/shell-lib.js says why these keys).
+STOP_DEFAULT = "Control+Alt+Backspace" if osplat.IS_WIN else "Command+Alt+."
+register_feature_pref(STOP_SHORTCUT_KEY, STOP_DEFAULT, clean_accelerator)
 
 
 def paused(hub: Any) -> bool:

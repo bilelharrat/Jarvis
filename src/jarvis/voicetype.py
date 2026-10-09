@@ -3,6 +3,9 @@ typed where the keyboard focus is, in any app, until "stop typing" (or "Jarvis, 
 "Jarvis, type <words>" types one line. Nothing goes to Claude: the words are typed as heard,
 with a few spoken edits ("new line", "new paragraph", "scratch that", "press enter").
 
+"Read that back" (or "read the last line") reads what voice typing typed, in JARVIS's voice
+or to the screen reader; it is never typed. It works while typing and after it has stopped.
+
 "New line" is Shift-Return, the newline that doesn't send in chat apps; only "press enter"
 (or "press return") presses Return itself, because the owner said to. Only the owner's own
 voice types (the hands-free voice check), and JARVIS's own voice is dropped before this.
@@ -47,7 +50,22 @@ _EDITS = [
     (re.compile(r"^(?:scratch|delete|undo|erase)\s+that$|^删掉$|^撤销$", re.IGNORECASE), "scratch"),
     (re.compile(r"^press\s+(?:enter|return)$|^按回车$", re.IGNORECASE), "enter"),
     (re.compile(r"^press\s+tab$", re.IGNORECASE), "tab"),
+    (
+        re.compile(
+            r"^(?:read\s+(?:that|it|this|what\s+i(?:'ve)?\s+(?:typed|wrote|written|said))\s+back(?:\s+to\s+me)?|read\s+(?:me\s+)?back\s+what\s+i\s+(?:typed|wrote)|read\s+back|what\s+did\s+(?:i|you)\s+(?:just\s+)?(?:type|write))$|^读一遍$",
+            re.IGNORECASE,
+        ),
+        "readback",
+    ),
+    (
+        re.compile(
+            r"^read\s+(?:me\s+)?the\s+last\s+(?:line|sentence)(?:\s+back)?$|^读最后一行$",
+            re.IGNORECASE,
+        ),
+        "lastline",
+    ),
 ]
+READ_BACK = ("readback", "lastline")
 
 # How long voice typing waits with nothing typed before it turns itself off.
 IDLE_SECONDS = 300.0
@@ -60,7 +78,7 @@ def _clean(text: str) -> str:
 
 def command(said: str) -> tuple[str, str] | None:
     """What a wake-word command means for voice typing: ("start", ""), ("stop", ""),
-    ("once", words to type), or None (not about typing)."""
+    ("once", words to type), ("readback" or "lastline", ""), or None (not about typing)."""
     text = _clean(said)
     if not text:
         return None
@@ -68,10 +86,19 @@ def command(said: str) -> tuple[str, str] | None:
         return ("start", "")
     if _STOP.match(text) or _STOP_ZH.match(text):
         return ("stop", "")
+    which = read_back_request(text)
+    if which:
+        return (which, "")
     match = _ONCE.match(text) or _ONCE_ZH.match(text)
     if match and _clean(match.group(1)):
         return ("once", match.group(1).strip())
     return None
+
+
+def read_back_request(said: str) -> str | None:
+    """ "read that back" -> "readback", "read the last line" -> "lastline", else None."""
+    action = edit(said)
+    return action if action in READ_BACK else None
 
 
 def ends(said: str) -> bool:
@@ -104,12 +131,16 @@ class VoiceTyping:
     line_start: bool = (
         True  # the focus is at the start of a line (nothing typed yet, or a new line)
     )
+    # Everything typed since voice typing last started, line breaks too ("\n"), for "read
+    # that back". Kept after it stops; a new start begins it again.
+    written: list[str] = field(default_factory=list)
 
     def start(self) -> None:
         self.on = True
         self.typed = []
         self.began_line = []
         self.line_start = True
+        self.written = []
 
     def stop(self) -> None:
         self.on = False
@@ -129,6 +160,7 @@ class VoiceTyping:
         return " " + words
 
     def did_type(self, chunk: str) -> None:
+        self.written.append(chunk)
         self.typed.append(chunk)
         self.began_line.append(self.line_start)
         self.typed, self.began_line = self.typed[-20:], self.began_line[-20:]
@@ -136,10 +168,24 @@ class VoiceTyping:
 
     def did_break(self) -> None:
         self.line_start = True
+        self.written.append("\n")
 
     def scratch(self) -> int:
         """How many characters "scratch that" deletes: the last phrase typed (0: nothing)."""
         if not self.typed:
             return 0
         self.line_start = self.began_line.pop()
-        return len(self.typed.pop())
+        chunk = self.typed.pop()
+        for i in range(len(self.written) - 1, -1, -1):
+            if self.written[i] == chunk:
+                del self.written[i]
+                break
+        return len(chunk)
+
+    def read_back(self, which: str = "readback") -> str:
+        """What was typed ("readback"), or its last line ("lastline"); "" when nothing was."""
+        text = "".join(self.written).strip()
+        if which == "lastline":
+            lines = [line.strip() for line in text.split("\n") if line.strip()]
+            return lines[-1] if lines else ""
+        return re.sub(r"\n{2,}", "\n\n", text)

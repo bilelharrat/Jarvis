@@ -13,7 +13,14 @@
 //     "skip to the request box" link leads the page, Space no longer opens the microphone, and
 //     the keyboard focus stays where the owner put it.
 //   - Keys that don't clash with the screen reader's own: Alt+Shift (Windows) or ⌘⇧ (Mac) with
-//     Y yes, N no, R read the last reply again, S stop, T talk, U status, H this list.
+//     Y yes, N no, R read the last reply again, S stop, T talk, U status, W the setup again,
+//     H this list. The Stop talking key (app/features/shell.js, Ctrl+Alt+Backspace on a PC) works
+//     from any program: what JARVIS says stops, and so does the screen reader's reading of it.
+//   - Approvals by switch (Settings: "Switch control"): one switch (it sends Space or Enter)
+//     moves through a question's choices, each said, and a long press, or the second switch,
+//     chooses. Y and N still work.
+//   - Short lines from the backend ("a11y_say": a private window about to be read, the screen
+//     sent to Claude, where the focus went) are announced.
 // Everywhere (screen reader or not) the Mac's glyphs in the window's words become Windows' keys.
 (function (root) {
   'use strict';
@@ -132,6 +139,8 @@
     a11y_mode: 'auto', a11y_voice: 'auto', a11y_cues: true, a11y_cue_volume: 60, a11y_verbosity: 'normal', a11y_focus: true,
     a11y_dictate_punct: 'auto', a11y_read_punct: 'none',
     a11y_say_state: false, a11y_colors: 'auto', a11y_text_size: 'auto',
+    a11y_read_speed: 0, a11y_read_verbosity: 'full', a11y_switch: 'off', a11y_switch_key: 'space', a11y_switch_hold: 1000,
+    a11y_screen_share: 'ask', a11y_say_focus: true, a11y_setup_done: false,
   };
   let prefs = { ...DEFAULTS };
   let detected = false; // a screen reader is running (Electron says so: it says so for any program reading the window too)
@@ -394,6 +403,25 @@
     pendingTimer = root.setTimeout(() => { if (doc.body.dataset.state !== 'thinking') finishReply(); }, 1500);
   });
   F.on('turn_done', finishReply);
+  // Short lines from the backend: a private window about to be read, the screen sent, where the focus went.
+  F.on('a11y_say', (ev) => {
+    if (!ev || !ev.text || !effective() || !readerSpeaks()) return;
+    if (ev.important) cue('notice');
+    announce(ev.text, { important: Boolean(ev.important) });
+  });
+
+  // Stop everything: Alt+Shift+S here, or the Stop talking key from any program (the shell feature
+  // sends jarvis:stop-all). What waits to be announced goes, and an assertive word cuts off the screen
+  // reader's reading of a reply mid-sentence.
+  function stopAll({ say = true } = {}) {
+    root.clearTimeout(pendingTimer);
+    pending = null;
+    polite.replaceChildren();
+    urgent.replaceChildren();
+    cue('stop', { force: effective() });
+    if (say && effective()) announce('Stopped.', { important: true });
+  }
+  doc.addEventListener('jarvis:stop-all', () => stopAll());
   F.on('caption', (ev) => {
     if (!ev.text || !readerSpeaks()) return;
     lastReply = plainForReader(ev.text, prefs.a11y_read_punct);
@@ -437,7 +465,8 @@
       const { title, body } = cardWords(card);
       const choices = [...card.querySelectorAll('.card-actions button')].map((b) => ({ label: b.textContent }));
       cue('approval');
-      announce(approvalWords({ question: title, detail: body, choices }, keysFor(), prefs.a11y_read_punct), { important: true });
+      const words = approvalWords({ question: title, detail: body, choices }, keysFor(), prefs.a11y_read_punct);
+      announce(`${words}${switchHint()}`, { important: true });
       if (prefs.a11y_focus) {
         const first = card.querySelector('button');
         if (first) { openers.set('approval', doc.activeElement); first.focus(); }
@@ -481,6 +510,74 @@
     }).observe(timeline, { childList: true });
   }
 
+  // ── approvals by switch ──
+  // A switch sends a key (Space or Enter). With Switch control on, while a question waits: the first
+  // switch moves to the next choice and says it; holding it (a11y_switch_hold) or the second switch
+  // chooses the one with the focus. With no question waiting the keys are the page's as ever.
+
+  function switchHint() {
+    if (prefs.a11y_switch === 'off') return '';
+    const [one, two] = prefs.a11y_switch_key === 'enter' ? ['Enter', 'Space'] : ['Space', 'Enter'];
+    return ` Press ${one} to move through the choices, and hold it${prefs.a11y_switch === 'two' ? ` or press ${two}` : ''} to choose.`;
+  }
+  function switchRole(e) {
+    if (prefs.a11y_switch === 'off' || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return '';
+    const target = e.target;
+    if (target && target.closest && target.closest('input, textarea, select, [contenteditable="true"]')) return ''; // (typing)
+    const space = e.key === ' ' || e.code === 'Space';
+    const enter = e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter';
+    const first = prefs.a11y_switch_key === 'enter' ? enter : space;
+    const second = prefs.a11y_switch_key === 'enter' ? space : enter;
+    if (first) return 'next';
+    return second && prefs.a11y_switch === 'two' ? 'choose' : '';
+  }
+  const waitingCard = () => doc.querySelector('.card.needs-ok') || doc.querySelector('.jc-ask');
+  const choicesOf = (card) => [...card.querySelectorAll('.card-actions button, .jc-choices button')].filter((b) => !b.disabled && !b.hidden);
+  const labelOf = (b) => (b.textContent || '').replace(/^\d+/, '').trim();
+  function switchNext(card) {
+    const buttons = choicesOf(card);
+    if (!buttons.length) return;
+    const at = buttons.indexOf(doc.activeElement);
+    const next = buttons[(at + 1) % buttons.length];
+    next.focus();
+    cue('heard');
+    announce(`${labelOf(next)}. ${buttons.indexOf(next) + 1} of ${buttons.length}.`, { important: true });
+  }
+  function switchChoose(card) {
+    const buttons = choicesOf(card);
+    const chosen = buttons.find((b) => b === doc.activeElement);
+    if (!chosen) {
+      announce(`Move to a choice first.${switchHint()}`, { important: true });
+      return;
+    }
+    announce(`Chose ${labelOf(chosen)}.`, { important: true });
+    chosen.click();
+  }
+  let press = null; // the first switch held down: { timer, chose }
+  root.addEventListener('keydown', (e) => {
+    if (!effective()) return;
+    const role = switchRole(e);
+    const card = role && waitingCard();
+    if (!card) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat) return; // (held: the timer chooses)
+    if (role === 'choose') { switchChoose(card); return; }
+    if (press) root.clearTimeout(press.timer);
+    const hold = Math.max(300, Number(prefs.a11y_switch_hold) || 1000);
+    press = { chose: false, timer: root.setTimeout(() => { if (press) { press.chose = true; switchChoose(card); } }, hold) };
+  }, true);
+  root.addEventListener('keyup', (e) => {
+    if (!press || switchRole(e) !== 'next') return;
+    e.preventDefault();
+    e.stopPropagation();
+    root.clearTimeout(press.timer);
+    const { chose } = press;
+    press = null;
+    const card = waitingCard();
+    if (!chose && card) switchNext(card);
+  }, true);
+
   // ── keys ──
 
   const COMBO = IS_MAC ? '⌘⇧' : 'Alt+Shift+';
@@ -514,6 +611,7 @@
     ['S', 'Stop speaking and stop what Jarvis is doing'],
     ['T', 'Talk to Jarvis'],
     ['U', 'What is Jarvis doing now'],
+    ['W', 'Run the setup again'],
     ['H', 'This list of keys'],
   ];
   doc.addEventListener('keydown', (e) => {
@@ -528,9 +626,10 @@
       } else if (letter === 'R') {
         if (lastReply) { announce(lastReply); } else announce('There is no reply yet.');
       } else if (letter === 'S') {
-        cue('stop');
         send({ type: 'stop' });
-        announce('Stopped.');
+        stopAll();
+      } else if (letter === 'W') {
+        if (lib.setup) lib.setup.open(); else announce('The setup is not available here.');
       } else if (letter === 'T') {
         const orb = $('orb');
         if (orb) orb.click();
@@ -564,8 +663,16 @@
       list.append(el('dt', '', `${where}+${letter}`), el('dd', '', t(what)));
     }
     list.append(el('dt', '', 'Escape'), el('dd', '', t('Close what is open, and stop speaking')));
-    const hot = IS_MAC ? 'Option+Space' : 'Ctrl+Alt+Space';
+    const shell = root.jarvisShell;
+    const hot = askKeys();
     list.append(el('dt', '', hot), el('dd', '', t('Talk to Jarvis from any app')));
+    const stopKey = (shell && shell.stopLabel && shell.stopLabel()) || (IS_MAC ? '⌘⌥.' : 'Ctrl+Alt+Backspace');
+    list.append(el('dt', '', keyWords(stopKey, IS_MAC)), el('dd', '', t('Stop talking and reading, from any app')));
+    if (prefs.a11y_switch !== 'off') {
+      const [one, two] = prefs.a11y_switch_key === 'enter' ? ['Enter', 'Space'] : ['Space', 'Enter'];
+      list.append(el('dt', '', one), el('dd', '', t('Switch: move to the next choice of a question; hold it to choose')));
+      if (prefs.a11y_switch === 'two') list.append(el('dt', '', two), el('dd', '', t('Switch: choose')));
+    }
     const close = el('button', 'btn primary', t('Close'));
     close.type = 'button';
     close.addEventListener('click', closeHelp);
@@ -688,7 +795,20 @@
     volume.addEventListener('change', () => { change({ a11y_cue_volume: Number(volume.value) }); cue('done', { force: true }); });
     controls.a11y_cue_volume = volume;
     group.append(stacked('Sound volume', '', volume));
+    group.append(stacked('Reading speed', 'How fast Jarvis’s voice reads long texts: documents, emails and reports. Conversation keeps the speed in Speaking. Your screen reader keeps its own.',
+      segmented('Reading speed', 'a11y_read_speed', [[0, 'Same as talking'], [80, '80%'], [100, '100%'], [125, '125%'], [150, '150%'], [175, '175%'], [200, '200%']])));
+    group.append(stacked('How much of a long text to read', 'For documents, emails and reports. Conversation follows “How much Jarvis says”.',
+      segmented('How much of a long text to read', 'a11y_read_verbosity', [['full', 'All of it'], ['summary', 'A summary first'], ['highlights', 'Key points']])));
     group.append(toggle('Move the focus to a question that needs an answer', 'So you can answer without searching for it.', 'a11y_focus'));
+    group.append(stacked('Switch control for questions', 'For switches that send Space or Enter. One switch: press to move through a question’s choices, hold to choose. Two switches: the second one chooses.',
+      segmented('Switch control for questions', 'a11y_switch', [['off', 'Off'], ['one', 'One switch'], ['two', 'Two switches']])));
+    group.append(stacked('The first switch sends', '',
+      segmented('The first switch sends', 'a11y_switch_key', [['space', 'Space'], ['enter', 'Enter']])));
+    group.append(stacked('A long press is', '',
+      segmented('A long press is', 'a11y_switch_hold', [[500, 'Half a second'], [1000, 'One second'], [2000, 'Two seconds']])));
+    group.append(stacked('Send what is on my screen to the AI model', 'To read or describe your screen, its contents go to Claude. Ask me first: you are asked the first time. Jarvis says each time it sends the screen.',
+      segmented('Send what is on my screen to the AI model', 'a11y_screen_share', [['ask', 'Ask me first'], ['on', 'Yes'], ['off', 'No']])));
+    group.append(toggle('Say which app has the focus', 'After Jarvis opens, clicks or switches something, it says where you are now.', 'a11y_say_focus'));
     group.append(toggle('Say what Jarvis is doing', 'Also say “Listening” and “Thinking”, not only play the sounds.', 'a11y_say_state'));
     openNote = el('p', 'group-note');
     openNote.id = 'a11y-open-note';
@@ -697,14 +817,18 @@
     const keys = el('button', 'btn', t('Keys for screen-reader mode'));
     keys.type = 'button';
     keys.addEventListener('click', openHelp);
-    group.append(stacked('Keyboard shortcuts', 'Y yes, N no, R read again, S stop, T talk, U status, H this list.', keys));
+    group.append(stacked('Keyboard shortcuts', 'Y yes, N no, R read again, S stop, T talk, U status, W setup, H this list.', keys));
+    // (the setup and the trusted person add their rows here: accessibility_setup.js)
+    const more = el('div', 'a11y-more');
+    more.id = 'a11y-more';
+    group.append(more);
     first.before(group);
   }
   function renderSettings() {
     if (!group) return;
     for (const [key, node] of Object.entries(controls)) {
       if (node.getAttribute('role') === 'radiogroup') {
-        node.querySelectorAll('[role="radio"]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.value === prefs[key])));
+        node.querySelectorAll('[role="radio"]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.value === String(prefs[key]))));
       } else if (node.getAttribute('role') === 'switch') {
         node.setAttribute('aria-checked', String(Boolean(prefs[key])));
       } else if (node.type === 'range') {
@@ -785,5 +909,13 @@
   lib.help = openHelp;
   lib.announce = announce;
   lib.cue = cue;
+  lib.change = change;
+  lib.effective = effective;
+  lib.readerSpeaks = readerSpeaks;
+  lib.prefs = () => ({ ...prefs });
+  lib.prefsSeen = () => prefsSeen;
+  lib.inEdenCode = inEdenCode;
+  lib.stopAll = stopAll;
+  lib.askKeys = askKeys;
   lib.state = () => ({ effective: effective(), edition: editionOn(), readerSpeaks: readerSpeaks(), detected, colors: colorsNow(), textSize: sizeNow(), daredevil: daredevil(), prefs: { ...prefs }, backend, lastSaid, spoken: [...spokenLog] });
 })(typeof window !== 'undefined' ? window : globalThis);
