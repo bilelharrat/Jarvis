@@ -462,6 +462,7 @@ def test_the_tool_server_has_the_names_claude_already_knows():
         "list_emails",
         "search_mail",
         "read_email",
+        "read_thread",
         "read_attachment",
         "send_email",
         "reply_email",
