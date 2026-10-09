@@ -135,7 +135,6 @@ def plus_settings() -> str:
     credential and model variable blank, and the Mac's own network settings."""
     cached = _CACHE.get(PLUS_CACHE)
     if cached is None:
-        import shlex
         import sys
         from types import SimpleNamespace
 
@@ -145,9 +144,9 @@ def plus_settings() -> str:
 
         pins = session_pins(SimpleNamespace(kind=KIND, base_url=""), "", os.environ)
         pins["ANTHROPIC_BASE_URL"] = PLUS_BASE
-        helper = shlex.join(
-            [sys.executable, "-I", "-c", PLUS_HELPER, SERVICE, f"{VAULT_ID}:{TOKEN_KEY}"]
-        )
+        from .providers import helper_command
+
+        helper = helper_command(sys.executable, PLUS_HELPER, SERVICE, f"{VAULT_ID}:{TOKEN_KEY}")
         cached = json.dumps({"apiKeyHelper": helper, "env": pins})
         _CACHE[PLUS_CACHE] = cached
     return cached

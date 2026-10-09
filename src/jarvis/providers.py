@@ -298,6 +298,34 @@ if not isinstance(key, str) or not key:
     sys.exit("Jarvis has no key saved for this provider.")
 sys.stdout.write(key)
 """
+# On a PC the key is in Credential Manager (keyring's Windows backend), and Claude Code runs the helper
+# through cmd or Git Bash: a script file, named by its contents, with the command quoted the Windows way
+# (a program on the command line with Python code in it, quoted for /bin/sh, worked on neither).
+HELPER_CODE_WINDOWS = HELPER_CODE.replace(
+    "from keyring.backends import macOS", "from keyring.backends import Windows"
+).replace("macOS.Keyring()", "Windows.WinVaultKeyring()").replace("from the Keychain", "from Credential Manager")
+
+
+def helper_command(python: str, code: str, *args: str, platform: str | None = None, folder: Path | None = None) -> str:
+    """The command line that runs a short Python helper in isolated mode with these arguments: the code
+    itself on a Mac (quoted for /bin/sh), a script file beside the app's data on a PC (quoted for
+    Windows, which both cmd and Git Bash read)."""
+    if (platform or sys.platform) != "win32":
+        return shlex.join([python, "-I", "-c", code, *args])
+    import hashlib
+    import subprocess
+
+    if folder is None:
+        from .prefs import APP_SUPPORT
+
+        folder = APP_SUPPORT / "helpers"
+    path = folder / f"helper-{hashlib.sha256(code.encode()).hexdigest()[:12]}.py"
+    if not path.is_file() or path.read_text(encoding="utf-8") != code:
+        folder.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(code, encoding="utf-8")
+        tmp.replace(path)
+    return subprocess.list2cmdline([python, "-I", str(path), *args])
 
 _ID = re.compile(r"[a-z0-9]{6,32}")
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9_.\-]*[a-z0-9])?")
@@ -617,7 +645,8 @@ def keychain_helper(provider_id: str, python: str | None = None) -> str:
     Keychain entry trusts, so no prompt) running HELPER_CODE on the entry. It names the
     entry, never the key."""
     account = f"{VAULT_PREFIX}{provider_id}:{KEY_NAME}"
-    return shlex.join([python or sys.executable, "-I", "-c", HELPER_CODE, SERVICE, account])
+    code = HELPER_CODE_WINDOWS if sys.platform == "win32" else HELPER_CODE
+    return helper_command(python or sys.executable, code, SERVICE, account)
 
 
 # ── reading the file back ──

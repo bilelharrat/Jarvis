@@ -2075,3 +2075,46 @@ def test_heavy_churn_keeps_the_file_whole_and_free_of_keys(tmp_path):
         again.add_provider("custom", f"Box {n}", LITE_KEY, f"https://llm{n}.example.com")
     with pytest.raises(ValueError, match=f"{MAX_PROVIDERS} providers already"):
         again.add_provider("openrouter", "One too many", OR_KEY)
+
+
+# ── the key helper on a PC ──
+
+
+def test_on_a_pc_the_key_helper_is_a_script_file_read_from_credential_manager(tmp_path):
+    import subprocess
+
+    from jarvis.providers import HELPER_CODE_WINDOWS, helper_command
+
+    assert "from keyring.backends import Windows" in HELPER_CODE_WINDOWS
+    assert "WinVaultKeyring()" in HELPER_CODE_WINDOWS and "macOS" not in HELPER_CODE_WINDOWS
+    py = r"C:\Users\Robert Parker\AppData\Local\Programs\J.A.R.V.I.S. Daredevil\resources\backend\python\python.exe"
+    command = helper_command(py, HELPER_CODE_WINDOWS, "Jarvis", "vault:abc:key", platform="win32", folder=tmp_path)
+    scripts = list(tmp_path.glob("helper-*.py"))
+    assert len(scripts) == 1 and scripts[0].read_text(encoding="utf-8") == HELPER_CODE_WINDOWS
+    # quoted the Windows way: the path with spaces in one piece, no code on the command line
+    assert command == subprocess.list2cmdline([py, "-I", str(scripts[0]), "Jarvis", "vault:abc:key"])
+    assert command.startswith('"C:\\Users\\Robert Parker\\') and "import" not in command
+    # the same code twice: the same file, not rewritten
+    stamp = scripts[0].stat().st_mtime_ns
+    assert helper_command(py, HELPER_CODE_WINDOWS, "a", platform="win32", folder=tmp_path).count("helper-") == 1
+    assert scripts[0].stat().st_mtime_ns == stamp
+    # a Mac keeps its own: the code itself, quoted for /bin/sh
+    mac = helper_command("/opt/py", "print(1)", "x", platform="darwin")
+    assert shlex.split(mac) == ["/opt/py", "-I", "-c", "print(1)", "x"]
+
+
+def test_the_windows_helper_reads_the_saved_key_like_the_macs(monkeypatch, capsys):
+    import types
+
+    from jarvis.providers import HELPER_CODE_WINDOWS
+
+    saved = {("svc", "acct"): json.dumps({"key": "sk-ant-test-123"})}
+    win = types.ModuleType("keyring.backends.Windows")
+    win.WinVaultKeyring = lambda: types.SimpleNamespace(get_password=lambda s, a: saved.get((s, a)))
+    monkeypatch.setitem(sys.modules, "keyring.backends.Windows", win)
+    import keyring.backends as backends
+
+    monkeypatch.setattr(backends, "Windows", win, raising=False)
+    monkeypatch.setattr(sys, "argv", ["helper", "svc", "acct"])
+    exec(compile(HELPER_CODE_WINDOWS, "<apiKeyHelper>", "exec"), {})
+    assert capsys.readouterr().out == "sk-ant-test-123"
