@@ -1110,3 +1110,11 @@ test('the Stop talking key works from any program: the window is told to stop, a
   const hi = await t.hello();
   assert.equal(hi.shortcuts.stop.accelerator, stop);
 });
+
+test('with JAWS installed, Talk steps aside from Ctrl+Alt+J (JAWS starts itself with it)', () => {
+  const lib = require('../../app/features/shell-lib.js');
+  const env = { ProgramFiles: 'C:\\Program Files' };
+  assert.equal(lib.jawsInstalled(env, (p) => p === 'C:\\Program Files\\Freedom Scientific\\JAWS'), true);
+  assert.equal(lib.jawsInstalled(env, () => false), false);
+  assert.equal(lib.jawsInstalled({}, () => true), false);
+});

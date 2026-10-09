@@ -274,6 +274,8 @@ function install(ctx) {
     const tries = [shortcuts[slot]];
     if (shortcuts[slot] === lib.defaultsFor(keyPlatform)[slot]) {
       tries.push(...lib.fallbacksFor(slot, keyPlatform).filter((key) => others.every((o) => key !== shortcuts[o] && key !== live[o])));
+      // (JAWS starts itself with Ctrl+Alt+J: with JAWS installed, Talk's default is the next key along)
+      if (slot === 'ask' && keyPlatform === 'win32' && (ctx.jawsInstalled || lib.jawsInstalled)() && tries.length > 1) tries.shift();
     }
     let ok = false;
     for (const accelerator of tries) {

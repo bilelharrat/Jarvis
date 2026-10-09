@@ -325,6 +325,12 @@ const DEFAULT_SHORTCUTS = defaultsFor(process.platform);
 // A PC has many programs that take Ctrl+Alt and a letter for themselves. When the Talk key's own
 // default is in use, the first free one of these (the keys beside J, which a finger finds) stands in for it (a key chosen in Settings never
 // is swapped: that one is said to be taken).
+// JAWS's own desktop shortcut starts JAWS with Ctrl+Alt+J. On a PC with JAWS installed, Talk's default steps
+// aside to the first of the keys beside it, so the two never fight over one key.
+function jawsInstalled(env = process.env, exists = require('fs').existsSync) {
+  const roots = [env.ProgramFiles, env['ProgramFiles(x86)'], env.ProgramW6432].filter(Boolean);
+  return roots.some((root) => exists(require('path').win32.join(root, 'Freedom Scientific', 'JAWS')));
+}
 const fallbacksFor = (slot, platform) => (platform === 'win32' && slot === 'ask' ? ['Control+Alt+K', 'Control+Alt+H', 'Control+Alt+L'] : []);
 // Opening at sign-in. On a PC the Run key starts the app with --hidden (it waits in the tray, ready
 // for its keys), and the first run puts it there: the person who needs it from the keyboard
@@ -490,6 +496,6 @@ function readStore(text) {
 module.exports = {
   DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, dockTemplate, appMenuTemplate,
   excerpt, normalizeApproval, approvalNotice, normalizeHeadsUp,
-  DEFAULT_SHORTCUTS, defaultsFor, fallbacksFor, WINDOWS_RESERVED, loginArgs, loginOnFirstRun, checkAccelerator, shortcutLabel, normalizeShortcuts,
+  DEFAULT_SHORTCUTS, defaultsFor, fallbacksFor, jawsInstalled, WINDOWS_RESERVED, loginArgs, loginOnFirstRun, checkAccelerator, shortcutLabel, normalizeShortcuts,
   MIN_SIZE, displaySetKey, placeWindow, centerOn, rememberPlace, allowAgain, readStore,
 };
