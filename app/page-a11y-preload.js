@@ -123,11 +123,11 @@
     '−': 'Less', '⋮': 'More', '⋯': 'More', '…': 'More', '▶': 'Play', '►': 'Play', '⏸': 'Pause', '✓': 'Done', '✔': 'Done', '⚙': 'Settings', '🛒': 'Cart', '⌂': 'Home', '?': 'Help' };
   // Text that is only symbols, or a font's private glyphs: no name a screen reader can say.
   function symbolOnly(text) {
-    const t = squash(text).replace(/[️‍]/g, '');
+    const t = squash(text).replace(/[\ufe0f\u200d]/g, '');
     return Boolean(t) && !/[\p{L}\p{N}]/u.test(t);
   }
   function glyphWords(text) {
-    const t = squash(text).replace(/[️‍]/g, '');
+    const t = squash(text).replace(/[\ufe0f\u200d]/g, '');
     return GLYPHS[t] || '';
   }
   // A font's ligature icon ("shopping_cart" inside a material-icons span), as words.

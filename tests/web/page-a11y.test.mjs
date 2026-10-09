@@ -38,7 +38,7 @@ test('glyphs and ligatures stand for their word', () => {
   assert.equal(H.glyphWords('×'), 'Close');
   assert.equal(H.glyphWords(' ☰ '), 'Menu');
   assert.equal(H.glyphWords('›'), 'Next');
-  assert.ok(H.symbolOnly('') && H.symbolOnly('×') && !H.symbolOnly('Go') && !H.symbolOnly('2'));
+  assert.ok(H.symbolOnly('\ue80d') && H.symbolOnly('×') && !H.symbolOnly('Go') && !H.symbolOnly('2'));
   assert.equal(H.ligatureWords('shopping_cart'), 'Shopping cart');
   assert.equal(H.ligatureWords('Add to bag'), '');
 });
