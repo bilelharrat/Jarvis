@@ -136,7 +136,7 @@ export function macCard(c, node, part) {
     el('span', 'tname', part.label || part.tool), el('span', 'tsum', sum),
     el('span', { class: `tstat ${st}`, 'aria-label': st === 'run' ? 'running' : st === 'done' ? 'done' : 'failed' })));
   const body = el('div', 'mac-body');
-  if (st === 'fail') body.append(el('div', 'mac-err', part.error || 'Jarvis didn’t answer.'));
+  if (st === 'fail') body.append(el('div', 'mac-err', part.error || 'Eden didn’t answer.'));
   const rows = [];
   if (part.files) for (const f of part.files) rows.push(fileRow(f));
   if (part.file) rows.push(fileRow(part.file, { snippet: part.file.pages > 1 ? `page ${part.file.page || 1} of ${part.file.pages}` : part.file.sampled ? 'a long file: its start, middle and end were read' : '' }));
@@ -193,14 +193,14 @@ export function closePane() {
 function focusIn(body) { requestAnimationFrame(() => { const f = body.querySelector('input, button') || $('macPane').querySelector('button'); if (f) f.focus(); }); }
 
 function notConnected(body) {
-  body.append(el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), state.jarvis.reason || 'The Jarvis app didn’t answer.'),
-    el('p', 'sp-note', 'Files are read through the Jarvis app on your Mac. The first time, it asks you on screen whether Eden may search and read them.'));
+  body.append(el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), state.jarvis.reason || 'The Eden app didn’t answer.'),
+    el('p', 'sp-note', 'Files are read through the Eden app on your Mac. The first time, it asks you on screen whether Eden may search and read them.'));
 }
 
 async function jarvisJson(tool, args) {
   const r = await api.jarvis(tool, args);
-  if (r.is_error) throw new Error(String(r.text || 'Jarvis said no.'));
-  try { return JSON.parse(r.text); } catch { throw new Error('Jarvis sent something Eden can’t read. Is it up to date?'); }
+  if (r.is_error) throw new Error(String(r.text || 'Eden said no.'));
+  try { return JSON.parse(r.text); } catch { throw new Error('Eden sent something Eden can’t read. Is it up to date?'); }
 }
 
 /** Search the Mac's files (Jarvis's index, then Spotlight), in the folders the owner allows. */
@@ -223,7 +223,7 @@ export function openFiles(query = '') {
       if (q.value.trim() !== v) return;
       const files = found.files || [];
       res.replaceChildren(
-        el('div', 'mac-where', `Looking in ${(found.folders || ['your home folder']).join(', ')} · choose folders in Jarvis › Settings › Jarvis in other apps`),
+        el('div', 'mac-where', `Looking in ${(found.folders || ['your home folder']).join(', ')} · choose folders in Eden › Settings › Eden in other apps`),
         ...(files.length ? files.map((f) => fileRow(f)) : [el('div', 'muted', 'Nothing matched.')]));
     } catch (e) { res.replaceChildren(el('div', 'sp-warn', el('b', '', 'That didn’t work'), e.message)); }
   };
@@ -258,7 +258,7 @@ export async function openFile(path, page = 1, { from } = {}) {
       el('button', { type: 'button', class: 'cap', onclick: () => { if (!macOn()) setMac(true); H.setComposerText(`Summarize ${f.display || f.path}`); closePane(); H.focusComposer(); } }, ico('spark', 12), 'Summarize'),
       pager),
     el('pre', { class: 'mac-text', tabindex: '0', 'aria-label': `Text of ${f.name}` }, f.text || ''),
-    el('p', 'sp-note', `Read on your Mac through Jarvis (secrets blanked out). It goes to a model only if you use it in chat: ${macReader().name} would read it.`));
+    el('p', 'sp-note', `Read on your Mac through Eden (secrets blanked out). It goes to a model only if you use it in chat: ${macReader().name} would read it.`));
   focusIn(body);
 }
 
@@ -277,7 +277,7 @@ export async function askScreen() {
   if (!state.jarvis.available) { toast(state.jarvis.reason || 'Your Mac isn’t connected'); return; }
   if (looking) { toast('Waiting for you on your Mac…'); return; }
   looking = true;
-  toast('Approve it on your Mac: Jarvis asks before Eden sees your screen');
+  toast('Approve it on your Mac: Eden asks before Eden sees your screen');
   try {
     const s = await jarvisJson('screen_context', { picture: true });
     const where = s.app || 'your Mac';

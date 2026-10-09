@@ -89,7 +89,7 @@ async function jarvisTool(t, a = {}) {
     case 'file_read':
     case 'file_summarize': {
       const f = find(a.path);
-      if (!f) return tool('That file isn’t one Eden may read (Settings › Jarvis in other apps).', true);
+      if (!f) return tool('That file isn’t one Eden may read (Settings › Eden in other apps).', true);
       if (t === 'file_summarize') return tool({ version: 1, note: NOTE, ...card(f), chars: f.text.length, sampled: false, instructions: 'Summarise this file for the owner.', text: f.text });
       const pages = Math.max(1, Math.ceil(f.text.length / PAGE));
       const page = a.page || 1;
@@ -105,7 +105,7 @@ async function jarvisTool(t, a = {}) {
         text: 'Numbers — window “Q3 budget”\n- table “Summary”\n  - row: Lisbon offsite = “€4,000”\n  - row: Contractors = “£18,500”\n  - row: Total = “£212,300”',
         url: '', truncated: false,
         image: flag('screen') === 'nopic' ? null : { mime: 'image/png', data: windowPicture() },
-        notes: flag('screen') === 'nopic' ? ['Pictures of the screen are off in Jarvis (Settings › Jarvis in other apps).'] : [],
+        notes: flag('screen') === 'nopic' ? ['Pictures of the screen are off in Eden (Settings › Eden in other apps).'] : [],
       });
     }
     case 'knowledge_list': return tool({ version: 1, folders: folders().map(kpublic) });

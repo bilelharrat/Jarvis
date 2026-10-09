@@ -187,7 +187,7 @@ export const STEPS = [
     done: 'Words in the box, ready to check and send.' },
   { id: 'read', chapter: 'voice', seconds: 25, target: [`${reply} [data-act="speak"]`, '[data-act="speak"]'],
     title: 'Read aloud',
-    body: 'Any reply can be read to you in the JARVIS voice.',
+    body: 'Any reply can be read to you in the Eden voice.',
     tryIt: 'Press the speaker under a reply.',
     start: (a) => a.ensureReply(),
     check: (c) => c.saw('click', '[data-act="speak"]'),

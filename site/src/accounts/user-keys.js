@@ -187,7 +187,7 @@ async function status(env, who) {
 export async function keysApi(request, env, who, { readBody }) {
   if (!own(who)) throw new ApiError(403, 'grant_forbidden', 'API keys stay with the account’s owner.');
   // Without the sealing secret, keys stay where they were: in Eden on the Mac.
-  if (!tokenSecret(env)) throw new ApiError(503, 'needs_mac', 'Needs your Mac. API keys stay in Eden on your Mac; on askeden.com, Claude runs on the AI included with your Jarvis account.');
+  if (!tokenSecret(env)) throw new ApiError(503, 'needs_mac', 'Needs your Mac. API keys stay in Eden on your Mac; on askeden.com, Claude runs on the AI included with your Eden account.');
   await limited(env, 'API_RATE', who.account);
   if (request.method === 'GET') return status(env, who);
   const body = await readBody(request, 4096);

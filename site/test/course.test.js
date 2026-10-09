@@ -331,7 +331,7 @@ test('the tutor: the course block spoken like a person; its turns count as quest
   await api(PROF, 'POST', `/api/chat/courses/${made.id}/docs`, LECTURE);
   const turn = await courseForTurn(env, { account: PROF }, made.id, 'what does oxygen do', { task: 'tutor' });
   assert.equal(turn.task, 'tutor');
-  assert.match(turn.block, /<source id="S1"[\s\S]*J\.A\.R\.V\.I\.S\., the student’s personal tutor[\s\S]*one question at a time/);
+  assert.match(turn.block, /<source id="S1"[\s\S]*Eden, the student’s personal tutor[\s\S]*one question at a time/);
   await recordTurn(env, { account: PROF }, turn, { status: 'verified' }, 'what does oxygen do');
   assert.equal((await api(PROF, 'GET', `/api/chat/courses/${made.id}/insights`)).questions, 1);
 });

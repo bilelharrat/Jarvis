@@ -220,7 +220,7 @@ function studyTab(root, pane, c) {
   q.addEventListener('input', () => { q.style.height = 'auto'; q.style.height = `${Math.min(q.scrollHeight, 220)}px`; });
   const sendBtn = el('button', { type: 'submit', class: 'jc-send', 'aria-label': 'Ask' });
   sendBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.5l5 5-1.1 1.1L8.8 5.5V13.5H7.2V5.5L4.1 8.6 3 7.5z"/></svg>'; // constant markup, as Eden's
-  const talk = el('button', { type: 'button', class: 'edu-talk', title: 'Talk it through with J.A.R.V.I.S.', 'aria-label': 'Talk with J.A.R.V.I.S.', onclick: () => dispatchEvent(new CustomEvent('eden:tutor', { detail: { course: c }, cancelable: true })) }, el('span', 'tut-mini'));
+  const talk = el('button', { type: 'button', class: 'edu-talk', title: 'Talk it through with Eden', 'aria-label': 'Talk with Eden', onclick: () => dispatchEvent(new CustomEvent('eden:tutor', { detail: { course: c }, cancelable: true })) }, el('span', 'tut-mini'));
   const ask = el('div', 'jc crs-askbar', el('form', { class: 'jc-composer', autocomplete: 'off', onsubmit: (e) => { e.preventDefault(); send(); } },
     el('div', 'jc-composer-top', q, talk, sendBtn)));
   const tool = (icon, t, d, run) => el('button', { type: 'button', class: 'crs-tool', onclick: run }, el('span', 'crs-tool-ic', ico(icon, 16)), el('b', '', t), el('span', 'muted', d));
@@ -232,7 +232,7 @@ function studyTab(root, pane, c) {
       tool('check', 'Practice quiz', 'Five questions, each checked against its source', () => go(root, { view: 'quiz', course: c })),
       tool('list', 'Flashcards and games', 'Cards, learn, test and match, from the materials', () => companion(c, 'Make 10 flashcards from the most important ideas in this course’s materials, each with the source it comes from.')),
       el('button', { type: 'button', class: 'crs-tool tutor', onclick: () => { if (dispatchEvent(new CustomEvent('eden:tutor', { detail: { course: c }, cancelable: true }))) location.href = `/edu#/course/${c.id}/study`; } },
-        el('span', 'crs-tool-ic', el('span', 'tut-mini')), el('b', '', 'Talk with J.A.R.V.I.S.'), el('span', 'muted', 'Your tutor, out loud: ask, get quizzed, think it through')),
+        el('span', 'crs-tool-ic', el('span', 'tut-mini')), el('b', '', 'Talk with Eden'), el('span', 'muted', 'Your tutor, out loud: ask, get quizzed, think it through')),
       tool('spark', 'Explain a hard topic', 'Step by step, then a question to check', () => study(c, 'What are the hardest ideas in this course’s materials? List them and ask me which one to explain step by step.')),
       tool('cal', 'Exam review plan', 'What to review, in what order', () => study(c, 'Make me an exam review plan from this course’s materials: the topics in order, what to review for each (with the source), and a quick self-test question for each.'))),
     el('button', { type: 'button', class: 'crs-link', onclick: () => study(c) }, 'Open an empty study chat'));
