@@ -1,0 +1,7 @@
+{
+ "strings": {
+  "Make web pages easier to read": "让网页更易于阅读",
+  "In the built-in browser: names for unlabeled buttons, links and pictures, headings you can jump between, and cookie banners and pop-ups out of the way (cookies refused where the page lets you). Only while screen-reader mode is on.": "在内置浏览器中：为没有标签的按钮、链接和图片补上名称，让标题可以逐个跳转，并移开 Cookie 横幅和弹窗（网页允许时拒绝 Cookie）。仅在屏幕阅读器模式开启时生效。",
+  "The built-in browser is only in the J.A.R.V.I.S. app.": "内置浏览器只在 J.A.R.V.I.S. 应用中提供。"
+ }
+}

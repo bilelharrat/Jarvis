@@ -1,7 +1,9 @@
 """The hub's calls into the built-in browser for this feature: through the window (its
 browser_ai.js passes them to the app's browser-ai.js, which asks the tab), answered over the
 window's socket. The same shape as the hub's own browser calls (hub._browser_raw), on the
-feature's own event and command, so none of the core's browser code changes for it."""
+feature's own event and command, so none of the core's browser code changes for it. Another
+feature with its own way into the browser uses it with its own event (page_a11y:
+page_a11y_cmd)."""
 
 from __future__ import annotations
 
@@ -13,8 +15,9 @@ CALL_SECONDS = 10.0
 
 
 class Bridge:
-    def __init__(self, hub: Any) -> None:
+    def __init__(self, hub: Any, event: str = "browser_ai_cmd") -> None:
         self.hub = hub
+        self.event = event  # the event the window hears the call on
         self._calls: dict[str, asyncio.Future] = {}
 
     async def call(
@@ -26,7 +29,7 @@ class Bridge:
         call_id = uuid.uuid4().hex[:10]
         future = asyncio.get_running_loop().create_future()
         self._calls[call_id] = future
-        self.hub.emit("browser_ai_cmd", id=call_id, action=action, args=args or {})
+        self.hub.emit(self.event, id=call_id, action=action, args=args or {})
         try:
             return await asyncio.wait_for(future, timeout)
         except TimeoutError:
