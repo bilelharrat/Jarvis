@@ -1,4 +1,4 @@
-"""Wake words the owner keeps (wakewords.py, wake.py, lang.py): "Jarvis" anywhere in a
+"""Wake words the owner keeps (wakewords.py, wake.py, lang.py): "Eden" anywhere in a
 sentence while it's one of them; other names (a persona's own, or added) only when called,
 in English and in Chinese; answers and announcements treat them as names, not words."""
 
@@ -27,8 +27,8 @@ def use(*names):
 
 def test_by_default_it_is_jarvis_alone_as_ever():
     wake.configure(None)
-    assert wake.wake_names() == ("Jarvis",) and wake.jarvis_on()
-    assert wake.find_wake("What's the weather, Jarvis?") == (True, "What's the weather")
+    assert wake.wake_names() == ("Eden",) and wake.jarvis_on()
+    assert wake.find_wake("What's the weather, Eden?") == (True, "What's the weather")
     assert wake.find_wake("Friday, what's the weather?") == (False, "")
 
 
@@ -46,25 +46,25 @@ def test_by_default_it_is_jarvis_alone_as_ever():
         ("I'll see you on Friday, okay?", (False, "")),
         ("Okay, Friday works.", (False, "")),
         ("Is it Monday, Tuesday, or Friday?", (False, "")),
-        ("Jarvis, what time is it?", (True, "what time is it")),  # still one of them
+        ("Eden, what time is it?", (True, "what time is it")),  # still one of them
     ],
 )
 def test_another_name_wakes_it_only_when_called(said, woke):
-    use("Jarvis", "Friday")
+    use("Eden", "Friday")
     assert wake.find_wake(said) == woke
 
 
 def test_without_jarvis_the_name_is_just_a_word():
     use("Friday")
     assert not wake.jarvis_on()
-    for said in ("Jarvis, what time is it?", "Hey Travis, lights off.", "What's up, Jarvis?"):
+    for said in ("Eden, what time is it?", "Hey Aiden, lights off.", "What's up, Eden?"):
         assert wake.find_wake(said) == (False, ""), said
     assert wake.find_wake("Friday, what time is it?") == (True, "what time is it")
     assert wake.find_wake("wake up, daddy's home") == (True, "")  # the phrase stays
 
 
 def test_a_short_name_has_to_be_heard_exactly():
-    use("Jarvis", "TARS")
+    use("Eden", "TARS")
     assert wake.find_wake("TARS, status report.") == (True, "status report")
     assert wake.find_wake("Tars, status report.") == (True, "status report")
     for said in ("Bars, status report.", "Stars, status report.", "Tar, status report."):
@@ -72,7 +72,7 @@ def test_a_short_name_has_to_be_heard_exactly():
 
 
 def test_answers_leave_the_name_out():
-    use("Jarvis", "Friday")
+    use("Eden", "Friday")
     assert wake.yes_no("Friday, yes") is True
     assert wake.yes_no("Friday, no, don't send it") is False
     approval = {"choices": [{"id": "allow", "label": "Send"}, {"id": "deny", "label": "No"}]}
@@ -80,11 +80,11 @@ def test_answers_leave_the_name_out():
 
 
 def test_announcements_keep_the_word_when_it_isnt_a_call():
-    use("Jarvis", "Friday")
+    use("Eden", "Friday")
     assert speakable("Ann says the meeting moved to Friday.") == (
         "Ann says the meeting moved to Friday."
     )
-    assert "Jarvis" not in speakable("Ann says: Jarvis, call me.")
+    assert "Eden" not in speakable("Ann says: Eden, call me.")
 
 
 @pytest.mark.parametrize(
@@ -97,17 +97,17 @@ def test_announcements_keep_the_word_when_it_isnt_a_call():
         ("星期五。", (False, "")),
         ("我们星期五，开会", (False, "")),
         ("Friday，明天天气怎么样", (True, "明天天气怎么样")),
-        ("贾维斯，几点了", (True, "几点了")),
+        ("伊甸，几点了", (True, "几点了")),
     ],
 )
 def test_in_chinese_too(said, woke):
-    use("Jarvis", "Friday", "星期五")
+    use("Eden", "Friday", "星期五")
     assert lang.find_wake(said, "zh") == woke
 
 
 def test_in_chinese_without_jarvis():
     use("星期五")
-    assert lang.find_wake("贾维斯，几点了", "zh") == (False, "")
+    assert lang.find_wake("伊甸，几点了", "zh") == (False, "")
     assert lang.find_wake("星期五，几点了", "zh") == (True, "几点了")
     assert lang.yes_no("星期五，好的", "zh") is True
     assert lang.yes_no("星期五可以", "zh") is None  # "Friday works": not a yes
@@ -123,17 +123,17 @@ def prefs(persona="jarvis", language="en", **features):
 
 
 def test_a_persona_brings_its_own_name():
-    assert wakewords.of(prefs()) == ["Jarvis"]
-    assert wakewords.of(prefs("friday")) == ["Jarvis", "Friday"]
-    assert wakewords.of(prefs("tars", "zh")) == ["Jarvis", "TARS", "塔斯"]
+    assert wakewords.of(prefs()) == ["Eden"]
+    assert wakewords.of(prefs("friday")) == ["Eden", "Friday"]
+    assert wakewords.of(prefs("tars", "zh")) == ["Eden", "TARS", "塔斯"]
 
 
 def test_added_and_removed_names_follow_the_persona():
-    kept = {"added": ["Computer"], "removed": ["Jarvis"]}
+    kept = {"added": ["Computer"], "removed": ["Eden"]}
     assert wakewords.of(prefs("friday", wake_words=kept)) == ["Friday", "Computer"]
     assert wakewords.of(prefs("jarvis", wake_words=kept)) == ["Computer"]
-    everything_removed = {"added": [], "removed": ["Jarvis"]}
-    assert wakewords.of(prefs(wake_words=everything_removed)) == ["Jarvis"]  # never none
+    everything_removed = {"added": [], "removed": ["Eden"]}
+    assert wakewords.of(prefs(wake_words=everything_removed)) == ["Eden"]  # never none
 
 
 def test_adding_and_removing():
@@ -145,10 +145,10 @@ def test_adding_and_removing():
     kept, why = wakewords.remove(p, "Friday")
     assert why == "" and kept == {"added": ["Computer"], "removed": ["Friday"]}
     p = prefs("friday", wake_words=kept)
-    assert wakewords.of(p) == ["Jarvis", "Computer"]
+    assert wakewords.of(p) == ["Eden", "Computer"]
     kept, _ = wakewords.add(p, "friday")  # a persona's name put back
     assert kept == {"added": ["Computer"], "removed": []}
-    kept, _ = wakewords.remove(prefs(), "Jarvis")
+    kept, _ = wakewords.remove(prefs(), "Eden")
     assert kept is None  # the last one stays
 
 
@@ -185,11 +185,11 @@ async def test_the_pane_adds_and_removes_and_the_hub_hears_them(settings, quiet_
     assert wake.find_wake("Friday, lights off.") == (True, "lights off")  # followed at once
 
     await hub._handle({"type": "voice_settings", "changes": {"wake_add": "Computer"}})
-    assert sent[-1][1]["wake_words"] == ["Jarvis", "Friday", "Computer"]
+    assert sent[-1][1]["wake_words"] == ["Eden", "Friday", "Computer"]
     assert wake.find_wake("Hey Computer") == (True, "")
-    await hub._handle({"type": "voice_settings", "changes": {"wake_remove": "Jarvis"}})
-    assert wake.find_wake("Jarvis, lights off.") == (False, "")
-    assert hub.prefs.feature("wake_words") == {"added": ["Computer"], "removed": ["Jarvis"]}
+    await hub._handle({"type": "voice_settings", "changes": {"wake_remove": "Eden"}})
+    assert wake.find_wake("Eden, lights off.") == (False, "")
+    assert hub.prefs.feature("wake_words") == {"added": ["Computer"], "removed": ["Eden"]}
 
     await hub._handle({"type": "voice_settings", "changes": {"wake_add": "stop"}})
     assert "not one I already answer to" in sent[-1][1]["wake_error"]
@@ -225,11 +225,11 @@ def test_the_owners_own_personas_answer_to_their_names(monkeypatch):
     long_name = personas.Persona("captain", "Captain Jack", "A pirate.")  # two words: no
     taken = personas.Persona("hey", "Hey", "Says hey.")  # already means something
     personas.register([nova, xiaomei, long_name, taken])
-    assert wakewords.defaults("nova") == ["Jarvis", "Nova"]
-    assert wakewords.defaults("nova", "zh") == ["Jarvis", "Nova", "诺瓦"]
-    assert wakewords.defaults("xiaomei", "zh") == ["Jarvis", "小美"]
-    assert wakewords.defaults("captain") == wakewords.defaults("hey") == ["Jarvis"]
-    assert wakewords.defaults("friday") == ["Jarvis", "Friday"]  # the built-in ones stay
+    assert wakewords.defaults("nova") == ["Eden", "Nova"]
+    assert wakewords.defaults("nova", "zh") == ["Eden", "Nova", "诺瓦"]
+    assert wakewords.defaults("xiaomei", "zh") == ["Eden", "小美"]
+    assert wakewords.defaults("captain") == wakewords.defaults("hey") == ["Eden"]
+    assert wakewords.defaults("friday") == ["Eden", "Friday"]  # the built-in ones stay
     personas.register([xiaomei], dropped=["nova"])
-    assert wakewords.defaults("nova") == ["Jarvis"]  # a dropped persona stops answering
+    assert wakewords.defaults("nova") == ["Eden"]  # a dropped persona stops answering
     assert "friday" in wakewords.PERSONA_NAMES and "xiaomei" in wakewords.PERSONA_NAMES

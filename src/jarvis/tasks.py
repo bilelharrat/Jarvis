@@ -3424,7 +3424,7 @@ class TaskManager:
                     log.warning("Couldn't look for an answer before asking", exc_info=True)
             if pre is not None and pre[0] == "answer":  # (pre: ("answer", option, why))
                 answers[question] = pre[1]
-                self._log(task, "system", f"Jarvis answered “{question}” → {pre[1]} ({pre[2]})")
+                self._log(task, "system", f"Eden answered “{question}” → {pre[1]} ({pre[2]})")
                 continue
             if pre is not None and pre[0] == "go_on":  # (("go_on", message to Claude Code))
                 self._log(task, "system", f"Not asked now: “{question}”. {pre[2]}")

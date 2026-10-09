@@ -11,6 +11,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from difflib import SequenceMatcher
 from typing import Any
 
 import numpy as np
@@ -809,12 +810,15 @@ _GREETING = re.compile(r"^(?:hey|hi|okay|ok|oh|so)\b[\s,.!?]*", re.I)
 
 def near_wake(text: str) -> bool:
     """Whether a transcript's first or last word (after a greeting) could be the wake word
-    misheard: one starting with J ("job is", "JavaS", "Joggers"). Only a hint to listen
-    again: the second hearing still has to say the name."""
+    misheard: one that starts and sounds a little like "Eden" ("Edon", "Aidan", "Ethan").
+    Only a hint to listen again: the second hearing still has to say the name."""
     words = re.findall(r"[A-Za-z']+", _GREETING.sub("", (text or "").strip()))
-    return bool(words) and any(
-        w.lower().startswith("j") and len(w) >= 3 for w in (words[0], words[-1])
-    )
+    return bool(words) and any(_like_the_name(w) for w in (words[0], words[-1]))
+
+
+def _like_the_name(word: str) -> bool:
+    w = word.lower().replace("'", "")
+    return 3 <= len(w) <= 7 and w[0] in "aei" and SequenceMatcher(None, w, "eden").ratio() >= 0.4
 
 
 class Transcriber:
