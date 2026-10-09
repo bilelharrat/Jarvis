@@ -124,7 +124,7 @@ from .providers import build_server as models_server
 from .routines import RoutineStore
 from .speech import Speaker, SpeechQueue, ai_voice_effect, cloud_voice_from, is_silent
 from .tasks import CLAUDE_DOWN, ClaudeTask, TaskManager
-from .wake import find_wake, is_homecoming
+from .wake import find_wake, is_homecoming, names_another
 
 # After Claude couldn't answer, JARVIS stays on the fallback model till Claude's usage limit
 # resets when Claude Code said when (at most FALLBACK_LONGEST at a time), else this long.
@@ -153,13 +153,13 @@ NO_FALLBACK_TALK = (
 # Plus) and there's no fallback: its own words ask for a /login nobody can type here.
 NOT_SIGNED_IN = (
     "I'm not signed in to Claude, so I can't answer yet. Sign me in with the Claude step of "
-    "Settings › Health & safety › Set up Jarvis again…, then ask me again."
+    "Settings › Health & safety › Set up Eden again…, then ask me again."
 )
 # The Chinese spells the name J.A.R.V.I.S.: said aloud, "Jarvis" would wake JARVIS itself.
 lang.add_texts(
     {
         NOT_SIGNED_IN: "我还没有登录 Claude，所以暂时无法回答。请在“设置 › 运行状况与安全 › "
-        "重新设置 J.A.R.V.I.S.…”的 Claude 步骤中为我登录，然后再问我一次。",
+        "重新设置 Eden…”的 Claude 步骤中为我登录，然后再问我一次。",
     }
 )
 # What an Eden Code session, or JARVIS's conversation, is told when the fallback takes over
@@ -511,7 +511,7 @@ SLOW_COMMANDS = frozenset(
 # briefing"). A trigger word just somewhere in it ("search my notes") doesn't.
 _LEAD_IN = (
     r"(?:(?:ok(?:ay)?|hey|hi|alright|all\s+right|right|so|now|well|oh|um|uh|and|also|then"
-    r"|just|please|jarvis|from\s+now\s+on)\b[\s,]*)*"
+    r"|just|please|eden|jarvis|from\s+now\s+on)\b[\s,]*)*"
     r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?"
     r"|(?:i\s+(?:want|need)|i'?d\s+like|i\s+would\s+like)\s+you\s+to\s+|please\s+)?"
 )
@@ -573,7 +573,12 @@ def speakable_safely(text: str) -> str | None:
         return spoken
     spoken = re.sub(
         r"[A-Za-z'’]+",
-        lambda m: "the assistant" if find_wake(m.group())[0] else m.group(),
+        lambda m: (
+            "the assistant"
+            if find_wake(m.group())[0]
+            and not names_another(m.string[: m.start()], m.string[m.end() :])
+            else m.group()
+        ),
         spoken,
     )
     return None if find_wake(spoken)[0] else spoken
@@ -2412,7 +2417,7 @@ class Hub:
             heard = self.heard_live(audio)
             if heard is not None:
                 return heard
-        base = lang.WAKE_HINT_ZH if lang.is_zh(self.language) else "Jarvis"
+        base = lang.WAKE_HINT_ZH if lang.is_zh(self.language) else "Eden"
         hints = self.hearing.hotwords(base)
         return stt.transcribe(audio, hints) if hints != base else stt.transcribe(audio)
 
@@ -2677,7 +2682,7 @@ class Hub:
         waiting out its 20-45s timeout while the turn holds the conversation. A window that
         connects again says what it can do (its capabilities message)."""
         self.browser_available = self.research_available = False
-        gone = "The J.A.R.V.I.S. window closed."
+        gone = "The Eden window closed."
         for calls in (self._browser_calls, self._research_calls):
             for future in calls.values():
                 if not future.done():
@@ -3037,7 +3042,7 @@ class Hub:
             reply = f"That didn't work: {exc}"
         except Exception as exc:  # Quartz without the Accessibility permission, say
             log.warning("instant mac command failed: %s", exc)
-            reply = "That didn't work. Is J.A.R.V.I.S. allowed under Accessibility?"
+            reply = "That didn't work. Is Eden allowed under Accessibility?"
         if reply is None:
             return False
         log.info("instant mac command: %s", command.kind)
@@ -4056,7 +4061,7 @@ class Hub:
             self.emit(
                 "notice",
                 title="Voice typing",
-                text="Couldn’t type: allow J.A.R.V.I.S. in System Settings › Privacy & Security › Accessibility.",
+                text="Couldn’t type: allow Eden in System Settings › Privacy & Security › Accessibility.",
             )
             if typing.on:
                 await self.set_voice_typing(False)
@@ -4873,7 +4878,7 @@ class Hub:
         """Ask the J.A.R.V.I.S. window to act on the Research Center; the answer comes back
         over the socket."""
         if not self.research_available:
-            return {"error": "The Research Center only opens in the J.A.R.V.I.S. app window."}
+            return {"error": "The Research Center only opens in the Eden app window."}
         if action == "open" and not self.prefs.research_url:
             return {"error": research.NONE_SET}  # a new install has none: Markets is only markets
         call_id = uuid.uuid4().hex[:10]
@@ -5055,9 +5060,9 @@ class Hub:
         while path.exists():
             path = CONVERSATIONS_DIR / f"Conversation {stamp:%Y-%m-%d %H.%M} ({n}).md"
             n += 1
-        lines = [f"# Conversation with J.A.R.V.I.S., {stamp:%A %-d %B %Y}", ""]
+        lines = [f"# Conversation with Eden, {stamp:%A %-d %B %Y}", ""]
         for item in self.history:
-            who = "You" if item.get("role") == "user" else "J.A.R.V.I.S."
+            who = "You" if item.get("role") == "user" else "Eden"
             when = str(item.get("at", ""))[11:16]
             lines += [
                 f"**{who}**{f' · {when}' if when else ''}",
@@ -5171,7 +5176,7 @@ class Hub:
         """Ask the J.A.R.V.I.S. window to run a browser action; its answer comes back over
         the socket."""
         if not self.browser_available:
-            return {"error": "The built-in browser is only in the J.A.R.V.I.S. app window."}
+            return {"error": "The built-in browser is only in the Eden app window."}
         call_id = uuid.uuid4().hex[:10]
         future = asyncio.get_running_loop().create_future()
         self._browser_calls[call_id] = future
@@ -5327,7 +5332,7 @@ class Hub:
 
         @tool(
             "switch_model",
-            "Switch which Claude model JARVIS runs on, from the next request: opus, sonnet, "
+            "Switch which Claude model Eden runs on, from the next request: opus, sonnet, "
             "haiku or fable.",
             {"model": str},
         )
@@ -5342,7 +5347,7 @@ class Hub:
 
         @tool(
             "set_personality",
-            "Change JARVIS's persona (jarvis, tars, friday) and/or humor (0 to 100 percent). "
+            "Change Eden's persona (jarvis, tars, friday) and/or humor (0 to 100 percent). "
             "Adopt the new setting immediately.",
             {
                 "type": "object",
@@ -5359,7 +5364,7 @@ class Hub:
 
         @tool(
             "set_hands_free",
-            "Turn hands-free mode (wake word 'Jarvis', talk over me to interrupt) on or off.",
+            "Turn hands-free mode (wake word 'Eden', talk over me to interrupt) on or off.",
             {"enabled": bool},
         )
         async def set_hands_free(args):
@@ -5386,7 +5391,7 @@ class Hub:
                     "content": [
                         {
                             "type": "text",
-                            "text": "I don't have a location fix. Location Services may be off for J.A.R.V.I.S.",
+                            "text": "I don't have a location fix. Location Services may be off for Eden.",
                         }
                     ],
                     "is_error": True,
@@ -5434,7 +5439,7 @@ class Hub:
                     "content": [
                         {
                             "type": "text",
-                            "text": "I need your location for that; allow Location Services for J.A.R.V.I.S.",
+                            "text": "I need your location for that; allow Location Services for Eden.",
                         }
                     ],
                     "is_error": True,
@@ -5717,7 +5722,7 @@ class Hub:
         elif alert.kind == "delegate":  # written after reading the other person's messages
             note = f"{alert.kind}: a conversation update (list_delegations for details)"
         elif alert.kind == "voicemail":  # a caller's words are anyone's to say: who, not what
-            note = f"{alert.kind}: {alert.note or 'a call to the Jarvis number (list_calls)'}"
+            note = f"{alert.kind}: {alert.note or 'a call to the Eden number (list_calls)'}"
         elif alert.note:  # a feature's own summary, for words that are anyone's to write
             note = f"{alert.kind}: {alert.note}"
         else:
@@ -6419,7 +6424,7 @@ class Hub:
                 note = "Forgot the Twilio sign-in."
             elif kind == "phone_test":
                 await self.phone.call_me(
-                    "Hello, this is Jarvis. Your phone calls are set up. "
+                    "Hello, this is Eden. Your phone calls are set up. "
                     "This is how your wake-up calls will sound."
                 )
                 note = "Calling you now."
@@ -7438,7 +7443,7 @@ class Hub:
         from .maps import run_helper
 
         if not self.browser_available:  # i.e. no app window connected yet
-            return {"error": "The J.A.R.V.I.S. window isn't open."}
+            return {"error": "The Eden window isn't open."}
         future = self._location_future
         if future is None or future.done():  # one question to the window at a time
             future = self._location_future = asyncio.get_running_loop().create_future()
@@ -7500,7 +7505,7 @@ def frontmost_app() -> str:
     except (OSError, subprocess.SubprocessError):
         return "their Mac"
     match = re.match(r'\s*"([^"]+)"', info)  # the first line starts with the app's name
-    if not match or match.group(1).startswith("J.A.R.V.I.S"):
+    if not match or match.group(1).startswith("J.A.R.V.I.S") or match.group(1) == "Eden":
         return "their Mac"
     return match.group(1)
 

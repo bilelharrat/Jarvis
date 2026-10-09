@@ -162,7 +162,7 @@ class ProjectVocab:
         recent = sorted(
             (f for f in self.files if Path(f).suffix in SOURCE_EXTS), key=mtime, reverse=True
         )
-        terms: list[str] = ["Jarvis"]
+        terms: list[str] = ["Eden"]
         for rel in recent[: limit // 2]:
             stem = Path(rel).stem
             if len(stem) > 2 and stem not in terms:

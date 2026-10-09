@@ -306,14 +306,14 @@ _LEAD_EN = re.compile(
 def _prep(text: str) -> str:
     """The utterance without the wake word, lead-ins or end punctuation, spaces single."""
     t = (text or "").replace("’", "'").replace("‘", "'").strip()
-    t = re.sub(r"^\W*(?:jarvis|jervis|jarvus)\b[\s,.:;!-]*", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"^\W*(?:eden|jarvis|jervis|jarvus)\b[\s,.:;!-]*", "", t, flags=re.IGNORECASE)
     t = re.sub(r"\s+", " ", t).strip()
     t = _LEAD_EN.sub("", t).strip()
     return re.sub(r"[\s.!?,;:]+$", "", t)
 
 
 _WAKE_LEAD_ZH = re.compile(
-    r"^(?:" + "|".join(lang.WAKE_NAMES_ZH) + r"|jarvis)(?![ \t]*(?:代码|code))[\s,，.。!！、]*",
+    r"^(?:" + "|".join(lang.WAKE_NAMES_ZH) + r"|eden)(?![ \t]*(?:代码|code))[\s,，.。!！、]*",
     re.IGNORECASE,
 )
 
@@ -943,8 +943,8 @@ ZH = {
     "What about it?": "想问什么？",
     "Nothing sent.": "什么也没发。",
     "Sent to {session}.": "已发给{session}。",
-    "To send your selected text too, allow Accessibility for J.A.R.V.I.S. in System Settings.": (
-        "要把你选中的文字也一起发送，请在“系统设置”里允许 J.A.R.V.I.S. 使用辅助功能。"
+    "To send your selected text too, allow Accessibility for Eden in System Settings.": (
+        "要把你选中的文字也一起发送，请在“系统设置”里允许 Eden 使用辅助功能。"
     ),
     "Only a picture went along: the helper that reads the window's title and selected text couldn't be built.": (
         "只发送了截图：读取窗口标题和选中文字的辅助程序没能构建。"

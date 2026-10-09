@@ -1,4 +1,4 @@
-"""Hands-free rules: spotting "Jarvis", spoken stop commands, and JARVIS hearing itself."""
+"""Hands-free rules: spotting "Eden", spoken stop commands, and Eden hearing itself."""
 
 from __future__ import annotations
 
@@ -6,8 +6,11 @@ import difflib
 import re
 from collections.abc import Callable, Iterable
 
-# What Whisper tends to write when someone says "Jarvis".
-WAKE_WORDS = {"jarvis", "jarvis's", "jervis", "javis", "jarvus", "jarvas", "jarves", "jarvi"}
+# What Whisper tends to write when someone says "Eden" (the assistant's name and wake word,
+# "J.A.R.V.I.S." before the rename). A word this short gets no fuzzy match: one letter off
+# "eden" is "even", "edit" or "eaten".
+NAME = "eden"
+WAKE_WORDS = {"eden", "eden's", "edens", "edenn"}
 STOP_PHRASES = {
     "stop",
     "wait",
@@ -28,15 +31,17 @@ STOP_PHRASES = {
 }
 
 _WORD = re.compile(r"[a-z']+")
-# "Hey Jarvis" and friends. When one of these opens the utterance, a few names Whisper
-# writes for "Jarvis" count too ("Hey Travis", "Okay Marvis"); on their own, or later in
-# a sentence ("…a Paris trip", "Hi Harris"), they're just words.
+# "Hey Eden" and friends. When one of these opens the utterance, a few names Whisper
+# writes for "Eden" count too ("Hey Aiden", "Okay Edan"); on their own, or later in a
+# sentence ("…with Aiden", "Hi Eaton"), they're just words.
 GREETINGS = {"hey", "hi", "okay", "ok", "yo", "hello", "hay"}
 GREETED_MISHEARINGS = {
-    "travis", "harvis", "marvis", "garvis", "carvis", "darvis", "charvis", "jarbis", "jarviss",
+    "aiden", "aden", "edan", "edin", "edon", "eaden", "eadon", "eaton", "iden", "heden",
 }  # fmt: skip
-# "Eden Code", the coding panel, is a name JARVIS says itself: never a wake word.
-_PANEL = {"code", "codes"}
+# "Eden Code" (the coding panel), "Eden Messenger" and "Eden Plus" are names it says itself, and "Ask
+# Eden" is the other app (or "the garden of Eden"): "Eden" in those is never a wake word.
+_PANEL = {"code", "codes", "messenger", "plus"}
+_NAMED_AFTER = {"ask", "of"}
 
 # An extra wake phrase besides the name, forgiving of how Whisper writes it ("wake up
 # daddy's home", "wake up, daddy is home", "wakeup daddys home"). It needs the whole
@@ -57,7 +62,7 @@ def words(text: str) -> list[str]:
 # anyone says ("Friday", 星期五), so it wakes only as a call: first, then a pause and the
 # request ("Friday, what's on today?"), or after a greeting ("Hey Friday"). Said on its
 # own ("Friday.") it's an answer to someone, and mid-sentence it's just a word. The voice
-# feature sets where the names come from (configure); without it, it's only "Jarvis".
+# feature sets where the names come from (configure); without it, it's only "Eden".
 _names_source: Callable[[], Iterable[str]] | None = None
 _names_cache: tuple[tuple[str, ...], tuple[bool, tuple[str, ...], tuple[str, ...]]] | None = None
 _extra_sources: dict[str, Callable[[], Iterable[str]]] = {}
@@ -80,7 +85,7 @@ def add_names(key: str, source: Callable[[], Iterable[str]] | None) -> None:
 
 def configure(source: Callable[[], Iterable[str]] | None) -> None:
     """Where the wake words come from (called for each check, so a change in Settings or
-    of persona applies at once); None: just "Jarvis"."""
+    of persona applies at once); None: just "Eden"."""
     global _names_source, _names_cache
     _names_source, _names_cache = source, None
 
@@ -93,7 +98,7 @@ def wake_names() -> tuple[str, ...]:
             names = tuple(str(n) for n in _names_source() if str(n).strip())
         except Exception:  # a settings file that can't be read: the name it always had
             names = ()
-    names = names or ("Jarvis",)
+    names = names or ("Eden",)
     for source in list(_extra_sources.values()):
         try:
             more = tuple(str(n) for n in source() if str(n).strip())
@@ -115,8 +120,8 @@ def _names() -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
     names = wake_names()
     if _names_cache is not None and _names_cache[0] == names:
         return _names_cache[1]
-    jarvis = any(_key(n) == "jarvis" for n in names)
-    others = tuple(n.strip() for n in names if _key(n) != "jarvis" or not n.isascii())
+    jarvis = any(_key(n) == NAME for n in names)
+    others = tuple(n.strip() for n in names if _key(n) != NAME or not n.isascii())
     latin = tuple(dict.fromkeys(_key(n) for n in others if n.isascii() and len(_key(n)) >= 2))
     _names_cache = (names, (jarvis, latin, others))
     return _names_cache[1]
@@ -179,12 +184,21 @@ def _is_wake_token(token: str) -> bool:
 
 
 def _is_jarvis_token(token: str) -> bool:
-    if token in WAKE_WORDS:
+    """A word Whisper wrote for the name "Eden" (the function's name is from before the rename)."""
+    return token in WAKE_WORDS
+
+
+def names_another(before: str, after: str) -> bool:
+    """Whether "Eden" between these is part of another name rather than a call: "Eden Code",
+    "Eden Messenger", "Ask Eden", "the garden of Eden" (a pause in between makes it a call
+    again: "Ask, Eden…" is not, "Eden, code this" is)."""
+    following = words(after[:40])[:1]
+    if following and following[0] in _PANEL and not re.match(r"[^\w\s]", after):
         return True
-    # Near-misses Whisper produces for accents and distance: "jervis", "jarimvis", "jarenvist".
-    if not (5 <= len(token) <= 10) or token[0] not in "jgc":
-        return False
-    return difflib.SequenceMatcher(None, token, "jarvis").ratio() >= 0.76
+    preceding = words(before[-40:])[-1:]
+    return (
+        bool(preceding) and preceding[0] in _NAMED_AFTER and not re.search(r"[^\w\s]\s*$", before)
+    )
 
 
 def is_homecoming(text: str) -> bool:
@@ -230,6 +244,13 @@ def find_jarvis(text: str) -> tuple[bool, str]:
         following = tokens[next_token][1] if next_token < len(tokens) else ""
         if following in _PANEL and not re.search(r"\W$", pieces[span[1]]):
             continue  # "Eden Code finished in…": the panel's name, likely its own voice
+        if (
+            n
+            and not greeted
+            and tokens[n - 1][1] in _NAMED_AFTER
+            and not re.search(r"\W$", pieces[tokens[n - 1][0]])
+        ):
+            continue  # "open Ask Eden", "the garden of Eden": another name, not a call
         before = "".join(pieces[: span[0]]).strip(" ,.!?;:-")
         after = "".join(pieces[span[1] + 1 :]).strip(" ,.!?;:-")
         before = re.sub(r"^(?:hey|hi|okay|ok|yo|hello)\b[\s,]*", "", before, flags=re.I).strip()

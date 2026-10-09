@@ -861,7 +861,7 @@ class Transcriber:
     def loaded(self) -> bool:
         return self._model is not None
 
-    def transcribe(self, audio: np.ndarray, hotwords: str = "Jarvis") -> str:
+    def transcribe(self, audio: np.ndarray, hotwords: str = "Eden") -> str:
         """The words of an utterance. In English the wake word isn't among the hotwords
         (lang.transcribe_options): as one, like an initial_prompt of "Jarvis,", it made
         Whisper treat the name as already said and drop it from the start of a request.
@@ -884,9 +884,9 @@ class Transcriber:
         # first words; a short lead-in of silence stops it swallowing the first word.
         from . import lang
 
-        options = lang.transcribe_options(self.language, "" if hotwords == "Jarvis" else hotwords)
+        options = lang.transcribe_options(self.language, "" if hotwords == "Eden" else hotwords)
         if name_hint:  # the second hearing of a near miss: the name as a hint after all
-            options["hotwords"] = f"Jarvis {options.get('hotwords', '')}".strip()
+            options["hotwords"] = f"Eden {options.get('hotwords', '')}".strip()
         padded = np.concatenate([np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32), audio])
         segments, _info = self._load().transcribe(
             padded,
