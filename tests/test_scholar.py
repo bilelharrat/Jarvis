@@ -167,7 +167,7 @@ def test_the_feature_registers_its_tools_and_the_owners_citation_style(tmp_path,
     hub, servers, prefs = hub_for(tmp_path, monkeypatch)
     build, kw = servers["scholar"]
     assert "Never use or suggest Library Genesis, Anna's Archive or Sci-Hub" in kw["prompt"]
-    assert set(kw["web"]) == {"find_papers", "paper_details", "cite", "bibliography"}
+    assert set(kw["web"]) == {"find_papers", "paper_details", "who_cites", "related_papers", "cite", "bibliography"}
     assert hub.tasks.citation_style() == "mla"
     assert build()["name"] == "scholar"
 

@@ -1,5 +1,7 @@
 """Scholarly research as JARVIS's tools (jarvis.scholar does the work): find papers, hear about
-one, get its free copy to read aloud, cite it, and keep a library with its bibliography.
+one, who cites it and what is related to it, get its free copy to read aloud, cite it, and keep a
+library with its bibliography. (Paper alerts, the reference checker and Zotero sync are in
+scholar_extras.)
 
 Settings (prefs.features): scholar_style, the citation style used when none is asked for
 ("apa", "mla", "chicago", "harvard", "ieee", "vancouver"); scholar_proxy, the owner's university
@@ -51,7 +53,9 @@ def through_library(prefix: str, url: str) -> str:
 PROMPT = (
     "Scholarly research: for papers, studies, the literature on a topic, citations or a "
     "bibliography, use the scholar tools (find_papers, paper_details, get_paper, cite, "
-    "save_paper, list_library, remove_paper, bibliography), not a general web search. Say how "
+    "save_paper, list_library, remove_paper, bibliography), not a general web search. For the "
+    "papers that cite a paper (its forward citations, its influence) use who_cites; for papers "
+    "like one they liked, related_papers. Say how "
     "many papers you found first, then each in a sentence: title, first authors, year, venue, "
     "citations, and whether a free copy exists. Never invent a paper, an author or a DOI: only "
     "what these tools returned. To read a paper aloud, get_paper saves its free copy, then "
@@ -66,6 +70,8 @@ PROMPT = (
 LABELS = {
     "find_papers": "Finding papers",
     "paper_details": "Reading about a paper",
+    "who_cites": "Finding who cites a paper",
+    "related_papers": "Finding related papers",
     "get_paper": "Getting a paper",
     "cite": "Citing a paper",
     "save_paper": "Saving a paper",
@@ -154,6 +160,66 @@ def install(hub: Any) -> None:
             if link:
                 more.append(f"Free copy: {link}")
             return _text("\n".join(more))
+
+        @tool(
+            "who_cites",
+            "The papers that cite a paper (forward citations), from OpenAlex. sort: cited (most "
+            "cited first, default) or newest. since: a year. Says how many cite it in all.",
+            {
+                "type": "object",
+                "properties": {
+                    "paper": PAPER,
+                    "sort": {"type": "string", "enum": ["cited", "newest"]},
+                    "since": {"type": "integer"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["paper"],
+            },
+        )
+        async def who_cites(args):
+            try:
+                work = await scholar.work(str(args["paper"]))
+                if not work:
+                    return _text("I couldn't find that paper.")
+                works, total = await scholar.citing(
+                    str(work.get("id") or ""),
+                    sort=str(args.get("sort") or "cited"),
+                    since=args.get("since"),
+                    limit=int(args.get("limit") or 6),
+                )
+            except Exception as exc:
+                return _text(f"The paper index didn't answer ({type(exc).__name__}). Try again in a moment.", True)
+            title = work.get("display_name") or "that paper"
+            if not works:
+                return _text(f"The index knows of no papers citing {title}" + (" in those years." if args.get("since") else "."))
+            order = "the newest first" if args.get("sort") == "newest" else "the most cited first"
+            lines = [f"{total} papers cite {title}. Here are {len(works)}, {order}:"]
+            lines += [describe(w, i + 1) for i, w in enumerate(works)]
+            return _text("\n".join(lines))
+
+        @tool(
+            "related_papers",
+            "Papers related to a paper (OpenAlex's related works: shared topics and citations), the "
+            "most cited first.",
+            {
+                "type": "object",
+                "properties": {"paper": PAPER, "limit": {"type": "integer"}},
+                "required": ["paper"],
+            },
+        )
+        async def related_papers(args):
+            try:
+                work = await scholar.work(str(args["paper"]))
+                if not work:
+                    return _text("I couldn't find that paper.")
+                works = await scholar.related(work, limit=int(args.get("limit") or 6))
+            except Exception as exc:
+                return _text(f"The paper index didn't answer ({type(exc).__name__}). Try again in a moment.", True)
+            title = work.get("display_name") or "that paper"
+            if not works:
+                return _text(f"The index lists no related papers for {title}. find_papers on its topic may help.")
+            lines = [f"{len(works)} papers related to {title}:"] + [describe(w, i + 1) for i, w in enumerate(works)]
+            return _text("\n".join(lines))
 
         @tool(
             "get_paper",
@@ -284,7 +350,7 @@ def install(hub: Any) -> None:
         return create_sdk_mcp_server(
             name="scholar",
             version="0.1.0",
-            tools=[find_papers, paper_details, get_paper, cite, save_paper, list_library, remove_paper, bibliography, open_paper, set_library_link],
+            tools=[find_papers, paper_details, who_cites, related_papers, get_paper, cite, save_paper, list_library, remove_paper, bibliography, open_paper, set_library_link],
         )
 
     hub.register_server(
@@ -292,5 +358,5 @@ def install(hub: Any) -> None:
         build,
         prompt=PROMPT,
         labels=LABELS,
-        web=("find_papers", "paper_details", "cite", "bibliography"),
+        web=("find_papers", "paper_details", "who_cites", "related_papers", "cite", "bibliography"),
     )

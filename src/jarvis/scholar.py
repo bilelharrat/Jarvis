@@ -7,9 +7,11 @@ read aloud.
   account), by topic, with years, open access only, a field's newest or most cited.
 - paper_details: one paper's abstract (OpenAlex keeps it as a word index: rebuilt here), its
   venue, citations, whether it was retracted, and where a free copy is.
+- who_cites / related_papers: the papers citing one (OpenAlex's cites: filter, with how many
+  cite it in all) and the ones OpenAlex lists as related to it.
 - get_paper: the free, legal copy of a paper (the open-access PDF OpenAlex names, never a
   paywall around) saved in Documents › Jarvis › Papers, to be read aloud in parts with
-  read_document.
+  read_document. Equations in a full text are said in words (jarvis.mathspeech).
 - cite: the exact reference from the DOI's own registry (doi.org content negotiation, the
   publishers' CSL styles): APA, MLA, Chicago, Harvard, IEEE, Vancouver, or BibTeX.
 - save_paper / list_library / remove_paper / bibliography: the owner's library (a file in the
@@ -46,6 +48,7 @@ STYLES = {
     "ieee": "ieee",
     "vancouver": "vancouver",
 }
+FORMULAS = ("inline-formula", "disp-formula", "math")
 DOI = re.compile(r"10\.\d{4,9}/[^\s\"<>]+", re.I)
 
 
@@ -115,13 +118,37 @@ def arxiv_pdfs(work: dict[str, Any]) -> list[str]:
 def jats_text(xml: str) -> str:
     """An article's full text (JATS XML, as Europe PMC gives it) as plain text with its headings:
     the title, the abstract, then each section's heading and paragraphs. Figures, tables and the
-    reference list are left out (they read badly aloud); the references stay in the paper's record."""
+    reference list are left out (they read badly aloud); the references stay in the paper's record.
+    Equations are said in words (mathspeech): a numbered display equation as "Equation 2: …"."""
     import xml.etree.ElementTree as ET
+
+    from .mathspeech import formula_words, label_of
 
     root = ET.fromstring(xml)
 
+    def spoken(node: Any) -> list[str]:
+        """The node's text, its formulas in words instead of their symbols."""
+        out = [node.text or ""]
+        for child in node:
+            local = str(child.tag).rsplit("}", 1)[-1] if isinstance(child.tag, str) else ""
+            if local in FORMULAS:
+                out.append(" " + formula(child) + " ")
+            else:
+                out.extend(spoken(child))
+            out.append(child.tail or "")
+        return out
+
+    def formula(node: Any) -> str:
+        said = formula_words(node)
+        local = str(node.tag).rsplit("}", 1)[-1]
+        if local == "disp-formula":
+            label = label_of(node)
+            return f"Equation {label}: {said}." if label else f"{said}."
+        return said
+
     def words(node: Any) -> str:
-        return re.sub(r"\s+", " ", "".join(node.itertext())).strip()
+        text = re.sub(r"\s+", " ", "".join(spoken(node))).strip()
+        return re.sub(r"\s+([,.;:)])", r"\1", text).replace("..", ".")
 
     out: list[str] = []
     title = root.find(".//article-meta//article-title")
@@ -140,8 +167,8 @@ def jats_text(xml: str) -> str:
                 if head is not None and words(head):
                     out.append("\n" + words(head))
                 section(child, depth + 1)
-            elif tag == "p":
-                text = words(child)
+            elif tag in ("p", "disp-formula"):
+                text = words(child) if tag == "p" else formula(child)
                 if text:
                     out.append(text)
 
@@ -249,6 +276,40 @@ class Scholar:
             return None
         r.raise_for_status()
         return r.json()
+
+    async def citing(
+        self, work_id: str, *, sort: str = "cited", since: int | None = None, limit: int = 6
+    ) -> tuple[list[dict[str, Any]], int]:
+        """The papers that cite a work (by its OpenAlex id), most cited or newest first; and how
+        many cite it in all."""
+        filters = [f"cites:{short_id({'id': work_id})}"]
+        if since:
+            filters.append(f"from_publication_date:{int(since)}-01-01")
+        params = {
+            "filter": ",".join(filters),
+            "per-page": str(max(1, min(MAX_RESULTS, int(limit)))),
+            "sort": "publication_date:desc" if sort == "newest" else "cited_by_count:desc",
+        }
+        r = await self.client().get(f"{OPENALEX}/works", params=params)
+        r.raise_for_status()
+        data = r.json()
+        return list(data.get("results") or []), int((data.get("meta") or {}).get("count") or 0)
+
+    async def related(self, work: dict[str, Any], limit: int = 6) -> list[dict[str, Any]]:
+        """The papers OpenAlex lists as related to this one (by shared concepts and citations),
+        the most cited first."""
+        ids = [short_id({"id": w}) for w in work.get("related_works") or []]
+        ids = [i for i in ids if re.fullmatch(r"W\d+", i)][:50]
+        if not ids:
+            return []
+        params = {
+            "filter": "openalex_id:" + "|".join(ids),
+            "per-page": str(max(1, min(MAX_RESULTS, int(limit)))),
+            "sort": "cited_by_count:desc",
+        }
+        r = await self.client().get(f"{OPENALEX}/works", params=params)
+        r.raise_for_status()
+        return list(r.json().get("results") or [])
 
     # ── citing ──
 
@@ -378,6 +439,40 @@ class Scholar:
         items.append(entry)
         self._write_library(items)
         return entry, True
+
+    def add_entries(self, entries: list[dict[str, Any]]) -> tuple[int, int]:
+        """Entries made elsewhere (a Zotero library) put in the library: one already there (the
+        same DOI, Zotero key or title) gets only the fields it lacks. (new, already there)."""
+        items = self.library()
+
+        def same(a: dict[str, Any], b: dict[str, Any]) -> bool:
+            if a.get("doi") and a.get("doi") == b.get("doi"):
+                return True
+            if a.get("zotero") and a.get("zotero") == b.get("zotero"):
+                return True
+            ta, tb = str(a.get("title") or "").strip().lower(), str(b.get("title") or "").strip().lower()
+            return bool(ta) and ta == tb
+
+        new = known = 0
+        for entry in entries:
+            for i, old in enumerate(items):
+                if same(entry, old):
+                    items[i] = {**{k: v for k, v in entry.items() if v}, **{k: v for k, v in old.items() if v}}
+                    known += 1
+                    break
+            else:
+                items.append(dict(entry))
+                new += 1
+        self._write_library(items)
+        return new, known
+
+    def mark(self, entry_id: str, **fields: Any) -> None:
+        """Set fields on one entry (by its id), such as the Zotero key it was given."""
+        items = self.library()
+        for it in items:
+            if it.get("id") == entry_id:
+                it.update(fields)
+        self._write_library(items)
 
     def remove(self, words: str) -> dict[str, Any] | None:
         items = self.library()
