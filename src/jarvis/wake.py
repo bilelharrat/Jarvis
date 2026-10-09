@@ -38,9 +38,10 @@ GREETINGS = {"hey", "hi", "okay", "ok", "yo", "hello", "hay"}
 GREETED_MISHEARINGS = {
     "aiden", "aden", "edan", "edin", "edon", "eaden", "eadon", "eaton", "iden", "heden",
 }  # fmt: skip
-# "Eden Code" (the coding panel), "Eden Messenger" and "Eden Plus" are names it says itself, and "Ask
-# Eden" is the other app (or "the garden of Eden"): "Eden" in those is never a wake word.
-_PANEL = {"code", "codes", "messenger", "plus"}
+# "Eden Code" (the coding panel), "Eden Messenger", "Eden Plus", "the Eden app" and its window,
+# account and number are names it says itself, and "Ask Eden" is the other app (or "the garden
+# of Eden"): "Eden" in those is never a wake word.
+_PANEL = {"code", "codes", "messenger", "plus", "app", "window", "account", "number"}
 _NAMED_AFTER = {"ask", "of"}
 
 # An extra wake phrase besides the name, forgiving of how Whisper writes it ("wake up

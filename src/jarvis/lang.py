@@ -284,7 +284,10 @@ GREETINGS_ZH = ("你好", "您好", "哈喽", "哈啰", "嘿", "喂", "嗨")
 _LATIN_WORD = LazyPattern(r"[A-Za-z][A-Za-z'’]*")
 _GREETING_ONLY = LazyPattern(r"(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|hey|hi|hello|ok|okay|yo)")
 # "Eden Code" (贾维斯代码), the coding panel: a name JARVIS says itself, never a wake word.
-_PANEL_AFTER = LazyPattern(r"[ \t]*(?:代码|codes?(?![a-z])|messenger)", re.IGNORECASE)
+_PANEL_AFTER = LazyPattern(
+    r"[ \t]*(?:代码|应用|窗口|账户|号码|(?:codes?|messenger|plus|app|window|account|number)(?![a-z]))",
+    re.IGNORECASE,
+)
 _LEAD_WORDS = LazyPattern(
     r"^(?:(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|嗯|hey|hi|hello|yo)[\s,，.。!！、]*"
     r"|(?:好的|好|那么|那|哎|诶|欸|okay|ok)(?:[\s,，.。!！、]+|$))+",

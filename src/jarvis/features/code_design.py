@@ -70,7 +70,7 @@ lang.add_texts(
         "All the refinement rounds are used.": "优化轮次已经用完。",
         "The session couldn't take another message just now.": "会话现在无法接收新消息。",
         "No dev server is running: start one in the Preview pane, then compare.": "没有正在运行的开发服务器：请在预览面板中启动一个，然后再对比。",
-        "The page is rendered in the Eden app window, and it isn't open.": "页面在 Eden 应用窗口中渲染，但它没有打开。",
+        "The page is rendered in the Eden app window, and it isn't open.": "页面在本应用的窗口中渲染，但它没有打开。",
         "The app window didn't answer in time.": "应用窗口没有及时响应。",
         "The comparison didn't work.": "对比没有成功。",
         "Comparing…": "正在对比…",

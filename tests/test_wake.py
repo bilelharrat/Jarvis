@@ -59,6 +59,9 @@ def test_other_names_with_eden_in_them_do_not_wake_it():
         "the garden of Eden",
         "Eden Messenger has a new message",
         "Eden Plus is on",
+        "open the Eden app",
+        "This Mac isn't linked to an Eden account.",
+        "a call to the Eden number",
     ]:
         assert find_wake(text)[0] is False, text
     assert find_wake("Ask, Eden, what's the time?")[0] is True  # a pause makes it a call
