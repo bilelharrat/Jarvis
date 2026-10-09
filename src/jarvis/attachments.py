@@ -76,6 +76,8 @@ def check(
     this request. A value is a path, or the title or name of a file JARVIS made."""
     from .channels.media import find_made
     from .computer import is_sensitive
+    from .private_folders import is_private
+    from .private_folders import refusal as is_private_refusal
 
     wanted = [" ".join(str(v).split()) for v in values if str(v).strip()]
     if not wanted:
@@ -111,6 +113,8 @@ def check(
                     "it), or name one I made."
                 )
             path = Path(hits[0].path).resolve()
+        if is_private(path):  # local only: a private folder's files never leave the computer
+            return [], is_private_refusal(path)
         if home not in path.parents or is_sensitive(path):
             return (
                 [],

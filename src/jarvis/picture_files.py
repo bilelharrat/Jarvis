@@ -52,8 +52,10 @@ def _shrunk(data: bytes) -> tuple[bytes, str] | None:
 def result(path: Path, name: str = "") -> dict[str, Any] | None:
     """A tool result showing a picture file, with the words that say what it is; None when it can't be
     shown (too big to shrink, unreadable)."""
+    from .private_folders import is_private
+
     mime = SUFFIXES.get(path.suffix.lower())
-    if mime is None:
+    if mime is None or is_private(path):  # (a private folder's pictures never go to Claude)
         return None
     try:
         if path.stat().st_size > MAX_FILE:

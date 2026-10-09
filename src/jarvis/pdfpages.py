@@ -90,7 +90,12 @@ def scanned_result(
     path: Path, first: int, name: str, tool: str, extra: str = ""
 ) -> dict[str, Any] | None:
     """A tool result showing the pages of a scanned PDF as pictures, with the words that say what they are
-    and how to ask for the next ones; None when the pages can't be drawn."""
+    and how to ask for the next ones; None when the pages can't be drawn (or the file is in a
+    folder the owner keeps private)."""
+    from .private_folders import is_private
+
+    if is_private(path):
+        return None
     pictures, total = pages_as_pngs(path, first)
     if not pictures:
         return None

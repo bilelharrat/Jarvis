@@ -22,7 +22,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import pdfpages, picture_files
+from . import pdfpages, picture_files, private_folders
 from .knowledge import read_document
 from .mac_tools import ToolFailure, run_command
 
@@ -523,7 +523,11 @@ def _walk_find(query: str, content: bool, limit: int = 25, seconds: float = 8.0)
             continue
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [
-                d for d in dirnames if not d.startswith(".") and d.lower() not in _SKIP_DIRS
+                d
+                for d in dirnames
+                if not d.startswith(".")
+                and d.lower() not in _SKIP_DIRS
+                and not private_folders.is_private(os.path.join(dirpath, d), follow=False)
             ]
             for filename in filenames:
                 if time.monotonic() > deadline:
@@ -776,6 +780,7 @@ def build_server(screen: Screen | None = None, guard: Any = None):
             return _error("Say what to look for.")
         if IS_WIN:
             paths = await asyncio.to_thread(_walk_find, query, bool(args.get("content")))
+            paths = [p for p in paths if not private_folders.is_private(p)]
             return _text("\n".join(paths) or "Nothing found.")
         cmd = ["mdfind", "-onlyin", str(Path.home())]
         cmd += [query] if args.get("content") else ["-name", query]
@@ -790,7 +795,11 @@ def build_server(screen: Screen | None = None, guard: Any = None):
             (
                 p
                 for p in out.splitlines()
-                if p and "/Library/" not in p and "/." not in p and not is_sensitive(Path(p))
+                if p
+                and "/Library/" not in p
+                and "/." not in p
+                and not is_sensitive(Path(p))
+                and not private_folders.is_private(p, follow=False)
             ),
             25,
         )
@@ -818,6 +827,7 @@ def build_server(screen: Screen | None = None, guard: Any = None):
     async def read_file(args):
         try:
             path = safe_path(args["path"])
+            private_folders.check(path)  # local only: never read into a request
         except ValueError as exc:
             return _error(str(exc))
         if not path.is_file():
