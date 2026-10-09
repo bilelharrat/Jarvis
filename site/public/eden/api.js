@@ -204,6 +204,8 @@ export const api = {
   jarvis: (tool, args = {}) => watchApproval(postJSON('/api/chat/jarvis', { tool, arguments: args })),
   projects: () => getJSON('/api/chat/projects'),
   addProject: (path) => postJSON('/api/chat/projects', { path }),
+  createProject: (name) => postJSON('/api/chat/projects', { create: name }), // → { projects, added }
+  pickProject: () => postJSON('/api/chat/projects', { pick: true }), // the Mac's folder picker → { projects, added }
   changes: (project) => getJSON(`/api/chat/code/changes?project=${encodeURIComponent(project)}`),
   artifact: (html) => postJSON('/api/chat/artifact', { html }),
   // A turn that uses the Mac ("Use my Mac", project knowledge: files.js) goes to mac/send, which askeden.com forwards to the Mac.

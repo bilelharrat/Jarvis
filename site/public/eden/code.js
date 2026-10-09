@@ -1,4 +1,4 @@
-// Jarvis Code in the page: the project picker (GET/POST /api/chat/projects), the inspector's
+// Eden Code in the page: the project picker (GET/POST /api/chat/projects), the inspector's
 // Changes tab (GET /api/chat/code/changes: files + diff hunks, each one markable as
 // reviewed or sent back with "ask to revert") and Plan tab (TodoWrite), the activity drawer.
 
@@ -20,10 +20,30 @@ export function projectPicker() {
   const list = el('div', { role: 'list' });
   const err = el('div', { class: 'muted', 'aria-live': 'polite' });
   const path = el('input', { type: 'text', placeholder: '/Users/you/code/project', 'aria-label': 'Project folder path', spellcheck: 'false' });
+  const name = el('input', { type: 'text', placeholder: 'my-app', 'aria-label': 'New project name', spellcheck: 'false', maxlength: '80' });
+  const start = (p) => { H.closeDialog(); H.newCodeSession(p); };
   const draw = () => {
-    if (!state.projects.length) list.replaceChildren(el('div', 'muted', state.projectsError ? `Couldn’t load projects: ${state.projectsError}` : 'No projects yet: add one below.'));
-    else list.replaceChildren(...state.projects.map((p) => el('button', { type: 'button', class: 'proj-row', role: 'listitem', onclick: () => { H.closeDialog(); H.newCodeSession(p); } },
+    if (!state.projects.length) list.replaceChildren(el('div', 'muted', state.projectsError ? `Couldn’t load projects: ${state.projectsError}` : 'No projects yet: make one or choose a folder above.'));
+    else list.replaceChildren(...state.projects.map((p) => el('button', { type: 'button', class: 'proj-row', role: 'listitem', onclick: () => start(p) },
       ico('folder'), el('div', 'grow', el('b', '', p.name), el('span', '', `${p.path}${p.branch ? ` · ${p.branch}` : ''}`)))));
+  };
+  // Made or chosen: straight into a session on it.
+  const opened = (res) => {
+    state.projects = res.projects || state.projects;
+    const p = res.added && state.projects.find((x) => x.path === res.added);
+    if (p) start(p); else { err.textContent = ''; draw(); }
+  };
+  const create = async () => {
+    const v = name.value.trim();
+    if (!v) { name.focus(); return; }
+    err.textContent = 'Making the folder…';
+    try { opened(await api.createProject(v)); toast(`Made ~/Eden Projects/${v}`); }
+    catch (e) { err.textContent = e.message; }
+  };
+  const pick = async () => {
+    err.textContent = 'Choose a folder in the window that opened…';
+    try { opened(await api.pickProject()); }
+    catch (e) { err.textContent = e.message; }
   };
   const add = async () => {
     const v = path.value.trim();
@@ -32,17 +52,26 @@ export function projectPicker() {
     try { state.projects = await api.addProject(v); err.textContent = ''; path.value = ''; draw(); toast('Project added'); }
     catch (e) { err.textContent = e.message; }
   };
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
   path.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
   const code = state.meta && state.meta.code;
-  body.replaceChildren(
+  const more = el('details', 'proj-path', el('summary', '', 'Or paste a folder’s path'),
+    el('div', 'key-edit', path, el('button', { type: 'button', class: 'btn', onclick: add }, 'Add')));
+  // (no null in the list: the page would print it, as the word "null")
+  body.replaceChildren(...[
     code && code.available === false ? el('div', { class: 'sp-warn', style: { marginBottom: '10px' } }, el('b', '', 'Code mode is unavailable'), code.reason || 'Claude Code wasn’t found.') : null,
-    el('p', 'sp-note', 'Eden runs Claude Code in the project folder, on your Claude subscription. Pick a project:'),
-    el('div', { style: { margin: '8px 0 14px' } }, list),
-    el('div', 'field', 'Add a project (a folder inside your home folder)', el('div', 'key-edit', path, el('button', { type: 'button', class: 'btn', onclick: add }, 'Add'))),
-    err);
+    el('div', 'proj-new',
+      el('div', 'field', 'New project', el('div', 'key-edit', name, el('button', { type: 'button', class: 'btn primary', onclick: create }, 'Create'))),
+      el('button', { type: 'button', class: 'btn proj-pick', onclick: pick }, ico('folder'), 'Choose a folder…')),
+    el('p', 'sp-note', 'New projects go in ~/Eden Projects. Or open one you have:'),
+    el('div', { style: { margin: '4px 0 10px' } }, list),
+    more,
+    err,
+  ].filter(Boolean));
   H.openDialog('New code session', body);
   draw();
   loadProjects().then(draw);
+  setTimeout(() => name.focus(), 50);
 }
 
 /* ---------- Plan tab ---------- */

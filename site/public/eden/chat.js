@@ -547,7 +547,7 @@ export async function runCode(c, node, prompt, { images = [], texts = [], allowT
             c.sessionId = d.sessionId || c.sessionId;
             { const st = state.streams.get(c.id); if (st && d.turnId) { st.turnId = d.turnId; for (const q of c.queue || []) if (q.state === 'queued') steerCode(c, q); } }
             const m = modelInfo(d.model);
-            node.route = { model: d.model, modelName: m ? m.name : (d.model || 'Claude'), provider: 'anthropic', via: 'claude-code', effort: body.effort, effortLabel: body.effort ? effortLabel(body.effort) : undefined, rationale: `Jarvis Code session ${String(c.sessionId || '').slice(0, 8)} · ${c.project ? c.project.name : ''}` };
+            node.route = { model: d.model, modelName: m ? m.name : (d.model || 'Claude'), provider: 'anthropic', via: 'claude-code', effort: body.effort, effortLabel: body.effort ? effortLabel(body.effort) : undefined, rationale: `Eden Code session ${String(c.sessionId || '').slice(0, 8)} · ${c.project ? c.project.name : ''}` };
             break;
           }
           case 'thinking':

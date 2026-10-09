@@ -568,7 +568,11 @@ export function modelMenu() {
   const byProv = {};
   for (const m of models) (byProv[m.provider] = byProv[m.provider] || []).push(m);
   const items = [{ icon: 'router', label: 'Model Router (auto)', note: code ? 'Claude Code’s default model' : 'Picks the model for each message', checked: !o, run: () => setOverride(null) }];
-  for (const [p, list] of Object.entries(byProv)) {
+  // Code mode runs Claude Code, which drives Claude only: Claude's models first and nothing
+  // greyed out above them (askeden.com listed them last, below the menu's fold); else as served.
+  let groups = Object.entries(byProv);
+  if (code) groups = groups.filter(([p]) => p === 'anthropic');
+  for (const [p, list] of groups) {
     items.push({ heading: PROVIDER_NAMES[p] || p });
     for (const m of list) items.push({
       label: m.name, checked: !!o && o.model === m.id,
@@ -581,6 +585,8 @@ export function modelMenu() {
     });
   }
   if (!models.length) items.push({ label: state.metaError ? 'The model list didn’t load' : 'Loading models…', disabled: true });
+  else if (code && !byProv.anthropic) items.push({ label: 'No Claude model is available for Code mode yet', disabled: true });
+  if (code && Object.keys(byProv).some((p) => p !== 'anthropic')) items.push({ label: 'GPT, Gemini and Kimi answer chats; Code mode runs on Claude', disabled: true, muted: true });
   items.push('-', { icon: 'key', label: 'Models & API keys…', run: () => H.openSettings(0) });
   openMenu($('jc-model'), items);
 }

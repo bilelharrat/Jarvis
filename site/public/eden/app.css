@@ -589,6 +589,14 @@ a.btn{text-decoration:none}
 .proj-row:hover,.proj-row:focus-visible{background:rgba(120,120,128,.12)}
 .proj-row .grow{flex:1;min-width:0}
 .proj-row .grow span{display:block;font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* New code session: make a project or choose its folder, then the list; a path last (code.js projectPicker) */
+.proj-new{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.proj-new .field{margin:0}
+.proj-pick{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px;border-radius:var(--r-sm)}
+.proj-pick .ic{width:16px;height:16px}
+.proj-path{margin:4px 0 8px;font-size:12.5px;color:var(--text2)}
+.proj-path summary{cursor:pointer;padding:4px 0}
+.proj-path .key-edit{margin-top:6px}
 #citePop{position:fixed;z-index:95;width:280px;border-radius:14px;padding:12px;display:none}
 #citePop.open{display:block;animation:palin .3s var(--spring)}
 #citePop b{font-size:12.5px;display:block;overflow-wrap:anywhere}
