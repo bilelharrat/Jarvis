@@ -1,6 +1,6 @@
-# Giving J.A.R.V.I.S. to other people
+# Giving Eden to other people
 
-`cd app && npm run dist` builds a J.A.R.V.I.S. anyone with an Apple-silicon Mac can download:
+`cd app && npm run dist` builds an Eden anyone with an Apple-silicon Mac can download:
 a disk image with the app in it, self-contained (no Xcode, uv, Python or repo needed),
 signed with the owner's Developer ID (team 8CV4X23Y2T) and the hardened runtime, notarized by
 Apple and stapled.
@@ -20,7 +20,7 @@ with uv, and Python and web edits still need no rebuild.
 - **Their own Anthropic API key.** Anthropic's terms don't let another product sign its users
   in with their claude.ai subscription, so the app people download signs in with the user's
   own API key: console.anthropic.com › API keys, pasted once in Setup's Claude step. Claude
-  is then billed to their Anthropic account, and the key stays in their Keychain (JARVIS
+  is then billed to their Anthropic account, and the key stays in their Keychain (Eden
   and Eden Code read it through an apiKeyHelper; it's never in an environment variable or
   a file).
 - **Permissions**, as macOS asks for them (Setup's Permissions step lists them with their
@@ -32,7 +32,7 @@ with uv, and Python and web edits still need no rebuild.
   in Settings › Speaking. Whisper's speech model (about 150 MB) downloads from Hugging Face
   the first time they talk to it.
 
-To install: open the disk image, drag J.A.R.V.I.S. onto Applications, open it from there.
+To install: open the disk image, drag Eden onto Applications, open it from there.
 (Updates only work for a copy in Applications.)
 
 ## Your checklist
@@ -185,7 +185,7 @@ of which the Claude engine alone is 227 MB); the disk image is 300 MB.
 | --- | --- | --- |
 | J.A.R.V.I.S.app | `cs.allow-jit`, `device.audio-input`, `device.camera`, `automation.apple-events`, `personal-information.location`, `.calendars`, `.addressbook` | V8 compiles JavaScript at run time; the app is the "responsible" process macOS asks the user about for the microphone the backend opens, the camera hand control uses, the location the window asks for, and the Apple Events, calendars and contacts its helpers use. |
 | J.A.R.V.I.S Helper.app | `cs.allow-jit`, `device.audio-input`, `device.camera` | Chromium's capture and utility services run here (Electron's own defaults). |
-| Helper (Renderer), (GPU), (Plugin) | `cs.allow-jit` | V8 and the GPU process's shader compiler. Electron's defaults also give the plugin helper library-validation and unsigned-memory exceptions for third-party plugins; JARVIS loads none. |
+| Helper (Renderer), (GPU), (Plugin) | `cs.allow-jit` | V8 and the GPU process's shader compiler. Electron's defaults also give the plugin helper library-validation and unsigned-memory exceptions for third-party plugins; Eden loads none. |
 | backend/python/bin/python3.12 | `device.audio-input`, `automation.apple-events`, `personal-information.location`, `.calendars`, `.addressbook` | sounddevice opens the microphone in-process; EventKit (calendars, reminders) and CoreLocation run in Python; the checkup reads the Contacts and Automation permission states in-process. No JIT or unsigned-memory exception: nothing in it needs one (checked: numpy, ctypes callbacks, pyobjc delegates and blocks, onnxruntime, ctranslate2, PyAV run under the hardened runtime). |
 | helpers/jarvis-duplex | `device.audio-input` | Talk-over: the echo-cancelled microphone. The build gives this to any helper whose source opens an audio input. |
 | every other helper, dylib and `.so` | none | They only need the hardened runtime. |
@@ -240,7 +240,7 @@ checks a minute after launch and every hour. It reads the feed itself first and 
 only when the release is newer than the running version (`app/update-feed.js`), so nothing
 older is ever offered; Squirrel then downloads it in the background. Once it's ready it
 installs itself at a quiet moment: the Mac untouched for ten minutes, the window not in
-front, and nothing going in JARVIS (`/health`'s `busy`: a turn, listening or speaking,
+front, and nothing going in Eden (`/health`'s `busy`: a turn, listening or speaking,
 meeting notes, a task running or waiting). The app reopens as it was, hidden if it was
 hidden. Settings › About's Restart installs it at once; quitting installs it too.
 

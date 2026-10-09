@@ -199,7 +199,7 @@ async def conversation(server: ThreadingHTTPServer) -> list[str]:
         )  # type: ignore[attr-defined]
         assert first is not None, "no message reached the stand-in with a system prompt"
         system = text_of(first["system"])
-        assert "JARVIS" in system and len(system) > 20_000, (
+        assert "You are Eden" in system and len(system) > 20_000, (
             f"system prompt of {len(system)} characters"
         )
         tools = {t.get("name") for t in first.get("tools") or []}

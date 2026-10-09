@@ -25,12 +25,12 @@ from jarvis.wake import find_wake  # noqa: E402
 
 VOICES = ["Daniel", "Samantha", "Fred", "Karen", "Moira", "Rishi"]
 WAKE_PHRASES = [
-    ("Jarvis, what's on my calendar tomorrow?", True),
-    ("Hey Jarvis, play some music.", True),
-    ("What's the weather like today, Jarvis?", True),
-    ("Jarvis.", True),
-    ("Okay Jarvis, how many emails do I have?", True),
-    ("Jarvis, remind me to call Sam at nine.", True),
+    ("Eden, what's on my calendar tomorrow?", True),
+    ("Hey Eden, play some music.", True),
+    ("What's the weather like today, Eden?", True),
+    ("Eden.", True),
+    ("Okay Eden, how many emails do I have?", True),
+    ("Eden, remind me to call Sam at nine.", True),
 ]
 NEGATIVE = [
     ("I think the meeting went pretty well today.", False),

@@ -12,8 +12,8 @@ if (query.get('app') === 'eden-code') {
 // J.A.R.V.I.S. Daredevil's: large yellow type on black from the first moment, named for a screen reader.
 if (query.get('app') === 'daredevil') {
   document.body.classList.add('daredevil');
-  document.title = 'J.A.R.V.I.S. Daredevil';
-  message.textContent = 'Opening J.A.R.V.I.S. Daredevil…';
+  document.title = 'Eden Daredevil';
+  message.textContent = 'Opening Eden Daredevil…';
   // Its opening sound, the owner's choice ("C'est, c'est, c'est énergétique !"): once, as the window first shows, never
   // when it starts hidden at sign-in (quiet) or when the page is a problem being reported.
   if (!query.get('quiet') && !query.get('error') && typeof Audio === 'function') {

@@ -39,7 +39,7 @@ const LOCAL_GUARD = "{ const h = location.hostname; if (!(h === 'localhost' || h
 // Numbered marks on what can be acted on, drawn over the page for a screenshot and removed.
 const MARKS_STYLE = `.b{position:fixed;box-sizing:border-box;border:2px solid #ff3b30;border-radius:3px}
 .t{position:fixed;box-sizing:border-box;height:15px;padding:0 3px;font:600 11px/15px -apple-system,Helvetica,sans-serif;color:#fff;background:#ff3b30;border-radius:3px;white-space:nowrap}`;
-const NOT_DRAWING = 'needs the page drawing on screen: its tab on show in the browser, with the J.A.R.V.I.S. window not covered by other apps. Click instead, or ask the user to bring the window forward.';
+const NOT_DRAWING = 'needs the page drawing on screen: its tab on show in the browser, with the Eden window not covered by other apps. Click instead, or ask the user to bring the window forward.';
 
 // What a ref points at, as the purchase guard and the risky-press check need it.
 const DESCRIBE = `function () {

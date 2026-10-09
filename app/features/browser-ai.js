@@ -151,7 +151,7 @@ function install(ctx) {
 
   // ── Ask Jarvis in the page's own menu ──
   const labels = {
-    ask: 'Ask Jarvis', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
+    ask: 'Ask Eden', explain: 'Explain', summarize: 'Summarize', translate: 'Translate', reply: 'Draft a Reply',
     save: 'Save to Second Brain', link: 'Summarize the Linked Page', image: 'Explain This Picture',
     translate_zh: 'Translate to Chinese', translate_en: 'Translate to English',
   };

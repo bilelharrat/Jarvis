@@ -94,7 +94,7 @@ subdomain could be confirmed HTTPS-only, so it was left out.
 ### 7. Low: accepted residuals
 
 - A web sign-in code can be phished, as any device code can. An attacker starts
-  `/api/web/link` and talks the owner into approving it in the J.A.R.V.I.S. app. The app shows
+  `/api/web/link` and talks the owner into approving it in the Eden app. The app shows
   the browser's name and rough location; the code lasts 10 minutes.
 - `POST /api/web/native/apple` uses a nonce the app picks, so an Apple identity token that
   leaked from the device could be replayed until it expires (about 10 minutes). The same is

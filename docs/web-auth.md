@@ -2,14 +2,14 @@
 
 The contract between askeden.com's Worker (`site/src/eden/session.js`, `site/src/eden/google.js`,
 `site/src/accounts/`), the sign-in page (`site/public/signin/`, served at `/signin`), Eden's account
-page (`~/askeden/web/chat/account.js`) and the apps (Eden iOS, J.A.R.V.I.S. iPhone and Mac).
+page (`~/askeden/web/chat/account.js`) and the apps (Eden iOS, the Eden app on iPhone and Mac).
 Status: built and tested (2026-10-06; passkeys, Turnstile, /privacy and /terms 2026-10-07), not deployed. Real Apple and Google sign-ins need the owner
 steps below before they can be tried end to end.
 
 ## One account, many ways in
 
 Every sign-in method lands in the same **Account** Durable Object (`site/src/accounts/account.js`),
-so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
+so one account works on the web, in Eden for iOS and in the Eden apps.
 
 - **Identity** Durable Object (`site/src/accounts/identity.js`, binding `IDENTITIES`, migration
   `v3`), one per sign-in identity, named `<provider>:<sub hash>`, where the sub hash is the SHA-256
@@ -64,7 +64,7 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
   stashes `human:<state>` for the callback, which needs it only when it would make a new account
   (plain GET starts still sign existing accounts in; a new one ends at `/signin?error=verify`).
   Unset: no check, logged once per isolate. The apps' native Apple sign-ins (`POST /api/web/native/apple`
-  for the Eden iOS app, `POST /api/account/apple` for J.A.R.V.I.S.) can't show Turnstile (a native
+  for the Eden iOS app, `POST /api/account/apple` for the Eden app) can't show Turnstile (a native
   sheet, no page): a new account from them instead costs 5 tries of `AUTH_RATE` on `native-new:<ip>`
   (`accounts/index.js` `nativeNewAccount`), so at most 4 new accounts a minute from one network, on
   top of every new account's `new:<ip>`; a returning sign-in costs nothing there.
@@ -72,7 +72,7 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
   only) and form-action `'self'` plus Apple's and Google's sign-in hosts.
 - Sign-ups (`SIGNUPS` in [vars], `accounts/turnstile.js` `signupsOpen`): `"owner"` refuses every new
   account, whatever the way in (Apple and Google on the web, a passkey sign-up, the Eden app's native
-  Apple, the J.A.R.V.I.S. app's `POST /api/account/apple`), with 403 `signups_closed` ("Eden is opening
+  Apple, the Eden app's `POST /api/account/apple`), with 403 `signups_closed` ("Eden is opening
   soon — sign-ups are closed for now…"; a provider sign-in ends at `/signin?error=signups_closed`).
   The check sits where an account would be made (`accountForIdentity`), so every identity that
   already opens an account (an Identity record, or an Apple ID whose derived account exists) signs in
@@ -120,7 +120,7 @@ so one account works on the web, in Eden for iOS and in the J.A.R.V.I.S. apps.
   (a month of Plus), for the meters.
 - `devices` entries are `{ id, name, kind, created, last_seen, expires?, this }`. A browser may sign
   out browsers. The apps (iPhone, iPad, Watch, Mac) are listed but are removed only from the
-  J.A.R.V.I.S. app (403 `forbidden`).
+  Eden app (403 `forbidden`).
 - A sign-out that also signs out this browser clears its cookie in the same answer.
 - `native/apple`: the identity token's audience must be the Eden app, `com.askeden.eden` (no
   other endpoint accepts it), and its nonce must be the SHA-256 hex of `nonce`. `authorization_code`
@@ -233,13 +233,13 @@ Anthropic API key in Settings to use Claude" and `link: "/#settings=keys"`; a Cl
 ## Billing on the web (Stripe)
 
 Plus ($20 a month of included AI) can be bought on the web with Stripe, **beside** the App Store
-purchase in the J.A.R.V.I.S. iPhone app, never instead of it. Built for **test mode** first
+purchase in the Eden iPhone app, never instead of it. Built for **test mode** first
 (2026-10-06; `site/src/eden/billing.js`, `site/src/accounts/stripe-plan.js`, tests
 `site/test/billing.test.js`). Stripe's REST API is called with `fetch`, form-encoded; no SDK.
 
 - **Off until set up.** Billing is on only when `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and
   `STRIPE_PRICE_PLUS` are all set (`/api/web/config` says `billing: false` otherwise and the page
-  shows only "Get Plus in the J.A.R.V.I.S. iPhone app"). A live key (`sk_live_…`, `rk_live_…`) is
+  shows only "Get Plus in the Eden iPhone app"). A live key (`sk_live_…`, `rk_live_…`) is
   refused unless the var `STRIPE_LIVE = "1"`; a `livemode` event is ignored without it too.
 - **Get Plus** (`POST /api/web/billing/checkout`): the browser's own session only (409 `acting`
   while it acts for a delegate or a space; a grant's device is refused by the account itself), 409
@@ -276,7 +276,7 @@ purchase in the J.A.R.V.I.S. iPhone app, never instead of it. Built for **test m
 - **Deleting the account** (`DELETE /api/account`, from the apps) cancels its Stripe subscription
   at once (best effort; the deletion goes ahead if Stripe can't be reached). The App Store's stays
   the person's to cancel, as Apple requires.
-- **Inside the Eden iOS app** the page offers only "Get Plus in the J.A.R.V.I.S. iPhone app"
+- **Inside the Eden iOS app** the page offers only "Get Plus in the Eden iPhone app"
   (Apple's in-app purchase rules) and no Manage billing link, unless the var `STRIPE_IN_EDEN_APP =
   "1"` (`billing_in_app: true`), kept for the US link-out later.
 - **Dev and tests only:** `STRIPE_API_BASE` points it at a fake Stripe; refused (billing off)
@@ -310,7 +310,7 @@ Harrat Global Holdings, Inc., support@askeden.com). The owner should confirm the
 Registered on 2026-10-06 in team `8CV4X23Y2T` (individual, Bilel Harrat), the team both apps are
 signed by. The old `com.bshventures.*` identifiers belong to another team and aren't used.
 
-- App ID `com.askeden.jarvis` (the J.A.R.V.I.S. app): Sign in with Apple, **primary App ID**.
+- App ID `com.askeden.jarvis` (the Eden app): Sign in with Apple, **primary App ID**.
 - App ID `com.askeden.eden` (the Eden iOS app, native sign-in): Sign in with Apple **grouped**
   with `com.askeden.jarvis`. Grouping gives one Apple ID the same user id in both apps and on the
   web, so it opens one account.
@@ -490,7 +490,7 @@ Added with Eden sync, delegates and team spaces (H1, H14, G8; `eden-sync.js`, `d
     email is sent by askeden.com.
 19. **Op names.** The new account ops are `esync-*` and `deleg-*`, prefixes no other op uses (see 10).
 20. **The apps approving a browser for Eden sync** (iPhone and Mac, docs/accounts.md "The
-    J.A.R.V.I.S. apps"). Same rules as a browser approving: only an app that proved Eden's key is
+    Eden apps"). Same rules as a browser approving: only an app that proved Eden's key is
     trusted and sees requests; it shows six digits it computes itself from the request's public
     key, asks askeden.com again before sealing and refuses a key that changed, and the approval
     echoes that key (409 otherwise). The app's private key and Eden's key stay in its Keychain

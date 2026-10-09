@@ -34,9 +34,9 @@ const CH = 'feature:updates:';
 // What the window shows for each problem (it has the Chinese); the detail goes to the log.
 const WORDS = {
   offline: 'Couldn’t reach the update server.',
-  feed: 'The update feed isn’t one J.A.R.V.I.S. can read.',
+  feed: 'The update feed isn’t one Eden can read.',
   install: 'The update couldn’t be downloaded or installed.',
-  move: 'Move J.A.R.V.I.S. to your Applications folder to get updates.',
+  move: 'Move Eden to your Applications folder to get updates.',
 };
 
 // The feed baked into this copy of the app: '' when there is none.
@@ -190,7 +190,7 @@ function installWindows(ctx, deps = {}) {
   const updater = win.createWinUpdater({
     version: ctx.app.getVersion(),
     flavor,
-    name: (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.',
+    name: (ctx.flavor && ctx.flavor.name) || 'Eden',
     fetchText: (url) => fetchFeed(electron.net, url),
     download: (url, target, opts) => win.downloadTo(electron.net, fs, url, target, opts),
     runInstaller: (file, args) => win.startInstaller(deps.spawn || require('child_process').spawn, file, args),
@@ -201,7 +201,7 @@ function installWindows(ctx, deps = {}) {
     tell: (text) => {
       try {
         if (!electron.Notification || !electron.Notification.isSupported()) return;
-        const note = new electron.Notification({ title: (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.', body: text });
+        const note = new electron.Notification({ title: (ctx.flavor && ctx.flavor.name) || 'Eden', body: text });
         note.on('click', () => { const w = ctx.getWindow && ctx.getWindow(); if (w && !w.isDestroyed()) { w.show(); w.focus(); } });
         note.show();
       } catch { /* a notification is never worth a failed check */ }

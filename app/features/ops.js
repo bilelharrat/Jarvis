@@ -16,7 +16,7 @@ function handlers({ dialog, app, getWindow, dev }) {
   const start = (current, fallback) => (typeof current === 'string' && path.isAbsolute(current) ? current : fallback);
   return {
     async pickFolder(current, message) {
-      const said = words(message, 'Choose where Jarvis keeps its backups');
+      const said = words(message, 'Choose where Eden keeps its backups');
       const result = await dialog.showOpenDialog(parent(), {
         title: said,
         message: said,
@@ -26,13 +26,13 @@ function handlers({ dialog, app, getWindow, dev }) {
       return result.canceled || !result.filePaths.length ? null : result.filePaths[0];
     },
     async pickBackup(current, message) {
-      const said = words(message, 'Choose a Jarvis backup to restore');
+      const said = words(message, 'Choose an Eden backup to restore');
       const result = await dialog.showOpenDialog(parent(), {
         title: said,
         message: said,
         defaultPath: start(current, path.join(os.homedir(), 'Documents')),
         properties: ['openFile'],
-        filters: [{ name: 'Jarvis backup', extensions: ['zip'] }],
+        filters: [{ name: 'Eden backup', extensions: ['zip'] }],
       });
       return result.canceled || !result.filePaths.length ? null : result.filePaths[0];
     },
