@@ -613,6 +613,7 @@ export async function chatApi(request, env, ctx, path) {
         return json(await keysApi(request, env, who, { readBody }));
       case 'POST /api/chat/jarvis':
       case 'GET /api/chat/projects':
+      case 'POST /api/chat/projects': // add, make or pick a project folder on the Mac
       case 'POST /api/chat/code':
       case 'POST /api/chat/code/steer':
       case 'GET /api/chat/code/changes':
@@ -622,8 +623,6 @@ export async function chatApi(request, env, ctx, path) {
       case 'POST /api/chat/actions/undo':
       case 'POST /api/chat/mac/send': // "Use my Mac" turns run on the Mac, on its own models
         return await viaMac(request, env, ctx, who);
-      case 'POST /api/chat/projects':
-        return needsMac();
       default:
         // Everything else Eden's server does (what comes next) runs on the Mac. Gmail and Google
         // Calendar are hosted Eden's own (google-data.js, when it lands); to send them through the

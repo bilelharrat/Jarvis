@@ -164,6 +164,7 @@ def test_frames_and_routes():
         ("GET", "/api/chat/jarvis/status"),
         ("POST", "/api/chat/jarvis"),
         ("GET", "/api/chat/projects"),
+        ("POST", "/api/chat/projects"),  # make or pick a project folder: the owner only
         ("POST", "/api/chat/code"),
         ("POST", "/api/chat/code/steer"),
         ("GET", "/api/chat/code/changes"),
@@ -184,7 +185,6 @@ def test_frames_and_routes():
     for method, target in [
         ("POST", "/api/chat/keys"),
         ("GET", "/api/chat/keys"),
-        ("POST", "/api/chat/projects"),
         ("GET", "/download"),
         ("GET", "/api/route"),
         ("POST", "/api/chat/meta"),
@@ -263,7 +263,7 @@ async def test_refused_routes_never_reach_eden():
     link, eden, _ = make()
     ws, task = await started(link)
     for i, (method, path) in enumerate(
-        [("POST", "/api/chat/keys"), ("GET", "/download"), ("POST", "/api/chat/projects")]
+        [("POST", "/api/chat/keys"), ("GET", "/download"), ("PUT", "/api/chat/projects")]
     ):
         sid = f"{i:016x}"
         request(
@@ -801,3 +801,20 @@ async def test_the_line_serves_while_open_and_reconnects():
 @pytest.fixture(autouse=True)
 def _no_env(monkeypatch):
     monkeypatch.delenv("JARVIS_EDEN_LOCAL_URL", raising=False)
+
+
+async def test_a_project_folder_is_made_only_for_the_owner():
+    """New code session from the web (Eden's createProject / pickProjectFolder): it makes a folder
+    or opens the picker on this Mac, so only the account owner's own browsers may ask."""
+    link, eden, _ = make()
+    ws, task = await started(link)
+    request(ws, "POST", "/api/chat/projects", {"create": "my-app"}, sid="1" * 16, owner=True)
+    request(ws, "POST", "/api/chat/projects", {"create": "theirs"}, sid="a" * 16)
+    request(ws, "POST", "/api/chat/projects", {"pick": True}, sid="b" * 16, owner=False)
+    for sid in "1ab":
+        await ws.until(lambda sid=sid: ended(ws, sid * 16))
+    assert [(r.method, r.url.path) for r in eden.requests] == [("POST", "/api/chat/projects")]
+    assert json.loads(eden.requests[0].content) == {"create": "my-app"}
+    codes = {t["id"][0]: (t["status"], t["code"]) for t in ws.texts() if t["t"] == "error"}
+    assert codes == {"a": (403, "owner_only"), "b": (403, "owner_only")}
+    await stop(ws, task)

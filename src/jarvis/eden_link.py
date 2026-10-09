@@ -74,6 +74,9 @@ ALLOWED = frozenset(
         ("GET", "/api/chat/jarvis/status"),
         ("POST", "/api/chat/jarvis"),
         ("GET", "/api/chat/projects"),
+        # New code session: add a folder, make ~/Eden Projects/<name>, or open this Mac's folder
+        # picker (Eden's src/chat/code.ts). The owner only (OWNER_ONLY): it makes folders here.
+        ("POST", "/api/chat/projects"),
         ("POST", "/api/chat/code"),
         ("POST", "/api/chat/code/steer"),
         ("GET", "/api/chat/code/changes"),
@@ -100,7 +103,9 @@ ALLOWED = frozenset(
 # What only the account's owner may ask (the relay marks such a request `owner`; a delegate's or a
 # team space member's never is): chat on this Mac's models and the owner's own Claude subscription,
 # which serves no one else. A send that isn't private is one of these too (_check).
-OWNER_ONLY = frozenset({("POST", "/api/route"), ("GET", "/api/chat/meta")})
+OWNER_ONLY = frozenset(
+    {("POST", "/api/route"), ("GET", "/api/chat/meta"), ("POST", "/api/chat/projects")}
+)
 QUERIES = {"/api/chat/code/changes": {"project"}}  # the only route with a query, and its keys
 # Jarvis's tools Eden's page uses (docs/chat-api.md). A new tool isn't reachable from the web
 # until it's added here. Sends and calendar changes still need confirm: true (Eden's server)

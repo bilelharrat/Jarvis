@@ -39,6 +39,9 @@ export const MAC_ROUTES = new Set([
   'GET /api/chat/jarvis/status',
   'POST /api/chat/jarvis',
   'GET /api/chat/projects',
+  // New code session: add a folder, make ~/Eden Projects/<name>, or the Mac's folder picker (Eden's
+  // src/chat/code.ts createProject / pickProjectFolder). The owner's own browsers only, as all here.
+  'POST /api/chat/projects',
   'POST /api/chat/code',
   'POST /api/chat/code/steer',
   'GET /api/chat/code/changes',

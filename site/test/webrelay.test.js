@@ -158,13 +158,13 @@ test('a binary frame is the stream id then the bytes; anything else is not a fra
 });
 
 test('only the Mac-only routes hosted Eden needs go through, and only in plain shapes', () => {
-  assert.deepEqual([...MAC_ROUTES].sort(), ['GET /api/chat/actions', 'GET /api/chat/code/changes', 'GET /api/chat/jarvis/status', 'GET /api/chat/local', 'GET /api/chat/meta', 'GET /api/chat/projects', 'POST /api/chat/actions/undo', 'POST /api/chat/brief', 'POST /api/chat/code', 'POST /api/chat/code/steer', 'POST /api/chat/jarvis', 'POST /api/chat/mac/send', 'POST /api/chat/meetings/actions', 'POST /api/chat/send', 'POST /api/route']);
+  assert.deepEqual([...MAC_ROUTES].sort(), ['GET /api/chat/actions', 'GET /api/chat/code/changes', 'GET /api/chat/jarvis/status', 'GET /api/chat/local', 'GET /api/chat/meta', 'GET /api/chat/projects', 'POST /api/chat/actions/undo', 'POST /api/chat/brief', 'POST /api/chat/code', 'POST /api/chat/code/steer', 'POST /api/chat/jarvis', 'POST /api/chat/mac/send', 'POST /api/chat/meetings/actions', 'POST /api/chat/projects', 'POST /api/chat/send', 'POST /api/route']);
   assert.equal(macRoute('POST', '/api/chat/brief'), 'POST /api/chat/brief');
   assert.equal(macRoute('GET', '/api/chat/code/changes?project=%2FUsers%2Fme%2Fapp'), 'GET /api/chat/code/changes');
   for (const [method, target] of [
     ['POST', '/api/chat/keys'],
     ['GET', '/api/chat/keys'],
-    ['POST', '/api/chat/projects'],
+    ['PUT', '/api/chat/projects'],
     ['GET', '/download'],
     ['GET', '/api/route'],
     ['POST', '/api/chat/compare'],
@@ -236,8 +236,8 @@ test('a Mac-only request goes to the Mac as frames, from the asking browser, and
   assert.equal(r.status, 403);
   assert.deepEqual(await r.json(), { error: 'Not from this account’s browsers.', code: 'forbidden' });
 
-  // Still Mac-only, never forwarded: keys and adding a project folder.
-  for (const [p, method] of [['/api/chat/keys', 'GET'], ['/api/chat/keys', 'POST'], ['/api/chat/projects', 'POST']]) {
+  // Still Mac-only, never forwarded: the API keys.
+  for (const [p, method] of [['/api/chat/keys', 'GET'], ['/api/chat/keys', 'POST']]) {
     const res = await chat(p, o.session, { method, ...(method === 'POST' ? { body: {} } : {}) });
     assert.equal(res.status, 503, p);
     assert.equal((await res.json()).code, 'needs_mac');

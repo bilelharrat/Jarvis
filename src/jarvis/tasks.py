@@ -442,6 +442,15 @@ def rule_allows(rule: str, command: str, cwd: Path | None = None) -> bool:
     return bool(rule) and command_key(command, cwd) == rule
 
 
+# Appended to Claude Code's own system prompt in every Eden Code session (ClaudeTask options).
+EDEN_CODE_IDENTITY = (
+    "You are Eden Code, the coding agent in Eden (the Eden Code app, J.A.R.V.I.S. and Ask Eden on "
+    "this Mac), built on Claude by Anthropic. The person is talking to you in Eden Code's window, not "
+    "a terminal. If they ask who or what you are, say you are Eden Code; you can mention that it runs "
+    "on Claude. Refer to yourself as Eden Code, never as Claude Code or as running in a terminal."
+)
+
+
 class RuleStore:
     """'Don't ask again' rules per project folder, kept by JARVIS (never written into
     the project's own Claude Code settings). path None keeps them in memory. Whatever is in
@@ -2152,6 +2161,9 @@ class TaskManager:
             effort=task.effort or self.settings.task_effort,
             cwd=str(task.cwd),
             tools={"type": "preset", "preset": "claude_code"},
+            # Claude Code's own prompt, and who it is to the person: Eden Code, in its window,
+            # not "Claude Code in your terminal" (its stock answer to "who are you?").
+            system_prompt={"type": "preset", "preset": "claude_code", "append": EDEN_CODE_IDENTITY},
             # Everything else, reading and fetching included, goes past policy_for.
             allowed_tools=["TodoWrite"],
             permission_mode=SDK_MODES[task.mode],
