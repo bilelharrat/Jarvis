@@ -142,6 +142,20 @@ def _quick_saves(monkeypatch):
     monkeypatch.setattr(jsonstore, "_sync", os.fsync)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_private_folders(monkeypatch, tmp_path_factory):
+    """The owner's private folders (private_folders.py) are never the real ones in a test: an
+    empty list, its copy in a temp folder, and no setting from a hub of an earlier test."""
+    from jarvis import private_folders
+
+    monkeypatch.setattr(
+        private_folders, "PATH", tmp_path_factory.mktemp("private") / "private_folders.json"
+    )
+    monkeypatch.setattr(private_folders, "_source", None)
+    monkeypatch.setattr(private_folders, "_resolved", ((), []))
+    monkeypatch.setattr(private_folders, "_file_seen", None)
+
+
 # The Mac's own voice and player: what no test may start.
 REAL_AUDIO = frozenset({"say", "afplay"})
 

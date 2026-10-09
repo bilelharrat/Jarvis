@@ -10,6 +10,9 @@ spoke, "You" (the microphone) and "Them" (the call), titled from the calendar ev
   into the notes as Them; the notes model transcribes it like the room's lines. What plays
   while JARVIS itself speaks is left out. A microphone line that only repeats what the call
   just said (no headphones) is left out of the notes (meeting.py).
+- On a PC the call's sound is what Windows plays, heard through a loopback input the bundled
+  audio library can open (winloopback.py: a WASAPI loopback device, or the sound card's Stereo
+  Mix); without one the notes go on with the microphone alone and say what to turn on.
 - Opt-in: Settings › Meetings › Notes for online calls (call_notes, off). Then the meeting
   offer (meetings.py) has "Notes on the call" for a meeting with a call link, and "take
   notes on this call" works by voice (start_call_notes: asks unless the owner's own words
@@ -34,7 +37,7 @@ import numpy as np
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from ... import hub as hub_module
-from ... import lang, listen, prefs, swift_helper
+from ... import lang, listen, osplat, prefs, swift_helper, winloopback
 from .briefing import quote
 from .meetings import covers, is_call
 
@@ -65,6 +68,11 @@ TEXTS = {
     "Taking notes for {title} with the microphone only: the call's sound couldn't be "
     "captured on this Mac.": "正在用麦克风为“{title}”记笔记：这台 Mac 没法录下通话的声音。",
     "Take notes on the call {title}?": "要为通话“{title}”记笔记吗？",
+    "Taking notes on the call {title}: you and them, here on this PC.": (
+        "正在为通话“{title}”记笔记：你和对方的话都在这台电脑上转写。"
+    ),
+    "Taking notes for {title} with the microphone only: this PC's own sound couldn't be "
+    "captured ({why}).": "正在用麦克风为“{title}”记笔记：这台电脑本身的声音录不下来（{why}）。",
 }
 lang.add_texts(TEXTS)
 
@@ -96,6 +104,7 @@ class Calls:
         self.proc: Any = None
         self.reader: asyncio.Task | None = None
         self.meeting: Any = None
+        self.capture: Any = None  # on a PC: the loopback input (winloopback.Capture)
         self.heard_at = 0.0  # when the call last finished saying something (monotonic)
         self._now = datetime.now  # the clock (tests set their own)
 
@@ -137,6 +146,8 @@ class Calls:
             )
         if self.hub.meeting is not None:
             return self.say("Already taking notes for {title}.", title=self.hub.meeting.title)
+        if osplat.IS_WIN:
+            return await self._start_on_a_pc(title)
         helper = await asyncio.to_thread(swift_helper.ensure, HELPER)
         title = " ".join(str(title or "").split())[:80] or self.title_now() or "Call"
         reply = await self.hub.start_meeting(title)
@@ -169,6 +180,34 @@ class Calls:
             "Taking notes on the call {title}: you and them, here on the Mac.", title=meeting.title
         )
 
+    async def _start_on_a_pc(self, title: str) -> str:
+        """The room's notes and, through a loopback input, what the PC plays (as Them)."""
+        title = " ".join(str(title or "").split())[:80] or self.title_now() or "Call"
+        reply = await self.hub.start_meeting(title)
+        meeting = self.hub.meeting
+        if meeting is None:
+            return reply  # no microphone: no notes at all, and it says why
+        meeting.label = "You"
+        capture, why = winloopback.open_capture()
+        if capture is None:
+            log.info("calls: the PC's own sound isn't being heard (%s)", why)
+            return self.say(
+                "Taking notes for {title} with the microphone only: this PC's own sound couldn't "
+                "be captured ({why}).",
+                title=meeting.title,
+                why=why,
+            )
+        self.capture, self.meeting = capture, meeting
+        self.reader = self.hub._spawn(
+            winloopback.feed(capture, meeting, self.hub, heard=self._heard)
+        )
+        return self.say(
+            "Taking notes on the call {title}: you and them, here on this PC.", title=meeting.title
+        )
+
+    def _heard(self) -> None:
+        self.heard_at = time.monotonic()  # the meeting agent's echo guard (meeting_agent.py)
+
     async def _listen(self, helper: Any, meeting: Any) -> str:
         """Start the helper and wait for it to listen: "" when it does, else why not."""
         proc = await asyncio.create_subprocess_exec(
@@ -190,7 +229,10 @@ class Calls:
     async def stop(self) -> None:
         proc, self.proc = self.proc, None
         reader, self.reader = self.reader, None
+        capture, self.capture = self.capture, None
         self.meeting = None
+        if capture is not None:
+            capture.stop()
         if proc is not None:
             await _end(proc)
         if reader is not None and not reader.done():
@@ -200,7 +242,7 @@ class Calls:
 
     async def on_meeting(self, event: dict[str, Any]) -> None:
         """hub.add_event_sink: the notes stopped, so the call's sound stops too."""
-        if not event.get("active") and self.proc is not None:
+        if not event.get("active") and (self.proc is not None or self.capture is not None):
             await self.stop()
 
     # ── what the call says ──

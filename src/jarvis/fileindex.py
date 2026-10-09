@@ -65,6 +65,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from . import osplat
 from .computer import is_sensitive
 from .prefs import APP_SUPPORT
+from .private_folders import is_private
 from .proactive import Alert, event_key
 
 log = logging.getLogger("jarvis")
@@ -953,7 +954,10 @@ def _private(path: str, keynote: bool = False) -> bool:
 def _excluded(path: str, info: os.stat_result, contents: str | None = None) -> bool:
     """A file computer.is_sensitive() keeps out, a Keynote deck aside. Its first bytes (at
     `contents`, a symlink's destination) are looked at only when the .key suffix is all
-    that's against it: id_rsa.key is never opened."""
+    that's against it: id_rsa.key is never opened. A file in a folder the owner keeps
+    private (private_folders.py) is kept out too."""
+    if is_private(path, follow=False):
+        return True
     if not is_sensitive(Path(path)):
         return False
     if _ext(path) != ".key" or _private(path, keynote=True):
@@ -964,7 +968,11 @@ def _excluded(path: str, info: os.stat_result, contents: str | None = None) -> b
 def _sensitive_dir(path: str, keynote: bool = False) -> bool:
     # is_sensitive matches private folders like "/Library/Mail/" by their path with a slash
     # after it, which a folder's own path doesn't have: ask about something inside it too.
-    return _private(path, keynote) or is_sensitive(Path(path, "_"))
+    return (
+        _private(path, keynote)
+        or is_sensitive(Path(path, "_"))
+        or is_private(path, follow=False)
+    )
 
 
 def _app_name(container: str) -> str:
@@ -2208,6 +2216,8 @@ def build_tools(
         return None if enabled() else _text("The file index is switched off in Settings.", True)
 
     def found(hits: list[FileHit], nothing: str) -> dict[str, Any]:
+        # (a file indexed before its folder was made private is never shown again)
+        hits = [h for h in hits if not is_private(h.path)]
         if not hits:
             return _text(nothing + _empty_note(index))
         if on_results is not None:

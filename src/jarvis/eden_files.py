@@ -227,6 +227,7 @@ def allowed(path: Path, roots: list[Path], home: Path | None = None) -> bool:
     computer.is_sensitive keeps out."""
     from .computer import is_sensitive
     from .fileindex import SECRET_NAME
+    from .private_folders import is_private
 
     home = home or home_folder()
     for root in roots:
@@ -237,8 +238,8 @@ def allowed(path: Path, roots: list[Path], home: Path | None = None) -> bool:
             continue
         if root == home and parts[:1] == ("Library",):
             continue
-        if SECRET_NAME.search(path.name) or is_sensitive(path):
-            return False
+        if SECRET_NAME.search(path.name) or is_sensitive(path) or is_private(path, follow=False):
+            return False  # (a folder the owner keeps private is local only: Eden never sees it)
         return True
     return False
 

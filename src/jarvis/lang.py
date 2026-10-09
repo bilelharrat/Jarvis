@@ -2279,6 +2279,8 @@ ZH_TEXTS: dict[str, str] = {
     "Already taking notes for {title}.": "已经在为{title}做记录了。",
     "I can't hear the room: the microphone isn't available.": "我听不到房间里的声音：麦克风用不了。",
     "Taking notes for {title}. Everything said is transcribed here on the Mac until the user says stop.": "正在为{title}做记录。在用户说停之前，所有对话都会在这台 Mac 上转写。",
+    "Taking notes for {title}. Everything said is transcribed here on this PC until the user says stop.": "正在为{title}做记录。在用户说停之前，所有对话都会在这台电脑上转写。",
+    "Lecture notes for {title} saved to the second brain: {minutes} minutes. Offer to read the key points, or the assignments and dates.": "{title}的课堂笔记已存入第二大脑，时长{minutes}分钟。可以提出读一下要点，或作业和日期。",
     "No meeting notes were running.": "当前没有在做会议记录。",
     "Stopped. Too little was said to summarize; the transcript is saved.": "已停止。内容太少，没法总结；文字记录已保存。",
     "Stopped. The transcript is saved, but the write-up failed: {error}": "已停止。文字记录已保存，但整理纪要失败了：{error}",

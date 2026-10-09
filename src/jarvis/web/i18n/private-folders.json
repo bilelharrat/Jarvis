@@ -1,0 +1,11 @@
+{
+  "strings": {
+    "Private folders": "私密文件夹",
+    "Files in these folders are never read, indexed, searched or attached for Claude. They stay on this computer.": "这些文件夹里的文件绝不会为 Claude 读取、索引、搜索或附加，只留在这台电脑上。",
+    "Add a private folder": "添加私密文件夹",
+    "Its whole path, like C:\\Users\\you\\Documents\\Grades.": "完整路径，例如 C:\\Users\\you\\Documents\\Grades。",
+    "Keep private": "设为私密",
+    "No private folders.": "没有私密文件夹。",
+    "Remove": "移除"
+  }
+}

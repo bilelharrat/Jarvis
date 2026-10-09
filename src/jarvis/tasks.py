@@ -56,7 +56,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import browser_gate, code_changes, code_tools
+from . import browser_gate, code_changes, code_tools, private_folders
 from .claude_signin import signed_in
 from .code_projects import in_app_data
 from .computer import is_sensitive
@@ -1017,6 +1017,23 @@ def _read_paths(tool_name: str, tool_input: dict[str, Any]) -> list[str]:
     return paths or [""]
 
 
+def _private_target(tool_name: str, tool_input: dict[str, Any]) -> str:
+    """The private folder (private_folders.py) a step would read, search, edit or name in a
+    command, or ""."""
+    from . import private_folders
+
+    if not private_folders.raw_list():
+        return ""
+    for raw in _read_paths(tool_name, tool_input):
+        if raw and (found := private_folders.folder_of(raw)):
+            return found
+    for key in ("command", "pattern", "path", "file_path", "url"):
+        found = private_folders.mentioned_in(str(tool_input.get(key) or ""))
+        if found:
+            return found
+    return ""
+
+
 def auto_capable(model: str) -> bool:
     """Claude Code's auto mode runs on Claude's Opus, Sonnet and Fable: not on Haiku, and
     not on another provider's model (its safety check is Claude's)."""
@@ -1169,6 +1186,11 @@ class TaskManager:
             ):
                 raise ValueError(
                     f"{directory!r} is too broad for a project; pick a project folder."
+                )
+            if private_folders.is_private(path):
+                raise ValueError(
+                    f"{directory!r} is in a folder you keep private (local only), so Eden "
+                    "Code can't work in it."
                 )
             if path.is_dir() and any(path == r or r in path.parents for r in roots):
                 return path
@@ -1666,6 +1688,8 @@ class TaskManager:
             or is_sensitive(path)
         ):
             return f"{directory} can't be added: pick a project folder."
+        if private_folders.is_private(path):
+            return f"{directory} is in a folder you keep private (local only): it can't be added."
         if str(path) in task.add_dirs or path == task.cwd:
             return f"{path.name} is already part of this session."
         task.add_dirs.append(str(path))
@@ -3105,6 +3129,13 @@ class TaskManager:
                 return PermissionResultDeny(
                     message=f"The user's permission rule {ruled[1]} doesn't allow this. Don't "
                     "try to get it done another way; ask them if it's needed."
+                )
+            if private := _private_target(tool_name, tool_input):  # local only, in every mode
+                self._audit(task, tool_name, tool_input, "denied", "a private folder")
+                return PermissionResultDeny(
+                    message=f"{private} is a folder the user keeps private (local only): "
+                    "nothing in it may be read, searched, run or sent to Claude. Don't try "
+                    "to get at it another way; tell the user, and go on without it."
                 )
             asked_by_rule = ruled is not None and ruled[0] == "ask"
             if free := self._goes_ahead(task, tool_name, tool_input):

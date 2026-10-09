@@ -34,7 +34,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import jsonstore, osplat
+from . import jsonstore, osplat, private_folders
 from .computer import is_sensitive, safe_path
 from .prefs import APP_SUPPORT
 from .textclean import clean_text
@@ -608,6 +608,7 @@ class DocumentStore:
         path = safe_path(raw)
         if is_sensitive(path):
             raise ValueError("That file holds private data; I won't read it.")
+        private_folders.check(path)  # a folder the owner keeps private: local only
         if not path.is_file():
             raise ValueError("That document isn't there any more.")
         return path

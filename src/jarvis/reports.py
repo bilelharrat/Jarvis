@@ -381,7 +381,7 @@ LOCAL_TOOLS = ("search_notes", "read_note", "search_files", "read_file")
 
 
 def _own_material_tools(hub: Any) -> list[Any]:
-    from . import fileindex
+    from . import fileindex, private_folders
     from .computer import is_sensitive
     from .knowledge import DOC_SUFFIXES, read_document
 
@@ -431,6 +431,7 @@ def _own_material_tools(hub: Any) -> list[Any]:
         if files is None:
             return _text("The file index is off.")
         hits = await asyncio.to_thread(files.search, str(args.get("query", "")), 10)
+        hits = [h for h in hits if not private_folders.is_private(h.path)]
         return _text(fileindex.describe(hits) if hits else "No files match that.")
 
     @tool(
@@ -445,6 +446,8 @@ def _own_material_tools(hub: Any) -> list[Any]:
             path = Path(str(args.get("path", ""))).expanduser().resolve()
         except (OSError, RuntimeError, ValueError):
             return _text("That isn't a file path.", error=True)
+        if private_folders.is_private(path):
+            return _text(private_folders.refusal(path), error=True)
         inside = any(r.resolve() in path.parents for r in roots)
         if not inside or is_sensitive(path) or fileindex.SECRET_NAME.search(str(path)):
             return _text("That file isn't one of the indexed documents.", error=True)

@@ -1122,6 +1122,52 @@ def quote_original(original: Full) -> str:
     return f"\n\nOn {when_}, {who} wrote:\n" + "\n".join(f"> {line}" for line in lines)
 
 
+_THREAD_PREFIX = re.compile(
+    r"^\s*(?:(?:re|aw|sv|antw|fw|fwd|wg|tr|rv)\s*(?:\[\d+\])?\s*[:：]\s*|\[[^\]]{1,40}\]\s*)+",
+    re.IGNORECASE,
+)
+
+
+def thread_subject(subject: str) -> str:
+    """A subject without its "Re:", "Fwd:", "AW:" and list tags in front: what every email of
+    its thread shares."""
+    return " ".join(_THREAD_PREFIX.sub("", _scrub(subject or "")).split())
+
+
+def thread_of(imap: Any, folder: str, uid: int, days: int = 365, limit: int = 30) -> list[Full]:
+    """The emails of one email's thread, in the inbox and the sent mail, oldest first: the ones
+    whose subject is its subject without the Re: and Fwd: in front, each read in full (its new
+    words only: what each quotes of the earlier ones is left out). Each folder gives its
+    newest `limit` of them."""
+    first = read_message(imap, folder, uid)
+    root = thread_subject(first.summary.subject)
+    found: dict[str, Full] = {}
+
+    def keep(full: Full) -> None:
+        key = full.message_id or f"{full.summary.folder}:{full.summary.uid}"
+        found.setdefault(key, full)
+
+    keep(first)
+    if root and root != "(no subject)":
+        for sent in (False, True):
+            try:
+                hits = find_messages(imap, subject=root, days=days, limit=limit, sent=sent)
+            except MailError:
+                if sent:
+                    continue  # (an account with no sent folder still has its inbox's)
+                raise
+            for hit in hits:
+                if thread_subject(hit.subject).casefold() != root.casefold():
+                    continue  # a subject that only contains its words
+                full = read_message(imap, hit.folder, hit.uid)
+                full.summary.folder_kind = hit.folder_kind
+                keep(full)
+    return sorted(
+        found.values(),
+        key=lambda f: f.summary.date or datetime.min.replace(tzinfo=UTC),
+    )
+
+
 def reply_subject(subject: str) -> str:
     subject = _scrub(subject) or "(no subject)"
     if re.match(r"^(?:re|aw|sv|antw)\s*[:：]", subject, re.IGNORECASE):

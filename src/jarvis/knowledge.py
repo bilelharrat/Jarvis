@@ -270,7 +270,10 @@ def _walk(folder: Path):
     each entry is from the folder's listing, without a stat per file."""
     from .computer import is_sensitive
     from .fileindex import SECRET_NAME
+    from .private_folders import is_private
 
+    if is_private(folder):
+        return  # a folder the owner keeps private: none of it goes in the second brain
     stack = [str(folder)]
     while stack:
         current = stack.pop()
@@ -288,11 +291,11 @@ def _walk(folder: Path):
             except OSError:
                 is_dir = False
             if is_dir:
-                if name not in SKIP_DIRS:
+                if name not in SKIP_DIRS and not is_private(entry.path):
                     stack.append(entry.path)
             elif os.path.splitext(name)[1].lower() in DOC_SUFFIXES:
                 path = Path(entry.path)
-                if not is_sensitive(path):
+                if not is_sensitive(path) and not is_private(path):
                     yield path
 
 
@@ -355,9 +358,11 @@ def read_document(
     download=False, an iCloud file whose contents aren't on this Mac is skipped rather than
     fetched just to be read. pages: how many pages of a PDF may be read (as many as are needed
     for `limit` characters, up to this)."""
+    from .private_folders import is_private
+
     suffix = path.suffix.lower()
-    if suffix not in DOC_SUFFIXES:
-        return ""
+    if suffix not in DOC_SUFFIXES or is_private(path):
+        return ""  # (a file in a folder the owner keeps private is never read for Claude)
     try:
         info = os.stat(path, follow_symlinks=False)
         if not stat.S_ISREG(info.st_mode) or info.st_size > 25_000_000:
@@ -674,6 +679,14 @@ def _fingerprint(text: str) -> bytes | None:
     return digest.digest()
 
 
+def _in_private_folder(note: Note) -> bool:
+    """A note made from a file in a folder the owner keeps private (private_folders.py)."""
+    from .private_folders import is_private
+
+    ref = str(note.ref or "")
+    return bool(ref) and os.path.isabs(ref) and is_private(ref, follow=False)
+
+
 class KnowledgeBase:
     def __init__(self, store: Path | None = None) -> None:
         self.store = store or APP_SUPPORT / "brain" / "index.json"
@@ -837,6 +850,8 @@ class KnowledgeBase:
         out = []
         for c, score, how in picked:
             n = notes[int(index.chunk_note[c])]
+            if _in_private_folder(n):
+                continue  # indexed before its folder was made private: never shown again
             chunks = chunk_text(n.title, n.text)
             chunk = chunks[min(int(index.chunk_pos[c]), len(chunks) - 1)]
             out.append(
@@ -856,7 +871,8 @@ class KnowledgeBase:
     def get(self, note_id: str) -> Note | None:
         with self._lock:
             i = self._index.by_id.get(note_id)
-            return self.notes[i] if i is not None else None
+            note = self.notes[i] if i is not None else None
+        return None if note is not None and _in_private_folder(note) else note
 
     def galaxy(self) -> dict[str, Any]:
         """The galaxy for the windows: made once per build or load, then the same one."""

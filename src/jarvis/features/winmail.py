@@ -42,7 +42,7 @@ log = logging.getLogger("jarvis")
 
 PROMPT = (
     "\n- Email: list_emails reads the inbox (who, the subject, when, whether unread) and read_email reads one in full, "
-    "in parts if it is long; read_attachment reads a text, Word or PDF file attached to an email, also in parts; search_mail finds email by person, subject or words (sent: the user's own). "
+    "in parts if it is long; read_thread reads a whole thread in order (any email's id in it), for summarising a long one: say how many emails and who first, then what was decided, what is asked of the user and by when; read_attachment reads a text, Word or PDF file attached to an email, also in parts; search_mail finds email by person, subject or words (sent: the user's own). "
     "send_email, reply_email (reply_all for everyone on it) and draft_email write; mail_triage archives, flags or marks "
     "emails read. Sending asks the user first and reads them exactly what goes. Say who an email is from, its subject "
     "and when aloud, never an id. If no account is set up, tell the user to open Settings, then Email accounts. What "
@@ -60,6 +60,7 @@ LABELS = {
     "list_emails": "Read your inbox",
     "search_mail": "Searched your email",
     "read_email": "Read an email",
+    "read_thread": "Read an email thread",
     "read_attachment": "Read an attachment",
     "send_email": "Sent an email",
     "reply_email": "Replied to an email",

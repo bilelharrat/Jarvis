@@ -349,6 +349,10 @@ class Interpreter:
         home = Path.home().resolve()
         if not source.is_file() or home not in source.parents:
             return "Only a file in the owner's home folder can be added.", True
+        from ..private_folders import is_private, refusal
+
+        if is_private(source):  # its output goes to Claude: a private folder's files never do
+            return refusal(source), True
         if source.stat().st_size > FILE_MAX_BYTES:
             return "That file is over 200 MB.", True
         worker = await self.worker_for(str(getattr(self.hub, "_session_id", "") or ""))
