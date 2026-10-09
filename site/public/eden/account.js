@@ -348,7 +348,15 @@ const CLOUD_LEAD = 'Your chats follow your account: sign in on another browser, 
 async function drawSync(box) {
   const i = Sync.info();
   const s = i.server;
-  if (!s || s.key) { await drawE2e(box); return; }
+  if (!s) { // askeden.com's sync settings haven't answered yet: say so, rather than showing nothing
+    const e = Cloud.info().error;
+    fill(box, el('p', 'sp-note', CLOUD_LEAD), el('div', 'icard acct-card', el('div', 'acct-allow',
+      el('div', 'acct-row-top', el('span', 'acct-k', 'Sync not started'), el('b', 'acct-v', '')),
+      el('div', 'acct-sub', e || 'Starting…'),
+      el('div', 'acct-row-actions', el('button', { type: 'button', class: 'cap primary', onclick: async (ev) => { ev.currentTarget.disabled = true; await Sync.refreshStatus().catch(() => {}); drawSync(box); } }, 'Try again')))));
+    return;
+  }
+  if (s.key) { await drawE2e(box); return; }
   const c = Cloud.info();
   const when = c.running ? 'Syncing…' : c.last ? `Last synced ${agoShort(c.last)}` : 'Not synced yet';
   const inner = el('div');
@@ -357,7 +365,7 @@ async function drawSync(box) {
     el('p', 'sp-note', CLOUD_LEAD),
     el('div', 'icard acct-card', el('div', 'acct-allow',
       el('div', 'acct-row-top', el('span', 'acct-k', c.error ? 'Sync paused' : c.on ? 'Synced · all devices' : 'Sync is off'), el('b', 'acct-v', `${c.chats} ${c.chats === 1 ? 'chat' : 'chats'}`)),
-      el('div', 'acct-sub', [when, c.waiting ? `${c.waiting} download when opened` : '', c.tooBig ? `${c.tooBig} too big to sync` : '', c.error].filter(Boolean).join(' · ')),
+      el('div', 'acct-sub', [when, c.waiting ? `${c.waiting} download when opened` : '', c.tooBig ? `${c.tooBig} too big to sync` : '', c.error ? `Couldn’t sync: ${c.error}` : ''].filter(Boolean).join(' · ')),
       el('div', 'acct-row-actions',
         el('button', { type: 'button', class: 'cap primary', disabled: c.running, onclick: async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Syncing…'; await Cloud.syncNow(); drawSync(box); } }, 'Sync now'),
         confirmButton('Delete all chats', 'Delete every chat here, on askeden.com and on your other devices?', async () => { await Cloud.deleteAllChats(deleteConversation); toast('All chats deleted'); drawSync(box); })))),
@@ -984,9 +992,12 @@ export async function initAccount(handlers = {}) {
     // right now (offline blip, no IndexedDB), ask again a few times before giving up, rather than staying off.
     const startCloud = async (i, tries = 0) => {
       let server = i.server;
-      if (!server) server = await Sync.refreshStatus().catch(() => null);
+      let why = '';
+      if (!server) server = await Sync.refreshStatus().catch((e) => { why = (e && e.message) || ''; return null; });
       if (server) { Cloud.initCloud(me.account_id, { e2e: Boolean(server.key) }); return; }
-      if (tries < 5) setTimeout(() => startCloud(Sync.info(), tries + 1), 5000 * (tries + 1));
+      // Never give up for good: say so in Settings › Sync, and ask again (every minute at most).
+      Cloud.setStartError(`Couldn’t start syncing${why ? `: ${why}` : '. Check your connection'}`);
+      setTimeout(() => startCloud(Sync.info(), tries + 1), Math.min(60_000, 5000 * (tries + 1)));
     };
     Sync.initSync(me.account_id).then((i) => {
       startCloud(i);

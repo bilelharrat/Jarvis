@@ -118,7 +118,8 @@ export async function chatSyncOp(account, op, request) {
 const OPS = new Set(['status', 'list', 'get', 'put', 'delete', 'wipe']);
 
 export async function chatSyncApi(request, env, who, op) {
-  await limited(env, 'API_RATE', who.account);
+  // Its own allowance (a first upload is hundreds of calls); API_RATE's 120 a minute is for chat turns and ran out within the first minute.
+  await limited(env, env.CSYNC_RATE ? 'CSYNC_RATE' : 'API_RATE', who.account);
   if (!OPS.has(op)) throw new ApiError(404, 'not_found', 'No such thing.');
   if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'POST it.');
   const body = await readJson(request, 4_000_000);

@@ -47,7 +47,11 @@ async function api(path, body = {}) {
   catch { throw Object.assign(new Error('Can’t reach askeden.com. Check your connection.'), { status: 0 }); }
   let out = {};
   try { out = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) throw Object.assign(new Error(out.error || `askeden.com said ${res.status}.`), { status: res.status, code: out.code });
+  if (!res.ok) {
+    const wait = Number(res.headers.get('retry-after')) || 0;
+    const text = res.status === 429 ? 'askeden.com asked this device to slow down; syncing goes on in a minute.' : out.error || `askeden.com said ${res.status}.`;
+    throw Object.assign(new Error(text), { status: res.status, code: out.code, wait });
+  }
   return out;
 }
 
@@ -147,7 +151,11 @@ async function push() {
   }
   tooBig = 0;
   const work = state.convs.filter((c) => syncable(c, state.streams.has(c.id)) && (dirty.has(c.id) || local.seen[c.id] !== c.updated || !local.revs[c.id]));
-  for (let i = 0; i < work.length; i += PARALLEL) await Promise.all(work.slice(i, i + PARALLEL).map(pushOne));
+  for (let i = 0; i < work.length; i += PARALLEL) {
+    const done = await Promise.allSettled(work.slice(i, i + PARALLEL).map(pushOne));
+    const bad = done.find((d) => d.status === 'rejected');
+    if (bad) throw bad.reason;
+  }
 }
 
 /** One pass now: pull, then push; more when a conflict asked for it. */
@@ -167,6 +175,8 @@ export async function syncNow() {
     lastError = '';
   } catch (e) {
     lastError = e.message || String(e);
+    // Too fast (a big first upload) or no network: keep what was done, try again soon rather than in 30 s of nothing.
+    if (e.status === 429 || e.status === 0 || e.status >= 500) { clearTimeout(pushTimer); pushTimer = setTimeout(() => syncNow(), Math.max(10_000, (e.wait || 20) * 1000 + 2000)); }
   } finally {
     running = false;
     save();
@@ -205,11 +215,15 @@ function stop() {
 }
 
 /** At page load once the account is known. `e2e`: end-to-end mode is set up for the account (sync.js), so this stays off. */
+/** Why sync couldn't even start (account.js: askeden.com's sync settings wouldn't answer): shown in Settings › Sync. */
+export function setStartError(message) { if (!enabled) { lastError = message || ''; notify(); } }
+
 export function initCloud(accountId, { e2e = false } = {}) {
   if (!accountId || isMock) return info();
   account = accountId;
   stop();
   enabled = !e2e;
+  lastError = '';
   if (!enabled) { notify(); return info(); }
   local = store.get(stateKey(), null) || { since: 0, revs: {}, seen: {}, deleted: [], last: 0 };
   local.revs ||= {}; local.seen ||= {}; local.deleted ||= [];

@@ -211,6 +211,12 @@ name = "API_RATE"
 namespace_id = "1003"
 simple = { limit = 120, period = 60 }
 
+# Chat history sync (accounts/chat-sync.js): calls a minute per account. A first upload is one call per chat.
+[[ratelimits]]
+name = "CSYNC_RATE"
+namespace_id = "1008"
+simple = { limit = 600, period = 60 }
+
 # Signing in on the web (docs/web-auth.md): Apple and Google starts and callbacks, the Eden
 # app's handoffs, and new accounts, each a minute per network.
 [[ratelimits]]
