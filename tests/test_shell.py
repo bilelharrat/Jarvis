@@ -224,7 +224,7 @@ async def test_the_password_prompt_speaks_the_owner_s_language(hub, mac):
     [admin] = [c for c in mac["calls"] if c[0] == shell.OSASCRIPT]
     assert admin[2] == (
         'do shell script "/usr/bin/pmset repeat cancel" with prompt '
-        '"J.A.R.V.I.S. 想停止每天唤醒这台 Mac。" with administrator privileges'
+        '"Eden 想停止每天唤醒这台 Mac。" with administrator privileges'
     )
 
 

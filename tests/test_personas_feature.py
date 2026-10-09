@@ -145,7 +145,7 @@ async def test_claude_knows_them(settings, quiet_speaker, isolated):
     out = (await list_personas.handler({}))["content"][0]["text"]
     lines = out.splitlines()
     assert lines[0] == "You are jarvis now."
-    assert lines[1].startswith("jarvis: JARVIS. ")
+    assert lines[1].startswith("jarvis: Eden. ")
     assert lines[-1] == (
         "alfred: Alfred (made by the user). A gentle old butler, patient and warm. "
         "Starts at humor 30 percent."

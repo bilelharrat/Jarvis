@@ -99,6 +99,11 @@ def _plain(text: Any) -> str:
     return " ".join(str(text or "").casefold().split())
 
 
+def _titled(name: Any) -> str:
+    """A calendar's title as asked for: its own one's name from before the rename too."""
+    return LOCAL_TITLE if _plain(name) == "jarvis" else str(name or "")
+
+
 # ── the files ──
 
 
@@ -456,7 +461,9 @@ class Store:
         return {"events": [row(o, details=True) for o in self._starting(start)]}
 
     def _one(self, start: str, event_id: str, calendar: str) -> Occurrence | None:
-        hits = [o for o in self._starting(start) if o.id == event_id and o.calendar == calendar]
+        hits = [
+            o for o in self._starting(start) if o.id == event_id and o.calendar == _titled(calendar)
+        ]
         return hits[0] if len(hits) == 1 else None
 
     def remove(self, start: str, event_id: str, calendar: str, future: bool) -> dict[str, Any]:
@@ -487,7 +494,7 @@ class Store:
         return {"removed": gone, "span": span}
 
     def create(self, spec: dict[str, Any]) -> dict[str, Any]:
-        wanted = _plain(spec.get("calendar"))
+        wanted = _plain(_titled(spec.get("calendar")))
         calendars = self.calendars()
         if wanted:
             target = next((c for c in calendars if _plain(c["title"]) == wanted), None)
@@ -546,7 +553,7 @@ class Store:
                 if end.hour == 23
                 else end
             )
-        wanted = str(event.get("calendar") or "")
+        wanted = _titled(event.get("calendar"))
         writable = next(
             (c for c in self.calendars() if c["writable"] and c["title"] == wanted), None
         )

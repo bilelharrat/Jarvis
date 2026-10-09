@@ -150,7 +150,7 @@ def test_whisper_failing_says_so_without_the_words(hub):
     client, _ = client_for(hub)
     failed = post(client, wav(1), "audio/wav")
     assert failed.status_code == 500 and failed.json()["text"] == (
-        "Jarvis couldn’t transcribe that recording."
+        "Eden couldn’t transcribe that recording."
     )
 
 

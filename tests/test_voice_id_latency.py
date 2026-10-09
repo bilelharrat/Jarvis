@@ -38,7 +38,7 @@ class SlowClient(FakeClient):
 
 
 async def first_words(settings, speaker, isolated, check: bool, stt_seconds: float) -> float:
-    hub = Hub(settings, client_factory=SlowClient, speaker=speaker, transcriber=Words("Jarvis, what's on tomorrow?", stt_seconds), poll=False, **isolated)  # fmt: skip
+    hub = Hub(settings, client_factory=SlowClient, speaker=speaker, transcriber=Words("Eden, what's on tomorrow?", stt_seconds), poll=False, **isolated)  # fmt: skip
     hub.listener_factory = Listener
     await hub.start()
     hub.set_prefs({"hands_free": True})

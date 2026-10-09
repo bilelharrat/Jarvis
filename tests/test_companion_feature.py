@@ -116,7 +116,7 @@ async def test_settings_show_the_certificate_the_phones_and_their_activity(hub):
         assert [d["name"] for d in status["devices"]] == ["iPhone"]
         assert [(a["action"], a["label"]) for a in status["audit"]] == [
             ("paired", "Paired"),
-            ("stop", "Stopped Jarvis"),
+            ("stop", "Stopped Eden"),
         ]
         assert all(a["name"] == "iPhone" for a in status["audit"])
     finally:
@@ -150,7 +150,7 @@ async def test_the_activity_log_is_kept_bounded_and_read_defensively(tmp_path, m
     await log.saver.flush()
     saved = json.loads(path.read_text())
     assert [row["detail"] for row in saved] == ["#3", "#4", "#5", "#6", "#7"]
-    assert AuditLog(path).recent()[-1]["label"] == "Asked Jarvis"
+    assert AuditLog(path).recent()[-1]["label"] == "Asked Eden"
 
     odd = tmp_path / "odd.json"
     odd.write_text('[{"action": "paired", "at": 5}, "junk", {"no": "action"}]')

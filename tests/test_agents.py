@@ -109,8 +109,8 @@ def test_a_personas_name_called_picks_its_agent_but_jarvis_never_switches():
     assert agents.called("Friday, what's on today?", items, "jarvis") == "work"
     assert agents.called("hey Fryday what's on", items, "jarvis") == "work"  # as Whisper hears it
     assert agents.called("TARS, call mum", items, "jarvis") == "family"
-    assert agents.called("Jarvis, what's on today?", items, "jarvis") is None
-    assert agents.called("What's on Friday, Jarvis?", items, "jarvis") is None  # not a call
+    assert agents.called("Eden, what's on today?", items, "jarvis") is None
+    assert agents.called("What's on Friday, Eden?", items, "jarvis") is None  # not a call
     assert agents.called("星期五，今天有什么安排", items, "jarvis") == "work"
     # The everyday JARVIS on FRIDAY too: the name is shared, so it picks neither.
     assert agents.called("Friday, hello", items, "friday") is None
@@ -125,9 +125,11 @@ def test_a_personas_name_called_picks_its_agent_but_jarvis_never_switches():
         ("please switch over to the family agent", "family"),
         ("talk to family", "family"),
         ("switch to Friday", "work"),  # its persona's name
+        ("go back to Eden", MAIN),
         ("go back to Jarvis", MAIN),
         ("switch back to the default", MAIN),
         ("切换到家庭助手", "family"),
+        ("切换到伊甸", MAIN),
         ("切换到贾维斯", MAIN),
         ("switch to dark mode", None),
         ("go to work", None),
@@ -258,9 +260,9 @@ async def test_the_wake_seam_hears_what_woke_it(make_hub):
     heard = []
     hub.add_wake_sink(lambda text, command: heard.append((text, command)))
     hub._ask_by_voice = lambda request: None  # nothing asked: only the seam is under test
-    await hub.on_heard("Jarvis, what's on today?")
-    await hub.on_heard("Jarvis, stop")
-    assert [text for text, _command in heard] == ["Jarvis, what's on today?"]
+    await hub.on_heard("Eden, what's on today?")
+    await hub.on_heard("Eden, stop")
+    assert [text for text, _command in heard] == ["Eden, what's on today?"]
     assert heard[0][1].startswith("what's on today")
 
 

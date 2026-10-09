@@ -61,7 +61,7 @@ async def test_a_bare_wake_word_plays_no_real_chime(
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     hub.listener_factory = Listener
     await hub.start()
-    await hub.on_heard("Jarvis.")
+    await hub.on_heard("Eden.")
     assert hub.state == "listening"  # listening all the same
     assert _no_real_audio == ["afplay"]
 

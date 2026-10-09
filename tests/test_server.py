@@ -29,7 +29,7 @@ def client(settings, quiet_speaker, isolated):
 
 def test_page_and_health_are_served(client):
     assert client.get("/health").json() == {"ok": True, "busy": False}
-    assert "Talk to Jarvis" in client.get("/").text
+    assert "Talk to Eden" in client.get("/").text
     assert client.get("/static/app.js").status_code == 200
 
 

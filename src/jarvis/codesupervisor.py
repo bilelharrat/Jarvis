@@ -944,7 +944,7 @@ ZH = {
     "Nothing sent.": "什么也没发。",
     "Sent to {session}.": "已发给{session}。",
     "To send your selected text too, allow Accessibility for Eden in System Settings.": (
-        "要把你选中的文字也一起发送，请在“系统设置”里允许 Eden 使用辅助功能。"
+        "要把你选中的文字也一起发送，请在“系统设置”里允许本应用使用辅助功能。"
     ),
     "Only a picture went along: the helper that reads the window's title and selected text couldn't be built.": (
         "只发送了截图：读取窗口标题和选中文字的辅助程序没能构建。"

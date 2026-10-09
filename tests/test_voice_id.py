@@ -191,7 +191,7 @@ async def test_turning_it_on_shows_why_its_off_until_it_can_check(
         if guard.model_path.is_file() and guard.embedder is not None:
             break
     state = [e for e in drain(q) if e["type"] == "voice_id"][-1]
-    assert state["model"] and state["downloading"] is None and "Teach Jarvis" in state["why"]
+    assert state["model"] and state["downloading"] is None and "Teach Eden" in state["why"]
     await hub.handle({"type": "voice_id_settings", "changes": {"voice_id_scope": "bogus"}})
     assert hub.prefs.feature("voice_id_scope") == "risky"
 
@@ -235,7 +235,7 @@ async def test_enrollment_reads_five_sentences_retries_a_short_one_and_saves(
     # Forget my voice: the file is gone, and it's off again until retrained.
     await hub.handle({"type": "voice_id_forget"})
     assert not guard.print_path.exists() and guard.print is None
-    assert "Teach Jarvis" in guard.why_off()
+    assert "Teach Eden" in guard.why_off()
 
 
 async def test_enrollment_gives_up_on_silence_and_keeps_the_old_voiceprint(
@@ -268,7 +268,7 @@ async def test_enrollment_needs_the_model(settings, quiet_speaker, isolated):
 
 async def test_everything_mode_ignores_anyone_else(settings, quiet_speaker, isolated):
     hub = await hands_free(make_hub(settings, quiet_speaker, isolated=isolated))
-    hub.transcriber = Words("Jarvis, what's on tomorrow?", 0.05)
+    hub.transcriber = Words("Eden, what's on tomorrow?", 0.05)
     enrolled_guard(hub, "all")
     q = hub.subscribe()
     await hear(hub, "guest")
@@ -282,7 +282,7 @@ async def test_risky_mode_answers_anyone_but_their_words_arent_the_owners(
     settings, quiet_speaker, isolated
 ):
     hub = await hands_free(make_hub(settings, quiet_speaker, isolated=isolated))
-    hub.transcriber = Words("Jarvis, send Ben the report", 0.05)
+    hub.transcriber = Words("Eden, send Ben the report", 0.05)
     enrolled_guard(hub, "risky")
     words = []
     before = hub._before_query
@@ -297,7 +297,7 @@ async def test_risky_mode_answers_anyone_but_their_words_arent_the_owners(
     assert hub.client.said == ["send Ben the report"] * 2
     # The guest's request was answered, but the gates see no words of the owner's: a
     # send, a purchase or a delete asks first.
-    assert words == ["", "Jarvis, send Ben the report".removeprefix("Jarvis, ")]
+    assert words == ["", "Eden, send Ben the report".removeprefix("Eden, ")]
 
 
 async def _card(hub):
@@ -341,7 +341,7 @@ async def test_the_refusal_is_said_in_chinese(settings, quiet_speaker, isolated)
 @pytest.mark.parametrize("why", ["off", "not_enrolled", "no_model", "fails", "too_short", "slow"])
 async def test_fallbacks_behave_as_before(settings, quiet_speaker, isolated, why, monkeypatch):
     hub = await hands_free(make_hub(settings, quiet_speaker, isolated=isolated))
-    hub.transcriber = Words("Jarvis, what's on tomorrow?")
+    hub.transcriber = Words("Eden, what's on tomorrow?")
     guard = enrolled_guard(hub, "all")
     # Never blocking: without a check, or with a failed one, the answer comes long before
     # a check could time out; a slow check times out at once, while it's still running.
@@ -476,7 +476,7 @@ async def test_everything_mode_answers_the_owner_at_their_measured_scores(
     settings, quiet_speaker, isolated, score
 ):
     hub = await hands_free(make_hub(settings, quiet_speaker, isolated=isolated))
-    hub.transcriber = Words("Jarvis, what's on tomorrow?", 0.05)
+    hub.transcriber = Words("Eden, what's on tomorrow?", 0.05)
     close_clips_guard(hub, "all")
     hub._heard.put_nowait(("full", time.monotonic(), at_score(score)))
     await asyncio.sleep(0.3)
@@ -485,7 +485,7 @@ async def test_everything_mode_answers_the_owner_at_their_measured_scores(
 
 async def test_an_unsure_voice_is_answered_but_risky_steps_ask(settings, quiet_speaker, isolated):
     hub = await hands_free(make_hub(settings, quiet_speaker, isolated=isolated))
-    hub.transcriber = Words("Jarvis, send Ben the report", 0.05)
+    hub.transcriber = Words("Eden, send Ben the report", 0.05)
     close_clips_guard(hub, "all")
     words = []
     before = hub._before_query

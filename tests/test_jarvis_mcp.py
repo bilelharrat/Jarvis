@@ -289,7 +289,7 @@ async def test_the_bridge_speaks_mcp(tmp_path):
     )
     assert (
         call["result"]["isError"]
-        and "turn on Settings › Jarvis in other apps" in call["result"]["content"][0]["text"]
+        and "turn on Settings › Eden in other apps" in call["result"]["content"][0]["text"]
     )
     assert (await bridge.handle({"jsonrpc": "1.0", "id": 7}))["error"]["code"] == -32600
 

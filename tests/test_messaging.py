@@ -150,7 +150,7 @@ async def test_a_spoken_yes_counts_only_after_the_text_is_read_out(
     assert await pending is True
 
     pending = asyncio.create_task(
-        hub.send_gate("Send this to Ben Ma?", "…", "Here's your message. Jarvis says hi.")
+        hub.send_gate("Send this to Ben Ma?", "…", "Here's your message. Eden says hi.")
     )
     await asyncio.sleep(0)
     assert spoken[-1] == "Here's your message. the assistant says hi."  # no wake word

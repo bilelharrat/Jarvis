@@ -43,7 +43,7 @@ async def test_a_spoken_correction_is_learned_and_told_to_claude(settings, quiet
     ears.texts = ["text akin I'm late"]
     text = hub.hearing.fix(await asyncio.to_thread(hub._transcribe, hub.transcriber, audio))
     assert text == "text Okin I'm late"
-    assert ears.hints[-1].startswith("Jarvis ") and "Okin" in ears.hints[-1]
+    assert ears.hints[-1].startswith("Eden ") and "Okin" in ears.hints[-1]
 
 
 async def test_a_routine_teaches_nothing(settings, quiet_speaker, isolated):

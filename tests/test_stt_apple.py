@@ -197,7 +197,7 @@ async def test_the_model_downloads_only_when_asked(
 async def test_an_utterance_apple_heard_isnt_transcribed_again(
     settings, quiet_speaker, isolated, helper, monkeypatch
 ):
-    monkeypatch.setenv("FAKE_HEAR_WORDS", "Jarvis, what's on tomorrow?")
+    monkeypatch.setenv("FAKE_HEAR_WORDS", "Eden, what's on tomorrow?")
     hub = make_hub(settings, quiet_speaker, isolated)
     hub._loop = asyncio.get_running_loop()
     ears = voice_feature.feature_for(hub).ears
@@ -215,7 +215,7 @@ async def test_an_utterance_apple_heard_isnt_transcribed_again(
     for b in speech:
         ears.tap(b, True)
     heard = await asyncio.to_thread(hub._transcribe, hub.transcriber, np.concatenate(speech))
-    assert heard == "Jarvis, what's on tomorrow?" and whispered == []
+    assert heard == "Eden, what's on tomorrow?" and whispered == []
     other = await asyncio.to_thread(hub._transcribe, hub.transcriber, np.ones(1600, np.float32))
     assert other == "whisper's words" and whispered == [1600]  # push-to-talk audio: Whisper
     ears._stop()
@@ -239,10 +239,10 @@ async def test_captions_show_only_what_is_for_jarvis(settings, quiet_speaker, is
     ears.recognizer.utterance_start = 0
     ears._result({"t": "partial", "start": 0, "end": 800, "text": "so anyway the"})
     assert not [k for k, _ in sent if k == "voice_live"]  # room talk: never shown
-    ears._result({"t": "partial", "start": 0, "end": 1600, "text": "Jarvis, what's"})
-    ears._result({"t": "partial", "start": 0, "end": 2400, "text": "Jarvis, what's on"})
+    ears._result({"t": "partial", "start": 0, "end": 1600, "text": "Eden, what's"})
+    ears._result({"t": "partial", "start": 0, "end": 2400, "text": "Eden, what's on"})
     live = [d for k, d in sent if k == "voice_live"]
-    assert [d["text"] for d in live] == ["Jarvis, what's", "Jarvis, what's on"]
+    assert [d["text"] for d in live] == ["Eden, what's", "Eden, what's on"]
     await asyncio.sleep(0)
     assert warmed == [1]  # the voice's connection opens while you're still talking
     ears.recognizer.utterance_start = 4000  # the next utterance
@@ -277,7 +277,7 @@ async def test_just_the_name_listens_without_the_full_pause(settings, quiet_spea
 
     class Ears:
         def transcribe(self, *_a):
-            return "Jarvis."
+            return "Eden."
 
     hub.transcriber = Ears()
     hub._arm = lambda **_kw: committed.append("armed")

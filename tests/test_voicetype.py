@@ -1,5 +1,5 @@
-"""Voice typing with hands-free: "Jarvis, start typing", and what the owner says is typed
-where the keyboard focus is until "stop typing"; "Jarvis, type <words>" types one line.
+"""Voice typing with hands-free: "Eden, start typing", and what the owner says is typed
+where the keyboard focus is until "stop typing"; "Eden, type <words>" types one line.
 Nothing is asked of Claude, and no key or mouse event leaves the test (computer's posting
 functions are replaced)."""
 
@@ -88,7 +88,7 @@ async def test_start_typing_types_what_is_said_until_stop(
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
     q = hub.subscribe()
-    await hub.on_heard("Jarvis, start typing")
+    await hub.on_heard("Eden, start typing")
     assert hub.voice_typing.on
     await hub.on_heard("Dear Pepper,")
     await hub.on_heard("new line")
@@ -115,7 +115,7 @@ async def test_jarvis_stop_ends_typing_too(settings, quiet_speaker, isolated, ke
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
     await hub.set_voice_typing(True)
-    await hub.on_heard("Jarvis, stop")
+    await hub.on_heard("Eden, stop")
     assert not hub.voice_typing.on
     assert keyboard == []
 
@@ -123,7 +123,7 @@ async def test_jarvis_stop_ends_typing_too(settings, quiet_speaker, isolated, ke
 async def test_type_once_types_one_line(settings, quiet_speaker, isolated, keyboard):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
-    await hub.on_heard("Jarvis, type on my way")
+    await hub.on_heard("Eden, type on my way")
     assert keyboard == [("text", "on my way")]
     assert not hub.voice_typing.on
 
@@ -158,7 +158,7 @@ async def test_no_accessibility_says_so_and_stops(settings, quiet_speaker, isola
 async def test_jarvis_can_turn_it_on_however_it_was_asked(
     settings, quiet_speaker, isolated, keyboard
 ):
-    """ "Jarvis, I'm trying to write with you" goes to JARVIS, whose voice_typing tool
+    """ "Eden, I'm trying to write with you" goes to JARVIS, whose voice_typing tool
     (window_apply) turns it on, but only while hands-free is listening."""
     from jarvis import ui
 

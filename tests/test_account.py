@@ -523,7 +523,7 @@ async def test_jarvis_code_says_the_allowance_too(plus):
     hub, _fake = plus
     await hub.account._keep(TOKEN, None)
     hub.set_feature_prefs({PLUS_PREF: True})
-    assert hub.tasks.error_words("billing_error").startswith("Your Jarvis Plus")
+    assert hub.tasks.error_words("billing_error").startswith("Your Eden Plus")
 
 
 # ── the hosted voice ──

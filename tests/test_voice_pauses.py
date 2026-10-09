@@ -28,7 +28,7 @@ async def test_a_request_begun_in_the_window_counts_though_it_ends_after(
     settings, quiet_speaker, isolated
 ):
     hub = await started(settings, quiet_speaker, isolated)
-    await hub.on_heard("Jarvis.")
+    await hub.on_heard("Eden.")
     assert hub.state == "listening"
     # The window closed half a second ago; they started talking three seconds ago.
     hub._armed_until, hub._armed_window = 0.0, time.monotonic() - 0.5
@@ -50,7 +50,7 @@ async def test_the_rest_of_a_request_after_a_pause_is_asked_with_the_start(
 ):
     hub = await started(settings, quiet_speaker, isolated)
     spoken(hub, began_ago=1.5, ended_ago=0.6)
-    await hub._lock.acquire()  # "Jarvis, can you" went off as a request and is running
+    await hub._lock.acquire()  # "Eden, can you" went off as a request and is running
     hub._ask_by_voice("can you")
     spoken(hub, began_ago=0.3)  # 0.3 s after it ended: "…open my mail"
     await hub.on_heard("open my mail")

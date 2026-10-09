@@ -155,7 +155,7 @@ async def test_ask_puts_up_a_card_once_per_request(settings, quiet_speaker, isol
     assert await desk.watch.check("type", {"text": "soup"}) is None
     assert len(asked) == 1
     question, detail, spoken = asked[0]
-    assert question == "Let Jarvis act on news.example?" and "Press “Subscribe”" in detail
+    assert question == "Let Eden act on news.example?" and "Press “Subscribe”" in detail
     assert "Settings › Browser" in detail and spoken.startswith("Can I act on news.example?")
     hub._rid = "r2"  # the next request asks again
     asked = asker(hub, False)

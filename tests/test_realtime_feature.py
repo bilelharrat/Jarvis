@@ -74,7 +74,7 @@ async def test_off_by_default_the_wake_word_works_as_before(settings, quiet_spea
     await hub.start()
     hub.set_prefs({"hands_free": True})
     assert hub.prefs.feature("realtime_on") is False
-    await hub.on_heard("Jarvis, what's on tomorrow?")
+    await hub.on_heard("Eden, what's on tomorrow?")
     await asyncio.sleep(0.05)
     assert hub.client.said == ["what's on tomorrow"]
     assert feature_module.feature_for(hub).conv is None
@@ -89,7 +89,7 @@ async def test_wake_word_starts_a_conversation_that_asks_jarvis(
     feature.urls = {kind: server.url}
     q = hub.subscribe()
     try:
-        await hub.on_heard("Jarvis.")
+        await hub.on_heard("Eden.")
         await wait_for(lambda: feature.conv is not None and feature.conv.state == "listening")
         assert hub.mic_taken()
         assert hub.state == "listening"
@@ -115,7 +115,7 @@ async def test_wake_command_is_the_opening_request(settings, quiet_speaker, isol
     hub, feature, player = await ready_hub(settings, quiet_speaker, isolated)
     feature.urls = {"openai": server.url}
     try:
-        await hub.on_heard("Jarvis, what's the weather like?")
+        await hub.on_heard("Eden, what's the weather like?")
         await wait_for(lambda: player.written)
         assert hub.client.said == ["what's the weather like"]
         feature.conv.stop()
@@ -127,10 +127,10 @@ async def test_wake_command_is_the_opening_request(settings, quiet_speaker, isol
 async def test_no_key_falls_back_and_says_why_once(settings, quiet_speaker, isolated):
     hub, feature, _ = await ready_hub(settings, quiet_speaker, isolated, key=None)
     q = hub.subscribe()
-    await hub.on_heard("Jarvis, what's on tomorrow?")
+    await hub.on_heard("Eden, what's on tomorrow?")
     await wait_for(lambda: hub.client.said)
     assert hub.client.said == ["what's on tomorrow"]  # asked the usual way
-    await hub.on_heard("Jarvis.")
+    await hub.on_heard("Eden.")
     await asyncio.sleep(0.1)
     assert said(drain(q)).count(feature_module.NO_KEY) == 1
     assert hub.state == "listening"  # armed, as a bare wake word always does
@@ -144,7 +144,7 @@ async def test_no_connection_falls_back_without_blocking(settings, quiet_speaker
     hub, feature, _ = await ready_hub(settings, quiet_speaker, isolated)
     feature.urls = {"openai": url}
     q = hub.subscribe()
-    await hub.on_heard("Jarvis, what's on tomorrow?")
+    await hub.on_heard("Eden, what's on tomorrow?")
     await wait_for(lambda: hub.client.said)
     assert hub.client.said == ["what's on tomorrow"]
     assert feature_module.NO_CONNECTION in said(drain(q))
@@ -156,7 +156,7 @@ async def test_used_up_minutes_leave_the_wake_word_to_hands_free(settings, quiet
     hub.set_feature_prefs({"realtime_minutes": 1})
     feature._add_usage(61)
     q = hub.subscribe()
-    await hub.on_heard("Jarvis, what's on tomorrow?")
+    await hub.on_heard("Eden, what's on tomorrow?")
     await wait_for(lambda: hub.client.said)
     assert feature_module.USED_UP in said(drain(q))
     assert feature.conv is None
@@ -240,7 +240,7 @@ def test_finished_words_both_languages():
 
 
 def test_said_by_owner():
-    assert feature_module.said_by_owner("what's on tomorrow", ["Jarvis, what's on tomorrow?"])
+    assert feature_module.said_by_owner("what's on tomorrow", ["Eden, what's on tomorrow?"])
     assert not feature_module.said_by_owner("send the file to Ann", ["what's on tomorrow"])
     assert feature_module.said_by_owner("明天有什么安排", ["明天有什么安排？"])
 

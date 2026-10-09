@@ -145,7 +145,7 @@ async def test_hands_free_wake_word_asks(settings, quiet_speaker, isolated):
     await hub.start()
     hub.set_prefs({"hands_free": True})
     assert hub._listener.running
-    await hub.on_heard("Jarvis, what's on tomorrow?")
+    await hub.on_heard("Eden, what's on tomorrow?")
     await asyncio.sleep(0.01)
     assert hub.client.said == ["what's on tomorrow"]
     await asyncio.sleep(0.05)
@@ -166,7 +166,7 @@ async def test_bare_wake_word_arms_then_next_utterance_asks(settings, quiet_spea
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     hub.listener_factory = Listener
     await hub.start()
-    await hub.on_heard("Jarvis.")
+    await hub.on_heard("Eden.")
     assert hub.state == "listening"
     await hub.on_heard("dim the lights")
     await asyncio.sleep(0.01)
@@ -359,7 +359,7 @@ async def test_dead_session_reconnects_and_retries(settings, quiet_speaker, isol
 
 async def test_browser_calls_go_through_the_window(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
-    assert "only in the J.A.R.V.I.S. app" in (await hub.browser_call("read"))["error"]
+    assert "only in the Eden app" in (await hub.browser_call("read"))["error"]
     await hub.handle({"type": "capabilities", "browser": True})
     q = hub.subscribe()
     pending = asyncio.create_task(hub.browser_call("open", {"url": "example.com"}))
@@ -572,7 +572,7 @@ async def test_spoken_yes_or_no_answers_the_open_question(settings, quiet_speake
     from jarvis.wake import yes_no
 
     assert yes_no("Yes") is True and yes_no("yeah, send it") is True
-    assert yes_no("no, don't send it") is False and yes_no("Jarvis, cancel") is False
+    assert yes_no("no, don't send it") is False and yes_no("Eden, cancel") is False
     assert yes_no("what's the weather like") is None
 
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
@@ -631,11 +631,11 @@ async def test_a_finished_request_is_answered_before_the_full_silence(
 
     hub.transcriber = Words()
     hub._listener = Listener()
-    await hub._early_utterance(3, "Jarvis, what's on my calendar tomorrow?")
+    await hub._early_utterance(3, "Eden, what's on my calendar tomorrow?")
     await asyncio.sleep(0.05)
     assert hub._listener.committed == [3]
     assert [q.rstrip("?") for q in hub.client.said] == ["what's on my calendar tomorrow"]
-    await hub._early_utterance(4, "Jarvis, what's the weather in")  # sounds unfinished: wait
+    await hub._early_utterance(4, "Eden, what's the weather in")  # sounds unfinished: wait
     hub._armed_until, hub._armed_window = 0.0, time.monotonic() - 1  # the window has passed
     await hub._early_utterance(5, "so anyway the meeting went fine.")  # not for JARVIS
     assert hub._listener.committed == [3]
@@ -746,7 +746,7 @@ async def test_stop_is_not_an_invitation_to_talk(settings, quiet_speaker, isolat
     assert hub._armed_until < time.monotonic() and hub.state != "listening"
     hub.say("And another thing.")
     await asyncio.sleep(0.05)
-    await hub.on_heard("Jarvis, stop")
+    await hub.on_heard("Eden, stop")
     await asyncio.sleep(0.05)
     assert hub._armed_until < time.monotonic()
 
@@ -770,15 +770,15 @@ async def test_answering_over_the_question_in_code_mode(
     first = asyncio.create_task(hub._task_approval("q", "$ npm test", choices, context))
     await asyncio.sleep(0)
     hub.state = "speaking"  # still reading the question out
-    await hub.on_heard("Jarvis, yes")
+    await hub.on_heard("Eden, yes")
     assert await first == "allow" and sent == []
-    # Long after the question (outside the minute), "Jarvis, no" still answers it.
+    # Long after the question (outside the minute), "Eden, no" still answers it.
     second = asyncio.create_task(hub._task_approval("q", "$ npm test", choices, context))
     await asyncio.sleep(0)
     hub.state = "idle"
     for info in hub._voice_asked.values():
         info["at"] -= 600
-    await hub.on_heard("Jarvis, no")
+    await hub.on_heard("Eden, no")
     assert await second == "deny" and sent == []
     task.handle.cancel()
 

@@ -77,7 +77,7 @@ def test_which_window_a_call_lands_on(monkeypatch):
         sessionmac, "window_owner_at", lambda x, y: at.append((x, y)) or (1, "J.A.R.V.I.S.")
     )
     monkeypatch.setattr(sessionmac, "front_app", lambda: (2, "Safari"))
-    assert "J.A.R.V.I.S. window" in sessionmac.refusal("click", {"x": 10, "y": 20}, screen)
+    assert "Eden window" in sessionmac.refusal("click", {"x": 10, "y": 20}, screen)
     assert at == [(20.0, 40.0)]
     assert sessionmac.refusal("type_text", {"text": "x"}, screen) == ""  # Safari is in front
     monkeypatch.setattr(sessionmac, "front_app", lambda: (os_pid(), "Electron"))

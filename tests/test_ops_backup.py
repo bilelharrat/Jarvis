@@ -200,11 +200,11 @@ def test_what_isnt_a_jarvis_backup_says_so(data, tmp_path):
     other = tmp_path / "other.zip"
     with zipfile.ZipFile(other, "w") as zf:
         zf.writestr("readme.txt", "hi")
-    assert backup.verify(other)["problem"].startswith("It isn't a Jarvis backup")
+    assert backup.verify(other)["problem"].startswith("It isn't an Eden backup")
     newer = write_zip(
         tmp_path / "newer.zip", [], {}, manifest={"format": 99, "app": "jarvis", "files": []}
     )
-    assert backup.verify(newer)["problem"] == "It was made by a newer version of Jarvis."
+    assert backup.verify(newer)["problem"] == "It was made by a newer version of Eden."
     assert backup.verify(tmp_path / "gone.zip")["problem"] == "That backup isn't there any more."
 
 

@@ -68,7 +68,7 @@ async def test_the_helper_answer_becomes_rows_with_hints_and_panes():
     got = await permissions.statuses(as_python)
     rows = {r["id"]: r for r in permissions.rows(got)}
     assert rows["microphone"]["hint"] == ""
-    assert rows["calendars"]["hint"].startswith("Jarvis can add events but not read them")
+    assert rows["calendars"]["hint"].startswith("Eden can add events but not read them")
     assert rows["contacts"]["hint"].endswith("Privacy & Security › Contacts.")
     assert rows["location"]["hint"].startswith("Location Services are off for the whole Mac")
     assert rows["accessibility"]["label"] == "Restricted on this Mac"

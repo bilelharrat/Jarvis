@@ -18,7 +18,7 @@ def kinds(*utterances):
 
 def test_session_commands_are_recognised_and_the_rest_goes_to_claude():
     assert (
-        kinds("Jarvis, plan mode", "switch to accept edits", "full auto", "ask me first")
+        kinds("Eden, plan mode", "switch to accept edits", "full auto", "ask me first")
         == ["mode"] * 4
     )
     assert [vc.parse(u).arg for u in ("plan mode", "auto edits", "full auto", "ask first")] == [
@@ -199,9 +199,9 @@ async def test_voice_focus_routes_speech_to_the_session(
     hub._armed_until = __import__("time").monotonic() + 5
     await hub.on_heard("add a retry around the query")
     assert sent == ["add a retry around the query"] and hub.client.queries == []
-    await hub.on_heard("Jarvis plan mode")
+    await hub.on_heard("Eden plan mode")
     assert task.mode == "plan" and said[-1].startswith("Plan mode")
-    await hub.on_heard("Jarvis what changed")
+    await hub.on_heard("Eden what changed")
     assert said[-1] == "No file changes yet in this session."
     await hub.on_heard("random chatter with no wake word")  # not armed: ignored
     assert len(sent) == 1
@@ -209,7 +209,7 @@ async def test_voice_focus_routes_speech_to_the_session(
     files = ["/p/hub.py", "/p/test_hub.py"]  # what this turn changed
     hub._task_event("task_finished", id=task.id, task_kind="code", status="done", files=files)
     assert said[-1] == "Added the retry and a test for it. 2 files changed."
-    await hub.on_heard("Jarvis exit code mode")
+    await hub.on_heard("Eden exit code mode")
     assert hub.voicecode.focus is None
     tm_task = hub.tasks.tasks[task.id]
     tm_task.handle.cancel()

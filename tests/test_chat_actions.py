@@ -61,7 +61,7 @@ def test_a_bad_response_is_remembered_as_a_correction():
         )
     ]
     assert hub.changed == 1
-    assert hub.events[-1][1]["text"] == "Got it. Jarvis won’t do that again."
+    assert hub.events[-1][1]["text"] == "Got it. Eden won’t do that again."
 
 
 def test_good_feedback_and_an_empty_note_remember_nothing():

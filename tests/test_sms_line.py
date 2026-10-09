@@ -1,4 +1,4 @@
-"""Texts on the Jarvis number (jarvis.sms, features/sms_line.py): texts people send the owner's
+"""Texts on the Eden number (jarvis.sms, features/sms_line.py): texts people send the owner's
 Twilio number become heads-ups, and a card left waiting on the Mac can be answered by text
 from the owner's own phone, only with the one-time code sent with it. Twilio is a fake
 here: nothing is sent or read for real."""
@@ -92,7 +92,7 @@ def test_a_card_as_a_text_and_which_cards_can_go():
             "choices": [{"id": "allow", "label": "Send"}, {"id": "deny", "label": "Don't send"}]}  # fmt: skip
     body = sms.card_text(card, "4821")
     lines = body.split("\n")
-    assert lines[0] == "Jarvis needs your OK: Send this to Ann?"
+    assert lines[0] == "Eden needs your OK: Send this to Ann?"
     assert len(lines[1]) == sms.MAX_DETAIL and lines[1].endswith("…")
     assert lines[2] == "Reply YES 4821 to allow or NO 4821 to decline."
     assert sms.card_text(card, "4821", "zh").endswith("回复“是 4821”允许，“否 4821”拒绝。")
@@ -207,9 +207,9 @@ async def test_texts_to_the_number_become_heads_ups_after_a_quiet_first_look(
     twilio.text_in("+15550001111", "Your code is 482913, and can you call me?")
     assert await line.look() == 1
     assert alerts[0].kind == "sms" and alerts[0].key == "sms:SM2"
-    assert alerts[0].text.startswith("Text to the Jarvis number from +15550001111:")
+    assert alerts[0].text.startswith("Text to the Eden number from +15550001111:")
     assert "482913" not in alerts[0].text  # a code in a text is never said aloud
-    assert alerts[0].note == "a text to the Jarvis number (jarvis_number_texts has it)"
+    assert alerts[0].note == "a text to the Eden number (jarvis_number_texts has it)"
     assert (
         "can you call me" in line.recent(5) and line.public()["texts"][0]["from"] == "+15550001111"
     )
@@ -219,7 +219,7 @@ async def test_texts_to_the_number_become_heads_ups_after_a_quiet_first_look(
     twilio.text_in("+1 (555) 000-2222", "On my way")
     line.time[0] += 30
     assert await line.look() == 1
-    assert alerts[-1].text == "Text to the Jarvis number from Ann Lee: On my way"
+    assert alerts[-1].text == "Text to the Eden number from Ann Lee: On my way"
     newest = line.public()["texts"][0]
     assert (newest["who"], newest["from"], newest["body"]) == (
         "Ann Lee",

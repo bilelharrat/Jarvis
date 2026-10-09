@@ -339,7 +339,7 @@ def test_the_catcher_hands_back_what_comes_after_the_hash():
 
     page, done, found = asyncio.run(run())
     assert "location.hash" in page and "/done?" in page
-    assert done.startswith("Connected to Jarvis")
+    assert done.startswith("Connected to Eden")
     assert found == {"access_token": "tok", "state": "s1"}
 
 

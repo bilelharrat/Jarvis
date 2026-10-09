@@ -741,7 +741,7 @@ async def test_with_no_way_to_sign_in_jarvis_says_where_to_sign_in(
     q = hub.subscribe()
     answer = await hub.ask("What's the weather?")
     events = drain(q)
-    assert answer == NOT_SIGNED_IN and "Set up Jarvis again" in answer
+    assert answer == NOT_SIGNED_IN and "Set up Eden again" in answer
     said = " ".join(str(e.get("text", "")) for e in events)
     assert "Failed to authenticate" not in said
     assert not [e for e in events if e["type"] == "notice" and e.get("title") == "Fallback"]
