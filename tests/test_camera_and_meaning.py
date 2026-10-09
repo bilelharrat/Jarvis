@@ -13,7 +13,9 @@ from jarvis.features import camera_look
 
 def camera_hub(answer=None, available=True):
     emitted = []
-    hub = SimpleNamespace(browser_available=available, emit=lambda kind, **d: emitted.append((kind, d)))
+    hub = SimpleNamespace(
+        browser_available=available, emit=lambda kind, **d: emitted.append((kind, d))
+    )
     cam = camera_look.Camera(hub)
 
     async def go(wait=1.0):
@@ -51,6 +53,17 @@ def test_an_answer_for_another_picture_is_ignored():
 def test_the_prompt_reads_text_in_full_and_never_names_a_face():
     assert "word for word" in camera_look.PROMPT
     assert "Never say who a person is from their face" in camera_look.PROMPT
+
+
+def test_a_letter_or_bill_gets_its_key_facts_first_then_the_offer_of_the_whole():
+    from jarvis import picture_files
+
+    prompt = camera_look.PROMPT
+    facts = prompt.index("key facts first")
+    assert facts < prompt.index("read it in full, word for word")
+    for fact in ("who it is from", "amount to pay", "due date", "what it asks"):
+        assert fact in prompt
+    assert picture_files.KEY_FACTS in prompt
 
 
 class FakeEncoding:

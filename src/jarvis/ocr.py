@@ -1,8 +1,10 @@
 """Text in screenshots and images, for the second brain.
 
 The images in the folders the brain reads (Documents, Desktop and Downloads while Computer
-files is on, and the folders added under Second brain) are read on this Mac by Apple's Vision
-(native/jarvis-ocr.swift: accurate recognition, Simplified Chinese and English), newest first
+files is on, and the folders added under Second brain) are read on a Mac by Apple's Vision
+(native/jarvis-ocr.swift: accurate recognition, Simplified Chinese and English), and on a PC by
+Windows' own text recognition (winocr.py), which reads scanned PDFs there too (the first
+SCAN_PAGES pages of a PDF with no text of its own; one with text is the files source's), newest first
 and at most OCR_PER_BUILD new ones a rebuild within OCR_SECONDS, in the rebuild's own
 low-priority process. What each image says is cached by a hash of its contents (TextCache),
 so a screenshot moved or renamed is never read twice, and one read once is never read again.
@@ -56,6 +58,8 @@ STRIKES = 2  # an image the reader failed on this often is kept as having no tex
 MIN_TEXT = 12  # characters: less is a logo or a button, not text worth finding
 MAX_TEXT = 20_000
 SF_DATALESS = 0x40000000  # an iCloud file whose contents aren't on this Mac
+SCAN_PAGES = 10  # pages of a scanned PDF read for the brain (on a PC)
+SCAN_UNDER = 30  # letters: a PDF with fewer in its first pages is scanned (as read_file says)
 
 
 class TextCache:
@@ -161,9 +165,12 @@ def _library(home: Path) -> Path:
     return home / "Library"
 
 
-def walk_images(folder: Path, home: Path | None = None) -> Iterator[tuple[Path, os.stat_result]]:
+def walk_images(
+    folder: Path, home: Path | None = None, suffixes: set[str] | None = None
+) -> Iterator[tuple[Path, os.stat_result]]:
     """The images under a folder with their stat: no packages (so never the Photos library),
-    nothing in ~/Library, nothing hidden, linked, private or named for a secret."""
+    nothing in ~/Library, nothing hidden, linked, private or named for a secret. suffixes:
+    the kinds of file wanted (IMAGE_SUFFIXES, and PDFs on a PC)."""
     from .computer import is_sensitive
     from .fileindex import DOC_PACKAGES, OPAQUE_PACKAGES, SECRET_NAME, SKIP_DIRS
 
@@ -176,6 +183,7 @@ def walk_images(folder: Path, home: Path | None = None) -> Iterator[tuple[Path, 
     if start == library or library in start.parents:
         return
     packages = OPAQUE_PACKAGES | DOC_PACKAGES
+    wanted = suffixes or IMAGE_SUFFIXES
     stack = [str(start)]
     while stack:
         current = stack.pop()
@@ -198,7 +206,7 @@ def walk_images(folder: Path, home: Path | None = None) -> Iterator[tuple[Path, 
                 if name not in SKIP_DIRS and suffix not in packages and entry.path != str(library):
                     stack.append(entry.path)
                 continue
-            if suffix not in IMAGE_SUFFIXES:
+            if suffix not in wanted:
                 continue
             path = Path(entry.path)
             if is_sensitive(path):
@@ -237,7 +245,63 @@ class HelperReader:
         self._process.close()
 
 
-def helper_reader() -> HelperReader | None:
+class PcReader:
+    """Windows' text recognition (winocr.WinOcr) for pictures, and for a scanned PDF its first
+    SCAN_PAGES pages drawn as pictures (pdfpages) and read the same way. A PDF with text of its
+    own gives "" here: the brain's files source has its words already."""
+
+    def __init__(self, ocr: Any = None) -> None:
+        from .winocr import WinOcr
+
+        self.ocr = ocr or WinOcr()
+
+    def __call__(self, path: Path) -> str | None:
+        if path.suffix.lower() != ".pdf":
+            return self.ocr(path)
+        if not is_scanned_pdf(path):
+            return ""
+        import tempfile
+
+        from .pdfpages import pages_as_pngs
+
+        pictures, _total = pages_as_pngs(path, 1, SCAN_PAGES)
+        if not pictures:
+            return ""
+        texts = []
+        with tempfile.TemporaryDirectory(prefix="jarvis-ocr-", ignore_cleanup_errors=True) as tmp:
+            for i, png in enumerate(pictures):
+                page = Path(tmp) / f"page-{i + 1}.png"
+                page.write_bytes(png)
+                got = self.ocr(page)
+                if got is None:
+                    return None
+                if got.strip():
+                    texts.append(f"Page {i + 1}:\n{got.strip()}")
+        return "\n\n".join(texts)
+
+    def close(self) -> None:
+        self.ocr.close()
+
+
+def is_scanned_pdf(path: Path, pages: int = 3) -> bool:
+    """A PDF whose first pages have (almost) no text: scanned pages."""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(str(path))
+        text = "".join((page.extract_text() or "") for page in reader.pages[:pages])
+    except Exception:  # noqa: BLE001 - damaged or locked: not one to read
+        return False
+    return len("".join(text.split())) < SCAN_UNDER
+
+
+def helper_reader() -> Any:
+    """What reads text in pictures on this computer: Apple's Vision on a Mac, Windows' own
+    text recognition on a PC; None when there's nothing to read with."""
+    if osplat.IS_WIN:
+        from . import winocr
+
+        return PcReader() if winocr.available() else None
     from . import swift_helper
 
     binary = swift_helper.ensure(HELPER)
@@ -253,14 +317,19 @@ def collect_images(
     limit: int = OCR_PER_BUILD,
     seconds: float = OCR_SECONDS,
     clock: Callable[[], float] = time.monotonic,
+    pdfs: bool | None = None,
 ) -> list[Note]:
     """Notes for the images under these folders that have text in them: cached ones as
-    they are, up to `limit` new ones read (newest first) in at most `seconds`."""
+    they are, up to `limit` new ones read (newest first) in at most `seconds`. pdfs: scanned
+    PDFs too (on a PC, where the reader reads them; None: on a PC)."""
     from .fileindex import redact
 
+    if pdfs is None:
+        pdfs = osplat.IS_WIN
+    suffixes = IMAGE_SUFFIXES | {".pdf"} if pdfs else IMAGE_SUFFIXES
     found: dict[str, tuple[Path, os.stat_result]] = {}
     for folder in folders:
-        for path, info in walk_images(Path(folder), home):
+        for path, info in walk_images(Path(folder), home, suffixes):
             found.setdefault(str(path), (path, info))
     newest = heapq.nlargest(CONSIDERED, found.values(), key=lambda item: item[1].st_mtime)
     cache = TextCache(cache_path)
@@ -317,7 +386,7 @@ def _note(path: Path, info: os.stat_result, text: str) -> Note:
         id=f"image:{path}",
         source="images",
         title=path.stem[:120],
-        text=f"Text in the image {path.name}:\n{text}",
+        text=f"Text in the {'scanned PDF' if path.suffix.lower() == '.pdf' else 'image'} {path.name}:\n{text}",
         ref=str(path),
         group=path.parent.name,
         modified=datetime.fromtimestamp(info.st_mtime).isoformat(timespec="seconds"),

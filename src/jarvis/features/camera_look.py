@@ -20,12 +20,15 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from ..picture_files import KEY_FACTS
+
 PROMPT = (
     "Seeing for the owner: when they ask what is in front of them, to read something printed or "
     "handwritten (a letter, a page, a label, a sign, a screen across the room), the colour of "
     "something, which bank note or coin, what an object or a package is, whether a light is on, "
-    "or to help them find something, call look_through_camera with what they want to know. Read "
-    "printed text in full, word for word, in reading order, unless they ask for a summary. If the "
+    "or to help them find something, call look_through_camera with what they want to know. "
+    f"{KEY_FACTS} When they ask for the whole of it, or it is any other printed text, read it in "
+    "full, word for word, in reading order, unless they ask for a summary. If the "
     "picture is dark, blurred or cut off, say exactly how to move the thing (closer, further, "
     "left, right, tilt it, turn it over, more light) and offer to look again; wait_seconds gives "
     "them time to hold it in place. Say plainly what you can't make out instead of guessing. Never "
