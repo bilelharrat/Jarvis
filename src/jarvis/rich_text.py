@@ -190,8 +190,52 @@ def _tidy(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
+A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+RELS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+MAX_SLIDES = 500
+
+
+def _slide_lines(data: bytes) -> list[str]:
+    """A slide's (or its notes') text, a paragraph a line."""
+    root = ET.fromstring(data)
+    lines = []
+    for p in root.iter(f"{A}p"):
+        words = "".join(t.text or "" for t in p.iter(f"{A}t")).strip()
+        if words:
+            lines.append(words)
+    return lines
+
+
+def pptx_text(path: Path) -> str:
+    """A PowerPoint deck's words, slide by slide ("Slide 3: …"), with each slide's speaker notes
+    after it. Only the standard library: nothing is drawn or run."""
+    with zipfile.ZipFile(path) as zf:
+        names = set(zf.namelist())
+    slides = sorted(
+        (n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
+        key=lambda n: int(re.search(r"(\d+)\.xml$", n).group(1)),
+    )[:MAX_SLIDES]
+    out: list[str] = []
+    for number, name in enumerate(slides, 1):
+        lines = _slide_lines(_part(path, name))
+        notes: list[str] = []
+        rels = name.replace("ppt/slides/", "ppt/slides/_rels/") + ".rels"
+        if rels in names:
+            for rel in ET.fromstring(_part(path, rels)).iter(f"{RELS}Relationship"):
+                target = rel.get("Target") or ""
+                if "notesSlide" in target:
+                    where = "ppt/notesSlides/" + target.rsplit("/", 1)[-1]
+                    if where in names:
+                        # (a notes page repeats the slide's number: only its own words count)
+                        notes = [n for n in _slide_lines(_part(path, where)) if not n.isdigit()]
+        out.append(f"Slide {number}: " + (" / ".join(lines) if lines else "(no text)"))
+        if notes:
+            out.append("Speaker notes: " + " ".join(notes))
+    return _tidy("\n".join(out))
+
+
 def text_of(path: Path, limit: int | None = None) -> str:
-    """A .docx, .odt or .rtf file's text; "" for anything else or anything that won't read
+    """A .docx, .odt, .rtf or .pptx file's text; "" for anything else or anything that won't read
     (an old binary .doc, a damaged or hostile file)."""
     suffix = path.suffix.lower()
     try:
@@ -203,6 +247,8 @@ def text_of(path: Path, limit: int | None = None) -> str:
             text = odt_text(path)
         elif suffix == ".rtf":
             text = rtf_text(path.read_bytes().decode("latin-1"))
+        elif suffix == ".pptx":
+            text = pptx_text(path)
         else:
             return ""
     except (OSError, zipfile.BadZipFile, KeyError, ValueError, ET.ParseError):
