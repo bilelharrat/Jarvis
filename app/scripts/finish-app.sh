@@ -10,7 +10,7 @@
 set -e
 # APP and DISPLAY_NAME pick another app built from this folder (scripts/eden-code/package.js).
 APP="${APP:-dist/J.A.R.V.I.S-darwin-arm64/J.A.R.V.I.S.app}"
-DISPLAY_NAME="${DISPLAY_NAME:-J.A.R.V.I.S.}"
+DISPLAY_NAME="${DISPLAY_NAME:-Eden}"
 TEAM="8CV4X23Y2T"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $DISPLAY_NAME" "$APP/Contents/Info.plist"
 # CFBundleName stays "J.A.R.V.I.S": Electron finds "J.A.R.V.I.S Helper.app" by it, and a

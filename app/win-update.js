@@ -27,7 +27,7 @@ const CHECK_EVERY = 24 * 60 * 60 * 1000;
 
 const WORDS = {
   offline: 'Couldn’t reach askeden.com to check for updates.',
-  latest: 'The update list on askeden.com isn’t one J.A.R.V.I.S. can read.',
+  latest: 'The update list on askeden.com isn’t one Eden can read.',
   download: 'The update couldn’t be downloaded.',
   size: 'The download wasn’t the size it should be, so it wasn’t run.',
   run: 'The installer couldn’t be started.',
@@ -60,7 +60,7 @@ function allowedUrl(url) {
 }
 
 function createWinUpdater({
-  version, flavor, name = 'J.A.R.V.I.S.', fetchText, download, runInstaller, downloadsDir,
+  version, flavor, name = 'Eden', fetchText, download, runInstaller, downloadsDir,
   onChange = () => {}, log = () => {}, tell = () => {}, quit = () => {},
 }) {
   const key = flavor === 'daredevil' ? 'daredevil' : 'jarvis';

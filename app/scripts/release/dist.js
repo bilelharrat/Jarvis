@@ -46,7 +46,10 @@ const APPS = {
   jarvis: {
     flavor: 'jarvis',
     name: 'J.A.R.V.I.S',
-    display: 'J.A.R.V.I.S.',
+    display: 'Eden',
+    // Its release files' names (J.A.R.V.I.S.-<version>.dmg, …-mac.zip) stay from before the rename:
+    // askeden.com's worker builds the disk image's name from the update feed's (site/src/worker.js).
+    files: 'J.A.R.V.I.S.',
     // The Mac app's own id, from before the move to team 8CV4X23Y2T. Developer ID needs no App
     // ID for it, so it stays (renaming it would also move the wake agent's label, the Quick
     // Action's and the helpers' identifiers).
@@ -60,6 +63,7 @@ const APPS = {
     flavor: 'eden-code',
     name: 'Eden Code',
     display: 'Eden Code',
+    files: 'Eden Code',
     bundleId: 'com.bshventures.edencode',
     icon: path.join(APP_DIR, 'build', 'eden-code', 'icon.icns'),
     extendInfo: path.join(APP_DIR, 'build', 'eden-code', 'extend-info.plist'),
@@ -67,7 +71,7 @@ const APPS = {
     out: path.join(DIST, 'release-eden-code'),
   },
 };
-const DISPLAY = APPS.jarvis.display;
+const FILES = APPS.jarvis.files;
 
 function parseArgs(argv) {
   const args = { adhoc: false, edenCode: false, withEdenCode: true };
@@ -105,12 +109,12 @@ function checkIdentity(identity) {
 }
 
 // What the build writes, by name (the ad hoc one can't be mistaken for a release).
-function dmgName(version, adhoc, display = DISPLAY) {
-  return `${display}-${version}${adhoc ? '-adhoc' : ''}.dmg`;
+function dmgName(version, adhoc, files = FILES) {
+  return `${files}-${version}${adhoc ? '-adhoc' : ''}.dmg`;
 }
 
-function updateZipName(version, display = DISPLAY) {
-  return `${display}-${version}-mac.zip`;
+function updateZipName(version, files = FILES) {
+  return `${files}-${version}-mac.zip`;
 }
 
 // The update feed's address from JARVIS_UPDATE_URL (or the app's own variable: Eden Code's is
@@ -240,7 +244,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   for (const spec of specs) apps.push(await buildApp(spec, { args, identity, profile, backend, minimum, helpers, feed: feeds.get(spec), out: OUT_DIR }));
 
   say('6. the disk image');
-  const dmg = makeDmg(apps, path.join(OUT_DIR, dmgName(PKG.version, args.adhoc, primary.display)), primary.display);
+  const dmg = makeDmg(apps, path.join(OUT_DIR, dmgName(PKG.version, args.adhoc, primary.files)), primary.display);
 
   if (!args.adhoc) {
     say('7. signing and notarizing the disk image');
@@ -255,7 +259,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
       const feed = feeds.get(spec);
       if (!feed) return;
       // The update Squirrel downloads: the notarized, stapled app, and the feed pointing at it.
-      const zipName = updateZipName(PKG.version, spec.display);
+      const zipName = updateZipName(PKG.version, spec.files);
       published.push(zipApp(apps[i], path.join(OUT_DIR, zipName)));
       const release = releaseFeed({ version: PKG.version, zipName, feedUrl: feed, notes: env.JARVIS_RELEASE_NOTES || '' });
       const feedFile = spec === primary ? 'release.json' : `${spec.flavor}-release.json`;

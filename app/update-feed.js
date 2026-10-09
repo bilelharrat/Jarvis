@@ -69,7 +69,7 @@ function parseFeed(text, feedUrl) {
   if (!url.startsWith('https://')) throw new Error("the update's address isn't https");
   return {
     version: current,
-    name: String(to.name || `J.A.R.V.I.S. ${current}`).slice(0, 80),
+    name: String(to.name || `Eden ${current}`).slice(0, 80),
     notes: String(to.notes || '').slice(0, MAX_NOTES),
     pubDate: String(to.pub_date || '').slice(0, 40),
     url,
@@ -92,7 +92,7 @@ function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date() 
     currentRelease: version,
     releases: [{
       version,
-      updateTo: { version, name: `J.A.R.V.I.S. ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
+      updateTo: { version, name: `Eden ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
     }],
   };
 }

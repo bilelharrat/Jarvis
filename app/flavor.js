@@ -23,9 +23,13 @@ const path = require('path');
 const FLAVORS = {
   jarvis: {
     id: 'jarvis',
-    name: 'J.A.R.V.I.S.',
-    title: 'J.A.R.V.I.S.',
+    name: 'Eden',
+    title: 'Eden',
     logName: 'Jarvis',
+    // What Electron calls it (app.setName), from when it was J.A.R.V.I.S.: macOS keeps the built-in browser's
+    // sign-ins under "<this> Safe Storage" in the Keychain, so renaming it would lose them. The name shown is name.
+    appName: 'J.A.R.V.I.S.',
+    userDataName: 'J.A.R.V.I.S.', // its Electron profile, the same folder as before the rename: nothing is lost
     appUserModelId: 'com.askeden.jarvis.win', // Windows: the installer's appId, which toasts are shown under
     socketApp: 'jarvis', // what its window says on the socket (server.APPS)
     query: '',
@@ -36,8 +40,9 @@ const FLAVORS = {
   },
   daredevil: {
     id: 'daredevil',
-    name: 'J.A.R.V.I.S. Daredevil',
-    title: 'J.A.R.V.I.S. Daredevil',
+    name: 'Eden Daredevil',
+    title: 'Eden Daredevil',
+    appName: 'J.A.R.V.I.S. Daredevil', // Electron's name for it, as before the rename (see jarvis.appName)
     logName: 'Jarvis', // J.A.R.V.I.S.'s logs and data folder: it is the same program
     appUserModelId: 'com.askeden.jarvis.win', // J.A.R.V.I.S.'s too: one app to Windows, so one replaces the other
     userDataName: 'J.A.R.V.I.S.', // …and its Electron profile (window place, the one-at-a-time lock), so never two at once

@@ -168,6 +168,9 @@ async function main() {
   const builder = require('electron-builder');
   // (J.A.R.V.I.S. Daredevil is J.A.R.V.I.S.'s own program under its own name: the same appId, so one replaces the other.)
   const name = { 'eden-code': 'Eden Code', jarvis: 'J.A.R.V.I.S.', daredevil: 'J.A.R.V.I.S. Daredevil' }[flavor];
+  // The name people see (shortcuts, Apps & features, Task Manager, Narrator). `name` stays the one from before the
+  // rename for what is found by it: the install folder, the program's file, the installer's file (askeden.com's worker).
+  const display = { 'eden-code': 'Eden Code', jarvis: 'Eden', daredevil: 'Eden Daredevil' }[flavor];
   const icons = { 'eden-code': 'build/eden-code', jarvis: 'build', daredevil: 'build/daredevil' }[flavor];
   const flavorFile = path.join(APP, 'flavor.json');
   fs.writeFileSync(flavorFile, JSON.stringify({ flavor }));
@@ -184,14 +187,14 @@ async function main() {
         productName: name,
         executableName: name,
         afterPack: (context) => brandExecutable(context.appOutDir, {
-          name, icon: path.join(APP, icons, 'icon.ico'), version: context.packager.appInfo.version,
+          name: display, icon: path.join(APP, icons, 'icon.ico'), version: context.packager.appInfo.version,
         }),
         directories: { output: path.join('dist', 'win', flavor) },
         files: ['*.js', '*.html', '*.css', '*.wav', 'features/**', 'flavor.json', `${icons}/*.png`, 'package.json',
           '!jarvis-home.json', '!dist/**', '!scripts/**', '!eden/**'],
         asarUnpack: ['node_modules/@xterm/**', 'node_modules/@mediapipe/**'],
         extraResources: [{ from: engine, to: 'backend' }],
-        protocols: [{ name, schemes: [edenCode ? 'edencode' : 'jarvis'] }],
+        protocols: [{ name: display, schemes: [edenCode ? 'edencode' : 'jarvis'] }],
         win: {
           icon: `${icons}/icon-1024.png`,
           signAndEditExecutable: signed,
@@ -203,7 +206,10 @@ async function main() {
         toolsets: { nsis: '1.2.1' },
         // (No shortcut key on the installed shortcuts: Windows would hold Ctrl+Alt+J itself, and the running app, which
         // starts with Windows and waits in the tray, could not have it. app/features/shell.js takes the key.)
-        nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true },
+        nsis: {
+          oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true,
+          shortcutName: display, uninstallDisplayName: `${display} \${version}`,
+        },
         artifactName: `${name.replace(/[^A-Za-z]+/g, '-')}-Setup-\${version}-\${arch}.\${ext}`,
       },
     });
