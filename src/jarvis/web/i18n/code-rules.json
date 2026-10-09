@@ -36,7 +36,7 @@
     "Claude Code’s settings in this project": "这个项目里 Claude Code 的设置",
     "No rules in .claude/settings.json or settings.local.json.": ".claude/settings.json 和 settings.local.json 里没有规则。",
     "Import them": "导入它们",
-    "Export adds JARVIS’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.": "导出会把 JARVIS 的规则和“不再询问”的命令加到文件里，保留原有内容；settings.json 会与项目的所有协作者共享。",
+    "Export adds Eden’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.": "导出会把 Eden 的规则和“不再询问”的命令加到文件里，保留原有内容；settings.json 会与项目的所有协作者共享。",
     "Nothing new to import.": "没有新的规则可导入。",
     "Couldn't save that rule; try again.": "没能保存这条规则；请再试一次。",
     "Couldn't save that; try again.": "没能保存；请再试一次。",

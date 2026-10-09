@@ -38,7 +38,7 @@
   const empty = el('p', 'empty', 'Nothing yet.');
   group.append(
     el('h3', '', 'Recent activity'),
-    el('p', 'small-status', 'Every call Jarvis makes in your connected accounts: the tool, when, and whether it read or changed something. What was sent and what came back is never kept.'),
+    el('p', 'small-status', 'Every call Eden makes in your connected accounts: the tool, when, and whether it read or changed something. What was sent and what came back is never kept.'),
     list,
     empty,
   );

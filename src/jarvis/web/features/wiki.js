@@ -22,11 +22,11 @@
     proposed: 'Suggested after a conversation, and you said yes',
     dream: 'From the Dream diary, and you said yes',
     import: 'Imported',
-    before: 'From before Jarvis kept track',
+    before: 'From before Eden kept track',
   };
   const QUOTED = new Set(['said', 'noticed', 'proposed', 'dream']);
   const PROMISE_FROM = { message: 'A text you sent', mail: 'An email you sent', said: 'You said it' };
-  const SECTIONS = [['fact', 'What Jarvis knows'], ['promise', 'Promises'], ['activity', 'How often you’re in touch'], ['journal', 'In your journal'], ['conversation', 'In conversations']];
+  const SECTIONS = [['fact', 'What Eden knows'], ['promise', 'Promises'], ['activity', 'How often you’re in touch'], ['journal', 'In your journal'], ['conversation', 'In conversations']];
   // The galaxy's palette, by kind.
   const COLORS = { me: '#ffffff', person: '#a5f3fc', org: '#c9a2ff', project: '#ffcf70', place: '#6ee7b7', topic: '#93c5fd' };
   const EDGE_COLORS = { family: '255, 143, 199', works: '95, 200, 255', met: '110, 231, 183', texts: '255, 207, 112', emails: '255, 138, 101', knows: '160, 180, 205' };
@@ -78,7 +78,7 @@
     }
     if (st.kind === 'promise') return { label: PROMISE_FROM[src.how] || PROMISE_FROM.said, when: src.at || '', quote: src.quote || '' };
     if (st.kind === 'journal') return { label: 'Daily note', when: src.day || '', quote: '' };
-    if (st.kind === 'conversation') return { label: 'A conversation with Jarvis', when: src.at || '', quote: '', title: src.title || '' };
+    if (st.kind === 'conversation') return { label: 'A conversation with Eden', when: src.at || '', quote: '', title: src.title || '' };
     if (st.kind === 'activity') return { label: st.what === 'texts' ? 'Counted in Messages' : 'Counted in Mail', when: '', quote: '' };
     return { label: '', when: '', quote: '' };
   }
@@ -115,7 +115,7 @@
     b.type = 'button';
     b.id = 'wiki-open-row';
     const text = el('span', 'mem-row-text');
-    text.append(el('strong', '', 'Memory wiki'), el('small', '', 'A page for everyone and everything Jarvis knows, and the people map'));
+    text.append(el('strong', '', 'Memory wiki'), el('small', '', 'A page for everyone and everything Eden knows, and the people map'));
     b.append(text, el('span', 'mem-chev', '›'));
     b.addEventListener('click', () => openWiki({ tab: 'pages' }));
     box.append(b);
@@ -294,7 +294,7 @@
       nodes.push(ul);
     } else {
       const { groups, shown, total } = grouped(W.index);
-      if (!total) nodes.push(el('p', 'wiki-empty', W.loading ? 'Putting the pages together…' : 'No pages yet. Tell Jarvis about the people and things in your life, and pages appear here.'));
+      if (!total) nodes.push(el('p', 'wiki-empty', W.loading ? 'Putting the pages together…' : 'No pages yet. Tell Eden about the people and things in your life, and pages appear here.'));
       for (const g of groups) {
         nodes.push(el('h4', 'wiki-group', g.title));
         const ul = el('ul', 'wiki-items');
@@ -333,10 +333,10 @@
     if (!main) return;
     if (!W.pageId) {
       const intro = el('div', 'wiki-intro');
-      intro.append(el('h3', '', 'Everything Jarvis knows, page by page'));
-      intro.append(el('p', 'wiki-hint', 'Pick a page or search. Each line says where Jarvis learned it and when; edit or forget it right there. Say “dig deeper on…” to have Jarvis pull it all together.'));
+      intro.append(el('h3', '', 'Everything Eden knows, page by page'));
+      intro.append(el('p', 'wiki-hint', 'Pick a page or search. Each line says where Eden learned it and when; edit or forget it right there. Say “dig deeper on…” to have Eden pull it all together.'));
       if (W.conflicts) intro.append(el('p', 'wiki-hint wiki-warn', count(W.conflicts, '1 possible conflict to look at', '{n} possible conflicts to look at')));
-      if (W.missing.length) intro.append(el('p', 'wiki-hint', 'Texts and email aren’t counted until Jarvis has Full Disk Access.'));
+      if (W.missing.length) intro.append(el('p', 'wiki-hint', 'Texts and email aren’t counted until Eden has Full Disk Access.'));
       main.replaceChildren(intro);
       return;
     }
@@ -451,7 +451,7 @@
     text.value = st.text;
     text.maxLength = 300;
     text.rows = 2;
-    text.setAttribute('aria-label', 'What Jarvis knows');
+    text.setAttribute('aria-label', 'What Eden knows');
     mine(text);
     const actions = el('div', 'wiki-actions');
     const save = button('Save', 'btn primary wiki-small');
@@ -529,14 +529,14 @@
     const r = W.reading;
     const box = el('div', 'wiki-reading');
     const head = el('div', 'wiki-reading-head');
-    head.append(el('h4', 'wiki-section', 'A conversation with Jarvis'), button('Close', 'btn wiki-small', () => { W.reading = null; drawPage(); }));
+    head.append(el('h4', 'wiki-section', 'A conversation with Eden'), button('Close', 'btn wiki-small', () => { W.reading = null; drawPage(); }));
     box.append(head);
     if (r.title) box.append(mine(el('strong', '', r.title)));
     if (!r.entries) { box.append(el('p', 'wiki-hint', r.error ? 'That conversation can’t be read any more.' : 'Opening…')); return box; }
     const ul = el('ul', 'wiki-lines');
     for (const e of r.entries.slice(-30)) {
       const li = el('li', e.role === 'user' ? 'wiki-you' : 'wiki-jarvis');
-      li.append(el('span', 'wiki-label', e.role === 'user' ? 'You' : 'Jarvis'), mine(el('p', '', e.text.length > 600 ? `${e.text.slice(0, 599)}…` : e.text)));
+      li.append(el('span', 'wiki-label', e.role === 'user' ? 'You' : 'Eden'), mine(el('p', '', e.text.length > 600 ? `${e.text.slice(0, 599)}…` : e.text)));
       ul.append(li);
     }
     box.append(ul);

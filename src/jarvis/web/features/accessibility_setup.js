@@ -81,7 +81,7 @@
     {
       id: 'speed',
       title: 'Speaking speed',
-      words: () => `How fast Jarvis’s own voice speaks. It is ${speed} percent now. Say faster or slower, or use the buttons. Your screen reader keeps its own speed.`,
+      words: () => `How fast Eden’s own voice speaks. It is ${speed} percent now. Say faster or slower, or use the buttons. Your screen reader keeps its own speed.`,
       build: () => {
         const status = el('p', 'small-status', t(`Speaking at ${speed} percent.`));
         status.id = 'a11y-setup-speed';
@@ -104,33 +104,33 @@
     {
       id: 'reader',
       title: 'Who reads the replies',
-      words: () => 'Your screen reader, in your own voice and speed, or Jarvis’s voice. Auto uses your screen reader when one is running. Say my screen reader, or Jarvis’s voice.',
-      build: () => [radios('Who reads the replies', 'a11y_voice', [['auto', 'Auto'], ['reader', 'My screen reader'], ['jarvis', 'Jarvis’s voice']])],
+      words: () => 'Your screen reader, in your own voice and speed, or Eden’s voice. Auto uses your screen reader when one is running. Say my screen reader, or Eden’s voice.',
+      build: () => [radios('Who reads the replies', 'a11y_voice', [['auto', 'Auto'], ['reader', 'My screen reader'], ['jarvis', 'Eden’s voice']])],
     },
     {
       id: 'keys',
       title: 'The keys',
-      words: () => `Press ${lib.askKeys()} from any program to talk to Jarvis, and ${stopLabel()} to make it stop talking at once. In this window, ${KEYS} H lists the other keys, and ${KEYS} W brings back this setup. You can change the keys in Settings, General, Shortcuts.`,
+      words: () => `Press ${lib.askKeys()} from any program to talk to Eden, and ${stopLabel()} to make it stop talking at once. In this window, ${KEYS} H lists the other keys, and ${KEYS} W brings back this setup. You can change the keys in Settings, General, Shortcuts.`,
       build: () => [],
     },
     {
       id: 'email',
       title: 'Your email',
       words: () => (mailGroup()
-        ? 'Jarvis can read and send your email. Add an account now, or later in Settings, Email accounts. The setup carries on when you close Settings.'
-        : (IS_MAC ? 'Jarvis uses the accounts in the Mail app. Nothing to add here.' : 'You can add an email account later, in Settings, Email accounts.')),
+        ? 'Eden can read and send your email. Add an account now, or later in Settings, Email accounts. The setup carries on when you close Settings.'
+        : (IS_MAC ? 'Eden uses the accounts in the Mail app. Nothing to add here.' : 'You can add an email account later, in Settings, Email accounts.')),
       build: () => (mailGroup() ? [button('Add an email account', openMail, 'btn primary')] : []),
     },
     {
       id: 'helper',
       title: 'A trusted person',
-      words: () => 'Someone Jarvis can email when you need a hand: say send this to my helper, or I need help. Their name and email, and a phone number if you like. You can leave it empty.',
+      words: () => 'Someone Eden can email when you need a hand: say send this to my helper, or I need help. Their name and email, and a phone number if you like. You can leave it empty.',
       build: () => helperFields('a11y-setup'),
     },
     {
       id: 'done',
       title: 'All set',
-      words: () => `Setup is done. Say run setup again, or press ${KEYS} W, to come back to it. Press ${lib.askKeys()} to talk to Jarvis.`,
+      words: () => `Setup is done. Say run setup again, or press ${KEYS} W, to come back to it. Press ${lib.askKeys()} to talk to Eden.`,
       build: () => [],
     },
   ];
@@ -283,7 +283,7 @@
     box.setAttribute('aria-labelledby', 'a11y-helper-title');
     const title = el('h4', '', t('Trusted person'));
     title.id = 'a11y-helper-title';
-    box.append(title, el('p', 'group-note', t('Someone Jarvis can email when you need a hand: say “send this to my helper” or “I need help”. A picture of your screen goes only when you ask for one.')));
+    box.append(title, el('p', 'group-note', t('Someone Eden can email when you need a hand: say “send this to my helper” or “I need help”. A picture of your screen goes only when you ask for one.')));
     box.append(...helperFields('a11y-settings'));
     const again = button('Run the setup again', () => open(0));
     again.id = 'a11y-setup-again';

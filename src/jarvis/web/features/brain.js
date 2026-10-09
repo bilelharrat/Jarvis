@@ -15,8 +15,8 @@
   const SWITCHES = [
     { key: 'brain_semantic', on: false, kind: 'semantic', title: 'Search by meaning',
       small: 'Finds notes about what you ask even when they use other words, with Apple’s on-device language models (English and Chinese). The first time, macOS may download Apple’s model.' },
-    { key: 'brain_conversations', source: 'conversations', on: true, title: 'Jarvis conversations',
-      small: 'What you and Jarvis said, from Jarvis’s own records, secrets blanked out' },
+    { key: 'brain_conversations', source: 'conversations', on: true, title: 'Eden conversations',
+      small: 'What you and Eden said, from Eden’s own records, secrets blanked out' },
     { key: 'brain_images', source: 'images', on: true, title: 'Text in screenshots and images',
       small: 'Read on this Mac by Apple’s Vision in the folders above, a few hundred each update. Never your Photos library.' },
     { key: 'brain_safari', source: 'safari', on: false, title: 'Safari bookmarks and Reading List',
@@ -25,7 +25,7 @@
     { key: 'brain_reminders', source: 'reminders', on: false, title: 'Reminders',
       small: 'Read only. macOS asks once.' },
     { key: 'brain_voicememos', source: 'voicememos', on: false, title: 'Voice Memos',
-      small: 'Transcribed on this Mac with Jarvis’s speech model, a few each update. Needs Full Disk Access.' },
+      small: 'Transcribed on this Mac with Eden’s speech model, a few each update. Needs Full Disk Access.' },
     { key: 'research_local', on: true, kind: 'research', title: 'Research reads my own material',
       small: 'After the web, a second pass reads your second brain, the BSH desk and your files (with no web access then) and adds what bears on the topic.' },
   ];
@@ -421,7 +421,7 @@
     const list = ui.reports.querySelector('.brain-hits');
     const items = ev.items || [];
     if (!items.length) {
-      list.replaceChildren(el('li', 'brain-empty', 'No research reports yet. Ask Jarvis to research something.'));
+      list.replaceChildren(el('li', 'brain-empty', 'No research reports yet. Ask Eden to research something.'));
       return;
     }
     list.replaceChildren(...items.map((r) => {

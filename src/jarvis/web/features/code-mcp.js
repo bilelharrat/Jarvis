@@ -15,7 +15,7 @@
     local: 'This project, just me',
     user: 'All my projects',
     shared: 'From Tools & Accounts',
-    other: 'From JARVIS or a plugin',
+    other: 'From Eden or a plugin',
   };
 
   // How a server is doing, in words, and its dot's class.
@@ -192,7 +192,7 @@
     }
     if (state.note) parts.push(el('p', 'cr-note', state.note));
     parts.push(addForm(task, state));
-    parts.push(el('p', 'jc-label cr-head', 'JARVIS’s connectors'));
+    parts.push(el('p', 'jc-label cr-head', 'Eden’s connectors'));
     const conns = state.connectors || [];
     if (!conns.length) parts.push(el('p', 'jc-dim cr-none', 'Connect services in Tools & Accounts, then share them with a session here.'));
     else {
@@ -212,7 +212,7 @@
         li.append(text, sw);
         return li;
       }));
-      parts.push(ul, el('p', 'jc-dim cr-intro', 'JARVIS keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.'));
+      parts.push(ul, el('p', 'jc-dim cr-intro', 'Eden keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.'));
     }
     body.replaceChildren(...parts);
   }

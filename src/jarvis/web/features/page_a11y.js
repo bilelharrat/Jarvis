@@ -91,7 +91,7 @@
 
   F.on('page_a11y_cmd', async (ev) => {
     let result;
-    if (!app || !app.feature) result = { ok: false, message: 'The built-in browser is only in the J.A.R.V.I.S. app.' };
+    if (!app || !app.feature) result = { ok: false, message: 'The built-in browser is only in the Eden app.' };
     else {
       try {
         result = await app.feature.invoke('feature:page-a11y:call', { action: ev.action, args: ev.args || {} });

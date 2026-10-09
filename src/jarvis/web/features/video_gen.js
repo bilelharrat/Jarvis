@@ -59,7 +59,7 @@
     const row = el('label', 'row stack');
     row.htmlFor = 'video-model';
     const words = el('span');
-    words.append(el('strong', '', 'Video model'), el('small', '', 'A Google Veo model. Google charges by the second of video; Jarvis shows the estimate and asks before each one.'));
+    words.append(el('strong', '', 'Video model'), el('small', '', 'A Google Veo model. Google charges by the second of video; Eden shows the estimate and asks before each one.'));
     const input = el('input');
     input.id = 'video-model';
     input.type = 'text';
@@ -81,7 +81,7 @@
     const status = F.$('videos-status');
     if (videos.key) {
       status.replaceChildren(
-        document.createTextNode(F.t('Ask for a short video and Jarvis makes it with Google Veo on your Gemini key, after you OK the estimated price:') + ' '),
+        document.createTextNode(F.t('Ask for a short video and Eden makes it with Google Veo on your Gemini key, after you OK the estimated price:') + ' '),
         mine(el('span', '', videos.cost || '')),
       );
     } else {

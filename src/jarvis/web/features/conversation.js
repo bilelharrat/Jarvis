@@ -92,7 +92,7 @@
     group.id = 'convo-group';
     group.append(el('h3', '', 'Conversation'));
     group.append(switchRow('sw-convo-resume', 'Carry on after a restart',
-      'When Jarvis starts again, pick up the conversation where it was. New conversation still starts afresh.',
+      'When Eden starts again, pick up the conversation where it was. New conversation still starts afresh.',
       () => send({ type: 'feature_prefs', changes: { conversation_resume: !featurePref('conversation_resume', true) } })));
     group.append(thinkingRow());
     const actions = el('div', 'row-actions');

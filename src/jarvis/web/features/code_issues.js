@@ -122,7 +122,7 @@
     const parts = [
       row('Fix failing checks by themselves', 'New pull requests send their failing checks’ logs to the session, at most 3 times. Each has its own switch in its pane.',
         sw('Fix failing checks by themselves', autofix, (on) => send({ type: 'feature_prefs', changes: { code_pr_autofix: on } }))),
-      row('Issues for Jarvis', 'An issue labelled for Jarvis in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.'),
+      row('Issues for Eden', 'An issue labelled for Eden in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.'),
     ];
     group.replaceChildren(...parts);
     if (!state.connected) {

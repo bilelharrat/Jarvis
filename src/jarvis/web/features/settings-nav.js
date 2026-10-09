@@ -131,7 +131,7 @@
   account.id = 'sn-account';
   account.hidden = true;  // until the Jarvis account's section is there
   const accountText = el('span', 'sn-account-text');
-  accountText.append(el('strong', '', 'Jarvis Account'), el('small', '', 'Sign in, Plus and sync'));
+  accountText.append(el('strong', '', 'Eden Account'), el('small', '', 'Sign in, Plus and sync'));
   account.append(tile('person', 'blue'), accountText, el('span', 'sn-chev', '›'));
   account.addEventListener('click', () => {
     const g = $('account-group');

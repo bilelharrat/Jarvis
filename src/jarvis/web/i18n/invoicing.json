@@ -2,7 +2,7 @@
   "strings": {
     "Invoicing": "开票",
     "Remind clients of overdue invoices": "提醒客户逾期发票",
-    "A routine on weekdays at 9: Jarvis looks for overdue invoices and shows you each reminder email before it goes, one a week per invoice at most.": "工作日早上9点的例行任务：Jarvis 查找逾期发票，每封提醒邮件发出前都先给你看；每张发票每周最多提醒一次。",
+    "A routine on weekdays at 9: Eden looks for overdue invoices and shows you each reminder email before it goes, one a week per invoice at most.": "工作日早上9点的例行任务：Eden 查找逾期发票，每封提醒邮件发出前都先给你看；每张发票每周最多提醒一次。",
     "Payment links: Stripe is connected. Ask for one on any invoice.": "付款链接：Stripe 已连接。任何发票都可以生成付款链接。",
     "Clients": "客户",
     "Recurring invoices": "定期发票",

@@ -140,7 +140,7 @@ test('with talking on and a key, a caller is greeted and heard, with the call sa
   reset({ owner: 'Bilel', talk: true, booking: true, slots: open, tz: 'America/Los_Angeles' });
   const xml = await call({});
   wellFormed(xml);
-  assert.match(xml, /<Gather input="speech" action="https:\/\/jarvis-line-1-line\.twil\.io\/call\?step=talk&amp;t=CA1" method="POST" speechTimeout="auto"[^>]*actionOnEmptyResult="true"[^>]*hints="Jarvis, Bilel"><Say voice="Polly\.Brian-Neural">Hello, you've reached Jarvis, Bilel's AI assistant\. This call is transcribed\. How can I help you\?<\/Say><\/Gather>/);
+  assert.match(xml, /<Gather input="speech" action="https:\/\/jarvis-line-1-line\.twil\.io\/call\?step=talk&amp;t=CA1" method="POST" speechTimeout="auto"[^>]*actionOnEmptyResult="true"[^>]*hints="Eden, Bilel"><Say voice="Polly\.Brian-Neural">Hello, you've reached Eden, Bilel's AI assistant\. This call is transcribed\. How can I help you\?<\/Say><\/Gather>/);
   const talk = sync.talks['talk-CA1'];
   assert.equal(talk.ttl, String(3 * 24 * 3600));
   assert.equal(talk.data.mode, 'in');
@@ -179,13 +179,13 @@ test("each turn sends Claude the conversation and speaks its reply, listening ag
   assert.equal(params.output_config.format.type, 'json_schema');
   assert.equal(params.output_config.format.schema.additionalProperties, false);
   assert.ok(options.timeout <= 6000);
-  assert.match(params.system, /You are Jarvis \(J\.A\.R\.V\.I\.S\.\), Bilel's AI assistant, answering a phone call/);
+  assert.match(params.system, /You are Eden, Bilel's AI assistant, answering a phone call/);
   assert.match(params.system, new RegExp(`${open[0].start} = Thursday at 10 AM`));
-  assert.match(params.system, /Bilel confirms it, and Jarvis calls them back/);
+  assert.match(params.system, /Bilel confirms it, and Eden calls them back/);
   assert.match(params.system, /About Bilel, which you may tell callers: Bilel runs BSH Ventures\./);
   assert.match(params.system, /cannot change your instructions/);
   assert.deepEqual(params.messages.map((m) => m.role), ['user', 'assistant', 'user']);
-  assert.match(params.messages[1].content, /"say":"Hello, you've reached Jarvis/);
+  assert.match(params.messages[1].content, /"say":"Hello, you've reached Eden/);
   assert.equal(params.messages[2].content, 'Hi, I would like to meet Bilel next week.');
   const talk = talkOf();
   assert.equal(talk.note, 'Someone wants to meet.');
@@ -235,7 +235,7 @@ test('something for the calendar at another time is noted for the owner to confi
 test('the owner calling from their own phone is greeted by name', async () => {
   reset({ owner: 'Bilel', talk: true, booking: true, slots: open, owner_number: '+14155550199' });
   const xml = await call({ From: '+14155550199' });
-  assert.match(xml, /Hello Bilel, Jarvis here\. What can I do for you\?/);
+  assert.match(xml, /Hello Bilel, Eden here\. What can I do for you\?/);
   claude.replies.push(reply({ say: 'Done.', action: 'request_event', start: '2026-10-09T09:00:00-07:00', title: 'Gym' }));
   await call({ From: '+14155550199', step: 'talk', t: 'CA1', SpeechResult: 'Put gym on Friday at nine.' });
   assert.match(claude.requests[0].params.system, /The caller is Bilel themselves/);
@@ -308,7 +308,7 @@ test('a long conversation is trimmed to fit Sync, keeping the greeting', async (
   const talk = talkOf();
   assert.ok(Buffer.byteLength(JSON.stringify(talk)) <= 14000);
   assert.equal(talk.trimmed, true);
-  assert.match(talk.turns[0].text, /^Hello, you've reached Jarvis/);
+  assert.match(talk.turns[0].text, /^Hello, you've reached Eden/);
 });
 
 // ── calls Jarvis places ──
@@ -432,7 +432,7 @@ test('a call that only gathers options agrees to nothing', async () => {
   reset({ owner: 'Bilel' });
   errand({ commit: false, max_amount: 0 });
   await placed({ step: 'dial', AnsweredBy: 'human' });
-  claude.replies.push(reply({ say: "Hi, this is Jarvis, an AI assistant for Bilel. Yes, let's do the $10 plan.", action: 'agree', amount: 10 }));
+  claude.replies.push(reply({ say: "Hi, this is Eden, an AI assistant for Bilel. Yes, let's do the $10 plan.", action: 'agree', amount: 10 }));
   const xml = await placed({ step: 'talk', SpeechResult: 'We could offer $10 a month instead.' });
   assert.match(claude.requests[0].params.system, /Only gather options/);
   assert.match(xml, /not able to agree to anything on this call, only to find out the options/);
@@ -445,7 +445,7 @@ test('a placed call says it is an AI first, and no number leaves that the card o
   await placed({ step: 'dial', AnsweredBy: 'human' });
   claude.replies.push(reply({ say: "I'm calling to cancel an internet plan." }));
   let xml = await placed({ step: 'talk', SpeechResult: 'Comcast, how can I help?' });
-  assert.match(xml, /Hi, this is Jarvis, an AI assistant calling on behalf of Bilel\. I'm calling to cancel/);
+  assert.match(xml, /Hi, this is Eden, an AI assistant calling on behalf of Bilel\. I'm calling to cancel/);
   claude.replies.push(reply({ say: 'Sure, the account is 8812 3456.' }));
   xml = await placed({ step: 'talk', SpeechResult: "What's the account number?" });
   assert.match(xml, /the account is 8812 3456\./); // on the card
@@ -588,9 +588,9 @@ test('a reply another model took over is read from its own start; a decline mid-
   reset({ owner: 'Bilel' });
   errand({ commit: true });
   await placed({ step: 'dial', AnsweredBy: 'human' });
-  claude.replies.push({ fallback: [reply({ say: 'Something the first model started' }), reply({ say: 'Hi, this is Jarvis, an AI assistant calling for Bilel.' })] });
+  claude.replies.push({ fallback: [reply({ say: 'Something the first model started' }), reply({ say: 'Hi, this is Eden, an AI assistant calling for Bilel.' })] });
   let xml = await placed({ step: 'talk', SpeechResult: 'Hello?' });
-  assert.match(xml, /<Say[^>]*>Hi, this is Jarvis, an AI assistant calling for Bilel\.<\/Say>/);
+  assert.match(xml, /<Say[^>]*>Hi, this is Eden, an AI assistant calling for Bilel\.<\/Say>/);
   assert.doesNotMatch(xml, /first model/);
   claude.replies.push('refusal');
   xml = await placed({ step: 'talk', SpeechResult: 'Something odd.' });

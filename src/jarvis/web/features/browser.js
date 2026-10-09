@@ -67,7 +67,7 @@
   function importError(ev) {
     const name = ev && ev.name;
     switch (ev && ev.error) {
-      case 'full_disk_access': return 'Safari keeps its bookmarks and history private. Allow J.A.R.V.I.S. in System Settings › Privacy & Security › Full Disk Access, then import again.';
+      case 'full_disk_access': return 'Safari keeps its bookmarks and history private. Allow Eden in System Settings › Privacy & Security › Full Disk Access, then import again.';
       case 'not_found': if (name) return `${name} has nothing to import on this Mac.`; break;
       case 'unreadable': if (name) return `${name}’s bookmarks and history couldn’t be read.`; break;
       default: break;
@@ -326,8 +326,8 @@
       tab.classList.add(`bp-${kind}`);
       const mark = F.el('span', 'bp-tab-mark');
       mark.append(svg(ICONS[kind], 13));
-      mark.title = t.private ? 'Private: nothing it visits or keeps stays after it closes' : 'JARVIS’s own profile, signed out of your sites';
-      mark.setAttribute('aria-label', t.private ? 'Private' : 'JARVIS’s own profile');
+      mark.title = t.private ? 'Private: nothing it visits or keeps stays after it closes' : 'Eden’s own profile, signed out of your sites';
+      mark.setAttribute('aria-label', t.private ? 'Private' : 'Eden’s own profile');
       tab.insertBefore(mark, tab.querySelector('.bd-tab-title'));
     }
     if (t.audible || t.muted) {
@@ -829,13 +829,13 @@
   function agentRow() {
     const row = F.el('div', 'row');
     const words = F.el('span');
-    words.append(F.el('strong', '', 'JARVIS browses signed out'), F.el('small', '', 'The tabs JARVIS opens for itself use a profile of their own, with none of your sign-ins or cookies'));
+    words.append(F.el('strong', '', 'Eden browses signed out'), F.el('small', '', 'The tabs Eden opens for itself use a profile of their own, with none of your sign-ins or cookies'));
     const sw = F.el('button', 'switch');
     sw.id = 'sw-bp-agent';
     sw.type = 'button';
     sw.setAttribute('role', 'switch');
     sw.setAttribute('aria-checked', 'false');
-    sw.setAttribute('aria-label', 'JARVIS browses signed out');
+    sw.setAttribute('aria-label', 'Eden browses signed out');
     sw.addEventListener('click', async () => {
       const on = sw.getAttribute('aria-checked') !== 'true';
       sw.setAttribute('aria-checked', String(on));

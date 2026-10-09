@@ -12,7 +12,7 @@
 (function (root) {
   'use strict';
 
-  const WHO = { You: 'You', Them: 'Them', Jarvis: 'Jarvis' };
+  const WHO = { You: 'You', Them: 'Them', Jarvis: 'Eden' };
   const SAY_STATES = {
     pending: 'About to say',
     speaking: 'Saying into the call',
@@ -184,7 +184,7 @@
     for (const r of transcript) {
       const li = el('li', `ma-line ma-${String(r.who || 'none').toLowerCase()}`);
       const meta = el('span', 'ma-meta');
-      if (r.who) meta.append(r.who === 'Jarvis' ? mine(el('span', 'ma-who', 'Jarvis')) : el('span', 'ma-who', speakerLabel(r.who)));
+      if (r.who) meta.append(r.who === 'Jarvis' ? mine(el('span', 'ma-who', 'Eden')) : el('span', 'ma-who', speakerLabel(r.who)));
       meta.append(mine(el('time', '', r.t || '')));
       li.append(meta, mine(el('span', 'ma-words', r.text)));
       ol.append(li);

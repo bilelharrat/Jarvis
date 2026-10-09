@@ -38,7 +38,7 @@ test('dist writes the feed Squirrel reads, the zip beside it', () => {
   const data = JSON.parse(releaseJson('0.2.0'));
   assert.equal(data.currentRelease, '0.2.0');
   assert.deepEqual(data.releases[0].updateTo, {
-    version: '0.2.0', name: 'J.A.R.V.I.S. 0.2.0', pub_date: '2026-10-01T12:00:00.000Z', notes: 'Faster.',
+    version: '0.2.0', name: 'Eden 0.2.0', pub_date: '2026-10-01T12:00:00.000Z', notes: 'Faster.',
     url: 'https://downloads.example.com/jarvis/J.A.R.V.I.S.-0.2.0-mac.zip',
   });
   assert.throws(() => feed.releaseFeed({ version: '0.2', zipName: 'x.zip', feedUrl: FEED }), /isn't x\.y\.z/);
@@ -154,7 +154,7 @@ test('a newer release is downloaded by Squirrel, then offered; Restart installs 
   assert.equal((await u.check()).state, 'downloading'); // no second check while it downloads
   assert.equal(auto.calls.length, 2);
   auto.emit('update-downloaded');
-  assert.deepEqual({ ...u.state(), notes: undefined }, { version: '0.1.0', enabled: true, state: 'ready', available: '0.2.0', name: 'J.A.R.V.I.S. 0.2.0', notes: undefined });
+  assert.deepEqual({ ...u.state(), notes: undefined }, { version: '0.1.0', enabled: true, state: 'ready', available: '0.2.0', name: 'Eden 0.2.0', notes: undefined });
   assert.deepEqual(auto.calls.slice(2), []); // downloaded, and still running: not while the owner is around
   assert.equal(u.restart(), true);
   assert.deepEqual(auto.calls.at(-1), ['install']);

@@ -108,7 +108,7 @@
   const hosts = el('datalist');
   const help = el('p', 'jcs-help');
   if (panel) {
-    panel.append(el('p', 'jcs-intro', 'Continue a session on another machine you control, over SSH. JARVIS uses your own SSH config and agent, and never stores keys.'));
+    panel.append(el('p', 'jcs-intro', 'Continue a session on another machine you control, over SSH. Eden uses your own SSH config and agent, and never stores keys.'));
     panel.append(el('p', 'jcs-label in', 'Machines'), list);
     const form = el('form', 'jcs-group jch-add');
     form.autocomplete = 'off';
@@ -135,7 +135,7 @@
     panel.append(form, help);
     panel.append(el('p', 'jcs-foot', 'A check runs ssh -o BatchMode=yes, then looks for git and Claude Code there. Only the alias is kept.'));
     panel.append(sessionsLabel, sessions);
-    panel.append(el('p', 'jcs-foot', 'Runs on another machine use its own Claude sign-in and are billed there. JARVIS’s spending limits can’t meter them; the cost shown is what its Claude Code reported.'));
+    panel.append(el('p', 'jcs-foot', 'Runs on another machine use its own Claude sign-in and are billed there. Eden’s spending limits can’t meter them; the cost shown is what its Claude Code reported.'));
   }
 
   function machineItem(m) {
@@ -233,7 +233,7 @@
   const where = el('span', 'jch-bar-where');
   const how = el('span', 'jch-bar-state');
   const cost = noI18n(el('span', 'jch-bar-cost'));
-  const billed = el('span', 'jch-bar-billed', 'billed there, outside JARVIS’s limits');
+  const billed = el('span', 'jch-bar-billed', 'billed there, outside Eden’s limits');
   const back = button('Bring it back', () => { const h = mine(); if (h) send({ type: 'code_handoff_back', handoff: h.id }); }, 'jch-bar-btn');
   const stop = button('Stop', () => { const h = mine(); if (h) send({ type: 'code_handoff_stop', handoff: h.id }); }, 'jch-bar-btn');
   bar.append(el('span', 'jch-bar-dot'), where, how, cost, billed, back, stop);

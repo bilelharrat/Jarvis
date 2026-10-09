@@ -41,14 +41,14 @@
     section.id = 'sms-line-group';
     const [onRow, onSwitch] = toggle('sw-sms-line', 'Tell me about texts', 'A heads-up when someone texts your Twilio number, with who it’s from', 'sms_line_on');
     const [okRow, okSwitch] = toggle('sw-sms-approvals', 'Answer cards by text',
-      'When a card waits a minute on the Mac, Jarvis texts it to your own number with a code: reply YES and the code, or NO and the code. Never for purchases, never in quiet hours. About 1¢ a text.',
+      'When a card waits a minute on the Mac, Eden texts it to your own number with a code: reply YES and the code, or NO and the code. Never for purchases, never in quiet hours. About 1¢ a text.',
       'sms_approvals');
     const status = el('p', 'small-status sms-status');
     status.id = 'sms-line-status';
     status.setAttribute('aria-live', 'polite');
     const list = el('ul', 'itemlist sms-texts');
     list.id = 'sms-line-texts';
-    section.append(el('h3', '', 'Texts to the Jarvis number'), onRow, okRow, status, list);
+    section.append(el('h3', '', 'Texts to the Eden number'), onRow, okRow, status, list);
     const phone = F.$('phone-sid');
     const after = phone ? phone.closest('section.group') : null;
     if (after && after.nextElementSibling) settings.insertBefore(section, after.nextElementSibling);

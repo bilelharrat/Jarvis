@@ -55,8 +55,8 @@
     const field = el('input', 'act-search');
     field.id = 'act-search';
     field.type = 'search';
-    field.placeholder = 'Search what Jarvis did';
-    field.setAttribute('aria-label', 'Search what Jarvis did');
+    field.placeholder = 'Search what Eden did';
+    field.setAttribute('aria-label', 'Search what Eden did');
     field.addEventListener('input', () => {
       clearTimeout(S.timer);
       S.timer = setTimeout(() => ask(field.value.trim(), ''), 250);
@@ -139,7 +139,7 @@
     $('act-more').hidden = !S.more;
     const empty = $('act-empty');
     empty.hidden = S.items.length > 0;
-    empty.textContent = S.q ? 'Nothing Jarvis did matches.' : 'Nothing Jarvis did is kept yet.';
+    empty.textContent = S.q ? 'Nothing Eden did matches.' : 'Nothing Eden did is kept yet.';
   }
 
   // ── Undo, under the reply ──

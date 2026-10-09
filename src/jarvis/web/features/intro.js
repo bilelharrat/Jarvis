@@ -65,9 +65,9 @@
     'wake-call': 'phone', 'iphone-calls': 'phone', models: 'models', companion: 'companion', done: 'done',
   };
   const GROUPS = {
-    Work: ['briefcase', 'Your work apps', 'Tasks, issues, docs and messages: Jarvis reads them for you, and asks before it changes anything.'],
+    Work: ['briefcase', 'Your work apps', 'Tasks, issues, docs and messages: Eden reads them for you, and asks before it changes anything.'],
     Google: ['mail', 'Google', 'Gmail, Google Calendar and Drive, through Google’s own connectors.'],
-    Developer: ['code', 'Developer tools', 'Code, errors, deployments and data, for Jarvis and Eden Code.'],
+    Developer: ['code', 'Developer tools', 'Code, errors, deployments and data, for Eden and Eden Code.'],
     Business: ['chart', 'Business tools', 'Customers, payments and deals.'],
     Design: ['pen', 'Design tools', 'Designs, components and brand assets.'],
   };
@@ -239,7 +239,7 @@
     const o = el(live ? 'button' : 'div', 'intro-orb');
     if (live) {
       o.type = 'button';
-      o.setAttribute('aria-label', 'Talk to Jarvis');
+      o.setAttribute('aria-label', 'Talk to Eden');
       o.addEventListener('click', () => F.send({ type: S.hubState === 'idle' ? 'listen' : 'stop' }));
     }
     o.dataset.state = S.hubState;
@@ -267,7 +267,7 @@
     }
     if (id === 'welcome') {
       return {
-        visual: orb(false), title: 'Hello. I’m Jarvis.', primary: 'Get started',
+        visual: orb(false), title: 'Hello. I’m Eden.', primary: 'Get started',
         lead: 'Your assistant on this Mac: talk to it, and it handles your day, your mail, your apps and your code.',
         body: [para('A few minutes to set things up. Everything here is optional, and you can come back any time from Settings.', 'intro-note intro-center')],
       };
@@ -286,7 +286,7 @@
         b.addEventListener('click', () => setPrefs({ language: code }));
         choices.append(b);
       }
-      return { visual: tile('globe', 'blue'), title: 'Which language?', lead: 'Jarvis shows, speaks and listens in the language you pick.', body: [choices] };
+      return { visual: tile('globe', 'blue'), title: 'Which language?', lead: 'Eden shows, speaks and listens in the language you pick.', body: [choices] };
     }
     if (id === 'mic') return micCard();
     if (id === 'permissions') return permsCard();
@@ -302,7 +302,7 @@
     if (id === 'iphone-calls') {
       return {
         visual: tile('iphone', 'green'), title: 'Call people from your Mac',
-        lead: 'Say “Jarvis, call Sam” and the call rings from your iPhone, through this Mac, for you to talk.',
+        lead: 'Say “Eden, call Sam” and the call rings from your iPhone, through this Mac, for you to talk.',
         body: [steps([
           'On your iPhone, open Settings › Apps › Phone › Calls on Other Devices, turn it on, and turn on this Mac.',
           'On this Mac, open FaceTime › Settings and turn on Calls from iPhone.',
@@ -319,18 +319,18 @@
         if (sw) { sw.scrollIntoView({ block: 'center' }); sw.focus({ preventScroll: true }); }
       });
       return {
-        visual: tile('devices', 'slate'), title: 'Jarvis on your iPhone and Apple Watch', later: true,
-        lead: 'Ask Jarvis from your phone or your wrist, wherever you are.',
-        body: [steps(['Turn on the companion in Settings › iPhone & Watch.', 'Open the Jarvis app on your iPhone and pair it with the code this Mac shows.']), open],
+        visual: tile('devices', 'slate'), title: 'Eden on your iPhone and Apple Watch', later: true,
+        lead: 'Ask Eden from your phone or your wrist, wherever you are.',
+        body: [steps(['Turn on the companion in Settings › iPhone & Watch.', 'Open the Eden app on your iPhone and pair it with the code this Mac shows.']), open],
       };
     }
     // done
     const list = el('ul', 'intro-try-list');
-    for (const said of ['“Jarvis, what’s on my calendar today?”', '“Jarvis, brief me.”', '“Jarvis, remind me at 5 to call Sam.”', '“Jarvis, open Eden Code.”', '“Jarvis, run a checkup.”']) list.append(el('li', '', said));
+    for (const said of ['“Eden, what’s on my calendar today?”', '“Eden, brief me.”', '“Eden, remind me at 5 to call Sam.”', '“Eden, open Eden Code.”', '“Eden, run a checkup.”']) list.append(el('li', '', said));
     return {
-      visual: orb(false), ok: true, title: 'You’re all set', primary: 'Start using Jarvis',
+      visual: orb(false), ok: true, title: 'You’re all set', primary: 'Start using Eden',
       lead: 'A few things to try:',
-      body: [list, para('Anything you skipped is in Settings, and Settings › Health & safety › Set up Jarvis again… brings this back.', 'intro-note intro-center')],
+      body: [list, para('Anything you skipped is in Settings, and Settings › Health & safety › Set up Eden again… brings this back.', 'intro-note intro-center')],
     };
   }
 
@@ -351,18 +351,18 @@
     body.push(bars);
     const status = el('p', 'intro-status');
     const listening = m.state === 'listening' || m.state === 'starting';
-    if (ok && m.text) status.append(el('span', '', 'Jarvis heard:'), document.createTextNode(' '), data(el('q', '', m.text)));
-    else if (ok) status.textContent = 'Jarvis hears you.';
+    if (ok && m.text) status.append(el('span', '', 'Eden heard:'), document.createTextNode(' '), data(el('q', '', m.text)));
+    else if (ok) status.textContent = 'Eden hears you.';
     else if (listening) status.textContent = 'Listening… say something.';
     else if (m.state === 'transcribing') status.textContent = 'One moment…';
-    else if (m.state === 'busy') status.textContent = 'Jarvis is busy. Try again in a moment.';
-    else if (m.state === 'error') status.textContent = m.text || 'Jarvis couldn’t use the microphone.';
+    else if (m.state === 'busy') status.textContent = 'Eden is busy. Try again in a moment.';
+    else if (m.state === 'error') status.textContent = m.text || 'Eden couldn’t use the microphone.';
     else if (!silent) status.textContent = 'Press Test, then say a few words.';
     if (status.childNodes.length) body.push(status);
     if (silent) {
       body.push(callout('warn', [
-        el('strong', '', blocked ? 'The microphone is turned off for Jarvis.' : 'Jarvis didn’t hear anything.'),
-        steps(['Open System Settings › Privacy & Security › Microphone.', 'Turn on J.A.R.V.I.S.', 'Quit Jarvis (⌘Q) and open it again.']),
+        el('strong', '', blocked ? 'The microphone is turned off for Eden.' : 'Eden didn’t hear anything.'),
+        steps(['Open System Settings › Privacy & Security › Microphone.', 'Turn on Eden.', 'Quit Eden (⌘Q) and open it again.']),
         button('Open Microphone settings', 'btn intro-small', () => F.send({ type: 'ops_open_settings', pane: 'microphone' })),
       ]));
     }
@@ -376,8 +376,8 @@
     body.push(el('div', 'intro-actions'));
     body[body.length - 1].append(test);
     return {
-      visual: tile('mic', 'red'), ok, later: true, title: ok ? 'Jarvis hears you' : 'Can Jarvis hear you?',
-      lead: 'Jarvis needs the microphone to hear you. Press Test, then say a few words: the bars move as it hears you.', body,
+      visual: tile('mic', 'red'), ok, later: true, title: ok ? 'Eden hears you' : 'Can Eden hear you?',
+      lead: 'Eden needs the microphone to hear you. Press Test, then say a few words: the bars move as it hears you.', body,
     };
   }
 
@@ -405,8 +405,8 @@
     }
     const allowed = rows && rows.every((r) => r.state === 'granted');
     return {
-      visual: tile('shield', 'blue'), compact: true, ok: Boolean(allowed), later: true, title: 'What Jarvis may use',
-      lead: 'macOS asks the first time Jarvis needs each of these. You can allow them now: this list updates as you do.', body,
+      visual: tile('shield', 'blue'), compact: true, ok: Boolean(allowed), later: true, title: 'What Eden may use',
+      lead: 'macOS asks the first time Eden needs each of these. You can allow them now: this list updates as you do.', body,
     };
   }
 
@@ -434,9 +434,9 @@
       body.push(steps([
         [el('span', '', 'Open the Anthropic Console and sign up, or sign in.'), link('https://platform.claude.com/settings/keys', 'Open the Anthropic Console', 'btn intro-small intro-link')],
         'Add credit under Settings › Billing: Claude is billed to your Anthropic account as you use it.',
-        'Under Settings › API keys, press Create key and name it Jarvis.',
+        'Under Settings › API keys, press Create key and name it Eden.',
         'Copy the key (it starts with sk-ant-). The Console shows it only once.',
-        'Paste it here. Jarvis checks it with Anthropic and keeps it in your Keychain.',
+        'Paste it here. Eden checks it with Anthropic and keeps it in your Keychain.',
       ]));
       const form = secretForm('intro-claude-key', 'Anthropic API key', 'sk-ant-…', S.signinBusy, (key) => {
         S.signinBusy = true;
@@ -445,11 +445,11 @@
       });
       body.push(form);
       if (!c) body.push(para('Checking…'));
-      body.push(para('You pay Anthropic only for what Jarvis uses. You can set a monthly limit under Settings › Billing › Spend limits.'));
+      body.push(para('You pay Anthropic only for what Eden uses. You can set a monthly limit under Settings › Billing › Spend limits.'));
     }
     if (k.error) body.push(para(k.error, 'intro-note warn'));
     else if (k.note && !ok) body.push(para(k.note, 'intro-note'));
-    return { visual: tile('spark', 'clay'), compact: true, ok, later: !ok, title, lead: 'Jarvis thinks with Claude, Anthropic’s AI.', body };
+    return { visual: tile('spark', 'clay'), compact: true, ok, later: !ok, title, lead: 'Eden thinks with Claude, Anthropic’s AI.', body };
   }
 
   function chat(t) {
@@ -473,18 +473,18 @@
     const ok = t.phase === 'done';
     const body = [];
     const status = el('p', 'intro-status');
-    if (ok) status.textContent = 'That’s it: Jarvis heard you and answered.';
+    if (ok) status.textContent = 'That’s it: Eden heard you and answered.';
     else if (t.phase === 'listening') status.textContent = 'Listening… ask “What time is it?”';
     else if (t.phase === 'heard') status.textContent = 'Thinking…';
-    else if (t.phase === 'missed') status.textContent = 'Jarvis didn’t catch that. Try again.';
+    else if (t.phase === 'missed') status.textContent = 'Eden didn’t catch that. Try again.';
     else status.textContent = 'Waiting for you…';
     if (id === 'talk') {
       const keys = el('div', 'intro-keys');
       keys.append(keycap('⌥'), keycap('Space'));
       body.push(keys, status, chat(t));
-      if (!ok) body.push(para('Or tap the orb. ⌥ Space works from any app, even when Jarvis is hidden.', 'intro-note intro-center'));
+      if (!ok) body.push(para('Or tap the orb. ⌥ Space works from any app, even when Eden is hidden.', 'intro-note intro-center'));
       return {
-        visual: orb(true), ok, later: true, title: ok ? 'You talked to Jarvis' : 'Talk to Jarvis',
+        visual: orb(true), ok, later: true, title: ok ? 'You talked to Eden' : 'Talk to Eden',
         lead: 'Press ⌥ Space, then ask “What time is it?”', body,
       };
     }
@@ -495,8 +495,8 @@
       ]));
     } else body.push(status, chat(t));
     return {
-      visual: orb(false), ok, later: true, title: ok ? 'Jarvis heard its name' : 'Just say “Jarvis”',
-      lead: 'With hands-free on, no keys are needed: say “Jarvis, what time is it?”', body,
+      visual: orb(false), ok, later: true, title: ok ? 'Eden heard its name' : 'Just say “Eden”',
+      lead: 'With hands-free on, no keys are needed: say “Eden, what time is it?”', body,
     };
   }
 
@@ -509,7 +509,7 @@
     } else if (p.clap_hands === false) {
       body.push(callout('info', [para('Clap twice for hand control is off in Settings › Listening.', 'intro-note'), button('Turn it on', 'btn primary intro-small', () => setPrefs({ clap_hands: true }))]));
     } else if (ok) {
-      body.push(para('Hand control is on: point to move the pointer, pinch to click. Say “Jarvis, stop hand control” or press below to turn it off.', 'intro-status'));
+      body.push(para('Hand control is on: point to move the pointer, pinch to click. Say “Eden, stop hand control” or press below to turn it off.', 'intro-status'));
       body.push(button('Turn hand control off', 'btn intro-small', () => {
         if (typeof stopHandControl === 'function' && typeof handsOn !== 'undefined' && handsOn) stopHandControl();
       }));
@@ -531,7 +531,7 @@
     const body = [];
     const choices = el('div', 'intro-choices');
     choices.setAttribute('role', 'radiogroup');
-    choices.setAttribute('aria-label', 'Whose voice Jarvis answers');
+    choices.setAttribute('aria-label', 'Whose voice Eden answers');
     for (const [scope, name, sub] of [
       ['all', 'Only me', 'Anyone else is ignored.'],
       ['risky', 'Anyone, but risky steps need me', 'Approvals, sends, purchases and deletes by voice need yours.'],
@@ -565,8 +565,8 @@
       line.id = 'intro-voice-id-sentence';
       body.push(line, button('Cancel', 'btn intro-small', () => F.send({ type: 'voice_id_enroll', action: 'cancel' })));
     } else if (on) {
-      body.push(el('p', 'intro-status', v.enrolled ? 'Jarvis knows your voice.' : 'Read five short sentences aloud, in a quiet room. Your voiceprint stays on this Mac.'));
-      const teach = button(v.enrolled ? 'Retrain' : 'Teach Jarvis your voice', v.enrolled ? 'btn intro-small' : 'btn primary intro-small', () => F.send({ type: 'voice_id_enroll', action: 'start' }));
+      body.push(el('p', 'intro-status', v.enrolled ? 'Eden knows your voice.' : 'Read five short sentences aloud, in a quiet room. Your voiceprint stays on this Mac.'));
+      const teach = button(v.enrolled ? 'Retrain' : 'Teach Eden your voice', v.enrolled ? 'btn intro-small' : 'btn primary intro-small', () => F.send({ type: 'voice_id_enroll', action: 'start' }));
       teach.id = 'intro-voice-id-teach';
       body.push(teach);
     }
@@ -575,8 +575,8 @@
     body.push(para('Tapping the orb, ⌥ Space and typing always work, whoever you are.', 'intro-note intro-center'));
     return {
       visual: tile('wave', 'violet'), ok, later: true, compact: true,
-      title: ok ? 'Jarvis knows your voice' : 'Only answer my voice',
-      lead: 'Jarvis learns what you sound like, so other people and the TV can’t give it orders. It adds no wait to its answers.',
+      title: ok ? 'Eden knows your voice' : 'Only answer my voice',
+      lead: 'Eden learns what you sound like, so other people and the TV can’t give it orders. It adds no wait to its answers.',
       body,
     };
   }
@@ -591,9 +591,9 @@
     body.push(el('div', 'intro-actions'));
     body[0].append(play);
     if (S.voiceMuted) {
-      body.push(callout('warn', [para('Spoken replies are off, so Jarvis stays quiet.', 'intro-note'), button('Turn spoken replies on', 'btn intro-small', () => { S.voiceMuted = false; F.send({ type: 'mute', value: false }); F.send({ type: 'ops_voice_test' }); fill(); })]));
+      body.push(callout('warn', [para('Spoken replies are off, so Eden stays quiet.', 'intro-note'), button('Turn spoken replies on', 'btn intro-small', () => { S.voiceMuted = false; F.send({ type: 'mute', value: false }); F.send({ type: 'ops_voice_test' }); fill(); })]));
     }
-    if (v.provider && v.provider !== 'jarvis') body.push(para('You’ve picked another voice in Settings › Speaking; the JARVIS voice is there too.'));
+    if (v.provider && v.provider !== 'jarvis') body.push(para('You’ve picked another voice in Settings › Speaking; the Eden voice is there too.'));
     if (own) {
       const line = el('div', 'intro-line');
       line.append(pill('ok', 'Unlimited'), el('span', '', 'Your Fish Audio key'), data(el('span', 'intro-meta', fish.key || '')));
@@ -601,7 +601,7 @@
     } else {
       const more = el('details', 'intro-more');
       more.append(el('summary', '', 'Make it unlimited (optional)'));
-      more.append(para('The JARVIS voice comes with a daily allowance. With your own Fish Audio key it has no limit, billed by Fish Audio.'));
+      more.append(para('The Eden voice comes with a daily allowance. With your own Fish Audio key it has no limit, billed by Fish Audio.'));
       more.append(steps([
         [el('span', '', 'Sign in (or sign up) at fish.audio.'), link('https://fish.audio/app/api-keys/', 'Open Fish Audio', 'btn intro-small intro-link')],
         'Open API Keys and create a key.',
@@ -618,15 +618,15 @@
     }
     if (v.speaking_error) body.push(para(v.speaking_error, 'intro-note warn'));
     return {
-      visual: tile('wave', 'violet'), compact: true, ok: own, later: true, title: 'The JARVIS voice',
-      lead: 'Jarvis speaks in its own voice, ready to go. Play a sample to hear it.', body,
+      visual: tile('wave', 'violet'), compact: true, ok: own, later: true, title: 'The Eden voice',
+      lead: 'Eden speaks in its own voice, ready to go. Play a sample to hear it.', body,
     };
   }
 
   function accountsCard(group) {
     const c = S.connectors;
-    if (!c) return { visual: tile('plug', 'teal'), title: 'Connect your accounts', later: true, lead: 'Jarvis can work in the apps you use.', body: [para('Checking…')] };
-    const [icon, title, lead] = GROUPS[group] || ['plug', 'More accounts', 'Jarvis can work in these for you, and asks before it changes anything.'];
+    if (!c) return { visual: tile('plug', 'teal'), title: 'Connect your accounts', later: true, lead: 'Eden can work in the apps you use.', body: [para('Checking…')] };
+    const [icon, title, lead] = GROUPS[group] || ['plug', 'More accounts', 'Eden can work in these for you, and asks before it changes anything.'];
     const conns = new Map((c.connections || []).map((x) => [x.id, x]));
     const services = (c.catalog || []).filter((e) => e.category === group);
     const list = el('ul', 'intro-list');
@@ -659,7 +659,7 @@
       list.append(li);
     }
     const body = [list];
-    if (group === 'Google') body.unshift(para('Easier first: add your Google account in System Settings › Internet Accounts. Jarvis already reads Mail and Calendar from there, so you may not need these.', 'intro-note'));
+    if (group === 'Google') body.unshift(para('Easier first: add your Google account in System Settings › Internet Accounts. Eden already reads Mail and Calendar from there, so you may not need these.', 'intro-note'));
     body.push(para('Connect one now, or any time in Tools & Accounts.', 'intro-note intro-center'));
     const visual = tile(icon, 'teal');
     if (!GROUPS[group]) visual.append(data(el('span', 'intro-tile-label', group)));
@@ -703,13 +703,13 @@
   function twilioCard() {
     const ready = phoneReady();
     const body = [steps([
-      [el('span', '', 'Sign up at twilio.com: the free trial asks you to verify your own mobile number, and that’s the number Jarvis calls.'), link('https://www.twilio.com/try-twilio', 'Open Twilio', 'btn intro-small intro-link')],
+      [el('span', '', 'Sign up at twilio.com: the free trial asks you to verify your own mobile number, and that’s the number Eden calls.'), link('https://www.twilio.com/try-twilio', 'Open Twilio', 'btn intro-small intro-link')],
       [el('span', '', 'Get a number that can make calls: in the Twilio Console, open Phone Numbers (Numbers & senders in the new Console) and buy a number with Voice. The trial’s credit covers one.'), link('https://console.twilio.com/us1/develop/phone-numbers/manage/search', 'Buy a number', 'btn intro-small intro-link')],
       [el('span', '', 'On the Console’s home page, find your Account SID and Auth Token: you paste them next.'), link('https://console.twilio.com/', 'Open the Twilio Console', 'btn intro-small intro-link')],
     ])];
     if (ready) body.unshift(callout('ok', [el('strong', '', 'Phone calls are set up.')]));
     return {
-      visual: tile('phone', 'green'), compact: true, ok: ready, later: true, skipTo: 'iphone-calls', title: 'Jarvis can call you',
+      visual: tile('phone', 'green'), compact: true, ok: ready, later: true, skipTo: 'iphone-calls', title: 'Eden can call you',
       lead: 'Wake-up calls, reminders and messages to people, from your own Twilio account: a number is about $1.15 a month, calls about 1.4¢ a minute.', body,
     };
   }
@@ -760,7 +760,7 @@
     more.append(el('summary', '', 'Good to know'));
     more.append(el('ul', 'intro-bullets'));
     for (const text of [
-      'On a free trial, calls start with Twilio’s trial message (press a key to hear Jarvis), and Jarvis can call only numbers you’ve verified in Twilio, in your own country.',
+      'On a free trial, calls start with Twilio’s trial message (press a key to hear Eden), and Eden can call only numbers you’ve verified in Twilio, in your own country.',
       'To drop both, upgrade: press Upgrade in the Twilio Console, then add a payment method and a starting balance.',
       'To call another country, allow it in the Console’s Voice geographic permissions (search for Geo permissions).',
     ]) more.lastChild.append(el('li', '', text));
@@ -773,7 +773,7 @@
 
   function wakeCallCard() {
     const p = S.prefs || {};
-    const body = [switchRow('Wake-up call', 'Jarvis rings you with the morning brief.', p.wake_call, () => setPrefs({ wake_call: !p.wake_call }), 'intro-wake-call')];
+    const body = [switchRow('Wake-up call', 'Eden rings you with the morning brief.', p.wake_call, () => setPrefs({ wake_call: !p.wake_call }), 'intro-wake-call')];
     const time = el('label', 'intro-row');
     time.htmlFor = 'intro-wake-time';
     const tl = el('span', 'intro-row-text');
@@ -786,10 +786,10 @@
     time.append(tl, input);
     body.push(time);
     if (!phoneReady()) body.push(para('Wake-up calls need Twilio set up (the cards before this one).', 'intro-note warn'));
-    else body.push(para('Jarvis needs to be running on this Mac at that time.', 'intro-note'));
+    else body.push(para('Eden needs to be running on this Mac at that time.', 'intro-note'));
     return {
       visual: tile('alarm', 'green'), ok: Boolean(p.wake_call && phoneReady()), later: true, title: 'A wake-up call',
-      lead: 'Start the day with Jarvis on the phone: your calendar, the weather and the news.', body,
+      lead: 'Start the day with Eden on the phone: your calendar, the weather and the news.', body,
     };
   }
 
@@ -842,7 +842,7 @@
     const ok = mine.some((x) => S.modelChecks[x.id] && S.modelChecks[x.id].ok);
     return {
       visual: tile('chip', 'indigo'), compact: true, ok, later: true, title: 'A second AI, just in case',
-      lead: 'When Claude can’t answer (a usage limit, an outage), Jarvis carries on with another model. Optional.', body,
+      lead: 'When Claude can’t answer (a usage limit, an outage), Eden carries on with another model. Optional.', body,
     };
   }
 

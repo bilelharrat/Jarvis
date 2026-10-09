@@ -327,7 +327,7 @@
       const b = actions.querySelector(`.cr-export[data-target="${armed.target}"]`);
       if (b) { b.classList.add('armed'); b.textContent = t(armed.target === 'local' ? 'Press again to write settings.local.json' : 'Press again to write settings.json (shared with the project)'); }
     }
-    parts.push(actions, el('p', 'jc-dim cr-intro', 'Export adds JARVIS’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.'));
+    parts.push(actions, el('p', 'jc-dim cr-intro', 'Export adds Eden’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.'));
     body.replaceChildren(...parts);
   }
 
