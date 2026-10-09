@@ -315,9 +315,12 @@ const KEYS = new Set([
 // Ctrl+Alt+J: J is the key a finger finds by touch (it has the bump), and Ctrl+Alt+<key> is how
 // Windows itself starts a program from the keyboard (the installer's shortcuts have it too, so it
 // opens J.A.R.V.I.S. Daredevil with the app closed as well as running).
+// Stop talking (speech and any reading, from any program): on a PC Ctrl+Alt+Backspace, which
+// neither Windows, NVDA, JAWS nor Narrator use, which types nothing with AltGr, and which the
+// fingers find at the keyboard's top right; on a Mac ⌘⌥. (VoiceOver has ⌃⌥ for itself).
 const defaultsFor = (platform) => (platform === 'win32'
-  ? { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space' }
-  : { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' });
+  ? { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space', stop: 'Control+Alt+Backspace' }
+  : { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space', stop: 'Command+Alt+.' });
 const DEFAULT_SHORTCUTS = defaultsFor(process.platform);
 // A PC has many programs that take Ctrl+Alt and a letter for themselves. When the Talk key's own
 // default is in use, the first free one of these (the keys beside J, which a finger finds) stands in for it (a key chosen in Settings never
@@ -388,6 +391,11 @@ function normalizeShortcuts(raw) {
     out[slot] = checked.ok ? checked.accelerator : fallback;
   }
   if (out.whatsThis === out.ask) out.whatsThis = out.ask === DEFAULT_SHORTCUTS.whatsThis ? DEFAULT_SHORTCUTS.ask : DEFAULT_SHORTCUTS.whatsThis;
+  // Stop never shares a key with the others: one that does is the default again (or, when that is
+  // one of theirs too, nothing better than Escape's neighbour: F12 with Ctrl+Alt).
+  if (out.stop === out.ask || out.stop === out.whatsThis) {
+    out.stop = [DEFAULT_SHORTCUTS.stop, 'Control+Alt+F12'].find((key) => key !== out.ask && key !== out.whatsThis);
+  }
   return out;
 }
 

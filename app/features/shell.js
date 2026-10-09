@@ -67,9 +67,9 @@ function install(ctx) {
   const takesShortcuts = !ctx.dev && Boolean(globalShortcut);
   const keyPlatform = ctx.platform || process.platform;
   let shortcuts = { ...store.shortcuts };
-  const registered = { ask: false, whatsThis: false };
-  const live = { ask: '', whatsThis: '' }; // what is really registered: a stand-in when the key asked for was in use
-  const shortcutErrors = { ask: '', whatsThis: '' };
+  const registered = { ask: false, whatsThis: false, stop: false };
+  const live = { ask: '', whatsThis: '', stop: '' }; // what is really registered: a stand-in when the key asked for was in use
+  const shortcutErrors = { ask: '', whatsThis: '', stop: '' };
   let reportedShortcuts = '';
   let recording = false;
   let recordingTimer = null;
@@ -255,7 +255,11 @@ function install(ctx) {
   const SHORTCUT_ACTIONS = {
     ask: () => act('ask'), // show JARVIS and listen
     whatsThis: () => ctx.send('jarvis:whats-this'), // deliberately doesn't bring the window forward
+    // Stop talking, from any program: speech and any reading stop at once. The window stays where
+    // it is (behind, or hidden in the tray), and a window not yet there has nothing to stop.
+    stop: () => { if (windowReady) ctx.send(`${CH}command`, { action: 'stop' }); },
   };
+  const othersThan = (slot) => Object.keys(SHORTCUT_ACTIONS).filter((s) => s !== slot);
 
   function unregisterShortcut(slot) {
     if (!registered[slot]) return;
@@ -266,10 +270,10 @@ function install(ctx) {
 
   function registerShortcut(slot) {
     if (!takesShortcuts || recording || registered[slot]) return;
-    const other = slot === 'ask' ? 'whatsThis' : 'ask';
+    const others = othersThan(slot);
     const tries = [shortcuts[slot]];
     if (shortcuts[slot] === lib.defaultsFor(keyPlatform)[slot]) {
-      tries.push(...lib.fallbacksFor(slot, keyPlatform).filter((key) => key !== shortcuts[other] && key !== live[other]));
+      tries.push(...lib.fallbacksFor(slot, keyPlatform).filter((key) => others.every((o) => key !== shortcuts[o] && key !== live[o])));
     }
     let ok = false;
     for (const accelerator of tries) {
@@ -309,11 +313,10 @@ function install(ctx) {
 
   // The ones in the settings (the window reports them): used when they change there.
   function useShortcuts(next) {
-    if (next.ask === shortcuts.ask && next.whatsThis === shortcuts.whatsThis) return;
+    if (Object.keys(SHORTCUT_ACTIONS).every((slot) => next[slot] === shortcuts[slot])) return;
     unregisterShortcuts();
     shortcuts = next;
-    shortcutErrors.ask = '';
-    shortcutErrors.whatsThis = '';
+    for (const slot of Object.keys(shortcutErrors)) shortcutErrors[slot] = '';
     registerShortcuts();
     shortcutsChanged();
   }
@@ -339,8 +342,7 @@ function install(ctx) {
     const checked = lib.checkAccelerator(accelerator);
     if (!checked.ok) return { ok: false, error: checked.error, label: lib.shortcutLabel(String(accelerator || ''), keyPlatform) };
     const label = lib.shortcutLabel(checked.accelerator, keyPlatform);
-    const other = slot === 'ask' ? 'whatsThis' : 'ask';
-    if (checked.accelerator === shortcuts[other]) return { ok: false, error: 'same', label };
+    if (othersThan(slot).some((o) => checked.accelerator === shortcuts[o])) return { ok: false, error: 'same', label };
     if (checked.accelerator === shortcuts[slot] && (!live[slot] || live[slot] === shortcuts[slot])) return { ok: true, accelerator: checked.accelerator, label };
     if (takesShortcuts) {
       unregisterShortcut(slot);

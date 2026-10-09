@@ -46,11 +46,14 @@
   // English for the page, which i18n.js translates as it appears (the tests find these).
   // What goes to the app (its menus, notifications) is translated here, with F.t.
   const en = (text) => text;
-  const SHORTCUT_PREFS = { ask: 'shell_shortcut_ask', whatsThis: 'shell_shortcut_whats_this' };
+  const SHORTCUT_PREFS = { ask: 'shell_shortcut_ask', whatsThis: 'shell_shortcut_whats_this', stop: 'shell_shortcut_stop' };
+  const SLOTS = Object.keys(SHORTCUT_PREFS);
   // (as app/features/shell-lib.js has them: Alt+Space is Windows' own window menu there, and Ctrl+Alt+J,
   // J being the key a finger finds by touch, is the way Windows itself starts a program from the keyboard)
   const ON_WINDOWS = /Win/i.test((navigator && navigator.platform) || '');
-  const SHORTCUT_DEFAULTS = ON_WINDOWS ? { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space' } : { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' };
+  const SHORTCUT_DEFAULTS = ON_WINDOWS
+    ? { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space', stop: 'Control+Alt+Backspace' }
+    : { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space', stop: 'Command+Alt+.' };
 
   // What the app reports, as the window last heard it.
   const seen = { state: 'idle', muted: false, prefs: null };
@@ -63,6 +66,7 @@
   window.jarvisShell = {
     askLabel: () => (keyStatus && keyStatus.ask ? keyStatus.ask.label : ''),
     whatsThisLabel: () => (keyStatus && keyStatus.whatsThis ? keyStatus.whatsThis.label : ''),
+    stopLabel: () => (keyStatus && keyStatus.stop ? keyStatus.stop.label : ''),
   };
 
   const feature = (key, fallback) => {
@@ -163,6 +167,7 @@
         shortcuts: {
           ask: feature(SHORTCUT_PREFS.ask, SHORTCUT_DEFAULTS.ask),
           whatsThis: feature(SHORTCUT_PREFS.whatsThis, SHORTCUT_DEFAULTS.whatsThis),
+          stop: feature(SHORTCUT_PREFS.stop, SHORTCUT_DEFAULTS.stop),
         },
         labels: labels(),
       };
@@ -308,6 +313,12 @@
       case 'pause': F.send({ type: 'shell_pause', minutes: 60 }); break;
       case 'resume': F.send({ type: 'shell_pause', minutes: 0 }); break;
       case 'open': openPanel(cmd.panel); break;
+      case 'stop':
+        // The Stop talking key, from any program: what JARVIS says and reads stops, and the
+        // window's own announcements with it (features/accessibility.js hears jarvis:stop-all).
+        F.send({ type: 'stop' });
+        document.dispatchEvent(new Event('jarvis:stop-all'));
+        break;
       case 'approve': {
         // Answered as the card's own button would be: through the window's checks (Touch ID
         // before allowing a risky Eden Code step), never around them.
@@ -517,6 +528,7 @@
       switchRow('sw-shell-menubar', 'Show in the menu bar', 'What JARVIS is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.'),
       shortcutRow('ask', 'Talk', 'From any app: shows JARVIS and starts listening.'),
       shortcutRow('whatsThis', 'What’s this?', 'From any app: JARVIS explains what’s in front of you.'),
+      shortcutRow('stop', 'Stop talking', 'From any app: JARVIS stops speaking and stops reading at once.'),
       note,
       serviceRow(),
       serviceNote,
@@ -563,23 +575,23 @@
     if (error === 'taken') return en(`${label} is taken by another app. Pick another.`);
     if (error === 'modifier') return en('Use ⌃ or ⌥, or ⌘ together with ⇧, ⌃ or ⌥.');
     if (error === 'reserved') return en(ON_WINDOWS ? `${label} belongs to Windows. Pick another.` : `${label} belongs to macOS. Pick another.`);
-    if (error === 'same') return en('Talk and What’s this? need different shortcuts.');
+    if (error === 'same') return en('Talk, What’s this? and Stop talking need different shortcuts.');
     return en('That key can’t be a shortcut.');
   }
 
   function renderShortcuts() {
     if (!group || !keyStatus) return;
-    for (const slot of ['ask', 'whatsThis']) {
+    for (const slot of SLOTS) {
       const s = keyStatus[slot];
-      if (!s) continue;
+      if (!s || !F.$(`shell-key-${slot}`)) continue;
       if (recordingSlot !== slot) F.$(`shell-key-${slot}`).textContent = s.label;
       F.$(`shell-rec-${slot}`).disabled = !online && recordingSlot !== slot;
     }
     document.dispatchEvent(new Event('jarvis:shortcuts'));
     // A shortcut another app already had when JARVIS started: said until it's changed.
-    const taken = ['ask', 'whatsThis'].map((slot) => keyStatus[slot]).find((s) => s && s.error === 'taken');
+    const taken = SLOTS.map((slot) => keyStatus[slot]).find((s) => s && s.error === 'taken');
     // One in use by another program, with another key standing in for it: said, and not a problem.
-    const standIn = ['ask', 'whatsThis'].map((slot) => keyStatus[slot]).find((s) => s && s.wanted && !s.error);
+    const standIn = SLOTS.map((slot) => keyStatus[slot]).find((s) => s && s.wanted && !s.error);
     if (taken && noteFrom !== 'recorder') setNote(problem('taken', taken.label), true, 'taken');
     else if (standIn && noteFrom !== 'recorder') setNote(en(`${standIn.wanted} is used by another program, so J.A.R.V.I.S. listens for ${standIn.label} instead. You can pick another key below.`), false, 'standin');
     else if (!taken && !standIn && (noteFrom === 'taken' || noteFrom === 'standin')) setNote('', false, '');
