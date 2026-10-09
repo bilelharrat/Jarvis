@@ -115,9 +115,11 @@ P_VALUE, P_READONLY, P_TOGGLE, P_SELECTED, P_EXPAND = 30045, 30046, 30086, 30079
 # Whether each pattern is there at all: a property of a pattern an element doesn't have comes
 # back as a placeholder object, not as "no value", so these are asked first.
 A_TOGGLE, A_SELECTION, A_EXPAND, A_VALUE = 30041, 30036, 30028, 30043
+P_REQUIRED = 30025  # IsRequiredForForm: the form's own word that a field must be filled
 CACHED = (
     P_NAME, P_TYPE, P_OFFSCREEN, P_ENABLED, P_FOCUS, P_AUTOID, P_HELP, P_RECT, P_PID, P_PASSWORD,
     P_VALUE, P_READONLY, P_TOGGLE, P_SELECTED, P_EXPAND, A_TOGGLE, A_SELECTION, A_EXPAND, A_VALUE,
+    P_REQUIRED,
 )  # fmt: skip
 SCOPE_ELEMENT, SCOPE_DESCENDANTS = 1, 4
 
@@ -184,6 +186,7 @@ class Raw:
             "toggle": number(P_TOGGLE) if has_toggle else None,
             "selected": selected if isinstance(selected, bool) else None,
             "expand": number(P_EXPAND) if has_expand else None,
+            "required": get(P_REQUIRED) is True,
         }
 
     def children(self, el) -> list[Any]:
@@ -209,15 +212,29 @@ class Raw:
 
     def foreground(self) -> Any:
         """The window in front, as an element with its facts cached; None when there is none."""
+        return self.window(self.foreground_handle())
+
+    def foreground_handle(self) -> int:
+        """The window in front's handle (0 when there is none)."""
         import ctypes
 
-        handle = ctypes.windll.user32.GetForegroundWindow()
+        return int(ctypes.windll.user32.GetForegroundWindow() or 0)
+
+    def window(self, handle: int) -> Any:
+        """A window by its handle, with its facts cached; None when it is gone."""
         if not handle:
             return None
         try:
             return self.iuia.ElementFromHandleBuildCache(handle, self.cache)
         except Exception:  # noqa: BLE001
             return None
+
+    def refreshed(self, el) -> dict[str, Any]:
+        """An element's facts read again now (after it was changed)."""
+        try:
+            return self.node(el.BuildUpdatedCache(self.cache))
+        except Exception:  # noqa: BLE001 - gone, or no fresh copy: what was known
+            return self.node(el)
 
 
 def _states_of(n: dict[str, Any]) -> list[str]:
