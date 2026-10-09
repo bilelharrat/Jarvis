@@ -19,6 +19,7 @@ Claude cost policy: no model call; these are tools of the ordinary conversation.
 from __future__ import annotations
 
 import logging
+import weakref
 from pathlib import Path
 from typing import Any
 
@@ -187,7 +188,14 @@ class PrivateMode:
 def install(hub: Any) -> None:
     feature = PrivateMode(hub)
     hub.private_mode = feature
-    private_folders.configure(feature.current)
+    # (held weakly: the module outlives this hub, and a hub nothing else holds must be freed)
+    current = weakref.WeakMethod(feature.current)
+
+    def source() -> Any:
+        method = current()
+        return method() if method is not None else private_folders._from_file()
+
+    private_folders.configure(source)
     if hasattr(hub, "add_event_sink"):
         hub.add_event_sink(("prefs",), feature.changed)  # Settings › Privacy changed it
     hub.register_server(
