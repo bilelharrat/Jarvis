@@ -490,3 +490,29 @@ async def test_the_hosted_voice_asks_askeden_with_the_install_id():
     assert str(request.url) == HOSTED_VOICE_URL and request.headers["x-jarvis-install"] == "a" * 32
     assert json.loads(request.content) == {"text": "Good evening.", "format": "wav", "speed": 1.2}
     assert "authorization" not in request.headers  # no key leaves the app for this
+
+
+# ── the speed by voice, and the wider range for people who listen all day ──
+
+
+def test_faster_slower_and_normal_are_heard_without_claude_and_stay_in_range():
+    from jarvis.features.voice import speed_for
+    from jarvis.speaking import SPEED_MAX, SPEED_MIN
+
+    assert (SPEED_MIN, SPEED_MAX) == (50, 250)
+    assert speed_for("talk faster", 100) == 120
+    assert speed_for("Speak much faster!", 100) == 140
+    assert speed_for("read a bit slower", 100) == 80
+    assert speed_for("talk more slowly", 100) == 80
+    assert speed_for("normal speed", 180) == 100
+    assert speed_for("speak at 200 percent", 100) == 200
+    assert speed_for("talk faster", 245) == 250 and speed_for("go slower", 55) == 50
+    for other in ("what is faster, a car or a bike", "talk faster about cars", "speed up the video", ""):
+        assert speed_for(other, 100) is None
+
+
+def test_the_system_voice_takes_the_whole_range_and_cloud_voices_their_own(monkeypatch):
+    from jarvis import speaking
+
+    assert speaking.clean_speed(240) == 240 and speaking.clean_speed(400) == 250 and speaking.clean_speed(10) == 50
+    assert speaking.CLOUD_SPEED == (0.7, 1.3)

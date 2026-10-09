@@ -143,8 +143,8 @@
   const speed = el('input');
   speed.type = 'range';
   speed.id = 'voice-speed';
-  speed.min = '70';
-  speed.max = '130';
+  speed.min = '50';
+  speed.max = '250';
   speed.step = '5';
   const speedOut = el('output');
   speedOut.id = 'voice-speed-out';

@@ -405,14 +405,16 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required', // (J.A.R.V.I.S. Daredevil's opening sound, loading.js)
     },
   });
+  // (a quiet update's, or the sign-in's: asked once, as the mark is used up)
+  const hidden = !DEV_URL && (reopenHidden() || process.argv.includes('--hidden'));
   if (DEV_URL) {
     // A test window: labelled, never takes focus, and clicks pass through it.
     win.setTitle(`${FLAVOR.title} (test)`);
     win.once('ready-to-show', () => { win.showInactive(); win.setIgnoreMouseEvents(true); });
   } else {
-    const hidden = reopenHidden() || process.argv.includes('--hidden'); // (a quiet update's, or the sign-in's)
     let shown = false;
     const show = (why) => {
       if (shown || !win || win.isDestroyed()) return;
@@ -435,7 +437,7 @@ function createWindow() {
   });
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
-  win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id } });
+  win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
 
   // The window only ever shows Jarvis; any other link opens in the browser.
   const external = (url) => {

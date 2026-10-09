@@ -36,6 +36,8 @@ about 0.2 ms of CPU per 32 ms of audio while hands-free listens). Listing cloud 
 
 from __future__ import annotations
 
+import re
+
 import asyncio
 import logging
 import weakref
@@ -260,6 +262,32 @@ def _wake_source(prefs: Any):
     return words
 
 
+# "Talk faster", "slower", "normal speed", "speak at 150 percent": the speaking speed at once, without
+# asking Claude (someone who listens all day changes it often). Steps of 20 points, within the range.
+_FASTER = re.compile(r"^(?:please\s+)?(?:talk|speak|read|go)\s+(?:a\s+(?:little|bit)\s+|much\s+)?faster\W*$", re.I)
+_SLOWER = re.compile(r"^(?:please\s+)?(?:talk|speak|read|go)\s+(?:a\s+(?:little|bit)\s+|much\s+)?(?:slower|more\s+slowly)\W*$", re.I)
+_NORMAL = re.compile(r"^(?:(?:talk|speak|read)\s+(?:at\s+)?(?:normal|regular)(?:\s+(?:speed|pace))?|(?:normal|regular|default)\s+(?:speed|pace))\W*$", re.I)
+_AT = re.compile(r"^(?:(?:talk|speak|read)\s+at|set\s+(?:the\s+|your\s+)?(?:speaking\s+|voice\s+)?speed\s+to)\s+(\d{2,3})\s*(?:%|percent)\W*$", re.I)
+
+
+def speed_for(words: str, now: int) -> int | None:
+    """The speaking speed (percent) these words ask for, or None when they don't ask for one."""
+    from ..speaking import SPEED_DEFAULT, SPEED_MAX, SPEED_MIN
+
+    text = " ".join(str(words or "").split())
+    if _FASTER.match(text):
+        wanted = now + (40 if "much" in text.lower() else 20)
+    elif _SLOWER.match(text):
+        wanted = now - (40 if "much" in text.lower() else 20)
+    elif _NORMAL.match(text):
+        wanted = SPEED_DEFAULT
+    elif m := _AT.match(text):
+        wanted = int(m.group(1))
+    else:
+        return None
+    return max(SPEED_MIN, min(SPEED_MAX, wanted))
+
+
 def install(hub: Any) -> None:
     voice = Voice(hub)
     # Kept on the hub, never in a map of this module's: one keyed weakly by the hub still
@@ -287,6 +315,21 @@ def install(hub: Any) -> None:
 
     hub.set_prefs = set_prefs_then_voice
     hub.register_loop("voice_ears", voice.start_ears)
+    async def speed_now(words: str) -> str | None:
+        now = voice.speaking.speed()
+        wanted = speed_for(words, now)
+        if wanted is None:
+            return None
+        voice.speaking.change({"voice_speed": wanted})
+        await voice.speaking.apply(refresh=False)
+        if wanted == now:
+            from ..speaking import SPEED_MAX, SPEED_MIN
+
+            edge = " That's as fast as I go." if now >= SPEED_MAX else " That's as slow as I go." if now <= SPEED_MIN else ""
+            return f"I'm already speaking at {now} percent.{edge}"
+        return f"Speaking at {wanted} percent."
+
+    hub.register_instant(speed_now)
     hub.register_command("voice_status", voice.status)
     hub.register_command("voice_settings", voice.settings)
     hub.register_command("voice_list", voice.list_voices)

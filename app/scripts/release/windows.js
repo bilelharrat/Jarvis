@@ -130,8 +130,8 @@ function checkInstaller(file) {
 
 // The program's own icon and name in its .exe: Explorer, the taskbar, the Start menu, Alt+Tab and Task Manager show
 // them, and Narrator says the name. electron-builder would do it with rcedit, a Windows program (so Wine on a Mac);
-// resedit edits the resources in JavaScript, the way @electron/packager does. Run after electron-builder's own edit of
-// the .exe (the asar integrity it writes is kept: only the icon and the version strings change).
+// resedit edits the resources in JavaScript, the way @electron/packager does. Run as the app is packed (afterPack; afterSign is
+// skipped when nothing is signed): every other resource, the asar integrity among them, is kept.
 async function brandExecutable(appOutDir, { name, icon, version }) {
   const { NtExecutable, NtExecutableResource, Resource, Data } = await import('resedit');
   const exes = fs.readdirSync(appOutDir).filter((f) => f.toLowerCase().endsWith('.exe'));
@@ -183,11 +183,11 @@ async function main() {
         ...(process.env.WIN_BUILD_VERSION ? { extraMetadata: { version: process.env.WIN_BUILD_VERSION } } : {}),
         productName: name,
         executableName: name,
-        afterSign: (context) => brandExecutable(context.appOutDir, {
+        afterPack: (context) => brandExecutable(context.appOutDir, {
           name, icon: path.join(APP, icons, 'icon.ico'), version: context.packager.appInfo.version,
         }),
         directories: { output: path.join('dist', 'win', flavor) },
-        files: ['*.js', '*.html', '*.css', 'features/**', 'flavor.json', `${icons}/*.png`, 'package.json',
+        files: ['*.js', '*.html', '*.css', '*.wav', 'features/**', 'flavor.json', `${icons}/*.png`, 'package.json',
           '!jarvis-home.json', '!dist/**', '!scripts/**', '!eden/**'],
         asarUnpack: ['node_modules/@xterm/**', 'node_modules/@mediapipe/**'],
         extraResources: [{ from: engine, to: 'backend' }],

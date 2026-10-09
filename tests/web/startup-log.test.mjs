@@ -269,3 +269,24 @@ test('the engine is started with no console window of its own, and the app trace
   // the window is shown even if it never paints
   assert.match(main, /setTimeout\(\(\) => show\('not painted after 4 s: showing it anyway'\), 4000\)/);
 });
+
+test('J.A.R.V.I.S. Daredevil opens with its sound, once, and never when it starts hidden or reports a problem', () => {
+  const played = [];
+  const run = (search) => {
+    const nodes = { message: { textContent: '', setAttribute() {} }, note: { textContent: '' }, detail: { textContent: '', hidden: true } };
+    const document = { title: '', body: { classList: { add() {} } }, getElementById: (id) => nodes[id] };
+    class Audio { constructor(src) { this.src = src; } play() { played.push(this.src); return Promise.resolve(); } }
+    vm.runInNewContext(appFile('loading.js'), { URLSearchParams, location: { search }, document, window: {}, Audio });
+  };
+  run('?app=daredevil');
+  assert.deepEqual(played, ['daredevil-open.wav']);
+  run('?app=daredevil&quiet=1');
+  run('?app=daredevil&error=Oops');
+  run('?app=jarvis');
+  assert.equal(played.length, 1);
+  assert.ok(existsSync(new URL('../../app/daredevil-open.wav', import.meta.url)));
+  const main = appFile('main.js');
+  assert.match(main, /autoplayPolicy: 'no-user-gesture-required'/);
+  assert.match(main, /hidden \|\| DEV_URL \? \{ quiet: '1' \}/);
+  assert.match(appFile('scripts/release/windows.js'), /'\*\.wav'/);
+});

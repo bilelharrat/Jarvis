@@ -4,7 +4,8 @@ about a document, a web page or a topic, to listen to like a podcast.
 No extra model call: JARVIS's own conversation writes the dialogue (it has read the document)
 and hands it to make_audio_overview, which voices each line with one of two of the Mac's own
 voices (`say`, Premium voices first when installed), joins them with a breath between turns,
-and saves an .m4a in Documents › Jarvis › Audio (afconvert), shown in Finder.
+and saves an .m4a in Documents › Jarvis › Audio (afconvert), shown in Finder. On a PC Windows' own voices
+read it (winsay, System.Speech) and it is saved as a .wav, shown in File Explorer.
 
 Claude cost policy: no model is called here; the dialogue is the conversation's own answer.
 """
@@ -32,15 +33,28 @@ PAUSE_SECONDS = 0.35
 RATE = 22050
 RENDERERS = 4  # lines voiced at once (each `say` mostly keeps one core busy)
 # Two hosts, a contrast in voice: the best installed first.
+HOST_A_PC = ("Microsoft Aria", "Microsoft Jenny", "Microsoft Zira", "Microsoft Hazel", "Microsoft Susan")
+HOST_B_PC = ("Microsoft Guy", "Microsoft Mark", "Microsoft David", "Microsoft George", "Microsoft Ryan")
 HOST_A = ("Ava (Premium)", "Zoe (Premium)", "Ava (Enhanced)", "Samantha", "Flo", "Shelley")
 HOST_B = ("Evan (Premium)", "Nathan (Premium)", "Evan (Enhanced)", "Daniel", "Reed", "Eddy")
 
 
 def folder() -> Path:
-    return Path.home() / "Documents" / "Jarvis" / "Audio"
+    from .. import osplat
+
+    return osplat.personal_folders()[0] / "Jarvis" / "Audio"
 
 
 def installed_voices() -> list[str]:
+    from .. import osplat
+
+    if osplat.IS_WIN:
+        from .. import winsay
+
+        try:
+            return [name for name, _culture in winsay.voices()]
+        except (OSError, subprocess.SubprocessError):
+            return []
     try:
         out = subprocess.run(
             ["/usr/bin/say", "-v", "?"], capture_output=True, text=True, timeout=10
@@ -68,8 +82,8 @@ def pick_voices(installed: list[str]) -> tuple[str, str]:
                 return found
         return next((n for n in installed if n != avoid), "")
 
-    a = first(HOST_A, "")
-    return a, first(HOST_B, a)
+    a = first(HOST_A + HOST_A_PC, "")
+    return a, first(HOST_B + HOST_B_PC, a)
 
 
 def clean_lines(raw: Any) -> list[tuple[int, str]]:
@@ -88,17 +102,30 @@ def clean_lines(raw: Any) -> list[tuple[int, str]]:
     return out
 
 
-def file_name(title: str, where: Path) -> Path:
+def file_name(title: str, where: Path, ext: str = ".m4a") -> Path:
     safe = re.sub(r'[/\\:*?"<>|]+', "", title).strip()[:80] or "Audio overview"
-    path = where / f"{safe}.m4a"
+    path = where / f"{safe}{ext}"
     n = 2
     while path.exists():
-        path = where / f"{safe} ({n}).m4a"
+        path = where / f"{safe} ({n}){ext}"
         n += 1
     return path
 
 
 def _voice_line(voice: str, words: str, part: Path) -> None:
+    from .. import osplat
+
+    if osplat.IS_WIN:
+        import sys
+
+        from .. import winsay
+
+        subprocess.run(
+            [sys.executable, "-I", "-m", "jarvis.winsay", "-v", voice, f"--data-format=LEI16@{RATE}", "-o", str(part)],
+            input=words.encode("utf-8"), check=True, capture_output=True, timeout=120,
+            creationflags=winsay.NO_WINDOW,
+        )  # fmt: skip
+        return
     subprocess.run(
         ["/usr/bin/say", "-v", voice, "--file-format=WAVE", f"--data-format=LEI16@{RATE}",
          "-o", str(part), "--", words],
@@ -137,6 +164,11 @@ def render(lines: list[tuple[int, str]], voices: tuple[str, str], out: Path) -> 
                     dest.writeframes(src.readframes(src.getnframes()))
                 dest.writeframes(silence)
         out.parent.mkdir(parents=True, exist_ok=True)
+        if out.suffix == ".wav":  # a PC: the joined file is the overview (no afconvert there)
+            import shutil
+
+            shutil.copyfile(joined, out)
+            return out
         subprocess.run(
             ["/usr/bin/afconvert", "-f", "m4af", "-d", "aac", str(joined), str(out)],
             check=True, capture_output=True, timeout=300,
@@ -153,24 +185,30 @@ class AudioOverview:
         if len(lines) < 2:
             return "Write the dialogue first: lines for host A and host B, at least two.", True
         voices = pick_voices(await asyncio.to_thread(installed_voices))
+        from .. import osplat
+
+        pc = osplat.IS_WIN
         if not all(voices):
-            return "This Mac has no voices to read it with.", True
+            return f"This {'computer' if pc else 'Mac'} has no voices to read it with.", True
         title = " ".join(str(title or "").split())[:120] or "Audio overview"
-        out = file_name(title, folder())
+        out = file_name(title, folder(), ".wav" if pc else ".m4a")
         try:
             await asyncio.to_thread(render, lines, voices, out)
         except (OSError, subprocess.SubprocessError) as exc:
             log.warning("audio overview: couldn't render: %s", exc)
-            return "The audio couldn't be made on this Mac.", True
+            return f"The audio couldn't be made on this {'computer' if pc else 'Mac'}.", True
         self.hub.emit("caption", text=f"Saved the audio overview “{title}”.")
         with contextlib.suppress(Exception):
-            from .. import mac_tools
+            if pc:
+                osplat.open_target(str(out), reveal=True)
+            else:
+                from .. import mac_tools
 
-            await mac_tools.run_command("open", "-R", str(out))
+                await mac_tools.run_command("open", "-R", str(out))
         minutes = sum(len(w.split()) for _h, w in lines) / 150
         return (
             f"Made it: {out.name} (about {max(1, round(minutes))} min, voices {voices[0]} and "
-            f"{voices[1]}), in Documents › Jarvis › Audio, shown in Finder.",
+            f"{voices[1]}), in Documents › Jarvis › Audio, shown in {'File Explorer' if pc else 'Finder'}.",
             False,
         )
 

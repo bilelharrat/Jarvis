@@ -58,7 +58,8 @@ MODELS = {
 }
 VAULT_PREFIX = "voice:"
 KEY_NAME = "api_key"
-SPEED_MIN, SPEED_MAX, SPEED_DEFAULT = 70, 130, 100
+SPEED_MIN, SPEED_MAX, SPEED_DEFAULT = 50, 250, 100  # percent: people who listen all day (a screen reader's users) go fast
+CLOUD_SPEED = (0.7, 1.3)  # what the cloud and offline voices take; the system voice (say, Windows SAPI) takes the whole range
 PREVIEW = "Hello. This is how I'll sound when I answer you."
 lang.ZH_TEXTS.setdefault(PREVIEW, "你好。我回答你的时候，就是这个声音。")
 
@@ -381,8 +382,9 @@ class Speaking:
         speaker = self.hub.speaker
         if not isinstance(speaker, Speaker):
             return False
-        provider, speed = self.provider(), self.speed() / 100
-        speaker.rate = max(80, min(400, round(self.hub.settings.speech_rate * speed)))
+        provider, full = self.provider(), self.speed() / 100
+        speaker.rate = max(80, min(500, round(self.hub.settings.speech_rate * full)))
+        speed = min(CLOUD_SPEED[1], max(CLOUD_SPEED[0], full))
         cloud = None
         own = self.persona_voice()
         if own is not None and own["provider"] in CLOUD:  # the persona's cloud voice
