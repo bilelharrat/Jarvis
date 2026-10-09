@@ -512,9 +512,16 @@ async def test_the_hooks_ride_along_with_the_gates_own(settings, quiet_speaker, 
     await hub.start()
     hooks = hub.client.options.hooks
     before = [h.__self__ for m in hooks["PreToolUse"] for h in m.hooks]
+    # screen-reader mode's opt-in before the screen goes to the model (accessibility_screen),
     # undo's, and the chats' check of what a group's request may use (channels.groups)
-    assert [type(o).__name__ for o in before] == ["Actions", "Channels"]
-    assert len(hooks["PostToolUse"]) == 2 and len(hooks["PostToolUseFailure"]) == 2
+    assert [type(o).__name__ for o in before] == ["ScreenGuard", "Actions", "Channels"]
+    after = [
+        type(getattr(h, "__self__", h)).__name__ for m in hooks["PostToolUse"] for h in m.hooks
+    ]
+    # after: the turn gate's record (a plain function), long reading's speed, the screen sent
+    # and where the focus went, undo's
+    assert after == ["function", "Reading", "ScreenGuard", "Actions"]
+    assert len(hooks["PostToolUseFailure"]) == 2
 
 
 @pytest.mark.parametrize(

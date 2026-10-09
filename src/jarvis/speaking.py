@@ -218,6 +218,9 @@ class Speaking:
         self.cloud_voices: dict[str, list[dict[str, str]]] = {}  # listed when asked
         self.error = ""  # the pane's last problem, shown once
         self.busy = ""  # "list" or "preview" while one runs (the feature sets and clears it)
+        # A speed for now only, never saved: long reading's own (features/accessibility_reading.py),
+        # held until the reply that reads is over. None: the speed in Settings.
+        self.held: int | None = None
 
     # ── the settings as they are now ──
 
@@ -292,6 +295,10 @@ class Speaking:
 
     def speed(self) -> int:
         return clean_speed(self._pref("voice_speed")) or SPEED_DEFAULT
+
+    def speaking_speed(self) -> int:
+        """The speed the voice uses now: one held for long reading, else the one in Settings."""
+        return clean_speed(self.held) or self.speed()
 
     def mac_voice_for(self, language: str) -> str:
         """The Mac voice picked for a language ("" for the default), while it's installed.
@@ -382,7 +389,7 @@ class Speaking:
         speaker = self.hub.speaker
         if not isinstance(speaker, Speaker):
             return False
-        provider, full = self.provider(), self.speed() / 100
+        provider, full = self.provider(), self.speaking_speed() / 100
         speaker.rate = max(80, min(500, round(self.hub.settings.speech_rate * full)))
         speed = min(CLOUD_SPEED[1], max(CLOUD_SPEED[0], full))
         cloud = None

@@ -68,8 +68,11 @@
   teach.id = 'voice-id-teach';
   const teachNote = el('p', 'small-status');
   teachNote.id = 'voice-id-teach-note';
+  // (each step is said as it comes: a screen reader hears "Read sentence 2 of 5 aloud", then the sentence)
+  teachNote.setAttribute('aria-live', 'polite');
   const sentence = el('p', 'voice-id-sentence');
   sentence.id = 'voice-id-sentence';
+  sentence.setAttribute('aria-live', 'polite');
   const actions = el('div', 'row voice-id-actions');
   const start = button('Teach Jarvis your voice', 'voice-id-start', () => { start.disabled = true; send({ type: 'voice_id_enroll', action: 'start' }); });
   const cancel = button('Cancel', 'voice-id-cancel', () => send({ type: 'voice_id_enroll', action: 'cancel' }));

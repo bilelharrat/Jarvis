@@ -330,6 +330,22 @@ def install(hub: Any) -> None:
         return f"Speaking at {wanted} percent."
 
     hub.register_instant(speed_now)
+
+    async def read_typed(words: str) -> str | None:
+        """"Read that back", "read the last line": what voice typing typed, answered at once.
+        With nothing typed by voice, the words are Claude's (they may mean its last reply)."""
+        from .. import voicetype
+
+        which = voicetype.read_back_request(words)
+        typing = getattr(hub, "voice_typing", None)
+        if which is None or typing is None:
+            return None
+        typed = typing.read_back(which)
+        if not typed:
+            return None
+        return f"The last line: {typed}" if which == "lastline" else f"You typed: {typed}"
+
+    hub.register_instant(read_typed)
     hub.register_command("voice_status", voice.status)
     hub.register_command("voice_settings", voice.settings)
     hub.register_command("voice_list", voice.list_voices)
