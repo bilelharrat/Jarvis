@@ -35,7 +35,7 @@ struct LookPicker: View {
         } header: {
             Text("Look")
         } footer: {
-            Text("The same looks as Jarvis on your Mac.")
+            Text("The same looks as Eden on your Mac.")
         }
     }
 }

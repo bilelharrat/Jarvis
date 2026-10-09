@@ -47,10 +47,10 @@ enum JarvisError: LocalizedError, Equatable {
         case .wrongCode(let message): message.localizedCaseInsensitiveContains("too many") ? "Too many tries" : "Wrong code"
         case .rejected: "The Mac said no"
         case .unavailable: "Not available right now"
-        case .busy: "Jarvis is busy"
+        case .busy: "Eden is busy"
         case .tooBig: "Too big to send"
         case .timedOut: "Still working"
-        case .notJarvis: "That isn’t Jarvis"
+        case .notJarvis: "That isn’t Eden"
         case .unsupported: "Not on this Mac yet"
         case .gone: "Not on your Mac anymore"
         case .server: "The Mac had a problem"
@@ -65,27 +65,27 @@ enum JarvisError: LocalizedError, Equatable {
     var message: String {
         switch self {
         case .unreachable:
-            "Is ‘Let my phone connect’ on in Jarvis Settings? Your iPhone and Mac need the same Wi‑Fi, or Tailscale on both."
+            "Is ‘Let my phone connect’ on in Eden Settings? Your iPhone and Mac need the same Wi‑Fi, or Tailscale on both."
         case .connectionLost:
             "Your Mac may still have got it. The conversation will show it if it did."
         case .unpaired:
-            "Jarvis on your Mac doesn’t know this device anymore. Pair it again."
+            "Eden on your Mac doesn’t know this device anymore. Pair it again."
         case .wrongCode(let message):
             message.isEmpty ? "That code isn’t right, or it expired. Make a new one on the Mac." : message
         case .rejected(let message):
             message
         case .unavailable:
-            "Jarvis can’t do that right now."
+            "Eden can’t do that right now."
         case .busy(let message):
             message.isEmpty ? "Try again in a moment." : message
         case .tooBig:
             "Your Mac takes files up to 25 MB from here."
         case .timedOut:
-            "Jarvis is taking a while. The reply will show up here when it’s ready."
+            "Eden is taking a while. The reply will show up here when it’s ready."
         case .notJarvis:
-            "Something answered at that address, but it isn’t the Jarvis companion. Check the address and port (usually 8765)."
+            "Something answered at that address, but it isn’t the Eden companion. Check the address and port (usually 8765)."
         case .unsupported:
-            "Update Jarvis on your Mac to use this from your iPhone."
+            "Update Eden on your Mac to use this from your iPhone."
         case .gone:
             "It may have been closed or deleted there."
         case .server(let status, let message):
@@ -97,15 +97,15 @@ enum JarvisError: LocalizedError, Equatable {
         case .fingerprintRefused:
             "Your Mac’s certificate isn’t the one this iPhone saw, so something may be in between. Pair again on your home network."
         case .notEncrypted:
-            "Couldn’t set up an encrypted connection. Make sure Jarvis on your Mac is up to date."
+            "Couldn’t set up an encrypted connection. Make sure Eden on your Mac is up to date."
         case .notPinned:
-            "Jarvis on your Mac now encrypts the connection. Pair again to trust it."
+            "Eden on your Mac now encrypts the connection. Pair again to trust it."
         }
     }
 
     var errorDescription: String? {
         switch self {
-        case .unreachable: "Can’t reach the Mac — is ‘Let my phone connect’ on in Jarvis Settings?"
+        case .unreachable: "Can’t reach the Mac — is ‘Let my phone connect’ on in Eden Settings?"
         default: "\(title). \(message)"
         }
     }
@@ -486,7 +486,7 @@ struct JarvisAPI: Sendable {
             // back the way they do when the Mac can't be reached.
             if relayed, delegate.rejected == false, Self.mayBeRelayRefusal(mapped),
                let router = MacRoute.router, await router.relayFailed(base) {
-                throw JarvisError.unreachable("Your Mac isn’t connected to the Jarvis relay right now.")
+                throw JarvisError.unreachable("Your Mac isn’t connected to the Eden relay right now.")
             }
             throw mapped
         } catch is CancellationError {

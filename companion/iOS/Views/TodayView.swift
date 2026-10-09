@@ -64,7 +64,7 @@ struct TodayView: View {
                         .font(.title2)
                         .foregroundStyle(Palette.champagne)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(model.visibleApprovals.count == 1 ? "Jarvis needs your OK" : "\(model.visibleApprovals.count) things need your OK")
+                        Text(model.visibleApprovals.count == 1 ? "Eden needs your OK" : "\(model.visibleApprovals.count) things need your OK")
                             .font(.headline)
                         Text(model.visibleApprovals.first?.question ?? "")
                             .font(.subheadline)

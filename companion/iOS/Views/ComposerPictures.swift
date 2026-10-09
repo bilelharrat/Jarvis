@@ -144,7 +144,7 @@ struct PickedDocument: Identifiable, Equatable {
             return .success(PickedDocument(name: name, data: data, text: String(rich.string.prefix(maxCharacters))))
         }
         guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1), !text.contains("\0") else {
-            return .failure(Problem(message: "\(name) isn’t a PDF or a text file Jarvis can read."))
+            return .failure(Problem(message: "\(name) isn’t a PDF or a text file Eden can read."))
         }
         return .success(PickedDocument(name: name, data: data, text: String(text.prefix(maxCharacters))))
     }

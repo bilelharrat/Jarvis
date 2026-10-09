@@ -28,13 +28,13 @@ final class IntentTests: XCTestCase {
         let approval = await IntentRunner.ask("Email Pepper", client: client(ask: { _, _ in
             AskResult(reply: "", done: false, approvals: [Approval(id: "a", question: "Send it?")])
         }))
-        XCTAssertEqual(approval, "Jarvis needs your OK first. It’s waiting on your iPhone.")
+        XCTAssertEqual(approval, "Eden needs your OK first. It’s waiting on your iPhone.")
         let slow = await IntentRunner.ask("Research this", client: client(ask: { _, _ in throw JarvisError.timedOut }))
-        XCTAssertEqual(slow, "Jarvis is still working on that. The answer will be in the app.")
+        XCTAssertEqual(slow, "Eden is still working on that. The answer will be in the app.")
         let working = await IntentRunner.ask("Research this", client: client(ask: { _, _ in AskResult(reply: "Partial", done: false) }))
-        XCTAssertEqual(working, "Jarvis is still working on that. The answer will be in the app.")
+        XCTAssertEqual(working, "Eden is still working on that. The answer will be in the app.")
         let busy = await IntentRunner.ask("Again", client: client(ask: { _, _ in throw JarvisError.busy("") }))
-        XCTAssertEqual(busy, "Jarvis is still on your last request. Try again in a moment.")
+        XCTAssertEqual(busy, "Eden is still on your last request. Try again in a moment.")
         let unpaired = await IntentRunner.ask("Hi", client: client(ask: { _, _ in throw JarvisError.unpaired }))
         XCTAssertTrue(unpaired.contains("pair again"))
         let none = await IntentRunner.ask("Hi", client: nil)
@@ -92,7 +92,7 @@ final class IntentTests: XCTestCase {
             XCTAssertEqual(text, "Brief me.")
             throw JarvisError.timedOut
         }))
-        XCTAssertEqual(briefing, "Your briefing is on its way. It’ll be in J.A.R.V.I.S. in a moment.")
+        XCTAssertEqual(briefing, "Your briefing is on its way. It’ll be in Eden in a moment.")
 
         let digest = await IntentRunner.whatDidIMiss(client: client(digest: {
             Digest(items: [DigestItem(who: "Pepper", kind: .text, summary: "Dinner at 8", at: nil, urgent: false)])
@@ -115,7 +115,7 @@ final class IntentTests: XCTestCase {
     }
 
     func testLongRepliesAreCutAtASentence() {
-        let long = String(repeating: "Jarvis found another detail worth mentioning. ", count: 40)
+        let long = String(repeating: "Eden found another detail worth mentioning. ", count: 40)
         let spoken = IntentRunner.spoken(long)
         XCTAssertLessThanOrEqual(spoken.count, IntentRunner.longestSpoken + 30)
         XCTAssertTrue(spoken.hasSuffix("mentioning. The rest is in the app."))

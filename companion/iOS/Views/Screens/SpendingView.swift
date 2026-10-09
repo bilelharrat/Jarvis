@@ -36,7 +36,7 @@ struct SpendingView: View {
             } header: {
                 ListHeader("Limits")
             } footer: {
-                ListFooter("Jarvis asks you before every purchase or transfer, and never goes past these. Change them in Jarvis Settings on your Mac.")
+                ListFooter("Eden asks you before every purchase or transfer, and never goes past these. Change them in Eden Settings on your Mac.")
             }
             .glassRow()
 

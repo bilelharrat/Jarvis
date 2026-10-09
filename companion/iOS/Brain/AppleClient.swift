@@ -141,7 +141,7 @@ struct AppleClient: BrainClient {
         var lines: [String] = []
         var used = 0
         for message in messages.dropLast().reversed() {
-            let role = message["role"]?.stringValue == "assistant" ? "Jarvis" : "Owner"
+            let role = message["role"]?.stringValue == "assistant" ? "Eden" : "Owner"
             let content = message["content"]
             let text = content?.stringValue
                 ?? (content?.arrayValue ?? []).compactMap { $0["type"]?.stringValue == "text" ? $0["text"]?.stringValue : nil }.joined(separator: " ")
@@ -162,7 +162,7 @@ struct AppleClient: BrainClient {
         if roomy { return String(system.prefix(briefRoomy)) }
         let now = Date().formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute())
         var brief = """
-        You are Jarvis, the owner's personal assistant, answering on their iPhone. It's \(now). \
+        You are Eden, the owner's personal assistant, answering on their iPhone. It's \(now). \
         Answer in a sentence or two, plainly, the way you'd say it out loud. Use the tools for \
         their calendar, reminders, weather, timers and home; never guess what a tool would say. \
         If something needs their Mac (files, mail, messages, code), say the Mac isn't reachable right now.

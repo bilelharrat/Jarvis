@@ -16,11 +16,11 @@ struct TalkToJarvisControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.askeden.jarvis.talk") {
             ControlWidgetButton(action: TalkToJarvisIntent()) {
-                Label("Talk to Jarvis", systemImage: "waveform.circle.fill")
+                Label("Talk to Eden", systemImage: "waveform.circle.fill")
             }
         }
-        .displayName("Talk to Jarvis")
-        .description("Opens Jarvis, listening.")
+        .displayName("Talk to Eden")
+        .description("Opens Eden, listening.")
     }
 }
 
@@ -31,7 +31,7 @@ struct JarvisStatusWidget: Widget {
             StatusWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
-        .configurationDisplayName("Jarvis")
+        .configurationDisplayName("Eden")
         .description("Your Mac, what needs your OK, and what’s next.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
@@ -96,7 +96,7 @@ struct StatusWidgetView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if let question = snapshot.approvalQuestion, snapshot.pendingApprovals > 0 {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(snapshot.approvalFromCode ? "JARVIS CODE ASKS" : "JARVIS ASKS")
+                            Text(snapshot.approvalFromCode ? "EDEN CODE ASKS" : "EDEN ASKS")
                                 .font(.caption2.weight(.semibold))
                                 .tracking(0.8)
                                 .foregroundStyle(Palette.champagne)
@@ -131,7 +131,7 @@ private struct WidgetHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             OrbMark(size: 11)
-            Text("JARVIS")
+            Text("EDEN")
                 .font(.caption.weight(.semibold))
                 .tracking(1.2)
                 .foregroundStyle(Palette.ink2)
@@ -212,7 +212,7 @@ private struct NotPaired: View {
             Text("Not paired")
                 .font(.system(.title3, design: .serif).weight(.medium))
                 .foregroundStyle(Palette.ink)
-            Text("Open J.A.R.V.I.S. to pair with your Mac.")
+            Text("Open Eden to pair with your Mac.")
                 .font(.caption)
                 .foregroundStyle(Palette.muted)
         }
@@ -309,7 +309,7 @@ struct CodeWidgetView: View {
             Image(systemName: "chevron.left.forwardslash.chevron.right")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(Palette.cyan)
-            Text("JARVIS CODE")
+            Text("EDEN CODE")
                 .font(.caption.weight(.semibold))
                 .tracking(1.2)
                 .foregroundStyle(Palette.ink2)

@@ -130,7 +130,7 @@ final class PhoneTools {
             ], required: ["url"]),
         ]
         if mac != nil {
-            tools.append(tool("ask_mac", "Hands a request to Jarvis on the owner's Mac, which has their files, mail, iMessage, browser, Eden Code, notes and everything on the Mac. Use it for anything that needs the Mac.", [
+            tools.append(tool("ask_mac", "Hands a request to Eden on the owner's Mac, which has their files, mail, iMessage, browser, Eden Code, notes and everything on the Mac. Use it for anything that needs the Mac.", [
                 "request": prop("string", "The request, in the owner's words."),
             ], required: ["request"]))
         }
@@ -277,13 +277,13 @@ final class PhoneTools {
 
     private func calendarAccess() async throws {
         guard try await events.requestFullAccessToEvents() else {
-            throw ToolProblem(message: "Calendar access is off for J.A.R.V.I.S. (Settings › Privacy › Calendars).")
+            throw ToolProblem(message: "Calendar access is off for Eden (Settings › Privacy › Calendars).")
         }
     }
 
     private func reminderAccess() async throws {
         guard try await events.requestFullAccessToReminders() else {
-            throw ToolProblem(message: "Reminders access is off for J.A.R.V.I.S. (Settings › Privacy › Reminders).")
+            throw ToolProblem(message: "Reminders access is off for Eden (Settings › Privacy › Reminders).")
         }
     }
 
@@ -360,7 +360,7 @@ final class PhoneTools {
     private func contacts(named name: String) async throws -> [CNContact] {
         let store = CNContactStore()
         guard try await store.requestAccess(for: .contacts) else {
-            throw ToolProblem(message: "Contacts access is off for J.A.R.V.I.S. (Settings › Privacy › Contacts).")
+            throw ToolProblem(message: "Contacts access is off for Eden (Settings › Privacy › Contacts).")
         }
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactOrganizationNameKey,
                     CNContactPhoneNumbersKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
@@ -515,7 +515,7 @@ final class PhoneTools {
             let status = await withCheckedContinuation { continuation in
                 MPMediaLibrary.requestAuthorization { continuation.resume(returning: $0) }
             }
-            guard status == .authorized else { throw ToolProblem(message: "Music library access is off for J.A.R.V.I.S.") }
+            guard status == .authorized else { throw ToolProblem(message: "Music library access is off for Eden.") }
             guard let query else {
                 player.setQueue(with: MPMediaQuery.songs())
                 player.shuffleMode = .songs
@@ -549,7 +549,7 @@ final class PhoneTools {
         let service = HealthService.shared
         guard service.available else { return "Apple Health isn't available on this device." }
         guard service.enabled else {
-            return "The Health summary is off. The owner can turn it on in J.A.R.V.I.S. Settings › Sensors."
+            return "The Health summary is off. The owner can turn it on in Eden Settings › Sensors."
         }
         let now = Date()
         let calendar = Calendar.current
@@ -601,7 +601,7 @@ final class Locator {
         for try await update in CLLocationUpdate.liveUpdates() {
             if let location = update.location { return location }
             if update.authorizationDenied || update.authorizationDeniedGlobally {
-                throw PhoneTools.ToolProblem(message: "Location is off for J.A.R.V.I.S. (Settings › Privacy › Location Services).")
+                throw PhoneTools.ToolProblem(message: "Location is off for Eden (Settings › Privacy › Location Services).")
             }
             if Date() > deadline { break }
         }
@@ -821,7 +821,7 @@ final class HomeLink: NSObject, HMHomeManagerDelegate {
     func perform(action: String, name: String?, on: Bool?) async throws -> String {
         let homes = await homes()
         guard !homes.isEmpty else {
-            throw PhoneTools.ToolProblem(message: "No Apple Home is set up, or Home access is off for J.A.R.V.I.S.")
+            throw PhoneTools.ToolProblem(message: "No Apple Home is set up, or Home access is off for Eden.")
         }
         switch action {
         case "list":

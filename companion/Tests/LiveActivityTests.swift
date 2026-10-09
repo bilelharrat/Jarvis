@@ -23,7 +23,7 @@ final class LiveActivityTests: XCTestCase {
 
         // Missing or odd fields fall back rather than failing the update.
         let odd = try JSONDecoder().decode(Content.self, from: Data(#"{"status": 3, "progress": "1.7", "updatedAt": "1790000000"}"#.utf8))
-        XCTAssertEqual(odd.title, "Jarvis")
+        XCTAssertEqual(odd.title, "Eden")
         XCTAssertEqual(odd.status, "3")
         XCTAssertEqual(odd.progress, 1)  // clamped to 0...1
         XCTAssertFalse(odd.needsYou)

@@ -130,7 +130,7 @@ struct Approval: Identifiable, Equatable, Sendable, Decodable {
         let taskID = c.integer(.taskID)
         self.init(
             id: id,
-            question: c.text(.question) ?? "Jarvis needs your OK.",
+            question: c.text(.question) ?? "Eden needs your OK.",
             detail: c.text(.detail) ?? "",
             choices: c.list(ApprovalChoice.self, .choices),
             // An older Mac doesn't say; a card tied to a session is Eden Code's.

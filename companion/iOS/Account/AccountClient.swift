@@ -27,16 +27,16 @@ enum AccountError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .signedOut: "You’ve been signed out of your Jarvis account. Sign in again in Settings › Account."
-        case .noAllowance(let words): words ?? "This month’s included AI is used up. Upgrade to Jarvis Plus for more."
+        case .signedOut: "You’ve been signed out of your Eden account. Sign in again in Settings › Account."
+        case .noAllowance(let words): words ?? "This month’s included AI is used up. Upgrade to Eden Plus for more."
         case .forbidden(let words): words ?? "Your account doesn’t allow that."
         case .notFound(let words): words ?? "That isn’t there anymore."
-        case .offline: "Your Mac isn’t connected right now. Make sure it’s on and JARVIS is open."
+        case .offline: "Your Mac isn’t connected right now. Make sure it’s on and Eden is open."
         case .conflict(let words): words ?? "Something changed at the same time. Try again."
         case .expired(let words): words ?? "That code expired. Make a new one on your Mac."
         case .tooBig: "That’s more than your account can keep."
         case .slowDown: "Too many tries just now. Wait a minute and try again."
-        case .notSetUp: "Jarvis accounts aren’t fully set up yet. Try again later."
+        case .notSetUp: "Eden accounts aren’t fully set up yet. Try again later."
         case .rejected(let words): words ?? "askeden.com didn’t accept that."
         case .network(let words): "Couldn’t reach askeden.com: \(words)"
         case .server(let status, let words): words ?? "askeden.com had a problem (\(status))."

@@ -40,15 +40,15 @@ final class CompanionUITests: XCTestCase {
         XCTAssertTrue(element(containing: "Mac’s fingerprint", in: app).waitForExistence(timeout: 15), "no fingerprint")
         if !app.buttons["Pair with Mac"].isHittable { app.swipeUp() }
         app.buttons["Pair with Mac"].tap()
-        let ask = app.textFields["Ask Jarvis"]
+        let ask = app.textFields["Ask Eden"]
         XCTAssertTrue(ask.waitForExistence(timeout: 15), "didn't reach the home screen")
         snapshot("home")
 
         // Ask something that needs a yes, and give it.
         ask.tap()
         ask.typeText("Email Pepper that the board meeting moved to Thursday at 3")
-        app.buttons["Send to Jarvis"].tap()
-        let card = app.descendants(matching: .any)["Jarvis needs your OK"]
+        app.buttons["Send to Eden"].tap()
+        let card = app.descendants(matching: .any)["Eden needs your OK"]
         XCTAssertTrue(card.waitForExistence(timeout: 15), "no approval card")
         let allow = card.buttons["Send"]
         XCTAssertTrue(allow.waitForExistence(timeout: 5))

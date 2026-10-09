@@ -59,10 +59,11 @@ final class BrainTests: XCTestCase {
     }
 
     func testWakeWordFindsTheNameAndWhatFollows() {
-        XCTAssertEqual(WakeWordListener.afterName(in: "Hey Jarvis"), "")
-        XCTAssertEqual(WakeWordListener.afterName(in: "hey jarvis, what's next today?"), "what's next today")
-        XCTAssertEqual(WakeWordListener.afterName(in: "OK Jervis turn on the lights"), "turn on the lights")
+        XCTAssertEqual(WakeWordListener.afterName(in: "Hey Eden"), "")
+        XCTAssertEqual(WakeWordListener.afterName(in: "hey eden, what's next today?"), "what's next today")
+        XCTAssertEqual(WakeWordListener.afterName(in: "OK Eden turn on the lights"), "turn on the lights")
         XCTAssertNil(WakeWordListener.afterName(in: "what's the weather like"))
+        XCTAssertNil(WakeWordListener.afterName(in: "flights to Sweden"))
     }
 
     func testToolDatesReadTheWaysClaudeWritesThem() throws {
@@ -306,9 +307,9 @@ final class OfflineBrainTests: XCTestCase {
         let question = AppleClient.question(in: messages)
         XCTAssertTrue(question.hasPrefix("What is this?"))
         XCTAssertTrue(question.contains("can’t see"))
-        XCTAssertEqual(AppleClient.history(messages, limit: 1000), "\n\nThe conversation so far:\nOwner: Hi\nJarvis: Hello.")
+        XCTAssertEqual(AppleClient.history(messages, limit: 1000), "\n\nThe conversation so far:\nOwner: Hi\nEden: Hello.")
         XCTAssertEqual(AppleClient.history(messages, limit: 0), "")
-        XCTAssertEqual(AppleClient.history(messages, limit: 16), "\n\nThe conversation so far:\nJarvis: Hello.", "the newest that fit")
+        XCTAssertEqual(AppleClient.history(messages, limit: 16), "\n\nThe conversation so far:\nEden: Hello.", "the newest that fit")
     }
 
     @MainActor
