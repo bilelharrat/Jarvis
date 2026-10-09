@@ -111,7 +111,7 @@ def run(
     try:
         service, names, command = parse(argv)
     except ValueError as exc:
-        err.write(f"Jarvis couldn't run the command: {exc}\n".encode())
+        err.write(f"Eden couldn't run the command: {exc}\n".encode())
         return 2
     env = dict(os.environ)
     values: dict[str, str] = {}
@@ -122,7 +122,7 @@ def run(
             value = None
         if not value:
             err.write(
-                f"(Jarvis: no value is saved for ${name} any more; it's empty here.)\n".encode()
+                f"(Eden: no value is saved for ${name} any more; it's empty here.)\n".encode()
             )
             env.pop(name, None)
             continue
@@ -131,7 +131,7 @@ def run(
     try:
         proc = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except OSError as exc:
-        err.write(f"Jarvis couldn't start the command: {exc.strerror}\n".encode())
+        err.write(f"Eden couldn't start the command: {exc.strerror}\n".encode())
         return 127
     assert proc.stdout is not None and proc.stderr is not None
     pumps = [

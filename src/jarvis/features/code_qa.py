@@ -38,7 +38,7 @@ _UI = (
     ".storyboard",
 )
 PROMPT = (
-    "QA pass, from J.A.R.V.I.S.: use what you just built the way a real user would, in "
+    "QA pass, from Eden: use what you just built the way a real user would, in "
     "jarvis_browser (the owner's built-in browser, already signed in where they are) or "
     "jarvis_simulator for an iOS app. Walk through every flow your changes touch{files}, "
     "then the edge cases: empty and very long input, going back, reloading, a slow or "

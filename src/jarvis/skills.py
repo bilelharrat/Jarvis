@@ -417,7 +417,7 @@ def read_skill(folder: Path, which: Callable[[str], bool] = _which) -> tuple[Ski
         skill.error = "Its name isn't one a skill can have (lowercase letters, digits and hyphens)."
     skill.description = _one_line(meta.get("description"), 1024)
     if not skill.description and not skill.error:
-        skill.error = "It has no description, so Jarvis couldn't tell when to use it."
+        skill.error = "It has no description, so Eden couldn't tell when to use it."
     skill.license = _one_line(meta.get("license"), 120)
     skill.compatibility = _one_line(meta.get("compatibility"), 500)
     tools = meta.get("allowed-tools") or meta.get("allowed_tools")

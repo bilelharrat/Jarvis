@@ -83,24 +83,24 @@ COMMANDS = (
 SIGNIN_SECONDS = 30 * 60  # whether Claude Code is signed in, looked at again after this
 
 PLUS_USED_UP = (
-    "Your Jarvis Plus allowance for this month is used up. It starts again with your next "
+    "Your Eden Plus allowance for this month is used up. It starts again with your next "
     "month; until then, sign in to Claude or add an Anthropic API key in Settings to carry on."
 )
 TRIAL_USED_UP = (
-    "Your Jarvis Plus trial is used up. Subscribe to Jarvis Plus in the J.A.R.V.I.S. app on "
+    "Your Eden Plus trial is used up. Subscribe to Eden Plus in the Eden app on "
     "your iPhone, or sign in to Claude or add an Anthropic API key in Settings."
 )
 PLUS_SIGNED_OUT = (
-    "Your Jarvis account didn't take this Mac's sign-in. Link it again in Settings › Account."
+    "Your Eden account didn't take this Mac's sign-in. Link it again in Settings › Account."
 )
 # The Chinese spells the name J.A.R.V.I.S.: said aloud, "Jarvis" would wake JARVIS itself.
 lang.add_texts(
     {
-        PLUS_USED_UP: "你本月的 J.A.R.V.I.S. Plus 额度已用完。下个月会重新开始；在此之前，可以在设置中登录 Claude 或添加 Anthropic API 密钥继续使用。",
-        TRIAL_USED_UP: "你的 J.A.R.V.I.S. Plus 试用额度已用完。可以在 iPhone 上的 J.A.R.V.I.S. App 中订阅 J.A.R.V.I.S. Plus，或在设置中登录 Claude、添加 Anthropic API 密钥。",
-        PLUS_SIGNED_OUT: "你的 J.A.R.V.I.S. 账户没有接受这台 Mac 的登录。请在“设置 › 账户”中重新关联。",
+        PLUS_USED_UP: "你本月的 Eden Plus 额度已用完。下个月会重新开始；在此之前，可以在设置中登录 Claude 或添加 Anthropic API 密钥继续使用。",
+        TRIAL_USED_UP: "你的 Eden Plus 试用额度已用完。可以在 iPhone 上的 Eden App 中订阅 Eden Plus，或在设置中登录 Claude、添加 Anthropic API 密钥。",
+        PLUS_SIGNED_OUT: "你的 Eden 账户没有接受这台 Mac 的登录。请在“设置 › 账户”中重新关联。",
         "Couldn't reach askeden.com.": "无法连接 askeden.com。",
-        "This Mac isn't linked to a Jarvis account.": "这台 Mac 没有关联 J.A.R.V.I.S. 账户。",
+        "This Mac isn't linked to an Eden account.": "这台 Mac 没有关联 Eden 账户。",
         "This Mac was signed out of the account.": "这台 Mac 已从账户中退出。",
         "askeden.com's answer couldn't be read.": "无法读取 askeden.com 的回复。",
         "The Keychain didn't take the account. If it's locked, unlock it and link again.": "钥匙串没有保存账户。如果它已锁定，请解锁后重新关联。",

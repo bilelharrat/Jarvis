@@ -64,7 +64,7 @@ STATE_LINES = {
     "linking": "Scan the code with your phone",
     "connecting": "Connecting to WhatsApp…",
     "connected": "Connected",
-    "elsewhere": "Linked in another copy of Jarvis that's running",
+    "elsewhere": "Linked in another copy of Eden that's running",
     "error": "Problem",
 }
 
@@ -795,7 +795,7 @@ class WhatsApp:
         if why == "logged_out":
             self._forget()
             self._set(
-                "off", error="WhatsApp unlinked Jarvis (from the phone, or it was away too long)."
+                "off", error="WhatsApp unlinked Eden (from the phone, or it was away too long)."
             )
         elif why == "replaced":
             self._set("elsewhere", error="")
@@ -951,7 +951,7 @@ class WhatsApp:
         self.qr = None
         self._forget()
         leftover = (
-            "Jarvis forgot the link. It couldn't tell WhatsApp while offline: remove it on the "
+            "Eden forgot the link. It couldn't tell WhatsApp while offline: remove it on the "
             "phone too (Settings → Linked devices)."
         )
         self._set("off", error=leftover if was_linked and not logged_out else "")
@@ -987,11 +987,11 @@ class WhatsApp:
             return ""
         if not self.linked():
             return (
-                "WhatsApp isn't linked to Jarvis yet. Offer to link it (link_whatsapp): the "
+                "WhatsApp isn't linked to Eden yet. Offer to link it (link_whatsapp): the "
                 "user scans a code with their phone."
             )
         if self.state == "elsewhere":
-            return "WhatsApp is linked in another copy of Jarvis that's running; use that one."
+            return "WhatsApp is linked in another copy of Eden that's running; use that one."
         return "WhatsApp is still connecting. Try again in a moment."
 
     def when(self, ts: int) -> str:
@@ -1072,7 +1072,7 @@ def _count(args: dict[str, Any], key: str, default: int, most: int) -> int:
 def build_tools(wa: WhatsApp) -> list:
     @tool(
         "link_whatsapp",
-        "Link the user's WhatsApp to Jarvis: a code to scan appears in Tools & Accounts (on the "
+        "Link the user's WhatsApp to Eden: a code to scan appears in Tools & Accounts (on the "
         "phone: WhatsApp → Settings → Linked devices → Link a device). Only when the user asks.",
         {"type": "object", "properties": {}},
     )
@@ -1111,7 +1111,7 @@ def build_tools(wa: WhatsApp) -> list:
             lines.append(
                 f"{wa.store.name(c['id'])}{group}{unread}, {wa.when(c.get('ts', 0))}{said}"
             )
-        note = "" if wa.state == "connected" else "\n(Offline: this is what Jarvis last saw.)"
+        note = "" if wa.state == "connected" else "\n(Offline: this is what Eden last saw.)"
         return _text("\n".join(lines) + note)
 
     @tool(
@@ -1138,7 +1138,7 @@ def build_tools(wa: WhatsApp) -> list:
         jid = found[0]
         kept = wa.store.messages.get(jid, [])[-_count(args, "limit", 20, 100) :]
         if not kept:
-            return _text(f"Jarvis hasn't seen any messages with {wa.store.name(jid)} yet.")
+            return _text(f"Eden hasn't seen any messages with {wa.store.name(jid)} yet.")
         group = jid.endswith("@g.us")
         head = f"WhatsApp with {wa.store.name(jid)}{' (group)' if group else ''}:"
         return _text("\n".join([head, *(wa.line(m) for m in kept)]))

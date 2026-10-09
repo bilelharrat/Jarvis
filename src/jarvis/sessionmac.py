@@ -36,7 +36,7 @@ SERVER = "jarvis_mac"
 TOOLS = ("see_screen", "click", "press_button", "type_text", "press_keys", "scroll")
 HIDDEN = ("find_files", "read_file", "browser_page")
 CONTROL = frozenset({"click", "press_button", "type_text", "press_keys", "scroll"})
-OWN_NAMES = frozenset({"J.A.R.V.I.S.", "Jarvis", "JARVIS"})
+OWN_NAMES = frozenset({"Eden", "J.A.R.V.I.S.", "Jarvis", "JARVIS"})
 
 
 def tool_name(tool: str) -> str:
@@ -146,7 +146,7 @@ def refusal(tool: str, tool_input: dict[str, Any], screen: computer.Screen) -> s
         log.warning("couldn't tell which window a session's click would land on", exc_info=True)
         return ""
     if is_own(owner):
-        return "That's the J.A.R.V.I.S. window: a session never drives it (its cards are the owner's to answer)."
+        return "That's the Eden window: a session never drives it (its cards are the owner's to answer)."
     return ""
 
 

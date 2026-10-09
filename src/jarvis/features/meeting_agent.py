@@ -157,10 +157,10 @@ lang.add_texts(TEXTS)
 # ── what the owner said: which of the agent's requests it is ──
 
 _LEAD = re.compile(
-    r"^(?:(?:hey|ok|okay|so|jarvis|please|can\s+you|could\s+you|would\s+you|will\s+you)\b[\s,:]*)+",
+    r"^(?:(?:hey|ok|okay|so|eden|jarvis|please|can\s+you|could\s+you|would\s+you|will\s+you)\b[\s,:]*)+",
     re.IGNORECASE,
 )
-_LEAD_ZH = re.compile(r"^(?:(?:贾维斯|jarvis|请|麻烦|帮我|你)[，,\s]*)+", re.IGNORECASE)
+_LEAD_ZH = re.compile(r"^(?:(?:伊甸|贾维斯|eden|jarvis|请|麻烦|帮我|你)[，,\s]*)+", re.IGNORECASE)
 _TAIL = re.compile(r"[\s?？。.!！]+$")
 _JOIN = re.compile(
     r"^(?:join|open|start|get\s+me\s+(?:in|into))\s+(?:my|the|our)\s+(?:next\s+|upcoming\s+)?"
@@ -756,7 +756,7 @@ class MeetingAgent:
             meeting = self.hub.meeting
             if meeting is not None:
                 self.drop_echo(meeting, words, started)
-                meeting.add(None, words, speaker="Jarvis")
+                meeting.add(None, words, speaker="Eden")
             self.emit(say={"id": sid, "text": words, "state": "spoken"})
         finally:
             self.pending.pop(sid, None)
@@ -1018,8 +1018,8 @@ ASK_SYSTEM = (
 )
 REPLY_SYSTEM = (
     "You write what an assistant will say aloud into a video call for its owner. The "
-    "assistant's name is J.A.R.V.I.S.: whenever it introduces itself or says who it is, it "
-    "says it's J.A.R.V.I.S. (written exactly so), never just the owner's assistant. One or two "
+    "assistant's name is Eden: whenever it introduces itself or says who it is, it "
+    "says it's Eden (written exactly so), never just the owner's assistant. One or two "
     "short spoken sentences, under 40 words, in {language}: no lists, no links. Say only "
     "what the transcript supports, from the owner's side; when it doesn't hold the answer, "
     "say the owner will follow up. Never agree to pay, sign, share files, passwords or "

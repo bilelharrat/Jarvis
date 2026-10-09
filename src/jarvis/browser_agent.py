@@ -302,7 +302,7 @@ def tabs_text(r: dict[str, Any], mine: str = "") -> str:
         whose = (
             " (yours)"
             if owner and owner == mine
-            else " (JARVIS's)"
+            else " (Eden's)"
             if owner == "jarvis"
             else f" (Eden Code session {owner[5:]}'s)"
             if owner.startswith("code:")
@@ -322,7 +322,7 @@ TABS_DESC = (
     "keeps it behind), close (id)."
 )
 OPEN_DESC = (
-    "Open a web page (or search words) in the built-in browser inside the J.A.R.V.I.S. "
+    "Open a web page (or search words) in the built-in browser inside the Eden "
     "window, where the user can watch. It opens in a new tab of your own, so the page the "
     "user was reading stays; later calls in this request reuse your tab. same_tab: true to "
     "open it in the tab on show instead (only when the user asks for that); new_tab: true "

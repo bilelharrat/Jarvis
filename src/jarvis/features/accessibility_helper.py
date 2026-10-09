@@ -196,10 +196,10 @@ class Helper:
         name = who["name"] or who["email"]
         subject = f"{owner} would like your help"
         body = (
-            f"Hello {who['name'] or ''},\n\n{owner} asked J.A.R.V.I.S. to send you this and would "
+            f"Hello {who['name'] or ''},\n\n{owner} asked Eden to send you this and would "
             f"like your help:\n\n{about}\n\n"
             + ("A picture of their screen is attached.\n\n" if wants_picture else "")
-            + "Sent by J.A.R.V.I.S. on their behalf. Reply to this email, or get in touch with them."
+            + "Sent by Eden on their behalf. Reply to this email, or get in touch with them."
         ).replace("Hello ,", "Hello,")
         detail = (
             f"To {name} <{who['email']}>\nSubject: {subject}\n"
@@ -246,8 +246,8 @@ class Helper:
         owner = self.owner() or "Your friend"
         subject = f"{owner} would like your help"
         body = (
-            f"Hello {who['name'] or ''},\n\n{owner} asked J.A.R.V.I.S. to tell you they need some "
-            "help. Please get in touch with them when you can.\n\nSent by J.A.R.V.I.S. on their behalf."
+            f"Hello {who['name'] or ''},\n\n{owner} asked Eden to tell you they need some "
+            "help. Please get in touch with them when you can.\n\nSent by Eden on their behalf."
         ).replace("Hello ,", "Hello,")
         first = name.split()[0]
         ok = await self.hub.send_gate(

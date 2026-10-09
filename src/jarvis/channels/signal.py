@@ -40,7 +40,8 @@ from .words import NEEDS_OK, TEXT_ONLY, hint_for, say
 
 log = logging.getLogger("jarvis")
 
-TAG = "Jarvis:"
+TAG = "Eden:"
+OLD_TAGS = (TAG, "Jarvis:")  # its replies from before the rename are its own too
 LIMIT = 4000
 DETAIL = 600
 CLI_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
@@ -284,7 +285,7 @@ class Signal(Channel):
             "accounts": list(self.accounts),
             "account": self.account(),
             "problem": self.problem,
-            "how": "Jarvis,",
+            "how": "Eden,",
         }
 
     # ── the daemon ──
@@ -332,7 +333,7 @@ class Signal(Channel):
             return None  # the owner writing to someone else
         stamp = sent.get("timestamp")
         text = str(sent.get("message") or "")
-        if stamp in self.sent or text.startswith(TAG):
+        if stamp in self.sent or text.startswith(OLD_TAGS):
             return None
         if sent.get("attachments") and not text.strip():
             self._text_only(account)

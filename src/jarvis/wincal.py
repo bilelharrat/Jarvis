@@ -35,7 +35,7 @@ from . import calendar_kit, ics, jsonstore, osplat, winoutlook
 log = logging.getLogger("jarvis")
 
 LOCAL = "local"
-LOCAL_TITLE = "Jarvis"
+LOCAL_TITLE = "Eden"
 FEED_SECONDS = 15 * 60  # a link is read again after this
 FEED_RETRY_SECONDS = 5 * 60  # a link that failed is tried again after this (sooner when asked)
 FEED_BYTES = 8_000_000  # the most one calendar link may send
@@ -228,7 +228,7 @@ class Store:
         if not on:
             if has:
                 self.remove_calendar(OUTLOOK)
-            return "Jarvis no longer reads Outlook's calendar. Nothing was changed in Outlook."
+            return "Eden no longer reads Outlook's calendar. Nothing was changed in Outlook."
         if not self.outlook.available():
             raise CalendarError(
                 "Outlook for Windows isn't on this PC (the new Outlook can't be read this way)."
@@ -247,13 +247,13 @@ class Store:
             self._save_calendars(data)
         said = self.refresh(True).get(OUTLOOK, "")
         if said:
-            return f"Jarvis will read Outlook's calendar. {said}"
-        return "Jarvis reads Outlook's calendar now, and again every few minutes while Outlook is open. It is read only."
+            return f"Eden will read Outlook's calendar. {said}"
+        return "Eden reads Outlook's calendar now, and again every few minutes while Outlook is open. It is read only."
 
     def set_default(self, calendar_id: str) -> None:
         if calendar_id != LOCAL:
             raise CalendarError(
-                "New events can only go on Jarvis's own calendar: a calendar link is read-only."
+                "New events can only go on Eden's own calendar: a calendar link is read-only."
             )
         data = self._load_calendars()
         data["default"] = LOCAL
@@ -277,7 +277,7 @@ class Store:
             raise CalendarError(
                 "Outlook isn't open, so I'm using what I last read from it."
                 if body.is_file()
-                else "Outlook isn't open: open it, and Jarvis will read its calendar."
+                else "Outlook isn't open: open it, and Eden will read its calendar."
             )
         now = self.now()
         fresh = body.with_name(

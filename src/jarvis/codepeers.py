@@ -80,7 +80,7 @@ class Peers:
 
         @tool(
             "list_sessions",
-            "The other Eden Code sessions open in J.A.R.V.I.S. (each a Claude Code session "
+            "The other Eden Code sessions open in Eden (each a Claude Code session "
             "the owner runs), with their number, title, project, what each is doing and its "
             "permission mode. Use it to coordinate work across sessions.",
             {},

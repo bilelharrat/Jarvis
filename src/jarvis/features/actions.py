@@ -82,17 +82,17 @@ UNDO_ASKED_ZH = lang._asks_zh(r"(?:撤销|撤消|撤回|还原|恢复原样|改�
 
 # "Undo that", "undo the last thing you did", "take that back": answered at once.
 UNDO_THAT = re.compile(
-    r"^(?:(?:ok(?:ay)?|jarvis|please|actually|no|wait|oops|hmm|sorry)\b[\s,]*)*"
+    r"^(?:(?:ok(?:ay)?|eden|jarvis|please|actually|no|wait|oops|hmm|sorry)\b[\s,]*)*"
     r"(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
     r"(?:undo(?:\s+(?:that|this|it|the\s+last\s+(?:thing|change|one|action)"
     r"(?:\s+you\s+(?:just\s+)?(?:did|made))?|what\s+you\s+(?:just\s+)?did))?"
     r"|take\s+(?:that|it)\s+back)"
-    r"(?:[\s,]+(?:please|jarvis))*[\s.!?]*$",
+    r"(?:[\s,]+(?:please|eden|jarvis))*[\s.!?]*$",
     re.IGNORECASE,
 )
 # 撤销, 撤销刚才的操作, 把刚才那步撤销了.
 UNDO_THAT_ZH = re.compile(
-    r"^(?:(?:好的|好|请|麻烦|帮我|贾维斯|jarvis|等等|哎呀|不对|算了)[，,\s]*)*"
+    r"^(?:(?:好的|好|请|麻烦|帮我|伊甸|贾维斯|eden|jarvis|等等|哎呀|不对|算了)[，,\s]*)*"
     r"(?:(?:撤销|撤消|撤回)(?:一下)?(?:刚才|刚刚)?(?:的|那个|那步|那一步|这个)?(?:操作)?"
     r"|把?(?:刚才|刚刚)(?:的|那个|那步|那一步)?(?:操作)?(?:撤销|撤消|撤回)(?:了|掉)?)"
     r"(?:吧|一下)?[。！!.？?\s]*$",

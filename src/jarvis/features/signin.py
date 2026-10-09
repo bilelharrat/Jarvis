@@ -97,7 +97,7 @@ class SignIn:
         so a wrong paste never takes the place of a working key."""
         store = self.hub.providers
         if provider_of(self.hub) is not None:
-            self._changed(error="Remove the key Jarvis has before adding another.")
+            self._changed(error="Remove the key Eden has before adding another.")
             return
         try:
             name = NAME if not any(p.name == NAME for p in store.providers.values()) else ""
@@ -122,7 +122,7 @@ class SignIn:
                 self.hub.providers.remove_provider(provider.id)
                 claude_signin.forget(provider.id)
             self.hub.set_feature_prefs({PREF: ""})
-            self._changed(note="The API key is removed; Jarvis signs in with your Claude account.")
+            self._changed(note="The API key is removed; Eden signs in with your Claude account.")
             if provider is not None:
                 self._reconnect()
         except ValueError as exc:

@@ -1032,7 +1032,7 @@ class PullDesk:
         self.save()
         self.notify(
             f"pr-push:{rec.key}:{time.time():.0f}",
-            f"The work for pull request #{rec.number} is ready to push: push it from Jarvis "
+            f"The work for pull request #{rec.number} is ready to push: push it from Eden "
             "Code's pull request pane.",
         )
         return said or "Not pushed."

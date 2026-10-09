@@ -177,15 +177,15 @@ _AT = re.compile(r"\bat\s+(\d{1,2}):(\d{2})\s*([AP]M)\b\s*(.*)$", re.IGNORECASE)
 # The text of macOS's password prompt: why it's asking (in the user's language).
 _PROMPTS = {
     "en": {
-        "set": "J.A.R.V.I.S. wants to wake this Mac every day at {time}, {lead} minutes "
+        "set": "Eden wants to wake this Mac every day at {time}, {lead} minutes "
         "before your {what}.",
-        "clear": "J.A.R.V.I.S. wants to stop waking this Mac every day.",
+        "clear": "Eden wants to stop waking this Mac every day.",
         "briefing": "morning briefing",
         "wake_call": "wake-up call",
     },
     "zh": {
-        "set": "J.A.R.V.I.S. 想每天 {time} 唤醒这台 Mac，比{what}早 {lead} 分钟。",
-        "clear": "J.A.R.V.I.S. 想停止每天唤醒这台 Mac。",
+        "set": "Eden 想每天 {time} 唤醒这台 Mac，比{what}早 {lead} 分钟。",
+        "clear": "Eden 想停止每天唤醒这台 Mac。",
         "briefing": "晨间简报",
         "wake_call": "叫醒电话",
     },

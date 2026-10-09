@@ -39,7 +39,7 @@ register_feature_pref(PICTURE_PREF, False)
 lang.add_texts(
     {
         ASK_FILES: "允许 {app} 搜索和读取你的文件吗？",
-        ASK_FILES_DETAIL: "只读：它可以按名称和内容查找文件，并读取{where}中的文件。绝不包括资源库、隐藏文件、密钥或密码。它读到的内容会发给 {app} 以及它背后的模型。可在“设置 › 其他应用中的 Jarvis”中选择文件夹。",
+        ASK_FILES_DETAIL: "只读：它可以按名称和内容查找文件，并读取{where}中的文件。绝不包括资源库、隐藏文件、密钥或密码。它读到的内容会发给 {app} 以及它背后的模型。可在“设置 › 其他应用中的 Eden”中选择文件夹。",
         ASK_SCREEN: "允许 {app} 查看你的屏幕吗？",
         ASK_SCREEN_DETAIL: "仅此一次：最前面的应用、它窗口的标题和文字，以及你选中的内容{picture}。这些会发给 {app} 以及它背后的模型。",
         "Allow once": "允许一次",

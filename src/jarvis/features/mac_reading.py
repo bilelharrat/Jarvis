@@ -107,7 +107,7 @@ class Reading:
                     if not path.exists() or path.stat().st_size == 0:
                         return _error(
                             "The screenshot came back empty. Allow Screen Recording for the app "
-                            "running JARVIS in System Settings > Privacy & Security."
+                            "running Eden in System Settings > Privacy & Security."
                         )
                     await self.command("sips", "-Z", str(ALL_SCREENS_WIDTH), str(path))
                     raw = path.read_bytes()
@@ -153,7 +153,7 @@ class Reading:
         if not found:
             lines.append("- none")
         elif not any(w["title"] for w in found):
-            lines.append("(Window titles need Screen Recording for J.A.R.V.I.S.)")
+            lines.append("(Window titles need Screen Recording for Eden.)")
         else:
             lines.append(TITLES_NOTE)
         return _text("\n".join(lines))

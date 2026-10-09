@@ -46,10 +46,10 @@ BUTTONS = ("left", "right")
 # macOS keeps a permission for the build it was given to: after J.A.R.V.I.S. is rebuilt or
 # signed differently the switch there can still show on while the Mac refuses it.
 NOT_PERMITTED = (
-    "To steer the Mac with your hands, allow J.A.R.V.I.S. in System Settings › Privacy & "
+    "To steer the Mac with your hands, allow Eden in System Settings › Privacy & "
     "Security › Accessibility. If it's already on there, macOS is keeping the permission for "
-    "an earlier build of J.A.R.V.I.S. (switching it off and on doesn't renew it): in Terminal "
-    "run  tccutil reset PostEvent com.bshventures.jarvis  then reopen J.A.R.V.I.S. and allow "
+    "an earlier build of Eden (switching it off and on doesn't renew it): in Terminal "
+    "run  tccutil reset PostEvent com.bshventures.jarvis  then reopen Eden and allow "
     "it when the Mac asks."
 )
 FAILED = "Hand control of the Mac stopped: the Mac refused a mouse event."

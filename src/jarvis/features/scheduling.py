@@ -515,7 +515,7 @@ class Scheduler:
                 "start": meeting["start"],
                 "duration_minutes": minutes,
                 "location": meeting.get("place") or "",
-                "notes": f"Arranged by Jarvis with {d.contact} by {channel}.",
+                "notes": f"Arranged by Eden with {d.contact} by {channel}.",
             },
             # create_event's own default: the calendar named in the settings, if any
             str(getattr(getattr(self.hub, "settings", None), "calendar", "") or ""),

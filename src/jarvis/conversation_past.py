@@ -135,8 +135,8 @@ def entries(
                 if uid:
                     entry["uuid"], entry["before"] = uid, last
                 out.append(entry)
-            elif line.startswith("Jarvis: "):
-                out.append({"role": "assistant", "text": line[8:][:ENTRY_CHARS]})
+            elif line.startswith("Eden: "):
+                out.append({"role": "assistant", "text": line[6:][:ENTRY_CHARS]})
         last = uid or last
     return out[-SHOWN_ENTRIES:]
 

@@ -115,7 +115,7 @@ class WinCalendar:
         except wincal.CalendarError as exc:
             self._result(False, str(exc))
             return
-        self._result(True, "New events go on Jarvis's calendar.")
+        self._result(True, "New events go on Eden's calendar.")
 
     # ── reminders, said at their time ──
 

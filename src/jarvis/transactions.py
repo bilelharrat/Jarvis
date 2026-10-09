@@ -1551,7 +1551,7 @@ def box_typing_refusal(text: Any, box: dict[str, Any], page: dict[str, Any] | No
 
 _EN_LEAD = (
     r"(?:(?:ok(?:ay)?|hey|hi|alright|all right|right|so|now|well|oh|um|uh|and|also|then|just"
-    r"|please|jarvis|yes|yeah|actually|go ahead and|great|perfect|cool)\b[\s,]*)*"
+    r"|please|eden|jarvis|yes|yeah|actually|go ahead and|great|perfect|cool)\b[\s,]*)*"
     r"(?:(?:can|could|would|will) you (?:please |just )?"
     r"|(?:i (?:want|need)|i'?d like|i would like) (?:you )?to "
     r"|i (?:wanna|want to|need to) |please |let'?s |let me |help me "
@@ -1693,7 +1693,7 @@ def payee_line(payee: Any, words: Any, page: dict[str, Any] | None) -> str | Non
 
 
 _CONFIRM_EN = re.compile(
-    r"(?:(?:jarvis|yes|yeah|yep|ok|okay|sure|alright|all right|right) )*(?:i )?"
+    r"(?:(?:eden|jarvis|yes|yeah|yep|ok|okay|sure|alright|all right|right) )*(?:i )?"
     r"confirm (?:the )?purchase(?: (?:please|now))*"
 )
 _CONFIRM_ZH = re.compile(r"(?:好的?|是的?|对|嗯)*确认购买(?:吧|了)?")

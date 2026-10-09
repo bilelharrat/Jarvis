@@ -179,9 +179,7 @@ class Knowledge:
         found = next((e for e in entries if e["id"] == ident), None)
         if found is None:
             if len(entries) >= MAX_FOLDERS:
-                return (
-                    f"That's {MAX_FOLDERS} folders already: remove one in Jarvis's settings first."
-                )
+                return f"That's {MAX_FOLDERS} folders already: remove one in Eden's settings first."
             found = {
                 "id": ident,
                 "path": str(path),
@@ -482,7 +480,7 @@ async def handle(endpoint: Any, tool: str, args: dict[str, Any], app: str) -> tu
                 return str(exc), True
             if not allowed(path, roots):
                 return (
-                    "That folder is outside the ones Eden may read (Settings › Jarvis in other apps).",
+                    "That folder is outside the ones Eden may read (Settings › Eden in other apps).",
                     True,
                 )
             return as_answer(knowledge.add(path))

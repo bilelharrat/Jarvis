@@ -59,12 +59,12 @@ async def run_command(*args: str, stdin: str | None = None, timeout: float = 30)
         if "-1743" in message or "Not authorized" in message:
             message += (
                 " (Allow this in System Settings > Privacy & Security > Automation"
-                " for the app running JARVIS.)"
+                " for the app running Eden.)"
             )
         elif "assistive access" in message or "-25211" in message or "-1719" in message:
             message += (
                 " (Allow this in System Settings > Privacy & Security > Accessibility"
-                " for the app running JARVIS.)"
+                " for the app running Eden.)"
             )
         raise ToolFailure(message or f"{args[0]} exited with {proc.returncode}")
     return out.decode().strip()
@@ -324,7 +324,7 @@ def note_body_html(title: str, body: str) -> str:
 @tool("create_note", "Save a note in Apple Notes.", {"title": str, "body": str})
 @_guarded
 async def create_note(args):
-    title = args["title"].strip() or "JARVIS note"
+    title = args["title"].strip() or "Eden note"
     await run_applescript(NOTE_SCRIPT, title, note_body_html(title, args["body"]))
     return f"Saved the note “{title}”."
 

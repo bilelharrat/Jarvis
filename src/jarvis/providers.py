@@ -71,7 +71,7 @@ KEY_IN_WRONG_FIELD = (
     "That looks like an API key. Keys only go in the key field, which keeps them in the Keychain."
 )
 KEY_ADVICE = (
-    "Set a spending limit on each key at its provider. Jarvis keeps keys in the Keychain and "
+    "Set a spending limit on each key at its provider. Eden keeps keys in the Keychain and "
     "out of sessions' environment, but a program running as you on this Mac could still use one."
 )
 
@@ -117,7 +117,7 @@ KINDS: dict[str, Kind] = {
         "https://generativelanguage.googleapis.com",
         "x-api-key",
         "Your Google key, from Google AI Studio (AIza…) or Vertex AI express mode (AQ.…): "
-        "Gemini 2.5 Flash, Pro and the rest, with every JARVIS tool, through JARVIS's own "
+        "Gemini 2.5 Flash, Pro and the rest, with every Eden tool, through Eden's own "
         "Gemini relay on this Mac.",
         "AIza",
         "https://aistudio.google.com/app/apikey",
@@ -146,7 +146,7 @@ KINDS: dict[str, Kind] = {
         "bearer",
         "Any server that speaks OpenAI's API: Ollama or LM Studio on this Mac (Ollama is "
         "http://localhost:11434, LM Studio http://localhost:1234), OpenRouter, OpenAI and "
-        "more, with every tool, through Jarvis's own relay on this Mac. Ollama and LM Studio "
+        "more, with every tool, through Eden's own relay on this Mac. Ollama and LM Studio "
         "don't check keys: type any word, like local. Give a local model a long context "
         "(32K or more).",
         "",
@@ -289,13 +289,13 @@ from keyring.backends import macOS
 try:
     saved = macOS.Keyring().get_password(sys.argv[1], sys.argv[2])
 except Exception:
-    sys.exit("Jarvis could not read the key from the Keychain.")
+    sys.exit("Eden could not read the key from the Keychain.")
 try:
     key = json.loads(saved or "")["key"]
 except Exception:
     key = None
 if not isinstance(key, str) or not key:
-    sys.exit("Jarvis has no key saved for this provider.")
+    sys.exit("Eden has no key saved for this provider.")
 sys.stdout.write(key)
 """
 # On a PC the key is in Credential Manager (keyring's Windows backend), and Claude Code runs the helper
@@ -858,7 +858,7 @@ class ProviderStore:
         record = _unseal(saved)
         if record is None:
             raise ValueError(
-                f"{provider.name}'s key was saved by an older version of Jarvis. Paste it again "
+                f"{provider.name}'s key was saved by an older version of Eden. Paste it again "
                 "in Settings › Models."
             )
         if not _belongs(record, provider):

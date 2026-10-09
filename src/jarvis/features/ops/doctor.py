@@ -34,7 +34,7 @@ from .backup import store_name
 from .permissions import Runner, run_process
 
 STATES = ("problem", "warn", "unknown", "info", "ok")  # worst first
-GROUPS = {"permissions": "Permissions", "jarvis": "Jarvis", "data": "Your data"}
+GROUPS = {"permissions": "Permissions", "jarvis": "Eden", "data": "Your data"}
 LOG_WINDOW = timedelta(hours=1)
 LAST_LINES = 5
 LOG_TAIL = 4 * 1024 * 1024  # bytes of a log read back for the last hour
@@ -217,10 +217,10 @@ async def claude_check(probe: Probe) -> dict[str, Any]:
             "jarvis",
             title,
             "problem",
-            "Jarvis's Claude engine is missing",
-            "Install Jarvis again from its disk image, then open it."
+            "Eden's Claude engine is missing",
+            "Install Eden again from its disk image, then open it."
             if bundled
-            else "Run uv sync in Jarvis's folder to put it back, then restart Jarvis.",
+            else "Run uv sync in Eden's folder to put it back, then restart Eden.",
         )
     version = ""
     with contextlib.suppress(OSError, TimeoutError, ValueError):
@@ -330,7 +330,7 @@ def whisper_check(probe: Probe, model: str, loaded: bool) -> dict[str, Any]:
         title,
         "warn",
         "Not downloaded yet",
-        "It downloads by itself the next time Jarvis starts with an internet connection.",
+        "It downloads by itself the next time Eden starts with an internet connection.",
         meta=model,
     )
 
@@ -352,19 +352,17 @@ async def swift_check(probe: Probe) -> dict[str, Any]:
     folder = _prebuilt_helpers(probe)
     if folder is not None:
         if (folder / "helpers.json").is_file():
-            return check(
-                "swiftc", "jarvis", title, "ok", "Not needed: Jarvis's helpers are built in"
-            )
+            return check("swiftc", "jarvis", title, "ok", "Not needed: Eden's helpers are built in")
         return check(
             "swiftc",
             "jarvis",
             title,
             "warn",
-            "Jarvis's built-in helpers are missing",
-            "Install Jarvis again from its disk image, then open it.",
+            "Eden's built-in helpers are missing",
+            "Install Eden again from its disk image, then open it.",
         )
     hint = (
-        "Some of Jarvis's native helpers can't be built, so it uses slower fallbacks. "
+        "Some of Eden's native helpers can't be built, so it uses slower fallbacks. "
         "Install Xcode, or run xcode-select --install in Terminal."
     )
     try:
@@ -405,7 +403,7 @@ def disk_check(probe: Probe) -> dict[str, Any]:
         title,
         state,
         summary,
-        "Free up some space: Jarvis needs room for its index, recordings and backups.",
+        "Free up some space: Eden needs room for its index, recordings and backups.",
     )
 
 
@@ -514,7 +512,7 @@ def process_check(probe: Probe, open_sessions: int) -> dict[str, Any]:
             title,
             "warn",
             f"{len(left)} left from an earlier run",
-            "They belong to a run of Jarvis that has ended. Quitting them in Activity "
+            "They belong to a run of Eden that has ended. Quitting them in Activity "
             "Monitor (they're named claude) frees their memory.",
             meta=f"{mb} MB",
             details=[f"pid {p.get('pid')}" for p in left[:10]],
@@ -526,7 +524,7 @@ def process_check(probe: Probe, open_sessions: int) -> dict[str, Any]:
             title,
             "warn",
             f"{len(ours)} running for {open_sessions} open sessions",
-            "Some may be left over from sessions that have ended; if they stay after Jarvis "
+            "Some may be left over from sessions that have ended; if they stay after Eden "
             "quits, the next checkup lists them.",
         )
     summary = f"{len(ours)} running for open sessions" if ours else "None running"
@@ -643,7 +641,7 @@ def damaged_check(probe: Probe) -> dict[str, Any]:
             title,
             "problem",
             f"{len(now)} can't be read" if len(now) != 1 else "1 can't be read",
-            "Restart Jarvis: it sets a damaged file aside and goes back to its last good copy.",
+            "Restart Eden: it sets a damaged file aside and goes back to its last good copy.",
             details=now,
         )
     if copies:
@@ -661,14 +659,14 @@ def damaged_check(probe: Probe) -> dict[str, Any]:
             f"{len(copies)} damaged copies kept aside"
             if len(copies) != 1
             else "1 damaged copy kept aside",
-            "Jarvis set these aside and carried on with the last good copy, so nothing needs "
+            "Eden set these aside and carried on with the last good copy, so nothing needs "
             "doing. Once you're sure nothing is missing, put them away.",
             details=details,
             fix={
                 "id": "tidy_damaged",
                 "label": "Put them away",
                 "confirm": "Back up your data first, then move the damaged copies into the "
-                "Damaged files folder inside Jarvis's data folder?",
+                "Damaged files folder inside Eden's data folder?",
             },
         )
     return check("damaged", "data", title, "ok", "None")
@@ -755,7 +753,7 @@ def file_index_check(
                 title,
                 "warn",
                 "Not updated for a while",
-                "It updates every half hour while Jarvis runs; rebuild it if this stays.",
+                "It updates every half hour while Eden runs; rebuild it if this stays.",
                 fix=REBUILD_FILES,
                 meta=f"{files:,}",
             )
@@ -803,7 +801,7 @@ def knowledge_check(
             title,
             "warn",
             f"Not updated for {days} days",
-            "It updates by itself once a day while Jarvis runs; rebuild it now if you like.",
+            "It updates by itself once a day while Eden runs; rebuild it now if you like.",
             fix=REBUILD_BRAIN,
             meta=f"{notes:,}",
         )

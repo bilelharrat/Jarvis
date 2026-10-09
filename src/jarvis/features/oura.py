@@ -180,14 +180,14 @@ def activity_line(day: str, activity: dict[str, dict[str, Any]]) -> str:
 # The client-side flow puts the token after a # in the redirect, which only the browser sees:
 # the page at /callback hands it back to /done.
 CATCHER_PAGE = (
-    "<!doctype html><meta charset=utf-8><title>Jarvis</title>"
+    "<!doctype html><meta charset=utf-8><title>Eden</title>"
     "<body style='font:17px -apple-system,sans-serif;display:grid;place-items:center;"
-    "height:100vh;margin:0;background:#f4f0e8;color:#1c1b19'><p id=m>Connecting to Jarvis…</p>"
+    "height:100vh;margin:0;background:#f4f0e8;color:#1c1b19'><p id=m>Connecting to Eden…</p>"
     "<script>const p=new URLSearchParams(location.hash.slice(1));"
     "new URLSearchParams(location.search).forEach((v,k)=>p.set(k,v));"
     "fetch('/done?'+p.toString()).then(r=>r.text()).then(t=>{document.getElementById('m')"
     ".textContent=t;history.replaceState(null,'','/callback')})"
-    ".catch(()=>{document.getElementById('m').textContent='Jarvis stopped waiting. Try Connect again.'})"
+    ".catch(()=>{document.getElementById('m').textContent='Eden stopped waiting. Try Connect again.'})"
     "</script>"
 )
 
@@ -221,9 +221,9 @@ class TokenCatcher:
                     self._waiter.set_result(found)
                 ok = "access_token" in found or "code" in found
                 body = (
-                    "Connected to Jarvis. You can close this tab."
+                    "Connected to Eden. You can close this tab."
                     if ok
-                    else "The sign-in didn't finish. Try Connect again in Jarvis."
+                    else "The sign-in didn't finish. Try Connect again in Eden."
                 )
                 kind = "text/plain"
             else:

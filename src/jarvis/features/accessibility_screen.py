@@ -67,7 +67,7 @@ PRIVATE = re.compile(
 ASK_QUESTION = "Let Claude see your screen?"
 ASK_DETAIL = (
     "To read or describe what is on your screen, its contents go to Claude, the AI model "
-    "Jarvis uses. Just this time, yes from now on, or no. You can change it in Settings, "
+    "Eden uses. Just this time, yes from now on, or no. You can change it in Settings, "
     "Accessibility, or say “stop sharing my screen”."
 )
 ASK_SPOKEN = (
@@ -83,7 +83,7 @@ SENT = "Sent the screen to Claude."
 PRIVATE_NOTICE = "This screen has private information, reading it aloud."
 
 _ON = re.compile(
-    r"^(?:please\s+)?(?:share\s+my\s+screen\s+with\s+(?:claude|the\s+ai)|let\s+(?:claude|the\s+ai|jarvis)\s+see\s+my\s+screen|"
+    r"^(?:please\s+)?(?:share\s+my\s+screen\s+with\s+(?:claude|the\s+ai)|let\s+(?:claude|the\s+ai|eden|jarvis)\s+see\s+my\s+screen|"
     r"(?:allow|turn\s+on)\s+screen\s+(?:sharing|reading))\W*$",
     re.I,
 )

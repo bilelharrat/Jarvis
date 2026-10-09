@@ -599,7 +599,9 @@ class EdenLink:
         if not isinstance(body, dict):
             raise Refused(400, "Send a JSON object.", "bad_request")
         if stream.path == "/api/chat/jarvis" and body.get("tool") not in JARVIS_TOOLS:
-            raise Refused(403, "Eden on the web can’t use that Jarvis tool.", "not_allowed")
+            raise Refused(
+                403, "Eden on the web can’t use that tool of the Eden app.", "not_allowed"
+            )
         if stream.path == "/api/chat/actions/undo" and not str(body.get("id") or "").startswith(
             "ea-"
         ):

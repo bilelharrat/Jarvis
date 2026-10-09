@@ -30,7 +30,7 @@ MAX_PHOTOS = 2500
 
 FULL_DISK_ACCESS = (
     "Texts need Full Disk Access: System Settings > Privacy & Security > Full Disk Access, "
-    "then turn on J.A.R.V.I.S. and restart it."
+    "then turn on Eden and restart it."
 )
 
 

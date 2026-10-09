@@ -202,32 +202,28 @@ TURN_ON = {
     "microphone": (
         "Turn on microphone access for apps in Settings › Privacy & security › Microphone."
         if osplat.IS_WIN
-        else "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Microphone."
+        else "Turn on Eden in System Settings › Privacy & Security › Microphone."
     ),
-    "calendars": "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Calendars.",
-    "contacts": "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Contacts.",
-    "location": "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Location Services.",
+    "calendars": "Turn on Eden in System Settings › Privacy & Security › Calendars.",
+    "contacts": "Turn on Eden in System Settings › Privacy & Security › Contacts.",
+    "location": "Turn on Eden in System Settings › Privacy & Security › Location Services.",
     "automation": (
-        "Turn on each app under J.A.R.V.I.S. in System Settings › Privacy & Security › Automation."
+        "Turn on each app under Eden in System Settings › Privacy & Security › Automation."
     ),
     "screen": (
-        "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Screen Recording, "
-        "then restart Jarvis."
+        "Turn on Eden in System Settings › Privacy & Security › Screen Recording, "
+        "then restart Eden."
     ),
-    "accessibility": (
-        "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Accessibility."
-    ),
-    "full_disk": (
-        "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Full Disk Access."
-    ),
+    "accessibility": ("Turn on Eden in System Settings › Privacy & Security › Accessibility."),
+    "full_disk": ("Turn on Eden in System Settings › Privacy & Security › Full Disk Access."),
 }
-ASK_LATER = "macOS asks the first time Jarvis needs it, or you can allow it now in System Settings."
+ASK_LATER = "macOS asks the first time Eden needs it, or you can allow it now in System Settings."
 RESTRICTED = "Something that manages this Mac (a profile or Screen Time) keeps it off."
 LOCATION_OFF = "Location Services are off for the whole Mac: turn them on in System Settings."
 OPEN_APPS = "Open Mail, Calendar, Notes and Music once, then check again."
 LIMITED = {
-    "calendars": "Jarvis can add events but not read them: allow full access in System Settings.",
-    "contacts": "Jarvis sees only some contacts: allow all of them in System Settings.",
+    "calendars": "Eden can add events but not read them: allow full access in System Settings.",
+    "contacts": "Eden sees only some contacts: allow all of them in System Settings.",
 }
 
 

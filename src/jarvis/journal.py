@@ -43,18 +43,18 @@ MAX_DREAM_INPUT = 12_000
 DREAM_NOTES = 3  # the notes a dream looks over: the three days before the morning
 DREAM_AFTER_HOUR = 2  # a night's dream runs from 2 AM
 NOTE_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
-FOOTER = "<!-- Written by Jarvis. A note you change is never written over. -->"
+FOOTER = "<!-- Written by Eden. A note you change is never written over. -->"
 
 HEADINGS = {
     "en": {
         "asked": "What you asked",
-        "did": "What Jarvis did",
+        "did": "What Eden did",
         "meetings": "Meetings",
         "routines": "Routines that ran",
     },
     "zh": {
         "asked": "你问了什么",
-        "did": "Jarvis 做了什么",
+        "did": "Eden 做了什么",
         "meetings": "会议",
         "routines": "运行的例行任务",
     },

@@ -130,7 +130,7 @@ def item_from_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "DOI": doi,
         "url": f"https://doi.org/{doi}" if doi else "",
         "abstractNote": "",
-        "extra": f"Added by J.A.R.V.I.S.{(' Note: ' + entry['note']) if entry.get('note') else ''}",
+        "extra": f"Added by Eden{(' Note: ' + entry['note']) if entry.get('note') else ''}",
         "tags": [],
         "collections": [],
         "relations": {},

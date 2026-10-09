@@ -193,7 +193,7 @@ class PullStore:
 
 # ── what's sent to a session ──
 
-PUSH_LATER = "Don't push: Jarvis pushes it for the owner once you're done."
+PUSH_LATER = "Don't push: Eden pushes it for the owner once you're done."
 
 
 def _attr(text: str) -> str:
@@ -292,7 +292,7 @@ def issue_prompt(repo: str, issue: dict[str, Any], label: str, labeller: str) ->
         f'<issue number="{number}" title="{_attr(title)}">\n{body or "(no description)"}\n'
         "</issue>\n\n"
         "Work on this issue in this isolated copy of the project: find the cause, make the "
-        "change, add or update tests, and run them. Leave your work in the copy (Jarvis "
+        "change, add or update tests, and run them. Leave your work in the copy (Eden "
         "commits it when the owner opens the pull request). Finish with a short summary of "
         "what you changed, how you tested it, and anything left for the owner."
     )

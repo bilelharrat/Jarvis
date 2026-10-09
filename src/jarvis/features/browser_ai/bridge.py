@@ -25,7 +25,7 @@ class Bridge:
     ) -> dict[str, Any]:
         """Ask the app window's browser; its answer, or {"ok": False, "message": why}."""
         if not self.hub.browser_available:
-            return {"ok": False, "message": "The built-in browser is only in the J.A.R.V.I.S. app."}
+            return {"ok": False, "message": "The built-in browser is only in the Eden app."}
         call_id = uuid.uuid4().hex[:10]
         future = asyncio.get_running_loop().create_future()
         self._calls[call_id] = future

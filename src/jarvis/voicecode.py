@@ -129,7 +129,7 @@ def parse(text: str) -> Intent:
     plainly phrased; everything else goes to Claude."""
     said = _clean(text)
     n = len(said.split())
-    raw = re.sub(r"^\W*(jarvis|jervis|jarvus)\W+", "", text.strip(), flags=re.IGNORECASE)
+    raw = re.sub(r"^\W*(eden|jarvis|jervis|jarvus)\W+", "", text.strip(), flags=re.IGNORECASE)
 
     def whole(pattern: str, limit: int = 8):
         return re.fullmatch(pattern, said) if 0 < n <= limit else None
@@ -430,7 +430,7 @@ _SKIP = re.compile(
     r"|neither(?: of them)?|pass)(?: please)?"
 )
 _NO_OPENING = re.compile(
-    r"\W*(?:(?:jarvis|okay|ok|oh|um+|uh+|well|so|hmm+)\W+)*"
+    r"\W*(?:(?:eden|jarvis|okay|ok|oh|um+|uh+|well|so|hmm+)\W+)*"
     r"(?:no|nope|nah|negative|cancel|stop|not now|not yet|not that)\b[\s,.!;:-]*(.*)",
     re.IGNORECASE | re.DOTALL,
 )
@@ -530,7 +530,7 @@ def _feedback(text: str, w: list[str]) -> str:
     """What to do instead, as the user said it: "No, use the Makefile" -> "use the
     Makefile"; "don't run the migration, just generate it" -> all of it."""
     if w[0] in ("don't", "dont", "do"):
-        rest = re.sub(r"^\W*(?:jarvis\W+)?", "", text.strip(), flags=re.IGNORECASE)
+        rest = re.sub(r"^\W*(?:(?:eden|jarvis)\W+)?", "", text.strip(), flags=re.IGNORECASE)
         return rest if len(w) >= 4 else ""
     m = _NO_OPENING.match(text.strip())
     if m is None:  # the no comes later ("yes, but no tests"): all of it

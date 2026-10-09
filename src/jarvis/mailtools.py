@@ -1057,7 +1057,7 @@ def build_tools(service: MailService) -> list:
     async def mail_triage(args):
         return await service.triage(args or {})
 
-    @tool("mail_accounts", "The email accounts the user has set up for Jarvis.", {})
+    @tool("mail_accounts", "The email accounts the user has set up for Eden.", {})
     async def mail_accounts(args):
         return await service.accounts_list(args or {})
 

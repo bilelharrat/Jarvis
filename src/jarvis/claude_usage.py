@@ -30,7 +30,7 @@ from . import jsonstore
 
 DAYS_KEPT = 90
 SAVE_EVERY = 5.0  # seconds: a burst of answers is one write
-SOURCES = {"jarvis": "JARVIS", "code": "Eden Code", "research": "Research"}
+SOURCES = {"jarvis": "Eden", "code": "Eden Code", "research": "Research"}
 LIMITS = {
     "five_hour": "5-hour limit",
     "seven_day": "Weekly limit",

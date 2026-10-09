@@ -263,7 +263,7 @@ class Screen:
             if not path.exists() or path.stat().st_size == 0:
                 raise ToolFailure(
                     "The screenshot came back empty. Allow Screen Recording for the app running "
-                    "JARVIS in System Settings > Privacy & Security."
+                    "Eden in System Settings > Privacy & Security."
                 )
             await run_command("sips", "-Z", str(SHOT_WIDTH), str(path))
             raw = path.read_bytes()
@@ -695,7 +695,7 @@ def build_server(screen: Screen | None = None, guard: Any = None):
         except (ToolFailure, ValueError, IndexError):
             return _error(
                 "I couldn't read the app's buttons. Allow Accessibility (and Automation for "
-                "System Events) for the app running JARVIS; or use see_screen and click."
+                "System Events) for the app running Eden; or use see_screen and click."
             )
         app = found.get("app") or "the app in front"
         if not found.get("found"):

@@ -64,7 +64,7 @@ PATH = (
     if osplat.IS_WIN
     else "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
 )
-README = """Script hooks for Jarvis.
+README = """Script hooks for Eden.
 
 Put an executable script (chmod +x, with a #! line) in the folder named after the event it
 should run on: heads-up, routine-finished, session-done, arrive, leave, wake, unlock, timer,
@@ -72,7 +72,7 @@ webhook. It gets what happened as JSON on standard input, for example:
 
     {"event": "arrive", "at": "2026-09-29T18:02:11", "place": "home", "source": "phone"}
 
-The first time a script would run, Jarvis asks you; it asks again whenever the script
+The first time a script would run, Eden asks you; it asks again whenever the script
 changes. It runs for at most 30 seconds, as you, in its own folder.
 """
 

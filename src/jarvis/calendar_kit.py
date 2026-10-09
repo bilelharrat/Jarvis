@@ -35,9 +35,7 @@ if TYPE_CHECKING:  # only for the lock's annotation (see _run)
     import asyncio
 
 ON_A_PC = sys.platform == "win32"  # (no EventKit there: wincal answers the same commands)
-NO_ACCESS = (
-    "Calendar access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Calendars)."
-)
+NO_ACCESS = "Calendar access is off for Eden (System Settings > Privacy & Security > Calendars)."
 
 
 def _authorized(store, EventKit: Any = None) -> bool:  # noqa: N803 - the framework's name

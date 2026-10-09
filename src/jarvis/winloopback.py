@@ -35,7 +35,7 @@ BLOCK = int(RATE * listen.BLOCK_SECONDS)
 QUEUE_BLOCKS = 600  # half a minute of sound waiting at most (older blocks are dropped)
 LOOPBACK_NAMES = ("loopback", "stereo mix", "what u hear", "wave out mix", "what you hear")
 NO_DEVICE = (
-    "this PC offers no way to record its own sound to JARVIS's audio library: turn on Stereo Mix "
+    "this PC offers no way to record its own sound to Eden's audio library: turn on Stereo Mix "
     "in Windows' Sound settings (Recording, show disabled devices) if the sound card has it"
 )
 

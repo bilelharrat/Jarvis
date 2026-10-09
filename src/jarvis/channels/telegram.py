@@ -198,8 +198,8 @@ class Telegram(Channel):
                 if exc.status == 409:
                     self.set_state(
                         "error",
-                        "Something else is reading this bot's messages (a webhook, or Jarvis on "
-                        "another Mac). Give Jarvis a bot of its own.",
+                        "Something else is reading this bot's messages (a webhook, or Eden on "
+                        "another Mac). Give Eden a bot of its own.",
                     )
                     await asyncio.sleep(30)
                     continue

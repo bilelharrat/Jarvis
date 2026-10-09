@@ -126,7 +126,7 @@ _HANDS = re.compile(
 
 def _normal(text: str) -> str:
     t = re.sub(r"\s+", " ", text.lower()).strip().strip(".!?,;: ")
-    t = re.sub(r"^(?:(?:ok(?:ay)?|so|and|now|hey|jarvis)[,\s]+)+", "", t)
+    t = re.sub(r"^(?:(?:ok(?:ay)?|so|and|now|hey|eden|jarvis)[,\s]+)+", "", t)
     t = re.sub(r"^(?:please|can you|could you|would you)\s+", "", t)
     return re.sub(r"\s+(?:please|for me)$", "", t).strip()
 

@@ -86,14 +86,14 @@ SETTINGS = ("realtime_on", "realtime_provider", "realtime_minutes", "realtime_vo
 
 # What the owner says to end it: "that's all", "that'll be all", "we're done", 就这样.
 FINISHED = re.compile(
-    r"^(?:(?:ok(?:ay)?|thanks?|thank\s+you|jarvis|alright|great)\b[\s,.!]*)*"
+    r"^(?:(?:ok(?:ay)?|thanks?|thank\s+you|eden|jarvis|alright|great)\b[\s,.!]*)*"
     r"(?:that(?:'s|\s+is|'ll\s+be|\s+will\s+be)\s+all|that's\s+it|we're\s+done|we\s+are\s+done"
-    r"|i'm\s+done|end\s+(?:the\s+)?conversation|goodbye|bye(?:\s+jarvis)?)"
-    r"(?:[\s,]+(?:thanks?|thank\s+you|jarvis|for\s+now))*[\s.!]*$",
+    r"|i'm\s+done|end\s+(?:the\s+)?conversation|goodbye|bye(?:\s+(?:eden|jarvis))?)"
+    r"(?:[\s,]+(?:thanks?|thank\s+you|eden|jarvis|for\s+now))*[\s.!]*$",
     re.IGNORECASE,
 )
 FINISHED_ZH = re.compile(
-    r"^(?:(?:好的|好|谢谢|贾维斯|jarvis|行)[，,\s]*)*"
+    r"^(?:(?:好的|好|谢谢|伊甸|贾维斯|eden|jarvis|行)[，,\s]*)*"
     r"(?:就这样|就这些|先这样|没事了|没别的了|结束对话|再见|拜拜)(?:吧|了|啦)?"
     r"(?:[，,\s]*(?:谢谢|贾维斯))*[。！!.\s]*$",
     re.IGNORECASE,
@@ -109,7 +109,7 @@ USED_UP = "Today's realtime conversation minutes are used up, so I'll listen the
 NO_HANDS_FREE = "Realtime conversation needs hands-free listening on."
 NO_PLAYER = "My voice player isn't ready yet, so I'll listen the usual way."
 CARD = "It's on your screen for your OK."
-NOT_OWNER = "That wasn't the owner's voice, so JARVIS didn't take it."
+NOT_OWNER = "That wasn't the owner's voice, so Eden didn't take it."
 lang.add_texts(
     {
         NO_KEY: "实时对话需要在“设置 › 模型”中添加 OpenAI 或 Google Gemini 密钥，所以我先用平常的方式听。",

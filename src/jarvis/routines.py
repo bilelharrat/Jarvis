@@ -526,10 +526,10 @@ def build_tools(
 ) -> list:
     @tool(
         "create_routine",
-        "Schedule something for JARVIS to do on its own, repeatedly or once: 'brief me every "
+        "Schedule something for Eden to do on its own, repeatedly or once: 'brief me every "
         "weekday at 7', 'check the portfolio every Friday at 4pm', 'tonight at 1am, research "
         "X', 'every 30 minutes from 9 to 6, check the build', 'on the last Friday of each "
-        "month at 4, …'. prompt is the request exactly as JARVIS should run it then, written "
+        "month at 4, …'. prompt is the request exactly as Eden should run it then, written "
         "as the user asking (e.g. 'Research the European battery market and file a report'). "
         "schedule: daily, weekdays, weekly (with days, 0 = Monday … 6 = Sunday) or once "
         "(with date YYYY-MM-DD), each at time (24-hour HH:MM, local); interval: every "

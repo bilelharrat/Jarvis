@@ -256,7 +256,7 @@ def _manifest(zf: zipfile.ZipFile) -> dict[str, Any]:
     try:
         info = zf.getinfo(MANIFEST)
     except KeyError:
-        raise BackupError("It isn't a Jarvis backup (it has no list of files).") from None
+        raise BackupError("It isn't an Eden backup (it has no list of files).") from None
     if info.file_size > 4 * 1024 * 1024 or _zip_link(info):
         raise BackupError("Its list of files can't be read.")
     try:
@@ -264,9 +264,9 @@ def _manifest(zf: zipfile.ZipFile) -> dict[str, Any]:
     except (ValueError, UnicodeDecodeError, zipfile.BadZipFile, OSError):
         raise BackupError("Its list of files can't be read.") from None
     if not isinstance(data, dict) or data.get("app") != "jarvis":
-        raise BackupError("It isn't a Jarvis backup (it has no list of files).")
+        raise BackupError("It isn't an Eden backup (it has no list of files).")
     if not isinstance(data.get("format"), int) or data["format"] > FORMAT:
-        raise BackupError("It was made by a newer version of Jarvis.")
+        raise BackupError("It was made by a newer version of Eden.")
     if not isinstance(data.get("files"), list) or len(data["files"]) > MAX_FILES:
         raise BackupError("Its list of files can't be read.")
     return data
@@ -304,7 +304,7 @@ def _rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         seen.add(rel)
         rows.append({"path": rel, "size": size, "sha256": digest})
     if sum(r["size"] for r in rows) > MAX_TOTAL:
-        raise BackupError("It's too large to be a Jarvis backup.")
+        raise BackupError("It's too large to be an Eden backup.")
     return rows
 
 
@@ -437,7 +437,7 @@ def _clear_dir(path: Path, folder: Path) -> None:
     if not os.path.lexists(path):
         return
     if not _real_dir(path) or folder.resolve() not in path.resolve().parents:
-        raise BackupError("The restore folder isn't what Jarvis made.")
+        raise BackupError("The restore folder isn't what Eden made.")
     shutil.rmtree(path)
 
 
@@ -445,7 +445,7 @@ def _make_dir(path: Path) -> None:
     """A folder of ops's own (inside the data folder), made owner-only; a link in its place
     is refused."""
     if os.path.lexists(path) and not _real_dir(path):
-        raise BackupError("The restore folder isn't what Jarvis made.")
+        raise BackupError("The restore folder isn't what Eden made.")
     if not os.path.lexists(path):
         path.mkdir(mode=0o700)
         os.chmod(path, 0o700)
@@ -548,10 +548,10 @@ def apply_pending(
     result: dict[str, Any] = {"ok": False, "at": clock().isoformat(timespec="seconds")}
     try:
         if not _real_dir(staging) or not _regular(marker):
-            raise BackupError("The restore folder isn't what Jarvis made.")
+            raise BackupError("The restore folder isn't what Eden made.")
         data = json.loads(marker.read_text(encoding="utf-8"))
         if not isinstance(data, dict) or not isinstance(data.get("files"), list):
-            raise BackupError("The restore folder isn't what Jarvis made.")
+            raise BackupError("The restore folder isn't what Eden made.")
         result["backup"] = str(data.get("backup", ""))[:200]
         result["created"] = str(data.get("created", ""))[:25]
         rows = _rows({"files": data["files"]})

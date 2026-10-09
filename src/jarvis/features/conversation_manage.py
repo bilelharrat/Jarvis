@@ -177,7 +177,7 @@ def write_markdown(folder: Path, title: str, entries: list[dict[str, Any]]) -> P
         n += 1
     lines = [f"# {title}", ""]
     for entry in entries:
-        who = "You" if entry.get("role") == "user" else "J.A.R.V.I.S."
+        who = "You" if entry.get("role") == "user" else "Eden"
         lines += [f"**{who}**", "", str(entry.get("text", "")).strip(), ""]
     path.write_text("\n".join(lines))
     return path

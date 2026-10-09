@@ -90,7 +90,7 @@ UNSURE = voiceprint.UNSURE
 # said aloud first when enrollment is spoken.
 SENTENCE_TEXT = (
     "The quick brown fox jumps over the lazy dog.",
-    "Jarvis, what’s on my calendar tomorrow morning?",
+    "Eden, what’s on my calendar tomorrow morning?",
     "Please remind me to call the office at half past four.",
     "Seven sunny summer days are better than one rainy week.",
     "Open the report and read me the first paragraph.",
@@ -98,7 +98,7 @@ SENTENCE_TEXT = (
 READER_CHARS_PER_SECOND = 14.0  # how fast a screen reader is taken to say a prompt
 
 _LEARN = re.compile(
-    r"^(?:please\s+)?(?:(?:learn|teach\s+(?:jarvis|you))\s+my\s+voice|(?:set\s+up|start|turn\s+on)\s+(?:voice\s+(?:id|recognition)|recogni[sz]ing\s+my\s+voice)|"
+    r"^(?:please\s+)?(?:(?:learn|teach\s+(?:eden|jarvis|you))\s+my\s+voice|(?:set\s+up|start|turn\s+on)\s+(?:voice\s+(?:id|recognition)|recogni[sz]ing\s+my\s+voice)|"
     r"recogni[sz]e\s+my\s+voice|(?:re)?train\s+(?:on\s+)?my\s+voice)\W*$",
     re.I,
 )
@@ -342,7 +342,7 @@ class VoiceGuard:
         if self.load_error:
             return "The voice model couldn’t load, so voices aren’t checked."
         if self.print is None:
-            return "Teach Jarvis your voice to turn this on. Until then, voices aren’t checked."
+            return "Teach Eden your voice to turn this on. Until then, voices aren’t checked."
         return ""
 
     def public(self) -> dict[str, Any]:

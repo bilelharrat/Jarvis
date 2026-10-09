@@ -28,7 +28,7 @@ OPEN_FOR = 1800.0  # seconds a dialog that never said it closed counts as open
 
 _AGAIN = re.compile(
     r"^(?:please\s+)?(?:(?:run|start|open|do|redo|repeat|restart)\s+(?:the\s+)?(?:accessibility\s+|daredevil\s+|first[- ]run\s+)?"
-    r"(?:setup|set-up|walkthrough)(?:\s+again)?|(?:setup|walkthrough)\s+again|set\s+(?:me|jarvis|it)\s+up\s+again)\W*$",
+    r"(?:setup|set-up|walkthrough)(?:\s+again)?|(?:setup|walkthrough)\s+again|set\s+(?:me|eden|jarvis|it)\s+up\s+again)\W*$",
     re.I,
 )
 _MOVES = [
@@ -52,7 +52,7 @@ _CHOICES = [
     (r"larger\s+(?:text|size)|larger|bigger(?:\s+text)?", "a11y_text_size", "larger", "Text size: larger."),
     (r"largest\s+(?:text|size)|largest|biggest(?:\s+text)?", "a11y_text_size", "largest", "Text size: largest."),
     (r"(?:my\s+)?screen\s+reader(?:\s+reads(?:\s+them)?)?|nvda|jaws|narrator", "a11y_voice", "reader", "Your screen reader reads the replies."),
-    (r"(?:jarvis'?s?|your|your\s+own)\s+voice|you\s+read\s+them", "a11y_voice", "jarvis", "I'll read the replies in my own voice."),
+    (r"(?:(?:eden|jarvis)'?s?|your|your\s+own)\s+voice|you\s+read\s+them", "a11y_voice", "jarvis", "I'll read the replies in my own voice."),
 ]  # fmt: skip
 CHOICES = [
     (re.compile(rf"^(?:please\s+)?(?:use\s+)?(?:{words})\W*$", re.I), key, value, said)

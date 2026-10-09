@@ -33,7 +33,7 @@ TO, CC = 0, 1  # the index's recipient types
 
 FULL_DISK_ACCESS = (
     "Email needs Full Disk Access: System Settings > Privacy & Security > Full Disk Access, "
-    "then turn on J.A.R.V.I.S. and restart it."
+    "then turn on Eden and restart it."
 )
 
 

@@ -41,7 +41,7 @@ KIND_WORDS = {
 WATCH = (
     "{host} is sensitive ({kind}), so the browser acts there only while its tab is on show "
     "for the user to watch, and it isn't now. Show it with browser_tabs (switch shows the "
-    "tab), or ask the user to bring the J.A.R.V.I.S. window forward, then try again. Reading "
+    "tab), or ask the user to bring the Eden window forward, then try again. Reading "
     "and scrolling there work as before."
 )
 NEVER = (
@@ -50,7 +50,7 @@ NEVER = (
 )
 UNCHECKED = "I couldn't check which site the browser is on, so I left the page alone. Try again."
 DECLINED = "The user said no to acting on {host}. Don't act there or look for another way."
-ASK_QUESTION = "Let Jarvis act on {host}?"
+ASK_QUESTION = "Let Eden act on {host}?"
 ASK_SPOKEN = "Can I act on {host}? You asked me to check first."
 ASK_WHY = "You asked me to check before I act on {host} (Settings › Browser)."
 

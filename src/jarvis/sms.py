@@ -237,11 +237,7 @@ def card_text(card: dict[str, Any], code: str, language: str = "en") -> str:
     detail = " ".join(str(card.get("detail") or "").split())
     if len(detail) > MAX_DETAIL:
         detail = detail[: MAX_DETAIL - 1].rstrip() + "…"
-    head = (
-        f"Jarvis 需要你确认：{question}"
-        if language == "zh"
-        else f"Jarvis needs your OK: {question}"
-    )
+    head = f"Eden 需要你确认：{question}" if language == "zh" else f"Eden needs your OK: {question}"
     return "\n".join(part for part in (head, detail, how_to_answer(code, language)) if part)
 
 

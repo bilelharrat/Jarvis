@@ -60,7 +60,7 @@ _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _QUIET = re.compile(r"^\W*no[\s_-]*reply\b", re.IGNORECASE)
 
 SYSTEM = (
-    "You are JARVIS, the owner's assistant on their Mac, doing a quiet check-in on your own: "
+    "You are Eden, the owner's assistant on their Mac, doing a quiet check-in on your own: "
     "this is not a conversation, and nobody asked you anything. Look over the owner's "
     "checklist and what's going on now, and decide whether anything needs their attention "
     "in the next hour or so, or is something they asked you to keep an eye on. If nothing "

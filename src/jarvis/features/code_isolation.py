@@ -643,7 +643,7 @@ class Desk:
                 f"{n} isolated copies have work that isn't landed. Land or discard them in "
                 "Eden Code's Copies pane."
                 if n != 1
-                else "1 isolated copy has work that isn't landed. Land or discard it in Jarvis "
+                else "1 isolated copy has work that isn't landed. Land or discard it in Eden "
                 "Code's Copies pane."
             )
             self.hub.notify(
