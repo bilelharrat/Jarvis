@@ -2137,6 +2137,11 @@ class Hub:
             started=self.meeting.started.isoformat(timespec="seconds"),
         )
         log.info("meeting notes started")
+        if osplat.IS_WIN:
+            return (
+                f"Taking notes for {self.meeting.title}. Everything said is transcribed here on "
+                "this PC until the user says stop."
+            )
         return (
             f"Taking notes for {self.meeting.title}. Everything said is transcribed here on "
             "the Mac until the user says stop."
@@ -2169,6 +2174,12 @@ class Hub:
             return "Stopped. Too little was said to summarize; the transcript is saved."
         if result.get("error"):
             return f"Stopped. The transcript is saved, but the write-up failed: {result['error']}"
+        if getattr(meeting, "kind", "meeting") == "lecture":
+            return (
+                f"Lecture notes for {meeting.title} saved to the second brain: "
+                f"{meeting.minutes()} minutes. Offer to read the key points, or the assignments "
+                "and dates."
+            )
         return (
             f"Notes for {meeting.title} saved to the second brain: "
             f"{result['decisions']} decisions and {result['actions']} action items, "
