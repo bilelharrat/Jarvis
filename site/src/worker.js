@@ -10,7 +10,7 @@
 //   POST /api/help/ask       Ask Help, grounded in the FAQ (eden/help.js)
 //   /<Eden's files>, /signin/…, /artifact/<id>   the same (eden/pages.js)
 //   /p/<id>                  a published Eden page (accounts/published.js, via eden/pages.js)
-//   /download, /jarvis       the Eden Code and J.A.R.V.I.S. landing page (./public/jarvis/index.html; Messenger hidden for now)
+//   /download, /jarvis,      the Eden Code and Eden app landing page (/eden-app is the same page) (./public/jarvis/index.html; Messenger hidden for now)
 //   /jarvis/…               its images
 //   /download/mac            Ask Eden for Mac (beta): a redirect to the GitHub release ask-eden-v<version> (ASK_EDEN_TAG)
 //   /download/windows, /eden-code/windows, /jarvis/windows, /daredevil/windows, /jarvis/daredevil
@@ -110,7 +110,7 @@ async function route(request, env, ctx) {
   if (Object.hasOwn(WINDOWS_PATHS, path)) return Response.redirect(windowsInstaller(WINDOWS_PATHS[path], env).url, 302);
   if (path === '/windows/latest.json') return windowsInfo(env);
   if (path === '/daredevil') return daredevil(request, env, url);
-  if (path === '/download' || path === '/jarvis') return landing(request, env, url);
+  if (path === '/download' || path === '/jarvis' || path === '/eden-app') return landing(request, env, url);
   if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
   if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
   if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
@@ -156,7 +156,7 @@ function toMessenger(url) {
 // The page's other buttons: each goes wherever its variable in wrangler.toml says (a TestFlight
 // invite, the Messenger's disk image), and until that is set, to a page saying it's on its way.
 const SOON = {
-  '/jarvis/iphone': { variable: 'JARVIS_IPHONE_URL', app: 'J.A.R.V.I.S. for iPhone' },
+  '/jarvis/iphone': { variable: 'JARVIS_IPHONE_URL', app: 'Eden for iPhone' },
   '/eden-code/download': { variable: 'EDEN_CODE_MAC_URL', app: 'Eden Code for Mac' },
   '/eden-code/mac': { variable: 'EDEN_CODE_MAC_URL', app: 'Eden Code for Mac' },
   '/messenger/download': { variable: 'MESSENGER_MAC_URL', app: 'Eden Messenger for Mac' },
@@ -244,8 +244,8 @@ async function askEdenMac(request, env, path) {
 export const WINDOWS = {
   'ask-eden': { variable: 'ASK_EDEN', name: 'Ask Eden', tag: 'ask-eden-windows-v0.1.0', file: 'Ask-Eden-Setup-0.1.0-x64.exe', version: '0.1.0', size: 110809211 },
   'eden-code': { variable: 'EDEN_CODE', name: 'Eden Code', tag: 'eden-code-windows-v0.1.8', file: 'Eden-Code-Setup-0.1.8-x64.exe', version: '0.1.8', size: 300218062 },
-  jarvis: { variable: 'JARVIS', name: 'J.A.R.V.I.S.', tag: 'jarvis-windows-v0.1.13', file: 'J-A-R-V-I-S--Setup-0.1.13-x64.exe', version: '0.1.13', size: 303723280 },
-  daredevil: { variable: 'DAREDEVIL', name: 'J.A.R.V.I.S. Daredevil', tag: 'daredevil-windows-v0.1.14', file: 'J-A-R-V-I-S-Daredevil-Setup-0.1.14-x64.exe', version: '0.1.14', size: 327754786 },
+  jarvis: { variable: 'JARVIS', name: 'Eden', tag: 'jarvis-windows-v0.1.13', file: 'J-A-R-V-I-S--Setup-0.1.13-x64.exe', version: '0.1.13', size: 303723280 },
+  daredevil: { variable: 'DAREDEVIL', name: 'Eden Daredevil', tag: 'daredevil-windows-v0.1.14', file: 'J-A-R-V-I-S-Daredevil-Setup-0.1.14-x64.exe', version: '0.1.14', size: 327754786 },
 };
 const WINDOWS_PATHS = {
   '/download/windows': 'ask-eden',
@@ -385,7 +385,7 @@ async function voice(request, env, path = '/api/voice') {
   if (request.method !== 'POST') return json({ error: 'POST only.' }, 405, { allow: 'POST' });
   const eden = path === '/api/chat/voice';
   if (eden && (request.headers.get('x-jarvis-chat') !== '1' || !sameOrigin(request))) return json({ error: 'Only askeden.com’s own page may do that.' }, 403);
-  if (!env.FISH_API_KEY || !env.VOICE_QUOTA) return json({ error: 'The JARVIS voice is not set up here yet.' }, 503);
+  if (!env.FISH_API_KEY || !env.VOICE_QUOTA) return json({ error: 'The Eden voice is not set up here yet.' }, 503);
   const install = eden ? '' : String(request.headers.get('x-jarvis-install') || '');
   let account = eden ? null : tokenFrom(request);
   if (eden) {
@@ -473,8 +473,8 @@ export class VoiceQuota {
     for (const [which, key] of Object.entries(keys)) {
       if ((used.get(key) || 0) + chars > cap[which]) {
         const why = which === 'everyone'
-          ? "Today's JARVIS voice allowance is used up for everyone; it resets at midnight UTC."
-          : "This Mac's JARVIS voice allowance for today is used up; it resets at midnight UTC. Add your own Fish Audio key in Settings › Speaking for unlimited use.";
+          ? "Today's Eden voice allowance is used up for everyone; it resets at midnight UTC."
+          : "This Mac's Eden voice allowance for today is used up; it resets at midnight UTC. Add your own Fish Audio key in Settings › Speaking for unlimited use.";
         return Response.json({ ok: false, which, why, retryAfter: nextMidnight });
       }
     }

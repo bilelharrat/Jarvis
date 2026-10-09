@@ -19,7 +19,7 @@ import { DEFAULT_CLASSIFIER_MODEL } from './vendor/model-router.js';
 export const VIA_MAC_LABEL = 'via your Mac (Claude Max)';
 export const VIA_MAC_OFFLINE = 'Your Mac is offline. Eden on askeden.com answers through your Mac until askeden.com has AI provider keys set up.';
 export const VIA_MAC_NEEDS_MAC =
-  'No Mac is linked to your account. Eden on askeden.com answers through your Mac until askeden.com has AI provider keys set up: in J.A.R.V.I.S. on your Mac, open Settings › Account and link it.';
+  'No Mac is linked to your account. Eden on askeden.com answers through your Mac until askeden.com has AI provider keys set up: in the Eden app on your Mac, open Settings › Account and link it.';
 export const VIA_MAC_OWNER_ONLY =
   'Eden here answers through its owner’s Mac, on their own Claude subscription, which serves only them. Delegates and team spaces need an Anthropic API key on askeden.com.';
 export const VIA_MAC_COMPARE = 'Compare needs an Anthropic API key on askeden.com. Until one is added, Eden here answers through your Mac, one model at a time.';

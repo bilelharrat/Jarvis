@@ -218,7 +218,7 @@ export const anthropicError = (status, type, message, headers = {}) =>
 // usage)` counts the cost afterwards (through ctx.waitUntil).
 export async function forward(request, env, ctx, path, record) {
   const fallback = serviceFallback(env);
-  if (!env.ANTHROPIC_API_KEY && !fallback) return anthropicError(503, 'api_error', 'Jarvis Plus AI is not set up on the server yet.');
+  if (!env.ANTHROPIC_API_KEY && !fallback) return anthropicError(503, 'api_error', 'Eden Plus AI is not set up on the server yet.');
   const bodyText = await request.text();
   let body;
   try {

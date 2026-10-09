@@ -120,7 +120,7 @@ html{scroll-behavior:smooth}
 .dltxt>span{color:var(--text2);font-size:13px}
 .get .fine{max-width:34em;margin-left:auto;margin-right:auto}
 
-/* J.A.R.V.I.S. Daredevil: a slot of its own, in the app's own colours (yellow on black, about 15 to 1) */
+/* Eden Daredevil: a slot of its own, in the app's own colours (yellow on black, about 15 to 1) */
 .dd{margin-top:36px;padding:26px 24px 22px;border-radius:24px;background:#000;color:#fff;border:3px solid #ffd60a;
   text-align:left;box-shadow:0 12px 36px rgba(0,0,0,.28)}
 .dd-kicker{margin:0 0 6px;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#ffd60a}

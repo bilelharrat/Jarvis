@@ -417,7 +417,7 @@ export async function spacesApi(request, env, who, op, { acting = null, origin =
     case 'create': {
       await slowDown(env, 'LINK_RATE', `space:${who.account}`);
       const account = await ask(env, who.account, 'get', {}, who.token);
-      if (!(account.plan && account.plan.active)) throw new ApiError(402, 'needs_plus', 'Making a team space needs Plus (in the J.A.R.V.I.S. app on your iPhone). Its AI budget comes out of your Plus allowance.');
+      if (!(account.plan && account.plan.active)) throw new ApiError(402, 'needs_plus', 'Making a team space needs Plus (in the Eden app on your iPhone). Its AI budget comes out of your Plus allowance.');
       const { grants } = await ask(env, who.account, 'deleg-mine', {}, who.token);
       if (grants.filter((g) => g.type === 'space' && g.owner === who.account).length >= SPACES.perOwner) throw new ApiError(409, 'too_many', `You can own at most ${SPACES.perOwner} spaces.`);
       const id = btoa(String.fromCharCode(...randomBytes(16))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

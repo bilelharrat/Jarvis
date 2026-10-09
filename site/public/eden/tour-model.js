@@ -182,7 +182,7 @@ export function unavailableReason(step, ctx) {
   if (!ctx || !step.needs) return null;
   const needs = [].concat(step.needs);
   for (const n of needs) {
-    if (n === 'mac' && !ctx.mac) return ctx.hosted ? 'Your Mac isn’t linked to askeden.com yet, so this needs the Jarvis app on your Mac.' : 'The Jarvis app on your Mac isn’t connected right now.';
+    if (n === 'mac' && !ctx.mac) return ctx.hosted ? 'Your Mac isn’t linked to askeden.com yet, so this needs the Eden app on your Mac.' : 'The Eden app on your Mac isn’t connected right now.';
     if (n === 'account' && !ctx.hosted) return 'Accounts live at askeden.com; Eden on your own Mac has no sign-in.';
     if (n === 'account' && !ctx.signedIn) return 'You aren’t signed in to askeden.com in this browser.';
     if (n === 'app' && !ctx.inApp) return 'This is part of the Eden iPhone app.';

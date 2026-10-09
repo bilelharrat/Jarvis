@@ -139,7 +139,7 @@ function fetchMentions(q) {
       if (mentionQuery !== q) return;
       mentionItems = notes.slice(0, 8).map((n) => ({ label: n.title, help: `Note · ${n.meta}`, value: n.title, note: n }));
       renderSuggestions();
-    } catch { /* Jarvis away: no notes */ }
+    } catch { /* Eden away: no notes */ }
   }, 250);
 }
 

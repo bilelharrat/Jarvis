@@ -365,7 +365,7 @@ function talkBox() {
     el('div', 'talk-card glass',
       el('div', 'talk-top',
         el('span', 'talk-title', 'Talk'),
-        el('span', 'talk-voice', HOSTED ? 'JARVIS voice · your account’s daily allowance' : 'JARVIS voice'),
+        el('span', 'talk-voice', HOSTED ? 'Eden voice · your account’s daily allowance' : 'Eden voice'),
         el('button', { type: 'button', class: 'iconbtn talk-x', title: 'Shrink to the orb (keeps talking)', 'aria-label': 'Shrink to the orb (keeps talking)', onclick: () => setTalkMini(true) }, ico('collapse')),
         el('button', { type: 'button', class: 'iconbtn talk-x', id: 'talkX', title: 'End', 'aria-label': 'End talking', onclick: () => closeTalk() }, ico('x'))),
       el('button', { type: 'button', class: 'talk-orb', id: 'talkOrb', 'aria-label': 'Interrupt', onclick: orbTap },
@@ -618,16 +618,16 @@ export function voiceSettings() {
     toast(sw.checked ? 'Replies will be read aloud' : 'Replies won’t be read aloud');
   });
   const where = HOSTED
-    ? 'On askeden.com the JARVIS voice uses your Jarvis account’s daily voice allowance (more with Jarvis Plus).'
-    : 'On this Mac: the JARVIS voice, on J.A.R.V.I.S.’s daily allowance for this Mac; the Mac’s own voice when that’s used up or offline.';
+    ? 'On askeden.com the Eden voice uses your Eden account’s daily voice allowance (more with Eden Plus).'
+    : 'On this Mac: the Eden voice, on Eden’s daily allowance for this Mac; the Mac’s own voice when that’s used up or offline.';
   const rec = Recognition()
     ? 'Dictation and Talk use this browser’s speech recognition (Chrome sends the audio to Google to transcribe it).'
     : Recorder()
-      ? `This browser has no speech recognition: Dictation records (two minutes at most) and ${HOSTED ? 'askeden.com transcribes it (Whisper on Cloudflare, counted on your Jarvis account’s included AI)' : 'J.A.R.V.I.S. on this Mac transcribes it (the audio stays on this Mac)'}. Talk needs speech recognition (Chrome, Edge or Safari).`
+      ? `This browser has no speech recognition: Dictation records (two minutes at most) and ${HOSTED ? 'askeden.com transcribes it (Whisper on Cloudflare, counted on your Eden account’s included AI)' : 'Eden on this Mac transcribes it (the audio stays on this Mac)'}. Talk needs speech recognition (Chrome, Edge or Safari).`
       : 'This browser has no speech recognition, so Dictation and Talk are off (use Chrome, Edge or Safari).';
   return el('div', 'set-sec', el('h3', '', 'Voice'),
     el('div', 'icard', el('div', 'prov',
-      el('div', 'grow', el('div', 'p-n', 'Read replies aloud'), el('div', 'p-c', 'In the JARVIS voice, as each reply streams in (code is skipped). Talk mode always reads aloud.')),
+      el('div', 'grow', el('div', 'p-n', 'Read replies aloud'), el('div', 'p-c', 'In the Eden voice, as each reply streams in (code is skipped). Talk mode always reads aloud.')),
       el('label', 'switch', sw, el('span', 'tr')))),
     el('p', 'sp-note', `${where} ${rec}`));
 }

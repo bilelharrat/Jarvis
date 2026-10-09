@@ -207,7 +207,7 @@ export function privacySettings() {
       }),
       modelRow),
     el('p', 'sp-note', hosted()
-      ? 'On askeden.com, private chats are answered by a local model on your Mac (Ollama or LM Studio), through its link (J.A.R.V.I.S. Settings › Account › Eden on the web reaches this Mac); never by a cloud model. Each reply shows where it was computed.'
+      ? 'On askeden.com, private chats are answered by a local model on your Mac (Ollama or LM Studio), through its link (Eden Settings › Account › Eden on the web reaches this Mac); never by a cloud model. Each reply shows where it was computed.'
       : 'Privacy mode uses a model running on this Mac: install Ollama (ollama.com) or LM Studio, load a model, and keep it running. Web search is off in private chats. Each reply shows where it was computed.'));
   return sec;
 }

@@ -34,7 +34,7 @@ export class ApiError extends Error {
   }
 }
 
-export const signedOut = () => new ApiError(401, 'signed_out', 'This device is signed out of its Jarvis account.');
+export const signedOut = () => new ApiError(401, 'signed_out', 'This device is signed out of its Eden account.');
 
 export async function readJson(request, cap = 1 << 20) {
   const text = await request.text();

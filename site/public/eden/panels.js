@@ -41,7 +41,7 @@ export function parseCalendar(text) {
 
 async function call(tool, args) {
   const r = await api.jarvis(tool, args);
-  if (r.is_error) throw new Error(strip(r.text) || 'The Jarvis app said no.');
+  if (r.is_error) throw new Error(strip(r.text) || 'The Eden app said no.');
   return r.text || '';
 }
 
@@ -57,7 +57,7 @@ export async function checkJarvis() {
   const box = $('jarvisState');
   box.classList.toggle('on', state.jarvis.available);
   $('jarvisStateText').textContent = state.jarvis.available ? 'connected' : 'not connected';
-  box.title = state.jarvis.available ? 'Connected through the Jarvis app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Jarvis app on your Mac isn’t reachable');
+  box.title = state.jarvis.available ? 'Connected through the Eden app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Eden app on your Mac isn’t reachable');
   return state.jarvis;
 }
 
@@ -123,8 +123,8 @@ export function closeSpace() {
 export const spaceOpen = () => $('spacePanel').classList.contains('open');
 
 function unavailable(key) {
-  return el('div', '', el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), state.jarvis.reason || 'The Jarvis app didn’t answer.'),
-    el('p', 'sp-note', 'This data comes through the Jarvis app on your Mac: open it to connect. The first time, it asks you on screen whether Eden may use your second brain, memory and calendar.'),
+  return el('div', '', el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), state.jarvis.reason || 'The Eden app didn’t answer.'),
+    el('p', 'sp-note', 'This data comes through the Eden app on your Mac: open it to connect. The first time, it asks you on screen whether Eden may use your second brain, memory and calendar.'),
     el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: async () => { await checkJarvis(); openSpace(key); } }, 'Try again')));
 }
 
@@ -210,10 +210,10 @@ function routines(body) {
   const ta = el('textarea', { rows: 3, maxlength: 300, placeholder: 'e.g. The report is ready to read.', 'aria-label': 'Heads-up text' });
   const title = el('input', { type: 'text', placeholder: 'Title (optional)', 'aria-label': 'Heads-up title' });
   body.append(
-    el('p', 'sp-note', 'Routines (morning brief, digests, the weekly router refresh) run in the Jarvis app on your Mac; set them up there. From here you can send yourself a heads-up through it.'),
+    el('p', 'sp-note', 'Routines (morning brief, digests, the weekly router refresh) run in the Eden app on your Mac; set them up there. From here you can send yourself a heads-up through it.'),
     el('div', { class: 'field', style: { marginTop: '12px' } }, 'Heads-up', title, ta),
     el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => notify(ta.value, title.value) }, ico('bell', 14), 'Send heads-up')));
-  if (!state.jarvis.available) body.prepend(el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), `${state.jarvis.reason || ''} Open the Jarvis app on your Mac to connect.`));
+  if (!state.jarvis.available) body.prepend(el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), `${state.jarvis.reason || ''} Open the Eden app on your Mac to connect.`));
 }
 
 export async function notify(text, title) {
@@ -227,7 +227,7 @@ export async function notify(text, title) {
 let memLoaded = false;
 export async function renderMemoryTab(force) {
   const card = $('memCard');
-  if (!state.jarvis.available) { card.replaceChildren(el('div', 'muted', `${state.jarvis.reason || 'Your Mac isn’t connected.'} Open the Jarvis app on your Mac to connect.`)); return; }
+  if (!state.jarvis.available) { card.replaceChildren(el('div', 'muted', `${state.jarvis.reason || 'Your Mac isn’t connected.'} Open the Eden app on your Mac to connect.`)); return; }
   if (memLoaded && !force) return;
   memLoaded = true;
   card.replaceChildren(el('div', 'muted', 'Asking your Mac…'));
@@ -248,7 +248,7 @@ export async function openMemoryPage(opts = {}) {
 export function initPanels(handlers) {
   H = handlers;
   const note = document.querySelector('#tab-Memory .mem-note');
-  if (note) note.textContent = 'Through the Jarvis app on your Mac. "Use" adds a fact to your next message; Open Memory to see where each came from, edit, forget or switch one off.';
+  if (note) note.textContent = 'Through the Eden app on your Mac. "Use" adds a fact to your next message; Open Memory to see where each came from, edit, forget or switch one off.';
   $('btnSpClose').addEventListener('click', closeSpace);
   $('memQ').addEventListener('input', debounce(() => renderMemoryTab(true), 400));
   document.addEventListener('pointerdown', (e) => {

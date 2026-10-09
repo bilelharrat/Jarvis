@@ -193,7 +193,7 @@ export async function mailPanel(body) {
     }
     who.replaceChildren(avatar(st.email || 'Gmail'), el('span', { class: 'mw-t', title: 'Signed in to Gmail' }, st.email || 'Gmail'));
   } else if (!H.jarvisAvailable()) {
-    gate(emptyState('mail', 'Your Mac isn’t connected', `${H.jarvisReason() || ''} Mail on your Mac comes through the Jarvis app: open it to connect.`.trim()));
+    gate(emptyState('mail', 'Your Mac isn’t connected', `${H.jarvisReason() || ''} Mail on your Mac comes through the Eden app: open it to connect.`.trim()));
     return;
   }
 
@@ -542,7 +542,7 @@ async function openMessage(body, m) {
       isMacDraft ? null : btn('reply', 'Reply', () => compose('reply'), 'btn primary'),
       isMacDraft || allCount < 2 ? null : btn('replyall', 'Reply all', () => compose('replyAll')),
       isMacDraft ? null : btn('fwd', 'Forward', () => compose('forward'))),
-    isMacDraft ? el('p', 'sp-note', 'Saving from Eden makes a new draft in Mail; Jarvis can’t edit this one in place.') : null].filter(Boolean));
+    isMacDraft ? el('p', 'sp-note', 'Saving from Eden makes a new draft in Mail; Eden can’t edit this one in place.') : null].filter(Boolean));
   if (sumCache.get(ck(msg.id))) summarize(false); // already summarized: shown again, not billed again
 }
 

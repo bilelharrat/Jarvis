@@ -18,7 +18,7 @@ const EMAIL = /^[^@\s<>]{1,64}@[^@\s<>]{1,190}\.[A-Za-z]{2,}$/;
 
 async function jarvis(tool, args) {
   const r = await api.jarvis(tool, args);
-  if (r.is_error) throw new Error(r.text || 'The Jarvis app said no.');
+  if (r.is_error) throw new Error(r.text || 'The Eden app said no.');
   return JSON.parse(r.text);
 }
 
@@ -47,7 +47,7 @@ function list(root, query) {
     try {
       const { items } = await jarvis('meetings_list', q.value.trim() ? { query: q.value.trim() } : {});
       if (!items.length) {
-        res.replaceChildren(el('div', 'muted', q.value.trim() ? 'No meeting notes match that.' : 'No meeting notes yet. Say “Jarvis, take notes” in a meeting, or start notes from Jarvis’s meeting card.'));
+        res.replaceChildren(el('div', 'muted', q.value.trim() ? 'No meeting notes match that.' : 'No meeting notes yet. Say “Eden, take notes” in a meeting, or start notes from Eden’s meeting card.'));
         return;
       }
       res.replaceChildren(...items.map((m) => el('button', { type: 'button', class: 'act-row', onclick: () => open(root, m.id, q.value) },
@@ -134,7 +134,7 @@ function itemCard(it, m) {
       });
       let out = {};
       try { out = JSON.parse(r.text); } catch { out = { text: r.text }; }
-      note.replaceChildren(out.done ? el('span', 'act-ok', ico('check', 12), 'Kept: Jarvis reminds you before it’s due.') : el('span', 'muted', out.text || 'Not kept.'));
+      note.replaceChildren(out.done ? el('span', 'act-ok', ico('check', 12), 'Kept: Eden reminds you before it’s due.') : el('span', 'muted', out.text || 'Not kept.'));
       if (!out.done) b.disabled = false;
     } catch (err) { note.replaceChildren(el('span', 'muted', err.message)); b.disabled = false; }
   });

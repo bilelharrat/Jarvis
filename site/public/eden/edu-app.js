@@ -142,7 +142,7 @@ const studyBtn = () => el('button', { type: 'button', class: `iconbtn${companion
   refreshActs();
 } }, ico('list'));
 let actsExtra = [];
-const tutorBtn = () => el('button', { type: 'button', class: 'iconbtn', title: 'Talk it through with J.A.R.V.I.S., your tutor', 'aria-label': 'Talk with J.A.R.V.I.S.', onclick: () => { const c = contextCourse(); if (c) tutor(c); } }, el('span', 'tut-mini'));
+const tutorBtn = () => el('button', { type: 'button', class: 'iconbtn', title: 'Talk it through with Eden, your tutor', 'aria-label': 'Talk with Eden', onclick: () => { const c = contextCourse(); if (c) tutor(c); } }, el('span', 'tut-mini'));
 function refreshActs() { $('eduActs').replaceChildren(...actsExtra, ...(contextCourse() ? [tutorBtn(), studyBtn()] : [])); }
 
 /** J.A.R.V.I.S. out loud: in this study chat when there is one, else a new one marked as a tutor conversation. */
@@ -150,7 +150,7 @@ function tutor(course, chat = null) {
   if (!chat) {
     chat = here.view === 'chat' ? chatById(here.id) : null;
     if (!chat || chat.course.id !== course.id) {
-      chat = { id: newId(), course: { id: course.id, name: course.name, verified: course.verified || null }, title: `Talk with J.A.R.V.I.S. · ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}`, updated: Date.now(), messages: [] };
+      chat = { id: newId(), course: { id: course.id, name: course.name, verified: course.verified || null }, title: `Talk with Eden · ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}`, updated: Date.now(), messages: [] };
     }
   }
   openTutor(course, { chat, save: (c) => { putChat(c); side(); if (here.view === 'chat' && here.id === c.id) route(); } });
@@ -284,7 +284,7 @@ function chatView(chat) {
   const sendBtn = el('button', { type: 'submit', class: 'jc-send', 'aria-label': 'Send' });
   sendBtn.innerHTML = SEND_SVG; // constant markup
   const form = el('form', { class: 'jc-composer', autocomplete: 'off', onsubmit: (e) => { e.preventDefault(); if (live) live.ctrl.abort(); else send(chat, input.value, ui); } },
-    el('div', 'jc-composer-top', input, el('button', { type: 'button', class: 'edu-talk', title: 'Talk it through with J.A.R.V.I.S.', 'aria-label': 'Talk with J.A.R.V.I.S.', onclick: () => tutor(contextCourse() || chat.course, chat) }, el('span', 'tut-mini')), sendBtn));
+    el('div', 'jc-composer-top', input, el('button', { type: 'button', class: 'edu-talk', title: 'Talk it through with Eden', 'aria-label': 'Talk with Eden', onclick: () => tutor(contextCourse() || chat.course, chat) }, el('span', 'tut-mini')), sendBtn));
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 220)}px`; });
   const ui = { transcript, scroll, input, sendBtn };

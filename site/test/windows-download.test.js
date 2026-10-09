@@ -31,7 +31,7 @@ test('each Windows address redirects to its installer, a file of a GitHub pre-re
   }
 });
 
-test('J.A.R.V.I.S. Daredevil has an installer of its own, not J.A.R.V.I.S.\'s', async () => {
+test('Eden Daredevil has an installer of its own, not the Eden app\'s', async () => {
   const jarvis = (await get('/jarvis/windows')).headers.get('location');
   const dare = (await get('/daredevil/windows')).headers.get('location');
   assert.notEqual(dare, jarvis);
@@ -79,13 +79,13 @@ test('/daredevil is its page, with the landing pages\' policy, and opens in the 
 
 // ── the buttons ──
 
-test('the front page: download for Mac and for Windows, and a slot of its own for J.A.R.V.I.S. Daredevil', () => {
+test('the front page: download for Mac and for Windows, and a slot of its own for Eden Daredevil', () => {
   const html = read('home/index.html');
   for (const href of ['/download/mac', '/download/windows', '/daredevil/windows', '/daredevil', '/download', '/signin']) {
     assert.ok(html.includes(`href="${href}"`), href);
   }
   assert.match(html, /Download for Windows/);
-  assert.match(html, /J\.A\.R\.V\.I\.S\. Daredevil/);
+  assert.match(html, /Eden Daredevil/);
   // its policy allows no script and no inline style (default-src 'none'; style-src 'self')
   assert.doesNotMatch(html, /<script/);
   assert.doesNotMatch(html, /\sstyle=/);
@@ -111,7 +111,7 @@ test('the front page can be read by a screen reader: landmarks, headings in orde
   for (const m of html.matchAll(/<svg\b[^>]*>/g)) assert.match(m[0], /aria-hidden="true"/, m[0]);
 });
 
-test('the apps page: Windows downloads beside the Mac ones, and J.A.R.V.I.S. Daredevil', () => {
+test('the apps page: Windows downloads beside the Mac ones, and Eden Daredevil', () => {
   const html = read('jarvis/index.html');
   for (const href of ['/jarvis/windows', '/eden-code/windows', '/download/windows', '/daredevil/windows', '/daredevil', '/jarvis/download', '/eden-code/download', '/download/mac']) {
     assert.ok(html.includes(`href="${href}"`), href);
@@ -120,7 +120,7 @@ test('the apps page: Windows downloads beside the Mac ones, and J.A.R.V.I.S. Dar
   assert.match(html, /Windows 10 or 11/);
 });
 
-test('J.A.R.V.I.S. Daredevil\'s page: a skip link, landmarks, the download, the guide, and nothing to hide', () => {
+test('Eden Daredevil\'s page: a skip link, landmarks, the download, the guide, and nothing to hide', () => {
   const html = read('daredevil/index.html');
   assert.match(html, /<html lang="en">/);
   assert.match(html, /<a class="skip" href="#main">/);
@@ -133,4 +133,13 @@ test('J.A.R.V.I.S. Daredevil\'s page: a skip link, landmarks, the download, the 
   for (let i = 1; i < levels.length; i += 1) assert.ok(levels[i] <= levels[i - 1] + 1, `heading levels jump: ${levels.join(',')}`);
   for (const m of html.matchAll(/<svg\b[^>]*>/g)) assert.match(m[0], /aria-hidden="true"/, m[0]);
   for (const m of html.matchAll(/<img\b[^>]*>/g)) assert.match(m[0], /\balt=/, m[0]);
+});
+
+test('the public pages say Eden, not the old J.A.R.V.I.S. name (routes, file names and the header stay)', () => {
+  for (const page of ['home/index.html', 'jarvis/index.html', 'daredevil/index.html', 'privacy/index.html', 'terms/index.html', 'signin/index.html', 'link/index.html']) {
+    const text = read(page)
+      .replace(/X-Jarvis-Chat|JARVIS-LINK:\/\//g, '') // the API header and the Mac's link scheme
+      .replace(/%LOCALAPPDATA%\\Jarvis\\Logs\\jarvis\.log/g, ''); // where installed builds keep their log
+    assert.doesNotMatch(text, /J\.A\.R\.V\.I\.S|Jarvis|JARVIS/, page);
+  }
 });

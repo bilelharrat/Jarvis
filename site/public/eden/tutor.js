@@ -27,9 +27,9 @@ const T = { root: null, course: null, chat: null, save: null, state: 'idle', mut
 export function openTutor(course, { chat, save } = {}) {
   closeTutor();
   Object.assign(T, { course, chat, save, state: 'idle', muted: false, history: [], heard: '', said: '', sources: null, mini: false, greeted: false });
-  T.root = el('div', { class: 'tut', role: 'dialog', 'aria-modal': 'true', 'aria-label': `J.A.R.V.I.S., your tutor for ${course.name}` },
+  T.root = el('div', { class: 'tut', role: 'dialog', 'aria-modal': 'true', 'aria-label': `Eden, your tutor for ${course.name}` },
     el('div', 'tut-top',
-      el('div', 'tut-name', el('b', '', 'J.A.R.V.I.S.'), el('span', '', `Your tutor · ${course.name}`)),
+      el('div', 'tut-name', el('b', '', 'Eden'), el('span', '', `Your tutor · ${course.name}`)),
       el('div', 'tut-top-acts',
         el('button', { type: 'button', class: 'tut-x', 'aria-label': 'Shrink to the orb (keeps talking)', title: 'Shrink to the orb', onclick: () => setMini(true) }, ico('collapse')),
         el('button', { type: 'button', class: 'tut-x', 'aria-label': 'End the conversation', title: 'End', onclick: closeTutor }, ico('x')))),
@@ -38,12 +38,12 @@ export function openTutor(course, { chat, save } = {}) {
       el('div', { class: 'tut-state', id: 'tutState', 'aria-live': 'polite' }, 'Tap the orb, then just talk.'),
       el('div', 'tut-captions',
         el('p', { class: 'tut-you', id: 'tutYou' }),
-        el('p', { class: 'tut-says', id: 'tutSays' }, `Hi, I’m J.A.R.V.I.S. Ask me anything about ${course.name}, or tell me what you’re stuck on.`),
+        el('p', { class: 'tut-says', id: 'tutSays' }, `Hi, I’m Eden. Ask me anything about ${course.name}, or tell me what you’re stuck on.`),
         el('div', { class: 'tut-src', id: 'tutSrc' }))),
     el('div', 'tut-bar',
       el('button', { type: 'button', class: 'tut-btn', id: 'tutMute', 'aria-pressed': 'false', onclick: toggleMute }, ico('speaker', 16), el('span', '', 'Mute mic')),
       el('form', { class: 'tut-type', onsubmit: (e) => { e.preventDefault(); const i = e.target.querySelector('input'); const t = i.value.trim(); i.value = ''; if (t) { stopListening(); turn(t); } } },
-        el('input', { placeholder: 'Or type to J.A.R.V.I.S.…', 'aria-label': 'Type a message', autocomplete: 'off' })),
+        el('input', { placeholder: 'Or type to Eden…', 'aria-label': 'Type a message', autocomplete: 'off' })),
       el('button', { type: 'button', class: 'tut-btn end', onclick: closeTutor }, 'End')));
   document.body.append(T.root);
   addEventListener('keydown', onKey);
@@ -81,8 +81,8 @@ function setMini(on) {
     let pos = null;
     try { pos = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch { /* default */ }
     place(pos ? pos.x : innerWidth - 104, pos ? pos.y : innerHeight - 124);
-    orb.setAttribute('aria-label', 'J.A.R.V.I.S. (tap to open the conversation, drag to move)');
-    orb.title = 'J.A.R.V.I.S. · tap to open, drag to move';
+    orb.setAttribute('aria-label', 'Eden (tap to open the conversation, drag to move)');
+    orb.title = 'Eden · tap to open, drag to move';
   } else {
     T.root.style.removeProperty('left'); T.root.style.removeProperty('top');
     orb.title = '';
@@ -309,7 +309,7 @@ async function turn(text) {
   if (grounding && grounding.sources && grounding.sources.length) $('tutSrc').replaceChildren(groundingStrip(grounding, T.course.id));
   T.history.push({ role: 'user', content: text }, { role: 'assistant', content: stripSources(answer) });
   if (T.chat && T.save) {
-    T.chat.messages.push({ role: 'user', text }, { role: 'assistant', text: answer, grounding, meta: 'Spoken with J.A.R.V.I.S.' });
+    T.chat.messages.push({ role: 'user', text }, { role: 'assistant', text: answer, grounding, meta: 'Spoken with Eden' });
     T.chat.updated = Date.now();
     T.save(T.chat);
   }
@@ -390,7 +390,7 @@ async function pump() {
   }
   T.playhead = at;
   const done = () => { if (T.queue[0] === job) T.queue.shift(); T.playing = false; if (T.queue.length) pump(); else afterSpeaking(); };
-  if (job.failed && !job.chunks.length) { // no J.A.R.V.I.S. voice: the browser's own reads this phrase
+  if (job.failed && !job.chunks.length) { // no Eden voice: the browser's own reads this phrase
     if (!window.speechSynthesis) { done(); return; }
     const u = new SpeechSynthesisUtterance(job.text);
     const v = speechSynthesis.getVoices().find((x) => /en-GB/i.test(x.lang) && /daniel|arthur|male|google uk/i.test(x.name)) || speechSynthesis.getVoices().find((x) => /en-GB/i.test(x.lang));
