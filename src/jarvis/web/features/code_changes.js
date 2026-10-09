@@ -1,4 +1,4 @@
-// Jarvis Code's Changes pane, drawn by the diff view (code_diff.js) in place of the old one:
+// Eden Code's Changes pane, drawn by the diff view (code_diff.js) in place of the old one:
 // what this session changed (in a shared folder, only the hunks its own edits made; in its
 // isolated copy, everything since the copy began), as this turn, this session or the whole
 // branch; each hunk numbered as voice counts them ("undo change 3"), with Keep and Undo;

@@ -1,4 +1,4 @@
-/* Logbook (features/code-logbook.js): Jarvis Code as a ship's log, under the Obsidian look
+/* Logbook (features/code-logbook.js): Eden Code as a ship's log, under the Obsidian look
    only. Every rule but the first block is scoped to body[data-skin="obsidian"], and every
    colour is one of obsidian.css's tokens (--ink, --ink-2, --muted, --ob-*), so graphite and
    porcelain (data-tone="light") both follow. Arc is alive (running, focused, edits), brass

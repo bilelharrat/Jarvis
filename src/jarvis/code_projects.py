@@ -1,4 +1,4 @@
-"""Jarvis Code's projects beyond the projects folder, and the settings kept with them
+"""Eden Code's projects beyond the projects folder, and the settings kept with them
 (features.code_sessions): more folders of projects (roots), single folders opened one by one,
 each project's own defaults for new sessions, saved prompts (snippets) and sidebar groups.
 
@@ -11,6 +11,7 @@ reason, the same as a session's own folder is (tasks.TaskManager.resolve_dir).
 from __future__ import annotations
 
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ GROUPS_MAX = 30
 HOME_FOLDERS = (
     "Desktop", "Documents", "Downloads", "Library", "Movies", "Music", "Pictures", "Public",
     "Applications", "iCloud Drive", ".Trash",
+    # (a PC's: the folders Windows adds to a home, and where its apps keep their data)
+    "Videos", "AppData", "OneDrive", "Favorites", "Links", "Contacts", "Saved Games", "Searches",
 )  # fmt: skip
 MODES = ("plan", "ask", "edits", "smart", "auto")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -34,6 +37,18 @@ SNIPPET_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 MODEL_REF = re.compile(r"[\w.:\-/@]{1,200}")
 # Per-project settings other features may add (auto-verify, say): key -> its clean().
 EXTRA_DEFAULTS: dict[str, Any] = {}
+
+
+def in_app_data(home: Path, path: Path) -> bool:
+    """Inside the home's AppData (a PC's Library: its programs' settings and caches), apart from the temp
+    folder, where a scratch project may well be."""
+    if (home / "AppData") not in path.parents:
+        return False
+    try:
+        temp = Path(tempfile.gettempdir()).resolve()
+    except OSError:
+        return False
+    return not (path == temp or temp in path.parents)
 
 
 def folder_problem(
@@ -44,20 +59,28 @@ def folder_problem(
     gone for now, on a disk that isn't there, stays kept)."""
     if not isinstance(raw, str) or not raw.strip() or "\x00" in raw or len(raw) > 1000:
         return None, "That isn't a folder."
-    if not raw.strip().startswith(("/", "~")):
+    if not (raw.strip().startswith("~") or Path(raw.strip()).is_absolute()):
         return None, "Pick a folder in your home folder."  # a whole path, never a relative one
     home = (home or Path.home()).resolve()
     try:
         path = Path(raw.strip()).expanduser().resolve()
     except (OSError, RuntimeError):
         return None, "That folder can't be found."
-    broad = {home, Path("/")} | {home / n for n in HOME_FOLDERS}
+    broad = {home, Path("/"), Path(path.anchor)} | {home / n for n in HOME_FOLDERS}
     if path in broad:
-        return None, f"{path.name or '/'} is too broad for a project: pick a folder inside it."
+        return (
+            None,
+            f"{path.name or path.anchor or '/'} is too broad for a project: pick a folder inside it.",
+        )
     if home not in path.parents:
         return None, "Pick a folder in your home folder."
     # (~/.ssh itself isn't a credential, but everything in it is.)
-    if (home / "Library") in path.parents or is_sensitive(path) or is_sensitive(path / "_"):
+    if (
+        (home / "Library") in path.parents
+        or in_app_data(home, path)
+        or is_sensitive(path)
+        or is_sensitive(path / "_")
+    ):
         return None, "That folder holds private settings or keys, so it can't be a project."
     if must_exist:
         try:

@@ -9,6 +9,7 @@ import { api } from './api.js';
 import { routeSettings, settingsSig, currentOverride, modelInfo } from './router.js';
 import { endTurnOverride, resolveOpenGroups, setCompareTurns } from './compare.js';
 import { privacyBody, privacyOn } from './privacy.js';
+import { autoSearchMode } from './autosearch-rules.js';
 import { macBody, macEvent } from './files.js';
 import { codeKnowledge } from './knowledge.js';
 import { learnedBody } from './learned.js';
@@ -33,6 +34,7 @@ export function ensureConversation() {
     state.draftPersona = undefined;
     // the mode picked before the chat existed goes with its first message (Search, Compare…)
     if (state.pendingMode && state.pendingMode !== 'chat') c.mode = state.pendingMode;
+    if (state.pendingChatPinned) { c.chatPinned = true; state.pendingChatPinned = false; } // Chat picked on purpose: no auto-search
     addConversation(c);
     state.current = c;
     store.set('jchat:current', c.id);
@@ -187,6 +189,17 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   if (refusalRetry) node.notes.push(`Retried with ${refusalRetry.name} — the first model declined`);
   const ov = override || currentOverride();
   const sig = settingsSig();
+  // Auto-search: a plain Chat message that needs current information goes as a Search one (autosearch-rules.js; no model call).
+  // Never in a temporary or private chat, a course, with attachments, when turned off in Settings › Routing, or when Chat was picked on purpose.
+  if ((node.mode || 'chat') === 'chat' && !node.autoSearched) {
+    const m = autoSearchMode({
+      text: user.content || '', mode: 'chat', enabled: state.settings.autoSearch !== false, temp: !!c.temp, privacy: privacyOn(c),
+      pinnedChat: !!c.chatPinned || !!c.course, hasImages: !!(user.attachments && user.attachments.length),
+      searchAvailable: !(state.meta && state.meta.search && state.meta.search.available === false),
+      override: Boolean(ov && (modelInfo(ov.model) || {}).provider === 'kimi'),
+    });
+    if (m === 'search') { node.mode = 'search'; node.autoSearched = true; }
+  }
   const p = persona(c.personaId);
   await fillScopes(user); // @calendar / @mail: this week's events / the recent inbox, read when the message is sent
   const ctx = contextFor(c, user);
@@ -203,6 +216,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     ...(!ov && c.lastRoute && c.lastRoute.sig === sig ? { sticky: { model: c.lastRoute.model, effort: c.lastRoute.effort } } : {}),
     ...(sys ? { system: sys } : {}), // the persona's, plus the Google tools when connected (or the Connect hint)
     ...(ctx.length ? { context: ctx } : {}),
+    ...(c.course ? { course: c.course.id } : {}), // Eden for Education: answered from the course's materials (courses.js)
     ...learnedBody(), // H2 on askeden.com: the profile's per-class adjustments (numbers only)
     ...autopilotBody(), // H3: `autopilot: false` for "Use my level this time"
     ...(refusalRetry ? { refusalRetry: true } : {}), // a refusal's one retry: never retried again
@@ -243,10 +257,11 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
             node.notes.push(`${m ? m.name : (d.from && d.from.model) || 'The pick'} failed (${d.reason || 'error'}); retried on the next choice.`);
             break;
           }
-          case 'refusal': node.refusal = d; break; // the model declined (server refusal.js): retried below, or a "Try another model" button (render.js)
           case 'error': node.error = d.message || 'The turn failed.'; break;
           // H8: what the turn read from outside (guard.js source strip), and actions the server's gate holds for the owner
           case 'provenance': node.provenance = d; break;
+          case 'refusal': node.refusal = d; break; // the model declined (server refusal.js): retried below, or a "Try another model" button (render.js)
+          case 'grounding': node.grounding = d; break; // a course reply's quotes, checked (courses.js groundingStrip)
           case 'memory': node.memory = d; break; // "Memory updated" chip under the reply (render.js), opens Settings › Memory
           case 'approval': (node.approvals = node.approvals || []).push(d); break;
           case 'mac': macEvent(c, node, d); break; // what the turn read on the Mac (files.js cards)

@@ -1,4 +1,4 @@
-/* Jarvis Code: a session waiting out Claude's usage limit, in its header, and the setting's select. */
+/* Eden Code: a session waiting out Claude's usage limit, in its header, and the setting's select. */
 
 .jcx-limit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 3px; padding: 2px 4px 2px 9px; border-radius: 999px; font-size: 11.5px; color: rgb(var(--c-warning-ink)); background: rgb(var(--c-warning-soft)); width: fit-content; max-width: 100%; }
 .jcx-limit[hidden] { display: none; }

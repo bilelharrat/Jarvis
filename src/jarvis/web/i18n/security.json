@@ -33,16 +33,16 @@
       "要把文件上传到 $1 吗？"
     ],
     [
-      "^Jarvis Code in (.+?) wants to type into (.+)$",
-      "$1 中的 Jarvis Code 想在 $2 里输入内容"
+      "^Eden Code in (.+?) wants to type into (.+)$",
+      "$1 中的 Eden Code 想在 $2 里输入内容"
     ],
     [
-      "^Jarvis Code in (.+?) wants to open (.+) in the browser$",
-      "$1 中的 Jarvis Code 想在浏览器中打开 $2"
+      "^Eden Code in (.+?) wants to open (.+) in the browser$",
+      "$1 中的 Eden Code 想在浏览器中打开 $2"
     ],
     [
-      "^Jarvis Code in (.+?) wants to click on (.+)$",
-      "$1 中的 Jarvis Code 想在 $2 上点按"
+      "^Eden Code in (.+?) wants to click on (.+)$",
+      "$1 中的 Eden Code 想在 $2 上点按"
     ],
     [
       "^Send this in (.+)\\?$",

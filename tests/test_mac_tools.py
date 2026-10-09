@@ -209,3 +209,28 @@ async def test_snap_window_keeps_a_window_on_its_own_display(calls, monkeypatch)
     assert calls[-1][0][2:] == ("0", "38", "1512", "944")
     bad = await mac_tools.snap_window.handler({"app": "Safari", "position": "full", "display": 3})
     assert bad["is_error"] and "no display 3" in bad["content"][0]["text"]
+
+
+def test_a_running_app_is_found_by_its_process_name_on_a_pc(monkeypatch):
+    class Process:
+        def __init__(self, name):
+            self.info = {"name": name}
+
+    monkeypatch.setattr(mac_tools.osplat, "IS_WIN", True)
+    import psutil
+
+    monkeypatch.setattr(
+        psutil, "process_iter", lambda attrs=None: iter([Process("Spotify.exe"), Process(None)])
+    )
+    assert mac_tools.app_running("Spotify") and mac_tools.app_running("spotify")
+    assert not mac_tools.app_running("Calendar")
+
+
+def test_without_pgrep_nothing_is_running(monkeypatch):
+    monkeypatch.setattr(mac_tools.osplat, "IS_WIN", False)
+
+    def missing(*_a, **_k):
+        raise FileNotFoundError("pgrep")
+
+    monkeypatch.setattr(mac_tools.subprocess, "run", missing)
+    assert mac_tools.app_running("Calendar") is False

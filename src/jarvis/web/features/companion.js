@@ -13,7 +13,7 @@
   // What each phone can be sent (jarvis.companion DEFAULT_SETTINGS), in Settings' words.
   const KINDS = [
     ['approvals', 'Approvals', 'Cards waiting on your yes, with Allow and No on the Lock Screen'],
-    ['code', 'Jarvis Code', 'A session finished or stopped'],
+    ['code', 'Eden Code', 'A session finished or stopped'],
     ['delegations', 'Conversations', 'One Jarvis holds for you needs you'],
     ['calls', 'Calls', 'How a call went, and calls to the Jarvis number'],
   ];

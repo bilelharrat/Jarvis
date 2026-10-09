@@ -1,5 +1,5 @@
 """Files and the clipboard, with undo (the "file_actions" tool server; jarvis.file_actions
-does the work and keeps the undo log):
+does the work and keeps the undo log; on a PC the Trash is the Recycle Bin, winfiles.py):
 
 - move_files, rename_file, trash_files: unasked only when the owner's own words this turn
   asked for exactly that, naming the files (and the folder they go to, or the new name);
@@ -26,8 +26,8 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from .. import lang
-from ..file_actions import CLIPBOARD_LIMIT, FileActions, Refused
+from .. import lang, osplat
+from ..file_actions import CLIPBOARD_LIMIT, FileActions, Refused, bin_name
 from ..mac_gate import MacGate, asks, asks_zh, names_file
 
 log = logging.getLogger("jarvis")
@@ -49,6 +49,7 @@ PROMPT = (
     "read_clipboard and copy_to_clipboard read and set the clipboard's text; after a copy, "
     "undo_file_action puts back what was there."
 )
+PROMPT_PC = PROMPT.replace("Trash is never permanent", "The Recycle Bin is never emptied by me")
 ASKED = {
     "move": asks(
         r"(?:move|put|file|drag|shift|transfer|stick)\s+.{1,160}?\s+(?:in|into|to|onto|under)\s+\S"
@@ -95,16 +96,19 @@ TEXTS = {
     "Rename “{name}” to “{new}”?": "要把“{name}”重命名为“{new}”吗？",
     "Move “{name}” to the Trash?": "要把“{name}”移到废纸篓吗？",
     "Move {n} items to the Trash?": "要把 {n} 项移到废纸篓吗？",
+    "Move “{name}” to the Recycle Bin?": "要把“{name}”移到回收站吗？",
+    "Move {n} items to the Recycle Bin?": "要把 {n} 项移到回收站吗？",
     "Put this on the clipboard?": "要把这段文字放到剪贴板吗？",
 }
 DETAIL_TEXTS = {
     "You can undo this: say “undo that”.": "可以撤销：说“撤销”即可。",
     "Nothing is deleted for good: it all goes to the Trash, and you can say “undo that”.": "不会永久删除：全部放进废纸篓，你也可以说“撤销”。",
+    "Nothing is deleted for good: it all goes to the Recycle Bin, and you can say “undo that”.": "不会永久删除：全部放进回收站，你也可以说“撤销”。",
 }
 lang.add_texts({**TEXTS, **DETAIL_TEXTS})
 MOVE_CHOICES = ("Move", "Don't move")
 RENAME_CHOICES = ("Rename", "Don't rename")
-TRASH_CHOICES = ("Move to Trash", "Keep")
+TRASH_CHOICES = ("Move to Recycle Bin" if osplat.IS_WIN else "Move to Trash", "Keep")
 COPY_CHOICES = ("Copy", "Don't copy")
 CARD_TEXT = 600  # of a copy's text, shown on its card
 
@@ -221,22 +225,25 @@ class Files:
             return _error(str(exc))
         asked = self.gate.asked(ASKED["trash"], ASKED_ZH["trash"]) and self._named(paths)
         if len(paths) == 1:
-            question = f"Move “{paths[0].name}” to the Trash?"
+            question = f"Move “{paths[0].name}” to the {bin_name()}?"
         else:
-            question = f"Move {len(paths)} items to the Trash?"
+            question = f"Move {len(paths)} items to the {bin_name()}?"
         detail = "\n".join(str(p) for p in paths[:20])
         if len(paths) > 20:
             detail += f"\n… and {len(paths) - 20} more"
-        detail += "\n\nNothing is deleted for good: it all goes to the Trash, and you can say “undo that”."
+        detail += (
+            f"\n\nNothing is deleted for good: it all goes to the {bin_name()}, "
+            "and you can say “undo that”."
+        )
         if not await self.gate.own_words(asked, question, detail, choices=TRASH_CHOICES):
-            return _error("The user said no. Nothing went to the Trash.")
+            return _error(f"The user said no. Nothing went to the {bin_name()}.")
         try:
             record = await asyncio.to_thread(self.actions.trash, paths)
         except OSError as exc:
-            return _error(f"The Trash refused it: {exc.strerror or exc}")
+            return _error(f"The {bin_name()} refused it: {exc.strerror or exc}")
         return _text(
             f"Moved {len(record.items)} {'item' if len(record.items) == 1 else 'items'} to the "
-            f"Trash. (Change {record.id}: undo_file_action takes it back out.)"
+            f"{bin_name()}. (Change {record.id}: undo_file_action takes it back out.)"
         )
 
     async def undo(self, record_id: str = "") -> dict[str, Any]:
@@ -259,7 +266,9 @@ class Files:
                 f" and {len(r.items) - 1} more" if len(r.items) > 1 else ""
             )
             if r.kind == "trash":
-                rows.append(f"- [{r.id}] {r.at[:16].replace('T', ' ')} moved {what} to the Trash")
+                rows.append(
+                    f"- [{r.id}] {r.at[:16].replace('T', ' ')} moved {what} to the {bin_name()}"
+                )
             elif r.kind == "rename":
                 rows.append(
                     f"- [{r.id}] {r.at[:16].replace('T', ' ')} renamed {what} to {Path(first['to']).name}"
@@ -329,8 +338,8 @@ def build_server(desk: Files):
 
     @tool(
         "trash_files",
-        "Move files or folders to the Trash (never deleted for good; undo_file_action takes "
-        "them back out). paths: full paths, one per line. Only when the user asked.",
+        f"Move files or folders to the {bin_name()} (never deleted for good; undo_file_action "
+        "takes them back out). paths: full paths, one per line. Only when the user asked.",
         {"paths": str},
     )
     async def trash_files(args):
@@ -380,11 +389,14 @@ def build_server(desk: Files):
 def install(hub: Any) -> None:
     desk = Files(hub)
     hub.file_actions = desk
+    labels = (
+        {**LABELS, "trash_files": "Moved files to the Recycle Bin"} if osplat.IS_WIN else LABELS
+    )
     hub.register_server(
         SERVER,
         lambda: build_server(desk),
-        prompt=PROMPT,
-        labels=LABELS,
+        prompt=PROMPT_PC if osplat.IS_WIN else PROMPT,
+        labels=labels,
         # What was moved, renamed, copied or undone: JARVIS's own words about the files the
         # owner named. The clipboard's text and the list of changes are the owner's data.
         quiet=("move_files", "rename_file", "trash_files", "undo_file_action", "copy_to_clipboard"),

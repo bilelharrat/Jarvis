@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from ... import lang
+from ... import lang, osplat
 from ... import prefs as prefs_module
 from ...proactive import Alert
 from . import audit, backup, diagnostics, doctor, permissions
@@ -116,7 +116,7 @@ class Ops:
     def logs(self) -> Path:
         if self._logs is not None:
             return self._logs
-        return self.home / "Library" / "Logs" / "Jarvis"
+        return osplat.logs_dir(self.home)
 
     def backup_folder(self) -> Path:
         chosen = self.hub.prefs.feature("ops_backup_folder") or ""
@@ -256,7 +256,10 @@ class Ops:
 
     async def _open(self, url: str) -> None:
         try:
-            await self.run("open", url, timeout=10)
+            if osplat.IS_WIN:
+                osplat.open_target(url)
+            else:
+                await self.run("open", url, timeout=10)
         except (OSError, TimeoutError) as exc:
             log.warning("couldn't open System Settings (%s)", exc)
 
@@ -790,7 +793,10 @@ class Ops:
         if path.parent not in places or not path.is_file() or path.is_symlink():
             return
         with contextlib.suppress(OSError, TimeoutError):
-            await self.run("open", "-R", str(path), timeout=10)
+            if osplat.IS_WIN:
+                osplat.open_target(str(path), reveal=True)
+            else:
+                await self.run("open", "-R", str(path), timeout=10)
 
     # ── by voice ──
 

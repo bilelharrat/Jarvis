@@ -1,4 +1,4 @@
-// Jarvis Code sessions in the app itself: the Dock's badge counts the sessions waiting on
+// Eden Code sessions in the app itself: the Dock's badge counts the sessions waiting on
 // an answer from you (the window's agent board sends the count), and Open folder… has a
 // folder picker of its own, titled for what it's for.
 //

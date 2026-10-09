@@ -1,4 +1,4 @@
-"""Round 2 of the stress pass on the Jarvis Code backend (tasks.py, session_store,
+"""Round 2 of the stress pass on the Eden Code backend (tasks.py, session_store,
 features/code_sessions, worktrees and features/code_isolation, code_handoff, code_bestof
 and the composer's ! commands): each test is a break the stress harness
 (scripts/stress_r2_code_sessions.py) found, cut down to a fast, deterministic case that

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Eden Code</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Eden Code drives Xcode, the iOS Simulator and your terminal when a session you started asks to.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A website in Eden Code’s built-in browser gets the camera only after you allow that site, as for a video call.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Eden Code opens the dev servers your sessions start and checks their pages on this Mac.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A website in Eden Code’s built-in browser gets your location only after you allow that site.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>A website in Eden Code’s built-in browser gets your location only after you allow that site.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Eden Code listens only when you start voice coding or dictation, and stops when you do.</string>
+</dict>
+</plist>

@@ -1,11 +1,11 @@
 """The companion API beyond remote.py's own calls (the contract both apps follow): push
-tokens, Jarvis Code, what came in, conversations, spending and routines, and what the
+tokens, Eden Code, what came in, conversations, spending and routines, and what the
 phone brings: its location, things shared to the Mac, its health days and photos. Every
 route goes through remote.Gate: the phone's own token (401), its budget for that kind of
 call (429), and a cap on what's read (413), before anything is done.
 
 What goes to the phone is the owner's own (over the pinned HTTPS connection), capped:
-Jarvis Code's transcript entries at 4,000 characters with tool output summed up, a diff
+Eden Code's transcript entries at 4,000 characters with tool output summed up, a diff
 at 40 files of 20 hunks of 200 lines (a credential file listed, never shown), what came
 in as short summaries with links and codes taken out.
 
@@ -88,11 +88,11 @@ def _line(text: Any, limit: int) -> str:
     return " ".join(str(text or "").split())[:limit]
 
 
-# ── Jarvis Code ──
+# ── Eden Code ──
 
 
 def public_approval(card: dict[str, Any]) -> dict[str, Any]:
-    """A card as the phone shows it, JARVIS's or a Jarvis Code session's."""
+    """A card as the phone shows it, JARVIS's or an Eden Code session's."""
     task_id = card.get("task_id")
     out: dict[str, Any] = {
         "id": card.get("id"),
@@ -611,7 +611,7 @@ class Api:
         self.companion.emit_status()
         return JSONResponse({"ok": True})
 
-    # ── Jarvis Code ──
+    # ── Eden Code ──
 
     def _session(self, value: Any) -> Any:
         task = self.hub.tasks.tasks.get(_int(value) or 0)

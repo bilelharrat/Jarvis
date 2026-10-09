@@ -1,4 +1,4 @@
-"""Jarvis Code's composer features, as in Claude Code: steering, Auto mode, ultracode, more
+"""Eden Code's composer features, as in Claude Code: steering, Auto mode, ultracode, more
 folders, plugins, connectors per session, and another provider's model."""
 
 import asyncio

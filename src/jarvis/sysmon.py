@@ -21,6 +21,8 @@ from typing import Any
 
 import psutil
 
+from . import osplat
+
 HISTORY = 180  # samples: six minutes at one every two seconds
 TOP_PROCESSES = 30
 ENERGY_EVERY = 10.0  # s
@@ -67,7 +69,7 @@ def _libc_sysctl() -> Any:
 
         try:
             fn = ctypes.CDLL(None).sysctlbyname
-        except (OSError, AttributeError):  # not a Mac (nor a BSD)
+        except (OSError, AttributeError, TypeError):  # not a Mac (nor a BSD; a PC says TypeError)
             fn = False
         else:
             fn.argtypes = [
@@ -88,6 +90,8 @@ def memory_pressure() -> int | None:
     than by starting `sysctl` each time; the command only where libc has no sysctlbyname."""
     sysctlbyname = _libc_sysctl()
     if not sysctlbyname:
+        if osplat.IS_WIN:  # no sysctl on a PC: how full memory is is the same measure
+            return round(psutil.virtual_memory().percent)
         out = _run("sysctl", "-n", "kern.memorystatus_level").strip()
         return 100 - int(out) if out.isdigit() else None
     import ctypes
@@ -192,7 +196,7 @@ class SystemMonitor:
         battery = psutil.sensors_battery()
         point = {
             "t": round(now, 1),
-            "user": round(times.user + times.nice, 1),
+            "user": round(times.user + getattr(times, "nice", 0.0), 1),
             "system": round(times.system, 1),
             "pressure": memory_pressure(),
             "mem_used": mem.total - mem.available,
@@ -213,7 +217,7 @@ class SystemMonitor:
             times = psutil.cpu_times_percent(interval=None)
             procs = self._processes()
             out["cpu"] = {
-                "user": round(times.user + times.nice, 1),
+                "user": round(times.user + getattr(times, "nice", 0.0), 1),
                 "system": round(times.system, 1),
                 "idle": round(times.idle, 1),
                 "cores": psutil.cpu_percent(percpu=True),

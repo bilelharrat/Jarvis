@@ -1,6 +1,6 @@
 """Secrets in code about to be committed or pushed.
 
-Before Jarvis Code commits (the Git panel, landing an isolated copy) or pushes, the lines
+Before Eden Code commits (the Git panel, landing an isolated copy) or pushes, the lines
 being added are checked for keys and tokens: known formats (AWS, GitHub, Slack, Stripe,
 Google, Anthropic, OpenAI, private keys and more), passwords in URLs, and long,
 random-looking values given to names like api_key or secret (the entropy check). A

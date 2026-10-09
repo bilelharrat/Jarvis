@@ -21,7 +21,7 @@ with uv, and Python and web edits still need no rebuild.
   in with their claude.ai subscription, so the app people download signs in with the user's
   own API key: console.anthropic.com › API keys, pasted once in Setup's Claude step. Claude
   is then billed to their Anthropic account, and the key stays in their Keychain (JARVIS
-  and Jarvis Code read it through an apiKeyHelper; it's never in an environment variable or
+  and Eden Code read it through an apiKeyHelper; it's never in an environment variable or
   a file).
 - **Permissions**, as macOS asks for them (Setup's Permissions step lists them with their
   state): Microphone, Calendars, Contacts, Location, Automation (Mail, Calendar, Notes,
@@ -54,12 +54,10 @@ The Mac that builds needs Xcode (for swiftc), uv with its own CPython 3.12 and t
    # … "Developer ID Application: Bilel Harrat (8CV4X23Y2T)"
    ```
 
-   Until it exists, the old certificate still signs: `JARVIS_SIGN_IDENTITY="Developer ID
-   Application: Robert Parker (9ZSY5R8A5C)"` (and `--team-id 9ZSY5R8A5C` for its notary
-   profile in step 3). Local builds (`npm run package`, `app/scripts/finish-app.sh`) sign with
-   the first certificate of team 8CV4X23Y2T (an Apple Development one will do);
-   `JARVIS_TEAM_ID=9ZSY5R8A5C` picks the old team instead. Changing team changes the app's
-   identity, so macOS asks once more for its permissions.
+   Everything is signed by team 8CV4X23Y2T (bilel.harrat@icloud.com) only: `npm run dist`
+   refuses any other team's certificate, and local builds (`npm run package`,
+   `app/scripts/finish-app.sh`) sign with the first certificate of team 8CV4X23Y2T (an Apple
+   Development one will do) and refuse a signature from any other team.
 
 2. **Make a credential for Apple's notary service**, one of:
    - an app-specific password: account.apple.com › Sign-In and Security › App-Specific

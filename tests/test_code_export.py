@@ -1,4 +1,4 @@
-"""Jarvis Code's full export (code_export, features/code_export): the whole session from
+"""Eden Code's full export (code_export, features/code_export): the whole session from
 Claude Code's record, every step's input and output and the thinking, as a page or a PDF;
 share-safe with secrets blanked out and pictures left out; paths hidden when asked."""
 
@@ -275,4 +275,4 @@ def test_each_message_says_when_it_was_written():
     shown = render(entries, title="t", project="p")
     local = datetime.fromisoformat("2026-09-30T16:30:00+00:00").astimezone().strftime("%H:%M")
     assert f'<div class="who">You · {local}</div>' in shown
-    assert '<div class="who">Jarvis Code</div>' in shown  # (no time known: none shown)
+    assert '<div class="who">Eden Code</div>' in shown  # (no time known: none shown)

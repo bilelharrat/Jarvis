@@ -30,6 +30,7 @@ function launch({ packaged = true, env = {}, have = [PY] } = {}) {
     home: () => { asked.push('home'); return '/Users/owner/jarvis'; },
     dataDir: '/Users/someone/Library/Application Support/Jarvis',
     exists: (p) => have.includes(p),
+    platform: 'darwin',
   });
   return { how, asked };
 }
@@ -56,7 +57,7 @@ test('the downloadable app runs its bundled Python, never uv or a repo', () => {
 test("the user's own Python settings never reach the bundled backend", () => {
   const env = bundledEnv(
     { PYTHONPATH: '/tmp/evil', PYTHONHOME: '/tmp/other', PYTHONSTARTUP: '/tmp/x.py', PYTHONWARNINGS: 'error', LANG: 'en_US.UTF-8' },
-    { resourcesPath: RES, token: 't', extraPath: [] },
+    { resourcesPath: RES, token: 't', extraPath: [], platform: 'darwin' },
   );
   for (const key of ['PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONWARNINGS']) assert.equal(key in env, false, key);
   assert.equal(env.LANG, 'en_US.UTF-8');
@@ -155,4 +156,21 @@ test('a disk that refuses the log never stops the backend: its lines are dropped
   log.end('kept\n');
   await done;
   assert.equal(fs.readFileSync(file, 'utf8'), 'kept\n');
+});
+
+test('on Windows the bundled Python is python.exe, the PATH is joined with semicolons, and UTF-8 is on', () => {
+  const res = 'C:\\Users\\Ann\\AppData\\Local\\Programs\\Eden Code\\resources';
+  const python = `${res}\\backend\\python\\python.exe`;
+  const how = backendCommand({
+    packaged: true, resourcesPath: res, port: 51234, token: 'tok', extraPath: ['C:\\Program Files\\Git\\cmd'],
+    env: { Path: 'C:\\Windows\\System32', PYTHONPATH: 'C:\\evil', APPDATA: 'C:\\Users\\Ann\\AppData\\Roaming' },
+    uv: () => { throw new Error('uv asked'); }, home: () => { throw new Error('repo asked'); },
+    dataDir: 'C:\\Users\\Ann\\AppData\\Roaming\\Jarvis', exists: (p) => p === python, platform: 'win32',
+  });
+  assert.equal(how.bundled, true);
+  assert.equal(how.command, python);
+  assert.equal(how.env.PATH, 'C:\\Program Files\\Git\\cmd;C:\\Windows\\System32');
+  assert.equal(how.env.PYTHONUTF8, '1');
+  assert.equal('PYTHONPATH' in how.env, false);
+  assert.equal(how.env.JARVIS_APP_DIR, `${res}\\app.asar.unpacked`);
 });

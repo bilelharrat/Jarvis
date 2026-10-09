@@ -1,4 +1,4 @@
-"""Jarvis Code checks its own work: the project's dev servers (a Preview pane, and tools for
+"""Eden Code checks its own work: the project's dev servers (a Preview pane, and tools for
 a session), the check after each turn that changed files (the page, the server's output,
 the checkers, a watch run of the tests; its proof in the transcript), the Tests and
 Problems panes, and more hands for a session: the iOS Simulator's fast bridge (tap, swipe,
@@ -349,7 +349,7 @@ class CodeVerify:
         self.hub.emit("cv_proof", proof=proof, jpeg=jpeg or "", missing=jpeg is None)
 
     def cmd_fix_check(self, msg: dict[str, Any]) -> None:
-        """ "Ask Jarvis Code to fix these" on a check's entry: its findings as the owner's
+        """ "Ask Eden Code to fix these" on a check's entry: its findings as the owner's
         own message."""
         task = self.hub.tasks.tasks.get(_int(msg.get("id")))
         if task is None or task.kind != "code":
@@ -807,7 +807,7 @@ def _int(value: Any) -> int:
 
 def _log_failure(task: asyncio.Task) -> None:
     if not task.cancelled() and task.exception() is not None:
-        log.error("Jarvis Code checks: background work failed", exc_info=task.exception())
+        log.error("Eden Code checks: background work failed", exc_info=task.exception())
 
 
 # ── the session's dev server tools ──

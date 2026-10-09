@@ -1,4 +1,4 @@
-"""The slash commands a Jarvis Code session knows beyond Jarvis's own, for the composer's
+"""The slash commands an Eden Code session knows beyond Jarvis's own, for the composer's
 palette as in Claude Code: the project's and the user's custom commands
 (.claude/commands/*.md) and skills (.claude/skills/<name>/SKILL.md). Typed, they go to the
 session as they are, and Claude Code expands them itself; this only lists them. Also what

@@ -132,7 +132,7 @@ async def test_the_same_video_again_reuses_its_transcript(tmp_path):
     path = media(tmp_path)
     first = await desk.start(str(path))
     await first.task
-    again = await desk.start(f"file://{path}")
+    again = await desk.start(path.as_uri())
     assert again is first and len(calls) == 1
 
 

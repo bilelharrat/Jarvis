@@ -1,4 +1,4 @@
-"""Jarvis Code's terminals and "!" commands, on pseudo-terminals.
+"""Eden Code's terminals and "!" commands, on pseudo-terminals.
 
 Terminals (Shells):
 - Several per project: each is its own login shell on a pseudo-terminal (the workbench's
@@ -26,7 +26,6 @@ import asyncio
 import base64
 import contextlib
 import os
-import pty
 import re
 import signal
 import subprocess
@@ -37,8 +36,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import osplat
 from .packaged import owner_env
-from .workbench import _WITH_TERMINAL, Terminal, _hang_up
+from .workbench import Terminal
+
+if osplat.IS_WIN:
+    _WITH_TERMINAL = ""
+
+    def _hang_up(proc: subprocess.Popen) -> None:
+        osplat.kill_group(proc.pid, force=True)
+else:
+    import pty
+
+    from .workbench import _WITH_TERMINAL, _hang_up
 
 Emit = Callable[..., None]
 SCROLLBACK = 512 * 1024  # bytes of a terminal's output kept for a window that comes back
@@ -164,7 +174,7 @@ class Shells:
             raise ValueError("That's the most terminals at once: close one first.")
         self._n += 1
         term_id = f"t{self._n}"
-        shell_name = Path(os.environ.get("SHELL") or "/bin/zsh").name
+        shell_name = Path(osplat.default_shell()).stem
         taken = {s.title for s in self.of(cwd)}
         n = 1
         while f"{shell_name} {n}" in taken:
@@ -234,7 +244,7 @@ class BangRun:
     def start(self) -> None:
         """Start it (raises OSError when it can't)."""
         master, slave = pty.openpty()
-        shell = os.environ.get("SHELL") or "/bin/zsh"
+        shell = osplat.default_shell()
         env = {**owner_env(os.environ), "TERM": "xterm-256color", "COLORTERM": "truecolor"}
         try:
             self.proc = subprocess.Popen(  # noqa: S603 - the owner's own command, typed as "!…"
@@ -271,6 +281,9 @@ class BangRun:
             self.master = -1
             self.loop.create_task(self._finish())
             return
+        self._took(data)
+
+    def _took(self, data: bytes) -> None:
         self.kept += data
         if len(self.kept) > KEEP:
             del self.kept[: len(self.kept) - KEEP]
@@ -354,12 +367,62 @@ class BangRun:
         return round(time.monotonic() - self._started, 1) if self._started else 0.0
 
 
+class WinBangRun(BangRun):
+    """A "!" command on Windows: the shell's -Command / /c with its output piped back (no
+    pseudo-terminal), cancelled by ending the process tree."""
+
+    def start(self) -> None:
+        import threading
+
+        shell = osplat.default_shell()
+        name = Path(shell).stem.lower()
+        argv = (
+            [shell, "/d", "/s", "/c", self.command]
+            if name == "cmd"
+            else [shell, "-NoLogo", "-NoProfile", "-Command", self.command]
+        )
+        self.proc = subprocess.Popen(  # noqa: S603 - the owner's own command, typed as "!…"
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=str(self.cwd),
+            env={**owner_env(os.environ), "TERM": "xterm-256color"},
+            **osplat.group_popen_kwargs(),
+        )
+        self._started = time.monotonic()
+
+        def pump() -> None:
+            assert self.proc is not None and self.proc.stdout is not None
+            while chunk := self.proc.stdout.read1(65536):
+                self.loop.call_soon_threadsafe(self._took, chunk)
+            self.loop.call_soon_threadsafe(lambda: self.loop.create_task(self._finish()))
+
+        threading.Thread(target=pump, name="jarvis-bang", daemon=True).start()
+
+    async def cancel(self) -> None:
+        if self.proc is None or self.done.done():
+            return
+        self.cancelled = True
+        osplat.kill_group(self.proc.pid, force=True)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(self.done), 5)
+
+    def kill(self) -> None:
+        if self.proc is not None and self.proc.poll() is None:
+            osplat.kill_group(self.proc.pid, force=True)
+
+
+if osplat.IS_WIN:
+    BangRun = WinBangRun  # type: ignore[misc]  # noqa: F811
+
+
 def _wait(proc: subprocess.Popen) -> int | None:
     try:
         return proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
         with contextlib.suppress(OSError):
-            os.killpg(proc.pid, signal.SIGKILL)
+            osplat.kill_group(proc.pid, force=True)
         with contextlib.suppress(Exception):
             return proc.wait(timeout=5)
     return None

@@ -1,4 +1,4 @@
-// Stress test of the Jarvis Code window: long transcripts, floods of events, and switching
+// Stress test of the Eden Code window: long transcripts, floods of events, and switching
 // sessions many times, with every feature module loaded as features.js loads them. Like the
 // window tests: a hidden window, the window's files served on 127.0.0.1, events handed to the
 // window's own onEvent() and featureEvent(), send() recorded instead of sent. No backend, no
@@ -185,7 +185,7 @@ app.whenReady().then(async () => {
     send = (m) => { __sent.push(m); return true; };
     onEvent({ type: 'hello', hub_id: 'hub-stress', state: 'idle', muted: true, status: {}, activity: [], tasks: [],
       prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: {} }, brain: {}, approvals: [], history: [] });
-    window.__task = (id, extra = {}) => ({ id, kind: 'code', folder: 'alpha', label: 'Jarvis Code · alpha', title: 'Session ' + id, prompt: 'Session ' + id,
+    window.__task = (id, extra = {}) => ({ id, kind: 'code', folder: 'alpha', label: 'Eden Code · alpha', title: 'Session ' + id, prompt: 'Session ' + id,
       mode: 'ask', busy: true, status: 'running', files_changed: [], todos: [], background: [], queue: [], last_action: 'Reading a.py', add_dirs: [], plugins: [], ...extra });
     window.__approval = (id, extra = {}) => ({ type: 'approval', id, task_id: 1, tool: 'Bash', question: 'Run this command?', detail: '$ npm test',
       choices: [{ id: 'allow', label: 'Yes' }, { id: 'deny', label: 'No' }], ...extra });

@@ -53,7 +53,7 @@ struct SettingsView: View {
                     } header: {
                         Text("Your Mac")
                     } footer: {
-                        Text("With Jarvis on your Mac paired, this iPhone reaches everything it does: Jarvis Code, your files, mail, iMessage, routines and its own voice.")
+                        Text("With Jarvis on your Mac paired, this iPhone reaches everything it does: Eden Code, your files, mail, iMessage, routines and its own voice.")
                     }
                 }
 
@@ -204,7 +204,7 @@ struct SettingsView: View {
                 }
             }
         } footer: {
-            Text("Approvals, Jarvis Code and heads-ups from your Mac, with Allow, Not now and No, because… right on the notification, here and on your Apple Watch. Allowing needs your iPhone unlocked.")
+            Text("Approvals, Eden Code and heads-ups from your Mac, with Allow, Not now and No, because… right on the notification, here and on your Apple Watch. Allowing needs your iPhone unlocked.")
         }
     }
 

@@ -1,4 +1,4 @@
-// Jarvis Code's video proof, in the app itself (features/code_video.py asks for it through
+// Eden Code's video proof, in the app itself (features/code_video.py asks for it through
 // the window): a short recording of the dev server's page doing its thing after a turn that
 // changed its UI, kept with the turn like the Preview check's picture.
 //

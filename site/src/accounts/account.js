@@ -34,6 +34,7 @@ import { delegateOp, grantAllow, grantGuard, grantView, poolSpend } from './dele
 import { mailDue, mailOp, runAlarms, scheduleJob, unscheduleJob } from './schedule.js';
 import { taskDue, taskOp } from './tasks.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
+import { grantPromo } from './promo.js';
 import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from './stripe-plan.js';
 import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
 
@@ -143,6 +144,7 @@ export class Account {
       switch (op) {
         case 'get': return json(await this.view(device));
         case 'whoami': return json({ account_id: (await this.storage.get('account')).id, device: this.publicDevice(device, device.id) });
+        case 'promo-grant': return json(await grantPromo(this, body)); // a promo code's days, once per code (promo.js)
         case 'delete': return json(await this.deleteAll());
         case 'device-update': return json(await this.updateDevice(device, body));
         case 'device-delete': return json(await this.deleteDevice(device, body.id));
@@ -490,7 +492,7 @@ export class Account {
   // active, until the later one ends (stripe-plan.js combinePlans).
   async planNow() {
     const plan = (await this.storage.get('plan')) || {};
-    return combinePlans(plan, await this.storage.get('stripe_plan'), this.now());
+    return combinePlans(plan, await this.storage.get('stripe_plan'), this.now(), await this.storage.get('promo_plan'));
   }
 
   // A transaction already checked against Apple's chain (storekit.js), for this account.
@@ -572,7 +574,7 @@ export class Account {
     const stripe = (await this.storage.get('stripe_plan')) || {};
     const apple = plan.source === 'app_store' || plan.source === 'both';
     const web = plan.source === 'stripe' || plan.source === 'both';
-    let cap = apple ? caps.legacy : 0;
+    let cap = apple ? caps.legacy : plan.promo ? caps.plus : 0;
     if (web) cap = Math.max(cap, legacyPrice(this.env, stripe.price) ? caps.legacy : caps.plus);
     return cap;
   }

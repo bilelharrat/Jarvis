@@ -19,7 +19,7 @@ to sign in first.
   tells Claude, in the app's note, to look at the page again and carry on. The banner's
   Carry on button asks the same in the owner's words; its × lets it go without asking.
 
-A Jarvis Code session gets the same refusal at a captcha and the same note elsewhere, but no
+An Eden Code session gets the same refusal at a captcha and the same note elsewhere, but no
 banner; on its own app on this Mac (localhost) nothing here applies: signing in there is its
 work.
 

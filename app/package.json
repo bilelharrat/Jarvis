@@ -3,18 +3,24 @@
   "productName": "J.A.R.V.I.S.",
   "version": "0.1.8",
   "private": true,
-  "description": "The Jarvis desktop app: an ambient voice assistant for the Mac.",
+  "description": "The Jarvis desktop app: an ambient voice assistant for the Mac, and Eden Code, its coding app (flavor.js).",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "package": "node scripts/bake-home.js && electron-packager . J.A.R.V.I.S --platform=darwin --arch=arm64 --out=dist --overwrite --icon=build/icon.icns --extend-info=build/extend-info.plist --app-bundle-id=com.bshventures.jarvis --ignore=^/dist --ignore=^/scripts --ignore=^/build && sh scripts/finish-app.sh",
-    "install-app": "npm run package && rm -rf ~/Applications/J.A.R.V.I.S.app && mkdir -p ~/Applications && cp -R dist/J.A.R.V.I.S-darwin-arm64/J.A.R.V.I.S.app ~/Applications/ && open ~/Applications/J.A.R.V.I.S.app",
+    "start:eden-code": "EDEN_CODE=1 electron .",
+    "package": "node scripts/bake-home.js && electron-packager . J.A.R.V.I.S --platform=darwin --arch=arm64 --out=dist --overwrite --icon=build/icon.icns --extend-info=build/extend-info.plist --app-bundle-id=com.bshventures.jarvis --ignore=^/dist --ignore=^/scripts --ignore='^/build/(?!eden-code(/icon-1024\\.png)?$)' && sh scripts/finish-app.sh",
+    "package:eden-code": "node scripts/bake-home.js && node scripts/eden-code/package.js",
+    "install-app": "npm run package && rm -rf ~/Applications/J.A.R.V.I.S.app && mkdir -p ~/Applications && cp -R dist/J.A.R.V.I.S-darwin-arm64/J.A.R.V.I.S.app ~/Applications/ && npm run package:eden-code && rm -rf ~/Applications/'Eden Code.app' && cp -R 'dist/Eden Code-darwin-arm64/Eden Code.app' ~/Applications/ && open ~/Applications/J.A.R.V.I.S.app",
+    "install-eden-code": "npm run package:eden-code && rm -rf ~/Applications/'Eden Code.app' && mkdir -p ~/Applications && cp -R 'dist/Eden Code-darwin-arm64/Eden Code.app' ~/Applications/ && open ~/Applications/'Eden Code.app'",
     "dist": "node scripts/release/dist.js",
+    "dist:eden-code": "node scripts/release/dist.js --eden-code",
+    "dist:win": "node scripts/release/windows.js --eden-code",
     "publish-release": "node scripts/release/publish.js"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
-    "electron": "^44.4.5"
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.18.2",

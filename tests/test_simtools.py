@@ -1,4 +1,4 @@
-"""A Jarvis Code session's iOS Simulator tools: input and pictures through the fast bridge
+"""An Eden Code session's iOS Simulator tools: input and pictures through the fast bridge
 (the pane's when it streams the device, else one of their own), an xcodebuild build that
 installs and launches, and the app's log. The simulator, its bridge and every command are
 faked: nothing here touches a real simulator."""

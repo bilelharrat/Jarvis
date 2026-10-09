@@ -1,4 +1,4 @@
-// Jarvis Code's Git panel (features/code_git.py): the branch (switch, make one, push, which
+// Eden Code's Git panel (features/code_git.py): the branch (switch, make one, push, which
 // asks first), what's staged and what isn't (a file or one hunk at a time), the commit
 // message (written by Claude on request, always editable) and Commit, and the last 50
 // commits. It works on the session's folder (its isolated copy, when it has one) or, with

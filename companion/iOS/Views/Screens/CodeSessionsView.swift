@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Jarvis Code sessions on the Mac: the ones that need you first, then those working, then
+/// Eden Code sessions on the Mac: the ones that need you first, then those working, then
 /// the rest. Refreshes while it's on screen.
 struct CodeSessionsView: View {
     @Environment(AppModel.self) private var model
@@ -17,7 +17,7 @@ struct CodeSessionsView: View {
                     ContentUnavailableView {
                         Label("No sessions", systemImage: "chevron.left.forwardslash.chevron.right")
                     } description: {
-                        Text("Start a Jarvis Code session here or on your Mac, then follow it, answer it and ship it from anywhere.")
+                        Text("Start an Eden Code session here or on your Mac, then follow it, answer it and ship it from anywhere.")
                     } actions: {
                         Button("New Session") { showNew = true }
                             .buttonStyle(PrimaryButtonStyle())
@@ -30,7 +30,7 @@ struct CodeSessionsView: View {
             }
         }
         .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.1)))
-        .navigationTitle("Jarvis Code")
+        .navigationTitle("Eden Code")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: model.pairing?.baseURL) { Task { await load() } }
         .toolbar {

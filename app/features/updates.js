@@ -167,6 +167,15 @@ async function quietMoment({ idleSeconds, windowInFront, backendBusy }) {
 }
 
 function install(ctx) {
+  if (process.platform === 'win32') {
+    // Squirrel.Mac's feed; the Windows build is updated by running a newer installer for now, so
+    // Settings shows the version and says updates are off (the window still asks, and needs an answer).
+    const off = () => ({ version: ctx.app.getVersion(), enabled: false, state: 'off' });
+    ctx.ipcMain.handle(`${CH}state`, (event) => (ctx.fromWindow(event) ? off() : null));
+    ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? off() : null));
+    ctx.ipcMain.handle(`${CH}restart`, () => false);
+    return;
+  }
   const { autoUpdater, net, powerMonitor } = require('electron');
   const feed = ctx.dev ? '' : feedFrom(process.resourcesPath, ctx.app.isPackaged);
   const updater = createUpdater({

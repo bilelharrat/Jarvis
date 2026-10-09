@@ -1,0 +1,44 @@
+/* Screen-reader mode (accessibility.js): a skip link, a visible focus, the list of keys. */
+
+.sr-skip {
+  position: fixed; left: 8px; top: -80px; z-index: 100000;
+  padding: 10px 16px; border-radius: 8px;
+  background: var(--action, #0a84ff); color: #fff; font-weight: 600; text-decoration: none;
+}
+.sr-skip:focus { top: 8px; }
+
+/* A focus ring nobody can miss, for low vision, while screen-reader mode is on. */
+html[data-sr="1"] :focus-visible {
+  outline: 3px solid var(--action, #8fdbff);
+  outline-offset: 2px;
+}
+
+.sr-help {
+  position: fixed; inset: 10% 0 auto 0; margin: 0 auto; width: min(520px, 92vw); z-index: 100001;
+  padding: 20px 24px; border-radius: 14px;
+  background: var(--panel, #1b1d22); color: var(--text, #f2f3f5);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.2));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.sr-help h2 { margin: 0 0 12px; font-size: 1.15rem; }
+.sr-help dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 16px; }
+.sr-help dt { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 600; }
+.sr-help dd { margin: 0; }
+
+/* Settings › Accessibility › Colours: each choice is a sample of the pairing it names, three to a row. */
+#settings .segmented.a11y-swatches, .segmented.a11y-swatches { display: grid; grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; background: none; padding: 0; box-shadow: none; }
+.a11y-swatches button { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 8px; border-radius: 12px; text-align: center; white-space: normal; }
+.a11y-sw { display: grid; place-items: center; height: 44px; border-radius: 8px; font-weight: 700; font-size: 20px; border: 1px solid rgba(128, 128, 128, 0.6); }
+.sw-auto { background: #000; color: #ff0; border-style: dashed; }
+.sw-yellow { background: #000; color: #ff0; }
+.sw-white { background: #000; color: #fff; }
+.sw-yellow-bg { background: #ffe500; color: #000; }
+.sw-yellow-blue { background: #00164d; color: #ff0; }
+.sw-off { background: #2a2c31; color: #ece9e3; }
+
+/* Windows' High Contrast: the system's colours, and edges on what had none. */
+@media (forced-colors: active) {
+  .orb, .chip, .pill, .btn, .switch, .segmented button { border: 1px solid ButtonText; }
+  .switch[aria-checked="true"] { background: Highlight; }
+  .sr-help { border: 2px solid CanvasText; }
+}

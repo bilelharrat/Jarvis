@@ -542,7 +542,7 @@ async def test_code_finished_without_voice_is_a_card_not_speech(
         "task_finished",
         task_kind="code",
         id=1,
-        label="Jarvis Code · x",
+        label="Eden Code · x",
         folder="x",
         status="done",
         elapsed=95,
@@ -682,7 +682,7 @@ async def test_a_spoken_yes_answers_the_question_it_asked(settings, quiet_speake
     await asyncio.sleep(0)
     # A card nobody read out (another session, a connector) a moment later.
     other = asyncio.create_task(
-        hub.request_approval("Jarvis Code in proj wants to run a command", "$ rm -rf build")
+        hub.request_approval("Eden Code in proj wants to run a command", "$ rm -rf build")
     )
     await asyncio.sleep(0)
     await hub.on_heard("Yes, send it.")
@@ -700,7 +700,7 @@ async def test_its_heads_ups_come_back_as_echoes_not_requests(settings, isolated
     hub = await _hands_free_hub(settings, speaker, isolated)
     for heads_up in (
         "Rain starts around three, bring an umbrella.",
-        "Jarvis Code finished in proj. All tests pass.",
+        "Eden Code finished in proj. All tests pass.",
     ):
         await hub._announce(heads_up)
         assert hub.state == "listening"  # the window for "how long will it take?"
@@ -866,7 +866,7 @@ async def test_its_code_mode_greeting_is_not_a_message_for_claude(settings, isol
     hub.voicecode.focus = 1
     hub.voicecode.handle = handle
     greeting = (
-        "Voice coding in proj, ask first. Everything you say now goes to Jarvis Code; say "
+        "Voice coding in proj, ask first. Everything you say now goes to Eden Code; say "
         "exit code mode to stop."
     )
     hub.say(greeting)
@@ -876,7 +876,7 @@ async def test_its_code_mode_greeting_is_not_a_message_for_claude(settings, isol
             break
     assert hub.state == "listening"
     await hub.on_heard(greeting)  # heard back: neither a wake word nor a request
-    await hub.on_heard("Everything you say now goes to Jarvis Code")
+    await hub.on_heard("Everything you say now goes to Eden Code")
     assert handled == []
 
 

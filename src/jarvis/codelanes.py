@@ -1,4 +1,4 @@
-"""Subagent lanes: what each Agent (Task) call in a Jarvis Code session is doing, as a tree
+"""Subagent lanes: what each Agent (Task) call in an Eden Code session is doing, as a tree
 (a subagent may start its own), with its steps, tokens, time and an estimate of its cost,
 and what Claude Code's stop_task needs to stop one while it runs.
 

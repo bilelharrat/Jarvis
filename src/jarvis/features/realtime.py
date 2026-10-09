@@ -49,6 +49,7 @@ from urllib.parse import urlsplit
 
 from .. import jsonstore, lang, realtime
 from .. import prefs as prefs_module
+from ..speech import is_silent
 
 log = logging.getLogger("jarvis")
 
@@ -188,7 +189,7 @@ class Realtime:
         self._task: asyncio.Task | None = None
         self.connect: Any = None  # tests: the socket's connect
         self.urls: dict[str, str] = {}  # tests: the fake server's address, per provider
-        self.muted = lambda: bool(getattr(hub.speaker, "muted", False))
+        self.muted = lambda: is_silent(hub.speaker)
 
     # ── settings ──
 

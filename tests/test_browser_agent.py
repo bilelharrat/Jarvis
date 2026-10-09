@@ -1,5 +1,5 @@
 """The browser agent (jarvis.browser_agent and the purchase guard's act path): snapshots
-with refs, acting by ref, waiting; what JARVIS and Jarvis Code sessions ask before a risky
+with refs, acting by ref, waiting; what JARVIS and Eden Code sessions ask before a risky
 press; and the purchase guard on exactly the elements a ref names. The window is a fake
 that answers the way app/browser-agent.js does."""
 
@@ -273,7 +273,7 @@ async def test_elsewhere_a_session_asks_through_its_card():
     session = CodeSession(tasks, 7)
     assert not await session.press_ok("Publish", {"url": "https://blog.example/new"})
     question, detail, context = tasks.cards[0]
-    assert question == "Jarvis Code in shopfront wants to press “Publish” in the browser"
+    assert question == "Eden Code in shopfront wants to press “Publish” in the browser"
     assert "https://blog.example/new" in detail and context == {"task_id": 7, "tool": "browser"}
     bypass = Tasks(mode="auto")
     assert await CodeSession(bypass, 7).press_ok("Publish", {"url": "https://blog.example/new"})
@@ -751,7 +751,7 @@ async def test_both_screenshot_tools_ask_for_marks_and_full_pages():
     assert hub.browser_call is window
 
 
-# ── Jarvis Code's devtools ──
+# ── Eden Code's devtools ──
 
 
 def test_console_and_requests_read_as_untrusted_lines():

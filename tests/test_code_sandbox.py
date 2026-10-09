@@ -1,4 +1,4 @@
-"""Jarvis Code's sandbox (codesandbox, features.code_sandbox): Bypass and unattended sessions
+"""Eden Code's sandbox (codesandbox, features.code_sandbox): Bypass and unattended sessions
 in Claude Code's sandbox when the switch is on, a session's own choice, the project's
 allowlist, commands that ask until the sandbox is on, and another feature's sandbox left
 alone."""

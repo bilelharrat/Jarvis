@@ -1,4 +1,4 @@
-"""A Jarvis Code session asks the owner for a secret (features/code_secrets.py, secret_run.py),
+"""An Eden Code session asks the owner for a secret (features/code_secrets.py, secret_run.py),
 wired into a real hub with a Keychain kept in memory: the masked card's answer goes to the
 vault, Claude gets only $SECRET_…, its commands get the value through secret_run (which scrubs
 it from their output), a step that would show Claude a file holding it is refused, and

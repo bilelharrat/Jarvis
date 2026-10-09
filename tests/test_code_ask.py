@@ -1,4 +1,4 @@
-"""Claude Code's questions (AskUserQuestion) in Jarvis Code: several options at once for a
+"""Claude Code's questions (AskUserQuestion) in Eden Code: several options at once for a
 question that takes them, an answer in the owner's own words, and the card's free answers
 carried by hub.resolve only where the card offers them."""
 

@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import fcntl
 import html
 import json
 import logging
@@ -63,6 +62,7 @@ from typing import Any, BinaryIO, NamedTuple
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import osplat
 from .computer import is_sensitive
 from .prefs import APP_SUPPORT
 from .proactive import Alert, event_key
@@ -883,7 +883,26 @@ def spoken_age(when: datetime, now: datetime) -> str:
 
 
 def _within(path: str, root: str) -> bool:
+    if osplat.IS_WIN:  # a PC's backslashes, and its disk ignores case
+        path, root = os.path.normcase(path), os.path.normcase(root)
+        return path == root or path.startswith(root.rstrip("\\") + "\\")
     return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _on_another_drive(path: str) -> bool:
+    """A PC: a folder on one of its other drives (D:\\Research, a USB drive), the way a Mac's
+    external drive in /Volumes is; never a drive's top, Windows's own folders, or another person's."""
+    if not osplat.IS_WIN:
+        return False
+    drive, rest = os.path.splitdrive(path)
+    if not drive or drive.startswith("\\\\") or rest.strip("\\/") == "":
+        return False
+    own = [
+        os.environ.get(k, "")
+        for k in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData")
+    ]
+    users = os.environ.get("SystemDrive", "C:") + "\\Users"
+    return not any(folder and _within(path, folder) for folder in [*own, users])
 
 
 def _below(path: str, root: str) -> list[str]:
@@ -1010,7 +1029,7 @@ def _unchanged(item: _Item, known: tuple[int, float, int] | None) -> bool:
 def _open_regular(path: str) -> BinaryIO:
     """Open a plain file for reading, never through a symlink swapped in since it was
     checked, never blocking on a pipe."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = os.open(path, os.O_RDONLY | osplat.O_NOFOLLOW | osplat.O_NONBLOCK | osplat.O_BINARY)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError("not a regular file")
@@ -1226,7 +1245,13 @@ def default_roots(projects_dir: Path | None = None, home: Path | None = None) ->
     """Documents, Desktop, Downloads, iCloud Drive (and the apps' folders in it, as they are
     now) and the projects folder."""
     home = home or Path.home()
-    roots = [home / "Documents", home / "Desktop", home / "Downloads", home.joinpath(*ICLOUD_PARTS)]
+    roots = [*osplat.personal_folders(home), home.joinpath(*ICLOUD_PARTS)]
+    if osplat.IS_WIN and os.path.realpath(home) == os.path.realpath(Path.home()):
+        from . import winfiles
+
+        roots += (
+            winfiles.cloud_roots()
+        )  # OneDrive (the work one too) and Dropbox, wherever they are
     roots += icloud_app_folders(home)
     return [*roots, Path(projects_dir)] if projects_dir else roots
 
@@ -1346,7 +1371,7 @@ class FileIndex:
             return
         try:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+                osplat.lock_file(fd, wait)
             except OSError:  # another process holds it
                 yield False
                 return
@@ -1922,7 +1947,9 @@ class FileIndex:
                 path = os.path.realpath(os.path.expanduser(str(raw)))
             except (OSError, ValueError):
                 continue
-            outside = not (_within(path, self.home) or _within(path, "/Volumes"))
+            outside = not (
+                _within(path, self.home) or _within(path, "/Volumes") or _on_another_drive(path)
+            )
             if outside or path == "/Volumes" or path in wanted:
                 continue
             if self._in_library(path) or _sensitive_dir(path):
@@ -2480,6 +2507,5 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    with contextlib.suppress(OSError):
-        os.nice(10)  # the voice loop comes first
+    osplat.lower_priority()  # the voice loop comes first
     main()

@@ -48,7 +48,7 @@ async def ask_for(hub, task, tool="Bash", detail="$ npm test", **context):
     """A session's permission card, as tasks.py puts it up."""
     pending = asyncio.create_task(
         hub._task_approval(
-            f"Jarvis Code in {task.cwd.name} wants to run a command",
+            f"Eden Code in {task.cwd.name} wants to run a command",
             detail,
             [("allow", "Yes"), ("deny", "No, and tell Claude what to do differently")],
             {"task_id": task.id, "tool": tool, **context},
@@ -156,7 +156,7 @@ async def test_switching_voice_focus_by_number_name_or_project(
     await hub.voicecode.handle("switch to the api project")
     assert hub.voicecode.focus == second.id
     await hub.voicecode.handle("switch to session 42")
-    assert said[-1] == "There's no Jarvis Code session 42."
+    assert said[-1] == "There's no Eden Code session 42."
     close_all(hub)
 
 
@@ -282,10 +282,10 @@ async def test_catch_me_up_tells_what_happened_since_you_last_looked(
         f"Session {one.id} (Add a retry) finished. It changed 2 files: hub.py, test_hub.py. "
         "41 tests passed. It says: I added the retry and a test."
     )
-    assert await hub.ask("catch me up") == "Nothing new in Jarvis Code since you last looked."
+    assert await hub.ask("catch me up") == "Nothing new in Eden Code since you last looked."
     finish(hub, one, "Fixed the typo.")
     await hub.handle({"type": "code_voice_seen", "id": one.id})  # the owner looked at it
-    assert await hub.ask("catch me up") == "Nothing new in Jarvis Code since you last looked."
+    assert await hub.ask("catch me up") == "Nothing new in Eden Code since you last looked."
     close_all(hub)
 
 
@@ -314,9 +314,9 @@ async def test_a_voice_coding_reply_counts_as_heard(settings, quiet_speaker, iso
     finish(hub, task, "Added the retry.")
     assert said[-1] == "Added the retry."  # read out as it finished
     await hub.voicecode.handle("catch me up")
-    assert said[-1] == "Nothing new in Jarvis Code since you last looked."
+    assert said[-1] == "Nothing new in Eden Code since you last looked."
     await hub.voicecode.handle("what did I miss")  # everyday words, while voice coding
-    assert said[-1] == "Nothing new in Jarvis Code since you last looked."
+    assert said[-1] == "Nothing new in Eden Code since you last looked."
     close_all(hub)
 
 
@@ -355,7 +355,7 @@ async def test_the_morning_briefing_gets_a_line_about_the_night(
     finish(hub, one, "Refactored it.", ["/p/a.py"])
     await hub.briefing()
     prompt = hub.client.said[-1]
-    assert "what Jarvis Code did while the user was away" in prompt
+    assert "what Eden Code did while the user was away" in prompt
     assert "“Nightly refactor” in proj: finished, 1 file changed" in prompt
     close_all(hub)
 

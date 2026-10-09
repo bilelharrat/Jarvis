@@ -1,4 +1,4 @@
-"""A reopened Jarvis Code session's history, shown at once: its newest entries read from the
+"""A reopened Eden Code session's history, shown at once: its newest entries read from the
 end of Claude Code's record (code_records.newest_messages), the same as reading it whole
 (tasks.session_history, through the SDK) shows them; the whole read kept until the record
 changes; and a session opening with the newest entries first, then the whole."""

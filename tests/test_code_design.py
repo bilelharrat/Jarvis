@@ -1,4 +1,4 @@
-"""Jarvis Code builds from a design (features/code_design.py), wired into a real hub: a picture
+"""Eden Code builds from a design (features/code_design.py), wired into a real hub: a picture
 sent with "build this" (or through Match a design…), the comparison after the turn (the app's
 pictures faked as the window would send them), the transcript entry, and Refine, one round per
 press of the owner's, up to the match's rounds."""

@@ -23,7 +23,7 @@ import asyncio
 import logging
 import math
 import re
-import subprocess
+import sys
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, fields
@@ -31,7 +31,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import jsonstore, lang
+from . import jsonstore, lang, sounds
 from .proactive import Alert
 from .textclean import clean_text
 
@@ -48,9 +48,9 @@ RING_EVERY = {"timer": 3.0, "alarm": 4.0}  # a sound this often while it rings
 MISSED_SECONDS = 90  # later than this when it's noticed: said as missed, never rung
 RECENT_SECONDS = 600  # one that rang this recently can still be snoozed
 LONGEST_WAIT = 60.0  # the clock looks again at least this often (sleep, clock changes)
-SOUNDS = {
-    "timer": "/System/Library/Sounds/Glass.aiff",
-    "alarm": "/System/Library/Sounds/Sosumi.aiff",
+SOUNDS = {  # (on Windows the names sounds.py makes the tones for)
+    "timer": "timer" if sys.platform == "win32" else "/System/Library/Sounds/Glass.aiff",
+    "alarm": "alarm" if sys.platform == "win32" else "/System/Library/Sounds/Sosumi.aiff",
 }
 _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$")
 
@@ -468,10 +468,7 @@ Notify = Callable[[Alert, bool], Any]  # (alert, speak_if_busy)
 
 def afplay(sound: str) -> None:
     """One sound, not waited for. Nothing to play (no such file, no afplay): nothing."""
-    try:
-        subprocess.Popen(["afplay", sound], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        pass
+    sounds.play(sound)
 
 
 class Timers:

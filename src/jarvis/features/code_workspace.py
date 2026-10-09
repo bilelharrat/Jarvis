@@ -1,4 +1,4 @@
-"""The Jarvis Code workspace: what's around a session besides the conversation.
+"""The Eden Code workspace: what's around a session besides the conversation.
 
 - Pictures in the transcript (cw_media): the owner's attachments and a step's screenshots,
   read from Claude Code's own record of the session (code_records) when a window shows
@@ -240,7 +240,7 @@ class Workspace:
 
 
 def session_of(hub: Any, msg: dict[str, Any]) -> Any:
-    """The Jarvis Code session a window command names (by id), or None (an id that isn't a
+    """The Eden Code session a window command names (by id), or None (an id that isn't a
     number, infinity among them, names none)."""
     task = hub.tasks.tasks.get(_msg_int(msg, "id"))
     return task if task is not None and task.kind == "code" else None
@@ -311,7 +311,7 @@ def hunks(old: str, new: str, context: int = 3) -> list[dict[str, Any]]:
 
 def _log_failure(task: asyncio.Task) -> None:
     if not task.cancelled() and task.exception() is not None:
-        log.error("Jarvis Code workspace: background work failed", exc_info=task.exception())
+        log.error("Eden Code workspace: background work failed", exc_info=task.exception())
 
 
 def install(hub: Any) -> None:

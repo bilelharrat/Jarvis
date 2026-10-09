@@ -54,7 +54,7 @@ export async function run({ lang, code, stdin }, on) {
   const id = ++seq;
   current = { id, on, t0: performance.now() };
   if (ok.runner === 'cloud') return cloudRun(id, { lang, code, stdin }, on);
-  try { await runnerFrame(); } catch (e) { on.out('stderr', `${e.message}\n`); finish(1); return false; }
+  try { await runnerFrame(); } catch (e) { killFrame(); on.out('stderr', `${e.message}\n`); finish(1); return false; } // drop the frame so the next Run tries a fresh one (a rejected `ready` would be reused)
   if (!current || current.id !== id) return false;
   // a backstop if the runner itself stops answering (its own limit is LIMITS.timeMs after start; Python loads first)
   current.backstop = setTimeout(() => { if (current && current.id === id) { killFrame(); on.out('stderr', 'The runner stopped answering.\n'); finish(124, 'timeout'); } }, LIMITS.timeMs + 60000);

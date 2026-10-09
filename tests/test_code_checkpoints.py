@@ -1,4 +1,4 @@
-"""Rewind and undo on a Jarvis Code session reopened from Claude Code's records: its file
+"""Rewind and undo on an Eden Code session reopened from Claude Code's records: its file
 checkpoints come back with its history. (Only its fork points used to, so Rewind said every
 message was too far back.)"""
 

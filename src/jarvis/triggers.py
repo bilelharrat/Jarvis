@@ -1,7 +1,7 @@
 """Routines that start on events instead of a clock: a calendar event starting or ending
 (N minutes before or after it, matching its title), an email arriving from someone or about
 something, a text from a contact, the battery running low or the Mac being plugged in or
-unplugged, arriving at or leaving a place, the Mac waking or being unlocked, a Jarvis Code
+unplugged, arriving at or leaving a place, the Mac waking or being unlocked, an Eden Code
 session finishing. Email rules ("when an email from X arrives, do Y") are routines on the
 mail trigger.
 
@@ -15,7 +15,7 @@ Where each comes from:
 - waking: the wall clock jumping ahead of the monotonic one while the Mac slept; unlocking:
   the login session's lock state (Quartz), polled every few seconds only while a routine
   waits on it;
-- Jarvis Code: the hub's "task_finished" event.
+- Eden Code: the hub's "task_finished" event.
 
 Each trigger has a debounce (it doesn't fire again within N minutes) and a daily cap, and a
 routine that fires during meeting notes waits for them to end. What someone else wrote (an
@@ -161,7 +161,7 @@ def clean_trigger(raw: Any) -> dict[str, Any]:
         return {"type": kind, "what": what}
     status = str(raw.get("status") or "any").strip().lower()
     if status not in ("any", "done", "failed"):
-        raise ValueError("a Jarvis Code trigger is on a session being done, failing, or either")
+        raise ValueError("an Eden Code trigger is on a session being done, failing, or either")
     return {"type": kind, "folder": _words(raw.get("folder"), 80), "status": status}
 
 
@@ -236,10 +236,10 @@ def describe(spec: dict[str, Any], lang: str = "en") -> str:
         if zh:
             where = f"{folder}里的" if folder else ""
             end = {"done": "完成", "failed": "失败"}.get(status, "结束")
-            return f"{where}Jarvis Code 会话{end}时"
+            return f"{where}Eden Code 会话{end}时"
         where = f" in {folder}" if folder else ""
         end = {"done": "finishes its work", "failed": "fails"}.get(status, "finishes")
-        return f"when a Jarvis Code session{where} {end}"
+        return f"when an Eden Code session{where} {end}"
     return ""
 
 
@@ -722,10 +722,10 @@ class TriggerEngine:
         place = trigger.get("place") or "the place"
         return f"Arrived at {place}" if event == "arrive" else f"Left {place}"
 
-    # ── Jarvis Code ──
+    # ── Eden Code ──
 
     def on_session(self, data: dict[str, Any], now: datetime | None = None) -> None:
-        """The hub's "task_finished": a Jarvis Code session done or failed (never one the
+        """The hub's "task_finished": an Eden Code session done or failed (never one the
         owner stopped)."""
         now = now or self.now()
         if data.get("task_kind") != "code" or data.get("status") not in ("done", "failed"):
@@ -739,11 +739,11 @@ class TriggerEngine:
                 continue
             said = " ".join(str(data.get("result") or "").split())[:300]
             verb = "finished" if status == "done" else "failed"
-            context = f"Jarvis Code session {data.get('id')} in {folder} {verb}."
+            context = f"Eden Code session {data.get('id')} in {folder} {verb}."
             if said:
                 context += f" Its last words: “{said}”"
             self._go(
-                routine, Cause("trigger", f"Jarvis Code {verb} in {folder}", context=context), now
+                routine, Cause("trigger", f"Eden Code {verb} in {folder}", context=context), now
             )
 
     def _hook(self, name: str, data: dict[str, Any]) -> None:

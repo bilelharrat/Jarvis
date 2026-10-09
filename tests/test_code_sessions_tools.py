@@ -1,4 +1,4 @@
-"""The tools around Jarvis Code sessions (features.code_sessions): projects beyond the
+"""The tools around Eden Code sessions (features.code_sessions): projects beyond the
 projects folder and their own defaults, the sidebar's groups, /btw, /goal and the board."""
 
 import subprocess

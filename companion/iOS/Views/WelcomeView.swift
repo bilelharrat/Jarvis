@@ -25,7 +25,7 @@ struct WelcomeView: View {
                     }
                     VStack(alignment: .leading, spacing: Space.l) {
                         feature("waveform", .purple, "Just ask", "Say “Hey Jarvis”, press the Action Button, or tap the orb.")
-                        feature("desktopcomputer", .blue, "Everything on your Mac", "Jarvis Code, files, mail, iMessage, routines and approvals, from anywhere.")
+                        feature("desktopcomputer", .blue, "Everything on your Mac", "Eden Code, files, mail, iMessage, routines and approvals, from anywhere.")
                         feature("iphone", .green, "Works on its own", "Calendar, reminders, weather, timers, music, Home and the web, right here.")
                     }
                     .padding(.horizontal, Space.s)

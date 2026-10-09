@@ -1,4 +1,4 @@
-"""Jarvis Code's MCP manager (codemcp): a session's MCP servers in every scope with how each
+"""Eden Code's MCP manager (codemcp): a session's MCP servers in every scope with how each
 is doing, added, removed, approved and signed in to from the MCP servers pane, and JARVIS's
 own connectors (Tools & Accounts: GitHub, Linear, Sentry…) shared into a session with a
 switch of their own.

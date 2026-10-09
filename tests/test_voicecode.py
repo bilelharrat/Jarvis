@@ -273,7 +273,7 @@ async def test_other_sessions_approvals_are_read_out_only_while_voice_coding(
     async def approval() -> None:
         pending = asyncio.create_task(
             hub._task_approval(
-                "Jarvis Code in proj wants to run a command",
+                "Eden Code in proj wants to run a command",
                 "$ npm test",
                 [("allow", "Yes"), ("deny", "No")],
                 {"task_id": task.id, "tool": "Bash"},
@@ -284,10 +284,10 @@ async def test_other_sessions_approvals_are_read_out_only_while_voice_coding(
         await pending
 
     await approval()  # not voice coding: the card and a silent heads-up
-    assert announced == [] and alerts[-1]["title"] == "Jarvis Code needs you"
+    assert announced == [] and alerts[-1]["title"] == "Eden Code needs you"
     await hub.voice_code("other")  # voice coding (in another session): read out
     await approval()
-    assert announced == ["Jarvis Code in proj needs your OK to run a command."]
+    assert announced == ["Eden Code in proj needs your OK to run a command."]
     hub.voicecode.task.handle.cancel()
     task.handle.cancel()
 
@@ -523,7 +523,7 @@ async def test_always_and_no_with_feedback_by_voice(settings, quiet_speaker, iso
 
 
 BASH = {
-    "question": "Jarvis Code in proj wants to run a command",
+    "question": "Eden Code in proj wants to run a command",
     "tool": "Bash",
     "task_id": 1,
     "choices": [
@@ -542,7 +542,7 @@ EDIT = {
     ],
 }
 PLAN = {
-    "question": "Jarvis Code in proj has a plan",
+    "question": "Eden Code in proj has a plan",
     "ask_kind": "plan",
     "task_id": 1,
     "choices": [

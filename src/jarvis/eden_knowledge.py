@@ -332,6 +332,12 @@ class Knowledge:
             from . import embeddings, swift_helper
 
             def make() -> Any:
+                from . import osplat
+
+                if osplat.IS_WIN:
+                    from . import winembed
+
+                    return winembed.embedder()
                 binary = swift_helper.binary_for(embeddings.HELPER)
                 if binary is None or not binary.exists():
                     return None

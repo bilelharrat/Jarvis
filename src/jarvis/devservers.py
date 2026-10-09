@@ -1,4 +1,4 @@
-"""Dev servers for Jarvis Code projects, as in Claude Code's desktop app.
+"""Dev servers for Eden Code projects, as in Claude Code's desktop app.
 
 - Configs: a project's .claude/launch.json (Claude Code desktop's own format) and
   .jarvis/launch.json: {"version": "0.0.1", "configurations": [{"name", "runtimeExecutable",

@@ -1,5 +1,5 @@
 """A window command's session id that isn't a number (null, words, a list, infinity, NaN)
-names no session: Jarvis Code's platform commands (codeplatform.code_task: cr_*, cs_*, cu_*,
+names no session: Eden Code's platform commands (codeplatform.code_task: cr_*, cs_*, cu_*,
 the plugins' and connectors' panes) and an @mention's origin (codepeers) do nothing with it
 and log no traceback, as hub._msg_int reads one."""
 

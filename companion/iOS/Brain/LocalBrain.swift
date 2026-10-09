@@ -734,7 +734,7 @@ final class LocalBrain {
         let honorific = address.map { " Address the owner as \"\($0)\" now and then, not in every reply." }
             ?? " Don't address the owner as sir, madam or any title unless they ask you to."
         let mac = hasMac
-            ? "\nThe owner's Mac (\(macName ?? "their Mac")) runs the full Jarvis, with their files, mail, iMessage, browser, notes and Jarvis Code. Answer everything you can here; use ask_mac only for what needs the Mac (it opens Jarvis there if it was quit). If it can't be reached, say so plainly and offer what you can do here."
+            ? "\nThe owner's Mac (\(macName ?? "their Mac")) runs the full Jarvis, with their files, mail, iMessage, browser, notes and Eden Code. Answer everything you can here; use ask_mac only for what needs the Mac (it opens Jarvis there if it was quit). If it can't be reached, say so plainly and offer what you can do here."
             : "\nThere's no Mac paired, so you work from the iPhone alone. If something needs a computer, say so."
         return """
         You are J.A.R.V.I.S., the owner's personal assistant, running on their iPhone.\(honorific)

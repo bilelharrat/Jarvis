@@ -1,4 +1,4 @@
-// Jarvis Code's Health pane (web/features/code-health.js), its pure helper: what a session's
+// Eden Code's Health pane (web/features/code-health.js), its pure helper: what a session's
 // state reads as. node --test tests/web/
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';

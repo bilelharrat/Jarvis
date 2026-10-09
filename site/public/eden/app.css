@@ -1044,3 +1044,31 @@ body.side-resizing #sidebar{transition:none}
   .msg.assistant:hover > .msg-head,.msg.assistant > .msg-head:focus-within,.msg.assistant.streaming > .msg-head,.msg.assistant > .msg-head:has([aria-expanded="true"]){opacity:1;max-height:240px;overflow:visible;margin-top:6px}
 }
 @media (prefers-reduced-motion:reduce){.msg.assistant > .msg-head{transition:none}}
+
+/* ── the Eden apps (apps-menu.js): Eden's mark in the sidebar's foot opens them ── */
+.side-foot .orb.apps-mark{cursor:pointer;transition:transform .15s var(--spring),box-shadow .15s ease}
+.side-foot .orb.apps-mark:hover{transform:scale(1.06)}
+.side-foot .orb.apps-mark:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.side-foot .orb.apps-mark[aria-expanded="true"]{transform:scale(.96)}
+.apps-pop{position:fixed;z-index:1000;width:min(320px,calc(100vw - 16px));padding:12px;border-radius:var(--r-lg);box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh2);animation:apps-in .18s var(--spring)}
+@keyframes apps-in{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+.apps-head{display:flex;align-items:center;gap:10px;padding:2px 4px 10px}
+.apps-head .orb{width:34px;height:34px}
+.apps-head-txt{display:flex;flex-direction:column;line-height:1.25}
+.apps-head-txt b{font-size:14px}
+.apps-head-txt span{font-size:12px;color:var(--text3)}
+.apps-sec{font-size:11px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;color:var(--text3);padding:10px 4px 6px;border-top:.5px solid var(--sep)}
+.apps-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.apps-item{display:grid;grid-template-columns:40px minmax(0,1fr);grid-template-rows:auto auto;column-gap:10px;align-items:center;padding:8px;border-radius:var(--r-md);color:var(--text);text-decoration:none}
+.apps-item:hover,.apps-item:focus-visible{background:rgba(120,120,128,.12);outline:none}
+.apps-icon{grid-row:1 / 3;width:40px;height:40px;border-radius:26%}
+.apps-icon.eden-code{background:#0E2747 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23fff' stroke-width='22' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E") center/60% no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 2px 8px rgba(14,39,71,.25)}
+.apps-icon.jarvis{background:#0b1220 radial-gradient(circle at 36% 32%,#f2fbff 0%,#a4e4ff 9%,#3fb8f2 26%,#1677c9 42%,#0a3d84 56%,transparent 58%) center/100% no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 2px 8px rgba(10,61,132,.3)}
+.apps-icon.edu{background:url("edu-logo.svg") center/cover no-repeat;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.12)}
+.apps-txt{display:flex;flex-direction:column;min-width:0;line-height:1.3}
+.apps-txt b{font-size:13.5px}
+.apps-txt span{font-size:12px;color:var(--text2)}
+.apps-cta{grid-column:2;justify-self:start;margin-top:5px;font-size:11.5px;font-weight:600;color:var(--accent)}
+.apps-more{display:block;margin-top:6px;padding:8px;border-top:.5px solid var(--sep);text-align:center;font-size:12.5px;color:var(--text2);text-decoration:none}
+.apps-more:hover{color:var(--accent)}
+@media (prefers-reduced-motion:reduce){.apps-pop{animation:none}.side-foot .orb.apps-mark{transition:none}}

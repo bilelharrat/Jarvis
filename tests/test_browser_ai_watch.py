@@ -215,7 +215,7 @@ async def test_what_jarvis_reads_on_a_sensitive_site_is_private(settings, quiet_
     await desk.watch.on_result("read", {}, {"ok": True, "url": BANK, "text": "Balance"})
     reads = hub._gate_reads()
     assert reads["private"] and "a page on secure.chase.com" in reads["what"]
-    # A Jarvis Code session's reads are its own; nothing is marked between requests.
+    # An Eden Code session's reads are its own; nothing is marked between requests.
     hub._rid = "r2"
     await desk.watch.on_result("read", {"owner": "code:2"}, {"ok": True, "url": BANK})
     assert not hub._reads()["private"]

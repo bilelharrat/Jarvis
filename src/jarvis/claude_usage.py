@@ -7,7 +7,7 @@ weekly ones) come from Claude Code as it answers: how much of each is used and w
 resets.
 
 Kept in usage.json beside the settings: a day's totals by where it came from (JARVIS's
-voice, Jarvis Code, research) and by model, for 90 days, and the latest of each limit.
+voice, Eden Code, research) and by model, for 90 days, and the latest of each limit.
 Numbers only; never a word of what was asked.
 """
 
@@ -30,7 +30,7 @@ from . import jsonstore
 
 DAYS_KEPT = 90
 SAVE_EVERY = 5.0  # seconds: a burst of answers is one write
-SOURCES = {"jarvis": "JARVIS", "code": "Jarvis Code", "research": "Research"}
+SOURCES = {"jarvis": "JARVIS", "code": "Eden Code", "research": "Research"}
 LIMITS = {
     "five_hour": "5-hour limit",
     "seven_day": "Weekly limit",

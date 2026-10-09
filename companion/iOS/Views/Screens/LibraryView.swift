@@ -31,7 +31,7 @@ struct LibraryView: View {
                 Text("On This iPhone")
             } footer: {
                 if model.pairing == nil {
-                    Text("Pair your Mac in Settings to reach Jarvis Code, routines, your files, mail and everything else Jarvis does on your Mac.")
+                    Text("Pair your Mac in Settings to reach Eden Code, routines, your files, mail and everything else Jarvis does on your Mac.")
                 }
             }
 

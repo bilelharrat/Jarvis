@@ -1,5 +1,5 @@
 """What the Mac pushes to the phones, and when (jarvis.companion_push), heard through the
-feature kit's sinks and Jarvis Code's events. curl is faked (never the network), the key
+feature kit's sinks and Eden Code's events. curl is faked (never the network), the key
 lives in a MemoryVault, and whether the owner is at the Mac is set by each test."""
 
 import asyncio
@@ -120,7 +120,7 @@ async def test_jarvis_code_cards_say_which_kind_they_are(setup):
     s.hub.tasks.tasks[7] = SimpleNamespace(cwd=SimpleNamespace(name="alpha"))
     tool = asyncio.create_task(
         s.hub.request_approval(
-            "Jarvis Code in alpha wants to run a command",
+            "Eden Code in alpha wants to run a command",
             "$ curl https://example.com/?token=secret",
             [("allow", "Yes"), ("always", "Yes, always"), ("deny", "No")],
             {"task_id": 7, "tool": "Bash"},
@@ -128,7 +128,7 @@ async def test_jarvis_code_cards_say_which_kind_they_are(setup):
     )
     plan = asyncio.create_task(
         s.hub.request_approval(
-            "Jarvis Code in alpha has a plan",
+            "Eden Code in alpha has a plan",
             "1. Rewrite everything",
             [("plan_edits", "Go"), ("plan_ask", "Go, ask"), ("plan_keep", "Keep planning")],
             {"task_id": 7, "ask_kind": "plan"},
@@ -153,13 +153,13 @@ async def test_jarvis_code_cards_say_which_kind_they_are(setup):
     await asyncio.sleep(0)
     await settle(s.hub)
     by_title = {aps(p)["alert"]["title"]: p for p in s.curl.payloads()}
-    code = by_title["Jarvis Code in alpha wants to run a command"]
+    code = by_title["Eden Code in alpha wants to run a command"]
     assert aps(code)["category"] == "JARVIS_CODE_APPROVAL" and code["jarvis"]["task_id"] == 7
     assert code["jarvis"]["kind"] == "code_approval" and aps(code)["thread-id"] == "code-7"
-    plan_note = by_title["Jarvis Code in alpha has a plan"]
+    plan_note = by_title["Eden Code in alpha has a plan"]
     assert plan_note["jarvis"]["kind"] == "code_needs_you"  # no "no" to give on the Lock Screen
     assert aps(plan_note)["category"] == "JARVIS_HEADSUP"
-    asked = by_title["Jarvis Code has a question"]  # Claude's own words stay on the Mac
+    asked = by_title["Eden Code has a question"]  # Claude's own words stay on the Mac
     assert aps(asked)["alert"]["body"] == "In alpha" and "Ann" not in json.dumps(asked)
     buy = by_title["Confirm purchase: $40 at Books Ltd?"]
     assert buy["jarvis"]["kind"] == "approval" and aps(buy)["category"] == "JARVIS_HEADSUP"
@@ -288,7 +288,7 @@ async def test_calls_voicemail_and_unknown_kinds(setup):
     assert s.curl.calls == []
 
 
-# ── Jarvis Code and conversations ──
+# ── Eden Code and conversations ──
 
 
 async def test_jarvis_code_finishing_is_pushed_once_it_took_a_while(setup):
@@ -305,14 +305,14 @@ async def test_jarvis_code_finishing_is_pushed_once_it_took_a_while(setup):
     emit("task_finished", id=8, task_kind="code", status="failed", folder="beta", elapsed=2)
     await settle(s.hub)
     done, failed = sorted(s.curl.payloads(), key=lambda p: p["jarvis"]["task_id"])
-    assert aps(done)["alert"] == {"title": "Jarvis Code finished", "body": "In alpha"}
+    assert aps(done)["alert"] == {"title": "Eden Code finished", "body": "In alpha"}
     assert done["jarvis"] == {
         "kind": "code_done",
         "id": "code:6",
         "task_id": 6,
         "at": done["jarvis"]["at"],
     }
-    assert aps(failed)["alert"]["title"] == "Jarvis Code stopped"
+    assert aps(failed)["alert"]["title"] == "Eden Code stopped"
     assert not any("ssh" in c["raw"].decode() for c in s.curl.calls)
     # The session being voice-coded at the Mac speaks for itself.
     s.curl.calls.clear()
@@ -323,7 +323,7 @@ async def test_jarvis_code_finishing_is_pushed_once_it_took_a_while(setup):
 
 
 async def test_jarvis_code_is_heard_through_the_hubs_task_sink(setup):
-    """The kit's task sink, not a wrapper round the task manager's emit: every Jarvis Code
+    """The kit's task sink, not a wrapper round the task manager's emit: every Eden Code
     event the hub has reaches the phone's notifier and its Live Activities, once each."""
     s = setup
     await ready(s)

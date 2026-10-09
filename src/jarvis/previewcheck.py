@@ -1,4 +1,4 @@
-"""The check after a Jarvis Code turn that changed files: what went wrong, its proof, and
+"""The check after an Eden Code turn that changed files: what went wrong, its proof, and
 the short note that tells the session.
 
 - The page: the app's own check (app/features/code-verify.js, asked through the window)

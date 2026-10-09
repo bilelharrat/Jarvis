@@ -1,4 +1,4 @@
-"""Jarvis Code's usage meter (codeusage, features.code_usage): days and projects counted and
+"""Eden Code's usage meter (codeusage, features.code_usage): days and projects counted and
 kept, Claude's usage windows, caps that hold a session's next message (and raise to let it
 go), Claude Code's own stop at the cap (max_budget_usd), heads-ups at 50/80/100%, and a
 shared cap used up stopping the other sessions working under it."""
@@ -152,10 +152,10 @@ async def test_a_session_cap_warns_stops_claude_code_there_and_holds_the_next_me
     assert _alerts(seen) == []  # 40%
     hub.tasks.send(task.id, "two")
     assert await until(lambda: task.cost_usd == 0.2 and not task.busy)
-    assert _alerts(seen) == ["This Jarvis Code session has used 80% of its $0.25 limit."]
+    assert _alerts(seen) == ["This Eden Code session has used 80% of its $0.25 limit."]
     hub.tasks.send(task.id, "three")
     assert await until(lambda: task.cost_usd == 0.3 and not task.busy)
-    assert _alerts(seen)[1:] == ["This Jarvis Code session has reached its $0.25 limit."]
+    assert _alerts(seen)[1:] == ["This Eden Code session has reached its $0.25 limit."]
     hub.tasks.send(task.id, "four")
     assert await until(lambda: task.gated)
     await asyncio.sleep(0.05)
@@ -210,12 +210,12 @@ async def test_the_day_s_cap_used_up_stops_the_others_and_holds_everyone(
     hub.tasks.send(second.id, "three")  # 0.3 of 0.25: the day is spent
     assert await until(lambda: first.client.interrupted)
     assert await until(
-        lambda: "Jarvis Code has spent today's $0.25 limit" in first.transcript[-1]["text"]
+        lambda: "Eden Code has spent today's $0.25 limit" in first.transcript[-1]["text"]
     )
-    assert "Jarvis Code has reached today's $0.25 limit." in _alerts(seen)
+    assert "Eden Code has reached today's $0.25 limit." in _alerts(seen)
     hub.tasks.send(second.id, "four")
     assert await until(
-        lambda: second.gated.startswith("On hold: Jarvis Code has spent today's $0.25")
+        lambda: second.gated.startswith("On hold: Eden Code has spent today's $0.25")
     )
     first.client.release()
     await end_all(hub)

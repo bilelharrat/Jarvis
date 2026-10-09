@@ -44,7 +44,7 @@ from typing import Any
 import numpy as np
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import mac_tools
+from . import mac_tools, osplat
 from .messaging import resolve
 from .speech import wav_bytes
 
@@ -249,9 +249,7 @@ class Keychain:
         # The login keychain: test values found there (a script once left some) count as none.
         self.real = backend is None
         if backend is None:
-            from keyring.backends import macOS
-
-            backend = macOS.Keyring()
+            backend = osplat.keyring_backend()
         self.backend = backend
 
     def get(self) -> tuple[str, str] | None:

@@ -36,6 +36,7 @@ from typing import Any
 
 import numpy as np
 
+from . import osplat
 from .jsonstore import _sweep
 from .prefs import APP_SUPPORT
 
@@ -308,12 +309,19 @@ def _reader_start() -> None:
     def too_slow(_signum, _frame):
         raise _TooSlow
 
-    signal.signal(signal.SIGALRM, too_slow)
+    if hasattr(signal, "SIGALRM"):  # (Windows has none: a slow document waits)
+        signal.signal(signal.SIGALRM, too_slow)
     parent = os.getppid()
 
     def watch() -> None:
-        while os.getppid() == parent:
-            time.sleep(2)
+        if hasattr(os, "fork"):
+            while os.getppid() == parent:
+                time.sleep(2)
+        else:
+            import psutil
+
+            while psutil.pid_exists(parent):
+                time.sleep(2)
         os._exit(0)
 
     threading.Thread(target=watch, daemon=True).start()
@@ -327,23 +335,26 @@ def _read_one(path: Path, deadline: bool = True) -> str:
     from .fileindex import redact
 
     try:
-        if deadline:
+        if deadline and hasattr(signal, "alarm"):
             signal.alarm(READ_SECONDS)
         try:
             return redact(read_document(path, download=False))
         finally:
-            if deadline:
+            if deadline and hasattr(signal, "alarm"):
                 signal.alarm(0)
     except _TooSlow:
         log.info("second brain: a document took too long to read; skipped")
         return ""
 
 
-def read_document(path: Path, limit: int = MAX_TEXT, *, download: bool = True) -> str:
+def read_document(
+    path: Path, limit: int = MAX_TEXT, *, download: bool = True, pages: int = 40
+) -> str:
     """Plain text from a text, Markdown, PDF, Word, RTF or Pages file ('' if unreadable).
     Only a plain file is read (a pipe named notes.md would never answer); with
     download=False, an iCloud file whose contents aren't on this Mac is skipped rather than
-    fetched just to be read."""
+    fetched just to be read. pages: how many pages of a PDF may be read (as many as are needed
+    for `limit` characters, up to this)."""
     suffix = path.suffix.lower()
     if suffix not in DOC_SUFFIXES:
         return ""
@@ -353,6 +364,10 @@ def read_document(path: Path, limit: int = MAX_TEXT, *, download: bool = True) -
             return ""
         if not download and getattr(info, "st_flags", 0) & SF_DATALESS:
             return ""
+        if suffix in RICH_SUFFIXES and osplat.IS_WIN:  # (no textutil on a PC)
+            from .rich_text import text_of
+
+            return text_of(path, limit)
         if suffix in RICH_SUFFIXES:
             out = subprocess.run(
                 ["textutil", "-convert", "txt", "-stdout", str(path)],
@@ -361,7 +376,7 @@ def read_document(path: Path, limit: int = MAX_TEXT, *, download: bool = True) -
                 timeout=60,
             )
             return out.stdout[:limit] if out.returncode == 0 else ""
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        fd = os.open(path, os.O_RDONLY | osplat.O_NOFOLLOW | osplat.O_NONBLOCK | osplat.O_BINARY)
         with os.fdopen(fd, "rb") as fh:
             if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
                 return ""  # swapped for something else since it was looked at
@@ -372,7 +387,7 @@ def read_document(path: Path, limit: int = MAX_TEXT, *, download: bool = True) -
 
             reader = PdfReader(fh)
             parts, size = [], 0
-            for page in reader.pages[:40]:
+            for page in reader.pages[:pages]:
                 text = page.extract_text() or ""
                 parts.append(text)
                 size += len(text)

@@ -24,7 +24,7 @@ struct ApprovalCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Palette.champagne)
                     .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion && chosen == nil)
-                Eyebrow(approval.source == .code ? "Jarvis Code needs your OK" : "Needs your OK", color: Palette.champagne)
+                Eyebrow(approval.source == .code ? "Eden Code needs your OK" : "Needs your OK", color: Palette.champagne)
                 Spacer()
             }
             .accessibilityHidden(true)

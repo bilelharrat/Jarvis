@@ -2,7 +2,7 @@
 
 On a sensitive site (a bank, their mail, a health portal: sites.py, the owner's list) the
 built-in browser acts only while that tab is on show in the dock of a window the owner can
-see: in a tab behind, a covered or hidden window, JARVIS or a Jarvis Code session is told to
+see: in a tab behind, a covered or hidden window, JARVIS or an Eden Code session is told to
 show the tab first (browser_tabs switch shows it) or to ask the owner to bring the window
 forward. Looking (reading, snapshots, pictures, scrolling) goes on as before, and what's
 read there counts as the owner's private data for the turn gate, not as a public page.
@@ -28,7 +28,7 @@ from typing import Any
 
 from .sites import Sites, host_of
 
-SESSION_ASK_SECONDS = 10 * 60  # a Jarvis Code session's yes to "ask" holds this long
+SESSION_ASK_SECONDS = 10 * 60  # an Eden Code session's yes to "ask" holds this long
 # Browser actions that act on a page. Everything else (reads, snapshots, pictures, waits,
 # scrolling, going back, tabs, the console) only looks.
 ACTING = frozenset({"click", "type", "act", "dialog", "upload", "search", "eval"})
@@ -86,7 +86,7 @@ class Watch:
         self.sites = sites
         self.page = page  # pagectx.PageContext: the window's word on the tab on show
         # Sites the owner OK'd under "ask": for a JARVIS request, (request id, hosts); for a
-        # Jarvis Code session, owner -> {host: until}.
+        # Eden Code session, owner -> {host: until}.
         self._asked: tuple[str, set[str]] = ("", set())
         self._session_yes: dict[str, dict[str, float]] = {}
         # Checks that weigh the same tab after these (the hand back): (seen, action, args),
@@ -186,7 +186,7 @@ class Watch:
         self, action: str, args: dict[str, Any], result: dict[str, Any]
     ) -> dict[str, Any] | None:
         """hub.add_browser_result: what JARVIS reads on a sensitive site is the owner's
-        private data (the turn gate then weighs it so), not a public page. A Jarvis Code
+        private data (the turn gate then weighs it so), not a public page. An Eden Code
         session's reads are its own: they never taint JARVIS's turns."""
         if not isinstance(result, dict) or result.get("error") or result.get("ok") is False:
             return None

@@ -224,6 +224,28 @@ test('only the window may ask, and the dev window has updates off', () => {
   assert.equal(handlers.get('feature:updates:restart')({ sender: {} }), false);
 });
 
+test('on Windows the window’s questions are answered too (updates off), not left without a handler', () => {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    const handlers = new Map();
+    const win = {};
+    updates.install({
+      app: { getVersion: () => '0.1.8', isPackaged: true },
+      ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) },
+      fromWindow: (event) => event.sender === win,
+      dev: false,
+    });
+    assert.deepEqual([...handlers.keys()].sort(), ['feature:updates:check', 'feature:updates:restart', 'feature:updates:state']);
+    assert.deepEqual(handlers.get('feature:updates:state')({ sender: win }), { version: '0.1.8', enabled: false, state: 'off' });
+    assert.deepEqual(handlers.get('feature:updates:check')({ sender: win }), { version: '0.1.8', enabled: false, state: 'off' });
+    assert.equal(handlers.get('feature:updates:state')({ sender: {} }), null);
+    assert.equal(handlers.get('feature:updates:restart')({ sender: win }), false);
+  } finally {
+    Object.defineProperty(process, 'platform', real);
+  }
+});
+
 // ── the window's side ──
 
 const base = JSON.parse(readFileSync(`${WEB}/i18n-zh.json`, 'utf8'));

@@ -1,5 +1,5 @@
-// Labs (features/_labs.py): Jarvis Code surfaces that aren't finished, off until switched on
-// here, in Jarvis Code settings › General. A change takes effect at the next start: a Lab
+// Labs (features/_labs.py): Eden Code surfaces that aren't finished, off until switched on
+// here, in Eden Code settings › General. A change takes effect at the next start: a Lab
 // that's off is neither installed nor loaded in the window.
 (function (root) {
   'use strict';

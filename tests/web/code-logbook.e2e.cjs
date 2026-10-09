@@ -1,4 +1,4 @@
-// Logbook (web/features/code-logbook.js and .css), Jarvis Code under the Obsidian look, in a real
+// Logbook (web/features/code-logbook.js and .css), Eden Code under the Obsidian look, in a real
 // Chromium: the runs of ledger rows it marks as each frame is drawn (lb-after, lb-end) say
 // exactly what the sibling selectors they stand in for say, however the transcript changes; a
 // row is drawn again when its entry changes, and numbered again when one before it goes; all of
@@ -61,7 +61,7 @@ const TRANSCRIPT = [
   tool('t5', 'Read'),
 ];
 
-// A fresh window in the Obsidian look, Jarvis Code open on session 3, Logbook put in as
+// A fresh window in the Obsidian look, Eden Code open on session 3, Logbook put in as
 // features.js would put it in (its stylesheet first).
 async function fresh() {
   await win.loadURL(`${base}/?token=test`);
@@ -80,7 +80,7 @@ async function fresh() {
   `);
   await js(`${fs.readFileSync(path.join(WEB, 'features', 'code-logbook.js'), 'utf8')}\n;true`);
   await js(`
-    window.__task = { id: 3, kind: 'code', folder: 'alpha', label: 'Jarvis Code · alpha', title: 'Session 3', prompt: 'Session 3',
+    window.__task = { id: 3, kind: 'code', folder: 'alpha', label: 'Eden Code · alpha', title: 'Session 3', prompt: 'Session 3',
       mode: 'ask', busy: true, status: 'running', files_changed: [], todos: [], background: [], queue: [], last_action: '', add_dirs: [], plugins: [] };
     deckProjects = [{ name: 'alpha', branch: 'main' }]; deckProject = 'alpha'; openProjects.add('alpha');
     heard({ type: 'tasks', items: [__task] });
@@ -270,9 +270,9 @@ test('What the owner made in the Changes pane outlasts a restart, and a session 
   assert((await pane()).files === 'src/only3.py', JSON.stringify(await pane()));
 });
 
-// The cards' places that hang on what Jarvis Code is showing (a :has() on the body's own child
+// The cards' places that hang on what Eden Code is showing (a :has() on the body's own child
 // #cc, so a change anywhere else in the page never has it asked again): at the right with the
-// index a rail; at the top of split view's right pane; as before once Jarvis Code is hidden.
+// index a rail; at the top of split view's right pane; as before once Eden Code is hidden.
 test('With the index a rail the window’s cards sit at the right, and at the top of a split pane', async () => {
   const cards = () => js('(() => { const s = getComputedStyle($("cards")); return { right: s.right, bottom: s.bottom, top: s.top, width: s.width }; })()');
   const before = await cards();
@@ -282,7 +282,7 @@ test('With the index a rail the window’s cards sit at the right, and at the to
   assert(now.right === '22px' && now.bottom === '96px', `with the index a rail: ${JSON.stringify(now)}`);
   await js('$("cc").hidden = true; true');
   now = await cards();
-  assert(now.right !== '22px' && now.bottom !== '96px', `Jarvis Code hidden: ${JSON.stringify(now)}`);
+  assert(now.right !== '22px' && now.bottom !== '96px', `Eden Code hidden: ${JSON.stringify(now)}`);
   await js('$("cc").hidden = false; $("cc").classList.remove("sv-on", "lb-folded"); true');
   assert(JSON.stringify(await cards()) === JSON.stringify(before), JSON.stringify(await cards()));
   // Split view's right pane (its own page: body.jc-split-pane), with code-split.css.
@@ -298,7 +298,7 @@ test('With the index a rail the window’s cards sit at the right, and at the to
   assert(now.top === '64px' && now.right === '14px', `in a split pane: ${JSON.stringify(now)}`);
   await js('$("cc").hidden = true; true');
   now = await cards();
-  assert(now.top !== '64px', `in a split pane with Jarvis Code hidden: ${JSON.stringify(now)}`);
+  assert(now.top !== '64px', `in a split pane with Eden Code hidden: ${JSON.stringify(now)}`);
   await js('$("cc").hidden = false; document.body.classList.remove("jc-split-pane"); true');
 });
 

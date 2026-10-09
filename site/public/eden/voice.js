@@ -353,6 +353,7 @@ const PAUSE_MS = 1200; // this long without new words after you speak: the turn 
 const talk = {
   on: false, state: 'off', rec: null, heard: '', mid: '', pauseT: 0, awaiting: false, replyId: null, reply: '', error: '',
   stream: null, src: null, mic: null, raf: 0, floor: 0.01, loudFrames: 0, ends: 0, box: null, back: null,
+  mini: false, dragged: false,
 };
 
 // In Talk mode (the JARVIS voice) the server answers as J.A.R.V.I.S. (turn.ts JARVIS_PERSONA).
@@ -365,8 +366,9 @@ function talkBox() {
       el('div', 'talk-top',
         el('span', 'talk-title', 'Talk'),
         el('span', 'talk-voice', HOSTED ? 'JARVIS voice · your account’s daily allowance' : 'JARVIS voice'),
-        el('button', { type: 'button', class: 'iconbtn talk-x', id: 'talkX', title: 'End (Esc)', 'aria-label': 'End talking', onclick: () => closeTalk() }, ico('x'))),
-      el('button', { type: 'button', class: 'talk-orb', id: 'talkOrb', 'aria-label': 'Interrupt', onclick: () => { if (talk.state === 'replying') bargeIn(); } },
+        el('button', { type: 'button', class: 'iconbtn talk-x', title: 'Shrink to the orb (keeps talking)', 'aria-label': 'Shrink to the orb (keeps talking)', onclick: () => setTalkMini(true) }, ico('collapse')),
+        el('button', { type: 'button', class: 'iconbtn talk-x', id: 'talkX', title: 'End', 'aria-label': 'End talking', onclick: () => closeTalk() }, ico('x'))),
+      el('button', { type: 'button', class: 'talk-orb', id: 'talkOrb', 'aria-label': 'Interrupt', onclick: orbTap },
         el('span', 'talk-ring'), el('span', 'talk-core')),
       el('div', { class: 'talk-state', id: 'talkState', 'aria-live': 'polite' }),
       el('div', { class: 'talk-you', id: 'talkYou' }),
@@ -376,7 +378,63 @@ function talkBox() {
         el('button', { type: 'button', class: 'btn', id: 'talkEnd', onclick: () => closeTalk() }, 'End'))));
   document.body.append(box);
   talk.box = box;
+  dragOrb($('talkOrb'));
   return box;
+}
+
+function orbTap() {
+  if (talk.mini) { if (!talk.dragged) setTalkMini(false); talk.dragged = false; return; }
+  if (talk.state === 'replying') bargeIn();
+}
+
+/* Collapsed, Talk is just the orb: a sphere floating over the app (drag it anywhere; it stays put
+   as you move around), still listening and speaking; tap it to open the card again. */
+const ORB_KEY = 'eden:talk-orb';
+const ORB_SIZE = 84;
+function setTalkMini(on) {
+  if (!talk.box || !talk.on) return;
+  talk.mini = on;
+  talk.box.classList.toggle('mini', on);
+  talk.box.setAttribute('aria-modal', on ? 'false' : 'true');
+  document.documentElement.classList.toggle('talking', !on);
+  const orb = $('talkOrb');
+  if (on) {
+    let pos = null;
+    try { pos = JSON.parse(localStorage.getItem(ORB_KEY) || 'null'); } catch { /* default */ }
+    placeOrb(pos ? pos.x : innerWidth - ORB_SIZE - 20, pos ? pos.y : innerHeight - ORB_SIZE - 110);
+    orb.title = 'Talk · tap to open, drag to move';
+    orb.focus();
+  } else {
+    talk.box.style.removeProperty('left'); talk.box.style.removeProperty('top');
+    orb.title = '';
+    $('talkX').focus();
+  }
+  paintTalk();
+}
+function placeOrb(x, y) {
+  const m = 8;
+  talk.box.style.left = `${Math.max(m, Math.min(innerWidth - ORB_SIZE - m, x))}px`;
+  talk.box.style.top = `${Math.max(m, Math.min(innerHeight - ORB_SIZE - m, y))}px`;
+}
+function dragOrb(orb) {
+  orb.addEventListener('pointerdown', (e) => {
+    if (!talk.mini) return;
+    const r = talk.box.getBoundingClientRect();
+    const dx = e.clientX - r.left, dy = e.clientY - r.top, sx = e.clientX, sy = e.clientY;
+    talk.dragged = false;
+    orb.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 6) talk.dragged = true;
+      if (talk.dragged) placeOrb(ev.clientX - dx, ev.clientY - dy);
+    };
+    const up = () => {
+      orb.removeEventListener('pointermove', move);
+      if (talk.dragged) { const r2 = talk.box.getBoundingClientRect(); try { localStorage.setItem(ORB_KEY, JSON.stringify({ x: r2.left, y: r2.top })); } catch { /* this visit only */ } }
+    };
+    orb.addEventListener('pointermove', move);
+    orb.addEventListener('pointerup', up, { once: true });
+  });
+  addEventListener('resize', () => { if (talk.mini && talk.box) { const r = talk.box.getBoundingClientRect(); placeOrb(r.left, r.top); } });
 }
 
 function setTalk(s) { talk.state = s; paintTalk(); }
@@ -394,7 +452,7 @@ function paintTalk() {
   $('talkReply').textContent = r.length > 420 ? `…${r.slice(-420)}` : r;
   $('talkSend').hidden = s !== 'listening';
   $('talkSend').disabled = !(talk.heard + talk.mid).trim();
-  $('talkOrb').setAttribute('aria-label', s === 'replying' ? 'Interrupt' : 'Level');
+  $('talkOrb').setAttribute('aria-label', talk.mini ? `Talk, ${$('talkState').textContent} (tap to open, drag to move)` : s === 'replying' ? 'Interrupt' : 'Level');
 }
 
 async function openTalk() {
@@ -436,8 +494,11 @@ function closeTalk() {
   cancelAnimationFrame(talk.raf);
   if (talk.stream) talk.stream.getTracks().forEach((t) => t.stop());
   if (talk.src) talk.src.disconnect();
-  Object.assign(talk, { state: 'off', stream: null, src: null, mic: null, awaiting: false, replyId: null });
+  Object.assign(talk, { state: 'off', stream: null, src: null, mic: null, awaiting: false, replyId: null, mini: false });
   talk.box.hidden = true;
+  talk.box.classList.remove('mini');
+  talk.box.setAttribute('aria-modal', 'true');
+  talk.box.style.removeProperty('left'); talk.box.style.removeProperty('top');
   document.documentElement.classList.remove('talking');
   const back = talk.back && document.contains(talk.back) ? talk.back : $('deck-input');
   if (back) back.focus();
@@ -595,10 +656,11 @@ export function initVoice() {
   // typing or sending while dictating keeps the words as they are
   ta.addEventListener('keydown', (e) => { if (dict.rec && !dict.rec.recording && !e.metaKey && !e.ctrlKey && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter')) stopDictation(true); }); // a recording goes on while you type (sending drops it)
   $('deck-composer').addEventListener('submit', () => stopDictation(true), true);
-  // the talk overlay owns Esc (before app.js's, which would stop the reply) and keeps focus
+  // the talk overlay owns Esc (before app.js's, which would stop the reply) and keeps focus;
+  // shrunk to the orb, the app is yours again (Esc there goes to the app)
   document.addEventListener('keydown', (e) => {
-    if (!talk.on) return;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeTalk(); return; }
+    if (!talk.on || talk.mini) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); setTalkMini(true); return; }
     if (e.key === 'Tab') {
       const f = [...talk.box.querySelectorAll('button:not([hidden]):not(:disabled)')];
       const i = f.indexOf(document.activeElement);

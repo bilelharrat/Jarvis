@@ -60,9 +60,10 @@ def cli_path() -> str | None:
     with contextlib.suppress(Exception):
         import claude_agent_sdk
 
-        bundled = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
-        if bundled.is_file():
-            return str(bundled)
+        folder = Path(claude_agent_sdk.__file__).parent / "_bundled"
+        for name in ("claude", "claude.exe"):  # (Windows' is an .exe)
+            if (folder / name).is_file():
+                return str(folder / name)
     return shutil.which("claude")
 
 

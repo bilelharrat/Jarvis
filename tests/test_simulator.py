@@ -656,7 +656,7 @@ def test_bridge_quit_command_sets_quit():
 
 
 def test_a_bridge_with_nothing_to_stream_waits_instead_of_polling(monkeypatch):
-    """A Jarvis Code session's bridge (input and pictures, no frames) used to wake sixty
+    """An Eden Code session's bridge (input and pictures, no frames) used to wake sixty
     times a second for nothing. It now sleeps until a stream or a quit; a stream asked for
     starts at once, and a quit (or the hub going away) still ends it at once."""
     import io

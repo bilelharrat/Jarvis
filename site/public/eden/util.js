@@ -232,3 +232,50 @@ if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'fun
   if (document.readyState === 'loading' && typeof document.addEventListener === 'function') document.addEventListener('DOMContentLoaded', () => later(fitAll));
   else later(fitAll);
 }
+
+// Copying from the conversation: what lands on the clipboard reads like an email or a note — paragraphs, bullets,
+// numbered lists, code and tables as plain structure — not the page's colors, buttons, model chips or layout.
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  const CHROME = 'button, svg, .cb-head, .msg-head, .chip-wrap, .route-chip, .rationale, .msg-actions, .acts, [data-act], .think-body, .thinking, [aria-hidden="true"]';
+  const BLOCK = /^(P|DIV|H[1-6]|UL|OL|LI|PRE|BLOCKQUOTE|TABLE|TR|SECTION|ARTICLE|HR)$/;
+  const plain = (node, out = { s: '', ol: [] }) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { out.s += n.nodeValue.replace(/\s+/g, ' '); continue; }
+      if (n.nodeType !== 1) continue;
+      const t = n.tagName;
+      if (t === 'BR') { out.s += '\n'; continue; }
+      if (t === 'PRE') { out.s += `\n\n\u0001${n.textContent.replace(/\n+$/, '')}\u0002\n\n`; continue; }
+      if (t === 'TD' || t === 'TH') { plain(n, out); out.s += '\t'; continue; }
+      if (t === 'OL') out.ol.push(0);
+      if (t === 'LI') {
+        const ol = n.parentElement && n.parentElement.tagName === 'OL' && out.ol.length;
+        out.s += `\n${ol ? `${++out.ol[out.ol.length - 1]}. ` : '• '}`;
+        plain(n, out);
+        continue;
+      }
+      if (BLOCK.test(t)) out.s += '\n\n';
+      plain(n, out);
+      if (t === 'OL') out.ol.pop();
+      if (BLOCK.test(t)) out.s += '\n\n';
+    }
+    return out;
+  };
+  document.addEventListener('copy', (e) => {
+    const sel = typeof getSelection === 'function' ? getSelection() : null;
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !e.clipboardData) return;
+    const range = sel.getRangeAt(0);
+    const at = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+    if (!at || !at.closest('#transcript') || at.closest('textarea, input, [contenteditable="true"]')) return;
+    const box = document.createElement('div');
+    box.append(range.cloneContents());
+    box.querySelectorAll(CHROME).forEach((n) => n.remove());
+    // Tidy the spacing everywhere except inside code (\u0001…\u0002), whose indentation is kept.
+    const text = plain(box).s.split(/(\u0001[\s\S]*?\u0002)/).map((part) => (part.startsWith('\u0001') ? part.slice(1, -1) : part.replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n'))).join('').replace(/\n{3,}/g, '\n\n').trim();
+    if (!text) return;
+    // Rich version for email and docs: the same structure, none of the page's colors, classes or styles.
+    box.querySelectorAll('*').forEach((n) => { n.removeAttribute('class'); n.removeAttribute('style'); n.removeAttribute('id'); [...n.attributes].forEach((a) => { if (a.name.startsWith('data-') || a.name.startsWith('aria-')) n.removeAttribute(a.name); }); });
+    e.clipboardData.setData('text/plain', text);
+    e.clipboardData.setData('text/html', box.innerHTML);
+    e.preventDefault();
+  });
+}

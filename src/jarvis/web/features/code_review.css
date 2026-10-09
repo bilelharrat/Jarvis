@@ -1,4 +1,4 @@
-/* Jarvis Code's Review, in the Changes pane: the bar, the list, the pinned findings. */
+/* Eden Code's Review, in the Changes pane: the bar, the list, the pinned findings. */
 
 .jcx-review { display: flex; flex-direction: column; gap: 6px; }
 .jcx-rbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

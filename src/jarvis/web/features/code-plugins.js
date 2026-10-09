@@ -1,4 +1,4 @@
-// Claude Code's plugins in Jarvis Code (features/code_plugins.py): the Plugins pane (More ›
+// Claude Code's plugins in Eden Code (features/code_plugins.py): the Plugins pane (More ›
 // Plugins and skills, /plugins). Installed plugins, switched on and off, their inventory and
 // what they add to every session's context, removed (a second press); the plugins the
 // owner's marketplaces offer, installed after a card; marketplaces added (after a card) or

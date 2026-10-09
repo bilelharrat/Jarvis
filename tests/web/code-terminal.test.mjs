@@ -1,4 +1,4 @@
-// Jarvis Code's terminals (web/features/code-terminal.js), its pure helpers: a "!" command's
+// Eden Code's terminals (web/features/code-terminal.js), its pure helpers: a "!" command's
 // output as it streams in, and a terminal's selection for the composer. node --test tests/web/
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';

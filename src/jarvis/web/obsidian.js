@@ -221,7 +221,7 @@
   function tick(now) {
     frame = 0;
     if (!on() || doc.hidden || reduced.matches) return;
-    // Jarvis Code and the galaxy hide the orb: check now and then, not every frame
+    // Eden Code and the galaxy hide the orb: check now and then, not every frame
     if (now - checked > 500) { checked = now; shown = root.getComputedStyle(orb).visibility !== 'hidden'; }
     // at rest the light moves slowly, so twenty frames a second is plenty
     const idle = (body.dataset.state || 'idle') === 'idle';

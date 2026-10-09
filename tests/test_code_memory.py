@@ -1,4 +1,4 @@
-"""Jarvis Code's memory files (code_memory, features/code_memory): a "# note" goes to the
+"""Eden Code's memory files (code_memory, features/code_memory): a "# note" goes to the
 CLAUDE.md the owner picks (the project's, its CLAUDE.local.md, or ~/.claude/CLAUDE.md), and
 the Files pane edits the owner's own one too."""
 

@@ -1,5 +1,5 @@
-// Logbook: Jarvis Code as a ship's log, under the Obsidian look only (body[data-skin=
-// "obsidian"]; every other look's Jarvis Code is left exactly as it is). The session's title in
+// Logbook: Eden Code as a ship's log, under the Obsidian look only (body[data-skin=
+// "obsidian"]; every other look's Eden Code is left exactly as it is). The session's title in
 // large light type over one line (branch · model · effort · tokens · elapsed); the transcript as
 // a ledger: numbered one-line rows (READ, EDIT, RUN…) with the target on a dotted leader and the
 // result on the right, your messages large beside the gutter's "YOU"; a margin of the files
@@ -595,7 +595,7 @@
     const sheet = target && target.closest('.jc-ask[data-approval]');
     if (!sheet || sheet.parentElement !== tl || !sheet.querySelector('.jc-choices')) return;
     if (target.closest('.jc-feedback') || sheet.querySelector('.jc-feedback:not([hidden])')) return;  // a reason
-    // Something open over Jarvis Code (a menu, a popover, the find bar, Settings) takes Esc first,
+    // Something open over Eden Code (a menu, a popover, the find bar, Settings) takes Esc first,
     // as jcEscape orders it: the most specific thing.
     if (['jc-ctx-pop', 'jc-effort-pop', 'jc-menu', 'jc-submenu', 'cc-slash', 'jc-find', 'jc-settings'].some((id) => $(id) && !$(id).hidden)) return;
     // Out of sight (the board, a pane a narrow window lays over it, the split pane that's hidden

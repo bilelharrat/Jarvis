@@ -53,6 +53,8 @@ function install(ctx) {
   let trayShown = '';
   let pauseTimer = null;
   const icons = new Map();
+  // What the program is called here: J.A.R.V.I.S., or J.A.R.V.I.S. Daredevil (flavor.js).
+  const appName = (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.';
   const canNotify = !ctx.dev && Boolean(Notification && Notification.isSupported());
   const approvals = new Map(); // id -> the card, as the window reported it
   const approvalNotes = new Map(); // id -> its notification
@@ -63,8 +65,10 @@ function install(ctx) {
   // The global shortcuts: the last ones chosen (kept in shell.json too, so they work before
   // the backend answers), registered unless this is the test window, which takes none.
   const takesShortcuts = !ctx.dev && Boolean(globalShortcut);
+  const keyPlatform = ctx.platform || process.platform;
   let shortcuts = { ...store.shortcuts };
   const registered = { ask: false, whatsThis: false };
+  const live = { ask: '', whatsThis: '' }; // what is really registered: a stand-in when the key asked for was in use
   const shortcutErrors = { ask: '', whatsThis: '' };
   let reportedShortcuts = '';
   let recording = false;
@@ -118,6 +122,9 @@ function install(ctx) {
     } else if (name === 'history' || name === 'bookmarks') {
       showWindow();
       toWindow({ action: 'library', kind: name });
+    } else if (name === 'a11y-help') {
+      const win = showWindow();
+      if (win) win.webContents.executeJavaScript('window.jarvisAccessibility && window.jarvisAccessibility.help && window.jarvisAccessibility.help()').catch(() => {});
     } else if (name === 'quit') {
       app.quit();
     } else if (['mute', 'unmute', 'hands-free', 'pause', 'resume'].includes(name)) {
@@ -129,9 +136,11 @@ function install(ctx) {
 
   function icon(glyph) {
     if (!icons.has(glyph)) {
-      const image = nativeImage.createFromBuffer(iconPng(glyph, 1), { scaleFactor: 1 });
-      image.addRepresentation({ scaleFactor: 2, buffer: iconPng(glyph, 2) });
-      image.setTemplateImage(true);
+      const mac = process.platform === 'darwin';
+      const colour = mac ? undefined : [79, 168, 255]; // (JARVIS blue: shows on any taskbar)
+      const image = nativeImage.createFromBuffer(iconPng(glyph, 1, colour), { scaleFactor: 1 });
+      image.addRepresentation({ scaleFactor: 2, buffer: iconPng(glyph, 2, colour) });
+      image.setTemplateImage(mac);
       icons.set(glyph, image);
     }
     return icons.get(glyph);
@@ -154,7 +163,7 @@ function install(ctx) {
     if (!tray) tray = new Tray(icon(glyph()));
     else tray.setImage(icon(glyph()));
     trayShown = sign;
-    tray.setToolTip(`J.A.R.V.I.S. · ${lib.statusLine(state, labels)}`);
+    tray.setToolTip(`${appName} · ${lib.statusLine(state, labels)}`);
     tray.setContextMenu(Menu.buildFromTemplate(lib.trayTemplate(state, labels, act, { now: now(), ask: shortcuts.ask })));
     // The paused line goes back to "Pause…" by itself when the hour is up.
     clearTimeout(pauseTimer);
@@ -231,7 +240,7 @@ function install(ctx) {
   }
 
   function notifyHeadsUp(h) {
-    const note = new Notification({ title: h.title || 'J.A.R.V.I.S.', body: h.text, silent: true, groupId: 'jarvis-heads-ups' });
+    const note = new Notification({ title: h.title || appName, body: h.text, silent: true, groupId: 'jarvis-heads-ups' });
     note.on('click', () => {
       showWindow();
       toWindow({ action: 'reveal', what: 'alert', key: h.key, kind: h.kind, title: h.title, text: h.text });
@@ -250,17 +259,27 @@ function install(ctx) {
 
   function unregisterShortcut(slot) {
     if (!registered[slot]) return;
-    try { globalShortcut.unregister(shortcuts[slot]); } catch { /* already gone */ }
+    try { globalShortcut.unregister(live[slot] || shortcuts[slot]); } catch { /* already gone */ }
     registered[slot] = false;
+    live[slot] = '';
   }
 
   function registerShortcut(slot) {
     if (!takesShortcuts || recording || registered[slot]) return;
+    const other = slot === 'ask' ? 'whatsThis' : 'ask';
+    const tries = [shortcuts[slot]];
+    if (shortcuts[slot] === lib.defaultsFor(keyPlatform)[slot]) {
+      tries.push(...lib.fallbacksFor(slot, keyPlatform).filter((key) => key !== shortcuts[other] && key !== live[other]));
+    }
     let ok = false;
-    try { ok = globalShortcut.register(shortcuts[slot], SHORTCUT_ACTIONS[slot]); } catch { ok = false; }
+    for (const accelerator of tries) {
+      try { ok = globalShortcut.register(accelerator, SHORTCUT_ACTIONS[slot]); } catch { ok = false; }
+      if (ok) { live[slot] = accelerator; break; }
+    }
     registered[slot] = ok;
     shortcutErrors[slot] = ok ? '' : 'taken';
     if (!ok) console.warn(`shell: ${shortcuts[slot]} is taken by another app`);
+    else if (live[slot] !== shortcuts[slot]) console.warn(`shell: ${shortcuts[slot]} is taken by another app; using ${live[slot]}`);
   }
 
   const registerShortcuts = () => Object.keys(SHORTCUT_ACTIONS).forEach(registerShortcut);
@@ -269,7 +288,14 @@ function install(ctx) {
   function shortcutStatus() {
     const status = { live: takesShortcuts };
     for (const slot of Object.keys(SHORTCUT_ACTIONS)) {
-      status[slot] = { accelerator: shortcuts[slot], label: lib.shortcutLabel(shortcuts[slot]), error: shortcutErrors[slot] };
+      // (the stand-in, when there is one: it is what opens J.A.R.V.I.S. now, so it is what is said)
+      const now = live[slot] || shortcuts[slot];
+      status[slot] = {
+        accelerator: now,
+        label: lib.shortcutLabel(now, keyPlatform),
+        error: shortcutErrors[slot],
+        wanted: now !== shortcuts[slot] ? lib.shortcutLabel(shortcuts[slot], keyPlatform) : '',
+      };
     }
     return status;
   }
@@ -311,11 +337,11 @@ function install(ctx) {
   function tryShortcut(slot, accelerator) {
     setRecording(false);
     const checked = lib.checkAccelerator(accelerator);
-    if (!checked.ok) return { ok: false, error: checked.error, label: lib.shortcutLabel(String(accelerator || '')) };
-    const label = lib.shortcutLabel(checked.accelerator);
+    if (!checked.ok) return { ok: false, error: checked.error, label: lib.shortcutLabel(String(accelerator || ''), keyPlatform) };
+    const label = lib.shortcutLabel(checked.accelerator, keyPlatform);
     const other = slot === 'ask' ? 'whatsThis' : 'ask';
     if (checked.accelerator === shortcuts[other]) return { ok: false, error: 'same', label };
-    if (checked.accelerator === shortcuts[slot]) return { ok: true, accelerator: checked.accelerator, label };
+    if (checked.accelerator === shortcuts[slot] && (!live[slot] || live[slot] === shortcuts[slot])) return { ok: true, accelerator: checked.accelerator, label };
     if (takesShortcuts) {
       unregisterShortcut(slot);
       let ok = false;
@@ -325,6 +351,7 @@ function install(ctx) {
         return { ok: false, error: 'taken', label };
       }
       registered[slot] = true;
+      live[slot] = checked.accelerator;
     }
     shortcuts = { ...shortcuts, [slot]: checked.accelerator };
     shortcutErrors[slot] = '';
@@ -343,7 +370,7 @@ function install(ctx) {
 
   // ── jarvis:// links ──
   // Any web page can open one, so a link only ever shows JARVIS: the request box filled in
-  // (never sent), a panel, a Jarvis Code project. At most five every ten seconds. The one
+  // (never sent), a panel, an Eden Code project. At most five every ten seconds. The one
   // exception: "Ask JARVIS" from the Services menu, the owner's own click, carries this Mac's
   // key (service-key, 0600; only the Quick Action has it), so the window may send it at once
   // (marked as outside words all the same) unless the owner chose to confirm first.
@@ -444,10 +471,12 @@ function install(ctx) {
 
   // ── opening at login (the installed app only: macOS's Login Items keep the setting) ──
 
+  const platform = ctx.platform || process.platform;
+  const loginArgs = lib.loginArgs(platform);
   function loginStatus(error = '') {
     if (!installed) return { available: false, on: false, status: '', error };
     let settings = {};
-    try { settings = app.getLoginItemSettings() || {}; } catch { error = error || 'failed'; }
+    try { settings = app.getLoginItemSettings(loginArgs.length ? { args: loginArgs } : undefined) || {}; } catch { error = error || 'failed'; }
     return { available: true, on: Boolean(settings.openAtLogin), status: String(settings.status || ''), error };
   }
 
@@ -455,7 +484,7 @@ function install(ctx) {
     if (!ctx.fromWindow(event)) return null;
     if (installed && req && typeof req.on === 'boolean') {
       try {
-        app.setLoginItemSettings({ openAtLogin: req.on });
+        app.setLoginItemSettings({ openAtLogin: req.on, ...(loginArgs.length ? { args: loginArgs } : {}) });
       } catch (err) {
         console.warn(`shell: couldn't change the login item: ${err && err.message}`);
         return loginStatus('failed');
@@ -463,6 +492,19 @@ function install(ctx) {
     }
     return loginStatus();
   });
+
+  // A PC: the first run puts it in the sign-in list, once (what Settings says after that stays).
+  if (installed && lib.loginOnFirstRun(platform)) {
+    const mark = path.join(app.getPath('userData'), 'login-item-set');
+    if (!fs.existsSync(mark)) {
+      try {
+        app.setLoginItemSettings({ openAtLogin: true, args: loginArgs });
+        writeAtomic(mark, String(now()));
+      } catch (err) {
+        console.warn(`shell: couldn't open at sign-in: ${err && err.message}`);
+      }
+    }
+  }
 
   // ── the window's place, for each set of displays ──
 

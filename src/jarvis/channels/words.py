@@ -53,14 +53,14 @@ CHOSE = "You chose: {label}."
 CLOSED = "Closed."
 GONE = "This one is already closed."
 
-NO_SESSIONS = "No Jarvis Code sessions are open."
-SESSIONS = "Jarvis Code sessions:"
+NO_SESSIONS = "No Eden Code sessions are open."
+SESSIONS = "Eden Code sessions:"
 SESSIONS_HOW = "Send one a message: {code} <number> <message>"
-NO_SUCH_SESSION = "There's no Jarvis Code session “{name}”."
+NO_SUCH_SESSION = "There's no Eden Code session “{name}”."
 WHICH = "Which one? {names}"
-SENT_TO_SESSION = "Sent to Jarvis Code #{id} in {folder}. I'll pass its answer on here."
+SENT_TO_SESSION = "Sent to Eden Code #{id} in {folder}. I'll pass its answer on here."
 NOT_QUEUED = "Not sent: that session already has messages waiting."
-SESSION_SAYS = "Jarvis Code #{id} in {folder}"
+SESSION_SAYS = "Eden Code #{id} in {folder}"
 # A session's state in a list, in each language (lone words: not lang's templates).
 SESSION_STATES = {
     "en": {
@@ -95,7 +95,7 @@ HELP = (
     "{c}status: what I'm up to\n"
     "{c}brief: the morning briefing\n"
     "{c}new: a new conversation\n"
-    "{c}code: Jarvis Code sessions ({c}code <number> <message> sends one a message)\n"
+    "{c}code: Eden Code sessions ({c}code <number> <message> sends one a message)\n"
     "{c}help: this list"
 )
 HELP_ANSWERS = "When I need your OK, reply yes or no here (or “no, because …”)."
@@ -157,14 +157,14 @@ ZH: dict[str, str] = {
     CHOSE: "你选择了：{label}。",
     CLOSED: "已关闭。",
     GONE: "这个已经关闭了。",
-    NO_SESSIONS: "现在没有打开的 Jarvis Code 会话。",  # as the voice supervisor says it
-    SESSIONS: "Jarvis Code 会话：",
+    NO_SESSIONS: "现在没有打开的 Eden Code 会话。",  # as the voice supervisor says it
+    SESSIONS: "Eden Code 会话：",
     SESSIONS_HOW: "给会话发消息：{code} <编号> <消息>",
-    NO_SUCH_SESSION: "没有叫“{name}”的 Jarvis Code 会话。",
+    NO_SUCH_SESSION: "没有叫“{name}”的 Eden Code 会话。",
     WHICH: "哪一个？{names}",
-    SENT_TO_SESSION: "已发给 {folder} 里的 Jarvis Code #{id}。它回复后我会转到这里。",
+    SENT_TO_SESSION: "已发给 {folder} 里的 Eden Code #{id}。它回复后我会转到这里。",
     NOT_QUEUED: "没有发送：这个会话已经有消息在排队了。",
-    SESSION_SAYS: "{folder} 里的 Jarvis Code #{id}",
+    SESSION_SAYS: "{folder} 里的 Eden Code #{id}",
     IDLE: "我现在有空。",
     BUSY_NOW: "我正在处理一个请求。",
     SPEAKING: "我正在 Mac 上说话。",
@@ -179,7 +179,7 @@ ZH: dict[str, str] = {
         "{c}status：我在忙什么\n"
         "{c}brief：早间简报\n"
         "{c}new：开始新的对话\n"
-        "{c}code：Jarvis Code 会话（{c}code <编号> <消息> 给会话发消息）\n"
+        "{c}code：Eden Code 会话（{c}code <编号> <消息> 给会话发消息）\n"
         "{c}help：显示这份说明"
     ),
     HELP_ANSWERS: "需要你确认时，直接在这里回复“好”或“不”（也可以回复“不，因为……”）。",

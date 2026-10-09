@@ -1,5 +1,5 @@
 """Gemini behind Claude Code: a local server that speaks Anthropic's Messages API on one side
-and Google's Gemini API on the other, so JARVIS and Jarvis Code run on Gemini with every
+and Google's Gemini API on the other, so JARVIS and Eden Code run on Gemini with every
 tool, picture and streamed word they have on Claude.
 
 It listens on 127.0.0.1 only. The key never lives here: each request carries it (Claude
@@ -235,7 +235,7 @@ def to_gemini(body: dict[str, Any], signatures: Signatures | None = None) -> dic
 
 def thinking_level(body: dict[str, Any]) -> str | None:
     """How hard Gemini 3 Flash thinks, from what the request asked of Claude: a session that
-    thinks (Jarvis Code at high effort and up) gets Gemini's full thinking, one that thinks
+    thinks (Eden Code at high effort and up) gets Gemini's full thinking, one that thinks
     at low or medium effort (the session's effort, Model Router's pick) that level; one with
     thinking off (JARVIS's voice turns) thinks lightly, about three times faster to the first
     word.
@@ -250,7 +250,7 @@ def thinking_level(body: dict[str, Any]) -> str | None:
     thinking = body.get("thinking") if isinstance(body.get("thinking"), dict) else {}
     effort = str((body.get("output_config") or {}).get("effort") or "").lower()
     if thinking.get("type") in ("enabled", "adaptive") and effort in ("low", "medium"):
-        return effort  # a session's own effort below high (Jarvis Code's, or Model Router's)
+        return effort  # a session's own effort below high (Eden Code's, or Model Router's)
     if thinking.get("type") in ("enabled", "adaptive") or effort in ("high", "xhigh", "max"):
         return None
     return "low"

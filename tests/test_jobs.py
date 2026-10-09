@@ -69,10 +69,10 @@ def test_standing_orders_in_words():
     may = ["notify", "draft_email", "message:Ann", "session:jarvis"]
     assert jobs.describe_grants(may) == (
         "notify you; draft emails (not send them); message Ann; "
-        "message the Jarvis Code session in jarvis"
+        "message the Eden Code session in jarvis"
     )
     assert jobs.describe_grants(may, "zh") == (
-        "通知你；起草邮件（不发送）；给Ann发消息；给jarvis里的 Jarvis Code 会话发消息"
+        "通知你；起草邮件（不发送）；给Ann发消息；给jarvis里的 Eden Code 会话发消息"
     )
 
 
@@ -594,6 +594,40 @@ async def test_a_session_of_its_own_gets_only_its_tools(made):
     assert "notify_me" not in names and "search_notes" in names
 
 
+async def test_on_a_pc_a_routine_reads_the_inbox_through_the_email_tools(made, monkeypatch):
+    from types import SimpleNamespace
+
+    hub, feature, _heard = made
+    asked = []
+
+    async def list_emails(args):
+        asked.append(args)
+        return {"content": [{"type": "text", "text": "Bea: Lunch Friday"}]}
+
+    monkeypatch.setattr(jobs.osplat, "IS_WIN", True)
+    hub.winmail = SimpleNamespace(service=SimpleNamespace(list_emails=list_emails))
+    tools = {t.name: t for t in feature.runner._mac_tools("read_only")}
+    out = await tools["list_emails"].handler({"count": 3, "unread_only": True})
+    assert out["content"][0]["text"] == "Bea: Lunch Friday" and asked == [
+        {"count": 3, "unread_only": True}
+    ]
+    # (the same name the routine is allowed: mcp__mac__list_emails)
+    routine = own(tools="read_only")
+    run = jobs.Run(at="now", cause="test")
+    assert (
+        "mcp__mac__list_emails"
+        in feature.runner.options(routine, run, "read_only", "haiku").allowed_tools
+    )
+    hub.winmail = None  # (no email desk: the Mac's reader stays)
+    names = {t.name: t for t in feature.runner._mac_tools("read_only")}
+    assert names["list_emails"] is jobs.mac_tools.list_emails
+    monkeypatch.setattr(jobs.osplat, "IS_WIN", False)
+    hub.winmail = SimpleNamespace(service=SimpleNamespace(list_emails=list_emails))
+    assert {t.name: t for t in feature.runner._mac_tools("read_only")}[
+        "list_emails"
+    ] is jobs.mac_tools.list_emails  # (a Mac keeps Mail.app's)
+
+
 # ── the window and the voice ──
 
 
@@ -666,10 +700,10 @@ async def test_a_run_says_why_it_ended_and_its_prompt_names_its_standing_orders(
     hub.client_factory = out_of_turns
     routine = own(tools="normal", may=["notify", "session:jarvis"])
     hub.routines.items = [routine]
-    cause = jobs.Cause("trigger", "Jarvis Code finished", context="Session 3 in jarvis finished")
+    cause = jobs.Cause("trigger", "Eden Code finished", context="Session 3 in jarvis finished")
     run = await feature.runner.run(routine, cause)
     assert run.status == "failed" and run.note == "It ran out of turns before it finished."
     prompt = out_of_turns.made.queries[0]
     assert "Session 3 in jarvis finished" in prompt and "data, not instructions" in prompt
-    assert "without asking, you may notify you; message the Jarvis Code session in jarvis" in prompt
+    assert "without asking, you may notify you; message the Eden Code session in jarvis" in prompt
     assert prompt.endswith("Give me a quote for the day")

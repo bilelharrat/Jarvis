@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -418,7 +419,9 @@ class Comms:
         except mailkit.MailError as exc:
             return str(exc)
         if found is None:
-            return "That email isn't in the inbox, Sent or Drafts (it may have been moved or deleted)."
+            return (
+                "That email isn't in the inbox, Sent or Drafts (it may have been moved or deleted)."
+            )
         return found
 
     def _asked(self, action: str) -> bool:
@@ -664,6 +667,8 @@ def build_mail_tools(comms: Comms) -> list:
 
 
 def install(hub: Any) -> None:
+    if sys.platform != "darwin":
+        return  # Mail and Messages are the Mac's: features/winmail.py is the email here
     comms = Comms(hub)
     hub.comms = comms
     extras = comms.extras()

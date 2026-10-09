@@ -1,4 +1,4 @@
-"""Claude Code's own record of a Jarvis Code session: the JSONL file it keeps for each
+"""Claude Code's own record of an Eden Code session: the JSONL file it keeps for each
 conversation (~/.claude/projects/<folder>/<session id>.jsonl). Read here, never written.
 
 - Pictures (RecordMedia): the images one of the owner's messages carried (found by the

@@ -153,7 +153,7 @@ def test_claude_codes_file_gives_its_lines_not_its_headings_or_code(tmp_path):
         "I work on BSH Research Center.",
         "It's a Mac app for investors.",
     ]
-    assert review.origin == "Jarvis Code's memory file (~/.claude/CLAUDE.md)"
+    assert review.origin == "Eden Code's memory file (~/.claude/CLAUDE.md)"
     with pytest.raises(NotImportable, match="no ~/.claude/CLAUDE.md"):
         from_claude_md(tmp_path / "missing.md")
 

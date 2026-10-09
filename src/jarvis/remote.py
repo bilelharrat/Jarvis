@@ -9,7 +9,7 @@ A device gets in only by pairing: the Mac shows a one-time six-digit code (five 
 five wrong tries and pairing locks for five minutes), which the phone trades for its own
 long random token. Only a hash of the token is stored, and each device can be removed.
 The API is a short allowlist: ask, stop, answer a pending approval, a few app commands
-and the current state (jarvis.companion adds Jarvis Code, push and the rest). Requests from
+and the current state (jarvis.companion adds Eden Code, push and the rest). Requests from
 the phone run as silent turns, so the Mac doesn't talk to an empty room. Every call is
 rate-limited per device, and every body capped.
 
@@ -90,7 +90,7 @@ PLAIN_PREF = "companion_plain_http"  # Settings: plain HTTP for the old app and 
 RATES = {
     "read": (240, 60),  # state, sessions, lists: the app polls while it's open
     "ask": (20, 5),  # requests that start a turn (ask, a photo, a shared note)
-    "act": (60, 20),  # approvals, commands, Jarvis Code messages, routines
+    "act": (60, 20),  # approvals, commands, Eden Code messages, routines
     "say": (30, 10),  # voice clips
     "report": (60, 20),  # push and Live Activity tokens, location, health
     "upload": (10, 3),  # shared files and photos

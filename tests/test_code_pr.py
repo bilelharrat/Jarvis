@@ -1,4 +1,4 @@
-"""Jarvis Code's pull requests (features/code_pr.py, code_prs.py): the draft Claude writes
+"""Eden Code's pull requests (features/code_pr.py, code_prs.py): the draft Claude writes
 (faked, and capped), opening one behind the Git panel's push card, and watching it: failing
 checks sent to the session with their logs, heads-ups, review comments batched as data,
 @jarvis from the owner only, conflicts, pushing the session's work, merging when green.
@@ -314,7 +314,7 @@ async def test_failing_checks_go_to_the_idle_session_with_their_logs(
         alert.text
         == "Checks failed on pull request #7: tests. The session is fixing it (try 1 of 3)."
     )
-    assert alert.note == "a pull request update (Jarvis Code's pull request pane has it)"
+    assert alert.note == "a pull request update (Eden Code's pull request pane has it)"
     assert any("fix 1 of 3" in e["text"] for e in task.transcript if e["role"] == "system")
     # The same failing commit again: nothing more (a fix is in hand).
     rec.followup = ""

@@ -1,4 +1,4 @@
-// Jarvis Code hand-off, its window helpers (web/features/code-handoff.js). node --test tests/web/
+// Eden Code hand-off, its window helpers (web/features/code-handoff.js). node --test tests/web/
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';

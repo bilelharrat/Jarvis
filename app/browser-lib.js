@@ -122,7 +122,7 @@ function certProblem(error) {
   return 'other';
 }
 
-// ── the session: the tabs to reopen next time (never a private tab, a Jarvis Code session's,
+// ── the session: the tabs to reopen next time (never a private tab, an Eden Code session's,
 // or a page whose address must not be kept), each with its back and forward list ──
 const PAGE = /^(https?:|file:)/i;
 const TITLE_MAX = 300;

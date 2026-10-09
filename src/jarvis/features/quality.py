@@ -7,7 +7,7 @@
 - crash-free days: a day the backend ended without quitting cleanly (a marker left from the
   last run, found at startup) counts as a crash on that day; the rest of the days since
   counting began are crash-free;
-- lost chats, which should stay zero: Jarvis Code's kept chats as the last run knew them,
+- lost chats, which should stay zero: Eden Code's kept chats as the last run knew them,
   any of which is missing from disk at startup;
 - heads-ups a day: what Jarvis interrupted with, lately (fewer, better ones is the aim),
   and per kind how often the owner opened its card or dismissed it. A kind that's nearly

@@ -1,4 +1,4 @@
-"""Model Router's learning loop and its extras in Jarvis Code (code_router_events), beside
+"""Model Router's learning loop and its extras in Eden Code (code_router_events), beside
 features/code_router (which moves a session to the routed model) and the window's
 web/features/code-router.js (which routes).
 
@@ -105,7 +105,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .. import jsonstore
+from .. import jsonstore, osplat
 from ..codeplatform import project_of
 from ..codesupervisor import TEST_COMMAND, test_counts
 from ..prefs import register_feature_pref
@@ -1465,11 +1465,13 @@ async def _run_learner(events: Events) -> str:
     out = events.hub.feature_path(".learned.next.json")
     with contextlib.suppress(OSError):  # (what it learned before, should it build on it)
         shutil.copyfile(events.learned_path(), out)
-    nice = ["/usr/bin/nice", "-n", "10"] if Path("/usr/bin/nice").is_file() else []
+    nice = (
+        ["/usr/bin/nice", "-n", "10"] if Path("/usr/bin/nice").is_file() else []
+    )  # (Windows: none)
     proc = await asyncio.create_subprocess_exec(
         *nice, node, str(script), *files, "--out", str(out), "--now", iso(events.clock()),
         cwd=str(model_router_home()), stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, start_new_session=True,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, **osplat.group_popen_kwargs(),
     )  # fmt: skip
     try:
         _, err = await asyncio.wait_for(proc.communicate(), LEARN_TIMEOUT)

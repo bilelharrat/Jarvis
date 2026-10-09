@@ -1,4 +1,6 @@
 // Jarvis desktop app: starts the Python backend, shows its window, owns the ⌥Space shortcut.
+// The same file is Eden Code, the coding app split out of Jarvis (flavor.js): Eden Code alone
+// in its own window, sharing the backend Jarvis runs or starting one without a microphone.
 
 const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell, systemPreferences } = require('electron');
 const { spawn } = require('child_process');
@@ -13,22 +15,43 @@ const { createAgent } = require('./browser-agent');
 const { backendCommand, BackendLog } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
 const { isCertError } = require('./browser-lib');
+const { resolveFlavor } = require('./flavor'); // J.A.R.V.I.S. or Eden Code
+const share = require('./backend-share'); // one backend for both apps
+const { createTrace, createTail } = require('./startup-log'); // app.log: how this start went
+const { waitForHealth, SLOW_WORDS } = require('./wait-backend'); // the engine's first answer, and what is said until then
 
-app.setName('J.A.R.V.I.S.');
+const FLAVOR = resolveFlavor();
+const EDEN_CODE = FLAVOR.id === 'eden-code';
+app.setName(FLAVOR.name);
+// Windows shows a toast (a timer, an alert, "needs your OK") only for an app whose ID matches the
+// Start menu shortcut the installer makes from its appId (scripts/release/windows.js).
+if (process.platform === 'win32') app.setAppUserModelId(FLAVOR.appUserModelId);
+// Eden Code keeps its own profile (window place, single-instance lock, browser data), so it
+// runs beside J.A.R.V.I.S.; the backend's data folder (DATA_DIR) is the one they share.
+if (EDEN_CODE) app.setPath('userData', path.join(app.getPath('appData'), 'Eden Code'));
+// J.A.R.V.I.S. Daredevil is the same program as J.A.R.V.I.S. (flavor.js): one profile, so one lock, and never two at once.
+if (FLAVOR.userDataName) app.setPath('userData', path.join(app.getPath('appData'), FLAVOR.userDataName));
 
-const TOKEN = crypto.randomBytes(24).toString('hex');
-const SHORTCUT = 'Alt+Space';
+// This app's backend's token, or the one it shares (backend-share.js: another app started it).
+let TOKEN = crypto.randomBytes(24).toString('hex');
+const SHORTCUT = process.platform === 'win32' ? 'Ctrl+Alt+J' : 'Alt+Space'; // (Alt+Space is Windows' window menu; J is the key a finger finds by touch)
 const WHATS_THIS = 'Alt+Shift+Space'; // explain whatever is in front of you
-const LOG_DIR = path.join(os.homedir(), 'Library', 'Logs', 'Jarvis');
-const DATA_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'Jarvis'); // the backend's (prefs.APP_SUPPORT)
+const plat = require('./platform-paths');
+const LOG_DIR = plat.logDir(FLAVOR.logName);
+const LOG_LABEL = plat.logLabel(FLAVOR.logName);
+const DATA_DIR = plat.dataDir(); // the backend's (prefs.APP_SUPPORT)
+// app.log: what the app did on the way up and what went wrong, for a start that shows nothing (startup-log.js).
+const trace = createTrace(path.join(LOG_DIR, 'app.log'));
+const APP_LOG_LABEL = LOG_LABEL.replace(/backend\.log$/, 'app.log');
+trace.write(`${FLAVOR.name} ${app.getVersion()} (electron ${process.versions.electron}, ${process.platform} ${process.arch}, ${os.release()}) ${app.isPackaged ? 'installed' : 'from source'}: ${process.execPath} ${JSON.stringify(process.argv.slice(1))}`);
 // Development only: show a backend that's already running (no microphone of its own)
 // instead of starting one, with a profile of its own and without the global shortcuts,
 // so it can run beside the installed app.
 const DEV_URL = process.env.JARVIS_BACKEND_URL || '';
 if (DEV_URL) {
-  app.setPath('userData', path.join(os.tmpdir(), 'jarvis-dev-profile'));
+  app.setPath('userData', path.join(os.tmpdir(), `${FLAVOR.id}-dev-profile`));
   // …and downloads of its own: testing never writes into the real Downloads folder
-  app.setPath('downloads', path.join(os.tmpdir(), 'jarvis-dev-downloads'));
+  app.setPath('downloads', path.join(os.tmpdir(), `${FLAVOR.id}-dev-downloads`));
   fs.mkdirSync(app.getPath('downloads'), { recursive: true });
 }
 
@@ -38,14 +61,18 @@ let port = 0;
 let quitting = false;
 let backendFromRepo = false; // uv runs it from the repo (the owner's own install), not the bundle
 let quietRestart = false; // the backend is being restarted on purpose (app/features/follow-repo.js)
+let sharedFrom = ''; // the app whose backend this window is on, when it isn't this one's
+let stopWatching = null; // stops watching that backend (backend-share.js watch)
 
 // One Jarvis at a time: a second launch (npm start twice, a dev build beside the installed
 // app) brings the running one forward instead of starting a second backend on the same
 // files. Asked after the dev profile is set above, so the test window, with a profile of
 // its own, never collides with the installed app.
 const gotLock = app.requestSingleInstanceLock();
+trace.write(gotLock ? 'the only copy running: starting' : 'another copy is already running: this one quits and brings that one forward');
 if (!gotLock) app.quit();
 app.on('second-instance', () => {
+  trace.write(`started again while running${win && !win.isDestroyed() ? ': bringing the window forward' : ' (no window yet)'}`);
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
   if (DEV_URL) {
@@ -66,6 +93,27 @@ app.on('open-url', (event, url) => {
   else if (earlyLinks.length < 10) earlyLinks.push(url);
 });
 
+// An error nobody caught: written to app.log and, once a minute at most, shown (Electron's own box says nothing of
+// where to look, and a start that fails before any window has nothing else to show).
+let lastErrorBox = 0;
+process.on('uncaughtException', (err) => {
+  trace.write(`UNCAUGHT ERROR: ${(err && err.stack) || err}`);
+  if (Date.now() - lastErrorBox < 60000) return;
+  lastErrorBox = Date.now();
+  try {
+    dialog.showErrorBox(`${FLAVOR.name} hit a problem`, `${(err && err.message) || err}\n\nWhat it did is written in ${APP_LOG_LABEL}`);
+  } catch { /* no box to show */ }
+});
+process.on('unhandledRejection', (reason) => {
+  trace.write(`unhandled rejection: ${(reason && reason.stack) || reason}`);
+});
+app.on('child-process-gone', (_event, details) => {
+  trace.write(`a ${details.type} process went (${details.reason}, exit ${details.exitCode}${details.name ? `, ${details.name}` : ''})`);
+});
+app.on('render-process-gone', (_event, _contents, details) => {
+  trace.write(`a page's process went (${details.reason}, exit ${details.exitCode})`);
+});
+
 function jarvisHome() {
   if (process.env.JARVIS_HOME) return process.env.JARVIS_HOME;
   const baked = path.join(__dirname, 'jarvis-home.json');
@@ -74,11 +122,11 @@ function jarvisHome() {
 }
 
 // Apps opened from Finder don't inherit the shell's PATH, so look where uv usually lives.
-const EXTRA_PATH = ['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.cargo', 'bin')];
+const EXTRA_PATH = plat.extraPath();
 
 function findUv() {
   for (const dir of EXTRA_PATH) {
-    const candidate = path.join(dir, 'uv');
+    const candidate = path.join(dir, plat.exe('uv'));
     if (fs.existsSync(candidate)) return candidate;
   }
   return 'uv';
@@ -111,7 +159,7 @@ function openBackendLog() {
 // a microphone that sends nothing but zeros.) At most 60 s: an unanswered prompt never
 // keeps JARVIS from starting.
 async function askForMicrophone() {
-  if (process.platform !== 'darwin' || DEV_URL) return;
+  if (process.platform !== 'darwin' || DEV_URL || EDEN_CODE) return; // Eden Code never listens
   try {
     if (systemPreferences.getMediaAccessStatus('microphone') !== 'not-determined') return;
     await Promise.race([
@@ -121,6 +169,9 @@ async function askForMicrophone() {
   } catch (_) { /* no prompt to show: the backend's own asking still applies */ }
 }
 
+// What the backend printed last, for the window to say when it stops (a ModuleNotFoundError, a port in use).
+const backendTail = createTail();
+
 function startBackend() {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const log = openBackendLog();
@@ -129,23 +180,45 @@ function startBackend() {
     extraPath: EXTRA_PATH, uv: findUv, home: jarvisHome, dataDir: DATA_DIR, exists: fs.existsSync,
   });
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
+  if (app.isPackaged && !how.bundled && !process.env.JARVIS_HOME) {
+    // An installed app with no engine of its own: its files were removed (security software does that) or the install was cut short.
+    trace.write(`the engine is missing: no ${path.join(process.resourcesPath, 'backend', 'python')}`);
+    showProblem(`${FLAVOR.name}'s engine files are missing (${path.join(process.resourcesPath, 'backend')}). Windows Security or another antivirus may have removed them. Install ${FLAVOR.name} again, and allow it in Windows Security if it asks.`);
+    log.end();
+    return;
+  }
   // This .app, so a paired iPhone can open it after it's quit (jarvis/companion_wake.py).
-  if (app.isPackaged) how.env.JARVIS_APP_BUNDLE = path.resolve(process.execPath, '..', '..', '..');
+  if (app.isPackaged && plat.MAC) how.env.JARVIS_APP_BUNDLE = path.resolve(process.execPath, '..', '..', '..');
   // Who the backend watches, so it goes when we do (jarvis/launcher_watch.py). Packaged or
   // from the repo, because without it the backend guessed — and could take one of Electron's
   // helper processes for the app. A helper quits while the app runs, and the backend went
   // with it mid-session, taking the chats, the session list and the steer button.
   how.env.JARVIS_LAUNCHER_PID = String(process.pid);
-  log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''}\n`);
+  how.env.JARVIS_PROFILE = FLAVOR.profile; // Eden Code's: no microphone until Jarvis joins (hub.window_joined)
+  how.env.JARVIS_EDITION = FLAVOR.edition || ''; // 'daredevil': screen-reader mode is the default (accessibility.py)
+  log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''} for ${FLAVOR.name}\n`);
   backendFromRepo = !how.bundled;
-  backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+  trace.write(`starting the engine on port ${port}: ${how.command} ${how.args.join(' ')}${how.bundled ? '' : ' (not the bundled one)'}`);
+  backendTail.reset();
+  backendTail.add(`--- ${new Date().toISOString()}\n`);
+  backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }); // (windowsHide: no console window for the engine)
+  trace.write(`engine process ${backend.pid || 'not started'}`);
+  backend.stdout.on('data', (chunk) => backendTail.add(chunk));
+  backend.stderr.on('data', (chunk) => backendTail.add(chunk));
+  // Where it is, for the other app (Jarvis or Eden Code) to open its window on it too.
+  if (!DEV_URL && backend.pid) share.advertise(DATA_DIR, { port, token: TOKEN, pid: backend.pid, app: FLAVOR.id, launcher: process.pid });
   // Both into the one log, which ends once both have (the backend gone, its pipes closed).
   backend.stdout.pipe(log, { end: false });
   backend.stderr.pipe(log, { end: false });
   backend.once('close', () => log.end());
-  backend.on('error', (err) => showProblem(`Couldn't start the backend: ${err.message}`));
+  backend.on('error', (err) => {
+    trace.write(`the engine could not be started: ${err.message}`);
+    showProblem(`Couldn't start the backend: ${err.message}`, backendTail.last());
+  });
   backend.on('exit', (code, signal) => {
+    trace.write(`the engine stopped (exit ${code}${signal ? `, ${signal}` : ''}); it last said:\n${backendTail.last(12, 1800)}`);
     backend = null;
+    share.withdraw(DATA_DIR, process.pid);
     if (quitting) return;
     if (quietRestart) {
       quietRestart = false;
@@ -161,9 +234,9 @@ async function reopenBackend() {
   startBackend();
   try {
     await waitForBackend();
-    if (win && !win.isDestroyed()) win.loadURL(`${appUrl()}?token=${TOKEN}`);
+    loadApp();
   } catch (err) {
-    if (!err.exited) showProblem(`Jarvis couldn't start again: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+    if (!err.exited) showProblem(`${FLAVOR.name} couldn't start again: ${err.message}. Details are in ${LOG_LABEL}.`);
   }
 }
 
@@ -171,7 +244,7 @@ async function reopenBackend() {
 function restartBackendQuietly() {
   if (!backend) return false;
   quietRestart = true;
-  backend.kill('SIGTERM');
+  plat.killTree(backend);
   return true;
 }
 
@@ -225,63 +298,108 @@ function restartBackend(code, signal) {
   if (restarts.length >= 3) {
     showProblem(taken
       ? 'Another JARVIS backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Jarvis again.'
-      : `The backend ${how} three times in five minutes. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+      : `The backend ${how} three times in five minutes. Details are in ${LOG_LABEL}.`, taken ? '' : backendTail.last());
     return;
   }
   restarts.push(now);
   showProblem(taken ? 'Another JARVIS backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
   setTimeout(async () => {
     if (quitting || backend) return;
+    // The other app's backend has the data folder (both started at once): share it instead.
+    if (taken && (await shareBackend())) { restarts = []; return; }
     startBackend();
     try {
       await waitForBackend();
-      if (win && !win.isDestroyed()) win.loadURL(`${appUrl()}?token=${TOKEN}`);
+      loadApp();
     } catch (err) {
       // Another exit comes back to restartBackend, which says what happens next.
-      if (!err.exited) showProblem(`Jarvis couldn't start again: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+      if (!err.exited) showProblem(`${FLAVOR.name} couldn't start again: ${err.message}. Details are in ${LOG_LABEL}.`);
     }
   }, 1500 * restarts.length);
 }
 
-function waitForBackend(timeoutMs = 90000) {
-  const started = Date.now();
-  return new Promise((resolve, reject) => {
-    const attempt = () => {
-      const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 1000 }, (res) => {
-        res.resume();
-        if (res.statusCode === 200) resolve();
-        else retry();
-      });
-      req.on('error', retry);
-      req.on('timeout', () => req.destroy());
-    };
-    const retry = () => {
-      if (!backend) return reject(Object.assign(new Error('backend exited'), { exited: true }));
-      if (Date.now() - started > timeoutMs) return reject(new Error('backend took too long to start'));
-      setTimeout(attempt, 400);
-    };
-    attempt();
+// Waits for the engine (wait-backend.js): ten minutes on a PC, where a first start is slow; elsewhere 90 seconds is plenty.
+function waitForBackend(timeoutMs = plat.WIN ? 600000 : 90000) {
+  return waitForHealth({
+    port: () => port,
+    running: () => Boolean(backend),
+    timeoutMs,
+    words: SLOW_WORDS.map(([after, text]) => [after, text.replace('%LOG%', APP_LOG_LABEL)]),
+    say: sayWhileWaiting,
+    note: (text) => trace.write(text),
   });
 }
 
-function showProblem(message) {
-  if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, 'loading.html'), { query: { error: message } });
+// A line under the "Waking up…" the window already shows (not an error: nothing is reloaded).
+function sayWhileWaiting(text) {
+  if (!win || win.isDestroyed() || !win.webContents.getURL().startsWith('file:')) return;
+  win.webContents.executeJavaScript(`window.sayWhileWaiting && window.sayWhileWaiting(${JSON.stringify(text)})`).catch(() => {});
+}
+
+function showProblem(message, detail = '') {
+  trace.write(`the window says: ${message}${detail ? `\n${detail}` : ''}`);
+  if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, 'loading.html'), { query: { error: message, ...(detail ? { detail } : {}), app: FLAVOR.id } });
 }
 
 function appUrl() {
   return `http://127.0.0.1:${port}/`;
 }
 
+// The window on the backend: Jarvis's page, or Eden Code's (?app=code: server.eden_code_page), or Daredevil's.
+function loadApp() {
+  trace.write('opening the app in the window');
+  if (win && !win.isDestroyed()) win.loadURL(`${appUrl()}?token=${TOKEN}${FLAVOR.query ? `&${FLAVOR.query}` : ''}`);
+}
+
+// Starts this app's own backend and opens the window on it.
+async function startOwnBackend() {
+  port = await freePort();
+  startBackend();
+  try {
+    await waitForBackend();
+    loadApp();
+  } catch (err) {
+    // A backend that exited is restartBackend's: it has already said what's happening (for
+    // exit 75, waiting for a backend that's still quitting), starts it again and loads the
+    // window once it's up. Saying "couldn't start" over that read as final when it wasn't.
+    if (!err.exited) showProblem(`${FLAVOR.name} couldn't start: ${err.message}. Details are in ${LOG_LABEL}.`);
+  }
+}
+
+// The window on the backend the other app (Jarvis or Eden Code) is running, when there is one;
+// else this app's own. Shared, it's watched: once it goes (that app quit), this app starts its
+// own and the window reloads on it, sessions and all (they're in the shared data folder).
+async function openOnBackend() {
+  if (!(await shareBackend())) await startOwnBackend();
+}
+
+// Opens the window on the other app's running backend: false when there's none to share.
+async function shareBackend() {
+  const found = DEV_URL ? null : await share.discover(DATA_DIR);
+  if (!found) return false;
+  port = found.port;
+  TOKEN = found.token;
+  sharedFrom = found.app;
+  console.log(`${FLAVOR.name}: sharing the backend ${found.app || 'another app'} started (port ${port})`);
+  loadApp();
+  stopWatching = share.watch(port, () => {
+    stopWatching = null;
+    sharedFrom = '';
+    if (quitting) return;
+    TOKEN = crypto.randomBytes(24).toString('hex');
+    showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'J.A.R.V.I.S.'} quit, so ${FLAVOR.name} is starting its own backend…`);
+    startOwnBackend();
+  });
+  return true;
+}
+
 function createWindow() {
   win = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 760,
-    minHeight: 620,
+    ...FLAVOR.size,
     show: false,
-    title: 'J.A.R.V.I.S.',
-    titleBarStyle: 'hiddenInset',
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#111317' : '#f4f0e8',
+    title: FLAVOR.title,
+    ...(plat.MAC ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
+    backgroundColor: nativeTheme.shouldUseDarkColors ? FLAVOR.background.dark : FLAVOR.background.light,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -291,13 +409,33 @@ function createWindow() {
   });
   if (DEV_URL) {
     // A test window: labelled, never takes focus, and clicks pass through it.
-    win.setTitle('J.A.R.V.I.S. (test)');
+    win.setTitle(`${FLAVOR.title} (test)`);
     win.once('ready-to-show', () => { win.showInactive(); win.setIgnoreMouseEvents(true); });
   } else {
-    const hidden = reopenHidden();
-    win.once('ready-to-show', () => { if (!hidden) win.show(); });
+    const hidden = reopenHidden() || process.argv.includes('--hidden'); // (a quiet update's, or the sign-in's)
+    let shown = false;
+    const show = (why) => {
+      if (shown || !win || win.isDestroyed()) return;
+      shown = true;
+      trace.write(hidden ? `the window is ready and stays hidden (${why})` : `window shown (${why})`);
+      if (!hidden) win.show();
+    };
+    win.once('ready-to-show', () => show('painted'));
+    // A page that never paints (a graphics driver that won't draw) must not leave the app with no window at all.
+    setTimeout(() => show('not painted after 4 s: showing it anyway'), 4000);
   }
-  win.loadFile(path.join(__dirname, 'loading.html'));
+  const seen = (url) => String(url || '').replace(/token=[0-9a-f]+/g, 'token=…');
+  win.webContents.on('did-finish-load', () => trace.write(`page loaded: ${seen(win.webContents.getURL())}`));
+  win.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame) trace.write(`page failed to load: ${description} (${code}) ${seen(url)}`);
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    trace.write(`the window's page crashed (${details.reason}, exit ${details.exitCode})`);
+    if (details.reason !== 'clean-exit' && !quitting && port) setTimeout(() => { if (win && !win.isDestroyed()) loadApp(); }, 1000);
+  });
+  win.on('unresponsive', () => trace.write('the window is not responding'));
+  win.on('responsive', () => trace.write('the window responds again'));
+  win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id } });
 
   // The window only ever shows Jarvis; any other link opens in the browser.
   const external = (url) => {
@@ -330,6 +468,13 @@ function summon() {
   app.focus({ steal: true });
   win.webContents.send('jarvis:summon');
 }
+
+// Screen-reader mode (web/features/accessibility.js): Electron knows when assistive technology is
+// in use (NVDA, JAWS, Narrator, VoiceOver); the page asks, and hears when that changes.
+ipcMain.handle('a11y:supported', () => app.isAccessibilitySupportEnabled());
+app.on('accessibility-support-changed', (_event, enabled) => {
+  if (win && !win.isDestroyed()) win.webContents.send('a11y:changed', enabled);
+});
 
 ipcMain.handle('jarvis:pick-folder', async () => {
   const result = await dialog.showOpenDialog(win, {
@@ -1156,7 +1301,7 @@ ipcMain.on('page:click', (event, p) => {
   if (fromPage(event) && p) clickAt(Number(p.x) || 0, Number(p.y) || 0);
 });
 
-// JARVIS's and Jarvis Code's hands over the DevTools protocol: snapshots with element refs,
+// JARVIS's and Eden Code's hands over the DevTools protocol: snapshots with element refs,
 // actions by ref, waits (browser-agent.js). It works on any tab, the one on show or not.
 const browserAgent = createAgent({
   tabs: () => tabs,
@@ -1318,7 +1463,7 @@ async function runBrowserCommand({ action, args = {} }) {
       sendBrowserState();
       return { ok: true, zoom: Math.round(browserZoom * 100) };
     }
-    case 'pointed': { // Jarvis Code's point and speak: what the hand is on, and a picture of it
+    case 'pointed': { // Eden Code's point and speak: what the hand is on, and a picture of it
       if (!wc.getURL()) return { ok: false, message: 'The browser is empty.' };
       const found = await pageCall('pointed');
       if (!found.ok || !found.box) return found;
@@ -1578,6 +1723,8 @@ const featureContext = {
   send: (channel, ...args) => { if (win && !win.isDestroyed()) win.webContents.send(channel, ...args); },
   fromWindow: (event) => Boolean(win && !win.isDestroyed() && event && event.sender === win.webContents),
   dev: Boolean(DEV_URL),
+  flavor: FLAVOR, // which app this is (flavor.js): J.A.R.V.I.S. or Eden Code
+  sharedFrom: () => sharedFrom, // the app whose backend the window is on, when not this one's
   logDir: LOG_DIR,
   summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
@@ -1606,6 +1753,7 @@ function loadAppFeatures() {
   const dir = path.join(__dirname, 'features');
   let files = [];
   try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort(); } catch { return; }
+  if (FLAVOR.features) files = files.filter((f) => FLAVOR.features.has(f)); // Eden Code: its own only
   for (const file of files) {
     try {
       const feature = require(path.join(dir, file));
@@ -1618,6 +1766,7 @@ function loadAppFeatures() {
 
 app.whenReady().then(async () => {
   if (!gotLock) return; // quitting: the Jarvis already running has been brought forward
+  trace.write('ready: opening the window');
   createWindow();
   loadAppFeatures();
   if (DEV_URL) {
@@ -1625,18 +1774,13 @@ app.whenReady().then(async () => {
     win.loadURL(DEV_URL);
     return;
   }
-  port = await freePort();
   await askForMicrophone();
-  startBackend();
-  try {
-    await waitForBackend();
-    win.loadURL(`${appUrl()}?token=${TOKEN}`);
-  } catch (err) {
-    // A backend that exited is restartBackend's: it has already said what's happening (for
-    // exit 75, waiting for a backend that's still quitting), starts it again and loads the
-    // window once it's up. Saying "couldn't start" over that read as final when it wasn't.
-    if (!err.exited) showProblem(`Jarvis couldn't start: ${err.message}. Details are in ~/Library/Logs/Jarvis/backend.log.`);
+  if (EDEN_CODE && app.dock) {
+    const icon = path.join(__dirname, 'build', 'eden-code', 'icon-1024.png');
+    if (fs.existsSync(icon)) app.dock.setIcon(icon); // run from J.A.R.V.I.S.'s bundle (eden-code.js), still Eden's icon
   }
+  await openOnBackend();
+  if (EDEN_CODE) return; // Eden Code takes no global shortcuts: ⌥Space is Jarvis's
   if (featureContext.ownsShortcuts) return; // app/features/shell.js registered the ones chosen in Settings
   if (!globalShortcut.register(SHORTCUT, summon)) {
     console.warn(`${SHORTCUT} is taken by another app; use the Dock icon instead.`);
@@ -1684,8 +1828,10 @@ ipcMain.on('jarvis:hand-hud', (event, update) => {
 
 app.on('before-quit', () => {
   quitting = true;
+  if (stopWatching) stopWatching();
+  share.withdraw(DATA_DIR, process.pid);
   showHandHud(false);
   globalShortcut.unregisterAll();
-  if (backend) backend.kill('SIGTERM');
+  if (backend) plat.killTree(backend);
 });
 app.on('window-all-closed', () => {});

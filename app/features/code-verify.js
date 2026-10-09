@@ -1,4 +1,4 @@
-// Jarvis Code's Preview check, in the app itself (features/code_verify.py asks for it through
+// Eden Code's Preview check, in the app itself (features/code_verify.py asks for it through
 // the window): reload the dev server's page, wait for it to settle, collect what went wrong
 // on it, and take its picture.
 //

@@ -1,4 +1,4 @@
-// Jarvis Code sessions in the window (web/features/code-sessions.js): which rows the sidebar
+// Eden Code sessions in the window (web/features/code-sessions.js): which rows the sidebar
 // shows, /goal's words, snippets as commands, and a project's own defaults in the composer.
 // node --test tests/web/
 import assert from 'node:assert/strict';
@@ -52,7 +52,7 @@ test('a project’s own defaults show in the composer, and a composer change the
   assert.deepEqual(effectiveDefaults(global, null), global);
   const before = { code_mode: 'ask', code_model: '', code_effort: '', code_ultracode: false };
   const after = { ...before, code_mode: 'edits', code_model: 'sonnet' };
-  // Only what the project sets for itself moves; the rest stays Jarvis Code's default.
+  // Only what the project sets for itself moves; the rest stays Eden Code's default.
   assert.deepEqual(movedDefaults(before, after, { mode: 'plan' }), { mode: 'edits' });
   assert.deepEqual(movedDefaults(before, after, null), {});
   assert.deepEqual(movedDefaults(null, after, { mode: 'plan' }), {});

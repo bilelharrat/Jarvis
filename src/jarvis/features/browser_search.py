@@ -1,5 +1,5 @@
 """The search engine the built-in browser's address bar uses (Settings › Browser, kept by the
-app in its own file): words JARVIS or a Jarvis Code session opens as a search go to that
+app in its own file): words JARVIS or an Eden Code session opens as a search go to that
 engine's site, so the turn gate and the approval cards weigh that site, not always Google's
 (browser_gate.SEARCH_HOST).
 

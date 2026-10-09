@@ -238,7 +238,7 @@ class BrowserParity {
 
   // A page asking: a tab of the dock waits for the window's prompt; a page in a window of its
   // own (a sign-in popup, a tab popped out) asks in a box on that window, and one in a window
-  // nobody sees (Jarvis Code's check of a dev server) is refused.
+  // nobody sees (Eden Code's check of a dev server) is refused.
   request(perms, wc, permission, details) {
     if (!wc || wc.isDestroyed()) return Promise.resolve(false);
     const origin = originOf(details.isMainFrame === false ? wc.getURL() : details.requestingUrl || wc.getURL()) || originOf(wc.getURL());
@@ -1028,7 +1028,7 @@ class BrowserParity {
   }
 
   // A tab as it's kept: its page and its back and forward list (addresses and titles only;
-  // never what was typed in the page). A private tab and a Jarvis Code session's aren't kept.
+  // never what was typed in the page). A private tab and an Eden Code session's aren't kept.
   sessionTab(view) {
     const wc = view.webContents;
     if (!wc || wc.isDestroyed() || view.private || view.agentProfile || String(view.agentOwner || '').startsWith('code:')) return { skip: true };
@@ -1111,7 +1111,7 @@ class BrowserParity {
   }
 
   // A tab JARVIS opens for itself: in its own profile, signed out of the owner's sites, when
-  // the owner chose that (Settings › Browser); Jarvis Code's session tabs stay as they are.
+  // the owner chose that (Settings › Browser); Eden Code's session tabs stay as they are.
   agentTab(owner) {
     return owner === 'jarvis' && this.state().agentProfile ? { partition: AGENT_PARTITION } : {};
   }

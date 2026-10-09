@@ -28,7 +28,7 @@ final class ContractDecodingTests: XCTestCase {
          "delegations_active": 2, "push": {"enabled": true, "registered": false}, "tls": true}
         """)
         XCTAssertEqual(state.pendingApprovals, 3)
-        XCTAssertEqual(state.approvals.map(\.source), [.jarvis, .code, .code])  // a task_id means Jarvis Code
+        XCTAssertEqual(state.approvals.map(\.source), [.jarvis, .code, .code])  // a task_id means Eden Code
         XCTAssertEqual(state.approvals[1].taskID, 4)
         XCTAssertEqual(state.approvals[2].taskID, 9)
         XCTAssertEqual(state.codeSessions.map(\.id), [4, 5, 6, 7])
@@ -344,11 +344,11 @@ final class PushPayloadTests: XCTestCase {
         XCTAssertEqual(push.title, "Jarvis needs your OK")
         XCTAssertEqual(push.body, "Email Pepper?")
 
-        let code = try XCTUnwrap(JarvisPush(userInfo: ["jarvis": ["kind": "code_needs_you", "id": 17, "task_id": "4"], "aps": ["alert": "Jarvis Code needs you"]]))
+        let code = try XCTUnwrap(JarvisPush(userInfo: ["jarvis": ["kind": "code_needs_you", "id": 17, "task_id": "4"], "aps": ["alert": "Eden Code needs you"]]))
         XCTAssertEqual(code.kind, .codeNeedsYou)
         XCTAssertEqual(code.id, "17")
         XCTAssertEqual(code.taskID, 4)
-        XCTAssertEqual(code.body, "Jarvis Code needs you")
+        XCTAssertEqual(code.body, "Eden Code needs you")
         XCTAssertFalse(code.isApproval)
 
         XCTAssertEqual(JarvisPush(userInfo: ["jarvis": ["kind": "something-new"]])?.kind, .unknown)

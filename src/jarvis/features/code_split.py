@@ -1,4 +1,4 @@
-"""Jarvis Code's split view, its place in prefs: which two sessions are side by side in the
+"""Eden Code's split view, its place in prefs: which two sessions are side by side in the
 window, where the divider between them sits and which pane has the focus. The window keeps it
 (web/features/code-split.js) and puts the split back after a reload or a restart: a session is
 found again by its key, which outlasts a restart (features/code_sessions.py), where its id

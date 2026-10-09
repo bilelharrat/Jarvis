@@ -248,7 +248,9 @@ class WikiDesk:
         """What the pages are made of, read now (in a thread: files and databases)."""
         hub, desk = self.hub, self.memory_desk
         # A fact switched off (Eden's Memory page) is kept, but used nowhere: not on these pages either.
-        facts = [f for f in hub.memory.facts if not memory.expired(f) and not getattr(f, "off", False)]
+        facts = [
+            f for f in hub.memory.facts if not memory.expired(f) and not getattr(f, "off", False)
+        ]
         promises = list(desk.promises.items) if desk is not None else []
         intents = list(desk.intents.items) if desk is not None else []
         known = people.known_people(facts, promises, intents, hub.prefs.vips)

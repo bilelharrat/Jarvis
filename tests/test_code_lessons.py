@@ -52,7 +52,7 @@ def test_a_correction_is_kept_once_and_heard_where_it_applies():
     say(desk, 1, "no, don't mock the database in these tests")  # known already
     say(desk, 1, "From now on always write the changelog entry")
     assert len(hub.memory.facts) == 2
-    assert hub.memory.facts[0].origin == "Jarvis Code correction (project web)"
+    assert hub.memory.facts[0].origin == "Eden Code correction (project web)"
     note = desk.turn_note(web)
     assert "Don't mock the database" in note and "changelog" in note
     assert desk.turn_note(web) == ""  # heard already: said again only when there's more
@@ -70,6 +70,6 @@ def test_saying_no_to_a_step_or_undoing_a_change_teaches_too():
     assert emitted[-1][0] == "code_lesson_ask"
     desk._cmd_add({"id": 1, "text": "from now on never touch generated files"})
     assert hub.memory.facts[-1].text == "From now on never touch generated files"
-    assert hub.memory.facts[-1].origin == "Jarvis Code correction (every project)"
+    assert hub.memory.facts[-1].origin == "Eden Code correction (every project)"
     desk._cmd_add({"id": 1, "text": "x"})  # too little to keep
     assert len(hub.memory.facts) == 2

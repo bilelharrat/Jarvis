@@ -1,4 +1,4 @@
-"""Jarvis Code's best of N (features/code_bestof.py): one request run by two or three
+"""Eden Code's best of N (features/code_bestof.py): one request run by two or three
 sessions, each in its own isolated copy on its own model; their results compared (what
 each changed, the owner's test command in each copy, a judgment from a fake Claude), and
 "Keep this one" landing one copy and discarding the rest. Real git in temp repositories;

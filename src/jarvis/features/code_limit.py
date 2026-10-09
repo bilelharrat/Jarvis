@@ -1,7 +1,7 @@
-"""Jarvis Code: when Claude's usage limit is reached, wait for it to reset and carry on
+"""Eden Code: when Claude's usage limit is reached, wait for it to reset and carry on
 there, instead of moving the session to the fallback model.
 
-The setting (Jarvis Code settings › While it works): "When Claude's usage limit is
+The setting (Eden Code settings › While it works): "When Claude's usage limit is
 reached": switch to the fallback model (as before, the default) or wait for it to reset.
 
 Waiting: the turn Claude couldn't answer ends quietly (as a move to the fallback does),
@@ -56,7 +56,7 @@ CARRY_ON = (
 
 ZH = {
     "Claude's usage limit is reached: this session waits until {time} and carries on then. Messages you send meanwhile wait too.": "已达到 Claude 的用量上限：这个会话会等到{time}，然后接着做。这期间你发的消息也会等着。",
-    "Claude's usage limit is reached: Jarvis Code waits until {time} and carries on then.": "已达到 Claude 的用量上限：Jarvis Code 会等到{time}，然后接着做。",
+    "Claude's usage limit is reached: Eden Code waits until {time} and carries on then.": "已达到 Claude 的用量上限：Eden Code 会等到{time}，然后接着做。",
     "Claude's limit has reset: carrying on.": "Claude 的用量上限已重置：接着做。",
     "Trying Claude again now.": "现在再试一次 Claude。",
     "This session isn't waiting for Claude.": "这个会话没有在等 Claude。",
@@ -148,7 +148,7 @@ class LimitWait:
         if marker not in self._told:
             self._told.add(marker)
             text = self.say(
-                "Claude's usage limit is reached: Jarvis Code waits until {time} and carries on "
+                "Claude's usage limit is reached: Eden Code waits until {time} and carries on "
                 "then.",
                 time=at,
             )

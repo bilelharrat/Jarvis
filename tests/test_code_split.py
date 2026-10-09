@@ -1,4 +1,4 @@
-"""Jarvis Code's split view, its setting (features/code_split.py): the two sessions side by
+"""Eden Code's split view, its setting (features/code_split.py): the two sessions side by
 side, the divider and the focused pane, kept in prefs so the window can put the split back after
 a reload or a restart. Its window side is tested in tests/web/code-split.test.mjs."""
 

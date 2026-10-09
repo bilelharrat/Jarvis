@@ -28,7 +28,7 @@ import string
 import time
 from typing import Any
 
-from .. import lang
+from .. import lang, osplat
 from ..prefs import register_feature_pref
 
 log = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ _KEYS = (
     | {"Space", "Return", "Tab", "Backspace", "Delete", "Up", "Down", "Left", "Right"}
     | {"Home", "End", "PageUp", "PageDown", "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`"}
 )
-# macOS keeps these for itself (the app's RESERVED, in shell-lib.js).
+# macOS keeps these for itself (the app's RESERVED, in shell-lib.js), and Windows its own.
 RESERVED = {
     "Control+Space",
     "Command+Control+Space",
@@ -94,6 +94,26 @@ RESERVED = {
     "Control+Left",
     "Control+Right",
 }
+# Windows' own: Alt+Space is every window's menu; the rest are its task and security keys.
+WINDOWS_RESERVED = {
+    "Alt+Space",
+    "Alt+Tab",
+    "Alt+Escape",
+    "Alt+F4",
+    "Control+Escape",
+    "Control+Shift+Escape",
+    "Control+Alt+Delete",
+    "Control+Alt+Tab",
+}
+# Talk (shows J.A.R.V.I.S. and starts listening) by default: Alt+Space on a Mac; Ctrl+Alt+J on a PC,
+# J being the key a finger finds by touch, and Ctrl+Alt+<key> the way Windows itself starts a
+# program from the keyboard (the installer's shortcuts have it too, so it works with the app closed).
+ASK_DEFAULT = "Control+Alt+J" if osplat.IS_WIN else "Alt+Space"
+
+
+def reserved() -> set[str]:
+    """The key combinations this computer keeps for itself."""
+    return RESERVED | WINDOWS_RESERVED if osplat.IS_WIN else RESERVED
 
 
 def clean_accelerator(value: Any) -> str | None:
@@ -108,7 +128,7 @@ def clean_accelerator(value: Any) -> str | None:
     ordered = [m for m in _MODIFIERS if m in mods]
     accelerator = "+".join([*ordered, key])
     strong = "Control" in ordered or "Alt" in ordered or ("Command" in ordered and len(ordered) > 1)
-    if (key not in _FKEYS and not strong) or accelerator in RESERVED:
+    if (key not in _FKEYS and not strong) or accelerator in reserved():
         return None
     return accelerator
 
@@ -120,7 +140,7 @@ lang.add_texts({"a request a link wrote": "链接写下的请求"})
 register_feature_pref(PAUSE_KEY, 0.0, _clean_until)
 register_feature_pref(MENU_BAR_KEY, True)
 register_feature_pref(ASK_CONFIRM_KEY, False)
-register_feature_pref(ASK_SHORTCUT_KEY, "Alt+Space", clean_accelerator)
+register_feature_pref(ASK_SHORTCUT_KEY, ASK_DEFAULT, clean_accelerator)
 register_feature_pref(WHATS_THIS_SHORTCUT_KEY, "Alt+Shift+Space", clean_accelerator)
 
 

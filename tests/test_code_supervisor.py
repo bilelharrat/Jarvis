@@ -325,7 +325,7 @@ def approval(task_id, **extra):
         "id": f"a{task_id}",
         "task_id": task_id,
         "tool": "Bash",
-        "question": "Jarvis Code in proj wants to run a command",
+        "question": "Eden Code in proj wants to run a command",
         "detail": "$ npm test",
         "choices": [{"id": "allow", "label": "Yes"}, {"id": "deny", "label": "No"}],
         **extra,
@@ -353,7 +353,7 @@ def test_the_overview_puts_who_needs_you_first():
     assert [t.id for t in told] == [2, 1, 3]  # the closed one with no news isn't said
     zh, _ = cs.overview(tasks, {"a2": approval(2)}, j, "zh")
     assert zh.startswith("3个会话。会话2（Write the docs）需要你：它想运行一条命令。会话1")
-    assert cs.overview([], {}, j, "en")[0] == "No Jarvis Code sessions are open."
+    assert cs.overview([], {}, j, "en")[0] == "No Eden Code sessions are open."
 
 
 def test_many_sessions_are_said_four_at_a_time():

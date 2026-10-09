@@ -1,4 +1,4 @@
-/* Jarvis Code's full export (features/code-export.js): what goes, and how. */
+/* Eden Code's full export (features/code-export.js): what goes, and how. */
 
 .cx-root { display: flex; flex-direction: column; gap: 12px; padding-top: 2px; }
 .cx-group { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

@@ -1,4 +1,4 @@
-"""The check after a Jarvis Code turn, its pure parts: what went wrong read from the app's
+"""The check after an Eden Code turn, its pure parts: what went wrong read from the app's
 page check, the note to the session (fenced as data, capped), its caps, the proof pictures
 kept on disk, and the page check asked of the window."""
 

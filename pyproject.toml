@@ -7,22 +7,29 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "claude-agent-sdk>=0.2.161",
+    "claude-agent-sdk>=0.2.164",
     "faster-whisper>=1.2.1",
     "httpx>=0.28",
     "keyring>=25.7.0",
     "numpy>=2.5.3",
     "psutil>=7.2.2",
-    "pyobjc-framework-corelocation>=12.2.2",
-    "pyobjc-framework-eventkit>=12.2.2",
-    "pyobjc-framework-mapkit>=12.2.2",
-    "pyobjc-framework-quartz>=12.2.2",
+    "pyobjc-framework-corelocation>=12.2.2; sys_platform == 'darwin'",
+    "pyobjc-framework-eventkit>=12.2.2; sys_platform == 'darwin'",
+    "pyobjc-framework-mapkit>=12.2.2; sys_platform == 'darwin'",
+    "pyobjc-framework-quartz>=12.2.2; sys_platform == 'darwin'",
+    "pywinpty>=2.0.14; sys_platform == 'win32'",
+    "tzdata>=2025.2; sys_platform == 'win32'",
+    "uiautomation>=2.0.29; sys_platform == 'win32'",
+    "mss>=10.0; sys_platform == 'win32'",
+    "pillow>=11.0; sys_platform == 'win32'",
     "pypdf>=6.19.0",
     "python-dotenv>=1.2.3",
     "sounddevice>=0.5.6",
     "starlette>=1.7.0",
     "uvicorn>=0.54.0",
     "websockets>=17.1",
+    "pypdfium2>=5.14.0",
+    "pywin32>=312 ; sys_platform == 'win32'",
 ]
 
 [project.scripts]

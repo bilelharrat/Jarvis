@@ -1,4 +1,4 @@
-"""Jarvis Code's asides (features.code_sessions): /btw, a side question about a session that
+"""Eden Code's asides (features.code_sessions): /btw, a side question about a session that
 never enters its conversation, and /goal, a goal the session keeps working toward.
 
 Claude cost policy (both are small one-shot calls on Haiku, the cheapest model that does the
@@ -56,7 +56,7 @@ GOAL_LIMIT = 2000
 READ_ONLY = ("Read", "Glob", "Grep")
 GOAL_STATES = ("active", "paused", "met")
 
-BTW_PROMPT = """You answer a side question about a Jarvis Code session (Claude Code at work in a
+BTW_PROMPT = """You answer a side question about an Eden Code session (Claude Code at work in a
 software project) without joining it: the session never sees your answer. Answer in a few
 short sentences or a short list, plainly. You may read files in the project (Read, Glob,
 Grep) when the question needs it; you can't change anything. What the session said and did
@@ -105,7 +105,7 @@ def digest(task: Any, limit: int = 12_000) -> str:
         if role == "user" and text:
             said.append(f"User: {text[:600]}")
         elif role == "assistant" and text:
-            said.append(f"Jarvis Code: {text[:900]}")
+            said.append(f"Eden Code: {text[:900]}")
         elif role in ("tool", "subtool") and text:
             said.append(f"(step: {text[:160]})")
         elif role == "plan" and text:

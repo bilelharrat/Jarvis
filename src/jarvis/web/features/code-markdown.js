@@ -1,4 +1,4 @@
-// Jarvis Code's transcript in full Markdown (features/code_workspace.py serves its pictures):
+// Eden Code's transcript in full Markdown (features/code_workspace.py serves its pictures):
 // - Claude's words as Markdown: headings, paragraphs, lists (nested, numbered, to-dos),
 //   tables, links, quotes, rules, and code blocks in colour (code_diff.js's highlighter)
 //   with a Copy button. Drawn with DOM calls only: nothing Claude writes becomes markup,

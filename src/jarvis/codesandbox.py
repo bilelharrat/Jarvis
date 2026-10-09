@@ -1,4 +1,4 @@
-"""Jarvis Code's sandbox: which domains a project's sandboxed commands may reach (Claude
+"""Eden Code's sandbox: which domains a project's sandboxed commands may reach (Claude
 Code's sandbox network allowlist), kept per project in code_sandbox.json beside the
 settings (jsonstore: whole saves swapped in, a .bak).
 
@@ -63,7 +63,7 @@ class SandboxBook:
             data = jsonstore.load_json(path, dict) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
-            log.warning("Jarvis Code sandbox: %s can't be read (%s)", path.name, exc)
+            log.warning("Eden Code sandbox: %s can't be read (%s)", path.name, exc)
             return
         projects = data.get("projects")
         items = list(projects.items()) if isinstance(projects, dict) else []

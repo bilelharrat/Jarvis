@@ -1,4 +1,4 @@
-// Touch ID for Jarvis Code's riskiest moments (web/features/code-touchid.js asks): before a
+// Touch ID for Eden Code's riskiest moments (web/features/code-touchid.js asks): before a
 // session goes into Bypass permissions, new sessions are set to start in it, or a risky step
 // is allowed, macOS's own Touch ID sheet. The reason it shows is the app's own wording for
 // the kind of moment, never text from the page; only the window may ask (ctx.fromWindow), and
@@ -7,14 +7,14 @@
 
 const REASONS = {
   en: {
-    bypass: 'turn on Bypass permissions in Jarvis Code',
-    'bypass-default': 'start new Jarvis Code sessions in Bypass permissions',
-    approve: 'allow a risky step in Jarvis Code',
+    bypass: 'turn on Bypass permissions in Eden Code',
+    'bypass-default': 'start new Eden Code sessions in Bypass permissions',
+    approve: 'allow a risky step in Eden Code',
   },
   zh: {
-    bypass: '在 Jarvis Code 中开启绕过权限',
-    'bypass-default': '让新的 Jarvis Code 会话以绕过权限开始',
-    approve: '允许 Jarvis Code 中一个有风险的步骤',
+    bypass: '在 Eden Code 中开启绕过权限',
+    'bypass-default': '让新的 Eden Code 会话以绕过权限开始',
+    approve: '允许 Eden Code 中一个有风险的步骤',
   },
 };
 

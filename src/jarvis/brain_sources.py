@@ -2,7 +2,7 @@
 
 - conversations: what the owner and JARVIS said to each other, from Claude Code's own
   records of the brain's sessions (the SDK's session listing for its working folder, as
-  Jarvis Code reads its history) and the conversations saved to Documents › Jarvis ›
+  Eden Code reads its history) and the conversations saved to Documents › Jarvis ›
   Conversations. Only the two sides' words: no tool results, none of the app's notes.
 - images: the text in screenshots and images in the folders the brain reads (ocr.py).
 - safari: Safari's bookmarks and Reading List (Bookmarks.plist, behind Full Disk Access).
@@ -722,6 +722,12 @@ def finisher(args: dict[str, Any]) -> Callable[[Any, Callable[[str], None]], Non
         from . import embeddings, swift_helper
 
         def make() -> embeddings.Embedder | None:
+            from . import osplat
+
+            if osplat.IS_WIN:  # the ONNX model (winembed): fetched when the setting went on
+                from . import winembed
+
+                return winembed.embedder()
             binary = swift_helper.ensure(embeddings.HELPER)
             return embeddings.HelperEmbedder(binary) if binary is not None else None
 

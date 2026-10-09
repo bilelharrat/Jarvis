@@ -6,7 +6,7 @@ Settings it keeps (prefs.features), both off until the owner turns them on:
 - sms_line_on: tell the owner about texts to the Jarvis number.
 - sms_approvals: a card that waits a minute unanswered on the Mac is texted to the owner's
   own number (Settings › Phone) with a code; YES or NO and the code answers it. Only plain
-  yes-or-no cards: never a purchase, never a Jarvis Code session's. Not in quiet hours.
+  yes-or-no cards: never a purchase, never an Eden Code session's. Not in quiet hours.
 
 Costs: no model calls. Twilio: looking at the texts is free (every half minute while
 either is on); each text sent (a card, and a one-line "Done" for an answer) is an ordinary

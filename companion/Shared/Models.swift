@@ -77,7 +77,7 @@ struct ApprovalChoice: Identifiable, Hashable, Sendable, Decodable {
 }
 
 struct Approval: Identifiable, Equatable, Sendable, Decodable {
-    /// Who is asking: JARVIS itself, or a Jarvis Code session.
+    /// Who is asking: JARVIS itself, or an Eden Code session.
     enum Source: String, Equatable, Sendable {
         case jarvis, code
     }
@@ -87,7 +87,7 @@ struct Approval: Identifiable, Equatable, Sendable, Decodable {
     var detail: String
     var choices: [ApprovalChoice]
     var source: Source = .jarvis
-    /// The Jarvis Code session it's for.
+    /// The Eden Code session it's for.
     var taskID: Int?
     /// "question": a Claude question, answered with an option (opt<N>), several ("pick") or
     /// the owner's own words ("other"), as freeChoices allows.
@@ -133,7 +133,7 @@ struct Approval: Identifiable, Equatable, Sendable, Decodable {
             question: c.text(.question) ?? "Jarvis needs your OK.",
             detail: c.text(.detail) ?? "",
             choices: c.list(ApprovalChoice.self, .choices),
-            // An older Mac doesn't say; a card tied to a session is Jarvis Code's.
+            // An older Mac doesn't say; a card tied to a session is Eden Code's.
             source: Source(rawValue: c.text(.source) ?? "") ?? (taskID == nil ? .jarvis : .code),
             taskID: taskID
         )
@@ -290,7 +290,7 @@ struct BackgroundTask: Identifiable, Equatable, Sendable, Decodable {
         lastAction = c.text(.lastAction) ?? ""
     }
 
-    /// Running now. ("waiting" is a Jarvis Code session whose turn is over, waiting for the
+    /// Running now. ("waiting" is an Eden Code session whose turn is over, waiting for the
     /// next message: idle, however long it stays open.)
     var isActive: Bool { status == "running" }
 }
@@ -399,7 +399,7 @@ struct RemoteState: Equatable, Sendable, Decodable {
     }
 
     var activeTasks: [BackgroundTask] { tasks.filter(\.isActive) }
-    /// Jarvis Code sessions working or waiting on the owner.
+    /// Eden Code sessions working or waiting on the owner.
     var liveCodeSessions: [CodeSessionSummary] { codeSessions.filter(\.status.isLive) }
 }
 

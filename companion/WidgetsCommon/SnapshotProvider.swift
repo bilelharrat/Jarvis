@@ -47,10 +47,10 @@ enum GlanceText {
 
     static func code(_ snapshot: WidgetSnapshot) -> String? {
         if snapshot.needsYouCount > 0 {
-            return snapshot.needsYouCount == 1 ? "Jarvis Code needs you" : "Jarvis Code: \(snapshot.needsYouCount) need you"
+            return snapshot.needsYouCount == 1 ? "Eden Code needs you" : "Eden Code: \(snapshot.needsYouCount) need you"
         }
         if snapshot.workingCount > 0 {
-            return snapshot.workingCount == 1 ? "Jarvis Code is working" : "Jarvis Code: \(snapshot.workingCount) working"
+            return snapshot.workingCount == 1 ? "Eden Code is working" : "Eden Code: \(snapshot.workingCount) working"
         }
         return nil
     }

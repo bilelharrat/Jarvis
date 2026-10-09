@@ -1,4 +1,4 @@
-// Jarvis Code's Health pane (features/code_health.py), from the More menu: the engine's
+// Eden Code's Health pane (features/code_health.py), from the More menu: the engine's
 // version, the Claude sign-in (with the command that signs in, when it isn't), and this
 // session's connection, with Reconnect for one that failed or ended.
 // Pure helpers are exported for node --test (tests/web/code-health.test.mjs).
@@ -67,7 +67,7 @@
     const state = el('span', `ch-state ${signin.state || 'unknown'}`, signin.summary || 'Couldn’t tell');
     const sign = row('Claude sign-in', state, signin.plan ? mine(el('small', 'jc-dim', signin.plan)) : null);
     eng.append(sign);
-    parts.push(el('h3', 'ch-head', 'Jarvis Code'), eng);
+    parts.push(el('h3', 'ch-head', 'Eden Code'), eng);
     if (signin.hint) parts.push(el('p', 'jc-dim ch-hint', signin.hint));
     if (signin.command) {
       const cmd = el('div', 'ch-command');

@@ -115,7 +115,7 @@ async def test_a_code_session_is_followed_to_its_end(live):
     aps = call["payload"]["aps"]
     assert aps["event"] == "update" and aps["timestamp"] == 1_800_000_000
     assert aps["content-state"] == {
-        "title": "Jarvis Code · alpha",
+        "title": "Eden Code · alpha",
         "status": "Working",
         "detail": "Running a command",  # never the command itself
         "needsYou": False,
@@ -137,7 +137,7 @@ async def test_a_code_session_is_followed_to_its_end(live):
 
     asked = asyncio.create_task(
         s.hub.request_approval(
-            "Jarvis Code in alpha wants to run a command",
+            "Eden Code in alpha wants to run a command",
             "$ ls",
             [("allow", "Yes"), ("deny", "No")],
             {"task_id": 3},

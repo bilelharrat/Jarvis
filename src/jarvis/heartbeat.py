@@ -1,7 +1,7 @@
 """The heartbeat: an optional check-in every 30 or 60 minutes within the owner's active
 hours. JARVIS looks over the checklist the owner keeps ("keep an eye on the Acme contract",
 "tell me if Ann writes") and what's going on (the calendar for the next few hours, the
-important texts and emails waiting, Jarvis Code sessions that need the owner, cards waiting
+important texts and emails waiting, Eden Code sessions that need the owner, cards waiting
 for a yes, the next timers and reminders) and speaks up only when something needs their
 attention. Otherwise the model answers NO_REPLY and nothing shows.
 
@@ -271,7 +271,7 @@ class Heartbeat:
         for card in list(self.hub.approvals.values()):
             if card.get("task_id"):
                 out.append(
-                    f"Jarvis Code session {card['task_id']} is waiting for a yes: {card.get('question', '')}"
+                    f"Eden Code session {card['task_id']} is waiting for a yes: {card.get('question', '')}"
                 )
         return out[:6]
 
@@ -351,7 +351,7 @@ class Heartbeat:
 
         block(f"The calendar, the next {LOOK_AHEAD_HOURS} hours", state["events"], True)
         block("Texts and emails waiting that matter", state["waiting"], True)
-        block("Jarvis Code sessions that need the owner", state["sessions"])
+        block("Eden Code sessions that need the owner", state["sessions"])
         block("Cards waiting for the owner", state["cards"])
         block("Timers and reminders coming up", state["timers"])
         if told:

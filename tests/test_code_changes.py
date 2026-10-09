@@ -38,7 +38,7 @@ def numbered(n: int, word: str = "line") -> str:
 
 
 class Session:
-    """A Jarvis Code session whose edits go through Claude Code's tools, as the manager
+    """An Eden Code session whose edits go through Claude Code's tools, as the manager
     hears them: a user message (a checkpoint), the tool call, then its result."""
 
     def __init__(

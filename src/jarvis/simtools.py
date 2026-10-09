@@ -1,4 +1,4 @@
-"""The iOS Simulator for a Jarvis Code session: taps, swipes, typing and the hardware
+"""The iOS Simulator for an Eden Code session: taps, swipes, typing and the hardware
 buttons through the same fast bridge the Simulator pane uses (simulator.py), pictures
 straight from the device's framebuffer, a build that installs and launches the app, and the
 app's log.

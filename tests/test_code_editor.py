@@ -1,4 +1,4 @@
-"""Jarvis Code's editor (code_editor): project files read with their version and saved only
+"""Eden Code's editor (code_editor): project files read with their version and saved only
 over that version (a conflict otherwise), atomically, keeping line endings and mode; never
 outside the project, a credentials file or git's own files; and "Open in" the editors on
 this Mac."""

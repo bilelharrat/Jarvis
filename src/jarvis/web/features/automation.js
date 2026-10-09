@@ -380,7 +380,7 @@
     past.id = 'auto-checkin-list';
     checkinGroup.append(
       el('h3', '', 'Check-ins'),
-      el('p', 'small-status', 'Every 30 or 60 minutes in your active hours, I look over your checklist, your calendar, the texts and emails waiting, Jarvis Code and your timers on my own, and speak up only when something needs you. Haiku, at most 24 a day, and none when nothing has changed.'),
+      el('p', 'small-status', 'Every 30 or 60 minutes in your active hours, I look over your checklist, your calendar, the texts and emails waiting, Eden Code and your timers on my own, and speak up only when something needs you. Haiku, at most 24 a day, and none when nothing has changed.'),
       row('Check in on my own', '', toggle('sw-auto-checkins', 'Check in on my own', features.heartbeat_on,
         () => pref({ heartbeat_on: !features.heartbeat_on }))),
       every,

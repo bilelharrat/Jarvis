@@ -2,7 +2,7 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-/// The Lock Screen card and Dynamic Island for a Jarvis Code session, a conversation held
+/// The Lock Screen card and Dynamic Island for an Eden Code session, a conversation held
 /// for you, a call, or a video summary.
 struct JarvisLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {

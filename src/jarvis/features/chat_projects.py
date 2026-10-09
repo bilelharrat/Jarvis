@@ -1,7 +1,7 @@
 """Projects, as the Claude, ChatGPT and Gemini apps have them: conversations kept together
 with instructions and files they share. While a project is open, every conversation started
 belongs to it, and each request carries the project's instructions; its files go along once
-per conversation (and again when one is added). Not Jarvis Code's projects (folders of code):
+per conversation (and again when one is added). Not Eden Code's projects (folders of code):
 these are the main chat's.
 
 Kept in chat-projects.json beside prefs.json: {"active": id or "", "projects": [{id, name,

@@ -24,16 +24,16 @@ async def test_a_burst_of_heads_ups_is_said_once_with_a_count(
 
     hub._announce = announce
     for i in range(50):  # fifty long turns finishing together
-        hub.notify(Alert(f"code:{i}", "task", "Jarvis Code", f"Jarvis Code finished in proj{i}."))
+        hub.notify(Alert(f"code:{i}", "task", "Eden Code", f"Eden Code finished in proj{i}."))
     await asyncio.sleep(0.3)
     # One announcement for the burst: the first two in full, then how many more.
     assert said == [
-        "Jarvis Code finished in proj0.\nJarvis Code finished in proj1.\n"
+        "Eden Code finished in proj0.\nEden Code finished in proj1.\n"
         "48 more heads-ups are on screen."
     ]
-    hub.notify(Alert("code:x", "task", "Jarvis Code", "Jarvis Code finished in later."))
+    hub.notify(Alert("code:x", "task", "Eden Code", "Eden Code finished in later."))
     await asyncio.sleep(0.1)
-    assert said[-1] == "Jarvis Code finished in later."  # a later one is said as usual
+    assert said[-1] == "Eden Code finished in later."  # a later one is said as usual
 
 
 async def test_the_windows_own_wording_never_gets_the_ultracode_keyword(

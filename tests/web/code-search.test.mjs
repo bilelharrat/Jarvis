@@ -1,4 +1,4 @@
-// Jarvis Code's project search (web/features/code-search.js), its pure helpers: a line cut
+// Eden Code's project search (web/features/code-search.js), its pure helpers: a line cut
 // by where it matched, what a result says, and the composer's @-mentions. node --test tests/web/
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';

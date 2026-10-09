@@ -1,4 +1,4 @@
-"""Jarvis Code's Review (features/code_review.py): the diff as reviewers read it, their
+"""Eden Code's Review (features/code_review.py): the diff as reviewers read it, their
 JSON findings checked and merged, the read-only permission a deep reviewer gets, a quick
 and a deep review with a fake Claude (a verifier's word decides what shows), the daily
 caps, and findings handed back to the session."""

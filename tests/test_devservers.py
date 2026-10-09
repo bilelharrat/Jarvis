@@ -1,4 +1,4 @@
-"""Dev servers for Jarvis Code projects: launch configs read defensively, suggestions that
+"""Dev servers for Eden Code projects: launch configs read defensively, suggestions that
 never run by themselves, and servers in their own process groups that stop whole, stop with
 the session that started them, and never outlive the app."""
 

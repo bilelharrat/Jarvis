@@ -1,4 +1,4 @@
-// Jarvis Code's Preview check in the app itself (app/features/code-verify.js), in a real
+// Eden Code's Preview check in the app itself (app/features/code-verify.js), in a real
 // Chromium: a dev server's page on 127.0.0.1 checked in the hidden preview (its console
 // errors, its failed requests, its picture), the preview kept for the next check and not
 // drawn while it waits, a fresh picture each time, and only pages on this Mac. Hidden windows

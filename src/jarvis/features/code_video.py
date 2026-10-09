@@ -1,8 +1,8 @@
-"""Video proof for Jarvis Code: after a turn that changed the page's files, a short recording
+"""Video proof for Eden Code: after a turn that changed the page's files, a short recording
 (up to MAX_SECONDS) of the dev server's page loading and being scrolled through, kept with the
 turn like the Preview check's picture.
 
-- Off by default, per project: Settings › Jarvis Code › Projects › "Video proof after UI
+- Off by default, per project: Settings › Eden Code › Projects › "Video proof after UI
   changes" (code_project_defaults' "video_proof"). "Record a video proof" in the More menu
   records one now, for any session with a dev server running.
 - The recording is the app's (app/features/video-proof.js, asked through the window like the

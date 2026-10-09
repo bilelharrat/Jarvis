@@ -1,5 +1,5 @@
-"""Look at this, into Jarvis Code: what's in front of the owner when they press the
-look-at-this key (⌥⇧Space) while voice coding, or with Jarvis Code the front panel.
+"""Look at this, into Eden Code: what's in front of the owner when they press the
+look-at-this key (⌥⇧Space) while voice coding, or with Eden Code the front panel.
 
 look() gathers, without touching the clipboard:
 - the app in front and its front window's title;

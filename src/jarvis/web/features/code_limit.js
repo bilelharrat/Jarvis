@@ -1,5 +1,5 @@
-// Jarvis Code waiting out Claude's usage limit (features/code_limit.py): the setting (switch
-// to the fallback model, or wait for the limit to reset) in Jarvis Code settings › While it
+// Eden Code waiting out Claude's usage limit (features/code_limit.py): the setting (switch
+// to the fallback model, or wait for the limit to reset) in Eden Code settings › While it
 // works, and, for a session that's waiting, a countdown in its header with Try now and Use
 // the fallback. Its queued messages show in the queue as usual: they wait with it.
 (() => {

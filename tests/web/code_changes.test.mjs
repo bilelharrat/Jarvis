@@ -1,4 +1,4 @@
-// Jarvis Code's Changes pane (web/features/code_changes.js), what it keeps for each session:
+// Eden Code's Changes pane (web/features/code_changes.js), what it keeps for each session:
 // what was fetched goes when the session leaves the list, and all of it with another backend;
 // what the owner made (comments not sent yet, the view, the files opened, the hunks kept)
 // stays, since a kept session comes back under its own id. node --test tests/web/

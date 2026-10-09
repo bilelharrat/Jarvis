@@ -1,4 +1,4 @@
-// Jarvis Code's full export (features/code_export.py), from the More menu: the whole
+// Eden Code's full export (features/code_export.py), from the More menu: the whole
 // session (every message, each step's input and output, the thinking) as a page or a PDF,
 // share-safe (keys and tokens blanked out, pictures left out) if asked, and with where
 // things are on this Mac hidden if asked.
@@ -80,7 +80,7 @@
     if (result && result.error) parts.push(el('p', 'cx-result bad', result.error));
     if (result && result.ok) {
       const done = el('div', 'cx-result');
-      done.append(el('span', '', 'Saved in Documents › Jarvis › Jarvis Code:'), mine(el('code', '', result.name)));
+      done.append(el('span', '', 'Saved in Documents › Jarvis › Eden Code:'), mine(el('code', '', result.name)));
       const reveal = el('button', 'jc-mini', 'Show in Finder');
       reveal.type = 'button';
       reveal.addEventListener('click', () => F.send({ type: 'cw_export_reveal', path: result.path }));

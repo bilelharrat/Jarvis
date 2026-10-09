@@ -1,4 +1,4 @@
-// Jarvis Code's Markdown (web/features/code-markdown.js), its pure parser: blocks, inline
+// Eden Code's Markdown (web/features/code-markdown.js), its pure parser: blocks, inline
 // pieces, where links may go and which language a code block is in. node --test tests/web/
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';

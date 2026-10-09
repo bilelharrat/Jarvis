@@ -73,7 +73,7 @@ class Shortcuts:
             return self.names
         try:
             out = await mac_tools.run_command("shortcuts", "list", timeout=20)
-        except mac_tools.ToolFailure as exc:
+        except (mac_tools.ToolFailure, OSError) as exc:  # (OSError: no `shortcuts` program on a PC)
             log.info("couldn't list shortcuts: %s", exc)
             return self.names
         self.names = sorted({line.strip() for line in out.splitlines() if line.strip()})

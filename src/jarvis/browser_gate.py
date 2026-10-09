@@ -22,7 +22,7 @@ conversation in full.
 Which tool does what is read from its arguments' names, not a list of tools: the browser's
 server grows, and a tool added to it later is weighed the same way (brain.browser_acting).
 
-Jarvis Code sessions drive the same browser. For them this module says which site a call
+Eden Code sessions drive the same browser. For them this module says which site a call
 acts on (target) and whether that's this Mac (is_local), where typing is ordinary work.
 """
 
@@ -294,7 +294,7 @@ def _quoted(text: str) -> str:
     return f"“{text[:SHOWN]}{'…' if len(text) > SHOWN else ''}”"
 
 
-# ── Jarvis Code: which site a call acts on ──
+# ── Eden Code: which site a call acts on ──
 
 
 @dataclass(frozen=True)
@@ -308,7 +308,7 @@ class Target:
 
 
 async def target(tool: str, args: Any, page: PageUrl | None) -> Target:
-    """Where a Jarvis Code session's browser call acts: the address it opens, or the page
+    """Where an Eden Code session's browser call acts: the address it opens, or the page
     on show, or in the tab the call names (a call that names a tab and carries words can't
     be placed)."""
     name = tool.rsplit("__", 1)[-1]

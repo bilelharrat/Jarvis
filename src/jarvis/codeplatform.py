@@ -1,4 +1,4 @@
-"""What Jarvis Code's platform features share (features.code_usage, code_rules, code_lanes,
+"""What Eden Code's platform features share (features.code_usage, code_rules, code_lanes,
 code_sandbox, code_mcp, code_plugins): which project a session belongs to, how to read a
 window command's session, and how several features weigh in on TaskManager.rule_check.
 
@@ -33,7 +33,7 @@ def other_agent(task: Any) -> bool:
 
 
 def code_task(hub: Any, msg: dict[str, Any]) -> Any:
-    """The Jarvis Code session a window command names by its id, or None (for an id that
+    """The Eden Code session a window command names by its id, or None (for an id that
     isn't a number too: null, words, a list, infinity, as hub._msg_int reads one)."""
     try:
         task = hub.tasks.tasks.get(int(msg.get("id") or 0))

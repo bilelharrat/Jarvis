@@ -1,4 +1,4 @@
-"""Jarvis Code's video proof (features/code_video.py), wired into a real hub: off by default,
+"""Eden Code's video proof (features/code_video.py), wired into a real hub: off by default,
 on per project; after a turn that changed the page's files the app is asked (through the
 window, faked here) for a recording, which is kept and put in the transcript; "Record a video
 proof" records one now."""

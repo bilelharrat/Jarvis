@@ -3,9 +3,9 @@
 Measured: the app's Quit once took 21 s to let go of the backend ("stopping didn't finish
 in time: ending now"). Two things held it: the app only hides its window while it waits,
 so the window's socket stayed open and the server didn't start stopping until the app gave
-up and closed it; then close() waited on Jarvis Code's process to exit, which the Claude
+up and closed it; then close() waited on Eden Code's process to exit, which the Claude
 SDK allows up to ~20 s. Here a real server (an ephemeral port on 127.0.0.1, never 8765)
-keeps a window's socket open while Jarvis Code's disconnect hangs, and is stopped the way a
+keeps a window's socket open while Eden Code's disconnect hangs, and is stopped the way a
 quit stops it."""
 
 import asyncio
@@ -29,7 +29,7 @@ APP_WAIT = 5.0  # app/features/shell.js: wait.quit
 
 
 class SlowToLeave(FakeClient):
-    """A Jarvis Code session whose process takes its time to exit."""
+    """An Eden Code session whose process takes its time to exit."""
 
     script = CALENDAR_TURN
 
@@ -56,9 +56,9 @@ async def test_a_quit_lets_go_within_the_apps_wait(settings, quiet_speaker, isol
             server.should_exit = True  # what SIGTERM does
             await asyncio.wait_for(serving, 20)
             took = time.monotonic() - began
-    print(f"\nstopping with a window open and Jarvis Code slow to leave: {took:.2f}s")
+    print(f"\nstopping with a window open and Eden Code slow to leave: {took:.2f}s")
     assert took < APP_WAIT - 0.5
-    assert any("Jarvis Code's session took over" in r.getMessage() for r in caplog.records)
+    assert any("Eden Code's session took over" in r.getMessage() for r in caplog.records)
 
 
 async def test_close_never_waits_past_its_budget(settings, quiet_speaker, isolated, caplog):
@@ -76,7 +76,7 @@ async def test_close_never_waits_past_its_budget(settings, quiet_speaker, isolat
     took = time.monotonic() - began
     assert took < hub_module.CLOSE_BUDGET + 0.5
     named = [r.getMessage() for r in caplog.records if "going on without it" in r.getMessage()]
-    assert any("the phone link" in m for m in named) and any("Jarvis Code" in m for m in named)
+    assert any("the phone link" in m for m in named) and any("Eden Code" in m for m in named)
 
 
 def test_nothing_it_started_outlives_a_stop(tmp_path):

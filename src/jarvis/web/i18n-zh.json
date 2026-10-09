@@ -58,7 +58,7 @@
   "Artifacts": "产出文件",
   "Asana": "Asana",
   "Ask": "询问",
-  "Ask Jarvis Code to plan, build or fix something…": "让 Jarvis Code 规划、构建或修复点什么…",
+  "Ask Eden Code to plan, build or fix something…": "让 Eden Code 规划、构建或修复点什么…",
   "Atlassian's Rovo server: Jira issues and Confluence pages.": "Atlassian 的 Rovo 服务器：Jira 问题和 Confluence 页面。",
   "Attach an image": "附加图片",
   "Authorization: Bearer": "Authorization: Bearer",
@@ -85,7 +85,7 @@
   "Clear": "清空",
   "Close": "关闭",
   "Close (Esc)": "关闭（Esc）",
-  "Close Jarvis Code": "关闭 Jarvis Code",
+  "Close Eden Code": "关闭 Eden Code",
   "Close activity": "关闭动态",
   "Close pane": "关闭面板",
   "Close second brain": "关闭第二大脑",
@@ -100,7 +100,7 @@
   "Light": "浅色",
   "Match Mac": "跟随 Mac",
   "Stark Glass at night, or in white. Match Mac follows your Mac’s appearance.": "夜色中的斯塔克玻璃，或白色版本。“跟随 Mac”会随 Mac 的外观切换。",
-  "Commands Jarvis Code runs here without asking (from “Yes, and don’t ask again”).": "Jarvis Code 在这里无需询问即可运行的命令（来自“是，且不再询问”）。",
+  "Commands Eden Code runs here without asking (from “Yes, and don’t ask again”).": "Eden Code 在这里无需询问即可运行的命令（来自“是，且不再询问”）。",
   "Computer files": "电脑文件",
   "Connect your accounts through each service’s official connector. Jarvis reads freely and asks before it changes anything, unless you tell it otherwise. Sign-ins and tokens stay in your Mac’s Keychain.": "通过各服务的官方连接器连接你的账户。Jarvis 可以自由读取，但在做任何更改前都会先询问，除非你另有指示。登录信息和令牌都保存在 Mac 的钥匙串中。",
   "Connected": "已连接",
@@ -194,12 +194,12 @@
   "Fallback model": "备用模型",
   "Takes over when Claude can’t answer (its usage limit, an outage), with every tool": "Claude 无法回答时（用量上限、服务中断）接手，所有工具照常可用",
   "None": "无",
-  "Jarvis Code too": "Jarvis Code 也用",
+  "Eden Code too": "Eden Code 也用",
   "A session Claude can’t answer moves to it and carries on where Claude stopped, then goes back to Claude once its limit resets": "Claude 无法回答的会话会切换到它，从 Claude 停下的地方继续；等 Claude 的用量上限重置后再切回 Claude",
   "Always use it": "始终使用",
   "Run Jarvis on it all the time, not only when Claude is down (Gemini Flash answers quickly)": "始终用它运行 Jarvis，而不只是在 Claude 不可用时（Gemini Flash 回答很快）",
   "Add a Gemini key…": "添加 Gemini 密钥…",
-  "Fallback in Jarvis Code too": "Jarvis Code 也使用备用模型",
+  "Fallback in Eden Code too": "Eden Code 也使用备用模型",
   "Always use the fallback model": "始终使用备用模型",
   "Fallback": "备用",
   "Simulator controls": "模拟器控制",
@@ -417,7 +417,7 @@
   "Issues, projects and cycles.": "问题、项目和周期。",
   "J.A.R.V.I.S. only": "仅限 J.A.R.V.I.S.",
   "Jarvis": "Jarvis",
-  "Jarvis Code": "Jarvis Code",
+  "Eden Code": "Eden Code",
   "Jarvis apps": "Jarvis 应用",
   "Jarvis can see your screen (pictures stay in memory for two minutes). Click to stop.": "Jarvis 能看到你的屏幕（画面只在内存中保留两分钟）。点按即可停止。",
   "Jarvis is browsing": "Jarvis 正在浏览",
@@ -447,7 +447,7 @@
   "Meeting notes": "会议记录",
   "Memory": "记忆",
   "Message Jarvis": "给 Jarvis 发消息",
-  "Message Jarvis Code": "给 Jarvis Code 发消息",
+  "Message Eden Code": "给 Eden Code 发消息",
   "Messages to a working session wait until its current step ends. Off: they steer it right away.": "发给正在工作的会话的消息，会等当前步骤结束后再送达。关闭时，消息会立即送达并引导当前步骤。",
   "Microphone": "麦克风",
   "Model": "模型",
@@ -517,7 +517,7 @@
   "Printed under the total (bank or payment link); type it yourself, Jarvis never fills this in": "印在合计金额下方（银行信息或付款链接）；请自行填写，Jarvis 从不代填",
   "Projects and sessions": "项目与会话",
   "Projects, deployments and logs.": "项目、部署和日志。",
-  "Queue Jarvis Code follow-ups": "Jarvis Code 后续消息排队",
+  "Queue Eden Code follow-ups": "Eden Code 后续消息排队",
   "Queue messages": "消息排队",
   "Quiet hours": "勿扰时段",
   "Quiet hours end": "勿扰时段结束",
@@ -557,7 +557,7 @@
   "Say": "说",
   "Say heads-ups out loud": "语音播报提醒",
   "Say them out loud": "语音播报",
-  "Say “Jarvis, let’s code in jarvis” and talk to Jarvis Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.": "说“贾维斯，一起写代码：jarvis”，然后直接和 Jarvis Code 对话：计划模式、撤销刚才的改动、改了什么、讲讲第二处改动、提交；说“exit code mode”即可退出。",
+  "Say “Jarvis, let’s code in jarvis” and talk to Eden Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.": "说“贾维斯，一起写代码：jarvis”，然后直接和 Eden Code 对话：计划模式、撤销刚才的改动、改了什么、讲讲第二处改动、提交；说“exit code mode”即可退出。",
   "Say “Jarvis” to talk; talk over me to interrupt. Keeps the mic on.": "说“贾维斯”即可对话；我说话时你直接开口就能打断我。麦克风会保持开启。",
   "Screen awareness": "屏幕感知",
   "Screen awareness is on: stop": "屏幕感知已开启：点按停止",
@@ -620,7 +620,7 @@
   "Take meeting notes": "记录会议",
   "Taking notes": "正在记录",
   "Talk": "说话",
-  "Talk or type. Jarvis Code plans, edits, runs and explains, in": "说话或打字都行。Jarvis Code 为你规划、编辑、运行和讲解，当前项目：",
+  "Talk or type. Eden Code plans, edits, runs and explains, in": "说话或打字都行。Eden Code 为你规划、编辑、运行和讲解，当前项目：",
   "Talk to Jarvis": "和 Jarvis 对话",
   "Tap the orb or press ⌥ Space": "轻点光球，或按下 ⌥ Space",
   "Tasks and projects.": "任务和项目。",
@@ -638,7 +638,7 @@
   "Thinking… ": "思考中…",
   "Tickers for the Markets panel and “how’s the market?”, separated by spaces or commas": "用于“市场”面板和“市场怎么样？”的股票代码，以空格或逗号分隔",
   "Time": "时间",
-  "Time to leave, meetings starting, low battery, rain on the way, urgent email, Jarvis Code done or waiting": "该出发了、会议即将开始、电量不足、快要下雨、紧急邮件、Jarvis Code 已完成或在等你",
+  "Time to leave, meetings starting, low battery, rain on the way, urgent email, Eden Code done or waiting": "该出发了、会议即将开始、电量不足、快要下雨、紧急邮件、Eden Code 已完成或在等你",
   "Todoist": "Todoist",
   "Token": "令牌",
   "Tools & Accounts": "工具与账户",
@@ -664,7 +664,7 @@
   "What’s next today?": "今天还有什么安排？",
   "When Jarvis is running at that time": "前提是 Jarvis 那时正在运行",
   "Where the BSH Research Center runs. Clicking Markets opens it here, driven only by Jarvis; you sign in once and stay signed in.": "BSH 研究中心的运行地址。点按“市场”会在这里打开它，只由 Jarvis 操控；登录一次即可保持登录。",
-  "While Jarvis Code works": "Jarvis Code 工作期间",
+  "While Eden Code works": "Eden Code 工作期间",
   "While Jarvis is answering, what you say or type waits its turn (you can take it back). Off: a new request interrupts the answer.": "Jarvis 回答时，你说的话或输入的内容会排队等候（可以撤回）。关闭时，新请求会打断当前回答。",
   "Work": "工作",
   "Workbench": "工作台",
@@ -844,7 +844,7 @@
   "Closed": "已收盘",
   "Plan mode": "计划模式",
   "Ask first": "先询问",
-  "⏸ Plan mode: Jarvis Code plans, you approve (⇧⇥ to switch)": "⏸ 计划模式：Jarvis Code 做计划，经你允许再执行（⇧⇥ 切换）",
+  "⏸ Plan mode: Eden Code plans, you approve (⇧⇥ to switch)": "⏸ 计划模式：Eden Code 做计划，经你允许再执行（⇧⇥ 切换）",
   "Asks before each edit and command (⇧⇥ to switch)": "每次编辑和运行命令前都会询问（⇧⇥ 切换）",
   "⏵⏵ Auto-edits: edits go ahead, commands ask (⇧⇥ to switch)": "⏵⏵ 自动编辑：编辑直接进行，命令先询问（⇧⇥ 切换）",
   "⏵⏵⏵ Full auto: runs anything (⇧⇥ to switch)": "⏵⏵⏵ 完全自动：任何操作都直接运行（⇧⇥ 切换）",
@@ -1039,10 +1039,10 @@
   "ADDED A CALENDAR EVENT": "添加了日程",
   "ADDED A CALENDAR EVENT …": "添加了日程 …",
   "ADDED A CALENDAR EVENT — FAILED": "添加了日程 — 失败",
-  "Started Jarvis Code": "启动了 Jarvis Code",
-  "STARTED JARVIS CODE": "启动了 Jarvis Code",
-  "STARTED JARVIS CODE …": "启动了 Jarvis Code …",
-  "STARTED JARVIS CODE — FAILED": "启动了 Jarvis Code — 失败",
+  "Started Eden Code": "启动了 Eden Code",
+  "STARTED JARVIS CODE": "启动了 Eden Code",
+  "STARTED JARVIS CODE …": "启动了 Eden Code …",
+  "STARTED JARVIS CODE — FAILED": "启动了 Eden Code — 失败",
   "Started research": "开始了研究",
   "STARTED RESEARCH": "开始了研究",
   "STARTED RESEARCH …": "开始了研究 …",
@@ -1051,22 +1051,22 @@
   "CHECKED BACKGROUND TASKS": "查看了后台任务",
   "CHECKED BACKGROUND TASKS …": "查看了后台任务 …",
   "CHECKED BACKGROUND TASKS — FAILED": "查看了后台任务 — 失败",
-  "Messaged Jarvis Code": "给 Jarvis Code 发了消息",
-  "MESSAGED JARVIS CODE": "给 Jarvis Code 发了消息",
-  "MESSAGED JARVIS CODE …": "给 Jarvis Code 发了消息 …",
-  "MESSAGED JARVIS CODE — FAILED": "给 Jarvis Code 发了消息 — 失败",
-  "Stopped Jarvis Code": "停止了 Jarvis Code",
-  "STOPPED JARVIS CODE": "停止了 Jarvis Code",
-  "STOPPED JARVIS CODE …": "停止了 Jarvis Code …",
-  "STOPPED JARVIS CODE — FAILED": "停止了 Jarvis Code — 失败",
-  "Listed Jarvis Code sessions": "列出了 Jarvis Code 会话",
-  "LISTED JARVIS CODE SESSIONS": "列出了 Jarvis Code 会话",
-  "LISTED JARVIS CODE SESSIONS …": "列出了 Jarvis Code 会话 …",
-  "LISTED JARVIS CODE SESSIONS — FAILED": "列出了 Jarvis Code 会话 — 失败",
-  "Resumed a Jarvis Code session": "恢复了 Jarvis Code 会话",
-  "RESUMED A JARVIS CODE SESSION": "恢复了 Jarvis Code 会话",
-  "RESUMED A JARVIS CODE SESSION …": "恢复了 Jarvis Code 会话 …",
-  "RESUMED A JARVIS CODE SESSION — FAILED": "恢复了 Jarvis Code 会话 — 失败",
+  "Messaged Eden Code": "给 Eden Code 发了消息",
+  "MESSAGED JARVIS CODE": "给 Eden Code 发了消息",
+  "MESSAGED JARVIS CODE …": "给 Eden Code 发了消息 …",
+  "MESSAGED JARVIS CODE — FAILED": "给 Eden Code 发了消息 — 失败",
+  "Stopped Eden Code": "停止了 Eden Code",
+  "STOPPED JARVIS CODE": "停止了 Eden Code",
+  "STOPPED JARVIS CODE …": "停止了 Eden Code …",
+  "STOPPED JARVIS CODE — FAILED": "停止了 Eden Code — 失败",
+  "Listed Eden Code sessions": "列出了 Eden Code 会话",
+  "LISTED JARVIS CODE SESSIONS": "列出了 Eden Code 会话",
+  "LISTED JARVIS CODE SESSIONS …": "列出了 Eden Code 会话 …",
+  "LISTED JARVIS CODE SESSIONS — FAILED": "列出了 Eden Code 会话 — 失败",
+  "Resumed an Eden Code session": "恢复了 Eden Code 会话",
+  "RESUMED A JARVIS CODE SESSION": "恢复了 Eden Code 会话",
+  "RESUMED A JARVIS CODE SESSION …": "恢复了 Eden Code 会话 …",
+  "RESUMED A JARVIS CODE SESSION — FAILED": "恢复了 Eden Code 会话 — 失败",
   "Opened a page in the browser": "在浏览器中打开了页面",
   "OPENED A PAGE IN THE BROWSER": "在浏览器中打开了页面",
   "OPENED A PAGE IN THE BROWSER …": "在浏览器中打开了页面 …",
@@ -1228,7 +1228,7 @@
   "Max": "最高",
   "Ultracode": "Ultracode",
   "Default": "默认",
-  "Jarvis Code settings": "Jarvis Code 设置",
+  "Eden Code settings": "Eden Code 设置",
   "Settings sections": "设置分区",
   "General": "通用",
   "Models & API keys": "模型与 API 密钥",
@@ -1279,7 +1279,7 @@
   "Add plugins": "添加插件",
   "Up to six attachments per message.": "每条消息最多附加 6 个文件。",
   "Auto needs Opus, Sonnet or Fable. Pick one of them first.": "“自动”模式需要 Opus、Sonnet 或 Fable。请先选择其中一个。",
-  "Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?": "“跳过权限确认”会让 Jarvis Code 不经询问就运行任何命令、修改任何文件。只在丢了也无妨的项目中使用。要切换吗？",
+  "Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?": "“跳过权限确认”会让 Eden Code 不经询问就运行任何命令、修改任何文件。只在丢了也无妨的项目中使用。要切换吗？",
   "New sessions would run any command and change any file without asking. Start them in Bypass permissions?": "新会话将不经询问就运行任何命令、修改任何文件。要让新会话以“跳过权限确认”启动吗？",
   "The full path of the folder:": "文件夹的完整路径：",
   "The full path of the plugin folder (it has .claude-plugin/plugin.json):": "插件文件夹的完整路径（其中包含 .claude-plugin/plugin.json）：",
@@ -1635,7 +1635,7 @@
   "6 min": "6 分钟",
   "1, 5 and 15 min": "1、5 和 15 分钟",
   "API providers": "API 提供商",
-  "Add a model with an API key (Jarvis Code › model menu) and its usage shows here.": "用 API 密钥添加模型（Jarvis Code › 模型菜单）后，它的用量会显示在这里。",
+  "Add a model with an API key (Eden Code › model menu) and its usage shows here.": "用 API 密钥添加模型（Eden Code › 模型菜单）后，它的用量会显示在这里。",
   "Not used yet": "尚未使用",
   "Checking…": "正在检查…"
  },
@@ -1805,8 +1805,8 @@
    "动态 · 今天 $1 项操作"
   ],
   [
-   "^Jarvis Code · (\\d+) working$",
-   "Jarvis Code · $1 个进行中"
+   "^Eden Code · (\\d+) working$",
+   "Eden Code · $1 个进行中"
   ],
   [
    "^(\\d+) working · (\\d+) waiting for you$",
@@ -2041,40 +2041,40 @@
    "下一条消息 · $1"
   ],
   [
-   "^Jarvis Code in (.+?) wants to run a command$",
-   "$1 中的 Jarvis Code 想运行一条命令"
+   "^Eden Code in (.+?) wants to run a command$",
+   "$1 中的 Eden Code 想运行一条命令"
   ],
   [
-   "^Jarvis Code in (.+?) wants to read a page on (.+)$",
-   "$1 中的 Jarvis Code 想读取 $2 上的页面"
+   "^Eden Code in (.+?) wants to read a page on (.+)$",
+   "$1 中的 Eden Code 想读取 $2 上的页面"
   ],
   [
-   "^Jarvis Code in (.+?) wants to use the browser$",
-   "$1 中的 Jarvis Code 想使用浏览器"
+   "^Eden Code in (.+?) wants to use the browser$",
+   "$1 中的 Eden Code 想使用浏览器"
   ],
   [
-   "^Jarvis Code in (.+?) wants to use the iOS Simulator$",
-   "$1 中的 Jarvis Code 想使用 iOS 模拟器"
+   "^Eden Code in (.+?) wants to use the iOS Simulator$",
+   "$1 中的 Eden Code 想使用 iOS 模拟器"
   ],
   [
-   "^Jarvis Code in (.+?) wants to edit a file outside the project$",
-   "$1 中的 Jarvis Code 想编辑项目以外的文件"
+   "^Eden Code in (.+?) wants to edit a file outside the project$",
+   "$1 中的 Eden Code 想编辑项目以外的文件"
   ],
   [
-   "^Jarvis Code in (.+?) wants to edit a file$",
-   "$1 中的 Jarvis Code 想编辑一个文件"
+   "^Eden Code in (.+?) wants to edit a file$",
+   "$1 中的 Eden Code 想编辑一个文件"
   ],
   [
-   "^Jarvis Code in (.+?) wants to read outside the project$",
-   "$1 中的 Jarvis Code 想读取项目以外的内容"
+   "^Eden Code in (.+?) wants to read outside the project$",
+   "$1 中的 Eden Code 想读取项目以外的内容"
   ],
   [
-   "^Jarvis Code in (.+?) wants to use (.+)$",
-   "$1 中的 Jarvis Code 想使用 $2"
+   "^Eden Code in (.+?) wants to use (.+)$",
+   "$1 中的 Eden Code 想使用 $2"
   ],
   [
-   "^Jarvis Code in (.+?) has a plan$",
-   "$1 中的 Jarvis Code 已拟好计划"
+   "^Eden Code in (.+?) has a plan$",
+   "$1 中的 Eden Code 已拟好计划"
   ],
   [
    "^Yes, and don't ask again for (.+?) commands in (.+)$",
@@ -2317,20 +2317,20 @@
    "要从 $1 获取网页吗？"
   ],
   [
-   "^Start Jarvis Code in (.+)\\?$",
-   "要在 $1 中启动 Jarvis Code 吗？"
+   "^Start Eden Code in (.+)\\?$",
+   "要在 $1 中启动 Eden Code 吗？"
   ],
   [
-   "^Pass this request to Jarvis Code in (.+)\\?$",
-   "要把这个请求转给 $1 中的 Jarvis Code 吗？"
+   "^Pass this request to Eden Code in (.+)\\?$",
+   "要把这个请求转给 $1 中的 Eden Code 吗？"
   ],
   [
-   "^Voice-code with Jarvis Code in (.+)\\?$",
-   "要在 $1 中用 Jarvis Code 语音编程吗？"
+   "^Voice-code with Eden Code in (.+)\\?$",
+   "要在 $1 中用 Eden Code 语音编程吗？"
   ],
   [
-   "^Send this to Jarvis Code in (.+)\\?$",
-   "要把这条消息发给 $1 中的 Jarvis Code 吗？"
+   "^Send this to Eden Code in (.+)\\?$",
+   "要把这条消息发给 $1 中的 Eden Code 吗？"
   ],
   [
    "^Click “(.+)” in the browser\\?$",
@@ -2361,8 +2361,8 @@
    "要恢复例行任务“$1”吗？"
   ],
   [
-   "^Take (.+) off Jarvis Code's models\\?$",
-   "要从 Jarvis Code 的模型中移除 $1 吗？"
+   "^Take (.+) off Eden Code's models\\?$",
+   "要从 Eden Code 的模型中移除 $1 吗？"
   ],
   [
    "^Email (.+?) about (.+)\\?$",

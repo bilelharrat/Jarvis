@@ -186,7 +186,7 @@ async def test_turning_it_on_shows_why_its_off_until_it_can_check(
     guard.fetch = fetch
     guard.embedder_factory = lambda _path: FakeEmbedder(0)
     await hub.handle({"type": "voice_id_download"})
-    for _ in range(50):
+    for _ in range(500):  # (a slow disk, or a PC's virus scan, takes longer than half a second)
         await asyncio.sleep(0.01)
         if guard.model_path.is_file() and guard.embedder is not None:
             break

@@ -1466,7 +1466,7 @@ async def test_the_daily_limit_counts_the_log_and_what_is_confirmed(tmp_path):
 
 
 async def test_confirmations_asked_together_share_the_daily_limit(tmp_path):
-    """Claude can call tools side by side, and JARVIS and Jarvis Code share one desk: the
+    """Claude can call tools side by side, and JARVIS and Eden Code share one desk: the
     cards come one at a time, each seeing what the ones before it confirmed."""
     pages = {k: checkout(total="$200.00", url=f"https://{k}.example/checkout") for k in "abc"}
     which, shown = {}, []

@@ -1,10 +1,10 @@
-// Jarvis Code's project search (features/code_workspace.py, code_search.py): a Search view
+// Eden Code's project search (features/code_workspace.py, code_search.py): a Search view
 // beside the file list in the Files pane (features/code-editor.js).
 // - Text or a regular expression, match case, whole words, and which files ("*.py, src/,
 //   !tests/"); it searches as you type (a newer search stops the one before) or on Enter.
 // - The matches by file, the matched part marked; a match opens its file at its line.
 // - A file's matches become an @-mention in the composer (one file, or all of them), for
-//   Jarvis Code to read.
+//   Eden Code to read.
 // Pure helpers are exported for node --test (tests/web/code-search.test.mjs).
 (function (root) {
   'use strict';

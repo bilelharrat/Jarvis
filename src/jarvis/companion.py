@@ -45,8 +45,8 @@ ACTIONS = {
     "routine_run": "Ran a routine",
     "push_on": "Turned on notifications",
     "push_off": "Turned off notifications",
-    "code_sent": "Messaged Jarvis Code",
-    "code_stopped": "Stopped a Jarvis Code step",
+    "code_sent": "Messaged Eden Code",
+    "code_stopped": "Stopped an Eden Code step",
     "delegation_stopped": "Stopped a conversation",
     "routine_changed": "Changed a routine",
     "routine_deleted": "Deleted a routine",
@@ -195,9 +195,9 @@ class AuditLog:
 HEADSUP_MODES = ("urgent", "all", "off")
 DEFAULT_SETTINGS: dict[str, Any] = {
     # what each phone is sent (Settings, per phone)
-    "approvals": True,  # cards waiting on a yes, JARVIS's and Jarvis Code's
+    "approvals": True,  # cards waiting on a yes, JARVIS's and Eden Code's
     "headsups": "urgent",  # heads-ups: urgent only, all, or off
-    "code": True,  # Jarvis Code finished or stopped
+    "code": True,  # Eden Code finished or stopped
     "delegations": True,  # a conversation JARVIS holds for the owner needs them
     "calls": True,  # how a call went; calls to the Jarvis number
 }
@@ -573,7 +573,7 @@ class Companion:
         return companion_api.routes(self, gate)
 
     async def state(self, device: Any) -> dict[str, Any]:
-        """More for /api/state: the cards up (each saying whose it is), Jarvis Code's
+        """More for /api/state: the cards up (each saying whose it is), Eden Code's
         sessions, the conversations JARVIS holds, and whether push works for this phone."""
         from .companion_api import SESSIONS_SHOWN, public_approval, session_status
         from .companion_more import features

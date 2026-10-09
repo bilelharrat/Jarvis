@@ -54,7 +54,7 @@ def install(hub: Any) -> None:
     notifier, live = companion.notifier, companion.live
     hub.add_approval_sink(notifier.approval)
     hub.add_notify_sink(notifier.alert)
-    hub.add_task_sink(notifier.task_event)  # Jarvis Code's sessions ending
+    hub.add_task_sink(notifier.task_event)  # Eden Code's sessions ending
     notifier.settle_delegations()  # already in memory: only what changes after this is news
     # Live Activities: a look every few seconds, and at once when a card, a session, a call
     # or a conversation changes (the loop runs with the app, never in tests).

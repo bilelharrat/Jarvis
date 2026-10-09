@@ -130,7 +130,7 @@ final class PhoneTools {
             ], required: ["url"]),
         ]
         if mac != nil {
-            tools.append(tool("ask_mac", "Hands a request to Jarvis on the owner's Mac, which has their files, mail, iMessage, browser, Jarvis Code, notes and everything on the Mac. Use it for anything that needs the Mac.", [
+            tools.append(tool("ask_mac", "Hands a request to Jarvis on the owner's Mac, which has their files, mail, iMessage, browser, Eden Code, notes and everything on the Mac. Use it for anything that needs the Mac.", [
                 "request": prop("string", "The request, in the owner's words."),
             ], required: ["request"]))
         }

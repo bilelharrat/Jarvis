@@ -1,4 +1,4 @@
-"""Jarvis Code sessions kept across a restart (features.code_sessions).
+"""Eden Code sessions kept across a restart (features.code_sessions).
 
 Each session the list shows is a small JSON file of its own (<key>.json in the folder the
 feature keeps beside prefs.json): where it runs, its Claude Code conversation, how it's set
@@ -74,7 +74,7 @@ class SessionStore:
             try:
                 data = jsonstore.load_json(path, dict)
             except jsonstore.Unreadable as exc:
-                log.warning("Jarvis Code: session %s can't be read (%s)", key, exc.strerror)
+                log.warning("Eden Code: session %s can't be read (%s)", key, exc.strerror)
                 self.unreadable.add(key)
                 continue
             record = clean_record(data, key)
@@ -103,7 +103,7 @@ class SessionStore:
                     try:
                         path.unlink(missing_ok=True)
                     except OSError as exc:
-                        log.warning("Jarvis Code: couldn't let go of session %s (%s)", key, exc)
+                        log.warning("Eden Code: couldn't let go of session %s (%s)", key, exc)
                 del self.written[key]
 
     def read(self, key: str) -> dict[str, Any] | None:
@@ -114,7 +114,7 @@ class SessionStore:
         try:
             data = jsonstore.load_json(self.folder / f"{key}.json", dict)
         except jsonstore.Unreadable as exc:
-            log.warning("Jarvis Code: session %s can't be read (%s)", key, exc.strerror)
+            log.warning("Eden Code: session %s can't be read (%s)", key, exc.strerror)
             return None
         return clean_record(data, key)
 

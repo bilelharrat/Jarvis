@@ -72,6 +72,7 @@ const SPACES = {
   meetings: { t: 'Meetings', i: 'quote', load: () => import('./meetings.js').then((m) => m.meetingsPanel) },
   web: { t: 'On a website', i: 'globe', load: () => import('./browser-task.js').then((m) => m.browserTaskPanel) },
   activity: { t: 'Activity', i: 'clock', load: () => import('./activity.js').then((m) => m.activityPanel), offMac: true },
+  courses: { t: 'Courses', i: 'doc', load: () => import('./courses.js').then((m) => m.coursesPanel), offMac: true }, // Eden for Education
 };
 let openKey = null;
 let returnFocus = null;
@@ -85,6 +86,7 @@ export function openSpace(key, opts = {}) {
   $('spIco').firstElementChild.setAttribute('href', `#i-${s.i}`);
   $('spacePanel').classList.add('open');
   $('spacePanel').classList.toggle('wide', key === 'mail' || !!s.load);
+  $('spacePanel').classList.toggle('crsp', key === 'courses'); // Eden for Education: a big sheet (courses.css)
   const body = $('spBody');
   body.replaceChildren();
   body.classList.toggle('mailx', key === 'mail'); // the Mail panel lays out its own panes (mail.js)

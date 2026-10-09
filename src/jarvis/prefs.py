@@ -8,12 +8,12 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from . import jsonstore
+from . import jsonstore, osplat
 from .textclean import clean_text
 
 log = logging.getLogger("jarvis")
 
-APP_SUPPORT = Path.home() / "Library" / "Application Support" / "Jarvis"
+APP_SUPPORT = osplat.app_support()
 # The settings file's format. 2: the Research Center moved from a local dev server to its
 # hosted address, so a file still on the old default follows it (once: a later choice of
 # the old address is saved as version 2 and kept).
@@ -121,9 +121,9 @@ class Prefs:
     # model ref ("custom:…"); "" is Automatic (a Gemini model added with a key, else any
     # added one), "off" is none.
     fallback_model: str = ""
-    fallback_code: bool = True  # … Jarvis Code sessions too
+    fallback_code: bool = True  # … Eden Code sessions too
     fallback_always: bool = False  # run JARVIS on it all the time, not only when Claude is down
-    code_read_only: bool = True  # Jarvis Code runs read-only shell commands without asking
+    code_read_only: bool = True  # Eden Code runs read-only shell commands without asking
     briefing_enabled: bool = True
     briefing_time: str = "08:00"
     last_briefing: str = ""
@@ -150,10 +150,10 @@ class Prefs:
     invoice_from: str = ""  # the business at the top of invoices (the user fills it in)
     invoice_payment: str = ""  # how to pay, printed on invoices
     screen_aware: bool = False  # keep an eye on the screen (pictures stay in memory, 2 min)
-    code_keep_awake: bool = True  # keep the Mac awake while Jarvis Code works
+    code_keep_awake: bool = True  # keep the Mac awake while Eden Code works
     queue_requests: bool = True  # while Jarvis answers, new requests wait (off: they interrupt)
-    code_queue: bool = True  # Jarvis Code follow-ups wait for the step (off: steer it now)
-    code_model: str = ""  # Jarvis Code's model for new sessions ("" = the default)
+    code_queue: bool = True  # Eden Code follow-ups wait for the step (off: steer it now)
+    code_model: str = ""  # Eden Code's model for new sessions ("" = the default)
     code_effort: str = ""  # … its effort
     code_mode: str = "ask"  # … its permission mode
     code_ultracode: bool = False  # … and whether ultracode starts on

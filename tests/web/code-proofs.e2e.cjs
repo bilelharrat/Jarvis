@@ -1,4 +1,4 @@
-// The app's side of Jarvis Code's design match and video proof (app/features/design-match.js,
+// The app's side of Eden Code's design match and video proof (app/features/design-match.js,
 // app/features/video-proof.js), in a real Chromium: a page served on 127.0.0.1 is rendered at
 // a design's size and its pictures shrunk for the comparison, and recorded to a WebM video
 // from the DevTools screencast. Hidden windows only; nothing leaves 127.0.0.1.

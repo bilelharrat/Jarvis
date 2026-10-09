@@ -775,12 +775,12 @@ class VoiceCoder:
     def enter(self, task_id: int) -> str:
         task = self.hub.tasks.tasks.get(task_id)
         if task is None or task.kind != "code":
-            return "There's no Jarvis Code session with that number."
+            return "There's no Eden Code session with that number."
         self.focus = task_id
         self._changed()
         return (
             f"Voice coding in {task.cwd.name}, {MODE_NAMES[task.mode].split(':')[0].lower()}. "
-            "Everything you say now goes to Jarvis Code; say 'exit code mode' to stop."
+            "Everything you say now goes to Eden Code; say 'exit code mode' to stop."
         )
 
     def exit(self) -> None:
@@ -899,7 +899,7 @@ class VoiceCoder:
         elif intent.kind == "export":
             path = tasks.export(task.id)
             say(
-                f"Saved the transcript to {path.name} in Documents, Jarvis, Jarvis Code."
+                f"Saved the transcript to {path.name} in Documents, Jarvis, Eden Code."
                 if path
                 else "Nothing to export."
             )

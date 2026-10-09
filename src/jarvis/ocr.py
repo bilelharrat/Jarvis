@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from . import osplat
 from .knowledge import Note
 
 log = logging.getLogger("jarvis")
@@ -145,7 +146,7 @@ class TextCache:
 def content_key(path: Path, limit: int = MAX_BYTES) -> str:
     """A hash of a file's contents (read in blocks, never more than `limit` bytes)."""
     digest = hashlib.blake2b(digest_size=16)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = os.open(path, os.O_RDONLY | osplat.O_NOFOLLOW | osplat.O_NONBLOCK | osplat.O_BINARY)
     with os.fdopen(fd, "rb") as fh:
         if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
             raise OSError("not a plain file")

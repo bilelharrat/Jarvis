@@ -12,7 +12,7 @@ from jarvis.ui import parse
 @pytest.mark.parametrize(
     ("said", "action", "name", "on"),
     [
-        ("open Jarvis Code", "panel", "code", True),
+        ("open Eden Code", "panel", "code", True),
         ("Jarvis, open up jarvis code.", "panel", "code", True),
         ("open the browser", "panel", "browser", True),
         ("close the browser", "panel", "browser", False),
@@ -74,9 +74,9 @@ def hub(settings, quiet_speaker, isolated):
 async def test_open_jarvis_code_by_voice_needs_no_claude(hub):
     sent = []
     hub.emit = lambda kind, **data: sent.append((kind, data))
-    assert await hub._instant_window("r1", "open Jarvis Code")
+    assert await hub._instant_window("r1", "open Eden Code")
     assert ("ui", {"action": "panel", "name": "code", "open": True}) in sent
-    assert ("reply", {"rid": "r1", "text": "Opening Jarvis Code."}) in sent
+    assert ("reply", {"rid": "r1", "text": "Opening Eden Code."}) in sent
 
 
 async def test_switching_the_look_by_voice(hub):

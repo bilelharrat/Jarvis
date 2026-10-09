@@ -64,7 +64,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 body.in-app .top { padding-left: 92px; }
 .top button, .top .popover { -webkit-app-region: no-drag; }
 /* Electron takes the window's drag area from element boxes, not from what's painted on
-   top: a panel open over the bar (Jarvis Code's header, the galaxy's search) sat inside it,
+   top: a panel open over the bar (Eden Code's header, the galaxy's search) sat inside it,
    and a click on its buttons only moved the window. Every control is carved out of it,
    wherever it is; empty space over the bar still drags, like a title bar. The title is too
    (double-click renames it; on a drag area macOS zooms the window instead). */
@@ -176,7 +176,7 @@ body[data-state="speaking"] .orb-core { animation: speak 0.9s ease-in-out infini
 .card.needs-ok { border-color: var(--action); }
 .cards-clear { align-self: flex-end; font-size: 12px; padding: 4px 12px; }
 /* A sheet on the right (Settings, Tools & Accounts): the stack steps to its left instead of
-   covering its controls, as it does for the browser dock. These sheets and Jarvis Code are
+   covering its controls, as it does for the browser dock. These sheets and Eden Code are
    the body's own children, and each body:has() here asks only the body's children (> #id):
    one that looked through the whole page looked through it again after every change
    anywhere in it (a streamed word, a step of a session), about a millisecond each time with
@@ -185,7 +185,7 @@ body { --sheet-w: 0px; }
 body:has(> #settings:not([hidden])) { --sheet-w: min(400px, 100vw); }
 body:has(> #accounts:not([hidden])) { --sheet-w: min(720px, 100vw); }
 .cards { right: calc(40px + var(--sheet-w)); }
-/* Over Jarvis Code, notices sit in the sidebar's lower corner, not over the transcript or
+/* Over Eden Code, notices sit in the sidebar's lower corner, not over the transcript or
    the Changes pane. */
 body:has(> #cc:not([hidden])) .cards { top: auto; right: auto; left: 22px; bottom: 60px; width: 250px; max-height: 50vh; }
 .card-kicker { font-size: 12px; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
@@ -309,7 +309,7 @@ body.galaxy-ambient .orb { opacity: 0.92; }
 
 /* ── settings sheet ── */
 .sheet {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100vw); z-index: 35; /* over Jarvis Code, the browser and the Research Center */
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100vw); z-index: 35; /* over Eden Code, the browser and the Research Center */
   background: var(--card); border-left: 1px solid var(--line); overflow-y: auto;
   padding: 22px 24px 32px; box-shadow: -20px 0 50px rgba(20, 15, 5, 0.12);
   animation: slide-in 200ms ease-out;
@@ -794,7 +794,7 @@ body[data-look="console"] .sheet { box-shadow: -24px 0 60px rgba(0, 0, 0, 0.55);
 .timeline .t-plan { align-self: stretch; border: 1px solid var(--action); border-radius: 12px; padding: 10px 14px; background: var(--card); font-size: 14px; }
 .timeline .t-plan strong { display: block; margin-bottom: 4px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--action); }
 
-/* ═════════════ Jarvis Code: Summit Glass (the BSH research center's design language) ═════════════
+/* ═════════════ Eden Code: Summit Glass (the BSH research center's design language) ═════════════
    Tokens mirror bsh-research-center/frontend/src/style.css: calm cards on a canvas lit from
    above, Liquid Glass only for chrome (the floating sidebar, panes, capsules, menus). */
 .deck.jc, .browser-dock {
@@ -1112,7 +1112,7 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-composer-row > #jc-mode-btn:is(:hover, [aria-expanded="true"]) { color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.22); }
 .jc-composer-row > #jc-model::before { content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%; background: rgb(var(--c-success)); box-shadow: 0 0 6px rgb(var(--c-success) / 0.8); }
 /* The bar, its line and what sits on it are the default (Summit Glass) mode's, to the pixel:
-   under Obsidian the dock gets the default tokens and type back (the rest of Jarvis Code keeps
+   under Obsidian the dock gets the default tokens and type back (the rest of Eden Code keeps
    Obsidian's). Light Obsidian already shares the default light tokens; only the type differs. */
 html body[data-skin="obsidian"] .deck.jc .jc-dock {
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
@@ -1205,7 +1205,7 @@ body:has(> #cc:not([hidden])) #code-pill { display: none; }
 body[data-look="console"] .up .mk-pct { color: #4cd07a; }
 body[data-look="console"] .down .mk-pct { color: #ff7066; }
 
-/* the JARVIS reactor: the voice control, everywhere in Jarvis Code */
+/* the JARVIS reactor: the voice control, everywhere in Eden Code */
 .jc-reactor { display: block; flex: none; overflow: visible; }
 .jc-reactor .halo { fill: none; stroke: #3fb8f2; stroke-opacity: 0.35; stroke-width: 1.2; }
 .jc-reactor .ring { fill: none; stroke: #6fd0ff; stroke-width: 2.6; stroke-dasharray: 4.1 2.3; transform-origin: 20px 20px; }
@@ -1285,7 +1285,7 @@ body.drop-pictures :is(.ask input, .chat-form input) { outline: 2px dashed var(-
 .screen-eye { display: flex; animation: screen-blink 4s ease-in-out infinite; }
 @keyframes screen-blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.15); } }
 @media (prefers-reduced-motion: reduce) { .screen-eye { animation: none; } }
-/* Jarvis Code: ! commands and # memories */
+/* Eden Code: ! commands and # memories */
 .jc-bang { list-style: none; border-radius: 12px; background: rgb(var(--c-ink) / 0.04); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.08); overflow: hidden; }
 .jc-bang-head { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; font: 12.5px var(--mono); }
 .jc-bang-prompt { color: rgb(var(--c-accent)); font-weight: 600; }
@@ -1293,7 +1293,7 @@ body.drop-pictures :is(.ask input, .chat-form input) { outline: 2px dashed var(-
 .jc-bang-state { font: 11.5px var(--sans); color: rgb(var(--c-muted)); white-space: nowrap; }
 .jc-bang.failed .jc-bang-state { color: rgb(var(--c-danger-ink)); }
 .jc-bang-out { margin: 0; padding: 10px 12px; max-height: 260px; overflow: auto; font: 12px/1.5 var(--mono); white-space: pre-wrap; border-top: 0.5px solid rgb(var(--c-ink) / 0.08); color: rgb(var(--c-ink-2)); }
-/* Jarvis Code: file previews */
+/* Eden Code: file previews */
 .jc-viewer-bar { display: flex; align-items: center; gap: 8px; }
 .jc-viewer-bar .jc-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
 .jc-preview { border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
@@ -1540,7 +1540,7 @@ body.browser-narrow .console-clock { display: none !important; }
 body.browser-narrow .top, body.browser-narrow .bottom { padding-left: 24px; padding-right: 24px; }
 body.browser-narrow.in-app .top { padding-left: 92px; }
 body.browser-narrow .chip-sm, body.browser-narrow .weather-chip { white-space: nowrap; }
-/* Jarvis Code: follow-ups waiting for the current step */
+/* Eden Code: follow-ups waiting for the current step */
 .jc-queue { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .jc-queue[hidden] { display: none; }
 .jc-queued { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 12px; background: var(--glass-fill); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-rim), var(--glass-edge); font-size: 13px; }
@@ -1549,7 +1549,7 @@ body.browser-narrow .chip-sm, body.browser-narrow .weather-chip { white-space: n
 .jc-queued-x { width: 24px; height: 24px; border: 0; border-radius: 12px; background: transparent; color: rgb(var(--c-muted)); cursor: pointer; }
 .jc-queued-x:hover { background: rgb(var(--c-ink) / 0.07); color: rgb(var(--c-ink)); }
 
-/* ── Jarvis Code composer, Claude Code's controls in clear glass ── */
+/* ── Eden Code composer, Claude Code's controls in clear glass ── */
 .deck.jc, .browser-dock {
   --clear-fill: linear-gradient(180deg, rgb(255 255 255 / 0.30), rgb(255 255 255 / 0.14));
   --clear-blur: blur(22px) saturate(175%);
@@ -1661,7 +1661,7 @@ body.browser-narrow .chip-sm, body.browser-narrow .weather-chip { white-space: n
 .ep-ticks span.uc { left: 100%; transform: translateX(-62%); font-weight: 600; color: rgb(var(--c-purple-ink)); }
 .ep-note { margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: rgb(var(--c-ink-2)); min-height: 34px; }
 
-/* Jarvis Code settings: a glass sheet over the panel */
+/* Eden Code settings: a glass sheet over the panel */
 .jc-settings { position: absolute; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgb(0 0 0 / 0.10); }
 .jc-settings[hidden] { display: none; }
 .jcs-card { position: relative; width: min(640px, 100%); max-height: min(720px, 100%); display: flex; flex-direction: column; border-radius: 22px; overflow: hidden; }
@@ -1963,8 +1963,8 @@ body[data-look="orb"] .sheet {
 }
 .sheet code { background: var(--s-input); }
 
-/* ═════════════ Clear glass, Jarvis Code layout, the BSH selection lift ═════════════ */
-/* Jarvis Code is a pane of glass over the dashboard (it blurs what's behind it), so the
+/* ═════════════ Clear glass, Eden Code layout, the BSH selection lift ═════════════ */
+/* Eden Code is a pane of glass over the dashboard (it blurs what's behind it), so the
    sidebar, composer and menus on it read as glass rather than grey on a flat canvas. */
 /* (on a background layer, not the panel: a blur on an ancestor stops the menus' own blur from
    seeing what's behind them) */
@@ -1973,7 +1973,7 @@ body[data-look="orb"] .sheet {
   background: var(--wash), rgb(var(--c-canvas) / 0.58);
   -webkit-backdrop-filter: blur(44px) saturate(170%); backdrop-filter: blur(44px) saturate(170%);
 }
-/* the dashboard's orb would blur through that glass as a blue sphere, so it steps out while Jarvis Code is open */
+/* the dashboard's orb would blur through that glass as a blue sphere, so it steps out while Eden Code is open */
 body:has(> #cc:not([hidden])) #orb { visibility: hidden; }
 .deck.jc, .browser-dock {
   --glass-fill: rgba(255, 255, 255, 0.34);
@@ -2267,7 +2267,7 @@ body.in-app.browser-full .bd-panel { margin-top: 40px; }
 .bd-shield[aria-pressed="true"] { color: rgb(var(--c-success)); }
 .bd-shield[aria-pressed="true"] svg path { fill: rgb(var(--c-success) / 0.25); }
 
-/* Jarvis Code › Activity: every step, and why it ran */
+/* Eden Code › Activity: every step, and why it ran */
 .jc-audit-bar { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
 .deck.jc .jc-audit-filter { height: 26px; padding: 0 10px; border: 0; border-radius: 13px; cursor: pointer; font-size: 12px; font-weight: 500; color: rgb(var(--c-ink-2)); background: rgb(var(--c-ink) / 0.06); }
 .deck.jc .jc-audit-filter.on { color: rgb(var(--c-ink)); background: var(--glass-pill); box-shadow: var(--glass-rim), var(--pill-shadow); }

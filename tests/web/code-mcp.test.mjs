@@ -1,4 +1,4 @@
-// Jarvis Code's MCP manager, the MCP servers pane's helpers (web/features/code-mcp.js).
+// Eden Code's MCP manager, the MCP servers pane's helpers (web/features/code-mcp.js).
 // node --test tests/web/
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

@@ -84,6 +84,7 @@ SOURCE_WORDS: dict[str, tuple[str, ...]] = {
     "chatgpt": ("import",),
     "claude": ("import",),
     "claude code": ("import",),
+    "eden code": ("import",),
     "jarvis code": ("import",),
     "pasted": ("import",),
     "synced": ("synced",),
@@ -98,6 +99,7 @@ IMPORT_ORIGINS = {
     "chatgpt": "ChatGPT",
     "claude": "CLAUDE.md",
     "claude code": "CLAUDE.md",
+    "eden code": "CLAUDE.md",
     "jarvis code": "CLAUDE.md",
     "pasted": "pasted",
 }
@@ -854,7 +856,7 @@ class MemoryStore:
             if source not in SOURCE_WORDS:
                 raise ValueError(
                     "I can forget by where I learned things: conversations, Settings, "
-                    "suggestions, the dream diary, imports (ChatGPT, Jarvis Code, a pasted "
+                    "suggestions, the dream diary, imports (ChatGPT, Eden Code, a pasted "
                     "list) or from before memory 2.0."
                 )
             kinds = SOURCE_WORDS[source]

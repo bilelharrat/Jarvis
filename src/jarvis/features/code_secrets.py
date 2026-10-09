@@ -1,4 +1,4 @@
-"""The owner's secrets for a Jarvis Code session, asked for on a masked card and never seen by
+"""The owner's secrets for an Eden Code session, asked for on a masked card and never seen by
 Claude.
 
 A session that needs an API key or a password (a CLI login, a test against a real service)
@@ -45,6 +45,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -81,7 +82,7 @@ GREP_BYTES = 40_000_000
 lang.add_texts(
     {
         "Secrets": "密钥",
-        "Jarvis Code asks for a secret": "Jarvis Code 请求一个密钥",
+        "Eden Code asks for a secret": "Eden Code 请求一个密钥",
         "This session": "仅此会话",
         "This project": "此项目",
         "Saved for this session.": "已为此会话保存。",
@@ -125,7 +126,9 @@ def wrap(command: str, names: dict[str, str], python: str | None = None) -> str:
     """The command as it runs: through secret_run.py, with each NAME's Keychain account."""
     shell = os.environ.get("SHELL", "")
     shell = (
-        shell if Path(shell).name in ("zsh", "bash") and Path(shell).is_absolute() else "/bin/bash"
+        shell
+        if Path(shell).name in ("zsh", "bash") and Path(shell).is_absolute()
+        else (shutil.which("bash") or "/bin/bash")
     )
     pairs = [f"{name}={account}" for name, account in sorted(names.items())]
     return shlex.join(
@@ -191,7 +194,7 @@ class Secrets:
         try:
             jsonstore.save_json(self.path, {"version": 1, **self.index()})
         except OSError:
-            log.warning("couldn't save the list of Jarvis Code secrets' names")
+            log.warning("couldn't save the list of Eden Code secrets' names")
 
     # ── a session's secrets ──
 
@@ -361,7 +364,7 @@ class Secrets:
         self.hub.tasks.add_entry(
             task.id,
             "secret",
-            f"Jarvis Code asks for a secret: ${name}.",
+            f"Eden Code asks for a secret: ${name}.",
             ask=ask_id,
             name=name,
             why=why,
@@ -654,7 +657,7 @@ def install(hub: Any) -> None:
                 if task_id not in live:
                     sec.session_ended(task_id)
         except Exception:
-            log.exception("Jarvis Code secrets: couldn't take in the sessions")
+            log.exception("Eden Code secrets: couldn't take in the sessions")
 
     hub.add_task_sink(sessions_changed)
 
@@ -662,9 +665,7 @@ def install(hub: Any) -> None:
         try:
             sec.answer(msg)
         except Exception:  # (logged without msg: it may carry the value)
-            log.error(
-                "Jarvis Code secrets: an answer failed (%s)", type(sys.exc_info()[1]).__name__
-            )
+            log.error("Eden Code secrets: an answer failed (%s)", type(sys.exc_info()[1]).__name__)
             hub.emit("sec_error", ask=str(msg.get("ask") or ""), text="That didn't work.")
 
     def listing(msg: dict[str, Any]) -> None:

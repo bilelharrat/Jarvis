@@ -22,6 +22,7 @@ import re
 from typing import Any
 
 from ... import lang, research
+from ...speech import is_silent
 
 MAX_BLOCKS = 400
 BLOCK_CHARS = 4000
@@ -117,7 +118,7 @@ class Reader:
             count=len(self.blocks),
             url=self.url[:500],
             title=self.title[:300],
-            muted=bool(self.hub.speaker.muted),  # the window says the voice is off
+            muted=is_silent(self.hub.speaker),  # the window says the voice is off
         )
 
     def _cut(self) -> None:
@@ -132,7 +133,7 @@ class Reader:
             self.hub.speech.clear()
 
     def _play(self) -> None:
-        if self.hub.speaker.muted:
+        if is_silent(self.hub.speaker):
             self.state = "paused"
             self._emit()
             return
@@ -154,7 +155,7 @@ class Reader:
             await hub.speech.drain()
             if gen != self._gen:
                 return  # paused, skipped, stopped here
-            if hub._stops != stops or hub.speaker.muted:
+            if hub._stops != stops or is_silent(hub.speaker):
                 self.state = "paused"  # the owner stopped it: it waits where it was
                 self._emit()
                 return

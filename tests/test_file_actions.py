@@ -83,7 +83,9 @@ def test_a_move_can_be_undone(actions, home):
     assert (home / "Documents" / "Q3 report.pdf").exists()
     assert not (home / "Desktop" / "Q3 report.pdf").exists()
     saved = json.loads((actions.path).read_text())
-    assert saved["records"][0]["items"][0]["to"].endswith("Documents/Q3 report.pdf")
+    assert (
+        Path(saved["records"][0]["items"][0]["to"]).as_posix().endswith("Documents/Q3 report.pdf")
+    )
     assert actions.undo() == "Moved 1 item back."
     assert (home / "Desktop" / "Q3 report.pdf").exists()
     assert fa.FileActions(actions.path, home=home).records[0].undone  # remembered
@@ -103,7 +105,7 @@ def test_the_trash_is_never_forever(actions, home):
     shot = home / "Downloads" / "Screenshot 2026-09-29 at 10.02.31.png"
     record = actions.trash(actions.plan_trash([str(shot)]))
     assert not shot.exists() and (home / ".Trash" / shot.name).exists()
-    assert actions.undo(record.id) == "Took 1 item out of the Trash."
+    assert actions.undo(record.id) == f"Took 1 item out of the {fa.bin_name()}."
     assert shot.exists()
 
 
@@ -123,7 +125,7 @@ def test_a_trash_that_stops_part_way_can_still_be_undone(actions, home):
     )
     with pytest.raises(OSError):
         actions.trash(paths)
-    assert actions.undo() == "Took 1 item out of the Trash."
+    assert actions.undo() == f"Took 1 item out of the {fa.bin_name()}."
     assert (home / "Desktop" / "notes.txt").exists() and (
         home / "Desktop" / "Q3 report.pdf"
     ).exists()
@@ -253,7 +255,11 @@ def _app_data(home):
         ("{home}/.config/fish/config.fish", "app data"),
         ("{home}/.config/fish", "app data"),
         # iCloud Drive itself is like a home folder: what's in it moves, it doesn't.
-        ("{home}/Library/Mobile Documents/com~apple~CloudDocs", "home's own folders"),
+        pytest.param(
+            "{home}/Library/Mobile Documents/com~apple~CloudDocs",
+            "home's own folders",
+            marks=pytest.mark.skipif(os.name == "nt", reason="iCloud Drive's place is a Mac's"),
+        ),
     ],
 )
 def test_another_spelling_or_a_folder_inside_is_still_protected(actions, home, raw, why):
@@ -470,14 +476,15 @@ async def test_trashing_several_asks_with_the_list_and_can_be_undone(hub, home):
     paths = f"{home / 'Desktop' / 'notes.txt'}\n{home / 'Desktop' / 'Q3 report.pdf'}"
     out = await tools["trash_files"]({"paths": paths})
     assert (
-        hub.cards == [("Move 2 items to the Trash?", ["Move to Trash", "Keep"])] and out["is_error"]
+        hub.cards == [(f"Move 2 items to the {fa.bin_name()}?", [feature.TRASH_CHOICES[0], "Keep"])]
+        and out["is_error"]
     )
     hub.answer = "allow"
     out = await tools["trash_files"]({"paths": paths})
-    assert "Moved 2 items to the Trash." in _said(out)
+    assert f"Moved 2 items to the {fa.bin_name()}." in _said(out)
     assert sorted(p.name for p in (home / ".Trash").iterdir()) == ["Q3 report.pdf", "notes.txt"]
     listed = _said(await tools["recent_file_actions"]({}))
-    assert "moved notes.txt and 1 more to the Trash" in listed
+    assert f"moved notes.txt and 1 more to the {fa.bin_name()}" in listed
     await tools["undo_file_action"]({})
     assert (home / "Desktop" / "notes.txt").exists() and (
         home / "Desktop" / "Q3 report.pdf"

@@ -100,10 +100,10 @@ async def test_what_the_app_knows_goes_in_as_facts(settings, quiet_speaker, isol
 
 async def test_a_features_line_goes_with_its_section(settings, quiet_speaker, isolated):
     hub = make_hub(settings, quiet_speaker, isolated)
-    hub.add_briefing_note(lambda: "Say what Jarvis Code did overnight.", section="code")
+    hub.add_briefing_note(lambda: "Say what Eden Code did overnight.", section="code")
     hub.add_briefing_note(lambda: "Also the tide.")
     request = await request_of(hub)
-    assert "Say what Jarvis Code did overnight. " + b.ASKS["code"] in request
+    assert "Say what Eden Code did overnight. " + b.ASKS["code"] in request
     assert "Also the tide." in request
     sections = [{**s, "on": s["id"] != "code"} for s in b.default_sections()]
     hub.set_feature_prefs({"briefing_sections": sections})

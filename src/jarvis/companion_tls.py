@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from . import osplat
+
 log = logging.getLogger("jarvis")
 
 FILE_NAME = "companion-tls.pem"
@@ -188,11 +190,11 @@ def _write_private(path: Path, data: bytes) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as out:
-            os.fchmod(out.fileno(), 0o600)
+            osplat.fchmod(out.fileno(), 0o600)
             out.write(data)
             out.flush()
             os.fsync(out.fileno())
-        os.replace(tmp, path)
+        osplat.replace_file(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)

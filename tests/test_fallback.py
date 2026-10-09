@@ -1,4 +1,4 @@
-"""When Claude can't answer (its usage limit, an outage), JARVIS and Jarvis Code carry on
+"""When Claude can't answer (its usage limit, an outage), JARVIS and Eden Code carry on
 with the fallback model (Gemini through JARVIS's relay), every tool included."""
 
 import asyncio
@@ -174,7 +174,7 @@ async def test_without_a_fallback_a_session_says_how_to_get_one(
     hub.prefs.fallback_model = "off"  # turned off: Claude's error, and nothing more
     assert not hub._code_claude_down(task, "rate_limit") and not task.transcript
     hub.prefs.fallback_model, hub.prefs.fallback_code = "", False
-    assert not hub._code_claude_down(task, "rate_limit")  # Jarvis Code keeps Claude
+    assert not hub._code_claude_down(task, "rate_limit")  # Eden Code keeps Claude
 
 
 async def test_a_gemini_key_brings_flash_and_pro_and_automatic_picks_flash(
@@ -230,7 +230,7 @@ async def test_gemini_models_added_before_the_numbers_are_numbered_at_start(
     await hub._number_gemini_starters()
     (flash,) = [m for m in hub.providers.models() if not m["builtin"]]
     assert (flash["ref"], flash["model"], flash["label"]) == (
-        ref,  # Jarvis Code's default is still this one
+        ref,  # Eden Code's default is still this one
         "gemini-3.8-flash",
         "Gemini 3.8 Flash",
     )
@@ -511,7 +511,7 @@ def test_after_an_outage_claude_is_tried_again_in_half_an_hour(settings, quiet_s
     assert hub._claude_back()
 
 
-# ── Jarvis Code, end to end: the limit, the move, carrying on, and back to Claude ──
+# ── Eden Code, end to end: the limit, the move, carrying on, and back to Claude ──
 
 
 LIMIT = "You've hit your weekly limit · resets 5pm (America/Los_Angeles)"

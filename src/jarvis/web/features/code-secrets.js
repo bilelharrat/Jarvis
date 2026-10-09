@@ -61,7 +61,7 @@
     const li = el('li', `sec-card ${e.state || ''}`);
     li.dataset.ask = e.ask || '';
     const head = el('div', 'sec-head');
-    head.append(el('strong', '', 'Jarvis Code asks for a secret'), mine(el('code', 'sec-name', `$${e.name || ''}`)));
+    head.append(el('strong', '', 'Eden Code asks for a secret'), mine(el('code', 'sec-name', `$${e.name || ''}`)));
     li.append(head);
     if (e.why) {
       const why = el('div', 'sec-why');
@@ -106,7 +106,7 @@
     const buttons = el('div', 'sec-buttons');
     buttons.append(save, decline);
     form.append(input, scopes, buttons, error, el('small', 'sec-note',
-      'It goes straight to the Keychain. Jarvis Code only ever sees its name, never the value, and it’s scrubbed from the transcript and the session’s output. A session’s own is deleted when the session ends.'));
+      'It goes straight to the Keychain. Eden Code only ever sees its name, never the value, and it’s scrubbed from the transcript and the session’s output. A session’s own is deleted when the session ends.'));
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const value = cleanValue(input.value);

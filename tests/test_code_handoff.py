@@ -1,4 +1,4 @@
-"""Hand-off (handoff.py, features/code_handoff.py): a Jarvis Code session continued on another
+"""Hand-off (handoff.py, features/code_handoff.py): an Eden Code session continued on another
 machine over SSH. No real SSH: a fake ssh runs each command with sh in a folder standing in
 for the remote's home, and a fake claude there speaks stream-json (asking for permission
 over stdio when its --help says it can). Real git, in temp repositories."""
@@ -456,7 +456,7 @@ async def test_a_session_moves_there_asks_here_and_comes_back_ready_to_land(
     assert hub.cards[-1]["question"] == f"Bring {rec.branch} back from studio?"
     assert (task.cwd / "there.txt").read_text() == "made there\n"
     assert (task.cwd / "second.txt").exists()
-    assert git(task.cwd, "log", "-1", "--format=%s").strip() == "Jarvis Code: work on studio"
+    assert git(task.cwd, "log", "-1", "--format=%s").strip() == "Eden Code: work on studio"
     assert desk.of_task(task) is None and task.status == "closed"
     assert await until(lambda: (checkout.parent / "exit.code").exists())
     # Its next message here says what happened there.
@@ -624,7 +624,7 @@ async def test_what_cant_be_handed_off_says_why(hub, projects, remotes):
     shared = hub.tasks.start("", "plain")
     assert await until(lambda: shared.client is not None)
     assert "isolated copy" in await desk.hand_off(shared, "studio")
-    assert "Add elsewhere in Jarvis Code settings" in await desk.hand_off(shared, "elsewhere")
+    assert "Add elsewhere in Eden Code settings" in await desk.hand_off(shared, "elsewhere")
     make_repo(projects / "proj", {"a.py": numbered(5)})
     task = await isolated_session(hub)
     task.busy = True

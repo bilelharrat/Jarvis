@@ -1,4 +1,4 @@
-"""The owner's permission rules for Jarvis Code (coderules): allow, ask or deny a session's
+"""The owner's permission rules for Eden Code (coderules): allow, ask or deny a session's
 steps by web domain, MCP server or tool, file path or command, per project; the editor for
 them (the Permissions pane); and import from and export to a project's .claude settings.
 
@@ -46,7 +46,7 @@ def merge_ask(settings: str | None, ask: list[str]) -> str | None:
             parsed = json.loads(settings)
         except ValueError:
             log.warning(
-                "Jarvis Code rules: a session's settings aren't JSON; its ask rules hold in JARVIS only"
+                "Eden Code rules: a session's settings aren't JSON; its ask rules hold in JARVIS only"
             )
             return settings
         if not isinstance(parsed, dict):
@@ -257,7 +257,7 @@ class _Options:
 
 def install(hub: Any) -> None:
     desk = RuleDesk(hub)
-    hub.code_rules = desk  # (for the other Jarvis Code features and the tests)
+    hub.code_rules = desk  # (for the other Eden Code features and the tests)
     add_rule_check(hub.tasks, desk.check)
     hub.tasks.option_hooks.append(_Options(desk))
     hub.register_command("cr_state", desk.cmd_state)

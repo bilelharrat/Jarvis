@@ -66,11 +66,32 @@ export async function getJSON(path, { signal } = {}) {
   return res.json();
 }
 
+// askeden.com refuses a Gmail send/schedule or a calendar create/update/delete/RSVP without a
+// short-lived single-use approval token for that exact action (accounts/approvals.js). Every such
+// call here comes from a click (Send, Add, Save, the approval card), so the token is minted as part
+// of it. A server without the endpoint (the Mac's own) answers 404: no token needed there.
+const GUARDED = { '/api/chat/gmail': ['gmail', ['send', 'schedule']], '/api/chat/gcal': ['gcal', ['create', 'update', 'delete', 'respond']] };
+const canon = (v) => (Array.isArray(v) ? `[${v.map(canon).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}` : JSON.stringify(v));
+async function approvalFor(path, body, signal) {
+  const g = GUARDED[path];
+  if (MOCK || !g || !body || !g[1].includes(body.action) || !globalThis.crypto || !crypto.subtle) return null;
+  const exact = JSON.parse(JSON.stringify({ action: body.action, args: body.args === undefined ? {} : body.args }));
+  const bytes = new TextEncoder().encode(`${g[0]}\n${canon(exact)}`);
+  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  let res;
+  try { res = await transport('/api/chat/approve', { method: 'POST', headers: headers('/api/chat/approve', { 'content-type': 'application/json' }), body: JSON.stringify({ kind: g[0], hash }), signal }); }
+  catch (e) { if (e.name === 'AbortError') throw e; throw new ApiError(0, 'Can’t reach the server.'); }
+  if (res.status === 404) return null;
+  if (!res.ok) throw await errorFrom(res);
+  return (await res.json()).token || null;
+}
+
 export async function postJSON(path, body, { signal } = {}) {
   let res;
   try {
-    res = await transport(path, { method: 'POST', headers: headers(path, { 'content-type': 'application/json' }), body: JSON.stringify(body), signal });
-  } catch (e) { if (e.name === 'AbortError') throw e; throw new ApiError(0, 'Can’t reach the server.'); }
+    const token = await approvalFor(path, body, signal);
+    res = await transport(path, { method: 'POST', headers: headers(path, { 'content-type': 'application/json', ...(token ? { 'x-eden-approval': token } : {}) }), body: JSON.stringify(body), signal });
+  } catch (e) { if (e.name === 'AbortError' || e instanceof ApiError) throw e; throw new ApiError(0, 'Can’t reach the server.'); }
   if (!res.ok) throw await errorFrom(res);
   return res.json();
 }

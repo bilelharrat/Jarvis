@@ -23,7 +23,7 @@
 // after 30 days, listed in the apps like any device. The session is the device's token in the
 // cookie __Host-eden: HttpOnly, Secure, SameSite=Strict. No page ever sees it.
 
-import { EDEN_APP_ID, verifyIdentityToken } from '../accounts/apple.js';
+import { EDEN_APP_IDS, verifyIdentityToken } from '../accounts/apple.js';
 import { accountForIdentity, call, callIdentity, callLink, clientIp, eraseAccount, limited, linkIdentity, nativeNewAccount, subHashOf, unlinkIdentity } from '../accounts/index.js';
 import { ALGS, verifyAssertion, verifyRegistration } from '../accounts/webauthn.js';
 import { HUMAN_SECONDS, checkHuman, checkSignups, signupsOpen, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
@@ -803,7 +803,7 @@ async function passkeyVerify(request, env, { native = false } = {}) {
 async function nativeApple(request, env) {
   await limited(env, 'AUTH_RATE', `native:${clientIp(request)}`);
   const body = await readJson(request, 64 * 1024);
-  const claims = await verifyIdentityToken(body.identity_token, body.nonce, { audience: EDEN_APP_ID, now: Date.now() / 1000 });
+  const claims = await verifyIdentityToken(body.identity_token, body.nonce, { audience: EDEN_APP_IDS, now: Date.now() / 1000 });
   const code = await stashHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null });
   return json({ handoff: code, expires_in: HANDOFF_SECONDS });
 }
@@ -850,7 +850,8 @@ async function handoff(request, env) {
     });
     // The web view started this load itself (no other site in the chain): a plain redirect
     // carries the new cookie.
-    return withCookies(redirect('/'), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }));
+    // carries the new cookie; ?return= (a path here, return.js) is where the app wanted to be (Eden for Education: /edu).
+    return withCookies(redirect(safeReturn(new URL(request.url).searchParams.get('return'))), cookie(SESSION_COOKIE, made.token, { maxAge: SESSION_SECONDS }));
   } catch (error) {
     return failed(error, { provider: 'apple' });
   }

@@ -1,4 +1,4 @@
-"""Jarvis Code from the phone (companion_code.py): new sessions, and the window's own commands
+"""Eden Code from the phone (companion_code.py): new sessions, and the window's own commands
 for a session, from an allowlist only."""
 
 from __future__ import annotations

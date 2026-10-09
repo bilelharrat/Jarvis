@@ -45,7 +45,6 @@ import io
 import json
 import logging
 import os
-import pwd
 import re
 import secrets
 import time
@@ -62,7 +61,7 @@ from typing import Any
 import numpy as np
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import jsonstore, mac_tools
+from . import jsonstore, mac_tools, osplat
 from .messaging import resolve
 from .phone import (
     API,
@@ -261,19 +260,13 @@ def withheld(number: Any) -> bool:
 
 def mac_first_name() -> str:
     """The Mac account's first name ("Bilel"): what callers hear when no name is set."""
-    try:
-        full = pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()
-    except (KeyError, OSError):
-        return ""
+    full = osplat.account_full_name()
     return full.split()[0] if full else ""
 
 
 def mac_full_name() -> str:
     """The Mac account's full name ("Bilel Harrat"): the name a reservation goes under."""
-    try:
-        return pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()
-    except (KeyError, OSError):
-        return ""
+    return osplat.account_full_name()
 
 
 def confirmation(owner: str, said: str) -> str:
@@ -889,7 +882,9 @@ class Line:
 async def afplay(path: str) -> None:
     """A recording, out loud on the Mac; stopping the request stops it."""
     proc = await asyncio.create_subprocess_exec(
-        "afplay", path, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+        *osplat.afplay_argv(path),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
     )
     try:
         await asyncio.wait_for(proc.wait(), 400)

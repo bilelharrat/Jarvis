@@ -20,10 +20,26 @@ tasks, with a Stop button. Closing the window hides it; ⌘Q quits. Backend logs
 
 Settings › Look offers four: the Ambient Orb (the default), Obsidian (the orb's layout in
 flat graphite, or porcelain when the Mac is in light mode, with a fine-ticked reactor dial in
-the orb's place and Jarvis Code as a "Logbook"; `web/obsidian.css`), the Command Center, and
+the orb's place and Eden Code as a "Logbook"; `web/obsidian.css`), the Command Center, and
 Stark Glass (the orb's layout, every surface glass over a night lit by the reactor, the orb in
 a ticked bezel with gold quarters; `web/stark-glass.css`). The look you choose is kept, and the
 window opens in it.
+
+**Eden Code** (the coding app, formerly Jarvis Code) is an app of its own, built from the same
+folder (`app/flavor.js`) and shipped with Jarvis: the J.A.R.V.I.S. disk image carries both, and
+the dock's Eden Code button opens it (⌥-click keeps it in the Jarvis window). It can be
+downloaded alone too, with every feature, in Ask Eden's look:
+
+```sh
+cd app && npm run start:eden-code           # Eden Code from the repo
+npm run install-eden-code                   # builds and opens ~/Applications/Eden Code.app
+npm run dist:eden-code                      # the signed disk image of Eden Code alone (EDEN_CODE_UPDATE_URL for its updates)
+```
+
+Both apps share one backend (`app/backend-share.js`): whichever starts first runs it and the
+other opens on it, so sessions are the same in both. Eden Code started alone runs it with
+`JARVIS_PROFILE=code`, without the microphone, voice or screen watching, until a Jarvis window
+joins. Voice coding still works when you start it.
 
 Under the hood, Electron starts `uv run jarvis serve` on a random local port with a
 fresh token. The window's WebSocket must present that token from the server's own
@@ -33,7 +49,7 @@ origin, so other pages in your browser can't drive your Mac through it.
 
 A short map of what was added; each feature's own Settings group or pane explains it.
 
-- **Jarvis Code:** a session per isolated copy (land or discard), Changes by hunk with
+- **Eden Code:** a session per isolated copy (land or discard), Changes by hunk with
   line comments and reviews, a Git panel, best-of-N, dev servers with a check of each
   turn's work (per project too), Tests and Problems panes, pull requests with CI watching
   and capped auto-fixes, runs without you inside a scope you approve, GitHub issues that
@@ -113,7 +129,7 @@ A short map of what was added; each feature's own Settings group or pane explain
   and finished tasks.
 - **Heads-ups:** JARVIS speaks up on its own: time to leave (live Apple Maps traffic to
   the next event's location), a meeting starting, low battery, rain within two hours,
-  Jarvis Code done or waiting. Texts and email that matter interrupt at once (urgent
+  Eden Code done or waiting. Texts and email that matter interrupt at once (urgent
   words, a burst of messages, a VIP's); someone in Contacts, or someone you told it about
   ("remember Ann Lee is my co-founder"), counts for more, and the rest wait for "what did
   I miss?". Cards only during quiet hours or meeting notes (Settings › Speaking up).
@@ -189,10 +205,10 @@ leave.
 | Web | search, read pages | no, until a request has read something: see [Safety](#safety) |
 | BSH | firm search, companies, profiles, decisions, portfolio, signal scores, transcripts, reference calls | no (read-only) |
 | Windows | snap an app left / right / full screen | no |
-| Jarvis Code | start a coding session (Claude Code) in a project folder | **yes** (voice coding goes ahead when you asked for it and named the project yourself), then each session asks as its mode says: Manual asks before every edit, command and browser action; Accept edits allows edits inside the project and pages on this Mac (localhost); Auto lets Claude Code's own classifier decide; Bypass never asks |
+| Eden Code | start a coding session (Claude Code) in a project folder | **yes** (voice coding goes ahead when you asked for it and named the project yourself), then each session asks as its mode says: Manual asks before every edit, command and browser action; Accept edits allows edits inside the project and pages on this Mac (localhost); Auto lets Claude Code's own classifier decide; Bypass never asks |
 
 JARVIS's own conversation has Claude Code's coding tools (shell, file edits and so on)
-switched off; coding happens only in the separate Jarvis Code sessions above. JARVIS
+switched off; coding happens only in the separate Eden Code sessions above. JARVIS
 only loads its own MCP servers and ignores `~/.claude` settings. Email and web content
 are treated as data, never as instructions.
 

@@ -11,7 +11,7 @@
   "Tasks, issues, docs and messages: Jarvis reads them for you, and asks before it changes anything.": "任务、问题、文档和消息：Jarvis 替你阅读，更改任何内容前都会先问你。",
   "Gmail, Google Calendar and Drive, through Google’s own connectors.": "Gmail、Google 日历和 Drive，通过 Google 自己的连接器。",
   "Developer tools": "开发者工具",
-  "Code, errors, deployments and data, for Jarvis and Jarvis Code.": "代码、错误、部署和数据，供 Jarvis 和 Jarvis Code 使用。",
+  "Code, errors, deployments and data, for Jarvis and Eden Code.": "代码、错误、部署和数据，供 Jarvis 和 Eden Code 使用。",
   "Business tools": "商务工具",
   "Customers, payments and deals.": "客户、付款和交易。",
   "Design tools": "设计工具",
@@ -44,7 +44,7 @@
   "“Jarvis, what’s on my calendar today?”": "“Jarvis，我今天有什么安排？”",
   "“Jarvis, brief me.”": "“Jarvis，给我做个简报。”",
   "“Jarvis, remind me at 5 to call Sam.”": "“Jarvis，5 点提醒我给 Sam 打电话。”",
-  "“Jarvis, open Jarvis Code.”": "“Jarvis，打开 Jarvis Code。”",
+  "“Jarvis, open Eden Code.”": "“Jarvis，打开 Eden Code。”",
   "“Jarvis, run a checkup.”": "“Jarvis，做个体检。”",
   "You’re all set": "一切就绪",
   "Start using Jarvis": "开始使用 Jarvis",
@@ -206,7 +206,10 @@
   "Jarvis knows your voice.": "Jarvis 已认识你的声音。",
   "Read five short sentences aloud, in a quiet room. Your voiceprint stays on this Mac.": "在安静的房间里朗读五个短句。你的声纹只保存在这台 Mac 上。",
   "Retrain": "重新训练",
-  "Teach Jarvis your voice": "教 Jarvis 认识你的声音"
+  "Teach Jarvis your voice": "教 Jarvis 认识你的声音",
+  "Welcome to Eden Code.": "欢迎使用 Eden Code。",
+  "Plan, build and fix in your own projects: it edits, runs and explains, and asks before anything risky.": "在你自己的项目里规划、构建和修复：它会编辑、运行和解释，做任何有风险的事之前都会先问你。",
+  "Sign in to Claude and you’re ready. The rest is optional, and stays in Settings.": "登录 Claude 就可以开始了。其余都是可选的，随时可在设置中找到。"
  },
  "patterns": []
 }

@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from .lang import is_zh
+
+_SAY = [sys.executable, "-I", "-m", "jarvis.winsay"] if sys.platform == "win32" else ["say"]
 
 # The Mac's novelty voices ("Bubbles", "Zarvox"): never offered, never a fallback.
 NOVELTY = {
@@ -65,7 +68,7 @@ def list_mac_voices() -> list[MacVoice]:
     """The installed Mac voices (runs `say -v ?`: call it off the event loop)."""
     try:
         out = subprocess.run(
-            ["say", "-v", "?"], capture_output=True, text=True, timeout=10, check=False
+            _SAY + ["-v", "?"], capture_output=True, text=True, timeout=30, check=False
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return []

@@ -14,6 +14,13 @@
 // `npm run dist -- --adhoc` does 1-4 and 6 (and the checksum) signed ad hoc, with no
 // credentials: for checking the build on this Mac, never for giving to anyone; its disk image
 // says so in its name. Logs go to app/dist/logs, everything else to app/dist/release.
+//
+// Eden Code, the coding app split out of J.A.R.V.I.S. (flavor.js), comes with it: the build
+// makes Eden Code.app too (the same app folder and backend, under Eden Code's name, bundle id,
+// icon and Info.plist, with flavor.json baked in) and the disk image carries both, each with
+// the Applications link to drag it onto (--no-eden-code leaves it out). `npm run dist:eden-code`
+// (--eden-code) builds Eden Code alone, for the people who want only it: its own disk image
+// in app/dist/release-eden-code, its own update feed (EDEN_CODE_UPDATE_URL).
 'use strict';
 
 const fs = require('fs');
@@ -31,21 +38,44 @@ const { cleanFeedUrl, releaseFeed } = require('../../update-feed');
 const APP_DIR = path.resolve(__dirname, '..', '..');
 const REPO = path.resolve(APP_DIR, '..');
 const DIST = path.join(APP_DIR, 'dist');
-const OUT = path.join(DIST, 'release');
 const STAGE = path.join(DIST, 'stage');
 const PKG = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'package.json'), 'utf8'));
-const NAME = 'J.A.R.V.I.S';
-const DISPLAY = 'J.A.R.V.I.S.';
-// The Mac app's own id, from before the move to team 8CV4X23Y2T. Developer ID needs no App ID
-// for it, so it stays (renaming it would also move the wake agent's label, the Quick Action's
-// and the helpers' identifiers).
-const BUNDLE_ID = 'com.bshventures.jarvis';
+// The apps this folder builds: what each is called, its id, its look in Finder and where its
+// updates come from.
+const APPS = {
+  jarvis: {
+    flavor: 'jarvis',
+    name: 'J.A.R.V.I.S',
+    display: 'J.A.R.V.I.S.',
+    // The Mac app's own id, from before the move to team 8CV4X23Y2T. Developer ID needs no App
+    // ID for it, so it stays (renaming it would also move the wake agent's label, the Quick
+    // Action's and the helpers' identifiers).
+    bundleId: 'com.bshventures.jarvis',
+    icon: path.join(APP_DIR, 'build', 'icon.icns'),
+    extendInfo: path.join(APP_DIR, 'build', 'extend-info.plist'),
+    feedEnv: 'JARVIS_UPDATE_URL',
+    out: path.join(DIST, 'release'),
+  },
+  'eden-code': {
+    flavor: 'eden-code',
+    name: 'Eden Code',
+    display: 'Eden Code',
+    bundleId: 'com.bshventures.edencode',
+    icon: path.join(APP_DIR, 'build', 'eden-code', 'icon.icns'),
+    extendInfo: path.join(APP_DIR, 'build', 'eden-code', 'extend-info.plist'),
+    feedEnv: 'EDEN_CODE_UPDATE_URL',
+    out: path.join(DIST, 'release-eden-code'),
+  },
+};
+const DISPLAY = APPS.jarvis.display;
 
 function parseArgs(argv) {
-  const args = { adhoc: false };
+  const args = { adhoc: false, edenCode: false, withEdenCode: true };
   for (const a of argv) {
     if (a === '--adhoc') args.adhoc = true;
-    else throw new BuildError(`unknown option ${a} (only --adhoc)`);
+    else if (a === '--eden-code') args.edenCode = true;
+    else if (a === '--no-eden-code') args.withEdenCode = false;
+    else throw new BuildError(`unknown option ${a} (only --adhoc, --eden-code, --no-eden-code)`);
   }
   return args;
 }
@@ -64,35 +94,45 @@ function credentials(env, { adhoc }) {
 
 // The identity must be a Developer ID Application certificate in this Mac's keychain (an
 // Apple Development one can't be notarized).
+const TEAM = '8CV4X23Y2T';
 function checkIdentity(identity) {
   const listed = run('/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning'], { quiet: true }).stdout;
   const line = listed.split('\n').find((l) => l.includes(`"${identity}"`) || l.includes(` ${identity.toUpperCase()} `));
   if (!line) throw new BuildError(`No signing identity "${identity}" in the keychain (security find-identity -v -p codesigning)`);
   if (!/"Developer ID Application: /.test(line)) throw new BuildError(`"${identity}" isn't a Developer ID Application certificate: ${line.trim()}`);
+  // Only the owner's own team signs what people download: never another team's certificate.
+  if (!line.includes(`(${TEAM})"`)) throw new BuildError(`"${identity}" isn't team ${TEAM}'s certificate (${line.trim()}). Releases are signed by Bilel Harrat (${TEAM}) only.`);
 }
 
 // What the build writes, by name (the ad hoc one can't be mistaken for a release).
-function dmgName(version, adhoc) {
-  return `${DISPLAY}-${version}${adhoc ? '-adhoc' : ''}.dmg`;
+function dmgName(version, adhoc, display = DISPLAY) {
+  return `${display}-${version}${adhoc ? '-adhoc' : ''}.dmg`;
 }
 
-function updateZipName(version) {
-  return `${DISPLAY}-${version}-mac.zip`;
+function updateZipName(version, display = DISPLAY) {
+  return `${display}-${version}-mac.zip`;
 }
 
-// The update feed's address from JARVIS_UPDATE_URL: '' when unset (updates off), refused
-// when set but not https.
-function updateFeed(env) {
-  const given = String(env.JARVIS_UPDATE_URL || '').trim();
+// The update feed's address from JARVIS_UPDATE_URL (or the app's own variable: Eden Code's is
+// EDEN_CODE_UPDATE_URL, so it never takes J.A.R.V.I.S.'s update for its own): '' when unset
+// (updates off), refused when set but not https.
+function updateFeed(env, name = 'JARVIS_UPDATE_URL') {
+  const given = String(env[name] || '').trim();
   if (!given) return '';
   const feed = cleanFeedUrl(given);
-  if (!feed) throw new BuildError(`JARVIS_UPDATE_URL must be an https address (the release.json the app will read), not ${given}`);
+  if (!feed) throw new BuildError(`${name} must be an https address (the release.json the app will read), not ${given}`);
   return feed;
 }
 
 // Gatekeeper's verdict on the notarized app and disk image, as a Mac that downloads them sees it.
 function gatekeeper(app, dmg) {
   const problems = [];
+  if (!dmg) { // a second app in the image: the image itself was checked with the first
+    const onApp = run('/usr/sbin/spctl', ['-a', '-vvv', '-t', 'install', app], { allowFail: true });
+    const said = `${onApp.stderr}${onApp.stdout}`.trim();
+    if (onApp.status !== 0 || !/Notarized Developer ID/.test(said)) throw new BuildError(`Gatekeeper doesn't accept ${path.basename(app)}: ${said}`);
+    return;
+  }
   const onApp = run('/usr/sbin/spctl', ['-a', '-vvv', '-t', 'install', app], { allowFail: true });
   const saidApp = `${onApp.stderr}${onApp.stdout}`.trim();
   if (onApp.status !== 0 || !/Notarized Developer ID/.test(saidApp)) problems.push(`the app: ${saidApp}`);
@@ -121,33 +161,45 @@ function electronZipDir(version) {
   return made;
 }
 
-async function packageApp() {
+async function packageApp(spec = APPS.jarvis, out = spec.out) {
   const electron = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
   const { packager } = await import('@electron/packager');
+  // Which app it is (flavor.js), in the app folder only while it's copied.
+  const flavorFile = path.join(APP_DIR, 'flavor.json');
+  if (spec.flavor !== 'jarvis') fs.writeFileSync(flavorFile, `${JSON.stringify({ flavor: spec.flavor })}\n`);
+  try {
+    return await packageWith(packager, electron, spec, out);
+  } finally {
+    fs.rmSync(flavorFile, { force: true });
+  }
+}
+
+async function packageWith(packager, electron, spec, out) {
   const [folder] = await packager({
     dir: APP_DIR,
-    name: NAME,
+    name: spec.name,
     platform: 'darwin',
     arch: 'arm64',
-    out: OUT,
+    out,
     overwrite: true,
-    icon: path.join(APP_DIR, 'build', 'icon.icns'),
-    extendInfo: path.join(APP_DIR, 'build', 'extend-info.plist'),
-    appBundleId: BUNDLE_ID,
+    icon: spec.icon,
+    extendInfo: spec.extendInfo,
+    appBundleId: spec.bundleId,
     appVersion: PKG.version,
     buildVersion: PKG.version,
     electronVersion: electron,
     electronZipDir: electronZipDir(electron),
-    // As npm run package: the build's own folders stay out, and so does the repo path
+    // As npm run package: the build's own folders stay out (but Eden Code's Dock icon, which
+    // J.A.R.V.I.S. shows when it runs Eden Code itself), and so does the repo path
     // bake-home.js writes for the owner's own build.
-    ignore: [/^\/dist(\/|$)/, /^\/scripts(\/|$)/, /^\/build(\/|$)/, /^\/jarvis-home\.json$/],
+    ignore: [/^\/dist(\/|$)/, /^\/scripts(\/|$)/, /^\/build\/(?!eden-code(\/icon-1024\.png)?$)/, /^\/jarvis-home\.json$/],
     // The app is one app.asar, as npm run package makes it, but the backend serves the
     // terminal's and hand tracking's scripts to the window and can't read inside an asar:
     // those two stay real files (app.asar.unpacked), where JARVIS_APP_DIR points.
     asar: { unpack: '**/node_modules/{@xterm,@mediapipe}/**' },
     quiet: true,
   });
-  return path.join(folder, `${NAME}.app`);
+  return path.join(folder, `${spec.name}.app`);
 }
 
 function plist(app, command) {
@@ -166,24 +218,67 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   setLog(path.join(DIST, 'logs', `dist-${stamp}.log`));
   if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new BuildError('The app is built on an Apple-silicon Mac');
   const { identity, profile } = credentials(env, args);
-  const feed = updateFeed(env);
+  const primary = args.edenCode ? APPS['eden-code'] : APPS.jarvis;
+  const specs = args.edenCode || !args.withEdenCode ? [primary] : [APPS.jarvis, APPS['eden-code']];
+  const feeds = new Map(specs.map((spec) => [spec, updateFeed(env, spec.feedEnv)]));
   if (!args.adhoc) checkIdentity(identity);
-  say(`J.A.R.V.I.S. ${PKG.version}${args.adhoc ? ' (ad hoc: this Mac only)' : ''}`);
+  const OUT_DIR = primary.out;
+  say(`${specs.map((spec) => spec.display).join(' + ')} ${PKG.version}${args.adhoc ? ' (ad hoc: this Mac only)' : ''}`);
   // What an earlier build left that this one might not make again (a feed without its zip).
-  if (fs.existsSync(OUT)) {
-    for (const name of fs.readdirSync(OUT).filter((n) => n === 'release.json' || n === 'SHA256SUMS.txt' || n.endsWith('-mac.zip'))) {
-      fs.rmSync(path.join(OUT, name), { force: true });
+  if (fs.existsSync(OUT_DIR)) {
+    for (const name of fs.readdirSync(OUT_DIR).filter((n) => /(^|-)release\.json$/.test(n) || n === 'SHA256SUMS.txt' || n.endsWith('-mac.zip'))) {
+      fs.rmSync(path.join(OUT_DIR, name), { force: true });
     }
   }
 
-  say('1. packaging the app');
-  const app = await packageApp();
-  plist(app, `Set :CFBundleDisplayName ${DISPLAY}`); // CFBundleName stays: Electron finds its helpers by it
-
-  say('2. the backend and the Swift helpers');
+  say('the backend and the Swift helpers');
   const backend = buildBackend({ out: path.join(STAGE, 'backend') });
   const minimum = minimumFor(backend);
   const helpers = buildHelpers({ out: path.join(STAGE, 'helpers'), minimum });
+
+  const apps = [];
+  for (const spec of specs) apps.push(await buildApp(spec, { args, identity, profile, backend, minimum, helpers, feed: feeds.get(spec), out: OUT_DIR }));
+
+  say('6. the disk image');
+  const dmg = makeDmg(apps, path.join(OUT_DIR, dmgName(PKG.version, args.adhoc, primary.display)), primary.display);
+
+  if (!args.adhoc) {
+    say('7. signing and notarizing the disk image');
+    signDmg(dmg, identity);
+    notarize(dmg, profile);
+    staple(dmg);
+  }
+
+  const published = [dmg];
+  if (!args.adhoc) {
+    specs.forEach((spec, i) => {
+      const feed = feeds.get(spec);
+      if (!feed) return;
+      // The update Squirrel downloads: the notarized, stapled app, and the feed pointing at it.
+      const zipName = updateZipName(PKG.version, spec.display);
+      published.push(zipApp(apps[i], path.join(OUT_DIR, zipName)));
+      const release = releaseFeed({ version: PKG.version, zipName, feedUrl: feed, notes: env.JARVIS_RELEASE_NOTES || '' });
+      const feedFile = spec === primary ? 'release.json' : `${spec.flavor}-release.json`;
+      fs.writeFileSync(path.join(OUT_DIR, feedFile), `${JSON.stringify(release, null, 2)}\n`);
+      say(`  ${spec.display}'s update: ${zipName} and ${feedFile}, for ${feed}`);
+    });
+  }
+
+  say('8. checksums');
+  const sums = writeChecksums(published, path.join(OUT_DIR, 'SHA256SUMS.txt'));
+  for (const line of sums) say(`  ${line}`);
+  if (!args.adhoc) apps.forEach((app, i) => gatekeeper(app, i === 0 ? dmg : null));
+  return { app: apps[0], apps, dmg, minimum, helpers, backend };
+}
+
+// Steps 1-5 for one app: package it, put the backend and the helpers in, sign, verify and
+// notarize it. The backend and helpers are built once and go into each app.
+async function buildApp(spec, { args, identity, profile, backend, minimum, helpers, feed, out }) {
+  say(`1. packaging ${spec.display}`);
+  const app = await packageApp(spec, out);
+  plist(app, `Set :CFBundleDisplayName ${spec.display}`); // CFBundleName stays: Electron finds its helpers by it
+
+  say(`2. ${spec.display}: the backend and the Swift helpers`);
   const resources = path.join(app, 'Contents', 'Resources');
   run('/usr/bin/ditto', [path.join(STAGE, 'backend', 'python'), path.join(resources, 'backend', 'python')]);
   fs.copyFileSync(path.join(STAGE, 'backend', 'build.json'), path.join(resources, 'backend', 'build.json'));
@@ -194,53 +289,28 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   fs.copyFileSync(path.join(APP_DIR, 'build', 'icon-1024.png'), path.join(unpacked, 'build', 'icon-1024.png')); // the companion's icon
   plist(app, `Set :LSMinimumSystemVersion ${minimum}`);
   if (feed) fs.writeFileSync(path.join(resources, 'update.json'), `${JSON.stringify({ feed }, null, 2)}\n`);
-  say(`  minimum macOS ${minimum}; the app is ${megabytes(sizeOf(app))}; ${feed ? `updates from ${feed}` : 'no updates (JARVIS_UPDATE_URL isn\'t set)'}`);
+  say(`  minimum macOS ${minimum}; ${spec.display} is ${megabytes(sizeOf(app))}; ${feed ? `updates from ${feed}` : `no updates (${spec.feedEnv} isn't set)`}`);
 
-  say(`3. signing ${args.adhoc ? 'ad hoc' : `as ${identity}`}`);
+  say(`3. signing ${spec.display} ${args.adhoc ? 'ad hoc' : `as ${identity}`}`);
   const helperEntitlements = Object.fromEntries(Object.entries(helpers.helpers).map(([n, h]) => [n, h.entitlements]));
   signApp(app, { identity, helperEntitlements });
 
-  say('4. verifying');
+  say(`4. verifying ${spec.display}`);
   const checked = verifyApp(app, { adhoc: args.adhoc, helpers: helpers.helpers, forbidden: buildMacStrings(REPO) });
   if (checked.problems.length) throw new BuildError(`The signed app didn't verify:\n  ${checked.problems.join('\n  ')}`);
   say(`  ${checked.machos} Mach-O files signed and verified; needs macOS ${checked.needed}, declares ${checked.declared}`);
 
   if (!args.adhoc) {
-    say('5. notarizing the app');
-    const zip = zipApp(app, path.join(STAGE, `${NAME}.zip`));
+    say(`5. notarizing ${spec.display}`);
+    const zip = zipApp(app, path.join(STAGE, `${spec.name}.zip`));
     notarize(zip, profile);
     fs.rmSync(zip, { force: true });
     staple(app);
   }
-
-  say('6. the disk image');
-  const dmg = makeDmg(app, path.join(OUT, dmgName(PKG.version, args.adhoc)), DISPLAY);
-
-  if (!args.adhoc) {
-    say('7. signing and notarizing the disk image');
-    signDmg(dmg, identity);
-    notarize(dmg, profile);
-    staple(dmg);
-  }
-
-  const published = [dmg];
-  if (feed && !args.adhoc) {
-    // The update Squirrel downloads: the notarized, stapled app, and the feed pointing at it.
-    const zipName = updateZipName(PKG.version);
-    published.push(zipApp(app, path.join(OUT, zipName)));
-    const release = releaseFeed({ version: PKG.version, zipName, feedUrl: feed, notes: env.JARVIS_RELEASE_NOTES || '' });
-    fs.writeFileSync(path.join(OUT, 'release.json'), `${JSON.stringify(release, null, 2)}\n`);
-    say(`  the update: ${zipName} and release.json, for ${feed}`);
-  }
-
-  say('8. checksums');
-  const sums = writeChecksums(published, path.join(OUT, 'SHA256SUMS.txt'));
-  for (const line of sums) say(`  ${line}`);
-  if (!args.adhoc) gatekeeper(app, dmg);
-  return { app, dmg, minimum, helpers, backend };
+  return app;
 }
 
-module.exports = { main, credentials, parseArgs, electronZipDir, minimumFor, dmgName, updateZipName, updateFeed };
+module.exports = { main, APPS, credentials, parseArgs, electronZipDir, minimumFor, dmgName, updateZipName, updateFeed };
 
 if (require.main === module) {
   main().then(({ app, dmg }) => {

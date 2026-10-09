@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<title>J.A.R.V.I.S. Daredevil for Windows · Eden</title>
+<meta name="description" content="J.A.R.V.I.S. Daredevil is J.A.R.V.I.S. for people who are blind or have low vision: it works with NVDA, JAWS and Narrator and from the keyboard alone, in large yellow type on black. It reads and writes your email in Outlook, lets you dictate the punctuation, and reads documents, scans and photos aloud. For Windows.">
+<meta property="og:title" content="J.A.R.V.I.S. Daredevil for Windows">
+<meta property="og:description" content="J.A.R.V.I.S. for people who are blind or have low vision. For Windows.">
+<meta property="og:image" content="/jarvis/eden-icon.png">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
+<style>
+  /* Yellow on black, as the app is: text 21:1, yellow 15:1. Sizes in rem so the reader's own text size and zoom apply. */
+  :root { --bg: #000; --ink: #fff; --yellow: #ffd60a; --yellow-2: #ffe55c; --soft: #e6e6e6; --line: #5c5c5c; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 1.125rem/1.65 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem; }
+  a { color: var(--yellow); text-underline-offset: 0.2em; }
+  a:hover { color: var(--yellow-2); }
+  a:focus-visible, button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; border-radius: 4px; }
+  .skip { position: absolute; left: 0.75rem; top: -4rem; z-index: 10; padding: 0.7rem 1rem; background: var(--yellow); color: #000; font-weight: 700; border-radius: 0.5rem; }
+  .skip:focus { top: 0.75rem; }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1.5rem; padding: 1.25rem 0; border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 700; font-size: 1.125rem; color: var(--ink); text-decoration: none; }
+  .brand:hover { color: var(--yellow); }
+  nav ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; list-style: none; margin: 0; padding: 0; }
+
+  h1, h2, h3 { color: var(--yellow); line-height: 1.2; }
+  h1 { margin: 2.5rem 0 0.5rem; font-size: clamp(2.2rem, 7vw, 3.4rem); letter-spacing: -0.01em; }
+  h2 { margin: 3rem 0 0.75rem; font-size: 1.9rem; }
+  h3 { margin: 2rem 0 0.5rem; font-size: 1.35rem; }
+  .eyebrow { margin: 2.5rem 0 0; font-size: 0.95rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--yellow); }
+  .eyebrow + h1 { margin-top: 0.4rem; }
+  .lede { font-size: 1.3rem; line-height: 1.5; margin: 0.5rem 0 0; }
+  p, li { max-width: 40rem; }
+  ul, ol { padding-left: 1.5rem; }
+  li { margin: 0.4rem 0; }
+  li::marker { color: var(--yellow); }
+
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem; margin: 1.75rem 0 0; }
+  .button { display: inline-flex; align-items: center; gap: 0.6rem; min-height: 3.25rem; padding: 0.7rem 1.6rem; border-radius: 999px; background: var(--yellow); color: #000; font-size: 1.15rem; font-weight: 700; text-decoration: none; }
+  .button:hover { background: var(--yellow-2); color: #000; }
+  .button svg { width: 1.3rem; height: 1.3rem; flex: none; }
+  .fine { font-size: 1rem; color: var(--soft); margin: 1rem 0 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 0; font-size: 1.05rem; }
+  caption { text-align: left; font-weight: 700; padding: 0 0 0.5rem; color: var(--soft); }
+  th, td { text-align: left; padding: 0.7rem 0.9rem; border: 1px solid var(--line); vertical-align: top; }
+  thead th { background: #1a1a1a; }
+  kbd { font: 700 0.95em ui-monospace, "Cascadia Mono", Consolas, monospace; padding: 0.1em 0.45em; border: 1px solid var(--soft); border-radius: 0.35em; white-space: nowrap; }
+  .table-box { overflow-x: auto; }
+  code { font: 0.95em ui-monospace, "Cascadia Mono", Consolas, monospace; background: #1a1a1a; padding: 0.1em 0.4em; border-radius: 0.3em; overflow-wrap: anywhere; }
+  .say { color: var(--soft); }
+
+  footer { margin-top: 4rem; padding: 1.5rem 0 3rem; border-top: 1px solid var(--line); font-size: 1rem; color: var(--soft); }
+  footer ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; list-style: none; margin: 0.5rem 0 0; padding: 0; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/">Eden</a>
+    <nav aria-label="This page and the site">
+      <ul>
+        <li><a href="#download">Download</a></li>
+        <li><a href="#guide">Quick-start guide</a></li>
+        <li><a href="/download">All apps</a></li>
+        <li><a href="/help">Help</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <p class="eyebrow">For Windows · beta</p>
+    <h1>J.A.R.V.I.S. Daredevil</h1>
+    <p class="lede">J.A.R.V.I.S. for people who are blind or have low vision. You talk to it, or use only the keyboard. It works with NVDA, JAWS and Narrator, shows large yellow type on black, and does the reading and writing that takes a screen reader the longest: email, documents, scans and photos.</p>
+
+    <section id="download" aria-labelledby="downloadH">
+      <h2 id="downloadH">Download</h2>
+      <div class="actions">
+        <a class="button" href="/daredevil/windows" download>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.6 10.4 4.5v7H3zM11.5 4.35 21 3v8.5h-9.5zM3 12.5h7.4v7L3 18.4zM11.5 12.5H21V21l-9.5-1.35z"/></svg>
+          Download J.A.R.V.I.S. Daredevil for Windows
+        </a>
+      </div>
+      <p class="fine" data-win>Windows 10 or 11, 64-bit. About 300 MB.</p>
+      <p>It is a beta, and it isn't signed yet. When it downloads, Edge may say the file <q>isn’t commonly downloaded</q>: choose the three dots, then <strong>Keep</strong>, then <strong>Keep anyway</strong>. The first time you run the installer, Windows may say <q>Windows protected your PC</q>: choose <strong>More info</strong>, then <strong>Run anyway</strong>. Microsoft asks this about every program that isn’t signed yet; it is not a virus warning. It installs for you alone and needs no administrator rights.</p>
+      <p>J.A.R.V.I.S. Daredevil is J.A.R.V.I.S. for people who are blind or have low vision, with an installer of its own. It opens in screen-reader mode every time, in large yellow type on black, with or without a screen reader running. It is the same program as J.A.R.V.I.S., so installing one replaces the other and keeps your settings. To turn the mode off, choose Settings, then Accessibility, then Screen-reader mode: Off.</p>
+    </section>
+
+    <section aria-labelledby="doesH">
+      <h2 id="doesH">What it does</h2>
+      <ul>
+        <li><strong>Email.</strong> Reads your inbox and any email aloud, and writes the email you dictate. In Outlook it is sent from Outlook, in your own signature and font. It tells you the moment email that matters arrives. Nothing is sent until you say yes.</li>
+        <li><strong>Punctuation.</strong> Say the punctuation as you dictate (<span class="say">“comma”, “period”, “new paragraph”</span>), or let Jarvis add it. Have it read the marks aloud, none, the main ones or every one, and ask how anything is punctuated.</li>
+        <li><strong>Documents, scans and photos.</strong> Reads a long paper or PDF a part at a time (<span class="say">“keep going”</span>), including an email attachment. A scanned page, a photo or a screenshot is looked at, described, and its words read out.</li>
+        <li><strong>Your day.</strong> Calendar (your own, and Brightspace, Outlook or Google calendars you add), reminders said aloud at their time, and your files: find, move, rename, and delete to the Recycle Bin, with undo.</li>
+        <li><strong>Any program.</strong> Reads the window in front the way a screen reader does and presses buttons and menus by name. It asks before anything that sends, buys or deletes.</li>
+        <li><strong>Built for the keyboard.</strong> Every control has a name, there are short sounds for what Jarvis is doing, and a few keys answer its questions. Text size and colours are yours to change.</li>
+      </ul>
+    </section>
+
+    <section id="guide" aria-labelledby="guideH">
+      <h2 id="guideH">Quick-start guide</h2>
+
+      <h3>Install and start</h3>
+      <ol>
+        <li>Run the installer (<code>J-A-R-V-I-S-Daredevil-Setup-…-x64.exe</code>). Choose <strong>More info</strong>, then <strong>Run anyway</strong> if Windows asks.</li>
+        <li>J.A.R.V.I.S. opens in its own window. If your screen reader is running, screen-reader mode turns itself on: Jarvis stops talking out loud, and your screen reader reads each reply once, in your voice and at your speed.</li>
+        <li>The first time, Jarvis downloads its speech model (about 150 MB, a minute or two) and says so, and says again when it can hear you.</li>
+        <li>A short setup walks you through. Press <kbd>Tab</kbd> to move and <kbd>Enter</kbd> to choose. The Claude step asks for an API key from console.anthropic.com. Paste it with <kbd>Ctrl+V</kbd>; it is kept in Windows' password store and never shown again.</li>
+      </ol>
+
+      <h3>Talking to it</h3>
+      <ul>
+        <li><kbd>Ctrl+Alt+J</kbd> starts listening, from any program. J is the key your index finger finds by touch. J.A.R.V.I.S. starts with Windows and waits out of the way, so the key works from the moment you sign in. If another program already uses it, Jarvis uses the next free key beside it and says which in Settings.</li>
+        <li>Or type in the request box: press <kbd>Tab</kbd> from the top, or choose the <em>Skip to the request box</em> link.</li>
+        <li>Saying <span class="say">“Jarvis, …”</span> works at any time. If your speakers can be heard by the microphone, use headphones, or turn it off in Settings.</li>
+      </ul>
+
+      <h3>Keys in screen-reader mode</h3>
+      <div class="table-box">
+        <table>
+          <caption>Keys that work inside the J.A.R.V.I.S. window</caption>
+          <thead><tr><th scope="col">Keys</th><th scope="col">What it does</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Alt+Shift+T</kbd></td><td>Talk to Jarvis</td></tr>
+            <tr><td><kbd>Alt+Shift+Y</kbd></td><td>Say <strong>yes</strong> to the question waiting (a send, a purchase, a delete)</td></tr>
+            <tr><td><kbd>Alt+Shift+N</kbd></td><td>Say <strong>no</strong> to it</td></tr>
+            <tr><td><kbd>Alt+Shift+R</kbd></td><td>Read the last reply again</td></tr>
+            <tr><td><kbd>Alt+Shift+S</kbd></td><td>Stop speaking and stop what Jarvis is doing</td></tr>
+            <tr><td><kbd>Alt+Shift+U</kbd></td><td>What is Jarvis doing right now</td></tr>
+            <tr><td><kbd>Alt+Shift+H</kbd></td><td>This list of keys</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Close what is open, and stop</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Short sounds say what Jarvis is doing: a rising pair when it starts listening, a soft tick while it thinks, a falling pair when it has answered, three notes when it needs your OK, and a low pair for a problem. They can be turned off, or made quieter, in Settings, then Accessibility.</p>
+
+      <h3>Email</h3>
+      <p><strong>If your email is in Outlook</strong> (the classic Outlook program on your PC, which a university or office usually gives you): open Outlook, then say <span class="say">“open my email settings”</span> and choose <em>Use Outlook</em>. There is nothing to type and no password. Jarvis reads Outlook's mail while Outlook is open (it never starts Outlook), and what you send goes out from Outlook, with your own signature and font, and is kept in your Sent Items. The new, web-style Outlook can't be read; the classic program is needed.</p>
+      <p><strong>For Gmail, iCloud, Yahoo, Fastmail and other accounts:</strong> say <span class="say">“open my email settings”</span>, type your address (Jarvis fills in the servers), type the account's app password, and choose <em>Check it</em>, then <em>Add account</em>.</p>
+      <p>After that you can say <span class="say">“Read my email”</span>, <span class="say">“Anything new from Ann?”</span>, <span class="say">“Reply: noon works”</span>, <span class="say">“Email Bea, subject lunch, say I'll be ten minutes late”</span>, <span class="say">“Archive that”</span>, or <span class="say">“Read the attachment”</span>. Jarvis keeps your own words as you said them, in your paragraphs. Nothing is sent without your yes: it reads you who it goes to, the subject and the whole text first. Say yes, or press <kbd>Alt+Shift+Y</kbd>.</p>
+      <p>Jarvis tells you when an email that matters arrives (from someone you named a VIP, one that says it is urgent, or a flagged one) and keeps the rest for <span class="say">“what did I miss?”</span>. Say <span class="say">“don't interrupt me for an hour”</span> for quiet.</p>
+
+      <h3>Punctuation</h3>
+      <ul>
+        <li><strong>Saying it as you dictate:</strong> say <span class="say">“comma”</span>, <span class="say">“period”</span>, <span class="say">“question mark”</span>, <span class="say">“colon”</span>, <span class="say">“new line”</span> or <span class="say">“new paragraph”</span> and Jarvis writes the mark. Say <span class="say">“I'll say the punctuation”</span> to switch to this, and <span class="say">“punctuate for me”</span> to let Jarvis add the marks again. It is also under <em>Dictated punctuation</em> in Settings, then Accessibility.</li>
+        <li><strong>Hearing it:</strong> say <span class="say">“read the punctuation”</span> and Jarvis says the main marks aloud (<span class="say">“Dear Ann comma thanks period”</span>), <span class="say">“read every punctuation mark”</span> for all of them, or <span class="say">“stop reading punctuation”</span>. Your screen reader reads them too.</li>
+        <li><strong>Asking about it:</strong> <span class="say">“How is that sentence punctuated?”</span> or <span class="say">“Read that email to me with the punctuation.”</span></li>
+      </ul>
+
+      <h3>Calendar and reminders</h3>
+      <p><span class="say">“What's on my calendar today?”</span>, <span class="say">“When am I free for an hour this week?”</span>, <span class="say">“Add a faculty meeting Friday at 2”</span>, <span class="say">“Remind me to call the dean at 3”</span>. A reminder with a time is said aloud at that time, once. Jarvis keeps a calendar of its own. To read the one you already use, open Settings, then <em>Calendars</em>, and paste its subscribe link (in Brightspace: Calendar, then Subscribe), or turn on <em>Read my Outlook calendar</em> if you use the Outlook program. Those calendars are read only.</p>
+
+      <h3>Files, pictures and scans</h3>
+      <ul>
+        <li><span class="say">“Find my budget spreadsheet”</span>, <span class="say">“Move it into the Grants folder”</span>, <span class="say">“Delete the old draft”</span>. Deleted files go to the Recycle Bin, never for good, and <span class="say">“undo that”</span> puts them back. It works in your home folder, OneDrive and Dropbox.</li>
+        <li><span class="say">“What's in this photo?”</span>, <span class="say">“Read the text on this screenshot”</span>, <span class="say">“Read the scanned PDF in my Downloads”</span>. A scanned PDF is read from pictures of its pages, four at a time, which works well for print and less well for handwriting, tables and maths.</li>
+        <li>Texts to a phone are not set up on Windows yet.</li>
+      </ul>
+
+      <h3>If something doesn't work</h3>
+      <p>Tell Jarvis, or press <kbd>Alt+Shift+U</kbd> to hear what it is doing. The log is <code>%LOCALAPPDATA%\Jarvis\Logs\jarvis.log</code>; paste that into File Explorer's address bar to open it.</p>
+    </section>
+
+    <section aria-labelledby="honestH">
+      <h2 id="honestH">What has been checked</h2>
+      <p>J.A.R.V.I.S. Daredevil is a beta. Its screen-reader mode, keyboard use, sounds and contrast are checked by machine in a real browser engine, and an earlier build of the app was installed and run on a clean Windows machine; <strong>the build you download here has not been installed on Windows in testing yet</strong>. <strong>It has not yet been used all day by a blind person</strong>, and its Outlook support was built against Microsoft's documentation and tried only with a stand-in for Outlook, not with Outlook itself. If something is awkward, wrong or missing, please tell us at <a href="mailto:support@askeden.com">support@askeden.com</a>.</p>
+      <p><strong>Your data.</strong> Speech is turned into text on your computer. Your words, and the text of anything you ask Jarvis to read or write for you (an email, a document), go to Claude, the AI model, through your own API key. Read the <a href="/privacy">Privacy Policy</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>© <span data-year>2026</span> Eden. J.A.R.V.I.S. Daredevil is part of J.A.R.V.I.S., from Eden.</p>
+    <ul>
+      <li><a href="/">Eden</a></li>
+      <li><a href="/download">All apps</a></li>
+      <li><a href="/help">Help</a></li>
+      <li><a href="/privacy">Privacy</a></li>
+      <li><a href="/terms">Terms</a></li>
+    </ul>
+  </footer>
+</div>
+<script>
+  document.querySelectorAll('[data-year]').forEach((n) => { n.textContent = new Date().getFullYear(); });
+  // The installer's version and size, as the download will be.
+  fetch('/windows/latest.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((info) => {
+    const one = info && info.daredevil;
+    if (!one || !one.version) return;
+    const mb = one.size ? ` About ${Math.round(one.size / 1e6)} MB.` : '';
+    document.querySelectorAll('[data-win]').forEach((n) => { n.textContent = `Version ${one.version}. Windows 10 or 11, 64-bit.${mb}`; });
+  }).catch(() => {});
+</script>
+</body>
+</html>

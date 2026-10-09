@@ -1,4 +1,4 @@
-"""Jarvis Code's project search (code_search): git grep in a repository, a Python walk in a
+"""Eden Code's project search (code_search): git grep in a repository, a Python walk in a
 plain folder; text or an expression, match case, whole words and which files; bounded,
 stoppable, and never a credentials file."""
 

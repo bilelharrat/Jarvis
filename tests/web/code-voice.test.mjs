@@ -6,7 +6,7 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const cv = require('../../src/jarvis/web/features/code-voice.js');
 
-test('a session counts as looked at only with the window in front and Jarvis Code open', () => {
+test('a session counts as looked at only with the window in front and Eden Code open', () => {
   const doc = (visibilityState, focused) => ({ visibilityState, hasFocus: () => focused });
   assert.equal(cv.looking(doc('visible', true), false), true);
   assert.equal(cv.looking(doc('visible', true), true), false); // the panel is closed

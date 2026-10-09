@@ -10,6 +10,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from ... import osplat
 from .tcc import AUTOMATION_APPS
 
 log = logging.getLogger("jarvis")
@@ -82,14 +83,29 @@ HELPER_SECONDS = 25.0  # the first run loads the frameworks from disk: seconds, 
 Runner = Callable[..., Awaitable[tuple[int, str, str]]]
 
 
+WINDOWS_PANES = {
+    "microphone": "ms-settings:privacy-microphone",
+    "location": "ms-settings:privacy-location",
+}
+
+
 def settings_url(pane: str) -> str | None:
-    """The System Settings address of a permission's pane (x-apple.systempreferences)."""
+    """The Settings address of a permission's pane (x-apple.systempreferences on a Mac,
+    ms-settings: on Windows)."""
+    if osplat.IS_WIN:
+        return WINDOWS_PANES.get(pane)
     anchor = PANES.get(pane)
     return f"x-apple.systempreferences:com.apple.preference.security?{anchor}" if anchor else None
 
 
 async def run_process(*args: str, timeout: float = 20.0, env: dict[str, str] | None = None):
     """(exit code, stdout, stderr) of a short command, killed past timeout."""
+    if osplat.IS_WIN and args and args[0] == "open":
+        try:
+            await asyncio.to_thread(osplat.mac_open, list(args[1:]))
+            return 0, "", ""
+        except (ValueError, OSError) as exc:
+            return 1, "", str(exc)
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.DEVNULL,
@@ -112,7 +128,9 @@ def _clean(value: Any) -> str:
 
 async def statuses(run: Runner = run_process) -> dict[str, Any]:
     """Every permission's status from the helper; all "unknown" (with why) when it can't
-    say. Never raises."""
+    say. Never raises. On Windows the only permission is the microphone."""
+    if osplat.IS_WIN:
+        return {"microphone": await asyncio.to_thread(osplat.microphone_consent)}
     try:
         code, out, _err = await run(
             sys.executable,
@@ -153,6 +171,8 @@ def rows(found: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for item in PERMISSIONS:
         pid = item["id"]
+        if osplat.IS_WIN and pid != "microphone":
+            continue  # (the rest are the Mac's)
         if pid == "automation":
             apps = found.get("automation") if isinstance(found.get("automation"), dict) else {}
             state = automation_state(apps)
@@ -179,7 +199,11 @@ def rows(found: dict[str, Any]) -> list[dict[str, Any]]:
 
 # Where each is turned on, as the window says it (fixed sentences: each has its Chinese).
 TURN_ON = {
-    "microphone": "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Microphone.",
+    "microphone": (
+        "Turn on microphone access for apps in Settings › Privacy & security › Microphone."
+        if osplat.IS_WIN
+        else "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Microphone."
+    ),
     "calendars": "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Calendars.",
     "contacts": "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Contacts.",
     "location": "Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Location Services.",

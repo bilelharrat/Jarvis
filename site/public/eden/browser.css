@@ -6,7 +6,7 @@
 #btnBrowser[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft)}
 
 #browserPane{container-type:inline-size;--bd-ink:var(--text);--bd-ink2:var(--text2);--bd-muted:var(--text3);--bd-fill:rgba(120,120,128,.12);
-  display:none;flex-direction:column;width:var(--bw-w,52%);min-width:360px;max-width:none;flex:none;margin-left:12px;border-radius:18px;overflow:hidden;min-height:0;position:relative}
+  display:none;flex-direction:column;width:var(--bw-w,46%);min-width:360px;max-width:none;flex:none;margin-left:0;border-radius:18px;overflow:hidden;min-height:0;position:relative}
 body.browser-open #browserPane{display:flex}
 #browserPane.full{position:fixed;inset:8px;width:auto;max-width:none;margin:0;z-index:60;box-shadow:var(--sh2)}
 
@@ -162,13 +162,6 @@ body.browser-open #browserPane{display:flex}
 .br-slot-note{font-size:12px;color:var(--text3);padding:16px;text-align:center;pointer-events:none}
 
 /* narrower screens: over the conversation, from the right */
-/* Wide windows: the browser runs from under the title bar to the bottom; the chat and its input bar share the left column (like ChatGPT's canvas). */
-@media (min-width:1101px){
-  body.browser-open #center{display:grid;grid-template-columns:minmax(360px,1fr) min(var(--bw-w,48%),calc(100% - 372px));grid-template-rows:auto minmax(0,1fr) auto auto;column-gap:12px;row-gap:10px}
-  body.browser-open #center > *{grid-column:1}
-  body.browser-open #center > #titlebar{grid-column:1 / -1}
-  body.browser-open #center > #browserPane{grid-column:2;grid-row:2 / -1;margin-left:0;width:auto;min-width:0}
-}
 @media (max-width:1100px){
   #browserPane{position:fixed;top:8px;right:8px;bottom:8px;width:min(var(--bw-w,64vw),calc(100% - 16px));min-width:0;margin:0;z-index:52;box-shadow:var(--sh2)}
 }

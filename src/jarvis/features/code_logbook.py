@@ -1,4 +1,4 @@
-"""Logbook, Jarvis Code under the Obsidian look (web/features/code-logbook.js): its one setting,
+"""Logbook, Eden Code under the Obsidian look (web/features/code-logbook.js): its one setting,
 whether the margin beside the transcript (the files touched, the plan, the context window) is
 shown. Kept in prefs so it's the same after a restart. Tests: tests/test_code_logbook.py.
 

@@ -54,6 +54,15 @@ export async function edenPage(request, env, path) {
   if (path === '/help' || path.startsWith('/help/')) return helpPage(request, env, path);
   if (path === '/privacy' || path === '/terms') return page(await asset(env, request, `${path}/`), LEGAL_CSP, { cache: 'public, max-age=300' });
   if (path === '/pricing') return redirect('/#pricing'); // the front page's plans (public/home/)
+  // Eden for Education's own app (askeden web/chat/edu.html): signed in, the app; signed out, its landing page
+  if (path === '/edu' || path === '/edu.html') {
+    const { session, stale } = await currentSession(request, env);
+    if (!session) return byCookie(page(await asset(env, request, '/edu-home/'), HOME_CSP), stale);
+    return byCookie(page(await asset(env, request, '/eden/edu'), EDEN_CSP, { permissions: EDEN_PERMISSIONS }), false);
+  }
+  if (path === '/edu/privacy' || path === '/edu/terms') return page(await asset(env, request, `/edu-home/${path.slice(5)}`), HOME_CSP, { cache: 'public, max-age=300' }); // Eden for Education's student privacy notice and materials terms
+  if (path === '/edu-home/edu-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
+  if (path === '/edu-home/edu-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   if (path === '/home/home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
   const signinFile = /^\/signin\/([\w.-]+)$/.exec(path);
   if (signinFile) {

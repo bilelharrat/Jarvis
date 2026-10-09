@@ -50,7 +50,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
-from . import utility_model
+from . import osplat, utility_model
 
 log = logging.getLogger("jarvis")
 
@@ -405,9 +405,9 @@ class EdenBrowser:
         try:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with open(fd, "w", encoding="utf-8") as out:
-                os.fchmod(out.fileno(), 0o600)
+                osplat.fchmod(out.fileno(), 0o600)
                 json.dump(data, out)
-            os.replace(tmp, self.path)
+            osplat.replace_file(tmp, self.path)
         except OSError as exc:
             log.warning("eden browser: tasks not saved (%s)", type(exc).__name__)
             with contextlib.suppress(OSError):

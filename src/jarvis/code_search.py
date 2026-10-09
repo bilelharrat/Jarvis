@@ -1,4 +1,4 @@
-"""Search a Jarvis Code project's files: git grep in a git repository (its tracked files and
+"""Search an Eden Code project's files: git grep in a git repository (its tracked files and
 its untracked ones, never those git ignores), else a walk of the folder in Python that
 leaves out the folders a project doesn't own (node_modules, .venv, build output, hidden
 ones).

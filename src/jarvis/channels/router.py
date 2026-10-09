@@ -57,7 +57,7 @@ REFUSALS_PER_HOUR = 30  # replies to strangers, all of them together
 REFUSE_AGAIN = 24 * 3600  # one refusal a day for each stranger
 FORWARD_AFTER = 20.0  # a card from the Mac goes to the chats after this long unanswered
 REASON_SECONDS = 300  # after "No, because…", the next message is the reason for this long
-RELAY_SECONDS = 3600  # a Jarvis Code session's answer is passed on for this long
+RELAY_SECONDS = 3600  # an Eden Code session's answer is passed on for this long
 RELAY_EVERY = 2.0
 PUBLISH_EVERY = 0.5
 SAVE_AFTER = 1.0
@@ -210,7 +210,7 @@ class Channels:
         self.open: dict[tuple[str, str], list[Turn]] = {}
         self.cards: dict[str, Card] = {}
         self.reasons: dict[tuple[str, str], tuple[str, str, float]] = {}
-        self.sessions: dict[int, tuple[str, str]] = {}  # a Jarvis Code session -> its chat
+        self.sessions: dict[int, tuple[str, str]] = {}  # an Eden Code session -> its chat
         self.relays: dict[int, asyncio.Task] = {}
         self.tasks: set[asyncio.Task] = set()
         self.running: dict[str, asyncio.Task] = {}
@@ -764,7 +764,7 @@ class Channels:
             lines.append(say(words.NEXT, language, text=clip(f"{when} {event['title']}", 80)))
         return "\n".join(lines)
 
-    # ── Jarvis Code ──
+    # ── Eden Code ──
 
     def _sessions(self) -> list[Any]:
         return sorted(
@@ -827,7 +827,7 @@ class Channels:
         self.sessions[task.id] = (adapter.name, msg.chat)
         while len(self.sessions) > 50:
             del self.sessions[next(iter(self.sessions))]
-        self.audit(adapter.name, "you", "Jarvis Code message")
+        self.audit(adapter.name, "you", "Eden Code message")
         folder = task.cwd.name
         text = say(words.SENT_TO_SESSION, language, id=task.id, folder=folder)
         await self._reply(adapter, msg.chat, text, False)
@@ -856,7 +856,7 @@ class Channels:
         title = say(words.SESSION_SAYS, self.language, id=task.id, folder=task.cwd.name)
         result = (task.result or "").strip() or self._session_line(task)
         await self._reply(adapter, chat, result[-6000:], True, title=title)
-        self.audit(adapter.name, "jarvis", "Jarvis Code answer")
+        self.audit(adapter.name, "jarvis", "Eden Code answer")
 
     # ── requests ──
 
@@ -1208,7 +1208,7 @@ class Channels:
             self.cards[approval_id] = tracked
 
     def _origin(self, card: dict[str, Any]) -> tuple[str, str] | None:
-        """The chat a card belongs to: the one whose request raised it, or (a Jarvis Code
+        """The chat a card belongs to: the one whose request raised it, or (an Eden Code
         session's card, which carries whichever turn happened to be running) the one that
         last messaged that session."""
         task_id = card.get("task_id")

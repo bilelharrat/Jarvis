@@ -20,7 +20,7 @@ struct WidgetSnapshot: Codable, Equatable, Sendable {
     /// The first approval's question: shown only unlocked (privacy sensitive in the views).
     var approvalQuestion: String?
     var approvalFromCode: Bool
-    /// Jarvis Code sessions worth showing: the ones that need you, then working, then the
+    /// Eden Code sessions worth showing: the ones that need you, then working, then the
     /// latest others (at most four).
     var codeSessions: [CodeSessionSummary]
     var delegationsActive: Int

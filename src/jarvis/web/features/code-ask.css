@@ -1,4 +1,4 @@
-/* Claude Code's questions in Jarvis Code (features/code-ask.js): options with what they
+/* Claude Code's questions in Eden Code (features/code-ask.js): options with what they
    mean, ticks when several may be chosen, and an answer of the owner's own. */
 
 .cq-title { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
@@ -16,7 +16,7 @@
 .cq-other { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
 .cq-other-input { flex: 1; min-width: 0; }
 .cq-send[disabled] { opacity: 0.45; cursor: default; }
-/* On a card outside Jarvis Code: the card's own title says the question, and its own look:
+/* On a card outside Eden Code: the card's own title says the question, and its own look:
    the answer on a line of its own, the buttons under it. */
 .card .cq-card { margin-top: 10px; }
 .card .cq-option { background: var(--card); box-shadow: none; border: 1px solid var(--line); }

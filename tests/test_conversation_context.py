@@ -1,5 +1,5 @@
 """How full JARVIS's conversation is (jarvis.features.conversation): its context (the SDK's
-context usage, shaped as Jarvis Code's ring shapes a session's) and cost after every turn and
+context usage, shaped as Eden Code's ring shapes a session's) and cost after every turn and
 when the window asks; Compact now (Claude Code's /compact, between requests, nothing said);
 and a note in the conversation when it's summed up, by itself or when asked."""
 

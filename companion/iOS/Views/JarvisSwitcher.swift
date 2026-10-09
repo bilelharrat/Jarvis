@@ -48,7 +48,7 @@ struct JarvisSwitcherSection: View {
         } header: {
             Text("Your Jarvises")
         } footer: {
-            Text("Pair your Mac and your cloud Jarvis, and switch here: the cloud one keeps Jarvis Code working while your Mac is shut or off.")
+            Text("Pair your Mac and your cloud Jarvis, and switch here: the cloud one keeps Eden Code working while your Mac is shut or off.")
         }
     }
 }
@@ -60,7 +60,7 @@ struct JarvisSwitcherMenu: View {
     var body: some View {
         if let current = model.pairing, !model.otherPairings.isEmpty {
             Menu {
-                Section("Jarvis Code on") {
+                Section("Eden Code on") {
                     Label(current.macLabel, systemImage: "checkmark")
                     ForEach(model.otherPairings, id: \.baseURL) { other in
                         Button(other.macLabel, systemImage: JarvisSwitcher.symbol(for: other)) { model.use(other) }

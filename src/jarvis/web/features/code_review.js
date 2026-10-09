@@ -1,4 +1,4 @@
-// Jarvis Code's Review, in the Changes pane (features/code_review.py): Review and Deep review
+// Eden Code's Review, in the Changes pane (features/code_review.py): Review and Deep review
 // run on the session's changes; the findings are listed at the top and pinned under the
 // lines they're about, each with "Fix this" (and "Fix all") to hand back to the session.
 (() => {

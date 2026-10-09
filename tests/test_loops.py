@@ -1,7 +1,7 @@
 """Loop detection (jarvis.loopguard, jarvis.features.loops, background.py): the same call
 three times in a row, or a cycle of two or three calls going round three times, stops
 JARVIS's turn politely (said, and offered another way) and a background task (its heads-up
-says why), and puts a notice with a Stop button in a Jarvis Code session without stopping
+says why), and puts a notice with a Stop button in an Eden Code session without stopping
 it. Progress (different calls, different arguments) never trips it. All on fake Claudes."""
 
 import asyncio
@@ -227,7 +227,7 @@ async def test_a_background_task_that_loops_stops_and_its_heads_up_says_why(make
     assert lang.translate(background.LOOPED, "zh").startswith("它一直在重复同样的步骤")
 
 
-# ── Jarvis Code ──
+# ── Eden Code ──
 
 
 async def test_a_jarvis_code_session_gets_a_notice_with_stop_never_a_stop(make_hub, tmp_path):

@@ -542,7 +542,7 @@ def build_tools(
         "words), mail (from, subject words: an email rule, 'when an email from X arrives, "
         "do Y'), text (from a contact), battery (state low with below percent, charging, "
         "unplugged), place (event arrive or leave, place such as home or work; here true "
-        "for where the Mac is now), wake (what: wake or unlock), session (a Jarvis Code "
+        "for where the Mac is now), wake (what: wake or unlock), session (an Eden Code "
         "session finishing: folder, status done, failed or any)}, optionally "
         "debounce_minutes and daily_cap. On a mail or text trigger the message is read "
         "first by a reader with no tools: prompt is what to do with it ('tell me what "

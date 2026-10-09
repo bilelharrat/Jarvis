@@ -526,7 +526,13 @@ test('the Eden app: native Apple sign-in → a one-time handoff code → the coo
   const slow = await (await native({ identity_token: await identityToken({ sub: 'apple-eden', nonce: 'n', aud: 'com.askeden.eden' }), nonce: 'n' })).json();
   env.LINKS.objects.get(`handoff:${slow.handoff}`).now = () => Date.now() + 61_000;
   assert.equal(await landing(await hit(`/api/web/handoff?code=${slow.handoff}`)), '/signin?error=expired&provider=apple');
-  assert.equal(env.LINKS.objects.get(`handoff:${slow.handoff}`).storage.map.size, 0, 'and it is gone');
+  assert.equal(env.LINKS.objects.get(`handoff:${slow.handoff}`).storage.map.size, 0, 'and it is gone');  // Eden for Education's app: its own audience, and the handoff ends where it asked (a path here only)
+  const edu = await (await native({ identity_token: await identityToken({ sub: 'apple-eden', nonce: 'n', aud: 'com.askeden.edu' }), nonce: 'n' })).json();
+  const toEdu = await hit(`/api/web/handoff?code=${edu.handoff}&return=%2Fedu`, { headers: { 'sec-fetch-site': 'none' } });
+  assert.equal(toEdu.headers.get('location'), '/edu');
+  assert.equal((await account(cookieValue(toEdu, '__Host-eden'))).account_id, await accountIdFor('apple-eden'), 'the same account in both apps');
+  const away = await (await native({ identity_token: await identityToken({ sub: 'apple-eden', nonce: 'n', aud: 'com.askeden.edu' }), nonce: 'n' })).json();
+  assert.equal((await hit(`/api/web/handoff?code=${away.handoff}&return=https://evil.example`, { headers: { 'sec-fetch-site': 'none' } })).headers.get('location'), '/');
 });
 
 test('the Eden app: Google in Apple’s web sheet (?app=1) ends on the app’s scheme with a handoff code', async () => {
@@ -745,4 +751,12 @@ test('sign-ups closed: the owner’s verified email (OWNER_DOMAINS) may still ma
   assert.throws(() => checkSignups(env, 'x@notaskeden.com'), { code: 'signups_closed' });
   assert.throws(() => checkSignups(env), { code: 'signups_closed' }, 'a passkey: no email');
   assert.throws(() => checkSignups({ SIGNUPS: 'owner' }, 'bilel@askeden.com'), { code: 'signups_closed' }, 'unset: nobody');
+});
+
+test('Apple identity tokens: one audience or a list (the Eden apps); any other audience is refused', async () => {
+  const opts = { now: Date.now() / 1000, fetcher: async () => Response.json({ keys: [appleJwk] }) };
+  const edu = await identityToken({ aud: 'com.askeden.edu' });
+  assert.equal((await verifyIdentityToken(edu, 'raw-nonce', { ...opts, audience: ['com.askeden.eden', 'com.askeden.edu'] })).sub, 'apple-user-1');
+  await assert.rejects(verifyIdentityToken(edu, 'raw-nonce', { ...opts, audience: 'com.askeden.eden' }), /audience/);
+  await assert.rejects(verifyIdentityToken(await identityToken({ aud: 'com.example.other' }), 'raw-nonce', { ...opts, audience: ['com.askeden.eden', 'com.askeden.edu'] }), /audience/);
 });

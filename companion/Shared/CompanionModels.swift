@@ -1,10 +1,10 @@
 import Foundation
 
-// The rest of the companion API (see COMPANION_API.md on the Mac side): Jarvis Code, the
+// The rest of the companion API (see COMPANION_API.md on the Mac side): Eden Code, the
 // digest, delegations, spending, routines, pairing, push. Decoded as leniently as the state:
 // a missing or oddly typed field falls back, a bad list item is skipped.
 
-// MARK: - Jarvis Code
+// MARK: - Eden Code
 
 enum CodeStatus: String, Equatable, Hashable, Sendable, Codable {
     case working
@@ -66,7 +66,7 @@ struct CodeSessionSummary: Identifiable, Equatable, Hashable, Sendable, Codable 
         }
         self.id = id
         project = c.text(.project) ?? ""
-        title = c.text(.title).flatMap { $0.trimmed.isEmpty ? nil : $0 } ?? (project.isEmpty ? "Jarvis Code" : project)
+        title = c.text(.title).flatMap { $0.trimmed.isEmpty ? nil : $0 } ?? (project.isEmpty ? "Eden Code" : project)
         status = c.object(CodeStatus.self, .status) ?? .unknown
     }
 
@@ -100,7 +100,7 @@ struct CodeWaiting: Equatable, Sendable, Decodable {
             throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath, debugDescription: "waiting without an approval"))
         }
         approvalID = id
-        question = c.text(.question) ?? "Jarvis Code needs your OK."
+        question = c.text(.question) ?? "Eden Code needs your OK."
     }
 }
 
@@ -130,7 +130,7 @@ struct CodeSession: Identifiable, Equatable, Sendable, Decodable {
         }
         self.id = id
         project = c.text(.project) ?? ""
-        title = c.text(.title).flatMap { $0.trimmed.isEmpty ? nil : $0 } ?? (project.isEmpty ? "Jarvis Code" : project)
+        title = c.text(.title).flatMap { $0.trimmed.isEmpty ? nil : $0 } ?? (project.isEmpty ? "Eden Code" : project)
         branch = c.text(.branch) ?? ""
         status = c.object(CodeStatus.self, .status) ?? .unknown
         mode = c.text(.mode) ?? ""
@@ -237,7 +237,7 @@ struct CodeSessionDetail: Equatable, Sendable, Decodable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
         id = c.integer(.id) ?? -1
-        title = c.text(.title) ?? "Jarvis Code"
+        title = c.text(.title) ?? "Eden Code"
         status = c.object(CodeStatus.self, .status) ?? .unknown
         entries = c.list(CodeEntry.self, .entries).sorted { $0.i < $1.i }
         todos = c.list(CodeTodo.self, .todos).filter { !$0.text.trimmed.isEmpty }

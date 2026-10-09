@@ -1,4 +1,4 @@
-"""Jarvis Code sessions under the stress test's edge cases: steered messages outlive a
+"""Eden Code sessions under the stress test's edge cases: steered messages outlive a
 closing connection, switches made while connecting reach Claude Code, dead background
 tasks don't pin a session open, End is pressed once however often, and ended sessions
 don't pile up."""

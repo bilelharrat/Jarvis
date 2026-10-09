@@ -1,8 +1,8 @@
-"""Jarvis Code's full export (code_export), from the Export pane (web/features/code-export.js).
+"""Eden Code's full export (code_export), from the Export pane (web/features/code-export.js).
 
 - cw_export {id, safe, anonymize, format: "html" | "pdf", ref}: the session read whole from
   Claude Code's own record (every message, each step's input and output, the thinking),
-  written to ~/Documents/Jarvis/Jarvis Code as a page (HTML) or a PDF laid out by the app's
+  written to ~/Documents/Jarvis/Eden Code as a page (HTML) or a PDF laid out by the app's
   window -> cw_export {ref, ok, path, name} or {ref, error}. Share-safe blanks out keys,
   tokens and passwords and leaves pictures out; anonymize hides where things are on this
   Mac. A session that never connected has no record: what its transcript kept goes.
@@ -82,7 +82,7 @@ class Exports:
             return
         safe = msg.get("safe") is True
         pdf = msg.get("format") == "pdf"
-        title = task.title or task.prompt or "Jarvis Code session"
+        title = task.title or task.prompt or "Eden Code session"
         try:
             entries = await asyncio.to_thread(_entries, task)
             page = await asyncio.to_thread(

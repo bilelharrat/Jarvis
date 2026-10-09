@@ -1,4 +1,4 @@
-// The disk image people download: the app beside a link to Applications, to drag it onto,
+// The disk image people download: the app (or apps) beside a link to Applications, to drag onto,
 // compressed with LZMA (ULMO; macOS 10.15 and later open it, and the app needs 14).
 'use strict';
 
@@ -7,10 +7,11 @@ const os = require('os');
 const path = require('path');
 const { run, say, sha256File, megabytes } = require('./util');
 
-function makeDmg(app, dmg, volume) {
+// apps: one .app, or several (J.A.R.V.I.S. and Eden Code, which comes with it).
+function makeDmg(apps, dmg, volume) {
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-dmg-'));
   try {
-    run('/usr/bin/ditto', [app, path.join(stage, path.basename(app))]);
+    for (const app of [].concat(apps)) run('/usr/bin/ditto', [app, path.join(stage, path.basename(app))]);
     fs.symlinkSync('/Applications', path.join(stage, 'Applications'));
     fs.rmSync(dmg, { force: true });
     run('/usr/bin/hdiutil', ['create', '-volname', volume, '-srcfolder', stage, '-format', 'ULMO', '-ov', dmg]);

@@ -1,4 +1,4 @@
-"""The built-in browser as an agent's hands, for JARVIS and for Jarvis Code sessions:
+"""The built-in browser as an agent's hands, for JARVIS and for Eden Code sessions:
 accessibility snapshots whose elements carry refs ([e12]), acting on those refs with real
 input, and waiting for pages. The window side is app/browser-agent.js, over the Chrome
 DevTools Protocol; every call goes through the hub's browser_call, so every action meets the
@@ -250,7 +250,7 @@ def read_text(r: dict[str, Any]) -> str:
 
 class TabRoutes:
     """Which tab each driver works in: JARVIS, the tab it opened or switched to, for the
-    rest of that request (the next request starts from the tab on show); a Jarvis Code
+    rest of that request (the next request starts from the tab on show); an Eden Code
     session, its own tab for as long as that's open."""
 
     def __init__(self) -> None:
@@ -304,7 +304,7 @@ def tabs_text(r: dict[str, Any], mine: str = "") -> str:
             if owner and owner == mine
             else " (JARVIS's)"
             if owner == "jarvis"
-            else f" (Jarvis Code session {owner[5:]}'s)"
+            else f" (Eden Code session {owner[5:]}'s)"
             if owner.startswith("code:")
             else ""
         )
@@ -799,7 +799,7 @@ async def jarvis_open(hub: Any, args: dict[str, Any]) -> dict[str, Any]:
     return r
 
 
-# ── Jarvis Code ──
+# ── Eden Code ──
 
 
 def loopback(url: Any) -> bool:
@@ -816,7 +816,7 @@ def loopback(url: Any) -> bool:
 
 
 class CodeSession:
-    """One Jarvis Code session's side of the browser: which session it is (its calls carry
+    """One Eden Code session's side of the browser: which session it is (its calls carry
     owner "code:<id>" and go to its own tab once it has one), and how a press that needs the
     user's OK is decided. On a page on this Mac, the session's own approval of the browser
     tool counts (the app it's building); elsewhere the session asks through its approval
@@ -892,7 +892,7 @@ class CodeSession:
         from .tasks import ALLOW, DENY
 
         choice = await tasks.approve(
-            f"Jarvis Code in {task.cwd.name} wants to {what}",
+            f"Eden Code in {task.cwd.name} wants to {what}",
             detail,
             [(ALLOW, "Yes"), (DENY, "No")],
             context={"task_id": task.id, "tool": "browser"},
@@ -981,7 +981,7 @@ EVAL_DESC = (
 
 
 def devtools_tools(call: BrowserCall, session: CodeSession) -> list:
-    """What Jarvis Code needs to debug the app it's building: the console, the requests,
+    """What Eden Code needs to debug the app it's building: the console, the requests,
     JavaScript on a local page, and scrolling and going back."""
 
     @tool(

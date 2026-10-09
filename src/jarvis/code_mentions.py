@@ -1,4 +1,4 @@
-"""@-mentions in a Jarvis Code message beyond files, and what they bring when it's sent.
+"""@-mentions in an Eden Code message beyond files, and what they bring when it's sent.
 
 - @terminal: the last lines of the project's terminal that printed most lately
   (code_terminals), as the owner saw them.
@@ -8,7 +8,7 @@
   it changed and its latest reply. (At a message's start, @session-3 sends the message to
   session 3 instead: features/code_voice.)
 - Symbols and folders are the window's suggestions only: a symbol goes in as its file and
-  where it is ("@src/app.py (retry, line 12)"), a folder as its path, and Jarvis Code reads
+  where it is ("@src/app.py (retry, line 12)"), a folder as its path, and Eden Code reads
   them itself. symbols() finds where a project's names are defined, for those suggestions.
 
 Each mention goes with the message as a text document, the way a text file the owner
@@ -177,7 +177,7 @@ def session_document(task: Any) -> dict[str, str]:
         reply = "…" + reply[-REPLY_CHARS_MAX:]
     changed = [str(f) for f in (getattr(task, "files_changed", None) or [])][:40]
     lines = [
-        f"Jarvis Code session {task.id}: {title}",
+        f"Eden Code session {task.id}: {title}",
         f"Folder: {getattr(task, 'cwd', '')}",
         f"State: {getattr(task, 'status', '')}",
     ]

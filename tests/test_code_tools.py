@@ -1,4 +1,4 @@
-"""The browser and iOS Simulator tools a Jarvis Code session gets."""
+"""The browser and iOS Simulator tools an Eden Code session gets."""
 
 from jarvis import code_tools
 from jarvis.code_tools import browser_tools, build_servers, simulator_tools

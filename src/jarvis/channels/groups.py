@@ -10,7 +10,7 @@ answer, so each group has its own setting (Settings › Chats):
 Whatever the setting, a request from a group never sends anything anywhere else (a message,
 an email, a file, a call, a WhatsApp, a delegated conversation), never spends (a purchase, a
 booking, an order), never drives the mouse, keyboard or built-in browser, and never starts
-or steers Jarvis Code. Those are refused before they run (a PreToolUse hook, so the tools
+or steers Eden Code. Those are refused before they run (a PreToolUse hook, so the tools
 JARVIS is otherwise allowed to run unasked are weighed too); the owner can ask for them in
 their direct chat instead. Approval cards a group's request puts up go to the owner's direct
 chat, never to the group, so no one else can answer them.

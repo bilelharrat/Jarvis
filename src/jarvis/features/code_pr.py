@@ -1,4 +1,4 @@
-"""Jarvis Code: pull requests on GitHub (github.py), from opening one to merging it.
+"""Eden Code: pull requests on GitHub (github.py), from opening one to merging it.
 
 Opening: from a session's branch (its isolated copy's, or the branch its folder is on).
 Claude (Haiku) drafts the title and description from the branch's diff and the session's
@@ -90,7 +90,7 @@ POLL_SOON = 8.0  # after something the owner did (opened, pushed, refreshed)
 PUSH_SECONDS = 180.0
 MAX_WATCHED = 30
 REVIEWERS = ("OWNER", "MEMBER", "COLLABORATOR")  # who can write to the repository
-NOTE = "a pull request update (Jarvis Code's pull request pane has it)"
+NOTE = "a pull request update (Eden Code's pull request pane has it)"
 
 PR_SYSTEM = (
     "You write GitHub pull request titles and descriptions. You're given a branch's diff, "
@@ -129,7 +129,7 @@ ZH = {
     "Merged pull request #{n} into {base}.": "已把拉取请求 #{n} 合并进 {base}。",
     "Pull request #{n} still fails after {k} fixes; it's over to you.": "拉取请求 #{n} 修了 {k} 次还是失败；接下来交给你了。",
     "Pull request #{n} conflicts with {base}; the session is resolving it.": "拉取请求 #{n} 和 {base} 有冲突；会话正在解决。",
-    "The work for pull request #{n} is ready to push: push it from Jarvis Code's pull request pane.": "拉取请求 #{n} 的改动已经可以推送了：请在 Jarvis Code 的拉取请求面板里推送。",
+    "The work for pull request #{n} is ready to push: push it from Eden Code's pull request pane.": "拉取请求 #{n} 的改动已经可以推送了：请在 Eden Code 的拉取请求面板里推送。",
     "Pushed the work for pull request #{n}.": "已推送拉取请求 #{n} 的改动。",
     "Merge pull request #{n} by itself when it's green?": "要在拉取请求 #{n} 全部通过后自动合并吗？",
     "When every check on its latest commit has passed and GitHub says it can be merged, I merge it into {base} ({method}) without asking again. Turn it off in the pull request pane any time.": "当它最新提交上的检查全部通过、GitHub 也表示可以合并时，我会直接把它合并进 {base}（{method}），不再询问。你随时可以在拉取请求面板里关掉。",
@@ -170,7 +170,7 @@ ZH = {
     "Don't push": "不推送",
     "Not pushed.": "没有推送。",
     "Couldn't commit the session's work: {error}": "没能提交会话的改动：{error}",
-    "A pull request for issue #{n} is ready for your OK in Jarvis Code.": "为议题 #{n} 准备的拉取请求已就绪，请在 Jarvis Code 里确认。",
+    "A pull request for issue #{n} is ready for your OK in Eden Code.": "为议题 #{n} 准备的拉取请求已就绪，请在 Eden Code 里确认。",
 }
 lang.add_texts(ZH)
 
@@ -1190,7 +1190,7 @@ class PullDesk:
             self.drafts[task.id] = event["draft"] | {"waiting": True}
             self.notify(
                 f"pr-issue:{task.id}",
-                f"A pull request for issue #{number} is ready for your OK in Jarvis Code.",
+                f"A pull request for issue #{number} is ready for your OK in Eden Code.",
             )
             await self.publish(task)
 
@@ -1420,7 +1420,7 @@ class PullDesk:
 
 def install(hub: Any) -> None:
     desk = PullDesk(hub)
-    hub.code_pr = desk  # (for the other Jarvis Code features and the tests)
+    hub.code_pr = desk  # (for the other Eden Code features and the tests)
     hub.register_command("code_pr", desk.cmd_state)
     hub.register_command("code_prs", desk.cmd_list)
     hub.register_command("code_pr_draft", desk.cmd_draft)

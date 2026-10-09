@@ -81,7 +81,7 @@ def test_a_wrong_number_in_usage_never_stops_counting(tmp_path, where, odd):
     assert UsageBook(path, clock=lambda: NOON).summary()["week"]["requests"] >= 2
 
 
-# ── conversation.json, timers.json, kept Jarvis Code sessions: a number past a float ──
+# ── conversation.json, timers.json, kept Eden Code sessions: a number past a float ──
 
 
 def test_a_conversation_cost_past_a_float_is_no_cost(tmp_path):

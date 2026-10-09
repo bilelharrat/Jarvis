@@ -1,7 +1,7 @@
-/* Jarvis Code's split view (features/code-split.js): the window's own pane on the left, a
+/* Eden Code's split view (features/code-split.js): the window's own pane on the left, a
    frame of the window on the right, the divider between them, and a slim head on each with
    its session, its mark and the pane's buttons; the drop zones while a session is dragged
-   over from the sidebar; and the frame's own page, Jarvis Code alone. The Summit Glass tokens
+   over from the sidebar; and the frame's own page, Eden Code alone. The Summit Glass tokens
    of .deck.jc. */
 
 /* The room right of the sidebar (app.css: .jc-main's left), split at --sv-ratio. */
@@ -30,7 +30,7 @@
 .sv-divider[hidden], .sv-pane[hidden], .sv-head[hidden] { display: none; }
 .sv-frame-wrap { position: relative; flex: 1; min-height: 0; }
 .sv-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: transparent; color-scheme: normal; }
-.sv-frame:not(.sv-ready) { visibility: hidden; }  /* till its Jarvis Code is up */
+.sv-frame:not(.sv-ready) { visibility: hidden; }  /* till its Eden Code is up */
 /* While the divider moves: no lag, no frame swallowing the pointer, no text selected. */
 .deck.jc.sv-dragging, .deck.jc.sv-dragging * { cursor: col-resize; user-select: none; }
 .deck.jc.sv-dragging .sv-frame { pointer-events: none; }
@@ -104,7 +104,7 @@ body.in-app .sv-pane .sv-head, body.in-app .deck.jc.sv-on .sv-head-left { margin
   .deck.jc.sv-on .jc-main, .sv-divider, .sv-pane, .sv-head, .sv-drop-half { transition: none; }
 }
 
-/* ── the frame's own page (app.js: body.jc-split-pane): Jarvis Code alone, no sidebar ── */
+/* ── the frame's own page (app.js: body.jc-split-pane): Eden Code alone, no sidebar ── */
 body.jc-split-pane #galaxy-canvas, body.jc-split-pane > .top, body.jc-split-pane > .layout, body.jc-split-pane > .bottom,
 body.jc-split-pane #code-pill, body.jc-split-pane #meeting-pill, body.jc-split-pane #activity, body.jc-split-pane #settings,
 body.jc-split-pane #accounts, body.jc-split-pane #browser, body.jc-split-pane #galaxy, body.jc-split-pane #hand-panel,
@@ -113,7 +113,7 @@ body.jc-split-pane .deck.jc .jc-side, body.jc-split-pane #jc-side-toggle, body.j
 body.jc-split-pane .deck.jc .jc-main { left: 0; transition: none; }
 /* (the window's toolbar height, in the app, so the two panes line up) */
 body.jc-split-pane.sv-app .jc-toolbar { padding-top: 6px; min-height: 52px; }
-/* Its cards: only Jarvis Code's own notes (jc-notecard); the window shows the rest. */
+/* Its cards: only Eden Code's own notes (jc-notecard); the window shows the rest. */
 body.jc-split-pane .cards > .card:not(.jc-notecard), body.jc-split-pane .cards-clear { display: none; }
 /* (#cc is one of the body's own children: > #cc, so the :has() isn't asked again over the whole
    page after every change in it, each streamed word in this pane) */

@@ -1,4 +1,4 @@
-"""Loop detection (jarvis.loopguard) in JARVIS's own turns and in Jarvis Code sessions.
+"""Loop detection (jarvis.loopguard) in JARVIS's own turns and in Eden Code sessions.
 
 - JARVIS's turn: each tool call of the conversation's stream (hub.add_message_sink; the
   turn's own calls, not a subagent's) goes to a guard that starts over with every request
@@ -6,7 +6,7 @@
   three calls goes round three times, the turn is stopped politely: the reply says what
   happened and offers to try another way (said aloud unless the turn is silent), and Claude
   hears it in a note with the next request, so "yes, try again" gets a different approach.
-- A Jarvis Code session: each step of its timeline (hub.add_task_sink: task_log entries of
+- An Eden Code session: each step of its timeline (hub.add_task_sink: task_log entries of
   role "tool") goes to the session's own guard, which starts over when the owner writes to
   it. A loop puts a notice in the session's timeline (role "loop") with a Stop button: the
   owner decides; the session is never stopped by this.
@@ -46,7 +46,7 @@ CIRCLES_PLAIN = (
     "I stopped there: I was going round in circles without getting anywhere. "
     "Shall I try a different way?"
 )
-CODE_NOTICE = "Jarvis Code seems stuck: {what}. Stop it, or let it carry on."
+CODE_NOTICE = "Eden Code seems stuck: {what}. Stop it, or let it carry on."
 lang.add_texts(
     {
         REPEATED: "我先停下了：我一直在重复同一步（{step}），却没有进展。要我换个办法再试吗？",
@@ -83,7 +83,7 @@ class Loops:
         self.hub = hub
         self.turn = LoopGuard()
         self.tripped = False  # this turn was stopped for a loop: the rest of it isn't weighed
-        self.code: dict[int, LoopGuard] = {}  # Jarvis Code session id -> its guard
+        self.code: dict[int, LoopGuard] = {}  # Eden Code session id -> its guard
 
     # ── JARVIS's own turn ──
 
@@ -129,7 +129,7 @@ class Loops:
         await hub.stop()
         hub.say(words)
 
-    # ── Jarvis Code sessions ──
+    # ── Eden Code sessions ──
 
     def on_task_event(self, kind: str, data: dict[str, Any]) -> None:
         if kind == "task_finished":

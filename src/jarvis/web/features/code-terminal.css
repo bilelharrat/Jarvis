@@ -1,4 +1,4 @@
-/* Jarvis Code's terminals (features/code-terminal.js): tabs of shells above one terminal, or
+/* Eden Code's terminals (features/code-terminal.js): tabs of shells above one terminal, or
    two, one above the other; and a "!" command's output as it streams in the transcript. */
 
 .ct-root { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }

@@ -1,4 +1,4 @@
-// Model Router in Jarvis Code's composer (features/code_router.py, code_router_events.py).
+// Model Router in Eden Code's composer (features/code_router.py, code_router_events.py).
 // The router and its popover come from the Model Router repo, built into
 // features/vendor/model-router.js (`npm run jarvis` there).
 // - The model menu gets "Model Router": each message then goes to the model the router

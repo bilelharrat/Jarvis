@@ -1,4 +1,4 @@
-"""Words on a page written to an AI: flagged in what JARVIS and Jarvis Code read, and told to
+"""Words on a page written to an AI: flagged in what JARVIS and Eden Code read, and told to
 the owner.
 
 Every read and snapshot of the built-in browser (hub.browser_call) comes past here before
@@ -70,7 +70,7 @@ class Flags:
 
     def tell(self, page: dict[str, Any], shown: list[str], hidden: bool, owner: str) -> None:
         """The owner's notice on the page, once in a while for the same address; not for a
-        Jarvis Code session's own app on this Mac."""
+        Eden Code session's own app on this Mac."""
         url = str(page.get("url") or "")
         if owner.startswith("code") and loopback(url):
             return

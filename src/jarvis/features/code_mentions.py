@@ -1,4 +1,4 @@
-"""@-mentions that bring something along (code_mentions), for Jarvis Code's composer
+"""@-mentions that bring something along (code_mentions), for Eden Code's composer
 (web/features/code-mentions.js).
 
 - task_send and task_new: a message with @terminal, @https://… or a later @session-3 is held
@@ -91,7 +91,7 @@ class Mentions:
             try:
                 docs = await self._gather(msg, found)
             except Exception:  # whatever went wrong, the message itself still goes
-                log.exception("Jarvis Code: couldn't gather a message's mentions")
+                log.exception("Eden Code: couldn't gather a message's mentions")
         own = [i for i in msg.get("images") or [] if isinstance(i, dict)]
         room = max(0, ATTACHED_MAX - len(own))
         if len(docs) > room:

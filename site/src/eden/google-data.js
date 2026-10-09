@@ -413,6 +413,8 @@ export async function approvalHash(kind, action, args) {
 
 async function takeApproval(env, who, request, kind, action, args) {
   const token = request.headers.get('x-eden-approval') || '';
+  // No header at all: a page loaded before approvals shipped. Pressing again can't help; reloading does.
+  if (!token) throw new ApiError(403, 'approval_required', 'Eden was updated. Reload the page (⌘R), then try again.');
   await call(env, who.account, 'approve-take', { token, hash: await approvalHash(kind, action, args) }, who.token);
 }
 

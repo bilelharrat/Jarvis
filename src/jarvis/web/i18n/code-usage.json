@@ -19,13 +19,13 @@
     "Extra usage": "额外用量",
     "This session": "这个会话",
     "today": "今天",
-    "All of Jarvis Code today": "Jarvis Code 今天合计",
+    "All of Eden Code today": "Eden Code 今天合计",
     "of": "/",
     "Limit": "上限",
     "Limit today": "今天上限",
     "Limit a day": "每天上限",
     "No limit": "不设上限",
-    "Jarvis Code’s limit a day": "Jarvis Code 每天的上限",
+    "Eden Code’s limit a day": "Eden Code 每天的上限",
     "This project’s limit a day": "这个项目每天的上限",
     "This session’s limit": "这个会话的上限",
     "An amount in dollars, like 5 or 12.50": "请输入美元金额，例如 5 或 12.50",
@@ -35,14 +35,14 @@
     "Last 14 days": "最近 14 天",
     "Two weeks:": "两周合计：",
     "Today by project": "今天各项目",
-    "Default limits and heads-ups are in Jarvis Code settings › Limits.": "默认上限和提醒在 Jarvis Code 设置 › 上限里。",
+    "Default limits and heads-ups are in Eden Code settings › Limits.": "默认上限和提醒在 Eden Code 设置 › 上限里。",
     "Limits": "上限",
     "Spending limits": "花费上限",
     "Each session": "每个会话",
     "A session stops there and waits until you raise it.": "会话到这里会停下，等你调高后再继续。",
     "Each project, a day": "每个项目，每天",
     "Every session in one project, today.": "一个项目里所有会话，今天合计。",
-    "All of Jarvis Code, a day": "Jarvis Code 全部，每天",
+    "All of Eden Code, a day": "Eden Code 全部，每天",
     "Every session in every project, today.": "所有项目的所有会话，今天合计。",
     "Heads-ups at 50, 80 and 100%": "在 50%、80% 和 100% 时提醒",
     "Of each limit, and of Claude’s own 5-hour and weekly limits.": "针对每个上限，以及 Claude 自己的 5 小时和每周额度。",
@@ -58,16 +58,16 @@
       "已暂停：这个会话已花到 $1 的上限。在用量面板里调高上限即可继续。"
     ],
     [
-      "^On hold: Jarvis Code has spent today's (\\$[\\d.,]+) limit\\. Raise it in Usage, or it goes on tomorrow\\.$",
-      "已暂停：Jarvis Code 今天已花到 $1 的上限。在用量面板里调高上限，或者明天继续。"
+      "^On hold: Eden Code has spent today's (\\$[\\d.,]+) limit\\. Raise it in Usage, or it goes on tomorrow\\.$",
+      "已暂停：Eden Code 今天已花到 $1 的上限。在用量面板里调高上限，或者明天继续。"
     ],
     [
       "^On hold: (.+) has spent its (\\$[\\d.,]+) limit for today\\. Raise it in Usage, or it goes on tomorrow\\.$",
       "已暂停：$1 今天已花到 $2 的上限。在用量面板里调高上限，或者明天继续。"
     ],
     [
-      "^Stopped: Jarvis Code has spent today's (\\$[\\d.,]+) limit\\.$",
-      "已停止：Jarvis Code 今天已花到 $1 的上限。"
+      "^Stopped: Eden Code has spent today's (\\$[\\d.,]+) limit\\.$",
+      "已停止：Eden Code 今天已花到 $1 的上限。"
     ],
     [
       "^Stopped: (.+) has spent its (\\$[\\d.,]+) limit for today\\.$",

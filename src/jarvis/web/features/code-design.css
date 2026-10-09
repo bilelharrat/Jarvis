@@ -1,4 +1,4 @@
-/* Jarvis Code builds from a design (code-design.js): a comparison's card in the transcript. */
+/* Eden Code builds from a design (code-design.js): a comparison's card in the transcript. */
 .dm-card { list-style: none; display: flex; flex-direction: column; gap: 7px; background: rgb(var(--c-surface)); border-radius: 14px; box-shadow: var(--shadow-card); padding: 10px 12px; font-size: 13px; max-width: 560px; }
 .dm-card.good { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-success) / 0.7); }
 .dm-card.large { max-width: none; }

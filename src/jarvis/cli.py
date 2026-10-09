@@ -209,7 +209,8 @@ def main() -> None:
 
         # `kill -USR1 <pid>` writes every thread's stack to the backend's log: what a busy or
         # stuck backend is doing, without stopping it.
-        faulthandler.register(signal.SIGUSR1, all_threads=True)
+        if hasattr(signal, "SIGUSR1"):
+            faulthandler.register(signal.SIGUSR1, all_threads=True)
         from .server import serve
 
         # The app passes its own token; a manual run gets a fresh one. It's taken out of the

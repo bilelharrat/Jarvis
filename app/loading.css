@@ -17,3 +17,30 @@ body.error .orb { animation: none; filter: grayscale(0.6); }
 p { max-width: 520px; text-align: center; line-height: 1.5; margin: 0; }
 @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
 @media (prefers-reduced-motion: reduce) { .orb { animation: none; } }
+
+/* Eden Code (loading.js): Ask Eden's page and its mark, a navy squircle with the white E. */
+body.eden-code { --bg: #f5f5f7; --ink: #6e6e73; background-image: radial-gradient(900px 620px at 8% -10%, rgba(216, 232, 250, 0.9), transparent 60%), radial-gradient(900px 700px at 105% 115%, rgba(251, 244, 236, 0.9), transparent 60%); }
+@media (prefers-color-scheme: dark) { body.eden-code { --bg: #161618; --ink: #98989d; background-image: radial-gradient(900px 620px at 8% -10%, rgba(20, 42, 66, 0.55), transparent 60%), radial-gradient(900px 700px at 105% 115%, rgba(30, 26, 20, 0.5), transparent 60%); } }
+body.eden-code .orb {
+  width: 84px; height: 84px; border-radius: 26%;
+  background: #0e2747 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23fff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E") center / 62% no-repeat;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 12px 32px rgba(0, 0, 0, 0.1);
+}
+@media (prefers-color-scheme: dark) {
+  body.eden-code .orb { background-color: #f4f5f7; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%230e2747' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E"); }
+}
+
+#note { margin-top: -18px; font-size: 14px; opacity: 0.85; }
+#note:empty { display: none; }
+#detail { max-width: 560px; max-height: 160px; overflow: auto; margin: -12px 0 0; padding: 10px 12px; border: 1px solid currentColor; border-radius: 8px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; text-align: left; -webkit-app-region: no-drag; user-select: text; }
+#detail[hidden] { display: none; }
+body.error #message { color: #b3261e; }
+@media (prefers-color-scheme: dark) { body.error #message { color: #ff8a80; } }
+
+/* J.A.R.V.I.S. Daredevil (loading.js): large yellow type on black, a plain ring for the orb; no motion. */
+body.daredevil { --bg: #000000; --ink: #ffff00; font-size: 26px; }
+body.daredevil p { max-width: 640px; line-height: 1.45; }
+body.daredevil .orb { width: 140px; height: 140px; background: #000; border: 10px solid #ffff00; box-shadow: none; animation: none; }
+body.daredevil #note { font-size: 20px; opacity: 1; }
+body.daredevil.error #message { color: #ffff00; }
+body.daredevil #detail { font-size: 16px; color: #ffff00; background: #000; }

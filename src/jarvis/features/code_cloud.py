@@ -1,4 +1,4 @@
-"""Jarvis Code in the cloud: sessions that keep working while the Mac sleeps, is shut or is
+"""Eden Code in the cloud: sessions that keep working while the Mac sleeps, is shut or is
 off. Built on the hand-offs (features/code_handoff.py): the owner's cloud machine is one of
 the Machines there (an SSH host; Settings' default alias "jarvis-cloud", a small Google Cloud
 server with git, tmux and the Claude Code CLI signed in to the owner's own Claude account).
@@ -45,7 +45,7 @@ ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 register_feature_pref(PREF_MACHINE, DEFAULT_MACHINE, lambda v: v if ALIAS.match(str(v)) else None)
 
 PROMPT = (
-    "\n- Jarvis Code in the cloud: the owner has a cloud machine where Jarvis Code sessions "
+    "\n- Eden Code in the cloud: the owner has a cloud machine where Eden Code sessions "
     "keep working while the Mac is asleep or shut. When they say they're heading out, "
     "closing the laptop, or want sessions to keep going without the Mac, call "
     "move_sessions_to_cloud (one card asks). To start new work there, start_session_in_cloud."
@@ -85,7 +85,7 @@ class Cloud:
             machine=alias,
             ready=bool(machine is not None and machine.ok),
             problem=(machine.problem if machine is not None else "")
-            or ("" if alias else "No cloud machine added in Jarvis Code settings › Machines."),
+            or ("" if alias else "No cloud machine added in Eden Code settings › Machines."),
         )
 
     def tr(self, text: str) -> str:
@@ -105,7 +105,7 @@ class Cloud:
         if not alias:
             self.hub.emit(
                 "error",
-                text=self.tr("Add a cloud machine in Jarvis Code settings › Machines first."),
+                text=self.tr("Add a cloud machine in Eden Code settings › Machines first."),
             )
             return None
         tm = self.hub.tasks
@@ -155,12 +155,12 @@ class Cloud:
         """Every working session moved to the cloud machine, after one card."""
         alias = self.alias()
         if not alias:
-            return "Add a cloud machine in Jarvis Code settings › Machines first."
+            return "Add a cloud machine in Eden Code settings › Machines first."
         if self._moving:
             return "Already moving them."
         working = self.working()
         if not working:
-            return "No Jarvis Code session is working right now, so there's nothing to move."
+            return "No Eden Code session is working right now, so there's nothing to move."
         movable = [t for t in working if (t.workspace or {}).get("slug")]
         stuck = [t for t in working if t not in movable]
         if not movable:
@@ -223,7 +223,7 @@ class Cloud:
 
     async def cmd_away(self, _msg: dict[str, Any]) -> None:
         said = await self.away()
-        self.hub.emit("toast", title=self.tr("Jarvis Code"), text=self.tr(said))
+        self.hub.emit("toast", title=self.tr("Eden Code"), text=self.tr(said))
 
     # ── by voice ──
 
@@ -235,7 +235,7 @@ class Cloud:
 
         @tool(
             "move_sessions_to_cloud",
-            "Move every Jarvis Code session that's working to the owner's cloud machine so it "
+            "Move every Eden Code session that's working to the owner's cloud machine so it "
             'keeps going while the Mac sleeps or is shut ("I\'m heading out", "I\'m closing '
             'the laptop", "keep them going without the Mac"). One card asks first.',
             {"type": "object", "properties": {}},
@@ -245,7 +245,7 @@ class Cloud:
 
         @tool(
             "start_session_in_cloud",
-            "Start a new Jarvis Code session on the owner's cloud machine, where it keeps "
+            "Start a new Eden Code session on the owner's cloud machine, where it keeps "
             "working while the Mac is asleep. prompt: what to do. project: the project's folder "
             "or name (default: the latest session's).",
             {
@@ -263,7 +263,7 @@ class Cloud:
             if not prompt or not project:
                 return text("Say what to do, and in which project.")
             if not cloud.alias():
-                return text("Add a cloud machine in Jarvis Code settings › Machines first.")
+                return text("Add a cloud machine in Eden Code settings › Machines first.")
             await cloud.task_new(
                 {"type": "task_new", "cloud": True, "prompt": prompt, "directory": project}
             )

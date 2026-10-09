@@ -1,4 +1,4 @@
-"""The Jarvis Code composer's mic: what the user says is typed into the text box, never
+"""The Eden Code composer's mic: what the user says is typed into the text box, never
 asked; with hands-free on, its next utterance is the dictation."""
 
 import numpy as np

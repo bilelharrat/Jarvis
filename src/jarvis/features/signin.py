@@ -1,6 +1,6 @@
 """Setup's Claude step: signing JARVIS in with the user's own Anthropic API key.
 
-JARVIS and Jarvis Code run on Claude Code, which signs in with a Claude account (`claude auth
+JARVIS and Eden Code run on Claude Code, which signs in with a Claude account (`claude auth
 login`). The app people download can't offer that: Anthropic's terms don't let another
 product sign its users in with their claude.ai subscription. Its way in is the user's own
 Anthropic API key (console.anthropic.com › API keys), billed to their API account.

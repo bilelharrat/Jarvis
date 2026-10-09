@@ -1,4 +1,4 @@
-/* Jarvis Code's project search (features/code-search.js), in the Files pane beside the file
+/* Eden Code's project search (features/code-search.js), in the Files pane beside the file
    list: the editor's find controls, then the matches by file. */
 
 .cs-root { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1; }

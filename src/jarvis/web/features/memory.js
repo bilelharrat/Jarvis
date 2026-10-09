@@ -28,7 +28,7 @@
   const QUOTED = new Set(['said', 'noticed', 'proposed', 'dream']);
   const FORGET_SOURCES = [
     ['conversations', 'Conversations'], ['settings', 'Settings'], ['suggestions', 'Suggestions you approved'],
-    ['dream diary', 'The Dream diary'], ['chatgpt', 'The ChatGPT import'], ['jarvis code', 'The Jarvis Code import'],
+    ['dream diary', 'The Dream diary'], ['chatgpt', 'The ChatGPT import'], ['eden code', 'The Eden Code import'], ['jarvis code', 'The Eden Code import'],
     ['pasted', 'A pasted list'], ['synced', 'Synced from your iPhone'], ['before', 'From before Jarvis kept track'],
   ];
   const TABS = [['facts', 'Facts'], ['suggested', 'Suggested'], ['about', 'About you'], ['intents', 'When… then…'], ['people', 'People'], ['promises', 'Promises'], ['journal', 'Journal'], ['import', 'Import']];
@@ -223,7 +223,7 @@
     const open = (st.promises || []).filter((p) => p.status === 'open').length;
     set('promises', open ? countLine(open, '1 open', '{n} open') : (feature('memory_commitments', false) ? 'Nothing open' : 'Not tracking'));
     set('journal', feature('memory_journal', true) ? 'Every evening' : 'Off');
-    set('import', 'From ChatGPT, Jarvis Code or a list');
+    set('import', 'From ChatGPT, Eden Code or a list');
     renderLearning();
   }
 
@@ -914,7 +914,7 @@
     });
     gpt.append(file, button('Choose the export…', 'btn mem-small', () => file.click()));
     const claude = el('div', 'mem-import');
-    claude.append(el('strong', '', 'Jarvis Code’s memory file'), el('small', '', 'Reads ~/.claude/CLAUDE.md once, now. It’s never changed.'), button('Read it', 'btn mem-small', () => send({ type: 'memory_import', kind: 'claude' })));
+    claude.append(el('strong', '', 'Eden Code’s memory file'), el('small', '', 'Reads ~/.claude/CLAUDE.md once, now. It’s never changed.'), button('Read it', 'btn mem-small', () => send({ type: 'memory_import', kind: 'claude' })));
     const paste = el('div', 'mem-import');
     const area = el('textarea');
     area.rows = 5;

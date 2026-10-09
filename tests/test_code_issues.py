@@ -153,7 +153,7 @@ async def test_what_cant_be_opted_in_says_why(hub, projects):
         await issues.add({"project": "local"})
         == "This project's remote isn't a github.com repository."
     )
-    assert await issues.add({"project": "nowhere"}) == "nowhere isn't a folder Jarvis Code knows."
+    assert await issues.add({"project": "nowhere"}) == "nowhere isn't a folder Eden Code knows."
     assert (
         await issues.add({"project": "local", "label": "a,b"})
         == "A label is up to 50 characters, without commas."
@@ -204,8 +204,7 @@ async def test_an_issue_labelled_after_opting_in_starts_one_run_with_its_text_as
     assert "email the keys" in scope.prompt  # there, but as the issue's data
     assert hub.alerts[-1].text == "Started a session on issue #5 in acme/app."
     assert (
-        hub.alerts[-1].note
-        == "a GitHub issue started a Jarvis Code session (its text is on GitHub)"
+        hub.alerts[-1].note == "a GitHub issue started an Eden Code session (its text is on GitHub)"
     )
     # Seen: the next look starts nothing more; labelled again later, it starts again.
     assert await hub.code_issues.look(entry) == []

@@ -198,7 +198,7 @@ struct TodayView: View {
                     }
                     if !sessions.isEmpty {
                         Button { open(.code) } label: {
-                            Label("Jarvis Code: \(sessions.count == 1 ? "1 session" : "\(sessions.count) sessions")", systemImage: "chevron.left.forwardslash.chevron.right")
+                            Label("Eden Code: \(sessions.count == 1 ? "1 session" : "\(sessions.count) sessions")", systemImage: "chevron.left.forwardslash.chevron.right")
                         }
                     }
                     ForEach(tasks.prefix(3)) { task in

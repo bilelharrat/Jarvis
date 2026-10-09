@@ -60,7 +60,7 @@
     "Add rule": "添加规则",
     "No email rules yet.": "还没有邮件规则。",
     "Check-ins": "定时检查",
-    "Every 30 or 60 minutes in your active hours, I look over your checklist, your calendar, the texts and emails waiting, Jarvis Code and your timers on my own, and speak up only when something needs you. Haiku, at most 24 a day, and none when nothing has changed.": "在你的活跃时段里，每30或60分钟我会自己看一遍你的清单、日历、待读的短信和邮件、Jarvis Code 和计时器，只在有事需要你时才开口。用 Haiku，每天最多24次，没有变化时不检查。",
+    "Every 30 or 60 minutes in your active hours, I look over your checklist, your calendar, the texts and emails waiting, Eden Code and your timers on my own, and speak up only when something needs you. Haiku, at most 24 a day, and none when nothing has changed.": "在你的活跃时段里，每30或60分钟我会自己看一遍你的清单、日历、待读的短信和邮件、Eden Code 和计时器，只在有事需要你时才开口。用 Haiku，每天最多24次，没有变化时不检查。",
     "Check in on my own": "自动定时检查",
     "Every": "间隔",
     "30 minutes": "30分钟",
@@ -236,12 +236,12 @@
       "“$1”结束"
     ],
     [
-      "^Jarvis Code finished in (.+)$",
-      "Jarvis Code 在$1完成了"
+      "^Eden Code finished in (.+)$",
+      "Eden Code 在$1完成了"
     ],
     [
-      "^Jarvis Code failed in (.+)$",
-      "Jarvis Code 在$1失败了"
+      "^Eden Code failed in (.+)$",
+      "Eden Code 在$1失败了"
     ],
     [
       "^exit (\\d+)$",

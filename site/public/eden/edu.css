@@ -1,0 +1,59 @@
+/* Eden for Education's own page (edu.html, edu-app.js), in Eden's frame: app.css gives #app,
+   #sidebar.glass, #titlebar.glass, .sitem, .msg/.bubble, .sugg, the .jc composer; this adds only
+   what Education has of its own. The course screens are courses.css. */
+body.edu{overflow:hidden}
+
+/* sidebar */
+.edu-side-head{display:flex;align-items:center;gap:10px;padding:14px 14px 6px;font-size:14px}
+.edu-side-head .grow{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.edu-side-head b{font-weight:650}
+.edu-side-head span{color:var(--text2)}
+.edu-logo{flex:none;width:26px;height:26px;border-radius:26%;background:url("edu-logo.svg") center/cover no-repeat;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.12)}
+.edu-logo.lg{width:56px;height:56px;margin:0 auto 16px;display:block}
+.edu-sec-items{display:flex;flex-direction:column;gap:1px}
+#eduSide a.sitem{text-decoration:none}
+.edu-mini{--h:212;flex:none;width:20px;height:20px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:8.5px;font-weight:800;letter-spacing:-.2px;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 70% 52%),hsl(calc(var(--h) + 25) 65% 40%))}
+.edu-open{font-size:11px;color:var(--text3);text-decoration:none}
+.edu-open:hover{color:var(--accent)}
+
+/* title bar */
+.edu-tb-logo{display:none}
+.edu-tb-badge{display:inline-flex;align-items:center;gap:4px;flex:none;padding:3px 8px;border-radius:20px;background:var(--crs-green-soft);color:var(--crs-green);font-size:11px;font-weight:600}
+.edu-tb-badge[hidden]{display:none}
+.edu-tb-acts{display:flex;align-items:center;gap:2px}
+#eduMenu{display:flex}
+
+/* the view under the title bar: transparent over Eden's wash, like the transcript */
+.edu-view{flex:1;min-height:0;overflow-y:auto;border-radius:var(--r-lg)}
+body.edu-in-chat .edu-view{overflow:hidden}
+.edu-view>.crs-root{padding-top:14px}
+
+/* a study chat: Eden's transcript and composer */
+.edu-chat{display:flex;flex-direction:column;height:100%;gap:10px}
+.edu-scroll{flex:1;min-height:0;overflow-y:auto;padding:4px 4px 20px}
+.edu-transcript{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:18px;padding:4px 8px}
+.edu-empty{max-width:640px;margin:8vh auto 0;text-align:center;padding:0 12px}
+.edu-empty h1{font-size:28px;line-height:34px;font-weight:700;letter-spacing:-.4px}
+.edu-empty p.lead{font-size:15px;color:var(--text2);margin-top:8px}
+.edu-meta{font-size:11.5px;color:var(--text3);margin:6px 0 0 4px}
+.msg.assistant .bubble .crs-ground{margin-top:12px}
+.edu-fine{margin:7px 0 2px;text-align:center;font-size:11px;color:var(--text3)}
+
+/* a phone: the sidebar is a sheet from the left; the title bar's button opens it */
+@media (max-width:760px){
+  #app{padding:max(8px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom));gap:8px}
+  #sidebar{position:fixed;z-index:60;top:max(8px,env(safe-area-inset-top));bottom:8px;left:8px;width:min(300px,84vw);transform:translateX(calc(-100% - 16px));transition:transform .38s var(--spring)}
+  body.edu-side-open #sidebar{transform:none}
+  #eduMenu{display:flex}
+  .edu-tb-logo{display:block;width:22px;height:22px;flex:none;border-radius:26%;background:url("edu-logo.svg") center/cover no-repeat;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.12),0 1px 3px rgba(0,0,0,.12)}
+  .edu-view>.crs-root{padding:12px 6px 28px}
+}
+.edu-scrim{position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.25)}
+.edu-scrim[hidden]{display:none}
+.bubble.edu-set{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.edu-set-ic{flex:none;width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:var(--crs-green-soft);color:var(--crs-green)}
+.edu-set-txt{flex:1;min-width:160px;display:flex;flex-direction:column;gap:2px}
+.edu-set-txt .muted{font-size:12.5px;color:var(--text2)}
+/* a phone never keeps the desktop's folded sidebar (it's a sheet there) */
+@media (max-width:760px){#sidebar.closed{width:min(300px,84vw);margin-right:0;opacity:1;visibility:visible;pointer-events:auto}}
+@media (max-width:1100px) and (min-width:761px){#sidebar:not(.expanded) .edu-side-head .grow{display:none}#sidebar:not(.expanded) .edu-side-head{justify-content:center;padding:14px 0 6px}}

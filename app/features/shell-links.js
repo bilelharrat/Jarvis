@@ -3,7 +3,7 @@
 //
 // Any web page or app can open a jarvis:// link, so a link only ever shows JARVIS: it fills
 // in the request box (never sends it: the owner presses Return), opens a panel, or opens a
-// Jarvis Code project. Everything in one is checked and capped here. The one exception is the
+// Eden Code project. Everything in one is checked and capped here. The one exception is the
 // owner's own click on "Ask JARVIS" in the Services menu: its Quick Action carries this Mac's
 // key (key=, written only into ~/Library/Services, never known to a web page), and that
 // request is sent at once unless the owner asked to confirm first (Settings).

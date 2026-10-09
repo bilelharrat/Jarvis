@@ -1,4 +1,4 @@
-"""Jarvis Code builds from a design: the owner drops a screenshot of a design into a session
+"""Eden Code builds from a design: the owner drops a screenshot of a design into a session
 with "build this" (or uses "Match a design…" in the More menu), the session builds it, and
 then the page is compared with the design.
 

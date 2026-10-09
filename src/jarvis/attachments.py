@@ -87,7 +87,12 @@ def check(
     found: list[Path] = []
     for value in wanted:
         path: Path | None = None
-        looks_like_path = value.startswith(("/", "~")) or "/" in value
+        looks_like_path = (
+            value.startswith(("/", "~"))
+            or "/" in value
+            or "\\" in value
+            or bool(re.match(r"[A-Za-z]:", value))
+        )  # (a Windows path has a drive and backslashes)
         if looks_like_path:
             try:
                 path = Path(value).expanduser().resolve()

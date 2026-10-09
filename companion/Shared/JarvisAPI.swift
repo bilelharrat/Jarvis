@@ -232,7 +232,7 @@ struct JarvisAPI: Sendable {
         ], timeout: 10)
     }
 
-    // MARK: - Jarvis Code
+    // MARK: - Eden Code
 
     func codeSessions() async throws -> [CodeSession] {
         try decode(CodeSessionList.self, from: await send("api/code/sessions", timeout: 10)).sessions
@@ -425,7 +425,7 @@ struct JarvisAPI: Sendable {
 
     // MARK: - Plumbing
 
-    /// Any call, for the iPhone's own screens (Jarvis Code's): a GET, or a POST with a body.
+    /// Any call, for the iPhone's own screens (Eden Code's): a GET, or a POST with a body.
     func request(
         _ path: String, query: [URLQueryItem] = [], body: Data? = nil, timeout: TimeInterval, headers: [String: String] = [:]
     ) async throws -> Data {

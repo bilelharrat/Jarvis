@@ -1,4 +1,4 @@
-// Jarvis Code's video proof (features/code_video.py): the recording, asked of the app
+// Eden Code's video proof (features/code_video.py): the recording, asked of the app
 // (app/features/video-proof.js) through this window; each one in the transcript as a poster
 // frame that plays it; "Record a video proof" in the More menu. Its per-project switch is in
 // Settings › Projects (code-sessions.js).

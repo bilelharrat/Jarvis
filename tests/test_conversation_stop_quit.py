@@ -2,7 +2,7 @@
 (tests/test_stress_r2_conversation.py has those): the owner's own words tried again stay
 theirs while a forwarded message or a request from before a restart doesn't become theirs,
 Stop before Claude has a request keeps the notes it was to carry and lets a queued request
-take over, Stop answers the turn's cards but not a Jarvis Code session's, reconnects before
+take over, Stop answers the turn's cards but not an Eden Code session's, reconnects before
 a new conversation's first reply, what's kept at quit (nothing of an incognito conversation),
 a tool's reads kept as they come, and a past conversation never branched into incognito.
 Claude Code's records are fakes and every store is in a temp folder: never the owner's."""
@@ -322,7 +322,7 @@ async def test_stop_says_no_to_the_turns_own_card_but_not_a_code_sessions(
     settings, quiet_speaker, isolated
 ):
     """A card Claude's turn put up is answered "no" by Stop (a yes pressed after it lets
-    nothing go); a Jarvis Code session's card, up at the same time, stays for the owner."""
+    nothing go); an Eden Code session's card, up at the same time, stays for the owner."""
     asked = asyncio.Event()
 
     class Client(FakeClient):

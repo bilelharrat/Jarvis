@@ -1,4 +1,4 @@
-// Jarvis Code's best of N (features/code_bestof.py): one request, two or three models or
+// Eden Code's best of N (features/code_bestof.py): one request, two or three models or
 // efforts at once, each in its own isolated copy; then side by side (what each changed, the
 // project's tests when a command is given, a short judgment) and "Keep this one".
 (() => {

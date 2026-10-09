@@ -1,6 +1,6 @@
-"""Models & API keys: other AI models for Jarvis Code, on the owner's own keys.
+"""Models & API keys: other AI models for Eden Code, on the owner's own keys.
 
-Jarvis Code sessions are Claude Code, which runs on the owner's Claude sign-in. Claude
+Eden Code sessions are Claude Code, which runs on the owner's Claude sign-in. Claude
 Code can also talk to any endpoint that speaks Anthropic's Messages API, so the owner can
 bring their own keys: their Anthropic API key (Claude, billed to the API account instead
 of the plan), OpenRouter (GPT, Gemini, Grok, DeepSeek and hundreds more behind one key),
@@ -1168,7 +1168,7 @@ class ProviderStore:
     ) -> bool:
         """The starters a Gemini key brought before the numbers showed (still "Gemini
         Flash" on gemini-flash-latest) become the numbered models Google lists, in place:
-        the same entry, so whatever picked it (a session, the fallback, Jarvis Code's
+        the same entry, so whatever picked it (a session, the fallback, Eden Code's
         default) keeps it. One renamed by hand, or whose numbered model is on the list
         already, stays as it is. Google is asked only while there's one to number. True
         when one changed (and the list was saved)."""
@@ -1751,7 +1751,7 @@ GEMINI_PAGES = 5  # pages of Google's model list read, a thousand models each
 async def _gemini_models(
     client: httpx.AsyncClient, key: str, provider: Provider
 ) -> list[dict[str, Any]] | None:
-    """The Gemini models this key can run JARVIS and Jarvis Code on, from Google's own list
+    """The Gemini models this key can run JARVIS and Eden Code on, from Google's own list
     (the Gemini API's; Vertex AI express keys can't list), in _gemini_rank's order, Pro
     before Flash before Flash-Lite within a version. None when Google wouldn't say."""
     from .gemini_proxy import GEMINI_API
@@ -1936,7 +1936,7 @@ def build_tools(
 
     @tool(
         "list_ai_models",
-        "The AI models Jarvis Code sessions can run on: Claude on the owner's own sign-in, "
+        "The AI models Eden Code sessions can run on: Claude on the owner's own sign-in, "
         "and any the owner added with their own API keys (their Anthropic key, OpenRouter, "
         "or a custom endpoint), each with the ref that picks it.",
         {},
@@ -1946,7 +1946,7 @@ def build_tools(
 
     @tool(
         "add_ai_model",
-        "Add a model to an added provider's list so Jarvis Code can use it. provider: its "
+        "Add a model to an added provider's list so Eden Code can use it. provider: its "
         "name (e.g. OpenRouter); model: the id the provider uses, e.g. openai/gpt-5, "
         "google/gemini-2.5-pro, x-ai/grok-4, deepseek/deepseek-r1; label: optional display "
         "name. New providers and keys are only added by the owner in Settings › Models.",
@@ -1970,7 +1970,7 @@ def build_tools(
             )
         except ValueError as exc:
             return _text(str(exc), error=True)
-        question = f"Add {_named(model, label)} from {provider.name} to Jarvis Code's models?"
+        question = f"Add {_named(model, label)} from {provider.name} to Eden Code's models?"
         if not await gate("models", question):
             return _text("The user didn't want that model added.", error=True)
         try:
@@ -1982,7 +1982,7 @@ def build_tools(
 
     @tool(
         "remove_ai_model",
-        "Take an added model off Jarvis Code's list, by its ref, its id or its label. The "
+        "Take an added model off Eden Code's list, by its ref, its id or its label. The "
         "built-in Claude models always stay.",
         {"model": str},
     )
@@ -2002,7 +2002,7 @@ def build_tools(
         entry = found[0]
         name = store.describe(CUSTOM + entry.id)
         where = store.providers[entry.provider].name
-        question = f"Take {_named(entry.model, entry.label)} from {where} off Jarvis Code's models?"
+        question = f"Take {_named(entry.model, entry.label)} from {where} off Eden Code's models?"
         if not await gate("models", question):
             return _text("The user said no.", error=True)
         try:
@@ -2045,7 +2045,7 @@ def build_server(
 
 
 PROMPT = (
-    "\n- Models: Jarvis Code sessions run on Claude through the owner's own sign-in (Opus, "
+    "\n- Models: Eden Code sessions run on Claude through the owner's own sign-in (Opus, "
     "Sonnet, Haiku, Fable), or on models the owner added in Settings › Models with their own "
     "API keys: their Anthropic key, OpenRouter (GPT, Gemini, Grok, DeepSeek and more) or a "
     "custom endpoint. list_ai_models lists them with the refs that pick them; add_ai_model and "

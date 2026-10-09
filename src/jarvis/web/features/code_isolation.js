@@ -1,8 +1,8 @@
-// Jarvis Code's isolated copies (features/code_isolation.py): the composer's "Isolated
+// Eden Code's isolated copies (features/code_isolation.py): the composer's "Isolated
 // copy" switch for a new session (on by default when Settings says so, and offered, on,
 // when another session is at work in the project), the badge on an isolated session's
 // header, the Copies pane (land, discard, open, bring back; each project's .env and
-// dependency options) and the default in Jarvis Code's settings.
+// dependency options) and the default in Eden Code's settings.
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
@@ -10,7 +10,7 @@
   const byId = (id) => document.getElementById(id);
   const state = {
     features: {}, // prefs.features
-    tasks: [], // the Jarvis Code sessions, as the hub lists them
+    tasks: [], // the Eden Code sessions, as the hub lists them
     copies: [],
     trash: [],
     root: '',
@@ -208,7 +208,7 @@
   });
   F.registerMoreItem({ label: 'Isolated copies', run: () => F.openPane('copies') });
 
-  // ── Jarvis Code settings: the default ──
+  // ── Eden Code settings: the default ──
 
   const settingsSwitch = el('button', 'jcs-switch');
   settingsSwitch.type = 'button';

@@ -1,4 +1,4 @@
-// Jarvis Code builds from a design (features/code_design.py): "Match a design…" in the More
+// Eden Code builds from a design (features/code_design.py): "Match a design…" in the More
 // menu (or a picture sent with "build this"), each comparison in the transcript (the design
 // and the page side by side, an overlay with a slider, a heat-map of where they differ, the
 // score and how it has moved), and Refine, one round per press. The page is rendered and
@@ -118,7 +118,7 @@
   });
   F.registerMoreItem({
     label: 'Match a design…',
-    note: 'Jarvis Code builds it, then compares the page with your picture',
+    note: 'Eden Code builds it, then compares the page with your picture',
     when: (task) => !!task,
     run: () => picker.click(),
   });
@@ -290,7 +290,7 @@
     if (e.status === 'compared') return compared(e);
     const li = el('li', `dm-card dm-note ${e.status || ''}`);
     if (e.status === 'sent') {
-      li.append(el('span', 'cv-kind', 'Design match'), el('span', '', `Refinement round ${e.refined} of ${e.rounds} sent to Jarvis Code.`));
+      li.append(el('span', 'cv-kind', 'Design match'), el('span', '', `Refinement round ${e.refined} of ${e.rounds} sent to Eden Code.`));
       return li;
     }
     const head = el('div', 'dm-head');

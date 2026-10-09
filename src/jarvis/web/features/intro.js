@@ -46,10 +46,15 @@
     modelChecks: {}, // provider id -> { ok, error }
     knownProviders: null, // provider ids there before a paste
   };
+  // Eden Code's window (app/flavor.js) sets up only what coding needs: Claude, other models
+  // and the developer tools; the voice, the phone and the iPhone are J.A.R.V.I.S.'s.
+  const EDEN = document.body.dataset.app === 'eden-code';
   const HEARD = 0.1; // a level this high is a voice, not the room
   const BARS = 28;
 
-  const SECTIONS = [
+  const SECTIONS = EDEN ? [
+    ['welcome', 'Welcome'], ['claude', 'Claude'], ['accounts', 'Developer tools'], ['models', 'Other AI models'], ['done', 'All set'],
+  ] : [
     ['welcome', 'Welcome'], ['language', 'Language'], ['permissions', 'Permissions'], ['claude', 'Claude'],
     ['try', 'Try it'], ['me', 'Your voice'], ['voice', 'The voice'], ['accounts', 'Accounts'], ['phone', 'Phone calls'],
     ['models', 'Other AI models'], ['companion', 'iPhone & Watch'], ['done', 'All set'],
@@ -62,7 +67,7 @@
   const GROUPS = {
     Work: ['briefcase', 'Your work apps', 'Tasks, issues, docs and messages: Jarvis reads them for you, and asks before it changes anything.'],
     Google: ['mail', 'Google', 'Gmail, Google Calendar and Drive, through Google’s own connectors.'],
-    Developer: ['code', 'Developer tools', 'Code, errors, deployments and data, for Jarvis and Jarvis Code.'],
+    Developer: ['code', 'Developer tools', 'Code, errors, deployments and data, for Jarvis and Eden Code.'],
     Business: ['chart', 'Business tools', 'Customers, payments and deals.'],
     Design: ['pen', 'Design tools', 'Designs, components and brand assets.'],
   };
@@ -222,6 +227,7 @@
 
   function cardIds() {
     const groups = S.connectors ? [...new Set((S.connectors.catalog || []).map((e) => e.category))] : [];
+    if (EDEN) return ['welcome', 'claude', ...(groups.includes('Developer') ? ['accounts:Developer'] : []), 'models', 'done'];
     return ['welcome', 'language', 'mic', 'permissions', 'claude', 'talk', 'wake', 'clap',
       ...(S.voiceId && S.voiceId.configured === false ? [] : ['voice-id']), 'voice',
       ...(groups.length ? groups.map((g) => `accounts:${g}`) : ['accounts:']),
@@ -250,6 +256,15 @@
   // What each card shows: { visual, title, lead, body: [nodes], ok, primary, later, skipTo }.
   function spec(id) {
     const p = S.prefs || {};
+    if (id === 'welcome' && EDEN) {
+      const mark = el('div', 'intro-eden-mark');
+      mark.setAttribute('aria-hidden', 'true');
+      return {
+        visual: mark, title: 'Welcome to Eden Code.', primary: 'Get started',
+        lead: 'Plan, build and fix in your own projects: it edits, runs and explains, and asks before anything risky.',
+        body: [para('Sign in to Claude and you’re ready. The rest is optional, and stays in Settings.', 'intro-note intro-center')],
+      };
+    }
     if (id === 'welcome') {
       return {
         visual: orb(false), title: 'Hello. I’m Jarvis.', primary: 'Get started',
@@ -311,7 +326,7 @@
     }
     // done
     const list = el('ul', 'intro-try-list');
-    for (const said of ['“Jarvis, what’s on my calendar today?”', '“Jarvis, brief me.”', '“Jarvis, remind me at 5 to call Sam.”', '“Jarvis, open Jarvis Code.”', '“Jarvis, run a checkup.”']) list.append(el('li', '', said));
+    for (const said of ['“Jarvis, what’s on my calendar today?”', '“Jarvis, brief me.”', '“Jarvis, remind me at 5 to call Sam.”', '“Jarvis, open Eden Code.”', '“Jarvis, run a checkup.”']) list.append(el('li', '', said));
     return {
       visual: orb(false), ok: true, title: 'You’re all set', primary: 'Start using Jarvis',
       lead: 'A few things to try:',

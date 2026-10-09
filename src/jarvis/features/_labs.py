@@ -1,8 +1,8 @@
-"""Labs: half-finished Jarvis Code surfaces, off until the owner turns them on.
+"""Labs: half-finished Eden Code surfaces, off until the owner turns them on.
 
 Polish comes before breadth: a surface that isn't finished is kept out of the way rather than
 shown half-working. Each Labs module is neither installed nor has its window files loaded
-unless it's on in Settings › Jarvis Code › Labs (prefs.features["labs"], a list of names);
+unless it's on in Settings › Eden Code › Labs (prefs.features["labs"], a list of names);
 a change takes effect at the next start. JARVIS_LABS=all (the tests, a developer) turns every
 one on.
 

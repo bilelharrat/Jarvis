@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import fcntl
 import glob
 import hashlib
 import itertools
@@ -36,7 +35,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from .. import mac_tools, messaging, prefs
+from .. import mac_tools, messaging, osplat, prefs
 
 log = logging.getLogger(__name__)
 
@@ -742,7 +741,7 @@ class WhatsApp:
         self.folder.mkdir(parents=True, exist_ok=True)
         fd = os.open(self.folder / "bridge.lock", os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            osplat.lock_file(fd)
         except OSError:
             os.close(fd)
             return False
@@ -752,7 +751,7 @@ class WhatsApp:
     def _release_lock(self) -> None:
         if self._lock_fd is not None:
             with contextlib.suppress(OSError):
-                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                osplat.unlock_file(self._lock_fd)
                 os.close(self._lock_fd)
             self._lock_fd = None
 

@@ -1,4 +1,4 @@
-"""Jarvis Code's window commands with hostile values in them log no traceback: a number that
+"""Eden Code's window commands with hostile values in them log no traceback: a number that
 isn't one (infinity, NaN, null, words, a list, an object) names no session, as hub._msg_int
 reads one, and a folder or file path no folder can have (a NUL in it, longer than macOS
 opens, a name longer than a name can be) is refused before pathlib raises on it, as any

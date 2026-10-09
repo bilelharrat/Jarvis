@@ -1,4 +1,4 @@
-"""A PDF open in the built-in browser, read for JARVIS and Jarvis Code (browser_read).
+"""A PDF open in the built-in browser, read for JARVIS and Eden Code (browser_read).
 
 The app fetches the PDF through the tab's own session, so one behind a sign-in reads too
 (app/browser-parity.js pdfRead), and sends its bytes with the read's answer. Its words come

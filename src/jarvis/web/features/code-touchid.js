@@ -1,9 +1,9 @@
-// Touch ID for Jarvis Code's riskiest moments (jarvisFeatures.registerCheck): a session
+// Touch ID for Eden Code's riskiest moments (jarvisFeatures.registerCheck): a session
 // switched into Bypass permissions, new sessions set to start in it, and a step allowed from
 // its card that deletes, pushes, publishes, runs as root or edits outside the project. The
 // app asks for the owner's fingerprint (app/features/touchid.js: macOS's own sheet, with the
 // app's own words); where there's no Touch ID (or outside the app) the usual question asks
-// instead. Its switch is in Jarvis Code settings › General (feature pref code_touchid).
+// instead. Its switch is in Eden Code settings › General (feature pref code_touchid).
 //
 // Answers given by voice, on the phone or from a notification are the owner's own there and
 // go as they did. Pure helpers are exported for node --test (tests/web/code-touchid.test.mjs).
@@ -33,7 +33,7 @@
     return RISKY.some((re) => re.test(text));
   }
 
-  // Whether allowing this Jarvis Code approval is a risky step (only a session's steps, and
+  // Whether allowing this Eden Code approval is a risky step (only a session's steps, and
   // only a yes: a no is never held up).
   function risky(approval, choice) {
     const a = approval || {};
@@ -78,7 +78,7 @@
     return null;
   });
 
-  // Jarvis Code settings › General: its switch, in a Safety group of its own.
+  // Eden Code settings › General: its switch, in a Safety group of its own.
   let sw = null;
   function build() {
     const general = document.getElementById('jcs-general');

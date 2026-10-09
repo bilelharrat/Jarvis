@@ -4,12 +4,19 @@
 // subjects and tool output are data and must never become markup.
 
 const $ = (id) => document.getElementById(id);
+// ⌘ on a Mac is Ctrl on Windows: the window's shortcuts ask for "the command key" through cmd().
+// other() is then the modifier that isn't it (Ctrl on a Mac, the Windows key elsewhere).
+const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform);
+const cmd = (e) => (IS_MAC ? e.metaKey : e.ctrlKey);
+const other = (e) => (IS_MAC ? e.ctrlKey : e.metaKey);
+// Screen-reader mode (features/accessibility.js): the page is arranged for a screen reader.
+const srMode = () => document.documentElement.dataset.sr === '1';
 const token = new URLSearchParams(location.search).get('token') || '';
 const app = window.jarvisApp || null;
 if (app) document.body.classList.add('in-app');
 
 // Split view's right pane (features/code-split.js): this window again, in a frame of the main
-// one (?pane=code), showing one Jarvis Code session. What a window does for the hub (the
+// one (?pane=code), showing one Eden Code session. What a window does for the hub (the
 // built-in browser, PDFs, location, page checks, notifications, the second brain) stays the
 // main window's: the pane drops the hub's asks for it and never answers one, and what's risky
 // is checked by the main window (its Touch ID).
@@ -25,13 +32,51 @@ const SPLIT_PANE_QUIET = new Set([
   'dm_render_result', 'vp_result', 'code_voice_pointed', 'code_voice_hand', 'galaxy',
 ]);
 
+// Eden Code's own window (app/flavor.js; the server marks the page, server.eden_code_page):
+// this page with Eden Code alone and always open, in Ask Eden's look (eden-code.css). Voice
+// coding works when asked for (its buttons); what's only the assistant's (the galaxy, hands on
+// the whole Mac, typing into other apps, the window's panels by voice) isn't its own. It does a
+// window's jobs for the hub (the built-in browser, PDFs, page checks) while no J.A.R.V.I.S.
+// window is open on the same backend (hub.window_joined); with one open, that window does them.
+const inEdenCode = !inSplitPane && document.body.dataset.app === 'eden-code';
+const EDEN_CODE_SKIPS = new Set(['ui', 'desktop_hands', 'remote_code', 'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed']);
+const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture']);
+let jarvisWindows = 0;  // J.A.R.V.I.S. windows on this backend (hello.app_windows, app_windows)
+const edenDefers = () => inEdenCode && jarvisWindows > 0;
+
+// The keys that talk and ask what's on screen, as this computer writes them (the app's shell feature
+// puts in the ones chosen in Settings, in the same style, once the app has answered).
+const KEYS = IS_MAC ? { talk: '⌥ Space', whats: '⌥⇧ Space' } : { talk: 'Ctrl+Alt+J', whats: 'Alt+Shift+Space' };
+
 const STATE_LINES = {
-  idle: 'Tap the orb or press ⌥ Space',
+  idle: `Tap the orb or press ${KEYS.talk}`,
   listening: 'Listening…',
   transcribing: 'One moment…',
   thinking: 'Thinking…',
   speaking: 'Speaking · tap the orb to stop',
 };
+
+// The page's own words are a Mac's (⌥ Space): on a PC it says its keys from the first moment, before the
+// backend has said anything (that is what a screen reader meets first).
+if (!IS_MAC) {
+  const idleLine = document.getElementById('state-line');
+  if (idleLine) idleLine.textContent = STATE_LINES.idle;
+  const hintLine = document.getElementById('hint');
+  if (hintLine) {
+    const kbd = (text) => Object.assign(document.createElement('kbd'), { textContent: text });
+    hintLine.replaceChildren(kbd(KEYS.talk), ' talk ', kbd(KEYS.whats), ' what’s this?');
+  }
+}
+
+// What the hint shows now: the keys the shell feature has from the app (chosen in Settings), or this
+// computer's defaults until it has.
+function hintKeys() {
+  const shell = window.jarvisShell;
+  return {
+    talk: (shell && shell.askLabel && shell.askLabel()) || KEYS.talk,
+    whats: (shell && shell.whatsThisLabel && shell.whatsThisLabel()) || KEYS.whats,
+  };
+}
 
 let ws = null;
 let retry = 0;
@@ -55,9 +100,16 @@ galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 // Every event the hub sends is numbered (seq). Reconnecting, the window says the last it
 // had, and from which backend: it gets the snapshot, then the session events it missed.
 let lastSeq = 0;
-// The window's one Jarvis Code store (code-store.js): every event goes in first, in order.
+// The window's one Eden Code store (code-store.js): every event goes in first, in order.
 const codeStore = window.jarvisCodeStoreApi ? window.jarvisCodeStoreApi.createStore() : null;
 function heard(ev) {
+  if (inEdenCode && ev && (ev.type === 'hello' || ev.type === 'app_windows')) {
+    const before = jarvisWindows;
+    jarvisWindows = Number((ev.type === 'hello' ? ev.app_windows : ev.windows || {})?.jarvis) || 0;
+    // J.A.R.V.I.S. closed: this window takes its jobs back, and says what it can do.
+    if (before > 0 && jarvisWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
+  }
+  if (inEdenCode && ev && (EDEN_CODE_SKIPS.has(ev.type) || (edenDefers() && WINDOW_DUTIES.has(ev.type)))) return;
   if (inSplitPane && ev && SPLIT_PANE_SKIPS.has(ev.type)) return;  // the main window's
   if (ev && ev.type === 'hello') lastSeq = Number(ev.seq) || 0;
   else if (ev && ev.seq > lastSeq) lastSeq = ev.seq;
@@ -83,7 +135,10 @@ function connect() {
     return;
   }
   const resume = hubId ? `&since=${lastSeq}&hub=${encodeURIComponent(hubId)}` : '';
-  ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}${resume}`);
+  // Which app's window this is (server.APPS): a J.A.R.V.I.S. one wakes the voice of a backend
+  // Eden Code started (hub.window_joined). A pane of a split names none: its window has.
+  const appName = app && !inSplitPane ? `&app=${inEdenCode ? 'eden-code' : 'jarvis'}` : '';
+  ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}${resume}${appName}`);
   ws.onopen = () => { retry = 0; $('offline').hidden = true; };
   ws.onmessage = (e) => heard(JSON.parse(e.data));
   ws.onclose = (e) => {
@@ -99,7 +154,7 @@ const MAX_FRAME = 60 * 1024 * 1024;
 // True once the message is on its way. False when there's no connection yet (a restart,
 // the half second of a reconnect) or it's too big to send: the caller keeps the draft.
 function send(msg) {
-  if (inSplitPane && msg && SPLIT_PANE_QUIET.has(msg.type)) return true;  // the main window answers
+  if ((inSplitPane || edenDefers()) && msg && SPLIT_PANE_QUIET.has(msg.type)) return true;  // the main window answers
   if (bridged) {
     if (!bridgeOnline) return false;
     window.parent.postMessage({ jarvisBridge: 'send', msg }, location.origin);
@@ -114,14 +169,14 @@ function send(msg) {
 }
 
 // ── feature modules: web/features/*.js (loaded by features.js, after this file) ──
-// They hear events, add Jarvis Code panes, menu items and composer @ suggestions, and add
+// They hear events, add Eden Code panes, menu items and composer @ suggestions, and add
 // their own settings groups and dock buttons to the page, through window.jarvisFeatures.
 const featureListeners = new Map();  // event type ('*': every event) -> handlers
 const featureLast = new Map();  // the latest event of each type, for a listener added late
-const featurePanes = new Map();  // Jarvis Code pane id -> { title, render(body, task) }
-const featureMoreItems = [];  // Jarvis Code "More" menu items: { label, run, when?(task) }
-const featureMentions = [];  // Jarvis Code composer: (query, textBefore) -> more @ suggestions
-// Jarvis Code / commands: name -> { name, help, run?(arg, task), insert?, needsArg?, withoutSession? }
+const featurePanes = new Map();  // Eden Code pane id -> { title, render(body, task) }
+const featureMoreItems = [];  // Eden Code "More" menu items: { label, run, when?(task) }
+const featureMentions = [];  // Eden Code composer: (query, textBefore) -> more @ suggestions
+// Eden Code / commands: name -> { name, help, run?(arg, task), insert?, needsArg?, withoutSession? }
 // (insert: text the palette puts in the composer, a snippet; run: the command itself).
 const featureSlash = new Map();
 const featureSessionOptions = [];  // (prompt) => fields a new session's task_new carries ({ isolated })
@@ -199,7 +254,7 @@ window.jarvisFeatures = {
     }
   },
   send: (msg) => send(msg),
-  store: codeStore,  // the one Jarvis Code store (code-store.js), fed by this window's socket
+  store: codeStore,  // the one Eden Code store (code-store.js), fed by this window's socket
   t: (text) => (window.jarvisI18n ? window.jarvisI18n.t(text) : String(text)),
   el: (tag, cls, text) => el(tag, cls, text),
   $: (id) => $(id),
@@ -503,17 +558,17 @@ $('ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const sent = askFromBox($('ask-input'));
   if (sent === false) notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
-  if (sent) $('ask-input').blur();
+  if (sent && !srMode()) $('ask-input').blur();
 });
 
 // Controls that answer Space themselves: buttons, links, disclosure rows (every tool row in
-// Jarvis Code is a <summary>), and focusable widgets such as the Markets panel and the
+// Eden Code is a <summary>), and focusable widgets such as the Markets panel and the
 // browser dock's handle. Space on them is theirs, never the microphone.
 const OWN_SPACE = 'button, a[href], summary, select, [role="button"], [role="separator"], [role="switch"], [role="radio"], [role="checkbox"], [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="slider"], [tabindex]:not([tabindex="-1"])';
 
 function spaceTalks(e) {
   const t = e.target;
-  return e.code === 'Space' && !e.repeat && !e.defaultPrevented && !e.isComposing && !e.metaKey && !e.ctrlKey
+  return e.code === 'Space' && !e.repeat && !e.defaultPrevented && !e.isComposing && !e.metaKey && !e.ctrlKey && !srMode()
     && !(t instanceof Element && (t.closest(OWN_SPACE) || t.closest('input, textarea, [contenteditable]:not([contenteditable="false"])') || (t instanceof HTMLElement && t.isContentEditable)))
     && !typingLost();
 }
@@ -537,7 +592,7 @@ document.addEventListener('keydown', (e) => {
   const field = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
   const typing = field || e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLElement && e.target.isContentEditable);
   if (e.key === 'Escape') {
-    if (field) e.target.blur();
+    if (field && !srMode()) e.target.blur();
     if (!$('browser').hidden && !typing) toggleBrowser(false);
     else if (!$('cc').hidden) { if (!jcEscape(e)) toggleCC(false); }
     else if (!$('accounts').hidden) toggleAccounts(false);
@@ -552,7 +607,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (app) app.onSummon(() => { if (state === 'idle') send({ type: 'listen' }); });
-// ⌥⇧Space: with Jarvis Code open on a session, what's in front goes to that session.
+// ⌥⇧Space: with Eden Code open on a session, what's in front goes to that session.
 function whatsThisMessage() { return { type: 'whats_this', session: !$('cc').hidden && markedSession() ? markedSession() : 0 }; }
 if (app && app.onWhatsThis) app.onWhatsThis(() => send(whatsThisMessage()));
 
@@ -804,6 +859,7 @@ function setHandButtons(on) {
 // started with no hand in sight within NO_HAND_MS switches the camera off again. The
 // buttons and the voice command are deliberate: no timer for them.
 async function startHandControl({ fromClaps = false } = {}) {
+  if (inEdenCode) return;  // Eden Code never opens the camera
   clearTimeout(noHandTimer);
   noHandTimer = 0;
   handsFromClaps = fromClaps;
@@ -974,6 +1030,7 @@ function lookIsLight(skin, tone) {
   return skin === 'glass' && (tone === 'light' || (tone === 'auto' && macLight.matches));
 }
 function applyLook(look, tone = 'auto') {
+  if (inEdenCode) look = 'orb';  // Eden Code has one look, Ask Eden's (eden-code.css), whatever Jarvis wears
   const skin = SKINS.includes(look) ? look : '';
   document.body.dataset.look = skin ? 'orb' : look;
   if (skin) document.body.dataset.skin = skin;
@@ -1000,14 +1057,14 @@ function renderPrefs(p) {
   const modelName = (p.models || []).find((m) => m.id === p.model);
   if (modelName) $('v-model').textContent = modelName.name;
   const persona = (p.personas || []).find((x) => x.id === p.persona);
-  $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : 'Jarvis';
+  $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : (window.jarvisAccessibility && window.jarvisAccessibility.homeName ? window.jarvisAccessibility.homeName() : 'Jarvis');
   const model = (p.models || []).find((m) => m.id === p.model);
   $('model-chip').textContent = model ? model.name : p.model;
   $('hf-indicator').hidden = !p.hands_free;
   // What to say or press, plus the What's-this key.
   $('hint').replaceChildren(...(p.hands_free
-    ? [document.createTextNode('Say “Hey Jarvis” · '), el('kbd', '', '⌥ Space'), document.createTextNode(' talk · '), el('kbd', '', '⌥⇧ Space'), document.createTextNode(' what’s this?')]
-    : [el('kbd', '', '⌥ Space'), document.createTextNode(' talk · '), el('kbd', '', '⌥⇧ Space'), document.createTextNode(' what’s this?')]));
+    ? [document.createTextNode('Say “Hey Jarvis” · '), el('kbd', '', hintKeys().talk), document.createTextNode(' talk · '), el('kbd', '', hintKeys().whats), document.createTextNode(' what’s this?')]
+    : [el('kbd', '', hintKeys().talk), document.createTextNode(' talk · '), el('kbd', '', hintKeys().whats), document.createTextNode(' what’s this?')]));
   setSwitch('sw-effect', p.voice_effect);
   $('mic-select').value = p.mic || 'builtin';
   setSwitch('sw-location', p.use_location !== false);
@@ -1235,9 +1292,9 @@ $('settings-search').addEventListener('keydown', (e) => {
     if (first) first.focus();
   }
 });
-// ⌘F finds in Settings while it's open (Jarvis Code and the browser keep theirs).
+// ⌘F finds in Settings while it's open (Eden Code and the browser keep theirs).
 document.addEventListener('keydown', (e) => {
-  if ($('settings').hidden || !$('cc').hidden || !e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key.toLowerCase() !== 'f') return;
+  if ($('settings').hidden || !$('cc').hidden || !cmd(e) || e.shiftKey || e.altKey || other(e) || e.key.toLowerCase() !== 'f') return;
   if (browserOpenNow && !$('settings').contains(document.activeElement)) return;
   e.preventDefault();
   e.stopPropagation();
@@ -2120,7 +2177,7 @@ function renderUsagePop(u) {
   });
   days.append(chart);
   parts.push(days);
-  // Where it went: JARVIS, Jarvis Code, research; and which models.
+  // Where it went: JARVIS, Eden Code, research; and which models.
   const split = el('div', 'usage-split');
   const where = el('section');
   where.append(el('h3', '', 'Where it went · 30 days'));
@@ -2134,7 +2191,7 @@ function renderUsagePop(u) {
   const apis = el('section');
   apis.append(el('h3', '', 'API providers'));
   const provs = u.providers || [];
-  if (!provs.length) apis.append(el('p', 'usage-empty', 'Add a model with an API key (Jarvis Code › model menu) and its usage shows here.'));
+  if (!provs.length) apis.append(el('p', 'usage-empty', 'Add a model with an API key (Eden Code › model menu) and its usage shows here.'));
   const ptop = Math.max(1, ...provs.map((p) => p.month.tokens));
   for (const p of provs) {
     const row = el('div', 'usage-row api');
@@ -2464,7 +2521,18 @@ function onSaved(ev) {
   notice('Saved', ev.title, ev.text, 12000, reveal);
 }
 
-// "Jarvis, open Jarvis Code / close the browser / turn on hand control."
+// "Jarvis, open Eden Code / close the browser / turn on hand control."
+// A part of Settings, brought into view and given the focus (its heading), for a screen reader
+// to start reading there.
+function focusSection(id) {
+  const group = $(id);
+  if (!group || group.hidden) return;
+  const head = group.querySelector('h3') || group;
+  head.tabIndex = -1;
+  head.scrollIntoView({ block: 'start' });
+  head.focus();
+}
+
 function applyUi(ev) {
   if (ev.action === 'hands') {
     // Two claps (hub.double_clap says source "claps") get a session on trial; a spoken
@@ -2481,7 +2549,7 @@ function applyUi(ev) {
     case 'code': toggleCC(open); break;
     case 'browser': if (app && app.browser) toggleBrowser(open); break;
     case 'research': if (open) openResearch(lastResearchPath); else toggleBrowser(false); break;
-    case 'settings': toggleSettings(open); break;
+    case 'settings': toggleSettings(open); if (open && ev.section) focusSection(ev.section); break;
     case 'simulator': if (open) { toggleCC(true); openPane('sim'); } else if (currentPane === 'sim') closePane(); break;
     case 'accounts': toggleAccounts(open); break;
     case 'brain': setGalaxyMode(open ? 'open' : 'off'); break;
@@ -2573,7 +2641,7 @@ function markedSession() { return jcSplit ? jcSplit.marked() : ccSelected; }
 function sessionOnScreen(id) { return jcSplit ? jcSplit.shows(id) : id === ccSelected; }
 
 function toggleCC(open) {
-  if (inSplitPane && !open) return;  // the split's pane closes from the main window
+  if ((inSplitPane || inEdenCode) && !open) return;  // the split's pane closes from the main window; Eden Code is only this
   $('cc').hidden = !open;
   $('cc-btn').setAttribute('aria-expanded', String(open));
   if (open) {
@@ -2588,7 +2656,16 @@ function toggleCC(open) {
     if (currentPane === 'sim') closeSimPanel();
   }
 }
-$('cc-btn').addEventListener('click', () => toggleCC($('cc').hidden));
+// Eden Code is an app of its own (app/features/eden-code.js): the dock's button opens it, on
+// this same backend. ⌥-click, or a window without the app (a browser, the test window), opens
+// it here in the window as before.
+$('cc-btn').addEventListener('click', (e) => {
+  const opener = app && app.feature && !inSplitPane && !inEdenCode && !e.altKey;
+  if (!opener) { toggleCC($('cc').hidden); return; }
+  app.feature.invoke('feature:eden-code:open')
+    .then((r) => { if (!r || !r.ok) toggleCC($('cc').hidden); })
+    .catch(() => toggleCC($('cc').hidden));
+});
 
 // The sidebar folds away (and stays folded next time).
 function setSide(open) {
@@ -2603,9 +2680,17 @@ function setSide(open) {
 $('jc-side-toggle').addEventListener('click', () => setSide($('cc').classList.contains('side-hidden')));
 try { if (localStorage.getItem('jc.side') === 'closed') setSide(false); } catch (_) { /* private mode */ }
 document.addEventListener('keydown', (e) => {
-  if (!$('cc').hidden && e.metaKey && !e.shiftKey && !e.altKey && e.key === '\\') { e.preventDefault(); setSide($('cc').classList.contains('side-hidden')); }  // (⌘⇧\: split view's; ⌥⌘\: Logbook's margin)
+  if (!$('cc').hidden && cmd(e) && !e.shiftKey && !e.altKey && e.key === '\\') { e.preventDefault(); setSide($('cc').classList.contains('side-hidden')); }  // (⌘⇧\: split view's; ⌥⌘\: Logbook's margin)
 });
 $('cc-close').addEventListener('click', () => toggleCC(false));
+// Eden Code's window has no dock: Settings opens from its sidebar (and ⌘, as in any Mac app).
+$('jc-eden-settings').addEventListener('click', () => toggleSettings($('settings').hidden));
+if (inEdenCode) {
+  $('offline').textContent = 'Reconnecting…';
+  document.addEventListener('keydown', (e) => {
+    if (cmd(e) && !e.shiftKey && !e.altKey && e.key === ',') { e.preventDefault(); toggleSettings($('settings').hidden); }
+  });
+}
 
 // ── sidebar: projects, each with its sessions ──
 
@@ -2825,7 +2910,7 @@ function renderHeader(t) {
   // the typing.)
   const title = $('jc-title');
   if (!(title.isContentEditable && t && t.id === renaming)) {
-    const text = t ? (t.title || t.prompt || 'New session') : (deckProject || 'Jarvis Code');
+    const text = t ? (t.title || t.prompt || 'New session') : (deckProject || 'Eden Code');
     const node = title.firstChild;
     const sel = document.getSelection();
     const selected = !!sel && (title.contains(sel.anchorNode) || title.contains(sel.focusNode));
@@ -2847,7 +2932,7 @@ function renderCC(items) {
   const running = ccTasks.filter((t) => t.busy).length;
   const waiting = ccTasks.filter((t) => !t.busy && t.status === 'waiting').length;
   // (Written only when it changed: the hub sends the list on every step of every session.)
-  setText($('cc-label'), running ? `Jarvis Code · ${running} working` : ccTasks.length ? `Jarvis Code · ${ccTasks.length}` : 'Jarvis Code');
+  setText($('cc-label'), running ? `Eden Code · ${running} working` : ccTasks.length ? `Eden Code · ${ccTasks.length}` : 'Eden Code');
   setText($('deck-summary'), [running && `${running} working`, waiting && `${waiting} waiting for you`].filter(Boolean).join(' · '));
   renderProjects(deckProjects);
   const t = currentTask();
@@ -3437,7 +3522,7 @@ const SLASH_COMMANDS = [
   ['plan', 'Plan first, you approve'], ['manual', 'Ask before each edit and command'], ['edits', 'Accept edits automatically'],
   ['auto', 'Auto: a safety check decides what to ask'], ['bypass', 'Bypass permissions: run anything'],
   ['ultracode', 'Multi-agent workflows for big tasks, on or off'], ['add-dir', 'Add a folder to this session'],
-  ['settings', 'Jarvis Code settings'], ['undo', 'Undo the last round of file changes'], ['diff', 'Show what changed'],
+  ['settings', 'Eden Code settings'], ['undo', 'Undo the last round of file changes'], ['diff', 'Show what changed'],
   ['commit', 'Commit the changes'], ['pr', 'Push and open a pull request'], ['test', 'Run the tests'],
   ['compact', 'Compact the conversation'], ['context', 'Context window used'], ['cost', 'What this session has cost'],
   ['model', 'Switch model: /model sonnet'], ['effort', 'How hard it thinks: /effort high'], ['fork', 'Fork this session'],
@@ -3609,7 +3694,7 @@ function slashWithoutSession(text) {
     if (mode === 'smart' && !autoCapable(composerState().modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return true; }
     const msg = { type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins], ...featureSessionFields(arg) };
     const start = () => { if (!send(msg)) return unsent(); takePending(); awaitingNewSession = true; return true; };
-    if (mode === 'auto') { confirmBypass('bypass', 'Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', start); return true; }
+    if (mode === 'auto') { confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', start); return true; }
     return start();
   }
   if (name === 'model' && !arg) { modelMenu(); return true; }
@@ -3861,7 +3946,7 @@ function fileKind(file) {
   if (file.type.startsWith('text/') || TEXT_TYPES.includes(file.type) || TEXT_FILE.test(file.name) || /^(Makefile|Dockerfile|Gemfile|Procfile|LICENSE|README)$/i.test(file.name)) return 'text';
   return '';
 }
-function jcNote(text) { notice('Jarvis Code', '', text, 6000).classList.add('jc-notecard'); }  // (split view's pane shows only these cards)
+function jcNote(text) { notice('Eden Code', '', text, 6000).classList.add('jc-notecard'); }  // (split view's pane shows only these cards)
 function sizeText(n) { return n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 1024)} KB` : `${(n / 1_048_576).toFixed(1)} MB`; }
 
 // Files picked and still being read: they count against the limits like attached ones
@@ -3955,7 +4040,7 @@ $('deck-composer').addEventListener('drop', (e) => {
 });
 $('jc-file').addEventListener('change', (e) => { [...e.target.files].forEach(addFile); e.target.value = ''; });
 
-// ⌘F in Jarvis Code: find in the transcript. Matching entries are marked; ⏎ and ⇧⏎ step
+// ⌘F in Eden Code: find in the transcript. Matching entries are marked; ⏎ and ⇧⏎ step
 // through them (newest first), Esc closes. What the hub keeps (400 entries) is searched.
 const jcFind = { hits: [], at: -1 };
 function openJcFind() {
@@ -3999,15 +4084,15 @@ $('jc-find-close').addEventListener('click', () => closeJcFind(true));
 // Number keys answer the approval on screen; ⇧⌘F opens the files; ⌘F finds in the transcript.
 document.addEventListener('keydown', (e) => {
   if ($('cc').hidden) return;
-  if (e.key.toLowerCase() === 'f' && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey
+  if (e.key.toLowerCase() === 'f' && cmd(e) && !e.shiftKey && !e.altKey && !other(e)
     && (!browserOpenNow || $('cc').contains(document.activeElement))) {
     e.preventDefault();
     e.stopPropagation();  // the browser's own ⌘F is for its page
     openJcFind();
     return;
   }
-  if (e.key.toLowerCase() === 'f' && e.metaKey && e.shiftKey) { e.preventDefault(); openPane('files'); return; }
-  if (e.metaKey && !e.altKey && !e.ctrlKey) {
+  if (e.key.toLowerCase() === 'f' && cmd(e) && e.shiftKey) { e.preventDefault(); openPane('files'); return; }
+  if (cmd(e) && !e.altKey && !other(e)) {
     const key = e.key.toLowerCase();
     if (key === 'u' && !e.shiftKey) { e.preventDefault(); $('jc-file').click(); return; }
     if (key === ',' && !e.shiftKey) { e.preventDefault(); openJcSettings('general'); return; }
@@ -4033,7 +4118,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Esc in Jarvis Code undoes the most specific thing first, as in Claude Code: a menu or
+// Esc in Eden Code undoes the most specific thing first, as in Claude Code: a menu or
 // suggestion list, an edit, the running step, the open pane, and only then the panel
 // (never with unsent text in the composer). True when it handled the key.
 function jcEscape(e) {
@@ -4110,7 +4195,7 @@ const EFFORT_NOTES = [
 ];
 const GAUGE = [18, 36, 56, 76, 100, 100];
 
-let codeDefaults = { model: '', effort: '', mode: 'ask', ultracode: false };  // Settings › Jarvis Code
+let codeDefaults = { model: '', effort: '', mode: 'ask', ultracode: false };  // Settings › Eden Code
 let modelList = [];  // Claude's models, then the ones added with an API key
 let providerInfo = { kinds: [], providers: [], models: [], limits: {} };
 const pending = { dirs: [], plugins: [] };  // + menu choices made before there's a session
@@ -4133,7 +4218,7 @@ function modelEntry(ref) { return modelList.find((m) => m.ref === ref) || null; 
 function refForModel(id) { const m = modelList.find((x) => x.builtin && x.model === id); return m ? m.ref : ''; }
 
 // What the composer shows: the open session's settings, or with none open, what the next
-// session starts with (Settings › Jarvis Code).
+// session starts with (Settings › Eden Code).
 function composerState() {
   const t = currentTask();
   const fallback = (prefs && prefs.model) || 'opus';
@@ -4320,7 +4405,7 @@ function setMode(id) {
     if (target !== null) send({ type: 'task_mode', id: target, mode: id });
     else { codeDefaults.mode = id; send({ type: 'code_defaults', code_mode: id }); renderComposer(); }
   };
-  if (id === 'auto' && s.mode !== 'auto') confirmBypass('bypass', 'Bypass permissions lets Jarvis Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', go);
+  if (id === 'auto' && s.mode !== 'auto') confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', go);
   else go();
 }
 
@@ -4574,7 +4659,7 @@ function plusMenu() {
     { icon: 'plug', label: 'Connectors', sub: connectorItems, subKind: 'connectors' },
     { icon: 'puzzle', label: 'Add plugins', note: t ? '' : 'Joins the next session', run: addCodePlugin },
     '-',
-    { icon: 'gear', label: 'Jarvis Code settings', key: '⌘,', run: () => openJcSettings('general') },
+    { icon: 'gear', label: 'Eden Code settings', key: '⌘,', run: () => openJcSettings('general') },
   ]);
 }
 $('jc-plus').addEventListener('click', () => { if ($('jc-menu').hidden || $('jc-menu').dataset.anchor !== 'jc-plus') plusMenu(); else closeMenu(); });
@@ -4608,7 +4693,7 @@ function onDictation(ev) {
   input.focus();
 }
 
-// ── Jarvis Code settings: new-session defaults, behavior, Models & API keys ──
+// ── Eden Code settings: new-session defaults, behavior, Models & API keys ──
 
 let jcsKind = 'openrouter';
 const providerChecks = {};  // provider id -> its last check (models it offers)
@@ -4860,7 +4945,7 @@ $('jc-more').addEventListener('click', () => {
     { label: 'Interrupt', key: 'Esc', run: () => t && send({ type: 'task_interrupt', id: t.id }) },
     { label: 'End session', run: () => t && send({ type: 'task_cancel', id: t.id }) },
     '-',
-    { label: 'Keep computer awake', note: 'While Jarvis Code works', switch: awake, run: () => send({ type: 'awake', on: !awake }) },
+    { label: 'Keep computer awake', note: 'While Eden Code works', switch: awake, run: () => send({ type: 'awake', on: !awake }) },
   ]);
 });
 // Activity: every step a session took and why it could (automatic, you allowed it, denied,
@@ -5028,7 +5113,7 @@ function renderPaneBody() {
     sw.addEventListener('click', () => setPrefs({ code_read_only: !(prefs && prefs.code_read_only !== false) }));
     ro.append(el('span', '', ''), sw);
     ro.firstChild.append(el('strong', '', 'Read-only commands without asking'), el('small', '', 'ls, cat, grep, git status, git log, git diff… Anything that writes, deletes, installs or chains commands still asks.'));
-    const intro = el('p', 'jc-dim', 'Commands Jarvis Code runs here without asking (from “Yes, and don’t ask again”).');
+    const intro = el('p', 'jc-dim', 'Commands Eden Code runs here without asking (from “Yes, and don’t ask again”).');
     if (!rules.length) { body.replaceChildren(ro, intro, el('p', 'jc-empty', 'None yet.')); return; }
     const ul = el('ul', 'jc-list');
     ul.append(...rules.map((r) => {
@@ -5258,7 +5343,7 @@ function onVoiceCode(focus) {
   if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_LABELS[voiceFocus.mode] || voiceFocus.mode}`;
   $('cc-voice-head').setAttribute('aria-pressed', String(!!voiceFocus));
   $('cc-voice-label').textContent = voiceFocus ? `Voice · ${voiceFocus.folder}` : 'Voice off';
-  $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected ? 'Listening: just talk (say “exit code mode” to stop), or type…' : 'Ask Jarvis Code to plan, build or fix something…';
+  $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected ? 'Listening: just talk (say “exit code mode” to stop), or type…' : 'Ask Eden Code to plan, build or fix something…';
   renderProjects(deckProjects);
 }
 
@@ -5269,7 +5354,7 @@ $('cc-voice-head').addEventListener('click', () => {
 });
 $('code-exit').addEventListener('click', () => send({ type: 'voicecode_exit' }));
 
-// Events for Jarvis Code beyond the core ones.
+// Events for Eden Code beyond the core ones.
 function onJarvisCodeEvent(ev) {
   switch (ev.type) {
     case 'task_stream': onStream(ev); return true;
@@ -5498,8 +5583,8 @@ window.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   const act = (fn) => { e.preventDefault(); fn(); };
   if (e.ctrlKey && key === 'tab') return act(() => app.browser.shortcut(e.shiftKey ? 'previous' : 'next'));
-  if (!e.metaKey) return;
-  if (e.ctrlKey && key === 'f') return act(() => browserKey('full'));
+  if (!cmd(e)) return;
+  if (other(e) && key === 'f') return act(() => browserKey('full'));
   if (e.altKey) { if (key === 'i' || e.code === 'KeyI') act(() => app.browser.shortcut('devtools')); return; }
   if (e.shiftKey) {
     if (key === 't') act(() => app.browser.shortcut('reopen'));
@@ -5628,7 +5713,7 @@ function renderLibrary() {
     go.append(mine(el('span', 'bd-lib-title', x.title || host)), mine(el('span', 'bd-lib-url', host)));
     if (libKind === 'history') go.append(el('span', 'bd-lib-time', new Date(x.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })));
     go.addEventListener('click', (e) => {
-      if (e.metaKey) app.browser.tab('new', null, x.url);
+      if (cmd(e)) app.browser.tab('new', null, x.url);
       else app.browser.nav('go', x.url);
       closeLibrary();
     });
@@ -6228,7 +6313,7 @@ document.addEventListener('drop', (e) => {
 
 // ── pictures: drop or paste a screenshot to ask Jarvis about it ──
 // They wait as thumbnails by the request box (the one the look shows) and go with what's
-// typed there next. With Jarvis Code open they join its composer instead.
+// typed there next. With Eden Code open they join its composer instead.
 
 const PICTURE_FILE = /\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp)$/i;
 const isPicture = (f) => f.type.startsWith('image/') || PICTURE_FILE.test(f.name);
@@ -6434,7 +6519,7 @@ function el(tag, cls, text) {
 }
 
 function showApproval(a) {
-  if ($('cards').querySelector(`[data-approval="${CSS.escape(a.id)}"]`)) return;  // its card (a sheet in Jarvis Code is not one)
+  if ($('cards').querySelector(`[data-approval="${CSS.escape(a.id)}"]`)) return;  // its card (a sheet in Eden Code is not one)
   const card = el('div', 'card needs-ok');
   card.dataset.approval = a.id;
   card.append(el('div', 'card-kicker', 'Needs your OK'), el('div', 'card-title', a.question));
@@ -6642,7 +6727,7 @@ function renderTasks(items) {
     }
     box.className = `task ${t.status}`;
     const [label, status] = box.firstElementChild.children;
-    setText(label, t.label || `Jarvis Code · ${t.folder}`);
+    setText(label, t.label || `Eden Code · ${t.folder}`);
     setText(status, t.status);
     setText(box.children[1], t.prompt.length > 140 ? `${t.prompt.slice(0, 140)}…` : t.prompt);
     setText(box.children[2], t.last_action + (t.cost_usd ? ` · $${t.cost_usd.toFixed(2)}` : ''));
@@ -6678,3 +6763,6 @@ $('activity-btn').addEventListener('click', () => toggleDrawer($('activity').hid
 $('activity-close').addEventListener('click', () => toggleDrawer(false));
 
 connect();
+
+// Eden Code's window opens on Eden Code, once everything above is set up.
+if (inEdenCode) toggleCC(true);

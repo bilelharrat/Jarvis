@@ -1,4 +1,4 @@
-// Claude Code's questions (AskUserQuestion) in Jarvis Code, drawn by this feature
+// Claude Code's questions (AskUserQuestion) in Eden Code, drawn by this feature
 // (jarvisFeatures.registerApprovalView): each option with what it means, several options
 // ticked at once when the question takes them (multiSelect), and an answer of the owner's
 // own ("Other"), as Claude Code's own question sheet has. The answer goes back through the
@@ -56,7 +56,7 @@
       head.append(title);
       box.append(head);
     }
-    // (A card outside Jarvis Code is in the app's own look: its buttons and fields.)
+    // (A card outside Eden Code is in the app's own look: its buttons and fields.)
     const plain = where === 'card' ? 'btn' : 'jc-btn small';
     const ticked = new Set();
     const options = el('div', multi ? 'cq-options' : 'cq-options jc-choices');

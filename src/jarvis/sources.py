@@ -17,10 +17,11 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import osplat
 from .knowledge import Note, collect_folder
 
 HOME = Path.home()
-COMPUTER_FOLDERS = [HOME / "Documents", HOME / "Desktop", HOME / "Downloads"]
+COMPUTER_FOLDERS = osplat.personal_folders(HOME)  # (a PC: where Windows keeps them)
 CHAT_DB = HOME / "Library" / "Messages" / "chat.db"
 APPLE_EPOCH = datetime(2001, 1, 1)
 APPLE_EPOCH_UNIX = 978307200
@@ -171,7 +172,7 @@ def collect_mail_index(
     db = db or mail_index()
     if db is None or not os.access(db, os.R_OK):
         raise PermissionError(FULL_DISK_ACCESS.replace("Texts need", "Email needs"))
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn = sqlite3.connect(osplat.sqlite_ro_uri(db), uri=True)
     try:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}

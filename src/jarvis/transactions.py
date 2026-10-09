@@ -9,7 +9,7 @@ final button; this module is the safety layer around pressing it.
   Continue). On a page that asks for money, a plain "Confirm" or "Send", or a paying word
   the list doesn't know ("Place your order and pay with Visa…"), counts too.
 - TransactionGuard sits in the browser's click path (guard_browser puts it in front of
-  every click and keystroke, JARVIS's and Jarvis Code's). It works out what a click could
+  every click and keystroke, JARVIS's and Eden Code's). It works out what a click could
   press the way the window's own click script finds things (a CSS selector first, then the
   best match for the words, things in view first), refuses to guess on a page where money
   is near, and lets a final button be pressed only with a confirmation for exactly that
@@ -3037,7 +3037,7 @@ def _readable(page: Any) -> bool:
 def guard_browser(desk: Transactions, call: BrowserCall) -> BrowserCall:
     """The built-in browser with the purchase guard in front of it. Wrap the hub's
     browser_call once and every path that clicks or types goes through the guard (JARVIS's
-    own browser tools and Jarvis Code's alike): a click is checked against the page as it
+    own browser tools and Eden Code's alike): a click is checked against the page as it
     is right then, typing never carries a secret, and Return isn't pressed on a checkout.
 
     A press that completes a confirmed purchase is sent with force: the purchase card was

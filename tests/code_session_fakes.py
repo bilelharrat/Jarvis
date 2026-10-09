@@ -1,4 +1,4 @@
-"""Fakes shared by the Jarvis Code sessions tests (features.code_sessions)."""
+"""Fakes shared by the Eden Code sessions tests (features.code_sessions)."""
 
 import asyncio
 

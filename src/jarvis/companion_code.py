@@ -1,4 +1,4 @@
-"""Jarvis Code from the phone, the whole of it: what the Mac's window does with a session,
+"""Eden Code from the phone, the whole of it: what the Mac's window does with a session,
 the phone can ask for too.
 
 - GET /api/code/options: what a new session can be (projects, models, permission modes,

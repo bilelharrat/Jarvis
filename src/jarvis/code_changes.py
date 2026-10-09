@@ -1,4 +1,4 @@
-"""What a Jarvis Code session changed, as hunks you can undo, keep or stage one at a time.
+"""What an Eden Code session changed, as hunks you can undo, keep or stage one at a time.
 
 Several sessions (and the owner) can edit one project folder at once, so "what changed"
 has to mean what *this* session changed. Each edit a session makes (Edit, MultiEdit,

@@ -1,4 +1,4 @@
-// Jarvis Code's workspace (web/features/code-*.js of features/code_workspace.py): every word
+// Eden Code's workspace (web/features/code-*.js of features/code_workspace.py): every word
 // its window scripts show has its Chinese, in the core dictionary or the feature's own
 // (web/i18n/code-workspace.json). node --test tests/web/
 import assert from 'node:assert/strict';

@@ -125,7 +125,7 @@ function shell(title, body) {
 <meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex, nofollow">
 <title>${esc(title)}</title>
-<link rel="icon" type="image/png" href="/jarvis/eden-favicon.png">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
 <link rel="stylesheet" href="/signin/signin.css">
 </head>
 <body>

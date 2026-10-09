@@ -1,4 +1,4 @@
-// Jarvis Code's diff view, its pure parts (web/features/code_diff.js): the highlighter,
+// Eden Code's diff view, its pure parts (web/features/code_diff.js): the highlighter,
 // the words that changed inside a line, rows with their numbers and pairs, side by side,
 // and the unchanged lines between hunks. node --test tests/web/
 import assert from 'node:assert/strict';

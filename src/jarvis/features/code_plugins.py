@@ -1,4 +1,4 @@
-"""Claude Code's plugins in Jarvis Code (codeplugins): the Plugins pane browses the
+"""Claude Code's plugins in Eden Code (codeplugins): the Plugins pane browses the
 marketplaces the owner added, installs a plugin after a card that says what's in it (and a
 second one for a command its marketplace would run to fetch it), switches plugins on and
 off and uninstalls them; edits the project's and the owner's agents, skills, commands and

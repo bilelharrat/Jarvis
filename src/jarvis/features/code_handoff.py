@@ -1,6 +1,6 @@
-"""Jarvis Code: hand a session off to another machine the owner controls, over SSH (handoff.py).
+"""Eden Code: hand a session off to another machine the owner controls, over SSH (handoff.py).
 
-Machines (Jarvis Code settings › Machines) are hosts in the owner's ~/.ssh/config, added by
+Machines (Eden Code settings › Machines) are hosts in the owner's ~/.ssh/config, added by
 their alias. Adding or testing one checks `ssh -o BatchMode=yes <alias> true`, then that git
 and the Claude Code CLI are there (and whether the CLI can ask for permission over
 stream-json, and whether tmux is). JARVIS keeps only the alias: the owner's own SSH config
@@ -20,7 +20,7 @@ leaves it running: JARVIS reconnects (backing off) and reads on from the line it
 after a restart too; requests it hadn't answered are asked again.
 
 Bring back (a card) stops it there, commits what it changed with the remote's own git
-identity (else Jarvis Code's), and fetches the branch past the commit handed off into the
+identity (else Eden Code's), and fetches the branch past the commit handed off into the
 isolated copy as a git bundle over SSH, ready to land; the session's next message here
 carries a note of what happened there. The checkout there stays.
 
@@ -86,13 +86,13 @@ ZH = {
     "{alias} isn't reachable right now.": "现在连不上 {alias}。",
     "Couldn't reach {alias}: {why}": "连不上 {alias}：{why}",
     "git isn't installed on {alias}.": "{alias} 上没有安装 git。",
-    "Jarvis Code needs the Claude Code CLI on {alias}: install it there and sign in.": "Jarvis Code 需要 {alias} 上有 Claude Code CLI：请在那里安装并登录。",
+    "Eden Code needs the Claude Code CLI on {alias}: install it there and sign in.": "Eden Code 需要 {alias} 上有 Claude Code CLI：请在那里安装并登录。",
     "Only a session in an isolated copy can be handed off: start one with Isolated copy on.": "只有在独立副本里的会话才能转交：请打开“独立副本”再开始会话。",
     "That session's isolated copy isn't there any more.": "这个会话的独立副本已经不在了。",
     "It's in the middle of a step: wait for it, or interrupt it, then hand it off.": "它正在执行一步：等它做完或先中断，再转交。",
     "It's already on {alias}.": "它已经在 {alias} 上了。",
-    "Add {alias} in Jarvis Code settings › Machines first.": "请先在 Jarvis Code 设置 › 机器 里添加 {alias}。",
-    "Add a machine in Jarvis Code settings › Machines first.": "请先在 Jarvis Code 设置 › 机器 里添加一台机器。",
+    "Add {alias} in Eden Code settings › Machines first.": "请先在 Eden Code 设置 › 机器 里添加 {alias}。",
+    "Add a machine in Eden Code settings › Machines first.": "请先在 Eden Code 设置 › 机器 里添加一台机器。",
     "It's already being handed off.": "它正在转交中。",
     "The isolated copy's folder is missing.": "独立副本的文件夹不见了。",
     "The isolated copy isn't on its branch {branch} any more.": "独立副本已经不在它的分支 {branch} 上了。",
@@ -161,16 +161,16 @@ ZH = {
     "Waiting for you on {alias}": "在 {alias} 上等你",
     "Ended on {alias}": "已在 {alias} 上结束",
     "Say which machine: {names}.": "请说是哪台机器：{names}。",
-    "There's no Jarvis Code session to hand off.": "没有可以转交的 Jarvis Code 会话。",
+    "There's no Eden Code session to hand off.": "没有可以转交的 Eden Code 会话。",
     "No machines yet.": "还没有机器。",
     "Questions can't come to the Mac from there: ask the owner in your reply instead, then wait.": "问题没法从那里传回 Mac：请在你的回复里问主人，然后等待。",
 }
 lang.add_texts(ZH)
 
 PROMPT = (
-    "Jarvis Code sessions can move to another machine the user controls over SSH: "
+    "Eden Code sessions can move to another machine the user controls over SSH: "
     "continue_on_machine hands a session (in an isolated copy) off to a machine they added in "
-    "Jarvis Code settings › Machines, after a card; bring_back_from_machine brings its branch "
+    "Eden Code settings › Machines, after a card; bring_back_from_machine brings its branch "
     "back to the Mac; handoff_status lists the machines and what runs on them."
 )
 
@@ -316,7 +316,7 @@ class Desk:
     async def test_machine(self, alias: str) -> str:
         machine = self.machine(alias)
         if machine is None:
-            return f"Add {alias} in Jarvis Code settings › Machines first."
+            return f"Add {alias} in Eden Code settings › Machines first."
         await handoff.check(self.ssh, machine)
         self.save()
         self.publish()
@@ -347,13 +347,13 @@ class Desk:
         "I'm heading out"): no card, unless the secret scan finds something."""
         self.load()
         if task is None or task.kind != "code":
-            return "There's no Jarvis Code session to hand off."
+            return "There's no Eden Code session to hand off."
         current = self.of_task(task)
         if current is not None and current.live:
             return f"It's already on {current.alias}."
         machine = self.machine(alias)
         if machine is None:
-            return f"Add {alias} in Jarvis Code settings › Machines first."
+            return f"Add {alias} in Eden Code settings › Machines first."
         if task.busy:
             return "It's in the middle of a step: wait for it, or interrupt it, then hand it off."
         slug = (task.workspace or {}).get("slug", "")
@@ -487,7 +487,7 @@ class Desk:
         tm._changed()
         checkout = Path(copy.checkout)
         problem = await asyncio.to_thread(
-            worktrees.commit_all, copy, f"Jarvis Code: hand off to {alias}"
+            worktrees.commit_all, copy, f"Eden Code: hand off to {alias}"
         )
         if problem:
             return self._not_moved(task, f"Couldn't commit its work: {problem}")
@@ -1149,7 +1149,7 @@ class Desk:
             done = await handoff.run(
                 self.ssh,
                 alias,
-                handoff.back_script(rec, f"Jarvis Code: work on {alias}"),
+                handoff.back_script(rec, f"Eden Code: work on {alias}"),
                 timeout=handoff.SETUP_SECONDS,
             )
             if done.code == handoff.BACK_BRANCH:
@@ -1344,7 +1344,7 @@ class Desk:
 
         @tool(
             "continue_on_machine",
-            "Hand a Jarvis Code session off to another machine the user controls over SSH "
+            "Hand an Eden Code session off to another machine the user controls over SSH "
             '("continue this on the studio", "move it to my Linux box"): its branch goes there '
             "and Claude Code carries on there, streaming back into the same session; a card "
             "asks first. machine: a machine's alias from handoff_status. session: the "
@@ -1368,7 +1368,7 @@ class Desk:
                 return text(
                     f"Say which machine: {names}."
                     if names
-                    else "Add a machine in Jarvis Code settings › Machines first."
+                    else "Add a machine in Eden Code settings › Machines first."
                 )
             task = desk.spoken_task(args.get("session"))
             return text(
@@ -1379,7 +1379,7 @@ class Desk:
 
         @tool(
             "bring_back_from_machine",
-            "Bring a handed-off Jarvis Code session's work back from the machine it runs on into "
+            "Bring a handed-off Eden Code session's work back from the machine it runs on into "
             "its isolated copy on this Mac, ready to land (a card asks first). session: its "
             "number (default: the one in voice focus, else the latest).",
             {"type": "object", "properties": {"session": {"type": "integer"}}},
@@ -1393,7 +1393,7 @@ class Desk:
 
         @tool(
             "handoff_status",
-            "The machines added for Jarvis Code hand-offs (alias, ready or why not) and the "
+            "The machines added for Eden Code hand-offs (alias, ready or why not) and the "
             "sessions running on them (state, and the cost their own Claude reported there).",
             {"type": "object", "properties": {}},
         )

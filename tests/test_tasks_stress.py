@@ -1,4 +1,4 @@
-"""Jarvis Code under a second stress sweep: many sessions at once, bursts of queue, steer
+"""Eden Code under a second stress sweep: many sessions at once, bursts of queue, steer
 and interrupt, rewind and fork at their edges, very long and non-ASCII transcripts, mode
 and model switches mid-run, and what a fork, an undo and a slash command carry over."""
 

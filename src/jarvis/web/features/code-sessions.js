@@ -1,4 +1,4 @@
-// Jarvis Code sessions (features/code_sessions.py): drafts and attachments kept per session,
+// Eden Code sessions (features/code_sessions.py): drafts and attachments kept per session,
 // the sidebar's pins, archive, groups and badges, edit and resend, /btw side questions, the
 // /goal banner, snippets in the / palette, Open folder… and Settings › Projects and Snippets.
 // It decorates app.js's sidebar and transcript rows (never re-renders them), so it sits
@@ -606,7 +606,7 @@
     goalBox.className = `cs-goal ${goal.state}`;
     const head = el('div', 'cs-goal-head');
     head.append(el('span', 'cs-goal-mark', goal.state === 'met' ? '✓' : '◎'), el('span', 'cs-goal-kicker', 'Goal'), el('span', `cs-goal-state ${goal.state}`, GOAL_STATE[goal.state] || goal.state));
-    if (goal.native) head.append(el('span', 'cs-goal-native', 'kept by Jarvis Code itself'));
+    if (goal.native) head.append(el('span', 'cs-goal-native', 'kept by Eden Code itself'));
     const text = mine(el('p', 'cs-goal-text', goal.text));
     const acts = el('div', 'cs-goal-acts');
     const act = (label, action, cls = '') => { const b = el('button', `jc-mini ${cls}`, label); b.type = 'button'; b.addEventListener('click', () => F.send({ type: 'code_goal', id: now.id, action })); return b; };
@@ -691,7 +691,7 @@
     F.send({ type: 'feature_prefs', changes: { code_project_defaults: all } });
   }
 
-  // ── Settings › Projects and Snippets (tabs of Jarvis Code settings) ──
+  // ── Settings › Projects and Snippets (tabs of Eden Code settings) ──
 
   const tabs = document.querySelector('.jcs-tabs');
   const card = document.querySelector('.jcs-card');
@@ -756,12 +756,12 @@
     const own = ownDefaults(defaultsFor) || {};
     const path = projectPath(defaultsFor);
     const set = (field, value) => setProjectDefaults(path, { ...own, [field]: value });
-    const models = [['', 'Jarvis Code’s default'], ...modelList.map((m) => [m.ref, m.builtin ? m.label : `${m.label} · ${m.provider_name}`])];
+    const models = [['', 'Eden Code’s default'], ...modelList.map((m) => [m.ref, m.builtin ? m.label : `${m.label} · ${m.provider_name}`])];
     const rows = el('div', 'jcs-group');
     const row = (label, control) => { const r = el('label', 'jcs-row'); r.append(el('span', '', label), control); return r; };
     // Bypass for the new sessions here is asked about first (Touch ID, or the usual question),
     // as it is for everyone's in General; a no puts back what was saved.
-    const mode = select([['', 'Jarvis Code’s default'], ...JC_MODES.map((m) => [m.id, m.label])], own.mode || '', (v) => {
+    const mode = select([['', 'Eden Code’s default'], ...JC_MODES.map((m) => [m.id, m.label])], own.mode || '', (v) => {
       if (v === 'auto') confirmBypass('bypass-default', 'New sessions in this project would run any command and change any file without asking. Start them in Bypass permissions?', () => set('mode', v), () => { mode.value = own.mode || ''; });
       else set('mode', v);
     }, 'Permission mode');
@@ -769,10 +769,10 @@
       row('Project', select(names.map((n) => [n, n]), defaultsFor, (v) => { defaultsFor = v; renderProjectsTab(); }, 'Project')),
       row('Permission mode', mode),
       row('Model', select(models, own.model || '', (v) => set('model', v), 'Model')),
-      row('Effort', select([['', 'Jarvis Code’s default'], ...EFFORTS.map((e) => [e, EFFORT_NAMES[e]])], own.effort || '', (v) => set('effort', v), 'Effort')),
-      row('Ultracode', select([['', 'Jarvis Code’s default'], ['on', 'On'], ['off', 'Off']], own.ultracode === undefined ? '' : own.ultracode ? 'on' : 'off', (v) => set('ultracode', v === '' ? undefined : v === 'on'), 'Ultracode')),
-      // Auto-verify (features/code_verify.py): over Settings › Jarvis Code checks, here.
-      row('Check each turn’s work', select([['', 'Jarvis Code’s default'], ['on', 'On'], ['off', 'Off']], own.verify === undefined ? '' : own.verify ? 'on' : 'off', (v) => set('verify', v === '' ? undefined : v === 'on'), 'Check each turn’s work')),
+      row('Effort', select([['', 'Eden Code’s default'], ...EFFORTS.map((e) => [e, EFFORT_NAMES[e]])], own.effort || '', (v) => set('effort', v), 'Effort')),
+      row('Ultracode', select([['', 'Eden Code’s default'], ['on', 'On'], ['off', 'Off']], own.ultracode === undefined ? '' : own.ultracode ? 'on' : 'off', (v) => set('ultracode', v === '' ? undefined : v === 'on'), 'Ultracode')),
+      // Auto-verify (features/code_verify.py): over Settings › Eden Code checks, here.
+      row('Check each turn’s work', select([['', 'Eden Code’s default'], ['on', 'On'], ['off', 'Off']], own.verify === undefined ? '' : own.verify ? 'on' : 'off', (v) => set('verify', v === '' ? undefined : v === 'on'), 'Check each turn’s work')),
       // Video proof (features/code_video.py): off unless the project turns it on.
       row('Video proof after UI changes', select([['off', 'Off'], ['on', 'On']], own.video_proof ? 'on' : 'off', (v) => set('video_proof', v === 'on' ? true : undefined), 'Video proof after UI changes')),
     );

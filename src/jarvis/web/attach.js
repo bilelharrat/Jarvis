@@ -1,6 +1,6 @@
 'use strict';
 
-// What one Jarvis Code message may carry. A file is counted the moment it's picked, not
+// What one Eden Code message may carry. A file is counted the moment it's picked, not
 // when it has been read: a drop, paste or multi-select hands over every file at once, and
 // counting only the ones already read let ten 5 MB photos past a 24 MB limit and over the
 // window socket's 64 MiB frame (the socket closed, and the message and files were lost).

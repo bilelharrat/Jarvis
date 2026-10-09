@@ -1,4 +1,4 @@
-"""Jarvis Code's Changes pane (features/code_hunks.py): a session's views (this turn, this
+"""Eden Code's Changes pane (features/code_hunks.py): a session's views (this turn, this
 session, the whole branch) as the window gets them, one hunk undone or kept, the unchanged
 lines between hunks unfolded, and what it says in Chinese. Real git in temp repositories;
 fake Claude Code sessions."""

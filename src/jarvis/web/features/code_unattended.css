@@ -1,4 +1,4 @@
-/* Jarvis Code's runs without the owner: the Without you pane and the header's badge. */
+/* Eden Code's runs without the owner: the Without you pane and the header's badge. */
 
 .jcx-runs { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
 .jcx-runs > .jc-dim { margin: 0 2px; }

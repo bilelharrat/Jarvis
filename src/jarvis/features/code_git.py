@@ -1,4 +1,4 @@
-"""Jarvis Code's Git panel: a project's status (or a session's, in its isolated copy),
+"""Eden Code's Git panel: a project's status (or a session's, in its isolated copy),
 staging a file or one hunk at a time, a commit message Claude writes and the owner edits,
 commits, branches, the last 50 commits, and a push, which always asks first (it's the one
 thing here that leaves the Mac).

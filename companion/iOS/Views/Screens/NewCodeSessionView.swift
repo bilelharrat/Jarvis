@@ -1,7 +1,7 @@
 import PhotosUI
 import SwiftUI
 
-/// A new Jarvis Code session, started from the iPhone as the Mac's composer starts one: the
+/// A new Eden Code session, started from the iPhone as the Mac's composer starts one: the
 /// project, what to do, and how (model, permission mode, effort, an isolated copy), with
 /// pictures if they help.
 struct NewCodeSessionView: View {

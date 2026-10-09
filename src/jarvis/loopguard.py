@@ -1,7 +1,7 @@
 """Loop detection: a model calling the same tool the same way over and over, or going round
 between two or three calls, without getting anywhere.
 
-A LoopGuard hears each tool call of one run (a JARVIS turn, a background task, a Jarvis Code
+A LoopGuard hears each tool call of one run (a JARVIS turn, a background task, an Eden Code
 session's turn) as it's made: note(name, args) gives a Loop once
 - the same call (the same tool with the same arguments) is made REPEAT times in a row, or
 - a cycle of two or three different calls (A B A B…, A B C A B C…) goes round CYCLES times
@@ -11,7 +11,7 @@ an argument object happens to be written in doesn't matter. Once a loop is found
 starts over: the same loop carrying on is found again only after as many calls again.
 
 What's done about a loop belongs to the caller: JARVIS's own turn and a background task stop
-politely and say so (features.loops, background.py); a Jarvis Code session gets a notice with
+politely and say so (features.loops, background.py); an Eden Code session gets a notice with
 a Stop button, never an automatic stop.
 
 No model, no files: plain bookkeeping on the calls as they stream past.

@@ -1,4 +1,4 @@
-// Jarvis Code's editor (web/features/code-editor.js), its pure helpers: where a line is,
+// Eden Code's editor (web/features/code-editor.js), its pure helpers: where a line is,
 // find and replace, which files a filter lists, how a file indents. node --test tests/web/
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';

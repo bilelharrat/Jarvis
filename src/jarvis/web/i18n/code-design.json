@@ -1,7 +1,7 @@
 {
   "strings": {
     "Match a design…": "匹配设计…",
-    "Jarvis Code builds it, then compares the page with your picture": "Jarvis Code 先把它做出来，再把页面和你的图片对比",
+    "Eden Code builds it, then compares the page with your picture": "Eden Code 先把它做出来，再把页面和你的图片对比",
     "That picture can’t be used: PNG, JPEG, WebP or GIF, up to 8 MB.": "这张图片无法使用：须为 PNG、JPEG、WebP 或 GIF，最大 8 MB。",
     "That picture can't be used: PNG, JPEG, WebP or GIF, up to 8 MB.": "这张图片无法使用：须为 PNG、JPEG、WebP 或 GIF，最大 8 MB。",
     "Design match": "设计匹配",
@@ -45,8 +45,8 @@
       "优化（第 $1 轮，共 $2 轮）"
     ],
     [
-      "^Refinement round (\\d+) of (\\d+) sent to Jarvis Code\\.$",
-      "第 $1 轮优化（共 $2 轮）已发送给 Jarvis Code。"
+      "^Refinement round (\\d+) of (\\d+) sent to Eden Code\\.$",
+      "第 $1 轮优化（共 $2 轮）已发送给 Eden Code。"
     ],
     [
       "^top left (\\d+%)$",

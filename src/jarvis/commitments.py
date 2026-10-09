@@ -26,7 +26,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import jsonstore, memory_ai
+from . import jsonstore, memory_ai, osplat
 from .fileindex import redact
 from .sources import APPLE_EPOCH_UNIX, FULL_DISK_ACCESS, decode_attributed_body
 from .textclean import clean_text
@@ -446,7 +446,7 @@ def sent_mail(mail_db: Path, after: int, since: datetime, limit: int = MAX_SENT)
     and the start of its body without what it quotes; to whom from its recipients."""
     if mail_db is None or not os.access(mail_db, os.R_OK):
         raise PermissionError(FULL_DISK_ACCESS.replace("Texts need", "Email needs"))
-    conn = sqlite3.connect(f"file:{mail_db}?mode=ro", uri=True)
+    conn = sqlite3.connect(osplat.sqlite_ro_uri(mail_db), uri=True)
     try:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}

@@ -1,4 +1,4 @@
-"""Settings › Jarvis Code › Models & API keys, and the composer's model picker: a key goes
+"""Settings › Eden Code › Models & API keys, and the composer's model picker: a key goes
 from the window to the Keychain and never comes back; sessions on another provider's
 model get its environment, and leave it when switched back to Claude."""
 

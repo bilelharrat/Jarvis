@@ -1,4 +1,4 @@
-"""Jarvis Code's permission rules: allow, ask or deny a session's tool call by web domain,
+"""Eden Code's permission rules: allow, ask or deny a session's tool call by web domain,
 MCP server or tool, file path or command, per project, in Claude Code's own rule syntax (so
 they import from and export to a project's .claude settings). Deny beats ask, ask beats
 allow, as in Claude Code; a deny or an ask holds in every permission mode, Bypass included.
@@ -555,7 +555,7 @@ class RuleBook:
             data = jsonstore.load_json(path, dict) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
-            log.warning("Jarvis Code rules: %s can't be read (%s)", path.name, exc)
+            log.warning("Eden Code rules: %s can't be read (%s)", path.name, exc)
             return
         projects = data.get("projects")
         for project, rules in list(projects.items() if isinstance(projects, dict) else [])[

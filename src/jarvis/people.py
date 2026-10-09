@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from . import osplat
 from .fileindex import redact
 from .sources import APPLE_EPOCH_UNIX, decode_attributed_body
 from .textclean import clean_text
@@ -315,7 +316,7 @@ def mail_with(
         return []
     if mail_db is None or not os.access(mail_db, os.R_OK):
         raise PermissionError("mail")
-    conn = sqlite3.connect(f"file:{mail_db}?mode=ro", uri=True)
+    conn = sqlite3.connect(osplat.sqlite_ro_uri(mail_db), uri=True)
     try:
         cutoff = int((datetime.now() - timedelta(days=days)).timestamp())
         marks = ",".join("?" * len(addresses))

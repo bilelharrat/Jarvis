@@ -1,6 +1,6 @@
-"""Other coding agents in Jarvis Code over the Agent Client Protocol (ACP): a JSON-RPC 2.0
+"""Other coding agents in Eden Code over the Agent Client Protocol (ACP): a JSON-RPC 2.0
 client over an agent's stdin and stdout (AcpConnection), and AcpClient, which looks to
-TaskManager like the Claude Agent SDK's client, so an ACP session is an ordinary Jarvis Code
+TaskManager like the Claude Agent SDK's client, so an ACP session is an ordinary Eden Code
 session: transcript, cards, queue, interrupt.
 
 The protocol, as used here (version 1): the client sends initialize, session/new (or

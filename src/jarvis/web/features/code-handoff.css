@@ -1,4 +1,4 @@
-/* Jarvis Code hand-off: the Machines tab of Jarvis Code settings, and a handed-off session's bar in its header. */
+/* Eden Code hand-off: the Machines tab of Eden Code settings, and a handed-off session's bar in its header. */
 
 .jch-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .jch-list[hidden] { display: none; }

@@ -599,7 +599,7 @@ async def test_a_forwarded_message_is_someone_elses_words(settings, quiet_speake
     assert hub.history[-2]["text"] == words.FORWARDED
 
 
-# ── Jarvis Code ──
+# ── Eden Code ──
 
 
 def session(task_id, folder, title, status="waiting", busy=False, result=""):
@@ -641,15 +641,15 @@ async def test_code_lists_and_messages_a_session_and_passes_its_answer_on(
     await router.receive(said("/code beta tidy the README"))
     await router.receive(said("/code gamma do it"))
     assert sent == [(3, "run the tests", None), (4, "tidy the README", None)]
-    assert chat.texts()[1].startswith("Sent to Jarvis Code #3 in alpha.")
-    assert chat.texts()[3] == "There's no Jarvis Code session “gamma do it”."
+    assert chat.texts()[1].startswith("Sent to Eden Code #3 in alpha.")
+    assert chat.texts()[3] == "There's no Eden Code session “gamma do it”."
     await asyncio.sleep(0.05)
     assert len(chat.texts()) == 4  # nothing yet: they're still working
     three.result, three.busy, three.last_active = "All 48 tests pass.", False, time.monotonic()
     four.result, four.busy, four.last_active = "README tidied.", False, time.monotonic()
     await settle(router)
-    assert "Jarvis Code #3 in alpha\nAll 48 tests pass." in chat.texts()
-    assert "Jarvis Code #4 in beta\nREADME tidied." in chat.texts()
+    assert "Eden Code #3 in alpha\nAll 48 tests pass." in chat.texts()
+    assert "Eden Code #4 in beta\nREADME tidied." in chat.texts()
 
 
 async def test_a_sessions_card_comes_to_the_chat_that_messaged_it(
@@ -664,7 +664,7 @@ async def test_a_sessions_card_comes_to_the_chat_that_messaged_it(
     await router.receive(said("/code 3 go on"))
     asked = asyncio.create_task(
         hub.request_approval(
-            "Jarvis Code in alpha wants to run a command",
+            "Eden Code in alpha wants to run a command",
             "$ npm test",
             [("allow", "Yes"), ("deny", "No, and tell Claude what to do differently")],
             {"task_id": 3, "tool": "Bash"},
@@ -696,7 +696,7 @@ async def test_a_sessions_card_during_a_chats_request_is_not_that_requests(
     await asyncio.sleep(0.05)  # the chat's request is running: every card gets its rid
     asked = asyncio.create_task(
         hub.request_approval(
-            "Jarvis Code in alpha wants to run a command", "$ ls", None, {"task_id": 9}
+            "Eden Code in alpha wants to run a command", "$ ls", None, {"task_id": 9}
         )
     )
     await asyncio.sleep(0.05)

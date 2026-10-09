@@ -1,4 +1,4 @@
-// Touch ID for Jarvis Code's riskiest moments: which steps are risky (web/features/
+// Touch ID for Eden Code's riskiest moments: which steps are risky (web/features/
 // code-touchid.js) and the app's own side (app/features/touchid.js): its fixed reasons, one
 // sheet at a time, and only the window may ask. node --test tests/web/
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const ct = require('../../src/jarvis/web/features/code-touchid.js');
 const { handlers, install, REASONS } = require('../../app/features/touchid.js');
 
-const bash = (command, choice = 'allow') => ct.risky({ task_id: 1, tool: 'Bash', detail: `$ ${command}`, question: 'Jarvis Code in alpha wants to run a command' }, choice);
+const bash = (command, choice = 'allow') => ct.risky({ task_id: 1, tool: 'Bash', detail: `$ ${command}`, question: 'Eden Code in alpha wants to run a command' }, choice);
 
 test('a risky step: one that deletes, pushes, publishes, runs as root, or edits outside the project', () => {
   for (const risky of ['rm -rf build', 'cd x && rm -r node_modules', 'sudo make install', 'git push --force origin main', 'git -C . push',
@@ -24,10 +24,10 @@ test('a risky step: one that deletes, pushes, publishes, runs as root, or edits 
   }
   assert.ok(!bash('rm -rf build', 'deny'));  // a no is never held up
   assert.ok(bash('git push', 'always'));
-  assert.ok(!ct.risky({ tool: 'Bash', detail: '$ rm -rf /' }, 'allow'));  // not a Jarvis Code step
+  assert.ok(!ct.risky({ tool: 'Bash', detail: '$ rm -rf /' }, 'allow'));  // not an Eden Code step
   const edit = (question) => ct.risky({ task_id: 1, tool: 'Write', detail: 'x', question }, 'allow');
-  assert.ok(edit('Jarvis Code in alpha wants to edit a file outside the project'));
-  assert.ok(!edit('Jarvis Code in alpha wants to edit a file'));
+  assert.ok(edit('Eden Code in alpha wants to edit a file outside the project'));
+  assert.ok(!edit('Eden Code in alpha wants to edit a file'));
   assert.ok(!ct.risky({ task_id: 1, tool: 'WebFetch', detail: 'https://x' }, 'allow'));
   assert.ok(!ct.risky(null, 'allow'));
 });

@@ -1,7 +1,7 @@
 import PhotosUI
 import SwiftUI
 
-/// One Jarvis Code session: what it's doing (the transcript's tail, fetched incrementally),
+/// One Eden Code session: what it's doing (the transcript's tail, fetched incrementally),
 /// its plan, the question it's waiting on, what it changed, and a line to send it.
 struct CodeSessionView: View {
     let sessionID: Int
@@ -58,7 +58,7 @@ struct CodeSessionView: View {
             }
         }
         .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.1)))
-        .navigationTitle(detail?.title ?? "Jarvis Code")
+        .navigationTitle(detail?.title ?? "Eden Code")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) { settingsMenu }
@@ -70,7 +70,7 @@ struct CodeSessionView: View {
                         Label("Stop", systemImage: "stop.circle.fill")
                     }
                     .tint(Palette.danger)
-                    .confirmationDialog("Stop what Jarvis Code is doing?", isPresented: $confirmStop, titleVisibility: .visible) {
+                    .confirmationDialog("Stop what Eden Code is doing?", isPresented: $confirmStop, titleVisibility: .visible) {
                         Button("Stop", role: .destructive) { Task { await stop() } }
                     } message: {
                         Text("It stops the current step. The session stays open, so you can send it something else.")
@@ -249,7 +249,7 @@ struct CodeSessionView: View {
                 ApprovalCard(approval: approval) { choice in
                     Task {
                         // "Always allow" sets a rule on the Mac: Face ID first.
-                        if choice.id == "always", !(await OwnerCheck.confirm("Always allow this in Jarvis Code")) { return }
+                        if choice.id == "always", !(await OwnerCheck.confirm("Always allow this in Eden Code")) { return }
                         await model.answer(approval, with: choice)
                     }
                 } onReason: { reason in
@@ -355,7 +355,7 @@ struct CodeSessionView: View {
                 .onSubmit { Task { await send() } }
                 .foregroundStyle(Palette.ink)
                 .padding(.vertical, Space.s)
-                .accessibilityLabel("Message Jarvis Code")
+                .accessibilityLabel("Message Eden Code")
             Button {
                 Task { await send() }
             } label: {
@@ -375,7 +375,7 @@ struct CodeSessionView: View {
             .buttonStyle(PressableStyle())
             .disabled(!canSend)
             .padding(.trailing, 4)
-            .accessibilityLabel("Send to Jarvis Code")
+            .accessibilityLabel("Send to Eden Code")
         }
         .frame(minHeight: 52)
         .glass(RoundedRectangle(cornerRadius: 26, style: .continuous), tint: composing ? Palette.cyan : .white, strength: composing ? 0.6 : 1)
@@ -385,7 +385,7 @@ struct CodeSessionView: View {
 
     private var placeholder: String {
         if draft.hasPrefix("!") { return "A command to run in the project" }
-        return detail?.status == .working ? "Message (waits for this step)…" : "Message Jarvis Code…"
+        return detail?.status == .working ? "Message (waits for this step)…" : "Message Eden Code…"
     }
 
     // MARK: - Talking to the Mac
@@ -442,7 +442,7 @@ struct CodeSessionView: View {
             await load()
         } catch let error as JarvisError where error.neverDelivered {
             draft = ""
-            model.keep(.codeSend(session: sessionID, text: text, title: detail?.title ?? "Jarvis Code"))
+            model.keep(.codeSend(session: sessionID, text: text, title: detail?.title ?? "Eden Code"))
         } catch {
             if let problem = model.handle(error) {
                 Haptics.failure()
@@ -621,7 +621,7 @@ private struct CodeEntryRow: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
                     OrbMark(size: 9)
-                    label("Jarvis Code", color: Palette.ice.opacity(0.9))
+                    label("Eden Code", color: Palette.ice.opacity(0.9))
                 }
                 Text(TranscriptRow.markdown(entry.text))
                     .font(.body)

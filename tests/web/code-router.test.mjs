@@ -1,4 +1,4 @@
-// Model Router in Jarvis Code's composer (web/features/code-router.js), its pure helpers:
+// Model Router in Eden Code's composer (web/features/code-router.js), its pure helpers:
 // which of the picker's models it routes among, at which efforts (the relays' models too),
 // and a pick as a session takes it; when a message waits for Gemini's rating (route_wait,
 // never for a trivial one) and the route it then gets; how long Gemini's problems pause the

@@ -1,4 +1,4 @@
-"""Jarvis Code's Changes pane: what a session changed (code_changes.py) as the window
+"""Eden Code's Changes pane: what a session changed (code_changes.py) as the window
 shows it, and what's done to one hunk at a time.
 
 Views: "turn" (its latest turn's hunks), "session" (all of its own; in its isolated copy,

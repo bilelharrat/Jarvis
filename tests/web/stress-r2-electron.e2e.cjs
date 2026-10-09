@@ -136,7 +136,7 @@ async function fresh(language = 'en') {
     new PerformanceObserver((list) => { for (const e of list.getEntries()) __long.push(Math.round(e.duration)); }).observe({ entryTypes: ['longtask'] });
     __ev({ type: 'hello', hub_id: 'hub-stress', state: 'idle', muted: true, status: {}, activity: [], tasks: [],
       prefs: { look: 'orb', language: ${JSON.stringify(language)}, models: [], personas: [], humor: 50, features: {} }, brain: {}, approvals: [], history: [] });
-    window.__task = (id, extra = {}) => ({ id, kind: 'code', folder: 'alpha', label: 'Jarvis Code · alpha', title: 'Session ' + id, prompt: 'Session ' + id,
+    window.__task = (id, extra = {}) => ({ id, kind: 'code', folder: 'alpha', label: 'Eden Code · alpha', title: 'Session ' + id, prompt: 'Session ' + id,
       mode: 'ask', busy: true, status: 'running', files_changed: [], todos: [], background: [], queue: [], last_action: 'Reading a.py', add_dirs: [], plugins: [], ...extra });
     window.__open = (id, extra = {}) => { deckProjects = [{ name: 'alpha', branch: 'main' }]; deckProject = 'alpha'; openProjects.add('alpha');
       __ev({ type: 'tasks', items: [__task(id, extra)] }); toggleCC(true); selectTask(id); };
@@ -333,7 +333,7 @@ async function longEverywhere() {
   await frames(3);
 }
 
-test('In Jarvis Code, a session, its files and its transcript with words that never break keep the window its width', async () => {
+test('In Eden Code, a session, its files and its transcript with words that never break keep the window its width', async () => {
   await fresh();
   await js('__open(1); true');
   await frames(3);
@@ -349,7 +349,7 @@ test('In Jarvis Code, a session, its files and its transcript with words that ne
   await frames(4);
   const after = await layout();
   const composer = await js('(() => { const b = $("deck-input").getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth + 1 && b.width > 50; })()');
-  note(`Jarvis Code with long words everywhere: page ${after.pageWide}px wider (was ${before.pageWide}), composer inside the window: ${composer}`);
+  note(`Eden Code with long words everywhere: page ${after.pageWide}px wider (was ${before.pageWide}), composer inside the window: ${composer}`);
   assert(after.pageWide <= Math.max(0, before.pageWide) + 1, `the page became ${after.pageWide}px wider than the window`);
   assert(composer, 'the composer was pushed out of the window');
 });
@@ -367,7 +367,7 @@ test('A model added with a long name never makes the window wider than itself', 
 
 // ── huge Markdown ──
 
-test('A 3 MB Markdown reply in Jarvis Code is drawn without freezing the window for seconds', async () => {
+test('A 3 MB Markdown reply in Eden Code is drawn without freezing the window for seconds', async () => {
   await fresh();
   await js('__open(1); true');
   const md = await js(`(() => { const parts = []; for (let i = 0; parts.join('').length < 3e6; i++) {
@@ -378,7 +378,7 @@ test('A 3 MB Markdown reply in Jarvis Code is drawn without freezing the window 
     requestAnimationFrame(() => requestAnimationFrame(() => resolve(Math.round(performance.now() - s)))); })`);
   const long = await js('Math.max(0, ...__long)');
   const nodes = (await counters()).nodes;
-  note(`a ${Math.round(md / 1e6 * 10) / 10} MB Markdown reply in Jarvis Code: ${ms} ms to draw, longest task ${long} ms, ${nodes} DOM nodes`);
+  note(`a ${Math.round(md / 1e6 * 10) / 10} MB Markdown reply in Eden Code: ${ms} ms to draw, longest task ${long} ms, ${nodes} DOM nodes`);
   assert(ms < 3000, `${ms} ms to draw it`);
 });
 

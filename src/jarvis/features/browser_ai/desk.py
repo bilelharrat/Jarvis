@@ -84,7 +84,7 @@ class BrowserAi:
         hub.register_command("browser_ai_macro_delete", tasks.command(tasks.on_delete))
         hub.register_command("browser_ai_macros", tasks.on_list)
         hub.register_command("browser_ai_macro_run", tasks.on_run)
-        # Before Jarvis Code's (code_voice), which takes the key for a session in front.
+        # Before Eden Code's (code_voice), which takes the key for a session in front.
         hub.register_command("whats_this", self.page.on_whats_this)
 
     def server(self) -> Any:

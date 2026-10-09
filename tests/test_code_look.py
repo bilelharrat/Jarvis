@@ -1,4 +1,4 @@
-"""Look at this, into Jarvis Code (codelook): what's in front is read by a small Swift
+"""Look at this, into Eden Code (codelook): what's in front is read by a small Swift
 helper built on first use (never the clipboard), the front window is pictured, and the
 owner's question goes with it all, marked as data. swiftc, the helper and screencapture
 are all stand-ins here."""

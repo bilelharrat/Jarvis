@@ -1,4 +1,4 @@
-"""A PDF open in the built-in browser, read for JARVIS and Jarvis Code (browser_pdf.py): the
+"""A PDF open in the built-in browser, read for JARVIS and Eden Code (browser_pdf.py): the
 window's answer carries the file, its text comes back in place of the bytes, and reading on
 doesn't send the file again. PDFs made here; no browser, no network."""
 

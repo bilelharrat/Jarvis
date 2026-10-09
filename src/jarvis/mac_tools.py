@@ -16,6 +16,8 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from . import osplat
+
 SERVER_NAME = "mac"
 
 
@@ -23,7 +25,22 @@ class ToolFailure(Exception):
     pass
 
 
+MAC_ONLY = {
+    "osascript", "pmset", "say", "afplay", "sips", "screencapture", "mdfind", "caffeinate",
+    "lsappinfo", "defaults", "security", "launchctl", "xcrun", "swiftc", "pbcopy", "pbpaste",
+}  # fmt: skip
+
+
 async def run_command(*args: str, stdin: str | None = None, timeout: float = 30) -> str:
+    if osplat.IS_WIN and args:
+        if args[0] == "open":  # the Mac's open: this PC's own way to open the same thing
+            try:
+                await asyncio.to_thread(osplat.mac_open, list(args[1:]))
+            except (ValueError, OSError) as exc:
+                raise ToolFailure(str(exc)) from exc
+            return ""
+        if args[0] in MAC_ONLY:
+            raise ToolFailure(f"{args[0]} is a Mac tool: that isn't available on this PC.")
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE,
@@ -77,7 +94,18 @@ def _guarded(fn):
 
 
 def app_running(app: str) -> bool:
-    return subprocess.run(["pgrep", "-xq", app]).returncode == 0
+    if osplat.IS_WIN:  # a process of that name (Spotify.exe), as pgrep -x does on a Mac
+        import psutil
+
+        want = app.lower()
+        return any(
+            (p.info["name"] or "").lower().removesuffix(".exe") == want
+            for p in psutil.process_iter(["name"])
+        )
+    try:
+        return subprocess.run(["pgrep", "-xq", app]).returncode == 0
+    except OSError:  # no pgrep: nothing to say it is
+        return False
 
 
 def _active_player() -> str | None:

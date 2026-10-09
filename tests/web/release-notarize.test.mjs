@@ -65,6 +65,7 @@ test('stapling staples, then validates', () => {
 test("the disk image is named for its version, and an ad hoc one can't pass for a release", () => {
   assert.equal(dist.dmgName('0.2.0', false), 'J.A.R.V.I.S.-0.2.0.dmg');
   assert.equal(dist.dmgName('0.2.0', true), 'J.A.R.V.I.S.-0.2.0-adhoc.dmg');
+  assert.equal(dist.dmgName('0.2.0', false, 'Eden Code'), 'Eden Code-0.2.0.dmg');
 });
 
 test('the checksums are as shasum -a 256 -c reads them', () => {

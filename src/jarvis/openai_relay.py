@@ -226,7 +226,7 @@ EFFORTS["xhigh"] = "high"  # (as max: the highest every reasoning model takes)
 
 def reasoning_effort(body: dict[str, Any]) -> str | None:
     """The session's effort (Claude Code sends it as output_config.effort, for every model)
-    as Chat Completions' reasoning_effort, so the effort Jarvis Code (or Model Router) chose
+    as Chat Completions' reasoning_effort, so the effort Eden Code (or Model Router) chose
     applies to other providers' models too. None when the request names none."""
     config = body.get("output_config")
     return EFFORTS.get(str(config.get("effort") or "")) if isinstance(config, dict) else None

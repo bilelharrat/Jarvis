@@ -261,3 +261,10 @@ body[data-look="orb"] .intro-field input, body[data-look="orb"] .intro-time { ba
   box-shadow: inset 0 0 0 1px var(--intro-line);
 }
 .intro-progress { display: block; width: 100%; height: 6px; margin: 4px 0 12px; accent-color: var(--accent, #0a84ff); }
+
+/* Eden Code's welcome (intro.js EDEN): Eden's mark, Ask Eden's navy squircle, for the orb. */
+.intro-eden-mark {
+  width: 84px; height: 84px; border-radius: 26%;
+  background: #0e2747 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23fff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E") center / 62% no-repeat;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 12px 32px rgba(0, 0, 0, 0.18);
+}

@@ -1,4 +1,4 @@
-"""Jarvis Code's terminals and "!" commands (code_terminals, features/code_terminal): several
+"""Eden Code's terminals and "!" commands (code_terminals, features/code_terminal): several
 real shells per project that outlive the pane, their recent output kept for a window that
 comes back and for @terminal; "!" commands streamed from a pseudo-terminal with Cancel and
 no time limit."""

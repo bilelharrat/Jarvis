@@ -45,7 +45,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import jsonstore, people
+from . import jsonstore, osplat, people
 from .memory import _SECRET, _content, _words
 from .sources import APPLE_EPOCH_UNIX
 
@@ -1166,7 +1166,7 @@ def mail_counts(mail_db: Path | None, days: int = COUNT_DAYS) -> dict[str, int]:
     if not os.access(mail_db, os.R_OK):
         raise PermissionError("mail")
     cutoff = int((datetime.now() - timedelta(days=days)).timestamp())
-    conn = sqlite3.connect(f"file:{mail_db}?mode=ro", uri=True)
+    conn = sqlite3.connect(osplat.sqlite_ro_uri(mail_db), uri=True)
     try:
         rows = conn.execute(
             """SELECT lower(a.address), COUNT(*) FROM messages m

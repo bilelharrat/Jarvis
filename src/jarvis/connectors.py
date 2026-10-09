@@ -16,7 +16,6 @@ import json
 import logging
 import re
 import shlex
-import subprocess
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field, fields
@@ -24,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import jsonstore
+from . import jsonstore, osplat
 from .connector_log import ConnectorLog
 from .prefs import APP_SUPPORT
 from .textclean import clean_text
@@ -702,7 +701,7 @@ class ConnectorManager:
         self.approve = approve
         self.vault = vault or Vault()
         self.store = store or APP_SUPPORT / "connections.json"
-        self.open_url = open_url or (lambda url: subprocess.Popen(["open", url]))
+        self.open_url = open_url or osplat.open_target
         self.callback = CallbackServer()
         self.connections: dict[str, Connection] = {}
         self.live: dict[str, Live] = {}

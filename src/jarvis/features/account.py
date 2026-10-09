@@ -159,7 +159,7 @@ class AccountDesk:
     def _plus_moved(self) -> None:
         """Runs go through Jarvis Plus now and didn't before, or the other way round: the
         conversation's Claude Code starts again, signed in the new way (the conversation
-        kept); Jarvis Code's next sessions follow by themselves."""
+        kept); Eden Code's next sessions follow by themselves."""
         now = self.plus_in_use()
         if now != self._plus:
             self._plus = now
@@ -201,9 +201,9 @@ class AccountDesk:
             if callable(opener):
                 opener(page)
             else:
-                import subprocess
+                from .. import osplat
 
-                subprocess.Popen(["open", page])  # noqa: S603, S607
+                osplat.open_target(page)
         except Exception:
             log.warning("account: the browser couldn't be opened")
 

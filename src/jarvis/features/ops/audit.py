@@ -228,8 +228,8 @@ def connectors(hub: Any) -> dict[str, Any]:
 
 
 def code(hub: Any) -> dict[str, Any]:
-    """Jarvis Code: its don't-ask-again rules per project, and Bypass (every step runs)."""
-    title = "Jarvis Code"
+    """Eden Code: its don't-ask-again rules per project, and Bypass (every step runs)."""
+    title = "Eden Code"
     items: list[dict[str, Any]] = []
     actions: list[dict[str, str]] = []
     state, summary = "ok", "Every step asks first unless you allow it"
@@ -295,7 +295,7 @@ def code(hub: Any) -> dict[str, Any]:
             action(
                 "code_default_manual",
                 "Start new sessions in Manual",
-                "Start new Jarvis Code sessions in Manual, so each step asks first?",
+                "Start new Eden Code sessions in Manual, so each step asks first?",
             )
         )
     note = (
@@ -546,7 +546,7 @@ async def tighten(
             raise Refused
         for rule in kept:
             store.remove(Path(item), rule)
-        return "Jarvis Code asks again in that project."
+        return "Eden Code asks again in that project."
     if aid == "code_sessions_manual":
         switched = 0
         for task in list(hub.tasks.tasks.values()):

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Jarvis Code from the iPhone, the whole of it (the Mac's companion_code.py): what a new
+/// Eden Code from the iPhone, the whole of it (the Mac's companion_code.py): what a new
 /// session can be, starting one, and every session action the Mac's window has.
 struct CodeOptions: Equatable, Sendable {
     struct Project: Identifiable, Equatable, Sendable {

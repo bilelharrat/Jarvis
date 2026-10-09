@@ -1858,7 +1858,7 @@ async def test_adding_a_model_by_voice_goes_through_the_gate(tmp_path):
     )
     assert out["content"][0]["text"].startswith("Added Grok 4 · OpenRouter (ref custom:")
     assert asked == [
-        ("models", "Add x-ai/grok-4 (shown as “Grok 4”) from OpenRouter to Jarvis Code's models?")
+        ("models", "Add x-ai/grok-4 (shown as “Grok 4”) from OpenRouter to Eden Code's models?")
     ]
     assert changes == [1] and store.models()[-1]["model"] == "x-ai/grok-4"
 
@@ -1879,7 +1879,7 @@ async def test_an_added_model_is_always_asked_about_by_its_real_id(tmp_path):
     assert asked == []  # refused before anyone is asked
     await add({"provider": "OpenRouter", "model": "openai/o1-pro", "label": "Deep thinker"})
     assert asked == [
-        "Add openai/o1-pro (shown as “Deep thinker”) from OpenRouter to Jarvis Code's models?"
+        "Add openai/o1-pro (shown as “Deep thinker”) from OpenRouter to Eden Code's models?"
     ]
 
 
@@ -1898,9 +1898,7 @@ async def test_the_add_tool_checks_before_it_asks(tmp_path):
     out = await tools["add_ai_model"]({"provider": "OpenRouter", "model": OR_KEY})
     assert out["is_error"] and OR_KEY not in out["content"][0]["text"] and asked == []
     out = await tools["add_ai_model"]({"provider": "OpenRouter", "model": "openai/gpt-5"})
-    assert out["is_error"] and asked == [
-        "Add openai/gpt-5 from OpenRouter to Jarvis Code's models?"
-    ]
+    assert out["is_error"] and asked == ["Add openai/gpt-5 from OpenRouter to Eden Code's models?"]
     assert len(store.models()) == len(MODELS)
     out = await tools["add_ai_model"]({"provider": "Nobody", "model": "openai/gpt-5"})
     assert "The added providers are: OpenRouter." in out["content"][0]["text"]
@@ -1940,9 +1938,7 @@ async def test_the_remove_tool_asks_first_by_the_real_id(tmp_path):
     tools = {t.name: t.handler for t in build_tools(store, no)}
     out = await tools["remove_ai_model"]({"model": "Main"})
     assert out["is_error"] and len(store.models_of(pid)) == 1
-    assert asked == [
-        "Take openai/gpt-5 (shown as “Main”) from OpenRouter off Jarvis Code's models?"
-    ]
+    assert asked == ["Take openai/gpt-5 (shown as “Main”) from OpenRouter off Eden Code's models?"]
 
 
 async def test_the_check_tool_reports_in_words(tmp_path):

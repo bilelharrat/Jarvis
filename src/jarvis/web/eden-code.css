@@ -1,0 +1,212 @@
+/* Eden Code in Ask Eden's look, wherever it opens: its own window (app/flavor.js;
+   server.eden_code_page marks the body .eden-code) and the Code panel inside J.A.R.V.I.S. and
+   Ask Eden (J.A.R.V.I.S.'s Obsidian and Stark Glass looks keep their own). Ask Eden's look (askeden web/chat/app.css): its page and washes, a
+   floating glass sidebar and title bar, blue bubbles for what you say, white cards for what it
+   answers, the clear composer with the model pill's green dot, and Eden's mark in place of
+   the reactor orb. Only this window: J.A.R.V.I.S.'s own looks are untouched. */
+
+/* ── the Jarvis around it is gone: Eden Code is the whole window ── */
+body.eden-code #galaxy-canvas, body.eden-code > .top, body.eden-code > .layout, body.eden-code > .bottom,
+body.eden-code #code-pill, body.eden-code #meeting-pill, body.eden-code #activity, body.eden-code #galaxy,
+body.eden-code #hand-panel, body.eden-code #hand-cursor, body.eden-code .wx-layer, body.eden-code #browser { display: none !important; }
+body.eden-code #cc-close { display: none; }
+.jc-eden-settings { display: none; }
+body.eden-code .jc-eden-settings { display: inline-flex; margin-left: auto; }
+
+/* ── Ask Eden's tokens, laid over Eden Code's own (app.css .deck.jc) ── */
+body:not([data-skin]) {
+  --eden-bg: #f5f5f7;
+  --eden-wash1: rgba(216, 232, 250, 0.9); --eden-wash2: rgba(251, 244, 236, 0.9);
+  --eden-content: #ffffff;
+  --eden-text: #1d1d1f; --eden-text2: #6e6e73; --eden-text3: #86868b;
+  --eden-glass: rgba(255, 255, 255, 0.62); --eden-glass2: rgba(250, 250, 252, 0.72);
+  --eden-hairline: rgba(0, 0, 0, 0.06); --eden-rim: rgba(255, 255, 255, 0.5);
+  --eden-sh1: 0 1px 2px rgba(0, 0, 0, 0.05), 0 12px 32px rgba(0, 0, 0, 0.10);
+  --eden-accent: #0a84ff; --eden-accent-soft: rgba(10, 132, 255, 0.12);
+  --eden-r-lg: 20px; --eden-r-md: 14px; --eden-r-sm: 9px;
+  --eden-mark-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23fff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E");
+  --eden-mark-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%230e2747' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E");
+  --eden-mark-bg: #0e2747;
+  --eden-mark: var(--eden-mark-light);
+}
+body:not([data-skin]) { background: var(--eden-bg); }
+@media (prefers-color-scheme: dark) {
+  body:not([data-skin]) {
+    --eden-bg: #161618;
+    --eden-wash1: rgba(20, 42, 66, 0.55); --eden-wash2: rgba(30, 26, 20, 0.5);
+    --eden-content: #1e1e20;
+    --eden-text: #f5f5f7; --eden-text2: #98989d; --eden-text3: #8e8e93;
+    --eden-glass: rgba(32, 32, 34, 0.62); --eden-glass2: rgba(38, 38, 40, 0.74);
+    --eden-hairline: rgba(255, 255, 255, 0.09); --eden-rim: rgba(255, 255, 255, 0.16);
+    --eden-sh1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+    --eden-mark-bg: #f4f5f7;
+    --eden-mark: var(--eden-mark-dark);
+  }
+}
+
+body:not([data-skin]) .deck.jc {
+  --c-canvas: 245 245 247; --c-accent: 11 135 214; --c-accent-hover: 6 118 192; --c-glow: 56 168 232;
+  --clear-fill: linear-gradient(180deg, rgb(255 255 255 / 0.34), rgb(255 255 255 / 0.16));
+  --clear-blur: blur(22px) saturate(175%);
+  --clear-rim: inset 0 1px 0 rgb(255 255 255 / 0.75), inset 0 0 0 0.5px rgb(255 255 255 / 0.45);
+  --clear-edge: 0 0 0 0.5px rgb(0 0 0 / 0.09);
+  --clear-shadow: 0 10px 30px -14px rgb(0 0 0 / 0.20);
+  --glass-fill: var(--eden-glass); --glass-fill-strong: var(--eden-glass2);
+  --glass-blur: blur(30px) saturate(180%);
+  --glass-rim: inset 0 0.5px 0 var(--eden-rim), inset 0 0 0 0.5px var(--eden-hairline);
+  --glass-edge: 0 0 0 0 transparent;
+  --glass-shadow: var(--eden-sh1);
+  --wash: radial-gradient(900px 620px at 8% -10%, var(--eden-wash1), transparent 60%),
+          radial-gradient(900px 700px at 105% 115%, var(--eden-wash2), transparent 60%);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-size: 15px; line-height: 1.35; letter-spacing: -0.1px;
+  background: var(--eden-bg); color: var(--eden-text);
+  animation: none;
+}
+@media (prefers-color-scheme: dark) {
+  body:not([data-skin]) .deck.jc {
+    --c-canvas: 22 22 24; --c-surface: 30 30 32; --c-accent: 38 150 234; --c-glow: 64 176 240;
+    --clear-fill: linear-gradient(180deg, rgb(255 255 255 / 0.075), rgb(255 255 255 / 0.02));
+    --clear-rim: inset 0 1px 0 rgb(255 255 255 / 0.10), inset 0 0 0 0.5px rgb(255 255 255 / 0.06);
+    --clear-edge: 0 0 0 0.5px rgb(0 0 0 / 0.55);
+    --clear-shadow: 0 10px 30px -14px rgb(0 0 0 / 0.6);
+  }
+}
+
+/* ── the floating glass sidebar (Ask Eden's #sidebar: 260px, 20px corners, 12px from the edges) ── */
+body:not([data-skin]) .jc-side { top: 12px; left: 12px; bottom: 12px; width: 260px; border-radius: var(--eden-r-lg); padding: 44px 10px 10px; }
+body:not([data-skin]) .jc-side-head { padding: 0 4px 0 6px; }
+body:not([data-skin]) .jc-side-head h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; }
+body:not([data-skin]) .jc-field { border-radius: var(--eden-r-sm); background: rgba(120, 120, 128, 0.12); box-shadow: none; font-size: 13.5px; padding: 7px 10px; }
+body:not([data-skin]) .jc-field::placeholder { color: var(--eden-text3); }
+body:not([data-skin]) .jc-field:focus { box-shadow: 0 0 0 3px var(--eden-accent-soft); }
+body:not([data-skin]) .jc-icon { width: 30px; height: 30px; border-radius: 8px; color: var(--eden-text2); }
+body:not([data-skin]) .jc-icon:hover { background: rgba(120, 120, 128, 0.12); }
+body:not([data-skin]) .jc-project, body:not([data-skin]) .jc-session { border-radius: var(--eden-r-sm); padding: 6px 8px; font-size: 13.5px; }
+body:not([data-skin]) .jc-project:hover, body:not([data-skin]) .jc-session:hover { background: rgba(120, 120, 128, 0.12); }
+body:not([data-skin]) .jc-pname { font-size: 13.5px; font-weight: 500; }
+body:not([data-skin]) .jc-session .jc-stitle { font-size: 13.5px; }
+/* the selected session: Ask Eden's .sitem.active (a tinted row in the accent) */
+body:not([data-skin]) .jc-glider { background: var(--eden-accent-soft); box-shadow: none; border-radius: var(--eden-r-sm); }
+body:not([data-skin]) .jc-session[aria-current="true"] .jc-stitle { color: var(--eden-accent); font-weight: 500; }
+body:not([data-skin]) .jc-side-foot { display: flex; align-items: center; gap: 8px; padding: 8px 4px 0 8px; border-top: 0.5px solid var(--eden-hairline); }
+
+/* ── the main column: a glass title bar, then the conversation ── */
+body:not([data-skin]) .jc-main { inset: 12px 12px 0 284px; }
+body:not([data-skin]) .deck.jc.side-hidden .jc-main { left: 12px; }
+body:not([data-skin]) .jc-toolbar { margin: 0 0 10px; min-height: 52px; padding: 8px 14px; border-radius: var(--eden-r-lg); background: var(--eden-glass); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); box-shadow: inset 0 0.5px 0 var(--eden-rim), inset 0 0 0 0.5px var(--eden-hairline), var(--eden-sh1); }
+body.in-app:not([data-skin]) .jc-toolbar { padding-top: 8px; }
+/* With the sidebar hidden, the title bar sits just below the window's buttons (they end about
+   26px down in the app), not under them. */
+body.in-app:not([data-skin]) .deck.jc.side-hidden .jc-main { top: 28px; }
+body:not([data-skin]) .deck.jc .jc-main { transition: left 380ms var(--ease-spring), top 380ms var(--ease-spring); }
+body:not([data-skin]) .jc-title { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; }
+body:not([data-skin]) .jc-sub { color: var(--eden-text2); }
+body:not([data-skin]) .jc-capsule { background: transparent; box-shadow: none; }
+body:not([data-skin]) .jc-tool { border-radius: 8px; color: var(--eden-text2); }
+body:not([data-skin]) .jc-tool:hover { background: rgba(120, 120, 128, 0.12); color: var(--eden-text); }
+body:not([data-skin]) .jc-voice { background: var(--eden-glass2); box-shadow: inset 0 0.5px 0 var(--eden-rim), inset 0 0 0 0.5px var(--eden-hairline), 0 1px 3px rgba(0, 0, 0, 0.06); color: var(--eden-text2); font-size: 11.5px; }
+body:not([data-skin]) .jc-body { padding: 0; }
+body:not([data-skin]) .jc-scroll { padding: 4px 16px 16px; }
+body:not([data-skin]) .jc-column { max-width: 880px; }
+body:not([data-skin]) .jc-dock .jc-column { max-width: 904px; }
+
+/* ── Eden's mark in place of the reactor orb ── */
+body:not([data-skin]) .jc-mark, body:not([data-skin]) .jc-hero-mark {
+  border-radius: 26%; box-shadow: none;
+  background: var(--eden-mark-bg) var(--eden-mark) center / 62% no-repeat;
+}
+body:not([data-skin]) .jc-mark { width: 22px; height: 22px; }
+body:not([data-skin]) .jc-orb .jc-reactor { display: none; }
+body:not([data-skin]) .jc-orb::before { content: ""; width: 15px; height: 15px; background: currentColor; -webkit-mask: var(--eden-mark-light) center / contain no-repeat; mask: var(--eden-mark-light) center / contain no-repeat; }
+
+/* ── the empty state: Ask Eden's #empty (the mark, a big title, a grid of suggestion cards) ── */
+body:not([data-skin]) .jc-welcome { max-width: 640px; margin: 0 auto; padding: 8vh 0 20px; }
+body:not([data-skin]) .jc-hero-mark { width: 56px; height: 56px; }
+body:not([data-skin]) .jc-hero-title { margin: 16px 0 6px; font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4px; }
+body:not([data-skin]) .jc-hero-sub { color: var(--eden-text2); font-size: 15px; }
+body:not([data-skin]) .jc-starters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 26px; max-width: none; }
+body:not([data-skin]) .jc-starter { text-align: left; border-radius: var(--eden-r-md); padding: 12px 14px; font-size: 13px; color: var(--eden-text); background: var(--eden-content); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), inset 0 0 0 0.5px var(--eden-hairline); transition: transform 120ms ease, box-shadow 120ms ease; }
+body:not([data-skin]) .jc-starter:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08), inset 0 0 0 0.5px var(--eden-hairline); }
+body:not([data-skin]) .jc-btn { border-radius: 999px; }
+body:not([data-skin]) .jc-btn.filled { background: var(--eden-accent); }
+body:not([data-skin]) .jc-card, body:not([data-skin]) .jc-past { border-radius: var(--eden-r-md); background: var(--eden-content); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), inset 0 0 0 0.5px var(--eden-hairline); }
+body:not([data-skin]) .jc-hint { color: var(--eden-text3); }
+
+/* ── the conversation: Ask Eden's bubbles ── */
+body:not([data-skin]) .jc-log { gap: 18px; }
+body:not([data-skin]) .jc-user {
+  max-width: 75%; padding: 9px 14px; font-size: 15px; color: #fff;
+  background: var(--eden-accent); border-radius: 19px 19px 5px 19px;
+  box-shadow: 0 1px 3px rgba(10, 132, 255, 0.35);
+}
+body:not([data-skin]) .jc-user .jc-pics { color: rgb(255 255 255 / 0.8); }
+body:not([data-skin]) .jc-user a { color: #fff; }
+body:not([data-skin]) .jc-say {
+  align-self: stretch; font-size: 15px; padding: 14px 44px 14px 16px;
+  background: var(--eden-content); border-radius: var(--eden-r-lg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 0 0 0.5px var(--eden-hairline);
+}
+body:not([data-skin]) .jc-say .jc-copy { top: 10px; right: 10px; }
+body:not([data-skin]) .jc-tool-row, body:not([data-skin]) .jc-agent, body:not([data-skin]) .jc-plan, body:not([data-skin]) .jc-inline-todos {
+  border-radius: var(--eden-r-md); background: var(--eden-content);
+}
+body:not([data-skin]) .jc-tool-row, body:not([data-skin]) .jc-agent, body:not([data-skin]) .jc-inline-todos { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), inset 0 0 0 0.5px var(--eden-hairline); }
+body:not([data-skin]) .jc-md pre { border-radius: var(--eden-r-sm); background: rgba(120, 120, 128, 0.08); box-shadow: inset 0 0 0 0.5px var(--eden-hairline); }
+body:not([data-skin]) .jc-note, body:not([data-skin]) .jc-turn { color: var(--eden-text3); }
+
+/* ── the composer: Ask Eden's (the same clear glass and its model pill's green dot) ── */
+body:not([data-skin]) .jc-dock { padding: 0 12px 12px; }
+body:not([data-skin]) .jc-composer { border-radius: 22px; }
+body:not([data-skin]) .jc-send { background: var(--eden-accent); }
+body:not([data-skin]) .jc-composer-row > .jc-pill { height: 26px; background: rgb(var(--c-ink) / 0.06); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.11); color: rgb(var(--c-ink-2)); font-size: 12px; font-weight: 550; padding: 0 10px; }
+body:not([data-skin]) .jc-composer-row > #jc-model::before { content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%; background: rgb(var(--c-success)); box-shadow: 0 0 6px rgb(var(--c-success) / 0.8); }
+body:not([data-skin]) .jc-statusline { color: var(--eden-text3); }
+
+/* ── the sheets over it (Settings, Tools & Accounts) and the notes: Ask Eden's glass ── */
+body.eden-code .sheet { border-left: 0; box-shadow: -1px 0 0 var(--eden-hairline), var(--eden-sh1); }
+body.eden-code .offline { background: var(--eden-glass2); color: var(--eden-text); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); box-shadow: inset 0 0.5px 0 var(--eden-rim), inset 0 0 0 0.5px var(--eden-hairline), var(--eden-sh1); }
+body.eden-code:has(> #cc:not([hidden])) #cards { top: 76px; right: 24px; }
+
+@media (max-width: 760px) {
+  body:not([data-skin]) .jc-main { left: 12px; }
+  body:not([data-skin]) .jc-starters { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body:not([data-skin]) .jc-starter { transition: none; }
+}
+
+/* ── closer still to Ask Eden's chat ── */
+/* Its title bar: Eden's mark, then the chat's title (and here, the project under it). */
+body:not([data-skin]) .deck.jc .jc-titles { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 10px; align-items: center; }
+body:not([data-skin]) .deck.jc .jc-titles::before {
+  content: ""; grid-row: 1 / 3; width: 22px; height: 22px; border-radius: 26%;
+  background: var(--eden-mark-bg) var(--eden-mark) center / 62% no-repeat;
+}
+/* Its empty state has no buttons, only the suggestion cards: a new session is the sidebar's +,
+   and voice is the title bar's Voice switch. */
+body:not([data-skin]) .deck.jc .jc-hero-actions, body:not([data-skin]) .deck.jc .jc-hint { display: none; }
+body:not([data-skin]) .deck.jc .jc-starters { margin-top: 26px; }
+
+/* Its sidebar: the search field first, the new-chat button beside it, no heading; sections
+   under small capitals ("PROJECTS"); the foot names the app beside Eden's mark. */
+body:not([data-skin]) .deck.jc .jc-side { position: absolute; }
+body:not([data-skin]) .deck.jc .jc-side-head .jc-mark, body:not([data-skin]) .deck.jc .jc-side-head h2 { display: none; }
+body:not([data-skin]) .deck.jc .jc-side-head { position: absolute; top: 44px; right: 10px; padding: 0; z-index: 2; }
+body:not([data-skin]) .deck.jc #deck-filter { margin-right: 38px; }
+body:not([data-skin]) .deck.jc .jc-projects-wrap::before {
+  content: "Projects"; display: block; padding: 10px 8px 5px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.3px; text-transform: uppercase; color: var(--eden-text3);
+}
+body:not([data-skin]) .deck.jc .jc-side-foot { min-height: 46px; padding: 10px 4px 0 6px; }
+body:not([data-skin]) .deck.jc .jc-side-foot::before {
+  content: ""; order: -2; flex: none; width: 26px; height: 26px; border-radius: 26%;
+  background: var(--eden-mark-bg) var(--eden-mark) center / 56% no-repeat;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 8px rgba(14, 39, 71, 0.25);
+}
+body:not([data-skin]) .deck.jc .jc-side-foot::after {
+  content: "Eden Code"; order: -1; flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--eden-text);
+}
+body:not([data-skin]) .deck.jc .jc-side-foot .jc-summary { display: none; }
+/* Its suggestion cards: centred, the words set like its cards' titles. */
+body:not([data-skin]) .deck.jc .jc-starter { text-align: center; font-weight: 600; font-size: 13px; padding: 14px; }

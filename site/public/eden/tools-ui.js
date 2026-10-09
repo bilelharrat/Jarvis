@@ -5,7 +5,7 @@
 // mail is read-only plus drafts that open in the composer. See eden-tools.js.
 
 import { el, ico, toast } from './util.js';
-import { api, postJSON } from './api.js';
+import { api, getJSON, postJSON } from './api.js';
 import { state, ui, path, nodeText, saveConversation } from './state.js';
 import * as T from './eden-tools.js';
 import { openCalendar } from './calendar.js';
@@ -21,7 +21,7 @@ export async function connection(force = false) {
   if (!force && Date.now() - conn.at < 60_000) return conn;
   let g = null, c = null;
   try { g = await api.googleStatus(); } catch { /* not there: nothing connected */ }
-  try { c = await (await fetch('/api/chat/gcal/status', { credentials: 'same-origin' })).json(); } catch { /* idem */ }
+  try { c = await getJSON('/api/chat/gcal/status'); } catch { /* idem */ }
   const mail = Boolean(g && g.connected && g.gmail !== false);
   const calendar = Boolean((g && g.calendar === true) || (c && c.connected && c.calendar));
   conn = { calendar, mail, at: Date.now() };
@@ -193,7 +193,7 @@ function card(c, node, t) {
     for (const a of spec.actions) {
       if (a === 'approve') btn(t.state === 'error' ? 'Try again' : spec.approve, spec.danger ? 'danger' : 'primary', () => approve(c, node, t, call));
       if (a === 'edit') btn('Edit', '', () => editCall(call));
-      if (a === 'open') btn(spec.approve, 'primary', () => { openCompose({ to: call.args.to.join(', '), cc: call.args.cc.join(', '), subject: call.args.subject, body: call.args.body }); t.state = 'done'; t.result = 'Opened in Mail. Review it and press Send there.'; saveConversation(c); ui.updateMessage(c, node); });
+      if (a === 'open') btn(spec.approve, 'primary', () => { openCompose({ to: call.args.to, cc: call.args.cc, subject: call.args.subject, body: call.args.body }); t.state = 'done'; t.result = 'Opened in Mail. Review it and press Send there.'; saveConversation(c); ui.updateMessage(c, node); });
       if (a === 'connect') btn(spec.approve, 'primary', () => connect(/mail/i.test(nodeText(node)) ? 'gmail' : 'calendar'));
       if (a === 'cancel') btn('Cancel', '', () => { t.state = 'cancelled'; saveConversation(c); ui.updateMessage(c, node); });
     }

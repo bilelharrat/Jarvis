@@ -6,7 +6,7 @@ the owner makes in Settings has
 - a name ("Work Jarvis", and optionally in Chinese) and a persona (jarvis, tars, friday or
   one of the owner's own), whose voice, humor and wake word it uses;
 - the tool servers it may use, by name as the conversation knows them ("mail", "calendar",
-  "messages", "claude" for Jarvis Code, "acct_<id>" for a connected account). Memory is
+  "messages", "claude" for Eden Code, "acct_<id>" for a connected account). Memory is
   always there (its facts are the agent's own and the shared ones). Everything else is left
   out of its conversation altogether: never an agent's way to more than it was given;
 - where it's reached: chat routes (a chat app, and optionally one Slack workspace or one

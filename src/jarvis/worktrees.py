@@ -1,4 +1,4 @@
-"""Isolated copies: a Jarvis Code session in a git worktree of its own.
+"""Isolated copies: an Eden Code session in a git worktree of its own.
 
 Two sessions in one project folder edit the same files under each other. A session can
 instead work in its own copy of the project: a git worktree on a branch of its own
@@ -58,9 +58,9 @@ _ENV_NAME = re.compile(r"\.env(\.[\w.-]+)?")  # .env, .env.local… (never .envr
 LINKABLE = ("node_modules", ".venv")
 # Who a recovery snapshot is by, when the repository names no one.
 _SNAPSHOT_ID = {
-    "GIT_AUTHOR_NAME": "Jarvis Code",
+    "GIT_AUTHOR_NAME": "Eden Code",
     "GIT_AUTHOR_EMAIL": "jarvis-code@localhost",
-    "GIT_COMMITTER_NAME": "Jarvis Code",
+    "GIT_COMMITTER_NAME": "Eden Code",
     "GIT_COMMITTER_EMAIL": "jarvis-code@localhost",
 }
 
@@ -675,7 +675,7 @@ def _snapshot(copy: Copy) -> str:
             "-p",
             head,
             "-m",
-            f"Jarvis Code: work left in {copy.branch}, discarded",
+            f"Eden Code: work left in {copy.branch}, discarded",
             env=env,
         )
         return made.out.strip() if made.ok else head

@@ -42,7 +42,7 @@ from typing import Any, NamedTuple
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import jsonstore
+from . import jsonstore, osplat
 from .claude_signin import signed_in
 from .config import MAX_BUFFER
 from .lang import LazyPattern
@@ -3155,7 +3155,7 @@ def email_replies(handle: str, since: datetime, db: Path | None = None) -> list[
     db = db or mail_index()
     if db is None or not os.access(db, os.R_OK):
         raise PermissionError(FULL_DISK_ACCESS.replace("Texts need", "Email needs"))
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn = sqlite3.connect(osplat.sqlite_ro_uri(db), uri=True)
     try:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}

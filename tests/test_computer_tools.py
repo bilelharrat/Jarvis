@@ -193,3 +193,51 @@ async def test_find_files_weighs_only_as_many_as_it_shows(mac, monkeypatch):
     assert (await mac["tools"]["find_files"]({"query": "x"}))["content"][0]["text"] == (
         "Nothing found."
     )
+
+
+async def test_a_long_document_is_read_on_part_by_part(mac, monkeypatch, tmp_path):
+    words = ("alpha beta gamma delta " * 2500).strip()  # 57,499 characters
+    doc = tmp_path / "paper.md"
+    doc.write_text(words, encoding="utf-8")
+    monkeypatch.setattr(computer, "safe_path", lambda p: doc)
+    read = mac["tools"]["read_file"]
+
+    def text(result):
+        return result["content"][0]["text"]
+
+    first = text(await read({"path": str(doc)}))
+    assert first.startswith(words[:50]) and "start 20000" in first
+    assert 800 < first.count("alpha") < 900  # (a part is about 20,000 characters)
+    second = text(await read({"path": str(doc), "start": 20000}))
+    assert second.startswith(words[20000:20050]) and "start 40000" in second
+    last = text(await read({"path": str(doc), "start": 40000}))
+    assert last.startswith(words[40000:40050]) and "end of the document" in last
+    assert "start" not in last.split("(That is the end")[1]
+    assert "nothing after that point" in text(await read({"path": str(doc), "start": 90000}))
+    assert "start 20000" in text(
+        await read({"path": str(doc), "start": "-5"})
+    )  # (a bad start is the start)
+    assert "start 20000" in text(await read({"path": str(doc), "start": "x"}))
+
+
+async def test_a_short_document_is_read_whole_with_no_talk_of_more(mac, monkeypatch, tmp_path):
+    doc = tmp_path / "note.txt"
+    doc.write_text("A short note.", encoding="utf-8")
+    monkeypatch.setattr(computer, "safe_path", lambda p: doc)
+    got = (await mac["tools"]["read_file"]({"path": str(doc)}))["content"][0]["text"]
+    assert got == "A short note."
+
+
+async def test_a_pdf_longer_than_forty_pages_can_be_read_to_its_end(mac, monkeypatch, tmp_path):
+    seen = {}
+
+    def fake(path, limit, **kw):
+        seen.update(limit=limit, **kw)
+        return "x" * limit
+
+    monkeypatch.setattr(computer, "read_document", fake)
+    doc = tmp_path / "long.pdf"
+    doc.write_bytes(b"%PDF-1.4")
+    monkeypatch.setattr(computer, "safe_path", lambda p: doc)
+    await mac["tools"]["read_file"]({"path": str(doc), "start": 400000})
+    assert seen["pages"] == computer.READ_PAGES == 400 and seen["limit"] == 400000 + 20000 + 1

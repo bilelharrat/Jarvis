@@ -1,4 +1,4 @@
-// Jarvis Code's split view, its window helpers (web/features/code-split.js), what the right
+// Eden Code's split view, its window helpers (web/features/code-split.js), what the right
 // pane leaves to the main window (app.js), and its Chinese. node --test tests/web/
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -134,7 +134,7 @@ test('⌘⇧\\ is the split’s, ⌘\\ stays the sidebar’s', () => {
 });
 
 // The right pane is the same window in a frame: everything the hub asks of a window, the main
-// window answers. A reply the pane could send (from app.js or a Jarvis Code module, the only ones
+// window answers. A reply the pane could send (from app.js or an Eden Code module, the only ones
 // it loads) would race the main window's, so each is held back there.
 test('the right pane never answers what the hub asks of the window', () => {
   const app = readFileSync(`${WEB}/app.js`, 'utf8');
@@ -149,7 +149,7 @@ test('the right pane never answers what the hub asks of the window', () => {
   for (const ask of ['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture', 'code_voice_point', 'show_session', 'ui', 'alert']) {
     assert.ok(skips.has(ask), ask);
   }
-  // And the frame loads only Jarvis Code's modules.
+  // And the frame loads only Eden Code's modules.
   const loader = readFileSync(`${WEB}/features.js`, 'utf8');
   assert.match(loader, /inSplitPane/);
 });

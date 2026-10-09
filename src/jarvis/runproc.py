@@ -1,4 +1,4 @@
-"""Processes Jarvis Code runs in a project for the owner: dev servers, test runs, checks.
+"""Processes Eden Code runs in a project for the owner: dev servers, test runs, checks.
 
 Each runs in its own session and process group, under a small supervisor:
 
@@ -30,6 +30,7 @@ from collections import deque
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from . import osplat
 from .packaged import owner_env
 
 log = logging.getLogger("jarvis")
@@ -40,11 +41,41 @@ STOP_GRACE = 5.0  # seconds between SIGTERM and SIGKILL for a group being stoppe
 LINGER = 2.0  # seconds what a finished command left holding its output may stay
 ENV_TIMEOUT = 10.0  # seconds for the login shell to say its environment
 ENV_MARK = "__JARVIS_ENV__"
+_WIN_PATHS = (
+    "~/.local/bin", "~/.cargo/bin", "~/go/bin", "~/.bun/bin", "~/.deno/bin", "~/AppData/Roaming/npm",
+    "C:/Program Files/Git/cmd", "C:/Program Files/nodejs", "~/AppData/Local/Programs/Python/Launcher",
+)  # fmt: skip
 # Where tools live when the login shell can't be asked (it hung, or there's none).
+_KILL = getattr(signal, "SIGKILL", 9)  # (Windows has no SIGKILL)
 _COMMON_PATHS = (
     "/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "~/.local/bin", "~/.cargo/bin",
     "~/go/bin", "~/.bun/bin", "~/.deno/bin", "~/.volta/bin",
 )  # fmt: skip
+
+# Windows: the same watch without sessions or signals; the command's whole tree is ended with
+# taskkill when the app has gone.
+SUPERVISE_WIN = """
+import os, subprocess, sys, time
+import psutil
+parent = os.getppid()
+try:
+    child = subprocess.Popen(sys.argv[1:])
+except OSError as exc:
+    print(f"couldn't start {sys.argv[1]}: {exc.strerror or exc}", flush=True)
+    sys.exit(127)
+def tree():
+    subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"], capture_output=True)
+while True:
+    try:
+        code = child.wait(timeout=1.0)
+        break
+    except subprocess.TimeoutExpired:
+        pass
+    if not psutil.pid_exists(parent):
+        tree()
+        sys.exit(1)
+sys.exit(code & 0xFF if code >= 0 else 1)
+"""
 
 # Between the app and the command: its own session and group (start_new_session), the
 # command in it, and the app watched. Handlers (not SIG_IGN) so the command, after its
@@ -178,9 +209,11 @@ def fallback_env() -> dict[str, str]:
     """The app's own environment (without JARVIS's own settings) with the usual tool
     folders added to its PATH."""
     env = owner_env(os.environ)
-    have = env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin").split(":")
-    extra = [str(Path(p).expanduser()) for p in _COMMON_PATHS]
-    env["PATH"] = ":".join(dict.fromkeys([*extra, *have]))
+    have = env.get("PATH", "" if osplat.IS_WIN else "/usr/bin:/bin:/usr/sbin:/sbin").split(
+        os.pathsep
+    )
+    extra = [str(Path(p).expanduser()) for p in (_WIN_PATHS if osplat.IS_WIN else _COMMON_PATHS)]
+    env["PATH"] = os.pathsep.join(dict.fromkeys([*extra, *have]))
     return env
 
 
@@ -204,8 +237,12 @@ def shell_env(refresh: bool = False) -> dict[str, str]:
     global _env_cache, _env_at
     if _env_cache is not None and not refresh and time.monotonic() - _env_at < ENV_FRESH:
         return dict(_env_cache)
-    shell = os.environ.get("SHELL") or "/bin/zsh"
+    shell = osplat.default_shell()
     env: dict[str, str] = {}
+    if osplat.IS_WIN:  # (no login shell to ask: the app's own environment, as Explorer gave it)
+        env = fallback_env()
+        _env_cache, _env_at = env, time.monotonic()
+        return dict(env)
     try:
         out = subprocess.run(  # noqa: S603 - the owner's own shell, only to read its environment
             [shell, "-i", "-l", "-c", f"printf '%s' {ENV_MARK}; command env -0"],
@@ -232,7 +269,7 @@ def which(command: str, env: dict[str, str], cwd: Path) -> str | None:
     """Where a command is: a path (relative to cwd) as it is, a name on the env's PATH."""
     if not command or "\0" in command:
         return None
-    if "/" in command:
+    if "/" in command or (osplat.IS_WIN and "\\" in command):
         # Not resolved: a venv's python is a link, and it's only the venv's by that path.
         path = Path(os.path.normpath(cwd / Path(command).expanduser()))
         return str(path) if path.is_file() and os.access(path, os.X_OK) else None
@@ -284,14 +321,14 @@ class Proc:
                 "-I",
                 "-S",
                 "-c",
-                SUPERVISE,
+                SUPERVISE_WIN if osplat.IS_WIN else SUPERVISE,
                 *self.argv,
                 cwd=str(self.cwd),
                 env=self.env,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                start_new_session=True,
+                **osplat.group_popen_kwargs(),
             )
             self._reader = asyncio.create_task(self._read())
             if self.stopping:  # stopped while it was starting: it goes as soon as it's there
@@ -390,13 +427,20 @@ class Proc:
 
 def signal_group(pgid: int, sig: int) -> None:
     with contextlib.suppress(OSError):
-        os.killpg(pgid, sig)
+        if osplat.IS_WIN:
+            osplat.kill_group(pgid, force=sig == _KILL)
+        else:
+            os.killpg(pgid, sig)
 
 
 def session_pids(sid: int) -> list[int]:
     """Every process still in a session (the supervisor's: it leads its own)."""
     import psutil
 
+    if osplat.IS_WIN:  # no sessions: the supervisor and everything under it
+        with contextlib.suppress(Exception):
+            return [sid, *(c.pid for c in psutil.Process(sid).children(recursive=True))]
+        return []
     found = []
     for p in psutil.process_iter(["pid"]):
         with contextlib.suppress(OSError):
@@ -408,11 +452,12 @@ def session_pids(sid: int) -> list[int]:
 def kill_leftovers(sid: int) -> None:
     """SIGKILL to the group and to anything that moved to a group of its own but is still
     in the session."""
-    signal_group(sid, signal.SIGKILL)
+    pids = session_pids(sid) if osplat.IS_WIN else []
+    signal_group(sid, _KILL)
     with contextlib.suppress(Exception):
-        for pid in session_pids(sid):
+        for pid in pids or session_pids(sid):
             with contextlib.suppress(OSError):
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, _KILL)
 
 
 def kill_all_now(procs: Iterable[Proc], grace: float = 1.5) -> None:
@@ -430,6 +475,8 @@ def kill_all_now(procs: Iterable[Proc], grace: float = 1.5) -> None:
 
 
 def _group_alive(pgid: int) -> bool:
+    if osplat.IS_WIN:
+        return osplat.group_alive(pgid)
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:

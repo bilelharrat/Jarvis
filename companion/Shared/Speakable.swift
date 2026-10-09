@@ -31,7 +31,7 @@ enum Speakable {
     }
 
     /// Han characters outweigh Latin letters, counting a character as a word of four letters,
-    /// so a Chinese reply that names "Jarvis Code" is still Chinese, and an English one that
+    /// so a Chinese reply that names "Eden Code" is still Chinese, and an English one that
     /// names someone in Chinese is still English.
     private static func isChinese(_ text: String) -> Bool {
         var han = 0

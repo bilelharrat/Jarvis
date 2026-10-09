@@ -1,4 +1,4 @@
-"""Jarvis Code sessions that outlast a restart, and the tools for keeping many of them.
+"""Eden Code sessions that outlast a restart, and the tools for keeping many of them.
 
 - Every session the list shows is kept (session_store): after a restart the open ones come
   back "resting", with their settings, queue, draft, latest permission decisions, sidebar
@@ -225,7 +225,7 @@ class CodeSessions:
         try:
             records = await asyncio.to_thread(self.store.load)
         except Exception:
-            log.exception("Jarvis Code: couldn't read the kept sessions")
+            log.exception("Eden Code: couldn't read the kept sessions")
             records = []
         # Read on its own: the sessions read above count as read (the store saves over and
         # lets go of what it has read), so dropping them for this file's sake had the next
@@ -233,7 +233,7 @@ class CodeSessions:
         try:
             self.remembered = await asyncio.to_thread(self.store.load_remembered)
         except Exception:
-            log.exception("Jarvis Code: couldn't read how past sessions were set")
+            log.exception("Eden Code: couldn't read how past sessions were set")
             self.store.remembered_unreadable = "it couldn't be read"
         self._remembered_saved = dict(self.remembered)
         restored = 0
@@ -248,7 +248,7 @@ class CodeSessions:
             try:
                 restored += self._restore_one(record)
             except Exception:
-                log.exception("Jarvis Code: couldn't bring back session %s", record.get("key"))
+                log.exception("Eden Code: couldn't bring back session %s", record.get("key"))
         self.armed = True
         if restored:
             self.tm._changed()
@@ -287,7 +287,7 @@ class CodeSessions:
                 self.emit_meta(full=True)
                 return next((i for i, k in self.keys.items() if k == key), None)
         except Exception:
-            log.exception("Jarvis Code: couldn't reopen kept session %s", key)
+            log.exception("Eden Code: couldn't reopen kept session %s", key)
         self.dormant[key] = line  # (kept all the same)
         return None
 
@@ -349,7 +349,7 @@ class CodeSessions:
         try:
             cwd = tm.resolve_dir(record["cwd"])
         except ValueError as exc:
-            log.warning("Jarvis Code: not bringing back a session in %s (%s)", record["cwd"], exc)
+            log.warning("Eden Code: not bringing back a session in %s (%s)", record["cwd"], exc)
             try:  # its folder may be back (a disk not there just now): kept a while
                 age = datetime.now() - datetime.fromisoformat(record["updated"])
             except ValueError:
@@ -473,7 +473,7 @@ class CodeSessions:
         try:
             await asyncio.to_thread(self._write_all, changed, keep, remembered)
         except Exception as exc:  # a full disk: kept in memory, tried again at the next change
-            log.warning("Jarvis Code: couldn't save the sessions (%s)", exc)
+            log.warning("Eden Code: couldn't save the sessions (%s)", exc)
             for key in changed:
                 self._printed.pop(key, None)
         else:
@@ -505,7 +505,7 @@ class CodeSessions:
         try:
             await asyncio.to_thread(self._write_all, changed, keep, remembered)
         except Exception as exc:
-            log.warning("Jarvis Code: couldn't save the sessions (%s)", exc)
+            log.warning("Eden Code: couldn't save the sessions (%s)", exc)
         else:
             self._saved(changed)
 
@@ -1024,7 +1024,7 @@ class CodeSessions:
         except TimeoutError:
             self.hub.emit("code_btw", **say, state="error", text="That took too long to answer.")
         except Exception as exc:
-            log.warning("Jarvis Code: a side question failed (%s)", exc)
+            log.warning("Eden Code: a side question failed (%s)", exc)
             self.hub.emit("code_btw", **say, state="error", text="Couldn't answer that just now.")
         else:
             self.hub.emit("code_btw", **say, state="done", text=answer or "No answer came back.")
@@ -1131,11 +1131,11 @@ class CodeSessions:
                 # Claude Code wouldn't keep it (a workspace it doesn't trust, hooks off): Jarvis does.
                 goal.update(
                     native=False,
-                    note="Jarvis Code couldn't keep this goal itself here, so JARVIS checks it.",
+                    note="Eden Code couldn't keep this goal itself here, so JARVIS checks it.",
                 )
                 self.tm.send(task.id, goal["text"])
             else:  # its check let the turn end only once the goal held
-                goal.update(state="met", note="Jarvis Code kept at it until it held.")
+                goal.update(state="met", note="Eden Code kept at it until it held.")
                 self.tm._log(task, "system", "Goal met.")
         else:
             files = [str(f) for f in data.get("files") or []]
@@ -1178,7 +1178,7 @@ class CodeSessions:
                 code_asides.CHECK_SECONDS,
             )
         except Exception as exc:
-            log.warning("Jarvis Code: a goal check failed (%s)", exc)
+            log.warning("Eden Code: a goal check failed (%s)", exc)
             answer = ""
         found = code_asides.verdict(answer)
         if meta.get("goal") is not goal or goal["state"] != "active":
@@ -1229,7 +1229,7 @@ class CodeSessions:
                 self._note("That folder is already where projects are listed from.")
                 return
             if len(roots) >= code_projects.ROOTS_MAX:
-                self._note("That's as many folders of projects as Jarvis Code lists.")
+                self._note("That's as many folders of projects as Eden Code lists.")
                 return
             self.hub.set_feature_prefs({"code_project_roots": [*map(str, roots), str(path)]})
             await self._projects_changed()
@@ -1252,7 +1252,7 @@ class CodeSessions:
                 return
             folders = [str(f) for f in self.projects.folders()]
             if len(folders) >= code_projects.FOLDERS_MAX:
-                self._note("That's as many folders as Jarvis Code keeps: remove one in Settings.")
+                self._note("That's as many folders as Eden Code keeps: remove one in Settings.")
                 return
             self.hub.set_feature_prefs({"code_project_folders": [*folders, str(path)]})
             name = path.name

@@ -825,9 +825,28 @@ class Transcriber:
         self.language = language  # "zh": Mandarin, with a multilingual model
         self._model = None
         self._lock = threading.Lock()
+        self.error = ""  # why the model could not be loaded, when a warm-up could not
+
+    def cached(self) -> bool:
+        """Whether the model is on this computer already (otherwise the first load downloads it)."""
+        try:
+            from faster_whisper.utils import download_model
+
+            download_model(self.model_name, local_files_only=True)
+            return True
+        except Exception:  # noqa: BLE001 - not there, or not a name it knows
+            return False
 
     def warm_up(self) -> None:
-        threading.Thread(target=self._load, daemon=True).start()
+        threading.Thread(target=self._warm, daemon=True).start()
+
+    def _warm(self) -> None:
+        try:
+            self._load()
+            self.error = ""
+        except Exception as exc:  # noqa: BLE001 - offline, or no room for it: said by whoever waits
+            self.error = f"{type(exc).__name__}: {str(exc)[:160]}"
+            log.warning("the speech model could not be loaded: %s", self.error)
 
     def _load(self):
         with self._lock:

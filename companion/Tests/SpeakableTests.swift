@@ -22,7 +22,7 @@ final class SpeakableTests: XCTestCase {
         XCTAssertEqual(Speakable.voiceLanguage(for: "你的下一个会议在三点。", preferred: english), "zh-CN")
         // Chinese that names things in English is still Chinese; English that names someone
         // in Chinese is still English.
-        XCTAssertEqual(Speakable.voiceLanguage(for: "好的，Jarvis Code 会先跑 npm test。", preferred: ["en-US"]), "zh-CN")
+        XCTAssertEqual(Speakable.voiceLanguage(for: "好的，Eden Code 会先跑 npm test。", preferred: ["en-US"]), "zh-CN")
         XCTAssertEqual(Speakable.voiceLanguage(for: "Dinner with 王芳 moved to eight.", preferred: ["en-US"]), "en-US")
     }
 

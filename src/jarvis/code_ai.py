@@ -1,4 +1,4 @@
-"""Jarvis Code's own Claude calls, and what each may cost.
+"""Eden Code's own Claude calls, and what each may cost.
 
 The cost policy, one line per kind of call: the model, when it runs, and a cap per day
 (a day's count is kept in code_ai_usage.json beside the settings; past the cap the owner

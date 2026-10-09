@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Eden</title>
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
+<link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="mobile.css">
 <link rel="stylesheet" href="calendar.css">
@@ -25,7 +27,10 @@
 <link rel="stylesheet" href="learned.css">
 <link rel="stylesheet" href="tour.css">
 <link rel="stylesheet" href="browser.css">
+<link rel="stylesheet" href="courses.css">
+<link rel="stylesheet" href="tutor.css">
 <script type="module" src="app.js"></script>
+<script type="module" src="apps-menu.js"></script>
 <meta name="robots" content="noindex, nofollow">
 <script type="module" src="hosted.js"></script>
 </head>
@@ -137,7 +142,7 @@
         <span class="ctxl" id="tbCtxPct">0%</span><span class="mono" id="tbCost" title="Session cost">$0.00</span>
       </span>
       <button type="button" class="iconbtn" id="btnCanvasBack" title="Back to the canvas" aria-label="Show canvas"><svg class="ic" aria-hidden="true"><use href="#i-art"/></svg></button>
-      <button type="button" class="kbdhint" id="btnPalette" aria-label="Command palette"><svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-cmd"/></svg>K</button>
+      <button type="button" class="iconbtn" id="btnPalette" title="Search and commands (⌘K)" aria-label="Search and commands"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></button>
       <button type="button" class="iconbtn" id="btnConvMenu" aria-haspopup="menu" aria-expanded="false" title="Conversation" aria-label="Conversation actions"><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg></button>
       <button type="button" class="iconbtn" id="btnInspector" title="Toggle inspector · ⌘⌥0" aria-label="Toggle inspector"><svg class="ic" aria-hidden="true"><use href="#i-insp"/></svg></button>
       <button type="button" class="iconbtn" id="btnBrowser" aria-pressed="false" title="Browser · ⌘⇧B" aria-label="Browser"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg></button>
@@ -243,7 +248,7 @@
           </div>
         </form>
         <p class="jc-statusline"><span id="cc-mode">? for shortcuts</span><span class="sp"></span><span id="cc-status"></span></p>
-        <input type="file" id="jc-file" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,text/*,.md,.markdown,.json,.jsonl,.csv,.tsv,.yml,.yaml,.toml,.ini,.xml,.html,.css,.scss,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.go,.rs,.java,.kt,.swift,.m,.c,.h,.cc,.cpp,.hpp,.cs,.php,.sh,.zsh,.sql,.log,.txt" multiple hidden>
+        <input type="file" id="jc-file" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.pdf,.epub,.docx,.pptx,application/pdf,application/epub+zip,text/*,.md,.markdown,.json,.jsonl,.csv,.tsv,.yml,.yaml,.toml,.ini,.xml,.html,.css,.scss,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.go,.rs,.java,.kt,.swift,.m,.c,.h,.cc,.cpp,.hpp,.cs,.php,.sh,.zsh,.sql,.log,.txt" multiple hidden>
       </div>
     </div>
   </main>

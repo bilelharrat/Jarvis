@@ -12,6 +12,7 @@ import { chatSyncApi } from './chat-sync.js';
 import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
 import { checkSignups } from './turnstile.js';
+import { redeemPromo } from './promo.js';
 import { cancelSubscription } from '../eden/billing.js';
 import {
   ApiError,
@@ -121,6 +122,11 @@ export async function api(request, env, ctx) {
     if (path === '/push' && method === 'POST') return json(await push(request, env));
     const approval = /^\/tasks\/approvals\/([0-9a-f]{16})$/.exec(path);
     if (approval && method === 'POST') return json(await taskApproval(request, env, approval[1]));
+    if (path === '/promo/redeem' && method === 'POST') { // the apps: a promo code for free Plus (promo.js)
+      const token = auth(request);
+      await limited(env, 'AUTH_RATE', `promo:${token.account}`);
+      return json(await redeemPromo(env, { account: token.account, token }, (await readJson(request, 4096)).code, call));
+    }
     if (path === '/subscription' && method === 'POST') return json(await subscription(request, env));
     if (path === '/appstore/notifications' && method === 'POST') return await appStoreNotification(request, env);
     // Eden sync for the apps (docs/accounts.md "Eden sync"): the same ops a browser has, by token.

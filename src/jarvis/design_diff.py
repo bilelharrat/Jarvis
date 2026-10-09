@@ -1,5 +1,5 @@
 """How close a built page is to the design it was built from: a perceptual comparison in pure
-numpy (no image library), for Jarvis Code's "Match a design" (features/code_design.py).
+numpy (no image library), for Eden Code's "Match a design" (features/code_design.py).
 
 The app decodes both pictures and shrinks them to one small size (app/features/design-match.js);
 here they're compared:

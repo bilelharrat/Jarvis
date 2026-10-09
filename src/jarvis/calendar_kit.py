@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:  # only for the lock's annotation (see _run)
     import asyncio
 
+ON_A_PC = sys.platform == "win32"  # (no EventKit there: wincal answers the same commands)
 NO_ACCESS = (
     "Calendar access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Calendars)."
 )
@@ -820,6 +821,14 @@ async def _run(argv: tuple[str, ...], timeout: float) -> dict:
     # never needs it, and it was most of the helper's own import time (~13 ms a start).
     import asyncio
 
+    if ON_A_PC:  # no EventKit on a PC: wincal's calendar answers the same commands
+        from . import wincal
+
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(wincal.run, list(argv)), timeout)
+        except TimeoutError:
+            return {"error": "The calendar took too long to answer."}
+
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
@@ -859,6 +868,11 @@ def parse(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def main() -> None:
     args = sys.argv[1:]
+    if ON_A_PC:
+        from . import wincal
+
+        print(json.dumps(wincal.run(args)), flush=True)
+        return
     try:
         if len(args) == 3 and args[0] == "events":
             result = events(float(args[1]), float(args[2]))

@@ -1,4 +1,4 @@
-// Jarvis Code's diff view: hunks with three lines of context, a small syntax highlighter
+// Eden Code's diff view: hunks with three lines of context, a small syntax highlighter
 // (keywords, strings, comments, numbers; no dependencies), the words that changed inside a
 // changed line, unified or side by side, the unchanged lines between hunks collapsed, and
 // long hunks drawn a slice at a time. Pure helpers are exported for node's tests; the

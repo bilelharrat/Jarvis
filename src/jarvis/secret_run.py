@@ -1,4 +1,4 @@
-"""Runs one Jarvis Code command with the owner's secrets in its environment, and scrubs them
+"""Runs one Eden Code command with the owner's secrets in its environment, and scrubs them
 from what it prints (features/code_secrets.py puts this in front of a session's commands).
 
     python -I secret_run.py <keychain service> NAME=account ... -- <shell> -c <command>

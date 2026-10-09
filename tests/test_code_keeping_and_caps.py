@@ -1,4 +1,4 @@
-"""Jarvis Code's kept sessions, hand-off messages and isolated copies at their limits: every
+"""Eden Code's kept sessions, hand-off messages and isolated copies at their limits: every
 listed session keeps its file whatever the mix of open and ended ones, a message waiting
 behind a hand-off's start never goes there once the session is back, and a copy that can't
 be made never holds a place under the cap. No real Claude; real git in temp repositories."""

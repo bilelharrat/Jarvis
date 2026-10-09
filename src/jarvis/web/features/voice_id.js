@@ -97,7 +97,7 @@
     scope.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.scope === state.scope)));
     scopeNote.textContent = state.scope === 'all'
       ? 'Anyone else is ignored. Tapping the orb, ⌥Space and typing are never checked.'
-      : 'Anyone can ask questions; approvals, sends, purchases, deletes and Jarvis Code approvals by voice need yours.';
+      : 'Anyone can ask questions; approvals, sends, purchases, deletes and Eden Code approvals by voice need yours.';
     why.textContent = state.why || '';
     why.hidden = !state.why;
 

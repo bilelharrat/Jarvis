@@ -7,6 +7,7 @@ import contextlib
 import logging
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from . import osplat
 
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
 # Each of these is linear however long a run of spaces, blank lines or "[": a line start
@@ -50,9 +53,13 @@ def clean_for_speech(text: str) -> str:
     return re.sub(r"\s{2,}", " ", text).strip()
 
 
+# macOS's `say`; on Windows the same command line, spoken by Windows' voices (winsay.py).
+_SAY = [sys.executable, "-I", "-m", "jarvis.winsay"] if sys.platform == "win32" else ["say"]
+
+
 def available_voices() -> set[str]:
     try:
-        out = subprocess.run(["say", "-v", "?"], capture_output=True, text=True, timeout=10).stdout
+        out = subprocess.run([*_SAY, "-v", "?"], capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.TimeoutExpired):
         return set()
     names = set()
@@ -335,8 +342,8 @@ def ensure_player() -> Path | None:
     from .prefs import APP_SUPPORT
     from .swift_helper import prebuilt
 
-    if not PLAYER_SOURCE.exists():
-        return None
+    if sys.platform == "win32" or not PLAYER_SOURCE.exists():
+        return None  # (Windows: whole clips through winplay)
     found = prebuilt("jarvis-player", PLAYER_SOURCE)
     if found is not None:
         return found
@@ -711,6 +718,12 @@ def to_pcm(audio: np.ndarray) -> bytes:
     return (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
+def is_silent(speaker: Any) -> bool:
+    """Whether a speaker says nothing now: muted by the owner, or the screen reader reads
+    the replies (a stand-in without that is judged by its mute alone)."""
+    return bool(getattr(speaker, "silent", getattr(speaker, "muted", False)))
+
+
 class Speaker:
     def __init__(
         self,
@@ -727,6 +740,12 @@ class Speaker:
         self._voice_name, self._voice_unchecked = voice or "", bool(voice)
         self.rate = rate
         self.muted = muted
+        # A screen reader reads the replies instead (features/accessibility.py sets this to say
+        # so, when it should): nothing is spoken, but it is not the owner's mute.
+        self.defer_to_reader: Callable[[], bool] | None = None
+        # A feature's say-the-punctuation hook (features/speech_punctuation.py): it gets each text before
+        # `clean` does, and gives it back with its marks spelled out when the person wants them said.
+        self.punctuation: Callable[[str], str] | None = None
         # What a text becomes before it's voiced; the hub sets the chosen language's
         # (Chinese: numbers, times and money said in Chinese).
         self.clean: Callable[[str], str] = clean_for_speech
@@ -805,6 +824,16 @@ class Speaker:
             except RuntimeError:  # no event loop left: the process is ending anyway
                 pass
 
+    @property
+    def silent(self) -> bool:
+        """Nothing is spoken: muted by the owner, or the screen reader reads the replies."""
+        if self.muted:
+            return True
+        try:
+            return bool(self.defer_to_reader and self.defer_to_reader())
+        except Exception:  # a broken hook never makes JARVIS talk, or keeps it quiet
+            return False
+
     def stop(self) -> None:
         for proc in (*self._procs, self._player):
             if proc is not None and proc.returncode is None:
@@ -814,7 +843,7 @@ class Speaker:
 
     def _say_args(self, fallback: bool = False) -> list[str]:
         """`say`'s arguments; fallback: the cloud voice failed, so the fallback voice."""
-        args = ["say", "-r", str(self.rate)]
+        args = [*_SAY, "-r", str(self.rate)]
         voice = (getattr(self, "fallback_voice", "") if fallback else "") or self.voice
         if voice:
             args += ["-v", voice]
@@ -823,7 +852,7 @@ class Speaker:
     async def say(self, text: str) -> None:
         """Speak one piece of text start to finish (confirmations, one-offs)."""
         spoken = self.clean(text)
-        if self.muted or not spoken:
+        if self.silent or not spoken:
             return
         if self.player_path is not None:
             await self.play_source(self.open(spoken))
@@ -911,7 +940,7 @@ class Speaker:
         first = await src.chunks.get()
         if first is None:
             return
-        if self.muted:
+        if self.silent:
             src.cancel()
             return
         live = await self.live()
@@ -920,7 +949,7 @@ class Speaker:
             try:
                 chunk, half = first, b""
                 while chunk is not None:
-                    if self.muted:  # silence what's queued too, and stop fetching
+                    if self.silent:  # silence what's queued too, and stop fetching
                         live.stop_now()
                         src.cancel()
                         return
@@ -958,7 +987,7 @@ class Speaker:
         try:
             chunk = first
             while chunk is not None:
-                if self.muted:
+                if self.silent:
                     proc.kill()
                     src.cancel()
                     break
@@ -1029,7 +1058,7 @@ class Speaker:
     async def play(self, audio: np.ndarray, rate: int) -> None:
         """Play a finished clip: through the live player when it's running (instant), else
         macOS's own player (afplay). Nothing while muted."""
-        if self.muted:
+        if self.silent:
             return
         live = await self.live()
         if live is not None:
@@ -1056,8 +1085,7 @@ class Speaker:
             path = Path(tmp) / "clip.wav"
             write_wav(path, audio, rate)
             proc = await asyncio.create_subprocess_exec(
-                "afplay",
-                str(path),
+                *osplat.afplay_argv(str(path)),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -1136,7 +1164,7 @@ class SpeechQueue:
 
     def push(self, text: str) -> None:
         spoken = getattr(self.speaker, "clean", clean_for_speech)(text)
-        if self.speaker.muted or not spoken:
+        if is_silent(self.speaker) or not spoken:
             return
         self._pending += 1
         self._idle.clear()
@@ -1147,7 +1175,7 @@ class SpeechQueue:
     def push_clip(self, clip: tuple[np.ndarray, int], text: str = "") -> None:
         """Queue audio that's already made (the instant 'One moment.' fillers); text is
         what it says."""
-        if self.speaker.muted:
+        if is_silent(self.speaker):
             return
         heard = getattr(self.speaker, "clean", clean_for_speech)(text) if text else ""
         self._pending += 1
@@ -1173,7 +1201,7 @@ class SpeechQueue:
             said = None
             try:
                 clip = await task
-                if self.speaker.muted:  # muted after it was queued: drop it unheard
+                if is_silent(self.speaker):  # muted after it was queued: drop it unheard
                     if isinstance(clip, Source):
                         clip.cancel()
                 elif isinstance(clip, Source):

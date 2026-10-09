@@ -30,8 +30,10 @@
     return [e.metaKey && 'Command', e.ctrlKey && 'Control', e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+');
   }
 
-  // The modifiers held while a shortcut is being typed, as the Mac writes them.
-  function heldLabel(e) {
+  // The modifiers held while a shortcut is being typed, as this computer writes them: ⌃⌥⇧⌘ on a Mac,
+  // "Ctrl+Alt+" on a PC.
+  function heldLabel(e, pc = false) {
+    if (pc) return [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Win'].filter(Boolean).map((m) => `${m}+`).join('');
     return [e.ctrlKey && '⌃', e.altKey && '⌥', e.shiftKey && '⇧', e.metaKey && '⌘'].filter(Boolean).join('');
   }
 
@@ -45,7 +47,10 @@
   // What goes to the app (its menus, notifications) is translated here, with F.t.
   const en = (text) => text;
   const SHORTCUT_PREFS = { ask: 'shell_shortcut_ask', whatsThis: 'shell_shortcut_whats_this' };
-  const SHORTCUT_DEFAULTS = { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' };
+  // (as app/features/shell-lib.js has them: Alt+Space is Windows' own window menu there, and Ctrl+Alt+J,
+  // J being the key a finger finds by touch, is the way Windows itself starts a program from the keyboard)
+  const ON_WINDOWS = /Win/i.test((navigator && navigator.platform) || '');
+  const SHORTCUT_DEFAULTS = ON_WINDOWS ? { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space' } : { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' };
 
   // What the app reports, as the window last heard it.
   const seen = { state: 'idle', muted: false, prefs: null };
@@ -54,6 +59,11 @@
   let canNotify = false; // the app raises notifications itself (not in the test window)
   const approvals = new Map(); // the cards waiting for an OK, as the hub sent them
   let keyStatus = null; // the global shortcuts, as the app has them: { live, ask: {accelerator, label, error}, whatsThis }
+  // What the other features may ask: the Talk shortcut as written now, and a nudge when it changes.
+  window.jarvisShell = {
+    askLabel: () => (keyStatus && keyStatus.ask ? keyStatus.ask.label : ''),
+    whatsThisLabel: () => (keyStatus && keyStatus.whatsThis ? keyStatus.whatsThis.label : ''),
+  };
 
   const feature = (key, fallback) => {
     const features = (seen.prefs && seen.prefs.features) || {};
@@ -79,7 +89,7 @@
       pausedUntil: until > Date.now() ? t(`Heads-ups paused until ${clockText(until)}`) : '',
       resume: t('Resume heads-ups'),
       open: t('Open J.A.R.V.I.S.'),
-      code: t('Jarvis Code'),
+      code: t('Eden Code'),
       browser: t('Browser'),
       quit: t('Quit J.A.R.V.I.S.'),
       needsOk: t('Needs your OK'),
@@ -187,14 +197,14 @@
 
   function reveal(cmd) {
     if (cmd.what === 'approval') {
-      if (Number.isFinite(cmd.task)) { openTask(cmd.task); return; } // Jarvis Code's, in its session
+      if (Number.isFinite(cmd.task)) { openTask(cmd.task); return; } // Eden Code's, in its session
       const card = F.$('cards').querySelector(`[data-approval="${CSS.escape(String(cmd.id))}"]`);
       if (card) flash(card);
       return;
     }
     if (cmd.what !== 'alert') return;
     const key = String(cmd.key || '');
-    const code = /^code(?:-ok)?:(\d+):/.exec(key); // Jarvis Code finished, or needs you
+    const code = /^code(?:-ok)?:(\d+):/.exec(key); // Eden Code finished, or needs you
     if (code) { openTask(Number(code[1])); return; }
     let card = key ? F.$('cards').querySelector(`[data-alert="${CSS.escape(key)}"]`) : null;
     if (!card) { // its card timed out: back, for another minute
@@ -255,7 +265,7 @@
     if (note) note.hidden = true;
   }
 
-  // A jarvis:// link's project: Jarvis Code open on it, once the list of projects is in.
+  // A jarvis:// link's project: Eden Code open on it, once the list of projects is in.
   let wantedProject = '';
   function pickProject(name) {
     if (!deckProjects.some((p) => p.name === name)) return false;
@@ -300,7 +310,7 @@
       case 'open': openPanel(cmd.panel); break;
       case 'approve': {
         // Answered as the card's own button would be: through the window's checks (Touch ID
-        // before allowing a risky Jarvis Code step), never around them.
+        // before allowing a risky Eden Code step), never around them.
         const card = approvals.get(cmd.id);
         if (!card || !['allow', 'deny'].includes(cmd.choice)) break;
         if (F.answerApproval) F.answerApproval(card, cmd.choice);
@@ -538,7 +548,7 @@
   // ── the global shortcuts ──
 
   let recordingSlot = '';
-  let noteFrom = ''; // what the note is about: 'recorder', 'taken' (found at start) or ''
+  let noteFrom = ''; // what the note is about: 'recorder', 'taken' or 'standin' (found at start) or ''
 
   function setNote(text, warn, from) {
     const note = F.$('shell-key-note');
@@ -552,7 +562,7 @@
   function problem(error, label) {
     if (error === 'taken') return en(`${label} is taken by another app. Pick another.`);
     if (error === 'modifier') return en('Use ⌃ or ⌥, or ⌘ together with ⇧, ⌃ or ⌥.');
-    if (error === 'reserved') return en(`${label} belongs to macOS. Pick another.`);
+    if (error === 'reserved') return en(ON_WINDOWS ? `${label} belongs to Windows. Pick another.` : `${label} belongs to macOS. Pick another.`);
     if (error === 'same') return en('Talk and What’s this? need different shortcuts.');
     return en('That key can’t be a shortcut.');
   }
@@ -565,10 +575,14 @@
       if (recordingSlot !== slot) F.$(`shell-key-${slot}`).textContent = s.label;
       F.$(`shell-rec-${slot}`).disabled = !online && recordingSlot !== slot;
     }
+    document.dispatchEvent(new Event('jarvis:shortcuts'));
     // A shortcut another app already had when JARVIS started: said until it's changed.
     const taken = ['ask', 'whatsThis'].map((slot) => keyStatus[slot]).find((s) => s && s.error === 'taken');
+    // One in use by another program, with another key standing in for it: said, and not a problem.
+    const standIn = ['ask', 'whatsThis'].map((slot) => keyStatus[slot]).find((s) => s && s.wanted && !s.error);
     if (taken && noteFrom !== 'recorder') setNote(problem('taken', taken.label), true, 'taken');
-    else if (!taken && noteFrom === 'taken') setNote('', false, '');
+    else if (standIn && noteFrom !== 'recorder') setNote(en(`${standIn.wanted} is used by another program, so J.A.R.V.I.S. listens for ${standIn.label} instead. You can pick another key below.`), false, 'standin');
+    else if (!taken && !standIn && (noteFrom === 'taken' || noteFrom === 'standin')) setNote('', false, '');
     updateHint();
   }
 
@@ -612,7 +626,7 @@
   }
 
   // While recording, every key is the shortcut's: none reaches the rest of the window
-  // (Space would talk, Esc close Settings, ⌘, open Jarvis Code's settings).
+  // (Space would talk, Esc close Settings, ⌘, open Eden Code's settings).
   function onRecordKey(e) {
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -620,7 +634,7 @@
     if (e.code === 'Escape' && !(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)) { stopRecording(); return; }
     const accelerator = acceleratorFromKey(e);
     const slot = recordingSlot;
-    if (!accelerator) { F.$(`shell-key-${slot}`).textContent = heldLabel(e) || '…'; return; }
+    if (!accelerator) { F.$(`shell-key-${slot}`).textContent = heldLabel(e, ON_WINDOWS) || '…'; return; }
     stopRecording(false); // the app ends its own recording when it's asked to take one
     bridge.invoke(`${CH}shortcut`, { which: slot, accelerator }).then((r) => {
       if (r && r.ok) {
@@ -637,7 +651,7 @@
   function onRecordKeyUp(e) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    if (recordingSlot) F.$(`shell-key-${recordingSlot}`).textContent = heldLabel(e) || '…';
+    if (recordingSlot) F.$(`shell-key-${recordingSlot}`).textContent = heldLabel(e, ON_WINDOWS) || '…';
   }
 
   // ── start: the group first, so the events heard next (and the one replayed) fill it in ──
@@ -676,7 +690,7 @@
     if (!wantedProject) return;
     const name = wantedProject;
     wantedProject = '';
-    if (!pickProject(name)) notice('Jarvis Code', '', en(`No Jarvis Code project named “${name}”.`), 8000);
+    if (!pickProject(name)) notice('Eden Code', '', en(`No Eden Code project named “${name}”.`), 8000);
   });
   F.on('shell_wake', (ev) => { wakeState = ev; renderWake(); });
   F.on('state', (ev) => { seen.state = ev.value || 'idle'; report(); });

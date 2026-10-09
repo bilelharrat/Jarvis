@@ -39,7 +39,7 @@
     'memory.json': 'Memory',
     'routines.json': 'Routines',
     'goals.json': 'Goals',
-    'permissions.json': 'Jarvis Code rules',
+    'permissions.json': 'Eden Code rules',
     'providers.json': 'Model providers',
     'connections.json': 'Connected accounts',
     'devices.json': 'Paired phones',

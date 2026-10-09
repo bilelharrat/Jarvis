@@ -134,6 +134,11 @@ def fetch() -> dict[str, Any]:
 
 def main() -> None:
     args = sys.argv[1:]
+    if sys.platform == "win32":  # a PC's own list (winreminders.py), the same rows
+        from . import winreminders
+
+        print(json.dumps(winreminders.run(args)), flush=True)
+        return
     if args == ["list"]:
         try:
             result = fetch()

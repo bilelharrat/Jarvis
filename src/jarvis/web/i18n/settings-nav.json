@@ -13,14 +13,15 @@
   "Calls & Messages": "通话与消息",
   "iPhone & Watch": "iPhone 与 Watch",
   "Automation": "自动化",
-  "Jarvis Code": "Jarvis Code",
+  "Eden Code": "Eden Code",
   "Browser": "浏览器",
   "Markets & Money": "市场与财务",
   "Privacy & Safety": "隐私与安全",
   "Search results": "搜索结果",
   "All settings": "所有设置",
   "Settings": "设置",
-  "Close settings": "关闭设置"
+  "Close settings": "关闭设置",
+  "Accessibility": "无障碍"
  },
  "patterns": []
 }

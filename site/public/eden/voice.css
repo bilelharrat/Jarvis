@@ -52,3 +52,11 @@
   .talk-core, .jc-dictate.live, .jc-dictate.busy, .msg-acts .iconbtn[data-act="speak"].on .ic { animation: none !important; }
 }
 .talk-acts .btn:disabled { opacity: 0.45; cursor: default; }
+
+/* shrunk to the orb (voice.js setTalkMini): just the sphere, floating over the app, still talking */
+.talk.mini { inset: auto; width: 84px; height: 84px; padding: 0; background: none; pointer-events: none; }
+.talk.mini .talk-card { width: 84px; height: 84px; padding: 0; border-radius: 50%; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; overflow: visible; justify-content: center; animation: none; }
+.talk.mini .talk-top, .talk.mini .talk-state, .talk.mini .talk-you, .talk.mini .talk-reply, .talk.mini .talk-acts { display: none; }
+.talk.mini .talk-orb { width: 84px; height: 84px; margin: 0; pointer-events: auto; touch-action: none; cursor: grab; filter: drop-shadow(0 10px 24px rgba(6, 36, 79, 0.45)); }
+.talk.mini .talk-orb:active { cursor: grabbing; }
+.talk.mini .talk-core { width: 56px; height: 56px; }

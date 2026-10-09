@@ -889,7 +889,7 @@ final class AppModel {
 
     // MARK: - Approvals and commands
 
-    /// Answers an approval by what the answer means (from a Jarvis Code session, the Watch
+    /// Answers an approval by what the answer means (from an Eden Code session, the Watch
     /// or a notification): the choice id comes from the card's own choices.
     @discardableResult
     func answer(approvalID: String, choices: [ApprovalChoice], with answer: ApprovalAnswer) async -> Bool {

@@ -171,7 +171,7 @@ def screen_note(frame: Frame) -> str:
 
 def _block(item: dict[str, str]) -> dict[str, Any]:
     """A picture, or a file sent with a request: a PDF as base64, a text file as its text
-    (as Jarvis Code's composer sends them), each file with its name."""
+    (as Eden Code's composer sends them), each file with its name."""
     media_type = item["media_type"]
     if media_type == "application/pdf" or media_type.startswith("text/"):
         source = (

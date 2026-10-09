@@ -1,4 +1,4 @@
-"""GitHub for Jarvis Code: its REST API (over httpx, HTTP/1.1), for pull requests, their
+"""GitHub for Eden Code: its REST API (over httpx, HTTP/1.1), for pull requests, their
 checks, reviews and comments, merging, and the issues that start sessions.
 
 Which repository a project is: its git remote (the branch's upstream remote, else origin,
@@ -216,7 +216,7 @@ def _clock(epoch: float) -> str:
 
 
 class Client:
-    """One GitHub account's API, shared by a hub's Jarvis Code features. token() reads the
+    """One GitHub account's API, shared by a hub's Eden Code features. token() reads the
     token (blocking; it's called in a thread and reused for TOKEN_FRESH seconds, and again
     at once after GitHub turns it down). transport: the tests' httpx.MockTransport."""
 

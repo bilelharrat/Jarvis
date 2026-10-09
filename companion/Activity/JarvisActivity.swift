@@ -1,7 +1,7 @@
 import ActivityKit
 import Foundation
 
-/// A Live Activity for something the Mac is doing for you: a Jarvis Code session working or
+/// A Live Activity for something the Mac is doing for you: an Eden Code session working or
 /// waiting on you, a conversation held for you (a delegation), a call, a video summary.
 /// The Mac updates it by push (apns-push-type: liveactivity) with the content state below,
 /// and ends it with `event: "end"`.
@@ -67,7 +67,7 @@ struct JarvisActivityAttributes: ActivityAttributes {
 
         var label: String {
             switch self {
-            case .code: "Jarvis Code"
+            case .code: "Eden Code"
             case .delegation: "Conversation"
             case .call: "Call"
             case .video: "Video summary"
@@ -123,7 +123,7 @@ enum LiveActivityPlan {
     /// At most this many at once (the system caps each app, and more would be noise).
     static let limit = 3
 
-    /// Jarvis Code sessions working or waiting on you; conversations still going (when the
+    /// Eden Code sessions working or waiting on you; conversations still going (when the
     /// list was fetched).
     static func wanted(sessions: [CodeSessionSummary], delegations: [DelegationItem]?, now: Date) -> [Item] {
         let stamp = now.timeIntervalSince1970

@@ -169,7 +169,7 @@ async def test_claude_signed_out_gives_the_command_to_sign_in(tmp_path):
         probe(tmp_path, run, claude_cli=lambda: "/c", login_command=lambda cli: f"{cli} auth login")
     )
     assert got["state"] == "problem" and got["command"] == "/c auth login"
-    assert "Claude Code" not in json.dumps(got)  # the product is Jarvis Code, never Claude Code
+    assert "Claude Code" not in json.dumps(got)  # the product is Eden Code, never Claude Code
 
 
 async def test_claude_missing_or_silent(tmp_path):

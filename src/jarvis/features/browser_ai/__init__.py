@@ -52,7 +52,7 @@ browser_ai_dwell, browser_ai_memories, browser_ai_memory_forget, browser_ai_ask,
 browser_ai_carry_on, browser_ai_handback_cancel, browser_ai_read, browser_ai_watches,
 browser_ai_watch_stop, browser_ai_record, browser_ai_record_step, browser_ai_macro_save,
 browser_ai_macro_delete, browser_ai_macros, browser_ai_macro_run, whats_this (before
-Jarvis Code's).
+Eden Code's).
 Tool server: browser_ai (read_tabs, watch_page, list_watches, stop_watch, run_macro,
 list_macros). Loop: browser_watches. Files: browser_watches.json and browser_macros.json
 (hub.feature_path); the remembered pages in a browsing/ folder beside the brain's index.

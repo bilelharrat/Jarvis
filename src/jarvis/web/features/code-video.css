@@ -1,4 +1,4 @@
-/* Jarvis Code's video proof (code-video.js): a recording's card in the transcript. */
+/* Eden Code's video proof (code-video.js): a recording's card in the transcript. */
 .vp-card { list-style: none; display: flex; gap: 12px; align-items: flex-start; background: rgb(var(--c-surface)); border-radius: 14px; box-shadow: var(--shadow-card); padding: 10px 12px; font-size: 13px; max-width: 560px; }
 .vp-card.problem { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-warning) / 0.7); }
 .vp-poster { position: relative; flex: none; width: 168px; border: 0; padding: 0; border-radius: 9px; overflow: hidden; cursor: pointer; background: rgb(var(--c-fill-3)); box-shadow: 0 0 0 0.5px rgb(var(--c-ink) / 0.14); }

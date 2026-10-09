@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A Claude question in Jarvis Code, answered the way the Mac's window can: one option, several
+/// A Claude question in Eden Code, answered the way the Mac's window can: one option, several
 /// at once ("pick"), or in your own words ("other").
 struct QuestionCard: View {
     let approval: Approval
@@ -18,7 +18,7 @@ struct QuestionCard: View {
         VStack(alignment: .leading, spacing: Space.s) {
             HStack(spacing: Space.xs) {
                 Image(systemName: "questionmark.bubble.fill").foregroundStyle(Palette.champagne)
-                Eyebrow("Jarvis Code asks", color: Palette.champagne)
+                Eyebrow("Eden Code asks", color: Palette.champagne)
             }
             Text(approval.question)
                 .font(.serifHeadline)
@@ -90,7 +90,7 @@ struct QuestionCard: View {
     }
 }
 
-/// The session's slash commands: Jarvis Code's own, and the project's and yours.
+/// The session's slash commands: Eden Code's own, and the project's and yours.
 struct CodeCommandsView: View {
     let sessionID: Int
     let onPick: (String) -> Void

@@ -479,7 +479,7 @@
       toggle('Eden on the web reaches this Mac', eden.on, (on) => send({ type: 'feature_prefs', changes: { [EDEN_LINK]: on } }))));
     const plusNote = plus.in_use && !plus.chosen
       ? 'In use: this Mac has no other way in to Claude.'
-      : 'Claude in Jarvis and Jarvis Code runs on your account’s allowance.';
+      : 'Claude in Jarvis and Eden Code runs on your account’s allowance.';
     nodes.push(row('Use Jarvis Plus for AI', plusNote,
       toggle('Use Jarvis Plus for AI', plus.chosen, (on) => send({ type: 'feature_prefs', changes: { [PLUS]: on } }))));
     nodes.push(row('Notifications', status.push_via_account ? 'Through your Jarvis account' : 'With your own push key, or not set up (iPhone & Watch › Notifications)'));

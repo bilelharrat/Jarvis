@@ -1,7 +1,7 @@
-"""Jarvis Code: sessions in isolated copies of their project (worktrees.py).
+"""Eden Code: sessions in isolated copies of their project (worktrees.py).
 
 A session can run in its own git worktree of the project. The composer's "Isolated copy"
-switch asks for one per session (its default is the Jarvis Code setting
+switch asks for one per session (its default is the Eden Code setting
 code_isolate_default, off); a session started some other way (by voice) while another is
 working in the same folder is offered one on a card. A session resumed later runs in its
 copy again. Land merges a copy back and removes it; Discard keeps a recovery ref for 30
@@ -98,8 +98,8 @@ ZH = {
     "Opened the session with the conflicts.": "已打开会话并交给它冲突。",
     "There are no conflicts to resolve there.": "那里没有需要解决的冲突。",
     "Isolated copies": "独立副本",
-    "1 isolated copy has work that isn't landed. Land or discard it in Jarvis Code's Copies pane.": "有 1 个独立副本的工作还没合并。请在 Jarvis Code 的副本面板里合并或丢弃它。",
-    "{n} isolated copies have work that isn't landed. Land or discard them in Jarvis Code's Copies pane.": "有 {n} 个独立副本的工作还没合并。请在 Jarvis Code 的副本面板里合并或丢弃它们。",
+    "1 isolated copy has work that isn't landed. Land or discard it in Eden Code's Copies pane.": "有 1 个独立副本的工作还没合并。请在 Eden Code 的副本面板里合并或丢弃它。",
+    "{n} isolated copies have work that isn't landed. Land or discard them in Eden Code's Copies pane.": "有 {n} 个独立副本的工作还没合并。请在 Eden Code 的副本面板里合并或丢弃它们。",
 }
 lang.add_texts(ZH)
 
@@ -466,7 +466,7 @@ class Desk:
         """Land a copy the owner has already said yes to (Land's card, or best-of-N's Keep
         this one): its work committed and merged, its sessions ended, the copy removed."""
         inside = self.tasks_in(copy)
-        message = f"Jarvis Code: {copy.title or copy.slug}"
+        message = f"Eden Code: {copy.title or copy.slug}"
         async with self.lock(copy.repo):
             landed = await asyncio.to_thread(worktrees.land, copy, message)
             if not landed.ok:
@@ -641,7 +641,7 @@ class Desk:
             n = len(report.leftovers)
             text = (
                 f"{n} isolated copies have work that isn't landed. Land or discard them in "
-                "Jarvis Code's Copies pane."
+                "Eden Code's Copies pane."
                 if n != 1
                 else "1 isolated copy has work that isn't landed. Land or discard it in Jarvis "
                 "Code's Copies pane."
@@ -676,7 +676,7 @@ class Desk:
 
 def install(hub: Any) -> None:
     desk = Desk(hub)
-    hub.code_desk = desk  # (for the other Jarvis Code features and the tests)
+    hub.code_desk = desk  # (for the other Eden Code features and the tests)
     hub.tasks.prepare = desk.prepare
     hub.tasks.isolated_dir = desk.isolated_dir
     hub.register_command("code_copies", desk.cmd_copies)

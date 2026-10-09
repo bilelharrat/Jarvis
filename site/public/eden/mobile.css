@@ -52,6 +52,16 @@
   /* …but keep the composer's long placeholder at its old size so it still fits on one line. */
   .jc-composer-top textarea::placeholder { font-size: 14.5px; }
 
+  /* WebKit draws the text caret of a field inside a backdrop-filter at the wrong height once
+     the keyboard has scrolled the page: it floated a row or so above the composer, over the
+     reply. While the composer is being typed in on a touch screen it's a solid card instead of
+     glass, so the caret stays in the field. */
+  .jc-composer:focus-within { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--content); }
+
+  /* No Browser toggle in the composer on a phone (owner's call): /browse still starts one. It
+     shows only while browse mode is on, so it can be switched off. */
+  .jc-composer-row > .jc-browse:not(.on) { display: none; }
+
   /* Menus list keyboard shortcuts (⌘U, ⌘,) that a phone can't type. */
   .jc-menu .k { display: none; }
 
@@ -93,3 +103,10 @@
   }
   html.eden-ipad #scrim { display: none; }
 }
+
+/* The iOS app: no pinch or double-tap zoom (it's an app, not a page); the browser panel's own page zoom is separate. */
+html.eden-app, html.eden-app body { touch-action: pan-x pan-y; }
+
+/* The iPhone and iPad apps (.eden-app): no Browser toggle in the composer either, at any width
+   (the app has its own browser); shown only while browse mode is on, to switch it off. */
+html.eden-app .jc-composer-row > .jc-browse:not(.on) { display: none; }

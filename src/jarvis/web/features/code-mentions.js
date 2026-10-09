@@ -1,7 +1,7 @@
-// Jarvis Code's richer @-mentions (features/code_mentions.py, code_mentions.py): the
+// Eden Code's richer @-mentions (features/code_mentions.py, code_mentions.py): the
 // composer's @ suggestions beyond files.
 // - @terminal: the last lines of the project's terminal go with the message.
-// - Folders: a project folder, as its path (Jarvis Code reads it itself).
+// - Folders: a project folder, as its path (Eden Code reads it itself).
 // - Symbols: where a name is defined, as its file and line ("@src/app.py (retry, line 12)").
 // - @session-3 after the message's first words: that session's latest reply goes with it.
 //   (At the start, @session-3 sends the message to session 3: code-voice.js suggests those.)

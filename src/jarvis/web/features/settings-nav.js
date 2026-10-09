@@ -9,7 +9,7 @@
 // pane, with a back button, as on iPhone.
 //
 // Tools & Accounts is a pane here too (Accounts): #accounts' sections move into #settings,
-// and toggleAccounts() (Jarvis Code's "Open Tools & Accounts", WhatsApp's
+// and toggleAccounts() (Eden Code's "Open Tools & Accounts", WhatsApp's
 // pairing) opens Settings on it. The sidebar's top row is the Jarvis account, when its
 // section (features/account.js, #account-group) is there.
 (() => {
@@ -21,6 +21,7 @@
 
   const ICONS = {
     gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
     wave: '<path d="M4 10v4M8 6.5v11M12 4v16M16 7.5v9M20 10.5v3"/>',
     spark: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
     bell: '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2H5z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
@@ -37,9 +38,14 @@
     person: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
   };
+  // Eden Code's window (app/flavor.js) keeps what coding needs; the voice, the day, the phone and
+  // money are J.A.R.V.I.S.'s, and stay in its own Settings (they're there for search still).
+  const EDEN = document.body.dataset.app === 'eden-code';
+  const EDEN_PANES = new Set(['general', 'accessibility', 'ai', 'accounts', 'code', 'browser', 'safety']);
   // [id, label, icon, tile colour]; an empty id is a gap between clusters, as in System Settings.
   const PANES = [
     ['general', 'General', 'gear', 'gray'],
+    ['accessibility', 'Accessibility', 'eye', 'blue'],
     ['voice', 'Voice & Listening', 'wave', 'purple'],
     ['ai', 'AI & Models', 'spark', 'indigo'],
     ['accounts', 'Accounts', 'at', 'blue'],
@@ -52,12 +58,12 @@
     ['devices', 'iPhone & Watch', 'devices', 'blue'],
     ['automation', 'Automation', 'bolt', 'yellow'],
     [''],
-    ['code', 'Jarvis Code', 'code', 'graphite'],
+    ['code', 'Eden Code', 'code', 'graphite'],
     ['browser', 'Browser', 'globe', 'teal'],
     ['money', 'Markets & Money', 'chart', 'green'],
     [''],
     ['safety', 'Privacy & Safety', 'hand', 'blue'],
-  ];
+  ].filter(([id], i, all) => !EDEN || (id ? EDEN_PANES.has(id) : all.slice(0, i).reverse().find(([p]) => p === '' || EDEN_PANES.has(p))?.[0]));
   const LABEL = Object.fromEntries(PANES.filter(([id]) => id).map(([id, label]) => [id, label]));
   // The features' sections, by id or by class (a section without either goes to General).
   const BY_ID = {
@@ -182,7 +188,7 @@
   if (head) head.prepend(back, title);
   sheet.setAttribute('aria-labelledby', 'sn-title');
 
-  let current = 'general';
+  let current = EDEN ? 'code' : 'general';
   try { const saved = localStorage.getItem(STORE); if (saved && LABEL[saved]) current = saved; } catch (_) { /* no storage */ }
 
   function show() {

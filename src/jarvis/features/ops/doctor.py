@@ -154,9 +154,10 @@ def claude_cli() -> str | None:
     with contextlib.suppress(Exception):
         import claude_agent_sdk
 
-        bundled = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
-        if bundled.is_file():
-            return str(bundled)
+        folder = Path(claude_agent_sdk.__file__).parent / "_bundled"
+        for name in ("claude", "claude.exe"):  # (Windows' is an .exe)
+            if (folder / name).is_file():
+                return str(folder / name)
     found = shutil.which("claude")
     if found:
         return found
@@ -165,6 +166,8 @@ def claude_cli() -> str | None:
         home / ".npm-global/bin/claude",
         Path("/usr/local/bin/claude"),
         home / ".local/bin/claude",
+        home / ".local/bin/claude.exe",
+        home / "AppData/Roaming/npm/claude.cmd",
         home / "node_modules/.bin/claude",
         home / ".yarn/bin/claude",
         home / ".claude/local/claude",

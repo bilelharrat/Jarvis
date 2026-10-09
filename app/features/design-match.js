@@ -1,4 +1,4 @@
-// Jarvis Code's "Match a design", in the app itself (features/code_design.py asks for it
+// Eden Code's "Match a design", in the app itself (features/code_design.py asks for it
 // through the window): render the dev server's page at the design's size, picture it, and
 // shrink both pictures to one small size for the comparison (done in the backend, numpy).
 //

@@ -1,7 +1,7 @@
 import SwiftUI
 import WidgetKit
 
-/// The Watch face: what needs your OK, Jarvis Code, and what's next, from the snapshot the
+/// The Watch face: what needs your OK, Eden Code, and what's next, from the snapshot the
 /// Watch app keeps (from its own visits to the Mac, and what the iPhone passes on).
 @main
 struct JarvisComplications: Widget {
@@ -11,7 +11,7 @@ struct JarvisComplications: Widget {
                 .containerBackground(for: .widget) { Color.clear }
         }
         .configurationDisplayName("Jarvis")
-        .description("What needs your OK, Jarvis Code, and what’s next.")
+        .description("What needs your OK, Eden Code, and what’s next.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline, .accessoryCorner])
     }
 }

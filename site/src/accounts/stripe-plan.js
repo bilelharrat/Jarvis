@@ -53,14 +53,16 @@ export function stripeActive(p, now) {
 
 /**
  * The account's plan: the App Store's record (`store`, as account.js keeps it) and Stripe's,
- * together. Active while either is; `expires`, `renews` and `environment` are the later one's.
+ * and a promo code's (`promo`: { until }), together. Active while any is; `expires`, `renews` and `environment` are the later one's.
  * `source`: "app_store" | "stripe" | "both" | null; `manage`: where each is managed.
  */
-export function combinePlans(store, stripe, now) {
+export function combinePlans(store, stripe, now, promo = null) {
   const apple = Boolean(store.expires && store.expires > now && !store.revoked);
   const web = stripeActive(stripe, now);
-  const plan = { ...store, active: apple || web };
-  plan.source = apple && web ? 'both' : apple ? 'app_store' : web ? 'stripe' : null;
+  const gift = Boolean(promo && promo.until > now); // free Plus from a promo code (promo.js)
+  const plan = { ...store, active: apple || web || gift };
+  plan.source = apple && web ? 'both' : apple ? 'app_store' : web ? 'stripe' : gift ? 'promo' : null;
+  plan.promo = gift;
   const webExpires = Number(stripe && stripe.period_end) || 0;
   // Stripe's end is the later one (or the only one): its expiry, renewal and environment show.
   const stripeLater = stripe && stripe.subscription && (web ? !apple || webExpires > store.expires : !apple && webExpires > (Number(store.expires) || 0));
@@ -68,6 +70,13 @@ export function combinePlans(store, stripe, now) {
     plan.expires = webExpires || null;
     plan.renews = web ? Boolean(stripe.renews) : false;
     plan.environment = stripe.livemode ? 'Production' : 'Sandbox';
+    if (!apple) plan.product_id = null;
+  }
+  // A promo code's end shows only when it is the later one (or the only one).
+  if (gift && promo.until > (Number(plan.expires) || 0)) {
+    plan.expires = promo.until;
+    plan.renews = false;
+    plan.environment = null;
     if (!apple) plan.product_id = null;
   }
   const fixable = stripe && ['past_due', 'unpaid', 'incomplete'].includes(stripe.status);
@@ -118,7 +127,7 @@ export async function stripeOp(account, op, request) {
 
 async function checkoutBegin(account, { origin }) {
   const plan = await account.planNow();
-  if (plan.active) {
+  if (plan.active && plan.source !== 'promo') { // a promo code's Plus can still be bought on top of
     throw new ApiError(409, 'already_plus', plan.source === 'stripe'
       ? 'You already have Plus, billed on askeden.com. Use Manage billing to change it.'
       : 'You already have Plus through the App Store. Manage it in the App Store (Settings › your name › Subscriptions).');

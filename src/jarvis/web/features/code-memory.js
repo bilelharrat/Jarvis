@@ -1,4 +1,4 @@
-// Jarvis Code's memory files (features/code_memory.py): where a "# note" goes. The note
+// Eden Code's memory files (features/code_memory.py): where a "# note" goes. The note
 // waits in the transcript with the three places it can go (the last one chosen first):
 // the project's CLAUDE.md, its CLAUDE.local.md, or the owner's ~/.claude/CLAUDE.md. Not
 // saved, it goes back in the composer. It waits in its own session's transcript, and comes
@@ -68,7 +68,7 @@
     if (first) first.focus();
   });
 
-  // A session's transcript drawn again (shown again, Jarvis Code opened again, a reconnect)
+  // A session's transcript drawn again (shown again, Eden Code opened again, a reconnect)
   // takes everything out: its notes still waiting go back in.
   F.on('task_transcript', (ev) => {
     const task = F.currentTask();

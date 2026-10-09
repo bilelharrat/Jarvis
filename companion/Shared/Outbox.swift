@@ -5,7 +5,7 @@ import Foundation
 /// extension and Siri add to the same queue the app sends from.
 ///
 /// Only requests that still mean something later go in: questions, the briefing, a
-/// routine, a share, a message to a Jarvis Code session, location and health. Stop,
+/// routine, a share, a message to an Eden Code session, location and health. Stop,
 /// meeting notes and approvals are about this moment, and fail plainly instead.
 struct OutboxItem: Codable, Identifiable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable {

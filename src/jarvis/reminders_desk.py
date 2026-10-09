@@ -31,6 +31,7 @@ from .reminders_kit import NO_ACCESS
 if TYPE_CHECKING:  # only for the lock's annotation (see _run)
     import asyncio
 
+ON_A_PC = sys.platform == "win32"  # (no EventKit there: winreminders answers the same commands)
 NOT_ASKED = "not asked"  # --no-ask on a Mac that hasn't answered the access question yet
 MAX_TITLE = 200
 MAX_NOTES = 1000
@@ -221,6 +222,16 @@ def delete(reminder_id: str) -> dict[str, Any]:
 
 def main() -> None:
     args = sys.argv[1:]
+    if ON_A_PC:
+        from . import winreminders
+
+        try:
+            if len(args) == 2 and args[0] == "add":
+                args = ["add", json.dumps(clean_new(json.loads(args[1])))]
+            print(json.dumps(winreminders.run(args)), flush=True)
+        except ValueError as exc:
+            print(json.dumps({"error": str(exc)}), flush=True)
+        return
     try:
         if args[:1] == ["open"] and args[1:] in ([], ["--no-ask"]):
             result = open_items(ask=args[1:] != ["--no-ask"])
@@ -416,6 +427,14 @@ async def _run(argv: tuple[str, ...], timeout: float) -> dict[str, Any]:
     # asyncio is imported here, not at the top: the helper process this module also runs as
     # never needs it, and it was most of the helper's own import time (~13 ms a start).
     import asyncio
+
+    if ON_A_PC:  # no EventKit on a PC: winreminders' own list answers the same commands
+        from . import winreminders
+
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(winreminders.run, list(argv)), timeout)
+        except TimeoutError:
+            return {"error": "Reminders took too long to answer."}
 
     proc = await asyncio.create_subprocess_exec(
         sys.executable,

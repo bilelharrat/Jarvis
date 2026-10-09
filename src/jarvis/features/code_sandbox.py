@@ -1,4 +1,4 @@
-"""Claude Code's sandbox for Jarvis Code sessions that run unwatched (codesandbox): with the
+"""Claude Code's sandbox for Eden Code sessions that run unwatched (codesandbox): with the
 switch on, a session in Bypass permissions, or an unattended one, runs its commands in
 Claude Code's sandbox, where they can write only in the project (and its added folders) and
 reach only the domains the owner allowed for the project; any session can also be put in
@@ -231,7 +231,7 @@ class _Options:
 
 def install(hub: Any) -> None:
     desk = SandboxDesk(hub)
-    hub.code_sandbox = desk  # (for the other Jarvis Code features and the tests)
+    hub.code_sandbox = desk  # (for the other Eden Code features and the tests)
     hub.tasks.option_hooks.append(_Options(desk))
     add_rule_check(hub.tasks, desk.check)
     hub.add_task_sink(desk.on_task_event)

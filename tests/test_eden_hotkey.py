@@ -12,10 +12,12 @@ def test_off_by_default_with_control_option_space():
 
 
 def test_keys_are_checked_like_the_other_shortcuts():
-    kept = clean_feature_values({
-        eden_hotkey.ON_KEY: True,
-        eden_hotkey.KEYS_KEY: "Shift+Alt+E",
-    })
+    kept = clean_feature_values(
+        {
+            eden_hotkey.ON_KEY: True,
+            eden_hotkey.KEYS_KEY: "Shift+Alt+E",
+        }
+    )
     assert kept == {eden_hotkey.ON_KEY: True, eden_hotkey.KEYS_KEY: "Alt+Shift+E"}
     # macOS's own, a bare letter, or not a switch: left out (the old value stays)
     assert clean_feature_values({eden_hotkey.KEYS_KEY: "Command+Control+Space"}) == {}

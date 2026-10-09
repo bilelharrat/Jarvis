@@ -1,4 +1,4 @@
-"""The Jarvis Code composer's commands at their edges, through the hub: ! commands and #
+"""The Eden Code composer's commands at their edges, through the hub: ! commands and #
 memories that can't run or be saved still answer the window, and slash commands parse
 the way they're typed (case, spacing, new lines, nothing after the slash)."""
 
@@ -129,7 +129,7 @@ async def test_an_export_that_cannot_be_saved_says_so(hub, tmp_path, monkeypatch
 
     blocked = tmp_path / "blocked"
     blocked.write_text("a file where the folder should be")
-    monkeypatch.setattr(tasks_mod, "EXPORT_DIR", blocked / "Jarvis Code")
+    monkeypatch.setattr(tasks_mod, "EXPORT_DIR", blocked / "Eden Code")
     (tmp_path / "proj").mkdir()
     task = hub.tasks.start("", "proj")
     sent = _record(hub)

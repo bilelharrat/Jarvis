@@ -23,7 +23,7 @@
     commute: ['Commute', 'How long to your first event somewhere'],
     mail: ['Email', 'Unread email'],
     reminders: ['Reminders', 'Due today and overdue'],
-    code: ['Jarvis Code', 'What sessions did while you were away'],
+    code: ['Eden Code', 'What sessions did while you were away'],
     tasks: ['Background tasks', 'Research that finished'],
     markets: ['Markets', 'Your watchlist'],
     bsh: ['BSH alerts', 'Portfolio alerts from the research desk'],

@@ -75,9 +75,9 @@ async function fresh() {
     openResearch = () => Promise.resolve({ ok: true });  // never the Research Center
     onEvent({ type: 'hello', hub_id: 'hub-a', state: 'idle', muted: true, status: {}, activity: [], tasks: [],
       prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50 }, brain: {}, approvals: [], history: [] });
-    window.__task = (id, extra = {}) => ({ id, kind: 'code', folder: 'alpha', label: 'Jarvis Code · alpha', title: 'Session ' + id, prompt: 'Session ' + id,
+    window.__task = (id, extra = {}) => ({ id, kind: 'code', folder: 'alpha', label: 'Eden Code · alpha', title: 'Session ' + id, prompt: 'Session ' + id,
       mode: 'ask', busy: true, status: 'running', files_changed: [], todos: [], background: [], queue: [], last_action: 'Reading a.py', add_dirs: [], plugins: [], ...extra });
-    window.__open = (id) => {  // Jarvis Code open on session id of alpha
+    window.__open = (id) => {  // Eden Code open on session id of alpha
       deckProjects = [{ name: 'alpha', branch: 'main' }]; deckProject = 'alpha'; openProjects.add('alpha');
       onEvent({ type: 'tasks', items: [__task(id)] });
       toggleCC(true);
@@ -99,7 +99,7 @@ async function fresh() {
   if (!(await js('__keyed'))) throw new Error('the page never got a key');
 }
 const sent = () => js('__sent.map((m) => m.type === "approve" ? "approve " + m.id + " " + m.choice : m.type)');
-// Jarvis Code open on session id; waits out the composer's focus timer (40 ms).
+// Eden Code open on session id; waits out the composer's focus timer (40 ms).
 const open = async (id, then = '') => { await js(`__open(${id}); ${then}`); await sleep(80); };
 
 const tests = [];
@@ -141,7 +141,7 @@ test('Space held down talks once, not on every auto-repeat', async () => {
   assert(s.length === 1 && s[0] === 'listen', `held Space sent ${s}`);
 });
 
-// ── the Jarvis Code transcript ──
+// ── the Eden Code transcript ──
 
 test('The transcript keeps the hub’s last 400 entries, newest last', async () => {
   await open(1);
@@ -160,7 +160,7 @@ test('Opening a session replays at most 400 entries and lands on the newest', as
   assert(r.gap < 4, `not at the newest entry (${r.gap}px short)`);
 });
 
-test('A reply streaming in is not redrawn while Jarvis Code is closed, and a long one redraws rarely', async () => {
+test('A reply streaming in is not redrawn while Eden Code is closed, and a long one redraws rarely', async () => {
   await open(1);
   await js(`window.__draws = 0; const real = richText; richText = (t) => { __draws++; return real(t); };
     window.__chunk = 'The parser now reads rows lazily and the tests pass. '.repeat(40);
@@ -189,7 +189,7 @@ test('A new approval keeps the reason being typed for another one', async () => 
   assert(r.sent === 0, 'a digit typed in the reason answered an approval');
 });
 
-test('Number keys answer only from Jarvis Code itself, once per press', async () => {
+test('Number keys answer only from Eden Code itself, once per press', async () => {
   await open(1, 'onEvent(__approval("A"))');
   await sleep(SETTLED);
   await js('toggleSettings(true); document.querySelector("#settings summary").focus()');
@@ -387,7 +387,7 @@ test('The answer streaming in changes its own line of the history, not the list'
 
 // ── notices ──
 
-test('Notices never cover the Settings sheet, Tools & Accounts or Jarvis Code’s Changes pane', async () => {
+test('Notices never cover the Settings sheet, Tools & Accounts or Eden Code’s Changes pane', async () => {
   const covered = (root) => js(`[...document.querySelectorAll(${JSON.stringify(root)})].filter((e) => { const b = e.getBoundingClientRect(); if (!b.width || !e.checkVisibility()) return false; const h = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return h && h.closest('.cards'); }).length`);
   // Six notices that stay up for the whole test (an error's own go after ten seconds): with
   // none up, nothing could be covered and every check below would pass for nothing.
@@ -405,7 +405,7 @@ test('Notices never cover the Settings sheet, Tools & Accounts or Jarvis Code’
   await js('openPane("diff"); diffFiles = [{ path: "src/a.py", added: 2, removed: 1, hunks: [{ line: 3, where: "parse", removed: ["x"], added: ["y", "z"] }] }]; renderPaneBody()');
   await frames(2);
   assert(await js('document.querySelectorAll("#jc-pane summary").length') === 1 && await up() === 6, 'the Changes pane or the notices are not up');
-  assert(await covered('#jc-pane summary, #jc-pane pre, #jc-pane button, #cc-scroll li') === 0, 'Jarvis Code is under a notice');
+  assert(await covered('#jc-pane summary, #jc-pane pre, #jc-pane button, #cc-scroll li') === 0, 'Eden Code is under a notice');
 });
 
 test('Two or more notices can be dismissed at once; approvals stay', async () => {
@@ -418,7 +418,7 @@ test('Two or more notices can be dismissed at once; approvals stay', async () =>
 });
 
 test('Notices never pile up: the same words are said once, and only the newest few stay', async () => {
-  // Ten text files dropped on Jarvis Code's composer: six go in, and the other four are one note.
+  // Ten text files dropped on Eden Code's composer: six go in, and the other four are one note.
   await open(1);
   await js('for (let i = 0; i < 10; i++) addFile(new File(["x"], "notes" + i + ".txt", { type: "text/plain" })); true');
   await sleep(100);
@@ -471,7 +471,7 @@ const BLOCKED = `(() => {
 })()`;
 
 test('Nothing that can be pressed sits in the window’s drag area, over any panel', async () => {
-  // A panel open over the top bar (Jarvis Code's header, the galaxy's search) was inside its
+  // A panel open over the top bar (Eden Code's header, the galaxy's search) was inside its
   // drag area: a real click on its buttons only moved the window.
   await js('document.body.classList.add("in-app"); true');  // the app's frameless window
   const seen = {};
@@ -586,7 +586,7 @@ test('/resume lists the project’s past sessions and resumes the one picked', a
   assert(r.join() === 's-old alpha', `sent ${r}`);
 });
 
-test('Opening Jarvis Code asks for the history; the sidebar lists each project’s past sessions', async () => {
+test('Opening Eden Code asks for the history; the sidebar lists each project’s past sessions', async () => {
   await js('toggleCC(false); __sent.length = 0; toggleCC(true)');
   assert((await sent()).includes('claude_history'), `opening sent ${await sent()}`);
   await open(1, `onEvent({ type: "tasks", items: [__task(1, { session_id: "s-live" })] });
@@ -683,7 +683,7 @@ test('With no session open, a pane follows the project picked in the sidebar', a
   assert(text.includes('beta.py') && !text.includes('alpha.py'), `after picking beta the pane shows: ${text}`);
 });
 
-test('In Chinese, the owner’s files, sessions and messages in Jarvis Code’s lists and menus stay as written', async () => {
+test('In Chinese, the owner’s files, sessions and messages in Eden Code’s lists and menus stay as written', async () => {
   // A one-word dictionary is enough: "Settings" is also a file, a session and a message here.
   await js(`(() => { const real = window.fetch; window.fetch = (url, o) => (String(url).includes('i18n-zh.json') ? Promise.resolve(new Response(JSON.stringify({ strings: { Settings: '设置', 'Untitled session': '未命名会话' }, patterns: [] }))) : real(url, o)); })(); true`);
   await open(1, `pastSessions = [{ session_id: 's1', title: 'Settings', last_modified: '2026-09-01T10:00' }]; renderPast(); ${said(1, 'u1', 'Settings')}`);
@@ -699,7 +699,7 @@ test('In Chinese, the owner’s files, sessions and messages in Jarvis Code’s 
     JSON.stringify({ shown, rewind, resume }));
 });
 
-test('In the smallest window (760 × 620), Jarvis Code uses the whole width and its header fits', async () => {
+test('In the smallest window (760 × 620), Eden Code uses the whole width and its header fits', async () => {
   await cdp('Emulation.setDeviceMetricsOverride', { width: 760, height: 620, deviceScaleFactor: 1, mobile: false });
   try {
     await open(1);
@@ -870,7 +870,7 @@ test('features.js asks for every module at once and runs them in name order, pas
   }
 });
 
-test('Jarvis Code tells the backend which session the owner looked at, once in a while', async () => {
+test('Eden Code tells the backend which session the owner looked at, once in a while', async () => {
   await loadFeature('code-voice.js');
   await open(3);
   await js('Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); document.hasFocus = () => true; true');
@@ -881,7 +881,7 @@ test('Jarvis Code tells the backend which session the owner looked at, once in a
   assert(JSON.stringify(seen) === '[3]', JSON.stringify(seen));
   await js('toggleCC(false); __sent.length = 0; true');
   await deliver({ type: 'task_transcript', id: 3, entries: [] });
-  assert(!(await sentOf('code_voice_seen')).length, 'reported while Jarvis Code was closed');
+  assert(!(await sentOf('code_voice_seen')).length, 'reported while Eden Code was closed');
 });
 
 test('“Read lines 3 to 4 of hub.py” opens it in the Files viewer with those lines marked', async () => {
@@ -896,11 +896,11 @@ test('“Read lines 3 to 4 of hub.py” opens it in the Files viewer with those 
   assert(JSON.stringify(marked) === '[false,false,true,true,false]', JSON.stringify(marked));
 });
 
-test('The look-at-this key names the Jarvis Code session in front, and only then', async () => {
+test('The look-at-this key names the Eden Code session in front, and only then', async () => {
   await open(3);
   assert(JSON.stringify(await js('whatsThisMessage()')) === '{"type":"whats_this","session":3}', 'session 3 is in front');
   await js('toggleCC(false); true');
-  assert(JSON.stringify(await js('whatsThisMessage()')) === '{"type":"whats_this","session":0}', 'Jarvis Code is closed');
+  assert(JSON.stringify(await js('whatsThisMessage()')) === '{"type":"whats_this","session":0}', 'Eden Code is closed');
 });
 
 test('With hand control on a page, the window says so and says what the hand points at', async () => {
@@ -926,7 +926,7 @@ test('With hand control on a page, the window says so and says what the hand poi
   assert(JSON.stringify((await sentOf('code_voice_hand')).map((m) => m.pointing)) === '[false]', 'the hand going off was not said');
 });
 
-test('“@” at the start of a Jarvis Code message offers the other sessions to send it to', async () => {
+test('“@” at the start of an Eden Code message offers the other sessions to send it to', async () => {
   await loadFeature('code-voice.js');
   await open(3);
   await js(`onEvent({ type: 'tasks', items: [__task(3), __task(4, { title: 'Write the docs' })] }); $("deck-input").focus(); true`);
@@ -1023,7 +1023,7 @@ test('The shell carries out the menu bar’s commands over the window’s connec
   await js('__app.on["feature:shell:command"]({ action: "open", panel: "settings" }); true');
   assert(await js('!$("settings").hidden'), 'Settings did not open');
   await js('__app.on["feature:shell:command"]({ action: "open", panel: "code" }); true');
-  assert(await js('!$("cc").hidden'), 'Jarvis Code did not open');
+  assert(await js('!$("cc").hidden'), 'Eden Code did not open');
   await js('__app.on["feature:shell:command"]({ action: "open", panel: "brain" }); true');
   assert(await js('galaxyMode') === 'open', 'the second brain did not open');
   await js('__app.on["feature:shell:command"]({ action: "nonsense" }); __app.on["feature:shell:command"](null); true');
@@ -1080,10 +1080,10 @@ test('The shell raises heads-ups through the app, and opens JARVIS on the card a
   await reveal({ what: 'alert', key: 'leave:1', kind: 'leave', title: 'Time to go', text: 'Leave now.' });
   const back = await js('(() => { const c = $("cards").querySelector("[data-alert=\'leave:1\']"); return c && [c.querySelector(".card-kicker").textContent, c.querySelector(".card-title").textContent]; })()');
   assert(JSON.stringify(back) === JSON.stringify(['Time to go', 'Time to go']), JSON.stringify(back));
-  // Jarvis Code's: its session.
+  // Eden Code's: its session.
   await js('onEvent({ type: "tasks", items: [__task(4)] }); true');
-  await reveal({ what: 'alert', key: 'code-ok:4:123', kind: 'task', title: 'Jarvis Code needs you', text: '' });
-  assert(await js('!$("cc").hidden && ccSelected === 4'), 'Jarvis Code did not open on the session');
+  await reveal({ what: 'alert', key: 'code-ok:4:123', kind: 'task', title: 'Eden Code needs you', text: '' });
+  assert(await js('!$("cc").hidden && ccSelected === 4'), 'Eden Code did not open on the session');
   await js('toggleCC(false); ccSelected = null; true');
   await reveal({ what: 'approval', id: 'x', task: 4 });
   assert(await js('!$("cc").hidden && ccSelected === 4'), 'the approval’s session did not open');
@@ -1211,17 +1211,17 @@ test('"Ask JARVIS" from the Services menu is sent at once (marked as a link’s)
   await js('$("ask-input").value = ""; $("ask-input").dispatchEvent(new Event("input")); true');
 });
 
-test('A jarvis:// link opens a Jarvis Code project, once the list of projects is in', async () => {
+test('A jarvis:// link opens an Eden Code project, once the list of projects is in', async () => {
   await loadShell();
   await js('__sent.length = 0; __app.on["feature:shell:command"]({ action: "project", name: "beta" }); true');
   await sleep(80);
-  assert(await js('!$("cc").hidden && __sent.some((m) => m.type === "claude_projects")'), 'Jarvis Code did not open for the list');
+  assert(await js('!$("cc").hidden && __sent.some((m) => m.type === "claude_projects")'), 'Eden Code did not open for the list');
   await js(`__event({ type: 'claude_projects', items: [{ name: 'alpha', branch: 'main' }, { name: 'beta', branch: 'dev' }] }); true`);
   assert(await js('deckProject') === 'beta', `on ${await js('deckProject')}`);
   await js('__app.on["feature:shell:command"]({ action: "project", name: "zeta" }); true');
   await js(`__event({ type: 'claude_projects', items: [{ name: 'alpha', branch: 'main' }, { name: 'beta', branch: 'dev' }] }); true`);
   const r = await js('({ on: deckProject, said: [...$("cards").querySelectorAll(".card-text")].map((n) => n.textContent) })');
-  assert(r.on === 'beta' && r.said.includes('No Jarvis Code project named “zeta”.'), JSON.stringify(r));
+  assert(r.on === 'beta' && r.said.includes('No Eden Code project named “zeta”.'), JSON.stringify(r));
 });
 
 test('Settings adds “Ask JARVIS” to the Services menu and takes it away; never over one of the owner’s', async () => {
@@ -1942,12 +1942,12 @@ test('In Chinese the sheet reads in Chinese, and a path or a log line stays as i
   assert(r.line === '2026-09-29 20:00:00,000 ERROR the backup folder is gone', `a log line was translated: ${r.line}`);
 });
 
-// ── Jarvis Code's agent board (web/features/code-board.js, put in as features.js would) ──
-// ── Jarvis Code sessions: the board, drafts, the sidebar, edit and resend, /btw, /goal,
+// ── Eden Code's agent board (web/features/code-board.js, put in as features.js would) ──
+// ── Eden Code sessions: the board, drafts, the sidebar, edit and resend, /btw, /goal,
 // snippets (web/features/code-board.js and code-sessions.js, put in as features.js would) ──
 
 const SESSION_FEATURES = ['code-board.js', 'code-sessions.js'].map((f) => fs.readFileSync(path.join(WEB, 'features', f), 'utf8'));
-// Jarvis Code open on alpha with these sessions (ids), the first selected, and the features in.
+// Eden Code open on alpha with these sessions (ids), the first selected, and the features in.
 // Events go to the window as its socket hands them over: app.js's onEvent, then the features'.
 async function sessions(ids, extra = {}, then = '') {
   await js(`
@@ -2719,7 +2719,7 @@ test('Settings › Chats: each group has its own switch and tools; WhatsApp and 
   ]), JSON.stringify(sent));
 });
 
-// ── Jarvis Code's feature modules (web/features): loaded into the page as features.js
+// ── Eden Code's feature modules (web/features): loaded into the page as features.js
 // loads them, their styles too ──
 
 // A click on something in a pane that scrolls: brought into view first, and named if missing.
@@ -2803,7 +2803,7 @@ test('Isolated copy: the header names the branch, and the Copies pane lands, dis
   assert(JSON.stringify(prefs) === JSON.stringify([{ code_iso_env: ['alpha'] }]), JSON.stringify(prefs));
 });
 
-test('Isolated copy: the default is a Jarvis Code setting', async () => {
+test('Isolated copy: the default is an Eden Code setting', async () => {
   await loadFeatures('code_isolation.js');
   await js('toggleCC(true); openJcSettings("general"); __sent.length = 0');
   await clickIn('#jcx-iso-default');
@@ -3260,7 +3260,7 @@ test('Script hooks: what was found and each one’s say, the folder, the last ru
   ]), JSON.stringify(s));
 });
 
-// ── Jarvis Code checks (web/features/code-verify.js) ──
+// ── Eden Code checks (web/features/code-verify.js) ──
 
 // A feature module's script, loaded into this test's page (features.js has no backend to ask).
 const featureScript = (name) => js(`new Promise((resolve, reject) => {
@@ -3433,7 +3433,7 @@ test('A check in the transcript shows its picture and what it found as text, and
     return li && { text: li.textContent, imgs: li.querySelectorAll('img').length, src: li.querySelector('img').getAttribute('src'), pwned: !!window.__pwned, fix: !!li.querySelector('.cv-fix') }; })()`);
   assert(r && r.text.includes('Preview check') && r.text.includes('2 problems') && r.text.includes('<img src=x'), JSON.stringify(r));
   assert(r.imgs === 1 && r.src === `data:image/jpeg;base64,${thumb}` && !r.pwned, JSON.stringify(r));
-  assert(r.text.includes('Sent to Jarvis Code to fix.') && r.text.includes('12 passed · 1 failed') && !r.fix, JSON.stringify(r));
+  assert(r.text.includes('Sent to Eden Code to fix.') && r.text.includes('12 passed · 1 failed') && !r.fix, JSON.stringify(r));
   await js('__sent.length = 0; document.querySelector("#deck-timeline .cv-thumb").click(); true');
   assert(await js('!!document.querySelector(".cv-lightbox img")'), 'the picture did not open larger');
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cv_proof', proof: '0123456789abcdef' }]), JSON.stringify(await js('__sent')));
@@ -3451,7 +3451,7 @@ test('A check in the transcript shows its picture and what it found as text, and
   const last = await js(`(() => { const li = [...document.querySelectorAll('#deck-timeline .cv-check')].pop(); return { imgs: li.querySelectorAll('img').length, text: li.textContent }; })()`);
   assert(last.imgs === 0 && last.text.includes('Not sent: the last 2 checks') && last.text.includes('Checks'), JSON.stringify(last));
   await js('__sent.length = 0; true');
-  assert(await clickText('#deck-timeline .cv-check:last-of-type', 'Ask Jarvis Code to fix these'), 'no Ask to fix');
+  assert(await clickText('#deck-timeline .cv-check:last-of-type', 'Ask Eden Code to fix these'), 'no Ask to fix');
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'cv_fix_check', id: 1, n: 8 }]), JSON.stringify(await js('__sent')));
 });
 
@@ -4084,7 +4084,7 @@ test('Invoicing: after the invoice settings, says why Stripe cannot make links, 
   assert(JSON.stringify(after.heads) === '[true,true]' && after.error === "Couldn't save that (disk full).", JSON.stringify(after));
 });
 
-// ── Jarvis Code's pull requests (web/features/code_pr.js) ──
+// ── Eden Code's pull requests (web/features/code_pr.js) ──
 
 const PR_STATE = (extra = {}) => JSON.stringify({ type: 'code_pr', key: 'id:1', github: true, pr: null, checks: [], reviews: [], comments: [],
   methods: ['squash', 'merge'], polled: 0, error: '', draft: null, where: { git: true, branch: 'feature/login', remote: 'origin', repo: 'acme/app', copy: false }, ...extra });
@@ -4176,7 +4176,7 @@ test('Pull request: without GitHub it says where to connect it', async () => {
   assert(!(await js('$("accounts").hidden')), 'Tools & Accounts didn’t open');
 });
 
-// ── Jarvis Code's runs without the owner (web/features/code_unattended.js) ──
+// ── Eden Code's runs without the owner (web/features/code_unattended.js) ──
 
 test('Without you: the scope goes to the backend, runs are listed, a running one’s session says so', async () => {
   await open(1);
@@ -4228,7 +4228,7 @@ test('Without you: the scope goes to the backend, runs are listed, a running one
   assert(JSON.stringify(s) === JSON.stringify(['code_run_stop r1', 'code_run_forget j1']), JSON.stringify(s));
 });
 
-// ── Jarvis Code settings › GitHub (web/features/code_issues.js) ──
+// ── Eden Code settings › GitHub (web/features/code_issues.js) ──
 
 test('GitHub settings: failing checks fixed by themselves, and a repository opted in for issues', async () => {
   await js('deckProjects = [{ name: "alpha", branch: "main" }, { name: "beta", branch: "main" }]; true');
@@ -4262,7 +4262,7 @@ test('GitHub settings: failing checks fixed by themselves, and a repository opte
   assert((await js('document.querySelector(".jcx-issue-connect").textContent')).startsWith('Connect GitHub in Tools & Accounts first.'), 'no way to connect');
 });
 
-// ── Jarvis Code waiting out Claude's usage limit (web/features/code_limit.js) ──
+// ── Eden Code waiting out Claude's usage limit (web/features/code_limit.js) ──
 
 test('Claude’s limit: a waiting session counts down in its header, and the setting says which way', async () => {
   await open(1);
@@ -4294,7 +4294,7 @@ test('Claude’s limit: a waiting session counts down in its header, and the set
   assert(await js('document.querySelector(".jcx-limit").hidden'), 'the countdown stayed after the wait');
 });
 
-// ── Jarvis Code hand-off to another machine (web/features/code-handoff.js) ──
+// ── Eden Code hand-off to another machine (web/features/code-handoff.js) ──
 
 test('Hand-off: Continue on… lists the machines, a handed-off session says where it runs and what it reported, and Settings has Machines', async () => {
   await open(1);
@@ -4990,7 +4990,7 @@ test('The people map draws 2,000 people on one canvas, quickly, and a click open
   assert(asked.length === 1 && asked[0].id.startsWith('person:p') && await js('!$("wiki-pages").hidden'), JSON.stringify(asked));
 });
 
-// ── Jarvis Code's usage meter and limits (web/features/code-usage.js) ──
+// ── Eden Code's usage meter and limits (web/features/code-usage.js) ──
 
 // A menu item with a note under its label: its button's text starts with the label.
 const clickItem = (root, label) => js(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(root)} + ' button')].find((x) => x.textContent.startsWith(${JSON.stringify(label)})); if (!b) return false; b.click(); return true; })()`);
@@ -5034,7 +5034,7 @@ test('The Usage pane shows Claude’s limits and what’s spent, and a limit typ
   assert(JSON.stringify(await sentOf('cu_cap')) === JSON.stringify([{ type: 'cu_cap', id: 1, scope: 'session', cap: null }]), JSON.stringify(await js('__sent')));
 });
 
-test('Jarvis Code settings has a Limits tab with the default limits and the heads-ups switch', async () => {
+test('Eden Code settings has a Limits tab with the default limits and the heads-ups switch', async () => {
   await featureScript('code-usage.js');
   await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_budget_session: 5, code_budget_alerts: false } });
   await open(1);
@@ -5120,7 +5120,7 @@ test('A question with one answer: a number picks it, or the owner’s own words 
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   assert(JSON.stringify(await approves()) === JSON.stringify([['q3', 'other', 'only lint']]), JSON.stringify(await approves()));
   await deliver({ type: 'approval_resolved', id: 'q3' });
-  // Outside Jarvis Code, its card has the same options.
+  // Outside Eden Code, its card has the same options.
   await js('__sent.length = 0; toggleCC(false); true');
   await deliver(askCard('q4', false, { task_id: 2 }));
   await sleep(SETTLED);
@@ -5244,7 +5244,7 @@ test('Bypass and a risky step allowed from its card ask for Touch ID first, or t
   assert(JSON.stringify((await sentOf('approve')).map((m) => m.id)) === JSON.stringify(['r1', 'r2']) && (await js('__touch.length')) === 0, 'an ordinary step waited');
 });
 
-test('A notification’s Allow on a risky Jarvis Code step asks for Touch ID, as the card’s own button does', async () => {
+test('A notification’s Allow on a risky Eden Code step asks for Touch ID, as the card’s own button does', async () => {
   await loadShell();
   await featureScript('code-touchid.js');
   await fakeTouchId(false); // Touch ID on this Mac, and the finger says no
@@ -5266,7 +5266,7 @@ test('A notification’s Allow on a risky Jarvis Code step asks for Touch ID, as
   assert(JSON.stringify(await answered()) === JSON.stringify(['r2 allow', 'r3 deny', 'r1 allow']), JSON.stringify(await js('__sent')));
 });
 
-test('Jarvis Code settings has the Touch ID switch; off, Bypass asks the usual question', async () => {
+test('Eden Code settings has the Touch ID switch; off, Bypass asks the usual question', async () => {
   await featureScript('code-touchid.js');
   await fakeTouchId(true);
   await open(1);
@@ -5424,7 +5424,7 @@ test('The Other agents pane adds an agent, starts a session with it in the proje
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'acp_remove', agent: 'codex' }]), JSON.stringify(await js('__sent')));
 });
 
-// ── Jarvis Code's workspace (web/features/code-*.js of the code-workspace feature) ──
+// ── Eden Code's workspace (web/features/code-*.js of the code-workspace feature) ──
 
 const TRANSCRIPT_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==';
 
@@ -5563,7 +5563,7 @@ async function chord(key, mods = ['meta']) {
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, modifiers });
 }
 const VERSION = { mtime_ns: 1, size: 12, sha: 'aaa' };
-// Jarvis Code open on session 1 with the editor's Files pane, and a file opened in it.
+// Eden Code open on session 1 with the editor's Files pane, and a file opened in it.
 async function editorWith(text = 'a = 1\nb = 2\n', extra = {}) {
   await featureScript('code_diff.js');
   await featureScript('code-editor.js');
@@ -6115,7 +6115,7 @@ test('Terminals: tabs of shells that outlive the pane, a split, and closing one 
   assert(await js('__xterms[1].disposed === true && document.querySelectorAll("#jc-pane-body .ct-tab").length === 1'), 'the closed terminal stayed');
 });
 
-test('A terminal’s selection goes to Jarvis Code, in a code block', async () => {
+test('A terminal’s selection goes to Eden Code, in a code block', async () => {
   await featureScript('code-terminal.js');
   await open(1);
   await js(FAKE_XTERM);
@@ -6124,7 +6124,7 @@ test('A terminal’s selection goes to Jarvis Code, in a code block', async () =
   for (let i = 0; i < 20 && !(await js('__xterms.length')); i++) await frames(2);
   assert(await js('document.querySelector("#jc-pane-body .ct-send").disabled'), 'Send is on with nothing selected');
   await js('__xterms[0].sel = "Error: port 5173 is in use"; __xterms[0].selChanged(); $("deck-input").value = "why?"; true');
-  assert(await clickText('#jc-pane-body .ct-bar', 'Send to Jarvis Code'), 'no Send to Jarvis Code');
+  assert(await clickText('#jc-pane-body .ct-bar', 'Send to Eden Code'), 'no Send to Eden Code');
   assert(await js('$("deck-input").value') === 'why?\nFrom the terminal:\n```\nError: port 5173 is in use\n```\n', JSON.stringify(await js('$("deck-input").value')));
 });
 
@@ -6165,11 +6165,11 @@ test('Closing the last terminal leaves none; one starts only when the pane is op
   const closed = await js('({ made: __sent.filter((m) => m.type === "cw_term_new").length, tabs: document.querySelectorAll("#jc-pane-body .ct-tab").length, said: (document.querySelector("#jc-pane-body .ct-status") || {}).textContent })');
   assert(closed.made === 0, `closing the last terminal started another: ${JSON.stringify(closed)}`);
   assert(closed.tabs === 0 && closed.said === 'No terminals here: + opens one.', JSON.stringify(closed));
-  // Jarvis Code closed and opened again, the pane with it: that isn't opening the pane.
+  // Eden Code closed and opened again, the pane with it: that isn't opening the pane.
   await js('toggleCC(false); true');
   await js('toggleCC(true); true');
   await frames(2);
-  assert(!(await sentOf('cw_term_new')).length, `Jarvis Code opened again started a terminal: ${JSON.stringify(await js('__sent'))}`);
+  assert(!(await sentOf('cw_term_new')).length, `Eden Code opened again started a terminal: ${JSON.stringify(await js('__sent'))}`);
   // Opened again on a folder with none: one starts.
   await js('closePane(); true');
   await js('jarvisFeatures.openPane("terminal"); true');
@@ -6372,7 +6372,7 @@ test('A "#" note’s card stays with its session: shown only there, and back whe
   const cards = () => js('[...document.querySelectorAll("#deck-timeline .cm-ask .cm-note")].map((n) => n.textContent)');
   await deliver({ type: 'cw_memory_ask', ref: 'm1', id: 1, text: 'use pnpm', choices: MEMORY_CHOICES, last: 'project' });
   assert(JSON.stringify(await cards()) === '["use pnpm"]', JSON.stringify(await cards()));
-  // Its transcript drawn again (Jarvis Code opened again, a reconnect): the card is still there.
+  // Its transcript drawn again (Eden Code opened again, a reconnect): the card is still there.
   await deliver({ type: 'task_transcript', id: 1, entries: [{ n: 1, role: 'assistant', text: 'Done.' }] });
   assert(JSON.stringify(await cards()) === '["use pnpm"]', `the card went with a redraw: ${JSON.stringify(await cards())}`);
   // Another session shown: not there, nor a note of session 1's that comes meanwhile.
@@ -6484,12 +6484,12 @@ test('Export the whole session: share-safe, paths hidden, as a PDF, then shown i
   const [asked] = await sentOf('cw_export');
   assert(asked && asked.id === 1 && asked.safe === true && asked.anonymize === true && asked.format === 'pdf', JSON.stringify(asked));
   assert(await js('document.querySelector("#jc-pane-body .cx-go").textContent') === 'Exporting…', 'no sign of exporting');
-  await deliver({ type: 'cw_export', ref: asked.ref, ok: true, path: '/Users/x/Documents/Jarvis/Jarvis Code/2026-09-30 0930 Fix (share-safe).pdf', name: '2026-09-30 0930 Fix (share-safe).pdf', entries: 12 });
+  await deliver({ type: 'cw_export', ref: asked.ref, ok: true, path: '/Users/x/Documents/Jarvis/Eden Code/2026-09-30 0930 Fix (share-safe).pdf', name: '2026-09-30 0930 Fix (share-safe).pdf', entries: 12 });
   await frames(2);
   assert(await js('$("jc-pane-body").textContent.includes("2026-09-30 0930 Fix (share-safe).pdf")'), 'the saved name is not shown');
   await js('__sent.length = 0; true');
   assert(await clickText('#jc-pane-body', 'Show in Finder'), 'no Show in Finder');
-  assert(JSON.stringify(await sentOf('cw_export_reveal')) === JSON.stringify([{ type: 'cw_export_reveal', path: '/Users/x/Documents/Jarvis/Jarvis Code/2026-09-30 0930 Fix (share-safe).pdf' }]), JSON.stringify(await js('__sent')));
+  assert(JSON.stringify(await sentOf('cw_export_reveal')) === JSON.stringify([{ type: 'cw_export_reveal', path: '/Users/x/Documents/Jarvis/Eden Code/2026-09-30 0930 Fix (share-safe).pdf' }]), JSON.stringify(await js('__sent')));
   // A PDF without the app says why.
   await js('__sent.length = 0; true');
   assert(await clickText('#jc-pane-body', 'Export'), 'no Export button');
@@ -6510,7 +6510,7 @@ test('An export is its session’s: another session shows neither it nor its fil
   // Session 2 on show: its own Export, and session 1's file isn't said to be its.
   await js('selectTask(2); true');
   assert(JSON.stringify(await go()) === '["Export",false]', `session 2 shows session 1's export: ${JSON.stringify(await go())}`);
-  await deliver({ type: 'cw_export', ref: asked.ref, ok: true, path: '/Users/x/Documents/Jarvis/Jarvis Code/One.html', name: 'One.html', entries: 3 });
+  await deliver({ type: 'cw_export', ref: asked.ref, ok: true, path: '/Users/x/Documents/Jarvis/Eden Code/One.html', name: 'One.html', entries: 3 });
   await frames(2);
   assert(!(await js('$("jc-pane-body").textContent.includes("One.html")')), 'session 1’s file shown in session 2');
   await js('selectTask(1); true');
@@ -7950,13 +7950,13 @@ test('Browser AI shows a notice on a page whose text talks to an AI, as data, un
   assert(await js('!!document.querySelector("#bai-strip .bai-flag")'), 'the other page has no notice');
 });
 
-// ── Jarvis Code's design match, masked secrets and video proof (code-design.js, code-secrets.js, code-video.js) ──
+// ── Eden Code's design match, masked secrets and video proof (code-design.js, code-secrets.js, code-video.js) ──
 
 test('A secret card takes the value in a masked field, sends it once, keeps it nowhere', async () => {
   await featureScript('code-secrets.js');
   await open(1);
   const VALUE = ['made', 'up', '9137', 'value'].join('-');
-  await deliver({ type: 'task_log', id: 1, entry: { n: 5, role: 'secret', text: 'Jarvis Code asks for a secret: $SECRET_STRIPE_KEY.', ask: 'a1b2', name: 'SECRET_STRIPE_KEY',
+  await deliver({ type: 'task_log', id: 1, entry: { n: 5, role: 'secret', text: 'Eden Code asks for a secret: $SECRET_STRIPE_KEY.', ask: 'a1b2', name: 'SECRET_STRIPE_KEY',
     why: '<img src=x onerror="window.__pwned=1"> to test payments', state: 'waiting', project: 'alpha' } });
   await frames(2);
   const r = await js(`(() => { const li = document.querySelector('#deck-timeline .sec-card'); const input = li.querySelector('input.sec-input');
@@ -8078,9 +8078,9 @@ test('Agents: made in Settings under Personality with their persona, tools and c
   assert(await js(`$('agent-badge').hidden`), 'the everyday Jarvis still showed a badge');
 });
 
-// ── A Jarvis Code session that seems stuck (web/features/loops.js) ──
+// ── An Eden Code session that seems stuck (web/features/loops.js) ──
 
-test('Loops: a stuck Jarvis Code session gets a notice with Stop, and the session is only stopped by it', async () => {
+test('Loops: a stuck Eden Code session gets a notice with Stop, and the session is only stopped by it', async () => {
   await loadFeatures('loops.js', 'loops.css');
   await js(`window.__loop = featureEntries.get('loop')({ role: 'loop', task_id: 7, kind: 'repeat', times: 3, steps: ['Running <b>tests</b>'] }); document.body.append(__loop); __sent.length = 0; true`);
   const shown = await js(`({ text: __loop.querySelector('.jc-loop-head').textContent, step: __loop.querySelector('.jc-loop-steps li').textContent, mine: __loop.querySelector('.jc-loop-steps li').hasAttribute('data-no-i18n'), bold: __loop.querySelectorAll('b').length, buttons: [...__loop.querySelectorAll('.btn')].map((b) => b.textContent) })`);
@@ -8185,7 +8185,7 @@ test('At rest Stark Glass turns on the compositor alone, and Obsidian draws its 
   assert(paints >= 3 && paints <= 16, `the dial was drawn ${paints} times in 2 s at rest (twenty frames a second drew 40)`);
 });
 
-test('Words that didn’t change aren’t written again, and Jarvis Code’s session title always is', async () => {
+test('Words that didn’t change aren’t written again, and Eden Code’s session title always is', async () => {
   await open(1);
   const step = (extra) => js(`onEvent({ type: 'tasks', items: [__task(1, ${JSON.stringify(extra)})] }); setState('thinking'); tickClock(); true`);
   const IDS = ['state-line', 'greeting', 'cc-label', 'cc-mode', 'cc-meta', 'cc-working-text', 'jc-sub', 'jc-mode-label', 'jc-model-label', 'jc-effort-label'];
@@ -8204,8 +8204,8 @@ test('Words that didn’t change aren’t written again, and Jarvis Code’s ses
   assert(JSON.stringify(await rewritten()) === '["cc-working-text"]', `rewritten: ${await rewritten()}`);
 });
 
-test('Jarvis Code, Settings and Tools & Accounts still move the stage, asking only the body’s own children', async () => {
-  // The sheets and Jarvis Code are the body's children: the rules that follow them look
+test('Eden Code, Settings and Tools & Accounts still move the stage, asking only the body’s own children', async () => {
+  // The sheets and Eden Code are the body's children: the rules that follow them look
   // there only, not through the whole page on every change in it.
   assert(await js(`['cc', 'settings', 'accounts'].every((id) => $(id).parentElement === document.body)`), 'a panel is no longer a child of the body');
   await js(`toggleCC(false); $('code-pill').hidden = false; true`);
@@ -8215,7 +8215,7 @@ test('Jarvis Code, Settings and Tools & Accounts still move the stage, asking on
   assert(/^visible \| (?!none)\S+ \| \S+ \| 40px \| 0px$/.test(closed), `all closed: ${closed}`);
   await js('toggleCC(true); true');
   const code = await stage();
-  assert(/^hidden \| none \| 22px \| /.test(code), `Jarvis Code open: ${code}`);
+  assert(/^hidden \| none \| 22px \| /.test(code), `Eden Code open: ${code}`);
   await js('toggleCC(false); toggleSettings(true); true');
   assert(/\| 440px \| min\(400px, 100vw\)$/.test(await stage()), `Settings open: ${await stage()}`);
   await js('toggleSettings(false); toggleAccounts(true); true');
@@ -8224,7 +8224,7 @@ test('Jarvis Code, Settings and Tools & Accounts still move the stage, asking on
   assert(await stage() === closed, `closed again: ${await stage()}`);
 });
 
-test('Jarvis Code’s title, the same on a step, is told again in its own text node', async () => {
+test('Eden Code’s title, the same on a step, is told again in its own text node', async () => {
   await open(1);
   await js(`window.__node = $('jc-title').firstChild; window.__recs = 0;
     new MutationObserver((r) => { __recs += r.length; }).observe($('jc-title'), { childList: true, characterData: true, subtree: true }); true`);
@@ -8243,7 +8243,7 @@ test('A rename called off with Esc, or kept as it was, leaves the title unselect
   // A rename selects the whole title; drawing it again lets that selection go, so the title
   // isn't left highlighted (and copied by ⌘C) once the name is no longer being typed.
   const selection = () => js(`(() => { const s = document.getSelection(); return s.isCollapsed + ' ' + JSON.stringify(s.toString()); })()`);
-  await open(1);  // (a session at work, so Esc doesn't close Jarvis Code)
+  await open(1);  // (a session at work, so Esc doesn't close Eden Code)
   await js(`$('jc-title').dispatchEvent(new MouseEvent('dblclick')); true`);
   assert(await selection() === 'false "Session 1"', `the rename did not select the title: ${await selection()}`);
   await press('Escape');
@@ -8275,10 +8275,10 @@ test('A session that leaves the list fetches the history again only when the his
   assert(await asked(`[__task(1, { session_id: 's-a' })]`) === 1, 'not asked for one the history lacks');
   assert(await asked(`[__task(1, { session_id: 's-a' })]`) === 0, 'asked again with nothing gone');
   await js(`onEvent({ type: 'tasks', items: [__task(1, { session_id: 's-a' }), __task(4, { session_id: 's-d' })] }); toggleCC(false); true`);
-  assert(await asked(`[__task(1, { session_id: 's-a' })]`) === 0, 'asked with Jarvis Code closed');
+  assert(await asked(`[__task(1, { session_id: 's-a' })]`) === 0, 'asked with Eden Code closed');
 });
 
-test('Obsidian wakes the window only for frames that can draw: fewer at rest, hardly any under Jarvis Code, a new state at once', async () => {
+test('Obsidian wakes the window only for frames that can draw: fewer at rest, hardly any under Eden Code, a new state at once', async () => {
   await js(`onEvent({ type: 'prefs', look: 'obsidian', language: 'en', models: [], personas: [], humor: 50 }); true`);
   await sleep(300);
   const count = (ms) => js(`new Promise((resolve) => {
@@ -8293,7 +8293,7 @@ test('Obsidian wakes the window only for frames that can draw: fewer at rest, ha
   await js('toggleCC(true); true');
   await sleep(700);  // the reactor looks at the orb twice a second, and finds it hidden
   const under = await count(1000);
-  assert(under.frames <= 6 && under.draws === 0, `under Jarvis Code: ${JSON.stringify(under)} (asking every frame was 60 a second)`);
+  assert(under.frames <= 6 && under.draws === 0, `under Eden Code: ${JSON.stringify(under)} (asking every frame was 60 a second)`);
   await js('toggleCC(false); true');
   const drawn = await js(`new Promise((resolve) => {
     const clear = CanvasRenderingContext2D.prototype.clearRect;
@@ -8522,7 +8522,7 @@ test('A big screenshot is scaled down; pasted with nothing typed it asks Jarvis 
   assert(asked.length === 1 && asked[0].text === 'Take a look at this.' && asked[0].images.length === 1, JSON.stringify(asked.map((m) => m.text)));
 });
 
-test('Dropped pictures can be taken back, stop at six, and join Jarvis Code’s composer while it is open', async () => {
+test('Dropped pictures can be taken back, stop at six, and join Eden Code’s composer while it is open', async () => {
   await js(PICTURE);
   await js('Promise.all([1, 2].map((i) => __png(40, 40, `p${i}.png`))).then((fs) => __dropOn("#greeting", fs)); true');
   assert(await until('askPics.length === 2'), 'two pictures were not attached');
@@ -8535,7 +8535,7 @@ test('Dropped pictures can be taken back, stop at six, and join Jarvis Code’s 
   await js('setAskPics([]); true');
   await open(1);
   await js('__png(40, 40, "for-code.png").then((f) => __dropOn("#cc", [f])); true');
-  assert(await until('attachments.length === 1'), 'Jarvis Code’s composer did not get the picture');
+  assert(await until('attachments.length === 1'), 'Eden Code’s composer did not get the picture');
   assert(await js('askPics.length === 0'), 'the picture went to the request box too');
 });
 

@@ -1,4 +1,4 @@
-"""The context window Jarvis Code shows: sized for the session's model, broken down by what
+"""The context window Eden Code shows: sized for the session's model, broken down by what
 fills it, with when it compacts."""
 
 import pytest

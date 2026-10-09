@@ -1,4 +1,4 @@
-"""A Jarvis Code session exported whole: every message, each step with its full input and
+"""An Eden Code session exported whole: every message, each step with its full input and
 output, and Claude's thinking, read from Claude Code's own record of the session (not the
 400 entries a window keeps), as a page to read (HTML) or to print (PDF, laid out by the
 app's window).
@@ -607,7 +607,7 @@ class Page:
             body = html.escape(c(_cut(e.get("text") or "", TEXT_CHARS)))
             return f'<section class="entry user">{_who("You", e)}<div class="body">{body}{extra}</div>{self.pictures(e.get("pictures") or [])}</section>'
         if kind == "assistant":
-            return f'<section class="entry assistant">{_who("Jarvis Code", e)}<div class="body">{markdown_html(c(_cut(e["text"], TEXT_CHARS)))}</div></section>'
+            return f'<section class="entry assistant">{_who("Eden Code", e)}<div class="body">{markdown_html(c(_cut(e["text"], TEXT_CHARS)))}</div></section>'
         if kind == "thinking":
             text = (
                 "(Its thinking here isn't shown by the model.)"

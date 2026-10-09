@@ -1,4 +1,4 @@
-"""Jarvis Code's terminals and "!" commands (code_terminals), for the window's Terminal pane
+"""Eden Code's terminals and "!" commands (code_terminals), for the window's Terminal pane
 (web/features/code-terminal.js) and composer.
 
 Terminals, several per project, kept running when the pane closes:

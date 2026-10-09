@@ -1,4 +1,4 @@
-"""Hand-off: a Jarvis Code session continued on another machine the owner controls, over SSH.
+"""Hand-off: an Eden Code session continued on another machine the owner controls, over SSH.
 
 The machines are hosts in the owner's own ~/.ssh/config, named by their alias. JARVIS runs
 the owner's ssh with BatchMode (never a password or host-key prompt nobody can see), so the
@@ -259,7 +259,7 @@ async def check(ssh: str, machine: Machine) -> Machine:
         machine.problem = f"git isn't installed on {alias}."
     elif not machine.claude:
         machine.problem = (
-            f"Jarvis Code needs the Claude Code CLI on {alias}: install it there and sign in."
+            f"Eden Code needs the Claude Code CLI on {alias}: install it there and sign in."
         )
     else:
         machine.problem, machine.ok = "", True
@@ -468,7 +468,7 @@ BACK_NOTHING, BACK_BRANCH = 5, 6
 
 
 def back_script(rec: Handoff, message: str) -> str:
-    """What it did there, committed (with the remote's own identity, else Jarvis Code's) and
+    """What it did there, committed (with the remote's own identity, else Eden Code's) and
     bundled to stdout: the branch past the commit handed off. Exit 5: nothing new; 6: it
     isn't on the branch any more."""
     branch = shlex.quote(rec.branch)
@@ -478,7 +478,7 @@ def back_script(rec: Handoff, message: str) -> str:
         f'if [ "$(git symbolic-ref -q --short HEAD)" != {branch} ]; then exit {BACK_BRANCH}; fi; '
         'if [ -n "$(git status --porcelain)" ]; then git add -A >&2 || exit 4; '
         f"if git config user.email >/dev/null 2>&1; then git commit -q -m {msg} >&2 || exit 4; "
-        "else git -c user.name='Jarvis Code' -c user.email=jarvis-code@localhost "
+        "else git -c user.name='Eden Code' -c user.email=jarvis-code@localhost "
         f"commit -q -m {msg} >&2 || exit 4; fi; fi; "
         f'if [ "$(git rev-parse HEAD)" = {shlex.quote(rec.base)} ]; then exit {BACK_NOTHING}; fi; '
         f"git bundle create - {shlex.quote('refs/heads/' + rec.branch)} ^{shlex.quote(rec.base)}"
@@ -539,7 +539,7 @@ def summary(task: Any, commits: list[str], host: str, instructions: str = "") ->
     """The first message on the remote: what the session was about and where it got to
     (its transcript can't move), made from the session itself without a model call."""
     lines = [
-        "You're continuing a Jarvis Code session that started on the owner's Mac; it was "
+        "You're continuing an Eden Code session that started on the owner's Mac; it was "
         f"handed off to this machine ({host}). The conversation itself couldn't come along, "
         "so here is a summary of it.",
         "",

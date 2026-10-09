@@ -13,7 +13,7 @@ enum ApprovalAnswer: Equatable, Sendable {
 /// - allow: the first choice that isn't a no (usually `allow` or `yes`);
 /// - deny: `deny`;
 /// - deny because: `deny` with the reason as `feedback` (at most 2,000 characters).
-/// A card without a `deny` choice (a Jarvis Code plan: go / keep planning) gets its own
+/// A card without a `deny` choice (an Eden Code plan: go / keep planning) gets its own
 /// no: the last choice, which is what the Mac picks when nobody answers, and which carries
 /// the reason too.
 enum ApprovalResponse {

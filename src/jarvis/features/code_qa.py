@@ -1,4 +1,4 @@
-"""Jarvis Code: the owner's Mac as the QA team.
+"""Eden Code: the owner's Mac as the QA team.
 
 A session already has the built-in browser (with the owner's real sign-ins) and the iOS
 Simulator (code_tools). A QA pass asks it to use what it just built the way a person

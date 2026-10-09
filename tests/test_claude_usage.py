@@ -34,7 +34,7 @@ def test_answers_add_up_by_day_source_and_model(tmp_path):
     assert s["today"]["cost"] == 0.4 and s["today"]["requests"] == 2
     assert s["today"]["tokens"] == 6500 + 7100
     assert s["week"]["cost"] == 1.4 and s["month"]["requests"] == 3
-    assert [x["name"] for x in s["week"]["sources"]] == ["Jarvis Code", "JARVIS"]
+    assert [x["name"] for x in s["week"]["sources"]] == ["Eden Code", "JARVIS"]
     assert s["week"]["models"][0] == {**s["week"]["models"][0], "name": "Opus 5.5", "cost": 1.1}
     assert len(s["history"]) == 14 and s["history"][-1]["cost"] == 0.4
     assert s["history"][-4]["cost"] == 1.0
@@ -102,7 +102,7 @@ async def test_the_hub_counts_its_answers_code_turns_and_limits(settings, quiet_
     await hub._on_message("r3", RateLimitEvent(rate_limit_info=info, uuid="u", session_id="s1"))
     s = hub.usage.summary()
     assert round(s["today"]["cost"], 2) == 0.75 and s["today"]["requests"] == 3
-    assert {x["name"] for x in s["today"]["sources"]} == {"JARVIS", "Jarvis Code"}
+    assert {x["name"] for x in s["today"]["sources"]} == {"JARVIS", "Eden Code"}
     assert s["limits"][0]["utilization"] == 0.4
     await asyncio.sleep(1.1)
     events = [e for e in _drain(q) if e["type"] == "usage"]

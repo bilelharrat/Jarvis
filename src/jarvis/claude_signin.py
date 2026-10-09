@@ -7,7 +7,7 @@ key. That key lives where every provider key does (providers.py: the Keychain, s
 Anthropic's address), as the provider the feature pref claude_signin names.
 
 Every site that makes a run's options passes them through signed_in(): the conversation
-(brain.build_options), Jarvis Code and research (tasks), and the short background calls
+(brain.build_options), Eden Code and research (tasks), and the short background calls
 (code_ai, meeting notes, reports, jobs, drafts, triage…). With a key in use, options that
 have no settings of their own get an apiKeyHelper that reads the key from the Keychain (the
 key itself is never in an environment or on a command line) and every address, credential
@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import weakref
 from typing import Any
 
@@ -51,6 +52,18 @@ except Exception:
     sys.exit("Jarvis could not read its account from the Keychain.")
 if not token:
     sys.exit("This Mac isn't linked to a Jarvis account any more.")
+sys.stdout.write(token)
+"""
+if sys.platform == "win32":  # Credential Manager, through keyring
+    PLUS_HELPER = """\
+import sys
+import keyring
+try:
+    token = keyring.get_password(sys.argv[1], sys.argv[2])
+except Exception:
+    sys.exit("Jarvis could not read its account from Credential Manager.")
+if not token:
+    sys.exit("This PC isn't linked to a Jarvis account any more.")
 sys.stdout.write(token)
 """
 

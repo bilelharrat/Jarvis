@@ -1,4 +1,4 @@
-/* Jarvis Code's pull request pane. */
+/* Eden Code's pull request pane. */
 
 .jcx-pr { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
 .deck.jc .jcx-pr .jc-btn { font-size: 12px; }

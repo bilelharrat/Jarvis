@@ -48,7 +48,7 @@ final class DecodingTests: XCTestCase {
                      {"role": "assistant", "text": "Hello.", "at": "2026-09-29T14:30:09"}],
          "weather": {"city": "Malibu", "temp": 18, "unit": "°C", "summary": "mainly clear", "code": 1, "high": 21, "low": null},
          "next_event": {"title": "Design review", "begin": "2026-09-29T15:00", "location": ""},
-         "tasks": [{"id": 3, "label": "Jarvis Code · suit", "title": "Refactor", "status": "running", "last_action": "Tests"},
+         "tasks": [{"id": 3, "label": "Eden Code · suit", "title": "Refactor", "status": "running", "last_action": "Tests"},
                    {"id": "x", "status": "done"}],
          "meeting": null,
          "routines": [{"id": "r1", "name": "Morning"}, {"name": "no id"}],

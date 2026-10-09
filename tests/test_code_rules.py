@@ -1,4 +1,4 @@
-"""Jarvis Code's permission rules (coderules, features.code_rules): Claude Code's rule
+"""Eden Code's permission rules (coderules, features.code_rules): Claude Code's rule
 syntax, deny beats ask beats allow in every mode, strict allows and generous denies for
 commands and paths, the rules in a session's own options, and import and export of a
 project's .claude settings."""

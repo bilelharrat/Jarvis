@@ -1,4 +1,4 @@
-// Jarvis Code checks its work (features/code_verify.py): the Preview pane (the project's
+// Eden Code checks its work (features/code_verify.py): the Preview pane (the project's
 // dev servers, their logs, the session's check after each turn), each check in the
 // transcript (its picture, larger on a click, and what it found), the Tests pane (runs, the
 // failures as a tree, watch mode), the Problems pane (the project's own checkers), the
@@ -300,7 +300,7 @@
     const sw = el('div', 'jc-audit-switch cv-switch');
     const label = el('span');
     label.append(el('strong', '', 'Check after each turn'),
-      el('small', '', 'When this session changes files: the dev server’s page is reloaded and pictured, and its errors and the server’s are collected. What’s wrong goes back to Jarvis Code, twice in a row at most.'));
+      el('small', '', 'When this session changes files: the dev server’s page is reloaded and pictured, and its errors and the server’s are collected. What’s wrong goes back to Eden Code, twice in a row at most.'));
     const toggle = el('button', `sw${checks.verify ? ' on' : ''}`);
     toggle.type = 'button';
     toggle.setAttribute('role', 'switch');
@@ -484,11 +484,11 @@
       line.append(el('span', 'cv-kind', 'Checkers'), pieces('', [`${e.problems.errors} error${e.problems.errors === 1 ? '' : 's'}`, `${e.problems.warnings} warning${e.problems.warnings === 1 ? '' : 's'}`]));
       body.append(line);
     }
-    if (e.sent) body.append(el('small', 'cv-check-note sent', 'Sent to Jarvis Code to fix.'));
+    if (e.sent) body.append(el('small', 'cv-check-note sent', 'Sent to Eden Code to fix.'));
     else if (e.why_not) body.append(el('small', 'cv-check-note', e.why_not));
     else if (e.by_owner && e.findings && e.findings.length) body.append(el('small', 'cv-check-note', 'You asked for this check: nothing was sent.'));
     if (!e.sent && e.findings && e.findings.length) {
-      body.append(button('Ask Jarvis Code to fix these', 'jc-mini cv-fix', () => {
+      body.append(button('Ask Eden Code to fix these', 'jc-mini cv-fix', () => {
         const task = F.currentTask();
         if (task) F.send({ type: 'cv_fix_check', id: task.id, n: e.n });
       }));
@@ -544,7 +544,7 @@
     if (!settings || F.$('cv-settings')) return;
     const group = el('section', 'group');
     group.id = 'cv-settings';
-    group.append(el('h3', '', 'Jarvis Code checks'));
+    group.append(el('h3', '', 'Eden Code checks'));
     const row = el('div', 'row');
     const text = el('span');
     text.append(el('strong', '', 'Check new sessions’ work'),

@@ -45,6 +45,7 @@
     "Moved files": "移动了文件",
     "Renamed a file": "重命名了文件",
     "Moved files to the Trash": "把文件移到了废纸篓",
+    "Moved files to the Recycle Bin": "把文件移到了回收站",
     "Undid a file change": "撤销了文件更改",
     "Checked recent file changes": "查看了最近的文件更改",
     "Read the clipboard": "读取了剪贴板",
@@ -54,6 +55,7 @@
     "Rename": "重命名",
     "Don't rename": "不重命名",
     "Move to Trash": "移到废纸篓",
+    "Move to Recycle Bin": "移到回收站",
     "Keep": "保留",
     "Put this on the clipboard?": "要把这段文字放到剪贴板吗？",
     "Don't copy": "不复制",
@@ -150,6 +152,14 @@
     [
       "^Move (\\d+) items to the Trash\\?$",
       "要把 $1 项移到废纸篓吗？"
+    ],
+    [
+      "^Move “(.+)” to the Recycle Bin\\?$",
+      "要把“$1”移到回收站吗？"
+    ],
+    [
+      "^Move (\\d+) items to the Recycle Bin\\?$",
+      "要把 $1 项移到回收站吗？"
     ],
     [
       "^Move “(.+)” to your home folder\\?$",

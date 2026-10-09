@@ -32,7 +32,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .. import brain_sources, embeddings, prefs, reports, swift_helper
+from .. import brain_sources, embeddings, osplat, prefs, reports, swift_helper
 from ..brain_sources import SEMANTIC, SWITCHES, VECTORS
 
 log = logging.getLogger("jarvis")
@@ -126,6 +126,10 @@ class SemanticControl:
     def query_embedder(self) -> embeddings.Embedder | None:
         """The query's helper, once built; never built inside a search (that's done when the
         setting goes on, or at startup): until then searches are by words alone."""
+        if osplat.IS_WIN:  # a PC: the ONNX model (winembed), once fetched
+            from .. import winembed
+
+            return winembed.embedder()
         binary = swift_helper.binary_for(embeddings.HELPER)
         if binary is None or not binary.exists():
             if self._building.acquire(blocking=False):
@@ -185,6 +189,19 @@ class SemanticControl:
         """Helper, model files, vectors: each step said in the window as it happens."""
         try:
             self._set("preparing", "")
+            if osplat.IS_WIN:
+                # A PC: the one moment anything is downloaded is now, the model's two files (winembed).
+                from .. import winembed
+
+                if not winembed.model_ready():
+                    self._set("downloading", "")
+                    if not await asyncio.to_thread(winembed.ensure_model):
+                        self._set("unavailable", "no-assets")
+                        return
+                self._set("", "")
+                await self.hub.rebuild_brain(only={VECTORS})
+                await asyncio.to_thread(self.hub.kb.warm_semantic)
+                return
             binary = await asyncio.to_thread(swift_helper.ensure, embeddings.HELPER)
             if binary is None:
                 self._set("error", "helper")

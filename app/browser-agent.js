@@ -1,4 +1,4 @@
-// JARVIS's and Jarvis Code's hands in the built-in browser, over the Chrome DevTools Protocol
+// JARVIS's and Eden Code's hands in the built-in browser, over the Chrome DevTools Protocol
 // (browser-cdp.js): accessibility snapshots whose elements carry refs ([e12]), actions on
 // those refs with real input events, waits, and the tab bookkeeping they need. main.js owns
 // the tabs and the window; it hands this module what it needs as hooks (createAgent).
@@ -33,7 +33,7 @@ const DIALOG_WAIT = 60 * 1000; // an agent's page dialog unanswered this long go
 const DIALOG_MODE = 2500; // after an action, the page's dialogs go to the agent this much longer (then the user's box)
 const QUIET_ACTIONS = new Set(['dialog', 'tabs', 'console', 'network']);
 const EVAL_MAX = 20000; // characters of an evaluation's result
-// Only on pages on this Mac (a Jarvis Code session's own app): checked again inside the page,
+// Only on pages on this Mac (an Eden Code session's own app): checked again inside the page,
 // in the same run as the script, so a page that just navigated away can't be reached.
 const LOCAL_GUARD = "{ const h = location.hostname; if (!(h === 'localhost' || h.endsWith('.localhost') || h === '[::1]' || /^127(\\.\\d{1,3}){3}$/.test(h))) throw new Error('browser_eval only runs on pages on this Mac (localhost)'); }";
 // Numbered marks on what can be acted on, drawn over the page for a screenshot and removed.
@@ -1236,7 +1236,7 @@ class BrowserAgent {
     return { ok: true, ...this.where(view), pngs, png: pngs[0], legend, fullPage: Boolean(args.fullPage), cut };
   }
 
-  // ── what the page logged and fetched (Jarvis Code) ──
+  // ── what the page logged and fetched (Eden Code) ──
 
   async consoleLog(view, args = {}) {
     const tab = this.tab(view);

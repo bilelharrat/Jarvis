@@ -1,4 +1,4 @@
-"""Jarvis Code by voice, across every session: the supervisor's words.
+"""Eden Code by voice, across every session: the supervisor's words.
 
 Whichever session has voice focus (or none), the owner can ask about all of them:
 
@@ -86,7 +86,7 @@ def _re(pattern: str) -> re.Pattern[str]:
 
 _OVERVIEW = _re(
     r"(?:so )?(?:what(?:'s| is| are)|what're) (?:every(?:one|body)|you all|y'all"
-    r"|(?:all (?:of )?)?(?:the |my )?(?:coding |code |jarvis code )?(?:sessions|agents)) "
+    r"|(?:all (?:of )?)?(?:the |my )?(?:coding |code |eden code |jarvis code )?(?:sessions|agents)) "
     r"(?:doing|up to|working on|busy with)(?: right now| now| at the moment)?"
     r"|how(?:'s| is| are) (?:all (?:of )?)?(?:the |my )?(?:coding |code )?(?:sessions|agents)"
     r"(?: doing| going| getting on| coming along)?(?: right now| now)?"
@@ -109,9 +109,9 @@ _WAITING = _re(
     r"|what(?:'s| is) it (?:asking(?: me)?|waiting)(?: (?:for|about|on))?"
 )
 _CATCH_UP = _re(
-    r"catch me up(?: on (?:the |my )?(?:sessions|coding|code|jarvis code|everything))?"
-    r"|bring me up to speed on (?:the |my )?(?:sessions|coding|code|jarvis code)"
-    r"|what did i miss (?:in|on|with|from) (?:the |my )?(?:sessions|coding|code|jarvis code)"
+    r"catch me up(?: on (?:the |my )?(?:sessions|coding|code|eden code|jarvis code|everything))?"
+    r"|bring me up to speed on (?:the |my )?(?:sessions|coding|code|eden code|jarvis code)"
+    r"|what did i miss (?:in|on|with|from) (?:the |my )?(?:sessions|coding|code|eden code|jarvis code)"
     r"|what (?:happened|changed) (?:in|with) (?:the |my )?(?:coding )?sessions"
     r"(?: while i was (?:away|gone|out))?"
     r"|(?:give me )?(?:a |the )?(?:digest|recap) of (?:the |my )?(?:sessions|coding)"
@@ -513,7 +513,7 @@ def _score(said: list[str], task: Any) -> float:
 
 
 def match(ref: Ref, tasks: list[Any]) -> list[Any]:
-    """The Jarvis Code sessions a spoken reference means, best first: one when it's clear,
+    """The Eden Code sessions a spoken reference means, best first: one when it's clear,
     several when they're too close to call, none when nothing fits."""
     code = [t for t in tasks if getattr(t, "kind", "") == "code"]
     if ref.num is not None:
@@ -873,7 +873,7 @@ ZH = {
     "session {n} ({about})": "会话{n}（{about}）",
     "session {n} in {folder} ({about})": "{folder} 的会话{n}（{about}）",
     "session {n}": "会话{n}",
-    "No Jarvis Code sessions are open.": "现在没有打开的 Jarvis Code 会话。",
+    "No Eden Code sessions are open.": "现在没有打开的 Eden Code 会话。",
     "One session.": "一个会话。",
     "{n} sessions.": "{n}个会话。",
     "{session} needs you: it wants to {verb}.": "{session}需要你：它想{verb}。",
@@ -890,7 +890,7 @@ ZH = {
     "{session} is waiting for you.": "{session}在等你发话。",
     "{session} is closed.": "{session}已关闭。",
     "{n} more are on screen.": "还有{n}个在屏幕上。",
-    "Nothing new in Jarvis Code since you last looked.": "自你上次查看以来，Jarvis Code 没有新动静。",
+    "Nothing new in Eden Code since you last looked.": "自你上次查看以来，Eden Code 没有新动静。",
     "It changed {file}.": "它改了 {file}。",
     "It changed {n} files: {names}.": "它改了{n}个文件：{names}。",
     "The tests passed.": "测试通过了。",
@@ -909,7 +909,7 @@ ZH = {
         "{session}做好了计划。{plan} 要开始吗？说“开始”、“自动接受编辑”或者“继续规划”。"
     ),
     "{session} asks: {question} Options: {options}.": "{session}问：{question} 选项：{options}。",
-    "There's no Jarvis Code session {n}.": "没有编号为{n}的 Jarvis Code 会话。",
+    "There's no Eden Code session {n}.": "没有编号为{n}的 Eden Code 会话。",
     "Which session? {options}.": "哪个会话？{options}。",
     "Which session?": "哪个会话？",
     "Switched to {session}.": "已切换到{session}。",
@@ -1087,13 +1087,13 @@ def overview(
     at most SAID_IN_FULL of them. Also which were said (they count as heard)."""
     code = [t for t in tasks if getattr(t, "kind", "") == "code"]
     if not code:
-        return say("No Jarvis Code sessions are open.", language), []
+        return say("No Eden Code sessions are open.", language), []
     news = {t.id: journal.unseen(t.id) for t in code}
     shown = sorted(code, key=lambda t: _rank(t, approvals, news[t.id]), reverse=True)
     # Closed sessions with nothing new aren't news.
     shown = [t for t in shown if is_live(t) or news[t.id] or pending_of(t, approvals)]
     if not shown:
-        return say("No Jarvis Code sessions are open.", language), []
+        return say("No Eden Code sessions are open.", language), []
     folders = len({t.cwd.name for t in code}) > 1
     count = (
         say("One session.", language)
@@ -1251,7 +1251,7 @@ def briefing_facts(
     since: float,
     pr_of: Any = None,
 ) -> str:
-    """What Jarvis Code did while the user was away, as facts for the morning briefing:
+    """What Eden Code did while the user was away, as facts for the morning briefing:
     each session with news they haven't looked at since `since`, or that needs them, its
     pull request (pr_of(task): its record, or None) and the sensitive areas it touched,
     led by a count: "2 pull requests ready, 1 session needs the user"."""

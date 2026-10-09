@@ -1,4 +1,4 @@
-"""Waiting out Claude's usage limit in Jarvis Code (features/code_limit.py and the hold in
+"""Waiting out Claude's usage limit in Eden Code (features/code_limit.py and the hold in
 tasks.py): with the setting on, a session Claude's limit stops waits for the reset, its
 queue held and the owner told until when; then it carries on on Claude, the app's note
 first. Everything else Claude can't answer still goes to the fallback."""
@@ -51,9 +51,7 @@ async def test_a_session_waits_out_the_limit_then_carries_on_on_claude(
     said = [e["text"] for e in task.transcript if e["role"] in ("assistant", "system")]
     assert said[0] == LIMIT
     assert said[-1].startswith("Claude's usage limit is reached: this session waits until")
-    assert hub.alerts[-1].text.startswith(
-        "Claude's usage limit is reached: Jarvis Code waits until"
-    )
+    assert hub.alerts[-1].text.startswith("Claude's usage limit is reached: Eden Code waits until")
     assert task.model_ref == "" and not task.fell_back_from  # never moved to a fallback
     assert task.public()["hold_until"] == task.hold_until
     # What's sent meanwhile waits in the queue.
@@ -233,5 +231,5 @@ async def test_the_wait_is_told_in_chinese_to_a_chinese_speaking_owner(
     assert line.endswith("然后接着做。这期间你发的消息也会等着。"), line
     alert = hub.alerts[-1]
     assert alert.title == "Claude 的用量上限"
-    assert alert.text.startswith("已达到 Claude 的用量上限：Jarvis Code 会等到周"), alert.text
+    assert alert.text.startswith("已达到 Claude 的用量上限：Eden Code 会等到周"), alert.text
     hub.code_limit.forget()

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import contextlib
 import errno
-import fcntl
 import json
 import logging
 import os
@@ -23,6 +22,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import IO, Any
 
+from . import osplat
+
 log = logging.getLogger("jarvis")
 
 # What a file must hold: a JSON type (dict, list), or a check that says whether it fits.
@@ -31,7 +32,7 @@ _BAD = object()  # a file that can't be used (None is a value JSON can hold)
 STALE_SECONDS = 600  # a temp file this old is one a killed save left behind
 # Each folder's temp files as last listed: folder -> (its mtime when listed, their names).
 # A read looks for its own file's leftovers; listing the folder for each one made reading
-# a folder of many stores (Jarvis Code's kept sessions, a file each) take time growing
+# a folder of many stores (Eden Code's kept sessions, a file each) take time growing
 # with the square of their number: seconds for a thousand. A folder is listed again once
 # its mtime moves (something in it was added, removed or renamed).
 _LEFTOVERS: dict[Path, tuple[int, tuple[str, ...]]] = {}
@@ -140,7 +141,7 @@ def save_json(
             _write(os.open(tmp, os.O_WRONLY | os.O_TRUNC), data, indent, mode, ascii_only=True)
         if backup:
             _keep_previous(path, tmp)
-        os.replace(tmp, path)
+        osplat.replace_file(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
@@ -180,7 +181,7 @@ def claim_folder(folder: Path, wait: float = 0) -> IO[str] | None:
     waiting = False
     while True:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            osplat.lock_file(handle)
             break
         except BlockingIOError:
             if time.monotonic() < deadline:
@@ -191,7 +192,10 @@ def claim_folder(folder: Path, wait: float = 0) -> IO[str] | None:
                     )
                 time.sleep(0.25)
                 continue
-            holder = handle.read(40).strip()
+            try:
+                holder = handle.read(40).strip()
+            except OSError:  # (Windows won't let a file be read where it's locked)
+                holder = ""
             handle.close()
             raise FolderTaken(
                 errno.EWOULDBLOCK, f"another JARVIS backend (process {holder or '?'}) is using it"
@@ -226,18 +230,14 @@ def _fits(data: Any, shape: Shape) -> bool:
 
 def _write(fd: int, data: Any, indent: int | None, mode: int, *, ascii_only: bool) -> None:
     with os.fdopen(fd, "w", encoding="utf-8") as out:
-        os.fchmod(out.fileno(), mode)
+        osplat.fchmod(out.fileno(), mode)
         json.dump(data, out, indent=indent, ensure_ascii=ascii_only)
         out.flush()
         _sync(out.fileno())
 
 
 def _sync(fd: int) -> None:
-    """On the disk itself: macOS's fsync stops at the drive's cache; F_FULLFSYNC doesn't."""
-    try:
-        fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
-    except (AttributeError, OSError):
-        os.fsync(fd)
+    osplat.full_sync(fd)
 
 
 def _keep_previous(path: Path, tmp: str) -> None:
@@ -252,7 +252,7 @@ def _keep_previous(path: Path, tmp: str) -> None:
     except OSError:  # nothing there yet, or a disk without hard links
         return
     try:
-        os.replace(link, path.with_name(path.name + ".bak"))
+        osplat.replace_file(link, path.with_name(path.name + ".bak"))
     except OSError:
         pass
     finally:  # a rename between two names of one file does nothing and keeps both

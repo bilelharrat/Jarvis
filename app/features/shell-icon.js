@@ -87,16 +87,20 @@ function chunk(type, data) {
   return Buffer.concat([head, data, tail]);
 }
 
-function encodePng(size, alpha) {
+function encodePng(size, alpha, rgb = [0, 0, 0]) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(size, 0);
   header.writeUInt32BE(size, 4);
   header[8] = 8; // bits per channel
   header[9] = 6; // RGBA
-  const rows = Buffer.alloc(size * (1 + size * 4)); // black everywhere; only alpha varies
+  const rows = Buffer.alloc(size * (1 + size * 4)); // one colour everywhere (black); only alpha varies
   for (let y = 0; y < size; y++) {
     const at = y * (1 + size * 4); // each row starts with its filter byte: 0, none
-    for (let x = 0; x < size; x++) rows[at + 1 + x * 4 + 3] = alpha[y * size + x];
+    for (let x = 0; x < size; x++) {
+      const px = at + 1 + x * 4;
+      rows[px] = rgb[0]; rows[px + 1] = rgb[1]; rows[px + 2] = rgb[2];
+      rows[px + 3] = alpha[y * size + x];
+    }
   }
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -107,10 +111,12 @@ function encodePng(size, alpha) {
 }
 
 // The icon for a state ('transcribing' draws as thinking), as a PNG at 1× or 2×.
-function iconPng(state, scale = 1) {
+// rgb: black for a Mac's menu bar (it recolours a template image); Windows' tray doesn't, so
+// its icon is drawn in a colour that shows on a light and on a dark taskbar.
+function iconPng(state, scale = 1, rgb = [0, 0, 0]) {
   const glyph = state === 'transcribing' ? 'thinking' : STATES.includes(state) ? state : 'idle';
   const { size, alpha } = coverage(glyph, scale === 2 ? 2 : 1);
-  return encodePng(size, alpha);
+  return encodePng(size, alpha, rgb);
 }
 
 module.exports = { iconPng, crc32, STATES, SIZE };

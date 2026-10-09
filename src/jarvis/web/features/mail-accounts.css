@@ -1,0 +1,9 @@
+/* Settings › Email accounts (mail-accounts.js) */
+.mail-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.mail-account { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mail-account .mail-name { flex: 1 1 220px; font-weight: 600; overflow-wrap: anywhere; }
+.mail-form h4 { margin: 12px 0 6px; font-size: 0.95rem; }
+.mail-servers { margin: 8px 0; }
+.mail-servers summary { cursor: pointer; padding: 6px 0; }
+.mail-actions { display: flex; gap: 8px; margin: 10px 0; }
+.small-status.mail-bad { color: var(--warn, #ff6b6b); font-weight: 600; }

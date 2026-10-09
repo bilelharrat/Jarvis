@@ -1,4 +1,4 @@
-"""Model Router's learning loop and extras in Jarvis Code (features/code_router_events, and
+"""Model Router's learning loop and extras in Eden Code (features/code_router_events, and
 code_router's fallback and effort): the event log (route records with no prompt text,
 updates with what the turn used and the signals, rotation and retention), the owner's acts
 as signals, Shadow mode, the window's state (quota, budget, context, learned overrides),

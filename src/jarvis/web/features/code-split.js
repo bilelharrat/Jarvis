@@ -1,4 +1,4 @@
-// Jarvis Code's split view: two sessions side by side in the window, each live, with its own
+// Eden Code's split view: two sessions side by side in the window, each live, with its own
 // transcript, composer, status, Stop and approvals. The left pane is the window's own; the
 // right one is this same window again in a frame (?pane=code: app.js inSplitPane, fed from
 // this window's one connection: ?bridge=1, code-bridge.js) on one
@@ -639,7 +639,7 @@
       divider.setAttribute('aria-valuetext', `${pct}% · ${100 - pct}%`);
     }
     new ResizeObserver(() => { if (R.on) layout(); }).observe(cc);
-    // The sidebar folding, and Jarvis Code opening (the frame loads once it's first seen).
+    // The sidebar folding, and Eden Code opening (the frame loads once it's first seen).
     new MutationObserver(() => {
       if (!R.on) return;
       layout();

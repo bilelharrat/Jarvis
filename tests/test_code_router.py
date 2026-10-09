@@ -1,4 +1,4 @@
-"""Model Router for Jarvis Code (features/code_router): a routed message moves its session
+"""Model Router for Eden Code (features/code_router): a routed message moves its session
 to the picked model (and Claude's effort) before it goes, in order, never mid-step; Auto
 comes back with a Claude model; a new session starts on the pick; a message sent on the
 rules' pick while Gemini rates it (route_wait) waits a little for the rated route, in order;

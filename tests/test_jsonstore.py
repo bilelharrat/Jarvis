@@ -1,6 +1,7 @@
 """The one way every store reads and saves its file: whole or not at all, a copy of the last
 good one kept, damage kept aside, never saved over a file it couldn't read."""
 
+import fcntl
 import json
 import os
 import stat
@@ -19,16 +20,16 @@ def test_a_real_save_is_flushed_to_the_disk_itself(tmp_path, monkeypatch):
     """F_FULLFSYNC, not just fsync: on a Mac fsync stops at the drive's cache, so a power
     cut could still leave a torn or empty file."""
     asked = []
-    real_fcntl = jsonstore.fcntl.fcntl
+    real_fcntl = fcntl.fcntl
 
-    def fcntl(fd, op, *args):
+    def fcntl_spy(fd, op, *args):
         asked.append(op)
         return real_fcntl(fd, op, *args)
 
     monkeypatch.setattr(jsonstore, "_sync", REAL_SYNC)
-    monkeypatch.setattr(jsonstore.fcntl, "fcntl", fcntl)
+    monkeypatch.setattr(fcntl, "fcntl", fcntl_spy)
     jsonstore.save_json(tmp_path / "prefs.json", {"hands_free": False})
-    assert jsonstore.fcntl.F_FULLFSYNC in asked
+    assert fcntl.F_FULLFSYNC in asked
 
 
 def test_a_save_round_trips_privately_and_keeps_the_last_good_copy(tmp_path):

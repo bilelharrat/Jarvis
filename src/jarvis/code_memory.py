@@ -1,4 +1,4 @@
-"""Jarvis Code's memory files: the CLAUDE.md files Claude Code reads at the start of a
+"""Eden Code's memory files: the CLAUDE.md files Claude Code reads at the start of a
 session.
 
 - project: CLAUDE.md in the project's folder, shared with whoever works on it;

@@ -1,4 +1,4 @@
-// Jarvis Code's agent board: every session as a card, by where it stands (needs you,
+// Eden Code's agent board: every session as a card, by where it stands (needs you,
 // working, done, failed, resting), with its project, branch, lines changed, cost, last
 // activity and what it's doing, and a click to open it, stop it or answer what it asks.
 // The Dock's badge says how many sessions need you (app/features/code-sessions.js).

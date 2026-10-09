@@ -1,5 +1,5 @@
-"""Jarvis Code's spending and Claude's usage limits: what each day and each project cost,
-the owner's caps (each session, each project a day, all of Jarvis Code a day) with a
+"""Eden Code's spending and Claude's usage limits: what each day and each project cost,
+the owner's caps (each session, each project a day, all of Eden Code a day) with a
 heads-up at 50, 80 and 100% of each, and the usage windows Claude Code reports for the
 owner's plan (the five-hour and weekly limits: how much is used, when each resets).
 
@@ -86,7 +86,7 @@ class Caps:
 
     session: float = 0.0  # one session, all told
     project: float = 0.0  # one project, a day
-    day: float = 0.0  # all of Jarvis Code, a day
+    day: float = 0.0  # all of Eden Code, a day
 
     def any(self) -> bool:
         return self.session > 0 or self.project > 0 or self.day > 0
@@ -172,7 +172,7 @@ class Usage:
             data = jsonstore.load_json(self.path, dict) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
-            log.warning("Jarvis Code usage: %s can't be read (%s)", self.path.name, exc)
+            log.warning("Eden Code usage: %s can't be read (%s)", self.path.name, exc)
             return
         days = data.get("days")
         for day, raw in days.items() if isinstance(days, dict) else []:
@@ -230,7 +230,7 @@ class Usage:
         try:
             jsonstore.save_json(self.path, data)
         except OSError as exc:
-            log.warning("couldn't save Jarvis Code's usage (%s)", exc)
+            log.warning("couldn't save Eden Code's usage (%s)", exc)
 
     def save(self) -> None:
         """Soon, in the background, with a loop running (one save for changes close
@@ -285,7 +285,7 @@ class Usage:
     # ── spending ──
 
     def add(self, project: str, cost: float) -> tuple[float, float]:
-        """One turn's cost, counted today (for all of Jarvis Code, and its project): the
+        """One turn's cost, counted today (for all of Eden Code, and its project): the
         day's and the project's spending before it, for the marks it crossed."""
         cost = money_value(cost) or 0.0
         day = self._today().isoformat()

@@ -1,4 +1,4 @@
-"""The perceptual comparison behind Jarvis Code's "Match a design" (design_diff.py): pure
+"""The perceptual comparison behind Eden Code's "Match a design" (design_diff.py): pure
 numpy, on pictures made in the test."""
 
 import base64

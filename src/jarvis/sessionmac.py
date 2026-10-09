@@ -1,4 +1,4 @@
-"""The Mac for a Jarvis Code session, when the owner lets it ("Let this session use the
+"""The Mac for an Eden Code session, when the owner lets it ("Let this session use the
 Mac"): computer.py's own tools, see_screen, click, press_button, type_text, press_keys and
 scroll, as one of the session's MCP servers.
 

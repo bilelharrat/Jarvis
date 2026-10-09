@@ -785,6 +785,10 @@ class Voice:
         self.player_path, self._live, self._live_lock = None, None, None
         self.synthesized: list[str] = []
 
+    @property
+    def silent(self):
+        return self.muted
+
     async def synthesize(self, spoken):
         self.synthesized.append(spoken)
         return (np.zeros(8, np.float32), 16000)
@@ -812,9 +816,7 @@ async def test_a_burst_of_heads_ups_chimes_once_and_says_a_summary(settings, iso
     await hub.start()
     q = hub.subscribe()
     for i in range(6):
-        hub.notify(
-            Alert(f"code:{i}", "task", "Jarvis Code", f"Jarvis Code finished in project {i}.")
-        )
+        hub.notify(Alert(f"code:{i}", "task", "Eden Code", f"Eden Code finished in project {i}."))
     await asyncio.sleep(1.5)
     await hub.speech.drain()
     assert sum(1 for e in drain(q) if e["type"] == "alert") == 6  # every card still shows
@@ -1027,7 +1029,7 @@ async def test_the_phone_never_gets_another_conversations_reply_or_card(
     settings, quiet_speaker, isolated
 ):
     """The Mac user's request is streaming a private reply when the phone asks something;
-    a Jarvis Code session then puts up a card. The phone's request waits its turn: it must
+    an Eden Code session then puts up a card. The phone's request waits its turn: it must
     come back with neither the Mac's words nor the other session's card."""
 
     def turn(client, query):
@@ -1047,7 +1049,7 @@ async def test_the_phone_never_gets_another_conversations_reply_or_card(
     async def code_session_asks():
         await asyncio.sleep(0.1)  # after the phone's request is in
         return await hub.request_approval(
-            "Jarvis Code in proj wants to run a command", "$ rm -rf build", context={"task_id": 7}
+            "Eden Code in proj wants to run a command", "$ rm -rf build", context={"task_id": 7}
         )
 
     other = asyncio.create_task(code_session_asks())

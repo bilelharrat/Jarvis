@@ -1,5 +1,5 @@
 // The window's classic scripts share one global scope, where a second `function x` quietly
-// replaces the first (Settings' Add folder once ran Jarvis Code's). Compiled together in a
+// replaces the first (Settings' Add folder once ran Eden Code's). Compiled together in a
 // block, a name declared twice is a SyntaxError: node --test tests/web/
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';

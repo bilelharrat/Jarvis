@@ -3,7 +3,7 @@
 
     heads-up          every heads-up shown (a meeting soon, rain, an urgent text, …)
     routine-finished  a routine's run ended (ok, failed or skipped)
-    session-done      a Jarvis Code session finished its work or failed
+    session-done      an Eden Code session finished its work or failed
     arrive, leave     arriving at or leaving a place a routine or the phone watches
     wake, unlock      the Mac woke up, or was unlocked
     timer             a timer, alarm or reminder went off
@@ -30,7 +30,6 @@ import hashlib
 import json
 import logging
 import os
-import signal
 import stat
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -38,7 +37,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import jsonstore
+from . import jsonstore, osplat
 
 log = logging.getLogger("jarvis")
 
@@ -60,7 +59,11 @@ RUNS_KEPT = 30
 AT_ONCE = 4
 PER_HOUR = 60  # one script's runs in an hour, at most (a storm of heads-ups)
 MAX_SCRIPTS = 50
-PATH = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+PATH = (
+    os.environ.get("PATH", "")
+    if osplat.IS_WIN
+    else "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+)
 README = """Script hooks for Jarvis.
 
 Put an executable script (chmod +x, with a #! line) in the folder named after the event it
@@ -104,6 +107,9 @@ class Script:
             return
         if not stat.S_ISREG(info.st_mode):
             self.problem = "it isn't a file"
+        elif osplat.IS_WIN:  # (no owner or mode bits: a script has to be a runnable type)
+            if real.suffix.lower() not in (".exe", ".cmd", ".bat", ".ps1", ".py"):
+                self.problem = "it isn't a runnable file (.exe, .cmd, .bat, .ps1 or .py)"
         elif info.st_uid != os.getuid():
             self.problem = "it isn't yours"
         elif info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
@@ -361,7 +367,7 @@ async def run_script(
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(cwd),
         env=env,
-        start_new_session=True,
+        **osplat.group_popen_kwargs(),
     )
 
     async def talk() -> bytes:
@@ -382,7 +388,7 @@ async def run_script(
         out = await asyncio.wait_for(talk(), timeout)
     except TimeoutError:
         with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(proc.pid, signal.SIGKILL)
+            osplat.kill_group(proc.pid, force=True)
         with contextlib.suppress(Exception):
             await asyncio.wait_for(proc.wait(), 5)
         return "timed out", ""

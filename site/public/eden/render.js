@@ -18,6 +18,7 @@ import { toolCards } from './tools-ui.js'; // Google Calendar / Gmail approval c
 import { feedbackButtons } from './learned.js';
 import { limitAction } from './plan.js';
 import { clock } from './video-model.js';
+import { groundingStrip, stripSources } from './courses.js';
 
 export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), editing: null };
 // an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
@@ -99,6 +100,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   }
   const bubble = el('div', 'bubble');
   { const strip = sourceStrip(node); if (strip) bubble.append(strip); } // what this reply read from outside (H8)
+  if (node.autoSearched && node.role === 'assistant') bubble.append(el('div', { class: 'auto-search', style: 'display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:12px;opacity:.85' }, ico('globe', 14), el('span', 'chip-s', node.streaming && !(node.parts && node.parts.length) ? 'Searching the web…' : 'Searched the web'))); // auto-search (autosearch-rules.js)
   const sources = node.citations || [];
   const research = node.mode === 'research';
   if (research) {
@@ -126,9 +128,10 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   const parts = node.parts || [];
   for (const [i, part] of parts.entries()) {
     if (part.type === 'text') {
-      if (!part.text) continue;
+      const text = stripSources(part.text); // a checked reply's <sources> block shows as the strip below (courses.js)
+      if (!text) continue;
       const md = el('div', 'md');
-      md.append(renderMarkdown(part.text, { sources, untrusted: isTainted(node) })); // H8: held images, visible link destinations
+      md.append(renderMarkdown(text, { sources, untrusted: isTainted(node) })); // H8: held images, visible link destinations
       bubble.append(md);
     } else if (part.type === 'tool') bubble.append(toolCard(c, node, part));
     else if (part.type === 'perm') bubble.append(part.approval ? approvalCard(c, node, part.approval, { perm: i }) : permCard(c, part, i));
@@ -137,6 +140,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   }
   if (node.streaming && !nodeText(node) && !parts.some((p) => p.type === 'tool') && !node.thinkingLive) bubble.append(el('div', { class: 'typing', 'aria-label': 'Working' }, el('i'), el('i'), el('i')));
   if (sources.length && !research) bubble.append(sourceList(sources));
+  if (node.grounding && !node.streaming) bubble.append(groundingStrip(node.grounding)); // Eden for Education (courses.js)
   if (!node.streaming) {
     const arts = artifactsIn(nodeText(node));
     arts.forEach((a, k) => bubble.append(el('div', 'artlink', ico('art'),

@@ -9,7 +9,7 @@ owner's view of it.
 - Past conversations: listed, searched and read back from Claude Code's own records of the
   brain's sessions (conversation_past), and carried on as the current conversation after a
   card. One reopened whose reads aren't on record counts as having read private data.
-- How full it is: the conversation's context (the SDK's context usage, as Jarvis Code's ring
+- How full it is: the conversation's context (the SDK's context usage, as Eden Code's ring
   shows a session's) and what it has cost, after every turn and when the window asks;
   "Compact now" (Claude Code's /compact), and a note in the conversation when it's summed up,
   by itself or when asked.

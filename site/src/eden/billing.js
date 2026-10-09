@@ -28,6 +28,7 @@
 
 import { call, limited } from '../accounts/index.js';
 import { AUTO, PACKS } from '../accounts/credits.js';
+import { redeemPromo } from '../accounts/promo.js';
 import { legacyPrices, legacyPrice } from '../accounts/stripe-plan.js';
 import { ApiError, hex, json, sameText, validAccountId } from '../accounts/util.js';
 import { SIGNIN_CSP, page } from './web.js';
@@ -178,7 +179,13 @@ export async function cancelSubscription(env, subscription) {
 // ── /api/web/billing/<op> (eden/session.js: the browser's own session, checked fresh) ──
 
 export async function billingApi(request, env, who, op, { acting = null, origin = '' } = {}) {
-  if (request.method !== 'POST' || !['checkout', 'portal', 'credits', 'autotopup'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  if (request.method !== 'POST' || !['checkout', 'portal', 'credits', 'autotopup', 'promo'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  if (op === 'promo') { // a promo code: free Plus, no Stripe needed
+    if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
+    await limited(env, 'AUTH_RATE', `promo:${who.account}`);
+    const { code } = await request.json().catch(() => ({}));
+    return json(await redeemPromo(env, who, code, call));
+  }
   if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in the J.A.R.V.I.S. iPhone app.');
   if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
   await limited(env, 'EDEN_RATE', `billing:${who.account}`);

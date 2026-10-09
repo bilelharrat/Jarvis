@@ -1,8 +1,8 @@
-"""Jarvis Code: an engineering memory across every project, learned from corrections.
+"""Eden Code: an engineering memory across every project, learned from corrections.
 
 When the owner corrects a session ("no, use pnpm", "never mock the database in these
 tests", "always run the linter before you say it's done"), the rule in their words becomes
-a lesson in Jarvis's own memory (category work, origin "Jarvis Code correction"), not a
+a lesson in Jarvis's own memory (category work, origin "Eden Code correction"), not a
 per-repository CLAUDE.md: it's theirs, seen and edited in Settings › Memory like any fact,
 and it follows them into every repository. A rule said for everywhere ("always…", "in
 every project") applies to every session; any other, to sessions in the project it was
@@ -30,7 +30,7 @@ log = logging.getLogger("jarvis")
 PREF = "code_lessons"
 prefs.register_feature_pref(PREF, True)
 
-ORIGIN = "Jarvis Code correction"
+ORIGIN = "Eden Code correction"
 EVERYWHERE = "every project"
 MAX_CHARS = 240  # longer is a request, not a rule
 MIN_WORDS = 4
@@ -150,7 +150,7 @@ class Lessons:
                 origin=f"{ORIGIN} ({scope})",
             )
         except Exception as exc:
-            log.warning("Jarvis Code: couldn't keep a lesson (%s)", exc)
+            log.warning("Eden Code: couldn't keep a lesson (%s)", exc)
 
     def turn_note(self, task: Any) -> str:
         """TaskManager.turn_notes: the lessons, with a session's first message and again

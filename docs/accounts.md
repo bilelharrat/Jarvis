@@ -395,6 +395,31 @@ checks, the owner's steps in the Stripe dashboard and the security notes are in 
 - The apps read the same `plan`; a Plus bought on the web shows as Plus in the J.A.R.V.I.S. apps
   too (its `product_id` is null; manage it on the web).
 
+### Promo codes (free Plus)
+
+A third source of Plus beside the App Store and Stripe (`plan.source: "promo"`): the owner mints
+codes, a person redeems one and has Plus for the code's days, with the usual monthly allowance.
+It ends on its own (`renews: false`); days from several codes stack; it can be bought on top of.
+Code: `site/src/accounts/promo.js`. A code is `EDEN-XXXX-XXXX` (no 0/O/1/I/L/U); each is a
+`Promo` Durable Object (binding `PROMOS`, migration `v7`) named by a hash of the code, holding
+its days, `max_uses`, expiry and the account ids that used it. One account can use a code once.
+
+Mint (closed until `wrangler secret put PROMO_ADMIN_TOKEN`, 24+ characters; never from a web page):
+
+    curl -X POST https://askeden.com/api/admin/promo \
+      -H "Authorization: Bearer $PROMO_ADMIN_TOKEN" -H 'content-type: application/json' \
+      -d '{"days":30,"count":10,"max_uses":1,"expires_days":90,"note":"launch"}'
+    → 201 { "codes": ["EDEN-…", …], "days", "max_uses", "expires" }
+
+`days` 1–366; `count` 1–500 (default 1); `max_uses` (default 1; use e.g. 1000 for one code to
+hand out widely); `expires_days` 1–730 (default: never). `GET /api/admin/promo?code=EDEN-…`
+shows a code's terms and use count.
+
+Redeem: `POST /api/promo/redeem` `{ "code" }` (the apps, bearer token) or
+`POST /api/web/billing/promo` (the browser; the account page has a "Have a promo code?" box).
+→ `{ days, until }`. Errors: 400 `bad_code` (not a code's shape), 404 `bad_code` (no such code),
+409 `already_used` / `used_up`, 410 `code_expired`. The use is given back if the account can't take it.
+
 ### JARVIS voice
 
 `POST /voice` as before (`X-Jarvis-Install`); with `Authorization: Bearer <token>` it

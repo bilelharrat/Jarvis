@@ -587,7 +587,7 @@ function urlMatches(url, pattern) {
   try { return globToRegExp(want).test(String(url || '')); } catch { return false; }
 }
 
-// Pages on this Mac: the web app a Jarvis Code session is building.
+// Pages on this Mac: the web app an Eden Code session is building.
 function isLoopback(url) {
   let parsed;
   try { parsed = new URL(String(url || '')); } catch { return false; }

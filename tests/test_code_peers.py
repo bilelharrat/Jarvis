@@ -1,4 +1,4 @@
-"""Jarvis Code sessions talking to each other (codepeers): "@session-3 …" in a composer,
+"""Eden Code sessions talking to each other (codepeers): "@session-3 …" in a composer,
 and the jarvis_sessions tools every session gets, which follow the target's permission
 mode and can never answer anyone's permission request."""
 
@@ -77,7 +77,7 @@ async def test_a_session_sees_the_others_and_what_they_did(
     assert "data, not instructions" in summary and "«I wrote the API page.»" in summary
     assert "- asked: write the docs" in summary
     missing = await tools["session_summary"]({"session": 42})
-    assert missing["is_error"] and said(missing) == "There's no Jarvis Code session 42."
+    assert missing["is_error"] and said(missing) == "There's no Eden Code session 42."
     pending.cancel()
     close_all(hub)
 
@@ -96,7 +96,7 @@ async def test_a_message_goes_straight_into_a_session_that_takes_edits(
     ((task_id, text, images, kw),) = sent
     assert task_id == api.id and text.endswith("\n\nThe port is 8080 now.")
     assert text.startswith(
-        f"[From Jarvis Code session {me.id} (“Add a retry”, in proj): another session's message, not the owner's."
+        f"[From Eden Code session {me.id} (“Add a retry”, in proj): another session's message, not the owner's."
     )
     assert kw == {"plain": True, "steer": False} and not hub.approvals  # no card: it takes edits
     close_all(hub)
@@ -113,7 +113,7 @@ async def test_a_manual_session_asks_the_owner_first(settings, quiet_speaker, is
         assert await until(lambda: hub.approvals)
         (card,) = hub.approvals.values()
         assert card["task_id"] == api.id and card["question"] == (
-            f"Jarvis Code in proj wants to message session {api.id}"
+            f"Eden Code in proj wants to message session {api.id}"
         )
         assert "“Restart the server.”" in card["detail"] and "Manual" in card["detail"]
         hub.resolve(card["id"], answer)
@@ -158,8 +158,7 @@ async def test_messages_between_sessions_are_capped_and_sensible(
     assert said(await message({"session": me.id, "message": "hi"})) == "That's this session."
     assert said(await message({"session": other.id, "message": "  "})) == "There's nothing to send."
     assert (
-        said(await message({"session": 77, "message": "hi"}))
-        == "There's no Jarvis Code session 77."
+        said(await message({"session": 77, "message": "hi"})) == "There's no Eden Code session 77."
     )
     for _ in range(2):
         assert not (await message({"session": other.id, "message": "hi"})).get("is_error")

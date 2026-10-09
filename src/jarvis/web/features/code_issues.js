@@ -1,4 +1,4 @@
-// Jarvis Code settings › GitHub (features/code_pr.py and code_issues.py): whether new pull
+// Eden Code settings › GitHub (features/code_pr.py and code_issues.py): whether new pull
 // requests fix their failing checks by themselves, and the repositories whose issues,
 // labelled for Jarvis, start a session without the owner. Opting one in sends the scope to
 // the backend, which puts it on a card first.

@@ -37,14 +37,14 @@ struct JarvisStatusWidget: Widget {
     }
 }
 
-/// Jarvis Code sessions: the ones that need you, and the ones working.
+/// Eden Code sessions: the ones that need you, and the ones working.
 struct JarvisCodeWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "JarvisCode", provider: SnapshotProvider()) { entry in
             CodeWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
-        .configurationDisplayName("Jarvis Code")
+        .configurationDisplayName("Eden Code")
         .description("Sessions that need you, and the ones working.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular])
     }
@@ -219,7 +219,7 @@ private struct NotPaired: View {
     }
 }
 
-// MARK: - Jarvis Code
+// MARK: - Eden Code
 
 struct CodeWidgetView: View {
     let entry: SnapshotEntry
@@ -343,12 +343,12 @@ struct CodeWidgetView: View {
             }
         }
         .widgetAccentable()
-        .accessibilityLabel(entry.snapshot.flatMap(GlanceText.code) ?? "Jarvis Code: nothing running")
+        .accessibilityLabel(entry.snapshot.flatMap(GlanceText.code) ?? "Eden Code: nothing running")
     }
 
     private var rectangular: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text("Jarvis Code")
+            Text("Eden Code")
                 .font(.headline)
                 .widgetAccentable()
             if let first = sessions.first, first.status.isLive {

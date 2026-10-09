@@ -1,4 +1,4 @@
-"""Jarvis Code: "Run this without me", a session with a scope the owner approves up front.
+"""Eden Code: "Run this without me", a session with a scope the owner approves up front.
 
 The scope: what to do, the project, the permission mode (Accept edits or Auto), the
 commands it may run beyond the read-only ones and the project's own "don't ask again"
@@ -36,7 +36,7 @@ Wrapped: hub.run_routine (a due routine that is a scheduled run starts it; every
 routine goes on as before), TaskManager.options_for (a run's caps, guard and narrower
 tools apply after every feature's session_extras) and TaskManager.prepare and turn_note.
 
-Cost policy: a run is one Jarvis Code session on the model the project's sessions use,
+Cost policy: a run is one Eden Code session on the model the project's sessions use,
 capped by the owner in dollars (default $5, at most $50) and hours (default 2, at most
 12). It calls no other model. Runs started by GitHub issues are capped per day in
 features/code_issues.py.
@@ -317,7 +317,7 @@ class Runs:
         self.runs: list[Run] = []
         self.jobs: list[Job] = []
         self.active: dict[int, Run] = {}  # session id -> its run, while it runs
-        # Sessions whose own heads-ups ("Jarvis Code finished") the run's report says
+        # Sessions whose own heads-ups ("Eden Code finished") the run's report says
         # instead: until when (0: while it runs; a little after, for its last turn's).
         self.quiet: dict[int, float] = {}
         self._loaded = False
@@ -562,7 +562,7 @@ class Runs:
         try:
             routine = self.hub.routines.add(
                 title,
-                f"Jarvis Code, without me, in {name}: {scope.prompt}"[:2000],
+                f"Eden Code, without me, in {name}: {scope.prompt}"[:2000],
                 kind,
                 clock,
                 days,
@@ -682,7 +682,7 @@ class Runs:
                     "task",
                     self.tr("Without you"),
                     self.tr(found),
-                    note="a scheduled Jarvis Code run couldn't start",
+                    note="a scheduled Eden Code run couldn't start",
                 )  # fmt: skip
             )
         return True
@@ -916,7 +916,7 @@ class Runs:
                 "task",
                 self.tr("Without you"),
                 spoken,
-                note="a Jarvis Code run without the owner is over (Jarvis Code has its report)",
+                note="an Eden Code run without the owner is over (Eden Code has its report)",
             )  # fmt: skip
         )
         if run.issue and why == "finished":
@@ -957,7 +957,7 @@ class Runs:
         return text
 
     def gate(self, alert: Alert) -> bool:
-        """hub.add_notify_gate: a run's session makes no heads-up of its own ("Jarvis Code
+        """hub.add_notify_gate: a run's session makes no heads-up of its own ("Eden Code
         finished") while it runs, nor for its last turn; the run's report says it."""
         now = time.time()
         for task_id, until in list(self.quiet.items()):
@@ -1034,7 +1034,7 @@ class Runs:
 
         @tool(
             "run_without_me",
-            'Start a Jarvis Code session that works without the user ("run this without '
+            'Start an Eden Code session that works without the user ("run this without '
             'me", "do this overnight"): in an isolated copy of a project, within a scope '
             "they approve on a card first: the permission mode (edits: Accept edits, smart: "
             "Auto), the commands it may run beyond read-only ones (e.g. 'npm test', 'uv run "
@@ -1048,7 +1048,7 @@ class Runs:
 
         @tool(
             "schedule_without_me",
-            "Schedule a Jarvis Code session that works without the user on a schedule "
+            "Schedule an Eden Code session that works without the user on a schedule "
             '("every night at 1, run the tests in project X and fix what fails"): the same '
             "scope as run_without_me, approved once on a card now. schedule: daily, weekdays, "
             "weekly (with days, 0 = Monday … 6 = Sunday) or once (with date YYYY-MM-DD); time: "
@@ -1078,7 +1078,7 @@ class Runs:
 
         @tool(
             "unattended_runs",
-            "The recent Jarvis Code runs without the user (what, where, how each ended, cost) "
+            "The recent Eden Code runs without the user (what, where, how each ended, cost) "
             "and the scheduled ones.",
             {},
         )
@@ -1104,7 +1104,7 @@ class Runs:
 
 
 PROMPT = (
-    "Jarvis Code can work without the user: run_without_me starts a session in an isolated "
+    "Eden Code can work without the user: run_without_me starts a session in an isolated "
     "copy of a project with a scope they approve on a card (mode, commands, a spending cap "
     "and a time cap), and schedule_without_me schedules one (it shows among the routines). "
     "Use them when the user asks for work done while they're away, overnight or on a "

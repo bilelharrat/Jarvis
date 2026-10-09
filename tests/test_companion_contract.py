@@ -204,7 +204,7 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
     mine = asyncio.create_task(hub.request_approval("Send the email to Pepper?", "Dinner at 8"))
     code = asyncio.create_task(
         hub.request_approval(
-            "Jarvis Code in suit wants to run a command",
+            "Eden Code in suit wants to run a command",
             "$ npm test",
             [("allow", "Yes"), ("deny", "No")],
             {"task_id": 4, "tool": "Bash"},
@@ -291,7 +291,7 @@ async def test_every_answer_the_phone_reads_matches_its_fixture(mac, tmp_path, m
     keep(mac, "error_busy", post("/api/ask", {"text": "And another thing"}), 429)
     keep(mac, "command", post("/api/command", {"type": "stop"}))
 
-    # ── Jarvis Code ──
+    # ── Eden Code ──
     keep(mac, "code_sessions", get("/api/code/sessions"))
     keep(mac, "code_session", get("/api/code/session?id=4"))
     keep(mac, "code_session_after", get("/api/code/session?id=4&after=4"))

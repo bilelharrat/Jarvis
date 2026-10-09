@@ -32,6 +32,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import unicodedata
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
@@ -80,6 +81,29 @@ MESSAGING: dict[str, tuple[str, str]] = {
     "com.mimestream.Mimestream": ("Mimestream", "mail"),
     "io.canarymail.mac": ("Canary Mail", "mail"),
     "org.mozilla.thunderbird": ("Thunderbird", "mail"),
+    # Windows: the program's file name, as UI Automation gives it
+    "outlook.exe": ("Outlook", "mail"),
+    "olk.exe": ("Outlook", "mail"),
+    "hxoutlook.exe": ("Mail", "mail"),
+    "thunderbird.exe": ("Thunderbird", "mail"),
+    "ms-teams.exe": ("Microsoft Teams", "chat"),
+    "teams.exe": ("Microsoft Teams", "chat"),
+    "slack.exe": ("Slack", "chat"),
+    "whatsapp.exe": ("WhatsApp", "chat"),
+    "whatsapp.root.exe": ("WhatsApp", "chat"),
+    "telegram.exe": ("Telegram", "chat"),
+    "discord.exe": ("Discord", "chat"),
+    "signal.exe": ("Signal", "chat"),
+    "wechat.exe": ("WeChat", "chat"),
+    "zoom.exe": ("Zoom", "chat"),
+    "skype.exe": ("Skype", "chat"),
+    "line.exe": ("LINE", "chat"),
+    "dingtalk.exe": ("DingTalk", "chat"),
+    "feishu.exe": ("Feishu", "chat"),
+    "lark.exe": ("Lark", "chat"),
+    "messenger.exe": ("Messenger", "chat"),
+    "viber.exe": ("Viber", "chat"),
+    "element.exe": ("Element", "chat"),
 }
 _BY_NAME = {name.lower(): (name, kind) for name, kind in MESSAGING.values()}
 _BY_NAME.update(
@@ -110,6 +134,13 @@ BROWSERS = frozenset(
         "com.kagi.kagimacOS",
         "app.zen-browser.zen",
         "org.chromium.Chromium",
+        "chrome.exe",
+        "msedge.exe",
+        "firefox.exe",
+        "brave.exe",
+        "opera.exe",
+        "vivaldi.exe",
+        "arc.exe",
     }
 )
 # Web messaging and mail by a tab's title -> (name, kind).
@@ -155,7 +186,15 @@ _SENDS = [
 # (Return, ⌘Return, ⌘⇧D in Mail), or deleting a selected message. (⇧Return and ⌥Return
 # start a new line in a chat's box.)
 _RETURNS = {"return", "enter", "cmd+return", "cmd+enter", "ctrl+return", "ctrl+enter"}
-_MAIL_SEND = {"cmd+shift+d", "shift+cmd+d", "cmd+return", "cmd+enter"}
+_MAIL_SEND = {
+    "cmd+shift+d",
+    "shift+cmd+d",
+    "cmd+return",
+    "cmd+enter",
+    "ctrl+return",
+    "ctrl+enter",
+    "alt+s",
+}
 _DELETES = {"delete", "backspace", "forwarddelete", "cmd+delete", "cmd+backspace"}
 _PRESSES = {"space"}
 _TEXT_ROLES = {"AXTextArea", "AXTextField", "AXComboBox", "AXSearchField"}
@@ -360,6 +399,30 @@ class AXProbe:
         return found
 
 
+class WinProbe:
+    """The same questions as AXProbe, answered through UI Automation (winuia.py): what the
+    app in front is and what has the keyboard, and what is at a point."""
+
+    enabled = True
+
+    async def prepare(self) -> None:
+        return None
+
+    async def __call__(self, *argv: str) -> dict[str, Any]:
+        from . import winuia
+
+        try:
+            if argv and argv[0] == "point":
+                return await asyncio.wait_for(
+                    asyncio.to_thread(winuia.probe_point, float(argv[1]), float(argv[2])),
+                    PROBE_SECONDS,
+                )
+            return await asyncio.wait_for(asyncio.to_thread(winuia.probe_focus), PROBE_SECONDS)
+        except Exception as exc:  # noqa: BLE001 - slow, or not readable: only that it isn't known
+            log.info("windows probe failed (%s)", type(exc).__name__)
+            return {"fallback": True}
+
+
 # ── the guard ──
 
 
@@ -397,7 +460,7 @@ class HandsGuard:
         probe: Probe | None = None,
     ) -> None:
         self._reads, self._words, self._asked, self._send = reads, words, asked, send
-        self.probe = probe or AXProbe()
+        self.probe = probe or (WinProbe() if sys.platform == "win32" else AXProbe())
 
     # ── what each tool is about to do ──
 

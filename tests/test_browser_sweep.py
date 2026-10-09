@@ -86,7 +86,7 @@ async def test_a_code_session_s_press_in_a_tab_it_names_weighs_that_tab(settings
     assert isinstance(own, PermissionResultAllow)  # its own app, unasked
     out = await policy(act, {"action": "click", "ref": "e9", "tab": 9}, CTX)
     assert isinstance(out, PermissionResultDeny)
-    assert asked[-1][0] == f"Jarvis Code in {tmp_path.name} wants to click on mail.example.com"
+    assert asked[-1][0] == f"Eden Code in {tmp_path.name} wants to click on mail.example.com"
     out = await policy(act, {"action": "press", "key": "Enter", "tab": 9}, CTX)
     assert isinstance(out, PermissionResultDeny)
     assert asked[-1][0].endswith("mail.example.com")

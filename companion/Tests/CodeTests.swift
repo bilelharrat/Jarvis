@@ -1,7 +1,7 @@
 import XCTest
 @testable import JarvisCompanion
 
-/// Jarvis Code from the iPhone: what a new session can be, what actions answer, questions
+/// Eden Code from the iPhone: what a new session can be, what actions answer, questions
 /// answered fully, and a session's settings and waiting messages.
 final class CodeTests: XCTestCase {
     private func json(_ text: String) throws -> JSONValue {

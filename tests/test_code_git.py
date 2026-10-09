@@ -1,4 +1,4 @@
-"""Jarvis Code's Git panel (features/code_git.py): status, staging a file or one hunk,
+"""Eden Code's Git panel (features/code_git.py): status, staging a file or one hunk,
 the commit message Claude writes (faked here, and capped), commits behind a secret scan,
 branches, and pushes that always ask first. Real git in temp repositories; "origin" is a
 local bare repository, so nothing leaves the machine."""

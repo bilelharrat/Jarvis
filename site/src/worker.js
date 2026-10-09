@@ -10,13 +10,17 @@
 //   POST /api/help/ask       Ask Help, grounded in the FAQ (eden/help.js)
 //   /<Eden's files>, /signin/…, /artifact/<id>   the same (eden/pages.js)
 //   /p/<id>                  a published Eden page (accounts/published.js, via eden/pages.js)
-//   /download, /jarvis       the J.A.R.V.I.S. and Eden Messenger landing page (./public/jarvis/index.html)
+//   /download, /jarvis       the Eden Code and J.A.R.V.I.S. landing page (./public/jarvis/index.html; Messenger hidden for now)
 //   /jarvis/…               its images
 //   /download/mac            Ask Eden for Mac (beta): a redirect to the GitHub release ask-eden-v<version> (ASK_EDEN_TAG)
+//   /download/windows, /eden-code/windows, /jarvis/windows, /daredevil/windows, /jarvis/daredevil
+//                            the Windows installers (beta, unsigned): redirects to GitHub pre-releases in the Jarvis repo (WINDOWS, below)
+//   /windows/latest.json     their versions and sizes, for the page
+//   /daredevil               J.A.R.V.I.S. Daredevil's page: what it is, the download, the quick-start guide (./public/daredevil/index.html)
 //   /downloads/ask-eden/release.json   its update feed (Squirrel.Mac JSON), read from the same release
 //   /jarvis/download         the latest disk image, from R2 (resumable: Range requests)
 //   /latest.json, /jarvis/latest.json   its version, size and file name, for the page
-//   /jarvis/iphone, /messenger/download, /messenger/iphone   the other apps (SOON, below)
+//   /eden-code/download, /jarvis/iphone, /messenger/download, /messenger/iphone   the other apps (SOON, below)
 //   /messenger, /messenger/…   Eden Messenger itself, at messenger.askeden.com (MESSENGER)
 //   POST /api/voice         the JARVIS voice for copies without a Fish Audio key of their own
 //   POST /api/chat/voice    the same for Eden's Read aloud and talk mode, on the signed-in browser's account
@@ -39,13 +43,16 @@ import { tokenFrom } from './accounts/util.js';
 import { chatApi } from './eden/chat.js';
 import { connectPage, edenApi } from './eden/ask.js';
 import { stripeApi } from './eden/billing.js';
+import { promoAdmin } from './accounts/promo.js';
 import { edenPage } from './eden/pages.js';
 import { helpApi } from './eden/help.js';
 import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
 import { LANDING_CSP, baseline, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
 
 export { Account, Identity, Link, Space } from './accounts/index.js';
+export { Promo } from './accounts/promo.js';
 export { BrowserSession } from './browser/session.js';
+export { Course } from './edu/course.js';
 import { BROWSER_PATH, browserApi } from './browser/api.js';
 import { RUN_PATH, runApi } from './eden/run.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
@@ -74,12 +81,16 @@ export default {
 
 async function route(request, env, ctx) {
   const url = new URL(request.url);
+  // edu.askeden.com: Eden for Education's own address, a doorway to askeden.com/edu (one sign-in, one cookie)
+  if (url.hostname === 'edu.askeden.com') return Response.redirect('https://askeden.com/edu', 301);
   const path = url.pathname.replace(/\/+$/, '') || '/';
   if (path === '/api' || path.startsWith('/api/')) {
     // @Eden for Eden Messenger: its own Origin rules (CORS for Messenger only; eden/ask.js).
     if (path.startsWith('/api/eden/')) return edenApi(request, env, ctx, path);
     // Stripe's webhook: a server, so no Origin and no session; its signature is the guard (eden/billing.js).
     if (path === '/api/stripe' || path.startsWith('/api/stripe/')) return stripeApi(request, env, ctx, path);
+    // Minting promo codes: the owner's server call, guarded by PROMO_ADMIN_TOKEN (accounts/promo.js).
+    if (path === '/api/admin/promo') return promoAdmin(request, env);
     const refused = fromElsewhere(request, path);
     if (refused) return refused;
     if (path === BROWSER_PATH) return browserApi(request, env); // the cloud browser's socket (browser/api.js)
@@ -96,6 +107,9 @@ async function route(request, env, ctx) {
   if (path === '/.well-known/apple-app-site-association') return appSiteAssociation(env);
   if (path === '/jarvis/download') return download(request, env);
   if (path === '/download/mac' || path === '/downloads/ask-eden/release.json') return askEdenMac(request, env, path);
+  if (Object.hasOwn(WINDOWS_PATHS, path)) return Response.redirect(windowsInstaller(WINDOWS_PATHS[path], env).url, 302);
+  if (path === '/windows/latest.json') return windowsInfo(env);
+  if (path === '/daredevil') return daredevil(request, env, url);
   if (path === '/download' || path === '/jarvis') return landing(request, env, url);
   if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
   if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
@@ -143,6 +157,8 @@ function toMessenger(url) {
 // invite, the Messenger's disk image), and until that is set, to a page saying it's on its way.
 const SOON = {
   '/jarvis/iphone': { variable: 'JARVIS_IPHONE_URL', app: 'J.A.R.V.I.S. for iPhone' },
+  '/eden-code/download': { variable: 'EDEN_CODE_MAC_URL', app: 'Eden Code for Mac' },
+  '/eden-code/mac': { variable: 'EDEN_CODE_MAC_URL', app: 'Eden Code for Mac' },
   '/messenger/download': { variable: 'MESSENGER_MAC_URL', app: 'Eden Messenger for Mac' },
   '/messenger/mac': { variable: 'MESSENGER_MAC_URL', app: 'Eden Messenger for Mac' },
   '/messenger/iphone': { variable: 'MESSENGER_IPHONE_URL', app: 'Eden Messenger for iPhone' },
@@ -154,7 +170,7 @@ function elsewhere(path, env) {
   if (/^https:\/\//.test(target)) return Response.redirect(target, 302);
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>${app}: almost ready</title>
-<link rel="icon" type="image/png" href="/jarvis/eden-favicon.png">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300&family=Instrument+Sans:wght@400;600&display=swap">
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0e13;color:#f4f5f7;font:400 17px/1.55 'Instrument Sans',-apple-system,sans-serif;-webkit-font-smoothing:antialiased;text-align:center;padding:24px;box-sizing:border-box}
 h1{margin:0 0 12px;font:300 clamp(34px,6vw,52px)/1.1 Fraunces,Georgia,serif}p{margin:0 auto 28px;max-width:440px;color:rgba(244,245,247,.72)}
@@ -197,7 +213,7 @@ async function latestInfo(env) {
 
 // Ask Eden for Mac: its zip and update feed are assets of one GitHub release in the Jarvis
 // repo (no R2 needed). The tag decides the version; a new release is a new tag (ASK_EDEN_TAG).
-const ASK_EDEN_REPO = 'bilelharrrat/Jarvis';
+const ASK_EDEN_REPO = 'bilelharrat/Jarvis';
 const ASK_EDEN_TAG = 'ask-eden-v0.1.0';
 export function askEdenAssets(env = {}) {
   const tag = /^ask-eden-v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(String(env.ASK_EDEN_TAG || '')) ? env.ASK_EDEN_TAG : ASK_EDEN_TAG;
@@ -217,6 +233,52 @@ async function askEdenMac(request, env, path) {
   } catch {
     return json({ error: 'No release yet.' }, 502);
   }
+}
+
+// The Windows installers (beta, unsigned): each is the one file of a GitHub pre-release in the Jarvis repo,
+// like Ask Eden for Mac (no R2 needed; a pre-release never becomes the repo's "latest", which the Mac feed
+// above reads). A new build is a new tag: change its entry here (tag, file, version, size) and deploy, or set
+// WINDOWS_<APP>_TAG and WINDOWS_<APP>_FILE in wrangler.toml (APP: ASK_EDEN, EDEN_CODE, JARVIS).
+// J.A.R.V.I.S. Daredevil is J.A.R.V.I.S. as an app of its own for people who are blind or have low vision: its own
+// installer, which opens in screen-reader mode (one replaces the other on a PC).
+export const WINDOWS = {
+  'ask-eden': { variable: 'ASK_EDEN', name: 'Ask Eden', tag: 'ask-eden-windows-v0.1.0', file: 'Ask-Eden-Setup-0.1.0-x64.exe', version: '0.1.0', size: 110809211 },
+  'eden-code': { variable: 'EDEN_CODE', name: 'Eden Code', tag: 'eden-code-windows-v0.1.8', file: 'Eden-Code-Setup-0.1.8-x64.exe', version: '0.1.8', size: 300218062 },
+  jarvis: { variable: 'JARVIS', name: 'J.A.R.V.I.S.', tag: 'jarvis-windows-v0.1.13', file: 'J-A-R-V-I-S--Setup-0.1.13-x64.exe', version: '0.1.13', size: 303723280 },
+  daredevil: { variable: 'DAREDEVIL', name: 'J.A.R.V.I.S. Daredevil', tag: 'daredevil-windows-v0.1.14', file: 'J-A-R-V-I-S-Daredevil-Setup-0.1.14-x64.exe', version: '0.1.14', size: 327754786 },
+};
+const WINDOWS_PATHS = {
+  '/download/windows': 'ask-eden',
+  '/eden-code/windows': 'eden-code',
+  '/jarvis/windows': 'jarvis',
+  '/daredevil/windows': 'daredevil',
+  '/jarvis/daredevil': 'daredevil',
+};
+const TAG = /^[0-9A-Za-z][0-9A-Za-z._-]{0,79}$/;
+const FILE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,119}\.exe$/;
+
+/** An installer's details: the entry above, or the tag and file wrangler.toml names for it (only plain ones). */
+export function windowsInstaller(key, env = {}) {
+  const app = WINDOWS[key];
+  const tag = TAG.test(String(env[`WINDOWS_${app.variable}_TAG`] || '')) ? env[`WINDOWS_${app.variable}_TAG`] : app.tag;
+  const file = FILE.test(String(env[`WINDOWS_${app.variable}_FILE`] || '')) ? env[`WINDOWS_${app.variable}_FILE`] : app.file;
+  const same = tag === app.tag && file === app.file;
+  return { ...app, tag, file, size: same ? app.size : 0, version: same ? app.version : '', url: `https://github.com/${ASK_EDEN_REPO}/releases/download/${tag}/${file}` };
+}
+
+function windowsInfo(env) {
+  const out = {};
+  for (const key of Object.keys(WINDOWS)) {
+    const { version, size, file } = windowsInstaller(key, env);
+    out[key] = { version, size, file };
+  }
+  return json(out, 200, { 'cache-control': 'public, max-age=300' });
+}
+
+// J.A.R.V.I.S. Daredevil's page: what it is, the download, and the quick-start guide.
+async function daredevil(request, env, url) {
+  const asset = await env.ASSETS.fetch(new Request(new URL('/daredevil/', url), request));
+  return page(asset, LANDING_CSP, { cache: asset.headers.get('cache-control') || 'public, max-age=0, must-revalidate' });
 }
 
 async function download(request, env) {
@@ -269,18 +331,23 @@ export function appSiteAssociation(env) {
   const body = {
     applinks: {
       details: [{
+        // Eden for Education's app takes its own pages; Eden's takes the rest
+        appIDs: [`${team}.com.askeden.edu`],
+        components: [{ '/': '/edu*' }],
+      }, {
         appIDs: [`${team}.com.askeden.eden`],
         components: [
           { '/': '/api/*', exclude: true },
           { '/': '/signin*', exclude: true },
           { '/': '/download*', exclude: true },
           { '/': '/jarvis/*', exclude: true },
+          { '/': '/daredevil*', exclude: true },
           { '/': '/p/*', exclude: true },
           { '/': '/*' },
         ],
       }],
     },
-    webcredentials: { apps: [`${team}.com.askeden.eden`] },
+    webcredentials: { apps: [`${team}.com.askeden.eden`, `${team}.com.askeden.edu`] },
   };
   return json(body, 200, { 'cache-control': 'public, max-age=3600' });
 }

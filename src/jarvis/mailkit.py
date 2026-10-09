@@ -636,6 +636,7 @@ def parse_read(raw: str, message_id: str) -> dict[str, Any] | None:
         ][:100],
     }
 
+
 # One email in the inbox by its Message-ID: who it's from (and to), what it says it's about,
 # and the headers an unsubscribe needs.
 FIND_JXA = """

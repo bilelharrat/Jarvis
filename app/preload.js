@@ -1,7 +1,7 @@
 // The only things the page gets from Electron: hear about ⌥Space and ⌥⇧Space, ask for attention, pick
 // a folder for the second brain, lay out a PDF, show and drive the built-in browser
 // (where the BSH Research Center opens), and the app feature modules' own channels.
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('jarvisApp', {
   onSummon: (callback) => ipcRenderer.on('jarvis:summon', () => callback()),
@@ -22,6 +22,14 @@ contextBridge.exposeInMainWorld('jarvisApp', {
     on: (channel, callback) => {
       if (String(channel).startsWith('feature:')) ipcRenderer.on(channel, (_e, ...args) => callback(...args));
     },
+  },
+  // Text size for low vision (Settings › Accessibility): the window's zoom, as the browser's own
+  // Ctrl+Plus does it, so the layout follows (a narrower window stacks the panels; a CSS zoom wouldn't).
+  setZoom: (factor) => { try { webFrame.setZoomFactor(Math.min(3, Math.max(0.5, Number(factor) || 1))); } catch { /* no frame */ } },
+  // Whether a screen reader is running (Electron reports it), for screen-reader mode.
+  a11y: {
+    supported: () => ipcRenderer.invoke('a11y:supported'),
+    onChange: (callback) => ipcRenderer.on('a11y:changed', (_e, on) => callback(Boolean(on))),
   },
   browser: {
     show: (bounds) => ipcRenderer.invoke('browser:show', bounds),

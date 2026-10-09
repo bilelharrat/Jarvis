@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The app: Jarvis (the conversation), Today (what's going on), Code (Jarvis Code on the
+/// The app: Jarvis (the conversation), Today (what's going on), Code (Eden Code on the
 /// Mac) and Library (everything else), in the system tab bar.
 struct MainTabs: View {
     @Environment(AppModel.self) private var model

@@ -10,6 +10,10 @@ const SKEW = 300; // seconds of clock difference forgiven
 // The Eden iOS app: its identity tokens are accepted only by POST /api/web/native/apple
 // (eden/session.js), which passes this as `audience`; everything else keeps BUNDLE_ID.
 export const EDEN_APP_ID = 'com.askeden.eden';
+// Eden for Education's iPhone app (askeden ios/ EdenEdu target): the same native sign-in, the same accounts
+// (its App ID is grouped with com.askeden.jarvis on developer.apple.com, so Apple gives the same user id).
+export const EDU_APP_ID = 'com.askeden.edu';
+export const EDEN_APP_IDS = [EDEN_APP_ID, EDU_APP_ID];
 
 let cachedKeys = null; // { at, keys }
 let lastForced = 0; // when an unknown kid last made the keys be read again
@@ -60,7 +64,8 @@ export async function verifyIdentityToken(token, rawNonce, { audience = BUNDLE_I
   if (!ok) throw refused('signature');
   if (claims.iss !== ISSUER) throw refused('issuer');
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (!audiences.includes(audience)) throw refused('audience');
+  const wanted = Array.isArray(audience) ? audience : [audience]; // one audience, or a few (the Eden apps)
+  if (!audiences.some((a) => wanted.includes(a))) throw refused('audience');
   if (!(Number(claims.exp) + SKEW > now)) throw refused('expired');
   if (typeof claims.sub !== 'string' || !claims.sub) throw refused('no user');
   if (!rawNonce || typeof claims.nonce !== 'string' || !sameText(claims.nonce, await sha256Hex(String(rawNonce)))) throw refused('nonce');

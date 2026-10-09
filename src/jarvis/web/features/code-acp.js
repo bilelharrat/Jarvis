@@ -1,6 +1,6 @@
 // Other coding agents over the Agent Client Protocol (features/code_acp.py): the Other agents
 // pane (More › Other agents, /acp). The agents the owner added by their command, a new
-// session with one in the project on show (an ordinary Jarvis Code session, selected once it
+// session with one in the project on show (an ordinary Eden Code session, selected once it
 // starts), and an agent added or removed (a second press).
 //
 // Names, commands and errors are data: text only, marked data-no-i18n. Pure helpers are

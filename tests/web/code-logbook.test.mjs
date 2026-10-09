@@ -1,4 +1,4 @@
-// Logbook, Jarvis Code under the Obsidian look: its window helpers (web/features/code-logbook.js),
+// Logbook, Eden Code under the Obsidian look: its window helpers (web/features/code-logbook.js),
 // that it stays inside that look, and its Chinese. node --test tests/web/
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';

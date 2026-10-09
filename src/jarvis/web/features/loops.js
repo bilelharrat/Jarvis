@@ -1,4 +1,4 @@
-// Loop detection in a Jarvis Code session (the backend is jarvis.features.loops): a step
+// Loop detection in an Eden Code session (the backend is jarvis.features.loops): a step
 // repeated, or a few steps going round, puts a "loop" entry in the session's timeline. It
 // shows what was repeated (the session's own step names, as data) with Stop, which
 // interrupts the session, and Let it carry on. The session is never stopped without the
@@ -24,8 +24,8 @@
     const li = el('li', 'jc-loop');
     li.setAttribute('role', 'status');
     const head = el('p', 'jc-loop-head', e.kind === 'cycle'
-      ? 'Jarvis Code seems stuck: it went round the same few steps three times without getting anywhere.'
-      : 'Jarvis Code seems stuck: it did the same step three times in a row without getting anywhere.');
+      ? 'Eden Code seems stuck: it went round the same few steps three times without getting anywhere.'
+      : 'Eden Code seems stuck: it did the same step three times in a row without getting anywhere.');
     li.append(head);
     const steps = Array.isArray(e.steps) ? e.steps.filter((s) => typeof s === 'string' && s) : [];
     if (steps.length) {

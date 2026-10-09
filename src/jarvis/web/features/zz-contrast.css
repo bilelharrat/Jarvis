@@ -1,0 +1,181 @@
+/* Colours and size for low vision (accessibility.js sets html[data-contrast] and html[data-text-size]).
+   Settings › Accessibility offers four pairings, the strongest a screen can make: yellow on black
+   (19.6 to 1), white on black (21 to 1), black on yellow (19.6 to 1) and yellow on deep blue
+   (14 to 1). Every one is far above the 7 to 1 that WCAG AAA asks for.
+   What it does besides colour: no glass, blur, glow or shadow (they soften edges); every panel,
+   field and button has a solid edge; focus is a thick ring; nothing is dimmed to grey; links are
+   underlined; nothing moves; the settings icons lose their colours (a colour says nothing to
+   someone who can't tell them apart). It is named zz- so it loads after every other feature's styles. */
+
+/* ── the four pairings ── (colours, and the same as the RGB triples the code deck wants) */
+
+html[data-contrast="yellow"] {
+  --hc-bg: #000000; --hc-fg: #ffff00; --hc-fg-2: #fff7a0; --hc-fill: #3b3700; --hc-warn: #ffab40; --hc-ok: #7cff9b;
+  --hc-rgb-bg: 0 0 0; --hc-rgb-fg: 255 255 0; --hc-rgb-fg-2: 255 247 160; --hc-rgb-fill: 59 55 0; --hc-rgb-warn: 255 171 64; --hc-rgb-ok: 124 255 155;
+  --hc-orb: radial-gradient(circle at 36% 32%, #fffde0 0%, #fff27a 18%, #ffea00 46%, #d9bd00 74%, #6e6000 100%);
+}
+html[data-contrast="white"] {
+  --hc-bg: #000000; --hc-fg: #ffffff; --hc-fg-2: #e8e8e8; --hc-fill: #333333; --hc-warn: #ffab40; --hc-ok: #7cff9b;
+  --hc-rgb-bg: 0 0 0; --hc-rgb-fg: 255 255 255; --hc-rgb-fg-2: 232 232 232; --hc-rgb-fill: 51 51 51; --hc-rgb-warn: 255 171 64; --hc-rgb-ok: 124 255 155;
+  --hc-orb: radial-gradient(circle at 36% 32%, #ffffff 0%, #eeeeee 20%, #cfcfcf 50%, #8c8c8c 78%, #3d3d3d 100%);
+}
+html[data-contrast="yellow-bg"] {
+  --hc-bg: #ffe500; --hc-fg: #000000; --hc-fg-2: #1a1a00; --hc-fill: #ffffff; --hc-warn: #7a2b00; --hc-ok: #004d1a;
+  --hc-rgb-bg: 255 229 0; --hc-rgb-fg: 0 0 0; --hc-rgb-fg-2: 26 26 0; --hc-rgb-fill: 255 255 255; --hc-rgb-warn: 122 43 0; --hc-rgb-ok: 0 77 26;
+  --hc-orb: radial-gradient(circle at 36% 32%, #666 0%, #333 20%, #111 52%, #000 80%, #000 100%);
+}
+html[data-contrast="yellow-blue"] {
+  --hc-bg: #00164d; --hc-fg: #ffff00; --hc-fg-2: #fff7a0; --hc-fill: #0a3a99; --hc-warn: #ffab40; --hc-ok: #7cff9b;
+  --hc-rgb-bg: 0 22 77; --hc-rgb-fg: 255 255 0; --hc-rgb-fg-2: 255 247 160; --hc-rgb-fill: 10 58 153; --hc-rgb-warn: 255 171 64; --hc-rgb-ok: 124 255 155;
+  --hc-orb: radial-gradient(circle at 36% 32%, #fffde0 0%, #fff27a 18%, #ffea00 46%, #d9bd00 74%, #6e6000 100%);
+}
+
+/* ── the page's own colour names, from those (set again on body: the night and Command Center looks set theirs there) ── */
+
+html[data-contrast], html[data-contrast] body, html[data-contrast] body[data-look], html[data-contrast] body.galaxy-open, html[data-contrast] body.galaxy-ambient {
+  color-scheme: dark;
+  --bg: var(--hc-bg); --ink: var(--hc-fg); --ink-2: var(--hc-fg-2); --muted: var(--hc-fg-2);
+  --line: var(--hc-fg); --card: var(--hc-bg); --chip-hover: var(--hc-fill);
+  --action: var(--hc-fg); --action-ink: var(--hc-bg); --warn: var(--hc-warn);
+  --orb: var(--hc-orb); --orb-glow: transparent; --orb-ring: var(--hc-fg); --orb-ring-2: var(--hc-fg);
+  --panel-glass: var(--hc-bg); --panel-line: var(--hc-fg); --panel-edge: transparent; --panel-shadow: none; --panel-inset: var(--hc-bg);
+  --wx-rain: var(--hc-fg); --wx-line: var(--hc-fg); --wx-inset: var(--hc-bg); --wx-edge: var(--hc-fg);
+  --glass-tile: var(--hc-bg); --menu-fill: var(--hc-bg); --pill-hover: var(--hc-fill); --pill-shadow: none;
+  --clear-fill: var(--hc-bg); --clear-edge: var(--hc-fg); --clear-rim: transparent; --clear-shadow: none; --clear-blur: none;
+}
+html[data-contrast="yellow-bg"], html[data-contrast="yellow-bg"] body { color-scheme: light; }
+
+/* Settings and every sheet: the same, in the names they use. */
+html[data-contrast] body .sheet, html[data-contrast] body .settings-nav, html[data-contrast] body #settings {
+  --s-card: var(--hc-bg); --s-line: var(--hc-fg); --s-track: var(--hc-fill); --s-switch: var(--hc-fill);
+  --s-seg: var(--hc-bg); --s-seg-shadow: none; --s-input: var(--hc-bg); --s-tile: var(--hc-bg); --s-tile-hover: var(--hc-fill);
+  --s-green: var(--hc-ok); --s-red: var(--hc-warn); --s-rim: none; --s-fill: var(--hc-bg); --s-sheen: none;
+  --s-blur: none; --s-shadow: 0 0 0 3px var(--hc-fg);
+}
+
+/* The code deck (Eden Code) takes its colours as RGB triples. */
+html[data-contrast] .deck.jc, html[data-contrast] .browser-dock, html[data-contrast] body {
+  --c-canvas: var(--hc-rgb-bg); --c-surface: var(--hc-rgb-bg); --c-surface-muted: var(--hc-rgb-bg); --c-raised: var(--hc-rgb-bg);
+  --c-border: var(--hc-rgb-fg); --c-border-strong: var(--hc-rgb-fg);
+  --c-ink: var(--hc-rgb-fg); --c-ink-2: var(--hc-rgb-fg-2); --c-muted: var(--hc-rgb-fg-2); --c-subtle: var(--hc-rgb-fg-2);
+  --c-fill: var(--hc-rgb-fill); --c-fill-2: var(--hc-rgb-fill); --c-fill-3: var(--hc-rgb-fill);
+  --c-accent: var(--hc-rgb-fg); --c-accent-hover: var(--hc-rgb-fg-2); --c-accent-soft: var(--hc-rgb-fill); --c-accent-ink: var(--hc-rgb-fg); --c-glow: var(--hc-rgb-fg);
+  --c-success: var(--hc-rgb-ok); --c-success-soft: var(--hc-rgb-fill); --c-success-ink: var(--hc-rgb-ok);
+  --c-danger: var(--hc-rgb-warn); --c-danger-soft: var(--hc-rgb-fill); --c-danger-ink: var(--hc-rgb-warn);
+  --c-warning: var(--hc-rgb-warn); --c-warning-soft: var(--hc-rgb-fill); --c-warning-ink: var(--hc-rgb-warn);
+  --c-purple: var(--hc-rgb-fg); --c-purple-soft: var(--hc-rgb-fill); --c-purple-ink: var(--hc-rgb-fg);
+  --glass-fill: rgb(var(--hc-rgb-bg)); --glass-fill-strong: rgb(var(--hc-rgb-bg)); --glass-pill: rgb(var(--hc-rgb-fill));
+  --glass-blur: none; --glass-rim: none; --glass-edge: 0 0 0 2px rgb(var(--hc-rgb-fg));
+  --glass-shadow: none; --shadow-card: 0 0 0 2px rgb(var(--hc-rgb-fg)); --shadow-sheet: 0 0 0 3px rgb(var(--hc-rgb-fg));
+  --shadow-control: 0 0 0 2px rgb(var(--hc-rgb-fg)); --wash: none;
+}
+
+/* ── no glass, glow, shadow or motion; the page in the two colours ── */
+
+html[data-contrast] *, html[data-contrast] *::before, html[data-contrast] *::after {
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation-duration: 0.001s !important;
+  animation-iteration-count: 1 !important;
+  transition: none !important; /* (not just brief: a window nobody is looking at doesn't tick, and stays at the old colour) */
+}
+html[data-contrast] body { background: var(--hc-bg) !important; color: var(--hc-fg) !important; }
+html[data-contrast] #galaxy-canvas, html[data-contrast] #offline { display: none !important; }
+html[data-contrast] ::selection { background: var(--hc-fg); color: var(--hc-bg); }
+html[data-contrast] ::placeholder { color: var(--hc-fg-2); opacity: 1; }
+
+/* Text, in the one colour (unless a control below turns it round). */
+html[data-contrast] h1, html[data-contrast] h2, html[data-contrast] h3, html[data-contrast] h4,
+html[data-contrast] p, html[data-contrast] span, html[data-contrast] small, html[data-contrast] label,
+html[data-contrast] li, html[data-contrast] dt, html[data-contrast] dd, html[data-contrast] td, html[data-contrast] th,
+html[data-contrast] strong, html[data-contrast] b, html[data-contrast] em, html[data-contrast] i, html[data-contrast] kbd {
+  color: var(--hc-fg); opacity: 1;
+}
+html[data-contrast] svg { color: var(--hc-fg); }
+html[data-contrast] svg [fill]:not([fill="none"]) { fill: currentColor; }
+html[data-contrast] svg [stroke]:not([stroke="none"]) { stroke: currentColor; }
+
+/* ── boxes: the page colour inside a solid edge ── */
+
+html[data-contrast] .panel, html[data-contrast] .group, html[data-contrast] .card, html[data-contrast] .chip, html[data-contrast] .chip-sm,
+html[data-contrast] .pill, html[data-contrast] .btn, html[data-contrast] .icon-btn, html[data-contrast] .segmented button,
+html[data-contrast] input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), html[data-contrast] textarea, html[data-contrast] select,
+html[data-contrast] .ask input, html[data-contrast] .sheet, html[data-contrast] .settings-nav, html[data-contrast] .modal, html[data-contrast] .menu,
+html[data-contrast] [role="dialog"], html[data-contrast] [role="menu"], html[data-contrast] [role="listbox"], html[data-contrast] .kv-grid > div,
+html[data-contrast] .sn-account, html[data-contrast] kbd {
+  background-color: var(--hc-bg) !important; background-image: none !important;
+  color: var(--hc-fg) !important;
+  border: 2px solid var(--hc-fg) !important;
+  box-shadow: none !important;
+}
+/* …the whole of a sheet or settings window is one box: no second edge inside it, no gradient. */
+html[data-contrast] .sheet, html[data-contrast] .settings-nav, html[data-contrast] #settings { background: var(--hc-bg) !important; background-image: none !important; }
+html[data-contrast] .settings-nav { border-width: 0 2px 0 0 !important; border-radius: 0 !important; }
+html[data-contrast] .sheet .drawer-head, html[data-contrast] #settings > .drawer-head { background: var(--hc-bg) !important; background-image: none !important; box-shadow: none !important; }
+html[data-contrast] .segmented { background: none !important; border: 0 !important; box-shadow: none !important; }
+html[data-contrast] .sheet .group > h3 { border: 0 !important; }
+html[data-contrast] .row { border-color: var(--hc-fg) !important; }
+html[data-contrast] hr, html[data-contrast] .sn-gap { border-color: var(--hc-fg); }
+
+/* Pressed, chosen and pointed-at: the colours turned round, text and icons with them. */
+html[data-contrast] :is(button:not(.switch):not(.orb):hover, .chip:hover, .btn:hover, .sn-item:hover, .segmented button[aria-checked="true"],
+  .sn-item[aria-selected="true"], [aria-pressed="true"], .btn.primary, button.primary) {
+  background-color: var(--hc-fg) !important; color: var(--hc-bg) !important;
+}
+html[data-contrast] :is(button:not(.switch):not(.orb):hover, .chip:hover, .btn:hover, .sn-item:hover, .segmented button[aria-checked="true"],
+  .sn-item[aria-selected="true"], [aria-pressed="true"], .btn.primary, button.primary) :is(span, small, strong, b, i, em, svg, label):not(.a11y-sw) {
+  color: inherit !important;
+}
+html[data-contrast] .sn-item { border: 2px solid transparent !important; background: none !important; }
+html[data-contrast] .sn-item:hover, html[data-contrast] .sn-item[aria-selected="true"] { border-color: var(--hc-fg) !important; }
+
+html[data-contrast] a { color: var(--hc-fg) !important; text-decoration: underline !important; text-underline-offset: 3px; }
+html[data-contrast] :where(button, [role="button"], summary, .wx-more, .sn-chev) { color: var(--hc-fg); opacity: 1; }
+html[data-contrast] .wx-more, html[data-contrast] #p-weather.wx-ready .wx-more { opacity: 1 !important; color: var(--hc-fg) !important; }
+html[data-contrast] :disabled, html[data-contrast] [aria-disabled="true"] { opacity: 1 !important; text-decoration: line-through; }
+
+/* The settings' icons: no colours, an outlined square each, the glyph in the one colour. */
+html[data-contrast] .sn-tile { background: var(--hc-bg) !important; background-image: none !important; color: var(--hc-fg) !important; border: 2px solid var(--hc-fg) !important; box-shadow: none !important; }
+html[data-contrast] .sn-tile svg { stroke: var(--hc-fg) !important; }
+html[data-contrast] .sn-item[aria-selected="true"] .sn-tile { background: var(--hc-bg) !important; }
+html[data-contrast] .sn-account .sn-tile { border-radius: 50%; }
+
+/* A switch is on or off by what it shows, not by a colour: filled with a tick, or empty. */
+html[data-contrast] .switch { background: var(--hc-bg) !important; border: 2px solid var(--hc-fg) !important; box-shadow: none !important; }
+html[data-contrast] .switch::after { background: var(--hc-fg) !important; box-shadow: none !important; }
+html[data-contrast] .switch[aria-checked="true"] { background: var(--hc-fg) !important; }
+html[data-contrast] .switch[aria-checked="true"]::after { background: var(--hc-bg) !important; color: var(--hc-fg); content: "✓"; display: grid; place-items: center; font-size: 15px; font-weight: 700; line-height: 1; }
+
+/* Sliders and bars: a solid track with an edge, the filled part in the one colour. */
+html[data-contrast] input[type="range"] { -webkit-appearance: none; appearance: none; accent-color: var(--hc-fg); background: transparent; height: 34px; }
+html[data-contrast] input[type="range"]::-webkit-slider-runnable-track { height: 12px; background: var(--hc-fill); border: 2px solid var(--hc-fg); border-radius: 8px; }
+html[data-contrast] input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -10px; border-radius: 50%; background: var(--hc-fg); border: 4px solid var(--hc-bg); box-shadow: 0 0 0 2px var(--hc-fg); }
+html[data-contrast] .meter i, html[data-contrast] .bar { background: var(--hc-fill) !important; border: 1px solid var(--hc-fg); height: 8px !important; }
+html[data-contrast] .meter em, html[data-contrast] .bar em { background: var(--hc-fg) !important; }
+html[data-contrast] .meter span, html[data-contrast] .meter b { color: var(--hc-fg) !important; }
+
+/* The orb. */
+html[data-contrast] .orb, html[data-contrast] .orb-core { border: 3px solid var(--hc-fg); box-shadow: none !important; }
+html[data-contrast] .orb-ring, html[data-contrast] .orb-glow { display: none !important; }
+
+/* Focus: a ring nobody can miss, in both colours so it shows on either. */
+html[data-contrast] :focus-visible {
+  outline: 4px solid var(--hc-fg) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 3px var(--hc-bg), 0 0 0 7px var(--hc-fg) !important;
+}
+
+/* The colour choices keep their own colours (each is a sample of the pairing it names). */
+html[data-contrast] .a11y-sw { border: 2px solid var(--hc-fg) !important; outline: 2px solid var(--hc-bg); }
+html[data-contrast] .sw-auto, html[data-contrast] .sw-yellow { background: #000 !important; color: #ff0 !important; }
+html[data-contrast] .sw-white { background: #000 !important; color: #fff !important; }
+html[data-contrast] .sw-yellow-bg { background: #ffe500 !important; color: #000 !important; }
+html[data-contrast] .sw-yellow-blue { background: #00164d !important; color: #ff0 !important; }
+html[data-contrast] .sw-off { background: #2a2c31 !important; color: #ece9e3 !important; }
+
+/* ── text size: the whole window, by zoom, so the layout follows ── */
+
+html[data-text-size="large"] { zoom: 1.25; }
+html[data-text-size="larger"] { zoom: 1.5; }
+html[data-text-size="largest"] { zoom: 2; }

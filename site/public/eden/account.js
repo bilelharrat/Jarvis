@@ -558,7 +558,7 @@ function meter(leftUsd, totalUsd, label) {
 }
 
 // Where Plus was bought (the plan's `source`), as the plan's line says it.
-const SOURCE_WORDS = { app_store: 'bought in the iPhone app', stripe: 'billed on askeden.com', both: 'in the App Store and on askeden.com' };
+const SOURCE_WORDS = { app_store: 'bought in the iPhone app', stripe: 'billed on askeden.com', both: 'in the App Store and on askeden.com', promo: 'free with a promo code' };
 
 // Stripe Checkout or its Customer Portal: askeden.com makes the session, then the browser goes there.
 // kind: checkout ({ plan: "monthly" | "yearly" }), credits ({ pack }), or portal.
@@ -577,6 +577,27 @@ async function openBilling(button, kind, payload = {}) {
     button.disabled = false;
     button.textContent = label;
   }
+}
+
+// "Have a promo code?": free Plus for a while (accounts/promo.js). Works on the web page; the apps have their own.
+function promoRow() {
+  const input = el('input', { type: 'text', class: 'inp', placeholder: 'EDEN-ABCD-2345', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', 'aria-label': 'Promo code', maxlength: '24' });
+  const button = el('button', { type: 'button', class: 'cap primary' }, 'Redeem');
+  const go = async () => {
+    if (!input.value.trim()) return;
+    button.disabled = true;
+    try {
+      const r = await post('/api/web/billing/promo', { code: input.value });
+      toast(`Plus is on until ${day(r.until)}`);
+      draw();
+    } catch (e) {
+      toast(e.message);
+      button.disabled = false;
+    }
+  };
+  button.addEventListener('click', go);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  return el('div', 'acct-row-actions acct-promo', el('span', 'acct-sub', 'Have a promo code?'), input, button);
 }
 
 function planSection(a, config = {}) {
@@ -642,7 +663,7 @@ function planSection(a, config = {}) {
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctPlanH' }, el('h3', { id: 'acctPlanH' }, 'Plan'),
     ...warnings.filter(Boolean),
     el('div', 'icard acct-card', head, allowance, manageRow),
-    el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Models & API keys).'), getPlus,
+    el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Models & API keys).'), getPlus, promoRow(),
     creditsSection(a, web));
 }
 
@@ -959,8 +980,16 @@ export async function initAccount(handlers = {}) {
   }
   call('/api/web/config').then((c) => (c.ok ? read(c) : {})).catch(() => ({})).then((config) => setPlanOffer(me, config));
   if (!isMock) {
+    // Account sync must not depend on the encrypted-sync check succeeding once: if askeden.com can't be asked
+    // right now (offline blip, no IndexedDB), ask again a few times before giving up, rather than staying off.
+    const startCloud = async (i, tries = 0) => {
+      let server = i.server;
+      if (!server) server = await Sync.refreshStatus().catch(() => null);
+      if (server) { Cloud.initCloud(me.account_id, { e2e: Boolean(server.key) }); return; }
+      if (tries < 5) setTimeout(() => startCloud(Sync.info(), tries + 1), 5000 * (tries + 1));
+    };
     Sync.initSync(me.account_id).then((i) => {
-      if (i.server) Cloud.initCloud(me.account_id, { e2e: Boolean(i.server.key) });
+      startCloud(i);
       // End-to-end mode set up (or removed) later: the automatic sync steps aside (and its server copies go) or comes back.
       Sync.onSyncChange((x) => {
         if (!x.server) return;

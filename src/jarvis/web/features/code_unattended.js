@@ -1,4 +1,4 @@
-// Jarvis Code's runs without the owner (features/code_unattended.py): the "Without you"
+// Eden Code's runs without the owner (features/code_unattended.py): the "Without you"
 // pane, from the More menu. A form for the scope (what to do, the project, the mode, the
 // commands it may run, a spending cap and a time cap, now or on a schedule): the backend
 // puts the whole scope on a card before anything starts. Below it, the runs (stop one

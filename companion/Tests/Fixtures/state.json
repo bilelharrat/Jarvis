@@ -30,7 +30,7 @@
         ],
         "detail": "$ npm test",
         "id": "c1e73bf9b9e9",
-        "question": "Jarvis Code in suit wants to run a command",
+        "question": "Eden Code in suit wants to run a command",
         "source": "code",
         "task_id": 4
       }
@@ -127,21 +127,21 @@
     "tasks": [
       {
         "id": 6,
-        "label": "Jarvis Code · tidy",
+        "label": "Eden Code · tidy",
         "last_action": "Starting",
         "status": "failed",
         "title": "Tidy imports"
       },
       {
         "id": 5,
-        "label": "Jarvis Code · arc",
+        "label": "Eden Code · arc",
         "last_action": "Starting",
         "status": "running",
         "title": "Write the docs"
       },
       {
         "id": 4,
-        "label": "Jarvis Code · suit",
+        "label": "Eden Code · suit",
         "last_action": "Starting",
         "status": "waiting",
         "title": "Fix the login bug"

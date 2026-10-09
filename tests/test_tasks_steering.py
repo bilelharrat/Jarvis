@@ -1,4 +1,4 @@
-"""Steering a Jarvis Code session's running step: steers keep the order they were sent in
+"""Steering an Eden Code session's running step: steers keep the order they were sent in
 (waiting for the step, or given back when their write fails), count against the queue's
 cap, and one Claude Code dropped at an interrupt is said in the transcript and no longer
 awaited, so the session never stays Working. No real Claude: the fakes of test_tasks and

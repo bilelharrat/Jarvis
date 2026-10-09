@@ -1,4 +1,4 @@
-// Claude Code's plugins in Jarvis Code, the Plugins pane's helpers (web/features/code-plugins.js).
+// Claude Code's plugins in Eden Code, the Plugins pane's helpers (web/features/code-plugins.js).
 // node --test tests/web/
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

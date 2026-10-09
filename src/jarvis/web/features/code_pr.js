@@ -1,4 +1,4 @@
-// Jarvis Code's pull requests (features/code_pr.py): the PR pane for the session in front.
+// Eden Code's pull requests (features/code_pr.py): the PR pane for the session in front.
 // With no pull request yet, a form to open one: Claude (Haiku) writes a draft on request,
 // the owner edits the title and description and picks the base, and Open pushes behind the
 // Git panel's card. With one, its state, checks (a failing job's log on request), reviews

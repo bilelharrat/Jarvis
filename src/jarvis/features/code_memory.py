@@ -1,4 +1,4 @@
-"""Jarvis Code's memory files (code_memory): which CLAUDE.md a "#" note goes to.
+"""Eden Code's memory files (code_memory): which CLAUDE.md a "#" note goes to.
 
 - task_memory (the composer's "# note") is taken from the core here: the note waits, and the
   window asks where it goes (cw_memory_ask {ref, id, text, choices, last}): the project's

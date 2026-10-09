@@ -162,7 +162,7 @@ def from_text(text: str) -> Review:
 def from_claude_md(path: Path | None = None) -> Review:
     """Claude Code's user memory file, read (never changed)."""
     path = path or CLAUDE_MD
-    review = Review("claude", "Jarvis Code's memory file (~/.claude/CLAUDE.md)")
+    review = Review("claude", "Eden Code's memory file (~/.claude/CLAUDE.md)")
     try:
         with path.open("rb") as handle:
             text = handle.read(MAX_TEXT_FILE).decode("utf-8", "replace")

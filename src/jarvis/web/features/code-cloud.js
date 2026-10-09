@@ -1,4 +1,4 @@
-// Jarvis Code in the cloud (features/code_cloud.py): the composer's "Cloud" switch starts a new
+// Eden Code in the cloud (features/code_cloud.py): the composer's "Cloud" switch starts a new
 // session on the owner's cloud machine, where it keeps working while the Mac sleeps; /away
 // (or "I'm heading out" by voice) moves every working session there after one card.
 // helpers is exported for node --test (tests/web/code-cloud.test.mjs).
@@ -8,7 +8,7 @@
   const helpers = {
     // The switch's tooltip for the cloud machine's state.
     tip(state) {
-      if (!state || !state.machine) return 'Add a cloud machine in Jarvis Code settings › Machines to start sessions there.';
+      if (!state || !state.machine) return 'Add a cloud machine in Eden Code settings › Machines to start sessions there.';
       if (!state.ready) return `${state.machine} isn't ready: ${state.problem || 'test it in Machines.'}`;
       return `Runs on ${state.machine}: it keeps working while your Mac sleeps or is shut.`;
     },

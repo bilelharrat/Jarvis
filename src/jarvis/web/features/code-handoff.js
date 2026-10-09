@@ -1,4 +1,4 @@
-// Jarvis Code hand-off (features/code_handoff.py): the Machines tab of Jarvis Code settings
+// Eden Code hand-off (features/code_handoff.py): the Machines tab of Eden Code settings
 // (hosts from the owner's SSH config: add, test, remove; and the sessions running on them),
 // the session's More menu (Continue on… a machine, Bring back, Stop), and, for a session
 // that's on another machine, a bar in its header: where, how it's doing, what its Claude
@@ -69,7 +69,7 @@
     return b;
   }
 
-  // ── Jarvis Code settings › Machines ──
+  // ── Eden Code settings › Machines ──
 
   function machinesTab() {
     const existing = document.getElementById('jcs-machines');

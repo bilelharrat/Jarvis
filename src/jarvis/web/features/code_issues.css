@@ -1,4 +1,4 @@
-/* Jarvis Code settings › GitHub: pull requests fixing their checks, and issues for Jarvis. */
+/* Eden Code settings › GitHub: pull requests fixing their checks, and issues for Jarvis. */
 
 .jcx-issues .jcx-issue-list { list-style: none; margin: 0; padding: 4px 0; display: flex; flex-direction: column; gap: 4px; border-top: 0.5px solid rgb(var(--c-border)); }
 .jcx-issues .jcx-issue-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }

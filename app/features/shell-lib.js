@@ -22,7 +22,7 @@ const DEFAULT_LABELS = {
   pausedUntil: '',
   resume: 'Resume heads-ups',
   open: 'Open J.A.R.V.I.S.',
-  code: 'Jarvis Code',
+  code: 'Eden Code',
   browser: 'Browser',
   quit: 'Quit J.A.R.V.I.S.',
   needsOk: 'Needs your OK',
@@ -134,9 +134,10 @@ function dockTemplate(s, L, act) {
 // About, Services, Hide and Quit; Edit is the standard one, so copy and paste work in the
 // window and the browser; View and Window as before. act(name): settings, code, browser,
 // history, bookmarks. The key equivalents reach a page first: one it uses itself (⌘Y in
-// the browser, ⌘, in Jarvis Code) stays the page's.
-function appMenuTemplate(L, act) {
+// the browser, ⌘, in Eden Code) stays the page's.
+function appMenuTemplate(L, act, platform = process.platform) {
   const sep = { type: 'separator' };
+  if (platform !== 'darwin') return windowsMenuTemplate(L, act);
   return [
     {
       label: 'J.A.R.V.I.S.',
@@ -193,6 +194,59 @@ function appMenuTemplate(L, act) {
       label: L.window,
       role: 'window',
       submenu: [{ role: 'minimize', label: L.minimize }, { role: 'zoom', label: L.zoom }, sep, { role: 'front', label: L.front }],
+    },
+  ];
+}
+
+// Windows and Linux: File, Edit, View, Window and Help, and none of Electron's defaults (Ctrl+R
+// reload and the developer tools' keys would cut a screen reader's user off from the window).
+// Zoom is here for low vision. Alt alone shows the bar; every item also has its key or its
+// place in the window.
+function windowsMenuTemplate(L, act) {
+  const sep = { type: 'separator' };
+  const word = (key, fallback) => L[key] || fallback;
+  return [
+    {
+      label: word('file', 'File'),
+      submenu: [
+        { label: L.settings, accelerator: 'Ctrl+,', click: () => act('settings') },
+        { label: L.code, accelerator: 'Ctrl+Shift+J', click: () => act('code') },
+        { label: L.browser, accelerator: 'Ctrl+Shift+B', click: () => act('browser') },
+        { label: L.history, accelerator: 'Ctrl+Y', click: () => act('history') },
+        sep,
+        { label: L.quit, accelerator: 'Ctrl+Q', click: () => act('quit') },
+      ],
+    },
+    {
+      label: L.edit,
+      submenu: [
+        { role: 'undo', label: L.undo },
+        { role: 'redo', label: L.redo },
+        sep,
+        { role: 'cut', label: L.cut },
+        { role: 'copy', label: L.copy },
+        { role: 'paste', label: L.paste },
+        { role: 'selectAll', label: L.selectAll },
+      ],
+    },
+    {
+      label: L.view,
+      submenu: [
+        { role: 'resetZoom', label: L.actualSize },
+        { role: 'zoomIn', label: L.zoomIn },
+        { role: 'zoomOut', label: L.zoomOut },
+        sep,
+        { role: 'togglefullscreen', label: L.fullScreen },
+      ],
+    },
+    {
+      label: L.window,
+      role: 'window',
+      submenu: [{ role: 'minimize', label: L.minimize }, { role: 'close', label: word('close', 'Close') }],
+    },
+    {
+      label: word('help', 'Help'),
+      submenu: [{ label: word('a11yKeys', 'Keys for screen-reader mode'), accelerator: 'Alt+Shift+H', registerAccelerator: false, click: () => act('a11y-help') }],
     },
   ];
 }
@@ -257,7 +311,25 @@ const KEYS = new Set([
   ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', ...FKEYS, 'Space', 'Return', 'Tab', 'Backspace', 'Delete',
   'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown', '-', '=', '[', ']', '\\', ';', "'", ',', '.', '/', '`',
 ]);
-const DEFAULT_SHORTCUTS = { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' };
+// Alt+Space is Windows' own window menu, which a screen-reader user may want. On a PC Talk is
+// Ctrl+Alt+J: J is the key a finger finds by touch (it has the bump), and Ctrl+Alt+<key> is how
+// Windows itself starts a program from the keyboard (the installer's shortcuts have it too, so it
+// opens J.A.R.V.I.S. Daredevil with the app closed as well as running).
+const defaultsFor = (platform) => (platform === 'win32'
+  ? { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space' }
+  : { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' });
+const DEFAULT_SHORTCUTS = defaultsFor(process.platform);
+// A PC has many programs that take Ctrl+Alt and a letter for themselves. When the Talk key's own
+// default is in use, the first free one of these (the keys beside J, which a finger finds) stands in for it (a key chosen in Settings never
+// is swapped: that one is said to be taken).
+const fallbacksFor = (slot, platform) => (platform === 'win32' && slot === 'ask' ? ['Control+Alt+K', 'Control+Alt+H', 'Control+Alt+L'] : []);
+// Opening at sign-in. On a PC the Run key starts the app with --hidden (it waits in the tray, ready
+// for its keys), and the first run puts it there: the person who needs it from the keyboard
+// shouldn't have to find it first. What is chosen in Settings after that is kept.
+const loginArgs = (platform) => (platform === 'win32' ? ['--hidden'] : []);
+const loginOnFirstRun = (platform) => platform === 'win32';
+// Windows' own: every window's menu, task switching, the task manager and the security screen.
+const WINDOWS_RESERVED = ['Alt+Space', 'Alt+Tab', 'Alt+Escape', 'Alt+F4', 'Control+Escape', 'Control+Shift+Escape', 'Control+Alt+Delete', 'Control+Alt+Tab'];
 // macOS's own, which it keeps for itself (or would lose): input sources, the emoji picker,
 // Finder search, the app switcher, screenshots, lock and log out, Spaces. (Kept in step with
 // jarvis.features.shell.RESERVED, which checks what's saved.)
@@ -265,6 +337,7 @@ const RESERVED = new Set([
   'Control+Space', 'Command+Control+Space', 'Command+Alt+Space', 'Command+Tab', 'Command+Shift+Tab',
   'Command+Shift+3', 'Command+Shift+4', 'Command+Shift+5', 'Command+Control+Q', 'Command+Shift+Q',
   'Control+Up', 'Control+Down', 'Control+Left', 'Control+Right',
+  ...(process.platform === 'win32' ? WINDOWS_RESERVED : []),
 ]);
 
 // {ok, accelerator} with it spelled the one way, or {ok: false, error}: 'invalid' (not a
@@ -288,11 +361,18 @@ function checkAccelerator(value) {
 
 const KEY_SIGNS = { Return: '↩', Tab: '⇥', Backspace: '⌫', Delete: '⌦', Up: '↑', Down: '↓', Left: '←', Right: '→', Home: '↖', End: '↘', PageUp: '⇞', PageDown: '⇟' };
 
-// As the Mac writes it: ⌃⌥⇧⌘, then the key ("⌥ Space", "⌃⌥J", "⇧⌘ F5").
-function shortcutLabel(accelerator) {
+// A key combination as the computer writes it: on a Mac ⌃⌥⇧⌘ then the key ("⌥ Space", "⌃⌥J", "⇧⌘ F5"),
+// on a PC the names a screen reader says and the keyboard has ("Ctrl+Alt+J", "Alt+Shift+Space").
+const PC_MODIFIERS = [['Control', 'Ctrl'], ['Alt', 'Alt'], ['Shift', 'Shift'], ['Command', 'Win']];
+const PC_KEYS = { Return: 'Enter', PageUp: 'Page Up', PageDown: 'Page Down' };
+function shortcutLabel(accelerator, platform = process.platform) {
   if (typeof accelerator !== 'string' || !accelerator) return '';
   const parts = accelerator.split('+');
   const key = parts.pop();
+  if (platform === 'win32') {
+    const names = PC_MODIFIERS.filter(([m]) => parts.includes(m)).map(([, name]) => name);
+    return [...names, PC_KEYS[key] || key].join('+');
+  }
   const signs = [['Control', '⌃'], ['Alt', '⌥'], ['Shift', '⇧'], ['Command', '⌘']].filter(([m]) => parts.includes(m)).map(([, sign]) => sign).join('');
   const shown = KEY_SIGNS[key] || key;
   return shown.length > 1 ? `${signs} ${shown}`.trim() : `${signs}${shown}`;
@@ -402,6 +482,6 @@ function readStore(text) {
 module.exports = {
   DEFAULT_LABELS, mergeLabels, normalizeState, statusLine, trayTemplate, dockTemplate, appMenuTemplate,
   excerpt, normalizeApproval, approvalNotice, normalizeHeadsUp,
-  DEFAULT_SHORTCUTS, checkAccelerator, shortcutLabel, normalizeShortcuts,
+  DEFAULT_SHORTCUTS, defaultsFor, fallbacksFor, WINDOWS_RESERVED, loginArgs, loginOnFirstRun, checkAccelerator, shortcutLabel, normalizeShortcuts,
   MIN_SIZE, displaySetKey, placeWindow, centerOn, rememberPlace, allowAgain, readStore,
 };

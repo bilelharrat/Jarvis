@@ -59,7 +59,7 @@ targets:
           - _jarvis._tcp
         NSSpeechRecognitionUsageDescription: Turns what you say into a request for Jarvis, on your iPhone when it can.
         NSMicrophoneUsageDescription: Listens when you talk to Jarvis, and for “Hey Jarvis” while you have that turned on.
-        NSFaceIDUsageDescription: Before your iPhone runs a command on your Mac in Jarvis Code, or lets a session work without asking, Face ID makes sure it’s you. Also used for “Only answer when unlocked”.
+        NSFaceIDUsageDescription: Before your iPhone runs a command on your Mac in Eden Code, or lets a session work without asking, Face ID makes sure it’s you. Also used for “Only answer when unlocked”.
         NSCalendarsFullAccessUsageDescription: So Jarvis can tell you what’s on your calendar and add events when you ask, on this iPhone. If you turn on Share my calendar, the next 14 days of events also go to Jarvis on your Mac.
         NSRemindersFullAccessUsageDescription: So Jarvis can read your reminders, add new ones and tick them off when you ask.
         NSContactsUsageDescription: So Jarvis knows who you mean when you ask it to call or text someone. If you turn on contact lookups, your Mac can ask this iPhone “who is…” one name at a time; your address book is never uploaded.

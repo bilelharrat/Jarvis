@@ -1,7 +1,7 @@
-"""Jarvis Code: the owner's life context, in every session.
+"""Eden Code: the owner's life context, in every session.
 
 "Fix the bug Ann mentioned in standup" means something only to an assistant that was in
-standup. Every Jarvis Code session gets the jarvis_life tool server (session_extras):
+standup. Every Eden Code session gets the jarvis_life tool server (session_extras):
 
 - my_context(query, person?): what Jarvis knows that bears on the work: the second brain's
   best passages (meeting notes are filed there, with documents, daily notes and past
@@ -117,7 +117,7 @@ class LifeContext:
                             + "\n".join(f"- {p['path']} ({p['at']})" for p in pictures)
                         )
                 except Exception:
-                    log.warning("Jarvis Code: no person card for a session", exc_info=True)
+                    log.warning("Eden Code: no person card for a session", exc_info=True)
         for link in SLACK_LINK.finditer(query):
             parts.append(await self.slack_thread(link.group(1), link.group(2)))
         kb = getattr(self.hub, "kb", None)
@@ -234,7 +234,7 @@ class LifeContext:
                 self.hub.tasks.start(prompt, project, mode="plan", title=item[:60])
                 started += 1
             except ValueError as exc:
-                log.warning("Jarvis Code: couldn't start a session from a meeting (%s)", exc)
+                log.warning("Eden Code: couldn't start a session from a meeting (%s)", exc)
         return started
 
 

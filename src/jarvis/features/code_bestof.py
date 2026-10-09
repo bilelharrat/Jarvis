@@ -1,4 +1,4 @@
-"""Jarvis Code's best of N: one request run by two or three sessions at once, each on the
+"""Eden Code's best of N: one request run by two or three sessions at once, each on the
 model and effort the owner picked and each in its own isolated copy; then the results
 side by side (what each changed, the project's quick tests when the owner gave a command
 for them, and a short judgment from Claude), and "Keep this one", which lands that copy
@@ -11,7 +11,7 @@ Window commands: code_bestof {directory, prompt, variants: [{model, effort}], mo
 tests?}, code_bestof_keep {group, n}, code_bestof_state {directory}.
 Events: code_bestof. Setting: code_quick_tests ({project: command}).
 
-Cost: each variant is a real Jarvis Code session on the model the owner picked (what it
+Cost: each variant is a real Eden Code session on the model the owner picked (what it
 costs shows on it, as any session's does); then one judge call once all are done
 (code_ai.POLICY["judge"]: Haiku 4.5, at most 30,000 characters of their diffs, 20 a day).
 """
@@ -21,14 +21,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import itertools
-import os
-import signal
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from .. import code_ai, code_changes, lang, prefs, runproc, worktrees
+from .. import code_ai, code_changes, lang, osplat, prefs, runproc, worktrees
 
 POLL_SECONDS = 2.0
 TEST_SECONDS = 600
@@ -397,7 +395,7 @@ async def run_tests(command: str, cwd: Any) -> dict[str, Any]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             stdin=asyncio.subprocess.DEVNULL,
-            start_new_session=True,
+            **osplat.group_popen_kwargs(),
         )
     except OSError as exc:
         return {"code": -1, "tail": str(exc)[:TEST_OUTPUT]}
@@ -414,7 +412,7 @@ async def run_tests(command: str, cwd: Any) -> dict[str, Any]:
         text = await asyncio.wait_for(finish(), TEST_SECONDS)
     except TimeoutError:
         with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGTERM)
+            osplat.kill_group(proc.pid)
         await proc.wait()
         return {"code": -1, "tail": f"(stopped after {TEST_SECONDS} seconds)"}
     return {"code": proc.returncode, "tail": text[-TEST_OUTPUT:]}

@@ -1,4 +1,4 @@
-"""Jarvis Code checks its work (features/code_verify.py), wired into a real hub: the
+"""Eden Code checks its work (features/code_verify.py), wired into a real hub: the
 Preview pane's commands, a session's dev server tools (asked like any other step, the
 command shown on the card), and a session's servers stopping with it."""
 
@@ -144,7 +144,7 @@ async def test_a_session_gets_dev_server_tools_that_look_freely_and_ask_to_start
     )
     assert isinstance(decision, PermissionResultAllow)
     question, detail = asked[0]
-    assert question == "Jarvis Code in shop wants to start a dev server"
+    assert question == "Eden Code in shop wants to start a dev server"
     assert detail.startswith("api: $ ") and "serve.py" in detail and ".claude/launch.json" in detail
     # Bypass permissions: it goes ahead, as every other step does.
     task.mode = "auto"
@@ -611,7 +611,7 @@ async def test_a_session_gets_the_simulators_fast_tools_and_they_follow_its_mode
     await policy("mcp__jarvis_ios__sim_tap", {"x": 10, "y": 20}, ToolPermissionContext())
     assert asked == [
         (
-            "Jarvis Code in shop wants to use the iOS Simulator",
+            "Eden Code in shop wants to use the iOS Simulator",
             "tap at 10, 20 of the latest picture",
         )
     ]
@@ -694,7 +694,7 @@ async def test_the_mac_is_a_sessions_only_when_the_owner_says_so(hub, project, m
     hub.tasks.approve = approve
     policy = hub.tasks.policy_for(task)
     await policy("mcp__jarvis_mac__type_text", {"text": "hello"}, ToolPermissionContext())
-    assert asked == [("Jarvis Code in shop wants to type on your Mac", "type: hello")]
+    assert asked == [("Eden Code in shop wants to type on your Mac", "type: hello")]
     task.mode = "auto"  # Bypass: the owner turned this on for the session, so it goes ahead
     assert isinstance(
         await policy("mcp__jarvis_mac__type_text", {"text": "hi"}, ToolPermissionContext()),

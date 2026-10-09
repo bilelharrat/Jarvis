@@ -1,4 +1,4 @@
-/* Jarvis Code's Health pane (features/code-health.js): short rows, the sign-in command to
+/* Eden Code's Health pane (features/code-health.js): short rows, the sign-in command to
    copy, and a session's error as text. */
 
 .ch-head { margin: 10px 2px 4px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: rgb(var(--c-muted)); }

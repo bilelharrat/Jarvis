@@ -1,11 +1,11 @@
 """What the Mac pushes to the paired phones, and when (push.py sends it).
 
 What goes, as each phone chooses in Settings:
-- approvals: every card waiting on a yes, JARVIS's and Jarvis Code's. A card with a "no"
+- approvals: every card waiting on a yes, JARVIS's and Eden Code's. A card with a "no"
   among its answers carries the Lock Screen actions (Allow, Not now, No, because…); a
-  purchase, a plan or a question from Jarvis Code opens the app to answer instead.
+  purchase, a plan or a question from Eden Code opens the app to answer instead.
 - heads-ups: urgent ones only (the default), all of them, or none.
-- Jarvis Code: a session that finished after working a minute or more, or stopped.
+- Eden Code: a session that finished after working a minute or more, or stopped.
 - conversations JARVIS holds for the owner: one that's now waiting on them.
 - calls: how a call JARVIS made went, and calls to the Jarvis number.
 
@@ -49,10 +49,10 @@ OWN_WORDS = frozenset({"leave", "soon", "battery", "rain", "weather", "task", "l
 TEXTS = {
     "en": {
         "answer": "Answer here or on your Mac.",
-        "code_question": "Jarvis Code has a question",
+        "code_question": "Eden Code has a question",
         "in_folder": "In {folder}",
-        "code_done": "Jarvis Code finished",
-        "code_stopped": "Jarvis Code stopped",
+        "code_done": "Eden Code finished",
+        "code_stopped": "Eden Code stopped",
         "conversation": "Conversation with {who}",
         "needs_you": "It needs you before it goes on.",
         "message": "New message",
@@ -69,10 +69,10 @@ TEXTS = {
     },
     "zh": {
         "answer": "在这里或在 Mac 上回答。",
-        "code_question": "Jarvis Code 有个问题",
+        "code_question": "Eden Code 有个问题",
         "in_folder": "在 {folder} 中",
-        "code_done": "Jarvis Code 已完成",
-        "code_stopped": "Jarvis Code 已停止",
+        "code_done": "Eden Code 已完成",
+        "code_stopped": "Eden Code 已停止",
         "conversation": "与{who}的对话",
         "needs_you": "需要你回复后才能继续。",
         "message": "新消息",
@@ -158,7 +158,7 @@ def collapse_id(key: str) -> str:
 
 
 class Notifier:
-    """Hears the hub (approval cards, heads-ups, Jarvis Code's sessions ending) and pushes
+    """Hears the hub (approval cards, heads-ups, Eden Code's sessions ending) and pushes
     to each phone what it asked for."""
 
     def __init__(
@@ -278,7 +278,7 @@ class Notifier:
     def alert_note(self, alert: Any) -> Note | None:
         key, kind = str(alert.key), str(alert.kind)
         if key.startswith(("code:", "code-ok:")):
-            return None  # Jarvis Code's own events and cards say these
+            return None  # Eden Code's own events and cards say these
         urgent = bool(getattr(alert, "urgent", False))
         vip = bool(getattr(alert, "vip", False) or getattr(alert, "breakthrough", False))
         title = self.translated(_line(alert.title, 110))

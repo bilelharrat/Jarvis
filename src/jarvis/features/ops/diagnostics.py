@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ... import osplat
 from . import redact
 
 LOGS = ("jarvis.log", "jarvis.log.1", "jarvis.log.2", "backend.log", "backend.1.log")
@@ -47,7 +48,7 @@ def _tail_bytes(path: Path, limit: int) -> bytes:
     """The last `limit` bytes of a log, starting at a whole line."""
     try:
         size = os.lstat(path).st_size
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | osplat.O_NOFOLLOW | osplat.O_BINARY)
     except OSError:
         return b""
     with os.fdopen(fd, "rb") as fh:

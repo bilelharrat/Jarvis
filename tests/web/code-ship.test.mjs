@@ -1,4 +1,4 @@
-// Jarvis Code's pull requests, unattended runs, GitHub issues and waiting out Claude's
+// Eden Code's pull requests, unattended runs, GitHub issues and waiting out Claude's
 // limit (web/features/code_pr.js and the others listed below): every sentence each shows
 // has its Chinese in its web/i18n fragment or the window's own i18n-zh.json, and every
 // fragment is well formed.

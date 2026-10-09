@@ -1,4 +1,4 @@
-// Jarvis Code's MCP manager (features/code_mcp.py): the MCP servers pane, in place of the
+// Eden Code's MCP manager (features/code_mcp.py): the MCP servers pane, in place of the
 // built-in list. Each of the session's servers with its scope and how it's doing, switched off
 // for the session, signed in to, reconnected, removed (a second press), or, for one a
 // project shares (.mcp.json), approved or refused here; a server added as a command or an

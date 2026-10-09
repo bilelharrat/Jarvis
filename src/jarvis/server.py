@@ -25,14 +25,14 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 
-from . import packaged
+from . import osplat, packaged
 from .hub import Hub
 from .prefs import GLASS_TONES, LOOKS
 
 
 def end_children(grace: float = 1.0) -> int:
     """At the end of a stop: every process this one started that's still running (a
-    Jarvis Code process still exiting, a helper) is asked to end, then made to after `grace`
+    Eden Code process still exiting, a helper) is asked to end, then made to after `grace`
     seconds, so none is left running on its own. How many there were."""
     try:
         import psutil
@@ -147,14 +147,56 @@ def body_look(html: str, look: str, glass_tone: str = "dark") -> str:
     return html.replace(BODY, f'<body data-state="idle" {attrs} data-glass-tone="{glass_tone}">', 1)
 
 
+# The apps whose windows open on this server: J.A.R.V.I.S.'s own, and Eden Code's
+# (app/main.js loads it as /?app=code and names it on the socket as ws?app=eden-code).
+APPS = {"jarvis", "eden-code"}
+
+
+def eden_code_page(html: str) -> str:
+    """The page as Eden Code's window shows it: the same page and modules, marked so app.js
+    and eden-code.css show Eden Code alone, in Ask Eden's look, from the first paint."""
+    html = html.replace("<title>Jarvis</title>", "<title>Eden Code</title>", 1)
+    return re.sub(r"<body ", '<body data-app="eden-code" class="eden-code" ', html, count=1)
+
+
+HIGH_CONTRAST = ("yellow", "white", "yellow-bg", "yellow-blue")
+
+
+def edition_colors(hub: Any) -> str:
+    """The colour pairing J.A.R.V.I.S. Daredevil's page opens in: the owner's choice, else yellow on black; none
+    when screen-reader mode or the colours are switched off."""
+    try:
+        mode = hub.prefs.feature("a11y_mode")
+        colors = hub.prefs.feature("a11y_colors")
+    except Exception:
+        return "yellow"
+    if mode == "off" or colors == "off":
+        return ""
+    return colors if colors in HIGH_CONTRAST else "yellow"
+
+
+def daredevil_page(html: str, colors: str = "yellow") -> str:
+    """The page as J.A.R.V.I.S. Daredevil's window shows it: named for the edition, marked so accessibility.js
+    turns screen-reader mode on, and in its colours from the first paint (not after the scripts have run)."""
+    html = html.replace("<title>Jarvis</title>", "<title>J.A.R.V.I.S. Daredevil</title>", 1)
+    if colors in HIGH_CONTRAST:
+        html = html.replace('<html lang="en">', f'<html lang="en" data-contrast="{colors}">', 1)
+    return re.sub(r"<body ", '<body data-edition="daredevil" ', html, count=1)
+
+
 def create_app(hub: Hub, token: str) -> Starlette:
-    async def index(_request):
+    async def index(request):
         # Stamp script and stylesheet links with a version so an update is never hidden by
         # the window's cache.
         version = str(int(max(f.stat().st_mtime for f in WEB_DIR.iterdir() if f.is_file())))
         html = (WEB_DIR / "index.html").read_text()
         html = re.sub(r'(/static/[\w-]+\.(?:js|css))"', rf'\1?v={version}"', html)
-        html = body_look(html, hub.prefs.look, hub.prefs.glass_tone)
+        if request.query_params.get("app") == "code":  # Eden Code wears Ask Eden's look only
+            html = eden_code_page(body_look(html, "orb", "dark"))
+        else:
+            html = body_look(html, hub.prefs.look, hub.prefs.glass_tone)
+            if request.query_params.get("edition") == "daredevil":  # J.A.R.V.I.S. Daredevil's window
+                html = daredevil_page(html, edition_colors(hub))
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     async def health(_request):
@@ -224,6 +266,10 @@ def create_app(hub: Hub, token: str) -> Starlette:
             await ws.close(code=4403)
             return
         await ws.accept()
+        app = ws.query_params.get("app", "")
+        app = app if app in APPS else ""
+        if app and hasattr(hub, "window_joined"):
+            hub.window_joined(app)
         queue = hub.subscribe()
         at = getattr(hub, "seq", 0)  # what this window's queue starts after
         sender: asyncio.Task | None = None
@@ -283,6 +329,8 @@ def create_app(hub: Hub, token: str) -> Starlette:
             if sender is not None:
                 sender.cancel()
             hub.unsubscribe(queue)
+            if app and hasattr(hub, "window_left"):
+                hub.window_left(app)
             with contextlib.suppress(Exception):  # already closed by the other side, mostly
                 await ws.close()
 
@@ -421,18 +469,19 @@ def serve(port: int, token: str) -> None:
     with contextlib.suppress(Exception):  # no PortAudio: the microphone says so later
         import sounddevice  # noqa: F401
 
-    import resource
-
     import uvicorn
 
     # Room for sockets and files: the window server, the phone companion, voice, the
     # file index and the Claude sessions share one process, and launchd's default soft
     # limit (256 open files) is easy to reach under load.
-    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    want = 4096 if hard == resource.RLIM_INFINITY else min(4096, hard)
-    if soft < want:
-        with contextlib.suppress(ValueError, OSError):
-            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+    if not osplat.IS_WIN:  # (Windows has no per-process file limit to raise)
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = 4096 if hard == resource.RLIM_INFINITY else min(4096, hard)
+        if soft < want:
+            with contextlib.suppress(ValueError, OSError):
+                resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
 
     logging.basicConfig(
         level=logging.INFO,
@@ -441,7 +490,7 @@ def serve(port: int, token: str) -> None:
     )
     to_stderr = list(logging.getLogger().handlers)
     # And a file of its own, so no line depends on where stderr happens to point.
-    log_file = Path.home() / "Library" / "Logs" / "Jarvis" / "jarvis.log"
+    log_file = osplat.logs_dir() / "jarvis.log"
     with contextlib.suppress(OSError):
         log_file.parent.mkdir(parents=True, exist_ok=True)
         to_file = logging.handlers.RotatingFileHandler(

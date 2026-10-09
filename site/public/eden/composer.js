@@ -223,8 +223,11 @@ function grow() {
 /* ---------- attachments ---------- */
 const TEXT_FILE = /\.(md|markdown|txt|log|json|jsonl|csv|tsv|ya?ml|toml|ini|cfg|conf|xml|html?|css|scss|less|m?js|cjs|tsx?|jsx|vue|svelte|py|pyi|rb|go|rs|java|kt|kts|swift|m|mm|c|h|cc|cpp|hpp|cs|php|pl|lua|r|dart|scala|sh|bash|zsh|fish|sql|graphql|proto|env\.example|gitignore|dockerfile|makefile|gradle|plist|strings|diff|patch)$/i;
 const TEXT_TYPES = ['application/json', 'application/xml', 'application/javascript', 'application/x-yaml', 'application/yaml', 'application/toml', 'application/x-sh', 'application/sql'];
+const DOC_FILE = /\.(pdf|epub|docx|pptx)$/i; // documents: their text is read here (course-extract.js) and attached as text
+const MAX_DOC = 60 * 1024 * 1024; // the file itself; what's attached is its text, at most MAX_TEXT
 function fileKind(file) {
   if (isVideo(file)) return 'video';
+  if (DOC_FILE.test(file.name)) return 'doc';
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('text/') || TEXT_TYPES.includes(file.type) || TEXT_FILE.test(file.name) || /^(Makefile|Dockerfile|Gemfile|Procfile|LICENSE|README)$/i.test(file.name)) return 'text';
   return '';
@@ -319,10 +322,11 @@ async function addVideo(file) {
 export function addFile(file) {
   if (!file) return;
   const kind = fileKind(file);
-  if (!kind) { toast(`${file.name} can’t be attached: pictures, videos and text or code files only.`); return; }
+  if (!kind) { toast(`${file.name} can’t be attached: pictures, videos, PDF, EPUB, Word, PowerPoint, and text or code files.`); return; }
   const held = [...attachments, ...reading];
   if (held.length >= MAX_FILES) { toast('Up to six attachments per message.'); return; }
   if (kind === 'video') { addVideo(file); return; }
+  if (kind === 'doc') { addDocument(file); return; }
   if (kind === 'image' && !cleaned.has(file)) { cleanPicture(file).then((f) => (f ? addFile(f) : toast(`${file.name} couldn’t be read.`))); return; }
   if (kind === 'text' && file.size > MAX_TEXT) { toast(`${file.name} is over 400 KB.`); return; }
   if (kind === 'image' && file.size > MAX_BINARY) { toast(`${file.name} is over 6 MB.`); return; }
@@ -346,6 +350,34 @@ export function addFile(file) {
     renderAttachments();
   };
   if (kind === 'text') reader.readAsText(file); else reader.readAsDataURL(file);
+}
+/**
+ * A PDF, EPUB, Word or PowerPoint file: its text, page by page (or chapter, slide), read in this
+ * browser and attached as a text attachment named like the file, so askeden.com answers from it and
+ * checks each quote against it (edu/course.js filesForTurn). Only the text leaves this device.
+ * A book longer than MAX_TEXT keeps its beginning, and says where it stops.
+ */
+function addDocument(file) {
+  if (file.size > MAX_DOC) { toast(`${file.name} is over 60 MB.`); return; }
+  const held = [...attachments, ...reading];
+  if (held.length >= MAX_FILES) { toast('Up to six attachments per message.'); return; }
+  const slot = { kind: 'text', size: 0 };
+  reading.add(slot);
+  renderAttachments();
+  import('./course-extract.js').then(({ extractFile }) => extractFile(file)).then(({ parts, scanned }) => {
+    reading.delete(slot);
+    if (!parts.length) { toast(scanned && scanned.length ? `${file.name} is a scan (pictures of pages) with no text to read.` : `${file.name} has no text Eden could read.`); renderAttachments(); return; }
+    let text = '';
+    let cut = '';
+    for (const p of parts) {
+      const piece = `[${p.loc}]\n${p.text}\n\n`;
+      if (text.length + piece.length > MAX_TEXT) { cut = `[The rest of ${file.name} (from ${p.loc}) wasn’t attached: the file is longer than one message can carry. Ask about a part, or attach that part on its own.]`; break; }
+      text += piece;
+    }
+    if (cut) { text += cut; toast(`${file.name} is long: its first part is attached (as much as one message carries).`); }
+    attachments.push({ kind: 'text', mime: 'text/plain', text: text.trim(), name: file.name, size: text.length });
+    renderAttachments();
+  }, (e) => { reading.delete(slot); renderAttachments(); toast(`${file.name}: ${e.message || 'couldn’t be read.'}`); });
 }
 /**
  * eden:attach: what the Eden iPhone app's share sheet or Siri's "Ask Eden" brings (native.js
@@ -499,7 +531,7 @@ export function setMode(id) {
   if (id === 'compare' && compareOff()) { toast(compareOff()); return; }
   const go = () => {
     const was = curMode();
-    if (c) { c.mode = id; H.save(c); } else state.pendingMode = id;
+    if (c) { c.mode = id; c.chatPinned = id === 'chat'; H.save(c); } else { state.pendingMode = id; state.pendingChatPinned = id === 'chat'; } // picking Chat turns auto-search off for this chat
     if ((was === 'compare') !== (id === 'compare')) schedulePreview(); // Compare prices its lanes
     renderComposer();
     toast(`${c && c.kind === 'code' ? 'Permission mode' : 'Mode'}: ${m.label}`);

@@ -2,7 +2,7 @@
 // them. Run after app.js, one script after another in name order, so each can use
 // app.js's functions and window.jarvisFeatures (on, send, registerPane, registerMoreItem…).
 // Without a backend (the window's own tests) there's simply nothing to load. Split view's
-// right pane (app.js: inSplitPane) shows one Jarvis Code session: only Jarvis Code's modules
+// right pane (app.js: inSplitPane) shows one Eden Code session: only Eden Code's modules
 // (code-*, code_*, and loops' entries) run there; every stylesheet loads.
 (function loadFeatures() {
   const PANE_SCRIPTS = /\/features\/(code[-_][\w-]*|loops)\.js(\?|$)/;

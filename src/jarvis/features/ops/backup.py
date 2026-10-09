@@ -1,7 +1,7 @@
 """Backups of JARVIS's data folder, as one zip each, and restoring one.
 
 What goes in: the JSON stores beside prefs.json (the settings, memory, routines, goals, the
-Jarvis Code rules in permissions.json, paired phones, providers, connections, the purchase
+Eden Code rules in permissions.json, paired phones, providers, connections, the purchase
 log…) and, when the owner asks for it, the second brain's index (brain/index.json). Never:
 Keychain secrets (they aren't in the folder), logs (~/Library/Logs), binaries (bin/,
 models/), the file index (a cache of the disk that rebuilds itself), the built-in browser's
@@ -36,6 +36,8 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from ... import osplat
 
 log = logging.getLogger("jarvis")
 
@@ -136,7 +138,7 @@ def collect(folder: Path, knowledge: bool = False) -> list[str]:
 
 def _read_nofollow(path: Path, limit: int = MAX_FILE) -> bytes:
     """The whole file, refusing a link and anything larger than limit."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | osplat.O_NOFOLLOW | osplat.O_BINARY)
     with os.fdopen(fd, "rb") as fh:
         data = fh.read(limit + 1)
     if len(data) > limit:
@@ -390,7 +392,7 @@ def list_backups(folders: list[Path]) -> list[dict[str, Any]]:
 def _hash_file(path: Path) -> str | None:
     digest = hashlib.sha256()
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | osplat.O_NOFOLLOW | osplat.O_BINARY)
         with os.fdopen(fd, "rb") as fh:
             while chunk := fh.read(CHUNK):
                 digest.update(chunk)
@@ -475,7 +477,11 @@ def stage(
                 target = staging / row["path"]
                 if "/" in row["path"]:
                     _make_dir(target.parent)
-                fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                fd = os.open(
+                    target,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | osplat.O_NOFOLLOW | osplat.O_BINARY,
+                    0o600,
+                )
                 with os.fdopen(fd, "wb") as out:
                     _stream(zf, row, out)
     except BaseException:
@@ -490,7 +496,11 @@ def stage(
         "safety": safety,
         "files": rows,
     }
-    fd = os.open(staging / PENDING, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    fd = os.open(
+        staging / PENDING,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | osplat.O_NOFOLLOW | osplat.O_BINARY,
+        0o600,
+    )
     with os.fdopen(fd, "w", encoding="utf-8") as out:
         json.dump(pending, out, indent=1)
     return {k: v for k, v in pending.items() if k != "files"} | {"files": len(rows)}

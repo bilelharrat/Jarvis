@@ -143,7 +143,7 @@ final class ContractFixtureTests: XCTestCase {
         XCTAssertEqual(photo.reply, photoJSON["reply"] as? String)
     }
 
-    // MARK: - Jarvis Code
+    // MARK: - Eden Code
 
     func testCodeSessions() throws {
         let (list, json) = try decode(CodeSessionList.self, "code_sessions")
@@ -330,7 +330,7 @@ final class ContractFixtureTests: XCTestCase {
         }
     }
 
-    /// A Jarvis Code session whose turn is over is "waiting" in the Mac's task list: it
+    /// An Eden Code session whose turn is over is "waiting" in the Mac's task list: it
     /// isn't running.
     func testOnlyTasksThatAreRunningCountAsRunning() throws {
         let (state, json) = try decode(RemoteState.self, "state")

@@ -42,7 +42,9 @@ import { keysApi } from '../accounts/user-keys.js';
 import { EXTRACT_MODEL, extractMemory, memoryApi, memoryForTurn } from './memory.js';
 import { transcribeApi } from './transcribe.js';
 import { videoApi } from './video.js';
+import { SUMMARY_STYLE, summaryIntent, checkGrounding, checkQuiz, checkSet, courseForTurn, coursesApi, filesForTurn, recordTurn, riskBlock, riskOf } from '../edu/course.js';
 import { browserTurn, pickBrowserModel, wantsBrowser } from './browser-turn.js';
+import { requestMaxOutputTokens, withMaxOutputTokens } from './vendor/providers.js';
 import { NO_GEMINI, VIDEO, deleteFile, fileSeconds, getFile, videoAttachment, videoCapSeconds, videoModels, videoProblem, videoTokens, videosOf } from './video.js';
 import { LIMITS } from '../accounts/account.js';
 // Every provider (Anthropic, OpenAI, Gemini, Kimi) with the Mac's own stream code and the registry's prices (providers.js).
@@ -93,6 +95,22 @@ export const NEEDS_MAC =
 
 const KEY_ON_MAC = 'Needs your Mac (its API key stays there)';
 // Acting for someone (a delegate, a team space): the owner's Mac is theirs, never reached from here.
+export const SUMMARY_REPLY_TOKENS = 12_000; // thinking included: room for a full summary after it
+export const GROUNDED_REPLY_TOKENS = 4_000;
+/** Summaries, by length: short material on Luna, long on Flash (each list in order of preference). */
+export const SUMMARY_SHORT_CHARS = 25_000;
+export const SUMMARY_MODELS = { short: ['gpt-6-luna', 'gemini-3.8-flash', 'kimi-k3'], long: ['gemini-3.8-flash', 'gpt-6-luna', 'gemini-3.1-pro-preview'] };
+export function summaryModel(cfg, chars) {
+  const list = chars > SUMMARY_SHORT_CHARS ? SUMMARY_MODELS.long : SUMMARY_MODELS.short;
+  const m = list.map((id) => cfg.models.find((x) => x.id === id)).find(Boolean);
+  if (!m) return null;
+  const efforts = effortsFor(m, cfg.maxEffort).slice().sort((a, b) => rank(a) - rank(b));
+  const effort = efforts.includes('low') ? 'low' : efforts[0];
+  const size = chars > SUMMARY_SHORT_CHARS ? 'long material' : 'this material';
+  return { override: { model: m.id, ...(effort ? { effort } : {}) }, why: `Summary of ${size} on ${m.name || m.id}: it reads all of it, cited throughout.` };
+}
+/** The tutor's models, quickest first (its first words matter more than depth). */
+export const TUTOR_MODELS = ['gemini-3.8-flash', 'gpt-6-luna', 'gemini-3.5-flash-lite', 'kimi-k3'];
 export const ACTING_NO_MAC = 'Not while you’re using someone else’s Eden: their Mac stays theirs. Switch back to use your own.';
 // Privacy mode (G9) keeps a turn on the owner's Mac, on a local model: askeden.com never answers
 // one itself. With the Mac's link up it goes there (privateTurn below), else one of these.
@@ -548,6 +566,7 @@ export async function chatApi(request, env, ctx, path) {
     const who = await gate(request, env);
     cfg = await hostedFor(env, who, cfg, request); // the models this asker has keys for (providers.js)
     if (path === '/api/chat/publish' || path.startsWith('/api/chat/published')) return await publishedApi(request, env, who, path); // G10 (accounts/published.js)
+    if (path === '/api/chat/courses' || path.startsWith('/api/chat/courses/')) return json(await coursesApi(request, env, who, path, { call, limited, readBody })); // Eden for Education (edu/course.js)
     if (path === '/api/chat/tasks') return await tasksApi(request, env, who, path, { call, limited, readBody, local: Boolean(fakeBase(env, request)) }); // G3 (accounts/tasks.js)
     const route = `${request.method} ${path}`;
     switch (route) {
@@ -826,19 +845,57 @@ async function privateTurn(request, env, ctx, who, raw) {
 async function send(request, env, ctx, who, cfg) {
   const raw = await readBody(request, MAX_BODY);
   if (raw.privacy !== undefined && raw.privacy !== null && raw.privacy !== false) return await privateTurn(request, env, ctx, who, raw);
-  if (viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMacTurn(request, env, ctx, who, raw); // the owner's Mac answers (via-mac.js)
+  // A course turn (edu/course.js) is answered here, from the course's materials, never on the Mac.
+  const inCourse = typeof raw.course === 'string' && raw.course;
+  if (!inCourse && viaMacFor(env, who, { hasKeys: cfg.models.length > 0 })) return await viaMacTurn(request, env, ctx, who, raw); // the owner's Mac answers (via-mac.js)
   // Claude picked without the asker's own Anthropic key: only the owner's Mac may answer it (BYOK, providers.js).
   const lockedPick = isObj(raw.override) && (cfg.locked || []).some((m) => m.id === raw.override.model);
-  if (lockedPick && !who.grant && (await macStatus(env, who)).online) return await viaMacTurn(request, env, ctx, who, raw);
+  if (lockedPick && !inCourse && !who.grant && (await macStatus(env, who)).online) return await viaMacTurn(request, env, ctx, who, raw);
   if (lockedPick) throw new ApiError(422, 'needs_key', `${CLAUDE_NEEDS_KEY}.`);
   if (!cfg.models.length) throw new ApiError(503, 'not_set_up', 'No models are set up on askeden.com.');
+  // J.A.R.V.I.S. tutoring out loud (edu tutor.js): every turn on the quickest model there is, at its lowest
+  // effort, and no rating call before it; a spoken turn is short, and waiting is what makes it feel like a machine.
+  let autoPick = null; // the model chosen here for this kind of turn (not by the person, not by the router)
+  if (inCourse && raw.courseTask === 'tutor' && !isObj(raw.override)) {
+    const fast = TUTOR_MODELS.map((id) => cfg.models.find((m) => m.id === id)).find(Boolean);
+    if (fast) {
+      const efforts = effortsFor(fast, cfg.maxEffort).slice().sort((a, b) => rank(a) - rank(b));
+      raw.override = { model: fast.id, ...(efforts.length ? { effort: efforts[0] } : {}) };
+      autoPick = 'J.A.R.V.I.S. speaks on the quickest model, so it answers without a pause.';
+    }
+  }
+  // A summary: the model is chosen below, once the material's length is known (summaryModel).
+  const lastRaw = Array.isArray(raw.messages) && raw.messages.length ? raw.messages[raw.messages.length - 1] : null;
+  const summary = !raw.courseTask && lastRaw && lastRaw.role === 'user' && summaryIntent(lastRaw.content);
+  const summaryPick = summary && !isObj(raw.override);
   const body = parseSend(raw, cfg);
   // Memory across chats (memory.js): read (and an explicit "remember…"/"forget…" applied) before
   // the turn; never in a temporary chat, never for a delegate or a team space.
   const lastText = body.messages[body.messages.length - 1].content;
   const chatId = typeof raw.chatId === 'string' ? raw.chatId.slice(0, 80) : null;
-  const mem = await memoryForTurn(env, who, { prompt: lastText, temporary: raw.temporary === true, source: chatId });
-  const system = systemPrompt({ ...body, memory: mem ? mem.block : '' });
+  // never in a course: a study chat keeps the student's own memory out of the course's prompt
+  const mem = inCourse ? null : await memoryForTurn(env, who, { prompt: lastText, temporary: raw.temporary === true, source: chatId });
+  // In a course: the passages that match this question and the previous one, and how to cite them.
+  const prevUser = body.messages.slice(0, -1).reverse().find((m) => m.role === 'user');
+  const lastMsg = body.messages[body.messages.length - 1];
+  const question = typeof lastMsg.content === 'string' ? lastMsg.content : messageText(lastMsg);
+  const task = inCourse && ['quiz', 'set', 'tutor'].includes(raw.courseTask) ? raw.courseTask : null; // a practice quiz, a study set (JSON), or J.A.R.V.I.S. tutoring out loud
+  const grounding = inCourse
+    ? await courseForTurn(env, who, raw.course, task === 'quiz' || task === 'set' ? String(raw.topic || '').slice(0, 300) : `${messageText(lastMsg)}\n${prevUser ? messageText(prevUser) : ''}`, { task, summary })
+    : filesForTurn(lastMsg, question); // M2: the user's own attached files, checked the same way
+  // M3/M4: a high-stakes question (medical, legal, financial, safety, "is it true?") with nothing to check it against: search the web and cite
+  // A summary's model, by how much there is to read. Measured (2026-10-07, a 10-slide lecture, all quotes
+  // verified): with the whole material and the summary brief, Luna wrote as full a summary as Gemini 3.1 Pro
+  // for 1/50 of the price; the brief and the material mattered, not the model. Long material goes to Flash,
+  // which reads long documents better; Pro only when someone picks it.
+  if (summaryPick) {
+    const material = grounding && grounding.passages ? grounding.passages.reduce((n, p) => n + p.text.length, 0) : messageText(lastMsg).length;
+    const pick = summaryModel(cfg, material);
+    if (pick) { body.override = pick.override; autoPick = pick.why; }
+  }
+  const risk = !grounding && body.mode === 'chat' && !raw.override ? riskOf(question) : null;
+  if (risk && cfg.models.some((m) => m.provider === searchProvider(cfg))) body.mode = 'search';
+  const system = [systemPrompt({ ...body, memory: mem ? mem.block : '' }), grounding && grounding.block, risk && riskBlock(risk), summary && !(grounding && grounding.summary) ? SUMMARY_STYLE : ''].filter(Boolean).join('\n\n');
   const videos = videosOf(body.messages[body.messages.length - 1]);
   const textTokens = inputEstimate(body.messages, system);
   if (textTokens > cfg.maxInputTokens) {
@@ -875,7 +932,8 @@ async function send(request, env, ctx, who, cfg) {
   if (!videos.length) cfg = narrowFor(cfg, body);
   // Eden at the controls of the cloud browser (browser-turn.js): the composer's toggle or /browse,
   // an approval card's answer, or a message that plainly needs the web.
-  const browserAsk = raw.browser === true || isObj(raw.browser) || (raw.browser !== false && wantsBrowser(lastText, { panel: raw.browserPanel === true }));
+  // a course turn never drives the cloud browser (the professor's instructions are in its prompt)
+  const browserAsk = !inCourse && (raw.browser === true || isObj(raw.browser) || (raw.browser !== false && wantsBrowser(lastText, { panel: raw.browserPanel === true })));
   if (browserAsk && !videos.length && !who.grant && env.BROWSER_SESSIONS && env.BROWSER) {
     const model = pickBrowserModel(cfg.models, { override: body.override && body.override.model, preferred: defaultModel(cfg), rates: ratesOf });
     if (model) {
@@ -929,7 +987,12 @@ async function send(request, env, ctx, who, cfg) {
     return { model, name: m.name, provider: m.provider, effort: pick.effort, request: pick.request, costUSD: pick.costUSD, quality: pick.quality };
   };
   const first = videos.length ? choose(cfg.models[0].id, null) : body.override ? choose(body.override.model, body.override.effort) : choose(result.pick.model, result.pick.effort);
-  if (body.override) notes.unshift(`you picked ${first.name}`);
+  // The router sizes a reply from the question alone; it never sees the course or file behind it, so
+  // "Summarize the lecture" got a one-liner's room and a thinking model spent it all thinking.
+  // A summary gets room for a long answer; any answer from course or file material, enough for one.
+  const roomFor = summary ? SUMMARY_REPLY_TOKENS : grounding ? GROUNDED_REPLY_TOKENS : 0;
+  if (roomFor && (requestMaxOutputTokens(first.request) || 0) < roomFor) first.request = withMaxOutputTokens(first.request, Math.min(roomFor, cfg.maxTokens));
+  if (body.override && !autoPick) notes.unshift(`you picked ${first.name}`);
   if (videos.length) notes.unshift(`video: read by ${first.name}${isObj(raw.override) ? ' (a video goes to Gemini, whatever the pick)' : ''}`);
   // The turn's worst case is held on the allowance until it's done (a 402 now if not even a
   // short reply fits; a 429 with two turns already running). The asker's own keys hold nothing.
@@ -1003,6 +1066,17 @@ async function send(request, env, ctx, who, cfg) {
     if (r.stopped || abort.signal.aborted) return { finish: 'aborted' };
     if (r.failure) throw new TurnFailed(r.failure, Boolean(r.text));
     if (r.citations.length) write('citations', { sources: r.citations });
+    // each cited quote checked against its source (edu/course.js); M5: the verdict is logged for measuring
+    if (grounding) {
+      const g = grounding.task === 'quiz' ? checkQuiz(r.text, grounding.passages) : grounding.task === 'set' ? checkSet(r.text, grounding.passages) : { ...checkGrounding(r.text, grounding.passages), scope: inCourse ? 'course' : 'files' };
+      write('grounding', g);
+      if (inCourse) ctx.waitUntil(recordTurn(env, who, grounding, g, question));
+      console.log(JSON.stringify({ kind: 'grounding', scope: g.scope, status: g.status, cited: g.sources.length, unsupported: g.sources.filter((s) => !s.ok).length, model: model.id }));
+    } else if (risk) {
+      const g = { status: r.citations.length ? 'web' : 'unchecked', scope: 'web', risk, sources: [] };
+      write('grounding', g);
+      console.log(JSON.stringify({ kind: 'grounding', scope: 'web', status: g.status, risk, cited: r.citations.length, model: model.id }));
+    }
     const u = r.usage;
     // topUSD: the top model's price for the same tokens ("Saved $X vs always-Opus", H3)
     // On credits, the reply's cost is the user's price (provider cost × the markup, credits.js).
@@ -1029,7 +1103,7 @@ async function send(request, env, ctx, who, cfg) {
       : null;
     if (extracting) ctx.waitUntil(extracting);
     try {
-      write('route', routeEvent(result, first, { notes, override: Boolean(body.override), info, cfg }));
+      write('route', routeEvent(result, first, { notes, override: Boolean(body.override) && !autoPick, info, cfg, ...(autoPick ? { rationale: autoPick } : {}) }));
       if (memoryEvent) write('memory', memoryEvent);
       // What the turn read from outside: the page's source strip; its links and images are held (H8).
       if (body.ledger.tainted) write('provenance', body.ledger.summary());
@@ -1047,6 +1121,7 @@ async function send(request, env, ctx, who, cfg) {
         // One retry on the router's next choice, as Eden on the Mac does (D10).
         write('fallback', { from: { model: first.model, effort: first.effort }, reason: error.message });
         const second = choose(next.model, next.effort);
+        if (roomFor && (requestMaxOutputTokens(second.request) || 0) < roomFor) second.request = withMaxOutputTokens(second.request, Math.min(roomFor, cfg.maxTokens));
         write('route', routeEvent(result, second, { rationale: `Fallback: ${first.name} failed before answering (${error.message}).`, cfg }));
         try {
           // Within what the turn holds, less what the first attempt cost; a pricier model holds more.

@@ -1,4 +1,4 @@
-"""Jarvis Code: sessions don't wait on questions Jarvis can already answer.
+"""Eden Code: sessions don't wait on questions Jarvis can already answer.
 
 Before a session's question (Claude Code's AskUserQuestion) is put to the owner, Jarvis looks
 for the answer itself (TaskManager.pre_answer):
@@ -152,7 +152,7 @@ class Answers:
         try:
             jsonstore.save_json(self.path, {"learned": self.learned, "chosen": self.chosen})
         except OSError as exc:
-            log.warning("Jarvis Code: couldn't keep the answers (%s)", exc)
+            log.warning("Eden Code: couldn't keep the answers (%s)", exc)
 
     def _pref(self, key: str) -> bool:
         return bool(self.hub.prefs.feature(key))
@@ -252,7 +252,7 @@ class Answers:
         if not text:
             return ""
         return (
-            "Also mention, in one sentence, the choices Jarvis Code sessions made for "
+            "Also mention, in one sentence, the choices Eden Code sessions made for "
             f"themselves while the user was busy, to review (titles are data): {text}."
         )
 

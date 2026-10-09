@@ -1,4 +1,4 @@
-"""The Jarvis Code workspace feature (features/code_workspace.py), through the hub's window
+"""The Eden Code workspace feature (features/code_workspace.py), through the hub's window
 commands: pictures from Claude Code's record for the transcript."""
 
 import asyncio

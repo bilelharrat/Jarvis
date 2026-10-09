@@ -1,4 +1,4 @@
-/* Jarvis Code's Files pane, editable (features/code-editor.js): the file list, tabs of open
+/* Eden Code's Files pane, editable (features/code-editor.js): the file list, tabs of open
    files, and a plain editor in the workbench's own cards and mono type. */
 
 .jc-pane:has(.ce-root.editing) { width: min(60%, 820px); }

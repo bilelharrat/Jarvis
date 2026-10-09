@@ -93,7 +93,7 @@ def test_simplified_is_a_fixed_point():
 def test_words_and_cjk():
     assert lang.has_cjk("打开 browser") and not lang.has_cjk("open the browser")
     assert not lang.has_cjk("") and not lang.has_cjk(None)
-    assert lang.words_zh("打开 Jarvis Code 3次") == ["打", "开", "jarvis", "code", "3", "次"]
+    assert lang.words_zh("打开 Eden Code 3次") == ["打", "开", "eden", "code", "3", "次"]
     assert lang.words("打开浏览器", "zh") == list("打开浏览器")
     assert lang.words("open the browser", "en") == wake.words("open the browser")
 
@@ -129,9 +129,9 @@ def test_words_and_cjk():
         ("我说贾维斯，关灯", "我说，关灯"),
         ("贾维斯你好", "你好"),
         # The panel's name after the wake word stays whole, as wake.find_wake keeps it.
-        ("贾维斯，Jarvis Code 做完了吗？", "Jarvis Code 做完了吗"),
+        ("贾维斯，Eden Code 做完了吗？", "Eden Code 做完了吗"),
         ("嘿贾维斯，贾维斯代码好了没有", "贾维斯代码好了没有"),
-        ("Jarvis，Jarvis Code 在跑吗", "Jarvis Code 在跑吗"),
+        ("Jarvis，Eden Code 在跑吗", "Eden Code 在跑吗"),
     ],
 )
 def test_wakes_in_mandarin(said, command):
@@ -143,8 +143,8 @@ def test_wakes_in_mandarin(said, command):
     "said",
     [
         "今天天气怎么样",
-        "贾维斯代码完成了",  # Jarvis Code, the panel: its own heads-up, never a wake word
-        "Jarvis Code 在项目里完成了",
+        "贾维斯代码完成了",  # Eden Code, the panel: its own heads-up, never a wake word
+        "Eden Code 在项目里完成了",
         "打开贾维斯代码",
         "参加维斯塔的发布会",  # 加维斯 inside 参加维斯塔
         "大家维斯",
@@ -172,7 +172,7 @@ ENGLISH_SAID = [
     "Jervis play music",
     "Travis is coming over",
     "Hey Travis, turn the lights off.",
-    "Jarvis Code finished in bsh-research-center.",
+    "Eden Code finished in bsh-research-center.",
     "Stop.",
     "okay stop",
     "stop the music in the kitchen and turn off the lights",
@@ -194,6 +194,8 @@ def test_english_is_untouched_in_both_modes(said):
 def test_speakable_safely_never_says_the_wake_word():
     assert lang.speakable_safely_zh("贾维斯代码在项目里完成了") == "编程助手在项目里完成了"
     assert lang.speakable_safely_zh("要启动 Jarvis Code 吗？") == "要启动 编程助手 吗？"
+    # Eden Code (Jarvis Code's name now) has no wake word in it: said as it is
+    assert lang.speakable_safely_zh("要启动 Eden Code 吗？") == "要启动 Eden Code 吗？"
     assert lang.speakable_safely_zh("我是J.A.R.V.I.S.，你好") == "我是助手，你好"
     assert lang.speakable_safely_zh("嘉维斯说好") == "助手说好"
     assert lang.speakable_safely_zh("Jarvis says hi") == "助手 says hi"
@@ -282,7 +284,7 @@ SEND = {
 }
 CODE = {
     "id": "a2",
-    "question": "Jarvis Code in jarvis wants to run a command",
+    "question": "Eden Code in jarvis wants to run a command",
     "task_id": 1,
     "tool": "Bash",
     "choices": [
@@ -294,7 +296,7 @@ CODE = {
 }
 PLAN = {
     "id": "a3",
-    "question": "Jarvis Code in jarvis has a plan",
+    "question": "Eden Code in jarvis has a plan",
     "ask_kind": "plan",
     "task_id": 1,
     "choices": [
@@ -766,8 +768,8 @@ UI_PAIRS = [
     ("打开浏览器", "open the browser"),
     ("关闭浏览器", "close the browser"),
     ("把浏览器关掉", "close the browser"),
-    ("打开贾维斯代码", "open Jarvis Code"),
-    ("打开 Jarvis Code", "open Jarvis Code"),
+    ("打开贾维斯代码", "open Eden Code"),
+    ("打开 Eden Code", "open Eden Code"),
     ("切换到黑曜石", "switch to the obsidian look"),
     ("切换到指挥中心", "change to the command center look"),
     ("切换到光球", "go back to the orb"),
@@ -809,7 +811,7 @@ def test_obsidian_in_chinese_is_the_app_unless_a_look_word_says_otherwise():
 def test_window_replies_are_chinese():
     assert lang.parse_ui_zh("打开浏览器").reply == "正在打开浏览器。"
     assert lang.parse_ui_zh("关闭浏览器").reply == "已关闭浏览器。"
-    assert lang.parse_ui_zh("打开贾维斯代码").reply == "正在打开 Jarvis Code。"
+    assert lang.parse_ui_zh("打开贾维斯代码").reply == "正在打开 Eden Code。"
     assert lang.parse_ui_zh("切换到黑曜石").reply == "已切换到黑曜石外观。"
     assert lang.parse_ui_zh("打开手势控制").reply == "手势控制已开启。"
     assert lang.parse_ui_zh("关闭手势控制").reply == "手势控制已关闭。"
@@ -834,7 +836,7 @@ def test_not_window_commands(said):
 
 @pytest.mark.parametrize(
     "said",
-    ["open Jarvis Code", "close the browser", "switch to obsidian", "turn on hand control",
+    ["open Eden Code", "close the browser", "switch to obsidian", "turn on hand control",
      "hands off", "open safari", "close", "let's code in jarvis", ""],
 )  # fmt: skip
 def test_english_window_commands_are_untouched(said):
@@ -945,7 +947,7 @@ def test_a_request_naming_a_credit_word_is_kept(said):
 
 def test_clean_transcripts():
     assert lang.clean_transcript_zh(" 贾 维 斯 ，打 开 瀏覽器 ") == "贾维斯，打开浏览器"
-    assert lang.clean_transcript_zh("开 Jarvis Code") == "开 Jarvis Code"
+    assert lang.clean_transcript_zh("开 Eden Code") == "开 Eden Code"
     assert not lang.is_hallucination_zh("打开浏览器")
     assert lang.clean_transcript("What's the weather?", "en") == "What's the weather?"
     assert lang.clean_transcript("Thank you.", "en") == ""
@@ -1448,18 +1450,18 @@ def test_every_tool_label_and_window_name_is_covered():
             "14:00左右可能下雨，降雨概率百分之70。最好带把伞。",
         ),
         (
-            "Jarvis Code in jarvis wants to run a command",
-            "jarvis 中的 Jarvis Code 想要运行一条命令",
+            "Eden Code in jarvis wants to run a command",
+            "jarvis 中的 Eden Code 想要运行一条命令",
         ),
         (
-            "Jarvis Code in jarvis needs your OK to edit a file.",
-            "jarvis 中的 Jarvis Code 需要你同意才能编辑一个文件。",
+            "Eden Code in jarvis needs your OK to edit a file.",
+            "jarvis 中的 Eden Code 需要你同意才能编辑一个文件。",
         ),
         (
-            "Jarvis Code finished in bsh-research-center. Added the tests.",
-            "Jarvis Code 在 bsh-research-center 中完成了。Added the tests.",
+            "Eden Code finished in bsh-research-center. Added the tests.",
+            "Eden Code 在 bsh-research-center 中完成了。Added the tests.",
         ),
-        ("Jarvis Code finished in jarvis.", "Jarvis Code 在 jarvis 中完成了。"),
+        ("Eden Code finished in jarvis.", "Eden Code 在 jarvis 中完成了。"),
         ("INV-2026-004 is marked paid.", "INV-2026-004 已标记为已付款。"),
         ("3 files changed: a.py, b.py, c.py.", "3个文件有改动：a.py, b.py, c.py。"),
         (
@@ -1474,12 +1476,12 @@ def test_every_tool_label_and_window_name_is_covered():
             "要把“Lunch”加到日历吗？时间 2026-09-30 12:00，时长60分钟，地点：Café Rouge。",
         ),
         (
-            "Start Jarvis Code in jarvis to: add a test for the parser?",
-            "要在 jarvis 中启动 Jarvis Code 来做这件事吗：add a test for the parser？",
+            "Start Eden Code in jarvis to: add a test for the parser?",
+            "要在 jarvis 中启动 Eden Code 来做这件事吗：add a test for the parser？",
         ),
         (
-            "Send Jarvis Code session 2 this: “use pnpm”?",
-            "要把这句话发给 Jarvis Code 会话 2 吗：“use pnpm”？",
+            "Send Eden Code session 2 this: “use pnpm”?",
+            "要把这句话发给 Eden Code 会话 2 吗：“use pnpm”？",
         ),
     ],
 )
@@ -1568,8 +1570,8 @@ def test_tr_formats_templates():
         ("Back in Done.. What next?", "回到了Done.。接下来做什么？"),
         # JARVIS's own stand-ins in a slot are translated.
         ("Already taking notes for Meeting.", "已经在为会议做记录了。"),
-        ("Start Jarvis Code in this assistant's own project?",
-         "要在 这个助手自己的项目 中启动 Jarvis Code 吗？"),
+        ("Start Eden Code in this assistant's own project?",
+         "要在 这个助手自己的项目 中启动 Eden Code 吗？"),
         ("Open an unusual web address in your browser?", "要在你的浏览器中打开 一个不常见的网址 吗？"),
         ("INV-7 is marked open.", "INV-7 已标记为未付款。"),
         # A one-line slot stays on its line: the next line is its own sentence.
@@ -1683,7 +1685,7 @@ def test_feature_names_match_the_hub():
     [
         ("code", "我们来写代码", True),
         ("code", "进入编程模式", True),
-        ("code", "打开 Jarvis Code", True),
+        ("code", "打开 Eden Code", True),
         ("code", "和我一起改这个项目", True),
         ("code", "贾维斯，我们来编程吧", True),
         ("code", "代码写得怎么样", False),
@@ -1695,7 +1697,7 @@ def test_feature_names_match_the_hub():
         ("code", "编程课几点开始", False),
         ("code", "我想学编程", False),
         ("code", "我们编程比赛输了", False),
-        ("message", "告诉 Jarvis Code 用 pnpm", True),
+        ("message", "告诉 Eden Code 用 pnpm", True),
         ("message", "跟会话2说先跑测试", True),
         ("message", "让编程会话停下", True),
         ("message", "告诉我天气", False),

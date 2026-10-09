@@ -1,4 +1,4 @@
-// Jarvis Code's Files pane, editable (features/code_workspace.py, code_editor.py):
+// Eden Code's Files pane, editable (features/code_workspace.py, code_editor.py):
 // - the project's files, filtered as you type, the ones opened lately first;
 // - a plain editor for each file opened (tabs): a text box with line numbers, find and
 //   replace (text or a regular expression, match case), undo and redo (the box's own),
@@ -940,7 +940,7 @@
   function memoryMenu(anchor) {
     if (typeof openMenu !== 'function') return;
     openMenu(anchor, [
-      { heading: 'Memory Jarvis Code reads' },
+      { heading: 'Memory Eden Code reads' },
       { label: 'Project: CLAUDE.md', note: 'Shared with whoever works on it', run: () => openMemory('project') },
       { label: 'Local: CLAUDE.local.md', note: 'Just yours, this project', run: () => openMemory('local') },
       { label: 'Yours: ~/.claude/CLAUDE.md', note: 'Just yours, every project', run: () => openMemory('user') },
@@ -956,7 +956,7 @@
       const seg = el('div', 'jcx-seg ce-seg');
       seg.setAttribute('role', 'tablist');
       const whole = button('Open in…', 'jc-mini ce-open-project', (e) => openInMenu(e.currentTarget, null), 'Open the project in an editor, or in Finder');
-      const memory = button('Memory', 'jc-mini ce-memory', (e) => memoryMenu(e.currentTarget), 'The CLAUDE.md files Jarvis Code reads');
+      const memory = button('Memory', 'jc-mini ce-memory', (e) => memoryMenu(e.currentTarget), 'The CLAUDE.md files Eden Code reads');
       top.append(seg, el('span', 'jc-spacer'), memory, whole);
       const tabs = el('div', 'ce-tabs');
       tabs.setAttribute('role', 'tablist');

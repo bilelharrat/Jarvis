@@ -1,7 +1,7 @@
-// Jarvis Code's usage meter (features/code_usage.py): the Usage pane (Claude's limits as
+// Eden Code's usage meter (features/code_usage.py): the Usage pane (Claude's limits as
 // Claude Code reports them; this session's, its project's and the day's spending against
 // their caps, each cap editable there; the last two weeks; today by project), its More
-// item and /usage, and the Limits tab of Jarvis Code settings (the default caps and the
+// item and /usage, and the Limits tab of Eden Code settings (the default caps and the
 // heads-ups switch).
 //
 // Everything shown from the backend is data: text only (textContent), project names marked
@@ -134,7 +134,7 @@
     input.inputMode = 'decimal';
     input.placeholder = 'No limit';
     input.value = cap > 0 ? String(cap) : '';
-    input.setAttribute('aria-label', scope === 'day' ? 'Jarvis Code’s limit a day' : scope === 'project' ? 'This project’s limit a day' : 'This session’s limit');
+    input.setAttribute('aria-label', scope === 'day' ? 'Eden Code’s limit a day' : scope === 'project' ? 'This project’s limit a day' : 'This session’s limit');
     const note = el('span', 'cu-cap-note jc-dim');
     const save = () => {
       const value = parseCap(input.value);
@@ -183,7 +183,7 @@
       }
       if (mineTask.held) spend.append(el('li', 'cu-held', mineTask.held));  // (translated by its pattern)
     }
-    spend.append(spendRow(el('strong', '', 'All of Jarvis Code today'), state.today, (state.defaults || {}).day || 0, 'day', false, task));
+    spend.append(spendRow(el('strong', '', 'All of Eden Code today'), state.today, (state.defaults || {}).day || 0, 'day', false, task));
     parts.push(section('Spending', spend, el('p', 'jc-dim cu-intro', 'Claude Code’s own estimates. A session stops at its limit and waits until you raise it.')));
 
     const recent = state.recent || [];
@@ -213,7 +213,7 @@
       parts.push(section('Today by project', list));
     }
     const foot = el('p', 'jc-dim cu-intro');
-    foot.append(el('span', '', 'Default limits and heads-ups are in Jarvis Code settings › Limits.'));
+    foot.append(el('span', '', 'Default limits and heads-ups are in Eden Code settings › Limits.'));
     parts.push(foot);
     body.replaceChildren(...parts);
   }
@@ -231,16 +231,16 @@
     drawLimits();
   });
 
-  // ── Jarvis Code settings › Limits: the defaults ──
+  // ── Eden Code settings › Limits: the defaults ──
 
   const LIMITS = [
     ['code_budget_session', 'Each session', 'A session stops there and waits until you raise it.'],
     ['code_budget_project', 'Each project, a day', 'Every session in one project, today.'],
-    ['code_budget_day', 'All of Jarvis Code, a day', 'Every session in every project, today.'],
+    ['code_budget_day', 'All of Eden Code, a day', 'Every session in every project, today.'],
   ];
   let limitsPanel = null;
 
-  // The Limits tab of Jarvis Code settings (other features add to it: found or made).
+  // The Limits tab of Eden Code settings (other features add to it: found or made).
   function limitsTab() {
     const existing = document.getElementById('jcs-limits');
     if (existing) return existing;

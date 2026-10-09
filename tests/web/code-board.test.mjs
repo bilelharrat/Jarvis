@@ -1,4 +1,4 @@
-// Jarvis Code's agent board in the window (web/features/code-board.js): where each session
+// Eden Code's agent board in the window (web/features/code-board.js): where each session
 // stands, what its card says it's doing, and when it last did something. node --test tests/web/
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -24,7 +24,7 @@ test('the board: what each card says it is doing, and when it last did something
   assert.equal(doing({ busy: true, last_action: 'Working' }), 'Working');
   assert.equal(doing({ busy: false, status: 'waiting', result: '\n\nFixed the retry.\nDetails…' }), 'Fixed the retry.');
   assert.equal(doing({ busy: false, status: 'resting', result: '' }), 'Resting: it picks up where it left off');
-  assert.equal(doing({ busy: true }, { question: 'Jarvis Code in alpha wants to run a command' }), 'Jarvis Code in alpha wants to run a command');
+  assert.equal(doing({ busy: true }, { question: 'Eden Code in alpha wants to run a command' }), 'Eden Code in alpha wants to run a command');
   assert.ok(doing({ status: 'waiting', result: 'x'.repeat(400) }).length <= 161);
   const now = Date.parse('2026-09-29T12:00:00');
   assert.equal(ago('2026-09-29T11:59:30', now), 'just now');

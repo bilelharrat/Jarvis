@@ -1,4 +1,4 @@
-// Jarvis Code's one session store in the window (loaded before app.js, which feeds it every
+// Eden Code's one session store in the window (loaded before app.js, which feeds it every
 // event its socket hears, in order; features/code-bridge.js feeds pane frames from it).
 //
 // The window's socket is the only connection: every event it hears (numbered by the hub:

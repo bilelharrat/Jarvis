@@ -87,7 +87,18 @@ def test_memory_pressure_is_read_in_this_process_as_sysctl_says_it(monkeypatch):
         assert abs(pressure - (100 - int(out))) <= 10
 
 
+def test_memory_pressure_on_a_pc_is_how_full_memory_is(monkeypatch):
+    monkeypatch.setattr(sysmon, "_sysctlbyname", False)
+    monkeypatch.setattr(sysmon.osplat, "IS_WIN", True)
+    monkeypatch.setattr(sysmon, "_run", lambda *cmd, **_kw: pytest.fail("a PC has no sysctl"))
+    monkeypatch.setattr(
+        sysmon.psutil, "virtual_memory", lambda: types.SimpleNamespace(percent=61.6)
+    )
+    assert sysmon.memory_pressure() == 62
+
+
 def test_memory_pressure_without_sysctlbyname_asks_the_command(monkeypatch):
+    monkeypatch.setattr(sysmon.osplat, "IS_WIN", False)
     monkeypatch.setattr(sysmon, "_sysctlbyname", False)
     said = {("sysctl", "-n", "kern.memorystatus_level"): "38\n"}
     monkeypatch.setattr(sysmon, "_run", lambda *cmd, **_kw: said.get(cmd, ""))
@@ -171,6 +182,20 @@ def test_samples_become_rates_and_history(monkeypatch):
         now[0] += 2
         m.sample()
     assert len(m.history) == sysmon.HISTORY  # six minutes, no more
+
+
+def test_the_cpu_split_of_a_pc_has_no_nice_time(monkeypatch):
+    """Windows' cpu times have user, system and idle but no "nice" (a Unix idea)."""
+    from collections import namedtuple
+
+    pc = namedtuple("scputimes", "user system idle interrupt dpc")
+    monkeypatch.setattr(
+        sysmon.psutil, "cpu_times_percent", lambda *a, **k: pc(7.5, 3.0, 88.0, 1.0, 0.5)
+    )
+    monkeypatch.setattr(sysmon, "memory_pressure", lambda: None)
+    point = SystemMonitor().sample()
+    assert point["user"] == 7.5 and point["system"] == 3.0
+    assert SystemMonitor().details("cpu")["cpu"]["user"] == 7.5
 
 
 def test_every_tab_answers(monkeypatch):

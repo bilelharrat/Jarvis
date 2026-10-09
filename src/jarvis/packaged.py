@@ -42,7 +42,7 @@ def is_packaged(prefix: str | None = None) -> bool:
 TOKEN_ENV = "JARVIS_TOKEN"
 # Set by the downloadable app's launcher for its bundled backend alone (bundledEnv). With
 # them the owner's own Python would skip their user packages, and JARVIS's own code run in a
-# Jarvis Code session (its tests) would find the installed app's pieces instead of the repo's.
+# Eden Code session (its tests) would find the installed app's pieces instead of the repo's.
 LAUNCH_ONLY = ("PYTHONNOUSERSITE", "PYTHONDONTWRITEBYTECODE", "JARVIS_HELPERS_DIR", APP_DIR_ENV)
 # ... and one only the Claude engine the app starts keeps: it never replaces itself inside the
 # signed app, while the owner's own Claude Code updates as usual.

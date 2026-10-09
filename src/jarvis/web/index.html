@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="/static/simulator.css">
 <link rel="stylesheet" href="/static/stark-glass.css">
 <link rel="stylesheet" href="/static/obsidian.css">
+<link rel="stylesheet" href="/static/eden-code.css">
 </head>
 <body data-state="idle" data-look="orb">
 <canvas id="galaxy-canvas" class="galaxy-canvas" aria-hidden="true"></canvas>
@@ -142,9 +143,9 @@
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10V4a1.2 1.2 0 012.4 0v5M9.4 9V3a1.2 1.2 0 012.4 0v6M11.8 9V4.5a1.2 1.2 0 012.4 0V11c0 3.5-2 6-5.2 6-2.4 0-3.6-1.3-4.8-3.3L3 10.8a1.2 1.2 0 012-1.3L7 12"/></svg>
       <span class="app-name">Hands</span>
     </button>
-    <button id="cc-btn" class="pill dock-app" data-app="code" type="button" aria-expanded="false" aria-controls="cc" aria-label="Jarvis Code">
+    <button id="cc-btn" class="pill dock-app" data-app="code" type="button" aria-expanded="false" aria-controls="cc" aria-label="Eden Code">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8l-4 4 4 4M17 8l4 4-4 4M13.5 5l-3 14"/></svg>
-      <span class="app-name" id="cc-label">Jarvis Code</span>
+      <span class="app-name" id="cc-label">Eden Code</span>
     </button>
     <button id="browser-btn" class="pill dock-app" data-app="browser" type="button" aria-expanded="false" aria-controls="browser" aria-label="Browser" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M15.8 8.2l-2.6 5-5 2.6 2.6-5z" fill="currentColor" stroke-linejoin="round"/></svg>
@@ -234,7 +235,7 @@
       <select id="model-select"></select></label>
     <label class="row" for="fallback-select"><span><strong>Fallback model</strong><small>Takes over when Claude can’t answer (its usage limit, an outage), with every tool</small></span>
       <select id="fallback-select"><option value="">Automatic</option></select></label>
-    <div class="row"><span><strong>Jarvis Code too</strong><small>A session Claude can’t answer moves to it and carries on where Claude stopped, then goes back to Claude once its limit resets</small></span><button type="button" class="switch" role="switch" id="sw-fallback-code" aria-checked="true" aria-label="Fallback in Jarvis Code too"></button></div>
+    <div class="row"><span><strong>Eden Code too</strong><small>A session Claude can’t answer moves to it and carries on where Claude stopped, then goes back to Claude once its limit resets</small></span><button type="button" class="switch" role="switch" id="sw-fallback-code" aria-checked="true" aria-label="Fallback in Eden Code too"></button></div>
     <div class="row"><span><strong>Always use it</strong><small>Run Jarvis on it all the time, not only when Claude is down (Gemini Flash answers quickly)</small></span><button type="button" class="switch" role="switch" id="sw-fallback-always" aria-checked="false" aria-label="Always use the fallback model"></button></div>
     <button type="button" class="btn" id="fallback-add">Add a Gemini key…</button>
   </section>
@@ -264,7 +265,7 @@
 
   <section class="group" data-settings-pane="code">
     <h3>Voice coding</h3>
-    <p class="small-status">Say “Jarvis, let’s code in jarvis” and talk to Jarvis Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
+    <p class="small-status">Say “Jarvis, let’s code in jarvis” and talk to Eden Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
     <div class="row"><span><strong>Narrate progress</strong><small>Short notes like “Editing hub dot py” while it works</small></span><button type="button" class="switch" role="switch" id="sw-code-narrate" aria-checked="true" aria-label="Narrate progress"></button></div>
     <label class="row" for="code-sentences"><span><strong>Reply length</strong><small>Sentences read aloud; the rest stays on screen</small></span>
       <select id="code-sentences"><option value="2">Short (2)</option><option value="3">Normal (3)</option><option value="5">Long (5)</option><option value="8">Everything (8)</option></select></label>
@@ -351,9 +352,9 @@
   <section class="group" data-settings-pane="notifications" data-keywords="notifications alerts interruptions do not disturb queue">
     <h3>Speaking up</h3>
     <div class="row"><span><strong>Queue messages</strong><small>While Jarvis is answering, what you say or type waits its turn (you can take it back). Off: a new request interrupts the answer.</small></span><button type="button" class="switch" role="switch" id="sw-queue" aria-checked="true" aria-label="Queue messages"></button></div>
-    <div class="row"><span><strong>Queue Jarvis Code follow-ups</strong><small>Messages to a working session wait until its current step ends. Off: they steer it right away.</small></span><button type="button" class="switch" role="switch" id="sw-code-queue" aria-checked="true" aria-label="Queue Jarvis Code follow-ups"></button></div>
+    <div class="row"><span><strong>Queue Eden Code follow-ups</strong><small>Messages to a working session wait until its current step ends. Off: they steer it right away.</small></span><button type="button" class="switch" role="switch" id="sw-code-queue" aria-checked="true" aria-label="Queue Eden Code follow-ups"></button></div>
     <div class="row"><span><strong>Screen awareness</strong><small>Jarvis keeps an eye on your screen so “what’s this error?” just works: a picture every 15 seconds, kept in memory for two minutes, never saved, only sent with your own questions. Needs Screen Recording.</small></span><button type="button" class="switch" role="switch" id="sw-screen" aria-checked="false" aria-label="Screen awareness"></button></div>
-    <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Jarvis Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
+    <div class="row"><span><strong>Heads-ups</strong><small>Time to leave, meetings starting, low battery, rain on the way, urgent email, Eden Code done or waiting</small></span><button type="button" class="switch" role="switch" id="sw-proactive" aria-checked="true" aria-label="Heads-ups"></button></div>
     <div class="row"><span><strong>Interrupt me for texts and email</strong><small>Urgent only: a VIP, or someone saying it’s urgent. Needs Full Disk Access. “Jarvis, what did I miss?” lists the rest.</small></span></div>
     <div class="segmented" id="interrupt-group" role="radiogroup" aria-label="Interrupt me for texts and email">
       <button type="button" role="radio" data-mode="urgent" aria-checked="true">Urgent only</button>
@@ -565,11 +566,11 @@
     </radialGradient>
   </defs>
 </svg>
-<section id="cc" class="deck jc" hidden aria-label="Jarvis Code">
+<section id="cc" class="deck jc" hidden aria-label="Eden Code">
   <aside class="jc-side glass-panel" id="jc-side" aria-label="Projects and sessions">
     <div class="jc-side-head">
       <span class="jc-mark" aria-hidden="true"></span>
-      <h2>Jarvis Code</h2>
+      <h2>Eden Code</h2>
       <button type="button" class="jc-icon" id="jc-new" aria-label="New session" title="New session">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
       </button>
@@ -582,6 +583,9 @@
     </div>
     <div class="jc-side-foot">
       <span id="deck-summary" class="jc-summary"></span>
+      <button type="button" class="jc-icon jc-eden-settings" id="jc-eden-settings" aria-label="Settings" title="Settings (⌘,)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
     </div>
   </aside>
 
@@ -591,7 +595,7 @@
         <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="3"/><path d="M8 3.5v13"/></svg>
       </button>
       <div class="jc-titles">
-        <h1 id="jc-title" data-no-i18n class="jc-title" title="Double-click to rename">Jarvis Code</h1>
+        <h1 id="jc-title" data-no-i18n class="jc-title" title="Double-click to rename">Eden Code</h1>
         <p id="jc-sub" data-no-i18n class="jc-sub"></p>
       </div>
       <div class="jc-capsule" role="toolbar" aria-label="Workbench">
@@ -603,7 +607,7 @@
         <button type="button" class="jc-tool" id="jc-more" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg width="17" height="17" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="4.5" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="15.5" r="1.5"/></svg></button>
       </div>
       <button id="cc-voice-head" class="jc-voice" type="button" aria-pressed="false"><svg class="jc-reactor " width="18" height="18" viewBox="0 0 40 40" aria-hidden="true"><circle class="halo" cx="20" cy="20" r="18.2"/><circle class="ring" cx="20" cy="20" r="14.6"/><circle class="inner" cx="20" cy="20" r="11.4"/><circle class="core" cx="20" cy="20" r="8.6"/><circle class="shine" cx="17.2" cy="16.8" r="3"/></svg><span id="cc-voice-label">Voice off</span></button>
-      <button id="cc-close" class="jc-icon" type="button" aria-label="Close Jarvis Code">
+      <button id="cc-close" class="jc-icon" type="button" aria-label="Close Eden Code">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
       </button>
     </header>
@@ -621,7 +625,7 @@
           <div class="jc-welcome" id="cc-welcome">
             <span class="jc-hero-mark" aria-hidden="true"></span>
             <h1 class="jc-hero-title">What are we building?</h1>
-            <p class="jc-hero-sub">Talk or type. Jarvis Code plans, edits, runs and explains, in <strong class="cc-project-name">your project</strong>.</p>
+            <p class="jc-hero-sub">Talk or type. Eden Code plans, edits, runs and explains, in <strong class="cc-project-name">your project</strong>.</p>
             <div class="jc-hero-actions">
               <button type="button" class="jc-btn filled" id="cc-start-voice"><svg class="jc-reactor on-accent" width="18" height="18" viewBox="0 0 40 40" aria-hidden="true"><circle class="halo" cx="20" cy="20" r="18.2"/><circle class="ring" cx="20" cy="20" r="14.6"/><circle class="inner" cx="20" cy="20" r="11.4"/><circle class="core" cx="20" cy="20" r="8.6"/><circle class="shine" cx="17.2" cy="16.8" r="3"/></svg>Start voice coding</button>
               <button type="button" class="jc-btn" id="cc-start-typed">New session</button>
@@ -656,10 +660,10 @@
         <div id="jc-attach" class="jc-attach" hidden></div>
         <ul id="jc-queue" class="jc-queue" hidden aria-label="Waiting to be sent"></ul>
         <form id="deck-composer" class="jc-composer" autocomplete="off">
-          <label for="deck-input" class="sr-only">Message Jarvis Code</label>
+          <label for="deck-input" class="sr-only">Message Eden Code</label>
           <div class="jc-composer-top">
             <button type="button" class="jc-orb" id="jc-orb" aria-expanded="false" aria-label="Composer options" title="Options: add, mode, model, effort, context"><svg class="jc-reactor" width="17" height="17" viewBox="0 0 40 40" aria-hidden="true"><circle class="halo" cx="20" cy="20" r="18.2"/><circle class="ring" cx="20" cy="20" r="14.6"/><circle class="inner" cx="20" cy="20" r="11.4"/><circle class="core" cx="20" cy="20" r="8.6"/><circle class="shine" cx="17.2" cy="16.8" r="3"/></svg></button>
-            <textarea id="deck-input" rows="1" placeholder="Ask Jarvis Code to plan, build or fix something…"></textarea>
+            <textarea id="deck-input" rows="1" placeholder="Ask Eden Code to plan, build or fix something…"></textarea>
             <button type="button" class="jc-steer" id="jc-steer" hidden title="Steer: send into the running step without stopping it (⌘↩)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13c0-5 3-8 8-8"/><path d="M8 2l3 3-3 3"/></svg><span>Steer</span></button>
             <button type="button" class="jc-round" id="jc-dictate" aria-pressed="false" aria-label="Dictate" title="Dictate: say it, then read it and send"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="5.6" y="1.8" width="4.8" height="8" rx="2.4"/><path d="M3.3 7.6a4.7 4.7 0 0 0 9.4 0M8 12.4v2"/></svg></button>
             <button type="submit" class="jc-send" aria-label="Send"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 2.5l5 5-1.1 1.1L8.8 5.5V13.5H7.2V5.5L4.1 8.6 3 7.5z"/></svg></button>
@@ -704,7 +708,7 @@
   <div id="jc-settings" class="jc-settings" hidden role="dialog" aria-modal="true" aria-labelledby="jcs-title">
     <div class="jcs-card glass-panel">
       <header class="jcs-head">
-        <h2 id="jcs-title">Jarvis Code settings</h2>
+        <h2 id="jcs-title">Eden Code settings</h2>
         <button type="button" class="jc-icon" id="jcs-close" aria-label="Close settings"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
       </header>
       <nav class="jcs-tabs" role="tablist" aria-label="Settings sections">

@@ -1,7 +1,7 @@
 """Voice control of the J.A.R.V.I.S. window itself: open and close its panels, change the
 look, turn hand control on and off.
 
-"Jarvis, open Jarvis Code", "close the browser", "switch to the Obsidian look", "turn on
+"Jarvis, open Eden Code", "close the browser", "switch to the Obsidian look", "turn on
 hand control" run at once without asking Claude; Claude has the same as tools for anything
 said less directly.
 """
@@ -23,7 +23,8 @@ PANELS = {
     "ios simulator": "simulator",
     "the simulator": "simulator",
     "iphone simulator": "simulator",
-    "jarvis code": "code",
+    "eden code": "code",
+    "jarvis code": "code",  # its name before it became Eden Code
     "the code panel": "code",
     "code panel": "code",
     "coding panel": "code",
@@ -48,13 +49,24 @@ PANELS = {
 }
 PANEL_NAMES = {
     "simulator": "the iOS Simulator",
-    "code": "Jarvis Code",
+    "code": "Eden Code",
     "browser": "the browser",
     "research": "the Research Center",
     "settings": "Settings",
     "brain": "the second brain",
     "activity": "the activity log",
     "accounts": "Tools & Accounts",
+}
+# Parts of Settings, by what people call them -> the window's id for the group and its name.
+SECTIONS = {
+    "email settings": ("mail-group", "email accounts"),
+    "email accounts": ("mail-group", "email accounts"),
+    "my email accounts": ("mail-group", "email accounts"),
+    "email setup": ("mail-group", "email accounts"),
+    "accessibility": ("a11y-group", "accessibility settings"),
+    "accessibility settings": ("a11y-group", "accessibility settings"),
+    "screen reader settings": ("a11y-group", "accessibility settings"),
+    "screen reader mode": ("a11y-group", "accessibility settings"),
 }
 LOOKS = {
     "orb": "orb",
@@ -88,6 +100,7 @@ class Command:
     name: str = ""  # the panel, look or tone (light | dark)
     on: bool = True  # open/close, hands on/off
     reply: str = ""
+    section: str = ""  # a part of Settings to land on (its group's id in the window)
 
 
 _OPEN = r"(?:open(?:\s+up)?|show(?:\s+me)?|bring\s+up|pull\s+up|launch|go\s+to|take\s+me\s+to)"
@@ -129,6 +142,9 @@ def parse(text: str) -> Command | None:
     if not t or len(t.split()) > 7:
         return None
     if m := re.fullmatch(_OPEN + r"\s+(?P<p>.+?)" + _SUFFIX, t):
+        part = SECTIONS.get(re.sub(r"^(?:the|my)\s+", "", m.group("p")))
+        if part:
+            return Command("panel", "settings", True, f"Opening {part[1]}.", part[0])
         panel = _panel(m.group("p"))
         if panel:
             return Command("panel", panel, True, f"Opening {PANEL_NAMES[panel]}.")
@@ -168,12 +184,18 @@ def build_server(apply: Apply):
 
     @tool(
         "show_panel",
-        "Open or close a part of the J.A.R.V.I.S. window: Jarvis Code (the coding panel), "
+        "Open or close a part of the J.A.R.V.I.S. window: Eden Code (the coding panel), "
         "the browser, the Research Center, Settings, the second brain (knowledge galaxy), "
-        "the activity log, or Tools & Accounts. open: false closes it.",
+        "the activity log, or Tools & Accounts. open: false closes it. section: with Settings, "
+        "land on one part of it: email (add or change an email account), accessibility "
+        "(screen-reader mode, sounds, keys).",
         {
             "type": "object",
-            "properties": {"panel": {"type": "string"}, "open": {"type": "boolean"}},
+            "properties": {
+                "panel": {"type": "string"},
+                "open": {"type": "boolean"},
+                "section": {"type": "string"},
+            },
             "required": ["panel"],
         },
     )
@@ -184,7 +206,14 @@ def build_server(apply: Apply):
                 f"No panel called {args.get('panel')}. Panels: {', '.join(PANEL_NAMES.values())}."
             )
         opening = args.get("open", True) is not False
-        await apply(Command("panel", panel, opening))
+        part = (
+            SECTIONS.get(str(args.get("section", "")).lower().strip())
+            if panel == "settings"
+            else None
+        )
+        if part is None and panel == "settings" and str(args.get("section", "")).strip():
+            part = SECTIONS.get(str(args.get("section", "")).lower().strip() + " settings")
+        await apply(Command("panel", panel, opening, section=part[0] if part else ""))
         return _text(f"{'Opened' if opening else 'Closed'} {PANEL_NAMES[panel]}.")
 
     @tool(
@@ -246,9 +275,9 @@ def build_server(apply: Apply):
 
 
 PROMPT = (
-    "\n- The window itself: show_panel opens or closes Jarvis Code, the browser, the "
+    "\n- The window itself: show_panel opens or closes Eden Code, the browser, the "
     "Research Center, Settings, the second brain, the activity log or Tools & Accounts; "
     "set_look changes the look; set_tone puts it in light (white) or dark mode; hand_control turns hand tracking on or off; voice_typing types what the user "
     "says wherever their cursor is (for writing by voice: an email, a message, a note). When the user "
-    "says 'open Jarvis Code' or 'open the browser', they mean these panels."
+    "says 'open Eden Code' or 'open the browser', they mean these panels."
 )

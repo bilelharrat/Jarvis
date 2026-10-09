@@ -1,4 +1,4 @@
-"""Jarvis Code's usage meter (codeusage): what each session, project and day cost, Claude's
+"""Eden Code's usage meter (codeusage): what each session, project and day cost, Claude's
 usage windows (the plan's five-hour and weekly limits, as Claude Code reports them), the
 owner's spending caps, and heads-ups at 50, 80 and 100% of each.
 
@@ -17,7 +17,7 @@ What it adds, and where:
   lets it go. A turn that uses up the day's or a project's cap interrupts the other
   sessions still working under that cap: Claude Code's own stop covers one session alone.
 - Window commands: cu_state (the meter), cu_cap (one session's or one project's own cap).
-- Settings (feature prefs, set from Jarvis Code settings): code_budget_session,
+- Settings (feature prefs, set from Eden Code settings): code_budget_session,
   code_budget_project (a day), code_budget_day, code_budget_alerts.
 - A loop that lets held sessions go at midnight, when the day's caps start over.
 - It never keeps a session from running because of its own trouble: a cap that can't be
@@ -63,15 +63,15 @@ prefs.register_feature_pref(PREF_DAY, 0.0, _cap)
 prefs.register_feature_pref(PREF_ALERTS, True)
 
 ZH = {
-    "This Jarvis Code session has used {percent}% of its {cap} limit.": "这个 Jarvis Code 会话已用掉其 {cap} 上限的 {percent}%。",
-    "This Jarvis Code session has reached its {cap} limit.": "这个 Jarvis Code 会话已达到 {cap} 的上限。",
+    "This Eden Code session has used {percent}% of its {cap} limit.": "这个 Eden Code 会话已用掉其 {cap} 上限的 {percent}%。",
+    "This Eden Code session has reached its {cap} limit.": "这个 Eden Code 会话已达到 {cap} 的上限。",
     "{project} has used {percent}% of its {cap} limit for today.": "{project} 今天已用掉 {cap} 上限的 {percent}%。",
     "{project} has reached its {cap} limit for today.": "{project} 今天已达到 {cap} 的上限。",
-    "Jarvis Code has used {percent}% of today's {cap} limit.": "Jarvis Code 今天已用掉 {cap} 上限的 {percent}%。",
-    "Jarvis Code has reached today's {cap} limit.": "Jarvis Code 今天已达到 {cap} 的上限。",
+    "Eden Code has used {percent}% of today's {cap} limit.": "Eden Code 今天已用掉 {cap} 上限的 {percent}%。",
+    "Eden Code has reached today's {cap} limit.": "Eden Code 今天已达到 {cap} 的上限。",
     "You've used {percent}% of Claude's {window}.": "你已用掉 Claude {window}的 {percent}%。",
     "You've reached Claude's {window}.": "你已用完 Claude 的{window}。",
-    "Jarvis Code spending": "Jarvis Code 花费",
+    "Eden Code spending": "Eden Code 花费",
     "Claude usage": "Claude 用量",
 }
 lang.add_texts(ZH)
@@ -84,9 +84,9 @@ HELD_PROJECT = (
     "on tomorrow."
 )
 HELD_DAY = (
-    "On hold: Jarvis Code has spent today's {cap} limit. Raise it in Usage, or it goes on tomorrow."
+    "On hold: Eden Code has spent today's {cap} limit. Raise it in Usage, or it goes on tomorrow."
 )
-STOPPED_DAY = "Stopped: Jarvis Code has spent today's {cap} limit."
+STOPPED_DAY = "Stopped: Eden Code has spent today's {cap} limit."
 STOPPED_PROJECT = "Stopped: {project} has spent its {cap} limit for today."
 CHANGED = "Spending limits changed; it goes on with the new ones."
 
@@ -274,9 +274,9 @@ class Meter:
         language = self.hub.language
         if scope == "day":
             template = (
-                "Jarvis Code has reached today's {cap} limit."
+                "Eden Code has reached today's {cap} limit."
                 if mark >= 100
-                else "Jarvis Code has used {percent}% of today's {cap} limit."
+                else "Eden Code has used {percent}% of today's {cap} limit."
             )
             text = lang.tr(template, language, cap=money(caps.day), percent=mark)
             key = f"code-budget:day:{self.usage.day()}:{mark}"
@@ -291,13 +291,13 @@ class Meter:
             key = f"code-budget:project:{name}:{self.usage.day()}:{mark}"
         else:
             template = (
-                "This Jarvis Code session has reached its {cap} limit."
+                "This Eden Code session has reached its {cap} limit."
                 if mark >= 100
-                else "This Jarvis Code session has used {percent}% of its {cap} limit."
+                else "This Eden Code session has used {percent}% of its {cap} limit."
             )
             text = lang.tr(template, language, cap=money(caps.session), percent=mark)
             key = f"code-budget:session:{task.id}:{mark}"
-        title = lang.tr("Jarvis Code spending", language)
+        title = lang.tr("Eden Code spending", language)
         self.hub.notify(Alert(key, "budget", title, text), speak_if_busy=False)
 
     def hear_rate_limit(self, info: Any) -> None:
@@ -438,7 +438,7 @@ class _Budget:
 
 def install(hub: Any) -> None:
     meter = Meter(hub)
-    hub.code_usage = meter  # (for the other Jarvis Code features and the tests)
+    hub.code_usage = meter  # (for the other Eden Code features and the tests)
     hub.tasks.option_hooks.append(_Budget(meter))
     hub.tasks.turn_gate = meter.gate
     hub.add_task_sink(meter.on_task_event)
@@ -450,7 +450,7 @@ def install(hub: Any) -> None:
         try:
             meter.hear_rate_limit(info)
         except Exception:
-            log.exception("Jarvis Code usage: couldn't take in a rate-limit report")
+            log.exception("Eden Code usage: couldn't take in a rate-limit report")
 
     hub.tasks.on_rate_limit = hear
     hub.add_event_sink(["prefs"], meter.on_prefs)

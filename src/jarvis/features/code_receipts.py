@@ -1,4 +1,4 @@
-"""Jarvis Code: every turn comes with proof, one card the owner can trust without the diff.
+"""Eden Code: every turn comes with proof, one card the owner can trust without the diff.
 
 When a session's turn that changed files ends, its receipt goes into the transcript (so
 the window, the iPhone's session view and "catch me up" all have it), as one entry:

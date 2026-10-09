@@ -1,4 +1,4 @@
-"""The Jarvis Code workbench: the panes beside a session, as in Claude Code's desktop app.
+"""The Eden Code workbench: the panes beside a session, as in Claude Code's desktop app.
 
 - Terminal: a real login shell in the project folder, on a pseudo-terminal that is its
   controlling terminal (Ctrl-C, Ctrl-Z, job control and password prompts work), drawn in
@@ -14,24 +14,26 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import fcntl
 import json
 import os
-import pty
 import signal
 import struct
 import subprocess
 import sys
 import tempfile
-import termios
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from . import computer
+from . import computer, osplat
 from .packaged import owner_env
+
+if not osplat.IS_WIN:
+    import fcntl
+    import pty
+    import termios
 
 Emit = Callable[..., None]
 MAX_FILE_BYTES = 300_000
@@ -52,7 +54,7 @@ STARTING_SECONDS = 60  # and a job it was still starting, at most this long to s
 Program = tuple[str, ...] | None  # what a process runs (its command line), None unreadable
 
 
-class Terminal:
+class PosixTerminal:
     """One login shell on a pseudo-terminal. Output goes to the windows in batches, at
     most OUTPUT_CHUNK every OUTPUT_EVERY seconds; if the windows fall far behind (a
     runaway `yes`), reading pauses and the programs writing simply wait."""
@@ -68,7 +70,7 @@ class Terminal:
         self._reading = self._writing = False
         master, slave = pty.openpty()
         try:
-            shell = os.environ.get("SHELL") or "/bin/zsh"
+            shell = osplat.default_shell()
             env = {**owner_env(os.environ), "TERM": "xterm-256color", "COLORTERM": "truecolor"}
             self.proc = subprocess.Popen(  # noqa: S603 - the user's own shell, in their project
                 [sys.executable, "-I", "-S", "-c", _WITH_TERMINAL, shell, "-l"],
@@ -252,6 +254,27 @@ def _session_members(session: int) -> list[int]:
     return members
 
 
+if osplat.IS_WIN:
+    from .winterm import WinTerminal as Terminal
+else:
+    Terminal = PosixTerminal
+
+
+class _WinAwake:
+    """Stands in for caffeinate's Popen on Windows."""
+
+    def poll(self):
+        return None
+
+    def terminate(self) -> None:
+        import ctypes
+
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+
+    def wait(self, timeout=None) -> None:
+        return None
+
+
 class Workbench:
     def __init__(self, emit: Emit) -> None:
         self.emit = emit
@@ -289,6 +312,12 @@ class Workbench:
 
     def set_awake(self, on: bool) -> bool:
         if on and not self.awake:
+            if osplat.IS_WIN:  # SetThreadExecutionState keeps the PC awake while this process runs
+                import ctypes
+
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
+                self._awake = _WinAwake()
+                return True
             # -w: it ends with this process too, however the app goes.
             self._awake = subprocess.Popen(["caffeinate", "-dimsu", "-w", str(os.getpid())])  # noqa: S607
         elif not on and self.awake:

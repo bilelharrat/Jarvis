@@ -1,6 +1,6 @@
-"""Other coding agents in Jarvis Code, over the Agent Client Protocol (acp): the owner adds an
+"""Other coding agents in Eden Code, over the Agent Client Protocol (acp): the owner adds an
 agent by its command (codex-acp, gemini --experimental-acp, opencode acp…), and starts a
-session with it in a project. It's an ordinary Jarvis Code session: its transcript, its
+session with it in a project. It's an ordinary Eden Code session: its transcript, its
 cards, its queue and Stop; what it can't do (switch models, rewind files, report its
 context or cost) says so.
 
@@ -54,7 +54,7 @@ class AgentBook:
             data = jsonstore.load_json(path, dict) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
-            log.warning("Jarvis Code agents: %s can't be read (%s)", path.name, exc)
+            log.warning("Eden Code agents: %s can't be read (%s)", path.name, exc)
             return
         agents = data.get("agents")
         for raw in (agents if isinstance(agents, list) else [])[:AGENTS_KEPT]:

@@ -1,4 +1,4 @@
-"""The pull requests Jarvis Code opened, or that a session's branch already had, kept in
+"""The pull requests Eden Code opened, or that a session's branch already had, kept in
 code_prs.json beside the settings: which session and folder each belongs to (a session's
 Claude Code id, so it's found again after a restart), what its checks last added up to,
 what's been done about it (fixes sent, comments handled, a conflict sent), and the owner's

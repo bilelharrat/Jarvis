@@ -370,7 +370,7 @@ async def test_a_runs_session_makes_no_heads_up_of_its_own_till_just_after_it_en
 
     runs = hub.code_runs
     runs.quiet[6] = 0.0  # running
-    assert runs.gate(Alert("code:6:123", "task", "t", "Jarvis Code finished in proj.")) is False
+    assert runs.gate(Alert("code:6:123", "task", "t", "Eden Code finished in proj.")) is False
     assert runs.gate(Alert("code-ok:6:124", "task", "t", "x")) is False
     assert runs.gate(Alert("code:61:125", "task", "t", "another session")) is True
     runs.quiet[6] = time.time() + 30  # just ended: its last turn's is the run's report
@@ -421,7 +421,7 @@ async def test_a_scheduled_run_asks_once_then_its_routine_starts_it(hub, project
     [routine] = hub.routines.items
     [job] = runs.jobs
     assert job.routine_id == routine.id and routine.prompt.startswith(
-        "Jarvis Code, without me, in proj:"
+        "Eden Code, without me, in proj:"
     )
     assert hub.tasks.tasks == {}
     started = []

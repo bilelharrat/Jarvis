@@ -6,7 +6,7 @@ The scope setting says what someone else's voice may do:
 
 - "Everything": anyone else is ignored (their request gets no answer at all);
 - "Only risky actions" (the default): anyone may ask, but approvals, sends, purchases,
-  deletes and Jarvis Code approvals need the owner's voice. Their words don't count as the
+  deletes and Eden Code approvals need the owner's voice. Their words don't count as the
   owner's own, so every gate asks first, and a spoken "yes" to a card from them isn't taken.
 
 A voice the check is unsure of (between the owner's threshold and the "someone else" bar,

@@ -50,6 +50,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from . import osplat
+
 log = logging.getLogger("jarvis")
 
 CALLS_PER_MINUTE = 120
@@ -489,13 +491,13 @@ def client_name(value: Any) -> str:
 def write_private(path: Path, text: str) -> None:
     """A file only the owner can read or write (0600), replaced whole."""
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:6]}")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | osplat.O_BINARY, 0o600)
     try:
-        os.fchmod(fd, 0o600)
+        osplat.fchmod(fd, 0o600)
         os.write(fd, text.encode())
     finally:
         os.close(fd)
-    os.replace(tmp, path)
+    osplat.replace_file(tmp, path)
 
 
 def quiet_server(config: Any) -> Any:

@@ -1,4 +1,4 @@
-// Jarvis Code's usage meter, its window helpers (web/features/code-usage.js). node --test tests/web/
+// Eden Code's usage meter, its window helpers (web/features/code-usage.js). node --test tests/web/
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';

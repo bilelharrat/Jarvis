@@ -46,7 +46,7 @@ final class NotificationTests: XCTestCase {
         let reason = try XCTUnwrap(NotificationActionHandler.request(actionIdentifier: "DENY_REASON", text: " send it tomorrow ", userInfo: approvalInfo()))
         XCTAssertEqual(reason.sent, .init(choice: "deny", feedback: "send it tomorrow"))
 
-        // A Jarvis Code plan card has no deny: its own no carries the reason.
+        // An Eden Code plan card has no deny: its own no carries the reason.
         let plan = approvalInfo(kind: "code_approval", choices: [["id": "plan_edits", "label": "Go"], ["id": "plan_keep", "label": "Keep planning"]])
         let keep = try XCTUnwrap(NotificationActionHandler.request(actionIdentifier: "DENY_REASON", text: "split step two", userInfo: plan))
         XCTAssertEqual(keep.sent, .init(choice: "plan_keep", feedback: "split step two"))

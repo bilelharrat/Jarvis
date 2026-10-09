@@ -1,4 +1,4 @@
-"""Model Router for Jarvis Code (code_router): the window's ✦ chip and Route popover
+"""Model Router for Eden Code (code_router): the window's ✦ chip and Route popover
 (web/features/code-router.js, with the router from the Model Router repo built into
 web/features/vendor/model-router.js) pick a model and effort for each message; this puts
 the session on them before the message goes.
@@ -26,7 +26,7 @@ the session on them before the message goes.
   session moves to the route's next pick and carries on from where it stopped (the hub's
   own move, hub._code_fallback), once per routed message. Anything else, or with nothing to
   move to, goes on to the hub's fallback as before. Off with code_router_auto_fallback, or
-  with Settings › Brain's fallback for Jarvis Code off.
+  with Settings › Brain's fallback for Eden Code off.
 - model_router_route {token, route?}: the rated route for a route_wait (no route: keep the
   message's own, as when the rating failed or changed nothing). Fast: never queued. One for a
   message still to come (sent after a question, as Bypass's) is kept EARLY_SECONDS; a late or
@@ -78,7 +78,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .. import lang, mac_tools, utility_model
+from .. import lang, mac_tools, osplat, utility_model
 from ..prefs import MODELS, register_feature_pref
 from ..tasks import EFFORTS, auto_capable
 
@@ -465,7 +465,7 @@ class Router:
         if hub.prefs.feature(ON_PREF) is not True or hub.prefs.feature(FALLBACK_PREF) is False:
             return ""
         if getattr(hub.prefs, "fallback_code", True) is False:
-            return ""  # the owner keeps Jarvis Code sessions where they are
+            return ""  # the owner keeps Eden Code sessions where they are
         last = self.routes.get(task.id)
         if not last or last["retried"] or time.monotonic() - last["at"] > FALLBACK_SECONDS:
             return ""
@@ -595,7 +595,7 @@ class Router:
             node, str(server), "--port", str(UI_PORT),
             cwd=str(folder), env=env,
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL, start_new_session=True,
+            stderr=asyncio.subprocess.DEVNULL, **osplat.group_popen_kwargs(),
         )  # fmt: skip
         for _ in range(30):
             await asyncio.sleep(0.2)

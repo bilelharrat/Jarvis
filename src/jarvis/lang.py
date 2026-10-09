@@ -243,7 +243,7 @@ def _prefix(text: str, options: tuple[str, ...]) -> str:
 
 
 def _named(name: str) -> str:
-    """A name after a Chinese verb: a Latin one gets a space ("正在打开 Jarvis Code")."""
+    """A name after a Chinese verb: a Latin one gets a space ("正在打开 Eden Code")."""
     return name if has_cjk(name[:1]) else f" {name}"
 
 
@@ -293,7 +293,7 @@ WAKE_HINT_ZH = "贾维斯"  # Whisper's hotword in Mandarin mode
 GREETINGS_ZH = ("你好", "您好", "哈喽", "哈啰", "嘿", "喂", "嗨")
 _LATIN_WORD = LazyPattern(r"[A-Za-z][A-Za-z'’]*")
 _GREETING_ONLY = LazyPattern(r"(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|hey|hi|hello|ok|okay|yo)")
-# "Jarvis Code" (贾维斯代码), the coding panel: a name JARVIS says itself, never a wake word.
+# "Eden Code" (贾维斯代码), the coding panel: a name JARVIS says itself, never a wake word.
 _PANEL_AFTER = LazyPattern(r"[ \t]*(?:代码|codes?(?![a-z]))", re.IGNORECASE)
 _LEAD_WORDS = LazyPattern(
     r"^(?:(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|嗯|hey|hi|hello|yo)[\s,，.。!！、]*"
@@ -301,7 +301,7 @@ _LEAD_WORDS = LazyPattern(
     re.IGNORECASE,
 )
 # The name said again in front of a command, but never the first word of the panel's name
-# ("贾维斯，Jarvis Code 做完了吗" keeps "Jarvis Code").
+# ("贾维斯，Eden Code 做完了吗" keeps "Eden Code").
 _LEADING_NAMES = LazyPattern(
     rf"^(?:(?:{_WAKE_ZH.pattern}|jarvis)(?![ \t]*(?:代码|codes?(?![a-z])))[\s,，.。!！、]*)+",
     re.IGNORECASE,
@@ -1106,7 +1106,7 @@ def parse_research_zh(text: str) -> research.Command | None:
 
 # The window's panels and looks by their Chinese names (ui.PANELS and ui.LOOKS in English).
 PANELS_ZH = {
-    "贾维斯代码": "code", "jarvis代码": "code", "代码面板": "code", "编程面板": "code",
+    "eden code": "code", "eden代码": "code", "贾维斯代码": "code", "jarvis代码": "code", "代码面板": "code", "编程面板": "code",
     "模拟器": "simulator", "ios模拟器": "simulator", "iphone模拟器": "simulator",
     "编程窗口": "code", "浏览器": "browser", "网页浏览器": "browser", "内置浏览器": "browser",
     "研究中心": "research", "bsh研究中心": "research", "市场明细": "research", "设置": "settings",
@@ -1116,7 +1116,7 @@ PANELS_ZH = {
     "账号": "accounts", "连接器": "accounts",
 }  # fmt: skip
 PANEL_NAMES_ZH = {
-    "code": "Jarvis Code", "browser": "浏览器", "research": "研究中心", "settings": "设置",
+    "code": "Eden Code", "browser": "浏览器", "research": "研究中心", "settings": "设置",
     "brain": "第二大脑", "activity": "活动记录", "accounts": "工具与账户", "simulator": "iOS 模拟器",
 }  # fmt: skip
 LOOKS_ZH = {
@@ -2157,13 +2157,13 @@ ZH_TEXTS: dict[str, str] = {
     "Added a calendar event": "添加了日历事件",
     "Changed a calendar event": "修改了日历事件",
     "Removed a calendar event": "删除了日历事件",
-    "Started Jarvis Code": "启动了 Jarvis Code",
+    "Started Eden Code": "启动了 Eden Code",
     "Started research": "开始了研究",
     "Checked background tasks": "查看了后台任务",
-    "Messaged Jarvis Code": "给 Jarvis Code 发了消息",
-    "Stopped Jarvis Code": "停止了 Jarvis Code",
-    "Listed Jarvis Code sessions": "列出了 Jarvis Code 会话",
-    "Resumed a Jarvis Code session": "恢复了一个 Jarvis Code 会话",
+    "Messaged Eden Code": "给 Eden Code 发了消息",
+    "Stopped Eden Code": "停止了 Eden Code",
+    "Listed Eden Code sessions": "列出了 Eden Code 会话",
+    "Resumed an Eden Code session": "恢复了一个 Eden Code 会话",
     "Opened a page in the browser": "在浏览器中打开了网页",
     "Read the browser page": "读取了浏览器页面",
     "Clicked in the browser": "在浏览器中点击了",
@@ -2242,20 +2242,20 @@ ZH_TEXTS: dict[str, str] = {
     "Earlier in this conversation: {seen}. An address like this can carry some of that out, so check it before you allow it.": "这次对话之前：{seen}。这样的网址可能把其中一些带出去，允许之前请先核对。",
     "A file from your Mac goes to this site with it, so check it before you allow it.": "你 Mac 上的文件会随之发送到这个网站，允许之前请先核对。",
     "You didn't ask for this in your own words (or name the project) just now.": "你刚才没有亲口提出这个请求（也没有说出项目名）。",
-    "Start Jarvis Code in {folder}?": "要在 {folder} 中启动 Jarvis Code 吗？",
+    "Start Eden Code in {folder}?": "要在 {folder} 中启动 Eden Code 吗？",
     "Can I start a coding session in {folder} for this?": "我可以为此在 {folder} 中开一个编程会话吗？",
     "Folder: {path}": "文件夹：{path}",
     "First request: {request}": "第一个请求：{request}",
-    "Pass this request to Jarvis Code in {folder}?": "要把这个请求转给 {folder} 中的 Jarvis Code 吗？",
+    "Pass this request to Eden Code in {folder}?": "要把这个请求转给 {folder} 中的 Eden Code 吗？",
     "Can I pass a request to the coding session in {folder}?": "我可以把一个请求转给 {folder} 中的编程会话吗？",
     "To the session in {path}:": "发给 {path} 中的会话：",
-    "Voice-code with Jarvis Code in {folder}?": "要在 {folder} 中用 Jarvis Code 语音编程吗？",
+    "Voice-code with Eden Code in {folder}?": "要在 {folder} 中用 Eden Code 语音编程吗？",
     "Can I switch you to voice coding in {folder} now?": "现在可以把你切换到 {folder} 的语音编程吗？",
     "Everything you say next goes to the session in {path}, until you say “exit code mode”.": "接下来你说的每句话都会发给 {path} 中的会话，直到你说“exit code mode”。",
     "Here's what I'd tell the coding session in {folder}: {text} Do you want this passed on?": "我会这样告诉 {folder} 中的编程会话：{text} 要转达吗？",
     "I'd like to give the coding session in {folder} a message. It's on your screen: do you want this passed on?": "我想给 {folder} 中的编程会话发一条消息。内容在你的屏幕上：要转达吗？",
     "You didn't ask to message this session in your own words just now.": "你刚才没有亲口要求给这个会话发消息。",
-    "Send this to Jarvis Code in {folder}?": "要把这个发给 {folder} 中的 Jarvis Code 吗？",
+    "Send this to Eden Code in {folder}?": "要把这个发给 {folder} 中的 Eden Code 吗？",
     "To session {id} in {path}:": "发给 {path} 中的会话 {id}：",
     # hub: approval cards and what's said with them
     "Allow": "允许",
@@ -2317,11 +2317,11 @@ ZH_TEXTS: dict[str, str] = {
     "{file} in Documents › Jarvis › Conversations": "{file}，位于 文稿 › Jarvis › Conversations",
     "Research ready": "研究完成",
     "Your research on {topic} is ready.": "你关于“{topic}”的研究已经完成了。",
-    "Jarvis Code finished in {folder}.": "Jarvis Code 在 {folder} 中完成了。",
-    "Jarvis Code stopped in {folder}.": "Jarvis Code 在 {folder} 中停下了。",
-    "Jarvis Code finished in {folder}. {result}": "Jarvis Code 在 {folder} 中完成了。{result}",
-    "Jarvis Code needs you": "Jarvis Code 需要你",
-    "Jarvis Code in {folder} needs your OK to {verb}.": "{folder} 中的 Jarvis Code 需要你同意才能{verb}。",
+    "Eden Code finished in {folder}.": "Eden Code 在 {folder} 中完成了。",
+    "Eden Code stopped in {folder}.": "Eden Code 在 {folder} 中停下了。",
+    "Eden Code finished in {folder}. {result}": "Eden Code 在 {folder} 中完成了。{result}",
+    "Eden Code needs you": "Eden Code 需要你",
+    "Eden Code in {folder} needs your OK to {verb}.": "{folder} 中的 Eden Code 需要你同意才能{verb}。",
     "{n} more heads-ups are on screen.": "还有{n}条提醒在屏幕上。",
     "Saved the transcript to {file}.": "对话记录已保存到 {file}。",
     "The J.A.R.V.I.S. window isn't open.": "J.A.R.V.I.S. 窗口没有打开。",
@@ -2354,16 +2354,16 @@ ZH_TEXTS: dict[str, str] = {
     "It's {organizer}'s invitation: they may be told you declined.": "这是{organizer}发来的邀请：对方可能会收到你谢绝的通知。",
     "It's an invitation: its organizer may be told you declined.": "这是别人发来的邀请：组织者可能会收到你谢绝的通知。",
     "Quit {app}?": "要退出 {app} 吗？",
-    "Start Jarvis Code in {folder} to: {task}?": "要在 {folder} 中启动 Jarvis Code 来做这件事吗：{task}？",
-    "Reopen a past Jarvis Code session in {folder}?": "要重新打开 {folder} 中过去的 Jarvis Code 会话吗？",
+    "Start Eden Code in {folder} to: {task}?": "要在 {folder} 中启动 Eden Code 来做这件事吗：{task}？",
+    "Reopen a past Eden Code session in {folder}?": "要重新打开 {folder} 中过去的 Eden Code 会话吗？",
     "Fetch {site}?": "要获取 {site} 吗？",
     "Start background research on: {topic}?": "要在后台研究这个主题吗：{topic}？",
-    "Voice-code with Jarvis Code in {folder} and send it: {request}?": "要在 {folder} 中用 Jarvis Code 语音编程，并发送：{request}吗？",
-    "Send Jarvis Code session {id} this: “{message}”?": "要把这句话发给 Jarvis Code 会话 {id} 吗：“{message}”？",
+    "Voice-code with Eden Code in {folder} and send it: {request}?": "要在 {folder} 中用 Eden Code 语音编程，并发送：{request}吗？",
+    "Send Eden Code session {id} this: “{message}”?": "要把这句话发给 Eden Code 会话 {id} 吗：“{message}”？",
     "Allow {tool}?": "要允许 {tool} 吗？",
-    # tasks.py: Jarvis Code's own cards
-    "Jarvis Code in {folder} wants to {verb}": "{folder} 中的 Jarvis Code 想要{verb}",
-    "Jarvis Code in {folder} has a plan": "{folder} 中的 Jarvis Code 做好了计划",
+    # tasks.py: Eden Code's own cards
+    "Eden Code in {folder} wants to {verb}": "{folder} 中的 Eden Code 想要{verb}",
+    "Eden Code in {folder} has a plan": "{folder} 中的 Eden Code 做好了计划",
     "run a command": "运行一条命令",
     "read a page on {domain}": "读取 {domain} 上的网页",
     "use the browser": "使用浏览器",
@@ -2498,7 +2498,7 @@ ZH_TEXTS: dict[str, str] = {
 }
 # Words that turn up inside the sentences above (panel and look names, reasons…).
 VALUES_ZH = {
-    "Jarvis Code": "Jarvis Code",
+    "Eden Code": "Eden Code",
     "the iOS Simulator": "iOS 模拟器",
     "the browser": "浏览器",
     "the Research Center": "研究中心",
@@ -2756,7 +2756,7 @@ def reply_instruction(lang: str) -> str:
         "the request, tool results, pages or emails are in. Switch to English only when the "
         "user asks you to."
         "\n- Keep names, tickers, product names, file and folder names, code and commands "
-        "exactly as they are (NVDA, Jarvis Code, bsh-research-center). Well-known names may "
+        "exactly as they are (NVDA, Eden Code, bsh-research-center). Well-known names may "
         "take their usual Chinese form (标普500, 纳斯达克, 英伟达); people's names you aren't "
         "sure of stay as written."
         "\n- Numbers the way a Mandarin speaker says them. Write digits with Chinese units "
@@ -2861,22 +2861,22 @@ SEND_ASKED_ZH = {
 }
 # Coding as something to do now, not a noun: "编程语言哪个最好学" asks for nothing.
 _CODING_ZH = r"(?:写代码|编程|写程序|敲代码|改代码)(?!语言|课|题|书|的|是|能力|水平|经验|工作|比赛|很|太|真|比|吗|么)"
-# "我们来写代码", "进入编程模式", "打开 Jarvis Code", "和我一起改这个项目".
+# "我们来写代码", "进入编程模式", "打开 Eden Code", "和我一起改这个项目".
 CODE_ASKED_ZH = _asks_zh(
     rf"(?:我们|咱们|我想|我要|我想要|让我们|来|一起|开始|现在)(?:一起)?来?(?:用语音)?{_CODING_ZH}"
     r"|(?:用语音|语音)(?:编程|写代码)(?!语言|课|题|书|的|是)"
     rf"|(?:进入|开始|启动|切换到|回到|继续)(?:语音)?{_CODING_ZH}(?:模式)?"
     r"|(?:进入|打开|开启|启动|切换到|回到)(?:语音)?(?:编程|代码)模式"
     r"|(?:代码|编程)模式(?:吧)?$"
-    r"|(?:打开|启动|开启|开)\s*(?:一个)?\s*(?:jarvis\s*code|claude\s*code|贾维斯代码)"
+    r"|(?:打开|启动|开启|开)\s*(?:一个)?\s*(?:eden\s*code|jarvis\s*code|claude\s*code|贾维斯代码)"
     r"|(?:和|跟)(?:我|你)一起(?:做|改|写|弄|搞)"
 )
 # A coding session by name, taken whole (never "Claude" out of "Claude Code 是什么").
 _SESSION_ZH = (
-    r"(?>jarvis\s*code|claude(?:\s*code)?|编程会话|代码会话|编程助手|那个会话|这个会话"
+    r"(?>eden\s*code|jarvis\s*code|claude(?:\s*code)?|编程会话|代码会话|编程助手|那个会话|这个会话"
     r"|会话\s*\d+|任务\s*\d+|第\s*\d+\s*个会话)"
 )
-# "告诉 Jarvis Code…", "跟会话2说…", "给 Claude Code 发…"; never "对 Claude Code 你怎么看"
+# "告诉 Eden Code…", "跟会话2说…", "给 Claude Code 发…"; never "对 Claude Code 你怎么看"
 # or "跟 Claude Code 比" (跟, 对 and 给 need a verb of saying after the name).
 MESSAGE_ASKED_ZH = _asks_zh(
     rf"(?:告诉|让|叫|通知|转告|提醒|回复|回答|问问?)(?:一下)?\s*{_SESSION_ZH}(?!\s*(?:的|是))"

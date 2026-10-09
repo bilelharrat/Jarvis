@@ -35,7 +35,7 @@ GREETINGS = {"hey", "hi", "okay", "ok", "yo", "hello", "hay"}
 GREETED_MISHEARINGS = {
     "travis", "harvis", "marvis", "garvis", "carvis", "darvis", "charvis", "jarbis", "jarviss",
 }  # fmt: skip
-# "Jarvis Code", the coding panel, is a name JARVIS says itself: never a wake word.
+# "Eden Code", the coding panel, is a name JARVIS says itself: never a wake word.
 _PANEL = {"code", "codes"}
 
 # An extra wake phrase besides the name, forgiving of how Whisper writes it ("wake up
@@ -226,10 +226,10 @@ def find_jarvis(text: str) -> tuple[bool, str]:
         if span is None:
             continue
         # The word after the name, by index: gathering all the rest for each name made
-        # "Jarvis Code, Jarvis Code, …" quadratic.
+        # "Eden Code, Eden Code, …" quadratic.
         following = tokens[next_token][1] if next_token < len(tokens) else ""
         if following in _PANEL and not re.search(r"\W$", pieces[span[1]]):
-            continue  # "Jarvis Code finished in…": the panel's name, likely its own voice
+            continue  # "Eden Code finished in…": the panel's name, likely its own voice
         before = "".join(pieces[: span[0]]).strip(" ,.!?;:-")
         after = "".join(pieces[span[1] + 1 :]).strip(" ,.!?;:-")
         before = re.sub(r"^(?:hey|hi|okay|ok|yo|hello)\b[\s,]*", "", before, flags=re.I).strip()

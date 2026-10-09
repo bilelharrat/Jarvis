@@ -154,6 +154,9 @@ class FakeProc:
 
 async def test_the_helper_runs_one_at_a_time_and_its_answer_is_read(monkeypatch):
     monkeypatch.setattr(desk, "_run", REAL_RUN)
+    monkeypatch.setattr(
+        desk, "ON_A_PC", False
+    )  # (this is the Mac's helper, a program started for each ask)
     calls = []
 
     async def spawn(*argv, **_kw):

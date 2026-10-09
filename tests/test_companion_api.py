@@ -1,5 +1,5 @@
 """The companion API the iPhone app uses (jarvis.companion_api), each endpoint with its
-auth, budget and caps: Jarvis Code, what came in, conversations, spending and routines.
+auth, budget and caps: Eden Code, what came in, conversations, spending and routines.
 A real hub (fake Claude), temp stores, and git only on temp folders."""
 
 import asyncio
@@ -271,7 +271,7 @@ async def test_the_state_says_whose_each_card_is_and_what_each_session_is_doing(
     mine = asyncio.create_task(hub.request_approval("Send this to Ann?", "Dinner at 8"))
     code = asyncio.create_task(
         hub.request_approval(
-            "Jarvis Code in epsilon wants to run a command",
+            "Eden Code in epsilon wants to run a command",
             "$ ls",
             [("allow", "Yes"), ("deny", "No")],
             {"task_id": 5, "tool": "Bash"},
@@ -285,7 +285,7 @@ async def test_the_state_says_whose_each_card_is_and_what_each_session_is_doing(
     assert by_source["code"]["task_id"] == 5 and by_source["code"]["detail"] == "$ ls"
     assert "rid" not in json.dumps(state["approvals"])  # the hub's own bookkeeping stays home
     sessions = {s["id"]: s for s in state["code_sessions"]}
-    assert set(sessions) == {1, 2, 3, 4, 5}  # research isn't a Jarvis Code session
+    assert set(sessions) == {1, 2, 3, 4, 5}  # research isn't an Eden Code session
     assert {i: s["status"] for i, s in sessions.items()} == {
         1: "working",
         2: "done",
@@ -309,7 +309,7 @@ async def test_the_state_says_whose_each_card_is_and_what_each_session_is_doing(
 async def test_a_no_with_a_reason_reaches_a_jarvis_code_card(api):
     asked = asyncio.create_task(
         api.hub.request_approval(
-            "Jarvis Code in alpha wants to run a command",
+            "Eden Code in alpha wants to run a command",
             "$ rm -rf build",
             [("allow", "Yes"), ("deny", "No")],
             {"task_id": 3},
@@ -330,7 +330,7 @@ async def test_a_no_with_a_reason_reaches_a_jarvis_code_card(api):
     assert result.startswith("deny:keep build, delete dist") and len(result) == len("deny:") + 2000
 
 
-# ── Jarvis Code ──
+# ── Eden Code ──
 
 
 def test_sessions_list_with_branch_model_cost_and_what_they_wait_on(api, tmp_path):

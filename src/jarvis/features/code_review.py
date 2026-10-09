@@ -1,4 +1,4 @@
-"""Jarvis Code's Review: what a session changed, read by Claude for real problems, the
+"""Eden Code's Review: what a session changed, read by Claude for real problems, the
 findings pinned on the Changes pane's lines, each with "Fix this" (and "Fix all") to hand
 back to the session.
 

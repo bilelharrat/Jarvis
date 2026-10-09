@@ -46,7 +46,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import jsonstore
+from . import jsonstore, osplat
 from .interrupt_learning import ReactionLearner, masked
 from .lang import LazyPattern
 from .prefs import APP_SUPPORT
@@ -2300,7 +2300,8 @@ def _span(minutes: int, lang: str) -> str:
     return f"{minutes} minutes"
 
 
-def _access_line(what: str, state: str) -> str:
+def _access_line(what: str, state: str, mac: bool | None = None) -> str:
+    mac = osplat.IS_MAC if mac is None else mac
     access = (
         FULL_DISK_ACCESS
         if what == "Texts"
@@ -2308,11 +2309,16 @@ def _access_line(what: str, state: str) -> str:
     )
     return {
         "watching": f"{what}: watching.",
-        "off": f"{what}: not watched.",
+        "off": f"{what}: not watched." if mac else f"{what}: not set up on this PC yet.",
         "starting": f"{what}: starting.",
         "paused": f"{what}: not watched while interruptions are turned off in Settings.",
-        "not_found": f"{what}: no Mail data found (Mail isn't set up, or it needs Full Disk "
-        "Access: System Settings > Privacy & Security > Full Disk Access).",
+        "not_found": (
+            f"{what}: no Mail data found (Mail isn't set up, or it needs Full Disk "
+            "Access: System Settings > Privacy & Security > Full Disk Access)."
+            if mac
+            else f"{what}: no email account is set up yet, or its mail hasn't been read yet "
+            "(Settings, then Email accounts)."
+        ),
         "no_access": f"{what}: {access}",
         "error": f"{what}: couldn't be read last time; trying again.",
     }.get(state, "")
@@ -2446,7 +2452,7 @@ def build_server(watch: Interrupter, gate: Gate):
 
 
 PROMPT = (
-    "\n- Interruptions: you watch new texts and email on the Mac and speak up at once only "
+    "\n- Interruptions: you watch new texts and email on this computer and speak up at once only "
     "for what's urgent (a VIP, 'urgent' or 'call me', several messages in a row, a flagged "
     "email); the rest waits. When the user asks what they missed, call what_did_i_miss and "
     "sum it up briefly, most important first, in the user's language; when it says an "

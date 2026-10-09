@@ -1,4 +1,4 @@
-// Claude Code's questions in Jarvis Code, the sheet's helpers (web/features/code-ask.js).
+// Claude Code's questions in Eden Code, the sheet's helpers (web/features/code-ask.js).
 // node --test tests/web/
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

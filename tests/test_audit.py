@@ -1,4 +1,4 @@
-"""Jarvis Code's permission audit (every decision, and why) and the read-only commands
+"""Eden Code's permission audit (every decision, and why) and the read-only commands
 that run without asking."""
 
 import pytest

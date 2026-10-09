@@ -1,4 +1,4 @@
-"""Jarvis Code sessions at their limits (the stress sweep): messages Claude Code never took
+"""Eden Code sessions at their limits (the stress sweep): messages Claude Code never took
 up, crashes with a queue waiting, quitting, a full queue, bursts of switches and changes,
 steps past the kept transcript, and more sessions than should stay open."""
 

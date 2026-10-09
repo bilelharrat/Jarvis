@@ -21,7 +21,7 @@ A feature registers what it adds through the hub instead of editing its core tab
 - hub.add_notify_sink(sink) / hub.add_approval_sink(sink, resolved=...): hear every heads-up
   shown, and every approval card put up and taken down (a phone or chat can then answer
   it through hub.resolve).
-- hub.add_task_sink(sink): hear every Jarvis Code and research event (kind, data).
+- hub.add_task_sink(sink): hear every Eden Code and research event (kind, data).
 - hub.add_turn_sink(sink): hear each request JARVIS finished ({rid, request, own, steps:
   the tools it ran, reply}); none of an incognito conversation's.
 - hub.add_briefing_note(note, section=""): a line of facts for the morning briefing's
@@ -30,7 +30,7 @@ A feature registers what it adds through the hub instead of editing its core tab
   feature: the owner's sections, order and facts); hub.briefing_request() gives the
   request, and the private data it carries, wherever a briefing is asked for.
 - hub.voicecode.hooks: words said while voice coding, heard before its own commands.
-- hub.tasks.session_extras: add to a Jarvis Code session's options (tool servers, allowed
+- hub.tasks.session_extras: add to an Eden Code session's options (tool servers, allowed
   tools) as they're made.
 - hub.add_notify_gate(gate): hold heads-ups back; one the gate returns False for doesn't
   show at all (the menu bar's "Pause heads-ups for an hour").

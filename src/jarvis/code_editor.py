@@ -1,4 +1,4 @@
-"""Jarvis Code's editor: a project's files, read to be edited and written back.
+"""Eden Code's editor: a project's files, read to be edited and written back.
 
 - Only files inside the project, never a credentials file or private folder (by the name
   asked for or the one a link points to), and text only: UTF-8, no NULs.

@@ -346,3 +346,20 @@ def test_cards_name_a_links_words_in_chinese_too():
     from jarvis import lang
 
     assert lang.translate(hubmod.LINK_WORDS, "zh") == "链接写下的请求"
+
+
+def test_a_pc_talks_on_ctrl_alt_j_and_keeps_windows_own_keys_for_windows(monkeypatch):
+    """J is the key a finger finds by touch, and Ctrl+Alt+<key> is how Windows starts a program
+    from the keyboard. Alt+Space there is every window's menu, so it can't be taken."""
+    monkeypatch.setattr(shell.osplat, "IS_WIN", True)
+    assert shell.clean_accelerator("Control+Alt+J") == "Control+Alt+J"
+    assert shell.clean_accelerator("Alt+Space") is None  # (a Mac's choice, a PC's window menu)
+    assert shell.clean_accelerator("Control+Alt+Delete") is None
+    assert shell.clean_accelerator("Control+Alt+Space") == "Control+Alt+Space"
+    monkeypatch.setattr(shell.osplat, "IS_WIN", False)
+    assert shell.clean_accelerator("Alt+Space") == "Alt+Space"
+    assert shell.clean_accelerator("Control+Alt+Delete") == "Control+Alt+Delete"
+
+
+def test_the_default_talk_key_follows_the_computer():
+    assert shell.ASK_DEFAULT == ("Control+Alt+J" if shell.osplat.IS_WIN else "Alt+Space")

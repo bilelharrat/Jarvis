@@ -76,6 +76,10 @@
       "$1 已被其他应用占用，请换一个。"
     ],
     [
+      "^(.+) is used by another program, so J\\.A\\.R\\.V\\.I\\.S\\. listens for (.+) instead\\. You can pick another key below\\.$",
+      "$1 已被其他程序占用，所以 J.A.R.V.I.S. 改为监听 $2。你也可以在下方选择别的按键。"
+    ],
+    [
       "^(.+) belongs to macOS\\. Pick another\\.$",
       "$1 是 macOS 自带的快捷键，请换一个。"
     ],
@@ -84,8 +88,8 @@
       "轻点光球，或按下 $1"
     ],
     [
-      "^No Jarvis Code project named “(.+)”\\.$",
-      "没有名为“$1”的 Jarvis Code 项目。"
+      "^No Eden Code project named “(.+)”\\.$",
+      "没有名为“$1”的 Eden Code 项目。"
     ],
     [
       "^This Mac wakes every day at (.+)\\.$",

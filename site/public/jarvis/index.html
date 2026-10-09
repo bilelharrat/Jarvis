@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Eden: J.A.R.V.I.S. and Eden Messenger</title>
-<meta name="description" content="Two apps from Eden. J.A.R.V.I.S. runs your Mac by voice. Eden Messenger keeps your team's conversations and calls private. Download both for Mac and iPhone.">
-<meta property="og:title" content="Eden: J.A.R.V.I.S. and Eden Messenger">
-<meta property="og:description" content="Your Mac at your word. Your team in private.">
+<title>Eden: Eden Code and J.A.R.V.I.S. for Mac and Windows</title>
+<meta name="description" content="Two apps from Eden. Eden Code plans, builds and fixes in your projects. J.A.R.V.I.S. runs your computer by voice, and comes with Eden Code. Download both for Mac and Windows, and J.A.R.V.I.S. Daredevil for Windows, for people who are blind or have low vision.">
+<meta property="og:title" content="Eden: Eden Code and J.A.R.V.I.S.">
+<meta property="og:description" content="Your computer at your word. Your team in private.">
 <meta property="og:image" content="/jarvis/eden-icon.png">
-<link rel="icon" type="image/png" href="/jarvis/eden-favicon.png">
+<link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
 <link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -58,6 +58,14 @@
 
   .apps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding-bottom: 24px; scroll-margin-top: 16px; }
   .app { padding: 36px; border-radius: 24px; display: flex; flex-direction: column; gap: 18px; scroll-margin-top: 16px; }
+  .app.daredevil { grid-column: 1 / -1; background: #000; color: #fff; border: 3px solid #ffd60a; box-shadow: 0 16px 44px -18px rgba(0, 0, 0, 0.7); }
+  .app.daredevil h2 { color: #ffd60a; }
+  .app.daredevil p, .app.daredevil li { color: #fff; }
+  .app.daredevil .kicker { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #ffd60a; }
+  .app.daredevil ul { margin: 0; padding: 0 0 0 22px; display: flex; flex-direction: column; gap: 8px; }
+  .app.daredevil li::marker { color: #ffd60a; }
+  .app.daredevil .meta { color: #e6e6e6; }
+  .app.daredevil a:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   .app.jarvis { background: var(--glass); border: 1px solid var(--line); box-shadow: inset 0 1px 0 var(--rim); }
   .app.eden { background: linear-gradient(180deg, rgba(14, 39, 71, 0.55), rgba(14, 39, 71, 0.22)); border: 1px solid rgba(140, 170, 220, 0.18); box-shadow: inset 0 1px 0 var(--rim); }
   .app h2 { margin: 0 0 6px; font: 400 36px/1.15 var(--serif); font-variation-settings: "opsz" 36; }
@@ -81,6 +89,12 @@
   .btn svg { width: 19px; height: 19px; flex: none; }
   .btn.blue { color: #fff; background: linear-gradient(180deg, var(--blue), var(--blue-2)); box-shadow: 0 12px 34px -10px rgba(61, 155, 255, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
   .btn.white { color: var(--navy); background: var(--ink); box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 #fff; }
+  .btn.yellow { color: #000; background: #ffd60a; font-weight: 700; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+  .btn.yellow:hover { background: #ffe55c; }
+  .btn.outline-yellow { color: #ffd60a; border: 2px solid #ffd60a; background: transparent; font-weight: 600; }
+  .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .skip { position: absolute; left: 12px; top: -64px; z-index: 10; padding: 10px 16px; border-radius: 10px; background: var(--ink); color: var(--bg); font-weight: 600; text-decoration: none; }
+  .skip:focus { top: 12px; }
   .btn.ghost { font-weight: 500; color: var(--ink); border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.05); }
   .meta { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 
@@ -98,6 +112,8 @@
   th { text-align: left; padding: 18px 24px; font-weight: 500; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
   td { padding: 18px 24px; border-top: 1px solid var(--line); color: var(--ink-2); }
   td:first-child { font-weight: 600; color: var(--ink); }
+  tbody th { text-align: left; padding: 18px 24px; border-top: 1px solid var(--line); font: 600 16px var(--sans); letter-spacing: normal; text-transform: none; color: var(--ink); }
+  tbody th small { font-weight: 400; color: var(--muted); }
   td a { color: var(--link); }
   .get { padding-bottom: 72px; }
 
@@ -117,17 +133,18 @@
 </style>
 </head>
 <body>
+<a class="skip" href="#apps">Skip to the downloads</a>
 <div class="wrap">
   <header>
     <a class="brand" href="/"><span class="mark"><svg width="18" height="19" viewBox="43 81 410 422" fill="#fff" stroke="#fff" stroke-width="18" stroke-linejoin="round" aria-hidden="true"><polygon points="211,93 314,90 444,236 343,353 249,352 333,251"/><polygon points="252,235 160,346 282,491 186,494 52,350 151,234"/></svg></span>Eden</a>
-    <nav><a class="home" href="/">Eden home</a><a href="#jarvis">J.A.R.V.I.S.</a><a href="#messenger">Messenger</a><a class="keep" href="#get">Download</a><a class="signin" href="/signin">Sign in to Eden</a></nav>
+    <nav aria-label="Site"><a class="home" href="/">Eden home</a><a href="#eden-code">Eden Code</a><a href="#jarvis">J.A.R.V.I.S.</a><a href="#daredevil">Daredevil</a><a class="keep" href="#get">Download</a><a class="signin" href="/signin">Sign in to Eden</a></nav>
   </header>
 
   <main>
     <div class="hero">
       <p class="eyebrow">Two apps from Eden</p>
-      <h1>Your Mac at your word.<br>Your team in private.</h1>
-      <p class="lede">J.A.R.V.I.S. runs your Mac by voice. Eden Messenger keeps your team's conversations and calls between the people in them.</p>
+      <h1>Your code, built with you.<br>Your computer at your word.</h1>
+      <p class="lede">Eden Code plans, edits, runs and explains in your own projects. J.A.R.V.I.S. runs your computer by voice, and comes with Eden Code. For Mac and Windows.</p>
       <div class="hero-cta">
         <a class="btn blue" href="/signin">Sign in to Eden</a>
         <span class="note">Eden, the chat: one conversation for every model, in your browser.</span>
@@ -135,17 +152,42 @@
     </div>
 
     <div class="apps" id="apps">
+      <article class="app eden" id="eden-code">
+        <img class="app-icon" src="/jarvis/eden-code.png" alt="" width="100" height="100">
+        <div>
+          <h2>Eden Code</h2>
+          <p>A coding agent for your projects: it plans, edits, runs your tests and explains, and asks before anything risky.</p>
+        </div>
+        <div class="cta">
+          <div class="buttons">
+            <a class="btn white" href="/eden-code/download">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.83.86-3.59 2.18-1.53 2.66-.39 6.6 1.1 8.76.73 1.06 1.6 2.24 2.73 2.2 1.1-.04 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.41 1.2-2.47-.03-.01-2.3-.88-2.33-3.52zM14.2 6.12c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.31-.56.64-1.05 1.67-.92 2.66.97.08 1.96-.49 2.56-1.21z"/></svg>
+              Download for Mac<span class="sr">: Eden Code</span>
+            </a>
+            <a class="btn white" href="/eden-code/windows">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.6 10.4 4.5v7H3zM11.5 4.35 21 3v8.5h-9.5zM3 12.5h7.4v7L3 18.4zM11.5 12.5H21V21l-9.5-1.35z"/></svg>
+              Download for Windows<span class="sr">: Eden Code</span>
+            </a>
+          </div>
+          <span class="meta">Mac: Apple silicon · macOS 14 or later. Windows: 10 or 11, 64-bit (beta, not signed yet). Also comes with J.A.R.V.I.S.</span>
+        </div>
+      </article>
+
       <article class="app jarvis" id="jarvis">
         <div class="orb" aria-hidden="true"><span></span></div>
         <div>
           <h2>J.A.R.V.I.S.</h2>
-          <p>A voice assistant for your Mac. Say what you need: your calendar and mail, messages, the web, your files and your code.</p>
+          <p>A voice assistant for your computer. Say what you need: your calendar and mail, the web and your files (and, on a Mac, your messages). Eden Code comes with it.</p>
         </div>
         <div class="cta">
           <div class="buttons">
             <a class="btn blue" href="/jarvis/download" data-download>
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.83.86-3.59 2.18-1.53 2.66-.39 6.6 1.1 8.76.73 1.06 1.6 2.24 2.73 2.2 1.1-.04 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.41 1.2-2.47-.03-.01-2.3-.88-2.33-3.52zM14.2 6.12c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.31-.56.64-1.05 1.67-.92 2.66.97.08 1.96-.49 2.56-1.21z"/></svg>
-              Download for Mac
+              Download for Mac<span class="sr">: J.A.R.V.I.S.</span>
+            </a>
+            <a class="btn blue" href="/jarvis/windows" data-download>
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.6 10.4 4.5v7H3zM11.5 4.35 21 3v8.5h-9.5zM3 12.5h7.4v7L3 18.4zM11.5 12.5H21V21l-9.5-1.35z"/></svg>
+              Download for Windows<span class="sr">: J.A.R.V.I.S.</span>
             </a>
             <a class="btn ghost" href="/jarvis/iphone">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/></svg>
@@ -153,60 +195,67 @@
             </a>
           </div>
           <span class="meta" data-meta>Version 0.1.1 · 305 MB · Apple silicon · macOS 14 or later</span>
+          <span class="meta" data-win="jarvis">Windows 10 or 11, 64-bit · beta, not signed yet</span>
         </div>
       </article>
 
-      <article class="app eden" id="messenger">
-        <img class="app-icon" src="/jarvis/eden-messenger.png" alt="" width="100" height="100">
+      <article class="app daredevil" id="daredevil" aria-labelledby="daredevilH">
+        <p class="kicker">For Windows · beta</p>
         <div>
-          <h2>Eden Messenger</h2>
-          <p>Messages and calls for your team, encrypted end to end, on your Mac, iPhone and iPad.</p>
+          <h2 id="daredevilH">J.A.R.V.I.S. Daredevil</h2>
+          <p>J.A.R.V.I.S. for people who are blind or have low vision. Talk to it, or use only the keyboard. It works with NVDA, JAWS and Narrator, and shows large yellow type on black.</p>
         </div>
+        <ul>
+          <li>Reads your email and writes it as you dictate, in Outlook, in your own signature and font. You can say the punctuation.</li>
+          <li>Reads documents, PDFs, scans and photos aloud, a part at a time, and describes pictures.</li>
+          <li>Tells you when email that matters arrives. Calendar, reminders and your files, by voice.</li>
+        </ul>
         <div class="cta">
           <div class="buttons">
-            <a class="btn white" href="/messenger/download">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.2 1.8-3.26 1.88-3.31-1.03-1.5-2.62-1.7-3.18-1.73-1.35-.14-2.64.8-3.33.8-.69 0-1.74-.78-2.87-.76-1.47.02-2.83.86-3.59 2.18-1.53 2.66-.39 6.6 1.1 8.76.73 1.06 1.6 2.24 2.73 2.2 1.1-.04 1.51-.71 2.84-.71 1.32 0 1.7.71 2.86.69 1.18-.02 1.93-1.07 2.65-2.13.84-1.22 1.18-2.41 1.2-2.47-.03-.01-2.3-.88-2.33-3.52zM14.2 6.12c.6-.73 1.01-1.75.9-2.76-.87.04-1.92.58-2.54 1.31-.56.64-1.05 1.67-.92 2.66.97.08 1.96-.49 2.56-1.21z"/></svg>
-              Download for Mac
+            <a class="btn yellow" href="/daredevil/windows" data-download>
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.6 10.4 4.5v7H3zM11.5 4.35 21 3v8.5h-9.5zM3 12.5h7.4v7L3 18.4zM11.5 12.5H21V21l-9.5-1.35z"/></svg>
+              Download J.A.R.V.I.S. Daredevil for Windows
             </a>
-            <a class="btn ghost" href="/messenger/iphone">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/></svg>
-              Get it for iPhone
-            </a>
+            <a class="btn outline-yellow" href="/daredevil">How it works, and the quick-start guide</a>
           </div>
-          <span class="meta">Your iMessages come in through the Mac app · your admin approves new accounts</span>
+          <span class="meta" data-win="daredevil">Windows 10 or 11, 64-bit · beta, not signed yet: if Windows says “Windows protected your PC”, choose More info, then Run anyway.</span>
         </div>
       </article>
+
     </div>
+
+    <section>
+      <h2>Eden Code</h2>
+      <p class="sub">Describe the work. It does it in your project, and shows you every change.</p>
+      <div class="features eden-features">
+        <div class="feature"><h3>Plans, then builds</h3><p>Plan mode first when you want it, then edits, runs and tests, with checkpoints you can rewind.</p></div>
+        <div class="feature"><h3>Every change, reviewed</h3><p>Changes by hunk with line comments, a Git panel, pull requests with CI watching and fixes.</p></div>
+        <div class="feature"><h3>Sees its own work</h3><p>Starts your dev server and checks the page after each change, in its own browser.</p></div>
+      </div>
+    </section>
 
     <section>
       <h2>J.A.R.V.I.S.</h2>
       <p class="sub">Talk, type or wave. It takes it from there.</p>
       <div class="features">
-        <div class="feature"><h3>Just talk</h3><p>Say "Jarvis" from across the room, or press ⌥ Space. It answers out loud and lets you talk over it.</p></div>
-        <div class="feature"><h3>Your day, handled</h3><p>Calendar, mail, messages and a morning brief, with a card to confirm anything that sends or pays.</p></div>
-        <div class="feature"><h3>Jarvis Code</h3><p>A coding agent for your projects: plans, edits, reviews and checkpoints you can rewind.</p></div>
-      </div>
-    </section>
-
-    <section>
-      <h2>Eden Messenger</h2>
-      <p class="sub">Built for a firm's conversations, not an ad business.</p>
-      <div class="features eden-features">
-        <div class="feature"><h3>Encrypted end to end</h3><p>Messages are locked on your device and opened only on the devices of the people in the chat.</p></div>
-        <div class="feature"><h3>Calls that connect</h3><p>Voice and video calls ring like a phone call and get through office Wi-Fi and cellular alike.</p></div>
-        <div class="feature"><h3>Only your people</h3><p>Anyone can ask to join; your administrator approves each account before it can see a thing.</p></div>
+        <div class="feature"><h3>Just talk</h3><p>Say "Jarvis" from across the room, or press ⌥ Space on a Mac or Ctrl+Alt+J on Windows. It answers out loud and lets you talk over it.</p></div>
+        <div class="feature"><h3>Your day, handled</h3><p>Calendar, mail, reminders and a morning brief (messages too, on a Mac), with a card to confirm anything that sends or pays.</p></div>
+        <div class="feature"><h3>Eden Code included</h3><p>Click Code in the dock, or say "Jarvis, let's code": Eden Code opens on the same sessions.</p></div>
       </div>
     </section>
 
     <section class="get" id="get">
       <h2>Get them</h2>
-      <p class="sub">Start with the Mac; the iPhone apps pick up from there.</p>
+      <p class="sub">Both for Mac and Windows; J.A.R.V.I.S. brings Eden Code with it. The Windows apps are betas and are not signed yet: Edge may say the file “isn’t commonly downloaded” (three dots, Keep, Keep anyway) and Windows may say “Windows protected your PC” the first time (More info, then Run anyway).</p>
       <div class="table-box">
         <table>
-          <thead><tr><th>App</th><th>Mac</th><th>iPhone and iPad</th></tr></thead>
+          <caption class="sr">Downloads for each app, by system</caption>
+          <thead><tr><th scope="col">App</th><th scope="col">Mac</th><th scope="col">Windows</th><th scope="col">iPhone and iPad</th></tr></thead>
           <tbody>
-            <tr><td>J.A.R.V.I.S.</td><td><a href="/jarvis/download">Download for Mac</a></td><td><a href="/jarvis/iphone">Get it for iPhone</a></td></tr>
-            <tr><td>Eden Messenger</td><td><a href="/messenger/download">Download for Mac</a></td><td><a href="/messenger/iphone">Get it for iPhone</a></td></tr>
+            <tr><th scope="row">Ask Eden <small>(beta, not signed yet: on a Mac, Control-click it and choose Open the first time)</small></th><td><a href="/download/mac">Download for Mac<span class="sr">: Ask Eden</span></a></td><td><a href="/download/windows">Download for Windows<span class="sr">: Ask Eden</span></a></td><td>–</td></tr>
+            <tr><th scope="row">Eden Code</th><td><a href="/eden-code/download">Download for Mac<span class="sr">: Eden Code</span></a></td><td><a href="/eden-code/windows">Download for Windows<span class="sr">: Eden Code</span></a></td><td>–</td></tr>
+            <tr><th scope="row">J.A.R.V.I.S.</th><td><a href="/jarvis/download">Download for Mac<span class="sr">: J.A.R.V.I.S.</span></a></td><td><a href="/jarvis/windows">Download for Windows<span class="sr">: J.A.R.V.I.S.</span></a></td><td><a href="/jarvis/iphone">Get it for iPhone</a></td></tr>
+            <tr><th scope="row">J.A.R.V.I.S. Daredevil <small>(for people who are blind or have low vision)</small></th><td>–</td><td><a href="/daredevil/windows">Download for Windows<span class="sr">: J.A.R.V.I.S. Daredevil</span></a></td><td>–</td></tr>
           </tbody>
         </table>
       </div>
@@ -215,7 +264,7 @@
 
   <footer>
     <span>© <span data-year>2026</span> Eden</span>
-    <span class="links"><a href="/jarvis/download">J.A.R.V.I.S. for Mac</a><a href="/messenger/download">Eden Messenger for Mac</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></span>
+    <span class="links"><a href="/eden-code/download">Eden Code for Mac</a><a href="/eden-code/windows">Eden Code for Windows</a><a href="/jarvis/download">J.A.R.V.I.S. for Mac</a><a href="/jarvis/windows">J.A.R.V.I.S. for Windows</a><a href="/daredevil">J.A.R.V.I.S. Daredevil</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></span>
   </footer>
 </div>
 <script>
@@ -225,6 +274,16 @@
     if (!latest || !latest.version) return;
     const mb = latest.size ? `${Math.round(latest.size / 1e6)} MB · ` : '';
     document.querySelectorAll('[data-meta]').forEach((n) => { n.textContent = `Version ${latest.version} · ${mb}Apple silicon · macOS 14 or later`; });
+  }).catch(() => {});
+  // The Windows installers' versions and sizes (the Worker's own list: /windows/latest.json).
+  fetch('/windows/latest.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((info) => {
+    if (!info) return;
+    document.querySelectorAll('[data-win]').forEach((n) => {
+      const one = info[n.dataset.win];
+      if (!one || !one.version) return;
+      const mb = one.size ? `${Math.round(one.size / 1e6)} MB · ` : '';
+      n.textContent = `Version ${one.version} · ${mb}Windows 10 or 11, 64-bit · beta, not signed yet: if Windows says “Windows protected your PC”, choose More info, then Run anyway.`;
+    });
   }).catch(() => {});
   // A link into Eden (askeden.com/#tasks, #account, an invitation #delegate=… or #space=…) opened
   // signed out lands here: signing in goes back to it (/signin?return=, checked again there).

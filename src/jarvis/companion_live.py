@@ -1,6 +1,6 @@
 """Live Activities on the iPhone's Lock Screen and Dynamic Island, kept current by the Mac.
 
-The app starts one for something it follows (a Jarvis Code session, a conversation JARVIS
+The app starts one for something it follows (an Eden Code session, a conversation JARVIS
 holds for the owner, a phone call, a video being summarized) and registers its push token
 (POST /api/live/register {activity: "<kind>:<id>", token}). From then on the Mac pushes
 the activity's state as it changes: at once when it starts or stops needing the owner,
@@ -48,8 +48,8 @@ WORDS = {
         "expired": "Ended",
         "calling": "Calling",
         "phone_call": "Phone call",
-        "code": "Jarvis Code · {folder}",
-        "code_gone": "Jarvis Code",
+        "code": "Eden Code · {folder}",
+        "code_gone": "Eden Code",
         "conversation": "Conversation with {who}",
         "conversation_gone": "Conversation",
         "messages": "{n} messages",
@@ -83,8 +83,8 @@ WORDS = {
         "expired": "已结束",
         "calling": "通话中",
         "phone_call": "电话",
-        "code": "Jarvis Code · {folder}",
-        "code_gone": "Jarvis Code",
+        "code": "Eden Code · {folder}",
+        "code_gone": "Eden Code",
         "conversation": "与{who}的对话",
         "conversation_gone": "对话",
         "messages": "{n} 条消息",

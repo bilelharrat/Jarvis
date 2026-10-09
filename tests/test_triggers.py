@@ -1,6 +1,6 @@
 """Routines on events (jarvis.triggers): the calendar, email and texts (the interrupter's
 own reading), the battery, places (the phone's arrive and leave, else the Mac's location),
-waking and unlocking, Jarvis Code finishing; each within its debounce and daily cap, and
+waking and unlocking, Eden Code finishing; each within its debounce and daily cap, and
 waiting for meeting notes to end. Fake clocks and fakes only."""
 
 import json
@@ -86,7 +86,7 @@ class Rig:
          "when you arrive at Gym", "到Gym时"),
         ({"type": "wake", "what": "unlock"}, "when the Mac is unlocked", "Mac 解锁时"),
         ({"type": "session", "folder": "jarvis", "status": "failed"},
-         "when a Jarvis Code session in jarvis fails", "jarvis里的Jarvis Code 会话失败时"),
+         "when an Eden Code session in jarvis fails", "jarvis里的Eden Code 会话失败时"),
     ],
 )  # fmt: skip
 def test_triggers_in_words(trigger, en, zh):
@@ -396,7 +396,7 @@ def test_distance():
     assert triggers.distance_m(0, 0, 0, 0) == 0
 
 
-# ── Jarvis Code ──
+# ── Eden Code ──
 
 
 def test_a_session_finishing_or_failing(tmp_path):
@@ -411,7 +411,7 @@ def test_a_session_finishing_or_failing(tmp_path):
     assert [i for i, _c in rig.fired] == ["done", "either", "either"]
     assert (
         rig.fired[0][1].context
-        == "Jarvis Code session 3 in jarvis finished. Its last words: “All 40 tests pass.”"
+        == "Eden Code session 3 in jarvis finished. Its last words: “All 40 tests pass.”"
     )
 
 
@@ -520,7 +520,7 @@ async def test_the_hubs_events_start_routines(wired):
     )
     await settle(feature, 2)
     assert feature.history.runs(home.id)[0]["cause"] == "Arrived at home"
-    assert feature.history.runs(done.id)[0]["cause"] == "Jarvis Code finished in jarvis"
+    assert feature.history.runs(done.id)[0]["cause"] == "Eden Code finished in jarvis"
     assert [a.text for a in heard] == ["Done.", "Done."]
 
 

@@ -1,5 +1,5 @@
 // One built-in browser tab over the Chrome DevTools Protocol (webContents.debugger): attached
-// the first time JARVIS or a Jarvis Code session uses the tab, never before. It keeps what the
+// the first time JARVIS or an Eden Code session uses the tab, never before. It keeps what the
 // agent needs to know about the tab as it goes (its frames in other processes, console
 // messages, network requests, which page it's on) and gives every call a time limit, so a
 // page that stops answering can never hang the app. Opening the page's developer tools

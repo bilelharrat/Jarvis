@@ -1,4 +1,4 @@
-"""The turn gate: what may leave the Mac, and who may start or steer Jarvis Code, once a
+"""The turn gate: what may leave the Mac, and who may start or steer Eden Code, once a
 turn has read private data or someone else's words."""
 
 import asyncio
@@ -217,7 +217,7 @@ async def test_every_app_and_browser_tool_is_allowed_by_name_or_gated(
         assert name in known or brain.browser_tool(name) in brain.TURN_GATED, name
 
 
-# ── Jarvis Code: voice_code and message_claude_task ──
+# ── Eden Code: voice_code and message_claude_task ──
 
 
 async def test_voice_code_goes_ahead_only_when_the_user_asked_for_that_project(
@@ -244,7 +244,7 @@ async def test_voice_code_goes_ahead_only_when_the_user_asked_for_that_project(
         pending = asyncio.create_task(hub.turn_gate(VOICE_CODE, args))
         approval = await answer(hub, q, "deny")
         assert await pending is False, said
-        assert approval["question"] == "Start Jarvis Code in bsh-research-center?"
+        assert approval["question"] == "Start Eden Code in bsh-research-center?"
         assert "add tests for the parser" in approval["detail"]
     # Asked in so many words, but after reading an email: the request may be the email's.
     hub._turn_text = "read Ann's email, then let's code in the bsh research center"
@@ -277,7 +277,7 @@ async def test_a_message_for_a_session_goes_unasked_only_when_the_user_asked(
     settings, quiet_speaker, isolated
 ):
     path = project(settings, "bsh-research-center")
-    hub = await started(settings, quiet_speaker, isolated, said="tell Jarvis Code to run the tests")
+    hub = await started(settings, quiet_speaker, isolated, said="tell Eden Code to run the tests")
     hub.tasks.tasks[3] = ClaudeTask(id=3, prompt="", cwd=path, status="waiting")
     args = {"task_id": 3, "message": "Run the tests."}
     assert await hub.turn_gate(MESSAGE, args) is True
@@ -296,9 +296,9 @@ async def test_a_message_for_a_session_goes_unasked_only_when_the_user_asked(
             "Here's what I'd tell the coding session in bsh-research-center: Run the tests. "
             "Do you want this passed on?"
         )
-    # Two sessions: "Jarvis Code" alone doesn't say which one; the project's name does.
+    # Two sessions: "Eden Code" alone doesn't say which one; the project's name does.
     hub.tasks.tasks[4] = ClaudeTask(id=4, prompt="", cwd=project(settings, "jarvis"))
-    hub._turn_text = "tell Jarvis Code to run the tests"
+    hub._turn_text = "tell Eden Code to run the tests"
     pending = asyncio.create_task(hub.turn_gate(MESSAGE, args))
     await answer(hub, q, "deny")
     assert await pending is False
@@ -389,7 +389,7 @@ def test_asking_means_a_request_not_a_word_somewhere():
         ),
         MESSAGE_ASKED: (
             [
-                "tell Jarvis Code to run the tests",
+                "tell Eden Code to run the tests",
                 "ask the session to explain the change",
                 "message session 2 to stop",
                 "send a message to jarvis code saying hi",

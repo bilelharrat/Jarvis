@@ -1,4 +1,4 @@
-// Jarvis Code by voice across sessions, the window's side (features/code_voice.py):
+// Eden Code by voice across sessions, the window's side (features/code_voice.py):
 // - tells the backend when the owner looks at a session (for "catch me up": what's new
 //   since they last looked);
 // - shows the file "open hub.py" or "read lines 10 to 20 of hub.py" asked for in the
@@ -14,7 +14,7 @@
 
   const SEEN_EVERY_MS = 1500; // one "looked at it" a session per this long, not one per event
 
-  // Whether the owner can see a session now: the window in front, Jarvis Code open on it.
+  // Whether the owner can see a session now: the window in front, Eden Code open on it.
   function looking(doc, panelHidden) {
     return doc.visibilityState === 'visible' && doc.hasFocus() && !panelHidden;
   }
@@ -84,7 +84,7 @@
   F.on('task_finished', (ev) => { if (ev.id === shown()) reportSeen(ev.id); });
   window.addEventListener('focus', () => reportSeen(shown()));
 
-  // ── "open hub.py", "read lines 10 to 20 of hub.py": Jarvis Code's Files viewer ──
+  // ── "open hub.py", "read lines 10 to 20 of hub.py": Eden Code's Files viewer ──
   let wanted = null; // { path, start, end } until that file's content arrives
   F.on('code_voice_file', (ev) => {
     if (typeof fileView === 'undefined' || !ev.path) return;

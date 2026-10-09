@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// What a Jarvis Code session changed: each file with its counts, and its hunks when opened.
+/// What an Eden Code session changed: each file with its counts, and its hunks when opened.
 /// Files that may hold secrets come without their lines.
 struct CodeDiffView: View {
     let sessionID: Int

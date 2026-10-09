@@ -1,6 +1,6 @@
-"""Jarvis Code: GitHub issues labelled for Jarvis start sessions of their own.
+"""Eden Code: GitHub issues labelled for Jarvis start sessions of their own.
 
-The owner opts a repository in (Jarvis Code settings › GitHub): which project folder is its
+The owner opts a repository in (Eden Code settings › GitHub): which project folder is its
 checkout, the label that means "Jarvis, take this" (jarvis unless they say otherwise), the
 commands its sessions may run, and a spending cap. Opting in asks first, on a card with
 that whole scope: from then on, each time someone who can label issues there labels one
@@ -69,7 +69,7 @@ ZH = {
     "Not opted in.": "没有开启。",
     "Issues labelled “{label}” in {repo} now start a session.": "{repo} 里贴上“{label}”标签的议题现在会开启一个会话。",
     "{repo} is off the list: its issues start nothing now.": "{repo} 已移出列表：它的议题不会再开启会话。",
-    "{project} isn't a folder Jarvis Code knows.": "{project} 不是 Jarvis Code 认识的文件夹。",
+    "{project} isn't a folder Eden Code knows.": "{project} 不是 Eden Code 认识的文件夹。",
     "A label is up to 50 characters, without commas.": "标签最多 50 个字符，不能有逗号。",
     "{repo} is already on the list.": "{repo} 已经在列表里了。",
     "At most {n} repositories.": "最多 {n} 个仓库。",
@@ -197,7 +197,7 @@ class Issues:
             folder = self.hub.tasks.resolve_dir(project)
         except (ValueError, OSError):
             folder = None
-            note = self.tr(f"{project} isn't a folder Jarvis Code knows.")
+            note = self.tr(f"{project} isn't a folder Eden Code knows.")
         if folder is not None:
             remote, ref = await asyncio.to_thread(github.repo_for, folder)
             if ref is None:
@@ -218,7 +218,7 @@ class Issues:
         try:
             folder = self.hub.tasks.resolve_dir(project)
         except (ValueError, OSError):
-            return f"{project} isn't a folder Jarvis Code knows."
+            return f"{project} isn't a folder Eden Code knows."
         remote, ref = await asyncio.to_thread(github.repo_for, folder)
         if ref is None:
             return (
@@ -421,13 +421,13 @@ class Issues:
             self.notify(
                 f"issue:{repo}#{number}",
                 f"Issue #{number} in {repo} didn't start a session: {run}",
-                "a GitHub issue couldn't start a Jarvis Code session",
+                "a GitHub issue couldn't start an Eden Code session",
             )
             return run
         self.notify(
             f"issue:{repo}#{number}",
             f"Started a session on issue #{number} in {repo}.",
-            "a GitHub issue started a Jarvis Code session (its text is on GitHub)",
+            "a GitHub issue started an Eden Code session (its text is on GitHub)",
         )
         return ""
 

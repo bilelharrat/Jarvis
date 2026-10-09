@@ -323,7 +323,7 @@ async def test_a_forwarded_message_is_marked_as_someone_elses(world):
 
 async def test_long_replies_are_cut_at_2000(world):
     hub, router, discord, rest = world
-    await discord.send_text("300", "word " * 1500, title="Jarvis Code #3 in alpha")
+    await discord.send_text("300", "word " * 1500, title="Eden Code #3 in alpha")
     bodies = [b["content"] for b in rest.posted()]
     assert len(bodies) >= 4 and all(dc.utf16_len(b) <= 2000 for b in bodies)
-    assert bodies[0].startswith("**Jarvis Code #3 in alpha**\n")
+    assert bodies[0].startswith("**Eden Code #3 in alpha**\n")

@@ -1,4 +1,4 @@
-"""Stress the Jarvis Code backend's isolated copies and diff parsing, with git but no model,
+"""Stress the Eden Code backend's isolated copies and diff parsing, with git but no model,
 no network and no real backend (as the sweep requires):
 
     uv run python scripts/stress_code_backend.py

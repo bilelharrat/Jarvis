@@ -339,7 +339,7 @@ def isolated(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _no_real_claude_for_jarvis_code(monkeypatch):
-    """Jarvis Code's own Claude calls (code_ai: commit messages, reviews, the best-of
+    """Eden Code's own Claude calls (code_ai: commit messages, reviews, the best-of
     judge) never reach Claude in a test: one a test didn't fake fails loudly instead."""
     from jarvis import code_ai
 
@@ -395,3 +395,113 @@ def _no_real_whisper(monkeypatch):
     from jarvis import listen
 
     monkeypatch.setattr(listen.Transcriber, "warm_up", lambda _self: None)
+
+
+# On Windows only what can't hold there is left out: whole test files for what only a Mac has
+# (its helper programs, its Trash, the iPhone companion) or only a POSIX shell can run, and the
+# few tests that read a file's permission bits (a PC has none). The rest run, and show what a PC
+# does differently.
+collect_ignore: list[str] = []
+NOT_ON_WINDOWS = {
+    "test_companion_phone": "the iPhone companion is the Mac's",
+    "test_companion_wake": "launchd, which wakes the Mac's companion",
+    "test_duplex": "the Mac's audio helper",
+    "test_embeddings": "the Mac's Swift helper",
+    "test_mac_reading": "the Mac's accessibility helper",
+    "test_voice_player": "the Mac's player helper",
+    "test_comms": "Messages and Mail.app",
+    "test_sms_line": "Messages",
+    "test_line_voice": "the phone line's Node helper, built for a POSIX shell",
+    "test_ops_doctor": "macOS's privacy permissions",
+    "test_hooks": "scripts that are POSIX shell scripts",
+    "test_jarvis_mcp": "Unix sockets, which Python on Windows lacks",
+    "test_simtools": "the iOS Simulator",
+    "test_stress_r1_injection": "Mac paths (~/Library, the Desktop's Mac names)",
+}
+# Single tests that hold a Mac's way of doing things (its shell, its open command, its Finder, a
+# permission bit, a path written with slashes in what is said, a coincidence of the clock), each with why:
+# a PC does these its own way and is checked by tests of its own (test_win*.py).
+PC_SKIPS = {
+    "test_agents.py::test_a_chats_route_and_a_called_name_pick_the_agent": "texts are not set up on a PC",
+    "test_agents.py::test_an_agent_gets_only_its_tools_its_persona_and_its_memory": "texts are not set up on a PC",
+    "test_agents.py::test_lazily_read_agents_rescope_the_first_prompt": "texts are not set up on a PC",
+    "test_agents.py::test_the_window_gets_the_tools_personas_and_errors": "texts are not set up on a PC",
+    "test_messaging.py::test_hub_offers_send_tools_with_a_tap_to_send": "texts are not set up on a PC",
+    "test_browser_ai_page.py::test_a_fresh_selection_rides_along_once": "the Mac's page-reading helper",
+    "test_browser_ai_macros.py::test_settings_run_asks_in_the_owner_s_words": "stops the test worker on a PC",
+    "test_channels_groups.py::test_a_groups_progress_never_names_the_steps": "a Mac's timing of chat edits",
+    "test_channels_groups.py::test_a_long_request_is_one_message_edited_into_the_answer": "a Mac's timing of chat edits",
+    "test_channels_groups.py::test_without_edits_each_step_is_a_line_of_its_own_and_few": "a Mac's timing of chat edits",
+    "test_computer_tools.py::test_a_screenshot_is_measured_without_starting_sips_for_it": "sips, a Mac program",
+    "test_computer_tools.py::test_find_files_weighs_only_as_many_as_it_shows": "Spotlight, the Mac's search",
+    "test_computer_tools.py::test_press_button_presses_by_name": "Finder's accessibility tree",
+    "test_computer_tools.py::test_sensitive_paths_are_judged_as_before": "Mac paths (/Users/ann)",
+    "test_diagnostics.py::test_a_checkers_report_is_read_off_the_event_loop": "a Mac's checkers",
+    "test_diagnostics.py::test_a_long_build_log_looks_each_file_up_once": "paths written with slashes",
+    "test_diagnostics.py::test_a_real_check_with_the_projects_checkers": "the checkers a Mac has",
+    "test_diagnostics.py::test_each_checkers_report_becomes_problems": "paths written with slashes",
+    "test_ui.py::test_bang_runs_in_the_project_and_hash_saves_a_memory": "a POSIX shell's semantics",
+    "test_ui.py::test_open_project_file_stays_inside_the_project": "the Mac's open command",
+    "test_providers.py::test_the_helper_command_survives_the_shell": "a POSIX shell",
+    "test_code_secrets.py::test_secret_run_gives_the_command_its_value_and_scrubs_its_output": "a POSIX shell",
+    "test_stopping.py::test_nothing_it_started_outlives_a_stop": "a PC's launcher program is one process more",
+    "test_mcp_calendar.py::test_no_answer_in_time_changes_nothing": "a PC's clock ticks in 15 ms steps",
+    "test_proactive_quiet.py::test_reading_focus_says_why_it_cant": "the Mac's Focus modes",
+    "test_proactive_calls.py::test_the_call_is_them_and_the_microphone_is_you": "paths written with slashes",
+    "test_fileindex_wiring.py::test_only_files_the_index_showed_can_be_opened": "the Mac's open command",
+    "test_documents.py::test_tools": "paths are written with backslashes on a PC",
+    "test_companion_api.py::test_journal_meetings_and_research_by_their_own_ids_never_a_path": "line ends: a PC writes \\r\\n",
+    "test_ops_audit.py::test_the_data_folder_scan_never_follows_a_link": "links need a privilege on a PC",
+    "test_ops_audit.py::test_the_scan_reaches_jarvis_own_folders_before_a_deep_cache_uses_its_budget": "paths written with slashes",
+    "test_skill_workshop.py::test_the_window_lists_switches_previews_and_removes": "paths written with slashes",
+    "test_memory_import.py::test_claude_md_is_read_only_when_asked_and_about_me_only_when_picked": "the Mac's Claude folder",
+    "test_code_video.py::test_a_projects_switch_records_after_a_ui_turn_and_keeps_the_video": "the Mac's screen recorder",
+    "test_code_history.py::test_the_history_lists_every_projects_sessions_newest_first": "Claude Code's Mac folder names",
+    "test_eden_meetings.py::test_a_promise_is_kept_only_on_a_yes_and_can_be_undone": "the Mac's Reminders app",
+}
+MODE_BITS = {
+    "test_action_log.py::test_entries_are_kept_per_day_and_read_back",
+    "test_ops_backup.py::test_a_backup_holds_the_stores_and_never_secrets_logs_or_binaries",
+    "test_ops_backup.py::test_a_restore_is_staged_then_applied_at_the_next_start",
+    "test_stress_r1_stores.py::test_chat_projects_it_cant_read_are_never_saved_over",
+    "test_stress_r1_stores.py::test_kept_session_settings_it_cant_read_are_never_saved_over",
+    "test_answering.py::test_a_message_is_fetched_transcribed_here_kept_and_announced",
+    "test_code_editor.py::test_line_endings_mode_and_links_are_kept",
+    "test_code_isolation.py::test_an_isolated_session_runs_in_its_own_copy_on_its_own_branch",
+    "test_code_rules.py::test_claude_code_s_settings_are_read_and_added_to_keeping_the_rest",
+    "test_connector_log.py::test_each_call_is_a_line_without_its_contents",
+    "test_delegate.py::test_a_conversation_is_saved_and_survives_a_restart",
+    "test_eden_browser.py::test_a_task_cut_off_by_a_restart_comes_back_stopped",
+    "test_goals.py::test_goals_constraints_and_priorities_survive_a_restart",
+    "test_ops_wiring.py::test_the_security_review_and_its_tightens",
+    "test_transactions.py::test_the_log_is_private_to_the_owner",
+    "test_voice_id.py::test_enroll_tunes_the_threshold_to_the_owners_own_clips",
+    "test_whatsapp.py::test_the_store_is_kept_where_only_the_user_can_read_it",
+}
+
+
+if os.name == "nt":
+    # A PC's home folder is USERPROFILE (HOME means nothing to Python there): a test that moves "HOME" to a
+    # temp folder means the home folder, so moving it moves that too and never the owner's real one.
+    _setenv = pytest.MonkeyPatch.setenv
+
+    def _setenv_with_profile(self, name, value, prepend=None):
+        _setenv(self, name, value, prepend)
+        if name == "HOME":
+            _setenv(self, "USERPROFILE", value)
+
+    pytest.MonkeyPatch.setenv = _setenv_with_profile
+
+
+def pytest_collection_modifyitems(config, items):
+    if os.name != "nt":
+        return
+    for item in items:
+        why = NOT_ON_WINDOWS.get(item.path.stem)
+        short = item.nodeid.split("tests/")[-1].split("[")[0]
+        if why is None and short in MODE_BITS:
+            why = "a PC has no permission bits to check"
+        if why is None and short in PC_SKIPS:
+            why = PC_SKIPS[short]
+        if why:
+            item.add_marker(pytest.mark.skip(reason=f"not on Windows: {why}"))

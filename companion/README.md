@@ -13,14 +13,14 @@ when the other fails, and the Mac when both do.
 - **Tabs:** Jarvis (the orb, the conversation, approvals, a glass composer with the
   microphone and a + menu, where up to four photos or screenshots go with a question:
   Photos, Take Photo, Paste Image), Today (what needs you, weather, calendar, reminders, the Mac),
-  Code (Jarvis Code, when paired) and Library (everything else, grouped like Settings).
+  Code (Eden Code, when paired) and Library (everything else, grouped like Settings).
 
 - **iPhone** (`iOS/`): pair with the Mac (its QR code, or Bonjour / typed address +
   six-digit code), the reactor as tap-to-talk (on-device speech recognition, ends on
   ~1.2 s of silence or a second tap), a live You / JARVIS transcript, approval cards, quick
   actions (Brief me, What's next?, Take notes / Stop notes, Routines, Stop), a status strip
   (Mac state, next event, weather, background tasks, model), spoken replies in Jarvis's
-  own voice (`/api/say`), the Jarvis hub (Jarvis Code, conversations, routines, what you
+  own voice (`/api/say`), the Jarvis hub (Eden Code, conversations, routines, what you
   missed, spending), and Settings (Mac address, Speak replies, notifications, sensors,
   send to Watch, Unpair). Around the app: notifications you can answer, widgets, Live
   Activities, Siri and Shortcuts, the share sheet.
@@ -230,21 +230,21 @@ has Tailscale on; at home the Mac's LAN address or `.local` name is the safer ch
 ## Beyond the conversation
 
 The grid button in the top bar opens **Jarvis**, a hub like the Settings app (the Routines
-quick action and the Jarvis Code module in the status strip open it at their place, and
+quick action and the Eden Code module in the status strip open it at their place, and
 `jarvis-companion://…` links from widgets, Live Activities and notifications open any of
 it; links only ever navigate):
 
-- **Jarvis Code**: sessions that need you, working, and earlier. A session shows its
+- **Eden Code**: sessions that need you, working, and earlier. A session shows its
   transcript's tail (fetched incrementally with `after`, bounded on the phone), its plan,
   the question it's waiting on — the card's own choices and **No, because…**, which sends
   `deny` with the reason (a plan's own no, keep planning, when it has no `deny`) — its
   changes (files, counts, hunks; files that may hold secrets listed without lines), a line
-  to send it, and Stop (after a confirmation). The whole of Jarvis Code works from here
+  to send it, and Stop (after a confirmation). The whole of Eden Code works from here
   (the Mac's `companion_code.py`, which runs the window's own commands from an allowlist):
   **New Session** (project, task, model, permission mode, effort, isolated copy, pictures);
   per session a menu for permissions, model, effort, commands, context used, undo, rename,
   pin, archive, export and close; messages with pictures, queued ones sent now or taken
-  back; slash commands (Jarvis Code's and the project's); `!` commands run in the project
+  back; slash commands (Eden Code's and the project's); `!` commands run in the project
   with their output shown; Rewind from a request's long press; questions answered with one
   option, several or your own words; per-file Revert in Changes; a **Git** tab (stage,
   commit with a written-for-you message, push, new branch, draft/open/merge the pull
@@ -329,7 +329,7 @@ the answer mapped from the push's own `choices` (see ApprovalResponse), inside a
 background task and a 20-second limit. Allow needs an unlocked phone (or a Watch on the
 wrist); Not now and No, because… don't. If the Mac can't be reached and the card may still
 be open (the Mac waits five minutes), the notification comes back to try again. Tapping a
-notification opens where it leads (a Jarvis Code session, conversations, Home). The badge
+notification opens where it leads (an Eden Code session, conversations, Home). The badge
 counts approvals waiting.
 
 On the Watch, iPhone notifications appear by themselves with the same actions (No,
@@ -454,7 +454,7 @@ neither for a phone that hasn't turned it on. Unpairing turns every sensor off.
 
 - **Jarvis** (small, medium; Lock Screen circular, rectangular, inline): whether the Mac
   is there, what needs your OK (the question itself only when unlocked), what's next.
-- **Jarvis Code** (small, medium; Lock Screen circular, rectangular): sessions that need
+- **Eden Code** (small, medium; Lock Screen circular, rectangular): sessions that need
   you and the ones working; a session opens where it is.
 - **Apple Watch complications** (circular, rectangular, inline, corner): the same glance.
 
@@ -485,7 +485,7 @@ for ten minutes; a call ends when its outcome push comes. Unpairing ends them al
 
 Requests that still mean something later wait in an outbox on the iPhone (the App Group
 container, so Siri and the share sheet add to the same queue): questions, the briefing,
-running a routine, a share, a message to a Jarvis Code session, location and health. They
+running a routine, a share, a message to an Eden Code session, location and health. They
 show in the conversation as "Waiting for your Mac" and in **Waiting to send** (from the
 connection banner, or the hub), where one can be dropped. When the Mac answers again they
 go oldest first — questions through the conversation, one at a time, so their replies show
@@ -561,7 +561,7 @@ Shared/                     both apps
   ReactorView.swift, Theme.swift, DebugLaunch.swift
 iOS/                        AppModel (state, polling), Transcript, Intents/, Services/ (speech,
                             voice, Bonjour, Watch bridge, haptics), Views/, Views/Screens/
-                            (the hub: Jarvis Code, conversations, routines, digest, spending)
+                            (the hub: Eden Code, conversations, routines, digest, spending)
 Watch/                      WatchModel, WatchVoice (spoken replies), WatchSessionBridge,
                             WatchNotifications, WatchRefresh, Views/
 Widgets/                    the iPhone widget extension (Home Screen, Lock Screen)

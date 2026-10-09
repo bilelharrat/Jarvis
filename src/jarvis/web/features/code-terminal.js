@@ -1,10 +1,10 @@
-// Jarvis Code's terminals and "!" commands (features/code_terminal.py, code_terminals.py).
+// Eden Code's terminals and "!" commands (features/code_terminal.py, code_terminals.py).
 // - The Terminal pane, in place of the core's single terminal: tabs, each a shell of its own
 //   in the project's folder; + opens another, × hangs one up (asking first when something
 //   runs in it); Split shows two at once, one above the other.
 // - Closing the pane only detaches: the shells go on, and opening the pane again (or after a
 //   reload) shows them with what they printed meanwhile.
-// - "Send to Jarvis Code" puts the selected text in the composer, as a code block.
+// - "Send to Eden Code" puts the selected text in the composer, as a code block.
 // - "!" commands in the composer stream their output into the transcript as it comes, with
 //   a Cancel, and no time limit.
 // Pure helpers are exported for node --test (tests/web/code-terminal.test.mjs).
@@ -86,7 +86,7 @@
   let focusFor = '';
   // Whether the pane was closed, or showed another one, since the terminal was drawn in it: its
   // next drawing is then the owner opening it. Else it's only drawn again (another session
-  // shown, Jarvis Code opened again, a new list).
+  // shown, Eden Code opened again, a new list).
   let away = true;
   let rootEl = null;
   let busyNote = null;
@@ -118,7 +118,7 @@
       const add = button('+', 'jc-icon ct-add', () => { focusFor = keyNow(); newTerminal(); }, 'New terminal');
       add.setAttribute('aria-label', 'New terminal');
       const split = button('Split', 'jc-mini ct-split', () => toggleSplit(), 'Two terminals, one above the other');
-      const sendSel = button('Send to Jarvis Code', 'jc-mini ct-send', () => sendSelection(), 'Put the selected text in the message');
+      const sendSel = button('Send to Eden Code', 'jc-mini ct-send', () => sendSelection(), 'Put the selected text in the message');
       sendSel.disabled = true;
       bar.append(tabs, add, el('span', 'jc-spacer'), split, sendSel);
       const note = el('div', 'ct-note');

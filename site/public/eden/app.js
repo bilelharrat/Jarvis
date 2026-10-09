@@ -271,13 +271,17 @@ function renderSidebar() {
     ['routines', el('button', { type: 'button', class: 'sitem', title: 'Routines', onclick: () => { clearPhoneOverlays(); openSpace('routines'); } }, ico('routine'), el('span', 'lbl', 'Routines'))],
     ...[['meetings', 'Meetings', 'quote'], ['web', 'On a website', 'globe'], ['activity', 'Activity', 'clock']].map(([k, t, i]) =>
       [k, el('button', { type: 'button', class: 'sitem', title: t, onclick: () => { clearPhoneOverlays(); openSpace(k); } }, ico(i), el('span', 'lbl', t))]), // H5–H7
-  ].filter(([k]) => !as || ((k === 'mail' || k === 'calendar') && actingHas(k))).map(([, b]) => b);
+    // Eden for Education (courses.js): askeden.com only
+    ...(state.meta && state.meta.hosted ? [['courses', el('button', { type: 'button', class: 'sitem', title: 'Courses', onclick: () => { clearPhoneOverlays(); openSpace('courses'); } }, ico('doc'), el('span', 'lbl', 'Courses'))]] : []),
+  ].filter(([k]) => !as || ((k === 'mail' || k === 'calendar') && actingHas(k))).filter(([k]) => as || state.jarvis.available || MAC_FREE.has(k)).map(([, b]) => b);
+  // No Mac connected: the Mac-only spaces stay hidden behind one "Connect your Mac" row.
+  if (!as && !state.jarvis.available) macItems.push(el('button', { type: 'button', class: 'sitem', title: IN_MAC_APP() ? 'Connecting to this Mac…' : 'Connect your Mac', onclick: () => { clearPhoneOverlays(); connectMacDialog(); } }, ico('spark'), el('span', 'lbl', IN_MAC_APP() ? 'Connecting to this Mac…' : 'Connect your Mac')));
   nav.replaceChildren(
     pinned.length ? section('pinned', 'Pinned', pinned.map((c) => convItem(c))) : '',
     as ? '' : section('projects', 'Projects', projItems, { add: { title: 'New code session', run: projectPicker } }),
     section('chats', 'Chats', chatItems, { add: { title: 'New chat (⌘N)', run: newChat } }),
     section('personas', 'Personas', personaItems, { add: { title: 'New persona', run: () => editPersona(null) } }),
-    macItems.length ? section('jarvis', as ? 'Shared with you' : 'Your Mac', macItems) : '',
+    macItems.length ? section('jarvis', as ? 'Shared with you' : state.jarvis.available ? 'Your Mac' : 'Apps', macItems) : '',
     section('auto', 'Automations', [ // G3 background tasks, H9 saved workflows
       as ? null : el('button', { type: 'button', class: 'sitem', title: 'Tasks: watches Eden runs in the background', onclick: () => openTasks() }, ico('list'), el('span', 'lbl', 'Tasks'),
         pendingApprovals() ? el('span', { class: 'tk-badge', title: 'Waiting for your approval' }, String(pendingApprovals())) : null),
@@ -323,6 +327,14 @@ function renderTitle() {
 const scrollcol = () => $('scrollcol');
 const nearBottom = () => { const s = scrollcol(); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; };
 function toBottom() { const s = scrollcol(); s.scrollTop = s.scrollHeight; }
+// While a reply streams, follow it like ChatGPT: down to the bottom, but never past the question it answers — once the
+// reply is taller than the window, the question stays at the top and the reply is read from its start.
+function followReply(msg) {
+  const s = scrollcol();
+  const q = msg.previousElementSibling && msg.previousElementSibling.classList.contains('user') ? msg.previousElementSibling : msg;
+  const cap = s.scrollTop + q.getBoundingClientRect().top - s.getBoundingClientRect().top - 12;
+  s.scrollTop = Math.min(s.scrollHeight, Math.max(0, cap));
+}
 function msgEl(c, n, last) {
   const m = renderMessage(c, n, { last });
   const chip = m.querySelector('.route-chip');
@@ -365,7 +377,7 @@ function updateMessage(c, node, { final } = {}) {
   const fresh = msgEl(c, node, nodes.at(-1) === node);
   old.replaceWith(fresh);
   if (focusAct) { const f = fresh.querySelector(`[data-act="${focusAct}"]`); if (f) f.focus(); }
-  if (stick) toBottom();
+  if (stick) followReply(fresh);
   if (final) { renderComposer(); renderTitle(); refreshArtifact(); if (c.kind === 'code') renderPlan(); }
   else { renderTitle(); }
 }
@@ -610,6 +622,27 @@ function execPal(i) { const it = palItems[i]; if (!it) return; $('palette').clas
 
 /* ================= dialogs ================= */
 let dlgReturn = null;
+// Spaces that work without the Mac (Gmail and Google Calendar through askeden.com, Courses); the rest need Eden on a Mac.
+const MAC_FREE = new Set(['mail', 'calendar', 'courses']);
+const IN_MAC_APP = () => document.documentElement.classList.contains('eden-desktop');
+function connectMacDialog() {
+  const p = (t) => el('p', { style: { fontSize: '14px', lineHeight: '1.45', color: 'var(--text2)', margin: '0 0 10px' } }, t);
+  if (IN_MAC_APP()) {
+    openDialog('Connecting to this Mac', el('div', '',
+      p('Ask Eden is connecting to this Mac. This usually takes a few seconds.'),
+      el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' } },
+        el('button', { type: 'button', class: 'btn', onclick: () => { try { window.askEdenMac?.relink?.(); } catch {} } }, 'Try again'),
+        el('button', { type: 'button', class: 'btn primary', onclick: () => closeDialog() }, 'Close'))));
+    return;
+  }
+  openDialog('Connect your Mac', el('div', '',
+    p('With Eden on your Mac you also get Brief, Memory, Second Brain, Files, Routines, Meetings, Activity, and Eden doing things on websites for you.'),
+    p('Ask Eden for Mac is a free download. It runs Eden on your Mac and connects to your account by itself.'),
+    p('Beta: this early build is not yet signed by Apple, so the first time you open it, Control-click the app and choose Open.'),
+    el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' } },
+      el('button', { type: 'button', class: 'btn', onclick: () => closeDialog() }, 'Not now'),
+      el('a', { class: 'btn primary', href: '/download/mac', download: '' }, 'Download for Mac (beta)'))));
+}
 function openDialog(title, body) {
   dlgReturn = document.activeElement;
   clearPhoneOverlays();
@@ -783,6 +816,9 @@ async function drawSettings() {
   } else if (setTabI === 4) {
     drawMemory(body, hosted);
   } else if (setTabI === 3) {
+    const autoSw = el('input', { type: 'checkbox', 'aria-label': 'Search the web automatically' });
+    autoSw.checked = state.settings.autoSearch !== false;
+    autoSw.addEventListener('change', () => { state.settings.autoSearch = autoSw.checked; saveSettings(); toast(autoSw.checked ? 'Eden searches the web when a message needs it' : 'Auto-search is off'); });
     const sw = el('input', { type: 'checkbox', 'aria-label': 'Claude counts as subscription' });
     sw.checked = !!state.settings.subscriptionClaude;
     sw.addEventListener('change', () => { state.settings.subscriptionClaude = sw.checked; saveSettings(); schedulePreview(); toast(sw.checked ? 'Claude priced as subscription quota' : 'Claude priced at API rates'); });
@@ -801,6 +837,7 @@ async function drawSettings() {
           el('span', 'rc-v', ov ? (modelInfo(ov.model)?.name || ov.model) : 'Auto'),
           el('span', 'rc-s', ov ? 'Pinned for every message' : 'The router picks per message'))),
       el('div', 'set-sec', el('h3', '', 'Pricing'),
+        el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Search the web automatically'), el('div', 'p-c', 'When a message needs current information (news, weather, prices, scores, “near me”, a link), Eden searches the web first and shows the sources. Never in temporary or private chats. Searches use your included AI.')), el('label', 'switch', autoSw, el('span', 'tr')))),
         el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Claude counts as subscription'), el('div', 'p-c', 'Claude through the Claude Code CLI is priced as a fraction of your plan’s quota, not API dollars, so the router uses it more freely.')), el('label', 'switch', sw, el('span', 'tr')))),
         el('p', 'sp-note', `Level ${state.settings.level}${ov ? ` · pinned to ${modelInfo(ov.model)?.name || ov.model}` : ' · auto'}. Levels, sliders, providers and the override live in the inspector’s Route tab.`),
         el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, ico('sliders', 14), 'Open Route console'))), privacySettings(), autopilotSettings(), learnedSettings()); // H3, H2
@@ -1091,6 +1128,8 @@ async function reloadMeta() {
 
 /* ================= init ================= */
 async function init() {
+  // The iOS app: no pinch zoom, and no zoom-in when a field gets focus (mobile.css also sets touch-action).
+  if (document.documentElement.classList.contains('eden-app')) document.querySelector('meta[name="viewport"]')?.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
   applyTheme();
   await loadConversations();
   const cur = store.get('jchat:current', null);
@@ -1252,9 +1291,29 @@ async function init() {
   addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0)); // autopilot.js
   addEventListener('eden:acting', () => { renderSidebar(); checkJarvis().then(() => renderComposer()); }); // account.js: acting for someone began or ended under the page
   addEventListener('eden:open-inspector', (e) => openInspector((e.detail && e.detail.tab) || 'Route'));
+  addEventListener('eden:open-space', (e) => { clearPhoneOverlays(); openSpace(e.detail && e.detail.key); }); // apps-menu.js: Eden for Education
+  // askeden.com/?courses=1 (the apps menu on the Mac links here): the Courses panel, once meta says it's askeden.com
+  if (new URLSearchParams(location.search).has('courses')) reloadMeta().then(() => { if (state.meta && state.meta.hosted) openSpace('courses'); });
+  // Courses › Study (courses.js): a new chat in the course, answered from its materials; Quiz me / Flashcards send their request
+  addEventListener('eden:course-chat', (e) => {
+    const { course, prompt } = e.detail || {};
+    if (!course) return;
+    const c = newConversation();
+    c.course = course;
+    c.title = course.name;
+    c.titleSet = true;
+    addConversation(c);
+    closeSpace();
+    switchTo(c);
+    if (prompt) sendMessage(prompt);
+  });
   loadProjects().then(() => renderSidebar());
   initBrowserPane({ openSpace, addContext, sendMessage, focusComposer, openPalette });
   checkJarvis().then(() => { renderComposer(); browserJarvisChanged(); if (curTab === 'Memory') renderMemoryTab(true); });
+  // The Mac's line comes up some seconds after the page loads (Ask Eden for Mac links itself at launch): look again until it answers.
+  const recheckJarvis = () => { const was = state.jarvis.available; return checkJarvis().then(() => { if (state.jarvis.available !== was) { renderSidebar(); renderComposer(); browserJarvisChanged(); } }); };
+  setInterval(() => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); }, 8000);
+  addEventListener('focus', () => { if (!state.jarvis.available) recheckJarvis().catch(() => {}); });
   // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {
     const w = !!(e.detail && e.detail.waiting);

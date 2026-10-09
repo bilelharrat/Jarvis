@@ -167,7 +167,7 @@ async def test_landing_fast_forwards_the_branch_and_removes_the_copy(hub, projec
     said = await hub.code_desk.land(copy.slug)
     assert said == f"Landed {copy.branch} in main (fast-forward)."
     assert "line three" in (repo / "a.py").read_text() and (repo / "new.py").exists()
-    assert git(repo, "log", "-1", "--format=%s").strip() == "Jarvis Code: fix the login"
+    assert git(repo, "log", "-1", "--format=%s").strip() == "Eden Code: fix the login"
     assert git(repo, "status", "--porcelain") == ""
     assert not Path(copy.checkout).exists() and not copy.folder.exists()
     assert git(repo, "branch", "--list", copy.branch).strip() == ""

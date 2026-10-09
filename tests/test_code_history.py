@@ -1,4 +1,4 @@
-"""Jarvis Code's history: past sessions listed across projects, and a reopened session's
+"""Eden Code's history: past sessions listed across projects, and a reopened session's
 conversation read back from Claude Code's own records."""
 
 from pathlib import Path

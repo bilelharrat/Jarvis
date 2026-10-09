@@ -1,4 +1,4 @@
-"""Stress the Jarvis Code backend's sessions, heavier than the tests (opt-in, not part of
+"""Stress the Eden Code backend's sessions, heavier than the tests (opt-in, not part of
 pytest's run; nothing here reaches the network, a model or the owner's data):
 
     uv run python scripts/stress_r2_code_sessions.py           # every stage

@@ -1,4 +1,4 @@
-// The window helpers of Jarvis Code's design match, masked secrets and video proof
+// The window helpers of Eden Code's design match, masked secrets and video proof
 // (web/features/code-design.js, code-secrets.js, code-video.js), and their Chinese.
 // node --test tests/web/
 import assert from 'node:assert/strict';

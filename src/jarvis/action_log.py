@@ -4,7 +4,7 @@
 Each entry is when, the tool, its label (as the Activity drawer says it), a short summary
 with nothing private in it, and how it ended (done, failed, stopped). The summary is only
 ever a few words from a fixed set of the tool's own arguments: an app's or a shortcut's
-name, a site's host, a Jarvis Code project's folder, a model or a setting. Never a message,
+name, a site's host, an Eden Code project's folder, a model or a setting. Never a message,
 an email, a note, a file's contents, a search or anyone's name.
 
 A day's file only grows (a line per call), at most DAY_MAX lines a day, so a runaway loop

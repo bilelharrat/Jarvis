@@ -1,4 +1,4 @@
-"""Jarvis Code's Health pane (web/features/code-health.js): is the engine there, which
+"""Eden Code's Health pane (web/features/code-health.js): is the engine there, which
 version, is Claude signed in, and how is this session's connection doing, with a Reconnect.
 
 - cw_health {id?, fresh?}: -> cw_health {engine: {version, path, bundled}, signin: {state,
@@ -93,7 +93,7 @@ class Health:
         version = _version(meta)
         plan = meta.split(" · ")[0] if meta and meta.split(" · ")[0] != version else ""
         self._engine = {
-            "engine": {"version": version, "path": cli, "bundled": "/_bundled/" in cli},
+            "engine": {"version": version, "path": cli, "bundled": "_bundled" in Path(cli).parts},
             "signin": {
                 "state": check.get("state", "unknown"),
                 "summary": check.get("summary", ""),

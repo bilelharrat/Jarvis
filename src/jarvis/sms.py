@@ -253,7 +253,7 @@ def how_to_answer(code: str, language: str = "en") -> str:
 
 def eligible(card: dict[str, Any]) -> bool:
     """A card that can be answered by text: a plain yes or no (its choices allow and deny),
-    not a purchase (only "confirm purchase" on the Mac pays), not a Jarvis Code session's
+    not a purchase (only "confirm purchase" on the Mac pays), not an Eden Code session's
     (they come too often to text)."""
     from .transactions import ASK_KIND
 

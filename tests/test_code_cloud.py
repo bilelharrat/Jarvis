@@ -1,4 +1,4 @@
-"""Jarvis Code in the cloud (features/code_cloud.py): sessions started there, and every working
+"""Eden Code in the cloud (features/code_cloud.py): sessions started there, and every working
 session moved there with one card, on top of the hand-offs (faked here)."""
 
 from __future__ import annotations

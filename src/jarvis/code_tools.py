@@ -1,4 +1,4 @@
-"""Tools a Jarvis Code session gets on top of Claude Code's own, as in Claude Code's desktop
+"""Tools an Eden Code session gets on top of Claude Code's own, as in Claude Code's desktop
 app: the built-in browser (to try the web app it's building, in the same window the user
 watches) and the iOS Simulator (boot, install, launch, open a link, look at the screen).
 

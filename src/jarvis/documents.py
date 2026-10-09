@@ -1,4 +1,4 @@
-"""Documents JARVIS writes for the owner, outside Jarvis Code, and the ones it remembers.
+"""Documents JARVIS writes for the owner, outside Eden Code, and the ones it remembers.
 
 "Write a one-page memo to the team about X", "draft a cover letter in Word": Claude writes
 the text (Markdown), and this saves it as Word (.docx, which Pages opens too), RTF,
@@ -34,7 +34,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from . import jsonstore
+from . import jsonstore, osplat
 from .computer import is_sensitive, safe_path
 from .prefs import APP_SUPPORT
 from .textclean import clean_text
@@ -320,7 +320,17 @@ def textutil_convert(source: Path, fmt: str, out: Path) -> None:
 
 
 def textutil_text(path: Path) -> str:
-    """A document's text (.docx, .doc, .rtf, .odt, .html) by textutil."""
+    """A document's text (.docx, .doc, .rtf, .odt, .html) by textutil; on a PC (which has none)
+    .docx, .odt and .rtf are read by rich_text.py, and .html as the plain text it is."""
+    if osplat.IS_WIN:
+        from .rich_text import text_of
+
+        if path.suffix.lower() in (".html", ".htm"):
+            return re.sub(r"<[^>]+>", " ", path.read_text(encoding="utf-8", errors="replace"))
+        text = text_of(path)
+        if not text and path.suffix.lower() in (".doc", ".pages"):
+            raise RuntimeError("I can't read that kind of Word file on this PC (save it as .docx)")
+        return text
     try:
         done = subprocess.run(
             ["textutil", "-convert", "txt", "-stdout", str(path)],
@@ -336,6 +346,9 @@ def textutil_text(path: Path) -> str:
 
 
 def open_with_default_app(path: Path) -> None:
+    if osplat.IS_WIN:
+        osplat.open_target(str(path))
+        return
     subprocess.run(["open", str(path)], capture_output=True, timeout=15, check=False)
 
 
@@ -365,7 +378,17 @@ def claim(folder: Path, stem: str, ext: str) -> Path:
 
 
 def default_folder() -> Path:
-    return Path.home() / "Documents" / "JARVIS"
+    """~/Documents/JARVIS. On a PC the Documents folder is the one Windows shows the person: with
+    OneDrive's backup on it is inside OneDrive, and a plain C:\\Users\\you\\Documents beside it would
+    be a folder nobody looks in. (Only when it is inside their home folder, where documents may go.)"""
+    home = Path.home()
+    if osplat.IS_WIN:
+        from . import winfiles
+
+        known = winfiles.known_folders().get("Documents")
+        if known is not None and (known == home or home in known.parents):
+            return known / "JARVIS"
+    return home / "Documents" / "JARVIS"
 
 
 def usable_folder(raw: str | None, default: Path) -> Path:

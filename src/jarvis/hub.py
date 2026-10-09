@@ -19,6 +19,7 @@ import re
 import signal
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -67,10 +68,12 @@ from . import (
     livecontext,
     mac_tools,
     openai_relay,
+    osplat,
     phone,
     research,
     runproc,
     screenwatch,
+    sounds,
     sources,
     suggestions,
     sysmon,
@@ -119,7 +122,7 @@ from .providers import PROMPT as MODELS_PROMPT
 from .providers import SERVER_NAME as MODELS_SERVER
 from .providers import build_server as models_server
 from .routines import RoutineStore
-from .speech import Speaker, SpeechQueue, ai_voice_effect, cloud_voice_from
+from .speech import Speaker, SpeechQueue, ai_voice_effect, cloud_voice_from, is_silent
 from .tasks import CLAUDE_DOWN, ClaudeTask, TaskManager
 from .wake import find_wake, is_homecoming
 
@@ -159,7 +162,7 @@ lang.add_texts(
         "重新设置 J.A.R.V.I.S.…”的 Claude 步骤中为我登录，然后再问我一次。",
     }
 )
-# What a Jarvis Code session, or JARVIS's conversation, is told when the fallback takes over
+# What an Eden Code session, or JARVIS's conversation, is told when the fallback takes over
 # from Claude: the conversation so far is there (the same session, resumed), so it goes on
 # from where Claude stopped instead of starting the request over. After the note, the
 # words the history shows for it.
@@ -193,13 +196,13 @@ TOOL_LABELS = {
     "create_event": "Added a calendar event",
     "edit_event": "Changed a calendar event",
     "remove_event": "Removed a calendar event",
-    "run_claude_code": "Started Jarvis Code",
+    "run_claude_code": "Started Eden Code",
     "start_research": "Started research",
     "claude_task_status": "Checked background tasks",
-    "message_claude_task": "Messaged Jarvis Code",
-    "stop_claude_task": "Stopped Jarvis Code",
-    "list_claude_sessions": "Listed Jarvis Code sessions",
-    "resume_claude_session": "Resumed a Jarvis Code session",
+    "message_claude_task": "Messaged Eden Code",
+    "stop_claude_task": "Stopped Eden Code",
+    "list_claude_sessions": "Listed Eden Code sessions",
+    "resume_claude_session": "Resumed an Eden Code session",
     "browser_open": "Opened a page in the browser",
     "browser_read": "Read the browser page",
     "browser_click": "Clicked in the browser",
@@ -290,11 +293,14 @@ _HOLD_SPACE = re.compile(r"\s+")
 # An empty code block: said as "I've put the details on screen" (详细内容我放在屏幕上了).
 CODE_ON_SCREEN = "```\n```"
 ANNOUNCE_IN_FULL = 2  # a burst of heads-ups says this many in full; the rest are on screen
+EARS_WAIT_SECONDS = (
+    900  # how long the first download of the speech model is waited for, to say it is ready
+)
 STALE_UTTERANCE = 10.0  # hands-free: speech that ended this long ago is never acted on
-# Stopping (the app quitting): each step that waits on something else (Jarvis Code's
+# Stopping (the app quitting): each step that waits on something else (Eden Code's
 # process, the phone link, a connector) gets CLOSE_STEP seconds and all of them CLOSE_BUDGET
 # together, so the backend is gone, its data lock with it, inside the app's five-second
-# wait. Disconnecting Jarvis Code alone could take 20 s (its process given 5 s to exit, then
+# wait. Disconnecting Eden Code alone could take 20 s (its process given 5 s to exit, then
 # terminated, then killed), and the next Jarvis found its data still held. A step that runs
 # over is named in the log and left behind; server.serve then ends any process still
 # running.
@@ -333,10 +339,10 @@ PART_WAY = (
     "The connection to Claude dropped part-way through this request. Some of it may already "
     "be done, so check before asking again."
 )
-CHIME = "/System/Library/Sounds/Tink.aiff"
+CHIME = "chime" if sys.platform == "win32" else "/System/Library/Sounds/Tink.aiff"
 
 CONVERSATIONS_DIR = Path.home() / "Documents" / "Jarvis" / "Conversations"
-BASH_SECONDS = 120  # "!command" in Jarvis Code: how long it may run
+BASH_SECONDS = 120  # "!command" in Eden Code: how long it may run
 BASH_OUTPUT = 20_000  # characters of its output kept
 FOCUS_FOLLOW_UP = 10.0  # voice-code mode: answer JARVIS without the wake word
 DICTATION_SECONDS = 20.0  # the composer's mic waits this long for the user to start
@@ -637,13 +643,14 @@ CODE_ASKED = _asks(
     r"|voice[\s-]?cod(?:e|ing)\b"
     r"|cod(?:e|ing)\s+(?:mode|with\s+me|together)\b"
     r"|(?:open|start|launch|fire\s+up|spin\s+up|bring\s+up)\s+(?:up\s+)?(?:a\s+|the\s+)?"
-    r"(?:jarvis|claude)\s+code\b"
+    r"(?:eden|jarvis|claude)\s+code\b"
     r"|(?:" + _WANT_TO + r")?work(?:ing)?\s+on\s+.{1,80}?\s+with\s+"
-    r"(?:me|you|us|jarvis(?:\s+code)?|claude(?:\s+code)?)\b"
+    r"(?:me|you|us|eden\s+code|jarvis(?:\s+code)?|claude(?:\s+code)?)\b"
 )
-# "Tell Jarvis Code to…", "ask the session to…", "message session 2…".
+# "Tell Eden Code to…", "ask the session to…", "message session 2…".
 MESSAGE_ASKED = _asks(
-    _TELL + r"(?:jarvis\s+code|claude(?:\s+code)?|(?:coding\s+)?session(?:\s+(?:number\s+)?\d+)?"
+    _TELL
+    + r"(?:eden\s+code|jarvis\s+code|claude(?:\s+code)?|(?:coding\s+)?session(?:\s+(?:number\s+)?\d+)?"
     r"|task\s+(?:number\s+)?\d+|(?:coding\s+)?agent|coder|[\w'.-]+\s+session)\b"
 )
 
@@ -757,6 +764,15 @@ class Hub:
         self.transcriber = transcriber
         self.recorder = recorder
         self.poll = poll
+        # Which app started this backend (app/main.js sets JARVIS_PROFILE): "full" for
+        # J.A.R.V.I.S., "code" for Eden Code on its own. A code backend opens no microphone,
+        # speaks no fillers and watches no screen until a J.A.R.V.I.S. window joins it
+        # (window_joined), so someone who only installed Eden Code is never listened to.
+        self.profile = "code" if os.environ.get("JARVIS_PROFILE") == "code" else "full"
+        # Which edition: app/main.js sets JARVIS_EDITION=daredevil for J.A.R.V.I.S. Daredevil, the same program with
+        # screen-reader mode on from the start (features/accessibility.py: Auto means on there).
+        self.edition = "daredevil" if os.environ.get("JARVIS_EDITION") == "daredevil" else ""
+        self.app_windows: dict[str, int] = {}  # app -> windows open on this backend (server.socket)
         self.listener_factory = listener_factory
         self.state = "idle"
         self.status: dict[str, Any] = {}
@@ -850,7 +866,7 @@ class Hub:
         self.tasks.on_finished = self._task_finished
         self.connectors = connectors or ConnectorManager(self.emit, self.request_approval)
         self.connectors.on_tools_changed = self._tools_changed
-        # Other providers' models for Jarvis Code, their keys in the Keychain.
+        # Other providers' models for Eden Code, their keys in the Keychain.
         self.providers = providers or ProviderStore(vault=self.connectors.vault)
         self.tasks.providers = self.providers
         self.memory = memory or MemoryStore()
@@ -864,7 +880,7 @@ class Hub:
         # the owner's (the ECB's and open.er-api's, kept six hours; never asked in tests).
         self.fx = fxrates.Rates(self.feature_path("fx_rates.json"), enabled=poll)
         # Buying, booking and paying in the built-in browser: one confirmation, and every
-        # click or keystroke there (JARVIS's own and Jarvis Code's) goes through its guard.
+        # click or keystroke there (JARVIS's own and Eden Code's) goes through its guard.
         self.transactions = transaction_desk or transactions.Transactions(
             lambda: self._browser_raw(
                 "read", self.browser_tabs.route(dict(transactions.GUARD_READ), self._rid)
@@ -889,7 +905,7 @@ class Hub:
             send=self.send_gate,
             free=lambda: self.prefs.control_always,
         )
-        # Which tab JARVIS (this request) and each Jarvis Code session works in.
+        # Which tab JARVIS (this request) and each Eden Code session works in.
         self.browser_tabs = browser_agent.TabRoutes()
         # Conversations JARVIS holds for the user by text or email, within their limits.
         self.delegations = delegation_store or delegate.DelegationStore()
@@ -934,7 +950,7 @@ class Hub:
         self.simulator = SimulatorController(
             self.emit
         )  # the iOS Simulator pane (live frames + input)
-        # A Jarvis Code session gets the built-in browser and the iOS Simulator too.
+        # An Eden Code session gets the built-in browser and the iOS Simulator too.
         self.tasks.session_servers = lambda cwd, task_id=0: code_tools.build_servers(
             self.browser_call,
             self.workbench,
@@ -951,17 +967,17 @@ class Hub:
             send=self.send_gate,
             probe=hands_guard.AXProbe(enabled=poll),
         )
-        # Settings › Queue Jarvis Code follow-ups off: they steer the running step.
+        # Settings › Queue Eden Code follow-ups off: they steer the running step.
         self.tasks.steer_now = lambda: not self.prefs.code_queue
         # The fallback model (Settings › Brain; Automatic picks Gemini): Claude down (its
         # limit, an outage) means the turn carries on there, and JARVIS stays on it until
         # Claude's limit resets (half an hour when Claude Code doesn't say) before trying
-        # Claude again. Jarvis Code sessions move to it and carry on too, and go back to
+        # Claude again. Eden Code sessions move to it and carry on too, and go back to
         # their own model at the first message once the limit has reset.
         self.tasks.on_claude_down = self._code_claude_down
         self.tasks.on_rate_limit = self._rate_limit
         # What Claude has been used for (Session card › Claude usage): every answer's tokens
-        # and cost, JARVIS's and Jarvis Code's, and the plan's limits. Beside prefs.json.
+        # and cost, JARVIS's and Eden Code's, and the plan's limits. Beside prefs.json.
         self.usage = claude_usage.UsageBook(self.prefs_store.path.with_name("usage.json"))
         self._conn_cost: float | None = None  # this conversation's running cost so far
         self._usage_sent = 0.0
@@ -1037,15 +1053,17 @@ class Hub:
         self.video.emit, self.video.on_ready = self.emit, self._video_ready
         self._loop: asyncio.AbstractEventLoop | None = None  # for threads that report back
         self._files_told = 0.0
-        from .sources import CHAT_DB, contact_names, mail_index
+        from .sources import CHAT_DB
 
-        # Texts and email that matter, the moment they arrive (Settings › Speaking up).
+        # Texts and email that matter, the moment they arrive (Settings › Speaking up). On a PC
+        # there are no texts to watch (not set up yet); its email is the index JARVIS keeps of
+        # the owner's accounts (winmailindex), and the people they write to count as known.
         self.interrupts = interrupter or interrupts.Interrupter(
             lambda alert: self.notify(alert, speak_if_busy=bool(getattr(alert, "urgent", False))),
-            chat_db=CHAT_DB,
-            mail_db=mail_index,
+            chat_db=CHAT_DB if osplat.IS_MAC else None,
+            mail_db=self.mail_index_path,
             vips=lambda: self.prefs.vips,
-            contacts=contact_names,
+            contacts=self._known_names,
             remembered=lambda: [f.text for f in self.memory.facts],  # people told about
             mode=lambda: self.prefs.interruptions if self.prefs.proactive else "off",
             set_mode=lambda m: self.set_prefs({"interruptions": m}),
@@ -1170,6 +1188,26 @@ class Hub:
 
     # ── features: what jarvis.features modules register ──
 
+    def mail_index_path(self) -> Path | None:
+        """The index of the owner's email for what reads it: Mail's own on a Mac; on a PC the one
+        JARVIS keeps of their accounts (features/winmail.py), once it has mail in it."""
+        from . import sources
+
+        if osplat.IS_MAC:
+            return sources.mail_index()
+        desk = getattr(self, "winmail", None)
+        return desk.index_path() if desk is not None else None
+
+    def _known_names(self) -> dict[str, str]:
+        """People the owner knows, for the heads-up engine: Contacts on a Mac; on a PC the
+        people they have written to."""
+        from . import sources
+
+        if osplat.IS_MAC:
+            return sources.contact_names()
+        desk = getattr(self, "winmail", None)
+        return desk.correspondents() if desk is not None else {}
+
     def feature_path(self, name: str) -> Path:
         """Where a feature keeps its files: beside prefs.json, so a temp folder in tests."""
         path = getattr(self.prefs_store, "path", None)
@@ -1217,7 +1255,7 @@ class Hub:
         self._instants.append(handler)
 
     def add_task_sink(self, sink: Callable[[str, dict[str, Any]], Any]) -> None:
-        """Hear every Jarvis Code and research event (kind, data): steps, turns ending,
+        """Hear every Eden Code and research event (kind, data): steps, turns ending,
         the sessions list."""
         self._task_sinks.append(sink)
 
@@ -1301,7 +1339,7 @@ class Hub:
         self.routes.append(Route(path, endpoint, methods=list(methods)))
 
     def add_browser_check(self, check: Callable[[str, dict[str, Any]], Any]) -> None:
-        """Weigh every built-in browser call JARVIS or a Jarvis Code session makes (browser_call)
+        """Weigh every built-in browser call JARVIS or an Eden Code session makes (browser_call)
         before it goes: the async check(action, args) answers None to let it go, or the answer
         to give instead (a refusal, {"ok": False, "message": …}). Checked in the order added;
         one that fails is logged and doesn't stop the call."""
@@ -1354,7 +1392,7 @@ class Hub:
         self, kinds: tuple[str, ...] | list[str], sink: Callable[[dict[str, Any]], Any]
     ) -> None:
         """Hear these hub events as they're emitted, as the windows get them (the phone's
-        location, a Jarvis Code session finishing, this Mac's location)."""
+        location, an Eden Code session finishing, this Mac's location)."""
         for kind in kinds:
             self._event_sinks.setdefault(kind, []).append(sink)
 
@@ -1387,7 +1425,7 @@ class Hub:
             try:
                 result = sink(*args)
                 # Most return None: asking asyncio about that (an ABC check) cost more than
-                # the sinks themselves, twenty of them on every Jarvis Code event.
+                # the sinks themselves, twenty of them on every Eden Code event.
                 if result is not None and asyncio.iscoroutine(result):
                     self._spawn(result)
             except Exception:
@@ -1452,7 +1490,8 @@ class Hub:
             self.transcriber = Transcriber(
                 lang.whisper_model(self.language, self.settings.whisper_model), self.language
             )
-            self.transcriber.warm_up()
+            if self.profile == "full":
+                self._warm_up_ears()
         try:
             if self.first_connect is None or not await self.first_connect():
                 await self._connect()
@@ -1470,21 +1509,20 @@ class Hub:
         await self.connectors.start_all()
         if self.poll:
             self._spawn(self._poll_status())
-            self._spawn(self._briefing_clock())
+            if self.profile == "full":
+                self._spawn(self._briefing_clock())
             stale = not self.kb.notes or not self.kb.clusters or self.kb.age_hours() > 24
             if self._brain_sources_on() and stale:
                 self._spawn(self.rebuild_brain())
             self._spawn(self._refresh_recent())
             self._spawn(self._vitals_loop())
-            self._spawn(self._prepare_player())
-            self._spawn(self._prepare_fillers())
+            if self.profile == "full":
+                self._spawn_voice_loops()
             self._spawn(self.hands_guard.probe.prepare())  # the accessibility probe, built once
-            self._spawn(self._location_loop())
             self._spawn(self.shortcuts.refresh())
             self._spawn(self.watcher.run())
             self._spawn(self.interrupts.run())
             self._spawn(self.suggester.run())
-            self._spawn(self._hearing_names_loop())
             self._spawn(self.delegate.run())
             self._spawn(self.answering.run())
             self._spawn(
@@ -1508,10 +1546,82 @@ class Hub:
         self._spawn(self.desktop_hands.watch(lambda e: self.emit("desktop_hands", **e)))
         if self.prefs.remote_enabled:
             await self.remote.start()
+        if self.profile == "full":
+            self._start_listening()
+
+    def _spawn_voice_loops(self) -> None:
+        """What only a voice assistant needs running: the speech player and its fillers,
+        the location clock and the names hearing learns."""
+        self._spawn(self._prepare_player())
+        self._spawn(self._prepare_fillers())
+        self._spawn(self._location_loop())
+        self._spawn(self._hearing_names_loop())
+
+    def _start_listening(self) -> None:
         if self.prefs.hands_free:
             self._apply_hands_free()
         if self.prefs.screen_aware:
             self.screen_watch.start()
+
+    def _warm_up_ears(self) -> None:
+        """Start loading the speech model. The first time on a computer it has to be downloaded (a
+        minute or two): that is said and shown, so nobody speaks into a silence, and said again
+        when the model is ready."""
+        ears = self.transcriber
+        warm_up = getattr(ears, "warm_up", None)
+        if warm_up is None:
+            return
+        try:
+            fetching = hasattr(ears, "cached") and not ears.cached()
+        except Exception:  # noqa: BLE001
+            fetching = False
+        warm_up()
+        if fetching and self.poll:
+            self._spawn(self._ears_notice(ears))
+
+    async def _ears_notice(self, ears: Any) -> None:
+        first = (
+            "Getting my hearing ready. The first time, I download a speech model, which takes "
+            "a minute or two. I'll tell you when I can hear you."
+        )
+        self.emit("toast", title="Speech", text=first)
+        self._say(first)
+        for _ in range(EARS_WAIT_SECONDS // 2):
+            await asyncio.sleep(2)
+            if ears.loaded():
+                self.emit("toast", title="Speech", text="I can hear you now.")
+                self._say("I can hear you now.")
+                return
+            if getattr(ears, "error", ""):
+                failed = (
+                    "I couldn't download my speech model. Check the internet connection, "
+                    "then restart me."
+                )
+                self.emit("error", text=failed)
+                self._say(failed)
+                return
+
+    def window_joined(self, app: str) -> None:
+        """A window of `app` ("jarvis", "eden-code") opened on this backend. The first
+        J.A.R.V.I.S. window on a backend Eden Code started wakes what that left off."""
+        self.app_windows[app] = self.app_windows.get(app, 0) + 1
+        if app == "jarvis" and self.profile == "code":
+            self.profile = "full"
+            log.info("a J.A.R.V.I.S. window joined Eden Code's backend: voice on")
+            self._warm_up_ears()
+            if self.poll:
+                self._spawn(self._briefing_clock())
+                self._spawn_voice_loops()
+            self._start_listening()
+        self.emit("app_windows", windows=dict(self.app_windows), profile=self.profile)
+
+    def window_left(self, app: str) -> None:
+        left = self.app_windows.get(app, 0) - 1
+        if left > 0:
+            self.app_windows[app] = left
+        else:
+            self.app_windows.pop(app, None)
+        self.emit("app_windows", windows=dict(self.app_windows), profile=self.profile)
 
     async def _connect(self, resume: str = "") -> None:
         account_servers, account_allowed = self.connectors.build_servers()
@@ -1570,6 +1680,14 @@ class Hub:
     def _feature_servers(self) -> dict[str, Any]:
         from . import meeting, memory, messaging, routines
 
+        servers = self._core_feature_servers(meeting, memory, messaging, routines)
+        if osplat.IS_WIN:  # Messages is the Mac's: email is features/winmail.py
+            servers.pop(messaging.SERVER_NAME, None)
+        return servers
+
+    def _core_feature_servers(
+        self, meeting: Any, memory: Any, messaging: Any, routines: Any
+    ) -> dict[str, Any]:
         return {
             MODELS_SERVER: models_server(
                 self.providers, self.feature_gate, self._providers_changed
@@ -1658,7 +1776,11 @@ class Hub:
             + ui.PROMPT
             + invoices.PROMPT
             + goals.PROMPT
-            + interrupts.PROMPT
+            + (
+                interrupts.PROMPT
+                if osplat.IS_MAC
+                else interrupts.PROMPT.replace("new texts and email", "new email")
+            )
             + hearing.PROMPT
             + documents.PROMPT
             + suggestions.PROMPT
@@ -1904,15 +2026,15 @@ class Hub:
         else:
             why = "You didn't ask for this in your own words (or name the project) just now."
         if starts:
-            question = f"Start Jarvis Code in {target.name}?"
+            question = f"Start Eden Code in {target.name}?"
             spoken = f"Can I start a coding session in {folder} for this?"
             detail = f"Folder: {target}\nFirst request: {request or '(none yet)'}"
         elif request:
-            question = f"Pass this request to Jarvis Code in {target.name}?"
+            question = f"Pass this request to Eden Code in {target.name}?"
             spoken = f"Can I pass a request to the coding session in {folder}?"
             detail = f"To the session in {target}:\n“{request}”"
         else:
-            question = f"Voice-code with Jarvis Code in {target.name}?"
+            question = f"Voice-code with Eden Code in {target.name}?"
             spoken = f"Can I switch you to voice coding in {folder} now?"
             detail = (
                 f"Everything you say next goes to the session in {target}, until you say "
@@ -1968,7 +2090,7 @@ class Hub:
         else:
             why = "You didn't ask to message this session in your own words just now."
         return await self._ask_user(
-            f"Send this to Jarvis Code in {task.cwd.name}?",
+            f"Send this to Eden Code in {task.cwd.name}?",
             f"To session {task.id} in {task.cwd}:\n“{message}”\n\n{why}",
             spoken,
         )
@@ -2087,7 +2209,7 @@ class Hub:
             return {"reply": "", "done": False, "approvals": [], "busy": True}
 
         def own() -> list[dict[str, Any]]:
-            """Cards this request put up (not a Jarvis Code session's, nor another turn's)."""
+            """Cards this request put up (not an Eden Code session's, nor another turn's)."""
             rid = started.get("rid")
             return [
                 a
@@ -2479,7 +2601,7 @@ class Hub:
             ("the Gemini proxy", PROXY.close if PROXY.port else None),
             ("the simulator", self.simulator.close),
             ("a video transcription", self.video.close),  # and its afconvert, midway
-            ("Jarvis Code's tasks", self.tasks.close),
+            ("Eden Code's tasks", self.tasks.close),
             ("the connectors", self.connectors.close),
             ("the phone link", self.remote.stop),
         ]
@@ -2488,7 +2610,7 @@ class Hub:
                 await self._close_step(name, step, deadline)
         getattr(self.speaker, "shutdown", self.speaker.stop)()
         if client is not None:
-            await self._close_step("Jarvis Code's session", client.disconnect, deadline)
+            await self._close_step("Eden Code's session", client.disconnect, deadline)
         took = time.monotonic() - began
         if took > 1.0:
             log.info("stopped in %.1fs", took)
@@ -2629,6 +2751,8 @@ class Hub:
             "line": self.answering.public(),
             "remote": self.remote.public(),
             "voicecode": self.voicecode.public(),
+            "app_windows": dict(getattr(self, "app_windows", {})),
+            "profile": getattr(self, "profile", "full"),
             "markets": self.markets.summary,
             "meeting": {
                 "active": True,
@@ -2696,7 +2820,7 @@ class Hub:
         """Answer an approval. A 'no' can carry what to do instead ('deny:<feedback>')."""
         future = self._futures.get(approval_id)
         approval = self.approvals.get(approval_id, {})
-        # A card's answers in words of the user's own, beside its buttons (a Jarvis Code
+        # A card's answers in words of the user's own, beside its buttons (an Eden Code
         # question's several options at once, or an answer of their own): valid too.
         free = {c for c in approval.get("free_choices") or () if isinstance(c, str)}
         valid = {c["id"] for c in approval.get("choices", [])} | free
@@ -3856,10 +3980,7 @@ class Hub:
             if self.state == "listening":
                 self._armed_until = self._armed_window = 0.0
                 self.set_state("idle")
-            with contextlib.suppress(OSError):
-                subprocess.Popen(
-                    ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
+            sounds.play(CHIME)
         else:
             self.voice_typing.stop()
         log.info("voice typing %s", "on" if on else "off")
@@ -3894,6 +4015,7 @@ class Hub:
             elif action == "tab":
                 await asyncio.to_thread(computer._post_keys, "tab")
             else:
+                said = self._with_dictated_marks(said)
                 chunk = typing.chunk(said) if typing.on else said.strip()
                 if chunk:
                     await asyncio.to_thread(computer._post_text, chunk)
@@ -3912,14 +4034,20 @@ class Hub:
         self._voice_typing_at = time.monotonic()
         self.emit("voice_typed", text=said, action=action or "")
 
+    def _with_dictated_marks(self, said: str) -> str:
+        """Voice typing for a person who says their punctuation ("comma", "new paragraph"): the marks, not the
+        words. (As it is when they leave punctuation to Jarvis.)"""
+        desk = getattr(self, "speech_punctuation", None)
+        if desk is None:
+            return said
+        typing = self.voice_typing
+        return desk.dictated(said, "".join(typing.typed[-2:]) if typing.on else "")
+
     def _arm(self, seconds: float = ARMED_SECONDS, chime: bool = True) -> None:
         self._armed_until = self._armed_window = time.monotonic() + seconds
         self.set_state("listening")
         if chime:
-            with contextlib.suppress(OSError):
-                subprocess.Popen(
-                    ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
+            sounds.play(CHIME)
         self._spawn(self._disarm_later(self._armed_until, seconds))
 
     async def _disarm_later(self, until: float, seconds: float) -> None:
@@ -4003,7 +4131,7 @@ class Hub:
 
     async def on_heard(self, text: str) -> None:
         """One hands-free utterance: wake word, barge-in, or ignore. Its own voice coming
-        back through the microphone is dropped first, wake word or not ("Jarvis Code
+        back through the microphone is dropped first, wake word or not ("Eden Code
         finished in…" is its own heads-up); only a short "stop" gets through regardless,
         even when its reply had the word in it."""
         text = text.strip()
@@ -4182,7 +4310,7 @@ class Hub:
         text = lang.translate(text, self.language) if lang.is_zh(self.language) else text
         self._last_said = text
         self.emit("caption", text=text)
-        if self._silent or self.speaker.muted:
+        if self._silent or is_silent(self.speaker):
             return
         self._spawn(self._say_then_listen(text, follow_up))
 
@@ -4224,7 +4352,7 @@ class Hub:
 
     def acknowledge(self) -> None:
         """A short pre-voiced 'On it.' so a request never meets silence."""
-        if self._fillers and not self._silent and not self.speaker.muted:
+        if self._fillers and not self._silent and not is_silent(self.speaker):
             index = next(self._filler_order) % len(self._fillers)
             self.speech.push_clip(self._fillers[index], self._filler_phrases()[index])
 
@@ -4745,7 +4873,7 @@ class Hub:
             self._speak(reply)
         return True
 
-    # ── Jarvis Code: ! runs a command, # saves a memory (as in Claude Code) ──
+    # ── Eden Code: ! runs a command, # saves a memory (as in Claude Code) ──
 
     def _code_folder(self, msg: dict[str, Any]) -> Path | None:
         task = (
@@ -4826,7 +4954,7 @@ class Hub:
         self.emit("task_memory", ok=True, text=note, path=str(path))
 
     def _sync_awake(self, force: bool = False) -> None:
-        """Awake while any Jarvis Code session is working (when that's switched on), and
+        """Awake while any Eden Code session is working (when that's switched on), and
         asleep-able again as soon as they're all done."""
         working = any(t.busy for t in self.tasks.tasks.values() if t.kind == "code")
         on = self.workbench.set_awake(self.prefs.code_keep_awake and working)
@@ -4848,7 +4976,7 @@ class Hub:
             return
         path = (root / str(msg.get("path", ""))).resolve()
         if root in path.parents and path.is_file() and not computer.is_sensitive(path):
-            subprocess.Popen(["open", str(path)])  # noqa: S603, S607
+            osplat.open_target(str(path))
 
     # ── the window itself ──
 
@@ -4911,7 +5039,8 @@ class Hub:
         elif command.action == "tone":  # light and dark are Stark Glass's
             self.set_prefs({"look": "glass", "glass_tone": command.name})
         elif command.action == "panel":
-            self.emit("ui", action="panel", name=command.name, open=command.on)
+            extra = {"section": command.section} if command.section else {}
+            self.emit("ui", action="panel", name=command.name, open=command.on, **extra)
         elif command.action == "hands":
             self.emit("ui", action="hands", on=command.on)
         elif command.action == "voice_typing":
@@ -4930,7 +5059,7 @@ class Hub:
                 )
 
     async def _instant_window(self, rid: str, text: str) -> bool:
-        """'Open Jarvis Code', 'close the browser', 'switch to the Obsidian look': done at once."""
+        """'Open Eden Code', 'close the browser', 'switch to the Obsidian look': done at once."""
         command = lang.parse_ui(text, self.language)
         if command is None:
             return False
@@ -4951,7 +5080,7 @@ class Hub:
     # ── the built-in browser ──
 
     async def browser_call(self, action: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-        """A browser action for JARVIS or Jarvis Code, through the purchase guard: a final
+        """A browser action for JARVIS or Eden Code, through the purchase guard: a final
         Pay / Book / Transfer button needs its confirmation for exactly that page. JARVIS's
         go to the tab it's working in this request (browser_agent.TabRoutes)."""
         args = self.browser_tabs.route(dict(args or {}), self._rid)
@@ -4982,7 +5111,7 @@ class Hub:
         return await self._browser_raw(action, self.browser_tabs.route(dict(args or {}), self._rid))
 
     async def _session_page_url(self, task_id: int, tab: int | None = None) -> str | None:
-        """The address a Jarvis Code session's next browser action lands on: the tab it
+        """The address an Eden Code session's next browser action lands on: the tab it
         names (tab), else its own tab's page, or the tab on show while it has none (where
         such a session acts)."""
         tab = tab or self.browser_tabs.session_tab(task_id)
@@ -5473,8 +5602,8 @@ class Hub:
                 Alert(
                     f"code:{data.get('id')}:{time.monotonic():.0f}",
                     "task",
-                    str(data.get("label", "Jarvis Code")),
-                    f"Jarvis Code {'finished' if done else 'stopped'} in {data.get('folder')}."
+                    str(data.get("label", "Eden Code")),
+                    f"Eden Code {'finished' if done else 'stopped'} in {data.get('folder')}."
                     + (f" {data['result']}" if done and data.get("result") else ""),
                 ),
                 speak=False,
@@ -5497,7 +5626,7 @@ class Hub:
                 Alert(
                     f"code-ok:{context['task_id']}:{time.monotonic():.0f}",
                     "task",
-                    "Jarvis Code needs you",
+                    "Eden Code needs you",
                     question.replace("wants to", "needs your OK to") + ".",
                 ),
                 speak_if_busy=False,
@@ -5615,7 +5744,14 @@ class Hub:
     def _speak_language(self) -> None:
         """The voice for the chosen language: the Mac's Mandarin voice for Chinese (the
         cloud voices speak both), and speech cleaned the way that language reads."""
-        self.speaker.clean = lambda text: lang.clean_for_speech(text, self.language)
+
+        def clean(text: str) -> str:
+            marks = getattr(
+                self.speaker, "punctuation", None
+            )  # (the person's punctuation level, if any)
+            return lang.clean_for_speech(marks(text) if marks else text, self.language)
+
+        self.speaker.clean = clean
         if isinstance(self.speaker, Speaker):
             self.speaker.voice = self.mac_voice_for(self.language) or lang.mac_voice(
                 self.language, self.settings.voice
@@ -5761,11 +5897,8 @@ class Hub:
                 return
 
     async def _announce(self, text: str) -> None:
-        if not self.speaker.muted:
-            with contextlib.suppress(OSError):
-                subprocess.Popen(
-                    ["afplay", CHIME], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
+        if not is_silent(self.speaker):
+            sounds.play(CHIME)
             await asyncio.sleep(0.4)
         await self._say_heads_up(text)
 
@@ -5904,7 +6037,7 @@ class Hub:
         self._plan_soon.set()
 
     def _code_usage(self, task: Any, cost: float, message: Any) -> None:
-        """A Jarvis Code turn ended (tasks._turn_over): its share of the usage."""
+        """An Eden Code turn ended (tasks._turn_over): its share of the usage."""
         models = getattr(message, "model_usage", None) or {}
         model = next(iter(models), "") or getattr(task, "model", "") or ""
         provider, cost = self._usage_provider(getattr(task, "model", ""), cost)
@@ -6146,7 +6279,7 @@ class Hub:
         await self._run_query(rid, CARRY_ON_TALK.format(why=self._claude_why(why), name=name))
 
     def _code_claude_down(self, task: Any, why: str, said: str = "") -> bool:
-        """Claude couldn't answer a Jarvis Code session (its limit, an outage). With a
+        """Claude couldn't answer an Eden Code session (its limit, an outage). With a
         fallback model to go to, the session moves there and carries on from where Claude
         stopped: True, the move is under way. Otherwise Claude's error stands, with how to
         get a fallback when there's none."""
@@ -6173,7 +6306,7 @@ class Hub:
         return True
 
     async def _code_fallback(self, task: Any, ref: str, why: str) -> None:
-        """Moves a Jarvis Code session Claude couldn't answer to the fallback model (the
+        """Moves an Eden Code session Claude couldn't answer to the fallback model (the
         same conversation, reopened between turns even with background tasks running: the
         old connection can't answer), then has it carry on from where Claude stopped. A
         session that was on Claude goes back to its own model at its first message once
@@ -6222,7 +6355,7 @@ class Hub:
                 note=True,
             )
         except Exception:
-            log.exception("Jarvis Code: couldn't move a session to the fallback")
+            log.exception("Eden Code: couldn't move a session to the fallback")
             self.tasks._log(task, "system", f"Couldn't move this session to {name}.")
         finally:
             task.falling_back = False
@@ -6482,7 +6615,7 @@ class Hub:
         return items or None
 
     def _model_config(self, ref: str) -> dict[str, Any]:
-        """A model picked in Jarvis Code (a prefs key, "custom:…" or a Claude id) as a
+        """A model picked in Eden Code (a prefs key, "custom:…" or a Claude id) as a
         session needs it. One that's gone falls back to the default, with a note."""
         try:
             cfg = self.providers.session_config(ref)
@@ -6637,8 +6770,9 @@ class Hub:
             if action == "opened" and key.startswith("interrupt:"):
                 mail = key.startswith("interrupt:mail:")
                 app = "com.apple.mail" if mail else "com.apple.MobileSMS"
-                with contextlib.suppress(OSError):
-                    subprocess.Popen(["open", "-b", app])
+                if osplat.IS_MAC:  # (Mail and Messages are the Mac's apps)
+                    with contextlib.suppress(OSError):
+                        subprocess.Popen(["open", "-b", app])
         elif kind == "suggestion_reaction":  # "accepted", "dismissed", "never", "closed"
             await self._suggestion_reaction(msg)
         elif kind == "heard_edit":  # the owner fixed a transcript in the window
@@ -6675,9 +6809,8 @@ class Hub:
         elif kind == "video_open":  # only a write-up the desk filed itself
             job = self.video.job(msg.get("id"))
             if job is not None and job.path is not None and job.path.exists():
-                reveal = ["-R"] if msg.get("reveal") else []  # ⌥-click: show it in Finder
-                with contextlib.suppress(OSError):
-                    subprocess.Popen(["open", *reveal, str(job.path)])  # noqa: S603
+                with contextlib.suppress(OSError):  # (⌥-click: show it in its folder)
+                    osplat.open_target(str(job.path), reveal=bool(msg.get("reveal")))
         elif kind == "mute":
             self.speaker.muted = bool(msg.get("value"))
             if self.speaker.muted:  # silence the reply in progress too, and what's queued
@@ -6691,7 +6824,7 @@ class Hub:
         elif kind == "task_new":
             known = set(self.tasks.tasks)
             try:
-                # A new session starts as the composer was set (Settings › Jarvis Code), or as
+                # A new session starts as the composer was set (Settings › Eden Code), or as
                 # its project's own defaults say (a resumed one: as it last ran).
                 own = self.tasks.defaults_for(
                     str(msg.get("directory", "")), str(msg.get("session_id", ""))
@@ -6857,7 +6990,7 @@ class Hub:
                 self.emit("error", text=str(exc))
             self.emit("claude_sessions", directory=str(msg.get("directory", "")), items=items)
         elif kind == "claude_history":
-            # Jarvis Code's past sessions in every project, for the sidebar: they outlast a
+            # Eden Code's past sessions in every project, for the sidebar: they outlast a
             # restart, being Claude Code's own records.
             self.emit("claude_history", items=await asyncio.to_thread(self.tasks.recent_sessions))
         elif kind == "refresh":
@@ -6979,7 +7112,7 @@ class Hub:
             if term is not None:
                 term.resize(min(_msg_int(msg, "cols"), 9999), min(_msg_int(msg, "rows"), 9999))
         elif kind == "awake":
-            # The More menu's switch: keep the Mac awake while Jarvis Code works.
+            # The More menu's switch: keep the Mac awake while Eden Code works.
             self.set_prefs({"code_keep_awake": bool(msg.get("on"))})
             self._sync_awake(force=True)
         elif kind == "file_open":
@@ -7064,8 +7197,7 @@ class Hub:
         elif kind == "found_file_open":
             path = str(msg.get("path", ""))
             if path in self._shown_files and Path(path).exists():  # only what the index showed
-                args = ["open", "-R", path] if msg.get("reveal") else ["open", path]
-                subprocess.Popen(args)  # noqa: S603
+                osplat.open_target(path, reveal=bool(msg.get("reveal")))
         elif kind == "delegation_stop":
             try:
                 self.delegate.stop(str(msg.get("id", "")))
@@ -7129,7 +7261,7 @@ class Hub:
         elif kind == "reveal":
             target = Path(str(msg.get("path", ""))).expanduser()
             if CONVERSATIONS_DIR in target.parents and target.exists():
-                subprocess.Popen(["open", "-R", str(target)])  # noqa: S603, S607
+                osplat.open_target(str(target), reveal=True)
         elif kind == "open_privacy":
             panes = {
                 "full_disk": "Privacy_AllFiles",

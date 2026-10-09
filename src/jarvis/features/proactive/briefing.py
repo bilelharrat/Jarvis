@@ -1,7 +1,7 @@
 """The morning briefing as the owner lays it out, and an evening wrap-up.
 
 - Sections (Settings › Morning briefing, or by voice): calendar, weather, commute, email,
-  reminders, Jarvis Code, background tasks, markets, BSH alerts, health and news, each on
+  reminders, Eden Code, background tasks, markets, BSH alerts, health and news, each on
   or off, in the owner's order (briefing_sections: [{"id", "on"}]). The briefing asks for
   exactly those, in that order, and says which to leave out (the companion's prompt asks
   for health in "a morning briefing": off means off). A feature's line for the briefing
@@ -75,7 +75,7 @@ NAMES = {
     "commute": "commute",
     "mail": "email",
     "reminders": "reminders",
-    "code": "Jarvis Code",
+    "code": "Eden Code",
     "tasks": "background tasks",
     "markets": "markets",
     "bsh": "BSH alerts",
@@ -88,7 +88,7 @@ ASKS = {
     "calendar": "Today's calendar (list_events): what's on and when.",
     "weather": "Today's weather (weather_report).",
     "mail": "My unread email (list_emails, unread only): who wants what; skip newsletters.",
-    "code": "Any Jarvis Code session still working or waiting on me (claude_task_status).",
+    "code": "Any Eden Code session still working or waiting on me (claude_task_status).",
     "tasks": "Background research or other tasks that finished (claude_task_status).",
     "markets": "How the markets are doing (market_summary).",
     "bsh": "Portfolio alerts from the BSH research desk, if its tools are available.",
@@ -100,7 +100,7 @@ BRIEFING_OPEN = (
 )
 WRAPUP_PROMPT = (
     "Give me my evening wrap-up, in under a minute of speech: what happened today (the "
-    "meetings I had, and anything notable Jarvis Code or research finished), tomorrow's "
+    "meetings I had, and anything notable Eden Code or research finished), tomorrow's "
     "first event (and when to leave, if it's somewhere to go), and the open loops: email "
     "still waiting for an answer from me, reminders due, anything I said I'd do. Skip "
     "anything that's empty, and close warmly."

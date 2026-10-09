@@ -1,13 +1,14 @@
 """The owner's files moved, renamed and put in the Trash, each one undoable, and the clipboard
 read and written (text only).
 
-- Only inside the home folder (and iCloud Drive), never a credentials file (computer's
+- Only inside the home folder (and iCloud Drive; on a PC also the folders Windows keeps for the
+  person, wherever OneDrive or their school has put them), never a credentials file (computer's
   is_sensitive), never app data (Library, and the home's hidden settings folders and all
   that's in them), never the home's own folders themselves (Desktop, Documents…), never
   over a file that's already there. The disk ignores case and Unicode's two ways of writing
   an accent, so these are checked the same way (~/library is Library), both where a path
   says and where its links really lead. Nothing is ever deleted: "delete" moves it to the
-  Trash, the way Finder does, and remembers where it went.
+  Trash (the Recycle Bin on a PC), the way Finder does, and remembers where it went.
 - Every change is written to the undo log (a JSON file beside prefs.json: what went where,
   when), so undo() puts things back: the last one, or one by its id. The conversation
   track's general undo can call FileActions.undo() too.
@@ -31,7 +32,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import jsonstore
+from . import jsonstore, osplat
 from .computer import SENSITIVE_PARTS, is_sensitive
 
 log = logging.getLogger("jarvis")
@@ -43,6 +44,12 @@ MAX_FILES = 50
 HOME_FOLDERS = frozenset(
     "Desktop Documents Downloads Library Pictures Movies Music Applications Public Sites .Trash".split()
 )
+# (a PC's own: the folders Windows adds in a home, and app data where a Mac has Library)
+WINDOWS_HOME_FOLDERS = frozenset(
+    ["Videos", "Favorites", "Links", "Contacts", "Searches", "AppData", "OneDrive", "iCloudDrive"]
+    + ["Saved Games", "3D Objects"]
+)
+WINDOWS_APP_DATA = ("appdata", "application data", "local settings")
 ICLOUD = Path("Library") / "Mobile Documents" / "com~apple~CloudDocs"
 NAME_LIMIT = 255  # characters of a file's name the disk takes
 # Characters a new name never has: controls (a NUL can't be on disk) and the ones that make
@@ -67,7 +74,12 @@ class Record:
 
 
 def trash_item(path: Path) -> Path:
-    """Finder's Move to Trash, through NSFileManager: where it went (so it can come back)."""
+    """Finder's Move to Trash, through NSFileManager (a PC: the Recycle Bin): where it went (so
+    it can come back)."""
+    if osplat.IS_WIN:
+        from . import winfiles
+
+        return winfiles.trash_item(path)
     from Foundation import NSURL, NSFileManager
 
     url = NSURL.fileURLWithPath_(str(path))
@@ -82,6 +94,10 @@ def trash_item(path: Path) -> Path:
 
 def read_clipboard() -> str:
     """The clipboard's text; Refused when a password manager marked it private."""
+    if osplat.IS_WIN:
+        from . import winfiles
+
+        return winfiles.read_clipboard(Refused)
     from AppKit import NSPasteboard, NSPasteboardTypeString
 
     board = NSPasteboard.generalPasteboard()
@@ -92,11 +108,19 @@ def read_clipboard() -> str:
 
 
 def write_clipboard(text: str) -> None:
+    if osplat.IS_WIN:
+        from . import winfiles
+
+        return winfiles.write_clipboard(text)
     from AppKit import NSPasteboard, NSPasteboardTypeString
 
     board = NSPasteboard.generalPasteboard()
     board.clearContents()
     board.setString_forType_(text, NSPasteboardTypeString)
+
+
+def bin_name() -> str:
+    return "Recycle Bin" if osplat.IS_WIN else "Trash"
 
 
 def _plain_path(raw: str | Path) -> Path:
@@ -110,12 +134,15 @@ def _plain_path(raw: str | Path) -> Path:
 
 
 def _fold(text: str) -> str:
-    """A path as the Mac's disk compares it: case and the way an accent is written ignored."""
-    return unicodedata.normalize("NFD", text).casefold()
+    """A path as the disk compares it: case and the way an accent is written ignored (and a
+    PC's backslashes read as slashes)."""
+    text = unicodedata.normalize("NFD", text).casefold()
+    return text.replace("\\", "/") if osplat.IS_WIN else text
 
 
 _FOLDED_PARTS = tuple(_fold(part) for part in SENSITIVE_PARTS)
 _FOLDED_HOME_FOLDERS = frozenset(_fold(name) for name in HOME_FOLDERS)
+_FOLDED_WINDOWS_FOLDERS = frozenset(_fold(name) for name in WINDOWS_HOME_FOLDERS)
 _FOLDED_ICLOUD = tuple(_fold(part) for part in ICLOUD.parts)
 
 
@@ -154,6 +181,26 @@ class FileActions:
     ) -> None:
         self.path = path
         self.home = _plain_path(home or Path.home())
+        # Where things may be moved: the home, and (a PC, the real home) the folders Windows keeps
+        # for the person when they live elsewhere: OneDrive's, a school's network share.
+        self.roots: list[Path] = [self.home]
+        self.protected: set[str] = set()  # those folders themselves: moved into, never moved
+        if osplat.IS_WIN and home is None:
+            try:
+                from . import winfiles
+
+                places = [*winfiles.known_folders().values(), *winfiles.cloud_roots()]
+            except OSError:
+                places = []
+            for place in places:
+                place = _plain_path(place)
+                self.protected.add(_fold(str(place)))
+                if (
+                    place != self.home
+                    and self.home not in place.parents
+                    and place not in self.roots
+                ):
+                    self.roots.append(place)
         self.trash_one = trash
         self.clock = clock
         self.read_clipboard, self.write_clipboard = clipboard
@@ -211,8 +258,7 @@ class FileActions:
     # ── what may be touched ──
 
     def _inside(self, path: Path) -> bool:
-        home = self.home
-        return path != home and home in path.parents
+        return any(path != root and root in path.parents for root in self.roots)
 
     def _under_home(self, path: Path) -> tuple[str, ...] | None:
         """The path's parts below the home folder as the disk compares them (folded), or None
@@ -226,10 +272,21 @@ class FileActions:
 
     def _home_folder(self, path: Path) -> bool:
         """One of the home's own folders (Desktop, Documents, Library…), or iCloud Drive."""
+        if osplat.IS_WIN and _fold(str(path)) in self.protected:
+            return True
         parts = self._under_home(path)
         if parts is None:
             return False
-        return (len(parts) == 1 and parts[0] in _FOLDED_HOME_FOLDERS) or parts == _FOLDED_ICLOUD
+        names = (
+            _FOLDED_HOME_FOLDERS | _FOLDED_WINDOWS_FOLDERS
+            if osplat.IS_WIN
+            else _FOLDED_HOME_FOLDERS
+        )
+        if len(parts) == 1 and osplat.IS_WIN and parts[0].startswith("onedrive"):
+            return True  # "OneDrive - Springfield College" and the like
+        return (len(parts) == 1 and parts[0] in names) or (
+            not osplat.IS_WIN and parts == _FOLDED_ICLOUD
+        )
 
     def _app_data(self, path: Path) -> bool:
         """Library (iCloud Drive aside), the home's hidden settings folders and files and all
@@ -243,6 +300,8 @@ class FileActions:
                     return True
                 if top == "library" and parts[1:3] != _FOLDED_ICLOUD[1:]:
                     return True
+                if osplat.IS_WIN and (top in WINDOWS_APP_DATA or top.startswith("ntuser.")):
+                    return True  # (a PC's app data, with the links Windows leaves to it)
             if _credentials(where):
                 return True
         return _credentials(Path(os.path.realpath(path)))
@@ -252,7 +311,7 @@ class FileActions:
         path = _plain_path(raw)
         name = path.name or str(raw)
         parent = _plain_path(path.parent.resolve())  # no way out of the home through a link
-        if not self._inside(path) or not (parent == self.home or self._inside(parent)):
+        if not self._inside(path) or not (parent in self.roots or self._inside(parent)):
             raise Refused(f"“{name}” isn't in your home folder; I only move things in there.")
         if self._home_folder(path) or self._home_folder(_real(path)):
             raise Refused(
@@ -267,11 +326,11 @@ class FileActions:
     def check_folder(self, raw: str | Path) -> Path:
         path = _plain_path(raw)
         real = Path(os.path.realpath(path))  # where what's moved really lands
-        if not (path == self.home or self._inside(path)) or any(
+        if not (path in self.roots or self._inside(path)) or any(
             self._app_data(p) for p in (path, real)
         ):
             raise Refused(f"“{path.name or raw}” isn't a folder in your home folder.")
-        if not self._inside(real) and path != self.home:
+        if not self._inside(real) and path not in self.roots:
             raise Refused(f"“{path.name or raw}” isn't a folder in your home folder.")
         if not path.is_dir():
             raise Refused(f"There's no folder “{path.name or raw}”.")
@@ -320,6 +379,8 @@ class FileActions:
         name = " ".join(str(new_name or "").split()).strip()
         if not name or "/" in name or name in (".", "..") or name.startswith(".") or ":" in name:
             raise Refused("Give a plain new name (no slashes, and not starting with a dot).")
+        if osplat.IS_WIN and (why := _windows_name_problem(name)):
+            raise Refused(f"Give a plain new name: {why}.")
         if not Path(name).suffix and src.suffix and not src.is_dir():
             name += src.suffix  # "rename it budget" keeps its .xlsx
         if _bad_name(name):
@@ -328,7 +389,9 @@ class FileActions:
                 "show as they are)."
             )
         dest = src.with_name(name)
-        if dest == src:
+        if str(dest) == str(
+            src
+        ):  # (not ==: a PC's paths ignore case, and notes to Notes is a rename)
             raise Refused(f"It's already called “{name}”.")
         if os.path.lexists(dest) and not _same_item(src, dest):  # "notes" to "Notes" is fine
             raise Refused(f"There's already a “{name}” there.")
@@ -413,6 +476,10 @@ class FileActions:
                 continue
             src.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(dest), str(src))
+            if record.kind == "trash" and osplat.IS_WIN:
+                from . import winfiles
+
+                winfiles.left_the_bin(dest)  # (the bin shouldn't list what isn't in it)
             back += 1
         record.undone = True
         try:
@@ -420,11 +487,17 @@ class FileActions:
         except OSError as exc:
             log.warning("file actions: couldn't save the undo log (%s)", exc)
         verb = {"move": "Moved", "rename": "Renamed", "trash": "Took"}[record.kind]
-        where = {"move": "back", "rename": "back", "trash": "out of the Trash"}[record.kind]
+        where = {"move": "back", "rename": "back", "trash": f"out of the {bin_name()}"}[record.kind]
         said = f"{verb} {back} {'item' if back == 1 else 'items'} {where}." if back else ""
         if problems:
             said = (said + " " if said else "") + "Not all of it: " + "; ".join(problems[:3]) + "."
         return said
+
+
+def _windows_name_problem(name: str) -> str:
+    from . import winfiles
+
+    return winfiles.bad_name(name)
 
 
 def _same_item(a: Path, b: Path) -> bool:

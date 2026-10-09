@@ -479,7 +479,7 @@ function sightJudge() {
 // same way; the page's scripts can't see this world.
 globalThis.jarvisSight = sightJudge;
 
-// ── the fuller read JARVIS's and Jarvis Code's browser_read ask for (rich) ──
+// ── the fuller read JARVIS's and Eden Code's browser_read ask for (rich) ──
 // What <main> leaves out: an open dialog, an alert or toast, a fixed banner or drawer, a
 // sidebar (an order summary with the total). Each goes ahead of <main>'s text, labelled.
 const REGIONS = [
@@ -770,7 +770,7 @@ function findInPage({ text = '', forward = true, stop = false }) {
   return { ok: true, matches: findRanges.length, active: findAt + 1 };
 }
 
-// ── point and speak: what the hand is on, for "make this bigger" in Jarvis Code ──
+// ── point and speak: what the hand is on, for "make this bigger" in Eden Code ──
 
 const POINT_FRESH_MS = 4000; // the hand dropped while the words were said still counts
 
@@ -873,7 +873,7 @@ if (window === window.top) {
     window.addEventListener(type, block, { capture: true, passive: false });
   }
 
-  // ── the page's alert, confirm and prompt while JARVIS or Jarvis Code acts in this tab ──
+  // ── the page's alert, confirm and prompt while JARVIS or Eden Code acts in this tab ──
   // They go to the app, which hands them to the agent to answer (the page waits for the
   // answer, as it would for the box). Otherwise, and in frames inside the page, they're the
   // page's own box as always. Electron's own box can't be closed once the agent has answered

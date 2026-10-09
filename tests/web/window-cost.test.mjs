@@ -8,7 +8,7 @@ const web = (f) => readFileSync(new URL(`../../src/jarvis/web/${f}`, import.meta
 
 test('a body:has() rule asks only the body’s own children, never the whole page', () => {
   // body:has(#cc…) searched every element of the page again after any change anywhere in it
-  // (a streamed word, a step of a session): about a millisecond each time with Jarvis Code open.
+  // (a streamed word, a step of a session): about a millisecond each time with Eden Code open.
   for (const file of ['app.css', 'obsidian.css', 'stark-glass.css', 'simulator.css', 'remote.css']) {
     const css = web(file).replace(/\/\*[\s\S]*?\*\//g, '');  // (the comments say body:has() too)
     const rules = css.match(/\bbody(?:\[[^\]]*\]|\.[\w-]+)*:has\([^)]*\)/g) || [];

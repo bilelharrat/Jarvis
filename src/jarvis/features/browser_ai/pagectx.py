@@ -13,7 +13,7 @@ is: "summarize this", "translate what I selected" and "is this legit?" need no t
   a sensitive site (a bank, their mail, a health portal).
 - ⌥⇧Space with the dock in front (the J.A.R.V.I.S. window focused, a page on show) asks
   about the page itself, its text and a picture of it, instead of a picture of the screen.
-  A Jarvis Code session in front or in voice focus keeps the key (code_voice).
+  An Eden Code session in front or in voice focus keeps the key (code_voice).
 """
 
 from __future__ import annotations
@@ -255,7 +255,7 @@ class PageContext:
 
     async def on_whats_this(self, msg: dict[str, Any]) -> bool | None:
         """⌥⇧Space: with the dock in front, the page on show; anything else passes on (False)
-        to Jarvis Code's look (a session in front) or the core's look at the screen."""
+        to Eden Code's look (a session in front) or the core's look at the screen."""
         hub = self.hub
         if getattr(hub.voicecode, "task", None) is not None or msg.get("session"):
             return False

@@ -1,4 +1,4 @@
-// What one Jarvis Code message may carry: node --test tests/web/
+// What one Eden Code message may carry: node --test tests/web/
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';

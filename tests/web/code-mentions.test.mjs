@@ -1,4 +1,4 @@
-// Jarvis Code's richer @-mentions (web/features/code-mentions.js), its pure helpers: a
+// Eden Code's richer @-mentions (web/features/code-mentions.js), its pure helpers: a
 // project's folders, which match what's typed, and what a symbol puts in the message.
 // node --test tests/web/
 import assert from 'node:assert/strict';

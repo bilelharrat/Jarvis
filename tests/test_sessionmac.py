@@ -1,4 +1,4 @@
-"""The Mac for a Jarvis Code session: the hook before each call (the owner's switch, Plan
+"""The Mac for an Eden Code session: the hook before each call (the owner's switch, Plan
 mode, never JARVIS's own window, then the session's permission prompt every time), and the
 approval cards' wording. Nothing here touches the real screen, mouse or keyboard."""
 

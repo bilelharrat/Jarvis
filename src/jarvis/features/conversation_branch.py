@@ -1,9 +1,9 @@
-"""Rewind and branches for JARVIS's own conversation (not Jarvis Code's sessions, which have
+"""Rewind and branches for JARVIS's own conversation (not Eden Code's sessions, which have
 their own in tasks.py): going back to an earlier message, branching off, and editing a request.
 
 - Rewind: the conversation carries on from just before one of the owner's messages, so it and
   everything after leave Claude's context. It's a new Claude Code session resumed at that point
-  (the SDK's resume, fork_session and resume_session_at, as Jarvis Code forks), so the version
+  (the SDK's resume, fork_session and resume_session_at, as Eden Code forks), so the version
   from before stays whole in Past conversations. From the window (Conversations › This
   conversation › a message › Rewind to before this) or by voice ("go back to before I asked
   about the flights", 回到我问机票之前). A card asks first, and says what a rewind doesn't do:

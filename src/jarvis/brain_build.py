@@ -19,6 +19,7 @@ import traceback
 from pathlib import Path
 from typing import IO
 
+from . import osplat
 from .knowledge import Collector, KnowledgeBase
 
 # The lock file, held for as long as this process lives (not only while main() runs).
@@ -39,8 +40,6 @@ def _private_output() -> None:
 
 
 def main() -> None:
-    import fcntl
-
     global _lock
     args = json.loads(sys.argv[1])
     # The folder first: on a fresh install there's none yet for the lock file to go in.
@@ -48,14 +47,11 @@ def main() -> None:
     # One rebuild at a time, even if an earlier app run left one going.
     _lock = open(Path(args["store"]).with_suffix(".lock"), "w")  # noqa: SIM115 - held until exit
     try:
-        fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        osplat.lock_file(_lock)
     except OSError:
         print(json.dumps({"busy": True}), flush=True)
         return
-    try:
-        os.nice(10)  # the voice loop comes first
-    except OSError:
-        pass
+    osplat.lower_priority()  # the voice loop comes first
     kb = KnowledgeBase(Path(args["store"]))
     only = set(args["only"]) if args.get("only") is not None else None
     if not kb.load() and only:

@@ -1,4 +1,4 @@
-"""Subagent lanes in Jarvis Code (codelanes): each session's Agent calls as a tree, with their
+"""Subagent lanes in Eden Code (codelanes): each session's Agent calls as a tree, with their
 steps, tokens, time and estimated cost, and a Stop for one subagent (Claude Code's
 stop_task) while the rest of the session goes on.
 

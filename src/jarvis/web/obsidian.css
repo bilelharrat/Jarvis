@@ -257,7 +257,7 @@ html body[data-skin="obsidian"] .card.needs-ok .btn.primary:hover { filter: brig
 
 html body[data-skin="obsidian"] .group h3 { font-family: var(--mono); font-size: 11px; font-weight: 400; letter-spacing: 0.14em; color: var(--muted); }
 
-/* ── at night: Settings, menus, Jarvis Code and the browser in the same graphite. In the
+/* ── at night: Settings, menus, Eden Code and the browser in the same graphite. In the
    day the app's own light material already fits, so only the dark set is replaced. ── */
 html body[data-skin="obsidian"]:not([data-tone="light"]) .sheet {
   --s-card: rgba(255, 255, 255, 0.035);
@@ -298,7 +298,7 @@ html body[data-skin="obsidian"]:not([data-tone="light"]) .model-menu {
   --mm-sep: rgba(255, 255, 255, 0.08);
 }
 
-/* Jarvis Code and the browser. Filled buttons keep white text, so their blue is deeper;
+/* Eden Code and the browser. Filled buttons keep white text, so their blue is deeper;
    the arc is for text, rings and glows. */
 html body[data-skin="obsidian"] .deck.jc,
 html body[data-skin="obsidian"] .browser-dock {
@@ -329,7 +329,7 @@ html body[data-skin="obsidian"]:not([data-tone="light"]) .browser-dock {
   --pill-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.6);
 }
 html body[data-skin="obsidian"] .deck.jc::before { background: rgb(var(--c-canvas)); -webkit-backdrop-filter: none; backdrop-filter: none; }
-/* Jarvis Code's mark is the reactor's core: a fine ring of arc around a bright point. */
+/* Eden Code's mark is the reactor's core: a fine ring of arc around a bright point. */
 html body[data-skin="obsidian"] .jc-mark,
 html body[data-skin="obsidian"] .jc-hero-mark {
   background: radial-gradient(circle closest-side, var(--ob-core) 0 16%, rgba(var(--ob-arc-rgb), 0.1) 19% 100%);

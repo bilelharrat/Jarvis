@@ -463,16 +463,20 @@ test('spaces: Plus to create; invite, join, budget per member, removal, and only
 
 // ── the Durable Object migrations ──
 
-test('migrations: v1–v5 in order, Space is new in v4 and BrowserSession in v5 (SQLite), bound, and exported', async () => {
+test('migrations: v1–v7 in order, Space is new in v4, BrowserSession in v5, Course in v6 and Promo in v7 (SQLite), bound, and exported', async () => {
   const toml = fs.readFileSync(path.join(SITE, 'wrangler.toml'), 'utf8');
   const tags = [...toml.matchAll(/\[\[migrations\]\]\s*\ntag = "(v\d+)"\s*\nnew_sqlite_classes = \[([^\]]*)\]/g)].map((m) => [m[1], m[2].replace(/"/g, '').split(',').map((x) => x.trim())]);
-  assert.deepEqual(tags, [['v1', ['VoiceQuota']], ['v2', ['Account', 'Link']], ['v3', ['Identity']], ['v4', ['Space']], ['v5', ['BrowserSession']]]);
+  assert.deepEqual(tags, [['v1', ['VoiceQuota']], ['v2', ['Account', 'Link']], ['v3', ['Identity']], ['v4', ['Space']], ['v5', ['BrowserSession']], ['v6', ['Course']], ['v7', ['Promo']]]);
   assert.ok(!/deleted_classes|renamed_classes/.test(toml), 'no class is ever deleted or renamed');
   assert.match(toml, /name = "SPACES"\s*\nclass_name = "Space"/);
   assert.match(toml, /name = "BROWSER_SESSIONS"\s*\nclass_name = "BrowserSession"/);
+  assert.match(toml, /name = "COURSES"\s*\nclass_name = "Course"/);
+  assert.match(toml, /name = "PROMOS"\s*\nclass_name = "Promo"/);
   const mod = await import('../src/worker.js');
   assert.equal(mod.Space, Space);
   assert.equal(typeof mod.BrowserSession, 'function');
+  assert.equal(typeof mod.Course, 'function');
+  assert.equal(typeof mod.Promo, 'function');
 });
 
 // ── account deletion: team spaces and delegations ──

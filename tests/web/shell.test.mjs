@@ -216,7 +216,7 @@ test('the menu follows the state: status line, Mute or Unmute, hands-free ticked
   const on = lib.normalizeState({ state: 'speaking', online: true, muted: true, handsFree: true, pausedUntil: 10_000 });
   const menu = lib.trayTemplate(on, L, act, { now: 5_000, ask: 'Alt+Space' });
   const labels = menu.map((m) => m.label || '—');
-  assert.deepEqual(labels, ['Speaking…', '—', 'Ask…', '—', 'Unmute', 'Hands-free', 'Heads-ups paused until 3:40 PM', 'Resume heads-ups', '—', 'Open J.A.R.V.I.S.', 'Jarvis Code', '—', 'Quit J.A.R.V.I.S.']);
+  assert.deepEqual(labels, ['Speaking…', '—', 'Ask…', '—', 'Unmute', 'Hands-free', 'Heads-ups paused until 3:40 PM', 'Resume heads-ups', '—', 'Open J.A.R.V.I.S.', 'Eden Code', '—', 'Quit J.A.R.V.I.S.']);
   assert.equal(menu[0].enabled, false);
   assert.equal(menu[2].accelerator, 'Alt+Space');
   assert.equal(menu[2].registerAccelerator, false, 'shown, never a second registration');
@@ -435,13 +435,13 @@ test('the test window raises no notifications and leaves the Dock alone', async 
   assert.equal(t.app.dock.badge, '');
 });
 
-test('the Dock’s menu: Ask, Mute or Unmute, Jarvis Code and the browser', async () => {
+test('the Dock’s menu: Ask, Mute or Unmute, Eden Code and the browser', async () => {
   const t = fakeContext();
   shell.install(t.ctx);
   await t.hello();
   t.report({ state: 'idle', online: true, muted: true, labels: { browser: '浏览器' } });
   const items = t.app.dock.menu.template;
-  assert.deepEqual(items.map((i) => i.label || '—'), ['Ask…', 'Unmute', '—', 'Jarvis Code', '浏览器']);
+  assert.deepEqual(items.map((i) => i.label || '—'), ['Ask…', 'Unmute', '—', 'Eden Code', '浏览器']);
   items[4].click();
   items[1].click();
   await until(() => t.commands().length === 2, 'both commands');
@@ -466,12 +466,19 @@ test('a shortcut needs ⌃ or ⌥ (or ⌘ with another), is spelled one way, and
   for (const bad of ['', 'Alt+', 'Alt+Alt+J', 'Hyper+J', 'Alt+Escape', 'Alt+Enter', 5, null, `Alt+${'J'.repeat(70)}`]) {
     assert.equal(ok(bad).ok, false, String(bad));
   }
-  assert.equal(lib.shortcutLabel('Alt+Space'), '⌥ Space');
-  assert.equal(lib.shortcutLabel('Alt+Shift+Space'), '⌥⇧ Space');
-  assert.equal(lib.shortcutLabel('Command+Control+Alt+Shift+J'), '⌃⌥⇧⌘J');
-  assert.equal(lib.shortcutLabel('Control+Alt+Return'), '⌃⌥↩');
-  assert.equal(lib.shortcutLabel('Command+Shift+F5'), '⇧⌘ F5');
-  assert.equal(lib.shortcutLabel(''), '');
+  assert.equal(lib.shortcutLabel('Alt+Space', 'darwin'), '⌥ Space');
+  assert.equal(lib.shortcutLabel('Alt+Shift+Space', 'darwin'), '⌥⇧ Space');
+  assert.equal(lib.shortcutLabel('Command+Control+Alt+Shift+J', 'darwin'), '⌃⌥⇧⌘J');
+  assert.equal(lib.shortcutLabel('Control+Alt+Return', 'darwin'), '⌃⌥↩');
+  assert.equal(lib.shortcutLabel('Command+Shift+F5', 'darwin'), '⇧⌘ F5');
+  assert.equal(lib.shortcutLabel('', 'darwin'), '');
+  // On a PC the same keys are written as the keyboard has them, which is what a screen reader says.
+  assert.equal(lib.shortcutLabel('Control+Alt+J', 'win32'), 'Ctrl+Alt+J');
+  assert.equal(lib.shortcutLabel('Alt+Shift+Space', 'win32'), 'Alt+Shift+Space');
+  assert.equal(lib.shortcutLabel('Control+Alt+Return', 'win32'), 'Ctrl+Alt+Enter');
+  assert.equal(lib.shortcutLabel('Command+Shift+F5', 'win32'), 'Shift+Win+F5');
+  assert.equal(lib.shortcutLabel('Control+Alt+PageDown', 'win32'), 'Ctrl+Alt+Page Down');
+  assert.equal(lib.shortcutLabel('', 'win32'), '');
   assert.deepEqual(lib.normalizeShortcuts({ ask: 'Command+J', whatsThis: 'Control+Alt+W' }), { ask: 'Alt+Space', whatsThis: 'Control+Alt+W' });
   assert.deepEqual(lib.normalizeShortcuts({ ask: 'Alt+Shift+Space' }), { ask: 'Alt+Shift+Space', whatsThis: 'Alt+Space' }, 'never one combination for both');
   assert.deepEqual(lib.normalizeShortcuts(null), lib.DEFAULT_SHORTCUTS);
@@ -489,6 +496,7 @@ test('Settings reads a shortcut by where the keys are, whatever ⌥ makes them t
   assert.equal(press('Escape', { altKey: true }), '');
   assert.equal(press('MediaPlayPause'), '');
   assert.equal(windowSide.heldLabel({ metaKey: true, shiftKey: true, ctrlKey: true, altKey: true }), '⌃⌥⇧⌘');
+  assert.equal(windowSide.heldLabel({ metaKey: false, shiftKey: true, ctrlKey: true, altKey: true }, true), 'Ctrl+Alt+Shift+');
   // What Settings reads is what the app checks.
   assert.deepEqual(lib.checkAccelerator(press('KeyJ', { altKey: true, metaKey: true })), { ok: true, accelerator: 'Command+Alt+J' });
 });
@@ -546,7 +554,7 @@ test('one another app holds at launch is said in Settings; recording steps ours 
   shell.install(t.ctx);
   const keys = t.electron.globalShortcut;
   const hi = await t.hello();
-  assert.deepEqual(hi.shortcuts.ask, { accelerator: 'Alt+Space', label: '⌥ Space', error: 'taken' });
+  assert.deepEqual(hi.shortcuts.ask, { accelerator: 'Alt+Space', label: '⌥ Space', error: 'taken', wanted: '' });
   assert.equal(hi.shortcuts.whatsThis.error, '');
   t.tell('recording', true);
   assert.equal(keys.mine.size, 0, 'the keys reach the window while it records');
@@ -558,6 +566,45 @@ test('one another app holds at launch is said in Settings; recording steps ours 
   assert.ok(keys.mine.has('Alt+Shift+Space'));
   t.ctx.ipcMain.emit('feature:shell:recording', { sender: {} }, true); // only the window can
   assert.ok(keys.mine.has('Alt+Shift+Space'));
+});
+
+test('on a PC, when the Talk key’s default is in use the next free one stands in, and is the one said', async () => {
+  const userData = mkdtempSync(path.join(tmpdir(), 'shell-test-'));
+  writeFileSync(path.join(userData, 'shell.json'), JSON.stringify({ shortcuts: { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space' } }));
+  const t = fakeContext({ userData });
+  t.ctx.platform = 'win32';
+  t.electron.globalShortcut.taken.add('Control+Alt+J');
+  shell.install(t.ctx);
+  const keys = t.electron.globalShortcut;
+  assert.deepEqual([...keys.mine.keys()].sort(), ['Alt+Shift+Space', 'Control+Alt+K']);
+  const hi = await t.hello();
+  assert.deepEqual(hi.shortcuts.ask, { accelerator: 'Control+Alt+K', label: 'Ctrl+Alt+K', error: '', wanted: 'Ctrl+Alt+J' });
+  keys.press('Control+Alt+K');
+  assert.equal(t.ctx.summons, 1, 'the stand-in does what the key would');
+  // Taking the stand-in back out (recording) lets go of the stand-in, not the key that is in use.
+  t.tell('recording', true);
+  assert.equal(keys.mine.size, 0);
+  t.tell('recording', false);
+  assert.ok(keys.mine.has('Control+Alt+K'));
+  // What the others have is never taken: the first free one after the default is used.
+  const busy = fakeContext({ userData });
+  busy.ctx.platform = 'win32';
+  busy.electron.globalShortcut.taken.add('Control+Alt+J');
+  busy.electron.globalShortcut.taken.add('Control+Alt+K');
+  shell.install(busy.ctx);
+  assert.ok(busy.electron.globalShortcut.mine.has('Control+Alt+H'));
+});
+
+test('on a PC a key the person chose is never swapped for another: it is said to be taken', async () => {
+  const userData = mkdtempSync(path.join(tmpdir(), 'shell-test-'));
+  writeFileSync(path.join(userData, 'shell.json'), JSON.stringify({ shortcuts: { ask: 'Control+Alt+L', whatsThis: 'Alt+Shift+Space' } }));
+  const t = fakeContext({ userData });
+  t.ctx.platform = 'win32';
+  t.electron.globalShortcut.taken.add('Control+Alt+L');
+  shell.install(t.ctx);
+  const hi = await t.hello();
+  assert.deepEqual(hi.shortcuts.ask, { accelerator: 'Control+Alt+L', label: 'Ctrl+Alt+L', error: 'taken', wanted: '' });
+  assert.deepEqual([...t.electron.globalShortcut.mine.keys()], ['Alt+Shift+Space']);
 });
 
 // ── the window's place, for each set of displays ──
@@ -831,12 +878,12 @@ test('the test window and a build from source never write a Quick Action', () =>
 
 test('the app’s first menu has JARVIS’s places; Edit is the standard one', () => {
   const acted = [];
-  const menu = lib.appMenuTemplate(lib.mergeLabels(), (name) => acted.push(name));
+  const menu = lib.appMenuTemplate(lib.mergeLabels(), (name) => acted.push(name), 'darwin');
   assert.deepEqual(menu.map((m) => m.label), ['J.A.R.V.I.S.', 'Edit', 'View', 'Window']);
   const first = menu[0].submenu.filter((i) => i.type !== 'separator');
-  assert.deepEqual(first.map((i) => i.label), ['About J.A.R.V.I.S.', 'Settings…', 'Jarvis Code', 'Browser', 'History', 'Bookmarks', 'Services', 'Hide J.A.R.V.I.S.', 'Hide Others', 'Show All', 'Quit J.A.R.V.I.S.']);
+  assert.deepEqual(first.map((i) => i.label), ['About J.A.R.V.I.S.', 'Settings…', 'Eden Code', 'Browser', 'History', 'Bookmarks', 'Services', 'Hide J.A.R.V.I.S.', 'Hide Others', 'Show All', 'Quit J.A.R.V.I.S.']);
   assert.deepEqual(first.filter((i) => i.accelerator).map((i) => [i.label, i.accelerator]), [
-    ['Settings…', 'Command+,'], ['Jarvis Code', 'Shift+Command+J'], ['Browser', 'Shift+Command+B'], ['History', 'Command+Y'], ['Bookmarks', 'Alt+Command+B'],
+    ['Settings…', 'Command+,'], ['Eden Code', 'Shift+Command+J'], ['Browser', 'Shift+Command+B'], ['History', 'Command+Y'], ['Bookmarks', 'Alt+Command+B'],
   ]);
   for (const item of first) if (item.click) item.click();
   assert.deepEqual(acted, ['settings', 'code', 'browser', 'history', 'bookmarks']);
@@ -966,4 +1013,75 @@ test('every string the window side shows has a Chinese entry', () => {
   assert.ok(found.size > 10, `found ${found.size}`);
   const missing = [...found].map((s) => s.replace(/\\'/g, "'")).filter((s) => !(s in strings) && !patterns.some((re) => re.test(s)));
   assert.deepEqual(missing, []);
+});
+
+test('on Windows the menu has no reload or developer-tools key, and a Help item for the screen-reader keys', () => {
+  const acted = [];
+  const menu = lib.appMenuTemplate(lib.mergeLabels(), (name) => acted.push(name), 'win32');
+  const walk = (items) => items.flatMap((i) => [i, ...(i.submenu ? walk(i.submenu) : [])]);
+  const all = walk(menu);
+  assert.deepEqual(all.filter((i) => ['reload', 'forceReload', 'toggleDevTools'].includes(i.role)), []);
+  assert.deepEqual(all.filter((i) => ['services', 'hide', 'hideOthers', 'front', 'startSpeaking'].includes(i.role)), []);
+  assert.ok(all.some((i) => i.role === 'zoomIn') && all.some((i) => i.role === 'zoomOut') && all.some((i) => i.role === 'resetZoom'));
+  const help = all.find((i) => /screen-reader/i.test(i.label || ''));
+  help.click();
+  assert.deepEqual(acted, ['a11y-help']);
+  all.find((i) => i.accelerator === 'Ctrl+,').click();
+  assert.deepEqual(acted, ['a11y-help', 'settings']);
+});
+
+test('a PC talks on Ctrl+Alt+J (J: the key a finger finds by touch) and keeps Windows’ own keys', () => {
+  assert.deepEqual(lib.defaultsFor('win32'), { ask: 'Control+Alt+J', whatsThis: 'Alt+Shift+Space' });
+  assert.deepEqual(lib.defaultsFor('darwin'), { ask: 'Alt+Space', whatsThis: 'Alt+Shift+Space' });
+  for (const keys of ['Alt+Space', 'Alt+Tab', 'Alt+F4', 'Control+Shift+Escape', 'Control+Alt+Delete']) assert.ok(lib.WINDOWS_RESERVED.includes(keys), keys);
+  assert.ok(!lib.WINDOWS_RESERVED.includes('Control+Alt+J'));
+  assert.equal(lib.shortcutLabel('Control+Alt+J', 'darwin'), '⌃⌥J');
+  assert.deepEqual(lib.checkAccelerator('Control+Alt+J'), { ok: true, accelerator: 'Control+Alt+J' });
+});
+
+test('on a PC the first run puts it in the sign-in list, hidden, once; Settings keeps what is chosen after', () => {
+  const userData = mkdtempSync(path.join(tmpdir(), 'shell-login-'));
+  const calls = [];
+  const made = () => {
+    const t = fakeContext({ packaged: true, userData });
+    t.ctx.platform = 'win32';
+    const set = t.app.setLoginItemSettings;
+    t.app.setLoginItemSettings = (options) => { calls.push(options); set(options); };
+    return t;
+  };
+  const login = (t, req) => t.ctx.ipcMain.handlers.get('feature:shell:login')({ sender: t.wc }, req);
+  let t = made();
+  shell.install(t.ctx);
+  assert.deepEqual(calls, [{ openAtLogin: true, args: ['--hidden'] }]);
+  assert.ok(existsSync(path.join(userData, 'login-item-set')));
+  assert.equal(login(t, {}).on, true);
+  login(t, { on: false });
+  assert.deepEqual(calls[1], { openAtLogin: false, args: ['--hidden'] }, 'the sign-in start is always the hidden one');
+  t = made();
+  shell.install(t.ctx);  // the next start: it was asked once, and what Settings says stays
+  assert.equal(calls.length, 2);
+  // a Mac keeps its own way: no first-run entry, no arguments
+  const mac = fakeContext({ packaged: true });
+  mac.ctx.platform = 'darwin';
+  const macCalls = [];
+  const original = mac.app.setLoginItemSettings;
+  mac.app.setLoginItemSettings = (options) => { macCalls.push(options); original(options); };
+  shell.install(mac.ctx);
+  assert.deepEqual(macCalls, []);
+  mac.ctx.ipcMain.handlers.get('feature:shell:login')({ sender: mac.wc }, { on: true });
+  assert.deepEqual(macCalls, [{ openAtLogin: true }]);
+  // the unpackaged app and a test window never touch it
+  const dev = fakeContext({ packaged: false });
+  dev.ctx.platform = 'win32';
+  const devCalls = [];
+  dev.app.setLoginItemSettings = (options) => devCalls.push(options);
+  shell.install(dev.ctx);
+  assert.deepEqual(devCalls, []);
+});
+
+test('the arguments of a sign-in start and the first-run rule belong to Windows only', () => {
+  assert.deepEqual(lib.loginArgs('win32'), ['--hidden']);
+  assert.deepEqual(lib.loginArgs('darwin'), []);
+  assert.equal(lib.loginOnFirstRun('win32'), true);
+  assert.equal(lib.loginOnFirstRun('darwin'), false);
 });

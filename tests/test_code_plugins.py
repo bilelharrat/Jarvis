@@ -1,4 +1,4 @@
-"""Claude Code's plugins and .claude files in Jarvis Code (codeplugins, features.code_plugins):
+"""Claude Code's plugins and .claude files in Eden Code (codeplugins, features.code_plugins):
 the plugin CLI's answers read (faked here, in the shapes it prints), installing only after
 the owner's OK, marketplaces added after one too, agents, skills, commands and hooks edited
 with conflict detection, and what fills a session's context."""

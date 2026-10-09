@@ -1,6 +1,6 @@
 """Other agents over ACP (acp, features.code_acp), with a fake agent script (never a real one:
 tests/acp_fake_agent.py): JSON-RPC both ways, a turn's words, thinking, steps and plan in an
-ordinary Jarvis Code session, the agent's permission requests answered by JARVIS's policy
+ordinary Eden Code session, the agent's permission requests answered by JARVIS's policy
 (a card, Bypass, the owner's rules), Stop, an agent that stops or wants a sign-in, a resumed
 session, and the agents kept."""
 

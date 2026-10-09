@@ -1,4 +1,4 @@
-"""Jarvis Code sessions across a restart (features.code_sessions): kept with how they were
+"""Eden Code sessions across a restart (features.code_sessions): kept with how they were
 set, back resting (no Claude Code started) and resumed lazily; a damaged file; rewinding a
 reopened session and rewinding the conversation in place; edit and resend."""
 

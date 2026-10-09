@@ -1,4 +1,4 @@
-"""Jarvis Code's three trust guarantees, end to end: a chat is still there after a restart,
+"""Eden Code's three trust guarantees, end to end: a chat is still there after a restart,
 with the same id (the window's selection holds) and its history loads even when the first
 read fails; Steer shows for the whole of a busy turn, before it's open and across a
 reconnect; and no chat is ever lost, however many end."""

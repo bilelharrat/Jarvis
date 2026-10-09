@@ -969,7 +969,7 @@ class Bridge:
         self._space: Any = None
         self.quit = threading.Event()
         # Set by a stream turned on and by quit: the frame loop, with no stream to watch (a
-        # Jarvis Code session's bridge, for input and pictures), waits on it instead of
+        # Eden Code session's bridge, for input and pictures), waits on it instead of
         # looking sixty times a second for nothing.
         self.wake = threading.Event()
 

@@ -1,4 +1,4 @@
-"""Jarvis Code's Health pane (features/code_health): the engine's version and the Claude
+"""Eden Code's Health pane (features/code_health): the engine's version and the Claude
 sign-in from the checkup's own check (never the real engine in a test), a session's
 connection, and Reconnect."""
 
