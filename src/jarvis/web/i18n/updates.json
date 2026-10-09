@@ -5,20 +5,31 @@
     "Restart to update": "重新启动以更新",
     "Restart now": "立即重新启动",
     "Later": "稍后",
+    "Install now": "立即安装",
     "This copy doesn’t check for updates.": "这个版本不检查更新。",
     "Updates itself from your Jarvis folder whenever main changes.": "每当 main 有更新时，会从你的 Jarvis 文件夹自动更新。",
     "Checking for updates…": "正在检查更新…",
     "Up to date.": "已是最新版本。",
     "Checks for updates every 6 hours.": "每 6 小时检查一次更新。",
+    "Checks for updates once a day.": "每天检查一次更新。",
+    "Starting the installer. The app closes now and opens again when it’s done.": "正在启动安装程序。应用现在会关闭，装好后会再打开。",
     "Couldn’t check for updates.": "无法检查更新。",
     "Couldn’t reach the update server.": "无法连接更新服务器。",
     "The update feed isn’t one J.A.R.V.I.S. can read.": "J.A.R.V.I.S. 无法读取这个更新源。",
     "The update couldn’t be downloaded or installed.": "无法下载或安装这个更新。",
-    "Move J.A.R.V.I.S. to your Applications folder to get updates.": "把 J.A.R.V.I.S. 移到“应用程序”文件夹后才能获取更新。"
+    "Move J.A.R.V.I.S. to your Applications folder to get updates.": "把 J.A.R.V.I.S. 移到“应用程序”文件夹后才能获取更新。",
+    "Couldn’t reach askeden.com to check for updates.": "无法连接 askeden.com 检查更新。",
+    "The update list on askeden.com isn’t one J.A.R.V.I.S. can read.": "J.A.R.V.I.S. 无法读取 askeden.com 上的更新列表。",
+    "The update couldn’t be downloaded.": "无法下载这个更新。",
+    "The download wasn’t the size it should be, so it wasn’t run.": "下载的文件大小不对，所以没有运行它。",
+    "The installer couldn’t be started.": "无法启动安装程序。"
   },
   "patterns": [
     ["^Downloading (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?)…$", "正在下载 $1…"],
+    ["^Downloading (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?)… (\\d+)%$", "正在下载 $1… $2%"],
     ["^(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is ready to install\\.$", "$1 已可以安装。"],
-    ["^J\\.A\\.R\\.V\\.I\\.S\\. (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is ready\\. Restart to install it\\.$", "J.A.R.V.I.S. $1 已准备好，重新启动即可安装。"]
+    ["^(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is available \\((\\d+) MB\\)\\.$", "$1 可以更新了（$2 MB）。"],
+    ["^J\\.A\\.R\\.V\\.I\\.S\\. (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is ready\\. Restart to install it\\.$", "J.A.R.V.I.S. $1 已准备好，重新启动即可安装。"],
+    ["^(J\\.A\\.R\\.V\\.I\\.S\\.(?: Daredevil)?) (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is available \\((\\d+) MB\\)\\. Install it now\\? It downloads to your Downloads folder, then the app closes while it installs and opens again\\.$", "$1 $2 可以更新了（$3 MB）。现在安装吗？它会下载到“下载”文件夹，然后应用会在安装时关闭，装好后再打开。"]
   ]
 }

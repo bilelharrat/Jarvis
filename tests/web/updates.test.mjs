@@ -13,6 +13,7 @@ const require = createRequire(import.meta.url);
 const feed = require('../../app/update-feed.js');
 const updates = require('../../app/features/updates.js');
 const windowSide = require('../../src/jarvis/web/features/updates.js');
+const winUpdate = require('../../app/win-update.js');
 
 const WEB = process.env.JARVIS_WEB_DIR || fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
 const FEED = 'https://downloads.example.com/jarvis/release.json';
@@ -224,23 +225,24 @@ test('only the window may ask, and the dev window has updates off', () => {
   assert.equal(handlers.get('feature:updates:restart')({ sender: {} }), false);
 });
 
-test('on Windows the window’s questions are answered too (updates off), not left without a handler', () => {
+test('on Windows a copy that was never installed answers the window too (updates off), not left without a handler', () => {
   const real = Object.getOwnPropertyDescriptor(process, 'platform');
   Object.defineProperty(process, 'platform', { value: 'win32' });
   try {
     const handlers = new Map();
     const win = {};
     updates.install({
-      app: { getVersion: () => '0.1.8', isPackaged: true },
+      app: { getVersion: () => '0.1.8', isPackaged: false },
       ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) },
       fromWindow: (event) => event.sender === win,
       dev: false,
     });
-    assert.deepEqual([...handlers.keys()].sort(), ['feature:updates:check', 'feature:updates:restart', 'feature:updates:state']);
+    assert.deepEqual([...handlers.keys()].sort(), ['feature:updates:check', 'feature:updates:install', 'feature:updates:restart', 'feature:updates:state']);
     assert.deepEqual(handlers.get('feature:updates:state')({ sender: win }), { version: '0.1.8', enabled: false, state: 'off' });
     assert.deepEqual(handlers.get('feature:updates:check')({ sender: win }), { version: '0.1.8', enabled: false, state: 'off' });
     assert.equal(handlers.get('feature:updates:state')({ sender: {} }), null);
     assert.equal(handlers.get('feature:updates:restart')({ sender: win }), false);
+    assert.equal(handlers.get('feature:updates:install')({ sender: win }), false);
   } finally {
     Object.defineProperty(process, 'platform', real);
   }
@@ -267,8 +269,16 @@ test('every line the window shows has its Chinese', () => {
     windowSide.lineFor({ enabled: true, state: 'ready', available: '0.2.0' }),
     windowSide.lineFor({ enabled: true, state: 'error' }),
     ...Object.values(updates.WORDS),
-    'About', 'Check for updates', 'Restart to update', 'Restart now', 'Later',
+    ...Object.values(winUpdate.WORDS),
+    'About', 'Check for updates', 'Restart to update', 'Restart now', 'Later', 'Install now',
     'J.A.R.V.I.S. 0.2.0 is ready. Restart to install it.',
+    // Windows: an installer offered, downloading, starting
+    windowSide.lineFor({ enabled: true, platform: 'win32', state: 'idle' }),
+    windowSide.lineFor({ enabled: true, platform: 'win32', state: 'available', available: '0.1.15', size: 327754786 }),
+    windowSide.lineFor({ enabled: true, platform: 'win32', state: 'downloading', available: '0.1.15', size: 1000, received: 420 }),
+    windowSide.lineFor({ enabled: true, platform: 'win32', state: 'installing', available: '0.1.15' }),
+    windowSide.cardFor({ name: 'J.A.R.V.I.S. Daredevil', state: 'available', available: '0.1.15', size: 327754786 }),
+    windowSide.cardFor({ name: 'J.A.R.V.I.S.', state: 'available', available: '0.1.15', size: 303723280 }),
   ];
   assert.deepEqual(lines.filter((line) => chinese(line) === null), []);
   assert.equal(chinese('Downloading 1.2.3…'), '正在下载 1.2.3…');

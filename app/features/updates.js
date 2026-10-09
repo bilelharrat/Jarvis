@@ -13,6 +13,11 @@
 // ten minutes, the window isn't in front and JARVIS has nothing going (no turn, meeting notes
 // or task: /health's busy). The app comes back as it was, hidden if it was hidden. The
 // window's Restart still installs it at once; quitting installs it too (Squirrel).
+//
+// On Windows (installWindows, win-update.js): askeden.com/windows/latest.json, two minutes after
+// launch, then daily and on Check for updates; a newer installer of this flavor (J.A.R.V.I.S. or
+// J.A.R.V.I.S. Daredevil) is offered on a card and a Windows notification, and only the owner's
+// Install now downloads it to Downloads and runs it (it closes the app and replaces it).
 'use strict';
 
 const fs = require('fs');
@@ -166,14 +171,57 @@ async function quietMoment({ idleSeconds, windowInFront, backendBusy }) {
   return !(await backendBusy());
 }
 
-function install(ctx) {
-  if (process.platform === 'win32') {
-    // Squirrel.Mac's feed; the Windows build is updated by running a newer installer for now, so
-    // Settings shows the version and says updates are off (the window still asks, and needs an answer).
-    const off = () => ({ version: ctx.app.getVersion(), enabled: false, state: 'off' });
+// Windows: a newer installer of this app's flavor, from askeden.com, run after the owner's yes
+// (win-update.js). Off where nothing was installed (npm start, the dev window) and for Eden Code,
+// whose Windows downloads aren't in latest.json's update path yet.
+function installWindows(ctx, deps = {}) {
+  const flavor = (ctx.flavor && ctx.flavor.id) || 'jarvis';
+  const off = () => ({ version: ctx.app.getVersion(), enabled: false, state: 'off' });
+  if (ctx.dev || !ctx.app.isPackaged || !['jarvis', 'daredevil'].includes(flavor)) {
     ctx.ipcMain.handle(`${CH}state`, (event) => (ctx.fromWindow(event) ? off() : null));
     ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? off() : null));
     ctx.ipcMain.handle(`${CH}restart`, () => false);
+    ctx.ipcMain.handle(`${CH}install`, () => false);
+    return null;
+  }
+  const electron = deps.electron || require('electron');
+  const fs = deps.fs || require('fs');
+  const win = deps.winUpdate || require('../win-update');
+  const updater = win.createWinUpdater({
+    version: ctx.app.getVersion(),
+    flavor,
+    name: (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.',
+    fetchText: (url) => fetchFeed(electron.net, url),
+    download: (url, target, opts) => win.downloadTo(electron.net, fs, url, target, opts),
+    runInstaller: (file, args) => win.startInstaller(deps.spawn || require('child_process').spawn, file, args),
+    downloadsDir: () => ctx.app.getPath('downloads'),
+    onChange: (state) => ctx.send(`${CH}state`, state),
+    log: (line) => console.log(line),
+    // A Windows notification (screen readers read it), and the window's card says the same.
+    tell: (text) => {
+      try {
+        if (!electron.Notification || !electron.Notification.isSupported()) return;
+        const note = new electron.Notification({ title: (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.', body: text });
+        note.on('click', () => { const w = ctx.getWindow && ctx.getWindow(); if (w && !w.isDestroyed()) { w.show(); w.focus(); } });
+        note.show();
+      } catch { /* a notification is never worth a failed check */ }
+    },
+    quit: () => setTimeout(() => ctx.app.quit(), 1500).unref?.(),
+  });
+  ctx.ipcMain.handle(`${CH}state`, (event) => (ctx.fromWindow(event) ? updater.state() : null));
+  ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? updater.check() : null));
+  ctx.ipcMain.handle(`${CH}restart`, () => false);
+  ctx.ipcMain.handle(`${CH}install`, (event) => (ctx.fromWindow(event) ? updater.install() : false));
+  ctx.app.whenReady().then(() => {
+    setTimeout(() => updater.check(), win.FIRST_CHECK).unref?.();
+    setInterval(() => updater.check(), win.CHECK_EVERY).unref?.();
+  });
+  return updater;
+}
+
+function install(ctx) {
+  if (process.platform === 'win32') {
+    installWindows(ctx);
     return;
   }
   const { autoUpdater, net, powerMonitor } = require('electron');
@@ -205,4 +253,4 @@ function install(ctx) {
   });
 }
 
-module.exports = { install, createUpdater, feedFrom, fetchFeed, quietMoment, WORDS, CHECK_EVERY, FIRST_CHECK, QUIET_IDLE };
+module.exports = { install, installWindows, createUpdater, feedFrom, fetchFeed, quietMoment, WORDS, CHECK_EVERY, FIRST_CHECK, QUIET_IDLE };
