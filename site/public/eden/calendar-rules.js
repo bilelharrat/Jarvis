@@ -147,8 +147,9 @@ const ORD = ['', 'first', 'second', 'third', 'fourth', 'fifth'];
 const dayName = (code, locale) => { const i = WEEKDAYS.indexOf(code); return new Date(2026, 0, 4 + i).toLocaleDateString(locale, { weekday: 'long' }); };
 const listWords = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
 
-/** A repeat in words: "Weekly on Tuesday and Thursday, until 31 Dec 2026" (English, as the rest of the page). */
+/** A repeat in words: "Weekly on Tuesday and Thursday, until 31 Dec 2026" (English; in French for a French locale). */
 export function repeatText(spec, start, locale = 'en-US') {
+  if (/^fr\b/i.test(String(locale))) return repeatTextFr(spec, start, locale);
   if (!spec || spec.freq === 'none') return 'Does not repeat';
   if (spec.unsupported) return 'Custom repeat (kept as it is)';
   const n = spec.interval || 1;
@@ -168,6 +169,32 @@ export function repeatText(spec, start, locale = 'en-US') {
   } else t = `${every('Annually', 'years')} on ${start.toLocaleDateString(locale, { month: 'long', day: 'numeric' })}`;
   if (spec.end === 'until' && spec.until) { const [y, m, d] = spec.until.split('-').map(Number); t += `, until ${new Date(y, m - 1, d).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`; }
   else if (spec.end === 'count') t += `, ${spec.count} time${spec.count === 1 ? '' : 's'}`;
+  return t;
+}
+
+const ORD_FR = ['', 'premier', 'deuxième', 'troisième', 'quatrième', 'cinquième'];
+const listWordsFr = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} et ${xs.at(-1)}`);
+/** repeatText in French: "Toutes les semaines le mardi et le jeudi, jusqu’au 31 déc. 2026". */
+function repeatTextFr(spec, start, locale) {
+  if (!spec || spec.freq === 'none') return 'Ne se répète pas';
+  if (spec.unsupported) return 'Répétition personnalisée (conservée telle quelle)';
+  const n = spec.interval || 1;
+  const every = (one, unit) => (n === 1 ? one : `Tous les ${n} ${unit}`);
+  let t;
+  if (spec.freq === 'DAILY') t = every('Tous les jours', 'jours');
+  else if (spec.freq === 'WEEKLY') {
+    const days = WEEKDAYS.filter((w) => (spec.byDay || []).includes(w));
+    if (n === 1 && days.join() === WEEKDAY_SET.join()) t = 'Tous les jours de la semaine (du lundi au vendredi)';
+    else t = `${n === 1 ? 'Toutes les semaines' : `Toutes les ${n} semaines`} ${listWordsFr((days.length ? days : [WEEKDAYS[start.getDay()]]).map((d) => `le ${dayName(d, locale)}`))}`;
+  } else if (spec.freq === 'MONTHLY') {
+    if (spec.monthMode === 'weekday') {
+      const code = spec.nth || nthCode(start);
+      const m = /^(-1|\d)(\w\w)$/.exec(code);
+      t = `${every('Tous les mois', 'mois')} le ${m[1] === '-1' ? 'dernier' : ORD_FR[Number(m[1])]} ${dayName(m[2], locale)}`;
+    } else { const day = spec.monthDay || start.getDate(); t = `${every('Tous les mois', 'mois')} le ${day === 1 ? '1er' : day}`; }
+  } else t = `${every('Tous les ans', 'ans')} le ${start.toLocaleDateString(locale, { month: 'long', day: 'numeric' })}`;
+  if (spec.end === 'until' && spec.until) { const [y, m, d] = spec.until.split('-').map(Number); t += `, jusqu’au ${new Date(y, m - 1, d).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`; }
+  else if (spec.end === 'count') t += `, ${spec.count} fois`;
   return t;
 }
 
@@ -367,6 +394,16 @@ const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', '
 const DAY_RE = '(sun(?:day)?|mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?)';
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const monthIndex = (w) => MONTHS.indexOf(w.slice(0, 3).toLowerCase());
+// French, alongside the English: "le 12 mars", "du 12 au 14 nov.", "demain", "lundi prochain", "à 15 h 30".
+const FR_MONTH_RE = '(janv(?:ier)?|f[ée]vr(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sept(?:embre)?|oct(?:obre)?|nov(?:embre)?|d[ée]c(?:embre)?)';
+const FR_MONTHS = ['jan', 'fév', 'mar', 'avr', 'mai', 'juin', 'juil', 'aoû', 'sep', 'oct', 'nov', 'déc'];
+const frMonthIndex = (w) => {
+  const x = w.toLowerCase().replace(/^fe/, 'fé').replace(/^de/, 'dé').replace(/^aou/, 'aoû');
+  return FR_MONTHS.findIndex((p) => x.startsWith(p));
+};
+const FR_DAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+// 15h, 15 h 30, 15h30, de 14h à 16h, 14h-16h (24-hour clock: no afternoon guess)
+const FR_TIME_RE = /\b(\d{1,2})\s?h(?:\s?(\d{2}))?(?![\dA-Za-zÀ-ÿ])(?:\s*(?:[-–—]|à|a|jusqu[’']à)\s*(\d{1,2})\s?h(?:\s?(\d{2}))?(?![\dA-Za-zÀ-ÿ]))?/gi;
 const ORDINAL = '(?:st|nd|rd|th)?';
 const TIME_RE = /\b(?:at\s+|@\s*|from\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?(?:\s*(?:[-–—]|to|until|till)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?)?(?![\d/])/gi;
 
@@ -401,6 +438,25 @@ function findDates(text, now) {
   }
   const rel = /\b(today|tonight|tomorrow)\b/gi;
   while ((m = rel.exec(text))) add(m, new Date(now.getFullYear(), now.getMonth(), now.getDate() + (m[1].toLowerCase() === 'tomorrow' ? 1 : 0)));
+  // French: "12 mars", "le 1er avril 2027", "du 12 au 14 nov."
+  const fdm = new RegExp(`\\b(\\d{1,2})(?:er)?(?:\\s*(?:[-–—]|au)\\s*(\\d{1,2})(?:er)?)?\\s+${FR_MONTH_RE}\\.?(?:\\s+(\\d{4}))?(?![A-Za-zÀ-ÿ])`, 'gi');
+  while ((m = fdm.exec(text))) {
+    const mo = frMonthIndex(m[3]); const day = +m[1];
+    if (mo < 0) continue;
+    const d = m[4] ? new Date(+m[4], mo, day) : nextOnOrAfter(now, mo, day);
+    if (!d || d.getDate() !== day) continue;
+    add(m, d, m[2] && +m[2] > day ? new Date(d.getFullYear(), mo, +m[2]) : null);
+  }
+  const frel = /(?<![A-Za-zÀ-ÿ-])(après-demain|demain|aujourd[’']hui|ce soir)(?![A-Za-zÀ-ÿ])/gi;
+  while ((m = frel.exec(text))) { const w = m[1].toLowerCase(); add(m, new Date(now.getFullYear(), now.getMonth(), now.getDate() + (w === 'demain' ? 1 : w === 'après-demain' ? 2 : 0))); }
+  const fwd = /(?<![A-Za-zÀ-ÿ])(ce\s+|le\s+)?(dimanche|lundi|mardi|mercredi|jeudi|vendredi|samedi)(\s+prochain)?(?![A-Za-zÀ-ÿ])/gi;
+  while ((m = fwd.exec(text))) {
+    const want = FR_DAYS.indexOf(m[2].toLowerCase());
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let n = (want - today.getDay() + 7) % 7;
+    if (n === 0) n = 7;
+    add(m, new Date(today.getFullYear(), today.getMonth(), today.getDate() + n));
+  }
   const wd = new RegExp(`\\b(next\\s+|this\\s+|on\\s+)?${DAY_RE}\\b`, 'gi');
   while ((m = wd.exec(text))) {
     const want = DAYS.indexOf(m[2].slice(0, 3).toLowerCase());
@@ -412,7 +468,7 @@ function findDates(text, now) {
   }
   // dates first by position; a weekday right before a full date is dropped
   found.sort((a, b) => a.index - b.index);
-  return found.filter((x, i) => !(i + 1 < found.length && /^(?:next\s+|this\s+|on\s+)?[a-z]+$/i.test(x.text) && found[i + 1].index - (x.index + x.length) <= 3));
+  return found.filter((x, i) => !(i + 1 < found.length && /^(?:next\s+|this\s+|on\s+|ce\s+|le\s+)?[a-z]+(?:\s+prochain)?$/i.test(x.text) && found[i + 1].index - (x.index + x.length) <= 3));
 }
 
 /** Time mentions: [{ index, length, h, mi, endH?, endMi? }] (bare numbers count only after "at"/"@"/"from" or with am/pm or h:mm). */
@@ -440,7 +496,19 @@ function findTimes(text) {
     }
     out.push({ index: m.index, length: m[0].length, h, mi, endH, endMi });
   }
-  return out;
+  // French times ("15 h 30", "de 14h à 16h"); an English match over the same words gives way
+  const fr = [];
+  FR_TIME_RE.lastIndex = 0;
+  while ((m = FR_TIME_RE.exec(text))) {
+    const h = +m[1], mi = +(m[2] || 0);
+    if (h > 23 || mi > 59) continue;
+    let endH = m[3] !== undefined ? +m[3] : null, endMi = m[3] !== undefined ? +(m[4] || 0) : null;
+    if (endH !== null && (endH > 23 || endMi > 59)) { endH = null; endMi = null; }
+    fr.push({ index: m.index, length: m[0].length, h, mi, endH, endMi });
+  }
+  if (!fr.length) return out;
+  const over = (a, b) => a.index < b.index + b.length && b.index < a.index + a.length;
+  return [...out.filter((x) => !fr.some((y) => over(x, y))), ...fr].sort((a, b) => a.index - b.index);
 }
 
 /**

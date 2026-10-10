@@ -264,6 +264,14 @@ export function convertConversation(raw, { importedAt = Date.now() } = {}) {
   if (!rootId) return null;
   if (!map[rootId]) return null;
 
+  // Newer exports leave out each node's `children` and keep only `parent`: rebuild them (oldest message first).
+  if (Object.values(map).some((n) => n && !Array.isArray(n.children))) {
+    const made = new Map();
+    for (const [id, n] of Object.entries(map)) if (n && n.parent && map[n.parent]) { if (!made.has(n.parent)) made.set(n.parent, []); made.get(n.parent).push(id); }
+    const when = (id) => (map[id].message && map[id].message.create_time) || 0;
+    for (const [id, n] of Object.entries(map)) if (n && !Array.isArray(n.children)) n.children = (made.get(id) || []).sort((x, y) => when(x) - when(y));
+  }
+
   const onPath = new Set();
   for (let id = raw.current_node; id && map[id] && !onPath.has(id); id = map[id].parent) onPath.add(id);
 
@@ -349,14 +357,14 @@ export function convertConversation(raw, { importedAt = Date.now() } = {}) {
 }
 
 /**
- * What to do with a converted conversation given the chat already in Eden for the same ChatGPT id:
+ * What to do with a converted conversation given the chat already in Eden for the same ChatGPT (or Claude, or Gemini) id:
  * 'new', 'unchanged' (same or older than what was imported), 'edited' (the chat has Eden messages
  * since: left alone) or 'update' (ChatGPT has newer messages and Eden's copy is untouched).
  */
 export function dedupeAction(existing, incoming) {
   if (!existing) return 'new';
   const imp = existing.import;
-  if (!imp || imp.source !== SOURCE) return 'unchanged';
+  if (!imp || imp.source !== ((incoming.import && incoming.import.source) || SOURCE)) return 'unchanged'; // the Claude and Gemini imports use this too
   if (Object.keys(existing.nodes || {}).length !== imp.nodes) return 'edited';
   if ((incoming.import.updated || 0) <= (imp.updated || 0)) return 'unchanged';
   return 'update';

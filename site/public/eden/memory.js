@@ -5,11 +5,17 @@
 // memory_list (free), memory_update / memory_delete / memory_toggle (each confirmed by the
 // owner on a card on their Mac before anything changes). An older Jarvis without those tools
 // gets the plain recall list, read-only. Everything shown is data, set as text only.
+// Memory hygiene (N11, memory-model.js): each fact shows how long ago it was learned; one that
+// may have gone stale says "May be out of date" with a "Still true?" that opens the same inline
+// edit (it changes nothing by itself); a fact Jarvis inferred is marked "inferred"; and a
+// "Needs review" filter lists the stale ones.
 
 import { el, ico, toast, debounce, isMobile } from './util.js';
 import { api } from './api.js';
 import { state } from './state.js';
 import { checkJarvis } from './panels.js';
+import { assess, summarize, WORDS } from './memory-model.js';
+import { locale } from './i18n.js';
 
 const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
@@ -30,8 +36,10 @@ let H = { addContext: () => {} };
 const S = {
   built: false, open: false, returnFocus: null,
   phase: 'idle', // idle | loading | ready | legacy | off | error
-  reason: '', facts: [], legacy: [], query: '', topic: 'all', show: 'all',
-  editing: null, pending: new Map(), // id → { kind: 'update' | 'delete' | 'toggle', args }
+  reason: '', facts: [], legacy: [], query: '', topic: 'all', show: 'all', review: false,
+  now: Date.now(), // one clock reading per render, so every row is judged against the same moment
+  editing: null, recheck: null, // recheck: the fact whose editor was opened by "Still true?"
+  pending: new Map(), // id → { kind: 'update' | 'delete' | 'toggle', args }
   hidden: new Set(), // deleted here, waiting out the undo or the Mac's card
   found: new Map(), // id → { state, notes }
   seq: 0,
@@ -99,7 +107,10 @@ function build() {
   R.show = el('div', { class: 'seg mem-show', style: '--n:3', role: 'radiogroup', 'aria-label': 'Show' }, el('div', 'seg-thumb'),
     ...[['all', 'All'], ['on', 'In use'], ['off', 'Off']].map(([v, t]) => el('button', { type: 'button', role: 'radio', 'data-show': v }, t)));
   R.show.addEventListener('click', (e) => { const b = e.target.closest('[data-show]'); if (b) { S.show = b.dataset.show; renderList(); } });
-  R.side = el('aside', 'mem-side', el('div', 'mem-side-h', 'Topics'), R.topics, el('div', 'mem-side-h', 'Show'), R.show,
+  R.reviewN = el('span', 'n', '0');
+  R.review = el('button', { type: 'button', class: 'mem-topic mem-review', 'aria-pressed': 'false', title: 'Facts that may be out of date: worth checking they are still true' }, el('span', 'nm', WORDS.review), R.reviewN);
+  R.review.addEventListener('click', () => { S.review = !S.review; renderList(); });
+  R.side = el('aside', 'mem-side', el('div', 'mem-side-h', 'Topics'), R.topics, el('div', 'mem-side-h', 'Show'), R.show, R.review,
     el('p', 'mem-side-note', 'Each change is confirmed on your Mac: Jarvis shows a card, and nothing changes until you say yes there.'));
   R.banner = el('div', { class: 'mem-banners', 'aria-live': 'polite' });
   R.list = el('div', { class: 'mem-list', role: 'list', 'aria-label': 'What Jarvis remembers' });
@@ -129,6 +140,7 @@ export function closeMemory() {
   if (!S.open) return false;
   S.open = false;
   S.editing = null;
+  S.recheck = null;
   R.root.hidden = true;
   document.body.classList.remove('mem-open');
   if (S.returnFocus && document.contains(S.returnFocus)) S.returnFocus.focus();
@@ -189,7 +201,7 @@ function matches(f) {
 }
 function visible() {
   // A fact forgotten here stays hidden through the undo, then shows as waiting on the Mac's card.
-  return S.facts.filter((f) => (!S.hidden.has(f.id) || (S.pending.get(f.id) || {}).kind === 'delete') && (S.topic === 'all' || f.category === S.topic) && (S.show === 'all' || (S.show === 'on') === (f.on !== false)) && matches(f));
+  return S.facts.filter((f) => (!S.hidden.has(f.id) || (S.pending.get(f.id) || {}).kind === 'delete') && (S.topic === 'all' || f.category === S.topic) && (S.show === 'all' || (S.show === 'on') === (f.on !== false)) && (!S.review || assess(f, S.now).stale) && matches(f));
 }
 
 function renderTopics() {
@@ -203,26 +215,32 @@ function renderTopics() {
   const i = ['all', 'on', 'off'].indexOf(S.show);
   R.show.querySelector('.seg-thumb').style.setProperty('--i', i);
   R.show.querySelectorAll('button').forEach((x, j) => { x.classList.toggle('on', j === i); x.setAttribute('aria-checked', String(j === i)); x.disabled = S.phase !== 'ready'; });
+  const stale = summarize(live, S.now).stale;
+  R.reviewN.textContent = String(stale);
+  R.review.classList.toggle('on', S.review);
+  R.review.setAttribute('aria-pressed', String(S.review));
+  R.review.disabled = S.phase !== 'ready' || (!stale && !S.review);
   const off = live.filter((f) => f.on === false).length;
   R.count.textContent = S.phase === 'ready' ? `${live.length} fact${live.length === 1 ? '' : 's'}${off ? ` · ${off} off` : ''}` : S.phase === 'legacy' ? `${S.legacy.length} facts` : '';
 }
 
 function renderList() {
   if (!S.built) return;
+  S.now = Date.now();
   renderTopics();
   if (S.phase === 'loading' && !S.facts.length) { R.list.replaceChildren(...[0, 1, 2, 3].map(() => el('div', 'mem-skel'))); return; }
   if (S.phase === 'off' || S.phase === 'error') { R.list.replaceChildren(); return; }
   if (S.phase === 'legacy') {
     const rows = S.legacy.filter((t) => matches({ text: t }));
     R.list.replaceChildren(...(rows.length ? rows.map((t) => el('div', { class: 'mem-fact legacy', role: 'listitem' },
-      el('div', 'mf-main', el('p', 'mf-text', t)),
+      el('div', 'mf-main', el('p', { class: 'mf-text', 'data-no-i18n': '' }, t)),
       el('div', 'mf-acts', useBtn({ text: t }))))
       : [el('div', 'mem-empty', S.query ? 'Nothing remembered matches that.' : 'Jarvis doesn’t remember anything about you yet.')]));
     return;
   }
   const facts = visible();
   if (!facts.length) {
-    R.list.replaceChildren(el('div', 'mem-empty', S.facts.length ? (S.query ? `Nothing remembered matches “${S.query}”.` : 'Nothing here.') : 'Jarvis doesn’t remember anything about you yet. Tell it something in a conversation (“remember that…”), or add facts in Jarvis Settings.'));
+    R.list.replaceChildren(el('div', 'mem-empty', S.facts.length ? (S.review ? (S.query ? `Nothing that needs review matches “${S.query}”.` : 'Nothing here needs review.') : S.query ? `Nothing remembered matches “${S.query}”.` : 'Nothing here.') : 'Jarvis doesn’t remember anything about you yet. Tell it something in a conversation (“remember that…”), or add facts in Jarvis Settings.'));
     return;
   }
   const out = [];
@@ -244,9 +262,9 @@ function day(iso) {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return '';
   const d = new Date(t), now = new Date();
-  return d.toLocaleDateString([], { day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+  return d.toLocaleDateString(locale(), { day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
 }
-const longDay = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''; };
+const longDay = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''; };
 
 /** Where it was learned, for "Eden learned this from …": the conversation, note, import or device, and the owner's words. */
 function fromLine(f) {
@@ -273,13 +291,20 @@ function factRow(f) {
   const on = pending && pending.kind === 'toggle' ? pending.args.on : f.on !== false;
   const row = el('div', { class: `mem-fact${on ? '' : ' off'}${pending ? ' pending' : ''}${pending && pending.kind === 'delete' ? ' going' : ''}`, role: 'listitem', 'data-id': f.id });
   if (S.editing === f.id) { row.append(editor(f)); return row; }
+  const a = assess(f, S.now);
   const meta = el('div', 'mf-meta',
     el('span', 'mf-src', HOW[f.source] || 'Learned'),
-    f.learned ? el('span', '', el('time', { datetime: f.learned, title: longDay(f.learned) }, day(f.learned))) : null,
+    // The age in words; the exact day stays in the tooltip and in "Eden learned this from" below.
+    el('span', 'mf-age', a.ageDays !== null ? el('time', { datetime: f.learned || f.when || f.at, title: longDay(f.learned || f.when || f.at) }, a.ageWords) : a.ageWords),
     f.changed && f.learned && day(f.changed) !== day(f.learned) ? el('span', '', `edited ${day(f.changed)}`) : null,
     f.confidence && f.confidence !== 'high' ? el('span', 'mf-conf', f.confidence === 'medium' ? 'fairly sure' : 'not sure') : null,
     f.expires ? el('span', '', `until ${day(f.expires)}`) : null,
     on ? null : el('span', 'mf-offtag', 'Off: not used'));
+  // Text, not colour alone; the reason sits in the tooltip and, for screen readers, right after the words.
+  const flags = a.stale || a.inferred ? el('div', 'mf-flags',
+    a.stale ? el('span', { class: 'mf-chip stale', title: a.staleWhy }, WORDS.stale, el('span', 'sr-only', `. ${a.staleWhy}`)) : null,
+    a.stale ? el('button', { type: 'button', class: 'mf-recheck', 'data-act': 'recheck', title: 'Open the edit box: leave it as it is if it is still true, or correct it', 'aria-label': `${WORDS.recheck} Review: ${f.text}`, disabled: !!pending }, WORDS.recheck) : null,
+    a.inferred ? el('span', { class: 'mf-chip inferred', title: a.inferredWhy }, WORDS.inferred, el('span', 'sr-only', `. ${a.inferredWhy}`)) : null) : null;
   const lookup = LOOKUP.has(f.source) && String(f.origin || '').trim();
   const from = el('button', { type: 'button', class: 'mf-from', 'data-act': 'from', 'aria-expanded': String(S.found.has(f.id)), disabled: !lookup, title: lookup ? 'Look for it in your second brain' : '' },
     el('span', 'k', 'Eden learned this from'), el('span', 'v', fromLine(f)), lookup ? ico('chevr', 12) : null);
@@ -288,8 +313,9 @@ function factRow(f) {
     el('input', { type: 'checkbox', role: 'switch', 'data-act': 'toggle', checked: on, disabled: !!pending, 'aria-label': `Use this fact: ${f.text}` }), el('span', 'tr'));
   row.append(
     el('div', 'mf-main',
-      el('p', 'mf-text', f.text),
+      el('p', { class: 'mf-text', 'data-no-i18n': '' }, f.text),
       meta,
+      flags,
       from,
       found ? foundList(f, found) : null,
       pending ? el('div', 'mf-wait', el('span', 'ld'), pending.kind === 'delete' ? 'Approve forgetting it on your Mac…' : 'Approve this change on your Mac…') : null),
@@ -306,7 +332,7 @@ function foundList(f, found) {
   if (found.state === 'error') return el('div', 'mf-found muted', `Couldn’t look: ${found.error}`);
   if (!found.notes.length) return el('div', 'mf-found muted', 'Nothing in your second brain matches its source (conversations Jarvis didn’t keep aren’t there).');
   return el('div', 'mf-found', ...found.notes.map((n) => {
-    const full = el('div', 'note-full');
+    const full = el('div', { class: 'note-full', 'data-no-i18n': '' });
     full.hidden = true;
     return el('div', 'mf-note',
       el('button', { type: 'button', class: 'mf-note-t', onclick: async (e) => {
@@ -316,8 +342,8 @@ function foundList(f, found) {
         b.setAttribute('aria-busy', 'true');
         try { const r = await jarvis('read_note', { id: n.id }); full.textContent = strip(r.text); full.hidden = false; } catch (err) { toast(err.message); }
         b.removeAttribute('aria-busy');
-      } }, ico('doc', 13), el('b', '', n.title), n.meta ? el('span', 'm', n.meta) : null),
-      n.excerpt ? el('p', '', n.excerpt) : null, full);
+      } }, ico('doc', 13), el('b', { 'data-no-i18n': '' }, n.title), n.meta ? el('span', { class: 'm', 'data-no-i18n': '' }, n.meta) : null),
+      n.excerpt ? el('p', { 'data-no-i18n': '' }, n.excerpt) : null, full);
   }));
 }
 
@@ -341,7 +367,9 @@ function editor(f) {
   };
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); } });
   requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); });
+  const a = assess(f, S.now);
   return el('div', 'mf-editor',
+    S.recheck === f.id && a.stale ? el('p', 'mf-edit-why', `${WORDS.recheck} ${a.staleWhy} Correct it below if it has changed. If it is still true, leave it: Jarvis can’t yet record that you checked, so the note stays.`) : null,
     ta,
     el('div', 'mf-edit-row',
       el('label', '', el('span', '', 'Topic'), topic),
@@ -416,7 +444,7 @@ function onListClick(e) {
   if (!b || b.disabled || b.tagName === 'INPUT') return;
   const f = factOf(b);
   if (!f) return;
-  if (b.dataset.act === 'edit') { S.editing = f.id; renderList(); }
+  if (b.dataset.act === 'edit' || b.dataset.act === 'recheck') { S.editing = f.id; S.recheck = b.dataset.act === 'recheck' ? f.id : null; renderList(); }
   else if (b.dataset.act === 'delete') forget(f);
   else if (b.dataset.act === 'from') lookUp(f);
 }

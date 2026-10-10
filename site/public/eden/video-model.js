@@ -2,6 +2,9 @@
 // videos, the caps, and the estimate shown before a long one goes (~300 input tokens a second ×
 // the model's input price; ~100 a second past 45 minutes, sent at low resolution). Pure: the
 // composer (composer.js) and the tests use it.
+// i18n.js's locale (no import: the tests load this file alone)
+const locale = () => (globalThis.edenI18n ? globalThis.edenI18n.locale() : 'en-US');
+
 export const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm'];
 export const VIDEO = { maxBytes: 100 * 1024 * 1024, freeSeconds: 20 * 60, plusSeconds: 60 * 60, confirmSeconds: 3 * 60, tokensPerSecond: 300, lowTokensPerSecond: 100, lowAfterSeconds: 45 * 60 };
 const VIDEO_FILE = /\.(mp4|m4v|mov|webm)$/i;
@@ -32,5 +35,5 @@ export function confirmText(videos) {
   const usd = videos.reduce((n, v) => n + (v.estimate && v.estimate.usd >= 0 ? v.estimate.usd : 0), 0);
   const model = (videos.find((v) => v.estimate && v.estimate.name) || { estimate: { name: 'Gemini' } }).estimate.name;
   const cost = usd >= 0.01 ? `$${usd.toFixed(2)}` : usd > 0 ? 'under $0.01' : 'a few cents';
-  return `This video is ${clock(seconds)} long. ${model} reads about ${tokens.toLocaleString('en-US')} tokens of it (~300 a second), about ${cost} at its input price, plus the reply. Send it?`;
+  return `This video is ${clock(seconds)} long. ${model} reads about ${tokens.toLocaleString(locale())} tokens of it (~300 a second), about ${cost} at its input price, plus the reply. Send it?`;
 }

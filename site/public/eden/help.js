@@ -12,6 +12,9 @@ import { $, el, ico } from './util.js';
 import { state } from './state.js';
 import { API_ROOT, isMock } from './api.js';
 import { PRACTICE } from './practice.js';
+import { isFr, skipSelector } from './i18n.js';
+
+skipSelector('.hc-msg.user > p'); // what the person asked Help stays as written
 
 const LIVE = new URLSearchParams(location.search).get('help') === 'live';
 const SETTINGS_TAB = { keys: 0, accounts: 1, appearance: 2, routing: 3, about: 4 };
@@ -28,7 +31,9 @@ async function load() {
   if (loaded) return loaded;
   const base = `${API_ROOT}/help/`;
   const [faq, core, view] = await Promise.all([
-    fetch(`${base}faq.json`, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(`Help couldn’t load (${r.status}).`); return r.json(); }),
+    // in French: faq.fr.json beside faq.json (the English one if it isn't there)
+    (isFr ? fetch(`${base}faq.fr.json`, { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).catch(() => null) : Promise.resolve(null))
+      .then((fr) => fr || fetch(`${base}faq.json`, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(`Help couldn’t load (${r.status}).`); return r.json(); })),
     import(`${base}help-core.js`),
     import(`${base}help-ui.js`),
   ]);

@@ -116,9 +116,16 @@ function createMain() {
   win.on('enter-full-screen', () => fs_(true));
   win.on('leave-full-screen', () => fs_(false));
   win.once('ready-to-show', () => win.show());
+  // The boot-up sound once the "Opening Ask Eden…" window (loading.html) is on screen, then askeden.com.
+  const first = pendingUrl || HOME_URL;
+  win.once('show', () => {
+    playBootSound();
+    // (unless a link or the sign-in has already taken the window elsewhere)
+    if (win && !win.isDestroyed() && win.webContents.getURL().startsWith('file:')) win.loadURL(first).catch(() => {});
+  });
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } }); // stays in the menu bar
   win.on('closed', () => { win = null; });
-  win.loadURL(pendingUrl || HOME_URL).catch(() => {});
+  win.loadFile(path.join(__dirname, 'loading.html')).catch(() => {});
   pendingUrl = '';
 }
 
@@ -203,6 +210,11 @@ ipcMain.on('eden:notify', (e, title, body) => {
   n.show();
 });
 ipcMain.handle('eden:relink', (e) => { if (!fromEden(e)) return false; linkLastAsk = 0; autoLink().catch(() => {}); return true; });
+ipcMain.handle('eden:boot-sound', (e, on) => {
+  if (!fromEden(e)) return null;
+  if (typeof on === 'boolean') { try { fs.writeFileSync(BOOT_SOUND_FILE(), `${JSON.stringify({ on })}\n`); } catch { /* read-only: stays as it was */ } }
+  return bootSoundOn();
+});
 ipcMain.handle('eden:engine', (e) => (fromEden(e) ? { running: Boolean(engine), shared: Boolean(engine && engine.shared) } : null));
 
 // ── the Mac engine ──
@@ -430,6 +442,27 @@ function buildMenu() {
     { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }] },
     { role: 'windowMenu' },
   ]));
+}
+
+// The boot-up sound, the owner's choice ("C'est, c'est, c'est énergétique !"), once per launch, as the
+// window first shows (createMain). The window goes on to askeden.com, which would cut a sound played
+// in the page, so macOS's own player plays it (from a copy: it can't read inside app.asar).
+// Whether it plays: Settings › Appearance or the welcome sheet on the page (askeden web/chat/boot-sound.js)
+// keeps the choice here, in the app's own folder, to be read before the page loads.
+const BOOT_SOUND_FILE = () => path.join(app.getPath('userData'), 'boot-sound.json');
+function bootSoundOn() {
+  try { return JSON.parse(fs.readFileSync(BOOT_SOUND_FILE(), 'utf8')).on !== false; } catch { return true; }
+}
+let bootSoundPlayed = false;
+function playBootSound() {
+  if (bootSoundPlayed || !bootSoundOn()) return;
+  bootSoundPlayed = true;
+  try {
+    const file = path.join(app.getPath('temp'), 'ask-eden-boot-sound.wav');
+    fs.copyFileSync(path.join(__dirname, 'build', 'boot-sound.wav'), file);
+    require('child_process').spawn('/usr/bin/afplay', [file], { stdio: 'ignore', detached: true })
+      .on('error', () => {}).unref(); // (no sound device: nothing to say)
+  } catch { /* nothing to say */ }
 }
 
 app.whenReady().then(async () => {

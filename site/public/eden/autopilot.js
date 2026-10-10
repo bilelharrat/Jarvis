@@ -15,6 +15,7 @@ import { state, ui } from './state.js';
 import { getJSON, postJSON } from './api.js';
 import { autopilotWhy, savedVsTop, usd, monthBounds } from './autopilot-model.js';
 import { planRows } from './plan.js';
+import { locale } from './i18n.js';
 
 let status = null; // the last GET /api/chat/spend
 let loading = null;
@@ -94,11 +95,11 @@ function afterChange() {
 function renewWords(st) {
   if (!st || !st.periodEnd) return '';
   const d = new Date(st.periodEnd);
-  return Number.isNaN(d.getTime()) ? '' : `it renews ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(hosted() ? { timeZone: 'UTC' } : {}) })}`;
+  return Number.isNaN(d.getTime()) ? '' : `it renews ${d.toLocaleDateString(locale(), { month: 'short', day: 'numeric', ...(hosted() ? { timeZone: 'UTC' } : {}) })}`;
 }
 function endWords(st) {
   const d = new Date(new Date(st.periodEnd).getTime() - 1);
-  return Number.isNaN(d.getTime()) ? 'month end' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(hosted() ? { timeZone: 'UTC' } : {}) });
+  return Number.isNaN(d.getTime()) ? 'month end' : d.toLocaleDateString(locale(), { month: 'short', day: 'numeric', ...(hosted() ? { timeZone: 'UTC' } : {}) });
 }
 
 /* ---------- the month, drawn (popover, console card, settings) ---------- */
@@ -111,6 +112,8 @@ function meter(frac, forecastFrac, stage) {
   return m;
 }
 
+const pctOf = (f) => `${Math.max(0, Math.min(100, Math.round((Number(f) || 0) * 100)))}%`; // the hosted site shows shares, never dollars
+
 /** The month as rows: spend and budget, forecast, the stage, the savings, the subscription. */
 export function monthView({ compact = false } = {}) {
   const s = status;
@@ -120,22 +123,22 @@ export function monthView({ compact = false } = {}) {
   const budget = st.budgetUSD || s.budgetUSD || 0;
   const spent = typeof s.totalUSD === 'number' ? s.totalUSD : st.spentUSD || 0;
   if (budget > 0) {
-    kids.push(el('div', 'ap-row', el('span', '', hosted() ? 'Included AI this month' : 'This month'), el('b', '', `${usd(spent)} of ${usd(budget)}`)));
+    kids.push(el('div', 'ap-row', el('span', '', hosted() ? 'Included AI this month' : 'This month'), el('b', '', hosted() ? `${pctOf(1 - spent / budget)} left` : `${usd(spent)} of ${usd(budget)}`)));
     kids.push(meter(spent / budget, (st.forecastUSD || spent) / budget, st.stage || 0));
-    kids.push(el('div', 'ap-sub', `Forecast ${usd(st.forecastUSD)} by ${endWords(st)}${st.method === 'weekday' ? ' · your weekday pattern counted' : ''}`));
+    kids.push(el('div', 'ap-sub', `Forecast ${hosted() ? `${pctOf((st.forecastUSD || 0) / budget)} used` : usd(st.forecastUSD)} by ${endWords(st)}${st.method === 'weekday' ? ' · your weekday pattern counted' : ''}`));
     kids.push(el('div', { class: `ap-state s${st.stage || 0}` }, el('span', { class: 'ap-dot', 'aria-hidden': 'true' }), el('span', '', st.stage ? `${st.label}: ${st.what}` : 'Autopilot: on track, routing as you set it')));
   } else {
-    kids.push(el('div', 'ap-row', el('span', '', 'This month'), el('b', '', usd(spent))));
+    kids.push(el('div', 'ap-row', el('span', '', 'This month'), el('b', '', hosted() ? '' : usd(spent))));
     kids.push(el('div', 'ap-sub', hosted() ? 'Your included AI isn’t known yet.' : 'No monthly budget: the autopilot is off. Set one in Settings › Routing.'));
   }
   const sv = monthSavings();
-  if (sv && sv.turns) kids.push(el('div', 'ap-row ap-saved', el('span', '', `Saved vs always-${String(sv.modelName || 'Opus').replace(/^Claude /, '').replace(/ [\d.]+$/, '')} this month`), el('b', '', sv.usd >= 0 ? usd(sv.usd) : `−${usd(-sv.usd)}`)));
-  if (sv && sv.turns && !compact) kids.push(el('div', 'ap-sub', `${sv.turns} repl${sv.turns === 1 ? 'y' : 'ies'} billed in dollars, against ${sv.modelName || 'Claude Opus'}’s price for the same tokens.`));
-  if (s.notionalCalls) kids.push(el('div', 'ap-sub', `Claude on your subscription: ${s.notionalCalls} repl${s.notionalCalls === 1 ? 'y' : 'ies'} (${usd(s.notionalUSD)} at API prices), counted as quota, not dollars.`));
+  if (sv && sv.turns) kids.push(el('div', 'ap-row ap-saved', el('span', '', `Saved vs always-${String(sv.modelName || 'Opus').replace(/^Claude /, '').replace(/ [\d.]+$/, '')} this month`), el('b', '', hosted() ? pctOf(sv.usd / Math.max(1e-9, spent + Math.max(0, sv.usd))) : sv.usd >= 0 ? usd(sv.usd) : `−${usd(-sv.usd)}`)));
+  if (sv && sv.turns && !compact && !hosted()) kids.push(el('div', 'ap-sub', `${sv.turns} repl${sv.turns === 1 ? 'y' : 'ies'} billed in dollars, against ${sv.modelName || 'Claude Opus'}’s price for the same tokens.`));
+  if (s.notionalCalls) kids.push(el('div', 'ap-sub', `Claude on your subscription: ${s.notionalCalls} repl${s.notionalCalls === 1 ? 'y' : 'ies'} ${hosted() ? '' : `(${usd(s.notionalUSD)} at API prices) `}counted as quota, not dollars.`));
   if (!compact && Array.isArray(s.byModel) && s.byModel.length) {
     const rows = s.byModel.filter((r) => r.usd > 0).slice(0, 4);
     const top = Math.max(...rows.map((r) => r.usd), 1e-9);
-    if (rows.length) kids.push(el('ul', 'ap-models', ...rows.map((r) => { const li = el('li', '', el('span', 'n', String(r.name || r.model).replace(/^Claude /, '')), el('span', 'bar', el('i')), el('b', '', usd(r.usd))); li.querySelector('i').style.width = `${Math.max(3, (r.usd / top) * 100)}%`; return li; })));
+    if (rows.length) kids.push(el('ul', 'ap-models', ...rows.map((r) => { const li = el('li', '', el('span', 'n', String(r.name || r.model).replace(/^Claude /, '')), el('span', 'bar', el('i')), el('b', '', hosted() ? pctOf(r.usd / Math.max(1e-9, spent)) : usd(r.usd))); li.querySelector('i').style.width = `${Math.max(3, (r.usd / top) * 100)}%`; return li; })));
   }
   return kids;
 }
@@ -209,7 +212,7 @@ export function autopilotSettings() {
     const v = input.value.trim();
     try {
       status = await postJSON('/api/chat/spend', { budgetUSD: v === '' ? 0 : Number(v) });
-      toast(status.budgetUSD ? `Budget: ${usd(status.budgetUSD)} a month` : 'No monthly budget: the autopilot is off');
+      toast(status.budgetUSD ? (hosted() ? 'Your included AI is on' : `Budget: ${usd(status.budgetUSD)} a month`) : 'No monthly budget: the autopilot is off');
       paint();
       body.replaceChildren(...monthView());
       dispatchEvent(new CustomEvent('eden:reroute'));

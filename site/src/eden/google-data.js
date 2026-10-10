@@ -11,7 +11,7 @@
 //        cookie __Host-eden-gdata (HttpOnly, SameSite=Lax, 10 minutes)
 //   GET  /api/chat/google/callback                           → /#gmail=connected|error (via a meta refresh)
 //   "Connect Gmail" asks gmail.readonly + gmail.compose (read; drafts and send: compose covers
-//   send); "Connect Google Calendar" asks calendar.readonly (the calendar list) + calendar.events.
+//   send) + gmail.modify (Mail's Done, snooze, star, read: labels only); "Connect Google Calendar" asks calendar.readonly (the calendar list) + calendar.events.
 //   Each with include_granted_scopes=true and access_type=offline; prompt=consent only while
 //   there's no refresh token yet (otherwise login_hint picks the Google account already used).
 //   The callback can't see the session (its cookie is SameSite=Strict and Google's redirect is
@@ -44,6 +44,12 @@ import { SIGNIN_CSP, cookie, cookies, json, page, problem } from './web.js';
 import { UPLOAD_ACTIONS, outgoingUploads, uploadAction } from './gmail-uploads.js';
 import {
   CALENDAR_SCOPES,
+  DRIVE_FILE_SCOPE,
+  SHEETS_WRITES,
+  createSheetsApi,
+  hasSheetsScope,
+  pickerToken,
+  runSheetsAction,
   GoogleError,
   createCalendarApi,
   createGmailApi,
@@ -60,8 +66,13 @@ const STATE_SECONDS = 600;
 const EXPIRY_MARGIN_MS = 60_000;
 const GMAIL_READ = 'https://www.googleapis.com/auth/gmail.readonly';
 const GMAIL_COMPOSE = 'https://www.googleapis.com/auth/gmail.compose';
-const GMAIL_SCOPES = [GMAIL_READ, GMAIL_COMPOSE];
-const CAPABILITIES = { gmail: GMAIL_SCOPES, calendar: [...CALENDAR_SCOPES], all: [...GMAIL_SCOPES, ...CALENDAR_SCOPES] };
+// gmail.modify: Eden Mail's Done, snooze, star and read/unread change labels in Gmail itself (askeden
+// ROADMAP O4; on the consent screen since 2026-10-09). A grant from before it still works: those stay in Eden.
+const GMAIL_MODIFY = 'https://www.googleapis.com/auth/gmail.modify';
+const GMAIL_SCOPES = [GMAIL_READ, GMAIL_COMPOSE, GMAIL_MODIFY];
+// sheets: Google Sheets in the spreadsheet canvas (askeden Q15): drive.file only (non-sensitive: the files the
+// person picks in the Google Picker or Eden creates), asked the first time they use it, never at sign-in.
+const CAPABILITIES = { gmail: GMAIL_SCOPES, calendar: [...CALENDAR_SCOPES], sheets: [DRIVE_FILE_SCOPE], all: [...GMAIL_SCOPES, ...CALENDAR_SCOPES] };
 
 export const GOOGLE_DATA_ROUTES = new Set([
   'GET /api/chat/google/status',
@@ -74,6 +85,7 @@ export const GOOGLE_DATA_ROUTES = new Set([
   'POST /api/chat/gmail',
   'GET /api/chat/gcal/status',
   'POST /api/chat/gcal',
+  'POST /api/chat/sheets', // Q15: Google Sheets / Drive with drive.file (askeden src/chat/sheets.ts, vendored)
 ]);
 
 /** Gmail is usable: read, and drafts + send (compose covers send; modify or full mail cover both). */
@@ -96,7 +108,7 @@ const client = (env) => ({ clientId: String(env.GOOGLE_CLIENT_ID), clientSecret:
 // to <base>/<google host>/<path> — honored only while the request itself is to localhost
 // (wrangler dev), never on askeden.com.
 
-const GOOGLE_HOSTS = /^https:\/\/(accounts\.google\.com|oauth2\.googleapis\.com|gmail\.googleapis\.com|www\.googleapis\.com)\//;
+const GOOGLE_HOSTS = /^https:\/\/(accounts\.google\.com|oauth2\.googleapis\.com|gmail\.googleapis\.com|www\.googleapis\.com|sheets\.googleapis\.com)\//;
 
 export function fakeBase(env, request) {
   const base = String(env.GOOGLE_FAKE_BASE || '').replace(/\/+$/, '');
@@ -141,6 +153,7 @@ function statusOf(found) {
     email: (t && t.email) || null,
     gmail: Boolean(t && hasGmailScopes(t.scopes)),
     calendar: Boolean(t && hasCalendarScopes(t.scopes)),
+    sheets: Boolean(t && hasSheetsScope(t.scopes)),
     hosted: true,
   };
 }
@@ -329,7 +342,7 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
       case 'POST /api/chat/google/connect': {
         const body = await readBody(request, 4096);
         const scope = body.scope === undefined ? 'all' : body.scope;
-        if (!Object.hasOwn(CAPABILITIES, scope)) throw new ApiError(400, 'bad_request', 'scope must be gmail or calendar.');
+        if (!Object.hasOwn(CAPABILITIES, scope)) throw new ApiError(400, 'bad_request', 'scope must be gmail, calendar or sheets.');
         return json({ url: `/api/chat/google/connect?scope=${scope}` });
       }
       case 'POST /api/chat/google/disconnect': {
@@ -342,7 +355,7 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
       case 'POST /api/chat/approve': {
         // The page calls this inside the click on Send / Add / Save; the write routes below take the token.
         const body = await readBody(request, 4096);
-        if (body.kind !== 'gmail' && body.kind !== 'gcal') throw new ApiError(400, 'bad_request', 'kind must be gmail or gcal');
+        if (body.kind !== 'gmail' && body.kind !== 'gcal' && body.kind !== 'sheets') throw new ApiError(400, 'bad_request', 'kind must be gmail, gcal or sheets');
         if (typeof body.hash !== 'string') throw new ApiError(400, 'bad_request', 'hash must be a string');
         return json(await call(env, who.account, 'approve-mint', { hash: body.hash }, who.token));
       }
@@ -389,6 +402,22 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
         if (!hasCalendarScopes(found.tokens.scopes)) throw new GoogleError('Connect Google Calendar to see your calendar.', 'scope', 403);
         return json(await runCalendarAction(createCalendarApi({ token: tokenSource(env, ctx, who, found, f), fetch: f }), action, args));
       }
+      case 'POST /api/chat/sheets': {
+        // Google Sheets and Drive (drive.file): open, write back, upload (with conversion), the Picker's token
+        const { action, args } = actionBody(await readBody(request, maxBody));
+        if (SHEETS_WRITES.includes(action)) await takeApproval(env, who, request, 'sheets', action, args);
+        const found = await load(env, who);
+        if (!found) throw new GoogleError('Connect Google Sheets first.', 'not_connected', 409);
+        if (!hasSheetsScope(found.tokens.scopes)) throw new GoogleError('Connect Google Sheets first (Eden asks for access to the files you pick).', 'scope', 403);
+        const api = createSheetsApi({ token: tokenSource(env, ctx, who, found, f), fetch: f });
+        const config = { apiKey: String(env.GOOGLE_PICKER_API_KEY || '').trim() || undefined, appId: /^\d{6,20}$/.test(String(env.GOOGLE_APP_ID || '').trim()) ? String(env.GOOGLE_APP_ID).trim() : undefined };
+        try {
+          return json(await runSheetsAction({ api, picker: () => pickerToken(client(env), found.tokens.refresh, f), config }, action, args));
+        } catch (e) {
+          if (e instanceof GoogleError && e.conflicts) return json({ error: e.message, code: e.code, conflicts: e.conflicts }, e.status);
+          throw e;
+        }
+      }
       default:
         throw new ApiError(404, 'not_found', 'Not found');
     }
@@ -434,7 +463,7 @@ const openState = (env, value) => openWith(env, 'gdata-cookie', 'gdata-state', v
 async function connectStart(request, env, who) {
   await limited(env, 'API_RATE', who.account);
   const scope = new URL(request.url).searchParams.get('scope') || 'all';
-  if (!Object.hasOwn(CAPABILITIES, scope)) throw new ApiError(400, 'bad_request', 'scope must be gmail or calendar.');
+  if (!Object.hasOwn(CAPABILITIES, scope)) throw new ApiError(400, 'bad_request', 'scope must be gmail, calendar or sheets.');
   const found = await load(env, who);
   const state = b64url(randomBytes(32));
   const { verifier, challenge } = await pkcePair();

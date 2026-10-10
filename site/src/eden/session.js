@@ -23,8 +23,8 @@
 // after 30 days, listed in the apps like any device. The session is the device's token in the
 // cookie __Host-eden: HttpOnly, Secure, SameSite=Strict. No page ever sees it.
 
-import { EDEN_APP_IDS, verifyIdentityToken } from '../accounts/apple.js';
-import { accountForIdentity, call, callIdentity, callLink, clientIp, eraseAccount, limited, linkIdentity, nativeNewAccount, subHashOf, unlinkIdentity } from '../accounts/index.js';
+import { EDEN_APP_IDS, canRevoke, exchangeCode as exchangeAppleCode, verifyIdentityToken } from '../accounts/apple.js';
+import { accountForIdentity, call, callIdentity, callLink, clientIp, eraseAccount, identityOwner, limited, linkIdentity, nativeNewAccount, subHashOf, unlinkIdentity } from '../accounts/index.js';
 import { ALGS, verifyAssertion, verifyRegistration } from '../accounts/webauthn.js';
 import { HUMAN_SECONDS, checkHuman, checkSignups, signupsOpen, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
 import { WEB_LINK_MAC_MS, WEB_LINK_MAC_STALE, WEB_SESSION_DAYS } from '../accounts/account.js';
@@ -33,7 +33,7 @@ import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, parseToken, random
 import { SIGN_IN_SCOPES, buildAuthUrl, exchangeCode, googleReady, pkcePair, verifyIdToken } from './google.js';
 import { qrRows } from './qr.js';
 import { edenSyncApi } from '../accounts/eden-sync.js';
-import { chatSyncApi } from '../accounts/chat-sync.js';
+import { chatMergeApi, chatSyncApi, mintMergeToken } from '../accounts/chat-sync.js';
 import { actingSession, actingView, delegatesApi, endActing } from '../accounts/delegates.js';
 import { spacesApi } from '../accounts/space.js';
 import { billingApi, billingConfig, billingReturn, plusOffer } from './billing.js';
@@ -160,7 +160,7 @@ export async function web(request, env, ctx, path) {
     // Back from Stripe (another site, so no Strict cookie yet): a page that moves on (billing.js).
     if (path === '/api/web/billing/return' && method === 'GET') return billingReturn(request);
     // Eden sync (H1), delegates (H14), team spaces (G8): the browser's own session, never a delegate's.
-    const extra = /^\/api\/web\/(esync|csync|deleg|space|billing)(?:\/([a-z-]+))?$/.exec(path); // billing: Plus with Stripe, F15 (billing.js)
+    const extra = /^\/api\/web\/(esync|csync|merge|deleg|space|billing)(?:\/([a-z-]+))?$/.exec(path); // billing: Plus with Stripe, F15 (billing.js)
     if (extra) return await accountExtras(request, env, extra[1], extra[2] || '');
     throw new ApiError(404, 'not_found', 'No such thing here.');
   } catch (error) {
@@ -321,6 +321,7 @@ async function accountExtras(request, env, area, op) {
   const origin = new URL(request.url).origin;
   if (area === 'esync') return edenSyncApi(request, env, who, op);
   if (area === 'csync') return chatSyncApi(request, env, who, op);
+  if (area === 'merge') return chatMergeApi(request, env, who, op);
   const found = await actingSession(request, env, who);
   const acting = found && !found.ended ? found : null;
   if (area === 'deleg') return delegatesApi(request, env, who, op, { acting, origin });
@@ -435,8 +436,9 @@ export function errorCode(error) {
   return byCode[error.code] || 'server';
 }
 
-function target({ link = false, error = '', provider = '', back = '/' } = {}) {
+function target({ link = false, error = '', provider = '', back = '/', merge = null } = {}) {
   const query = new URLSearchParams();
+  if (merge) { query.set('merge', `${merge.iv}.${merge.ct}`); if (PROVIDERS.has(provider)) query.set('provider', provider); }
   if (error) query.set('error', ERROR_CODES.has(error) ? error : 'server');
   if (error && PROVIDERS.has(provider)) query.set('provider', provider);
   const to = safeReturn(back);
@@ -463,8 +465,8 @@ function onward(to) {
 const seeOther = (location) => new Response(null, { status: 303, headers: { location, 'cache-control': 'no-store' } });
 
 /** The end of a provider sign-in or link: `/` (or its return address), `/signin?error=…`, or `/#account[?error=…]`. */
-function ending({ link = false, error = '', provider = '', back = '/' } = {}) {
-  const to = target({ link, error, provider, back });
+function ending({ link = false, error = '', provider = '', back = '/', merge = null } = {}) {
+  const to = target({ link, error, provider, back, merge });
   return error && !link ? seeOther(to) : onward(to);
 }
 
@@ -528,7 +530,17 @@ async function finish(request, env, { provider, sub, email, state, link, back = 
       if (!(error instanceof ApiError)) throw error;
       throw new ApiError(400, 'expired', 'That took too long. Open your account in Eden and try again.');
     }
-    await linkIdentity(env, { provider, sub, email, account_id: pending.account, device_id: pending.device });
+    try {
+      await linkIdentity(env, { provider, sub, email, account_id: pending.account, device_id: pending.device });
+    } catch (error) {
+      // That sign-in already opens another account, and the person has just proved it's theirs: offer to bring its chats across.
+      if (error instanceof ApiError && error.code === 'identity_taken') {
+        const other = await identityOwner(env, { provider, sub }).catch(() => null);
+        const merge = other && other !== pending.account ? await mintMergeToken(env, pending.account, other).catch(() => null) : null;
+        if (merge) return ending({ link: true, merge, provider });
+      }
+      throw error;
+    }
     return ending({ link: true });
   }
   const made = await signInBrowser(request, env, { provider, sub, email, beforeCreate: () => humanFor(env, state) });
@@ -804,16 +816,37 @@ async function nativeApple(request, env) {
   await limited(env, 'AUTH_RATE', `native:${clientIp(request)}`);
   const body = await readJson(request, 64 * 1024);
   const claims = await verifyIdentityToken(body.identity_token, body.nonce, { audience: EDEN_APP_IDS, now: Date.now() / 1000 });
-  const code = await stashHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null });
+  // App Store 5.1.1(v): the grant is kept so deleting the account revokes it (accounts/index.js eraseAccount).
+  // Apple redeems the app's authorization code only for the app it was issued to: the token's `aud`.
+  const clientId = (Array.isArray(claims.aud) ? claims.aud : [claims.aud]).find((a) => EDEN_APP_IDS.includes(a));
+  const authCode = typeof body.authorization_code === 'string' && body.authorization_code.length <= 4096 ? body.authorization_code : '';
+  if (authCode && !canRevoke(env)) noSiwaKeyOnce();
+  const appleGrant = authCode && canRevoke(env) ? async () => {
+    const token = await exchangeAppleCode(env, authCode, fetch, clientId);
+    return token ? { token, client_id: clientId } : null;
+  } : null;
+  const code = await stashHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null, appleGrant });
   return json({ handoff: code, expires_in: HANDOFF_SECONDS });
 }
 
-/** The account a sign-in in the app opens (no Turnstile in an app: a tighter rate), as a one-time handoff code. */
-async function stashHandoff(request, env, { provider, sub, email, cred = null }) {
+let warnedNoSiwaKey = false;
+function noSiwaKeyOnce() {
+  if (warnedNoSiwaKey) return;
+  warnedNoSiwaKey = true;
+  console.warn('Sign in with Apple: SIWA_KEY / SIWA_KEY_ID are not set, so the Eden app’s grant is not kept and can’t be revoked when the account is deleted (App Store 5.1.1(v)).');
+}
+
+/**
+ * The account a sign-in in the app opens (no Turnstile in an app: a tighter rate), as a one-time handoff code.
+ * `appleGrant`: () → { token, client_id } | null, the Apple refresh token to keep, asked only once the account
+ * may sign in here; it rides in the handoff (server-side, a minute, taken once) to the account's object.
+ */
+async function stashHandoff(request, env, { provider, sub, email, cred = null, appleGrant = null }) {
   const ip = clientIp(request);
   const { account_id } = await accountForIdentity(env, { provider, sub, email, ip, cred, beforeCreate: () => nativeNewAccount(env, ip) });
   if (!webAllowed(env, account_id)) throw new ApiError(403, 'not_allowed', "Eden on the web isn't open to this account yet.");
-  return stashCode(env, { account_id, provider, sub_hash: await subHashOf(provider, sub), email });
+  const grant = appleGrant ? await appleGrant() : null;
+  return stashCode(env, { account_id, provider, sub_hash: await subHashOf(provider, sub), email, ...(grant ? { apple_grant: grant } : {}) });
 }
 
 /** A one-time handoff code (32 random bytes, a minute, taken once) for this account and identity. */
@@ -846,6 +879,7 @@ async function handoff(request, env) {
       account_id: kept.account_id,
       create: true,
       identity: { provider: kept.provider || 'apple', sub_hash: kept.sub_hash, email: kept.email || null },
+      ...(kept.apple_grant ? { apple_grant: kept.apple_grant } : {}), // the Eden app's Apple grant, for revoking on deletion
       device: { name: cleanName(`Eden app: ${browserName(request).replace(/^Eden on the web: /, '')}`, 'Eden app'), app_version: 'askeden.com (Eden app)' },
     });
     // The web view started this load itself (no other site in the chain): a plain redirect

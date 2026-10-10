@@ -209,7 +209,16 @@
   "Teach Jarvis your voice": "教 Jarvis 认识你的声音",
   "Welcome to Eden Code.": "欢迎使用 Eden Code。",
   "Plan, build and fix in your own projects: it edits, runs and explains, and asks before anything risky.": "在你自己的项目里规划、构建和修复：它会编辑、运行和解释，做任何有风险的事之前都会先问你。",
-  "Sign in to Claude and you’re ready. The rest is optional, and stays in Settings.": "登录 Claude 就可以开始了。其余都是可选的，随时可在设置中找到。"
+  "Sign in to Claude and you’re ready. The rest is optional, and stays in Settings.": "登录 Claude 就可以开始了。其余都是可选的，随时可在设置中找到。",
+  "Boot-up sound": "开机音效",
+  "A short sound as the app opens": "打开应用时播放一段简短的音效",
+  "Opens quietly": "安静地打开",
+  "On": "开",
+  "Off": "关",
+  "Boot-up sound?": "要开机音效吗？",
+  "Jarvis plays a short sound as it opens. Keep it, or open quietly.": "Jarvis 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
+  "Eden Code plays a short sound as it opens. Keep it, or open quietly.": "Eden Code 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
+  "You can change this any time in Settings › General.": "你可以随时在“设置 › 通用”中更改。"
  },
  "patterns": []
 }

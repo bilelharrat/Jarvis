@@ -33,6 +33,8 @@ export const CHAPTERS = [
 
 const reply = '.msg.assistant.last';
 const val = (c, sel) => { const n = c.q(sel); return n ? String(n.value || '') : ''; };
+// a label the page drew, as it reads in the page's language (tour.js gives c.tr; the tests don't)
+const L = (c, s) => (c.tr ? c.tr(s) : s);
 
 export const STEPS = [
   /* ---------- Chat basics ---------- */
@@ -131,7 +133,7 @@ export const STEPS = [
     title: 'Publish a page',
     body: 'Turn a page into a private live link to share. You choose who can open it and can take it down at any time.',
     tryIt: 'Press the globe, then Publish.',
-    check: (c) => c.text('#dlgTitle') === 'Published',
+    check: (c) => c.text('#dlgTitle') === L(c, 'Published'),
     done: 'Published. (In practice, the link goes nowhere.)' },
   { id: 'history', chapter: 'create', seconds: 25, target: ['#sideScroll'], side: true,
     title: 'Your chats',
@@ -187,7 +189,7 @@ export const STEPS = [
     done: 'Words in the box, ready to check and send.' },
   { id: 'read', chapter: 'voice', seconds: 25, target: [`${reply} [data-act="speak"]`, '[data-act="speak"]'],
     title: 'Read aloud',
-    body: 'Any reply can be read to you in the JARVIS voice.',
+    body: 'Any reply can be read to you in the Eden voice.',
     tryIt: 'Press the speaker under a reply.',
     start: (a) => a.ensureReply(),
     check: (c) => c.saw('click', '[data-act="speak"]'),
@@ -291,7 +293,7 @@ export const STEPS = [
     body: 'Gmail and the Mail accounts on your Mac, read and answered with Eden’s help.',
     tryIt: 'Open Mail from the sidebar.',
     start: (a) => a.closeSurfaces(),
-    check: (c) => c.has('#spacePanel.open') && c.text('#spTitle') === 'Mail',
+    check: (c) => c.has('#spacePanel.open') && c.text('#spTitle') === L(c, 'Mail'),
     done: 'Your inboxes.' },
   { id: 'compose-to', chapter: 'mail', seconds: 30, needs: 'mac', target: ['.cw-rin', '.mail-top .btn.primary'],
     title: 'Write an email',
@@ -309,13 +311,13 @@ export const STEPS = [
     title: 'Ask Eden while you write',
     body: 'Eden writes or rewrites for you inside the composer: a reply, shorter, friendlier, more formal. Undo puts your words back.',
     tryIt: 'Write a line in the email, then press “Friendly” (or ask for something in the box).',
-    check: (c) => { const u = c.q('.cw-undo'); return (!!u && !u.hidden && u.offsetParent !== null) || /\bby\b/.test(c.text('.cw-ask-st')); },
+    check: (c) => { const u = c.q('.cw-undo'); return (!!u && !u.hidden && u.offsetParent !== null) || /\b(by|par)\b/.test(c.text('.cw-ask-st')); },
     done: 'Rewritten. Undo is right there.' },
   { id: 'compose-schedule', chapter: 'mail', seconds: 40, needs: 'mac', target: ['.cw-send-more'],
     title: 'Schedule send',
     body: 'Send later: tomorrow morning, Monday, or a time you pick. You review it before it’s queued.',
     tryIt: 'Press the arrow next to Send › Schedule send…, pick a time, then confirm. (Nothing is sent in practice.)',
-    check: (c) => /^Scheduled\b/.test(c.text('#toast')),
+    check: (c) => /^(Scheduled\b|Programm|Planifi|Envoi (programm|prévu|planifi))/i.test(c.text('#toast')), // or its French
     done: 'Scheduled. (In practice, it never leaves.)' },
 
   /* ---------- Your Mac ---------- */
@@ -509,5 +511,5 @@ export const WHATS_THIS = [
   { sel: '#macPane .mac-head, #macPane header', chapter: 'mac' },
   { sel: '#artifact .art-head', chapter: 'create' },
   { sel: '#inspector .insp-tabs', chapter: 'basics' },
-  { sel: '#spacePanel .sp-head', chapter: (title) => ({ Mail: 'mail', Meetings: 'day', 'On a website': 'mac', Activity: 'safety', Memory: 'day' }[title] || null) },
+  { sel: '#spacePanel .sp-head', chapter: (title, tr) => { const m = { Mail: 'mail', Meetings: 'day', 'On a website': 'mac', Activity: 'safety', Memory: 'day' }; const k = Object.keys(m).find((x) => x === title || (tr && tr(x) === title)); return k ? m[k] : null; } }, // tr: the title may be French
 ];

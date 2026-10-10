@@ -10,10 +10,11 @@
 // address; leaving comes back to the real page, untouched.
 
 import { state } from './state.js';
-import { $, el, ico, toast, isMobile } from './util.js';
+import { $, el, ico, toast, isMobile, isTouch } from './util.js';
 import { setComposerText, addFile, clearAttachments, setMode, renderAttachments } from './composer.js';
 import { setOverride } from './router.js';
 import { closeArtifact } from './artifact.js';
+import { bootSoundWelcomeRow } from './boot-sound.js';
 import { closeSpace } from './panels.js';
 import { closeCalendar, calendarOpen } from './calendar.js';
 import { closeBrief, briefOpen } from './brief.js';
@@ -26,6 +27,7 @@ import { IN_APP } from './native.js';
 import { CHAPTERS, STEPS, WHATS_THIS, stepsOf } from './tour-steps.js';
 import * as M from './tour-model.js';
 import { PRACTICE, realStorage, practiceUrl, leavePractice, resetPractice } from './practice.js';
+import { t, isFr } from './i18n.js';
 
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -33,6 +35,17 @@ const store = () => realStorage();
 const load = () => M.loadProgress(store());
 const save = (p) => M.saveProgress(store(), p);
 const params = new URLSearchParams(location.search);
+// a step's selector that names a label ([title="Mail"], [aria-label^="Close"]) also matches it in French
+const locMemo = new Map();
+function locSel(sel) {
+  if (!isFr) return sel;
+  let out = locMemo.get(sel);
+  if (out === undefined) {
+    out = sel.replace(/\[(title|aria-label)(\^?=)"([^"]+)"\]/g, (m, a, op, v) => { const f = t(v); return f === v ? m : `:is(${m}, [${a}${op}"${f.replace(/["\\]/g, '\\$&')}"])`; });
+    locMemo.set(sel, out);
+  }
+  return out;
+}
 
 /* ---------------- the helpers a step's start() uses ---------------- */
 
@@ -43,7 +56,7 @@ const A = {
   closeInspector: () => { const i = $('inspector'); if (i && (i.classList.contains('open') || !i.classList.contains('closed'))) $('btnInspClose').click(); },
   expandComposer: () => { const o = $('jc-orb'); if (o && o.getAttribute('aria-expanded') !== 'true') o.click(); },
   resetModel: () => { try { setOverride(null); } catch { /* not ready */ } },
-  prefill: (text) => setComposerText(text),
+  prefill: (text) => setComposerText(t(text)), // a sample prompt: French when the page is
   chatMode: () => { if (!state.current || state.current.kind !== 'code') { try { setMode('chat'); } catch { /* not ready */ } } },
   clearComposer: () => setComposerText(''),
   clearAttachments: () => clearAttachments(),
@@ -59,7 +72,7 @@ const A = {
     if (document.querySelector('.msg.assistant .msg-acts')) return;
     const c = state.convs.find((x) => !x.temp && x.kind !== 'code' && Object.values(x.nodes || {}).some((n) => n.role === 'assistant' && !n.streaming));
     if (!c) return;
-    const b = [...document.querySelectorAll('#sideScroll .sitem')].find((x) => x.title === c.title);
+    const b = [...document.querySelectorAll('#sideScroll .sitem')].find((x) => x.title === c.title || x.title === t(c.title));
     if (b) b.click();
   },
   closePopovers: () => { for (const id of ['spendPop', 'costPop', 'chipPop']) { const n = $(id); if (n) n.classList.remove('show'); } },
@@ -116,10 +129,24 @@ function closeSheet() {
   document.documentElement.classList.remove('tour-sheet-on');
   if (sheetReturn && document.contains(sheetReturn)) sheetReturn.focus();
 }
-function openSheet(card, label) {
+// QA 2026-10-09: the welcome used to open 0.7 s after load, just as a first click or Enter meant for the
+// message box arrived, and that started practice mode. An automatic sheet ignores clicks and Enter/Space
+// for its first moments (`calmMs`).
+const CALM_MS = 400;
+function openSheet(card, label, { calmMs = 0 } = {}) {
   closeSheet();
   sheetReturn = document.activeElement;
   sheetEl = el('div', { class: 'tour-scrim tour-ui', role: 'presentation' }, card);
+  if (calmMs > 0) {
+    const until = performance.now() + calmMs;
+    const calm = (e) => {
+      if (performance.now() >= until) return;
+      if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'touchstart', 'touchend', 'keydown']) sheetEl.addEventListener(type, calm, true);
+  }
   card.setAttribute('role', 'dialog');
   card.setAttribute('aria-modal', 'true');
   card.setAttribute('aria-labelledby', label);
@@ -137,7 +164,7 @@ function openSheet(card, label) {
 }
 
 /** The welcome: what the tour is, its chapters with minutes and progress, Start or Resume. */
-export function openWelcome({ chapter = null } = {}) {
+export function openWelcome({ chapter = null, auto = false } = {}) {
   const p = load();
   const chapters = M.chapterStatus(CHAPTERS, STEPS, p);
   const total = chapters.reduce((m, c) => m + c.minutes, 0);
@@ -147,7 +174,7 @@ export function openWelcome({ chapter = null } = {}) {
     const here = stepsOf(c.id).map((s) => M.unavailableReason(s, ctx)).find(Boolean);
     const pct = c.total ? Math.round(((c.done + c.skipped) / c.total) * 100) : 0;
     const b = el('button', { type: 'button', class: `tour-ch${c.id === chapter ? ' sel' : ''}${c.complete ? ' complete' : ''}`, 'data-ch': c.id,
-      'aria-label': `${c.title}: ${c.total} steps, about ${c.minutes} minute${c.minutes === 1 ? '' : 's'}${c.complete ? ', done' : c.done ? `, ${c.done} done` : ''}${here ? '. Practice version here' : ''}`,
+      'aria-label': `${t(c.title)}: ${c.total} steps, about ${c.minutes} minute${c.minutes === 1 ? '' : 's'}${c.complete ? ', done' : c.done ? `, ${c.done} done` : ''}${here ? '. Practice version here' : ''}`,
       onclick: () => enterPractice({ step: (stepsOf(c.id).find((s) => !p.done.includes(s.id)) || stepsOf(c.id)[0]).id }) },
     el('span', 'tour-ch-ic', ico(c.icon, 18)),
     el('span', 'tour-ch-t', el('b', '', c.title), el('span', '', c.blurb), here ? el('span', 'tour-tag', 'Practice version here') : null),
@@ -155,25 +182,29 @@ export function openWelcome({ chapter = null } = {}) {
     return el('li', '', b);
   }));
   const primary = el('button', { type: 'button', class: 'btn primary tour-primary', onclick: () => enterPractice({ step: chapter ? (stepsOf(chapter).find((s) => !p.done.includes(s.id)) || stepsOf(chapter)[0]).id : null }) },
-    chapter ? `Try ${CHAPTERS.find((c) => c.id === chapter).title}` : started ? 'Resume the tour' : 'Start the tour');
+    chapter ? t('Try {chapter}').replace('{chapter}', t(CHAPTERS.find((c) => c.id === chapter).title)) : started ? 'Resume the tour' : 'Start the tour');
   const card = el('section', { class: 'tour-welcome glass' },
     el('div', 'tour-hero', el('div', { class: 'orb tour-orb', 'aria-hidden': 'true' }),
       el('h2', { id: 'tourWelcomeT' }, started ? 'Welcome back' : 'Try Eden'),
       el('p', '', 'A hands-on tour: each step shows you a feature, then you try it. It runs in practice mode, with sample chats, mail and calendars. Nothing is sent anywhere, and your own chats and settings stay exactly as they are.')),
+    PRACTICE ? null : bootSoundWelcomeRow(), // the desktop apps only
     el('div', 'tour-sub', el('span', '', `${STEPS.length} steps in ${CHAPTERS.length} chapters · about ${total} minutes`), started ? el('span', '', `${M.percent(STEPS, p)}% done`) : null),
     chList,
     el('div', 'tour-foot',
       el('button', { type: 'button', class: 'btn', onclick: () => {
         if (PRACTICE) { closeSheet(); if (cur) focusCard(); else confirmLeave(); return; }
         save({ ...load(), seen: true, optOut: true, active: false }); closeSheet();
-        toast('No tour for now. It’s in ⌘K › Take the tour whenever you like.');
+        toast(`No tour for now. It’s in ${tourWhere()} › Take the tour whenever you like.`);
       } }, PRACTICE ? 'Close' : 'Not now'),
       started && !PRACTICE ? el('button', { type: 'button', class: 'btn', onclick: () => enterPractice({ fresh: true }) }, 'Start over') : null,
       el('span', 'grow'),
       primary));
-  openSheet(card, 'tourWelcomeT');
+  openSheet(card, 'tourWelcomeT', { calmMs: auto ? CALM_MS : 0 });
   if (chapter) requestAnimationFrame(() => { const s = card.querySelector('.tour-ch.sel'); if (s) s.scrollIntoView({ block: 'nearest' }); });
 }
+
+/** Where "Take the tour" is: ⌘K with a keyboard; on a phone or tablet, the Search button (B15). */
+const tourWhere = () => (IN_APP || isTouch() ? 'Search' : '⌘K');
 
 /** ⌘K › Take the tour, Settings › About, /tour. */
 export function startTour(opts = {}) { openWelcome(opts); }
@@ -194,7 +225,7 @@ function confirmLeave() {
   const p = load();
   const card = el('section', { class: 'tour-welcome tour-small glass' },
     el('h2', { id: 'tourLeaveT' }, 'Leave the tour?'),
-    el('p', '', `You’re ${M.percent(STEPS, p)}% through. Your progress is kept: pick it up any time from ⌘K › Take the tour. The sample data goes, and your own chats and settings are just as you left them.`),
+    el('p', '', `You’re ${M.percent(STEPS, p)}% through. Your progress is kept: pick it up any time from ${tourWhere()} › Take the tour. The sample data goes, and your own chats and settings are just as you left them.`),
     el('div', 'tour-foot', el('button', { type: 'button', class: 'btn tour-primary', onclick: () => { closeSheet(); if (cur) focusCard(); } }, 'Keep going'), el('span', 'grow'),
       el('button', { type: 'button', class: 'btn primary', onclick: leave }, 'Leave')));
   openSheet(card, 'tourLeaveT');
@@ -268,7 +299,7 @@ function target() {
   if (cur.side && isMobile() && !isOpen('sidebar')) sels.push('#btnHamburger');
   for (const s of sels) {
     let partial = null;
-    for (const n of document.querySelectorAll(s)) {
+    for (const n of document.querySelectorAll(locSel(s))) {
       if (n.closest('.tour-ui')) continue;
       const r = n.getBoundingClientRect();
       if (!(r.width > 0 && r.height > 0) || getComputedStyle(n).visibility === 'hidden') continue;
@@ -353,7 +384,7 @@ function paintStep(step) {
   card.classList.remove('ok');
   card.classList.add('enter');
   setTimeout(() => card.classList.remove('enter'), 400);
-  chap.replaceChildren(ico(ch.icon, 13), `${ch.title} · ${pos.inChapter + 1} of ${pos.chapterTotal}`);
+  chap.replaceChildren(ico(ch.icon, 13), `${t(ch.title)} · ${pos.inChapter + 1} of ${pos.chapterTotal}`);
   bar.style.width = `${M.percent(STEPS, p)}%`;
   title.textContent = step.title;
   body.textContent = step.body;
@@ -389,27 +420,29 @@ async function runFrom(step) {
   try { base = step.base ? step.base(view({})) || {} : {}; } catch { base = {}; }
   // the target exists but is scrolled away (in the inspector, a long sheet): bring it into view once
   if (!target() && !step.noScroll) {
-    const away = [].concat(step.target || []).map((sel) => document.querySelector(sel)).find((n) => n && !n.closest('.tour-ui') && n.getClientRects().length);
+    const away = [].concat(step.target || []).map((sel) => document.querySelector(locSel(sel))).find((n) => n && !n.closest('.tour-ui') && n.getClientRects().length);
     if (away) away.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
   }
   events = []; // what start() itself did doesn't count
   watched = selectorsOf(step);
   ready = true;
   const pos = M.position(STEPS, step.id);
-  announce(`Step ${pos.index + 1} of ${pos.total}: ${step.title}. ${step.tryIt}`);
+  announce(`Step ${pos.index + 1} of ${pos.total}: ${t(step.title)}. ${t(step.tryIt)}`);
   lastRect = '';
   place();
   evaluate();
 }
 
 function view(b = base) {
-  return M.detector({
+  const d = M.detector({
     events, base: b, state,
-    query: (s) => document.querySelector(s),
-    queryAll: (s) => [...document.querySelectorAll(s)],
+    query: (s) => document.querySelector(locSel(s)),
+    queryAll: (s) => [...document.querySelectorAll(locSel(s))],
     stored: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
-    inView: (s) => { const n = document.querySelector(s); if (!n) return false; const r = n.getBoundingClientRect(); return r.height > 0 && r.top >= 0 && r.top < innerHeight - 40; },
+    inView: (s) => { const n = document.querySelector(locSel(s)); if (!n) return false; const r = n.getBoundingClientRect(); return r.height > 0 && r.top >= 0 && r.top < innerHeight - 40; },
   });
+  d.tr = t; // a check that compares a label the page drew (it may be French)
+  return d;
 }
 
 function evaluate() {
@@ -430,7 +463,7 @@ function succeed() {
   lastRect = '';
   place();
   const next = M.nextStep(STEPS, load(), step.id);
-  announce(`Done. ${step.done || ''}${next ? ` Next: ${next.title}.` : ''}`);
+  announce(`${t('Done.')} ${t(step.done || '')}${next ? ` ${t('Next: {title}.').replace('{title}', t(next.title))}` : ''}`);
   const token = runToken;
   const go = () => {
     if (token !== runToken) return;
@@ -494,7 +527,7 @@ function record(e) {
   if (!cur || ok) return;
   const t = e.target;
   if (t && t.closest && t.closest('.tour-ui')) return;
-  const live = (sel) => { try { return !!(t && t.closest && t.closest(sel)); } catch { return false; } };
+  const live = (sel) => { try { return !!(t && t.closest && t.closest(locSel(sel))); } catch { return false; } };
   const hits = Object.fromEntries(watched.map((sel) => [sel, live(sel)]));
   events.push({
     type: e.type, key: e.key, mod: !!(e.metaKey || e.ctrlKey), shift: !!e.shiftKey, alt: !!e.altKey, detail: e.detail,
@@ -527,7 +560,7 @@ function stopDetect() {
 
 /* ---------------- practice: the microphone stays off ---------------- */
 
-const DICTATED = 'Remind me to call Ana at five tomorrow.';
+const DICTATED = t('Remind me to call Ana at five tomorrow.'); // French when the page is
 function onVoiceClick(e) {
   const mic = e.target.closest && e.target.closest('#jc-dictate');
   const talk = e.target.closest && e.target.closest('#jc-talk');
@@ -562,10 +595,10 @@ async function simulateTalk() {
   const box = el('div', { class: 'tour-talk', role: 'log', 'aria-label': 'Practice conversation' }, el('div', { class: 'orb tour-talk-orb', 'aria-hidden': 'true' }));
   layer.extra.replaceChildren(box);
   lastRect = ''; place();
-  for (const [who, t] of lines) {
+  for (const [who, line] of lines) {
     await sleep(reduced() ? 150 : 900);
-    box.append(el('p', `tour-talk-${who}`, el('b', '', who === 'you' ? 'You' : 'Eden'), ` ${t}`));
-    announce(`${who === 'you' ? 'You' : 'Eden'}: ${t}`);
+    box.append(el('p', `tour-talk-${who}`, el('b', '', who === 'you' ? 'You' : 'Eden'), ` ${line}`));
+    announce(`${t(who === 'you' ? 'You' : 'Eden')}${isFr ? '\u00a0:' : ':'} ${t(line)}`);
     lastRect = ''; place();
   }
   await sleep(reduced() ? 300 : 1600);
@@ -574,7 +607,7 @@ async function simulateTalk() {
 
 /** A sample file for the composer, or dropped on the email being written. */
 function useSample(where) {
-  const file = new File(['Lisbon trip notes\n- Fly Friday 18:05\n- Hotel in Alfama, 2 nights\n- Book the Tile Museum\n'], 'trip-notes.txt', { type: 'text/plain' });
+  const file = new File([t('Lisbon trip notes\n- Fly Friday 18:05\n- Hotel in Alfama, 2 nights\n- Book the Tile Museum\n')], t('trip-notes.txt'), { type: 'text/plain' });
   if (where === 'composer') { addFile(file); return; }
   const w = [...document.querySelectorAll('section.cw')].at(-1);
   if (!w) { toast('Open New email first.'); return; }
@@ -591,16 +624,16 @@ function whatsThis() {
   for (const w of WHATS_THIS) {
     for (const head of document.querySelectorAll(w.sel)) {
       if (head.querySelector(':scope > .tour-whats') || head.closest('.tour-ui')) continue;
-      const ch = typeof w.chapter === 'function' ? w.chapter(($('spTitle') || {}).textContent || '') : w.chapter;
+      const ch = typeof w.chapter === 'function' ? w.chapter(($('spTitle') || {}).textContent || '', t) : w.chapter;
       if (!ch && typeof w.chapter !== 'function') continue;
       const b = el('button', { type: 'button', class: 'iconbtn tour-whats', title: 'What’s this? Try it in the tour', 'aria-label': 'What’s this? Try it in the tour',
         onclick: (e) => {
           e.stopPropagation();
-          const chapter = typeof w.chapter === 'function' ? w.chapter(($('spTitle') || {}).textContent || '') : w.chapter;
+          const chapter = typeof w.chapter === 'function' ? w.chapter(($('spTitle') || {}).textContent || '', t) : w.chapter;
           if (PRACTICE) { const s = stepsOf(chapter || 'basics')[0]; if (s) runFrom(s); return; }
           A.closeSurfaces(); openWelcome({ chapter });
         } }, '?');
-      const close = head.querySelector('.iconbtn:last-child, [aria-label^="Close"]');
+      const close = head.querySelector(locSel('.iconbtn:last-child, [aria-label^="Close"]'));
       if (close && close.parentNode === head) head.insertBefore(b, close); else head.append(b);
     }
   }
@@ -640,7 +673,19 @@ export function initTour() {
   const p = load();
   // practice left for good: anything its page wrote while unloading goes too (a resumable tour keeps its sample data)
   if (!p.active) resetPractice();
-  if (M.shouldAutoStart({ progress: p, params, inApp: IN_APP, webdriver: !!navigator.webdriver })) setTimeout(() => openWelcome(), 700);
+  if (M.shouldAutoStart({ progress: p, params, inApp: IN_APP, webdriver: !!navigator.webdriver })) {
+    // at once (the page focuses the message box as it starts), and never over someone who already went for the
+    // message box: a tap, a key or text in it means they came to ask something; "Take the tour" is in ⌘K
+    let touched = false;
+    const box = $('deck-composer');
+    const mark = () => { touched = true; };
+    if (box) for (const type of ['pointerdown', 'keydown', 'input']) box.addEventListener(type, mark, { capture: true, once: true });
+    requestAnimationFrame(() => {
+      const text = $('deck-input');
+      if (touched || (text && text.value.trim())) return;
+      openWelcome({ auto: true });
+    });
+  }
   else if (p.active && !IN_APP) setTimeout(() => toast('Pick up the tour where you left off?', { label: 'Resume', run: () => enterPractice() }), 1200);
 }
 

@@ -19,6 +19,9 @@ import { feedbackButtons } from './learned.js';
 import { limitAction } from './plan.js';
 import { clock } from './video-model.js';
 import { groundingStrip, stripSources } from './courses.js';
+import { t as tx, locale } from './i18n.js';
+import { spentWords, stepsView } from './research-model.js'; // Q2: research's progress steps
+import { deckPart } from './deck-card.js'; // Q14: slide decks
 
 export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), editing: null };
 // an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
@@ -58,15 +61,15 @@ function userMessage(c, node, last) {
   const lines = text.length > 1200 ? text.split('\n').length : 0;
   const long = text.length > 3000 || lines > 24;
   const open = ui_open.expanded.has(node.id);
-  const bubble = el('div', `bubble${long && !open ? ' clamp' : ''}`);
+  const bubble = el('div', { class: `bubble${long && !open ? ' clamp' : ''}`, 'data-no-i18n': '' }); // the person's own words: never translated (its few labels go through tx)
   bubble.append(long ? el('span', 'utext', text) : document.createTextNode(text));
   if (long) bubble.append(el('button', { type: 'button', class: 'more', 'data-act': 'expand-user', 'aria-expanded': String(open) },
-    open ? 'Show less' : `Show all · ${lines > 1 ? `${lines} lines, ` : ''}${text.length.toLocaleString()} characters`));
+    tx(open ? 'Show less' : `Show all · ${lines > 1 ? `${lines} lines, ` : ''}${text.length.toLocaleString(locale())} characters`)));
   const data = attachmentData.get(node.id) || [];
   for (const a of node.attachments || []) {
     const live = data.find((d) => d.name === a.name && d.kind === a.kind);
     const thumb = a.kind === 'image' && live && live.url ? el('img', { class: 'thumb', src: live.url, alt: '' }) : a.kind === 'video' && a.thumb ? el('img', { class: 'thumb', src: a.thumb, alt: '' }) : el('span', 'thumb');
-    bubble.append(el('span', 'attach', thumb, `${a.name}${a.kind === 'video' && a.seconds ? ` · ${clock(a.seconds)}` : ''}${a.size ? ` · ${sizeText(a.size)}` : ''}${a.kind === 'image' && !live ? ' · image not kept after reload' : ''}`));
+    bubble.append(el('span', 'attach', thumb, `${a.name}${a.kind === 'video' && a.seconds ? ` · ${clock(a.seconds)}` : ''}${a.size ? ` · ${sizeText(a.size)}` : ''}${a.kind === 'image' && !live ? tx(' · image not kept after reload') : ''}`));
   }
   for (const ctx of node.context || []) bubble.append(el('span', 'ctxchip', `⧉ ${ctx.title}`));
   wrap.append(bubble);
@@ -97,6 +100,8 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     head.append(el('div', 'chip-wrap', routeChip(node), whereBadge(node.route)));
     if (node.route.rationale && !lane) head.append(el('div', 'rationale', node.route.rationale));
     wrap.append(head);
+  } else if (node.imported && node.importedModel) { // Q1: the model that wrote an imported reply, from the export
+    wrap.append(el('div', 'msg-head', el('div', 'chip-wrap', el('span', { class: 'chip imp-model', title: 'Imported: the model named in the export' }, node.importedModel))));
   }
   const bubble = el('div', 'bubble');
   { const strip = sourceStrip(node); if (strip) bubble.append(strip); } // what this reply read from outside (H8)
@@ -110,6 +115,20 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
       el('div', 'res-head', ico('globe'), el('span', '', `Deep Research · ${String(node.topic || 'report').slice(0, 60)}`),
         el('span', { class: `res-done${live ? ' live' : ''}` }, live ? 'Researching…' : node.error ? 'Stopped' : `Completed${secs ? ` · ${secs < 60 ? `${secs}s` : `${Math.round(secs / 60)} min`}` : ''}`)),
       el('div', { class: `res-rail${live ? ' live' : ''}` }, el('i')));
+    // Q2: the verified pipeline's steps (plan, searches, reading, writing, checking, fixing), then the report's buttons
+    const rows = stepsView(node.research, { live });
+    if (rows.length) {
+      card.append(el('ol', { class: 'res-steps', 'aria-label': 'Research steps' }, ...rows.map((r) => el('li', { class: `res-step ${r.status}` },
+        el('span', { class: 'res-dot', 'aria-hidden': 'true' }, r.status === 'done' ? '✓' : r.status === 'error' ? '!' : r.status === 'skipped' || r.status === 'stopped' ? '–' : ''),
+        el('span', '', r.text)))));
+      const spent = spentWords(node.research);
+      if (spent) card.append(el('div', 'res-spent', spent));
+    }
+    if (node.research && !live && !node.error && nodeText(node)) {
+      card.append(el('div', 'res-acts',
+        el('button', { type: 'button', class: 'btn', 'data-act': 'research-open' }, ico('art'), 'Open report'),
+        el('button', { type: 'button', class: 'btn', 'data-act': 'research-md' }, ico('doc'), 'Export Markdown')));
+    }
     if (sources.length) card.append(sourceList(sources));
     bubble.append(card);
   }
@@ -128,11 +147,15 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   const parts = node.parts || [];
   for (const [i, part] of parts.entries()) {
     if (part.type === 'text') {
-      const text = stripSources(part.text); // a checked reply's <sources> block shows as the strip below (courses.js)
-      if (!text) continue;
-      const md = el('div', 'md');
-      md.append(renderMarkdown(text, { sources, untrusted: isTainted(node) })); // H8: held images, visible link destinations
-      bubble.append(md);
+      const dp = deckPart(c, node, stripSources(part.text)); // Q14: a deck's JSON shows as its card, not code (deck-card.js)
+      const text = dp.text; // a checked reply's <sources> block shows as the strip below (courses.js)
+      if (!text && !dp.card) continue;
+      if (text) {
+        const md = el('div', 'md');
+        md.append(renderMarkdown(text, { sources, untrusted: isTainted(node) })); // H8: held images, visible link destinations
+        bubble.append(md);
+      }
+      if (dp.card) bubble.append(dp.card);
     } else if (part.type === 'tool') bubble.append(toolCard(c, node, part));
     else if (part.type === 'perm') bubble.append(part.approval ? approvalCard(c, node, part.approval, { perm: i }) : permCard(c, part, i));
     else if (part.type === 'note') bubble.append(el('div', 'notice', part.text));
@@ -144,7 +167,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   if (!node.streaming) {
     const arts = artifactsIn(nodeText(node));
     arts.forEach((a, k) => bubble.append(el('div', 'artlink', ico('art'),
-      el('div', 'grow', el('b', '', a.title), el('span', '', `Artifact · ${a.lang} · live preview`)),
+      el('div', 'grow', el('b', { 'data-no-i18n': '' }, a.title === 'Artifact' || a.title === 'SVG drawing' ? tx(a.title) : a.title), el('span', '', `Artifact · ${a.lang} · live preview`)),
       el('button', { type: 'button', class: 'cap', 'data-act': 'open-art', 'data-k': String(k) }, 'Open'))));
   }
   for (const a of node.approvals || []) bubble.append(approvalCard(c, node, a)); // actions the server's gate holds (H8)
@@ -184,7 +207,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
 }
 
 function sourceList(sources) {
-  return el('div', 'sources', ...sources.map((s, i) => el('button', { type: 'button', class: 'src', 'data-cite': String(i + 1), title: s.url }, `${i + 1} · ${hostOf(s.url)}${s.title ? ` — ${s.title}` : ''}`)));
+  return el('div', 'sources', ...sources.map((s, i) => el('button', { type: 'button', class: 'src', 'data-cite': String(i + 1), title: s.url, 'data-no-i18n': '' }, `${i + 1} · ${hostOf(s.url)}${s.title ? ` — ${s.title}` : ''}`)));
 }
 export function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return String(u || ''); } }
 
@@ -218,8 +241,8 @@ function toolSummary(part) {
     else if (part.name === 'Edit' || part.name === 'Write' || part.name === 'MultiEdit') { const d = diffStats(part); res = `+${d.a} −${d.d}`; }
     else if (lines) res = `${lines} line${lines === 1 ? '' : 's'} of output`;
   } else res = 'running…';
-  if (part.name === 'TodoWrite') return `${(inp.todos || []).length} to-dos`;
-  return [target, res].filter(Boolean).join(' — ');
+  if (part.name === 'TodoWrite') return tx(`${(inp.todos || []).length} to-dos`);
+  return [target, tx(res)].filter(Boolean).join(' — ');
 }
 
 function toolCard(c, node, part) {
@@ -227,7 +250,7 @@ function toolCard(c, node, part) {
   const st = !part.result ? 'run' : part.result.ok ? 'done' : 'fail';
   const card = el('div', { class: `tool${open ? ' open' : ''}`, 'data-tool': part.id });
   card.append(el('button', { type: 'button', class: 'tool-head', 'data-act': 'tool', 'aria-expanded': String(open) },
-    ico(TOOL_ICONS[part.name] || 'term'), el('span', 'tname', part.name), el('span', 'tsum', toolSummary(part)),
+    ico(TOOL_ICONS[part.name] || 'term'), el('span', 'tname', part.name), el('span', { class: 'tsum', 'data-no-i18n': '' }, toolSummary(part)),
     el('span', { class: `tstat ${st}`, 'aria-label': st === 'run' ? 'running' : st === 'done' ? 'done' : 'failed' }), ico('chevr', 12, 'tchev')));
   const body = el('div', 'tool-body');
   if (open) body.style.maxHeight = 'none';
@@ -236,11 +259,11 @@ function toolCard(c, node, part) {
   if (part.name === 'Edit' || part.name === 'Write' || part.name === 'MultiEdit') {
     inner.append(diffView(c, part));
   } else if (part.name === 'Bash') {
-    inner.append(el('div', 'codeblk', `$ ${inp.command || ''}`));
+    inner.append(el('div', { class: 'codeblk', 'data-no-i18n': '' }, `$ ${inp.command || ''}`));
   } else if (part.name === 'TodoWrite') {
     inner.append(todoList(inp.todos || []));
   } else if (Object.keys(inp).length) {
-    inner.append(el('div', 'lbl2', 'Input'), el('div', 'codeblk', JSON.stringify(inp, null, 2)));
+    inner.append(el('div', 'lbl2', 'Input'), el('div', { class: 'codeblk', 'data-no-i18n': '' }, JSON.stringify(inp, null, 2)));
   }
   if (part.result && part.name !== 'TodoWrite' && !(part.result.ok && (part.name === 'Edit' || part.name === 'Write' || part.name === 'MultiEdit'))) {
     const out = String(part.result.output || '');
@@ -252,7 +275,7 @@ function toolCard(c, node, part) {
 }
 
 function numbered(text, err, lines) {
-  const box = el('div', `codeblk${err ? ' err' : ''}`);
+  const box = el('div', { class: `codeblk${err ? ' err' : ''}`, 'data-no-i18n': '' });
   if (!lines) { box.textContent = text; return box; }
   // Claude Code's Read output already carries "  12→" line numbers: show them as numbers
   for (const [i, line] of text.split('\n').entries()) {
@@ -268,7 +291,7 @@ export function todoList(todos) {
   for (const t of todos) {
     const status = t.status || 'pending';
     box.append(el('div', { class: `pitem${status === 'completed' ? ' done' : status === 'in_progress' ? ' prog' : ''}` },
-      el('span', 'box', ico('check')), el('span', 'pt', status === 'in_progress' && t.activeForm ? t.activeForm : t.content || ''),
+      el('span', 'box', ico('check')), el('span', { class: 'pt', 'data-no-i18n': '' }, status === 'in_progress' && t.activeForm ? t.activeForm : t.content || ''),
       status === 'in_progress' ? el('span', 'live', 'in progress') : null));
   }
   return box;
@@ -309,7 +332,7 @@ function diffStats(part) {
 function diffView(c, part) {
   const box = el('div', 'diff');
   const file = (part.input || {}).file_path || (part.input || {}).path || '';
-  if (file) box.append(el('div', 'diff-file', file));
+  if (file) box.append(el('div', { class: 'diff-file', 'data-no-i18n': '' }, file));
   editsOf(part).forEach((e, k) => {
     const id = `${part.id}:${k}`;
     const st = (c.hunks && c.hunks[id]) || 'pending';
@@ -368,14 +391,14 @@ export function emptyState(c, { onSuggest }) {
   const p = c && persona(c.personaId);
   const box = el('div', { id: 'empty' },
     el('div', 'orb', ''),
-    el('h1', '', code ? `Code in ${c.project ? c.project.name : 'a project'}` : p ? p.name : 'What can I help with?'),
+    el('h1', p && !code ? { 'data-no-i18n': '' } : '', code ? `Code in ${c.project ? c.project.name : 'a project'}` : p ? p.name : 'What can I help with?'),
     el('p', 'lead', code ? 'Eden plans, reads, edits and runs commands in this project through Claude Code. Approvals show here.'
       : c && c.temp ? 'Temporary chat: nothing is saved. Each message is routed to the best model for it.'
       : 'Each message goes to the model that fits it best — routed by the rules and rated by Gemini — with the cost on every reply.'));
   const SUGG = code
     ? [['Explain this project', 'Read the layout and summarize how it fits together'], ['Find and fix a bug', 'Look for failing tests and fix the cause'], ['Plan a feature', noKeys('Switch to Plan mode first (⇧Tab)')], ['Review my changes', 'Check the uncommitted diff for problems']]
     : [['Draft a reply', 'Write a short, friendly email declining a meeting'], ['Build something', 'Make an HTML page with a bouncing ball animation'], ['Compare options', 'Make a table comparing three note-taking apps'], ['Research', 'What changed in web accessibility rules this year? (Research mode)']];
-  box.append(el('div', 'sugg', ...SUGG.map(([t, s]) => el('button', { type: 'button', onclick: () => onSuggest(s, t) }, el('b', '', t), el('span', '', s)))));
+  box.append(el('div', 'sugg', ...SUGG.map(([t, s]) => el('button', { type: 'button', onclick: () => onSuggest(tx(s), t) }, el('b', '', t), el('span', '', s))))); // the suggestion goes in the page's language
   const hints = el('div', 'hints');
   if (state.metaError) hints.append(el('div', 'hint', `Can’t reach the Eden server: ${state.metaError}`));
   else if (meta) {

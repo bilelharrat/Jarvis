@@ -15,6 +15,12 @@ import { routeSettings } from './router.js';
 import { state } from './state.js';
 import { syncItem } from './sync.js';
 import { carryMarks, close as markClose, leadingMarks, MARKS_NOTE, open as markOpen, parseInline, stripMarks } from './compose-marks.js';
+import { voiceFor, voiceOn, recordEdit, addNote, prefs as mailPrefs, getKit, addFollowUp, openMailSettings, askCheap, addOffer, mailAI, privateMail } from './mailkit.js';
+import { freeSlots, slotText } from './mail-plan.js';
+import { checkDraft, datesIn, DRAFT_CHECK_SYSTEM, parseDraftIssues, toneCheck } from './mail-check.js';
+import { parseIcs, icsToDraft } from './calendar-rules.js';
+import { fillSnippet, findSnippets, FOLLOW_UP_CHOICES, enforceFrame, NOT_ME, languageOf } from './mail-voice.js';
+import { t, locale, speechLang, replyLanguageNote } from './i18n.js';
 
 // askeden.com holds scheduled sends in the account (Mac off); on the Mac, Eden's server does while it runs.
 const hostedSend = () => Boolean(state.meta && state.meta.hosted);
@@ -27,7 +33,6 @@ const MAX_INLINE_BYTES = 5 * 1024 * 1024;
 const MAX_FILES = 50;
 const MAC_SEND_CHARS = 600;
 const MAC_MAX_PEOPLE = 10;
-const UNDO_SEND_S = 5;
 const BLOCKED = new Set('ade adp apk appx appxbundle bat cab chm cmd com cpl diagcab diagcfg diagpack dll dmg ex ex_ exe hta img ins iso isp jar jnlp js jse lib lnk mde mjs msc msi msix msixbundle msp mst nsh pif ps1 scr sct shb sys vb vbe vbs vhd vxd wsc wsf wsh xll'.split(' '));
 const CAPS = {
   gmail: { label: 'Gmail', html: true, bcc: true, attach: true, schedule: true, threading: true, autosave: true },
@@ -64,7 +69,7 @@ async function jarvis(tool, args = {}) {
   if (r.is_error) throw new Error(strip(r.text) || 'Mail on your Mac said no.');
   return strip(r.text);
 }
-const fmtWhen = (d) => new Date(d).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const fmtWhen = (d) => new Date(d).toLocaleString(locale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const fmtLong = (d) => { const t = Date.parse(d); return Number.isNaN(t) ? String(d || '') : new Date(t).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }); };
 const extOf = (name) => (/\.([A-Za-z0-9_]{1,12})\s*$/.exec(name || '') || [])[1]?.toLowerCase() || '';
 const readAsDataURL = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error || new Error('Couldn’t read the file')); r.readAsDataURL(file); });
@@ -523,7 +528,7 @@ function renderTray() {
   if (!tray) return;
   const mins = wins.filter((w) => w.state === 'min');
   tray.replaceChildren(...mins.map((w) => el('div', { class: `cw-pill glass${w.ai.busy ? ' busy' : ''}` },
-    el('button', { type: 'button', class: 'cw-pill-open', title: `Open “${w.title()}”`, onclick: () => w.restoreWin() }, ic('min', 12), el('span', '', w.title())),
+    el('button', { type: 'button', class: 'cw-pill-open', title: `Open “${w.title()}”`, onclick: () => w.restoreWin() }, ic('min', 12), el('span', { 'data-no-i18n': '' }, w.title())),
     el('button', { type: 'button', class: 'cw-pill-x', 'aria-label': `Close “${w.title()}”`, title: 'Close', onclick: () => w.close() }, ic('x', 12)))));
   const c = centerBox();
   tray.style.bottom = `${Math.max(8, innerHeight - dockTop() + 8)}px`;
@@ -563,14 +568,14 @@ class Compose {
     layer.append(this.root);
   }
   get caps() { return CAPS[this.source]; }
-  title() { return (this.subj && this.subj.value.trim()) || MODE_TITLE[this.mode]; }
+  title() { return (this.subj && this.subj.value.trim()) || t(MODE_TITLE[this.mode]); }
 
   /* ---------- DOM ---------- */
   build() {
     const id = this.id;
     const btn = (cls, label, icon, run, extra = {}) => el('button', { type: 'button', class: cls, 'aria-label': label, title: label, onclick: run, ...extra }, icon);
     // header (drag handle)
-    this.tEl = el('span', { class: 'cw-title', id: `${id}-t` }, MODE_TITLE[this.mode]);
+    this.tEl = el('span', { class: 'cw-title', id: `${id}-t`, 'data-no-i18n': '' }, t(MODE_TITLE[this.mode]));
     this.saveEl = el('span', { class: 'cw-save', 'aria-live': 'polite' });
     this.bMin = btn('cw-hb', 'Minimise (Esc)', ic('min'), () => this.minimise());
     this.bLarge = btn('cw-hb cw-desk', 'Larger window', ic('large'), () => this.setState(this.state === 'large' ? 'normal' : 'large'));
@@ -597,12 +602,12 @@ class Compose {
     this.notes = el('div', { class: 'cw-notes', 'aria-live': 'polite' });
     this.live = el('div', { class: 'sr-only', 'aria-live': 'polite' });
     // body
-    this.ed = el('div', { class: 'cw-ed', contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Message', spellcheck: 'true', 'data-ph': 'Write your message, or ask Eden below…' });
+    this.ed = el('div', { class: 'cw-ed', contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': t('Message'), spellcheck: 'true', 'data-ph': t('Write your message, or ask Eden below…'), 'data-no-i18n': '' });
     this.pt = el('textarea', { class: 'cw-pt', 'aria-label': 'Message (plain text)', placeholder: 'Write your message, or ask Eden below…', spellcheck: 'true' });
     this.pt.hidden = true;
     this.trimB = el('button', { type: 'button', class: 'cw-trim', 'aria-expanded': 'false', title: 'Show trimmed content', 'aria-label': 'Show the quoted message', onclick: () => this.toggleQuote() }, '•••');
     this.trimB.hidden = true;
-    this.quote = el('div', { class: 'cw-quote', contenteditable: 'true', 'aria-label': 'Quoted message', spellcheck: 'false' });
+    this.quote = el('div', { class: 'cw-quote', contenteditable: 'true', 'aria-label': t('Quoted message'), spellcheck: 'false', 'data-no-i18n': '' });
     this.quote.hidden = true;
     this.attBox = el('div', { class: 'cw-atts', role: 'list', 'aria-label': 'Attachments' });
     // inline image sizes: a frame with a drag handle over the picked image, and preset sizes
@@ -614,19 +619,28 @@ class Compose {
       el('span', 'cw-tsep'), el('button', { type: 'button', class: 'cw-imgb', title: 'Remove the image', 'aria-label': 'Remove the image', onclick: () => { const img = this.img; this.dropImg(); if (img) { img.remove(); this.paintBlank(); this.changed(); this.focusBody(); } } }, ic('trash', 13)));
     this.imgBox.hidden = true;
     this.imgBar.hidden = true;
-    this.main = el('div', { class: 'cw-main' }, this.fields, this.notes, this.live, this.ed, this.pt, this.trimB, this.quote, this.attBox, this.imgBox, this.imgBar);
+    this.snipHint = el('div', { class: 'cw-snip-hint glass', 'aria-live': 'polite' });
+    this.snipHint.hidden = true;
+    this.main = el('div', { class: 'cw-main' }, this.fields, this.notes, this.live, this.ed, this.pt, this.trimB, this.quote, this.attBox, this.imgBox, this.imgBar, this.snipHint);
+    for (const x of [this.ed, this.pt]) { x.addEventListener('input', () => this.paintSnipHint()); x.addEventListener('blur', () => { this.snipHint.hidden = true; }); }
     // Ask Eden (always visible)
     const chip = (kind, label, title) => el('button', { type: 'button', class: 'cw-chipb', 'data-ai': kind, title: title || label, onclick: () => this.runAI(kind) }, label);
     this.cReply = chip('reply', 'Write reply', 'Eden writes your reply to this thread');
     this.cUndo = el('button', { type: 'button', class: 'cw-chipb cw-undo', title: 'Undo Eden’s last change', onclick: () => this.undoAI() }, ic('undo', 12), 'Undo');
     this.cRedo = el('button', { type: 'button', class: 'cw-chipb cw-undo', title: 'Redo Eden’s change', onclick: () => this.redoAI() }, ic('redo', 12), 'Redo');
+    this.cNotMe = el('button', { type: 'button', class: 'cw-chipb cw-notme', title: 'Tell Eden what’s off: it rewrites, and learns for next time', 'aria-haspopup': 'dialog', onclick: (e) => this.notMeMenu(e.currentTarget) }, 'Doesn’t sound like me');
+    this.cNotMe.hidden = true;
     this.askChips = el('div', { class: 'cw-ask-chips', role: 'toolbar', 'aria-label': 'Ask Eden to change the draft' },
-      this.cReply, chip('shorten', 'Shorten'), chip('formal', 'More formal'), chip('friendly', 'Friendlier'), chip('grammar', 'Fix grammar'), this.cUndo, this.cRedo);
+      this.cReply, el('button', { type: 'button', class: 'cw-chipb', title: 'Free times from your Google Calendar, put in the email; when they pick one, Mail offers to book it', 'aria-haspopup': 'dialog', onclick: (e) => this.timesMenu(e.currentTarget) }, 'Suggest times'), chip('shorten', 'Shorten'), chip('formal', 'More formal'), chip('friendly', 'Friendlier'), chip('grammar', 'Fix grammar'), this.cNotMe, this.cUndo, this.cRedo);
     this.askIn = el('input', { type: 'text', class: 'cw-ask-in', placeholder: 'Ask Eden to write or change this email…', 'aria-label': 'Ask Eden to write or change this email', enterkeyhint: 'send', maxlength: '2000' });
     this.askGo = el('button', { type: 'submit', class: 'cw-ask-go', 'aria-label': 'Ask Eden', title: 'Ask Eden (Enter)' }, ic('up', 14));
-    this.askForm = el('form', { class: 'cw-ask-form' }, el('span', { class: 'cw-spark', 'aria-hidden': 'true' }, '✦'), this.askIn, this.askGo);
+    // Say it (ROADMAP P4): the browser's speech recognition → Eden writes it in the owner's style. Not in private mode
+    // (some browsers send the audio to their maker), nor where there's no recognition.
+    const SR = typeof window !== 'undefined' ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
+    this.askMic = SR && !privateMail() ? el('button', { type: 'button', class: 'cw-ask-mic', 'aria-label': 'Say what to write', title: 'Say what to write: Eden writes it in your style', 'aria-pressed': 'false', onclick: () => this.dictate(SR) }, '🎙') : null;
+    this.askForm = el('form', { class: 'cw-ask-form' }, ...[el('span', { class: 'cw-spark', 'aria-hidden': 'true' }, '✦'), this.askIn, this.askMic, this.askGo].filter(Boolean));
     this.askForm.addEventListener('submit', (e) => { e.preventDefault(); if (this.ai.busy) this.stopAI(); else this.runAI('custom', this.askIn.value); });
-    this.askSt = el('div', { class: 'cw-ask-st', 'aria-live': 'polite' }, 'Eden drafts and rewrites; it never sends.');
+    this.askSt = el('div', { class: 'cw-ask-st', 'aria-live': 'polite' }, voiceOn() ? 'Eden drafts and rewrites in your style; it never sends.' : 'Eden drafts and rewrites; it never sends.');
     this.ask = el('div', { class: 'cw-ask' }, this.askChips, this.askForm, this.askSt);
     // formatting toolbar
     const tb = (cmd, label, content, key) => el('button', { type: 'button', class: 'cw-tb', 'data-cmd': cmd, title: key ? `${label} (${key})` : label, 'aria-label': label }, content);
@@ -648,9 +662,10 @@ class Compose {
     this.bSig = btn('cw-fb', 'Signature', ic('sig', 16), (e) => this.sigMenu(e.currentTarget), { 'aria-haspopup': 'menu' });
     this.bFmt = btn('cw-fb', 'Formatting options', ic('fmt', 17), () => { this.tools.hidden = !this.tools.hidden; store.set(K.tools, !this.tools.hidden); this.bFmt.setAttribute('aria-pressed', String(!this.tools.hidden)); }, { 'aria-pressed': String(!this.tools.hidden) });
     this.bMore = btn('cw-fb', 'More options', ic('more', 16), (e) => this.moreMenu(e.currentTarget), { 'aria-haspopup': 'menu' });
+    this.bSnip = btn('cw-fb cw-snipb', 'Snippets (type ; and a name)', el('span', { class: 'cw-glyph', 'aria-hidden': 'true' }, ';'), (e) => this.snippetMenu(e.currentTarget), { 'aria-haspopup': 'menu' });
     this.sizeEl = el('span', { class: 'cw-size', 'aria-live': 'polite' });
     this.bTrash = btn('cw-fb cw-trash', 'Discard draft', ic('trash', 16), () => this.discard());
-    this.foot = el('footer', { class: 'cw-foot' }, el('div', 'cw-sendg', this.bSend, this.bSendMore), this.bFmt, this.bAttach, this.bSig, this.bMore, el('span', 'cw-sp'), this.sizeEl, this.bTrash);
+    this.foot = el('footer', { class: 'cw-foot' }, el('div', 'cw-sendg', this.bSend, this.bSendMore), this.bFmt, this.bAttach, this.bSig, this.bSnip, this.bMore, el('span', 'cw-sp'), this.sizeEl, this.bTrash);
     // overlays
     this.rv = el('div', { class: 'cw-rv', role: 'region', 'aria-label': 'Review before sending' });
     this.rv.hidden = true;
@@ -896,6 +911,11 @@ class Compose {
       this.minimise();
       return;
     }
+    if ((e.key === 'Tab' || e.key === 'Enter') && !mod && !e.shiftKey && !e.altKey && !e.isComposing) {
+      const trig = this.snippetTrigger();
+      const hit = trig && findSnippets(getKit().snippets, trig.q)[0];
+      if (hit) { e.preventDefault(); this.insertSnippet(hit, trig); return; }
+    }
     if (!mod) return;
     e.stopPropagation(); // the page's own ⌘B/⌘K/⌘J shortcuts don't fire from inside a compose window
     const k = e.key.toLowerCase();
@@ -929,7 +949,7 @@ class Compose {
           if (Date.now() - (this.dragEndAt || 0) < 400) return; // the click that ends a drag
           this.recip[kind].splice(i, 1); this.renderChips(kind);
           input.value = fmtAddr(a); input.focus(); input.select(); this.changed();
-        }, onkeydown: (e) => this.chipKey(e, kind, i) }, label),
+        }, onkeydown: (e) => this.chipKey(e, kind, i) }, el('span', { 'data-no-i18n': '' }, label)),
         el('button', { type: 'button', class: 'cw-chip-x', 'aria-label': `Remove ${label}`, title: 'Remove', onclick: () => { this.recip[kind].splice(i, 1); this.renderChips(kind); this.changed(); input.focus(); } }, ic('x', 10)));
       chip.addEventListener('pointerdown', (e) => this.chipDrag(e, kind, i, chip));
       return chip;
@@ -1063,7 +1083,7 @@ class Compose {
     this.sugIndex = items.length ? 0 : -1;
     if (!items.length) { this.hideSug(); return; }
     this.sug.replaceChildren(...items.map((c, i) => {
-      const o = el('div', { class: `cw-sug-it${i === 0 ? ' on' : ''}`, role: 'option', id: `${this.id}-sug-${i}`, 'aria-selected': String(i === 0) },
+      const o = el('div', { class: `cw-sug-it${i === 0 ? ' on' : ''}`, role: 'option', id: `${this.id}-sug-${i}`, 'aria-selected': String(i === 0), 'data-no-i18n': '' },
         el('span', 'cw-sug-n', c.name || c.email), c.name ? el('span', 'cw-sug-e', c.email) : null);
       o.addEventListener('mousedown', (e) => { e.preventDefault(); this.pickSug(c); });
       return o;
@@ -1439,7 +1459,7 @@ class Compose {
     this.attBox.replaceChildren(...this.atts.map((a) => {
       const pct = a.state === 'uploading' && a.size ? Math.min(99, Math.round((100 * (a.sent || 0)) / a.size)) : 0;
       return el('span', { class: `cw-att ${a.state}`, role: 'listitem', title: a.error ? `${a.name}: ${a.error}` : `${a.name} · ${sizeText(a.size || 0)}`, style: a.state === 'uploading' ? { '--p': `${pct}%` } : null },
-        ic('clip', 12), el('span', 'cw-att-n', a.name), el('span', 'cw-att-s', a.state === 'ready' ? sizeText(a.size || 0) : a.state === 'error' ? 'failed' : a.file ? `uploading ${pct}%` : 'copying…'),
+        ic('clip', 12), el('span', { class: 'cw-att-n', 'data-no-i18n': '' }, a.name), el('span', 'cw-att-s', a.state === 'ready' ? sizeText(a.size || 0) : a.state === 'error' ? 'failed' : a.file ? `uploading ${pct}%` : 'copying…'),
         a.state === 'error' && (a.file || a.gmailRef) ? el('button', { type: 'button', class: 'cw-att-r', onclick: () => this.upload(a) }, 'Retry') : null,
         el('button', { type: 'button', class: 'cw-att-x', 'aria-label': `Remove ${a.name}`, title: 'Remove', onclick: () => this.removeAtt(a) }, ic('x', 10)));
     }));
@@ -1522,7 +1542,7 @@ class Compose {
     const s = sigStore.get();
     const items = [
       el('button', { type: 'button', role: 'menuitemradio', 'aria-checked': String(!this.sigId), class: 'cw-mi', onclick: () => { this.closePop(); this.applySig(null); this.changed(); } }, 'No signature'),
-      ...s.list.map((g) => el('button', { type: 'button', role: 'menuitemradio', 'aria-checked': String(this.sigId === g.id), class: 'cw-mi', onclick: () => { this.closePop(); this.applySig(g); this.changed(); } }, g.name || 'Signature')),
+      ...s.list.map((g) => el('button', { type: 'button', role: 'menuitemradio', 'aria-checked': String(this.sigId === g.id), class: 'cw-mi', 'data-no-i18n': '', onclick: () => { this.closePop(); this.applySig(g); this.changed(); } }, g.name || t('Signature'))),
       el('div', 'cw-msep'),
       el('button', { type: 'button', role: 'menuitem', class: 'cw-mi', onclick: () => { this.closePop(); manageSignatures(this); } }, 'Manage signatures…'),
     ];
@@ -1621,6 +1641,182 @@ class Compose {
     bar.querySelector('.btn:last-child').focus();
   }
 
+  /* ---------- follow-up reminders and snippets ---------- */
+  followUpSel() {
+    const sel = el('select', { class: 'cw-fu', 'aria-label': 'Remind me if nobody replies' }, el('option', { value: '' }, 'Don’t remind me'),
+      ...FOLLOW_UP_CHOICES.map(([, label, days]) => el('option', { value: String(days) }, `Remind me if no reply ${label.toLowerCase()}`)));
+    sel.value = this.followUp ? String(this.followUp) : '';
+    sel.addEventListener('change', () => { this.followUp = Number(sel.value) || 0; });
+    return sel;
+  }
+  /** Read receipt (askeden.com only: the recipient's mail app loads a 1×1 image from there). Rich text only. */
+  receiptBox() {
+    if (this.receipt === undefined) this.receipt = !!mailPrefs().receipts;
+    const c = el('input', { type: 'checkbox', disabled: this.plain });
+    c.checked = this.receipt && !this.plain;
+    c.addEventListener('change', () => { this.receipt = c.checked; });
+    return el('label', 'cw-rcpt', c, el('span', '', this.plain ? 'Read receipts need rich text (not plain text mode)' : 'Tell me when it’s opened'));
+  }
+  /** A ";name" just before the caret: { q, apply(text) } (apply replaces it), or null. */
+  snippetTrigger() {
+    const RE = /(^|\s);([\w-]{1,40})$/;
+    if (this.plain) {
+      const t = this.pt;
+      if (document.activeElement !== t || t.selectionStart !== t.selectionEnd) return null;
+      const m = RE.exec(t.value.slice(0, t.selectionStart));
+      if (!m) return null;
+      const end = t.selectionStart;
+      return { q: m[2], apply: (txt) => { t.setRangeText(txt, end - m[2].length - 1, end, 'end'); this.changed(); } };
+    }
+    const sel = getSelection();
+    if (!sel || !sel.rangeCount || !sel.isCollapsed) return null;
+    const r = sel.getRangeAt(0);
+    const n = r.startContainer;
+    if (n.nodeType !== 3 || !this.ed.contains(n) || (this.sigEl && this.sigEl.contains(n))) return null;
+    const m = RE.exec(n.data.slice(0, r.startOffset));
+    if (!m) return null;
+    const end = r.startOffset;
+    return { q: m[2], apply: (txt) => {
+      const rr = document.createRange();
+      rr.setStart(n, end - m[2].length - 1); rr.setEnd(n, end);
+      sel.removeAllRanges(); sel.addRange(rr);
+      document.execCommand('insertText', false, txt);
+      this.changed();
+    } };
+  }
+  paintSnipHint() {
+    const trig = this.snippetTrigger();
+    const hit = trig && findSnippets(getKit().snippets, trig.q)[0];
+    this.snipHint.hidden = !hit;
+    if (hit) this.snipHint.textContent = `Tab inserts the snippet “${hit.name}”`;
+  }
+  insertSnippet(s, trig) {
+    const to = this.recip.to.find((a) => a.valid);
+    const v = getKit().voice;
+    const text = fillSnippet(s.text, { to: to ? (to.name ? `${to.name} <${to.email}>` : to.email) : '', myName: (v && v.stats && v.stats.name) || '' });
+    this.snipHint.hidden = true;
+    if (trig) { trig.apply(text); return; }
+    if (this.plain) { const t = this.pt; t.focus(); t.setRangeText(text, t.selectionStart, t.selectionEnd, 'end'); this.changed(); return; }
+    this.ed.focus();
+    const sel = getSelection();
+    if (this.snipRange && this.ed.contains(this.snipRange.startContainer)) { sel.removeAllRanges(); sel.addRange(this.snipRange); }
+    else if (!sel.rangeCount || !this.ed.contains(sel.anchorNode)) this.focusBody();
+    document.execCommand('insertText', false, text);
+    this.changed();
+  }
+  snippetMenu(anchor) {
+    const sel = getSelection();
+    this.snipRange = sel && sel.rangeCount && this.ed.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+    const list = getKit().snippets || [];
+    const q = el('input', { type: 'search', class: 'cw-snip-q', placeholder: 'Find a snippet', 'aria-label': 'Find a snippet' });
+    const box = el('div', { class: 'cw-snip-list', role: 'menu', 'aria-label': 'Snippets' });
+    const paint = () => {
+      const hits = findSnippets(list, q.value);
+      box.replaceChildren(...hits.map((s) => el('button', { type: 'button', role: 'menuitem', class: 'cw-mi cw-snip-it', onclick: () => { this.closePop(); this.insertSnippet(s); } },
+        el('b', { 'data-no-i18n': '' }, `;${s.name}`), el('span', { class: 'cw-snip-t', 'data-no-i18n': '' }, s.text.replace(/\s+/g, ' ').slice(0, 80)))),
+      hits.length ? null : el('p', 'muted', list.length ? 'No snippet matches.' : 'No snippets yet.'));
+    };
+    q.addEventListener('input', paint);
+    q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = box.querySelector('button'); if (b) b.click(); } });
+    paint();
+    this.openPop(anchor, el('div', { class: 'cw-snips' }, q, box,
+      el('button', { type: 'button', class: 'cw-mi', onclick: () => { this.closePop(); openMailSettings({ tab: 'snippets' }); } }, 'Manage snippets…')), { focus: q });
+  }
+
+  /**
+   * The rest of the thread, for a reply (Gmail): the earlier emails, and what the owner wrote in it
+   * before (the best example of their voice with these people). Read once per window.
+   */
+  async threadContext() {
+    if (this.source !== 'gmail' || !this.thread || !this.thread.threadId) return [];
+    if (!this.threadCtx) {
+      this.threadCtx = (async () => {
+        try {
+          const t = await gmail('thread', { id: this.thread.threadId });
+          const msgs = ((t && t.messages) || []).filter((m) => m.id !== this.origId);
+          if (!msgs.length) return [];
+          const self = selfEmails(this);
+          const mine = msgs.filter((m) => self.has((parseAddress(m.from).email || '').toLowerCase()));
+          const out = [];
+          let earlier = '';
+          for (const m of msgs.slice(-8)) earlier += `From: ${m.from}\nDate: ${m.date || ''}\n\n${String(m.body || '').slice(0, 2500)}\n\n---\n`;
+          out.push({ title: 'The earlier emails in this thread (oldest first)', text: earlier.slice(-12_000) });
+          if (mine.length) out.push({ title: 'How the owner wrote earlier in this same thread (keep the same tone)', text: mine.slice(-3).map((m) => String(m.body || '').slice(0, 1500)).join('\n\n---\n\n') });
+          return out;
+        } catch { return []; }
+      })();
+    }
+    return this.threadCtx;
+  }
+  /** Dictation into "Ask Eden": what the owner says becomes the instruction (Eden writes the email). */
+  dictate(SR) {
+    if (this.rec) { this.rec.stop(); return; }
+    let rec;
+    try { rec = new SR(); } catch { toast('Speech recognition isn’t available here'); return; }
+    this.rec = rec;
+    rec.lang = speechLang();
+    rec.interimResults = true;
+    rec.continuous = false;
+    this.askMic.setAttribute('aria-pressed', 'true'); this.askMic.classList.add('on');
+    this.aiStatus('Listening… say what you want to write (e.g. “tell her Tuesday works and I’ll bring the contract”).');
+    let final = '';
+    rec.onresult = (e) => { let t = ''; for (const r of e.results) { t += r[0].transcript; if (r.isFinal) final = t; } this.askIn.value = t; };
+    rec.onerror = (e) => { if (e.error !== 'aborted' && e.error !== 'no-speech') toast(`Couldn’t hear you: ${e.error}`); };
+    rec.onend = () => {
+      this.rec = null;
+      this.askMic.setAttribute('aria-pressed', 'false'); this.askMic.classList.remove('on');
+      const t = (final || this.askIn.value).trim();
+      if (t) this.runAI('custom', t); else this.aiStatus('Didn’t catch that.');
+    };
+    try { rec.start(); } catch { this.rec = null; }
+  }
+  /** Suggest times: free slots from the owner's Google Calendar, put in the email as a short list. */
+  timesMenu(anchor) {
+    const dur = el('select', { 'aria-label': 'How long' }, ...[[15, '15 min'], [30, '30 min'], [45, '45 min'], [60, '1 hour']].map(([v, l]) => el('option', { value: String(v) }, l)));
+    dur.value = '30';
+    const note = el('p', 'cw-hold', 'From your Google Calendar: the next 7 working days, 9 am–6 pm, one a day where it can. When they pick one, Mail offers to book it and invite them.');
+    const go = el('button', { type: 'button', class: 'btn primary', onclick: async () => {
+      go.disabled = true; go.textContent = 'Finding times…';
+      const minutes = Number(dur.value);
+      const from = new Date(), to = new Date(Date.now() + 12 * 86_400_000);
+      let busy = [];
+      try {
+        const r = await postJSON('/api/chat/gcal', { action: 'events', args: { start: from.toISOString(), end: to.toISOString() } });
+        busy = ((r && r.events) || []).filter((e) => !e.allDay && e.transparency !== 'transparent' && e.selfStatus !== 'declined').map((e) => ({ start: new Date(e.start), end: new Date(e.end) }));
+      } catch (e) { go.disabled = false; go.textContent = 'Find times'; note.textContent = `Couldn’t read your calendar: ${e.message} (Calendar › Connect Google Calendar).`; return; }
+      const slots = freeSlots(busy, { from, minutes });
+      if (!slots.length) { go.disabled = false; go.textContent = 'Find times'; note.textContent = 'No free time in the next 7 working days.'; return; }
+      this.closePop();
+      this.offered = slots; this.offeredMinutes = minutes;
+      const text = `\nWould any of these work for you?\n${slots.map((x) => `• ${slotText(x)}`).join('\n')}\n`;
+      if (this.plain) { const t = this.pt; t.focus(); t.setRangeText(text, t.selectionStart, t.selectionEnd, 'end'); }
+      else { this.ed.focus(); const sel = getSelection(); if (!sel.rangeCount || !this.ed.contains(sel.anchorNode) || (this.sigEl && this.sigEl.contains(sel.anchorNode))) this.focusBody(); document.execCommand('insertText', false, text); }
+      this.changed();
+      this.aiStatus(`Added ${slots.length} free times (${minutes} min) from your calendar.`);
+    } }, 'Find times');
+    this.openPop(anchor, el('div', { class: 'cw-times', 'aria-label': 'Suggest times' }, el('div', 'cw-pt-h', 'Suggest times'), el('label', 'cw-fl', 'Meeting length', dur), note, el('div', 'cw-pacts', el('span', 'grow'), el('button', { type: 'button', class: 'btn', onclick: () => this.closePop(true) }, 'Cancel'), go)), { focus: dur });
+  }
+  /** "Doesn't sound like me": what's off (quick reasons or words), a rewrite now, and a note Eden learns from. */
+  notMeMenu(anchor) {
+    const picked = new Set();
+    const note = el('input', { type: 'text', class: 'cw-notme-in', maxlength: '300', placeholder: 'Or say what’s off, e.g. “I never say ‘reach out’”', 'aria-label': 'What doesn’t sound like you' });
+    const chips = el('div', { class: 'cw-notme-chips', role: 'group', 'aria-label': 'What’s off' }, ...NOT_ME.map(([id, label]) => el('button', { type: 'button', class: 'cw-chipb', 'aria-pressed': 'false', onclick: (e) => { const b = e.currentTarget; if (picked.has(id)) picked.delete(id); else picked.add(id); b.setAttribute('aria-pressed', String(picked.has(id))); b.classList.toggle('on', picked.has(id)); } }, label)));
+    const go = () => {
+      const reasons = NOT_ME.filter(([id]) => picked.has(id));
+      const words = note.value.trim();
+      if (!reasons.length && !words) { note.focus(); return; }
+      const ask = [...reasons.map((r) => r[2]), words].filter(Boolean).join(' ');
+      addNote([...reasons.map((r) => r[1]), words].filter(Boolean).join('; '), this.aiDraft ? this.aiDraft.text : this.messageText());
+      this.closePop();
+      this.runAI('change', ask);
+    };
+    note.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    this.openPop(anchor, el('div', { class: 'cw-notme', 'aria-label': 'Doesn’t sound like me' },
+      el('div', 'cw-pt-h', 'What’s off?'), chips, note,
+      el('p', 'cw-hold', 'Eden rewrites it now and remembers this for your next drafts (Mail settings › Your writing style).'),
+      el('div', 'cw-pacts', el('span', 'grow'), el('button', { type: 'button', class: 'btn', onclick: () => this.closePop(true) }, 'Cancel'), el('button', { type: 'button', class: 'btn primary', onclick: go }, 'Rewrite'))), { focus: chips.querySelector('button') });
+  }
+
   /* ---------- Eden writes ---------- */
   snapshot() { return { plain: this.plain, nodes: [...this.ed.childNodes].map((n) => n.cloneNode(true)), text: this.pt.value, subject: this.subj.value, sigId: this.sigId }; }
   restoreSnap(s) {
@@ -1636,7 +1832,7 @@ class Compose {
     this.paintCaps();
     this.changed();
   }
-  undoAI() { const s = this.ai.undo.pop(); if (!s) return; this.ai.redo.push(this.snapshot()); this.restoreSnap(s); this.aiStatus('Undone: your draft is back as it was.'); this.paintAI(); }
+  undoAI() { const s = this.ai.undo.pop(); if (!s) return; if (!this.ai.undo.length) { this.aiDraft = null; this.cNotMe.hidden = true; } this.ai.redo.push(this.snapshot()); this.restoreSnap(s); this.aiStatus('Undone: your draft is back as it was.'); this.paintAI(); }
   redoAI() { const s = this.ai.redo.pop(); if (!s) return; this.ai.undo.push(this.snapshot()); this.restoreSnap(s); this.aiStatus('Eden’s change is back.'); this.paintAI(); }
   aiStatus(text, bad = false) { this.askSt.textContent = text; this.askSt.classList.toggle('bad', bad); }
   paintAI() {
@@ -1672,7 +1868,12 @@ class Compose {
     if (this.subj.value.trim()) instruction += ` The subject is “${this.subj.value.trim()}”.`;
     if (wantSubject) instruction += ' Start with one line "Subject: <a short subject>", then a blank line, then the email.';
     if (marks.length && kind !== 'write') instruction += ` ${MARKS_NOTE}`;
+    const toAddrs = [...this.recip.to, ...this.recip.cc].filter((a) => a.valid).map((a) => a.email);
+    const voice = kind === 'grammar' ? { on: false } : await voiceFor({ to: toAddrs, about: this.orig ? String(this.orig.text || '').slice(0, 3000) : this.subj.value, ask: prompt, reply: !!this.orig });
+    const inVoice = voice.on && kind !== 'grammar' && kind !== 'formal';
+    const thread = this.orig && (kind === 'reply' || kind === 'change' || kind === 'custom') ? await this.threadContext() : [];
     const context = [];
+    context.push(...thread);
     if (this.orig) context.push({ title: `The email I’m replying to${this.orig.subject ? `: ${this.orig.subject}` : ''}`.slice(0, 120), text: String(this.orig.text || '').slice(0, 40_000) });
     if (!blank && kind !== 'write' && kind !== 'reply') context.push({ title: 'My current draft', text: current.slice(0, 40_000) });
     else if (!blank && kind === 'reply') context.push({ title: 'What I had written so far (replace it)', text: current.slice(0, 40_000) });
@@ -1705,20 +1906,31 @@ class Compose {
       this.paintBlank();
     };
     this.plainSigCache = this.plain ? this.plainSig() || (sig ? `\n\n-- \n${sigText(sig)}` : '') : '';
+    // in the page's language (French), unless it answers or revises an email in another one
+    const langNote = [this.orig && this.orig.text, blank ? '' : current].some((x) => { const l = languageOf(x || ''); return l && l !== 'fr'; }) ? '' : replyLanguageNote();
     try {
-      await api.send({ messages: [{ role: 'user', content: instruction }], settings: routeSettings(), mode: 'chat', system: SYSTEM, context }, {
+      await api.send({ messages: [{ role: 'user', content: instruction }], settings: routeSettings(), mode: 'chat', system: [inVoice ? `${SYSTEM}\n\n${voice.system}` : SYSTEM, langNote].filter(Boolean).join('\n\n'), context: inVoice ? [...context, ...voice.context] : context, ...mailAI() }, {
         signal: ctrl.signal,
         onEvent: (t, d) => {
-          if (t === 'route') { model = d.modelName || d.model || ''; this.aiStatus(`Writing with ${model}…`); }
+          if (t === 'route') { model = d.modelName || d.model || ''; this.aiStatus(inVoice ? `Writing in your style with ${model}…` : `Writing with ${model}…`); }
           else if (t === 'fallback') this.aiStatus('The first model failed; trying the next one…');
           else if (t === 'text') { out += d.text || ''; if (!frame) frame = requestAnimationFrame(paint); }
           else if (t === 'error') throw new Error(d.message || 'Eden couldn’t write that.');
         },
       });
       if (frame) cancelAnimationFrame(frame);
+      // the owner's exact greeting and sign-off (mail-voice.js enforceFrame), not the model's guess
+      if (inVoice && voice.frame && kind !== 'shorten') {
+        const subj = wantSubject ? /^\s*\**subject:?\**[^\n]*\n+/i.exec(out) : null;
+        const head = subj ? subj[0] : '';
+        const first = (this.recip.to.find((a) => a.valid) || {}).name || '';
+        out = head + enforceFrame(out.slice(head.length), voice.frame, first.split(/\s+/)[0] || '');
+      }
       paint();
       if (!out.trim()) throw new Error('Eden sent back nothing.');
-      this.aiStatus(`${DONE[kind]}${model ? ` by ${model}` : ''}. Read it over before you send; Undo brings back your version.`);
+      this.aiDraft = { text: this.messageText(), kind, to: toAddrs[0] || '', situation: voice.situation || null };
+      this.cNotMe.hidden = !voice.on;
+      this.aiStatus(`${DONE[kind]}${model ? ` by ${model}` : ''}${inVoice ? ', in your style' : ''}. Read it over before you send; Undo brings back your version.`);
       this.changed();
     } catch (e) {
       if (frame) cancelAnimationFrame(frame);
@@ -1753,7 +1965,7 @@ class Compose {
     this.sv.timer = setTimeout(() => this.saveNow(), this.totalBytes() > 5 * 1048576 ? 15_000 : 2500);
   }
   paintSave(st) {
-    const t = { saving: 'Saving…', saved: `Saved${this.sv.at ? ` ${new Date(this.sv.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`, error: 'Not saved', local: 'Kept on this device' }[st] || '';
+    const t = { saving: 'Saving…', saved: `Saved${this.sv.at ? ` ${new Date(this.sv.at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}` : ''}`, error: 'Not saved', local: 'Kept on this device' }[st] || '';
     this.saveEl.textContent = t;
     this.saveEl.classList.toggle('bad', st === 'error');
     this.saveEl.title = st === 'error' ? `Couldn’t save to Gmail Drafts: ${this.sv.error}. Eden retries when you edit; More › Save draft now tries again.` : st === 'local' ? 'Mail on your Mac has no autosave through Jarvis: Eden keeps this on this device until you send it or open it in Mail.' : st === 'saved' ? 'In your Gmail Drafts' : '';
@@ -1844,7 +2056,7 @@ class Compose {
     const t = this.thread || {};
     return {
       to: ok('to'), cc: ok('cc'), ...(this.caps.bcc ? { bcc: ok('bcc') } : {}),
-      subject: this.subj.value.trim(), body: b.text, ...(b.html ? { html: b.html } : {}),
+      subject: this.subj.value.trim(), body: b.text, ...(b.html ? { html: this.receiptUrl ? `${b.html}<img src="${this.receiptUrl}" width="1" height="1" alt="" style="width:1px;height:1px;border:0">` : b.html } : {}),
       ...(this.source === 'gmail' && this.account ? { from: this.account } : {}),
       attachments: this.atts.filter((a) => a.state === 'ready' && a.uploadId).map((a) => ({ uploadId: a.uploadId })),
       inline: b.inline,
@@ -1891,7 +2103,7 @@ class Compose {
     if (this.ai.busy) { toast('Wait for Eden to finish writing, or stop it'); return; }
     const { blocks, warns } = this.problems();
     if (blocks.length) {
-      this.sendError = blocks.join(' ');
+      this.sendError = blocks.map(t).join(' '); // one text node: each sentence translated on its own
       this.sendCheck = true;
       this.paintCaps();
       this.notes.scrollIntoView({ block: 'nearest' });
@@ -1905,19 +2117,19 @@ class Compose {
     this.view = 'review';
     const b = this.collect();
     const macTooLong = this.source === 'mac' && b.text.length > MAC_SEND_CHARS;
-    const row = (k, v) => (v ? el('div', 'cw-rv-r', el('span', 'k', k), el('span', 'v', v)) : null);
+    const row = (k, v, own = true) => (v ? el('div', 'cw-rv-r', el('span', 'k', k), el('span', own ? { class: 'v', 'data-no-i18n': '' } : 'v', v)) : null);
     const names = (k) => this.recip[k].map(fmtAddr).join(', ');
-    const from = this.source === 'gmail' ? (this.fromSel.selectedOptions[0] && this.fromSel.value === `gmail:${this.account}` ? this.fromSel.selectedOptions[0].textContent.replace(/ · .*$/, '') : this.account || (src.google && src.google.email) || 'your Gmail') : `${this.fromSel.selectedOptions[0] ? this.fromSel.selectedOptions[0].textContent : 'Mail on your Mac'}`;
+    const from = this.source === 'gmail' ? (this.fromSel.selectedOptions[0] && this.fromSel.value === `gmail:${this.account}` ? this.fromSel.selectedOptions[0].textContent.replace(/ · .*$/, '') : this.account || (src.google && src.google.email) || t('your Gmail')) : `${this.fromSel.selectedOptions[0] ? this.fromSel.selectedOptions[0].textContent : t('Mail on your Mac')}`;
     const macTo = this.source === 'mac' ? this.macPayload() : null;
-    const preview = el('div', { class: 'cw-rv-body', tabindex: '0', 'aria-label': 'Message preview' });
+    const preview = el('div', { class: 'cw-rv-body', tabindex: '0', 'aria-label': t('Message preview'), 'data-no-i18n': '' });
     if (b.html) {
       const cidSrc = new Map(b.shown.map((x) => [x.contentId, x.src]));
       const frag = sanitizeHtml(b.html);
       for (const img of frag.querySelectorAll('img[data-pending]')) { const c = img.getAttribute('data-cid'); if (cidSrc.has(c)) { img.setAttribute('src', cidSrc.get(c)); img.removeAttribute('data-pending'); } }
       for (const a of frag.querySelectorAll('a')) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer'); }
       preview.append(frag);
-    } else preview.append(el('div', 'cw-rv-plain', b.text || '(empty message)'));
-    const files = [...this.atts.map((a) => `${a.name} (${sizeText(a.size || 0)})`), ...b.shown.map((x) => `${x.name} (inline, ${sizeText(x.size)})`)];
+    } else preview.append(el('div', 'cw-rv-plain', b.text || t('(empty message)')));
+    const files = [...this.atts.map((a) => `${a.name} (${sizeText(a.size || 0)})`), ...b.shown.map((x) => `${x.name} (${t('inline')}, ${sizeText(x.size)})`)];
     const when = this.scheduleAt;
     const go = el('button', { type: 'button', class: 'btn primary cw-go' },
       macTooLong ? 'Open in Mail on your Mac' : when ? `Schedule for ${fmtWhen(when)}` : this.source === 'mac' ? 'Send (Jarvis asks on your Mac)' : `Send to ${this.recip.to.length + this.recip.cc.length + this.recip.bcc.length} recipient${this.recip.to.length + this.recip.cc.length + this.recip.bcc.length === 1 ? '' : 's'}`);
@@ -1928,11 +2140,14 @@ class Compose {
       el('div', 'cw-rv-meta',
         row('From', from),
         row('To', macTo ? macTo.to.join(', ') : names('to')), row('Cc', macTo ? macTo.cc.join(', ') : names('cc')), row('Bcc', names('bcc')),
-        row('Subject', this.subj.value.trim() || '(no subject)'),
+        row('Subject', this.subj.value.trim() || t('(no subject)')),
         row('Attached', files.join(', ')),
-        when ? row('Sends', `${fmtWhen(when)} (your time)`) : null),
+        when ? row('Sends', `${fmtWhen(when)} (your time)`, false) : null,
+        this.source === 'gmail' ? el('div', 'cw-rv-r', el('span', 'k', 'Follow up'), el('span', 'v', this.followUpSel())) : null,
+        this.source === 'gmail' && hostedSend() && !when ? el('div', 'cw-rv-r', el('span', 'k', 'Receipt'), el('span', 'v', this.receiptBox())) : null),
       preview,
       warns.length ? el('ul', 'cw-rv-warn', ...warns.map((w) => el('li', '', w))) : null,
+      this.checksBox(b.text),
       when ? (hostedSend()
         ? el('p', 'cw-hold', el('b', '', 'Your askeden.com account sends it at that time, even with your Mac off. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If it can’t go within 12 hours, it waits for you instead.')
         : el('p', 'cw-hold', el('b', '', 'Eden holds this email and sends it only while Eden is running on your Mac. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If the Mac is asleep or Eden is off at that time, it goes when Eden next runs — more than 12 hours late, it waits for you instead.')) : null,
@@ -1942,6 +2157,53 @@ class Compose {
     this.root.classList.add('reviewing');
     requestAnimationFrame(() => go.focus());
   }
+  /**
+   * Fact-checked before it goes (ROADMAP P2, mail-check.js): rules first (dates, the invitation, the
+   * calendar, amounts, names, unanswered questions), then a cheap model for what rules can't see.
+   * Never blocks Send: each problem has "Fix with Eden" (back to edit, Eden revises that part).
+   */
+  checksBox(text) {
+    if (mailPrefs().checkDrafts === false || String(text || '').trim().length < 20) return null;
+    const box = el('section', { class: 'cw-checks', 'aria-live': 'polite', 'aria-label': 'Eden’s checks' }, el('div', 'cw-ck-h', el('span', 'cw-ck-spin'), 'Eden is checking this email…'));
+    const run = this.checkRun = (this.checkRun || 0) + 1;
+    (async () => {
+      const ctx = { now: new Date(), thread: this.orig ? String(this.orig.text || '') : '', recipients: [...this.recip.to, ...this.recip.cc].filter((a) => a.valid).map((a) => ({ name: a.name || '', email: a.email })), attached: undefined, invite: null, events: null };
+      const m = this.origMsg;
+      if (m && m.calendar && m.calendar.ics) { try { const ev = parseIcs(m.calendar.ics).events[0]; const d = ev && icsToDraft(ev); if (d) ctx.invite = { start: d.start, allDay: d.allDay, title: ev.summary || '' }; } catch { /* no invitation */ } }
+      // the owner's calendar around the times the draft names (Google Calendar, when connected)
+      const named = datesIn(text, ctx.now).filter((d) => d.time && d.date - ctx.now < 90 * 86_400_000 && d.date >= new Date(ctx.now.getFullYear(), ctx.now.getMonth(), ctx.now.getDate()));
+      if (named.length) {
+        const first = new Date(Math.min(...named.map((d) => d.date))), last = new Date(Math.max(...named.map((d) => d.date)) + 86_400_000);
+        try {
+          const r = await postJSON('/api/chat/gcal', { action: 'events', args: { start: first.toISOString(), end: last.toISOString() } });
+          ctx.events = ((r && r.events) || []).filter((e) => !e.allDay && e.transparency !== 'transparent' && e.selfStatus !== 'declined').map((e) => ({ start: new Date(e.start), end: new Date(e.end), title: e.title, allDay: false }));
+        } catch { /* no calendar: the rest still runs */ }
+      }
+      const st = getKit().voice && getKit().voice.stats;
+      const to0 = ctx.recipients[0];
+      const tone = st ? toneCheck(text, { person: to0 && st.perPerson ? st.perPerson[to0.email.toLowerCase()] : null, usual: { words: st.words.median, greeting: st.greetings[0] && st.greetings[0].share >= 0.5 ? st.greetings[0].text : '' }, name: to0 ? (to0.name || '').split(/\s+/)[0] : '' }) : toneCheck(text, {});
+      let issues = [...checkDraft(text, ctx).filter((i) => i.kind !== 'attach'), ...tone]; // the review already says "attached"
+      if (this.checkRun !== run) return;
+      const paint = (busy) => {
+        const fix = (i) => el('button', { type: 'button', class: 'cap', onclick: () => { this.backToEdit(); this.runAI('change', `Fix only this: ${i.problem} ${i.fix || ''} (the part “${i.quote}”)`); } }, 'Fix with Eden');
+        box.replaceChildren(...[
+          el('div', 'cw-ck-h', busy ? el('span', 'cw-ck-spin') : null, issues.length ? `Eden found ${issues.length} thing${issues.length === 1 ? '' : 's'} to check${busy ? '… still looking' : ''}` : busy ? 'Eden is checking this email…' : '✓ Eden checked the dates, times, amounts and names: nothing looks wrong.'),
+          issues.length ? el('ul', 'cw-ck-list', ...issues.map((i) => el('li', `cw-ck-${i.level}`, el('div', '', i.quote ? el('q', { 'data-no-i18n': '' }, i.quote) : null, ' ', i.problem), el('div', 'cw-ck-fix', el('span', '', i.fix || ''), fix(i))))) : null].filter(Boolean));
+      };
+      paint(true);
+      try {
+        const context = [{ title: 'The email the owner is about to send', text: text.slice(0, 12_000) }];
+        if (ctx.thread) context.push({ title: 'The email(s) it answers', text: ctx.thread.slice(0, 20_000) });
+        if (ctx.thread || text.length > 200) {
+          const r = await askCheap(DRAFT_CHECK_SYSTEM, 'Check the email as asked. JSON only.', context);
+          const more = parseDraftIssues(r.out, text).filter((x) => !issues.some((i) => i.quote && x.quote && (i.quote.includes(x.quote) || x.quote.includes(i.quote))));
+          issues = [...issues, ...more];
+        }
+      } catch { /* the rules' answer stands */ }
+      if (this.checkRun === run && document.contains(box)) paint(false);
+    })();
+    return box;
+  }
   backToEdit() {
     this.view = 'edit';
     this.rv.hidden = true;
@@ -1950,7 +2212,8 @@ class Compose {
   }
   startCountdown() {
     if (this.scheduleAt) { this.doSend(); return; }
-    let n = UNDO_SEND_S;
+    let n = Number(mailPrefs().undoSend) || 0;
+    if (n <= 0) { this.doSend(); return; }
     const go = this.goBtn;
     const label = () => { go.textContent = `Sending in ${n} s — Undo`; };
     go.classList.add('counting');
@@ -1978,10 +2241,24 @@ class Compose {
           if (r && r.draftId) this.draftId = r.draftId;
           toast(`Scheduled for ${fmtWhen(this.scheduleAt)}. ${hostedSend() ? 'Your askeden.com account sends it then.' : 'Eden sends it then, while Eden runs on your Mac.'}`);
         } else {
-          await this.withUploads('send', { confirm: true });
+          let rcpt = null;
+          if (this.receipt && hostedSend() && !this.plain) {
+            try {
+              rcpt = await postJSON('/api/chat/receipts', { action: 'new', subject: this.subj.value.trim(), to: [...this.recip.to, ...this.recip.cc].filter((a) => a.valid).map((a) => a.email) });
+              this.receiptUrl = rcpt.url;
+            } catch { toast('Read receipts aren’t available right now: sending without one'); }
+          }
+          let sent;
+          try { sent = await this.withUploads('send', { confirm: true }); } finally { this.receiptUrl = null; }
+          if (this.offered && this.offered.length && sent && sent.threadId) addOffer({ threadId: sent.threadId, title: this.subj.value.replace(/^(re|fwd?):\s*/i, '').trim() || 'Meeting', minutes: this.offeredMinutes || 30, attendees: [...this.recip.to, ...this.recip.cc].filter((a) => a.valid).map((a) => a.email), slots: this.offered.map((x) => ({ start: x.start.toISOString(), end: x.end.toISOString() })) });
+          if (rcpt && rcpt.id) postJSON('/api/chat/receipts', { action: 'sent', id: rcpt.id, thread: (sent && sent.threadId) || undefined }).catch(() => {});
           this.draftId = null;
           this.freeUploads();
-          toast('Message sent');
+          const days = Number(this.followUp) || 0;
+          if (days && sent && sent.threadId) {
+            addFollowUp({ source: 'gmail', threadId: sent.threadId, subject: this.subj.value.trim() || '(no subject)', to: [...this.recip.to, ...this.recip.cc].filter((a) => a.valid).map((a) => a.name || a.email), sentAt: new Date().toISOString(), dueAt: new Date(Date.now() + days * 86_400_000).toISOString() });
+            toast(`Message sent. Eden reminds you if nobody replies in ${days === 7 ? 'a week' : `${days} day${days === 1 ? '' : 's'}`}.`);
+          } else toast('Message sent');
         }
       } else {
         const text = await jarvis('mail_send', { ...this.macPayload(), confirm: true });
@@ -1990,6 +2267,8 @@ class Compose {
         toast(typeof text === 'string' && text.length < 120 && !j ? text : 'Sent from Mail on your Mac');
       }
       rememberRecipients([...this.recip.to, ...this.recip.cc, ...this.recip.bcc].filter((a) => a.valid));
+      // learning from edits: Eden's last draft next to what actually went
+      if (this.aiDraft) { try { recordEdit({ ai: this.aiDraft.text, sent: this.messageText(), kind: this.aiDraft.kind, to: this.aiDraft.to, situation: this.aiDraft.situation }); } catch { /* never in the way of a send */ } this.aiDraft = null; }
       if (H.onSent) H.onSent(this.source);
       this.destroy();
     } catch (e) {
@@ -2168,7 +2447,7 @@ export function openCompose(opts = {}) {
   const same = wins.find((w) => (opts.draftId && w.draftId === opts.draftId) || (opts.message && opts.message.id && w.origId === opts.message.id && w.mode === mode));
   if (same && !opts.restore) { same.restoreWin(); return same; }
   const w = new Compose({ ...opts, mode, source });
-  if (opts.message) w.origId = opts.message.id;
+  if (opts.message) { w.origId = opts.message.id; w.origMsg = opts.message; }
   if (isMobile()) for (const x of visible()) if (x !== w) x.setState('min');
   w.place(visible().filter((x) => x !== w && x.state === 'normal').length);
   w.apply();
@@ -2189,7 +2468,9 @@ export function openCompose(opts = {}) {
     if (w.source === 'gmail' && w.draftId && (opts.hadAtts || (!opts.html && !opts.plain))) w.loadDraft(w.draftId); // the attachments' bytes live in Gmail
   } else if (opts.draftId) {
     w.setBody({ text: '' });
-    w.loadDraft(opts.draftId);
+    w.loadDraft(opts.draftId).then((ok) => { // a draft Eden wrote in the background: the owner's edits to it are learned from too
+      if (ok !== false && opts.aiDraft && !w.closed) { w.aiDraft = { text: w.messageText(), kind: 'auto', to: (w.recip.to.find((a) => a.valid) || {}).email || '', situation: null }; w.cNotMe.hidden = false; w.aiStatus('Eden wrote this while you were away, in your style. Read it over before you send.'); }
+    });
   } else {
     const reply = mode === 'reply' || mode === 'replyAll' || mode === 'forward';
     if (m && reply) {
@@ -2230,7 +2511,7 @@ export function openCompose(opts = {}) {
     if (!w.caps.html) w.plain = true;
     w.ed.hidden = w.plain; w.pt.hidden = !w.plain;
     const sig = sigFor(accountKey(w.source, w.account), reply);
-    w.setBody({ nodes: opts.body ? textToNodes(opts.body) : [blankLine()], text: opts.body || '', sig });
+    w.setBody({ nodes: opts.body ? (opts.md && !w.plain ? mdToNodes(opts.body) : textToNodes(opts.md ? stripMd(opts.body) : opts.body)) : [blankLine()], text: opts.md ? stripMd(opts.body || '') : opts.body || '', sig });
     w.sv.dirty = false;
   }
   if (w.recip.cc.length) w.showRow('cc', false);
@@ -2243,7 +2524,9 @@ export function openCompose(opts = {}) {
   renderTray();
   persistAll();
   if (w.state !== 'min') requestAnimationFrame(() => { if (mode === 'reply' || mode === 'replyAll') w.focusBody(); else w.firstField().focus(); });
-  if (opts.ai === 'reply' && w.orig) setTimeout(() => w.runAI('reply'), 50);
+  if (opts.ai === 'reply' && w.orig) setTimeout(() => w.runAI('reply', opts.aiPrompt || ''), 50);
+  // an Auto Draft opened: what Eden wrote, so the owner's edits are learned from like any other draft
+  if (opts.aiDraft && opts.body) { w.aiDraft = { text: w.messageText(), kind: 'auto', to: (w.recip.to.find((a) => a.valid) || {}).email || '', situation: opts.aiDraft.situation || null }; w.cNotMe.hidden = false; w.aiStatus('Eden wrote this ahead, in your style. Read it over before you send.'); }
   refreshSources().then(() => { if (!w.closed) w.paintFrom(); });
   loadContacts(w.source);
   return w;
@@ -2270,7 +2553,7 @@ function manageSignatures(win) {
   let cur = data.list[0] || null;
   const listBox = el('div', { class: 'cw-sig-list', role: 'listbox', 'aria-label': 'Signatures' });
   const name = el('input', { type: 'text', maxlength: '60', placeholder: 'e.g. Work', 'aria-label': 'Signature name' });
-  const ed = el('div', { class: 'cw-sig-ed', contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Signature' });
+  const ed = el('div', { class: 'cw-sig-ed', contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': t('Signature'), 'data-no-i18n': '' });
   ed.addEventListener('paste', (e) => { const h = e.clipboardData && e.clipboardData.getData('text/html'); if (h) { e.preventDefault(); const b = document.createElement('div'); b.append(sanitizeHtml(h)); document.execCommand('insertHTML', false, b.innerHTML); } });
   const defNew = el('select', { 'aria-label': 'Signature for new emails' });
   const defReply = el('select', { 'aria-label': 'Signature on replies and forwards' });
@@ -2284,13 +2567,13 @@ function manageSignatures(win) {
   } }, 'Delete');
   const paint = () => {
     delBtn.disabled = !cur;
-    listBox.replaceChildren(...data.list.map((s) => el('button', { type: 'button', role: 'option', 'aria-selected': String(s === cur), class: `cw-sig-it${s === cur ? ' on' : ''}`, onclick: () => { keep(); cur = s; paint(); } }, s.name || 'Signature')),
+    listBox.replaceChildren(...data.list.map((s) => el('button', { type: 'button', role: 'option', 'aria-selected': String(s === cur), class: `cw-sig-it${s === cur ? ' on' : ''}`, 'data-no-i18n': '', onclick: () => { keep(); cur = s; paint(); } }, s.name || t('Signature'))),
       data.list.length ? null : el('div', 'muted', 'No signatures yet.'));
     name.disabled = !cur;
     ed.contentEditable = cur ? 'true' : 'false';
     name.value = cur ? cur.name : '';
     ed.replaceChildren(cur ? sanitizeHtml(cur.html || '') : document.createTextNode(''));
-    const opts = (sel, v) => { sel.replaceChildren(el('option', { value: '' }, 'No signature'), ...data.list.map((s) => el('option', { value: s.id }, s.name || 'Signature'))); sel.value = v || ''; };
+    const opts = (sel, v) => { sel.replaceChildren(el('option', { value: '' }, 'No signature'), ...data.list.map((s) => el('option', { value: s.id, 'data-no-i18n': '' }, s.name || t('Signature')))); sel.value = v || ''; };
     const d = (key && data.defaults[key]) || {};
     opts(defNew, d.new);
     opts(defReply, d.reply !== undefined ? d.reply : d.new);
@@ -2351,4 +2634,45 @@ export function initCompose(handlers) {
     for (const s of saved.slice(0, 8)) if (s && typeof s === 'object') openCompose({ ...s, restore: true, state: 'min' });
     toast(saved.length === 1 ? 'The email you were writing is below the chat' : `${saved.length} emails you were writing are below the chat`);
   }
+}
+
+
+/**
+ * A reply written without a window (Auto Drafts, mail.js): the same as "Write reply" in a compose
+ * window (the owner's voice, the whole thread, their exact greeting and sign-off), returned as
+ * text. Nothing is saved or sent: the owner opens it in a compose window to review it.
+ */
+/** Markdown's bold, italics and links as plain text (plain-text windows, previews). */
+export const stripMd = (t) => String(t || '').replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, '$1$2').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '$1 ($2)');
+
+export async function draftReplyText(m, { signal, ask = '' } = {}) {
+  const to = splitAddresses(m.replyTo || m.from).map(parseAddress).filter((a) => a.email);
+  const toAddrs = to.map((a) => a.email.toLowerCase());
+  const orig = emailContext(m);
+  const voice = await voiceFor({ to: toAddrs, about: String(orig).slice(0, 3000), reply: true, ask });
+  const context = [];
+  if (m.threadId) {
+    try {
+      const t = await gmail('thread', { id: m.threadId });
+      const earlier = ((t && t.messages) || []).filter((x) => x.id !== m.id).slice(-6);
+      if (earlier.length) context.push({ title: 'The earlier emails in this thread (oldest first)', text: earlier.map((x) => `From: ${x.from}\nDate: ${x.date || ''}\n\n${String(x.body || '').slice(0, 2000)}`).join('\n\n---\n\n').slice(-10_000) });
+    } catch { /* the email alone */ }
+  }
+  context.push({ title: `The email I’m replying to${m.subject ? `: ${m.subject}` : ''}`.slice(0, 120), text: String(orig).slice(0, 40_000) });
+  const names = to.map((a) => a.name || a.email);
+  const instruction = `${INSTR.reply(ask)}${names.length ? ` It goes to ${names.slice(0, 6).join(', ')}.` : ''}`;
+  let out = '', model = '';
+  const langNote = (() => { const l = languageOf(orig); return l && l !== 'fr' ? '' : replyLanguageNote(); })(); // French, unless the email is in another language
+  await api.send({ messages: [{ role: 'user', content: instruction }], settings: routeSettings(), mode: 'chat', system: [voice.on ? `${SYSTEM}\n\n${voice.system}` : SYSTEM, langNote].filter(Boolean).join('\n\n'), context: voice.on ? [...context, ...voice.context] : context, ...mailAI() }, {
+    signal,
+    onEvent: (t, d) => {
+      if (t === 'route') model = d.modelName || d.model || '';
+      else if (t === 'text') out += d.text || '';
+      else if (t === 'error') throw new Error(d.message || 'Eden couldn’t write that.');
+    },
+  });
+  let text = stripMarks(out).replace(/^\s*```[a-z]*\n?/i, '').replace(/\n?```\s*$/, '').trim();
+  if (voice.on && voice.frame) text = enforceFrame(text, voice.frame, ((to[0] && to[0].name) || '').split(/\s+/)[0] || '');
+  if (!text) throw new Error('Eden sent back nothing.');
+  return { text, model, situation: voice.situation || null, inVoice: !!voice.on };
 }

@@ -12,6 +12,7 @@
 import { el, ico, toast } from './util.js';
 import { state, ui } from './state.js';
 import { getJSON, postJSON } from './api.js';
+import { locale, t as tl } from './i18n.js';
 
 const POLL_MS = 60_000;
 const KINDS = [['gmail', 'New email'], ['time', 'A time'], ['calendar', 'A meeting']];
@@ -38,14 +39,14 @@ function ago(ms) {
   if (s < 60) return 'just now';
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return new Date(ms).toLocaleDateString(locale(), { month: 'short', day: 'numeric' });
 }
 function when(ms) {
   if (!ms) return '';
   const d = new Date(ms);
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();
-  return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return sameDay ? d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString(locale(), { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 /** ISO → the value of an <input type=datetime-local> (local time). */
 function localInput(iso) {
@@ -150,7 +151,7 @@ function paint() {
 }
 
 function asker() {
-  const ta = el('textarea', { id: 'tkAsk', rows: '2', maxlength: '1000', placeholder: 'Describe a task: “Tell me when the lawyer replies, then draft an answer.”', 'aria-label': 'Describe a task' });
+  const ta = el('textarea', { id: 'tkAsk', rows: '2', maxlength: '1000', placeholder: tl('Describe a task: “Tell me when the lawyer replies, then draft an answer.”'), 'aria-label': tl('Describe a task') });
   const go = el('button', { type: 'button', class: 'btn primary', disabled: S.proposing ? true : null }, S.proposing ? 'Asking Eden…' : 'Set it up');
   const propose = async () => {
     const text = ta.value.trim();
@@ -208,7 +209,7 @@ function confirmForm(draft) {
       trig.replaceChildren(el('div', 'tk-two', field('When', at), field('Repeat', rep)));
     }
   };
-  const plan = el('textarea', { rows: '3', maxlength: '2000', placeholder: 'What should Eden do each time?', 'aria-label': 'What to do' });
+  const plan = el('textarea', { rows: '3', maxlength: '2000', placeholder: tl('What should Eden do each time?'), 'aria-label': tl('What to do') });
   plan.value = t.plan || '';
   const boxes = Object.entries(ACTION_WORDS).map(([k, label]) => {
     const cb = el('input', { type: 'checkbox', value: k, 'aria-label': label });
@@ -310,7 +311,7 @@ function approvalCard(a, { compact = false } = {}) {
   return el('div', { class: `tk-appr${compact ? ' compact' : ''}`, role: 'group', 'aria-label': `Approval: ${a.summary}` },
     el('div', 'tk-appr-h', ico(a.kind === 'send' ? 'send' : 'cal', 15), el('b', '', a.summary)),
     el('div', 'tk-appr-from', `From your task “${a.task_title}” · ${ago(a.created)}`),
-    el('dl', 'tk-appr-d', ...details.filter(([, v]) => v).flatMap(([k, v]) => [el('dt', '', k), el('dd', '', v)])),
+    el('dl', 'tk-appr-d', ...details.filter(([, v]) => v).flatMap(([k, v]) => [el('dt', '', k), el('dd', { 'data-no-i18n': '' }, v)])),
     flags.length ? el('div', 'tk-flags', ...flags.map((f) => el('div', '', ico('lock', 12), f))) : null,
     el('div', 'tk-appr-acts', denyBtn, approveBtn));
 }
@@ -330,18 +331,18 @@ function taskRow(t) {
   acts.push(el('button', { type: 'button', class: 'cap rev', onclick: () => { if (window.confirm(`Delete the task “${t.title}”? Its pending approvals are cancelled.`)) act('delete', 'Task deleted'); } }, 'Delete'));
   const runs = (t.runs || []).map((x) => el('li', '', el('span', `tk-pill ${x.outcome === 'acted' ? 'ok' : x.outcome === 'error' ? 'bad' : x.outcome === 'skipped' ? 'warn' : ''}`, OUTCOME[x.outcome] || x.outcome),
     el('span', 'tk-run-t', `${when(x.at)}${x.cost_usd ? ` · ${money(x.cost_usd, 4)}` : ''}`),
-    el('div', 'tk-run-s', x.error || x.summary || ''),
+    el('div', { class: 'tk-run-s', 'data-no-i18n': '' }, x.error || x.summary || ''),
     (x.effects || []).length ? el('div', 'tk-run-e', x.effects.map(effectText).join(' · ')) : null));
   return el('article', { class: 'tk-task', 'aria-label': t.title },
-    el('div', 'tk-task-h', el('b', 'grow', t.title), el('span', `tk-pill ${cls}`, label)),
+    el('div', 'tk-task-h', el('b', { class: 'grow', 'data-no-i18n': '' }, t.title), el('span', `tk-pill ${cls}`, label)),
     el('div', 'tk-task-m', triggerText(t.trigger), t.trigger.kind !== 'time' ? ` · every ${t.every_min} min` : ''),
     el('div', 'tk-task-m', el('span', '', `This month ${money(t.spent ? t.spent.usd : 0, 4)} of ${money(t.budget.month_usd)}`), r ? el('span', '', ` · last run ${money(r.cost_usd, 4)}`) : null,
       t.status === 'active' && t.next_at ? el('span', '', ` · next ${when(t.next_at)}`) : null),
-    r ? el('div', `tk-last ${r.outcome}`, el('span', 'tk-last-k', `${OUTCOME[r.outcome] || r.outcome}, ${ago(r.at)}`), el('span', '', r.error || r.summary || '')) : el('div', 'tk-last muted', 'Not run yet.'),
+    r ? el('div', `tk-last ${r.outcome}`, el('span', 'tk-last-k', `${OUTCOME[r.outcome] || r.outcome}, ${ago(r.at)}`), el('span', { 'data-no-i18n': '' }, r.error || r.summary || '')) : el('div', 'tk-last muted', 'Not run yet.'),
     t.paused_reason ? el('div', 'sp-warn', t.paused_reason) : null,
     el('details', 'tk-more', el('summary', '', 'Plan and runs'),
-      el('p', 'tk-plan', t.plan),
-      el('p', 'muted', `May: ${t.actions.map((a) => ACTION_WORDS[a]).join(', ')} · ends ${new Date(t.expires).toLocaleDateString()}${t.workflow ? ` · from the workflow “${t.workflow.name}”` : ''}`),
+      el('p', { class: 'tk-plan', 'data-no-i18n': '' }, t.plan),
+      el('p', 'muted', `May: ${t.actions.map((a) => ACTION_WORDS[a]).join(', ')} · ends ${new Date(t.expires).toLocaleDateString(locale())}${t.workflow ? ` · from the workflow “${t.workflow.name}”` : ''}`),
       runs.length ? el('ul', 'tk-runs', ...runs) : el('p', 'muted', 'No runs yet.')),
     el('div', 'tk-acts', ...acts));
 }

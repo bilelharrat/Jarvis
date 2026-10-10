@@ -7,29 +7,38 @@
 //             and POST /api/chat/transcribe turns each pause into words (the account's allowance)
 //   speaking  POST /api/chat/voice, a sentence at a time while the answer streams (the account's daily
 //             voice allowance); if the voice isn't available, the browser's own voice reads instead
-//   barge-in  the mic's level (echo-cancelled) well above the room while J.A.R.V.I.S. speaks
+//   barge-in  while J.A.R.V.I.S. speaks, recognition listens for words that aren't his (barge-in.js),
+//             or the mic's level well above the room and his echo; Space or a tap on the orb too
+//   hello     he introduces himself once a browser session (sessionStorage), not each time he opens
 //
 // The conversation is kept as a study chat (marked tutor) so it's in the history afterwards.
 // Collapsed, J.A.R.V.I.S. is just the orb: a sphere that floats over the app (drag it anywhere; it
 // stays put as you move around), still listening and speaking; tap it to open the conversation again.
 
 import { el, ico, toast } from './util.js';
+import { t, isFr, speechLang, replyLanguageNote } from './i18n.js';
 import { api, apiUrl } from './api.js';
 import { speechText, chunkText, recordingType } from './voice-text.js';
+import { usesOwn } from './edu-budget.js'; // a student's tutor voice: the course's study allowance (ROADMAP L9)
+import { watchForInterrupt, isSpaceToInterrupt } from './barge-in.js';
 import { stripSources, groundingStrip } from './courses.js';
 
 const Recognition = () => window.SpeechRecognition || window.webkitSpeechRecognition || null;
 const PAUSE_MS = 1000; // quiet this long after you've said something (words still interim): your turn is over
 const FINAL_PAUSE_MS = 550; // …or this long once the recognizer has called them final
+const GREETED_KEY = 'edu:tutor-greeted'; // he's said hello this browser session
+const greetedThisSession = () => { try { return sessionStorage.getItem(GREETED_KEY) === '1'; } catch { return false; } };
+const markGreeted = () => { T.greeted = true; try { sessionStorage.setItem(GREETED_KEY, '1'); } catch { /* this visit only */ } };
 const T = { root: null, course: null, chat: null, save: null, state: 'idle', muted: false };
 
 /** Opens the tutor for a course; `chat` (a study chat) keeps the conversation, `save(chat)` stores it. */
 export function openTutor(course, { chat, save } = {}) {
   closeTutor();
-  Object.assign(T, { course, chat, save, state: 'idle', muted: false, history: [], heard: '', said: '', sources: null, mini: false, greeted: false });
-  T.root = el('div', { class: 'tut', role: 'dialog', 'aria-modal': 'true', 'aria-label': `J.A.R.V.I.S., your tutor for ${course.name}` },
+  T.opener = document.activeElement; // focus goes back here when the conversation ends
+  Object.assign(T, { course, chat, save, state: 'idle', muted: false, history: [], heard: '', said: '', sources: null, mini: false, greeted: greetedThisSession() });
+  T.root = el('div', { class: 'tut', role: 'dialog', 'aria-modal': 'true', 'aria-label': `Eden, your tutor for ${course.name}` },
     el('div', 'tut-top',
-      el('div', 'tut-name', el('b', '', 'J.A.R.V.I.S.'), el('span', '', `Your tutor · ${course.name}`)),
+      el('div', 'tut-name', el('b', '', 'Eden'), el('span', '', `Your tutor · ${course.name}`)),
       el('div', 'tut-top-acts',
         el('button', { type: 'button', class: 'tut-x', 'aria-label': 'Shrink to the orb (keeps talking)', title: 'Shrink to the orb', onclick: () => setMini(true) }, ico('collapse')),
         el('button', { type: 'button', class: 'tut-x', 'aria-label': 'End the conversation', title: 'End', onclick: closeTutor }, ico('x')))),
@@ -37,17 +46,17 @@ export function openTutor(course, { chat, save } = {}) {
       el('button', { type: 'button', class: 'tut-orb', id: 'tutOrb', 'aria-label': 'Start talking', onclick: orbTap }, el('span', 'tut-core'), el('span', 'tut-ring')),
       el('div', { class: 'tut-state', id: 'tutState', 'aria-live': 'polite' }, 'Tap the orb, then just talk.'),
       el('div', 'tut-captions',
-        el('p', { class: 'tut-you', id: 'tutYou' }),
-        el('p', { class: 'tut-says', id: 'tutSays' }, `Hi, I’m J.A.R.V.I.S. Ask me anything about ${course.name}, or tell me what you’re stuck on.`),
+        el('p', { class: 'tut-you', id: 'tutYou', 'data-no-i18n': '' }), // what you said
+        el('p', { class: 'tut-says', id: 'tutSays', 'data-no-i18n': '' }, t(T.greeted ? `What’s next on ${course.name}?` : `Hi, I’m Eden. Ask me anything about ${course.name}, or tell me what you’re stuck on.`)), // what he says (spoken as written)
         el('div', { class: 'tut-src', id: 'tutSrc' }))),
     el('div', 'tut-bar',
       el('button', { type: 'button', class: 'tut-btn', id: 'tutMute', 'aria-pressed': 'false', onclick: toggleMute }, ico('speaker', 16), el('span', '', 'Mute mic')),
       el('form', { class: 'tut-type', onsubmit: (e) => { e.preventDefault(); const i = e.target.querySelector('input'); const t = i.value.trim(); i.value = ''; if (t) { stopListening(); turn(t); } } },
-        el('input', { placeholder: 'Or type to J.A.R.V.I.S.…', 'aria-label': 'Type a message', autocomplete: 'off' })),
+        el('input', { placeholder: 'Or type to Eden…', 'aria-label': 'Type a message', autocomplete: 'off', oninput: () => { if (T.state === 'speaking') interrupt(); } })),
       el('button', { type: 'button', class: 'tut-btn end', onclick: closeTutor }, 'End')));
   document.body.append(T.root);
   addEventListener('keydown', onKey);
-  requestAnimationFrame(() => T.root.classList.add('in'));
+  requestAnimationFrame(() => { if (T.root) T.root.classList.add('in'); });
   dragOrb(document.getElementById('tutOrb'));
   document.getElementById('tutOrb').focus();
 }
@@ -57,6 +66,7 @@ export function closeTutor() {
   T.state = 'closed';
   stopListening(true);
   stopSpeaking();
+  unwatch();
   if (T.ctrl) T.ctrl.abort();
   if (T.stream) T.stream.getTracks().forEach((t) => t.stop());
   if (T.ac) T.ac.close().catch(() => {});
@@ -64,9 +74,14 @@ export function closeTutor() {
   removeEventListener('keydown', onKey);
   T.root.remove();
   Object.assign(T, { root: null, stream: null, ac: null, analyser: null, raf: 0, ctrl: null });
+  if (T.opener && T.opener.isConnected && T.opener !== document.body) T.opener.focus({ preventScroll: true });
+  T.opener = null;
 }
 
-function onKey(e) { if (e.key === 'Escape' && !T.mini) setMini(true); } // Esc shrinks to the orb; End ends
+function onKey(e) {
+  if (e.key === 'Escape' && !T.mini) setMini(true); // Esc shrinks to the orb; End ends
+  else if (T.state === 'speaking' && !T.mini && isSpaceToInterrupt(e)) { e.preventDefault(); interrupt(); }
+}
 
 /* ---------- just the orb ---------- */
 
@@ -81,8 +96,8 @@ function setMini(on) {
     let pos = null;
     try { pos = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch { /* default */ }
     place(pos ? pos.x : innerWidth - 104, pos ? pos.y : innerHeight - 124);
-    orb.setAttribute('aria-label', 'J.A.R.V.I.S. (tap to open the conversation, drag to move)');
-    orb.title = 'J.A.R.V.I.S. · tap to open, drag to move';
+    orb.setAttribute('aria-label', 'Eden (tap to open the conversation, drag to move)');
+    orb.title = 'Eden · tap to open, drag to move';
   } else {
     T.root.style.removeProperty('left'); T.root.style.removeProperty('top');
     orb.title = '';
@@ -123,6 +138,9 @@ function setState(s, words) {
   if (!T.root) return;
   T.root.dataset.state = s;
   $('tutState').textContent = words;
+  // while he speaks, listen for you talking over him (barge-in.js)
+  if (s === 'speaking' && !T.watch && T.stream && !T.muted) T.watch = watchForInterrupt({ spoken: () => $('tutSays').textContent, onInterrupt: (heard) => { T.watch = null; interrupt(heard); } });
+  else if (s !== 'speaking') unwatch();
   if (!T.mini) $('tutOrb').setAttribute('aria-label', s === 'speaking' ? 'Interrupt' : s === 'listening' ? 'Listening' : 'Start talking');
 }
 
@@ -130,10 +148,10 @@ function setState(s, words) {
 
 async function orbTap() {
   if (T.mini) { if (!T.dragged) setMini(false); T.dragged = false; return; }
-  if (T.state === 'speaking') { stopSpeaking(); listen(); return; }
+  if (T.state === 'speaking') { interrupt(); return; }
   if (T.state === 'idle' || T.state === 'paused') {
     try { await mic(); } catch { setState('idle', 'Eden needs the microphone to talk. You can also type below.'); return; }
-    if (!T.greeted) { T.greeted = true; say($('tutSays').textContent); return; } // says hello, then listens
+    if (!T.greeted) { markGreeted(); say($('tutSays').textContent); return; } // says hello (once a session), then listens
     listen();
   }
 }
@@ -159,34 +177,45 @@ async function mic() {
     let m = 0; for (const v of buf) m += v * v; m = Math.sqrt(m / buf.length);
     T.out.getFloatTimeDomainData(obuf);
     let o = 0; for (const v of obuf) o += v * v; o = Math.sqrt(o / obuf.length);
-    if (T.state !== 'speaking') T.floor = T.floor * 0.995 + Math.min(m, 0.05) * 0.005; // the room
+    if (T.state !== 'speaking') { T.floor = T.floor * 0.995 + Math.min(m, 0.05) * 0.005; T.echo = 0.02; } // the room
+    else T.echo = T.echo * 0.98 + m * 0.02; // his voice leaking back through the echo cancelling
     T.level = m;
     const show = T.state === 'speaking' ? o * 6 : T.state === 'listening' && !T.muted ? m * 8 : 0;
     T.root.style.setProperty('--lvl', Math.min(1, show).toFixed(3));
-    // barge-in: your voice over J.A.R.V.I.S.'s, well above the room, for ~200 ms
-    if (T.state === 'speaking' && !T.muted && m > Math.max(0.05, T.floor * 5)) { if (++loud > 12) { loud = 0; stopSpeaking(); listen(); } } else loud = 0;
+    // barge-in by level: your voice over J.A.R.V.I.S.'s, well above the room and his echo, for ~150 ms
+    if (T.state === 'speaking' && !T.muted && m > Math.max(0.03, T.floor * 4, T.echo * 2.5)) { if (++loud > 9) { loud = 0; interrupt(); } } else loud = 0;
     if (T.recording) vad(m);
     T.raf = requestAnimationFrame(tick);
   };
   T.raf = requestAnimationFrame(tick);
 }
 
-function listen() {
+/** You talked over him (or tapped the orb, pressed Space, started typing): he stops and listens; `heard` starts your turn. */
+function interrupt(heard = '') {
+  if (!T.root || T.state !== 'speaking') return;
+  if (T.ctrl) T.ctrl.abort(); // the rest of his answer isn't wanted any more
+  T.streaming = false;
+  stopSpeaking();
+  listen(heard);
+}
+function unwatch() { if (T.watch) { const w = T.watch; T.watch = null; w(); } }
+
+function listen(seed = '') {
   if (!T.root || T.state === 'closed') return;
-  T.heard = '';
-  $('tutYou').textContent = '';
+  T.heard = seed;
+  $('tutYou').textContent = seed;
   if (T.muted) { setState('paused', 'Mic muted. Type below, or unmute to talk.'); return; }
   setState('listening', 'Listening…');
   const R = Recognition();
-  if (R && !T.noRecognition) recognize(R); else record();
+  if (R && !T.noRecognition) recognize(R, seed); else record();
 }
 
-function recognize(R) {
+function recognize(R, seed = '') {
   const rec = new R();
-  rec.lang = navigator.language || 'en-US';
+  rec.lang = speechLang();
   rec.continuous = true;
   rec.interimResults = true;
-  let finalText = '';
+  let finalText = seed ? `${seed} ` : ''; // what you'd already said over him comes first
   let timer = 0;
   const commit = () => { const t = (finalText || T.heard).trim(); stopListening(); if (t) turn(t); else listen(); };
   rec.onresult = (e) => {
@@ -209,6 +238,7 @@ function recognize(R) {
   T.rec = rec;
   T.recTimer = () => clearTimeout(timer);
   try { rec.start(); } catch { /* already */ }
+  if (seed) timer = setTimeout(commit, PAUSE_MS); // you may have said it all while he was talking
 }
 
 /* where there's no recognition: record, and let the server transcribe each pause */
@@ -237,7 +267,7 @@ function vad(m) {
   const r = T.recording;
   if (!r || T.state !== 'listening') return;
   const now = performance.now();
-  if (m > Math.max(0.03, T.floor * 3)) { r.spoke = true; r.quietSince = 0; $('tutYou').textContent = 'Listening…'; }
+  if (m > Math.max(0.03, T.floor * 3)) { r.spoke = true; r.quietSince = 0; $('tutYou').textContent = t('Listening…'); }
   else if (r.spoke) {
     if (!r.quietSince) r.quietSince = now;
     if (now - r.quietSince > PAUSE_MS + 200) { setState('transcribing', 'One moment…'); r.rec.stop(); }
@@ -263,6 +293,7 @@ function toggleMute() {
 
 async function turn(text) {
   if (!T.root) return;
+  if (!T.greeted) markGreeted(); // typed straight away: no hello needed after this
   if (!T.ac) T.ac = new (window.AudioContext || window.webkitAudioContext)();
   if (T.ac.state === 'suspended') T.ac.resume().catch(() => {});
   $('tutYou').textContent = text;
@@ -270,7 +301,7 @@ async function turn(text) {
   $('tutSrc').replaceChildren();
   setState('thinking', 'Thinking…');
   const history = T.history.slice(-12);
-  T.ctrl = new AbortController();
+  const ctrl = T.ctrl = new AbortController();
   let answer = '', sentTo = 0, grounding = null, error = null;
   // The voice gets whole sentences, two or three at a time, cut only where a sentence has really
   // ended (its full stop followed by the next sentence's first letter), in the answer as written.
@@ -293,8 +324,8 @@ async function turn(text) {
   };
   T.streaming = true;
   try {
-    await api.send({ messages: [...history, { role: 'user', content: text }], course: T.course.id, courseTask: 'tutor', temporary: true, mode: 'chat' }, {
-      signal: T.ctrl.signal,
+    await api.send({ messages: [...history, { role: 'user', content: text }], course: T.course.id, courseTask: 'tutor', ...(replyLanguageNote() ? { system: replyLanguageNote() } : {}), temporary: true, mode: 'chat' }, {
+      signal: ctrl.signal,
       onEvent: (type, d) => {
         if (type === 'text') { answer += d.text || ''; $('tutSays').textContent = speechText(stripSources(answer)); speakMore(false); }
         else if (type === 'grounding') grounding = d;
@@ -302,14 +333,18 @@ async function turn(text) {
       },
     });
   } catch (e) { if (e.name !== 'AbortError') error = e.message; }
-  T.streaming = false;
-  if (!T.root || T.ctrl.signal.aborted) return;
-  if (error && !answer) { setState('paused', error); $('tutSays').textContent = 'Sorry, I lost that. Say it again?'; say('Sorry, I lost that. Could you say it again?'); return; }
+  if (T.ctrl === ctrl) T.streaming = false;
+  if (!T.root) return;
+  if (ctrl.signal.aborted) { // interrupted: keep what he got to say, so the next turn follows on
+    if (answer) T.history.push({ role: 'user', content: text }, { role: 'assistant', content: `${stripSources(answer)} [interrupted]` });
+    return;
+  }
+  if (error && !answer) { setState('paused', error); $('tutSays').textContent = t('Sorry, I lost that. Say it again?'); say(t('Sorry, I lost that. Could you say it again?')); return; }
   speakMore(true);
   if (grounding && grounding.sources && grounding.sources.length) $('tutSrc').replaceChildren(groundingStrip(grounding, T.course.id));
   T.history.push({ role: 'user', content: text }, { role: 'assistant', content: stripSources(answer) });
   if (T.chat && T.save) {
-    T.chat.messages.push({ role: 'user', text }, { role: 'assistant', text: answer, grounding, meta: 'Spoken with J.A.R.V.I.S.' });
+    T.chat.messages.push({ role: 'user', text }, { role: 'assistant', text: answer, grounding, meta: 'Spoken with Eden' });
     T.chat.updated = Date.now();
     T.save(T.chat);
   }
@@ -328,13 +363,13 @@ function say(text) {
   const job = { text, chunks: [], done: false, failed: false, wake: null };
   job.p = streamClip(job);
   T.queue.push(job);
-  if (T.state !== 'speaking' && T.state !== 'closed') setState('speaking', 'Speaking · talk to interrupt');
+  if (T.state !== 'speaking' && T.state !== 'closed') setState('speaking', 'Speaking · talk over me, or press Space, to interrupt');
   pump();
 }
 async function streamClip(job) {
   try {
     if (T.noVoice) throw new Error('no voice');
-    const res = await fetch(apiUrl('/api/chat/voice'), { method: 'POST', headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: JSON.stringify({ text: job.text, format: 'pcm' }), signal: (T.voiceCtrl = T.voiceCtrl || new AbortController()).signal });
+    const res = await fetch(apiUrl('/api/chat/voice'), { method: 'POST', headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: JSON.stringify({ text: job.text, format: 'pcm', ...(T.course ? { course: T.course.id, ...(usesOwn(T.course.id) ? { eduOwn: true } : {}) } : {}) }), signal: (T.voiceCtrl = T.voiceCtrl || new AbortController()).signal });
     if (!res.ok || !res.body) { if ([402, 429, 503].includes(res.status)) T.noVoice = true; throw new Error('voice'); }
     const reader = res.body.getReader();
     let carry = null; // an odd byte left over between network chunks
@@ -393,8 +428,12 @@ async function pump() {
   if (job.failed && !job.chunks.length) { // no J.A.R.V.I.S. voice: the browser's own reads this phrase
     if (!window.speechSynthesis) { done(); return; }
     const u = new SpeechSynthesisUtterance(job.text);
-    const v = speechSynthesis.getVoices().find((x) => /en-GB/i.test(x.lang) && /daniel|arthur|male|google uk/i.test(x.name)) || speechSynthesis.getVoices().find((x) => /en-GB/i.test(x.lang));
+    const voices = speechSynthesis.getVoices();
+    const v = isFr // in French: a French voice (France, then Canada), a male one if there is
+      ? voices.find((x) => /^fr[-_]FR/i.test(x.lang) && /thomas|nicolas|male|google fran/i.test(x.name)) || voices.find((x) => /^fr[-_]FR/i.test(x.lang)) || voices.find((x) => /^fr[-_]CA/i.test(x.lang)) || voices.find((x) => /^fr\b/i.test(x.lang))
+      : voices.find((x) => /en-GB/i.test(x.lang) && /daniel|arthur|male|google uk/i.test(x.name)) || voices.find((x) => /en-GB/i.test(x.lang));
     if (v) u.voice = v;
+    u.lang = v ? v.lang : speechLang();
     u.rate = 1.03;
     u.onend = done; u.onerror = done;
     speechSynthesis.speak(u);

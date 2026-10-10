@@ -7,6 +7,10 @@
 // its full destination and an image becomes a click-to-load placeholder (button.g-img).
 
 import { el, ico } from './util.js';
+// The chrome's words (Copy, Open in canvas…) in the page's language; a reply's own words sit in .md and are never
+// translated. Loaded lazily (not a static import) so the tests that load this file alone still can.
+let t = (s) => s;
+import('./i18n.js').then((m) => { if (m && typeof m.t === 'function') t = m.t; }).catch(() => { /* alone (tests): English */ });
 
 // a fence opener: ``` or ~~~ then an info string (a backtick fence's has no backticks).
 // Parsed in two steps, not one regex with overlapping quantifiers: a long line with a stray
@@ -191,10 +195,10 @@ function codeBlock(lang, code, opts, closed) {
   const head = el('div', 'cb-head');
   head.append(el('span', 'lang', lang || 'text'));
   if (!opts.noCanvas) {
-    if (CANVAS_LANGS.has(lang)) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'canvas', title: 'Open in canvas' }, ico('art'), 'Open in canvas'));
-    else if (code.replace(/\n+$/, '').split('\n').length >= 4) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'codeview', title: 'Open in canvas: edit and run it' }, ico('code'), 'Open in canvas'));
+    if (CANVAS_LANGS.has(lang)) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'canvas', title: t('Open in canvas') }, ico('art'), t('Open in canvas')));
+    else if (code.replace(/\n+$/, '').split('\n').length >= 4) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'codeview', title: t('Open in canvas: edit and run it') }, ico('code'), t('Open in canvas')));
   }
-  head.append(el('button', { type: 'button', 'data-act': 'copy-code', title: 'Copy code', 'aria-label': `Copy ${lang || ''} code` }, ico('copy'), 'Copy'));
+  head.append(el('button', { type: 'button', 'data-act': 'copy-code', title: t('Copy code'), 'aria-label': t(`Copy ${lang || ''} code`) }, ico('copy'), t('Copy')));
   const pre = el('pre');
   const c = el('code', lang ? `language-${lang.replace(/[^\w-]/g, '')}` : '');
   c.textContent = code;
@@ -240,11 +244,11 @@ function link(href, kids, out, opts = {}, image = false) {
 
 /** An image from a reply that read untrusted content: not loaded; a click shows where it is (guard.js). */
 function heldImage(kids, url) {
-  const alt = kids.map((k) => k.textContent).join('').trim() || 'Image';
+  const alt = kids.map((k) => k.textContent).join('').trim() || t('Image');
   let host = url;
   try { host = new URL(url).hostname; } catch { /* keep the URL */ }
-  return el('button', { type: 'button', class: 'g-img', 'data-url': url, title: url, 'aria-expanded': 'false', 'aria-label': `Image “${alt}” from ${host}, not loaded. Show where it is.` },
-    ico('art', 14), el('span', 'g-img-t', alt), el('span', 'g-img-h', `${host} · not loaded`));
+  return el('button', { type: 'button', class: 'g-img', 'data-url': url, title: url, 'aria-expanded': 'false', 'aria-label': t(`Image “${alt}” from ${host}, not loaded. Show where it is.`) },
+    ico('art', 14), el('span', 'g-img-t', alt), el('span', 'g-img-h', t(`${host} · not loaded`)));
 }
 
 export function inline(text, out, opts = {}) {
@@ -275,7 +279,7 @@ export function inline(text, out, opts = {}) {
     else if (m[12] !== undefined) {
       const n = Number(m[12]);
       const src = opts.sources && opts.sources[n - 1];
-      if (src) out.append(el('sup', { class: 'cite', tabindex: '0', role: 'button', 'data-cite': String(n), 'aria-label': `Source ${n}: ${src.title || src.url}` }, String(n)));
+      if (src) out.append(el('sup', { class: 'cite', tabindex: '0', role: 'button', 'data-cite': String(n), 'aria-label': t(`Source ${n}: ${src.title || src.url}`) }, String(n)));
       else out.append(document.createTextNode(m[0]));
     } else if (m[13] !== undefined) out.append(document.createTextNode(m[13]));
     else out.append(el('br'));

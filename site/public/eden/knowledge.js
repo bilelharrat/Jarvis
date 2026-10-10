@@ -10,6 +10,7 @@ import { el, ico, toast, store } from './util.js';
 import { state, ui, newConversation, addConversation } from './state.js';
 import { api } from './api.js';
 import { openPane, paneOpen, closePane, macEvent } from './files.js';
+import { t } from './i18n.js';
 
 const KEY = 'eden:knowledge'; // { "<project path>": ["<folder id>", …] }
 let H = {};
@@ -84,7 +85,7 @@ export async function openKnowledge() {
   const folders = found.folders || [];
   const rows = folders.map((f) => el('div', 'mac-kfolder',
     ico('folder', 15),
-    el('span', 'mac-fbody', el('span', 'mac-fname', f.name), el('span', 'mac-fmeta mono', f.display), el('span', `mac-kstat ${f.status}`, statusText(f))),
+    el('span', 'mac-fbody', el('span', { class: 'mac-fname', 'data-no-i18n': '' }, f.name), el('span', { class: 'mac-fmeta mono', 'data-no-i18n': '' }, f.display), el('span', `mac-kstat ${f.status}`, statusText(f))),
     f.status === 'indexing' ? null : el('button', { type: 'button', class: 'cap', title: 'Index it again', onclick: async () => { try { await call('knowledge_add_folder', { path: f.path }); openKnowledge(); } catch (e) { toast(e.message); } } }, ico('retry', 12), 'Update')));
   list.replaceChildren(...(rows.length ? rows : [el('div', 'muted', 'No folders yet: type one above (inside the folders Eden may read on your Mac).')]));
   // Projects: which folders each one searches.
@@ -104,10 +105,10 @@ export async function openKnowledge() {
           if (H.renderSidebar) H.renderSidebar();
           if (H.renderComposer) H.renderComposer();
         });
-        return el('label', 'mac-attach', box, el('span', '', f.name));
+        return el('label', 'mac-attach', box, el('span', { 'data-no-i18n': '' }, f.name));
       });
       body.append(el('div', 'mac-proj',
-        el('div', 'mac-proj-head', ico('folder', 14), el('b', '', p.name),
+        el('div', 'mac-proj-head', ico('folder', 14), el('b', { 'data-no-i18n': '' }, p.name),
           el('button', { type: 'button', class: 'cap', title: `A chat that searches ${p.name}’s knowledge`, onclick: () => newProjectChat(p) }, ico('chat', 12), 'New chat')),
         el('div', 'mac-attaches', ...boxes)));
     }
@@ -118,7 +119,7 @@ export async function openKnowledge() {
 function newProjectChat(project) {
   if (!projectKnowledge({ project }).length) { toast(`Attach a folder to ${project.name} first`); return; }
   const c = newConversation({ project: { path: project.path, name: project.name, branch: project.branch || '' } });
-  c.title = `${project.name} · knowledge`;
+  c.title = `${project.name} · ${t('knowledge')}`;
   addConversation(c);
   closePane();
   H.switchTo(c);

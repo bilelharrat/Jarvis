@@ -5,16 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Eden · askeden.com</title>
-<meta name="description" content="Eden: one chat that sends each question to the model best at it, and reaches your computer through J.A.R.V.I.S. Apps for Mac and Windows, and J.A.R.V.I.S. Daredevil for people who are blind or have low vision.">
+<meta name="description" content="Eden: one chat that sends each question to the model best at it, and reaches your computer through J.A.R.V.I.S. Apps for Mac and Windows.">
 <link rel="icon" type="image/svg+xml" href="/jarvis/eden-logo.svg">
 <link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
 <link rel="stylesheet" href="/home/home.css">
+<script src="/lang/site-i18n.js" data-page="home"></script>
+<script src="/home/features.js" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to the main content</a>
 <header class="top">
   <a class="brand" href="/" aria-label="Eden, askeden.com"><span class="orb" aria-hidden="true"></span><span>Eden</span></a>
-  <nav aria-label="Site"><a href="#get">Download</a><a href="#pricing">Pricing</a><a class="pill" href="/signin">Sign in</a></nav>
+  <nav aria-label="Site"><a href="#features">Features</a><a href="#get">Download</a><a href="#pricing">Pricing</a><a class="pill" href="/signin">Sign in</a></nav>
 </header>
 
 <main id="main">
@@ -30,8 +32,80 @@
     <p class="fine">Sign in with Apple, Google or a passkey. One account for the web and the apps.</p>
   </section>
 
-  <!-- Downloads. The addresses are the Worker's own (src/worker.js: /download/mac, /download/windows,
-       /daredevil/windows); no script and no inline style here (the page's policy allows neither). -->
+  <!-- Eden in six short films, each in the part of the page it belongs to (muted, playing while it is on screen; the buttons are sound and pause).
+       The films are public/jarvis/walk-N.mp4 (1280x720, ~7 MB each, index first); without the script the browser's own controls show.
+       features.js is the page's only script besides the language one (the page's policy allows scripts from this site, no inline script and no inline style). -->
+  <div class="features" id="features">
+    <section class="feature" id="f-ask" aria-labelledby="f-ask-h">
+      <p class="kicker">Ask Eden anything</p>
+      <h2 id="f-ask-h">The right AI for every question.</h2>
+      <p class="sub">Eden shows its pick before you send: the model, the effort, the price and the time. Then every reply shows what it cost.</p>
+      <figure class="fvid">
+        <video class="fv" src="/jarvis/walk-1.mp4" poster="/jarvis/walk-1.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Ask Eden anything: Eden picks the model, shows its price and time before you send, and sends a draft straight to Mail. A 25-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+      </figure>
+    </section>
+    <!-- Accuracy: /accuracy's "All 432" chart as a film like the others (public/jarvis/walk-7.mp4: bars grow and count up, EVES's row last, with the glass EVES pill).
+         The same numbers as /accuracy, in words for a screen reader and for search. -->
+    <section class="feature" id="f-accuracy" aria-labelledby="f-accuracy-h">
+      <p class="kicker">Accuracy</p>
+      <h2 id="f-accuracy-h">Fewer made-up answers.</h2>
+      <p class="sub">We asked EVES, our fact-checker, and three leading AI models the same 432 factual questions. EVES made something up the least often.</p>
+      <figure class="fvid">
+        <video class="fv" src="/jarvis/walk-7.mp4" poster="/jarvis/walk-7.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-describedby="f-accuracy-what" aria-label="A chart film: how often EVES and three AI models made something up on 432 factual questions. A 13-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+      </figure>
+      <p class="sr" id="f-accuracy-what">How often each one made something up on 432 factual questions, lower is better: EVES 9.7% (95% interval 7.3% to 12.9%), Gemini 3.1 Pro (preview) 18.3% (14.9% to 22.2%), Gemini 3.8 Flash 21.8% (18.1% to 25.9%), Claude Sonnet 5.5 24.5% (20.7% to 28.8%). EVES checks the web when needed and says when it isn’t sure; the models answered directly from memory. October 2026.</p>
+      <a class="btn" href="/accuracy">Learn more<span class="sr"> about how we measured it</span></a>
+    </section>
+    <section class="feature" id="f-several" aria-labelledby="f-several-h">
+      <p class="kicker">Several models</p>
+      <h2 id="f-several-h">Ask several. Get one checked answer.</h2>
+      <p class="sub">Compare models side by side, and let EVES check the facts they disagree on.</p>
+      <figure class="fvid">
+        <video class="fv" src="/jarvis/walk-2.mp4" poster="/jarvis/walk-2.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Several models answer side by side and EVES checks the facts they disagree on. A 23-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+      </figure>
+    </section>
+    <section class="feature" id="f-mac" aria-labelledby="f-mac-h">
+      <p class="kicker">Your Mac</p>
+      <h2 id="f-mac-h">Your Mac, in reach.</h2>
+      <p class="sub">Eden can search your files and look at your screen. It asks first. Eden Code works inside your projects and asks before it runs anything.</p>
+      <figure class="fvid">
+        <video class="fv" src="/jarvis/walk-3.mp4" poster="/jarvis/walk-3.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Eden searches your Mac, looks at your screen and runs tasks, always asking first; Eden Code asks before it runs a command. A 23-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+      </figure>
+    </section>
+    <section class="feature" id="f-mail" aria-labelledby="f-mail-h">
+      <p class="kicker">Mail</p>
+      <h2 id="f-mail-h">Email, written with you.</h2>
+      <p class="sub">Eden learns how you write and drafts replies ahead of time. It drafts and rewrites. It never sends.</p>
+      <figure class="fvid">
+        <video class="fv" src="/jarvis/walk-4.mp4" poster="/jarvis/walk-4.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Eden Mail: replies drafted in your style, recipients, attachments and scheduled sending. A 23-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+      </figure>
+    </section>
+    <section class="feature" id="f-privacy" aria-labelledby="f-privacy-h">
+      <p class="kicker">Privacy</p>
+      <h2 id="f-privacy-h">Your chats. Your call.</h2>
+      <p class="sub">Keep a sensitive chat on your Mac, see where every reply ran, and get warned when an email hides instructions for AI. Undo what Eden did.</p>
+      <figure class="fvid">
+        <video class="fv" src="/jarvis/walk-5.mp4" poster="/jarvis/walk-5.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Keep a chat on your Mac, see where each reply ran, catch hidden instructions in email, and undo what Eden did. A 23-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+      </figure>
+    </section>
+    <section class="feature" id="f-voice" aria-labelledby="f-voice-h">
+      <p class="kicker">Voice</p>
+      <h2 id="f-voice-h">Just say it.</h2>
+      <p class="sub">Dictate, or talk hands-free and hear Eden answer. Collapse it to a sphere while you work.</p>
+      <figure class="fvid">
+        <video class="fv" src="/jarvis/walk-6.mp4" poster="/jarvis/walk-6.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Talk to Eden hands-free and hear it answer out loud, then collapse it to a floating sphere. A 21-second film."></video>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+      </figure>
+    </section>
+  </div>
+
+  <!-- Downloads. The addresses are the Worker's own (src/worker.js: /download/mac, /download/windows); no inline script and no inline style here (the page's policy allows neither). -->
   <section class="get" id="get" aria-labelledby="getH">
     <h2 id="getH">Get Ask Eden</h2>
     <p class="sub">Eden in a window of its own on your computer, with the tray icon and the quick chat.</p>
@@ -45,28 +119,10 @@
         <span class="dltxt"><b>Download for Windows<span class="sr">: Ask Eden</span></b><span>Windows 10 or 11 · 64-bit</span></span>
       </a>
     </div>
+    <p class="by">Ask Eden by Harrat Global Holdings, Inc.</p>
     <p class="fine">Ask Eden is a beta and isn't signed yet. On a Mac, the first time, Control-click it and choose Open. On Windows: If Edge says the file “isn’t commonly downloaded”, choose the three dots, then Keep, then Keep anyway. If Windows says “Windows protected your PC”, choose More info, then Run anyway. (Microsoft asks this about every program that isn’t signed yet; it is not a virus warning.)</p>
   </section>
 
-  <!-- J.A.R.V.I.S. Daredevil: its own slot, in its own colours (yellow on black, as the app is). Windows only. -->
-  <section class="dd" id="daredevil" aria-labelledby="ddH">
-    <p class="dd-kicker">For Windows · beta</p>
-    <h2 id="ddH">J.A.R.V.I.S. Daredevil</h2>
-    <p class="dd-lede">J.A.R.V.I.S. for people who are blind or have low vision. Talk to it, or use only the keyboard. It works with NVDA, JAWS and Narrator, and shows large yellow type on black.</p>
-    <ul class="dd-list">
-      <li>Reads your email and writes it as you dictate, in Outlook, in your own signature and font. You can say the punctuation.</li>
-      <li>Reads documents, PDFs, scans and photos aloud, a part at a time, and describes pictures.</li>
-      <li>Tells you when email that matters arrives. Calendar, reminders and your files, by voice.</li>
-    </ul>
-    <div class="dd-actions">
-      <a class="dd-btn" href="/daredevil/windows" download>
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.6 10.4 4.5v7H3zM11.5 4.35 21 3v8.5h-9.5zM3 12.5h7.4v7L3 18.4zM11.5 12.5H21V21l-9.5-1.35z"/></svg>
-        Download J.A.R.V.I.S. Daredevil for Windows
-      </a>
-      <a class="dd-more" href="/daredevil">How it works, and the quick-start guide</a>
-    </div>
-    <p class="dd-fine">Windows 10 or 11, 64-bit. Its own installer: it opens in screen-reader mode every time. A beta, not signed yet. If Edge says the file “isn’t commonly downloaded”, choose the three dots, then Keep, then Keep anyway. If Windows says “Windows protected your PC”, choose More info, then Run anyway. (Microsoft asks this about every program that isn’t signed yet; it is not a virus warning.)</p>
-  </section>
 
   <a class="apps" href="/download">
     <span class="icons" aria-hidden="true"><img src="/jarvis/eden-code.png" alt="" width="44" height="44"><img src="/jarvis/icon.png" alt="" width="44" height="44"></span>
@@ -130,8 +186,8 @@
 </main>
 
 <footer>
-  <span>© 2026 Eden</span>
-  <nav aria-label="Legal and help"><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+  <span>© 2026 Harrat Global Holdings, Inc.</span>
+  <nav aria-label="Legal and help"><a href="/accuracy">Accuracy</a><a href="/help">Help</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span data-lang-switch></span></nav>
 </footer>
 </body>
 </html>

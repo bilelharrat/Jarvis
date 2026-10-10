@@ -94,6 +94,9 @@ class Prefs:
     humor: int = 60
     address: str = ""
     voice_effect: bool = True
+    # The boot-up sound as the window opens (app/loading.js; app/main.js reads it from prefs.json
+    # before the window shows). Settings › General, and the walkthrough's "Boot-up sound" card.
+    boot_sound: bool = True
     mic: str = "builtin"  # builtin | default
     hands_free: bool = True
     # Two claps (heard while hands-free listens) turn hand control on. It heard everyday
@@ -340,6 +343,7 @@ def _clean(name: str, value: Any) -> Any:
         "pay_enabled",
         "type_codes",
         "clap_hands",
+        "boot_sound",
         "desktop_hands",
         "wake_call",
         "line_booking",

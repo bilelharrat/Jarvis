@@ -303,3 +303,32 @@ u.cw-glyph{text-underline-offset:2px}
   .cw,.cw-rv,.cw-pop,.cw-sug,.cw-pill{background:#f2f2f7}
   [data-theme="dark"] .cw,[data-theme="dark"] .cw-rv,[data-theme="dark"] .cw-pop,[data-theme="dark"] .cw-sug,[data-theme="dark"] .cw-pill{background:#2c2c2e}
 }
+
+/* snippets (type ;name, or the ; button) and follow-up reminders */
+.cw-snipb .cw-glyph{font-weight:800;font-size:15px}
+.cw-snip-hint{position:sticky;bottom:8px;align-self:flex-end;margin-right:10px;z-index:3;padding:4px 10px;border-radius:999px;font-size:11.5px;color:var(--text2);pointer-events:none}
+.cw-snips{display:flex;flex-direction:column;gap:4px;min-width:260px;max-width:340px}
+.cw-snip-q{margin:2px 2px 4px;font-size:13px}
+.cw-snip-list{max-height:240px;overflow:auto}
+.cw-snip-it{flex-direction:column;align-items:flex-start;gap:1px}
+.cw-snip-t{font-size:11.5px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}
+.cw-fu{font-size:12.5px;max-width:100%}
+.cw-rcpt{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+/* "Doesn't sound like me" */
+.cw-notme{display:flex;flex-direction:column;gap:8px;max-width:360px}
+.cw-notme-chips{display:flex;flex-wrap:wrap;gap:6px}
+.cw-notme-chips .cw-chipb.on{background:var(--accent);color:#fff}
+.cw-notme-in{font-size:13px}
+/* fact-checked before sending (ROADMAP P2) */
+.cw-checks{margin:8px 0;padding:10px 12px;border-radius:12px;background:rgba(120,120,128,.08);font-size:13px}
+.cw-ck-h{display:flex;align-items:center;gap:8px;font-weight:600}
+.cw-ck-spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--accent-soft);border-top-color:var(--accent);animation:mxspin .8s linear infinite;flex:none}
+.cw-ck-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.cw-ck-list li{padding:7px 9px;border-radius:9px;background:var(--content);box-shadow:inset 3px 0 0 #ff9f0a}
+.cw-ck-list li.cw-ck-info{box-shadow:inset 3px 0 0 var(--accent)}
+.cw-ck-list q{font-style:italic;color:var(--text2)}
+.cw-ck-fix{display:flex;align-items:center;gap:8px;margin-top:4px;color:var(--text2);font-size:12px}
+.cw-ck-fix span{flex:1}
+.cw-times{display:flex;flex-direction:column;gap:8px;max-width:320px}
+.cw-ask-mic{flex:none;width:28px;height:28px;border-radius:50%;font-size:14px;line-height:28px;text-align:center}
+.cw-ask-mic.on{background:var(--danger, #ff3b30);color:#fff;animation:mxspin 0s}

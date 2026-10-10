@@ -31,7 +31,7 @@ export const SPACES = { members: 20, convs: 200, convChars: 700_000, totalChars:
 export const LEVELS = [1, 2, 3, 4, 5];
 const ID = /^[A-Za-z0-9_-]{22}$/;
 const CONV = /^[A-Za-z0-9_-]{1,40}$/;
-const KINDS = new Set(['conv', 'workflow']); // what a sealed item is, so the page can list each apart
+const KINDS = new Set(['conv', 'workflow', 'mail']); // what a sealed item is, so the page can list each apart
 const B64 = /^[A-Za-z0-9+/=]+$/;
 const PUBLIC_CHARS = { x25519: 44, p256: 88 };
 
@@ -326,7 +326,7 @@ export class Space {
 
   async convPut(me, { id, data, meta = null, base_rev, kind = 'conv' }) {
     if (!CONV.test(String(id))) throw bad('A shared conversation id is up to 40 of A–Z a–z 0–9 _ -');
-    if (!KINDS.has(kind)) throw bad('kind is "conv" or "workflow".');
+    if (!KINDS.has(kind)) throw bad('kind is "conv", "workflow" or "mail".');
     if (typeof data !== 'string' || !data || !B64.test(data)) throw bad('data must be sealed base64.');
     // Its title, sealed too (so the list can show it without fetching every conversation).
     if (meta !== null && (typeof meta !== 'string' || meta.length > 2000 || !B64.test(meta))) throw bad('meta must be sealed base64 (at most 2000 characters).');

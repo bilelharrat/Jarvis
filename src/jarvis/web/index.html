@@ -194,7 +194,7 @@
     <p class="group-note">Jarvis shows, speaks and listens in the language you pick.</p>
   </section>
 
-  <section class="group" data-settings-pane="general" data-keywords="theme appearance dark mode light mode skin style colors weather location">
+  <section class="group" data-settings-pane="general" data-keywords="theme appearance dark mode light mode skin style colors weather location boot startup sound">
     <h3>Look</h3>
     <div class="segmented" id="look-group" role="radiogroup" aria-label="Look">
       <button type="button" role="radio" data-look="orb" aria-checked="true">Ambient Orb</button>
@@ -210,6 +210,7 @@
       </div>
       <p class="group-note">Stark Glass at night, or in white. Match Mac follows your Mac’s appearance.</p>
     </div>
+    <div class="row"><span><strong>Boot-up sound</strong><small>A short sound as the app opens</small></span><button type="button" class="switch" role="switch" id="sw-boot-sound" aria-checked="true" aria-label="Boot-up sound"></button></div>
     <div class="row"><span><strong>Use my location</strong><small>For local weather and live traffic times. Stays on this Mac until you ask about it.</small></span><button type="button" class="switch" role="switch" id="sw-location" aria-checked="true" aria-label="Use my location"></button></div>
     <label class="row stack" for="weather-city"><span><strong>Weather city</strong><small>Used when location is off, e.g. Lisbon</small></span>
       <input type="text" id="weather-city" maxlength="80" placeholder="Your city"></label>

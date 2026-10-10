@@ -67,3 +67,13 @@ export function autoSearchMode({ text, mode = 'chat', enabled = true, temp = fal
   if (mode !== 'chat' || enabled === false || temp || privacy || pinnedChat || hasImages || !searchAvailable || override) return mode;
   return needsCurrentInfo(text) ? 'search' : mode;
 }
+
+/**
+ * The fact-check switches in Settings › Routing (ROADMAP N19) as the send body's settings: both are on by default on the
+ * server, so only a switch the person turned off is sent (`premiseCheck: false`: no check of the question's assumptions;
+ * `answerCheck: false`: no web double-check of answers that didn't use the web). Anything but `false` means on.
+ */
+export function factCheckSettings(settings) {
+  const s = settings && typeof settings === 'object' ? settings : {};
+  return { ...(s.premiseCheck === false ? { premiseCheck: false } : {}), ...(s.answerCheck === false ? { answerCheck: false } : {}) };
+}

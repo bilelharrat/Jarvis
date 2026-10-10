@@ -10,6 +10,13 @@
 //                a copy-protected (DRM) book can't be read and says so
 //
 // Scanned PDFs (pictures of pages) have no text to read: the result is empty and the page says so.
+//
+// Figures (ROADMAP Q6, figures.js): `figures` lists the pages and slides with pictures, charts,
+// diagrams or equations, for courses.js to have described (figureImages() gives their pictures).
+// A slide's charts, SmartArt diagrams and equations are read from the file itself, free, into
+// its text under "[Figure description]"; its pictures need the AI.
+
+import { opStats, pageReason, commonImages, slideRels, slideFigures, chartText, diagramText, commonMedia, mergeFigures } from './figures.js';
 
 const PART = 2000;
 
@@ -26,11 +33,8 @@ export async function extractFile(file) {
   if (kind === 'pdf') return { kind, ...(await pdfParts(bytes)) };
   if (kind === 'text') return { kind, parts: chunk(new TextDecoder().decode(bytes).split(/\n\s*\n/)) };
   if (kind === 'epub') return { kind, parts: await epubParts(bytes) };
-  const zip = await unzip(bytes);
-  if (kind === 'slides') {
-    const slides = [...zip.keys()].map((k) => /^ppt\/slides\/slide(\d+)\.xml$/.exec(k)).filter(Boolean).sort((a, b) => a[1] - b[1]);
-    return { kind, parts: slides.map((m) => ({ loc: `slide ${m[1]}`, text: xmlText(zip.get(m[0]), 'a:p', 'a:t') })).filter((p) => p.text) };
-  }
+  const zip = await unzip(bytes, kind === 'slides' ? (n) => /^ppt\/(slides\/(_rels\/)?slide\d+\.xml(\.rels)?|charts\/chart\d+\.xml|diagrams\/data\d+\.xml)$/.test(n) : undefined);
+  if (kind === 'slides') return { kind, ...slideParts(zip) };
   const doc = zip.get('word/document.xml');
   if (!doc) throw new Error('That Word file couldn’t be read.');
   return { kind, parts: chunk(xmlText(doc, 'w:p', 'w:t').split('\n')) };
@@ -38,7 +42,7 @@ export async function extractFile(file) {
 
 /** A zip without its central directory (a file cut off at the end, which Apple Books still opens):
  * each local entry read in turn from its own header; one that's itself cut off ends the list. */
-async function scanLocal(bytes, want) {
+async function scanLocal(bytes, want, rawName = () => false) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const names = new TextDecoder();
   const out = new Map();
@@ -62,7 +66,7 @@ async function scanLocal(bytes, want) {
       const data = bytes.subarray(start, end);
       try {
         const raw = method === 0 ? data : method === 8 ? new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : null;
-        if (raw) out.set(name, new TextDecoder().decode(raw));
+        if (raw) out.set(name, rawName(name) ? raw : new TextDecoder().decode(raw));
       } catch { /* a damaged entry: skip it */ }
     }
     if (flags & 8 && !size) { const n = nextSig(end); if (n < 0) break; at = n; } else at = end + (flags & 8 ? (view.getUint32(end, true) === 0x08074b50 ? 16 : 12) : 0);
@@ -133,15 +137,52 @@ async function pdfParts(bytes) {
   const pdf = await pdfjs.getDocument({ data: bytes, isEvalSupported: false }).promise;
   const parts = [];
   const scanned = []; // pages with (almost) no text: pictures of pages, for scannedParts()
+  const drawn = []; // what each page with text draws, for its figures (a very long book is skipped: slow, and rarely figures)
+  const look = pdf.numPages <= FIGURE_PAGES;
   for (let n = 1; n <= pdf.numPages; n++) {
     const page = await pdf.getPage(n);
     const content = await page.getTextContent();
     const text = content.items.map((it) => it.str + (it.hasEOL ? '\n' : ' ')).join('').replace(/[ \t]+/g, ' ').trim();
-    if (text.length >= 20) parts.push({ loc: `page ${n}`, text });
-    else scanned.push(n);
+    if (text.length >= 20) {
+      parts.push({ loc: `page ${n}`, text });
+      if (look) {
+        try {
+          const ops = await page.getOperatorList();
+          const [x0, y0, x1, y1] = page.view;
+          drawn.push({ n, text, ...opStats(ops.fnArray, ops.argsArray, pdfjs.OPS, Math.abs((x1 - x0) * (y1 - y0))) });
+        } catch { /* a page pdf.js can't draw: no figures from it */ }
+      }
+    } else scanned.push(n);
+    page.cleanup();
   }
   await pdf.destroy();
-  return { parts, scanned };
+  const common = commonImages(drawn);
+  const figures = drawn.map((d) => ({ loc: `page ${d.n}`, page: d.n, why: pageReason(d, common) })).filter((f) => f.why);
+  return { parts, scanned, figures };
+}
+
+const FIGURE_PAGES = 600;
+
+/** A deck's slides: each one's text, plus what its charts, diagrams and equations say (free), and the
+ * slides with pictures for the AI to describe. */
+function slideParts(zip) {
+  const slides = [...zip.keys()].map((k) => /^ppt\/slides\/slide(\d+)\.xml$/.exec(k)).filter(Boolean).sort((a, b) => a[1] - b[1]);
+  const read = slides.map((m) => {
+    const xml = zip.get(m[0]);
+    const figs = slideFigures(xml, slideRels(zip.get(`ppt/slides/_rels/slide${m[1]}.xml.rels`)));
+    return { loc: `slide ${m[1]}`, text: xmlText(xml, 'a:p', 'a:t'), ...figs };
+  });
+  const common = commonMedia(read);
+  const free = [];
+  const figures = [];
+  for (const s of read) {
+    for (const c of s.charts) { const t = chartText(zip.get(c)); if (t) free.push({ loc: s.loc, text: t }); }
+    for (const d of s.diagrams) { const t = diagramText(zip.get(d)); if (t) free.push({ loc: s.loc, text: t }); }
+    for (const e of s.equations) free.push({ loc: s.loc, text: `Equation: ${e}` });
+    const media = s.media.filter((p) => !common.has(p)).slice(0, 3);
+    if (media.length) figures.push({ loc: s.loc, why: s.equations.length && !s.text ? 'equations' : 'pictures', media });
+  }
+  return { parts: mergeFigures(read.map(({ loc, text }) => ({ loc, text })), free), figures };
 }
 
 /** Pictures of a PDF's pages (JPEG, base64, at most 1600 px wide), for reading scanned pages on askeden.com. */
@@ -164,12 +205,53 @@ export async function pageImages(file, pages) {
   return out;
 }
 
-/** The XML entries of a zip (.pptx, .docx): Map name → text. Stored and deflated entries only. */
-async function unzip(bytes, want = (name) => /^(ppt\/slides\/slide\d+|word\/document)\.xml$/.test(name)) {
+/** The pictures of a file's figures ([{ loc, page } | { loc, media }] from extractFile), as JPEGs
+ * (base64, at most 1600 px) for the AI to describe: a PDF's whole page, a slide's own pictures
+ * (tiny ones, icons, skipped). */
+export async function figureImages(file, figures) {
+  if (kindOf(file.name) === 'pdf') return pageImages(file, figures.map((f) => f.page));
+  const want = new Set(figures.flatMap((f) => f.media || []));
+  const zip = await unzip(new Uint8Array(await file.arrayBuffer()), (n) => want.has(n), (n) => want.has(n));
+  const out = [];
+  for (const f of figures) {
+    for (const path of f.media || []) {
+      const raw = zip.get(path);
+      if (!raw || raw.length < 6000) continue; // an icon or a bullet
+      const data = await toJpeg(raw, /\.svg$/i.test(path) ? 'image/svg+xml' : 'image/*').catch(() => null);
+      if (data) out.push({ loc: f.loc, data });
+    }
+  }
+  return out;
+}
+
+/** Picture bytes → JPEG base64 on a white background, at most 1600 px wide; null for one too small to matter. */
+async function toJpeg(raw, type) {
+  const url = URL.createObjectURL(new Blob([raw], { type }));
+  try {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    await img.decode();
+    const w = img.naturalWidth || 0, h = img.naturalHeight || 0;
+    if (w < 120 || h < 120) return null;
+    const scale = Math.min(1, 1600 / w);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    const g = canvas.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+  } finally { URL.revokeObjectURL(url); }
+}
+
+/** The XML entries of a zip (.pptx, .docx): Map name → text (or bytes, for the names `raw` picks). Stored and deflated entries only. */
+export async function unzip(bytes, want = (name) => /^(ppt\/slides\/slide\d+|word\/document)\.xml$/.test(name), raw = () => false) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let eocd = -1;
   for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65_557); i--) if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
-  if (eocd < 0) return scanLocal(bytes, want); // no index at the end (a download cut short): read it piece by piece
+  if (eocd < 0) return scanLocal(bytes, want, raw); // no index at the end (a download cut short): read it piece by piece
   const count = view.getUint16(eocd + 10, true);
   let at = view.getUint32(eocd + 16, true);
   const out = new Map();
@@ -185,8 +267,8 @@ async function unzip(bytes, want = (name) => /^(ppt\/slides\/slide\d+|word\/docu
     if (!want(name)) continue;
     const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
     const data = bytes.subarray(start, start + size);
-    const raw = method === 0 ? data : method === 8 ? new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : null;
-    if (raw) out.set(name, new TextDecoder().decode(raw));
+    const got = method === 0 ? data : method === 8 ? new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : null;
+    if (got) out.set(name, raw(name) ? got : new TextDecoder().decode(got));
   }
   return out;
 }

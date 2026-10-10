@@ -1,6 +1,7 @@
 /* Eden's Memory page (memory.js): a Liquid Glass surface over the chat, on Atelier's tokens
    from app.css (never edited from here). Facts grouped by topic, each with where it came from;
-   a fact switched off is dimmed; one waiting on the Mac's card shows a pulsing line. */
+   a fact switched off is dimmed; one waiting on the Mac's card shows a pulsing line; one that may be
+   out of date says so in words, with a "Still true?" that opens the edit box. */
 
 #memSurface{position:fixed;inset:0;z-index:96;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(0,0,0,.14)}
 #memSurface[hidden]{display:none}
@@ -59,6 +60,16 @@
 .mf-src{color:var(--text2);font-weight:500}
 .mf-conf{color:var(--warn)}
 .mf-offtag{color:var(--text2)}
+
+/* age and review cues (memory-model.js): always words, never colour alone */
+.mf-flags{display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px;margin-top:6px}
+.mf-chip{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;font-size:11px;line-height:17px;font-weight:500;color:var(--text2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.mf-chip.stale{background:color-mix(in srgb,var(--warn) 13%,transparent);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--warn) 50%,transparent)}
+.mf-chip.inferred{font-style:italic}
+.mf-recheck{padding:1px 6px;border-radius:7px;font-size:11.5px;line-height:17px;font-weight:600;color:var(--accent);transition:background .15s}
+.mf-recheck:hover:not(:disabled){background:var(--accent-soft)}
+.mf-recheck:disabled{opacity:.4;cursor:default}
+.mf-edit-why{font-size:12px;line-height:1.45;color:var(--text2)}
 .mf-from{display:flex;align-items:baseline;gap:6px;max-width:100%;margin-top:7px;padding:5px 9px;border-radius:9px;font-size:12px;text-align:left;background:rgba(120,120,128,.07);color:var(--text2)}
 .mf-from .k{flex:none;font-weight:600;color:var(--text2)}
 .mf-from .v{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)}

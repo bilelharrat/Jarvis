@@ -12,14 +12,20 @@ import { $, el, toast, fmtCost, fmtTokens, sizeText, placePopup, shortModel, eff
 import { browseMode, setBrowseMode } from './browser-agent.js';
 import { state, path, nodeText, sessionCost, persona, ui } from './state.js';
 import { initVoice, voiceEscape } from './voice.js';
-import { currentOverride, setOverride, availableModels, modelInfo, setPreviewText, levels, setLevel, scatter, rowsToCandidates, openChipPop, closeChipPop, chipPopOpenFor, PROVIDER_NAMES, schedulePreview } from './router.js';
+import { currentOverride, setOverride, availableModels, modelInfo, setPreviewText as setRoutePreviewText, levels, setLevel, scatter, rowsToCandidates, openChipPop, closeChipPop, chipPopOpenFor, PROVIDER_NAMES, schedulePreview } from './router.js';
 import { initCompare, renderEstimate } from './compare.js';
+import { initEves, renderEvesChip, setEvesDraft } from './eves.js'; // EVES: the switch in this row, and the price of the draft
 import { macChips, macMenuItems } from './files.js';
 import { api } from './api.js';
 import { mentionEntries, setScope, dropScope } from './tools-ui.js'; // @calendar / @mail scope chips
 import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
+import { deckEstimate } from './deck-model.js'; // Q14: a deck's cost before it's made
+import { stripBidi, putDraft, getDraft, DRAFT_KEY } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
 
 let H = {}; // handlers from app.js
+
+/** The draft changed: the router prices it, and so does EVES (eves.js). */
+function setPreviewText(text) { setRoutePreviewText(text); setEvesDraft(text); }
 
 /* ---------- icons (Jarvis Code's ICON_PATHS) ---------- */
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -31,6 +37,7 @@ const ICON_PATHS = {
   auto: ['M9.2 1.6L3.4 9.1h4.2l-1.1 5.3 5.8-7.6H8.1z'],
   chat: ['M2.6 4.2A1.6 1.6 0 0 1 4.2 2.6h7.6a1.6 1.6 0 0 1 1.6 1.6v5.4a1.6 1.6 0 0 1-1.6 1.6H6.4L3.4 13.6V11.2h-.8a.0 .0 0 0 1 0 0z'],
   search: ['M7 2.4a4.6 4.6 0 1 1 0 9.2 4.6 4.6 0 0 1 0-9.2z', 'M10.4 10.4l3.4 3.4'],
+  slides: ['M2.2 3h11.6v7.6H2.2z', 'M8 10.6v2.6', 'M5.4 13.8h5.2', 'M4.6 8.2l2-2.2 1.6 1.4 2.6-2.8'],
   research: ['M8 1.8a6.2 6.2 0 1 1 0 12.4A6.2 6.2 0 0 1 8 1.8z', 'M1.8 8h12.4', 'M8 1.8c1.7 1.6 2.6 3.7 2.6 6.2S9.7 12.6 8 14.2C6.3 12.6 5.4 10.5 5.4 8S6.3 3.4 8 1.8z'],
   clip: ['M13.2 7.3l-5.3 5.3a3.2 3.2 0 0 1-4.5-4.5L8.8 2.7a2.1 2.1 0 0 1 3 3L6.6 11a1 1 0 0 1-1.5-1.5l4.9-4.9'],
   note: ['M4 1.8h5.2L12.4 5v8.6a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6V2.4a.6.6 0 0 1 .6-.6z', 'M9 1.8V5.2h3.4', 'M5.6 8.2h4.8M5.6 10.6h3'],
@@ -62,6 +69,7 @@ export const CHAT_MODES = [
   { id: 'search', icon: 'search', label: 'Search', note: 'Searches the web and cites its sources' },
   { id: 'research', icon: 'research', label: 'Research', note: 'Searches widely, then writes a structured report (high effort)' },
   { id: 'compare', icon: 'compare', label: 'Compare', note: 'Up to 3 models answer side by side, then a short summary' },
+  { id: 'slides', icon: 'slides', label: 'Slides', note: 'A slide deck from your prompt, files or this chat, shown in the canvas' }, // Q14 (deck.js)
 ];
 /** Compare needs two models you can use (askeden.com: the hosted Claude models). */
 const compareOff = () => (state.meta && availableModels().length < 2 ? 'Compare needs at least two models: add another API key in Settings' : '');
@@ -79,7 +87,7 @@ const curMode = () => { const c = state.current; return c ? c.mode : (state.pend
 /* ---------- slash commands, keys ---------- */
 const SLASH_CHAT = [
   ['new', 'New chat'], ['temp', 'New temporary chat (not saved)'], ['chat', 'Chat mode'], ['search', 'Search mode: web, with sources'],
-  ['research', 'Research mode: a sourced report'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
+  ['research', 'Research mode: a sourced report'], ['slides', 'Slides mode: a deck in the canvas'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
   ['level', 'Router level: /level 1–5'], ['persona', 'Persona: /persona name (or none)'], ['note', 'Attach a note from your Mac: /note query'],
   ['memory', 'What your Mac remembers'], ['calendar', 'Your calendar this week'], ['brief', 'Your day: the brief and meeting prep'], ['brain', 'Search your second brain'],
   ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['browse', 'Eden uses the cloud browser: /browse what to do'], ['undo', 'What Eden did, with Undo'],
@@ -384,9 +392,22 @@ function addDocument(file) {
  * passes it on): { prompt, send, fresh, files: [{ name, mime, data (base64) }] }. The files are
  * attached as if picked (pictures redrawn), the words go in the box, and with `send` the
  * message goes once every file has been read.
+ *
+ * Strictly one at a time (B3): several shares arriving together each finish (files read, sent)
+ * before the next starts, so one share's pictures never go with another's words. A `fresh: false`
+ * item (a link: askeden://ask) never replaces a draft: its words are added to it, and it isn't
+ * sent then (B7). Bidi controls are taken out of the words and the file names (B18).
  */
-addEventListener('eden:attach', async (e) => {
+let shareChain = Promise.resolve();
+addEventListener('eden:attach', (e) => {
   const d = e.detail && typeof e.detail === 'object' ? e.detail : {};
+  // native.js's done: tells the app this share is finished, so it sends the next (B3)
+  shareChain = shareChain.then(() => takeShare(d)).catch(() => {}).then(() => { if (typeof d.done === 'function') { try { d.done(); } catch { /* the app is gone */ } } });
+});
+const streamingNow = () => { const c = state.current; return !!(c && state.streams.has(c.id)); };
+async function takeShare(d) {
+  const inp = input();
+  const hadDraft = !!(inp.value.trim() || attachments.length || reading.size);
   if (d.fresh) { attachments = []; state.draftContext = []; renderAttachments(); } // only what was shared goes
   for (const f of (Array.isArray(d.files) ? d.files : []).slice(0, MAX_FILES)) {
     let file = null;
@@ -394,24 +415,27 @@ addEventListener('eden:attach', async (e) => {
       const bin = atob(String(f.data || ''));
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      file = new File([bytes], String(f.name || 'Shared item').slice(0, 120), { type: String(f.mime || '') });
+      file = new File([bytes], stripBidi(String(f.name || 'Shared item')).slice(0, 120) || 'Shared item', { type: String(f.mime || '') });
     } catch { toast('A shared item couldn’t be read.'); continue; }
     if (fileKind(file) === 'image') file = await cleanPicture(file);
     if (file) addFile(file); else toast('A shared picture couldn’t be read.');
   }
   for (let waited = 0; reading.size && waited < 10000; waited += 50) await new Promise((r) => setTimeout(r, 50));
-  const text = String(d.prompt || '');
-  if (text) setComposerText(text); else focusComposer();
-  if (d.send && text.trim()) {
+  const text = stripBidi(String(d.prompt || ''));
+  const keep = hadDraft && !d.fresh; // a link over a draft: added to it, never sent
+  if (text) setComposerText(text, { append: keep }); else focusComposer();
+  if (d.send && text.trim() && !keep) {
+    // a reply still streaming takes only words (attachments wait for a new message): this share waits for it, two minutes at most
+    for (let waited = 0; attachments.length && streamingNow() && waited < 120_000; waited += 250) await new Promise((r) => setTimeout(r, 250));
     $('deck-composer').requestSubmit();
     if (isTouch()) input().blur(); // asked from elsewhere: the reply, not the keyboard
   }
-});
+}
 /** A video's chip: its first frame, length and size (uploading: a note instead of ×). */
 function videoChip(a, x, uploading = false) {
   return el('span', { class: 'jc-file-chip video', title: `${a.name}${uploading ? ' (uploading…)' : ''}` },
     a.thumb ? el('img', { class: 'vthumb', src: a.thumb, alt: '' }) : icon('doc', 15),
-    el('span', 'nm', a.name), el('small', '', [a.seconds ? clock(a.seconds) : '', a.size ? sizeText(a.size) : '', uploading ? 'uploading…' : ''].filter(Boolean).join(' · ')), x || '');
+    el('span', { class: 'nm', 'data-no-i18n': '' }, a.name), el('small', '', [a.seconds ? clock(a.seconds) : '', a.size ? sizeText(a.size) : '', uploading ? 'uploading…' : ''].filter(Boolean).join(' · ')), x || '');
 }
 function removeChip(label, onRemove) {
   return el('button', { type: 'button', class: 'jc-chip-x', 'aria-label': `Remove ${label}`, onclick: onRemove }, '×');
@@ -422,13 +446,13 @@ export function renderAttachments() {
     const drop = () => { attachments.splice(i, 1); renderAttachments(); input().focus(); };
     if (a.kind === 'image') return el('span', 'jc-thumb-img', el('img', { src: a.url, alt: a.name || 'Attached image' }), removeChip(a.name || 'image', drop));
     if (a.kind === 'video') return videoChip(a, removeChip(a.name || 'video', drop));
-    return el('span', { class: 'jc-file-chip', title: a.name }, icon('doc', 15), el('span', 'nm', a.name), el('small', '', sizeText(a.size || 0)), removeChip(a.name, drop));
+    return el('span', { class: 'jc-file-chip', title: a.name }, icon('doc', 15), el('span', { class: 'nm', 'data-no-i18n': '' }, a.name), el('small', '', sizeText(a.size || 0)), removeChip(a.name, drop));
   });
   for (const s of reading) if (s.kind === 'video') chips.push(videoChip({ ...s, size: s.fileSize }, null, true));
-  state.draftContext.forEach((x, i) => chips.push(el('span', { class: 'jc-file-chip ctx', title: x.title }, icon('note', 15), el('span', 'nm', x.title), el('small', '', x.scope ? 'scope' : 'context'), removeChip(x.title, () => { state.draftContext.splice(i, 1); renderAttachments(); }))));
+  state.draftContext.forEach((x, i) => chips.push(el('span', { class: 'jc-file-chip ctx', title: x.title }, icon('note', 15), el('span', { class: 'nm', 'data-no-i18n': '' }, x.title), el('small', '', x.scope ? 'scope' : 'context'), removeChip(x.title, () => { state.draftContext.splice(i, 1); renderAttachments(); }))));
   const pid = state.current ? state.current.personaId : state.draftPersona;
   const p = persona(pid);
-  if (p) chips.push(el('span', { class: 'jc-file-chip persona', title: `Persona: ${p.name}` }, icon('persona', 15), el('span', 'nm', p.name), el('small', '', 'persona'), removeChip(p.name, () => H.setPersona(null))));
+  if (p) chips.push(el('span', { class: 'jc-file-chip persona', title: `Persona: ${p.name}` }, icon('persona', 15), el('span', { class: 'nm', 'data-no-i18n': '' }, p.name), el('small', '', 'persona'), removeChip(p.name, () => H.setPersona(null))));
   chips.push(...macChips()); // Use my Mac, project knowledge (files.js): whose model the files go to
   box.hidden = !chips.length;
   box.replaceChildren(...chips);
@@ -532,7 +556,7 @@ export function setMode(id) {
   const go = () => {
     const was = curMode();
     if (c) { c.mode = id; c.chatPinned = id === 'chat'; H.save(c); } else { state.pendingMode = id; state.pendingChatPinned = id === 'chat'; } // picking Chat turns auto-search off for this chat
-    if ((was === 'compare') !== (id === 'compare')) schedulePreview(); // Compare prices its lanes
+    if ((was === 'compare') !== (id === 'compare') || (was === 'research') !== (id === 'research')) schedulePreview(); // Compare prices its lanes; Research its searches and cap (Q2)
     renderComposer();
     toast(`${c && c.kind === 'code' ? 'Permission mode' : 'Mode'}: ${m.label}`);
   };
@@ -834,14 +858,16 @@ export function renderComposer() {
   $('deck-composer').classList.toggle('busy', !!streaming);
   input().placeholder = code ? `Ask Eden to plan, build or fix something in ${c.project ? c.project.name : 'this project'}…`
     : curMode() === 'search' ? 'Search the web — answers with sources…' : curMode() === 'research' ? 'What should I research? A sourced report…'
+    : curMode() === 'slides' ? (state.current && state.current.deckVersions && state.current.deckVersions.length ? 'Change the deck: “make slide 3 shorter”, “add a slide about costs”…' : 'Describe the deck, or attach a file to build it from…')
     : curMode() === 'compare' ? 'Ask several models at once — answers side by side…' : 'Message Eden — routed automatically…';
   renderEstimate(); // the routed model, its cost and time, above the input (compare.js)
+  renderEvesChip(); // EVES: Off / On / Auto, and the draft's price (eves.js)
   // the queue (steer)
   const q = (c && c.queue) || [];
   $('jc-queue').hidden = !q.length;
   $('jc-queue').replaceChildren(...q.map((item) => el('li', item.state === 'queued' && !code ? 'jc-queued jc-queued-wait' : 'jc-queued',
     el('span', 'jc-queued-kicker', item.state === 'sent' ? 'Steered' : item.state === 'sending' ? 'Steering…' : code ? 'Steer' : 'Queued — sends when Eden finishes'),
-    el('span', { class: 'jc-queued-text', title: item.text }, item.state === 'sent' ? `${item.text} — sent to the running step` : item.text),
+    el('span', { class: 'jc-queued-text', title: item.text }, el('span', { 'data-no-i18n': '' }, item.text), item.state === 'sent' ? ' — sent to the running step' : ''), // the person's words are never translated
     item.state === 'queued' ? el('button', { type: 'button', class: 'jc-queued-steer', title: code ? 'Send into the running step now' : 'Stop this reply (keeping what it wrote) and send this now', onclick: () => H.steerNow(item.id) }, code ? 'Steer now' : 'Send now (stop reply)') : null,
     item.state === 'sent' ? null : el('button', { type: 'button', class: 'jc-queued-x', 'aria-label': 'Remove from the queue', onclick: () => H.dropQueued(item.id) }, '×'))));
   // the status line
@@ -870,6 +896,7 @@ export function focusComposer() { input().focus(); }
 export function setComposerText(text, { append = false } = {}) {
   const inp = input();
   inp.value = append && inp.value ? `${inp.value}\n${text}` : text;
+  keepDraftSoon();
   inp.focus();
   inp.selectionStart = inp.selectionEnd = inp.value.length;
   grow();
@@ -878,12 +905,32 @@ export function setComposerText(text, { append = false } = {}) {
 }
 export function clearAttachments() { attachments = []; renderAttachments(); }
 
+/* The unsent draft, per chat, for this tab (sessionStorage): back after a reload, or after iOS
+   ends the app's page in the background (B9). Words only; what's attached isn't kept. */
+const draftChat = () => (state.current && !state.current.temp ? state.current.id : 'new');
+function readDrafts() { try { return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || '{}') || {}; } catch { return {}; } }
+function keepDraft(text) { try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(putDraft(readDrafts(), draftChat(), text))); } catch { /* storage off: not kept */ } }
+let draftT = 0;
+function keepDraftSoon() { clearTimeout(draftT); draftT = setTimeout(() => keepDraft(input().value), 300); }
+addEventListener('pagehide', () => { clearTimeout(draftT); const inp = document.getElementById('deck-input'); if (inp && inp.value.trim()) keepDraft(inp.value); });
+function restoreDraft() {
+  const inp = input();
+  if (inp.value.trim()) return;
+  const t = getDraft(readDrafts(), draftChat());
+  if (!t) return;
+  inp.value = t;
+  grow();
+  setPreviewText(inp.value);
+  renderComposer();
+}
+
 /* ---------- wiring ---------- */
 let steerThis = false;
 export function initComposer(handlers) {
   H = handlers;
   initVoice();
   initCompare({ openMenu, closeMenu }); // after voice: lanes of a comparison redraw in place
+  initEves({ openMenu, closeMenu }); // the EVES chip's menu, the progress line and badge clicks
   const inp = input();
   if (composerExpanded) setComposerExpanded(true, { focus: false });
   $('deck-composer').classList.toggle('pinned', composerPinned);
@@ -925,6 +972,10 @@ export function initComposer(handlers) {
     if ([...reading].some((s) => s.kind === 'video')) { toast('Wait for the video to finish uploading'); return; }
     const videos = attachments.filter((a) => a.kind === 'video');
     if (needsConfirm(videos) && !confirm(confirmText(videos))) return; // a long video: its estimate first
+    if (curMode() === 'slides') { // Q14: a long deck says what it will cost before it's made
+      const est = deckEstimate(state.preview && state.preview.pick, text, { patch: !!(c && c.deckVersions && c.deckVersions.length) });
+      if (est && est.long && !confirm(`This deck (about ${est.slides} slides) is estimated at ${est.usd < 0.01 ? 'under $0.01' : `about $${est.usd.toFixed(2)}`} on ${(state.preview.pick.name || 'the routed model')}. Make it?`)) return;
+    }
     const ok = H.send(text, attachments.slice(), state.draftContext.slice());
     if (!ok) return; // not sent: the draft stays
     attachments = [];
@@ -933,7 +984,13 @@ export function initComposer(handlers) {
   });
   function done() {
     recall.index = -1;
+    // iOS leaves a pending autocorrect bubble floating when the field is emptied under it: end
+    // the typing session first (blur, then focus again where it was focused): B12.
+    const had = document.activeElement === inp;
+    if (had && isTouch()) inp.blur();
     inp.value = '';
+    if (had && isTouch()) inp.focus({ preventScroll: true });
+    keepDraft('');
     inp.style.height = '';
     $('cc-slash').hidden = true;
     setPreviewText('');
@@ -964,6 +1021,7 @@ export function initComposer(handlers) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('deck-composer').requestSubmit(); }
   });
   inp.addEventListener('input', () => {
+    keepDraftSoon();
     recall.index = -1;
     pickIndex = 0;
     renderSuggestions();
@@ -1039,6 +1097,7 @@ export function initComposer(handlers) {
     else if (e.shiftKey && k === 'i') { e.preventDefault(); if (!composerExpanded) setComposerExpanded(true, { focus: false }); modelMenu(); }
     else if (e.shiftKey && k === 'e') { e.preventDefault(); if (!composerExpanded) setComposerExpanded(true, { focus: false }); requestAnimationFrame(openEffort); }
   });
+  restoreDraft(); // B9: what was being typed before a reload
   renderComposer();
 }
 

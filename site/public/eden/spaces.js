@@ -21,9 +21,11 @@ import * as E from './eden-crypto.js';
 import { deviceKey, keepSecret, keyGet, openEnvelope } from './sync.js';
 import { setActing } from './acting.js';
 import { importWorkflow, registerWorkflowSharer } from './workflows.js';
+import { teamItemId, withComment, withoutComment } from './mail-ask.js';
+import { locale, t } from './i18n.js';
 
 const fill = (node, ...kids) => node.replaceChildren(...kids.filter((k) => k !== null && k !== undefined && k !== false));
-const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? `$${n.toFixed(2)}` : '—');
+const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString(locale(), { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol' }) : '—');
 const LEVEL_WORDS = { 1: 'Cheapest', 2: 'Thrifty', 3: 'Balanced', 4: 'Strong', 5: 'Best' };
 
 async function api(path, body) {
@@ -59,7 +61,7 @@ export function spacesSection(ctx = {}) {
     catch (e) { box.replaceChildren(el('p', 'sp-note', e.status === 503 ? 'Team spaces aren’t available here yet.' : `Couldn’t load your spaces: ${e.message}`)); return; }
     const rows = data.spaces.map((s) => el('li', 'acct-dev',
       el('span', 'acct-ico', el('span', { class: 'acct-dot', 'aria-hidden': 'true' })),
-      el('div', 'grow', el('div', 'p-n', s.name, data.acting && data.acting.id === s.id ? el('span', 'acct-badge plus', 'In use') : null), el('div', 'p-c', s.owned ? 'You own it' : 'Member')),
+      el('div', 'grow', el('div', 'p-n', el('span', { 'data-no-i18n': '' }, s.name), data.acting && data.acting.id === s.id ? el('span', 'acct-badge plus', 'In use') : null), el('div', 'p-c', s.owned ? 'You own it' : 'Member')),
       el('button', { type: 'button', class: 'cap', onclick: () => openSpace(s.id, { onChange: draw }) }, 'Open')));
     const create = data.can_create
       ? el('button', { type: 'button', class: 'cap primary', onclick: () => createForm(box, draw) }, 'New space')
@@ -151,6 +153,7 @@ async function drawSpace() {
   let v;
   try { v = await api('/api/web/space/view', { id: current.id }); }
   catch (e) { body.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t open the space'), e.message)); return; }
+  $('spaceTitle').setAttribute('data-no-i18n', ''); // the space's name
   $('spaceTitle').textContent = v.space.name;
   const owner = v.me.role === 'owner';
   const keyState = await spaceKey(v).catch((e) => ({ error: e.message }));
@@ -162,6 +165,7 @@ async function drawSpace() {
     membersSection(v, owner),
     await sharedSection(v, keyState),
     await workflowsSection(v, keyState),
+    await mailSection(v, keyState),
     owner ? settingsSection(v) : null,
     el('section', 'set-sec', el('h3', '', owner ? 'Delete the space' : 'Leave the space'),
       el('p', 'sp-note', owner ? 'Everyone loses access to its shared conversations; their own chats stay theirs.' : 'You lose access to its shared conversations and its budget.'),
@@ -188,8 +192,8 @@ function budgetCard(v) {
 function membersSection(v, owner) {
   const rows = v.members.map((m) => el('li', `acct-dev${m.this ? ' this' : ''}`,
     el('span', 'acct-ico', (m.label || '?').slice(0, 1).toUpperCase()),
-    el('div', 'grow', el('div', 'p-n', m.label, m.this ? el('span', 'acct-badge', 'You') : null, m.role === 'owner' ? el('span', 'acct-badge', 'Owner') : null),
-      el('div', 'p-c', `${money(m.spent_usd || 0)} this month · joined ${relDay(m.joined)}`)),
+    el('div', 'grow', el('div', 'p-n', el('span', { 'data-no-i18n': '' }, m.label), m.this ? el('span', 'acct-badge', 'You') : null, m.role === 'owner' ? el('span', 'acct-badge', 'Owner') : null),
+      el('div', 'p-c', `${money(m.spent_usd || 0)} this month · joined `, relDay(m.joined))),
     owner && m.role !== 'owner' ? el('button', { type: 'button', class: 'cap rev', onclick: async (e) => {
       const b = e.currentTarget;
       if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Remove?'; return; }
@@ -210,7 +214,7 @@ function membersSection(v, owner) {
 
 /** An invitation to pass on (askeden.com sends nothing itself): the code, the link, copy, email. */
 export function inviteCard({ code, link }, subject) {
-  const mail = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`Open ${link} (sign in to Eden with your own account), or enter the code ${code}. It works once, for 7 days.`)}`;
+  const mail = `mailto:?subject=${encodeURIComponent(t(subject))}&body=${encodeURIComponent(t(`Open ${link} (sign in to Eden with your own account), or enter the code ${code}. It works once, for 7 days.`))}`;
   return el('div', 'icard acct-card acct-code',
     el('div', 'acct-code-big', code),
     el('div', 'acct-sub', 'Works once, for 7 days. They sign in with their own Eden account.'),
@@ -284,7 +288,7 @@ async function sharedSection(v, ks) {
       el('div', 'acct-code-big', ks.code)));
     return sec;
   }
-  const label = (m) => (v.members.find((x) => x.member === m) || {}).label || 'A former member';
+  const label = (m) => (v.members.find((x) => x.member === m) || {}).label || t('A former member');
   // Browsers waiting for the key: this one has it, so it can give it (after the codes match).
   const waiting = v.keys.filter((k) => !k.sealed);
   if (waiting.length) {
@@ -301,19 +305,19 @@ async function sharedSection(v, ks) {
       } }, 'Give access'))));
     sec.append(el('p', 'acct-k', 'Waiting for the space’s key'), el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)));
   }
-  const rows = await Promise.all(v.convs.filter((c) => c.kind !== 'workflow').map(async (c) => {
-    let title = 'A shared conversation';
+  const rows = await Promise.all(v.convs.filter((c) => (c.kind || 'conv') === 'conv').map(async (c) => {
+    let title = t('A shared conversation');
     if (c.meta) { try { title = (await E.openItem(ks.key, `${itemName(v.space.id, c.id)}:meta`, c.meta, E.SPACE_LABEL)).title || title; } catch { /* sealed with another key */ } }
     const mine = v.members.find((m) => m.this);
     return el('li', 'acct-dev',
-      el('div', 'grow', el('div', 'p-n', title), el('div', 'p-c', `${label(c.by)} · ${relDay(c.updated)}`)),
+      el('div', 'grow', el('div', { class: 'p-n', 'data-no-i18n': '' }, title), el('div', 'p-c', el('span', { 'data-no-i18n': '' }, label(c.by)), ' · ', relDay(c.updated))),
       el('button', { type: 'button', class: 'cap', onclick: () => openShared(v, ks, c, title) }, 'Open'),
       mine && (c.by === mine.member || v.me.role === 'owner') ? el('button', { type: 'button', class: 'cap rev', onclick: async () => {
         try { await api('/api/web/space/conv-delete', { id: v.space.id, conv: c.id }); drawSpace(); } catch (e) { toast(e.message); }
       } }, 'Remove') : null);
   }));
   const choices = state.convs.filter((c) => !c.temp && c.nodes && Object.keys(c.nodes).length).slice(0, 100);
-  const pick = el('select', { 'aria-label': 'A conversation to share' }, el('option', { value: '' }, 'Choose one of your chats…'), ...choices.map((c) => el('option', { value: c.id }, c.title || 'Untitled')));
+  const pick = el('select', { 'aria-label': 'A conversation to share' }, el('option', { value: '' }, 'Choose one of your chats…'), ...choices.map((c) => el('option', { value: c.id, 'data-no-i18n': '' }, c.title || 'Untitled')));
   sec.append(
     rows.length ? el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)) : el('p', 'sp-note', 'Nothing shared yet.'),
     el('div', 'acct-join-row', pick, el('button', { type: 'button', class: 'cap primary', onclick: async () => {
@@ -390,7 +394,7 @@ function chooseSpace(spaces, name) {
           el('p', 'sp-note', `Members of the space can add “${name}” to their own workflows. It’s end-to-end encrypted with the space’s key; your example values stay with you.`),
           el('div', 'icard acct-card', el('ul', 'acct-list', ...spaces.map((sp) => el('li', 'acct-dev',
             el('span', 'acct-ico', el('span', { class: 'acct-dot', 'aria-hidden': 'true' })),
-            el('div', 'grow', el('div', 'p-n', sp.name), el('div', 'p-c', sp.owned ? 'You own it' : 'Member')),
+            el('div', 'grow', el('div', { class: 'p-n', 'data-no-i18n': '' }, sp.name), el('div', 'p-c', sp.owned ? 'You own it' : 'Member')),
             el('button', { type: 'button', class: 'cap primary', onclick: () => done(sp) }, 'Share'))))))));
     s.addEventListener('click', (e) => { if (e.target === s) done(null); });
     s.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(null); } });
@@ -423,14 +427,14 @@ export function enableWorkflowSharing() { registerWorkflowSharer(shareWorkflow);
 async function workflowsSection(v, ks) {
   const items = v.convs.filter((c) => c.kind === 'workflow');
   if (!items.length || ks.error || ks.waiting) return null; // nothing yet, or no key here (the conversations' section says why)
-  const label = (m) => (v.members.find((x) => x.member === m) || {}).label || 'A former member';
+  const label = (m) => (v.members.find((x) => x.member === m) || {}).label || t('A former member');
   const mine = v.members.find((m) => m.this);
   const rows = await Promise.all(items.map(async (c) => {
-    let title = 'A shared workflow';
+    let title = t('A shared workflow');
     if (c.meta) { try { title = (await E.openItem(ks.key, `${itemName(v.space.id, c.id)}:meta`, c.meta, E.SPACE_LABEL)).title || title; } catch { /* sealed with another key */ } }
     return el('li', 'acct-dev',
       el('span', 'acct-ico', ico('spark', 14)),
-      el('div', 'grow', el('div', 'p-n', title), el('div', 'p-c', `${label(c.by)} · ${relDay(c.updated)}`)),
+      el('div', 'grow', el('div', { class: 'p-n', 'data-no-i18n': '' }, title), el('div', 'p-c', el('span', { 'data-no-i18n': '' }, label(c.by)), ' · ', relDay(c.updated))),
       el('button', { type: 'button', class: 'cap primary', onclick: async () => {
         try {
           const got = await api('/api/web/space/conv-get', { id: v.space.id, conv: c.id });
@@ -447,4 +451,113 @@ async function workflowsSection(v, ks) {
   return el('section', 'set-sec', el('h3', '', 'Shared workflows'),
     el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)),
     el('p', 'sp-note', 'Recipes members shared from their Workflows (⋯ › Share to a space…), end-to-end encrypted like the conversations. Adding one puts a copy in your own gallery.'));
+}
+
+
+/* ---------- shared email threads (Eden Mail, askeden ROADMAP O5): sealed with the space key, with comments ---------- */
+// An item of kind 'mail': { v: 1, kind: 'mail', thread: { threadId, subject, messages: [{ from, to,
+// cc, date, subject, body, attachments }] }, comments: [{ id, member, label, text, at }], by, updated }.
+// Its meta (sealed too) says { title, kind: 'mail', comments, last } so lists need no fetch.
+// A comment is a new revision of the item (conv-put with base_rev); a clash re-reads and retries.
+
+const views = new Map(); // space id → { v, ks, at }
+async function spaceWithKey(id, fresh = false) {
+  const hit = views.get(id);
+  if (hit && !fresh && Date.now() - hit.at < 30_000) return hit;
+  const v = await api('/api/web/space/view', { id });
+  const ks = await spaceKey(v);
+  const out = { v, ks, at: Date.now() };
+  views.set(id, out);
+  return out;
+}
+const meOf = (v) => v.members.find((m) => m.this) || { member: '', label: 'You' };
+const mailMeta = (value) => {
+  const last = (value.comments || [])[value.comments.length - 1];
+  return { title: value.thread.subject || '(no subject)', kind: 'mail', comments: (value.comments || []).length, last: last ? `${last.label}: ${last.text}`.slice(0, 120) : '' };
+};
+async function putMail(v, ks, id, value, baseRev) {
+  const data = await E.sealItem(ks.key, itemName(v.space.id, id), value, E.SPACE_LABEL);
+  if (data.length > 690_000) throw new Error('That thread is too long to share (over ~500 KB).');
+  const meta = await E.sealItem(ks.key, `${itemName(v.space.id, id)}:meta`, mailMeta(value), E.SPACE_LABEL);
+  return api('/api/web/space/conv-put', { id: v.space.id, conv: id, data, meta, base_rev: baseRev, kind: 'mail' });
+}
+
+export const teamMail = {
+  /** Team spaces live on askeden.com only. */
+  available: () => Boolean(state.meta && state.meta.hosted),
+  /** Every shared thread in every space this browser has the key of: [{ space, id, rev, title, comments, last, by, updated, threadId }]. */
+  async list() {
+    const { spaces } = await api('/api/web/space');
+    const out = [];
+    for (const sp of spaces || []) {
+      let got;
+      try { got = await spaceWithKey(sp.id, true); } catch { continue; }
+      const { v, ks } = got;
+      if (!ks.key) continue;
+      const label = (m) => (v.members.find((x) => x.member === m) || {}).label || t('A former member');
+      for (const c of v.convs.filter((x) => x.kind === 'mail')) {
+        let meta = {};
+        if (c.meta) { try { meta = await E.openItem(ks.key, `${itemName(v.space.id, c.id)}:meta`, c.meta, E.SPACE_LABEL); } catch { /* another key */ } }
+        out.push({ space: { id: v.space.id, name: v.space.name }, id: c.id, rev: c.rev, title: meta.title || 'A shared email', comments: meta.comments || 0, last: meta.last || '', by: label(c.by), updated: c.updated, threadId: c.id.slice(3) });
+      }
+    }
+    return out.sort((a, b) => b.updated - a.updated);
+  },
+  /** One shared thread, opened: { value, rev, me, space }. */
+  async get(spaceId, id) {
+    const { v, ks } = await spaceWithKey(spaceId);
+    if (!ks.key) throw new Error('this browser doesn’t have the space’s key yet (Account › Team spaces).');
+    const got = await api('/api/web/space/conv-get', { id: spaceId, conv: id });
+    const value = await E.openItem(ks.key, itemName(spaceId, id), got.data, E.SPACE_LABEL);
+    return { value, rev: got.rev, me: meOf(v), space: { id: spaceId, name: v.space.name } };
+  },
+  /** Shares a thread ({ threadId, subject, messages }) to a space the owner picks; → { space, id } or null. */
+  async share(thread) {
+    const { spaces } = await api('/api/web/space');
+    if (!spaces || !spaces.length) throw new Error('you aren’t in a team space yet (Account › Team spaces).');
+    const target = spaces.length === 1 ? spaces[0] : await chooseSpace(spaces, thread.subject || 'this email');
+    if (!target) return null;
+    const { v, ks } = await spaceWithKey(target.id, true);
+    if (ks.error) throw new Error(`the space’s key isn’t available in this browser: ${ks.error}`);
+    if (ks.waiting) throw new Error(`this browser doesn’t have ${v.space.name}’s key yet: open the space and ask a member to give it access.`);
+    const id = teamItemId(thread.threadId);
+    const existing = v.convs.find((x) => x.id === id);
+    let value = { v: 1, kind: 'mail', thread, comments: [], by: meOf(v).label, updated: Date.now() };
+    if (existing) { // shared before: the newer messages, the comments kept
+      const old = await teamMail.get(v.space.id, id);
+      value = { ...old.value, thread, updated: Date.now() };
+      await putMail(v, ks, id, value, old.rev);
+    } else await putMail(v, ks, id, value, 0);
+    return { space: { id: v.space.id, name: v.space.name }, id };
+  },
+  /** Adds (or, with `remove`, takes back) a comment; a clash with another member's comment re-reads and tries again. */
+  async comment(spaceId, id, text, { remove = null } = {}) {
+    for (let i = 0; i < 4; i++) {
+      const { v, ks } = await spaceWithKey(spaceId);
+      const cur = await teamMail.get(spaceId, id);
+      const me = meOf(v);
+      const next = remove ? withoutComment(cur.value, remove, me.member) : withComment(cur.value, { member: me.member, label: me.label, text });
+      try { await putMail(v, ks, id, next, cur.rev); return next; }
+      catch (e) { if (e.status !== 409) throw e; }
+    }
+    throw new Error('Others are commenting right now: try again.');
+  },
+  async remove(spaceId, id) { await api('/api/web/space/conv-delete', { id: spaceId, conv: id }); },
+};
+
+async function mailSection(v, ks) {
+  const items = v.convs.filter((c) => c.kind === 'mail');
+  if (!items.length || ks.error || ks.waiting) return null;
+  const label = (m) => (v.members.find((x) => x.member === m) || {}).label || t('A former member');
+  const rows = await Promise.all(items.map(async (c) => {
+    let meta = {};
+    if (c.meta) { try { meta = await E.openItem(ks.key, `${itemName(v.space.id, c.id)}:meta`, c.meta, E.SPACE_LABEL); } catch { /* another key */ } }
+    return el('li', 'acct-dev',
+      el('span', 'acct-ico', ico('mail', 14)),
+      el('div', 'grow', el('div', { class: 'p-n', 'data-no-i18n': '' }, meta.title || t('A shared email')), el('div', 'p-c', el('span', { 'data-no-i18n': '' }, label(c.by)), ` · ${meta.comments || 0} comment${meta.comments === 1 ? '' : 's'} · `, relDay(c.updated))),
+      el('button', { type: 'button', class: 'cap primary', onclick: () => { closeSpace(); dispatchEvent(new CustomEvent('eden:open-team-mail', { detail: { space: v.space.id, id: c.id } })); } }, 'Open in Mail'));
+  }));
+  return el('section', 'set-sec', el('h3', '', 'Shared emails'),
+    el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)),
+    el('p', 'sp-note', 'Email threads members shared from Mail (Share with team), with the team’s comments. End-to-end encrypted with the space’s key.'));
 }

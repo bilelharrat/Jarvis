@@ -32,6 +32,7 @@ import { spacesSection, inviteCard, enableWorkflowSharing } from './spaces.js';
 import { publishedSection } from './publish.js';
 import { IN_APP } from './native.js';
 import { setPlanOffer } from './plan.js';
+import { locale, t, tr, isFr } from './i18n.js';
 // Included AI is shown as a share left, never in dollars.
 const pctLeft = (left, total) => `${Math.max(0, Math.min(100, Math.round((Number(left) || 0) / (Number(total) || 1) * 100)))}%`;
 
@@ -94,12 +95,14 @@ async function load() {
 
 /* ---------- formatting ---------- */
 
-const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? `$${n.toFixed(2)}` : '—');
+// Dollars as the page's language writes them ($10.00, 10,00 $); `digits` null: none when whole.
+const usd = (n, digits = 2) => Number(n).toLocaleString(locale(), { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: digits ?? (Number.isInteger(Number(n)) ? 0 : 2), maximumFractionDigits: digits ?? 2 });
+const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? usd(n) : '—');
 const toDate = (x) => (x === null || x === undefined || x === '' ? null : new Date(typeof x === 'number' && x < 1e12 ? x * 1000 : x));
 function day(x) {
   const d = toDate(x);
   if (!d || Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
+  return d.toLocaleDateString(locale(), { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
 }
 function ago(x) {
   const d = toDate(x);
@@ -184,15 +187,16 @@ export const accountOpen = () => !!($('accountSheet') && $('accountSheet').class
  * Opens the account page; `notice` is a line shown above it (what came back in #account), `ok`
  * shows it as good news, `waitPlus` watches for Plus to arrive (back from Stripe Checkout).
  */
-export async function openAccount({ notice = null, ok = false, waitPlus = false, focusPlus = false, focusCredits = false } = {}) {
+export async function openAccount({ notice = null, ok = false, waitPlus = false, focusPlus = false, focusCredits = false, focusDelete = false, merge = null } = {}) {
   if (H.beforeOpen) H.beforeOpen();
   const s = sheet();
   if (!s.classList.contains('open')) returnFocus = document.activeElement;
   s.classList.add('open');
   $('btnAcctClose').focus();
-  const account = await draw(notice, { ok });
+  const account = await draw(notice, { ok, merge });
   if (focusPlus && account) showPlus();
   if (focusCredits && account) showCredits();
+  if (focusDelete && account) showDelete();
   if (!waitPlus || !account) return;
   const shown = document.querySelector('#acctBody .acct-notice.ok');
   if (account.plan && account.plan.active) { if (shown) shown.textContent = 'Thank you! Plus is on.'; } // the webhook was first
@@ -233,7 +237,7 @@ export function closeAccount() {
   return true;
 }
 
-async function draw(notice, { ok = false } = {}) {
+async function draw(notice, { ok = false, merge = null } = {}) {
   const body = $('acctBody');
   if (!body.firstChild || notice) body.replaceChildren(el('div', 'muted', 'Loading…'));
   const { account, config, error } = await load();
@@ -247,6 +251,7 @@ async function draw(notice, { ok = false } = {}) {
   pendingInvite = null;
   body.replaceChildren(...[
     notice ? el('div', { class: `sp-warn acct-notice${ok ? ' ok' : ''}`, role: ok ? 'status' : 'alert' }, notice) : null,
+    merge && !account.acting ? mergeCard(merge) : null,
     account.acting ? actingBanner(account.acting) : null,
     planSection(account, config),
     syncSection(),
@@ -259,6 +264,45 @@ async function draw(notice, { ok = false } = {}) {
     account.acting ? null : deleteSection(),
   ].filter(Boolean));
   return account;
+}
+
+/* ---------- bring another sign-in's chats in ---------- */
+
+// "Add Google/Apple" found that sign-in already opens another Eden account (with its own chats): the
+// person has just proved it's theirs, so offer to copy its chats into this one (chat-sync.js, merge).
+function mergeCard({ token: raw, provider }) {
+  const [iv, ct] = raw.split('.');
+  const token = { iv, ct };
+  const line = el('p', 'acct-sub', `Looking at the ${provider} account…`);
+  const go = el('button', { type: 'button', class: 'cap primary', disabled: true }, 'Bring in chats');
+  const card = el('div', 'icard acct-card', el('div', 'acct-allow',
+    el('div', 'acct-row-top', el('span', 'acct-k', `That ${provider} account already has chats`)),
+    line,
+    el('p', 'acct-sub', 'Chats are copied into this account; the other account keeps its own copy. Then use this account on every device (sign out and back in there) and everything is in one place.'),
+    el('div', 'acct-row-actions', go)));
+  post('/api/web/merge/preview', { token }).then((r) => {
+    if (!r.count) { line.textContent = 'It has no chats to bring in.'; return; }
+    line.textContent = `${r.count.toLocaleString(locale())} ${r.count === 1 ? 'chat' : 'chats'} found.`;
+    go.disabled = false;
+  }).catch((e) => { line.textContent = e.message; });
+  go.addEventListener('click', async () => {
+    go.disabled = true;
+    let since = 0, copied = 0, skipped = 0, failed = 0, problem = '';
+    try {
+      for (let guard = 0; guard < 400; guard++) {
+        const r = await post('/api/web/merge/step', { token, since });
+        copied += r.copied; skipped += r.skipped; failed += r.failed; since = r.since;
+        if (r.error) problem = r.error;
+        line.textContent = `Copying… ${copied.toLocaleString(locale())} so far`;
+        if (r.done) break;
+      }
+    } catch (e) { problem = e.message; }
+    line.textContent = `${copied.toLocaleString(locale())} copied${skipped ? `, ${skipped.toLocaleString(locale())} already here` : ''}${failed ? `, ${failed.toLocaleString(locale())} couldn’t be copied` : ''}.${problem ? ` ${problem}` : ''}`;
+    if (copied) { toast('Chats brought in'); Cloud.syncNow().catch(() => {}); }
+    go.textContent = problem ? 'Try again' : 'Done';
+    go.disabled = Boolean(!problem);
+  });
+  return card;
 }
 
 /* ---------- acting for someone (a delegate, a team space) ---------- */
@@ -361,11 +405,20 @@ async function drawSync(box) {
   const when = c.running ? 'Syncing…' : c.last ? `Last synced ${agoShort(c.last)}` : 'Not synced yet';
   const inner = el('div');
   await drawE2e(inner);
+  // Who this device is signed in as, and what the account holds: two devices that show different chats are
+  // signed in to different accounts (Apple and Google are separate accounts until linked in Account).
+  const [acct, held] = await Promise.all([call('/api/web/account').then((r) => (r.ok ? read(r) : null)).catch(() => null), Cloud.serverStatus()]);
+  const who = acct && Array.isArray(acct.identities) && acct.identities.length ? acct.identities.map((x) => `${PROVIDERS[x.provider] || x.provider}${x.email ? ` · ${x.email}` : ''}`).join('  +  ') : '';
+  const here = Cloud.info().chats;
   fill(box,
     el('p', 'sp-note', CLOUD_LEAD),
+    who || held ? el('div', 'icard acct-card', el('div', 'acct-allow',
+      el('div', 'acct-row-top', el('span', 'acct-k', 'This account'), el('b', 'acct-v', held ? `${held.count} on askeden.com` : '')),
+      el('div', 'acct-sub', [who ? `Signed in with ${who}` : '', `${here} on this device`].filter(Boolean).join(' · ')),
+      el('div', 'acct-sub', 'Another device showing different chats is signed in with a different sign-in that isn’t linked to this account. Link it under Sign-in methods below, or sign in there with the same one.'))) : '',
     el('div', 'icard acct-card', el('div', 'acct-allow',
       el('div', 'acct-row-top', el('span', 'acct-k', c.error ? 'Sync paused' : c.on ? 'Synced · all devices' : 'Sync is off'), el('b', 'acct-v', `${c.chats} ${c.chats === 1 ? 'chat' : 'chats'}`)),
-      el('div', 'acct-sub', [when, c.waiting ? `${c.waiting} download when opened` : '', c.tooBig ? `${c.tooBig} too big to sync` : '', c.error ? `Couldn’t sync: ${c.error}` : ''].filter(Boolean).join(' · ')),
+      el('div', 'acct-sub', [when, c.waiting ? `${c.waiting} download when opened` : '', c.tooBig ? `${c.tooBig} too big to sync` : '', c.error ? `Couldn’t sync: ${c.error}` : ''].filter(Boolean).map(t).join(' · ')),
       el('div', 'acct-row-actions',
         el('button', { type: 'button', class: 'cap primary', disabled: c.running, onclick: async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Syncing…'; await Cloud.syncNow(); drawSync(box); } }, 'Sync now'),
         confirmButton('Delete all chats', 'Delete every chat here, on askeden.com and on your other devices?', async () => { await Cloud.deleteAllChats(deleteConversation); toast('All chats deleted'); drawSync(box); })))),
@@ -431,19 +484,19 @@ async function drawE2e(box) {
   const top = el('div', 'icard acct-card',
     el('div', 'acct-allow',
       el('div', 'acct-row-top', el('span', 'acct-k', 'Sync is on'), el('b', 'acct-v', `${i.synced} ${i.synced === 1 ? 'chat' : 'chats'}`)),
-      el('div', 'acct-sub', [when, i.tooBig ? `${i.tooBig} too big to sync` : '', i.error].filter(Boolean).join(' · ')),
+      el('div', 'acct-sub', [when, i.tooBig ? `${i.tooBig} too big to sync` : '', i.error].filter(Boolean).map(t).join(' · ')),
       el('div', 'acct-row-actions',
         el('button', { type: 'button', class: 'cap primary', disabled: i.running, onclick: async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Syncing…'; await Sync.syncNow(); drawSync(box); } }, 'Sync now'))));
   const waiting = await Promise.all((s.requests || []).map(async (r) => el('li', 'acct-dev',
     el('span', 'acct-ico', glyph(r.kind)),
-    el('div', 'grow', el('div', 'p-n', String(r.name || 'A browser').replace(/^Eden on the web: /, '')), el('div', 'p-c', 'Approve only if it shows this code:'), el('div', 'acct-code-big small', await verifyCode(r.public_key))),
+    el('div', 'grow', el('div', 'p-n', el('span', { 'data-no-i18n': '' }, String(r.name || t('A browser')).replace(/^Eden on the web: /, ''))), el('div', 'p-c', 'Approve only if it shows this code:'), el('div', 'acct-code-big small', await verifyCode(r.public_key))),
     el('span', 'acct-confirm',
       el('button', { type: 'button', class: 'cap', onclick: async () => { try { await Sync.deny(r.device_id); } catch (e) { toast(e.message); } } }, 'Deny'),
       el('button', { type: 'button', class: 'cap primary', onclick: async () => { try { await Sync.approve(r); toast('Approved'); } catch (e) { toast(e.message); } } }, 'Approve')))));
   const trusted = (s.trusted || []).map((t) => el('li', `acct-dev${t.this ? ' this' : ''}`,
     el('span', 'acct-ico', glyph(t.kind)),
-    el('div', 'grow', el('div', 'p-n', String(t.name || 'A device').replace(/^Eden on the web: /, ''), t.this ? el('span', 'acct-badge', 'This browser') : null),
-      el('div', 'p-c', `${t.via === 'created' ? 'Made the key' : t.via === 'passphrase' ? 'Unlocked with the passphrase' : 'Approved'} · ${day(t.added)}${t.pending ? ' · Gets the new key when it next opens Eden' : ''}`)),
+    el('div', 'grow', el('div', 'p-n', el('span', { 'data-no-i18n': '' }, String(t.name || tr('A device')).replace(/^Eden on the web: /, '')), t.this ? el('span', 'acct-badge', 'This browser') : null),
+      el('div', 'p-c', [t.via === 'created' ? 'Made the key' : t.via === 'passphrase' ? 'Unlocked with the passphrase' : 'Approved', day(t.added), t.pending ? 'Gets the new key when it next opens Eden' : ''].filter(Boolean).map(tr).join(' · '))),
     t.this ? confirmButton('Stop here', 'Stop syncing in this browser?', async () => { await Sync.forgetHere(); toast('This browser stopped syncing'); })
       // Removing changes the key (sync.js removeDevice), so it can't read what's synced from now on.
       : confirmButton('Remove', 'Stop it syncing? The key changes.', async () => { const { dropped } = await Sync.removeDevice(t.device_id); toast(dropped.length ? `Removed; the key changed. Approve ${dropped.join(', ')} again.` : 'Removed; the key changed'); })));
@@ -491,8 +544,8 @@ function delegatesSection(prefill) {
       return el('li', 'acct-dev',
         el('span', 'acct-ico', (x.name || '?').slice(0, 1).toUpperCase()),
         el('div', 'grow',
-          el('div', 'p-n', x.name),
-          el('div', 'p-c', [status, x.features.map((f) => FEATURE_WORDS[f] || f).join(', '), `${money(x.spent_usd)} of ${money(x.cap_usd)} this month`, x.status === 'active' || x.status === 'invited' ? `until ${day(x.expires)}` : ''].filter(Boolean).join(' · ')),
+          el('div', { class: 'p-n', 'data-no-i18n': '' }, x.name),
+          el('div', 'p-c', [status, x.features.map((f) => t(FEATURE_WORDS[f] || f)).join(', '), `${money(x.spent_usd)} of ${money(x.cap_usd)} this month`, x.status === 'active' || x.status === 'invited' ? `until ${day(x.expires)}` : ''].filter(Boolean).map(t).join(' · ')),
           x.cap_usd > 0 ? meter(Math.max(0, x.cap_usd - x.spent_usd), x.cap_usd, `${x.name}’s limit left`) : null),
         confirmButton('Revoke', `Revoke ${x.name}’s access?`, async () => { await post('/api/web/deleg/revoke', { id: x.id }); toast(`${x.name} can’t use your account any more`); draw(); }));
     });
@@ -587,6 +640,16 @@ async function openBilling(button, kind, payload = {}) {
   }
 }
 
+// A message that came with a promo code, over the page; text only, never HTML.
+function showNote(text) {
+  const close = () => back.remove();
+  const card = el('div', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'A message for you', style: { background: 'var(--bg, #fff)', color: 'var(--text, #111)', maxWidth: '420px', width: 'calc(100% - 48px)', padding: '28px', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,.35)', font: 'inherit', lineHeight: '1.5', whiteSpace: 'pre-wrap' } },
+    el('span', { 'data-no-i18n': '' }, text), el('div', { style: { marginTop: '20px', textAlign: 'right' } }, el('button', { type: 'button', class: 'btn primary', onclick: close }, 'Close')));
+  const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9999', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onclick: (e) => { if (e.target === back) close(); } }, card);
+  document.body.append(back);
+  card.querySelector('button').focus();
+}
+
 // "Have a promo code?": free Plus for a while (accounts/promo.js). Works on the web page; the apps have their own.
 function promoRow() {
   const input = el('input', { type: 'text', class: 'inp', placeholder: 'EDEN-ABCD-2345', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', 'aria-label': 'Promo code', maxlength: '24' });
@@ -597,6 +660,7 @@ function promoRow() {
     try {
       const r = await post('/api/web/billing/promo', { code: input.value });
       toast(`Plus is on until ${day(r.until)}`);
+      if (r.message) showNote(r.message);
       draw();
     } catch (e) {
       toast(e.message);
@@ -617,7 +681,7 @@ function planSection(a, config = {}) {
     el('div', { class: 'orb', 'aria-hidden': 'true' }),
     el('div', 'grow',
       el('div', 'acct-plan-name', plus ? 'Plus' : 'Free', plus ? el('span', 'acct-badge plus', 'Active') : null),
-      el('div', 'acct-sub', plus ? [renews, SOURCE_WORDS[plan.source] || SOURCE_WORDS.app_store].filter(Boolean).join(' · ') : 'Some AI included to try Eden.')));
+      el('div', 'acct-sub', plus ? [renews, SOURCE_WORDS[plan.source] || SOURCE_WORDS.app_store].filter(Boolean).map(t).join(' · ') : 'Some AI included to try Eden.')));
   // Buying and managing on the web: in a browser once billing is set up; inside the Eden iOS app
   // only with the server's flag (Apple's in-app purchase rules; the US link-out later).
   const web = config.billing === true && (!IN_APP || config.billing_in_app === true);
@@ -625,10 +689,10 @@ function planSection(a, config = {}) {
   const portal = Boolean(manage.stripe) && (!IN_APP || config.billing_in_app === true);
   const manageRow = manage.stripe || manage.app_store ? el('div', 'acct-row-actions acct-manage',
     portal ? el('button', { type: 'button', class: 'cap primary', onclick: (e) => openBilling(e.currentTarget, 'portal') }, 'Manage billing') : null,
-    manage.stripe && !portal ? el('span', 'acct-sub', 'Billing is managed at askeden.com in a browser.') : null,
+    manage.stripe && !portal && !IN_APP ? el('span', 'acct-sub', 'Billing is managed at askeden.com in a browser.') : null, // never in the iOS app (App Store 3.1.1: C14)
     manage.app_store ? el('a', { class: 'cap', href: manage.app_store, target: '_blank', rel: 'noopener' }, 'Manage in the App Store') : null) : null;
   const warnings = [
-    plan.payment_failed ? el('div', 'sp-warn acct-notice', el('b', '', 'Your last payment didn’t go through'), `Update your card ${portal ? 'in Manage billing' : 'at askeden.com'}, or Plus stops in a few days.`) : null,
+    plan.payment_failed ? el('div', 'sp-warn acct-notice', el('b', '', 'Your last payment didn’t go through'), portal ? 'Update your card in Manage billing, or Plus stops in a few days.' : IN_APP ? 'Update your payment method, or Plus stops in a few days.' : 'Update your card at askeden.com, or Plus stops in a few days.') : null,
     plan.source === 'both' ? el('p', 'sp-note', 'You’re paying for Plus twice: in the App Store and on askeden.com. Cancel one of them.') : null,
   ];
 
@@ -648,7 +712,7 @@ function planSection(a, config = {}) {
 
   const iPhone = (a.devices || []).some((d) => d.kind === 'iphone');
   const included = typeof u.plus_usd === 'number' ? money(u.plus_usd) : 'more';
-  const price = a.plus && typeof a.plus.price_usd === 'number' ? `$${a.plus.price_usd}` : '$10';
+  const price = usd(a.plus && typeof a.plus.price_usd === 'number' ? a.plus.price_usd : 10, null);
   const yearly = a.plus && typeof a.plus.yearly_usd === 'number' ? a.plus.yearly_usd : null;
   let getPlus = null;
   if (!plus && web) {
@@ -659,7 +723,7 @@ function planSection(a, config = {}) {
         el('p', 'acct-alt', 'or in the J.A.R.V.I.S. iPhone app')),
       el('div', 'acct-plus-btns',
         el('button', { type: 'button', class: 'btn primary', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'monthly' }) }, `Get Plus: ${price}/month`),
-        yearly ? el('button', { type: 'button', class: 'btn', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'yearly' }) }, `$${yearly}/year`) : null));
+        yearly ? el('button', { type: 'button', class: 'btn', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'yearly' }) }, `${usd(yearly, null)}/year`) : null));
   } else if (!plus) {
     getPlus = el('div', 'acct-plus',
       el('div', 'grow',
@@ -668,7 +732,7 @@ function planSection(a, config = {}) {
       iPhone ? null : el('a', { class: 'btn primary', href: '/jarvis/iphone', target: '_blank', rel: 'noopener' }, 'Get the iPhone app'));
   }
 
-  return el('section', { class: 'set-sec', 'aria-labelledby': 'acctPlanH' }, el('h3', { id: 'acctPlanH' }, 'Plan'),
+  return el('section', { class: 'set-sec', 'aria-labelledby': 'acctPlanH' }, el('h3', { id: 'acctPlanH', 'data-no-i18n': '' }, isFr ? 'Forfait' : 'Plan'),
     ...warnings.filter(Boolean),
     el('div', 'icard acct-card', head, allowance, manageRow),
     el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Models & API keys).'), getPlus, promoRow(),
@@ -706,7 +770,7 @@ function creditsSection(a, web) {
   ];
   if (packs.length) {
     rows.push(el('div', 'acct-row-actions acct-packs',
-      ...packs.map((n) => el('button', { type: 'button', class: 'cap', onclick: (e) => openBilling(e.currentTarget, 'credits', { pack: n }) }, `Add $${n}`))));
+      ...packs.map((n) => el('button', { type: 'button', class: 'cap', onclick: (e) => openBilling(e.currentTarget, 'credits', { pack: n }) }, `Add ${usd(n, null)}`))));
   }
   if (web && offer.auto_topup) {
     const input = el('input', { type: 'checkbox', role: 'switch', checked: Boolean(auto.enabled), disabled: !auto.card_on_file && !auto.enabled, onchange: (e) => setAutoTopUp(e.currentTarget, e.currentTarget.checked) });
@@ -718,7 +782,7 @@ function creditsSection(a, web) {
   const history = (c.history || []).length ? el('details', 'acct-history',
     el('summary', '', 'Top-up history'),
     el('ul', '', ...c.history.map((h) => el('li', '',
-      el('span', '', `${SOURCE_TOPUP[h.source] || 'Pack'} · ${day(h.at)}`),
+      el('span', '', `${t(SOURCE_TOPUP[h.source] || 'Pack')} · ${day(h.at)}`),
       el('b', '', money(h.usd)),
       el('span', 'acct-sub', h.expired ? 'expired' : `${money(h.left)} left · expires ${day(h.expires)}`))))) : null;
   return el('section', { class: 'set-sec acct-credits', 'aria-labelledby': 'acctCreditsH' }, el('h3', { id: 'acctCreditsH' }, 'Credits'),
@@ -760,8 +824,8 @@ function confirmButton(label, question, run, { danger = true } = {}) {
 
 function deviceRow(d) {
   const web = d.kind === 'web';
-  const name = String(d.name || (web ? 'A browser' : APPS[d.kind] || 'A device')).replace(/^Eden on the web: /, '');
-  const facts = [web ? 'Browser' : APPS[d.kind] || d.kind, ago(d.last_seen), web && d.expires ? left(d.expires) : ''].filter(Boolean).join(' · ');
+  const name = String(d.name || (web ? t('A browser') : APPS[d.kind] || t('A device'))).replace(/^Eden on the web: /, '');
+  const facts = [web ? 'Browser' : APPS[d.kind] || d.kind, ago(d.last_seen), web && d.expires ? left(d.expires) : ''].filter(Boolean).map(t).join(' · ');
   let action;
   if (web && d.this) {
     action = confirmButton('Sign out', 'Sign out here?', async () => { await Sync.forgetAllKeys(); await post('/api/web/signout'); location.replace(HOME()); });
@@ -772,7 +836,7 @@ function deviceRow(d) {
   }
   return el('li', `acct-dev${d.this ? ' this' : ''}`,
     el('span', 'acct-ico', glyph(d.kind)),
-    el('div', 'grow', el('div', 'p-n', name, d.this ? el('span', 'acct-badge', 'This browser') : null), el('div', 'p-c', facts)),
+    el('div', 'grow', el('div', 'p-n', el('span', { 'data-no-i18n': '' }, name), d.this ? el('span', 'acct-badge', 'This browser') : null), el('div', 'p-c', facts)),
     action);
 }
 
@@ -789,11 +853,11 @@ function devicesSection(a) {
 /* ---------- connected apps (Eden Messenger's @Eden: site/src/accounts/scoped.js) ---------- */
 
 function appRow(a, again) {
-  const name = a.name || a.client || 'An app';
-  const facts = [a.scope === 'ask' ? 'Can ask Eden' : a.scope, a.last_used ? ago(a.last_used).replace(/^active/, 'used') : 'not used yet', a.created ? `connected ${day(a.created)}` : '', a.expires ? left(a.expires) : ''].filter(Boolean).join(' · ');
+  const name = a.name || a.client || t('An app');
+  const facts = [a.scope === 'ask' ? 'Can ask Eden' : a.scope, a.last_used ? ago(a.last_used).replace(/^active/, 'used') : 'not used yet', a.created ? `connected ${day(a.created)}` : '', a.expires ? left(a.expires) : ''].filter(Boolean).map(t).join(' · ');
   return el('li', 'acct-dev',
     el('span', 'acct-ico', glyph('app')),
-    el('div', 'grow', el('div', 'p-n', name), el('div', 'p-c', facts)),
+    el('div', 'grow', el('div', { class: 'p-n', 'data-no-i18n': '' }, name), el('div', 'p-c', facts)),
     confirmButton('Revoke', `Disconnect ${name}?`, async () => { await post(`/api/web/apps/${encodeURIComponent(a.id)}/revoke`); toast(`${name} disconnected`); again(); }));
 }
 
@@ -829,7 +893,7 @@ function methodsSection(a, config) {
         ? el('button', { type: 'button', class: 'cap', disabled: true, title: 'Your only way to sign in: add another first', 'aria-describedby': 'acctLastNote' }, 'Unlink')
         : confirmButton('Unlink', `Stop signing in with ${label}?`, async () => { await post(`/api/web/identities/${p}/unlink`); toast(`${label} unlinked`); draw(); });
       return el('li', 'acct-dev', el('span', 'acct-ico', mark(p)),
-        el('div', 'grow', el('div', 'p-n', label), el('div', 'p-c', [linked.email || ({ apple: 'Apple ID', google: 'Google account', passkey: 'On your device or password manager' })[p], linked.added ? `added ${day(linked.added)}` : ''].filter(Boolean).join(' · '))),
+        el('div', 'grow', el('div', 'p-n', label), el('div', 'p-c', [linked.email || ({ apple: 'Apple ID', google: 'Google account', passkey: 'On your device or password manager' })[p], linked.added ? `added ${day(linked.added)}` : ''].filter(Boolean).map(t).join(' · '))),
         unlink);
     }
     const ready = config && config[p] === true && (p !== 'passkey' || typeof window.PublicKeyCredential === 'function');
@@ -848,6 +912,17 @@ function methodsSection(a, config) {
 }
 
 /* ---------- deleting the account (POST /api/web/account/delete; site/src/eden/session.js) ---------- */
+
+/** The Delete account section in view, its field focused (nothing happens until DELETE is typed and confirmed). */
+function showDelete() {
+  requestAnimationFrame(() => {
+    const sec = document.querySelector('.acct-delete');
+    if (!sec) return;
+    sec.scrollIntoView({ block: 'center' });
+    const f = sec.querySelector('.acct-del-input');
+    if (f) f.focus({ preventScroll: true });
+  });
+}
 
 /** Delete account: the person types DELETE, then everything goes and every device is signed out. */
 function deleteSection() {
@@ -936,7 +1011,10 @@ function fromHash() {
   const q = new URLSearchParams(m[1] || '');
   history.replaceState(null, '', location.pathname + location.search);
   if (q.has('plus')) return { notice: null, focusPlus: true };
+  // #account?delete=1 (the iPhone app's Settings › Delete Account…, C18): the Delete account section, shown and focused; nothing is deleted until DELETE is typed and confirmed
+  if (q.has('delete')) return { notice: null, focusDelete: true };
   const p = PROVIDERS[q.get('provider')] || 'sign-in';
+  if (/^[A-Za-z0-9_-]{8,40}\.[A-Za-z0-9_-]{16,}$/.test(q.get('merge') || '')) return { notice: null, merge: { token: q.get('merge'), provider: p } };
   const code = q.get('error');
   if (code) return { notice: Object.hasOwn(ERRORS, code) ? ERRORS[code](p) : `Adding ${p === 'sign-in' ? 'that sign-in' : p} didn’t finish. Try again.` };
   // Back from Stripe Checkout (eden/billing.js success_url, cancel_url).

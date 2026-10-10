@@ -125,6 +125,7 @@ JARVIS_TOOLS = frozenset(
         "mail_read",
         "mail_draft",
         "mail_send",
+        "mail_triage",
         # Memory in Eden: listing is free; each change still needs confirm: true and the
         # owner's card in Jarvis (mcp_endpoint's memory_update / delete / toggle).
         "memory_list",

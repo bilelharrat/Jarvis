@@ -98,8 +98,8 @@ export function grantAllows(grant, method, path) {
   return (f.includes('mail') && MAIL_ROUTES.has(route)) || (f.includes('calendar') && CALENDAR_ROUTES.has(route));
 }
 
-/** The person's own things, even while acting for someone: their published pages (G10). */
-export const ownRoute = (path) => path === '/api/chat/publish' || path.startsWith('/api/chat/published');
+/** The person's own things, even while acting for someone: their published pages (G10) and shared chats (askeden Q3). */
+export const ownRoute = (path) => path === '/api/chat/publish' || path.startsWith('/api/chat/published') || path === '/api/chat/share' || path === '/api/chat/shares' || path.startsWith('/api/chat/shares/');
 
 export const grantRefusal = (grant) =>
   new ApiError(403, 'grant_forbidden', grant.type === 'space' ? 'In a team space Eden is chat only.' : 'Your delegated access doesn’t include that. Ask the account’s owner.');

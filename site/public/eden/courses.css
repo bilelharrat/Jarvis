@@ -244,7 +244,8 @@
 .crs-icon-btn.plain:hover{background:rgba(120,120,128,.14);color:var(--text)}
 .crs-src.link{width:100%;text-align:left;cursor:pointer;border-radius:8px;padding:2px 4px;margin:0 -4px}
 .crs-src.link:hover{background:rgba(120,120,128,.12);color:var(--text)}
-.crs-dialog{border:0;border-radius:var(--r-lg);padding:0;width:min(440px,92vw);color:var(--text)}
+/* margin:auto: app.css's *{margin:0} reset would pin a modal <dialog> to the top-left corner */
+.crs-dialog{margin:auto;border:0;border-radius:var(--r-lg);padding:0;width:min(440px,92vw);color:var(--text)}
 .crs-dialog::backdrop{background:rgba(0,0,0,.3)}
 .crs-dialog-body{display:flex;flex-direction:column;gap:10px;padding:20px}
 .crs-dialog-body h3{margin:0 0 4px;font-size:17px}
@@ -280,3 +281,75 @@
 /* the Study tab's ask box is Eden's input bar (.jc-composer); just its width here */
 .crs-askbar{width:100%}
 .crs-askbar .jc-composer-top textarea{font-size:15px}
+
+/* who pays for students' AI (edu-budget.js, ROADMAP L9): what's left today, the "use my own allowance" prompt */
+.edu-left{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;margin:6px 0 0;font-size:12px;color:var(--text2)}
+.edu-left .crs-link{margin:0;padding:0;font-size:12px}
+.edu-own{margin:auto;max-width:min(440px,calc(100vw - 32px));border:0;border-radius:var(--r-lg,16px);padding:20px 22px;background:var(--bg,#fff);color:var(--text,inherit);box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.edu-own::backdrop{background:rgba(0,0,0,.35)}
+.edu-own h3{margin:0 0 8px;font-size:17px}
+.edu-own p{margin:0 0 10px;font-size:14px;line-height:1.45}
+.edu-own-acts{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:6px}
+
+/* chapter scope, exams (rules) and the exam plan (Q8) */
+.crs-scoped{color:var(--text)}
+.crs-scope,.crs-exams{display:flex;flex-direction:column;gap:6px}
+.crs-scope-row,.crs-exam{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:9px 10px;border-radius:var(--r-md);background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.crs-scope-file{display:flex;align-items:center;gap:8px;flex:1 1 220px;min-width:0}
+.crs-scope-file span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crs-scope-file .muted{font-size:12px;flex-shrink:0}
+.crs-scope-ch,.crs-scope-week,.crs-scope-upto,.crs-plan-date{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.crs-scope-upto{flex-wrap:wrap;margin-bottom:2px}
+.crs-scope-upto .muted{font-size:12px;flex-basis:100%}
+.crs-scope input[type=number],.crs-scope select{width:64px;min-height:30px;border:0;border-radius:var(--r-sm);padding:0 8px;background:var(--content2);box-shadow:inset 0 0 0 1px var(--hairline);font:inherit;font-size:13px;color:var(--text)}
+.crs-scope select{width:auto;max-width:180px}
+.crs-scope-hint{font-size:12px}
+.crs-exam{flex-direction:column;align-items:stretch}
+.crs-exam-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.crs-exam-top input{min-height:32px;border:0;border-radius:var(--r-sm);padding:0 9px;background:var(--content2);box-shadow:inset 0 0 0 1px var(--hairline);font:inherit;font-size:13px;color:var(--text)}
+.crs-exam .crs-date{margin:0}
+.crs-exam-files,.crs-plan-chs,.crs-plan-exams{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px}
+.crs-chip-check{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline);font-size:12px;cursor:pointer}
+.crs-plan{display:flex;flex-direction:column;gap:12px}
+.crs-plan-form{display:flex;flex-direction:column;gap:10px}
+.crs-plan-when{display:flex;flex-wrap:wrap;gap:12px}
+.crs-plan-when .crs-field{flex:1 1 200px}
+.crs-plan-when .crs-date{margin:0}
+.crs-plan-files{display:flex;flex-direction:column;gap:6px}
+.crs-plan-chs{flex-basis:100%;padding-left:26px}
+.crs-plan-top{display:flex;align-items:center;gap:14px;padding:14px;border-radius:var(--r-md);background:var(--content);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.crs-plan-top .grow{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.crs-ring.sm{width:56px;height:56px;flex-shrink:0}
+.crs-ring.sm b{width:44px;height:44px;font-size:13px}
+.crs-behind{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.crs-plan-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.crs-plan-date .crs-date{margin:0}
+.crs-plan-days{display:flex;flex-direction:column;gap:8px}
+.crs-plan-day{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:var(--r-md);background:var(--content);box-shadow:0 1px 3px rgba(0,0,0,.06),inset 0 0 0 .5px var(--hairline)}
+.crs-plan-day.today{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.crs-plan-day.done{opacity:.6}
+.crs-plan-day-h{display:flex;align-items:center;gap:8px;cursor:pointer}
+.crs-plan-reads{display:flex;flex-direction:column;gap:4px}
+.crs-plan-read{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;max-width:100%;padding:3px 0;border:0;background:none;color:var(--accent);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.crs-plan-read:hover{text-decoration:underline}
+.crs-plan-acts{display:flex;flex-wrap:wrap;gap:6px}
+.crs-plan-acts .btn{font-size:12.5px}
+.crs-plan-name{width:100%;box-sizing:border-box}
+.crs-plan-when .crs-field{display:flex;flex-direction:column;gap:4px;align-items:stretch}
+
+/* graded work in hint mode, the weekly summary (assignments.js, ROADMAP Q10, Q11) */
+.crs-hint{display:flex;flex-direction:column;gap:3px;margin-top:4px;padding-top:8px;border-top:.5px solid var(--hairline)}
+.crs-hint .crs-ground-h{color:var(--crs-amber)}
+.crs-asg{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:.5px solid var(--hairline)}
+.crs-asg:first-child{border-top:0}
+.crs-asg-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.crs-asg-file{display:grid;grid-template-columns:auto 1fr minmax(120px,200px);align-items:center;gap:8px;padding:6px 0}
+.crs-asg-pages{min-width:0}
+.crs-asg-graded{display:flex;align-items:center;gap:8px;margin:6px 0}
+.crs-week{margin-bottom:14px}
+.crs-week-list{margin:6px 0 10px;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.crs-week-list li{display:flex;flex-direction:column;gap:2px}
+.crs-week-missed{font-size:12.5px;color:var(--text2,inherit)}
+.crs-week-fixes{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.crs-week-fixes li{display:flex;gap:8px;align-items:flex-start}
+@media (max-width:600px){.crs-asg-file{grid-template-columns:auto 1fr}.crs-asg-pages{grid-column:1/-1}}

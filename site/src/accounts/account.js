@@ -26,12 +26,17 @@ import { approvalOp } from './approvals.js';
 import { scopedOp } from './scoped.js';
 import { userKeysOp } from './user-keys.js';
 import { webClosed, webListen, webMessage, webOp } from './webrelay.js';
+import { GRANT_CLIENTS } from './apple.js';
 import { publishedOp } from './published.js';
+import { sharedChatsOp, sharedIds } from './shared-chats.js';
 import { edenSyncOp } from './eden-sync.js';
-import { chatSyncOp } from './chat-sync.js';
+import { chatMergeOp, chatSyncOp } from './chat-sync.js';
 import { memoryOp } from '../eden/memory.js';
 import { delegateOp, grantAllow, grantGuard, grantView, poolSpend } from './delegates.js';
+import { eduAccountOp } from '../edu/budget.js';
 import { mailDue, mailOp, runAlarms, scheduleJob, unscheduleJob } from './schedule.js';
+import { receiptOp } from './receipts.js';
+import { autodraftDue, autodraftOp } from './autodrafts.js';
 import { taskDue, taskOp } from './tasks.js';
 import { mailUploadOp, uploadsDue } from './mail-uploads.js';
 import { grantPromo } from './promo.js';
@@ -115,9 +120,12 @@ export class Account {
       if (op === 'web-signin') return json(await this.webSignIn(await request.json().catch(() => ({}))));
       if (op.startsWith('web-')) return await webOp(this, op, request); // hosted Eden → the Mac (webrelay.js)
       if (op.startsWith('pub-')) return await publishedOp(this, op, request); // published pages, /p/<id> (published.js)
+      if (op.startsWith('share-')) return await sharedChatsOp(this, op, request); // shared chats, /s/<id> (shared-chats.js, askeden Q3)
       if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
+      if (op.startsWith('cmerge-')) return await chatMergeOp(this, op, request); // another sign-in's chats copied into the account that proved it (chat-sync.js)
       if (op.startsWith('csync-')) return await chatSyncOp(this, op, request); // chat history on every device, sealed server-side (chat-sync.js)
       if (op.startsWith('deleg-')) return await delegateOp(this, op, request); // delegates and grants, H14/G8 (delegates.js)
+      if (op.startsWith('edu-')) return await eduAccountOp(this, op, request); // course budgets and students' free study AI, askeden L9 (edu/budget.js)
       if (op.startsWith('stripe-')) return await stripeOp(this, op, request); // Plus bought on the web, F15 (stripe-plan.js)
       if (op.startsWith('mailup-')) return await mailUploadOp(this, op, request); // hosted Gmail's attachments uploaded ahead (mail-uploads.js)
       if (op.startsWith('ukeys-')) return await userKeysOp(this, op, request); // the owner's own API keys, sealed (user-keys.js)
@@ -132,6 +140,7 @@ export class Account {
       if (op === 'identity-link') return json(await this.linkIdentity(body));
       if (op.startsWith('google-')) return json(await googleOp(this, op, body, request)); // hosted Gmail/Calendar tokens (tokens.js checks the caller)
       if (op.startsWith('scoped-')) return json(await scopedOp(this, op, body, request)); // other apps' scoped tokens, @Eden (scoped.js checks the caller)
+      if (op === 'rcpt-open') return json(await receiptOp(this, op, body)); // a read receipt's pixel loaded (the Worker's /r/ route; receipts.js)
       const device = await this.authenticate(request);
       // A browser may delete the account only when the person typed DELETE (the account page).
       const webDelete = op === 'delete' && body.confirm === 'DELETE' && !device.grant;
@@ -140,6 +149,8 @@ export class Account {
       }
       if (op.startsWith('approve-')) return json(await approvalOp(this, op, body, device)); // one-click approvals for Gmail/Calendar writes (approvals.js)
       if (op.startsWith('mail-')) return json(await mailOp(this, op, body)); // scheduled Gmail sends (schedule.js)
+      if (op.startsWith('ad-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Background Auto Drafts are the owner’s.'); return json(await autodraftOp(this, op, body)); } // Auto Drafts in the background (autodrafts.js)
+      if (op.startsWith('rcpt-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Read receipts are the owner’s.'); return json(await receiptOp(this, op, body)); } // read receipts (receipts.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
       switch (op) {
         case 'get': return json(await this.view(device));
@@ -273,7 +284,7 @@ export class Account {
 
   // Sign in with Apple, Google or a passkey on the web, or the Eden app's handoff: always as a browser.
   // `create`: a sign-in seen for the first time makes the account (on the trial allowance).
-  async webSignIn({ account_id, device = {}, create = false, identity = null }) {
+  async webSignIn({ account_id, device = {}, create = false, identity = null, apple_grant = null }) {
     let account = await this.storage.get('account');
     const fresh = !account;
     if (fresh && create) {
@@ -285,8 +296,19 @@ export class Account {
       throw new ApiError(404, 'no_account', 'There is no Eden account for this sign-in yet.');
     }
     await this.noteIdentity(identity);
+    await this.keepAppleGrant(apple_grant);
     const made = await this.makeDevice(account.id, { ...device, kind: 'web' });
     return { token: made.token, device_id: made.device.id, account_id: account.id, name: made.device.name, new: fresh };
+  }
+
+  // An Eden app's Sign in with Apple grant (eden/session.js nativeApple): its refresh token, kept by the
+  // client id it was issued to, so deleting the account revokes it with that id (accounts/index.js).
+  // The J.A.R.V.I.S. app's own grant stays in `apple_grant` (signIn).
+  async keepAppleGrant(grant) {
+    if (!grant || typeof grant.token !== 'string' || !grant.token || !GRANT_CLIENTS.includes(grant.client_id)) return;
+    const grants = (await this.storage.get('apple_grants')) || {};
+    grants[grant.client_id] = grant.token;
+    await this.storage.put('apple_grants', grants);
   }
 
   // ── sign-in identities (docs/web-auth.md): { provider, sub_hash, email, added }, one per provider ──
@@ -417,14 +439,16 @@ export class Account {
 
   async deleteAll() {
     const grant = await this.storage.get('apple_grant');
+    const grants = (await this.storage.get('apple_grants')) || {};
     const stripe = await stripeToCancel(this); // the Worker cancels it at Stripe (eden/billing.js)
     const identities = (await this.identities()).filter((i) => i.sub_hash).map(({ provider, sub_hash }) => ({ provider, sub_hash }));
     const published = [...(await this.storage.list({ prefix: 'pubh:' })).keys()].map((k) => k.slice(5)); // the Worker drops their /p/ links
+    const shared = await sharedIds(this.storage); // and their /s/ links (shared-chats.js)
     this.closeSockets(['listen', 'web', 'phone', 'mac'], 4001, 'account deleted');
     await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
     await this.storage.deleteAll();
     await Promise.resolve(this.storage.deleteAlarm?.()).catch(() => {}); // deleteAll leaves the alarm set
-    return { apple_grant: grant || null, identities, stripe_subscription: stripe, published };
+    return { apple_grant: grant || null, apple_grants: grants, identities, stripe_subscription: stripe, published, shared };
   }
 
   publicDevice(device, me) {
@@ -621,7 +645,7 @@ export class Account {
     const want = Number(usd);
     if (!(want >= 0)) throw new ApiError(400, 'bad_request', 'usd must be a number');
     this.held(''); // drop expired holds
-    if ([...this.holds.values()].filter((h) => !h.proxy).length >= EDEN_TURNS) {
+    if ([...this.holds.values()].filter((h) => !h.proxy && !h.edu).length >= EDEN_TURNS) { // students' course turns (edu/budget.js) don't take the owner's two
       throw new ApiError(429, 'slow_down', `Eden is already writing ${EDEN_TURNS} replies for this account; wait for one to finish.`, { 'retry-after': '10' });
     }
     const allow = await this.allowAi(device);
@@ -865,6 +889,7 @@ export class Account {
       artifacts: () => this.artifactSweep(),
       mail: (job) => mailDue(this, job),
       task: (job) => taskDue(this, job),
+      autodraft: () => autodraftDue(this),
       uploads: () => uploadsDue(this), // Gmail attachments uploaded ahead, unused for hours (mail-uploads.js)
     });
   }

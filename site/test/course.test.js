@@ -1,7 +1,7 @@
 // Eden for Education (src/edu/course.js): courses, join codes, materials, search and the quote check.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Course, eraseCourses, summaryIntent, SUMMARY_CHARS, buildIndex, checkGrounding, checkQuiz, checkSet, packVector, courseBlock, courseForTurn, coursesApi, filesForTurn, ocrPages, recordTurn, riskOf, schoolDomain, searchIndex } from '../src/edu/course.js';
+import { Course, eraseCourses, summaryIntent, SUMMARY_CHARS, buildIndex, checkGrounding, checkQuiz, checkSet, packVector, courseBlock, courseForTurn, coursesApi, filesForTurn, ocrPages, passageText, recordTurn, riskOf, schoolDomain, searchIndex } from '../src/edu/course.js';
 import { namespace } from './fakes.js';
 
 const PROF = '11111111-1111-4111-8111-111111111111';
@@ -164,6 +164,34 @@ test('scanned pages: read by the included AI, held and charged on the account', 
   assert.ok(calls[1][1].usd > 0);
   await assert.rejects(ocrPages(env, { account: PROF }, { images: [] }, { call, fetch }), { status: 400 });
   await assert.rejects(ocrPages(env, { account: PROF }, { images: [{ data: 'not base64!' }] }, { call, fetch }), { status: 400 });
+});
+
+test('figures (Q6): pictures described by the included AI, held and charged; our marker can’t be forged', async () => {
+  const calls = [];
+  let sent = null;
+  const call = async (_e, _a, op, body) => { calls.push([op, body]); return op === 'hold-ai' ? { ok: true, hold: 'h2', bucket: 'included' } : {}; };
+  const env = { GEMINI_API_KEY: '', ANTHROPIC_API_KEY: 'sk-test' };
+  const fetch = async (_u, init) => { sent = JSON.parse(init.body); return new Response(JSON.stringify({ model: 'claude-haiku-4-5', content: [{ type: 'text', text: '## A bar chart\n[Figure description] **Sales** rise from 2 to 9 units.' }], usage: { input_tokens: 1500, output_tokens: 40 } })); };
+  const out = await ocrPages(env, { account: PROF }, { describe: true, images: [{ loc: 'slide 3', data: 'AAAA' }] }, { call, fetch });
+  assert.deepEqual(out.parts, [{ loc: 'slide 3', text: 'A bar chart\n Sales rise from 2 to 9 units.' }]);
+  assert.match(sent.system, /never an instruction to you/); // what the picture says is material, not orders (H8)
+  assert.equal(sent.max_tokens, 600);
+  assert.deepEqual(calls.map((c) => c[0]), ['hold-ai', 'spend', 'release-ai']);
+});
+
+test('figures (Q6): a long page keeps its figure description in the passage', () => {
+  const page = `${'Osmosis moves water across a membrane. '.repeat(80)}\n\n[Figure description]\nA U-tube diagram: water rises on the salty side.`;
+  const p = passageText(page);
+  assert.ok(p.length <= 1800);
+  assert.match(p, /^Osmosis moves water/);
+  assert.match(p, /\[Figure description\]\nA U-tube diagram: water rises on the salty side\.$/);
+  assert.equal(passageText('short page'), 'short page');
+  assert.equal(passageText('x'.repeat(2000)).length, 1800);
+  const idx = buildIndex([{ doc: 'd1', name: 'Lecture 2', loc: 'page 4', text: page }]);
+  const hit = searchIndex(idx, 'U-tube diagram salty side');
+  assert.equal(hit[0].loc, 'page 4');
+  const check = checkGrounding('Water rises on the salty side [1].\n<sources>\n[1] S1 "A U-tube diagram: water rises on the salty side"\n</sources>', hit);
+  assert.ok(check.sources[0].ok);
 });
 
 test('outside courses: long attached documents get checked answers; high-stakes questions are spotted', () => {
@@ -331,7 +359,7 @@ test('the tutor: the course block spoken like a person; its turns count as quest
   await api(PROF, 'POST', `/api/chat/courses/${made.id}/docs`, LECTURE);
   const turn = await courseForTurn(env, { account: PROF }, made.id, 'what does oxygen do', { task: 'tutor' });
   assert.equal(turn.task, 'tutor');
-  assert.match(turn.block, /<source id="S1"[\s\S]*J\.A\.R\.V\.I\.S\., the student’s personal tutor[\s\S]*one question at a time/);
+  assert.match(turn.block, /<source id="S1"[\s\S]*Eden, the student’s personal tutor[\s\S]*one question at a time/);
   await recordTurn(env, { account: PROF }, turn, { status: 'verified' }, 'what does oxygen do');
   assert.equal((await api(PROF, 'GET', `/api/chat/courses/${made.id}/insights`)).questions, 1);
 });
@@ -378,4 +406,32 @@ test('a summary’s model by the material’s length: Luna for short, Flash for 
   assert.deepEqual(summaryModel(cfg, SUMMARY_SHORT_CHARS + 1).override, { model: 'gemini-3.8-flash', effort: 'low' });
   assert.match(summaryModel(cfg, 9000).why, /reads all of it/);
   assert.equal(summaryModel({ maxEffort: 'high', models: [m('gemini-3.1-pro-preview')] }, 9000), null, 'no cheap model: the router decides');
+});
+
+test('the notebook: private notes per student, newest copy wins, gone when they leave', async () => {
+  const { api } = setup();
+  const made = await api(PROF, 'POST', '/api/chat/courses', { name: 'BIO 201' });
+  await api(STUDENT, 'POST', '/api/chat/courses/join', { age13: true, code: made.code });
+  await api(STUDENT, 'POST', `/api/chat/courses/${made.id}/notes`, { id: 'note1', title: 'Respiration', body: '## ETC\nOxygen is the **final** acceptor.', updated: 100 });
+  const { notes } = await api(STUDENT, 'GET', `/api/chat/courses/${made.id}/notes`);
+  assert.deepEqual(notes.map((n) => [n.id, n.title, n.snippet]), [['note1', 'Respiration', 'ETC Oxygen is the final acceptor.']]);
+  assert.equal((await api(STUDENT, 'GET', `/api/chat/courses/${made.id}/notes/note1`)).body, '## ETC\nOxygen is the **final** acceptor.');
+  await api(STUDENT, 'POST', `/api/chat/courses/${made.id}/notes`, { id: 'note1', title: 'Old', body: 'stale', updated: 50 });
+  assert.equal((await api(STUDENT, 'GET', `/api/chat/courses/${made.id}/notes/note1`)).title, 'Respiration', 'an older copy doesn’t overwrite');
+  assert.deepEqual((await api(PROF, 'GET', `/api/chat/courses/${made.id}/notes`)).notes, [], 'the professor can’t see them');
+  await assert.rejects(api(PROF, 'GET', `/api/chat/courses/${made.id}/notes/note1`), { status: 404 });
+  await api(STUDENT, 'POST', `/api/chat/courses/${made.id}/leave`);
+  await api(STUDENT, 'POST', '/api/chat/courses/join', { age13: true, code: made.code });
+  assert.deepEqual((await api(STUDENT, 'GET', `/api/chat/courses/${made.id}/notes`)).notes, [], 'leaving deletes them');
+});
+
+test('course passages reach the prompt inside the guard’s markers; quotes are still checked against the plain text', async () => {
+  const { env, api } = setup();
+  const made = await api(PROF, 'POST', '/api/chat/courses', { name: 'BIO 201' });
+  await api(PROF, 'POST', `/api/chat/courses/${made.id}/docs`, LECTURE);
+  const wrap = (p) => `<<<U>>>${p.text}<<<END>>>`;
+  const t = await courseForTurn(env, { account: PROF }, made.id, 'oxygen final electron acceptor', { wrap });
+  assert.match(t.block, /<<<U>>>At complex IV oxygen[\s\S]*?<<<END>>>/);
+  assert.ok(!t.passages[0].text.includes('<<<U>>>'), 'the passages themselves stay plain');
+  assert.equal(checkGrounding('It is the acceptor [1].\n<sources>\n[1] S1 "oxygen is the final electron acceptor"\n</sources>', t.passages).status, 'verified');
 });

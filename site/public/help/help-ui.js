@@ -15,12 +15,110 @@
 //     canRun(open), run(open)  an answer's "open the feature" button, when the host can
 //     tour(chapter)          the try-it tour at that chapter, or null
 //     surface                'Eden on the web', 'Eden on your Mac', 'askeden.com/help' (for the support email)
+//     lang                   'en' | 'fr' (default helpLang(): the same choice as web/chat/i18n.js);
+//                            pass faq.fr.json as `faq` for French pages. Ask Help sends it as `lang`.
 //   }) → { show(id), home(), askView(text), search(q), focus() }
 
 import { cleanScreenshot } from './help-image.js';
 
 const VOTES = 'eden:help:votes';
 const CHAT = 'eden:help:chat'; // the Help chat: this tab only, never the person's conversations
+
+/**
+ * 'en' | 'fr', the same rule as web/chat/i18n.js (which the public page can't import): ?lang=
+ * wins, then localStorage "eden:lang" ('en' | 'fr'), else the browser's languages.
+ */
+export function helpLang() {
+  try { const q = new URLSearchParams(globalThis.location ? location.search : '').get('lang'); if (q === 'fr' || q === 'en') return q; } catch { /* none */ }
+  try { const v = globalThis.localStorage && localStorage.getItem('eden:lang'); if (v === 'en' || v === 'fr') return v; } catch { /* private mode */ }
+  const nav = globalThis.navigator;
+  const list = nav ? (nav.languages && nav.languages.length ? nav.languages : [nav.language]) : [];
+  for (const l of list) {
+    const p = String(l || '').toLowerCase().slice(0, 2);
+    if (p === 'fr' || p === 'en') return p;
+  }
+  return 'en';
+}
+
+const NB = '\u00a0';
+// The Help interface's own words in French (the FAQ itself is faq.fr.json). Keys: the English as written here.
+const FR = {
+  'Search Help': 'Rechercher dans l’Aide',
+  'Help topics': 'Rubriques d’aide',
+  'Ask Help': 'Demander à l’Aide',
+  Help: 'Aide',
+  Popular: 'Populaires',
+  Topics: 'Rubriques',
+  'All topics': 'Toutes les rubriques',
+  Topic: 'Rubrique',
+  'No results': 'Aucun résultat',
+  'Try other words, or ask Help in your own words.': 'Essayez d’autres mots, ou posez votre question à l’Aide avec vos propres mots.',
+  'Read more': 'En savoir plus',
+  Open: 'Ouvrir',
+  'Try it': 'Essayer',
+  'Try it in the tour': 'Essayer dans la visite guidée',
+  'Thanks for telling us.': 'Merci de nous l’avoir dit.',
+  'Sorry it didn’t help.': 'Désolé que cette page ne vous ait pas aidé.',
+  'Ask Help instead': 'Demander plutôt à l’Aide',
+  'Was this helpful?': `Cette page vous a-t-elle aidé${NB}?`,
+  Yes: 'Oui',
+  No: 'Non',
+  Thanks: 'Merci',
+  Related: 'Voir aussi',
+  'Still stuck?': `Le problème persiste${NB}?`,
+  'Ask about Eden, or paste a screenshot of the problem': 'Posez une question sur Eden, ou collez une capture d’écran du problème',
+  'Send to Help': 'Envoyer à l’Aide',
+  'Attach a screenshot': 'Joindre une capture d’écran',
+  'Help conversation': 'Discussion avec l’Aide',
+  'Contact support': 'Contacter l’assistance',
+  Clear: 'Effacer',
+  'Screenshot to send': 'Capture d’écran à envoyer',
+  'Screenshot ready': 'Capture d’écran prête',
+  'Remove the screenshot': 'Retirer la capture d’écran',
+  'That picture couldn’t be read.': 'Impossible de lire cette image.',
+  'From Help:': `D’après l’Aide${NB}:`,
+  'Screenshot attached': 'Capture d’écran jointe',
+  'Take the tour': 'Faire la visite guidée',
+  'Browse topics': 'Parcourir les rubriques',
+  'Ask anything about Eden.': 'Posez n’importe quelle question sur Eden.',
+  'Answers come from the Help pages, with links to them. It can also look at a screenshot of a problem.': 'Les réponses viennent des pages d’aide, avec un lien vers chacune. L’Aide peut aussi regarder une capture d’écran d’un problème.',
+  'Separate from your chats: nothing here goes into your history or uses your allowance.': `À part de vos discussions${NB}: rien ici n’entre dans votre historique ni ne consomme votre quota.`,
+  'Sign in': 'Se connecter',
+  'Help is looking…': 'L’Aide cherche…',
+  'Help couldn’t answer just now. Try again.': 'L’Aide n’a pas pu répondre pour l’instant. Réessayez.',
+  // help-image.js
+  'That isn’t a picture. Attach a screenshot (PNG or JPEG).': 'Ce n’est pas une image. Joignez une capture d’écran (PNG ou JPEG).',
+  'That picture is too big. Take a smaller screenshot, or crop it.': 'Cette image est trop grande. Faites une capture plus petite, ou recadrez-la.',
+  'That screenshot is too big even when shrunk. Crop it to the part that matters.': 'Cette capture reste trop grande même réduite. Recadrez-la sur la partie utile.',
+  'That picture couldn’t be cleaned. Take a new screenshot.': 'Impossible de nettoyer cette image. Faites une nouvelle capture d’écran.',
+  // the servers' Ask Help errors (site/src/eden/help.js, src/chat/help.ts, help-core.js parseHelpBody)
+  'Can’t reach Help right now. The Help pages still work.': 'Impossible de joindre l’Aide pour le moment. Les pages d’aide fonctionnent toujours.',
+  'Sign in to ask Help. The Help pages work without signing in.': 'Connectez-vous pour poser une question à l’Aide. Les pages d’aide fonctionnent sans connexion.',
+  'Help’s chat isn’t set up here yet. The Help pages above still work.': 'La discussion avec l’Aide n’est pas encore disponible ici. Les pages d’aide ci-dessus fonctionnent toujours.',
+  'Help’s chat is resting for today. The Help pages still work, and Contact support reaches a person.': 'La discussion avec l’Aide fait une pause pour aujourd’hui. Les pages d’aide fonctionnent toujours, et «\u00a0Contacter l’assistance\u00a0» vous met en relation avec une personne.',
+  'Help had a problem on the server. Try again, or write to support@askeden.com.': 'L’Aide a rencontré un problème sur le serveur. Réessayez, ou écrivez à support@askeden.com.',
+  'That screenshot is too big (5 MB at most). Crop it, or send a smaller one.': 'Cette capture est trop grande (5 Mo au maximum). Recadrez-la, ou envoyez-en une plus petite.',
+  'That screenshot isn’t a picture Help can read (PNG, JPEG or WebP).': 'L’Aide ne peut pas lire cette capture (PNG, JPEG ou WebP).',
+  'Ask a question, or attach a screenshot.': 'Posez une question, ou joignez une capture d’écran.',
+};
+const FR_PATTERNS = [
+  [/^(\d+) results$/, (m, n) => `${n} résultat${n === '1' ? '' : 's'}`],
+  [/^Nothing in Help matches “(.*)”\.$/s, (m, q) => `Rien dans l’Aide ne correspond à «${NB}${q}${NB}».`],
+  [/^(\d+)×(\d+), location and camera details removed$/, (m, w, hh) => `${w}×${hh}, localisation et détails de l’appareil photo supprimés`],
+  [/^(\d+) Help questions? left today\.$/, (m, n) => `Il vous reste ${n} question${n === '1' ? '' : 's'} à l’Aide aujourd’hui.`],
+  [/^Help couldn’t answer \((\d+)\)\.$/, (m, n) => `L’Aide n’a pas pu répondre (${n}).`],
+  [/^Free, up to (\d+) questions and (\d+) screenshots a day\.$/, (m, a, b) => `Gratuit, jusqu’à ${a}${NB}questions et ${b}${NB}captures d’écran par jour.`],
+  [/^That’s today’s (\d+) Help questions\. They start again at midnight UTC\. The Help pages and Contact support still work\.$/, (m, n) => `Vous avez posé vos ${n}${NB}questions à l’Aide pour aujourd’hui. Le compteur repart à minuit UTC. Les pages d’aide et «${NB}Contacter l’assistance${NB}» fonctionnent toujours.`],
+  [/^That’s today’s (\d+) screenshots for Help\. Describe the problem in words instead, or try again tomorrow\.$/, (m, n) => `Vous avez envoyé vos ${n}${NB}captures d’écran à l’Aide pour aujourd’hui. Décrivez plutôt le problème avec des mots, ou réessayez demain.`],
+];
+
+/** The Help interface's English text in `lang` ('fr' has its own; anything unknown stays as written). */
+export function helpText(text, lang = helpLang()) {
+  if (lang !== 'fr' || typeof text !== 'string') return text;
+  if (Object.hasOwn(FR, text)) return FR[text];
+  for (const [re, to] of FR_PATTERNS) if (re.test(text)) return text.replace(re, to);
+  return text;
+}
 
 function h(tag, attrs, ...kids) {
   const n = document.createElement(tag);
@@ -118,6 +216,8 @@ const session = () => { try { return window.sessionStorage; } catch { return nul
 
 export function mountHelp(root, opts) {
   const { faq, core } = opts;
+  const lang = opts.lang === 'fr' || opts.lang === 'en' ? opts.lang : helpLang();
+  const tr = (text) => helpText(text, lang);
   const index = core.buildIndex(faq);
   const byId = Object.fromEntries(faq.entries.map((e) => [e.id, e]));
   const cats = faq.categories;
@@ -133,12 +233,12 @@ export function mountHelp(root, opts) {
   root.replaceChildren();
 
   // ── the top: search and the two tabs ──
-  const q = h('input', { type: 'search', class: 'hc-q', placeholder: 'Search Help', 'aria-label': 'Search Help', autocomplete: 'off', spellcheck: 'false' });
-  const tabBrowse = h('button', { type: 'button', role: 'tab', class: 'hc-tab on', 'aria-selected': 'true', onclick: () => go({ name: 'home' }) }, 'Help topics');
-  const tabAsk = h('button', { type: 'button', role: 'tab', class: 'hc-tab', 'aria-selected': 'false', onclick: () => go({ name: 'ask' }) }, icon('spark'), 'Ask Help');
+  const q = h('input', { type: 'search', class: 'hc-q', placeholder: tr('Search Help'), 'aria-label': tr('Search Help'), autocomplete: 'off', spellcheck: 'false' });
+  const tabBrowse = h('button', { type: 'button', role: 'tab', class: 'hc-tab on', 'aria-selected': 'true', onclick: () => go({ name: 'home' }) }, tr('Help topics'));
+  const tabAsk = h('button', { type: 'button', role: 'tab', class: 'hc-tab', 'aria-selected': 'false', onclick: () => go({ name: 'ask' }) }, icon('spark'), tr('Ask Help'));
   const top = h('div', 'hc-top',
     h('label', 'hc-search', icon('search'), q),
-    h('div', { class: 'hc-tabs', role: 'tablist', 'aria-label': 'Help' }, tabBrowse, tabAsk));
+    h('div', { class: 'hc-tabs', role: 'tablist', 'aria-label': tr('Help') }, tabBrowse, tabAsk));
   const body = h('div', { class: 'hc-body', tabindex: '-1' });
   const live = h('div', { class: 'hc-sr', role: 'status', 'aria-live': 'polite' });
   root.append(top, body, live);
@@ -181,10 +281,10 @@ export function mountHelp(root, opts) {
     const popular = ['first-message', 'signin-ways', 'err-mac-offline', 'allowance', 'privacy-mode', 'mac-link'].map((id) => byId[id]).filter(Boolean);
     body.replaceChildren(
       h('section', 'hc-sec',
-        h('h2', 'hc-h', 'Popular'),
+        h('h2', 'hc-h', tr('Popular')),
         h('div', 'hc-list', popular.map((e) => row(e, catOf[e.cat]?.title)))),
       h('section', 'hc-sec',
-        h('h2', 'hc-h', 'Topics'),
+        h('h2', 'hc-h', tr('Topics')),
         h('div', 'hc-cats', cats.map((c) => h('button', { type: 'button', class: `hc-cat${c.id === 'trouble' ? ' warn' : ''}`, onclick: () => go({ name: 'cat', id: c.id }) },
           h('span', 'hc-cat-t', c.title), h('span', 'hc-cat-n', `${faq.entries.filter((e) => e.cat === c.id).length}`))))),
       stuck());
@@ -193,19 +293,19 @@ export function mountHelp(root, opts) {
   function drawCategory(id) {
     const c = catOf[id];
     body.replaceChildren(
-      backTo('All topics', { name: 'home' }),
-      h('h2', { class: 'hc-title', tabindex: '-1' }, c ? c.title : 'Topic'),
+      backTo(tr('All topics'), { name: 'home' }),
+      h('h2', { class: 'hc-title', tabindex: '-1' }, c ? c.title : tr('Topic')),
       h('div', 'hc-list', faq.entries.filter((e) => e.cat === id).map((e) => row(e))),
       stuck());
   }
 
   function drawSearch(text) {
     const results = core.search(index, text, { limit: 12 }).filter((r, i, all) => i < 3 || r.score >= all[0].score * 0.25);
-    live.textContent = results.length ? `${results.length} results` : 'No results';
+    live.textContent = results.length ? tr(`${results.length} results`) : tr('No results');
     body.replaceChildren(
       results.length
         ? h('div', 'hc-list', results.map((r) => row(byId[r.id], catOf[byId[r.id].cat]?.title)))
-        : h('div', 'hc-empty', h('p', null, `Nothing in Help matches “${text}”.`), h('p', null, 'Try other words, or ask Help in your own words.')),
+        : h('div', 'hc-empty', h('p', null, tr(`Nothing in Help matches “${text}”.`)), h('p', null, tr('Try other words, or ask Help in your own words.'))),
       stuck(text));
   }
 
@@ -225,10 +325,10 @@ export function mountHelp(root, opts) {
 
   function actions(e, { compact = false } = {}) {
     const btns = [];
-    if (e.open && e.open.faq && byId[e.open.faq]) btns.push(h('button', { type: 'button', class: 'hc-btn', onclick: () => go({ name: 'entry', id: e.open.faq }) }, e.open.label || 'Read more'));
-    else if (e.open && opts.canRun && opts.canRun(e.open)) btns.push(h('button', { type: 'button', class: 'hc-btn primary', onclick: () => opts.run(e.open) }, e.open.label || 'Open'));
-    else if (e.open && e.open.href && opts.links !== false) btns.push(h('a', { class: 'hc-btn primary', href: e.open.href }, e.open.label || 'Open'));
-    if (e.tour && opts.tour) btns.push(h('button', { type: 'button', class: 'hc-btn', onclick: () => opts.tour(e.tour) }, compact ? 'Try it' : 'Try it in the tour'));
+    if (e.open && e.open.faq && byId[e.open.faq]) btns.push(h('button', { type: 'button', class: 'hc-btn', onclick: () => go({ name: 'entry', id: e.open.faq }) }, e.open.label || tr('Read more')));
+    else if (e.open && opts.canRun && opts.canRun(e.open)) btns.push(h('button', { type: 'button', class: 'hc-btn primary', onclick: () => opts.run(e.open) }, e.open.label || tr('Open')));
+    else if (e.open && e.open.href && opts.links !== false) btns.push(h('a', { class: 'hc-btn primary', href: e.open.href }, e.open.label || tr('Open')));
+    if (e.tour && opts.tour) btns.push(h('button', { type: 'button', class: 'hc-btn', onclick: () => opts.tour(e.tour) }, tr(compact ? 'Try it' : 'Try it in the tour')));
     return btns.length ? h('div', 'hc-acts', btns) : null;
   }
 
@@ -239,51 +339,52 @@ export function mountHelp(root, opts) {
     const vote = h('div', 'hc-vote');
     const drawVote = () => {
       const v = votes[e.id];
-      if (v === 1) vote.replaceChildren(h('span', 'hc-vote-done', 'Thanks for telling us.'));
-      else if (v === -1) vote.replaceChildren(h('span', 'hc-vote-done', 'Sorry it didn’t help.'), h('button', { type: 'button', class: 'hc-link', onclick: () => go({ name: 'ask', prefill: e.q.replace(/^"|"$/g, '') }) }, 'Ask Help instead'));
-      else vote.replaceChildren(h('span', null, 'Was this helpful?'),
-        h('button', { type: 'button', class: 'hc-chip', onclick: () => cast(1) }, 'Yes'),
-        h('button', { type: 'button', class: 'hc-chip', onclick: () => cast(-1) }, 'No'));
+      if (v === 1) vote.replaceChildren(h('span', 'hc-vote-done', tr('Thanks for telling us.')));
+      else if (v === -1) vote.replaceChildren(h('span', 'hc-vote-done', tr('Sorry it didn’t help.')), h('button', { type: 'button', class: 'hc-link', onclick: () => go({ name: 'ask', prefill: e.q.replace(/^"|"$/g, '') }) }, tr('Ask Help instead')));
+      else vote.replaceChildren(h('span', null, tr('Was this helpful?')),
+        h('button', { type: 'button', class: 'hc-chip', onclick: () => cast(1) }, tr('Yes')),
+        h('button', { type: 'button', class: 'hc-chip', onclick: () => cast(-1) }, tr('No')));
     };
     const cast = (v) => {
       votes[e.id] = v;
       const store = local();
       if (store) writeJson(store, VOTES, votes); // kept in this browser only
       drawVote();
-      live.textContent = 'Thanks';
+      live.textContent = tr('Thanks');
     };
     drawVote();
     const related = faq.entries.filter((x) => x.cat === e.cat && x.id !== e.id).slice(0, 3);
     body.replaceChildren(
-      backTo(c ? c.title : 'All topics', c ? { name: 'cat', id: c.id } : { name: 'home' }),
+      backTo(c ? c.title : tr('All topics'), c ? { name: 'cat', id: c.id } : { name: 'home' }),
       h('article', { class: 'hc-entry', id: `help-${e.id}` },
         h('h2', { class: 'hc-title', tabindex: '-1' }, e.q),
         h('div', 'hc-answer', renderText(e.a)),
         (e.img || []).map(figure),
         actions(e),
         vote),
-      related.length ? h('section', 'hc-sec', h('h3', 'hc-h', 'Related'), h('div', 'hc-list', related.map((x) => row(x)))) : null,
+      related.length ? h('section', 'hc-sec', h('h3', 'hc-h', tr('Related')), h('div', 'hc-list', related.map((x) => row(x)))) : null,
       stuck(e.q));
   }
 
   function stuck(prefill) {
     return h('div', 'hc-stuck',
-      h('span', null, 'Still stuck?'),
-      h('button', { type: 'button', class: 'hc-btn', onclick: () => go({ name: 'ask', prefill: prefill && !/^"/.test(prefill) ? prefill : '' }) }, icon('spark'), 'Ask Help'));
+      h('span', null, tr('Still stuck?')),
+      h('button', { type: 'button', class: 'hc-btn', onclick: () => go({ name: 'ask', prefill: prefill && !/^"/.test(prefill) ? prefill : '' }) }, icon('spark'), tr('Ask Help')));
   }
 
   // ── Ask Help ──
-  const ta = h('textarea', { class: 'hc-in', rows: '2', placeholder: 'Ask about Eden, or paste a screenshot of the problem', 'aria-label': 'Ask Help' });
+  const ta = h('textarea', { class: 'hc-in', rows: '2', placeholder: tr('Ask about Eden, or paste a screenshot of the problem'), 'aria-label': tr('Ask Help') });
   const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/heic,image/*', hidden: true });
   const strip = h('div', { class: 'hc-strip', hidden: true });
-  const note = h('p', { class: 'hc-note', hidden: true, role: 'note' }, core.SCREENSHOT_NOTE);
-  const send = h('button', { type: 'submit', class: 'hc-send', 'aria-label': 'Send to Help' }, icon('send'));
-  const attach = h('button', { type: 'button', class: 'hc-attach', 'aria-label': 'Attach a screenshot', title: 'Attach a screenshot' }, icon('clip'));
+  const screenshotNote = lang === 'fr' && core.SCREENSHOT_NOTE_FR ? core.SCREENSHOT_NOTE_FR : core.SCREENSHOT_NOTE;
+  const note = h('p', { class: 'hc-note', hidden: true, role: 'note' }, screenshotNote);
+  const send = h('button', { type: 'submit', class: 'hc-send', 'aria-label': tr('Send to Help') }, icon('send'));
+  const attach = h('button', { type: 'button', class: 'hc-attach', 'aria-label': tr('Attach a screenshot'), title: tr('Attach a screenshot') }, icon('clip'));
   const form = h('form', 'hc-form', strip, note, h('div', 'hc-bar', attach, ta, send), file);
-  const log = h('div', { class: 'hc-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Help conversation' });
+  const log = h('div', { class: 'hc-log', role: 'log', 'aria-live': 'polite', 'aria-label': tr('Help conversation') });
   const gate = h('div', 'hc-gate');
-  const support = h('a', { class: 'hc-link', href: core.supportMailto([]) }, icon('mail'), 'Contact support');
-  const clear = h('button', { type: 'button', class: 'hc-link', onclick: () => { chat = []; saveChat(); drawAsk(); } }, 'Clear');
+  const support = h('a', { class: 'hc-link', href: core.supportMailto([], { lang }) }, icon('mail'), tr('Contact support'));
+  const clear = h('button', { type: 'button', class: 'hc-link', onclick: () => { chat = []; saveChat(); drawAsk(); } }, tr('Clear'));
   const askFoot = h('div', 'hc-askfoot', support, clear);
   const askView = h('div', 'hc-ask', gate, log, form, askFoot);
 
@@ -309,15 +410,15 @@ export function mountHelp(root, opts) {
       dropShot();
       shot = s;
       strip.replaceChildren(
-        h('img', { src: s.url, alt: 'Screenshot to send', class: 'hc-thumb' }),
-        h('div', 'hc-strip-t', h('b', null, 'Screenshot ready'), h('span', null, `${s.width}×${s.height}, location and camera details removed`)),
-        h('button', { type: 'button', class: 'hc-x', 'aria-label': 'Remove the screenshot', onclick: () => { dropShot(); ta.focus(); } }, icon('x')));
+        h('img', { src: s.url, alt: tr('Screenshot to send'), class: 'hc-thumb' }),
+        h('div', 'hc-strip-t', h('b', null, tr('Screenshot ready')), h('span', null, tr(`${s.width}×${s.height}, location and camera details removed`))),
+        h('button', { type: 'button', class: 'hc-x', 'aria-label': tr('Remove the screenshot'), onclick: () => { dropShot(); ta.focus(); } }, icon('x')));
       strip.hidden = false;
       note.hidden = false;
-      live.textContent = core.SCREENSHOT_NOTE;
+      live.textContent = screenshotNote;
       ta.focus();
     } catch (err) {
-      bubble('help', err.message || 'That picture couldn’t be read.', { error: true });
+      bubble('help', tr(err.message || 'That picture couldn’t be read.'), { error: true });
     }
   }
   function dropShot() {
@@ -331,7 +432,7 @@ export function mountHelp(root, opts) {
   function saveChat() {
     const store = session();
     if (store) writeJson(store, CHAT, chat.slice(-20)); // text only: a screenshot is never kept
-    support.href = core.supportMailto(chat, { surface: opts.surface || '' });
+    support.href = core.supportMailto(chat, { surface: opts.surface || '', lang });
   }
 
   function citeChip(id) {
@@ -343,18 +444,18 @@ export function mountHelp(root, opts) {
   function bubble(role, text, { image = false, error = false, cited = [], notSure = false } = {}) {
     const b = h('div', `hc-msg ${role}${error ? ' error' : ''}`);
     if (role === 'user') {
-      if (image) b.append(h('span', 'hc-msg-img', 'Screenshot attached'));
-      if (text) b.append(h('p', null, text));
+      if (image) b.append(h('span', 'hc-msg-img', tr('Screenshot attached')));
+      if (text) b.append(h('p', { 'data-no-i18n': '' }, text)); // the person's own words
     } else {
       b.append(renderText(text, { cite: () => '' }));
-      if (cited.length) b.append(h('div', 'hc-cites', h('span', null, 'From Help:'), cited.map(citeChip)));
+      if (cited.length) b.append(h('div', 'hc-cites', h('span', null, tr('From Help:')), cited.map(citeChip)));
       const first = byId[cited[0]];
       if (first && !error) { const a = actions(first, { compact: true }); if (a) b.append(a); }
       if (notSure) {
         b.append(h('div', 'hc-acts',
-          opts.tour ? h('button', { type: 'button', class: 'hc-btn', onclick: () => opts.tour(null) }, 'Take the tour') : null,
-          h('button', { type: 'button', class: 'hc-btn', onclick: () => go({ name: 'home' }) }, 'Browse topics'),
-          h('a', { class: 'hc-btn', href: core.supportMailto(chat, { surface: opts.surface || '' }) }, 'Contact support')));
+          opts.tour ? h('button', { type: 'button', class: 'hc-btn', onclick: () => opts.tour(null) }, tr('Take the tour')) : null,
+          h('button', { type: 'button', class: 'hc-btn', onclick: () => go({ name: 'home' }) }, tr('Browse topics')),
+          h('a', { class: 'hc-btn', href: core.supportMailto(chat, { surface: opts.surface || '', lang }) }, tr('Contact support'))));
       }
     }
     log.append(b);
@@ -367,8 +468,8 @@ export function mountHelp(root, opts) {
     log.replaceChildren();
     if (!chat.length) {
       log.append(h('div', 'hc-hello',
-        h('p', null, h('b', null, 'Ask anything about Eden.'), ' Answers come from the Help pages, with links to them. It can also look at a screenshot of a problem.'),
-        h('p', 'hc-small', 'Separate from your chats: nothing here goes into your history or uses your allowance.')));
+        h('p', null, h('b', null, tr('Ask anything about Eden.')), ` ${tr('Answers come from the Help pages, with links to them. It can also look at a screenshot of a problem.')}`),
+        h('p', 'hc-small', tr('Separate from your chats: nothing here goes into your history or uses your allowance.'))));
     }
     for (const m of chat) bubble(m.role === 'user' ? 'user' : 'help', m.content, { image: m.image, cited: m.cited || [], notSure: m.notSure });
     saveChat();
@@ -379,8 +480,8 @@ export function mountHelp(root, opts) {
     if (view.name !== 'ask') return;
     if (!st.ok) {
       form.hidden = true;
-      gate.append(h('div', 'hc-gatebox', h('p', null, st.reason), st.href ? h('a', { class: 'hc-btn primary', href: st.href }, st.label || 'Sign in') : null));
-    } else if (st.note) gate.append(h('p', 'hc-small', st.note));
+      gate.append(h('div', 'hc-gatebox', h('p', null, tr(st.reason)), st.href ? h('a', { class: 'hc-btn primary', href: st.href }, tr(st.label || 'Sign in')) : null));
+    } else if (st.note) gate.append(h('p', 'hc-small', tr(st.note)));
     requestAnimationFrame(() => { if (!form.hidden) ta.focus(); });
   }
 
@@ -397,22 +498,22 @@ export function mountHelp(root, opts) {
     strip.hidden = true;
     note.hidden = true;
     strip.replaceChildren();
-    const wait = h('div', 'hc-msg help wait', h('span', 'hc-dots', h('i'), h('i'), h('i')), h('span', 'hc-sr', 'Help is looking…'));
+    const wait = h('div', 'hc-msg help wait', h('span', 'hc-dots', h('i'), h('i'), h('i')), h('span', 'hc-sr', tr('Help is looking…')));
     log.append(wait);
     wait.scrollIntoView({ block: 'nearest' });
     asking = new AbortController();
     send.disabled = true;
     try {
-      const r = await opts.ask({ question, history, image: image ? { mime: image.mime, data: image.data } : null }, asking.signal);
+      const r = await opts.ask({ question, history, image: image ? { mime: image.mime, data: image.data } : null, ...(lang === 'fr' ? { lang } : {}) }, asking.signal);
       wait.remove();
       const msg = { role: 'assistant', content: r.text, cited: r.cited || [], notSure: Boolean(r.notSure) };
       chat.push(msg);
       bubble('help', msg.content, msg);
-      if (r.left && typeof r.left.messages === 'number' && r.left.messages <= 5) bubble('help', `${r.left.messages} Help question${r.left.messages === 1 ? '' : 's'} left today.`, {});
+      if (r.left && typeof r.left.messages === 'number' && r.left.messages <= 5) bubble('help', tr(`${r.left.messages} Help question${r.left.messages === 1 ? '' : 's'} left today.`), {});
     } catch (err) {
       wait.remove();
       if (err && err.name === 'AbortError') return;
-      bubble('help', (err && err.message) || 'Help couldn’t answer just now. Try again.', { error: true });
+      bubble('help', tr((err && err.message) || 'Help couldn’t answer just now. Try again.'), { error: true });
       if (err && err.status === 401) drawAsk();
     } finally {
       if (image) URL.revokeObjectURL(image.url);

@@ -1,0 +1,48 @@
+/* The label under a reply (verify.js) and the badge under an EVES answer (eves.js): both are the glass pill
+   (glass.css, glass.js; docs/verify/ui.md "The glass pill"), so the look, the orb's tone and light/dark live there.
+   ROADMAP N13. Atelier tokens (app.css); dark mode follows [data-theme="dark"]. Green is only ever drawn for a
+   label the page let be green (verify-model.js chipSeverity), and colour is never the only signal: the orb's glyph
+   (check, !, dash) and a hidden "Caution:" style prefix say the same. */
+
+/* the chip: a button when it has more to say, plain text when it doesn't (the pill is --u .26px, 27px tall) */
+.vf { margin: 8px 0 0 2px; max-width: 100%; min-width: 0; font-size: 12px; line-height: 1.35; }
+.vf-chip, .eves-badge-btn { max-width: 100%; }
+[aria-expanded="true"] > .eves-chev { transform: rotate(90deg); }
+.eves-chev { flex: none; opacity: .65; transition: transform .2s var(--spring); }
+
+/* a repaired answer: the chip, and "Show original" beside it */
+.vf-top { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.vf-orig-btn { min-height: 26px; padding: 2px 9px; border: 0; border-radius: 999px; background: transparent; font: inherit; font-size: 12px; font-weight: 600; color: var(--text2); cursor: pointer; }
+.vf-orig-btn:hover { background: rgba(120,120,128,.14); color: var(--text); }
+.vf-original { margin: 6px 0 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--content2); box-shadow: inset 0 0 0 .5px var(--hairline); font-size: 13.5px; color: var(--text2); overflow-wrap: anywhere; }
+.vf-orig-h { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--text3); }
+.vf-original .md > :first-child { margin-top: 0; }
+
+/* the opened chip */
+.vf-body { margin: 6px 0 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--content); box-shadow: 0 1px 3px rgba(0,0,0,.05), inset 0 0 0 .5px var(--hairline); font-size: 12.5px; color: var(--text2); overflow-wrap: anywhere; }
+.vf-body > :first-child { margin-top: 0; }
+.vf-body p { margin: 6px 0 0; }
+.vf-detail { color: var(--text); }
+.vf-sub { font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--text3); margin-top: 10px !important; }
+.vf-changes, .vf-findings { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.vf-changes li { padding: 6px 9px; border-radius: 9px; background: rgba(255,159,10,.1); box-shadow: inset 0 0 0 .5px rgba(255,159,10,.3); color: var(--text); }
+.vf-f { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; align-items: baseline; padding: 5px 0; border-top: .5px solid var(--sep); }
+.vf-f:first-child { border-top: 0; }
+.vf-f-st { font-size: 11px; font-weight: 600; white-space: nowrap; color: var(--text3); }
+.vf-f[data-tone="bad"] .vf-f-st { color: var(--danger); }
+.vf-f[data-tone="warn"] .vf-f-st { color: var(--warn); }
+.vf-f[data-tone="ok"] .vf-f-st { color: var(--run); }
+[data-theme="light"] .vf-f[data-tone="ok"] .vf-f-st { color: #1a7a3a; }
+.vf-f-t { min-width: 0; color: var(--text); }
+.vf-f-t b { font-weight: 600; }
+.vf-f-q { grid-column: 2; margin: 0; color: var(--text3); font-size: 11.5px; quotes: "“" "”"; }
+.vf-added { color: var(--text3); font-size: 11.5px; }
+
+@media (max-width: 640px) {
+  .vf-orig-btn { min-height: 32px; }
+  .vf-f { grid-template-columns: 1fr; gap: 0; }
+  .vf-f-q { grid-column: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eves-chev { transition: none; }
+}

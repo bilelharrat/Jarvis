@@ -1637,7 +1637,9 @@
   "API providers": "API 提供商",
   "Add a model with an API key (Eden Code › model menu) and its usage shows here.": "用 API 密钥添加模型（Eden Code › 模型菜单）后，它的用量会显示在这里。",
   "Not used yet": "尚未使用",
-  "Checking…": "正在检查…"
+  "Checking…": "正在检查…",
+  "Boot-up sound": "开机音效",
+  "A short sound as the app opens": "打开应用时播放一段简短的音效"
  },
  "patterns": [
   [

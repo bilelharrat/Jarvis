@@ -17,6 +17,7 @@
      Eden's own frame (app.css: glass sidebar, glass title bar, Eden's messages and composer).
      The icons below are a copy of index.html's sprite; edu-app.js runs the page. -->
 <body class="edu">
+<a class="edu-skip" href="#eduView">Skip to the page</a>
 <!-- ICON DEFS (Atelier) -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 6a2 2 0 012-2h12a2 2 0 012 2v9a2 2 0 01-2 2H9l-4.5 3.5c-.3.2-.5 0-.5-.3V6z"/></symbol>
@@ -86,23 +87,25 @@
     <nav class="side-scroll" id="eduSide" aria-label="Courses"></nav>
     <div class="side-foot">
       <div class="orb" aria-hidden="true"></div>
-      <div class="grow"><div class="who">Eden</div><a class="edu-open" href="/">Open the full app</a></div>
+      <div class="grow"><div class="who">Eden</div><a class="edu-open" href="/">Open the full app</a> · <button type="button" class="edu-tour-btn" id="eduTour">Take the tour</button></div>
       <button type="button" class="iconbtn" id="eduTheme" title="Appearance" aria-label="Toggle appearance"><svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg></button>
     </div>
   </aside>
   <main id="center">
     <header id="titlebar" class="glass">
-      <button type="button" class="iconbtn" id="eduMenu" aria-label="Show courses" title="Courses"><svg class="ic" aria-hidden="true"><use href="#i-side"/></svg></button>
+      <button type="button" class="iconbtn" id="eduMenu" aria-controls="sidebar" aria-label="Show courses" title="Courses"><svg class="ic" aria-hidden="true"><use href="#i-side"/></svg></button>
       <span class="edu-tb-logo" aria-hidden="true"></span>
       <span class="tb-title" id="eduTitle">Eden for Education</span>
       <span class="edu-tb-badge" id="eduBadge" hidden></span>
       <span style="flex:1"></span>
       <div id="eduActs" class="edu-tb-acts"></div>
     </header>
-    <div id="eduView" class="edu-view"></div>
+    <div id="eduView" class="edu-view" tabindex="-1"></div>
   </main>
   <!-- the study companion (study.js): opens on the right, as Eden's browser does -->
-  <section id="companion" class="glass" aria-label="Study companion" aria-hidden="true"></section>
+  <section id="companion" class="glass" aria-label="Study companion" aria-hidden="true" inert></section>
+  <!-- the notebook (notebook.js, edu-app.js): on the right too; one panel at a time -->
+  <section id="notebookPane" class="glass" aria-label="Notebook" aria-hidden="true" inert></section>
 </div>
 <div id="eduScrim" class="edu-scrim" hidden></div>
 <div id="toast" class="glass" role="status" aria-live="polite"></div>

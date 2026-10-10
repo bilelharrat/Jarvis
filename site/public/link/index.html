@@ -10,6 +10,7 @@
 <link rel="apple-touch-icon" href="/jarvis/eden-icon.png">
 <link rel="stylesheet" href="/signin/signin.css">
 <link rel="stylesheet" href="/link/link.css">
+<script src="/lang/site-i18n.js" data-page="link"></script>
 <script type="module" src="/link/link.js"></script>
 </head>
 <body>
@@ -34,8 +35,8 @@
 
   <section class="link ask" id="ask" aria-labelledby="askTitle" hidden>
     <div class="steps">
-      <h2 id="askTitle" tabindex="-1">Link “<span id="macName"></span>”?</h2>
-      <p class="how">Approve only if this is your own Mac, showing <b id="askCode"></b> right now. A linked Mac can use your account.</p>
+      <h2 id="askTitle" tabindex="-1">Link “<span id="macName" data-no-i18n></span>”?</h2>
+      <p class="how">Approve only if this is your own Mac, showing <b id="askCode" data-no-i18n></b> right now. A linked Mac can use your account.</p>
       <div class="row">
         <button type="button" class="button" id="approve">Link this Mac</button>
         <button type="button" class="button ghost" id="deny">Don’t link</button>
@@ -47,6 +48,7 @@
   <p class="done" id="done" hidden><a class="button" href="/">Open Eden</a></p>
 
   <p class="fine">Linking from the browser gives the Mac no keys to your synced chats. <a href="/help">Get help</a>.</p>
+  <p class="legal-links"><span data-lang-switch></span></p>
 </main>
 </body>
 </html>

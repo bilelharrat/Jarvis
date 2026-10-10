@@ -525,6 +525,21 @@ meta, the preview, send and compare all use that set, per asker.
   Gemini 2.5 $0.035 a grounded answer. The Gemini rating's cost counts too. The worst case is held
   up front with the same holds, for every provider and across compare lanes (one hold); a pricier
   fallback holds the difference.
+- **Fact checks** (askeden ROADMAP N19, `src/eden/checks.js`, the Mac's `src/verify/presupposition.ts` and
+  `falsification.ts` bundled as `src/eden/vendor/verify.js`): the assumption check before a question with a factual
+  premise (one cheap call, at most two Gemini-grounded searches) and the web check after a factual answer given
+  without search (one cheap call, one search, and once, when it fires, the answer again with search). The cheap
+  steps run on the cheapest model the asker may use (GPT-6 Luna), the searches on Gemini 3.8 Flash at medium effort.
+  Each call is billed like a reply's (list price, the credits' markup applied by `spend`), and the checks' worst case
+  (about $0.09 each) joins the turn's own hold, so they count toward the allowance, the trial and the two-turns cap;
+  without room for it they are skipped and the route says so. Typical cost: about 1.5–3¢ for an assumption check
+  that searches, 1.5–2¢ for a web check (+ about 2¢ when it answers again). Off with `settings.premiseCheck` /
+  `settings.answerCheck: false`; meta says `premiseCheck` / `answerCheck: true` when the asker has Gemini to search with.
+  Time: the assumption check holds the first word at most 10 s; the web check has its own time after `done` (18 s for the
+  counter-claim and its search, 25 s for the answer again, 45 s in all), and also runs on a date/year/count lookup
+  (`isFactualLookup`) the risk class rates low. Dollars are bounded by calls, not time, and a hold lasts 15 minutes
+  (`HOLD_MS`), so a longer budget changes nothing about the hold; a Worker response has no wall-clock limit while the
+  browser stays connected (waiting on a fetch is not CPU time), and 45 s is far under the paid plan's subrequest count.
 - **Stopped streams** count what the provider reported (Claude: input at once; Gemini: every
   chunk; OpenAI and Kimi: only at the end). Missing parts are estimated: input a token per 3 bytes
   (images 1,600), output a token per 3 streamed characters (text and thinking), and OpenAI's
@@ -791,6 +806,43 @@ account id.
   `…/invite { id }`, `…/join { code, label }`, `…/leave`, `…/remove { id, member }`, `…/delete`,
   `…/use { id }`, `…/key-register|key-init|key-seal|key-mine`, `…/conv-get|conv-put|conv-delete`
   (`conv-put` takes `kind: "conv" | "workflow"`, default `conv`; `view` and `conv-get` return it).
+
+### Who pays for students' AI in a course (askeden L9)
+
+`site/src/edu/budget.js` (owner decision 2026-10-09). A student's course turn (study chat, practice quiz,
+flashcard set, the J.A.R.V.I.S. tutor) is paid, in order: the **course budget** when the professor funded one
+(not paused, not used up, the student under its per-student daily cap) → the student's **free study
+allowance** → a 402 `edu_allowance_used` with a plain message. The student's own Eden allowance is used only
+when they choose it in the page's prompt (the send's `eduOwn: true`, for that course until the tab closes).
+The professor's and TAs' own turns, OCR and figure descriptions stay on their own allowance.
+
+- **Free study allowance** (`EDU_FREE`, per student account across all courses, UTC days): $0.10 of AI
+  cost a day (about 50 questions), at most $0.03 held by one turn, 60 turns a day, 8,000 characters of the
+  tutor's voice (about 9 minutes). Free turns route at the router's **Efficient** level (2), with no model
+  pick of the student's (automatic picks such as the tutor's quick model stay), no rating call, research
+  turned into search, no autopilot. Kept in the student's account as `edu_free { day, spent, turns, voice,
+  joins }`.
+- **Course budget** (`EDU_BUDGET`): the professor sets $0–500 a month (needs Plus or credits; never the
+  one-off trial) and each student's daily cap ($0.50 by default, at most $5), and can pause it. Kept in
+  the professor's account as `edu:crs:<course>` (cap, month's spend, spend by day for 62 days, spend per
+  anonymous student id = the class list's id, today's spend per student, when 80%/100% were reached).
+  Each funded turn holds its worst case (at most $0.25) in the professor's `holds`, flagged `edu`: the
+  holds count against what the professor's own turns may spend but not against their two-turns limit;
+  20 funded turns at once per course, 2 per student. Spending goes through the account's own `spend`
+  (Plus allowance, then credits at the credits' price) and is clamped so the budget never goes negative.
+  Funded courses raise the tutor's voice to 30,000 characters a day per student.
+- **Stopped streams**: charged what they used (chat.js charges as it goes, F9.4); the holds are released
+  in the turn's `finally`, and lapse after 15 minutes regardless.
+- **Abuse limits** (`EDU_ABUSE`): an account joins at most 5 new courses a day (30 in all, `COURSES`);
+  per network (an ACCOUNTS object `eduip:<SHA-256 of the IP>`, never the IP itself) 150 joins a day and
+  150 accounts drawing the free allowance a day. Campus networks share one address, so these are generous;
+  the free allowance itself is per account, so joining more courses never adds more of it.
+- **Routes** (signed in): `GET /api/chat/courses/<id>/allowance` → `{ role, course: { funded, ok,
+  today_left_usd }, free: { ok, left_usd, daily_usd, turns_left, voice_left }, text }` (plain words);
+  `GET|POST /api/chat/courses/<id>/budget { monthly_usd?, student_daily_usd?, paused? }` (the professor only)
+  → spend this month, left, held, `alert` (80 or 100), `days`, `top` (anonymous ids). `/api/chat/voice`
+  with `course` uses the study voice for students. Account ops (Worker only, no device): `edu-free-*`,
+  `edu-crs-*`, `edu-release`, `edu-join`, `edu-ip-*`.
 
 ### Included AI without an Anthropic key
 

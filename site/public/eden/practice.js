@@ -8,6 +8,7 @@
 // Leaving removes the practice keys and goes back to the real page, which never changed.
 
 import { installSandbox, purgePractice, snapshot, PRACTICE_PREFIX, TOUR_KEY } from './tour-model.js';
+import { t, isFr } from './i18n.js'; // the sample chats in the page's language (i18n.js reads its choice before the sandbox)
 
 const params = new URLSearchParams(location.search);
 export const PRACTICE = params.get('practice') === '1';
@@ -72,12 +73,12 @@ function seed(theme) {
   if (localStorage.getItem('jchat:index')) return; // resumed: keep what the person did
   const DAY = 86_400_000;
   const now = Date.now();
-  const route = (model, modelName, provider, cost, rationale) => ({ model, modelName, provider, effort: 'medium', effortLabel: 'medium effort', via: provider === 'anthropic' ? 'claude-cli' : 'api', costUSD: cost, quality: 88, confidence: 82, rationale, candidates: [], fallbacks: [], warnings: [], notes: [] });
+  const route = (model, modelName, provider, cost, rationale) => ({ model, modelName, provider, effort: 'medium', effortLabel: t('medium effort'), via: provider === 'anthropic' ? 'claude-cli' : 'api', costUSD: cost, quality: 88, confidence: 82, rationale: t(rationale), candidates: [], fallbacks: [], warnings: [], notes: [] });
   const conv = (id, title, ago, user, reply, r, extra = {}) => ({
-    id, title, titleSet: true, created: now - ago, updated: now - ago, pinned: false, temp: false, kind: 'chat', project: null, sessionId: null, personaId: null, mode: 'chat',
+    id, title: t(title), titleSet: true, created: now - ago, updated: now - ago, pinned: false, temp: false, kind: 'chat', project: null, sessionId: null, personaId: null, mode: 'chat',
     nodes: {
-      [`${id}u`]: { id: `${id}u`, parent: null, children: [`${id}a`], sel: 0, created: now - ago, role: 'user', content: user },
-      [`${id}a`]: { id: `${id}a`, parent: `${id}u`, children: [], sel: 0, created: now - ago + 4000, role: 'assistant', parts: [{ type: 'text', text: reply }], route: r, usage: { inputTokens: 420, outputTokens: 380, costUSD: r.costUSD }, citations: [], notes: [], mode: 'chat', finish: 'stop' },
+      [`${id}u`]: { id: `${id}u`, parent: null, children: [`${id}a`], sel: 0, created: now - ago, role: 'user', content: t(user) },
+      [`${id}a`]: { id: `${id}a`, parent: `${id}u`, children: [], sel: 0, created: now - ago + 4000, role: 'assistant', parts: [{ type: 'text', text: t(reply) }], route: r, usage: { inputTokens: 420, outputTokens: 380, costUSD: r.costUSD }, citations: [], notes: [], mode: 'chat', finish: 'stop' },
     },
     root: { children: [`${id}u`], sel: 0 }, lastRoute: null, allowTools: [], todos: [], queue: [], status: 'idle', ...extra,
   });
@@ -95,5 +96,5 @@ function seed(theme) {
   for (const c of convs) localStorage.setItem(`jchat:conv:${c.id}`, JSON.stringify(c));
   localStorage.setItem('jchat:index', JSON.stringify(convs.map((c) => c.id)));
   localStorage.setItem('jchat:settings', JSON.stringify({ theme }));
-  localStorage.setItem('jchat:personas', JSON.stringify([{ id: 'ppEditor', name: 'Editor', system: 'Tighten my writing. Keep my voice.' }]));
+  localStorage.setItem('jchat:personas', JSON.stringify([{ id: 'ppEditor', name: isFr ? 'Correcteur' : 'Editor', system: 'Tighten my writing. Keep my voice.' }]));
 }

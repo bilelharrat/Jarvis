@@ -10,12 +10,13 @@
 // is a full-screen sheet with Editor and Console tabs.
 
 import { $, el, toast, copyText, setSeg, isMobile, download } from './util.js';
+import { t as tx } from './i18n.js';
 import { LANGS, detectLang, langInfo, runnerOf, tokenize, fileName, appendCapped, editRequest, revisedIn } from './canvas-model.js';
 import * as runner from './canvas-run.js';
 import { state, path, nodeText } from './state.js';
 import { api, apiUrl } from './api.js';
 import { artifactsIn } from './render.js';
-import { CANVAS_LANGS } from './markdown.js';
+import { CANVAS_LANGS, renderMarkdown } from './markdown.js';
 import { openPublish } from './publish.js';
 
 let H = {};
@@ -29,13 +30,16 @@ function versionsFor(c, title, lang) {
   return out;
 }
 
-export function openArtifact({ title, lang, code, nodeId }) {
+export function openArtifact({ title, lang, code, nodeId, report = false }) {
   const c = state.current;
-  const canvas = CANVAS_LANGS.has(lang);
-  let versions = canvas && c ? versionsFor(c, title, lang === 'htm' ? 'html' : lang) : [];
-  if (!versions.length) versions = [{ title, lang, code, nodeId }];
+  $('artifact').classList.remove('sheet-on'); // the spreadsheet canvas (sheet.js, Q15) steps aside for this
+  // `report`: a research report (Q2, research.js): Markdown, previewed as a page here, Download gives the .md
+  const canvas = CANVAS_LANGS.has(lang) || report;
+  const extra = report ? { report: true, edLang: 'markdown' } : {};
+  let versions = canvas && c && !report ? versionsFor(c, title, lang === 'htm' ? 'html' : lang) : [];
+  if (!versions.length) versions = [{ title, lang, code, nodeId, ...extra }];
   let i = versions.findIndex((v) => v.code === code);
-  if (i < 0) { versions.push({ title, lang, code, nodeId }); i = versions.length - 1; }
+  if (i < 0) { versions.push({ title, lang, code, nodeId, ...extra }); i = versions.length - 1; }
   art.versions = versions;
   art.i = i;
   art.view = canvas ? 0 : 1;
@@ -45,6 +49,24 @@ export function openArtifact({ title, lang, code, nodeId }) {
   setSeg($('mobSeg'), 1);
   show();
 }
+
+// Q14: a slide deck in the canvas (deck.js): its versions are the chat's deck versions; Preview draws the slides.
+export function openDeckCanvas({ versions, i }) {
+  art.versions = versions;
+  art.i = Math.max(0, Math.min(versions.length - 1, i));
+  art.view = 0;
+  $('split').classList.add('art-open');
+  $('split').classList.remove('chat-view');
+  document.body.classList.remove('canvas-hidden');
+  setSeg($('mobSeg'), 1);
+  show();
+}
+/** The version the canvas shows when it's a deck, else null. */
+export const deckCanvasVersion = () => { const v = artifactOpen() && art.versions[art.i]; return v && v.lang === 'deck' ? v : null; };
+/** A deck edit made in the canvas: the newest version, shown. */
+export function pushDeckVersion(v) { art.versions.push(v); art.i = art.versions.length - 1; art.view = 0; show(); }
+/** Send a message from the canvas (a deck's per-slide buttons). */
+export function artifactSend(text) { if (H.send) H.send(text); }
 
 export function closeArtifact() {
   if (!$('split').classList.contains('art-open')) return false;
@@ -59,8 +81,10 @@ export const artifactOpen = () => $('split').classList.contains('art-open');
 function show() {
   const v = art.versions[art.i];
   if (!v) return;
-  const canvas = CANVAS_LANGS.has(v.lang);
-  $('artTitle').textContent = v.title || (canvas ? 'Artifact' : `${v.lang || 'Code'}`);
+  const deck = v.lang === 'deck'; // Q14
+  const canvas = CANVAS_LANGS.has(v.lang) || !!v.report || deck;
+  const shown = v.title || (canvas ? 'Artifact' : `${v.lang || 'Code'}`);
+  $('artTitle').textContent = shown === 'Artifact' || shown === 'SVG drawing' ? tx(shown) : shown; // #artTitle is data-no-i18n: the artifact's own title
   $('artVerN').textContent = `${art.i + 1} of ${art.versions.length}`;
   $('artPrev').disabled = art.i === 0;
   $('artNext').disabled = art.i === art.versions.length - 1;
@@ -71,12 +95,13 @@ function show() {
   setSeg($('artSeg'), art.view);
   $('artPreview').hidden = art.view !== 0;
   $('artCode').hidden = art.view !== 1;
-  $('btnArtExt').hidden = !canvas;
-  $('btnArtPublish').hidden = !canvas;
+  $('btnArtExt').hidden = !canvas || !!v.report || deck;
+  $('btnArtPublish').hidden = !canvas || !!v.report || deck; // a deck shares from its own toolbar
+  if ($('btnArtSlides')) $('btnArtSlides').hidden = !v.report; // Q14: a research report → a deck
   const lines = v.code.split('\n').length;
   if (!v.edLang) v.edLang = detectLang(v.code, v.lang);
   const r = runnerOf(v.edLang);
-  const where = canvas ? ' · runs sandboxed: no network, no cookies' : r === 'js' || r === 'py' ? ' · runs in this browser, sandboxed' : r === 'cloud' ? ' · cloud runner: coming soon' : '';
+  const where = deck ? ' · slides drawn sandboxed: no network, no cookies · ⌘Z undoes' : v.report ? ' · checked research report · Download saves it as Markdown' : canvas ? ' · runs sandboxed: no network, no cookies' : r === 'js' || r === 'py' ? ' · runs in this browser, sandboxed' : r === 'cloud' ? ' · cloud runner: coming soon' : '';
   $('artCapText').textContent = `v${art.i + 1}${v.local ? ' (edited)' : ''} · ${langInfo(v.edLang).label} · ${lines} line${lines === 1 ? '' : 's'}${where}`;
   renderCode(v);
   if (art.view === 0) renderPreview(v);
@@ -173,6 +198,8 @@ function htmlFor(v) {
 
 async function renderPreview(v) {
   const box = $('artPreview');
+  if (v.lang === 'deck') { art.url = null; (await import('./deck.js')).renderDeckPreview(box, v); return; } // Q14
+  if (v.report) { box.replaceChildren(el('div', 'art-report md', renderMarkdown(v.code))); art.url = null; return; } // a research report: plain Markdown, drawn here (no scripts)
   const html = htmlFor(v);
   let url = art.urls.get(html);
   if (!url) {

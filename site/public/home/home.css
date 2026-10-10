@@ -6,6 +6,7 @@
   --hairline:rgba(0,0,0,.06); --sep:rgba(0,0,0,.07);
   --fill:rgba(120,120,128,.14); --fill2:rgba(120,120,128,.22);
   --sh1:0 1px 2px rgba(0,0,0,.05),0 12px 32px rgba(0,0,0,.10);
+  --direct:#8e8e93; --whisker:#1d1d1f; --grid:rgba(0,0,0,.06);
   --orb-bg:#0E2747;
   --mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%23ffffff' stroke='%23ffffff' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E");
   color-scheme:light dark;
@@ -15,6 +16,7 @@
   --content:#1e1e20; --text:#f5f5f7; --text2:#98989d; --text3:#8e8e93;
   --hairline:rgba(255,255,255,.09); --sep:rgba(255,255,255,.09);
   --sh1:0 1px 2px rgba(0,0,0,.4),0 12px 32px rgba(0,0,0,.45);
+  --direct:#7c7c80; --whisker:#f5f5f7; --grid:rgba(255,255,255,.07);
   --orb-bg:#f4f5f7;
   --mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='%230E2747' stroke='%230E2747' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211%2C93 314%2C90 444%2C236 343%2C353 249%2C352 333%2C251'/%3E%3Cpolygon points='252%2C235 160%2C346 282%2C491 186%2C494 52%2C350 151%2C234'/%3E%3C/g%3E%3C/svg%3E");
 }}
@@ -107,6 +109,25 @@ html{scroll-behavior:smooth}
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
 /* Downloads: Ask Eden for Mac and for Windows */
+.features{margin-top:72px}
+.feature{margin-top:96px;text-align:center;scroll-margin-top:16px}
+.feature:first-child{margin-top:0}
+.feature .kicker{margin:0 0 10px;font-size:15px;font-weight:600;letter-spacing:.1px;color:var(--accent)}
+.feature h2{font-size:44px;line-height:1.07;letter-spacing:-1.4px}
+.feature .sub{margin:16px auto 0;max-width:30em;color:var(--text2);font-size:19px;line-height:1.45}
+/* the film is wider than the text column, centred on it */
+.fvid{position:relative;left:50%;transform:translateX(-50%);width:min(960px,calc(100vw - 48px));margin:34px 0 0}
+.fv{display:block;width:100%;height:auto;aspect-ratio:16/9;border-radius:26px;background:#0E2747;box-shadow:var(--sh1)}
+.fctl{position:absolute;right:14px;bottom:14px;display:flex;gap:8px}
+.fctl[hidden]{display:none}
+.fbtn{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.22);background:rgba(18,18,20,.55);color:#fff;
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;
+  transition:background .2s,transform .2s}
+.fbtn:hover{background:rgba(18,18,20,.75);transform:scale(1.06)}
+.fbtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.fbtn svg{width:20px;height:20px}
+.fpp[data-state="paused"] .i-pause,.fpp:not([data-state="paused"]) .i-play{display:none}
+.fsnd[aria-pressed="true"] .i-off,.fsnd:not([aria-pressed="true"]) .i-on{display:none}
 .get{margin-top:52px;scroll-margin-top:16px;text-align:center}
 .get .sub{margin:8px 0 0;color:var(--text2);font-size:16px}
 .dl{margin-top:22px;display:grid;grid-template-columns:repeat(2,1fr);gap:12px;text-align:left}
@@ -119,27 +140,25 @@ html{scroll-behavior:smooth}
 .dltxt b{font-size:16px;font-weight:600}
 .dltxt>span{color:var(--text2);font-size:13px}
 .get .fine{max-width:34em;margin-left:auto;margin-right:auto}
+.get .by{margin:16px 0 0;font-size:14px;color:var(--text3);letter-spacing:.1px}
 
-/* J.A.R.V.I.S. Daredevil: a slot of its own, in the app's own colours (yellow on black, about 15 to 1) */
-.dd{margin-top:36px;padding:26px 24px 22px;border-radius:24px;background:#000;color:#fff;border:3px solid #ffd60a;
   text-align:left;box-shadow:0 12px 36px rgba(0,0,0,.28)}
-.dd-kicker{margin:0 0 6px;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#ffd60a}
-.dd h2{color:#ffd60a;font-size:34px;letter-spacing:-.6px}
-.dd-lede{margin:12px 0 0;font-size:18px;line-height:1.5;color:#fff}
-.dd-list{margin:16px 0 0;padding:0 0 0 22px;display:flex;flex-direction:column;gap:8px;font-size:17px;line-height:1.45;color:#fff}
-.dd-list li::marker{color:#ffd60a}
-.dd-actions{margin-top:22px;display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px}
-.dd-btn{display:inline-flex;align-items:center;gap:10px;min-height:52px;padding:12px 24px;border-radius:980px;
   background:#ffd60a;color:#000;font-size:18px;font-weight:700}
-.dd-btn:hover{background:#ffe55c}
-.dd-btn svg{width:22px;height:22px;flex:none}
-.dd-more{color:#ffd60a;font-size:17px;font-weight:600;text-decoration:underline;text-underline-offset:4px}
-.dd-more:hover{color:#ffe55c}
-.dd-fine{margin:16px 0 0;font-size:14px;line-height:1.45;color:#e6e6e6}
-.dd a:focus-visible{outline:3px solid #fff;outline-offset:3px;border-radius:8px}
+
+/* Accuracy: a feature like the films'; its film carries the chart */
+.feature>.btn{margin-top:28px}
+.acc>.btn{margin-top:22px}
+@media (max-width:600px){
+}
 
 @media (max-width:600px){
   main{padding-top:3vh}
+  .features{margin-top:56px}
+  .feature{margin-top:72px}
+  .feature h2{font-size:30px;letter-spacing:-.8px}
+  .feature .sub{font-size:17px}
+  .fv{border-radius:18px}
+  .fvid{margin-top:26px}
   .plans{grid-template-columns:1fr}
   h2{font-size:28px}
   h1{font-size:44px}
@@ -149,8 +168,5 @@ html{scroll-behavior:smooth}
   .btn{width:100%}
   .points{grid-template-columns:1fr}
   .dl{grid-template-columns:1fr}
-  .dd{padding:22px 18px 18px}
-  .dd h2{font-size:29px}
-  .dd-btn{width:100%;justify-content:center;text-align:center}
 }
 @media (prefers-reduced-motion:reduce){.apps,.dlbtn{transition:none}html{scroll-behavior:auto}}

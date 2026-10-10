@@ -307,6 +307,39 @@ sup.cite{color:var(--accent);font-weight:600;cursor:pointer;padding:0 1px;font-s
 .sources{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .src{font-size:11px;color:var(--text2);background:var(--content);padding:4px 9px;border-radius:12px;box-shadow:inset 0 0 0 .5px var(--hairline);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .research .src{background:var(--content)}
+/* Q2: the verified research pipeline's steps, spend and report buttons; the report in the canvas */
+.res-steps{list-style:none;margin:6px 0 2px;padding:0;display:grid;gap:3px;font-size:12px;color:var(--text2)}
+.res-step{display:flex;align-items:baseline;gap:7px;line-height:1.35}
+.res-dot{flex:none;width:14px;height:14px;border-radius:50%;display:inline-grid;place-items:center;font-size:9px;font-weight:700;box-shadow:inset 0 0 0 1px var(--hairline);transform:translateY(2px)}
+.res-step.done .res-dot{background:var(--accent);color:#fff;box-shadow:none}
+.res-step.error .res-dot{background:#d9534f;color:#fff;box-shadow:none}
+.res-step.running .res-dot{box-shadow:inset 0 0 0 1.5px var(--accent);animation:pulse 1.2s ease-in-out infinite}
+.res-step.skipped,.res-step.stopped{opacity:.65}
+.res-spent{font-size:11px;color:var(--text3);margin:4px 0 0}
+.res-acts{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px}
+.res-acts .btn{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.art-report{position:absolute;inset:0;overflow:auto;padding:24px clamp(16px,4vw,40px);background:var(--content);color:var(--text)}
+.art-report blockquote{margin:0 0 14px;padding:8px 12px;border-radius:10px;background:var(--content2);font-size:12px}
+/* Q4: the first minute: a glass card under a new person's first answer (first-run.js) */
+.fr-card{margin:10px 0 4px;padding:14px 16px 12px;border-radius:var(--r-md,14px);box-shadow:inset 0 0 0 .5px var(--hairline),0 6px 24px rgba(0,0,0,.08);font-size:13px;max-width:640px}
+.fr-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:0 0 6px}
+.fr-head h3{margin:0;font-size:14px;font-weight:650}
+.fr-kicker{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);font-weight:600;width:100%}
+.fr-x{margin-left:auto;font-size:18px;line-height:1;position:absolute;right:10px;top:8px}
+.fr-card{position:relative}
+.fr-row{margin:8px 0 0}
+.fr-row b{display:block;font-size:12.5px;font-weight:600}
+.fr-row p{margin:2px 0 0;color:var(--text2);line-height:1.45}
+.fr-try{margin:12px 0 0}
+.fr-try>b{font-size:12px;font-weight:600}
+.fr-starters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px;margin:6px 0 0}
+.fr-starter{display:flex;flex-direction:column;gap:2px;text-align:left;padding:8px 10px;border-radius:10px;border:0;background:var(--content2);box-shadow:inset 0 0 0 .5px var(--hairline);color:inherit;font:inherit;cursor:pointer}
+.fr-starter:hover{box-shadow:inset 0 0 0 1px var(--accent)}
+.fr-st-t{font-weight:600;font-size:12px}
+.fr-st-x{font-size:11.5px;color:var(--text3);line-height:1.35}
+.fr-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 0;font-size:12px;color:var(--text3)}
+.fr-link{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
+.fr-link.quiet{color:var(--text3);font-weight:500;margin-left:auto}
 .bubble>.sources .src{background:var(--content2)}
 .src:hover{color:var(--accent)}
 
@@ -1080,3 +1113,77 @@ body.side-resizing #sidebar{transition:none}
 .apps-more{display:block;margin-top:6px;padding:8px;border-top:.5px solid var(--sep);text-align:center;font-size:12.5px;color:var(--text2);text-decoration:none}
 .apps-more:hover{color:var(--accent)}
 @media (prefers-reduced-motion:reduce){.apps-pop{animation:none}.side-foot .orb.apps-mark{transition:none}}
+
+/* the sidebar: the menu stays put, only the chat list scrolls (app.js renderSidebar) */
+.side-scroll{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.side-top{flex:none;max-height:22%;overflow-y:auto}
+.side-mid{flex:1;min-height:0;display:flex;flex-direction:column}
+.side-bottom{flex:none;max-height:32%;overflow-y:auto;border-top:.5px solid var(--hairline);margin-top:4px;padding-bottom:8px}
+.sec.grow{display:flex;flex-direction:column;flex:1;min-height:170px}
+.sec.grow .sec-items{flex:1;min-height:90px;display:block;overflow-y:auto;overscroll-behavior:contain}
+.sec.grow .sec-items>div{overflow:visible}
+.sec.grow.closed{flex:none;min-height:0}
+.side-mid:has(.sec.grow.closed){flex:none}
+.sec.grow.closed .sec-items{min-height:0;height:0;overflow:hidden}
+.folder-row.drop .sitem{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.folder-row .f-chev{width:11px;height:11px;color:var(--text3)}
+.folder-row .f-count{margin-left:auto;font-size:11.5px;color:var(--text3)}
+.folder-row:hover .srow-edit,.folder-row .srow-edit:focus-visible{opacity:1}
+.sitem.child.more-row,.sitem.more-row{color:var(--accent);font-size:12.5px}
+.side-empty.child{padding-left:34px}
+.sitem[draggable=true]{cursor:default}
+.tidy-nudge{display:flex;align-items:center;gap:2px;margin:4px 0 6px;border-radius:var(--r-sm);background:var(--accent-soft)}
+.tidy-go{flex:1;min-width:0;display:flex;align-items:center;gap:9px;padding:7px 8px;text-align:left;color:var(--accent);font-size:13px}
+.tidy-go span{display:flex;flex-direction:column;min-width:0}.tidy-go small{font-size:11.5px;color:var(--text3)}
+.tidy-x{width:24px;height:24px;font-size:16px;line-height:1}
+@media(min-width:641px) and (max-width:1100px){
+  #sidebar:not(.expanded) .side-scroll{display:block;overflow-y:auto}
+  #sidebar:not(.expanded) .side-top,#sidebar:not(.expanded) .side-mid,#sidebar:not(.expanded) .side-bottom{display:contents}
+  #sidebar:not(.expanded) .sec.grow .sec-items{overflow:visible;min-height:0}
+  #sidebar:not(.expanded) .tidy-nudge{display:none}
+}
+
+/* the ? help button belongs to the title bar: with the inspector open it would sit among the inspector's tabs */
+body:has(#inspector:not(.closed)) #btnHelp{display:none}
+
+.tidy-nudge.run .tidy-go{cursor:default}
+.tidy-bar{display:block;height:4px;border-radius:2px;background:rgba(120,120,128,.25);margin-top:6px;overflow:hidden}
+.tidy-bar i{display:block;height:100%;background:var(--accent);border-radius:2px;transition:width .4s var(--spring)}
+
+.side-mid>.tidy-nudge{margin:8px 0 2px;flex:none}
+
+.sec.folders:not(.closed) .sec-items{max-height:42vh;overflow-y:auto;overscroll-behavior:contain}
+.sec.folders:not(.closed) .sec-items>div{overflow:visible}
+.side-mid>.sec.folders{flex:none}
+
+/* the sidebar head: New chat, search, then the strip of everyday places and what is waiting */
+.newchat{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px 10px;border-radius:var(--r-sm);background:var(--accent-soft);color:var(--accent);font-size:13.5px;font-weight:500}
+.newchat:hover{filter:brightness(1.08)}
+.newchat .ic{width:14px;height:14px}
+.side-head{flex:none;padding:0 8px}
+.apps-strip{display:flex;gap:4px;padding:2px 4px 8px;border-bottom:.5px solid var(--hairline)}
+.apps-strip .ap{position:relative;flex:1;max-width:44px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--text2);box-shadow:inset 0 0 0 .5px var(--hairline)}
+.apps-strip .ap:hover{background:rgba(120,120,128,.14);color:var(--text)}
+.apps-strip .ap-b{position:absolute;top:-5px;right:-4px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;line-height:15px;text-align:center}
+.cont-card{display:flex;align-items:center;gap:9px;width:calc(100% - 8px);margin:8px 4px 2px;padding:7px 9px;border-radius:var(--r-sm);background:var(--accent-soft);color:var(--accent);text-align:left;font-size:13px}
+.cont-card span{display:flex;flex-direction:column;min-width:0}.cont-card b{font-weight:500}
+.cont-card small{font-size:11.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:1100px){
+  #sidebar .newchat span,#sidebar .cont-card{display:none}
+  #sidebar .apps-strip{flex-direction:column;align-items:center}
+  #sidebar .apps-strip .ap{flex:none;width:36px}
+  #sidebar.expanded .newchat span{display:inline}
+  #sidebar.expanded .cont-card{display:flex}
+  #sidebar.expanded .apps-strip{flex-direction:row;align-items:stretch}
+  #sidebar.expanded .apps-strip .ap{flex:1;width:auto}
+}
+@media(max-width:640px){
+  #sidebar .newchat span{display:inline}
+  #sidebar .cont-card{display:flex}
+  #sidebar .apps-strip{flex-direction:row;align-items:stretch}
+  #sidebar .apps-strip .ap{flex:1;width:auto}
+}
+
+/* "Eden was updated · Reload" (page-update.js): a page left open, after a deploy, while a reply streams or a draft waits */
+.eden-updated{position:fixed;left:50%;top:max(12px,env(safe-area-inset-top));transform:translateX(-50%);z-index:121;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 16px;border-radius:20px;background:var(--content);color:var(--text);box-shadow:0 0 0 .5px var(--hairline,rgba(0,0,0,.12)),0 8px 24px rgba(0,0,0,.18);font-size:13px;font-weight:500;max-width:calc(100vw - 32px)}
+.eden-updated .iconbtn{width:28px;height:28px;font-size:17px;line-height:1}

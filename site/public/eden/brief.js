@@ -15,6 +15,7 @@ import { renderMarkdown } from './markdown.js';
 import { openCalendar } from './calendar.js';
 import { openMemory } from './memory.js';
 import { openSpace } from './panels.js';
+import { locale, isFr, t, replyLanguageNote } from './i18n.js';
 
 const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
@@ -40,15 +41,17 @@ const P = { events: [], day: '', fetchedAt: 0, timer: null, offerEl: null, offer
 let R = {};
 
 const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const fmtTime = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; };
+const fmtTime = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleTimeString(locale(), { hour: 'numeric', minute: '2-digit' }) : ''; };
 const ago = (iso) => {
   const t = Date.parse(iso || '');
   if (!Number.isFinite(t)) return '';
   const m = Math.max(0, Math.round((Date.now() - t) / 60_000));
   if (m < 60) return m < 1 ? 'just now' : `${m} min ago`;
   if (m < 48 * 60) return `${Math.round(m / 60)} h ago`;
-  return new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' });
+  return new Date(t).toLocaleDateString(locale(), { day: 'numeric', month: 'short' });
 };
+/** The person's own text (titles, names, snippets): never translated. */
+const own = (cls) => ({ class: cls, 'data-no-i18n': '' });
 const people = (list, n = 3) => (list || []).slice(0, n).map((p) => p.name || p.email).join(', ') + ((list || []).length > n ? ` +${list.length - n}` : '');
 
 /* ---------------- loading ---------------- */
@@ -105,7 +108,7 @@ function summarise(kind, summary) {
   let raf = 0;
   const paint = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; renderSummary(); }); };
   // The items (mail snippets, events, notes) are untrusted: they go as a context block, which the server wraps (H8).
-  api.send({ messages: [{ role: 'user', content: 'Write it from the items in the context.' }], context: [{ title: kind === 'prep' ? 'Brief: meeting prep items' : 'Brief: today’s items', text: summary.prompt, source: 'brief' }], system: summary.system, settings, mode: 'chat' }, {
+  api.send({ messages: [{ role: 'user', content: 'Write it from the items in the context.' }], context: [{ title: kind === 'prep' ? 'Brief: meeting prep items' : 'Brief: today’s items', text: summary.prompt, source: 'brief' }], system: [summary.system, replyLanguageNote()].filter(Boolean).join('\n\n'), settings, mode: 'chat' }, {
     signal: ctl.signal,
     onEvent: (type, d) => {
       if (S.sum[kind] !== s) return;
@@ -129,7 +132,7 @@ function build() {
   if (S.built) return;
   S.built = true;
   R.title = el('h2', { class: 'brf-title', id: 'brfTitle' }, 'Brief');
-  R.sub = el('span', 'brf-sub');
+  R.sub = el('span', own('brf-sub'));
   R.busy = el('span', { class: 'cal-busy', 'aria-hidden': 'true' });
   R.back = el('button', { type: 'button', class: 'iconbtn brf-back', 'aria-label': 'Back to the brief', title: 'Back to the brief', onclick: () => { S.view = 'brief'; S.expanded.clear(); stopSummary('prep'); render(); if (!S.brief) loadBrief(); } }, ico('chevl'));
   R.gear = el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Brief settings', title: 'Brief settings', 'aria-expanded': 'false', onclick: () => { S.settingsOpen = !S.settingsOpen; renderSettings(); } }, ico('gear', 15));
@@ -208,11 +211,11 @@ function render() {
   if (prep) {
     const e = S.prepEvent;
     R.title.textContent = e ? `Prep: ${e.title}` : 'Prep';
-    R.sub.textContent = e ? `${e.allDay ? 'All day' : `${fmtTime(e.start)}–${fmtTime(e.end)}`}${e.attendees && e.attendees.length ? ` · with ${people(e.attendees)}` : ''}` : '';
+    R.sub.textContent = e ? `${e.allDay ? t('All day') : `${fmtTime(e.start)}–${fmtTime(e.end)}`}${e.attendees && e.attendees.length ? ` · ${t('with')} ${people(e.attendees)}` : ''}` : '';
     R.body.replaceChildren(...prepView());
   } else {
     R.title.textContent = 'Brief';
-    R.sub.textContent = new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+    R.sub.textContent = new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
     R.body.replaceChildren(...briefView());
   }
   renderSummary();
@@ -341,7 +344,7 @@ function prepView() {
   return [
     macBanner(p.sources),
     el('div', 'brf-prep-ev', el('div', 'brf-time', e.allDay ? 'All day' : fmtTime(e.start)),
-      el('div', 'brf-prep-what', el('b', '', e.title), el('span', '', [e.location, p.people.length ? `with ${people(p.people, 6)}` : ''].filter(Boolean).join(' · '))),
+      el('div', own('brf-prep-what'), el('b', '', e.title), el('span', '', [e.location, p.people.length ? `${t('with')} ${people(p.people, 6)}` : ''].filter(Boolean).join(' · '))),
       e.url && /^https:\/\//.test(e.url) ? el('a', { class: 'cap', href: e.url, target: '_blank', rel: 'noopener noreferrer' }, ico('ext', 12), 'Join') : null),
     summaryBox('prep'),
     section('Recent threads with them', p.threads.length, p.threads.map((m) => mailRow(m)), 'No recent email with them.'),
@@ -359,8 +362,8 @@ function eventRow(e) {
   return el('div', { class: `brf-row brf-ev${past ? ' past' : ''}${live ? ' live' : ''}`, 'data-item': e.ref },
     el('button', { type: 'button', class: 'brf-row-main', title: 'Open in the calendar', onclick: () => { closeBrief(); openCalendar({ date: new Date(e.allDay ? `${e.start}T00:00` : e.start) }); } },
       el('span', 'brf-time', e.allDay ? 'All day' : fmtTime(e.start)),
-      el('span', 'brf-what', el('b', '', e.title),
-        el('span', 'brf-meta', [e.allDay ? '' : `until ${fmtTime(e.end)}`, e.location, e.attendees.length ? `with ${people(e.attendees)}` : '', e.source === 'google' ? 'Google' : e.calendar].filter(Boolean).join(' · ')))),
+      el('span', own('brf-what'), el('b', '', e.title),
+        el('span', 'brf-meta', [e.allDay ? '' : `${t('until')} ${fmtTime(e.end)}`, e.location, e.attendees.length ? `${t('with')} ${people(e.attendees)}` : '', e.source === 'google' ? 'Google' : e.calendar].filter(Boolean).join(' · ')))),
     e.prep ? el('button', { type: 'button', class: 'cap brf-prep-btn', onclick: () => loadPrep(e) }, ico('list', 12), 'Prep') : null);
 }
 
@@ -398,11 +401,11 @@ function mailRow(m) {
     el('button', { type: 'button', class: 'brf-row-main', 'aria-expanded': String(open), onclick: () => toggleExpand(key, () => readMail(m)) },
       el('span', { class: `brf-av${m.unread ? ' unread' : ''}`, 'aria-hidden': 'true' }, (m.fromName || '?').trim().charAt(0).toUpperCase()),
       el('span', 'brf-what',
-        el('span', 'brf-line', el('b', '', m.fromName), el('span', 'brf-when', ago(m.date)), el('span', 'brf-srcname', m.source === 'gmail' ? 'Gmail' : 'Mac')),
-        el('span', 'brf-subj', m.subject),
-        m.why && m.why.length ? el('span', 'brf-why', m.why.join(' · ')) : el('span', 'brf-snip', m.snippet))),
+        el('span', 'brf-line', el('b', own(''), m.fromName), el('span', 'brf-when', ago(m.date)), el('span', 'brf-srcname', m.source === 'gmail' ? 'Gmail' : 'Mac')),
+        el('span', own('brf-subj'), m.subject),
+        m.why && m.why.length ? el('span', 'brf-why', m.why.join(' · ')) : el('span', own('brf-snip'), m.snippet))),
     expander(key, (text) => [
-      el('div', { class: 'brf-body', tabindex: '0', 'aria-label': 'Email' }, text),
+      el('div', { class: 'brf-body', tabindex: '0', 'aria-label': 'Email', 'data-no-i18n': '' }, text),
       el('div', 'brf-more-acts',
         el('button', { type: 'button', class: 'cap', onclick: () => H.addContext({ title: `Email: ${m.subject}`.slice(0, 80), text: `From: ${m.fromName}${m.fromEmail ? ` <${m.fromEmail}>` : ''}\nSubject: ${m.subject}\n\n${text}` }) }, ico('plus', 12), 'Use in chat'),
         el('button', { type: 'button', class: 'cap', onclick: () => { closeBrief(); openSpace('mail'); } }, ico('mail', 12), 'Open Mail')),
@@ -416,9 +419,9 @@ function noteRow(n, b) {
   return el('div', { class: `brf-row brf-note${open ? ' open' : ''}`, 'data-item': n.ref },
     el('button', { type: 'button', class: 'brf-row-main', 'aria-expanded': String(open), disabled: !n.id, onclick: () => toggleExpand(key, async () => { const r = await api.jarvis('read_note', { id: n.id }); if (r.is_error) throw new Error(strip(r.text)); return strip(r.text); }) },
       el('span', 'brf-ico', ico('doc', 15)),
-      el('span', 'brf-what', el('b', '', n.title), el('span', 'brf-meta', [n.meta, forTitles.length ? `for ${forTitles.join(', ')}` : ''].filter(Boolean).join(' · ')), n.excerpt ? el('span', 'brf-snip', n.excerpt) : null)),
+      el('span', own('brf-what'), el('b', '', n.title), el('span', 'brf-meta', [n.meta, forTitles.length ? `${t('for')} ${forTitles.join(', ')}` : ''].filter(Boolean).join(' · ')), n.excerpt ? el('span', 'brf-snip', n.excerpt) : null)),
     expander(key, (text) => [
-      el('div', { class: 'brf-body', tabindex: '0', 'aria-label': 'Note' }, text),
+      el('div', { class: 'brf-body', tabindex: '0', 'aria-label': 'Note', 'data-no-i18n': '' }, text),
       el('div', 'brf-more-acts', el('button', { type: 'button', class: 'cap', onclick: () => H.addContext({ title: `Note: ${n.title}`, text }) }, ico('plus', 12), 'Use in chat')),
     ]));
 }
@@ -427,7 +430,7 @@ function factRow(f) {
   return el('div', { class: 'brf-row brf-fact', 'data-item': f.ref },
     el('button', { type: 'button', class: 'brf-row-main', title: 'Open in Memory', onclick: () => { closeBrief(); openMemory({ query: f.text.split(/\s+/).slice(0, 4).join(' ') }); } },
       el('span', 'brf-ico', ico('bulb', 15)),
-      el('span', 'brf-what', el('span', 'brf-meta', f.about), el('span', 'brf-txt', f.text))));
+      el('span', own('brf-what'), el('span', 'brf-meta', f.about), el('span', 'brf-txt', f.text))));
 }
 
 function promiseRow(p) {
@@ -435,7 +438,7 @@ function promiseRow(p) {
   return el('div', { class: 'brf-row brf-promise', 'data-item': p.ref },
     el('div', 'brf-row-main static',
       el('span', 'brf-ico', ico('check', 15)),
-      el('span', 'brf-what', el('span', 'brf-txt', p.text), el('span', `brf-meta${late ? ' late' : ''}`, [p.to ? `to ${p.to}` : '', p.due ? (late ? `was due ${p.due}` : p.due === localDay() ? 'due today' : `due ${p.due}`) : ''].filter(Boolean).join(' · ')))));
+      el('span', own('brf-what'), el('span', 'brf-txt', p.text), el('span', `brf-meta${late ? ' late' : ''}`, [p.to ? `${t('to')} ${p.to}` : '', p.due ? (late ? `${t('was due')} ${p.due}` : p.due === localDay() ? t('due today') : `${t('due')} ${p.due}`) : ''].filter(Boolean).join(' · ')))));
 }
 
 /* ---------------- settings ---------------- */
@@ -489,8 +492,10 @@ async function tickPrep() {
     store.set(KEYS.offered, [...P.offered].slice(-100));
     offer(e);
     if (store.get(KEYS.push, false) && state.jarvis.available) {
-      const text = `${e.title} at ${fmtTime(e.start)}${e.attendees.length ? ` with ${people(e.attendees)}` : ''}. Your prep is ready in Eden.`;
-      api.jarvis('notify_me', { title: 'Meeting prep', text: text.slice(0, 300) }).catch(() => {});
+      const text = isFr
+        ? `${e.title} à ${fmtTime(e.start)}${e.attendees.length ? ` avec ${people(e.attendees)}` : ''}. Votre préparation est prête dans Eden.`
+        : `${e.title} at ${fmtTime(e.start)}${e.attendees.length ? ` with ${people(e.attendees)}` : ''}. Your prep is ready in Eden.`;
+      api.jarvis('notify_me', { title: isFr ? 'Préparation de réunion' : 'Meeting prep', text: text.slice(0, 300) }).catch(() => {});
     }
     break; // one card at a time
   }
@@ -501,7 +506,7 @@ function offer(e) {
   const close = () => { card.classList.add('going'); setTimeout(() => card.remove(), 220); if (P.offerEl === card) P.offerEl = null; };
   const card = el('div', { class: 'prep-offer glass', role: 'status', 'aria-live': 'polite' },
     el('div', 'prep-offer-ico', ico('clock', 18)),
-    el('div', 'prep-offer-t', el('span', 'k', `In ${mins} min`), el('b', '', e.title), e.attendees.length ? el('span', 'who', `with ${people(e.attendees)}`) : null),
+    el('div', 'prep-offer-t', el('span', 'k', `In ${mins} min`), el('b', own(''), e.title), e.attendees.length ? el('span', own('who'), `${t('with')} ${people(e.attendees)}`) : null),
     el('div', 'prep-offer-acts',
       el('button', { type: 'button', class: 'cap primary', onclick: () => { close(); openPrep(e); } }, 'Open prep'),
       el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Not now', title: 'Not now', onclick: close }, ico('x', 14))));

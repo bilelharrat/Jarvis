@@ -1,0 +1,2954 @@
+{
+ "version": 1,
+ "updated": "2026-10-06",
+ "support": "support@askeden.com",
+ "lang": "fr",
+ "categories": [
+  {
+   "id": "start",
+   "title": "Premiers pas",
+   "icon": "spark"
+  },
+  {
+   "id": "signin",
+   "title": "Connexion",
+   "icon": "lock"
+  },
+  {
+   "id": "account",
+   "title": "Forfait et facturation",
+   "icon": "gear"
+  },
+  {
+   "id": "chat",
+   "title": "Discussion et routage",
+   "icon": "sliders"
+  },
+  {
+   "id": "privacy",
+   "title": "Confidentialité et sécurité",
+   "icon": "lock"
+  },
+  {
+   "id": "voice",
+   "title": "Voix",
+   "icon": "speaker"
+  },
+  {
+   "id": "calendar",
+   "title": "Calendrier",
+   "icon": "cal"
+  },
+  {
+   "id": "mail",
+   "title": "Mail",
+   "icon": "mail"
+  },
+  {
+   "id": "mac",
+   "title": "Votre Mac",
+   "icon": "folder"
+  },
+  {
+   "id": "day",
+   "title": "Réunions, sites web et annulation",
+   "icon": "clock"
+  },
+  {
+   "id": "auto",
+   "title": "Tâches et automatisations",
+   "icon": "list"
+  },
+  {
+   "id": "teams",
+   "title": "Équipes et délégués",
+   "icon": "branch"
+  },
+  {
+   "id": "publish",
+   "title": "Publication",
+   "icon": "globe"
+  },
+  {
+   "id": "messenger",
+   "title": "Messenger @Eden",
+   "icon": "chat"
+  },
+  {
+   "id": "iphone",
+   "title": "App iPhone",
+   "icon": "phone"
+  },
+  {
+   "id": "trouble",
+   "title": "Dépannage",
+   "icon": "alert"
+  }
+ ],
+ "images": {
+  "chat-empty": {
+   "src": "img/chat-empty.webp",
+   "dark": "img/chat-empty-dark.webp",
+   "alt": "Eden avec une nouvelle discussion vide : la barre latérale à gauche et la zone de message en bas.",
+   "caption": "Une nouvelle discussion. Écrivez dans la zone en bas."
+  },
+  "composer": {
+   "src": "img/composer.webp",
+   "dark": "img/composer-dark.webp",
+   "alt": "Eden sur un écran de la taille d’un iPhone, avec une question et la réponse d’Eden.",
+   "caption": "Sur un téléphone, la barre latérale se cache derrière le bouton de menu.",
+   "phone": true
+  },
+  "estimate": {
+   "src": "img/estimate.webp",
+   "alt": "La ligne au-dessus de la zone de message, qui indique le modèle qu’Eden va utiliser, son coût et son délai.",
+   "caption": "L’estimation se met à jour pendant la saisie. Cliquez dessus pour surclasser un message."
+  },
+  "route-chip": {
+   "src": "img/route-chip.webp",
+   "dark": "img/route-chip-dark.webp",
+   "alt": "La pastille du modèle d’une réponse, ouverte, avec un graphique des modèles candidats selon la qualité et le coût.",
+   "caption": "Cliquez sur le nom du modèle d’une réponse pour voir pourquoi Eden l’a choisi."
+  },
+  "levels": {
+   "src": "img/levels.webp",
+   "alt": "Le sélecteur de niveau, de 1 à 5, dans la console de routage.",
+   "caption": "Les niveaux se trouvent dans la console de routage (⌘K › Ouvrir la console de routage)."
+  },
+  "compare": {
+   "src": "img/compare.webp",
+   "alt": "Deux réponses côte à côte après « Demander à un modèle plus puissant », chacune avec « Garder celle-ci ».",
+   "caption": "Gardez la réponse que vous préférez ; Eden en tient compte."
+  },
+  "canvas": {
+   "src": "img/canvas.webp",
+   "alt": "Une réponse avec une page HTML, ouverte en direct dans le canevas à droite.",
+   "caption": "Le canevas exécute les pages dans un espace verrouillé : ni réseau, ni cookies."
+  },
+  "publish": {
+   "src": "img/publish.webp",
+   "alt": "La fenêtre Publier avec « Moi uniquement » et « Toute personne disposant du lien ».",
+   "caption": "La publication crée une page sur askeden.com/p/… que vous pouvez retirer à tout moment."
+  },
+  "privacy": {
+   "src": "img/privacy.webp",
+   "dark": "img/privacy-dark.webp",
+   "alt": "Une discussion privée : le bouton Privé est activé et la réponse indique « Sur votre Mac ».",
+   "caption": "Chaque réponse privée indique où elle a été calculée."
+  },
+  "err-privacy": {
+   "src": "img/err-privacy.webp",
+   "alt": "Une discussion privée qui n’a pas pu être envoyée, faute de modèle local en cours d’exécution.",
+   "caption": "Rien n’est envoyé quand aucun modèle local ne peut répondre."
+  },
+  "palette": {
+   "src": "img/palette.webp",
+   "alt": "La palette ⌘K qui recherche « cal » et liste les actions du Calendrier.",
+   "caption": "⌘K trouve les discussions et toutes les actions."
+  },
+  "calendar": {
+   "src": "img/calendar.webp",
+   "dark": "img/calendar-dark.webp",
+   "alt": "Le Calendrier en vue semaine avec des exemples d’événements.",
+   "caption": "Vue semaine (exemples d’événements). Faites glisser pour déplacer, faites glisser le bord inférieur pour redimensionner."
+  },
+  "compose": {
+   "src": "img/compose.webp",
+   "alt": "La fenêtre de rédaction avec un destinataire, un objet, un message et la zone « Demander à Eden ».",
+   "caption": "La fenêtre de rédaction flotte au-dessus de la discussion ; « Demander à Eden » rédige ou reformule pour vous."
+  },
+  "tasks": {
+   "src": "img/tasks.webp",
+   "alt": "Le panneau Tâches avec une tâche en attente d’approbation et une tâche active.",
+   "caption": "Les envois attendent votre approbation ; les brouillons se font tout seuls."
+  },
+  "activity": {
+   "src": "img/activity.webp",
+   "alt": "La chronologie Activité qui liste les actions d’Eden avec des boutons Annuler.",
+   "caption": "Annulez quand c’est possible ; les envois et les tâches sur des sites web indiquent qu’ils ne peuvent pas être annulés."
+  },
+  "files": {
+   "src": "img/files.webp",
+   "alt": "Le panneau Fichiers sur votre Mac.",
+   "caption": "Les fichiers sont lus sur votre Mac, jamais téléversés."
+  },
+  "account": {
+   "src": "img/account.webp",
+   "alt": "La page du compte avec le forfait, la jauge du quota et les appareils (compte d’exemple).",
+   "caption": "Votre forfait et l’IA incluse ce mois-ci figurent en haut."
+  },
+  "sync": {
+   "src": "img/sync.webp",
+   "alt": "La section Synchronisation de la page du compte.",
+   "caption": "Activez la synchronisation dans la page de votre compte."
+  },
+  "accounts": {
+   "src": "img/accounts.webp",
+   "alt": "Réglages › Comptes avec Gmail et Mail sur votre Mac.",
+   "caption": "Réglages › Comptes (sur votre Mac, on y trouve aussi le formulaire du client Google)."
+  },
+  "voice": {
+   "src": "img/voice.webp",
+   "alt": "La zone de message avec, à droite, le micro et les boutons Parler en forme d’onde.",
+   "caption": "Micro : dictée. Onde : conversation mains libres."
+  },
+  "guard": {
+   "src": "img/guard.webp",
+   "alt": "Une réponse qui a lu un e-mail contenant des instructions cachées : un bandeau « Lu depuis l’extérieur » et une carte d’approbation pour un envoi qu’Eden ne ferait pas de lui-même.",
+   "caption": "Ce que demande un texte extérieur attend votre accord sur une carte."
+  },
+  "err-mac-offline": {
+   "src": "img/err-mac-offline.webp",
+   "alt": "Une réponse affichant l’erreur : Votre Mac est hors ligne.",
+   "caption": "L’aspect de l’erreur dans une discussion."
+  },
+  "signin": {
+   "src": "img/signin.webp",
+   "alt": "La page de connexion d’askeden.com avec « Continuer avec Apple » et « Approuver depuis votre iPhone ».",
+   "caption": "askeden.com/signin. Les boutons affichés dépendent de ce qui est activé.",
+   "phone": true
+  },
+  "signin-code": {
+   "src": "img/signin-code.webp",
+   "alt": "La page de connexion affichant un QR code et un code de huit caractères en attente d’approbation depuis l’app iPhone.",
+   "caption": "Scannez le QR code ou saisissez le code dans l’app iPhone J.A.R.V.I.S.",
+   "phone": true
+  }
+ },
+ "entries": [
+  {
+   "id": "what-is-eden",
+   "cat": "start",
+   "q": "Qu’est-ce qu’Eden ?",
+   "a": "Eden, c’est une seule discussion pour de nombreux modèles d’IA. Vous écrivez, et Eden envoie chaque message au modèle qui lui convient : les questions simples vont à des modèles rapides et économiques, les plus difficiles aux plus puissants.\n\nEden fonctionne aussi avec votre propre Mac grâce à l’app J.A.R.V.I.S. : votre calendrier, vos e-mails, vos fichiers et vos notes, sans les envoyer en ligne.",
+   "keywords": [
+    "à propos",
+    "présentation",
+    "routeur",
+    "modèles",
+    "introduction",
+    "c'est quoi",
+    "qu'est-ce que eden",
+    "eden",
+    "ia",
+    "assistant",
+    "intelligence artificielle"
+   ],
+   "tour": "basics",
+   "img": [
+    "chat-empty"
+   ]
+  },
+  {
+   "id": "where-eden-runs",
+   "cat": "start",
+   "q": "Où puis-je utiliser Eden ?",
+   "a": "À trois endroits, avec un seul compte :\n- **askeden.com** dans n’importe quel navigateur.\n- **L’app Eden pour iPhone et iPad**, qui affiche la même page.\n- **Eden sur votre Mac** (fourni avec J.A.R.V.I.S.), à l’adresse http://localhost:5174.\n\nSur askeden.com, Eden utilise GPT, Gemini et Kimi avec l’IA incluse dans votre compte ; Claude nécessite votre propre clé API Anthropic (Réglages › Modèles et clés API). Sur votre Mac, Eden peut utiliser tous les modèles pour lesquels vous avez une clé.",
+   "keywords": [
+    "web",
+    "site web",
+    "site",
+    "app",
+    "application",
+    "ipad",
+    "iphone",
+    "mac",
+    "localhost",
+    "appareils",
+    "plateformes",
+    "navigateur",
+    "où utiliser",
+    "ordinateur"
+   ]
+  },
+  {
+   "id": "first-message",
+   "cat": "start",
+   "q": "Comment envoyer mon premier message ?",
+   "a": "Cliquez dans la zone en bas marquée **Écrire à Eden**, tapez une question et appuyez sur Retour. Maj-Retour ajoute une nouvelle ligne.\n\nLa réponse indique quel modèle a répondu et ce que cela a coûté. Cliquez sur le nom du modèle pour savoir pourquoi Eden l’a choisi.",
+   "keywords": [
+    "commencer",
+    "démarrer",
+    "envoyer",
+    "taper",
+    "écrire",
+    "question",
+    "entrée",
+    "retour",
+    "zone de saisie",
+    "premier message",
+    "message",
+    "composer"
+   ],
+   "tour": "basics",
+   "img": [
+    "composer"
+   ]
+  },
+  {
+   "id": "take-the-tour",
+   "cat": "start",
+   "q": "Y a-t-il une visite guidée ?",
+   "a": "Oui. La visite guidée vous permet d’essayer chaque fonctionnalité dans un espace d’essai : uniquement des données d’exemple, donc rien n’atteint vos vrais e-mails, votre calendrier, votre Mac ou votre facture.\n\nLancez-la depuis ⌘K › **Faire la visite guidée**, Réglages › À propos, ou avec **/tour** dans la zone de message. Vous pouvez passer un chapitre et y revenir plus tard.",
+   "keywords": [
+    "visite guidée",
+    "visite",
+    "tour",
+    "tutoriel",
+    "présentation",
+    "entraînement",
+    "essai",
+    "mode d'essai",
+    "apprendre",
+    "découvrir",
+    "prise en main",
+    "démo",
+    "bac à sable"
+   ],
+   "open": {
+    "label": "Faire la visite guidée",
+    "command": "Take the tour"
+   },
+   "tour": "basics"
+  },
+  {
+   "id": "palette",
+   "cat": "start",
+   "q": "Comment trouver rapidement ce que je cherche ?",
+   "a": "Appuyez sur **⌘K** (ou sur le champ de recherche en haut de la barre latérale). La palette recherche dans vos discussions et dans toutes les actions : Calendrier, Mail, Tâches, Réglages, Aide et plus encore. Utilisez ↑ ↓ et Retour.\n\nAutres raccourcis utiles : **⌘N** nouvelle discussion, **⌘B** barre latérale, **⌘,** Réglages, **?** dans une zone vide pour la liste complète.",
+   "keywords": [
+    "palette de commandes",
+    "cmd k",
+    "raccourcis",
+    "raccourcis clavier",
+    "clavier",
+    "rechercher",
+    "recherche",
+    "trouver",
+    "chercher",
+    "touches"
+   ],
+   "open": {
+    "label": "Ouvrir ⌘K",
+    "command": "__palette"
+   },
+   "tour": "keys",
+   "img": [
+    "palette"
+   ]
+  },
+  {
+   "id": "conversations",
+   "cat": "start",
+   "q": "Où sont mes discussions, et puis-je modifier ou refaire un message ?",
+   "a": "Vos discussions se trouvent dans la barre latérale. Le menu **…** en haut à droite d’une discussion permet de l’épingler, de la renommer, de l’exporter en Markdown ou de la supprimer. Une **discussion temporaire** (dans ⌘K) n’est pas enregistrée du tout, et la recherche trouve aussi les mots à l’intérieur des discussions.\n\nSurvolez l’un de vos messages et choisissez **Modifier** : Eden répond à la nouvelle version et conserve l’ancienne comme une branche vers laquelle vous pouvez revenir. Sur une réponse, **Régénérer** repose la question, au même modèle ou à un autre.",
+   "keywords": [
+    "historique",
+    "barre latérale",
+    "épingler",
+    "renommer",
+    "supprimer",
+    "exporter",
+    "markdown",
+    "temporaire",
+    "projets",
+    "modifier",
+    "éditer",
+    "renvoyer",
+    "régénérer",
+    "branche",
+    "réessayer",
+    "encore",
+    "refaire",
+    "discussions",
+    "conversations",
+    "chat"
+   ],
+   "tour": "create"
+  },
+  {
+   "id": "attach-files",
+   "cat": "start",
+   "q": "Que puis-je joindre ?",
+   "a": "Des images et des fichiers texte ou de code : jusqu’à six par message, 6 Mo maximum par image et 400 Ko par fichier texte. Utilisez le bouton **+** ou glissez les fichiers sur la zone.\n\nChaque image est redessinée avant l’envoi : sa position cachée (GPS) et les détails de l’appareil photo sont donc supprimés.",
+   "keywords": [
+    "joindre",
+    "pièce jointe",
+    "pièces jointes",
+    "upload",
+    "téléverser",
+    "importer",
+    "envoyer un fichier",
+    "image",
+    "photo",
+    "fichier",
+    "pdf",
+    "taille",
+    "limite",
+    "glisser",
+    "glisser-déposer",
+    "que puis-je joindre"
+   ],
+   "tour": "create"
+  },
+  {
+   "id": "canvas",
+   "cat": "start",
+   "q": "Qu’est-ce que le canevas ?",
+   "a": "Quand une réponse contient une page web, un graphique ou un dessin (HTML ou SVG), Eden peut l’afficher en direct dans le canevas, à côté de la discussion. Basculez entre **Aperçu** et **Code**, et parcourez les versions avec les flèches.\n\nLes pages du canevas s’exécutent dans un espace verrouillé : pas de réseau, pas de cookies.",
+   "keywords": [
+    "artefact",
+    "artifact",
+    "canevas",
+    "canvas",
+    "html",
+    "svg",
+    "aperçu",
+    "code",
+    "page",
+    "page web",
+    "graphique",
+    "dessin"
+   ],
+   "tour": "create",
+   "img": [
+    "canvas"
+   ]
+  },
+  {
+   "id": "code-mode",
+   "cat": "start",
+   "q": "Qu’est-ce que le mode Code ?",
+   "a": "Le mode Code travaille dans un dossier de projet sur votre Mac, via Claude Code. Il lit et modifie les fichiers, et demande votre accord avant d’exécuter quoi que ce soit. Les onglets **Plan** et **Modifications** de l’inspecteur affichent sa liste de tâches et les modifications non validées.\n\nLancez une session depuis la barre latérale (**+** à côté de Code) ou ⌘K › **Nouvelle session de code…**. Votre Mac est nécessaire.",
+   "keywords": [
+    "code",
+    "claude code",
+    "projet",
+    "dépôt",
+    "repo",
+    "programmation",
+    "programmer",
+    "coder",
+    "développement",
+    "session",
+    "diff",
+    "modifications",
+    "changements"
+   ],
+   "tour": "code"
+  },
+  {
+   "id": "help-chat",
+   "cat": "start",
+   "q": "Comment fonctionne Demander à l’Aide ?",
+   "a": "Demander à l’Aide répond aux questions sur Eden à partir de cette FAQ et donne le lien des réponses utilisées. Si la FAQ ne couvre pas le sujet, elle indique qu’elle n’est pas sûre plutôt que de deviner. C’est gratuit et séparé de vos discussions : rien n’apparaît dans votre historique ni ne consomme votre quota, et le nombre de questions et de captures d’écran est limité chaque jour.\n\nElle peut aussi examiner une **capture d’écran** d’un problème. L’image est d’abord redessinée dans votre navigateur (position et détails de l’appareil photo supprimés), utilisée pour cette seule réponse et jamais conservée. Recadrez ou masquez tout élément privé avant de l’envoyer.",
+   "keywords": [
+    "aide",
+    "demander à l'aide",
+    "ask help",
+    "assistance",
+    "support",
+    "chat",
+    "capture d'écran",
+    "capture",
+    "dépannage",
+    "problème",
+    "limite",
+    "stockée",
+    "conservée",
+    "privé",
+    "exif",
+    "recadrer",
+    "joindre"
+   ]
+  },
+  {
+   "id": "contact-support",
+   "cat": "start",
+   "q": "Comment contacter une personne ?",
+   "a": "Dans l’Aide, appuyez sur **Contacter l’assistance**. Un e-mail à support@askeden.com s’ouvre avec votre discussion avec l’Aide déjà remplie, pour que vous puissiez la vérifier avant l’envoi. Rien n’est envoyé automatiquement.",
+   "keywords": [
+    "contacter",
+    "contact",
+    "support",
+    "assistance",
+    "service client",
+    "email",
+    "e-mail",
+    "courriel",
+    "mail",
+    "humain",
+    "personne",
+    "signaler un bug",
+    "bug",
+    "avis",
+    "commentaires",
+    "feedback"
+   ]
+  },
+  {
+   "id": "signin-ways",
+   "cat": "signin",
+   "q": "Comment me connecter à askeden.com ?",
+   "a": "Allez sur **askeden.com/signin** et choisissez :\n- **Se connecter avec Apple**\n- **Se connecter avec Google**\n- **Approuver depuis votre iPhone** : la page affiche un code et un QR code ; approuvez-le dans l’app J.A.R.V.I.S. pour iPhone.\n\nLes trois ouvrent le même compte Eden. Pas besoin de vous inscrire : la première connexion crée votre compte, avec l’essai gratuit. Dans l’app Eden pour iPhone, **Se connecter avec Apple** utilise Face ID. Vous utilisez déjà l’app J.A.R.V.I.S. pour iPhone ? Connectez-vous avec le même identifiant Apple pour ouvrir le même compte.",
+   "keywords": [
+    "se connecter",
+    "connexion",
+    "login",
+    "log in",
+    "s'identifier",
+    "apple",
+    "google",
+    "iphone",
+    "code",
+    "qr",
+    "qr code",
+    "approuver",
+    "s'inscrire",
+    "inscription",
+    "créer un compte",
+    "nouveau compte",
+    "essai",
+    "essai gratuit",
+    "rejoindre",
+    "ios",
+    "app",
+    "application",
+    "face id",
+    "natif",
+    "se connecter avec google",
+    "se connecter avec apple",
+    "comment se connecter",
+    "se connecter à eden",
+    "identifiant apple",
+    "compte"
+   ],
+   "open": {
+    "label": "Aller à la connexion",
+    "href": "/signin"
+   },
+   "tour": "account",
+   "img": [
+    "signin"
+   ]
+  },
+  {
+   "id": "signin-code",
+   "cat": "signin",
+   "q": "Comment fonctionne la connexion avec un code depuis mon iPhone ?",
+   "a": "Sur la page de connexion, choisissez **Approuver depuis votre iPhone**. Eden affiche un code de huit caractères et un QR code.\n\nSur votre iPhone, ouvrez J.A.R.V.I.S. › Réglages › Compte › **Associer un Mac ou approuver une connexion**, scannez le QR code ou saisissez le code, puis touchez **Approuver la connexion**. La page se connecte d’elle-même. Vous pouvez aussi approuver depuis J.A.R.V.I.S. sur votre Mac (Réglages › Compte › Approuver une connexion à Eden).",
+   "keywords": [
+    "code",
+    "qr",
+    "qr code",
+    "iphone",
+    "approuver",
+    "valider",
+    "associer",
+    "lier",
+    "app jarvis",
+    "jarvis",
+    "scanner",
+    "code de connexion"
+   ],
+   "img": [
+    "signin-code"
+   ]
+  },
+  {
+   "id": "link-method",
+   "cat": "signin",
+   "q": "Puis-je ajouter Google à un compte Apple, ou l’inverse ?",
+   "a": "Oui. Ouvrez votre compte (Réglages › **Compte**) et, sous **Méthodes de connexion**, ajoutez l’autre méthode. Vous pourrez retirer une méthode plus tard, tant qu’il en reste une.\n\nEden ne fusionne jamais des comptes d’après l’adresse e-mail : seule une méthode ajoutée pendant que vous êtes connecté les relie.",
+   "keywords": [
+    "lier",
+    "associer",
+    "dissocier",
+    "deuxième méthode",
+    "méthode de connexion",
+    "apple",
+    "google",
+    "fusionner",
+    "fusion",
+    "email",
+    "e-mail",
+    "courriel",
+    "ajouter google",
+    "ajouter apple"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "sign-out",
+   "cat": "signin",
+   "q": "Comment me déconnecter, ou déconnecter un autre navigateur ?",
+   "a": "Réglages › **Compte** › **Appareils** liste tous les navigateurs et apps liés à votre compte. Déconnectez-y un navigateur, ou choisissez **Se déconnecter partout**.\n\nLes apps (iPhone, iPad, Mac) se retirent depuis l’app J.A.R.V.I.S. elle-même. Un navigateur reste connecté pendant 30 jours.",
+   "keywords": [
+    "se déconnecter",
+    "déconnexion",
+    "déconnecter",
+    "logout",
+    "log out",
+    "appareils",
+    "partout",
+    "perdu",
+    "volé",
+    "session",
+    "sessions actives",
+    "navigateur"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "lost-access",
+   "cat": "signin",
+   "q": "Je n’arrive pas du tout à me connecter. Que faire ?",
+   "a": "Essayez une autre méthode : si Apple échoue, essayez **Approuver depuis votre iPhone** ou Google (si vous l’avez ajouté).\n\nVérifiez que les cookies sont autorisés pour askeden.com ; les fenêtres de navigation privée et les bloqueurs stricts peuvent empêcher la connexion. Toujours bloqué ? Écrivez à **support@askeden.com** en indiquant l’erreur affichée sur la page de connexion (sans mot de passe, s’il vous plaît).",
+   "keywords": [
+    "impossible de se connecter",
+    "connexion impossible",
+    "bloqué",
+    "je n'arrive pas à me connecter",
+    "problème de connexion",
+    "erreur de connexion",
+    "accès perdu",
+    "aide",
+    "support",
+    "assistance",
+    "cookies",
+    "bloquer",
+    "navigation privée"
+   ],
+   "open": {
+    "label": "Aller à la connexion",
+    "href": "/signin"
+   }
+  },
+  {
+   "id": "plans",
+   "cat": "account",
+   "q": "Combien coûte Eden ?",
+   "a": "- **Essai** : chaque nouveau compte reçoit 1 $ d’IA incluse, une seule fois.\n- **Plus** : 20 $ par mois, avec 20 $ d’IA incluse chaque mois aux prix catalogue.\n\nL’IA incluse couvre GPT, Gemini et Kimi. Pour Claude, vous apportez votre propre clé : ajoutez votre clé API Anthropic dans Réglages › Modèles et clés API. Sur votre propre Mac, Eden peut aussi utiliser vos propres clés API ou votre abonnement Claude ; ils n’entament jamais le quota.",
+   "keywords": [
+    "prix",
+    "coût",
+    "plus",
+    "gratuit",
+    "essai",
+    "abonnement",
+    "forfait",
+    "argent",
+    "payer",
+    "par mois",
+    "prix mensuel",
+    "combien",
+    "combien ça coûte",
+    "tarif",
+    "tarifs",
+    "payant",
+    "facture"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "allowance",
+   "cat": "account",
+   "q": "Qu’est-ce que le quota, et que se passe-t-il quand il est épuisé ?",
+   "a": "Le quota correspond à l’IA incluse dans votre forfait, comptée en dollars aux prix catalogue des modèles. Le coût de chaque réponse y est décompté, et la jauge se trouve sur la page de votre compte.\n\nUne fois le quota épuisé, Eden sur askeden.com cesse de répondre jusqu’au mois suivant (Plus) ou jusqu’à ce que vous passiez à Plus (essai). Rien n’est facturé en plus. Eden sur votre Mac continue de fonctionner avec vos propres clés.",
+   "keywords": [
+    "quota",
+    "budget",
+    "ia incluse",
+    "jauge",
+    "compteur",
+    "épuisé",
+    "plus de crédit",
+    "limite",
+    "crédit",
+    "crédits",
+    "utilisation",
+    "consommation",
+    "dépassement"
+   ],
+   "open": {
+    "label": "Voir la jauge",
+    "click": "#btnAccount"
+   },
+   "img": [
+    "account"
+   ]
+  },
+  {
+   "id": "get-plus",
+   "cat": "account",
+   "q": "Comment obtenir Plus ?",
+   "a": "Deux façons, le même Plus :\n- **Sur le web** : page de votre compte › **Passer à Plus : 20 $/mois** (paiement via Stripe).\n- **Dans l’app J.A.R.V.I.S. pour iPhone** : via l’App Store.\n\nDans l’app Eden pour iPhone, vous verrez plutôt « Obtenez Plus dans l’app J.A.R.V.I.S. pour iPhone », en raison des règles d’Apple.",
+   "keywords": [
+    "acheter",
+    "achat",
+    "passer à plus",
+    "upgrade",
+    "plus",
+    "stripe",
+    "app store",
+    "s'abonner",
+    "abonnement",
+    "souscrire",
+    "paiement",
+    "payer"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   }
+  },
+  {
+   "id": "manage-billing",
+   "cat": "account",
+   "q": "Comment résilier, changer de carte ou régler un échec de paiement ?",
+   "a": "- Acheté sur le web : page du compte › **Gérer la facturation**. La page Stripe permet de changer de carte, de consulter les factures ou de résilier (Plus reste actif jusqu’à la fin du mois payé).\n- Acheté sur l’App Store : Réglages de l’iPhone › [votre nom] › **Abonnements**.\n\nEn cas d’échec de paiement, Plus reste actif 3 jours pendant que Stripe réessaie : mettez à jour la carte dans Gérer la facturation. Si la page indique que vous **payez Plus deux fois** (App Store et web), résiliez l’un des deux ; les remboursements ne sont pas automatiques, écrivez donc à support@askeden.com.",
+   "keywords": [
+    "résilier",
+    "annuler",
+    "désabonner",
+    "remboursement",
+    "rembourser",
+    "carte",
+    "carte bancaire",
+    "facture",
+    "facturation",
+    "gérer",
+    "portail stripe",
+    "abonnement app store",
+    "payé deux fois",
+    "double",
+    "les deux",
+    "deux abonnements",
+    "double prélèvement",
+    "prélèvement",
+    "paiement échoué",
+    "paiement refusé",
+    "refusé",
+    "impayé",
+    "en retard",
+    "plus perdu"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   }
+  },
+  {
+   "id": "delete-account",
+   "cat": "account",
+   "q": "Comment supprimer mon compte ?",
+   "a": "Supprimez-le depuis l’app J.A.R.V.I.S. (Réglages › Compte › Supprimer le compte). Tout est effacé : appareils, méthodes de connexion, discussions synchronisées, pages publiées et accès Google. Un abonnement Plus souscrit sur le web est résilié immédiatement.",
+   "keywords": [
+    "supprimer le compte",
+    "supprimer mon compte",
+    "retirer le compte",
+    "fermer le compte",
+    "clôturer le compte",
+    "suppression",
+    "effacer",
+    "effacer mes données",
+    "données personnelles",
+    "rgpd",
+    "gdpr"
+   ]
+  },
+  {
+   "id": "routing",
+   "cat": "chat",
+   "q": "Comment Eden choisit-il un modèle ?",
+   "a": "Chaque message est évalué (difficulté, type de tâche) et Eden choisit le modèle offrant la meilleure qualité pour son coût, à votre niveau. La pastille de chaque réponse indique le modèle, le coût et la raison ; cliquez dessus pour voir les autres candidats.\n\nVous pouvez toujours choisir vous-même un modèle.",
+   "keywords": [
+    "routeur",
+    "routage",
+    "routeur de modèles",
+    "model router",
+    "quel modèle",
+    "pourquoi",
+    "choisir",
+    "sélectionner",
+    "choix",
+    "sélection du modèle",
+    "pastille",
+    "justification"
+   ],
+   "tour": "basics",
+   "img": [
+    "route-chip"
+   ]
+  },
+  {
+   "id": "levels",
+   "cat": "chat",
+   "q": "Que signifient les niveaux 1 à 5 ?",
+   "a": "Les niveaux arbitrent entre coût et qualité : **1** est le plus économe, **5** le plus puissant, **3** est équilibré (par défaut). Modifiez-le dans la console de routage (⌘K › Ouvrir la console de routage) ou via ⌘K › Niveau du routeur.",
+   "keywords": [
+    "niveau",
+    "niveaux",
+    "niveau du routeur",
+    "optimisation",
+    "efficacité",
+    "performance",
+    "curseur",
+    "économique",
+    "pas cher",
+    "puissant",
+    "qualité",
+    "coût"
+   ],
+   "open": {
+    "label": "Ouvrir la console de routage",
+    "command": "Open Route console"
+   },
+   "tour": "basics",
+   "img": [
+    "levels"
+   ]
+  },
+  {
+   "id": "estimate",
+   "cat": "chat",
+   "q": "Puis-je voir le coût avant d’envoyer ?",
+   "a": "Oui. Pendant que vous tapez, la ligne au-dessus de la zone indique le modèle qu’Eden utilisera, son coût approximatif et le temps de réponse. Cliquez dessus pour passer à un modèle supérieur pour ce seul message.",
+   "keywords": [
+    "estimation",
+    "estimer",
+    "coût",
+    "avant",
+    "prix",
+    "combien",
+    "latence",
+    "délai",
+    "temps de réponse",
+    "aperçu",
+    "surclasser",
+    "upgrade"
+   ],
+   "tour": "basics",
+   "img": [
+    "estimate"
+   ]
+  },
+  {
+   "id": "pick-model",
+   "cat": "chat",
+   "q": "Comment choisir le modèle moi-même ?",
+   "a": "Ouvrez le menu des modèles dans la zone de saisie (**⌘⇧I**) et choisissez-en un. Il reste actif pour cette discussion jusqu’à ce que vous choisissiez de nouveau **Routeur de modèles**. Le remplacement manuel de la console de routage fait de même pour toutes les discussions.",
+   "keywords": [
+    "choisir le modèle",
+    "changer de modèle",
+    "sélectionner un modèle",
+    "forcer",
+    "épingler le modèle",
+    "manuel",
+    "modèle précis",
+    "modèle spécifique",
+    "opus",
+    "sonnet",
+    "gpt",
+    "gemini",
+    "claude"
+   ],
+   "tour": "basics"
+  },
+  {
+   "id": "stronger",
+   "cat": "chat",
+   "q": "Que fait « Demander à un modèle plus puissant » ?",
+   "a": "La même question est envoyée à un modèle plus puissant, et les deux réponses s’affichent côte à côte (sous forme d’onglets sur un téléphone). **Garder celle-ci** conserve celle que vous préférez, et Eden apprend de votre choix.",
+   "keywords": [
+    "plus puissant",
+    "modèle plus puissant",
+    "deuxième avis",
+    "second avis",
+    "côte à côte",
+    "garder celle-ci",
+    "meilleure réponse",
+    "améliorer",
+    "comparer les réponses",
+    "autre modèle"
+   ],
+   "tour": "models",
+   "img": [
+    "compare"
+   ]
+  },
+  {
+   "id": "compare",
+   "cat": "chat",
+   "q": "Puis-je interroger plusieurs modèles à la fois ?",
+   "a": "Oui : passez en mode **Comparer** dans la zone de saisie. Jusqu’à trois modèles répondent côte à côte, puis un court résumé indique leurs points d’accord et de désaccord. Le coût de l’ensemble s’affiche avant l’envoi.",
+   "keywords": [
+    "comparer",
+    "compare",
+    "plusieurs modèles",
+    "multiple",
+    "claude gpt gemini",
+    "accord",
+    "désaccord",
+    "comparaison",
+    "en même temps",
+    "à la fois"
+   ],
+   "tour": "models"
+  },
+  {
+   "id": "stop-steer",
+   "cat": "chat",
+   "q": "Puis-je arrêter une réponse, ou ajouter quelque chose pendant qu’elle s’écrit ?",
+   "a": "Appuyez sur le bouton carré **Arrêter**. Pour ajouter quelque chose sans arrêter, saisissez-le et appuyez sur **Orienter** (⌘↩) : dans une discussion, il est envoyé dès que la réponse se termine ; en mode Code, il parvient immédiatement à la session en cours. **Orienter maintenant** arrête et envoie.",
+   "keywords": [
+    "arrêter",
+    "stop",
+    "annuler",
+    "orienter",
+    "steer",
+    "interrompre",
+    "relance",
+    "question de suivi",
+    "file d’attente",
+    "ajouter un message"
+   ],
+   "tour": "basics"
+  },
+  {
+   "id": "search-mode",
+   "cat": "chat",
+   "q": "Eden peut-il faire des recherches sur le web ?",
+   "a": "Oui : passez en mode **Recherche** pour des réponses à jour avec leurs sources, ou **Recherche approfondie** pour un rapport plus long avec une liste de liens.",
+   "keywords": [
+    "recherche",
+    "rechercher",
+    "web",
+    "internet",
+    "recherche approfondie",
+    "sources",
+    "citations",
+    "actualité",
+    "actualités",
+    "à jour",
+    "chercher en ligne",
+    "infos"
+   ]
+  },
+  {
+   "id": "autopilot",
+   "cat": "chat",
+   "q": "Qu’est-ce que le pilote automatique des dépenses ?",
+   "a": "Définissez un budget mensuel dans Réglages › Routage. À mesure qu’il se consomme, Eden descend en gamme : à 80 %, un niveau moins cher ; à 95 %, deux ; et une fois épuisé, uniquement les modèles les moins chers. **Utiliser mon niveau cette fois** l’ignore pour un message. L’anneau dans la barre de titre indique ce que vous avez économisé par rapport à l’utilisation systématique du meilleur modèle.",
+   "keywords": [
+    "pilote automatique",
+    "autopilot",
+    "budget",
+    "dépenses",
+    "mensuel",
+    "économiser",
+    "économies",
+    "prévision",
+    "moins cher",
+    "coût",
+    "plafond",
+    "limiter les dépenses"
+   ],
+   "open": {
+    "label": "Réglages de routage",
+    "settings": "routing"
+   },
+   "tour": "learn"
+  },
+  {
+   "id": "learns",
+   "cat": "chat",
+   "q": "Eden apprend-il ce que j’aime ?",
+   "a": "Oui, uniquement à partir de chiffres : 👍/👎, **Garder celle-ci**, les modèles que vous choisissez et ceux avec lesquels vous régénérez. Cela ajuste le routeur pour chaque type de tâche. Consultez-le, désactivez-le ou réinitialisez-le dans Réglages › Routage › Appris de vous. Vos mots n’en font jamais partie.",
+   "keywords": [
+    "apprendre",
+    "apprentissage",
+    "pouce",
+    "avis",
+    "retour",
+    "personnel",
+    "profil",
+    "réinitialiser",
+    "j’aime",
+    "je n’aime pas",
+    "préférences",
+    "personnalisation"
+   ],
+   "open": {
+    "label": "Réglages de routage",
+    "settings": "routing"
+   },
+   "tour": "learn"
+  },
+  {
+   "id": "stored",
+   "cat": "privacy",
+   "q": "Que conserve askeden.com ?",
+   "a": "askeden.com ne stocke jamais ce que vous saisissez ni ce qu’Eden répond : tout transite vers le modèle puis revient.\n\nVotre historique de discussions reste dans votre navigateur ou votre app. Avec **Synchronisation** activée, il parvient aussi à vos autres appareils, chiffré pour qu’eux seuls puissent le lire.\n\naskeden.com conserve : votre compte et votre forfait, le coût de chaque échange (des chiffres uniquement), les aperçus de pages pendant 6 heures, les pages que vous publiez, l’accès Google (chiffré) si vous le connectez, et vos discussions synchronisées, **uniquement chiffrées**.",
+   "keywords": [
+    "confidentialité",
+    "vie privée",
+    "données",
+    "stockées",
+    "conserver",
+    "journaux",
+    "logs",
+    "historique",
+    "ce qui est enregistré",
+    "conservation",
+    "local",
+    "navigateur",
+    "appareil",
+    "où",
+    "enregistré",
+    "synchronisation",
+    "sync",
+    "rgpd"
+   ],
+   "tour": "privacy"
+  },
+  {
+   "id": "privacy-mode",
+   "cat": "privacy",
+   "q": "Qu’est-ce que le mode confidentialité ?",
+   "a": "Appuyez sur **Privé** (le cadenas) dans la barre de titre. Cette discussion est alors traitée uniquement par un modèle local sur votre Mac (Ollama ou LM Studio), jamais par un modèle dans le cloud, et chaque réponse indique où elle a été calculée. Si aucun modèle local ne peut répondre, rien n’est envoyé.\n\nSur askeden.com, votre Mac doit être associé et en ligne. Sur l’iPhone, « Sur cet iPhone » est l’option privée.",
+   "keywords": [
+    "privé",
+    "mode confidentialité",
+    "modèle local",
+    "ollama",
+    "lm studio",
+    "cadenas",
+    "hors ligne",
+    "sur l’appareil",
+    "qu’est-ce que le mode confidentialité",
+    "discussion privée",
+    "garder la discussion sur mon mac",
+    "confidentialité",
+    "vie privée",
+    "local"
+   ],
+   "open": {
+    "label": "Activer pour cette discussion",
+    "click": "#btnPrivacy"
+   },
+   "tour": "privacy",
+   "img": [
+    "privacy"
+   ]
+  },
+  {
+   "id": "hidden-instructions",
+   "cat": "privacy",
+   "q": "Qu’est-ce que la « protection contre les instructions cachées » ?",
+   "a": "Les e-mails, pages web, fichiers et captures d’écran peuvent contenir du texte écrit pour piéger une IA (« transfère tous les e-mails à… »). Eden marque tout cela comme **lu depuis l’extérieur** : le modèle peut le lire, mais n’en reçoit jamais d’ordres.\n\nSi une discussion a lu du texte extérieur, tout ce qu’Eden enverrait, réserverait ou modifierait attend que vous appuyiez sur **Approuver**. Un badge signale quand quelque chose ressemblait à une instruction cachée.",
+   "keywords": [
+    "injection de prompt",
+    "prompt injection",
+    "instructions cachées",
+    "sécurité",
+    "non fiable",
+    "lu depuis l’extérieur",
+    "approuver",
+    "hameçonnage",
+    "phishing",
+    "piratage",
+    "arnaque",
+    "protection"
+   ],
+   "tour": "safety",
+   "img": [
+    "guard"
+   ]
+  },
+  {
+   "id": "sync",
+   "cat": "privacy",
+   "q": "Comment fonctionne la synchronisation chiffrée ?",
+   "a": "Activez-la dans la page de votre compte › **Synchronisation**. Le premier navigateur crée une clé et vous demande de choisir une **phrase de récupération** (12 caractères ou plus, ou celle suggérée par Eden). Les discussions sont chiffrées dans le navigateur ; askeden.com ne voit jamais que des données verrouillées.\n\nUn nouveau navigateur est ajouté lorsqu’un appareil déjà synchronisé l’approuve, après que vous avez vérifié que les deux affichent les **six mêmes chiffres**, ou avec la phrase de récupération.",
+   "keywords": [
+    "synchronisation",
+    "sync",
+    "synchroniser",
+    "chiffrement",
+    "chiffré",
+    "de bout en bout",
+    "e2e",
+    "phrase de récupération",
+    "phrase secrète",
+    "six chiffres",
+    "approuver le navigateur",
+    "appareils",
+    "clé"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   },
+   "tour": "account",
+   "img": [
+    "sync"
+   ]
+  },
+  {
+   "id": "sync-passphrase",
+   "cat": "privacy",
+   "q": "J’ai perdu ma phrase de récupération, ou un appareil.",
+   "a": "Phrase perdue : approuvez le nouveau navigateur depuis un appareil déjà synchronisé (il affiche les six chiffres). Si plus aucun appareil n’a la clé, choisissez **Recommencer** dans Synchronisation : cela supprime les copies synchronisées et crée une nouvelle clé. Les discussions encore présentes dans un navigateur y restent.\n\nAppareil perdu : retirez-le dans Synchronisation. Eden change la clé, si bien que cet appareil ne peut plus rien lire de nouveau (il garde ce qu’il a déjà téléchargé). Déconnectez-le aussi dans Appareils.",
+   "keywords": [
+    "phrase perdue",
+    "phrase de récupération perdue",
+    "oublié",
+    "oubli",
+    "récupération",
+    "recommencer",
+    "clé perdue",
+    "retirer un appareil",
+    "supprimer un appareil",
+    "téléphone perdu",
+    "téléphone volé",
+    "changer la clé",
+    "révoquer",
+    "clé de synchronisation"
+   ]
+  },
+  {
+   "id": "voice-dictate",
+   "cat": "voice",
+   "q": "Comment parler au lieu de taper ?",
+   "a": "Appuyez sur le **micro** dans la zone de saisie pour dicter : parlez, relisez, puis envoyez. Appuyez sur le bouton **forme d’onde** pour **Parler** : une conversation mains libres avec la voix JARVIS, qui envoie quand vous faites une pause et continue jusqu’à ce que vous appuyiez sur Terminer ou Esc. Le micro n’est utilisé que lorsque l’un de ces modes est actif.\n\nFirefox n’a pas de reconnaissance vocale : Eden y enregistre donc plutôt (jusqu’à 2 minutes) et transforme l’enregistrement en texte ; sur askeden.com, cela compte sur votre quota.",
+   "keywords": [
+    "voix",
+    "vocal",
+    "dicter",
+    "dictée",
+    "micro",
+    "microphone",
+    "parler",
+    "mains libres",
+    "parole",
+    "reconnaissance vocale",
+    "firefox",
+    "enregistrement",
+    "transcrire",
+    "transcription",
+    "whisper",
+    "pas de bouton micro"
+   ],
+   "tour": "voice",
+   "img": [
+    "voice"
+   ]
+  },
+  {
+   "id": "voice-read",
+   "cat": "voice",
+   "q": "Eden peut-il lire les réponses à voix haute ?",
+   "a": "Oui : le bouton haut-parleur sur n’importe quelle réponse, ou Réglages › Apparence › **Lire les réponses à voix haute** pour toutes les réponses. Eden utilise la voix JARVIS.",
+   "keywords": [
+    "lire à voix haute",
+    "lire les réponses",
+    "haut-parleur",
+    "tts",
+    "synthèse vocale",
+    "voix",
+    "écouter",
+    "voix jarvis",
+    "lecture"
+   ],
+   "open": {
+    "label": "Réglages d’apparence",
+    "settings": "appearance"
+   },
+   "tour": "voice"
+  },
+  {
+   "id": "voice-allowance",
+   "cat": "voice",
+   "q": "La voix est-elle limitée ?",
+   "a": "Oui, chaque jour, en caractères : 20 000 par jour en gratuit, 100 000 avec Plus. Le compteur se réinitialise à minuit UTC. Sur votre Mac, Eden passe à la voix du Mac une fois la voix JARVIS du jour épuisée.",
+   "keywords": [
+    "limite de voix",
+    "limite",
+    "quota",
+    "caractères",
+    "quotidien",
+    "par jour",
+    "réinitialisation",
+    "voix jarvis épuisée",
+    "plafond",
+    "gratuit"
+   ]
+  },
+  {
+   "id": "calendar-open",
+   "cat": "calendar",
+   "q": "Quels calendriers Eden affiche-t-il ?",
+   "a": "Les calendriers de votre Mac (via J.A.R.V.I.S.) et Google Calendar (connectez-le dans Réglages › Comptes). Ouvrez **Calendrier** dans la barre latérale ou avec ⌘K : vues mois, semaine, jour et agenda.",
+   "keywords": [
+    "calendrier",
+    "google calendar",
+    "google agenda",
+    "calendrier mac",
+    "événements",
+    "semaine",
+    "mois",
+    "agenda",
+    "planning",
+    "emploi du temps",
+    "rendez-vous"
+   ],
+   "open": {
+    "label": "Ouvrir Calendrier",
+    "command": "Calendar"
+   },
+   "tour": "calendar",
+   "img": [
+    "calendar"
+   ]
+  },
+  {
+   "id": "calendar-edit",
+   "cat": "calendar",
+   "q": "Comment ajouter ou déplacer un événement ?",
+   "a": "Cliquez sur **Nouveau** (ou sur un créneau libre), ou faites glisser un événement pour le déplacer et faites glisser son bord inférieur pour modifier sa durée (par pas de 15 minutes). Chaque modification passe d’abord par une étape de vérification : rien n’est enregistré tant que vous n’avez pas confirmé. Sur un téléphone, appuyez longuement puis faites glisser.\n\nChangez la couleur d’un calendrier depuis la liste des calendriers dans le panneau latéral (les couleurs sont conservées dans ce navigateur).",
+   "keywords": [
+    "nouvel événement",
+    "ajouter un événement",
+    "créer un événement",
+    "déplacer",
+    "glisser",
+    "redimensionner",
+    "durée",
+    "modifier un événement",
+    "supprimer un événement",
+    "vérification",
+    "couleur",
+    "couleur du calendrier",
+    "par navigateur",
+    "rendez-vous"
+   ],
+   "open": {
+    "label": "Nouvel événement",
+    "command": "New calendar event…"
+   },
+   "tour": "calendar"
+  },
+  {
+   "id": "calendar-readonly",
+   "cat": "calendar",
+   "q": "Pourquoi ne puis-je pas modifier les événements du calendrier de mon Mac ?",
+   "a": "Pour modifier les événements du calendrier Mac, il faut la dernière version de J.A.R.V.I.S. sur votre Mac. Mettez-le à jour et redémarrez J.A.R.V.I.S. ; d’ici là, les événements Mac sont en lecture seule. Les événements Google peuvent être modifiés une fois Calendrier connecté.",
+   "keywords": [
+    "lecture seule",
+    "impossible de modifier",
+    "modification impossible",
+    "événements mac",
+    "calendrier mac",
+    "redémarrer jarvis",
+    "mise à jour",
+    "mettre à jour",
+    "bloqué"
+   ]
+  },
+  {
+   "id": "gmail-connect",
+   "cat": "mail",
+   "q": "Comment connecter Gmail ?",
+   "a": "Réglages › **Comptes** › **Connecter Gmail** (et **Connecter Calendrier** séparément). Connectez-vous avec Google et autorisez l’accès. Eden conserve l’accès chiffré et vous pouvez le déconnecter à tout moment ; cela le supprime aussi chez Google.\n\nSur votre Mac, le panneau Mail affiche aussi les comptes de l’app Mail via J.A.R.V.I.S.",
+   "keywords": [
+    "gmail",
+    "google",
+    "connecter",
+    "associer gmail",
+    "mail",
+    "email",
+    "e-mail",
+    "courriel",
+    "messagerie",
+    "boîte de réception",
+    "comptes",
+    "déconnecter"
+   ],
+   "open": {
+    "label": "Réglages des comptes",
+    "settings": "accounts"
+   },
+   "tour": "mail",
+   "img": [
+    "accounts"
+   ]
+  },
+  {
+   "id": "composer",
+   "cat": "mail",
+   "q": "Comment rédiger un e-mail ?",
+   "a": "⌘K › **Nouvel e-mail…** ouvre une fenêtre de rédaction par-dessus la discussion. Ajoutez des destinataires dans À, Cc et Cci (faites-les glisser d’une ligne à l’autre), joignez des fichiers (jusqu’à 25 Mo chacun) et demandez à Eden d’écrire ou de réécrire dans la zone en bas. Les brouillons s’enregistrent automatiquement.\n\nL’envoi demande toujours votre confirmation.",
+   "keywords": [
+    "rédiger",
+    "écrire un e-mail",
+    "écrire un mail",
+    "nouvel e-mail",
+    "nouveau message",
+    "brouillon",
+    "répondre",
+    "transférer",
+    "cc",
+    "cci",
+    "bcc",
+    "signature",
+    "courriel",
+    "email",
+    "pièce jointe"
+   ],
+   "open": {
+    "label": "Nouvel e-mail",
+    "command": "New email…"
+   },
+   "tour": "mail",
+   "img": [
+    "compose"
+   ]
+  },
+  {
+   "id": "schedule-send",
+   "cat": "mail",
+   "q": "Puis-je programmer un e-mail ?",
+   "a": "Oui, avec Gmail : la flèche à côté d’Envoyer › **Programmer l’envoi**. Eden le garde comme brouillon dans votre Gmail et l’envoie à l’heure prévue. Sur votre Mac, il est envoyé pendant qu’Eden est ouvert ; s’il a plus de 12 heures de retard, Eden vous attend au lieu de l’envoyer.",
+   "keywords": [
+    "programmer",
+    "programmer l’envoi",
+    "envoyer plus tard",
+    "envoi programmé",
+    "envoi différé",
+    "différer",
+    "retarder",
+    "planifier",
+    "minuteur"
+   ],
+   "tour": "mail"
+  },
+  {
+   "id": "mac-mail-limits",
+   "cat": "mail",
+   "q": "Pourquoi certaines options manquent-elles avec Mail sur mon Mac ?",
+   "a": "Mail sur votre Mac envoie du texte brut à une seule personne, sans Cci, pièces jointes ni programmation, et jusqu’à 600 caractères. Les e-mails plus longs s’ouvrent en brouillon dans Mail pour que vous les envoyiez. Utilisez Gmail pour le reste.",
+   "keywords": [
+    "mail mac",
+    "mail sur mac",
+    "limites",
+    "texte brut",
+    "pièces jointes manquantes",
+    "pièce jointe impossible",
+    "600 caractères",
+    "un destinataire",
+    "options manquantes",
+    "cci"
+   ]
+  },
+  {
+   "id": "mac-link",
+   "cat": "mac",
+   "q": "Comment connecter askeden.com à mon Mac ?",
+   "a": "Installez J.A.R.V.I.S. sur votre Mac et connectez-vous avec le même compte. Dans J.A.R.V.I.S. › Réglages › Compte, activez **Eden sur le web accède à ce Mac**. L’état indiqué est Connecté, Connexion… ou Hors ligne.\n\naskeden.com et l’app Eden pour iPhone peuvent alors utiliser les fichiers, le calendrier, les e-mails, les notes, les modèles locaux et le mode Code de votre Mac. Seuls vos propres appareils connectés à votre compte peuvent utiliser ce lien, et votre Mac vérifie chaque requête par rapport à une liste d’actions autorisées. Le trafic transite par askeden.com sans être stocké ni journalisé (il n’est pas encore chiffré de bout en bout).",
+   "keywords": [
+    "associer un mac",
+    "associer mac",
+    "connecter mac",
+    "relier mon mac",
+    "jarvis",
+    "lien mac",
+    "relais",
+    "accéder à mon mac",
+    "nécessite votre mac",
+    "sécurité du lien mac",
+    "chiffré",
+    "sécurisé",
+    "privé"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "jarvis-approval",
+   "cat": "mac",
+   "q": "Qu’est-ce que la carte « Autoriser Eden à utiliser Jarvis ? » sur mon Mac ?",
+   "a": "La première fois qu’Eden demande quelque chose à J.A.R.V.I.S., votre Mac affiche **Autoriser Eden à utiliser Jarvis ?**. Cliquez sur Autoriser. Eden s’en souvient : on ne vous le redemandera pas après un redémarrage.\n\nPendant que la carte attend, Eden affiche **Approuvez Eden sur votre Mac**.",
+   "keywords": [
+    "autoriser eden à utiliser jarvis",
+    "let eden use jarvis",
+    "approbation",
+    "carte",
+    "autoriser",
+    "autorisation",
+    "approuvez eden sur votre mac",
+    "approve eden on your mac",
+    "permission",
+    "demande d’accès"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "mac-files",
+   "cat": "mac",
+   "q": "Eden peut-il lire les fichiers de mon Mac ?",
+   "a": "Oui, avec **Utiliser mon Mac** : Eden recherche, lit et résume des fichiers sans les envoyer nulle part. C’est en lecture seule ; Eden cherche par défaut dans votre dossier de départ, et jamais dans les dossiers masqués, la Bibliothèque ou les fichiers de clés. Choisissez les dossiers autorisés dans J.A.R.V.I.S. › Réglages › Eden sur votre Mac.",
+   "keywords": [
+    "fichiers",
+    "documents",
+    "rechercher des fichiers",
+    "pdf",
+    "word",
+    "lire",
+    "résumer",
+    "fichiers mac",
+    "utiliser mon mac",
+    "dossier",
+    "dossiers",
+    "finder"
+   ],
+   "tour": "mac",
+   "img": [
+    "files"
+   ]
+  },
+  {
+   "id": "mac-screen",
+   "cat": "mac",
+   "q": "Puis-je poser une question sur ce qui est affiché à l’écran de mon Mac ?",
+   "a": "Oui : **+** › **Poser une question sur mon écran** ajoute la fenêtre au premier plan (app, titre, texte) à votre message. Votre Mac demande l’autorisation à chaque fois, sauf si la connaissance de l’écran est activée dans J.A.R.V.I.S.",
+   "keywords": [
+    "écran",
+    "mon écran",
+    "fenêtre au premier plan",
+    "fenêtre active",
+    "ce qu’il y a sur mon écran",
+    "ce qui est affiché",
+    "contexte de l’écran",
+    "capture d’écran"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "knowledge",
+   "cat": "mac",
+   "q": "Que sont les connaissances de projet ?",
+   "a": "Indiquez un dossier à Eden (Projets › Connaissances) et votre Mac l’indexe localement. Les réponses le citent alors ainsi : **[K1]**. Rien n’est envoyé en ligne.",
+   "keywords": [
+    "connaissances",
+    "index",
+    "indexer",
+    "dossier",
+    "embeddings",
+    "projet",
+    "citer",
+    "rechercher dans les documents",
+    "documents",
+    "fichiers",
+    "base de connaissances",
+    "sources"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "memory",
+   "cat": "mac",
+   "q": "Puis-je voir et modifier ce dont Eden se souvient ?",
+   "a": "Oui : **Mémoire** dans la barre latérale affiche chaque information et sa provenance. Vous pouvez la modifier, la supprimer (avec annulation) ou la désactiver. Une information désactivée est conservée, mais jamais utilisée.",
+   "keywords": [
+    "mémoire",
+    "memory",
+    "se souvenir",
+    "souvenirs",
+    "faits",
+    "informations",
+    "second cerveau",
+    "oublier",
+    "modifier la mémoire",
+    "supprimer la mémoire",
+    "effacer"
+   ],
+   "open": {
+    "label": "Ouvrir Mémoire",
+    "command": "Memory"
+   },
+   "tour": "day"
+  },
+  {
+   "id": "brief",
+   "cat": "mac",
+   "q": "Qu’est-ce que le briefing du matin ?",
+   "a": "Un court résumé de votre journée tiré de votre calendrier, de vos e-mails, de vos notes et de vos engagements, avec un lien vers chaque élément. Dix minutes avant une réunion, une carte de préparation résume les échanges passés avec ces personnes. Ouvrez-le avec **Briefing du matin** dans ⌘K ou /brief.",
+   "keywords": [
+    "briefing",
+    "brief",
+    "matin",
+    "résumé",
+    "journée",
+    "préparation de réunion",
+    "réunion",
+    "ordre du jour",
+    "agenda",
+    "programme du jour",
+    "récapitulatif"
+   ],
+   "open": {
+    "label": "Ouvrir le briefing",
+    "command": "Morning brief"
+   },
+   "tour": "day"
+  },
+  {
+   "id": "meetings",
+   "cat": "day",
+   "q": "Comment les notes de réunion deviennent-elles des actions ?",
+   "a": "Ouvrez **Réunions**. Choisissez une réunion pour lire ses notes ; Eden liste les actions à mener. Chacune peut devenir un événement de calendrier, un brouillon d’e-mail ou un engagement, et chacune vous demande d’abord votre accord. Eden n’envoie jamais d’e-mail depuis cet écran.",
+   "keywords": [
+    "réunions",
+    "réunion",
+    "notes",
+    "compte rendu",
+    "transcription",
+    "actions",
+    "actions à mener",
+    "engagements",
+    "suivi",
+    "relancer",
+    "tâches"
+   ],
+   "open": {
+    "label": "Ouvrir Réunions",
+    "command": "Meetings"
+   },
+   "tour": "day"
+  },
+  {
+   "id": "website-task",
+   "cat": "day",
+   "q": "Eden peut-il faire quelque chose sur un site web à ma place ?",
+   "a": "Oui : ⌘K › **Faire ceci sur un site web…**. Le navigateur de J.A.R.V.I.S. sur votre Mac s’en charge et vous voyez chaque étape, avec **Arrêter** à tout moment. Toute action risquée (un achat, un formulaire) attend votre accord sur le Mac.",
+   "keywords": [
+    "site web",
+    "site",
+    "navigateur",
+    "tâche web",
+    "automatisation",
+    "remplir un formulaire",
+    "formulaire",
+    "réserver",
+    "réservation",
+    "agent",
+    "naviguer",
+    "internet"
+   ],
+   "open": {
+    "label": "Faire ceci sur un site web",
+    "command": "Do this on a website…"
+   },
+   "tour": "mac"
+  },
+  {
+   "id": "undo",
+   "cat": "day",
+   "q": "Puis-je annuler une action d’Eden ?",
+   "a": "Ouvrez **Activité** (⌘K › Activité : ce qu’a fait Eden). Elle liste les actions d’Eden sur vos e-mails, votre calendrier et vos fichiers, avec **Annuler** quand c’est possible (pendant 7 jours). Les e-mails envoyés, les tâches sur un site web et les événements récurrents supprimés ne peuvent pas être annulés, et c’est indiqué.",
+   "keywords": [
+    "annuler",
+    "undo",
+    "activité",
+    "revenir en arrière",
+    "rétablir",
+    "historique",
+    "chronologie",
+    "erreur",
+    "ce qu’a fait eden",
+    "qu’a fait eden",
+    "défaire"
+   ],
+   "open": {
+    "label": "Ouvrir Activité",
+    "command": "Activity: what Eden did"
+   },
+   "tour": "safety",
+   "img": [
+    "activity"
+   ]
+  },
+  {
+   "id": "tasks",
+   "cat": "auto",
+   "q": "Que sont les tâches en arrière-plan ?",
+   "a": "Dites-le à Eden en une phrase, par exemple « préviens-moi quand l’avocat répond et prépare une réponse ». Eden propose un plan ; vous confirmez. Il surveille ensuite en arrière-plan, même navigateur fermé. Les brouillons sont rédigés automatiquement ; tout envoi ou ajout à votre calendrier attend **Approuver**. Vous recevez une notification sur votre iPhone.",
+   "keywords": [
+    "tâches",
+    "arrière-plan",
+    "surveiller",
+    "surveillance",
+    "notifier",
+    "notification",
+    "alerte",
+    "automatisation",
+    "agent",
+    "approuver",
+    "prévenir",
+    "me prévenir"
+   ],
+   "open": {
+    "label": "Ouvrir Tâches",
+    "command": "Tasks"
+   },
+   "tour": "auto",
+   "img": [
+    "tasks"
+   ]
+  },
+  {
+   "id": "task-approvals",
+   "cat": "auto",
+   "q": "Comment approuver ce qu’une tâche veut faire ?",
+   "a": "Dans **Tâches** › la carte d’approbation, ou depuis la notification sur votre iPhone (Approuver ou Refuser). Rien n’est envoyé avant votre approbation.",
+   "keywords": [
+    "approuver",
+    "refuser",
+    "approbation",
+    "notification",
+    "push",
+    "valider",
+    "autoriser",
+    "accepter",
+    "confirmation"
+   ],
+   "tour": "auto"
+  },
+  {
+   "id": "workflows",
+   "cat": "auto",
+   "q": "Que sont les automatisations ?",
+   "a": "Une discussion que vous voulez répéter devient une recette en un geste : menu **…** de la discussion › **Enregistrer comme automatisation…**. Les champs à compléter deviennent un petit formulaire. Lancez-la depuis **Automatisations**, ou avec **Exécuter selon un planning**. Vous pouvez partager une automatisation dans un espace d’équipe.",
+   "keywords": [
+    "automatisation",
+    "automatisations",
+    "workflow",
+    "recette",
+    "modèle",
+    "template",
+    "répéter",
+    "planifier",
+    "programmer",
+    "réutiliser",
+    "routine"
+   ],
+   "open": {
+    "label": "Ouvrir Automatisations",
+    "command": "Workflows"
+   },
+   "tour": "auto"
+  },
+  {
+   "id": "spaces",
+   "cat": "teams",
+   "q": "Que sont les espaces d’équipe ?",
+   "a": "Un projet partagé jusqu’à 20 personnes, avec son propre budget IA mensuel et son niveau de départ. Les discussions partagées sont chiffrées avec la clé de l’espace, qu’askeden.com n’a jamais. Il faut Plus pour en créer un ; les membres rejoignent l’espace avec une invitation et une vérification à six chiffres.",
+   "keywords": [
+    "équipe",
+    "team",
+    "espace",
+    "espaces",
+    "partagé",
+    "membres",
+    "inviter",
+    "invitation",
+    "budget",
+    "collaborer",
+    "collaboration",
+    "groupe"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "delegates",
+   "cat": "teams",
+   "q": "Mon assistant ou ma famille peuvent-ils utiliser mon Eden ?",
+   "a": "Oui, en tant que **délégué**. Sur la page de votre compte, invitez-les : choisissez la discussion (et, en option, Gmail et Calendrier), une limite mensuelle et une durée. Ils reçoivent un code ou un lien à usage unique (7 jours), se connectent avec leur propre compte et touchent **Utiliser**.\n\nIls ne voient jamais vos réglages, appareils, synchronisation, tâches ni votre Mac. Vous pouvez révoquer l’accès à tout moment. Une fois qu’ils ont terminé, **Revenir** dans le bandeau les ramène à leur propre Eden.",
+   "keywords": [
+    "délégué",
+    "déléguer",
+    "assistant",
+    "famille",
+    "partager le compte",
+    "inviter",
+    "limite",
+    "révoquer",
+    "agir pour",
+    "revenir",
+    "agir au nom de",
+    "quelqu’un d’autre",
+    "bandeau",
+    "accès",
+    "partage"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   },
+   "tour": "account"
+  },
+  {
+   "id": "publish",
+   "cat": "publish",
+   "q": "Comment partager une page créée par Eden ?",
+   "a": "Ouvrez-la dans le canevas et appuyez sur le **globe** (Publier). Choisissez **Moi uniquement** ou **Toute personne disposant du lien** ; elle reste en ligne sur askeden.com/p/… jusqu’à ce que vous la retiriez. Jusqu’à 20 pages, 2 Mo chacune. Page de votre compte › **Publiées** les liste, avec des boutons de retrait qui agissent immédiatement.\n\nSur votre Mac, vous pouvez plutôt enregistrer la page en fichier HTML.",
+   "keywords": [
+    "publier",
+    "publication",
+    "partager",
+    "lien",
+    "page",
+    "app",
+    "application",
+    "artefact",
+    "artifact",
+    "public",
+    "retirer",
+    "publiées",
+    "liste",
+    "supprimer la page",
+    "dépublier",
+    "mettre en ligne"
+   ],
+   "tour": "create",
+   "img": [
+    "publish"
+   ]
+  },
+  {
+   "id": "messenger-eden",
+   "cat": "messenger",
+   "q": "Comment utiliser @Eden dans Eden Messenger ?",
+   "a": "Dans une discussion Messenger, tapez **@e** puis votre question. Avant que quoi que ce soit ne parte, un aperçu montre exactement ce qu’Eden verra : la question, les messages précédents que vous choisissez (0 à 50) et votre nom. La réponse revient sous forme de brouillon modifiable, puis est publiée comme votre propre message, terminé par « via Eden ».\n\nLa première fois, **Connecter Eden** vous connecte une seule fois (accès limité aux questions, pendant 90 jours). Pour déconnecter : page de votre compte › **Apps connectées** › **Révoquer**.",
+   "keywords": [
+    "messenger",
+    "@eden",
+    "discussion de groupe",
+    "groupe",
+    "mention",
+    "mentionner",
+    "demander dans la discussion",
+    "connecter eden",
+    "révoquer",
+    "apps connectées",
+    "applications connectées",
+    "jeton messenger",
+    "messenger token",
+    "déconnecter",
+    "messagerie"
+   ]
+  },
+  {
+   "id": "messenger-privacy",
+   "cat": "messenger",
+   "q": "@Eden casse-t-il le chiffrement de bout en bout de Messenger ?",
+   "a": "Seulement pour ce que vous choisissez d’envoyer, et uniquement pour cette réponse : l’aperçu vous prévient avant. Tout le reste demeure chiffré de bout en bout, et la réponse est publiée chiffrée comme n’importe quel message.",
+   "keywords": [
+    "chiffrement messenger",
+    "chiffrement",
+    "bout en bout",
+    "e2e",
+    "e2ee",
+    "confidentialité",
+    "vie privée",
+    "sortie du chiffrement",
+    "sécurité",
+    "chiffré"
+   ]
+  },
+  {
+   "id": "ios-share",
+   "cat": "iphone",
+   "q": "Comment envoyer quelque chose à Eden depuis une autre app ?",
+   "a": "Utilisez le bouton **Partager** dans Safari, Photos, Fichiers ou n’importe quelle app, et choisissez **Ask Eden**. Une page apporte son titre et son texte, une photo arrive sans sa localisation, un PDF sous forme de texte.",
+   "keywords": [
+    "feuille de partage",
+    "partager",
+    "partage",
+    "share",
+    "safari",
+    "photos",
+    "pdf",
+    "envoyer à eden",
+    "extension",
+    "ask eden",
+    "autre application"
+   ],
+   "tour": "basics"
+  },
+  {
+   "id": "ios-siri",
+   "cat": "iphone",
+   "q": "Puis-je interroger Eden avec Siri ?",
+   "a": "Oui : dites « Ask Eden » suivi de votre question, ou ajoutez l’action Ask Eden dans Raccourcis.",
+   "keywords": [
+    "siri",
+    "raccourcis",
+    "shortcuts",
+    "voix",
+    "dis siri",
+    "hey siri",
+    "app intent",
+    "commande vocale",
+    "vocal",
+    "demander à siri"
+   ]
+  },
+  {
+   "id": "ios-live",
+   "cat": "iphone",
+   "q": "Que sont les activités en direct dans Eden ?",
+   "a": "Les longues tâches (une session Code, une comparaison, une recherche, une tâche sur un site web) affichent leur progression sur l’écran verrouillé et dans la Dynamic Island. iOS n’autorise que de brèves mises à jour en arrière-plan : l’affichage peut donc avoir un peu de retard jusqu’à ce que vous ouvriez l’app.",
+   "keywords": [
+    "activité en direct",
+    "activités en direct",
+    "live activity",
+    "écran verrouillé",
+    "écran de verrouillage",
+    "dynamic island",
+    "progression",
+    "longue tâche",
+    "suivi",
+    "avancement"
+   ]
+  },
+  {
+   "id": "ios-ondevice",
+   "cat": "iphone",
+   "q": "Eden fonctionne-t-il hors ligne sur mon iPhone ?",
+   "a": "Sur les iPhone dotés d’Apple Intelligence, oui : choisissez **Sur cet iPhone** dans le menu des modèles. Le modèle d’Apple intégré à l’appareil répond, et rien ne quitte le téléphone. Eden l’utilise automatiquement quand vous êtes hors ligne. Les réglages de l’app indiquent s’il est prêt.",
+   "keywords": [
+    "hors ligne",
+    "offline",
+    "sans connexion",
+    "sur l’appareil",
+    "on device",
+    "sur cet iphone",
+    "apple intelligence",
+    "foundation models",
+    "pas d’internet",
+    "sans internet",
+    "mode avion",
+    "avion",
+    "local"
+   ]
+  },
+  {
+   "id": "ios-settings",
+   "cat": "iphone",
+   "q": "Où sont les réglages propres à l’app ?",
+   "a": "Secouez le téléphone, ou utilisez le bouton Réglages sur l’écran d’erreur. Vous pouvez y ouvrir **Aide**, recharger Eden, et **Se déconnecter et effacer les données**.\n\n**Serveur** choisit quel Eden l’app affiche : askeden.com, ou Eden sur votre propre Mac, sur votre réseau. Chaque serveur conserve sa propre connexion et ses discussions. Tout le reste se trouve dans les Réglages d’Eden.",
+   "keywords": [
+    "réglages de l’app",
+    "réglages",
+    "paramètres",
+    "serveur",
+    "recharger",
+    "se déconnecter",
+    "déconnexion",
+    "effacer les données",
+    "secouer",
+    "serveur personnalisé",
+    "mac",
+    "réseau",
+    "askeden.com"
+   ]
+  },
+  {
+   "id": "mac-hotkey",
+   "cat": "iphone",
+   "q": "Existe-t-il un raccourci pour interroger Eden depuis n’importe où sur mon Mac ?",
+   "a": "Oui : **⌃⌥Space** ouvre Ask Eden. Activez-le dans J.A.R.V.I.S. › Réglages › Ce Mac (il est désactivé par défaut).",
+   "keywords": [
+    "raccourci",
+    "raccourci clavier",
+    "hotkey",
+    "raccourci mac",
+    "contrôle option espace",
+    "control option space",
+    "n’importe où",
+    "partout",
+    "question rapide",
+    "accès rapide"
+   ]
+  },
+  {
+   "id": "err-mac-offline",
+   "cat": "trouble",
+   "q": "\"Votre Mac est hors ligne\"",
+   "a": "Un Mac est associé à votre compte, mais il n’est pas connecté pour le moment. Eden en a besoin pour Jarvis, le mode Code, les fichiers, les e-mails sur le Mac et le mode confidentialité.\n\n**Solution :**\n- Réveillez le Mac et ouvrez **J.A.R.V.I.S.** (avec Eden en cours d’exécution).\n- Dans J.A.R.V.I.S. › Réglages › Compte, vérifiez que **Eden sur le web accède à ce Mac** est activé et indique Connecté.\n- Puis réessayez. La simple discussion sur askeden.com fonctionne sans le Mac.",
+   "keywords": [
+    "mac hors ligne",
+    "hors ligne",
+    "offline",
+    "non connecté",
+    "pas connecté",
+    "relais",
+    "relay",
+    "jarvis fermé",
+    "en veille",
+    "veille",
+    "mac déconnecté",
+    "mac injoignable"
+   ],
+   "messages": [
+    "Your Mac is offline",
+    "Your Mac isn't connected to the relay right now",
+    "Your Mac isn’t connected",
+    "Your Mac didn’t answer in time",
+    "Your Mac stopped answering",
+    "Can’t reach your Mac",
+    "Votre Mac est hors ligne",
+    "Votre Mac n’est pas connecté au relais pour le moment",
+    "Votre Mac n’est pas connecté",
+    "Votre Mac n’a pas répondu à temps",
+    "Votre Mac ne répond plus",
+    "Impossible de joindre votre Mac"
+   ],
+   "open": {
+    "label": "Vérifier la liaison du Mac",
+    "command": "__jarvis"
+   },
+   "tour": "mac",
+   "img": [
+    "err-mac-offline"
+   ]
+  },
+  {
+   "id": "err-needs-mac",
+   "cat": "trouble",
+   "q": "\"Nécessite votre Mac\"",
+   "a": "Cette fonctionnalité s’exécute sur votre propre Mac (vos fichiers, Mail sur le Mac, le mode Code, les clés API, les modèles locaux), et askeden.com ne peut joindre aucun Mac pour ce compte.\n\n**Solution :** installez J.A.R.V.I.S. sur votre Mac, connectez-vous avec le même compte et activez **Eden sur le web accède à ce Mac** (Réglages › Compte). Si vous n’avez pas de Mac, utilisez ce qui fonctionne sur le web : la discussion, Comparer, Gmail et Google Calendar.",
+   "keywords": [
+    "nécessite votre mac",
+    "besoin du mac",
+    "pas de mac",
+    "aucun mac",
+    "mac uniquement",
+    "mac seulement",
+    "indisponible sur le web",
+    "pas disponible sur le web",
+    "associer un mac",
+    "lier un mac"
+   ],
+   "messages": [
+    "Needs your Mac",
+    "This needs your Mac",
+    "No Mac is linked to this account",
+    "It needs your Mac",
+    "Privacy mode needs your Mac, through its link to askeden.com",
+    "Nécessite votre Mac",
+    "Cette action nécessite votre Mac",
+    "Aucun Mac n’est associé à ce compte",
+    "Cela nécessite votre Mac",
+    "Le mode confidentialité nécessite votre Mac, via sa liaison avec askeden.com"
+   ],
+   "open": {
+    "label": "Comment associer un Mac",
+    "faq": "mac-link"
+   },
+   "tour": "mac"
+  },
+  {
+   "id": "err-approve-mac",
+   "cat": "trouble",
+   "q": "\"Approuvez Eden sur votre Mac\"",
+   "a": "J.A.R.V.I.S. affiche **Autoriser Eden à utiliser Jarvis ?** sur votre Mac et attend votre réponse. Eden ne peut pas lire votre calendrier, vos e-mails ni vos notes tant que vous ne l’autorisez pas.\n\n**Solution :** allez sur le Mac et cliquez sur **Autoriser** sur cette carte. Si vous avez refusé par erreur, réessayez simplement : la carte réapparaît.",
+   "keywords": [
+    "approuver eden sur votre mac",
+    "autoriser eden à utiliser jarvis",
+    "autoriser",
+    "en attente",
+    "attente",
+    "carte",
+    "demande",
+    "approbation",
+    "permission",
+    "bloqué"
+   ],
+   "messages": [
+    "Approve Eden on your Mac",
+    "Let Eden use Jarvis?",
+    "Waiting for you on your Mac",
+    "Waiting for your OK on your Mac",
+    "You said no on your Mac, so nothing changed",
+    "Nobody answered the card on your Mac in time",
+    "Approuvez Eden sur votre Mac",
+    "Autoriser Eden à utiliser Jarvis ?",
+    "En attente de votre réponse sur votre Mac",
+    "En attente de votre accord sur votre Mac",
+    "Vous avez refusé sur votre Mac, rien n’a donc changé",
+    "Personne n’a répondu à temps à la carte sur votre Mac"
+   ],
+   "tour": "mac"
+  },
+  {
+   "id": "err-jarvis-not-running",
+   "cat": "trouble",
+   "q": "\"Jarvis n’est pas lancé sur ce Mac\"",
+   "a": "Sur votre Mac, Eden communique avec l’app J.A.R.V.I.S. pour le calendrier, les e-mails, la mémoire et les fichiers, et celle-ci n’est pas ouverte (ou est trop ancienne).\n\n**Solution :** ouvrez J.A.R.V.I.S. Si elle est ouverte, quittez-la et rouvrez-la. Si Eden indique que Jarvis « a envoyé quelque chose qu’Eden ne peut pas lire » ou qu’un outil manque, mettez à jour J.A.R.V.I.S. et redémarrez-la.",
+   "keywords": [
+    "jarvis ne fonctionne pas",
+    "jarvis pas lancé",
+    "app jarvis",
+    "application jarvis",
+    "mcp",
+    "redémarrer jarvis",
+    "relancer jarvis",
+    "mettre à jour jarvis",
+    "mise à jour",
+    "jarvis n’a pas répondu",
+    "jarvis ne répond pas"
+   ],
+   "messages": [
+    "Jarvis is not running on this Mac",
+    "Jarvis isn’t reachable on your Mac",
+    "The Jarvis app didn’t answer",
+    "Jarvis sent something Eden can’t read",
+    "Your Jarvis app is from before",
+    "Jarvis has no tool called",
+    "Jarvis n’est pas lancé sur ce Mac",
+    "Jarvis est injoignable sur votre Mac",
+    "L’app Jarvis n’a pas répondu",
+    "Jarvis a envoyé quelque chose qu’Eden ne peut pas lire",
+    "Votre app Jarvis est d’une version antérieure",
+    "Jarvis n’a aucun outil nommé"
+   ]
+  },
+  {
+   "id": "err-privacy-offline",
+   "cat": "trouble",
+   "q": "\"Le mode confidentialité nécessite votre Mac\" ou \"Activez Ollama ou LM Studio\"",
+   "a": "Une discussion privée n’est traitée que par un modèle local sur votre Mac, et aucun n’est joignable. Rien n’a été envoyé.\n\n**Solution :**\n- Sur askeden.com : ouvrez J.A.R.V.I.S. sur votre Mac associé.\n- Sur le Mac : lancez **Ollama** ou **LM Studio** et chargez un modèle de discussion.\n- Ou appuyez de nouveau sur **Privé** pour désactiver la confidentialité dans cette discussion.",
+   "keywords": [
+    "mode confidentialité",
+    "confidentialité",
+    "ollama",
+    "lm studio",
+    "modèle local",
+    "local",
+    "échec de la discussion privée",
+    "discussion privée",
+    "privé",
+    "rien n’a été envoyé",
+    "hors ligne"
+   ],
+   "messages": [
+    "privacy mode needs it",
+    "Privacy mode needs your Mac",
+    "Turn on Ollama or LM Studio to use privacy mode",
+    "is running but has no chat model loaded",
+    "Privacy mode isn’t available here",
+    "Compare in privacy mode",
+    "le mode confidentialité en a besoin",
+    "Le mode confidentialité nécessite votre Mac",
+    "Activez Ollama ou LM Studio pour utiliser le mode confidentialité",
+    "est lancé mais aucun modèle de discussion n’est chargé",
+    "Le mode confidentialité n’est pas disponible ici",
+    "Comparer en mode confidentialité"
+   ],
+   "open": {
+    "label": "Désactiver la confidentialité",
+    "click": "#btnPrivacy"
+   },
+   "tour": "privacy",
+   "img": [
+    "err-privacy"
+   ]
+  },
+  {
+   "id": "err-allowance",
+   "cat": "trouble",
+   "q": "\"L’essai gratuit est épuisé\" ou \"le quota est épuisé\"",
+   "a": "Votre IA incluse pour askeden.com est épuisée, ou ce qu’il reste ne suffit pas pour cette réponse. L’essai est de 1 $, une seule fois ; Plus coûte 20 $ par mois et repart le 1er. Avant chaque réponse, Eden réserve le coût maximal possible, donc une longue discussion, Compare ou une recherche web peut demander plus que ce qu’il reste.\n\n**Solution :** lancez une nouvelle discussion (plus courte, elle coûte moins), interrogez un seul modèle, passez à Plus, attendez le 1er, ou utilisez Eden sur votre Mac avec vos propres clés.",
+   "keywords": [
+    "quota épuisé",
+    "essai épuisé",
+    "plus de quota",
+    "plus de crédit",
+    "402",
+    "limite atteinte",
+    "pas assez de crédit",
+    "réponse trop chère",
+    "longue discussion",
+    "nouvelle discussion",
+    "essai gratuit",
+    "crédits",
+    "abonnement",
+    "forfait",
+    "solde",
+    "payer"
+   ],
+   "messages": [
+    "The free trial of Jarvis AI is used up",
+    "AI allowance is used up",
+    "No included AI is left",
+    "no_allowance",
+    "Not enough of your included AI is left",
+    "L’essai gratuit de Jarvis AI est épuisé",
+    "Le quota d’IA est épuisé",
+    "Il ne reste plus d’IA incluse",
+    "Il ne reste pas assez de votre IA incluse"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   },
+   "img": [
+    "account"
+   ]
+  },
+  {
+   "id": "err-too-long",
+   "cat": "trouble",
+   "q": "\"Cette discussion est trop longue\"",
+   "a": "La discussion dépasse ce qu’un modèle peut lire d’un coup (sur askeden.com, environ 150 000 tokens).\n\n**Solution :** lancez une nouvelle discussion, ou utilisez **Compact** dans l’anneau pour reporter un résumé dans une nouvelle.",
+   "keywords": [
+    "trop long",
+    "contexte",
+    "tokens",
+    "150000",
+    "conversation trop grande",
+    "discussion trop longue",
+    "conversation trop longue",
+    "limite de contexte",
+    "jetons",
+    "compacter",
+    "résumé"
+   ],
+   "messages": [
+    "This conversation is too long",
+    "too long for the on-device model",
+    "Cut off at the model’s output limit",
+    "Cette discussion est trop longue",
+    "trop long pour le modèle intégré à l’appareil",
+    "Coupé à la limite de sortie du modèle"
+   ]
+  },
+  {
+   "id": "err-signed-out",
+   "cat": "trouble",
+   "q": "\"Ce navigateur est déconnecté d’Eden\"",
+   "a": "Votre session a pris fin : vous vous êtes déconnecté ailleurs, vous avez retiré ce navigateur de votre compte, ou 30 jours se sont écoulés.\n\n**Solution :** rechargez la page et reconnectez-vous. Vos discussions dans ce navigateur sont toujours là.",
+   "keywords": [
+    "déconnecté",
+    "session expirée",
+    "déconnexion",
+    "recharger",
+    "401",
+    "se connecter",
+    "connexion",
+    "reconnecter",
+    "session terminée",
+    "identifiant"
+   ],
+   "messages": [
+    "This browser is signed out of Eden",
+    "Signed out. Sign in at askeden.com again",
+    "You were signed out",
+    "This device is signed out",
+    "Ce navigateur est déconnecté d’Eden",
+    "Déconnecté. Reconnectez-vous sur askeden.com",
+    "Vous avez été déconnecté",
+    "Cet appareil est déconnecté"
+   ],
+   "open": {
+    "label": "Se connecter",
+    "href": "/signin"
+   }
+  },
+  {
+   "id": "err-signin-took-too-long",
+   "cat": "trouble",
+   "q": "\"Cette connexion a pris trop de temps\" ou \"Vous avez annulé la connexion\"",
+   "a": "La connexion n’a pas abouti. Soit la fenêtre Apple ou Google a été fermée (rien n’a changé), soit la connexion a commencé dans un autre onglet, a trop attendu ou est revenue depuis un lien : pour votre sécurité, Eden ne termine une connexion que dans l’onglet qui l’a lancée, en moins de 10 minutes.\n\n**Solution :** fermez les autres onglets de connexion, allez sur askeden.com/signin et recommencez dans un seul onglet. Autorisez les cookies pour askeden.com. Si la fenêtre Apple ou Google échoue encore, essayez **Approuver depuis votre iPhone**.",
+   "keywords": [
+    "échec de connexion",
+    "trop de temps",
+    "autre fenêtre",
+    "state",
+    "expiré",
+    "cookies",
+    "annulé",
+    "accès refusé",
+    "fenêtre apple",
+    "fenêtre google",
+    "se connecter",
+    "connexion impossible",
+    "connexion échouée",
+    "onglet",
+    "login"
+   ],
+   "messages": [
+    "That sign-in took too long",
+    "That sign-in didn’t finish",
+    "The sign-in came back unreadable",
+    "That sign-in is gone",
+    "didn't check out",
+    "You cancelled the sign-in",
+    "Sign in with Apple didn’t finish",
+    "Adding it was cancelled",
+    "Cette connexion a pris trop de temps",
+    "Cette connexion n’a pas abouti",
+    "La connexion est revenue illisible",
+    "Cette connexion n’existe plus",
+    "n’a pas été validée",
+    "Vous avez annulé la connexion",
+    "Se connecter avec Apple n’a pas abouti",
+    "L’ajout a été annulé"
+   ],
+   "open": {
+    "label": "Aller à la connexion",
+    "href": "/signin"
+   }
+  },
+  {
+   "id": "err-identity-taken",
+   "cat": "trouble",
+   "q": "\"Ce compte Apple/Google est déjà utilisé par un autre compte Eden\"",
+   "a": "Cet identifiant Apple ou ce compte Google ouvre déjà un autre compte Eden, il ne peut donc pas être ajouté à celui-ci.\n\n**Solution :** connectez-vous avec lui pour ouvrir cet autre compte. Pour l’utiliser ici à la place, retirez-le d’abord de l’autre compte (Compte › Méthodes de connexion), puis ajoutez-le de nouveau.",
+   "keywords": [
+    "déjà utilisé",
+    "identité prise",
+    "autre compte",
+    "échec de l’association",
+    "pris",
+    "compte apple",
+    "compte google",
+    "identifiant apple",
+    "associer",
+    "dissocier",
+    "méthodes de connexion"
+   ],
+   "messages": [
+    "is already used by another Eden account",
+    "already has",
+    "Unlink it first",
+    "est déjà utilisé par un autre compte Eden",
+    "a déjà",
+    "Dissociez-le d’abord"
+   ]
+  },
+  {
+   "id": "err-not-open",
+   "cat": "trouble",
+   "q": "\"Eden sur le web n’est pas encore ouvert à ce compte\"",
+   "a": "askeden.com est en bêta privée, ouverte pour l’instant à certains comptes seulement.\n\n**Solution :** utilisez Eden sur votre Mac en attendant, ou écrivez à support@askeden.com pour demander l’accès.",
+   "keywords": [
+    "pas ouvert",
+    "bêta",
+    "beta",
+    "non autorisé",
+    "accès",
+    "liste d’attente",
+    "bêta privée",
+    "invitation",
+    "accès refusé",
+    "inscription"
+   ],
+   "messages": [
+    "Eden on the web isn’t open to this account yet",
+    "not_allowed",
+    "Eden sur le web n’est pas encore ouvert à ce compte"
+   ]
+  },
+  {
+   "id": "err-signin-not-ready",
+   "cat": "trouble",
+   "q": "\"Ce mode de connexion n’est pas encore prêt\" ou \"Google n’a pas partagé d’adresse e-mail vérifiée\"",
+   "a": "Soit ce bouton de connexion n’est pas encore activé sur ce site, soit votre compte Google n’a pas d’adresse e-mail vérifiée (Eden en a besoin pour distinguer les comptes).\n\n**Solution :** utilisez un autre moyen sur la page de connexion, comme **Approuver depuis votre iPhone** ou Se connecter avec Apple.",
+   "keywords": [
+    "pas prêt",
+    "pas configuré",
+    "google indisponible",
+    "apple indisponible",
+    "e-mail google",
+    "email google",
+    "vérifié",
+    "non vérifié",
+    "adresse e-mail",
+    "connexion",
+    "se connecter",
+    "mail"
+   ],
+   "messages": [
+    "That way of signing in isn’t ready yet",
+    "isn’t ready yet",
+    "Google didn’t share a verified email address",
+    "Ce mode de connexion n’est pas encore prêt",
+    "n’est pas encore prêt",
+    "Google n’a pas partagé d’adresse e-mail vérifiée"
+   ]
+  },
+  {
+   "id": "err-rate-limited",
+   "cat": "trouble",
+   "q": "\"Trop de tentatives\" ou \"patientez une minute\"",
+   "a": "Trop de connexions ou de messages sont venus de votre réseau ou de votre compte en une minute. C’est une limite de sécurité.\n\n**Solution :** patientez une minute, puis réessayez.",
+   "keywords": [
+    "trop de",
+    "limite de requêtes",
+    "ralentir",
+    "429",
+    "patientez une minute",
+    "trop de tentatives",
+    "trop de requêtes",
+    "bloqué",
+    "attendre",
+    "rate limit"
+   ],
+   "messages": [
+    "Too many tries",
+    "Too many requests",
+    "Too many connections",
+    "wait a minute",
+    "Eden is already writing 2 replies",
+    "Trop de tentatives",
+    "Trop de requêtes",
+    "Trop de connexions",
+    "patientez une minute",
+    "Eden rédige déjà 2 réponses"
+   ]
+  },
+  {
+   "id": "err-code-expired",
+   "cat": "trouble",
+   "q": "\"Ce code n’est plus valable\"",
+   "a": "Les codes de connexion durent environ 10 minutes, et chacun ne sert qu’une fois.\n\n**Solution :** appuyez sur **Obtenir un nouveau code** et approuvez-le dans l’app iPhone J.A.R.V.I.S. en quelques minutes. Si le message indique « Refusé dans l’app », quelqu’un y a appuyé sur Refuser : obtenez un nouveau code.",
+   "keywords": [
+    "code expiré",
+    "code plus valable",
+    "nouveau code",
+    "refusé",
+    "qr expiré",
+    "code de connexion",
+    "qr code",
+    "périmé",
+    "code invalide"
+   ],
+   "messages": [
+    "That code ran out",
+    "Turned down in the app",
+    "That code expired",
+    "That code isn't one we know",
+    "That code was already used",
+    "That sign-in code is gone",
+    "Ce code n’est plus valable",
+    "Refusé dans l’app",
+    "Ce code a expiré",
+    "Ce code nous est inconnu",
+    "Ce code a déjà été utilisé",
+    "Ce code de connexion n’existe plus"
+   ],
+   "open": {
+    "label": "Aller à la connexion",
+    "href": "/signin"
+   }
+  },
+  {
+   "id": "err-cant-reach",
+   "cat": "trouble",
+   "q": "\"Impossible de joindre le serveur\" ou \"Impossible de joindre askeden.com\"",
+   "a": "Votre appareil n’a pas pu se connecter à Eden.\n\n**Solution :** vérifiez votre connexion Internet et rechargez. Sur votre Mac, vérifiez qu’Eden est lancé (model-router-ui). Dans l’app iPhone, tirez vers le bas pour recharger, ou vérifiez le serveur dans les Réglages de l’app.",
+   "keywords": [
+    "impossible de joindre",
+    "pas de connexion",
+    "réseau",
+    "hors ligne",
+    "serveur en panne",
+    "connexion perdue",
+    "internet",
+    "wifi",
+    "serveur injoignable",
+    "ne charge pas"
+   ],
+   "messages": [
+    "Can’t reach the server",
+    "Can’t reach askeden.com",
+    "The connection to the Eden server dropped",
+    "is the Eden server running",
+    "Can't reach",
+    "You're offline",
+    "Impossible de joindre le serveur",
+    "Impossible de joindre askeden.com",
+    "La connexion au serveur Eden a été interrompue",
+    "le serveur Eden est-il lancé",
+    "Impossible de joindre",
+    "Vous êtes hors ligne"
+   ]
+  },
+  {
+   "id": "err-gmail-reconnect",
+   "cat": "trouble",
+   "q": "\"Gmail doit être reconnecté\" ou \"Gmail limite les requêtes d’Eden\"",
+   "a": "L’autorisation de Google pour Eden a expiré ou a été retirée (en mode test, Google y met fin au bout de 7 jours), ou Google a demandé à Eden de ralentir un instant.\n\n**Solution :** pour reconnecter, allez de nouveau dans Réglages › Comptes › **Connecter Gmail** (ou **Connecter Calendrier**), et cochez toutes les cases que Google propose. Pour « occupé » ou « limite les requêtes », attendez le nombre de secondes indiqué et réessayez.",
+   "keywords": [
+    "reconnecter gmail",
+    "google expiré",
+    "révoqué",
+    "autorisation",
+    "calendrier non connecté",
+    "reconnecter google",
+    "gmail occupé",
+    "limite google",
+    "calendrier occupé",
+    "réessayer",
+    "agenda",
+    "permission",
+    "e-mail",
+    "mail",
+    "boîte de réception"
+   ],
+   "messages": [
+    "Gmail needs to be reconnected",
+    "Google needs to be reconnected",
+    "Eden lacks a Gmail permission",
+    "Reconnect Google to see your calendar",
+    "Connect Google Calendar to see your calendar",
+    "Gmail is not connected",
+    "Google isn’t connected",
+    "Google Calendar isn’t connected",
+    "Google sent no refresh token",
+    "Gmail is rate-limiting Eden",
+    "Google Calendar is busy",
+    "Could not reach Google",
+    "Gmail doit être reconnecté",
+    "Google doit être reconnecté",
+    "Il manque à Eden une autorisation Gmail",
+    "Reconnectez Google pour voir votre calendrier",
+    "Connectez Google Calendar pour voir votre calendrier",
+    "Gmail n’est pas connecté",
+    "Google n’est pas connecté",
+    "Google Calendar n’est pas connecté",
+    "Google n’a envoyé aucun jeton d’actualisation",
+    "Gmail limite les requêtes d’Eden",
+    "Google Calendar est occupé",
+    "Impossible de joindre Google"
+   ],
+   "open": {
+    "label": "Réglages des comptes",
+    "settings": "accounts"
+   },
+   "tour": "mail"
+  },
+  {
+   "id": "err-attachment-big",
+   "cat": "trouble",
+   "q": "\"Gmail envoie 25 Mo au maximum\" ou \"joignez-le de nouveau\"",
+   "a": "Gmail n’envoie pas plus de 25 Mo au total et refuse certains types de fichiers (comme .exe). Par ailleurs, les pièces jointes restent sur le serveur d’Eden jusqu’à 6 heures après votre dernière modification du brouillon ; passé ce délai (ou après un redémarrage d’Eden sur votre Mac), elles disparaissent.\n\n**Solution :** partagez les gros fichiers depuis Google Drive et collez le lien. Pour « joignez-le de nouveau », retirez la pièce jointe et ajoutez-la de nouveau.",
+   "keywords": [
+    "pièce jointe trop grosse",
+    "25 mo",
+    "25 mb",
+    "fichier trop volumineux",
+    "type de fichier bloqué",
+    "exe",
+    "joindre de nouveau",
+    "pièce jointe perdue",
+    "envoi disparu",
+    "6 heures",
+    "pièce jointe",
+    "fichier joint",
+    "e-mail",
+    "mail",
+    "google drive"
+   ],
+   "messages": [
+    "Gmail sends at most 25 MB",
+    "Gmail doesn't allow",
+    "would take the email past 25 MB",
+    "At most 50 attachments",
+    "attach it again",
+    "is no longer on Eden’s server",
+    "hasn’t finished uploading",
+    "Retry or remove the attachments that failed",
+    "Gmail envoie 25 Mo au maximum",
+    "Gmail n’autorise pas",
+    "ferait dépasser 25 Mo à l’e-mail",
+    "50 pièces jointes au maximum",
+    "joignez-le de nouveau",
+    "n’est plus sur le serveur d’Eden",
+    "n’a pas fini d’être envoyé",
+    "Réessayez ou retirez les pièces jointes qui ont échoué"
+   ],
+   "tour": "mail"
+  },
+  {
+   "id": "err-mac-mail",
+   "cat": "trouble",
+   "q": "\"Mail sur votre Mac ne peut pas joindre de fichiers\" (ni Cci, ni envoi programmé)",
+   "a": "Mail sur votre Mac (via J.A.R.V.I.S.) envoie uniquement du texte brut : un seul destinataire À, sans Cci, pièces jointes ni envoi programmé.\n\n**Solution :** dans la fenêtre de rédaction, passez le champ **De** sur votre compte Gmail.",
+   "keywords": [
+    "mail mac",
+    "impossible de joindre",
+    "bcc",
+    "cci",
+    "programmer",
+    "de",
+    "expéditeur",
+    "passer à gmail",
+    "apple mail",
+    "pièce jointe",
+    "envoi programmé",
+    "texte brut"
+   ],
+   "messages": [
+    "Mail on your Mac can’t attach files",
+    "Mail on your Mac can’t schedule",
+    "Mail on your Mac can’t Bcc",
+    "Mail on your Mac needs one To",
+    "Mail on your Mac sends to 10 people at most",
+    "Mail sur votre Mac ne peut pas joindre de fichiers",
+    "Mail sur votre Mac ne peut pas programmer d’envoi",
+    "Mail sur votre Mac ne gère pas le Cci",
+    "Mail sur votre Mac exige un seul destinataire À",
+    "Mail sur votre Mac envoie à 10 personnes au maximum"
+   ],
+   "open": {
+    "label": "Les différences de Mail sur Mac",
+    "faq": "mac-mail-limits"
+   }
+  },
+  {
+   "id": "err-scheduled-missed",
+   "cat": "trouble",
+   "q": "Un e-mail programmé \"n’a pas été envoyé\"",
+   "a": "Eden envoie les e-mails programmés quand il est lancé. S’il avait plus de 12 heures de retard (votre Mac était éteint, par exemple), Eden ne l’a pas envoyé, pour éviter d’envoyer un message périmé. Il est toujours dans les Brouillons de Gmail.\n\n**Solution :** ouvrez-le et envoyez-le maintenant, ou choisissez une nouvelle heure. S’il est indiqué qu’il « est peut-être parti, ou peut-être pas », vérifiez d’abord le dossier Envoyés de Gmail.",
+   "keywords": [
+    "e-mail programmé",
+    "email programmé",
+    "non envoyé",
+    "manqué",
+    "en retard",
+    "brouillons",
+    "programmer l’envoi",
+    "envoi programmé",
+    "mail",
+    "courriel",
+    "envoyés"
+   ],
+   "messages": [
+    "It couldn’t be sent at the scheduled time",
+    "may or may not have gone",
+    "Gmail is now connected to a different account",
+    "The draft is no longer in Gmail",
+    "Il n’a pas pu être envoyé à l’heure prévue",
+    "est peut-être parti, ou peut-être pas",
+    "Gmail est maintenant connecté à un autre compte",
+    "Le brouillon n’est plus dans Gmail"
+   ],
+   "tour": "mail"
+  },
+  {
+   "id": "err-sync-key",
+   "cat": "trouble",
+   "q": "\"Ce navigateur n’a pas encore votre clé de synchronisation\"",
+   "a": "La synchronisation est activée pour votre compte, mais ce navigateur n’a pas encore été autorisé.\n\n**Solution :** sur la page de votre compte › Synchronisation, demandez à rejoindre. Sur un appareil déjà synchronisé, vérifiez que **les six chiffres correspondent** et approuvez. Ou saisissez votre phrase de récupération. Si la clé a changé après le retrait d’un appareil, choisissez d’abord **Arrêter la synchronisation ici**, puis redemandez.",
+   "keywords": [
+    "clé de synchronisation",
+    "approuver le navigateur",
+    "six chiffres",
+    "phrase secrète",
+    "clé changée",
+    "arrêter la synchronisation",
+    "sync",
+    "synchronisation",
+    "phrase de récupération",
+    "historique",
+    "appareils"
+   ],
+   "messages": [
+    "This browser doesn’t have your sync key yet",
+    "Eden’s sync key changed",
+    "That isn’t the recovery passphrase",
+    "doesn’t open this account’s history",
+    "no longer unlocks",
+    "That browser’s key changed",
+    "That request ran out. Ask again",
+    "Ce navigateur n’a pas encore votre clé de synchronisation",
+    "La clé de synchronisation d’Eden a changé",
+    "Ce n’est pas la phrase de récupération",
+    "n’ouvre pas l’historique de ce compte",
+    "ne déverrouille plus",
+    "La clé de ce navigateur a changé",
+    "Cette demande a expiré. Redemandez"
+   ],
+   "open": {
+    "label": "Ouvrir votre compte",
+    "click": "#btnAccount"
+   },
+   "tour": "account",
+   "img": [
+    "sync"
+   ]
+  },
+  {
+   "id": "err-approval-expired",
+   "cat": "trouble",
+   "q": "Une carte d’approbation indique \"Expiré : rien n’a été fait\"",
+   "a": "Les cartes d’approbation attendent 15 minutes dans une discussion (7 jours pour une tâche en arrière-plan). Passé ce délai, rien ne se passe, volontairement.\n\n**Solution :** redemandez à Eden et appuyez sur **Approuver** à temps. **Approuver quand même** apparaît quand Eden a repéré quelque chose d’inhabituel : lisez d’abord l’avertissement.",
+   "keywords": [
+    "approbation expirée",
+    "approuver",
+    "refuser",
+    "15 minutes",
+    "carte",
+    "eden veut",
+    "expiré",
+    "autorisation",
+    "confirmation",
+    "rien n’a été fait"
+   ],
+   "messages": [
+    "Expired — nothing was done",
+    "Eden wants to",
+    "This turn read content from outside",
+    "That approval waited more than a week",
+    "Denied — nothing was done",
+    "Expiré — rien n’a été fait",
+    "Eden veut",
+    "Ce tour a lu du contenu extérieur",
+    "Cette approbation a attendu plus d’une semaine",
+    "Refusé — rien n’a été fait"
+   ],
+   "tour": "safety",
+   "img": [
+    "guard"
+   ]
+  },
+  {
+   "id": "err-task-paused",
+   "cat": "trouble",
+   "q": "Une tâche est \"En pause après des exécutions échouées\" ou son budget est épuisé",
+   "a": "Une tâche en arrière-plan s’arrête après 5 exécutions échouées d’affilée, ou quand son budget mensuel (1 $ par défaut) est épuisé.\n\n**Solution :** ouvrez **Tâches**, lisez l’erreur (souvent « Connectez Gmail pour exécuter cette tâche »), corrigez-la et appuyez sur Reprendre. Augmentez le budget de la tâche si elle a besoin de plus.",
+   "keywords": [
+    "tâche en pause",
+    "exécutions échouées",
+    "budget de la tâche",
+    "reprendre",
+    "connecter gmail pour exécuter",
+    "tâche arrêtée",
+    "tâche bloquée",
+    "tâches",
+    "automatisation",
+    "budget épuisé"
+   ],
+   "messages": [
+    "Paused after",
+    "for this task is used up",
+    "Connect Gmail to run this task",
+    "Connect Google Calendar to run this task",
+    "An account has at most 20 tasks",
+    "En pause après",
+    "pour cette tâche est épuisé",
+    "Connectez Gmail pour exécuter cette tâche",
+    "Connectez Google Calendar pour exécuter cette tâche",
+    "Un compte a 20 tâches au maximum"
+   ],
+   "open": {
+    "label": "Ouvrir Tâches",
+    "command": "Tasks"
+   },
+   "tour": "auto"
+  },
+  {
+   "id": "err-delegate-ended",
+   "cat": "trouble",
+   "q": "\"Votre accès délégué a pris fin\"",
+   "a": "Le propriétaire a révoqué votre accès, celui-ci a expiré, ou l’espace d’équipe n’existe plus ou est en pause.\n\n**Solution :** appuyez sur **Revenir** pour utiliser votre propre Eden, et demandez une nouvelle invitation au propriétaire si vous en avez encore besoin.",
+   "keywords": [
+    "délégation terminée",
+    "accès terminé",
+    "espace en pause",
+    "revenir",
+    "invitation",
+    "délégué",
+    "accès délégué",
+    "équipe",
+    "espace d’équipe",
+    "révoqué"
+   ],
+   "messages": [
+    "Your delegated access ended",
+    "This delegated access has ended",
+    "Your delegated AI limit is used up",
+    "This space’s shared AI budget is used up",
+    "its shared AI is paused",
+    "That invitation isn’t one we know",
+    "That invitation ran out",
+    "Votre accès délégué a pris fin",
+    "Cet accès délégué a pris fin",
+    "Votre limite d’IA déléguée est épuisée",
+    "Le budget d’IA partagé de cet espace est épuisé",
+    "son IA partagée est en pause",
+    "Cette invitation nous est inconnue",
+    "Cette invitation a expiré"
+   ]
+  },
+  {
+   "id": "err-publish-limit",
+   "cat": "trouble",
+   "q": "\"Une page publiée fait 2 Mo au maximum\" ou \"20 pages publiées\"",
+   "a": "Chaque page publiée peut faire jusqu’à 2 Mo, et vous pouvez en garder 20.\n\n**Solution :** retirez-en une ancienne (page de votre compte › Publication), ou allégez la page (moins d’images intégrées).",
+   "keywords": [
+    "limite de publication",
+    "2 mo",
+    "2 mb",
+    "20 pages",
+    "page trop lourde",
+    "publier",
+    "page publiée",
+    "publication",
+    "partager",
+    "lien public"
+   ],
+   "messages": [
+    "A published page is at most 2 MB",
+    "You have 20 published pages",
+    "This page isn’t here",
+    "This page is private",
+    "Une page publiée fait 2 Mo au maximum",
+    "Vous avez 20 pages publiées",
+    "Cette page n’est pas ici",
+    "Cette page est privée"
+   ]
+  },
+  {
+   "id": "err-dictation",
+   "cat": "trouble",
+   "q": "La dictée ou Parler ne fonctionne pas",
+   "a": "- **« Aucun micro trouvé »** : branchez-en un, ou autorisez le micro pour ce site (l’icône de cadenas dans la barre d’adresse).\n- **« Parler nécessite la reconnaissance vocale »** : utilisez Chrome, Edge ou Safari pour Parler.\n- **« Rien n’a été entendu »** : parlez un peu plus près.\n- Les enregistrements durent 2 minutes au maximum.",
+   "keywords": [
+    "micro",
+    "microphone",
+    "dictée ne marche pas",
+    "parler ne marche pas",
+    "autorisation",
+    "reconnaissance vocale",
+    "rien n’a été entendu",
+    "dictée",
+    "voix",
+    "vocal",
+    "enregistrement"
+   ],
+   "messages": [
+    "No microphone found",
+    "Talking needs speech recognition",
+    "Nothing was heard",
+    "Dictation couldn’t start",
+    "Dictation didn’t work this time",
+    "Recordings are 2 minutes at most",
+    "No voice allowance left today",
+    "voice allowance is used up",
+    "Aucun micro trouvé",
+    "Parler nécessite la reconnaissance vocale",
+    "Rien n’a été entendu",
+    "La dictée n’a pas pu démarrer",
+    "La dictée n’a pas fonctionné cette fois",
+    "Les enregistrements durent 2 minutes au maximum",
+    "Plus de quota vocal aujourd’hui",
+    "le quota vocal est épuisé"
+   ],
+   "tour": "voice"
+  },
+  {
+   "id": "err-attach-refused",
+   "cat": "trouble",
+   "q": "\"ne peut pas être joint\" ou \"dépasse 6 Mo\"",
+   "a": "Les messages acceptent des images (jusqu’à 6 Mo) et des fichiers texte ou code (jusqu’à 400 Ko), six au maximum. Les PDF et fichiers Office ne peuvent pas encore être joints dans une discussion.\n\n**Solution :** utilisez une image ou un fichier plus petit. Pour un PDF sur votre Mac, utilisez **Utiliser mon Mac** ; sur l’iPhone, partagez-le vers Eden et il arrive sous forme de texte.",
+   "keywords": [
+    "impossible de joindre",
+    "pdf",
+    "trop gros",
+    "6 mo",
+    "6 mb",
+    "400 ko",
+    "400 kb",
+    "six pièces jointes",
+    "pièce jointe",
+    "image",
+    "photo",
+    "fichier refusé"
+   ],
+   "messages": [
+    "can’t be attached: pictures and text or code files only",
+    "Up to six attachments per message",
+    "is over 400 KB",
+    "is over 6 MB",
+    "would make this message too big to send",
+    "can’t see pictures",
+    "ne peut pas être joint : images et fichiers texte ou code uniquement",
+    "Jusqu’à six pièces jointes par message",
+    "dépasse 400 Ko",
+    "dépasse 6 Mo",
+    "rendrait ce message trop lourd à envoyer",
+    "ne peut pas voir les images"
+   ]
+  },
+  {
+   "id": "err-ios-load",
+   "cat": "trouble",
+   "q": "L’app iPhone indique \"Eden n’a pas chargé\" ou \"nécessite HTTPS\"",
+   "a": "L’app n’a pas pu ouvrir le serveur configuré.\n\n**Solution :** vérifiez votre connexion, puis touchez Réessayer. Si vous avez changé de serveur, ouvrez les Réglages de l’app (secouez le téléphone) et choisissez askeden.com. Un serveur personnalisé doit commencer par https:// (http:// uniquement sur votre propre réseau). Hors ligne, « Sur cet iPhone » peut toujours répondre.",
+   "keywords": [
+    "ios",
+    "l’app ne charge pas",
+    "app ne s’ouvre pas",
+    "https",
+    "certificat",
+    "serveur",
+    "iphone hors ligne",
+    "application",
+    "app iphone",
+    "page blanche",
+    "connexion sécurisée"
+   ],
+   "messages": [
+    "Eden didn't load",
+    "needs HTTPS",
+    "Not a secure connection",
+    "Is Eden running on your Mac",
+    "The address must start with https://",
+    "Offline · replies need a connection",
+    "Eden n’a pas chargé",
+    "nécessite HTTPS",
+    "Connexion non sécurisée",
+    "Eden est-il lancé sur votre Mac",
+    "L’adresse doit commencer par https://",
+    "Hors ligne · les réponses nécessitent une connexion"
+   ],
+   "open": {
+    "label": "Réglages de l’app",
+    "faq": "ios-settings"
+   }
+  },
+  {
+   "id": "err-ondevice",
+   "cat": "trouble",
+   "q": "\"Sur cet iPhone\" n’est pas disponible",
+   "a": "Le modèle intégré d’Apple nécessite iOS 26 ou ultérieur, un iPhone 15 Pro ou plus récent, et Apple Intelligence activé (Réglages › Apple Intelligence et Siri). Juste après l’activation, le modèle peut encore être en cours de téléchargement.\n\n**Solution :** activez Apple Intelligence et patientez quelques minutes. Les Réglages de l’app affichent Prêt quand tout fonctionne.",
+   "keywords": [
+    "sur cet iphone",
+    "apple intelligence",
+    "modèle intégré indisponible",
+    "iphone 15 pro",
+    "ios 26",
+    "hors ligne",
+    "sur l’appareil",
+    "local",
+    "indisponible",
+    "siri"
+   ],
+   "messages": [
+    "Answers on this iPhone need iOS 26",
+    "can’t run Apple Intelligence",
+    "Turn on Apple Intelligence",
+    "is still getting its model ready",
+    "The on-device model is busy",
+    "Les réponses sur cet iPhone nécessitent iOS 26",
+    "ne peut pas exécuter Apple Intelligence",
+    "Activez Apple Intelligence",
+    "prépare encore son modèle",
+    "Le modèle intégré est occupé"
+   ],
+   "open": {
+    "label": "À propos du modèle intégré",
+    "faq": "ios-ondevice"
+   }
+  },
+  {
+   "id": "err-claude-busy",
+   "cat": "trouble",
+   "q": "\"Claude est occupé pour le moment\" ou un modèle \"a échoué\"",
+   "a": "Le service du modèle était surchargé ou a échoué. Eden réessaie une fois avec le meilleur modèle suivant si rien n’a encore été écrit.\n\n**Solution :** patientez un instant et appuyez sur Réessayer, ou choisissez un autre modèle.",
+   "keywords": [
+    "claude occupé",
+    "surchargé",
+    "529",
+    "échec du modèle",
+    "réessayer",
+    "erreur serveur",
+    "modèle",
+    "ne répond pas",
+    "erreur",
+    "panne"
+   ],
+   "messages": [
+    "Claude is busy right now",
+    "failed too",
+    "Something went wrong on the server",
+    "Something went wrong on our side",
+    "The model sent an empty reply",
+    "The turn failed",
+    "Claude declined this request",
+    "Claude est occupé pour le moment",
+    "a aussi échoué",
+    "Un problème est survenu sur le serveur",
+    "Un problème est survenu de notre côté",
+    "Le modèle a envoyé une réponse vide",
+    "Le tour a échoué",
+    "Claude a refusé cette demande"
+   ]
+  },
+  {
+   "id": "err-no-provider",
+   "cat": "trouble",
+   "q": "\"Aucun fournisseur n’est disponible\" (Eden sur votre Mac)",
+   "a": "Eden sur votre Mac n’a aucun modèle utilisable : ni clé API, ni Claude Code.\n\n**Solution :** ajoutez une clé dans Réglages › **Clés API**, ou installez Claude Code (il permet à Eden d’utiliser Claude avec votre abonnement).",
+   "keywords": [
+    "aucun fournisseur",
+    "clé api",
+    "api key",
+    "claude code",
+    "introuvable",
+    "clés",
+    "fournisseur",
+    "modèle",
+    "configuration",
+    "abonnement"
+   ],
+   "messages": [
+    "No provider is available",
+    "No model provider is available",
+    "The Claude Code CLI (claude) was not found",
+    "Code mode is unavailable",
+    "Web search needs a Gemini API key",
+    "Aucun fournisseur n’est disponible",
+    "Aucun fournisseur de modèle n’est disponible",
+    "La CLI Claude Code (claude) est introuvable",
+    "Le mode Code n’est pas disponible",
+    "La recherche web nécessite une clé API Gemini"
+   ],
+   "open": {
+    "label": "Clés API",
+    "settings": "keys"
+   }
+  }
+ ]
+}

@@ -10,22 +10,46 @@ import { state, ui, path, nodeText, saveConversation } from './state.js';
 import * as T from './eden-tools.js';
 import { openCalendar } from './calendar.js';
 import { openCompose } from './compose.js';
+import { searchChats } from './recall-model.js';
+import { chatVectors, queryVector } from './chat-vectors.js';
+import { privacyOn } from './privacy.js';
+import { locale } from './i18n.js';
+import { singleFlight, DEADLINE } from './resilience.js';
+
+/** The chats_search tool: words plus meaning over this browser's chats (never from a temporary or private chat). */
+async function searchPastChats({ query, from, to, limit }) {
+  const cur = state.current;
+  if (cur && (cur.temp || cur.course || privacyOn(cur))) return [];
+  const convs = state.convs || [];
+  const [vecs, qvec] = await Promise.all([chatVectors(convs).catch(() => ({})), queryVector(query)]);
+  return searchChats(convs, query, { from, to, limit, currentId: cur && cur.id, vecs, qvec, isPrivate: privacyOn });
+}
 
 const zone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } };
 const gcal = (action, args = {}) => postJSON('/api/chat/gcal', { action, args });
 const gmail = async (action, args = {}) => { const r = await api.gmail(action, args); if (r && r.error) throw new Error(r.error); return r && typeof r === 'object' && 'result' in r ? r.result : r; };
 
 let conn = { calendar: false, mail: false, at: 0 };
-/** Which Google parts are connected (cached for a minute; `force` after a sign-in). */
-export async function connection(force = false) {
-  if (!force && Date.now() - conn.at < 60_000) return conn;
-  let g = null, c = null;
-  try { g = await api.googleStatus(); } catch { /* not there: nothing connected */ }
-  try { c = await getJSON('/api/chat/gcal/status'); } catch { /* idem */ }
+// The two looks run side by side, 5 s at most each, one round at a time (a send never waits on a
+// slow server for long, and never piles requests on it: B1, B2). A look that didn't answer isn't
+// kept: the next send asks again, and meanwhile what was known stays.
+const look = singleFlight(async () => {
+  const late = Symbol('late');
+  const ask = (f) => f().catch((e) => (e && e.timeout ? late : null)); // not there: nothing connected
+  const [g, c] = await Promise.all([
+    ask(() => api.googleStatus({ timeout: DEADLINE.google })),
+    ask(() => getJSON('/api/chat/gcal/status', { timeout: DEADLINE.google })),
+  ]);
+  if (g === late || c === late) return conn;
   const mail = Boolean(g && g.connected && g.gmail !== false);
   const calendar = Boolean((g && g.calendar === true) || (c && c.connected && c.calendar));
   conn = { calendar, mail, at: Date.now() };
   return conn;
+});
+/** Which Google parts are connected (cached for a minute; `force` after a sign-in). */
+export async function connection(force = false) {
+  if (!force && Date.now() - conn.at < 60_000) return conn;
+  return look();
 }
 
 /* ---------- @ scopes ---------- */
@@ -87,6 +111,7 @@ export async function toolsSystemFor(user, base = '') {
   const parts = [base || ''];
   if (c.calendar || c.mail) parts.push(T.toolsSystem({ calendar: c.calendar, mail: c.mail, now: new Date(), zone: zone(), scope: scope === 'calendar' || scope === 'mail' ? scope : null }));
   else parts.push(T.connectSystem());
+  parts.push(T.chatsSystem());
   if (scope === 'memory') parts.push('The user pointed at @memory: save the durable facts they state and use what you remember.');
   return parts.filter(Boolean).join('\n\n');
 }
@@ -134,12 +159,12 @@ async function runReads(c, node, reads) {
   if (rounds >= T.MAX_ROUNDS) { node.notes = [...(node.notes || []), 'Eden stopped looking things up after a few rounds.']; ui.updateMessage(c, node); return; }
   const out = [];
   for (const { call } of reads) {
-    try { out.push(`## ${call.name} ${JSON.stringify(call.args)}\n${await T.executeRead(call, { gcal, gmail })}`); }
+    try { out.push(`## ${call.name} ${JSON.stringify(call.args)}\n${await T.executeRead(call, { gcal, gmail, chats: searchPastChats })}`); }
     catch (e) { out.push(`## ${call.name}\nFailed: ${String(e.message || e).slice(0, 200)}`); }
   }
   const { sendMessage } = await import('./chat.js');
-  const kind = reads[0].call.name.startsWith('calendar') ? 'calendar' : 'mail';
-  sendMessage(`(Eden ran ${reads.map((r) => r.call.name).join(', ')} and attached the result.)`, [], { context: [{ title: kind === 'calendar' ? 'Calendar lookup' : 'Mail lookup', text: out.join('\n\n'), source: kind }], toolResult: true });
+  const kind = reads[0].call.name.startsWith('calendar') ? 'calendar' : reads[0].call.name === 'chats_search' ? 'chats' : 'mail';
+  sendMessage(`(Eden ran ${reads.map((r) => r.call.name).join(', ')} and attached the result.)`, [], { context: [{ title: kind === 'calendar' ? 'Calendar lookup' : kind === 'chats' ? 'Chat search' : 'Mail lookup', text: out.join('\n\n'), source: kind }], toolResult: true });
 }
 
 /* ---------- cards ---------- */
@@ -172,16 +197,18 @@ export function toolCards(c, node) {
   if (!node.tools || node.streaming) return [];
   return node.tools.map((t) => card(c, node, t)).filter(Boolean);
 }
+// rows whose value is the person's own (event title, place, notes, addresses, subject): never translated
+const OWN_ROWS = new Set(['What', 'Where', 'Guests', 'Notes', 'Event', 'To', 'Cc', 'Subject', 'Title', 'Location']);
 function card(c, node, t) {
   if (t.state === 'error' && !t.raw) return el('div', 'notice warn', `Eden couldn’t use a tool: ${t.error}`);
   const v = T.validateCall(t.raw || {}, { zone: zone() });
   if (!v.ok) return el('div', 'notice warn', `Eden couldn’t use a tool: ${v.error}`);
   const call = v.call;
-  const spec = T.cardFor(call, { zone: zone() });
+  const spec = T.cardFor(call, { zone: zone(), locale: locale() });
   if (!spec) return null;
   const root = el('div', { class: `toolcard ${t.state}${spec.danger ? ' danger' : ''}`, role: 'group', 'aria-label': spec.title, 'data-tool': call.name });
   root.append(el('div', 'tc-title', ico(call.name.startsWith('mail') ? 'mail' : call.name === 'connect_google' ? 'link' : 'cal', 15), spec.title));
-  if (spec.rows.length) root.append(el('dl', 'tc-rows', ...spec.rows.flatMap(([k, val]) => [el('dt', '', k), el('dd', '', String(val))])));
+  if (spec.rows.length) root.append(el('dl', 'tc-rows', ...spec.rows.flatMap(([k, val]) => [el('dt', '', k), el('dd', OWN_ROWS.has(k) ? { 'data-no-i18n': '' } : '', String(val))])));
   if (spec.notice && t.state === 'pending') root.append(el('div', { class: `tc-notice${call.draft && call.draft.attendees.length ? ' guests' : ''}` }, spec.notice));
   if (t.state === 'done') root.append(el('div', 'tc-done', ico('check', 14), t.result || 'Done.'));
   else if (t.state === 'cancelled') root.append(el('div', 'tc-done muted', 'Cancelled. Nothing was changed.'));

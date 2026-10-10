@@ -38,8 +38,10 @@ const plan = async (token, account) => (await call(env, account, 'get', {}, pars
 test('codes are typed loosely and kept in one shape', () => {
   assert.equal(cleanPromo('eden abcd 2345'), 'EDEN-ABCD-2345');
   assert.equal(cleanPromo('ABCD2345'), 'EDEN-ABCD-2345');
-  assert.equal(cleanPromo('EDEN-ABCD-234'), null);
-  assert.equal(cleanPromo('EDEN-ABCD-23O5'), null); // no O
+  assert.equal(cleanPromo('EDEN-ABCD-23O5'), 'EDENABCD23O5'); // no O in a made code: it is read as a custom name
+  assert.equal(cleanPromo('your-very-pretty'), 'YOURVERYPRETTY');
+  assert.equal(cleanPromo('Tu es très jolie'), 'TUESTRESJOLIE'); // accents drop
+  assert.equal(cleanPromo('abc'), null);
   assert.equal(cleanPromo(''), null);
 });
 
@@ -96,7 +98,8 @@ test('max_uses, expiry and bad codes', async () => {
   assert.equal((await spent.json()).code, 'used_up');
   assert.equal((await plan(b, B)).active, false);
   assert.equal((await redeem(b, 'EDEN-ZZZZ-ZZZZ')).status, 404);
-  assert.equal((await redeem(b, 'nonsense')).status, 400);
+  assert.equal((await redeem(b, 'nonsense')).status, 404);
+  assert.equal((await redeem(b, 'no')).status, 400);
   // Expired.
   const [old] = (await (await mint({ days: 7, expires_days: 1 })).json()).codes;
   const real = Date.now;
@@ -125,6 +128,20 @@ test('promo Plus ends on its own, and the browser can redeem too', async () => {
   } finally {
     Date.now = real;
   }
+});
+
+test('a code of the owner’s own choosing', async () => {
+  const made = await mint({ code: 'your-very-pretty', days: 30, max_uses: 5 });
+  assert.equal(made.status, 201);
+  assert.deepEqual((await made.json()).codes, ['YOURVERYPRETTY']);
+  assert.equal((await mint({ code: 'Your Very Pretty', days: 30 })).status, 409); // same name, same code
+  assert.equal((await mint({ code: 'EDEN-ABCD-2345', days: 30 })).status, 400);
+  assert.equal((await mint({ code: 'ab', days: 30 })).status, 400);
+  assert.equal((await mint({ code: 'two-at-once', count: 2, days: 30 })).status, 400);
+  const a = await iphone(A);
+  assert.equal((await redeem(a, 'YOUR-very-pretty')).status, 200);
+  assert.equal((await plan(a, A)).active, true);
+  assert.equal((await redeem(a, 'your-very-pretty')).status, 409);
 });
 
 test('signed out: no redeeming', async () => {

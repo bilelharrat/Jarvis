@@ -1,0 +1,162 @@
+/* EVES on the page (eves.js, ROADMAP N13, docs/verify/ui.md): the switch in the composer's row, the progress
+   line above a reply while it runs, the models' own answers ("Show the work"), and the badge under the answer.
+   Atelier tokens (app.css); the chip sits inside .jc, so it uses the composer's tokens. The severity colours
+   (green only for a verified label) are verify.css's. Dark mode follows [data-theme="dark"]. */
+
+/* ── the chip in the composer's row: the compact glass pill (glass.css, docs/verify/ui.md), and beside it the
+   mode or the estimated price. The button is the whole thing; the pill is inside it. ── */
+.eves-chip { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 26px; padding: 0; border: 0; border-radius: 999px; background: none; color: rgb(var(--c-ink-2)); font-size: 12px; cursor: pointer; white-space: nowrap; } /* the model chip beside it shrinks first */
+.eves-chip:focus-visible { outline: 2px solid rgb(var(--c-accent) / 0.7); outline-offset: 2px; border-radius: 999px; }
+/* the compact pill in the row: 20px tall, orb 14px, EVES 10px (the row's other chips are 26px, so the bar is no taller) */
+.eves-chip .eves-glass { --eg-h: 20px; --eg-d: 14px; --eg-fs: 10px; }
+.eves-chip:hover .eves-glass { transform: translateY(-1px); }
+/* the orb follows the mode (renderEvesChip sets data-mode): Off, and "not for this message", the gray dash; On and Auto the green check */
+.eves-chip:is([data-mode="on"], [data-mode="auto"]) .eves-glass { --eg-orb: var(--eg-orb-ok); }
+.eves-chip:is([data-mode="off"], [data-mode="na"]) .eves-glass { --eg-orb: var(--eg-orb-info); }
+#jc-eves .sub { font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; color: rgb(var(--c-muted)); }
+#jc-eves .sub:empty { display: none; }
+#jc-eves[data-mode="on"] .sub, #jc-eves[data-mode="auto"] .sub { color: rgb(var(--c-ink-2)); }
+#jc-eves[data-mode="na"] { opacity: .6; }
+#jc-eves.weak::after { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--c-warning)); box-shadow: 0 0 0 1.5px rgb(var(--c-surface)); }
+
+body.eves-draft #jc-estimate { display: none; } /* see renderEvesChip */
+body.eves-draft #jc-router { opacity: .45; } /* its pick is not what will answer */
+
+/* ── Settings › Routing ── */
+.eves-set .seg { flex: none; min-width: 168px; }
+@media (max-width: 640px) { .eves-set .prov { flex-wrap: wrap; } .eves-set .seg { width: 100%; } }
+
+/* ── while it runs: the progress line above the reply ── */
+.msg.eves-live.eves-empty > .bubble { display: none; } /* the line above already says it is working */
+.eves-run { margin: 0 0 8px; padding: 8px 12px; border-radius: var(--r-md); background: rgba(120,120,128,.07); box-shadow: inset 0 0 0 .5px var(--hairline); min-width: 0; font-size: 12.5px; color: var(--text2); }
+.eves-run-top { display: flex; align-items: center; gap: 12px; min-height: 28px; min-width: 0; }
+.eves-steps-wrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+.eves-steps { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 7px; white-space: nowrap; min-width: 0; overflow: hidden; }
+.eves-step { display: inline-flex; align-items: center; gap: 6px; color: var(--text3); }
+.eves-step.done { color: var(--text2); }
+.eves-step.active { color: var(--text); font-weight: 600; }
+.eves-step.skipped { opacity: .55; text-decoration: line-through; text-decoration-thickness: .5px; }
+.eves-step.stopped { color: var(--warn); }
+.eves-arrow { color: var(--text3); opacity: .55; }
+.eves-count { display: none; flex: none; font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.eves-pip { flex: none; width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1.2px currentColor; }
+.eves-step.done .eves-pip { background: currentColor; }
+.eves-step.active .eves-pip { background: var(--accent); box-shadow: none; animation: evesPulse 1.2s ease-in-out infinite; }
+@keyframes evesPulse { 50% { opacity: .35; transform: scale(.8); } }
+.eves-dots { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: 11.5px; }
+.eves-ldot { display: inline-flex; align-items: center; gap: 5px; color: var(--text2); white-space: nowrap; }
+.eves-ldot .st { color: var(--text3); }
+.eves-ldot.waiting .pdot, .eves-ldot.thinking .pdot, .eves-ldot.writing .pdot { animation: evesPulse 1.2s ease-in-out infinite; }
+.eves-ldot.stopped .pdot { opacity: .35; }
+.eves-ldot.failed .st { color: var(--danger); }
+.eves-stop { flex: none; margin-left: auto; }
+.eves-run-sub { display: flex; align-items: center; gap: 4px 12px; min-height: 26px; min-width: 0; margin-top: 2px; }
+.eves-run-sub .eves-toggle { flex: none; }
+.eves-note { margin: 4px 0 0; min-width: 0; font-size: 11.5px; line-height: 1.4; color: var(--text3); }
+.eves-link { display: inline; padding: 0 2px; border: 0; background: none; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+.eves-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 2px 9px; border: 0; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600; color: var(--text2); background: transparent; cursor: pointer; transition: background-color .12s ease; }
+.eves-toggle:hover { background: rgba(120,120,128,.14); color: var(--text); }
+.eves-toggle-n { font-weight: 500; color: var(--text3); }
+.eves-toggle .eves-chev { flex: none; opacity: .65; transition: transform .2s var(--spring); }
+
+/* ── the work: each model's own answer ── */
+.eves-work { margin-top: 8px; }
+.eves-lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; align-items: start; }
+.eves-lane { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-md); background: var(--content); box-shadow: 0 1px 3px rgba(0,0,0,.05), inset 0 0 0 .5px var(--hairline); }
+.eves-lane-h { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 12.5px; min-width: 0; }
+.eves-lane-nm { font-weight: 600; color: var(--text); }
+.eves-lane-meta { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.eves-lane-st { margin-left: auto; font-size: 11.5px; color: var(--text2); text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.eves-lane[data-state="failed"] .eves-lane-st { color: var(--danger); }
+.eves-lane[data-state="stopped"] .eves-lane-st { color: var(--text3); }
+.eves-lane-body { max-height: 18em; overflow: auto; font-size: 13.5px; overflow-wrap: anywhere; border-radius: 8px; }
+.eves-lane-body:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eves-lane-body .md > :first-child { margin-top: 0; }
+.eves-lane-empty { margin: 0; color: var(--text3); font-size: 12.5px; }
+.eves-lane-note { margin: 0; font-size: 11px; color: var(--text3); }
+.eves-lane-src { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; }
+.eves-lane-src a { color: var(--accent); overflow-wrap: anywhere; }
+
+/* ── after: the badge under the answer ── */
+.eves-foot { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; margin: 8px 0 0 2px; min-width: 0; }
+.eves-badge { display: contents; }
+.eves-work-row { display: flex; align-items: center; }
+.eves-foot .eves-work { flex: 1 1 100%; margin-top: 2px; }
+.eves-detail { flex: 1 1 100%; min-width: 0; padding: 12px 14px; border-radius: var(--r-md); background: var(--content); box-shadow: 0 1px 3px rgba(0,0,0,.05), inset 0 0 0 .5px var(--hairline); font-size: 13px; line-height: 1.45; color: var(--text2); overflow-wrap: anywhere; }
+.eves-detail p { margin: 6px 0 0; }
+.eves-detail > :first-child { margin-top: 0; }
+.eves-line { color: var(--text); }
+.eves-callout { padding: 8px 10px; border-radius: 10px; background: rgba(255,159,10,.12); box-shadow: inset 0 0 0 .5px rgba(255,159,10,.4); color: var(--text); font-weight: 550; }
+.eves-sub { margin-top: 12px !important; font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--text3); }
+.eves-sub-n { font-weight: 500; text-transform: none; letter-spacing: 0; }
+.eves-claims { list-style: none; margin: 4px 0 0; padding: 0; }
+.eves-claim, .eves-corr { border-top: .5px solid var(--sep); }
+.eves-claim:first-child, .eves-corr:first-child { border-top: 0; }
+.eves-claim-h { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: baseline; column-gap: 8px; width: 100%; padding: 6px 2px; border: 0; background: none; font: inherit; text-align: left; color: inherit; cursor: pointer; }
+.eves-claim-h.static { cursor: default; }
+.eves-claim-h .eves-pip { align-self: center; }
+.eves-claim-t { min-width: 0; color: var(--text); }
+.eves-claim-s { max-width: 22em; font-size: 11.5px; color: var(--text3); text-align: right; }
+.eves-claim-h .eves-chev { align-self: center; opacity: .55; transition: transform .2s var(--spring); }
+.eves-corr-h { display: flex; align-items: baseline; gap: 8px; }
+.eves-corr-h .eves-claim-t { flex: 1 1 auto; }
+.eves-corr-h .eves-chev { align-self: center; flex: none; }
+.eves-verb { flex: none; font-weight: 600; color: var(--text); }
+.eves-claim-more { padding: 0 0 8px 15px; font-size: 12.5px; }
+.eves-claim-more p { margin: 4px 0 0; }
+.eves-claim-more b { font-weight: 600; color: var(--text); }
+.eves-claim-more q, .eves-struck q, .eves-check-q { quotes: "“" "”"; color: var(--text2); }
+.eves-pip.tone-ok { background: var(--run); box-shadow: none; }
+[data-theme="light"] .eves-pip.tone-ok { background: #1f9d4d; }
+.eves-pip.tone-warn { background: var(--warn); box-shadow: none; }
+.eves-pip.tone-bad { background: var(--danger); box-shadow: none; }
+.eves-pip.tone-info { background: var(--text3); box-shadow: none; }
+.eves-src { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.eves-src a { color: var(--accent); }
+.eves-src-h { color: var(--text3); }
+.eves-struck { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.eves-struck li { padding: 6px 9px; border-radius: 9px; background: rgba(255,159,10,.1); box-shadow: inset 0 0 0 .5px rgba(255,159,10,.3); color: var(--text); }
+.eves-checks { list-style: none; margin: 4px 0 0; padding: 0; }
+.eves-check { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; align-items: baseline; padding: 5px 0; border-top: .5px solid var(--sep); }
+.eves-check:first-child { border-top: 0; }
+.eves-check-st { font-size: 11px; font-weight: 600; white-space: nowrap; color: var(--text3); }
+.eves-check[data-tone="bad"] .eves-check-st { color: var(--danger); }
+.eves-check[data-tone="warn"] .eves-check-st { color: var(--warn); }
+.eves-check-t { min-width: 0; color: var(--text); }
+.eves-check-t b { font-weight: 600; }
+.eves-check-q { grid-column: 2; margin: 0; font-size: 11.5px; color: var(--text3); }
+.eves-models { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.eves-models li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.eves-models b { font-weight: 600; color: var(--text); }
+.eves-foot-line { font-size: 11.5px; color: var(--text3); }
+
+@media (max-width: 640px) {
+  .eves-run { padding: 8px 10px; }
+  .eves-step:not(.active), .eves-arrow { display: none; }
+  .eves-count { display: inline; }
+  .eves-ldot .nm, .eves-ldot .st { display: none; }
+  .eves-dots { gap: 7px; }
+  .eves-toggle { min-height: 32px; }
+  .eves-stop { min-height: 30px; padding: 3px 14px; }
+  .eves-lane-body { max-height: 14em; }
+  .eves-claim-h { grid-template-columns: auto minmax(0, 1fr) auto; padding: 8px 2px; }
+  .eves-claim-s { grid-column: 2; grid-row: 2; max-width: none; text-align: left; }
+  .eves-claim-h .eves-chev { grid-column: 3; grid-row: 1; }
+  .eves-corr-h { padding: 8px 2px; }
+  .eves-check { grid-template-columns: 1fr; gap: 0; }
+  .eves-check-q { grid-column: 1; }
+  .eves-detail { padding: 10px 12px; }
+  #jc-eves .sub { display: none; }
+  .jc-composer-row > #jc-mode-btn { flex: none; } /* the chip above added width: the model chip shrinks, not "Chat" */
+}
+@media (prefers-reduced-motion: reduce) {
+  .eves-step.active .eves-pip, .eves-ldot .pdot { animation: none !important; }
+  .eves-toggle .eves-chev, .eves-claim-h .eves-chev { transition: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .eves-run { background: var(--content2); }
+}
+@media (forced-colors: active) {
+  .eves-pip { forced-color-adjust: none; }
+}

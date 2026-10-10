@@ -108,6 +108,7 @@ def test_calls_must_name_their_session_and_a_real_tool(settings, quiet_speaker, 
         "mail_read",
         "mail_draft",
         "mail_send",
+        "mail_triage",
         "memory_list",
         "memory_update",
         "memory_delete",
@@ -669,3 +670,27 @@ async def test_an_app_not_installed_says_so(
     await hub._handle({"type": "mcp_state"})
     apps = events[-1][1]["apps"]
     assert apps["code"]["status"] == "missing" and apps["desktop"]["status"] == "missing"
+
+
+def test_mail_triage_from_eden_skips_the_card_other_apps_get_it(settings, quiet_speaker, isolated):
+    """Eden Mail's Done / star / read on Mail on your Mac: comms.triage, preapproved only for Eden."""
+    hub = make_hub(settings, quiet_speaker, isolated)
+    seen = []
+
+    class Comms:
+        async def triage(self, args, preapproved=False):
+            seen.append((args, preapproved))
+            return {"content": [{"text": "Archived 1 email."}], "is_error": False}
+
+    hub.comms = Comms()
+    endpoint = endpoint_for(hub)
+    run = lambda args, app: asyncio.run(endpoint._mail_triage(args, app))  # noqa: E731
+    assert run({"action": "archive", "message_ids": ["a@b"]}, "Eden") == (
+        "mail_triage needs confirm: true (the owner chose it in the app).",
+        True,
+    )
+    assert not seen
+    assert run({"action": "archive", "message_ids": ["a@b"], "confirm": True}, "Eden") == ("Archived 1 email.", False)
+    assert seen[-1] == ({"action": "archive", "message_ids": ["a@b"]}, True)
+    run({"action": "flag", "message_ids": ["a@b"], "confirm": True}, "Claude Code")
+    assert seen[-1][1] is False, "another app gets Jarvis's card"

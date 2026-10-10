@@ -74,41 +74,52 @@ export async function verifyIdentityToken(token, rawNonce, { audience = BUNDLE_I
 
 // ── the grant, for revoking it when the account is deleted (only with SIWA_KEY set) ──
 
-async function clientSecret(env, now = Math.floor(Date.now() / 1000)) {
+// `clientId`: the app the grant was issued to (the J.A.R.V.I.S. app's BUNDLE_ID by default; the Eden and
+// Edu apps' own ids for their native sign-ins, eden/session.js nativeApple). Apple redeems and revokes a
+// grant only with the client_id it was issued to, in the client secret's `sub` too.
+async function clientSecret(env, now = Math.floor(Date.now() / 1000), clientId = BUNDLE_ID) {
   const pem = String(env.SIWA_KEY).replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
   const key = await crypto.subtle.importKey('pkcs8', b64ToBytes(pem), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
   const head = b64urlText(JSON.stringify({ alg: 'ES256', kid: env.SIWA_KEY_ID }));
-  const body = b64urlText(JSON.stringify({ iss: env.APPLE_TEAM_ID || TEAM_ID, iat: now, exp: now + 3000, aud: ISSUER, sub: BUNDLE_ID }));
+  const body = b64urlText(JSON.stringify({ iss: env.APPLE_TEAM_ID || TEAM_ID, iat: now, exp: now + 3000, aud: ISSUER, sub: clientId }));
   // WebCrypto signs ECDSA as raw r‖s, which is what a JWT wants.
   const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(`${head}.${body}`)));
   return `${head}.${body}.${b64url(sig)}`;
 }
 
-const canRevoke = (env) => Boolean(env.SIWA_KEY && env.SIWA_KEY_ID);
+export const canRevoke = (env) => Boolean(env.SIWA_KEY && env.SIWA_KEY_ID);
 
-// The refresh token for an authorization code, or null (no key, or Apple said no).
-export async function exchangeCode(env, code, fetcher = fetch) {
-  if (!canRevoke(env) || !code) return null;
+/** The client ids a grant may be kept for (and later revoked with): the J.A.R.V.I.S. app's, and the Eden apps'. */
+export const GRANT_CLIENTS = [BUNDLE_ID, ...EDEN_APP_IDS];
+
+// The refresh token for an authorization code, or null (no key, or Apple said no). `clientId`: the app the
+// code was issued to (the identity token's `aud`).
+export async function exchangeCode(env, code, fetcher = fetch, clientId = BUNDLE_ID) {
+  if (!canRevoke(env) || !code || !GRANT_CLIENTS.includes(clientId)) return null;
   try {
     const response = await fetcher(`${ISSUER}/auth/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: BUNDLE_ID, client_secret: await clientSecret(env), code, grant_type: 'authorization_code' }),
+      body: new URLSearchParams({ client_id: clientId, client_secret: await clientSecret(env, undefined, clientId), code, grant_type: 'authorization_code' }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.warn('apple: the authorization code was refused', response.status, clientId); // never the code or a token
+      return null;
+    }
     return (await response.json()).refresh_token || null;
-  } catch {
+  } catch (error) {
+    console.warn('apple: the authorization code could not be exchanged', error && error.name);
     return null;
   }
 }
 
-export async function revoke(env, refreshToken, fetcher = fetch) {
-  if (!canRevoke(env) || !refreshToken) return false;
+export async function revoke(env, refreshToken, fetcher = fetch, clientId = BUNDLE_ID) {
+  if (!canRevoke(env) || !refreshToken || !GRANT_CLIENTS.includes(clientId)) return false;
   try {
     const response = await fetcher(`${ISSUER}/auth/revoke`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: BUNDLE_ID, client_secret: await clientSecret(env), token: refreshToken, token_type_hint: 'refresh_token' }),
+      body: new URLSearchParams({ client_id: clientId, client_secret: await clientSecret(env, undefined, clientId), token: refreshToken, token_type_hint: 'refresh_token' }),
     });
     return response.ok;
   } catch {

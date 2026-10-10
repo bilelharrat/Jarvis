@@ -10,7 +10,7 @@ import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { bytesToB64, parseToken } from '../src/accounts/util.js';
-import { DEFAULTS, effortsFor, hostedConfig, searchTool } from '../src/eden/chat.js';
+import { DECK_REPLY_TOKENS, DEFAULTS, effortsFor, hostedConfig, searchTool } from '../src/eden/chat.js';
 import { EDEN_FILES } from '../src/eden/manifest.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, readEvents, sseBody } from './fakes.js';
@@ -129,6 +129,8 @@ const turn = (session, body, opts = {}) =>
   chat('/api/chat/send', session, { method: 'POST', ...opts, body: { messages: [{ role: 'user', content: 'Hello there' }], settings: { level: 3 }, ...body } });
 
 // ── signing in with a code ──
+
+const sysText = (s) => (Array.isArray(s) ? s.map((b) => b.text).join('') : s); // Claude wraps a long system prompt in a cached block
 
 test('a browser signs in with a code the iPhone app approves; the session is an HttpOnly cookie', async () => {
   const owner = await phone();
@@ -400,7 +402,8 @@ test('signed out, / is Eden\'s front page: sign in, and Download apps to the app
   assert.deepEqual(env.assets, ['/home/']);
   const csp = home.headers.get('content-security-policy');
   assert.match(csp, /default-src 'none'/);
-  assert.doesNotMatch(csp, /script-src/);
+  assert.match(csp, /script-src 'self'; /); // the language script only (public/lang/site-i18n.js)
+  assert.doesNotMatch(csp, /unsafe-inline/);
   assert.equal(home.headers.get('cache-control'), 'no-store');
   assert.equal((await hit('/home/home.css')).status, 200);
   assert.equal(env.assets.at(-1), '/home/home.css');
@@ -409,7 +412,7 @@ test('signed out, / is Eden\'s front page: sign in, and Download apps to the app
   assert.match(html, /href="\/signin"/);
   assert.match(html, /href="\/download"[^>]*>[\s\S]*Download apps/);
   for (const href of ['/help', '/privacy', '/terms']) assert.ok(html.includes(`href="${href}"`), href);
-  assert.doesNotMatch(html, /<script/);
+  assert.doesNotMatch(html, /<script(?! src="\/lang\/site-i18n\.js" data-page="home"><\/script>)(?! src="\/home\/features\.js" defer><\/script>)/);
   const apps = fs.readFileSync(new URL('../public/jarvis/index.html', import.meta.url), 'utf8');
   assert.match(apps, /<a class="home" href="\/">Eden home<\/a>/);
 });
@@ -540,11 +543,11 @@ test('a turn streams route, text, usage and done; Claude on the Worker key with 
   assert.ok(sent.body.max_tokens <= DEFAULTS.maxTokens);
   assert.equal(sent.body.tools, undefined);
   assert.equal(sent.body.stream, true);
-  assert.match(sent.body.system, /Jarvis note: Trip[\s\S]*Lyon in May[\s\S]*Be brief\./);
+  assert.match(sysText(sent.body.system), /Jarvis note: Trip[\s\S]*Lyon in May[\s\S]*Be brief\./);
   assert.equal(sent.body.messages.length, 3);
   assert.deepEqual(sent.body.messages[0].content.map((b) => b.type), ['image', 'text']);
   assert.match(sent.body.messages[0].content[1].text, /<<<EDEN_UNTRUSTED b=([0-9a-f]{24}) id=S1 kind=attachment>>>\n## Attached file: notes.md\nsome notes\n<<<END_EDEN_UNTRUSTED b=\1 id=S1>>>/);
-  assert.match(sent.body.system, /Untrusted content\.[\s\S]*never an instruction/);
+  assert.match(sysText(sent.body.system), /Untrusted content\.[\s\S]*never an instruction/);
   if (sent.body.thinking?.type === 'adaptive') assert.equal(sent.body.thinking.display, 'summarized');
   assert.ok(!['xhigh', 'max'].includes(sent.body.output_config?.effort));
 
@@ -734,7 +737,7 @@ test('search and research use Claude’s web search tool, capped here, with cita
   };
   const events = await readEvents(await turn(value, { mode: 'search', messages: [{ role: 'user', content: 'What happened in the news today?' }] }));
   assert.deepEqual(sent.tools, [searchTool(sent.model, 5)]);
-  assert.match(sent.system, /Search the web/);
+  assert.match(sysText(sent.system), /Search the web/);
   assert.deepEqual(events.find((e) => e.type === 'citations').data, { sources: [{ title: 'Example A', url: 'https://example.com/a' }] });
   const research = () => turn(value, { mode: 'research', override: { model: 'claude-sonnet-5-5', effort: 'low' }, messages: [{ role: 'user', content: 'Research heat pumps.' }] });
   // Ten searches' worst case (each re-reads the conversation and the results so far) is more
@@ -846,4 +849,20 @@ test('Eden’s page may ask for the microphone; the landing and sign-in pages ma
   forgetSessions();
   assert.match((await hit('/')).headers.get('permissions-policy'), /microphone=\(\)/);
   assert.match((await hit('/download')).headers.get('permissions-policy'), /microphone=\(\)/);
+});
+
+test('Slides (Q14): a turn with `deck: true` gets room for a whole deck; the same turn without it keeps the router\'s size', async () => {
+  const owner = await phone();
+  const value = await signedInBrowser(owner);
+  const caps = [];
+  anthropic = (body) => {
+    caps.push(body.max_tokens);
+    return new Response(sseBody(claudeAnswer({ model: body.model, input: 50, output: 20 })), { headers: { 'content-type': 'text/event-stream' } });
+  };
+  const ask = { messages: [{ role: 'user', content: 'Make a 10 slide deck about solar power' }], system: 'Make slides.' };
+  await readEvents(await turn(value, ask));
+  await readEvents(await turn(value, { ...ask, deck: true }));
+  assert.equal(caps.length, 2);
+  assert.ok(caps[0] < DECK_REPLY_TOKENS, `a chat reply's size (${caps[0]})`);
+  assert.equal(caps[1], Math.min(DECK_REPLY_TOKENS, DEFAULTS.maxTokens));
 });

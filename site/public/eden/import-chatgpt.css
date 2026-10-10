@@ -1,4 +1,4 @@
-/* Import from ChatGPT (import-chatgpt.js) */
+/* Import chats: ChatGPT, Claude, Gemini (import-chatgpt.js) */
 .imp { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .imp-how { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.5; color: var(--text2); }
 .imp-zone { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 28px 16px; border: 1.5px dashed var(--border, rgba(127,127,127,.4)); border-radius: 12px; cursor: pointer; text-align: center; color: var(--text2); }
@@ -18,3 +18,8 @@
 .imp-paste summary { cursor: pointer; font-size: 14px; font-weight: 500; }
 .imp-paste textarea { width: 100%; box-sizing: border-box; margin-top: 6px; }
 .imp textarea { width: 100%; box-sizing: border-box; }
+.imp-tabs { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: rgba(127,127,127,.12); align-self: flex-start; max-width: 100%; }
+.imp-tab { padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--text2); background: none; }
+.imp-tab.on { background: var(--content2, #fff); color: var(--text, inherit); box-shadow: 0 0 0 .5px var(--hairline, rgba(127,127,127,.3)); }
+.imp-tab:focus-visible { outline: 2px solid var(--accent, #6b7cff); outline-offset: 1px; }
+.chip.imp-model { font-size: 11.5px; color: var(--text3, inherit); }

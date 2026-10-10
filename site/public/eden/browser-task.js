@@ -69,13 +69,13 @@ async function form(root, goal = '', start = '') {
     const { tasks } = await jarvis('browser_task_status', {});
     if (tasks.length) recent.replaceChildren(el('h4', '', 'Recent'), ...tasks.slice(0, 5).map((t) => el('button', { type: 'button', class: 'act-row', onclick: () => { remember(t.id); watch(root, t.id); } },
       el('span', 'act-ico', ico('globe', 15)),
-      el('span', 'act-main', el('span', 'act-top', el('b', '', t.goal), el('span', `web-pill s-${(STATUS[t.status] || STATUS.done).c}`, (STATUS[t.status] || { t: t.status }).t)),
+      el('span', 'act-main', el('span', 'act-top', el('b', { 'data-no-i18n': '' }, t.goal), el('span', `web-pill s-${(STATUS[t.status] || STATUS.done).c}`, (STATUS[t.status] || { t: t.status }).t)),
         el('span', 'act-sub', `${t.steps} step${t.steps === 1 ? '' : 's'}`)))));
   } catch { /* Jarvis away: the form says enough */ }
 }
 
 function watch(root, id) {
-  const title = el('h3', 'act-title', '');
+  const title = el('h3', { class: 'act-title', 'data-no-i18n': '' }, '');
   const pill = el('span', 'web-pill', '');
   const stop = el('button', { type: 'button', class: 'btn web-stop' }, ico('x', 13), 'Stop');
   const page = el('div', 'web-page');
@@ -118,10 +118,10 @@ function watch(root, id) {
     pill.className = `web-pill s-${st.c}`;
     pill.textContent = st.t;
     stop.hidden = !live(s.status);
-    page.replaceChildren(...(s.url ? [ico('globe', 12), el('span', '', s.title || host(s.url)), el('span', 'muted', host(s.url))] : []));
+    page.replaceChildren(...(s.url ? [ico('globe', 12), el('span', { 'data-no-i18n': '' }, s.title || host(s.url)), el('span', 'muted', host(s.url))] : []));
     if (s.thumbnail) { shot.src = s.thumbnail; shot.hidden = false; } else if (!s.shots) shot.hidden = true;
     asks.replaceChildren(...s.approvals.map((a) => el('div', 'sp-warn web-ask', el('b', '', ico('lock', 12), ' Waiting for your OK on your Mac'), el('div', '', a.question),
-      a.detail ? el('details', '', el('summary', '', 'What it shows'), el('p', 'web-ask-d', a.detail)) : null)));
+      a.detail ? el('details', '', el('summary', '', 'What it shows'), el('p', { class: 'web-ask-d', 'data-no-i18n': '' }, a.detail)) : null)));
     const sig = JSON.stringify(s.steps.map((x) => [x.n, x.ok, x.detail]));
     if (sig !== seen) {
       const more = s.steps.length > (seen ? JSON.parse(seen).length : 0);
@@ -136,7 +136,7 @@ function watch(root, id) {
       if (!ended) {
         ended = true;
         const cost = typeof s.cost === 'number' ? `It cost $${s.cost.toFixed(2)}.` : '';
-        result.replaceChildren(el('div', `web-done s-${st.c}`, el('b', '', st.t), s.result ? el('p', '', s.result) : null, cost ? el('p', 'muted', cost) : null));
+        result.replaceChildren(el('div', `web-done s-${st.c}`, el('b', '', st.t), s.result ? el('p', { 'data-no-i18n': '' }, s.result) : null, cost ? el('p', 'muted', cost) : null));
       }
       return;
     }

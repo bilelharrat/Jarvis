@@ -25,7 +25,7 @@ export function projectPicker() {
   const draw = () => {
     if (!state.projects.length) list.replaceChildren(el('div', 'muted', state.projectsError ? `Couldn’t load projects: ${state.projectsError}` : 'No projects yet: make one or choose a folder above.'));
     else list.replaceChildren(...state.projects.map((p) => el('button', { type: 'button', class: 'proj-row', role: 'listitem', onclick: () => start(p) },
-      ico('folder'), el('div', 'grow', el('b', '', p.name), el('span', '', `${p.path}${p.branch ? ` · ${p.branch}` : ''}`)))));
+      ico('folder'), el('div', { class: 'grow', 'data-no-i18n': '' }, el('b', '', p.name), el('span', '', `${p.path}${p.branch ? ` · ${p.branch}` : ''}`)))));
   };
   // Made or chosen: straight into a session on it.
   const opened = (res) => {
@@ -135,7 +135,7 @@ function drawChanges() {
     const pf = parsed.find((x) => x.path === f.path);
     const open = openFiles.has(f.path);
     kids.push(el('button', { type: 'button', class: 'chg-row', 'data-chg': 'file', 'data-path': f.path, 'aria-expanded': String(open) },
-      el('span', 'chg-st', f.status || 'M'), el('div', 'grow', el('b', '', f.path.split('/').pop()), el('span', '', f.path)),
+      el('span', 'chg-st', f.status || 'M'), el('div', { class: 'grow', 'data-no-i18n': '' }, el('b', '', f.path.split('/').pop()), el('span', '', f.path)),
       el('span', 'chg-n', el('span', 'a', `+${f.added || 0}`), ' ', el('span', 'd', `−${f.removed || 0}`))));
     if (open && pf) {
       if (!pf.hunks.length) kids.push(el('div', 'muted', 'No text diff (new, binary or untracked file).'));
@@ -199,7 +199,7 @@ export function renderActivity() {
   const box = $('drBody');
   const lines = (c && activity.get(c.id)) || [];
   if (!lines.length) { box.replaceChildren(el('span', 'p', c && c.kind === 'code' ? 'No tool activity yet in this session.' : 'Tool activity shows here during Code sessions.')); return; }
-  box.replaceChildren(...lines.flatMap((l) => [el('span', l.k, l.t), '\n']));
+  box.replaceChildren(...lines.flatMap((l) => [el('span', { class: l.k, 'data-no-i18n': '' }, l.t), '\n'])); // tool calls and their output: never translated
   box.scrollTop = box.scrollHeight;
 }
 export function toggleDrawer(force) {

@@ -10,6 +10,7 @@ import { api, postJSON } from './api.js';
 import { openCompose } from './compose.js';
 import { openCalendar } from './calendar.js';
 import { closeSpace } from './panels.js';
+import { locale } from './i18n.js';
 
 const KIND = { event: { i: 'cal', t: 'Event' }, email: { i: 'mail', t: 'Email' }, promise: { i: 'check', t: 'Promise' }, task: { i: 'list', t: 'To do' } };
 /** Action items already picked out this session, by meeting id (a second look costs nothing). */
@@ -25,7 +26,7 @@ async function jarvis(tool, args) {
 const when = (iso) => {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return '';
-  return `${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+  return `${d.toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })}, ${d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}`;
 };
 const busy = (box, text) => box.replaceChildren(el('div', 'muted act-busy', el('span', 'act-spin', ''), text));
 const failed = (box, e, retry) => box.replaceChildren(el('div', 'sp-warn', el('b', '', 'That didn’t work'), e.message,
@@ -53,8 +54,8 @@ function list(root, query) {
       res.replaceChildren(...items.map((m) => el('button', { type: 'button', class: 'act-row', onclick: () => open(root, m.id, q.value) },
         el('span', 'act-ico', ico('quote', 15)),
         el('span', 'act-main',
-          el('span', 'act-top', el('b', '', m.title), el('span', 'act-when', when(m.date))),
-          m.preview ? el('span', 'act-sub', m.preview) : null,
+          el('span', 'act-top', el('b', { 'data-no-i18n': '' }, m.title), el('span', 'act-when', when(m.date))),
+          m.preview ? el('span', { class: 'act-sub', 'data-no-i18n': '' }, m.preview) : null,
           el('span', 'act-chips', m.actions ? el('span', 'act-chip', `${m.actions} action item${m.actions === 1 ? '' : 's'}`) : null,
             m.decisions ? el('span', 'act-chip', `${m.decisions} decision${m.decisions === 1 ? '' : 's'}`) : null)),
         ico('chevr', 14, 'act-go'))));
@@ -77,12 +78,12 @@ async function open(root, id, query) {
   try { m = await jarvis('meeting_read', { id }); } catch (e) { failed(box, e, () => open(root, id, query)); return; }
   const people = (m.attendees || []).map((p) => p.name || p.email).filter((x) => x && x !== 'You' && x !== 'Them');
   const items = el('div', { class: 'act-items', 'aria-live': 'polite' });
-  const section = (title, lines) => (lines && lines.length ? el('section', 'act-sec', el('h4', '', title), el('ul', '', ...lines.map((l) => el('li', '', l)))) : null);
+  const section = (title, lines) => (lines && lines.length ? el('section', 'act-sec', el('h4', '', title), el('ul', { 'data-no-i18n': '' }, ...lines.map((l) => el('li', '', l)))) : null);
   const transcript = (m.transcript || []).length ? el('details', 'act-tx', el('summary', '', `Transcript (${m.transcript.length} lines${m.cut ? ', cut' : ''})`),
-    el('div', 'act-tx-body', ...m.transcript.map((r) => el('p', '', el('span', 'act-tx-t', r.t), r.who ? el('b', '', `${r.who}: `) : null, r.text)))) : null;
+    el('div', { class: 'act-tx-body', 'data-no-i18n': '' }, ...m.transcript.map((r) => el('p', '', el('span', 'act-tx-t', r.t), r.who ? el('b', '', `${r.who}: `) : null, r.text)))) : null;
   box.replaceChildren(
-    el('h3', 'act-title', m.title),
-    el('div', 'act-meta', when(m.date), people.length ? ` · ${people.join(', ')}` : ''),
+    el('h3', { class: 'act-title', 'data-no-i18n': '' }, m.title),
+    el('div', { class: 'act-meta', 'data-no-i18n': '' }, when(m.date), people.length ? ` · ${people.join(', ')}` : ''),
     section('Summary', m.summary),
     section('Decisions', m.decisions),
     el('section', 'act-sec', el('h4', '', 'Action items'), items),
@@ -121,7 +122,7 @@ function showItems(box, m, r) {
 function itemCard(it, m) {
   const k = KIND[it.kind] || KIND.task;
   const note = el('div', { class: 'act-note', 'aria-live': 'polite' });
-  const meta = [it.owner && `Who: ${it.owner}`, it.start ? `When: ${when(it.start)}` : it.due && `Due: ${new Date(`${it.due}T12:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`, it.to && `To: ${it.to}`].filter(Boolean);
+  const meta = [it.owner && `Who: ${it.owner}`, it.start ? `When: ${when(it.start)}` : it.due && `Due: ${new Date(`${it.due}T12:00`).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })}`, it.to && `To: ${it.to}`].filter(Boolean);
   const btn = (label, icon, primary, run) => el('button', { type: 'button', class: `cap${primary ? ' primary' : ''}`, onclick: run }, ico(icon, 12), label);
   const commit = btn('Save as commitment', 'check', it.kind === 'promise', async (e) => {
     const b = e.currentTarget;
@@ -139,7 +140,7 @@ function itemCard(it, m) {
     } catch (err) { note.replaceChildren(el('span', 'muted', err.message)); b.disabled = false; }
   });
   return el('div', 'act-item',
-    el('div', 'act-item-top', el('span', `act-kind k-${it.kind}`, ico(k.i, 12), k.t), el('b', '', it.text)),
+    el('div', 'act-item-top', el('span', `act-kind k-${it.kind}`, ico(k.i, 12), k.t), el('b', { 'data-no-i18n': '' }, it.text)),
     meta.length ? el('div', 'act-sub', meta.join(' · ')) : null,
     el('div', 'acts',
       btn('Add to calendar', 'cal', it.kind === 'event', () => addToCalendar(it, m)),
@@ -157,7 +158,7 @@ function addToCalendar(it, m) {
   const end = new Date(start.getTime() + (it.minutes || 30) * 60_000);
   closeSpace();
   // The calendar's own editor, then its review card: nothing is added before that.
-  openCalendar({ date: start, newEvent: { title: it.text.slice(0, 200), start, end, notes: `From the meeting “${m.title}”${m.date ? ` (${new Date(m.date).toLocaleDateString()})` : ''}.` } });
+  openCalendar({ date: start, newEvent: { title: it.text.slice(0, 200), start, end, notes: `From the meeting “${m.title}”${m.date ? ` (${new Date(m.date).toLocaleDateString(locale())})` : ''}.` } });
 }
 
 function draftEmail(it, m) {

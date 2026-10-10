@@ -180,9 +180,9 @@ function setShield({ ready, on, blocked }) {
 }
 function drawTabs(list, onSelect, onClose, onNew) {
   P.tabs.replaceChildren(...list.map((t) => el('div', { class: `bd-tab${t.active ? ' active' : ''}${t.loading ? ' loading' : ''}`, role: 'presentation' },
-    el('button', { type: 'button', class: 'bd-tab-b', role: 'tab', 'aria-selected': String(!!t.active), title: String(t.title || t.url || 'New tab'), onclick: () => onSelect(t.id) },
+    el('button', { type: 'button', class: 'bd-tab-b', role: 'tab', 'aria-selected': String(!!t.active), ...(t.title || t.url ? { 'data-no-i18n': '' } : {}), title: String(t.title || t.url || 'New tab'), onclick: () => onSelect(t.id) },
       t.loading ? el('span', 'act-spin', '') : iconSrc(t.icon) ? el('img', { class: 'bd-fav', src: iconSrc(t.icon), alt: '', width: '14', height: '14', draggable: 'false' }) : ico('globe', 12), el('span', 'bd-tab-title', String(t.title || shownUrl(t.url) || 'New tab'))),
-    el('button', { type: 'button', class: 'bd-tab-x', 'aria-label': `Close ${String(t.title || 'tab')}`, onclick: () => onClose(t.id) }, ico('x', 10)))),
+    el('button', { type: 'button', class: 'bd-tab-x', 'aria-label': t.title ? `Close “${String(t.title)}”` : 'Close tab', onclick: () => onClose(t.id) }, ico('x', 10)))),
   el('button', { type: 'button', class: 'bd-tab-new', title: 'New tab · ⌘T', 'aria-label': 'New tab', onclick: onNew }, ico('plus', 13)));
   const on = P.tabs.querySelector('.bd-tab.active');
   if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -227,7 +227,7 @@ function showSuggest(rows) {
   if (!sugRows.length || document.activeElement !== P.addr) { hideSuggest(); return; }
   P.suggest.replaceChildren(...sugRows.map((r, i) => el('li', { role: 'option', id: `brSug${i}`, class: `bd-sug ${r.kind}${i === sugI ? ' on' : ''}`, onmousedown: (e) => { e.preventDefault(); pick(r); } },
     el('span', 'bd-sug-k', r.kind === 'go' ? ico(r.search ? 'search' : 'globe', 13) : r.kind === 'tab' ? 'Tab' : r.kind === 'bookmark' ? '★' : ico('clock', 12)),
-    el('span', 'bd-sug-t', r.title || shownUrl(r.url)), el('span', 'bd-sug-u', r.kind === 'go' ? r.note : shownUrl(r.url)))));
+    el('span', { class: 'bd-sug-t', 'data-no-i18n': '' }, r.title || shownUrl(r.url)), el('span', 'bd-sug-u', r.kind === 'go' ? r.note : shownUrl(r.url)))));
   P.suggest.hidden = false;
   P.addr.setAttribute('aria-expanded', 'true');
 }
@@ -433,7 +433,7 @@ function startCloud() {
   const btn = (label, run, primary = false) => el('button', { type: 'button', class: `btn${primary ? ' primary' : ''}`, onclick: run }, label);
   const tile = (b) => el('button', { type: 'button', class: 'bd-ntp-mark', title: b.url, onclick: () => act('go', b.url) },
     el('span', 'bd-ntp-i', iconSrc(b.icon) ? el('img', { src: iconSrc(b.icon), alt: '', width: '22', height: '22', draggable: 'false' }) : ((b.title || siteOf(b.url)).trim()[0] || '•').toUpperCase()),
-    el('span', '', b.title || siteOf(b.url)));
+    el('span', { 'data-no-i18n': '' }, b.title || siteOf(b.url)));
   const newTabPage = (s) => {
     const marks = (s.bookmarks || []).slice(0, 8);
     const recent = (s.recent || []).filter((r) => !marks.some((b) => siteOf(b.url) === r.site)).slice(0, 8);
@@ -470,7 +470,7 @@ function startCloud() {
     const z = zoomLabel(s.zoom);
     P.zoom.hidden = !z;
     P.zoom.textContent = z;
-    const tabList = (s.tabs || []).length ? s.tabs.map((t) => ({ ...t, active: t.id === s.active })) : [{ id: '', title: 'New tab', active: true }];
+    const tabList = (s.tabs || []).length ? s.tabs.map((t) => ({ ...t, active: t.id === s.active })) : [{ id: '', title: '', active: true }];
     drawTabs(tabList, (id) => { if (id) send({ t: 'tab', op: 'select', id }); }, (id) => { if (id) send({ t: 'tab', op: 'close', id }); }, () => act('tab', { op: 'new' }));
     if (!s.running) warm = false;
     canvas.hidden = !tab || !tab.url || Boolean(s.failed);
@@ -550,7 +550,7 @@ function startCloud() {
 
   const addDownload = (m) => {
     const name = downloadName(m.name, m.url);
-    const li = el('li', 'bd-dl', ico('down', 13), el('span', 'bd-dl-n', name),
+    const li = el('li', 'bd-dl', ico('down', 13), el('span', { class: 'bd-dl-n', 'data-no-i18n': '' }, name),
       el('a', { class: 'cap', href: m.url, target: '_blank', rel: 'noopener noreferrer', download: name }, 'Download'),
       el('button', { type: 'button', class: 'bd-tab-x', 'aria-label': 'Dismiss', onclick: () => { li.remove(); P.downloads.hidden = !P.downloads.children.length; } }, ico('x', 10)));
     P.downloads.prepend(li);
@@ -565,7 +565,7 @@ function startCloud() {
     const input = m.kind === 'prompt' ? el('input', { type: 'text', class: 'bd-dialog-in', value: m.value || '' }) : null;
     const answer = (ok) => { send({ t: 'dialog', ok, ...(input ? { text: input.value } : {}) }); box2.remove(); };
     const box2 = el('div', { class: 'bd-dialog', role: 'alertdialog', 'aria-label': `${m.site} says` },
-      el('b', '', `${m.site || 'This page'} says`), el('p', '', String(m.message || '')), input,
+      el('b', '', `${m.site || 'This page'} says`), el('p', { 'data-no-i18n': '' }, String(m.message || '')), input,
       el('div', 'br-acts', m.kind === 'alert' ? null : btn('Cancel', () => answer(false)), btn('OK', () => answer(true), true)));
     if (old) old.remove();
     cover.append(box2);
@@ -579,7 +579,7 @@ function startCloud() {
     q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => send({ t: 'library', what, q: q.value }), 150); });
     const seg = el('div', 'bd-lib-seg', ...['bookmarks', 'history'].map((w) => el('button', { type: 'button', class: w === what ? 'on' : '', 'aria-pressed': String(w === what), onclick: () => send({ t: 'library', what: w }) }, w === 'history' ? 'History' : 'Bookmarks')));
     const rows = (m.rows || []).map((r) => el('li', 'bd-lib-row',
-      el('button', { type: 'button', class: 'bd-lib-go', title: r.url, onclick: () => { lib.remove(); send({ t: 'go', url: r.url }); } }, el('span', 'bd-sug-t', r.title || shownUrl(r.url)), el('span', 'bd-sug-u', shownUrl(r.url))),
+      el('button', { type: 'button', class: 'bd-lib-go', title: r.url, onclick: () => { lib.remove(); send({ t: 'go', url: r.url }); } }, el('span', { class: 'bd-sug-t', 'data-no-i18n': '' }, r.title || shownUrl(r.url)), el('span', 'bd-sug-u', shownUrl(r.url))),
       el('button', { type: 'button', class: 'bd-tab-x', 'aria-label': 'Remove', onclick: () => send({ t: 'library-remove', what, url: r.url, q: q.value }) }, ico('x', 10))));
     const lib = el('div', { class: 'bd-lib', role: 'dialog', 'aria-label': what === 'history' ? 'History' : 'Bookmarks' },
       el('div', 'bd-lib-head', seg, el('span', 'br-sp'), what === 'history' && rows.length ? el('button', { type: 'button', class: 'cap', onclick: () => send({ t: 'history-clear' }) }, 'Clear history') : null, el('button', { type: 'button', class: 'bd-icon', 'aria-label': 'Close', onclick: () => lib.remove() }, ico('x', 13))),
@@ -749,7 +749,7 @@ function startCloud() {
       hit.editable ? { label: 'Paste', key: '⌘V', run: async () => { try { const t = await navigator.clipboard.readText(); if (t) send({ t: 'text', text: t }); } catch { toast('Press ⌘V to paste'); } } } : null,
       (hit.link || hit.image || hit.selection || hit.editable) ? '-' : null,
       { label: 'Back', key: '⌘[', disabled: !s.canBack, run: () => send({ t: 'back' }) },
-      { label: 'Forward', key: '⌘]', disabled: !s.canForward, run: () => send({ t: 'forward' }) },
+      { label: 'Go forward', key: '⌘]', disabled: !s.canForward, run: () => send({ t: 'forward' }) },
       { label: 'Reload', key: '⌘R', run: () => send({ t: 'reload' }) },
       '-',
       { label: 'Copy page address', disabled: !s.url, run: () => copyText(s.url) },

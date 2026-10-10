@@ -9,13 +9,26 @@ import { api } from './api.js';
 import { routeSettings, settingsSig, currentOverride, modelInfo } from './router.js';
 import { endTurnOverride, resolveOpenGroups, setCompareTurns } from './compare.js';
 import { privacyBody, privacyOn } from './privacy.js';
-import { autoSearchMode } from './autosearch-rules.js';
+import { recallBlock } from './recall-model.js';
+import { autoSearchMode, factCheckSettings } from './autosearch-rules.js';
 import { macBody, macEvent } from './files.js';
 import { codeKnowledge } from './knowledge.js';
 import { learnedBody } from './learned.js';
 import { autopilotBody, endAutopilotSkip } from './autopilot.js';
 import { browserBody, parseBrowse, followUpRoute, steerNote } from './browser-agent.js';
 import { typedMention, fillScopes, toolsSystemFor } from './tools-ui.js'; // chat that acts on Google Calendar and Gmail (eden-tools.js)
+import { evesWanted, beginEves, withEvesSetting } from './eves.js'; // EVES: several models, the facts they disagree on checked, one answer (POST /api/chat/eves)
+import { turnStreamStep } from './eves-model.js'; // what a normal reply's stream event is for (lanes ignored, the turn ends on `done`)
+import { noteVerification } from './verify.js'; // the label under a reply, and a repaired answer swapped in
+import { applyReport, applyStep, capOf, verifiedResearch } from './research-model.js'; // Q2: research's progress steps and its budget cap
+import { replyLanguageNote } from './i18n.js'; // "reply in French" when the page is in French
+import { untilStopped } from './resilience.js'; // the checks before a send: Stop ends them at once, a slow one is skipped (B2)
+
+/** `{ system }`: the persona's, plus the reply-language note when French is on; `{}` when both are empty. */
+function withLang(system) {
+  const s = [system, replyLanguageNote()].filter(Boolean).join('\n\n');
+  return s ? { system: s } : {};
+}
 
 function touch(c) { c.updated = Date.now(); saveConversation(c); }
 
@@ -76,7 +89,7 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
   ui.render();
   // H2: a model picked for this message instead of the router's pick teaches the router (learned.js)
   if (state.turnOverride) dispatchEvent(new CustomEvent('eden:choice', { detail: { kind: 'override', c, node: asst, model: state.turnOverride.model } }));
-  runChat(c, asst);
+  startReply(c, asst, user, text);
   endTurnOverride(); // a pick from the estimate line was for this message only
   endAutopilotSkip(); // so was "Use my level this time" (autopilot.js)
   return true;
@@ -185,7 +198,7 @@ function appendText(node, text) {
 export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   const user = parentOf(c, node);
   const ctrl = beginStream(c, node, 'chat');
-  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null, steps: [], browserCard: null, browserRun: false });
+  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null, steps: [], browserCard: null, browserRun: false, verification: null, eves: null, research: null });
   if (refusalRetry) node.notes.push(`Retried with ${refusalRetry.name} — the first model declined`);
   const ov = override || currentOverride();
   const sig = settingsSig();
@@ -201,22 +214,28 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     if (m === 'search') { node.mode = 'search'; node.autoSearched = true; }
   }
   const p = persona(c.personaId);
-  await fillScopes(user); // @calendar / @mail: this week's events / the recent inbox, read when the message is sent
+  // Before the send: Stop ends these waits at once, and a slow Google answer is gone without (B2).
+  await untilStopped(fillScopes(user), ctrl.signal, 8000); // @calendar / @mail: this week's events / the recent inbox, read when the message is sent
   const ctx = contextFor(c, user);
-  const sys = await toolsSystemFor(user, p && p.system ? p.system : '');
+  if (!c.temp && !c.course && !privacyOn(c) && state.settings.recall !== false) { const r = recallBlock(state.convs, user.content || '', { currentId: c.id, isPrivate: privacyOn }); if (r) ctx.push(r); } // other chats that bear on this message (recall-model.js)
+  const sys = [await untilStopped(toolsSystemFor(user, p && p.system ? p.system : '').catch(() => (p && p.system) || ''), ctrl.signal, 0, ''), replyLanguageNote()].filter(Boolean).join('\n\n');
   const body = {
     ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac (first: it may drop a local sticky)
     ...macBody(c), // G2/H11: { mac: { files, knowledge } }: the server reads the Mac first (files.js)
     messages: [...historyFor(c, user), userPayload(user)],
     // memory across chats: a temporary chat neither reads nor writes it; the chat's id is a memory's source
     ...(c.temp ? { temporary: true } : { chatId: c.id }),
-    settings: routeSettings(),
+    // the EVES setting rides along when it isn't Off; autoSearch: false tells the server's risk rules not to turn this into a search
+    // (Auto-search is off in Settings › Routing, or Chat was picked on purpose / this is a course chat)
+    settings: withEvesSetting({ ...routeSettings(), ...(state.settings.autoSearch === false || c.chatPinned || c.course ? { autoSearch: false } : {}), ...factCheckSettings(state.settings) }), // N19: the two fact-check switches, sent only when off
     mode: node.mode === 'search' || node.mode === 'research' ? node.mode : 'chat',
+    // Q2: the verified research pipeline (server meta.research) never spends more than the cap the estimate line shows
+    ...(node.mode === 'research' && verifiedResearch(state.meta) ? { budgetUSD: capOf(state.settings) } : {}),
     ...(ov ? { override: ov } : {}),
     ...(!ov && c.lastRoute && c.lastRoute.sig === sig ? { sticky: { model: c.lastRoute.model, effort: c.lastRoute.effort } } : {}),
     ...(sys ? { system: sys } : {}), // the persona's, plus the Google tools when connected (or the Connect hint)
     ...(ctx.length ? { context: ctx } : {}),
-    ...(c.course ? { course: c.course.id } : {}), // Eden for Education: answered from the course's materials (courses.js)
+    ...(c.course ? { course: c.course.id, ...(c.course.focus ? { focus: c.course.focus } : {}) } : {}), // Eden for Education: answered from the course's materials (courses.js)
     ...learnedBody(), // H2 on askeden.com: the profile's per-class adjustments (numbers only)
     ...autopilotBody(), // H3: `autopilot: false` for "Use my level this time"
     ...(refusalRetry ? { refusalRetry: true } : {}), // a refusal's one retry: never retried again
@@ -224,11 +243,51 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     ...browserBody(user, { panelOpen: document.body.classList.contains('browser-open') }), // Eden drives the cloud browser (browser-agent.js)
   };
   let thinkStart = 0;
+  // 'reply' until the reply's `done`; then 'after': the turn is over for the person (composer, queue, approval cards go
+  // on) and the stream stays open only for the label under it (the server's checks after a reply, time-capped there).
+  let phase = 'reply';
+  let ended = false;
+  let evesRun = null; // an EVES stream that came instead of a reply: eves.js takes it over (beginEves)
+  const endTurn = () => {
+    if (ended) return;
+    ended = true;
+    if (node.thinkingLive && thinkStart) node.thinkMs = Date.now() - thinkStart;
+    if (evesRun) evesRun.end();
+    if (!node.finish && !node.error) node.finish = 'stop';
+    if (!nodeText(node) && !node.error && node.finish === 'stop') node.error = evesRun ? 'EVES did not write an answer. Try again, or turn EVES off.' : 'The model sent an empty reply.';
+    endStream(c, node);
+    if (phase === 'after' && !ctrl.signal.aborted) postTurn.set(c.id, ctrl); // Stop now stops only the checks after the reply
+    // A benign refusal: once, a new draft on another provider's model ("2 of 2"); the queue goes on after it.
+    if (!node.error && node.finish === 'stop' && node.refusal && node.refusal.action === 'retry' && retryRefused(c, node)) return;
+    if (!node.error) dispatchEvent(new CustomEvent('eden:turn-done', { detail: { c, node } })); // tools-ui.js: approval cards for a calendar change, mail lookups
+    if (!node.error) drainQueue(c);
+  };
+  if (ctrl.signal.aborted) { node.finish = 'aborted'; endTurn(); return; } // stopped before it was sent
   ui.updateMessage(c, node);
   try {
     await api.send(body, {
       signal: ctrl.signal,
       onEvent: (type, d) => {
+        if (evesRun) { evesRun.onEvent(type, d); return; }
+        const step = turnStreamStep(phase, type, d);
+        if (step === 'ignore' || step === 'end') return; // a lane's own words (the work behind EVES) never join the reply
+        if (step === 'eves') { // the server ran EVES for this message: its handler reads the rest of the stream
+          evesRun = beginEves(node, { mode: d && d.mode === 'auto' ? 'auto' : 'on' }, ctrl, () => paint(c, node));
+          const st = state.streams.get(c.id);
+          if (st) Object.assign(st, { kind: 'eves', abort: evesRun.stop, stopLane: evesRun.stopLane });
+          evesRun.onEvent(type, d);
+          return;
+        }
+        if (phase === 'after') { // the reply has ended: only what is said about it
+          if (step === 'verification') noteVerification(node, d);
+          else if (type === 'memory') node.memory = d;
+          else if (type === 'grounding') node.grounding = d;
+          else if (type === 'refusal') node.refusal = d;
+          else if (type === 'research_report') { node.research = applyReport(node.research, d); dispatchEvent(new CustomEvent('eden:research-report', { detail: { c, node } })); } // Q2: the report opens in the canvas (app.js)
+          touch(c);
+          ui.updateMessage(c, node, { final: true });
+          return;
+        }
         switch (type) {
           case 'route':
             node.route = { ...d, override: !!ov };
@@ -263,7 +322,9 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
           case 'refusal': node.refusal = d; break; // the model declined (server refusal.js): retried below, or a "Try another model" button (render.js)
           case 'grounding': node.grounding = d; break; // a course reply's quotes, checked (courses.js groundingStrip)
           case 'memory': node.memory = d; break; // "Memory updated" chip under the reply (render.js), opens Settings › Memory
+          case 'verification': noteVerification(node, d); break; // the label under the reply; the corrected answer, when a repair sent one, replaces the words (verify.js)
           case 'approval': (node.approvals = node.approvals || []).push(d); break;
+          case 'research': node.research = applyStep(node.research, d); break; // Q2: research's progress steps (render.js research card)
           case 'mac': macEvent(c, node, d); break; // what the turn read on the Mac (files.js cards)
           case 'step': node.browserRun = true; (node.steps = node.steps || []).push({ text: String(d.text || ''), ok: d.ok !== false }); break; // browser-agent.js chips
           case 'steerleft': for (const t of d.texts || []) (c.queue = c.queue || []).push({ id: uid('q'), text: String(t), state: 'queued' }); break; // the run ended before it read the steering: it goes as the next message
@@ -276,22 +337,21 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
           case 'done': node.finish = d.finish || 'stop'; break;
           default: break;
         }
+        if (step === 'done') { phase = 'after'; endTurn(); return; } // the turn ends here, not when the stream closes
         paint(c, node);
       },
     });
   } catch (e) {
-    if (e.name === 'AbortError') node.finish = 'aborted';
-    else node.error = failure(e);
+    if (ended) { /* after `done`: Stop (or a dropped connection) ends only the checks; the reply keeps how it finished */ }
+    else if (e.name === 'AbortError') { node.finish = 'aborted'; if (evesRun) evesRun.stopped(); }
+    else { node.error = failure(e); if (evesRun) evesRun.failed(node.error); }
   }
-  if (node.thinkingLive && thinkStart) node.thinkMs = Date.now() - thinkStart;
-  if (!node.finish && !node.error) node.finish = 'stop';
-  if (!nodeText(node) && !node.error && node.finish === 'stop') node.error = 'The model sent an empty reply.';
-  endStream(c, node);
-  // A benign refusal: once, a new draft on another provider's model ("2 of 2"); the queue goes on after it.
-  if (!node.error && node.finish === 'stop' && node.refusal && node.refusal.action === 'retry' && retryRefused(c, node)) return;
-  if (!node.error) dispatchEvent(new CustomEvent('eden:turn-done', { detail: { c, node } })); // tools-ui.js: approval cards for a calendar change, mail lookups
-  if (!node.error) drainQueue(c);
+  if (postTurn.get(c.id) === ctrl) postTurn.delete(c.id);
+  endTurn();
 }
+
+/** Chats whose reply has ended but whose stream is still open for its label: Stop then stops only those checks. */
+const postTurn = new Map(); // conv id → AbortController
 
 /** The refusal's retry (refusal.js on the server picked the model): a new draft beside the declined one. */
 function retryRefused(c, node) {
@@ -331,12 +391,16 @@ export function stop(c = state.current) {
   const s = c && state.streams.get(c.id);
   if (s && s.kind === 'chat') dispatchEvent(new CustomEvent('eden:choice', { detail: { kind: 'stop', c, node: s.node } })); // H2: a weak hint (learned.js)
   if (s) { s.abort(); return true; }
+  // The reply has ended and only its checks are still running: stop those; the reply keeps how it finished.
+  const after = c && postTurn.get(c.id);
+  if (after) { postTurn.delete(c.id); after.abort(); return true; }
   return false;
 }
 
 export function retry(c, node) {
   if (state.streams.has(c.id)) return;
   if (c.kind === 'code') { const user = parentOf(c, node); runCode(c, node, user.content || 'continue'); return; }
+  if (node.eves) { runEves(c, node, { mode: node.eves.mode === 'auto' ? 'auto' : 'on' }); return; } // an EVES reply tries EVES again
   // a compare lane, or a stronger model's answer, tries again on its own model
   runChat(c, node, { override: node.route && (node.route.override || node.route.lane) ? { model: node.route.model, effort: node.route.effort } : undefined });
 }
@@ -351,7 +415,7 @@ export function regenerate(c, node, override, { compare = false } = {}) {
   const fresh = addNode(c, user.id, { role: 'assistant', parts: [], mode: node.mode || c.mode, topic: node.topic });
   if (compare && user.role === 'user') user.compare = { kind: 'stronger', ids: [node.id, fresh.id], kept: null };
   ui.render();
-  runChat(c, fresh, { override });
+  startReply(c, fresh, user, user.content || '', { override });
 }
 
 /** Edit & resend: a new user node beside the old one (a branch), then its reply. */
@@ -363,7 +427,59 @@ export function editResend(c, node, text) {
   const asst = addNode(c, user.id, { role: 'assistant', parts: [], mode: c.mode, topic: text });
   touch(c);
   ui.render();
-  runChat(c, asst);
+  startReply(c, asst, user, text);
+}
+
+/**
+ * A reply to `user`: EVES when the setting says so for this message (eves.js evesWanted: not when a model
+ * was picked for the message), else the routed turn.
+ */
+function startReply(c, asst, user, text, { override } = {}) {
+  const plan = override || state.turnOverride ? null : evesWanted(c, user, text);
+  if (plan) runEves(c, asst, plan);
+  else runChat(c, asst, override ? { override } : {});
+}
+
+/**
+ * A reply checked by EVES: POST /api/chat/eves with the body a normal reply would send (the history, the
+ * attachments and context as they are, the persona; privacy as everywhere). The models' own answers are the
+ * work and live in node.eves (eves-model.js), the final answer streams into the reply like any other, so
+ * copy, speak, try again and the rest work on it; Stop stops every model (eves.js beginEves).
+ */
+export async function runEves(c, node, plan) {
+  const user = parentOf(c, node);
+  const ctrl = beginStream(c, node, 'eves');
+  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: 'chat', provenance: null, approvals: [], steps: [], browserCard: null, browserRun: false, verification: null });
+  const turn = beginEves(node, plan, ctrl, () => paint(c, node));
+  Object.assign(state.streams.get(c.id), { abort: turn.stop, stopLane: turn.stopLane });
+  const settings = routeSettings(); // as it is now, not after the awaits below
+  ui.updateMessage(c, node);
+  try {
+    await untilStopped(fillScopes(user), ctrl.signal, 8000); // @calendar / @mail: this week's events / the recent inbox, read when the message is sent (Stop ends the wait: B2)
+    if (ctrl.signal.aborted) throw new DOMException('Stopped', 'AbortError');
+    const p = persona(c.personaId);
+    const ctx = contextFor(c, user);
+    await turn.send({
+      ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac
+      messages: [...historyFor(c, user), userPayload(user)],
+      settings,
+      ...withLang(p && p.system),
+      ...(ctx.length ? { context: ctx } : {}),
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') { node.finish = 'aborted'; turn.stopped(); }
+    else if (e && e.status === 422 && /^EVES can.t check this message/.test(e.message || '') && !turn.state.id) {
+      // The server would not send this message to several models (it carries the person's mail, files or notes): answered as usual.
+      node.eves = null;
+      toast(e.message);
+      return runChat(c, node);
+    } else turn.failed(failure(e));
+  }
+  turn.end();
+  if (!node.finish && !node.error) node.finish = 'stop';
+  if (!nodeText(node) && !node.error && node.finish === 'stop') node.error = 'EVES did not write an answer. Try again, or turn EVES off.';
+  endStream(c, node);
+  if (!node.error) drainQueue(c);
 }
 
 /* ---------- Compare (G6): one question, up to three models, side by side ---------- */
@@ -426,7 +542,7 @@ export async function runCompare(c, user, models) {
     settings: routeSettings(),
     mode: 'chat',
     ...(models ? { models } : {}),
-    ...(p && p.system ? { system: p.system } : {}),
+    ...withLang(p && p.system),
     ...(ctx.length ? { context: ctx } : {}),
   };
   const thinkStart = new Map();

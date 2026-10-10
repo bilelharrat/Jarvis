@@ -45,6 +45,8 @@ import {
   toBase64,
   worstCaseUSD,
 } from './vendor/help.js';
+// the French FAQ (web/help/faq.fr.json), when the bundle has it: a namespace read, so an older bundle still builds
+import * as helpBundle from './vendor/help.js';
 
 const ANTHROPIC = 'https://api.anthropic.com/v1/messages';
 
@@ -56,6 +58,7 @@ const FILES = new Set(HELP_FILES);
 const MAX_BODY = 8 * 1024 * 1024; // a 5 MB screenshot as base64, and the rest
 const NETWORK_FACTOR = 4; // a household or office shares a network
 const DEFAULT_ASK = 'What’s wrong in this screenshot, and how do I fix it?';
+const DEFAULT_ASK_FR = 'Qu’est-ce qui ne va pas sur cette capture d’écran, et comment le résoudre\u00a0?';
 
 const positive = (value, fallback) => {
   const n = Number(value);
@@ -159,9 +162,13 @@ async function ask(request, env, session) {
   }
   const left = { messages: asked.left, screenshots: shotsLeft };
 
-  const g = ground(FAQ, INDEX, { question: req.question, history: req.history, imageText: req.imageText, image: Boolean(req.image) });
+  // French pages for a French page (the client sends lang: 'fr'); English otherwise
+  const fr = req.lang === 'fr' && helpBundle.FAQ_FR && helpBundle.INDEX_FR;
+  const faq = fr ? helpBundle.FAQ_FR : FAQ;
+  const lang = fr ? 'fr' : 'en';
+  const g = ground(faq, fr ? helpBundle.INDEX_FR : INDEX, { question: req.question, history: req.history, imageText: req.imageText, image: Boolean(req.image) });
   const pages = g.entries.map((e) => ({ id: e.id, q: e.q }));
-  if (!g.sure) return { ...notSureReply(FAQ, g.results), pages, model: null, left };
+  if (!g.sure) return { ...notSureReply(faq, g.results), pages, model: null, left };
 
   // the screenshot and the text read off it are untrusted (provenance): marked, wrapped, never instructions
   const ledger = createLedger();
@@ -173,8 +180,8 @@ async function ask(request, env, session) {
     content.push({ type: 'image', source: { type: 'base64', media_type: req.image.mime, data: toBase64(clean.bytes) } });
   }
   if (req.imageText) content.push({ type: 'text', text: ledger.untrusted('image', req.imageText, { title: 'Text read from the screenshot' }) });
-  content.push({ type: 'text', text: req.question || DEFAULT_ASK });
-  const system = [helpSystem({ entries: g.entries, catalog: g.catalog, surface: 'web' }), ledger.notice()].filter(Boolean).join('\n\n');
+  content.push({ type: 'text', text: req.question || (fr ? DEFAULT_ASK_FR : DEFAULT_ASK) });
+  const system = [helpSystem({ entries: g.entries, catalog: g.catalog, surface: 'web', lang }), ledger.notice()].filter(Boolean).join('\n\n');
   const messages = [...req.history.map((m) => ({ role: m.role, content: m.content })), { role: 'user', content }];
 
   // Eden's own budget for Help (not the person's allowance): the worst case, reserved up front
@@ -186,7 +193,7 @@ async function ask(request, env, session) {
   // No Anthropic key: the service's Gemini or OpenAI answers instead (service-ai.js).
   const fallback = serviceFallback(env);
   const reply = await callModel(env, request, { model: fallback ? fallback.model : cfg.model, max_tokens: cfg.maxTokens, system, messages });
-  const checked = checkAnswer(reply.text, g.allowed);
+  const checked = checkAnswer(reply.text, g.allowed, { lang });
   return { ...checked, pages, model: cfg.model, left };
 }
 

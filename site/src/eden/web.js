@@ -19,6 +19,10 @@ export const ARTIFACT_CSP =
 // Workers; its only network is cdn.jsdelivr.net for Pyodide (Python in WebAssembly); framing it is harmless (static, no secrets).
 export const RUNNER_CSP =
   "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src blob:; connect-src https://cdn.jsdelivr.net; style-src 'unsafe-inline'; img-src data:";
+// The spreadsheet canvas's Google Picker popup (askeden web/chat/sheet-picker.html, Q15): Google's Picker script and
+// frames on a page of its own, so Eden's page keeps its 'self'-only policy. Same as askeden src/chat/sheet-routes.ts.
+export const SHEET_PICKER_CSP =
+  "default-src 'self'; script-src 'self' https://apis.google.com https://*.gstatic.com; frame-src https://docs.google.com https://drive.google.com https://content.googleapis.com https://accounts.google.com; connect-src 'self' https://*.googleapis.com https://*.google.com; style-src 'self' 'unsafe-inline' https://*.gstatic.com https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.gstatic.com https://*.googleusercontent.com https://*.google.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 // The J.A.R.V.I.S. landing page (/download, /jarvis): its inline script and styles, and Google Fonts.
 export const LANDING_CSP =
   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";

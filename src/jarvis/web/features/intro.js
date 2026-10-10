@@ -53,14 +53,14 @@
   const BARS = 28;
 
   const SECTIONS = EDEN ? [
-    ['welcome', 'Welcome'], ['claude', 'Claude'], ['accounts', 'Developer tools'], ['models', 'Other AI models'], ['done', 'All set'],
+    ['welcome', 'Welcome'], ['sound', 'Boot-up sound'], ['claude', 'Claude'], ['accounts', 'Developer tools'], ['models', 'Other AI models'], ['done', 'All set'],
   ] : [
-    ['welcome', 'Welcome'], ['language', 'Language'], ['permissions', 'Permissions'], ['claude', 'Claude'],
+    ['welcome', 'Welcome'], ['language', 'Language'], ['sound', 'Boot-up sound'], ['permissions', 'Permissions'], ['claude', 'Claude'],
     ['try', 'Try it'], ['me', 'Your voice'], ['voice', 'The voice'], ['accounts', 'Accounts'], ['phone', 'Phone calls'],
     ['models', 'Other AI models'], ['companion', 'iPhone & Watch'], ['done', 'All set'],
   ];
   const SECTION_OF = {
-    welcome: 'welcome', language: 'language', mic: 'permissions', permissions: 'permissions', claude: 'claude',
+    welcome: 'welcome', language: 'language', sound: 'sound', mic: 'permissions', permissions: 'permissions', claude: 'claude',
     talk: 'try', wake: 'try', clap: 'try', 'voice-id': 'me', voice: 'voice', twilio: 'phone', 'twilio-keys': 'phone',
     'wake-call': 'phone', 'iphone-calls': 'phone', models: 'models', companion: 'companion', done: 'done',
   };
@@ -227,8 +227,8 @@
 
   function cardIds() {
     const groups = S.connectors ? [...new Set((S.connectors.catalog || []).map((e) => e.category))] : [];
-    if (EDEN) return ['welcome', 'claude', ...(groups.includes('Developer') ? ['accounts:Developer'] : []), 'models', 'done'];
-    return ['welcome', 'language', 'mic', 'permissions', 'claude', 'talk', 'wake', 'clap',
+    if (EDEN) return ['welcome', 'sound', 'claude', ...(groups.includes('Developer') ? ['accounts:Developer'] : []), 'models', 'done'];
+    return ['welcome', 'language', 'sound', 'mic', 'permissions', 'claude', 'talk', 'wake', 'clap',
       ...(S.voiceId && S.voiceId.configured === false ? [] : ['voice-id']), 'voice',
       ...(groups.length ? groups.map((g) => `accounts:${g}`) : ['accounts:']),
       'twilio', 'twilio-keys', 'wake-call', 'iphone-calls', 'models', 'companion', 'done'];
@@ -287,6 +287,27 @@
         choices.append(b);
       }
       return { visual: tile('globe', 'blue'), title: 'Which language?', lead: 'Jarvis shows, speaks and listens in the language you pick.', body: [choices] };
+    }
+    if (id === 'sound') {
+      // The boot-up sound (app/loading.js): on, or off from the next launch. Also in Settings › General.
+      const on = p.boot_sound !== false;
+      const choices = el('div', 'intro-choices');
+      choices.setAttribute('role', 'radiogroup');
+      choices.setAttribute('aria-label', 'Boot-up sound');
+      for (const [value, name, sub] of [[true, 'On', 'A short sound as the app opens'], [false, 'Off', 'Opens quietly']]) {
+        const b = el('button', 'intro-choice');
+        b.type = 'button';
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(on === value));
+        b.append(data(el('strong', '', name)), data(el('small', '', sub)));
+        b.addEventListener('click', () => setPrefs({ boot_sound: value }));
+        choices.append(b);
+      }
+      return {
+        visual: tile('wave', 'violet'), title: 'Boot-up sound?',
+        lead: EDEN ? 'Eden Code plays a short sound as it opens. Keep it, or open quietly.' : 'Jarvis plays a short sound as it opens. Keep it, or open quietly.',
+        body: [choices, para('You can change this any time in Settings › General.', 'intro-note intro-center')],
+      };
     }
     if (id === 'mic') return micCard();
     if (id === 'permissions') return permsCard();

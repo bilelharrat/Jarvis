@@ -8,6 +8,7 @@
 import { $, el, ico } from './util.js';
 import { IN_APP } from './native.js';
 import { planOffer, isLimitError } from './plan-model.js';
+import { isFr } from './i18n.js'; // 'Plan' and 'Upgrade' are also a Code mode and a model menu item: said here in French directly
 
 let offer = null;
 
@@ -30,14 +31,14 @@ function drawPill() {
   if (!offer || !offer.upgrade) { if (pill) pill.remove(); return; }
   if (pill) return;
   pill = el('button', { type: 'button', id: 'tbPlus', class: 'tb-plus', title: `Get Eden Plus${offer.price ? `: $${offer.price}/month` : ''}`, 'aria-label': 'Upgrade to Eden Plus', onclick: getPlus },
-    ico('spark'), el('span', 'tbu-l', 'Upgrade'));
+    ico('spark'), el('span', 'tbu-l', isFr ? 'Passer à Plus' : 'Upgrade'));
   ring.after(pill);
 }
 
 /** The usage ring popover's plan rows; `close` closes the popover first. */
 export function planRows(close = () => {}) {
   if (!offer || (!offer.plus && !offer.upgrade && !offer.credits && !(offer.balance > 0))) return [];
-  const head = el('div', 'cp-t ap-t2', 'Plan');
+  const head = el('div', 'cp-t ap-t2', isFr ? 'Forfait' : 'Plan');
   // Credits: the balance (spent after the included AI), and "Add credits" where packs are sold.
   const credits = offer.credits || offer.balance > 0 ? [
     el('div', 'ap-row', el('span', '', 'Credits'), el('b', '', usd(offer.balance))),

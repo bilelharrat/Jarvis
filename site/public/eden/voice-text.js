@@ -5,10 +5,14 @@
 export const MAX_CHUNK = 600; // the voice's limit per request (askeden.com /api/voice)
 const FIRST_CHUNK = 220; // a short first piece: the voice starts sooner
 
-const CODE_SAID = 'I’ve put the code on screen.';
+// Said in the page's language (the voice reads French as well as English). From i18n.js's hook,
+// not an import: the tests load this file alone, and get English.
+const fr = () => !!(globalThis.edenI18n && globalThis.edenI18n.isFr);
 
 /** A reply's markdown as something that sounds natural aloud. */
 export function speechText(md) {
+  const CODE_SAID = fr() ? 'J’ai mis le code à l’écran.' : 'I’ve put the code on screen.';
+  const LINK_SAID = fr() ? 'le lien à l’écran' : 'the link on screen';
   let t = String(md || '').replace(/\r\n?/g, '\n');
   // fenced code (an unclosed fence, cut off mid-stream, runs to the end): never read out
   t = t.replace(/^[ \t]*(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?)?(?:\n[ \t]*\1[ \t]*(?=\n|$)|(?![\s\S]))/gm, `\n${CODE_SAID}\n`);
@@ -17,7 +21,7 @@ export function speechText(md) {
   t = t.replace(/<\/?[a-z][^<>]*>/gi, ' ');
   t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1'); // images: their alt text
   t = t.replace(/\[([^\[\]]+)\]\((?:[^()]|\([^()]*\))+\)/g, '$1'); // links: their words
-  t = t.replace(/https?:\/\/\S+/g, 'the link on screen');
+  t = t.replace(/https?:\/\/\S+/g, LINK_SAID);
   t = t.replace(/(?<!\s)\s*\[(?:n?\d+(?:,\s*n?\d+)*)\]/g, ''); // citations [1], [2, 3]
   t = t.replace(/^[ \t]*\|?[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)*\|?[ \t]*$/gm, ''); // table rules
   t = t.replace(/^[ \t]*\|(.*)\|[ \t]*$/gm, (_, row) => row.split('|').map((c) => c.trim()).filter(Boolean).join(', ') + '.');
@@ -31,7 +35,7 @@ export function speechText(md) {
   t = t.replace(/[*`~]+/g, '');
   t = t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, '\'');
   // each line ends a sentence (as speech.py does), then tidy the joins
-  t = t.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => (/[.!?:;,…]["”’)]?$/.test(l) ? l : `${l}.`)).join(' ');
+  t = t.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => (/[.!?:;,…][\s\u00a0\u202f]*["”’)»]?$/.test(l) ? l : `${l}.`)).join(' ');
   t = t.replace(/([.!?])\.(\s|$)/g, '$1$2').replace(/:\./g, ':');
   return t.replace(/\s{2,}/g, ' ').trim();
 }
@@ -44,7 +48,7 @@ export function speechChunks(md, opts) {
 /** Plain text cut into pieces of at most `max` characters (the first one shorter). */
 export function chunkText(text, { max = MAX_CHUNK, first = FIRST_CHUNK } = {}) {
   if (!text) return [];
-  const sentences = text.match(/[^.!?…]+(?:[.!?…]+["”’)]*|$)\s*/g) || [text];
+  const sentences = text.match(/[^.!?…]+(?:[.!?…]+[\u00a0\u202f]*["”’)»]*|$)\s*/g) || [text];
   const out = [];
   let cur = '';
   const limit = () => (out.length ? max : Math.min(first, max));
@@ -84,7 +88,7 @@ export function safeCut(md, from = 0, final = false) {
   if (limit <= from) return from;
   const part = text.slice(from, limit);
   let cut = part.lastIndexOf('\n') + 1;
-  for (const m of part.matchAll(/[.!?…]+["”’)\]]*\s/g)) cut = Math.max(cut, m.index + m[0].length);
+  for (const m of part.matchAll(/[.!?…]+[\u00a0\u202f]*["”’)»\]]*\s/g)) cut = Math.max(cut, m.index + m[0].length);
   return from + cut;
 }
 

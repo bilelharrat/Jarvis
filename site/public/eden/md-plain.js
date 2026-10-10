@@ -32,7 +32,8 @@ function inlineMd(s, html) {
     .replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?!\w)/g, (_, p, x) => p + b(x))
     .replace(/(^|[^*\w])\*(?=[^\s*])([^*]*?[^\s*])\*(?!\*)/g, (_, p, x) => p + i(x))
     .replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, (_, p, x) => p + i(x))
-    .replace(/~~(?=\S)([\s\S]*?\S)~~/g, (_, x) => (html ? `<s>${x}</s>` : x));
+    .replace(/~~(?=\S)([\s\S]*?\S)~~/g, (_, x) => (html ? `<s>${x}</s>` : x))
+    .replace(/(\s?)\*{2,}(\s?)/g, (_, a, b) => (a && b ? ' ' : a || b)); // what's left: bold across lines, or never closed (code is held aside)
   return s.replace(/\u0000(\d+)\u0000/g, (_, n) => keep[Number(n)]);
 }
 

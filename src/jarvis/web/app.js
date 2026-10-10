@@ -1070,6 +1070,7 @@ function renderPrefs(p) {
   setSwitch('sw-location', p.use_location !== false);
   setSwitch('sw-handsfree', p.hands_free);
   setSwitch('sw-clap', p.clap_hands !== false);
+  setSwitch('sw-boot-sound', p.boot_sound !== false);
   setSwitch('sw-desktop-hands', p.desktop_hands);
   setSwitch('sw-briefing', p.briefing_enabled);
   setSwitch('sw-proactive', p.proactive);
@@ -1312,6 +1313,7 @@ $('mic-select').addEventListener('change', (e) => setPrefs({ mic: e.target.value
 $('sw-location').addEventListener('click', () => setPrefs({ use_location: prefs.use_location === false }));
 $('sw-handsfree').addEventListener('click', () => setPrefs({ hands_free: !prefs.hands_free }));
 $('sw-clap').addEventListener('click', () => setPrefs({ clap_hands: prefs.clap_hands === false }));
+$('sw-boot-sound').addEventListener('click', () => setPrefs({ boot_sound: prefs.boot_sound === false }));
 $('sw-desktop-hands').addEventListener('click', () => {
   const on = !prefs.desktop_hands;
   setPrefs({ desktop_hands: on });

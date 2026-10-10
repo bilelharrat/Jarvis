@@ -57,3 +57,62 @@ body.edu-in-chat .edu-view{overflow:hidden}
 /* a phone never keeps the desktop's folded sidebar (it's a sheet there) */
 @media (max-width:760px){#sidebar.closed{width:min(300px,84vw);margin-right:0;opacity:1;visibility:visible;pointer-events:auto}}
 @media (max-width:1100px) and (min-width:761px){#sidebar:not(.expanded) .edu-side-head .grow{display:none}#sidebar:not(.expanded) .edu-side-head{justify-content:center;padding:14px 0 6px}}
+
+/* the guided walk-through (edu-tour.js): a dim page with the part lit up, and a glass card beside it */
+.tour-x-shade{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.42)}
+.tour-x-shade.lit{background:transparent}
+.tour-x-ring{position:fixed;z-index:301;display:none;border-radius:14px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.42),0 0 0 2px var(--accent),0 0 24px 4px rgba(10,132,255,.35);transition:left .3s var(--spring),top .3s var(--spring),width .3s var(--spring),height .3s var(--spring)}
+.tour-x{position:fixed;z-index:302;width:min(340px,calc(100vw - 24px));padding:18px 18px 14px;border-radius:var(--r-lg);box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh2);background:var(--glass2)}
+.tour-x h3{margin:2px 0 6px;font-size:16px;font-weight:650;letter-spacing:-.2px}
+.tour-x p{margin:0;font-size:13.5px;line-height:1.5;color:var(--text2)}
+.tour-x-count{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--accent)}
+.tour-x-acts{display:flex;align-items:center;gap:8px;margin-top:14px}
+.tour-x-skip{font-size:12.5px;color:var(--text2);padding:6px 4px}
+.tour-x-skip:hover{color:var(--text)}
+@media (prefers-reduced-motion:reduce){.tour-x-ring{transition:none}}
+
+/* the notebook (notebook.js) */
+.nb{display:flex;flex-direction:column;gap:14px}
+.nb-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.nb-search{flex:1 1 220px;min-width:0;min-height:36px;border:0;border-radius:var(--r-sm);padding:0 12px;background:var(--content);box-shadow:inset 0 0 0 1px var(--hairline);font:inherit;font-size:14px;color:var(--text)}
+.nb-search:focus{outline:none;box-shadow:inset 0 0 0 2px var(--accent)}
+.nb-search:focus-visible,.nb-title:focus-visible,.nb-body:focus-visible{outline:none}
+.nb-filter{min-height:36px;border:0;border-radius:var(--r-sm);padding:0 10px;background:var(--content);box-shadow:inset 0 0 0 1px var(--hairline);font:inherit;font-size:13.5px;color:var(--text)}
+.nb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.nb-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:var(--r-md);background:var(--content);box-shadow:0 1px 3px rgba(0,0,0,.06),inset 0 0 0 .5px var(--hairline);color:var(--text);text-decoration:none;min-height:116px;transition:transform .15s var(--spring)}
+.nb-card:hover{transform:translateY(-2px)}
+.nb-card b{font-size:14.5px;font-weight:650;line-height:1.3}
+.nb-snip{flex:1;font-size:12.5px;line-height:1.45;color:var(--text2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.nb-meta{font-size:11.5px;color:var(--text3)}
+.nb-open{max-width:760px;margin:0 auto;width:100%}
+.nb-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.nb-top .crs-back{margin:0}
+.nb-course,.nb-saved{font-size:12.5px}
+.nb-title{border:0;background:transparent;font:inherit;font-size:26px;font-weight:700;letter-spacing:-.4px;color:var(--text);padding:6px 0;outline:none}
+.nb-body{min-height:55vh;border:0;border-radius:var(--r-md);padding:16px 18px;background:var(--content);box-shadow:0 1px 3px rgba(0,0,0,.06),inset 0 0 0 .5px var(--hairline);font:inherit;font-size:15.5px;line-height:1.65;color:var(--text);resize:vertical;outline:none}
+.nb-body:focus{box-shadow:0 1px 3px rgba(0,0,0,.06),inset 0 0 0 1.5px var(--accent)}
+.nb-preview{min-height:55vh;padding:16px 18px;border-radius:var(--r-md);background:var(--content);box-shadow:0 1px 3px rgba(0,0,0,.06),inset 0 0 0 .5px var(--hairline);font-size:15.5px;line-height:1.65}
+/* in the panel on the right (#notebookPane) */
+.nb-pane-body{flex:1;min-height:0;overflow:auto;padding:4px 16px 16px}
+#notebookPane .nb-grid{grid-template-columns:1fr;gap:10px}
+#notebookPane .nb-card{min-height:0;width:100%;text-align:left;font:inherit;cursor:pointer}
+#notebookPane .nb-title{font-size:21px}
+#notebookPane .nb-body,#notebookPane .nb-preview{min-height:46vh;font-size:14.5px;padding:14px 16px}
+#notebookPane .nb-top{gap:8px}
+.nb-hint{margin:0;font-size:12.5px}
+button.sitem{width:100%;text-align:left}
+.nb-menu{position:fixed;z-index:250;width:260px;padding:6px;border-radius:var(--r-md);box-shadow:inset 0 .5px 0 var(--rim),inset 0 0 0 .5px var(--hairline),var(--sh2);background:var(--glass2)}
+.nb-menu-h{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);padding:6px 10px 4px}
+.nb-menu-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 10px;border-radius:8px;font-size:13.5px;color:var(--text)}
+.nb-menu-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nb-menu-item:hover,.nb-menu-item:focus-visible{background:var(--accent-soft);outline:none}
+/* under an answer: Clip to notebook, then the model and cost */
+.edu-acts{display:flex;align-items:center;gap:10px;margin:6px 0 0 4px}
+.edu-acts .edu-meta{margin:0}
+.edu-clip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:var(--text2);padding:4px 9px;border-radius:999px;background:rgba(120,120,128,.1)}
+.edu-clip:hover{color:var(--accent);background:var(--accent-soft)}
+.edu-tour-btn{font-size:11px;color:var(--text3);text-decoration:none;padding:0}
+.edu-tour-btn:hover{color:var(--accent)}
+/* a skip link for keyboard and screen-reader users (Q9): hidden until focused */
+.edu-skip{position:fixed;z-index:200;left:12px;top:-60px;padding:8px 14px;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;text-decoration:none;transition:top .15s}
+.edu-skip:focus{top:max(10px,env(safe-area-inset-top))}

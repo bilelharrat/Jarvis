@@ -8,7 +8,7 @@ import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { bytesToB64, parseToken } from '../src/accounts/util.js';
-import { MAC_OFFLINE, MAC_ROUTES, WEB_RELAY, frame, macRoute, unframe } from '../src/accounts/webrelay.js';
+import { MAC_OFFLINE, MAC_ROUTES, WEB_RELAY, clientWait, frame, macRoute, unframe } from '../src/accounts/webrelay.js';
 import { PRIVACY_MAC_OFFLINE, PRIVACY_NEEDS_MAC } from '../src/eden/chat.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { CLAUDE_NEEDS_KEY, testOnlyServiceClaude } from '../src/eden/providers.js';
@@ -136,7 +136,9 @@ function autoAnswer(o, ws, answer) {
     if (m.t === 'end' && parts.has(m.id)) {
       const [head, ...body] = parts.get(m.id);
       setImmediate(() => {
-        const { status = 200, type = 'application/json', chunks = [] } = ws.answer({ head, body: dec.decode(Buffer.concat(body)) });
+        const answered = ws.answer({ head, body: dec.decode(Buffer.concat(body)) });
+        if (!answered) return; // this one gets no answer (a Mac that's slow, or waiting on Jarvis's card)
+        const { status = 200, type = 'application/json', chunks = [] } = answered;
         say(o, ws, { t: 'res', id: m.id, status, headers: { 'content-type': type } });
         for (const c of chunks) say(o, ws, frame(m.id, enc.encode(c)));
         say(o, ws, { t: 'end', id: m.id });
@@ -603,4 +605,101 @@ test('Claude without a key here: the owner gets it through their Mac while it’
     delete env.ANTHROPIC_API_KEY;
     delete env.GEMINI_API_KEY;
   }
+});
+
+// ── the page's own deadline, x-eden-wait (bug sweep 2026-10-09 C1/A1/C4) ──
+
+test('x-eden-wait: seconds, clamped to 5–60; nothing (or junk) keeps the relay’s own wait', () => {
+  const at = (v) => clientWait(new Request(ORIGIN, { headers: v === undefined ? {} : { 'x-eden-wait': v } }));
+  assert.equal(at(undefined), null);
+  assert.equal(at(''), null);
+  assert.equal(at('soon'), null);
+  assert.equal(at('20'), 20_000);
+  assert.equal(at('1'), 5_000);
+  assert.equal(at('20000'), 60_000, 'milliseconds by mistake: at most a minute');
+  assert.equal(at('7.5'), 7_500);
+});
+
+test('x-eden-wait: Jarvis waiting on its card on the Mac → 202 {approval:"waiting"} at the deadline; the call is cancelled', async () => {
+  WEB_RELAY.second = 10; // 20 "seconds" = 200 ms here
+  WEB_RELAY.probeMs = 500;
+  const o = await owner();
+  const ws = await connect(o);
+  const asked = [];
+  autoAnswer(o, ws, ({ head }) => {
+    asked.push(`${head.method} ${head.path}`);
+    if (head.path === '/api/chat/jarvis/status') return { chunks: [JSON.stringify({ available: true, reason: null, approval: 'waiting' })] };
+    return null; // the Jarvis call waits on the card
+  });
+  const started = Date.now();
+  const r = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20' }, body: { tool: 'recall', arguments: { query: 'trip' } } });
+  assert.equal(r.status, 202);
+  assert.deepEqual(await r.json(), { approval: 'waiting' });
+  assert.ok(Date.now() - started >= 190, 'not before the deadline');
+  assert.ok(Date.now() - started < 1500, 'right after it');
+  assert.deepEqual(asked, ['POST /api/chat/jarvis', 'GET /api/chat/jarvis/status'], 'the status is asked while the call still waits');
+  await settle();
+  for (let i = 0; i < 20 && o.account.webStreams.size; i++) await tick();
+  const jarvisId = ws.sent.map((m) => (typeof m === 'string' ? JSON.parse(m) : {})).find((m) => m.t === 'req' && m.path === '/api/chat/jarvis').id;
+  assert.ok(ws.sent.some((m) => typeof m === 'string' && JSON.parse(m).t === 'cancel' && JSON.parse(m).id === jarvisId), 'the waiting call is cancelled on the Mac');
+  assert.equal(o.account.webStreams.size, 0);
+});
+
+test('x-eden-wait: a Mac that is slow or unreachable → 504 mac_timeout at the deadline, in clear words (turns too)', async () => {
+  WEB_RELAY.second = 10;
+  WEB_RELAY.probeMs = 100;
+  const o = await owner();
+  const ws = await connect(o);
+  // Jarvis isn't waiting on any card: the Mac is just slow.
+  autoAnswer(o, ws, ({ head }) => (head.path === '/api/chat/jarvis/status' ? { chunks: [JSON.stringify({ available: true, reason: null })] } : null));
+  let started = Date.now();
+  const slow = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20' }, body: { tool: 'recall', arguments: {} } });
+  assert.equal(slow.status, 504);
+  const problem = await slow.json();
+  assert.equal(problem.code, 'mac_timeout');
+  assert.match(problem.error, /didn’t answer within 20 seconds/);
+  assert.ok(Date.now() - started < 1500);
+  // A Mac whose link half-dropped answers nothing at all, the status neither: the deadline plus the short probe.
+  autoAnswer(o, ws, () => null);
+  started = Date.now();
+  const gone = await chat('/api/chat/brief', o.session, { method: 'POST', headers: { 'x-eden-wait': '5' }, body: {} });
+  assert.equal(gone.status, 504);
+  assert.equal((await gone.json()).code, 'mac_timeout');
+  assert.ok(Date.now() - started < 1500);
+  // A chat turn through the Mac (C4) honours it too.
+  env.EDEN_CHAT_VIA_MAC = '1';
+  try {
+    const turn = await chat('/api/chat/send', o.session, { method: 'POST', headers: { 'x-eden-wait': '5' }, body: { messages: [{ role: 'user', content: 'hi' }] } });
+    assert.equal(turn.status, 504);
+    assert.equal((await turn.json()).code, 'mac_timeout');
+  } finally {
+    delete env.EDEN_CHAT_VIA_MAC;
+  }
+  await settle();
+  for (let i = 0; i < 20 && o.account.webStreams.size; i++) await tick();
+  assert.equal(o.account.webStreams.size, 0, 'nothing left waiting');
+});
+
+test('x-eden-wait: a Mac that answers in time answers as usual; without the header the relay’s own wait and words are unchanged', async () => {
+  WEB_RELAY.second = 10;
+  const o = await owner();
+  const ws = await connect(o);
+  autoAnswer(o, ws, () => ({ chunks: [JSON.stringify({ text: 'Lyon in May', is_error: false })] }));
+  const quick = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20' }, body: { tool: 'recall', arguments: {} } });
+  assert.equal(quick.status, 200);
+  assert.deepEqual(await quick.json(), { text: 'Lyon in May', is_error: false });
+
+  // No header (the Mac app, older pages): WEB_RELAY.headMs, no status asked, the relay's own 504.
+  WEB_RELAY.headMs = 300;
+  const asked = [];
+  autoAnswer(o, ws, ({ head }) => {
+    asked.push(head.path);
+    return head.path === '/api/chat/jarvis/status' ? { chunks: [JSON.stringify({ available: true, reason: null, approval: 'waiting' })] } : null;
+  });
+  const started = Date.now();
+  const old = await chat('/api/chat/jarvis', o.session, { method: 'POST', body: { tool: 'recall', arguments: {} } });
+  assert.equal(old.status, 504);
+  assert.deepEqual(await old.json(), { error: 'Your Mac didn’t answer in time.', code: 'mac_timeout' });
+  assert.ok(Date.now() - started >= 290, 'the relay’s whole wait, not the page’s');
+  assert.deepEqual(asked, ['/api/chat/jarvis'], 'no status probe without the header');
 });

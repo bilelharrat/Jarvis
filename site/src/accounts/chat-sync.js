@@ -31,7 +31,7 @@ export function metaOf(c) {
   const pick = (k) => (c[k] === undefined ? undefined : c[k]);
   return {
     id: c.id, title: String(c.title || 'New chat').slice(0, 200), titleSet: pick('titleSet'), created: Number(c.created) || 0, updated: Number(c.updated) || 0,
-    pinned: Boolean(c.pinned), kind: c.kind || 'chat', personaId: pick('personaId') || null,
+    pinned: Boolean(c.pinned), folder: typeof c.folder === 'string' && c.folder.trim() ? c.folder.trim().slice(0, 40) : undefined, metaAt: Number(c.metaAt) || undefined, kind: c.kind || 'chat', personaId: pick('personaId') || null,
     project: c.project && typeof c.project === 'object' ? { name: String(c.project.name || '').slice(0, 120), path: c.project.path } : null,
     messages: Object.keys(c.nodes || {}).length,
   };
@@ -157,4 +157,89 @@ export async function chatSyncApi(request, env, who, op) {
     return json({ conflict: { ...out.conflict, conv } });
   }
   return json(out);
+}
+
+// ── bringing another sign-in's chats into this account ──
+//
+// Apple, Google and a passkey are separate Eden accounts until linked, so chats made under one
+// aren't under another. When "Add Google" (or Apple) finds that identity already opens another
+// account, the person has just proved they control it; session.js then mints a merge token for
+// (this account, that account). With it the browser asks for the chats to be copied across, a few
+// at a time: each is opened with the other account's key and sealed again under this one's.
+// Nothing is deleted or moved: the other account keeps its copy, and only chats are copied.
+
+export const MERGE_SECONDS = 900;
+const MERGE_STEP = 25;
+const mergeInfo = 'merge-token';
+const aadMerge = (a) => `merge:${a}`;
+
+/** A sealed grant for account `a` to read the chats of account `b` for a quarter of an hour. */
+export async function mintMergeToken(env, a, b) {
+  return sealWith(env, mergeInfo, aadMerge(a), { a, b, exp: Date.now() + MERGE_SECONDS * 1000 });
+}
+async function readMergeToken(env, a, token) {
+  const grant = await openWith(env, mergeInfo, aadMerge(a), token);
+  if (!grant || grant.a !== a || typeof grant.b !== 'string' || !(grant.exp > Date.now())) throw new ApiError(403, 'merge_expired', 'That took too long. Add the sign-in again to restart.');
+  return grant;
+}
+
+/** The other account's side (Account object, `cmerge-*`): refuses unless the grant is for it. */
+export async function chatMergeOp(account, op, request) {
+  const body = await request.json().catch(() => ({}));
+  const me = (await account.storage.get('account'))?.id;
+  const grant = await readMergeToken(account.env, String(body.a || ''), body.token);
+  if (!me || grant.b !== me) throw new ApiError(403, 'forbidden', 'Not this account’s to read.');
+  const st = account.storage;
+  switch (op) {
+    case 'cmerge-status': return json({ count: (await st.get('cvcount')) || 0 });
+    case 'cmerge-list': {
+      const since = Number(body.since) || 0;
+      const rows = [...(await st.list({ prefix: 'cvm:' })).values()].filter((r) => r.rev > since && !r.deleted).sort((a, b) => a.rev - b.rev);
+      const page = rows.slice(0, MERGE_STEP);
+      return json({ more: rows.length > page.length, items: page.map((r) => ({ id: r.id, rev: r.rev })) });
+    }
+    case 'cmerge-get': {
+      if (!idOk(body.id)) throw bad('Which chat?');
+      const r = await st.get(`cvm:${body.id}`);
+      if (!r || r.deleted) return json({ gone: true });
+      let ct = '';
+      for (let i = 0; i < r.n; i++) ct += (await st.get(`cvb:${body.id}:${i}`)) || '';
+      return json({ record: { iv: r.iv, ct } });
+    }
+    default: throw new ApiError(404, 'not_found', 'No such thing.');
+  }
+}
+
+/** The Worker's side: POST /api/web/merge/preview and /step, for the signed-in browser. */
+export async function chatMergeApi(request, env, who, op) {
+  if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'POST it.');
+  if (op !== 'preview' && op !== 'step') throw new ApiError(404, 'not_found', 'No such thing.');
+  await limited(env, env.CSYNC_RATE ? 'CSYNC_RATE' : 'API_RATE', `merge:${who.account}`);
+  const body = await readJson(request, 20_000);
+  const a = who.account;
+  const grant = await readMergeToken(env, a, body.token);
+  if (grant.b === a) throw bad('That is this account.');
+  const from = (name, extra = {}) => call(env, grant.b, name, { a, token: body.token, ...extra });
+  if (op === 'preview') return json({ count: (await from('cmerge-status')).count });
+  const list = await from('cmerge-list', { since: body.since });
+  let copied = 0, skipped = 0, failed = 0, since = Number(body.since) || 0, firstError = '';
+  for (const it of list.items) {
+    since = it.rev;
+    try {
+      const got = await from('cmerge-get', { id: it.id });
+      if (got.gone) continue;
+      const conv = await openWith(env, info(grant.b), aadBody(grant.b, it.id), got.record);
+      if (!conv || conv.id !== it.id || !conv.nodes || conv.temp) { failed++; continue; }
+      const record = await sealWith(env, info(a), aadBody(a, it.id), conv);
+      const meta = await sealWith(env, info(a), aadMeta(a, it.id), metaOf(conv));
+      const out = await call(env, a, 'csync-put', { id: it.id, record, meta, base_rev: 0, updated: conv.updated }, who.token);
+      if (out.conflict) skipped++; // this account already has that chat
+      else if (out.code) { failed++; firstError ||= out.error || ''; if (out.code === 'too_many' || out.code === 'too_big') { return json({ copied, skipped, failed, since, done: true, error: out.error }); } }
+      else copied++;
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      failed++;
+    }
+  }
+  return json({ copied, skipped, failed, since, done: !list.more, ...(firstError ? { error: firstError } : {}) });
 }

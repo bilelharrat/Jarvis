@@ -393,6 +393,14 @@ async function shareBackend() {
   return true;
 }
 
+// The boot-up sound (loading.js), once the window is on screen, unless the owner turned it off
+// (Settings › General, or the walkthrough: boot_sound in the backend's prefs.json).
+function playBootSound() {
+  let on = true;
+  try { on = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'prefs.json'), 'utf8')).boot_sound !== false; } catch { /* no settings yet: on */ }
+  if (on && win && !win.isDestroyed()) win.webContents.executeJavaScript('window.playBootSound && window.playBootSound()').catch(() => {});
+}
+
 function createWindow() {
   win = new BrowserWindow({
     ...FLAVOR.size,
@@ -405,7 +413,7 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
-      autoplayPolicy: 'no-user-gesture-required', // (J.A.R.V.I.S. Daredevil's opening sound, loading.js)
+      autoplayPolicy: 'no-user-gesture-required', // (the boot-up sound, loading.js)
     },
   });
   // (a quiet update's, or the sign-in's: asked once, as the mark is used up)
@@ -420,7 +428,7 @@ function createWindow() {
       if (shown || !win || win.isDestroyed()) return;
       shown = true;
       trace.write(hidden ? `the window is ready and stays hidden (${why})` : `window shown (${why})`);
-      if (!hidden) win.show();
+      if (!hidden) { win.show(); playBootSound(); }
     };
     win.once('ready-to-show', () => show('painted'));
     // A page that never paints (a graphics driver that won't draw) must not leave the app with no window at all.

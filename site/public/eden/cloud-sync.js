@@ -55,6 +55,9 @@ async function api(path, body = {}) {
   return out;
 }
 
+/** What askeden.com holds for this account: { count } or null. */
+export async function serverStatus() { try { return await api('/api/web/csync/status'); } catch { return null; } }
+
 export function info() {
   return {
     on: enabled, running, last: local ? local.last || 0 : 0, error: lastError, tooBig,

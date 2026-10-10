@@ -12,13 +12,15 @@
 // A comparison lives on the question (user node): compare = { kind: 'stronger'|'compare', ids,
 // kept, synthesis }. The pure parts are in compare-model.js; the turns in chat.js.
 
+import { deckEstimate } from './deck-model.js'; // Q14: a deck's estimate
 import { $, el, svgEl, ico, toast, EFFORT_SHORT, shortModel } from './util.js';
-import { state, ui, saveConversation, nodeText } from './state.js';
-import { availableModels, currentOverride, renderRouteControls } from './router.js';
+import { state, ui, saveConversation, saveSettings, nodeText } from './state.js';
+import { availableModels, currentOverride, renderRouteControls, schedulePreview } from './router.js';
 import { renderMarkdown } from './markdown.js';
 import { actualParts, compareTotals, costWords, estimateParts, pickSeconds, secondsWords, strongerPick } from './compare-model.js';
 import { autopilotTag, setAutopilotMenus } from './autopilot.js';
 import { isTainted } from './guard.js';
+import { capOf, estimateView as researchView, RESEARCH_CAPS, capWords, verifiedResearch } from './research-model.js'; // Q2: research's estimate and cap
 
 let H = { openMenu: () => {}, closeMenu: () => {} }; // from composer.js
 let T = { regenerate: () => {}, stop: () => {} }; // from chat.js
@@ -91,12 +93,26 @@ export function renderEstimate() {
   const p = state.preview;
   const o = currentOverride();
   const busy = c && state.streams.has(c.id);
-  const show = !(c && c.kind === 'code') && !busy && (mode === 'chat' || mode === 'compare') && !!(p || state.turnOverride);
+  const researching = mode === 'research' && verifiedResearch(state.meta); // Q2: research is priced before sending, with the person's cap
+  const show = !(c && c.kind === 'code') && !busy && (mode === 'chat' || mode === 'compare' || researching || mode === 'slides') && !!(p || state.turnOverride);
   box.hidden = !show;
   if (!show) { box.replaceChildren(); return; }
   const kids = [];
   const main = el('button', { type: 'button', class: 'jc-est-main', 'aria-haspopup': 'menu', 'aria-expanded': 'false' });
-  if (mode === 'compare') {
+  if (researching) {
+    const est = p && p.research;
+    const cap = capOf(state.settings);
+    const w = est && est.models && est.models.write;
+    const v = est ? researchView(est, { cap, subscription: !!(w && isSubscription(w.provider)) && !!(est.models.search && isSubscription(est.models.search.provider)) }) : null;
+    main.append(el('span', { class: 'jc-est-ic', 'aria-hidden': 'true' }, '⌕'));
+    if (p && p.loading && !v) main.append(el('span', 'jc-est-dim', 'Pricing the research…'));
+    else if (!v) main.append(el('span', 'jc-est-dim', `Research · ${capWords(cap)} · type a question`));
+    else if (v.error) main.append(el('span', 'jc-est-dim', v.error));
+    else main.append(...parts([el('b', '', 'Research'), el('span', '', v.searches), el('span', 'jc-est-cost', v.cost), el('span', v.fits ? '' : 'jc-est-warn', v.cap), v.time ? el('span', '', v.time) : null]));
+    main.title = v && !v.error ? (v.note || v.title) : 'Research plans the questions, searches the web, reads the sources and writes a report in which Eden checks every claim. Tap to set your budget cap.';
+    main.setAttribute('aria-label', v && !v.error ? `Research: ${v.searches}, ${v.cost}, ${v.cap}${v.time ? `, ${v.time}` : ''}. Set the budget cap` : 'Research budget cap');
+    if (p && p.loading) main.classList.add('loading');
+  } else if (mode === 'compare') {
     const est = p && p.compare;
     const t = est && !est.error ? compareTotals(est, (l) => isSubscription(l.provider)) : null;
     main.append(el('span', { class: 'jc-est-ic', 'aria-hidden': 'true' }, '⧉'));
@@ -111,7 +127,10 @@ export function renderEstimate() {
     main.append(el('span', { class: 'jc-est-ic', 'aria-hidden': 'true' }, state.turnOverride ? '↑' : '✦'));
     if (!pick && p && p.loading) main.append(el('span', 'jc-est-dim', 'Routing…'));
     else if (!pick) main.append(el('span', 'jc-est-dim', p && p.error ? 'Estimate unavailable' : ''));
-    else main.append(...parts([el('b', '', `${e.model}${e.effort ? ` · ${e.effort}` : ''}`), e.cost ? el('span', 'jc-est-cost', e.cost) : null, e.time ? el('span', '', e.time) : null]));
+    else if (mode === 'slides') { // Q14: priced for a whole deck, not a chat reply's length
+      const d = deckEstimate(pick, p && p.text, { patch: !!(c && c.deckVersions && c.deckVersions.length) });
+      main.append(...parts([el('b', '', 'Slides'), el('span', '', `${e.model}${e.effort ? ` · ${e.effort}` : ''}`), d ? el('span', 'jc-est-cost', isSubscription(pick.provider) ? 'subscription' : d.usd < 0.01 ? '< $0.01' : `~$${d.usd.toFixed(d.usd < 0.1 ? 3 : 2)}`) : null, d ? el('span', '', `~${d.slides} slide${d.slides === 1 ? '' : 's'}`) : null]));
+    } else main.append(...parts([el('b', '', `${e.model}${e.effort ? ` · ${e.effort}` : ''}`), e.cost ? el('span', 'jc-est-cost', e.cost) : null, e.time ? el('span', '', e.time) : null]));
     if (p && p.error && !pick) main.title = `The router couldn’t price this: ${p.error}`;
     else main.title = state.turnOverride ? 'Your pick for this message. Tap for the alternatives.' : o ? 'Your pinned model. Tap for the alternatives.' : 'The router’s pick for what you’re typing (rules; Gemini rates it when you send). Tap to upgrade or pick another.';
     main.setAttribute('aria-label', e ? `${state.turnOverride ? 'This message' : o ? 'Pinned' : 'Routed'} to ${e.model}${e.effort ? `, ${e.effort} effort` : ''}${e.cost ? `, ${e.cost}` : ''}${e.time ? `, ${e.time}` : ''}. Show alternatives` : 'Routing estimate');
@@ -147,6 +166,7 @@ function rowNote(r, { quality = true } = {}) {
 
 function openAlternatives(anchor) {
   if (curMode() === 'compare') { openCompareDetails(anchor); return; }
+  if (curMode() === 'research' && verifiedResearch(state.meta)) { openResearchDetails(anchor); return; }
   const p = state.preview;
   const o = currentOverride();
   const rows = ((p && p.rows) || []).filter((r) => r.eligible !== false);
@@ -166,6 +186,24 @@ function openAlternatives(anchor) {
   }
   if (state.turnOverride) items.push('-', { icon: 'router', label: 'Let the router pick', note: p && p.pick ? `${shortModel(p.pick.name)} for this text` : '', run: clearTurnOverride });
   items.push({ foot: 'A pick here is for this message only.' });
+  H.openMenu(anchor, items);
+}
+
+/** Q2: what research will run and the budget cap (a pick here stays until changed; it is sent as budgetUSD). */
+function openResearchDetails(anchor) {
+  const est = state.preview && state.preview.research;
+  const cap = capOf(state.settings);
+  const items = [{ heading: 'Research for this question' }];
+  if (!est || est.error || est.available === false) items.push({ label: est && (est.error || est.reason) ? 'Couldn’t price the research' : 'Type a question to see the plan', note: est ? est.error || est.reason || '' : '', disabled: true });
+  else {
+    const m = est.models || {};
+    if (m.search) items.push({ icon: 'globe', label: `${est.searches} web search${est.searches === 1 ? '' : 'es'} · ${shortModel(m.search.modelName)}`, note: rowNote(m.search, { quality: false }), run: () => {} });
+    if (m.write) items.push({ icon: 'smart', label: `Report · ${shortModel(m.write.modelName)}`, note: `${effortName(m.write.effort)} · ${rowNote(m.write, { quality: false })}`, run: () => {} });
+    items.push({ icon: 'check', label: 'Every claim checked', note: 'Cited, quotes and numbers found in their sources, links open, then fixed or removed', run: () => {} });
+  }
+  items.push('-', { heading: 'Budget cap' });
+  for (const x of RESEARCH_CAPS) items.push({ label: `$${x.toFixed(2)}`, note: x === 0.5 ? 'the default' : '', checked: Math.abs(cap - x) < 1e-9, run: () => { state.settings.researchBudget = x; saveSettings(); schedulePreview(); renderEstimate(); } });
+  items.push({ foot: 'Eden never spends more than the cap: a step that would go over it is skipped.' });
   H.openMenu(anchor, items);
 }
 

@@ -2,7 +2,7 @@
 // "Use in chat"), Memory (its own page now: memory.js), Calendar (calendar.js), Routines
 // (heads-up via notify_me), plus the inspector's Memory tab (recall, with a way into the page). Everything Jarvis returns is data: shown as text only.
 
-import { $, el, ico, toast, debounce } from './util.js';
+import { $, el, ico, toast, debounce, isTouch } from './util.js';
 import { state, ui } from './state.js';
 import { api } from './api.js';
 import { mailPanel, focusMail } from './mail.js';
@@ -47,6 +47,7 @@ async function call(tool, args) {
 
 export async function searchNotes(q) { return parseNotes(await call('search_notes', { query: q })); }
 
+// One look at a time: api.jarvisStatus shares the request in flight and gives up after 8 s (B1, C3).
 export async function checkJarvis() {
   try {
     const s = await api.jarvisStatus();
@@ -94,15 +95,20 @@ export function openSpace(key, opts = {}) {
   paintFull(key === 'mail' && fullPref());
   if (key === 'mail') { mailPanel(body).catch((e) => { failed(body, e); focusFirst(); }); requestAnimationFrame(() => focusMail(body) || focusFirst()); return; }
   if (key === 'memory') { memory(body); return; } // the Memory page shows its own needs-your-Mac state
-  if (!state.jarvis.available && key !== 'routines' && !s.offMac) { body.append(unavailable(key)); focusFirst(); return; }
-  if (s.load) { s.load().then((open) => open(body, opts)).then(focusFirst, (e) => failed(body, e)); return; }
+  if (!state.jarvis.available && key !== 'routines' && !s.offMac) { body.append(unavailable(key)); focusFirst(true); return; }
+  if (s.load) { s.load().then((open) => open(body, opts)).then(() => focusFirst(), (e) => failed(body, e)); return; }
   if (key === 'brain') brain(body, opts.query || '');
   else if (key === 'memory') memory(body);
   else if (key === 'cal') calendar(body);
   else routines(body);
-  focusFirst();
+  focusFirst(true);
 }
-function focusFirst() { requestAnimationFrame(() => { const f = $('spBody').querySelector('input, button, textarea') || $('btnSpClose'); f.focus(); }); }
+// On a touch screen iOS shows the keyboard only for a focus made during the tap itself: the field
+// is focused at once there (A6); a panel that loads later focuses its close button instead.
+function focusFirst(sync = false) {
+  const go = () => { const f = (isTouch() && !sync ? null : $('spBody').querySelector('input, button, textarea')) || $('btnSpClose'); f.focus(); };
+  if (sync && isTouch()) go(); else requestAnimationFrame(go);
+}
 export function closeSpace() {
   if (!$('spacePanel').classList.contains('open')) return false;
   // A click outside closes the panel on pointerdown, and that click places focus itself (in
@@ -129,7 +135,12 @@ function unavailable(key) {
 }
 
 function loading(box, text = 'Asking your Mac…') { box.replaceChildren(el('div', 'muted', text)); }
-function failed(box, e) { box.replaceChildren(el('div', 'sp-warn', el('b', '', 'That didn’t work'), e.message)); }
+// A failed call says why; with `retry`, a Try again button runs it again (a Mac that didn't answer in time).
+function failed(box, e, retry) {
+  box.replaceChildren(el('div', 'sp-warn', el('b', '', 'That didn’t work'), e.message,
+    retry ? el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn', onclick: retry }, 'Try again')) : null));
+}
+const again = (run) => ({ label: 'Try again', run });
 
 function brain(body, query) {
   const q = el('input', { class: 'sp-search', type: 'search', placeholder: 'Search your notes, documents, past research…', 'aria-label': 'Search your second brain' });
@@ -143,7 +154,7 @@ function brain(body, query) {
       const notes = await searchNotes(v);
       if (!notes.length) { res.replaceChildren(el('div', 'muted', 'Nothing in the second brain matches that.')); return; }
       res.replaceChildren(...notes.map((n) => noteRow(n)));
-    } catch (e) { failed(res, e); }
+    } catch (e) { failed(res, e, run); }
   };
   const deb = debounce(run, 400);
   q.addEventListener('input', deb);
@@ -153,7 +164,7 @@ function brain(body, query) {
 }
 
 function noteRow(n) {
-  const full = el('div', 'note-full');
+  const full = el('div', { class: 'note-full', 'data-no-i18n': '' });
   full.hidden = true;
   let text = null;
   const read = async () => {
@@ -163,13 +174,13 @@ function noteRow(n) {
     return text;
   };
   const row = el('div', 'sb-res',
-    el('b', '', n.title), n.meta ? el('span', 'm', n.meta) : null, n.excerpt ? el('p', '', n.excerpt) : null,
+    el('b', { 'data-no-i18n': '' }, n.title), n.meta ? el('span', { class: 'm', 'data-no-i18n': '' }, n.meta) : null, n.excerpt ? el('p', { 'data-no-i18n': '' }, n.excerpt) : null,
     el('div', 'acts',
       n.id ? el('button', { type: 'button', class: 'cap', onclick: async (e) => {
         const b = e.currentTarget;
         if (!full.hidden) { full.hidden = true; b.textContent = 'Read'; return; }
         b.textContent = 'Reading…';
-        try { full.textContent = await read(); full.hidden = false; b.textContent = 'Hide'; } catch (err) { b.textContent = 'Read'; toast(err.message); }
+        try { full.textContent = await read(); full.hidden = false; b.textContent = 'Hide'; } catch (err) { b.textContent = 'Read'; toast(err.message, err.timeout ? again(() => b.click()) : undefined); }
       } }, 'Read') : null,
       el('button', { type: 'button', class: 'cap primary', onclick: async () => {
         try { const t = await read(); H.addContext({ title: `Note: ${n.title}`, text: t || n.excerpt }); } catch (err) { toast(err.message); }
@@ -220,7 +231,7 @@ export async function notify(text, title) {
   const t = String(text || '').trim();
   if (!t) { toast('Write the heads-up first'); return; }
   try { await call('notify_me', { text: t.slice(0, 300), ...(title && title.trim() ? { title: title.trim() } : {}) }); toast('Heads-up sent to your Mac'); closeSpace(); }
-  catch (e) { toast(`Couldn’t send: ${e.message}`); }
+  catch (e) { toast(`Couldn’t send: ${e.message}`, e.timeout ? again(() => notify(text, title)) : undefined); }
 }
 
 /* ---------- inspector: Memory tab ---------- */
@@ -234,16 +245,26 @@ export async function renderMemoryTab(force) {
   try {
     const facts = parseRecall(await call('recall', { query: $('memQ').value.trim() }));
     if (!facts.length) { card.replaceChildren(el('div', 'muted', 'Nothing remembered about that.')); return; }
-    card.replaceChildren(...facts.map((f) => el('div', 'mem-row', el('span', 'mem-txt', f),
+    card.replaceChildren(...facts.map((f) => el('div', 'mem-row', el('span', { class: 'mem-txt', 'data-no-i18n': '' }, f),
       el('button', { type: 'button', class: 'iconbtn', style: { width: '24px', height: '24px' }, title: 'Use in the next message', 'aria-label': 'Use in the next message', onclick: () => H.addContext({ title: `Memory: ${f.slice(0, 40)}${f.length > 40 ? '…' : ''}`, text: f }) }, ico('plus', 12)))),
       el('div', { style: { paddingTop: '8px' } }, el('button', { type: 'button', class: 'cap', onclick: () => openMemoryPage({ query: $('memQ').value.trim() }) }, ico('bulb', 12), 'Open Memory: sources, edit, switch')));
-  } catch (e) { card.replaceChildren(el('div', 'muted', `Couldn’t read memory: ${e.message}`)); }
+  } catch (e) { card.replaceChildren(el('div', 'muted', `Couldn’t read memory: ${e.message}`, ' ', el('button', { type: 'button', class: 'cap', onclick: () => renderMemoryTab(true) }, 'Try again'))); }
 }
 
 /** The Memory page (memory.js), loaded when first opened. */
 export async function openMemoryPage(opts = {}) {
   try { (await import('./memory.js')).openMemory(opts); } catch (e) { toast(e.message); }
 }
+
+// The Mac is showing "Let Eden use Jarvis?" (api.js): say so in the open panel, where the person is
+// looking (on a phone the sidebar's status line is out of sight), until it's answered (A1, C2).
+addEventListener('eden:jarvis-approval', (e) => {
+  const w = !!(e.detail && e.detail.waiting);
+  const body = document.getElementById('spBody');
+  const had = document.getElementById('spApproval');
+  if (!w || !body || !spaceOpen()) { if (had) had.remove(); return; }
+  if (!had) body.prepend(el('div', { class: 'sp-warn', id: 'spApproval', role: 'status' }, el('b', '', 'Approve Eden on your Mac'), 'Your Mac is asking “Let Eden use Jarvis?”. Choose Allow there and this continues by itself.'));
+});
 
 export function initPanels(handlers) {
   H = handlers;

@@ -7,6 +7,7 @@
 //   /signin                  Eden's sign-in page (Apple, Google, a passkey, a code the iPhone approves)
 //   /privacy, /terms         the Privacy Policy and Terms of Service (eden/pages.js)
 //   /help, /help/…           Help: the FAQ, signed out too (eden/help.js, via eden/pages.js)
+//   /accuracy                how often AI makes things up: the chart and its method, signed out too (eden/pages.js)
 //   POST /api/help/ask       Ask Help, grounded in the FAQ (eden/help.js)
 //   /<Eden's files>, /signin/…, /artifact/<id>   the same (eden/pages.js)
 //   /p/<id>                  a published Eden page (accounts/published.js, via eden/pages.js)
@@ -38,12 +39,14 @@
 // What "latest" is lives in R2 itself: latest.json, written by the release script after the
 // disk image is up, so a half-uploaded release is never offered.
 
-import { api } from './accounts/index.js';
+import { api, call } from './accounts/index.js';
+import { PIXEL, openVia, readReceiptToken } from './accounts/receipts.js';
 import { tokenFrom } from './accounts/util.js';
 import { chatApi } from './eden/chat.js';
 import { connectPage, edenApi } from './eden/ask.js';
 import { stripeApi } from './eden/billing.js';
 import { promoAdmin } from './accounts/promo.js';
+import { ltiAdmin, ltiRoute } from './edu/lti.js';
 import { edenPage } from './eden/pages.js';
 import { helpApi } from './eden/help.js';
 import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
@@ -56,6 +59,7 @@ export { Course } from './edu/course.js';
 import { BROWSER_PATH, browserApi } from './browser/api.js';
 import { RUN_PATH, runApi } from './eden/run.js';
 import { JARVIS_VOICE_ID, LIMITS } from './voice-config.js';
+import { courseVoice } from './edu/budget.js';
 
 const LATEST = 'latest.json';
 // Before the R2 bucket is bound (a deploy without it), the download is the notarized disk
@@ -84,6 +88,9 @@ async function route(request, env, ctx) {
   // edu.askeden.com: Eden for Education's own address, a doorway to askeden.com/edu (one sign-in, one cookie)
   if (url.hostname === 'edu.askeden.com') return Response.redirect('https://askeden.com/edu', 301);
   const path = url.pathname.replace(/\/+$/, '') || '/';
+  if (path.startsWith('/r/')) return receiptPixel(request, env, ctx, path); // Eden Mail's read receipts (accounts/receipts.js)
+  // LTI 1.3 (Canvas, Moodle, Blackboard): the platform posts here cross-site, so before the Origin and GET-only rules (edu/lti.js)
+  if (path.startsWith('/lti/')) return ltiRoute(request, env, ctx, path);
   if (path === '/api' || path.startsWith('/api/')) {
     // @Eden for Eden Messenger: its own Origin rules (CORS for Messenger only; eden/ask.js).
     if (path.startsWith('/api/eden/')) return edenApi(request, env, ctx, path);
@@ -91,6 +98,8 @@ async function route(request, env, ctx) {
     if (path === '/api/stripe' || path.startsWith('/api/stripe/')) return stripeApi(request, env, ctx, path);
     // Minting promo codes: the owner's server call, guarded by PROMO_ADMIN_TOKEN (accounts/promo.js).
     if (path === '/api/admin/promo') return promoAdmin(request, env);
+    // LTI registrations: the owner's server call, guarded by LTI_ADMIN_TOKEN (edu/lti.js)
+    if (path === '/api/admin/lti') return ltiAdmin(request, env);
     const refused = fromElsewhere(request, path);
     if (refused) return refused;
     if (path === BROWSER_PATH) return browserApi(request, env); // the cloud browser's socket (browser/api.js)
@@ -244,8 +253,8 @@ async function askEdenMac(request, env, path) {
 export const WINDOWS = {
   'ask-eden': { variable: 'ASK_EDEN', name: 'Ask Eden', tag: 'ask-eden-windows-v0.1.0', file: 'Ask-Eden-Setup-0.1.0-x64.exe', version: '0.1.0', size: 110809211 },
   'eden-code': { variable: 'EDEN_CODE', name: 'Eden Code', tag: 'eden-code-windows-v0.1.8', file: 'Eden-Code-Setup-0.1.8-x64.exe', version: '0.1.8', size: 300218062 },
-  jarvis: { variable: 'JARVIS', name: 'J.A.R.V.I.S.', tag: 'jarvis-windows-v0.1.13', file: 'J-A-R-V-I-S--Setup-0.1.13-x64.exe', version: '0.1.13', size: 303723280 },
-  daredevil: { variable: 'DAREDEVIL', name: 'J.A.R.V.I.S. Daredevil', tag: 'daredevil-windows-v0.1.14', file: 'J-A-R-V-I-S-Daredevil-Setup-0.1.14-x64.exe', version: '0.1.14', size: 327754786 },
+  jarvis: { variable: 'JARVIS', name: 'J.A.R.V.I.S.', tag: 'jarvis-windows-v0.1.18', file: 'J-A-R-V-I-S--Setup-0.1.18-x64.exe', version: '0.1.18', size: 328564464 },
+  daredevil: { variable: 'DAREDEVIL', name: 'J.A.R.V.I.S. Daredevil', tag: 'daredevil-windows-v0.1.18', file: 'J-A-R-V-I-S-Daredevil-Setup-0.1.18-x64.exe', version: '0.1.18', size: 328464570 },
 };
 const WINDOWS_PATHS = {
   '/download/windows': 'ask-eden',
@@ -343,6 +352,7 @@ export function appSiteAssociation(env) {
           { '/': '/jarvis/*', exclude: true },
           { '/': '/daredevil*', exclude: true },
           { '/': '/p/*', exclude: true },
+          { '/': '/s/*', exclude: true },
           { '/': '/*' },
         ],
       }],
@@ -412,7 +422,10 @@ async function voice(request, env, path = '/api/voice') {
   }
   // Signed in: the account's own daily allowance (more with Jarvis Plus). The everyone-
   // together ceiling still counts, so the owner's bill keeps its limit.
-  if (account && env.ACCOUNTS) {
+  // A student's J.A.R.V.I.S. tutor in a course (`course`): the free study voice, or more while the course is funded (edu/budget.js)
+  const studyVoice = eden && account && env.ACCOUNTS && typeof body.course === 'string' ? await courseVoice(env, account, body.course, text.length, { own: body.eduOwn === true }).catch(() => null) : null;
+  if (studyVoice && !studyVoice.ok) return json({ error: studyVoice.why, allowance: 'study' }, 429, { 'retry-after': '3600' });
+  if (account && env.ACCOUNTS && !studyVoice) {
     const answer = await env.ACCOUNTS.get(env.ACCOUNTS.idFromName(account.account)).fetch('https://account/voice', {
       method: 'POST',
       headers: { 'x-jarvis-device': account.device, 'x-jarvis-secret': account.secret },
@@ -497,4 +510,18 @@ export function toHttps(request) {
   url.protocol = 'https:';
   url.port = '';
   return new Response(null, { status: 308, headers: { location: url.toString(), 'cache-control': 'public, max-age=3600' } });
+}
+
+// A read receipt's image: always the same transparent pixel (never an error a mail app could
+// show), never cached, so each open reaches here. The open is logged after the answer.
+async function receiptPixel(request, env, ctx, path) {
+  const m = /^\/r\/([A-Za-z0-9_.-]{1,500})\.gif$/.exec(path);
+  if (m && (request.method === 'GET' || request.method === 'HEAD') && env.ACCOUNTS) {
+    const work = (async () => {
+      const t = await readReceiptToken(env, m[1]).catch(() => null);
+      if (t) await call(env, t.account, 'rcpt-open', { id: t.id, via: openVia(request.headers.get('user-agent') || '') }).catch(() => {});
+    })();
+    if (ctx && ctx.waitUntil) ctx.waitUntil(work); else await work;
+  }
+  return new Response(request.method === 'HEAD' ? null : PIXEL, { headers: { 'content-type': 'image/gif', 'cache-control': 'no-store, no-cache, must-revalidate, private', 'referrer-policy': 'no-referrer', 'x-robots-tag': 'noindex' } });
 }

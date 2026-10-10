@@ -15,11 +15,16 @@
 //      calibrate/providers.ts, and provider-info.ts: fetch only, no Node APIs) as
 //      src/eden/vendor/providers.js, so askeden.com builds and parses the Anthropic, OpenAI,
 //      Gemini and Moonshot streams with the Mac's own code (src/eden/providers.js);
+//   3c. bundles Eden's two fact checks (ROADMAP N19: src/verify/presupposition.ts, the assumption check
+//      before an answer, and falsification.ts, the web check after one) with the risk class (risk.ts) and
+//      the labels under replies (labels.ts): runtime-neutral, the model calls injected; as
+//      src/eden/vendor/verify.js, for src/eden/checks.js;
 //   4. writes src/eden/manifest.js: the files the Worker may serve at the root, and where they
 //      came from;
 //   5. copies web/help (the FAQ, its pictures, the public Help page) into public/help/, served at
 //      askeden.com/help signed out too, and bundles web/help/help-core.js with the FAQ and its
-//      search index (built here, once) as src/eden/vendor/help.js, for Ask Help (src/eden/help.js).
+//      search index (built here, once) as src/eden/vendor/help.js, for Ask Help (src/eden/help.js);
+//      with web/help/faq.fr.json, the French FAQ and its index too (FAQ_FR, INDEX_FR; null without it).
 //
 // Re-run it whenever web/chat or the router changes (it's quick and idempotent):
 //
@@ -46,6 +51,8 @@ const GOOGLE_EXPORTS = {
     'GMAIL_API', 'GMAIL_UPLOAD_API', 'MAX_ATTACHMENT_BYTES', 'MEDIA_UPLOAD_THRESHOLD', 'blockedExtension', 'googleHttpError', 'normalizeBase64', 'safeFileName'],
   'src/chat/gmail-uploads.ts': ['UPLOAD_CHUNK_BYTES', 'UPLOAD_ID', 'UPLOAD_MAX_BYTES', 'missing'],
   'src/chat/gcal.ts': ['CALENDAR_SCOPES', 'createCalendarApi', 'hasCalendarScopes', 'runCalendarAction'],
+  // Google Sheets and Drive with drive.file (askeden ROADMAP Q15): the spreadsheet canvas's open, write-back and upload.
+  'src/chat/sheets.ts': ['DRIVE_FILE_SCOPE', 'SHEETS_WRITES', 'createSheetsApi', 'hasSheetsScope', 'pickerToken', 'runSheetsAction'],
   // Prompt-injection guard (ROADMAP H8): the hosted turns wrap untrusted content the same way (src/eden/chat.js).
   'src/chat/provenance.ts': ['contextKind', 'createLedger'],
 };
@@ -57,6 +64,14 @@ const PROVIDER_EXPORTS = {
   'src/calibrate/providers.ts': ['usageCost', 'requestMaxOutputTokens', 'withMaxOutputTokens', 'redact'],
   'src/chat/provider-info.ts': ['PROVIDER_NAMES', 'computedWhere', 'hasVision'],
 };
+// What src/eden/checks.js uses of Eden's verification (askeden src/verify: no Node APIs, every model call injected).
+const VERIFY_VENDOR = path.join(SITE, 'src', 'eden', 'vendor', 'verify.js');
+const VERIFY_EXPORTS = {
+  'src/verify/presupposition.ts': ['auditPresuppositions', 'hasFactualPremise', 'premiseNote', 'PREMISE_MAX_CALLS', 'PREMISE_MAX_SEARCHES'],
+  'src/verify/falsification.ts': ['FALSIFY_THRESHOLD', 'FALSIFY_MAX_CALLS', 'falsifyAnswer', 'isFactualLookup', 'reanswerWithSearch'],
+  'src/verify/risk.ts': ['assessRisk'],
+  'src/verify/labels.ts': ['buildVerification', 'worthSending', 'PREMISE_CORRECTED', 'WEB_CORRECTED', 'WEB_DISAGREES'],
+};
 const MANIFEST = path.join(SITE, 'src', 'eden', 'manifest.js');
 const HOSTED = path.join(SITE, 'web');
 const HELP_OUT = path.join(SITE, 'public', 'help');
@@ -65,7 +80,7 @@ const HELP_VENDOR = path.join(SITE, 'src', 'eden', 'vendor', 'help.js');
 // What the page may be made of. Anything else in web/chat is left out (and named).
 const TYPES = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.woff2', '.woff', '.json', '.txt']);
 // Root paths the Worker already answers: an Eden file may never take one.
-const RESERVED = new Set(['download', 'latest.json', 'jarvis', 'messenger', 'api', 'artifact', 'signin', 'eden', 'help', 'favicon.ico', 'robots.txt']);
+const RESERVED = new Set(['download', 'latest.json', 'jarvis', 'messenger', 'api', 'artifact', 'signin', 'eden', 'help', 's', 'p', 'favicon.ico', 'robots.txt']);
 // Lines added to the copy's index.html, just before </head>.
 const ADDED_HEAD = '<meta name="robots" content="noindex, nofollow">\n<script type="module" src="hosted.js"></script>\n';
 
@@ -179,6 +194,8 @@ function helpFiles(router) {
 async function bundleHelp(router, files) {
   const core = path.join(router, 'web', 'help', 'help-core.js');
   const faq = JSON.parse(fs.readFileSync(path.join(router, 'web', 'help', 'faq.json'), 'utf8'));
+  const frFile = path.join(router, 'web', 'help', 'faq.fr.json');
+  const faqFr = fs.existsSync(frFile) ? JSON.parse(fs.readFileSync(frFile, 'utf8')) : null;
   const { buildIndex } = await import(pathToFileURL(core).href);
   const esbuild = createRequire(path.join(router, 'package.json'))('esbuild');
   const result = await esbuild.build({
@@ -187,6 +204,8 @@ async function bundleHelp(router, files) {
         "export * from './web/help/help-core.js';",
         `export const FAQ = ${JSON.stringify(faq)};`,
         `export const INDEX = ${JSON.stringify(buildIndex(faq))};`,
+        `export const FAQ_FR = ${JSON.stringify(faqFr)};`,
+        `export const INDEX_FR = ${JSON.stringify(faqFr ? buildIndex(faqFr) : null)};`,
         `export const HELP_FILES = ${JSON.stringify(files.map((f) => f.name))};`,
       ].join('\n'),
       resolveDir: router,
@@ -264,6 +283,9 @@ async function main() {
   const providers = await bundleGoogle(opts.router, PROVIDER_EXPORTS);
   const providersHeader = `// Eden's provider streaming (askeden ${source.commit || 'unknown commit'}${source.dirty ? ', with uncommitted changes' : ''}: src/chat/stream.ts, sse.ts, provider-info.ts, calibrate/providers.ts), bundled ${new Date().toISOString().slice(0, 10)} by site/scripts/sync-eden.mjs. Generated: edit the askeden repo, not this file.\n`;
   fs.writeFileSync(PROVIDERS_VENDOR, providersHeader + providers);
+  const verify = await bundleGoogle(opts.router, VERIFY_EXPORTS);
+  const verifyHeader = `// Eden's fact checks (askeden ${source.commit || 'unknown commit'}${source.dirty ? ', with uncommitted changes' : ''}: src/verify/presupposition.ts, falsification.ts, risk.ts, labels.ts), bundled ${new Date().toISOString().slice(0, 10)} by site/scripts/sync-eden.mjs. Generated: edit the askeden repo, not this file.\n`;
+  fs.writeFileSync(VERIFY_VENDOR, verifyHeader + verify);
 
   const manifest = {
     files: files.map((f) => f.name),
@@ -288,6 +310,7 @@ async function main() {
   console.log(`src/eden/vendor/model-router.js: ${kb(Buffer.byteLength(header + code))}`);
   console.log(`src/eden/vendor/google.js: ${kb(Buffer.byteLength(googleHeader + google))}`);
   console.log(`src/eden/vendor/providers.js: ${kb(Buffer.byteLength(providersHeader + providers))}`);
+  console.log(`src/eden/vendor/verify.js: ${kb(Buffer.byteLength(verifyHeader + verify))}`);
   console.log(`public/help: ${help.length} files (${kb(help.reduce((n, f) => n + f.bytes.length, 0))}); src/eden/vendor/help.js: ${kb(Buffer.byteLength(helpHeader + helpCode))}`);
 }
 

@@ -10,6 +10,7 @@
 
 import { el, ico, toast, copyText, download, sizeText } from './util.js';
 import { state } from './state.js';
+import { locale, t } from './i18n.js';
 import { getJSON, postJSON, apiUrl } from './api.js';
 import { PUBLISH_MAX_BYTES, byteSize, pageFileName, standaloneHtml } from './publish-rules.js';
 
@@ -43,8 +44,8 @@ export function openPublish({ title, html }) {
     return;
   }
   const size = byteSize(html);
-  const name = el('input', { type: 'text', maxlength: 120, value: title || 'Untitled page', 'aria-label': 'Title' });
-  name.value = title || 'Untitled page';
+  const name = el('input', { type: 'text', maxlength: 120, value: title || t('Untitled page'), 'aria-label': 'Title' });
+  name.value = title || t('Untitled page');
   let access = 'private';
   const choice = el('div', { class: 'pub-access', role: 'radiogroup', 'aria-label': 'Who can see it' });
   const drawChoice = () => choice.replaceChildren(...Object.entries(ACCESS).map(([k, a]) => el('button', {
@@ -92,7 +93,7 @@ function linkRow(page) {
 
 function showPublished(page) {
   H.openDialog('Published', el('div', 'publish',
-    el('p', 'pub-lead', el('b', '', page.title), ` is live: ${ACCESS[page.access].label.toLowerCase()}.`),
+    el('p', 'pub-lead', el('b', { 'data-no-i18n': '' }, page.title), ` is live: ${ACCESS[page.access].label.toLowerCase()}.`),
     linkRow(page),
     el('p', 'pub-note', page.access === 'private' ? 'Only you can open it, signed in to Eden. Change who can see it below.' : 'Anyone with the link can open it. Take it down below whenever you like.'),
     publishedSection({ highlight: page.id }),
@@ -123,8 +124,8 @@ export function publishedSection({ highlight } = {}) {
         catch (e) { toast(`Couldn’t take it down: ${e.message}`); }
       });
       return el('div', { class: `pub-row${p.id === highlight ? ' new' : ''}` },
-        el('div', 'grow', el('a', { href: absolute(p.url), target: '_blank', rel: 'noopener noreferrer', class: 'pr-t' }, p.title),
-          el('div', 'pr-c', `${sizeText(p.bytes)} · ${new Date(p.updated || p.created).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`)),
+        el('div', 'grow', el('a', { href: absolute(p.url), target: '_blank', rel: 'noopener noreferrer', class: 'pr-t', 'data-no-i18n': '' }, p.title),
+          el('div', 'pr-c', `${sizeText(p.bytes)} · ${new Date(p.updated || p.created).toLocaleDateString(locale(), { month: 'short', day: 'numeric' })}`)),
         sel,
         el('button', { type: 'button', class: 'iconbtn', title: 'Copy link', 'aria-label': `Copy the link to ${p.title}`, onclick: () => copyText(absolute(p.url)) }, ico('copy', 15)),
         down);

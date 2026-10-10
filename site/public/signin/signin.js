@@ -176,6 +176,7 @@ function loadTurnstile(siteKey) {
     window.turnstile.render('#human', {
       sitekey: siteKey,
       action: 'signup',
+      language: document.documentElement.lang === 'fr' ? 'fr' : 'auto', // the page's language (/lang/site-i18n.js)
       callback: (token) => { human = { token }; },
       'expired-callback': () => { human = null; },
       'error-callback': () => { human = null; },

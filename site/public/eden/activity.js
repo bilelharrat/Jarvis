@@ -6,8 +6,9 @@
 
 import { el, ico, toast } from './util.js';
 import { getJSON, postJSON } from './api.js';
+import { locale } from './i18n.js';
 
-const KIND = { calendar: 'cal', mail: 'mail', memory: 'bulb', promise: 'check', browser: 'globe', other: 'more' };
+const KIND = { calendar: 'cal', mail: 'mail', memory: 'bulb', promise: 'check', browser: 'globe', sheet: 'chart', other: 'more' };
 const FILTERS = [['all', 'All'], ['calendar', 'Calendar'], ['mail', 'Mail'], ['memory', 'Memory'], ['other', 'Other']];
 let filter = 'all';
 
@@ -17,9 +18,9 @@ function dayName(iso) {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   if (d.getTime() >= start) return 'Today';
   if (d.getTime() >= start - 864e5) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  return d.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
 }
-const time = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+const time = (iso) => new Date(iso).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 const kindOf = (it) => (['calendar', 'mail', 'memory'].includes(it.kind) ? it.kind : 'other');
 
 /** The Activity panel, in the space panel's body. */
@@ -56,7 +57,7 @@ async function render(root) {
 }
 
 function row(root, it) {
-  const where = it.where === 'google' ? 'Google' : 'Your Mac';
+  const where = it.where === 'google' && it.tool !== 'file_save' ? 'Google' : 'Your Mac'; // file_save: a spreadsheet Eden saved on the Mac itself (Q15)
   const side = el('div', 'act-side');
   if (it.undone) side.append(el('span', 'act-done', ico('retry', 11), `Undone ${time(it.undone)}`));
   else if (it.undo && it.undo.possible) side.append(el('button', { type: 'button', class: 'cap', onclick: () => review(root, card, it) }, ico('retry', 12), 'Undo'));
@@ -80,7 +81,7 @@ function review(root, card, it) {
   const go = el('button', { type: 'button', class: 'btn primary' }, 'Undo');
   const box = el('div', { class: 'act-review', role: 'group', 'aria-label': 'Undo this?' },
     el('b', '', 'Undo this?'), el('div', '', it.label),
-    el('div', 'muted', mac ? 'Jarvis asks you on your Mac too; it happens only on your yes there.' : 'Eden puts it back in Google now. Nobody is emailed about it.'),
+    el('div', 'muted', mac ? 'Jarvis asks you on your Mac too; it happens only on your yes there.' : it.tool === 'file_save' ? 'Eden puts the file on your Mac back as it was.' : 'Eden puts it back in Google now. Nobody is emailed about it.'),
     el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn', onclick: () => { box.remove(); side.hidden = false; side.querySelector('button')?.focus(); } }, 'Cancel'), go));
   go.addEventListener('click', async () => {
     go.disabled = true;

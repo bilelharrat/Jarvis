@@ -213,13 +213,17 @@ async function deleteAccount(request, env) {
 export async function eraseAccount(env, accountId, auth, { confirm = null } = {}) {
   // Team spaces and delegations are read first (the account's own object is about to go), erased after.
   const team = env.ACCOUNTS ? await import('./space.js').then((m) => m.teamSnapshot(env, accountId, auth).then((snap) => ({ m, snap }))).catch(() => null) : null;
-  const { apple_grant: grant, identities = [], stripe_subscription: stripeSub, published = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
+  const { apple_grant: grant, apple_grants: grants = {}, identities = [], stripe_subscription: stripeSub, published = [], shared = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
   if (grant) await revoke(env, grant);
+  // The Eden apps' grants, each with the client id it was issued to (eden/session.js nativeApple).
+  for (const [clientId, token] of Object.entries(grants || {})) await revoke(env, token, fetch, clientId);
   // Plus bought on the web stops now (best effort); the App Store's is the person's to cancel.
   if (stripeSub) await cancelSubscription(env, stripeSub);
   if (team) await team.m.eraseTeamData(env, accountId, team.snap).catch((e) => console.error('team cleanup failed', e && e.message));
   // Its published pages' links go too (accounts/published.js `pub:<id>`).
   for (const id of published) await call(env, `pub:${id}`, 'pub-index-drop', { account: accountId }).catch(() => {});
+  // And its shared chats' links (accounts/shared-chats.js `shr:<id>`).
+  for (const id of shared) await call(env, `shr:${id}`, 'share-index-drop', { account: accountId }).catch(() => {});
   // The cloud browser's history, bookmarks and agent log live in its own per-account object.
   if (env.BROWSER_SESSIONS) {
     await env.BROWSER_SESSIONS.get(env.BROWSER_SESSIONS.idFromName(accountId)).fetch('https://browser/erase', { method: 'POST' }).catch((e) => console.error('cloud browser cleanup failed', e && e.message));
@@ -306,6 +310,15 @@ export async function linkIdentity(env, { provider, sub, email = null, account_i
     throw error;
   }
   return { provider, email };
+}
+
+/** The account an identity opens, or null (never seen, or unlinked): used to offer bringing its chats across. */
+export async function identityOwner(env, { provider, sub }) {
+  if (!env.IDENTITIES) return null;
+  const found = await callIdentity(env, provider, await subHashOf(provider, sub), 'get');
+  if (found.state === 'linked') return found.account_id;
+  if (found.state === 'none' && provider === 'apple') { const derived = await accountIdFor(sub); return (await accountExists(env, derived)) ? derived : null; }
+  return null;
 }
 
 /** Takes a sign-in method off the signed-in browser's account (never the last one). */

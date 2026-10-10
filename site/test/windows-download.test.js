@@ -79,15 +79,15 @@ test('/daredevil is its page, with the landing pages\' policy, and opens in the 
 
 // ── the buttons ──
 
-test('the front page: download for Mac and for Windows, and a slot of its own for J.A.R.V.I.S. Daredevil', () => {
+test('the front page: download for Mac and for Windows; J.A.R.V.I.S. Daredevil is not on it (only at /daredevil)', () => {
   const html = read('home/index.html');
-  for (const href of ['/download/mac', '/download/windows', '/daredevil/windows', '/daredevil', '/download', '/signin']) {
+  for (const href of ['/download/mac', '/download/windows', '/download', '/signin']) {
     assert.ok(html.includes(`href="${href}"`), href);
   }
   assert.match(html, /Download for Windows/);
-  assert.match(html, /J\.A\.R\.V\.I\.S\. Daredevil/);
-  // its policy allows no script and no inline style (default-src 'none'; style-src 'self')
-  assert.doesNotMatch(html, /<script/);
+  assert.doesNotMatch(html, /daredevil/i);   // the owner's call (2026-10-09): the blind edition has its own page and is not advertised here
+  // its policy allows no inline script and no inline style (default-src 'none'; script-src 'self' for the language script; style-src 'self')
+  assert.doesNotMatch(html, /<script(?! src="\/lang\/site-i18n\.js" data-page="home"><\/script>)(?! src="\/home\/features\.js" defer><\/script>)/);
   assert.doesNotMatch(html, /\sstyle=/);
   assert.doesNotMatch(html, /<style/);
   assert.match(html, /<html lang="en">/);
@@ -111,11 +111,12 @@ test('the front page can be read by a screen reader: landmarks, headings in orde
   for (const m of html.matchAll(/<svg\b[^>]*>/g)) assert.match(m[0], /aria-hidden="true"/, m[0]);
 });
 
-test('the apps page: Windows downloads beside the Mac ones, and J.A.R.V.I.S. Daredevil', () => {
+test('the apps page: Windows downloads beside the Mac ones; no J.A.R.V.I.S. Daredevil (only at /daredevil)', () => {
   const html = read('jarvis/index.html');
-  for (const href of ['/jarvis/windows', '/eden-code/windows', '/download/windows', '/daredevil/windows', '/daredevil', '/jarvis/download', '/eden-code/download', '/download/mac']) {
+  for (const href of ['/jarvis/windows', '/eden-code/windows', '/download/windows', '/jarvis/download', '/eden-code/download', '/download/mac']) {
     assert.ok(html.includes(`href="${href}"`), href);
   }
+  assert.doesNotMatch(html, /daredevil/i);
   assert.match(html, /<a class="home" href="\/">Eden home<\/a>/); // (kept: eden.test.js)
   assert.match(html, /Windows 10 or 11/);
 });

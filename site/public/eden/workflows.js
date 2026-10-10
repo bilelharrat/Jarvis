@@ -16,6 +16,7 @@ import { el, ico, toast, copyText } from './util.js';
 import { state } from './state.js';
 import { apiUrl } from './api.js';
 import { acting } from './acting.js';
+import { t } from './i18n.js';
 import { checkWorkflow, extractWorkflow, fillTemplate, findBlanks, blanksIn, blankKey, mergeWorkflows, templateFrom } from './workflow-model.js';
 
 const KEY = 'eden:workflows';
@@ -185,7 +186,9 @@ export const workflowsOpen = () => Boolean(sheet && sheet.classList.contains('op
 
 function paint() {
   const body = sheet.querySelector('#wfBody');
-  sheet.querySelector('#wfTitle').textContent = view.kind === 'edit' ? (view.isNew ? 'Save as workflow' : 'Edit workflow') : view.kind === 'run' ? view.w.name : view.kind === 'schedule' ? 'Run on a schedule' : 'Workflows';
+  const head = sheet.querySelector('#wfTitle');
+  head.toggleAttribute('data-no-i18n', view.kind === 'run'); // a workflow's name is the owner's
+  head.textContent = view.kind === 'edit' ? (view.isNew ? 'Save as workflow' : 'Edit workflow') : view.kind === 'run' ? view.w.name : view.kind === 'schedule' ? 'Run on a schedule' : 'Workflows';
   body.replaceChildren(view.kind === 'edit' ? editor(view) : view.kind === 'run' ? runForm(view.w) : view.kind === 'schedule' ? scheduleForm(view.w) : gallery());
 }
 
@@ -197,7 +200,7 @@ const modelName = (id) => {
 };
 
 function preview(template) {
-  const out = el('p', 'wf-tpl');
+  const out = el('p', { class: 'wf-tpl', 'data-no-i18n': '' });
   let at = 0;
   const t = template.length > 220 ? `${template.slice(0, 219)}…` : template;
   for (const m of t.matchAll(/\{([a-z][a-z0-9_]{0,30})\}/g)) {
@@ -223,7 +226,7 @@ function gallery() {
       w.mode !== 'chat' ? el('span', 'wf-chip', w.mode === 'research' ? 'Research' : 'Search') : null,
       w.blanks.length ? el('span', 'wf-chip', `${w.blanks.length} blank${w.blanks.length === 1 ? '' : 's'}`) : null,
       w.slots.length ? el('span', 'wf-chip', ico('doc', 11), `${w.slots.length} file${w.slots.length === 1 ? '' : 's'}`) : null,
-      w.shared ? el('span', { class: 'wf-chip', title: `Shared in ${w.shared.space}${w.shared.by ? ` by ${w.shared.by}` : ''}` }, ico('folder', 11), w.shared.space) : null,
+      w.shared ? el('span', { class: 'wf-chip', title: `Shared in ${w.shared.space}${w.shared.by ? ` by ${w.shared.by}` : ''}` }, ico('folder', 11), el('span', { 'data-no-i18n': '' }, w.shared.space)) : null,
     ];
     const more = el('details', 'wf-more',
       el('summary', { 'aria-label': `More for ${w.name}` }, ico('more', 15)),
@@ -233,7 +236,7 @@ function gallery() {
         sharer ? el('button', { type: 'button', onclick: async (e) => { e.currentTarget.closest('details').open = false; try { const said = await sharer(w); if (said) toast(said); } catch (err) { toast(`Couldn’t share it: ${err.message}`); } } }, 'Share to a space…') : null,
         el('button', { type: 'button', class: 'danger', onclick: () => { if (window.confirm(`Delete the workflow “${w.name}”?`)) { remove(w.id); paint(); toast('Workflow deleted'); } } }, 'Delete')));
     return el('article', { class: 'wf-item', 'aria-label': w.name },
-      el('div', 'wf-item-h', el('h3', '', w.name), more),
+      el('div', 'wf-item-h', el('h3', { 'data-no-i18n': '' }, w.name), more),
       preview(w.template),
       el('div', 'wf-chips', ...chips),
       el('div', 'wf-acts',
@@ -267,7 +270,7 @@ const field = (label, input, note) => el('label', 'field wf-field', el('span', '
 function editor(v) {
   const w = v.w;
   const name = el('input', { type: 'text', maxlength: '80', value: w.name, class: 'wf-focus', 'aria-label': 'Workflow name' });
-  const tpl = el('textarea', { rows: '6', maxlength: '8000', 'aria-label': 'Prompt with {blanks}' });
+  const tpl = el('textarea', { rows: '6', maxlength: '8000', 'aria-label': t('Prompt with {blanks}') });
   tpl.value = w.template;
   const blanksBox = el('div', 'wf-blanks');
   const drawBlanks = () => {

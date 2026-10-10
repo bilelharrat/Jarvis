@@ -14,6 +14,7 @@
 import { el, ico, toast } from './util.js';
 import { postJSON } from './api.js';
 import { ui, saveConversation } from './state.js';
+import { locale } from './i18n.js';
 
 const SOURCE_LABELS = {
   mail: 'Email', web: 'Web page', search: 'Web search', file: 'File', attachment: 'Attached file', image: 'Image',
@@ -49,10 +50,10 @@ function sourceRow(s) {
   const kind = SOURCE_LABELS[s.kind] || 'Content';
   const title = bareTitle(s);
   return el('li', 'g-src',
-    el('div', 'g-src-h', el('span', 'g-kind', kind), title ? el('span', 'g-title', title) : null, s.flags && s.flags.length ? badge(s.flags.length) : null),
-    s.origin ? el('div', 'g-origin', s.origin) : null,
+    el('div', 'g-src-h', el('span', 'g-kind', kind), title ? el('span', { class: 'g-title', 'data-no-i18n': '' }, title) : null, s.flags && s.flags.length ? badge(s.flags.length) : null),
+    s.origin ? el('div', { class: 'g-origin', 'data-no-i18n': '' }, s.origin) : null,
     s.hidden ? el('div', 'g-hidden', `${s.hidden} hidden part${s.hidden === 1 ? '' : 's'} of its HTML left out`) : null,
-    s.flags && s.flags.length ? el('ul', 'g-flags', ...s.flags.map((f) => el('li', '', el('b', '', f.label), f.excerpt ? el('q', '', f.excerpt) : null))) : null);
+    s.flags && s.flags.length ? el('ul', 'g-flags', ...s.flags.map((f) => el('li', '', el('b', '', f.label), f.excerpt ? el('q', { 'data-no-i18n': '' }, f.excerpt) : null))) : null);
 }
 
 /** Strips the owner opened (a reply re-renders while it streams and after). */
@@ -91,7 +92,7 @@ export function approvalCard(c, node, a, { perm } = {}) {
   }
   card.append(el('p', 'g-reason', a.reason || 'This turn read content from outside, so Eden needs your OK before it acts.'));
   if ((a.details || []).length) {
-    card.append(el('dl', 'g-details', ...a.details.flatMap((d) => [el('dt', '', d.label), el('dd', '', d.value)])));
+    card.append(el('dl', 'g-details', ...a.details.flatMap((d) => [el('dt', '', d.label), el('dd', { 'data-no-i18n': '' }, d.value)])));
   }
   if (warn) {
     card.append(el('ul', { class: 'g-warns', role: 'list' }, ...a.warnings.map((w) => el('li', '', ico('bell', 12), el('span', '', el('code', '', w.value), ' — ', w.message)))));
@@ -102,7 +103,7 @@ export function approvalCard(c, node, a, { perm } = {}) {
   }
   const deny = el('button', { type: 'button', class: 'btn', onclick: () => answer(c, node, a, false, perm) }, 'Deny');
   const ok = el('button', { type: 'button', class: `btn ${warn ? 'g-risky' : 'primary'}`, onclick: () => answer(c, node, a, true, perm) }, warn ? 'Approve anyway' : 'Approve');
-  card.append(el('div', 'g-acts', deny, ok), el('div', 'g-foot', `Nothing happens until you choose. Expires ${new Date(a.expiresAt || Date.now() + 9e5).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`));
+  card.append(el('div', 'g-acts', deny, ok), el('div', 'g-foot', `Nothing happens until you choose. Expires ${new Date(a.expiresAt || Date.now() + 9e5).toLocaleTimeString(locale(), { hour: 'numeric', minute: '2-digit' })}.`));
   return card;
 }
 

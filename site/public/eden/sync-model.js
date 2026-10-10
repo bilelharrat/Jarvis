@@ -11,11 +11,26 @@ export function better(a, b) {
 }
 export const union = (a = [], b = []) => [...a, ...b.filter((x) => !a.includes(x))];
 
+/** A chat's shared-link records (share.js) from two copies, by id; once revoked on either side, revoked. */
+export function mergeShares(a = [], b = []) {
+  const m = new Map();
+  for (const s of [...(a || []), ...(b || [])]) {
+    if (!s || !s.id) continue;
+    const prev = m.get(s.id);
+    m.set(s.id, prev ? { ...prev, ...s, ...(prev.revoked || s.revoked ? { revoked: true } : {}) } : s);
+  }
+  return [...m.values()];
+}
+
 /** Two copies of one conversation as one: every message of both (by node id), the newer side's title and pins. */
 export function merge(mine, theirs) {
   const out = { ...mine, nodes: { ...mine.nodes }, root: { ...mine.root, children: union(mine.root.children, theirs.root && theirs.root.children) } };
   const newer = (theirs.updated || 0) > (mine.updated || 0) ? theirs : mine;
-  for (const k of ['title', 'titleSet', 'pinned', 'personaId', 'project', 'mode', 'kind', 'lastRoute', 'allowTools', 'todos', 'privacy']) if (k in newer) out[k] = newer[k];
+  const meta = (theirs.metaAt || 0) > (mine.metaAt || 0) ? theirs : mine; // a folder move doesn't touch `updated`
+  if (meta.folder) out.folder = meta.folder; else delete out.folder;
+  out.metaAt = Math.max(mine.metaAt || 0, theirs.metaAt || 0) || undefined;
+  if (mine.shares || theirs.shares) out.shares = mergeShares(mine.shares, theirs.shares); // Q3: shared links made on either device; revoked stays revoked
+  for (const k of ['title', 'titleSet', 'pinned', 'personaId', 'project', 'mode', 'kind', 'lastRoute', 'allowTools', 'todos', 'privacy', 'deckVersions']) if (k in newer) out[k] = newer[k];
   out.updated = Math.max(mine.updated || 0, theirs.updated || 0);
   for (const [id, n] of Object.entries(theirs.nodes || {})) {
     const m = out.nodes[id];
@@ -32,6 +47,7 @@ export function wire(c, { slim = false } = {}) {
   delete out.queue;
   delete out.remote;
   delete out.loading;
+  delete out.deckImages; // Q14: a deck's pictures stay on the device they were added on (deck.js); the slides say so elsewhere
   for (const [id, n] of Object.entries(c.nodes || {})) {
     const m = { ...n };
     if (m.attachments) {
@@ -60,7 +76,7 @@ export const syncable = (c, streaming = false) => Boolean(c && !c.temp && !c.rem
 /** A sidebar entry for a conversation not downloaded here yet. */
 export function stub(meta) {
   return {
-    id: meta.id, title: meta.title || 'New chat', titleSet: meta.titleSet, created: meta.created || 0, updated: meta.updated || 0, pinned: Boolean(meta.pinned),
+    id: meta.id, title: meta.title || 'New chat', titleSet: meta.titleSet, created: meta.created || 0, updated: meta.updated || 0, pinned: Boolean(meta.pinned), folder: meta.folder || undefined, metaAt: meta.metaAt || undefined,
     temp: false, kind: meta.kind || 'chat', project: meta.project || null, sessionId: null, personaId: meta.personaId || null, mode: meta.kind === 'code' ? 'default' : 'chat',
     nodes: {}, root: { children: [], sel: 0 }, lastRoute: null, allowTools: [], todos: [], queue: [], status: 'idle', remote: true,
   };
@@ -92,7 +108,7 @@ export function onConflict(mine, conflict) {
 
 /** True when `merged` holds something the server's copy `remote` doesn't (so it's worth pushing back). */
 export function differs(remote, merged) {
-  if ((merged.updated || 0) > (remote.updated || 0) || merged.title !== remote.title || Boolean(merged.pinned) !== Boolean(remote.pinned)) return true;
+  if ((merged.updated || 0) > (remote.updated || 0) || merged.title !== remote.title || Boolean(merged.pinned) !== Boolean(remote.pinned) || (merged.folder || '') !== (remote.folder || '')) return true;
   const rn = remote.nodes || {};
   const ids = Object.keys(merged.nodes || {});
   if (ids.length !== Object.keys(rn).length) return true;

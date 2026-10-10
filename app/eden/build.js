@@ -92,8 +92,9 @@ async function main() {
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-eden-'));
   const put = (from, to = from) => { fs.mkdirSync(path.dirname(path.join(stage, to)), { recursive: true }); fs.cpSync(path.join(APP_DIR, from), path.join(stage, to), { recursive: true }); };
   for (const f of ['backend-launch.js', 'backend-share.js', 'update-feed.js', 'features/updates.js']) put(f);
-  for (const f of ['main.js', 'preload.js', 'quick.html', 'quick-preload.js']) put(`eden/${f}`);
+  for (const f of ['main.js', 'preload.js', 'quick.html', 'quick-preload.js', 'loading.html', 'loading.css']) put(`eden/${f}`);
   put('eden/build/icon-1024.png');
+  put('eden/build/boot-sound.wav');
   for (const f of fs.readdirSync(path.join(APP_DIR, 'eden', 'build')).filter((n) => /Template(@2x)?\.png$/.test(n))) put(`eden/build/${f}`);
   fs.copyFileSync(path.join(APP_DIR, 'eden', 'package.json'), path.join(stage, 'package.json'));
   try { put('jarvis-home.json', 'eden/jarvis-home.json'); } catch { /* JARVIS_HOME or ~/JARVIS V1 */ }

@@ -1,40 +1,54 @@
 // Jarvis Chat — the page's wiring: layout (source list, conversation, inspector), the
 // transcript, conversations, palette, settings, dialogs, shortcuts and Esc order.
 
+import './i18n.js'; // first of all: the page's language (French loads its strings before any module draws)
 import './practice.js'; // first: practice mode (the tour's sandbox) scopes storage before any module reads it
 import { keyStatus, providerGlyph } from './settings-model.js';
 import { $, el, ico, qsa, toast, copyText, copyRich, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
+import { LANGS, langPref, setLang, isFr, locale, t as tx } from './i18n.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
 // The apps page (J.A.R.V.I.S., Eden Messenger) lives on askeden.com; a local Eden links there.
 const DOWNLOAD_URL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? 'https://askeden.com/download' : '/download';
-import { initMail, connectGmail, emailText } from './mail.js';
+import { initMail, connectGmail, emailText, queueTeamOpen } from './mail.js';
 import { openCompose, initSignatures } from './compose.js';
+import { initMailkit } from './mailkit.js';
 import { parseEmailDraft } from './md-plain.js';
 import { renderMessage, emptyState, ui_open, artifactsIn } from './render.js';
 import { routeSettings, initRouteControls, renderRouteControls, renderTurnCard, routePopContent, openChipPop, closeChipPop, chipPopOpenFor, initChipPop, hoverIntent, setOverride, setLevel, availableModels, currentOverride, modelInfo, schedulePreview, levels } from './router.js';
 import { initComposer, renderComposer, composerEscape, focusComposer, setComposerText, addContext, setMode, modelMenu, openMenu, closeMenu, clearAttachments, renderAttachments, addFile } from './composer.js';
 import { sendMessage, runChat, stop, retry, regenerate, editResend, answerPermission, queueFollowUp, steerNow, dropQueued, runCode } from './chat.js';
 import { initArtifact, openArtifact, closeArtifact, artifactOpen, refreshArtifact } from './artifact.js';
+import { sheetCommands, sheetReturnPending, resumeSheet } from './sheet-entry.js'; // Q15: the spreadsheet canvas, loaded on first use
+import { initPageUpdate } from './page-update.js'; // a page left open picks up a deploy; the app's text follows the system size
 import { initPanels, openSpace, closeSpace, spaceOpen, checkJarvis, renderMemoryTab, searchNotes, attachNote, notify } from './panels.js';
 import { initAccount } from './account.js';
 import { planCommand } from './plan.js';
 import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
 import { initPublish } from './publish.js';
+import { initShare, openShare } from './share.js'; // Q3: share a chat as a read-only link
 import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
 import { initCalendar, openCalendar, calendarReturnPending } from './calendar.js';
 import { initMemory } from './memory.js';
-import { initImportChatGPT, importCard, openImportChatGPT } from './import-chatgpt.js';
+import { initImportChatGPT, importCard, openImportChats } from './import-chatgpt.js';
+import { importLabel } from './import-sources-model.js';
 import { initBrief, openBrief } from './brief.js';
 import { initFiles, openFiles, closePane } from './files.js';
 import { initKnowledge, knowledgeItem } from './knowledge.js';
+import { initFolders, folders as folderRows, chatsIn, newFolder, renameFolder, deleteFolder, moveChat, moveItems, tidyUp, tidyCard, tidyLast, tidyDismiss } from './folders.js';
+import { folderList, unfiled, shouldNudge, cleanName } from './folders-model.js';
 import { voiceSettings } from './voice.js';
+import { bootSoundSettings } from './boot-sound.js'; // the desktop apps' boot-up sound, in Settings › Appearance
 import { initTasks, openTasks, pendingApprovals } from './tasks.js';
 import { initWorkflows, openWorkflows, saveWorkflowFrom } from './workflows.js';
 import { initLearned, learnedSettings } from './learned.js';
 import { initAutopilot, autopilotSettings } from './autopilot.js';
+import { decorateEves, evesSettings } from './eves.js'; // N13: EVES's progress line and badge on a reply, and its switch in Settings › Routing
+import { decorateVerify } from './verify.js'; // N13: the label under a reply
 import { acting, actingHas } from './acting.js';
 import { initTour, startTour } from './tour.js'; // I1: the try-it tour
+import { reportFileName, reportTitle } from './research-model.js'; // Q2: the research report's title and file name
+import { decorateFirstRun, initFirstRun } from './first-run.js'; // Q4: the first minute
 import { initHelp, helpCommands, helpButton } from './help.js'; // Help Center: FAQ and Ask Help
 import { initBrowserPane, toggleBrowser, closeBrowser, browserJarvisChanged } from './browser-pane.js'; // the browser panel
 
@@ -126,6 +140,13 @@ dockMQ.addEventListener('change', syncDock);
 matchMedia('(max-width:1100px)').addEventListener('change', syncDock);
 
 /* ================= conversations ================= */
+/** A chat's title as shown: the person's (or Eden's) words as written; only the default names follow the page's language. */
+function titleOf(c) {
+  if (!c) return '';
+  if (c.title === 'New chat' || c.title === 'Temporary chat') return tx(c.title);
+  if (isFr && c.kind === 'code' && c.project && c.title === `${c.project.name} session`) return `Session ${c.project.name}`;
+  return c.title;
+}
 function switchTo(c) {
   if (state.current === c) { if (isMobile()) closeOverlays(); return; }
   state.current = c;
@@ -194,26 +215,75 @@ function setPersona(id) {
 
 /* ================= sidebar ================= */
 const secState = store.get('jchat:secs', {});
-function section(id, title, items, { add } = {}) {
+function section(id, title, items, { add, extra = [], grow = false, cls = '' } = {}) {
+  if ((id === 'folders' || id === 'projects') && secState[id] === undefined) secState[id] = true; // folders and projects start folded: one click opens them
   const closed = !!secState[id];
-  const sec = el('div', { class: `sec${closed ? ' closed' : ''}` });
+  const sec = el('div', { class: `sec${closed ? ' closed' : ''}${grow ? ' grow' : ''}${cls ? ` ${cls}` : ''}` });
   const head = el('div', { style: { display: 'flex', alignItems: 'center' } },
     el('button', { type: 'button', class: 'sec-h', 'aria-label': title, 'aria-expanded': String(!closed), onclick: () => { secState[id] = !secState[id]; store.set('jchat:secs', secState); renderSidebar(); } },
       el('span', 'txt', title), ico('chevd', 11, 'chev')));
+  for (const x of extra) head.append(el('button', { type: 'button', class: 'sec-add', title: x.title, 'aria-label': x.title, onclick: x.run }, ico(x.icon)));
   if (add) head.append(el('button', { type: 'button', class: 'sec-add', title: add.title, 'aria-label': add.title, onclick: add.run }, ico('plus')));
   sec.append(head, el('div', 'sec-items', el('div', '', ...items)));
   return sec;
 }
 function convItem(c, { child } = {}) {
   const streaming = state.streams.has(c.id);
-  const lbl = el('span', 'lbl', c.title);
+  const lbl = el('span', { class: 'lbl', 'data-no-i18n': '' }, titleOf(c)); // the chat's own title: never translated
   if (c.kind === 'code' && !child) lbl.append(el('span', 'sub', c.project ? c.project.name : 'Code'));
   const st = streaming ? 'run' : c.status === 'waiting' ? 'wait' : null;
-  return el('button', { type: 'button', class: `sitem${child ? ' child' : ''}${state.current === c ? ' active' : ''}`, 'aria-current': state.current === c ? 'page' : null, title: c.source === 'chatgpt' ? `${c.title} (imported from ChatGPT)` : c.title, onclick: () => switchTo(c),
+  return el('button', { type: 'button', class: `sitem${child ? ' child' : ''}${state.current === c ? ' active' : ''}`, 'aria-current': state.current === c ? 'page' : null, title: importLabel(c) ? `${c.title} (imported from ${importLabel(c)})` : c.title, onclick: () => switchTo(c),
+    draggable: c.temp || child ? null : 'true', ondragstart: (e) => { try { e.dataTransfer.setData('text/eden-chat', c.id); e.dataTransfer.effectAllowed = 'move'; } catch {} },
     oncontextmenu: (e) => { e.preventDefault(); convMenu(e.currentTarget, c); } },
     ico(c.temp ? 'clock' : c.kind === 'code' ? 'term' : 'chat'), lbl,
     c.pinned && !child ? ico('pin', 11, 'pin-ic') : null,
-    st ? el('span', 'dots', el('span', { class: `dot ${st}`, title: st === 'run' ? 'running' : 'waiting for you' })) : null);
+    st ? el('span', 'dots', el('span', { class: `dot ${st}`, title: st === 'run' ? tx('running') : tx('waiting for you') })) : null);
+}
+let moreState = { apps: [], as: null, temps: [] };
+/** The card under the strip: what is waiting or unfinished. Nothing when there's nothing to pick up. */
+function continueCard(as, approvals) {
+  if (as) return null;
+  const cur = state.current;
+  const other = (c) => !c.temp && c !== cur && c.kind !== 'code';
+  const busy = state.convs.find((c) => other(c) && state.streams.has(c.id)) || state.convs.find((c) => other(c) && c.status === 'waiting');
+  let t = null;
+  if (busy) t = { icon: 'chat', title: state.streams.has(busy.id) ? 'Still replying' : 'Waiting for you', sub: titleOf(busy), own: true, run: () => switchTo(busy) };
+  else if (approvals) t = { icon: 'list', title: `${approvals} ${approvals === 1 ? 'task is' : 'tasks are'} waiting`, sub: 'Open Tasks to approve', run: () => openTasks() };
+  else if (!cur || !path(cur).length) {
+    const last = state.convs.filter((c) => other(c) && (c.remote || path(c).length)).sort((a, b) => b.updated - a.updated)[0];
+    if (last && Date.now() - last.updated < 864e5) t = { icon: 'chat', title: 'Continue', sub: titleOf(last), own: true, run: () => switchTo(last) };
+  }
+  if (!t) return null;
+  return el('button', { type: 'button', class: 'cont-card', onclick: t.run }, ico(t.icon, 14), el('span', '', el('b', '', t.title), el('small', t.own ? { 'data-no-i18n': '' } : '', t.sub)));
+}
+/** The footer's More menu: what the sidebar leaves out because it's used now and then. */
+function moreMenu(anchor) {
+  const { apps, as, temps } = moreState;
+  const personas = state.personas || [];
+  openMenu(anchor, [
+    ...apps.map((x) => ({ label: x.t, run: x.run })),
+    ...(!as && !state.jarvis.available ? [{ label: IN_MAC_APP() ? 'Connecting to this Mac…' : 'Connect your Mac', run: go2(connectMacDialog) }] : []),
+    ...(apps.length || (!as && !state.jarvis.available) ? ['-'] : []),
+    { label: 'New temporary chat', run: () => newTemp() },
+    ...temps.map((c) => ({ label: c.title || 'Temporary chat', note: 'temporary', run: () => switchTo(c) })),
+    ...(as ? [] : ['-', { heading: 'Personas' },
+      ...personas.map((p) => ({ label: p.name, run: () => { newChat(); setPersona(p.id); } })),
+      { label: personas.length ? 'Edit or add a persona…' : 'New persona…', run: () => (personas.length ? personaManager(anchor) : editPersona(null)) }]),
+  ]);
+}
+const go2 = (f) => () => { clearPhoneOverlays(); f(); };
+function personaManager(anchor) {
+  openMenu(anchor, [{ heading: 'Edit a persona' }, ...state.personas.map((p) => ({ label: p.name, run: () => editPersona(p.id) })), '-', { label: 'New persona…', run: () => editPersona(null) }]);
+}
+let chatLimit = 120;
+const folderMore = new Map();
+function folderMenu(anchor, name) {
+  openMenu(anchor, [
+    { label: 'Rename…', run: () => renameFolder(name) },
+    { label: 'Tidy up with Eden', run: () => tidyUp() },
+    '-',
+    { label: 'Delete folder…', danger: true, run: () => deleteFolder(name) },
+  ]);
 }
 function statusDot(c) { return state.streams.has(c.id) ? 'run' : c.status === 'waiting' ? 'wait' : 'done'; }
 function renderSidebar() {
@@ -236,61 +306,91 @@ function renderSidebar() {
     const expanded = secState[openKey] !== false;
     projItems.push(el('button', { type: 'button', class: 'sitem', title: `${project.path}${branch ? ` · ${branch}` : ''}`, 'aria-expanded': convs.length ? String(expanded) : null,
       onclick: () => { if (!convs.length) newCodeSession(project); else { secState[openKey] = !expanded; store.set('jchat:secs', secState); renderSidebar(); } } },
-    ico('folder'), el('span', 'lbl', project.name, el('span', 'sub', `${branch || 'no branch'}${convs.length ? ` · ${convs.length} session${convs.length === 1 ? '' : 's'}` : ' · new session'}`)),
+    ico('folder'), el('span', 'lbl', el('span', { 'data-no-i18n': '' }, project.name), el('span', 'sub', `${branch || 'no branch'}${convs.length ? ` · ${convs.length} session${convs.length === 1 ? '' : 's'}` : ' · new session'}`)),
     convs.length ? el('span', 'dots', ...convs.slice(0, 4).map((c) => el('span', { class: `dot ${statusDot(c)}`, title: `${c.title} — ${statusDot(c) === 'run' ? 'running' : statusDot(c) === 'wait' ? 'waiting' : 'done'}` }))) : null));
     if (expanded) for (const c of convs.slice(0, 6)) projItems.push(convItem(c, { child: true }));
   }
   if (!projItems.length) projItems.push(el('div', 'side-empty', 'No projects yet.'));
   projItems.push(knowledgeItem()); // H11: folders indexed on the Mac, attached to projects (knowledge.js)
-  // chats by day
-  const chats = saved.filter((c) => c.kind !== 'code' && !c.pinned).sort((a, b) => b.updated - a.updated);
+  // chats: folders first, then the rest by day (the first CHAT_PAGE, more on request)
+  const chats = saved.filter((c) => c.kind !== 'code' && !c.pinned && !cleanName(c.folder)).sort((a, b) => b.updated - a.updated);
   const chatItems = [];
+  const working = tidyCard(); // a tidy-up running, or waiting for review: shown above the list, even when Chats is folded
+  if (!working && shouldNudge(state.convs, tidyLast())) {
+    const n = unfiled(state.convs).length;
+    chatItems.push(el('div', { class: 'tidy-nudge' },
+      el('button', { type: 'button', class: 'tidy-go', onclick: () => tidyUp() }, ico('spark', 14), el('span', '', el('b', '', 'Tidy up with Eden'), el('small', '', `${n.toLocaleString(locale())} chats aren’t in a folder`))),
+      el('button', { type: 'button', class: 'iconbtn tidy-x', title: 'Not now', 'aria-label': 'Not now', onclick: () => tidyDismiss() }, '×')));
+  }
+  const folderItems = [];
+  for (const f of folderRows()) {
+    const openKey = `f:${f.name.toLowerCase()}`;
+    const expanded = secState[openKey] === true;
+    const inside = chatsIn(f.name).filter((c) => !c.pinned).sort((a, b) => b.updated - a.updated);
+    const more = folderMore.get(openKey) || 40;
+    folderItems.push(el('div', { class: 'srow folder-row', ondragover: (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('text/eden-chat')) { e.preventDefault(); e.currentTarget.classList.add('drop'); } }, ondragleave: (e) => e.currentTarget.classList.remove('drop'),
+      ondrop: (e) => { e.preventDefault(); e.currentTarget.classList.remove('drop'); const c = state.convs.find((x) => x.id === e.dataTransfer.getData('text/eden-chat')); if (c) { moveChat(c, f.name); secState[openKey] = true; store.set('jchat:secs', secState); renderSidebar(); } } },
+      el('button', { type: 'button', class: 'sitem', 'aria-expanded': String(expanded), title: `${f.name} · ${f.count} chat${f.count === 1 ? '' : 's'}`, onclick: () => { secState[openKey] = !expanded; store.set('jchat:secs', secState); renderSidebar(); } },
+        ico(expanded ? 'chevd' : 'chevr', 12, 'f-chev'), ico('folder'), el('span', { class: 'lbl', 'data-no-i18n': '' }, f.name), el('span', 'f-count', f.count.toLocaleString(locale()))),
+      el('button', { type: 'button', class: 'iconbtn srow-edit', title: `${f.name} options`, 'aria-label': `Options for folder ${f.name}`, onclick: (e) => folderMenu(e.currentTarget, f.name) }, '⋯')));
+    if (expanded) {
+      for (const c of inside.slice(0, more)) folderItems.push(convItem(c, { child: true }));
+      if (inside.length > more) folderItems.push(el('button', { type: 'button', class: 'sitem more-row child', onclick: () => { folderMore.set(openKey, more + 200); renderSidebar(); } }, el('span', 'lbl', `Show ${Math.min(200, inside.length - more)} more`)));
+      if (!inside.length) folderItems.push(el('div', 'side-empty child', 'Empty. Drag a chat here.'));
+    }
+  }
+  if (!folderItems.length) folderItems.push(el('div', 'side-empty', 'Group chats into folders. Add one with +.'));
   let lastDay = '';
-  for (const c of chats.slice(0, 80)) {
+  for (const c of chats.slice(0, chatLimit)) {
     const d = relDay(c.updated);
     if (d !== lastDay) { chatItems.push(el('div', 'sec-sub', d)); lastDay = d; }
     chatItems.push(convItem(c));
   }
+  if (chats.length > chatLimit) chatItems.push(el('button', { type: 'button', class: 'sitem more-row', onclick: () => { chatLimit += 200; renderSidebar(); } }, el('span', 'lbl', `Show ${Math.min(200, chats.length - chatLimit).toLocaleString(locale())} more · ${(chats.length - chatLimit).toLocaleString(locale())} left`)));
   if (!chatItems.length) chatItems.push(el('div', 'side-empty', 'Your chats show here.'));
-  const personaItems = state.personas.map((p) => el('div', 'srow',
-    el('button', { type: 'button', class: 'sitem', title: `New chat with ${p.name}`, onclick: () => { newChat(); setPersona(p.id); } }, ico('spark'), el('span', 'lbl', p.name)),
-    el('button', { type: 'button', class: 'iconbtn srow-edit', title: `Edit ${p.name}`, 'aria-label': `Edit persona ${p.name}`, onclick: () => editPersona(p.id) }, ico('edit', 13))));
-  if (!personaItems.length) personaItems.push(el('div', 'side-empty', 'Custom instructions for a chat. Add one with +.'));
   const temps = state.convs.filter((c) => c.temp);
   // Acting for someone at askeden.com (acting.js): only what that grant can do here. The Mac,
   // Code and background tasks stay with this person's own account (they'd be refused); a
   // delegate's shared mail and calendar stay.
   const as = acting();
-  const macItems = [
-    ['brief', el('button', { type: 'button', class: 'sitem', title: 'Brief: your day, and meeting prep', onclick: () => { clearPhoneOverlays(); openBrief(); } }, ico('sun'), el('span', 'lbl', 'Brief'))],
-    ['memory', el('button', { type: 'button', class: 'sitem', title: 'Memory', onclick: () => { clearPhoneOverlays(); openSpace('memory'); } }, ico('bulb'), el('span', 'lbl', 'Memory'))],
-    ['brain', el('button', { type: 'button', class: 'sitem', title: 'Second Brain', onclick: () => { clearPhoneOverlays(); openSpace('brain'); } }, ico('search'), el('span', 'lbl', 'Second Brain'))],
-    ['files', el('button', { type: 'button', class: 'sitem', title: 'Files on your Mac', onclick: () => openFiles() }, ico('folder'), el('span', 'lbl', 'Files'))],
-    ['calendar', el('button', { type: 'button', class: 'sitem', title: 'Calendar', onclick: () => { clearPhoneOverlays(); openCalendar(); } }, ico('cal'), el('span', 'lbl', 'Calendar'))],
-    ['mail', el('button', { type: 'button', class: 'sitem', title: 'Mail', onclick: () => { clearPhoneOverlays(); openSpace('mail'); } }, ico('mail'), el('span', 'lbl', 'Mail'))],
-    ['routines', el('button', { type: 'button', class: 'sitem', title: 'Routines', onclick: () => { clearPhoneOverlays(); openSpace('routines'); } }, ico('routine'), el('span', 'lbl', 'Routines'))],
-    ...[['meetings', 'Meetings', 'quote'], ['web', 'On a website', 'globe'], ['activity', 'Activity', 'clock']].map(([k, t, i]) =>
-      [k, el('button', { type: 'button', class: 'sitem', title: t, onclick: () => { clearPhoneOverlays(); openSpace(k); } }, ico(i), el('span', 'lbl', t))]), // H5–H7
+  const go = (f) => () => { clearPhoneOverlays(); f(); };
+  const apps = [
+    { k: 'brief', t: 'Brief', tip: 'Brief: your day, and meeting prep', i: 'sun', run: go(openBrief) },
+    { k: 'memory', t: 'Memory', i: 'bulb', run: go(() => openSpace('memory')) },
+    { k: 'brain', t: 'Second Brain', i: 'search', run: go(() => openSpace('brain')) },
+    { k: 'files', t: 'Files', tip: 'Files on your Mac', i: 'folder', run: () => openFiles() },
+    { k: 'calendar', t: 'Calendar', i: 'cal', run: go(openCalendar) },
+    { k: 'mail', t: 'Mail', i: 'mail', run: go(() => openSpace('mail')) },
+    { k: 'routines', t: 'Routines', i: 'routine', run: go(() => openSpace('routines')) },
+    ...[['meetings', 'Meetings', 'quote'], ['web', 'On a website', 'globe'], ['activity', 'Activity', 'clock']].map(([k, t, i]) => ({ k, t, i, run: go(() => openSpace(k)) })), // H5–H7
     // Eden for Education (courses.js): askeden.com only
-    ...(state.meta && state.meta.hosted ? [['courses', el('button', { type: 'button', class: 'sitem', title: 'Courses', onclick: () => { clearPhoneOverlays(); openSpace('courses'); } }, ico('doc'), el('span', 'lbl', 'Courses'))]] : []),
-  ].filter(([k]) => !as || ((k === 'mail' || k === 'calendar') && actingHas(k))).filter(([k]) => as || state.jarvis.available || MAC_FREE.has(k)).map(([, b]) => b);
-  // No Mac connected: the Mac-only spaces stay hidden behind one "Connect your Mac" row.
-  if (!as && !state.jarvis.available) macItems.push(el('button', { type: 'button', class: 'sitem', title: IN_MAC_APP() ? 'Connecting to this Mac…' : 'Connect your Mac', onclick: () => { clearPhoneOverlays(); connectMacDialog(); } }, ico('spark'), el('span', 'lbl', IN_MAC_APP() ? 'Connecting to this Mac…' : 'Connect your Mac')));
-  nav.replaceChildren(
+    ...(state.meta && state.meta.hosted ? [{ k: 'courses', t: 'Courses', i: 'doc', run: go(() => openSpace('courses')) }] : []),
+  ].filter((x) => !as || ((x.k === 'mail' || x.k === 'calendar') && actingHas(x.k))).filter((x) => as || state.jarvis.available || MAC_FREE.has(x.k));
+  const approvals = pendingApprovals();
+  // The strip under the header: the few places used every day, with a badge when something waits.
+  const strip = [
+    ...['mail', 'calendar', 'courses', 'brief'].map((k) => apps.find((x) => x.k === k)).filter(Boolean),
+    ...(as ? [] : [{ k: 'tasks', t: 'Tasks', tip: 'Tasks: watches Eden runs in the background', i: 'list', run: () => openTasks(), badge: approvals }]),
+    { k: 'workflows', t: 'Workflows', tip: 'Workflows: saved recipes you run in one tap', i: 'spark', run: () => openWorkflows() },
+  ];
+  moreState = { apps: apps.filter((x) => !strip.some((y) => y.k === x.k)), as, temps };
+  const head = el('div', 'side-head',
+    el('div', 'apps-strip', ...strip.map((x) => el('button', { type: 'button', class: 'ap', title: x.tip || x.t, 'aria-label': x.badge ? `${x.t}, ${x.badge} waiting` : x.t, onclick: x.run },
+      ico(x.i, 16), x.badge ? el('b', { class: 'ap-b', title: 'Waiting for your approval' }, String(x.badge)) : null))),
+    continueCard(as, approvals));
+  const midScroll = nav.querySelector('.sec.grow .sec-items');
+  const midTop = midScroll ? midScroll.scrollTop : 0;
+  const top = el('div', 'side-top',
     pinned.length ? section('pinned', 'Pinned', pinned.map((c) => convItem(c))) : '',
-    as ? '' : section('projects', 'Projects', projItems, { add: { title: 'New code session', run: projectPicker } }),
-    section('chats', 'Chats', chatItems, { add: { title: 'New chat (⌘N)', run: newChat } }),
-    section('personas', 'Personas', personaItems, { add: { title: 'New persona', run: () => editPersona(null) } }),
-    macItems.length ? section('jarvis', as ? 'Shared with you' : state.jarvis.available ? 'Your Mac' : 'Apps', macItems) : '',
-    section('auto', 'Automations', [ // G3 background tasks, H9 saved workflows
-      as ? null : el('button', { type: 'button', class: 'sitem', title: 'Tasks: watches Eden runs in the background', onclick: () => openTasks() }, ico('list'), el('span', 'lbl', 'Tasks'),
-        pendingApprovals() ? el('span', { class: 'tk-badge', title: 'Waiting for your approval' }, String(pendingApprovals())) : null),
-      el('button', { type: 'button', class: 'sitem', title: 'Workflows: saved recipes you run in one tap', onclick: () => openWorkflows() }, ico('spark'), el('span', 'lbl', 'Workflows')),
-    ]),
-    section('temp', 'Temporary', [
-      el('button', { type: 'button', class: 'sitem', title: 'New temporary chat', onclick: newTemp }, ico('clock'), el('span', 'lbl', 'New temporary chat')),
-      ...temps.map((c) => convItem(c)),
-    ]));
+    as ? '' : section('projects', 'Projects', projItems, { add: { title: 'New code session', run: projectPicker } }));
+  const mid = el('div', { class: 'side-mid', ondragover: (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('text/eden-chat')) e.preventDefault(); },
+    ondrop: (e) => { const c = state.convs.find((x) => x.id === e.dataTransfer.getData('text/eden-chat')); if (c && c.folder && !e.target.closest('.folder-row')) { e.preventDefault(); moveChat(c, ''); toast('Moved out of its folder'); } } },
+  working,
+  section('folders', 'Folders', folderItems, { cls: 'folders', extra: [{ title: 'Tidy up with Eden', icon: 'spark', run: () => tidyUp() }], add: { title: 'New folder', run: () => newFolder() } }),
+  section('chats', 'Chats', chatItems, { grow: true, add: { title: 'New chat (⌘N)', run: newChat } }));
+  nav.replaceChildren(head, top, mid);
+  const again = nav.querySelector('.sec.grow .sec-items');
+  if (again) again.scrollTop = midTop;
   nav.scrollTop = scroll;
 }
 
@@ -298,7 +398,8 @@ function renderSidebar() {
 function renderTitle() {
   const c = state.current;
   const t = $('tbTitle');
-  if (!t.isContentEditable) t.textContent = c ? c.title : 'New chat';
+  if (!t.isContentEditable) t.textContent = c ? titleOf(c) : tx('New chat'); // #tbTitle is data-no-i18n: the chat's own title
+  t.title = tx('Double-click to rename');
   const site = isMock ? 'Eden (mock)' : 'Eden';
   document.title = c && path(c).length ? `${c.title} — ${site}` : site;
   const code = c && c.kind === 'code';
@@ -307,10 +408,10 @@ function renderTitle() {
   $('tbDots').replaceChildren(...(code ? [el('span', { class: `dot ${statusDot(c)}`, title: statusDot(c) === 'run' ? 'running' : statusDot(c) === 'wait' ? 'waiting for you' : 'idle' })] : []));
   const tags = [];
   if (c && c.temp) tags.push(el('span', 'tag temp', 'Temporary'));
-  if (c && c.source === 'chatgpt') tags.push(el('span', 'tag', 'Imported from ChatGPT'));
+  if (importLabel(c)) tags.push(el('span', 'tag', `Imported from ${importLabel(c)}`));
   const p = persona(c ? c.personaId : state.draftPersona);
-  if (p) tags.push(el('span', 'tag', p.name));
-  if (code && c.project) tags.push(el('span', 'tag', c.project.name));
+  if (p) tags.push(el('span', { class: 'tag', 'data-no-i18n': '' }, p.name));
+  if (code && c.project) tags.push(el('span', { class: 'tag', 'data-no-i18n': '' }, c.project.name));
   $('tbTags').replaceChildren(...tags);
   const s = sessionCost(c);
   $('tbCost').textContent = `${fmtCost(s.total)}${s.notional ? '*' : ''}`;
@@ -335,8 +436,19 @@ function followReply(msg) {
   const cap = s.scrollTop + q.getBoundingClientRect().top - s.getBoundingClientRect().top - 12;
   s.scrollTop = Math.min(s.scrollHeight, Math.max(0, cap));
 }
+/** Q2: a research reply's report in the canvas (Markdown, drawn as a page; Download there saves the .md). */
+function openReport(node) {
+  const md = nodeText(node);
+  if (!md) return;
+  openArtifact({ title: reportTitle(md, node.research && node.research.report ? node.research.report.title : undefined), lang: 'markdown', code: md, nodeId: node.id, report: true });
+}
+// the report is ready: open it beside the chat (not on a phone, where the canvas would cover the chat)
+addEventListener('eden:research-report', (e) => { const { c, node } = e.detail || {}; if (c && node && c === state.current && !isMobile()) openReport(node); });
 function msgEl(c, n, last) {
   const m = renderMessage(c, n, { last });
+  decorateVerify(m, c, n); // the label under a reply (verify.js)
+  decorateEves(m, c, n); // EVES: the progress line while it runs, the badge and the work after (eves.js)
+  decorateFirstRun(m, c, n); // Q4: a new person's first answer explained, with starter prompts (first-run.js)
   const chip = m.querySelector('.route-chip');
   if (chip) hoverIntent(chip, () => routePopContent(n.route, n.usage, { onOpenConsole: () => { closeChipPop(); selectTurn(n); } }));
   return m;
@@ -364,7 +476,7 @@ addEventListener('eden:notify', (e) => macNotify(e.detail && e.detail.title, e.d
 function macNotifyTurn(c, node) {
   if (node.error) return;
   const waiting = c.status === 'waiting';
-  macNotify(c.title || 'Eden', waiting ? 'Eden is waiting for your approval.' : 'Your reply is ready.');
+  macNotify(c.title || 'Eden', tx(waiting ? 'Eden is waiting for your approval.' : 'Your reply is ready.'));
 }
 function updateMessage(c, node, { final } = {}) {
   if (final) macNotifyTurn(c, node);
@@ -413,7 +525,7 @@ function citePop(anchor, node, n) {
   const pop = $('citePop');
   let href = null;
   try { const u = new URL(src.url); if (u.protocol === 'http:' || u.protocol === 'https:') href = u.href; } catch { href = null; }
-  pop.replaceChildren(el('b', '', src.title || src.url), el('span', 'u', src.url),
+  pop.replaceChildren(el('b', { 'data-no-i18n': '' }, src.title || src.url), el('span', { class: 'u', 'data-no-i18n': '' }, src.url),
     el('div', 'acts', href ? el('a', { class: 'cap primary', href, target: '_blank', rel: 'noopener noreferrer' }, 'Open') : null,
       el('button', { type: 'button', class: 'cap', onclick: () => copyText(src.url) }, 'Copy link')));
   pop.classList.add('open');
@@ -520,6 +632,8 @@ function onTranscriptClick(e) {
       break;
     }
     case 'open-art': { const a = artifactsIn(nodeText(node))[Number(b.dataset.k)]; if (a) openArtifact({ ...a, nodeId: node.id }); break; }
+    case 'research-open': openReport(node); break; // Q2: the checked research report in the canvas
+    case 'research-md': { const md = nodeText(node); download(reportFileName(reportTitle(md, node.research && node.research.report ? node.research.report.title : undefined)), md); break; }
     case 'open-keys': openSettings(0); break;
     default: break;
   }
@@ -541,7 +655,8 @@ function commands() {
     { t: 'Code activity', s: '⌘J', i: 'term', run: () => toggleDrawer() },
     { t: 'Morning brief', s: 'Calendar · mail · notes', i: 'sun', run: () => openBrief() },
     { t: 'Memory', s: 'Your Mac', i: 'bulb', run: () => openSpace('memory') },
-    { t: 'Import from ChatGPT', s: 'Settings · your chats and memories', i: 'spark', run: () => openImportChatGPT() },
+    { t: 'Import chats', s: 'From ChatGPT, Claude or Gemini · your chats and memories', i: 'spark', run: () => openImportChats() },
+    { t: 'Share this chat…', s: 'A read-only link to the messages you pick', i: 'globe', run: () => openShare(state.current) },
     { t: 'Search Second Brain', s: 'Your Mac', i: 'search', run: () => openSpace('brain') },
     { t: 'Calendar', s: 'Your Mac · Google', i: 'cal', run: () => openCalendar() },
     { t: 'New calendar event…', s: 'Calendar', i: 'cal', run: () => openCalendar({ newEvent: true }) },
@@ -554,6 +669,7 @@ function commands() {
     { t: 'Browser', s: '⌘⇧B', i: 'globe', run: () => toggleBrowser() },
     { t: 'Do this on a website…', s: 'Your Mac · the built-in browser', i: 'globe', run: () => openSpace('web') },
     { t: 'Activity: what Eden did', s: 'Undo', i: 'clock', run: () => openSpace('activity') },
+    ...sheetCommands(),
     { t: 'Choose model…', s: '⌘⇧I', i: 'spark', run: () => { modelMenu(); } },
     { t: 'Use the router (auto)', s: 'Model', i: 'sliders', run: () => setOverride(null) },
     ...[1, 2, 3, 4, 5].map((n) => ({ t: `Router level ${n}`, s: 'Optimization', i: 'chart', run: () => { setLevel(n); toast(`Level ${n}`); } })),
@@ -593,8 +709,8 @@ function renderPal(q) {
     if (c.title.toLowerCase().includes(q)) return true;
     return Object.values(c.nodes).some((n) => (n.role === 'user' ? n.content || '' : nodeText(n)).toLowerCase().includes(q));
   }).sort((a, b) => b.updated - a.updated).slice(0, q ? 12 : 6)
-    .map((c) => ({ t: c.title, s: c.kind === 'code' ? `Code · ${c.project ? c.project.name : ''}` : c.temp ? 'Temporary' : relDay(c.updated), i: c.kind === 'code' ? 'term' : 'chat', run: () => switchTo(c), group: 'Conversations' }));
-  const cmds = commands().filter((x) => !q || `${x.t} ${x.s}`.toLowerCase().includes(q)).map((x) => ({ ...x, group: 'Actions' }));
+    .map((c) => ({ t: titleOf(c), s: c.kind === 'code' ? `Code · ${c.project ? c.project.name : ''}` : c.temp ? 'Temporary' : relDay(c.updated), i: c.kind === 'code' ? 'term' : 'chat', run: () => switchTo(c), group: 'Conversations' }));
+  const cmds = commands().filter((x) => !q || `${x.t} ${x.s} ${tx(x.t)} ${tx(x.s || '')}`.toLowerCase().includes(q)) // the French names find them too.map((x) => ({ ...x, group: 'Actions' }));
   palItems = [...convs, ...cmds];
   palIdx = 0;
   const list = $('palList');
@@ -604,7 +720,7 @@ function renderPal(q) {
   const touch = isTouch(); // shortcut-only subtitles (⌘N) mean nothing on a touch screen
   palItems.forEach((it, i) => {
     if (it.group !== g) { kids.push(el('div', { class: 'pal-grp', role: 'presentation' }, it.group)); g = it.group; }
-    const row = el('div', { class: `pal-it${i === palIdx ? ' sel' : ''}`, role: 'option', id: `pal-${i}`, 'aria-selected': String(i === palIdx) }, ico(it.i), el('span', 't', it.t), el('span', 'sub', touch && /^[⌘⇧⌥]/.test(it.s || '') ? '' : it.s));
+    const row = el('div', { class: `pal-it${i === palIdx ? ' sel' : ''}`, role: 'option', id: `pal-${i}`, 'aria-selected': String(i === palIdx) }, ico(it.i), el('span', it.group === 'Conversations' ? { class: 't', 'data-no-i18n': '' } : 't', it.t), el('span', 'sub', touch && /^[⌘⇧⌥]/.test(it.s || '') ? '' : it.s));
     row.addEventListener('mousemove', () => { if (palIdx !== i) { palIdx = i; paintPal(); } });
     row.addEventListener('click', () => execPal(i));
     kids.push(row);
@@ -707,6 +823,8 @@ function convMenu(anchor, c) {
   openMenu(anchor, [
     { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } },
     ...(c.temp ? [] : [{ label: c.pinned ? 'Unpin' : 'Pin', run: () => togglePin(c) }]),
+    ...(c.temp || c.kind === 'code' ? [] : [moveItems(c, openMenu, anchor)]),
+    ...(c.temp || c.kind === 'code' ? [] : [{ label: 'Share a read-only link…', run: () => openShare(c) }]), // Q3
     { label: 'Export as Markdown', run: () => exportConversation(c) },
     ...(c.kind !== 'code' ? [{ label: 'Save as workflow…', run: () => saveWorkflowFrom(c) }] : []), // H9
     ...(c.kind === 'code' ? [{ label: 'Code activity', key: '⌘J', run: () => toggleDrawer(true) }, { label: 'Changes', run: () => openInspector('Changes') }] : []),
@@ -758,7 +876,7 @@ async function drawMemory(body, hosted) {
     sw.checked = m.on !== false;
     sw.addEventListener('change', () => act({ action: 'prefs', on: sw.checked }, sw.checked ? 'Memory on' : 'Memory off: nothing is read or saved'));
     const rows = (m.items || []).map((x) => el('div', 'mem-row',
-      el('div', 'grow', x.text, el('span', 'muted', `${x.how === 'explicit' ? 'You asked' : x.how === 'manual' || x.how === 'edited' ? 'Added in Settings' : 'Picked up from a chat'} · ${new Date(x.updated).toLocaleDateString()}`)),
+      el('div', 'grow', el('span', { 'data-no-i18n': '' }, x.text), el('span', 'muted', `${x.how === 'explicit' ? 'You asked' : x.how === 'manual' || x.how === 'edited' ? 'Added in Settings' : 'Picked up from a chat'} · ${new Date(x.updated).toLocaleDateString(locale())}`)),
       el('button', { type: 'button', class: 'btn icon', title: 'Delete this memory', 'aria-label': 'Delete this memory', onclick: () => act({ action: 'delete', id: x.id }, 'Memory deleted') }, ico('trash', 14))));
     const clear = el('button', { type: 'button', class: 'btn', disabled: !rows.length, onclick: () => { if (confirm('Delete all saved memories? This can’t be undone.')) act({ action: 'clear' }, 'All memories deleted'); } }, ico('trash', 14), 'Delete all');
     body.replaceChildren(hero,
@@ -810,15 +928,32 @@ async function drawSettings() {
       ...[['system', 'System', 'Follows macOS'], ['light', 'Light', 'Bright and airy'], ['dark', 'Dark', 'Easy at night']].map(([t, label, sub]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(cur === t), class: `theme-tile${cur === t ? ' on' : ''}`, onclick: () => { setTheme(t); drawSettings(); } },
         el('span', `tt-prev tt-${t}`, el('span', 'tt-win', el('span', 'tt-side', el('i'), el('i'), el('i')), el('span', 'tt-main', el('i', 'b1'), el('i', 'b2'), el('i', 'b3')))),
         el('span', 'tt-label', el('span', 'tt-radio'), el('b', '', label), el('span', '', sub)))));
+    // Language (i18n.js): Automatic follows the browser; English and Français are always shown as written. Picking one reloads the page.
+    const langSeg = el('div', { class: 'seg lang-seg', role: 'radiogroup', 'aria-label': 'Language', style: { '--n': LANGS.length, maxWidth: '380px' } }, el('span', 'seg-thumb'),
+      ...LANGS.map(([v, label]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(langPref === v), class: langPref === v ? 'on' : '', 'data-no-i18n': v === 'auto' ? null : '', onclick: () => { if (v !== langPref) setLang(v); } }, label)));
     body.replaceChildren(setHero('palette', 'Appearance', 'How Eden looks, and how it sounds.', 'pal'),
       el('div', 'set-sec', el('h3', '', 'Theme'), tiles,
-        el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')), voiceSettings());
+        el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')),
+      el('div', 'set-sec', el('h3', '', 'Language'), langSeg,
+        el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')), ...[bootSoundSettings()].filter(Boolean), voiceSettings());
+    setSeg(langSeg, Math.max(0, LANGS.findIndex(([v]) => v === langPref)));
   } else if (setTabI === 4) {
     drawMemory(body, hosted);
   } else if (setTabI === 3) {
     const autoSw = el('input', { type: 'checkbox', 'aria-label': 'Search the web automatically' });
     autoSw.checked = state.settings.autoSearch !== false;
     autoSw.addEventListener('change', () => { state.settings.autoSearch = autoSw.checked; saveSettings(); toast(autoSw.checked ? 'Eden searches the web when a message needs it' : 'Auto-search is off'); });
+    // N19: the two fact-check switches (on unless turned off; sent with each message by chat.js factCheckSettings),
+    // drawn only when the server says it runs that check (GET /api/chat/meta `premiseCheck: true` / `answerCheck: true`)
+    const serverChecks = (k) => !!(state.meta && state.meta[k] === true);
+    const checkSw = (key, label, on, off) => {
+      const x = el('input', { type: 'checkbox', 'aria-label': label });
+      x.checked = state.settings[key] !== false;
+      x.addEventListener('change', () => { state.settings[key] = x.checked; saveSettings(); toast(x.checked ? on : off); });
+      return x;
+    };
+    const premiseSw = checkSw('premiseCheck', 'Check the question’s assumptions', 'Eden checks what a question takes for granted', 'Assumption check is off');
+    const answerSw = checkSw('answerCheck', 'Double-check answers that didn’t use the web', 'Eden double-checks answers that didn’t use the web', 'Answer double-check is off');
     const sw = el('input', { type: 'checkbox', 'aria-label': 'Claude counts as subscription' });
     sw.checked = !!state.settings.subscriptionClaude;
     sw.addEventListener('change', () => { state.settings.subscriptionClaude = sw.checked; saveSettings(); schedulePreview(); toast(sw.checked ? 'Claude priced as subscription quota' : 'Claude priced at API rates'); });
@@ -838,9 +973,11 @@ async function drawSettings() {
           el('span', 'rc-s', ov ? 'Pinned for every message' : 'The router picks per message'))),
       el('div', 'set-sec', el('h3', '', 'Pricing'),
         el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Search the web automatically'), el('div', 'p-c', 'When a message needs current information (news, weather, prices, scores, “near me”, a link), Eden searches the web first and shows the sources. Never in temporary or private chats. Searches use your included AI.')), el('label', 'switch', autoSw, el('span', 'tr')))),
+        serverChecks('premiseCheck') ? el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Check the question’s assumptions'), el('div', 'p-c', 'When a question takes a fact for granted (“why did … win …?”), Eden checks that fact on the web first and corrects it if it’s wrong. About 1¢, only on such questions.')), el('label', 'switch', premiseSw, el('span', 'tr')))) : null,
+        serverChecks('answerCheck') ? el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Double-check answers that didn’t use the web'), el('div', 'p-c', 'After a factual answer from the model’s memory, Eden looks on the web for evidence against it, and answers again with sources when it finds some. About 2¢, only on such answers.')), el('label', 'switch', answerSw, el('span', 'tr')))) : null,
         el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Claude counts as subscription'), el('div', 'p-c', 'Claude through the Claude Code CLI is priced as a fraction of your plan’s quota, not API dollars, so the router uses it more freely.')), el('label', 'switch', sw, el('span', 'tr')))),
         el('p', 'sp-note', `Level ${state.settings.level}${ov ? ` · pinned to ${modelInfo(ov.model)?.name || ov.model}` : ' · auto'}. Levels, sliders, providers and the override live in the inspector’s Route tab.`),
-        el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, ico('sliders', 14), 'Open Route console'))), privacySettings(), autopilotSettings(), learnedSettings()); // H3, H2
+        el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); openInspector('Route'); } }, ico('sliders', 14), 'Open Route console'))), privacySettings(), evesSettings(), autopilotSettings(), learnedSettings()); // H3, H2, N13
   } else {
     const ver = state.meta && state.meta.version;
     body.replaceChildren(el('div', 'about-hero',
@@ -851,7 +988,7 @@ async function drawSettings() {
     el('div', 'set-sec about',
       el('div', 'icard about-card',
         el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Jarvis app on your Mac, and Code sessions for your projects.'),
-        el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the JARVIS voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
+        el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
         state.meta && state.meta.scope ? el('p', '', state.meta.scope) : null,
         isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null),
       el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Jarvis Code.'),
@@ -959,6 +1096,12 @@ function slash(name, arg) {
       if (c && c.kind === 'code') return false;
       setMode(name);
       if (arg) setTimeout(() => sendFromComposer(arg, [], []), 0);
+      return true;
+    case 'slides': // Q14: Slides mode; with no words, the chat's deck (or how to start one) in the canvas (deck.js)
+      if (c && c.kind === 'code') return false;
+      setMode('slides');
+      if (arg) setTimeout(() => sendFromComposer(arg, [], []), 0);
+      else if (c) dispatchEvent(new CustomEvent('eden:open-deck', { detail: { c } }));
       return true;
     case 'manual': case 'edits': case 'plan': case 'auto':
       if (!c || c.kind !== 'code') return false;
@@ -1129,7 +1272,11 @@ async function reloadMeta() {
 /* ================= init ================= */
 async function init() {
   // The iOS app: no pinch zoom, and no zoom-in when a field gets focus (mobile.css also sets touch-action).
-  if (document.documentElement.classList.contains('eden-app')) document.querySelector('meta[name="viewport"]')?.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
+  // The app's bridge can add .eden-app after this runs (WebKit runs module scripts before
+  // document-end user scripts), so lock as soon as the class shows up, not only if it's already there.
+  const root = document.documentElement;
+  const lockZoom = () => root.classList.contains('eden-app') && (document.querySelector('meta[name="viewport"]')?.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'), true);
+  if (!lockZoom()) { const mo = new MutationObserver(() => { if (lockZoom()) mo.disconnect(); }); mo.observe(root, { attributes: true, attributeFilter: ['class'] }); }
   applyTheme();
   await loadConversations();
   const cur = store.get('jchat:current', null);
@@ -1155,12 +1302,14 @@ async function init() {
   initArtifact({ quote: (t) => setComposerText(t, { append: true }), send: (t) => sendMessage(t) });
   initPrivacy({ confirm: (text, ok, run) => confirmDialog(text, ok, run, true), schedulePreview });
   initPublish({ openDialog, closeDialog });
+  initShare({ openDialog, closeDialog });
   initPanels({ addContext: (b) => { addContext(b); closeSpace(); } });
   initCalendar({ addContext: (b) => addContext(b), openSettings });
   initMemory({ addContext: (b) => addContext(b) });
   initBrief({ addContext: (b) => addContext(b) });
   initFiles({ addContext: (b) => addContext(b), addFile, setComposerText, focusComposer, renderComposer, clearPhoneOverlays }); // G2/H4 (files.js)
   initKnowledge({ switchTo, renderSidebar, renderComposer, clearPhoneOverlays }); // H11 (knowledge.js)
+  initFolders({ openDialog, closeDialog, render: renderSidebar }); // folders and Tidy up with Eden (folders.js)
   initCode({ closeDialog, openDialog, newCodeSession, renderTitle, renderSidebar, quote: (t) => setComposerText(t, { append: true }) });
   initMail({
     openDialog, closeDialog, openSettings, jarvisAvailable: () => state.jarvis.available, jarvisReason: () => state.jarvis.reason,
@@ -1186,7 +1335,8 @@ async function init() {
   initGrab();
   // back from Google's sign-in
   const gh = /#gmail=(\w+)/.exec(location.hash);
-  if (gh) {
+  if (gh && sheetReturnPending()) { history.replaceState(null, '', location.pathname + location.search); resumeSheet(gh[1] === 'connected'); } // Google Sheets' own Connect (Q15)
+  else if (gh) {
     history.replaceState(null, '', location.pathname + location.search);
     // Calendar's own Connect (or Settings') left a note to come back to it: say what was connected.
     const toCalendar = gh[1] === 'connected' && calendarReturnPending();
@@ -1238,6 +1388,7 @@ async function init() {
   $('btnSearch').addEventListener('click', openPalette);
   $('btnPalette').addEventListener('click', openPalette);
   $('btnNew').addEventListener('click', newChat);
+  $('btnMore').addEventListener('click', (e) => moreMenu(e.currentTarget));
   $('btnTheme').addEventListener('click', cycleTheme);
   $('btnSettings').addEventListener('click', () => openSettings(0));
   $('btnHamburger').addEventListener('click', () => toggleSidebar());
@@ -1284,8 +1435,10 @@ async function init() {
 
   renderRouteControls();
   renderAll();
-  reloadMeta().then(() => { renderAll(); initAccount({ beforeOpen: clearPhoneOverlays, closeSettings }); initLearned(); initAutopilot(); initSignatures(); }); // H2/H3, signatures: after meta (askeden.com or the Mac)
+  addEventListener('eden:open-team-mail', (e) => { queueTeamOpen(e.detail || {}); clearPhoneOverlays(); openSpace('mail'); }); // a team space's shared email (spaces.js)
+  reloadMeta().then(() => { renderAll(); initAccount({ beforeOpen: clearPhoneOverlays, closeSettings }); initLearned(); initAutopilot(); initSignatures(); initMailkit(); }); // H2/H3, signatures: after meta (askeden.com or the Mac)
   initTour(); // I1: practice mode's tour, or the welcome on a first visit
+  initFirstRun({ setComposerText: (t) => { setComposerText(t); focusComposer(); }, startTour: () => startTour() }); // Q4: a new person's first answer explained
   initImportChatGPT({ openDialog, closeDialog, toast });
   initHelp({ runCommand: (t) => commands().find((x) => x.t === t)?.run(), hasCommand: (t) => commands().some((x) => x.t === t), openSettings, openPalette, startTour, beforeOpen: clearPhoneOverlays });
   addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0)); // autopilot.js
@@ -1296,10 +1449,10 @@ async function init() {
   if (new URLSearchParams(location.search).has('courses')) reloadMeta().then(() => { if (state.meta && state.meta.hosted) openSpace('courses'); });
   // Courses › Study (courses.js): a new chat in the course, answered from its materials; Quiz me / Flashcards send their request
   addEventListener('eden:course-chat', (e) => {
-    const { course, prompt } = e.detail || {};
+    const { course, prompt, focus } = e.detail || {};
     if (!course) return;
     const c = newConversation();
-    c.course = course;
+    c.course = focus && focus.doc ? { ...course, focus: { doc: String(focus.doc), loc: String(focus.loc || '') } } : course; // "Explain this slide" (Q8)
     c.title = course.name;
     c.titleSet = true;
     addConversation(c);
@@ -1312,17 +1465,21 @@ async function init() {
   checkJarvis().then(() => { renderComposer(); browserJarvisChanged(); if (curTab === 'Memory') renderMemoryTab(true); });
   // The Mac's line comes up some seconds after the page loads (Ask Eden for Mac links itself at launch): look again until it answers.
   const recheckJarvis = () => { const was = state.jarvis.available; return checkJarvis().then(() => { if (state.jarvis.available !== was) { renderSidebar(); renderComposer(); browserJarvisChanged(); } }); };
+  // Never two looks at once (checkJarvis shares the one in flight, 8 s at most), and none while the page is hidden (B1, C3).
   setInterval(() => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); }, 8000);
-  addEventListener('focus', () => { if (!state.jarvis.available) recheckJarvis().catch(() => {}); });
+  addEventListener('focus', () => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); });
   // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {
     const w = !!(e.detail && e.detail.waiting);
-    if (w) macNotify('Eden', 'Eden is asking “Let Eden use Jarvis?” on your Mac.');
+    if (w) macNotify('Eden', tx('Eden is asking “Let Eden use Jarvis?” on your Mac.'));
+    // On every device, where the person is looking (a phone's sidebar is closed): A1, C2. The open panel says it too (panels.js).
+    if (w) toast('Approve Eden on your Mac: it’s asking “Let Eden use Jarvis?”');
     $('jarvisState').classList.toggle('wait', w);
     $('jarvisState').title = w ? 'Jarvis is asking “Let Eden use Jarvis?” on your Mac' : state.jarvis.available ? 'Connected through the Jarvis app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Jarvis app on your Mac isn’t reachable');
     $('jarvisStateText').textContent = w ? 'approve Eden on your Mac' : state.jarvis.available ? 'connected' : 'not connected';
   });
   if (isMock) document.title = 'Eden (mock)';
+  initPageUpdate();
   focusComposer();
 }
 

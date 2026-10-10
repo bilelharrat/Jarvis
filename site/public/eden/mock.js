@@ -7,6 +7,7 @@ import { actionsMock } from './actions-mock.js'; // Meetings, "On a website", Ac
 import { mockArtifact } from './mock-artifact.js';
 import { apiUrl } from './api.js';
 import { macMock } from './mac-mock.js'; // Use my Mac, the screen, project knowledge
+import { evesMock } from './eves-mock.js'; // EVES: estimate, the stream, stop
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -57,6 +58,9 @@ function meta() {
     levels: LEVELS,
     classifier: { mode: 'always', available: true, reason: null },
     search: { available: true, via: 'gemini' },
+    eves: true, // EVES (eves-mock.js): the switch, the chip's price and the run are drawn in ?mock=1
+    premiseCheck: true, // N19: the fact-check switches in Settings › Routing (both servers run them)
+    answerCheck: true,
     jarvis: { available: true, reason: null },
     code: { available: true, reason: null },
     scope: 'Your 13 models (mock: model-router.config.json)',
@@ -420,6 +424,13 @@ async function jarvisTool(tool, args = {}) {
     case 'mail_read': { const m = MAILS.find((x) => x.id === args.id); return m ? { text: `${NOTE}\n\n${JSON.stringify(m)}`, is_error: false } : { text: 'No message with that id.', is_error: true }; }
     case 'mail_draft': MAILS.unshift({ id: `d${Date.now()}`, box: 'drafts', account: args.account || 'icloud', from: 'me', to: args.to, cc: args.cc || [], subject: args.subject, date: new Date().toISOString(), body: args.body }); return { text: 'Saved to Drafts.', is_error: false };
     case 'mail_send': if (args.confirm !== true) return { text: 'confirm must be true', is_error: true }; await sleep(900); return { text: 'Jarvis: sent after you confirmed on your Mac.', is_error: false };
+    case 'mail_triage': { // Done / flag / read on Mail on your Mac (mcp_endpoint _mail_triage)
+      if (args.confirm !== true) return { text: 'mail_triage needs confirm: true (the owner chose it in the app).', is_error: true };
+      const hit = MAILS.filter((m) => (args.message_ids || []).includes(m.id));
+      for (const m of hit) { if (args.action === 'archive') m.box = 'archive'; if (args.action === 'mark_read') m.unread = false; if (args.action === 'mark_unread') m.unread = true; }
+      const verb = { archive: 'Archived', flag: 'Flagged', unflag: 'Unflagged', mark_read: 'Marked as read', mark_unread: 'Marked as unread' }[args.action] || 'Changed';
+      return { text: `${verb} ${hit.length} email${hit.length === 1 ? '' : 's'}.`, is_error: !hit.length };
+    }
     default: return null;
   }
 }
@@ -446,6 +457,14 @@ export async function mockFetch(path, init = {}) {
   const p = url.pathname;
   if (p.startsWith('/api/chat') && !(init.headers && init.headers['X-Jarvis-Chat'] === '1')) return json({ error: 'missing X-Jarvis-Chat header' }, 403);
   await sleep(p === '/api/route' ? 120 : 160);
+  if (p === '/api/chat/send' && method === 'POST' && /sort a person/.test(String(body.system || ''))) { // Tidy up with Eden (folders.js): folder names, then a folder for each numbered chat
+    const prompt = String(((body.messages || [])[0] || {}).content || '');
+    const TOPICS = { School: /school|biology|essay|professor/, Sports: /brady|workout/, Coding: /python|bug/, Life: /recipe|trip|taxes|guitar/ };
+    const text = /^Folders:/.test(prompt)
+      ? JSON.stringify(Object.fromEntries(prompt.split('Chats:\n')[1].split('\n').filter((l) => /^\d+\. /.test(l)).map((l) => [l.split('.')[0], Object.keys(TOPICS).find((k) => TOPICS[k].test(l.toLowerCase())) || null])))
+      : JSON.stringify({ folders: Object.keys(TOPICS) });
+    return sse([[200, 'route', { model: 'gemini-3.6-flash-lite', modelName: 'Gemini 3.6 Flash-Lite', provider: 'gemini', effort: 'low', effortLabel: 'low effort', via: 'api', costUSD: 0.0002, quality: 70, confidence: 70, rationale: 'Mock' }], [20, 'text', { text }], [20, 'usage', { inputTokens: 100, outputTokens: 50, reasoningTokens: 0, costUSD: 0.0002, notional: false }], [20, 'done', { finish: 'stop' }]], init.signal);
+  }
   { const cal = await calendarMock(p, method, body); if (cal) return cal; } // the calendar section, below
   { const act = await actionsMock(p, method, body); if (act) return act; } // actions-mock.js
   { const mac = await macMock(p, method, body, init.signal, routeFor); if (mac) return mac; } // mac-mock.js
@@ -461,11 +480,34 @@ export async function mockFetch(path, init = {}) {
     return json({ pick: { ...r.pick, confidence: 80, rationale: r.rationale, warnings: [] }, rows: r.sorted, classification: { mode: body.classifier || 'always', used: r.rated }, notes: [] });
   }
   { const r = compareMock(p, method, body, init.signal); if (r) return r; } // Compare (G6): the compare section, below
+  { const r = evesMock(p, method, body, init.signal, (b) => compareLanesMock(b)); if (r) return r; } // EVES: eves-mock.js, on the compare section's pretend lanes
   if (p === '/api/chat/send' && method === 'POST' && body.privacy) return privacyMock.send(body, init.signal);
   { const r = privacyMock.route(p, method, body); if (r) return r; } // /api/chat/local, publish (the privacy section)
   if (p === '/api/chat/send' && method === 'POST') {
     if (!(body.settings && body.settings.providers && body.settings.providers.length) && !body.override) return json({ error: 'No provider is available: add an API key in Settings.' }, 422);
     return mailAiMock(body, init.signal) || composeMock(body, init.signal) || chatStream(body, init.signal); // compose windows' "Ask Eden": the Gmail section
+  }
+  if (p === '/api/chat/receipts') return receiptsMock(method, body);
+  if (p === '/api/chat/autodrafts') { // accounts/autodrafts.js: on/off, what it drafted (mock: "Check now" drafts a reply to Priya as a Gmail draft)
+    const st = JSON.parse(sessionStorage.getItem('mock:ad') || 'null') || { on: false, perDay: 10, hasStyle: false, made: [], today: 0, everyMin: 20 };
+    if (method === 'POST') {
+      if (body.action === 'set') { if (typeof body.on === 'boolean') st.on = body.on; if (body.perDay) st.perDay = body.perDay; if (body.style) st.hasStyle = true; if (!st.on) st.hasStyle = false; }
+      if (body.action === 'drop') st.made = st.made.filter((x) => x.msgId !== body.msgId);
+      if (body.action === 'run') { if (!st.made.some((x) => x.msgId === 'g1')) { const d = gmSave({ to: ['Priya Shah <priya@example.org>'], subject: 'Re: Contract draft for review', body: 'Hey Priya,\n\nThe 30-day terms work for me — I’ll confirm the rest by Wednesday.\n\nCheers,\nB', threadId: 't1' }); st.made.push({ msgId: 'g1', threadId: 't1', draftId: d.id, subject: 'Contract draft for review', from: 'Priya Shah <priya@example.org>', reason: 'asks you to confirm the terms', at: Date.now() }); st.today++; } st.last = { checked: 3, drafted: 1, skipped: null }; }
+      sessionStorage.setItem('mock:ad', JSON.stringify(st));
+    }
+    return json(st);
+  }
+  if (p === '/api/chat/embed' && method === 'POST') { // embed.ts: 256-d vectors; words with the same meaning share a slot (mock)
+    if (new URLSearchParams(location.search).get('embed') === 'off') return json({ error: 'Matching emails by meaning needs a Gemini or OpenAI key (Settings › Keys).' }, 409);
+    const CONCEPT = [[/reschedul|move|push|another time|postpone|different day/i, 'c:resched'], [/thank|appreciat|grateful/i, 'c:thanks'], [/can't|cannot|unfortunately|pass|decline|won't/i, 'c:no'], [/sounds good|works for me|happy to|yes/i, 'c:yes'], [/follow|checking in|any update|circle back/i, 'c:follow'], [/lunch|coffee|dinner/i, 'c:food'], [/contract|terms|sign/i, 'c:legal']];
+    const vec = (t) => { const v = new Array(256).fill(0); for (const w of String(t).toLowerCase().match(/[a-z]{3,}/g) || []) { let h = 0; for (const ch of w) h = (h * 31 + ch.charCodeAt(0)) % 256; v[h] += 0.3; } for (const [re, c] of CONCEPT) if (re.test(t)) { let h = 7; for (const ch of c) h = (h * 33 + ch.charCodeAt(0)) % 256; v[h] += 3; } return v; };
+    return json({ vectors: (body.texts || []).map(vec), provider: 'gemini', model: 'gemini-embedding-001' });
+  }
+  if (p === '/api/chat/mailkit') { // mailkit.ts: the writing style, snippets, snoozes, follow-ups (sessionStorage here), the later `at` wins
+    const kept = JSON.parse(sessionStorage.getItem('mock:mailkit') || 'null') || { at: 0 };
+    if (method === 'POST' && (body.at || 0) >= kept.at) { sessionStorage.setItem('mock:mailkit', JSON.stringify(body)); return json(body); }
+    return json(kept);
   }
   if (p === '/api/chat/signatures') { // signatures.ts: one copy for the "Mac" (sessionStorage here), the later `at` wins
     const kept = JSON.parse(sessionStorage.getItem('mock:signatures') || 'null') || { list: [], defaults: {}, at: 0 };
@@ -613,8 +655,50 @@ function webMock(p, method, url, body = {}) {
     return json({ code, link: `${location.origin}/#deleg=${code}` });
   }
   if (p === '/api/web/deleg/revoke' && method === 'POST') { a.delegs = (a.delegs || []).filter((x) => x.id !== body.id); setAcct(a); return json({ ok: true }); }
-  if (p === '/api/web/space' && method === 'GET') return json({ spaces: [], can_create: !!a.plan.active });
+  if (p === '/api/web/space' && method === 'GET') return json({ spaces: TEAM.on ? [{ id: TEAM.id, name: 'Founders', owned: true }] : [], can_create: !!a.plan.active });
+  { const r = teamMock(p, body); if (r) return r; } // ?team=1: one space, as accounts/space.js keeps it (sealed items only)
   return json({ error: 'No such thing here.', code: 'not_found' }, 404);
+}
+
+/* ---- ?team=1: a team space "Founders" (you own it, Sam is a member), its key made by this browser, sealed items kept here ---- */
+const TEAM = { on: new URLSearchParams(location.search).get('team') === '1', id: 'FoundersSpace0000000001' };
+const teamStore = () => JSON.parse(sessionStorage.getItem('mock:team') || 'null') || { key: null, keys: [], convs: {}, rev: 0 };
+const teamSave = (t) => sessionStorage.setItem('mock:team', JSON.stringify(t));
+function teamMock(p, body) {
+  if (!TEAM.on || !p.startsWith('/api/web/space/')) return null;
+  const t = teamStore();
+  const op = p.slice('/api/web/space/'.length);
+  const members = [{ member: 'me00000000000001', label: 'You', role: 'owner', this: true, joined: Date.now() - 9e8, spent_usd: 1.2 }, { member: 'sam0000000000002', label: 'Sam', role: 'member', joined: Date.now() - 5e8, spent_usd: 0.4 }];
+  switch (op) {
+    case 'view': return json({ space: { id: TEAM.id, name: 'Founders', level: 3, budget_usd: 20, spent_usd: 1.6, left_usd: 18.4 }, me: { role: 'owner', member: members[0].member }, members, keys: [], key: t.key, convs: Object.values(t.convs).filter((c) => !c.deleted).map(({ data, ...c }) => c), caps: { members: 20, convs: 200, item_bytes: 512000 }, used: { convs: 0, bytes: 0 } });
+    case 'key-register': return json({ ok: true });
+    case 'key-init': t.key = { gen: body.gen }; t.self = { sealed_key: body.sealed_key, sender_key: body.sender_key, alg: body.alg }; teamSave(t); return json({ ok: true });
+    case 'key-mine': return json({ sealed: t.self ? { ...t.self, gen: t.key.gen } : null });
+    case 'conv-get': { const c = t.convs[body.conv]; return c && !c.deleted ? json({ id: c.id, rev: c.rev, data: c.data, by: c.by, updated: c.updated, kind: c.kind }) : json({ error: 'That shared conversation is gone.', code: 'not_found' }, 404); }
+    case 'conv-put': {
+      const c = t.convs[body.conv];
+      if ((c ? c.rev : 0) !== Number(body.base_rev || 0)) return json({ error: 'Someone shared a newer copy; reload it first.', code: 'conflict' }, 409);
+      t.rev++;
+      t.convs[body.conv] = { id: body.conv, rev: t.rev, data: body.data, meta: body.meta, by: members[0].member, updated: Date.now(), size: body.data.length, kind: body.kind || 'conv' };
+      teamSave(t);
+      return json({ id: body.conv, rev: t.rev });
+    }
+    case 'conv-delete': if (t.convs[body.conv]) t.convs[body.conv].deleted = true; teamSave(t); return json({ ok: true });
+    default: return null;
+  }
+}
+
+/* ---- read receipts (/api/chat/receipts, accounts/receipts.js): an email the mock "sends" with one is opened 4 s later in Gmail ---- */
+const RCPTS = JSON.parse(sessionStorage.getItem('mock:rcpts') || '[]');
+const rcptSave = () => sessionStorage.setItem('mock:rcpts', JSON.stringify(RCPTS));
+function receiptsMock(method, body) {
+  const now = Date.now();
+  for (const r of RCPTS) if (r.thread && !r.opens.length && now - r.sent > 4000) r.opens.push({ at: r.sent + 4000, via: 'gmail' });
+  if (method === 'GET') return json({ receipts: RCPTS.slice().reverse() });
+  if (body.action === 'new') { const id = Math.random().toString(16).slice(2, 14).padEnd(12, '0'); RCPTS.push({ id, subject: body.subject || '', to: body.to || [], sent: now, opens: [], thread: null }); rcptSave(); return json({ id, url: `${location.origin}/r/MOCK${id}.gif` }); }
+  if (body.action === 'sent') { const r = RCPTS.find((x) => x.id === body.id); if (r) { r.sent = now; r.thread = body.thread || null; rcptSave(); } return json(r || {}); }
+  if (body.action === 'delete') { const i = RCPTS.findIndex((x) => x.id === body.id); if (i >= 0) RCPTS.splice(i, 1); rcptSave(); return json({ deleted: true }); }
+  return json({ error: 'action must be new, sent or delete.' }, 400);
 }
 
 /* ================= calendar (calendar.js) =================
@@ -963,8 +1047,77 @@ GMAILS.push(
 /** Mail's Eden tools (mail-model.js): Rank by priority, the digest card, one email's summary. */
 function mailAiMock(body, signal) {
   const sys = String(body.system || '');
-  const kind = /^You triage the owner/.test(sys) ? 'rank' : /^You write a short digest of the owner/.test(sys) ? 'digest' : /^You summarize one email/.test(sys) ? 'one' : '';
+  if (/^You write the owner's daily email brief/.test(sys)) { // mail-brief.js: an in-depth brief from the emails in context (mock)
+    const blocks = (body.context || []).map((c) => String(c.text || ''));
+    const items = blocks.map((t) => {
+      const id = (/^id: (\S+)/m.exec(t) || [])[1];
+      const from = (/^From: (.*)$/m.exec(t) || [])[1] || '';
+      const subject = (/^Subject: (.*)$/m.exec(t) || [])[1] || '';
+      const text = t.split('\n\n').slice(1).join(' ').replace(/\s+/g, ' ').trim();
+      const scam = /WARNING from Eden's scam check/.test(t);
+      if (scam) return { id, level: 'low', who: from.replace(/<.*>/, '').trim(), title: `Likely scam: ${subject}`, about: 'Eden’s scam check flags it: the sender only looks like the real one, and it pushes you to act fast.', asks: [], details: [], deadline: '', next: 'Don’t reply, click or pay; delete it', needs_reply: false };
+      const lv = /contract|invoice|overdue|suspend/i.test(subject) ? 'today' : /\?/.test(text) ? 'reply' : /receipt|newsletter|ci passed|digest/i.test(subject) ? 'low' : 'fyi';
+      const money = text.match(/[$€£]\s?\d[\d,.]*/g) || [];
+      const dates = text.match(/\b(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\b|\b(Nov|Oct|Dec)\w*\s\d{1,2}\b/g) || [];
+      return { id, level: lv, who: from.replace(/<.*>/, '').trim(), title: subject, about: `${text.slice(0, 220)}${text.length > 220 ? '…' : ''}`, asks: (text.match(/[^.?!]*\?/g) || []).map((q) => q.trim()).slice(0, 2), details: [...money, ...dates].slice(0, 4), deadline: dates[0] || '', next: lv === 'today' || lv === 'reply' ? `Reply to ${from.replace(/<.*>/, '').trim().split(' ')[0]}` : 'Nothing to do', needs_reply: lv === 'today' || lv === 'reply' };
+    }).filter((x) => x.id);
+    const today = items.filter((x) => x.level === 'today').length, reply = items.filter((x) => x.level === 'reply').length;
+    const text = JSON.stringify({ headline: `${items.length} emails since yesterday. ${today} need you today and ${reply} people are waiting for a reply; start with the contract and the overdue invoice.`, items });
+    const steps = [[500, 'route', { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', provider: 'anthropic', effort: 'low', costUSD: 0.01, quality: 90, rationale: 'mock', candidates: [] }]];
+    for (const t of chunks(text, 200)) steps.push([15, 'text', { text: t }]);
+    steps.push([30, 'done', { finish: 'stop' }]);
+    return sse(steps, signal);
+  }
+  if (/^You turn the owner's inbox rule/.test(sys)) { // mailkit.js Rules: the rule as JSON (mock: by its words)
+    const q = String(((body.messages || [])[0] || {}).content || '').toLowerCase();
+    const rule = /forward|delete|reply to/.test(q) ? { unsupported: 'it asks to forward or delete email' }
+      : /receipt|invoice/.test(q) ? { match: { from: [], subject: [], body: [], kind: 'receipt', seen: /seen|read/.test(q) ? true : null }, action: 'archive' }
+        : /newsletter/.test(q) ? { match: { from: [], subject: [], body: [], kind: 'news', seen: null }, action: 'snooze', snoozeDays: 3 }
+          : /no to|decline|pitch/.test(q) ? { match: { from: [], subject: [], body: ['pitch', 'partnership'], kind: 'person', seen: null }, action: 'draft', draftAsk: 'Politely say no thanks' }
+            : { match: { from: ['github.com'], subject: [], body: [], kind: 'any', seen: null }, action: 'markRead' };
+    return sse([[250, 'route', { model: 'gemini-3.6-flash', modelName: 'Gemini 3.6 Flash', provider: 'gemini', effort: 'low', costUSD: 0.0001, quality: 79, rationale: 'mock', candidates: [] }], [30, 'text', { text: JSON.stringify(rule) }], [20, 'done', { finish: 'stop' }]], signal);
+  }
+  if (/^You check an email the owner is about to send/.test(sys)) { // compose.js checksBox: the AI pass
+    const draft = String(((body.context || [])[0] || {}).text || '');
+    const issues = /pay (it )?today/i.test(draft) ? [{ quote: (draft.match(/[^.]*pay (it )?today[^.]*/i) || [''])[0].trim(), problem: 'Earlier in the thread you agreed to 30-day payment terms.', fix: 'Say you’ll pay within 30 days.' }] : [];
+    return sse([[300, 'route', { model: 'gemini-3.6-flash', modelName: 'Gemini 3.6 Flash', provider: 'gemini', effort: 'low', costUSD: 0.0002, quality: 79, rationale: 'mock', candidates: [] }], [40, 'text', { text: JSON.stringify({ issues }) }], [20, 'done', { finish: 'stop' }]], signal);
+  }
+  if (/^You learn how one person wants their emails written/.test(sys)) { // mailkit.js rules from the owner's edits
+    const ctx = String(((body.context || [])[0] || {}).text || '');
+    const rules = ['Keep it under 60 words: cut the second paragraph.', 'Close with “Cheers,” then “B”, never “Best regards”.'];
+    if (/too formal/i.test(ctx)) rules.push('Write casually: contractions, no “I hope this finds you well”.');
+    if (/reach out/i.test(ctx)) rules.push('Never say “reach out”.');
+    return sse([[300, 'route', { model: 'gemini-3.6-flash', modelName: 'Gemini 3.6 Flash', provider: 'gemini', effort: 'low', costUSD: 0.0002, quality: 79, rationale: 'mock', candidates: [] }], [40, 'text', { text: JSON.stringify({ rules }) }], [20, 'done', { finish: 'stop' }]], signal);
+  }
+  if (/^You turn the owner's question about their email into Gmail searches/.test(sys)) {
+    const q = String(((body.messages || [])[0] || {}).content || '').toLowerCase();
+    const words = (q.match(/[a-z0-9]{4,}/g) || []).filter((w) => !['when', 'what', 'where', 'which', 'does', 'have', 'from', 'about', 'email', 'mail', 'there', 'their'].includes(w));
+    return sse([[250, 'route', { model: 'gemini-3.6-flash', modelName: 'Gemini 3.6 Flash', provider: 'gemini', effort: 'low', costUSD: 0.0001, quality: 79, rationale: 'mock', candidates: [] }], [40, 'text', { text: JSON.stringify({ queries: [words.slice(0, 3).join(' OR ')] }) }], [20, 'done', { finish: 'stop' }]], signal);
+  }
+  if (/^You answer the owner's question about their email/.test(sys)) {
+    const ctx = body.context || [];
+    const hit = ctx.findIndex((c) => /offsite|venue|contract/i.test(c.text));
+    const n = hit >= 0 ? hit + 1 : 1;
+    const text = hit >= 0 && /offsite|venue/i.test(ctx[hit].text)
+      ? `The offsite date isn’t fixed yet: Alex asked everyone to pick **Nov 12 or Nov 19** [${n}], and you replied that Nov 12 works for you. Marco sent a venue shortlist for Lisbon${ctx.length > 1 ? ` [${Math.min(ctx.length, n + 1)}]` : ''}.`
+      : `From what Eden found: ${String(ctx[0] && ctx[0].title || '').replace(/^\[\d+\]\s*/, '')} [1].`;
+    const steps = [[400, 'route', { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', provider: 'anthropic', effort: 'low', costUSD: 0.002, quality: 90, rationale: 'mock', candidates: [] }]];
+    for (const t of chunks(text, 18)) steps.push([40, 'text', { text: t }]);
+    steps.push([30, 'done', { finish: 'stop' }]);
+    return sse(steps, signal);
+  }
+  const kind = /^You triage the owner/.test(sys) ? 'rank' : /^You write a short digest of the owner/.test(sys) ? 'digest' : /^You summarize one email/.test(sys) ? 'one' : /^You study how one person writes/.test(sys) ? 'style' : /^You suggest three short replies/.test(sys) ? 'instant' : '';
   if (!kind) return null;
+  if (kind === 'style' || kind === 'instant') {
+    const voice = /Hey \{name\}/.test(sys);
+    const text = kind === 'style'
+      ? '- Warm but brief: gets to the point in one or two lines.\n- Opens with “Hey {name},” for people they know well, “Hi {name},” otherwise.\n- Closes with “Cheers,” or “Best,” and signs “B”.\n- Asks for things casually: “Quick one:”, “when you get a sec”.\n- Ends with an open door: “Let me know if …”.\n- Uses contractions and the odd exclamation mark; no emoji.'
+      : JSON.stringify({ replies: voice ? ['Sounds good — let’s do it. Cheers, B', 'Quick one: can we push to next week?', 'Thanks! Will take a look and circle back by Friday.'] : ['Sounds good, thank you.', 'Could we move this to next week?', 'Thanks, I will review and get back to you.'] });
+    const steps = [[300, 'route', { model: 'gemini-3.6-flash', modelName: 'Gemini 3.6 Flash', provider: 'gemini', effort: 'low', costUSD: 0.0003, quality: 79, rationale: 'Cheap model (mock).', candidates: [] }]];
+    for (const t of chunks(text, 40)) steps.push([15, 'text', { text: t }]);
+    steps.push([30, 'usage', { inputTokens: 900, outputTokens: 120, reasoningTokens: 0, costUSD: 0.0003 }], [20, 'done', { finish: 'stop' }]);
+    return sse(steps, signal);
+  }
   const ctx = String(((body.context || [])[0] || {}).text || '');
   const items = ctx.split('\n').map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   const name = (f) => (/^\s*"?([^"<]*?)"?\s*</.exec(f || '') || [])[1] || f;
@@ -994,12 +1147,15 @@ function gmDetail(m) {
     id: m.id, threadId: m.threadId || null, from: m.from || '', to: list(m.to), cc: list(m.cc), bcc: list(m.bcc), replyTo: m.replyTo || '',
     subject: m.subject || '', date: m.date || null, snippet: String(m.body || '').slice(0, 90), unread: !!m.unread,
     messageId: m.messageId || null, inReplyTo: m.inReplyTo || null, references: m.references || null, labelIds: [],
+    labels: gmLabels(m), unsubscribe: gmUnsub(m),
     body: m.body || '', bodyType: m.html ? 'html' : 'text', truncated: false, html: m.html || null, ...(m.hidden ? { hidden: m.hidden } : {}),
     ...(m.calendar ? { calendar: m.calendar } : {}),
     attachments: (m.attachments || []).map((a, i) => (typeof a === 'string' ? { name: a, mime: 'application/octet-stream', size: 1024, attachmentId: gmFile(`att-${m.id}-${i}`, `mock ${a}`) } : a)),
   };
 }
-const gmSummary = (m) => { const d = gmDetail(m); return { id: d.id, threadId: d.threadId, from: d.from, to: d.to, subject: d.subject, date: d.date, snippet: d.snippet, unread: d.unread }; };
+const gmLabels = (m) => [...(m.box === 'inbox' ? ['INBOX'] : m.box === 'sent' ? ['SENT'] : []), ...(m.unread ? ['UNREAD'] : []), ...(m.starred ? ['STARRED'] : []), ...(m.category ? [m.category] : [])];
+const gmUnsub = (m) => (/receipts@|notifications@|noreply@|news@/i.test(m.from || '') ? { url: `https://example.com/unsubscribe/${m.id}`, mailto: null } : null);
+const gmSummary = (m) => { const d = gmDetail(m); return { id: d.id, threadId: d.threadId, from: d.from, to: d.to, subject: d.subject, date: d.date, snippet: d.snippet, unread: d.unread, labels: gmLabels(m), unsubscribe: gmUnsub(m) }; };
 const gmJob = (draftId) => GM_JOBS.find((j) => j.draftId === draftId && j.status === 'scheduled');
 function gmCheck(a, forSend) {
   if (forSend && a.confirm !== true) return 'send needs args.confirm: true (the owner confirmed sending).';
@@ -1052,7 +1208,24 @@ gmSave({ to: ['Priya Shah <priya@example.org>'], subject: 'Lisbon dinner — tho
   GM_JOBS.push({ id: 'f0e1d2c3b4a5968778695a4b', draftId: 'r-old', threadId: null, account: 'owner@gmail.com', to: ['sam@example.com'], subject: 'Thursday?', sendAt: new Date(Date.now() - 30 * 3600_000).toISOString(), createdAt: new Date(Date.now() - 50 * 3600_000).toISOString(), status: 'missed', attempts: 0, nextTryAt: null, sentAt: null, messageId: null, error: 'Eden wasn’t running on your Mac at the scheduled time, so it wasn’t sent. It is still in Drafts: send it now or pick a new time.' });
 }
 
+// The shield's QA mail (mail-check.js): a phishing email and a CEO-fraud one
+GMAILS.push(
+  { id: 'gs1', threadId: 'ts1', box: 'inbox', from: 'PayPal <service@paypa1.com>', to: ['owner@gmail.com'], cc: [], subject: 'Your account will be suspended', date: new Date(Date.now() - 3 * 3600_000).toISOString(), unread: true, attachments: ['invoice.html'],
+    body: 'We noticed unusual sign-in activity. Verify your account within 24 hours or it will be suspended.\n\nhttps://www.paypal.com/signin', html: '<p>We noticed unusual sign-in activity. Verify your account within 24 hours or it will be suspended.</p><p><a href="https://paypa1-login.example/x">https://www.paypal.com/signin</a></p>' },
+  { id: 'gs2', threadId: 'ts2', box: 'inbox', from: 'Priya Shah <priya.shah.ceo@gmail.com>', to: ['owner@gmail.com'], cc: [], subject: 'Quick favour', date: new Date(Date.now() - 2 * 3600_000).toISOString(), unread: true, attachments: [],
+    body: 'I’m in a meeting and can’t talk. Please wire the funds for the Lisbon venue to our new bank account today — keep this between us for now.\n\nPriya' },
+);
+// Day 3's QA mail: promises the owner made, and one made to them
+GMAILS.push(
+  { id: 'gp1', threadId: 'tp1', box: 'sent', from: 'owner@gmail.com', to: ['Priya Shah <priya@example.org>'], cc: [], subject: 'Re: Contract draft for review', date: new Date(Date.now() - 2 * 86_400_000).toISOString(), unread: false, attachments: [], body: 'Hey Priya,\n\nThanks! I’ll send the signed contract by Tuesday.\n\nCheers,\nB' },
+  { id: 'gp2', threadId: 'tp2', box: 'sent', from: 'owner@gmail.com', to: ['Alex Kim <alex@example.com>'], cc: [], subject: 'Q4 numbers', date: new Date(Date.now() - 6 * 86_400_000).toISOString(), unread: false, attachments: [], body: 'Hi Alex,\n\nI will share the Q4 forecast tomorrow.\n\nBest,\nB' },
+);
+GMAILS.find((m) => m.id === 'g6').body += '\n\nWe’ll get back to you with the final quote by Friday.';
+const GM_HIST = { n: 1000 }; // the mailbox's history id: bumped by every change (send, modify, draft)
+globalThis.edenMockReply = (threadId, text, from = 'Alex Kim <alex@example.com>') => { GMAILS.unshift({ id: `rp${Date.now().toString(36)}`, threadId, box: 'inbox', from, to: ['owner@gmail.com'], cc: [], subject: 'Re: meeting', date: new Date().toISOString(), unread: true, attachments: [], body: text }); GM_HIST.n++; }; // QA: a reply in a thread
+globalThis.edenMockNewMail = () => { GMAILS.unshift({ id: `n${Date.now().toString(36)}`, threadId: `tn${Date.now()}`, box: 'inbox', from: 'Nadia Ross <nadia@example.net>', to: ['owner@gmail.com'], cc: [], subject: 'Quick question about Friday', date: new Date().toISOString(), unread: true, attachments: [], body: 'Hi! Are we still on for Friday at 2? Could you send the deck before then?\n\nThanks,\nNadia' }); GM_HIST.n++; };
 async function gmailMock(body) {
+  if (['send', 'modify', 'draft', 'deleteDraft', 'schedule'].includes(body.action)) GM_HIST.n++;
   if (!google().connected) return json({ error: 'Gmail isn’t connected', code: 'not_connected' }, 409);
   let a = body.args || {};
   await sleep(220);
@@ -1061,10 +1234,16 @@ async function gmailMock(body) {
     if (a.from && !['owner@gmail.com', 'owner@bshventures.com'].includes(String(a.from).toLowerCase())) return json({ error: 'from must be one of your Gmail addresses (Gmail › Settings › Accounts › Send mail as).', code: 'bad_request' }, 400);
   }
   const q = String(a.query || '').toLowerCase();
-  const hit = (m) => !q || `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(q);
+  const either = /^from:(\S+) or to:(\S+)$/.exec(q); // the reading pane's sender card
+  const hit = (m) => (either ? `${m.from} ${m.to}`.toLowerCase().includes(either[1]) : !q || `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(q));
   switch (body.action) {
-    case 'profile': return json({ email: google().email, messagesTotal: GMAILS.length, threadsTotal: GMAILS.length });
-    case 'search': { const rows = GMAILS.filter((m) => m.box === (a.mailbox || 'inbox') && hit(m)).map(gmSummary); return json({ messages: rows, nextPageToken: null, estimate: rows.length }); }
+    case 'profile': return json({ email: google().email, messagesTotal: GMAILS.length, threadsTotal: GMAILS.length, historyId: String(GM_HIST.n) });
+    case 'history': { // the mail cache's one-call check: anything since startHistoryId? (?hist=old: too old)
+      if (new URLSearchParams(location.search).get('hist') === 'old') return json({ historyId: null, changes: 0, tooOld: true, ids: [] });
+      const n = GM_HIST.n - Number(a.startHistoryId || 0);
+      return json({ historyId: String(GM_HIST.n), changes: Math.max(0, n), tooOld: false, ids: [] });
+    }
+    case 'search': { const rows = GMAILS.filter((m) => (either ? m.box === 'inbox' || m.box === 'sent' : m.box === (a.mailbox || 'inbox')) && hit(m)).map(gmSummary); return json({ messages: rows, nextPageToken: null, estimate: rows.length }); }
     case 'read': { const m = GMAILS.find((x) => x.id === a.id); return m ? json(gmDetail(m)) : json({ error: 'Not found in Gmail.', code: 'not_found' }, 404); }
     case 'drafts': return json({ drafts: [...GM_DRAFTS.values()].filter(hit).reverse().map((d) => ({ draftId: d.draftId, ...gmSummary(d), scheduledAt: gmJob(d.draftId)?.sendAt ?? null })), nextPageToken: null });
     case 'getDraft': { const d = GM_DRAFTS.get(a.id); return d ? json({ draftId: d.draftId, ...gmDetail(d), scheduled: gmJob(d.draftId) ?? null }) : json({ error: 'Not found in Gmail.', code: 'not_found' }, 404); }
@@ -1129,6 +1308,28 @@ async function gmailMock(body) {
       return json({ job, draftId: saved.id });
     }
     case 'scheduled': return json({ jobs: GM_JOBS.slice().sort((x, y) => x.sendAt.localeCompare(y.sendAt)) });
+    case 'modify': { // Done / snooze / star / read (gmail.modify); ?nomodify=1 plays a grant without it
+      if (new URLSearchParams(location.search).get('nomodify') === '1') return json({ error: 'Request had insufficient authentication scopes.', code: 'scope' }, 403);
+      for (const m of GMAILS.filter((x) => (a.ids || []).includes(x.id))) {
+        for (const l of a.add || []) { if (l === 'INBOX' && m.box === 'archived') m.box = 'inbox'; if (l === 'UNREAD') m.unread = true; if (l === 'STARRED') m.starred = true; }
+        for (const l of a.remove || []) { if (l === 'INBOX' && m.box === 'inbox') m.box = 'archived'; if (l === 'UNREAD') m.unread = false; if (l === 'STARRED') m.starred = false; }
+      }
+      return json({ modified: (a.ids || []).length });
+    }
+    case 'thread': { const ms = GMAILS.filter((x) => (x.threadId || x.id) === a.id); return json({ id: a.id, messages: ms.slice().reverse().map((m) => { const d = gmDetail(m); return { id: d.id, from: d.from, to: d.to, cc: d.cc, date: d.date, subject: d.subject, body: d.body, attachments: d.attachments.map((x) => x.name) }; }) }); }
+    case 'searchFull': { // Ask your mail: the words of the query, any of them, over every mailbox
+      const q0 = String(a.query || '').toLowerCase();
+      const box = /\bin:sent\b/.test(q0) ? 'sent' : /\bin:inbox\b/.test(q0) ? 'inbox' : null; // promises (mail.js loadPromises): a whole mailbox
+      const words = q0.replace(/\b(from|to|subject|after|before|newer_than|in|has|category):\S*/g, ' ').replace(/-\S+/g, ' ').match(/[\p{L}\p{N}]{3,}/gu) || [];
+      const rows = GMAILS.filter((m) => m.box !== 'voice' && (box ? m.box === box && (!words.length || words.some((w) => `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(w))) : words.some((w) => `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(w)))).slice(0, a.limit || 8);
+      return json({ messages: rows.map((m) => { const d = gmDetail(m); return { id: d.id, threadId: d.threadId, from: d.from, to: d.to, date: d.date, subject: d.subject, body: d.body }; }), estimate: rows.length });
+    }
+    case 'threads': return json({ threads: (a.ids || []).map((id) => { const ms = GMAILS.filter((x) => (x.threadId || x.id) === id); return ms.length ? { id, messages: ms.slice().reverse().map((x) => ({ id: x.id, from: x.from, date: x.date })) } : { id, missing: true }; }) });
+    case 'voiceSamples': { // the owner's sent mail, for learning their style
+      const page = Number(a.pageToken || 0);
+      const mine = [...GMAILS.filter((m) => m.box === 'sent'), ...GM_VOICE].slice(page * 40, page * 40 + (a.limit || 40));
+      return json({ samples: mine.map((m) => ({ id: m.id, threadId: m.threadId || null, to: (m.to || []).map((x) => gmAddr(x).toLowerCase()), subject: m.subject, date: m.date, text: m.body, reply: /^re:/i.test(m.subject) })), nextPageToken: GM_VOICE.length > (page + 1) * 40 ? String(page + 1) : null });
+    }
     case 'cancelScheduled': {
       const j = GM_JOBS.find((x) => x.id === a.id);
       if (!j) return json({ error: 'No scheduled send with that id.', code: 'not_found' }, 404);
@@ -1139,6 +1340,18 @@ async function gmailMock(body) {
     default: return json({ error: `action must be one of profile, search, read, draft, send, drafts, getDraft, deleteDraft, attachment, contacts, sendAs, schedule, scheduled, cancelScheduled, uploadStart, uploadChunk, uploadFromGmail, uploadDelete`, code: 'bad_request' }, 400);
   }
 }
+
+/** Sent mail in the owner's voice (casual: "Hey …", "Cheers, B"), for "Learn my writing style". */
+const GM_VOICE = [
+  ['Priya Shah <priya@example.org>', 'Re: Contract draft for review', 'Hey Priya,\n\nLooks good to me — let’s go with 30 days. I’ll sign tonight.\n\nCheers,\nB\n\nOn Mon, Priya Shah <priya@example.org> wrote:\n> Attached is v2'],
+  ['Priya Shah <priya@example.org>', 'Lunch Thursday?', 'Hey Priya,\n\nFree Thursday? Happy to come to you. There’s a new place near the office I’ve been meaning to try.\n\nCheers,\nB'],
+  ['Priya Shah <priya@example.org>', 'Re: deck', 'Hey Priya,\n\nThanks! Will take a look and circle back by Friday.\n\nCheers,\nB\n\nSent from my iPhone'],
+  ['Alex Kim <alex@example.com>', 'Q4 numbers', 'Hi Alex,\n\nQuick one: can you send over the Q4 numbers when you get a sec? Let me know if you need anything from me.\n\nBest,\nB'],
+  ['Alex Kim <alex@example.com>', 'Re: Q4 offsite — pick a date', 'Hi Alex,\n\nNov 12 works for me. Let me know if that changes.\n\nBest,\nB'],
+  ['Sam Lee <sam@example.com>', 'Great meeting you', 'Hi Sam,\n\nGreat meeting you today! Let me know when you’re free for a follow-up — happy to work around your schedule.\n\nBest,\nB'],
+  ['Marco Rossi <marco@studio-rossi.it>', 'Re: Lisbon offsite — venue shortlist', 'Hey Marco,\n\nLove the second one. Can we see it next week?\n\nCheers,\nB'],
+  ['Dana Ortiz <dana@example.com>', 'Re: budget', 'Hi Dana,\n\nThat’s fine by me — go ahead. Let me know if anything comes up.\n\nBest,\nB'],
+].map(([to, subject, body], i) => ({ id: `v${i}`, threadId: `tv${i}`, box: 'voice', from: 'owner@gmail.com', to: [to], subject, date: new Date(Date.now() - (i + 3) * 86_400_000).toISOString(), body }));
 
 /** The compose windows' "Ask Eden": an email back (Markdown-light), streamed like a chat turn. */
 function composeMock(body, signal) {
@@ -1170,6 +1383,11 @@ function composeMock(body, signal) {
     const what = /^Write an email: (.*?)(\. It goes|\. The subject|\. Start with|$)/.exec(ask)?.[1] || 'a quick note';
     const subj = /Start with one line "Subject:/.test(ask) ? `Subject: ${what[0].toUpperCase()}${what.slice(1, 60)}\n\n` : '';
     text = `${subj}Hi ${first},\n\nI wanted to reach out about ${what.replace(/^(to |about )/i, '')}.\n\n- One: the key point, in a line\n- Two: what I need from you, and by when\n\nLet me know what you think.\n\nBest,`;
+  }
+  // In the owner's learned style (mailkit.js voiceFor): their greeting and sign-off, and the examples were sent along
+  const sys = String(body.system || '');
+  if (/Write exactly the way the owner writes/.test(sys) && /Hey \{name\}/.test(sys)) {
+    text = text.replace(/^(Subject:[^\n]*\n\n)?(Hi|Dear|Hello) ([^,\n]+)[,!]/, (_m, sj, _g, n) => `${sj || ''}Hey ${n},`).replace(/\n\n(Best|Kind regards|Thanks for organising|Hope you’re having a great week\. Cheers),?\s*$/, '\n\nCheers,\nB');
   }
   const steps = [[450, 'route', { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', provider: 'anthropic', effort: 'low', effortLabel: 'low effort', via: 'claude-cli', costUSD: 0.0021, quality: 90, confidence: 80, rationale: 'Simple writing task (mock).', rated: true, ratedBy: 'Gemini', complexity: 'simple', candidates: [], fallbacks: [], warnings: [], notes: [] }]];
   for (const t of chunks(text, 14)) steps.push([45, 'text', { text: t }]);

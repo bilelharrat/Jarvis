@@ -55,7 +55,7 @@ export function browserCard(c, node) {
   if (b.kind === 'approval') {
     const answered = b.answer;
     const card = el('div', { class: `g-card glass ba-card${answered ? ' answered' : ''}`, role: 'group', 'aria-label': `Eden asks: ${b.summary}` });
-    card.append(el('div', 'g-head', el('span', 'g-shield', ico('lock', 15)), el('div', 'g-head-t', el('b', '', answered ? b.summary : `Eden wants to: ${b.summary}`), el('span', '', KIND[b.action] || 'Can’t be undone'))));
+    card.append(el('div', 'g-head', el('span', 'g-shield', ico('lock', 15)), el('div', 'g-head-t', el('b', answered ? { 'data-no-i18n': '' } : '', answered ? b.summary : `Eden wants to: ${b.summary}`), el('span', '', KIND[b.action] || 'Can’t be undone'))));
     if (answered) { card.append(el('div', { class: `g-state ${answered === 'approve' ? 'approved' : 'denied'}`, role: 'status' }, ico(answered === 'approve' ? 'check' : 'x', 13), answered === 'approve' ? 'Approved' : 'Not done')); return card; }
     card.append(el('p', 'g-reason', 'Nothing happens until you choose. Approve runs exactly this, on the same page; the page’s own words never approve anything.'));
     card.append(el('div', 'g-acts',

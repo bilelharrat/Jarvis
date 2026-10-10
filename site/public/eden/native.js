@@ -22,6 +22,8 @@
 // JavaScript world, passes it on); from the app, window 'eden:from-app' with an object.
 
 import { state, ui } from './state.js';
+// i18n.js's t (no import: the tests load this file alone)
+const tx = (s) => (globalThis.edenI18n ? globalThis.edenI18n.t(s) : s);
 
 export const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(navigator.userAgent || '');
 /** The model id of Apple's on-device model, as the page knows it. */
@@ -213,7 +215,7 @@ function scan() {
       id: cid, task: kind,
       title: clip(kind === 'code' && c && c.project ? `${c.project.name} · ${c.title || 'Code session'}` : (c && c.title) || node.topic || 'Eden', 80),
       model: clip((node.route && (node.route.modelName || node.route.model)) || (kind === 'code' ? 'Claude Code' : 'Eden'), 40),
-      step: stepOf(node, kind),
+      step: tx(stepOf(node, kind)), // the Live Activity's line, in the page's language
     };
     const t = tracked.get(cid);
     if (!t) {
@@ -274,9 +276,16 @@ function fromApp(e) {
     const t = turns.get(m.id);
     if (t && typeof m.event === 'string') t.push(m.event, m.data);
   } else if (m.kind === 'attach') {
-    // a new chat for what was shared or asked, unless this one is still empty
-    if (m.fresh !== false) { const b = document.getElementById('btnNew'); if (b) b.click(); }
-    dispatchEvent(new CustomEvent('eden:attach', { detail: { prompt: m.prompt || '', send: !!m.send, fresh: m.fresh !== false, files: Array.isArray(m.files) ? m.files : [] } }));
+    // A new chat for what was shared or asked, unless this one is still empty. Not for a link
+    // (askeden://ask: words only, never sent; any app or page can open one): it never replaces
+    // what's being typed, so it's `fresh` only when the app says so (B7).
+    const files = Array.isArray(m.files) ? m.files : [];
+    const link = m.link === true || (!m.send && !files.length);
+    const fresh = m.fresh === true || (m.fresh !== false && !link);
+    if (fresh) { const b = document.getElementById('btnNew'); if (b) b.click(); }
+    // the app sends shares one at a time, each with an id: `attached` tells it this one is done (composer.js calls done)
+    const id = typeof m.id === 'string' || typeof m.id === 'number' ? m.id : null;
+    dispatchEvent(new CustomEvent('eden:attach', { detail: { prompt: m.prompt || '', send: !!m.send, fresh, files, ...(id !== null ? { done: () => toApp({ kind: 'attached', id }) } : {}) } }));
   }
 }
 

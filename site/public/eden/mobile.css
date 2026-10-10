@@ -69,6 +69,14 @@
   .jc-chip-x { width: 26px; height: 26px; border-radius: 13px; line-height: 26px; font-size: 15px; position: relative; }
   .jc-thumb-img .jc-chip-x { position: absolute; top: 2px; right: 2px; }
   .jc-chip-x::after { content: ""; position: absolute; inset: -8px; }
+
+  /* The title bar has eight buttons; on a 402pt iPhone the chat's title was cut to one letter
+     ("N…"). The logo beside it goes (it's the sidebar's and the empty chat's too), the gaps and
+     buttons tighten a little, and the title keeps room for a word or two (iOS sweep B14). */
+  #titlebar { gap: 3px; }
+  #titlebar > .orb { display: none; }
+  #titlebar > .iconbtn { width: 28px; }
+  #titlebar .tb-title { min-width: 64px; }
 }
 
 /* Eden in the iPad app (the app adds .eden-app, and .eden-ipad on an iPad), wider than a

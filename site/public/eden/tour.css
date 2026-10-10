@@ -133,3 +133,4 @@ html.eden-practice:not([data-tour-step="tasks"]) #tkFloat{display:none!important
   .tour-hole,.tour-card,.tour-bar i{transition:none}
   .tour-hole::after,.tour-try-ic::after,.tour-card.enter,.tour-card.ok .tour-check,.tour-card.ok .tour-check svg,.tour-scrim,.tour-welcome,.tour-talk p,.tour-talk-orb,.tour-finale .tour-check.big{animation:none}
 }
+.tour-boot-sound{margin:14px 0 0}

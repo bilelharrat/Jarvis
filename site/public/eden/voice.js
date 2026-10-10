@@ -14,19 +14,22 @@
 //    element: the page CSP stays as it is). Code blocks are never read (voice-text.js).
 //  - Talk: a glass overlay that listens, sends when you pause (or on "Send now"), reads the
 //    reply aloud from its first sentences, then listens again. Speaking over the voice stops
-//    it (barge-in, from the mic's level, echo-cancelled). Esc or End closes it.
+//    it (barge-in: speech recognition hears words that aren't his, barge-in.js, or the mic's
+//    level well above his echo); Space or a tap on the orb does too. Esc or End closes it.
 
 import { $, el, ico, toast, store } from './util.js';
 import { state, ui, nodeText } from './state.js';
 import { apiUrl, isMock, addSendExtra } from './api.js';
+import { watchForInterrupt, isSpaceToInterrupt } from './barge-in.js';
 import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S } from './voice-text.js';
+import { speechLang } from './i18n.js';
+import { deadline, talkStep, talkText, DEADLINE, TALK_PAUSE_MS } from './resilience.js';
 
 const prefs = { autoRead: false, ...store.get('jchat:voice', {}) };
 const savePrefs = () => store.set('jchat:voice', prefs);
 const Recognition = () => window.SpeechRecognition || window.webkitSpeechRecognition || null;
 // Recording for the server to transcribe, where there's no recognition (Firefox).
 const Recorder = () => (window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? window.MediaRecorder : null);
-const speechLang = () => navigator.language || 'en-US';
 const HOSTED = !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 const MIC_BLOCKED = 'Eden can’t use the microphone. Allow it for this site in the browser’s settings.';
 
@@ -47,24 +50,31 @@ function audio() {
 }
 
 let noteShown = false;
+// One piece of speech: 15 s at most, then it fails with a message (said in a toast by the speaker)
+// instead of leaving Talk on "Speaking…" (A2).
 async function fetchVoice(text, signal) {
   const path = '/api/chat/voice';
-  const init = { method: 'POST', headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: JSON.stringify({ text }), signal };
-  let res;
+  const d = deadline(DEADLINE.voice, signal);
+  const init = { method: 'POST', headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: JSON.stringify({ text }), signal: d.signal };
+  const late = () => new Error('The voice didn’t answer in time.');
   try {
-    res = isMock ? await (await import('./mock.js')).mockFetch(path, init) : await fetch(apiUrl(path), init);
-  } catch (e) {
-    if (e.name === 'AbortError') throw e;
-    throw new Error('Can’t reach the voice.');
-  }
-  if (!res.ok) {
-    let msg = `The voice said ${res.status}.`;
-    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch { /* not JSON */ }
-    throw new Error(msg);
-  }
-  const note = res.headers.get('x-eden-voice-note'); // on the Mac: why the Mac's voice reads instead
-  if (note && !noteShown) { noteShown = true; try { toast(decodeURIComponent(note)); } catch { /* malformed */ } }
-  return res.arrayBuffer();
+    let res;
+    try {
+      res = isMock ? await (await import('./mock.js')).mockFetch(path, init) : await fetch(apiUrl(path), init);
+    } catch (e) {
+      if (d.timedOut()) throw late();
+      if (e.name === 'AbortError') throw e;
+      throw new Error('Can’t reach the voice.');
+    }
+    if (!res.ok) {
+      let msg = `The voice said ${res.status}.`;
+      try { const j = await res.json(); if (j && j.error) msg = j.error; } catch { /* not JSON */ }
+      throw new Error(msg);
+    }
+    const note = res.headers.get('x-eden-voice-note'); // on the Mac: why the Mac's voice reads instead
+    if (note && !noteShown) { noteShown = true; try { toast(decodeURIComponent(note)); } catch { /* malformed */ } }
+    try { return await res.arrayBuffer(); } catch (e) { if (d.timedOut()) throw late(); throw e; }
+  } finally { d.done(); }
 }
 
 /**
@@ -349,14 +359,15 @@ async function transcribe(blob, seconds) {
 }
 
 /* ---------- Talk ---------- */
-const PAUSE_MS = 1200; // this long without new words after you speak: the turn is sent
+const PAUSE_MS = TALK_PAUSE_MS; // this long without new words after you speak: the turn is sent (also at 30 s or 2,000 characters: resilience.js talkStep)
 const talk = {
   on: false, state: 'off', rec: null, heard: '', mid: '', pauseT: 0, awaiting: false, replyId: null, reply: '', error: '',
-  stream: null, src: null, mic: null, raf: 0, floor: 0.01, loudFrames: 0, ends: 0, box: null, back: null,
+  stream: null, src: null, mic: null, raf: 0, floor: 0.01, echo: 0.02, loudFrames: 0, ends: 0, box: null, back: null,
+  watch: null, seed: '', turn: null,
   mini: false, dragged: false,
 };
 
-// In Talk mode (the JARVIS voice) the server answers as J.A.R.V.I.S. (turn.ts JARVIS_PERSONA).
+// In Talk mode (the Eden voice) the server answers as J.A.R.V.I.S. (turn.ts JARVIS_PERSONA).
 addSendExtra(() => (talk.on ? { persona: 'jarvis' } : null));
 
 function talkBox() {
@@ -365,14 +376,14 @@ function talkBox() {
     el('div', 'talk-card glass',
       el('div', 'talk-top',
         el('span', 'talk-title', 'Talk'),
-        el('span', 'talk-voice', HOSTED ? 'JARVIS voice · your account’s daily allowance' : 'JARVIS voice'),
+        el('span', 'talk-voice', HOSTED ? 'Eden voice · your account’s daily allowance' : 'Eden voice'),
         el('button', { type: 'button', class: 'iconbtn talk-x', title: 'Shrink to the orb (keeps talking)', 'aria-label': 'Shrink to the orb (keeps talking)', onclick: () => setTalkMini(true) }, ico('collapse')),
         el('button', { type: 'button', class: 'iconbtn talk-x', id: 'talkX', title: 'End', 'aria-label': 'End talking', onclick: () => closeTalk() }, ico('x'))),
       el('button', { type: 'button', class: 'talk-orb', id: 'talkOrb', 'aria-label': 'Interrupt', onclick: orbTap },
         el('span', 'talk-ring'), el('span', 'talk-core')),
       el('div', { class: 'talk-state', id: 'talkState', 'aria-live': 'polite' }),
-      el('div', { class: 'talk-you', id: 'talkYou' }),
-      el('div', { class: 'talk-reply', id: 'talkReply' }),
+      el('div', { class: 'talk-you', id: 'talkYou', 'data-no-i18n': '' }),
+      el('div', { class: 'talk-reply', id: 'talkReply', 'data-no-i18n': '' }),
       el('div', 'talk-acts',
         el('button', { type: 'button', class: 'btn primary', id: 'talkSend', onclick: () => sendTalk() }, 'Send now'),
         el('button', { type: 'button', class: 'btn', id: 'talkEnd', onclick: () => closeTalk() }, 'End'))));
@@ -445,7 +456,7 @@ function paintTalk() {
   talk.box.dataset.state = speaking ? 'speaking' : s;
   $('talkState').textContent = talk.error && s === 'listening' ? talk.error
     : s === 'listening' ? ((talk.heard + talk.mid).trim() ? 'Listening… pause to send' : 'Listening…')
-      : s === 'sending' ? 'Sending…' : speaking ? 'Speaking… talk to interrupt' : 'Thinking…';
+      : s === 'sending' ? 'Sending…' : speaking ? 'Speaking… talk over me, or press Space, to interrupt' : 'Thinking…';
   $('talkYou').textContent = s === 'listening' ? (talk.heard + talk.mid).trim() : talk.you || '';
   $('talkYou').classList.toggle('mid', s === 'listening' && !!talk.mid);
   const r = s === 'listening' ? '' : talk.reply;
@@ -492,6 +503,7 @@ function closeTalk() {
   if (rec) { try { rec.abort(); } catch { /* ended */ } }
   if (talk.replyId && speaker.id === talk.replyId) speaker.stop();
   cancelAnimationFrame(talk.raf);
+  unwatch();
   if (talk.stream) talk.stream.getTracks().forEach((t) => t.stop());
   if (talk.src) talk.src.disconnect();
   Object.assign(talk, { state: 'off', stream: null, src: null, mic: null, awaiting: false, replyId: null, mini: false });
@@ -505,9 +517,10 @@ function closeTalk() {
   return true;
 }
 
-function listen() {
+function listen(seed = '') {
   if (!talk.on) return;
-  Object.assign(talk, { heard: '', mid: '', replyId: null });
+  unwatch();
+  Object.assign(talk, { heard: seed, mid: '', replyId: null, seed: seed ? `${seed} ` : '', turn: null });
   setTalk('listening');
   const rec = new (Recognition())();
   rec.lang = speechLang();
@@ -519,13 +532,19 @@ function listen() {
     let fin = '';
     let mid = '';
     for (const r of e.results) { if (r.isFinal) fin += r[0].transcript; else mid += r[0].transcript; }
-    talk.heard = fin;
+    talk.heard = talk.seed + fin; // what you'd already said over the reply comes first
     talk.mid = mid;
     talk.error = '';
     talk.ends = 0;
     paintTalk();
+    // The pause counts from the last change in what was heard: a recognizer that repeats the same
+    // results doesn't hold the turn open, and one that never stops is sent at 30 s / 2,000 characters (A2).
+    const step = talkStep(talk.turn, talk.heard + mid, Date.now());
+    talk.turn = step.turn;
+    if (step.action === 'send') { sendTalk(); return; }
+    if (step.action === 'keep' && talk.pauseT) return;
     clearTimeout(talk.pauseT);
-    if ((fin + mid).trim()) talk.pauseT = setTimeout(sendTalk, PAUSE_MS);
+    talk.pauseT = step.action === 'none' ? 0 : setTimeout(sendTalk, PAUSE_MS);
   };
   rec.onerror = (e) => {
     if (talk.rec !== rec) return;
@@ -548,7 +567,8 @@ function listen() {
 
 function sendTalk() {
   clearTimeout(talk.pauseT);
-  const text = `${talk.heard} ${talk.mid}`.replace(/\s+/g, ' ').trim();
+  talk.pauseT = 0;
+  const text = talkText(`${talk.heard} ${talk.mid}`);
   if (!talk.on || talk.state !== 'listening' || !text) return;
   const rec = talk.rec;
   talk.rec = null;
@@ -576,12 +596,15 @@ function afterReply(reason) {
   listen();
 }
 
-function bargeIn() {
+/** You talked over the reply (or tapped the orb, or pressed Space): stop it and listen; `heard` starts your turn. */
+function bargeIn(heard = '') {
   if (!talk.on || talk.state !== 'replying') return;
   talk.replyId = null;
   speaker.stop();
-  listen();
+  listen(heard);
+  if (heard) { paintTalk(); clearTimeout(talk.pauseT); talk.turn = talkStep(null, heard, Date.now()).turn; talk.pauseT = setTimeout(sendTalk, PAUSE_MS); }
 }
+function unwatch() { if (talk.watch) { talk.watch(); talk.watch = null; } }
 
 function rms(an) {
   const buf = new Float32Array(an.fftSize);
@@ -595,10 +618,14 @@ function meter() {
   const speaking = talk.state === 'replying' && speaker.playing;
   const mic = talk.mic ? rms(talk.mic) : 0;
   const out = speaking && outLevel ? rms(outLevel) : 0;
+  // while he speaks, recognition listens for your words over his (barge-in.js)
+  if (speaking && !talk.watch) talk.watch = watchForInterrupt({ spoken: () => talk.reply, onInterrupt: (heard) => { talk.watch = null; bargeIn(heard); }, lang: speechLang() });
+  else if (!speaking && talk.watch && talk.state !== 'replying') unwatch();
   if (talk.mic) {
-    if (talk.state !== 'replying') talk.floor = Math.max(0.003, talk.floor * 0.97 + mic * 0.03);
-    // barge-in: your voice over the reply (well above the room, for ~200ms)
-    if (speaking && mic > Math.max(0.045, talk.floor * 5)) { if (++talk.loudFrames > 12) { talk.loudFrames = 0; bargeIn(); } }
+    if (talk.state !== 'replying') { talk.floor = Math.max(0.003, talk.floor * 0.97 + mic * 0.03); talk.echo = 0.02; }
+    else if (speaking) talk.echo = talk.echo * 0.98 + mic * 0.02; // his voice leaking back through the echo cancelling
+    // barge-in by level: your voice well above the room and his echo, for ~150ms
+    if (speaking && mic > Math.max(0.03, talk.floor * 4, talk.echo * 2.5)) { if (++talk.loudFrames > 9) { talk.loudFrames = 0; bargeIn(); } }
     else talk.loudFrames = 0;
   }
   const lvl = Math.min(1, (speaking ? out : mic) * 9);
@@ -618,8 +645,8 @@ export function voiceSettings() {
     toast(sw.checked ? 'Replies will be read aloud' : 'Replies won’t be read aloud');
   });
   const where = HOSTED
-    ? 'On askeden.com the JARVIS voice uses your Jarvis account’s daily voice allowance (more with Jarvis Plus).'
-    : 'On this Mac: the JARVIS voice, on J.A.R.V.I.S.’s daily allowance for this Mac; the Mac’s own voice when that’s used up or offline.';
+    ? 'On askeden.com the Eden voice uses your account’s daily voice allowance (more with Plus).'
+    : 'On this Mac: the Eden voice, on the daily voice allowance for this Mac; the Mac’s own voice when that’s used up or offline.';
   const rec = Recognition()
     ? 'Dictation and Talk use this browser’s speech recognition (Chrome sends the audio to Google to transcribe it).'
     : Recorder()
@@ -627,9 +654,9 @@ export function voiceSettings() {
       : 'This browser has no speech recognition, so Dictation and Talk are off (use Chrome, Edge or Safari).';
   return el('div', 'set-sec', el('h3', '', 'Voice'),
     el('div', 'icard', el('div', 'prov',
-      el('div', 'grow', el('div', 'p-n', 'Read replies aloud'), el('div', 'p-c', 'In the JARVIS voice, as each reply streams in (code is skipped). Talk mode always reads aloud.')),
+      el('div', 'grow', el('div', 'p-n', 'Read replies aloud'), el('div', 'p-c', 'In the Eden voice, as each reply streams in (code is skipped). Talk mode always reads aloud.')),
       el('label', 'switch', sw, el('span', 'tr')))),
-    el('p', 'sp-note', `${where} ${rec}`));
+    el('p', 'sp-note', where, ' ', rec)); // two text nodes: each is translated on its own
 }
 
 /* ---------- Esc, and wiring ---------- */
@@ -661,6 +688,7 @@ export function initVoice() {
   document.addEventListener('keydown', (e) => {
     if (!talk.on || talk.mini) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); setTalkMini(true); return; }
+    if (talk.state === 'replying' && isSpaceToInterrupt(e)) { e.preventDefault(); e.stopImmediatePropagation(); bargeIn(); return; }
     if (e.key === 'Tab') {
       const f = [...talk.box.querySelectorAll('button:not([hidden]):not(:disabled)')];
       const i = f.indexOf(document.activeElement);

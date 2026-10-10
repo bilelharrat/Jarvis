@@ -183,7 +183,7 @@ after(() => {
   globalThis.fetch = realFetch;
 });
 
-const WRITES = { '/api/chat/gmail': ['gmail', ['send', 'schedule']], '/api/chat/gcal': ['gcal', ['create', 'update', 'delete', 'respond']] };
+const WRITES = { '/api/chat/gmail': ['gmail', ['send', 'schedule']], '/api/chat/gcal': ['gcal', ['create', 'update', 'delete', 'respond']], '/api/chat/sheets': ['sheets', ['write', 'upload', 'trash']] };
 
 async function hit(p, { method = 'GET', body, headers = {}, session, cookie, token, origin = ORIGIN, noApproval = false } = {}) {
   // The page mints an approval token as part of the click; the tests do the same unless asked not to.
@@ -264,7 +264,7 @@ test('Google data stays "needs your Mac" until the client and EDEN_TOKEN_KEY are
   assert.equal(r.status, 503);
   assert.equal((await r.json()).code, 'needs_mac');
   env.EDEN_TOKEN_KEY = bytesToB64(new Uint8Array(32).fill(7));
-  assert.deepEqual(await (await chat('/api/chat/google/status', session)).json(), { configured: true, connected: false, email: null, gmail: false, calendar: false, hosted: true });
+  assert.deepEqual(await (await chat('/api/chat/google/status', session)).json(), { configured: true, connected: false, email: null, gmail: false, calendar: false, sheets: false, hosted: true });
   assert.deepEqual(await (await chat('/api/chat/gcal/status', session)).json(), { configured: true, connected: false, email: null, calendar: false, hosted: true });
   assert.equal((await gmail(session, 'search')).status, 409);
   assert.equal((await chat('/api/chat/google/config', session, { method: 'POST', body: { clientId: 'x', clientSecret: 'y' } })).status, 400);
@@ -276,7 +276,7 @@ test('Connect Gmail: its own consent (PKCE, offline, incremental), sealed state 
   const { start, to, done } = await connect(session, 'gmail');
   assert.equal(to.origin + to.pathname, 'https://accounts.google.com/o/oauth2/v2/auth');
   const q = to.searchParams;
-  assert.deepEqual(q.get('scope').split(' '), ['openid', 'email', ...GMAIL], 'Gmail only: no calendar, no gmail.send (compose covers it)');
+  assert.deepEqual(q.get('scope').split(' '), ['openid', 'email', ...GMAIL, 'https://www.googleapis.com/auth/gmail.modify'], 'Gmail only: no calendar, no gmail.send (compose covers it); modify for Mail’s Done, snooze, star, read');
   assert.equal(q.get('client_id'), CLIENT_ID);
   assert.equal(q.get('redirect_uri'), `${ORIGIN}/api/chat/google/callback`);
   assert.equal(q.get('access_type'), 'offline');
@@ -298,7 +298,7 @@ test('Connect Gmail: its own consent (PKCE, offline, incremental), sealed state 
   assert.equal(google.redirect, `${ORIGIN}/api/chat/google/callback`);
   assert.equal(b64url(await sha256(google.verifier)), q.get('code_challenge'), 'the verifier matches the challenge');
 
-  assert.deepEqual(await (await chat('/api/chat/google/status', session)).json(), { configured: true, connected: true, email: 'owner@gmail.com', gmail: true, calendar: false, hosted: true });
+  assert.deepEqual(await (await chat('/api/chat/google/status', session)).json(), { configured: true, connected: true, email: 'owner@gmail.com', gmail: true, calendar: false, sheets: false, hosted: true });
   assert.equal((await (await chat('/api/chat/gcal/status', session)).json()).connected, false, 'Calendar is a separate consent');
   const stored = storedText();
   for (const secret of ['rt-1', 'at-1', 'owner@gmail.com', 'g-sub-1']) assert.ok(!stored.includes(secret), `${secret} is sealed`);
@@ -853,4 +853,118 @@ test('Gmail send and Calendar writes need a single-use, exact-payload, unexpired
   const t = await mint('gcal', 'create', ev.args);
   assert.notEqual((await post('/api/chat/gcal', ev, t)).status, 403);
   assert.equal((await post('/api/chat/gcal', ev, t)).status, 403);
+});
+
+// ── Google Sheets in the spreadsheet canvas (askeden ROADMAP Q15): drive.file only, asked on first use ──
+
+const DRIVE_FILE = 'https://www.googleapis.com/auth/drive.file';
+const SHEET_ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
+
+/** The fake Google, plus Sheets and Drive: one spreadsheet with A1:B2, values read back and writes kept. */
+function withSheets() {
+  const prev = google.fetch;
+  const sheet = { A1: 'Region', B1: 'Revenue', A2: 'East', B2: 100 };
+  google.writes = [];
+  google.uploads = [];
+  google.fetch = async (url, init = {}) => {
+    const u = new URL(url);
+    const method = init.method || 'GET';
+    if (u.host === 'sheets.googleapis.com') {
+      google.calls.push({ url, method, body: init.body, auth: (init.headers || {}).authorization });
+      if (u.pathname === `/v4/spreadsheets/${SHEET_ID}` && method === 'GET' && !u.searchParams.has('includeGridData')) {
+        return Response.json({ spreadsheetId: SHEET_ID, spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`, properties: { title: 'Budget' }, sheets: [{ properties: { sheetId: 0, title: 'Sales', index: 0, gridProperties: { rowCount: 1000, columnCount: 26 } } }] });
+      }
+      if (u.pathname === `/v4/spreadsheets/${SHEET_ID}` && u.searchParams.get('includeGridData') === 'true') {
+        return Response.json({ sheets: [{ properties: { title: 'Sales' }, data: [{ rowData: [
+          { values: [{ userEnteredValue: { stringValue: 'Region' } }, { userEnteredValue: { stringValue: 'Revenue' }, userEnteredFormat: { textFormat: { bold: true } } }] },
+          { values: [{ userEnteredValue: { stringValue: 'East' } }, { userEnteredValue: { numberValue: 100 }, effectiveValue: { numberValue: 100 }, userEnteredFormat: { numberFormat: { type: 'CURRENCY', pattern: '$#,##0' } } }, { userEnteredValue: { formulaValue: '=B2*2' }, effectiveValue: { numberValue: 200 } }] },
+        ] }] }] });
+      }
+      if (u.pathname === `/v4/spreadsheets/${SHEET_ID}/values:batchGet`) {
+        assert.equal(u.searchParams.get('valueRenderOption'), 'FORMULA');
+        return Response.json({ valueRanges: u.searchParams.getAll('ranges').map((r) => { const a = r.split('!')[1]; return { range: r, values: sheet[a] === undefined ? [] : [[sheet[a]]] }; }) });
+      }
+      if (u.pathname === `/v4/spreadsheets/${SHEET_ID}/values:batchUpdate` && method === 'POST') {
+        const j = JSON.parse(init.body);
+        google.writes.push(j);
+        for (const d of j.data) sheet[d.range.split('!')[1]] = d.values[0][0];
+        return Response.json({ totalUpdatedCells: j.data.length });
+      }
+    }
+    if (u.host === 'www.googleapis.com' && u.pathname === '/upload/drive/v3/files') {
+      google.uploads.push({ url, type: init.headers['content-type'], body: init.body });
+      return Response.json({ id: 'drivefile0001', name: 'Budget', mimeType: 'application/vnd.google-apps.spreadsheet', webViewLink: 'https://docs.google.com/spreadsheets/d/drivefile0001/edit' });
+    }
+    return prev(url, init);
+  };
+  return sheet;
+}
+
+test('Connect Google Sheets asks for drive.file alone (incremental, never spreadsheets or drive), and status says so', async () => {
+  const session = await signedInBrowser(await phone());
+  google.grant = { ...google.grant, scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email', DRIVE_FILE] };
+  const { to, done } = await connect(session, 'sheets');
+  const q = to.searchParams;
+  assert.deepEqual(q.get('scope').split(' '), ['openid', 'email', DRIVE_FILE], 'only the non-sensitive drive.file');
+  assert.ok(!/auth\/spreadsheets|auth\/drive(?!\.file)/.test(q.get('scope')));
+  assert.equal(q.get('include_granted_scopes'), 'true');
+  assert.equal(landing(done), '/#gmail=connected');
+  const st = await (await chat('/api/chat/google/status', session)).json();
+  assert.equal(st.sheets, true);
+  assert.equal(st.gmail, false, 'Sheets doesn’t bring Gmail');
+});
+
+test('Sheets: picker token is narrowed to drive.file, open reads formulas and formats, writes need approval and read the old values first', async () => {
+  env = makeEnv({ GOOGLE_PICKER_API_KEY: 'AIza-test-key', GOOGLE_APP_ID: '123456789012' });
+  const session = await signedInBrowser(await phone());
+  // not connected yet: 409; a Gmail-only grant: 403 (scope)
+  assert.equal((await chat('/api/chat/sheets', session, { method: 'POST', body: { action: 'open', args: { id: SHEET_ID } } })).status, 409);
+  await connect(session, 'gmail');
+  assert.equal((await chat('/api/chat/sheets', session, { method: 'POST', body: { action: 'open', args: { id: SHEET_ID } } })).status, 403);
+  google.grant = { ...google.grant, refresh: null, scopes: [...google.grant.scopes, DRIVE_FILE] };
+  await connect(session, 'sheets');
+  const sheet = withSheets();
+  // the Picker's token: a refresh asking for drive.file only
+  const realGoogle = google.fetch;
+  google.fetch = async (url, init = {}) => {
+    if (url === 'https://oauth2.googleapis.com/token' && new URLSearchParams(init.body).get('scope')) {
+      google.pickerScope = new URLSearchParams(init.body).get('scope');
+      return Response.json({ access_token: 'at-picker', expires_in: 3600, scope: DRIVE_FILE });
+    }
+    return realGoogle(url, init);
+  };
+  const pick = await (await chat('/api/chat/sheets', session, { method: 'POST', body: { action: 'picker', args: {} } })).json();
+  assert.equal(google.pickerScope, DRIVE_FILE);
+  assert.deepEqual(Object.keys(pick).sort(), ['apiKey', 'appId', 'expiresAt', 'token']);
+  assert.equal(pick.token, 'at-picker');
+  assert.ok(!JSON.stringify(pick).includes('rt-1'), 'the refresh token never goes to the page');
+  // open
+  const opened = await (await chat('/api/chat/sheets', session, { method: 'POST', body: { action: 'open', args: { id: SHEET_ID } } })).json();
+  assert.equal(opened.title, 'Budget');
+  assert.deepEqual(opened.sheets[0].cells.B2, { v: 100, z: '$#,##0' });
+  assert.deepEqual(opened.sheets[0].cells.C2, { v: 200, f: '=B2*2' });
+  assert.deepEqual(opened.sheets[0].cells.B1, { v: 'Revenue', s: { b: true } });
+  // a write without the click's approval token: refused before Google
+  const write = { action: 'write', args: { id: SHEET_ID, changes: [{ sheet: 'Sales', addr: 'B2', v: 150 }, { sheet: 'Sales', addr: 'C2', f: '=B2*3' }], base: { 'Sales!B2': 100 }, confirm: true } };
+  const calls = google.calls.length;
+  const refused = await chat('/api/chat/sheets', session, { method: 'POST', body: write, noApproval: true });
+  assert.equal(refused.status, 403);
+  assert.equal(google.calls.length, calls);
+  const wrote = await chat('/api/chat/sheets', session, { method: 'POST', body: write });
+  assert.equal(wrote.status, 200, await wrote.clone().text());
+  const w = await wrote.json();
+  assert.deepEqual(w.before, [{ sheet: 'Sales', addr: 'B2', v: 100 }, { sheet: 'Sales', addr: 'C2', v: null }]);
+  assert.deepEqual(google.writes.map((x) => x.valueInputOption), ['RAW', 'USER_ENTERED'], 'values stay values; formulas are entered');
+  assert.equal(sheet.B2, 150);
+  // the cell changed in Google since: a 409 conflict listing it, unless force
+  sheet.B2 = 175;
+  const conflict = await chat('/api/chat/sheets', session, { method: 'POST', body: { action: 'write', args: { id: SHEET_ID, changes: [{ sheet: 'Sales', addr: 'B2', v: 1 }], base: { 'Sales!B2': 150 }, confirm: true } } });
+  assert.equal(conflict.status, 409);
+  assert.deepEqual((await conflict.json()).conflicts.map((c) => c.addr), ['B2']);
+  // upload with conversion (the slides' driveUpload too)
+  const up = await chat('/api/chat/sheets', session, { method: 'POST', body: { action: 'upload', args: { name: 'Budget.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', data: Buffer.from('PK fake').toString('base64'), convertTo: 'sheets', confirm: true } } });
+  assert.equal(up.status, 200, await up.clone().text());
+  assert.match(google.uploads[0].type, /^multipart\/related; boundary=/);
+  assert.match(google.uploads[0].body, /"mimeType":"application\/vnd\.google-apps\.spreadsheet"/);
+  assert.match(google.uploads[0].body, /Content-Transfer-Encoding: base64/);
 });

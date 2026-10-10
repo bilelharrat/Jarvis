@@ -9,6 +9,8 @@ import { privacyOn } from './privacy.js';
 import { learnedBody } from './learned.js';
 import { autopilotBody } from './autopilot.js';
 import { taskClass, CLASS_WORDS } from './learned-model.js';
+import { t as tx } from './i18n.js'; // the scatter is SVG, which the page's translator skips: its words go through tx
+import { capOf, verifiedResearch } from './research-model.js'; // Q2: research's estimate and budget cap
 
 const PROVIDER_COLORS = { anthropic: '#d08159', openai: '#4d9f8a', gemini: '#5b7fd0', kimi: '#8b6fc0' };
 const PROVIDER_NAMES = { anthropic: 'Anthropic Claude', openai: 'OpenAI GPT', gemini: 'Google Gemini', kimi: 'Moonshot Kimi', apple: 'This iPhone' }; // apple: the Eden app's on-device model (native.js)
@@ -249,17 +251,19 @@ const runPreview = debounce(async () => {
   previewAbort = new AbortController();
   const mine = previewAbort;
   const comparing = (conv ? conv.mode : state.pendingMode) === 'compare';
+  const researching = (conv ? conv.mode : state.pendingMode) === 'research' && verifiedResearch(state.meta); // Q2: priced by the server before sending
   state.preview = { ...(state.preview || {}), loading: true, text };
   ui.renderComposer();
   try {
-    const [res, compare] = await Promise.all([
+    const [res, compare, research] = await Promise.all([
       // eden: the owner's routing (H2 profile, H3 autopilot) shapes the preview as it will the send
       api.route({ prompt: text, ...r, classifier: 'off', eden: true, ...learnedBody(), ...autopilotBody({ preview: true }) }, mine.signal),
       comparing ? api.compareEstimate({ prompt: text, settings: r }, mine.signal).catch((e) => (e.name === 'AbortError' ? Promise.reject(e) : { error: e.message })) : null,
+      researching ? api.researchEstimate({ prompt: text, settings: r, budgetUSD: capOf(state.settings), ...(currentOverride() ? { override: currentOverride() } : {}) }, mine.signal).catch((e) => (e.name === 'AbortError' ? Promise.reject(e) : { error: e.message })) : null,
     ]);
     if (mine !== previewAbort) return;
     const rated = !!(res.classification && res.classification.used);
-    state.preview = { text, pick: res.pick, rows: res.rows || [], rated, classification: res.classification, compare, loading: false,
+    state.preview = { text, pick: res.pick, rows: res.rows || [], rated, classification: res.classification, compare, research, loading: false,
       taskClass: res.taskClass || taskClass(res.task && res.task.weights), learned: res.learned || null, autopilot: res.autopilot || null };
   } catch (e) {
     if (e.name === 'AbortError') return;
@@ -294,13 +298,13 @@ export function scatter(points, { width = 236, height = 140 } = {}) {
   const pad = (qhi - qlo) * 0.12; qlo -= pad; qhi += pad;
   const x = (c) => L + ((Math.log10(Math.max(c, 1e-6)) - lo) / (hi - lo)) * (W - L - R);
   const y = (q) => T + (1 - (q - qlo) / (qhi - qlo)) * (H - T - B);
-  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'scatter', role: 'img', 'aria-label': `Quality versus cost of ${pts.length} candidates; ${pts.filter((p) => p.chosen).map((p) => p.name).join('') || 'none'} chosen` });
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'scatter', role: 'img', 'aria-label': tx(`Quality versus cost of ${pts.length} candidates; ${pts.filter((p) => p.chosen).map((p) => p.name).join('') || 'none'} chosen`) });
   const axis = 'rgba(120,120,128,.35)';
   svg.append(svgEl('line', { x1: L, y1: T - 6, x2: L, y2: H - B, stroke: axis, 'stroke-width': 1 }));
   svg.append(svgEl('line', { x1: L, y1: H - B, x2: W - R + 4, y2: H - B, stroke: axis, 'stroke-width': 1 }));
   const t = (x0, y0, s, a = {}) => { const n = svgEl('text', { x: x0, y: y0, 'font-size': 8, fill: 'currentColor', opacity: 0.55, ...a }); n.textContent = s; return n; };
-  svg.append(t(W - R + 4, H - 4, 'cost (log) →', { 'text-anchor': 'end' }));
-  svg.append(t(2, 9, 'quality ↑'));
+  svg.append(t(W - R + 4, H - 4, tx('cost (log) →'), { 'text-anchor': 'end' }));
+  svg.append(t(2, 9, tx('quality ↑')));
   svg.append(t(L, H - B + 10, fmtCost(10 ** lo), { 'text-anchor': 'start', opacity: 0.45, 'font-size': 7 }));
   svg.append(t(W - R, H - B + 10, fmtCost(10 ** hi), { 'text-anchor': 'end', opacity: 0.45, 'font-size': 7 }));
   svg.append(t(L - 3, y(qhi - pad) + 3, String(Math.round(qhi - pad)), { 'text-anchor': 'end', opacity: 0.45, 'font-size': 7 }));
@@ -315,7 +319,7 @@ export function scatter(points, { width = 236, height = 140 } = {}) {
     const cx = x(p.costUSD), cy = y(p.quality);
     const g = svgEl('g', { class: 'pt' });
     const title = svgEl('title');
-    title.textContent = `${p.name}${p.effort ? ` · ${effortLabel(p.effort)}` : ''} — quality ${p.quality}, ${fmtCost(p.costUSD)}${p.chosen ? ' (chosen)' : ''}`;
+    title.textContent = `${p.name}${p.effort ? ` · ${tx(effortLabel(p.effort))}` : ''} — ${tx('quality')} ${p.quality}, ${fmtCost(p.costUSD)}${p.chosen ? tx(' (chosen)') : ''}`;
     g.append(title);
     if (p.chosen) g.append(svgEl('circle', { cx, cy, r: 8, fill: 'none', stroke: '#0a84ff', 'stroke-width': 1.5 }));
     g.append(shape(PROVIDER_SHAPES[p.provider] || 'circle', cx, cy, p.chosen ? 4.4 : 4.2, { fill: providerColor(p.provider), stroke: 'var(--content)', 'stroke-width': 1.2 }));

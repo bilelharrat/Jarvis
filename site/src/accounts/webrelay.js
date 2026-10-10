@@ -30,6 +30,12 @@ export const WEB_RELAY = {
   window: 256 * 1024, // response bytes the Mac may send ahead of acks
   headMs: 130_000, // for the Mac to answer: Jarvis may be waiting on its "Let Eden use Jarvis?" card (120 s)
   idleMs: 10 * 60_000, // between two pieces of an answer (a Code turn's events)
+  // The page's own deadline, `x-eden-wait: <seconds>` (askMacBy): clamped to these, in seconds of `second` ms
+  // (tests shorten `second`); then `probeMs` at most to ask the Mac whether Jarvis waits on its card.
+  clientWaitMin: 5,
+  clientWaitMax: 60,
+  second: 1000,
+  probeMs: 3000,
 };
 
 // The Mac-only routes hosted Eden forwards (the Mac keeps its own list, src/jarvis/eden_link.py).
@@ -412,7 +418,7 @@ async function readCapped(request, cap) {
  * big, too many) is thrown as an ApiError with its code. `wait`: ms for the Mac to answer;
  * `body`: the bytes to send when the request's own body was read already.
  */
-export async function askMac(request, env, ctx, who, target, { wait, body: given } = {}) {
+export async function askMac(request, env, ctx, who, target, { wait, body: given, signal } = {}) {
   const method = request.method;
   if (given && given.byteLength > WEB_RELAY.body) throw new ApiError(413, 'too_big', 'That request is too big for your Mac’s link.');
   const body = method === 'POST' ? given || (await readCapped(request, WEB_RELAY.body)) : null;
@@ -440,6 +446,7 @@ export async function askMac(request, env, ctx, who, target, { wait, body: given
   };
   // A browser gone before the Mac answered (where the runtime says so).
   request.signal?.addEventListener?.('abort', stop, { once: true });
+  signal?.addEventListener?.('abort', stop, { once: true }); // the caller giving up (askMacBy's deadline)
   const upstream = await account.fetch('https://account/web-forward', { method: 'POST', headers, body });
   if (upstream.headers.get('x-eden-relay') === 'error') {
     const problem = await upstream.json().catch(() => ({}));
@@ -466,4 +473,70 @@ export async function askMac(request, env, ctx, who, target, { wait, body: given
     { highWaterMark: 0 },
   );
   return new Response(passed, { status: upstream.status, headers: upstream.headers });
+}
+
+// ── the page's own deadline (bug sweep 2026-10-09 C1/A1/C4) ──
+
+/**
+ * The page's `x-eden-wait: <seconds>`, clamped to WEB_RELAY.clientWaitMin…clientWaitMax, in ms; null
+ * without it (or with something that isn't a number): the relay's own WEB_RELAY.headMs then, as before.
+ */
+export function clientWait(request) {
+  const raw = request.headers.get('x-eden-wait');
+  if (raw === null || !raw.trim()) return null;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds)) return null;
+  return Math.min(WEB_RELAY.clientWaitMax, Math.max(WEB_RELAY.clientWaitMin, seconds)) * WEB_RELAY.second;
+}
+
+export const APPROVAL_WAITING = { approval: 'waiting' };
+export const macTooSlow = (seconds) =>
+  `Your Mac didn’t answer within ${seconds} seconds. Check that it’s awake and that Eden is running on it, then try again.`;
+
+/** Whether Jarvis on the Mac is waiting on its "Let Eden use Jarvis?" card (its status says so); false when it can't tell. */
+export async function approvalWaiting(request, env, ctx, who) {
+  try {
+    const asking = new Request(request.url, { method: 'GET', headers: { accept: 'application/json' } });
+    const response = await askMac(asking, env, ctx, who, '/api/chat/jarvis/status', { wait: WEB_RELAY.probeMs });
+    const body = await response.json().catch(() => null);
+    return Boolean(response.ok && body && body.approval === 'waiting');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * askMac, with the page's own deadline when it sends `x-eden-wait` (clientWait): when the Mac hasn't
+ * answered by then, a 202 { approval: "waiting" } while Jarvis waits on the owner's "Let Eden use
+ * Jarvis?" card on the Mac (the page polls GET /api/chat/jarvis/status and asks again once it's
+ * approved), else a 504 `mac_timeout` at once. The Mac's request stays open while its status is
+ * asked (Jarvis reports the card only while a call waits on it), then is cancelled. Without the
+ * header, or when the caller set its own `wait`, it's askMac as it always was (the Mac app, older pages).
+ */
+export async function askMacBy(request, env, ctx, who, target, opts = {}) {
+  const deadline = clientWait(request);
+  if (!deadline || opts.wait) return askMac(request, env, ctx, who, target, opts);
+  const seconds = deadline / WEB_RELAY.second;
+  const giveUp = new AbortController();
+  let settled = null;
+  const answer = askMac(request, env, ctx, who, target, { ...opts, wait: deadline + WEB_RELAY.probeMs + WEB_RELAY.second, signal: giveUp.signal });
+  answer.then((r) => (settled = { r }), (e) => (settled = { e }));
+  let timer;
+  const LATE = Symbol('late');
+  let first;
+  try {
+    first = await Promise.race([answer, new Promise((resolve) => (timer = setTimeout(resolve, deadline, LATE)))]);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'mac_timeout') throw new ApiError(504, 'mac_timeout', macTooSlow(seconds));
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (first !== LATE) return first;
+  const waiting = await approvalWaiting(request, env, ctx, who);
+  if (settled && settled.r) return settled.r; // the Mac answered while its status was asked
+  giveUp.abort();
+  answer.catch(() => {});
+  if (waiting) return json(APPROVAL_WAITING, 202);
+  throw new ApiError(504, 'mac_timeout', macTooSlow(seconds));
 }

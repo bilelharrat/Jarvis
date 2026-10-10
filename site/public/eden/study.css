@@ -1,12 +1,13 @@
-/* The study companion (study.js): a glass panel on the right, as Eden's browser opens. */
-#companion{flex:none;width:0;min-width:0;border-radius:var(--r-lg);display:flex;flex-direction:column;overflow:hidden;opacity:0;margin-left:-12px;pointer-events:none;
+/* The study companion (study.js) and the notebook (notebook.js): glass panels on the right, as
+   Eden's browser opens; one at a time. */
+#companion,#notebookPane{flex:none;width:0;min-width:0;border-radius:var(--r-lg);display:flex;flex-direction:column;overflow:hidden;opacity:0;margin-left:-12px;pointer-events:none;
   transition:width .38s var(--spring),opacity .25s ease,margin .38s var(--spring)}
-body.companion-open #companion{width:min(440px,38vw);opacity:1;margin-left:0;pointer-events:auto}
+body.companion-open #companion,body.notebook-open #notebookPane{width:min(440px,38vw);opacity:1;margin-left:0;pointer-events:auto}
 @media (max-width:1100px){
-  #companion{position:fixed;z-index:58;top:12px;right:12px;bottom:12px;width:min(440px,calc(100vw - 24px));margin:0;transform:translateX(calc(100% + 24px));transition:transform .38s var(--spring),opacity .25s ease}
-  body.companion-open #companion{width:min(440px,calc(100vw - 24px));transform:none}
+  #companion,#notebookPane{position:fixed;z-index:58;top:12px;right:12px;bottom:12px;width:min(440px,calc(100vw - 24px));margin:0;transform:translateX(calc(100% + 24px));transition:transform .38s var(--spring),opacity .25s ease}
+  body.companion-open #companion,body.notebook-open #notebookPane{width:min(440px,calc(100vw - 24px));transform:none}
 }
-@media (max-width:760px){#companion{top:max(8px,env(safe-area-inset-top));right:8px;left:8px;bottom:8px;width:auto!important}}
+@media (max-width:760px){#companion,#notebookPane{top:max(8px,env(safe-area-inset-top));right:8px;left:8px;bottom:8px;width:auto!important}}
 .iconbtn.on{color:var(--accent);background:var(--accent-soft)}
 
 .stu-head{display:flex;align-items:center;gap:10px;padding:12px 12px 6px 16px}
@@ -109,3 +110,29 @@ button.stu-src:hover{filter:brightness(1.1)}
 .stu-page-text{font-size:13.5px;line-height:1.6;white-space:pre-wrap;color:var(--text)}
 .stu-page-text mark{background:rgba(255,214,10,.35);color:inherit;border-radius:3px;padding:0 1px}
 .stu-in:focus-visible{outline:none}
+/* figures and blind students (ROADMAP Q6, Q9) */
+.stu-letter{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:11.5px;font-weight:700}
+.stu-voice{align-self:flex-start;min-height:34px}
+.stu-voice[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--accent);color:var(--accent)}
+.stu-meta-r{display:flex;align-items:center;gap:10px}
+.stu-timed{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2,inherit);cursor:pointer}
+.stu-timed input{accent-color:var(--accent)}
+.stu-figure{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:var(--r-sm,8px);background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.stu-figure-h{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--accent)}
+.stu-figure-note{font-size:11.5px}
+.stu-title:focus,.stu-focus:focus,.stu-q:focus{outline:none}
+.stu-title:focus-visible,.stu-focus:focus-visible,.stu-q:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:420px){.stu-match{grid-template-columns:repeat(2,minmax(0,1fr))}.stu-row .btn{flex:1 1 auto}}
+
+/* review today: spaced repetition across the course's sets (Q7) */
+.stu-review-go{display:flex;align-items:center;gap:8px;width:100%;padding:11px 12px;border:0;border-radius:var(--r-md);background:var(--content);box-shadow:0 1px 3px rgba(0,0,0,.06),inset 0 0 0 .5px var(--hairline);color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.stu-review-go b{flex:1;font-weight:600}
+.stu-review-go.due{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.stu-review-go:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stu-streak{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:rgba(255,159,10,.14);color:#c77700;font-size:12px;font-weight:600;white-space:nowrap}
+.stu-grades{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.stu-grade{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 4px;min-height:48px}
+.stu-grade .muted{font-size:11px}
+.stu-grade.g1{color:#d70015}
+.stu-grade.g3{box-shadow:inset 0 0 0 1.5px var(--accent)}
+@media (prefers-color-scheme:dark){.stu-streak{color:#ffb340}.stu-grade.g1{color:#ff6961}}

@@ -15,6 +15,7 @@ import { api } from './api.js';
 import { currentOverride, modelInfo } from './router.js';
 import { privacyOn, localStatus } from './privacy.js';
 import { projectKnowledge, openKnowledge } from './knowledge.js';
+import { locale, t } from './i18n.js';
 
 const KEY = 'eden:useMac';
 const KIND_ICON = { folder: 'folder', pdf: 'doc', document: 'doc', presentation: 'art', spreadsheet: 'chart', image: 'art', code: 'code' };
@@ -96,7 +97,7 @@ function when(iso) {
   const t = Date.parse(iso || '');
   if (!Number.isFinite(t)) return '';
   const d = new Date(t);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
+  return d.toLocaleDateString(locale(), { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
 }
 function folderOf(f) {
   const p = String(f.display || f.path || '');
@@ -106,13 +107,13 @@ function folderOf(f) {
 
 /** One file as a row that opens the preview pane. */
 export function fileRow(f, { label, snippet } = {}) {
-  const meta = [f.kind === 'folder' ? 'folder' : f.kind, f.size ? sizeText(f.size) : '', when(f.modified)].filter(Boolean).join(' · ');
+  const meta = [t(f.kind === 'folder' ? 'folder' : f.kind), f.size ? sizeText(f.size) : '', when(f.modified)].filter(Boolean).join(' · ');
   return el('button', { type: 'button', class: 'mac-file', title: f.display || f.path, onclick: () => (f.kind === 'folder' ? openFiles(f.name) : openFile(f.path)) },
     label ? el('span', 'mac-k', label) : ico(KIND_ICON[f.kind] || 'doc', 15),
     el('span', 'mac-fbody',
-      el('span', 'mac-fname', f.name || f.display || f.path),
-      el('span', 'mac-fmeta', [folderOf(f), meta].filter(Boolean).join(' · ')),
-      snippet || f.snippet ? el('span', 'mac-fsnip', snippet || f.snippet) : null));
+      el('span', { class: 'mac-fname', 'data-no-i18n': '' }, f.name || f.display || f.path),
+      el('span', { class: 'mac-fmeta', 'data-no-i18n': '' }, [folderOf(f), meta].filter(Boolean).join(' · ')),
+      snippet || f.snippet ? el('span', { class: 'mac-fsnip', 'data-no-i18n': '' }, snippet || f.snippet) : null));
 }
 
 function seenLine(part) {
@@ -130,7 +131,7 @@ export function macCard(c, node, part) {
   if (st === 'run') sum = 'asking your Mac…';
   else if (st === 'fail') sum = 'didn’t work';
   else if (part.files) sum = `${part.files.length} file${part.files.length === 1 ? '' : 's'}`;
-  else if (part.file) sum = `${(part.sent || 0).toLocaleString()} characters${part.cut ? ' (cut to fit)' : ''}`;
+  else if (part.file) sum = `${(part.sent || 0).toLocaleString(locale())} characters${part.cut ? ' (cut to fit)' : ''}`;
   else if (part.results) sum = `${part.results.length} passage${part.results.length === 1 ? '' : 's'}`;
   card.append(el('div', 'tool-head mac-head', ico(knowledge ? 'bulb' : part.tool === 'files_search' ? 'search' : 'doc', 15),
     el('span', 'tname', part.label || part.tool), el('span', 'tsum', sum),
@@ -139,7 +140,7 @@ export function macCard(c, node, part) {
   if (st === 'fail') body.append(el('div', 'mac-err', part.error || 'Jarvis didn’t answer.'));
   const rows = [];
   if (part.files) for (const f of part.files) rows.push(fileRow(f));
-  if (part.file) rows.push(fileRow(part.file, { snippet: part.file.pages > 1 ? `page ${part.file.page || 1} of ${part.file.pages}` : part.file.sampled ? 'a long file: its start, middle and end were read' : '' }));
+  if (part.file) rows.push(fileRow(part.file, { snippet: t(part.file.pages > 1 ? `page ${part.file.page || 1} of ${part.file.pages}` : part.file.sampled ? 'a long file: its start, middle and end were read' : '') }));
   if (part.results) for (const r of part.results) rows.push(fileRow({ path: r.path, display: r.display, name: r.name, kind: 'document', modified: r.modified }, { label: `K${r.n}`, snippet: String(r.passage || r.excerpt || '').replace(/\s+/g, ' ').slice(0, 180) }));
   if (part.state === 'done' && part.files && !part.files.length) body.append(el('div', 'mac-empty', 'Nothing matched.'));
   const open = shown.has(`${node.id}:${part.id}`);
@@ -175,6 +176,7 @@ export function openPane(title, icon, { back } = {}) {
   paneBack = back || null;
   $('macPaneBack').hidden = !back;
   $('macPaneIco').replaceChildren(ico(icon, 16));
+  $('macPaneTitle').removeAttribute('data-no-i18n');
   $('macPaneTitle').textContent = title;
   pane.classList.add('open');
   const body = $('macPaneBody');
@@ -239,7 +241,8 @@ export function openFiles(query = '') {
 export async function openFile(path, page = 1, { from } = {}) {
   if (H.clearPhoneOverlays) H.clearPhoneOverlays();
   const back = from === 'search' || paneOpen() ? (() => openFiles()) : null;
-  const body = openPane(String(path).split('/').pop() || 'File', 'doc', { back });
+  const body = openPane(String(path).split('/').pop() || t('File'), 'doc', { back });
+  $('macPaneTitle').setAttribute('data-no-i18n', ''); // the file's name
   if (!state.jarvis.available) { notConnected(body); focusIn(body); return; }
   body.append(el('div', 'muted', 'Reading on your Mac…'));
   let f;
@@ -252,10 +255,11 @@ export async function openFile(path, page = 1, { from } = {}) {
     el('span', { 'aria-live': 'polite' }, `Page ${f.page} of ${pages}`),
     el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Next page', disabled: f.page >= pages, onclick: () => openFile(path, f.page + 1, { from }) }, ico('chevr'))) : null;
   body.replaceChildren(
-    el('div', 'mac-meta', el('span', 'mono', f.display || f.path), el('span', '', [f.kind, sizeText(f.size || 0), when(f.modified), `${(f.chars || 0).toLocaleString()} characters`].filter(Boolean).join(' · '))),
+    el('div', 'mac-meta', el('span', { class: 'mono', 'data-no-i18n': '' }, f.display || f.path), el('span', '', [f.kind, sizeText(f.size || 0), when(f.modified), `${(f.chars || 0).toLocaleString(locale())} characters`].filter(Boolean).map(t).join(' · '))),
     el('div', 'mac-acts',
       el('button', { type: 'button', class: 'cap primary', onclick: () => { H.addContext({ title, text: f.text, kind: 'file' }); closePane(); } }, ico('plus', 12), pages > 1 ? 'Use this page in chat' : 'Use in chat'),
-      el('button', { type: 'button', class: 'cap', onclick: () => { if (!macOn()) setMac(true); H.setComposerText(`Summarize ${f.display || f.path}`); closePane(); H.focusComposer(); } }, ico('spark', 12), 'Summarize'),
+      el('button', { type: 'button', class: 'cap', onclick: () => { if (!macOn()) setMac(true); H.setComposerText(t(`Summarize ${f.display || f.path}`)); closePane(); H.focusComposer(); } }, ico('spark', 12), 'Summarize'),
+      /\.(xlsx|xls|csv|tsv)$/i.test(String(f.path || path)) ? el('button', { type: 'button', class: 'cap', onclick: () => { closePane(); import('./sheet.js').then((m) => m.openMacSheet(f.path || path)); } }, ico('chart', 12), 'Open in the canvas') : null, // Q15: edit it as a spreadsheet
       pager),
     el('pre', { class: 'mac-text', tabindex: '0', 'aria-label': `Text of ${f.name}` }, f.text || ''),
     el('p', 'sp-note', `Read on your Mac through Jarvis (secrets blanked out). It goes to a model only if you use it in chat: ${macReader().name} would read it.`));

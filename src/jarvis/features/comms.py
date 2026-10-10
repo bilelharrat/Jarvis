@@ -443,7 +443,7 @@ class Comms:
         except (PermissionError, mailkit.MailError):
             return []
 
-    async def triage(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def triage(self, args: dict[str, Any], preapproved: bool = False) -> dict[str, Any]:
         action = str(args.get("action") or "")
         if action not in TRIAGE_WORDS:
             return _text(f"action must be one of {', '.join(TRIAGE_WORDS)}.", True)
@@ -454,7 +454,8 @@ class Comms:
             return _text("Give the emails' ids: search_mail and list_emails show them.", True)
         if len(ids) > TRIAGE_MAX:
             return _text(f"At most {TRIAGE_MAX} emails at a time.", True)
-        if not (self._asked(action) and len(ids) <= UNASKED_MAX):
+        # preapproved: the owner chose it in an app (Eden Mail's Done, star, read; mcp_endpoint)
+        if not preapproved and not (self._asked(action) and len(ids) <= UNASKED_MAX):
             shown = await asyncio.to_thread(self._headlines, ids)
             one = len(ids) == 1
             questions = {

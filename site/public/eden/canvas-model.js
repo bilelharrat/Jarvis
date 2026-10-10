@@ -27,6 +27,7 @@ const TABLE = {
   css: ['CSS', null, 'css', []],
   json: ['JSON', null, 'json', []],
   sql: ['SQL', null, 'sql', []],
+  markdown: ['Markdown', null, 'md', ['md', 'mdx']], // a research report (Q2): previewed as a page, downloaded as .md
   text: ['Plain text', null, 'txt', ['txt', 'plaintext', '']],
 };
 export const LANGS = Object.entries(TABLE).map(([id, [label, runner, ext]]) => ({ id, label, runner, ext }));

@@ -41,7 +41,7 @@ export function setActing(a) {
 export const actingHas = (feature) => !current || (current.features || []).includes(feature);
 
 // The routes a grant may use (delegates.js CHAT_ROUTES, MAIL_ROUTES, CALENDAR_ROUTES), and the
-// person's own (their published pages, ownRoute). /api/web/* is always this browser's own session.
+// person's own (their published pages and shared chats, ownRoute). /api/web/* is always this browser's own session.
 const CHAT = new Set(['GET /api/chat/meta', 'POST /api/route', 'POST /api/chat/send', 'POST /api/chat/artifact', 'GET /api/chat/jarvis/status', 'POST /api/chat/compare', 'POST /api/chat/compare/estimate', 'POST /api/chat/compare/stop', 'POST /api/chat/browser/steer']);
 const MAIL = new Set(['POST /api/chat/gmail', 'POST /api/chat/approve', 'GET /api/chat/google/status']);
 const CALENDAR = new Set(['POST /api/chat/approve', 'GET /api/chat/gcal/status', 'POST /api/chat/gcal', 'GET /api/chat/google/status']);
@@ -52,6 +52,7 @@ export function actingAllows(method, path) {
   const p = String(path || '').replace(/[?#].*$/, '').replace(/\/+$/, '');
   if (!p.startsWith('/api/chat') && p !== '/api/route') return true;
   if (p === '/api/chat/publish' || p.startsWith('/api/chat/published')) return true;
+  if (p === '/api/chat/share' || p === '/api/chat/shares' || p.startsWith('/api/chat/shares/')) return true; // their own shared chats (Q3)
   const route = `${String(method || 'GET').toUpperCase()} ${p}`;
   if (CHAT.has(route)) return true;
   return (actingHas('mail') && MAIL.has(route)) || (actingHas('calendar') && CALENDAR.has(route));

@@ -14,13 +14,17 @@ if (query.get('app') === 'daredevil') {
   document.body.classList.add('daredevil');
   document.title = 'J.A.R.V.I.S. Daredevil';
   message.textContent = 'Opening J.A.R.V.I.S. Daredevil…';
-  // Its opening sound, the owner's choice ("C'est, c'est, c'est énergétique !"): once, as the window first shows, never
-  // when it starts hidden at sign-in (quiet) or when the page is a problem being reported.
-  if (!query.get('quiet') && !query.get('error') && typeof Audio === 'function') {
-    const sound = new Audio('daredevil-open.wav');
-    sound.play().catch(() => {}); // (no sound device: nothing to say)
-  }
 }
+// Every edition's boot-up sound, the owner's choice ("C'est, c'est, c'est énergétique !"): main.js calls this once the
+// window is on screen and the sound is on in Settings. Never when it starts hidden at sign-in (quiet) or when the page
+// is a problem being reported.
+let bootSoundPlayed = false;
+window.playBootSound = () => {
+  if (bootSoundPlayed || query.get('quiet') || query.get('error') || typeof Audio !== 'function') return;
+  bootSoundPlayed = true;
+  const sound = new Audio('daredevil-open.wav');
+  sound.play().catch(() => {}); // (no sound device: nothing to say)
+};
 const error = query.get('error');
 if (error) {
   document.body.classList.add('error');

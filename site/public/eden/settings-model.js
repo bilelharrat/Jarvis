@@ -28,7 +28,7 @@ export function keyStatus(p, k, hosted) {
   const key = k || {};
   if (key.set) {
     if (key.source === 'env') return { pill: 'Environment', tone: 'env', detail: 'Set in the environment; it wins over a saved key.' };
-    if (key.source === 'account') return { pill: 'Using your key', tone: 'own', detail: `····${key.last4 || ''}${key.added ? ` · added ${new Date(key.added).toLocaleDateString()}` : ''}`.trim() };
+    if (key.source === 'account') return { pill: 'Using your key', tone: 'own', detail: `····${key.last4 || ''}${key.added ? ` · added ${new Date(key.added).toLocaleDateString(globalThis.document && document.documentElement.lang === 'fr' ? 'fr-FR' : undefined)}` : ''}`.trim() };
     return { pill: 'Using your key', tone: 'own', detail: 'Saved on this Mac' };
   }
   if (hosted) return p && p.available ? { pill: 'Included AI', tone: 'included', detail: 'Chats use your plan’s included AI until you add a key.' } : { pill: 'Not set', tone: 'off', detail: 'Add a key to use these models.' };

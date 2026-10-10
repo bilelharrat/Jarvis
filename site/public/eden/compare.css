@@ -16,6 +16,7 @@
 .jc-est-cost { font-family: var(--mono); font-size: 11px; color: rgb(var(--c-ink-2)); }
 .jc-est-ic { color: rgb(var(--c-accent-ink)); font-size: 11px; }
 .jc-est-dim { color: rgb(var(--c-muted)); }
+.jc-est-warn { color: var(--warn, #c77700); font-weight: 600; } /* Q2: the research cap is below the cheapest run */
 .jc-est-chev { font-size: 9px; color: rgb(var(--c-muted)); margin-left: 1px; }
 .jc-est-main.loading .jc-est-ic { animation: jcEstPulse 1.1s ease-in-out infinite; }
 @keyframes jcEstPulse { 50% { opacity: .35; } }

@@ -13,7 +13,7 @@
 
 import { serviceAiReady } from '../accounts/service-ai.js';
 import { ApiError } from '../accounts/util.js';
-import { MAC_OFFLINE, WEB_RELAY, askMac, macStatus } from '../accounts/webrelay.js';
+import { MAC_OFFLINE, WEB_RELAY, askMac, askMacBy, macStatus } from '../accounts/webrelay.js';
 import { DEFAULT_CLASSIFIER_MODEL } from './vendor/model-router.js';
 
 export const VIA_MAC_LABEL = 'via your Mac (Claude Max)';
@@ -71,7 +71,7 @@ function viaMacError(error) {
 async function throughMac(request, env, ctx, who, target, opts = {}) {
   if (who.grant) throw new ApiError(403, 'owner_only', VIA_MAC_OWNER_ONLY);
   try {
-    return await askMac(request, env, ctx, who, target, opts);
+    return await askMacBy(request, env, ctx, who, target, opts); // a turn honours the page's `x-eden-wait` (C4)
   } catch (error) {
     throw viaMacError(error);
   }
