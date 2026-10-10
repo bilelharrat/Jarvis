@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+<title>Eden</title>
+<link rel="stylesheet" href="eden-pop.css">
+</head>
+<body>
+<main id="pop" class="pop" aria-labelledby="where">
+  <header class="head">
+    <span class="mark" aria-hidden="true"></span>
+    <h1 id="where" class="where" data-no-t>Eden</h1>
+    <button type="button" class="icon" id="close" data-t-label="Close" aria-label="Close" title="Close (Esc)">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>
+    </button>
+  </header>
+
+  <blockquote id="selection" class="selection" tabindex="0" data-t-label="Selected text" aria-label="Selected text" hidden></blockquote>
+
+  <div id="actions" class="actions" role="toolbar" data-t-label="What Eden should do" aria-label="What Eden should do" hidden>
+    <button type="button" class="chip" data-action="explain" data-t="Explain">Explain</button>
+    <button type="button" class="chip" data-action="summarize" data-t="Summarize">Summarize</button>
+    <button type="button" class="chip" data-action="rewrite" data-t="Rewrite">Rewrite</button>
+    <button type="button" class="chip" data-action="fix" data-t="Fix spelling &amp; grammar">Fix spelling &amp; grammar</button>
+    <button type="button" class="chip" data-action="shorter" data-t="Shorter">Shorter</button>
+    <button type="button" class="chip" data-action="reply" data-t="Draft a reply">Draft a reply</button>
+    <span class="pick">
+      <button type="button" class="chip" data-action="translate" data-t="Translate">Translate</button>
+      <select id="language" data-t-label="Translate into" aria-label="Translate into">
+        <option>English</option><option>French</option><option>Spanish</option><option>German</option>
+        <option>Italian</option><option>Portuguese</option><option>Dutch</option><option>Arabic</option>
+        <option>Chinese (Simplified)</option><option>Japanese</option><option>Korean</option><option>Russian</option>
+      </select>
+    </span>
+    <span class="pick">
+      <button type="button" class="chip" data-action="tone" data-t="Change tone">Change tone</button>
+      <select id="tone" data-t-label="Tone" aria-label="Tone">
+        <option value="professional" data-t="professional">professional</option>
+        <option value="friendly" data-t="friendly">friendly</option>
+        <option value="casual" data-t="casual">casual</option>
+        <option value="confident" data-t="confident">confident</option>
+        <option value="polite" data-t="polite">polite</option>
+        <option value="direct" data-t="direct">direct</option>
+        <option value="simple" data-t="simple">simple</option>
+      </select>
+    </span>
+  </div>
+
+  <form id="askform" class="ask" autocomplete="off">
+    <label for="ask" class="sr-only" id="ask-label" data-t="Ask Eden">Ask Eden</label>
+    <textarea id="ask" rows="1" spellcheck="true" data-t-ph="Ask about this…" placeholder="Ask about this…"></textarea>
+    <button type="submit" class="send" id="send" data-t-label="Send" aria-label="Send">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg>
+    </button>
+  </form>
+
+  <section id="answer" class="answer" data-t-label="Eden’s answer" aria-label="Eden’s answer" aria-live="off" tabindex="-1" data-no-t hidden></section>
+
+  <div id="tools" class="tools" role="group" data-t-label="Use the answer" aria-label="Use the answer" hidden>
+    <button type="button" class="btn primary" id="put" data-t="Replace">Replace</button>
+    <button type="button" class="btn" id="copy" data-t="Copy">Copy</button>
+    <button type="button" class="btn" id="speak" data-t="Read aloud">Read aloud</button>
+    <button type="button" class="btn" id="again" data-t="Try again">Try again</button>
+    <button type="button" class="btn" id="continue" data-t="Continue in Eden">Continue in Eden</button>
+  </div>
+  <button type="button" class="btn stop" id="stop" data-t="Stop" hidden>Stop</button>
+
+  <p id="note" class="note" role="status" hidden></p>
+  <div id="announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+</main>
+<script src="eden-pop-page.js"></script>
+</body>
+</html>

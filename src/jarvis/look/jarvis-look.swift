@@ -8,6 +8,8 @@
 //   selected           the text selected in the focused element, read through Accessibility
 //                      (never the clipboard); left out when nothing is selected or it can't
 //                      be read
+//   role, subrole      the focused element's kind (AXTextArea, AXSecureTextField…)
+//   secure             the focused element is a password field: its selection is never read
 //   ax                 whether Accessibility is allowed for J.A.R.V.I.S.
 // It changes nothing: it only reads.
 
@@ -71,12 +73,20 @@ if trusted && pid != 0 {
     }
     let system = AXUIElementCreateSystemWide()
     AXUIElementSetMessagingTimeout(system, 1.0)
-    if let focused = element(attribute(system, kAXFocusedUIElementAttribute as String)),
-        let text = attribute(focused, kAXSelectedTextAttribute as String) as? String
-    {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            out["selected"] = String(trimmed.prefix(selectedLimit))
+    if let focused = element(attribute(system, kAXFocusedUIElementAttribute as String)) {
+        // The focused element's kind (Eden's pop-up: a password field is never read, and
+        // a text field is where "write here" puts its text).
+        let role = attribute(focused, kAXRoleAttribute as String) as? String ?? ""
+        let subrole = attribute(focused, kAXSubroleAttribute as String) as? String ?? ""
+        out["role"] = role
+        out["subrole"] = subrole
+        let secure = subrole == "AXSecureTextField" || role == "AXSecureTextField"
+        out["secure"] = secure
+        if !secure, let text = attribute(focused, kAXSelectedTextAttribute as String) as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                out["selected"] = String(trimmed.prefix(selectedLimit))
+            }
         }
     }
 }
