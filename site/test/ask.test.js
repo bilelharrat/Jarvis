@@ -144,7 +144,7 @@ test('the consent page: checked parameters, sign in first, then Connect or Cance
   const csp = out.headers.get('content-security-policy');
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /frame-ancestors 'none'/);
-  assert.match(csp, new RegExp(`form-action 'self' ${MESSENGER_ORIGIN} https://cgincgeifceekdgpbboafpjdiapafggm\\.chromiumapp\\.org bshmessenger:(;|$)`));
+  assert.match(csp, new RegExp(`form-action 'self' ${MESSENGER_ORIGIN} https://cgincgeifceekdgpbboafpjdiapafggm\\.chromiumapp\\.org https://script\\.google\\.com bshmessenger:(;|$)`));
   assert.equal(out.headers.get('x-frame-options'), 'DENY');
   assert.equal(out.headers.get('cache-control'), 'no-store');
 

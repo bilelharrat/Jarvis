@@ -36,6 +36,7 @@ import { CLIENTS, SCOPED, makeScopedToken, parseConnectCode, parseScopedToken } 
 import { ApiError, webAllowed } from '../accounts/util.js';
 import { hostedConfig } from './chat.js';
 import { extIdOf, extOrigins, extRedirectOrigins, parseText, textPrompt } from './ext.js';
+import { parseSheet, selfOrigins, sheetPrompt, sheetsCallback } from './sheets.js';
 import { currentSession } from './session.js';
 import { json, page, problem, sameOrigin, withHeaders } from './web.js';
 
@@ -53,7 +54,7 @@ export const ASK = {
 };
 const KINDS = new Set(['dm', 'group_dm', 'private', 'channel']);
 const KIND_WORDS = { dm: 'a direct message', group_dm: 'a group message', private: 'a private channel', channel: 'a channel' };
-const APP_ROUTES = new Set(['/api/eden/token', '/api/eden/ask', '/api/eden/text', '/api/eden/disconnect']);
+const APP_ROUTES = new Set(['/api/eden/token', '/api/eden/ask', '/api/eden/text', '/api/eden/sheet', '/api/eden/disconnect']);
 // An app's native return address: exactly this, or not at all. No web page can redeem a code sent
 // there (token() matches the redirect's origin to the caller's, and a custom scheme's is "null").
 export const NATIVE_CALLBACKS = { messenger: 'bshmessenger://eden/connected' };
@@ -82,6 +83,19 @@ function redirectFor(env, client, uri) {
   const app = CLIENTS[client];
   if (!app || typeof uri !== 'string') return null;
   if (NATIVE_CALLBACKS[client] && uri === NATIVE_CALLBACKS[client]) return uri;
+  // Ask Eden for Google Sheets (Apps Script): its project's own usercallback, for our script ids only.
+  if (app.appsScript) return sheetsCallback(env, uri);
+  // Ask Eden for Excel: its task pane is on askeden.com, so its sign-in comes back here too.
+  if (app.self) {
+    let own;
+    try {
+      own = new URL(uri);
+    } catch {
+      return null;
+    }
+    if (own.search || own.hash || own.username || own.password || own.port || own.pathname !== app.callback || !selfOrigins(env).includes(own.origin)) return null;
+    return `${own.origin}${own.pathname}`;
+  }
   // The browser extension: its own https://<id>.chromiumapp.org/, which only chrome.identity catches.
   if (app.extension) {
     let ext;
@@ -113,7 +127,7 @@ export function connectRequest(env, params) {
   const challenge = String(get('code_challenge'));
   if (!CLIENTS[client]) return { error: 'This link names an app Eden doesn’t know.' };
   if (!redirect) return { error: 'This link would send your connection somewhere other than the app.' };
-  if (!/^[A-Za-z0-9._~-]{8,200}$/.test(state)) return { error: 'This link is missing its state.' };
+  if (!/^[A-Za-z0-9._~-]{8,1024}$/.test(state)) return { error: 'This link is missing its state.' };
   if (!/^[A-Za-z0-9_-]{43}$/.test(challenge) || String(get('code_challenge_method')) !== 'S256') return { error: 'This link is missing its PKCE challenge.' };
   return { client, app: CLIENTS[client], redirect, state, challenge };
 }
@@ -125,7 +139,7 @@ const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 function connectCsp(env) {
   // Its own form posts here, then the 303 goes to the app (form-action covers the redirect),
   // a native app's included.
-  return `default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self' ${[...askOrigins(env), ...extRedirectOrigins(env), ...NATIVE_SCHEMES].join(' ')}; base-uri 'none'; frame-ancestors 'none'`;
+  return `default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self' ${[...askOrigins(env), ...extRedirectOrigins(env), 'https://script.google.com', ...NATIVE_SCHEMES].join(' ')}; base-uri 'none'; frame-ancestors 'none'`;
 }
 
 function shell(title, body) {
@@ -366,6 +380,13 @@ async function ask(request, env, ctx) {
   return streamAnswer(env, ctx, who, model, { system, messages: [{ role: 'user', content: user }], maxTokens: ASK.answerTokens });
 }
 
+/** Excel's and Google Sheets' ask about the selected cells (sheets.js). */
+async function sheetText(request, env, ctx) {
+  const who = bearer(request, env);
+  const model = await askReady(env, who);
+  return streamAnswer(env, ctx, who, model, sheetPrompt(parseSheet(await readBody(request))));
+}
+
 /** The extension's ask about page text (ext.js). */
 async function pageText(request, env, ctx) {
   const who = bearer(request, env);
@@ -476,7 +497,8 @@ export async function edenApi(request, env, ctx, path) {
     if (!env.ACCOUNTS) throw new ApiError(503, 'not_set_up', 'Eden accounts are not set up here yet.');
     if (path === '/api/eden/connect') return await approve(request, env);
     if (!APP_ROUTES.has(path)) throw new ApiError(404, 'not_found', 'No such thing here.');
-    if (origin !== null && !cors) throw new ApiError(403, 'forbidden', 'Not from another site.');
+    // askeden.com's own pages (Excel's task pane) call same-origin: no CORS answer needed.
+    if (origin !== null && !cors && !selfOrigins(env).includes(origin)) throw new ApiError(403, 'forbidden', 'Not from another site.');
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -494,6 +516,7 @@ export async function edenApi(request, env, ctx, path) {
     if (path === '/api/eden/token') response = await token(request, env, origin);
     else if (path === '/api/eden/ask') response = await ask(request, env, ctx);
     else if (path === '/api/eden/text') response = await pageText(request, env, ctx);
+    else if (path === '/api/eden/sheet') response = await sheetText(request, env, ctx);
     else response = await disconnect(request, env);
     return withCors(response, cors);
   } catch (error) {

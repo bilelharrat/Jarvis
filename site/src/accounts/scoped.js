@@ -29,6 +29,24 @@ export const CLIENTS = {
     does: 'ask Eden about text you select on web pages and help you write there',
     sends: 'It sends Eden only the text you select or type and the page’s title and address, when you press one of its buttons',
   },
+  // The Excel add-in (eden/sheets.js): its task pane is askeden.com/addins/excel/, its sign-in comes back there.
+  excel: {
+    name: 'Ask Eden for Excel',
+    scope: 'ask',
+    callback: '/addins/excel/connected',
+    self: true,
+    does: 'answer questions about the cells you select in Excel, write and explain formulas, and fill or clean data',
+    sends: 'It sends Eden only the cells you select and what you type, when you press one of its buttons or use =EDEN.ASK',
+  },
+  // The Google Sheets add-on (Apps Script; eden/sheets.js): its sign-in comes back to its own usercallback.
+  sheets: {
+    name: 'Ask Eden for Google Sheets',
+    scope: 'ask',
+    callback: '/usercallback',
+    appsScript: true,
+    does: 'answer questions about the cells you select in Google Sheets, write and explain formulas, and fill or clean data',
+    sends: 'It sends Eden only the cells you select and what you type, when you press one of its buttons or use =EDEN',
+  },
 };
 
 const ID = /^[0-9a-f]{16}$/;
