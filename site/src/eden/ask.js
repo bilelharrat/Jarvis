@@ -55,7 +55,7 @@ import { serviceAiReady, serviceFallback, serviceFetch } from '../accounts/servi
 import { CLIENTS, SCOPED, makeScopedToken, parseConnectCode, parseScopedToken } from '../accounts/scoped.js';
 import { ApiError, sha256Hex, webAllowed } from '../accounts/util.js';
 import { hostedConfig } from './chat.js';
-import { TEXT, extIdOf, extOrigins, extRedirectOrigins, fence, fenceRule, oneLine, parseText, points, strip, textPrompt } from './ext.js';
+import { TEXT, bad, extIdOf, extOrigins, extRedirectOrigins, fence, fenceRule, isObj, known, oneLine, parseText, points, strip, textPrompt, utf8Bytes } from './ext.js';
 import { SHEET, parseSheet, selfOrigins, sheetPrompt, sheetsCallback } from './sheets.js';
 import { currentSession } from './session.js';
 import { json, page, problem, sameOrigin, withHeaders } from './web.js';
@@ -106,38 +106,23 @@ function redirectFor(env, client, uri) {
   if (NATIVE_CALLBACKS[client] && uri === NATIVE_CALLBACKS[client]) return uri;
   // Ask Eden for Google Sheets (Apps Script): its project's own usercallback, for our script ids only.
   if (app.appsScript) return sheetsCallback(env, uri);
-  // Ask Eden for Excel: its task pane is on askeden.com, so its sign-in comes back here too.
-  if (app.self) {
-    let own;
-    try {
-      own = new URL(uri);
-    } catch {
-      return null;
-    }
-    if (own.search || own.hash || own.username || own.password || own.port || own.pathname !== app.callback || !selfOrigins(env).includes(own.origin)) return null;
-    return `${own.origin}${own.pathname}`;
-  }
-  // The browser extension: its own https://<id>.chromiumapp.org/, which only chrome.identity catches.
-  if (app.extension) {
-    let ext;
-    try {
-      ext = new URL(uri);
-    } catch {
-      return null;
-    }
-    if (ext.search || ext.hash || ext.username || ext.password || ext.port || ext.pathname !== app.callback || !extIdOf(env, ext.origin)) return null;
-    return `${ext.origin}${ext.pathname}`;
-  }
   let url;
   try {
     url = new URL(uri);
   } catch {
     return null;
   }
-  if (url.search || url.hash || url.username || url.password) return null;
-  if (!askOrigins(env).includes(url.origin) || url.pathname !== app.callback) return null;
-  return `${url.origin}${url.pathname}`;
+  if (url.search || url.hash || url.username || url.password || url.pathname !== app.callback) return null;
+  // Excel: its task pane is on askeden.com, so its sign-in comes back here too. The extension: its own
+  // https://<id>.chromiumapp.org/, which only chrome.identity catches. Messenger: its origin (or a
+  // loopback dev one). A port other than the scheme's own is in the origin, so it never matches the
+  // first two.
+  const allowed = app.self ? selfOrigins(env).includes(url.origin) : app.extension ? Boolean(extIdOf(env, url.origin)) : askOrigins(env).includes(url.origin);
+  return allowed ? `${url.origin}${url.pathname}` : null;
 }
+
+/** A checked connect request's parameters, as /eden/connect takes them (the sign-in return, the form). */
+const connectParams = (req) => ({ client_id: req.client, redirect_uri: req.redirect, state: req.state, code_challenge: req.challenge, code_challenge_method: 'S256' });
 
 /** A connect request's parameters checked; { error } with words for a person otherwise. */
 export function connectRequest(env, params) {
@@ -185,9 +170,9 @@ ${body}
 </html>`;
 }
 
-/** The page's HTML (exported for the local QA harness and the tests). */
 const ALL_AGAIN = Object.values(CLIENTS).map((app) => app.again).filter(Boolean).join(' ');
 
+/** The page's HTML (exported for the local QA harness and the tests). */
 export function connectHtml({ request: req, signedIn, email = '', error = '', client = '', self = '/eden/connect' }) {
   if (error) {
     const again = (Object.hasOwn(CLIENTS, client) && CLIENTS[client].again) || ALL_AGAIN;
@@ -198,14 +183,13 @@ export function connectHtml({ request: req, signedIn, email = '', error = '', cl
   const name = esc(req.app.name);
   if (!signedIn) {
     // Signing in comes straight back here (public/signin/return.js checks the address).
-    const again = `/eden/connect?${new URLSearchParams({ client_id: req.client, redirect_uri: req.redirect, state: req.state, code_challenge: req.challenge, code_challenge_method: 'S256' })}`;
+    const again = `/eden/connect?${new URLSearchParams(connectParams(req))}`;
     return shell('Sign in to Eden', `  <h1 id="title">Sign in to Eden first</h1>
   <p class="lead">${name} wants to connect to your Eden account.</p>
   <p><a class="button" href="/signin?return=${esc(encodeURIComponent(again))}">Sign in to Eden</a></p>
   <p class="fine">You’ll come back here to connect once you’re signed in. <a href="${esc(self)}">I’ve signed in</a></p>`);
   }
-  const hidden = { client_id: req.client, redirect_uri: req.redirect, state: req.state, code_challenge: req.challenge, code_challenge_method: 'S256' };
-  const inputs = Object.entries(hidden).map(([k, v]) => `    <input type="hidden" name="${k}" value="${esc(v)}">`).join('\n');
+  const inputs = Object.entries(connectParams(req)).map(([k, v]) => `    <input type="hidden" name="${k}" value="${esc(v)}">`).join('\n');
   return shell(`Connect ${req.app.name}`, `  <h1 id="title">Connect ${name}?</h1>
   <p class="lead">${name} will be able to ${esc(req.app.does || 'ask Eden about a conversation for you')}${email ? `, as <b>${esc(email)}</b>` : ''}.</p>
   <p class="alert">${esc(req.app.sends || 'It sends Eden only the question and messages you confirm each time, from your own device')}, and gets the answer on your included AI. It can’t read your Eden chats, mail, calendar, notes or account.</p>
@@ -254,10 +238,7 @@ async function approve(request, env) {
     return seeOther(back.toString());
   }
   const { session } = await currentSession(request, env, { fresh: true });
-  if (!session) {
-    const again = new URLSearchParams({ client_id: req.client, redirect_uri: req.redirect, state: req.state, code_challenge: req.challenge, code_challenge_method: 'S256' });
-    return seeOther(`/eden/connect?${again}`);
-  }
+  if (!session) return seeOther(`/eden/connect?${new URLSearchParams(connectParams(req))}`);
   await limited(env, 'AUTH_RATE', `eden-connect:${clientIp(request)}`);
   const { code } = await call(env, session.account, 'scoped-code', { client: req.client, scope: req.app.scope, redirect_uri: req.redirect, challenge: req.challenge }, session.token);
   back.searchParams.set('code', `${session.account}.${code}`);
@@ -316,18 +297,32 @@ function bearer(request, env) {
   return token;
 }
 
+/** `usd` held on the account's included AI for the token's ask (401 for a bad token, 429 when two answers are in flight, 402). */
+async function hold(env, who, usd) {
+  const held = await call(env, who.account, 'scoped-hold', { id: who.id, secret: who.secret, usd });
+  if (!held.ok) throw new ApiError(402, 'no_allowance', held.why || 'No included AI is left on your Eden account.');
+  return held;
+}
+
+/** Lets a hold go (never fails the ask: an unreleased hold expires by itself). */
+const release = (env, who, held) => call(env, who.account, 'release-ai', { hold: held.hold }).catch(() => {});
+
 /**
- * The token checked by its account (a hold of nothing, let go at once: it also answers 429 when two
- * answers are already being written, and 402 when nothing is left), before anything is read or spent
- * for it; and only on its own app's route. → the token's client.
+ * The token checked by its account (a hold of nothing: it also answers 429 when two answers are already
+ * being written, and 402 when nothing is left), before anything is read or spent for it; and only on its
+ * own app's route. → { client, released }: the check's hold is let go at once, and `released` settles
+ * when it has gone. The real hold, and every answer sent before it, waits for that: this ask never
+ * counts twice against the two, and a client's next ask never meets this one's check.
  */
 async function verified(env, who, path) {
-  const check = await call(env, who.account, 'scoped-hold', { id: who.id, secret: who.secret, usd: 0 });
-  if (!check.ok) throw new ApiError(402, 'no_allowance', check.why || 'No included AI is left on your Eden account.');
-  await call(env, who.account, 'release-ai', { hold: check.hold }).catch(() => {});
+  const check = await hold(env, who, 0);
+  const released = release(env, who, check);
   const app = Object.hasOwn(CLIENTS, check.client) ? CLIENTS[check.client] : null;
-  if (!app || !(app.routes || []).includes(path)) throw new ApiError(403, 'forbidden', `This connection is for ${app ? app.name : 'another app'}; it can’t be used here.`);
-  return check.client;
+  if (!app || !(app.routes || []).includes(path)) {
+    await released;
+    throw new ApiError(403, 'forbidden', `This connection is for ${app ? app.name : 'another app'}; it can’t be used here.`);
+  }
+  return { client: check.client, released };
 }
 
 /** A page may redeem a code only for itself: the same origin, or the same extension's two addresses. */
@@ -411,17 +406,10 @@ async function relayTake(request, env, origin) {
 
 // ── one ask ──
 
-const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
-const bad = (message) => {
-  throw new ApiError(400, 'bad_request', message);
-};
 /** A name or a time: one line, at most `max` code points. */
 const short = (text, max) => {
   const line = oneLine(strip(text));
   return (points(line) > max ? [...line].slice(0, max).join('') : line).trim();
-};
-const known = (obj, keys, label) => {
-  for (const key of Object.keys(obj)) if (!keys.includes(key)) bad(`${label}: unknown key ${JSON.stringify(key.slice(0, 40))}`);
 };
 
 /** The request checked: { question, asker, conversation, messages }; 400 with a reason otherwise. */
@@ -492,13 +480,21 @@ async function appLimits(env, who, client, { cell = false } = {}) {
   if (!cell) await limited(env, 'EDEN_RATE', `ask:${client}:${who.account}`);
 }
 
-/** One app route: the token checked first, then the body (up to `max` bytes), the limits, the answer. */
+/**
+ * One app route: the token checked first, then the body (up to `max` bytes), the limits, the answer.
+ * The check's release goes on while the body is read and parsed; the real hold waits for it.
+ */
 async function appAsk(request, env, ctx, path, max, build) {
   const who = bearer(request, env);
   const model = askModel503(env);
-  const client = await verified(env, who, path);
-  const prompt = build(await readBody(request, max), client);
-  await appLimits(env, who, client, { cell: prompt.cell });
+  const { client, released } = await verified(env, who, path);
+  let prompt;
+  try {
+    prompt = build(await readBody(request, max), client);
+    await appLimits(env, who, client, { cell: prompt.cell });
+  } finally {
+    await released;
+  }
   // Apps Script (Google Sheets) can't read a stream: it gets the whole answer, or a clear error.
   const buffered = client === 'sheets' || request.headers.get('x-eden-buffer') === '1';
   return streamAnswer(env, ctx, who, model, prompt, { buffered });
@@ -534,24 +530,23 @@ export const CUT_NOTE = '\n\n(Eden’s answer was cut off here: it was too long.
  */
 async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } = {}) {
   // The worst case (input at a token per 3 bytes, the longest answer) is held on the allowance.
-  const inputTokens = Math.ceil(new TextEncoder().encode(prompt.system + prompt.messages.map((m) => m.content).join('')).length / 3);
+  const inputTokens = Math.ceil(utf8Bytes(prompt.system + prompt.messages.map((m) => m.content).join('')) / 3);
   const [inPrice, outPrice] = priceOf(model);
   const worstUSD = Math.round(((inputTokens * inPrice + prompt.maxTokens * outPrice) / 1e6) * 1e6) / 1e6;
-  const hold = await call(env, who.account, 'scoped-hold', { id: who.id, secret: who.secret, usd: worstUSD });
-  if (!hold.ok) throw new ApiError(402, 'no_allowance', hold.why || 'No included AI is left on your Eden account.');
-  const release = () => call(env, who.account, 'release-ai', { hold: hold.hold }).catch(() => {});
+  const held = await hold(env, who, worstUSD);
+  const letGo = () => release(env, who, held);
 
   const abort = new AbortController();
   let upstream;
   try {
     upstream = await serviceFetch(env, { model, max_tokens: prompt.maxTokens, system: prompt.system, messages: prompt.messages, stream: true }, { signal: abort.signal, url: ANTHROPIC });
   } catch {
-    await release();
+    await letGo();
     throw new ApiError(502, 'upstream', 'Eden couldn’t reach Claude. Try again.');
   }
   if (!upstream.ok || !upstream.body) {
     await upstream.text().catch(() => '');
-    await release();
+    await letGo();
     const busy = upstream.status === 429 || upstream.status === 529;
     throw new ApiError(502, 'upstream', busy ? 'Claude is busy right now. Try again in a moment.' : `Eden couldn’t answer (Claude said ${upstream.status}). Try again.`, busy ? { 'retry-after': '5' } : {});
   }
@@ -584,12 +579,9 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } =
         clearTimeout(timer);
         if (chunk === null) continue; // timed out: the next turn says how
         if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true });
-        let at;
-        while ((at = buffer.indexOf('\n')) >= 0) {
-          onLine(buffer.slice(0, at).trimEnd());
-          buffer = buffer.slice(at + 1);
-        }
+        const lines = (buffer + decoder.decode(chunk.value, { stream: true })).split('\n');
+        buffer = lines.pop(); // a line not ended yet
+        for (const line of lines) onLine(line.trimEnd());
         if (failure || stopped) break;
       }
       if (buffer) meter.tail(buffer.trimEnd());
@@ -607,8 +599,8 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } =
       abort.abort();
       reader.cancel().catch(() => {}); // a failed or timed-out answer: Claude's stream ends here too
       const usd = costOf(meter.model || model, meter.usage({ input: inputTokens }));
-      if (usd > 0) await call(env, who.account, 'spend', { usd, bucket: hold.bucket }).catch((error) => console.error('eden ask: spend failed', error && error.message));
-      await release();
+      if (usd > 0) await call(env, who.account, 'spend', { usd, bucket: held.bucket }).catch((error) => console.error('eden ask: spend failed', error && error.message));
+      await letGo();
     }
   };
 

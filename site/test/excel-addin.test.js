@@ -600,6 +600,45 @@ test('=EDEN.ASK: waits out "busy" (Retry-After), times out a stuck answer, and a
   }
 });
 
+test('=EDEN.ASK: the pane’s counter is told once per turn, with the latest numbers, however many cells change it', async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    storage.map.clear();
+    X.saveToken(undefined, { access_token: 'es1.acc.id.secret', expires_in: 3600 });
+    const { C } = loadCells(async () => new Response('ok', { status: 200 }));
+    const told = [];
+    C.onChange((s) => told.push(s));
+    await Promise.all(Array.from({ length: 20 }, (_, i) => C.ask(`burst ${i}`)));
+    await wait(10);
+    assert.ok(told.length >= 1 && told.length < 20, `told ${told.length} times for 20 cells`);
+    assert.deepEqual([told.at(-1).used, told.at(-1).saved, told.at(-1).running], [20, 20, 0], 'the last word is the current state');
+    C.clearSaved();
+    await wait(10);
+    assert.equal(told.at(-1).saved, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+    storage.map.clear();
+  }
+});
+
+test('the pane asks Excel in few round trips, and a closed pane doesn’t follow the selection', () => {
+  const pane = read('taskpane.js');
+  // readFor: the selection (and, for formula, explain and fill, the data's extent) in the first sync.
+  const first = pane.slice(pane.indexOf('function readFor('), pane.indexOf('const range = await clipped('));
+  assert.match(first, /sel\.load\('address,rowCount,columnCount,rowIndex,columnIndex'\)[\s\S]*getUsedRangeOrNullObject\(true\)[\s\S]*await context\.sync\(\)/);
+  assert.equal((first.match(/context\.sync\(\)/g) || []).length, 1);
+  // The cells come with their visible view (hidden rows) and Fill's target, with a one-at-a-time fallback.
+  assert.match(pane, /async function cellsWith\(context, range, fields, rows, columns, right\)/);
+  // Apply: the sheet check and the reads it needs in one trip; a failed trip still says "gone" or "protected".
+  assert.match(pane, /async function sheetFor\(context, job, read\)/);
+  assert.match(pane, /const found = read \? await sheetFor\(context, job\)\.catch\(\(\) => null\) : null;/);
+  assert.match(pane, /Office\.addin && Office\.addin\.onVisibilityModeChanged/);
+  assert.match(pane, /if \(!paneHidden\) selTimer = setTimeout\(showSelection, 120\)/, 'selection changes stay debounced');
+  assert.equal(X.isFormula('=A1'), true);
+  assert.equal(X.isFormula('A1'), false);
+  assert.equal(X.isFormula(3), false);
+});
+
 // ── the files ──
 
 /** A small XML well-formedness check: tags nest, attributes are quoted, entities are known. */

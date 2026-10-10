@@ -11,7 +11,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-button, textarea, input { font: inherit; color: inherit; }
+button, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 [hidden] { display: none !important; }
 a { color: var(--accent-text); }
@@ -76,8 +76,8 @@ main { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: co
 footer { padding: 8px 10px 10px; border-top: 1px solid var(--line); background: var(--card); flex: none; max-height: 58vh; overflow-y: auto; }
 .note { margin: 0 0 8px; font-size: 12.5px; padding: 5px 8px; border-radius: 7px; background: var(--accent-soft); }
 .note:empty { display: none; }
-.note.warn { color: var(--warn); background: var(--warn-soft); margin-top: 0; }
-.note.ok { color: var(--ok); background: var(--ok-soft); margin-top: 0; }
+.note.warn { background: var(--warn-soft); }
+.note.ok { background: var(--ok-soft); }
 .note .link { font-size: 12.5px; font-weight: 600; }
 .actions { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
 .chip { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }

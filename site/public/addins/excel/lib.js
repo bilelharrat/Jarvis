@@ -183,11 +183,14 @@
   /** Each cell's kind as Excel holds it: number (dates too), boolean, text or empty. */
   const kindsOf = (values) => (values || []).map((row) => row.map((v) => (typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean' : v === '' || v === null || v === undefined ? 'empty' : 'text')));
 
+  /** Whether a cell's formula (Excel's .formulas) is a formula: it starts with "=". */
+  const isFormula = (f) => typeof f === 'string' && f.startsWith('=');
+
   /** Only the formulas (other cells empty), or null when there are none. */
   function formulaGrid(formulas) {
     let any = false;
     const out = (formulas || []).map((row) => row.map((f) => {
-      if (typeof f === 'string' && f.startsWith('=')) {
+      if (isFormula(f)) {
         any = true;
         return cut(f, LIMITS.cellChars);
       }
@@ -208,9 +211,7 @@
     for (let r = 0; r < (values || []).length; r++) {
       for (let c = 0; c < values[r].length; c++) {
         const v = values[r][c];
-        if (typeof v !== 'string') continue;
-        const s = escaped && BREAKS.test(v) ? escapeCell(v) : v;
-        if (s.length > LIMITS.cellChars) return [r, c];
+        if (typeof v === 'string' && (escaped ? asSent(v) : v).length > LIMITS.cellChars) return [r, c];
       }
     }
     return null;
@@ -296,7 +297,8 @@
   // ── Fill and Clean in parts (one answer each, as the server sizes them) ──
 
   const utf8 = (s) => new TextEncoder().encode(s).length;
-  /** The server's clean budget for rows (sheets.js cleanTokens): bytes ÷ 2.2, a token per cell, 200. */
+  /** The server's clean budget (sheets.js cleanTokens): bytes ÷ 2.2, a token per cell, 200. */
+  const tokensFor = (bytes, cells) => Math.ceil(bytes / 2.2) + cells + 200;
   const cleanTokens = (rows) => {
     let bytes = 0;
     let cells = 0;
@@ -304,7 +306,7 @@
       for (const c of row) bytes += utf8(cellText(c));
       cells += Math.max(1, row.length);
     }
-    return Math.ceil(bytes / 2.2) + cells + 200;
+    return tokensFor(bytes, cells);
   };
 
   /**
@@ -318,14 +320,13 @@
     let bytes = 0;
     let cells = 0;
     const rowSize = (r) => {
-      const row = action === 'clean' ? values[r].map((c) => (typeof c === 'string' && BREAKS.test(c) ? escapeCell(c) : c)) : values[r];
+      const row = action === 'clean' ? values[r].map(asSent) : values[r];
       const f = formulas && formulas[r] ? charsOf([formulas[r]]) : 0;
       return { chars: charsOf([row]) + f, bytes: row.reduce((n, c) => n + utf8(cellText(c)), 0), cells: Math.max(1, row.length) };
     };
+    const fits = (n, count) => n.chars <= LIMITS.partChars && (action === 'fill' ? count <= LIMITS.fillRows : tokensFor(n.bytes, n.cells) <= LIMITS.cleanTokens - 100);
     for (let r = 0; r < values.length; r++) {
       const s = rowSize(r);
-      const tokens = (b, c) => Math.ceil(b / 2.2) + c + 200;
-      const fits = (n, count) => n.chars <= LIMITS.partChars && (action === 'fill' ? count <= LIMITS.fillRows : tokens(n.bytes, n.cells) <= LIMITS.cleanTokens - 100);
       if (!fits(s, 1)) return { error: t('rowTooBig', { row: r + 1, action: t(action).toLowerCase() }) };
       if (r > start && !fits({ chars: chars + s.chars, bytes: bytes + s.bytes, cells: cells + s.cells }, r + 1 - start)) {
         parts.push({ start, end: r });
@@ -348,12 +349,13 @@
   // (The server shows these, and U+0085, U+2028 and U+2029, as spaces: sheets.js tsvCell.)
   const BREAKS = /[\t\n\r\u0085\u2028\u2029]/;
   const escapeCell = (s) => String(s).replace(/\\/g, '\\\\').replace(/\r\n?|\n/g, '\\n').replace(/\t/g, '\\t').replace(/[\u0085\u2028\u2029]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  /** A cell as Clean sends it: escaped when it holds a break or a tab, else as it is. */
+  const asSent = (c) => (typeof c === 'string' && BREAKS.test(c) ? escapeCell(c) : c);
   const unescapeCell = (s) => String(s).replace(/\\(\\|n|t|u(?:0085|2028|2029))/g, (_, ch) => (ch === 'n' ? '\n' : ch === 't' ? '\t' : ch === '\\' ? '\\' : String.fromCharCode(parseInt(ch.slice(1), 16))));
 
   /** The rows as a Clean sends them: { values, escaped } (escaped[r][c] true where the cell was escaped). */
   function cleanSend(rows) {
-    const escaped = rows.map((row) => row.map((c) => typeof c === 'string' && BREAKS.test(c)));
-    return { values: rows.map((row, r) => row.map((c, k) => (escaped[r][k] ? escapeCell(c) : c))), escaped };
+    return { values: rows.map((row) => row.map(asSent)), escaped: rows.map((row) => row.map((c) => typeof c === 'string' && BREAKS.test(c))) };
   }
 
   /** A Clean's rows back in cell form (escaped cells turned back). */
@@ -467,7 +469,7 @@
     const out = [];
     for (let r = 0; r < sent.length; r++) {
       for (let c = 0; c < sent[r].length; c++) {
-        if (formulas && typeof formulas[r]?.[c] === 'string' && formulas[r][c].startsWith('=')) continue;
+        if (formulas && isFormula(formulas[r]?.[c])) continue;
         const to = cleaned[r][c] ?? '';
         if (sameCell(sent[r][c], to, kinds && kinds[r] ? kinds[r][c] : undefined)) continue;
         out.push({ r, c, from: cellText(sent[r][c]), to });
@@ -1035,7 +1037,7 @@
     SITE, CLIENT, CALLBACK, START, LIMITS, ACTIONS, TOKEN_KEY, CACHE_PREFIX, STRINGS,
     randomCode, challengeOf, redirectFor, connectUrl, dialogUrl, startTarget, readRedirect, tokenBody,
     readToken, saveToken, forgetToken,
-    cellOf, gridOf, kindsOf, formulaGrid, hasData, widthOf, longCell, sizeProblem, fitRows, sheetBody,
+    cellOf, gridOf, kindsOf, isFormula, formulaGrid, hasData, widthOf, longCell, sizeProblem, fitRows, sheetBody,
     cleanTokens, chunksFor, cleanSend, cleanReceive,
     unfence, formulaOf, linesOf, fillCheck, parseTsv, cleanCheck, cleanChanges, tableCheck, cellWrite, reachesOut,
     splitAddress, cellsOf, topLeftOf, cellName, rangeName,

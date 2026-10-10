@@ -38,7 +38,7 @@
 // with no Origin. Nothing asked is stored or logged here.
 
 import { ApiError } from '../accounts/util.js';
-import { cut, fence, fenceRule, oneLine, points, strip, thread, utf8Bytes } from './ext.js';
+import { bad, cut, fence, fenceRule, isObj, known, oneLine, points, str, strip, thread, turnsOf, utf8Bytes } from './ext.js';
 
 /** askeden.com's own origins (the Excel task pane's), plus EDEN_SELF_ORIGINS for a preview Worker. */
 export function selfOrigins(env = {}) {
@@ -97,21 +97,8 @@ const OUT_RULES = {
 // Structured answers (pasted or written into cells) must never be used cut off.
 const STRUCTURED = new Set(['formula', 'lines', 'table', 'cell']);
 
-const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
-const bad = (message) => {
-  throw new ApiError(400, 'bad_request', message);
-};
 const tooLong = (message) => {
   throw new ApiError(413, 'too_long', message);
-};
-const known = (obj, keys, label) => {
-  for (const key of Object.keys(obj)) if (!keys.includes(key)) bad(`${label}: unknown key ${JSON.stringify(key.slice(0, 40))}`);
-};
-const str = (value, label, max) => {
-  if (value === undefined || value === null) return '';
-  if (typeof value !== 'string') bad(`${label} must be a string`);
-  if (points(value) > max) bad(`${label} is at most ${max} characters`);
-  return strip(value);
 };
 const fmt = (n) => n.toLocaleString('en-US');
 
@@ -199,14 +186,8 @@ export function parseSheet(body) {
   if (needs === 'formula' && !(active && active.formula) && !(sheet && sheet.formulas && sheet.formulas.some((row) => row.some((c) => c.startsWith('='))))) bad('Select a cell with a formula first.');
   const history = body.history === undefined || body.history === null ? [] : body.history;
   if (!Array.isArray(history) || history.length > SHEET.history) bad(`history is a list of at most ${SHEET.history} turns`);
-  const turns = history.map((turn, i) => {
-    if (!isObj(turn)) bad(`history ${i + 1} must be { role, text }`);
-    known(turn, ['role', 'text'], `history ${i + 1}`);
-    if (turn.role !== 'user' && turn.role !== 'eden') bad(`history ${i + 1}: role is user or eden`);
-    const text = str(turn.text, `history ${i + 1} text`, SHEET.historyChars);
-    budget.chars += points(text);
-    return { role: turn.role, text };
-  });
+  const { turns, chars } = turnsOf(history, SHEET.historyChars);
+  budget.chars += chars;
   if (budget.chars > SHEET.chars) tooLong(`That is too much to send at once (at most ${fmt(SHEET.chars)} characters). Select fewer cells.`);
   if (action === 'fill' || action === 'clean') {
     if (budget.long.length) {
@@ -252,9 +233,14 @@ export function cellsBlock(sheet) {
   if (!sheet || !sheet.values) return '';
   const start = topLeft(sheet.range);
   const width = widthOf(sheet.values);
-  const head = ['row', ...Array.from({ length: width }, (_, i) => columnName(start.col + i))].join('\t');
-  const lines = sheet.values.map((row, i) => [String(start.row + i), ...row.map(tsvCell)].join('\t'));
-  return `${head}\n${lines.join('\n')}`;
+  let out = `${['row', ...Array.from({ length: width }, (_, i) => columnName(start.col + i))].join('\t')}\n`;
+  // One string built as it goes (up to 5,000 cells: no array per row).
+  sheet.values.forEach((row, i) => {
+    if (i) out += '\n';
+    out += start.row + i;
+    for (const cell of row) out += `\t${tsvCell(cell)}`;
+  });
+  return out;
 }
 
 function formulasBlock(sheet) {
@@ -308,8 +294,8 @@ export function sheetPrompt(req) {
     'Answer in the language of the person’s request, or of the data when there is no request.',
   ].filter(Boolean).join('\n\n');
   const parts = [];
+  const attr = (v) => v.replace(/"/g, "'");
   if (req.sheet) {
-    const attr = (v) => v.replace(/"/g, "'");
     const where = [req.sheet.name && `sheet="${attr(req.sheet.name)}"`, req.sheet.range && `range="${attr(req.sheet.range)}"`].filter(Boolean).join(' ');
     const cells = cellsBlock(req.sheet);
     if (cells) parts.push(`<cells_${tag}${where ? ` ${where}` : ''}>\n${cells}\n</cells_${tag}>`);
@@ -317,7 +303,7 @@ export function sheetPrompt(req) {
     if (formulas) parts.push(`<formulas_${tag}>\n${formulas}\n</formulas_${tag}>`);
     if ((req.action === 'fill' || req.action === 'clean') && req.sheet.values) parts.push(`(${req.sheet.values.length} rows${req.action === 'clean' ? ` × ${widthOf(req.sheet.values)} columns` : ''}.)`);
   }
-  if (req.active && (req.active.address || req.active.formula)) parts.push(`<active_${tag} address="${req.active.address.replace(/"/g, "'")}">${tsvCell(req.active.formula || req.active.value)}</active_${tag}>`);
+  if (req.active && (req.active.address || req.active.formula)) parts.push(`<active_${tag} address="${attr(req.active.address)}">${tsvCell(req.active.formula || req.active.value)}</active_${tag}>`);
   const now = req.instruction ? `Request: ${req.instruction}` : `Request: ${req.action}`;
   return { system, messages: thread(req.history, parts.join('\n\n'), now), maxTokens: answerTokens(req), structured: STRUCTURED.has(how.out) };
 }

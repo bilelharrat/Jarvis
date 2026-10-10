@@ -25,14 +25,21 @@
 
   const words = () => X.wordsFor((root.Office && root.Office.context && root.Office.context.displayLanguage) || (root.navigator && root.navigator.language));
   const state = () => ({ used, cap, paused, needConnect, saved: X.cacheCount(), running, queued: waiting.length });
+  // The pane's counter: told once per turn of the event loop, however many cells changed it.
+  let telling = 0;
   const changed = () => {
-    for (const fn of listeners) {
-      try {
-        fn(state());
-      } catch {
-        // a listener's own problem
+    if (telling) return;
+    telling = setTimeout(() => {
+      telling = 0;
+      const now = state();
+      for (const fn of listeners) {
+        try {
+          fn(now);
+        } catch {
+          // a listener's own problem
+        }
       }
-    }
+    }, 0);
   };
 
   /** An error Excel shows in the cell (#N/A, #VALUE!), with its message on hover. */

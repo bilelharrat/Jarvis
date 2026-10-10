@@ -6,9 +6,9 @@ import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { challengeOf } from '../src/accounts/scoped.js';
-import { CUT_NOTE, CUT_OFF, RELAY_SECONDS, TIMING, connectHtml } from '../src/eden/ask.js';
+import { CUT_NOTE, CUT_OFF, RELAY_SECONDS, TIMING, connectHtml, connectRequest } from '../src/eden/ask.js';
 import { ADDIN_CSP } from '../src/eden/addins.js';
-import { TEXT, editTokens, parseText, points, textPrompt } from '../src/eden/ext.js';
+import { TEXT, editTokens, parseText, points, textPrompt, utf8Bytes } from '../src/eden/ext.js';
 import { SHEET, cleanTokens, parseSheet, sheetPrompt } from '../src/eden/sheets.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, rateLimiter, sseBody } from './fakes.js';
@@ -522,4 +522,53 @@ test('R1V17: Stop on a silent answer lets go at once (no wait for the idle time)
   await settle();
   assert.ok(Date.now() - t0 < 1000);
   assert.equal(account.holds.size, 0);
+});
+
+// ── efficiency pass 1 (askeden/docs/bug-sweep/anywhere/e1-server.md): same behaviour, less work ──
+
+test('E1: points and utf8Bytes count as [...text] and TextEncoder do, lone surrogates included', () => {
+  for (const text of ['', 'abc', 'é', '漢字', 'a😀b', '😀😀', '\ud800', '\udc00', '\ud800\ud800\udc00', '\udc00\ud800', 'x\ud83d', 'word '.repeat(5000)]) {
+    assert.equal(points(text), [...text].length, JSON.stringify(text.slice(0, 20)));
+    assert.equal(utf8Bytes(text), new TextEncoder().encode(text).length);
+  }
+});
+
+test('E1: a return address is the app’s callback on an allowed origin, with nothing else (one check for every app)', () => {
+  const ok = (client, uri) => connectRequest(env, { client_id: client, redirect_uri: uri, state: 'state-e1-12345', code_challenge: 'A'.repeat(43), code_challenge_method: 'S256' }).redirect || null;
+  assert.equal(ok('excel', BACK.excel), BACK.excel);
+  assert.equal(ok('chrome', BACK.chrome), BACK.chrome);
+  assert.equal(ok('messenger', BACK.messenger), BACK.messenger);
+  assert.equal(ok('chrome', `https://${EXT_ID}.chromiumapp.org:443/`), BACK.chrome, 'the scheme’s own port is no port');
+  for (const [client, uri] of [
+    ['excel', `${ORIGIN}:8443/addins/excel/connected`], ['excel', `${BACK.excel}?x=1`], ['excel', `${BACK.excel}#x`], ['excel', 'https://u:p@askeden.com/addins/excel/connected'],
+    ['excel', 'http://askeden.com/addins/excel/connected'], ['excel', `${ORIGIN}/addins/excel/connected/`], ['excel', `${MSG}/addins/excel/connected`],
+    ['chrome', `https://${EXT_ID}.chromiumapp.org:8443/`], ['chrome', `${BACK.chrome}?x`], ['chrome', `https://${'z'.repeat(32)}.chromiumapp.org/`], ['chrome', `https://u@${EXT_ID}.chromiumapp.org/`], ['chrome', `${ORIGIN}/`],
+    ['messenger', `${BACK.messenger}?x=1`], ['messenger', `${ORIGIN}/eden/connected`], ['messenger', 'not a url'],
+  ]) assert.equal(ok(client, uri), null, `${client} ${uri}`);
+});
+
+test('E1: an ask is five account calls, and its check never counts against the two in flight', async () => {
+  const { tokens, account } = await connected('e1-calls', ['chrome', 'sheets']);
+  const ops = [];
+  const get = env.ACCOUNTS.get;
+  env.ACCOUNTS.get = (name) => {
+    const stub = get(name);
+    return { fetch: (input, init) => (ops.push(new URL(input instanceof Request ? input.url : input).pathname.slice(1)), stub.fetch(input, init)) };
+  };
+  assert.equal((await askAs('chrome', tokens.chrome)).status, 200);
+  assert.deepEqual(ops.sort(), ['release-ai', 'release-ai', 'scoped-hold', 'scoped-hold', 'spend']);
+  // One answer already in flight: the check takes the second place, lets it go, and the real hold gets it.
+  account.holds.set('other', { usd: 0, bucket: 'trial', until: Date.now() + 60_000 });
+  const buffered = await askAs('sheets', tokens.sheets);
+  assert.equal(buffered.status, 200, await buffered.clone().text());
+  assert.equal(account.holds.size, 1, 'only the other answer’s hold is left');
+  // A refused body: the check's hold is gone before the answer is (a client's retry never meets it).
+  account.holds.clear();
+  const refused = await askAs('chrome', tokens.chrome, { action: 'explain' }, { noSettle: true });
+  assert.equal(refused.status, 400);
+  assert.equal(account.holds.size, 0);
+  const elsewhere = await askAs('excel', tokens.chrome, BODY.excel, { origin: EXT, noSettle: true });
+  assert.equal(elsewhere.status, 403);
+  assert.equal(account.holds.size, 0);
+  env.ACCOUNTS.get = get;
 });

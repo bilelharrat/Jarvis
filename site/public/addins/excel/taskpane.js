@@ -283,9 +283,10 @@
   // ── the selection ──
 
   let selTimer = 0;
+  let paneHidden = false; // closed (its runtime runs on for =EDEN.ASK): no Excel call per click
   function watchSelection() {
     clearTimeout(selTimer);
-    selTimer = setTimeout(showSelection, 120);
+    if (!paneHidden) selTimer = setTimeout(showSelection, 120);
   }
 
   const oneBlock = (error) => Boolean(error && (error.code === 'InvalidSelection' || /selection is invalid|multiple selections/i.test(String(error.message))));
@@ -311,14 +312,14 @@
 
   // ── reading what an action needs (only that) ──
 
-  /** Clip a huge selection (whole columns or rows) to the part of the sheet that has data. */
-  async function clipped(context, sheet, sel) {
-    sel.load('address,rowCount,columnCount,rowIndex,columnIndex');
-    await context.sync();
+  /** Clip a huge selection (whole columns or rows) to the part of the sheet that has data (`used`, when already read). */
+  async function clipped(context, sheet, sel, used) {
     if (sel.rowCount * sel.columnCount <= X.LIMITS.cells) return sel;
-    const used = sheet.getUsedRangeOrNullObject(true);
-    used.load('rowIndex,columnIndex,rowCount,columnCount');
-    await context.sync();
+    if (!used) {
+      used = sheet.getUsedRangeOrNullObject(true);
+      used.load('rowIndex,columnIndex,rowCount,columnCount');
+      await context.sync();
+    }
     if (used.isNullObject) return sel;
     const r0 = Math.max(sel.rowIndex, used.rowIndex);
     const r1 = Math.min(sel.rowIndex + sel.rowCount, used.rowIndex + used.rowCount);
@@ -336,17 +337,36 @@
     return part;
   }
 
-  /** How many rows and columns of a range are hidden (filtered or hidden by hand); 0 when Excel can't say. */
-  async function hiddenIn(context, range, rows, columns) {
+  /**
+   * A range's cells in one round trip with how many of its rows (and `columns`) are hidden or filtered, and
+   * (`right`) the column to its right. If Excel can't give an extra, the cells are read alone, then the hidden
+   * count on its own (0 when Excel can't say), and `next` is null.
+   */
+  async function cellsWith(context, range, fields, rows, columns, right) {
+    range.load(fields);
+    let view = null;
+    let next = null;
     try {
-      const view = range.getVisibleView();
+      view = range.getVisibleView();
       view.load('rowCount,columnCount');
+      if (right) (next = range.getLastColumn().getOffsetRange(0, 1)).load('address');
       await context.sync();
-      return Math.max(0, rows - view.rowCount) + Math.max(0, columns - view.columnCount);
     } catch {
-      return 0;
+      next = null;
+      range.load(fields);
+      await context.sync();
+      try {
+        view = range.getVisibleView();
+        view.load('rowCount,columnCount');
+        await context.sync();
+      } catch {
+        view = null;
+      }
     }
+    return { hidden: view ? Math.max(0, rows - view.rowCount) + Math.max(0, columns - view.columnCount) : 0, next };
   }
+
+  const tooLong = (range, at, action) => t('cellTooLong', { cell: X.cellName(X.topLeftOf(range.address), at[0], at[1]), action: t(action).toLowerCase(), n: t.n(X.LIMITS.cellChars) });
 
   /**
    * What the action sends and what applying it needs. { sheet, active, job, hidden } or { error }.
@@ -359,6 +379,11 @@
       const activeCell = context.workbook.getActiveCell();
       activeCell.load('address,formulas,values');
       const sel = context.workbook.getSelectedRange();
+      // One round trip for what every action needs (each sync is a trip to Excel's server on the web), with
+      // the data's extent for the actions that often need it.
+      if (action !== 'table') sel.load('address,rowCount,columnCount,rowIndex,columnIndex');
+      const used = action === 'formula' || action === 'explain' || action === 'fill' ? ws.getUsedRangeOrNullObject(true) : null;
+      if (used) used.load('address,rowIndex,columnIndex,rowCount,columnCount');
       await context.sync();
       const name = ws.name;
       const active = { address: X.cellsOf(activeCell.address) };
@@ -366,43 +391,41 @@
 
       if (action === 'table') return { sheet: { name }, active, job: { ...base, at: X.cellsOf(activeCell.address) } };
 
-      const range = await clipped(context, ws, sel);
+      const range = await clipped(context, ws, sel, used);
       const tooBig = X.sizeProblem(action, range.rowCount, range.columnCount, t);
       if (tooBig && action !== 'formula' && action !== 'explain') return { error: tooBig };
 
-      if (action === 'formula' || action === 'explain') return formulaContext(context, ws, range, activeCell, action, active, base);
+      if (action === 'formula' || action === 'explain') return formulaContext(context, range, activeCell, action, active, base, used);
 
-      range.load(action === 'clean' ? 'values,text,formulas' : 'values,text');
-      await context.sync();
+      const got = await cellsWith(context, range, action === 'clean' ? 'values,text,formulas' : 'values,text', range.rowCount, range.columnCount, action === 'fill');
       const long = action === 'fill' || action === 'clean' ? X.longCell(range.values, action === 'clean') : null;
-      if (long) return { error: t('cellTooLong', { cell: X.cellName(X.topLeftOf(range.address), long[0], long[1]), action: t(action).toLowerCase(), n: t.n(X.LIMITS.cellChars) }) };
+      if (long) return { error: tooLong(range, long, action) };
       let values = X.gridOf(range.values, range.text);
       let address = X.cellsOf(range.address);
       const job = { ...base, source: address, rows: range.rowCount };
-      let hidden = await hiddenIn(context, range, range.rowCount, range.columnCount);
+      let { hidden } = got;
 
       if (action === 'fill') {
         if (range.columnCount === 1 && !X.hasData(values)) {
           // One empty column selected: fill it from the columns to its left, on the same rows.
-          const used = ws.getUsedRangeOrNullObject(true);
-          used.load('columnIndex');
-          await context.sync();
           if (used.isNullObject || used.columnIndex >= range.columnIndex) return { error: t('fillWhere') };
           const left = ws.getRangeByIndexes(range.rowIndex, used.columnIndex, range.rowCount, range.columnIndex - used.columnIndex);
-          left.load('address,values,text');
-          await context.sync();
+          const leftGot = await cellsWith(context, left, 'address,values,text', range.rowCount, 0, false);
           const longLeft = X.longCell(left.values);
-          if (longLeft) return { error: t('cellTooLong', { cell: X.cellName(X.topLeftOf(left.address), longLeft[0], longLeft[1]), action: t('fill').toLowerCase(), n: t.n(X.LIMITS.cellChars) }) };
+          if (longLeft) return { error: tooLong(left, longLeft, 'fill') };
           values = X.gridOf(left.values, left.text);
           job.target = address;
           address = X.cellsOf(left.address);
           job.source = address;
-          hidden = await hiddenIn(context, left, range.rowCount, 0);
+          hidden = leftGot.hidden;
           if (!X.hasData(values)) return { error: t('fillEmptyLeft') };
         } else {
-          const target = range.getLastColumn().getOffsetRange(0, 1);
-          target.load('address');
-          await context.sync();
+          let target = got.next;
+          if (!target) {
+            target = range.getLastColumn().getOffsetRange(0, 1);
+            target.load('address');
+            await context.sync();
+          }
           job.target = X.cellsOf(target.address);
         }
         job.sent = values; // Fill checks the rows still hold this before writing
@@ -426,14 +449,11 @@
    * header row and its first few rows (a sample), with the data's whole address so formulas can cover
    * it; with a selection, the selected cells (trimmed to the limits).
    */
-  async function formulaContext(context, ws, range, activeCell, action, active, base) {
+  async function formulaContext(context, range, activeCell, action, active, base, used) {
     let part;
     let address;
     const single = range.rowCount * range.columnCount === 1;
     if (single) {
-      const used = ws.getUsedRangeOrNullObject(true);
-      used.load('address,rowCount,columnCount');
-      await context.sync();
       if (used.isNullObject || used.rowCount * used.columnCount <= 1) part = null;
       else {
         address = X.cellsOf(used.address);
@@ -743,18 +763,27 @@
 
   // ── applying (always shown first; nothing is written without a press) ──
 
-  const isFormula = (f) => typeof f === 'string' && f.startsWith('=');
+  const { isFormula } = X;
   const filled = (values, formulas) => values.reduce((n, row, r) => n + row.filter((v, c) => (v !== '' && v !== null) || (formulas && isFormula(formulas[r][c]))).length, 0);
 
+  /** Writing over filled cells needs a second press (for the same cells and count): true when this press only asks. */
+  function overFilled(res, target, at, button) {
+    const n = filled(target.values, target.formulas);
+    if (!n || res.confirmFor === `${at}|${n}`) return false;
+    res.confirmFor = `${at}|${n}`;
+    res.confirm = button === 'formula' ? t('notEmptyFormula', { at }) : t('notEmpty', { at, n: t.n(n), button: t(button) });
+    return true;
+  }
+
   /** The values and number formats for writing rows of Eden's text: text Excel would change goes in as text ("@"). */
-  function writeGrid(rows, kinds, formats) {
+  function writeGrid(rows, formats) {
     const values = [];
     const numberFormat = [];
     rows.forEach((row, r) => {
       values.push([]);
       numberFormat.push([]);
       row.forEach((text, c) => {
-        const w = X.cellWrite(text, kinds ? kinds[r][c] : 'auto', t.lang);
+        const w = X.cellWrite(text);
         const was = formats && formats[r] ? formats[r][c] : 'General';
         values[r].push(w.v);
         numberFormat[r].push(w.asText ? '@' : was === '@' && typeof w.v !== 'string' ? 'General' : was);
@@ -763,10 +792,13 @@
     return { values, numberFormat };
   }
 
-  /** The job's sheet: by its id (a renamed sheet still works; a deleted one is gone). */
-  async function sheetFor(context, job) {
+  /**
+   * The job's sheet by its id (a renamed sheet still works; a deleted one is gone), with what `read(ws)` loads
+   * in the same round trip: { got } or { error }. If that trip fails, a gone or protected sheet says so.
+   */
+  async function sheetFor(context, job, read) {
     const sheets = context.workbook.worksheets;
-    let ws = typeof sheets.getItemOrNullObject === 'function' ? sheets.getItemOrNullObject(job.sheetId || job.sheet) : sheets.getItem(job.sheet);
+    const ws = typeof sheets.getItemOrNullObject === 'function' ? sheets.getItemOrNullObject(job.sheetId || job.sheet) : sheets.getItem(job.sheet);
     ws.load('isNullObject');
     let protection = null;
     try {
@@ -775,10 +807,18 @@
     } catch {
       protection = null;
     }
-    await context.sync();
+    let got = null;
+    try {
+      got = read ? read(ws) : null;
+      await context.sync();
+    } catch (error) {
+      const found = read ? await sheetFor(context, job).catch(() => null) : null;
+      if (found && found.error) return found;
+      throw error;
+    }
     if (ws.isNullObject) return { error: t('sheetGone') };
     if (protection && protection.protected) return { error: t('sheetProtected') };
-    return { ws };
+    return { got };
   }
 
   async function apply(reply) {
@@ -789,27 +829,24 @@
     render({ focus: reply });
     try {
       await Excel.run(async (context) => {
-        const found = await sheetFor(context, job);
+        const found = await sheetFor(context, job, (ws) => {
+          const loaded = (range, fields) => (range.load(fields), range);
+          if (reply.action === 'fill') return { source: loaded(ws.getRange(job.source), 'values,text'), target: loaded(ws.getRange(job.target), 'address,values,formulas,rowCount,numberFormat') };
+          if (reply.action === 'clean') return { source: loaded(ws.getRange(job.source), 'values,text,formulas') };
+          const at = ws.getRange(job.at);
+          return { target: loaded(reply.action === 'table' ? at.getResizedRange(res.table.length - 1, res.table[0].length - 1) : at, 'address,values,formulas,numberFormat') };
+        });
         if (found.error) {
           res.warn = found.error;
           return;
         }
-        const { ws } = found;
         if (reply.action === 'formula' || reply.action === 'table') {
-          let target = ws.getRange(job.at);
-          if (reply.action === 'table') target = target.getResizedRange(res.table.length - 1, res.table[0].length - 1);
-          target.load('address,values,formulas,numberFormat');
-          await context.sync();
-          const n = filled(target.values, target.formulas);
+          const { target } = found.got;
           const at = X.cellsOf(target.address);
-          if (n && res.confirmFor !== `${at}|${n}`) {
-            res.confirmFor = `${at}|${n}`;
-            res.confirm = reply.action === 'formula' ? t('notEmptyFormula', { at }) : t('notEmpty', { at, n: t.n(n), button: t('insertWord') });
-            return;
-          }
+          if (overFilled(res, target, at, reply.action === 'formula' ? 'formula' : 'insertWord')) return;
           if (reply.action === 'formula') target.formulas = [[res.formula]];
           else {
-            const w = writeGrid(res.table, null, target.numberFormat);
+            const w = writeGrid(res.table, target.numberFormat);
             target.numberFormat = w.numberFormat;
             target.values = w.values;
           }
@@ -827,11 +864,7 @@
           res.confirm = '';
           res.done = reply.action === 'formula' ? t('insertedIn', { at }) : t('insertedAt', { at });
         } else if (reply.action === 'fill') {
-          const source = ws.getRange(job.source);
-          source.load('values,text');
-          const target = ws.getRange(job.target);
-          target.load('address,values,formulas,rowCount,numberFormat');
-          await context.sync();
+          const { source, target } = found.got;
           if (target.rowCount !== res.lines.length) {
             res.warn = t('selectionChanged');
             return;
@@ -841,13 +874,8 @@
             return;
           }
           const at = X.cellsOf(target.address);
-          const n = filled(target.values, target.formulas);
-          if (n && res.confirmFor !== `${at}|${n}`) {
-            res.confirmFor = `${at}|${n}`;
-            res.confirm = t('notEmpty', { at, n: t.n(n), button: t('fillWord') });
-            return;
-          }
-          const w = writeGrid(res.lines.map((line) => [line]), null, target.numberFormat);
+          if (overFilled(res, target, at, 'fillWord')) return;
+          const w = writeGrid(res.lines.map((line) => [line]), target.numberFormat);
           target.numberFormat = w.numberFormat;
           target.values = w.values;
           target.select();
@@ -855,9 +883,7 @@
           res.confirm = '';
           res.done = t('filled', { at });
         } else if (reply.action === 'clean') {
-          const source = ws.getRange(job.source);
-          source.load('values,text,formulas');
-          await context.sync();
+          const { source } = found.got;
           // The cells Clean writes must still be what Eden saw (a formula that recalculated doesn't count).
           const now = X.gridOf(source.values, source.text);
           const same = job.sent.every((row, r) => row.every((c, k) => isFormula(job.formulas[r][k]) || JSON.stringify(now[r] ? now[r][k] : null) === JSON.stringify(c)));
@@ -872,7 +898,7 @@
             for (let i = 0; i < todo.length; i += 200) {
               for (const ch of todo.slice(i, i + 200)) {
                 const cell = source.getCell(ch.r, ch.c);
-                const w = X.cellWrite(ch.to, job.kinds[ch.r][ch.c], t.lang);
+                const w = X.cellWrite(ch.to, job.kinds[ch.r][ch.c]);
                 if (w.asText) cell.numberFormat = [['@']];
                 cell.values = [[w.v]];
               }
@@ -1116,6 +1142,17 @@
         }
         await context.sync();
       }).catch(() => {});
+      // A closed pane stops following the selection and catches up when shown again.
+      try {
+        const on = Office.addin && Office.addin.onVisibilityModeChanged((m) => {
+          paneHidden = Boolean(m && m.visibilityMode === 'Hidden');
+          if (paneHidden) clearTimeout(selTimer);
+          else showSelection();
+        });
+        if (on && on.catch) on.catch(() => {});
+      } catch {
+        // older Office: the pane follows the selection all the time
+      }
     } else {
       $('selAddr').textContent = t('openInExcelShort');
     }

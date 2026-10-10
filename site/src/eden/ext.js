@@ -79,31 +79,30 @@ const ACTIONS = {
 };
 const TONES = new Set(['professional', 'friendly', 'casual', 'confident', 'polite', 'direct', 'simple']);
 
-const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
-const bad = (message) => {
+// ── shared by the three app routes (ask.js, sheets.js) ──
+
+export const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+export const bad = (message) => {
   throw new ApiError(400, 'bad_request', message);
 };
-const known = (obj, keys, label) => {
+/** 400 for a key that isn't in `keys`. */
+export const known = (obj, keys, label) => {
   for (const key of Object.keys(obj)) if (!keys.includes(key)) bad(`${label}: unknown key ${JSON.stringify(key.slice(0, 40))}`);
 };
 
-// ── shared by the three app routes (ask.js, sheets.js) ──
-
 /** Control characters out (tab, line feed and carriage return kept). */
 export const strip = (text) => String(text).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
-/** Code points (what every limit counts; a client counts the same: [...text].length). */
+const HIGH = /[\ud800-\udbff]/;
+const PAIRS = /[\ud800-\udbff][\udc00-\udfff]/g;
+/**
+ * Code points (what every limit counts; a client counts the same: [...text].length): UTF-16 units less
+ * one per surrogate pair (a lone surrogate counts as one). Text with no high surrogate (most text) is
+ * just its length, found by one native regex test instead of a loop over every unit.
+ */
 export function points(text) {
-  let n = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text.charCodeAt(i);
-    if (c < 0xd800 || c > 0xdbff || i + 1 >= text.length) n += 1;
-    else {
-      const d = text.charCodeAt(i + 1);
-      n += 1;
-      if (d >= 0xdc00 && d <= 0xdfff) i += 1;
-    }
-  }
-  return n;
+  if (!HIGH.test(text)) return text.length;
+  const pairs = text.match(PAIRS);
+  return text.length - (pairs ? pairs.length : 0);
 }
 /** At most `max` code points (never half a surrogate pair), with "…" when it was cut. */
 export function cut(text, max) {
@@ -112,8 +111,9 @@ export function cut(text, max) {
 }
 /** A one-line field (a name, an address, a range): no line breaks, so it can't start a "Request:" line. */
 export const oneLine = (text) => String(text).replace(/[\r\n\u0085\u2028\u2029\t\v\f]+/g, ' ');
+const ENCODER = new TextEncoder();
 /** UTF-8 bytes of a string. */
-export const utf8Bytes = (text) => new TextEncoder().encode(text).length;
+export const utf8Bytes = (text) => ENCODER.encode(text).length;
 /**
  * A per-request random tag suffix: quoted data sits inside <name_XXXX>…</name_XXXX>, which the data
  * can't close because it can't know XXXX (look-alike or invisible-character closers don't matter).
@@ -144,12 +144,27 @@ export function thread(history, data, now) {
   return messages;
 }
 
-const str = (value, label, max) => {
+/** An optional string field: '' when absent, 400 when not a string or over `max` code points; control characters out. */
+export const str = (value, label, max) => {
   if (value === undefined || value === null) return '';
   if (typeof value !== 'string') bad(`${label} must be a string`);
   if (points(value) > max) bad(`${label} is at most ${max} characters`);
   return strip(value);
 };
+
+/** Earlier turns ([{ role: "user"|"eden", text }], the list itself checked by the caller) → { turns, chars }. */
+export function turnsOf(history, maxChars) {
+  let chars = 0;
+  const turns = history.map((turn, i) => {
+    if (!isObj(turn)) bad(`history ${i + 1} must be { role, text }`);
+    known(turn, ['role', 'text'], `history ${i + 1}`);
+    if (turn.role !== 'user' && turn.role !== 'eden') bad(`history ${i + 1}: role is user or eden`);
+    const text = str(turn.text, `history ${i + 1} text`, maxChars);
+    chars += points(text);
+    return { role: turn.role, text };
+  });
+  return { turns, chars };
+}
 
 /** The request checked; 400 with a reason otherwise. */
 export function parseText(body) {
@@ -180,15 +195,8 @@ export function parseText(body) {
   const history = body.history === undefined || body.history === null ? [] : body.history;
   if (!Array.isArray(history)) bad('history must be a list');
   if (history.length > TEXT.history) bad(`at most ${TEXT.history} earlier turns`);
-  let total = points(text) + points(instruction) + (field ? points(field.before) + points(field.after) : 0);
-  const turns = history.map((turn, i) => {
-    if (!isObj(turn)) bad(`history ${i + 1} must be { role, text }`);
-    known(turn, ['role', 'text'], `history ${i + 1}`);
-    if (turn.role !== 'user' && turn.role !== 'eden') bad(`history ${i + 1}: role is user or eden`);
-    const said = str(turn.text, `history ${i + 1} text`, TEXT.historyChars);
-    total += points(said);
-    return { role: turn.role, text: said };
-  });
+  const { turns, chars } = turnsOf(history, TEXT.historyChars);
+  const total = chars + points(text) + points(instruction) + (field ? points(field.before) + points(field.after) : 0);
   if (total > TEXT.totalChars) throw new ApiError(413, 'too_long', `That is too much to send at once (at most ${TEXT.totalChars.toLocaleString('en-US')} characters). Select less text.`);
   if (ACTIONS[action].edit && editTokens(action, text) > TEXT.editTokens) {
     throw new ApiError(413, 'too_long', 'That text is too long for Eden to rewrite in one answer. Select less and try again.');
