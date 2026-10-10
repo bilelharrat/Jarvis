@@ -35,6 +35,7 @@ import { serviceAiReady, serviceFallback, serviceFetch } from '../accounts/servi
 import { CLIENTS, SCOPED, makeScopedToken, parseConnectCode, parseScopedToken } from '../accounts/scoped.js';
 import { ApiError, webAllowed } from '../accounts/util.js';
 import { hostedConfig } from './chat.js';
+import { extIdOf, extOrigins, extRedirectOrigins, parseText, textPrompt } from './ext.js';
 import { currentSession } from './session.js';
 import { json, page, problem, sameOrigin, withHeaders } from './web.js';
 
@@ -52,7 +53,7 @@ export const ASK = {
 };
 const KINDS = new Set(['dm', 'group_dm', 'private', 'channel']);
 const KIND_WORDS = { dm: 'a direct message', group_dm: 'a group message', private: 'a private channel', channel: 'a channel' };
-const APP_ROUTES = new Set(['/api/eden/token', '/api/eden/ask', '/api/eden/disconnect']);
+const APP_ROUTES = new Set(['/api/eden/token', '/api/eden/ask', '/api/eden/text', '/api/eden/disconnect']);
 // An app's native return address: exactly this, or not at all. No web page can redeem a code sent
 // there (token() matches the redirect's origin to the caller's, and a custom scheme's is "null").
 export const NATIVE_CALLBACKS = { messenger: 'bshmessenger://eden/connected' };
@@ -70,7 +71,7 @@ export function askOrigins(env = {}) {
 
 /** CORS answer headers for this Origin, or null when it may not call. */
 function corsFor(env, origin) {
-  if (!origin || !askOrigins(env).includes(origin)) return null;
+  if (!origin || !(askOrigins(env).includes(origin) || extOrigins(env).includes(origin))) return null;
   return { 'access-control-allow-origin': origin, vary: 'origin' };
 }
 
@@ -81,6 +82,17 @@ function redirectFor(env, client, uri) {
   const app = CLIENTS[client];
   if (!app || typeof uri !== 'string') return null;
   if (NATIVE_CALLBACKS[client] && uri === NATIVE_CALLBACKS[client]) return uri;
+  // The browser extension: its own https://<id>.chromiumapp.org/, which only chrome.identity catches.
+  if (app.extension) {
+    let ext;
+    try {
+      ext = new URL(uri);
+    } catch {
+      return null;
+    }
+    if (ext.search || ext.hash || ext.username || ext.password || ext.port || ext.pathname !== app.callback || !extIdOf(env, ext.origin)) return null;
+    return `${ext.origin}${ext.pathname}`;
+  }
   let url;
   try {
     url = new URL(uri);
@@ -113,7 +125,7 @@ const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 function connectCsp(env) {
   // Its own form posts here, then the 303 goes to the app (form-action covers the redirect),
   // a native app's included.
-  return `default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self' ${[...askOrigins(env), ...NATIVE_SCHEMES].join(' ')}; base-uri 'none'; frame-ancestors 'none'`;
+  return `default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self' ${[...askOrigins(env), ...extRedirectOrigins(env), ...NATIVE_SCHEMES].join(' ')}; base-uri 'none'; frame-ancestors 'none'`;
 }
 
 function shell(title, body) {
@@ -143,7 +155,7 @@ export function connectHtml({ request: req, signedIn, email = '', error = '', se
   if (error) {
     return shell('Can’t connect', `  <h1 id="title">Can’t connect</h1>
   <p class="lead">${esc(error)}</p>
-  <p class="fine">Start again from the app: in Eden Messenger, type @Eden in a conversation.</p>`);
+  <p class="fine">Start again from the app: in Eden Messenger, type @Eden in a conversation. In Chrome, click Ask Eden in the toolbar.</p>`);
   }
   const name = esc(req.app.name);
   if (!signedIn) {
@@ -157,8 +169,8 @@ export function connectHtml({ request: req, signedIn, email = '', error = '', se
   const hidden = { client_id: req.client, redirect_uri: req.redirect, state: req.state, code_challenge: req.challenge, code_challenge_method: 'S256' };
   const inputs = Object.entries(hidden).map(([k, v]) => `    <input type="hidden" name="${k}" value="${esc(v)}">`).join('\n');
   return shell(`Connect ${req.app.name}`, `  <h1 id="title">Connect ${name}?</h1>
-  <p class="lead">${name} will be able to ask Eden about a conversation for you${email ? `, as <b>${esc(email)}</b>` : ''}.</p>
-  <p class="alert">It sends Eden only the question and messages you confirm each time, from your own device, and gets the answer on your included AI. It can’t read your Eden chats, mail, calendar, notes or account.</p>
+  <p class="lead">${name} will be able to ${esc(req.app.does || 'ask Eden about a conversation for you')}${email ? `, as <b>${esc(email)}</b>` : ''}.</p>
+  <p class="alert">${esc(req.app.sends || 'It sends Eden only the question and messages you confirm each time, from your own device')}, and gets the answer on your included AI. It can’t read your Eden chats, mail, calendar, notes or account.</p>
   <form method="post" action="/api/eden/connect">
 ${inputs}
     <p><button class="button ghost" type="submit" name="decision" value="deny">Cancel</button> <button class="button" type="submit" name="decision" value="allow">Connect</button></p>
@@ -237,6 +249,13 @@ function bearer(request, env) {
   return token;
 }
 
+/** A page may redeem a code only for itself: the same origin, or the same extension's two addresses. */
+function sameApp(env, redirectOrigin, origin) {
+  if (redirectOrigin === origin) return true;
+  const id = extIdOf(env, redirectOrigin);
+  return Boolean(id) && extIdOf(env, origin) === id && origin.startsWith('chrome-extension://');
+}
+
 async function token(request, env, origin) {
   await limited(env, 'AUTH_RATE', `eden-token:${clientIp(request)}`);
   const body = await readBody(request);
@@ -245,7 +264,7 @@ async function token(request, env, origin) {
   const redirect = redirectFor(env, client, body.redirect_uri);
   const code = parseConnectCode(body.code);
   // A page may redeem a code only for itself.
-  if (!redirect || !code || (origin && new URL(redirect).origin !== origin)) throw new ApiError(400, 'invalid_grant', 'That connect code isn’t for this app. Connect again.');
+  if (!redirect || !code || (origin && !sameApp(env, new URL(redirect).origin, origin))) throw new ApiError(400, 'invalid_grant', 'That connect code isn’t for this app. Connect again.');
   if (!webAllowed(env, code.account)) throw new ApiError(403, 'forbidden', 'This Eden account can’t use Eden on the web yet.');
   const minted = await call(env, code.account, 'scoped-redeem', { code: code.secret, client, redirect_uri: redirect, verifier: String(body.code_verifier || '') });
   return json({
@@ -329,19 +348,37 @@ export function askModel(env) {
   return (models.find((m) => m.id === ASK_MODEL) || models[0] || null)?.id || null;
 }
 
-async function ask(request, env, ctx) {
-  const who = bearer(request, env);
+/** The model for an app's ask, once the included AI is set up; and the per-account limits. */
+async function askReady(env, who) {
   if (!serviceAiReady(env)) throw new ApiError(503, 'not_set_up', 'The included AI is not set up on askeden.com yet.');
   const fallback = serviceFallback(env); // no Anthropic key: the service's Gemini or OpenAI (service-ai.js)
   const model = fallback ? fallback.model : askModel(env);
   if (!model) throw new ApiError(503, 'not_set_up', 'No Claude models are set up on askeden.com.');
   await limited(env, 'API_RATE', who.account);
   await limited(env, 'EDEN_RATE', `ask:${who.account}`);
-  const prompt = askPrompt(parseAsk(await readBody(request)));
+  return model;
+}
+
+async function ask(request, env, ctx) {
+  const who = bearer(request, env);
+  const model = await askReady(env, who);
+  const { system, user } = askPrompt(parseAsk(await readBody(request)));
+  return streamAnswer(env, ctx, who, model, { system, messages: [{ role: 'user', content: user }], maxTokens: ASK.answerTokens });
+}
+
+/** The extension's ask about page text (ext.js). */
+async function pageText(request, env, ctx) {
+  const who = bearer(request, env);
+  const model = await askReady(env, who);
+  return streamAnswer(env, ctx, who, model, textPrompt(parseText(await readBody(request))));
+}
+
+/** One answer, streamed as text/plain, held on the allowance first and billed however it ends. */
+async function streamAnswer(env, ctx, who, model, prompt) {
   // The worst case (input at a token per 3 bytes, the longest answer) is held on the allowance.
-  const inputTokens = Math.ceil(new TextEncoder().encode(prompt.system + prompt.user).length / 3);
+  const inputTokens = Math.ceil(new TextEncoder().encode(prompt.system + prompt.messages.map((m) => m.content).join('')).length / 3);
   const [inPrice, outPrice] = priceOf(model);
-  const worstUSD = Math.round(((inputTokens * inPrice + ASK.answerTokens * outPrice) / 1e6) * 1e6) / 1e6;
+  const worstUSD = Math.round(((inputTokens * inPrice + prompt.maxTokens * outPrice) / 1e6) * 1e6) / 1e6;
   const hold = await call(env, who.account, 'scoped-hold', { id: who.id, secret: who.secret, usd: worstUSD });
   if (!hold.ok) throw new ApiError(402, 'no_allowance', hold.why || 'No included AI is left on your Eden account.');
   const release = () => call(env, who.account, 'release-ai', { hold: hold.hold }).catch(() => {});
@@ -349,7 +386,7 @@ async function ask(request, env, ctx) {
   const abort = new AbortController();
   let upstream;
   try {
-    upstream = await serviceFetch(env, { model, max_tokens: ASK.answerTokens, system: prompt.system, messages: [{ role: 'user', content: prompt.user }], stream: true }, { signal: abort.signal, url: ANTHROPIC });
+    upstream = await serviceFetch(env, { model, max_tokens: prompt.maxTokens, system: prompt.system, messages: prompt.messages, stream: true }, { signal: abort.signal, url: ANTHROPIC });
   } catch {
     await release();
     throw new ApiError(502, 'upstream', 'Eden couldn’t reach Claude. Try again.');
@@ -456,6 +493,7 @@ export async function edenApi(request, env, ctx, path) {
     let response;
     if (path === '/api/eden/token') response = await token(request, env, origin);
     else if (path === '/api/eden/ask') response = await ask(request, env, ctx);
+    else if (path === '/api/eden/text') response = await pageText(request, env, ctx);
     else response = await disconnect(request, env);
     return withCors(response, cors);
   } catch (error) {

@@ -18,7 +18,18 @@ import { ApiError, b64url, randomBytes, sameText, sha256, sha256Hex, signedOut, 
 export const SCOPED = { days: 90, max: 10, codeSeconds: 120, codes: 10 };
 // The apps that may ask for a scoped token, and what for. `callback` is the only path a code
 // is sent back to, on the app's own origin (ask.js decides which origins).
-export const CLIENTS = { messenger: { name: 'Eden Messenger', scope: 'ask', callback: '/eden/connected' } };
+export const CLIENTS = {
+  messenger: { name: 'Eden Messenger', scope: 'ask', callback: '/eden/connected' },
+  // The Ask Eden browser extension (eden/ext.js): its code comes back to https://<id>.chromiumapp.org/.
+  chrome: {
+    name: 'Ask Eden for Chrome',
+    scope: 'ask',
+    callback: '/',
+    extension: true,
+    does: 'ask Eden about text you select on web pages and help you write there',
+    sends: 'It sends Eden only the text you select or type and the page’s title and address, when you press one of its buttons',
+  },
+};
 
 const ID = /^[0-9a-f]{16}$/;
 const SECRET = /^[A-Za-z0-9_-]{43}$/;
