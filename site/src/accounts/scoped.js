@@ -17,15 +17,19 @@ import { ApiError, b64url, randomBytes, sameText, sha256, sha256Hex, signedOut, 
 
 export const SCOPED = { days: 90, max: 10, codeSeconds: 120, codes: 10 };
 // The apps that may ask for a scoped token, and what for. `callback` is the only path a code
-// is sent back to, on the app's own origin (ask.js decides which origins).
+// is sent back to, on the app's own origin (ask.js decides which origins). `routes`: the only app
+// routes its token answers on (ask.js; disconnect works for every token). `again`: how to start over,
+// on the consent page's "Can't connect".
 export const CLIENTS = {
-  messenger: { name: 'Eden Messenger', scope: 'ask', callback: '/eden/connected' },
+  messenger: { name: 'Eden Messenger', scope: 'ask', callback: '/eden/connected', routes: ['/api/eden/ask'], again: 'In Eden Messenger, type @Eden in a conversation.' },
   // The Ask Eden browser extension (eden/ext.js): its code comes back to https://<id>.chromiumapp.org/.
   chrome: {
     name: 'Ask Eden for Chrome',
     scope: 'ask',
     callback: '/',
     extension: true,
+    routes: ['/api/eden/text'],
+    again: 'In Chrome, click Ask Eden in the toolbar, then Connect.',
     does: 'ask Eden about text you select on web pages and help you write there',
     sends: 'It sends Eden only the text you select or type and the page’s title and address, when you press one of its buttons',
   },
@@ -35,8 +39,11 @@ export const CLIENTS = {
     scope: 'ask',
     callback: '/addins/excel/connected',
     self: true,
+    routes: ['/api/eden/sheet'],
+    app: 'excel',
+    again: 'In Excel, open Ask Eden and press Connect.',
     does: 'answer questions about the cells you select in Excel, write and explain formulas, and fill or clean data',
-    sends: 'It sends Eden only the cells you select and what you type, when you press one of its buttons or use =EDEN.ASK',
+    sends: 'It sends Eden only the cells you select (to write or explain a formula, also the data around the cell), the sheet’s name and what you type, when you press one of its buttons or use =EDEN.ASK',
   },
   // The Google Sheets add-on (Apps Script; eden/sheets.js): its sign-in comes back to its own usercallback.
   sheets: {
@@ -44,8 +51,11 @@ export const CLIENTS = {
     scope: 'ask',
     callback: '/usercallback',
     appsScript: true,
+    routes: ['/api/eden/sheet'],
+    app: 'sheets',
+    again: 'In Google Sheets, choose Extensions › Ask Eden › Connect your Eden account.',
     does: 'answer questions about the cells you select in Google Sheets, write and explain formulas, and fill or clean data',
-    sends: 'It sends Eden only the cells you select and what you type, when you press one of its buttons or use =EDEN',
+    sends: 'It sends Eden only the cells you select (to write or explain a formula, also the data around the cell), the sheet’s name and what you type, when you press one of its buttons or use =EDEN',
   },
 };
 

@@ -17,9 +17,9 @@
 <header>
   <img src="icon-32.png" width="20" height="20" alt="">
   <strong class="grow">Ask Eden</strong>
-  <button class="icon" id="clear" type="button" data-i18n-title="clear" title="New chat" hidden>&#x21BA;</button>
+  <button class="icon" id="clear" type="button" data-i18n-title="clear" data-i18n-aria="clear" title="New chat" aria-label="New chat" hidden>&#x21BA;</button>
   <details class="menu" id="menu" hidden>
-    <summary class="icon" aria-label="More">&#x22EF;</summary>
+    <summary class="icon" data-i18n-aria="more" aria-label="More">&#x22EF;</summary>
     <div class="menu-list">
       <a href="https://askeden.com/account" target="_blank" rel="noopener" data-i18n="plan">See your plan</a>
       <a href="https://askeden.com/help" target="_blank" rel="noopener" data-i18n="help">Help</a>
@@ -34,16 +34,17 @@
   <button class="btn" id="connectBtn" type="button" data-i18n="connect">Connect</button>
 </section>
 
-<section class="sel" id="selBar" aria-live="polite">
+<section class="sel" id="selBar">
   <span class="sel-label" data-i18n="selection">Selection</span>
-  <span class="sel-addr" id="selAddr">–</span>
+  <span class="sel-addr" id="selAddr">…</span>
   <span class="sel-size" id="selSize"></span>
 </section>
 
-<main id="log" aria-live="polite"></main>
+<main id="log" aria-busy="false"></main>
+<p class="offscreen" id="status" role="status" aria-live="polite"></p>
 
 <footer>
-  <p class="note" id="note" role="alert"></p>
+  <p class="note" id="note" role="status"></p>
   <div class="actions" id="actions">
     <button class="chip" type="button" data-action="analyze" data-i18n="analyze">Analyze</button>
     <button class="chip" type="button" data-action="formula" data-i18n="formula">Write a formula</button>
@@ -53,7 +54,7 @@
     <button class="chip" type="button" data-action="table" data-i18n="table">Make a table</button>
   </div>
   <form id="form">
-    <textarea id="input" rows="1" maxlength="2000" data-i18n-placeholder="placeholder" placeholder="Ask about the selection…" aria-label="Ask Eden"></textarea>
+    <textarea id="input" rows="1" maxlength="2000" data-i18n-placeholder="placeholder" data-i18n-aria="inputLabel" placeholder="Ask about the selection…" aria-label="Ask Eden"></textarea>
     <button class="send" id="send" type="submit" aria-label="Ask" data-i18n-title="ask" title="Ask">&#x2191;</button>
   </form>
   <details class="cells" id="cells">

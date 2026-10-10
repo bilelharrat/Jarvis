@@ -1,4 +1,5 @@
 {
+  "allowErrorForDataTypeAny": true,
   "functions": [
     {
       "id": "ASK",
@@ -6,8 +7,8 @@
       "description": "Ask Eden a question, optionally about a range of cells. Uses your Eden account's included AI; answers are saved, so recalculating doesn't ask again.",
       "helpUrl": "https://askeden.com/help",
       "result": {
-        "type": "string",
-        "dimensionality": "scalar"
+        "type": "any",
+        "dimensionality": "matrix"
       },
       "parameters": [
         {
@@ -18,12 +19,15 @@
         },
         {
           "name": "range",
-          "description": "Optional: the cells Eden should look at (at most 5,000).",
+          "description": "Optional: the cells Eden should look at (at most 5,000 with data; whole columns are fine).",
           "type": "any",
           "dimensionality": "matrix",
           "optional": true
         }
-      ]
+      ],
+      "options": {
+        "requiresParameterAddresses": true
+      }
     }
   ]
 }

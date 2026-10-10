@@ -15,24 +15,42 @@ the manifest, the pane and the API are all on askeden.com.
 - `lib.js`: the pure helpers (sets `globalThis.EdenExcel`): PKCE, request bodies within the server's limits,
   reading answers (one formula, one line per row, same-shape TSV), what may be written back, the cell cache,
   light Markdown as blocks, English and French words. Tested by `site/test/excel-addin.test.js`.
-- **Connect**: the pane opens `/eden/connect?client_id=excel&…` (PKCE S256 + state) in an Office dialog. The
-  person signs in to Eden if needed and presses Connect; the dialog lands on `connected.html`, which hands its
-  address to the pane with `messageParent`. The pane checks the state, redeems the code at
-  `POST /api/eden/token` (same origin) and keeps the scoped `ask` token in localStorage. Disconnect calls
-  `POST /api/eden/disconnect` and forgets it.
+- **Connect**: the pane opens `connect.html?state=…&code_challenge=…` in an Office dialog. That page loads
+  Office.js first (so the dialog keeps its link to Excel) and goes on to `/eden/connect?client_id=excel&…`
+  (PKCE S256 + state). The person signs in to Eden if needed and presses Connect; the dialog lands on
+  `connected.html`, which hands the code back two ways: `POST /api/eden/relay {state, code}` (askeden.com keeps
+  it 2 minutes) and Office's `messageParent`. While the dialog is open the pane polls
+  `POST /api/eden/relay/take {state}` about every 1.5 s; whichever arrives first wins (Excel on the web can cut
+  the dialog off from the pane, so the relay is its way back). The pane checks the state, redeems the code at
+  `POST /api/eden/token` (same origin) with its verifier and keeps the scoped `ask` token in localStorage. A
+  401 forgets only the token it was for (a newer one stays); another pane's Connect or Disconnect is followed.
+  Disconnect calls `POST /api/eden/disconnect` and forgets the token and the saved cell answers.
 - **The pane** (`taskpane.html/.js/.css`): shows the selection's address; Ask (the input), Analyze, Write a
   formula, Explain formula, Fill column, Clean, Make a table; answers stream in from `POST /api/eden/sheet`, with
-  follow-ups. Nothing is read or sent until a button is pressed, and then only what the action needs (values;
-  formulas for Explain and Clean), within 5,000 cells / 60,000 characters / 1,000 rows for Fill and Clean.
-  Changes to the sheet are always shown first: **Insert** puts a formula in the active cell, **Fill** writes
-  one line per row into the column to the right (refused when the line count doesn't match), **Replace with
-  cleaned data** writes only changed cells and never cells holding formulas (refused when the shape doesn't
-  match or the cells changed meanwhile), **Insert table** writes at the active cell. Writing over filled cells
-  needs a second press. Text Eden writes never becomes a formula (`=`, `+`, `-`, `@` get a leading apostrophe).
-- **`=EDEN.ASK`**: returns Eden's short answer as text. Answers are cached by (prompt + the range's values) in
-  memory and localStorage (500 entries, 30 days), so recalculating doesn't ask again. At most 4 run at once and
-  100 per session (the pane's "=EDEN.ASK in cells" section allows more and forgets saved answers). Not connected,
-  out of included AI or too many cells: a `#N/A` with the reason on hover.
+  follow-ups. One ask at a time (a second press or Enter does nothing; ■ stops). Nothing is read or sent until a
+  button is pressed, and then only what the action needs: the selected cells (values; formulas for Clean and
+  Explain); for Write a formula / Explain on one cell, the active cell plus the sheet's header row and first 5
+  rows. Hidden or filtered rows are included, and the pane says so before sending (press again to send).
+  Limits: 5,000 cells / 60,000 characters (history included) / 1,000 rows for Fill and Clean; a cell over 2,000
+  characters is refused for Fill and Clean, never cut. Fill and Clean bigger than one answer go in parts
+  (Fill ≤ 200 rows, Clean ≤ the server's `cleanTokens` 8,000), at most 2 at once, with progress; nothing is
+  written unless every part came back right. Clean sends line breaks and tabs inside a cell escaped (`\n`, `\t`,
+  `\\`) so a cell stays one field, and turns them back. Changes to the sheet are always shown first: **Insert**
+  puts a formula in the active cell (a formula that reaches outside the workbook — WEBSERVICE, IMAGE, HYPERLINK,
+  DDE, external links… — is flagged and its button says "Insert anyway"), **Fill** writes one line per row into
+  the column to the right (refused when the count doesn't match or the rows changed), **Replace with cleaned
+  data** writes only changed cells and never formulas (refused when the shape doesn't match or the cells
+  changed), **Insert table** writes at the active cell. Writing over filled cells needs a second press; a
+  protected sheet is refused before anything is written. Text Excel would turn into something else (`007`,
+  `1/2`, `5%`, `TRUE`, `#N/A`, `=…`) gets the Text number format (`@`) first, so it stays as written; plain
+  numbers go in as numbers; Clean keeps each cell's kind.
+- **`=EDEN.ASK`**: returns Eden's short answer (a plain number as a number) in one cell (a 1×1 result, because
+  `requiresParameterAddresses` needs a matrix). Whole-column ranges are trimmed to their data; dates go as
+  shown (the range is read through its address), errors in the range as their code
+  (`allowErrorForDataTypeAny`). Answers are cached by (prompt + the range's values) in memory and localStorage
+  (500 entries, 30 days); a blank or cut answer is never kept. At most 2 run at once (the server's limit per
+  account), "busy" waits its Retry-After, a try ends after 90 s, and 100 answers per session (failures don't
+  count; the pane's "=EDEN.ASK in cells" section allows more, which works the paused cells out again).
 
 ## Trying it (sideloading)
 

