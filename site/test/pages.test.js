@@ -135,7 +135,7 @@ test('the front page has seven short films (six features and the accuracy chart)
   videos.forEach((v) => {
     const n = /src="\/jarvis\/walk-(\d)\.mp4"/.exec(v)[1];
     assert.match(v, new RegExp(`poster="/jarvis/walk-${n}\\.jpg"`));
-    for (const attr of ['controls', 'muted', 'loop', 'playsinline']) assert.match(v, new RegExp(` ${attr}[ >]`), `${i + 1} ${attr}`); // controls show without the script; muted, or no browser starts it
+    for (const attr of ['controls', 'muted', 'loop', 'playsinline']) assert.match(v, new RegExp(` ${attr}[ >]`), `${n} ${attr}`); // controls show without the script; muted, or no browser starts it
     assert.match(v, /preload="none"/);           // nothing downloads until the film is near
     assert.doesNotMatch(v, / autoplay/);          // the script starts it when it is on screen
     assert.match(v, /aria-label="[^"]{20,}"/);
