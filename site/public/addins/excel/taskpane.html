@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>Ask Eden</title>
+<link rel="icon" type="image/png" href="icon-32.png">
+<link rel="stylesheet" href="taskpane.css">
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<script src="lib.js"></script>
+<script src="functions.js"></script>
+<script src="taskpane.js" defer></script>
+</head>
+<body>
+<header>
+  <img src="icon-32.png" width="20" height="20" alt="">
+  <strong class="grow">Ask Eden</strong>
+  <button class="icon" id="clear" type="button" data-i18n-title="clear" title="New chat" hidden>&#x21BA;</button>
+  <details class="menu" id="menu" hidden>
+    <summary class="icon" aria-label="More">&#x22EF;</summary>
+    <div class="menu-list">
+      <a href="https://askeden.com/account" target="_blank" rel="noopener" data-i18n="plan">See your plan</a>
+      <a href="https://askeden.com/help" target="_blank" rel="noopener" data-i18n="help">Help</a>
+      <button type="button" id="disconnect" data-i18n="disconnect">Disconnect</button>
+    </div>
+  </details>
+</header>
+
+<section class="connect" id="connect" hidden>
+  <h1 data-i18n="connectTitle">Connect your Eden account</h1>
+  <p data-i18n="connectLead">Ask Eden answers questions about the cells you select, writes and explains formulas, and fills or cleans data, on your Eden account’s included AI.</p>
+  <button class="btn" id="connectBtn" type="button" data-i18n="connect">Connect</button>
+</section>
+
+<section class="sel" id="selBar" aria-live="polite">
+  <span class="sel-label" data-i18n="selection">Selection</span>
+  <span class="sel-addr" id="selAddr">–</span>
+  <span class="sel-size" id="selSize"></span>
+</section>
+
+<main id="log" aria-live="polite"></main>
+
+<footer>
+  <p class="note" id="note" role="alert"></p>
+  <div class="actions" id="actions">
+    <button class="chip" type="button" data-action="analyze" data-i18n="analyze">Analyze</button>
+    <button class="chip" type="button" data-action="formula" data-i18n="formula">Write a formula</button>
+    <button class="chip" type="button" data-action="explain" data-i18n="explain">Explain formula</button>
+    <button class="chip" type="button" data-action="fill" data-i18n="fill">Fill column</button>
+    <button class="chip" type="button" data-action="clean" data-i18n="clean">Clean</button>
+    <button class="chip" type="button" data-action="table" data-i18n="table">Make a table</button>
+  </div>
+  <form id="form">
+    <textarea id="input" rows="1" maxlength="2000" data-i18n-placeholder="placeholder" placeholder="Ask about the selection…" aria-label="Ask Eden"></textarea>
+    <button class="send" id="send" type="submit" aria-label="Ask" data-i18n-title="ask" title="Ask">&#x2191;</button>
+  </form>
+  <details class="cells" id="cells">
+    <summary data-i18n="cellsTitle">=EDEN.ASK in cells</summary>
+    <p data-i18n="cellsHelp">Type =EDEN.ASK("your question", A2:C10) in any cell.</p>
+    <p><span id="cellsCount"></span> <span id="cellsSaved"></span></p>
+    <p class="cells-tools"><button class="link" type="button" id="cellsMore"></button> <button class="link" type="button" id="cellsClear" data-i18n="cellsClear">Forget saved answers</button></p>
+  </details>
+  <p class="fine" data-i18n="privacy">Nothing is sent until you press a button or use =EDEN.ASK.</p>
+</footer>
+</body>
+</html>

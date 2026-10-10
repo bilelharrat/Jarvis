@@ -1,0 +1,29 @@
+{
+  "functions": [
+    {
+      "id": "ASK",
+      "name": "ASK",
+      "description": "Ask Eden a question, optionally about a range of cells. Uses your Eden account's included AI; answers are saved, so recalculating doesn't ask again.",
+      "helpUrl": "https://askeden.com/help",
+      "result": {
+        "type": "string",
+        "dimensionality": "scalar"
+      },
+      "parameters": [
+        {
+          "name": "prompt",
+          "description": "What to ask, for example \"Which product sold most?\" or \"Translate to French\".",
+          "type": "string",
+          "dimensionality": "scalar"
+        },
+        {
+          "name": "range",
+          "description": "Optional: the cells Eden should look at (at most 5,000).",
+          "type": "any",
+          "dimensionality": "matrix",
+          "optional": true
+        }
+      ]
+    }
+  ]
+}

@@ -127,7 +127,7 @@ export function connectRequest(env, params) {
   const challenge = String(get('code_challenge'));
   if (!CLIENTS[client]) return { error: 'This link names an app Eden doesn’t know.' };
   if (!redirect) return { error: 'This link would send your connection somewhere other than the app.' };
-  if (!/^[A-Za-z0-9._~-]{8,1024}$/.test(state)) return { error: 'This link is missing its state.' };
+  if (!/^[A-Za-z0-9._~+/=-]{8,1024}$/.test(state)) return { error: 'This link is missing its state.' };
   if (!/^[A-Za-z0-9_-]{43}$/.test(challenge) || String(get('code_challenge_method')) !== 'S256') return { error: 'This link is missing its PKCE challenge.' };
   return { client, app: CLIENTS[client], redirect, state, challenge };
 }
