@@ -178,7 +178,7 @@ def edition_colors(hub: Any) -> str:
 def daredevil_page(html: str, colors: str = "yellow") -> str:
     """The page as J.A.R.V.I.S. Daredevil's window shows it: named for the edition, marked so accessibility.js
     turns screen-reader mode on, and in its colours from the first paint (not after the scripts have run)."""
-    html = re.sub(r"<title>[^<]*</title>", "<title>Eden Daredevil</title>", html, count=1)
+    html = re.sub(r"<title>[^<]*</title>", "<title>J.A.R.V.I.S. Daredevil</title>", html, count=1)
     if colors in HIGH_CONTRAST:
         html = html.replace('<html lang="en">', f'<html lang="en" data-contrast="{colors}">', 1)
     return re.sub(r"<body ", '<body data-edition="daredevil" ', html, count=1)

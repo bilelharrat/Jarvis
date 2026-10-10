@@ -170,7 +170,7 @@ async function main() {
   const name = { 'eden-code': 'Eden Code', jarvis: 'J.A.R.V.I.S.', daredevil: 'J.A.R.V.I.S. Daredevil' }[flavor];
   // The name people see (shortcuts, Apps & features, Task Manager, Narrator). `name` stays the one from before the
   // rename for what is found by it: the install folder, the program's file, the installer's file (askeden.com's worker).
-  const display = { 'eden-code': 'Eden Code', jarvis: 'Eden', daredevil: 'Eden Daredevil' }[flavor];
+  const display = { 'eden-code': 'Eden Code', jarvis: 'Eden', daredevil: 'J.A.R.V.I.S. Daredevil' }[flavor];
   const icons = { 'eden-code': 'build/eden-code', jarvis: 'build', daredevil: 'build/daredevil' }[flavor];
   const flavorFile = path.join(APP, 'flavor.json');
   fs.writeFileSync(flavorFile, JSON.stringify({ flavor }));

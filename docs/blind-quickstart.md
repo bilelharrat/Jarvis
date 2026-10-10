@@ -1,6 +1,6 @@
-# Eden Daredevil: Eden with a screen reader (Windows)
+# J.A.R.V.I.S. Daredevil: Eden with a screen reader (Windows)
 
-Eden Daredevil is Eden for people who are blind or have low vision: the same Eden, set up to work with your screen reader and from the keyboard alone. There is nothing extra to install. It switches itself on when a screen reader is running (or from Settings, then Accessibility), and the window then calls itself Eden Daredevil.
+J.A.R.V.I.S. Daredevil is Eden for people who are blind or have low vision: the same Eden, set up to work with your screen reader and from the keyboard alone. There is nothing extra to install. It switches itself on when a screen reader is running (or from Settings, then Accessibility), and the window then calls itself J.A.R.V.I.S. Daredevil.
 
 This is the short way in. It works with NVDA, JAWS and Narrator. Everything can be done with the keyboard.
 

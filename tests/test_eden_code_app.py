@@ -155,7 +155,7 @@ def test_windows_say_which_app_they_are(client):
 
 def test_daredevil_s_page_is_named_marked_and_in_its_colours_from_the_first_paint(client):
     page = client.get("/?edition=daredevil").text
-    assert "<title>Eden Daredevil</title>" in page
+    assert "<title>J.A.R.V.I.S. Daredevil</title>" in page
     assert '<html lang="en" data-contrast="yellow">' in page
     assert '<body data-edition="daredevil" data-state="idle"' in page
     plain = client.get("/").text
@@ -191,7 +191,7 @@ def test_edition_colors_are_a_known_pairing_or_nothing():
 def test_daredevil_page_marks_only_the_first_body():
     html = '<html lang="en"><title>Jarvis</title><body data-state="idle"><p>a <body x></p>'
     out = daredevil_page(html)
-    assert out.count('data-edition="daredevil"') == 1 and "<title>Eden Daredevil</title>" in out
+    assert out.count('data-edition="daredevil"') == 1 and "<title>J.A.R.V.I.S. Daredevil</title>" in out
     assert out.count("data-contrast") == 1
 
 

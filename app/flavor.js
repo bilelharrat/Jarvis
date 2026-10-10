@@ -40,8 +40,8 @@ const FLAVORS = {
   },
   daredevil: {
     id: 'daredevil',
-    name: 'Eden Daredevil',
-    title: 'Eden Daredevil',
+    name: 'J.A.R.V.I.S. Daredevil',
+    title: 'J.A.R.V.I.S. Daredevil',
     appName: 'J.A.R.V.I.S. Daredevil', // Electron's name for it, as before the rename (see jarvis.appName)
     logName: 'Jarvis', // J.A.R.V.I.S.'s logs and data folder: it is the same program
     appUserModelId: 'com.askeden.jarvis.win', // J.A.R.V.I.S.'s too: one app to Windows, so one replaces the other

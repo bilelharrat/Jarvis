@@ -31,7 +31,7 @@ test('each Windows address redirects to its installer, a file of a GitHub pre-re
   }
 });
 
-test('Eden Daredevil has an installer of its own, not the Eden app\'s', async () => {
+test('J.A.R.V.I.S. Daredevil has an installer of its own, not the Eden app\'s', async () => {
   const jarvis = (await get('/jarvis/windows')).headers.get('location');
   const dare = (await get('/daredevil/windows')).headers.get('location');
   assert.notEqual(dare, jarvis);
@@ -121,7 +121,7 @@ test('the apps page: Windows downloads beside the Mac ones; no J.A.R.V.I.S. Dare
   assert.match(html, /Windows 10 or 11/);
 });
 
-test('Eden Daredevil\'s page: a skip link, landmarks, the download, the guide, and nothing to hide', () => {
+test('J.A.R.V.I.S. Daredevil\'s page: a skip link, landmarks, the download, the guide, and nothing to hide', () => {
   const html = read('daredevil/index.html');
   assert.match(html, /<html lang="en">/);
   assert.match(html, /<a class="skip" href="#main">/);

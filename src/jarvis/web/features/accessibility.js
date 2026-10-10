@@ -121,7 +121,7 @@
 
   // J.A.R.V.I.S. Daredevil is the Windows edition. On a Mac the same mode is just screen-reader mode, and the
   // window keeps its own name.
-  const EDITION = IS_MAC ? 'Screen-reader mode' : 'Eden Daredevil';
+  const EDITION = IS_MAC ? 'Screen-reader mode' : 'J.A.R.V.I.S. Daredevil';
   const APP_NAME = IS_MAC ? 'Eden' : EDITION; // what the app is called in a sentence about opening it
   const lib = { plainForReader, keyWords, pcWords, approvalWords, CUES, EDITION };
   root.jarvisAccessibility = lib;
@@ -196,7 +196,7 @@
   let prefsSeen = false;
   let welcomed = false;
   // The top left says "Jarvis Daredevil"; the title bar and what is announced say J.A.R.V.I.S. Daredevil.
-  const WORDMARK = IS_MAC ? 'Eden' : 'Eden Daredevil';
+  const WORDMARK = IS_MAC ? 'Eden' : 'J.A.R.V.I.S. Daredevil';
   lib.homeName = () => (!inEdenCode() && daredevil() ? WORDMARK : 'Eden');
   function brand(on) {
     if (inEdenCode()) return;
@@ -768,7 +768,7 @@
     status.id = 'a11y-status';
     status.setAttribute('role', 'status');
     group.append(status);
-    group.append(stacked('Screen-reader mode', editionOn() ? 'In Eden Daredevil, Auto keeps it on. Off turns it off.' : 'Auto turns it on when a screen reader (NVDA, JAWS, Narrator, VoiceOver) is running.',
+    group.append(stacked('Screen-reader mode', editionOn() ? 'In J.A.R.V.I.S. Daredevil, Auto keeps it on. Off turns it off.' : 'Auto turns it on when a screen reader (NVDA, JAWS, Narrator, VoiceOver) is running.',
       segmented('Screen-reader mode', 'a11y_mode', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']])));
     group.append(stacked('Who reads Eden’s replies aloud', 'Auto: your screen reader, when one is running, and Eden’s own voice when none is. Your screen reader keeps your own voice and speed.',
       segmented('Who reads replies aloud', 'a11y_voice', [['auto', 'Auto'], ['reader', 'My screen reader'], ['jarvis', 'Eden’s voice']])));
