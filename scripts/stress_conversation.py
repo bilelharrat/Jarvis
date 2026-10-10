@@ -125,7 +125,7 @@ async def main() -> None:
     )
 
     # Hands-free: wake word, then a follow-up without it.
-    await hub.on_heard("Jarvis, what's 6 times 7?")
+    await hub.on_heard("Eden, what's 6 times 7?")
     await asyncio.sleep(0.1)
     while hub._lock.locked():
         await asyncio.sleep(0.1)

@@ -1,4 +1,4 @@
-# JARVIS
+# Eden
 
 A voice assistant for your Mac. Claude is the brain, MCP tools are the hands, and
 macOS speech is the voice. It's built on the Claude Agent SDK, so it uses your existing
@@ -7,11 +7,11 @@ Claude Code sign-in and needs no API key.
 ## The app
 
 ```sh
-cd app && npm install && npm start     # the Jarvis window
+cd app && npm install && npm start     # the Eden window
 npm run package                        # builds app/dist/Jarvis-darwin-arm64/Jarvis.app
 ```
 
-The window is the "Ambient Orb" design: tap the JARVIS-blue orb (or press ⌥ Space from
+The window is the "Ambient Orb" design: tap the Eden blue orb (or press ⌥ Space from
 anywhere) and talk. The orb breathes when idle, its rings follow your voice while it
 listens, it swirls while thinking and pulses while speaking. Approval cards appear top
 right, and the Activity drawer bottom left lists every tool call and any Claude Code
@@ -26,8 +26,8 @@ a ticked bezel with gold quarters; `web/stark-glass.css`). The look you choose i
 window opens in it.
 
 **Eden Code** (the coding app, formerly Jarvis Code) is an app of its own, built from the same
-folder (`app/flavor.js`) and shipped with Jarvis: the J.A.R.V.I.S. disk image carries both, and
-the dock's Eden Code button opens it (⌥-click keeps it in the Jarvis window). It can be
+folder (`app/flavor.js`) and shipped with Eden: the Eden disk image carries both, and
+the dock's Eden Code button opens it (⌥-click keeps it in the Eden window). It can be
 downloaded alone too, with every feature, in Ask Eden's look:
 
 ```sh
@@ -38,7 +38,7 @@ npm run dist:eden-code                      # the signed disk image of Eden Code
 
 Both apps share one backend (`app/backend-share.js`): whichever starts first runs it and the
 other opens on it, so sessions are the same in both. Eden Code started alone runs it with
-`JARVIS_PROFILE=code`, without the microphone, voice or screen watching, until a Jarvis window
+`JARVIS_PROFILE=code`, without the microphone, voice or screen watching, until an Eden window
 joins. Voice coding still works when you start it.
 
 Under the hood, Electron starts `uv run jarvis serve` on a random local port with a
@@ -64,7 +64,7 @@ A short map of what was added; each feature's own Settings group or pane explain
   and Compact now; thinking harder when asked; incognito; rewind to an earlier message,
   edit and resend, and branch off ("go back to before I asked about…", "try that
   differently"), the original kept; a searchable action log;
-  "undo that"; click-to-fix what Jarvis heard; your own personas with their own voice
+  "undo that"; click-to-fix what Eden heard; your own personas with their own voice
   and wake word.
 - **Voice:** echo cancellation so you can talk over it (off until you try it), a neural
   voice detector, Apple's on-device recognition, your own wake words, Voice and Speaking
@@ -81,17 +81,17 @@ A short map of what was added; each feature's own Settings group or pane explain
   invoicing with Stripe links, places and weather anywhere, markets and price alerts,
   music by name, the Mac's switches, files and the clipboard with undo, reading the Mac,
   defense status, more connectors, background tasks, pictures, widgets, skills, local
-  models, and JARVIS as an MCP server for other apps.
+  models, and Eden as an MCP server for other apps.
 - **Built-in browser:** per-site permissions, real sign-in and payment popups, certificate
   warnings, tabs that come back, import from other browsers, PDFs, private tabs, a
-  signed-out profile for JARVIS, split view and pop-out tabs; and page-aware requests, Ask
-  Jarvis and Translate in the page's menu, questions across tabs, reader mode, page
-  watchers, record and replay, a hand back at passwords and captchas (JARVIS never solves
+  signed-out profile for Eden, split view and pop-out tabs; and page-aware requests, Ask
+  Eden and Translate in the page's menu, questions across tabs, reader mode, page
+  watchers, record and replay, a hand back at passwords and captchas (Eden never solves
   them), watch mode on bank, email and health sites, and hidden page text filtered out.
 - **Reach:** Telegram, iMessage, WhatsApp, Signal (through an installed, linked
   signal-cli), Slack and Discord (owner only, approvals in chat; in groups only the owner's
   mentions, read-only tools by default; long requests show one progress message, edited);
-  the Jarvis number's texts and voicemail summaries; the menu bar, notifications
+  the Eden number's texts and voicemail summaries; the menu bar, notifications
   with actions and `jarvis://` links; the iPhone and Watch app (TLS pinned, QR pairing,
   push approvals, widgets, Live Activities, Siri, share sheet; see `companion/README.md`,
   which also covers TestFlight).
@@ -102,32 +102,32 @@ A short map of what was added; each feature's own Settings group or pane explain
 
 ## What's new in the app
 
-- **Hands-free (on by default):** say "Jarvis" anywhere in a sentence ("Jarvis, what's
-  next?", "What's the weather, Jarvis?"). Talk over it, or say "stop", to interrupt. The
+- **Hands-free (on by default):** say "Eden" anywhere in a sentence ("Eden, what's
+  next?", "What's the weather, Eden?"). Talk over it, or say "stop", to interrupt. The
   mic stays on locally; nothing leaves the Mac until you've said the wake word.
-- **Voice typing (with hands-free):** "Jarvis, start typing", and what you say is typed
+- **Voice typing (with hands-free):** "Eden, start typing", and what you say is typed
   where your cursor is, in any app, until "stop typing" (or click the Typing pill). "New
-  line", "new paragraph", "scratch that" and "press enter" edit as you go; "Jarvis, type on
+  line", "new paragraph", "scratch that" and "press enter" edit as you go; "Eden, type on
   my way" types one line. Nothing goes to Claude; with Voice ID on only your voice types; it turns
   itself off after five quiet minutes (`voicetype.py`; needs Accessibility).
 - **Voice:** Daniel through a subtle "AI in the house" effect, or any ElevenLabs / Fish
   Audio voice (set `JARVIS_TTS` and the key and voice ID in `.env`). Test it with
   `uv run jarvis say "Good evening."`
-- **Personality:** JARVIS, TARS or FRIDAY, a humor dial, and an optional form of address.
+- **Personality:** Eden, TARS or FRIDAY, a humor dial, and an optional form of address.
 - **Second brain:** Apple Notes, folders you add, the BSH desk and research reports, indexed
   locally. Answers cite them (chips under the reply), and a 3D knowledge galaxy flies to
   the note being used. Open it any time from "Second brain".
 - **Files and screen:** Spotlight search, reading documents and PDFs, screenshots, and
   mouse and keyboard control. With Settings › Control my Mac without asking on (the
-  default) JARVIS clicks, types, browses and runs Shortcuts unasked; with it off, one OK
+  default) Eden clicks, types, browses and runs Shortcuts unasked; with it off, one OK
   per request covers the mouse and keyboard. Either way a few presses are checked in code
   first (see [Safety](#safety)).
-- **Research:** "Jarvis, research…" runs in the background and files a Markdown report
+- **Research:** "Eden, research…" runs in the background and files a Markdown report
   in ~/Documents/Jarvis/Research, which also joins the second brain.
 - **Model switching:** "use Sonnet" or the model chip. Opus, Sonnet, Haiku and Fable.
 - **Morning briefing:** at a set time or with "Brief me": calendar, unread mail, BSH alerts
   and finished tasks.
-- **Heads-ups:** JARVIS speaks up on its own: time to leave (live Apple Maps traffic to
+- **Heads-ups:** Eden speaks up on its own: time to leave (live Apple Maps traffic to
   the next event's location), a meeting starting, low battery, rain within two hours,
   Eden Code done or waiting. Texts and email that matter interrupt at once (urgent
   words, a burst of messages, a VIP's); someone in Contacts, or someone you told it about
@@ -136,25 +136,25 @@ A short map of what was added; each feature's own Settings group or pane explain
 - **Suggestions:** gentle cards, never acted on without your tap: what you usually ask
   around now, a prep doc for tomorrow's meetings with other people in them, an email due
   soon.
-- **Memory:** "Jarvis, remember Ann is my co-founder." Facts ride along in every
+- **Memory:** "Eden, remember Ann is my co-founder." Facts ride along in every
   conversation; review and delete them in Settings › Memory. Passwords, keys and card
   numbers are refused.
 - **Routines:** "every weekday at 7, brief me", "tonight at 1, research…". Listed in
   Settings › Routines with pause, run now and delete.
-- **Meeting notes:** "Jarvis, take notes" transcribes the room on the Mac until "stop
+- **Meeting notes:** "Eden, take notes" transcribes the room on the Mac until "stop
   taking notes", then files a summary, decisions and action items in
   ~/Documents/Jarvis/Meetings and the second brain.
-- **In your calls:** "Jarvis, join my next meeting" opens its Zoom, Meet or Teams link
+- **In your calls:** "Eden, join my next meeting" opens its Zoom, Meet or Teams link
   (after a card) and starts notes. A side panel shows who said what, with decisions,
   action items and open questions every minute or so; "what did they just say about
   pricing?" is answered privately there. "Tell them…" or "answer that" speaks a short
   reply into the call through a virtual audio route you set up (BlackHole or Loopback,
-  Settings › Meetings); what JARVIS wrote itself shows first with 3 seconds to cancel.
+  Settings › Meetings); what Eden wrote itself shows first with 3 seconds to cancel.
   Afterwards: action items to Reminders or Calendar, and a follow-up draft. Tell the
   others notes are being taken.
 - **Home & Shortcuts:** your Shortcuts reach HomeKit. Mark one instant and saying its
-  name ("Jarvis, movie mode") runs it straight away.
-- **What's this? (⌥⇧ Space):** JARVIS looks at the screen you're on and explains it.
+  name ("Eden, movie mode") runs it straight away.
+- **What's this? (⌥⇧ Space):** Eden looks at the screen you're on and explains it.
 - **Hands:** the Hands pill turns on camera hand control for the whole app: point and
   pinch to press, pinch and drag to scroll, swipe to change the look, hold an open palm
   to talk, hold a fist to stop. In the galaxy the same hands spin, zoom and open stars.
@@ -171,7 +171,7 @@ A short map of what was added; each feature's own Settings group or pane explain
 macOS will ask once each for Microphone, Calendars, Location, Automation (Mail,
 Calendar, Notes, Music), Screen Recording (screenshots) and Accessibility (mouse and
 keyboard); texts and email in the second brain need Full Disk Access. Grant them to
-J.A.R.V.I.S. The app is signed with the BSH Ventures team certificate
+Eden. The app is signed with the BSH Ventures team certificate
 (`app/scripts/finish-app.sh`), so the grants survive rebuilds.
 
 ## Terminal mode
@@ -207,8 +207,8 @@ leave.
 | Windows | snap an app left / right / full screen | no |
 | Eden Code | start a coding session (Claude Code) in a project folder | **yes** (voice coding goes ahead when you asked for it and named the project yourself), then each session asks as its mode says: Manual asks before every edit, command and browser action; Accept edits allows edits inside the project and pages on this Mac (localhost); Auto lets Claude Code's own classifier decide; Bypass never asks |
 
-JARVIS's own conversation has Claude Code's coding tools (shell, file edits and so on)
-switched off; coding happens only in the separate Eden Code sessions above. JARVIS
+Eden's own conversation has Claude Code's coding tools (shell, file edits and so on)
+switched off; coding happens only in the separate Eden Code sessions above. Eden
 only loads its own MCP servers and ignores `~/.claude` settings. Email and web content
 are treated as data, never as instructions.
 
@@ -228,12 +228,12 @@ Some things are checked in code whatever the prompt says and however free the ha
 - **Purchases** happen only in the built-in browser, through one confirmation within your
   limits. With the mouse and keyboard anywhere else on the Mac, a button that buys, books
   or pays ("Buy", "Pay", "Place order", "Subscribe", "Transfer", a price like "$4.99",
-  立即支付…) is refused, and JARVIS points to the built-in browser. A button is found
+  立即支付…) is refused, and Eden points to the built-in browser. A button is found
   first and pressed only once its name is checked.
 - **Sending.** In a messaging or mail app (Messages, Mail, Slack, WhatsApp, Telegram,
   Discord, Outlook, WeChat and others, and their web versions, in the built-in browser
   too), pressing Send, Post, Publish, Delete or Submit, or Return in a chat's message box,
-  shows the same kind of card as a message JARVIS sends for you: where it goes, the text,
+  shows the same kind of card as a message Eden sends for you: where it goes, the text,
   and a yes. Unless you asked for exactly that in your own words this request; and even
   then, once the conversation has read your data or a page, unless you named the
   conversation in full.
@@ -248,7 +248,7 @@ Some things are checked in code whatever the prompt says and however free the ha
 
 ## First run
 
-- **Microphone:** macOS asks for microphone access for the app running JARVIS
+- **Microphone:** macOS asks for microphone access for the app running Eden
   (Terminal, iTerm, and so on).
 - **Automation:** the first Mail, Calendar, Notes or Music request asks you to let that
   app control it. If you declined earlier, change it in System Settings › Privacy &
@@ -281,5 +281,5 @@ uv run pytest && uv run ruff check . && node --test tests/web/
 ```
 
 The calendar is read through EventKit (every account, repeating events included); the
-AppleScript fallback, used until J.A.R.V.I.S. has calendar access, only reports a
+AppleScript fallback, used until Eden has calendar access, only reports a
 repeating event on the day of its first occurrence.

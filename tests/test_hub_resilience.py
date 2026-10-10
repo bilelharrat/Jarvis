@@ -852,7 +852,7 @@ async def test_a_barge_in_about_what_is_still_queued_is_not_taken_for_an_echo(se
     # the microphone hearing the sentence that is playing: an echo
     assert hub._echo("You have three meetings today")
     # the user, over it, about something JARVIS hasn't said yet: not an echo
-    assert not hub._echo("Jarvis, is the dentist appointment on Thursday?")
+    assert not hub._echo("Eden, is the dentist appointment on Thursday?")
     await hub.stop()
     turn.cancel()
 
@@ -890,7 +890,7 @@ async def test_an_early_copy_that_is_no_longer_current_is_not_transcribed(
     hub = make(settings, quiet_speaker, isolated, transcriber=ears)
     await hub.start()
     hub._listener = Listening(current=())
-    await hub._early_utterance(7, "Jarvis, what's the weather tomorrow?", time.monotonic())
+    await hub._early_utterance(7, "Eden, what's the weather tomorrow?", time.monotonic())
     assert ears.calls == 0
     hub._listener = None
 
@@ -909,8 +909,8 @@ async def test_a_stale_utterance_neither_asks_nor_stops(settings, quiet_speaker,
     hub._run_query = slow
     running = asyncio.create_task(hub.ask("read me the news"))
     await asyncio.sleep(0.05)
-    queue.put_nowait(("full", time.monotonic() - 60.0, "Jarvis, stop"))
-    queue.put_nowait(("full", time.monotonic() - 60.0, "Jarvis, what's the weather tomorrow?"))
+    queue.put_nowait(("full", time.monotonic() - 60.0, "Eden, stop"))
+    queue.put_nowait(("full", time.monotonic() - 60.0, "Eden, what's the weather tomorrow?"))
     await asyncio.sleep(0.2)
     assert not hub._stopping, "a 'stop' said a minute ago stopped today's answer"
     gate.set()

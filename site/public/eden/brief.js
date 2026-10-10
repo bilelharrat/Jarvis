@@ -227,7 +227,7 @@ function needsMac(err, retry) {
     el('div', 'mem-mac-ico', ico('lock', 22)),
     el('h3', '', hosted ? 'This needs your Mac' : 'The brief didn’t load'),
     el('p', '', err ? err.message : 'Eden on your Mac isn’t reachable.'),
-    el('p', 'mem-mac-why', 'The brief reads your calendar, mail and notes through Eden and the Jarvis app on your Mac. Open them there, then try again.'),
+    el('p', 'mem-mac-why', 'The brief reads your calendar, mail and notes through the Eden app on your Mac. Open them there, then try again.'),
     el('div', 'mem-mac-acts', el('button', { type: 'button', class: 'btn primary', onclick: retry }, 'Try again')));
 }
 
@@ -240,7 +240,7 @@ function macBanner(sources) {
   const mac = sources && sources.mac;
   if (!mac || mac.state === 'ok') return null;
   return el('div', 'sp-warn brf-warn', el('b', '', mac.state === 'off' ? 'Your Mac isn’t connected' : 'Your Mac didn’t answer fully'),
-    `${mac.reason || ''} Notes, memory, promises and the Mac’s calendar and mail come through the Jarvis app on your Mac.`);
+    `${mac.reason || ''} Notes, memory, promises and the Mac’s calendar and mail come through the Eden app on your Mac.`);
 }
 
 function section(title, count, kids, empty) {
@@ -349,7 +349,7 @@ function prepView() {
     summaryBox('prep'),
     section('Recent threads with them', p.threads.length, p.threads.map((m) => mailRow(m)), 'No recent email with them.'),
     p.promises.length ? section('Open promises to them', p.promises.length, p.promises.map(promiseRow), '') : null,
-    p.facts.length ? section('What Jarvis remembers', p.facts.length, p.facts.map(factRow), '') : null,
+    p.facts.length ? section('What Eden remembers', p.facts.length, p.facts.map(factRow), '') : null,
     section('Related notes', p.notes.length, p.notes.map((n) => noteRow(n, null)), 'Nothing related in your second brain.'),
     el('footer', 'brf-foot', sourcesLine(p.sources)),
   ].filter(Boolean);
@@ -462,7 +462,7 @@ function renderSettings() {
     el('div', 'brf-set-h', 'Brief and meeting prep'),
     sw(KEYS.auto, false, 'Open the brief each morning', 'The first time you open Eden each day.'),
     sw(KEYS.prep, true, 'Offer meeting prep', 'Ten minutes before a meeting with other people, while Eden is open.', (on) => { if (on) startPrepTimer(); }),
-    sw(KEYS.push, false, 'Also tell my iPhone', 'A heads-up through the Jarvis app on your Mac (it reaches your phone).', null, !prepOn()),
+    sw(KEYS.push, false, 'Also tell my iPhone', 'A heads-up through the Eden app on your Mac (it reaches your phone).', null, !prepOn()),
     el('p', 'brf-set-note', 'The brief only reads: it never sends email or changes your calendar.'));
   requestAnimationFrame(() => { const f = R.settings.querySelector('input'); if (f) f.focus(); });
 }

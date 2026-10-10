@@ -123,5 +123,5 @@ async def test_a_stop_over_a_reply_is_not_typed_into_the_composer(
     hub.stop = stop
     hub.state = "speaking"
     q = hub.subscribe()
-    await hub.on_heard("Jarvis, stop")
+    await hub.on_heard("Eden, stop")
     assert stopped and not any(e["type"] == "dictation" for e in drain(q))

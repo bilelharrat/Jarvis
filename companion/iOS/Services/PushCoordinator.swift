@@ -183,7 +183,7 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
     /// Sends the answer, with background time to do it in. When it can't reach the Mac, the
     /// notification comes back to try again.
     private nonisolated func answer(action: String, text: String?, userInfo: [AnyHashable: Any]) async {
-        let background = await BackgroundTime.begin("Answer Jarvis")
+        let background = await BackgroundTime.begin("Answer Eden")
         let api = PairingStore.load().flatMap { $0.isPinned ? $0.api : nil }
         let outcome = await NotificationActionHandler.handle(
             actionIdentifier: action, text: text, userInfo: userInfo, approve: NotificationActionHandler.approver(for: api)
@@ -277,7 +277,7 @@ extension EdenTaskActions {
         case .notFound(let words)?:
             return .failed(words ?? "That approval is gone.", retry: false)
         case .signedOut?:
-            return .failed("This iPhone isn’t signed in to your Jarvis account anymore. Open Eden’s Tasks to answer.", retry: false)
+            return .failed("This iPhone isn’t signed in to your Eden account anymore. Open Eden’s Tasks to answer.", retry: false)
         case .forbidden(let words)?:
             return .failed(words ?? "This iPhone can’t answer Eden’s approvals. Open Eden’s Tasks to answer.", retry: false)
         case let error?:

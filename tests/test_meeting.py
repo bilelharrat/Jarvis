@@ -119,7 +119,7 @@ async def test_hub_meeting_mode(settings, quiet_speaker, isolated, tmp_path):
     assert "Taking notes" in reply and hub.prefs.hands_free and hub.meeting is not None
     for line in ["We need the deck by Thursday.", "Ann will own the financials."] * 8:
         await hub._heard.put(line)
-    await hub._heard.put("Jarvis what time is it")  # addressed to JARVIS: not notes
+    await hub._heard.put("Eden what time is it")  # addressed to JARVIS: not notes
     # Heard in order: once the last is asked, every line before it is in the notes.
     assert await until(lambda: hub.client is not None and hub.client.said)
     assert len(hub.meeting.lines) == 16 and hub.meeting.words() > 25

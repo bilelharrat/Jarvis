@@ -36,14 +36,15 @@ from .words import NEEDS_OK, TEXT_ONLY, hint_for, say
 
 log = logging.getLogger("jarvis")
 
-TAG = "Jarvis:"  # every message JARVIS sends here starts with it
+TAG = "Eden:"  # every message JARVIS sends here starts with it
+OLD_TAGS = (TAG, "Jarvis:")  # its replies from before the rename are its own too
 LIMIT = 4000
 DETAIL = 600
 LINKED_EVERY = 5.0  # seconds a look at whether WhatsApp is linked is trusted
 STATE_EVERY = 2.0
 TEXT_ONLY_EVERY = 600.0
 _PREFIX = re.compile(
-    r"^\s*@?(?:(?:hey|ok|okay)[\s,，]+)?(?:jarvis|贾维斯)(?:(?![:：])[\s,，!！.。、]+|$)",
+    r"^\s*@?(?:(?:hey|ok|okay)[\s,，]+)?(?:eden|jarvis|伊甸|贾维斯)(?:(?![:：])[\s,，!！.。、]+|$)",
     re.IGNORECASE,
 )
 
@@ -123,7 +124,7 @@ class WhatsAppChat(Channel):
             "linked": self.ready(),
             "link_state": getattr(wa, "state", "off") if wa is not None else "off",
             "phone": phone_of(home),
-            "how": "Jarvis,",
+            "how": "Eden,",
         }
 
     # ── receiving ──
@@ -169,7 +170,7 @@ class WhatsAppChat(Channel):
                 self.router.save_soon()
             self.set_state("listening")
         elif wa.state == "elsewhere":
-            self.set_state("error", "WhatsApp is linked in another copy of Jarvis that's running.")
+            self.set_state("error", "WhatsApp is linked in another copy of Eden that's running.")
         elif not self.ready():
             self.set_state("needs_setup")
         else:
@@ -179,7 +180,7 @@ class WhatsAppChat(Channel):
         """A live message as the router takes it, or None when it isn't for JARVIS."""
         mid = str(m.get("id") or "")
         text = str(m.get("text") or "")
-        if not mid or m.get("jarvis") or mid in self.sent or text.startswith(TAG):
+        if not mid or m.get("jarvis") or mid in self.sent or text.startswith(OLD_TAGS):
             return None  # JARVIS's own
         chat = str(m.get("chat") or "")
         own = self.own()

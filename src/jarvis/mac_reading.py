@@ -224,7 +224,7 @@ async def run_helper(*argv: str) -> dict[str, Any]:
         raise Unreadable("The accessibility reader gave no answer.")
     if not found.get("trusted", True):
         raise Unreadable(
-            "Allow Accessibility for J.A.R.V.I.S. (System Settings > Privacy & Security > "
+            "Allow Accessibility for Eden (System Settings > Privacy & Security > "
             "Accessibility) so I can read other apps."
         )
     return found

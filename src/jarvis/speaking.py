@@ -42,9 +42,9 @@ log = logging.getLogger("jarvis")
 
 PROVIDERS = ("jarvis", "say", "elevenlabs", "fish", "local")
 CLOUD = ("elevenlabs", "fish")
-LOCAL_NAME = "JARVIS (on this Mac)"
+LOCAL_NAME = "Eden (on this Mac)"
 PROVIDER_NAMES = {
-    "jarvis": "JARVIS",
+    "jarvis": "Eden",
     "say": "Mac",
     "elevenlabs": "ElevenLabs",
     "fish": "Fish Audio",
@@ -591,16 +591,16 @@ class Speaking:
     async def _local_preview(self, text: str, voice: Any) -> tuple[Any, int]:
         store = local_voice.store_for(self.hub)
         if not store.ready():
-            self.error = "Download JARVIS’s offline voice first."
+            self.error = "Download Eden’s offline voice first."
             return None, 0
         picked = clean_local(voice) or self.local_voice()
         local = store.voice(picked, self.speed() / 100)
         if not local.speaks(text):  # the preview in Chinese: the Mac voice says it
-            self.error = "JARVIS’s offline voice speaks English; Chinese uses the Mac voice."
+            self.error = "Eden’s offline voice speaks English; Chinese uses the Mac voice."
             return None, 0
         parts = [audio async for kind, audio in local.pieces(text) if kind == "audio"]
         if not parts or local.engine.error:
-            self.error = "JARVIS’s offline voice couldn’t load. Download it again."
+            self.error = "Eden’s offline voice couldn’t load. Download it again."
             return None, 0
         return np.concatenate(parts), local_voice.LOCAL_RATE
 

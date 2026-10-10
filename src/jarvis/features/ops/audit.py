@@ -158,13 +158,13 @@ def control(hub: Any) -> dict[str, Any]:
         title,
         "notice",
         "On",
-        "Jarvis clicks, types, opens and quits apps and runs Shortcuts without asking. "
+        "Eden clicks, types, opens and quits apps and runs Shortcuts without asking. "
         "Paying still waits for your OK.",
         actions=[
             action(
                 "control_ask",
                 "Ask before controlling the Mac",
-                "Have Jarvis ask before it clicks, types or opens apps for you?",
+                "Have Eden ask before it clicks, types or opens apps for you?",
             )
         ],
     )
@@ -473,7 +473,7 @@ def extras(hub: Any) -> dict[str, Any] | None:
         title,
         "notice",
         f"{len(items)} switched on" if len(items) != 1 else "1 switched on",
-        "Messages from these reach Jarvis from outside this Mac.",
+        "Messages from these reach Eden from outside this Mac.",
         items=items,
     )
 
@@ -526,7 +526,7 @@ async def tighten(
         return f"Unpaired {len(gone)} phone(s)."
     if aid == "control_ask":
         hub.set_prefs({"control_always": False})
-        return "Jarvis asks before controlling the Mac."
+        return "Eden asks before controlling the Mac."
     if aid == "connector_ask":
         if item not in hub.connectors.connections:
             raise Refused
@@ -578,7 +578,7 @@ async def tighten(
         changed = await asyncio.to_thread(make_private, folder)
         if not changed:
             raise Refused
-        return "Jarvis's data is private to you."
+        return "Eden's data is private to you."
     if aid == "extra_off":
         if not (_EXTRA.search(item) and _SWITCH.search(item)) or p.feature(item) is not True:
             raise Refused

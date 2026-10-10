@@ -21,21 +21,21 @@ const DEFAULT_LABELS = {
   paused: 'Heads-ups paused',
   pausedUntil: '',
   resume: 'Resume heads-ups',
-  open: 'Open J.A.R.V.I.S.',
+  open: 'Open Eden',
   code: 'Eden Code',
   browser: 'Browser',
-  quit: 'Quit J.A.R.V.I.S.',
+  quit: 'Quit Eden',
   needsOk: 'Needs your OK',
   allow: 'Allow',
   notNow: 'Not now',
-  purchaseHint: 'Say “confirm purchase”, or confirm it in J.A.R.V.I.S.',
+  purchaseHint: 'Say “confirm purchase”, or confirm it in Eden',
   // the app's menu bar
-  about: 'About J.A.R.V.I.S.',
+  about: 'About Eden',
   settings: 'Settings…',
   history: 'History',
   bookmarks: 'Bookmarks',
   services: 'Services',
-  hide: 'Hide J.A.R.V.I.S.',
+  hide: 'Hide Eden',
   hideOthers: 'Hide Others',
   showAll: 'Show All',
   edit: 'Edit',
@@ -140,7 +140,7 @@ function appMenuTemplate(L, act, platform = process.platform) {
   if (platform !== 'darwin') return windowsMenuTemplate(L, act);
   return [
     {
-      label: 'J.A.R.V.I.S.',
+      label: 'Eden',
       submenu: [
         { role: 'about', label: L.about },
         sep,

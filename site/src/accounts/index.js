@@ -100,7 +100,7 @@ export async function api(request, env, ctx) {
   const path = url.pathname.replace(/^\/api/, '').replace(/\/+$/, '');
   const method = request.method;
   try {
-    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Jarvis accounts are not set up here yet.');
+    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden accounts are not set up here yet.');
     if (path.startsWith('/anthropic/')) return await anthropic(request, env, ctx, path.slice('/anthropic'.length));
     if (path.startsWith('/relay/')) return await relay(request, env, path.slice('/relay/'.length));
     if (path === '/account/apple' && method === 'POST') return json(await signIn(request, env));
@@ -166,7 +166,7 @@ export async function api(request, env, ctx) {
 // accounts/tasks.js): the same decision as Eden's Tasks panel, by the app's own device token. Apps
 // send no Origin; a page can't make this call (no cookie counts here, and an Origin is refused).
 async function taskApproval(request, env, id) {
-  if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the J.A.R.V.I.S. app answers from a notification.');
+  if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the Eden app answers from a notification.');
   const token = auth(request);
   await limited(env, 'API_RATE', token.account);
   const { decision } = await readJson(request, 4096);
@@ -382,7 +382,7 @@ async function linkByCode(request, env, rawCode, action, method) {
   if (!code) throw new ApiError(404, 'not_found', "That code isn't one we know. Check it on the Mac.");
   const { device } = await call(env, token.account, 'whoami', {}, token);
   // A browser approves nothing; a Mac approves a browser's sign-in (kind `web`), never a Mac.
-  if (device.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+  if (device.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the Eden app on your iPhone or Mac.');
   const link = (await callLink(env, code, 'peek')).body;
   const web = link.kind === 'web';
   if (!web && device.kind === 'mac') throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
@@ -415,7 +415,7 @@ async function linkByCode(request, env, rawCode, action, method) {
 // ── pushes ──
 
 async function push(request, env) {
-  if (!pushReady(env)) throw new ApiError(503, 'not_set_up', 'Notifications through Jarvis accounts are not set up yet.');
+  if (!pushReady(env)) throw new ApiError(503, 'not_set_up', 'Notifications through Eden accounts are not set up yet.');
   const token = auth(request);
   const accountId = token.account;
   const body = await readJson(request, 64 * 1024);
@@ -441,7 +441,7 @@ async function push(request, env) {
 async function subscription(request, env) {
   const body = await readJson(request, 64 * 1024);
   const transaction = await verifyAppleJws(body.signed_transaction, { root: env.APPLE_ROOT_FINGERPRINT || APPLE_ROOT_G3 });
-  if (transaction.bundleId !== BUNDLE_ID) throw new ApiError(400, 'bad_transaction', "That purchase isn't for Jarvis.");
+  if (transaction.bundleId !== BUNDLE_ID) throw new ApiError(400, 'bad_transaction', "That purchase isn't for Eden.");
   return callAs(env, request, 'subscription', { transaction });
 }
 
@@ -486,7 +486,7 @@ async function anthropic(request, env, ctx, path) {
     return anthropicError(404, 'not_found_error', 'Only messages are available here.');
   }
   const token = tokenFrom(request, { apiKey: true });
-  if (!token) return anthropicError(401, 'authentication_error', 'Sign in to your Jarvis account on this device.');
+  if (!token) return anthropicError(401, 'authentication_error', 'Sign in to your Eden account on this device.');
   let allow;
   try {
     await limited(env, 'API_RATE', token.account);

@@ -239,10 +239,10 @@ def _offline_strings():
         "The voice is 111 MB and stays on this Mac. It downloads once.",
         "Downloading… 42%",
         "The offline voice didn’t download: the voice model download didn't match its checksum",
-        "If ElevenLabs fails, JARVIS (on this Mac) speaks instead.",
-        "Speaking as JARVIS. If it can’t be reached, JARVIS (on this Mac) speaks.",
-        "The JARVIS voice wasn't available last time (its daily allowance may be used up);"
-        " JARVIS (on this Mac) spoke instead.",
+        "If ElevenLabs fails, Eden (on this Mac) speaks instead.",
+        "Speaking as Eden. If it can’t be reached, Eden (on this Mac) speaks.",
+        "The Eden voice wasn't available last time (its daily allowance may be used up);"
+        " Eden (on this Mac) spoke instead.",
         speaking.LOCAL_NAME,
     }
     return sorted((shown | names | sent | built) - {speaking.PREVIEW})

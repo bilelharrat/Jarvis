@@ -331,7 +331,7 @@ def called(raw: str, items: list[Agent], main_persona: str) -> str | None:
 
 
 _SWITCH = re.compile(
-    r"^(?:(?:ok(?:ay)?|hey|please|now|so|and|alright|jarvis)\b[\s,]*)*"
+    r"^(?:(?:ok(?:ay)?|hey|please|now|so|and|alright|eden|jarvis)\b[\s,]*)*"
     r"(?:(?:switch|change|swap)\s+(?:back\s+|over\s+)?to|go\s+back\s+to|talk\s+to|use)\s+"
     r"(?:the\s+|my\s+)?(?P<name>.+?)(?:\s+(?:agent|profile|mode))?\s*(?:,?\s*please)?[.!]*$",
     re.IGNORECASE,
@@ -339,8 +339,18 @@ _SWITCH = re.compile(
 _SWITCH_ZH = re.compile(
     r"^(?:请|麻烦)?(?:切换到|切换成|切到|换成|换到|转到|改用|回到)(?P<name>.+?)[。！!.]*$"
 )
-MAIN_WORDS = ("jarvis", "default", "the default", "everyday jarvis", "main", "normal jarvis")
-MAIN_WORDS_ZH = ("贾维斯", "默认", "普通模式", "日常")
+MAIN_WORDS = (
+    "eden",
+    "jarvis",
+    "default",
+    "the default",
+    "everyday eden",
+    "everyday jarvis",
+    "main",
+    "normal eden",
+    "normal jarvis",
+)
+MAIN_WORDS_ZH = ("伊甸", "贾维斯", "默认", "普通模式", "日常")
 
 
 def _keys(agent: Agent) -> set[str]:

@@ -59,7 +59,7 @@ LABELS = {
     "browser": "Built-in browser",
     "browser_ai": "Browser assistant",
     "computer": "Mouse and keyboard",
-    "jarvis": "Jarvis settings, weather and maps",
+    "jarvis": "Eden settings, weather and maps",
     "chats": "Chat apps",
     "phone": "Phone calls",
     "calls": "Calls",
@@ -92,10 +92,10 @@ TEXTS = {
 lang.add_texts(TEXTS)
 
 PROMPT = (
-    "\n\nYou are working as the owner's “{name}” (one of their agents; the everyday JARVIS "
+    "\n\nYou are working as the owner's “{name}” (one of their agents; the everyday Eden "
     "and any others have their own conversations). Only the tools given to {name} are here: "
     "when the owner asks for something they don't reach, say so in a sentence, and that "
-    "saying “switch to Jarvis” (or another agent's name) gives them the rest. What you "
+    "saying “switch to Eden” (or another agent's name) gives them the rest. What you "
     "remember here is {name}'s own memory and what's shared."
 )
 
@@ -149,9 +149,9 @@ class AgentDesk:
         agent = self.store().get(ident)
         if agent is None:
             return (
-                lang.translate("Jarvis", self.hub.language)
+                lang.translate("Eden", self.hub.language)
                 if lang.is_zh(self.hub.language)
-                else "Jarvis"
+                else "Eden"
             )
         if lang.is_zh(self.hub.language) and agent.zh_name:
             return agent.zh_name

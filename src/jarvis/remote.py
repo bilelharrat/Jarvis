@@ -428,7 +428,7 @@ class Gate:
 
     @staticmethod
     def busy() -> JSONResponse:
-        return JSONResponse({"error": "Jarvis is busy. Try again in a moment."}, status_code=429)
+        return JSONResponse({"error": "Eden is busy. Try again in a moment."}, status_code=429)
 
     @staticmethod
     async def _read_capped(request: Request, cap: int) -> bytes | None:
@@ -499,8 +499,8 @@ def create_remote_app(
     async def manifest(_request):
         return JSONResponse(
             {
-                "name": "J.A.R.V.I.S.",
-                "short_name": "JARVIS",
+                "name": "Eden",
+                "short_name": "Eden",
                 "start_url": "/",
                 "display": "standalone",
                 "background_color": "#060b16",
@@ -756,7 +756,7 @@ class Advertiser:
         if self._ref is not None:
             return True
         host = local_host_name() if host is None else host
-        name = f"J.A.R.V.I.S. on {host}" if host else "J.A.R.V.I.S."
+        name = f"Eden on {host}" if host else "Eden"
         txt = txt_record({**({"host": f"{host}.local"} if host else {}), **(extra or {})})
         try:
             if self._register is not None:
@@ -927,8 +927,8 @@ class Doorway:
         else:
             body = json.dumps(
                 {
-                    "error": "Jarvis on the Mac now needs a secure connection. Update the app, "
-                    "or turn on plain HTTP in Jarvis's Settings."
+                    "error": "Eden on the Mac now needs a secure connection. Update the app, "
+                    "or turn on plain HTTP in Eden's Settings."
                 }
             ).encode()
             reply = (

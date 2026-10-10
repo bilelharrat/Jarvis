@@ -64,9 +64,9 @@ struct ClaudeClient: Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .badKey: "Your Claude API key wasn’t accepted. Check it in Settings › Jarvis on iPhone."
-            case .noAllowance: "The AI included with your Jarvis account is used up for now. Upgrade to Jarvis Plus for more, or add your own Claude key in Settings › Jarvis on iPhone."
-            case .signedOut: "You’ve been signed out of your Jarvis account. Sign in again in Settings › Account."
+            case .badKey: "Your Claude API key wasn’t accepted. Check it in Settings › Eden on iPhone."
+            case .noAllowance: "The AI included with your Eden account is used up for now. Upgrade to Eden Plus for more, or add your own Claude key in Settings › Eden on iPhone."
+            case .signedOut: "You’ve been signed out of your Eden account. Sign in again in Settings › Account."
             case .rateLimited: "Claude is rate limiting this key right now. Try again in a minute."
             case .overloaded: "Claude is busy right now. Try again in a moment."
             case .server(let status, let message): message.isEmpty ? "Claude couldn’t answer (\(status))." : message

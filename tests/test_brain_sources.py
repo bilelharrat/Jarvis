@@ -81,7 +81,7 @@ def test_a_conversation_keeps_both_sides_words_and_nothing_else(tmp_path):
     [n] = notes
     assert n.source == "conversations" and n.id == "conversation:s1:1" and n.title == "Calendar"
     assert "You: What's on my calendar?" in n.text
-    assert "Jarvis: Just the dentist at three." in n.text and "You: Move it to Friday" in n.text
+    assert "Eden: Just the dentist at three." in n.text and "You: Move it to Friday" in n.text
     for hidden in ("Note from the app", "18°C", "Dentist at 3pm", "internal", "hmm", "task"):
         assert hidden not in n.text
     assert n.modified.startswith("2026-")

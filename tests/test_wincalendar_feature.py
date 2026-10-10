@@ -97,7 +97,7 @@ def made(tmp_path):
 async def test_the_pane_is_told_the_calendars_and_a_link_is_added_and_taken_away(made):
     f, hub = made.feature, made.hub
     await f.status({})
-    assert [c["title"] for c in hub.last("calendars")["calendars"]] == ["Jarvis"]
+    assert [c["title"] for c in hub.last("calendars")["calendars"]] == ["Eden"]
     await f.add_feed({"url": "https://cal.example/b.ics", "name": ""})
     said = hub.last("calendar_result")
     assert (
@@ -106,14 +106,14 @@ async def test_the_pane_is_told_the_calendars_and_a_link_is_added_and_taken_away
         and "1 event" in said["text"]
         and said["added"]
     )
-    assert [c["title"] for c in hub.last("calendars")["calendars"]] == ["Jarvis", "Brightspace"]
+    assert [c["title"] for c in hub.last("calendars")["calendars"]] == ["Eden", "Brightspace"]
     assert "cal.example" not in str(
         hub.events
     )  # (the link is a key: it never goes back to the window)
     feed_id = said["added"]
     await f.remove({"id": feed_id})
     assert hub.last("calendar_result")["removed"] is True
-    assert [c["title"] for c in hub.last("calendars")["calendars"]] == ["Jarvis"]
+    assert [c["title"] for c in hub.last("calendars")["calendars"]] == ["Eden"]
     await f.remove({"id": feed_id})
     assert hub.last("calendar_result")["ok"] is False
 

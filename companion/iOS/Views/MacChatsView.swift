@@ -25,7 +25,7 @@ struct MacChatsList: View {
             if let items {
                 if items.isEmpty {
                     ContentUnavailableView(query.isEmpty ? "No Conversations" : "No Matches", systemImage: "desktopcomputer",
-                                           description: Text(query.isEmpty ? "Conversations with Jarvis on your Mac show up here." : "No conversation on your Mac matches “\(query)”."))
+                                           description: Text(query.isEmpty ? "Conversations with Eden on your Mac show up here." : "No conversation on your Mac matches “\(query)”."))
                 } else {
                     Section(query.isEmpty ? "On Your Mac" : "Matches on Your Mac") {
                         ForEach(items) { chat in
@@ -183,7 +183,7 @@ struct MacChatView: View {
         guard let api = model.pairing?.api else { return }
         do {
             _ = try await api.request("api/chats/resume", body: try JSONValue.object(["session_id": .string(chat.id)]).encoded(), timeout: 20)
-            model.show("Your Mac asks to carry it on: answer the card in Jarvis.")
+            model.show("Your Mac asks to carry it on: answer the card in Eden.")
             await model.refresh()
         } catch {
             if let problem = model.handle(error) { model.show(problem.message, style: .problem) }

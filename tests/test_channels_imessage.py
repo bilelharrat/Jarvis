@@ -1,7 +1,7 @@
 """iMessage against a synthetic chat.db and a pretend Messages (nothing is sent, the real
 database is never read): only the chosen conversation's new rows, only the owner's own
 messages; a note to self where the owner's and JARVIS's messages share one handle never
-reads JARVIS's replies (or their echoes) back; a shared conversation needs "Jarvis," in
+reads JARVIS's replies (or their echoes) back; a shared conversation needs "Eden," in
 front; replies go through AppleScript with the text as an argument; cards are answered
 with yes or no; pictures and voice notes come along once they've downloaded."""
 
@@ -210,9 +210,9 @@ async def test_jarvis_own_apple_id_answers_only_the_owners_handles(world):
     db.say(ME, "typed at the Mac", from_me=1, own=JARVIS_ID)  # sent from Jarvis's own ID
     await adapter.poll_once()
     await settle(router)
-    assert messages.texts() == ["Jarvis: Two meetings tomorrow."]
+    assert messages.texts() == ["Eden: Two meetings tomorrow."]
     script, args = messages.sent[0]
-    assert "participant target" in script and args == (ME, "Jarvis: Two meetings tomorrow.")
+    assert "participant target" in script and args == (ME, "Eden: Two meetings tomorrow.")
     await adapter.poll_once()  # its own reply, now in the database: not read back
     await settle(router)
     assert hub.commands == 1 and len(messages.sent) == 1
@@ -226,8 +226,8 @@ async def test_in_a_group_only_the_owners_handles_count(world):
     assert router.state.imessage["prefix"] is True  # a group: others read it too
     await hub.start()
     adapter.run_script = Messages(db, "chat777")
-    db.say("chat777", "Jarvis, what's on tomorrow?", sender=BOB, own=JARVIS_ID)
-    db.say("chat777", "Jarvis, what's on tomorrow?", sender=ME, own=JARVIS_ID)
+    db.say("chat777", "Eden, what's on tomorrow?", sender=BOB, own=JARVIS_ID)
+    db.say("chat777", "Eden, what's on tomorrow?", sender=ME, own=JARVIS_ID)
     await adapter.poll_once()
     await settle(router)
     assert hub.commands == 1 and hub.client.said[-1] == "what's on tomorrow?"
@@ -248,7 +248,7 @@ async def test_a_note_to_self_never_reads_jarvis_back(world):
         await adapter.poll_once()
         await settle(router)
     assert hub.commands == 1
-    assert messages.texts() == ["Jarvis: Two meetings tomorrow."]
+    assert messages.texts() == ["Eden: Two meetings tomorrow."]
     assert len(adapter.own_rows) == 2  # the reply's row and its echo's, remembered
 
 
@@ -257,12 +257,12 @@ async def test_a_reply_whose_fingerprint_was_lost_is_still_known_by_its_tag(worl
     db.say(ME, "earlier", sender=ME, from_me=1)
     await set_up(router, adapter, db, ME, "mine")
     router.state.sent.clear()
-    row = db.say(ME, "Jarvis: an answer from before a restart", sender=ME, from_me=1)
+    row = db.say(ME, "Eden: an answer from before a restart", sender=ME, from_me=1)
     rows = im.read_rows(db.path, ME, row - 1)
     assert adapter.whose(rows[0]) == "own" and row in adapter.own_rows
-    echo = db.say(ME, "Jarvis: an answer from before a restart", sender=ME)  # its echo copy
+    echo = db.say(ME, "Eden: an answer from before a restart", sender=ME)  # its echo copy
     assert adapter.whose(im.read_rows(db.path, ME, echo - 1)[0]) == "own"
-    mine = db.say(ME, "Jarvis, and the weather?", sender=ME, from_me=1)  # the owner's
+    mine = db.say(ME, "Eden, and the weather?", sender=ME, from_me=1)  # the owner's
     assert adapter.whose(im.read_rows(db.path, ME, mine - 1)[0]) == "owner"
 
 
@@ -276,8 +276,8 @@ async def test_a_shared_conversation_needs_the_name_in_front(world):
     messages = Messages(db, "chat1234")
     adapter.run_script = messages
     db.say("chat1234", "what's for dinner?", from_me=1)  # the owner, to the family
-    db.say("chat1234", "Jarvis, what's on tomorrow?", sender=BOB)  # not the owner
-    db.say("chat1234", "Jarvis, what's on tomorrow?", from_me=1)
+    db.say("chat1234", "Eden, what's on tomorrow?", sender=BOB)  # not the owner
+    db.say("chat1234", "Eden, what's on tomorrow?", from_me=1)
     db.say("chat1234", "贾维斯，明天有什么安排？", from_me=1)
     await adapter.poll_once()
     await settle(router)
@@ -314,7 +314,7 @@ async def test_a_message_from_while_jarvis_was_off_is_not_acted_on(world):
     db.say(ME, "unlock the door", sender=ME, own=JARVIS_ID, at=time.time() - 3 * 3600)
     await adapter.poll_once()
     await settle(router)
-    assert hub.commands == 0 and messages.texts()[0].startswith("Jarvis: You sent this at ")
+    assert hub.commands == 0 and messages.texts()[0].startswith("Eden: You sent this at ")
 
 
 async def test_a_card_is_answered_with_yes_in_the_conversation(world, monkeypatch):
@@ -332,14 +332,14 @@ async def test_a_card_is_answered_with_yes_in_the_conversation(world, monkeypatc
             break
         await asyncio.sleep(0.01)
     text = messages.texts()[-1]
-    assert text.startswith("Jarvis: Needs your OK: Open the page?") and words.HINT in text
+    assert text.startswith("Eden: Needs your OK: Open the page?") and words.HINT in text
     await adapter.poll_once()  # the card itself, back from the database: never an answer
     assert not asked.done()
     db.say(ME, "Yes", sender=ME, own=JARVIS_ID)
     await adapter.poll_once()
     await settle(router)
     assert await asked == "allow"
-    assert messages.texts()[-1] == "Jarvis: You chose: Allow."
+    assert messages.texts()[-1] == "Eden: You chose: Allow."
 
 
 async def test_a_picture_waits_until_it_has_downloaded(world, tmp_path):
@@ -400,7 +400,7 @@ async def test_a_voice_message_is_transcribed_on_the_mac(world, tmp_path):
     db.say(ME, "", sender=ME, own=JARVIS_ID, files=[(clip, "audio/x-caf")], audio=1)
     await adapter.poll_once()
     await settle(router)
-    assert messages.texts()[0] == "Jarvis: Heard: “remind me to call Ann”"
+    assert messages.texts()[0] == "Eden: Heard: “remind me to call Ann”"
     assert hub.client.said[-1] == "remind me to call Ann"
 
 
@@ -413,7 +413,7 @@ async def test_a_one_to_one_send_falls_back_to_the_chat(world):
     adapter.run_script = messages
     await adapter.send_text(f"iMessage;-;{ME}", "hello")
     script, args = messages.sent[0]
-    assert "chat id chatId" in script and args == (f"iMessage;-;{ME}", "Jarvis: hello")
+    assert "chat id chatId" in script and args == (f"iMessage;-;{ME}", "Eden: hello")
 
 
 async def test_a_group_is_written_to_as_the_chat(world):
@@ -425,7 +425,7 @@ async def test_a_group_is_written_to_as_the_chat(world):
     adapter.run_script = messages
     await adapter.send_text("iMessage;+;chat777", "dinner's at 7")
     script, args = messages.sent[0]
-    assert "chat id chatId" in script and args == ("iMessage;+;chat777", "Jarvis: dinner's at 7")
+    assert "chat id chatId" in script and args == ("iMessage;+;chat777", "Eden: dinner's at 7")
 
 
 async def test_long_replies_are_cut_and_each_part_is_tagged(world):
@@ -436,8 +436,8 @@ async def test_long_replies_are_cut_and_each_part_is_tagged(world):
     adapter.run_script = messages
     await adapter.send_text("g", "**Plan**\n" + "Step after step. " * 400)
     texts = messages.texts()
-    assert len(texts) >= 3 and all(t.startswith("Jarvis: ") and len(t) <= im.LIMIT for t in texts)
-    assert "**" not in texts[0] and texts[0].startswith("Jarvis: Plan")
+    assert len(texts) >= 3 and all(t.startswith("Eden: ") and len(t) <= im.LIMIT for t in texts)
+    assert "**" not in texts[0] and texts[0].startswith("Eden: Plan")
 
 
 async def test_no_full_disk_access_is_said(world, monkeypatch):

@@ -22,7 +22,8 @@ const { waitForHealth, SLOW_WORDS } = require('./wait-backend'); // the engine's
 
 const FLAVOR = resolveFlavor();
 const EDEN_CODE = FLAVOR.id === 'eden-code';
-app.setName(FLAVOR.name);
+app.setName(FLAVOR.appName || FLAVOR.name); // (appName: the name before the rename, for the Keychain: flavor.js)
+if (process.platform === 'darwin') app.setAboutPanelOptions({ applicationName: FLAVOR.name });
 // Windows shows a toast (a timer, an alert, "needs your OK") only for an app whose ID matches the
 // Start menu shortcut the installer makes from its appId (scripts/release/windows.js).
 if (process.platform === 'win32') app.setAppUserModelId(FLAVOR.appUserModelId);
@@ -297,12 +298,12 @@ function restartBackend(code, signal) {
   const how = signal ? `was stopped (${signal})` : `stopped (exit ${code})`;
   if (restarts.length >= 3) {
     showProblem(taken
-      ? 'Another JARVIS backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Jarvis again.'
+      ? 'Another Eden backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Eden again.'
       : `The backend ${how} three times in five minutes. Details are in ${LOG_LABEL}.`, taken ? '' : backendTail.last());
     return;
   }
   restarts.push(now);
-  showProblem(taken ? 'Another JARVIS backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
+  showProblem(taken ? 'Another Eden backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
   setTimeout(async () => {
     if (quitting || backend) return;
     // The other app's backend has the data folder (both started at once): share it instead.
@@ -387,7 +388,7 @@ async function shareBackend() {
     sharedFrom = '';
     if (quitting) return;
     TOKEN = crypto.randomBytes(24).toString('hex');
-    showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'J.A.R.V.I.S.'} quit, so ${FLAVOR.name} is starting its own backend…`);
+    showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'Eden'} quit, so ${FLAVOR.name} is starting its own backend…`);
     startOwnBackend();
   });
   return true;

@@ -97,7 +97,7 @@ def spec(**more):
 
 def test_an_event_is_made_listed_found_and_taken_away(store):
     made = store.create(spec(location="Main St", alerts=[10]))["created"]
-    assert made["title"] == "Dentist" and made["calendar"] == "Jarvis" and made["writable"] is True
+    assert made["title"] == "Dentist" and made["calendar"] == "Eden" and made["writable"] is True
     assert made["begin"] == "2026-10-09T14:00" and made["end"] == "2026-10-09T15:00"
     assert made["alerts"] == [10] and made["repeats"] is False
     rows = store.events(0, 48)["events"]
@@ -105,10 +105,10 @@ def test_an_event_is_made_listed_found_and_taken_away(store):
     found = store.at("2026-10-09T14:00")["events"]
     assert [r["id"] for r in found] == [made["id"]] and found[0]["writable"] is True
     assert store.at("2026-10-09T14:30")["events"] == []  # only what starts at that minute
-    gone = store.remove("2026-10-09T14:00", made["id"], "Jarvis", False)
+    gone = store.remove("2026-10-09T14:00", made["id"], "Eden", False)
     assert gone["removed"]["title"] == "Dentist" and gone["span"] == "this"
     assert store.events(0, 48)["events"] == []
-    assert store.remove("2026-10-09T14:00", made["id"], "Jarvis", False) == {"error": wincal.GONE}
+    assert store.remove("2026-10-09T14:00", made["id"], "Eden", False) == {"error": wincal.GONE}
 
 
 def test_an_all_day_event_ends_the_day_it_is_on_as_a_mac_says_it(store):
@@ -132,7 +132,7 @@ def test_an_event_can_be_changed_and_a_changed_one_is_remembered_as_it_was(store
     edited = store.edit(
         "2026-10-09T14:00",
         made["id"],
-        "Jarvis",
+        "Eden",
         False,
         {
             "title": "Dentist (new office)",
@@ -147,17 +147,17 @@ def test_an_event_can_be_changed_and_a_changed_one_is_remembered_as_it_was(store
         "2026-10-09T17:15",
     )
     assert edited["edited"]["alerts"] == [15, 60] and edited["was"]["begin"] == "2026-10-09T14:00"
-    assert store.edit("2026-10-09T14:00", made["id"], "Jarvis", False, {"title": "x"}) == {
+    assert store.edit("2026-10-09T14:00", made["id"], "Eden", False, {"title": "x"}) == {
         "error": wincal.GONE
     }
-    assert store.edit("2026-10-09T16:30", made["id"], "Jarvis", False, {"duration_minutes": 0})[
+    assert store.edit("2026-10-09T16:30", made["id"], "Eden", False, {"duration_minutes": 0})[
         "error"
     ].startswith("Duration")
 
 
 def test_a_removed_event_comes_back_from_its_row(store):
     made = store.create(spec(location="Main St"))["created"]
-    store.remove("2026-10-09T14:00", made["id"], "Jarvis", False)
+    store.remove("2026-10-09T14:00", made["id"], "Eden", False)
     back = store.add(
         {k: made[k] for k in ("title", "begin", "end", "all_day", "location", "calendar")}
     )["added"]
@@ -184,13 +184,13 @@ def test_a_repeating_event_is_taken_away_one_time_or_from_one_time_on(store):
     assert made["repeats"] is True
     mondays = [r["begin"][:10] for r in store.events(0, 24 * 40)["events"]]
     assert mondays == ["2026-10-12", "2026-10-19", "2026-10-26", "2026-11-02"]
-    store.remove("2026-10-19T10:00", made["id"], "Jarvis", False)  # this one only
+    store.remove("2026-10-19T10:00", made["id"], "Eden", False)  # this one only
     assert [r["begin"][:10] for r in store.events(0, 24 * 40)["events"]] == [
         "2026-10-12",
         "2026-10-26",
         "2026-11-02",
     ]
-    cut = store.remove("2026-10-26T10:00", made["id"], "Jarvis", True)  # it and every later one
+    cut = store.remove("2026-10-26T10:00", made["id"], "Eden", True)  # it and every later one
     assert cut["span"] == "future"
     assert [r["begin"][:10] for r in store.events(0, 24 * 40)["events"]] == ["2026-10-12"]
 
@@ -202,7 +202,7 @@ def test_changing_one_time_of_a_repeating_event_leaves_the_rest_alone(store):
         )
     )["created"]
     edited = store.edit(
-        "2026-10-19T10:00", made["id"], "Jarvis", False, {"start": "2026-10-19T13:00"}
+        "2026-10-19T10:00", made["id"], "Eden", False, {"start": "2026-10-19T13:00"}
     )
     assert edited["span"] == "this" and edited["edited"]["repeats"] is False
     rows = [(r["begin"][:16], r["title"]) for r in store.events(0, 24 * 40)["events"]]
@@ -220,7 +220,7 @@ def test_changing_a_repeating_event_from_one_time_on_carries_the_rest_with_it(st
         )
     )["created"]
     edited = store.edit(
-        "2026-10-26T10:00", made["id"], "Jarvis", True, {"title": "Office hours (Zoom)"}
+        "2026-10-26T10:00", made["id"], "Eden", True, {"title": "Office hours (Zoom)"}
     )
     assert edited["span"] == "future" and edited["edited"]["repeats"] is True
     rows = [(r["begin"][:10], r["title"]) for r in store.events(0, 24 * 40)["events"]]
@@ -242,7 +242,7 @@ def test_the_default_calendar_takes_new_events_and_a_named_unknown_one_is_said(s
     assert store.create(spec(calendar="Nowhere")) == {
         "error": "There's no calendar called Nowhere."
     }
-    assert store.create(spec(calendar="jarvis"))["created"]["calendar"] == "Jarvis"
+    assert store.create(spec(calendar="eden"))["created"]["calendar"] == "Eden"
 
 
 # ── a calendar link ──
@@ -294,7 +294,7 @@ def test_what_a_link_gives_is_read_for_the_range_and_the_calendars_are_listed(st
         and seminar["writable"] is False
     )
     assert seminar["start"].startswith("2026-10-12T15:00:00") and seminar["alerts"] == [15]
-    assert [c["title"] for c in found["calendars"]] == ["Jarvis", "My courses"]
+    assert [c["title"] for c in found["calendars"]] == ["Eden", "My courses"]
     assert found["calendars"][1]["writable"] is False
     with pytest.raises(ValueError, match="local times"):
         store.between("2026-10-12T00:00+01:00", "2026-10-20T00:00")
@@ -389,9 +389,9 @@ def test_the_commands_answer_as_the_event_kit_helper_does(store):
         wincal.run(["range", "2026-10-09T00:00", "2026-10-10T00:00"], store)["events"][0][
             "calendar"
         ]
-        == "Jarvis"
+        == "Eden"
     )
-    assert "removed" in wincal.run(["remove", "2026-10-09T14:00", made["id"], "Jarvis", "0"], store)
+    assert "removed" in wincal.run(["remove", "2026-10-09T14:00", made["id"], "Eden", "0"], store)
     assert wincal.run(["frobnicate"], store) == {"error": "That isn't a calendar command."}
     assert "error" in wincal.run(["at", "tomorrow-ish"], store)
 
@@ -414,7 +414,7 @@ async def test_calendar_kit_asks_wincal_on_a_pc(tmp_path, monkeypatch):
     assert (await calendar_kit.fetch_between(day[:11] + "00:00", day[:11] + "23:00"))["events"][0][
         "title"
     ] == "Far off"
-    assert "removed" in await calendar_kit.remove_at(day, made["created"]["id"], "Jarvis", False)
+    assert "removed" in await calendar_kit.remove_at(day, made["created"]["id"], "Eden", False)
     assert (await calendar_kit.events_at(day))["events"] == []
 
 
@@ -478,7 +478,7 @@ def test_outlook_is_read_once_it_is_switched_on_and_stays_read_only(outlooked):
     store, outlook = outlooked
     assert store.outlook_state() == {"available": True, "on": False}
     said = store.set_outlook(True)
-    assert said.startswith("Jarvis reads Outlook's calendar now") and "read only" in said
+    assert said.startswith("Eden reads Outlook's calendar now") and "read only" in said
     assert store.outlook_state()["on"] is True
     (calendar,) = [c for c in store.calendars() if c["id"] == "outlook"]
     assert (
@@ -500,9 +500,7 @@ def test_outlook_is_read_once_it_is_switched_on_and_stays_read_only(outlooked):
     assert store.create(spec(calendar="Outlook")) == {
         "error": "The Outlook calendar can't be changed from here."
     }
-    assert (
-        store.create(spec())["created"]["calendar"] == "Jarvis"
-    )  # (new events go on Jarvis's own)
+    assert store.create(spec())["created"]["calendar"] == "Eden"  # (new events go on Eden's own)
 
 
 def test_outlook_is_asked_again_only_when_its_copy_is_old_and_never_started(outlooked, monkeypatch):

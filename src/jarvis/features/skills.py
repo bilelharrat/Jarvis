@@ -41,7 +41,7 @@ register_feature_pref("skills_offer", True)
 
 # "Make that a skill", "turn this into a skill", "save that as a skill", "把刚才的做成技能".
 _MAKE = re.compile(
-    r"^(?:(?:ok(?:ay)?|hey|please|jarvis)[\s,]+)*(?:please\s+)?"
+    r"^(?:(?:ok(?:ay)?|hey|please|eden|jarvis)[\s,]+)*(?:please\s+)?"
     r"(?:make|turn|save|keep|remember)\s+(?:that|this|it|what\s+you\s+(?:just\s+)?did)\s+"
     r"(?:as\s+|into\s+|in(?:to)?\s+)?(?:a\s+|an\s+)?(?:new\s+)?skill(?:\s+for\s+next\s+time)?"
     r"[\s,.!]*(?:please|thanks|thank\s+you)?[\s.!]*$",
@@ -85,7 +85,7 @@ ZH = {
     "Its SKILL.md can't be read ({error}).": "它的 SKILL.md 读不了（{error}）。",
     "Its SKILL.md is far too long.": "它的 SKILL.md 太长了。",
     "Its name isn't one a skill can have (lowercase letters, digits and hyphens).": "它的名字不符合技能的要求（小写字母、数字和连字符）。",
-    "It has no description, so Jarvis couldn't tell when to use it.": "它没有描述，所以不知道什么时候该用它。",
+    "It has no description, so Eden couldn't tell when to use it.": "它没有描述，所以不知道什么时候该用它。",
     "Another skill has the same name.": "另一个技能用了同样的名字。",
     "It's made for {systems}, not macOS.": "它是为 {systems} 做的，不是 macOS。",
     "It needs {programs}, which this Mac doesn't have.": "它需要 {programs}，这台 Mac 上没有。",
@@ -116,9 +116,9 @@ PROMPT_MAKE = (
 
 def git_card_detail(url: str) -> str:
     return (
-        f"Jarvis clones {url} (its newest version) and installs the skills it finds, each "
+        f"Eden clones {url} (its newest version) and installs the skills it finds, each "
         "switched off until you turn it on. Skills are their authors' words: read one before "
-        "you turn it on. A skill guides how Jarvis works but never lets it do more: every "
+        "you turn it on. A skill guides how Eden works but never lets it do more: every "
         "action still asks as usual."
     )
 
@@ -280,7 +280,7 @@ class SkillsDesk:
             return
         try:
             name = await asyncio.to_thread(
-                self.store.install_text, item["name"], item["text"], "drafted by Jarvis"
+                self.store.install_text, item["name"], item["text"], "drafted by Eden"
             )
             await asyncio.to_thread(self.store.set_enabled, name, True)
         except ValueError as exc:

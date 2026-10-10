@@ -73,7 +73,7 @@ final class AccountStore {
             guard let apple = authorization.credential as? ASAuthorizationAppleIDCredential,
                   let identity = apple.identityToken.flatMap({ String(data: $0, encoding: .utf8) }),
                   let nonce else {
-                problem = "Apple didn’t send what Jarvis needs to sign you in. Try again."
+                problem = "Apple didn’t send what Eden needs to sign you in. Try again."
                 return
             }
             let code = apple.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }

@@ -67,9 +67,9 @@ AUDIO_ASSET = "call-audio"
 AUDIO_KEPT = 3600  # a call fetches its audio when answered: recent calls' audio stays served
 TRUSTHUB = "https://trusthub.twilio.com/v1"
 CNAM_POLICY = "RNf3db3cd1fe25fcfd3c3ded065c8fea53"  # Twilio's policy for a CNAM trust product
-CNAM_FRIENDLY = "J.A.R.V.I.S. caller ID"
+CNAM_FRIENDLY = "Eden caller ID"
 CNAM_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9., ]{0,14}$")  # what US carriers take
-CALLER_NAME = "J.A.R.V.I.S."
+CALLER_NAME = "Eden"
 IN_REVIEW = ("pending-review", "in-review")
 CALLS_PER_HOUR = 3
 CALLS_PER_DAY = 10
@@ -181,7 +181,7 @@ def opening(owner: str) -> str:
     """How a call to someone else begins: who is calling, and that it's an AI."""
     owner = re.sub(r"\s+", " ", str(owner or "")).strip()
     whose = f"{owner}'s AI assistant" if owner else "an AI assistant"
-    return f"Hello, this is Jarvis, {whose}, with a message for you."
+    return f"Hello, this is Eden, {whose}, with a message for you."
 
 
 def outcome_text(call: dict[str, Any], name: str) -> str | None:
@@ -440,7 +440,7 @@ class CallAudio:
                     f"{SERVERLESS}/Services",
                     data={
                         "UniqueName": AUDIO_SERVICE,
-                        "FriendlyName": "J.A.R.V.I.S. call voice",
+                        "FriendlyName": "Eden call voice",
                         "IncludeCredentials": "false",
                         "UiEditable": "false",
                     },
@@ -767,7 +767,7 @@ class Phone:
         creds = self.keychain.get()
         if not (creds and p.phone_from and p.phone_me):
             raise PhoneError(NOT_SET_UP)
-        message = str(message).strip() or "This is Jarvis, calling as you asked."
+        message = str(message).strip() or "This is Eden, calling as you asked."
         self._allowed_now()
         sid, token = creds
         url = f"{API}/Accounts/{sid}/Calls.json"
@@ -966,11 +966,11 @@ def build_tools(
         "call_someone",
         "Phone someone from the user's Twilio number (not their iPhone) and give them a "
         "message in your voice, e.g. 'call Mom and tell her I'm running late'. The Twilio "
-        "number is your own number: what the user calls 'your number' or 'the Jarvis "
+        "number is your own number: what the user calls 'your number' or 'the Eden "
         "number' (e.g. 'call Sam from your number'). to: a contact "
         f"name or a phone number. message: what to tell them, at most {MESSAGE_LIMIT} "
         "characters, written to be spoken, on the user's behalf ('Sam asked me to let you "
-        "know…'). The call already opens with 'Hello, this is Jarvis, <the user>'s AI "
+        "know…'). The call already opens with 'Hello, this is Eden, <the user>'s AI "
         "assistant, with a message for you', so don't introduce yourself. It's a message, "
         "not a conversation: they can't answer you. If they don't pick up, it's left on "
         "their voicemail, and how the call went comes to you afterwards. When the user asks "
@@ -1051,7 +1051,7 @@ PROMPT = (
     "\n- Phone: call_me rings the user's own phone and reads them a message (a wake-up call "
     "with the morning brief happens on its own when they've set one up in Settings); "
     "call_someone phones someone else from the user's Twilio number (your own number: 'your "
-    "number' or 'the Jarvis number' to the user) and gives them a message in your voice (a "
+    "number' or 'the Eden number' to the user) and gives them a message in your voice (a "
     "message, not a conversation); ring_from_iphone rings someone from the "
     "user's iPhone only when the user wants to talk to them themselves. For 'call me at 7 "
     "with…', make a routine whose request is to call the user with it."

@@ -16,7 +16,7 @@
     "10% or more": "10% 或以上",
     "Big moves on my watchlist": "自选股大幅波动",
     "A heads-up when a stock on your watchlist moves this much in a day": "自选股一天内涨跌达到这个幅度时提醒你",
-    "Price alerts: say “Jarvis, tell me when Nvidia goes above 150.”": "价格提醒：说“贾维斯，英伟达涨到 150 以上时告诉我。”",
+    "Price alerts: say “Eden, tell me when Nvidia goes above 150.”": "价格提醒：说“Eden，英伟达涨到 150 以上时告诉我。”",
     "Went off today": "今天已提醒",
     "Waits for the price to come back first": "等价格先回到另一边",
     "Watching": "盯着中",
@@ -37,11 +37,11 @@
     "Turn Bluetooth off?": "要关闭蓝牙吗？",
     "Turn Focus off?": "要关闭专注模式吗？",
     "Home questions": "家居问题",
-    "Shortcuts that only look, like “Is the garage closed”: ask “Jarvis, is the garage closed?” and I run it without asking and tell you what it says.": "只查看状态的快捷指令，比如“车库门关了吗”：问“贾维斯，车库门关了吗？”，我会直接运行它，并告诉你它的回答。",
+    "Shortcuts that only look, like “Is the garage closed”: ask “Eden, is the garage closed?” and I run it without asking and tell you what it says.": "只查看状态的快捷指令，比如“车库门关了吗”：问“Eden，车库门关了吗？”，我会直接运行它，并告诉你它的回答。",
     "Add a question shortcut…": "添加一个问题快捷指令…",
     "No other shortcuts to add": "没有其他可添加的快捷指令",
     "Add a home question": "添加家居问题",
-    "Focus and Do Not Disturb: make shortcuts with the Set Focus action named like “Work Focus On” and “Focus Off”, then say “Jarvis, turn on work focus.”": "专注模式和勿扰模式：用“设定专注模式”操作做几个快捷指令，命名为“工作专注模式 开”“专注模式 关”之类，然后说“贾维斯，打开工作专注模式。”",
+    "Focus and Do Not Disturb: make shortcuts with the Set Focus action named like “Work Focus On” and “Focus Off”, then say “Eden, turn on work focus.”": "专注模式和勿扰模式：用“设定专注模式”操作做几个快捷指令，命名为“工作专注模式 开”“专注模式 关”之类，然后说“Eden，打开工作专注模式。”",
     "Moved files": "移动了文件",
     "Renamed a file": "重命名了文件",
     "Moved files to the Trash": "把文件移到了废纸篓",
@@ -67,7 +67,7 @@
     "Security heads-ups": "安全提醒",
     "When FileVault, the firewall, System Integrity Protection or Gatekeeper turns off": "FileVault、防火墙、系统完整性保护或 Gatekeeper 关闭时提醒你",
     "Recent activity": "最近的活动",
-    "Every call Jarvis makes in your connected accounts: the tool, when, and whether it read or changed something. What was sent and what came back is never kept.": "Jarvis 在你已连接账户里的每一次调用：用了哪个工具、什么时候、只是读取还是做了更改。发送和返回的内容从不保存。",
+    "Every call Eden makes in your connected accounts: the tool, when, and whether it read or changed something. What was sent and what came back is never kept.": "Eden 在你已连接账户里的每一次调用：用了哪个工具、什么时候、只是读取还是做了更改。发送和返回的内容从不保存。",
     "Change": "更改",
     "Declined": "已拒绝",
     "It can do more now: disconnect it and connect it again to allow it.": "它现在能做更多事：断开后重新连接即可允许。",
@@ -182,8 +182,8 @@
       "要把“$1”重命名为“$2”吗？"
     ],
     [
-      "^Slack's server takes a Slack app of your own: create one at api\\.slack\\.com/apps with redirect URL (\\S+) and the user scopes you want Jarvis to have, install it to your workspace, then paste its client ID and secret here\\.$",
-      "Slack 的服务器需要你自己的 Slack app：在 api.slack.com/apps 创建一个，重定向 URL 填 $1，并给它你希望 Jarvis 拥有的用户权限范围，安装到你的工作区，然后在这里粘贴它的客户端 ID 和密钥。"
+      "^Slack's server takes a Slack app of your own: create one at api\\.slack\\.com/apps with redirect URL (\\S+) and the user scopes you want Eden to have, install it to your workspace, then paste its client ID and secret here\\.$",
+      "Slack 的服务器需要你自己的 Slack app：在 api.slack.com/apps 创建一个，重定向 URL 填 $1，并给它你希望 Eden 拥有的用户权限范围，安装到你的工作区，然后在这里粘贴它的客户端 ID 和密钥。"
     ]
   ]
 }

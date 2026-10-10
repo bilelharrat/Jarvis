@@ -58,7 +58,7 @@ lang.add_texts(
         "Record a video proof": "录制视频证明",
         "Open a session to record its page.": "请先打开一个会话，再录制它的页面。",
         "No dev server is running: start one in the Preview pane.": "没有正在运行的开发服务器：请在预览面板中启动一个。",
-        "The video is recorded in the J.A.R.V.I.S. app window, and it isn't open.": "视频在 J.A.R.V.I.S. 应用窗口中录制，但它没有打开。",
+        "The video is recorded in the Eden app window, and it isn't open.": "视频在 Eden 应用窗口中录制，但它没有打开。",
         "The app window didn't answer in time.": "应用窗口没有及时响应。",
         "The video couldn't be kept.": "无法保存这段视频。",
         "Recording a video proof…": "正在录制视频证明…",
@@ -175,9 +175,7 @@ class VideoProof:
 
     async def ask_app(self, task: Any, url: str) -> dict[str, Any]:
         if not self.hub.browser_available:
-            return {
-                "error": "The video is recorded in the J.A.R.V.I.S. app window, and it isn't open."
-            }
+            return {"error": "The video is recorded in the Eden app window, and it isn't open."}
         call = uuid.uuid4().hex[:12]
         future = asyncio.get_running_loop().create_future()
         self._calls[call] = future

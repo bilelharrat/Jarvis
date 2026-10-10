@@ -1,4 +1,4 @@
-# Jarvis accounts
+# Eden accounts
 
 An optional account, at askeden.com, for what one person's own devices can't do alone:
 
@@ -247,7 +247,7 @@ pinned fingerprint: TLS runs end to end, iPhone to Mac.
 
 ### Eden web relay (askeden.com's Eden ↔ Eden on the Mac)
 
-Eden at askeden.com runs Claude by itself; Jarvis (notes, memory, calendar, mail), Code mode
+Eden at askeden.com runs Claude by itself; the Eden app (notes, memory, calendar, mail), Code mode
 and its projects live on the owner's Mac. The Mac holds one WebSocket to the account, and
 hosted Eden forwards those requests down it to Eden's own server on the Mac
 (`model-router-ui`, `http://127.0.0.1:5174`), streaming the answers back. The browser never
@@ -266,11 +266,11 @@ What goes through (both sides keep the same list; anything else never leaves the
 one with a query: `project`), `POST /api/chat/brief` (the morning brief and meeting prep: reads
 only; the Mac also checks its `kind`). Memory's tools (`memory_list`, `memory_update`,
 `memory_delete`, `memory_toggle`, `commitments`) ride `POST /api/chat/jarvis`; each change still
-waits for the owner's card in Jarvis. Meetings, browser tasks and undo (`meetings_list`,
+waits for the owner's card in the Eden app. Meetings, browser tasks and undo (`meetings_list`,
 `meeting_read`, `commitment_add`, `browser_task`, `browser_task_status`, `browser_task_stop`,
 `actions_list`, `action_undo`) ride it too, with `POST /api/chat/meetings/actions` (a meeting's
 action items), `GET /api/chat/actions` (the Activity timeline) and `POST /api/chat/actions/undo`
-(only Jarvis's own actions, ids `ea-…`; Eden's Google changes are undone on the Mac); a promise,
+(only the Eden app's own actions, ids `ea-…`; Eden's Google changes are undone on the Mac); a promise,
 a browser task and an undo each wait for the owner's card. "Use my Mac" (`files_search`,
 `file_read`, `file_summarize`, `screen_context`, `knowledge_add_folder`, `knowledge_list`,
 `knowledge_search`) rides it too, all read only (files: a card once per app; the screen: a card on
@@ -296,13 +296,13 @@ as ASCII) followed by up to 64 KiB of body.
 The Mac adds `X-Jarvis-Chat: 1` and sends no Origin, cookie or token to Eden's server. It
 checks, whatever the Worker did: the route (above); that `from` is a `web` device in this
 account's `GET /account` device list (asked again for a browser it doesn't know yet); a body
-of at most 10 MiB; Jarvis tools only from its list (a new tool isn't reachable from the web
+of at most 10 MiB; Eden app tools only from its list (a new tool isn't reachable from the web
 until it's added there); Code mode never in `bypassPermissions` from the web. Sends and
-calendar changes still need `confirm: true` and the owner's card in Jarvis.
+calendar changes still need `confirm: true` and the owner's card in the Eden app.
 
 Limits: 16 requests at once per account; 10 MiB a request, 64 MiB an answer; the Mac keeps
 at most 256 KiB of an answer unacknowledged (a slow browser slows the Mac, not the Worker);
-130 s for the Mac to answer (Jarvis may be waiting on its "Let Eden use Jarvis?" card), then
+130 s for the Mac to answer (the Eden app may be waiting on its card asking whether Eden may use it), then
 10 minutes between pieces of an answer. A Mac that ignores the window is cut off.
 
 Stop: the browser aborts its fetch; the Worker cancels the stream (with
@@ -392,7 +392,7 @@ checks, the owner's steps in the Stripe dashboard and the security notes are in 
   the account that isn't a grant's; `stripe-event` (after the webhook's signature) applies one
   event once (`stripe_seen`: 100 ids, 30 days) and in order (each event's `created`), and never
   to an account that doesn't exist. `stripe_pending` keeps the open Checkout's idempotency key.
-- The apps read the same `plan`; a Plus bought on the web shows as Plus in the J.A.R.V.I.S. apps
+- The apps read the same `plan`; a Plus bought on the web shows as Plus in the Eden apps
   too (its `product_id` is null; manage it on the web).
 
 ### Promo codes (free Plus)
@@ -420,7 +420,7 @@ Redeem: `POST /api/promo/redeem` `{ "code" }` (the apps, bearer token) or
 → `{ days, until }`. Errors: 400 `bad_code` (not a code's shape), 404 `bad_code` (no such code),
 409 `already_used` / `used_up`, 410 `code_expired`. The use is given back if the account can't take it.
 
-### JARVIS voice
+### Eden voice
 
 `POST /voice` as before (`X-Jarvis-Install`); with `Authorization: Bearer <token>` it
 counts against the account instead: `VOICE_DAILY_FREE` (20 000) characters a day, Plus
@@ -589,11 +589,11 @@ read or write the apps' items.
 **A separate Eden key, not the apps' sync key.** Interoperating was looked at and left out:
 Web Crypto has no ChaCha20-Poly1305 (the apps' item cipher), so a browser would need a JS
 cipher and could only hold that key in a form its own script can read. And the apps' key opens
-Jarvis memory, settings and phone chats, which Eden in a browser doesn't need: a stolen browser
+the Eden app's memory, settings and phone chats, which Eden in a browser doesn't need: a stolen browser
 (or a script injected into the page) would expose them all. So Eden has its own 32-byte key,
 used with AES-256-GCM (native, non-extractable in the browser), and a browser only ever holds
-that one. The J.A.R.V.I.S. apps join with the same protocol, as members of their own (below:
-"The J.A.R.V.I.S. apps").
+that one. The Eden apps join with the same protocol, as members of their own (below:
+"The Eden apps").
 
 Crypto (`eden-crypto.js`; all base64):
 
@@ -619,7 +619,7 @@ Getting the key into a browser:
    (Argon2 isn't in Web Crypto; the server refuses fewer than 310 000). The wrap is kept here, so
    askeden.com could try passphrases offline: that is why it must be strong.
 2. **Trust this browser**: a new browser posts its public key; a device that has the key (a
-   browser, or the J.A.R.V.I.S. app on the iPhone or Mac) sees the request with the six digits,
+   browser, or the Eden app on the iPhone or Mac) sees the request with the six digits,
    and approves only if the new browser shows the same; it seals the key to that public key
    (echoed back, so the server can't swap it after the check). The new browser opens it and
    proves it.
@@ -668,8 +668,8 @@ vouch for a key askeden.com adds then); and signing a browser out under Devices 
 key (remove it under Sync first). `untrust { device_id }` from another device still works (older
 pages) but doesn't change the key.
 
-**The J.A.R.V.I.S. apps** (iPhone: `companion/iOS/Account/EdenSync.swift`, Settings › Account ›
-Trust a Browser for Eden Sync; Mac: `src/jarvis/eden_trust.py`, Settings' Jarvis account,
+**The Eden apps** (iPhone: `companion/iOS/Account/EdenSync.swift`, Settings › Account ›
+Trust a Browser for Eden Sync; Mac: `src/jarvis/eden_trust.py`, Settings' Eden account,
 "Trust a browser for Eden sync"). An app is a member like a browser, over its bearer token at
 `/api/esync[/<op>]` (no server change): its own X25519 key pair, Eden's key reaching it the same
 two ways, then approving browsers. It never reads or writes Eden's conversations; it holds the
@@ -847,7 +847,7 @@ The professor's and TAs' own turns, OCR and figure descriptions stay on their ow
 ### Included AI without an Anthropic key
 
 Help's chat (`eden/help.js`), @Eden for Messenger (`eden/ask.js`), background tasks
-(`accounts/tasks.js`) and the J.A.R.V.I.S. apps' included AI (`POST /api/anthropic/v1/messages`,
+(`accounts/tasks.js`) and the Eden apps' included AI (`POST /api/anthropic/v1/messages`,
 `accounts/proxy.js`) ask Claude on `ANTHROPIC_API_KEY` when it's set. Without it they don't stop:
 `accounts/service-ai.js` answers the same Anthropic Messages request on the service's Gemini key
 (`gemini-3.8-flash`), else its OpenAI key (`gpt-6-luna`), either switched off by `EDEN_GEMINI` /

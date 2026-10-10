@@ -179,7 +179,7 @@ class Duplex:
         while speaker.player_path is None and time.monotonic() < deadline:
             await asyncio.sleep(0.25)
         if speaker.player_path is None:
-            self._set("unavailable", "Jarvis's voice player isn't ready")
+            self._set("unavailable", "Eden's voice player isn't ready")
             return
         loop = asyncio.get_running_loop()
         self._confirmed = loop.create_future()

@@ -462,7 +462,7 @@ async def test_someone_else_is_called_from_twilio_with_the_exact_message_after_a
     assert form["To"] == "+14155550123" and form["From"] == "+14155550100"
     assert form["MachineDetection"] == "DetectMessageEnd"  # waits out a voicemail greeting
     script = form["Twiml"]
-    opens = script.index("Hello, this is Jarvis, Robert's AI assistant, with a message for you.")
+    opens = script.index("Hello, this is Eden, Robert's AI assistant, with a message for you.")
     assert opens < script.index("running 20 minutes late")  # who's calling comes first
     assert phone.GOODBYE_OTHERS in script and phone.GOODBYE not in script
     assert followed == [("CA123", "Ann Lee")]
@@ -526,9 +526,9 @@ async def test_calls_to_others_have_their_own_cap():
 def test_the_call_opens_by_saying_its_an_ai():
     assert (
         phone.opening("Robert")
-        == "Hello, this is Jarvis, Robert's AI assistant, with a message for you."
+        == "Hello, this is Eden, Robert's AI assistant, with a message for you."
     )
-    assert phone.opening("  ") == "Hello, this is Jarvis, an AI assistant, with a message for you."
+    assert phone.opening("  ") == "Hello, this is Eden, an AI assistant, with a message for you."
 
 
 @pytest.mark.parametrize(
@@ -651,7 +651,7 @@ def test_the_caller_name_is_registered_with_twilio():
         (
             "/v1/TrustProducts",
             {
-                "FriendlyName": "J.A.R.V.I.S. caller ID +14155550100",
+                "FriendlyName": "Eden caller ID +14155550100",
                 "Email": "r@x.com",
                 "PolicySid": phone.CNAM_POLICY,
             },
@@ -787,7 +787,7 @@ async def test_the_hub_asks_with_call_buttons_and_says_how_the_call_went(
     await hub.start()
     assert "mcp__phone" in hub.client.options.allowed_tools
     assert "ring_from_iphone" in hub.client.options.system_prompt
-    assert "the Jarvis number" in hub.client.options.system_prompt  # what the user calls it
+    assert "the Eden number" in hub.client.options.system_prompt  # what the user calls it
     q = hub.subscribe()
     pending = asyncio.create_task(hub.call_gate("Call Ann Lee from your Twilio number?", "hi"))
     await asyncio.sleep(0)

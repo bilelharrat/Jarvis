@@ -26,7 +26,7 @@ struct PhoneProjectsView: View {
                     Label("New Project", systemImage: "folder.badge.plus")
                 }
             } footer: {
-                Text("A project keeps chats together, with instructions and files Jarvis uses in each of them.")
+                Text("A project keeps chats together, with instructions and files Eden uses in each of them.")
             }
             if !store.projects.isEmpty {
                 Section("Projects") {
@@ -110,7 +110,7 @@ struct PhoneProjectView: View {
                 } header: {
                     Text("Instructions")
                 } footer: {
-                    Text("How Jarvis should answer in this project, and what to keep in mind.")
+                    Text("How Eden should answer in this project, and what to keep in mind.")
                 }
                 Section("Files") {
                     ForEach(project.files) { file in

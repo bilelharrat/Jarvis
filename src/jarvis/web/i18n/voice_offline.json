@@ -1,6 +1,6 @@
 {
   "strings": {
-    "JARVIS (on this Mac)": "贾维斯（这台 Mac 上）",
+    "Eden (on this Mac)": "Eden（这台 Mac 上）",
     "A neural voice that runs on this Mac: no internet, no account. It speaks English; Chinese uses the Mac voice.": "在这台 Mac 上运行的神经网络声音：不需要联网，也不需要账号。它说英语；中文仍由 Mac 的声音朗读。",
     "Voice": "声音",
     "Download": "下载",
@@ -9,17 +9,17 @@
     "The offline voice isn’t set up in this build.": "这个版本还没有配置离线声音。",
     "Your persona’s own voice is speaking now.": "现在由你的角色自己的声音朗读。",
     "Until it’s downloaded, the Mac voice speaks.": "下载完成之前，由 Mac 的声音朗读。",
-    "Download JARVIS’s offline voice first.": "请先下载贾维斯的离线声音。",
-    "JARVIS’s offline voice speaks English; Chinese uses the Mac voice.": "贾维斯的离线声音只说英语；中文由 Mac 的声音朗读。",
-    "JARVIS’s offline voice couldn’t load. Download it again.": "贾维斯的离线声音无法加载。请重新下载。",
-    "JARVIS’s offline voice couldn’t run, so the Mac voice spoke instead.": "贾维斯的离线声音无法运行，所以改由 Mac 的声音朗读。",
-    "If ElevenLabs fails, JARVIS (on this Mac) speaks instead.": "如果 ElevenLabs 出错，就改由贾维斯（这台 Mac 上）朗读。",
-    "If Fish Audio fails, JARVIS (on this Mac) speaks instead.": "如果 Fish Audio 出错，就改由贾维斯（这台 Mac 上）朗读。",
+    "Download Eden’s offline voice first.": "请先下载 Eden 的离线声音。",
+    "Eden’s offline voice speaks English; Chinese uses the Mac voice.": "Eden 的离线声音只说英语；中文由 Mac 的声音朗读。",
+    "Eden’s offline voice couldn’t load. Download it again.": "Eden 的离线声音无法加载。请重新下载。",
+    "Eden’s offline voice couldn’t run, so the Mac voice spoke instead.": "Eden 的离线声音无法运行，所以改由 Mac 的声音朗读。",
+    "If ElevenLabs fails, Eden (on this Mac) speaks instead.": "如果 ElevenLabs 出错，就改由 Eden（这台 Mac 上）朗读。",
+    "If Fish Audio fails, Eden (on this Mac) speaks instead.": "如果 Fish Audio 出错，就改由 Eden（这台 Mac 上）朗读。",
     "George · British": "George · 英式",
     "Heart · American": "Heart · 美式",
     "Michael · American": "Michael · 美式",
-    "Speaking as JARVIS. If it can’t be reached, JARVIS (on this Mac) speaks.": "正在以 JARVIS 的声音说话。如果无法连接，就改由贾维斯（这台 Mac 上）朗读。",
-    "The JARVIS voice wasn't available last time (its daily allowance may be used up); JARVIS (on this Mac) spoke instead.": "上次 JARVIS 的声音不可用（可能已用完每日额度），改由贾维斯（这台 Mac 上）朗读。"
+    "Speaking as Eden. If it can’t be reached, Eden (on this Mac) speaks.": "正在以 Eden 的声音说话。如果无法连接，就改由 Eden（这台 Mac 上）朗读。",
+    "The Eden voice wasn't available last time (its daily allowance may be used up); Eden (on this Mac) spoke instead.": "上次 Eden 的声音不可用（可能已用完每日额度），改由 Eden（这台 Mac 上）朗读。"
   },
   "patterns": [
     [

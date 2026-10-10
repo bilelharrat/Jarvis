@@ -24,14 +24,14 @@ struct LibraryView: View {
             }
 
             Section {
-                link(.showJarvis, "Show Jarvis", symbol: "camera.fill", tint: .gray)
-                link(.phoneMemory, "What Jarvis Remembers", symbol: "brain.head.profile", tint: .pink)
-                link(.heyJarvis, "“Hey Jarvis” and the Action Button", symbol: "waveform", tint: .purple)
+                link(.showJarvis, "Show Eden", symbol: "camera.fill", tint: .gray)
+                link(.phoneMemory, "What Eden Remembers", symbol: "brain.head.profile", tint: .pink)
+                link(.heyJarvis, "“Hey Eden” and the Action Button", symbol: "waveform", tint: .purple)
             } header: {
                 Text("On This iPhone")
             } footer: {
                 if model.pairing == nil {
-                    Text("Pair your Mac in Settings to reach Eden Code, routines, your files, mail and everything else Jarvis does on your Mac.")
+                    Text("Pair your Mac in Settings to reach Eden Code, routines, your files, mail and everything else Eden does on your Mac.")
                 }
             }
 
@@ -136,7 +136,7 @@ struct PhoneMemoryView: View {
         GlassList {
             Section {
                 HStack {
-                    TextField("Something Jarvis should know", text: $adding)
+                    TextField("Something Eden should know", text: $adding)
                         .submitLabel(.done)
                         .onSubmit(add)
                     Button("Add", action: add)
@@ -148,7 +148,7 @@ struct PhoneMemoryView: View {
                     }
                 }
             } footer: {
-                Text("Jarvis on this iPhone also remembers on its own: what you tell it to, your preferences and goals, the people who matter to you, and every correction, so you never have to say it twice. Kept on this iPhone only.")
+                Text("Eden on this iPhone also remembers on its own: what you tell it to, your preferences and goals, the people who matter to you, and every correction, so you never have to say it twice. Kept on this iPhone only.")
             }
             ForEach(LocalMemory.Fact.Kind.allCases, id: \.self) { kind in
                 let shown = facts.filter { $0.category == kind }

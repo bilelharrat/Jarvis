@@ -87,7 +87,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     "gmail.com": {
         "name": "Gmail", "imap": ("imap.gmail.com", 993, "ssl"), "smtp": ("smtp.gmail.com", 465, "ssl"),
         "gmail": True, "saves_sent": True,
-        "help": "Gmail needs an app password, not your usual one. Turn on 2-Step Verification in your Google Account, then open myaccount.google.com/apppasswords and make one for Jarvis.",
+        "help": "Gmail needs an app password, not your usual one. Turn on 2-Step Verification in your Google Account, then open myaccount.google.com/apppasswords and make one for Eden.",
     },
     "icloud.com": {
         "name": "iCloud Mail", "imap": ("imap.mail.me.com", 993, "ssl"), "smtp": ("smtp.mail.me.com", 587, "starttls"),

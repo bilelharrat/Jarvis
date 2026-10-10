@@ -13,7 +13,7 @@
   F.on('code_lesson_ask', (ev) => {
     close();
     box = F.el('form', 'cl-ask');
-    const label = F.el('label', 'cl-label', t('Why undo it? Jarvis will remember for next time.'));
+    const label = F.el('label', 'cl-label', t('Why undo it? Eden will remember for next time.'));
     const input = F.el('input', 'cl-input');
     input.type = 'text';
     input.maxLength = 240;

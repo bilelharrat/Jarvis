@@ -42,13 +42,13 @@ struct JarvisSwitcherSection: View {
             } label: {
                 HStack(spacing: Space.s) {
                     IconTile(symbol: "plus", tint: .blue)
-                    Text("Pair Another Jarvis")
+                    Text("Pair Another Eden")
                 }
             }
         } header: {
-            Text("Your Jarvises")
+            Text("Your Edens")
         } footer: {
-            Text("Pair your Mac and your cloud Jarvis, and switch here: the cloud one keeps Eden Code working while your Mac is shut or off.")
+            Text("Pair your Mac and your cloud Eden, and switch here: the cloud one keeps Eden Code working while your Mac is shut or off.")
         }
     }
 }
@@ -71,7 +71,7 @@ struct JarvisSwitcherMenu: View {
                     .labelStyle(.titleAndIcon)
                     .font(.footnote.weight(.semibold))
             }
-            .accessibilityLabel("Jarvis in use: \(current.macLabel). Switch")
+            .accessibilityLabel("Eden in use: \(current.macLabel). Switch")
         }
     }
 }

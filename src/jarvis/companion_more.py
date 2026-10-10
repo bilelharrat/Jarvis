@@ -466,7 +466,7 @@ class More:
         if "error" in found:
             reason = found["error"]
             if reason == reminders_desk.NOT_ASKED:
-                reason = "Reminders hasn't been allowed on the Mac yet: ask Jarvis there once."
+                reason = "Reminders hasn't been allowed on the Mac yet: ask Eden there once."
             return JSONResponse(
                 {"items": [], "lists": [], "available": False, "reason": _line(reason, 300)}
             )

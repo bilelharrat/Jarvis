@@ -145,7 +145,7 @@ function paint() {
   } else if (!S.error) parts.push(el('div', 'muted', 'Loading your tasks…'));
   parts.push(el('p', 'sp-note', hosted()
     ? 'Tasks run in your askeden.com account, with your Mac off and this page closed. Each run uses a small model on your included AI, within the task’s budget. Eden writes drafts on its own; it sends email or changes your calendar only after you approve, here or from the notification on your iPhone.'
-    : 'Tasks run while Eden is running on this Mac. Each run uses Claude Haiku (your API key or Claude Code), within the task’s budget. Eden writes drafts on its own; it sends email or changes your calendar only after you approve here. Notes reach your iPhone through Jarvis.'));
+    : 'Tasks run while Eden is running on this Mac. Each run uses Claude Haiku (your API key or Claude Code), within the task’s budget. Eden writes drafts on its own; it sends email or changes your calendar only after you approve here. Notes reach your iPhone through Eden.'));
   body.replaceChildren(...parts);
   body.scrollTop = keepScroll;
 }

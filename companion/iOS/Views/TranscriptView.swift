@@ -56,7 +56,7 @@ struct TranscriptRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         .accessibilityActions {
-            if line.offersUpgrade { Button("Upgrade to Jarvis Plus") { onAction(.upgrade) } }
+            if line.offersUpgrade { Button("Upgrade to Eden Plus") { onAction(.upgrade) } }
         }
     }
 
@@ -121,7 +121,7 @@ struct TranscriptRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 OrbMark(size: 12)
-                HUDText("Jarvis", color: Palette.ring)
+                HUDText("Eden", color: Palette.ring)
                 if line.onPhone {
                     Image(systemName: "iphone")
                         .font(.caption2)
@@ -176,7 +176,7 @@ struct TranscriptRow: View {
                     .font(.callout)
                     .foregroundStyle(Palette.ink2)
                 if line.offersUpgrade {
-                    Button("Upgrade to Jarvis Plus") { onAction(.upgrade) }
+                    Button("Upgrade to Eden Plus") { onAction(.upgrade) }
                         .font(.callout.weight(.semibold))
                         .padding(.horizontal, Space.s)
                         .padding(.vertical, 6)
@@ -195,7 +195,7 @@ struct TranscriptRow: View {
             let pictures = line.pictures.isEmpty ? "" : "With \(line.pictures.count) picture\(line.pictures.count == 1 ? "" : "s"). "
             return line.waiting ? "Waiting for your Mac: \(line.text)" : "\(pictures)You said: \(line.text)"
         case .problem: return line.text
-        case .jarvis: return line.text.isEmpty ? (line.onHold ? "Jarvis is waiting for your OK." : "Jarvis is thinking.") : "Jarvis: \(line.text)"
+        case .jarvis: return line.text.isEmpty ? (line.onHold ? "Eden is waiting for your OK." : "Eden is thinking.") : "Eden: \(line.text)"
         }
     }
 

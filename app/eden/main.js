@@ -428,7 +428,7 @@ function buildTray() {
     { label: 'Open Ask Eden', click: () => showMain() },
     { type: 'separator' },
     ...(u.state === 'ready' ? [{ label: 'Restart to update', click: () => updater.restart() }] : []),
-    { label: engine ? `Mac engine: ${engine.shared ? 'shared with J.A.R.V.I.S.' : 'running'}` : 'Mac engine: starting…', enabled: false },
+    { label: engine ? `Mac engine: ${engine.shared ? 'shared with the Eden app' : 'running'}` : 'Mac engine: starting…', enabled: false },
     { type: 'separator' },
     { label: 'Quit Ask Eden', accelerator: 'CommandOrControl+Q', click: () => { quitting = true; app.quit(); } },
   ]));

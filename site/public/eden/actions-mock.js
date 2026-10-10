@@ -62,7 +62,7 @@ const ACTIONS = [
   { id: nid('g-'), at: local(at(0, 10, 42)), where: 'google', source: 'eden', app: 'Eden', tool: 'gmail_draft', kind: 'mail', label: 'Saved a Gmail draft: “Contract v2 — comments”', detail: 'To priya@example.org · not sent', undo: { possible: true, why: '' }, undone: '' },
   { id: nid('ea-'), at: local(at(0, 9, 5)), where: 'mac', source: 'eden', app: 'Eden', tool: 'mail_send', kind: 'mail', label: 'Sent “Q4 numbers” to alex@example.com', detail: 'Mail on your Mac', undo: { possible: false, why: 'A sent email can’t be unsent.' }, undone: '' },
   { id: nid('g-'), at: local(at(1, 16, 30)), where: 'google', source: 'eden', app: 'Eden', tool: 'gcal_update', kind: 'calendar', label: 'Changed “1:1 with Sam” in Google Calendar', detail: 'Tue 6 Oct, 15:00 · Google Calendar', undo: { possible: true, why: '' }, undone: '' },
-  { id: nid('ea-'), at: local(at(1, 12, 10)), where: 'mac', source: 'eden', app: 'Eden', tool: 'memory_delete', kind: 'memory', label: 'Forgot “Prefers window seats.”', detail: 'What Jarvis remembers', undo: { possible: true, why: '' }, undone: '' },
+  { id: nid('ea-'), at: local(at(1, 12, 10)), where: 'mac', source: 'eden', app: 'Eden', tool: 'memory_delete', kind: 'memory', label: 'Forgot “Prefers window seats.”', detail: 'What Eden remembers', undo: { possible: true, why: '' }, undone: '' },
   { id: nid('ea-'), at: local(at(2, 18, 0)), where: 'mac', source: 'eden', app: 'Eden', tool: 'browser_task', kind: 'browser', label: 'Ran a browser task: “Find the cheapest TAP flight to Lisbon on the 18th”', detail: 'The built-in browser on your Mac', undo: { possible: false, why: 'What a browser task did on a website can’t be undone from here: check the site.' }, undone: '' },
   { id: nid('ea-'), at: local(at(3, 8, 45)), where: 'mac', source: 'eden', app: 'Eden', tool: 'calendar_delete', kind: 'calendar', label: 'Removed “Weekly sync” from your calendar', detail: 'Mon 5 Oct, 09:00 · Work', undo: { possible: false, why: 'It was a repeating series and every later one went: a series can’t be put back.' }, undone: '' },
 ];
@@ -118,7 +118,7 @@ async function jarvisTools(tool_, a = {}) {
       await sleep(1600); // the owner answering the card on their Mac
       const item = { id: Math.random().toString(16).slice(2, 10), text: a.text, to: a.to || '', due: a.due || '' };
       ACTIONS.unshift({ id: nid('ea-'), at: local(new Date()), where: 'mac', source: 'eden', app: 'Eden', tool: 'commitment_add', kind: 'promise', label: `Kept track of “${a.text}”`, detail: `${a.to ? `To ${a.to}` : 'Promise'}${a.due ? ` · due ${a.due}` : ''}`, undo: { possible: true, why: '' }, undone: '' });
-      return tool({ done: true, status: 'added', text: 'Kept: Jarvis reminds you before it’s due.', item });
+      return tool({ done: true, status: 'added', text: 'Kept: Eden reminds you before it’s due.', item });
     }
     case 'browser_task': {
       if (!String(a.goal || '').trim()) return tool('Say what the browser task should do (goal).', true);
@@ -130,7 +130,7 @@ async function jarvisTools(tool_, a = {}) {
     case 'browser_task_status': {
       if (!a.id) return tool({ tasks: [...TASKS.values()].reverse().map((t) => { const v = taskView(t); return { id: t.id, goal: t.goal, status: v.status, started: v.started, steps: v.steps.length }; }) });
       const t = TASKS.get(a.id);
-      return t ? tool(taskView(t, a.thumbnail === true)) : tool('No browser task with that id (Jarvis keeps the last few until it restarts).', true);
+      return t ? tool(taskView(t, a.thumbnail === true)) : tool('No browser task with that id (Eden keeps the last few until it restarts).', true);
     }
     case 'browser_task_stop': {
       const t = TASKS.get(a.id);
@@ -164,13 +164,13 @@ export async function actionsMock(p, method, body) {
     await sleep(500);
     const noMac = flag('act') === 'nomac';
     const items = flag('act') === 'empty' ? [] : ACTIONS.filter((x) => !noMac || x.where === 'google');
-    return json({ items, mac: noMac ? { available: false, reason: 'Jarvis is not running on this Mac' } : { available: true, reason: null }, google: { connected: true } });
+    return json({ items, mac: noMac ? { available: false, reason: 'Eden is not running on this Mac' } : { available: true, reason: null }, google: { connected: true } });
   }
   if (p === '/api/chat/actions/undo' && method === 'POST') {
     if (body.confirm !== true) return json({ error: 'Undo needs confirm: true.' }, 400);
     const a = ACTIONS.find((x) => x.id === body.id);
     if (!a) return json({ done: false, status: 'not_done', text: 'Too old to undo.' });
-    await sleep(a.where === 'mac' ? 1800 : 700); // the Mac: the owner answering Jarvis's card
+    await sleep(a.where === 'mac' ? 1800 : 700); // the Mac: the owner answering Eden's card
     if (a.undone) return json({ done: false, status: 'not_done', text: 'That was undone already.' });
     if (!a.undo.possible) return json({ done: false, status: 'not_done', text: a.undo.why });
     a.undone = local(new Date());

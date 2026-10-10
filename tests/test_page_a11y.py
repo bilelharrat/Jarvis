@@ -139,4 +139,4 @@ async def test_without_the_app_there_is_no_browser(settings, quiet_speaker, isol
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     hub.browser_available = False
     result = await hub.page_a11y.summary()
-    assert result.get("is_error") and "only in the J.A.R.V.I.S. app" in body(result)
+    assert result.get("is_error") and "only in the Eden app" in body(result)

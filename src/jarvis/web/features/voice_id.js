@@ -10,7 +10,7 @@
   // What the owner reads to teach Jarvis their voice (Chinese in i18n/voice_id.json).
   const SENTENCES = [
     'The quick brown fox jumps over the lazy dog.',
-    'Jarvis, what’s on my calendar tomorrow morning?',
+    'Eden, what’s on my calendar tomorrow morning?',
     'Please remind me to call the office at half past four.',
     'Seven sunny summer days are better than one rainy week.',
     'Open the report and read me the first paragraph.',
@@ -33,7 +33,7 @@
 
   const head = el('div', 'row');
   const label = el('span');
-  label.append(el('strong', '', 'Recognise my voice'), el('small', '', 'Jarvis learns your voice and checks it in hands-free'));
+  label.append(el('strong', '', 'Recognise my voice'), el('small', '', 'Eden learns your voice and checks it in hands-free'));
   const toggle = button('', 'voice-id-switch', () => send({ type: 'voice_id_settings', changes: { voice_id_on: !(state && state.on) } }), 'switch');
   toggle.setAttribute('role', 'switch');
   toggle.setAttribute('aria-label', 'Recognise my voice');
@@ -42,7 +42,7 @@
   const scope = el('div', 'segmented');
   scope.id = 'voice-id-scope';
   scope.setAttribute('role', 'radiogroup');
-  scope.setAttribute('aria-label', 'Whose voice Jarvis answers');
+  scope.setAttribute('aria-label', 'Whose voice Eden answers');
   for (const [value, text] of [['all', 'Everything'], ['risky', 'Only risky actions']]) {
     const b = button(text, `voice-id-scope-${value}`, () => send({ type: 'voice_id_settings', changes: { voice_id_scope: value } }), '');
     b.setAttribute('role', 'radio');
@@ -74,7 +74,7 @@
   sentence.id = 'voice-id-sentence';
   sentence.setAttribute('aria-live', 'polite');
   const actions = el('div', 'row voice-id-actions');
-  const start = button('Teach Jarvis your voice', 'voice-id-start', () => { start.disabled = true; send({ type: 'voice_id_enroll', action: 'start' }); });
+  const start = button('Teach Eden your voice', 'voice-id-start', () => { start.disabled = true; send({ type: 'voice_id_enroll', action: 'start' }); });
   const cancel = button('Cancel', 'voice-id-cancel', () => send({ type: 'voice_id_enroll', action: 'cancel' }));
   const forget = button('Forget my voice', 'voice-id-forget', () => send({ type: 'voice_id_forget' }));
   actions.append(start, cancel, forget);
@@ -119,7 +119,7 @@
     start.hidden = forget.hidden = !!enrolling;
     forget.hidden = forget.hidden || !state.enrolled;
     start.disabled = false;
-    start.textContent = state.enrolled ? 'Retrain' : 'Teach Jarvis your voice';
+    start.textContent = state.enrolled ? 'Retrain' : 'Teach Eden your voice';
     if (enrolling) {
       const n = enrolling.index + 1;
       teachNote.textContent = enrolling.again
@@ -128,7 +128,7 @@
       sentence.textContent = SENTENCES[enrolling.index] || '';
     } else {
       teachNote.textContent = state.enrolled
-        ? 'Jarvis knows your voice.'
+        ? 'Eden knows your voice.'
         : 'Read five short sentences aloud, in a quiet room. Your voiceprint stays on this Mac.';
     }
     error.textContent = state.error || '';

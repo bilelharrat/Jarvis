@@ -40,7 +40,7 @@
   function render(body) {
     paneBody = body;
     if (!state) { body.replaceChildren(el('p', 'jc-empty', 'Reading the agents…')); return; }
-    const parts = [el('p', 'jc-dim ca-intro', 'Run a task with another coding agent that speaks the Agent Client Protocol. It works in the project on show as an ordinary session: JARVIS answers the steps it asks about, by your permission mode and rules; what it does without asking is up to its own settings.')];
+    const parts = [el('p', 'jc-dim ca-intro', 'Run a task with another coding agent that speaks the Agent Client Protocol. It works in the project on show as an ordinary session: Eden answers the steps it asks about, by your permission mode and rules; what it does without asking is up to its own settings.')];
     const agents = state.agents || [];
     if (!agents.length) parts.push(el('p', 'jc-dim cr-none', 'No agents yet: add one below by the command that starts it.'));
     else {
@@ -112,7 +112,7 @@
     box.append(name, row, examples);
     const said = note ? t(note) : state.error;
     if (said) box.append(mine(el('p', 'cr-error', said)));
-    parts.push(box, el('p', 'jc-dim ca-intro', 'An agent signs in by itself: run its command once in Terminal if it asks. It gets no MCP servers or files from JARVIS; it works with its own tools, as you, in the project’s folder.'));
+    parts.push(box, el('p', 'jc-dim ca-intro', 'An agent signs in by itself: run its command once in Terminal if it asks. It gets no MCP servers or files from Eden; it works with its own tools, as you, in the project’s folder.'));
     body.replaceChildren(...parts);
   }
 

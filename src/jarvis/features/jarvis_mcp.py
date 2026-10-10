@@ -56,7 +56,7 @@ register_feature_pref("mcp_trusted", [], _app_names)
 NAME = "jarvis"  # the server's name in each app
 DESKTOP_APPS = (Path("/Applications/Claude.app"), Path.home() / "Applications" / "Claude.app")
 NOT_JSON = (
-    "Claude Desktop's settings file isn't valid JSON, so Jarvis left it alone. "
+    "Claude Desktop's settings file isn't valid JSON, so Eden left it alone. "
     "Fix it in Claude Desktop (Settings › Developer › Edit Config), or set it up by hand."
 )
 
@@ -64,7 +64,7 @@ ZH = {
     ASK_QUESTION: "允许 {app} 使用你的第二大脑、记忆、日历和邮件吗？",
     "Always allow": "始终允许",
     "Allow this time": "这次允许",
-    NOT_JSON: "Claude Desktop 的设置文件不是有效的 JSON，所以 Jarvis 没有改动它。请在 Claude Desktop 中修正（设置 › 开发者 › 编辑配置），或者手动设置。",
+    NOT_JSON: "Claude Desktop 的设置文件不是有效的 JSON，所以 Eden 没有改动它。请在 Claude Desktop 中修正（设置 › 开发者 › 编辑配置），或者手动设置。",
     ASK_DETAIL: "在它关闭之前，它可以搜索你的第二大脑、读取你的笔记、查看我记住的关于你的事、读取你的日历和邮件、打开邮件草稿，并给你发提醒。它想发送的邮件会先给你看，只有你同意才会发出。它读到的内容会发给那个应用，以及它背后的模型。",
 }
 lang.add_texts(ZH)
@@ -240,7 +240,7 @@ class JarvisMcp:
         elif app == "desktop":
             error = write_desktop(self.desktop_path, server_entry() if on else None)
             done = (
-                "Restart Claude Desktop to use Jarvis there."
+                "Restart Claude Desktop to use Eden there."
                 if on
                 else ("Restart Claude Desktop to finish disconnecting.")
             )
@@ -265,18 +265,18 @@ class JarvisMcp:
                 want["args"],
             ]
         ):
-            return "New Claude Code sessions can use Jarvis."
+            return "New Claude Code sessions can use Eden."
         if found is not None:
             status, out = await codemcp.run_cli(["mcp", "remove", "--scope", "user", NAME], home)
             if status != 0:
-                return out or "Claude Code couldn't take Jarvis out."
+                return out or "Claude Code couldn't take Eden out."
         if not on:
             return ""
         args = ["mcp", "add", "--scope", "user", NAME, "--", *jarvis_command()]
         status, out = await codemcp.run_cli(args, home)
         if status != 0:
-            return out or "Claude Code couldn't add Jarvis."
-        return "New Claude Code sessions can use Jarvis."
+            return out or "Claude Code couldn't add Eden."
+        return "New Claude Code sessions can use Eden."
 
     async def forget(self, msg: dict[str, Any]) -> None:
         self.endpoint.trust(client_name(msg.get("app")), on=False)

@@ -33,12 +33,12 @@ AUDIT_SHOWN = 60  # ... shown in Settings
 ACTIONS = {
     # what the log says for each kind of action (and Settings shows, in Chinese too)
     "paired": "Paired",
-    "asked": "Asked Jarvis",
+    "asked": "Asked Eden",
     "said_yes": "Said yes",
     "said_no": "Said no",
     "said_no_because": "Said no, with a reason",
     "answered": "Answered a question",
-    "stop": "Stopped Jarvis",
+    "stop": "Stopped Eden",
     "briefing": "Asked for the briefing",
     "meeting_start": "Started meeting notes",
     "meeting_stop": "Stopped meeting notes",
@@ -57,7 +57,7 @@ ACTIONS = {
     "contacts_answered": "Looked someone up in the iPhone's contacts",
     "calendar_synced": "Sent the iPhone's calendar",
     "brain_keys": "Copied the Mac's API keys to the iPhone",
-    "account_link": "Linked this Mac to the Jarvis account",
+    "account_link": "Linked this Mac to the Eden account",
     "arrive_home": "Arrived home",
     "leave_home": "Left home",
     "arrive_work": "Arrived at work",
@@ -476,7 +476,7 @@ class Companion:
         this, before = today.isoformat(), (today - timedelta(days=1)).isoformat()
         recent = {k: v for k, v in days.items() if k in (this, before)}
         if not recent:
-            return "Nothing recent from the iPhone's Health app (the J.A.R.V.I.S. app sends it when the owner allows it)."
+            return "Nothing recent from the iPhone's Health app (the Eden app sends it when the owner allows it)."
         parts = []
         night = days.get(this, {}).get("sleep_hours")
         if night is None:
@@ -520,7 +520,7 @@ class Companion:
         @tool(
             "phone_health",
             "The owner's recent health from their iPhone (Apple Health, sent by the "
-            "J.A.R.V.I.S. app): last night's sleep, yesterday's steps, resting heart rate "
+            "Eden app): last night's sleep, yesterday's steps, resting heart rate "
             "and workouts. For the morning briefing, and questions about their sleep or "
             "activity.",
             {},
@@ -530,7 +530,7 @@ class Companion:
 
         @tool(
             "phone_contact",
-            "Look someone up in the owner's iPhone contacts (asks the J.A.R.V.I.S. app on "
+            "Look someone up in the owner's iPhone contacts (asks the Eden app on "
             "the phone, when the owner turned contact lookups on there): name, job, "
             "organisation, phone numbers and emails. Use after find_contact found no one.",
             {"name": str},
@@ -541,7 +541,7 @@ class Companion:
 
         @tool(
             "phone_calendar",
-            "The owner's iPhone calendars (sent by the J.A.R.V.I.S. app when they turned "
+            "The owner's iPhone calendars (sent by the Eden app when they turned "
             "that on there): events for the next `days` days (1-14, default 7). fresh: ask "
             "the phone for a new copy first.",
             {

@@ -121,7 +121,7 @@ class Command:
     speak: bool = False
 
 
-_LEAD = re.compile(r"^(?:(?:ok(?:ay)?|so|and|now|then|alright|jarvis)[,\s]+)+")
+_LEAD = re.compile(r"^(?:(?:ok(?:ay)?|so|and|now|then|alright|eden|jarvis)[,\s]+)+")
 _ASK = re.compile(r"^(?:please|can you|could you|would you|will you)\s+")
 _AMOUNTS = {
     "a bit": 0.4,
@@ -242,7 +242,7 @@ async def set_lock(call: Call, on: bool) -> dict[str, Any]:
     if result.get("locked"):
         return {
             "ok": True,
-            "message": "The Research Center is J.A.R.V.I.S. only: the mouse and keyboard don't reach it.",
+            "message": "The Research Center is Eden only: the mouse and keyboard don't reach it.",
         }
     return {
         "ok": True,
@@ -280,7 +280,7 @@ def reading(r: dict[str, Any]) -> str:
 def build_server(call: Call, confirm: Confirm):
     @tool(
         "research_open",
-        "Open the BSH Research Center (the owner's research app) in the J.A.R.V.I.S. window. "
+        "Open the BSH Research Center (the owner's research app) in the Eden window. "
         "page: a page name ("
         + PAGE_NAMES
         + ") or a path like /reports. For a company or ticker, use research_search.",
@@ -371,10 +371,10 @@ def build_server(call: Call, confirm: Confirm):
 
     @tool(
         "research_lock",
-        "Switch the Research Center between J.A.R.V.I.S. only (on: true; the user's mouse and "
+        "Switch the Research Center between Eden only (on: true; the user's mouse and "
         "keyboard don't reach it, only you drive it) and shared (on: false, the default; the "
         "user clicks and types too, and you still drive it). Use it when the user asks to lock "
-        "or unlock it, or to get rid of 'J.A.R.V.I.S. only'.",
+        "or unlock it, or to get rid of 'Eden only'.",
         {"on": bool},
     )
     async def research_lock(args):
@@ -404,9 +404,9 @@ def build_server(call: Call, confirm: Confirm):
 
 
 PROMPT = (
-    "\n- BSH Research Center: the owner's research app opens inside the J.A.R.V.I.S. window "
+    "\n- BSH Research Center: the owner's research app opens inside the Eden window "
     "(research_open; clicking the Markets panel opens its home page). The user clicks and "
-    "types in it too, unless they've made it J.A.R.V.I.S. only (research_lock switches that; "
+    "types in it too, unless they've made it Eden only (research_lock switches that; "
     "so does the lock badge in the address bar). When it's open, requests like scroll, go "
     "back, open a page, click something, look up a ticker, or 'what does this say' are about "
     "it. research_search looks up a ticker or company, research_read reads the page (its "

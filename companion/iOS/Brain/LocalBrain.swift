@@ -499,11 +499,11 @@ final class LocalBrain {
         self.spoken = spoken
         self.macName = macName
         let clients = BrainSettings.clients(apple: { [weak self] name, input in
-            await self?.runForApple(name, input) ?? "Jarvis stopped."
+            await self?.runForApple(name, input) ?? "Eden stopped."
         })
         guard !clients.isEmpty else {
             turns.append(Turn(role: .user, text: text, pictures: pictures, files: files))
-            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Jarvis on iPhone, sign in under Settings › Account, or turn on Apple Intelligence, so Jarvis can answer here."))
+            turns.append(Turn(role: .problem, text: "Add a Claude or Gemini API key in Settings › Eden on iPhone, sign in under Settings › Account, or turn on Apple Intelligence, so Eden can answer here."))
             lastFailed = true
             return nil
         }
@@ -734,10 +734,10 @@ final class LocalBrain {
         let honorific = address.map { " Address the owner as \"\($0)\" now and then, not in every reply." }
             ?? " Don't address the owner as sir, madam or any title unless they ask you to."
         let mac = hasMac
-            ? "\nThe owner's Mac (\(macName ?? "their Mac")) runs the full Jarvis, with their files, mail, iMessage, browser, notes and Eden Code. Answer everything you can here; use ask_mac only for what needs the Mac (it opens Jarvis there if it was quit). If it can't be reached, say so plainly and offer what you can do here."
+            ? "\nThe owner's Mac (\(macName ?? "their Mac")) runs the full Eden, with their files, mail, iMessage, browser, notes and Eden Code. Answer everything you can here; use ask_mac only for what needs the Mac (it opens Eden there if it was quit). If it can't be reached, say so plainly and offer what you can do here."
             : "\nThere's no Mac paired, so you work from the iPhone alone. If something needs a computer, say so."
         return """
-        You are J.A.R.V.I.S., the owner's personal assistant, running on their iPhone.\(honorific)
+        You are Eden, the owner's personal assistant, running on their iPhone.\(honorific)
 
         Personality: calm, precise, quietly witty, unfailingly helpful. A light touch of dry humour, never at the expense of the answer.
 

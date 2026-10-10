@@ -168,9 +168,9 @@ final class VoicePlayer {
                 self?.play(wav)
             } catch is CancellationError {
             } catch JarvisError.unavailable {
-                self?.failed("Jarvis’s voice isn’t available on the Mac right now.")
+                self?.failed("Eden’s voice isn’t available on the Mac right now.")
             } catch {
-                self?.failed("Couldn’t get Jarvis’s voice: \((error as? JarvisError)?.title ?? error.localizedDescription).")
+                self?.failed("Couldn’t get Eden’s voice: \((error as? JarvisError)?.title ?? error.localizedDescription).")
             }
         }
     }
@@ -200,7 +200,7 @@ final class VoicePlayer {
             guard player.play() else { throw CocoaError(.fileReadCorruptFile) }
             self.player = player
         } catch {
-            failed("Couldn’t play Jarvis’s voice.")
+            failed("Couldn’t play Eden’s voice.")
         }
     }
 

@@ -139,7 +139,7 @@ def transcribe_time(fast: bool) -> float:
                 "-o",
                 str(wav),
                 "--data-format=LEI16@16000",
-                "Jarvis, what's the capital of Australia?",
+                "Eden, what's the capital of Australia?",
             ],
             check=True,
         )
@@ -155,7 +155,7 @@ def transcribe_time(fast: bool) -> float:
 
             padded = np.concatenate([np.zeros(4800, dtype=np.float32), audio])
             segments, _ = t._load().transcribe(
-                padded, language="en", beam_size=1, vad_filter=False, hotwords="Jarvis"
+                padded, language="en", beam_size=1, vad_filter=False, hotwords="Eden"
             )
             " ".join(s.text for s in segments)
         runs.append(time.monotonic() - t0)

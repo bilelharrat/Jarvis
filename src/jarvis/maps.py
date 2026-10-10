@@ -53,7 +53,7 @@ def locate(timeout: float = 12) -> dict[str, Any]:
             status = manager.authorizationStatus()
             if status in (1, 2):  # restricted, denied
                 done.update(
-                    error="Location access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Location Services).",
+                    error="Location access is off for Eden (System Settings > Privacy & Security > Location Services).",
                     end=True,
                 )
             elif status in (3, 4):  # authorized

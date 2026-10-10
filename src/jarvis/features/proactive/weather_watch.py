@@ -843,7 +843,7 @@ class WeatherWatch:
 LABELS = {"weather_warnings": "Checked weather warnings"}
 PROMPT = (
     "\n- Weather warnings: weather_warnings says the severe weather warnings in force where "
-    "the user is, the air quality and today against yesterday (JARVIS also says these as "
+    "the user is, the air quality and today against yesterday (Eden also says these as "
     "heads-ups by itself)."
 )
 

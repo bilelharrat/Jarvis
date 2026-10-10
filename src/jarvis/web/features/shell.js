@@ -92,21 +92,21 @@
       paused: t('Heads-ups paused'),
       pausedUntil: until > Date.now() ? t(`Heads-ups paused until ${clockText(until)}`) : '',
       resume: t('Resume heads-ups'),
-      open: t('Open J.A.R.V.I.S.'),
+      open: t('Open Eden'),
       code: t('Eden Code'),
       browser: t('Browser'),
-      quit: t('Quit J.A.R.V.I.S.'),
+      quit: t('Quit Eden'),
       needsOk: t('Needs your OK'),
       allow: t('Allow'),
       notNow: t('Not now'),
-      purchaseHint: t('Say “confirm purchase”, or confirm it in J.A.R.V.I.S.'),
+      purchaseHint: t('Say “confirm purchase”, or confirm it in Eden'),
       // the app's menu bar
-      about: t('About J.A.R.V.I.S.'),
+      about: t('About Eden'),
       settings: t('Settings…'),
       history: t('History'),
       bookmarks: t('Bookmarks'),
       services: t('Services'),
-      hide: t('Hide J.A.R.V.I.S.'),
+      hide: t('Hide Eden'),
       hideOthers: t('Hide Others'),
       showAll: t('Show All'),
       edit: t('Edit'),
@@ -260,7 +260,7 @@
     e.preventDefault();
     e.stopImmediatePropagation();
     if (!F.send({ type: 'ask', text, from_link: true })) {
-      notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
+      notice('Eden', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
       return;
     }
     fromLink = false;
@@ -396,7 +396,7 @@
     const words = F.el('span');
     words.append(
       F.el('strong', '', 'Ask about a selection'),
-      F.el('small', '', 'Adds “Ask JARVIS” to the Services menu: select text in any app, then right-click › Services. The text is sent to JARVIS at once (or waits in the request box, with the switch below).'),
+      F.el('small', '', 'Adds “Ask JARVIS” to the Services menu: select text in any app, then right-click › Services. The text is sent to Eden at once (or waits in the request box, with the switch below).'),
     );
     const button = F.el('button', 'btn', 'Add');
     button.type = 'button';
@@ -516,7 +516,7 @@
     const serviceNote = F.el('p', 'small-status warn-line');
     serviceNote.id = 'shell-service-note';
     serviceNote.hidden = true;
-    const loginRow = switchRow('sw-shell-login', 'Open at login', 'JARVIS opens when you log in to this Mac.');
+    const loginRow = switchRow('sw-shell-login', 'Open at login', 'Eden opens when you log in to this Mac.');
     loginRow.hidden = true; // until the app says it can (the installed app only)
     const loginNote = F.el('p', 'small-status warn-line');
     loginNote.id = 'shell-login-note';
@@ -525,14 +525,14 @@
       F.el('h3', '', 'This Mac'),
       loginRow,
       loginNote,
-      switchRow('sw-shell-menubar', 'Show in the menu bar', 'What JARVIS is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.'),
-      shortcutRow('ask', 'Talk', 'From any app: shows JARVIS and starts listening.'),
-      shortcutRow('whatsThis', 'What’s this?', 'From any app: JARVIS explains what’s in front of you.'),
-      shortcutRow('stop', 'Stop talking', 'From any app: JARVIS stops speaking and stops reading at once.'),
+      switchRow('sw-shell-menubar', 'Show in the menu bar', 'What Eden is doing at a glance, and Ask, Mute, Hands-free and Pause heads-ups from any app.'),
+      shortcutRow('ask', 'Talk', 'From any app: shows Eden and starts listening.'),
+      shortcutRow('whatsThis', 'What’s this?', 'From any app: Eden explains what’s in front of you.'),
+      shortcutRow('stop', 'Stop talking', 'From any app: Eden stops speaking and stops reading at once.'),
       note,
       serviceRow(),
       serviceNote,
-      switchRow('sw-shell-ask-confirm', 'Ask before sending messages to J.A.R.V.I.S.', 'For “Ask JARVIS” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.'),
+      switchRow('sw-shell-ask-confirm', 'Ask before sending messages to Eden', 'For “Ask JARVIS” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.'),
       ...wakeRows(),
     );
     const settings = F.$('settings');
@@ -593,7 +593,7 @@
     // One in use by another program, with another key standing in for it: said, and not a problem.
     const standIn = SLOTS.map((slot) => keyStatus[slot]).find((s) => s && s.wanted && !s.error);
     if (taken && noteFrom !== 'recorder') setNote(problem('taken', taken.label), true, 'taken');
-    else if (standIn && noteFrom !== 'recorder') setNote(en(`${standIn.wanted} is used by another program, so J.A.R.V.I.S. listens for ${standIn.label} instead. You can pick another key below.`), false, 'standin');
+    else if (standIn && noteFrom !== 'recorder') setNote(en(`${standIn.wanted} is used by another program, so Eden listens for ${standIn.label} instead. You can pick another key below.`), false, 'standin');
     else if (!taken && !standIn && (noteFrom === 'taken' || noteFrom === 'standin')) setNote('', false, '');
     updateHint();
   }
@@ -739,7 +739,7 @@
       renderShortcuts();
       report();
       sendApprovals();
-      if (info.recovered) notice('Jarvis', '', 'The window stopped unexpectedly and was reloaded.', 15000);
+      if (info.recovered) notice('Eden', '', 'The window stopped unexpectedly and was reloaded.', 15000);
       serviceAction('status');
       setLogin();
     }, () => { /* an app without the shell feature: nothing to report to */ });

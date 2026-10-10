@@ -53,7 +53,7 @@ struct SettingsView: View {
                     } header: {
                         Text("Your Mac")
                     } footer: {
-                        Text("With Jarvis on your Mac paired, this iPhone reaches everything it does: Eden Code, your files, mail, iMessage, routines and its own voice.")
+                        Text("With Eden on your Mac paired, this iPhone reaches everything it does: Eden Code, your files, mail, iMessage, routines and its own voice.")
                     }
                 }
 
@@ -71,7 +71,7 @@ struct SettingsView: View {
                     } label: {
                         HStack(spacing: Space.s) {
                             IconTile(symbol: "waveform", tint: .purple)
-                            Text("“Hey Jarvis” and the Action Button")
+                            Text("“Hey Eden” and the Action Button")
                         }
                     }
                 } header: {
@@ -79,7 +79,7 @@ struct SettingsView: View {
                 } footer: {
                     Text(model.pairing == nil
                         ? "Replies are spoken in the iPhone’s best installed voice. For a better one, download an Enhanced or Premium voice in Settings › Accessibility › Spoken Content › Voices."
-                        : "Replies are spoken in Jarvis’s own voice, made on your Mac, or in the iPhone’s best voice when the Mac can’t be reached.")
+                        : "Replies are spoken in Eden’s own voice, made on your Mac, or in the iPhone’s best voice when the Mac can’t be reached.")
                 }
 
                 if model.pairing != nil {
@@ -96,7 +96,7 @@ struct SettingsView: View {
                         }
                         .frame(maxWidth: .infinity)
                     } footer: {
-                        Text("Forgets the Mac on this iPhone and Watch. To shut this phone out for good, also remove it in Jarvis Settings › iPhone & Watch on the Mac.")
+                        Text("Forgets the Mac on this iPhone and Watch. To shut this phone out for good, also remove it in Eden Settings › iPhone & Watch on the Mac.")
                     }
                 }
 
@@ -146,7 +146,7 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: Space.s) {
                         IconTile(symbol: "slider.horizontal.3", tint: .gray)
-                        Text("Jarvis on Your Mac")
+                        Text("Eden on Your Mac")
                     }
                 }
             }
@@ -174,7 +174,7 @@ struct SettingsView: View {
         } header: {
             Text("Your Mac")
         } footer: {
-            Text("Shown in Jarvis on your Mac under Settings › iPhone & Watch, with the same certificate fingerprint. Only that certificate is trusted, at any address. Away from home, use the Mac’s Tailscale address, or link the Mac to your Jarvis account to reach it through the encrypted relay.")
+            Text("Shown in Eden on your Mac under Settings › iPhone & Watch, with the same certificate fingerprint. Only that certificate is trusted, at any address. Away from home, use the Mac’s Tailscale address, or link the Mac to your Eden account to reach it through the encrypted relay.")
         }
     }
 
@@ -222,7 +222,7 @@ struct SettingsView: View {
             Button("Send Pairing to Watch") { model.resendToWatch() }
                 .disabled(!model.watchStatus.installed)
         } footer: {
-            Text("The JARVIS Watch app uses this iPhone’s pairing and talks to the Mac on its own.")
+            Text("The Eden Watch app uses this iPhone’s pairing and talks to the Mac on its own.")
         }
     }
 
@@ -231,7 +231,7 @@ struct SettingsView: View {
         HStack(spacing: Space.m) {
             OrbMark(size: 58)
             VStack(alignment: .leading, spacing: 2) {
-                Text("J.A.R.V.I.S.")
+                Text("Eden")
                     .font(.title2.weight(.semibold))
                 HStack(spacing: 6) {
                     if model.pairing != nil {
@@ -261,7 +261,7 @@ struct SettingsView: View {
     private var statusText: String {
         guard model.pairing != nil else { return model.phoneCanAnswer ? "On this iPhone" : "Not set up" }
         return switch model.link {
-        case .online where model.viaRelay: model.remote.map { "Connected through Jarvis relay · \($0.state.label)" } ?? "Connected through Jarvis relay"
+        case .online where model.viaRelay: model.remote.map { "Connected through Eden relay · \($0.state.label)" } ?? "Connected through Eden relay"
         case .online: model.remote.map { "Connected · \($0.state.label)" } ?? "Connected"
         case .connecting: "Connecting…"
         case .unreachable: model.phoneCanAnswer ? "Can’t reach the Mac · iPhone answers" : "Can’t reach the Mac"
@@ -272,7 +272,7 @@ struct SettingsView: View {
         let store = AccountStore.shared
         guard store.isSignedIn else { return "Optional: AI included, sync, your Mac from anywhere" }
         guard let account = store.account else { return "Signed in" }
-        if account.plan.isPlus { return "Jarvis Plus" }
+        if account.plan.isPlus { return "Eden Plus" }
         return account.usage.trialLeftUSD > 0 ? "Free · trial \(account.usage.trialLeftUSD.dollars) left" : "Free"
     }
 

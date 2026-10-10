@@ -57,13 +57,13 @@ def apply(options: Any) -> bool:
 # ── asked by voice or typed: whole commands only, never words about incognito ──
 
 _LEAD = (
-    r"^(?:(?:ok(?:ay)?|hey|hi|jarvis|please|now|so|and|alright|all\s+right)\b[\s,]*)*"
+    r"^(?:(?:ok(?:ay)?|hey|hi|eden|jarvis|please|now|so|and|alright|all\s+right)\b[\s,]*)*"
     r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|let'?s\s+|i\s+want\s+to\s+"
     r"|i'?d\s+like\s+to\s+|i\s+would\s+like\s+to\s+)?"
 )
 _MODE = r"(?:\s+(?:mode|conversation|chat|session))?"
 _INC = r"(?:the\s+)?incognito" + _MODE
-_END = r"(?:[\s,]+(?:please|now|jarvis|then))*[\s.!?]*$"
+_END = r"(?:[\s,]+(?:please|now|eden|jarvis|then))*[\s.!?]*$"
 
 
 def _command(*forms: str) -> re.Pattern[str]:
@@ -90,7 +90,7 @@ OFF = _command(
 )
 # 开启无痕模式, 进入无痕模式, 开始无痕对话; 退出无痕模式, 关闭无痕, 结束无痕对话. Compiled the
 # first time they're tried (lang.LazyPattern): only ever in Chinese.
-_LEAD_ZH = r"^(?:(?:好的|好|请|麻烦|帮我|那|嗯|贾维斯|jarvis)[，,\s]*)*"
+_LEAD_ZH = r"^(?:(?:好的|好|请|麻烦|帮我|那|嗯|伊甸|贾维斯|eden|jarvis)[，,\s]*)*"
 _MODE_ZH = r"(?:模式|对话|聊天)?"
 _END_ZH = r"(?:吧|一下|了|好吗|可以吗)?[。！!.？?\s]*$"
 ON_ZH = lang.LazyPattern(

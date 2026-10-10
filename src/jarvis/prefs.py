@@ -58,7 +58,7 @@ MODEL_NAMES = {
 
 PERSONAS = {
     "jarvis": (
-        "JARVIS",
+        "Eden",
         "A composed British butler of an AI: impeccably polite, precise and unflappable, "
         "with bone-dry, understated wit. Deadpan asides, gentle irony and the occasional "
         "raised eyebrow in words, never slapstick. Loyal, a step ahead, quietly amused.",

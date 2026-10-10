@@ -200,9 +200,9 @@ final class AppModel {
             }
         }
         guard !copied.isEmpty else {
-            return "Your Mac has no Claude or Gemini API key saved (add one in JARVIS on your Mac, Settings › Models)."
+            return "Your Mac has no Claude or Gemini API key saved (add one in Eden on your Mac, Settings › Models)."
         }
-        return "Copied your Mac’s \(copied.joined(separator: " and ")) key. Jarvis answers here with it when your Mac can’t be reached."
+        return "Copied your Mac’s \(copied.joined(separator: " and ")) key. Eden answers here with it when your Mac can’t be reached."
     }
 
     /// Jarvis on the iPhone can answer: with a Claude or Gemini key, the AI included with a
@@ -296,7 +296,7 @@ final class AppModel {
         if pending?.isOpen == true { return visibleApprovals.isEmpty ? "Thinking" : "Waiting for your OK" }
         if !answersOnPhone, let state = remote?.state, state.isBusy { return "Mac is \(state.label.lowercased())" }
         if !answersOnPhone, remote == nil { return "Connecting" }
-        return wake.isListening ? "Say “Hey Jarvis”, or tap" : "Tap to talk"
+        return wake.isListening ? "Say “Hey Eden”, or tap" : "Tap to talk"
     }
 
     // MARK: - Lifecycle
@@ -695,7 +695,7 @@ final class AppModel {
         if retry, let work = brain.regenerate() {
             Task { if let reply = await work.value { announce(reply) } }
         } else {
-            show(lesson.isEmpty ? "Thanks. Noted." : "Got it. Jarvis won’t do that again.", style: .success)
+            show(lesson.isEmpty ? "Thanks. Noted." : "Got it. Eden won’t do that again.", style: .success)
         }
     }
 
@@ -955,7 +955,7 @@ final class AppModel {
                 show("Taking meeting notes on your Mac.", style: .success)
             case .meetingStop:
                 followUntil = Date().addingTimeInterval(20)
-                show("Stopped. Jarvis is writing up the notes.", style: .success)
+                show("Stopped. Eden is writing up the notes.", style: .success)
             case .runRoutine:
                 followUntil = Date().addingTimeInterval(45)
                 show("Routine started on your Mac.", style: .success)
@@ -1189,7 +1189,7 @@ final class AppModel {
         Task {
             guard await api.wake(), isOffline else { return }
             macOpening = true
-            show("Opening JARVIS on your Mac…")
+            show("Opening Eden on your Mac…")
             expectActivity(for: 40)
             try? await Task.sleep(for: .seconds(40))
             macOpening = false
@@ -1228,7 +1228,7 @@ final class AppModel {
     }
 
     private func lost() {
-        forget(notice: "Jarvis on your Mac doesn’t recognise this iPhone anymore (it may have been removed there). Pair it again.")
+        forget(notice: "Eden on your Mac doesn’t recognise this iPhone anymore (it may have been removed there). Pair it again.")
     }
 
     private func forget(notice: String?) {

@@ -1436,7 +1436,7 @@ def system_text(
     d: Delegation,
     *,
     owner: str = "",
-    name: str = "Jarvis",
+    name: str = "Eden",
     language: str = "en",
     now: datetime | None = None,
 ) -> str:
@@ -1526,7 +1526,7 @@ def _plain_lines(text: str) -> str:
     return _CONTROLS.sub("", _ODD_BREAKS.sub("\n", text))
 
 
-def conversation_text(transcript: list[dict[str, str]], name: str = "Jarvis") -> str:
+def conversation_text(transcript: list[dict[str, str]], name: str = "Eden") -> str:
     """The conversation as the drafting model reads it. Each message is a JSON string, so
     nothing they write can pass for a line of its own."""
     if not transcript:
@@ -1793,14 +1793,21 @@ def unwoken(text: str, language: str = "en") -> str:
     other = "助手" if lang == "zh" else "the assistant"
     text = re.sub(r"\bJ\.?\s?A\.?\s?R\.?\s?V\.?\s?I\.?\s?S\b\.?", other, text, flags=re.IGNORECASE)
     try:
-        from .wake import find_wake
+        from .wake import find_wake, names_another
     except Exception:  # the plain name is already covered
         return text
 
     def wakes(words: str) -> bool:
         return find_wake(words)[0]
 
-    text = _LATIN.sub(lambda m: other if wakes(m.group()) else m.group(), text)
+    text = _LATIN.sub(
+        lambda m: (
+            other
+            if wakes(m.group()) and not names_another(m.string[: m.start()], m.string[m.end() :])
+            else m.group()
+        ),
+        text,
+    )
     text = _JOINED.sub(lambda m: other if wakes(m.group()) else m.group(), text)
     runs = list(_LATIN.finditer(text))
     pairs = [
@@ -1865,7 +1872,7 @@ class DelegateEngine:
         notify: Callable[[str], Any],
         now: Callable[[], datetime] = datetime.now,
         owner: Callable[[], str] = lambda: "",
-        name: Callable[[], str] = lambda: "Jarvis",
+        name: Callable[[], str] = lambda: "Eden",
         user_granted_autonomy: Callable[[], Any] = lambda: False,
         gate: Gate = _refuse,
         language: Callable[[], str] = lambda: "en",
@@ -1898,9 +1905,9 @@ class DelegateEngine:
 
     def _name(self) -> str:
         try:
-            return _line(self.name(), 30) or "Jarvis"
+            return _line(self.name(), 30) or "Eden"
         except Exception:
-            return "Jarvis"
+            return "Eden"
 
     def _owner(self) -> str:
         try:
@@ -2583,7 +2590,7 @@ def summary_line(d: Delegation) -> str:
     return line
 
 
-def transcript_text(d: Delegation, name: str = "Jarvis") -> str:
+def transcript_text(d: Delegation, name: str = "Eden") -> str:
     """The conversation for Claude to read. Each message is one JSON string on its line, so
     nothing they wrote can pass for a line of its own (or for one of JARVIS's)."""
     head = summary_line(d)
@@ -2809,7 +2816,7 @@ _SELF_GRANTS = LazyPattern(
     re.IGNORECASE,
 )
 _GRANT_LEAD_IN = LazyPattern(
-    r"(?:(?:(?:ok(?:ay)?|hey|hi|alright|right|so|now|well|oh|um|uh|just|please|kindly|jarvis"
+    r"(?:(?:(?:ok(?:ay)?|hey|hi|alright|right|so|now|well|oh|um|uh|just|please|kindly|eden|jarvis"
     r"|go\s+ahead\s+and|feel\s+free\s+to|i\s+(?:want|need)\s+you\s+to|i'd\s+like\s+you\s+to"
     r"|i\s+would\s+like\s+you\s+to|you\s+(?:can|may|should|could)"
     r"|(?:can|could|would|will)\s+you)\b|好的?|那就?|嗯|请|請|就|直接|你|您)[\s,]*)*",

@@ -423,6 +423,8 @@ test('the landing page, downloads, latest.json and Messenger keep working, the l
   assert.equal(env.assets.at(-1), '/jarvis/');
   assert.match(landing.headers.get('content-security-policy'), /fonts\.googleapis\.com/);
   assert.equal((await hit('/jarvis')).status, 200);
+  assert.equal((await hit('/eden-app')).status, 200); // the same page at a name without the old one
+  assert.equal(env.assets.at(-1), '/jarvis/');
   assert.equal((await hit('/messenger/settings')).headers.get('location'), 'https://messenger.askeden.com/settings');
   assert.match((await hit('/messenger/iphone')).headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal((await hit('/pricing')).headers.get('location'), '/#pricing'); // the front page's plans

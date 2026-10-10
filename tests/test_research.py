@@ -162,7 +162,7 @@ def test_the_lock_switches_both_ways_and_says_which():
     on = run(research.set_lock(window, True))
     assert window.calls == [("lock", {"on": False}), ("lock", {"on": True})]
     assert "mouse and keyboard work" in off["message"]
-    assert "J.A.R.V.I.S. only" in on["message"]
+    assert "Eden only" in on["message"]
 
     async def no_window(_action, _args=None):
         return {"error": "The Research Center only opens in the J.A.R.V.I.S. app window."}

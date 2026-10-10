@@ -52,7 +52,7 @@ from .lang import LazyPattern
 from .prefs import APP_SUPPORT
 from .proactive import Alert, in_quiet_hours
 from .sources import APPLE_EPOCH_UNIX, FULL_DISK_ACCESS, decode_attributed_body
-from .wake import find_wake
+from .wake import find_wake, names_another
 
 log = logging.getLogger("jarvis")
 
@@ -484,8 +484,17 @@ def speakable(text: str, lang: str = "en") -> str:
     message that says "Jarvis, …") would wake it mid-sentence."""
     word = WORDS[language(lang)]["assistant"]
     out = re.sub(r"\bJ\.?\s?A\.?\s?R\.?\s?V\.?\s?I\.?\s?S\b\.?", word, text or "", flags=re.I)
-    out = out.replace("贾维斯", word)
-    return re.sub(r"[A-Za-z'’]+", lambda m: word if find_wake(m.group())[0] else m.group(), out)
+    out = re.sub(r"[伊依][甸登殿](?!园)|贾维斯", word, out)
+    return re.sub(
+        r"[A-Za-z'’]+",
+        lambda m: (
+            word
+            if find_wake(m.group())[0]
+            and not names_another(m.string[: m.start()], m.string[m.end() :])
+            else m.group()
+        ),
+        out,
+    )
 
 
 # ── who sent it ──
@@ -2503,7 +2512,7 @@ ASKED_PATTERN = (
     r"(?:comes|arrives)\s+in\b"
     r"|let\s+(?:everything|all\s+(?:my\s+)?messages)\s+through\b"
     # Chinese, after its own lead-ins ("好的，", "接下来一个小时"): the hub's are English.
-    r"|(?:(?:好的?|好吧|嗯|那么?|现在|贾维斯|请|麻烦你?|帮我|先|接下来|从现在(?:开始|起)"
+    r"|(?:(?:好的?|好吧|嗯|那么?|现在|伊甸|贾维斯|请|麻烦你?|帮我|先|接下来|从现在(?:开始|起)"
     r"|(?:\d+|[一二两三四五六七八九十半]+)个?(?:小时|钟头|分钟)(?:之?内)?)[，,、\s]*)*"
     r"(?:(?:别|不要|不用)再?(?:打扰|打断)我"
     r"|(?:开启|打开|关闭|关掉|取消|开|关|设置|设成|切换到|进入|退出)(?:一下)?(?:勿扰|免打扰)"

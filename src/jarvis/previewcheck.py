@@ -217,9 +217,7 @@ class PageChecks:
 
     async def check(self, url: str, reload: bool = True) -> dict[str, Any]:
         if not self.available():
-            return {
-                "error": "The page is checked in the J.A.R.V.I.S. app window, and it isn't open."
-            }
+            return {"error": "The page is checked in the Eden app window, and it isn't open."}
         call = uuid.uuid4().hex[:12]
         future = asyncio.get_running_loop().create_future()
         self._calls[call] = future

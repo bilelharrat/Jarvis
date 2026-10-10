@@ -48,7 +48,7 @@ ABOUT_SCREEN = re.compile(
 )
 
 NO_PICTURE = (
-    "The screenshot came back empty. Allow Screen Recording for J.A.R.V.I.S. in System "
+    "The screenshot came back empty. Allow Screen Recording for Eden in System "
     "Settings › Privacy & Security › Screen & System Audio Recording."
 )
 

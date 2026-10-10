@@ -48,15 +48,15 @@ class ChatActions:
         hub = self.hub
         if msg.get("good") is True:
             self.good += 1
-            hub.emit("toast", title="Jarvis", text="Thanks. Noted.")
+            hub.emit("toast", title="Eden", text="Thanks. Noted.")
             return
         rule = lesson(str(msg.get("note") or ""))
         if not rule:
-            hub.emit("toast", title="Jarvis", text="Thanks. Noted.")
+            hub.emit("toast", title="Eden", text="Thanks. Noted.")
             return
         if getattr(hub, "incognito", False):
             hub.emit(
-                "toast", title="Jarvis", text="Noted, but not kept: this conversation is incognito."
+                "toast", title="Eden", text="Noted, but not kept: this conversation is incognito."
             )
             return
         try:
@@ -67,7 +67,7 @@ class ChatActions:
         changed = getattr(hub, "_memory_changed", None)
         if callable(changed):
             changed()
-        hub.emit("toast", title="Jarvis", text="Got it. Jarvis won’t do that again.")
+        hub.emit("toast", title="Eden", text="Got it. Eden won’t do that again.")
 
     def install(self) -> None:
         self.hub.chat_actions = self

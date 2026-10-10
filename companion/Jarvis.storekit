@@ -20,12 +20,12 @@
       "id" : "21500001",
       "localizations" : [
         {
-          "description" : "AI included in Jarvis",
-          "displayName" : "Jarvis Plus",
+          "description" : "AI included in Eden",
+          "displayName" : "Eden Plus",
           "locale" : "en_US"
         }
       ],
-      "name" : "Jarvis Plus",
+      "name" : "Eden Plus",
       "subscriptions" : [
         {
           "adHocOffers" : [
@@ -41,8 +41,8 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "AI included each month, and more JARVIS voice.",
-              "displayName" : "Jarvis Plus Monthly",
+              "description" : "AI included each month, and more Eden voice.",
+              "displayName" : "Eden Plus Monthly",
               "locale" : "en_US"
             }
           ],
@@ -69,8 +69,8 @@
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "AI included each month, and more JARVIS voice. Two months free.",
-              "displayName" : "Jarvis Plus Yearly",
+              "description" : "AI included each month, and more Eden voice. Two months free.",
+              "displayName" : "Eden Plus Yearly",
               "locale" : "en_US"
             }
           ],

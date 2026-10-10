@@ -44,7 +44,7 @@
     const row = el('div', 'row');
     const words = el('span');
     words.append(el('strong', '', 'Remind clients of overdue invoices'),
-      el('small', '', 'A routine on weekdays at 9: Jarvis looks for overdue invoices and shows you each reminder email before it goes, one a week per invoice at most.'));
+      el('small', '', 'A routine on weekdays at 9: Eden looks for overdue invoices and shows you each reminder email before it goes, one a week per invoice at most.'));
     const sw = el('button', 'switch');
     sw.type = 'button';
     sw.id = 'sw-invoice-reminders';

@@ -669,8 +669,7 @@ class CodeVoice:
         if poll and not self.helper_told and not (seen.helper and seen.ax):
             self.helper_told = True  # said once: why the title or the selection didn't go
             why = (
-                "To send your selected text too, allow Accessibility for J.A.R.V.I.S. in "
-                "System Settings."
+                "To send your selected text too, allow Accessibility for Eden in System Settings."
                 if seen.helper
                 else "Only a picture went along: the helper that reads the window's title and "
                 "selected text couldn't be built."

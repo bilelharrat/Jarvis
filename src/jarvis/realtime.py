@@ -61,7 +61,7 @@ MAX_MESSAGE = 4 * 1024 * 1024  # bytes of one message from the provider
 
 TOOL_NAME = "ask_jarvis"
 TOOL_DESCRIPTION = (
-    "Ask JARVIS, the owner's assistant on their Mac, to answer or do something. It has the "
+    "Ask Eden, the owner's assistant on their Mac, to answer or do something. It has the "
     "owner's calendar, mail, files, the web and every action, and asks the owner before "
     "anything risky. Use it for anything beyond small talk."
 )
@@ -81,7 +81,7 @@ TOOL_PARAMETERS = {
 def instructions(language: str, address: str = "") -> str:
     """The realtime model's system prompt."""
     lines = [
-        "You are the voice of JARVIS, the owner's assistant on their Mac, in a live spoken "
+        "You are the voice of Eden, the owner's assistant on their Mac, in a live spoken "
         "conversation.",
         "You know nothing about the owner and can do nothing yourself. For anything beyond "
         f"greetings and small talk, call {TOOL_NAME} with the owner's request in their own "
@@ -732,8 +732,8 @@ class Conversation:
                 raise
             except Exception:
                 log.exception("realtime: ask_jarvis failed")
-                result = "JARVIS couldn't do that just now."
-            result = (result or "JARVIS had nothing to add.")[:RESULT_LIMIT]
+                result = "Eden couldn't do that just now."
+            result = (result or "Eden had nothing to add.")[:RESULT_LIMIT]
         self._last = self.clock()
         self._spoke_at = self.clock()
         self._waiting_sound = True

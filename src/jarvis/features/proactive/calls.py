@@ -61,8 +61,8 @@ TEXTS = {
         "正在为通话“{title}”记笔记：你和对方的话都在这台 Mac 上转写。"
     ),
     "Taking notes for {title} with the microphone only: allow Screen Recording for "
-    "J.A.R.V.I.S. in System Settings › Privacy & Security so the notes hear the call too.": (
-        "正在用麦克风为“{title}”记笔记：请在“系统设置 › 隐私与安全性”里允许 J.A.R.V.I.S. "
+    "Eden in System Settings › Privacy & Security so the notes hear the call too.": (
+        "正在用麦克风为“{title}”记笔记：请在“系统设置 › 隐私与安全性”里允许 Eden "
         "录屏，笔记才能听到通话本身。"
     ),
     "Taking notes for {title} with the microphone only: the call's sound couldn't be "
@@ -165,7 +165,7 @@ class Calls:
         if why == "no_permission":
             return self.say(
                 "Taking notes for {title} with the microphone only: allow Screen Recording for "
-                "J.A.R.V.I.S. in System Settings › Privacy & Security so the notes hear the "
+                "Eden in System Settings › Privacy & Security so the notes hear the "
                 "call too.",
                 title=meeting.title,
             )

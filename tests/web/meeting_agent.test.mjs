@@ -9,7 +9,7 @@ const ma = require('../../src/jarvis/web/features/meeting_agent.js');
 test('who spoke reads as You, Them or Jarvis, and nothing else', () => {
   assert.equal(ma.speakerLabel('You'), 'You');
   assert.equal(ma.speakerLabel('Them'), 'Them');
-  assert.equal(ma.speakerLabel('Jarvis'), 'Jarvis');
+  assert.equal(ma.speakerLabel('Jarvis'), 'Eden');
   assert.equal(ma.speakerLabel('<img src=x>'), '');
   assert.equal(ma.speakerLabel(''), '');
 });

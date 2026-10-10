@@ -210,7 +210,7 @@
   "signin-code": {
    "src": "img/signin-code.webp",
    "alt": "The sign-in page showing a QR code and an eight-character code waiting for approval from the iPhone app.",
-   "caption": "Scan the QR code or type the code in the J.A.R.V.I.S. iPhone app.",
+   "caption": "Scan the QR code or type the code in Eden for iPhone.",
    "phone": true
   }
  },
@@ -219,7 +219,7 @@
    "id": "what-is-eden",
    "cat": "start",
    "q": "What is Eden?",
-   "a": "Eden is one chat for many AI models. You type, and Eden sends each message to the model that suits it: quick questions go to fast, cheap models, hard ones to the strongest.\n\nEden also works with your own Mac through the J.A.R.V.I.S. app: your calendar, mail, files and notes, without uploading them.",
+   "a": "Eden is one chat for many AI models. You type, and Eden sends each message to the model that suits it: quick questions go to fast, cheap models, hard ones to the strongest.\n\nEden also works with your own Mac through the Eden app: your calendar, mail, files and notes, without uploading them.",
    "keywords": [
     "about",
     "overview",
@@ -236,7 +236,7 @@
    "id": "where-eden-runs",
    "cat": "start",
    "q": "Where can I use Eden?",
-   "a": "Three places, one account:\n- **askeden.com** in any browser.\n- **The Eden iPhone and iPad app**, which shows the same page.\n- **Eden on your Mac** (it comes with J.A.R.V.I.S.), at http://localhost:5174.\n\nOn askeden.com, Eden runs GPT, Gemini and Kimi on the AI included with your account; Claude needs your own Anthropic API key (Settings › Models & API keys). On your Mac it can use every model you have keys for.",
+   "a": "Three places, one account:\n- **askeden.com** in any browser.\n- **The Eden iPhone and iPad app**, which shows the same page.\n- **Eden on your Mac** (it comes with the Eden app), at http://localhost:5174.\n\nOn askeden.com, Eden runs GPT, Gemini and Kimi on the AI included with your account; Claude needs your own Anthropic API key (Settings › Models & API keys). On your Mac it can use every model you have keys for.",
    "keywords": [
     "web",
     "website",
@@ -430,7 +430,7 @@
    "id": "signin-ways",
    "cat": "signin",
    "q": "How do I sign in to askeden.com?",
-   "a": "Go to **askeden.com/signin** and pick one:\n- **Sign in with Apple**\n- **Sign in with Google**\n- **Approve from your iPhone**: the page shows a code and a QR code; approve it in the J.A.R.V.I.S. iPhone app.\n\nAll three open the same Eden account. There's nothing to sign up for: the first sign-in makes your account, on the free trial. In the Eden iPhone app, **Sign in with Apple** uses Face ID. Already use the J.A.R.V.I.S. iPhone app? Sign in with the same Apple ID to open the same account.",
+   "a": "Go to **askeden.com/signin** and pick one:\n- **Sign in with Apple**\n- **Sign in with Google**\n- **Approve from your iPhone**: the page shows a code and a QR code; approve it in Eden for iPhone.\n\nAll three open the same Eden account. There's nothing to sign up for: the first sign-in makes your account, on the free trial. In the Eden iPhone app, **Sign in with Apple** uses Face ID. Already use Eden for iPhone? Sign in with the same Apple ID to open the same account.",
    "keywords": [
     "sign in",
     "login",
@@ -469,7 +469,7 @@
    "id": "signin-code",
    "cat": "signin",
    "q": "How does signing in with a code from my iPhone work?",
-   "a": "On the sign-in page choose **Approve from your iPhone**. Eden shows an eight-character code and a QR code.\n\nOn your iPhone, open J.A.R.V.I.S. › Settings › Account › **Link a Mac or Approve a Sign-In**, scan the QR or type the code, then tap **Approve Sign-In**. The page signs in by itself. You can also approve from J.A.R.V.I.S. on your Mac (Settings › Account › Approve a sign-in to Eden).",
+   "a": "On the sign-in page choose **Approve from your iPhone**. Eden shows an eight-character code and a QR code.\n\nOn your iPhone, open Eden › Settings › Account › **Link a Mac or Approve a Sign-In**, scan the QR or type the code, then tap **Approve Sign-In**. The page signs in by itself. You can also approve from the Eden app on your Mac (Settings › Account › Approve a sign-in to Eden).",
    "keywords": [
     "code",
     "qr",
@@ -507,7 +507,7 @@
    "id": "sign-out",
    "cat": "signin",
    "q": "How do I sign out, or sign out another browser?",
-   "a": "Settings › **Account** › **Devices** lists every browser and app on your account. Sign out one browser there, or choose **Sign out everywhere**.\n\nApps (iPhone, iPad, Mac) are removed from the J.A.R.V.I.S. app itself. A browser stays signed in for 30 days.",
+   "a": "Settings › **Account** › **Devices** lists every browser and app on your account. Sign out one browser there, or choose **Sign out everywhere**.\n\nApps (iPhone, iPad, Mac) are removed from the Eden app itself. A browser stays signed in for 30 days.",
    "keywords": [
     "sign out",
     "logout",
@@ -597,7 +597,7 @@
    "id": "get-plus",
    "cat": "account",
    "q": "How do I get Plus?",
-   "a": "Two ways, same Plus:\n- **On the web**: your account page › **Get Plus: $20/month** (paid with Stripe).\n- **In the J.A.R.V.I.S. iPhone app**: through the App Store.\n\nInside the Eden iPhone app you'll see \"Get Plus in the J.A.R.V.I.S. iPhone app\" instead, because of Apple's rules.",
+   "a": "Two ways, same Plus:\n- **On the web**: your account page › **Get Plus: $20/month** (paid with Stripe).\n- **In Eden for iPhone**: through the App Store.\n\nInside the Eden iPhone app you'll see \"Get Plus in Eden for iPhone\" instead, because of Apple's rules.",
    "keywords": [
     "buy",
     "upgrade",
@@ -646,7 +646,7 @@
    "id": "delete-account",
    "cat": "account",
    "q": "How do I delete my account?",
-   "a": "Delete it from the J.A.R.V.I.S. app (Settings › Account › Delete Account). Everything goes: devices, sign-in methods, synced chats, published pages and Google access. A web Plus subscription is cancelled at once.",
+   "a": "Delete it from the Eden app (Settings › Account › Delete Account). Everything goes: devices, sign-in methods, synced chats, published pages and Google access. A web Plus subscription is cancelled at once.",
    "keywords": [
     "delete account",
     "remove account",
@@ -958,7 +958,7 @@
    "id": "voice-dictate",
    "cat": "voice",
    "q": "How do I talk instead of typing?",
-   "a": "Press the **microphone** in the box to dictate: say it, read it, then send. Press the **waveform** button for **Talk**: a hands-free conversation in the JARVIS voice that sends when you pause and loops until you press End or Esc. The microphone is only used while one of these is on.\n\nFirefox has no speech recognition, so there Eden records instead (up to 2 minutes) and turns it into text; on askeden.com that counts on your allowance.",
+   "a": "Press the **microphone** in the box to dictate: say it, read it, then send. Press the **waveform** button for **Talk**: a hands-free conversation in the Eden voice that sends when you pause and loops until you press End or Esc. The microphone is only used while one of these is on.\n\nFirefox has no speech recognition, so there Eden records instead (up to 2 minutes) and turns it into text; on askeden.com that counts on your allowance.",
    "keywords": [
     "voice",
     "dictate",
@@ -983,7 +983,7 @@
    "id": "voice-read",
    "cat": "voice",
    "q": "Can Eden read replies aloud?",
-   "a": "Yes: the speaker button on any reply, or Settings › Appearance › **Read replies aloud** for every reply. It uses the JARVIS voice.",
+   "a": "Yes: the speaker button on any reply, or Settings › Appearance › **Read replies aloud** for every reply. It uses the Eden voice.",
    "keywords": [
     "read aloud",
     "speaker",
@@ -1002,7 +1002,7 @@
    "id": "voice-allowance",
    "cat": "voice",
    "q": "Is there a limit on the voice?",
-   "a": "Yes, a daily one in characters: 20,000 a day free, 100,000 with Plus. It resets at midnight UTC. On your Mac, Eden falls back to the Mac's own voice when the day's JARVIS voice is used up.",
+   "a": "Yes, a daily one in characters: 20,000 a day free, 100,000 with Plus. It resets at midnight UTC. On your Mac, Eden falls back to the Mac's own voice when the day's Eden voice is used up.",
    "keywords": [
     "voice limit",
     "allowance",
@@ -1016,7 +1016,7 @@
    "id": "calendar-open",
    "cat": "calendar",
    "q": "Which calendars does Eden show?",
-   "a": "Your Mac's calendars (through J.A.R.V.I.S.) and Google Calendar (connect it in Settings › Accounts). Open **Calendar** in the sidebar or ⌘K: month, week, day and agenda views.",
+   "a": "Your Mac's calendars (through the Eden app) and Google Calendar (connect it in Settings › Accounts). Open **Calendar** in the sidebar or ⌘K: month, week, day and agenda views.",
    "keywords": [
     "calendar",
     "google calendar",
@@ -1065,7 +1065,7 @@
    "id": "calendar-readonly",
    "cat": "calendar",
    "q": "Why can't I change events from my Mac's calendar?",
-   "a": "Changing Mac calendar events needs the newest J.A.R.V.I.S. on your Mac. Update it and restart J.A.R.V.I.S.; until then Mac events are read-only. Google events can be changed once Calendar is connected.",
+   "a": "Changing Mac calendar events needs the newest the Eden app on your Mac. Update it and restart Eden; until then Mac events are read-only. Google events can be changed once Calendar is connected.",
    "keywords": [
     "read only",
     "can't edit",
@@ -1078,7 +1078,7 @@
    "id": "gmail-connect",
    "cat": "mail",
    "q": "How do I connect Gmail?",
-   "a": "Settings › **Accounts** › **Connect Gmail** (and **Connect Calendar** separately). Sign in with Google and allow access. Eden keeps the access encrypted and you can disconnect at any time; that also removes it at Google.\n\nOn your Mac, the Mail panel also shows the Mail app's accounts through J.A.R.V.I.S.",
+   "a": "Settings › **Accounts** › **Connect Gmail** (and **Connect Calendar** separately). Sign in with Google and allow access. Eden keeps the access encrypted and you can disconnect at any time; that also removes it at Google.\n\nOn your Mac, the Mail panel also shows the Mail app's accounts through Eden.",
    "keywords": [
     "gmail",
     "google",
@@ -1155,7 +1155,7 @@
    "id": "mac-link",
    "cat": "mac",
    "q": "How do I connect askeden.com to my Mac?",
-   "a": "Install J.A.R.V.I.S. on your Mac and sign in with the same account. In J.A.R.V.I.S. › Settings › Account, turn on **Eden on the web reaches this Mac**. The status there says Connected, Connecting… or Offline.\n\nThen askeden.com and the Eden iPhone app can use your Mac's files, calendar, mail, notes, local models and Code mode. Only your own signed-in devices can use the link, and your Mac checks every request against a list of allowed actions. Traffic passes through askeden.com without being stored or logged (it isn't end-to-end encrypted yet).",
+   "a": "Install the Eden app on your Mac and sign in with the same account. In Eden › Settings › Account, turn on **Eden on the web reaches this Mac**. The status there says Connected, Connecting… or Offline.\n\nThen askeden.com and the Eden iPhone app can use your Mac's files, calendar, mail, notes, local models and Code mode. Only your own signed-in devices can use the link, and your Mac checks every request against a list of allowed actions. Traffic passes through askeden.com without being stored or logged (it isn't end-to-end encrypted yet).",
    "keywords": [
     "link mac",
     "connect mac",
@@ -1174,8 +1174,8 @@
   {
    "id": "jarvis-approval",
    "cat": "mac",
-   "q": "What is the \"Let Eden use Jarvis?\" card on my Mac?",
-   "a": "The first time Eden asks J.A.R.V.I.S. for something, your Mac shows **Let Eden use Jarvis?**. Click Allow. Eden remembers it, so you won't be asked again after a restart.\n\nWhile the card waits, Eden says **Approve Eden on your Mac**.",
+   "q": "What is the \"Let Eden use your Mac?\" card on my Mac?",
+   "a": "The first time Eden asks the Eden app for something, your Mac shows **Let Eden use your Mac?**. Click Allow. Eden remembers it, so you won't be asked again after a restart.\n\nWhile the card waits, Eden says **Approve Eden on your Mac**.",
    "keywords": [
     "let eden use jarvis",
     "approval",
@@ -1190,7 +1190,7 @@
    "id": "mac-files",
    "cat": "mac",
    "q": "Can Eden read files on my Mac?",
-   "a": "Yes, with **Use my Mac**: Eden searches, reads and summarises files without uploading them anywhere. It's read-only, looks in your home folder by default and never in hidden folders, Library or key files. Choose which folders it may use in J.A.R.V.I.S. › Settings › Eden on your Mac.",
+   "a": "Yes, with **Use my Mac**: Eden searches, reads and summarises files without uploading them anywhere. It's read-only, looks in your home folder by default and never in hidden folders, Library or key files. Choose which folders it may use in Eden › Settings › Eden on your Mac.",
    "keywords": [
     "files",
     "documents",
@@ -1211,7 +1211,7 @@
    "id": "mac-screen",
    "cat": "mac",
    "q": "Can I ask about what's on my Mac's screen?",
-   "a": "Yes: **+** › **Ask about my screen** adds the front window (app, title, its text) to your message. Your Mac asks each time unless screen awareness is on in J.A.R.V.I.S.",
+   "a": "Yes: **+** › **Ask about my screen** adds the front window (app, title, its text) to your message. Your Mac asks each time unless screen awareness is on in Eden.",
    "keywords": [
     "screen",
     "front window",
@@ -1298,7 +1298,7 @@
    "id": "website-task",
    "cat": "day",
    "q": "Can Eden do something on a website for me?",
-   "a": "Yes: ⌘K › **Do this on a website…**. J.A.R.V.I.S.'s browser on your Mac does it and you see every step, with **Stop** at any time. Anything risky (a purchase, a form) waits for your OK on the Mac.",
+   "a": "Yes: ⌘K › **Do this on a website…**. Eden's browser on your Mac does it and you see every step, with **Stop** at any time. Anything risky (a purchase, a form) waits for your OK on the Mac.",
    "keywords": [
     "website",
     "browser",
@@ -1573,7 +1573,7 @@
    "id": "mac-hotkey",
    "cat": "iphone",
    "q": "Is there a shortcut to ask Eden from anywhere on my Mac?",
-   "a": "Yes: **⌃⌥Space** opens Ask Eden. Turn it on in J.A.R.V.I.S. › Settings › This Mac (it's off by default).",
+   "a": "Yes: **⌃⌥Space** opens Ask Eden. Turn it on in Eden › Settings › This Mac (it's off by default).",
    "keywords": [
     "hotkey",
     "mac shortcut",
@@ -1586,7 +1586,7 @@
    "id": "err-mac-offline",
    "cat": "trouble",
    "q": "\"Your Mac is offline\"",
-   "a": "Your account has a Mac linked, but it isn't connected right now. Eden needs it for Jarvis, Code mode, files, mail on the Mac and privacy mode.\n\n**Fix:**\n- Wake the Mac and open **J.A.R.V.I.S.** (with Eden running there).\n- In J.A.R.V.I.S. › Settings › Account, check **Eden on the web reaches this Mac** is on and says Connected.\n- Then try again. Plain chat on askeden.com works without the Mac.",
+   "a": "Your account has a Mac linked, but it isn't connected right now. Eden needs it for the Eden app, Code mode, files, mail on the Mac and privacy mode.\n\n**Fix:**\n- Wake the Mac and open **Eden**.\n- In Eden › Settings › Account, check **Eden on the web reaches this Mac** is on and says Connected.\n- Then try again. Plain chat on askeden.com works without the Mac.",
    "keywords": [
     "mac offline",
     "offline",
@@ -1616,7 +1616,7 @@
    "id": "err-needs-mac",
    "cat": "trouble",
    "q": "\"Needs your Mac\"",
-   "a": "That feature runs on your own Mac (your files, Mail on the Mac, Code mode, API keys, local models), and askeden.com can't reach a Mac for this account.\n\n**Fix:** install J.A.R.V.I.S. on your Mac, sign in with the same account and turn on **Eden on the web reaches this Mac** (Settings › Account). If you don't have a Mac, use the parts that work on the web: chat, Compare, Gmail and Google Calendar.",
+   "a": "That feature runs on your own Mac (your files, Mail on the Mac, Code mode, API keys, local models), and askeden.com can't reach a Mac for this account.\n\n**Fix:** install the Eden app on your Mac, sign in with the same account and turn on **Eden on the web reaches this Mac** (Settings › Account). If you don't have a Mac, use the parts that work on the web: chat, Compare, Gmail and Google Calendar.",
    "keywords": [
     "needs your mac",
     "no mac",
@@ -1641,7 +1641,7 @@
    "id": "err-approve-mac",
    "cat": "trouble",
    "q": "\"Approve Eden on your Mac\"",
-   "a": "J.A.R.V.I.S. on your Mac is showing **Let Eden use Jarvis?** and waiting for you. Eden can't read your calendar, mail or notes until you allow it.\n\n**Fix:** go to the Mac and click **Allow** on that card. If you said no by mistake, just try again: the card comes back.",
+   "a": "the Eden app on your Mac is showing **Let Eden use your Mac?** and waiting for you. Eden can't read your calendar, mail or notes until you allow it.\n\n**Fix:** go to the Mac and click **Allow** on that card. If you said no by mistake, just try again: the card comes back.",
    "keywords": [
     "approve eden on your mac",
     "let eden use jarvis",
@@ -1651,7 +1651,7 @@
    ],
    "messages": [
     "Approve Eden on your Mac",
-    "Let Eden use Jarvis?",
+    "Let Eden use your Mac?",
     "Waiting for you on your Mac",
     "Waiting for your OK on your Mac",
     "You said no on your Mac, so nothing changed",
@@ -1662,8 +1662,8 @@
   {
    "id": "err-jarvis-not-running",
    "cat": "trouble",
-   "q": "\"Jarvis is not running on this Mac\"",
-   "a": "Eden on your Mac talks to the J.A.R.V.I.S. app for calendar, mail, memory and files, and it isn't open (or is too old).\n\n**Fix:** open J.A.R.V.I.S. If it's open, quit and reopen it. If Eden says Jarvis \"sent something Eden can't read\" or a tool is missing, update J.A.R.V.I.S. and restart it.",
+   "q": "\"Eden is not running on this Mac\"",
+   "a": "Eden on your Mac talks to the Eden app for calendar, mail, memory and files, and it isn't open (or is too old).\n\n**Fix:** open Eden. If it's open, quit and reopen it. If Eden says Eden \"sent something Eden can't read\" or a tool is missing, update Eden and restart it.",
    "keywords": [
     "jarvis not running",
     "jarvis app",
@@ -1673,19 +1673,19 @@
     "jarvis didn't answer"
    ],
    "messages": [
-    "Jarvis is not running on this Mac",
-    "Jarvis isn’t reachable on your Mac",
-    "The Jarvis app didn’t answer",
-    "Jarvis sent something Eden can’t read",
-    "Your Jarvis app is from before",
-    "Jarvis has no tool called"
+    "Eden is not running on this Mac",
+    "Eden isn’t reachable on your Mac",
+    "The Eden app didn’t answer",
+    "Eden sent something Eden can’t read",
+    "Your Eden app is from before",
+    "Eden has no tool called"
    ]
   },
   {
    "id": "err-privacy-offline",
    "cat": "trouble",
    "q": "\"Privacy mode needs your Mac\" or \"Turn on Ollama or LM Studio\"",
-   "a": "A private chat is answered only by a local model on your Mac, and none is reachable. Nothing was sent.\n\n**Fix:**\n- On askeden.com: open J.A.R.V.I.S. on your linked Mac.\n- On the Mac: start **Ollama** or **LM Studio** and load a chat model.\n- Or press **Private** again to turn privacy off for this chat.",
+   "a": "A private chat is answered only by a local model on your Mac, and none is reachable. Nothing was sent.\n\n**Fix:**\n- On askeden.com: open Eden on your linked Mac.\n- On the Mac: start **Ollama** or **LM Studio** and load a chat model.\n- Or press **Private** again to turn privacy off for this chat.",
    "keywords": [
     "privacy mode",
     "ollama",
@@ -1729,7 +1729,7 @@
     "new chat"
    ],
    "messages": [
-    "The free trial of Jarvis AI is used up",
+    "The free trial of Eden AI is used up",
     "AI allowance is used up",
     "No included AI is left",
     "no_allowance",
@@ -1895,7 +1895,7 @@
    "id": "err-code-expired",
    "cat": "trouble",
    "q": "\"That code ran out\"",
-   "a": "Sign-in codes last about 10 minutes, and each works once.\n\n**Fix:** press **Get a new code** and approve it in the J.A.R.V.I.S. iPhone app within a few minutes. If it says \"Turned down in the app\", someone pressed Deny there: get a new code.",
+   "a": "Sign-in codes last about 10 minutes, and each works once.\n\n**Fix:** press **Get a new code** and approve it in Eden for iPhone within a few minutes. If it says \"Turned down in the app\", someone pressed Deny there: get a new code.",
    "keywords": [
     "code expired",
     "code ran out",
@@ -2007,7 +2007,7 @@
    "id": "err-mac-mail",
    "cat": "trouble",
    "q": "\"Mail on your Mac can't attach files\" (or Bcc, or schedule)",
-   "a": "Mail on your Mac (through J.A.R.V.I.S.) sends plain text only: one To, no Bcc, attachments or scheduling.\n\n**Fix:** switch **From** to your Gmail account in the compose window.",
+   "a": "Mail on your Mac (through the Eden app) sends plain text only: one To, no Bcc, attachments or scheduling.\n\n**Fix:** switch **From** to your Gmail account in the compose window.",
    "keywords": [
     "mac mail",
     "can't attach",

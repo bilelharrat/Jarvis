@@ -216,7 +216,7 @@ test('the menu follows the state: status line, Mute or Unmute, hands-free ticked
   const on = lib.normalizeState({ state: 'speaking', online: true, muted: true, handsFree: true, pausedUntil: 10_000 });
   const menu = lib.trayTemplate(on, L, act, { now: 5_000, ask: 'Alt+Space' });
   const labels = menu.map((m) => m.label || '—');
-  assert.deepEqual(labels, ['Speaking…', '—', 'Ask…', '—', 'Unmute', 'Hands-free', 'Heads-ups paused until 3:40 PM', 'Resume heads-ups', '—', 'Open J.A.R.V.I.S.', 'Eden Code', '—', 'Quit J.A.R.V.I.S.']);
+  assert.deepEqual(labels, ['Speaking…', '—', 'Ask…', '—', 'Unmute', 'Hands-free', 'Heads-ups paused until 3:40 PM', 'Resume heads-ups', '—', 'Open Eden', 'Eden Code', '—', 'Quit Eden']);
   assert.equal(menu[0].enabled, false);
   assert.equal(menu[2].accelerator, 'Alt+Space');
   assert.equal(menu[2].registerAccelerator, false, 'shown, never a second registration');
@@ -239,9 +239,9 @@ test('the menu follows the state: status line, Mute or Unmute, hands-free ticked
 test('the window’s labels and reports are taken only in their expected shapes', () => {
   const L = lib.mergeLabels({ mute: '静音', quit: 'x'.repeat(500), nope: 'ignored', ask: 'A\nB', open: 5 });
   assert.equal(L.mute, '静音');
-  assert.equal(L.quit, 'Quit J.A.R.V.I.S.');
+  assert.equal(L.quit, 'Quit Eden');
   assert.equal(L.ask, 'A B');
-  assert.equal(L.open, 'Open J.A.R.V.I.S.');
+  assert.equal(L.open, 'Open Eden');
   assert.equal('nope' in L, false);
   assert.deepEqual(lib.normalizeState({ state: 'dancing', online: 'yes', pausedUntil: 'soon', menuBar: 0 }),
     { state: 'idle', online: false, muted: false, handsFree: false, pausedUntil: 0, menuBar: true });
@@ -267,7 +267,7 @@ test('the icon shows the state the window reports, as a template image at both s
   t.report({ state: 'listening', online: true, labels: { listening: '正在聆听…' } });
   assert.notEqual(tray.image, idleImage);
   assert.equal(tray.menu.template[0].label, '正在聆听…');
-  assert.match(tray.tip, /J\.A\.R\.V\.I\.S\. · 正在聆听…/);
+  assert.match(tray.tip, /Eden · 正在聆听…/);
   // Something other than the window can't report.
   t.ctx.ipcMain.emit('feature:shell:state', { sender: {} }, { state: 'speaking', online: true });
   assert.equal(tray.menu.template[0].label, '正在聆听…');
@@ -332,7 +332,7 @@ test('a yes-or-no card gets its own two buttons; a purchase, a plan or a questio
   assert.deepEqual(unlabelled.actions, ['Allow', 'Not now']);
   const purchase = lib.approvalNotice(lib.normalizeApproval(card('a3', { askKind: 'purchase', question: 'Buy the headphones for $99?', detail: '', choices: [{ id: 'allow', label: 'Confirm purchase' }, { id: 'deny', label: 'Cancel' }] })), L);
   assert.deepEqual(purchase.actions, []);
-  assert.equal(purchase.body, 'Buy the headphones for $99?\nSay “confirm purchase”, or confirm it in J.A.R.V.I.S.');
+  assert.equal(purchase.body, 'Buy the headphones for $99?\nSay “confirm purchase”, or confirm it in Eden');
   const plan = lib.approvalNotice(lib.normalizeApproval(card('a4', { choices: [{ id: 'plan_edits', label: 'Go' }, { id: 'plan_keep', label: 'Keep planning' }] })), L);
   assert.deepEqual(plan.actions, []);
   const shortcut = lib.approvalNotice(lib.normalizeApproval(card('a5', { choices: [{ id: 'allow', label: 'Run' }, { id: 'always', label: 'Always' }, { id: 'deny', label: 'Not now' }] })), L);
@@ -884,9 +884,9 @@ test('the test window and a build from source never write a Quick Action', () =>
 test('the app’s first menu has JARVIS’s places; Edit is the standard one', () => {
   const acted = [];
   const menu = lib.appMenuTemplate(lib.mergeLabels(), (name) => acted.push(name), 'darwin');
-  assert.deepEqual(menu.map((m) => m.label), ['J.A.R.V.I.S.', 'Edit', 'View', 'Window']);
+  assert.deepEqual(menu.map((m) => m.label), ['Eden', 'Edit', 'View', 'Window']);
   const first = menu[0].submenu.filter((i) => i.type !== 'separator');
-  assert.deepEqual(first.map((i) => i.label), ['About J.A.R.V.I.S.', 'Settings…', 'Eden Code', 'Browser', 'History', 'Bookmarks', 'Services', 'Hide J.A.R.V.I.S.', 'Hide Others', 'Show All', 'Quit J.A.R.V.I.S.']);
+  assert.deepEqual(first.map((i) => i.label), ['About Eden', 'Settings…', 'Eden Code', 'Browser', 'History', 'Bookmarks', 'Services', 'Hide Eden', 'Hide Others', 'Show All', 'Quit Eden']);
   assert.deepEqual(first.filter((i) => i.accelerator).map((i) => [i.label, i.accelerator]), [
     ['Settings…', 'Command+,'], ['Eden Code', 'Shift+Command+J'], ['Browser', 'Shift+Command+B'], ['History', 'Command+Y'], ['Bookmarks', 'Alt+Command+B'],
   ]);

@@ -75,7 +75,7 @@ struct LiveCameraView: View {
             .padding(.vertical, 6)
             .glassCard(cornerRadius: 14)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("One frame goes to Jarvis only when you ask")
+            .accessibilityLabel("One frame goes to Eden only when you ask")
         }
         .padding(.top, Space.xs)
     }
@@ -85,7 +85,7 @@ struct LiveCameraView: View {
             Image(systemName: "camera.fill")
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(.white.opacity(0.8))
-            Text(LiveCamera.available ? "The camera is off for J.A.R.V.I.S." : "This device has no camera.")
+            Text(LiveCamera.available ? "The camera is off for Eden." : "This device has no camera.")
                 .font(.title3.weight(.medium))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
@@ -126,7 +126,7 @@ struct LiveCameraView: View {
             .padding(Space.m)
             .glassCard(cornerRadius: 18)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Jarvis: \(reply)")
+            .accessibilityLabel("Eden: \(reply)")
         case .note(let text):
             Label(text, systemImage: "clock")
                 .font(.subheadline)
@@ -182,7 +182,7 @@ struct LiveCameraView: View {
                 }
                 .buttonStyle(CircleGlassButtonStyle(tint: Palette.cyan))
                 .disabled(phase == .sending || question.trimmed.isEmpty)
-                .accessibilityLabel("Ask Jarvis")
+                .accessibilityLabel("Ask Eden")
             }
         }
     }

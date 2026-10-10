@@ -20,7 +20,7 @@
     const words = el('span');
     words.append(
       el('strong', '', 'Nudge when they go quiet'),
-      el('small', '', 'One short, polite follow-up after Jarvis’s last message, shown to you before it goes like any other'),
+      el('small', '', 'One short, polite follow-up after Eden’s last message, shown to you before it goes like any other'),
     );
     select = el('select');
     select.id = 'delegate-nudge';

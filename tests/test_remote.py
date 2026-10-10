@@ -79,7 +79,7 @@ class FakeHub:
 def test_the_api_needs_a_paired_token_and_allows_only_a_few_commands(tmp_path):
     hub, devices = FakeHub(), Devices(tmp_path / "devices.json")
     client = TestClient(create_remote_app(hub, devices))
-    assert "J.A.R.V.I.S." in client.get("/").text
+    assert "Eden" in client.get("/").text
     assert client.get("/remote.js").status_code == 200
     assert client.get("/static/app.js").status_code == 404  # nothing else from the app
     assert client.get("/api/state").status_code == 401
@@ -210,7 +210,7 @@ async def test_the_companion_is_announced_while_it_listens(tmp_path, monkeypatch
     assert calls == [
         (
             "start",
-            "J.A.R.V.I.S. on Test-Mac",
+            "Eden on Test-Mac",
             "_jarvis._tcp",
             server.port,
             b"\x13host=Test-Mac.local\x05tls=1" + bytes([3 + len(short)]) + f"fp={short}".encode(),

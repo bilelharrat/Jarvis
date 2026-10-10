@@ -124,7 +124,7 @@ const MAC_LINK = /^\/api\/web\/mac-link\/([^/]+)(?:\/(approve|deny))?$/;
 export async function web(request, env, ctx, path) {
   const method = request.method;
   try {
-    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Jarvis accounts are not set up here yet.');
+    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden accounts are not set up here yet.');
     if (path === '/api/web/config' && method === 'GET') return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env) });
     if (path === '/api/web/passkey/options' && method === 'POST') return await passkeyOptions(request, env);
     if (path === '/api/web/passkey/verify' && method === 'POST') return await passkeyVerify(request, env);
@@ -373,9 +373,9 @@ async function linkMac(request, env, rawCode, action) {
   const who = await signedIn(request, env);
   await limited(env, 'LINK_RATE', `look:${who.account}`);
   const code = cleanCode(safeDecode(rawCode));
-  if (!code) throw new ApiError(404, 'not_found', 'That isn’t a code from J.A.R.V.I.S. on your Mac. It has eight letters and numbers, like K7QM-4ZTR.');
+  if (!code) throw new ApiError(404, 'not_found', 'That isn’t a code from the Eden app on your Mac. It has eight letters and numbers, like K7QM-4ZTR.');
   const link = (await callLink(env, code, 'peek')).body;
-  if (link.kind !== 'mac') throw new ApiError(403, 'not_a_mac', 'That code is for a browser’s sign-in, not a Mac. Approve it in the J.A.R.V.I.S. app.');
+  if (link.kind !== 'mac') throw new ApiError(403, 'not_a_mac', 'That code is for a browser’s sign-in, not a Mac. Approve it in the Eden app.');
   if (action === 'deny') {
     await callLink(env, code, 'deny');
     return noContent();

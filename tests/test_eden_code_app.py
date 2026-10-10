@@ -110,7 +110,7 @@ def test_eden_code_s_page_is_the_same_page_marked_for_eden_code(client):
     assert '<body data-app="eden-code" class="eden-code" data-state="idle"' in page
     assert "/static/eden-code.css" in page
     jarvis = client.get("/").text
-    assert "<title>Jarvis</title>" in jarvis and 'data-app="eden-code"' not in jarvis
+    assert "<title>Eden</title>" in jarvis and 'data-app="eden-code"' not in jarvis
 
 
 def test_eden_code_wears_ask_eden_s_look_whatever_jarvis_wears(client):
@@ -155,11 +155,11 @@ def test_windows_say_which_app_they_are(client):
 
 def test_daredevil_s_page_is_named_marked_and_in_its_colours_from_the_first_paint(client):
     page = client.get("/?edition=daredevil").text
-    assert "<title>J.A.R.V.I.S. Daredevil</title>" in page
+    assert "<title>Eden Daredevil</title>" in page
     assert '<html lang="en" data-contrast="yellow">' in page
     assert '<body data-edition="daredevil" data-state="idle"' in page
     plain = client.get("/").text
-    assert "<title>Jarvis</title>" in plain and "data-edition" not in plain and "data-contrast" not in plain
+    assert "<title>Eden</title>" in plain and "data-edition" not in plain and "data-contrast" not in plain
     # a word that isn't the edition is no edition
     assert "data-edition" not in client.get("/?edition=other").text
 
@@ -191,7 +191,7 @@ def test_edition_colors_are_a_known_pairing_or_nothing():
 def test_daredevil_page_marks_only_the_first_body():
     html = '<html lang="en"><title>Jarvis</title><body data-state="idle"><p>a <body x></p>'
     out = daredevil_page(html)
-    assert out.count('data-edition="daredevil"') == 1 and "<title>J.A.R.V.I.S. Daredevil</title>" in out
+    assert out.count('data-edition="daredevil"') == 1 and "<title>Eden Daredevil</title>" in out
     assert out.count("data-contrast") == 1
 
 

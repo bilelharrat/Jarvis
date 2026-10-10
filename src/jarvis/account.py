@@ -74,7 +74,7 @@ _CODE = re.compile(r"[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}")
 NOT_A_CODE = "That isn't a sign-in code. It has eight letters and numbers, like K7QM-4ZTR."
 NOTHING_WAITING = "Nothing is waiting with that code. Check it, or get a new one in the browser."
 CODE_EXPIRED = "That code expired. Get a new one in the browser."
-MAC_CODE = "That code is for linking a Mac: approve it in the J.A.R.V.I.S. app on your iPhone."
+MAC_CODE = "That code is for linking a Mac: approve it in the Eden app on your iPhone."
 
 
 def normalize_code(text: Any) -> str | None:
@@ -445,7 +445,7 @@ class Account:
         if auth:
             await self.load()
             if not self.token:
-                raise SignedOut(401, "signed_out", "This Mac isn't linked to a Jarvis account.")
+                raise SignedOut(401, "signed_out", "This Mac isn't linked to an Eden account.")
             headers["Authorization"] = f"Bearer {self.token}"
         try:
             response = await self._http().request(

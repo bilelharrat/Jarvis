@@ -79,7 +79,7 @@ def test_to_simplified():
     assert lang.to_simplified("") == "" and lang.to_simplified(None) == ""
     # Full-width letters and digits, as some Chinese input writes them.
     assert lang.to_simplified("ＪＡＲＶＩＳ，下跌０．７７％") == "JARVIS，下跌0.77%"
-    assert lang.find_wake_zh("ｊａｒｖｉｓ，打开浏览器") == (True, "打开浏览器")
+    assert lang.find_wake_zh("ｅｄｅｎ，打开浏览器") == (True, "打开浏览器")
     assert lang.spoken_numbers_zh(lang.to_simplified("下跌０．７７％")) == "下跌百分之零点七七"
 
 
@@ -104,34 +104,31 @@ def test_words_and_cjk():
 @pytest.mark.parametrize(
     ("said", "command"),
     [
-        ("贾维斯，今天天气怎么样？", "今天天气怎么样"),
-        ("今天天气怎么样，贾维斯？", "今天天气怎么样"),
-        ("贾维斯", ""),
-        ("贾维斯。", ""),
-        ("嘿贾维斯", ""),
-        ("嘿，贾维斯", ""),
-        ("喂 贾维斯", ""),
-        ("你好，贾维斯。打开浏览器", "打开浏览器"),
-        ("哈喽贾维斯，现在几点", "现在几点"),
-        ("好的贾维斯，关灯", "关灯"),
-        ("加维斯，放点音乐", "放点音乐"),
-        ("贾维思，放点音乐", "放点音乐"),
-        ("杰维斯，放点音乐", "放点音乐"),
-        ("嘉维斯，放点音乐", "放点音乐"),
-        ("佳维斯，放点音乐", "放点音乐"),
-        ("賈維斯，打開瀏覽器", "打开浏览器"),  # Traditional, as Whisper sometimes writes it
-        ("Jarvis，打开浏览器", "打开浏览器"),
-        ("JARVIS 打开浏览器", "打开浏览器"),
-        ("嘿 Travis，打开浏览器", "打开浏览器"),  # a greeted mishearing, as in English
-        ("贾维斯贾维斯，打开浏览器", "打开浏览器"),
-        ("贾维斯，打开贾维斯代码", "打开贾维斯代码"),
-        ("把音乐关了贾维斯", "把音乐关了"),
-        ("我说贾维斯，关灯", "我说，关灯"),
-        ("贾维斯你好", "你好"),
+        ("伊甸，今天天气怎么样？", "今天天气怎么样"),
+        ("今天天气怎么样，伊甸？", "今天天气怎么样"),
+        ("伊甸", ""),
+        ("伊甸。", ""),
+        ("嘿伊甸", ""),
+        ("嘿，伊甸", ""),
+        ("喂 伊甸", ""),
+        ("你好，伊甸。打开浏览器", "打开浏览器"),
+        ("哈喽伊甸，现在几点", "现在几点"),
+        ("好的伊甸，关灯", "关灯"),
+        ("伊登，放点音乐", "放点音乐"),
+        ("依甸，放点音乐", "放点音乐"),
+        ("依登，放点音乐", "放点音乐"),
+        ("Eden，打开浏览器", "打开浏览器"),
+        ("EDEN 打开浏览器", "打开浏览器"),
+        ("嘿 Aiden，打开浏览器", "打开浏览器"),  # a greeted mishearing, as in English
+        ("伊甸伊甸，打开浏览器", "打开浏览器"),
+        ("伊甸，打开伊甸代码", "打开伊甸代码"),
+        ("把音乐关了伊甸", "把音乐关了"),
+        ("我说伊甸，关灯", "我说，关灯"),
+        ("伊甸你好", "你好"),
         # The panel's name after the wake word stays whole, as wake.find_wake keeps it.
-        ("贾维斯，Eden Code 做完了吗？", "Eden Code 做完了吗"),
-        ("嘿贾维斯，贾维斯代码好了没有", "贾维斯代码好了没有"),
-        ("Jarvis，Eden Code 在跑吗", "Eden Code 在跑吗"),
+        ("伊甸，Eden Code 做完了吗？", "Eden Code 做完了吗"),
+        ("嘿伊甸，伊甸代码好了没有", "伊甸代码好了没有"),
+        ("Eden，Eden Code 在跑吗", "Eden Code 在跑吗"),
     ],
 )
 def test_wakes_in_mandarin(said, command):
@@ -143,14 +140,15 @@ def test_wakes_in_mandarin(said, command):
     "said",
     [
         "今天天气怎么样",
-        "贾维斯代码完成了",  # Eden Code, the panel: its own heads-up, never a wake word
+        "伊甸代码完成了",  # Eden Code, the panel: its own heads-up, never a wake word
         "Eden Code 在项目里完成了",
-        "打开贾维斯代码",
-        "参加维斯塔的发布会",  # 加维斯 inside 参加维斯塔
-        "大家维斯",
-        "我们去拉斯维加斯吧",
-        "Travis来了",
-        "贾维",
+        "打开伊甸代码",
+        "伊甸园里有很多树",  # the Garden of Eden
+        "Eden Messenger 有新消息",
+        "我们去瑞典吧",
+        "Aiden来了",
+        "贾维斯，打开浏览器",  # the name before the rename
+        "伊",
         "",
     ],
 )
@@ -159,20 +157,20 @@ def test_similar_words_do_not_wake(said):
 
 
 ENGLISH_SAID = [
-    "Jarvis, what's on my calendar?",
-    "hey jarvis play some music",
-    "Jarvis.",
-    "What's the weather, Jarvis?",
-    "Okay Jarvis turn it up",
-    "hey Jarvis",
+    "Eden, what's on my calendar?",
+    "hey eden play some music",
+    "Eden.",
+    "What's the weather, Eden?",
+    "Okay Eden turn it up",
+    "hey Eden",
     "what time is it",
-    "Jarim Vis, remind me to call Sam at 9.",
-    "What's the weather like today, Jaren Vist?",
-    "Jari ves,",
-    "Jervis play music",
-    "Travis is coming over",
-    "Hey Travis, turn the lights off.",
+    "E den, remind me to call Sam at 9.",
+    "E den,",
+    "Jarvis, play music",
+    "Aiden is coming over",
+    "Hey Aiden, turn the lights off.",
     "Eden Code finished in bsh-research-center.",
+    "open Ask Eden",
     "Stop.",
     "okay stop",
     "stop the music in the kitchen and turn off the lights",
@@ -192,14 +190,13 @@ def test_english_is_untouched_in_both_modes(said):
 
 
 def test_speakable_safely_never_says_the_wake_word():
-    assert lang.speakable_safely_zh("贾维斯代码在项目里完成了") == "编程助手在项目里完成了"
-    assert lang.speakable_safely_zh("要启动 Jarvis Code 吗？") == "要启动 编程助手 吗？"
-    # Eden Code (Jarvis Code's name now) has no wake word in it: said as it is
+    # Eden Code, the panel, is said as it is (it never wakes it), however it was written
+    assert lang.speakable_safely_zh("伊甸代码在项目里完成了") == "Eden Code在项目里完成了"
     assert lang.speakable_safely_zh("要启动 Eden Code 吗？") == "要启动 Eden Code 吗？"
     assert lang.speakable_safely_zh("我是J.A.R.V.I.S.，你好") == "我是助手，你好"
-    assert lang.speakable_safely_zh("嘉维斯说好") == "助手说好"
-    assert lang.speakable_safely_zh("Jarvis says hi") == "助手 says hi"
-    for text in ("贾维斯", "加维斯来了", "賈維斯", "Hey Jarvis", "Jervis 你好"):
+    assert lang.speakable_safely_zh("伊登说好") == "助手说好"
+    assert lang.speakable_safely_zh("Eden says hi") == "助手 says hi"
+    for text in ("伊甸", "伊登来了", "Hey Eden", "Eden 你好"):
         spoken = lang.speakable_safely_zh(text)
         assert spoken is not None and not lang.find_wake_zh(spoken)[0], text
 
@@ -231,8 +228,8 @@ def test_not_mandarin_stops(said):
     "said",
     ["好", "好的", "好啊", "好吧", "行", "可以", "可以的", "是", "是的", "对", "对的", "没错", "确认",
      "确定", "发送", "发", "发吧", "发出去", "没问题", "当然可以", "没意见", "好的，谢谢", "那就发吧",
-     "嗯，好的", "不错，发吧", "OK，发吧", "贾维斯，好的", "好的，发吧，谢谢", "我不介意",
-     "没有问题", "没什么问题", "没啥问题", "没毛病", "yes，发吧", "Jarvis，OK"],
+     "嗯，好的", "不错，发吧", "OK，发吧", "伊甸，好的", "好的，发吧，谢谢", "我不介意",
+     "没有问题", "没什么问题", "没啥问题", "没毛病", "yes，发吧", "Eden，OK"],
 )  # fmt: skip
 def test_mandarin_yes(said):
     assert lang.yes_no_zh(said) is True, said
@@ -326,7 +323,7 @@ QUESTION = {
         (SEND, "发吧", ("allow", "")),
         (SEND, "发送", ("allow", "")),
         (SEND, "好的，谢谢", ("allow", "")),
-        (SEND, "贾维斯，发吧", ("allow", "")),
+        (SEND, "伊甸，发吧", ("allow", "")),
         (SEND, "好，先别发", ("deny", "")),
         (SEND, "不要，改成明天见", ("deny", "改成明天见")),
         (SEND, "可以，但是加上表情", ("deny", "加上表情")),
@@ -693,7 +690,7 @@ RESEARCH_PAIRS = [
     ("点击 earnings", "click earnings"),
     ("点击 Generate memo 按钮", "press the generate memo button"),
     ("请帮我往下滚动一下吧", "scroll down"),
-    ("贾维斯，往下滚", "scroll down"),
+    ("伊甸，往下滚", "scroll down"),
     ("打開報告", "open reports"),
 ]
 
@@ -783,7 +780,7 @@ UI_PAIRS = [
     ("关闭手势控制", "stop hand tracking"),
     ("手势控制关", "hands off"),
     ("打開瀏覽器", "open the browser"),
-    ("贾维斯，打开浏览器吧", "open the browser"),
+    ("伊甸，打开浏览器吧", "open the browser"),
     ("切换到白色模式", "switch to white mode"),
     ("浅色模式", "light mode"),
     ("深色模式", "use the dark theme"),
@@ -903,15 +900,15 @@ def test_transcribe_options():
     # English: never the wake word as a hotword (Whisper then dropped it from the start of
     # a request); learned words stay.
     assert lang.transcribe_options("en") == {"language": "en"}
-    assert lang.transcribe_options("en", "Jarvis") == {"language": "en"}
+    assert lang.transcribe_options("en", "Eden") == {"language": "en"}
     assert lang.transcribe_options("en", "useState") == {"language": "en", "hotwords": "useState"}
-    assert lang.transcribe_options("en", "Jarvis Okin Hormuz") == {
+    assert lang.transcribe_options("en", "Eden Okin Hormuz") == {
         "language": "en",
         "hotwords": "Okin Hormuz",
     }
     zh = lang.transcribe_options("zh")
-    assert zh == {"language": "zh", "initial_prompt": lang.ZH_INITIAL_PROMPT, "hotwords": "贾维斯"}
-    assert "简体" in zh["initial_prompt"] and "贾维斯" not in zh["initial_prompt"]
+    assert zh == {"language": "zh", "initial_prompt": lang.ZH_INITIAL_PROMPT, "hotwords": "伊甸"}
+    assert "简体" in zh["initial_prompt"] and "伊甸" not in zh["initial_prompt"]
     assert lang.transcribe_options("zh", "useState")["hotwords"] == "useState"
 
 
@@ -1597,14 +1594,15 @@ def test_personas_in_chinese():
     from jarvis.prefs import PERSONAS
 
     assert set(lang.ZH_PERSONAS) == set(PERSONAS)
-    assert all(
-        lang.has_cjk(name) and lang.has_cjk(desc) for name, desc in lang.ZH_PERSONAS.values()
+    assert all(  # Eden keeps its Latin name in Chinese too
+        (lang.has_cjk(name) or name == "Eden") and lang.has_cjk(desc)
+        for name, desc in lang.ZH_PERSONAS.values()
     )
     name, persona = lang.persona_for_prompt("jarvis", "zh")
-    assert name == "JARVIS" and persona == lang.ZH_PERSONAS["jarvis"][1]  # never 贾维斯 in a prompt
+    assert name == "Eden" and persona == lang.ZH_PERSONAS["jarvis"][1]  # the Latin name in a prompt
     assert lang.persona_for_prompt("tars", "en") == PERSONAS["tars"]
-    assert lang.persona_for_prompt("nobody", "zh")[0] == "JARVIS"
-    assert lang.personas_payload("zh")[0] == {"id": "jarvis", "name": "贾维斯"}
+    assert lang.persona_for_prompt("nobody", "zh")[0] == "Eden"
+    assert lang.personas_payload("zh")[0] == {"id": "jarvis", "name": "Eden"}
     assert lang.personas_payload("en") == [{"id": k, "name": v[0]} for k, v in PERSONAS.items()]
 
 
@@ -1612,7 +1610,7 @@ def test_reply_instruction():
     assert lang.reply_instruction("en") == "" and lang.reply_instruction("fr") == ""
     text = lang.reply_instruction("zh")
     assert text.startswith("\n\nLanguage:")
-    for needle in ("Simplified Chinese", "简体", "贾维斯", "0.77%", "两", "NVDA", "No markdown"):
+    for needle in ("Simplified Chinese", "简体", "伊甸", "0.77%", "两", "NVDA", "No markdown"):
         assert needle in text, needle
 
 
@@ -1687,7 +1685,7 @@ def test_feature_names_match_the_hub():
         ("code", "进入编程模式", True),
         ("code", "打开 Eden Code", True),
         ("code", "和我一起改这个项目", True),
-        ("code", "贾维斯，我们来编程吧", True),
+        ("code", "伊甸，我们来编程吧", True),
         ("code", "代码写得怎么样", False),
         ("code", "开始编程", True),
         ("code", "编程模式", True),
@@ -1731,8 +1729,8 @@ def test_ask_patterns_stay_fast_on_repetition():
         "可不可以",
         "帮我",
         "你",
-        "贾维斯，",
-        "jarvis ",
+        "伊甸，",
+        "eden ",
         "请",
     ]
     texts = [unit * 40 + "吃饭" for unit in leads]
@@ -1750,9 +1748,9 @@ def test_ask_patterns_stay_fast_on_repetition():
 # ── robustness ──
 
 _NOISE = list(
-    "贾维斯加嘉停不别好是对发送取消算了往下上滚翻页顶底返回放大缩小关闭打开点击设置浏览器代码手势"
+    "伊甸登贾维斯加嘉停不别好是对发送取消算了往下上滚翻页顶底返回放大缩小关闭打开点击设置浏览器代码手势"
     "，。！？、；：…“”（）0123456789.,:;!?%$°CF -—\n賈維開關滾ｊ０％"
-) + ["Jarvis", "Travis", "hey", "OK", "no", "yes", "stop", "PM", "万", "亿", "个", "第"]
+) + ["Eden", "Aiden", "Jarvis", "hey", "OK", "no", "yes", "stop", "PM", "万", "亿", "个", "第"]
 
 
 def _noise(rng, most: int) -> str:

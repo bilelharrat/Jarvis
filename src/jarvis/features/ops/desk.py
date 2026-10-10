@@ -591,7 +591,7 @@ class Ops:
             inside = folder.resolve()
             data = self.data.resolve()
             if inside == data or data in inside.parents:
-                raise backup.BackupError("Choose a folder outside Jarvis's data folder.")
+                raise backup.BackupError("Choose a folder outside Eden's data folder.")
         knowledge = bool(self.hub.prefs.feature("ops_backup_knowledge"))
         async with self._lock():
             made = await asyncio.to_thread(
@@ -805,7 +805,7 @@ class Ops:
 
         @tool(
             "run_checkup",
-            "Run Jarvis's own checkup: macOS permissions, the Claude sign-in, the speech "
+            "Run Eden's own checkup: macOS permissions, the Claude sign-in, the speech "
             "model, disk space, errors in the log, the indexes, accounts and backups. Returns "
             "a short summary. Use it when the user asks for a checkup, a health check or "
             "whether everything is working. It only looks: it changes nothing.",

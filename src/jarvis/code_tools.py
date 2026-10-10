@@ -61,7 +61,7 @@ def browser_tools(call: BrowserCall, session: browser_agent.CodeSession | None =
 
     @tool(
         "browser_open",
-        "Open a URL in the J.A.R.V.I.S. built-in browser (the user watches it), in this "
+        "Open a URL in the Eden built-in browser (the user watches it), in this "
         "session's own tab: to try the web app you're building, e.g. http://localhost:5173. "
         "new_tab: true for another tab; background: true to keep it behind the tab on show.",
         {

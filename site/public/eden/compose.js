@@ -1384,7 +1384,7 @@ class Compose {
 
   /* ---------- attachments ---------- */
   pickFiles() {
-    if (!this.caps.attach) { toast('Mail on your Mac can’t attach files through Jarvis. Switch From to Gmail to attach.'); return; }
+    if (!this.caps.attach) { toast('Mail on your Mac can’t attach files through Eden. Switch From to Gmail to attach.'); return; }
     this.file.click();
   }
   totalBytes() {
@@ -1396,7 +1396,7 @@ class Compose {
   addAtt(a) { this.atts.push(a); this.upload(a); return a; }
   async addFiles(files) {
     if (!files.length) return;
-    if (!this.caps.attach) { toast('Mail on your Mac can’t attach files through Jarvis. Switch From to Gmail to attach.'); return; }
+    if (!this.caps.attach) { toast('Mail on your Mac can’t attach files through Eden. Switch From to Gmail to attach.'); return; }
     for (const f of files) {
       const ext = extOf(f.name);
       if (BLOCKED.has(ext)) { toast(`Gmail doesn’t allow .${ext} files (they can carry harmful software)`); continue; }
@@ -1498,15 +1498,15 @@ class Compose {
     const c = this.caps;
     this.root.dataset.source = this.source;
     this.bBcc.disabled = !c.bcc && !this.recip.bcc.length;
-    this.bBcc.title = c.bcc ? 'Add Bcc recipients' : 'Mail on your Mac can’t Bcc through Jarvis';
+    this.bBcc.title = c.bcc ? 'Add Bcc recipients' : 'Mail on your Mac can’t Bcc through Eden';
     this.bAttach.disabled = !c.attach;
-    this.bAttach.title = c.attach ? 'Attach files (or drop them on the window)' : 'Mail on your Mac can’t attach files through Jarvis';
+    this.bAttach.title = c.attach ? 'Attach files (or drop them on the window)' : 'Mail on your Mac can’t attach files through Eden';
     this.bFmt.disabled = !c.html;
     this.tools.classList.toggle('off', this.plain || !c.html);
     for (const b of this.tools.querySelectorAll('button')) b.disabled = this.plain || !c.html;
     const notes = [];
     if (this.source === 'mac') {
-      notes.push(el('div', 'cw-note mac', ic('info', 13), el('span', '', el('b', '', 'Mail on your Mac '), 'sends through Jarvis: plain text, one To recipient (others in Cc, ', String(MAC_MAX_PEOPLE), ' people at most), no Bcc, attachments or scheduling, and at most ', String(MAC_SEND_CHARS), ' characters per send — longer emails open as a draft in Mail for you to send there. Jarvis asks you on your Mac before anything goes.')));
+      notes.push(el('div', 'cw-note mac', ic('info', 13), el('span', '', el('b', '', 'Mail on your Mac '), 'sends through Eden: plain text, one To recipient (others in Cc, ', String(MAC_MAX_PEOPLE), ' people at most), no Bcc, attachments or scheduling, and at most ', String(MAC_SEND_CHARS), ' characters per send — longer emails open as a draft in Mail for you to send there. Eden asks you on your Mac before anything goes.')));
     }
     if (this.scheduled && this.scheduled.status === 'scheduled') {
       notes.push(el('div', 'cw-note sched', ic('clock', 13), el('span', '', el('b', '', `Scheduled for ${fmtWhen(this.scheduled.sendAt)}. `), hostedSend() ? 'Your askeden.com account holds this draft and sends it then, even with your Mac off. Edits here save into it.' : 'Eden holds this draft and sends it then, only while Eden is running on your Mac. Edits here save into it.'),
@@ -1968,7 +1968,7 @@ class Compose {
     const t = { saving: 'Saving…', saved: `Saved${this.sv.at ? ` ${new Date(this.sv.at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}` : ''}`, error: 'Not saved', local: 'Kept on this device' }[st] || '';
     this.saveEl.textContent = t;
     this.saveEl.classList.toggle('bad', st === 'error');
-    this.saveEl.title = st === 'error' ? `Couldn’t save to Gmail Drafts: ${this.sv.error}. Eden retries when you edit; More › Save draft now tries again.` : st === 'local' ? 'Mail on your Mac has no autosave through Jarvis: Eden keeps this on this device until you send it or open it in Mail.' : st === 'saved' ? 'In your Gmail Drafts' : '';
+    this.saveEl.title = st === 'error' ? `Couldn’t save to Gmail Drafts: ${this.sv.error}. Eden retries when you edit; More › Save draft now tries again.` : st === 'local' ? 'Mail on your Mac has no autosave through Eden: Eden keeps this on this device until you send it or open it in Mail.' : st === 'saved' ? 'In your Gmail Drafts' : '';
   }
   async saveNow({ force = false } = {}) {
     clearTimeout(this.sv.timer);
@@ -2088,8 +2088,8 @@ class Compose {
     if (this.atts.some((a) => a.state === 'error')) blocks.push('Retry or remove the attachments that failed to upload.');
     if (this.totalBytes() > MAX_ATTACH_BYTES) blocks.push(`Attachments come to ${sizeText(this.totalBytes())}. ${DRIVE_HINT}`);
     if (this.source === 'mac') {
-      if (this.recip.bcc.length) blocks.push('Mail on your Mac can’t Bcc through Jarvis: remove the Bcc recipients, or switch From to Gmail.');
-      if (this.atts.length) blocks.push('Mail on your Mac can’t send attachments through Jarvis: remove them, or switch From to Gmail.');
+      if (this.recip.bcc.length) blocks.push('Mail on your Mac can’t Bcc through Eden: remove the Bcc recipients, or switch From to Gmail.');
+      if (this.atts.length) blocks.push('Mail on your Mac can’t send attachments through Eden: remove them, or switch From to Gmail.');
       if (this.recip.to.length > 1) warns.push(`Mail on your Mac sends to one To recipient: ${this.recip.to.slice(1).map((a) => a.name || a.email).join(', ')} will go in Cc.`);
       if (this.recip.to.length + this.recip.cc.length > MAC_MAX_PEOPLE) blocks.push(`Mail on your Mac sends to ${MAC_MAX_PEOPLE} people at most.`);
     }
@@ -2132,7 +2132,7 @@ class Compose {
     const files = [...this.atts.map((a) => `${a.name} (${sizeText(a.size || 0)})`), ...b.shown.map((x) => `${x.name} (${t('inline')}, ${sizeText(x.size)})`)];
     const when = this.scheduleAt;
     const go = el('button', { type: 'button', class: 'btn primary cw-go' },
-      macTooLong ? 'Open in Mail on your Mac' : when ? `Schedule for ${fmtWhen(when)}` : this.source === 'mac' ? 'Send (Jarvis asks on your Mac)' : `Send to ${this.recip.to.length + this.recip.cc.length + this.recip.bcc.length} recipient${this.recip.to.length + this.recip.cc.length + this.recip.bcc.length === 1 ? '' : 's'}`);
+      macTooLong ? 'Open in Mail on your Mac' : when ? `Schedule for ${fmtWhen(when)}` : this.source === 'mac' ? 'Send (Eden asks on your Mac)' : `Send to ${this.recip.to.length + this.recip.cc.length + this.recip.bcc.length} recipient${this.recip.to.length + this.recip.cc.length + this.recip.bcc.length === 1 ? '' : 's'}`);
     this.goBtn = go;
     go.addEventListener('click', () => { if (this.countdown) this.cancelCountdown(); else if (!go.disabled) { if (macTooLong) this.openInMail().then((ok) => { if (ok) this.destroy(); }); else this.startCountdown(); } });
     this.rv.replaceChildren(...[
@@ -2151,7 +2151,7 @@ class Compose {
       when ? (hostedSend()
         ? el('p', 'cw-hold', el('b', '', 'Your askeden.com account sends it at that time, even with your Mac off. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If it can’t go within 12 hours, it waits for you instead.')
         : el('p', 'cw-hold', el('b', '', 'Eden holds this email and sends it only while Eden is running on your Mac. '), 'Until then it waits in your Gmail Drafts; you can cancel it from Mail › Scheduled. If the Mac is asleep or Eden is off at that time, it goes when Eden next runs — more than 12 hours late, it waits for you instead.')) : null,
-      this.source === 'mac' ? el('p', 'cw-hold', macTooLong ? `Jarvis sends at most ${MAC_SEND_CHARS} characters (this is ${b.text.length}). Eden opens it as a draft in Mail on your Mac instead, for you to send there.` : 'Jarvis shows its own confirmation on your Mac; the email goes only when you approve it there too. Formatting is sent as plain text.') : null,
+      this.source === 'mac' ? el('p', 'cw-hold', macTooLong ? `Eden sends at most ${MAC_SEND_CHARS} characters (this is ${b.text.length}). Eden opens it as a draft in Mail on your Mac instead, for you to send there.` : 'Eden shows its own confirmation on your Mac; the email goes only when you approve it there too. Formatting is sent as plain text.') : null,
       el('div', 'cw-rv-acts', el('button', { type: 'button', class: 'btn', onclick: () => this.backToEdit() }, 'Back to edit'), el('span', 'grow'), go)].filter(Boolean));
     this.rv.hidden = false;
     this.root.classList.add('reviewing');
@@ -2263,7 +2263,7 @@ class Compose {
       } else {
         const text = await jarvis('mail_send', { ...this.macPayload(), confirm: true });
         const j = parseJSONText(text);
-        if (j && typeof j === 'object' && (j.sent === false || (j.status && j.status !== 'sent'))) throw new Error({ declined: 'you declined it on your Mac', timed_out: 'Jarvis’s confirmation timed out on your Mac', failed: 'Mail couldn’t send it', not_sent: 'it wasn’t sent' }[j.status] || j.text || 'it wasn’t sent');
+        if (j && typeof j === 'object' && (j.sent === false || (j.status && j.status !== 'sent'))) throw new Error({ declined: 'you declined it on your Mac', timed_out: 'Eden’s confirmation timed out on your Mac', failed: 'Mail couldn’t send it', not_sent: 'it wasn’t sent' }[j.status] || j.text || 'it wasn’t sent');
         toast(typeof text === 'string' && text.length < 120 && !j ? text : 'Sent from Mail on your Mac');
       }
       rememberRecipients([...this.recip.to, ...this.recip.cc, ...this.recip.bcc].filter((a) => a.valid));

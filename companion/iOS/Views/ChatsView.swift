@@ -59,12 +59,12 @@ struct ChatsView: View {
                     Label("Projects", systemImage: "folder")
                 }
             } footer: {
-                Text("A temporary chat isn’t kept here, and Jarvis remembers nothing from it.")
+                Text("A temporary chat isn’t kept here, and Eden remembers nothing from it.")
             }
             if found.isEmpty {
                 ContentUnavailableView(query.isEmpty ? "No Chats Yet" : "No Matches",
                                        systemImage: "bubble.left.and.bubble.right",
-                                       description: Text(query.isEmpty ? "Chats with Jarvis on this iPhone show up here." : "Nothing said in your chats matches “\(query)”."))
+                                       description: Text(query.isEmpty ? "Chats with Eden on this iPhone show up here." : "Nothing said in your chats matches “\(query)”."))
             } else {
                 Section(query.isEmpty ? "Chats" : "Matches") {
                     ForEach(found) { chat in
@@ -209,7 +209,7 @@ struct ChatsView: View {
     /// The chat as plain text, to share.
     static func transcript(_ chat: SavedChat) -> String {
         let lines = chat.lines.filter { $0.role != "problem" }.map { line in
-            "\(line.role == "user" ? "You" : "Jarvis"): \(line.text)"
+            "\(line.role == "user" ? "You" : "Eden"): \(line.text)"
         }
         return ([chat.title, ""] + lines).joined(separator: "\n\n")
     }

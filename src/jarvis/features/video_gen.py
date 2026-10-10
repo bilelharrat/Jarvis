@@ -189,7 +189,7 @@ class Videos:
 
     def _heads_up(self, key: str, text: str) -> None:
         self.hub.notify(
-            Alert(key, "task", self.tr("Video"), text, note="a video JARVIS was asked to make")
+            Alert(key, "task", self.tr("Video"), text, note="a video Eden was asked to make")
         )
 
     def build_tools(self) -> list:

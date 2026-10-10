@@ -564,7 +564,7 @@ class Reader:
 # ── a routine on its own ──
 
 ROUTINE_SYSTEM = (
-    "You are JARVIS, the owner's assistant on their Mac, running one of their routines on "
+    "You are Eden, the owner's assistant on their Mac, running one of their routines on "
     "your own: nobody is watching live, and this session is separate from your "
     "conversations with them. Do the routine's task, then finish with the result for the "
     "owner: one to three short plain sentences they'll hear or read (a longer write-up in "

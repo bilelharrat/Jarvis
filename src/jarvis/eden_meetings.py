@@ -46,7 +46,7 @@ SECTIONS = {
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "meetings_list",
-        "description": "The owner's meeting notes from Jarvis's meeting agent, newest first, as "
+        "description": "The owner's meeting notes from Eden's meeting agent, newest first, as "
         "JSON {version, note, items: [{id, title, date, preview, actions, decisions}]} (actions "
         "and decisions: how many the write-up has). query: words in the title or notes; limit: "
         "1 to 50 (default 20). Read one with meeting_read. The owner's data and other people's "
@@ -75,7 +75,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "commitment_add",
         "description": "Keep track of a promise the owner made (in a meeting, say): what, to "
-        "whom, by when (YYYY-MM-DD). Jarvis reminds them before it's due. The owner sees it on "
+        "whom, by when (YYYY-MM-DD). Eden reminds them before it's due. The owner sees it on "
         "a card on their Mac and it's kept only on their yes. confirm must be true. meeting: "
         "the meeting's id, when it came from one. Returns JSON {done, status: added | declined "
         "| timed_out | failed | not_done, text, item: {id, text, to, due}}. Only when the owner "
@@ -249,7 +249,7 @@ async def add_promise(endpoint: Any, args: dict[str, Any], app: str) -> tuple[st
         return promise_result("not_done", "due is a date like 2026-10-09, from today to a year on.")
     desk = memory_feature.desk_for(hub)
     if desk is None:
-        return promise_result("not_done", "Jarvis's memory desk isn't running on this Mac.")
+        return promise_result("not_done", "Eden's memory desk isn't running on this Mac.")
     title = ""
     if meeting:
         found = await asyncio.to_thread(reading, hub, {"id": meeting})
@@ -290,7 +290,7 @@ async def add_promise(endpoint: Any, args: dict[str, Any], app: str) -> tuple[st
         desk.changed()  # the window's memory desk shows it at once
     except Exception:
         log.debug("memory desk refresh failed", exc_info=True)
-    return promise_result("added", "Kept: Jarvis reminds you before it's due.", item)
+    return promise_result("added", "Kept: Eden reminds you before it's due.", item)
 
 
 async def handle(endpoint: Any, tool: str, args: dict[str, Any], app: str) -> tuple[str, bool]:

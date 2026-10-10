@@ -106,7 +106,7 @@ ZH = {
     "Bypass permissions never goes to another machine: there it runs in Manual, and each step asks you here.": "“绕过权限”不会带到别的机器：在那里会以“手动”模式运行，每一步都会在这里问你。",
     "Auto mode stays on this Mac: there it runs in Manual, and each step asks you here.": "“自动”模式只留在这台 Mac：在那里会以“手动”模式运行，每一步都会在这里问你。",
     "It starts from a summary of this session: the transcript itself can't move.": "它会从这个会话的摘要开始：对话记录本身没法搬过去。",
-    "Cost: runs on {alias} use that machine's own Claude sign-in and are billed there. JARVIS's spending limits can't meter them.": "费用：在 {alias} 上的运行用的是那台机器自己的 Claude 登录，费用记在那里。我的花费上限管不到它们。",
+    "Cost: runs on {alias} use that machine's own Claude sign-in and are billed there. Eden's spending limits can't meter them.": "费用：在 {alias} 上的运行用的是那台机器自己的 Claude 登录，费用记在那里。我的花费上限管不到它们。",
     "Possible secrets in what it would send:": "要发送的内容里可能有密钥：",
     "Continue on {alias}": "在 {alias} 上继续",
     "Continue anyway": "仍然继续",
@@ -121,7 +121,7 @@ ZH = {
     "Couldn't start Claude Code on {alias}: {why}": "没能在 {alias} 上启动 Claude Code：{why}",
     "Handed off to {alias}: it carries on there, and its permission requests come here.": "已转交到 {alias}：它会在那里继续，权限请求会来到这里。",
     "Handed off to {alias}: it carries on there in Accept edits.": "已转交到 {alias}：它会在那里以“自动接受编辑”模式继续。",
-    "Continued on {alias}, on {branch} ({how}). Runs there use that machine's own Claude sign-in: JARVIS's spending limits can't meter them.": "已在 {alias} 上继续，分支 {branch}（{how}）。在那里的运行用的是那台机器自己的 Claude 登录：我的花费上限管不到它们。",
+    "Continued on {alias}, on {branch} ({how}). Runs there use that machine's own Claude sign-in: Eden's spending limits can't meter them.": "已在 {alias} 上继续，分支 {branch}（{how}）。在那里的运行用的是那台机器自己的 Claude 登录：我的花费上限管不到它们。",
     "pushed to the project's remote": "推送到项目的远程仓库",
     "sent over SSH": "通过 SSH 发送",
     "Lost the connection to {alias}. It keeps running there; reconnecting…": "和 {alias} 的连接断了。它在那里继续运行；正在重新连接…",
@@ -456,7 +456,7 @@ class Desk:
         lines += [
             "",
             f"Cost: runs on {alias} use that machine's own Claude sign-in and are billed there. "
-            "JARVIS's spending limits can't meter them.",
+            "Eden's spending limits can't meter them.",
         ]
         choices = [("go", f"Continue on {alias}"), ("deny", "Not now")]
         if plan["findings"]:
@@ -536,7 +536,7 @@ class Desk:
             "system",
             lang.tr(
                 "Continued on {alias}, on {branch} ({how}). Runs there use that machine's own "
-                "Claude sign-in: JARVIS's spending limits can't meter them.",
+                "Claude sign-in: Eden's spending limits can't meter them.",
                 self.hub.language,
                 alias=alias,
                 branch=rec.branch,
@@ -1408,7 +1408,7 @@ class Desk:
                 lines.append(
                     f"Session {task.id if task else '?'} ({rec.title}) on {rec.alias}: {rec.state}, "
                     f"${rec.cost:.2f} reported there (billed to {rec.alias}'s Claude sign-in, "
-                    "outside JARVIS's limits)"
+                    "outside Eden's limits)"
                 )
             return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 

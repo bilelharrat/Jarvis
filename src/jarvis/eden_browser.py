@@ -67,7 +67,7 @@ THUMB_PX = 480
 SERVER = "eden_web"
 STORE = "eden-browser-tasks.json"  # beside prefs.json (eden_browser/ is the session's cwd)
 STORE_VERSION = 1
-RESTARTED = "Stopped: Jarvis restarted."
+RESTARTED = "Stopped: Eden restarted."
 _ID = re.compile(r"bt-[0-9a-f]{10}")
 # Eden's browser panel (browser_view): a live look at a tab of its own, steered by address only.
 _VIEW_ID = re.compile(r"bv-[0-9a-f]{10}")
@@ -99,7 +99,7 @@ utility_model.register_purpose(PURPOSE, PER_DAY)
 # The task an approval came up in (set while a task runs; the tools' calls inherit it).
 CURRENT: contextvars.ContextVar[str] = contextvars.ContextVar("eden_browser_task", default="")
 
-PROMPT = """You are JARVIS's hands in the built-in browser, doing one task on a website for \
+PROMPT = """You are Eden's hands in the built-in browser, doing one task on a website for \
 the owner, who asked for it from Eden and watches each step there. Work only with your browser \
 tools: browser_open (your own tab), browser_snapshot, browser_act, browser_wait, browser_read \
 and browser_dialog. Take a snapshot before acting, act by ref, and take a new snapshot after \
@@ -140,7 +140,7 @@ ACT_WORDS = {
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "browser_task",
-        "description": "Start JARVIS's browser agent on one task in the built-in browser on the "
+        "description": "Start Eden's browser agent on one task in the built-in browser on the "
         'owner\'s Mac ("find the cheapest flight to Lisbon on the 18th on tap.pt"). The owner '
         "sees the task on a card on their Mac and it starts only on their yes. goal: the task, "
         "in the owner's words (at most 1000 characters); url: where to start (optional); "
@@ -428,7 +428,7 @@ class EdenBrowser:
             raise ValueError("url must be a web address (http or https).")
         if not getattr(self.hub, "browser_available", False):
             raise ValueError(
-                "The built-in browser is only in the J.A.R.V.I.S. app window: open it on the Mac."
+                "The built-in browser is only in the Eden app window: open it on the Mac."
             )
         if sum(1 for t in self.tasks.values() if t.running) >= MAX_RUNNING:
             raise ValueError("A browser task is running already: stop it or wait for it to finish.")
@@ -825,7 +825,7 @@ class EdenBrowser:
             }
         task = self.tasks.get(ident) if isinstance(ident, str) and _ID.fullmatch(ident) else None
         if task is None:
-            return f"No browser task with that id (Jarvis keeps the last {TASKS_KEPT})."
+            return f"No browser task with that id (Eden keeps the last {TASKS_KEPT})."
         live = getattr(self.hub, "approvals", {})
         for approval_id in [a for a in task.approvals if a not in live]:
             task.approvals.pop(approval_id, None)
@@ -931,9 +931,7 @@ class EdenBrowser:
         if url and not start_url:
             return "url must be a web address (http or https)."
         if not getattr(self.hub, "browser_available", False):
-            return (
-                "The built-in browser is only in the J.A.R.V.I.S. app window: open it on the Mac."
-            )
+            return "The built-in browser is only in the Eden app window: open it on the Mac."
         for other in list(self.views.values()):  # one look at a time
             if other.status in ("waiting_owner", "live"):
                 self._view_end(other, "Another view started.")

@@ -82,7 +82,7 @@
   function render() {
     if (!group() || !pictures) return;
     F.$('pictures-status').textContent = pictures.key
-      ? F.t('Ask for a picture and Jarvis makes it with your Google Gemini key, then saves it in Documents › Jarvis › Images.')
+      ? F.t('Ask for a picture and Eden makes it with your Google Gemini key, then saves it in Documents › Jarvis › Images.')
       : F.t('To make pictures, add a Google Gemini key in Settings › Models.');
     const input = F.$('image-model');
     if (document.activeElement !== input) input.value = pictures.model || '';

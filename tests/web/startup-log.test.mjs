@@ -94,8 +94,8 @@ test('Eden Code waits under its own name, and so does J.A.R.V.I.S. Daredevil, in
   assert.equal(eden.nodes.message.textContent, 'Opening Eden Code…');
   const dare = runLoading('?app=daredevil');
   assert.deepEqual([...dare.classes], ['daredevil']);
-  assert.equal(dare.document.title, 'J.A.R.V.I.S. Daredevil');
-  assert.equal(dare.nodes.message.textContent, 'Opening J.A.R.V.I.S. Daredevil…');
+  assert.equal(dare.document.title, 'Eden Daredevil');
+  assert.equal(dare.nodes.message.textContent, 'Opening Eden Daredevil…');
 });
 
 test('a problem is said at once (to a screen reader too), with what the engine last said', () => {

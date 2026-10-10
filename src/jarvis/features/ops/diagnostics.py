@@ -26,11 +26,11 @@ from . import redact
 
 LOGS = ("jarvis.log", "jarvis.log.1", "jarvis.log.2", "backend.log", "backend.1.log")
 SIZES_MB = (1, 2, 5, 10)
-README = """Jarvis diagnostics
+README = """Eden diagnostics
 
 Made {made} to share when asking for help. Nothing was sent anywhere.
 
-  logs/        the last {mb} MB of Jarvis's logs, newest first
+  logs/        the last {mb} MB of Eden's logs, newest first
   versions.json
   checkup.json the checkup, run as this file was made
   security.json the security review's headlines

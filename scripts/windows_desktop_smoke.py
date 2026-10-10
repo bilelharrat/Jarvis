@@ -453,7 +453,7 @@ def main() -> int:
         text = winuia.outline()["text"]
         if not all(found for _n, found, _c in pressed):
             print(f"--- everything UI Automation sees in front ---\n{dump(400)}", flush=True)
-            print(f"--- what Jarvis is shown ---\n{text}", flush=True)
+            print(f"--- what Eden is shown ---\n{text}", flush=True)
             raise AssertionError(
                 f"controls not found: {pressed}; "
                 f"front {winhands.foreground_window().get('title')!r}; "
@@ -503,7 +503,7 @@ def main() -> int:
 
         return asyncio.run(start())
 
-    step("Claude Code starts with JARVIS's own options", claude_code)
+    step("Claude Code starts with Eden's own options", claude_code)
 
     # Claude Code on Windows needs a shell tool: Git for Windows' bash, or PowerShell. A clean PC
     # (the usual laptop) has no Git and only Windows PowerShell, so try it that way: Git put

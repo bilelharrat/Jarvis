@@ -249,7 +249,7 @@ def build_route(store: WidgetStore):
         if host not in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}:
             return PlainTextResponse("Not here.", status_code=403)
         if request.headers.get("sec-fetch-dest", "iframe") != "iframe":
-            return PlainTextResponse("Widgets show inside Jarvis.", status_code=403)
+            return PlainTextResponse("Widgets show inside Eden.", status_code=403)
         widget_id = str(request.path_params.get("wid", ""))
         widget = store.get(widget_id) if _ID.fullmatch(widget_id) else None
         if widget is None:

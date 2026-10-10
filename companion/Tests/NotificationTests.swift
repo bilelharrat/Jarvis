@@ -6,7 +6,7 @@ import XCTest
 final class NotificationTests: XCTestCase {
     private func approvalInfo(kind: String = "approval", at: Double = Date().timeIntervalSince1970, choices: [[String: String]]? = nil) -> [AnyHashable: Any] {
         [
-            "aps": ["alert": ["title": "Jarvis needs your OK", "body": "Email Pepper about Thursday?"]],
+            "aps": ["alert": ["title": "Eden needs your OK", "body": "Email Pepper about Thursday?"]],
             "jarvis": [
                 "kind": kind, "id": "a1b2c3", "at": at,
                 "choices": choices ?? [["id": "allow", "label": "Send"], ["id": "deny", "label": "Don't send"]],
@@ -88,7 +88,7 @@ final class NotificationTests: XCTestCase {
         let push = try XCTUnwrap(JarvisPush(userInfo: fresh))
         let retry = try XCTUnwrap(NotificationActionHandler.retryContent(for: push, userInfo: fresh, now: now))
         XCTAssertEqual(retry.categoryIdentifier, "JARVIS_APPROVAL")
-        XCTAssertEqual(retry.title, "Jarvis needs your OK")
+        XCTAssertEqual(retry.title, "Eden needs your OK")
         XCTAssertEqual(JarvisPush(userInfo: retry.userInfo)?.id, "a1b2c3")  // same actions, same card
 
         let code = approvalInfo(kind: "code_approval", at: now.timeIntervalSince1970 - 10)

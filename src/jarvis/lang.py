@@ -275,26 +275,19 @@ def _strip_leads(text: str, leads: tuple[str, ...]) -> str:
 
 # ── the wake word ──
 
-# How Whisper's Mandarin mode writes "Jarvis". A first character that can end a common
-# word doesn't count right after that word: "参加维斯塔的发布会" is about Vista.
-_WAKE_FIRST = {
-    "贾": "", "嘉": "", "加": "参增添更再附外追施强叠", "家": "大国专作全回人管商老农住东店行玩画科",
-    "佳": "最绝欠上", "甲": "装指盔铠龟护", "杰": "豪英人俊", "捷": "快敏便大报告直",
-}  # fmt: skip
-_WAKE_ZH = LazyPattern(
-    "|".join(
-        (f"(?<![{before}])" if before else "") + f"{first}维[斯思丝司]"
-        for first, before in _WAKE_FIRST.items()
-    )
-    + "|贾威斯"
-)
-WAKE_NAMES_ZH = ("贾维斯", "加维斯", "贾维思", "杰维斯", "嘉维斯", "佳维斯")
-WAKE_HINT_ZH = "贾维斯"  # Whisper's hotword in Mandarin mode
+# How Whisper's Mandarin mode writes "Eden" (Latin "Eden" is wake.find_jarvis's): 伊甸 and
+# its near-homophones, but not 伊甸园 (the Garden of Eden).
+_WAKE_ZH = LazyPattern("[伊依][甸登殿](?!园)")
+WAKE_NAMES_ZH = ("伊甸", "伊登", "依甸", "依登", "伊殿")
+WAKE_HINT_ZH = "伊甸"  # Whisper's hotword in Mandarin mode
 GREETINGS_ZH = ("你好", "您好", "哈喽", "哈啰", "嘿", "喂", "嗨")
 _LATIN_WORD = LazyPattern(r"[A-Za-z][A-Za-z'’]*")
 _GREETING_ONLY = LazyPattern(r"(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|hey|hi|hello|ok|okay|yo)")
 # "Eden Code" (贾维斯代码), the coding panel: a name JARVIS says itself, never a wake word.
-_PANEL_AFTER = LazyPattern(r"[ \t]*(?:代码|codes?(?![a-z]))", re.IGNORECASE)
+_PANEL_AFTER = LazyPattern(
+    r"[ \t]*(?:代码|应用|窗口|账户|号码|(?:codes?|messenger|plus|app|window|account|number)(?![a-z]))",
+    re.IGNORECASE,
+)
 _LEAD_WORDS = LazyPattern(
     r"^(?:(?:嘿|喂|你好|您好|哈喽|哈啰|嗨|嗯|hey|hi|hello|yo)[\s,，.。!！、]*"
     r"|(?:好的|好|那么|那|哎|诶|欸|okay|ok)(?:[\s,，.。!！、]+|$))+",
@@ -303,7 +296,7 @@ _LEAD_WORDS = LazyPattern(
 # The name said again in front of a command, but never the first word of the panel's name
 # ("贾维斯，Eden Code 做完了吗" keeps "Eden Code").
 _LEADING_NAMES = LazyPattern(
-    rf"^(?:(?:{_WAKE_ZH.pattern}|jarvis)(?![ \t]*(?:代码|codes?(?![a-z])))[\s,，.。!！、]*)+",
+    rf"^(?:(?:{_WAKE_ZH.pattern}|eden)(?![ \t]*(?:代码|codes?(?![a-z])))[\s,，.。!！、]*)+",
     re.IGNORECASE,
 )
 
@@ -320,11 +313,13 @@ def _wake_spans(s: str) -> list[tuple[int, int]]:
     for k, m in enumerate(latin):
         # Only a greeting and nothing else before it counts as greeted ("嘿 Travis").
         greeted = m.start() <= 12 and bool(_GREETING_ONLY.fullmatch(_squash(s[: m.start()])))
-        if _latin_wakes(m.group(), greeted):
+        if _latin_wakes(m.group(), greeted) and not wake.names_another(
+            s[: m.start()], s[m.end() :]
+        ):
             spans.append((m.start(), m.end()))
         elif (
             k + 1 < len(latin)
-            and m.group()[0] in "jgcJGC"  # a split name ("Jari ves") starts like the name
+            and m.group()[0] in "eE"  # a split name ("E den") starts like the name
             and s[m.end() : latin[k + 1].start()].isspace()
             and _latin_wakes(m.group() + latin[k + 1].group())
         ):
@@ -396,17 +391,25 @@ def _named_wake_zh(s: str) -> tuple[bool, str]:
     return False, ""
 
 
-_JARVIS_CODE = LazyPattern(rf"(?:jarvis|{_WAKE_ZH.pattern})[ \t]*(?:code|代码)", re.IGNORECASE)
+_JARVIS_CODE = LazyPattern(rf"(?:eden|{_WAKE_ZH.pattern})[ \t]*(?:code|代码)", re.IGNORECASE)
 _DOTTED_NAME = LazyPattern(r"(?<![A-Za-z])J\.?\s?A\.?\s?R\.?\s?V\.?\s?I\.?\s?S(?![A-Za-z])\.?")
 
 
 def speakable_safely_zh(text: str) -> str | None:
     """hub.speakable_safely for Chinese: words to say aloud without the wake word (its
     own speaker saying 贾维斯 would wake it mid-sentence). None when that can't be helped."""
-    spoken = _JARVIS_CODE.sub("编程助手", to_simplified(text))
+    spoken = _JARVIS_CODE.sub("Eden Code", to_simplified(text))  # the panel's name never wakes it
     spoken = _DOTTED_NAME.sub("助手", spoken)
     spoken = _WAKE_ZH.sub("助手", spoken)
-    spoken = _LATIN_WORD.sub(lambda m: "助手" if _latin_wakes(m.group()) else m.group(), spoken)
+    spoken = _LATIN_WORD.sub(
+        lambda m: (
+            "助手"
+            if _latin_wakes(m.group())
+            and not wake.names_another(m.string[: m.start()], m.string[m.end() :])
+            else m.group()
+        ),
+        spoken,
+    )
     return None if find_wake_zh(spoken)[0] else spoken
 
 
@@ -1511,7 +1514,7 @@ def transcribe_options(lang: str, hotwords: str = "") -> dict[str, Any]:
     # scripts/stress_hands_free.py (6 voices, 3 distances): 86/108 calls heard with it,
     # 10 of 11 such misses heard without it. base.en spells the name right on its own.
     # Learned words (hearing.hotwords, a code project's names) still go in.
-    words = " ".join(w for w in (hotwords or "").split() if w.strip(",.!?").lower() != "jarvis")
+    words = " ".join(w for w in (hotwords or "").split() if w.strip(",.!?").lower() != "eden")
     return {"language": "en", **({"hotwords": words} if words else {})}
 
 
@@ -2305,10 +2308,10 @@ ZH_TEXTS: dict[str, str] = {
     "Which project? {projects}": "哪个项目？{projects}",
     "From the BSH desk": "来自 BSH 研究台",
     "Open the research center to see this record in full.": "打开研究中心可以查看这条记录的全文。",
-    "The Research Center only opens in the J.A.R.V.I.S. app window.": "研究中心只能在 J.A.R.V.I.S. 应用窗口里打开。",
+    "The Research Center only opens in the Eden app window.": "研究中心只能在本应用的窗口里打开。",
     "The Research Center didn't answer in time.": "研究中心没有及时响应。",
     "That didn't work.": "没有成功。",
-    "The built-in browser is only in the J.A.R.V.I.S. app window.": "内置浏览器只在 J.A.R.V.I.S. 应用窗口里。",
+    "The built-in browser is only in the Eden app window.": "内置浏览器只在本应用的窗口里。",
     "The browser didn't answer in time.": "浏览器没有及时响应。",
     "No project folder.": "没有项目文件夹。",
     "(stopped after {seconds} seconds)": "（{seconds}秒后已停止）",
@@ -2326,11 +2329,11 @@ ZH_TEXTS: dict[str, str] = {
     "Eden Code in {folder} needs your OK to {verb}.": "{folder} 中的 Eden Code 需要你同意才能{verb}。",
     "{n} more heads-ups are on screen.": "还有{n}条提醒在屏幕上。",
     "Saved the transcript to {file}.": "对话记录已保存到 {file}。",
-    "The J.A.R.V.I.S. window isn't open.": "J.A.R.V.I.S. 窗口没有打开。",
+    "The Eden window isn't open.": "本应用的窗口没有打开。",
     "No location fix yet.": "还没有定位到位置。",
-    "I don't have a location fix. Location Services may be off for J.A.R.V.I.S.": "我还没有定位。可能没有为 J.A.R.V.I.S. 打开定位服务。",
+    "I don't have a location fix. Location Services may be off for Eden.": "我还没有定位。可能没有为本应用打开定位服务。",
     "No weather: set a city in Settings or allow location.": "没有天气信息：请在设置里填写城市，或者允许定位。",
-    "I need your location for that; allow Location Services for J.A.R.V.I.S.": "这需要你的位置；请为 J.A.R.V.I.S. 打开定位服务。",
+    "I need your location for that; allow Location Services for Eden.": "这需要你的位置；请为本应用打开定位服务。",
     "I couldn't find that place.": "我找不到这个地方。",
     "Hands-free is on.": "免提模式已开启。",
     "Hands-free is off.": "免提模式已关闭。",
@@ -2705,7 +2708,7 @@ def add_texts(texts: dict[str, str]) -> None:
 # register for Chinese replies.
 ZH_PERSONAS = {
     "jarvis": (
-        "贾维斯",
+        "Eden",
         "一位沉稳的英式管家型人工智能：彬彬有礼、一丝不苟、处变不惊，带着不动声色的冷幽默。"
         "偶尔来一句含蓄的调侃或意味深长的反话，从不耍宝。忠诚可靠，总比你快一步，暗自觉得这一切挺有意思。",
     ),
@@ -2767,8 +2770,8 @@ def reply_instruction(lang: str) -> str:
         "(两个, 两点, 两千)."
         "\n- Short spoken sentences, one idea each, ending in 。？or！: speech starts at each "
         "full stop. No markdown, lists, emoji or raw URLs."
-        "\n- Never say 贾维斯 or Jarvis: it's the wake word and would wake you. Refer to "
-        "yourself as 我."
+        "\n- Never say Eden or 伊甸 on its own (Eden Code and Ask Eden are fine): it's the wake "
+        "word and would wake you. Refer to yourself as 我."
         "\n- When you need a yes or no, ask a short, direct question the user can answer "
         "with 好 or 不用."
         "\n- Your persona, humor and every rule above still apply; make the wit natural "
@@ -2784,7 +2787,7 @@ def reply_instruction(lang: str) -> str:
 # a clause of "你能不能" said forty times is read in one pass, not tried in 2^n splits.
 _ASK_LEAD_ZH = (
     r"(?:(?>好的|好|那么|那|嗯|哦|喂|嘿|请|麻烦|帮我|帮忙|能不能|能否|可不可以|可以|我想让你|"
-    r"我要你|我希望你|我需要你|从现在开始|以后|贾维斯|jarvis|你)[，,\s]*+)*+"
+    r"我要你|我希望你|我需要你|从现在开始|以后|伊甸|eden|你)[，,\s]*+)*+"
 )
 _CLAUSE_BREAK_ZH = LazyPattern(
     r"[。！？；;!?\n]+|然后|接着|还有|并且|而且|同时|另外|顺便|但是|不过"

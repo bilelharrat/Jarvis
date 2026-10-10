@@ -17,7 +17,7 @@ LOCKED = "Too many wrong codes. Wait ten minutes, then try again."
 PRIVATE = "This is a private assistant."
 PAIR_HOW = "To pair, send {pair} and the code shown in Settings on the Mac."
 ALREADY = "You're already paired."
-UNPAIRED = "This chat isn't paired with Jarvis any more."
+UNPAIRED = "This chat isn't paired with Eden any more."
 
 HEARD = "Heard: “{text}”"
 NO_VOICE = "I couldn't make out that voice note."

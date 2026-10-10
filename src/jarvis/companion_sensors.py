@@ -302,13 +302,11 @@ class PhoneSensors:
         cached = self.answers.get(name.lower())
         people = cached[1] if cached else await self.ask("contact", name)
         if people is None:
-            return (
-                "No iPhone has contact lookups turned on (J.A.R.V.I.S. app > Settings > Contacts)."
-            )
+            return "No iPhone has contact lookups turned on (Eden app > Settings > Contacts)."
         if people == "timeout":
             return (
                 "The iPhone didn't answer in time: it may be asleep or out of reach. Opening "
-                "the J.A.R.V.I.S. app on it lets it answer."
+                "the Eden app on it lets it answer."
             )
         if not people:
             return f"No one called {name} in the iPhone's contacts either."
@@ -355,14 +353,14 @@ class PhoneSensors:
             got = await self.ask("calendar")
             if got is None and kept is None:
                 return (
-                    "No iPhone has its calendar turned on for Jarvis (J.A.R.V.I.S. app > "
+                    "No iPhone has its calendar turned on for Eden (Eden app > "
                     "Settings > Calendar)."
                 )
             kept = self.calendar() or kept
             if got == "timeout":
                 note = " (the iPhone didn't send a fresh copy in time)"
         if kept is None:
-            return "The iPhone hasn't sent its calendar yet. Opening the J.A.R.V.I.S. app on it sends it."
+            return "The iPhone hasn't sent its calendar yet. Opening the Eden app on it sends it."
         until = (now + timedelta(days=days)).isoformat(timespec="minutes")
         start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="minutes")
         events = [e for e in kept["events"] if e["end"] >= start and e["start"] <= until]

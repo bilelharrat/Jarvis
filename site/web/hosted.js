@@ -22,7 +22,7 @@ function describe(session) {
   if (!session) return 'Signed in to askeden.com';
   const u = session.usage || {};
   const plus = session.plan && session.plan.active;
-  const left = plus ? `${money(u.left_usd)} of Jarvis Plus AI left this month` : `${money(u.trial_left_usd)} of trial AI left`;
+  const left = plus ? `${money(u.left_usd)} of Eden Plus AI left this month` : `${money(u.trial_left_usd)} of trial AI left`;
   return `Signed in to askeden.com · ${left}`;
 }
 

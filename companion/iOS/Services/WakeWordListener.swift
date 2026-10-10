@@ -34,7 +34,7 @@ final class WakeWordListener {
     static let stretch: TimeInterval = 50
     /// After the name, this much quiet ends the request.
     static let pause: TimeInterval = 1.1
-    nonisolated static let names = ["jarvis", "jarvus", "jervis", "travis jarvis"]
+    nonisolated static let names = ["eden"]
 
     func start() {
         guard !isListening else { return }
@@ -86,7 +86,7 @@ final class WakeWordListener {
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
             request.requiresOnDeviceRecognition = true
-            request.contextualStrings = ["Jarvis", "Hey Jarvis", "OK Jarvis"]
+            request.contextualStrings = ["Eden", "Hey Eden", "OK Eden"]
             request.taskHint = .search
 
             let engine = AVAudioEngine()
@@ -152,7 +152,7 @@ final class WakeWordListener {
     /// What was said after the name, if the name was said ("" when nothing followed it).
     nonisolated static func afterName(in text: String) -> String? {
         let lowered = text.lowercased()
-        guard let range = names.compactMap({ lowered.range(of: $0) }).last else { return nil }
+        guard let range = names.compactMap({ lowered.range(of: "\\b\($0)\\b", options: .regularExpression) }).last else { return nil }
         let rest = String(text[range.upperBound...])
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
         return rest

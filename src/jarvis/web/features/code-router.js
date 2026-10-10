@@ -378,7 +378,7 @@
       });
       let body;
       try { body = JSON.parse(init.body); } catch { body = null; }
-      if (!F.send({ type: 'model_router_classify', rid, model: m[1], body })) { classifying.delete(rid); reject(new Error('Jarvis isn’t connected.')); }
+      if (!F.send({ type: 'model_router_classify', rid, model: m[1], body })) { classifying.delete(rid); reject(new Error('Eden isn’t connected.')); }
     });
   }
   F.on('model_router_classified', (ev) => {
@@ -442,9 +442,9 @@
   function call(op, args = {}, ms = 15000) {
     return new Promise((resolve, reject) => {
       const rid = `mc${++seq}`;
-      const timer = setTimeout(() => { calls.delete(rid); reject(new Error('Jarvis didn’t answer.')); }, ms);
+      const timer = setTimeout(() => { calls.delete(rid); reject(new Error('Eden didn’t answer.')); }, ms);
       calls.set(rid, (ev) => { clearTimeout(timer); if (ev.ok) resolve(ev.data); else reject(new Error(ev.error || 'That didn’t work.')); });
-      if (!F.send({ type: 'model_router_call', rid, op, ...args })) { clearTimeout(timer); calls.delete(rid); reject(new Error('Jarvis isn’t connected.')); }
+      if (!F.send({ type: 'model_router_call', rid, op, ...args })) { clearTimeout(timer); calls.delete(rid); reject(new Error('Eden isn’t connected.')); }
     });
   }
 

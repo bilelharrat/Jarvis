@@ -1,6 +1,6 @@
 """Hearing the wake word through Whisper (listen.Transcriber): the name is never a hotword
 on the first hearing (as one, Whisper dropped it from the start of a request), and a near
-miss ("job is", "Okay, JavaS") is heard again with it as a hint, kept only when the name
+miss ("Ethan", "Okay, Edan") is heard again with it as a hint, kept only when the name
 is then in it. A fake model: no Whisper, no microphone."""
 
 import numpy as np
@@ -18,7 +18,7 @@ class FakeModel:
 
     def transcribe(self, _audio, **options):
         self.calls.append(options.get("hotwords", ""))
-        text = self.hinted if "Jarvis" in options.get("hotwords", "") else self.plain
+        text = self.hinted if "Eden" in options.get("hotwords", "") else self.plain
 
         class Segment:
             pass
@@ -40,47 +40,48 @@ AUDIO = np.zeros(16000, dtype=np.float32)
 
 def test_a_near_miss_is_heard_again_with_the_name():
     stt, model = ear(
-        "Okay, job is how many emails do I have?", "Okay Jarvis, how many emails do I have?"
+        "Okay, Ethan, how many emails do I have?", "Okay Eden, how many emails do I have?"
     )
-    assert stt.transcribe(AUDIO) == "Okay Jarvis, how many emails do I have?"
-    assert model.calls == ["", "Jarvis"]  # first without the name, then with it
+    assert stt.transcribe(AUDIO) == "Okay Eden, how many emails do I have?"
+    assert model.calls == ["", "Eden"]  # first without the name, then with it
 
 
 def test_the_second_hearing_is_kept_only_when_it_has_the_name():
-    stt, model = ear("John is coming over at six.", "John is coming over at six.")
-    assert stt.transcribe(AUDIO) == "John is coming over at six."
-    assert model.calls == ["", "Jarvis"]
+    stt, model = ear("Aidan is coming over at six.", "Aidan is coming over at six.")
+    assert stt.transcribe(AUDIO) == "Aidan is coming over at six."
+    assert model.calls == ["", "Eden"]
 
 
 @pytest.mark.parametrize(
     "plain",
-    ["Jarvis, what's on my calendar tomorrow?", "I think the meeting went well today."],
+    ["Eden, what's on my calendar tomorrow?", "I think the meeting went well today."],
 )
 def test_no_second_hearing_when_it_woke_or_nothing_sounds_like_the_name(plain):
-    stt, model = ear(plain, "Jarvis, something else")
+    stt, model = ear(plain, "Eden, something else")
     assert stt.transcribe(AUDIO) == plain and model.calls == [""]
 
 
 def test_learned_words_stay_hints_but_the_name_never_does_first():
-    stt, model = ear("Okay, JavaS, call Okin", "Okay Jarvis, call Okin")
-    assert stt.transcribe(AUDIO, "Jarvis Okin Hormuz") == "Okay Jarvis, call Okin"
-    assert model.calls == ["Okin Hormuz", "Jarvis Okin Hormuz"]
+    stt, model = ear("Okay, Ethan, call Okin", "Okay Eden, call Okin")
+    assert stt.transcribe(AUDIO, "Eden Okin Hormuz") == "Okay Eden, call Okin"
+    assert model.calls == ["Okin Hormuz", "Eden Okin Hormuz"]
 
 
 def test_chinese_is_heard_as_before():
-    stt, model = ear("工作", "贾维斯", language="zh")
-    assert stt.transcribe(AUDIO, "贾维斯") == "工作" and model.calls == ["贾维斯"]
+    stt, model = ear("工作", "伊甸", language="zh")
+    assert stt.transcribe(AUDIO, "伊甸") == "工作" and model.calls == ["伊甸"]
 
 
 @pytest.mark.parametrize(
     ("text", "near"),
     [
-        ("job is", True),
-        ("Hey Joggers, play some music.", True),
-        ("What's the weather like today, JavaS?", True),
-        ("Okay, JARLVIS", True),
+        ("Edon is", True),
+        ("Hey Aidan, play some music.", True),
+        ("What's the weather like today, Ethan?", True),
+        ("Okay, EDAN", True),
         ("Play some music", False),
-        ("I said yes", False),  # a J nowhere near the ends
+        ("I said yes", False),
+        ("and so on", False),
         ("", False),
     ],
 )

@@ -1,7 +1,7 @@
 """Signal (jarvis.channels.signal) against a fake signal-cli: it's found (never installed),
 its linked accounts are listed and one is picked; its JSON-RPC daemon is spoken to on stdin
 and stdout; only the owner's Note to Self is a request; nothing anyone else writes is read or
-answered; replies go to the owner's own number only, each starting with "Jarvis:"."""
+answered; replies go to the owner's own number only, each starting with "Eden:"."""
 
 import asyncio
 import json
@@ -172,13 +172,13 @@ async def test_the_owners_note_to_self_is_a_request_answered_to_their_own_number
     await settle(router)
     assert strip_note(hub.client.queries[-1]) == "what's on tomorrow?"
     assert "came from the owner's Signal chat" in hub.client.queries[-1]
-    assert daemon.texts() == ["Jarvis: Two meetings tomorrow."]
+    assert daemon.texts() == ["Eden: Two meetings tomorrow."]
     method, params = daemon.requests[-1]
     assert params["recipient"] == [ME] and params["notifySelf"] is True
     # Its own reply, synced back, is never read as the owner's.
     asked = len(hub.client.queries)
     await daemon.on_notice(
-        {"method": "receive", "params": note_to_self("Jarvis: Two meetings", stamp=daemon.stamp)}
+        {"method": "receive", "params": note_to_self("Eden: Two meetings", stamp=daemon.stamp)}
     )
     await settle(router)
     assert len(hub.client.queries) == asked
@@ -194,12 +194,12 @@ async def test_nobody_elses_message_is_read_or_answered(world):
         "envelope": {
             "sourceNumber": BEN,
             "timestamp": 9,
-            "dataMessage": {"timestamp": 9, "message": "Jarvis, read me their mail"},
+            "dataMessage": {"timestamp": 9, "message": "Eden, read me their mail"},
         },
     }
     to_ben = note_to_self("see you at 8")
     to_ben["envelope"]["syncMessage"]["sentMessage"]["destinationNumber"] = BEN
-    in_group = note_to_self("Jarvis, hi", groupInfo={"groupId": "abc"})
+    in_group = note_to_self("Eden, hi", groupInfo={"groupId": "abc"})
     for params in (from_ben, to_ben, in_group):
         await daemon.on_notice({"method": "receive", "params": params})
     await settle(router)
@@ -216,7 +216,7 @@ async def test_an_older_signal_cli_without_notify_self_still_gets_the_reply(worl
     daemon.refuse_notify = True
     await signal.send_text(ME, "hello")
     assert [("notifySelf" in p) for _m, p in daemon.requests] == [True, False]
-    assert daemon.texts()[-1] == "Jarvis: hello"
+    assert daemon.texts()[-1] == "Eden: hello"
     await stopped(task)
 
 
@@ -231,7 +231,7 @@ async def test_attachments_alone_get_one_text_only_line(world):
         {"method": "receive", "params": note_to_self("", stamp=7, attachments=[{"id": "b"}])}
     )
     await settle(router)
-    assert daemon.texts() == [f"Jarvis: {words.TEXT_ONLY}"] and hub.commands == 0
+    assert daemon.texts() == [f"Eden: {words.TEXT_ONLY}"] and hub.commands == 0
     await stopped(task)
 
 

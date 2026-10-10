@@ -692,7 +692,7 @@ async def test_an_agreed_time_is_handed_on_once_after_the_reply_goes(tmp_path):
         "title": "Lunch with Sam",
         "place": "Noma",
     }
-    world = World(drafts=[move("Hi Sam, it's Jarvis, Robert's assistant. Lunch Friday?"),
+    world = World(drafts=[move("Hi Sam, it's Eden, Robert's assistant. Lunch Friday?"),
                           {**move("Friday 12:30 at Noma it is."), "meeting": meeting},
                           {**move(None), "meeting": meeting}])  # fmt: skip
     engine = engine_for(tmp_path, world)
@@ -715,7 +715,7 @@ async def test_a_held_reply_books_nothing(tmp_path):
     meeting = {"start": "2026-10-02T12:30", "minutes": 30}
     world = World(
         drafts=[
-            move("Hi Sam, it's Jarvis, Robert's assistant."),
+            move("Hi Sam, it's Eden, Robert's assistant."),
             {**move("Deal, 12:30."), "meeting": meeting},
         ]
     )
@@ -767,7 +767,7 @@ async def test_booking_asks_first_and_notes_what_the_owner_said(settings, quiet_
     hub.resolve(card["id"], "allow")
     await asyncio.gather(*s._booking)
     assert made[0]["title"] == "Lunch with Sam" and made[0]["location"] == "Noma"
-    assert made[0]["notes"] == "Arranged by Jarvis with Sam Lee by iMessage."
+    assert made[0]["notes"] == "Arranged by Eden with Sam Lee by iMessage."
     assert d.booked == "booked" and alerts == [
         "Booked “Lunch with Sam”, Friday 2 October at 12:30 PM."
     ]
@@ -782,7 +782,7 @@ async def test_booking_asks_first_and_notes_what_the_owner_said(settings, quiet_
 
 
 async def test_one_nudge_after_a_silence_and_none_after_a_no(tmp_path):
-    world = World(drafts=[move("Hi Sam, it's Jarvis, Robert's assistant. Lunch next week?")])
+    world = World(drafts=[move("Hi Sam, it's Eden, Robert's assistant. Lunch next week?")])
     engine = engine_for(tmp_path, world)
     d, _ = await start(engine, expires_hours=240)
     world.clock += timedelta(hours=23)
@@ -824,7 +824,7 @@ async def test_no_nudge_when_turned_off_and_a_chinese_one_for_a_chinese_talk(tmp
 
 
 async def test_a_nudge_due_at_night_waits_for_the_morning(tmp_path):
-    world = World(drafts=[move("Hi Sam, it's Jarvis, Robert's assistant. Lunch next week?")])
+    world = World(drafts=[move("Hi Sam, it's Eden, Robert's assistant. Lunch next week?")])
     engine = engine_for(tmp_path, world)
     engine.nudge_hours = lambda: 12
     d, _ = await start(engine, expires_hours=240)  # sent at 2 PM

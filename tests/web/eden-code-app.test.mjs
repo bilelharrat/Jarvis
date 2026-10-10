@@ -66,7 +66,7 @@ test('a launch is J.A.R.V.I.S. Daredevil when something says so: DAREDEVIL=1, --
 test('J.A.R.V.I.S. Daredevil is J.A.R.V.I.S. under its own name: same logs, data, profile and engine, opened in screen-reader mode', () => {
   const d = FLAVORS.daredevil;
   const j = FLAVORS.jarvis;
-  assert.equal(d.name, 'J.A.R.V.I.S. Daredevil');
+  assert.equal(d.name, 'Eden Daredevil');
   assert.equal(d.title, d.name);
   assert.equal(d.logName, j.logName); // the same folder of logs, so one place to look
   assert.equal(d.profile, 'full'); // it listens, like J.A.R.V.I.S.

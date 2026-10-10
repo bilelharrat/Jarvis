@@ -317,7 +317,7 @@ function aiMenu(anchor) {
     { label: 'Ask about this page', note: 'The page’s text goes with your next message', disabled: !s.url, run: () => cloud.send({ t: 'pagetext', for: 'ask' }) },
     { label: 'Summarize this page', disabled: !s.url, run: () => cloud.send({ t: 'pagetext', for: 'summarize' }) },
     { label: 'Use the selected text', disabled: !s.url, run: () => { cloud.wantSelection = true; cloud.send({ t: 'copy' }); } },
-    { label: 'Do this on a website…', note: 'J.A.R.V.I.S.’s browser agent, on your Mac', run: () => { if (H.openSpace) H.openSpace('web', { url: s.url }); } },
+    { label: 'Do this on a website…', note: 'Eden’s browser agent, on your Mac', run: () => { if (H.openSpace) H.openSpace('web', { url: s.url }); } },
   ]);
 }
 function clearData() {

@@ -198,7 +198,7 @@ class LiveCalls:
         detail = (
             f"They asked: “{question}”\n\nYour answer goes into the call (Yes, No, or your "
             "own words below). The card's limits still apply. With no answer in about 45 "
-            "seconds, Jarvis tells them you'll call back."
+            "seconds, Eden tells them you'll call back."
         )
         waiting = asyncio.ensure_future(
             self.hub.request_approval(
@@ -290,7 +290,7 @@ class LiveCalls:
                 ("Add", "Don't add"),
             ):
                 continue
-            notes = [f"Agreed by phone through Jarvis with {who}.", call.words]
+            notes = [f"Agreed by phone through Eden with {who}.", call.words]
             try:
                 where = await self.desk._add_event(call, what, start, call.minutes or 60, notes)
             except PhoneError as exc:
@@ -308,7 +308,7 @@ class LiveCalls:
 
                 try:
                     spec = reminders_desk.clean_new(
-                        {"title": step, "notes": f"From Jarvis's call to {who}: {call.goal}"}
+                        {"title": step, "notes": f"From Eden's call to {who}: {call.goal}"}
                     )
                     done = await self.add_reminder(spec)
                 except (ValueError, OSError) as exc:

@@ -24,7 +24,7 @@ APPS = {
         "product": "J.A.R.V.I.S.",
         "title": "jarvis",
         "logs": "Jarvis",
-        "expect": ["Talk to Jarvis"],
+        "expect": ["Talk to Eden"],
     },
     "eden-code": {"folder": "Eden Code", "title": "eden code", "logs": "Eden Code", "expect": []},
     # askeden.com in a window of its own (no engine, no Claude Code in it: the page is the site's)
@@ -292,7 +292,7 @@ def main(which: str) -> int:
             for base in places
             if base.is_dir()
             for p in base.rglob("*.lnk")
-            if "j.a.r.v.i.s" in p.name.lower()
+            if p.stem.lower() in ("eden", "j.a.r.v.i.s.")  # its name, and the one before the rename
         ]
         print(f"shortcuts made by the installer: {[str(p) for p in links]}", flush=True)
         if not links:

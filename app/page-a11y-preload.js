@@ -454,7 +454,7 @@ body[${MARK}-scroll="fixed"] { position: static !important; }`;
       if (!guess) continue;
       set(el, 'aria-label', guess.name);
       set(el, `${MARK}-label`, `guessed:${guess.from}`);
-      if (!el.hasAttribute('aria-description') && !el.hasAttribute('aria-describedby')) set(el, 'aria-description', 'Label guessed by Jarvis');
+      if (!el.hasAttribute('aria-description') && !el.hasAttribute('aria-describedby')) set(el, 'aria-description', 'Label guessed by Eden');
       counts.labels += 1;
     }
   }

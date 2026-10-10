@@ -69,11 +69,11 @@
     const offerRow = el('div', 'row');
     offerRow.id = 'skills-offer-row';
     const offerWords = el('span');
-    offerWords.append(el('strong', '', 'Offer to keep long tasks as skills'), el('small', '', 'After a request that took many steps, Jarvis may draft a skill from it for you to read here (a few a day). A draft is never switched on by itself.'));
+    offerWords.append(el('strong', '', 'Offer to keep long tasks as skills'), el('small', '', 'After a request that took many steps, Eden may draft a skill from it for you to read here (a few a day). A draft is never switched on by itself.'));
     offerRow.append(offerWords);
     section.append(
       el('h3', '', 'Skills'),
-      el('p', 'group-note', 'How-tos Jarvis follows for particular tasks, each a folder with a SKILL.md. A skill guides how Jarvis works but never lets it do more: every action still asks as usual. New skills stay off until you turn them on.'),
+      el('p', 'group-note', 'How-tos Eden follows for particular tasks, each a folder with a SKILL.md. A skill guides how Eden works but never lets it do more: every action still asks as usual. New skills stay off until you turn them on.'),
       list,
       install,
       gitForm,
@@ -104,7 +104,7 @@
     const line = el('small', 'sk-source');
     if (text.startsWith('folder:')) line.append(document.createTextNode(F.t('From a folder:') + ' '), mine(el('span', '', text.slice(7))));
     else if (text.startsWith('git:')) line.append(document.createTextNode(F.t('From git:') + ' '), mine(el('span', '', text.slice(4))));
-    else line.textContent = F.t('Drafted by Jarvis');
+    else line.textContent = F.t('Drafted by Eden');
     return line;
   }
 
@@ -131,7 +131,7 @@
     if (from) li.append(from);
     if (skill.allowed_tools) {
       const tools = el('small', 'sk-tools');
-      tools.append(document.createTextNode(F.t('It asks to pre-approve tools, which Jarvis never does:') + ' '), mine(el('span', '', skill.allowed_tools)));
+      tools.append(document.createTextNode(F.t('It asks to pre-approve tools, which Eden never does:') + ' '), mine(el('span', '', skill.allowed_tools)));
       li.append(tools);
     }
     const actions = el('div', 'sk-actions');
@@ -141,7 +141,7 @@
         if (open) { previews.delete(skill.name); render(true); } else send({ type: 'skills_preview', name: skill.name });
       }),
       button('Remove', () => {
-        if (window.confirm(F.t(`Move ${skill.name} to the Trash? Jarvis stops using it.`))) send({ type: 'skills_remove', name: skill.name });
+        if (window.confirm(F.t(`Move ${skill.name} to the Trash? Eden stops using it.`))) send({ type: 'skills_remove', name: skill.name });
       }),
     );
     li.append(actions);

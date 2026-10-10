@@ -1,6 +1,6 @@
 // Eden's sign-in page (askeden.com/signin): Continue with Apple, Continue with Google (each
 // only when /api/web/config says it's set up), and Approve from your iPhone: a code (and its
-// QR code) shown until the J.A.R.V.I.S. app approves this browser, then Eden opens. The code's
+// QR code) shown until the Eden app approves this browser, then Eden opens. The code's
 // secret and, once signed in, the session are HttpOnly cookies: nothing here ever holds them.
 // A passkey: "Sign in with a passkey", or "Create an account with a passkey" (WebAuthn, through
 // /api/web/passkey/options and /verify). With Turnstile on (config `turnstile`, a site key), its

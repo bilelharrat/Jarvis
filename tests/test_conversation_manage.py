@@ -95,6 +95,6 @@ def test_export_writes_markdown_named_for_its_title(tmp_path):
     assert path.name == "Trip LisbonPorto.md"
     assert (
         path.read_text()
-        == "# Trip: Lisbon/Porto\n\n**You**\n\nPlan Lisbon\n\n**J.A.R.V.I.S.**\n\nDay one: Alfama.\n"
+        == "# Trip: Lisbon/Porto\n\n**You**\n\nPlan Lisbon\n\n**Eden**\n\nDay one: Alfama.\n"
     )
     assert write_markdown(tmp_path, "Trip: Lisbon/Porto", entries).name == "Trip LisbonPorto (2).md"

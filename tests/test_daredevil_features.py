@@ -464,11 +464,11 @@ async def test_read_that_back_while_typing_is_said_and_never_typed(
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
     q = hub.subscribe()
-    await hub.on_heard("Jarvis, start typing")
+    await hub.on_heard("Eden, start typing")
     await hub.on_heard("See you at eight.")
     await hub.on_heard("read that back")
     await hub.on_heard("stop typing")
-    await hub.on_heard("Jarvis, read the last line")
+    await hub.on_heard("Eden, read the last line")
     assert posted == [("text", "See you at eight.")]
     captions = [e["text"] for e in drain(q) if e["type"] == "caption"]
     assert captions == ["You typed: See you at eight.", "The last line: See you at eight."]
@@ -516,7 +516,7 @@ async def test_voice_id_is_set_up_by_voice_with_each_step_said(settings, quiet_s
         and "Sentence 1 of 5. Say after me: The quick brown fox" in said[0]
     )
     assert said[1].startswith("Got it. Sentence 2 of 5.")
-    assert said[2].startswith("I didn't catch that. Once more. Say after me: Jarvis,")
+    assert said[2].startswith("I didn't catch that. Once more. Say after me: Eden,")
     assert said[-1] == "Done. I know your voice now."
     assert guard.print is not None and guard.print.clips == 5
     assert await guard.instant("stop learning my voice") == "I'm not learning your voice just now."

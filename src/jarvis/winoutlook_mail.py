@@ -86,7 +86,7 @@ OFFLINE = (
     "then ask me again."
 )
 NEW_OUTLOOK = (
-    "This computer's Outlook is the newer web-style one, which Jarvis can't read. "
+    "This computer's Outlook is the newer web-style one, which Eden can't read. "
     "The classic Outlook program is needed."
 )
 
@@ -229,9 +229,7 @@ def _connect(app: Any = None):
         import pythoncom
         import win32com.client
     except ImportError as exc:
-        raise MailError(
-            "This computer can't talk to Outlook (a part of Jarvis is missing)."
-        ) from exc
+        raise MailError("This computer can't talk to Outlook (a part of Eden is missing).") from exc
     pythoncom.CoInitialize()  # (COM is per thread, and this runs in a worker's)
     try:
         app = win32com.client.GetActiveObject("Outlook.Application")

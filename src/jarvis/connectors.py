@@ -60,7 +60,7 @@ class CatalogEntry:
 
 _G = "https://www.googleapis.com/auth/"
 GOOGLE_HELP = (
-    "Easier route: add your Google account in System Settings > Internet Accounts (Jarvis "
+    "Easier route: add your Google account in System Settings > Internet Accounts (Eden "
     "already reads Mail and Calendar) and install Google Drive for desktop, then add its "
     "folder to the second brain. This connector is only needed for more than that. "
     "Google's connectors are a developer preview. Join the Workspace Developer Preview, "
@@ -120,7 +120,7 @@ CATALOG: list[CatalogEntry] = [
         help=f"Create an MCP app in Asana's developer console with redirect URI {REDIRECT_URI}, then paste its client ID and secret.",
         steps=(
             "Open Asana's developer console (app.asana.com/0/my-apps) and sign in.",
-            "Press Create new app, name it Jarvis, pick MCP app, then press Create app.",
+            "Press Create new app, name it Eden, pick MCP app, then press Create app.",
             "In the sidebar, open OAuth and add this redirect URL: {redirect_uri}",
             "Open Manage distribution, pick your workspace (or Any workspace), and save.",
             "Copy the Client ID and Client secret, and paste them below.",
@@ -181,10 +181,10 @@ CATALOG: list[CatalogEntry] = [
         "token",
         "Repos, issues, pull requests and Actions.",
         help_url="https://github.com/settings/personal-access-tokens/new",
-        help="Create a fine-grained personal access token with the repos and permissions you want Jarvis to have, then paste it here.",
+        help="Create a fine-grained personal access token with the repos and permissions you want Eden to have, then paste it here.",
         steps=(
             "Open GitHub's page for a new fine-grained token, and sign in.",
-            "Name it Jarvis, pick the repositories, and give it the permissions you want Jarvis "
+            "Name it Eden, pick the repositories, and give it the permissions you want Eden "
             "to have.",
             "Press Generate token, copy it, and paste it below.",
         ),
@@ -240,7 +240,7 @@ CATALOG: list[CatalogEntry] = [
         help=f"In HubSpot, create an MCP auth app (Development > MCP Auth Apps) with redirect URI {REDIRECT_URI}, then paste its client ID and secret.",
         steps=(
             "In HubSpot, open Development, then MCP Connectors in the sidebar.",
-            "Press Create MCP connector and name it Jarvis.",
+            "Press Create MCP connector and name it Eden.",
             "Add this redirect URL: {redirect_uri}",
             "Press Create, then copy the client ID and client secret from its page and paste "
             "them below.",
@@ -283,13 +283,13 @@ CATALOG: list[CatalogEntry] = [
         "Search messages and channels, read threads, and post after you OK it.",
         help_url="https://docs.slack.dev/ai/mcp-server",
         help="Slack's server takes a Slack app of your own: create one at api.slack.com/apps "
-        f"with redirect URL {REDIRECT_URI} and the user scopes you want Jarvis to have, "
+        f"with redirect URL {REDIRECT_URI} and the user scopes you want Eden to have, "
         "install it to your workspace, then paste its client ID and secret here.",
         steps=(
-            "At api.slack.com/apps, press Create New App › From scratch, name it Jarvis and "
+            "At api.slack.com/apps, press Create New App › From scratch, name it Eden and "
             "pick your workspace.",
             "Under OAuth & Permissions, add this redirect URL: {redirect_uri}",
-            "Under User Token Scopes, add what Jarvis may do (search:read.public and "
+            "Under User Token Scopes, add what Eden may do (search:read.public and "
             "chat:write, say).",
             "Install it to your workspace. It stays an internal app, listed nowhere.",
             "Under Basic Information, copy the Client ID and Client Secret, and paste them below.",
@@ -454,7 +454,7 @@ def _provider_class():
 # ── the browser sign-in callback ──
 
 SIGNED_IN_PAGE = (
-    "<!doctype html><meta charset=utf-8><title>Jarvis</title>"
+    "<!doctype html><meta charset=utf-8><title>Eden</title>"
     "<body style='font:17px -apple-system,sans-serif;display:grid;place-items:center;"
     "height:100vh;margin:0;background:#f4f0e8;color:#1c1b19'>"
     "<p>{message} You can close this tab.</p>"
@@ -493,7 +493,7 @@ class CallbackServer:
             if target.path != "/callback":
                 message, status = "Not found.", "404 Not Found"
             elif "code" in query:
-                message, status = "Signed in to Jarvis.", "200 OK"
+                message, status = "Signed in to Eden.", "200 OK"
                 if self._waiter is not None and not self._waiter.done():
                     self._waiter.set_result((query["code"][0], query.get("state", [None])[0]))
             else:
@@ -942,7 +942,7 @@ class ConnectorManager:
             return AuthorizationCodeResult(code=code, state=state)
 
         metadata = OAuthClientMetadata(
-            client_name="Jarvis",
+            client_name="Eden",
             redirect_uris=[REDIRECT_URI],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],

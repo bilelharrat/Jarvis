@@ -68,7 +68,7 @@ struct GeminiClient: BrainClient {
 
         var errorDescription: String? {
             switch self {
-            case .badKey: "Your Gemini API key wasn’t accepted. Check it in Settings › Jarvis on iPhone."
+            case .badKey: "Your Gemini API key wasn’t accepted. Check it in Settings › Eden on iPhone."
             case .rateLimited: "Gemini is rate limiting this key right now. Try again in a minute."
             case .overloaded: "Gemini is busy right now. Try again in a moment."
             case .server(let status, let message): message.isEmpty ? "Gemini couldn’t answer (\(status))." : message

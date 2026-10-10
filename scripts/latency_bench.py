@@ -111,7 +111,7 @@ def transcribe_time() -> float:
                 "-o",
                 f"{tmp}/q.wav",
                 "--data-format=LEI16@16000",
-                "Jarvis, what's on my calendar tomorrow?",
+                "Eden, what's on my calendar tomorrow?",
             ],
             check=True,
         )

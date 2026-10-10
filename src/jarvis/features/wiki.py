@@ -84,13 +84,13 @@ PROMPT = (
 )
 
 _OPEN = re.compile(
-    r"^(?:(?:ok(?:ay)?|hey|please|jarvis)[\s,]+)*(?:please\s+)?(?:can\s+you\s+)?"
+    r"^(?:(?:ok(?:ay)?|hey|please|eden|jarvis)[\s,]+)*(?:please\s+)?(?:can\s+you\s+)?"
     r"(?:open|show(?:\s+me)?|bring\s+up|pull\s+up)\s+(?:up\s+)?(?:my|the)\s+memory\s+wiki"
     r"(?:\s+(?:page\s+)?(?:on|for|about|at)\s+(?P<name>.{1,60}?))?(?:\s+please)?[.!?]*$",
     re.IGNORECASE,
 )
 _OPEN_MAP = re.compile(
-    r"^(?:(?:ok(?:ay)?|hey|please|jarvis)[\s,]+)*(?:please\s+)?(?:can\s+you\s+)?"
+    r"^(?:(?:ok(?:ay)?|hey|please|eden|jarvis)[\s,]+)*(?:please\s+)?(?:can\s+you\s+)?"
     r"(?:open|show(?:\s+me)?|bring\s+up|pull\s+up)\s+(?:up\s+)?(?:my|the)\s+people\s+map"
     r"(?:\s+please)?[.!?]*$",
     re.IGNORECASE,

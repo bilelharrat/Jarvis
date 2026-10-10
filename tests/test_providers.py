@@ -765,7 +765,7 @@ async def test_a_key_saved_by_an_older_version_is_not_used_until_pasted_again(tm
     pid = store.add_provider("openrouter", "", OR_KEY)["id"]
     ref = store.add_model(pid, "openai/gpt-5")["ref"]
     vault.set(f"provider:{pid}", "api_key", OR_KEY)  # a bare key, as an early build saved it
-    with pytest.raises(ValueError, match="older version of Jarvis"):
+    with pytest.raises(ValueError, match="older version of Eden"):
         store.session_config(ref, {})
     seen = []
     async with router_client({"https://": answer(json={"data": []})}, seen) as client:
@@ -1138,7 +1138,7 @@ def test_the_key_helper_prints_only_the_key(tmp_path, monkeypatch, capsys):
         (None, True),
     ]:
         out, message = run_helper(monkeypatch, capsys, stored, fail)
-        assert out == "" and message.startswith("Jarvis ")  # to stderr, with exit status 1
+        assert out == "" and message.startswith("Eden ")  # to stderr, with exit status 1
 
 
 def test_the_helper_command_survives_the_shell(tmp_path):

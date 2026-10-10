@@ -127,9 +127,9 @@ test('the folder and file pickers say what they ask in the window’s words', as
   assert.equal(f.asked[0].options.defaultPath, '/Users/a/Old');
   assert.deepEqual(f.asked[0].options.properties, ['openDirectory', 'createDirectory']);
   await f.h.pickBackup('relative/path', 42);
-  assert.equal(f.asked[1].options.message, 'Choose a Jarvis backup to restore');
+  assert.equal(f.asked[1].options.message, 'Choose an Eden backup to restore');
   assert.ok(f.asked[1].options.defaultPath.endsWith('/Documents'));
-  assert.deepEqual(f.asked[1].options.filters, [{ name: 'Jarvis backup', extensions: ['zip'] }]);
+  assert.deepEqual(f.asked[1].options.filters, [{ name: 'Eden backup', extensions: ['zip'] }]);
   assert.equal(await fakes({ canceled: true }).h.pickFolder(), null);
 });
 

@@ -54,7 +54,7 @@ function install(ctx) {
   let pauseTimer = null;
   const icons = new Map();
   // What the program is called here: J.A.R.V.I.S., or J.A.R.V.I.S. Daredevil (flavor.js).
-  const appName = (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.';
+  const appName = (ctx.flavor && ctx.flavor.name) || 'Eden';
   const canNotify = !ctx.dev && Boolean(Notification && Notification.isSupported());
   const approvals = new Map(); // id -> the card, as the window reported it
   const approvalNotes = new Map(); // id -> its notification
@@ -587,7 +587,7 @@ function install(ctx) {
       if (!w) return;
       if (!allowed.ok) {
         console.error(`shell: the window's page stopped again (${details && details.reason}); not reloading`);
-        w.loadFile(path.join(__dirname, '..', 'loading.html'), { query: { error: 'The window stopped several times in a few minutes. Quit J.A.R.V.I.S. and open it again; details are in ~/Library/Logs/Jarvis.' } });
+        w.loadFile(path.join(__dirname, '..', 'loading.html'), { query: { error: 'The window stopped several times in a few minutes. Quit Eden and open it again; details are in ~/Library/Logs/Jarvis.' } });
         return;
       }
       console.warn(`shell: the window's page stopped (${details && details.reason}); reloading it`);

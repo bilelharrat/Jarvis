@@ -234,7 +234,7 @@ async def test_make_that_a_skill_drafts_the_latest_request(
     desk.workshop.heard(long_turn(n=2))
     alerts = []
     hub.add_notify_sink(alerts.append)
-    said = await desk.instant("Jarvis, turn this into a skill please")
+    said = await desk.instant("Eden, turn this into a skill please")
     assert said.startswith("I'll draft a skill from that")
     await settle(hub)
     assert [s["kind"] for s in model.seen] == ["draft"]  # asked for: no triage
@@ -397,7 +397,7 @@ async def test_a_draft_is_switched_on_only_by_the_owners_click(
     assert [s.name for s in desk.store.offered()] == ["weekly-report"]
     assert events[-1][1]["note"] == "Added weekly-report to your skills, switched on."
     assert events[-1][1]["proposals"] == []
-    assert desk.store.sources["weekly-report"] == "drafted by Jarvis"
+    assert desk.store.sources["weekly-report"] == "drafted by Eden"
     await hub._handle({"type": "skills_accept", "id": item["id"]})
     assert events[-1][1]["error"] == "That draft isn't there any more."
     await hub._handle({"type": "skills_offer", "on": False})

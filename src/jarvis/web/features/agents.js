@@ -68,7 +68,7 @@
     if (!settings || !personality) return null;
     const section = el('section', 'group agents-group');
     section.id = 'agents-group';
-    const intro = el('p', 'small-status', 'One Jarvis does everything until you make another agent. Each agent has its own persona, memory and tools, and answers to its persona’s name.');
+    const intro = el('p', 'small-status', 'One Eden does everything until you make another agent. Each agent has its own persona, memory and tools, and answers to its persona’s name.');
     const list = el('ul', 'agent-list');
     list.id = 'agent-list';
     const add = button('New agent…', 'btn', () => edit(null));
@@ -79,7 +79,7 @@
     form.setAttribute('aria-label', 'An agent');
     const name = mine(el('input'));
     name.maxLength = 32;
-    name.placeholder = 'e.g. Work Jarvis';
+    name.placeholder = 'e.g. Work Eden';
     const zhName = mine(el('input'));
     zhName.maxLength = 32;
     const persona = el('select');
@@ -100,7 +100,7 @@
     routes.id = 'agent-routes';
     const routesRow = el('div', 'row stack agent-field');
     const routesHead = el('span');
-    routesHead.append(el('strong', '', 'Chats that reach it'), el('small', '', 'A message to Jarvis from one of these goes to this agent. Optionally one Slack workspace or one chat, by its ID.'));
+    routesHead.append(el('strong', '', 'Chats that reach it'), el('small', '', 'A message to Eden from one of these goes to this agent. Optionally one Slack workspace or one chat, by its ID.'));
     routesRow.append(routesHead, routes, button('Add a chat', 'btn small', () => routes.append(routeRow({ channel: S.channels[0] || 'slack', place: '' }))));
     const error = el('p', 'agent-error');
     error.id = 'agent-error';
@@ -219,7 +219,7 @@
     li.dataset.agent = agent.id;
     const words = el('span', 'agent-words');
     if (agent.id === 'main') {
-      words.append(el('strong', '', 'Jarvis'), el('small', '', 'The everyday Jarvis, with every tool'));
+      words.append(el('strong', '', 'Eden'), el('small', '', 'The everyday Eden, with every tool'));
     } else {
       const tools = (agent.servers || []).length;
       const count = tools === 1 ? T('1 tool') : T(`${tools} tools`);

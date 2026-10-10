@@ -61,7 +61,7 @@ SEMANTIC = ("brain_semantic", False)  # search by meaning: may download Apple's 
 VECTORS = "vectors"  # rebuild_brain(only={VECTORS}): re-read nothing, make vectors
 FULL_DISK_ACCESS = (
     "{what} need Full Disk Access: System Settings > Privacy & Security > Full Disk Access, "
-    "then turn on J.A.R.V.I.S. and restart it."
+    "then turn on Eden and restart it."
 )
 MAX_BOOKMARKS = 5000  # per browser
 
@@ -137,7 +137,7 @@ def conversation_lines(messages: list[Any]) -> list[str]:
             if text:
                 lines.append(f"You: {text}")
         elif text:
-            lines.append(f"Jarvis: {text}")
+            lines.append(f"Eden: {text}")
     return lines
 
 
@@ -194,7 +194,7 @@ def _session_notes(info: Any, messages: list[Any]) -> list[Note]:
 
     lines = conversation_lines(messages)
     first = next((line[5:] for line in lines if line.startswith("You: ")), "")
-    replied = any(line.startswith("Jarvis: ") for line in lines)
+    replied = any(line.startswith("Eden: ") for line in lines)
     if not first or first.startswith(ONE_OFF) or not replied:
         return []
     when = datetime.fromtimestamp((getattr(info, "last_modified", 0) or 0) / 1000)
@@ -209,7 +209,7 @@ def _session_notes(info: Any, messages: list[Any]) -> list[Note]:
                 id=f"conversation:{info.session_id}:{n}",
                 source="conversations",
                 title=(opener.splitlines()[0] if len(parts) > 1 else title)[:100],
-                text=f"A conversation with Jarvis, {when:%A %d %B %Y}.\n\n" + "\n\n".join(part),
+                text=f"A conversation with Eden, {when:%A %d %B %Y}.\n\n" + "\n\n".join(part),
                 ref=str(info.session_id),
                 # Cut from the title with its secrets blanked: cut first, a key's end could
                 # be too short to be recognised as one.
@@ -633,7 +633,7 @@ def whisper_transcriber(model_name: str, language: str) -> Transcribe:
         )
     except Exception as exc:
         raise RuntimeError(
-            "Jarvis's speech model isn't on this Mac yet: talk to Jarvis once so it's set up, "
+            "Eden's speech model isn't on this Mac yet: talk to Eden once so it's set up, "
             "then Voice Memos can be transcribed."
         ) from exc
     options = lang.transcribe_options(language)

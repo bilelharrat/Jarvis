@@ -126,10 +126,10 @@ async def transcribe(hub: Any, raw: bytes, mime: Any) -> str:
             words = await asyncio.wait_for(asyncio.to_thread(hear, stt, audio), TIMEOUT)
         except TimeoutError:
             raise DictationError(
-                504, "Jarvis took too long to hear that. Try a shorter one."
+                504, "Eden took too long to hear that. Try a shorter one."
             ) from None
         except Exception as exc:
             log.warning("eden dictation: Whisper failed (%s)", type(exc).__name__)
-            raise DictationError(500, "Jarvis couldn’t transcribe that recording.") from None
+            raise DictationError(500, "Eden couldn’t transcribe that recording.") from None
     log.info("eden dictation: %.0f s heard", seconds)
     return words  # each piece cleaned already (video.whisper_transcribe: no made-up lines)

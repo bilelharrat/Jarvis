@@ -47,7 +47,7 @@ def said(ear, transcript, command=None):
         ("I said Okin, not akin", "Okin", "akin"),
         ("No, it's Okin", "Okin", ""),
         ("not akin, Okin", "Okin", "akin"),
-        ("Jarvis, no, I said “Okin”", "Okin", ""),
+        ("Eden, no, I said “Okin”", "Okin", ""),
         ("no, I said Kai, K-A-I", "Kai", ""),
         ("我说的是欧金", "欧金", ""),
         ("不对，我说的是欧金，不是奥金", "欧金", "奥金"),
@@ -98,7 +98,7 @@ def test_diff_pairs():
 
 
 def test_spoken_correction_is_learned_and_applied(ear):
-    assert said(ear, "Jarvis, call akin about the lease", "call akin about the lease") is None
+    assert said(ear, "Eden, call akin about the lease", "call akin about the lease") is None
     fix = said(ear, "no, I said Okin")
     assert (fix.heard, fix.meant) == ("akin", "Okin")
     assert fix.corrected == "call Okin about the lease"
@@ -107,7 +107,7 @@ def test_spoken_correction_is_learned_and_applied(ear):
     assert ear.fix("text akin that I'm late") == "text Okin that I'm late"
     assert ear.fix("taking the bus") == "taking the bus"  # whole words only
     assert "Okin" in ear.hotwords()
-    assert ear.hotwords().startswith("Jarvis ")
+    assert ear.hotwords().startswith("Eden ")
 
 
 def test_explicit_heard_needs_no_likeness(ear):
@@ -194,10 +194,10 @@ def test_corrections_in_force_are_worked_out_once_per_look(ear, monkeypatch):
 
 def test_wake_word_is_never_learned(ear):
     with pytest.raises(ValueError):
-        ear.correct("service", "Jarvis")
+        ear.correct("service", "Eden")
     with pytest.raises(ValueError):
-        ear.correct("Jarvis", "Travis")
-    assert ear.apply("Jarvis, call Travis") == "Jarvis, call Travis"
+        ear.correct("Eden", "Travis")
+    assert ear.apply("Eden, call Travis") == "Eden, call Travis"
 
 
 def test_chinese_correction(tmp_path, clock):
@@ -228,7 +228,7 @@ def test_words_the_owner_uses_become_hints(ear):
 
 
 def test_seeds_are_hints_never_corrections(ear):
-    ear.seed("calendar", ["Priya Raman", "ann@zainar.com", "Jarvis", "the"])
+    ear.seed("calendar", ["Priya Raman", "ann@zainar.com", "Eden", "the"])
     ear.seed("contacts", ["Bob Chen", "Dmitri Ivanov"])
     hints = ear.hotwords()
     assert "Priya Raman" in hints and "ann" in hints
@@ -245,9 +245,9 @@ def test_hotwords_are_capped(ear):
     hints = ear.hotwords()
     assert len(hints.split()) <= hearing.HOTWORDS
     assert len(hints) <= hearing.HOTWORD_CHARS
-    assert hints.split()[0] == "Jarvis"
-    zh = ear.hotwords(base="贾维斯")
-    assert zh.startswith("贾维斯")
+    assert hints.split()[0] == "Eden"
+    zh = ear.hotwords(base="伊甸")
+    assert zh.startswith("伊甸")
 
 
 def test_off_learns_and_changes_nothing(tmp_path, clock):
@@ -256,7 +256,7 @@ def test_off_learns_and_changes_nothing(tmp_path, clock):
     ear.correct("akin", "Okin")
     on[0] = False
     assert ear.apply("akin") == "akin"
-    assert ear.hotwords() == "Jarvis"
+    assert ear.hotwords() == "Eden"
     assert ear.owner_said("no, I said Zed") is None
 
 

@@ -35,7 +35,7 @@ from . import calendar_kit, ics, jsonstore, osplat, winoutlook
 log = logging.getLogger("jarvis")
 
 LOCAL = "local"
-LOCAL_TITLE = "Jarvis"
+LOCAL_TITLE = "Eden"
 FEED_SECONDS = 15 * 60  # a link is read again after this
 FEED_RETRY_SECONDS = 5 * 60  # a link that failed is tried again after this (sooner when asked)
 FEED_BYTES = 8_000_000  # the most one calendar link may send
@@ -97,6 +97,11 @@ def _when(text: Any) -> datetime:
 
 def _plain(text: Any) -> str:
     return " ".join(str(text or "").casefold().split())
+
+
+def _titled(name: Any) -> str:
+    """A calendar's title as asked for: its own one's name from before the rename too."""
+    return LOCAL_TITLE if _plain(name) == "jarvis" else str(name or "")
 
 
 # ── the files ──
@@ -228,7 +233,7 @@ class Store:
         if not on:
             if has:
                 self.remove_calendar(OUTLOOK)
-            return "Jarvis no longer reads Outlook's calendar. Nothing was changed in Outlook."
+            return "Eden no longer reads Outlook's calendar. Nothing was changed in Outlook."
         if not self.outlook.available():
             raise CalendarError(
                 "Outlook for Windows isn't on this PC (the new Outlook can't be read this way)."
@@ -247,13 +252,13 @@ class Store:
             self._save_calendars(data)
         said = self.refresh(True).get(OUTLOOK, "")
         if said:
-            return f"Jarvis will read Outlook's calendar. {said}"
-        return "Jarvis reads Outlook's calendar now, and again every few minutes while Outlook is open. It is read only."
+            return f"Eden will read Outlook's calendar. {said}"
+        return "Eden reads Outlook's calendar now, and again every few minutes while Outlook is open. It is read only."
 
     def set_default(self, calendar_id: str) -> None:
         if calendar_id != LOCAL:
             raise CalendarError(
-                "New events can only go on Jarvis's own calendar: a calendar link is read-only."
+                "New events can only go on Eden's own calendar: a calendar link is read-only."
             )
         data = self._load_calendars()
         data["default"] = LOCAL
@@ -277,7 +282,7 @@ class Store:
             raise CalendarError(
                 "Outlook isn't open, so I'm using what I last read from it."
                 if body.is_file()
-                else "Outlook isn't open: open it, and Jarvis will read its calendar."
+                else "Outlook isn't open: open it, and Eden will read its calendar."
             )
         now = self.now()
         fresh = body.with_name(
@@ -456,7 +461,9 @@ class Store:
         return {"events": [row(o, details=True) for o in self._starting(start)]}
 
     def _one(self, start: str, event_id: str, calendar: str) -> Occurrence | None:
-        hits = [o for o in self._starting(start) if o.id == event_id and o.calendar == calendar]
+        hits = [
+            o for o in self._starting(start) if o.id == event_id and o.calendar == _titled(calendar)
+        ]
         return hits[0] if len(hits) == 1 else None
 
     def remove(self, start: str, event_id: str, calendar: str, future: bool) -> dict[str, Any]:
@@ -487,7 +494,7 @@ class Store:
         return {"removed": gone, "span": span}
 
     def create(self, spec: dict[str, Any]) -> dict[str, Any]:
-        wanted = _plain(spec.get("calendar"))
+        wanted = _plain(_titled(spec.get("calendar")))
         calendars = self.calendars()
         if wanted:
             target = next((c for c in calendars if _plain(c["title"]) == wanted), None)
@@ -546,7 +553,7 @@ class Store:
                 if end.hour == 23
                 else end
             )
-        wanted = str(event.get("calendar") or "")
+        wanted = _titled(event.get("calendar"))
         writable = next(
             (c for c in self.calendars() if c["writable"] and c["title"] == wanted), None
         )

@@ -38,7 +38,7 @@ def kinds(*said):
     ("said", "kind"),
     [
         ("what's everyone doing?", "overview"),
-        ("Jarvis, what is everyone doing", "overview"),
+        ("Eden, what is everyone doing", "overview"),
         ("so what are all the sessions up to", "overview"),
         ("how are the sessions doing", "overview"),
         ("give me a status update on my sessions", "overview"),
@@ -146,7 +146,7 @@ def test_the_focused_sessions_own_words_and_requests_are_left_alone():
     ("said", "kind", "ref"),
     [
         ("大家都在做什么", "overview", None),
-        ("贾维斯，所有会话都怎么样了", "overview", None),
+        ("伊甸，所有会话都怎么样了", "overview", None),
         ("谁在等我", "waiting", None),
         ("给我补一下进度", "catch_up", None),
         ("切换到会话3", "focus", 3),

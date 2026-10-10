@@ -40,7 +40,7 @@ _FILLER = {
 }  # fmt: skip
 _EVERY = {"all", "everything", "them", "every"}
 _NUM = r"(?:\d{1,3}(?:st|nd|rd|th)?|" + "|".join(NUMBER_WORDS) + r")"
-_LEAD = r"^\W*(?:(?:please|okay|ok|so|now|and|jarvis|jervis)\W+)*"
+_LEAD = r"^\W*(?:(?:please|okay|ok|so|now|and|eden|jarvis|jervis)\W+)*"
 _ON_CHANGE = re.compile(
     _LEAD + r"(?:on|for|in|about|at)\s+(?:the\s+)?(?:(?P<pre>change|hunk|edit)\s+(?:number\s+)?)?"
     rf"(?P<n>{_NUM})(?:\s+(?P<post>change|hunk|edit)s?)?\s*[,:;.—-]?\s+(?P<text>\S.*)$",
@@ -217,7 +217,7 @@ def _zh(raw: str) -> str:
     """An utterance for the Mandarin patterns: simplified, no wake word, no spaces or
     closing punctuation."""
     text = lang.to_simplified(raw).strip()
-    text = re.sub(r"^(?:贾维斯|加维斯|jarvis)[，,\s]*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^(?:伊甸|贾维斯|加维斯|eden|jarvis)[，,\s]*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"^(?:请|麻烦|那|好的?)[，,\s]*", "", text)
     return re.sub(r"[。！!？?\s]+$", "", text).replace(" ", "")
 

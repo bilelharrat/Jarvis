@@ -138,7 +138,7 @@ final class AccountTests: XCTestCase {
         let body = Data(#"{"type":"error","error":{"type":"billing_error","message":"No allowance left."}}"#.utf8)
         let failure = ClaudeClient.failure(status: 402, body: body, viaAccount: true)
         XCTAssertEqual(failure, .noAllowance)
-        XCTAssertTrue(failure.errorDescription?.contains("Upgrade to Jarvis Plus") ?? false)
+        XCTAssertTrue(failure.errorDescription?.contains("Upgrade to Eden Plus") ?? false)
         XCTAssertEqual(ClaudeClient.failure(status: 401, body: Data(), viaAccount: true), .signedOut)
         XCTAssertEqual(ClaudeClient.failure(status: 401, body: Data()), .badKey)  // the owner's own key
     }

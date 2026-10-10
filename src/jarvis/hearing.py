@@ -56,7 +56,7 @@ EDITED = 0.7  # how alike the sent text must be to the dictated one to count as 
 SIMILAR = 0.5  # how alike misheard and meant must sound (letters or consonants)
 SIMILAR_GUESS = 0.6  # the same, when the owner didn't say which words were misheard
 SAVE_EVERY = 60.0  # usage counts are saved at most this often; corrections at once
-WAKE_WORDS = ("jarvis", "贾维斯")
+WAKE_WORDS = ("eden", "伊甸")
 
 # Frequent English words: one of these alone is too easy to mishear on purpose or by
 # accident, so as the misheard side it takes two corrections before it's replaced, and
@@ -79,7 +79,7 @@ _ZH_COMMON = frozenset("的 了 是 我 你 他 她 在 有 和 不 这 那 一 
 _TOKEN = re.compile(r"[\w][\w'’.-]*[\w]|[\w]")
 _CJK = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 _QUOTE = "\"'“”‘’「」『』"
-_LEAD = r"^(?:(?:no|nope|sorry|wait|actually|oops|jarvis|well|hey)\b[\s,.!:;-]*)*"
+_LEAD = r"^(?:(?:no|nope|sorry|wait|actually|oops|eden|jarvis|well|hey)\b[\s,.!:;-]*)*"
 _SPAN = r"[\"“'‘]?(?P<{name}>[^\"”’,.!?;:]+?)[\"”'’]?"
 _EN_SAID = re.compile(
     _LEAD
@@ -194,8 +194,8 @@ def _words_of(text: str) -> list[str]:
 
 
 def _has_wake(text: str) -> bool:
-    low = text.lower()
-    return any(w in low for w in WAKE_WORDS)
+    low = text.lower()  # (whole words: "Sweden" isn't the name)
+    return any(re.search(rf"(?<![a-z]){w}(?![a-z])", low) for w in WAKE_WORDS)
 
 
 # Asked of every correction on each transcript (is it in force yet?), so the answers are
@@ -636,7 +636,7 @@ class Hearing:
 
     # ── for the recognizer ──
 
-    def hotwords(self, base: str = "Jarvis", limit: int = HOTWORDS) -> str:
+    def hotwords(self, base: str = "Eden", limit: int = HOTWORDS) -> str:
         """base (the wake word, or a code project's names) and then what was learned:
         corrected and taught words, words the owner says often, names in upcoming meetings
         and memory, and Contacts they've mentioned by name."""

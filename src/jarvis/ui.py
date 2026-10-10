@@ -126,7 +126,7 @@ _HANDS = re.compile(
 
 def _normal(text: str) -> str:
     t = re.sub(r"\s+", " ", text.lower()).strip().strip(".!?,;: ")
-    t = re.sub(r"^(?:(?:ok(?:ay)?|so|and|now|hey|jarvis)[,\s]+)+", "", t)
+    t = re.sub(r"^(?:(?:ok(?:ay)?|so|and|now|hey|eden|jarvis)[,\s]+)+", "", t)
     t = re.sub(r"^(?:please|can you|could you|would you)\s+", "", t)
     return re.sub(r"\s+(?:please|for me)$", "", t).strip()
 
@@ -184,7 +184,7 @@ def build_server(apply: Apply):
 
     @tool(
         "show_panel",
-        "Open or close a part of the J.A.R.V.I.S. window: Eden Code (the coding panel), "
+        "Open or close a part of the Eden window: Eden Code (the coding panel), "
         "the browser, the Research Center, Settings, the second brain (knowledge galaxy), "
         "the activity log, or Tools & Accounts. open: false closes it. section: with Settings, "
         "land on one part of it: email (add or change an email account), accessibility "
@@ -218,7 +218,7 @@ def build_server(apply: Apply):
 
     @tool(
         "set_look",
-        "Change how J.A.R.V.I.S. looks: orb (the Ambient Orb), obsidian (Obsidian), console "
+        "Change how Eden looks: orb (the Ambient Orb), obsidian (Obsidian), console "
         "(the Command Center) or glass (Stark Glass).",
         {"look": str},
     )

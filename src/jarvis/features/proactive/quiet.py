@@ -264,7 +264,7 @@ def weekend_quiet(now: datetime, weekdays: str, weekend: str) -> bool:
 # ── the snooze, said ──
 
 _LEAD = (
-    r"^(?:(?:ok(?:ay)?|hey|so|and|now|please|jarvis)[,\s]+)*"
+    r"^(?:(?:ok(?:ay)?|hey|so|and|now|please|eden|jarvis)[,\s]+)*"
     r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|please\s+)?"
 )
 _WHAT = (
@@ -295,7 +295,9 @@ _RESUME = re.compile(
 )
 _ZH_NUM = r"[0-9一二两三四五六七八九十]+"
 _ZH_SPAN = rf"(?:{_ZH_NUM}(?:个)?(?:半)?|半(?:个)?)(?:小时|钟头|分钟|分)"
-_ZH_LEAD = r"^(?:贾维斯|jarvis)?[，,\s]*(?:请|麻烦|帮我|能不能|能|可以|可不可以)?(?:帮我)?"
+_ZH_LEAD = (
+    r"^(?:伊甸|贾维斯|eden|jarvis)?[，,\s]*(?:请|麻烦|帮我|能不能|能|可以|可不可以)?(?:帮我)?"
+)
 _ZH_END = r"(?:吗|吧|啊|好吗|行吗)?[。！!？?，,\s]*$"
 _SNOOZE_ZH = re.compile(
     _ZH_LEAD + r"(?:"

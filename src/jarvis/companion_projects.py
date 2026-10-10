@@ -35,7 +35,7 @@ def routes(api: Any) -> list[Route]:
         return getattr(hub, "chat_projects", None)
 
     def missing() -> JSONResponse:
-        return JSONResponse({"error": "Projects aren’t on in this Jarvis."}, status_code=404)
+        return JSONResponse({"error": "Projects aren’t on in this Eden app."}, status_code=404)
 
     async def listing(request: Request) -> Response:
         _device, refused = api._read(request)

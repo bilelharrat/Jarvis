@@ -33,7 +33,7 @@ lang.add_texts(TEXTS)
 
 # "Make it a routine" while a habit card is up; anything else is Claude's.
 _SAY = re.compile(
-    r"^(?:(?:ok(?:ay)?|yes|yeah|sure|jarvis)[,\s]+)*(?:please\s+)?(?:make|turn)\s+(?:it|this"
+    r"^(?:(?:ok(?:ay)?|yes|yeah|sure|eden|jarvis)[,\s]+)*(?:please\s+)?(?:make|turn)\s+(?:it|this"
     r"|that)\s+(?:into\s+)?(?:a\s+)?(?:daily\s+)?routine(?:\s+please)?[\s.!]*$",
     re.IGNORECASE,
 )

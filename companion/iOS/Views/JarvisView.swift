@@ -65,7 +65,7 @@ struct JarvisView: View {
                 .padding(.horizontal, Space.m)
                 .padding(.bottom, Space.xs)
             }
-            .navigationTitle("Jarvis")
+            .navigationTitle("Eden")
             .navigationSubtitle(model.brain.study && model.answersOnPhone ? "Study mode" : model.brain.temporary && model.answersOnPhone ? "Temporary chat" : model.answererLabel)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
@@ -108,7 +108,7 @@ struct JarvisView: View {
                 TextField("What was wrong? (optional)", text: $feedbackText, axis: .vertical)
                     .lineLimit(2...6)
             } footer: {
-                Text("Jarvis keeps it as a correction and won’t make that mistake again.")
+                Text("Eden keeps it as a correction and won’t make that mistake again.")
             }
             Section {
                 Button("Try Again with This") {
@@ -189,7 +189,7 @@ struct JarvisView: View {
                     ReactorView(mode: model.reactorMode, level: model.speech.level, size: 250)
                 }
                 .buttonStyle(OrbButtonStyle())
-                .accessibilityLabel("Talk to Jarvis")
+                .accessibilityLabel("Talk to Eden")
                 .accessibilityHint("Starts listening. Stops by itself when you pause.")
                 .padding(.top, Space.l)
 
@@ -245,7 +245,7 @@ struct JarvisView: View {
         } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: "wifi.slash")
-                Text(model.answersOnPhone ? "Mac offline · Jarvis is answering on this iPhone" : model.macOpening ? "Opening JARVIS on your Mac…" : "Can’t reach your Mac · Tap to try again")
+                Text(model.answersOnPhone ? "Mac offline · Eden is answering on this iPhone" : model.macOpening ? "Opening Eden on your Mac…" : "Can’t reach your Mac · Tap to try again")
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 if !model.queued.isEmpty {
@@ -438,7 +438,7 @@ private struct Composer: View {
                         }
                         .padding(.trailing, 6)
                         .padding(.bottom, 5)
-                        .accessibilityLabel("Send to Jarvis")
+                        .accessibilityLabel("Send to Eden")
                         .transition(.scale.combined(with: .opacity))
                     }
                 }
@@ -454,7 +454,7 @@ private struct Composer: View {
     private var placeholder: String {
         if !model.documents.isEmpty { return model.documents.count == 1 && model.attachments.isEmpty ? "Ask about this document" : "Ask about these" }
         if !model.attachments.isEmpty { return "Ask about \(model.attachments.count == 1 ? "this picture" : "these pictures")" }
-        return model.brain.temporary && model.answersOnPhone ? "Ask Jarvis (temporary)" : "Ask Jarvis"
+        return model.brain.temporary && model.answersOnPhone ? "Ask Eden (temporary)" : "Ask Eden"
     }
 
     private func send() {
@@ -481,7 +481,7 @@ private struct Composer: View {
                 .frame(width: 44, height: 44)
         }
         .surface(.regular.tint(.accentColor).interactive(), in: Circle(), fill: Obsidian.arc)
-        .accessibilityLabel(model.speech.status == .listening ? "Stop listening and send" : "Talk to Jarvis")
+        .accessibilityLabel(model.speech.status == .listening ? "Stop listening and send" : "Talk to Eden")
     }
 
     private var voiceModeButton: some View {
@@ -514,7 +514,7 @@ private struct Composer: View {
             Button("Voice Mode", systemImage: "waveform") { model.startVoiceMode() }
             Button("Brief Me", systemImage: "sparkles") { Task { await model.run(.briefing) } }
             Button("What’s Next?", systemImage: "calendar") { Task { await model.send(AppModel.whatsNext) } }
-            Button("Show Jarvis", systemImage: "camera.viewfinder") { onCamera() }
+            Button("Show Eden", systemImage: "camera.viewfinder") { onCamera() }
             if model.pairing != nil && model.brainMode != .phone {
                 if model.remote?.meeting != nil {
                     Button("Stop Meeting Notes", systemImage: "stop.circle") { Task { await model.run(.meetingStop) } }

@@ -121,8 +121,8 @@
 
   // J.A.R.V.I.S. Daredevil is the Windows edition. On a Mac the same mode is just screen-reader mode, and the
   // window keeps its own name.
-  const EDITION = IS_MAC ? 'Screen-reader mode' : 'J.A.R.V.I.S. Daredevil';
-  const APP_NAME = IS_MAC ? 'J.A.R.V.I.S.' : EDITION; // what the app is called in a sentence about opening it
+  const EDITION = IS_MAC ? 'Screen-reader mode' : 'Eden Daredevil';
+  const APP_NAME = IS_MAC ? 'Eden' : EDITION; // what the app is called in a sentence about opening it
   const lib = { plainForReader, keyWords, pcWords, approvalWords, CUES, EDITION };
   root.jarvisAccessibility = lib;
 
@@ -196,14 +196,14 @@
   let prefsSeen = false;
   let welcomed = false;
   // The top left says "Jarvis Daredevil"; the title bar and what is announced say J.A.R.V.I.S. Daredevil.
-  const WORDMARK = IS_MAC ? 'Jarvis' : 'Jarvis Daredevil';
-  lib.homeName = () => (!inEdenCode() && daredevil() ? WORDMARK : 'Jarvis');
+  const WORDMARK = IS_MAC ? 'Eden' : 'Eden Daredevil';
+  lib.homeName = () => (!inEdenCode() && daredevil() ? WORDMARK : 'Eden');
   function brand(on) {
     if (inEdenCode()) return;
     if (baseTitle === null) baseTitle = doc.title;
     if (!IS_MAC) doc.title = on ? EDITION : baseTitle;
     const mark = $('wordmark');
-    if (mark && (mark.textContent === 'Jarvis' || mark.textContent === WORDMARK)) mark.textContent = lib.homeName();
+    if (mark && (mark.textContent === 'Eden' || mark.textContent === WORDMARK)) mark.textContent = lib.homeName();
   }
   // Said once when it is on, after the settings have said whether it is: where to start.
   function welcome(on) {
@@ -608,9 +608,9 @@
     ['Y', 'Say yes to the question that is waiting'],
     ['N', 'Say no to it'],
     ['R', 'Read the last reply again'],
-    ['S', 'Stop speaking and stop what Jarvis is doing'],
-    ['T', 'Talk to Jarvis'],
-    ['U', 'What is Jarvis doing now'],
+    ['S', 'Stop speaking and stop what Eden is doing'],
+    ['T', 'Talk to Eden'],
+    ['U', 'What is Eden doing now'],
     ['W', 'Run the setup again'],
     ['H', 'This list of keys'],
   ];
@@ -665,7 +665,7 @@
     list.append(el('dt', '', 'Escape'), el('dd', '', t('Close what is open, and stop speaking')));
     const shell = root.jarvisShell;
     const hot = askKeys();
-    list.append(el('dt', '', hot), el('dd', '', t('Talk to Jarvis from any app')));
+    list.append(el('dt', '', hot), el('dd', '', t('Talk to Eden from any app')));
     const stopKey = (shell && shell.stopLabel && shell.stopLabel()) || (IS_MAC ? '⌘⌥.' : 'Ctrl+Alt+Backspace');
     list.append(el('dt', '', keyWords(stopKey, IS_MAC)), el('dd', '', t('Stop talking and reading, from any app')));
     if (prefs.a11y_switch !== 'off') {
@@ -768,23 +768,23 @@
     status.id = 'a11y-status';
     status.setAttribute('role', 'status');
     group.append(status);
-    group.append(stacked('Screen-reader mode', editionOn() ? 'In J.A.R.V.I.S. Daredevil, Auto keeps it on. Off turns it off.' : 'Auto turns it on when a screen reader (NVDA, JAWS, Narrator, VoiceOver) is running.',
+    group.append(stacked('Screen-reader mode', editionOn() ? 'In Eden Daredevil, Auto keeps it on. Off turns it off.' : 'Auto turns it on when a screen reader (NVDA, JAWS, Narrator, VoiceOver) is running.',
       segmented('Screen-reader mode', 'a11y_mode', [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']])));
-    group.append(stacked('Who reads Jarvis’s replies aloud', 'Auto: your screen reader, when one is running, and Jarvis’s own voice when none is. Your screen reader keeps your own voice and speed.',
-      segmented('Who reads replies aloud', 'a11y_voice', [['auto', 'Auto'], ['reader', 'My screen reader'], ['jarvis', 'Jarvis’s voice']])));
+    group.append(stacked('Who reads Eden’s replies aloud', 'Auto: your screen reader, when one is running, and Eden’s own voice when none is. Your screen reader keeps your own voice and speed.',
+      segmented('Who reads replies aloud', 'a11y_voice', [['auto', 'Auto'], ['reader', 'My screen reader'], ['jarvis', 'Eden’s voice']])));
     group.append(stacked('Colours', 'For low vision: strong pairings with a solid edge round everything. Auto is yellow on black while ' + (IS_MAC ? 'screen-reader mode' : 'Daredevil') + ' is on.',
       segmented('Colours', 'a11y_colors', [
         ['auto', 'Auto'], ['yellow', 'Yellow on black'], ['white', 'White on black'], ['yellow-bg', 'Black on yellow'], ['yellow-blue', 'Yellow on blue'], ['off', 'Off'],
       ], true)));
     group.append(stacked('Text size', 'Everything in the window gets larger, and the layout follows. Auto is larger while ' + (IS_MAC ? 'screen-reader mode' : 'Daredevil') + ' is on.',
       segmented('Text size', 'a11y_text_size', [['auto', 'Auto'], ['normal', 'Normal'], ['large', 'Large'], ['larger', 'Larger'], ['largest', 'Largest']])));
-    group.append(stacked('How much Jarvis says', 'Brief is one to three sentences.',
-      segmented('How much Jarvis says', 'a11y_verbosity', [['brief', 'Brief'], ['normal', 'Normal'], ['detailed', 'Detailed']])));
-    group.append(stacked('Say the punctuation I dictate', 'When you dictate an email, a note or a document, say “comma”, “period”, “question mark” or “new paragraph” and Jarvis writes the mark. Otherwise Jarvis punctuates for you.',
-      segmented('Dictated punctuation', 'a11y_dictate_punct', [['auto', 'Jarvis adds it'], ['spoken', 'I say it']])));
-    group.append(stacked('Read punctuation aloud', 'Jarvis says the marks as words: “Hello comma world period”, in what it speaks and in what your screen reader is given. Say “read the punctuation” or “stop reading punctuation” any time.',
+    group.append(stacked('How much Eden says', 'Brief is one to three sentences.',
+      segmented('How much Eden says', 'a11y_verbosity', [['brief', 'Brief'], ['normal', 'Normal'], ['detailed', 'Detailed']])));
+    group.append(stacked('Say the punctuation I dictate', 'When you dictate an email, a note or a document, say “comma”, “period”, “question mark” or “new paragraph” and Eden writes the mark. Otherwise Eden punctuates for you.',
+      segmented('Dictated punctuation', 'a11y_dictate_punct', [['auto', 'Eden adds it'], ['spoken', 'I say it']])));
+    group.append(stacked('Read punctuation aloud', 'Eden says the marks as words: “Hello comma world period”, in what it speaks and in what your screen reader is given. Say “read the punctuation” or “stop reading punctuation” any time.',
       segmented('Reading punctuation', 'a11y_read_punct', [['none', 'Don’t read'], ['some', 'Main marks'], ['all', 'Every mark']])));
-    group.append(toggle('Sounds for what Jarvis is doing', 'Short tones: listening, thinking, done, needs your OK, error.', 'a11y_cues'));
+    group.append(toggle('Sounds for what Eden is doing', 'Short tones: listening, thinking, done, needs your OK, error.', 'a11y_cues'));
     const volume = el('input');
     volume.type = 'range';
     volume.min = '0';
@@ -795,9 +795,9 @@
     volume.addEventListener('change', () => { change({ a11y_cue_volume: Number(volume.value) }); cue('done', { force: true }); });
     controls.a11y_cue_volume = volume;
     group.append(stacked('Sound volume', '', volume));
-    group.append(stacked('Reading speed', 'How fast Jarvis’s voice reads long texts: documents, emails and reports. Conversation keeps the speed in Speaking. Your screen reader keeps its own.',
+    group.append(stacked('Reading speed', 'How fast Eden’s voice reads long texts: documents, emails and reports. Conversation keeps the speed in Speaking. Your screen reader keeps its own.',
       segmented('Reading speed', 'a11y_read_speed', [[0, 'Same as talking'], [80, '80%'], [100, '100%'], [125, '125%'], [150, '150%'], [175, '175%'], [200, '200%']])));
-    group.append(stacked('How much of a long text to read', 'For documents, emails and reports. Conversation follows “How much Jarvis says”.',
+    group.append(stacked('How much of a long text to read', 'For documents, emails and reports. Conversation follows “How much Eden says”.',
       segmented('How much of a long text to read', 'a11y_read_verbosity', [['full', 'All of it'], ['summary', 'A summary first'], ['highlights', 'Key points']])));
     group.append(toggle('Move the focus to a question that needs an answer', 'So you can answer without searching for it.', 'a11y_focus'));
     group.append(stacked('Switch control for questions', 'For switches that send Space or Enter. One switch: press to move through a question’s choices, hold to choose. Two switches: the second one chooses.',
@@ -806,10 +806,10 @@
       segmented('The first switch sends', 'a11y_switch_key', [['space', 'Space'], ['enter', 'Enter']])));
     group.append(stacked('A long press is', '',
       segmented('A long press is', 'a11y_switch_hold', [[500, 'Half a second'], [1000, 'One second'], [2000, 'Two seconds']])));
-    group.append(stacked('Send what is on my screen to the AI model', 'To read or describe your screen, its contents go to Claude. Ask me first: you are asked the first time. Jarvis says each time it sends the screen.',
+    group.append(stacked('Send what is on my screen to the AI model', 'To read or describe your screen, its contents go to Claude. Ask me first: you are asked the first time. Eden says each time it sends the screen.',
       segmented('Send what is on my screen to the AI model', 'a11y_screen_share', [['ask', 'Ask me first'], ['on', 'Yes'], ['off', 'No']])));
-    group.append(toggle('Say which app has the focus', 'After Jarvis opens, clicks or switches something, it says where you are now.', 'a11y_say_focus'));
-    group.append(toggle('Say what Jarvis is doing', 'Also say “Listening” and “Thinking”, not only play the sounds.', 'a11y_say_state'));
+    group.append(toggle('Say which app has the focus', 'After Eden opens, clicks or switches something, it says where you are now.', 'a11y_say_focus'));
+    group.append(toggle('Say what Eden is doing', 'Also say “Listening” and “Thinking”, not only play the sounds.', 'a11y_say_state'));
     openNote = el('p', 'group-note');
     openNote.id = 'a11y-open-note';
     group.append(openNote);

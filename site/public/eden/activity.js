@@ -45,14 +45,14 @@ async function render(root) {
   if (!root.isConnected) return;
   const items = data.items.filter((it) => filter === 'all' || kindOf(it) === filter);
   const out = [];
-  if (data.mac && !data.mac.available) out.push(el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), 'Only Eden’s own Google changes show. What Eden did through Jarvis (Mac calendar and Mail, memory) shows when it’s back.'));
+  if (data.mac && !data.mac.available) out.push(el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), 'Only Eden’s own Google changes show. What Eden did on your Mac (Mac calendar and Mail, memory) shows when it’s back.'));
   if (!items.length) out.push(el('div', 'muted act-empty', filter === 'all' ? 'Nothing yet. Calendar events, emails, memory changes and browser tasks Eden makes show here, with Undo where it can be undone.' : 'Nothing of that kind yet.'));
   let day = '';
   for (const it of items) {
     if (dayKey(it.at) !== day) { day = dayKey(it.at); out.push(el('h4', 'act-day', dayName(it.at))); }
     out.push(row(root, it));
   }
-  out.push(el('p', 'sp-note', 'Undo puts back what Eden changed: an event added is removed, one changed or removed goes back as it was, a draft is deleted. Jarvis keeps what it needs for 7 days.'));
+  out.push(el('p', 'sp-note', 'Undo puts back what Eden changed: an event added is removed, one changed or removed goes back as it was, a draft is deleted. Eden keeps what it needs for 7 days.'));
   res.replaceChildren(...out);
 }
 

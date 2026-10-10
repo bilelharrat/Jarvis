@@ -369,7 +369,7 @@ async def test_the_new_sources_notes_open_where_they_live(hub, monkeypatch, tmp_
     assert not any("javascript:alert(1)" in a for argv in opened for a in argv)
     assert ("open", str(image.resolve())) in opened
     assert ("open", "-a", "Reminders") in opened and ("open", "-a", "Voice Memos") in opened
-    assert emitted(hub, "toast")[-1]["title"] == "Jarvis conversation"
+    assert emitted(hub, "toast")[-1]["title"] == "Eden conversation"
 
 
 async def test_a_pdf_never_holds_up_the_windows_next_command(hub, monkeypatch, tmp_path):

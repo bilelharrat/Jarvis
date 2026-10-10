@@ -37,7 +37,7 @@ enum IntentRunner {
     /// What a spoken answer is kept to (the whole reply is in the app).
     static let longestSpoken = 900
 
-    static let notPaired = "Open J.A.R.V.I.S. to pair your Mac or add a Claude or Gemini API key first, or turn on Apple Intelligence."
+    static let notPaired = "Open Eden to pair your Mac or add a Claude or Gemini API key first, or turn on Apple Intelligence."
 
     /// Answers on the iPhone itself (nil when it can't: no API key and no Apple Intelligence).
     typealias Local = @Sendable (String) async -> String?
@@ -50,9 +50,9 @@ enum IntentRunner {
     /// Asks Jarvis and returns what to say: the reply, or why there isn't one yet.
     /// phoneFirst: the iPhone answers first and the Mac only when it can't (nil: as set in
     /// Settings › Jarvis on iPhone).
-    static func ask(_ raw: String, client: Client?, local: Local? = nil, phoneFirst: Bool? = nil, stillWorking: String = "Jarvis is still working on that. The answer will be in the app.") async -> String {
+    static func ask(_ raw: String, client: Client?, local: Local? = nil, phoneFirst: Bool? = nil, stillWorking: String = "Eden is still working on that. The answer will be in the app.") async -> String {
         let text = raw.trimmed
-        guard !text.isEmpty else { return "What should I ask Jarvis?" }
+        guard !text.isEmpty else { return "What should I ask Eden?" }
         guard let client else {
             if let local, let reply = await local(text) { return spoken(reply) }
             return notPaired
@@ -71,7 +71,7 @@ enum IntentRunner {
                 return reply.isEmpty ? "Done." : reply
             }
             if !result.approvals.isEmpty {
-                return "Jarvis needs your OK first. It’s waiting on your iPhone."
+                return "Eden needs your OK first. It’s waiting on your iPhone."
             }
             return stillWorking
         } catch JarvisError.timedOut, JarvisError.connectionLost {
@@ -100,7 +100,7 @@ enum IntentRunner {
                     let reply = spoken(result.reply)
                     return reply.isEmpty ? "Done." : reply
                 }
-                return result.approvals.isEmpty ? stillWorking : "Jarvis needs your OK first. It’s waiting on your iPhone."
+                return result.approvals.isEmpty ? stillWorking : "Eden needs your OK first. It’s waiting on your iPhone."
             } catch let error as JarvisError where error.neverDelivered {
                 continue  // not up yet
             } catch JarvisError.timedOut, JarvisError.connectionLost {
@@ -114,7 +114,7 @@ enum IntentRunner {
 
     static func brief(client: Client?, local: Local? = nil) async -> String {
         if let local, client == nil || BrainSettings.prefersPhone, let reply = await local(AppModel.phoneBriefing) { return spoken(reply) }
-        return await ask("Brief me.", client: client, local: local, phoneFirst: false, stillWorking: "Your briefing is on its way. It’ll be in J.A.R.V.I.S. in a moment.")
+        return await ask("Brief me.", client: client, local: local, phoneFirst: false, stillWorking: "Your briefing is on its way. It’ll be in Eden in a moment.")
     }
 
     static func whatDidIMiss(client: Client?) async -> String {
@@ -136,7 +136,7 @@ enum IntentRunner {
             switch command {
             case .stop: return "Stopped."
             case .meetingStart: return "Taking meeting notes on your Mac."
-            case .meetingStop: return "Stopped. Jarvis is writing up the notes."
+            case .meetingStop: return "Stopped. Eden is writing up the notes."
             case .briefing: return "Your briefing is on its way."
             case .runRoutine: return "Started on your Mac."
             }
@@ -158,11 +158,11 @@ enum IntentRunner {
 
     private static func problem(_ error: Error) -> String {
         switch error as? JarvisError {
-        case .unpaired?: return "Your Mac doesn’t know this iPhone anymore. Open J.A.R.V.I.S. to pair again."
-        case .busy?: return "Jarvis is still on your last request. Try again in a moment."
-        case .certificateMismatch?: return "That isn’t your Mac. Open J.A.R.V.I.S. to check."
-        case let known?: return "Jarvis couldn’t do that. \(known.title)."
-        case nil: return "Jarvis couldn’t do that right now."
+        case .unpaired?: return "Your Mac doesn’t know this iPhone anymore. Open Eden to pair again."
+        case .busy?: return "Eden is still on your last request. Try again in a moment."
+        case .certificateMismatch?: return "That isn’t your Mac. Open Eden to check."
+        case let known?: return "Eden couldn’t do that. \(known.title)."
+        case nil: return "Eden couldn’t do that right now."
         }
     }
 

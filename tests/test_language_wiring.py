@@ -30,7 +30,7 @@ async def test_mandarin_wake_word_opens_the_settings(settings, quiet_speaker, is
         return {"ok": True}
 
     hub.window_apply = window_apply
-    await hub.on_heard("贾维斯，打开设置")
+    await hub.on_heard("伊甸，打开设置")
     for _ in range(50):
         if applied:
             break

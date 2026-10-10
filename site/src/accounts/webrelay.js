@@ -28,7 +28,7 @@ export const WEB_RELAY = {
   response: 64 * 1024 * 1024, // a response's body, in all
   streams: 16, // requests in flight per account
   window: 256 * 1024, // response bytes the Mac may send ahead of acks
-  headMs: 130_000, // for the Mac to answer: Jarvis may be waiting on its "Let Eden use Jarvis?" card (120 s)
+  headMs: 130_000, // for the Mac to answer: Eden may be waiting on its "Let Eden use your Mac?" card (120 s)
   idleMs: 10 * 60_000, // between two pieces of an answer (a Code turn's events)
   // The page's own deadline, `x-eden-wait: <seconds>` (askMacBy): clamped to these, in seconds of `second` ms
   // (tests shorten `second`); then `probeMs` at most to ask the Mac whether Jarvis waits on its card.
@@ -71,7 +71,7 @@ export const MAC_ROUTES = new Set([
 ]);
 
 export const MAC_OFFLINE =
-  'Your Mac is offline. Jarvis and Code mode run on your Mac: open J.A.R.V.I.S. there (with Eden running) and try again.';
+  'Your Mac is offline. The Eden app and Code mode run on your Mac: open the Eden app there and try again.';
 
 const ID = /^[0-9a-f]{16}$/;
 const ID_BYTES = 16;

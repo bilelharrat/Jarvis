@@ -41,7 +41,8 @@ from .words import NEEDS_OK, hint_for, say
 
 log = logging.getLogger("jarvis")
 
-TAG = "Jarvis:"  # every message JARVIS sends here starts with it
+TAG = "Eden:"  # every message JARVIS sends here starts with it
+OLD_TAGS = (TAG, "Jarvis:")  # its replies from before the rename are its own too
 CHECK_EVERY = 1.5  # seconds between looks at whether the database changed
 REREAD_EVERY = 30.0  # and a read every so often regardless
 LIMIT = 3000
@@ -68,7 +69,7 @@ SEND_FILE_TO_CHAT = """on run argv
 end run"""
 
 _PREFIX = re.compile(
-    r"^\s*(?:(?:hey|ok|okay)[\s,，]+)?(?:jarvis|贾维斯)(?:(?![:：])[\s,，!！.。、]+|$)",
+    r"^\s*(?:(?:hey|ok|okay)[\s,，]+)?(?:eden|jarvis|伊甸|贾维斯)(?:(?![:：])[\s,，!！.。、]+|$)",
     re.IGNORECASE,
 )
 _AUDIO = (".caf", ".m4a", ".amr", ".aac", ".mp3", ".wav", ".opus", ".ogg")
@@ -401,7 +402,7 @@ class IMessage(Channel):
             chats = await self.recent_chats()
         except PermissionError:
             raise ValueError(
-                "Jarvis needs Full Disk Access to read Messages. Turn it on in System Settings "
+                "Eden needs Full Disk Access to read Messages. Turn it on in System Settings "
                 "› Privacy & Security › Full Disk Access."
             ) from None
         except OSError:
@@ -450,7 +451,7 @@ class IMessage(Channel):
             "handles": list(cfg.get("handles") or []),
             "account": cfg.get("account", "mine"),
             "prefix": bool(cfg.get("prefix")),
-            "how": "Jarvis,",
+            "how": "Eden,",
         }
 
     # ── reading ──
@@ -467,7 +468,7 @@ class IMessage(Channel):
                 except PermissionError:
                     self.set_state(
                         "error",
-                        "Jarvis needs Full Disk Access to read Messages (System Settings › "
+                        "Eden needs Full Disk Access to read Messages (System Settings › "
                         "Privacy & Security › Full Disk Access).",
                     )
                     await asyncio.sleep(60)
@@ -536,7 +537,7 @@ class IMessage(Channel):
             return "own"
         if row.text and self._sent_recently(fingerprint(row.text)):
             return self._own(row)
-        if row.text.startswith(TAG) and (row.from_me or cfg.get("chat", {}).get("self")):
+        if row.text.startswith(OLD_TAGS) and (row.from_me or cfg.get("chat", {}).get("self")):
             return self._own(row)  # a reply of JARVIS's whose fingerprint was lost
         mine = cfg.get("account") != "jarvis"
         if row.from_me:

@@ -105,8 +105,8 @@ class BrainExtension:
         else:  # a conversation from Jarvis's own records: its words are what the window shows
             hub.emit(
                 "toast",
-                title="Jarvis conversation",
-                text="This conversation is in Jarvis's own records; its words are shown here.",
+                title="Eden conversation",
+                text="This conversation is in Eden's own records; its words are shown here.",
             )
         return True
 

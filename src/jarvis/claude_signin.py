@@ -49,9 +49,9 @@ from keyring.backends import macOS
 try:
     token = macOS.Keyring().get_password(sys.argv[1], sys.argv[2])
 except Exception:
-    sys.exit("Jarvis could not read its account from the Keychain.")
+    sys.exit("Eden could not read its account from the Keychain.")
 if not token:
-    sys.exit("This Mac isn't linked to a Jarvis account any more.")
+    sys.exit("This Mac isn't linked to an Eden account any more.")
 sys.stdout.write(token)
 """
 if sys.platform == "win32":  # Credential Manager, through keyring
@@ -61,9 +61,9 @@ import keyring
 try:
     token = keyring.get_password(sys.argv[1], sys.argv[2])
 except Exception:
-    sys.exit("Jarvis could not read its account from Credential Manager.")
+    sys.exit("Eden could not read its account from Credential Manager.")
 if not token:
-    sys.exit("This PC isn't linked to a Jarvis account any more.")
+    sys.exit("This PC isn't linked to an Eden account any more.")
 sys.stdout.write(token)
 """
 

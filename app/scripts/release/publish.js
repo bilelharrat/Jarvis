@@ -34,11 +34,11 @@ function flag(name) {
 }
 
 const PREVIEW_NOTES = (version) => [
-  `A preview of J.A.R.V.I.S. ${version} for Apple-silicon Macs (M1 or later) on macOS 14 or later.`,
+  `A preview of Eden ${version} for Apple-silicon Macs (M1 or later) on macOS 14 or later.`,
   '',
   "It isn't notarized by Apple yet, so macOS asks you to allow it once:",
-  '1. Open the disk image and drag J.A.R.V.I.S. onto Applications.',
-  '2. Open J.A.R.V.I.S. from Applications. macOS says it can\'t check it: click Done.',
+  '1. Open the disk image and drag Eden onto Applications.',
+  '2. Open Eden from Applications. macOS says it can\'t check it: click Done.',
   '3. Open System Settings › Privacy & Security, scroll to Security and click Open Anyway, then Open.',
   '',
   "You'll need your own Anthropic API key (console.anthropic.com › API keys) for Setup's Claude step.",
@@ -61,7 +61,7 @@ function preview() {
     throw new BuildError(`${tag} is already released.`);
   }
   say(`publishing the preview ${tag} to ${REPO}`);
-  run('gh', ['release', 'create', tag, dmg, sums, '--repo', REPO, '--prerelease', '--title', `J.A.R.V.I.S. ${version} preview (not notarized)`, '--notes', flag('--notes') || PREVIEW_NOTES(version)]);
+  run('gh', ['release', 'create', tag, dmg, sums, '--repo', REPO, '--prerelease', '--title', `Eden ${version} preview (not notarized)`, '--notes', flag('--notes') || PREVIEW_NOTES(version)]);
   say(`  published: https://github.com/${REPO}/releases/tag/${tag}`);
   say(`  download:  https://github.com/${REPO}/releases/download/${tag}/${encodeURIComponent(path.basename(dmg))}`);
 }
@@ -92,9 +92,9 @@ function main() {
   if (run('gh', ['release', 'view', tag, '--repo', REPO], { allowFail: true, quiet: true }).status === 0) {
     throw new BuildError(`${tag} is already released: bump "version" in app/package.json and build again.`);
   }
-  const notes = flag('--notes') || process.env.JARVIS_RELEASE_NOTES || `J.A.R.V.I.S. ${version} for Apple-silicon Macs (macOS 14 or later). Open the disk image and drag J.A.R.V.I.S. onto Applications.`;
+  const notes = flag('--notes') || process.env.JARVIS_RELEASE_NOTES || `Eden ${version} for Apple-silicon Macs (macOS 14 or later). Open the disk image and drag Eden onto Applications.`;
   say(`publishing ${tag} to ${REPO}`);
-  const create = ['release', 'create', tag, dmg, zip, sums, '--repo', REPO, '--draft', '--title', `J.A.R.V.I.S. ${version}`, '--notes', notes];
+  const create = ['release', 'create', tag, dmg, zip, sums, '--repo', REPO, '--draft', '--title', `Eden ${version}`, '--notes', notes];
   if (process.argv.includes('--prerelease')) create.push('--prerelease');
   run('gh', create);
   run('gh', ['release', 'upload', tag, feed, '--repo', REPO]);

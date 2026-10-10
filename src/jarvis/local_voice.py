@@ -103,7 +103,7 @@ DEFAULT_VOICE = "bm_george"
 SPEED_MIN, SPEED_MAX = 0.5, 2.0
 
 # What the pane says while the model fails (engine.error, the reason, goes to the log).
-RUN_FAILED = "JARVIS’s offline voice couldn’t run, so the Mac voice spoke instead."
+RUN_FAILED = "Eden’s offline voice couldn’t run, so the Mac voice spoke instead."
 
 
 class Unavailable(RuntimeError):

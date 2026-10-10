@@ -48,7 +48,7 @@
   }
   select.addEventListener('change', () => send({ type: 'feature_prefs', changes: { [MOVE]: Number(select.value) } }));
   moveRow.append(moveText, select);
-  const head = el('p', 'small-status', 'Price alerts: say “Jarvis, tell me when Nvidia goes above 150.”');
+  const head = el('p', 'small-status', 'Price alerts: say “Eden, tell me when Nvidia goes above 150.”');
   const list = el('ul', 'itemlist stocks-alerts');
   const note = el('p', 'small-status stocks-cap');
   box.append(moveRow, head, list, note);

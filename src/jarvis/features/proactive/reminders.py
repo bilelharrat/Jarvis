@@ -39,9 +39,9 @@ SERVER_NAME = "reminders"
 # What the tools call the list, by computer: a Mac has the Reminders app (and the owner's iPhone); a PC has a
 # to-do list of Jarvis's own (winreminders.py), which Jarvis says aloud at the time each one is due.
 if sys.platform == "win32":
-    WHERE = "reminders (the to-do list Jarvis keeps on this PC)"
-    WHAT = "Reminders (a to-do list Jarvis keeps on this PC, and says aloud when one is due)"
-    SAYS_IT = "Jarvis says it aloud then"
+    WHERE = "reminders (the to-do list Eden keeps on this PC)"
+    WHAT = "Reminders (a to-do list Eden keeps on this PC, and says aloud when one is due)"
+    SAYS_IT = "Eden says it aloud then"
 else:
     WHERE = "Apple Reminders (the Reminders app, on their iPhone too)"
     WHAT = "Apple Reminders (the Reminders app, synced to the user's iPhone)"

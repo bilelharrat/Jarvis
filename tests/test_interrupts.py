@@ -1463,7 +1463,7 @@ def hub_asked(said: str) -> bool:
     "said",
     [
         "don't interrupt me for an hour",
-        "Jarvis, do not disturb me",
+        "Eden, do not disturb me",
         "please don't bother me",
         "turn off interruptions",
         "turn interruptions off",
@@ -1472,7 +1472,7 @@ def hub_asked(said: str) -> bool:
         "only interrupt me if it's urgent",
         "only bother me if something's really important",
         "hold my messages until 3",
-        "okay jarvis, hold all notifications",
+        "okay eden, hold all notifications",
         "no more interruptions tonight",
         "stop interrupting me",
         "tell me about every message as it comes in",
@@ -1490,7 +1490,7 @@ def hub_asked(said: str) -> bool:
         "关闭消息通知",
         "好的，别打扰我",
         "接下来一个小时别打扰我",
-        "贾维斯，30分钟内不要打扰我",
+        "伊甸，30分钟内不要打扰我",
     ],
 )
 def test_asked_pattern_matches_the_users_own_requests(said):
@@ -2049,8 +2049,8 @@ def test_more_ways_of_naming_chinese(value):
 
 async def test_a_name_that_still_wakes_jarvis_is_not_said_at_all(env):
     env.mode = "all"
-    env.contacts["4155550101"] = "Jar-vis Lee"  # split so it can't be swapped, yet wakes it
-    env.contacts["4155550102"] = "Jar-vis Park"
+    env.contacts["4155550101"] = "E-den Lee"  # split so it can't be swapped, yet wakes it
+    env.contacts["4155550102"] = "E-den Park"
     watch = await env.started()
     env.chat.send(BOB, "see you at 6")
     env.chat.send(CY, "URGENT: call me")

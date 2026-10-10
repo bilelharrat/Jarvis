@@ -19,9 +19,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any
 
-NO_ACCESS = (
-    "Reminders access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Reminders)."
-)
+NO_ACCESS = "Reminders access is off for Eden (System Settings > Privacy & Security > Reminders)."
 COMPLETED_DAYS = 30
 MAX_REMINDERS = 3000
 FETCH_SECONDS = 60

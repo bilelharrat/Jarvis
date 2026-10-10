@@ -8,14 +8,14 @@ import SwiftUI
 // silent turns, so nothing is said in an empty room.
 
 struct AskJarvisIntent: AppIntent {
-    static let title: LocalizedStringResource = "Ask Jarvis"
-    static let description = IntentDescription("Asks Jarvis and gives you the reply.")
+    static let title: LocalizedStringResource = "Ask Eden"
+    static let description = IntentDescription("Asks Eden and gives you the reply.")
 
-    @Parameter(title: "Request", requestValueDialog: IntentDialog("What should I ask Jarvis?"))
+    @Parameter(title: "Request", requestValueDialog: IntentDialog("What should I ask Eden?"))
     var request: String
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Ask Jarvis \(\.$request)")
+        Summary("Ask Eden \(\.$request)")
     }
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
@@ -30,8 +30,8 @@ struct AskJarvisIntent: AppIntent {
 /// with the Mac (or Jarvis on the iPhone when the Mac can't be reached) and says the reply in
 /// the JARVIS voice, without opening the app; Siri reads it only when that voice can't.
 struct JarvisHandsFreeIntent: AppIntent {
-    static let title: LocalizedStringResource = "Jarvis"
-    static let description = IntentDescription("Say “Jarvis”, then what you want. Jarvis answers out loud in its own voice, even when locked. Make it a Vocal Shortcut to call Jarvis by name anytime.")
+    static let title: LocalizedStringResource = "Eden"
+    static let description = IntentDescription("Say “Eden”, then what you want. Eden answers out loud in its own voice, even when locked. Make it a Vocal Shortcut to call Eden by name anytime.")
 
     @Parameter(title: "Request", requestValueDialog: IntentDialog("Yes?"))
     var request: String
@@ -69,7 +69,7 @@ struct ReplySnippet: View {
 
 struct BriefMeIntent: AppIntent {
     static let title: LocalizedStringResource = "Brief me"
-    static let description = IntentDescription("Your briefing from Jarvis: the day ahead, and what needs you.")
+    static let description = IntentDescription("Your briefing from Eden: the day ahead, and what needs you.")
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         guard await OwnerLock.allows else { return .result(value: OwnerLock.refusal, dialog: "\(OwnerLock.refusal)") }
@@ -80,7 +80,7 @@ struct BriefMeIntent: AppIntent {
 
 struct WhatDidIMissIntent: AppIntent {
     static let title: LocalizedStringResource = "What did I miss"
-    static let description = IntentDescription("Texts, emails and calls from the last day, as Jarvis summarized them.")
+    static let description = IntentDescription("Texts, emails and calls from the last day, as Eden summarized them.")
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
         guard await OwnerLock.allows else { return .result(value: OwnerLock.refusal, dialog: "\(OwnerLock.refusal)") }
@@ -90,8 +90,8 @@ struct WhatDidIMissIntent: AppIntent {
 }
 
 struct StopJarvisIntent: AppIntent {
-    static let title: LocalizedStringResource = "Stop Jarvis"
-    static let description = IntentDescription("Stops what Jarvis is saying or doing.")
+    static let title: LocalizedStringResource = "Stop Eden"
+    static let description = IntentDescription("Stops what Eden is saying or doing.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         .result(dialog: "\(await IntentRunner.run(.stop, client: .live()))")
@@ -100,7 +100,7 @@ struct StopJarvisIntent: AppIntent {
 
 struct StartMeetingNotesIntent: AppIntent {
     static let title: LocalizedStringResource = "Start meeting notes"
-    static let description = IntentDescription("Jarvis takes notes of the meeting.")
+    static let description = IntentDescription("Eden takes notes of the meeting.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         .result(dialog: "\(await IntentRunner.run(.meetingStart(title: "Meeting"), client: .live()))")
@@ -109,7 +109,7 @@ struct StartMeetingNotesIntent: AppIntent {
 
 struct StopMeetingNotesIntent: AppIntent {
     static let title: LocalizedStringResource = "Stop meeting notes"
-    static let description = IntentDescription("Stops the meeting notes, and Jarvis writes them up.")
+    static let description = IntentDescription("Stops the meeting notes, and Eden writes them up.")
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         .result(dialog: "\(await IntentRunner.run(.meetingStop, client: .live()))")
@@ -123,17 +123,17 @@ struct JarvisShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: JarvisHandsFreeIntent(),
             phrases: ["\(.applicationName)", "Hey \(.applicationName)", "OK \(.applicationName)"],
-            shortTitle: "Jarvis", systemImageName: "waveform.circle"
+            shortTitle: "Eden", systemImageName: "waveform.circle"
         )
         AppShortcut(
             intent: TalkToJarvisIntent(),
             phrases: ["Talk to \(.applicationName)", "Open \(.applicationName) and listen", "\(.applicationName) listen"],
-            shortTitle: "Talk to Jarvis", systemImageName: "waveform"
+            shortTitle: "Talk to Eden", systemImageName: "waveform"
         )
         AppShortcut(
             intent: AskJarvisIntent(),
             phrases: ["Ask \(.applicationName)", "Ask \(.applicationName) something", "Ask \(.applicationName) a question"],
-            shortTitle: "Ask Jarvis", systemImageName: "sparkle"
+            shortTitle: "Ask Eden", systemImageName: "sparkle"
         )
         AppShortcut(
             intent: BriefMeIntent(),
@@ -148,7 +148,7 @@ struct JarvisShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: StopJarvisIntent(),
             phrases: ["Stop \(.applicationName)"],
-            shortTitle: "Stop Jarvis", systemImageName: "stop.fill"
+            shortTitle: "Stop Eden", systemImageName: "stop.fill"
         )
         AppShortcut(
             intent: StartMeetingNotesIntent(),

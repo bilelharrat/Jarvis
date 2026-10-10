@@ -145,7 +145,7 @@ export class Account {
       // A browser may delete the account only when the person typed DELETE (the account page).
       const webDelete = op === 'delete' && body.confirm === 'DELETE' && !device.grant;
       if (device.kind === 'web' && WEB_FORBIDDEN.has(op) && !webDelete) {
-        throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the J.A.R.V.I.S. app on your iPhone or Mac.");
+        throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the Eden app on your iPhone or Mac.");
       }
       if (op.startsWith('approve-')) return json(await approvalOp(this, op, body, device)); // one-click approvals for Gmail/Calendar writes (approvals.js)
       if (op.startsWith('mail-')) return json(await mailOp(this, op, body)); // scheduled Gmail sends (schedule.js)
@@ -274,7 +274,7 @@ export class Account {
     if (approver.kind === 'web') {
       // A browser approves a Mac only: as the account's owner (never a delegate's or a space
       // member's session), and only within WEB_LINK_MAC_MS of signing in.
-      if (kind !== 'mac' || approver.grant) throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+      if (kind !== 'mac' || approver.grant) throw new ApiError(403, 'forbidden', 'Approve it in the Eden app on your iPhone or Mac.');
       if (!(this.now() - (approver.created || 0) <= WEB_LINK_MAC_MS)) throw new ApiError(403, 'sign_in_again', WEB_LINK_MAC_STALE);
     } else if (!web && !isPhone(approver.kind)) throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
     const account = await this.storage.get('account');
@@ -378,7 +378,7 @@ export class Account {
     if (!entry) throw new ApiError(404, 'not_linked', 'That sign-in isn’t on this account.');
     if (list.length <= 1) throw new ApiError(409, 'last_method', 'This is the only way to sign in to this account. Link another one first.');
     if (!entry.sub_hash) {
-      throw new ApiError(409, 'needs_proof', 'Sign in with Apple once more (here or in the J.A.R.V.I.S. app), then unlink it.');
+      throw new ApiError(409, 'needs_proof', 'Sign in with Apple once more (here or in the Eden app), then unlink it.');
     }
     await this.storage.put('identities', list.filter((i) => i !== entry));
     return { provider, sub_hash: entry.sub_hash };
@@ -396,7 +396,7 @@ export class Account {
     }
     if (!all && !removed.length) {
       if (validDeviceId(id) && (await this.storage.get(`dev:${id}`))) {
-        throw new ApiError(403, 'forbidden', 'Remove the apps in the J.A.R.V.I.S. app on your iPhone.');
+        throw new ApiError(403, 'forbidden', 'Remove the apps in the Eden app on your iPhone.');
       }
       throw new ApiError(404, 'not_found', 'That browser is already signed out.');
     }
@@ -429,7 +429,7 @@ export class Account {
   async deleteDevice(caller, id) {
     const target = id === 'me' || !id ? caller.id : String(id);
     if (caller.kind === 'web' && target !== caller.id) {
-      throw new ApiError(403, 'forbidden', 'Remove devices in the J.A.R.V.I.S. app on your iPhone.');
+      throw new ApiError(403, 'forbidden', 'Remove devices in the Eden app on your iPhone.');
     }
     if (!(await this.storage.get(`dev:${target}`))) throw new ApiError(404, 'not_found', 'That device is already gone.');
     await this.storage.delete(`dev:${target}`);
@@ -523,9 +523,9 @@ export class Account {
   async applyTransaction(tx, renewal = null) {
     const account = await this.storage.get('account');
     if (!account) throw new ApiError(404, 'not_found', 'No such account.');
-    if (!PLUS_PRODUCTS.includes(tx.productId)) throw new ApiError(400, 'bad_transaction', "That isn't a Jarvis Plus purchase.");
+    if (!PLUS_PRODUCTS.includes(tx.productId)) throw new ApiError(400, 'bad_transaction', "That isn't a Eden Plus purchase.");
     if (String(tx.appAccountToken || '').toLowerCase() !== account.id) {
-      throw new ApiError(403, 'forbidden', 'That purchase belongs to another Jarvis account.');
+      throw new ApiError(403, 'forbidden', 'That purchase belongs to another Eden account.');
     }
     const plan = (await this.storage.get('plan')) || {};
     const expires = Number(tx.expiresDate) || 0;
@@ -740,8 +740,8 @@ export class Account {
       return {
         ok: false,
         why: plan.active
-          ? "Today's JARVIS voice allowance is used up; it resets at midnight UTC."
-          : "Today's JARVIS voice allowance is used up; it resets at midnight UTC. Jarvis Plus has five times as much.",
+          ? "Today's Eden voice allowance is used up; it resets at midnight UTC."
+          : "Today's Eden voice allowance is used up; it resets at midnight UTC. Eden Plus has five times as much.",
       };
     }
     await this.storage.put('voice', { day, chars: used + n });

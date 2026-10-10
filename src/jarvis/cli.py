@@ -45,13 +45,13 @@ async def run(text_mode: bool, muted: bool) -> None:
         transcriber.warm_up()
 
     async def confirm(question: str) -> bool:
-        print(f"{CYAN}JARVIS:{RESET} {question}")
+        print(f"{CYAN}Eden:{RESET} {question}")
         await speaker.say(question)
         return (await ask_line("  [y/N] ")).lower() in {"y", "yes"}
 
     options = build_options(settings, confirm)
     tools = ", ".join(sorted(options.mcp_servers))
-    print(f"{DIM}JARVIS · {settings.model} · tools: {tools}, web{RESET}")
+    print(f"{DIM}Eden · {settings.model} · tools: {tools}, web{RESET}")
     hint = "Type a message" if text_mode else "Press Enter and speak, or type a message"
     print(f"{DIM}{hint}. 'q' quits.{RESET}\n")
 
@@ -69,7 +69,7 @@ async def run(text_mode: bool, muted: bool) -> None:
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text.strip():
-                            print(f"{CYAN}JARVIS:{RESET} {block.text.strip()}")
+                            print(f"{CYAN}Eden:{RESET} {block.text.strip()}")
                             await speaker.say(block.text)
                         elif isinstance(block, ToolUseBlock):
                             print(f"{DIM}  → {block.name.split('__')[-1]}{RESET}")
@@ -151,7 +151,7 @@ async def pair(port: int) -> int:
                 url = str(event.get("url") or "")
                 print(qr_text(qr.encode(url)))
                 print(
-                    f"Scan it in J.A.R.V.I.S. on the iPhone (Pair › Scan code) within "
+                    f"Scan it in Eden on the iPhone (Pair › Scan code) within "
                     f"{event.get('seconds', 300)} s.\n{url}"
                 )
                 return 0
@@ -182,8 +182,8 @@ def main() -> None:
         "command",
         nargs="?",
         choices=["serve", "say", "mcp", "pair"],
-        help="serve: run the backend for the app. say: speak a line in JARVIS's voice. mcp: "
-        "JARVIS's tools for Claude Code or Claude Desktop, over stdio (the app must be running). "
+        help="serve: run the backend for the app. say: speak a line in Eden's voice. mcp: "
+        "Eden's tools for Claude Code or Claude Desktop, over stdio (the app must be running). "
         "pair: a pairing code for the iPhone from a running backend with no window (a cloud "
         "server; --port is its port, JARVIS_TOKEN its token), shown as a QR code here",
     )
@@ -224,4 +224,4 @@ def main() -> None:
     except KeyboardInterrupt:
         print()
     except CLINotFoundError:
-        sys.exit("JARVIS needs Claude Code installed and signed in: https://claude.com/claude-code")
+        sys.exit("Eden needs Claude Code installed and signed in: https://claude.com/claude-code")

@@ -102,7 +102,7 @@ class Places:
             except (httpx.HTTPError, ValueError, KeyError) as exc:
                 log.info("places: the weather city didn't resolve (%s)", type(exc).__name__)
         return {
-            "error": "I don't know where you are: allow Location for J.A.R.V.I.S., or set a "
+            "error": "I don't know where you are: allow Location for Eden, or set a "
             "Weather city in Settings."
         }
 
@@ -148,7 +148,7 @@ class Places:
         here = await self.here()
         if here is None:
             return None, (
-                "I need your location for that; allow Location for J.A.R.V.I.S. in System "
+                "I need your location for that; allow Location for Eden in System "
                 "Settings, and Use my location in Settings."
             )
         argv = [str(here["lat"]), str(here["lon"]), destination, mode]

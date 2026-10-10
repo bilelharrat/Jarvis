@@ -186,7 +186,7 @@ export async function billingApi(request, env, who, op, { acting = null, origin 
     const { code } = await request.json().catch(() => ({}));
     return json(await redeemPromo(env, who, code, call));
   }
-  if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in the J.A.R.V.I.S. iPhone app.');
+  if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in Eden for iPhone.');
   if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
   await limited(env, 'EDEN_RATE', `billing:${who.account}`);
   const body = await request.json().catch(() => ({}));

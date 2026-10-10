@@ -37,7 +37,7 @@ MAX_DOC = 2_000_000
 PROMPT = (
     "Paper alerts: when the owner wants to keep up with a topic, an author or who cites a "
     "paper, follow_papers (kind topic, author or citations); list_followed and unfollow_papers "
-    "manage them. JARVIS checks once a day and gives a heads-up; for what's new, "
+    "manage them. Eden checks once a day and gives a heads-up; for what's new, "
     "whats_new_papers. To check a manuscript's or a student's references, check_references "
     "with the document's path or the pasted reference list: report its counts first, then the "
     "references that differ or weren't found. Never correct a reference with details you made "
@@ -131,7 +131,7 @@ def build_server(x: Extras) -> Any:
     @tool(
         "follow_papers",
         "Follow new papers: kind topic (words), author (a name), or citations (a paper, by DOI, "
-        "OpenAlex id or title: new papers that cite it). JARVIS checks once a day and gives a "
+        "OpenAlex id or title: new papers that cite it). Eden checks once a day and gives a "
         "heads-up when there are new ones.",
         {
             "type": "object",
@@ -247,7 +247,7 @@ def build_server(x: Extras) -> Any:
         except Exception as exc:
             return _text(f"Zotero didn't answer ({type(exc).__name__}).", True)
         who = f"the Zotero account {account['name']}" if account.get("name") else f"Zotero user {account['user_id']}"
-        if not await x.confirm(f"Connect JARVIS to {who}?"):
+        if not await x.confirm(f"Connect Eden to {who}?"):
             return _text("Not connected: the owner said no.", True)
         try:
             return _text(z.keep(account))
@@ -264,7 +264,7 @@ def build_server(x: Extras) -> Any:
 
     @tool(
         "zotero_import",
-        "Bring the owner's Zotero items into the library JARVIS keeps (to list, cite and put in a "
+        "Bring the owner's Zotero items into the library Eden keeps (to list, cite and put in a "
         "bibliography by voice). Papers already there are kept, not doubled.",
         {"type": "object", "properties": {}},
     )

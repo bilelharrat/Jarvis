@@ -222,7 +222,7 @@ async def test_no_browser_window_no_task_and_one_at_a_time(settings, quiet_speak
     endpoint = endpoint_for(hub)
     hub.browser_available = False
     text, error = await endpoint.call("browser_task", {"goal": "Find flights"}, "Eden")
-    assert error and "J.A.R.V.I.S. app window" in text
+    assert error and "Eden app window" in text
     hub.browser_available = True
     first = json.loads((await endpoint.call("browser_task", {"goal": "Find flights"}, "Eden"))[0])
     text, error = await endpoint.call("browser_task", {"goal": "Find hotels"}, "Eden")
@@ -353,7 +353,7 @@ async def test_a_task_cut_off_by_a_restart_comes_back_stopped(settings, quiet_sp
 
     again = endpoint_for(hub)
     seen = await status(again, task.id, thumbnail=True)
-    assert seen["status"] == "stopped" and seen["result"] == "Stopped: Jarvis restarted."
+    assert seen["status"] == "stopped" and seen["result"] == "Stopped: Eden restarted."
     assert seen["ended"] and seen["approvals"] == [] and seen["thumbnail"] == ""
     assert [(s["label"], s["detail"], s["ok"]) for s in seen["steps"]] == [
         ("Opened a page", "shop.example", True),
@@ -370,7 +370,7 @@ async def test_a_task_waiting_on_its_card_at_a_restart_is_stopped(
     endpoint = endpoint_for(hub)
     started = json.loads((await endpoint.call("browser_task", {"goal": "Find flights"}, "Eden"))[0])
     seen = await status(endpoint_for(hub), started["id"])
-    assert seen["status"] == "stopped" and seen["result"] == "Stopped: Jarvis restarted."
+    assert seen["status"] == "stopped" and seen["result"] == "Stopped: Eden restarted."
     assert seen["steps"] == [] and seen["ended"]
     await endpoint.call("browser_task_stop", {"id": started["id"]}, "Eden")
     await asyncio.gather(browser_for(endpoint).tasks[started["id"]].handle, return_exceptions=True)
@@ -533,6 +533,6 @@ async def test_a_view_said_no_to_or_stopped_while_asking_does_nothing(
     assert not hub.approvals and calls == []
     hub.browser_available = False
     text, error = await endpoint.call("browser_view", {"op": "start"}, "Eden")
-    assert error and "J.A.R.V.I.S. app window" in text
+    assert error and "Eden app window" in text
     text, error = await endpoint.call("browser_view", {"op": "status", "id": "bv-nope"}, "Eden")
     assert error

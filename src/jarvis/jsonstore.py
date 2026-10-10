@@ -198,7 +198,7 @@ def claim_folder(folder: Path, wait: float = 0) -> IO[str] | None:
                 holder = ""
             handle.close()
             raise FolderTaken(
-                errno.EWOULDBLOCK, f"another JARVIS backend (process {holder or '?'}) is using it"
+                errno.EWOULDBLOCK, f"another Eden backend (process {holder or '?'}) is using it"
             ) from None
         except OSError as exc:  # a disk that can't lock files
             log.warning("couldn't lock %s (%s)", folder, exc)

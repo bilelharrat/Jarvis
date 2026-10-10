@@ -30,7 +30,7 @@
 
   // The card's words: a downloaded update to restart into, or (Windows) one to install.
   function cardFor(s) {
-    const name = (s && s.name) || 'J.A.R.V.I.S.';
+    const name = (s && s.name) || 'Eden';
     if (s && s.state === 'ready') return `${name} ${s.available} is ready. Restart to install it.`;
     if (s && s.state === 'available') {
       return `${name} ${s.available} is available (${megabytes(s.size)}). Install it now? It downloads to your Downloads folder, then the app closes while it installs and opens again.`;
@@ -54,7 +54,7 @@
     group.id = 'updates-group';
     const row = F.el('div', 'row');
     const text = F.el('span');
-    const version = F.el('strong', '', 'J.A.R.V.I.S.');
+    const version = F.el('strong', '', 'Eden');
     version.id = 'updates-version';
     version.setAttribute('data-no-i18n', ''); // the name and its version number, as they are
     const line = F.el('small', '', '');
@@ -116,7 +116,7 @@
     if (!next) return;
     state = next;
     if (!group) buildGroup();
-    F.$('updates-version').textContent = `${state.name || 'J.A.R.V.I.S.'} ${state.version}`;
+    F.$('updates-version').textContent = `${state.name || 'Eden'} ${state.version}`;
     F.$('updates-line').textContent = lineFor(state);
     F.$('updates-check').hidden = !state.enabled || ['downloading', 'ready', 'installing'].includes(state.state);
     F.$('updates-restart').hidden = state.state !== 'ready';

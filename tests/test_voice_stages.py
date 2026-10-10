@@ -20,7 +20,7 @@ async def test_a_spoken_request_carries_its_stages(settings, quiet_speaker, isol
     hub.listener_factory = Listener
     await hub.start()
     hub.set_prefs({"hands_free": True})
-    hub.transcriber = Words("Jarvis, what's on tomorrow?", 0.2)
+    hub.transcriber = Words("Eden, what's on tomorrow?", 0.2)
     asked = []
 
     async def fake_ask(request, **kw):

@@ -25,8 +25,8 @@ const TOPICS = [
 const TOPIC = Object.fromEntries(TOPICS);
 /** How a fact was learned, in the owner's words (memory.py SOURCES). */
 const HOW = {
-  said: 'You told Jarvis', settings: 'Added in Jarvis Settings', noticed: 'Noticed in a conversation', proposed: 'Suggested after a conversation, you approved',
-  dream: 'From your daily notes, you approved', import: 'Imported', synced: 'From your iPhone', before: 'From before Jarvis tracked sources',
+  said: 'You told Eden', settings: 'Added in Eden Settings', noticed: 'Noticed in a conversation', proposed: 'Suggested after a conversation, you approved',
+  dream: 'From your daily notes, you approved', import: 'Imported', synced: 'From your iPhone', before: 'From before Eden tracked sources',
 };
 /** Sources whose origin is words of the owner's, a note or a file: worth looking up in the second brain. */
 const LOOKUP = new Set(['said', 'noticed', 'proposed', 'dream', 'import']);
@@ -69,7 +69,7 @@ async function load() {
   try {
     const r = await jarvis('memory_list', { limit: 200 });
     if (seq !== S.seq) return;
-    if (r.is_error) throw new Error(strip(r.text) || 'Jarvis couldn’t list what it remembers.');
+    if (r.is_error) throw new Error(strip(r.text) || 'Eden couldn’t list what it remembers.');
     const page = JSON.parse(strip(r.text));
     S.facts = Array.isArray(page.facts) ? page.facts : [];
     S.phase = 'ready';
@@ -93,7 +93,7 @@ async function load() {
 function build() {
   if (S.built) return;
   S.built = true;
-  R.search = el('input', { class: 'mem-search', type: 'search', placeholder: 'Search what Jarvis remembers…', 'aria-label': 'Search memory', autocomplete: 'off' });
+  R.search = el('input', { class: 'mem-search', type: 'search', placeholder: 'Search what Eden remembers…', 'aria-label': 'Search memory', autocomplete: 'off' });
   R.search.addEventListener('input', debounce(() => { S.query = R.search.value.trim(); renderList(); }, 120));
   R.count = el('span', 'mem-count');
   R.busy = el('span', { class: 'cal-busy', 'aria-hidden': 'true' });
@@ -113,7 +113,7 @@ function build() {
   R.side = el('aside', 'mem-side', el('div', 'mem-side-h', 'Topics'), R.topics, el('div', 'mem-side-h', 'Show'), R.show, R.review,
     el('p', 'mem-side-note', 'Each change is confirmed on your Mac: Jarvis shows a card, and nothing changes until you say yes there.'));
   R.banner = el('div', { class: 'mem-banners', 'aria-live': 'polite' });
-  R.list = el('div', { class: 'mem-list', role: 'list', 'aria-label': 'What Jarvis remembers' });
+  R.list = el('div', { class: 'mem-list', role: 'list', 'aria-label': 'What Eden remembers' });
   R.main = el('main', 'mem-main', R.banner, R.list);
   R.card = el('section', { class: 'mem glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'memTitle' }, head, el('div', 'mem-body', R.side, R.main));
   R.root = el('div', { id: 'memSurface', class: 'mem-scrim', hidden: true }, R.card);
@@ -181,13 +181,13 @@ function renderBanner() {
     b.push(el('div', 'mem-mac',
       el('div', 'mem-mac-ico', ico('lock', 22)),
       el('h3', '', 'This needs your Mac'),
-      el('p', '', S.reason || 'The Jarvis app on your Mac isn’t reachable.'),
-      el('p', 'mem-mac-why', 'Memory lives in the Jarvis app on your Mac. Open it to connect; the first time, it asks on screen whether Eden may use it.'),
+      el('p', '', S.reason || 'The Eden app on your Mac isn’t reachable.'),
+      el('p', 'mem-mac-why', 'Memory lives in the Eden app on your Mac. Open it to connect; the first time, it asks on screen whether Eden may use it.'),
       el('div', 'mem-mac-acts', el('button', { type: 'button', class: 'btn primary', onclick: () => load() }, 'Try again'))));
   } else if (S.phase === 'error') {
     b.push(el('div', 'sp-warn', el('b', '', 'Couldn’t read your memory'), S.reason, ' ', el('button', { type: 'button', class: 'cap', onclick: () => load() }, 'Try again')));
   } else if (S.phase === 'legacy') {
-    b.push(el('div', 'mem-banner', ico('bulb', 14), el('span', '', 'Your Jarvis app is from before Memory in Eden: restart it on your Mac to see where each fact came from, edit, delete and switch facts. Until then this list is read-only.')));
+    b.push(el('div', 'mem-banner', ico('bulb', 14), el('span', '', 'Your Eden app is from before Memory in Eden: restart it on your Mac to see where each fact came from, edit, delete and switch facts. Until then this list is read-only.')));
   }
   R.banner.replaceChildren(...b);
   R.main.classList.toggle('blocked', S.phase === 'off');
@@ -235,7 +235,7 @@ function renderList() {
     R.list.replaceChildren(...(rows.length ? rows.map((t) => el('div', { class: 'mem-fact legacy', role: 'listitem' },
       el('div', 'mf-main', el('p', { class: 'mf-text', 'data-no-i18n': '' }, t)),
       el('div', 'mf-acts', useBtn({ text: t }))))
-      : [el('div', 'mem-empty', S.query ? 'Nothing remembered matches that.' : 'Jarvis doesn’t remember anything about you yet.')]));
+      : [el('div', 'mem-empty', S.query ? 'Nothing remembered matches that.' : 'Eden doesn’t remember anything about you yet.')]));
     return;
   }
   const facts = visible();
@@ -275,9 +275,9 @@ function fromLine(f) {
     case 'said': case 'noticed': case 'proposed': return `a conversation${when ? ` on ${when}` : ''}${quote}`;
     case 'dream': return `your daily notes${quote}`;
     case 'import': return `an import${o ? ` from ${o}` : ''}${when ? `, ${when}` : ''}`;
-    case 'settings': return `Jarvis Settings${when ? `, ${when}` : ''}`;
+    case 'settings': return `Eden Settings${when ? `, ${when}` : ''}`;
     case 'synced': return `your iPhone${when ? `, ${when}` : ''}`;
-    default: return `before Jarvis kept track of sources${when ? ` (saved ${when})` : ''}`;
+    default: return `before Eden kept track of sources${when ? ` (saved ${when})` : ''}`;
   }
 }
 
@@ -309,7 +309,7 @@ function factRow(f) {
   const from = el('button', { type: 'button', class: 'mf-from', 'data-act': 'from', 'aria-expanded': String(S.found.has(f.id)), disabled: !lookup, title: lookup ? 'Look for it in your second brain' : '' },
     el('span', 'k', 'Eden learned this from'), el('span', 'v', fromLine(f)), lookup ? ico('chevr', 12) : null);
   const found = S.found.get(f.id);
-  const sw = el('label', { class: 'switch mf-switch', title: on ? 'In use: Jarvis uses this fact' : 'Off: kept, but Jarvis doesn’t use it' },
+  const sw = el('label', { class: 'switch mf-switch', title: on ? 'In use: Eden uses this fact' : 'Off: kept, but Eden doesn’t use it' },
     el('input', { type: 'checkbox', role: 'switch', 'data-act': 'toggle', checked: on, disabled: !!pending, 'aria-label': `Use this fact: ${f.text}` }), el('span', 'tr'));
   row.append(
     el('div', 'mf-main',
@@ -330,7 +330,7 @@ function factRow(f) {
 function foundList(f, found) {
   if (found.state === 'loading') return el('div', 'mf-found muted', 'Looking in your second brain…');
   if (found.state === 'error') return el('div', 'mf-found muted', `Couldn’t look: ${found.error}`);
-  if (!found.notes.length) return el('div', 'mf-found muted', 'Nothing in your second brain matches its source (conversations Jarvis didn’t keep aren’t there).');
+  if (!found.notes.length) return el('div', 'mf-found muted', 'Nothing in your second brain matches its source (conversations Eden didn’t keep aren’t there).');
   return el('div', 'mf-found', ...found.notes.map((n) => {
     const full = el('div', { class: 'note-full', 'data-no-i18n': '' });
     full.hidden = true;
@@ -402,11 +402,11 @@ function change(f, kind, args) {
       else {
         const now = out.fact && out.fact.id === f.id ? out.fact : { ...f, ...(kind === 'toggle' ? { on: args.on } : args) };
         S.facts = S.facts.map((x) => (x.id === f.id ? now : x));
-        toast(kind === 'toggle' ? (now.on === false ? 'Off: Jarvis keeps it but won’t use it' : 'On: Jarvis uses it again') : 'Changed');
+        toast(kind === 'toggle' ? (now.on === false ? 'Off: Eden keeps it but won’t use it' : 'On: Eden uses it again') : 'Changed');
       }
     } else {
       S.hidden.delete(f.id);
-      toast(SAID[out.status] || `Didn’t change: ${out.text || 'Jarvis said no.'}`);
+      toast(SAID[out.status] || `Didn’t change: ${out.text || 'Eden said no.'}`);
       if (/doesn't remember|any more/i.test(out.text || '')) load();
     }
     renderList();

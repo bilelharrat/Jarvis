@@ -62,7 +62,7 @@ struct ApprovalCard: View {
         .surface(.regular.tint(Palette.champagne.opacity(0.12)), in: shape, fill: Obsidian.brassSurface)
         .overlay { SpecularRim(shape: shape, tint: Palette.champagne, strength: 0.9) }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Jarvis needs your OK")
+        .accessibilityLabel("Eden needs your OK")
     }
 
     /// A quiet "No, because…" that opens into a line to say why (or what to do instead).
@@ -106,7 +106,7 @@ struct ApprovalCard: View {
             }
             .buttonStyle(.plain)
             .disabled(chosen != nil)
-            .accessibilityHint("Say no, and tell Jarvis why or what to do instead")
+            .accessibilityHint("Say no, and tell Eden why or what to do instead")
         }
     }
 

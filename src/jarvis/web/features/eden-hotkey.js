@@ -103,7 +103,7 @@
   }
 
   function problem(error, label) {
-    if (error === 'same') return en(`${label} is already one of JARVIS’s shortcuts. Pick another.`);
+    if (error === 'same') return en(`${label} is already one of Eden’s shortcuts. Pick another.`);
     if (error === 'taken') return en(`${label} is taken by another app. Pick another.`);
     if (error === 'modifier') return en('Use ⌃ or ⌥, or ⌘ together with ⇧, ⌃ or ⌥.');
     if (error === 'reserved') return en(`${label} belongs to macOS. Pick another.`);

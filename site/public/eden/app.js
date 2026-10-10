@@ -677,7 +677,7 @@ function commands() {
     { t: 'Settings & API keys', s: '⌘,', i: 'gear', run: () => openSettings(0) },
     { t: 'Switch appearance', s: 'Light / Dark / System', i: 'moon', run: cycleTheme },
     { t: 'Take the tour', s: 'Try every feature, safely', i: 'spark', run: () => startTour() },
-    { t: 'Download apps', s: 'J.A.R.V.I.S. for Mac, Eden Messenger', i: 'down', run: () => { location.href = DOWNLOAD_URL; } },
+    { t: 'Download apps', s: 'Eden for Mac, Eden Messenger', i: 'down', run: () => { location.href = DOWNLOAD_URL; } },
     ...helpCommands(),
   ];
   const plus = planCommand(); // Eden Plus (plan.js): free with billing here, or Manage billing
@@ -862,7 +862,7 @@ function closeSettings() { if (!$('settingsSheet').classList.contains('open')) r
 /** Settings › Memory (askeden.com): memory across chats on/off, the saved memories, delete one or all. */
 async function drawMemory(body, hosted) {
   const hero = setHero('bulb', 'Memory', 'Eden remembers helpful details across chats, like your name, preferences and projects.', 'mem');
-  if (!hosted) { body.replaceChildren(hero, el('div', 'set-sec', el('div', 'icard', el('p', '', 'On this Mac, memory across chats comes from J.A.R.V.I.S. Saved memories are an askeden.com feature.'))), importCard()); return; }
+  if (!hosted) { body.replaceChildren(hero, el('div', 'set-sec', el('div', 'icard', el('p', '', 'On this Mac, memory across chats comes from Eden. Saved memories are an askeden.com feature.'))), importCard()); return; }
   body.replaceChildren(hero, el('div', 'set-skel', el('span', 'sk'), el('span', 'sk')));
   let m;
   try { m = await api.memory(); } catch (e) { body.replaceChildren(hero, el('div', 'sp-warn', el('b', '', 'Couldn’t read your memory'), e.message)); return; }
@@ -991,7 +991,7 @@ async function drawSettings() {
         el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
         state.meta && state.meta.scope ? el('p', '', state.meta.scope) : null,
         isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null),
-      el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Jarvis Code.'),
+      el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Eden Code.'),
       el('div', 'dlg-acts about-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, ico('down', 14), 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))));
   }
 }
@@ -1026,7 +1026,7 @@ async function drawAccounts(body) {
     el('code', { class: 'readout', style: { display: 'block', userSelect: 'all' } }, redirect),
     el('p', 'sp-note', 'Paste its client ID and secret here. They’re stored on this Mac by the server and never shown again. Then press Connect Gmail and sign in.')),
   el('div', 'set-sec', el('h3', '', 'Mail on your Mac'),
-    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Jarvis app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${state.jarvis.reason || 'open the Jarvis app on your Mac'}.`)));
+    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Eden app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${state.jarvis.reason || 'open the Eden app on your Mac'}.`)));
 }
 
 // askeden.com: Google is askeden.com's own sign-in client, so there's no client ID or secret to
@@ -1050,7 +1050,7 @@ function drawHostedAccounts(body, st) {
       st.gmail || st.calendar ? el('div', 'dlg-acts', el('button', { type: 'button', class: 'cap rev', onclick: async () => { try { await api.googleDisconnect(); toast('Google disconnected'); drawAccounts(body); } catch (e) { toast(e.message); } } }, 'Disconnect Google')) : null),
     el('p', 'sp-note', 'On askeden.com, Eden asks Google for Gmail and for Calendar separately, through askeden.com’s own Google sign-in: there’s nothing to set up here. Your Google tokens are kept encrypted in your account and never reach this page; Disconnect also removes Eden’s access at Google.')),
   el('div', 'set-sec', el('h3', '', 'Mail on your Mac'),
-    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Jarvis app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${String(state.jarvis.reason || 'open the Jarvis app on your Mac').replace(/\.+$/, '')}.`)));
+    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Eden app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${String(state.jarvis.reason || 'open the Eden app on your Mac').replace(/\.+$/, '')}.`)));
 }
 
 function keyRow(p, k) {
@@ -1475,7 +1475,7 @@ async function init() {
     // On every device, where the person is looking (a phone's sidebar is closed): A1, C2. The open panel says it too (panels.js).
     if (w) toast('Approve Eden on your Mac: it’s asking “Let Eden use Jarvis?”');
     $('jarvisState').classList.toggle('wait', w);
-    $('jarvisState').title = w ? 'Jarvis is asking “Let Eden use Jarvis?” on your Mac' : state.jarvis.available ? 'Connected through the Jarvis app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Jarvis app on your Mac isn’t reachable');
+    $('jarvisState').title = w ? 'Eden is asking “Let Eden use your Mac?” on your Mac' : state.jarvis.available ? 'Connected through the Eden app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Eden app on your Mac isn’t reachable');
     $('jarvisStateText').textContent = w ? 'approve Eden on your Mac' : state.jarvis.available ? 'connected' : 'not connected';
   });
   if (isMock) document.title = 'Eden (mock)';

@@ -91,10 +91,10 @@ struct CircularGlance: View {
     }
 
     private var accessibility: String {
-        guard let snapshot else { return "Jarvis: not paired" }
-        if snapshot.pendingApprovals > 0 { return "Jarvis: \(GlanceText.approvals(snapshot.pendingApprovals))" }
-        if snapshot.isStale() { return "Jarvis: can’t reach your Mac" }
-        return "Jarvis: " + (GlanceText.code(snapshot) ?? "all quiet")
+        guard let snapshot else { return "Eden: not paired" }
+        if snapshot.pendingApprovals > 0 { return "Eden: \(GlanceText.approvals(snapshot.pendingApprovals))" }
+        if snapshot.isStale() { return "Eden: can’t reach your Mac" }
+        return "Eden: " + (GlanceText.code(snapshot) ?? "all quiet")
     }
 }
 
@@ -108,7 +108,7 @@ struct RectangularGlance: View {
                 Image(systemName: "sparkle")
                     .font(.caption2.weight(.bold))
                     .widgetAccentable()
-                Text("JARVIS")
+                Text("EDEN")
                     .font(.headline)
                     .widgetAccentable()
                 if let snapshot, snapshot.isStale() {
@@ -172,10 +172,10 @@ struct InlineGlance: View {
                     Image(systemName: "calendar")
                 }
             } else {
-                Label(snapshot.isStale() ? "Jarvis · Offline" : "Jarvis · All quiet", systemImage: "sparkle")
+                Label(snapshot.isStale() ? "Eden · Offline" : "Eden · All quiet", systemImage: "sparkle")
             }
         } else {
-            Label("Jarvis · Pair with your Mac", systemImage: "link")
+            Label("Eden · Pair with your Mac", systemImage: "link")
         }
     }
 }

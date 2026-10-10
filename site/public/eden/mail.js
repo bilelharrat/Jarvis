@@ -223,7 +223,7 @@ export async function mailPanel(body) {
     if (!mail.known) gmail('contacts').then((r) => { mail.contacts = (r && r.contacts) || []; mail.known = new Set(mail.contacts.filter((c) => c.count >= 2).map((c) => String(c.email).toLowerCase())); if (mail.redraw) mail.redraw(); }, () => { mail.known = new Set(); });
     maybeAutoLearn(samplesFrom('gmail'), 'gmail');
   } else if (!H.jarvisAvailable()) {
-    gate(emptyState('mail', 'Your Mac isn’t connected', `${H.jarvisReason() || ''} Mail on your Mac comes through the Jarvis app: open it to connect.`.trim()));
+    gate(emptyState('mail', 'Your Mac isn’t connected', `${H.jarvisReason() || ''} Mail on your Mac comes through the Eden app: open it to connect.`.trim()));
     return;
   }
 

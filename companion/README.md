@@ -1,35 +1,35 @@
-# J.A.R.V.I.S. companion (iPhone + Apple Watch)
+# Eden companion (iPhone + Apple Watch)
 
-Native SwiftUI apps for Jarvis: Apple's craft with Stark's materials (iOS 26+, watchOS 26+).
+Native SwiftUI apps for Eden: Apple's craft with Stark's materials (iOS 26+, watchOS 26+).
 SF Pro and Apple's layouts; every surface Liquid Glass (`glassCard`, `GlassList`/`GlassForm`)
 over a dark night lit by the arc reactor (`SpaceBackground`); reactor blue as the one accent,
 Stark gold for what needs you, telemetry in small SF Mono caps (`HUDText`); the reactor is
-a glass sphere in a fine-ticked bezel (`ReactorView`). Always dark. Paired with Jarvis on the Mac they reach everything it does;
-with no Mac (or when it can't be reached) the iPhone runs Jarvis itself on the owner's own
-Claude or Gemini API key (see Jarvis on iPhone). With a key, Automatic is iPhone first: the
+a glass sphere in a fine-ticked bezel (`ReactorView`). Always dark. Paired with Eden on the Mac they reach everything it does;
+with no Mac (or when it can't be reached) the iPhone runs Eden itself on the owner's own
+Claude or Gemini API key (see Eden on iPhone). With a key, Automatic is iPhone first: the
 phone answers what it can and hands Mac-only work to the Mac (ask_mac); one service steps in
 when the other fails, and the Mac when both do.
 
-- **Tabs:** Jarvis (the orb, the conversation, approvals, a glass composer with the
+- **Tabs:** Eden (the orb, the conversation, approvals, a glass composer with the
   microphone and a + menu, where up to four photos or screenshots go with a question:
   Photos, Take Photo, Paste Image), Today (what needs you, weather, calendar, reminders, the Mac),
   Code (Eden Code, when paired) and Library (everything else, grouped like Settings).
 
 - **iPhone** (`iOS/`): pair with the Mac (its QR code, or Bonjour / typed address +
   six-digit code), the reactor as tap-to-talk (on-device speech recognition, ends on
-  ~1.2 s of silence or a second tap), a live You / JARVIS transcript, approval cards, quick
+  ~1.2 s of silence or a second tap), a live You / Eden transcript, approval cards, quick
   actions (Brief me, What's next?, Take notes / Stop notes, Routines, Stop), a status strip
-  (Mac state, next event, weather, background tasks, model), spoken replies in Jarvis's
-  own voice (`/api/say`), the Jarvis hub (Eden Code, conversations, routines, what you
+  (Mac state, next event, weather, background tasks, model), spoken replies in Eden's
+  own voice (`/api/say`), the Eden hub (Eden Code, conversations, routines, what you
   missed, spending), and Settings (Mac address, Speak replies, notifications, sensors,
   send to Watch, Unpair). Around the app: notifications you can answer, widgets, Live
   Activities, Siri and Shortcuts, the share sheet.
-- **Opening JARVIS on the Mac:** when JARVIS was quit, the iPhone (and Siri, the Action
+- **Opening Eden on the Mac:** when Eden was quit, the iPhone (and Siri, the Action
   Button) asks the Mac's wake listener to open it: port 8764, kept by launchd while the
   companion is on (`jarvis.companion_wake`), same certificate and token. The app shows
-  "Opening JARVIS on your Mac…" and what waited in the outbox goes once it answers; Siri
+  "Opening Eden on your Mac…" and what waited in the outbox goes once it answers; Siri
   waits up to 15 s and then asks. A Mac that's asleep or off can't be opened this way.
-- **Chats like the Claude, ChatGPT and Gemini apps** (Jarvis on iPhone): every chat kept on
+- **Chats like the Claude, ChatGPT and Gemini apps** (Eden on iPhone): every chat kept on
   the iPhone (`ChatStore`, App Group `phone-chats.json`, pictures' and documents' bytes left
   out) with Chats (search, pinned first, swipe to pin, rename, delete, share), New Chat and
   Temporary Chat (kept nowhere, nothing remembered); replies in full Markdown (`RichText`:
@@ -38,7 +38,7 @@ when the other fails, and the Mac when both do.
   "what was wrong" is kept as a correction); Files in the + menu (PDFs as PDFs, text files as
   text; to the Mac's Inbox with the question when the Mac answers). Typed questions get
   formatted answers; spoken ones stay short and plain.
-- **Learning and judgement** (Jarvis on iPhone): memory sorted into facts, preferences,
+- **Learning and judgement** (Eden on iPhone): memory sorted into facts, preferences,
   people, goals and corrections (kept last; the prompt says to save every correction at once),
   and which contact a short name means ("Ann" → Ann Lee), learned when the owner picks one
   (`remember_person`, or asking again by the fuller name). Settings › Library › Memory shows
@@ -48,7 +48,7 @@ when the other fails, and the Mac when both do.
   reminders slipping. On Today; only leaving and a clash within two hours become
   notifications (switch in Settings), also from background refresh.
 - **Only answer when unlocked** (`OwnerLock`): iOS has no speaker recognition for apps, so
-  with this on Siri, Vocal Shortcuts and "Hey Jarvis" answer only after Face ID or the
+  with this on Siri, Vocal Shortcuts and "Hey Eden" answer only after Face ID or the
   passcode; Stop always works.
 - **Watch** (`Watch/`): gets the Mac's address, token and certificate fingerprint from the
   iPhone over WatchConnectivity, then talks to the Mac on its own. Reactor → dictation →
@@ -163,7 +163,7 @@ in team 8CV4X23Y2T. With an App Store Connect API key instead:
 In App Store Connect (appstoreconnect.apple.com):
 
 1. **The app record, once.** Apps › + › New App: iOS; a name (it must be unique on the
-   App Store; the Home Screen keeps saying J.A.R.V.I.S. whatever the record is called);
+   App Store; the Home Screen keeps saying Eden whatever the record is called);
    English (U.S.); the bundle ID `com.askeden.jarvis` (automatic signing
    registers it on the first device build or archive); a SKU such as `jarvis-companion`.
    The Watch app comes inside the iPhone app: it has no record of its own.
@@ -175,8 +175,8 @@ In App Store Connect (appstoreconnect.apple.com):
    which Beta App Review needs because the app reads Health data and location. The policy
    should say what the app sends to your Mac (requests, approvals, the Health summary,
    location, photos, shared items, contact lookups and calendar events), that none of it goes to BSH Ventures, and that
-   Jarvis on the Mac may send requests to Claude under the owner's own account. In the
-   review notes, say the app does nothing until it's paired with Jarvis on the tester's
+   Eden on the Mac may send requests to Claude under the owner's own account. In the
+   review notes, say the app does nothing until it's paired with Eden on the tester's
    own Mac, and attach a short screen recording. Then External Testing › + a group › add the
    build: the first build of each version goes to Beta App Review (about a day).
 4. **Export compliance** is answered by the Info.plist key above: no question per build.
@@ -184,7 +184,7 @@ In App Store Connect (appstoreconnect.apple.com):
 
 ## Pairing
 
-On the Mac: **Jarvis › Settings › iPhone & Watch › Let my phone connect**, then
+On the Mac: **Eden › Settings › iPhone & Watch › Let my phone connect**, then
 **Pair a phone**. It shows a QR code and a six-digit code (single use, five minutes; five
 wrong tries lock pairing for five minutes), and the short fingerprint of the Mac's
 certificate (`a1b2 c3d4 e5f6 0718`).
@@ -229,7 +229,7 @@ has Tailscale on; at home the Mac's LAN address or `.local` name is the safer ch
 
 ## Beyond the conversation
 
-The grid button in the top bar opens **Jarvis**, a hub like the Settings app (the Routines
+The grid button in the top bar opens **Eden**, a hub like the Settings app (the Routines
 quick action and the Eden Code module in the status strip open it at their place, and
 `jarvis-companion://…` links from widgets, Live Activities and notifications open any of
 it; links only ever navigate):
@@ -298,7 +298,7 @@ The Watch app gets its pairing from the iPhone and then talks to the Mac by itse
 the same pinned connection, polling only while it's in front (wrist raised).
 
 - **Talk**: tap the reactor, then dictate or scribble. The reply shows (the Digital Crown
-  scrolls) and is spoken: in Jarvis's own voice when the Mac can make it
+  scrolls) and is spoken: in Eden's own voice when the Mac can make it
   (`POST /api/say`, a WAV), else in the Watch's own voice, in the reply's language
   (Chinese or English). Only replies to what was asked on the Watch are spoken, and only
   while the app is frontmost: a reply finishes with the wrist down, and stops when the
@@ -336,7 +336,7 @@ On the Watch, iPhone notifications appear by themselves with the same actions (N
 because… by dictation or Scribble). The Watch app registers the same categories and, when
 an action is delivered to it, answers the Mac itself with the pairing the iPhone gave it.
 
-## Jarvis on iPhone
+## Eden on iPhone
 
 `iOS/Brain/`: Claude's Messages API over HTTPS (`ClaudeClient`, streamed, its blocks kept
 exactly as they arrive), the phone's own tools (`PhoneTools`: Calendar and Reminders through
@@ -346,30 +346,30 @@ facts it remembers, and `ask_mac` while paired), plus Anthropic's web search and
 Texts, emails and calls are only prepared: the system composer or a Call button finishes
 them with a tap (`ActionCards`).
 
-- The key is the owner's own (Settings › Jarvis on iPhone), kept in the Keychain, sent only
+- The key is the owner's own (Settings › Eden on iPhone), kept in the Keychain, sent only
   to api.anthropic.com. Model: Claude Opus 5.5 by default (Sonnet 5.5, Haiku 4.5 offered),
   effort low for voice-speed answers, `fallbacks: "default"` for declined requests.
 - **Who answers** (paired only): Automatic (the Mac when it can be reached, else the
   iPhone), Always my Mac, Always this iPhone. Unpaired, the iPhone always answers.
-- Siri's Ask Jarvis and Brief me fall back to it too, when there's no Mac or it can't be
+- Siri's Ask Eden and Brief me fall back to it too, when there's no Mac or it can't be
   reached (`IntentRunner.phoneAnswer`).
-- Replies are spoken in Jarvis's voice from the Mac when it's there, else the iPhone's best
+- Replies are spoken in Eden's voice from the Mac when it's there, else the iPhone's best
   installed voice (British, Premium or Enhanced first).
 
-## “Hey Jarvis”, the side button and the Action Button
+## “Hey Eden”, the side button and the Action Button
 
 iOS gives third-party apps no always-on wake word and keeps the side button for Siri
-(outside Japan), so Jarvis is reachable every way iOS allows (Library › “Hey Jarvis” walks
+(outside Japan), so Eden is reachable every way iOS allows (Library › “Hey Eden” walks
 through each):
 
 - **In the app** (`WakeWordListener`): on-device speech recognition listening for the name
   while the app is open; optionally on in the background (audio background mode, the orange
-  dot) until a call, Siri or another app takes the microphone. "Hey Jarvis, what's next?" in
+  dot) until a call, Siri or another app takes the microphone. "Hey Eden, what's next?" in
   one breath sends the request straight away.
 - **Anywhere, Lock Screen included:** Vocal Shortcuts (Settings › Accessibility › Vocal
-  Shortcuts) trained on "Hey Jarvis" runs the **Talk to Jarvis** shortcut.
-- **Talk to Jarvis** (`Activity/TalkToJarvisIntent.swift`) opens the app listening: an App
-  Shortcut ("Hey Siri, talk to Jarvis", so holding the side button and saying it works), a
+  Shortcuts) trained on "Hey Eden" runs the **Talk to Eden** shortcut.
+- **Talk to Eden** (`Activity/TalkToJarvisIntent.swift`) opens the app listening: an App
+  Shortcut ("Hey Siri, talk to Eden", so holding the side button and saying it works), a
   Control (`TalkToJarvisControl`) for Control Center, the Lock Screen and the Action Button,
   and Back Tap through Shortcuts. `jarvis-companion://listen` does the same.
 
@@ -378,19 +378,19 @@ through each):
 Library lists the Mac's feature screens that `/api/state` names in `features` (memory,
 goals, timers, reminders, markets, background tasks, music, Shortcuts & Home, Mac
 controls, journal, meeting notes, research, invoices; `MacFeatureView`), and Settings ›
-Your Mac › Jarvis on Your Mac edits the preferences the Mac allows (`MacPrefsView`).
+Your Mac › Eden on Your Mac edits the preferences the Mac allows (`MacPrefsView`).
 
 ## Siri, Shortcuts and the Action Button
 
 App Shortcuts, so they're in Siri, Shortcuts, Spotlight and the Action Button with no
-setup ("Jarvis" is an alternative app name, so "Ask Jarvis" works):
+setup ("Jarvis" is an alternative app name, so "Ask Jarvis" works too):
 
 | Shortcut | Does | Says back |
 |---|---|---|
-| **Ask Jarvis** (asks for the request) | `POST /api/ask` | the reply (markdown out, a long one cut at a sentence) |
+| **Ask Eden** (asks for the request) | `POST /api/ask` | the reply (markdown out, a long one cut at a sentence) |
 | **Brief me** | asks for the briefing | the briefing |
 | **What did I miss** | `GET /api/digest` | how many, and the top three |
-| **Stop Jarvis** | `stop` | "Stopped." |
+| **Stop Eden** | `stop` | "Stopped." |
 | **Start / Stop meeting notes** | `meeting_start` / `meeting_stop` | a line |
 
 They run in the background (the app doesn't open) over the pinned pairing, and return
@@ -401,11 +401,11 @@ question for later (the outbox); stop and meeting notes are never kept.
 
 ## Share sheet
 
-**J.A.R.V.I.S.** in the share sheet sends a link, some text, a photo or a file to the Mac
-(`POST /api/share`), with an optional line for Jarvis ("Summarize this", or anything).
+**Eden** in the share sheet sends a link, some text, a photo or a file to the Mac
+(`POST /api/share`), with an optional line for Eden ("Summarize this", or anything).
 Files and photos land in `~/Documents/Jarvis/Inbox/` on the Mac; with a line, the Mac runs
 it as a silent request about the item, and the answer lands in the app. Shared content is
-data to Jarvis, never instructions. Files go up to the Mac's 25 MB; a photo too big for
+data to Eden, never instructions. Files go up to the Mac's 25 MB; a photo too big for
 that, or of a kind the Mac doesn't read as a picture (TIFF, RAW, BMP), goes as a JPEG. The
 preview is a thumbnail and the upload's base64 is written a slice at a time, since a share
 extension has little memory. When the Mac can't be reached it waits in the outbox (the data
@@ -425,10 +425,10 @@ from the App Group's keychain group.
   yesterday's steps, resting heart rate and workouts, and last night's sleep (asleep
   stages only, 6 pm to noon, overlaps between iPhone and Watch counted once), plus today
   so far (`POST /api/health`). Nothing is written to Health.
-- **Show Jarvis** (camera): take a photo, ask about it (`POST /api/photo`, JPEG at most
+- **Show Eden** (camera): take a photo, ask about it (`POST /api/photo`, JPEG at most
   2048 px); the answer shows and is spoken. A photo goes only when you send it. (Not kept
   for later: you're waiting for the answer.)
-- **Point and ask** (camera, live): a live view in Show Jarvis with "What's this?", "Read
+- **Point and ask** (camera, live): a live view in Show Eden with "What's this?", "Read
   this", "Translate this" or your own question. The camera shows only on the screen; each
   question takes one still frame and sends it as a photo. Never a video stream; the camera
   stops when the view closes or the app leaves the screen.
@@ -445,14 +445,14 @@ from the App Group's keychain group.
   keeps the latest copy only and forgets it when this is turned off.
 - **Notifications** aren't a sensor: iOS doesn't let an app read other apps'
   notifications. Settings says so and points to Focus filters and Shortcuts automations
-  (which can run "Ask Jarvis").
+  (which can run "Ask Eden").
 
 Which of contacts and calendar are on is told to the Mac (`POST /api/sensors`); it answers
 neither for a phone that hasn't turned it on. Unpairing turns every sensor off.
 
 ## Widgets and complications
 
-- **Jarvis** (small, medium; Lock Screen circular, rectangular, inline): whether the Mac
+- **Eden** (small, medium; Lock Screen circular, rectangular, inline): whether the Mac
   is there, what needs your OK (the question itself only when unlocked), what's next.
 - **Eden Code** (small, medium; Lock Screen circular, rectangular): sessions that need
   you and the ones working; a session opens where it is.
@@ -469,7 +469,7 @@ when a complication is on the face. No model calls anywhere: `/api/state` only.
 
 ## Live Activities
 
-On the Lock Screen and in the Dynamic Island (compact, minimal and expanded): a Jarvis
+On the Lock Screen and in the Dynamic Island (compact, minimal and expanded): an Eden
 Code session working or waiting on you, a conversation held for you, a call, a video
 summary. The app starts them in front, from `/api/state` (sessions working or needing
 you; conversations, from `/api/delegations`, while the Mac says some are active) and from
@@ -526,7 +526,7 @@ xcrun simctl launch booted com.askeden.jarvis \
 
 The Simulator reaches the Mac's `127.0.0.1`, so a throwaway server built with
 `jarvis.remote.create_remote_app(fake_hub, Devices(tmp))` on port 8766, serving TLS with a
-throwaway certificate, works (never point tests at the real Jarvis on 8765). With a test
+throwaway certificate, works (never point tests at the real Eden on 8765). With a test
 code the app waits for the certificate check, then taps Pair itself. The UI test
 (`UITests/`) drives the whole flow by typing and tapping against such a server — pairing
 (comparing the fingerprint), an approval ("Email Pepper…" must come back with Send /

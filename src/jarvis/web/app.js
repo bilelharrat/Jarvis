@@ -143,7 +143,7 @@ function connect() {
   ws.onmessage = (e) => heard(JSON.parse(e.data));
   ws.onclose = (e) => {
     $('offline').hidden = false;
-    if (e.code === 1009) notice('Jarvis', '', 'A message was too big for the connection and didn’t go.', 8000);
+    if (e.code === 1009) notice('Eden', '', 'A message was too big for the connection and didn’t go.', 8000);
     setTimeout(connect, Math.min(5000, 500 * 2 ** retry++));
   };
 }
@@ -477,7 +477,7 @@ function onEvent(ev) {
         const openBtn = el('button', 'btn primary', 'Open Location settings');
         openBtn.type = 'button';
         openBtn.addEventListener('click', () => send({ type: 'open_privacy', pane: 'location' }));
-        notice('Location', 'Turn on location for J.A.R.V.I.S.', 'For local weather and live traffic: switch on J.A.R.V.I.S. under Location Services.', 0, openBtn);
+        notice('Location', 'Turn on location for Eden', 'For local weather and live traffic: switch on Eden under Location Services.', 0, openBtn);
       }
       break;
     case 'claude_sessions':
@@ -515,10 +515,10 @@ function setState(next) {
   const look = document.body.dataset.look;
   if (look === 'console') line = { idle: prefs && prefs.hands_free ? '● Listening for wake word…' : '● Ready', listening: '● Listening…', transcribing: '● Transcribing…', thinking: '● Thinking…', speaking: '● Speaking…' }[next] || line;
   if (next === 'thinking' && runningTools > 0) line = 'Working on it…';
-  if (next === 'idle' && prefs && prefs.hands_free && (!look || look === 'orb')) line = 'Say “Jarvis”, or tap the orb';
+  if (next === 'idle' && prefs && prefs.hands_free && (!look || look === 'orb')) line = 'Say “Eden”, or tap the orb';
   // (Only when it changed: every step of a turn asks again, and new words lay the page out.)
   setText($('state-line'), line);
-  $('orb').setAttribute('aria-label', next === 'idle' ? 'Talk to Jarvis' : 'Stop');
+  $('orb').setAttribute('aria-label', next === 'idle' ? 'Talk to Eden' : 'Stop');
 }
 
 function showHeard(text) {
@@ -541,7 +541,7 @@ function ask(text, images = []) {
 // What a request box sends: its words and the pictures waiting by it. false when it
 // couldn't be sent (not connected): the words and the pictures stay for another try.
 function askFromBox(input) {
-  if (picsReading.size) { notice('Jarvis', '', 'Still reading the picture. Send it again in a moment.', 4000); return null; }
+  if (picsReading.size) { notice('Eden', '', 'Still reading the picture. Send it again in a moment.', 4000); return null; }
   const images = askPics.map((p) => ({ media_type: p.type, data: p.data, name: p.name }));
   if (!ask(input.value, images)) return false;
   input.value = '';
@@ -557,7 +557,7 @@ document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('clic
 $('ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const sent = askFromBox($('ask-input'));
-  if (sent === false) notice('Jarvis', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
+  if (sent === false) notice('Eden', '', 'Not connected yet. Your question is still here: send it again in a moment.', 6000);
   if (sent && !srMode()) $('ask-input').blur();
 });
 
@@ -1057,13 +1057,13 @@ function renderPrefs(p) {
   const modelName = (p.models || []).find((m) => m.id === p.model);
   if (modelName) $('v-model').textContent = modelName.name;
   const persona = (p.personas || []).find((x) => x.id === p.persona);
-  $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : (window.jarvisAccessibility && window.jarvisAccessibility.homeName ? window.jarvisAccessibility.homeName() : 'Jarvis');
+  $('wordmark').textContent = persona ? persona.name.charAt(0) + persona.name.slice(1).toLowerCase() : (window.jarvisAccessibility && window.jarvisAccessibility.homeName ? window.jarvisAccessibility.homeName() : 'Eden');
   const model = (p.models || []).find((m) => m.id === p.model);
   $('model-chip').textContent = model ? model.name : p.model;
   $('hf-indicator').hidden = !p.hands_free;
   // What to say or press, plus the What's-this key.
   $('hint').replaceChildren(...(p.hands_free
-    ? [document.createTextNode('Say “Hey Jarvis” · '), el('kbd', '', hintKeys().talk), document.createTextNode(' talk · '), el('kbd', '', hintKeys().whats), document.createTextNode(' what’s this?')]
+    ? [document.createTextNode('Say “Hey Eden” · '), el('kbd', '', hintKeys().talk), document.createTextNode(' talk · '), el('kbd', '', hintKeys().whats), document.createTextNode(' what’s this?')]
     : [el('kbd', '', hintKeys().talk), document.createTextNode(' talk · '), el('kbd', '', hintKeys().whats), document.createTextNode(' what’s this?')]));
   setSwitch('sw-effect', p.voice_effect);
   $('mic-select').value = p.mic || 'builtin';
@@ -1453,7 +1453,7 @@ function renderDelegations(items) {
         const go = el('button', 'btn', 'Continue…');
         go.type = 'button';
         go.addEventListener('click', () => {
-          const guidance = prompt(tr('What should Jarvis tell them, or do next?'));
+          const guidance = prompt(tr('What should Eden tell them, or do next?'));
           if (guidance !== null) send({ type: 'delegation_continue', id: d.id, guidance });
         });
         li.append(go);
@@ -1669,7 +1669,7 @@ function serviceForm(svc) {
     form.append(label, input);
   };
   if (svc.auth === 'oauth') {
-    form.append(el('p', '', `Jarvis opens ${svc.name}’s sign-in page in your browser. Approve access there and you’re done.`));
+    form.append(el('p', '', `Eden opens ${svc.name}’s sign-in page in your browser. Approve access there and you’re done.`));
     if (svc.help) form.append(el('p', '', svc.help));  // a way round, when the sign-in can fail
     if (svc.help_url) form.append(link(svc.help_url, 'Setup guide'));
   } else if (svc.auth === 'token') {
@@ -4748,7 +4748,7 @@ function renderJcGeneral() {
   const mine = modelList.filter((m) => !m.builtin);
   const claude = el('optgroup');
   claude.label = 'Claude';
-  claude.append(option('', `Same as J.A.R.V.I.S. (${jarvisModel ? jarvisModel.label : 'default'})`, !codeDefaults.model),
+  claude.append(option('', `Same as Eden (${jarvisModel ? jarvisModel.label : 'default'})`, !codeDefaults.model),
     ...modelList.filter((m) => m.builtin).map((m) => option(m.ref, m.label, codeDefaults.model === m.ref)));
   const yours = el('optgroup');
   yours.label = 'Your models';
@@ -5885,7 +5885,7 @@ async function runResearchCmd(ev) {
   const args = ev.args || {};
   let result;
   try {
-    if (!app || !app.browser) result = { error: 'The Research Center only opens in the J.A.R.V.I.S. app window.' };
+    if (!app || !app.browser) result = { error: 'The Research Center only opens in the Eden app window.' };
     else if (ev.action === 'open') result = await openResearch(args.path || '/markets');
     else if (ev.action === 'close') { toggleBrowser(false); result = { ok: true }; }
     else if (ev.action === 'lock') result = { ok: true, locked: await app.browser.researchLock(!!args.on) };
@@ -5938,10 +5938,10 @@ if (app && app.browser) {
     badge.classList.toggle('open', !!st.research && !shared && !st.locked);
     badge.setAttribute('aria-pressed', String(!shared));
     $('br-lock-shackle').setAttribute('d', shared ? 'M4 5.5V4a2 2 0 014 0' : 'M4 5.5V4a2 2 0 014 0v1.5');
-    $('br-lock-text').textContent = shared ? 'You and J.A.R.V.I.S.' : st.locked ? 'J.A.R.V.I.S. only' : 'Sign in yourself, then I take over';
+    $('br-lock-text').textContent = shared ? 'You and Eden' : st.locked ? 'Eden only' : 'Sign in yourself, then I take over';
     badge.title = shared
-      ? 'Your mouse and keyboard work here, and J.A.R.V.I.S. can drive it too. Click to make it J.A.R.V.I.S. only.'
-      : 'Only J.A.R.V.I.S. drives the Research Center: your voice and your hands. Click to use your mouse and keyboard too.';
+      ? 'Your mouse and keyboard work here, and Eden can drive it too. Click to make it Eden only.'
+      : 'Only Eden drives the Research Center: your voice and your hands. Click to use your mouse and keyboard too.';
   }
   app.browser.onState((st) => {
     browserState = st;
@@ -6020,7 +6020,7 @@ function sendLocation() {
   if (!navigator.geolocation) { send({ type: 'location_fix', error: 'No location services in this window.' }); return; }
   navigator.geolocation.getCurrentPosition(
     (pos) => send({ type: 'location_fix', lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-    (err) => send({ type: 'location_fix', error: err.code === 1 ? 'Location access is off for J.A.R.V.I.S. (System Settings > Privacy & Security > Location Services).' : `No location fix: ${err.message}` }),
+    (err) => send({ type: 'location_fix', error: err.code === 1 ? 'Location access is off for Eden (System Settings > Privacy & Security > Location Services).' : `No location fix: ${err.message}` }),
     { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60 * 1000 },
   );
 }
@@ -6127,7 +6127,7 @@ function renderRoutines(items) {
 // translated), and for a time a caller asked for, Book and Let go.
 const LINE_KINDS = {
   message: 'Left a message', booking: 'Wants to meet', schedule: 'Wants a time', missed: 'Missed call',
-  talk: 'Talked with Jarvis', errand: 'Called for you',
+  talk: 'Talked with Eden', errand: 'Called for you',
 };
 const LINE_STATUS = {
   booked: 'Booked', declined: 'Let go', replaced: 'Asked again',
@@ -6360,16 +6360,16 @@ function addPictures(files) {
 }
 
 async function addAskPicture(file) {
-  if (askPics.length + picsReading.size >= window.JarvisAttach.LIMITS.files) { notice('Jarvis', '', 'Up to six pictures per request.', 5000); return; }
+  if (askPics.length + picsReading.size >= window.JarvisAttach.LIMITS.files) { notice('Eden', '', 'Up to six pictures per request.', 5000); return; }
   const slot = { kind: 'image', size: 0 };
   const order = picsOrder++;
   picsReading.add(slot);
   try {
     const fitted = await fitPicture(file);
-    if (!fitted) { notice('Jarvis', '', `${file.name} isn’t a picture Jarvis can read.`, 5000); return; }
+    if (!fitted) { notice('Eden', '', `${file.name} isn’t a picture Eden can read.`, 5000); return; }
     slot.size = fitted.size;
     const held = [...askPics].map((p) => ({ kind: 'image', size: p.size }));
-    if (window.JarvisAttach.check(held, 'image', fitted.size)) { notice('Jarvis', '', `${file.name} would make this request too big to send.`, 5000); return; }
+    if (window.JarvisAttach.check(held, 'image', fitted.size)) { notice('Eden', '', `${file.name} would make this request too big to send.`, 5000); return; }
     const url = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
@@ -6379,7 +6379,7 @@ async function addAskPicture(file) {
     const pic = { type: fitted.type, data: url.split(',', 2)[1], url, name: file.name, size: fitted.size, order };
     setAskPics([...askPics, pic].sort((a, b) => a.order - b.order));
   } catch {
-    notice('Jarvis', '', `${file.name} couldn’t be read.`, 5000);
+    notice('Eden', '', `${file.name} couldn’t be read.`, 5000);
   } finally {
     picsReading.delete(slot);
   }

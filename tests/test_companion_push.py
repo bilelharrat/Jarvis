@@ -277,7 +277,7 @@ async def test_calls_voicemail_and_unknown_kinds(setup):
     voicemail = by_title["Voicemail"]
     assert aps(voicemail["payload"])["alert"]["body"] == "From Ann Lee"
     assert "gate code" not in voicemail["raw"].decode()
-    unknown = by_title["Jarvis"]
+    unknown = by_title["Eden"]
     assert aps(unknown["payload"])["alert"]["body"] == "Something new on your Mac."
     assert "Anyone" not in unknown["raw"].decode()
 

@@ -650,7 +650,7 @@ export function voiceSettings() {
   const rec = Recognition()
     ? 'Dictation and Talk use this browser’s speech recognition (Chrome sends the audio to Google to transcribe it).'
     : Recorder()
-      ? `This browser has no speech recognition: Dictation records (two minutes at most) and ${HOSTED ? 'askeden.com transcribes it (Whisper on Cloudflare, counted on your Jarvis account’s included AI)' : 'J.A.R.V.I.S. on this Mac transcribes it (the audio stays on this Mac)'}. Talk needs speech recognition (Chrome, Edge or Safari).`
+      ? `This browser has no speech recognition: Dictation records (two minutes at most) and ${HOSTED ? 'askeden.com transcribes it (Whisper on Cloudflare, counted on your Eden account’s included AI)' : 'Eden on this Mac transcribes it (the audio stays on this Mac)'}. Talk needs speech recognition (Chrome, Edge or Safari).`
       : 'This browser has no speech recognition, so Dictation and Talk are off (use Chrome, Edge or Safari).';
   return el('div', 'set-sec', el('h3', '', 'Voice'),
     el('div', 'icard', el('div', 'prov',
