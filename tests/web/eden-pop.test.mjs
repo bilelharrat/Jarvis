@@ -23,7 +23,7 @@ async function until(ok, what) {
   assert.fail(`timed out waiting for ${what}`);
 }
 
-function fake({ userData = mkdtempSync(path.join(tmpdir(), 'eden-pop-')), flavor = { id: 'jarvis' }, grab = NOTES } = {}) {
+function fake({ userData = mkdtempSync(path.join(tmpdir(), 'eden-pop-')), flavor = { id: 'jarvis' }, grab = NOTES, platform = 'darwin' } = {}) {
   const log = []; // what happened, in order
   const globalShortcut = {
     taken: new Set(),
@@ -103,7 +103,7 @@ function fake({ userData = mkdtempSync(path.join(tmpdir(), 'eden-pop-')), flavor
   const fromWindow = { sender: 'window' };
   const main = { shown: 0, isDestroyed: () => false, show() { this.shown += 1; }, focus() {} };
   const ctx = {
-    electron, ipcMain, dev: false, flavor,
+    electron, ipcMain, dev: false, flavor, platform,
     app: { getPath: () => userData, focus() {}, isAccessibilitySupportEnabled: () => false },
     send: (channel, payload) => sent.push([channel, payload]),
     fromWindow: (event) => event === fromWindow,
@@ -133,6 +133,11 @@ test('on by default with ⌃⌥E: the selection is grabbed first, then the pop-u
   assert.equal(win.options.alwaysOnTop, true);
   assert.equal(win.options.webPreferences.sandbox, true);
   assert.equal(win.options.webPreferences.nodeIntegration, false);
+  // Eden's Glass: the Mac's own frosted material under the page, kept while the panel isn't key.
+  assert.equal(win.options.vibrancy, 'popover');
+  assert.equal(win.options.visualEffectState, 'active');
+  assert.equal(win.options.backgroundColor, '#00000000');
+  assert.equal(win.options.transparent, undefined, 'vibrancy, not a see-through window');
   assert.match(win.options.webPreferences.preload, /eden-pop-preload\.js$/);
   assert.match(win.file, /eden-pop\.html$/);
   assert.ok(win.visible && win.focused);
@@ -282,4 +287,31 @@ test('the page’s light Markdown is data: paragraphs, lists, code, bold; never 
   assert.equal(page.plain('**Bold** and `code`\n## Head'), 'Bold and code\nHead');
   const source = readFileSync(new URL('../../app/eden-pop-page.js', import.meta.url), 'utf8');
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML/.test(source), 'no HTML from strings anywhere in the page');
+});
+
+test('off the Mac the pop-up keeps an opaque window in the app’s colour (no vibrancy there)', async () => {
+  const t = fake({ platform: 'win32' });
+  t.electron.globalShortcut.press('Control+Alt+E');
+  await until(() => t.log.includes('show'), 'the pop-up');
+  const { options } = t.win();
+  assert.equal(options.vibrancy, undefined);
+  assert.equal(options.visualEffectState, undefined);
+  assert.equal(options.backgroundColor, '#f7f7f9');
+});
+
+test('the page keeps every control, its labels and the strict CSP in the Glass design', () => {
+  const html = readFileSync(new URL('../../app/eden-pop.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../app/eden-pop.css', import.meta.url), 'utf8');
+  assert.match(html, /content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:"/);
+  for (const id of ['pop', 'where', 'close', 'selection', 'actions', 'language', 'tone', 'askform', 'ask', 'send', 'stop', 'answer', 'tools', 'put', 'copy', 'speak', 'again', 'continue', 'note', 'announce']) {
+    assert.match(html, new RegExp(`id="${id}"`), `#${id}`);
+  }
+  for (const a of ['explain', 'summarize', 'rewrite', 'fix', 'shorter', 'reply', 'translate', 'tone']) assert.match(html, new RegExp(`class="chip" data-action="${a}"`));
+  // Icon-only buttons are named (and translated) by data-t-label; no inline styles (CSP), nothing external.
+  for (const id of ['close', 'speak', 'again', 'continue', 'stop', 'send']) assert.match(html, new RegExp(`id="${id}" data-t-label="[^"]+" aria-label="[^"]+"`), `#${id} is named`);
+  assert.ok(!/\sstyle=/.test(html), 'no inline style attributes');
+  assert.ok(!/https?:\/\/(?!www\.w3\.org\/2000\/svg)/.test(html + css), 'nothing loaded from outside');
+  assert.ok(!/@import|url\((?!["']?data:|#)/.test(css), 'the stylesheet loads nothing');
+  assert.match(css, /prefers-color-scheme: dark/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
 });

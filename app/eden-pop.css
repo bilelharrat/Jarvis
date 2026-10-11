@@ -1,75 +1,183 @@
-/* Eden's pop-up (eden-pop.html): small, quiet, the app's own light and dark. */
+/* Eden's pop-up (eden-pop.html) in Eden's "Glass" design, the one every Ask Eden surface uses.
+   Copied from the Chrome extension's askeden/extension/eden-ui.css (the panel on web pages): its
+   tokens, the reactor orb, the action pills (no icons, larger type, rows that fill the width), the
+   answer card, Eden's row under an answer, Copy and Replace, and the composer. On the Mac the window
+   is a real glass (vibrancy, app/features/eden-pop.js) and this page is a tint over it; elsewhere the
+   window's own colour is under the tint. Light and dark follow the app (nativeTheme). Nothing here is
+   loaded from outside (the page's CSP): the two small marks are data: images. */
+
+/* ── tokens (eden-ui.css; dark as its prefers-color-scheme block) ── */
 :root {
-  --ink: 29 29 31; --ink-2: 88 88 94; --muted: 122 122 128; --accent: 11 135 214;
-  --panel: 247 247 249; --field: 0 0 0; --line: 0 0 0;
-  color-scheme: light dark;
+  --accent: #0a84ff; --link: #0062c4;
+  --bubble-a: #1670c2; --bubble-b: #0a58b5; /* the primary button: white text at ≥ 4.9:1 */
+  --content: #ffffff; --content2: #f7f7f9;
+  --text: #1d1d1f; --text2: #5f5f66; --text3: #86868b; --placeholder: #6e6e76;
+  --glass2: rgba(250, 250, 252, .78);
+  --hairline: rgba(0, 0, 0, .07); --rim: rgba(255, 255, 255, .55); --sep: rgba(0, 0, 0, .08);
+  --c-ink: 29 29 31; --c-ink2: 82 82 88; --c-accent: 11 135 214; --c-accent-ink: 0 92 160; --c-glow: 56 168 232;
+  --warn: #8a4b00;
+  --focus: #0062c4;
+  --pill-hover: rgb(var(--c-ink) / .07);
+  --tint: linear-gradient(160deg, rgba(255, 255, 255, .66), rgba(240, 246, 255, .52));
+  --tip: rgba(29, 29, 31, .9); --tip-ink: #fff;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  /* the quote mark (in --c-accent-ink) and the select's chevron (a mask), from eden-ui.css's icons */
+  --i-quote: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23005ca0' stroke-width='1.9' stroke-linecap='round'%3E%3Cpath d='M5 17V12a5 5 0 015-5M14 17V12a5 5 0 015-5'/%3E%3C/svg%3E");
+  --i-chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.8L5 6.3l2.5-2.5'/%3E%3C/svg%3E");
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --ink: 245 245 247; --ink-2: 190 190 196; --muted: 140 140 147; --accent: 64 165 240; --panel: 28 28 30; --field: 255 255 255; --line: 255 255 255; }
+  :root {
+    --link: #6cb4ff;
+    --content: #1e1e20; --content2: #242426;
+    --text: #f5f5f7; --text2: #a9a9ae; --text3: #8e8e93; --placeholder: #9a9aa0;
+    --glass2: rgba(44, 44, 48, .70);
+    --hairline: rgba(255, 255, 255, .10); --rim: rgba(255, 255, 255, .16); --sep: rgba(255, 255, 255, .10);
+    --c-ink: 245 245 247; --c-ink2: 190 190 196; --c-accent: 38 150 234; --c-accent-ink: 128 198 250; --c-glow: 64 176 240;
+    --warn: #ffb340;
+    --focus: #6cb4ff;
+    --pill-hover: rgb(255 255 255 / .08);
+    --tint: linear-gradient(160deg, rgba(40, 44, 54, .72), rgba(24, 26, 32, .66));
+    --tip: rgba(245, 245, 247, .94); --tip-ink: #1d1d1f;
+    --i-quote: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2380c6fa' stroke-width='1.9' stroke-linecap='round'%3E%3Cpath d='M5 17V12a5 5 0 015-5M14 17V12a5 5 0 015-5'/%3E%3C/svg%3E");
+    color-scheme: dark;
+  }
 }
+
+/* ── the window: Eden's glass tint over the Mac's own glass ── */
 * { box-sizing: border-box; }
-html, body { margin: 0; background: rgb(var(--panel)); }
-body { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: rgb(var(--ink)); overflow: hidden; }
+html { background: var(--tint); }
+body { margin: 0; background: transparent; font: 14px/1.45 var(--sans); letter-spacing: -.1px; color: var(--text);
+  -webkit-font-smoothing: antialiased; overflow: hidden; }
+/* the panel's rim and its faint blue glow, inside the window's edge (a window can't glow outside itself) */
+body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 5;
+  box-shadow: inset 0 1px 0 var(--rim), inset 0 0 38px -12px rgb(var(--c-glow) / .55); }
+@media (prefers-reduced-transparency: reduce) { html { background: var(--content); } }
 [hidden] { display: none !important; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-:focus-visible { outline: 2px solid rgb(var(--accent) / 0.7); outline-offset: 1px; }
+.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+button, textarea, select { font: inherit; color: inherit; letter-spacing: inherit; }
+button { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
+svg.ic { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-.pop { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px 12px; }
-.head { display: flex; align-items: center; gap: 8px; height: 26px; -webkit-app-region: drag; }
+.pop { display: flex; flex-direction: column; gap: 11px; padding: 12px 13px 13px; }
+
+/* ── the head: the reactor, where the text came from, Close ── */
+.head { display: flex; align-items: center; gap: 9px; min-height: 30px; -webkit-app-region: drag; }
 .head button { -webkit-app-region: no-drag; }
-.mark { width: 14px; height: 14px; border-radius: 50%; flex: none;
-  background: radial-gradient(circle at 35% 35%, rgb(var(--accent) / 0.95), rgb(var(--accent) / 0.45)); }
-.where { flex: 1; min-width: 0; margin: 0; font-size: 12px; font-weight: 600; color: rgb(var(--ink-2));
+.where { flex: 1; min-width: 0; margin: 0; font-size: 14.5px; font-weight: 650; letter-spacing: -.2px; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.icon { width: 24px; height: 24px; border: 0; border-radius: 6px; padding: 0; cursor: pointer; color: rgb(var(--muted));
-  background: transparent; display: inline-flex; align-items: center; justify-content: center; }
-.icon:hover { background: rgb(var(--ink) / 0.08); color: rgb(var(--ink)); }
 
-.selection { margin: 0; padding: 6px 10px; border-left: 3px solid rgb(var(--accent) / 0.6); border-radius: 4px;
-  background: rgb(var(--field) / 0.04); color: rgb(var(--ink-2)); white-space: pre-wrap; word-break: break-word;
-  max-height: 4.5em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-.selection.open { max-height: 9em; overflow: auto; display: block; }
+/* the reactor orb (askeden.com's .jc-reactor), glowing in its glass ring */
+.rorb { width: 30px; height: 30px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 50%, rgba(63, 184, 242, .28), rgba(63, 184, 242, 0) 70%);
+  box-shadow: 0 0 18px rgba(64, 176, 240, .5), inset 0 0 0 1px rgba(111, 208, 255, .5); }
+.reactor { display: block; overflow: visible; }
+.reactor .halo { fill: none; stroke: #3fb8f2; stroke-opacity: .35; stroke-width: 1.2; }
+.reactor .ring { fill: none; stroke: #6fd0ff; stroke-width: 2.6; stroke-dasharray: 4.1 2.3; transform-origin: 20px 20px; }
+.reactor .inner { fill: none; stroke: #e6f8ff; stroke-opacity: .45; stroke-width: .8; }
+.reactor .core { filter: drop-shadow(0 0 2px rgba(64, 176, 240, .9)); }
+.reactor .shine { fill: #fff; opacity: .55; }
+/* while Eden answers, the rings turn */
+.pop:has(.answer.busy) .reactor .ring { animation: eden-spin 3.2s linear infinite; }
+@keyframes eden-spin { to { transform: rotate(360deg); } }
 
-.actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { height: 26px; padding: 0 10px; border: 0; border-radius: 13px; cursor: pointer; font: inherit; font-size: 12px;
-  color: rgb(var(--ink)); background: rgb(var(--ink) / 0.07); }
-.chip:hover { background: rgb(var(--accent) / 0.16); }
-.chip[aria-pressed="true"] { background: rgb(var(--accent) / 0.22); color: rgb(var(--accent)); }
-.pick { display: inline-flex; align-items: center; gap: 2px; border-radius: 13px; background: rgb(var(--ink) / 0.07); }
-.pick .chip { background: transparent; padding-right: 4px; }
-.pick select { height: 22px; max-width: 108px; margin-right: 3px; border: 0; border-radius: 10px; font: inherit; font-size: 12px;
-  color: rgb(var(--ink-2)); background: rgb(var(--panel)); }
+.iconbtn { position: relative; width: 30px; height: 30px; border-radius: 9px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--text2); }
+.iconbtn:hover { background: var(--pill-hover); color: var(--text); }
 
-.ask { display: flex; align-items: flex-end; gap: 6px; padding: 4px 4px 4px 10px; border-radius: 10px;
-  background: rgb(var(--field) / 0.06); box-shadow: inset 0 0 0 0.5px rgb(var(--line) / 0.12); }
-.ask:focus-within { box-shadow: 0 0 0 2px rgb(var(--accent) / 0.45); }
-.ask textarea { flex: 1; min-height: 22px; max-height: 96px; padding: 3px 0; border: 0; outline: none; resize: none;
-  font: inherit; color: rgb(var(--ink)); background: transparent; }
-.send { width: 26px; height: 26px; flex: none; border: 0; border-radius: 8px; cursor: pointer; color: #fff;
-  background: rgb(var(--accent)); display: inline-flex; align-items: center; justify-content: center; }
-.send:disabled { opacity: 0.4; cursor: default; }
+/* ── the selection: Eden's quote ── */
+.selection { margin: 0; padding: 9px 11px 9px 34px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; color: var(--text);
+  background: var(--i-quote) 11px 11px / 15px 15px no-repeat, rgb(var(--c-accent) / .1); box-shadow: inset 0 0 0 .5px rgb(var(--c-accent) / .3); cursor: pointer;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: clip; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow-clip-margin: content-box; /* three lines: the fourth never peeks into the padding (the mark is a background) */ }
+.selection.open { display: block; max-height: 9.5em; overflow: auto; cursor: auto; }
 
-.answer { max-height: 300px; overflow: auto; padding: 8px 10px; border-radius: 10px; background: rgb(var(--field) / 0.035);
-  -webkit-user-select: text; user-select: text; word-break: break-word; }
-.answer p { margin: 0 0 6px; white-space: pre-wrap; }
-.answer p:last-child, .answer ul:last-child, .answer ol:last-child, .answer pre:last-child { margin-bottom: 0; }
-.answer ul, .answer ol { margin: 0 0 6px; padding-left: 20px; }
-.answer code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0 3px; border-radius: 4px; background: rgb(var(--ink) / 0.07); }
-.answer pre { margin: 0 0 6px; padding: 6px 8px; border-radius: 6px; overflow: auto; background: rgb(var(--ink) / 0.06); }
-.answer pre code { padding: 0; background: none; }
-.answer .q { color: rgb(var(--muted)); font-size: 12px; margin-bottom: 4px; }
-.answer.busy::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 4px; border-radius: 50%;
-  background: rgb(var(--accent)); animation: blink 1s ease-in-out infinite; }
-@keyframes blink { 50% { opacity: 0.2; } }
-@media (prefers-reduced-motion: reduce) { .answer.busy::after { animation: none; } }
+/* ── the actions: no icons, larger type, rows that fill the width evenly (no label is ever cut) ── */
+.actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip, .pick { flex: 1 1 auto; min-width: max-content; min-height: 36px; border-radius: 999px; font-size: 14px; font-weight: 600; color: var(--text);
+  background: var(--glass2); box-shadow: inset 0 .5px 0 var(--rim), inset 0 0 0 .5px var(--hairline), 0 1px 3px rgba(0, 0, 0, .08); }
+.chip { display: inline-flex; align-items: center; justify-content: center; padding: 0 14px; white-space: nowrap; }
+.chip:hover, .pick:hover { background: rgb(var(--c-ink) / .1); }
+.chip[aria-pressed="true"], .pick:has(> .chip[aria-pressed="true"]) { color: #fff; background: linear-gradient(135deg, var(--bubble-a), var(--bubble-b));
+  box-shadow: 0 0 14px -2px rgb(var(--c-glow) / .7), inset 0 1px 0 rgb(255 255 255 / .2); }
+/* Translate and Change tone: the pill, and what it's into in a small pill of its own */
+.pick { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px 0 0; }
+.pick .chip { flex: 0 1 auto; min-width: 0; min-height: 36px; padding: 0 0 0 12px; background: none; box-shadow: none; color: inherit; }
+.pick .chip[aria-pressed="true"] { background: none; box-shadow: none; }
+.pick select { -webkit-appearance: none; appearance: none; field-sizing: content; height: 26px; max-width: 150px; padding: 0 22px 0 9px; border: 0; border-radius: 13px; cursor: pointer;
+  font-size: 12.5px; font-weight: 550; color: var(--text2); text-overflow: ellipsis;
+  background: rgb(var(--c-ink) / .07); }
+.pick select:hover { color: var(--text); }
+.pick:has(> .chip[aria-pressed="true"]) select { color: #fff; background-color: rgb(255 255 255 / .18); }
+.pick::after { content: ""; width: 9px; height: 9px; margin-left: -18px; margin-right: 9px; flex: none; pointer-events: none; opacity: .7;
+  background: currentColor; -webkit-mask: var(--i-chev) center / contain no-repeat; mask: var(--i-chev) center / contain no-repeat; }
+.pick select option { color: var(--text); background: var(--content); }
 
-.tools { display: flex; flex-wrap: wrap; gap: 6px; }
-.btn { height: 28px; padding: 0 11px; border: 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px;
-  color: rgb(var(--ink)); background: rgb(var(--ink) / 0.08); }
-.btn:hover { background: rgb(var(--ink) / 0.13); }
-.btn.primary { color: #fff; background: rgb(var(--accent)); font-weight: 600; }
-.btn.primary:hover { background: rgb(var(--accent) / 0.88); }
-.btn.stop { align-self: flex-start; }
-.note { margin: 0; font-size: 12px; color: rgb(var(--ink-2)); }
-.note.warn { color: rgb(214 110 0); }
-@media (prefers-color-scheme: dark) { .note.warn { color: rgb(255 170 70); } }
+/* ── the answer card (eden-ui.css .panel .out, with Eden's Markdown) ── */
+.answer { max-height: 320px; overflow: auto; padding: 12px 14px; border-radius: 16px; background: var(--glass2);
+  box-shadow: inset 0 .5px 0 var(--rim), inset 0 0 0 .5px var(--hairline);
+  font-size: 14.5px; line-height: 1.55; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.answer:focus { outline: none; }
+.answer > :first-child { margin-top: 0; }
+.answer > :last-child { margin-bottom: 0; }
+.answer p, .answer ul, .answer ol, .answer pre { margin: 0 0 9px; }
+.answer p { white-space: pre-wrap; }
+.answer ul, .answer ol { padding-left: 21px; }
+.answer li { margin: 3px 0; white-space: pre-wrap; }
+.answer strong { font-weight: 650; }
+.answer code { font-family: var(--mono); font-size: .86em; background: rgba(120, 120, 128, .14); padding: 1px 5px; border-radius: 5px; }
+.answer pre { background: rgba(120, 120, 128, .11); border-radius: 12px; padding: 10px 12px; overflow-x: auto; box-shadow: inset 0 0 0 .5px var(--hairline); }
+.answer pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; white-space: pre; display: block; }
+/* Eden thinking (three dots, before any words), then a dot that follows the words as they come */
+.answer.busy:empty::after, .answer.busy > :last-child::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 5px;
+  vertical-align: middle; border-radius: 50%; background: rgb(var(--c-accent)); animation: eden-blink 1s ease-in-out infinite; }
+.answer.busy:empty::after { margin: 7px 20px 6px 0; box-shadow: 10px 0 0 rgb(var(--c-accent) / .7), 20px 0 0 rgb(var(--c-accent) / .45); }
+@keyframes eden-blink { 50% { opacity: .3; } }
+
+/* ── Eden's row under an answer: the icons, then Copy and Replace (or Insert) ── */
+.tools { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-top: -2px; }
+.tools .iconbtn { width: 32px; height: 32px; }
+.tools .iconbtn svg.ic { width: 16px; height: 16px; }
+.tools .grow { flex: 1; min-width: 6px; }
+.tools .btn-ghost + .btn-primary { margin-left: 6px; }
+/* what an icon does, on hover or the keyboard: its own (translated) label */
+.tools .iconbtn::after { content: attr(aria-label); position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 4; padding: 4px 8px; border-radius: 7px;
+  font-size: 12px; font-weight: 500; line-height: 1.3; white-space: nowrap; color: var(--tip-ink); background: var(--tip);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18); opacity: 0; pointer-events: none; transition: opacity .12s; }
+.tools .iconbtn:hover::after { opacity: 1; transition-delay: .45s; }
+.tools .iconbtn:focus-visible::after { opacity: 1; }
+.btn-primary, .btn-ghost { min-height: 34px; border-radius: 17px; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+.btn-primary { padding: 0 16px; font-weight: 600; color: #fff; background: linear-gradient(135deg, var(--bubble-a), var(--bubble-b));
+  box-shadow: 0 6px 16px -6px rgba(11, 95, 191, .8), inset 0 1px 0 rgb(255 255 255 / .22); }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost { padding: 0 15px; font-weight: 550; color: var(--text); background: rgb(var(--c-ink) / .07); box-shadow: inset 0 0 0 .5px rgb(var(--c-ink) / .12); }
+.btn-ghost:hover { background: rgb(var(--c-ink) / .11); }
+
+.note { margin: -2px 4px 0; font-size: 12.5px; line-height: 1.45; color: var(--text2); }
+.note.warn { color: var(--warn); }
+
+/* ── Eden's composer: the orb, the question, Send (Stop while Eden answers) ── */
+.ask { display: flex; align-items: flex-end; gap: 6px; margin: 0; padding: 5px; border-radius: 22px; background: var(--glass2);
+  box-shadow: inset 0 0 0 .5px var(--hairline), 0 0 0 1px rgba(63, 184, 242, .35); }
+.ask:focus-within { box-shadow: inset 0 0 0 .5px var(--hairline), 0 0 0 1.5px rgba(63, 184, 242, .75), 0 0 20px -4px rgba(63, 184, 242, .6); }
+.ask .rorb { width: 32px; height: 32px; }
+.ask textarea { flex: 1; min-width: 0; min-height: 32px; max-height: 96px; padding: 6px 2px; border: 0; outline: none; resize: none;
+  font-size: 14px; line-height: 1.45; color: var(--text); background: transparent; }
+.ask textarea::placeholder { color: var(--placeholder); }
+.ask textarea:focus-visible { outline: none; }
+.send { width: 32px; height: 32px; border-radius: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: #fff;
+  background: linear-gradient(135deg, var(--bubble-a), var(--bubble-b)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 2px 8px -2px rgba(11, 95, 191, .7); }
+.send:hover { filter: brightness(1.08); }
+.send:disabled { opacity: .45; cursor: default; }
+.send.stop { color: var(--content); background: rgb(var(--c-ink)); box-shadow: none; }
+.ask:has(> #stop:not([hidden])) > #send { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media (forced-colors: active) {
+  .selection, .chip, .pick, .answer, .ask, .btn-ghost { border: 1px solid CanvasText; }
+  .pick::after { background: CanvasText; }
+}

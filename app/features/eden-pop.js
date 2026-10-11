@@ -208,11 +208,17 @@ function install(ctx) {
   const toPop = (channel, payload) => { if (alive()) win.webContents.send(channel, payload); };
 
   function create() {
+    // Eden's Glass on the Mac: the window is the system's own frosted material (vibrancy) and the
+    // page is a tint over it. 'active' keeps the glass while the panel isn't the key window (it
+    // mostly isn't: the app the text came from stays in front). Elsewhere: the app's own colour.
+    const glass = (ctx.platform || process.platform) === 'darwin';
     win = new BrowserWindow({
       ...SIZE, show: false, frame: false, resizable: false, movable: true, minimizable: false, maximizable: false,
       fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, hasShadow: true, title: 'Eden',
       type: 'panel', // macOS: a non-activating panel, so the app the text came from stays in front
-      backgroundColor: nativeTheme && nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f7f7f9',
+      ...(glass
+        ? { vibrancy: 'popover', visualEffectState: 'active', backgroundColor: '#00000000' }
+        : { backgroundColor: nativeTheme && nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f7f7f9' }),
       webPreferences: { preload: path.join(__dirname, '..', 'eden-pop-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
     });
     if (win.setAlwaysOnTop) win.setAlwaysOnTop(true, 'floating');
