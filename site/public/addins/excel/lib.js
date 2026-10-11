@@ -12,6 +12,8 @@
   const LIMITS = {
     cells: 5000, chars: 60000, cellChars: 2000, rows: 1000, instruction: 2000, history: 20, historyChars: 8000, cellAnswer: 32767,
     fillRows: 200, // SHEET.apps.excel.fillRows: one Fill request
+    fillTokens: 8000, // SHEET.apps.excel.fillTokens: one Fill answer (fillTokens() below, the server's formula)
+    fillColumns: 10, // Fill into an empty column: at most this many filled columns next to it are read and sent
     cleanTokens: 8000, // SHEET.apps.excel.cleanTokens: one Clean request (cleanTokens() below, the server's formula)
     partChars: 45000, // one part's cell text, leaving room for the instruction and history in SHEET.chars
     parts: 8, // at most this many requests for one Fill or Clean
@@ -152,36 +154,162 @@
 
   // ── cells ──
 
+  /** At most `max` characters, counted as the server counts them (code points): never half an emoji. */
   const cut = (text, max) => {
     const s = String(text ?? '');
-    return s.length > max ? s.slice(0, max) : s;
+    if (s.length <= max) return s;
+    let i = 0;
+    for (let n = 0; n < max && i < s.length; n++) i += s.codePointAt(i) > 0xffff ? 2 : 1;
+    return s.slice(0, i);
+  };
+  /** cut(), with a "…" when something was cut (the server marks its own cuts the same way, R2X8). */
+  const clip = (text, max) => {
+    const s = String(text ?? '');
+    return cut(s, max).length < s.length ? `${cut(s, max - 1)}…` : s;
+  };
+  /** Whether text is longer than `max` code points. */
+  const over = (s, max) => {
+    if (s.length <= max) return false;
+    let n = 0;
+    for (const _ of s) if (++n > max) return true;
+    return false;
   };
 
-  // A number shown as a plain number (maybe with a currency sign, separators, a percent sign).
-  const PLAIN_NUMBER = /^[\s(]*[-+]?[$€£¥]?\s?[\d\s,.'’]*\d[\d\s,.'’]*\s?[$€£¥%]?[)\s]*$/;
+  // ── numbers and dates (R2X4): a number goes as its value; only a date or a time goes as its shown text ──
+
+  /** Whether an Excel number format (range.numberFormat, always in English) shows a date or a time. */
+  function isDateFormat(format) {
+    const f = String(format ?? '')
+      .replace(/"[^"]*"/g, '') // "text"
+      .replace(/\\.|_.|\*./g, '') // \x, _x (a space as wide as x), *x (fill)
+      .replace(/\[(?![hms]+\])[^\]]*\]/gi, ''); // [Red], [$-409], [>100]; [h] [mm] [ss] (elapsed time) stay
+    if (/^\s*general\s*$/i.test(f)) return false;
+    return /[dmyhs]|am\/pm|a\/p/i.test(f);
+  }
+  // A date or a time as Excel might show it, when its number format isn't known.
+  const DATEISH = /\d\s*[/-]\s*\d|\d{1,2}\.\d{1,2}\.\d{2,4}|\d:\d\d|\d\s*[ap]\.?m\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|janv|févr|fevr|avr|mai|juin|juil|août|aout|déc)[a-zé]*\.?\b/i;
+
+  const EPOCH = Date.UTC(1899, 11, 30); // Excel's day 0 (1900 date system)
+  /** A date serial as ISO text ("2023-12-31 13:45", "13:45" for a time alone), for a date Excel shows as ####. */
+  function serialText(serial) {
+    const d = new Date(EPOCH + Math.round(serial * 86400) * 1000);
+    if (!Number.isFinite(d.getTime())) return String(serial);
+    const p = (n) => String(n).padStart(2, '0');
+    const time = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}${d.getUTCSeconds() ? `:${p(d.getUTCSeconds())}` : ''}`;
+    if (serial >= 0 && serial < 1) return time;
+    const day = `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+    return serial % 1 ? `${day} ${time}` : day;
+  }
 
   /**
-   * One cell as sent: Excel gives dates and times as serial numbers (45291), so a number shown as
-   * something else (a date, a time) goes as its shown text; empty → null; an error (a cell function's
-   * input) as its code ("#N/A"); text is capped.
+   * One cell as sent: a number as its value (never as rounded shown text: 1.2E+08, 1.2M, "-"), except a
+   * date or a time, which goes as it's shown (Excel holds them as serial numbers: 45291); a date shown as
+   * #### as ISO text. With no number format known, a shown text that looks like a date or a time decides.
+   * Empty → null; an error (a cell function's input) as its code ("#N/A"); text is capped with "…".
    */
-  function cellOf(value, text) {
+  function cellOf(value, text, format) {
     if (value === null || value === undefined || value === '') return null;
     if (typeof value === 'number') {
+      if (!Number.isFinite(value)) return String(value);
       const shown = typeof text === 'string' ? text.trim() : '';
-      if (shown && !/^#+$/.test(shown) && !PLAIN_NUMBER.test(shown)) return cut(shown, LIMITS.cellChars);
-      return Number.isFinite(value) ? value : String(value);
+      const hashes = /^#+$/.test(shown);
+      const dated = format !== undefined && format !== null ? isDateFormat(format) : Boolean(shown) && !hashes && DATEISH.test(shown);
+      if (!dated) return value;
+      return shown && !hashes ? clip(shown, LIMITS.cellChars) : serialText(value);
     }
     if (typeof value === 'boolean') return value;
     if (typeof value === 'object') return cut(String(value.code || value.errorType || value.message || '#ERROR'), 40);
-    return cut(value, LIMITS.cellChars);
+    return clip(value, LIMITS.cellChars);
   }
 
-  /** A grid of cells (values, and their shown text when Excel gave it). */
-  const gridOf = (values, text) => (values || []).map((row, r) => row.map((v, c) => cellOf(v, text && text[r] ? text[r][c] : undefined)));
+  const at2 = (grid, r, c) => (grid && grid[r] ? grid[r][c] : undefined);
+  /** A grid of cells (values, with their shown text and number formats when Excel gave them). */
+  const gridOf = (values, text, formats) => (values || []).map((row, r) => row.map((v, c) => cellOf(v, at2(text, r, c), formats ? at2(formats, r, c) ?? null : undefined)));
 
-  /** Each cell's kind as Excel holds it: number (dates too), boolean, text or empty. */
-  const kindsOf = (values) => (values || []).map((row) => row.map((v) => (typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean' : v === '' || v === null || v === undefined ? 'empty' : 'text')));
+  /** Each cell's kind as Excel holds it: number, date (a number shown as a date or a time), boolean, text or empty. */
+  const kindsOf = (values, formats) => (values || []).map((row, r) => row.map((v, c) => (typeof v === 'number' ? (formats && isDateFormat(at2(formats, r, c)) ? 'date' : 'number') : typeof v === 'boolean' ? 'boolean' : v === '' || v === null || v === undefined ? 'empty' : 'text')));
+
+  /** What a cell holds, to tell whether it changed: its formula when it has one (a recalculation isn't a change), else its value (R2X6). */
+  const rawOf = (values, formulas) => (values || []).map((row, r) => row.map((v, c) => {
+    const f = at2(formulas, r, c);
+    return typeof f === 'string' && f.startsWith('=') ? f : v ?? '';
+  }));
+
+  /** A number as Eden may write it ("1,234.5", "50%", "-3"), or null. Thousands separators only in English. */
+  function numberOf(text, { lang = 'en' } = {}) {
+    let s = String(text ?? '').trim();
+    let scale = 1;
+    if (/%$/.test(s)) {
+      s = s.slice(0, -1).trim();
+      scale = 0.01;
+    }
+    if (lang === 'en' && /^[-+]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');
+    if (!/^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(s)) return null;
+    const n = Number(s) * scale;
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /**
+   * A date or a time as Eden may write it, read the way the cell's format orders day and month: ISO
+   * ("2023-12-31", "2023-12-31 13:45"), "12/31/2023" or "31/12/2023", or a time ("13:45", "1:45 PM").
+   * → { day (serial), time (fraction of a day), seconds } with the parts it has, or null.
+   */
+  function dateOf(text, format) {
+    const s = String(text ?? '').trim();
+    const timeOf = (h, m, sec, ampm) => {
+      let hh = Number(h);
+      if (ampm) {
+        if (hh < 1 || hh > 12) return null;
+        hh = (hh % 12) + (/^p/i.test(ampm) ? 12 : 0);
+      }
+      if (hh > 23 || Number(m) > 59 || Number(sec || 0) > 59) return null;
+      return (hh * 3600 + Number(m) * 60 + Number(sec || 0)) / 86400;
+    };
+    const dayOf = (y, mo, d) => {
+      let year = Number(y);
+      if (String(y).length <= 2) year += year < 30 ? 2000 : 1900;
+      const ms = Date.UTC(year, Number(mo) - 1, Number(d));
+      const back = new Date(ms);
+      if (back.getUTCMonth() !== Number(mo) - 1 || back.getUTCDate() !== Number(d)) return null;
+      return Math.round((ms - EPOCH) / 864e5);
+    };
+    const T = '(?:[ T]+(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*([ap])?\\.?m?\\.?)?';
+    let m = new RegExp(`^(\\d{4})[-/.](\\d{1,2})[-/.](\\d{1,2})${T}$`, 'i').exec(s);
+    let day = null;
+    if (m) day = dayOf(m[1], m[2], m[3]);
+    else if ((m = new RegExp(`^(\\d{1,2})[/.-](\\d{1,2})[/.-](\\d{2}|\\d{4})${T}$`, 'i').exec(s))) {
+      const f = String(format ?? '').replace(/"[^"]*"/g, '').toLowerCase();
+      const dayFirst = f.indexOf('d') >= 0 && f.indexOf('d') < f.indexOf('m');
+      day = dayFirst ? dayOf(m[3], m[2], m[1]) : dayOf(m[3], m[1], m[2]);
+    } else if ((m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap])?\.?m?\.?$/i.exec(s))) {
+      const time = timeOf(m[1], m[2], m[3], m[4]);
+      return time === null ? null : { time, seconds: m[3] !== undefined };
+    } else return null;
+    if (day === null) return null;
+    if (m[4] === undefined) return { day };
+    const time = timeOf(m[4], m[5], m[6], m[7]);
+    return time === null ? null : { day, time, seconds: m[6] !== undefined };
+  }
+
+  /**
+   * Whether Eden's version of a date or number cell is the cell's own value (R2X4): a reformat, or a display
+   * rounding of the same day and time, or the same number re-spelled. Clean changes text; it never writes a
+   * date or a number cell, so anything else leaves the cell as it is.
+   */
+  function sameValue(raw, to, kind, format, lang) {
+    if (typeof raw !== 'number') return false;
+    const n = numberOf(to, { lang });
+    if (n !== null && Math.abs(n - raw) <= Math.abs(raw) * 1e-12) return true;
+    if (kind !== 'date') return false;
+    const got = dateOf(to, format);
+    if (!got) return false;
+    const day = Math.floor(raw);
+    const secs = Math.round((raw - day) * 86400);
+    const sameDay = got.day === undefined || got.day === day;
+    const sameTime = got.time === undefined || (got.seconds ? Math.round(got.time * 86400) === secs : Math.round(got.time * 1440) === Math.floor(secs / 60));
+    return sameDay && sameTime;
+  }
+
 
   /** Whether a cell's formula (Excel's .formulas) is a formula: it starts with "=". */
   const isFormula = (f) => typeof f === 'string' && f.startsWith('=');
@@ -192,7 +320,7 @@
     const out = (formulas || []).map((row) => row.map((f) => {
       if (isFormula(f)) {
         any = true;
-        return cut(f, LIMITS.cellChars);
+        return clip(f, LIMITS.cellChars);
       }
       return '';
     }));
@@ -211,7 +339,7 @@
     for (let r = 0; r < (values || []).length; r++) {
       for (let c = 0; c < values[r].length; c++) {
         const v = values[r][c];
-        if (typeof v === 'string' && (escaped ? asSent(v) : v).length > LIMITS.cellChars) return [r, c];
+        if (typeof v === 'string' && over(escaped ? asSent(v) : v, LIMITS.cellChars)) return [r, c];
       }
     }
     return null;
@@ -251,7 +379,7 @@
   function sheetBody({ action, instruction, sheet, active, history, t = EN }) {
     const how = ACTIONS[action];
     if (!how) return { error: 'Unknown action.' };
-    const words = cut(String(instruction || '').trim(), LIMITS.instruction);
+    const words = clip(String(instruction || '').trim(), LIMITS.instruction);
     if (action === 'fill' && !words) return { error: t('fillFirst') };
     if (how.instruction && !words) return { error: t('typeFirst') };
     const body = { action, app: 'excel' };
@@ -265,7 +393,7 @@
         const grid = sheet[key];
         if (!grid) continue;
         if (countOf(grid) > LIMITS.cells) return { error: t('tooManyCellsShort', { max: t.n(LIMITS.cells) }) };
-        out[key] = grid.map((row) => row.map((c) => (c === undefined ? null : typeof c === 'string' ? cut(c, LIMITS.cellChars) : c)));
+        out[key] = grid.map((row) => row.map((c) => (c === undefined ? null : typeof c === 'string' ? clip(c, LIMITS.cellChars) : c)));
         chars += charsOf(out[key]);
       }
       if (chars > LIMITS.chars) return { error: t('tooMuchText', { max: t.n(LIMITS.chars) }) };
@@ -276,13 +404,13 @@
     if (active && (active.address || active.formula || active.value !== undefined)) {
       body.active = {};
       if (active.address) body.active.address = cut(active.address, 200);
-      if (active.formula) body.active.formula = cut(active.formula, LIMITS.cellChars);
-      if (active.value !== undefined && active.value !== null && active.value !== '') body.active.value = cut(active.value, LIMITS.cellChars);
+      if (active.formula) body.active.formula = clip(active.formula, LIMITS.cellChars);
+      if (active.value !== undefined && active.value !== null && active.value !== '') body.active.value = clip(active.value, LIMITS.cellChars);
       chars += cellText(body.active.formula).length + cellText(body.active.value).length;
     }
     if (action === 'explain' && !(body.active && body.active.formula) && !(body.sheet && body.sheet.formulas)) return { error: t('selectFormula') };
     if (history && history.length) {
-      let turns = history.filter((x) => x && (x.role === 'user' || x.role === 'eden') && String(x.text || '').trim()).slice(-LIMITS.history).map((x) => ({ role: x.role, text: cut(x.text, LIMITS.historyChars) }));
+      let turns = history.filter((x) => x && (x.role === 'user' || x.role === 'eden') && String(x.text || '').trim()).slice(-LIMITS.history).map((x) => ({ role: x.role, text: clip(x.text, LIMITS.historyChars) }));
       // The newest turns that still fit the request's characters.
       let keep = turns.length;
       let room = LIMITS.chars - chars;
@@ -299,6 +427,10 @@
   const utf8 = (s) => new TextEncoder().encode(s).length;
   /** The server's clean budget (sheets.js cleanTokens): bytes ÷ 2.2, a token per cell, 200. */
   const tokensFor = (bytes, cells) => Math.ceil(bytes / 2.2) + cells + 200;
+  /** One row's share of the server's fill budget (sheets.js fillTokens): its longest cell's bytes × 1.6 ÷ 2.2, at least 35, and a line break. */
+  const fillRowTokens = (row) => Math.max(35, Math.ceil((row.reduce((m, c) => Math.max(m, utf8(cellText(c))), 0) * 1.6) / 2.2)) + 1;
+  /** The server's fill budget for these rows (sheets.js fillTokens): R2X2, sentence-length answers. */
+  const fillTokens = (rows) => rows.reduce((n, row) => n + fillRowTokens(row), 200);
   const cleanTokens = (rows) => {
     let bytes = 0;
     let cells = 0;
@@ -319,25 +451,30 @@
     let chars = 0;
     let bytes = 0;
     let cells = 0;
+    let tokens = 200;
     const rowSize = (r) => {
       const row = action === 'clean' ? values[r].map(asSent) : values[r];
       const f = formulas && formulas[r] ? charsOf([formulas[r]]) : 0;
-      return { chars: charsOf([row]) + f, bytes: row.reduce((n, c) => n + utf8(cellText(c)), 0), cells: Math.max(1, row.length) };
+      return { chars: charsOf([row]) + f, bytes: row.reduce((n, c) => n + utf8(cellText(c)), 0), cells: Math.max(1, row.length), tokens: action === 'fill' ? fillRowTokens(row) : 0 };
     };
-    const fits = (n, count) => n.chars <= LIMITS.partChars && (action === 'fill' ? count <= LIMITS.fillRows : tokensFor(n.bytes, n.cells) <= LIMITS.cleanTokens - 100);
+    // Fill: at most fillRows rows, 5,000 cells (a wide source next to an empty column) and the server's
+    // answer budget per part (R2X2: long answers like translations need more than a word a row).
+    const fits = (n, count) => n.chars <= LIMITS.partChars && (action === 'fill' ? count <= LIMITS.fillRows && n.cells <= LIMITS.cells && n.tokens <= LIMITS.fillTokens : tokensFor(n.bytes, n.cells) <= LIMITS.cleanTokens - 100);
     for (let r = 0; r < values.length; r++) {
       const s = rowSize(r);
-      if (!fits(s, 1)) return { error: t('rowTooBig', { row: r + 1, action: t(action).toLowerCase() }) };
-      if (r > start && !fits({ chars: chars + s.chars, bytes: bytes + s.bytes, cells: cells + s.cells }, r + 1 - start)) {
+      if (!fits({ ...s, tokens: 200 + s.tokens }, 1)) return { error: t('rowTooBig', { row: r + 1, action: t(action).toLowerCase() }) };
+      if (r > start && !fits({ chars: chars + s.chars, bytes: bytes + s.bytes, cells: cells + s.cells, tokens: tokens + s.tokens }, r + 1 - start)) {
         parts.push({ start, end: r });
         start = r;
         chars = 0;
         bytes = 0;
         cells = 0;
+        tokens = 200;
       }
       chars += s.chars;
       bytes += s.bytes;
       cells += s.cells;
+      tokens += s.tokens;
     }
     if (values.length > start) parts.push({ start, end: values.length });
     if (parts.length > LIMITS.parts) return { error: t('tooMuchAtOnce', { action: t(action).toLowerCase() }) };
@@ -353,13 +490,21 @@
   const asSent = (c) => (typeof c === 'string' && BREAKS.test(c) ? escapeCell(c) : c);
   const unescapeCell = (s) => String(s).replace(/\\(\\|n|t|u(?:0085|2028|2029))/g, (_, ch) => (ch === 'n' ? '\n' : ch === 't' ? '\t' : ch === '\\' ? '\\' : String.fromCharCode(parseInt(ch.slice(1), 16))));
 
-  /** The rows as a Clean sends them: { values, escaped } (escaped[r][c] true where the cell was escaped). */
+  // Which line break a cell used (\r\n from Windows or a CSV, a lone \r), so it comes back the same (R2X10).
+  const breakOf = (c) => (/\r\n/.test(c) && !/\r(?!\n)|(^|[^\r])\n/.test(c) ? '\r\n' : /\r/.test(c) && !/\n/.test(c) ? '\r' : '\n');
+
+  /** The rows as a Clean sends them: { values, escaped } (escaped[r][c]: false, or the line break the cell used). */
   function cleanSend(rows) {
-    return { values: rows.map((row) => row.map(asSent)), escaped: rows.map((row) => row.map((c) => typeof c === 'string' && BREAKS.test(c))) };
+    return { values: rows.map((row) => row.map(asSent)), escaped: rows.map((row) => row.map((c) => typeof c === 'string' && BREAKS.test(c) && breakOf(c))) };
   }
 
-  /** A Clean's rows back in cell form (escaped cells turned back). */
-  const cleanReceive = (rows, escaped) => rows.map((row, r) => row.map((c, k) => (escaped && escaped[r] && escaped[r][k] ? unescapeCell(c) : c)));
+  /** A Clean's rows back in cell form (escaped cells turned back, with the cell's own line breaks). */
+  const cleanReceive = (rows, escaped) => rows.map((row, r) => row.map((c, k) => {
+    const how = escaped && escaped[r] && escaped[r][k];
+    if (!how) return c;
+    const back = unescapeCell(c);
+    return how === '\n' ? back : back.replace(/\n/g, how);
+  }));
 
   // ── reading answers ──
 
@@ -423,18 +568,20 @@
   function cleanCheck(text, sent, t = EN) {
     let got = parseTsv(text, { keepBlank: true });
     const width = widthOf(sent);
-    if (got.length !== sent.length) {
-      // Line the blank edges up: trim both, then put back the sent blank rows.
+    let s0 = 0;
+    while (s0 < sent.length && blankRow(sent[s0])) s0++;
+    let s1 = sent.length;
+    while (s1 > s0 && blankRow(sent[s1 - 1])) s1--;
+    // Line the blank edges up when the counts differ, and always when blank rows were sent at an edge: an
+    // answer that drops a blank first row and ends with an extra blank line has the right count but would
+    // move every row up one (R2X12). Trim both, then put back the sent blank rows.
+    if (got.length !== sent.length || s0 > 0 || s1 < sent.length) {
       const blank = (row) => row.every((c) => c.trim() === '');
       let a = 0;
       while (a < got.length && blank(got[a])) a++;
       let b = got.length;
       while (b > a && blank(got[b - 1])) b--;
       const core = got.slice(a, b);
-      let s0 = 0;
-      while (s0 < sent.length && blankRow(sent[s0])) s0++;
-      let s1 = sent.length;
-      while (s1 > s0 && blankRow(sent[s1 - 1])) s1--;
       if (core.length !== s1 - s0) return { error: t('cleanRows', { n: core.length + s0 + (sent.length - s1), sent: sent.length }) };
       got = [...Array.from({ length: s0 }, () => ['']), ...core, ...Array.from({ length: sent.length - s1 }, () => [''])];
     }
@@ -457,22 +604,45 @@
   function sameCell(from, to, kind) {
     if (cellText(from) === to) return true;
     if (kind === 'boolean' || typeof from === 'boolean') return boolOf(to) === (from === true || String(from).toLowerCase() === 'true');
-    if (typeof from === 'number' && /^-?\d+(\.\d+)?$/.test(to.trim())) return Number(to) === from;
+    if (typeof from === 'number') return numberOf(to) === from;
     return false;
   }
 
+  const lineBreaks = (s) => (String(s).match(/\r\n|[\t\n\r\u0085\u2028\u2029]/g) || []).length;
+  const flat = (s) => String(s).replace(/\s+/g, ' ').trim();
+  const lf = (s) => String(s).replace(/\r\n?/g, '\n');
+
   /**
-   * The cells a clean would change: [{ r, c, from, to }], never one that holds a formula, and never
-   * one whose value didn't change (a trimmed space counts as a change; TRUE for true doesn't).
+   * The cells a clean would change: [{ r, c, from, to }], never one that holds a formula, and never one
+   * whose value didn't change (a trimmed space counts as a change; TRUE for true doesn't; Windows line
+   * breaks that came back plain don't, R2X10). Left as they are, and counted in the list's `kept`: a date or
+   * number cell (kinds) that Eden's version would change (R2X4: Clean never writes back a display rounding,
+   * nor any other value, into a date or a number), and a cell whose line breaks or tabs Eden dropped (R2X3;
+   * dropped and nothing else is simply no change). raw: the values as Excel holds them; formats: their formats.
    */
-  function cleanChanges(sent, cleaned, formulas, { kinds } = {}) {
+  function cleanChanges(sent, cleaned, formulas, { kinds, raw, formats, lang } = {}) {
     const out = [];
+    Object.defineProperty(out, 'kept', { value: 0, writable: true }); // not listed: the changes are the list
     for (let r = 0; r < sent.length; r++) {
       for (let c = 0; c < sent[r].length; c++) {
         if (formulas && isFormula(formulas[r]?.[c])) continue;
+        const from = sent[r][c];
         const to = cleaned[r][c] ?? '';
-        if (sameCell(sent[r][c], to, kinds && kinds[r] ? kinds[r][c] : undefined)) continue;
-        out.push({ r, c, from: cellText(sent[r][c]), to });
+        const kind = at2(kinds, r, c);
+        if (cellText(from) === to) continue;
+        if (kind === 'number' || kind === 'date') {
+          if (!sameValue(raw ? at2(raw, r, c) : from, to, kind, at2(formats, r, c), lang)) out.kept += 1;
+          continue;
+        }
+        if (sameCell(from, to, kind)) continue;
+        if (typeof from === 'string' && BREAKS.test(from)) {
+          if (lf(from) === lf(to) || (lineBreaks(to) < lineBreaks(from) && flat(from) === flat(to))) continue;
+          if (lineBreaks(to) < lineBreaks(from)) {
+            out.kept += 1;
+            continue;
+          }
+        }
+        out.push({ r, c, from: cellText(from), to });
       }
     }
     return out;
@@ -490,25 +660,45 @@
     return { rows: rows.map((r) => [...r, ...Array(width - r.length).fill('')]) };
   }
 
+  // Text Excel would read as something else if it were typed (R2X11): a number in another form ("007", "1 234",
+  // "$5", "1E5", 15+ digits), a fraction, a date or a time ("1-2", "3/4", "Mar 5", "12:30", "1 PM"), a
+  // percentage, TRUE/FALSE, an error, a formula. Ordinary text with a digit ("Building 5", "Q1 2024") isn't.
+  const NUMBERISH = /^\s*[-+(]?\s*[$€£¥]?\s*(\d[\d\s,.'’]*|\.\d+)([eE][-+]?\d+)?\s*[%$€£¥]?\s*\)?\s*$/;
+  const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|janv|févr|fevr|avr|mai|juin|juil|août|aout|déc)';
+  const DATELIKE = new RegExp(`\\d\\s*[/-]\\s*\\d|\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}|\\d:\\d\\d|^\\s*\\d{1,2}\\s*[ap]\\.?m\\.?\\s*$|\\b${MONTH}[a-zé]*\\.?[\\s,-]*\\d|\\d[\\s-]*${MONTH}`, 'i');
+  const rereads = (s) => /^[=+\-@\t\r]/.test(s) || boolOf(s) !== null || /^\s*#/.test(s) || NUMBERISH.test(s) || DATELIKE.test(s);
+  const zeros = (n) => (n ? `.${'0'.repeat(n)}` : '');
+  const digits15 = (s) => s.replace(/\D/g, '').replace(/^0+/, '').length <= 15;
+
   /**
-   * A value Eden wrote, as it goes into a cell: { v, asText }. asText: the cell gets the Text number
+   * A value Eden wrote, as it goes into a cell: { v, asText, format? }. asText: the cell gets the Text number
    * format ("@") first, so Excel keeps the text as written instead of reading it as a number, a date,
-   * a time, a percentage, TRUE/FALSE or an error ("007", "1-2", "5%", "TRUE", "#N/A"). Text Excel would
-   * read as a formula (=, +, -, @ at the start) also gets a leading apostrophe. kind: what the cell
-   * held (Clean) — text stays text; a number or date cell may be read by Excel; booleans stay booleans;
-   * 'auto' (Fill, a table, an empty cell): a plain number becomes a number, the rest stays text.
+   * a time, a percentage, TRUE/FALSE or an error ("007", "1-2", "3/4", "TRUE", "#N/A"); only such text
+   * gets it (R2X11). Text Excel would read as a formula (=, +, -, @ at the start) also gets a leading
+   * apostrophe. kind: what the cell held (Clean): text stays text; a number cell may be read by Excel;
+   * booleans stay booleans; 'auto' (Fill, a table, an empty cell): a number becomes a number, with a
+   * format that shows it as Eden wrote it ("1.50", "1,234" in English, "50%": R2X18), the rest stays text.
+   * format: for a cell whose format is General only.
    */
-  function cellWrite(text, kind = 'auto') {
+  function cellWrite(text, kind = 'auto', { lang = 'en' } = {}) {
     const s = String(text ?? '');
     if (s === '') return { v: '', asText: false };
-    const plain = /^-?(0|[1-9]\d*)(\.\d+)?$/.test(s) && s.replace(/[-.]/g, '').replace(/^0+/, '').length <= 15;
+    const plain = /^-?(0|[1-9]\d*)(\.(\d+))?$/.exec(s);
     const formulaLike = /^[=+\-@\t\r]/.test(s);
     if (kind === 'boolean' && boolOf(s) !== null) return { v: boolOf(s), asText: false };
-    if (kind !== 'text' && plain && Number.isFinite(Number(s))) return { v: Number(s), asText: false };
+    if (kind !== 'text' && plain && digits15(s) && Number.isFinite(Number(s))) {
+      const keep = kind === 'auto' && plain[3] && plain[3].endsWith('0') ? { format: `0${zeros(plain[3].length)}` } : {};
+      return { v: Number(s), asText: false, ...keep };
+    }
+    if (kind === 'auto' && digits15(s)) {
+      const pct = /^(-?(?:0|[1-9]\d*)(?:\.(\d+))?)%$/.exec(s);
+      if (pct) return { v: Number(pct[1]) / 100, asText: false, format: `0${zeros(pct[2] && pct[2].length)}%` };
+      const th = lang === 'en' && /^-?[1-9]\d{0,2}(?:,\d{3})+(?:\.(\d+))?$/.exec(s);
+      if (th) return { v: Number(s.replace(/,/g, '')), asText: false, format: `#,##0${zeros(th[1] && th[1].length)}` };
+    }
     if (kind === 'number') return { v: formulaLike || s.startsWith("'") ? `'${s}` : s, asText: false };
-    const parsable = /\d/.test(s) || boolOf(s) !== null || /^\s*#/.test(s) || formulaLike;
     if (s.startsWith("'")) return { v: `'${s}`, asText: false }; // Excel takes one leading apostrophe away
-    return { v: formulaLike ? `'${s}` : s, asText: parsable };
+    return { v: formulaLike ? `'${s}` : s, asText: rereads(s) };
   }
 
   // Functions and references that reach outside the workbook: the internet, other files, other programs.
@@ -520,8 +710,13 @@
     const bare = f.replace(/"(?:[^"]|"")*"/g, '""'); // string literals out
     const found = [];
     for (const name of REACH) if (new RegExp(`(^|[^A-Za-z0-9_.])(_xlfn\\.)?${name.replace('.', '\\.')}\\s*\\(`, 'i').test(bare)) found.push(name);
+    if (/(^|[^A-Za-z0-9_.])(_xlfn\.)?CUBE[A-Z]*\s*\(/i.test(bare)) found.push('CUBE'); // a data connection's server
     if (/\|/.test(bare)) found.push('DDE');
-    if (/\[[^\]]*\.(xl[a-z]{1,2}|csv|ods)\]|'(?:https?:|\\\\|[A-Za-z]:\\)/i.test(bare) || /(^|[^A-Za-z0-9_\]])\[\d+\][^!]*!/.test(bare)) found.push('external link');
+    // [Book.xlsx]Sheet!A1, 'C:\path\[x]S'!A1, [1]Sheet!A1, a defined name in another file (Budget.xlsx!Total),
+    // and INDIRECT built from text that names one (R2X17).
+    const external = /\[[^\]]*\.(xl[a-z]{1,2}|csv|ods)\]|'(?:https?:|\\\\|[A-Za-z]:\\)/i.test(bare) || /(^|[^A-Za-z0-9_\]])\[\d+\][^!]*!/.test(bare) || /(^|[^A-Za-z0-9_.])[\w.-]+\.(xl[a-z]{1,2}|csv|ods)!/i.test(bare);
+    const indirect = /(^|[^A-Za-z0-9_.])INDIRECT\s*\(/i.test(bare) && /"(?:[^"]|"")*(\[|:\\|\\\\|https?:|\.xl[a-z]{1,2}\b)(?:[^"]|"")*"/i.test(f);
+    if (external || indirect) found.push('external link');
     return found;
   }
 
@@ -572,11 +767,36 @@
     if (code === 'no_allowance' || status === 402) return { words: theirs || t('errPlan'), plan: true };
     if (code === 'slow_down' || status === 429) return { words: t('errBusy'), retry: true };
     if (code === 'cut_off') return { words: t('errCutOff') };
+    if (code === 'refused' || status === 422) return { words: t('errRefused') };
+    if (code === 'too_slow' || status === 504) return { words: t('errSlow'), retry: true };
     if (code === 'too_long' || status === 413) return { words: theirs || t('errTooLong') };
     if (code === 'not_set_up' || status === 503) return { words: t('errNotReady') };
     if (status === 0) return { words: t('errOffline'), retry: true };
     if (status === 403) return { words: theirs || t('errForbidden') };
     return { words: theirs || t('errGeneric'), retry: status >= 500 };
+  }
+
+  const TRAILER = '\u0000'; // starts a streamed answer's trailer (x-eden-trailer: 1; src/eden/ask.js)
+
+  /**
+   * How a streamed answer ended, from its trailer's text (after U+0000): { complete } (also a prose answer
+   * the server cut, which ends with its own note), { status, info } for an answer that can't be used
+   * (cut_off 413, refused 422: the question goes back with words), { timeout } (504) or { broken } (no
+   * trailer: the connection dropped; or Claude stopped, 502).
+   */
+  function trailerOf(tail) {
+    if (tail === null || tail === undefined) return { broken: true };
+    let end = null;
+    try {
+      end = JSON.parse(tail);
+    } catch {
+      return { broken: true };
+    }
+    if (!end || typeof end !== 'object') return { broken: true };
+    if (end.answer === 'complete' || end.answer === 'cut') return { complete: true };
+    if (end.code === 'too_slow' || end.status === 504) return { timeout: true };
+    if (end.code === 'cut_off' || end.code === 'refused' || end.status === 413 || end.status === 422) return { status: Number(end.status) || 422, info: { code: String(end.code || ''), error: String(end.error || '') } };
+    return { broken: true };
   }
 
   /** How long to wait after a 429: its Retry-After (seconds), else a growing wait, with jitter, at most 30 s. */
@@ -759,7 +979,7 @@
       phFill: 'What goes in each row? Then press Fill column.',
       phTable: 'What table do you want? Then press Make a table.',
       empty: 'Select cells, then ask a question or press a button.',
-      privacy: 'Nothing is sent until you press a button or use =EDEN.ASK. Then only: the selected cells (values, and formulas where needed), or, for Write a formula and Explain formula on one cell, that cell and the sheet’s header row with its first 5 rows; the sheet name and range; and what you type. askeden.com stores none of it.',
+      privacy: 'Nothing is sent until you press a button or use =EDEN.ASK. Then only: the selected cells (values, and formulas where needed), or, for Write a formula and Explain formula on one cell, that cell and the sheet’s header row with its first 5 rows, or, for Fill column into an empty column, the filled columns right next to it (at most 10, on the same rows); the sheet name and range; and what you type. askeden.com stores none of it.',
       copy: 'Copy',
       copied: 'Copied',
       again: 'Try again',
@@ -787,6 +1007,8 @@
       signInClosed: 'The sign-in window closed. Press Connect again.',
       connectUnfinished: 'Connecting didn’t finish. Press Connect again.',
       connectExpired: 'The sign-in took too long. Press Connect again.',
+      connectWaiting: 'Finish signing in in the window that opened; this pane will connect by itself.',
+      cancel: 'Cancel',
       cantRead: 'Excel couldn’t read the selection{why}. Try again.',
       cantWrite: 'Excel couldn’t write that{why}. Nothing more was changed.',
       partWritten: 'Excel stopped after {n} of {m} cells{why}. The first {n} were changed; the others weren’t.',
@@ -796,7 +1018,7 @@
       stoppedNothing: 'Stopped. Nothing was changed.',
       tryAgainShort: 'Try again.',
       tooSlow: 'Eden took too long to answer. Nothing was changed.',
-      brokeOff: 'The answer broke off (the connection dropped or the answer was too long). Nothing was changed.',
+      brokeOff: 'The answer broke off (the connection dropped, or Claude stopped). Nothing was changed.',
       answering: 'Eden is answering…',
       answered: 'Eden answered.',
       previewReady: 'Check the preview, then use the button under it to write it into the sheet.',
@@ -825,6 +1047,9 @@
       rowsChanged: 'The rows changed since Eden read them. Run Fill column again.',
       cellsChanged: 'The cells changed since Eden read them. Press Clean again.',
       valuesFor: '{n} values for {at}:',
+      fillFrom: 'From {at}.',
+      keptValues: 'Cells left as they are: {n} (a date or a number Eden would have changed, or line breaks it dropped).',
+      formulaTooLong: 'This formula is too long to explain (at most {n} characters).',
       cellsChange: 'Cells that change in {at}: {n}.',
       andMore: '…and {n} more',
       andMoreRows: '…and {n} more rows',
@@ -855,6 +1080,8 @@
       errPlan: 'No included AI is left on your Eden account.',
       errBusy: 'Eden is busy with your other asks. Wait a moment and try again.',
       errCutOff: 'The answer was too long and was cut off. Select less and try again.',
+      errRefused: 'Eden declined this request. Try asking another way.',
+      errSlow: 'Eden took too long. Select less and try again.',
       errTooLong: 'That’s too much to send at once. Select fewer cells.',
       errNotReady: 'Ask Eden isn’t ready on askeden.com yet. Try again later.',
       errOffline: 'Can’t reach askeden.com. Check your connection and try again.',
@@ -867,6 +1094,7 @@
       cfBroke: 'The answer broke off. Edit the cell (or press Ctrl+Alt+F9) to ask again.',
       cfSlow: 'Eden took too long. Edit the cell (or press Ctrl+Alt+F9) to ask again.',
       cfEmpty: 'Eden gave no answer. Try a clearer question.',
+      cfLong: 'Use a shorter question: at most {max} characters.',
       cfPlan: 'See your plan at askeden.com/account.',
       landingConnecting: 'Connecting Ask Eden…',
       landingWait: 'One moment…',
@@ -874,6 +1102,7 @@
       landingBack: 'You can close this window and go back to Excel.',
       landingNot: 'Not connected',
       landingAlmost: 'Almost there',
+      landingRelayed: 'Go back to Excel: Ask Eden connects by itself in a few seconds. You can close this window.',
       landingOpen: 'Go back to Excel. If Ask Eden doesn’t show Connected in a few seconds, press Connect there again. You can close this window.',
       landingBad: 'This sign-in link isn’t complete. In Excel, press Connect in Ask Eden again.',
     },
@@ -902,7 +1131,7 @@
       phFill: 'Que mettre dans chaque ligne ? Puis appuyez sur Remplir la colonne.',
       phTable: 'Quel tableau voulez-vous ? Puis appuyez sur Créer un tableau.',
       empty: 'Sélectionnez des cellules, puis posez une question ou appuyez sur un bouton.',
-      privacy: 'Rien n’est envoyé avant que vous appuyiez sur un bouton ou utilisiez =EDEN.ASK. Ensuite, seulement : les cellules sélectionnées (valeurs, et formules si nécessaire) ou, pour Écrire une formule et Expliquer la formule sur une seule cellule, cette cellule et la ligne d’en-tête de la feuille avec ses 5 premières lignes ; le nom de la feuille et la plage ; et ce que vous tapez. askeden.com n’en conserve rien.',
+      privacy: 'Rien n’est envoyé avant que vous appuyiez sur un bouton ou utilisiez =EDEN.ASK. Ensuite, seulement : les cellules sélectionnées (valeurs, et formules si nécessaire) ou, pour Écrire une formule et Expliquer la formule sur une seule cellule, cette cellule et la ligne d’en-tête de la feuille avec ses 5 premières lignes, ou, pour Remplir la colonne dans une colonne vide, les colonnes remplies juste à côté (10 au plus, sur les mêmes lignes) ; le nom de la feuille et la plage ; et ce que vous tapez. askeden.com n’en conserve rien.',
       copy: 'Copier',
       copied: 'Copié',
       again: 'Réessayer',
@@ -930,6 +1159,8 @@
       signInClosed: 'La fenêtre de connexion s’est fermée. Appuyez de nouveau sur Connecter.',
       connectUnfinished: 'La connexion n’a pas abouti. Appuyez de nouveau sur Connecter.',
       connectExpired: 'La connexion a pris trop de temps. Appuyez de nouveau sur Connecter.',
+      connectWaiting: 'Terminez la connexion dans la fenêtre qui s’est ouverte ; ce volet se connectera tout seul.',
+      cancel: 'Annuler',
       cantRead: 'Excel n’a pas pu lire la sélection{why}. Réessayez.',
       cantWrite: 'Excel n’a pas pu écrire cela{why}. Rien d’autre n’a été modifié.',
       partWritten: 'Excel s’est arrêté après {n} cellules sur {m}{why}. Les {n} premières ont été modifiées, pas les autres.',
@@ -939,7 +1170,7 @@
       stoppedNothing: 'Arrêté. Rien n’a été modifié.',
       tryAgainShort: 'Réessayez.',
       tooSlow: 'Eden a mis trop de temps à répondre. Rien n’a été modifié.',
-      brokeOff: 'La réponse s’est interrompue (connexion coupée ou réponse trop longue). Rien n’a été modifié.',
+      brokeOff: 'La réponse s’est interrompue (connexion coupée, ou Claude s’est arrêté). Rien n’a été modifié.',
       answering: 'Eden répond…',
       answered: 'Eden a répondu.',
       previewReady: 'Vérifiez l’aperçu, puis utilisez le bouton dessous pour l’écrire dans la feuille.',
@@ -968,6 +1199,9 @@
       rowsChanged: 'Les lignes ont changé depuis qu’Eden les a lues. Relancez Remplir la colonne.',
       cellsChanged: 'Les cellules ont changé depuis qu’Eden les a lues. Appuyez de nouveau sur Nettoyer.',
       valuesFor: '{n} valeurs pour {at} :',
+      fillFrom: 'D’après {at}.',
+      keptValues: 'Cellules laissées telles quelles : {n} (une date ou un nombre qu’Eden aurait modifié, ou des retours à la ligne supprimés).',
+      formulaTooLong: 'Cette formule est trop longue à expliquer (au plus {n} caractères).',
       cellsChange: 'Cellules modifiées dans {at} : {n}.',
       andMore: '…et {n} de plus',
       andMoreRows: '…et {n} lignes de plus',
@@ -998,6 +1232,8 @@
       errPlan: 'Il ne reste plus d’IA incluse sur votre compte Eden.',
       errBusy: 'Eden est occupé par vos autres demandes. Patientez un instant et réessayez.',
       errCutOff: 'La réponse était trop longue et a été coupée. Sélectionnez moins et réessayez.',
+      errRefused: 'Eden a décliné cette demande. Essayez de la formuler autrement.',
+      errSlow: 'Eden a mis trop de temps. Sélectionnez moins et réessayez.',
       errTooLong: 'C’est trop à envoyer en une fois. Sélectionnez moins de cellules.',
       errNotReady: 'Ask Eden n’est pas encore prêt sur askeden.com. Réessayez plus tard.',
       errOffline: 'Impossible de joindre askeden.com. Vérifiez votre connexion et réessayez.',
@@ -1010,6 +1246,7 @@
       cfBroke: 'La réponse s’est interrompue. Modifiez la cellule (ou appuyez sur Ctrl+Alt+F9) pour redemander.',
       cfSlow: 'Eden a mis trop de temps. Modifiez la cellule (ou appuyez sur Ctrl+Alt+F9) pour redemander.',
       cfEmpty: 'Eden n’a rien répondu. Essayez une question plus claire.',
+      cfLong: 'Posez une question plus courte : au plus {max} caractères.',
       cfPlan: 'Voyez votre forfait sur askeden.com/account.',
       landingConnecting: 'Connexion d’Ask Eden…',
       landingWait: 'Un instant…',
@@ -1017,6 +1254,7 @@
       landingBack: 'Vous pouvez fermer cette fenêtre et revenir à Excel.',
       landingNot: 'Non connecté',
       landingAlmost: 'Presque fini',
+      landingRelayed: 'Revenez à Excel : Ask Eden se connecte tout seul dans quelques secondes. Vous pouvez fermer cette fenêtre.',
       landingOpen: 'Revenez à Excel. Si Ask Eden n’affiche pas Connecté dans quelques secondes, appuyez de nouveau sur Connecter. Vous pouvez fermer cette fenêtre.',
       landingBad: 'Ce lien de connexion est incomplet. Dans Excel, appuyez de nouveau sur Connecter dans Ask Eden.',
     },
@@ -1037,11 +1275,11 @@
     SITE, CLIENT, CALLBACK, START, LIMITS, ACTIONS, TOKEN_KEY, CACHE_PREFIX, STRINGS,
     randomCode, challengeOf, redirectFor, connectUrl, dialogUrl, startTarget, readRedirect, tokenBody,
     readToken, saveToken, forgetToken,
-    cellOf, gridOf, kindsOf, isFormula, formulaGrid, hasData, widthOf, longCell, sizeProblem, fitRows, sheetBody,
-    cleanTokens, chunksFor, cleanSend, cleanReceive,
+    cellOf, gridOf, kindsOf, rawOf, isDateFormat, numberOf, dateOf, sameValue, isFormula, formulaGrid, hasData, widthOf, longCell, sizeProblem, fitRows, sheetBody,
+    cleanTokens, fillTokens, chunksFor, cleanSend, cleanReceive,
     unfence, formulaOf, linesOf, fillCheck, parseTsv, cleanCheck, cleanChanges, tableCheck, cellWrite, reachesOut,
     splitAddress, cellsOf, topLeftOf, cellName, rangeName,
-    errorWords, retryWait, sleep, hash, cacheKey, trimGrid, cacheGet, cachePut, cacheClear, cacheCount, cellAnswer, cellResult,
+    TRAILER, trailerOf, errorWords, retryWait, sleep, hash, cacheKey, trimGrid, cacheGet, cachePut, cacheClear, cacheCount, cellAnswer, cellResult,
     blocks, wordsFor,
   };
 })(globalThis);

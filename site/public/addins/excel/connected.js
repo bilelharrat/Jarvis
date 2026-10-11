@@ -29,7 +29,6 @@
 
   let relayed = false;
   let sent = false;
-  const done = () => say(failed ? t('landingNot') : t('landingConnected'), t('landingBack'));
 
   // The relay first (it works wherever the dialog runs), then messageParent.
   const relay = (async () => {
@@ -56,10 +55,13 @@
     return sent;
   };
 
+  // "Connected" only when Office handed the code to the pane. Relayed only (Excel on the web, the window cut
+  // off from the pane), the pane picks it up within seconds; this page can't know when, so it says that (R2X1).
   const settle = async () => {
     await relay;
-    if (sent || relayed) done();
-    else say(failed ? t('landingNot') : t('landingAlmost'), t('landingOpen'));
+    if (failed) say(t('landingNot'), t('landingBack'));
+    else if (sent) say(t('landingConnected'), t('landingBack'));
+    else say(t('landingAlmost'), relayed ? t('landingRelayed') : t('landingOpen'));
   };
 
   if (globalThis.Office && typeof Office.onReady === 'function') {

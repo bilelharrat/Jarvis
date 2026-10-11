@@ -96,7 +96,9 @@
         }
         try {
           // Buffered (x-eden-buffer): the whole answer once it's complete, or a JSON error (413 cut_off, 504 too_slow).
-          return { text: await res.text(), cut: res.headers.get('x-eden-answer') === 'cut' };
+          // Only a 200 that says it's Eden's complete answer counts: not a cut one, not a page a proxy or an
+          // old Worker served without the header (R2X9).
+          return { text: await res.text(), complete: res.headers.get('x-eden-answer') === 'complete' };
         } catch {
           // the stream errored: cut off, or the connection dropped (never a partial answer)
           return timedOut ? { timeout: true } : { broken: true };
@@ -109,7 +111,8 @@
 
   /**
    * The range as sent: its trailing empty rows and columns trimmed (A:A → the rows with data); dates
-   * as they're shown when Excel can say (the cell's address and its text), else as Excel's serials.
+   * as they're shown when Excel can say (the cell's address, its text and number format; other numbers as
+   * their values), else as Excel's serials.
    */
   async function rangeCells(grid, address) {
     if (!address || !root.Excel || typeof root.Excel.run !== 'function') return grid;
@@ -119,9 +122,9 @@
         const { sheet, cells } = X.splitAddress(address);
         const ws = sheet ? context.workbook.worksheets.getItem(sheet) : context.workbook.worksheets.getActiveWorksheet();
         const part = ws.getRange(cells).getCell(0, 0).getResizedRange(grid.length - 1, Math.max(1, X.widthOf(grid)) - 1);
-        part.load('values,text');
+        part.load('values,text,numberFormat');
         await context.sync();
-        return X.gridOf(part.values, part.text);
+        return X.gridOf(part.values, part.text, part.numberFormat);
       });
       // Excel busy calculating: don't hold the cell up; the values (dates as serials) will do.
       const late = new Promise((done) => (timer = setTimeout(done, timing.readMs, null)));
@@ -140,6 +143,7 @@
     const one = (value) => [[value]]; // the function's result is a 1 × 1 matrix (functions.json)
     const question = String(prompt ?? '').trim();
     if (!question) throw fail(t('cfType'), 'invalidValue');
+    if ([...question].length > X.LIMITS.instruction) throw fail(t('cfLong', { max: t.n(X.LIMITS.instruction) }), 'invalidValue'); // never cut silently (R2X8)
     const raw = Array.isArray(range) && range.length ? X.trimGrid(range.map((row) => (Array.isArray(row) ? row : [row]))) : null;
     const grid = raw && raw.length ? raw.map((row) => row.map((v) => X.cellOf(v))) : null;
     if (grid && grid.reduce((n, row) => n + row.length, 0) > X.LIMITS.cells) throw fail(t('cfTooBig', { max: t.n(X.LIMITS.cells) }), 'invalidValue');
@@ -184,9 +188,9 @@
         }
         throw fail(err.plan ? `${err.words} ${t('cfPlan')}` : err.words);
       }
+      if (!got.complete) throw fail(t('cfBroke')); // never a cut or foreign answer in a cell (nor saved)
       const answer = X.cellAnswer(got.text);
       if (!answer) throw fail(t('cfEmpty'));
-      if (got.cut) throw fail(t('cfBroke')); // never a cut answer in a cell
       memory.set(key, answer);
       X.cachePut(undefined, key, answer);
       return answer;

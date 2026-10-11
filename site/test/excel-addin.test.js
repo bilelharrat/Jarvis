@@ -10,6 +10,8 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import { challengeOf as serverChallenge } from '../src/accounts/scoped.js';
 import { parseSheet, SHEET, cleanTokens as serverCleanTokens } from '../src/eden/sheets.js';
+import * as serverSheets from '../src/eden/sheets.js';
+import * as serverAsk from '../src/eden/ask.js';
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'addins', 'excel');
 const read = (name) => readFileSync(join(DIR, name), 'utf8');
@@ -85,10 +87,33 @@ test('connect on Excel on the web: the landing page relays the code, the pane po
   assert.match(landing, /fetch\('\/api\/eden\/relay', \{ method: 'POST', headers: \{ 'content-type': 'application\/json' \}, body: JSON\.stringify\(\{ state, code \}\) \}\)/);
   assert.match(landing, /try \{\s*ui\.messageParent/, 'messageParent can throw: caught (R1X29)');
   const pane = read('taskpane.js');
-  assert.match(pane, /fetch\('\/api\/eden\/relay\/take', \{ method: 'POST', headers: \{ 'content-type': 'application\/json' \}, body: JSON\.stringify\(\{ state: mine\.state \}\) \}\)/);
-  assert.match(pane, /setTimeout\(poll, 1500\)/, 'about every 1.5 s while the dialog is open');
+  assert.match(pane, /fetch\('\/api\/eden\/relay\/take', \{ method: 'POST', headers: \{ 'content-type': 'application\/json' \}, body: JSON\.stringify\(\{ state \}\) \}\)/);
+  assert.match(pane, /const code = await take\(mine\.state\)/);
+  assert.match(pane, /pollMs: 1500/, 'about every 1.5 s while the dialog is open');
   assert.match(pane, /12007 \? t\('finishSignIn'\)/, 'a second Connect while one is open (R1X44)');
   assert.match(pane, /12002 \|\| arg\.error === 12003 \? t\('cantLoadSignIn'\)/, 'a page that didn’t load isn’t "closed" (R1X29)');
+});
+
+test('connect: a window closed or cut off (12006) doesn’t end it; the pane waits for the relay, with Cancel (R2X1, R2X14)', () => {
+  const pane = read('taskpane.js');
+  const start = pane.slice(pane.indexOf('function startConnect('), pane.indexOf('async function redeem('));
+  // 12006: the attempt goes on; the relay is polled, more slowly, for 5 minutes, and the pane says so.
+  assert.match(start, /if \(arg\.error === 12006\) \{[\s\S]*?job\.waiting = true;[\s\S]*?job\.until = Date\.now\(\) \+ connectTiming\.waitMs;[\s\S]*?connectNote\(t\('connectWaiting'\)\)[\s\S]*?return;/);
+  assert.match(pane, /waitMs: 5 \* 60_000/);
+  assert.match(start, /job\.delay = Math\.min\(connectTiming\.maxPollMs, Math\.round\(job\.delay \* 1\.3\)\)/, 'backing off while waiting');
+  assert.doesNotMatch(start, /12006 \? t\('cancelled'\)/, '12006 is no longer "cancelled"');
+  // Connect again while waiting: the same attempt (same state and verifier), a new window; while a window is open: finish it.
+  assert.match(start, /if \(connecting\) \{\s*if \(connecting\.dialog\) return connectNote\(t\('finishSignIn'\), 'warn'\);\s*return openDialog\(connecting, ui\);/);
+  // A code that comes after the attempt ran out of time still connects on the next Connect.
+  assert.match(start, /job\.end\(t\('connectExpired'\), 'warn', \{ keep: true \}\)/);
+  assert.match(start, /const old = await take\(job\.earlier\.state\);\s*if \(old\) return job\.got\(old, job\.earlier\.verifier\);/);
+  // Cancel is there while connecting (a Cancel on the consent page can't reach the pane on the web).
+  assert.match(pane, /button\('link', t\('cancel'\), \(\) => job\.end\(t\('cancelled'\), ''\)\)/);
+  for (const lang of ['en', 'fr']) for (const key of ['connectWaiting', 'cancel', 'landingRelayed']) assert.ok(X.STRINGS[lang][key], `${lang}.${key}`);
+  assert.equal(X.STRINGS.en.connectWaiting, 'Finish signing in in the window that opened; this pane will connect by itself.');
+  // The landing page says Connected only when Office handed the code over; relayed only, "go back to Excel".
+  const landing = read('connected.js');
+  assert.match(landing, /else if \(sent\) say\(t\('landingConnected'\), t\('landingBack'\)\);\s*else say\(t\('landingAlmost'\), relayed \? t\('landingRelayed'\) : t\('landingOpen'\)\);/);
 });
 
 test('the token: saved with its expiry, read back, forgotten', () => {
@@ -256,7 +281,7 @@ test('reading answers: one formula, one line per row, a same-shape clean, a tabl
   const cells = [['Notes'], ['line one\nline two'], ['a\tb'], ['C:\\new'], ['x\u2028y']];
   const out = X.cleanSend(cells);
   assert.deepEqual(out.values, [['Notes'], ['line one\\nline two'], ['a\\tb'], ['C:\\new'], ['x\\u2028y']]);
-  assert.deepEqual(out.escaped.map((r) => r[0]), [false, true, true, false, true]);
+  assert.deepEqual(out.escaped.map((r) => r[0]), [false, '\n', '\n', false, '\n']);
   assert.ok(out.values.every((r) => !/[\t\n\r\u0085\u2028\u2029]/.test(r[0])), 'nothing the server would flatten');
   const echo = out.values.map((r) => r.join('\t')).join('\n');
   const back = X.cleanReceive(X.cleanCheck(echo, out.values).rows, out.escaped);
@@ -288,8 +313,21 @@ test('writing back: model text never becomes a formula, and text Excel would cha
   assert.deepEqual(w('42'), { v: 42, asText: false });
   assert.deepEqual(w('0.5'), { v: 0.5, asText: false });
   // What Excel would read as something else stays the text Eden wrote (the cell gets "@" first).
-  for (const s of ['007', '02134', '12345678901234567', '1-2', '3/4', '1/2', 'MARCH1', '5%', '1e400', '1E5', '12:30', '$1,200', '#N/A', 'TRUE', 'faux']) assert.deepEqual(w(s), { v: s, asText: true }, s);
+  for (const s of ['007', '02134', '12345678901234567', '1-2', '3/4', '1/2', 'MARCH1', '1e400', '1E5', '12:30', '$1,200', '#N/A', 'TRUE', 'faux', '1 1/2', '5 Mar', 'Jan-24', '10 AM', '1 234', '31.12.2023', '12,5%']) assert.deepEqual(w(s), { v: s, asText: true }, s);
   assert.deepEqual(w('France'), { v: 'France', asText: false });
+  // Only text Excel would re-read gets "@": ordinary text with a digit stays General, so a formula typed there later works (R2X11).
+  for (const s of ['Building 5', 'Q1 2024', 'Paris 75', 'Route 66 West', 'Decision', 'May']) assert.deepEqual(w(s), { v: s, asText: false }, s);
+  // Numbers as Eden wrote them (R2X18): trailing zeros and English thousands keep their look; a percentage is a number.
+  assert.deepEqual(w('1.50'), { v: 1.5, asText: false, format: '0.00' });
+  assert.deepEqual(w('3.0'), { v: 3, asText: false, format: '0.0' });
+  assert.deepEqual(w('1.25'), { v: 1.25, asText: false });
+  assert.deepEqual(w('1,234'), { v: 1234, asText: false, format: '#,##0' });
+  assert.deepEqual(w('-1,234,567.5'), { v: -1234567.5, asText: false, format: '#,##0.0' });
+  assert.deepEqual(X.cellWrite('1,234', 'auto', { lang: 'fr' }), { v: '1,234', asText: true }, 'in French 1,234 is a decimal: kept as written');
+  assert.deepEqual(w('50%'), { v: 0.5, asText: false, format: '0%' });
+  assert.deepEqual(w('12.5%'), { v: 0.125, asText: false, format: '0.0%' });
+  assert.deepEqual(w('1,234', 'text'), { v: '1,234', asText: true }, 'Clean keeps a text cell text');
+  assert.deepEqual(w('1.50', 'number'), { v: 1.5, asText: false }, 'a number cell keeps its own format');
   assert.deepEqual(w(''), { v: '', asText: false });
   assert.deepEqual(w("'quoted'"), { v: "''quoted'", asText: false }, 'Excel takes one leading apostrophe away');
   // Clean keeps each cell's kind: a text cell stays text, a number cell may be read, a boolean stays one.
@@ -397,6 +435,188 @@ test('light Markdown as blocks, never HTML', () => {
   for (const [, key] of html.matchAll(/data-i18n(?:-[a-z]+)?="([A-Za-z]+)"/g)) assert.ok(X.STRINGS.fr[key], `taskpane.html: ${key}`);
 });
 
+test('numbers go as their value, dates as shown; Clean never writes back a display rounding (R2X4)', () => {
+  // With the number format: only a date or a time goes as shown text.
+  assert.equal(X.cellOf(123456789, '1.2E+08', 'General'), 123456789);
+  assert.equal(X.cellOf(1234567, '1.2M', '0.0,,"M"'), 1234567);
+  assert.equal(X.cellOf(1234567, '1,235K', '#,##0,"K"'), 1234567);
+  assert.equal(X.cellOf(0.5, '1/2', '# ?/?'), 0.5);
+  assert.equal(X.cellOf(0, '-', '_($* #,##0_);_($* (#,##0);_($* "-"??_);_(@_)'), 0);
+  assert.equal(X.cellOf(45291.5729, '12/31/2023', 'm/d/yyyy'), '12/31/2023');
+  assert.equal(X.cellOf(0.5, '12:00 PM', 'h:mm AM/PM'), '12:00 PM');
+  assert.equal(X.cellOf(45291.75, '########', 'dd/mm/yyyy hh:mm'), '2023-12-31 18:00', 'a date shown as #### goes as ISO text');
+  assert.equal(X.cellOf(45291, '########', '[$-409]d-mmm-yy;@'), '2023-12-31');
+  assert.equal(X.cellOf(12, '########', 'General'), 12);
+  assert.equal(X.cellOf(1.5, '36:00', '[h]:mm'), '36:00');
+  assert.equal(X.cellOf(0.25, '25%', '0%'), 0.25);
+  assert.equal(X.cellOf(3, '3', '"Red" 0'), 3, 'quoted text in a format isn’t a date part');
+  // Without one (a cell function's quick read), a shown date still decides; a rounded number doesn't.
+  assert.equal(X.cellOf(123456789, '1.2E+08'), 123456789);
+  assert.equal(X.cellOf(1234567, '1.2M'), 1234567);
+  assert.equal(X.cellOf(45291, '31.12.2023'), '31.12.2023');
+  assert.deepEqual(X.gridOf([[123456789, 45291]], [['1.2E+08', '12/31/2023']], [['General', 'm/d/yyyy']]), [[123456789, '12/31/2023']]);
+  assert.deepEqual(X.kindsOf([[1, 45291, 'a', true, '']], [['General', 'mmm d', '@', 'General', 'General']]), [['number', 'date', 'text', 'boolean', 'empty']]);
+  assert.deepEqual(X.rawOf([[0.42, 'paris', 45291]], [['=RAND()', 'paris', 45291]]), [['=RAND()', 'paris', 45291]]);
+
+  // Reading Eden's text back.
+  assert.equal(X.numberOf('1,234,567'), 1234567);
+  assert.equal(X.numberOf('1,234', { lang: 'fr' }), null);
+  assert.equal(X.numberOf('50%'), 0.5);
+  assert.equal(X.numberOf('1.2E+08'), 120000000);
+  assert.equal(X.numberOf('n/a'), null);
+  assert.deepEqual(X.dateOf('2023-12-31'), { day: 45291 });
+  assert.deepEqual(X.dateOf('2023-12-31 13:45'), { day: 45291, time: (13 * 60 + 45) / 1440, seconds: false });
+  assert.deepEqual(X.dateOf('12/31/2023', 'm/d/yyyy'), { day: 45291 });
+  assert.deepEqual(X.dateOf('31/12/2023', 'dd/mm/yyyy'), { day: 45291 });
+  assert.equal(X.dateOf('31/12/2023', 'm/d/yyyy'), null, 'no 31st month');
+  assert.deepEqual(X.dateOf('1:45 PM'), { time: (13 * 60 + 45) / 1440, seconds: false });
+  assert.equal(X.dateOf('Dec 31'), null);
+
+  // Clean (BREAK N03): the sent cells are the values (and the date as shown); Eden's version is compared by value.
+  const values = [[45291.5729166667, 1234567, 0, 99]];
+  const formats = [['m/d/yyyy', '0.0,,"M"', '_(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)', 'General']];
+  const kinds = X.kindsOf(values, formats);
+  const sent = X.gridOf(values, [['12/31/2023', '1.2M', '-', '99']], formats);
+  assert.deepEqual(sent, [['12/31/2023', 1234567, 0, 99]]);
+  const opts = { kinds, raw: values, formats };
+  // A reformat or a display rounding of the same day, or the number re-spelled: no change, nothing written.
+  assert.deepEqual(X.cleanChanges(sent, [['2023-12-31', '1,234,567', '0', '99.0']], null, opts), []);
+  // Another value (a rounding, another day, text, a blank): never written; the cell is left as it is, and counted.
+  for (const answer of [['2024-01-02', '1200000', '', '98'], ['soon', '1.2M', 'zero', 'n/a']]) {
+    const kept = X.cleanChanges(sent, [answer], null, opts);
+    assert.deepEqual(kept, [], answer.join());
+    assert.equal(kept.kept, 4);
+  }
+  // A date-time shown with its time: the same minute, however written, is the same; another minute is left alone.
+  const dt = [[45291.5729166667]];
+  const dtOpts = { kinds: [['date']], raw: dt, formats: [['yyyy-mm-dd hh:mm']] };
+  assert.deepEqual(X.cleanChanges([['2023-12-31 13:45']], [['2023-12-31 13:45']], null, dtOpts), []);
+  assert.equal(X.cleanChanges([['2023-12-31 13:45']], [['2023/12/31 13:45']], null, dtOpts).kept, 0);
+  assert.equal(X.cleanChanges([['2023-12-31 13:45']], [['2023-12-31 14:00']], null, dtOpts).kept, 1);
+  assert.equal(X.sameValue(45291.5729166667, '2023-12-31', 'date', 'm/d/yyyy'), true, 'a date-only view of a date-time is the same day');
+  assert.equal(X.sameValue(1234567, '1234567.0', 'number'), true);
+  // Text cells still clean as before; booleans by meaning.
+  assert.deepEqual(X.cleanChanges([['paris ', true]], [['Paris', 'TRUE']], null, { kinds: [['text', 'boolean']] }), [{ r: 0, c: 0, from: 'paris ', to: 'Paris' }]);
+});
+
+test('Clean keeps line breaks and rows where they were (R2X3, R2X10, R2X12)', () => {
+  // A multi-line cell whose only change is flattened line breaks or tabs isn't changed (R2X3).
+  const cells = [['line one\nline two'], ['a\tb'], ['x\n y']];
+  assert.deepEqual(X.cleanChanges(cells, [['line one line two'], ['a b'], ['x\ny']]), [{ r: 2, c: 0, from: 'x\n y', to: 'x\ny' }]);
+  // BREAK N04: dropped line breaks plus another edit: the cell is left as it is (never flattened), and counted.
+  const n04 = X.cleanChanges(cells, [['Line one line two'], ['a\tb'], ['x\n y']]);
+  assert.deepEqual(n04, []);
+  assert.equal(n04.kept, 1);
+  assert.deepEqual(X.cleanChanges(cells, [['Line one\nline two'], ['a\tb'], ['x\n y']]), [{ r: 0, c: 0, from: 'line one\nline two', to: 'Line one\nline two' }]);
+  // CRLF and lone CR cells come back with their own line breaks: an exact echo changes nothing (R2X10).
+  const win = [['Note'], ['first\r\nsecond'], ['old\rmac'], ['mixed\r\nand\nlf']];
+  const out = X.cleanSend(win);
+  assert.deepEqual(out.escaped.map((r) => r[0]), [false, '\r\n', '\r', '\n']);
+  const echo = out.values.map((r) => r.join('\t')).join('\n');
+  const back = X.cleanReceive(X.cleanCheck(echo, out.values).rows, out.escaped);
+  assert.deepEqual(back, [['Note'], ['first\r\nsecond'], ['old\rmac'], ['mixed\nand\nlf']]);
+  assert.deepEqual(X.cleanChanges(win, back), [], 'BREAK N09: an exact echo changes nothing');
+  const fixed = X.cleanReceive(X.cleanCheck('Note\nFirst\\nsecond\nold\\nmac\nmixed\\nand\\nlf', out.values).rows, out.escaped);
+  assert.equal(fixed[1][0], 'First\r\nsecond');
+  // BREAK N06: blank first row sent; the answer drops it and ends with a blank line: same count, no shift (R2X12).
+  const sentRows = [[null], ['paris'], ['lyon']];
+  assert.deepEqual(X.cleanCheck('Paris\nLyon\n\n', sentRows).rows, [[''], ['Paris'], ['Lyon']]);
+  assert.deepEqual(X.cleanCheck('\nParis\nLyon', sentRows).rows, [[''], ['Paris'], ['Lyon']]);
+  assert.deepEqual(X.cleanCheck('Paris\nLyon', sentRows).rows, [[''], ['Paris'], ['Lyon']]);
+  assert.match(X.cleanCheck('Paris\n\nLyon\n', sentRows).error, /rows for 3/, 'a blank row inside the core doesn’t line up');
+  const tail = [['paris'], ['lyon'], [null]];
+  assert.deepEqual(X.cleanCheck('\nParis\nLyon', tail).rows, [['Paris'], ['Lyon'], ['']]);
+});
+
+test('Fill in parts sized by the server’s answer budget and 5,000 cells (R2X2, R2X5)', () => {
+  assert.equal(X.LIMITS.fillTokens, SHEET.apps.excel.fillTokens);
+  assert.equal(typeof serverSheets.fillTokens, 'function', 'the server’s fill budget (sheets.js fillTokens)');
+  const desc = (i) => `Product ${i}: a hand-made ceramic mug with a speckled glaze, holds 350 ml, dishwasher safe, made in Portugal.`;
+  const rows = Array.from({ length: 200 }, (_, i) => [desc(i), i % 2 ? 'é 中文 ✓' : null]);
+  assert.equal(X.fillTokens(rows), serverSheets.fillTokens(rows.map((r) => r.map((c) => (c === null ? '' : String(c))))), 'the same formula as the server');
+  // Short cells (categories): one part of 200 rows; sentence-length cells: smaller parts, each within the budget.
+  assert.deepEqual(X.chunksFor('fill', Array.from({ length: 200 }, (_, i) => [`city ${i}`]), null).map((p) => p.end - p.start), [200]);
+  const parts = X.chunksFor('fill', rows, null);
+  assert.ok(parts.length > 1 && parts.length <= X.LIMITS.parts, `parts: ${parts.length}`);
+  for (const p of parts) {
+    const part = rows.slice(p.start, p.end);
+    assert.ok(X.fillTokens(part) <= SHEET.apps.excel.fillTokens, `part ${p.start}: ${X.fillTokens(part)}`);
+    const { body } = X.sheetBody({ action: 'fill', instruction: 'in French', sheet: { range: X.rangeName({ col: 0, row: 1 }, p.start, p.end - p.start, 2), values: part } });
+    assert.doesNotThrow(() => parseSheet(body));
+  }
+  // A wide source next to an empty column: parts of at most 5,000 cells (BREAK N01: 200 rows × 30 columns).
+  const wide = Array.from({ length: 200 }, (_, r) => Array.from({ length: 30 }, (_, c) => `v${r}x${c}`));
+  const wp = X.chunksFor('fill', wide, null);
+  assert.ok(wp.every((p) => (p.end - p.start) * 30 <= X.LIMITS.cells), JSON.stringify(wp));
+  assert.equal(wp.at(-1).end, 200);
+  // The privacy line says what Fill into an empty column sends, in both languages.
+  assert.match(X.STRINGS.en.privacy, /Fill column into an empty column, the filled columns right next to it \(at most 10, on the same rows\)/);
+  assert.match(X.STRINGS.fr.privacy, /Remplir la colonne dans une colonne vide, les colonnes remplies juste à côté \(10 au plus/);
+  assert.equal(X.LIMITS.fillColumns, 10);
+});
+
+test('cuts: never half an emoji, counted as the server counts, marked with "…" (R2X7, R2X8)', () => {
+  const cell = X.cellOf(`${'a'.repeat(1999)}😀b`);
+  assert.ok(!/[\ud800-\udbff]$/.test(cell.replace(/…$/, '')), 'no lone surrogate');
+  assert.ok(cell.endsWith('…'));
+  assert.equal([...cell].length, 2000);
+  assert.equal(X.cellOf('😀'.repeat(1500)), '😀'.repeat(1500), '1,500 emoji are 1,500 characters to the server');
+  assert.equal(X.longCell([['😀'.repeat(1500)]]), null, 'Fill takes what the server takes');
+  assert.deepEqual(X.longCell([['😀'.repeat(2001)]]), [0, 0]);
+  const history = X.sheetBody({ action: 'ask', instruction: 'q', history: [{ role: 'user', text: `${'h'.repeat(7999)}😀😀` }] }).body.history[0].text;
+  assert.ok(!/[\ud800-\udbff]…$/.test(history) && history.endsWith('…'));
+  assert.equal(X.sheetBody({ action: 'ask', instruction: 'x'.repeat(2500) }).body.instruction.at(-1), '…');
+  assert.ok(X.STRINGS.en.formulaTooLong && X.STRINGS.fr.formulaTooLong && X.STRINGS.fr.cfLong);
+  const pane = read('taskpane.js');
+  assert.match(pane, /if \(active\.formula && active\.formula\.length > X\.LIMITS\.cellChars\) return \{ error: t\('formulaTooLong'/, 'Explain refuses half a formula');
+});
+
+test('a streamed answer’s trailer: cut off, refused and dropped each get their own words (R2X13)', () => {
+  assert.equal(X.TRAILER, serverAsk.TRAILER);
+  assert.deepEqual(X.trailerOf('{"answer":"complete"}'), { complete: true });
+  assert.deepEqual(X.trailerOf('{"answer":"cut"}'), { complete: true });
+  assert.deepEqual(X.trailerOf(null), { broken: true }, 'no trailer: the connection dropped');
+  assert.deepEqual(X.trailerOf('{"answ'), { broken: true });
+  assert.deepEqual(X.trailerOf('{"status":502,"code":"upstream","error":"Claude stopped answering."}'), { broken: true });
+  assert.deepEqual(X.trailerOf('{"status":504,"code":"too_slow","error":"x"}'), { timeout: true });
+  const cut = X.trailerOf('{"status":413,"code":"cut_off","error":"The answer was too long."}');
+  assert.equal(cut.status, 413);
+  assert.match(X.errorWords(cut.status, cut.info.code, cut.info.error).words, /too long and was cut off/);
+  const no = X.trailerOf('{"status":422,"code":"refused","error":"Eden declined this request. Try asking another way."}');
+  assert.match(X.errorWords(no.status, no.info.code, no.info.error).words, /declined/);
+  assert.match(X.errorWords(no.status, no.info.code, no.info.error, X.wordsFor('fr')).words, /décliné/);
+  const pane = read('taskpane.js');
+  assert.match(pane, /'x-eden-trailer': '1'/);
+  assert.match(pane, /const trailed = res\.headers\.get\('x-eden-trailer'\) === '1';/);
+  assert.doesNotMatch(X.STRINGS.en.brokeOff, /too long/, 'a break is a break now');
+});
+
+test('formulas that reach outside the workbook: external names, INDIRECT to a file, CUBE (R2X17)', () => {
+  assert.deepEqual(X.reachesOut('=Budget.xlsx!Total'), ['external link']);
+  assert.deepEqual(X.reachesOut('=INDIRECT("[other.xlsx]Sheet1!A1")'), ['external link']);
+  assert.deepEqual(X.reachesOut('=INDIRECT("\'C:\\\\data\\\\[x.xlsx]S\'!A1")'), ['external link']);
+  assert.deepEqual(X.reachesOut('=CUBEVALUE("Sales","[Measures].[Total]")'), ['CUBE']);
+  assert.deepEqual(X.reachesOut('=_xlfn.CUBEMEMBER("Sales","[Date]")'), ['CUBE']);
+  assert.deepEqual(X.reachesOut('=INDIRECT("A"&ROW())'), [], 'INDIRECT inside the workbook is fine');
+  assert.deepEqual(X.reachesOut('=Sheet1!A1+Totals!B2'), []);
+  assert.deepEqual(X.reachesOut('=A1&"Budget.xlsx!Total"'), [], 'words inside text are fine');
+});
+
+test('the pane: Fill reads only the columns next to an empty column, checks values (not shown text), and resets "@" before a formula (R2X5, R2X6, R2X11, R2X15)', () => {
+  const pane = read('taskpane.js');
+  const fill = pane.slice(pane.indexOf("if (action === 'fill') {"), pane.indexOf('const sheet = { name, range: address, values };'));
+  assert.match(fill, /const width = Math\.min\(X\.LIMITS\.fillColumns, range\.columnIndex - used\.columnIndex\);/);
+  assert.match(fill, /ws\.getRangeByIndexes\(range\.rowIndex, range\.columnIndex - width, range\.rowCount, width\)/);
+  assert.match(fill, /while \(k < width && X\.hasData/, 'stops at the first empty column');
+  assert.doesNotMatch(fill, /getRangeByIndexes\(range\.rowIndex, used\.columnIndex/, 'never from the sheet’s first column');
+  assert.match(pane, /'values,text,formulas,numberFormat'/, 'number formats come with the cells (R2X4)');
+  assert.match(pane, /JSON\.stringify\(X\.rawOf\(source\.values, source\.formulas\)\) !== JSON\.stringify\(job\.raw\)/, 'Fill compares values and formulas');
+  assert.match(pane, /const same = JSON\.stringify\(X\.rawOf\(source\.values, source\.formulas\)\) === JSON\.stringify\(job\.raw\);/, 'Clean too');
+  assert.match(pane, /if \(target\.numberFormat && target\.numberFormat\[0\]\[0\] === '@'\) target\.numberFormat = \[\['General'\]\];\s*target\.formulas = \[\[res\.formula\]\];/);
+  assert.match(pane, /let paneHidden = typeof document !== 'undefined' && document\.visibilityState === 'hidden';/);
+  assert.match(pane, /if \(!paneHidden\) showSelection\(\);/);
+});
+
 test('accessibility: one live region, labelled icons, AA contrast, a footer that scrolls in a short pane', () => {
   const html = read('taskpane.html');
   assert.doesNotMatch(html, /<main id="log"[^>]*aria-live/, 'the log isn’t re-announced on every change (R1X14)');
@@ -419,7 +639,13 @@ test('accessibility: one live region, labelled icons, AA contrast, a footer that
   assert.match(css, /footer \{[^}]*max-height: 58vh; overflow-y: auto;/, 'the footer scrolls at 350 × 500 (R1X37)');
 });
 
-// A fresh copy of the cell function (its own counters), with fetch faked by `answer(body, call)`.
+// A fresh copy of the cell function (its own counters), with fetch faked by `answer(body, call)`. Like the
+// real server's buffered answers, a 200 says `x-eden-answer: complete` unless it sets its own (or `x-test-bare`).
+const asServer = (res) => {
+  if (!res || res.status !== 200 || res.headers.has('x-eden-answer')) return res;
+  if (res.headers.has('x-test-bare')) return new Response(res.body, { status: 200 });
+  return new Response(res.body, { status: 200, headers: { 'x-eden-answer': 'complete' } });
+};
 function loadCells(answer) {
   const calls = [];
   let open = 0;
@@ -431,7 +657,7 @@ function loadCells(answer) {
     open += 1;
     seen.most = Math.max(seen.most, open);
     try {
-      return await answer(body, call);
+      return asServer(await answer(body, call));
     } finally {
       open -= 1;
     }
@@ -548,6 +774,44 @@ test('=EDEN.ASK: whole columns trimmed, errors and dates as text, blank answers 
     X.cachePut(undefined, X.cacheKey('old', null), 'x');
     storage.setItem(X.cacheKey('old', null), JSON.stringify({ v: '', at: Date.now() }));
     assert.equal(X.cacheGet(undefined, X.cacheKey('old', null)), null);
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.Excel = realExcel;
+    storage.map.clear();
+  }
+});
+
+test('=EDEN.ASK: only Eden’s complete answer goes in a cell and is kept; a long question is refused; numbers as values (R2X4, R2X8, R2X9)', async () => {
+  const realFetch = globalThis.fetch;
+  const realExcel = globalThis.Excel;
+  try {
+    storage.map.clear();
+    X.saveToken(undefined, { access_token: 'es1.acc.id.secret', expires_in: 3600 });
+    let next = [];
+    const { C, calls } = loadCells(async () => {
+      const r = next.shift();
+      if (r === 'html') return new Response('<!doctype html><title>Just a moment...</title>', { status: 200, headers: { 'x-test-bare': '1', 'content-type': 'text/html' } });
+      return new Response(r ?? 'ok', { status: 200 });
+    });
+    // BREAK N07: a 200 that isn't Eden's answer (no x-eden-answer) is neither shown nor saved.
+    next = ['html', 'real'];
+    await assert.rejects(C.ask('total?', [[1], [2]]), /broke off/);
+    assert.equal(C.state().saved, 0);
+    assert.deepEqual(await C.ask('total?', [[1], [2]]), one('real'));
+    // BREAK N08: a question over 2,000 characters is refused in words, never cut.
+    const before = calls.length;
+    await assert.rejects(C.ask('Summarize '.repeat(250), [[1]]), /shorter question: at most 2,000/);
+    assert.equal(calls.length, before);
+    assert.deepEqual(await C.ask(`${'q'.repeat(1999)}😀`, [[1]]), one('ok'), '2,000 characters (an emoji is one) are fine');
+    // The range read through its address: big numbers go as their values, dates as shown (number formats).
+    globalThis.Excel = {
+      run: async (fn) => fn({
+        workbook: { worksheets: { getItem: () => ({ getRange: () => ({ getCell: () => ({ getResizedRange: () => ({ load() {}, values: [[123456789], [45291]], text: [['1.2E+08'], ['12/31/2023']], numberFormat: [['General'], ['m/d/yyyy']] }) }) }) }) } },
+        sync: async () => {},
+      }),
+    };
+    await C.ask('Which?', [[123456789], [45291]], { parameterAddresses: ['Z1', 'Data!A1:A2'] });
+    assert.deepEqual(calls.at(-1).body.sheet.values, [[123456789], ['12/31/2023']]);
   } finally {
     globalThis.fetch = realFetch;
     globalThis.Excel = realExcel;

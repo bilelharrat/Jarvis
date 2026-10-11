@@ -12,7 +12,7 @@
   let pkce = null; // { verifier, state, challenge }, made ahead so Connect opens its dialog at once
   let turns = []; // { role: 'user'|'eden', text, action?, job?, result?, failed? }
   let live = null; // { abort, turn } from the press until the answer is complete (one ask at a time)
-  let connecting = null; // the open Connect dialog: { dialog, timer, done }
+  let connecting = null; // the Connect attempt under way (startConnect): { mine, dialog, timer, done, waiting, end, got, poll }
   let pendingHidden = ''; // the selection whose hidden rows the person was told about (press again to send)
   let inExcel = false;
   let ready = false; // Office.onReady has run
@@ -122,20 +122,60 @@
     $('connectBtn').textContent = t(busyNow ? 'connecting' : 'connect');
   }
 
+  // Connect's timing: the relay is looked at about every 1.5 s while the window is open; after Office says
+  // it closed (12006), more and more slowly (up to every 5 s) for 5 minutes (R2X1). Tests shorten them.
+  const connectTiming = { pollMs: 1500, maxPollMs: 5000, waitMs: 5 * 60_000, openMs: 10 * 60_000, lateMs: 10 * 60_000 };
+  let late = null; // { mine, until }: an attempt that ran out of time; a code relayed later still connects
+
+  /** The relay's code for a state, or null (nothing yet, offline, busy). */
+  async function take(state) {
+    try {
+      const res = await fetch('/api/eden/relay/take', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ state }) });
+      if (res.status === 200) {
+        const body = await res.json().catch(() => ({}));
+        if (typeof body.code === 'string' && body.code) return body.code;
+      }
+    } catch {
+      // offline for a moment: the next poll tries again
+    }
+    return null;
+  }
+
+  /** A note while connecting: the words and a Cancel that ends it (R2X14: a Cancel on the web never reaches the pane). */
+  function connectNote(words, kind = '') {
+    note(words, { kind });
+    const job = connecting;
+    if (!job) return;
+    if (words) $('note').append(' ');
+    $('note').append(button('link', t('cancel'), () => job.end(t('cancelled'), '')));
+  }
+
+  /**
+   * Connect: one attempt (one PKCE verifier and state) from the press until a code is redeemed, Cancel, or
+   * time runs out. The code comes back by Office's messageParent or by askeden.com's relay, whichever comes
+   * first. Excel on the web reports the window closed (12006) as soon as it reaches a sign-in page that cuts
+   * it off from the pane (cross-origin-opener-policy), though the person is still signing in there: so a
+   * closed window doesn't end the attempt; the pane keeps looking at the relay and says so (R2X1). Pressing
+   * Connect again meanwhile opens the window again for the same attempt, never a second one racing it.
+   */
   function startConnect() {
     if (!ready) return note(t('starting'));
     const ui = globalThis.Office && Office.context && Office.context.ui;
     if (!inExcel || !ui || !ui.displayDialogAsync) return warn(t('openInExcelConnect'));
-    if (connecting) return warn(t('finishSignIn'));
+    if (connecting) {
+      if (connecting.dialog) return connectNote(t('finishSignIn'), 'warn');
+      return openDialog(connecting, ui);
+    }
     if (!pkce) return note(t('gettingReady'));
     const mine = pkce;
     pkce = null;
     freshPkce();
-    const job = { dialog: null, timer: 0, done: false, mine };
+    // An earlier attempt that ran out of time is still looked at for a while: its code may come late.
+    const earlier = late && late.until > Date.now() ? late.mine : null;
+    late = null;
+    const job = { mine, earlier, dialog: null, timer: 0, done: false, delay: connectTiming.pollMs, until: Date.now() + connectTiming.openMs };
     connecting = job;
-    connectButton(true);
-    note('');
-    const end = (words, kind = 'warn') => {
+    job.end = (words, kind = 'warn', { keep = false } = {}) => {
       if (job.done) return;
       job.done = true;
       clearTimeout(job.timer);
@@ -144,47 +184,67 @@
       } catch {
         // already closed
       }
+      job.dialog = null;
       if (connecting === job) connecting = null;
+      if (keep) late = { mine, until: Date.now() + connectTiming.lateMs };
       connectButton(false);
-      if (words) note(words, { kind });
+      note(words || '', { kind: words ? kind : '' });
     };
-    const got = async (code) => {
+    job.got = async (code, verifier = mine.verifier) => {
       if (job.done) return;
-      end('');
-      await redeem(code, mine.verifier);
+      job.end('');
+      await redeem(code, verifier);
     };
-    // Excel on the web: the dialog may not reach the pane (its opener can be cut); the landing page
-    // leaves the code with askeden.com under the state, and the pane picks it up.
-    const take = async () => {
-      try {
-        const res = await fetch('/api/eden/relay/take', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ state: mine.state }) });
-        if (res.status === 200) {
-          const body = await res.json().catch(() => ({}));
-          if (typeof body.code === 'string' && body.code) return body.code;
-        }
-      } catch {
-        // offline for a moment: the next poll tries again
+    job.poll = async () => {
+      if (job.done) return;
+      const code = await take(mine.state);
+      if (code) return job.got(code);
+      if (job.earlier && !job.done) {
+        const old = await take(job.earlier.state);
+        if (old) return job.got(old, job.earlier.verifier);
       }
-      return null;
-    };
-    const started = Date.now();
-    const poll = async () => {
       if (job.done) return;
-      const code = await take();
-      if (code) return got(code);
-      if (Date.now() - started > 10 * 60_000) return end(t('connectExpired'));
-      if (!job.done) job.timer = setTimeout(poll, 1500);
+      if (Date.now() > job.until) return job.end(t('connectExpired'), 'warn', { keep: true });
+      if (!job.dialog) job.delay = Math.min(connectTiming.maxPollMs, Math.round(job.delay * 1.3));
+      job.timer = setTimeout(job.poll, job.delay);
     };
+    openDialog(job, ui);
+  }
+
+  /** Opens (or opens again) the Connect window for an attempt. */
+  function openDialog(job, ui) {
+    const { mine } = job;
+    connectButton(true);
+    connectNote('');
     ui.displayDialogAsync(X.dialogUrl({ origin: location.origin, state: mine.state, challenge: mine.challenge }), { height: 70, width: 40 }, (opened) => {
+      if (job.done) {
+        try {
+          if (opened.status === Office.AsyncResultStatus.Succeeded) opened.value.close();
+        } catch {
+          // gone
+        }
+        return;
+      }
       if (opened.status !== Office.AsyncResultStatus.Succeeded) {
         const code = opened.error && opened.error.code;
-        return end(code === 12009 ? t('popupBlocked') : code === 12007 ? t('finishSignIn') : t('cantOpenSignIn'));
+        const words = code === 12009 ? t('popupBlocked') : code === 12007 ? t('finishSignIn') : t('cantOpenSignIn');
+        // Opened again while waiting: the attempt goes on (its window may still be open somewhere).
+        if (job.waiting) {
+          connectButton(false);
+          return connectNote(`${words} ${t('connectWaiting')}`, 'warn');
+        }
+        return job.end(words);
       }
       const dialog = opened.value;
       job.dialog = dialog;
-      job.timer = setTimeout(poll, 1500);
+      job.waiting = false;
+      job.delay = connectTiming.pollMs;
+      job.until = Math.max(job.until, Date.now() + connectTiming.openMs);
+      clearTimeout(job.timer);
+      job.timer = setTimeout(job.poll, job.delay);
       dialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
-        if (arg.origin && arg.origin !== location.origin) return end(t('connectUnfinished'));
+        if (job.dialog !== dialog) return;
+        if (arg.origin && arg.origin !== location.origin) return job.end(t('connectUnfinished'));
         let message = null;
         try {
           message = JSON.parse(arg.message);
@@ -192,20 +252,34 @@
           message = null;
         }
         const back = X.readRedirect(message && message.url, mine.state);
-        if (back.error) return end(back.error === 'access_denied' ? t('cancelled') : t('connectUnfinished'));
-        got(back.code);
+        if (back.error) return job.end(back.error === 'access_denied' ? t('cancelled') : t('connectUnfinished'));
+        job.got(back.code);
       });
       dialog.addEventHandler(Office.EventType.DialogEventReceived, async (arg) => {
-        if (job.done) return;
-        clearTimeout(job.timer);
-        // The window closed: the code may already be at askeden.com, or on its way (a few more looks).
-        for (let i = 0; i < 3 && !job.done; i++) {
-          const code = await take();
-          if (code) return got(code);
-          await X.sleep(1500);
+        if (job.done || job.dialog !== dialog) return;
+        job.dialog = null;
+        try {
+          dialog.close(); // so Office lets Connect open it again
+        } catch {
+          // already closed
         }
-        if (job.done) return;
-        end(arg.error === 12006 ? t('cancelled') : arg.error === 12002 || arg.error === 12003 ? t('cantLoadSignIn') : t('signInClosed'));
+        if (arg.error === 12006) {
+          // Closed, or cut off from the pane by a sign-in page: the person may still be signing in there.
+          job.waiting = true;
+          job.until = Date.now() + connectTiming.waitMs;
+          connectButton(false);
+          connectNote(t('connectWaiting'));
+          announce(t('connectWaiting'));
+          return;
+        }
+        // The page didn't load, or another error: the code may still be on its way (a few more looks).
+        clearTimeout(job.timer);
+        for (let i = 0; i < 3 && !job.done; i++) {
+          const code = await take(mine.state);
+          if (code) return job.got(code);
+          await X.sleep(connectTiming.pollMs);
+        }
+        job.end(arg.error === 12002 || arg.error === 12003 ? t('cantLoadSignIn') : t('signInClosed'));
       });
     });
   }
@@ -225,6 +299,7 @@
     }
     if (!res.ok || !X.saveToken(undefined, answer)) return warn(t('connectUnfinished'));
     token = answer.access_token;
+    late = null;
     setConnected(true);
     note(t('connected'), { kind: 'ok' });
     // Cells that asked before the connection: work them out again (answers already saved stay saved).
@@ -278,15 +353,24 @@
     setConnected(false);
   }
 
-  globalThis.EdenPane = { token: () => token, signedOut, recalc: recalcAskCells, timing };
+  globalThis.EdenPane = { token: () => token, signedOut, recalc: recalcAskCells, timing, connectTiming };
 
   // ── the selection ──
 
   let selTimer = 0;
-  let paneHidden = false; // closed (its runtime runs on for =EDEN.ASK): no Excel call per click
+  // Closed (its runtime runs on for =EDEN.ASK), or started in the background by a workbook's =EDEN.ASK cells
+  // without being shown (R2X15): no Excel call per click.
+  let paneHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
   function watchSelection() {
     clearTimeout(selTimer);
     if (!paneHidden) selTimer = setTimeout(showSelection, 120);
+  }
+
+  /** The pane shown or hidden: a shown pane catches up with the selection. */
+  function shown(on) {
+    paneHidden = !on;
+    if (paneHidden) clearTimeout(selTimer);
+    else showSelection();
   }
 
   const oneBlock = (error) => Boolean(error && (error.code === 'InvalidSelection' || /selection is invalid|multiple selections/i.test(String(error.message))));
@@ -397,28 +481,39 @@
 
       if (action === 'formula' || action === 'explain') return formulaContext(context, range, activeCell, action, active, base, used);
 
-      const got = await cellsWith(context, range, action === 'clean' ? 'values,text,formulas' : 'values,text', range.rowCount, range.columnCount, action === 'fill');
+      // Numbers go as their values, dates as shown: the number formats say which (R2X4). Fill and Clean also
+      // load the formulas, to tell a real change from a recalculation before writing (R2X6).
+      const got = await cellsWith(context, range, action === 'clean' || action === 'fill' ? 'values,text,formulas,numberFormat' : 'values,text,numberFormat', range.rowCount, range.columnCount, action === 'fill');
       const long = action === 'fill' || action === 'clean' ? X.longCell(range.values, action === 'clean') : null;
       if (long) return { error: tooLong(range, long, action) };
-      let values = X.gridOf(range.values, range.text);
+      let values = X.gridOf(range.values, range.text, range.numberFormat);
       let address = X.cellsOf(range.address);
       const job = { ...base, source: address, rows: range.rowCount };
       let { hidden } = got;
 
       if (action === 'fill') {
+        job.raw = X.rawOf(range.values, range.formulas);
         if (range.columnCount === 1 && !X.hasData(values)) {
-          // One empty column selected: fill it from the columns to its left, on the same rows.
+          // One empty column selected: fill it from the filled columns right next to it, on the same rows
+          // (at most LIMITS.fillColumns, up to the first empty column), never the whole sheet to its left (R2X5).
           if (used.isNullObject || used.columnIndex >= range.columnIndex) return { error: t('fillWhere') };
-          const left = ws.getRangeByIndexes(range.rowIndex, used.columnIndex, range.rowCount, range.columnIndex - used.columnIndex);
-          const leftGot = await cellsWith(context, left, 'address,values,text', range.rowCount, 0, false);
-          const longLeft = X.longCell(left.values);
-          if (longLeft) return { error: tooLong(left, longLeft, 'fill') };
-          values = X.gridOf(left.values, left.text);
+          const width = Math.min(X.LIMITS.fillColumns, range.columnIndex - used.columnIndex);
+          const near = ws.getRangeByIndexes(range.rowIndex, range.columnIndex - width, range.rowCount, width);
+          const nearGot = await cellsWith(context, near, 'values,text,formulas,numberFormat', range.rowCount, 0, false);
+          const grid = X.gridOf(near.values, near.text, near.numberFormat);
+          let k = 0; // filled columns next to the selection
+          while (k < width && X.hasData(grid.map((row) => [row[width - 1 - k]]))) k++;
+          if (!k) return { error: t('fillEmptyLeft') };
+          const pick = (g) => g.map((row) => row.slice(width - k));
+          const longLeft = X.longCell(pick(near.values));
+          const from = X.rangeName({ col: range.columnIndex - k, row: range.rowIndex + 1 }, 0, range.rowCount, k);
+          if (longLeft) return { error: tooLong({ address: from }, longLeft, 'fill') };
+          values = pick(grid);
+          job.raw = X.rawOf(pick(near.values), pick(near.formulas));
           job.target = address;
-          address = X.cellsOf(left.address);
+          address = from;
           job.source = address;
-          hidden = leftGot.hidden;
-          if (!X.hasData(values)) return { error: t('fillEmptyLeft') };
+          hidden = nearGot.hidden;
         } else {
           let target = got.next;
           if (!target) {
@@ -428,13 +523,15 @@
           }
           job.target = X.cellsOf(target.address);
         }
-        job.sent = values; // Fill checks the rows still hold this before writing
       }
       const sheet = { name, range: address, values };
       if (action === 'clean') {
         job.sent = values;
+        job.raw = X.rawOf(range.values, range.formulas); // Clean checks the cells still hold this before writing
+        job.values = range.values;
+        job.formats = range.numberFormat;
         job.formulas = range.formulas;
-        job.kinds = X.kindsOf(range.values);
+        job.kinds = X.kindsOf(range.values, range.numberFormat);
         const f = X.formulaGrid(range.formulas);
         if (f) sheet.formulas = f;
       }
@@ -466,9 +563,9 @@
     }
     const sheet = { name: base.sheet };
     if (part) {
-      part.load(action === 'explain' && !single ? 'values,text,formulas' : 'values,text');
+      part.load(action === 'explain' && !single ? 'values,text,formulas,numberFormat' : 'values,text,numberFormat');
       await context.sync();
-      const fit = X.fitRows(X.gridOf(part.values, part.text));
+      const fit = X.fitRows(X.gridOf(part.values, part.text, part.numberFormat));
       // A selection: the address of the rows actually sent (R1X49). One cell: the data's whole address on
       // purpose, so a formula can cover all of it; the rows sent are its header and first rows.
       sheet.range = single || !fit.trimmed && fit.rows === range.rowCount ? address : X.rangeName(X.topLeftOf(address), 0, Math.max(1, fit.rows), range.columnCount);
@@ -481,6 +578,8 @@
     if (action === 'explain') {
       const own = activeCell.formulas[0][0];
       if (typeof own === 'string' && own.startsWith('=')) active.formula = own;
+      // Half a formula explained as if it were whole is worse than none (R2X8).
+      if (active.formula && active.formula.length > X.LIMITS.cellChars) return { error: t('formulaTooLong', { n: t.n(X.LIMITS.cellChars) }) };
       active.value = String(activeCell.values[0][0] ?? '');
     }
     return { sheet: X.hasData(sheet.values) || sheet.formulas ? sheet : { name: base.sheet }, active, job: { ...base, at: active.address } };
@@ -606,7 +705,7 @@
         arm();
         let res;
         try {
-          res = await fetch('/api/eden/sheet', { method: 'POST', headers: { authorization: `Bearer ${used}`, 'content-type': 'application/json' }, body: JSON.stringify(body), signal: mine.signal });
+          res = await fetch('/api/eden/sheet', { method: 'POST', headers: { authorization: `Bearer ${used}`, 'content-type': 'application/json', 'x-eden-trailer': '1' }, body: JSON.stringify(body), signal: mine.signal });
         } catch {
           if (abort.signal.aborted) throw { stopped: true };
           throw timedOut ? { timeout: true } : { status: 0, info: {} };
@@ -626,6 +725,19 @@
           }
           throw { status: res.status, info, used };
         }
+        // With a trailer (x-eden-trailer: 1 back): the answer, then U+0000 and how it ended, as JSON, so a cut-off,
+        // a refusal and a dropped connection each get their own words (R2X13). Without one (an older Worker), a
+        // clean close is a whole answer and an error is a break.
+        const trailed = res.headers.get('x-eden-trailer') === '1';
+        let tail = null;
+        const feed = (text) => {
+          if (tail !== null) tail += text;
+          else if (trailed && text.includes(X.TRAILER)) {
+            const at = text.indexOf(X.TRAILER);
+            if (at) onText(text.slice(0, at));
+            tail = text.slice(at + 1);
+          } else if (text) onText(text);
+        };
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         try {
@@ -633,14 +745,19 @@
             const { done, value } = await reader.read();
             if (done) break;
             arm();
-            onText(decoder.decode(value, { stream: true }));
+            feed(decoder.decode(value, { stream: true }));
           }
-          onText(decoder.decode());
+          feed(decoder.decode());
         } catch {
           if (abort.signal.aborted) throw { stopped: true };
           throw timedOut ? { timeout: true } : { broken: true };
         }
-        return;
+        if (!trailed) return;
+        const end = X.trailerOf(tail);
+        if (end.complete) return;
+        if (end.timeout) throw { timeout: true };
+        if (end.broken) throw { broken: true };
+        throw { status: end.status, info: end.info, used };
       } finally {
         clearTimeout(idle);
         abort.signal.removeEventListener('abort', stop);
@@ -740,8 +857,9 @@
         rows.push(...X.cleanReceive(check.rows, c.escaped));
       }
       if (!reply.result) {
-        const changes = X.cleanChanges(job.sent, rows, job.formulas, { kinds: job.kinds });
-        reply.result = changes.length ? { changes } : { done: t('nothingToClean') };
+        const changes = X.cleanChanges(job.sent, rows, job.formulas, { kinds: job.kinds, raw: job.values, formats: job.formats, lang: t.lang });
+        const kept = changes.kept ? t('keptValues', { n: t.n(changes.kept) }) : '';
+        reply.result = changes.length ? { changes, kept } : { done: kept ? `${t('nothingToClean')} ${kept}` : t('nothingToClean') };
       }
     } else if (reply.action === 'table') {
       const check = X.tableCheck(reply.text, X.LIMITS.cells, t);
@@ -783,10 +901,11 @@
       values.push([]);
       numberFormat.push([]);
       row.forEach((text, c) => {
-        const w = X.cellWrite(text);
+        const w = X.cellWrite(text, 'auto', { lang: t.lang });
         const was = formats && formats[r] ? formats[r][c] : 'General';
+        const general = was === 'General' || (was === '@' && typeof w.v !== 'string');
         values[r].push(w.v);
-        numberFormat[r].push(w.asText ? '@' : was === '@' && typeof w.v !== 'string' ? 'General' : was);
+        numberFormat[r].push(w.asText ? '@' : general ? w.format || 'General' : was);
       });
     });
     return { values, numberFormat };
@@ -831,8 +950,8 @@
       await Excel.run(async (context) => {
         const found = await sheetFor(context, job, (ws) => {
           const loaded = (range, fields) => (range.load(fields), range);
-          if (reply.action === 'fill') return { source: loaded(ws.getRange(job.source), 'values,text'), target: loaded(ws.getRange(job.target), 'address,values,formulas,rowCount,numberFormat') };
-          if (reply.action === 'clean') return { source: loaded(ws.getRange(job.source), 'values,text,formulas') };
+          if (reply.action === 'fill') return { source: loaded(ws.getRange(job.source), 'values,formulas'), target: loaded(ws.getRange(job.target), 'address,values,formulas,rowCount,numberFormat') };
+          if (reply.action === 'clean') return { source: loaded(ws.getRange(job.source), 'values,formulas') };
           const at = ws.getRange(job.at);
           return { target: loaded(reply.action === 'table' ? at.getResizedRange(res.table.length - 1, res.table[0].length - 1) : at, 'address,values,formulas,numberFormat') };
         });
@@ -844,7 +963,11 @@
           const { target } = found.got;
           const at = X.cellsOf(target.address);
           if (overFilled(res, target, at, reply.action === 'formula' ? 'formula' : 'insertWord')) return;
-          if (reply.action === 'formula') target.formulas = [[res.formula]];
+          if (reply.action === 'formula') {
+            // A Text-formatted cell ("@") would keep the formula as text (R2X11).
+            if (target.numberFormat && target.numberFormat[0][0] === '@') target.numberFormat = [['General']];
+            target.formulas = [[res.formula]];
+          }
           else {
             const w = writeGrid(res.table, target.numberFormat);
             target.numberFormat = w.numberFormat;
@@ -869,7 +992,8 @@
             res.warn = t('selectionChanged');
             return;
           }
-          if (JSON.stringify(X.gridOf(source.values, source.text)) !== JSON.stringify(job.sent)) {
+          // What the cells hold (formulas as formulas): a recalculation or a narrower column isn't a change (R2X6).
+          if (JSON.stringify(X.rawOf(source.values, source.formulas)) !== JSON.stringify(job.raw)) {
             res.warn = t('rowsChanged');
             return;
           }
@@ -884,9 +1008,9 @@
           res.done = t('filled', { at });
         } else if (reply.action === 'clean') {
           const { source } = found.got;
-          // The cells Clean writes must still be what Eden saw (a formula that recalculated doesn't count).
-          const now = X.gridOf(source.values, source.text);
-          const same = job.sent.every((row, r) => row.every((c, k) => isFormula(job.formulas[r][k]) || JSON.stringify(now[r] ? now[r][k] : null) === JSON.stringify(c)));
+          // The cells Clean writes must still be what Eden saw: their values (formulas as formulas, so a
+          // recalculation doesn't count; nor does how they're shown, R2X6).
+          const same = JSON.stringify(X.rawOf(source.values, source.formulas)) === JSON.stringify(job.raw);
           if (!same) {
             res.warn = t('cellsChanged');
             return;
@@ -898,7 +1022,7 @@
             for (let i = 0; i < todo.length; i += 200) {
               for (const ch of todo.slice(i, i + 200)) {
                 const cell = source.getCell(ch.r, ch.c);
-                const w = X.cellWrite(ch.to, job.kinds[ch.r][ch.c]);
+                const w = X.cellWrite(ch.to, job.kinds[ch.r][ch.c], { lang: t.lang });
                 if (w.asText) cell.numberFormat = [['@']];
                 cell.values = [[w.v]];
               }
@@ -961,13 +1085,13 @@
       const at = X.topLeftOf(turn.job.target);
       const rows = res.lines.slice(0, 8).map((line, i) => el('tr', '', el('th', '', X.cellName(at, i, 0)), el('td', '', line || '—')));
       const more = res.lines.length > 8 ? el('p', 'muted', t('andMore', { n: t.n(res.lines.length - 8) })) : null;
-      return fillIn(body, el('p', '', t('valuesFor', { n: t.n(res.lines.length), at: turn.job.target })), el('div', 'grid', el('table', '', el('tbody', '', rows))), more, hidden);
+      return fillIn(body, el('p', '', t('valuesFor', { n: t.n(res.lines.length), at: turn.job.target }), ' ', el('span', 'muted', t('fillFrom', { at: turn.job.source }))), el('div', 'grid', el('table', '', el('tbody', '', rows))), more, hidden);
     }
     if (res.changes) {
       const start = X.topLeftOf(turn.job.source);
       const rows = res.changes.slice(0, 10).map((ch) => el('tr', '', el('th', '', X.cellName(start, ch.r, ch.c)), el('td', '', el('span', 'from', ch.from || '—'), el('span', 'arrow', ' → '), el('span', 'to', ch.to || '—'))));
       const more = res.changes.length > 10 ? el('p', 'muted', t('andMore', { n: t.n(res.changes.length - 10) })) : null;
-      return fillIn(body, el('p', '', t('cellsChange', { n: t.n(res.changes.length), at: turn.job.source })), el('div', 'grid', el('table', 'diff', el('tbody', '', rows))), more, hidden);
+      return fillIn(body, el('p', '', t('cellsChange', { n: t.n(res.changes.length), at: turn.job.source })), el('div', 'grid', el('table', 'diff', el('tbody', '', rows))), more, res.kept ? el('p', 'muted', res.kept) : null, hidden);
     }
     if (res.table) {
       const [head, ...rest] = res.table;
@@ -1114,6 +1238,7 @@
       const now = X.readToken();
       if (now === token) return;
       token = now;
+      if (token && connecting) connecting.end('');
       setConnected(Boolean(token));
     });
   }
@@ -1132,7 +1257,7 @@
     render();
     showCells();
     if (inExcel) {
-      showSelection();
+      if (!paneHidden) showSelection();
       Excel.run(async (context) => {
         context.workbook.onSelectionChanged.add(watchSelection);
         try {
@@ -1144,15 +1269,12 @@
       }).catch(() => {});
       // A closed pane stops following the selection and catches up when shown again.
       try {
-        const on = Office.addin && Office.addin.onVisibilityModeChanged((m) => {
-          paneHidden = Boolean(m && m.visibilityMode === 'Hidden');
-          if (paneHidden) clearTimeout(selTimer);
-          else showSelection();
-        });
+        const on = Office.addin && Office.addin.onVisibilityModeChanged((m) => shown(!(m && m.visibilityMode === 'Hidden')));
         if (on && on.catch) on.catch(() => {});
       } catch {
-        // older Office: the pane follows the selection all the time
+        // older Office: the page's own visibility below
       }
+      document.addEventListener('visibilitychange', () => shown(document.visibilityState !== 'hidden'));
     } else {
       $('selAddr').textContent = t('openInExcelShort');
     }
