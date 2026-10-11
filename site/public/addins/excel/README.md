@@ -39,8 +39,10 @@ the manifest, the pane and the API are all on askeden.com.
   Explain); for Write a formula / Explain on one cell, the active cell plus the sheet's header row and first 5
   rows. Hidden or filtered rows are included, and the pane says so before sending (press again to send).
   Each Excel round trip (`context.sync()`) is a trip to Excel's server on the web, so most actions read in two
-  (what they need, then the cells with their hidden-row count) and write in two (the checks, then the write); a
-  closed pane stops following the selection (`Office.addin.onVisibilityModeChanged`).
+  (the selection with the data's extent, then the cells with their number formats and hidden-row count; a whole
+  column is clipped to the data without a trip of its own, and Fill into a column right of the data reads the
+  columns beside it in that same second trip) and writes in two (the checks, then the write); a closed pane
+  stops following the selection (`Office.addin.onVisibilityModeChanged`).
   Limits: 5,000 cells / 60,000 characters (history included) / 1,000 rows for Fill and Clean; a cell over 2,000
   characters is refused for Fill and Clean, never cut. Fill and Clean bigger than one answer go in parts
   (Fill ≤ 200 rows, Clean ≤ the server's `cleanTokens` 8,000), at most 2 at once, with progress; nothing is

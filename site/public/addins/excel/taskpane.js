@@ -196,16 +196,23 @@
       await redeem(code, verifier);
     };
     job.poll = async () => {
-      if (job.done) return;
-      const code = await take(mine.state);
-      if (code) return job.got(code);
-      if (job.earlier && !job.done) {
-        const old = await take(job.earlier.state);
-        if (old) return job.got(old, job.earlier.verifier);
+      // One look at a time, then one timer: a window opened again during a look sets a timer too.
+      if (job.done || job.looking) return;
+      job.looking = true;
+      try {
+        const code = await take(mine.state);
+        if (code) return job.got(code);
+        if (job.earlier && !job.done) {
+          const old = await take(job.earlier.state);
+          if (old) return job.got(old, job.earlier.verifier);
+        }
+      } finally {
+        job.looking = false;
       }
       if (job.done) return;
       if (Date.now() > job.until) return job.end(t('connectExpired'), 'warn', { keep: true });
       if (!job.dialog) job.delay = Math.min(connectTiming.maxPollMs, Math.round(job.delay * 1.3));
+      clearTimeout(job.timer);
       job.timer = setTimeout(job.poll, job.delay);
     };
     openDialog(job, ui);
@@ -396,15 +403,9 @@
 
   // ── reading what an action needs (only that) ──
 
-  /** Clip a huge selection (whole columns or rows) to the part of the sheet that has data (`used`, when already read). */
-  async function clipped(context, sheet, sel, used) {
-    if (sel.rowCount * sel.columnCount <= X.LIMITS.cells) return sel;
-    if (!used) {
-      used = sheet.getUsedRangeOrNullObject(true);
-      used.load('rowIndex,columnIndex,rowCount,columnCount');
-      await context.sync();
-    }
-    if (used.isNullObject) return sel;
+  /** A huge selection (whole columns or rows) clipped to the part with data (`used`): { range, dim }; dim, its rows and columns, worked out without a trip. */
+  function clipped(sheet, sel, used) {
+    if (sel.rowCount * sel.columnCount <= X.LIMITS.cells || used.isNullObject) return { range: sel, dim: sel };
     const r0 = Math.max(sel.rowIndex, used.rowIndex);
     const r1 = Math.min(sel.rowIndex + sel.rowCount, used.rowIndex + used.rowCount);
     let c0 = Math.max(sel.columnIndex, used.columnIndex);
@@ -414,40 +415,52 @@
       c0 = sel.columnIndex;
       c1 = sel.columnIndex + sel.columnCount;
     }
-    if (r1 <= r0) return sel;
-    const part = sheet.getRangeByIndexes(r0, c0, r1 - r0, c1 - c0);
-    part.load('address,rowCount,columnCount,rowIndex,columnIndex');
-    await context.sync();
-    return part;
+    if (r1 <= r0) return { range: sel, dim: sel };
+    const dim = { rowIndex: r0, columnIndex: c0, rowCount: r1 - r0, columnCount: c1 - c0 };
+    return { range: sheet.getRangeByIndexes(r0, c0, dim.rowCount, dim.columnCount), dim };
+  }
+
+  /** Fill into an empty column: the columns right next to it, on its rows (at most LIMITS.fillColumns; R2X5). */
+  function besideOf(ws, dim, used) {
+    const width = Math.min(X.LIMITS.fillColumns, dim.columnIndex - used.columnIndex);
+    return { width, range: ws.getRangeByIndexes(dim.rowIndex, dim.columnIndex - width, dim.rowCount, width) };
   }
 
   /**
-   * A range's cells in one round trip with how many of its rows (and `columns`) are hidden or filtered, and
-   * (`right`) the column to its right. If Excel can't give an extra, the cells are read alone, then the hidden
-   * count on its own (0 when Excel can't say), and `next` is null.
+   * A range's cells in one round trip with how many of its rows (and `columns`) are hidden or filtered,
+   * (`right`) the column to its right, and (`beside`, a range on the same rows) its cells and hidden rows.
+   * If Excel can't give an extra, the cells are read alone, then the hidden count on its own (0 when Excel
+   * can't say); `next` and `besideHidden` are then null.
    */
-  async function cellsWith(context, range, fields, rows, columns, right) {
+  async function cellsWith(context, range, fields, rows, columns, right, beside) {
+    const viewOf = (r) => {
+      const v = r.getVisibleView();
+      v.load('rowCount,columnCount');
+      return v;
+    };
     range.load(fields);
     let view = null;
     let next = null;
+    let besideView = null;
     try {
-      view = range.getVisibleView();
-      view.load('rowCount,columnCount');
+      view = viewOf(range);
       if (right) (next = range.getLastColumn().getOffsetRange(0, 1)).load('address');
+      if (beside) besideView = viewOf(beside.load(fields) || beside);
       await context.sync();
     } catch {
       next = null;
+      besideView = null;
       range.load(fields);
       await context.sync();
       try {
-        view = range.getVisibleView();
-        view.load('rowCount,columnCount');
+        view = viewOf(range);
         await context.sync();
       } catch {
         view = null;
       }
     }
-    return { hidden: view ? Math.max(0, rows - view.rowCount) + Math.max(0, columns - view.columnCount) : 0, next };
+    const hiddenIn = (v, cols) => (v ? Math.max(0, rows - v.rowCount) + Math.max(0, cols - v.columnCount) : 0);
+    return { hidden: hiddenIn(view, columns), next, besideHidden: besideView ? hiddenIn(besideView, 0) : null };
   }
 
   const tooLong = (range, at, action) => t('cellTooLong', { cell: X.cellName(X.topLeftOf(range.address), at[0], at[1]), action: t(action).toLowerCase(), n: t.n(X.LIMITS.cellChars) });
@@ -464,9 +477,9 @@
       activeCell.load('address,formulas,values');
       const sel = context.workbook.getSelectedRange();
       // One round trip for what every action needs (each sync is a trip to Excel's server on the web), with
-      // the data's extent for the actions that often need it.
+      // the data's extent: a whole column is clipped to it, a formula's context and Fill use it.
       if (action !== 'table') sel.load('address,rowCount,columnCount,rowIndex,columnIndex');
-      const used = action === 'formula' || action === 'explain' || action === 'fill' ? ws.getUsedRangeOrNullObject(true) : null;
+      const used = action === 'table' ? null : ws.getUsedRangeOrNullObject(true);
       if (used) used.load('address,rowIndex,columnIndex,rowCount,columnCount');
       await context.sync();
       const name = ws.name;
@@ -475,45 +488,48 @@
 
       if (action === 'table') return { sheet: { name }, active, job: { ...base, at: X.cellsOf(activeCell.address) } };
 
-      const range = await clipped(context, ws, sel, used);
-      const tooBig = X.sizeProblem(action, range.rowCount, range.columnCount, t);
+      const { range, dim } = clipped(ws, sel, used);
+      const tooBig = X.sizeProblem(action, dim.rowCount, dim.columnCount, t);
       if (tooBig && action !== 'formula' && action !== 'explain') return { error: tooBig };
 
-      if (action === 'formula' || action === 'explain') return formulaContext(context, range, activeCell, action, active, base, used);
+      if (action === 'formula' || action === 'explain') return formulaContext(context, range, dim, activeCell, action, active, base, used);
 
       // Numbers go as their values, dates as shown: the number formats say which (R2X4). Fill and Clean also
-      // load the formulas, to tell a real change from a recalculation before writing (R2X6).
-      const got = await cellsWith(context, range, action === 'clean' || action === 'fill' ? 'values,text,formulas,numberFormat' : 'values,text,numberFormat', range.rowCount, range.columnCount, action === 'fill');
+      // load the formulas, to tell a real change from a recalculation before writing (R2X6). Fill into a column
+      // right of the data (so empty) reads the columns beside it in the same trip.
+      const fields = action === 'clean' || action === 'fill' ? 'address,values,text,formulas,numberFormat' : 'address,values,text,numberFormat';
+      const beside = action === 'fill' && dim.columnCount === 1 && !used.isNullObject && dim.columnIndex >= used.columnIndex + used.columnCount ? besideOf(ws, dim, used) : null;
+      const got = await cellsWith(context, range, fields, dim.rowCount, dim.columnCount, action === 'fill', beside && beside.range);
       const long = action === 'fill' || action === 'clean' ? X.longCell(range.values, action === 'clean') : null;
       if (long) return { error: tooLong(range, long, action) };
       let values = X.gridOf(range.values, range.text, range.numberFormat);
       let address = X.cellsOf(range.address);
-      const job = { ...base, source: address, rows: range.rowCount };
+      const job = { ...base, source: address, rows: dim.rowCount };
       let { hidden } = got;
 
       if (action === 'fill') {
         job.raw = X.rawOf(range.values, range.formulas);
-        if (range.columnCount === 1 && !X.hasData(values)) {
+        if (dim.columnCount === 1 && !X.hasData(values)) {
           // One empty column selected: fill it from the filled columns right next to it, on the same rows
           // (at most LIMITS.fillColumns, up to the first empty column), never the whole sheet to its left (R2X5).
-          if (used.isNullObject || used.columnIndex >= range.columnIndex) return { error: t('fillWhere') };
-          const width = Math.min(X.LIMITS.fillColumns, range.columnIndex - used.columnIndex);
-          const near = ws.getRangeByIndexes(range.rowIndex, range.columnIndex - width, range.rowCount, width);
-          const nearGot = await cellsWith(context, near, 'values,text,formulas,numberFormat', range.rowCount, 0, false);
+          if (used.isNullObject || used.columnIndex >= dim.columnIndex) return { error: t('fillWhere') };
+          const read = got.besideHidden !== null;
+          const { width, range: near } = read ? beside : besideOf(ws, dim, used);
+          const nearHidden = read ? got.besideHidden : (await cellsWith(context, near, fields, dim.rowCount, 0, false)).hidden;
           const grid = X.gridOf(near.values, near.text, near.numberFormat);
           let k = 0; // filled columns next to the selection
           while (k < width && X.hasData(grid.map((row) => [row[width - 1 - k]]))) k++;
           if (!k) return { error: t('fillEmptyLeft') };
           const pick = (g) => g.map((row) => row.slice(width - k));
           const longLeft = X.longCell(pick(near.values));
-          const from = X.rangeName({ col: range.columnIndex - k, row: range.rowIndex + 1 }, 0, range.rowCount, k);
+          const from = X.rangeName({ col: dim.columnIndex - k, row: dim.rowIndex + 1 }, 0, dim.rowCount, k);
           if (longLeft) return { error: tooLong({ address: from }, longLeft, 'fill') };
           values = pick(grid);
           job.raw = X.rawOf(pick(near.values), pick(near.formulas));
           job.target = address;
           address = from;
           job.source = address;
-          hidden = nearGot.hidden;
+          hidden = nearHidden;
         } else {
           let target = got.next;
           if (!target) {
@@ -546,29 +562,26 @@
    * header row and its first few rows (a sample), with the data's whole address so formulas can cover
    * it; with a selection, the selected cells (trimmed to the limits).
    */
-  async function formulaContext(context, range, activeCell, action, active, base, used) {
+  async function formulaContext(context, range, dim, activeCell, action, active, base, used) {
     let part;
-    let address;
-    const single = range.rowCount * range.columnCount === 1;
+    const single = dim.rowCount * dim.columnCount === 1;
     if (single) {
       if (used.isNullObject || used.rowCount * used.columnCount <= 1) part = null;
-      else {
-        address = X.cellsOf(used.address);
-        part = used.getRow(0).getResizedRange(Math.min(used.rowCount, X.LIMITS.sampleRows) - 1, 0);
-      }
+      else part = used.getRow(0).getResizedRange(Math.min(used.rowCount, X.LIMITS.sampleRows) - 1, 0);
     } else {
-      address = X.cellsOf(range.address);
-      const rows = Math.max(1, Math.min(range.rowCount, Math.floor(X.LIMITS.cells / Math.max(1, range.columnCount))));
-      part = range.getResizedRange(rows - range.rowCount, 0);
+      range.load('address'); // a clipped whole column's: with the cells
+      const rows = Math.max(1, Math.min(dim.rowCount, Math.floor(X.LIMITS.cells / Math.max(1, dim.columnCount))));
+      part = range.getResizedRange(rows - dim.rowCount, 0);
     }
     const sheet = { name: base.sheet };
     if (part) {
       part.load(action === 'explain' && !single ? 'values,text,formulas,numberFormat' : 'values,text,numberFormat');
       await context.sync();
+      const address = X.cellsOf(single ? used.address : range.address);
       const fit = X.fitRows(X.gridOf(part.values, part.text, part.numberFormat));
       // A selection: the address of the rows actually sent (R1X49). One cell: the data's whole address on
       // purpose, so a formula can cover all of it; the rows sent are its header and first rows.
-      sheet.range = single || !fit.trimmed && fit.rows === range.rowCount ? address : X.rangeName(X.topLeftOf(address), 0, Math.max(1, fit.rows), range.columnCount);
+      sheet.range = single || !fit.trimmed && fit.rows === dim.rowCount ? address : X.rangeName(X.topLeftOf(address), 0, Math.max(1, fit.rows), dim.columnCount);
       sheet.values = fit.values;
       if (action === 'explain' && !single) {
         const f = X.formulaGrid(part.formulas.slice(0, fit.rows));
@@ -731,12 +744,11 @@
         const trailed = res.headers.get('x-eden-trailer') === '1';
         let tail = null;
         const feed = (text) => {
-          if (tail !== null) tail += text;
-          else if (trailed && text.includes(X.TRAILER)) {
-            const at = text.indexOf(X.TRAILER);
-            if (at) onText(text.slice(0, at));
-            tail = text.slice(at + 1);
-          } else if (text) onText(text);
+          if (tail !== null) return void (tail += text);
+          const at = trailed ? text.indexOf(X.TRAILER) : -1;
+          if (at < 0) return void (text && onText(text));
+          if (at) onText(text.slice(0, at));
+          tail = text.slice(at + 1);
         };
         const reader = res.body.getReader();
         const decoder = new TextDecoder();

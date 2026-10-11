@@ -605,10 +605,13 @@ test('formulas that reach outside the workbook: external names, INDIRECT to a fi
 test('the pane: Fill reads only the columns next to an empty column, checks values (not shown text), and resets "@" before a formula (R2X5, R2X6, R2X11, R2X15)', () => {
   const pane = read('taskpane.js');
   const fill = pane.slice(pane.indexOf("if (action === 'fill') {"), pane.indexOf('const sheet = { name, range: address, values };'));
-  assert.match(fill, /const width = Math\.min\(X\.LIMITS\.fillColumns, range\.columnIndex - used\.columnIndex\);/);
-  assert.match(fill, /ws\.getRangeByIndexes\(range\.rowIndex, range\.columnIndex - width, range\.rowCount, width\)/);
+  // The columns beside it (e2: besideOf, shared by the same-trip read and the one-at-a-time one).
+  const beside = pane.slice(pane.indexOf('function besideOf('), pane.indexOf('async function cellsWith('));
+  assert.match(beside, /const width = Math\.min\(X\.LIMITS\.fillColumns, dim\.columnIndex - used\.columnIndex\);/);
+  assert.match(beside, /ws\.getRangeByIndexes\(dim\.rowIndex, dim\.columnIndex - width, dim\.rowCount, width\)/);
+  assert.match(fill, /besideOf\(ws, dim, used\)/);
   assert.match(fill, /while \(k < width && X\.hasData/, 'stops at the first empty column');
-  assert.doesNotMatch(fill, /getRangeByIndexes\(range\.rowIndex, used\.columnIndex/, 'never from the sheet’s first column');
+  assert.doesNotMatch(pane, /getRangeByIndexes\((range|dim)\.rowIndex, used\.columnIndex/, 'never from the sheet’s first column');
   assert.match(pane, /'values,text,formulas,numberFormat'/, 'number formats come with the cells (R2X4)');
   assert.match(pane, /JSON\.stringify\(X\.rawOf\(source\.values, source\.formulas\)\) !== JSON\.stringify\(job\.raw\)/, 'Fill compares values and formulas');
   assert.match(pane, /const same = JSON\.stringify\(X\.rawOf\(source\.values, source\.formulas\)\) === JSON\.stringify\(job\.raw\);/, 'Clean too');
@@ -888,11 +891,22 @@ test('=EDEN.ASK: the pane’s counter is told once per turn, with the latest num
 test('the pane asks Excel in few round trips, and a closed pane doesn’t follow the selection', () => {
   const pane = read('taskpane.js');
   // readFor: the selection (and, for formula, explain and fill, the data's extent) in the first sync.
-  const first = pane.slice(pane.indexOf('function readFor('), pane.indexOf('const range = await clipped('));
+  const first = pane.slice(pane.indexOf('function readFor('), pane.indexOf('const { range, dim } = clipped('));
+  assert.ok(first.length > 200 && first.length < 3000, 'readFor up to the clip');
   assert.match(first, /sel\.load\('address,rowCount,columnCount,rowIndex,columnIndex'\)[\s\S]*getUsedRangeOrNullObject\(true\)[\s\S]*await context\.sync\(\)/);
+  assert.match(first, /const used = action === 'table' \? null : ws\.getUsedRangeOrNullObject\(true\);/, 'e2: the data’s extent in the first trip for every read');
   assert.equal((first.match(/context\.sync\(\)/g) || []).length, 1);
-  // The cells come with their visible view (hidden rows) and Fill's target, with a one-at-a-time fallback.
-  assert.match(pane, /async function cellsWith\(context, range, fields, rows, columns, right\)/);
+  // e2: clipping a whole column is arithmetic on the first trip's numbers, not a trip of its own.
+  const clip = pane.slice(pane.indexOf('function clipped('), pane.indexOf('function besideOf('));
+  assert.doesNotMatch(clip, /sync\(\)|async/);
+  // The cells come with their visible view (hidden rows), Fill's target and (Fill right of the data) the
+  // columns beside it, with a one-at-a-time fallback.
+  assert.match(pane, /async function cellsWith\(context, range, fields, rows, columns, right, beside\)/);
+  assert.match(pane, /dim\.columnIndex >= used\.columnIndex \+ used\.columnCount \? besideOf\(ws, dim, used\) : null;/);
+  // The relay: one look at a time and one poll timer per Connect attempt, even when the window opens again during a look (e2).
+  assert.match(pane, /if \(job\.done \|\| job\.looking\) return;\s*job\.looking = true;\s*try \{/);
+  assert.match(pane, /\} finally \{\s*job\.looking = false;\s*\}/);
+  assert.match(pane, /clearTimeout\(job\.timer\);\s*job\.timer = setTimeout\(job\.poll, job\.delay\);\s*\};/);
   // Apply: the sheet check and the reads it needs in one trip; a failed trip still says "gone" or "protected".
   assert.match(pane, /async function sheetFor\(context, job, read\)/);
   assert.match(pane, /const found = read \? await sheetFor\(context, job\)\.catch\(\(\) => null\) : null;/);

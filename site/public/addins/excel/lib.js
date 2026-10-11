@@ -186,8 +186,11 @@
     if (/^\s*general\s*$/i.test(f)) return false;
     return /[dmyhs]|am\/pm|a\/p/i.test(f);
   }
+  // Month names (English and French) and the date and time forms both date tests know: 1/2, 1-2, 1.2.24, 12:30.
+  const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|janv|févr|fevr|avr|mai|juin|juil|août|aout|déc)';
+  const DMY = '\\d\\s*[/-]\\s*\\d|\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}|\\d:\\d\\d';
   // A date or a time as Excel might show it, when its number format isn't known.
-  const DATEISH = /\d\s*[/-]\s*\d|\d{1,2}\.\d{1,2}\.\d{2,4}|\d:\d\d|\d\s*[ap]\.?m\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|janv|févr|fevr|avr|mai|juin|juil|août|aout|déc)[a-zé]*\.?\b/i;
+  const DATEISH = new RegExp(`${DMY}|\\d\\s*[ap]\\.?m\\b|\\b${MONTH}[a-zé]*\\.?\\b`, 'i');
 
   const EPOCH = Date.UTC(1899, 11, 30); // Excel's day 0 (1900 date system)
   /** A date serial as ISO text ("2023-12-31 13:45", "13:45" for a time alone), for a date Excel shows as ####. */
@@ -230,10 +233,7 @@
   const kindsOf = (values, formats) => (values || []).map((row, r) => row.map((v, c) => (typeof v === 'number' ? (formats && isDateFormat(at2(formats, r, c)) ? 'date' : 'number') : typeof v === 'boolean' ? 'boolean' : v === '' || v === null || v === undefined ? 'empty' : 'text')));
 
   /** What a cell holds, to tell whether it changed: its formula when it has one (a recalculation isn't a change), else its value (R2X6). */
-  const rawOf = (values, formulas) => (values || []).map((row, r) => row.map((v, c) => {
-    const f = at2(formulas, r, c);
-    return typeof f === 'string' && f.startsWith('=') ? f : v ?? '';
-  }));
+  const rawOf = (values, formulas) => (values || []).map((row, r) => row.map((v, c) => (isFormula(at2(formulas, r, c)) ? formulas[r][c] : v ?? '')));
 
   /** A number as Eden may write it ("1,234.5", "50%", "-3"), or null. Thousands separators only in English. */
   function numberOf(text, { lang = 'en' } = {}) {
@@ -427,18 +427,30 @@
   const utf8 = (s) => new TextEncoder().encode(s).length;
   /** The server's clean budget (sheets.js cleanTokens): bytes ÷ 2.2, a token per cell, 200. */
   const tokensFor = (bytes, cells) => Math.ceil(bytes / 2.2) + cells + 200;
-  /** One row's share of the server's fill budget (sheets.js fillTokens): its longest cell's bytes × 1.6 ÷ 2.2, at least 35, and a line break. */
-  const fillRowTokens = (row) => Math.max(35, Math.ceil((row.reduce((m, c) => Math.max(m, utf8(cellText(c))), 0) * 1.6) / 2.2)) + 1;
-  /** The server's fill budget for these rows (sheets.js fillTokens): R2X2, sentence-length answers. */
-  const fillTokens = (rows) => rows.reduce((n, row) => n + fillRowTokens(row), 200);
-  const cleanTokens = (rows) => {
+  /** One row as both budgets see it: { chars, bytes, cells, tokens }. tokens: its share of the server's fill budget (sheets.js fillTokens), its longest cell's bytes × 1.6 ÷ 2.2, at least 35, and a line break. */
+  const rowSize = (row) => {
+    let chars = 0;
     let bytes = 0;
-    let cells = 0;
-    for (const row of rows) {
-      for (const c of row) bytes += utf8(cellText(c));
-      cells += Math.max(1, row.length);
+    let longest = 0;
+    for (const c of row) {
+      const s = cellText(c);
+      const b = utf8(s);
+      chars += s.length;
+      bytes += b;
+      if (b > longest) longest = b;
     }
-    return tokensFor(bytes, cells);
+    return { chars, bytes, cells: Math.max(1, row.length), tokens: Math.max(35, Math.ceil((longest * 1.6) / 2.2)) + 1 };
+  };
+  /** Rows added up; an empty total starts at the budgets' 200. */
+  const sizeOf = (rows, from = { chars: 0, bytes: 0, cells: 0, tokens: 200 }) => rows.reduce((n, row) => {
+    const s = row.chars === undefined ? rowSize(row) : row;
+    return { chars: n.chars + s.chars, bytes: n.bytes + s.bytes, cells: n.cells + s.cells, tokens: n.tokens + s.tokens };
+  }, from);
+  /** The server's fill budget for these rows (sheets.js fillTokens): R2X2, sentence-length answers. */
+  const fillTokens = (rows) => sizeOf(rows).tokens;
+  const cleanTokens = (rows) => {
+    const n = sizeOf(rows);
+    return tokensFor(n.bytes, n.cells);
   };
 
   /**
@@ -448,33 +460,21 @@
   function chunksFor(action, values, formulas, t = EN) {
     const parts = [];
     let start = 0;
-    let chars = 0;
-    let bytes = 0;
-    let cells = 0;
-    let tokens = 200;
-    const rowSize = (r) => {
-      const row = action === 'clean' ? values[r].map(asSent) : values[r];
-      const f = formulas && formulas[r] ? charsOf([formulas[r]]) : 0;
-      return { chars: charsOf([row]) + f, bytes: row.reduce((n, c) => n + utf8(cellText(c)), 0), cells: Math.max(1, row.length), tokens: action === 'fill' ? fillRowTokens(row) : 0 };
-    };
+    let sum = sizeOf([]);
     // Fill: at most fillRows rows, 5,000 cells (a wide source next to an empty column) and the server's
     // answer budget per part (R2X2: long answers like translations need more than a word a row).
     const fits = (n, count) => n.chars <= LIMITS.partChars && (action === 'fill' ? count <= LIMITS.fillRows && n.cells <= LIMITS.cells && n.tokens <= LIMITS.fillTokens : tokensFor(n.bytes, n.cells) <= LIMITS.cleanTokens - 100);
     for (let r = 0; r < values.length; r++) {
-      const s = rowSize(r);
-      if (!fits({ ...s, tokens: 200 + s.tokens }, 1)) return { error: t('rowTooBig', { row: r + 1, action: t(action).toLowerCase() }) };
-      if (r > start && !fits({ chars: chars + s.chars, bytes: bytes + s.bytes, cells: cells + s.cells, tokens: tokens + s.tokens }, r + 1 - start)) {
+      const s = rowSize(action === 'clean' ? values[r].map(asSent) : values[r]);
+      if (formulas && formulas[r]) s.chars += charsOf([formulas[r]]);
+      const one = sizeOf([s]);
+      if (!fits(one, 1)) return { error: t('rowTooBig', { row: r + 1, action: t(action).toLowerCase() }) };
+      sum = sizeOf([s], sum);
+      if (r > start && !fits(sum, r + 1 - start)) {
         parts.push({ start, end: r });
         start = r;
-        chars = 0;
-        bytes = 0;
-        cells = 0;
-        tokens = 200;
+        sum = one;
       }
-      chars += s.chars;
-      bytes += s.bytes;
-      cells += s.cells;
-      tokens += s.tokens;
     }
     if (values.length > start) parts.push({ start, end: values.length });
     if (parts.length > LIMITS.parts) return { error: t('tooMuchAtOnce', { action: t(action).toLowerCase() }) };
@@ -664,8 +664,7 @@
   // "$5", "1E5", 15+ digits), a fraction, a date or a time ("1-2", "3/4", "Mar 5", "12:30", "1 PM"), a
   // percentage, TRUE/FALSE, an error, a formula. Ordinary text with a digit ("Building 5", "Q1 2024") isn't.
   const NUMBERISH = /^\s*[-+(]?\s*[$€£¥]?\s*(\d[\d\s,.'’]*|\.\d+)([eE][-+]?\d+)?\s*[%$€£¥]?\s*\)?\s*$/;
-  const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|janv|févr|fevr|avr|mai|juin|juil|août|aout|déc)';
-  const DATELIKE = new RegExp(`\\d\\s*[/-]\\s*\\d|\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}|\\d:\\d\\d|^\\s*\\d{1,2}\\s*[ap]\\.?m\\.?\\s*$|\\b${MONTH}[a-zé]*\\.?[\\s,-]*\\d|\\d[\\s-]*${MONTH}`, 'i');
+  const DATELIKE = new RegExp(`${DMY}|^\\s*\\d{1,2}\\s*[ap]\\.?m\\.?\\s*$|\\b${MONTH}[a-zé]*\\.?[\\s,-]*\\d|\\d[\\s-]*${MONTH}`, 'i');
   const rereads = (s) => /^[=+\-@\t\r]/.test(s) || boolOf(s) !== null || /^\s*#/.test(s) || NUMBERISH.test(s) || DATELIKE.test(s);
   const zeros = (n) => (n ? `.${'0'.repeat(n)}` : '');
   const digits15 = (s) => s.replace(/\D/g, '').replace(/^0+/, '').length <= 15;
