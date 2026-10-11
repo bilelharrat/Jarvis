@@ -8,7 +8,7 @@ import { after, beforeEach, test } from 'node:test';
 import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { bytesToB64, parseToken } from '../src/accounts/util.js';
-import { MAC_OFFLINE, MAC_ROUTES, WEB_RELAY, clientWait, frame, macRoute, unframe } from '../src/accounts/webrelay.js';
+import { APPROVAL_PENDING, MAC_OFFLINE, MAC_ROUTES, WEB_RELAY, askMac, clientWait, frame, macRoute, unframe } from '../src/accounts/webrelay.js';
 import { PRIVACY_MAC_OFFLINE, PRIVACY_NEEDS_MAC } from '../src/eden/chat.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { CLAUDE_NEEDS_KEY, testOnlyServiceClaude } from '../src/eden/providers.js';
@@ -47,6 +47,15 @@ after(() => {
 });
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+/** Until `ready()` is true: polled on the wall clock (not a count of ticks, which a busy CPU can outrun), 5 s at most. */
+async function until(ready, ms = 5000) {
+  const end = Date.now() + ms;
+  while (!ready()) {
+    if (Date.now() > end) throw new Error('timed out waiting');
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+const ends = (ws) => ws.sent.slice(ws.read).filter((m) => typeof m === 'string' && JSON.parse(m).t === 'end').length;
 async function settle() {
   while (waits.length) await Promise.all(waits.splice(0));
 }
@@ -109,7 +118,7 @@ const say = (o, ws, message) => o.account.webSocketMessage(ws, typeof message ==
 
 /** The Mac's request as it arrived: { head, body }. */
 async function request(ws) {
-  for (let i = 0; i < 50 && !ws.sent.slice(ws.read).some((m) => typeof m === 'string' && JSON.parse(m).t === 'end'); i++) await tick();
+  await until(() => ends(ws) >= 1);
   const got = frames(ws);
   const head = got.find((f) => f.t === 'req');
   const body = dec.decode(Buffer.concat(got.filter((f) => f.bin && f.id === head.id).map((f) => f.payload)));
@@ -438,7 +447,7 @@ test('the Mac going away ends what it was answering: "offline" before an answer,
   const ws = await connect(o);
   const waiting = chat('/api/chat/projects', o.session);
   const streaming = chat('/api/chat/code', o.session, { method: 'POST', body: { prompt: 'go' } });
-  for (let i = 0; i < 50 && ws.sent.slice(ws.read).filter((m) => typeof m === 'string' && JSON.parse(m).t === 'end').length < 2; i++) await tick();
+  await until(() => ends(ws) >= 2);
   const reqs = frames(ws).filter((f) => f.t === 'req');
   const code = reqs.find((r) => r.path === '/api/chat/code');
   say(o, ws, { t: 'res', id: code.id, status: 200, headers: { 'content-type': 'text/event-stream' } });
@@ -639,7 +648,7 @@ test('x-eden-wait: Jarvis waiting on its card on the Mac → 202 {approval:"wait
   assert.ok(Date.now() - started < 1500, 'right after it');
   assert.deepEqual(asked, ['POST /api/chat/jarvis', 'GET /api/chat/jarvis/status'], 'the status is asked while the call still waits');
   await settle();
-  for (let i = 0; i < 20 && o.account.webStreams.size; i++) await tick();
+  await until(() => !o.account.webStreams.size, 2000).catch(() => {});
   const jarvisId = ws.sent.map((m) => (typeof m === 'string' ? JSON.parse(m) : {})).find((m) => m.t === 'req' && m.path === '/api/chat/jarvis').id;
   assert.ok(ws.sent.some((m) => typeof m === 'string' && JSON.parse(m).t === 'cancel' && JSON.parse(m).id === jarvisId), 'the waiting call is cancelled on the Mac');
   assert.equal(o.account.webStreams.size, 0);
@@ -676,7 +685,7 @@ test('x-eden-wait: a Mac that is slow or unreachable → 504 mac_timeout at the 
     delete env.EDEN_CHAT_VIA_MAC;
   }
   await settle();
-  for (let i = 0; i < 20 && o.account.webStreams.size; i++) await tick();
+  await until(() => !o.account.webStreams.size, 2000).catch(() => {});
   assert.equal(o.account.webStreams.size, 0, 'nothing left waiting');
 });
 
@@ -702,4 +711,169 @@ test('x-eden-wait: a Mac that answers in time answers as usual; without the head
   assert.deepEqual(await old.json(), { error: 'Your Mac didn’t answer in time.', code: 'mac_timeout' });
   assert.ok(Date.now() - started >= 290, 'the relay’s whole wait, not the page’s');
   assert.deepEqual(asked, ['/api/chat/jarvis'], 'no status probe without the header');
+});
+
+// ── one Jarvis call, once (R2C-4), 202 only for it (R2C-5), the probe's edges (R2C-14) ──
+
+const RID = 'c0ffee00-1111-4222-8333-444455556666';
+const jarvisReqs = (ws) => ws.sent.filter((m) => typeof m === 'string' && JSON.parse(m).t === 'req' && JSON.parse(m).path === '/api/chat/jarvis').map((m) => JSON.parse(m));
+
+test('R2C-4: a Jarvis call with x-eden-request-id goes on after its 202; the retry gets its answer, the Mac is asked once', async () => {
+  WEB_RELAY.second = 10; // 20 "seconds" = 200 ms
+  WEB_RELAY.probeMs = 500;
+  const o = await owner();
+  const ws = await connect(o);
+  autoAnswer(o, ws, ({ head }) => (head.path === '/api/chat/jarvis/status' ? { chunks: [JSON.stringify({ available: true, reason: null, approval: 'waiting' })] } : null));
+  const call = { tool: 'mail_send', arguments: { to: ['a@example.com'], subject: 'Hi', body: 'Hello' } };
+  const ask = (body = call, rid = RID) => chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20', 'x-eden-request-id': rid }, body });
+
+  const first = await ask();
+  assert.equal(first.status, 202);
+  assert.deepEqual(await first.json(), { approval: 'waiting' });
+  await settle();
+  const [original] = jarvisReqs(ws);
+  assert.equal(original.headers['x-eden-request-id'], RID, 'the id reaches the Mac too');
+  assert.ok(!ws.sent.some((m) => typeof m === 'string' && JSON.parse(m).t === 'cancel' && JSON.parse(m).id === original.id), 'the call is not cancelled on the Mac');
+  assert.equal(o.account.webStreams.size, 1, 'it still waits on the card');
+
+  // The page asks again while the card is still up: it waits on the same call, and gets 202 again.
+  const again = await ask();
+  assert.equal(again.status, 202);
+  await settle();
+  assert.equal(jarvisReqs(ws).length, 1, 'not sent to the Mac a second time');
+
+  // The same id for another call is the page's mistake.
+  const reused = await ask({ tool: 'recall', arguments: {} });
+  assert.equal(reused.status, 409);
+  assert.equal((await reused.json()).code, 'request_id_reused');
+
+  // A retry waiting when the owner approves gets the answer as it comes.
+  const waiting = ask();
+  await until(() => o.account.webWaiters?.size === 1);
+  say(o, ws, { t: 'res', id: original.id, status: 200, headers: { 'content-type': 'application/json' } });
+  say(o, ws, frame(original.id, enc.encode(JSON.stringify({ text: 'Sent.', is_error: false }))));
+  say(o, ws, { t: 'end', id: original.id });
+  const answered = await waiting;
+  assert.equal(answered.status, 200);
+  assert.equal(answered.headers.get('x-eden-replayed'), '1');
+  assert.deepEqual(await answered.json(), { text: 'Sent.', is_error: false });
+
+  // And one after it finished: the kept answer, at once.
+  const later = await ask();
+  assert.equal(later.status, 200);
+  assert.equal(later.headers.get('x-eden-replayed'), '1');
+  assert.deepEqual(await later.json(), { text: 'Sent.', is_error: false });
+  assert.equal(jarvisReqs(ws).length, 1, 'the Mac ran it once');
+
+  // A new id is a new call; a kept answer expires.
+  WEB_RELAY.replayMs = 0;
+  autoAnswer(o, ws, () => ({ chunks: [JSON.stringify({ text: 'Sent again.', is_error: false })] }));
+  const fresh = await ask(call, 'aaaaaaaa-1111-4222-8333-444455556666');
+  assert.deepEqual(await fresh.json(), { text: 'Sent again.', is_error: false });
+  assert.equal(fresh.headers.get('x-eden-replayed'), null);
+  const expired = await ask(call, 'aaaaaaaa-1111-4222-8333-444455556666');
+  assert.equal(expired.headers.get('x-eden-replayed'), null, 'expired: asked again');
+  assert.equal(jarvisReqs(ws).length, 3);
+  await settle();
+});
+
+test('R2C-4: a malformed request id is a 400; without one, a tool that writes gets 504 approval_pending, never a 202', async () => {
+  WEB_RELAY.second = 10;
+  WEB_RELAY.probeMs = 500;
+  const o = await owner();
+  const ws = await connect(o);
+  autoAnswer(o, ws, ({ head }) => (head.path === '/api/chat/jarvis/status' ? { chunks: [JSON.stringify({ available: true, reason: null, approval: 'waiting' })] } : null));
+  const bad = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20', 'x-eden-request-id': 'short' }, body: { tool: 'recall', arguments: {} } });
+  assert.equal(bad.status, 400);
+  const writes = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20' }, body: { tool: 'calendar_delete', arguments: { id: 'e1' } } });
+  assert.equal(writes.status, 504);
+  assert.deepEqual(await writes.json(), { error: APPROVAL_PENDING, code: 'approval_pending' });
+  const reads = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20' }, body: { tool: 'mail_search', arguments: {} } });
+  assert.equal(reads.status, 202, 'a read may be asked twice');
+  await settle();
+});
+
+test('R2C-5: a chat turn through the Mac (and mac/send, undo, a brief) never gets a 202: a 504 mac_timeout, no status asked', async () => {
+  WEB_RELAY.second = 10;
+  WEB_RELAY.probeMs = 500;
+  const o = await owner();
+  const ws = await connect(o);
+  const asked = [];
+  autoAnswer(o, ws, ({ head }) => {
+    asked.push(head.path);
+    return head.path === '/api/chat/jarvis/status' ? { chunks: [JSON.stringify({ available: true, reason: null, approval: 'waiting' })] } : null;
+  });
+  env.EDEN_CHAT_VIA_MAC = '1';
+  try {
+    const turn = await chat('/api/chat/send', o.session, { method: 'POST', headers: { 'x-eden-wait': '25', 'x-eden-request-id': RID }, body: { messages: [{ role: 'user', content: 'hi' }] } });
+    assert.equal(turn.status, 504);
+    assert.equal((await turn.json()).code, 'mac_timeout');
+  } finally {
+    delete env.EDEN_CHAT_VIA_MAC;
+  }
+  for (const [path, body] of [['/api/chat/mac/send', { messages: [{ role: 'user', content: 'hi' }] }], ['/api/chat/actions/undo', { id: 'a1' }], ['/api/chat/brief', { kind: 'brief' }]]) {
+    const r = await chat(path, o.session, { method: 'POST', headers: { 'x-eden-wait': '20' }, body });
+    assert.equal(r.status, 504, path);
+    assert.equal((await r.json()).code, 'mac_timeout', path);
+  }
+  assert.ok(!asked.includes('/api/chat/jarvis/status'), 'the Jarvis status is asked only for a Jarvis call');
+  await settle();
+  await until(() => !o.account.webStreams.size, 2000).catch(() => {});
+  assert.equal(o.account.webStreams.size, 0);
+});
+
+test('R2C-14: a real relay error during the probe is itself, not a timeout; the probe has room at the stream limit; the 7.5 s rounds', async () => {
+  WEB_RELAY.second = 10;
+  WEB_RELAY.probeMs = 500;
+  const o = await owner();
+  let ws = await connect(o);
+  // (b) at the limit, the probe still runs: the card is seen.
+  WEB_RELAY.streams = 1;
+  autoAnswer(o, ws, ({ head }) => (head.path === '/api/chat/jarvis/status' ? { chunks: [JSON.stringify({ available: true, reason: null, approval: 'waiting' })] } : null));
+  const full = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20' }, body: { tool: 'recall', arguments: {} } });
+  assert.equal(full.status, 202);
+  await settle();
+  await until(() => !o.account.webStreams.size, 2000).catch(() => {});
+  WEB_RELAY.streams = DEFAULTS.streams;
+  // (a) the Mac's link drops while its status is asked: "offline", not "too slow".
+  autoAnswer(o, ws, ({ head }) => {
+    if (head.path === '/api/chat/jarvis/status') {
+      ws.close(1006, 'gone');
+      o.account.webSocketClose(ws, 1006);
+    }
+    return null;
+  });
+  const dropped = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '20' }, body: { tool: 'recall', arguments: {} } });
+  assert.equal(dropped.status, 503);
+  assert.equal((await dropped.json()).code, 'mac_offline');
+  // (d) whole seconds in the words.
+  ws = await connect(o);
+  autoAnswer(o, ws, () => null);
+  const slow = await chat('/api/chat/jarvis', o.session, { method: 'POST', headers: { 'x-eden-wait': '7.5' }, body: { tool: 'recall', arguments: {} } });
+  assert.equal(slow.status, 504);
+  assert.match((await slow.json()).error, /within 8 seconds/);
+  await settle();
+});
+
+test('R2C-14c: a request let go before it reached the relay never reaches the Mac', async () => {
+  const o = await owner();
+  const ws = await connect(o);
+  const who = { account: o.browser.account, token: o.browser };
+  // Already let go: askMac doesn't forward it.
+  const gone = new AbortController();
+  gone.abort();
+  const req = new Request(`${ORIGIN}/api/chat/jarvis`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tool: 'recall', arguments: {} }) });
+  await assert.rejects(askMac(req, env, ctx, who, '/api/chat/jarvis', { signal: gone.signal }), (e) => e.status === 499);
+  // Its cancel arriving at the account's object before the forward: the forward is refused.
+  const account = env.ACCOUNTS.get(env.ACCOUNTS.idFromName(o.browser.account));
+  const auth = { 'content-type': 'application/json', 'x-jarvis-device': o.browser.device, 'x-jarvis-secret': o.browser.secret };
+  const id = '0123456789abcdef';
+  await account.fetch('https://account/web-cancel', { method: 'POST', headers: auth, body: JSON.stringify({ id }) });
+  const late = await account.fetch('https://account/web-forward', {
+    method: 'POST',
+    headers: { ...auth, 'content-type': 'application/octet-stream', 'x-eden-stream': id, 'x-eden-method': 'GET', 'x-eden-path': '/api/chat/projects' },
+  });
+  assert.equal(late.status, 499);
+  await settle();
+  assert.equal(frames(ws).filter((f) => f.t === 'req').length, 0, 'nothing reached the Mac');
 });

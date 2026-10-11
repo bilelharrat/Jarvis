@@ -13,7 +13,7 @@
 // links are http(s) only (verify-model.js). A reply EVES wrote has its own badge (eves.js) instead.
 // The words are in verify-model.js (pure, tested).
 
-import { $, el, ico, svgEl } from './util.js';
+import { $, el } from './util.js';
 import { state } from './state.js';
 import { renderMarkdown } from './markdown.js';
 import { isTainted } from './guard.js';
@@ -38,18 +38,6 @@ export function noteVerification(node, ev) {
   if (!kept && swap) kept = { label: { kind: 'issues_found', text: '', detail: '' }, findings: [], repaired: { struck: [], regenerated: false, replaced: true } }; // a swap always has a chip
   if (kept) node.verification = kept;
   return !!kept;
-}
-
-/** The small icon for a severity: a shield with a check for ok, an i for info, a triangle for a caution, a cross for a problem. */
-export function severityIcon(severity, size = 14) {
-  if (severity === 'ok') return ico('shield', size, 'vf-ic');
-  if (severity === 'info') return ico('info', size, 'vf-ic');
-  const s = svgEl('svg', { class: 'ic vf-ic', viewBox: '0 0 24 24', 'aria-hidden': 'true' });
-  s.style.width = `${size}px`;
-  s.style.height = `${size}px`;
-  if (severity === 'warn') s.append(svgEl('path', { d: 'M12 4.2l8.4 14.6H3.6L12 4.2z' }), svgEl('path', { d: 'M12 10v4M12 16.8v.2' }));
-  else s.append(svgEl('circle', { cx: 12, cy: 12, r: 8.5 }), svgEl('path', { d: 'M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6' }));
-  return s;
 }
 
 /** An external link: only http(s), opened in a new tab without handing over the page. A bad URL is just its text. */

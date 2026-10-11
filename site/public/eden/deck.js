@@ -16,11 +16,15 @@ import { openDeckCanvas, deckCanvasVersion, pushDeckVersion, artifactSend, close
 import { setComposerText } from './composer.js';
 import { openPublish } from './publish.js';
 import { labelView } from './verify-model.js';
+import { IN_APP, appPrint } from './native.js'; // the PDF in the iPhone app: the app prints (R2-8)
 import {
   THEMES, normalizeDeck, deckFromReply, deckSystem, deckContext, slidesAsked, addVersion, setText, moveSlide, deleteSlide,
   duplicateSlide, setTheme, setImage, missingAlt, imagesUsed, editablePath, slideRequest, deckOutline, deckFileName, looseJson,
 } from './deck-model.js';
-import { deckDocument, LABELS } from './deck-render.js';
+// the deck's own page (deck-render.js, 48 KB): loaded when a deck is first drawn, printed or shared
+// (a load that failed, offline, is tried again the next time: R2C-19)
+let renderP = null;
+const deckRender = () => (renderP ??= import('./deck-render.js').catch((e) => { renderP = null; throw e; }));
 
 const versionsOf = (c) => (c && Array.isArray(c.deckVersions) ? c.deckVersions : []);
 const latest = (c) => { const v = versionsOf(c).at(-1); return v ? v.deck : null; };
@@ -152,7 +156,7 @@ function labelFor(c, v) {
   return '';
 }
 
-const labels = () => Object.fromEntries(Object.entries(LABELS).map(([k, s]) => [k, tx(s)]));
+const labels = (LABELS) => Object.fromEntries(Object.entries(LABELS).map(([k, s]) => [k, tx(s)]));
 const darkUi = () => document.documentElement.dataset.theme === 'dark';
 
 /** Draw the shown version in the canvas (artifact.js calls this for a deck). */
@@ -169,8 +173,11 @@ export async function renderDeckPreview(box, v) {
     v.deckIdx = versionsOf(c).length - 1;
     save(c);
   }
+  let R;
+  try { R = await deckRender(); } catch (e) { box.replaceChildren(el('div', 'art-loading', `Couldn’t load the slides: ${e.message}. Open the deck again to retry.`)); return; }
+  const { deckDocument, LABELS } = R;
   const deck = r.deck;
-  const html = deckDocument(deck, { mode: 'edit', images: c.deckImages || {}, start: view.at, label: labelFor(c, v), labels: labels(), darkUi: darkUi(), lang: document.documentElement.lang || 'en' });
+  const html = deckDocument(deck, { mode: 'edit', images: c.deckImages || {}, start: view.at, label: labelFor(c, v), labels: labels(LABELS), darkUi: darkUi(), lang: document.documentElement.lang || 'en' });
   const wrap = el('div', { class: 'deck-stage', id: 'deckStage' });
   box.replaceChildren(toolbar(c, deck), el('div', { class: 'deck-panel', id: 'deckPanel', hidden: true }), wrap);
   let url = view.urls.get(html);
@@ -401,11 +408,15 @@ async function exportPptx() {
   } catch (e) { toast(`PowerPoint export failed: ${e.message}`); }
 }
 
-function exportPdf() {
+async function exportPdf() {
   const c = cur(), deck = currentDeck();
   if (!c || !deck) return;
+  let R;
+  try { R = await deckRender(); } catch (e) { toast(`Couldn’t load the slides: ${e.message}. Try again.`); return; }
+  const { deckDocument, LABELS } = R;
   // a copy with no script at all, in a frame that can't run any: the browser's print, "Save as PDF"
-  const html = deckDocument(deck, { mode: 'static', images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()), labels: labels() });
+  const html = deckDocument(deck, { mode: 'static', images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()), labels: labels(LABELS) });
+  if (IN_APP) { appPdf(deck, html); return; }
   const f = el('iframe', { sandbox: 'allow-same-origin allow-modals', title: 'Print', 'aria-hidden': 'true', style: { position: 'fixed', right: '0', bottom: '0', width: '1px', height: '1px', border: '0', opacity: '0' } });
   f.addEventListener('load', () => {
     try { f.contentWindow.focus(); f.contentWindow.print(); } catch { toast('Printing isn’t available here: download the PowerPoint instead'); }
@@ -414,6 +425,61 @@ function exportPdf() {
   f.srcdoc = html;
   document.body.append(f);
   toast('Choose “Save as PDF” in the print dialog (one slide a page)');
+}
+
+/**
+ * The PDF in the Eden iPhone app, where window.print() does nothing (R2-8): the script-free copy
+ * goes into a print view in this page (a shadow root, shown only when printing, its own styles
+ * kept inside), and the app prints the page (its print sheet also saves a PDF to Files). An app
+ * without print gets the PowerPoint instead, and says so.
+ */
+async function appPdf(deck, html) {
+  const host = printView(html);
+  const root = document.documentElement;
+  root.classList.add('eden-printing');
+  // the slide's page size while this prints (a page-wide @page would change any other print)
+  const pageSize = el('style', { id: 'edenPrintPage' }, '@page{size:13.333in 7.5in;margin:0}');
+  document.head.append(pageSize);
+  const end = () => { root.classList.remove('eden-printing'); host.remove(); pageSize.remove(); };
+  toast('Choose “Save to Files” or a printer in the print sheet (one slide a page)');
+  // An app that doesn't say it prints and hasn't answered: an older Eden app, where nothing opens.
+  // Say so, with the PowerPoint to share instead (a late print sheet still works).
+  const onSlow = () => toast('No print sheet? This version of the Eden app can’t make a PDF', { label: 'Share the PowerPoint', run: () => exportPptx() });
+  let r = 'unsupported';
+  try { r = await appPrint(deck.title || 'Slides', { onSlow }); } catch { /* the app is gone */ }
+  end();
+  if (r === 'unsupported') {
+    toast('This version of the Eden app can’t make a PDF: here’s the PowerPoint instead');
+    exportPptx();
+  }
+}
+/** The static deck as a print-only element of this page: no scripts, no handlers, styles in a shadow root. */
+function printView(html) {
+  const old = document.getElementById('edenPrint');
+  if (old) old.remove();
+  const doc = new DOMParser().parseFromString(html, 'text/html'); // (nothing in a parsed document runs)
+  for (const x of doc.querySelectorAll('script, iframe, object, embed, link, meta, base, form')) x.remove();
+  for (const x of doc.querySelectorAll('*')) {
+    for (const a of [...x.attributes]) {
+      if (/^on/i.test(a.name) || (/^(href|src|xlink:href|action|formaction)$/i.test(a.name) && /^\s*javascript:/i.test(a.value))) x.removeAttribute(a.name);
+    }
+  }
+  // the deck's own document styles its <body>: here that's a wrapper div
+  const style = [...doc.querySelectorAll('style')].map((x) => x.textContent).join('\n')
+    .replace(/(^|[\s{},>~+(])(html|body)(?=[\s{,.:#[>~+)])/g, '$1.dk-$2');
+  const host = el('div', { id: 'edenPrint', 'aria-hidden': 'true' });
+  const shadow = host.attachShadow({ mode: 'open' });
+  const page = document.createElement('div');
+  page.className = `dk-html`;
+  const body = document.createElement('div');
+  body.className = `dk-body ${doc.body.className}`;
+  body.append(...[...doc.body.childNodes].map((n) => document.importNode(n, true)));
+  page.append(body);
+  const st = document.createElement('style');
+  st.textContent = `:host{display:block}${style}`;
+  shadow.append(st, page);
+  document.body.append(host);
+  return host;
 }
 
 function googleSlides() {
@@ -445,11 +511,14 @@ function googleSlides() {
     status)]);
 }
 
-function share() {
+async function share() {
   const c = cur(), deck = currentDeck();
   if (!c || !deck) return;
+  let R;
+  try { R = await deckRender(); } catch (e) { toast(`Couldn’t load the slides: ${e.message}. Try again.`); return; }
+  const { deckDocument, LABELS } = R;
   // a view-only copy: present mode, no editing, nothing sent back
-  openPublish({ title: deck.title, html: deckDocument(deck, { mode: 'present', images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()), labels: labels(), embedded: false }) });
+  openPublish({ title: deck.title, html: deckDocument(deck, { mode: 'present', images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()), labels: labels(LABELS), embedded: false }) });
 }
 
 export { closeArtifact as closeDeck };

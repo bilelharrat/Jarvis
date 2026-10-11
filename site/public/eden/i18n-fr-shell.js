@@ -298,7 +298,10 @@ const exact = {
   'Take the tour': 'Faire la visite guidée',
   'Try every feature, safely': 'Essayez chaque fonction, sans risque',
   'Download apps': 'Télécharger les apps',
-  'J.A.R.V.I.S. for Mac, Eden Messenger': 'J.A.R.V.I.S. pour Mac, Eden Messenger',
+  'Eden for Mac, Eden Messenger': 'Eden pour Mac, Eden Messenger',
+  'This app': 'Cette app',
+  'App settings': 'Réglages de l’app',
+  'The Eden app’s own settings: the server, Delete Account…, and the welcome tour.': 'Les réglages de l’app Eden elle-même : le serveur, Supprimer le compte… et la visite d’accueil.',
   'Unpin this chat': 'Désépingler cette discussion',
   'Pin this chat': 'Épingler cette discussion',
   'Rename this chat': 'Renommer cette discussion',
@@ -327,7 +330,7 @@ const exact = {
 
   /* ---------- app.js: Settings › Memory ---------- */
   'Eden remembers helpful details across chats, like your name, preferences and projects.': 'Eden retient des détails utiles d’une discussion à l’autre, comme votre nom, vos préférences et vos projets.',
-  'On this Mac, memory across chats comes from J.A.R.V.I.S. Saved memories are an askeden.com feature.': 'Sur ce Mac, la mémoire entre les discussions vient de J.A.R.V.I.S. Les souvenirs enregistrés sont une fonction d’askeden.com.',
+  'On this Mac, memory across chats comes from the Eden app. Saved memories are an askeden.com feature.': 'Sur ce Mac, la mémoire entre les discussions vient de l’app Eden. Les souvenirs enregistrés sont une fonction d’askeden.com.',
   'Couldn’t read your memory': 'Impossible de lire votre mémoire',
   'Use memory across chats': 'Utiliser la mémoire entre les discussions',
   'Memory on': 'Mémoire activée',
@@ -403,7 +406,7 @@ const exact = {
   'On this Mac': 'Sur ce Mac',
   'Mock mode': 'Mode simulé',
   'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Jarvis app on your Mac, and Code sessions for your projects.': 'Chaque message est routé par le routeur de modèles (des règles, évaluées par Gemini) et diffusé depuis le modèle choisi, avec votre second cerveau, votre mémoire et votre calendrier via l’app Jarvis sur votre Mac, et des sessions Code pour vos projets.',
-  'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.': 'La voix de J.A.R.V.I.S. : dictez avec le micro de la barre de saisie, faites lire les réponses à voix haute avec la voix d’Eden, ou parlez avec le bouton en forme d’onde. Le micro n’est utilisé que lorsque vous appuyez sur l’un d’eux.',
+  'Voice: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.': 'Voix : dictez avec le micro de la barre de saisie, faites lire les réponses à voix haute avec la voix d’Eden, ou parlez avec le bouton en forme d’onde. Le micro n’est utilisé que lorsque vous appuyez sur l’un d’eux.',
   'every answer on this page is simulated in the browser (?mock=1).': 'chaque réponse de cette page est simulée dans le navigateur (?mock=1).',
   'Eden · design: Kimi K3 (Atelier). Input bar: from Jarvis Code.': 'Eden · design : Kimi K3 (Atelier). Barre de saisie : issue de Jarvis Code.',
 

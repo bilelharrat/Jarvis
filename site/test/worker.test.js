@@ -228,7 +228,7 @@ test('universal links: the Eden iOS app may open askeden.com links, never the AP
   const detail = body.applinks.details[1];
   assert.deepEqual(detail.appIDs, ['8CV4X23Y2T.com.askeden.eden']);
   const excluded = detail.components.filter((c) => c.exclude).map((c) => c['/']);
-  for (const path of ['/api/*', '/signin*']) assert.ok(excluded.includes(path), `${path} stays in the browser`);
+  for (const path of ['/api/*', '/signin*', '/edu*']) assert.ok(excluded.includes(path), `${path} stays in the browser`);
   assert.equal(detail.components.at(-1)['/'], '/*');
 });
 

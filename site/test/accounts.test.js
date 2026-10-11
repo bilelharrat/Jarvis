@@ -489,7 +489,7 @@ const transaction = (accountId, extra = {}) => ({
   appAccountToken: accountId.toUpperCase(),
   purchaseDate: Date.now(),
   expiresDate: Date.now() + 30 * 86400_000,
-  environment: 'Sandbox',
+  environment: 'Production',
   ...extra,
 });
 
@@ -504,7 +504,7 @@ test('a purchase checked against the chain makes the account Plus', async () => 
   assert.equal(plus.status, 200, await plus.clone().text());
   const account = await plus.json();
   assert.equal(account.plan.name, 'plus');
-  assert.equal(account.plan.environment, 'Sandbox');
+  assert.equal(account.plan.environment, 'Production');
   assert.equal(account.usage.budget_usd, 20);
   assert.equal(account.usage.voice_daily, 100000);
   // Someone else's purchase, another app's, a broken signature.

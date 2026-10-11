@@ -281,6 +281,7 @@ const exact = {
   'It has finished.': 'Elle est terminée.',
   'Resume the task first.': 'Reprenez d’abord la tâche.',
   'Eden was busy with your chats; it tries again in a few minutes.': 'Eden était occupé avec vos discussions ; il réessaiera dans quelques minutes.',
+  'Eden is waiting for you to approve this on your Mac (“Let Eden use Jarvis?”). Once you approve it there, it runs; you don’t need to ask again.': 'Eden attend que vous l’approuviez sur votre Mac (« Laisser Eden utiliser Jarvis ? »). Une fois approuvé, il s’exécute ; inutile de redemander.',
   'Approve it in the J.A.R.V.I.S. app on your iPhone, or in Eden’s Tasks.': 'Approuvez-la dans l’app J.A.R.V.I.S. sur votre iPhone, ou dans les Tâches d’Eden.',
   'The included AI is not set up on askeden.com yet.': 'L’IA incluse n’est pas encore configurée sur askeden.com.',
 

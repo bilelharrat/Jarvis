@@ -14,6 +14,9 @@ import { detectSensitive, sensitiveSummary, whereOf } from './privacy-rules.js';
 
 export const NO_LOCAL_MODEL = 'Turn on Ollama or LM Studio to use privacy mode.';
 const HOSTED_REASON = 'Privacy mode needs your Mac, through its link to askeden.com.';
+// In the Eden iPhone app, Apple's on-device model answers private chats (native.js); the Mac is the fallback.
+const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(navigator.userAgent || '');
+const APP_REASON = 'Turn on Apple Intelligence (Settings › Apple Intelligence & Siri) to keep private chats on this iPhone, or connect your Mac.';
 
 let H = {};
 let draft; // privacy picked before the chat exists (undefined: the Settings default)
@@ -29,9 +32,12 @@ export function localStatus() {
   const phone = state.meta && state.meta.local;
   if (phone && phone.onDevice) return phone; // the Eden iPhone app answers private chats itself (native.js)
   const s = state.meta && state.meta.local;
-  if (hosted()) return s && s.viaMac ? s : { available: false, reason: HOSTED_REASON, models: [], servers: [] }; // the Mac's, through its link
+  if (hosted()) return s && s.viaMac ? s : { available: false, reason: IN_APP ? APP_REASON : HOSTED_REASON, models: [], servers: [] }; // the Mac's, through its link
   return s || { available: false, reason: state.meta ? NO_LOCAL_MODEL : 'Checking…', models: [], servers: [] };
 }
+
+/** Where a private chat is answered: this iPhone (Apple's model) or the Mac. */
+const onPhone = () => !!localStatus().onDevice;
 
 /** Is this chat private? (the draft chat's choice, or the default, until its first send fixes it) */
 export function privacyOn(c = state.current) {
@@ -82,7 +88,7 @@ function apply(c, on) {
   paint();
   if (H.schedulePreview) H.schedulePreview(); // the routing preview stops (or starts) with it
   if (!on) { toast('Privacy off: this chat is routed to cloud models again'); return; }
-  toast('Private: this chat stays on your Mac');
+  toast(onPhone() ? 'Private: this chat stays on this iPhone' : 'Private: this chat stays on your Mac');
   checkLocal().then((s) => { if (privacyOn() && !s.available) toast(s.reason || NO_LOCAL_MODEL); });
 }
 
@@ -121,8 +127,10 @@ export function paint() {
   const on = privacyOn(c);
   btn.setAttribute('aria-pressed', String(on));
   btn.classList.toggle('on', on);
-  btn.title = on ? 'Private: this chat stays on your Mac. Click to turn privacy off.' : 'Privacy mode: keep this chat on your Mac';
-  btn.setAttribute('aria-label', on ? 'Privacy mode on: this chat stays on your Mac' : 'Turn on privacy mode for this chat');
+  const phone = onPhone();
+  btn.title = on ? (phone ? 'Private: this chat stays on this iPhone. Tap to turn privacy off.' : 'Private: this chat stays on your Mac. Click to turn privacy off.')
+    : (phone ? 'Privacy mode: keep this chat on this iPhone' : 'Privacy mode: keep this chat on your Mac');
+  btn.setAttribute('aria-label', on ? (phone ? 'Privacy mode on: this chat stays on this iPhone' : 'Privacy mode on: this chat stays on your Mac') : 'Turn on privacy mode for this chat');
   paintBar();
 }
 
@@ -166,7 +174,7 @@ function paintBar() {
   if (hits.length && state.settings.sensitiveCheck !== false && sig !== dismissed) {
     bar.className = 'privacy-bar hint';
     bar.replaceChildren(ico('lock', 13),
-      el('span', 'pb-t', `This looks like it has ${sensitiveSummary(hits)}. Keep this chat on your Mac?`),
+      el('span', 'pb-t', `This looks like it has ${sensitiveSummary(hits)}. Keep this chat on ${onPhone() ? 'this iPhone' : 'your Mac'}?`),
       el('button', { type: 'button', class: 'cap primary', onclick: () => setPrivacy(true) }, 'Use privacy mode'),
       el('button', { type: 'button', class: 'pb-x', 'aria-label': 'Not now', title: 'Not now', onclick: () => { dismissed = sig; paintBar(); } }, ico('x', 12)));
     bar.hidden = false;
@@ -207,7 +215,7 @@ export function privacySettings() {
       }),
       modelRow),
     el('p', 'sp-note', hosted()
-      ? 'On askeden.com, private chats are answered by a local model on your Mac (Ollama or LM Studio), through its link (J.A.R.V.I.S. Settings › Account › Eden on the web reaches this Mac); never by a cloud model. Each reply shows where it was computed.'
+      ? 'On askeden.com, private chats are answered by a local model on your Mac (Ollama or LM Studio), through its link (Eden’s Settings on the Mac › Account › Eden on the web reaches this Mac); never by a cloud model. Each reply shows where it was computed.'
       : 'Privacy mode uses a model running on this Mac: install Ollama (ollama.com) or LM Studio, load a model, and keep it running. Web search is off in private chats. Each reply shows where it was computed.'));
   return sec;
 }

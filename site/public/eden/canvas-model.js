@@ -89,6 +89,22 @@ export function checkRun({ lang, code, stdin = '' }) {
   return { ok: true, runner };
 }
 
+/**
+ * JavaScript as the in-browser runner takes it: the snippet runs inside a function, so a module's
+ * top-level `export` (a line that starts with it) is a syntax error there (R2-14). `export` is taken
+ * off declarations (`export function f`, `export const x`, `export default class A`), `export default
+ * <value>;` keeps the value as a statement, and `export { a, b };` lists go (the names are declared
+ * already). Only at the very start of a line (top-level code isn't indented): an indented `export`,
+ * or one later in a line, stays as it is. `export … from` (a re-export) stays and fails as before.
+ */
+export function runnableJs(code) {
+  return String(code ?? '')
+    .replace(/^export\s*\{[^}]*\}\s*(?:from\s*(['"])[^'"\n]*\1)?\s*;?[ \t]*$/gm, (m, q) => (q ? m : ''))
+    .replace(/^export\s+default\s+(?=(?:async\s+)?function\b|class\b)/gm, '')
+    .replace(/^export\s+default\s+/gm, '')
+    .replace(/^export\s+(?=(?:async\s+)?function\b|class\b|const\b|let\b|var\b)/gm, '');
+}
+
 /** Appending output, capped: once the cap is reached the rest is dropped with one note. */
 export function appendCapped(total, text, cap = LIMITS.outputBytes) {
   if (total >= cap) return { text: '', total, cut: false };

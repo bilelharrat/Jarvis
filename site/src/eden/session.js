@@ -822,7 +822,7 @@ async function nativeApple(request, env) {
   const authCode = typeof body.authorization_code === 'string' && body.authorization_code.length <= 4096 ? body.authorization_code : '';
   if (authCode && !canRevoke(env)) noSiwaKeyOnce();
   const appleGrant = authCode && canRevoke(env) ? async () => {
-    const token = await exchangeAppleCode(env, authCode, fetch, clientId);
+    const token = await exchangeAppleCode(env, authCode, fetch, clientId, { sub: claims.sub }); // same user and app (R2C-12)
     return token ? { token, client_id: clientId } : null;
   } : null;
   const code = await stashHandoff(request, env, { provider: 'apple', sub: claims.sub, email: null, appleGrant });

@@ -1,11 +1,11 @@
 // The account page, in Eden at askeden.com (site/docs/web-auth.md, GET /api/web/account): the
 // plan and what's left of the included AI, the devices and browsers signed in (a browser may
-// sign browsers out; the apps are removed in the J.A.R.V.I.S. app), the ways to sign in (Apple,
+// sign browsers out; the apps are removed in the Eden app), the ways to sign in (Apple,
 // Google, a passkey: add one, unlink one while another remains; a passkey is made right here with
 // WebAuthn, /api/web/passkey/options and /verify in "add" mode) and, without Plus, where to get it: by card
 // with Stripe Checkout once askeden.com's billing is set up (config `billing`), or in the
-// J.A.R.V.I.S. iPhone app. Inside the Eden iOS app only the iPhone app is offered (Apple's in-app
-// purchase rules) unless the server's `billing_in_app` flag says otherwise. With Plus: "Manage
+// Eden iPhone app. Inside the Eden iOS app nothing about buying elsewhere is shown (Apple's in-app
+// purchase rules, R2C-2): the Plan just says which plan it is, unless the server's `billing_in_app` flag says otherwise. With Plus: "Manage
 // billing" (Stripe's Customer Portal) or "Manage in the App Store", for whichever paid.
 //
 // Also: Sync (H1: this browser's end-to-end encrypted chat history, sync.js), Delegates (H14:
@@ -231,6 +231,8 @@ export function closeAccount() {
   const s = $('accountSheet');
   if (!s || !s.classList.contains('open')) return false;
   s.classList.remove('open');
+  const ab = $('acctBody');
+  if (ab) ab.classList.remove('acct-del-room');
   const back = returnFocus;
   returnFocus = null;
   if (back && back !== document.body && document.contains(back)) back.focus();
@@ -468,12 +470,12 @@ async function drawE2e(box) {
     fill(box, lead,
       code ? el('div', 'icard acct-card acct-wait',
         el('b', '', 'Waiting for approval'),
-        el('p', 'acct-sub', 'On a device that already syncs (another browser: Account › Sync; or the J.A.R.V.I.S. app on your iPhone or Mac, in Settings under your Jarvis account), approve this one if it shows the same code:'),
+        el('p', 'acct-sub', 'On a device that already syncs (another browser: Account › Sync; or the Eden app on your iPhone or Mac, in Settings under your Eden account), approve this one if it shows the same code:'),
         el('div', 'acct-code-big', code),
         el('div', 'acct-row-actions', el('button', { type: 'button', class: 'cap', onclick: () => { Sync.cancelRequest(); waitingCode = null; drawSync(box); } }, 'Cancel')))
         : el('div', 'icard acct-card acct-form',
           el('b', '', 'Trust this browser'),
-          el('p', 'acct-sub', 'Sync is on for your account. Approve this browser from a device that already syncs, a browser or the J.A.R.V.I.S. app (both show the same six digits), or use your recovery passphrase.'),
+          el('p', 'acct-sub', 'Sync is on for your account. Approve this browser from a device that already syncs, a browser or the Eden app (both show the same six digits), or use your recovery passphrase.'),
           el('div', 'acct-row-actions', ask),
           el('div', 'acct-join-row', f.a, unlock)),
       i.error ? el('p', 'sp-note', i.error) : null);
@@ -720,15 +722,17 @@ function planSection(a, config = {}) {
       el('div', 'grow',
         el('b', '', 'Plus'),
         el('p', '', `Includes ${included} of AI every month, and credits cost less. Pay by card with Stripe; cancel any time.`),
-        el('p', 'acct-alt', 'or in the J.A.R.V.I.S. iPhone app')),
+        IN_APP ? null : el('p', 'acct-alt', 'or in the Eden iPhone app')), // in the app: no word about buying elsewhere (App Store 3.1.1)
       el('div', 'acct-plus-btns',
         el('button', { type: 'button', class: 'btn primary', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'monthly' }) }, `Get Plus: ${price}/month`),
         yearly ? el('button', { type: 'button', class: 'btn', onclick: (e) => openBilling(e.currentTarget, 'checkout', { plan: 'yearly' }) }, `${usd(yearly, null)}/year`) : null));
-  } else if (!plus) {
+  } else if (!plus && !IN_APP) {
+    // In the Eden iOS app nothing here: no text or button about buying Plus elsewhere, nor "Get the
+    // iPhone app" (App Store 3.1.1 / 3.1.3, R2C-2). The Plan above just says which plan this is.
     getPlus = el('div', 'acct-plus',
       el('div', 'grow',
-        el('b', '', 'Get Plus in the J.A.R.V.I.S. iPhone app'),
-        el('p', '', `Plus includes ${included} AI every month. It’s bought in the J.A.R.V.I.S. app for iPhone (Settings › Account), with your Apple ID${config.billing === true ? '.' : '; askeden.com takes no payments.'}`)),
+        el('b', '', 'Get Plus in the Eden iPhone app'),
+        el('p', '', `Plus includes ${included} AI every month. It’s bought in the Eden app for iPhone (Settings › Account), with your Apple ID${config.billing === true ? '.' : '; askeden.com takes no payments.'}`)),
       iPhone ? null : el('a', { class: 'btn primary', href: '/jarvis/iphone', target: '_blank', rel: 'noopener' }, 'Get the iPhone app'));
   }
 
@@ -832,7 +836,7 @@ function deviceRow(d) {
   } else if (web) {
     action = confirmButton('Sign out', 'Sign it out?', async () => { await post(`/api/web/devices/${encodeURIComponent(d.id)}/signout`); toast('Signed that browser out'); draw(); });
   } else {
-    action = el('span', 'acct-note', 'Remove in the J.A.R.V.I.S. app');
+    action = el('span', 'acct-note', 'Remove in the Eden app');
   }
   return el('li', `acct-dev${d.this ? ' this' : ''}`,
     el('span', 'acct-ico', glyph(d.kind)),
@@ -846,7 +850,7 @@ function devicesSection(a) {
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctDevH' }, el('h3', { id: 'acctDevH' }, 'Devices and browsers'),
     el('div', 'icard acct-card', el('ul', 'acct-list', ...devices.map(deviceRow))),
     el('div', 'acct-foot',
-      el('p', 'sp-note', 'Browsers stay signed in for 30 days. Your iPhone, iPad, Watch and Mac are removed in the J.A.R.V.I.S. app (Settings › Account).'),
+      el('p', 'sp-note', 'Browsers stay signed in for 30 days. Your iPhone, iPad, Watch and Mac are removed in the Eden app (Settings › Account).'),
       browsers ? confirmButton('Sign out everywhere', browsers === 1 ? 'Sign out this browser?' : `Sign out all ${browsers} browsers, this one too?`, async () => { await Sync.forgetAllKeys(); await post('/api/web/signout-everywhere'); location.replace(HOME()); }) : null));
 }
 
@@ -907,20 +911,38 @@ function methodsSection(a, config) {
   const last = ids.length <= 1;
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctWaysH' }, el('h3', { id: 'acctWaysH' }, 'Ways to sign in'),
     el('div', 'icard acct-card', el('ul', 'acct-list', ...rows)),
-    el('p', { class: 'sp-note', id: 'acctLastNote' }, `${last && ids.length ? 'This is your only way to sign in, so it can’t be unlinked. ' : ''}Any of them opens the same account. A browser can also be approved from the J.A.R.V.I.S. app on your iPhone.`),
+    el('p', { class: 'sp-note', id: 'acctLastNote' }, `${last && ids.length ? 'This is your only way to sign in, so it can’t be unlinked. ' : ''}Any of them opens the same account. A browser can also be approved from the Eden app on your iPhone.`),
     el('p', 'sp-note', el('a', { href: '/privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'), ' · ', el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, 'Terms of Service'), ' · ', el('a', { href: '/download' }, 'Download apps')));
 }
 
 /* ---------- deleting the account (POST /api/web/account/delete; site/src/eden/session.js) ---------- */
 
-/** The Delete account section in view, its field focused (nothing happens until DELETE is typed and confirmed). */
+/**
+ * The Delete account section in view, its field focused (nothing happens until DELETE is typed and
+ * confirmed). Called once the account has loaded; the sections above it (Sync, Delegates, Spaces,
+ * Published…) fill in after that and pushed it down off the screen, so it's put at the top of the
+ * sheet and kept there while they load, until the person scrolls or ~3 s pass (R2-9). At the top,
+ * the field stays clear of the keyboard.
+ */
 function showDelete() {
   requestAnimationFrame(() => {
     const sec = document.querySelector('.acct-delete');
     if (!sec) return;
-    sec.scrollIntoView({ block: 'center' });
+    const body = $('acctBody');
+    body.classList.add('acct-del-room'); // room below, so the last section can reach the top
+    const align = () => { if (document.contains(sec)) sec.scrollIntoView({ block: 'start' }); };
+    align();
+    let held = true;
+    const release = () => { held = false; ro.disconnect(); for (const [t, f] of stops) body.removeEventListener(t, f); };
+    const ro = new ResizeObserver(() => { if (held) align(); });
+    for (const x of body.children) ro.observe(x);
+    const stops = ['touchstart', 'wheel', 'keydown'].map((t) => [t, release]);
+    for (const [t, f] of stops) body.addEventListener(t, f, { passive: true, once: true });
+    setTimeout(release, 3000);
     const f = sec.querySelector('.acct-del-input');
     if (f) f.focus({ preventScroll: true });
+    // the keyboard (if it comes up) shrinks the view: the section's top stays in sight
+    if (window.visualViewport) visualViewport.addEventListener('resize', () => { if (held) align(); }, { once: true });
   });
 }
 

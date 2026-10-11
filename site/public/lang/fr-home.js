@@ -80,8 +80,8 @@ SiteI18n.add({
     'Dictate, or talk hands-free and hear Eden answer. Collapse it to a sphere while you work.': 'Dictez, ou parlez mains libres et écoutez la réponse d’Eden. Réduisez-le en sphère pendant que vous travaillez.',
     // the accuracy section (the "Accuracy" kicker is the footer's word above; the numbers are /accuracy's)
     'Fewer made-up answers.': 'Moins de réponses inventées.',
-    'We asked EVES, our fact-checker, and three leading AI models the same 432 factual questions. EVES made something up the least often.':
-      'Nous avons posé les mêmes 432 questions factuelles à EVES, notre vérificateur de faits, et à trois grands modèles d’IA. C’est EVES qui a le moins souvent inventé une réponse.',
+    'We asked EVES (Eden’s verification and evaluation system) and three leading AI models the same 432 factual questions. EVES made something up the least often.':
+      'Nous avons posé les mêmes 432 questions factuelles à EVES (le système de vérification et d’évaluation d’Eden) et à trois grands modèles d’IA. C’est EVES qui a le moins souvent inventé une réponse.',
     'How often each one made something up. Lower is better.': 'À quelle fréquence chacun a inventé quelque chose. Plus c’est bas, mieux c’est.',
     'Gemini 3.1 Pro (preview)': 'Gemini 3.1 Pro (préversion)',
     '9.7%': '9,7 %', '18.3%': '18,3 %', '21.8%': '21,8 %', '24.5%': '24,5 %',

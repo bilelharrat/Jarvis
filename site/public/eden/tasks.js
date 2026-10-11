@@ -9,7 +9,7 @@
 // Mac while it runs (src/chat/tasks.ts). Both answer GET /api/chat/tasks and POST /api/chat/tasks
 // { action, args } (docs/chat-api.md "Tasks"); ?mock=1 answers from tasksMock() below.
 
-import { el, ico, toast } from './util.js';
+import { el, ico, isMobile, toast } from './util.js';
 import { state, ui } from './state.js';
 import { getJSON, postJSON } from './api.js';
 import { locale, t as tl } from './i18n.js';
@@ -21,7 +21,11 @@ const ACTION_WORDS = { notify: 'Tell me', draft: 'Write Gmail drafts', send: 'As
 const STATUS = { active: ['Active', 'ok'], paused: ['Paused', 'warn'], done: ['Done', ''], expired: ['Ended', ''] };
 const OUTCOME = { acted: 'Acted', nothing: 'Nothing to do', skipped: 'Skipped', error: 'Didn’t work' };
 
-const S = { data: null, error: null, draft: null, proposing: false, saving: false, open: false, timer: null, dismissed: new Set() };
+// "Hide for now" lasts for this tab, across reloads (the app's silent reload, a web process iOS ended): R2-5
+const HIDDEN_KEY = 'eden:tasks-hidden';
+function loadHidden() { try { const a = JSON.parse(sessionStorage.getItem(HIDDEN_KEY) || '[]'); return new Set(Array.isArray(a) ? a.map(String).slice(-100) : []); } catch { return new Set(); } }
+function saveHidden() { try { sessionStorage.setItem(HIDDEN_KEY, JSON.stringify([...S.dismissed].slice(-100))); } catch { /* this page only */ } }
+const S = { data: null, error: null, draft: null, proposing: false, saving: false, open: false, timer: null, dismissed: loadHidden(), expanded: '' };
 let H = {};
 let sheet = null;
 let card = null;
@@ -365,13 +369,20 @@ function paintCard() {
   }
   card.hidden = false;
   const a = pending[0];
+  // On a phone it's one line under the title bar until tapped, so it doesn't cover the chat (R2-5);
+  // it opens again for a new task.
+  const sig = pending.map((p) => p.id).join(',');
+  const mini = isMobile() && S.expanded !== sig;
+  card.classList.toggle('mini', mini);
+  const title = pending.length > 1 ? `${pending.length} tasks are waiting for you` : 'A task is waiting for you';
   // (replaceChildren would turn a null into the text "null": the parts not shown are dropped first)
   card.replaceChildren(...[
-    el('div', 'tk-float-h', ico('bell', 14), el('span', 'grow', pending.length > 1 ? `${pending.length} tasks are waiting for you` : 'A task is waiting for you'),
-      el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Hide for now', onclick: () => { for (const p of pending) S.dismissed.add(p.id); paintCard(); } }, ico('x', 14))),
-    approvalCard(a, { compact: true }),
-    el('button', { type: 'button', class: 'cap tk-float-all', onclick: () => openTasks() }, pending.length > 1 ? `Open Tasks (${pending.length})` : 'Open Tasks'),
-  ]);
+    el('div', 'tk-float-h', ico('bell', 14),
+      mini ? el('button', { type: 'button', class: 'grow tk-float-open', 'aria-expanded': 'false', onclick: () => { S.expanded = sig; paintCard(); } }, title) : el('span', 'grow', title),
+      el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Hide for now', onclick: () => { for (const p of pending) S.dismissed.add(p.id); saveHidden(); paintCard(); } }, ico('x', 14))),
+    mini ? null : approvalCard(a, { compact: true }),
+    mini ? null : el('button', { type: 'button', class: 'cap tk-float-all', onclick: () => openTasks() }, pending.length > 1 ? `Open Tasks (${pending.length})` : 'Open Tasks'),
+  ].filter(Boolean));
 }
 
 /* ---------------- wiring ---------------- */

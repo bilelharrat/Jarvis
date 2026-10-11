@@ -78,6 +78,15 @@
   #titlebar > .iconbtn { width: 28px; }
   #titlebar .tb-title { min-width: 64px; }
 }
+/* A 402pt iPhone with privacy on and the canvas icon: ten things in the bar, and the globe was cut
+   off (R2-7). The least used go into the ⋯ menu (app.js narrowItems): Help and Show canvas here, the
+   inspector too on the smallest phones. */
+@media (max-width: 430px) {
+  #titlebar > #btnHelp, body.canvas-hidden #titlebar > #btnCanvasBack { display: none; }
+}
+@media (max-width: 380px) {
+  #titlebar > #btnInspector { display: none; }
+}
 
 /* Eden in the iPad app (the app adds .eden-app, and .eden-ipad on an iPad), wider than a
    phone: full screen, Split View, Slide Over and Stage Manager windows. Below 641px the phone

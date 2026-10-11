@@ -647,8 +647,13 @@ export function initTour() {
   inited = true;
   document.body.append(el('div', { id: 'tourLive', class: 'sr-only', 'aria-live': 'polite', role: 'status' }));
   // "What's this?": added as feature sheets open
+  // (a reply streaming into the conversation changes nothing a "What's this?" goes on: those changes don't look)
   let wt = false;
-  new MutationObserver(() => { if (wt) return; wt = true; requestAnimationFrame(() => { wt = false; whatsThis(); }); }).observe(document.body, { childList: true, subtree: true });
+  const log = $('transcript');
+  new MutationObserver((list) => {
+    if (wt || (log && list.every((m) => log.contains(m.target)))) return;
+    wt = true; requestAnimationFrame(() => { wt = false; whatsThis(); });
+  }).observe(document.body, { childList: true, subtree: true });
   // the iPhone app's welcome hands off here (ios/Eden/Onboarding.swift, through the bridge)
   addEventListener('eden:from-app', (e) => {
     let m = e.detail;

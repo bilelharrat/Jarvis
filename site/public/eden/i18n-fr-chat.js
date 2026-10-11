@@ -111,6 +111,8 @@ const X = {
   'Video works on askeden.com.': 'La vidéo fonctionne sur askeden.com.',
   'Up to six attachments per message.': 'Six pièces jointes au maximum par message.',
   'A shared item couldn’t be read.': 'Un élément partagé n’a pas pu être lu.',
+  'Your attachments were removed when Eden reloaded': 'Vos pièces jointes ont été retirées quand Eden s’est rechargé',
+  'Your attachment was removed when Eden reloaded': 'Votre pièce jointe a été retirée quand Eden s’est rechargé',
   'A shared picture couldn’t be read.': 'Une image partagée n’a pas pu être lue.',
   'uploading…': 'envoi…',
   'Attached image': 'Image jointe',

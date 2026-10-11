@@ -21,17 +21,16 @@ import { sendMessage, runChat, stop, retry, regenerate, editResend, answerPermis
 import { initArtifact, openArtifact, closeArtifact, artifactOpen, refreshArtifact } from './artifact.js';
 import { sheetCommands, sheetReturnPending, resumeSheet } from './sheet-entry.js'; // Q15: the spreadsheet canvas, loaded on first use
 import { initPageUpdate } from './page-update.js'; // a page left open picks up a deploy; the app's text follows the system size
+import { initDesk, setLayout, layout } from './desk.js'; // the Desktop layout (Settings › Appearance › Layout)
 import { initPanels, openSpace, closeSpace, spaceOpen, checkJarvis, renderMemoryTab, searchNotes, attachNote, notify } from './panels.js';
 import { initAccount } from './account.js';
 import { planCommand } from './plan.js';
 import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
 import { initPublish } from './publish.js';
-import { initShare, openShare } from './share.js'; // Q3: share a chat as a read-only link
 import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
 import { initCalendar, openCalendar, calendarReturnPending } from './calendar.js';
 import { initMemory } from './memory.js';
-import { initImportChatGPT, importCard, openImportChats } from './import-chatgpt.js';
-import { importLabel } from './import-sources-model.js';
+import { importLabel } from './import-label.js'; // the sidebar's "Imported from …" (the readers load with the Import dialog)
 import { initBrief, openBrief } from './brief.js';
 import { initFiles, openFiles, closePane } from './files.js';
 import { initKnowledge, knowledgeItem } from './knowledge.js';
@@ -50,7 +49,47 @@ import { initTour, startTour } from './tour.js'; // I1: the try-it tour
 import { reportFileName, reportTitle } from './research-model.js'; // Q2: the research report's title and file name
 import { decorateFirstRun, initFirstRun } from './first-run.js'; // Q4: the first minute
 import { initHelp, helpCommands, helpButton } from './help.js'; // Help Center: FAQ and Ask Help
-import { initBrowserPane, toggleBrowser, closeBrowser, browserJarvisChanged } from './browser-pane.js'; // the browser panel
+import { IN_APP, openAppSettings } from './native.js';
+import './edu-budget.js'; // its send extra (`eduOwn` on a course chat sent from here) must be on at startup, before Courses ever opens (R2C-6); small: util + api only
+
+/* ---------- features loaded when first used, not at startup (efficiency pass 1) ---------- */
+// Each module loads once and is handed what it needs from here; a load that fails (offline) says so and is tried again next time.
+// A background load (`{ quiet: true }`) fails without a word: only a load someone asked for says so (R2C-19).
+function lazy(load) {
+  let p = null;
+  return ({ quiet = false } = {}) => {
+    p ??= load().catch((e) => { p = null; throw e; });
+    return quiet ? p : p.catch((e) => { toast(`Couldn’t load that part of Eden: ${e.message}`); throw e; });
+  };
+}
+// Q3: share a chat as a read-only link (share.js, its model and share.css)
+const shareMod = lazy(() => import('./share.js').then((m) => { m.initShare({ openDialog, closeDialog }); return m; }));
+const openShare = (c) => shareMod().then((m) => m.openShare(c), () => {});
+// Import chats from ChatGPT, Claude or Gemini (import-chatgpt.js and the three readers, import-chatgpt.css)
+const importMod = lazy(() => import('./import-chatgpt.js').then((m) => { m.initImportChatGPT({ openDialog, closeDialog, toast }); return m; }));
+const openImportChats = () => importMod().then((m) => m.openImportChats(), () => {});
+/** Settings › Memory: a line on what Import does and a button that opens the dialog. */
+function importCard() {
+  return el('div', 'set-sec', el('h3', '', 'Import chats'),
+    el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Bring your chats from ChatGPT, Claude or Gemini'),
+      el('div', 'p-c', 'Export your data there, drop the file here, and your chats appear in Eden: searchable, and synced end-to-end encrypted like the rest. It’s read in this browser and never uploaded.')),
+    el('button', { type: 'button', class: 'btn', onclick: () => openImportChats() }, 'Import…'))));
+}
+// The browser panel (browser-pane.js, browser-model.js). In the Eden app the app's own browser opens
+// instead, so there it loads on first use; elsewhere just after startup (it reopens if it was open).
+let browserPane = null;
+const browserMod = lazy(() => import('./browser-pane.js').then((m) => {
+  m.initBrowserPane({ openSpace, addContext, sendMessage, focusComposer, openPalette });
+  browserPane = m;
+  return m;
+}));
+// Before the panel has loaded, a toggle means "open" (it's closed): decided now, not once loaded, so
+// a tap or ⌘⇧B during the load can't open it and shut it again after the reopen at init (R2C-19).
+const toggleBrowser = (force, ...rest) => {
+  const want = force === undefined ? (browserPane ? undefined : !document.body.classList.contains('browser-open')) : force;
+  return browserMod().then((m) => m.toggleBrowser(want, ...rest), () => {});
+};
+const closeBrowser = () => (browserPane ? browserPane.closeBrowser() : false); // focus in the panel: it's loaded
 
 /* ================= theme ================= */
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
@@ -677,7 +716,7 @@ function commands() {
     { t: 'Settings & API keys', s: '⌘,', i: 'gear', run: () => openSettings(0) },
     { t: 'Switch appearance', s: 'Light / Dark / System', i: 'moon', run: cycleTheme },
     { t: 'Take the tour', s: 'Try every feature, safely', i: 'spark', run: () => startTour() },
-    { t: 'Download apps', s: 'J.A.R.V.I.S. for Mac, Eden Messenger', i: 'down', run: () => { location.href = DOWNLOAD_URL; } },
+    { t: 'Download apps', s: 'Eden for Mac, Eden Messenger', i: 'down', run: () => { location.href = DOWNLOAD_URL; } },
     ...helpCommands(),
   ];
   const plus = planCommand(); // Eden Plus (plan.js): free with billing here, or Manage billing
@@ -809,6 +848,16 @@ function editPersona(id) {
       el('button', { type: 'button', class: 'btn', onclick: closeDialog }, 'Cancel'),
       el('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save'))));
 }
+/** The title bar's buttons a narrow phone moves into ⋯ (mobile.css, R2-7): here, so none is lost. */
+function narrowItems() {
+  const items = [];
+  if (matchMedia('(max-width:430px)').matches) {
+    if (document.body.classList.contains('canvas-hidden') && $('btnCanvasBack')) items.push({ label: 'Show canvas', run: () => $('btnCanvasBack').click() });
+    if ($('btnHelp')) items.push({ label: 'Help', run: () => $('btnHelp').click() });
+  }
+  if (matchMedia('(max-width:380px)').matches) items.push({ label: 'Inspector', run: () => toggleInspector() });
+  return items.length ? ['-', ...items] : [];
+}
 function convMenu(anchor, c) {
   if (!c) { // a new chat, nothing sent yet: still a menu, never a dead button
     openMenu(anchor, [
@@ -817,10 +866,13 @@ function convMenu(anchor, c) {
       { label: 'Browser', key: '⌘⇧B', run: () => toggleBrowser() },
       { label: 'Command palette', key: '⌘K', run: () => openPalette() },
       { label: 'Settings', key: '⌘,', run: () => openSettings(0) },
+      ...(anchor && anchor.id === 'btnConvMenu' ? narrowItems() : []),
     ]);
     return;
   }
+  const narrow = anchor && anchor.id === 'btnConvMenu' ? narrowItems() : []; // the title bar's ⋯ only: ['-', …] or []
   openMenu(anchor, [
+    ...narrow.slice(1), ...narrow.slice(0, 1),
     { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } },
     ...(c.temp ? [] : [{ label: c.pinned ? 'Unpin' : 'Pin', run: () => togglePin(c) }]),
     ...(c.temp || c.kind === 'code' ? [] : [moveItems(c, openMenu, anchor)]),
@@ -850,6 +902,14 @@ function finishRename(save) {
 
 /* ================= settings ================= */
 let setTabI = 0;
+/** In the iPhone and iPad app: a row that opens the app's own Settings (server, Delete Account…, the welcome): R2-11. */
+function appSettingsCard() {
+  if (!IN_APP) return null;
+  return el('div', 'set-sec', el('h3', '', 'This app'),
+    el('div', 'icard', el('div', 'prov',
+      el('div', 'grow', el('div', 'p-n', 'App settings'), el('div', 'p-c', 'The Eden app’s own settings: the server, Delete Account…, and the welcome tour.')),
+      el('button', { type: 'button', class: 'btn', onclick: () => { closeSettings(); openAppSettings(); } }, 'Open'))));
+}
 function openSettings(i = 0) {
   if (i === 'accounts') i = 1;
   clearPhoneOverlays();
@@ -862,7 +922,7 @@ function closeSettings() { if (!$('settingsSheet').classList.contains('open')) r
 /** Settings › Memory (askeden.com): memory across chats on/off, the saved memories, delete one or all. */
 async function drawMemory(body, hosted) {
   const hero = setHero('bulb', 'Memory', 'Eden remembers helpful details across chats, like your name, preferences and projects.', 'mem');
-  if (!hosted) { body.replaceChildren(hero, el('div', 'set-sec', el('div', 'icard', el('p', '', 'On this Mac, memory across chats comes from J.A.R.V.I.S. Saved memories are an askeden.com feature.'))), importCard()); return; }
+  if (!hosted) { body.replaceChildren(hero, el('div', 'set-sec', el('div', 'icard', el('p', '', 'On this Mac, memory across chats comes from the Eden app. Saved memories are an askeden.com feature.'))), importCard()); return; }
   body.replaceChildren(hero, el('div', 'set-skel', el('span', 'sk'), el('span', 'sk')));
   let m;
   try { m = await api.memory(); } catch (e) { body.replaceChildren(hero, el('div', 'sp-warn', el('b', '', 'Couldn’t read your memory'), e.message)); return; }
@@ -934,8 +994,12 @@ async function drawSettings() {
     body.replaceChildren(setHero('palette', 'Appearance', 'How Eden looks, and how it sounds.', 'pal'),
       el('div', 'set-sec', el('h3', '', 'Theme'), tiles,
         el('p', 'sp-note', 'System follows macOS. Reduced motion and reduced transparency in System Settings › Accessibility are honored.')),
+      el('div', 'set-sec', el('h3', '', 'Layout'),
+        el('div', { class: 'theme-tiles', role: 'radiogroup', 'aria-label': 'Layout' }, ...[['classic', 'Classic', 'Sidebar and chat'], ['desk', 'Desktop', 'Eden as the whole screen']].map(([v, label, sub]) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(layout() === v), class: `theme-tile${layout() === v ? ' on' : ''}`, onclick: () => { setLayout(v); closeSettings(); } },
+          el('span', 'tt-label', el('span', 'tt-radio'), el('b', '', label), el('span', '', sub))))),
+        el('p', 'sp-note', 'Desktop shows Eden full screen, with apps, your PC and chats in one sidebar. It needs a window at least 760 px wide.')),
       el('div', 'set-sec', el('h3', '', 'Language'), langSeg,
-        el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')), ...[bootSoundSettings()].filter(Boolean), voiceSettings());
+        el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')), ...[bootSoundSettings()].filter(Boolean), voiceSettings(), ...[appSettingsCard()].filter(Boolean));
     setSeg(langSeg, Math.max(0, LANGS.findIndex(([v]) => v === langPref)));
   } else if (setTabI === 4) {
     drawMemory(body, hosted);
@@ -988,11 +1052,12 @@ async function drawSettings() {
     el('div', 'set-sec about',
       el('div', 'icard about-card',
         el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Jarvis app on your Mac, and Code sessions for your projects.'),
-        el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
+        el('p', '', 'Voice: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
         state.meta && state.meta.scope ? el('p', '', state.meta.scope) : null,
         isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null),
       el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Jarvis Code.'),
-      el('div', 'dlg-acts about-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, ico('down', 14), 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))));
+      el('div', 'dlg-acts about-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, ico('down', 14), 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))),
+    ...[appSettingsCard()].filter(Boolean));
   }
 }
 const accountsHero = () => setHero('user', 'Accounts', 'The mail and calendars Eden can read for you.', 'acct');
@@ -1302,8 +1367,8 @@ async function init() {
   initArtifact({ quote: (t) => setComposerText(t, { append: true }), send: (t) => sendMessage(t) });
   initPrivacy({ confirm: (text, ok, run) => confirmDialog(text, ok, run, true), schedulePreview });
   initPublish({ openDialog, closeDialog });
-  initShare({ openDialog, closeDialog });
   initPanels({ addContext: (b) => { addContext(b); closeSpace(); } });
+  initDesk({ switchTo, newChat, titleOf, openSpace, openBrief, openCalendar, openFiles, openTasks, openWorkflows, projectPicker });
   initCalendar({ addContext: (b) => addContext(b), openSettings });
   initMemory({ addContext: (b) => addContext(b) });
   initBrief({ addContext: (b) => addContext(b) });
@@ -1439,7 +1504,10 @@ async function init() {
   reloadMeta().then(() => { renderAll(); initAccount({ beforeOpen: clearPhoneOverlays, closeSettings }); initLearned(); initAutopilot(); initSignatures(); initMailkit(); }); // H2/H3, signatures: after meta (askeden.com or the Mac)
   initTour(); // I1: practice mode's tour, or the welcome on a first visit
   initFirstRun({ setComposerText: (t) => { setComposerText(t); focusComposer(); }, startTour: () => startTour() }); // Q4: a new person's first answer explained
-  initImportChatGPT({ openDialog, closeDialog, toast });
+  // an imported ChatGPT chat's images are kept in this browser (IndexedDB): the importer loads to bring them back
+  const importedOpen = (c) => { if (c && c.source === 'chatgpt') importMod({ quiet: true }).then((m) => m.hydrateImport(c), () => {}); };
+  addEventListener('eden:conv-opened', (e) => importedOpen(e.detail && e.detail.conv));
+  setTimeout(() => importedOpen(state.current), 1500); // a reload with an imported chat open
   initHelp({ runCommand: (t) => commands().find((x) => x.t === t)?.run(), hasCommand: (t) => commands().some((x) => x.t === t), openSettings, openPalette, startTour, beforeOpen: clearPhoneOverlays });
   addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0)); // autopilot.js
   addEventListener('eden:acting', () => { renderSidebar(); checkJarvis().then(() => renderComposer()); }); // account.js: acting for someone began or ended under the page
@@ -1461,10 +1529,16 @@ async function init() {
     if (prompt) sendMessage(prompt);
   });
   loadProjects().then(() => renderSidebar());
-  initBrowserPane({ openSpace, addContext, sendMessage, focusComposer, openPalette });
-  checkJarvis().then(() => { renderComposer(); browserJarvisChanged(); if (curTab === 'Memory') renderMemoryTab(true); });
+  const btnBrowser = $('btnBrowser');
+  if (btnBrowser) btnBrowser.addEventListener('click', () => { if (!browserPane) toggleBrowser(); }); // once loaded, browser-pane.js handles it
+  // Eden at the controls (chat.js, browser-agent.js): load the panel, then hand it the event
+  for (const type of ['eden:browser-open', 'eden:browser-takeover']) {
+    addEventListener(type, (e) => { if (!browserPane) browserMod().then(() => dispatchEvent(new CustomEvent(type, { detail: e.detail })), () => {}); });
+  }
+  if (!IN_APP) setTimeout(() => browserMod({ quiet: true }).catch(() => {}), 0); // quietly: nobody asked yet
+  checkJarvis().then(() => { renderComposer(); if (curTab === 'Memory') renderMemoryTab(true); });
   // The Mac's line comes up some seconds after the page loads (Ask Eden for Mac links itself at launch): look again until it answers.
-  const recheckJarvis = () => { const was = state.jarvis.available; return checkJarvis().then(() => { if (state.jarvis.available !== was) { renderSidebar(); renderComposer(); browserJarvisChanged(); } }); };
+  const recheckJarvis = () => { const was = state.jarvis.available; return checkJarvis().then(() => { if (state.jarvis.available !== was) { renderSidebar(); renderComposer(); } }); };
   // Never two looks at once (checkJarvis shares the one in flight, 8 s at most), and none while the page is hidden (B1, C3).
   setInterval(() => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); }, 8000);
   addEventListener('focus', () => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); });
@@ -1480,7 +1554,9 @@ async function init() {
   });
   if (isMock) document.title = 'Eden (mock)';
   initPageUpdate();
-  focusComposer();
+  // Ready to type with a keyboard. Not on a touch screen (an iPhone, an iPad without a keyboard): the
+  // on-screen keyboard came up by itself at launch and after the app's background reload (R2-17).
+  if (!isTouch()) focusComposer();
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

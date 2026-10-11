@@ -18,7 +18,7 @@ import { toolCards } from './tools-ui.js'; // Google Calendar / Gmail approval c
 import { feedbackButtons } from './learned.js';
 import { limitAction } from './plan.js';
 import { clock } from './video-model.js';
-import { groundingStrip, stripSources } from './courses.js';
+import { groundingStrip, stripSources } from './course-strip.js'; // not courses.js: the Courses panel loads when it opens (panels.js)
 import { t as tx, locale } from './i18n.js';
 import { spentWords, stepsView } from './research-model.js'; // Q2: research's progress steps
 import { deckPart } from './deck-card.js'; // Q14: slide decks

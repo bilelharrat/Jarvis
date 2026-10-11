@@ -26,11 +26,12 @@
 // Dev and tests only: STRIPE_API_BASE points the module at a fake Stripe on this machine
 // (loopback only, test keys only); anything else turns billing off.
 
-import { call, limited } from '../accounts/index.js';
+import { call, callIdentity, limited, subHashOf } from '../accounts/index.js';
 import { AUTO, PACKS } from '../accounts/credits.js';
 import { redeemPromo } from '../accounts/promo.js';
 import { legacyPrices, legacyPrice } from '../accounts/stripe-plan.js';
-import { ApiError, hex, json, sameText, validAccountId } from '../accounts/util.js';
+import { APPLE_ROOT_G3, verifyAppleJws } from '../accounts/storekit.js';
+import { ApiError, EDEN_BUNDLE_ID, hex, isPlusPurchase, json, readJson, sameText, validAccountId } from '../accounts/util.js';
 import { SIGNIN_CSP, page } from './web.js';
 
 // What the prices charge, for the buttons. Change them with the prices in Stripe.
@@ -178,8 +179,41 @@ export async function cancelSubscription(env, subscription) {
 
 // ── /api/web/billing/<op> (eden/session.js: the browser's own session, checked fresh) ──
 
+// POST /api/web/billing/apple { signed_transaction }: a StoreKit 2 transaction (its JWS) from the
+// Eden iPhone app (askeden/ios Eden/PlusStore.swift), sent with the web view's own session cookie.
+// Checked against Apple's chain (accounts/storekit.js); it must be the Eden app's, a Plus product,
+// and carry this account's id as its appAccountToken (account.js applyTransaction: 403 forbidden
+// otherwise). The account's own session only: the plan follows the signed-in account, never a
+// grant's. Renewals, expiry, refunds and revocations come after through /api/appstore/notifications.
+// → { plan } as /api/web/account shows it (source "app_store" | "stripe" | "both" | "promo").
+async function appleTransaction(request, env, who) {
+  await limited(env, 'EDEN_RATE', `apple:${who.account}`);
+  const body = await readJson(request, 64 * 1024);
+  const transaction = await verifyAppleJws(body.signed_transaction, { root: env.APPLE_ROOT_FINGERPRINT || APPLE_ROOT_G3 });
+  if (transaction.bundleId !== EDEN_BUNDLE_ID) throw new ApiError(400, 'bad_transaction', 'That purchase isn’t from the Eden app.');
+  // The account's own checks come first (R3C-10), so a refused purchase leaves no claim behind.
+  if (!isPlusPurchase(transaction)) throw new ApiError(400, 'bad_transaction', 'That isn’t a Plus purchase.');
+  if (who.grant) throw new ApiError(403, 'grant_forbidden', 'Only the account’s owner can buy or manage Plus.');
+  const token = String(transaction.appAccountToken || '').toLowerCase();
+  if (token && token !== who.account) throw new ApiError(403, 'forbidden', 'That purchase belongs to another Eden account.');
+  // The first account to link a subscription keeps it (409 identity_taken for any other), by its
+  // original transaction id: an offer code redeemed in Apple's sheet carries no appAccountToken, and
+  // a tokened one is claimed too, so a later tokenless renewal of it can't go to a second account.
+  // Its notifications go to the claiming account; deleting the account releases the claim.
+  let claimed = false;
+  let claimHash = null;
+  if (transaction.originalTransactionId != null) {
+    claimHash = await subHashOf('appstore', String(transaction.originalTransactionId));
+    await callIdentity(env, 'appstore', claimHash, 'claim', { account_id: who.account });
+    claimed = !token;
+  }
+  const account = await call(env, who.account, 'subscription-eden', { transaction, claimed, claim_hash: claimHash }, who.token);
+  return { plan: account.plan, usage: account.usage };
+}
+
 export async function billingApi(request, env, who, op, { acting = null, origin = '' } = {}) {
-  if (request.method !== 'POST' || !['checkout', 'portal', 'credits', 'autotopup', 'promo'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  if (request.method !== 'POST' || !['checkout', 'portal', 'credits', 'autotopup', 'promo', 'apple'].includes(op)) throw new ApiError(404, 'not_found', 'No such thing here.');
+  if (op === 'apple') return json(await appleTransaction(request, env, who)); // the Eden iPhone app's App Store Plus: no Stripe needed
   if (op === 'promo') { // a promo code: free Plus, no Stripe needed
     if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
     await limited(env, 'AUTH_RATE', `promo:${who.account}`);

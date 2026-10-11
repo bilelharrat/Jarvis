@@ -16,16 +16,16 @@ SiteI18n.add({
     'Sign-in code': 'Code de connexion',
     'Getting a code…': 'Obtention d’un code…',
     'Get a new code': 'Obtenir un nouveau code',
-    'New here? Continuing with Apple or Google, or creating a passkey, makes your Eden account, with some AI included to try it. Already use J.A.R.V.I.S.? It’s the same account.':
-      'Nouveau sur Eden ? Continuer avec Apple ou Google, ou créer une clé d’accès, crée votre compte Eden, avec un peu d’IA incluse pour l’essayer. Vous utilisez déjà J.A.R.V.I.S. ? C’est le même compte.',
-    'Eden is opening soon — sign-ups are closed for now. Already have an Eden or J.A.R.V.I.S. account? Sign in above.':
-      'Eden ouvre bientôt — les inscriptions sont fermées pour le moment. Vous avez déjà un compte Eden ou J.A.R.V.I.S. ? Connectez-vous ci-dessus.',
-    'No account yet? Make one in the J.A.R.V.I.S. app for iPhone.': 'Pas encore de compte ? Créez-en un dans l’app J.A.R.V.I.S. pour iPhone.',
+    'New here? Continuing with Apple or Google, or creating a passkey, makes your Eden account, with some AI included to try it. Already use Eden on your iPhone or Mac? It’s the same account.':
+      'Nouveau sur Eden ? Continuer avec Apple ou Google, ou créer une clé d’accès, crée votre compte Eden, avec un peu d’IA incluse pour l’essayer. Vous utilisez déjà Eden sur votre iPhone ou votre Mac ? C’est le même compte.',
+    'Eden is opening soon — sign-ups are closed for now. Already have an Eden account? Sign in above.':
+      'Eden ouvre bientôt — les inscriptions sont fermées pour le moment. Vous avez déjà un compte Eden ? Connectez-vous ci-dessus.',
+    'No account yet? Make one in the Eden app for iPhone.': 'Pas encore de compte ? Créez-en un dans l’app Eden pour iPhone.',
     'Get the apps': 'Obtenir les apps',
     '. Trouble signing in?': '. Un problème pour vous connecter ?',
     'Get help': 'Obtenir de l’aide',
-    '. askeden.com passes your messages to the AI model that answers them (OpenAI, Google or Moonshot; Anthropic only with your own key) and keeps none of them; your chats stay in this browser.':
-      '. askeden.com transmet vos messages au modèle d’IA qui y répond (OpenAI, Google ou Moonshot ; Anthropic uniquement avec votre propre clé) et n’en conserve aucun ; vos discussions restent dans ce navigateur.',
+    '. askeden.com passes your messages to the AI model that answers them (OpenAI, Google or Moonshot; Anthropic only with your own key) and keeps none of them.':
+      '. askeden.com transmet vos messages au modèle d’IA qui y répond (OpenAI, Google ou Moonshot ; Anthropic uniquement avec votre propre clé) et n’en conserve aucun.',
     'Privacy': 'Confidentialité',
     'Terms': 'Conditions',
     // signin.js: a sign-in that came back with ?error=
@@ -52,8 +52,8 @@ SiteI18n.add({
     'That passkey didn’t work here. Try again, or use another way in.': 'Cette clé d’accès n’a pas fonctionné ici. Réessayez, ou utilisez un autre moyen de connexion.',
   },
   blocks: {
-    'In J.A.R.V.I.S. on your iPhone or Mac, open Settings › Account and choose Approve a Sign-In, then scan the QR code or type this code.':
-      'Dans <b>J.A.R.V.I.S.</b> sur votre iPhone ou votre Mac, ouvrez <span class="path">Settings › Account</span> et choisissez <b>Approve a Sign-In</b>, puis scannez le code QR ou saisissez ce code.',
+    'In Eden on your iPhone or Mac, open Settings › Account and choose Approve a Sign-In, then scan the QR code or type this code.':
+      'Dans <b>Eden</b> sur votre iPhone ou votre Mac, ouvrez <span class="path">Settings › Account</span> et choisissez <b>Approve a Sign-In</b>, puis scannez le code QR ou saisissez ce code.',
   },
   patterns: [
     [/^This (?:(Apple|Google) )?account is already used by another Eden account\. Sign in with it to open that one, or choose a different (?:Apple |Google )?account\.$/,

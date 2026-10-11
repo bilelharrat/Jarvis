@@ -84,6 +84,13 @@
 .tk-float-all{margin-top:8px}
 /* out of the way while a sheet (Settings, a dialog, Tasks, Workflows) or the palette is open */
 body:has(.sheet.open) .tk-float,body:has(#palette.open) .tk-float{display:none}
+/* …and while a phone's sidebar drawer is open: it sat on the drawer's Projects and Folders (R2-5) */
+body:has(#sidebar.open) .tk-float{display:none}
+/* one line (a phone): tap it to see the task */
+.tk-float.mini{padding:6px 8px 6px 12px;border-radius:14px}
+.tk-float.mini .tk-float-h{margin-bottom:0}
+.tk-float-open{all:unset;cursor:pointer;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;color:var(--text)}
+.tk-float-open:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
 
 /* the sidebar's count */
 .tk-badge{margin-left:auto;font-size:10.5px;font-weight:700;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center}

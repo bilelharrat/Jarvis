@@ -29,7 +29,7 @@ export const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(nav
 /** The model id of Apple's on-device model, as the page knows it. */
 export const ON_DEVICE = 'apple-on-device';
 
-const caps = { online: true, serverLocal: false, activities: false, browser: false, ondevice: { available: false, reason: 'unknown', words: '' } };
+const caps = { online: true, serverLocal: false, activities: false, browser: false, print: false, ondevice: { available: false, reason: 'unknown', words: '' } };
 const turns = new Map(); // turn id -> { push(event, data), end(), fail(error) }
 
 function toApp(msg) {
@@ -43,6 +43,36 @@ function toApp(msg) {
 export function openAppBrowser(url = '') {
   if (!IN_APP || !caps.browser) return false;
   toApp({ kind: 'browser', op: 'open', url: typeof url === 'string' ? url : '' });
+  return true;
+}
+
+/* ---------- printing, the app's Settings ---------- */
+
+const prints = new Map(); // id -> (ok) => void
+let printSeq = 0;
+/**
+ * Prints Eden's page through the app (the system print sheet, which also saves a PDF): iOS web
+ * views ignore window.print() (R2-8). The page shows what's to be printed first (deck.js's print
+ * view). Resolves 'printed' or 'cancelled' when the app answers `printed` (after its sheet closes),
+ * or 'unsupported' outside the app, or when nothing answered within `giveUp` ms (an older app has
+ * no print). An app that says `print: true` in its caps is waited for as long as its sheet is up;
+ * one that doesn't say gets `onSlow()` after `wait` ms of silence, so the page can offer another
+ * way while still taking a late `printed` (a sheet can stay open a long time).
+ */
+export function appPrint(title = '', { wait = 4000, giveUp = 180_000, onSlow = null } = {}) {
+  if (!IN_APP) return Promise.resolve('unsupported');
+  const id = `print-${++printSeq}`;
+  return new Promise((resolve) => {
+    const slow = !caps.print && onSlow ? setTimeout(() => { try { onSlow(); } catch { /* the page's */ } }, wait) : null;
+    const end = setTimeout(() => { prints.delete(id); resolve('unsupported'); }, caps.print ? 30 * 60_000 : giveUp);
+    prints.set(id, (ok) => { clearTimeout(slow); clearTimeout(end); resolve(ok ? 'printed' : 'cancelled'); });
+    toApp({ kind: 'print', title: String(title || '').slice(0, 200), id });
+  });
+}
+/** The app's own Settings sheet (server, Delete Account…, the welcome): R2-11. False outside the app. */
+export function openAppSettings() {
+  if (!IN_APP) return false;
+  toApp({ kind: 'openSettings' });
   return true;
 }
 
@@ -268,10 +298,14 @@ function fromApp(e) {
     caps.serverLocal = !!m.serverLocal;
     caps.activities = !!m.activities;
     caps.browser = !!m.browser;
+    caps.print = !!m.print;
     if (m.ondevice && typeof m.ondevice === 'object') {
       caps.ondevice = { available: !!m.ondevice.available, reason: String(m.ondevice.reason || ''), words: String(m.ondevice.words || '') };
     }
     if (JSON.stringify([listed(), caps.ondevice.available]) !== was) refreshModels();
+  } else if (m.kind === 'printed') {
+    const done = prints.get(m.id);
+    if (done) { prints.delete(m.id); done(m.ok !== false); }
   } else if (m.kind === 'turn') {
     const t = turns.get(m.id);
     if (t && typeof m.event === 'string') t.push(m.event, m.data);
@@ -282,7 +316,8 @@ function fromApp(e) {
     const files = Array.isArray(m.files) ? m.files : [];
     const link = m.link === true || (!m.send && !files.length);
     const fresh = m.fresh === true || (m.fresh !== false && !link);
-    if (fresh) { const b = document.getElementById('btnNew'); if (b) b.click(); }
+    // (the New chat itself is pressed by composer.js's takeShare when this share's turn comes, so a
+    // share still queued behind another never switches chats under it: R2C-9)
     // the app sends shares one at a time, each with an id: `attached` tells it this one is done (composer.js calls done)
     const id = typeof m.id === 'string' || typeof m.id === 'number' ? m.id : null;
     dispatchEvent(new CustomEvent('eden:attach', { detail: { prompt: m.prompt || '', send: !!m.send, fresh, files, ...(id !== null ? { done: () => toApp({ kind: 'attached', id }) } : {}) } }));

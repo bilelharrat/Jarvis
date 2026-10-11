@@ -1,5 +1,6 @@
-// The front page's six films: each plays, muted, while it is on screen, and pauses when it leaves. Two buttons on each: pause and sound
-// (only one film has sound at a time). Without this script the browser's own controls show, and nothing loads until someone presses play.
+// The front page's films: each plays, muted, while it is on screen, and pauses when it leaves. Each has a pause button; only the Voice film has
+// sound (its two voices, no music; the others have no audio track) and so only it has a sound button. Without this script the browser's own
+// controls show, and nothing loads until someone presses play.
 (() => {
   'use strict';
   const films = [...document.querySelectorAll('video.fv')];
@@ -10,6 +11,7 @@
     const box = v.closest('.fvid'), pp = box.querySelector('.fpp'), snd = box.querySelector('.fsnd');
     pp.dataset.state = v.paused ? 'paused' : 'playing';
     pp.setAttribute('aria-label', v.paused ? 'Play' : 'Pause');
+    if (!snd) return;
     snd.setAttribute('aria-pressed', String(!v.muted));
     snd.setAttribute('aria-label', v.muted ? 'Turn sound on' : 'Turn sound off');
   }
@@ -20,7 +22,7 @@
     v.controls = false; ctl.hidden = false;
     pp.addEventListener('click', () => { if (v.paused) { v.dataset.hold = ''; v.play().catch(() => {}); } else { v.dataset.hold = '1'; v.pause(); } });
     v.addEventListener('click', () => pp.click());                       // a tap on the picture pauses or plays too
-    snd.addEventListener('click', () => {
+    if (snd) snd.addEventListener('click', () => {
       v.muted = !v.muted;
       if (!v.muted) { hush(v); if (v.paused) { v.dataset.hold = ''; v.play().catch(() => {}); } }
     });

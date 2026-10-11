@@ -32,7 +32,7 @@
     <p class="fine">Sign in with Apple, Google or a passkey. One account for the web and the apps.</p>
   </section>
 
-  <!-- Eden in six short films, each in the part of the page it belongs to (muted, playing while it is on screen; the buttons are sound and pause).
+  <!-- Eden in six short films, each in the part of the page it belongs to (playing while it is on screen; the buttons are pause, and sound on the Voice film only: it is the one film with sound, its two voices, no music).
        The films are public/jarvis/walk-N.mp4 (1280x720, ~7 MB each, index first); without the script the browser's own controls show.
        features.js is the page's only script besides the language one (the page's policy allows scripts from this site, no inline script and no inline style). -->
   <div class="features" id="features">
@@ -42,7 +42,7 @@
       <p class="sub">Eden shows its pick before you send: the model, the effort, the price and the time. Then every reply shows what it cost.</p>
       <figure class="fvid">
         <video class="fv" src="/jarvis/walk-1.mp4" poster="/jarvis/walk-1.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Ask Eden anything: Eden picks the model, shows its price and time before you send, and sends a draft straight to Mail. A 25-second film."></video>
-        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
       </figure>
     </section>
     <!-- Accuracy: /accuracy's "All 432" chart as a film like the others (public/jarvis/walk-7.mp4: bars grow and count up, EVES's row last, with the glass EVES pill).
@@ -50,10 +50,10 @@
     <section class="feature" id="f-accuracy" aria-labelledby="f-accuracy-h">
       <p class="kicker">Accuracy</p>
       <h2 id="f-accuracy-h">Fewer made-up answers.</h2>
-      <p class="sub">We asked EVES, our fact-checker, and three leading AI models the same 432 factual questions. EVES made something up the least often.</p>
+      <p class="sub">We asked EVES (Eden’s verification and evaluation system) and three leading AI models the same 432 factual questions. EVES made something up the least often.</p>
       <figure class="fvid">
         <video class="fv" src="/jarvis/walk-7.mp4" poster="/jarvis/walk-7.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-describedby="f-accuracy-what" aria-label="A chart film: how often EVES and three AI models made something up on 432 factual questions. A 13-second film."></video>
-        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
       </figure>
       <p class="sr" id="f-accuracy-what">How often each one made something up on 432 factual questions, lower is better: EVES 9.7% (95% interval 7.3% to 12.9%), Gemini 3.1 Pro (preview) 18.3% (14.9% to 22.2%), Gemini 3.8 Flash 21.8% (18.1% to 25.9%), Claude Sonnet 5.5 24.5% (20.7% to 28.8%). EVES checks the web when needed and says when it isn’t sure; the models answered directly from memory. October 2026.</p>
       <a class="btn" href="/accuracy">Learn more<span class="sr"> about how we measured it</span></a>
@@ -64,7 +64,7 @@
       <p class="sub">Compare models side by side, and let EVES check the facts they disagree on.</p>
       <figure class="fvid">
         <video class="fv" src="/jarvis/walk-2.mp4" poster="/jarvis/walk-2.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Several models answer side by side and EVES checks the facts they disagree on. A 23-second film."></video>
-        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
       </figure>
     </section>
     <section class="feature" id="f-mac" aria-labelledby="f-mac-h">
@@ -73,7 +73,7 @@
       <p class="sub">Eden can search your files and look at your screen. It asks first. Eden Code works inside your projects and asks before it runs anything.</p>
       <figure class="fvid">
         <video class="fv" src="/jarvis/walk-3.mp4" poster="/jarvis/walk-3.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Eden searches your Mac, looks at your screen and runs tasks, always asking first; Eden Code asks before it runs a command. A 23-second film."></video>
-        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
       </figure>
     </section>
     <section class="feature" id="f-mail" aria-labelledby="f-mail-h">
@@ -82,7 +82,7 @@
       <p class="sub">Eden learns how you write and drafts replies ahead of time. It drafts and rewrites. It never sends.</p>
       <figure class="fvid">
         <video class="fv" src="/jarvis/walk-4.mp4" poster="/jarvis/walk-4.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Eden Mail: replies drafted in your style, recipients, attachments and scheduled sending. A 23-second film."></video>
-        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
       </figure>
     </section>
     <section class="feature" id="f-privacy" aria-labelledby="f-privacy-h">
@@ -91,7 +91,7 @@
       <p class="sub">Keep a sensitive chat on your Mac, see where every reply ran, and get warned when an email hides instructions for AI. Undo what Eden did.</p>
       <figure class="fvid">
         <video class="fv" src="/jarvis/walk-5.mp4" poster="/jarvis/walk-5.jpg" width="1280" height="720" controls muted loop playsinline preload="none" aria-label="Keep a chat on your Mac, see where each reply ran, catch hidden instructions in email, and undo what Eden did. A 23-second film."></video>
-        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button><button type="button" class="fbtn fsnd" aria-label="Turn sound on" aria-pressed="false"><svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.6 9.6l5 4.8M20.6 9.6l-5 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg><svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.6v4.8h3.6l4.4 4V5.6l-4.4 4z" fill="currentColor"/><path d="M15.4 9a4.2 4.2 0 010 6M17.9 6.6a7.6 7.6 0 010 10.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg></button></div>
+        <div class="fctl" hidden><button type="button" class="fbtn fpp" aria-label="Pause"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19.2 12z" fill="currentColor"/></svg></button></div>
       </figure>
     </section>
     <section class="feature" id="f-voice" aria-labelledby="f-voice-h">

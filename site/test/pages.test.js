@@ -141,6 +141,13 @@ test('the front page has seven short films (six features and the accuracy chart)
     assert.match(v, /aria-label="[^"]{20,}"/);
   });
   assert.equal((html.match(/<section class="feature"/g) || []).length, 7);
+  // sound (owner, 2026-10-09): no music, no effects; only the Voice film has audio (its two voices), so only it has a sound button
+  assert.equal((html.match(/class="fbtn fsnd"/g) || []).length, 1);
+  assert.match(html.split('<section class="feature"').find((sec) => sec.includes('/jarvis/walk-6.mp4')), /class="fbtn fsnd"/);
+  for (let n = 1; n <= 7; n++) {
+    const bytes = fs.readFileSync(path.join(SITE, `public/jarvis/walk-${n}.mp4`));
+    assert.equal(bytes.includes('soun'), n === 6, `walk-${n}: an audio track only in the Voice film`);
+  }
   assert.doesNotMatch(html, /\sstyle=|<script>[^<]/i);                       // no inline style, no inline script
   assert.doesNotMatch(html, /eden-ad/);                                      // the old 15-second ad (with a song) is gone from the page
   assert.ok(!fs.existsSync(path.join(SITE, 'public/jarvis/eden-ad.mp4')), 'the old ad file is not served any more');
@@ -381,7 +388,8 @@ test('the front page\'s accuracy section: the chart is a film (walk-7) with the 
   const words = /<p class="sr" id="f-accuracy-what">([^<]*)<\/p>/.exec(sec)[1];
   for (const w of want) assert.ok(words.includes(`${w[1]} ${w[2]}% (`) && words.includes(`${w[3]}% to ${w[4]}%`), w[1]);
   // the comparison names EVES (never "Eden" or "Eden with EVES"); the honest caption stays; nothing beyond the numbers
-  assert.doesNotMatch(sec, /\bEden\b/);
+  assert.ok(sec.includes('We asked EVES (Eden’s verification and evaluation system) and three leading AI models'));   // the owner's wording: what EVES is, once
+  assert.doesNotMatch(sec.replace('(Eden’s verification and evaluation system)', ''), /\bEden\b/);   // otherwise the comparison says EVES, never Eden
   assert.ok(words.includes('EVES checks the web when needed and says when it isn’t sure; the models answered directly from memory.'));
   assert.ok(!sec.includes('$'), 'no "$" in the section');
   assert.doesNotMatch(sec, /\b(cost|costs|price|prices|spend|spent|budget)\b/i);
@@ -389,12 +397,13 @@ test('the front page\'s accuracy section: the chart is a film (walk-7) with the 
   assert.doesNotMatch(sec, /\sstyle=|<script|\son[a-z]+=/i);
   // French: the section's English strings have their French in fr-home.js (the film itself is English)
   const fr = read('public/lang/fr-home.js');
-  for (const x of ['Fewer made-up answers.', 'We asked EVES, our fact-checker, and three leading AI models the same 432 factual questions. EVES made something up the least often.',
+  for (const x of ['Fewer made-up answers.', 'We asked EVES (Eden’s verification and evaluation system) and three leading AI models the same 432 factual questions. EVES made something up the least often.',
     words, 'Learn more', 'about how we measured it']) assert.ok(fr.includes(`'${x}'`), x);
   assert.match(fr, /'Accuracy': '/);
   assert.doesNotMatch(read('public/home/home.css'), /\.acc-/);      // the chart's own styles are not in the page's stylesheet any more
   // on /accuracy the comparison names EVES too, and its row wears the glass EVES pill with the green check
-  assert.equal((acc.match(/\bEden\b/g) || []).length, 5, 'on /accuracy "Eden" is only the site brand (title, site name, header link) and "Eden’s answering and fact-checking system"');
+  assert.equal((acc.match(/\bEden\b/g) || []).length, 7, 'on /accuracy "Eden" is only the site brand (title, site name, header link x2) and the owner\'s definition "Eden’s verification and evaluation system" (description, lead, method)');
+
   assert.doesNotMatch(acc, /Eden (made|did|declines|asked|picked|sent|is tested)/);
   for (const f of ['public/jarvis/eves-pill.svg', 'public/jarvis/eves-pill-dark.svg']) {           // the word and the green check
     assert.match(read(f), />EVES</, f);

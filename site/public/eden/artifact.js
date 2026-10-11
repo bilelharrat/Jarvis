@@ -204,7 +204,11 @@ async function renderPreview(v) {
   let url = art.urls.get(html);
   if (!url) {
     box.replaceChildren(el('div', 'art-loading', 'Preparing preview…'));
-    try { url = apiUrl((await api.artifact(html)).url); art.urls.set(html, url); }
+    try {
+      url = apiUrl((await api.artifact(html)).url);
+      if (art.urls.size > 30) art.urls.delete(art.urls.keys().next().value); // keyed by whole pages: the oldest go (as deck.js does)
+      art.urls.set(html, url);
+    }
     catch (e) { box.replaceChildren(el('div', 'art-loading', `Couldn’t prepare the preview: ${e.message}`)); return; }
     if (art.versions[art.i] !== v || art.view !== 0) return;
   }

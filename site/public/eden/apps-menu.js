@@ -9,7 +9,7 @@ import { state } from './state.js';
 const SITE = 'https://askeden.com';
 const APPS = [
   { id: 'eden-code', name: 'Eden Code', blurb: 'A coding agent for your projects: plans, edits, runs and explains.', href: `${SITE}/eden-code/download`, cta: 'Download for Mac' },
-  { id: 'jarvis', name: 'J.A.R.V.I.S.', blurb: 'Your Mac by voice. Comes with Eden Code.', href: `${SITE}/jarvis/download`, cta: 'Download for Mac' },
+  { id: 'jarvis', name: 'Eden for Mac', blurb: 'Your Mac by voice. Comes with Eden Code.', href: `${SITE}/jarvis/download`, cta: 'Download for Mac' },
   { id: 'edu', name: 'Eden for Education', blurb: 'Study from your professor’s slides and readings, with every answer checked against them.', href: `${SITE}/edu`, cta: 'Open the app' }, // its own app (askeden.com/edu, edu.askeden.com, the Eden Edu iPhone app)
 ];
 

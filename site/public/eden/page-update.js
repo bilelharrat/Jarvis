@@ -44,13 +44,30 @@ async function stampAll() {
 
 let boot = null, lastLook = 0, looking = false, offered = false;
 
+/** What a reload now would lose (any true: offer the banner instead): R2C-3. */
 function busy() {
+  const q = (sel) => document.querySelector(sel);
   const inp = document.getElementById('deck-input');
   const chips = document.getElementById('jc-attach');
+  const root = document.documentElement;
+  const a = document.activeElement;
+  const typed = (x) => !!x && ((('value' in x) && typeof x.value === 'string' && x.value.trim() !== '') || (x.isContentEditable && (x.textContent || '').trim() !== ''));
   return {
-    streaming: state.streams && state.streams.size > 0,
-    draft: !!((inp && inp.value.trim()) || (chips && chips.childElementCount)),
-    talking: document.documentElement.classList.contains('talking') || !!document.querySelector('#talk:not([hidden])'),
+    streaming: !!(state.streams && state.streams.size > 0),
+    draft: !!(inp && inp.value.trim()),
+    // files, pictures or context in the composer (not the persona or Use-my-Mac chips: those stay)
+    attachments: !!(chips && chips.querySelector('.jc-thumb-img, .jc-file-chip:not(.persona):not(.mac-chip)')),
+    talking: root.classList.contains('talking') || !!q('#talk:not([hidden])'),
+    // dictating: recording, or the recording being turned into words (voice.js paintMic)
+    dictating: !!q('#jc-dictate.live, #jc-dictate.busy'),
+    // a Mail message being written (compose.js), with words in it
+    mail: [...document.querySelectorAll('.cw-ed')].some((x) => (x.textContent || '').trim() !== ''),
+    // an import reading a file (import-chatgpt.js marks the page while it runs)
+    importing: root.classList.contains('eden-importing'),
+    // any dialog or sheet open: Share, Import, Settings, Account, Help, the palette, a confirm, a sheet's or the calendar's form
+    dialog: !!q('dialog[open], .sheet.open, #palette.open, .sh-dlg, .cal-sheet:not([hidden])'),
+    // a field with words in it and the cursor in it (a search, a rename, a form)
+    field: !!a && a !== document.body && a !== inp && typed(a),
   };
 }
 
@@ -82,18 +99,31 @@ async function look(force = false) {
 // WebKit's `-apple-system-body` font follows the iOS text size (17px at the default size). The page
 // is laid out in px, so its text is scaled with text-size-adjust by that ratio (0.85–1.6: past that
 // the phone layout would no longer fit; VoiceOver users zoom further with the system zoom).
-function followTextSize() {
+// The probe is measured with text-size-adjust at 100% (on it and, for that moment, on the page):
+// measured under the page's own scale it read back that scale, so a smaller system size was never
+// followed until a relaunch (R2-4). Looked at again on coming back to the page and on a resize.
+function systemTextPx() {
   const root = document.documentElement;
-  if (!root.classList.contains('eden-app')) return;
-  const probe = el('span', { style: { font: '-apple-system-body', position: 'absolute', visibility: 'hidden' } }, 'x');
+  const was = [root.style.webkitTextSizeAdjust, root.style.textSizeAdjust];
+  root.style.webkitTextSizeAdjust = root.style.textSizeAdjust = '100%';
+  const probe = el('span', { 'aria-hidden': 'true', style: { font: '-apple-system-body', webkitTextSizeAdjust: '100%', textSizeAdjust: '100%', position: 'absolute', visibility: 'hidden', pointerEvents: 'none' } }, 'x');
   document.body.append(probe);
   const px = parseFloat(getComputedStyle(probe).fontSize) || 17;
   probe.remove();
-  const scale = Math.max(0.85, Math.min(1.6, px / 17));
+  [root.style.webkitTextSizeAdjust, root.style.textSizeAdjust] = was;
+  return px;
+}
+function followTextSize() {
+  const root = document.documentElement;
+  if (!root.classList.contains('eden-app')) return;
+  const scale = Math.max(0.85, Math.min(1.6, systemTextPx() / 17));
+  const pct = `${Math.round(scale * 100)}%`;
   root.style.setProperty('--eden-text-scale', scale.toFixed(3));
-  root.style.webkitTextSizeAdjust = root.style.textSizeAdjust = `${Math.round(scale * 100)}%`;
+  root.style.webkitTextSizeAdjust = root.style.textSizeAdjust = pct;
   root.classList.toggle('eden-big-text', scale > 1.15);
 }
+let sizeT = 0;
+const followTextSizeSoon = () => { clearTimeout(sizeT); sizeT = setTimeout(followTextSize, 150); };
 
 export function initPageUpdate() {
   // the app adds .eden-app after the first scripts run (app.js lockZoom): look once it's there too
@@ -102,9 +132,14 @@ export function initPageUpdate() {
     const mo = new MutationObserver(() => { if (document.documentElement.classList.contains('eden-app')) { mo.disconnect(); followTextSize(); } });
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   }
+  // the system size can change while Eden is in the background, or with the page open (iPad Split View, Control Center)
+  // (and once more a moment later: WebKit can take a beat to pick up the new size after coming back)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { followTextSize(); setTimeout(followTextSize, 700); } });
+  addEventListener('resize', followTextSizeSoon);
+  addEventListener('pageshow', (e) => { if (e.persisted) followTextSize(); });
   if (isMock) return; // the sample page has no deploys
   // the stamp as loaded (a little after boot, off the first paint's path)
   setTimeout(() => { stampAll().then((s) => { boot = s; lastLook = Date.now(); }); }, 4000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { followTextSize(); look(); } });
-  addEventListener('pageshow', (e) => { if (e.persisted) { followTextSize(); look(true); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) look(); });
+  addEventListener('pageshow', (e) => { if (e.persisted) look(true); });
 }

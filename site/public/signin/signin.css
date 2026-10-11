@@ -65,6 +65,14 @@ body {
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word; /* a long word wraps rather than overflows; never break-all (mid-word cuts) */
+}
+/* Dynamic Type on iPhone and iPad (R2C-22): the text follows the system's text size, in Safari and in
+   the Eden apps' web view. `-webkit-touch-callout` is iOS-only, so desktop Safari (whose
+   -apple-system-body is 13px) keeps 15px. The sizes below are em, so they scale with it. */
+@supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+  html { font: -apple-system-body; }
+  body { font-size: 1rem; }
 }
 body::before {
   content: "";
@@ -131,7 +139,7 @@ h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4p
   margin-top: 18px;
   padding: 10px 14px;
   border-radius: 14px;
-  font-size: 13.5px;
+  font-size: 0.9em;
   text-align: left;
   color: var(--text);
   background: var(--warn-soft);
@@ -217,7 +225,7 @@ h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4p
 .qr svg { display: block; width: 100%; height: 100%; }
 .qr.used svg { opacity: 0.15; }
 .steps { min-width: 0; }
-.how { margin-top: 4px; font-size: 13.5px; color: var(--text2); }
+.how { margin-top: 4px; font-size: 0.9em; color: var(--text2); }
 .how b { color: var(--text); font-weight: 600; }
 .path { color: var(--text); white-space: nowrap; }
 .code {
@@ -226,7 +234,7 @@ h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4p
   letter-spacing: 0.06em;
   user-select: all;
 }
-.status { margin-top: 8px; min-height: 1.45em; font-size: 13px; color: var(--text3); }
+.status { margin-top: 8px; min-height: 1.45em; font-size: 0.867em; color: var(--text3); }
 .status.warn { color: var(--warn); }
 .status.ok { color: var(--ok); }
 
@@ -251,12 +259,14 @@ h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4p
 .button:hover { filter: brightness(1.06); }
 .card > p > .button { margin-top: 20px; }
 
-.fine { margin-top: 24px; font-size: 12px; color: var(--text3); }
-.legal-links { margin-top: 10px; font-size: 12px; color: var(--text3); }
+.fine, .legal-links { font-size: 0.8em; color: var(--text3); overflow-wrap: break-word; hyphens: auto; text-wrap: pretty; }
+.fine { margin-top: 24px; }
+/* the footer's links wrap as whole items at large text sizes (R2C-22) */
+.legal-links { display: flex; flex-wrap: wrap; justify-content: center; column-gap: 0.35em; margin-top: 10px; }
 .legal-links a, .fine a { color: inherit; }
 /* Turnstile's widget (its own frame) and "Create an account with a passkey" */
 .human { display: flex; justify-content: center; margin-top: 14px; min-height: 65px; }
-.newpk { margin-top: 12px; font-size: 13px; color: var(--text2); }
+.newpk { margin-top: 12px; font-size: 0.867em; color: var(--text2); }
 .textlink { border: 0; padding: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 
 /* /privacy and /terms (src/eden/legal.js): the same card, wider, for reading */
@@ -276,6 +286,14 @@ h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.4p
   .card { padding: 28px 20px 22px; border-radius: 24px; }
   .link { flex-direction: column; text-align: center; }
   .qr { width: 168px; height: 168px; }
+}
+/* Very narrow (a small phone, or Safari's largest text zoom): less padding, so the text keeps its width (R2C-22). */
+@media (max-width: 360px) {
+  body { padding: 56px 8px 24px; }
+  .card { padding: 22px 14px 18px; border-radius: 20px; }
+  .link { padding: 14px 10px; }
+  .qr { width: min(168px, 100%); height: auto; aspect-ratio: 1; }
+  .home { position: absolute; } /* not over the card when the text is huge */
 }
 @media (prefers-reduced-motion: reduce) {
   .orb, .card, .link { animation: none; }

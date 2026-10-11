@@ -15,7 +15,7 @@
 // Collapsed, J.A.R.V.I.S. is just the orb: a sphere that floats over the app (drag it anywhere; it
 // stays put as you move around), still listening and speaking; tap it to open the conversation again.
 
-import { el, ico, toast } from './util.js';
+import { el, ico, toast, isTouch } from './util.js';
 import { t, isFr, speechLang, replyLanguageNote } from './i18n.js';
 import { api, apiUrl } from './api.js';
 import { speechText, chunkText, recordingType } from './voice-text.js';
@@ -363,7 +363,7 @@ function say(text) {
   const job = { text, chunks: [], done: false, failed: false, wake: null };
   job.p = streamClip(job);
   T.queue.push(job);
-  if (T.state !== 'speaking' && T.state !== 'closed') setState('speaking', 'Speaking · talk over me, or press Space, to interrupt');
+  if (T.state !== 'speaking' && T.state !== 'closed') setState('speaking', isTouch() ? 'Speaking · talk over me, or tap the orb, to interrupt' : 'Speaking · talk over me, or press Space, to interrupt');
   pump();
 }
 async function streamClip(job) {

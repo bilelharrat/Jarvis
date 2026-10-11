@@ -150,6 +150,7 @@ export default {
     'Sorry, I lost that. Could you say it again?': 'Désolé, je n’ai pas suivi. Pourriez-vous répéter ?',
     'Spoken with Eden': 'À l’oral avec Eden',
     'Speaking · talk over me, or press Space, to interrupt': 'Je parle · parlez par-dessus moi, ou appuyez sur Espace, pour m’interrompre',
+    'Speaking · talk over me, or tap the orb, to interrupt': 'Je parle · parlez par-dessus moi, ou touchez l’orbe, pour m’interrompre',
     'Tap the orb to talk, or type below.': 'Touchez l’orbe pour parler, ou écrivez ci-dessous.',
     'This browser’s storage is full.': 'Le stockage de ce navigateur est plein.',
     'Sets': 'Séries',

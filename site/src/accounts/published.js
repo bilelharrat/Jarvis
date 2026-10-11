@@ -244,6 +244,19 @@ const notHere = () => note(404, 'This page isn’t here', 'It was taken down, or
  * GET /p/<id>. `session()` resolves to eden/session.js currentSession's { session } (asked
  * only for a private page).
  */
+/**
+ * A small "Report" link on a page anyone can open (App Store 1.2: a way to report user-generated content):
+ * an email to support naming the page. Added before </body> (or at the end); the page's own styles can't
+ * reach it (inline style), and it takes no script.
+ */
+export function withReportLink(html, origin, id) {
+  const href = `mailto:support@askeden.com?subject=${encodeURIComponent('Report an Eden page')}&body=${encodeURIComponent(`${origin}/p/${id}\n\nWhat is wrong with it:\n`)}`;
+  const link = `<a href="${href}" style="position:fixed;right:8px;bottom:8px;z-index:2147483647;padding:3px 8px;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font:12px/1.4 system-ui,sans-serif;text-decoration:none">Report</a>`;
+  const text = String(html);
+  const at = text.search(/<\/body\s*>(?![\s\S]*<\/body\s*>)/i);
+  return at >= 0 ? `${text.slice(0, at)}${link}${text.slice(at)}` : `${text}${link}`;
+}
+
 export async function publishedPage(request, env, id, session) {
   if (!validPublishedId(id) || !env.ACCOUNTS) return notHere();
   try {
@@ -276,5 +289,6 @@ export async function publishedPage(request, env, id, session) {
     if (who.account !== owner) return withHeaders(notHere(), { vary: 'cookie' });
     headers.vary = 'cookie';
   }
-  return withHeaders(new Response(page.html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), headers);
+  const html = page.access === 'private' ? page.html : withReportLink(page.html, new URL(request.url).origin, id);
+  return withHeaders(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), headers);
 }

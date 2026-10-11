@@ -92,21 +92,47 @@ export const canRevoke = (env) => Boolean(env.SIWA_KEY && env.SIWA_KEY_ID);
 /** The client ids a grant may be kept for (and later revoked with): the J.A.R.V.I.S. app's, and the Eden apps'. */
 export const GRANT_CLIENTS = [BUNDLE_ID, ...EDEN_APP_IDS];
 
-// The refresh token for an authorization code, or null (no key, or Apple said no). `clientId`: the app the
-// code was issued to (the identity token's `aud`).
-export async function exchangeCode(env, code, fetcher = fetch, clientId = BUNDLE_ID) {
+// Apple's token and revoke endpoints, each call at most this long (R2C-11, R2C-13): a stalled Apple never
+// holds a sign-in or a deletion. A timeout counts as a refusal.
+export const APPLE_TIMEOUT_MS = 5000;
+
+/** The claims of a JWT, unverified (null if it isn't one): only for a token Apple just sent us over TLS. */
+function jwtClaims(token) {
+  try {
+    const part = String(token).split('.')[1];
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(part)));
+  } catch {
+    return null;
+  }
+}
+
+// The refresh token for an authorization code, or null (no key, Apple said no or took too long). `clientId`:
+// the app the code was issued to (the identity token's `aud`). `expect.sub`: the user the sign-in's verified
+// identity token names; the id_token Apple returns for the code must name the same user and app (R2C-12),
+// else the code was someone else's (another user of the same app) and nothing is kept.
+export async function exchangeCode(env, code, fetcher = fetch, clientId = BUNDLE_ID, expect = null) {
   if (!canRevoke(env) || !code || !GRANT_CLIENTS.includes(clientId)) return null;
   try {
     const response = await fetcher(`${ISSUER}/auth/token`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: clientId, client_secret: await clientSecret(env, undefined, clientId), code, grant_type: 'authorization_code' }),
+      signal: AbortSignal.timeout(APPLE_TIMEOUT_MS),
     });
     if (!response.ok) {
       console.warn('apple: the authorization code was refused', response.status, clientId); // never the code or a token
       return null;
     }
-    return (await response.json()).refresh_token || null;
+    const got = await response.json();
+    if (expect) {
+      const claims = jwtClaims(got.id_token);
+      const audiences = claims ? (Array.isArray(claims.aud) ? claims.aud : [claims.aud]) : [];
+      if (!claims || claims.sub !== expect.sub || !audiences.includes(clientId)) {
+        console.warn('apple: the authorization code is for another user or app; not kept', clientId); // never the code, a token or a sub
+        return null;
+      }
+    }
+    return got.refresh_token || null;
   } catch (error) {
     console.warn('apple: the authorization code could not be exchanged', error && error.name);
     return null;
@@ -120,9 +146,12 @@ export async function revoke(env, refreshToken, fetcher = fetch, clientId = BUND
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: clientId, client_secret: await clientSecret(env, undefined, clientId), token: refreshToken, token_type_hint: 'refresh_token' }),
+      signal: AbortSignal.timeout(APPLE_TIMEOUT_MS),
     });
+    if (!response.ok) console.warn('apple: a grant could not be revoked', response.status, clientId); // never the token
     return response.ok;
-  } catch {
+  } catch (error) {
+    console.warn('apple: a grant could not be revoked', (error && error.name) || 'error', clientId); // never the token
     return false;
   }
 }

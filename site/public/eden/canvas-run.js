@@ -4,7 +4,7 @@
 // isn't set up. Nothing about a run is logged or kept.
 
 import { apiUrl, postJSON } from './api.js';
-import { LIMITS, checkRun } from './canvas-model.js';
+import { LIMITS, checkRun, runnableJs } from './canvas-model.js';
 
 let frame = null, ready = null, current = null, seq = 0;
 
@@ -58,7 +58,8 @@ export async function run({ lang, code, stdin }, on) {
   if (!current || current.id !== id) return false;
   // a backstop if the runner itself stops answering (its own limit is LIMITS.timeMs after start; Python loads first)
   current.backstop = setTimeout(() => { if (current && current.id === id) { killFrame(); on.out('stderr', 'The runner stopped answering.\n'); finish(124, 'timeout'); } }, LIMITS.timeMs + 60000);
-  frame.contentWindow.postMessage({ type: 'run', id, lang: ok.runner, code, stdin: stdin || '', timeMs: LIMITS.timeMs }, '*');
+  // a module's top-level `export` can't run inside the runner's function: taken off (R2-14)
+  frame.contentWindow.postMessage({ type: 'run', id, lang: ok.runner, code: ok.runner === 'js' ? runnableJs(code) : code, stdin: stdin || '', timeMs: LIMITS.timeMs }, '*');
   return true;
 }
 

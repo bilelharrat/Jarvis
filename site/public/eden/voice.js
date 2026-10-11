@@ -17,13 +17,13 @@
 //    it (barge-in: speech recognition hears words that aren't his, barge-in.js, or the mic's
 //    level well above his echo); Space or a tap on the orb does too. Esc or End closes it.
 
-import { $, el, ico, toast, store } from './util.js';
+import { $, el, ico, toast, store, isTouch } from './util.js';
 import { state, ui, nodeText } from './state.js';
 import { apiUrl, isMock, addSendExtra } from './api.js';
 import { watchForInterrupt, isSpaceToInterrupt } from './barge-in.js';
 import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S } from './voice-text.js';
 import { speechLang } from './i18n.js';
-import { deadline, talkStep, talkText, DEADLINE, TALK_PAUSE_MS } from './resilience.js';
+import { deadline, talkStep, talkText, talkCapped, talkShouldPause, DEADLINE, TALK_PAUSE_MS } from './resilience.js';
 
 const prefs = { autoRead: false, ...store.get('jchat:voice', {}) };
 const savePrefs = () => store.set('jchat:voice', prefs);
@@ -365,6 +365,7 @@ const talk = {
   stream: null, src: null, mic: null, raf: 0, floor: 0.01, echo: 0.02, loudFrames: 0, ends: 0, box: null, back: null,
   watch: null, seed: '', turn: null,
   mini: false, dragged: false,
+  capped: 0, // turns in a row that ended at the cap, not at a pause (R2-3)
 };
 
 // In Talk mode (the Eden voice) the server answers as J.A.R.V.I.S. (turn.ts JARVIS_PERSONA).
@@ -385,7 +386,7 @@ function talkBox() {
       el('div', { class: 'talk-you', id: 'talkYou', 'data-no-i18n': '' }),
       el('div', { class: 'talk-reply', id: 'talkReply', 'data-no-i18n': '' }),
       el('div', 'talk-acts',
-        el('button', { type: 'button', class: 'btn primary', id: 'talkSend', onclick: () => sendTalk() }, 'Send now'),
+        el('button', { type: 'button', class: 'btn primary', id: 'talkSend', onclick: () => (talk.state === 'paused' ? resumeTalk() : sendTalk()) }, 'Send now'),
         el('button', { type: 'button', class: 'btn', id: 'talkEnd', onclick: () => closeTalk() }, 'End'))));
   document.body.append(box);
   talk.box = box;
@@ -396,6 +397,7 @@ function talkBox() {
 function orbTap() {
   if (talk.mini) { if (!talk.dragged) setTalkMini(false); talk.dragged = false; return; }
   if (talk.state === 'replying') bargeIn();
+  else if (talk.state === 'paused') resumeTalk();
 }
 
 /* Collapsed, Talk is just the orb: a sphere floating over the app (drag it anywhere; it stays put
@@ -455,15 +457,17 @@ function paintTalk() {
   const speaking = s === 'replying' && speaker.playing;
   talk.box.dataset.state = speaking ? 'speaking' : s;
   $('talkState').textContent = talk.error && s === 'listening' ? talk.error
-    : s === 'listening' ? ((talk.heard + talk.mid).trim() ? 'Listening… pause to send' : 'Listening…')
-      : s === 'sending' ? 'Sending…' : speaking ? 'Speaking… talk over me, or press Space, to interrupt' : 'Thinking…';
+    : s === 'paused' ? 'Still listening? Tap to continue'
+      : s === 'listening' ? ((talk.heard + talk.mid).trim() ? 'Listening… pause to send' : 'Listening…')
+        : s === 'sending' ? 'Sending…' : speaking ? (isTouch() ? 'Speaking… talk over me, or tap the orb, to interrupt' : 'Speaking… talk over me, or press Space, to interrupt') : 'Thinking…';
   $('talkYou').textContent = s === 'listening' ? (talk.heard + talk.mid).trim() : talk.you || '';
   $('talkYou').classList.toggle('mid', s === 'listening' && !!talk.mid);
   const r = s === 'listening' ? '' : talk.reply;
   $('talkReply').textContent = r.length > 420 ? `…${r.slice(-420)}` : r;
-  $('talkSend').hidden = s !== 'listening';
-  $('talkSend').disabled = !(talk.heard + talk.mid).trim();
-  $('talkOrb').setAttribute('aria-label', talk.mini ? `Talk, ${$('talkState').textContent} (tap to open, drag to move)` : s === 'replying' ? 'Interrupt' : 'Level');
+  $('talkSend').hidden = s !== 'listening' && s !== 'paused';
+  $('talkSend').disabled = s !== 'paused' && !(talk.heard + talk.mid).trim();
+  $('talkSend').textContent = s === 'paused' ? 'Continue' : 'Send now';
+  $('talkOrb').setAttribute('aria-label', talk.mini ? `Talk, ${$('talkState').textContent} (tap to open, drag to move)` : s === 'replying' ? 'Interrupt' : s === 'paused' ? 'Continue listening' : 'Level');
 }
 
 async function openTalk() {
@@ -473,7 +477,7 @@ async function openTalk() {
   speaker.stop();
   audio(); // unlocked by this click, so the reply can play later
   talkBox().hidden = false;
-  Object.assign(talk, { on: true, error: '', you: '', reply: '', ends: 0, floor: 0.01, loudFrames: 0, back: document.activeElement });
+  Object.assign(talk, { on: true, error: '', you: '', reply: '', ends: 0, floor: 0.01, loudFrames: 0, capped: 0, back: document.activeElement });
   document.documentElement.classList.add('talking');
   setTalk('listening');
   $('talkX').focus();
@@ -541,7 +545,7 @@ function listen(seed = '') {
     // results doesn't hold the turn open, and one that never stops is sent at 30 s / 2,000 characters (A2).
     const step = talkStep(talk.turn, talk.heard + mid, Date.now());
     talk.turn = step.turn;
-    if (step.action === 'send') { sendTalk(); return; }
+    if (step.action === 'send') { sendTalk({ capped: true }); return; }
     if (step.action === 'keep' && talk.pauseT) return;
     clearTimeout(talk.pauseT);
     talk.pauseT = step.action === 'none' ? 0 : setTimeout(sendTalk, PAUSE_MS);
@@ -565,11 +569,12 @@ function listen(seed = '') {
   try { rec.start(); } catch { talk.error = 'Listening couldn’t start.'; paintTalk(); }
 }
 
-function sendTalk() {
+function sendTalk({ capped = false } = {}) {
   clearTimeout(talk.pauseT);
   talk.pauseT = 0;
   const text = talkText(`${talk.heard} ${talk.mid}`);
   if (!talk.on || talk.state !== 'listening' || !text) return;
+  talk.capped = talkCapped(talk.capped, capped); // a turn the cap ended, not a pause (R2-3)
   const rec = talk.rec;
   talk.rec = null;
   if (rec) { try { rec.abort(); } catch { /* ended */ } }
@@ -593,6 +598,25 @@ function sendTalk() {
 /** The reply was read (or failed): listen for the next turn. */
 function afterReply(reason) {
   if (!talk.on || reason === 'stopped') return;
+  // Two turns in a row cut at 2,000 characters / 30 s, never a pause: something keeps talking (a TV,
+  // a noisy room). Stop listening and ask, instead of sending big turns non-stop (R2-3).
+  if (talkShouldPause(talk.capped)) { pauseTalk(); return; }
+  listen();
+}
+/** Talk waits, the mic off, until a tap: "Still listening? Tap to continue". */
+function pauseTalk() {
+  clearTimeout(talk.pauseT);
+  talk.pauseT = 0;
+  const rec = talk.rec;
+  talk.rec = null;
+  if (rec) { try { rec.abort(); } catch { /* ended */ } }
+  unwatch();
+  Object.assign(talk, { heard: '', mid: '', turn: null, error: '' });
+  setTalk('paused');
+}
+function resumeTalk() {
+  if (!talk.on || talk.state !== 'paused') return;
+  talk.capped = 0;
   listen();
 }
 
@@ -650,7 +674,7 @@ export function voiceSettings() {
   const rec = Recognition()
     ? 'Dictation and Talk use this browser’s speech recognition (Chrome sends the audio to Google to transcribe it).'
     : Recorder()
-      ? `This browser has no speech recognition: Dictation records (two minutes at most) and ${HOSTED ? 'askeden.com transcribes it (Whisper on Cloudflare, counted on your Jarvis account’s included AI)' : 'J.A.R.V.I.S. on this Mac transcribes it (the audio stays on this Mac)'}. Talk needs speech recognition (Chrome, Edge or Safari).`
+      ? `This browser has no speech recognition: Dictation records (two minutes at most) and ${HOSTED ? 'askeden.com transcribes it (Whisper on Cloudflare, counted on your Eden account’s included AI)' : 'Eden on this Mac transcribes it (the audio stays on this Mac)'}. Talk needs speech recognition (Chrome, Edge or Safari).`
       : 'This browser has no speech recognition, so Dictation and Talk are off (use Chrome, Edge or Safari).';
   return el('div', 'set-sec', el('h3', '', 'Voice'),
     el('div', 'icard', el('div', 'prov',

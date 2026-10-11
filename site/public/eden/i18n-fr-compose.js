@@ -391,6 +391,11 @@ export default {
     'Privacy mode needs your Mac, through its link to askeden.com.': 'Le mode confidentiel a besoin de votre Mac, via son lien avec askeden.com.',
     'Privacy off: this chat is routed to cloud models again': `Confidentialité désactivée${NBSP}: cette discussion est de nouveau routée vers des modèles cloud`,
     'Private: this chat stays on your Mac': `Privé${NBSP}: cette discussion reste sur votre Mac`,
+    'Private: this chat stays on this iPhone': `Privé${NBSP}: cette discussion reste sur cet iPhone`,
+    'Private: this chat stays on this iPhone. Tap to turn privacy off.': `Privé${NBSP}: cette discussion reste sur cet iPhone. Touchez pour désactiver la confidentialité.`,
+    'Privacy mode: keep this chat on this iPhone': `Mode confidentiel${NBSP}: garder cette discussion sur cet iPhone`,
+    'Privacy mode on: this chat stays on this iPhone': `Mode confidentiel activé${NBSP}: cette discussion reste sur cet iPhone`,
+    'Turn on Apple Intelligence (Settings › Apple Intelligence & Siri) to keep private chats on this iPhone, or connect your Mac.': 'Activez Apple Intelligence (Réglages › Apple Intelligence et Siri) pour garder les discussions privées sur cet iPhone, ou connectez votre Mac.',
     'Turn privacy off for this chat? Your next message sends the whole conversation, its private messages included, to a cloud model.': `Désactiver la confidentialité pour cette discussion${NBSP}? Votre prochain message enverra toute la discussion, messages privés compris, à un modèle cloud.`,
     'Turn off': 'Désactiver',
     'On your Mac': 'Sur votre Mac',
@@ -419,7 +424,7 @@ export default {
     'New chats are routed to cloud models': 'Les nouvelles discussions sont routées vers des modèles cloud',
     'Suggest privacy for sensitive messages': 'Suggérer la confidentialité pour les messages sensibles',
     'Checked in this browser as you type (passwords, keys, ID, card and bank numbers, health details). Nothing is sent anywhere to decide.': 'Vérifié dans ce navigateur pendant la saisie (mots de passe, clés, pièces d’identité, numéros de carte et de compte, informations de santé). Rien n’est envoyé nulle part pour en décider.',
-    'On askeden.com, private chats are answered by a local model on your Mac (Ollama or LM Studio), through its link (J.A.R.V.I.S. Settings › Account › Eden on the web reaches this Mac); never by a cloud model. Each reply shows where it was computed.': `Sur askeden.com, les discussions privées reçoivent la réponse d’un modèle local sur votre Mac (Ollama ou LM${NBSP}Studio), via son lien (Réglages de J.A.R.V.I.S. › Compte › Eden sur le web relie ce Mac)${NBSP}; jamais d’un modèle cloud. Chaque réponse indique où elle a été calculée.`,
+    'On askeden.com, private chats are answered by a local model on your Mac (Ollama or LM Studio), through its link (Eden’s Settings on the Mac › Account › Eden on the web reaches this Mac); never by a cloud model. Each reply shows where it was computed.': `Sur askeden.com, les discussions privées reçoivent la réponse d’un modèle local sur votre Mac (Ollama ou LM${NBSP}Studio), via son lien (Réglages d’Eden sur le Mac › Compte › Eden sur le web relie ce Mac)${NBSP}; jamais d’un modèle cloud. Chaque réponse indique où elle a été calculée.`,
     'Privacy mode uses a model running on this Mac: install Ollama (ollama.com) or LM Studio, load a model, and keep it running. Web search is off in private chats. Each reply shows where it was computed.': `Le mode confidentiel utilise un modèle qui tourne sur ce Mac${NBSP}: installez Ollama (ollama.com) ou LM${NBSP}Studio, chargez un modèle et laissez-le ouvert. La recherche sur le web est désactivée dans les discussions privées. Chaque réponse indique où elle a été calculée.`,
 
     /* ---------- publish.js ---------- */
@@ -550,6 +555,7 @@ export default {
     [/^in (Ollama|LM Studio)$/, 'dans $1'],
     [/^Private · (.+)$/, (m, r) => `Privé · ${reason(r)}`],
     [/^This looks like it has (.+)\. Keep this chat on your Mac\?$/, (m, l) => `Ce message semble contenir ${labelList(l)}. Garder cette discussion sur votre Mac${NBSP}?`],
+    [/^This looks like it has (.+)\. Keep this chat on this iPhone\?$/, (m, l) => `Ce message semble contenir ${labelList(l)}. Garder cette discussion sur cet iPhone${NBSP}?`],
     [/^Ignored \(not on this Mac\): (.+)$/, `Ignorés (pas sur ce Mac)${NBSP}: $1`],
     [/^(.+)\. Load one \(e\.g\. ollama pull llama3\.2\), then try again\.$/, (m) => reason(m)],
     [/^(.+) is running but has no chat model loaded$/, (m) => reason(m)],

@@ -16,12 +16,12 @@ import { redeemPromo } from './promo.js';
 import { cancelSubscription } from '../eden/billing.js';
 import {
   ApiError,
-  BUNDLE_ID,
   accountIdFor,
   b64ToBytes,
   b64url,
   cleanName,
   cleanVersion,
+  isStoreApp,
   json,
   randomBytes,
   readJson,
@@ -188,7 +188,7 @@ async function signIn(request, env) {
   const claims = await verifyIdentityToken(body.identity_token, body.nonce, { now: Date.now() / 1000 });
   const ip = clientIp(request);
   const { account_id: accountId } = await accountForIdentity(env, { provider: 'apple', sub: claims.sub, ip, beforeCreate: () => nativeNewAccount(env, ip) });
-  const refreshToken = await exchangeCode(env, body.authorization_code);
+  const refreshToken = await exchangeCode(env, body.authorization_code, fetch, undefined, { sub: claims.sub }); // same user and app (R2C-12)
   const device = body.device && typeof body.device === 'object' ? body.device : {};
   return call(env, accountId, 'signin', {
     account_id: accountId,
@@ -213,10 +213,11 @@ async function deleteAccount(request, env) {
 export async function eraseAccount(env, accountId, auth, { confirm = null } = {}) {
   // Team spaces and delegations are read first (the account's own object is about to go), erased after.
   const team = env.ACCOUNTS ? await import('./space.js').then((m) => m.teamSnapshot(env, accountId, auth).then((snap) => ({ m, snap }))).catch(() => null) : null;
-  const { apple_grant: grant, apple_grants: grants = {}, identities = [], stripe_subscription: stripeSub, published = [], shared = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
-  if (grant) await revoke(env, grant);
-  // The Eden apps' grants, each with the client id it was issued to (eden/session.js nativeApple).
-  for (const [clientId, token] of Object.entries(grants || {})) await revoke(env, token, fetch, clientId);
+  const { apple_grant: grant, apple_grants: grants = {}, identities = [], stripe_subscription: stripeSub, published = [], shared = [], appstore_claims: claims = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
+  // Every Apple grant at once (R2C-13): the J.A.R.V.I.S. app's, and the Eden apps' each with the client id it
+  // was issued to (eden/session.js nativeApple). Each call is capped at 5 s and logs its own failure (status
+  // and client id only); none holds up or stops the deletion.
+  await Promise.allSettled([...(grant ? [revoke(env, grant)] : []), ...Object.entries(grants || {}).map(([clientId, token]) => revoke(env, token, fetch, clientId))]);
   // Plus bought on the web stops now (best effort); the App Store's is the person's to cancel.
   if (stripeSub) await cancelSubscription(env, stripeSub);
   if (team) await team.m.eraseTeamData(env, accountId, team.snap).catch((e) => console.error('team cleanup failed', e && e.message));
@@ -233,6 +234,8 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   // Eden for Education: out of every course, its own courses deleted (edu/course.js)
   await import('../edu/course.js').then((m) => m.eraseCourses(env, accountId)).catch((e) => console.error('course cleanup failed', e && e.message));
   if (env.IDENTITIES) {
+    // The App Store subscriptions it claimed (eden/billing.js appleTransaction) are free to claim again.
+    for (const subHash of claims) await callIdentity(env, 'appstore', subHash, 'forget', { account_id: accountId }).catch(() => {});
     for (const { provider, sub_hash: subHash } of identities) {
       if (subHash) await callIdentity(env, provider, subHash, 'forget', { account_id: accountId }).catch(() => {});
     }
@@ -441,7 +444,7 @@ async function push(request, env) {
 async function subscription(request, env) {
   const body = await readJson(request, 64 * 1024);
   const transaction = await verifyAppleJws(body.signed_transaction, { root: env.APPLE_ROOT_FINGERPRINT || APPLE_ROOT_G3 });
-  if (transaction.bundleId !== BUNDLE_ID) throw new ApiError(400, 'bad_transaction', "That purchase isn't for Jarvis.");
+  if (!isStoreApp(transaction.bundleId)) throw new ApiError(400, 'bad_transaction', "That purchase isn't for Jarvis or Eden.");
   return callAs(env, request, 'subscription', { transaction });
 }
 
@@ -450,14 +453,17 @@ async function appStoreNotification(request, env) {
   const root = env.APPLE_ROOT_FINGERPRINT || APPLE_ROOT_G3;
   const notice = await verifyAppleJws(body.signedPayload, { root });
   const data = notice.data || {};
-  if (data.bundleId && data.bundleId !== BUNDLE_ID) return new Response(null, { status: 200 });
+  if (data.bundleId && !isStoreApp(data.bundleId)) return new Response(null, { status: 200 }); // J.A.R.V.I.S.'s and Eden's
   if (!data.signedTransactionInfo) return new Response(null, { status: 200 }); // a TEST notification, say
   const transaction = await verifyAppleJws(data.signedTransactionInfo, { root });
   const renewal = data.signedRenewalInfo ? await verifyAppleJws(data.signedRenewalInfo, { root }) : null;
-  const accountId = String(transaction.appAccountToken || '').toLowerCase();
-  if (!validAccountId(accountId) || transaction.bundleId !== BUNDLE_ID) return new Response(null, { status: 200 });
+  let accountId = String(transaction.appAccountToken || '').toLowerCase();
+  // No token (an Eden offer code redeemed in Apple's sheet): the account that linked it first (eden/billing.js).
+  const claimed = !transaction.appAccountToken && transaction.originalTransactionId != null && isStoreApp(transaction.bundleId);
+  if (claimed) accountId = (await callIdentity(env, 'appstore', await subHashOf('appstore', String(transaction.originalTransactionId)), 'get')).account_id || '';
+  if (!validAccountId(accountId) || !isStoreApp(transaction.bundleId)) return new Response(null, { status: 200 });
   try {
-    await call(env, accountId, 'notification', { transaction, renewal });
+    await call(env, accountId, 'notification', { transaction, renewal, ...(claimed ? { claimed: true } : {}) });
   } catch (error) {
     // A deleted account, or someone else's purchase: Apple needn't send it again.
     if (!(error instanceof ApiError && error.status < 500)) throw error;

@@ -25,20 +25,6 @@ export function parseRecall(text) {
   if (!t || /^Nothing remembered/i.test(t)) return [];
   return t.split('\n').map((l) => l.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
 }
-export function parseCalendar(text) {
-  const t = strip(text);
-  if (!t || /^Nothing on the calendar/i.test(t)) return [];
-  const days = [];
-  for (const line of t.split('\n')) {
-    const m = /^\s*-\s*(\w{3} \d{1,2} \w{3})\s*(\(all day\)|\d{1,2}:\d{2}[–-]\d{1,2}:\d{2})?:\s*(.*?)(?:\s+\[([^\]]*)\])?\s*$/.exec(line);
-    if (!m) { if (line.trim()) days.push({ day: '', events: [{ time: '', title: line.replace(/^\s*-\s*/, ''), cal: '' }] }); continue; }
-    let d = days.find((x) => x.day === m[1]);
-    if (!d) { d = { day: m[1], events: [] }; days.push(d); }
-    d.events.push({ time: m[2] === '(all day)' ? 'all day' : (m[2] || ''), title: m[3], cal: m[4] || '' });
-  }
-  return days;
-}
-
 async function call(tool, args) {
   const r = await api.jarvis(tool, args);
   if (r.is_error) throw new Error(strip(r.text) || 'The Jarvis app said no.');

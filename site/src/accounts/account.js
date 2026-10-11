@@ -8,7 +8,9 @@
 
 import {
   ApiError,
-  PLUS_PRODUCTS,
+  EDEN_BUNDLE_ID,
+  EDEN_PLUS_PRODUCTS,
+  isPlusPurchase,
   cleanName,
   cleanVersion,
   deviceKind,
@@ -75,7 +77,8 @@ const RELAY = { frame: 64 * 1024, held: 256 * 1024, streams: 16 };
 
 // Dollars: a month of Plus (today's price), a month of Plus at the old $20 price (grandfathered:
 // its Stripe price in STRIPE_PRICE_PLUS_LEGACY, and the App Store's), and the trial.
-export const LIMITS = { plus: 6, legacy: 20, trial: 1 };
+export const LIMITS = { plus: 6, legacy: 20, trial: 1, sandbox: 0.5 };
+const REVOKED_KEPT = 50; // refunded transaction ids kept per original transaction
 
 function allowances(env = {}) {
   const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== '' && v !== undefined ? Number(v) : d);
@@ -83,6 +86,7 @@ function allowances(env = {}) {
     plus: n(env.PLUS_BUDGET_USD, LIMITS.plus),
     legacy: n(env.PLUS_LEGACY_BUDGET_USD, LIMITS.legacy),
     trial: n(env.TRIAL_BUDGET_USD, LIMITS.trial),
+    sandbox: n(env.SANDBOX_BUDGET_USD, LIMITS.sandbox),
     voiceFree: n(env.VOICE_DAILY_FREE, VOICE.free),
     voicePlus: n(env.VOICE_DAILY_PLUS, VOICE.plus),
   };
@@ -177,6 +181,12 @@ export class Account {
           if (device.kind === 'web' && body.eden !== true) throw new ApiError(403, 'forbidden', "A browser's sign-in uses the voice through Eden at askeden.com only.");
           return json(await this.voice(body));
         case 'subscription': return json(await this.subscription(device, body));
+        // The Eden iPhone app's App Store Plus, sent with its web view's session (eden/billing.js
+        // appleTransaction): a browser's sign-in, so only the Eden app's own purchases, never a grant's.
+        case 'subscription-eden':
+          if (device.grant) throw new ApiError(403, 'grant_forbidden', 'Only the account’s owner can buy or manage Plus.');
+          if (!body.transaction || body.transaction.bundleId !== EDEN_BUNDLE_ID) throw new ApiError(400, 'bad_transaction', 'That purchase isn’t from the Eden app.');
+          return json(await this.subscription(device, body));
         case 'sync-get': return json(await this.syncGet(Number(body.since) || 0));
         case 'sync-put': return json(await this.syncPut(body));
         case 'sync-delete': return json(await this.syncDelete(body));
@@ -448,7 +458,7 @@ export class Account {
     await forgetGoogleOnDelete(this); // revokes hosted Eden's Gmail/Calendar grant at Google
     await this.storage.deleteAll();
     await Promise.resolve(this.storage.deleteAlarm?.()).catch(() => {}); // deleteAll leaves the alarm set
-    return { apple_grant: grant || null, apple_grants: grants, identities, stripe_subscription: stripe, published, shared };
+    return { apple_grant: grant || null, apple_grants: grants, identities, stripe_subscription: stripe, published, shared, appstore_claims: (await this.storage.get('appstore_claims')) || [] };
   }
 
   publicDevice(device, me) {
@@ -520,27 +530,52 @@ export class Account {
   }
 
   // A transaction already checked against Apple's chain (storekit.js), for this account.
-  async applyTransaction(tx, renewal = null) {
+  // `claimed`: a transaction without an appAccountToken (an offer code redeemed in Apple's sheet)
+  // that the Worker has tied to this account first (the `appstore` identity of its original
+  // transaction id: eden/billing.js appleTransaction), so no other account can take it too.
+  async applyTransaction(tx, renewal = null, { claimed = false } = {}) {
     const account = await this.storage.get('account');
     if (!account) throw new ApiError(404, 'not_found', 'No such account.');
-    if (!PLUS_PRODUCTS.includes(tx.productId)) throw new ApiError(400, 'bad_transaction', "That isn't a Jarvis Plus purchase.");
-    if (String(tx.appAccountToken || '').toLowerCase() !== account.id) {
+    if (!isPlusPurchase(tx)) throw new ApiError(400, 'bad_transaction', "That isn't a Plus purchase.");
+    const token = String(tx.appAccountToken || '').toLowerCase();
+    if (token ? token !== account.id : !claimed) {
       throw new ApiError(403, 'forbidden', 'That purchase belongs to another Jarvis account.');
     }
     const plan = (await this.storage.get('plan')) || {};
     const expires = Number(tx.expiresDate) || 0;
     const revoked = Boolean(tx.revocationDate);
-    // A newer period replaces an older one; a revocation of the one we hold always counts.
-    const same = plan.transaction_id && String(plan.transaction_id) === String(tx.transactionId);
-    if (same || !plan.expires || expires >= plan.expires || (revoked && String(plan.original_transaction_id) === String(tx.originalTransactionId))) {
-      Object.assign(plan, {
-        product_id: tx.productId,
-        transaction_id: String(tx.transactionId),
-        original_transaction_id: String(tx.originalTransactionId),
-        expires,
-        revoked,
-        environment: tx.environment || null,
-      });
+    const id = String(tx.transactionId);
+    const original = String(tx.originalTransactionId);
+    const signed = Number(tx.signedDate) || 0;
+    // Refunded and revoked transaction ids are kept for good, per original transaction (R3C-1): an
+    // old copy of a refunded transaction, posted again, never switches Plus back on.
+    const gone = plan.revoked_ids && typeof plan.revoked_ids === 'object' ? plan.revoked_ids : {};
+    const goneHere = Array.isArray(gone[original]) ? gone[original] : [];
+    if (revoked && !goneHere.includes(id)) {
+      gone[original] = [...goneHere, id].slice(-REVOKED_KEPT);
+      plan.revoked_ids = gone;
+    }
+    const same = plan.transaction_id && String(plan.transaction_id) === id;
+    const sameOriginal = String(plan.original_transaction_id) === original;
+    const apply = () => Object.assign(plan, {
+      product_id: tx.productId,
+      transaction_id: id,
+      original_transaction_id: original,
+      expires,
+      revoked,
+      environment: tx.environment || null,
+      signed_date: signed,
+    });
+    if (tx.environment && /^sandbox$/i.test(tx.environment)) console.warn('apple: a Sandbox transaction', tx.productId, 'on account', account.id);
+    if (revoked) {
+      // A refund ends the period it refunds, not a newer paid one (R3C-8).
+      if (same || !plan.expires || (sameOriginal && expires >= plan.expires)) apply();
+    } else if (goneHere.includes(id) || (same && plan.revoked && !plan.signed_date)) {
+      // Already refunded: an older copy of it changes nothing.
+    } else if (same && signed && signed < (Number(plan.signed_date) || 0)) {
+      // An older copy of the transaction we hold (a stale notification, a replay): ignored.
+    } else if (same || !plan.expires || expires >= plan.expires) {
+      apply();
     }
     if (renewal && String(renewal.originalTransactionId) === String(plan.original_transaction_id)) {
       plan.renews = renewal.autoRenewStatus === 1;
@@ -549,13 +584,18 @@ export class Account {
     return plan;
   }
 
-  async subscription(device, { transaction }) {
-    await this.applyTransaction(transaction);
+  async subscription(device, { transaction, claimed = false, claim_hash: claimHash = null }) {
+    await this.applyTransaction(transaction, null, { claimed: claimed === true });
+    // The App Store claim on this subscription's original transaction, released when the account goes.
+    if (/^[0-9a-f]{64}$/.test(String(claimHash || ''))) {
+      const claims = (await this.storage.get('appstore_claims')) || [];
+      if (!claims.includes(claimHash)) await this.storage.put('appstore_claims', [...claims, claimHash].slice(-50));
+    }
     return this.view(device);
   }
 
-  async notification({ transaction, renewal }) {
-    if (transaction) await this.applyTransaction(transaction, renewal);
+  async notification({ transaction, renewal, claimed = false }) {
+    if (transaction) await this.applyTransaction(transaction, renewal, { claimed: claimed === true });
     return {};
   }
 
@@ -598,7 +638,12 @@ export class Account {
     const stripe = (await this.storage.get('stripe_plan')) || {};
     const apple = plan.source === 'app_store' || plan.source === 'both';
     const web = plan.source === 'stripe' || plan.source === 'both';
-    let cap = apple ? caps.legacy : plan.promo ? caps.plus : 0;
+    // Eden for iPhone's App Store Plus is sold at today's price: today's allowance (Jarvis's, the old one).
+    const store = apple ? (await this.storage.get('plan')) || {} : {};
+    // A Sandbox purchase (TestFlight, App Review: free, and signed with Apple's own chain) is Plus,
+    // with a trial-size allowance only (R3C-3).
+    const sandbox = apple && /^sandbox$/i.test(String(store.environment || ''));
+    let cap = apple ? (sandbox ? caps.sandbox : EDEN_PLUS_PRODUCTS.includes(store.product_id) ? caps.plus : caps.legacy) : plan.promo ? caps.plus : 0;
     if (web) cap = Math.max(cap, legacyPrice(this.env, stripe.price) ? caps.legacy : caps.plus);
     return cap;
   }

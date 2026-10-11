@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>How often AI makes things up · Eden</title>
-<meta name="description" content="We asked EVES and three leading AI models the same 432 factual questions. EVES made up an answer 9.7% of the time, against 18.3% to 24.5% for the models answering on their own. The chart, the caveats, and how we measured it.">
+<meta name="description" content="We asked EVES (Eden’s verification and evaluation system) and three leading AI models the same 432 factual questions. EVES made up an answer 9.7% of the time, against 18.3% to 24.5% for the models answering on their own. The chart, the caveats, and how we measured it.">
 <link rel="canonical" href="https://askeden.com/accuracy">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Eden">
@@ -171,7 +171,7 @@
 
 <section class="method-s" id="method" aria-labelledby="methodH">
   <h2 id="methodH">How we measured this</h2>
-  <p class="lead">We asked EVES and three AI models the same 432 questions on 9 October 2026 and checked every answer. Here is what we asked, how we graded, and what the numbers can and can’t tell you.</p>
+  <p class="lead">We asked EVES (Eden’s verification and evaluation system) and three AI models the same 432 questions on 9 October 2026 and checked every answer. Here is what we asked, how we graded, and what the numbers can and can’t tell you.</p>
 
   <h3>The questions</h3>
   <ul>
@@ -186,7 +186,7 @@
   </ul>
 
   <h3>What “EVES” means here</h3>
-  <p>EVES is Eden’s answering and fact-checking system, tested the way it ships, with the default settings of the website. It picks a model for each question, searches the web first when a factual question looks risky, checks a question’s assumptions before answering, and checks factual answers made without a search against the web afterwards, correcting them when the web disagrees. We graded the final answer a person would see.</p>
+  <p>EVES is Eden’s verification and evaluation system, tested the way it ships, with the default settings of the website. It picks a model for each question, searches the web first when a factual question looks risky, checks a question’s assumptions before answering, and checks factual answers made without a search against the web afterwards, correcting them when the web disagrees. We graded the final answer a person would see.</p>
   <p>On this test, EVES picked Claude Sonnet 5.5 for every question and used the web on 41% of them. So the comparison with Claude Sonnet 5.5 answering on its own shows most directly what EVES adds. This was EVES as set up in October 2026 <b>without OpenAI’s models</b>, which weren’t available for this run; with them, EVES could pick different models and the numbers could change. OpenAI’s models weren’t measured on their own either. Kimi K3 was also started but stopped after 6 answers, too few to show.</p>
 
   <h3>How answers were graded</h3>

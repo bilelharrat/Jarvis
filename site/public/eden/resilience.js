@@ -98,6 +98,16 @@ export function talkText(text) {
   return t.slice(0, cut > TALK_MAX_CHARS - 200 ? cut : TALK_MAX_CHARS);
 }
 
+/** After this many turns in a row that ended at the cap (not at a pause), Talk stops and asks (R2-3). */
+export const TALK_CAPPED_MAX = 2;
+/**
+ * Turns in a row that ended at TALK_MAX_CHARS / TALK_MAX_MS: one more for a capped turn, back to 0
+ * for one that ended normally. At TALK_CAPPED_MAX Talk pauses instead of listening again: a
+ * recognizer that never pauses (a TV, a noisy room) would otherwise send big turns non-stop.
+ */
+export function talkCapped(run, capped) { return capped ? (Number(run) || 0) + 1 : 0; }
+export const talkShouldPause = (run) => (Number(run) || 0) >= TALK_CAPPED_MAX;
+
 /* ---------- has the deployed page changed? ---------- */
 
 /** Look at most this often (on coming back to the page). */
@@ -123,28 +133,81 @@ export function stampChanged(boot, now) {
   if (!boot || !now) return false;
   return Object.keys(boot).some((k) => boot[k] && now[k] && boot[k] !== now[k]);
 }
-/** What to do about a newer page: reload quietly when nothing would be lost, else offer it. */
-export function updateAction({ streaming, draft, talking }) {
-  return streaming || draft || talking ? 'banner' : 'reload';
+/**
+ * What to do about a newer page: reload quietly when nothing would be lost, else offer it. `busy` is
+ * { streaming, draft, talking, attachments, dictating, mail, importing, dialog, field, … }: any one
+ * true (a reply streaming, words or files in the composer, Talk or dictation running, a Mail message
+ * being written, an import running, a dialog or sheet open) means the banner (R2C-3).
+ */
+export function updateAction(busy) {
+  return busy && typeof busy === 'object' && Object.values(busy).some(Boolean) ? 'banner' : 'reload';
 }
 
 /* ---------- the unsent draft, per chat ---------- */
 
 export const DRAFT_KEY = 'eden:drafts';
-const DRAFT_CHATS = 20;
+/** At most this many chats' drafts, each at most this many characters (sessionStorage holds ~5 MB): R2C-8. */
+export const DRAFT_CHATS = 20;
+export const DRAFT_MAX_CHARS = 20_000;
+const newestFirst = (m) => Object.keys(m).sort((a, b) => (m[b].at || 0) - (m[a].at || 0));
 /** The drafts map with `chat`'s text set (or removed when empty); the oldest go past 20 chats. */
 export function putDraft(map, chat, text) {
   const m = { ...(map && typeof map === 'object' ? map : {}) };
   const k = chat || 'new';
   delete m[k];
-  if (String(text || '').trim()) m[k] = { text: String(text).slice(0, 200_000), at: Date.now() };
-  const keys = Object.keys(m).sort((a, b) => (m[b].at || 0) - (m[a].at || 0));
-  for (const x of keys.slice(DRAFT_CHATS)) delete m[x];
+  if (String(text || '').trim()) m[k] = { text: String(text).slice(0, DRAFT_MAX_CHARS), at: Date.now() };
+  for (const x of newestFirst(m).slice(DRAFT_CHATS)) delete m[x];
   return m;
 }
 export function getDraft(map, chat) {
   const d = map && typeof map === 'object' ? map[chat || 'new'] : null;
   return d && typeof d.text === 'string' ? d.text : '';
+}
+/**
+ * Writes the drafts map with `write(json)`. When that throws (storage full), the oldest half of the
+ * drafts go (never `keep`'s, the one being typed) and it's written once more. Returns the map as
+ * stored, or null when it couldn't be (storage off, or still full): R2C-8.
+ */
+export function storeDrafts(write, map, keep = 'new') {
+  const m = map && typeof map === 'object' ? map : {};
+  try { write(JSON.stringify(m)); return m; } catch { /* full: drop the oldest, once */ }
+  const keys = newestFirst(m).filter((k) => k !== keep);
+  const fewer = {};
+  if (m[keep]) fewer[keep] = m[keep];
+  for (const k of keys.slice(0, Math.floor(keys.length / 2))) fewer[k] = m[k];
+  try { write(JSON.stringify(fewer)); return fewer; } catch { return null; }
+}
+
+/* ---------- what's attached to the draft (R2-16) ---------- */
+
+export const DRAFT_FILES_KEY = 'eden:draft-files';
+/** Attachments are kept with the draft up to this size (characters of JSON, ~2 MB); past it only their count. */
+export const DRAFT_FILES_MAX = 2_000_000;
+const FILE_KINDS = ['image', 'text', 'doc', 'video'];
+/**
+ * What's kept of the composer's attachments for `chat`: { chat, at, files } when they fit in
+ * DRAFT_FILES_MAX, else { chat, at, dropped: n } (so the page can say they were removed). A
+ * picture's data URL isn't kept twice (it's rebuilt from `data`). Null when nothing is attached.
+ */
+export function packDraftFiles(chat, files, max = DRAFT_FILES_MAX) {
+  const list = (Array.isArray(files) ? files : []).filter((f) => f && FILE_KINDS.includes(f.kind));
+  if (!list.length) return null;
+  const at = Date.now();
+  const slim = list.map((f) => { const o = { ...f }; if (typeof o.data === 'string' && typeof o.url === 'string' && o.url.startsWith('data:')) delete o.url; return o; });
+  const out = { chat: chat || 'new', at, files: slim };
+  return JSON.stringify(out).length <= max ? out : { chat: chat || 'new', at, dropped: list.length };
+}
+/** The kept attachments for `chat`: { files, dropped } (none when they were kept for another chat). */
+export function unpackDraftFiles(slot, chat) {
+  const none = { files: [], dropped: 0 };
+  if (!slot || typeof slot !== 'object' || slot.chat !== (chat || 'new')) return none;
+  if (!Array.isArray(slot.files)) return { files: [], dropped: Math.max(0, Number(slot.dropped) || 0) };
+  const files = slot.files.filter((f) => f && typeof f === 'object' && FILE_KINDS.includes(f.kind) && typeof f.name === 'string').map((f) => {
+    const o = { ...f };
+    if (o.kind === 'image' && typeof o.data === 'string' && !o.url) o.url = `data:${String(o.mime || 'image/png')};base64,${o.data}`;
+    return o;
+  });
+  return { files, dropped: 0 };
 }
 
 /* ---------- text from other apps ---------- */

@@ -20,7 +20,7 @@ import { api } from './api.js';
 import { mentionEntries, setScope, dropScope } from './tools-ui.js'; // @calendar / @mail scope chips
 import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
 import { deckEstimate } from './deck-model.js'; // Q14: a deck's cost before it's made
-import { stripBidi, putDraft, getDraft, DRAFT_KEY } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
+import { stripBidi, putDraft, getDraft, storeDrafts, packDraftFiles, unpackDraftFiles, DRAFT_KEY, DRAFT_FILES_KEY } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
 
 let H = {}; // handlers from app.js
 
@@ -406,6 +406,9 @@ addEventListener('eden:attach', (e) => {
 });
 const streamingNow = () => { const c = state.current; return !!(c && state.streams.has(c.id)); };
 async function takeShare(d) {
+  // a fresh share's own new chat, pressed now that it's this share's turn (not when it arrived: a
+  // share queued behind another would otherwise switch that one's chat under it, R2C-9)
+  if (d.fresh) { const b = document.getElementById('btnNew'); if (b) b.click(); }
   const inp = input();
   const hadDraft = !!(inp.value.trim() || attachments.length || reading.size);
   if (d.fresh) { attachments = []; state.draftContext = []; renderAttachments(); } // only what was shared goes
@@ -456,6 +459,7 @@ export function renderAttachments() {
   chips.push(...macChips()); // Use my Mac, project knowledge (files.js): whose model the files go to
   box.hidden = !chips.length;
   box.replaceChildren(...chips);
+  keepFilesSoon(); // with the draft, for a reload (R2-16)
 }
 export function addContext(block) {
   if (state.draftContext.some((x) => x.title === block.title)) { toast('Already attached'); return; }
@@ -906,22 +910,57 @@ export function setComposerText(text, { append = false } = {}) {
 export function clearAttachments() { attachments = []; renderAttachments(); }
 
 /* The unsent draft, per chat, for this tab (sessionStorage): back after a reload, or after iOS
-   ends the app's page in the background (B9). Words only; what's attached isn't kept. */
+   ends the app's page in the background (B9). Its words (at most 20,000 characters, 20 chats:
+   R2C-8), and what's attached when that's under ~2 MB; past that the page says they're gone (R2-16). */
 const draftChat = () => (state.current && !state.current.temp ? state.current.id : 'new');
 function readDrafts() { try { return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || '{}') || {}; } catch { return {}; } }
-function keepDraft(text) { try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(putDraft(readDrafts(), draftChat(), text))); } catch { /* storage off: not kept */ } }
+function keepDraft(text, chat = draftChat()) {
+  storeDrafts((json) => sessionStorage.setItem(DRAFT_KEY, json), putDraft(readDrafts(), chat, text), chat);
+  keepFiles(chat);
+}
 let draftT = 0;
 function keepDraftSoon() { clearTimeout(draftT); draftT = setTimeout(() => keepDraft(input().value), 300); }
-addEventListener('pagehide', () => { clearTimeout(draftT); const inp = document.getElementById('deck-input'); if (inp && inp.value.trim()) keepDraft(inp.value); });
+addEventListener('pagehide', () => { clearTimeout(draftT); const inp = document.getElementById('deck-input'); if (inp && inp.value.trim()) keepDraft(inp.value); else keepFiles(); });
+let filesSig = null;
+/** The composer's attachments, kept for `chat` (only when they changed; removed when there are none). */
+function keepFiles(chat = draftChat()) {
+  const sig = `${chat}|${attachments.map((a) => `${a.kind}:${a.name}:${a.size}`).join('|')}`;
+  if (sig === filesSig) return;
+  const first = filesSig === null;
+  filesSig = sig;
+  if (first && !attachments.length) return; // the page just started: what was kept is restoreDraft's
+  const slot = packDraftFiles(chat, attachments);
+  try {
+    if (!slot) sessionStorage.removeItem(DRAFT_FILES_KEY);
+    else sessionStorage.setItem(DRAFT_FILES_KEY, JSON.stringify(slot));
+  } catch {
+    // storage full: keep only how many there were, so the page can say so after a reload
+    try { sessionStorage.setItem(DRAFT_FILES_KEY, JSON.stringify({ chat, at: Date.now(), dropped: attachments.length })); } catch { /* storage off */ }
+  }
+}
+let filesT = 0;
+function keepFilesSoon() { clearTimeout(filesT); filesT = setTimeout(() => keepFiles(), 300); }
 function restoreDraft() {
   const inp = input();
-  if (inp.value.trim()) return;
-  const t = getDraft(readDrafts(), draftChat());
-  if (!t) return;
-  inp.value = t;
-  grow();
-  setPreviewText(inp.value);
-  renderComposer();
+  const chat = draftChat();
+  if (!inp.value.trim()) {
+    const t = getDraft(readDrafts(), chat);
+    if (t) {
+      inp.value = t;
+      grow();
+      setPreviewText(inp.value);
+      renderComposer();
+    }
+  }
+  if (attachments.length) return;
+  let slot = null;
+  try { slot = JSON.parse(sessionStorage.getItem(DRAFT_FILES_KEY) || 'null'); } catch { /* none */ }
+  const kept = unpackDraftFiles(slot, chat);
+  if (kept.files.length) { attachments = kept.files; renderAttachments(); }
+  else if (kept.dropped) {
+    try { sessionStorage.removeItem(DRAFT_FILES_KEY); } catch { /* */ }
+    toast(kept.dropped === 1 ? 'Your attachment was removed when Eden reloaded' : 'Your attachments were removed when Eden reloaded');
+  }
 }
 
 /* ---------- wiring ---------- */
@@ -954,8 +993,19 @@ export function initComposer(handlers) {
   });
   $('deck-composer').addEventListener('submit', (e) => {
     e.preventDefault();
+    // iOS: end the typing session before reading the words. The blur commits a pending
+    // autocorrection into the value (R2-18), and no autocorrect bubble is left floating over the
+    // emptied field (B12). The field gets its focus back after (unless something else took it).
+    const hadFocus = document.activeElement === inp && isTouch();
+    if (hadFocus) inp.blur();
+    try { submitNow(hadFocus); } finally { if (hadFocus && (!document.activeElement || document.activeElement === document.body)) inp.focus({ preventScroll: true }); }
+  });
+  function submitNow(hadFocus) {
     const steer = steerThis;
     steerThis = false;
+    // the draft's key as it was typed: a new chat's is 'new', and sending makes the chat (R2C-7)
+    const typedIn = draftChat();
+    const done = () => finish(hadFocus, typedIn);
     const text = inp.value.trim();
     const c = state.current;
     const streaming = c && state.streams.has(c.id);
@@ -981,16 +1031,14 @@ export function initComposer(handlers) {
     attachments = [];
     state.draftContext = [];
     done();
-  });
-  function done() {
+  }
+  function finish(hadFocus, typedIn) {
     recall.index = -1;
-    // iOS leaves a pending autocorrect bubble floating when the field is emptied under it: end
-    // the typing session first (blur, then focus again where it was focused): B12.
-    const had = document.activeElement === inp;
-    if (had && isTouch()) inp.blur();
+    // (on iOS the field was blurred before its words were read: submit above, B12 / R2-18)
     inp.value = '';
-    if (had && isTouch()) inp.focus({ preventScroll: true });
-    keepDraft('');
+    if (hadFocus) inp.focus({ preventScroll: true });
+    keepDraft('', typedIn); // the key it was typed under ('new' for a new chat: R2C-7)…
+    if (draftChat() !== typedIn) keepDraft(''); // …and the chat it went to
     inp.style.height = '';
     $('cc-slash').hidden = true;
     setPreviewText('');
@@ -1086,7 +1134,10 @@ export function initComposer(handlers) {
     if (!$('jc-ctx-pop').hidden && !e.target.closest('#jc-ctx-pop, #jc-ctx')) closeCtx();
     if ($('costPop').classList.contains('show') && !e.target.closest('#costPop, #cc-meta')) closeCostPop();
   });
-  addEventListener('resize', () => { closeMenu(); closeEffort(); closeCtx(); closeCostPop(); });
+  // a new width moves the menus' anchors: close them. Not a new height: the iPhone keyboard going
+  // down (the tap that opened a menu) resizes the page and closed the menu just opened (R2-2).
+  let menusW = innerWidth;
+  addEventListener('resize', () => { if (innerWidth === menusW) return; menusW = innerWidth; closeMenu(); closeEffort(); closeCtx(); closeCostPop(); });
 
   // global composer keys
   document.addEventListener('keydown', (e) => {

@@ -346,6 +346,7 @@ export function appSiteAssociation(env) {
       }, {
         appIDs: [`${team}.com.askeden.eden`],
         components: [
+          { '/': '/edu*', exclude: true }, // Eden for Education's own pages
           { '/': '/api/*', exclude: true },
           { '/': '/signin*', exclude: true },
           { '/': '/download*', exclude: true },

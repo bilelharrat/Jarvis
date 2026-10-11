@@ -33,8 +33,7 @@ export function initImportChatGPT(h) {
     l.dataset.imp = '1';
     document.head.append(l);
   }
-  addEventListener('eden:conv-opened', (e) => hydrate(e.detail && e.detail.conv));
-  setTimeout(() => hydrate(state.current), 1500); // a reload with an imported chat open
+  // app.js loads this module when it's first needed and calls hydrateImport() as an imported chat opens
 }
 
 /* ---------- imported images: shrunk, kept in IndexedDB, loaded back when a chat opens ---------- */
@@ -73,7 +72,8 @@ async function shrink(bytes, mime) {
 }
 const imgKey = (convId, nodeId, name) => `${convId}/${nodeId}/${name}`;
 
-async function hydrate(c) {
+/** An imported chat's images, back from IndexedDB as it opens (app.js: on eden:conv-opened, and after a reload). */
+export async function hydrateImport(c) {
   if (!c || c.source !== SOURCE) return;
   let any = false;
   for (const n of Object.values(c.nodes)) {
@@ -256,13 +256,7 @@ export function openImportChats(source = lastSource) {
 }
 export const openImportChatGPT = () => openImportChats('chatgpt'); // older callers
 
-/** A settings card: a line on what it does and a button that opens the dialog. */
-export function importCard() {
-  return el('div', 'set-sec', el('h3', '', 'Import chats'),
-    el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Bring your chats from ChatGPT, Claude or Gemini'),
-      el('div', 'p-c', 'Export your data there, drop the file here, and your chats appear in Eden: searchable, and synced end-to-end encrypted like the rest. It’s read in this browser and never uploaded.')),
-    el('button', { type: 'button', class: 'btn', onclick: () => openImportChats() }, 'Import…'))));
-}
+// Its card in Settings › Memory is app.js importCard(): drawn without loading this module.
 
 const stepLine = (parts) => el('li', '', ...parts.map((t, i) => (i % 2 ? el('b', '', t) : t)));
 
@@ -295,6 +289,10 @@ function start(body, file, source) {
   const label = el('div', 'imp-label', 'Opening the file…');
   body.replaceChildren(el('b', { 'data-no-i18n': '' }, file.name), bar, label,
     el('div', 'dlg-acts', el('span', 'grow'), el('button', { type: 'button', class: 'btn', onclick: () => { stop = true; label.textContent = 'Stopping…'; } }, 'Cancel')));
+  // the page is busy while it reads: "Eden was updated" offers its banner instead of reloading (page-update.js, R2C-3)
+  const root = document.documentElement;
+  root.classList.add('eden-importing');
+  const idle = () => root.classList.remove('eden-importing');
   runImport(file, {
     source,
     shouldStop: () => stop,
@@ -302,7 +300,8 @@ function start(body, file, source) {
       bar.firstChild.style.width = `${Math.round((p.done / p.total) * 100)}%`;
       label.textContent = `${p.chats.toLocaleString(locale())} chats read · ${Math.round((p.done / p.total) * 100)}%`;
     },
-  }).then((sum) => paintSummary(body, sum), (e) => {
+  }).then((sum) => { idle(); paintSummary(body, sum); }, (e) => {
+    idle();
     body.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t import that'), e.message || String(e)),
       el('div', 'dlg-acts', el('span', 'grow'), el('button', { type: 'button', class: 'btn', onclick: () => paintStart(body, source) }, 'Try another file')));
   });

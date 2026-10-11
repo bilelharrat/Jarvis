@@ -339,6 +339,8 @@ export default {
     'Saved as a PowerPoint file': 'Enregistré en fichier PowerPoint',
     'Print': 'Imprimer',
     'Printing isn’t available here: download the PowerPoint instead': `L’impression n’est pas disponible ici${N}: téléchargez plutôt le PowerPoint`,
+    'Choose “Save to Files” or a printer in the print sheet (one slide a page)': `Choisissez «${N}Enregistrer dans Fichiers${N}» ou une imprimante dans la feuille d’impression (une diapositive par page)`,
+    'This version of the Eden app can’t make a PDF: here’s the PowerPoint instead': `Cette version de l’app Eden ne peut pas créer de PDF${N}: voici plutôt le PowerPoint`,
     'Choose “Save as PDF” in the print dialog (one slide a page)': `Choisissez «${N}Enregistrer au format PDF${N}» dans la fenêtre d’impression (une diapositive par page)`,
     'Uploading to your Google Drive…': 'Envoi vers votre Google Drive…',
     'In your Google Drive as Google Slides:': `Dans votre Google Drive, en Google Slides${N}:`,
@@ -440,6 +442,8 @@ export default {
     // ── slide decks ──
     [/^Slide (\d+) deleted$/, 'Diapositive $1 supprimée'],
     [/^Couldn’t draw the slides: (.+)$/, `Impossible de dessiner les diapositives${N}: $1`],
+    [/^Couldn’t load the slides: (.+)\. Try again\.$/, `Impossible de charger les diapositives${N}: $1. Réessayez.`],
+    [/^Couldn’t load the slides: (.+)\. Open the deck again to retry\.$/, `Impossible de charger les diapositives${N}: $1. Rouvrez la présentation pour réessayer.`],
     [/^(\d+) pictures? needs? alt text \(slides? ([\d, ]+)\): click “Picture…” on that slide to describe it\.$/,
       (_, n, list) => `${one(n) ? '1 image n’a' : `${n} images n’ont`} pas de texte alternatif (${/,/.test(list) ? 'diapositives' : 'diapositive'} ${list})${N}: cliquez sur «${N}Image…${N}» sur cette diapositive pour la décrire.`],
     [/^(\d+) slides? imported: ask Eden to restyle or continue them$/, (_, n) => `${n} ${one(n) ? 'diapositive importée' : 'diapositives importées'}${N}: demandez à Eden de les restyler ou de les poursuivre`],

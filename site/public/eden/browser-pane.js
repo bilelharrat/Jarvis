@@ -36,7 +36,7 @@ const local = () => { try { return localStorage; } catch { return null; } };
 
 export const browserOpen = () => document.body.classList.contains('browser-open');
 
-/** app.js: wire the button, the shortcut's handler and what the panel may open. */
+/** app.js, when the panel is first needed (it loads this module then): wire the button, the shortcut's handler and what the panel may open. */
 export function initBrowserPane(hooks = {}) {
   Object.assign(H, hooks);
   bridge = appBridge(window);
@@ -62,8 +62,6 @@ export function toggleBrowser(force, { quiet = false } = {}) {
 }
 export function closeBrowser() { if (!browserOpen()) return false; toggleBrowser(false); const b = $('btnBrowser'); if (b) b.focus(); return true; }
 
-/** Kept for app.js: the panel no longer depends on the Mac. */
-export function browserJarvisChanged() {}
 
 /* ---------- the panel's frame (J.A.R.V.I.S.'s browser: tabs, then the bar) ---------- */
 
@@ -317,7 +315,7 @@ function aiMenu(anchor) {
     { label: 'Ask about this page', note: 'The page’s text goes with your next message', disabled: !s.url, run: () => cloud.send({ t: 'pagetext', for: 'ask' }) },
     { label: 'Summarize this page', disabled: !s.url, run: () => cloud.send({ t: 'pagetext', for: 'summarize' }) },
     { label: 'Use the selected text', disabled: !s.url, run: () => { cloud.wantSelection = true; cloud.send({ t: 'copy' }); } },
-    { label: 'Do this on a website…', note: 'J.A.R.V.I.S.’s browser agent, on your Mac', run: () => { if (H.openSpace) H.openSpace('web', { url: s.url }); } },
+    { label: 'Do this on a website…', note: 'Eden’s browser agent, on your Mac', run: () => { if (H.openSpace) H.openSpace('web', { url: s.url }); } },
   ]);
 }
 function clearData() {

@@ -19,7 +19,7 @@
 // so a slow browser holds the Mac back instead of filling this object's memory. Nothing that
 // passes is kept or logged: bodies stream through.
 
-import { ApiError, json, randomBytes, hex } from './util.js';
+import { ApiError, json, randomBytes, hex, sha256Hex } from './util.js';
 
 export const WEB_RELAY = {
   frame: 64 * 1024, // a binary frame's body, at most, each way
@@ -27,6 +27,7 @@ export const WEB_RELAY = {
   body: 10 * 1024 * 1024, // a request's body (Code mode's images included)
   response: 64 * 1024 * 1024, // a response's body, in all
   streams: 16, // requests in flight per account
+  probeStreams: 4, // more, for the short Jarvis status checks only (askMacBy's probe never finds the limit reached)
   window: 256 * 1024, // response bytes the Mac may send ahead of acks
   headMs: 130_000, // for the Mac to answer: Jarvis may be waiting on its "Let Eden use Jarvis?" card (120 s)
   idleMs: 10 * 60_000, // between two pieces of an answer (a Code turn's events)
@@ -36,7 +37,24 @@ export const WEB_RELAY = {
   clientWaitMax: 60,
   second: 1000,
   probeMs: 3000,
+  // A Jarvis call with the page's `x-eden-request-id` (R2C-4): its answer is kept this long, in this object's
+  // memory only, for the page's retry after a 202; and at most this big (Jarvis answers are small JSON).
+  replayMs: 120_000,
+  replayMax: 2 * 1024 * 1024,
+  replays: 64, // kept answers per account, at most
 };
+
+// The one route whose request may get a 202 { approval: "waiting" } (askMacBy) and carries a request id.
+export const JARVIS_CALL = '/api/chat/jarvis';
+// The page's id for one Jarvis call, the same on every retry of it (R2C-4): a UUID fits.
+export const REQUEST_ID = /^[A-Za-z0-9_-]{16,64}$/;
+// Jarvis tools that only read (askeden src/chat/jarvis.ts): a 202 is safe for them without a request id,
+// as running one twice changes nothing. Any other tool needs the id for a 202 (askMacBy).
+export const JARVIS_READS = new Set([
+  'search_notes', 'read_note', 'recall', 'calendar', 'mail_accounts', 'mail_search', 'mail_read', 'memory_list',
+  'commitments', 'meetings_list', 'meeting_read', 'browser_task_status', 'actions_list', 'files_search', 'file_read',
+  'file_summarize', 'screen_context', 'knowledge_list', 'knowledge_search',
+]);
 
 // The Mac-only routes hosted Eden forwards (the Mac keeps its own list, src/jarvis/eden_link.py).
 // Not here, on purpose: API keys (they stay on the Mac), adding a project folder, the router
@@ -113,6 +131,17 @@ const relayError = (status, code, message) => json({ error: message, code }, sta
 // ── in the Account object ──
 
 const streamsOf = (account) => (account.webStreams ??= new Map());
+// R2C-4: browsers waiting on another stream's Jarvis call (same page request id), by their own stream id;
+// finished Jarvis calls' answers by "<browser device> <request id>"; ids the browser stopped before they arrived.
+const waitersOf = (account) => (account.webWaiters ??= new Map());
+const replaysOf = (account) => (account.webReplays ??= new Map());
+const earlyOf = (account) => (account.webEarly ??= new Map());
+
+function prune(map, now, keep) {
+  for (const [k, v] of map) if (v.until <= now) map.delete(k);
+  while (map.size > keep) map.delete(map.keys().next().value);
+}
+
 
 /** GET /relay/web (a Mac): its web channel; a new one replaces that Mac's older one. */
 export function webListen(account, device) {
@@ -168,8 +197,8 @@ export async function webOp(account, op, request) {
     if (device.grant) throw new ApiError(403, 'owner_only', 'Only the account’s owner reaches its Mac.');
     if (op === 'web-status') return json(await online(account));
     if (op === 'web-cancel') {
-      const { id } = await request.json().catch(() => ({}));
-      cancel(account, String(id || ''), { from: device.id, why: 'stopped' });
+      const { id, keep } = await request.json().catch(() => ({}));
+      cancel(account, String(id || ''), { from: device.id, why: 'stopped', keep: keep === true });
       return json({});
     }
     if (op === 'web-forward') return await forward(account, device, request);
@@ -186,31 +215,68 @@ async function forward(account, device, request) {
   const target = request.headers.get('x-eden-path') || '';
   if (!ID.test(id)) throw new ApiError(400, 'bad_request', 'A stream id is 16 hex characters.');
   if (!macRoute(method, target)) throw new ApiError(403, 'not_allowed', 'Eden on the web can’t ask your Mac for that.');
+  const rid = method === 'POST' && target === JARVIS_CALL ? request.headers.get('x-eden-request-id') : null;
+  if (rid !== null && !REQUEST_ID.test(rid)) throw new ApiError(400, 'bad_request', 'x-eden-request-id is 16 to 64 letters, digits, - or _.');
+  const streams = streamsOf(account);
+  if (streams.has(id) || waitersOf(account).has(id)) throw new ApiError(409, 'conflict', 'That stream id is in use.');
+  const declared = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > WEB_RELAY.body) throw new ApiError(413, 'too_big', 'That request is too big for your Mac’s link.');
+  const body = method === 'POST' ? new Uint8Array(await request.arrayBuffer()) : new Uint8Array();
+  if (body.byteLength > WEB_RELAY.body) throw new ApiError(413, 'too_big', 'That request is too big for your Mac’s link.');
+  const wait = Math.min(WEB_RELAY.headMs, Number(request.headers.get('x-eden-wait')) || WEB_RELAY.headMs);
+
+  // R2C-4: the same Jarvis call asked again (the page's retry after a 202): its kept answer, or a wait on the
+  // call still running. The Mac isn't asked twice. The same id with another body is the page's mistake.
+  const key = rid ? `${device.id} ${rid}` : null;
+  // The replay cache keeps the body's SHA-256, not the body (R3C-11): 64 answers of 10 MB would be too much.
+  const ask = key ? await sha256Hex(body) : null;
+  if (key) {
+    const replays = replaysOf(account);
+    prune(replays, Date.now(), WEB_RELAY.replays);
+    const done = replays.get(key);
+    if (done) {
+      if (done.ask !== ask) throw new ApiError(409, 'request_id_reused', 'That request id was used for another Jarvis call.');
+      return keptAnswer(done);
+    }
+    const live = [...streams.values()].find((x) => x.key === key);
+    if (live) {
+      if (live.ask !== ask) throw new ApiError(409, 'request_id_reused', 'That request id was used for another Jarvis call.');
+      return attach(account, live, id, device.id, wait);
+    }
+  }
+
   const mac = macSocket(account);
   if (!mac) {
     const { macs } = await online(account);
     throw macs ? new ApiError(503, 'mac_offline', MAC_OFFLINE) : new ApiError(503, 'needs_mac', 'No Mac is linked to this account.');
   }
-  const streams = streamsOf(account);
-  if (streams.has(id)) throw new ApiError(409, 'conflict', 'That stream id is in use.');
-  if (streams.size >= WEB_RELAY.streams) throw new ApiError(429, 'slow_down', 'Your Mac is answering too many requests at once; try again in a moment.', { 'retry-after': '5' });
-  const declared = Number(request.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > WEB_RELAY.body) throw new ApiError(413, 'too_big', 'That request is too big for your Mac’s link.');
-  const body = method === 'POST' ? new Uint8Array(await request.arrayBuffer()) : new Uint8Array();
-  if (body.byteLength > WEB_RELAY.body) throw new ApiError(413, 'too_big', 'That request is too big for your Mac’s link.');
+  // The short Jarvis status checks (askMacBy's probe) have room of their own, so a busy account still gets
+  // its "waiting on the card" answer (R2C-14b); everything else shares WEB_RELAY.streams.
+  const probe = method === 'GET' && target === '/api/chat/jarvis/status';
+  const busy = [...streams.values()].filter((x) => !x.probe).length;
+  if (probe ? streams.size - busy >= WEB_RELAY.probeStreams : busy >= WEB_RELAY.streams) {
+    throw new ApiError(429, 'slow_down', 'Your Mac is answering too many requests at once; try again in a moment.', { 'retry-after': '5' });
+  }
+  // The browser let go while this was on its way here (R2C-14c): the Mac never hears of it.
+  const early = earlyOf(account);
+  prune(early, Date.now(), 256);
+  const stoppedEarly = early.get(id);
+  early.delete(id);
+  if (stoppedEarly && !stoppedEarly.keep) throw new ApiError(499, 'stopped', 'Stopped.');
   const headers = {};
   for (const name of ['content-type', 'accept']) {
     const value = request.headers.get(`x-eden-h-${name}`);
     if (value && value.length <= 200) headers[name] = value;
   }
-  const wait = Math.min(WEB_RELAY.headMs, Number(request.headers.get('x-eden-wait')) || WEB_RELAY.headMs);
+  if (rid) headers['x-eden-request-id'] = rid; // for the Mac, to tell a repeated call (it may ignore it)
 
-  const s = { id, ws: mac, from: device.id, phase: 'head', received: 0, unacked: 0, timer: null, controller: null, resolve: null };
+  const s = { id, ws: mac, from: device.id, phase: 'head', received: 0, unacked: 0, timer: null, controller: null, resolve: null, probe, key, ask, waiters: [] };
   const head = new Promise((resolve) => {
     s.resolve = resolve;
   });
   streams.set(id, s);
   arm(account, s, wait);
+  if (stoppedEarly) detach(account, s);
   try {
     // `owner`: asked by one of the account owner's own browsers (never a grant's): the Mac lets
     // only such a request chat through it (eden_link.py).
@@ -221,6 +287,44 @@ async function forward(account, device, request) {
     finish(account, s, { status: 503, code: 'mac_offline', error: MAC_OFFLINE });
   }
   return head;
+}
+
+/** A kept Jarvis answer, as the Mac gave it (R2C-4); `x-eden-replayed: 1` says it wasn't asked again. */
+function keptAnswer(done) {
+  return new Response(done.bytes, { status: done.status, headers: { ...done.headers, 'x-eden-replayed': '1' } });
+}
+
+/** A browser waits on a Jarvis call already running for the same request id (R2C-4), `wait` ms at most. */
+function attach(account, s, id, from, wait) {
+  return new Promise((resolve) => {
+    const w = { id, from, s, resolve, timer: null };
+    w.timer = setTimeout(() => {
+      dropWaiter(account, w);
+      resolve(relayError(504, 'mac_timeout', 'Your Mac didn’t answer in time.'));
+    }, wait);
+    s.waiters.push(w);
+    waitersOf(account).set(id, w);
+  });
+}
+
+function dropWaiter(account, w) {
+  clearTimeout(w.timer);
+  waitersOf(account).delete(w.id);
+  w.s.waiters = w.s.waiters.filter((x) => x !== w);
+}
+
+/**
+ * The browser that asked a Jarvis call got its 202 and let go, but the call goes on (R2C-4): the Mac
+ * isn't told to stop, the call may wait on its card as long as the relay allows (WEB_RELAY.headMs from
+ * now), and its answer is kept for the page's retry.
+ */
+function detach(account, s) {
+  if (s.detached) return;
+  s.detached = true;
+  const first = s.resolve;
+  s.resolve = () => {};
+  first(relayError(499, 'stopped', 'Stopped.'));
+  if (s.phase === 'head') arm(account, s, WEB_RELAY.headMs);
 }
 
 /** No word from the Mac for `ms`: the request goes (with a cancel to the Mac). */
@@ -242,6 +346,36 @@ function finish(account, s, error = null) {
     s.phase = 'done';
     const e = error || { status: 502, code: 'mac_error', error: 'Your Mac sent no answer.' };
     s.resolve(relayError(e.status, e.code, e.error));
+    for (const w of [...s.waiters]) {
+      dropWaiter(account, w);
+      w.resolve(relayError(e.status, e.code, e.error));
+    }
+    return;
+  }
+  if (s.buffered) {
+    // A Jarvis call with a request id (R2C-4): its whole answer, to its browser (if still there), to any
+    // waiting on it, and kept for a retry. Only the Mac's own complete answer is kept, never a relay error.
+    s.phase = 'done';
+    const b = s.buffered;
+    let bytes = null;
+    if (!error) {
+      bytes = new Uint8Array(b.size);
+      let at = 0;
+      for (const c of b.chunks) {
+        bytes.set(c, at);
+        at += c.byteLength;
+      }
+      const replays = replaysOf(account);
+      replays.set(s.key, { ask: s.ask, status: b.status, headers: b.headers, bytes, until: Date.now() + WEB_RELAY.replayMs });
+      prune(replays, Date.now(), WEB_RELAY.replays);
+    }
+    const answer = (again) =>
+      error ? relayError(error.status || 502, error.code || 'mac_error', error.error) : new Response(bytes, { status: b.status, headers: again ? { ...b.headers, 'x-eden-replayed': '1' } : b.headers });
+    s.resolve(answer(false));
+    for (const w of [...s.waiters]) {
+      dropWaiter(account, w);
+      w.resolve(answer(true));
+    }
     return;
   }
   s.phase = 'done';
@@ -254,9 +388,26 @@ function finish(account, s, error = null) {
 }
 
 /** Stop a stream: the Mac is told, the browser's side ends. `from`: only that browser's own. */
-export function cancel(account, id, { from = null, why = 'stopped', ...error } = {}) {
+export function cancel(account, id, { from = null, why = 'stopped', keep = false, ...error } = {}) {
   const s = streamsOf(account).get(id);
-  if (!s || (from && s.from !== from)) return;
+  if (!s) {
+    const w = waitersOf(account).get(id);
+    if (w) {
+      // Only this browser stops waiting; the call it waited on goes on for its own browser.
+      if (from && w.from !== from) return;
+      dropWaiter(account, w);
+      w.resolve(relayError(499, 'stopped', 'Stopped.'));
+    } else if (from && ID.test(id)) {
+      // Not here yet (R2C-14c): the forward on its way finds this and never reaches the Mac.
+      earlyOf(account).set(id, { keep, until: Date.now() + 60_000 });
+    }
+    return;
+  }
+  if (from && s.from !== from) return;
+  if (keep && s.key) {
+    detach(account, s);
+    return;
+  }
   try {
     s.ws.send(JSON.stringify({ t: 'cancel', id, why }));
   } catch {
@@ -285,6 +436,12 @@ function startBody(account, s, m) {
   };
   if (/^text\/event-stream\b/i.test(headers['content-type'])) headers['x-accel-buffering'] = 'no';
   s.phase = 'body';
+  if (s.key) {
+    // A Jarvis call with a request id: gathered whole here (finish), so it can be kept for a retry.
+    s.buffered = { status, headers, chunks: [], size: 0 };
+    arm(account, s, WEB_RELAY.idleMs);
+    return;
+  }
   const body = new ReadableStream(
     {
       start(controller) {
@@ -347,8 +504,16 @@ export function webMessage(account, ws, message) {
   const s = streamsOf(account).get(f.id);
   if (!s || s.ws !== ws || s.phase !== 'body') return;
   s.received += f.payload.byteLength;
-  if (s.received > WEB_RELAY.response) {
+  if (s.received > (s.buffered ? WEB_RELAY.replayMax : WEB_RELAY.response)) {
     cancel(account, s.id, { why: 'too_big', status: 502, code: 'too_big', error: 'Your Mac’s answer was too big.' });
+    return;
+  }
+  if (s.buffered) {
+    s.buffered.chunks.push(f.payload.slice());
+    s.buffered.size += f.payload.byteLength;
+    s.unacked += f.payload.byteLength;
+    ack(s); // held here, not by a browser: the Mac may go on
+    arm(account, s, WEB_RELAY.idleMs);
     return;
   }
   // A copy: the frame's buffer isn't ours to keep.
@@ -420,6 +585,7 @@ async function readCapped(request, cap) {
  */
 export async function askMac(request, env, ctx, who, target, { wait, body: given, signal } = {}) {
   const method = request.method;
+  const rid = requestIdOf(request, target);
   if (given && given.byteLength > WEB_RELAY.body) throw new ApiError(413, 'too_big', 'That request is too big for your Mac’s link.');
   const body = method === 'POST' ? given || (await readCapped(request, WEB_RELAY.body)) : null;
   const id = newStreamId();
@@ -432,21 +598,26 @@ export async function askMac(request, env, ctx, who, target, { wait, body: given
     'x-eden-h-content-type': request.headers.get('content-type') || '',
     'x-eden-h-accept': request.headers.get('accept') || '',
     ...(wait ? { 'x-eden-wait': String(wait) } : {}),
+    ...(rid ? { 'x-eden-request-id': rid } : {}),
   };
   const account = stub(env, who);
   let stopped = false;
-  const stop = () => {
+  // `keep`: the page got its 202 and will ask again with the same request id: the call goes on (R2C-4).
+  const stop = (keep = false) => {
     if (stopped) return;
     stopped = true;
     const told = account
-      .fetch('https://account/web-cancel', { method: 'POST', headers: authHeaders(who), body: JSON.stringify({ id }) })
+      .fetch('https://account/web-cancel', { method: 'POST', headers: authHeaders(who), body: JSON.stringify(keep && rid ? { id, keep: true } : { id }) })
       .then((r) => r.body?.cancel())
       .catch(() => {});
     ctx?.waitUntil?.(told);
   };
   // A browser gone before the Mac answered (where the runtime says so).
-  request.signal?.addEventListener?.('abort', stop, { once: true });
-  signal?.addEventListener?.('abort', stop, { once: true }); // the caller giving up (askMacBy's deadline)
+  request.signal?.addEventListener?.('abort', () => stop(), { once: true });
+  signal?.addEventListener?.('abort', () => stop(signal.reason === KEEP_ON_MAC), { once: true }); // the caller giving up (askMacBy's deadline)
+  // Already let go (R2C-14c): the Mac is never asked. (One that lets go while this is on its way is
+  // caught by the account's object: its cancel arrives first and is remembered.)
+  if (request.signal?.aborted || signal?.aborted) throw new ApiError(499, 'stopped', 'Stopped.');
   const upstream = await account.fetch('https://account/web-forward', { method: 'POST', headers, body });
   if (upstream.headers.get('x-eden-relay') === 'error') {
     const problem = await upstream.json().catch(() => ({}));
@@ -491,7 +662,32 @@ export function clientWait(request) {
 
 export const APPROVAL_WAITING = { approval: 'waiting' };
 export const macTooSlow = (seconds) =>
-  `Your Mac didn’t answer within ${seconds} seconds. Check that it’s awake and that Eden is running on it, then try again.`;
+  `Your Mac didn’t answer within ${Math.round(seconds)} seconds. Check that it’s awake and that Eden is running on it, then try again.`;
+export const APPROVAL_PENDING =
+  'Eden is waiting for you to approve this on your Mac (“Let Eden use Jarvis?”). Once you approve it there, it runs; you don’t need to ask again.';
+const KEEP_ON_MAC = Symbol('keep on the Mac');
+
+/**
+ * The page's `x-eden-request-id` on a Jarvis call (POST /api/chat/jarvis): one id per call, the same on
+ * every retry of it (R2C-4). null without it or on any other route; a malformed one is a 400.
+ */
+export function requestIdOf(request, target) {
+  if (request.method !== 'POST' || target !== JARVIS_CALL) return null;
+  const raw = request.headers.get('x-eden-request-id');
+  if (raw === null) return null;
+  if (!REQUEST_ID.test(raw)) throw new ApiError(400, 'bad_request', 'x-eden-request-id is 16 to 64 letters, digits, - or _.');
+  return raw;
+}
+
+/** The tool a Jarvis call's body names, when it's one that only reads (JARVIS_READS). */
+function readsOnly(bytes) {
+  try {
+    const { tool } = JSON.parse(new TextDecoder().decode(bytes));
+    return typeof tool === 'string' && JARVIS_READS.has(tool);
+  } catch {
+    return false;
+  }
+}
 
 /** Whether Jarvis on the Mac is waiting on its "Let Eden use Jarvis?" card (its status says so); false when it can't tell. */
 export async function approvalWaiting(request, env, ctx, who) {
@@ -506,20 +702,30 @@ export async function approvalWaiting(request, env, ctx, who) {
 }
 
 /**
- * askMac, with the page's own deadline when it sends `x-eden-wait` (clientWait): when the Mac hasn't
- * answered by then, a 202 { approval: "waiting" } while Jarvis waits on the owner's "Let Eden use
- * Jarvis?" card on the Mac (the page polls GET /api/chat/jarvis/status and asks again once it's
- * approved), else a 504 `mac_timeout` at once. The Mac's request stays open while its status is
- * asked (Jarvis reports the card only while a call waits on it), then is cancelled. Without the
- * header, or when the caller set its own `wait`, it's askMac as it always was (the Mac app, older pages).
+ * askMac, with the page's own deadline when it sends `x-eden-wait` (clientWait). When the Mac hasn't
+ * answered by then:
+ *  - a Jarvis call (POST /api/chat/jarvis, the only route that may get a 202, R2C-5) while Jarvis waits
+ *    on the owner's "Let Eden use Jarvis?" card on the Mac: 202 { approval: "waiting" }. The page polls
+ *    GET /api/chat/jarvis/status and, once it's approved, asks again with the same `x-eden-request-id`.
+ *    With that id the call isn't cancelled: it goes on on the Mac and its answer is kept for the retry
+ *    (forward/detach, R2C-4). Without an id, only a tool that only reads gets the 202 (it's cancelled
+ *    here and asked again: harmless); any other gets a 504 `approval_pending` (it runs once approved).
+ *  - anything else, or a Mac that's just slow: a 504 `mac_timeout` at once.
+ * A real relay error while the status is asked comes back as itself (R2C-14a). Without the header, or
+ * when the caller set its own `wait`, it's askMac as it always was (the Mac app, older pages).
  */
 export async function askMacBy(request, env, ctx, who, target, opts = {}) {
   const deadline = clientWait(request);
   if (!deadline || opts.wait) return askMac(request, env, ctx, who, target, opts);
   const seconds = deadline / WEB_RELAY.second;
+  const tooSlow = () => new ApiError(504, 'mac_timeout', macTooSlow(seconds));
+  const jarvis = request.method === 'POST' && target === JARVIS_CALL;
+  const rid = requestIdOf(request, target);
+  let body = opts.body;
+  if (jarvis && !rid && !body) body = await readCapped(request, WEB_RELAY.body); // which tool: for the 202 without an id
   const giveUp = new AbortController();
   let settled = null;
-  const answer = askMac(request, env, ctx, who, target, { ...opts, wait: deadline + WEB_RELAY.probeMs + WEB_RELAY.second, signal: giveUp.signal });
+  const answer = askMac(request, env, ctx, who, target, { ...opts, body, wait: deadline + WEB_RELAY.probeMs + WEB_RELAY.second, signal: giveUp.signal });
   answer.then((r) => (settled = { r }), (e) => (settled = { e }));
   let timer;
   const LATE = Symbol('late');
@@ -527,16 +733,33 @@ export async function askMacBy(request, env, ctx, who, target, opts = {}) {
   try {
     first = await Promise.race([answer, new Promise((resolve) => (timer = setTimeout(resolve, deadline, LATE)))]);
   } catch (error) {
-    if (error instanceof ApiError && error.code === 'mac_timeout') throw new ApiError(504, 'mac_timeout', macTooSlow(seconds));
+    if (error instanceof ApiError && error.code === 'mac_timeout') throw tooSlow();
     throw error;
   } finally {
     clearTimeout(timer);
   }
   if (first !== LATE) return first;
+  const letGo = (reason) => {
+    giveUp.abort(reason);
+    answer.catch(() => {});
+  };
+  if (!jarvis) {
+    // A chat turn, mac/send, undo, a brief…: never a 202 (its empty answer would read as a reply).
+    letGo();
+    throw tooSlow();
+  }
   const waiting = await approvalWaiting(request, env, ctx, who);
   if (settled && settled.r) return settled.r; // the Mac answered while its status was asked
-  giveUp.abort();
-  answer.catch(() => {});
-  if (waiting) return json(APPROVAL_WAITING, 202);
-  throw new ApiError(504, 'mac_timeout', macTooSlow(seconds));
+  if (settled && settled.e) {
+    if (settled.e instanceof ApiError && settled.e.code === 'mac_timeout') throw tooSlow();
+    throw settled.e; // offline, refused…: as it is, not as a timeout
+  }
+  if (waiting && rid) {
+    letGo(KEEP_ON_MAC);
+    return json(APPROVAL_WAITING, 202);
+  }
+  letGo();
+  if (waiting && readsOnly(body)) return json(APPROVAL_WAITING, 202);
+  if (waiting) throw new ApiError(504, 'approval_pending', APPROVAL_PENDING);
+  throw tooSlow();
 }

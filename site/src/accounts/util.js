@@ -3,6 +3,18 @@
 
 export const BUNDLE_ID = 'com.askeden.jarvis';
 export const PLUS_PRODUCTS = ['com.askeden.jarvis.plus.monthly', 'com.askeden.jarvis.plus.yearly'];
+// Eden for iPhone sells Plus with StoreKit 2 too (group "Eden Plus"; askeden/ios Eden/PlusStore.swift),
+// at today's web price, so it gets today's allowance (account.js plusCap), not the Jarvis legacy one.
+export const EDEN_BUNDLE_ID = 'com.askeden.eden';
+export const EDEN_PLUS_PRODUCTS = ['com.askeden.eden.plus.monthly', 'com.askeden.eden.plus.yearly'];
+/** The apps that sell Plus through the App Store, and their products. */
+export const STORE_APPS = Object.freeze({ [BUNDLE_ID]: PLUS_PRODUCTS, [EDEN_BUNDLE_ID]: EDEN_PLUS_PRODUCTS });
+export const isStoreApp = (bundleId) => Object.hasOwn(STORE_APPS, String(bundleId));
+/** A Plus product, from its own app (a transaction without bundleId: the Worker checked it already). */
+export function isPlusPurchase(tx) {
+  const app = Object.keys(STORE_APPS).find((b) => STORE_APPS[b].includes(tx && tx.productId));
+  return Boolean(app) && (!tx.bundleId || tx.bundleId === app);
+}
 // The Apple Developer team the apps are signed by (wrangler.toml's APPLE_TEAM_ID overrides it).
 export const TEAM_ID = '8CV4X23Y2T';
 

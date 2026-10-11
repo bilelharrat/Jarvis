@@ -128,7 +128,9 @@ test('publish: a private page for its owner only, then shared with the link, und
   assert.equal((await shared.json()).access, 'link');
   const anyone = await hit(page.url);
   assert.equal(anyone.status, 200);
-  assert.equal(await anyone.text(), HTML);
+  const shown = await anyone.text();
+  assert.ok(shown.startsWith(HTML.replace('</body></html>', '')) && shown.endsWith('</body></html>'), 'the page itself');
+  assert.match(shown, />Report<\/a><\/body>/, 'with a Report link for anyone who opens it (App Store 1.2: R3C-13)');
   assert.equal(anyone.headers.get('content-security-policy'), ARTIFACT_CSP);
   assert.equal((await hit(page.url, { session: stranger })).status, 200);
   // And back to only me, at once (nothing cached).
@@ -178,7 +180,9 @@ test('caps: 2 MB a page (in pieces), 20 pages an account; bad ids and paths are 
   assert.equal((await publish(me, { html: HTML, access: 'everyone' })).status, 400);
   const big = `<!doctype html><p>${'é'.repeat(500_000)}</p>`;
   const page = await (await publish(me, { html: big, access: 'link' })).json();
-  assert.equal(await (await hit(page.url)).text(), big, 'reassembled from its pieces');
+  const got = await (await hit(page.url)).text();
+  assert.ok(got.startsWith(big), 'reassembled from its pieces');
+  assert.match(got.slice(big.length), /^<a href="mailto:support@askeden\.com/);
   for (let i = 1; i < PUBLISHED.max; i++) assert.equal((await publish(me, { html: `<p>${i}</p>` })).status, 200);
   const full = await publish(me, { html: '<p>one more</p>' });
   assert.equal(full.status, 409);
