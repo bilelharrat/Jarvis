@@ -10,7 +10,7 @@ import { b64url, parseToken } from '../src/accounts/util.js';
 import { SCOPED, challengeOf, parseScopedToken } from '../src/accounts/scoped.js';
 import { ASK, MESSENGER_ORIGIN, NATIVE_CALLBACKS, askOrigins, askPrompt, parseAsk } from '../src/eden/ask.js';
 import { forgetSessions } from '../src/eden/session.js';
-import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, rateLimiter, sseBody } from './fakes.js';
+import { Account, GEMINI_STREAM, Link, appleJwk, asGemini, claudeAnswer, claudeShaped, identityToken, namespace, rateLimiter, sseBody } from './fakes.js';
 
 const ORIGIN = 'https://askeden.com';
 const CALLBACK = `${MESSENGER_ORIGIN}/eden/connected`;
@@ -24,7 +24,7 @@ const ctx = { waitUntil: (p) => waits.push(p) };
 const realFetch = globalThis.fetch;
 
 function makeEnv(extra = {}) {
-  const e = { ANTHROPIC_API_KEY: 'sk-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', ...extra };
+  const e = { ANTHROPIC_API_KEY: 'sk-test', GEMINI_API_KEY: 'g-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', ...extra };
   e.ACCOUNTS = namespace(Account, e);
   e.LINKS = namespace(Link, e);
   e.ASSETS = { fetch: async (req) => new Response(`asset ${new URL(req.url).pathname}`, { headers: { 'content-type': 'text/html' } }) };
@@ -44,6 +44,11 @@ beforeEach(() => {
       const payload = JSON.parse(init.body);
       sent.push({ payload, headers: init.headers });
       return anthropic(payload, init);
+    }
+    if (GEMINI_STREAM.test(url)) {
+      const payload = claudeShaped(url, init);
+      sent.push({ payload, headers: init.headers });
+      return asGemini(await anthropic(payload, init));
     }
     throw new Error(`unexpected fetch ${url}`);
   };
@@ -328,8 +333,8 @@ test('an ask streams Eden’s answer as text, on the included AI, held then bill
   await settle();
 
   const { payload, headers } = sent[0];
-  assert.equal(headers['x-api-key'], 'sk-test');
-  assert.equal(payload.model, 'claude-sonnet-5-5');
+  assert.equal(headers['x-goog-api-key'], 'g-test'); // R3X2: the public models, never Claude on Eden's key
+  assert.equal(payload.model, 'gemini-3.8-flash');
   assert.equal(payload.max_tokens, ASK.answerTokens);
   assert.equal(payload.stream, true);
   assert.ok(!payload.tools, 'no tools: an ask only reads what it was sent');
@@ -343,8 +348,8 @@ test('an ask streams Eden’s answer as text, on the included AI, held then bill
 
   const account = env.ACCOUNTS.objects.get(owner.account.id);
   const usage = await account.storage.get('usage');
-  // Sonnet 5.5 at $2/$10 a million: 1200 in, 300 out.
-  assert.equal(usage.trial_spent, 0.0054);
+  // Gemini 3.8 Flash at $0.75/$3.75 a million: 1200 in, 300 out.
+  assert.equal(usage.trial_spent, 0.002025);
   assert.equal(account.holds.size, 0, 'the hold let go');
   assert.equal(JSON.stringify([...account.storage.map.values()]).includes('Lyon'), false, 'nothing of the ask is kept');
 });
@@ -500,25 +505,16 @@ function deviceHeaders(session) {
   return { 'x-jarvis-device': t.device, 'x-jarvis-secret': t.secret };
 }
 
-test('no Anthropic key: an ask is answered on the service’s Gemini key, billed at its price (service-ai.js)', async () => {
+test('no Anthropic key: an ask is answered on the service’s Gemini key, billed at its price', async () => {
   env = makeEnv({ ANTHROPIC_API_KEY: '', GEMINI_API_KEY: 'g-test' });
-  const inner = globalThis.fetch;
-  const gemini = [];
-  globalThis.fetch = async (input, init = {}) => {
-    const url = typeof input === 'string' ? input : input.url;
-    if (url.startsWith('https://generativelanguage.googleapis.com/')) {
-      gemini.push(url);
-      return Response.json({ candidates: [{ content: { parts: [{ text: 'You agreed on Lyon.' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 200 } });
-    }
-    return inner(input, init);
-  };
+  anthropic = () => new Response(sseBody(claudeAnswer({ input: 1000, output: 200, text: ['You agreed on Lyon.'] })), { headers: { 'content-type': 'text/event-stream' } });
   const { owner, access_token } = await connected();
   const response = await askEden(access_token);
   assert.equal(response.status, 200);
   assert.equal(await response.text(), 'You agreed on Lyon.');
   await settle();
-  assert.equal(sent.length, 0, 'Anthropic is never asked');
-  assert.match(gemini[0], /gemini-3\.8-flash:generateContent/);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].payload.model, 'gemini-3.8-flash', 'streamed from Gemini Flash (R3X2), Anthropic never asked');
   const usage = await env.ACCOUNTS.objects.get(owner.account.id).storage.get('usage');
   assert.equal(usage.trial_spent, 0.0015); // $0.75/$3.75 a million: 1000 in, 200 out
 });

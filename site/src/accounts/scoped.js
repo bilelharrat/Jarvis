@@ -28,10 +28,10 @@ export const CLIENTS = {
     scope: 'ask',
     callback: '/',
     extension: true,
-    routes: ['/api/eden/text'],
+    routes: ['/api/eden/text', '/api/eden/chat', '/api/eden/models', '/api/eden/voice'], // the page's quick actions; the side panel's chat (eden/ext-chat.js); Talk's Eden voice (worker.js voice)
     again: 'In Chrome, click Ask Eden in the toolbar, then Connect.',
-    does: 'ask Eden about text you select on web pages and help you write there',
-    sends: 'It sends Eden only the text you select or type and the page’s title and address, when you press one of its buttons',
+    does: 'ask Eden about text you select on web pages, help you write there, and chat with Eden in a side panel (on the models askeden.com runs, with web search and research)',
+    sends: 'It sends Eden only what you select or type (and, to summarize a page or write in a text box, the page’s main text or the text around your cursor), images and files you attach, and the page’s title and address, when you press one of its buttons or ask in its side panel; Search and Research also use the AI model’s web search; with Talk, Eden’s answers are spoken in the Eden voice on your daily voice allowance',
   },
   // The Excel add-in (eden/sheets.js): its task pane is askeden.com/addins/excel/, its sign-in comes back there.
   excel: {
@@ -43,7 +43,7 @@ export const CLIENTS = {
     app: 'excel',
     again: 'In Excel, open Ask Eden and press Connect.',
     does: 'answer questions about the cells you select in Excel, write and explain formulas, and fill or clean data',
-    sends: 'It sends Eden only the cells you select (to write or explain a formula, also the data around the cell), the sheet’s name and what you type, when you press one of its buttons or use =EDEN.ASK',
+    sends: 'It sends Eden only the cells you select (to write or explain a formula, also the data around the cell; to fill an empty column, the filled columns beside it), the sheet’s name and what you type, when you press one of its buttons or use =EDEN.ASK',
   },
   // The Google Sheets add-on (Apps Script; eden/sheets.js): its sign-in comes back to its own usercallback.
   sheets: {
@@ -55,7 +55,7 @@ export const CLIENTS = {
     app: 'sheets',
     again: 'In Google Sheets, choose Extensions › Ask Eden › Connect your Eden account.',
     does: 'answer questions about the cells you select in Google Sheets, write and explain formulas, and fill or clean data',
-    sends: 'It sends Eden only the cells you select (to write or explain a formula, also the data around the cell), the sheet’s name and what you type, when you press one of its buttons or use =EDEN',
+    sends: 'It sends Eden only the cells you select (to write or explain a formula, also the data around the cell; to fill an empty column, the filled columns beside it), the sheet’s name and what you type, when you press one of its buttons or use =EDEN',
   },
 };
 
@@ -100,6 +100,23 @@ export async function scopedOp(account, op, body, request) {
       const token = await tokenCaller(account, body);
       if (token.scope !== 'ask') throw new ApiError(403, 'forbidden', 'This connection may not ask Eden.');
       return { ...(await account.holdAi({ usd: body.usd })), client: token.client };
+    }
+    case 'scoped-check': {
+      // The token alone, nothing held or spent (GET /api/eden/models, eden/ask.js listed: R3C8).
+      const token = await tokenCaller(account, body);
+      if (token.scope !== 'ask') throw new ApiError(403, 'forbidden', 'This connection may not ask Eden.');
+      return { ok: true, client: token.client };
+    }
+    case 'scoped-voice': {
+      // Talk in an app (the Ask Eden extension): its token's characters on the account's daily voice allowance (account.js voice).
+      const token = await tokenCaller(account, body);
+      if (token.scope !== 'ask') throw new ApiError(403, 'forbidden', 'This connection may not use the Eden voice.');
+      return { ...(await account.voice({ chars: body.chars })), client: token.client };
+    }
+    case 'scoped-voice-give': {
+      // That take's audio never came (worker.js voice, R3C6): its characters go back.
+      await tokenCaller(account, body);
+      return await account.voiceGive({ take: body.take });
     }
     case 'scoped-revoke': {
       // The token itself (an app disconnecting), or a browser of this account by id.

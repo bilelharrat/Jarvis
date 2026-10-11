@@ -6,9 +6,9 @@ import { Identity } from '../src/accounts/identity.js';
 import { b64url, b64urlText, sha256Hex } from '../src/accounts/util.js';
 import { testOnlyServiceClaude } from '../src/eden/providers.js';
 
-// The suites below were written for Claude on a Worker key (ANTHROPIC_API_KEY). askeden.com never
-// does that now (Claude is bring-your-own-key, providers.js BYOK_ONLY); they keep exercising the
-// same streaming and metering with it switched back on. test/byok.test.js checks the real rule.
+// The suites below run Claude on a Worker key (ANTHROPIC_API_KEY). askeden.com does that too since
+// "Claude for everyone" (providers.js serviceClaude, 2026-10-10); the switch keeps the older suites
+// independent of that rule. test/byok.test.js and anywhere-public-models.test.js check the real rule.
 testOnlyServiceClaude(true);
 
 export class Storage {
@@ -31,8 +31,12 @@ export class Storage {
     if (keys.length > 128) throw new Error('at most 128 keys a delete');
     for (const k of keys) this.map.delete(k);
   }
-  async list({ prefix = '' } = {}) {
-    return new Map([...this.map].filter(([k]) => k.startsWith(prefix)).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => [k, structuredClone(v)]));
+  // As a Durable Object's storage.list: prefix, start (inclusive) or startAfter, end (exclusive), reverse, limit.
+  async list({ prefix = '', start, startAfter, end, reverse = false, limit } = {}) {
+    let rows = [...this.map].filter(([k]) => k.startsWith(prefix) && (start === undefined || k >= start) && (startAfter === undefined || k > startAfter) && (end === undefined || k < end)).sort(([a], [b]) => (a < b ? -1 : 1));
+    if (reverse) rows.reverse();
+    if (limit !== undefined) rows = rows.slice(0, limit);
+    return new Map(rows.map(([k, v]) => [k, structuredClone(v)]));
   }
   async deleteAll() {
     this.map.clear();
@@ -182,4 +186,78 @@ export function rateLimiter(limit = 1000) {
       return { success: counts.get(key) <= this.max };
     },
   };
+}
+
+// ── Claude-shaped fakes answered as Gemini (the Ask Eden apps' routes, eden/ask.js, ask the public models: R3X2) ──
+
+/** Gemini's streaming endpoint, as eden/vendor/providers.js calls it; [1] is the model. */
+export const GEMINI_STREAM = /^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/([^/:?]+):streamGenerateContent\?alt=sse$/;
+
+/** A Gemini streaming request as the Claude payload the older suites check: { model, max_tokens, stream, system, messages }. */
+export function claudeShaped(url, init) {
+  const body = JSON.parse(init.body);
+  const text = (parts = []) => parts.map((p) => p.text || '').join('');
+  return {
+    model: decodeURIComponent(GEMINI_STREAM.exec(url)[1]),
+    max_tokens: body.generationConfig?.maxOutputTokens,
+    stream: true,
+    ...(body.systemInstruction ? { system: text(body.systemInstruction.parts) } : {}),
+    messages: body.contents.map((c) => ({ role: c.role === 'model' ? 'assistant' : 'user', content: text(c.parts) })),
+    ...(body.tools ? { tools: body.tools } : {}),
+    generationConfig: body.generationConfig,
+  };
+}
+
+const GEMINI_FINISH = { end_turn: 'STOP', stop_sequence: 'STOP', max_tokens: 'MAX_TOKENS', refusal: 'SAFETY' };
+
+/**
+ * A fake Claude response (sseBody(claudeAnswer(…)), or any Anthropic event stream) as Gemini's stream: the same
+ * text pieces, usage and ending, event by event as they come (pings send nothing); cancelling it cancels the
+ * Claude-shaped body. An error response is returned as it is.
+ */
+export function asGemini(response) {
+  if (!response.ok || !response.body) return response;
+  const source = response.body.getReader();
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = '';
+  let input = 0;
+  const chunk = (j) => encoder.encode(`data: ${JSON.stringify(j)}\r\n\r\n`);
+  const translate = (block) => {
+    const line = block.split('\n').find((l) => l.startsWith('data: '));
+    if (!line) return null;
+    const e = JSON.parse(line.slice(6));
+    if (e.type === 'message_start') {
+      input = e.message?.usage?.input_tokens || 0;
+      return null;
+    }
+    if (e.type === 'content_block_delta' && e.delta?.type === 'text_delta') return chunk({ candidates: [{ content: { role: 'model', parts: [{ text: e.delta.text }] } }], usageMetadata: { promptTokenCount: input, candidatesTokenCount: 0 } });
+    if (e.type === 'content_block_delta' && e.delta?.type === 'thinking_delta') return chunk({ candidates: [{ content: { role: 'model', parts: [{ text: e.delta.thinking, thought: true }] } }], usageMetadata: { promptTokenCount: input, candidatesTokenCount: 0 } });
+    if (e.type === 'message_delta') return chunk({ candidates: [{ content: { role: 'model', parts: [] }, finishReason: GEMINI_FINISH[e.delta?.stop_reason] || 'OTHER' }], usageMetadata: { promptTokenCount: input, candidatesTokenCount: e.usage?.output_tokens || 0 } });
+    if (e.type === 'error') return chunk({ error: { code: 500, message: e.error?.message || 'error', status: 'INTERNAL' } });
+    return null; // ping, message_stop, content_block_start/stop
+  };
+  const body = new ReadableStream({
+    async pull(controller) {
+      for (;;) {
+        const { done, value } = await source.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        buffer += typeof value === 'string' ? value : decoder.decode(value, { stream: true });
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop();
+        const out = blocks.map(translate).filter(Boolean);
+        if (out.length) {
+          for (const bytes of out) controller.enqueue(bytes);
+          return;
+        }
+      }
+    },
+    cancel(reason) {
+      return source.cancel(reason);
+    },
+  });
+  return new Response(body, { status: response.status, headers: { 'content-type': 'text/event-stream' } });
 }

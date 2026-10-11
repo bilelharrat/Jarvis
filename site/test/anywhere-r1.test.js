@@ -11,7 +11,7 @@ import { ADDIN_CSP } from '../src/eden/addins.js';
 import { TEXT, editTokens, parseText, points, textPrompt, utf8Bytes } from '../src/eden/ext.js';
 import { SHEET, cleanTokens, parseSheet, sheetPrompt } from '../src/eden/sheets.js';
 import { forgetSessions } from '../src/eden/session.js';
-import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, rateLimiter, sseBody } from './fakes.js';
+import { Account, GEMINI_STREAM, Link, appleJwk, asGemini, claudeAnswer, claudeShaped, identityToken, namespace, rateLimiter, sseBody } from './fakes.js';
 
 const ORIGIN = 'https://askeden.com';
 const EXT_ID = 'cgincgeifceekdgpbboafpjdiapafggm';
@@ -53,13 +53,18 @@ beforeEach(() => {
   globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input.url;
     if (url === 'https://appleid.apple.com/auth/keys') return Response.json({ keys: [appleJwk] });
+    // Claude on Eden's key for the apps' edits (Claude for everyone, 2026-10-10); Gemini Flash for the rest (R3X2).
     if (url === 'https://api.anthropic.com/v1/messages') {
       sent.push(JSON.parse(init.body));
       return upstream(init);
     }
+    if (GEMINI_STREAM.test(url)) {
+      sent.push(claudeShaped(url, init));
+      return asGemini(await upstream(init));
+    }
     throw new Error(`unexpected fetch ${url}`);
   };
-  env = { ANTHROPIC_API_KEY: 'sk-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_SHEETS_SCRIPT_IDS: SCRIPT };
+  env = { ANTHROPIC_API_KEY: 'sk-test', GEMINI_API_KEY: 'g-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_SHEETS_SCRIPT_IDS: SCRIPT };
   env.ACCOUNTS = namespace(Account, env);
   env.LINKS = namespace(Link, env);
   env.ASSETS = { fetch: async (req) => new Response(`asset ${new URL(req.url).pathname}`, { headers: { 'content-type': 'text/html' } }) };

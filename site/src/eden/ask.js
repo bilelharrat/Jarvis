@@ -26,8 +26,9 @@
 // read, before the account's rate limits, before the prompt is built. Bodies are read up to the route's
 // cap in bytes (ASK.bodyBytes, TEXT.bodyBytes, SHEET.bodyBytes; 4 KiB for /token and the relay).
 // Refused tokens are counted per network (AUTH_RATE `eden-bearer:<ip>`, 20 a minute): past that, that
-// network gets 429 (Retry-After 60) for that account for BEARER.boxMs without asking the account's
-// object, so a flood of made-up tokens can't keep a known account's object busy.
+// network gets 429 (Retry-After 60) for that same token for BEARER.boxMs without asking the account's
+// object again; never for another token, so made-up tokens can't lock out a real one (disconnect of a
+// boxed token: 204, it is already gone).
 //
 // How an answer ends. Streamed (the default; text/plain): a clean close is a whole answer; a failure
 // errors the stream. A client that sends `x-eden-trailer: 1` (and gets `x-eden-trailer: 1` back) instead
@@ -42,7 +43,10 @@
 // in flight at once, shared with askeden.com's own chat (accounts/account.js EDEN_TURNS), and each app at
 // most 20 asks a minute (EDEN_RATE `ask:<client>:<account>`; =EDEN cell asks: 120 a minute, API_RATE). A
 // client keeps at most 2 asks in flight per account, and on 429 waits Retry-After (with jitter) before
-// trying again. An answer with no progress for TIMING.idleMs (60 s) is ended ("Claude stopped answering").
+// trying again. An answer with no progress for TIMING.idleMs (60 s), its headers included, is ended ("<the
+// provider> stopped answering"); one whose deadline passed before the model is asked is refused (too_slow) unasked.
+// The model: hosted Eden's on askeden.com's keys, Claude included when the service has its key; Claude Sonnet for an
+// edit, else the cheapest capable (appModel).
 //
 // Why it's shaped this way. Messenger is at messenger.askeden.com, another origin: Eden's session
 // cookie (__Host-eden, SameSite=Strict, HttpOnly) is never sent with its requests, and must not
@@ -62,19 +66,19 @@
 // cost), and nothing of it is stored or logged.
 
 import { call, callLink, clientIp, limited } from '../accounts/index.js';
-import { costOf, priceOf, usageMeter } from '../accounts/proxy.js';
-import { serviceAiReady, serviceFallback, serviceFetch } from '../accounts/service-ai.js';
 import { CLIENTS, SCOPED, makeScopedToken, parseConnectCode, parseScopedToken } from '../accounts/scoped.js';
 import { ApiError, sha256Hex, webAllowed } from '../accounts/util.js';
-import { hostedConfig } from './chat.js';
+import { effortsFor, nearestEffort } from './chat.js';
 import { TEXT, bad, extIdOf, extOrigins, extRedirectOrigins, fence, fenceRule, isObj, known, oneLine, parseText, points, strip, textPrompt, utf8Bytes } from './ext.js';
 import { SHEET, parseSheet, selfOrigins, sheetPrompt, sheetsCallback } from './sheets.js';
+import { appConfig, extChat, extModels } from './ext-chat.js';
+import { CHARS_PER_TOKEN, PROVIDER_NAMES, capRequest, defaultModel, modelOf, ratesOf, usageUSD, viaBase } from './providers.js';
+import { buildStreamRequest, createStreamParser, withMaxOutputTokens } from './vendor/providers.js';
+import { createLocalRouter } from './vendor/model-router.js';
 import { currentSession } from './session.js';
 import { json, page, problem, sameOrigin, withHeaders } from './web.js';
 
 export const MESSENGER_ORIGIN = 'https://messenger.askeden.com';
-const ANTHROPIC = 'https://api.anthropic.com/v1/messages';
-const ASK_MODEL = 'claude-sonnet-5-5'; // the hosted model an ask uses when EDEN_MODELS has it
 export const ASK = {
   questionChars: 2000,
   messages: 100,
@@ -86,7 +90,7 @@ export const ASK = {
 };
 const KINDS = new Set(['dm', 'group_dm', 'private', 'channel']);
 const KIND_WORDS = { dm: 'a direct message', group_dm: 'a group message', private: 'a private channel', channel: 'a channel' };
-const APP_ROUTES = new Set(['/api/eden/token', '/api/eden/ask', '/api/eden/text', '/api/eden/sheet', '/api/eden/disconnect', '/api/eden/relay', '/api/eden/relay/take']);
+const APP_ROUTES = new Set(['/api/eden/token', '/api/eden/ask', '/api/eden/text', '/api/eden/sheet', '/api/eden/disconnect', '/api/eden/relay', '/api/eden/relay/take', '/api/eden/chat', '/api/eden/models']);
 const SMALL_BODY = 4096; // /token and the relay: a code, a verifier, a state
 // An app's native return address: exactly this, or not at all. No web page can redeem a code sent
 // there (token() matches the redirect's origin to the caller's, and a custom scheme's is "null").
@@ -185,7 +189,7 @@ ${body}
 const ALL_AGAIN = Object.values(CLIENTS).map((app) => app.again).filter(Boolean).join(' ');
 
 /** The page's HTML (exported for the local QA harness and the tests). */
-export function connectHtml({ request: req, signedIn, email = '', error = '', client = '', self = '/eden/connect' }) {
+export function connectHtml({ request: req, signedIn, email = '', error = '', client = '', self = '/eden/connect', askMax = APP_ASK_MAX_USD }) {
   if (error) {
     const again = (Object.hasOwn(CLIENTS, client) && CLIENTS[client].again) || ALL_AGAIN;
     return shell('Can’t connect', `  <h1 id="title">Can’t connect</h1>
@@ -204,7 +208,7 @@ export function connectHtml({ request: req, signedIn, email = '', error = '', cl
   const inputs = Object.entries(connectParams(req)).map(([k, v]) => `    <input type="hidden" name="${k}" value="${esc(v)}">`).join('\n');
   return shell(`Connect ${req.app.name}`, `  <h1 id="title">Connect ${name}?</h1>
   <p class="lead">${name} will be able to ${esc(req.app.does || 'ask Eden about a conversation for you')}${email ? `, as <b>${esc(email)}</b>` : ''}.</p>
-  <p class="alert">${esc(req.app.sends || 'It sends Eden only the question and messages you confirm each time, from your own device')}, and gets the answer on your included AI. It can’t read your Eden chats, mail, calendar, notes or account.</p>
+  <p class="alert">${esc(req.app.sends || 'It sends Eden only the question and messages you confirm each time, from your own device')}, and gets the answer on your included AI (then your credits, if you have any), at most $${askMax.toFixed(2)} an ask. It can’t read your Eden chats, mail, calendar, notes or account.</p>
   <form method="post" action="/api/eden/connect">
 ${inputs}
     <p><button class="button ghost" type="submit" name="decision" value="deny">Cancel</button> <button class="button" type="submit" name="decision" value="allow">Connect</button></p>
@@ -231,7 +235,7 @@ export async function connectPage(request, env, url) {
     const view = await call(env, session.account, 'get', {}, session.token).catch(() => null);
     email = (view?.identities || []).map((i) => i.email).find(Boolean) || '';
   }
-  return htmlPage(connectHtml({ request: req, signedIn: Boolean(session), email, self: `${url.pathname}${url.search}` }), env, 200, req.client);
+  return htmlPage(connectHtml({ request: req, signedIn: Boolean(session), email, self: `${url.pathname}${url.search}`, askMax: appAskMax(env) }), env, 200, req.client);
 }
 
 const seeOther = (location) => new Response(null, { status: 303, headers: { location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
@@ -300,17 +304,18 @@ async function readBody(request, max) {
   throw new ApiError(400, 'bad_request', 'Send a JSON object.');
 }
 
-// Refused tokens, per network (R2V1). AUTH_RATE counts them; a network past its limit is kept out, for
-// the account it named, for boxMs: without asking the account's object (best effort, per Worker
-// isolate; the counter itself is shared). Keyed by account too, so others on a shared network (Google's
-// servers, for every Sheets user) keep going.
+// Refused tokens, per network (R2V1). AUTH_RATE counts them per network; past its limit, the token just
+// refused is kept out from that network for boxMs, without asking the account's object again (best
+// effort, per Worker isolate; the counter itself is shared). Keyed by the whole token presented (R3V1):
+// a refused scoped token never becomes good, and made-up tokens naming an account can't lock out that
+// account's real tokens, from a shared network (an office, Google's servers for every Sheets user) or not.
 export const BEARER = { boxMs: 60_000, boxMax: 10_000 };
-const BOX = new Map(); // `<ip> <account>` → until (ms)
+const BOX = new Map(); // `<ip> <account>.<id>.<secret>` → until (ms)
 
-/** Forget the boxed networks (tests). */
+/** Forget the boxed tokens (tests). */
 export const forgetBearers = () => BOX.clear();
 
-const boxKey = (request, who) => `${clientIp(request)} ${who.account}`;
+const boxKey = (request, who) => `${clientIp(request)} ${who.account}.${who.id}.${who.secret}`;
 
 function boxed(request, who) {
   if (!BOX.size) return false; // nearly always: no key to build
@@ -334,11 +339,17 @@ async function refusedToken(env, request, who) {
 const slowDown = () => new ApiError(429, 'slow_down', 'Too many tries; wait a minute.', { 'retry-after': '60' });
 
 /** The scoped token on this request (its shape only), or a 401 the app understands ("connect again"). */
-function bearer(request, env) {
+function tokenOf(request, env) {
   const auth = /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') || '');
   const token = auth ? parseScopedToken(auth[1]) : null;
   if (!token) throw new ApiError(401, 'not_connected', 'Connect Eden first.');
   if (!webAllowed(env, token.account)) throw new ApiError(403, 'forbidden', 'This Eden account can’t use Eden on the web yet.');
+  return token;
+}
+
+/** The same, and 429 for a token this network had refused past its limit (boxed). */
+function bearer(request, env) {
+  const token = tokenOf(request, env);
   if (boxed(request, token)) throw slowDown();
   return token;
 }
@@ -378,7 +389,19 @@ async function verified(env, request, who, path) {
     await released;
     throw new ApiError(403, 'forbidden', `This connection is for ${app ? app.name : 'another app'}; it can’t be used here.`);
   }
-  return { client: check.client, released };
+  return { client: check.client, released, left: check.left, bucket: check.bucket };
+}
+
+/**
+ * GET /api/eden/models' check (R3C8): the token by its account and its own route, without a hold (so neither two
+ * answers in flight nor a used-up allowance stops the model list), then the account's API_RATE.
+ */
+async function listed(env, request, who, path) {
+  const check = await asToken(env, request, who, () => call(env, who.account, 'scoped-check', { id: who.id, secret: who.secret }));
+  const app = Object.hasOwn(CLIENTS, check.client) ? CLIENTS[check.client] : null;
+  if (!app || !(app.routes || []).includes(path)) throw new ApiError(403, 'forbidden', `This connection is for ${app ? app.name : 'another app'}; it can’t be used here.`);
+  await limited(env, 'API_RATE', `eden-app:${who.account}`);
+  return { client: check.client };
 }
 
 /** A page may redeem a code only for itself: the same origin, or the same extension's two addresses. */
@@ -416,10 +439,14 @@ async function token(request, env, origin) {
 }
 
 async function disconnect(request, env) {
-  const who = bearer(request, env);
-  await asToken(env, request, who, () => call(env, who.account, 'scoped-revoke', { id: who.id, secret: who.secret })).catch((error) => {
-    if (!(error instanceof ApiError && error.status === 401)) throw error; // already gone: fine
-  });
+  const who = tokenOf(request, env);
+  // A boxed token was refused moments ago: already gone, so done, with no account call. Never a 429 here
+  // (R3V1): an app that is told "wait" may forget a token the server still takes.
+  if (!boxed(request, who)) {
+    await asToken(env, request, who, () => call(env, who.account, 'scoped-revoke', { id: who.id, secret: who.secret })).catch((error) => {
+      if (!(error instanceof ApiError && error.status === 401)) throw error; // already gone: fine
+    });
+  }
   return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
 }
 
@@ -515,24 +542,105 @@ export function askPrompt({ question, asker, conversation, messages }) {
   return { system, user };
 }
 
-/** The model an ask uses: Sonnet when hosted Eden has it, else hosted Eden's first. */
-export function askModel(env) {
-  const models = hostedConfig(env).models;
-  return (models.find((m) => m.id === ASK_MODEL) || models[0] || null)?.id || null;
+// ── the model an app's ask uses (R3X2, "Claude for everyone" 2026-10-10) ──
+//
+// Hosted Eden's models on askeden.com's own keys: the side panel's pool (ext-chat.js appConfig: Anthropic Claude,
+// OpenAI, Google Gemini, Moonshot Kimi, each when askeden.com has its key; Claude through providers.js serviceClaude,
+// the same rule as /api/chat/send). An app's token never reads the account's own keys. The model is picked per
+// action (appModel): an edit (Chrome's reply/rewrite/fix/shorter/longer/tone/translate/write, ext.js `edit`; the sheets'
+// formula/fill/clean, whose answer is pasted or written into cells as it is) gets the quality model hosted Eden's
+// config prefers, Claude Sonnet, when askeden.com runs it; everything else (and an edit without Sonnet) gets the
+// cheapest capable one: hosted Eden's default (Gemini Flash, else the cheapest other non-Claude one, providers.js
+// defaultModel), else the cheapest model there is (Claude Haiku when Claude is all askeden.com has). Always at the
+// model's lowest effort: an app's answers are short and their budgets fixed.
+
+/** The quality model an edit action uses when askeden.com runs it (as before R3X2). */
+export const QUALITY_MODEL = 'claude-sonnet-5-5';
+/** The sheets' actions whose answer is written into cells (sheets.js ACTIONS): the quality model's. Chrome's: ext.js `edit`. */
+const QUALITY_SHEET = new Set(['formula', 'fill', 'clean']);
+
+/** The models an app's ask may use: appConfig's (hosted Eden's, on askeden.com's keys; Claude when the service has its key). */
+export const appModels = (env, request = null) => appConfig(env, request);
+
+/** The model id for one ask: QUALITY_MODEL for an edit when it is here, else the cheapest capable; null: none. */
+export function appModel(cfg, quality = false) {
+  if (quality && cfg.models.some((m) => m.id === QUALITY_MODEL)) return QUALITY_MODEL;
+  const id = defaultModel(cfg);
+  if (id) return id;
+  const out = (m) => ratesOf(m)[1];
+  return cfg.models.length ? [...cfg.models].sort((a, b) => out(a) - out(b))[0].id : null;
 }
 
-/** The model for an app's ask, once the included AI is set up. */
-function askModel503(env) {
-  if (!serviceAiReady(env)) throw new ApiError(503, 'not_set_up', 'The included AI is not set up on askeden.com yet.');
-  const fallback = serviceFallback(env); // no Anthropic key: the service's Gemini or OpenAI (service-ai.js)
-  const model = fallback ? fallback.model : askModel(env);
-  if (!model) throw new ApiError(503, 'not_set_up', 'No Claude models are set up on askeden.com.');
-  return model;
+/** The pool, or 503 when askeden.com has no model at all (checked before the token, as before). */
+async function appPool(env, request) {
+  const cfg = await appModels(env, request);
+  if (!cfg.models.length) throw new ApiError(503, 'not_set_up', 'The included AI is not set up on askeden.com yet.');
+  return cfg;
 }
 
-/** The per-account limits, for a verified token only; each app has its own, apart from askeden.com's chat. */
-async function appLimits(env, who, client, { cell = false } = {}) {
-  await limited(env, 'API_RATE', `eden-app:${who.account}`);
+// ── the most one ask may cost (R3C4) ──
+//
+// An app's token (Messenger, Chrome, Excel, Sheets) may spend the account's included AI and then its bought credits,
+// but never more than appAskMax a single ask: EDEN_APP_ASK_MAX_USD, $0.50 by default. Its worst case (the hold) is
+// fitted under it: here an edit falls back to the cheapest model, then a prose answer gets a shorter budget; the side
+// panel (ext-chat.js) lowers the answer's budget (thinking included) and Search/Research's number of searches. When
+// nothing fits: 402 over_ask_limit, in words.
+
+export const APP_ASK_MAX_USD = 0.5;
+/** The most one ask from an app's token may cost, in dollars of provider cost. */
+export function appAskMax(env = {}) {
+  const raw = env.EDEN_APP_ASK_MAX_USD;
+  const n = Number(raw);
+  return raw !== undefined && raw !== null && String(raw).trim() !== '' && Number.isFinite(n) && n > 0 ? n : APP_ASK_MAX_USD;
+}
+/** 402 over_ask_limit: this ask, even made as small as it can be, would cost more than appAskMax. */
+export const overAskLimit = (env, what) => new ApiError(402, 'over_ask_limit', `This would cost more than one ask from an Ask Eden app may (at most $${appAskMax(env).toFixed(2)}). ${what}`);
+/** The shortest prose answer worth giving under the ceiling. */
+const MIN_PROSE_TOKENS = 256;
+
+/** A prompt's input tokens (a token per 3 bytes, counted piece by piece) and its worst case on `model`. */
+function worstOf(model, prompt) {
+  // Counted piece by piece, never joined: no piece holds a lone surrogate (strip), so the bytes add up exactly.
+  const inputTokens = Math.ceil(prompt.messages.reduce((n, m) => n + utf8Bytes(m.content), utf8Bytes(prompt.system)) / 3);
+  const [inPrice, outPrice] = ratesOf(model, inputTokens);
+  return { inputTokens, inPrice, outPrice, worstUSD: Math.round(((inputTokens * inPrice + prompt.maxTokens * outPrice) / 1e6) * 1e6) / 1e6 };
+}
+
+/** The route and prompt one ask uses, its worst case under appAskMax (above); else 402 over_ask_limit. */
+function fitAsk(env, cfg, prompt) {
+  const max = appAskMax(env);
+  const cheapest = appModel(cfg, false);
+  const ids = [...new Set([appModel(cfg, Boolean(prompt.quality)), cheapest])];
+  for (const id of ids) if (worstOf(modelOf(id), prompt).worstUSD <= max) return { route: appRoute(cfg, id), prompt };
+  if (!prompt.structured) {
+    const { inputTokens, inPrice, outPrice } = worstOf(modelOf(cheapest), prompt);
+    const room = Math.floor(((max - (inputTokens * inPrice) / 1e6) / outPrice) * 1e6);
+    if (room >= MIN_PROSE_TOKENS) return { route: appRoute(cfg, cheapest), prompt: { ...prompt, maxTokens: Math.min(prompt.maxTokens, room) } };
+  }
+  throw overAskLimit(env, 'Select less and try again.');
+}
+
+const pickers = new Map();
+/** The model `id` at its lowest effort for one ask: { model, effort, request, key, base }. */
+function appRoute(cfg, id) {
+  const model = modelOf(id);
+  const effort = nearestEffort(effortsFor(cfg.models.find((m) => m.id === id), cfg.maxEffort), 'none'); // the lowest allowed
+  const at = `${id}|${effort}`;
+  if (!pickers.has(at)) pickers.set(at, createLocalRouter({ models: [id], efforts: () => [effort] }));
+  const { pick } = pickers.get(at).routeSync({ prompt: 'an app ask' }); // its params at that effort; the cap is set per action
+  return { model, effort, request: pick.request, key: cfg.keys[model.provider].key, base: cfg.base };
+}
+
+/** The route's request with its output cap exactly the action's budget (visible text and any thinking). */
+const capped = (route, maxTokens) => capRequest(withMaxOutputTokens(route.request, maxTokens), maxTokens);
+
+/**
+ * The per-account limits, for a verified token only; each app has its own, apart from askeden.com's chat. Checked
+ * before the body is read (R3C7); a sheet's cell asks (=EDEN) skip EDEN_RATE, so /sheet checks it once parsed
+ * (`account: false`: API_RATE was counted already).
+ */
+async function appLimits(env, who, client, { cell = false, account = true } = {}) {
+  if (account) await limited(env, 'API_RATE', `eden-app:${who.account}`);
   if (!cell) await limited(env, 'EDEN_RATE', `ask:${client}:${who.account}`);
 }
 
@@ -543,19 +651,22 @@ async function appLimits(env, who, client, { cell = false } = {}) {
 async function appAsk(request, env, ctx, path, max, build) {
   const started = Date.now(); // the deadlines count from here
   const who = bearer(request, env);
-  const model = askModel503(env);
+  const pool = await appPool(env, request);
   const { client, released } = await verified(env, request, who, path);
+  const cells = path === '/api/eden/sheet'; // its =EDEN cell asks skip EDEN_RATE: known once parsed
   let prompt;
   try {
+    await appLimits(env, who, client, { cell: cells }); // before the body is read (R3C7)
     prompt = build(await readBody(request, max), client);
-    await appLimits(env, who, client, { cell: prompt.cell });
+    if (cells) await appLimits(env, who, client, { cell: prompt.cell, account: false });
   } finally {
     await released;
   }
+  const fitted = fitAsk(env, pool, prompt); // the model, under the per-ask ceiling (R3C4)
   // Apps Script (Google Sheets) can't read a stream: it gets the whole answer, or a clear error.
   const buffered = client === 'sheets' || request.headers.get('x-eden-buffer') === '1';
   const trailer = request.headers.get('x-eden-trailer') === '1';
-  return streamAnswer(env, ctx, who, model, prompt, { buffered, trailer, started });
+  return streamAnswer(env, ctx, who, fitted.route, fitted.prompt, { buffered, trailer, started });
 }
 
 const ask = (request, env, ctx) =>
@@ -569,11 +680,15 @@ const sheetText = (request, env, ctx) =>
   appAsk(request, env, ctx, '/api/eden/sheet', SHEET.bodyBytes, (body, client) => {
     const req = parseSheet(body);
     if (CLIENTS[client].app && req.app !== CLIENTS[client].app) throw new ApiError(403, 'forbidden', `This connection is for ${CLIENTS[client].name}.`);
-    return { ...sheetPrompt(req), cell: req.action === 'cell' };
+    return { ...sheetPrompt(req), cell: req.action === 'cell', quality: QUALITY_SHEET.has(req.action) };
   });
 
 /** The extension's ask about page text (ext.js). */
-const pageText = (request, env, ctx) => appAsk(request, env, ctx, '/api/eden/text', TEXT.bodyBytes, (body) => textPrompt(parseText(body)));
+const pageText = (request, env, ctx) =>
+  appAsk(request, env, ctx, '/api/eden/text', TEXT.bodyBytes, (body) => {
+    const prompt = textPrompt(parseText(body));
+    return { ...prompt, quality: prompt.structured }; // ext.js: `structured` is the action's `edit`
+  });
 
 // How long an answer may take, from when the request arrived: no progress for idleMs ends it; a
 // streamed answer ends after streamMs, a buffered one (Google Sheets) after bufferedMs, inside Apps
@@ -596,64 +711,153 @@ const failed = (end, prompt) => {
   return new ApiError(status, code, error);
 };
 
+// How each provider says its answer ended, in its own words (R3X2): a cut-off at the output cap is "cut", a
+// refusal or a safety block is "refused". Anthropic: stop_reason. OpenAI and Moonshot Kimi (Chat Completions):
+// finish_reason, and a `refusal` delta. Gemini: finishReason, and promptFeedback.blockReason.
+const GEMINI_REFUSED = /SAFETY|PROHIBITED|BLOCKLIST|SPII|RECITATION/;
+
+/** Watches one stream's messages (parsed JSON) for how it ended: → { see(j, event), end() → complete|cut|refused|{ why }|null }. */
+export function endWatch(provider) {
+  let stop = null; // complete | cut | { why }
+  let refused = false;
+  const see = (j, event) => {
+    if (!j || typeof j !== 'object') return;
+    if (provider === 'anthropic') {
+      const reason = (j.type ?? event) === 'message_delta' ? j.delta?.stop_reason : undefined;
+      if (typeof reason !== 'string') return;
+      if (reason === 'refusal') refused = true;
+      else stop = reason === 'max_tokens' || reason === 'model_context_window_exceeded' ? 'cut' : 'complete';
+    } else if (provider === 'gemini') {
+      if (j.promptFeedback?.blockReason) refused = true;
+      const reason = Array.isArray(j.candidates) ? j.candidates[0]?.finishReason : undefined;
+      if (typeof reason !== 'string') return;
+      if (reason === 'MAX_TOKENS') stop = 'cut';
+      else if (reason === 'STOP' || reason === 'FINISH_REASON_UNSPECIFIED') stop = 'complete';
+      else if (GEMINI_REFUSED.test(reason)) refused = true;
+      else stop = { why: `${PROVIDER_NAMES.gemini} stopped without finishing (${reason}). Try again.` };
+    } else {
+      const choice = Array.isArray(j.choices) ? j.choices[0] : undefined;
+      if (typeof choice?.delta?.refusal === 'string' && choice.delta.refusal) refused = true;
+      const reason = choice?.finish_reason;
+      if (typeof reason !== 'string') return;
+      if (reason === 'content_filter') refused = true;
+      else stop = reason === 'length' ? 'cut' : 'complete';
+    }
+  };
+  return { see, end: () => (refused ? 'refused' : stop), refused: () => refused };
+}
+
 /**
  * One answer, held on the allowance first and billed however it ends. Streamed as text/plain (with a
- * trailer when `trailer`), or (`buffered`) sent whole once it is complete. An answer stopped at
- * max_tokens: a structured one (pasted or written into cells) fails, a prose one ends with CUT_NOTE.
+ * trailer when `trailer`), or (`buffered`) sent whole once it is complete. An answer stopped at its
+ * output cap: a structured one (pasted or written into cells) fails, a prose one ends with CUT_NOTE.
+ * `route`: appRoute's (a hosted model on askeden.com's key).
  */
-async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, trailer = false, started = Date.now() } = {}) {
+async function streamAnswer(env, ctx, who, route, prompt, { buffered = false, trailer = false, started = Date.now() } = {}) {
   const deadline = started + (buffered ? TIMING.bufferedMs : TIMING.streamMs);
-  // The worst case (input at a token per 3 bytes, the longest answer) is held on the allowance. Counted
-  // piece by piece, never joined: no piece holds a lone surrogate (strip), so the bytes add up exactly.
-  const inputTokens = Math.ceil(prompt.messages.reduce((n, m) => n + utf8Bytes(m.content), utf8Bytes(prompt.system)) / 3);
-  const [inPrice, outPrice] = priceOf(model);
-  const worstUSD = Math.round(((inputTokens * inPrice + prompt.maxTokens * outPrice) / 1e6) * 1e6) / 1e6;
+  // Out of time already (a slow upload): no hold, no model request (R3V8).
+  if (Date.now() >= deadline) throw failed({ error: 'too_slow' }, prompt);
+  const { model } = route;
+  const name = PROVIDER_NAMES[model.provider] || model.provider;
+  // The worst case (input at a token per 3 bytes, the longest answer, thinking included) is held on the
+  // allowance (worstOf; at most appAskMax, fitAsk).
+  const { inputTokens, worstUSD } = worstOf(model, prompt);
   const held = await hold(env, who, worstUSD);
   const letGo = () => release(env, who, held);
 
   const abort = new AbortController();
-  // Claude's time to its headers counts against the deadline too.
-  const late = setTimeout(() => abort.abort(), Math.max(0, deadline - Date.now()));
+  // The model's headers come within idleMs, like any progress after them, and within the deadline (R3V4).
+  const headersBy = Math.min(deadline, Date.now() + TIMING.idleMs);
+  const idleFirst = headersBy < deadline;
+  let timedOut = null; // idle | deadline
+  const late = setTimeout(
+    () => {
+      timedOut = idleFirst ? 'idle' : 'deadline';
+      abort.abort();
+    },
+    Math.max(0, headersBy - Date.now()),
+  );
+  const http = buildStreamRequest({ request: capped(route, prompt.maxTokens), model, messages: prompt.messages, system: prompt.system, search: false }, route.key);
+  const opening = fetch(viaBase(route.base, http.url), { method: 'POST', headers: http.headers, body: JSON.stringify(http.body), signal: abort.signal }).finally(() => clearTimeout(late));
+  // With no answer to stream, the hold goes at once: kept going (waitUntil) even if the client has left.
+  const freed = opening.then(
+    (r) => (r.ok && r.body ? null : r.text().catch(() => '').then(letGo)),
+    () => letGo(),
+  );
+  if (typeof ctx?.waitUntil === 'function') ctx.waitUntil(freed);
   let upstream;
   try {
-    upstream = await serviceFetch(env, { model, max_tokens: prompt.maxTokens, system: prompt.system, messages: prompt.messages, stream: true }, { signal: abort.signal, url: ANTHROPIC });
+    upstream = await opening;
   } catch {
-    await letGo();
-    if (Date.now() >= deadline) throw failed({ error: 'too_slow' }, prompt);
-    throw new ApiError(502, 'upstream', 'Eden couldn’t reach Claude. Try again.');
-  } finally {
-    clearTimeout(late);
+    await freed;
+    if (timedOut === 'idle') throw new ApiError(502, 'upstream', `${name} stopped answering. Try again.`);
+    if (timedOut || Date.now() >= deadline) throw failed({ error: 'too_slow' }, prompt);
+    throw new ApiError(502, 'upstream', `Eden couldn’t reach ${name}. Try again.`);
   }
   if (!upstream.ok || !upstream.body) {
-    await upstream.text().catch(() => '');
-    await letGo();
-    const busy = upstream.status === 429 || upstream.status === 529;
-    throw new ApiError(502, 'upstream', busy ? 'Claude is busy right now. Try again in a moment.' : `Eden couldn’t answer (Claude said ${upstream.status}). Try again.`, busy ? { 'retry-after': '5' } : {});
+    await freed;
+    const busy = upstream.status === 429 || upstream.status === 503 || upstream.status === 529;
+    throw new ApiError(502, 'upstream', busy ? `${name} is busy right now. Try again in a moment.` : `Eden couldn’t answer (${name} said ${upstream.status}). Try again.`, busy ? { 'retry-after': '5' } : {});
   }
 
-  const meter = usageMeter();
   let stopped = false; // the person stopped it, or the page went away
   const reader = upstream.body.getReader();
-  // Reads Claude's stream, sending its text to `emit`; → how it ended: { answer: complete|cut } (the
-  // trailer's own JSON) or { error, why }.
+  // Reads the model's stream (server-sent events), sending its text to `emit`; → how it ended:
+  // { answer: complete|cut } (the trailer's own JSON) or { error, why }.
   const pump = async (emit) => {
     const decoder = new TextDecoder();
+    const parser = createStreamParser(model.provider, model);
+    const ends = endWatch(model.provider);
     let buffer = '';
-    let stop = null;
+    let data = []; // the event's data lines so far
+    let event = '';
+    let chars = 0; // text and thinking streamed: the output's estimate when the provider hasn't counted it
     let failed = null;
     let last = Date.now();
-    const onLine = (line) => {
-      const event = meter.line(line);
-      if (!event || event.type === 'ping') return;
+    const onEvent = () => {
+      const text = data.join('\n');
+      const type = event;
+      data = [];
+      event = '';
+      if (!text) return;
+      if (text.trim() === '[DONE]') {
+        last = Date.now();
+        return;
+      }
+      let j;
+      try {
+        j = JSON.parse(text);
+      } catch {
+        failed = `The answer came back unreadable from ${name}.`;
+        return;
+      }
+      if (j && j.type === 'ping') return; // a keep-alive isn't progress
       last = Date.now();
-      if (event.type === 'error') failed = (event.error && event.error.message) || 'the answer broke off';
-      else if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) emit(event.delta.text);
-      else if (event.type === 'message_delta' && typeof event.delta?.stop_reason === 'string') stop = event.delta.stop_reason;
+      ends.see(j, type);
+      try {
+        for (const e of parser.push({ event: type, data: text })) {
+          if (e.type === 'text') {
+            chars += e.text.length;
+            emit(e.text);
+          } else if (e.type === 'thinking') chars += e.text.length;
+        }
+      } catch (error) {
+        if (!ends.refused()) failed = (error && error.message) || 'the answer broke off';
+      }
+    };
+    const onLine = (line) => {
+      if (line === '') return onEvent();
+      if (line.startsWith(':')) return; // a comment
+      const at = line.indexOf(':');
+      const field = at < 0 ? line : line.slice(0, at);
+      const value = at < 0 ? '' : line.slice(at + (line[at + 1] === ' ' ? 2 : 1));
+      if (field === 'data') data.push(value);
+      else if (field === 'event') event = value;
     };
     try {
       for (;;) {
         const wait = Math.min(TIMING.idleMs - (Date.now() - last), deadline - Date.now());
-        if (wait <= 0) return Date.now() >= deadline ? { error: 'too_slow' } : { error: 'upstream', why: 'Claude stopped answering. Try again.' };
+        if (wait <= 0) return Date.now() >= deadline ? { error: 'too_slow' } : { error: 'upstream', why: `${name} stopped answering. Try again.` };
         let timer;
         const chunk = await Promise.race([reader.read(), new Promise((resolve) => (timer = setTimeout(resolve, wait, null)))]);
         clearTimeout(timer);
@@ -661,13 +865,18 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
         if (chunk.done) break;
         const lines = (buffer + decoder.decode(chunk.value, { stream: true })).split('\n');
         buffer = lines.pop(); // a line not ended yet
-        for (const line of lines) onLine(line.trimEnd());
+        for (const line of lines) onLine(line.replace(/\r$/, ''));
         if (failed || stopped) break;
       }
-      if (buffer) meter.tail(buffer.trimEnd());
-      if (failed || stop === null) return { error: 'upstream', why: failed || 'The answer ended early.' };
-      if (stop === 'refusal') return { error: 'refused' };
-      if (stop === 'max_tokens') {
+      if (!failed && !stopped) {
+        if (buffer) onLine(buffer.replace(/\r$/, ''));
+        if (data.length) onEvent();
+      }
+      const end = ends.end();
+      if (end === 'refused') return { error: 'refused' };
+      if (failed || end === null) return { error: 'upstream', why: failed || 'The answer ended early.' };
+      if (end.why) return { error: 'upstream', why: end.why };
+      if (end === 'cut') {
         if (prompt.structured) return { error: 'cut_off' };
         emit(CUT_NOTE);
         return { answer: 'cut' };
@@ -677,8 +886,13 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
       return { error: 'upstream', why: `The answer broke off: ${error.message}` };
     } finally {
       abort.abort();
-      reader.cancel().catch(() => {}); // a failed or timed-out answer: Claude's stream ends here too
-      const usd = costOf(meter.model || model, meter.usage({ input: inputTokens }));
+      reader.cancel().catch(() => {}); // a failed or timed-out answer: the model's stream ends here too
+      // What it cost: as the provider counted it, else estimated (the input as held, a token per 3 characters out).
+      const p = parser.progress();
+      const usage = p.final
+        ? { inputTokens: p.inputTokens || inputTokens, outputTokens: p.outputTokens, reasoningTokens: p.reasoningTokens || 0 }
+        : { inputTokens: p.inputTokens || inputTokens, outputTokens: Math.max(p.outputTokens + (p.reasoningTokens || 0), Math.ceil(chars / CHARS_PER_TOKEN)), reasoningTokens: 0 };
+      const usd = usageUSD(model, usage);
       if (usd > 0) await call(env, who.account, 'spend', { usd, bucket: held.bucket }).catch((error) => console.error('eden ask: spend failed', error && error.message));
       await letGo();
     }
@@ -687,9 +901,11 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
   const headers = { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
   if (buffered) {
     let text = '';
-    const end = await pump((piece) => {
+    const ending = pump((piece) => {
       text += piece;
     });
+    if (typeof ctx?.waitUntil === 'function') ctx.waitUntil(ending); // billed and let go even if the client left
+    const end = await ending;
     if (end.error) throw failed(end, prompt);
     return new Response(text, { status: 200, headers: { ...headers, 'x-eden-answer': end.answer } });
   }
@@ -705,15 +921,26 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
     cancel() {
       stopped = true;
       abort.abort();
-      reader.cancel().catch(() => {}); // a read waiting on a silent Claude ends now
+      reader.cancel().catch(() => {}); // a read waiting on a silent model ends now
     },
   });
+  // A high surrogate ending one delta waits for its low half at the start of the next, so a character
+  // split between deltas isn't sent as two U+FFFD (R3V6). One left at the end is sent as it is.
+  let carry = '';
   const run = async () => {
     const end = await pump((piece) => {
-      if (!stopped) controller.enqueue(encoder.encode(trailer ? piece.replaceAll(TRAILER, '') : piece));
+      let text = carry + (trailer ? piece.replaceAll(TRAILER, '') : piece);
+      carry = '';
+      const last = text.charCodeAt(text.length - 1);
+      if (last >= 0xd800 && last <= 0xdbff) {
+        carry = text.slice(-1);
+        text = text.slice(0, -1);
+      }
+      if (text && !stopped) controller.enqueue(encoder.encode(text));
     });
     if (stopped) return;
     try {
+      if (carry) controller.enqueue(encoder.encode(carry));
       if (trailer) {
         controller.enqueue(encoder.encode(TRAILER + JSON.stringify(end.error ? failure(end, prompt) : end)));
         controller.close();
@@ -726,6 +953,34 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
   ctx.waitUntil(run());
   return new Response(stream, { status: 200, headers: { ...headers, 'x-accel-buffering': 'no', ...(trailer && { 'x-eden-trailer': '1' }) } });
 }
+
+/** The side panel's routed chat (ext-chat.js) uses this file's token checks, body reader, limits and holds. */
+const panelApp = { bearer, verified, listed, readBody, appLimits, hold, release, call, askMax: appAskMax, overAskLimit, TIMING, CUT_NOTE };
+
+/**
+ * POST /api/eden/voice (worker.js voice() answers it, with the Eden voice and its daily quotas): the app's token checked
+ * first, on its own route, from no page or the extension's own. → { who } or { response } (the refusal, as edenApi words it).
+ */
+export async function voiceCaller(request, env, path) {
+  const origin = request.headers.get('origin');
+  try {
+    if (!env.ACCOUNTS) throw new ApiError(503, 'not_set_up', 'Eden accounts are not set up here yet.');
+    if (origin !== null && !extOrigins(env).includes(origin)) throw new ApiError(403, 'forbidden', 'Not from another site.');
+    const who = bearer(request, env);
+    const check = await asToken(env, request, who, () => call(env, who.account, 'scoped-voice', { id: who.id, secret: who.secret, chars: 0 }));
+    const app = Object.hasOwn(CLIENTS, check.client) ? CLIENTS[check.client] : null;
+    if (!app || !(app.routes || []).includes(path)) throw new ApiError(403, 'forbidden', `This connection is for ${app ? app.name : 'another app'}; it can’t be used here.`);
+    return { who };
+  } catch (error) {
+    if (error instanceof ApiError) return { response: problem(error.status, error.message, error.code, error.headers) };
+    throw error;
+  }
+}
+
+/** The characters about to be spoken, on the account's daily voice allowance: { ok, why? }. */
+export const voiceTake = (env, who, chars) => call(env, who.account, 'scoped-voice', { id: who.id, secret: who.secret, chars });
+/** Gives a take's characters back: its audio never came (worker.js voice, R3C6). */
+export const voiceGive = (env, who, take) => call(env, who.account, 'scoped-voice-give', { id: who.id, secret: who.secret, take });
 
 // ── /api/eden/* ──
 
@@ -751,12 +1006,15 @@ export async function edenApi(request, env, ctx, path) {
         },
       });
     }
-    if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'POST only.');
+    // The side panel's model list (ext-chat.js) is the one GET here.
+    if (request.method !== 'POST' && !(request.method === 'GET' && path === '/api/eden/models')) throw new ApiError(405, 'bad_request', 'POST only.');
     let response;
     if (path === '/api/eden/token') response = await token(request, env, origin);
     else if (path === '/api/eden/ask') response = await ask(request, env, ctx);
     else if (path === '/api/eden/text') response = await pageText(request, env, ctx);
     else if (path === '/api/eden/sheet') response = await sheetText(request, env, ctx);
+    else if (path === '/api/eden/chat') response = await extChat(request, env, ctx, path, panelApp);
+    else if (path === '/api/eden/models') response = await extModels(request, env, path, panelApp);
     else if (path === '/api/eden/relay') response = await relayPut(request, env, origin);
     else if (path === '/api/eden/relay/take') response = await relayTake(request, env, origin);
     else response = await disconnect(request, env);

@@ -10,7 +10,7 @@ import { TEXT, answerTokens, editTokens, parseText, strip, textPrompt, textToken
 import { priceOf } from '../src/accounts/proxy.js';
 import { SHEET, cellsBlock, fillTokens, parseSheet, sheetPrompt, topLeft } from '../src/eden/sheets.js';
 import { forgetSessions } from '../src/eden/session.js';
-import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, rateLimiter, sseBody } from './fakes.js';
+import { Account, GEMINI_STREAM, Link, appleJwk, asGemini, claudeAnswer, claudeShaped, identityToken, namespace, rateLimiter, sseBody } from './fakes.js';
 
 const ORIGIN = 'https://askeden.com';
 const EXT_ID = 'cgincgeifceekdgpbboafpjdiapafggm';
@@ -55,13 +55,18 @@ beforeEach(() => {
   globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input.url;
     if (url === 'https://appleid.apple.com/auth/keys') return Response.json({ keys: [appleJwk] });
+    // Claude on Eden's key for the apps' edits (Claude for everyone, 2026-10-10); Gemini Flash for the rest (R3X2).
     if (url === 'https://api.anthropic.com/v1/messages') {
       sent.push(JSON.parse(init.body));
       return upstream(init);
     }
+    if (GEMINI_STREAM.test(url)) {
+      sent.push(claudeShaped(url, init));
+      return asGemini(await upstream(init));
+    }
     throw new Error(`unexpected fetch ${url}`);
   };
-  env = { ANTHROPIC_API_KEY: 'sk-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_SHEETS_SCRIPT_IDS: SCRIPT };
+  env = { ANTHROPIC_API_KEY: 'sk-test', GEMINI_API_KEY: 'g-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_SHEETS_SCRIPT_IDS: SCRIPT };
   env.ACCOUNTS = namespace(Account, env);
   env.LINKS = namespace(Link, env);
   env.ASSETS = { fetch: async (req) => new Response(`asset ${new URL(req.url).pathname}`, { headers: { 'content-type': 'text/html' } }) };
@@ -181,8 +186,11 @@ test('R2V1: refused tokens count per network; past the limit that network is kep
   assert.equal((await from('1.2.3.4', tokens.chrome)).status, 200);
   assert.equal((await from('9.9.9.9', other.tokens.chrome)).status, 200);
   assert.equal(env.AUTH_RATE.keys.length, 4, 'a good token is never counted');
-  // Disconnect with a made-up token: counted too, and kept out while boxed.
-  assert.equal((await hit('/api/eden/disconnect', { method: 'POST', origin: EXT, bearer: forged, ip: '9.9.9.9' })).status, 429);
+  // Disconnect with a made-up token: counted too, and kept out while boxed. Round 3 (R3V1): a boxed token
+  // was just refused, so disconnect says done (204, never 429) still without asking the account's object.
+  ops.length = 0;
+  assert.equal((await hit('/api/eden/disconnect', { method: 'POST', origin: EXT, bearer: forged, ip: '9.9.9.9' })).status, 204);
+  assert.equal(ops.length, 0);
   assert.equal((await hit('/api/eden/disconnect', { method: 'POST', origin: EXT, bearer: `es1.${other.owner.account.id}.${'1'.repeat(16)}.${'B'.repeat(43)}`, ip: '8.8.8.8' })).status, 204);
   assert.ok(env.AUTH_RATE.keys.includes('eden-bearer:8.8.8.8'));
   // The box ends.
@@ -452,7 +460,7 @@ test('E2: empty, number and true/false cells parse as before', () => {
   assert.doesNotThrow(() => parseSheet({ action: 'analyze', app: 'excel', sheet: { values: big.slice(0, 4) } }));
 });
 
-test('E2: the hold covers every byte of the prompt Claude gets (counted piece by piece, never joined)', async () => {
+test('E2: the hold covers every byte of the prompt the model gets (counted piece by piece, never joined)', async () => {
   const { tokens } = await connected('e2-hold', ['chrome', 'excel']);
   const held = [];
   const get = env.ACCOUNTS.get;
@@ -466,7 +474,6 @@ test('E2: the hold covers every byte of the prompt Claude gets (counted piece by
       },
     };
   };
-  const [inPrice, outPrice] = priceOf('claude-sonnet-5-5');
   const asks = [
     ['chrome', { action: 'rewrite', text: 'Grüße 😀 漢字 '.repeat(200), history: [{ role: 'user', text: 'é' }, { role: 'eden', text: '😀' }], page: { title: 'Ünï', url: 'https://x' } }],
     ['excel', { action: 'analyze', app: 'excel', sheet: { name: 'Feuille', range: 'A1', values: [['😀', 'é'], [1, true]] }, active: { address: 'A1', value: '漢' } }],
@@ -476,8 +483,10 @@ test('E2: the hold covers every byte of the prompt Claude gets (counted piece by
     sent = [];
     assert.equal((await askAs(client, tokens[client], body)).status, 200);
     const p = sent[0];
+    const [inPrice, outPrice] = priceOf(p.model); // the model that answered: Claude Sonnet for the rewrite, Gemini Flash for the analysis
     const input = Math.ceil(new TextEncoder().encode(p.system + p.messages.map((m) => m.content).join('')).length / 3);
     assert.deepEqual(held, [0, Math.round(((input * inPrice + p.max_tokens * outPrice) / 1e6) * 1e6) / 1e6], client);
+    assert.equal(p.model, client === 'chrome' ? 'claude-sonnet-5-5' : 'gemini-3.8-flash', client);
   }
   env.ACCOUNTS.get = get;
 });

@@ -176,7 +176,7 @@ export function parseSheet(body) {
       values,
       formulas: grid(body.sheet.formulas, 'sheet.formulas', budget),
     };
-    const rows = rowNumbers(body.sheet.rows, values);
+    const rows = rowNumbers(body.sheet.rows, sheet);
     if (rows) sheet.rows = rows;
     budget.long = long; // only values are written back
   }
@@ -216,14 +216,19 @@ export function parseSheet(body) {
   return { action, app, instruction, sheet, active, history: turns };
 }
 
-/** sheet.rows checked: one rising whole number (1 to SHEET.maxRow) per row of values; null when absent. */
-function rowNumbers(value, values) {
+/**
+ * sheet.rows checked: one rising whole number (1 to SHEET.maxRow) per row of values, from the range's
+ * top row on, with no more rows of formulas than of values (R3V7); null when absent.
+ */
+function rowNumbers(value, { values, formulas, range }) {
   if (value === undefined || value === null) return null;
   if (!values) bad('sheet.rows needs sheet.values');
   if (!Array.isArray(value) || value.length !== values.length) bad('sheet.rows must hold one row number per row of values');
-  let last = 0;
+  if (formulas && formulas.length > values.length) bad('with sheet.rows, sheet.formulas has at most one row per row of values');
+  const top = topLeft(range).row;
+  let last = top - 1;
   for (const n of value) {
-    if (!Number.isInteger(n) || n <= last || n > SHEET.maxRow) bad(`sheet.rows must be rising whole numbers from 1 to ${fmt(SHEET.maxRow)}`);
+    if (!Number.isInteger(n) || n <= last || n > SHEET.maxRow) bad(`sheet.rows must be rising whole numbers from ${top === 1 ? 1 : `the range’s top row (${fmt(top)})`} to ${fmt(SHEET.maxRow)}`);
     last = n;
   }
   return value.slice();

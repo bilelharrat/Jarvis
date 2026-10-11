@@ -10,7 +10,7 @@ import { challengeOf } from '../src/accounts/scoped.js';
 import { ADDIN_CSP } from '../src/eden/addins.js';
 import { answerTokens, cellsBlock, columnName, parseSheet, sheetPrompt, topLeft } from '../src/eden/sheets.js';
 import { forgetSessions } from '../src/eden/session.js';
-import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, sseBody } from './fakes.js';
+import { Account, GEMINI_STREAM, Link, appleJwk, asGemini, claudeAnswer, claudeShaped, identityToken, namespace, sseBody } from './fakes.js';
 
 const ORIGIN = 'https://askeden.com';
 const EXCEL_BACK = `${ORIGIN}/addins/excel/connected`;
@@ -25,7 +25,7 @@ const ctx = { waitUntil: (p) => waits.push(p) };
 const realFetch = globalThis.fetch;
 
 function makeEnv(extra = {}) {
-  const e = { ANTHROPIC_API_KEY: 'sk-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_SHEETS_SCRIPT_IDS: SCRIPT, ...extra };
+  const e = { ANTHROPIC_API_KEY: 'sk-test', GEMINI_API_KEY: 'g-test', TRIAL_BUDGET_USD: '1', PLUS_BUDGET_USD: '20', EDEN_SHEETS_SCRIPT_IDS: SCRIPT, ...extra };
   e.ACCOUNTS = namespace(Account, e);
   e.LINKS = namespace(Link, e);
   e.ASSETS = {
@@ -46,9 +46,14 @@ beforeEach(() => {
   globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input.url;
     if (url === 'https://appleid.apple.com/auth/keys') return Response.json({ keys: [appleJwk] });
+    // Claude on Eden's key for the apps' edits (Claude for everyone, 2026-10-10); Gemini Flash for the rest (R3X2).
     if (url === 'https://api.anthropic.com/v1/messages') {
       sent.push(JSON.parse(init.body));
       return new Response(sseBody(claudeAnswer({ input: 900, output: 60, text: ['=SUM(', 'B2:B4)'] })), { headers: { 'content-type': 'text/event-stream' } });
+    }
+    if (GEMINI_STREAM.test(url)) {
+      sent.push(claudeShaped(url, init));
+      return asGemini(new Response(sseBody(claudeAnswer({ input: 900, output: 60, text: ['=SUM(', 'B2:B4)'] })), { headers: { 'content-type': 'text/event-stream' } }));
     }
     throw new Error(`unexpected fetch ${url}`);
   };
