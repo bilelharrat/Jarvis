@@ -44,8 +44,8 @@ export function knowledgeItem() {
 
 async function call(tool, args) {
   const r = await api.jarvis(tool, args);
-  if (r.is_error) throw new Error(String(r.text || 'Jarvis said no.'));
-  try { return JSON.parse(r.text); } catch { throw new Error('Jarvis sent something Eden can’t read. Is it up to date?'); }
+  if (r.is_error) throw new Error(String(r.text || 'Eden said no.'));
+  try { return JSON.parse(r.text); } catch { throw new Error('Eden sent something Eden can’t read. Is it up to date?'); }
 }
 
 const statusText = (f) => (f.status === 'ready' ? `${f.files || 0} file${f.files === 1 ? '' : 's'} indexed${f.semantic ? ' · by meaning too' : ''}` : f.status === 'error' ? (f.error || 'Indexing failed') : `Indexing… ${f.progress || ''}`.trim());
@@ -56,9 +56,9 @@ export async function openKnowledge() {
   const body = openPane('Project knowledge', 'bulb');
   const mine = ++shownAt;
   clearTimeout(pollT);
-  body.append(el('p', 'sp-note mac-intro', 'Jarvis indexes a folder on your Mac (nothing is uploaded). Attach it to a project: that project’s chats and Code sessions search it and cite the files.'));
+  body.append(el('p', 'sp-note mac-intro', 'Eden indexes a folder on your Mac (nothing is uploaded). Attach it to a project: that project’s chats and Code sessions search it and cite the files.'));
   if (!state.jarvis.available) {
-    body.append(el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), state.jarvis.reason || 'The Jarvis app didn’t answer.'));
+    body.append(el('div', 'sp-warn', el('b', '', 'Your Mac isn’t connected'), state.jarvis.reason || 'The Eden app didn’t answer.'));
     return;
   }
   const path = el('input', { class: 'sp-search', type: 'text', placeholder: '~/Documents/Thesis', 'aria-label': 'Folder on your Mac to index', autocomplete: 'off', spellcheck: 'false' });

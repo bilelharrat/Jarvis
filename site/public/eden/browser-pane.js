@@ -14,7 +14,7 @@
 // picture (JPEG frames over a WebSocket, drawn on a canvas); clicks, scrolling and keys go back.
 // What pages say is data: shown as pictures, and as text only when the viewer hands it to chat.
 
-import { $, el, ico, toast, isMobile, isTouch, copyText } from './util.js';
+import { $, el, ico, toast, isMobile, isTouch, copyText, whileVisible } from './util.js';
 import { API_BASE, isMock } from './api.js';
 import { openMenu } from './composer.js';
 import { IN_APP, openAppBrowser } from './native.js';
@@ -827,7 +827,7 @@ function startCloud() {
   const mark = () => { touched = Date.now(); };
   pane.addEventListener('pointerdown', mark, true);
   pane.addEventListener('keydown', mark, true);
-  const ping = setInterval(() => { if (document.visibilityState === 'visible' && Date.now() - touched < 20 * 60000 && cloud.state && cloud.state.running) send({ t: 'ping' }); }, 60000);
+  const stopPing = whileVisible(() => { if (Date.now() - touched < 20 * 60000 && cloud.state && cloud.state.running) send({ t: 'ping' }); }, 60000);
 
   // ── the socket ──
   const connect = () => {
@@ -858,7 +858,7 @@ function startCloud() {
 
   return () => {
     alive = false;
-    clearTimeout(retry); clearTimeout(sizeT); clearInterval(ping); stopFling();
+    clearTimeout(retry); clearTimeout(sizeT); stopPing(); stopFling();
     ro.disconnect();
     dprMq.removeEventListener('change', dprChanged);
     pane.removeEventListener('pointerdown', mark, true);

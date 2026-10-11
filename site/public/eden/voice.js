@@ -19,7 +19,7 @@
 
 import { $, el, ico, toast, store, isTouch } from './util.js';
 import { state, ui, nodeText } from './state.js';
-import { apiUrl, isMock, addSendExtra } from './api.js';
+import { rawFetch, addSendExtra } from './api.js';
 import { watchForInterrupt, isSpaceToInterrupt } from './barge-in.js';
 import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S } from './voice-text.js';
 import { speechLang } from './i18n.js';
@@ -60,7 +60,7 @@ async function fetchVoice(text, signal) {
   try {
     let res;
     try {
-      res = isMock ? await (await import('./mock.js')).mockFetch(path, init) : await fetch(apiUrl(path), init);
+      res = await rawFetch(path, init);
     } catch (e) {
       if (d.timedOut()) throw late();
       if (e.name === 'AbortError') throw e;
@@ -342,7 +342,7 @@ async function transcribe(blob, seconds) {
   const path = '/api/chat/transcribe';
   const init = { method: 'POST', headers: { 'content-type': blob.type.split(';')[0] || 'audio/webm', 'X-Jarvis-Chat': '1', 'X-Eden-Seconds': String(Math.round(seconds)), 'X-Eden-Lang': speechLang() }, body: blob };
   try {
-    const res = isMock ? await (await import('./mock.js')).mockFetch(path, init) : await fetch(apiUrl(path), init);
+    const res = await rawFetch(path, init);
     let j = null;
     try { j = await res.json(); } catch { /* not JSON */ }
     if (!res.ok) { toast((j && j.error) || `Dictation said ${res.status}.`); return; }

@@ -91,6 +91,57 @@ export function shortModel(name) {
   return String(name || '').replace(/^Claude /, '').replace(/ \(preview\)$/, '');
 }
 
+/**
+ * `fn` every `ms` while the page is visible, and no timer at all while it's hidden (a background
+ * tab, the app in the background): efficiency pass 2. Returns a stop function.
+ */
+export function whileVisible(fn, ms) {
+  let t = null;
+  const run = () => { if (!document.hidden) fn(); };
+  const sync = () => {
+    if (document.hidden) { clearInterval(t); t = null; } else if (!t) t = setInterval(run, ms);
+  };
+  document.addEventListener('visibilitychange', sync);
+  sync();
+  return () => { clearInterval(t); t = null; document.removeEventListener('visibilitychange', sync); };
+}
+
+/** Says a file loaded after startup (a lazy module, its stylesheet), so page-update.js's deploy check covers it too. */
+export function noteAsset(url) {
+  try { dispatchEvent(new CustomEvent('eden:asset', { detail: String(url) })); } catch { /* no window (tests) */ }
+}
+const sheets = new Map(); // key -> its load promise
+/**
+ * A stylesheet added on first use (once, by `key`), noted for the deploy check. `before`: a selector
+ * for the stylesheet it came before in index.html, so the cascade stays as it was. Resolves when it
+ * has loaded (or failed: the page goes on), so a surface can wait for it before it shows.
+ */
+export function addStylesheet(href, key, before = '') {
+  if (sheets.has(key)) return sheets.get(key);
+  const l = el('link', { rel: 'stylesheet', href });
+  l.dataset.css = key;
+  const p = new Promise((resolve) => { l.addEventListener('load', resolve, { once: true }); l.addEventListener('error', resolve, { once: true }); });
+  const at = before ? document.querySelector(before) : null;
+  if (at) at.before(l); else document.head.append(l);
+  noteAsset(href);
+  sheets.set(key, p);
+  return p;
+}
+
+/**
+ * A module loaded on first use: `load()` runs once (again after a failure). The returned function
+ * gives its promise; a requested load says so in a toast when it fails, a `quiet` one (a preload,
+ * a background job) doesn't. (Was app.js's own; compose-entry.js and calendar-entry.js use it too.)
+ */
+export function lazy(load, assets = []) {
+  let p = null;
+  return ({ quiet = false } = {}) => {
+    // `assets`: the module's own URL(s), noted once loaded (page-update.js's deploy check)
+    p ??= load().then((m) => { for (const a of assets) noteAsset(a); return m; }).catch((e) => { p = null; throw e; });
+    return quiet ? p : p.catch((e) => { toast(`Couldn’t load that part of Eden: ${e.message}`); throw e; });
+  };
+}
+
 let toastT;
 export function toast(msg, action) {
   const t = $('toast');

@@ -5,7 +5,7 @@
 
 import { toast, effortLabel, store, uid } from './util.js';
 import { state, ui, addNode, path, parentOf, saveConversation, nodeText, attachmentData, persona, addConversation, newConversation } from './state.js';
-import { api } from './api.js';
+import { api, LOCAL_SERVER } from './api.js';
 import { routeSettings, settingsSig, currentOverride, modelInfo } from './router.js';
 import { endTurnOverride, resolveOpenGroups, setCompareTurns } from './compare.js';
 import { privacyBody, privacyOn } from './privacy.js';
@@ -22,6 +22,7 @@ import { turnStreamStep } from './eves-model.js'; // what a normal reply's strea
 import { noteVerification } from './verify.js'; // the label under a reply, and a repaired answer swapped in
 import { applyReport, applyStep, capOf, verifiedResearch } from './research-model.js'; // Q2: research's progress steps and its budget cap
 import { replyLanguageNote } from './i18n.js'; // "reply in French" when the page is in French
+import { aiConsentBlocks } from './native.js'; // the iPhone app's AI consent: no cloud send without it
 import { untilStopped } from './resilience.js'; // the checks before a send: Stop ends them at once, a slow one is skipped (B2)
 
 /** `{ system }`: the persona's, plus the reply-language note when French is on; `{}` when both are empty. */
@@ -60,6 +61,8 @@ export function ensureConversation() {
 export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null, toolResult = false } = {}) {
   const c = ensureConversation();
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return false; }
+  // In the iPhone app without the person's OK for AI providers: ask first (app.js shows it), send nothing
+  if (c.kind !== 'code' && aiConsentBlocks({ privacy: privacyOn(c), model: (currentOverride() || {}).model })) { dispatchEvent(new CustomEvent('eden:ai-consent')); return false; }
   // "/browse what to do": this message goes to the cloud browser (browser-agent.js); a steer of a browser run stays there.
   ({ text, context } = typedMention(text, context)); // a typed "@calendar …" is the same as picking it
   const pb = parseBrowse(context.some((x) => x.title === '@browser') ? `/browse ${text}` : text);
@@ -370,7 +373,7 @@ addEventListener('eden:refusal-retry', (e) => { const { c, node } = e.detail || 
 /** The browser's bare "network error" when the stream breaks, said plainly. */
 function failure(e) {
   if (e && e.name === 'TypeError' && /network|fetch|load failed|connection/i.test(e.message || '')) {
-    return 'The connection to the Eden server dropped before the reply finished. Is model-router-ui still running?';
+    return LOCAL_SERVER ? 'The connection to the Eden server dropped before the reply finished. Is model-router-ui still running?' : 'The connection dropped before the reply finished. Check your connection, then retry.';
   }
   return (e && e.message) || String(e);
 }

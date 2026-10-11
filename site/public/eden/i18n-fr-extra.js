@@ -145,7 +145,7 @@ export default {
     'Search your Mac: a name or a word inside…': `Rechercher sur votre Mac${N}: un nom ou un mot du contenu…`,
     'Search your Mac for spreadsheets': 'Rechercher des feuilles de calcul sur votre Mac',
     'Type to search .xlsx, .xls and .csv files on your Mac.': 'Tapez pour rechercher des fichiers .xlsx, .xls et .csv sur votre Mac.',
-    'Jarvis said no.': 'Jarvis a refusé.',
+    'Eden said no.': 'Eden a refusé.',
     'No spreadsheets matched.': 'Aucune feuille de calcul ne correspond.',
     'Connect Google Sheets': 'Connecter Google Sheets',
     'Eden asks Google for access to the files you pick or that Eden creates, and nothing else (Google’s “drive.file” permission). Your other Drive files stay out of reach.':

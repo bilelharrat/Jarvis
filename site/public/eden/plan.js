@@ -6,7 +6,7 @@
 // nothing here goes to Stripe by itself. account.js calls setPlanOffer once it knows the account.
 
 import { $, el, ico } from './util.js';
-import { IN_APP } from './native.js';
+import { IN_APP, appSellsPlus } from './native.js';
 import { planOffer, isLimitError } from './plan-model.js';
 import { isFr } from './i18n.js'; // 'Plan' and 'Upgrade' are also a Code mode and a model menu item: said here in French directly
 
@@ -18,11 +18,16 @@ export const manageBilling = () => dispatchEvent(new CustomEvent('eden:manage-bi
 export const addCredits = () => dispatchEvent(new CustomEvent('eden:add-credits'));
 const usd = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
+let last = null;
 export function setPlanOffer(account, config) {
-  offer = planOffer(account, config, IN_APP);
+  last = [account, config];
+  offer = planOffer(account, config, IN_APP, appSellsPlus());
   drawPill();
   dispatchEvent(new CustomEvent('eden:plan'));
 }
+
+// The app's caps may come after the account: redraw once they say it sells Plus (native.js)
+addEventListener('eden:caps', () => { if (last) setPlanOffer(...last); });
 
 function drawPill() {
   const ring = $('tbCtx');

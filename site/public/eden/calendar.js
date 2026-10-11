@@ -9,7 +9,9 @@ import { el as baseEl, ico, toast, store, isMobile, placePopup, setSeg } from '.
 import { api, getJSON, postJSON, jarvisApprovalWaiting } from './api.js';
 import * as M from './calendar-model.js';
 import * as RR from './calendar-rules.js';
-import { openCompose, sanitizeHtml } from './compose.js';
+import { sanitizeHtml } from './compose.js';
+import { openCompose } from './compose-entry.js'; // set up with mail.js's handlers on first use
+import { RETURN_KEY } from './calendar-entry.js';
 import { locale, t, isFr } from './i18n.js';
 
 const LOCALE = locale();
@@ -25,7 +27,6 @@ const WORK = (() => { const w = store.get('eden:cal:workhours', null); return w 
 /** Google's event colours (colorId), as Google Calendar names them. */
 const G_COLORS = [['1', 'Lavender', '#7986cb'], ['2', 'Sage', '#33b679'], ['3', 'Grape', '#8e24aa'], ['4', 'Flamingo', '#e67c73'], ['5', 'Banana', '#f6bf26'], ['6', 'Tangerine', '#f4511e'], ['7', 'Peacock', '#039be5'], ['8', 'Graphite', '#616161'], ['9', 'Blueberry', '#3f51b5'], ['10', 'Basil', '#0b8043'], ['11', 'Tomato', '#d50000']];
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
-const RETURN_KEY = 'eden:cal:return';
 /** Calendar colours to choose from: the design tokens (accent, run, wait, warn, danger), then Apple's other system colours. */
 const COLOURS = [
   ['Blue', '#0a84ff'], ['Green', '#30d158'], ['Yellow', '#e6b800'], ['Orange', '#ff9f0a'], ['Red', '#ff453a'],
@@ -50,7 +51,7 @@ const S = {
   google: { state: 'idle', reason: '', email: '', calendars: [], events: [], errors: [], range: null, loadedIds: null },
   macSeq: 0, gSeq: 0, pop: null, sheet: null, timer: null, ro: null, returnFocus: null,
   scroll: null, alldayOpen: false, selectedDay: null, sideOpen: false,
-  approval: jarvisApprovalWaiting(), // a Jarvis call is waiting on the "Let Eden use Jarvis?" card
+  approval: jarvisApprovalWaiting(), // a Mac call is waiting on the "Let Eden use Jarvis?" card
   drag: null, preview: null, dragDirty: false, justDragged: 0, colorMenu: null,
   query: '', contacts: null, seriesRules: new Map(),
 };
@@ -139,7 +140,7 @@ async function loadMac(r, seq, force) {
   if (!st.available) { Object.assign(m, { state: 'off', reason: st.reason || '', events: [], range: null }); render(); return; }
   try {
     const first = await api.jarvis('calendar', M.macReadArgs(r.start, r.end));
-    if (first.is_error) throw new Error(strip(first.text) || 'Jarvis couldn’t read the calendar.');
+    if (first.is_error) throw new Error(strip(first.text) || 'Eden couldn’t read the calendar.');
     let got = M.parseMacCalendar(first.text, r.start, r.end);
     if (got.legacy && M.daysBetween(r.start, r.end) > 14) {
       // An older Jarvis reads 14 days a call and ignores start/end: ask it piece by piece.
@@ -301,10 +302,7 @@ export function closeCalendar() {
 }
 export const calendarOpen = () => S.open;
 
-/** True once after coming back from a Google sign-in started here (then the calendar reopens, not Mail). */
-export function calendarReturnPending() {
-  try { const v = sessionStorage.getItem(RETURN_KEY); sessionStorage.removeItem(RETURN_KEY); return v === '1'; } catch { return false; }
-}
+// (calendarReturnPending, and forgetting an unfinished sign-in's return: calendar-entry.js, at startup)
 
 function setView(v) {
   if (!M.VIEWS.includes(v) || v === S.view) return;
@@ -474,11 +472,11 @@ function closeColorMenu() {
 
 function macNote() {
   const m = S.mac;
-  if (m.state === 'off') return el('div', 'cal-note warn', el('b', '', 'Your Mac isn’t connected'), el('span', '', `${m.reason ? `${m.reason}. ` : ''}Open the Jarvis app on your Mac.`), el('button', { type: 'button', class: 'cap', onclick: () => load(true) }, 'Try again'));
+  if (m.state === 'off') return el('div', 'cal-note warn', el('b', '', 'Your Mac isn’t connected'), el('span', '', `${m.reason ? `${m.reason}. ` : ''}Open the Eden app on your Mac.`), el('button', { type: 'button', class: 'cap', onclick: () => load(true) }, 'Try again'));
   if (m.state === 'error') return el('div', 'cal-note warn', el('b', '', 'Couldn’t read the Mac’s calendar'), el('span', '', m.reason), el('button', { type: 'button', class: 'cap', onclick: () => load(true) }, 'Try again'));
-  if (m.state === 'ready' && m.legacy) return el('div', 'cal-note', el('span', '', 'Restart Jarvis to change these from Eden and see their colours.'));
+  if (m.state === 'ready' && m.legacy) return el('div', 'cal-note', el('span', '', 'Restart Eden to change these from Eden and see their colours.'));
   if (m.state === 'ready' && !m.calendars.size) return el('div', 'cal-note', el('span', '', 'Nothing in this range yet.'));
-  if (m.state === 'loading' && S.approval) return el('div', 'cal-note warn', el('b', '', 'Approve Eden on your Mac'), el('span', '', 'Jarvis is asking “Let Eden use Jarvis?”. Your calendars show once you allow it.'));
+  if (m.state === 'loading' && S.approval) return el('div', 'cal-note warn', el('b', '', 'Approve Eden on your Mac'), el('span', '', 'Eden is asking “Let Eden use Jarvis?”. Your calendars show once you allow it.'));
   if (m.state === 'loading' && !m.calendars.size) return el('div', 'cal-note', el('span', '', 'Asking your Mac…'));
   return null;
 }
@@ -510,15 +508,15 @@ function renderBanners() {
     out.push(el('div', 'cal-connect',
       el('div', 'cal-connect-ico', ico('cal', 26)),
       el('h3', '', 'Connect a calendar'),
-      el('p', '', 'Eden shows your Mac’s calendars through the Jarvis app, and Google Calendar directly.'),
+      el('p', '', 'Eden shows your Mac’s calendars through the Eden app, and Google Calendar directly.'),
       el('div', 'cal-connect-acts',
-        el('button', { type: 'button', class: 'btn', onclick: () => load(true) }, S.mac.state === 'error' ? 'Try the Mac again' : 'I’ve opened Jarvis'),
+        el('button', { type: 'button', class: 'btn', onclick: () => load(true) }, S.mac.state === 'error' ? 'Try the Mac again' : 'I’ve opened Eden'),
         S.google.state === 'unset' ? el('button', { type: 'button', class: 'btn primary', onclick: () => { closeCalendar(); H.openSettings('accounts'); } }, 'Set up Google')
           : S.google.state === 'error' ? el('button', { type: 'button', class: 'btn primary', onclick: () => load(true) }, 'Try Google again')
             : el('button', { type: 'button', class: 'btn primary', onclick: connectGoogle }, S.google.state === 'reconnect' ? 'Reconnect Google' : 'Connect Google Calendar')),
       el('p', 'cal-connect-why', [S.mac.state === 'off' || S.mac.state === 'error' ? `Mac: ${S.mac.reason || 'not connected'}.` : '', S.google.state === 'reconnect' ? 'Google: reconnect Google to see your calendar.' : S.google.state === 'error' ? `Google: ${S.google.reason}` : ''].filter(Boolean).join(' '))));
   } else if (S.approval && S.mac.state === 'loading') {
-    out.push(el('div', 'cal-banner wait', ico('cal', 15), el('span', '', el('b', '', 'Approve Eden on your Mac. '), 'Jarvis is asking “Let Eden use Jarvis?”; your Mac’s calendars show once you allow it.')));
+    out.push(el('div', 'cal-banner wait', ico('cal', 15), el('span', '', el('b', '', 'Approve Eden on your Mac. '), 'Eden is asking “Let Eden use Jarvis?”; your Mac’s calendars show once you allow it.')));
   } else if (S.google.state === 'reconnect' && macOk) {
     out.push(el('div', 'cal-banner', ico('cal', 15), el('span', '', 'Reconnect Google to see your calendar.'), el('button', { type: 'button', class: 'cap primary', onclick: connectGoogle }, 'Reconnect')));
   }
@@ -1182,8 +1180,8 @@ function closePop() {
 }
 
 function writableFor(e) {
-  if (e.readOnly) return { edit: false, del: false, why: e.source === 'mac' && S.mac.legacy ? 'Restart Jarvis to change Mac events from Eden.' : 'This calendar is read-only.' };
-  if (e.source === 'mac' && S.mac.legacy) return { edit: false, del: false, why: 'Restart Jarvis to change Mac events from Eden.' };
+  if (e.readOnly) return { edit: false, del: false, why: e.source === 'mac' && S.mac.legacy ? 'Restart Eden to change Mac events from Eden.' : 'This calendar is read-only.' };
+  if (e.source === 'mac' && S.mac.legacy) return { edit: false, del: false, why: 'Restart Eden to change Mac events from Eden.' };
   return { edit: !!e.canEdit, del: true, why: e.canEdit ? '' : 'Only the organizer can change this event.' };
 }
 
@@ -1355,7 +1353,7 @@ function closeSheet(opts = {}) {
 function newEvent(at = {}) {
   const cals = writableCalendars();
   if (!cals.length) {
-    toast(S.mac.state === 'ready' && S.mac.legacy ? 'Restart Jarvis to add Mac events from Eden, or connect Google.' : 'Connect a calendar you can write to first (your Mac through Jarvis, or Google).');
+    toast(S.mac.state === 'ready' && S.mac.legacy ? 'Restart Eden to add Mac events from Eden, or connect Google.' : 'Connect a calendar you can write to first (your Mac through Eden, or Google).');
     return;
   }
   let s = at.start, e = at.end;
@@ -1761,7 +1759,7 @@ function editor(ctx) {
     longNotes ? el('p', 'sp-note', 'These notes are longer than Eden edits; they stay as they are.') : null,
     gOnly,
     macFields,
-    macEdit ? el('p', 'sp-note', 'On your Mac, Jarvis does the change; an all-day event’s days and the calendar stay as they are.') : null,
+    macEdit ? el('p', 'sp-note', 'On your Mac, Eden does the change; an all-day event’s days and the calendar stay as they are.') : null,
     err,
     el('div', 'dlg-acts cal-sheet-acts',
       el('button', { type: 'button', class: 'btn', onclick: closeSheet }, 'Cancel'),
@@ -1857,7 +1855,7 @@ function commitSheet(title, parts, cal, verb, run, back, hasGuests, danger, send
   const sendRow = cal.source === 'google' && hasGuests ? el('label', 'cal-fcheck cal-send', fSend, el('span', '', sendLabel)) : null;
   const note = cal.source === 'google'
     ? el('div', 'sp-warn', el('b', '', `Google Calendar changes when you press ${verb}`), hasGuests ? 'Google emails the guests only if “' + sendLabel + '” is ticked.' : 'No one is emailed.')
-    : el('div', 'sp-warn', el('b', '', 'Jarvis will ask you on your Mac too'), 'After you press ' + verb + ', the Jarvis app shows its own card on your Mac; the calendar changes only when you approve it there.');
+    : el('div', 'sp-warn', el('b', '', 'Eden will ask you on your Mac too'), 'After you press ' + verb + ', the Eden app shows its own card on your Mac; the calendar changes only when you approve it there.');
   const go = el('button', { type: 'button', class: `btn ${danger ? 'danger solid' : 'primary'} cal-commit` }, verb);
   go.addEventListener('click', async () => {
     go.disabled = true;
@@ -1893,7 +1891,7 @@ async function macWrite(tool, args, done) {
   if (!r.is_error && (!j || j.done !== false)) return done;
   if (status === 'declined') throw new Error('You said no on your Mac, so nothing changed.');
   if (status === 'timed_out') throw new Error('Nobody answered the card on your Mac in time, so nothing changed.');
-  throw new Error((j && j.text) || strip(r.text) || 'Jarvis couldn’t change the calendar.');
+  throw new Error((j && j.text) || strip(r.text) || 'Eden couldn’t change the calendar.');
 }
 
 async function doCreate(cal, d, send = 'none') {
@@ -1912,7 +1910,7 @@ async function doUpdate(e, cal, d, scope = 'this', send = 'none', baseRules = nu
     return `Saved “${d.title}”${scope === 'following' ? ' (this and following)' : scope === 'all' && e.recurrence ? ' (all events)' : ''}`;
   }
   const args = M.macUpdateArgs(e, d, RR.scopeArgs(e, scope).future);
-  if (!args) throw new Error('Nothing that Jarvis can change has changed.');
+  if (!args) throw new Error('Nothing that Eden can change has changed.');
   return macWrite('calendar_update', args, `Saved “${d.title}” on your Mac`);
 }
 async function doDelete(e, cal, scope = 'this', send = 'none') {
@@ -1926,9 +1924,7 @@ async function doDelete(e, cal, scope = 'this', send = 'none') {
 /* ---------------- wiring ---------------- */
 
 export function initCalendar(handlers) {
-  H = { ...H, ...handlers };
-  // a Google sign-in that didn't finish: don't reopen the calendar on the next one (from Mail)
-  if (/#gmail=error/.test(location.hash)) { try { sessionStorage.removeItem(RETURN_KEY); } catch { /* private mode */ } }
+  H = { ...H, ...handlers }; // (from calendar-entry.js, when the calendar first opens)
   matchMedia('(max-width:640px)').addEventListener('change', () => { if (S.open) { closePop(); render(); } });
   // Jarvis waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {

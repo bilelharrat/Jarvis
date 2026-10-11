@@ -13,8 +13,12 @@ import { textHash, stampOf, stampChanged, updateAction, UPDATE_CHECK_MS } from '
 
 // The page itself and every script and stylesheet index.html names on this server (a module that
 // only app.js imports isn't looked at: a deploy changes app.js or app.css nearly always).
+// Files loaded after startup (lazy modules, their stylesheets: util.js noteAsset) join the list once
+// loaded, each stamped as it loads: efficiency pass 2 (pass 1 left share.css and import-chatgpt.css out).
+const extra = new Map(); // pathname -> URL
 function FILES() {
   const out = { page: location.href.split('#')[0] };
+  for (const [k, u] of extra) out[k] = u;
   for (const tag of document.querySelectorAll('script[src], link[rel="stylesheet"][href]')) {
     try {
       const u = new URL(tag.getAttribute(tag.tagName === 'LINK' ? 'href' : 'src'), document.baseURI);
@@ -139,7 +143,15 @@ export function initPageUpdate() {
   addEventListener('pageshow', (e) => { if (e.persisted) followTextSize(); });
   if (isMock) return; // the sample page has no deploys
   // the stamp as loaded (a little after boot, off the first paint's path)
-  setTimeout(() => { stampAll().then((s) => { boot = s; lastLook = Date.now(); }); }, 4000);
+  setTimeout(() => { stampAll().then((s) => { boot = { ...s, ...boot }; lastLook = Date.now(); }); }, 4000);
+  addEventListener('eden:asset', (e) => {
+    let u;
+    try { u = new URL(e.detail, document.baseURI); } catch { return; }
+    if (u.origin !== location.origin || extra.has(u.pathname)) return;
+    extra.set(u.pathname, u.href);
+    // loaded now: its stamp as loaded (before the boot stamp, that one takes it in)
+    stampFile(u.href).then((s) => { if (s) boot = { [u.pathname]: s, ...boot }; });
+  });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) look(); });
   addEventListener('pageshow', (e) => { if (e.persisted) look(true); });
 }

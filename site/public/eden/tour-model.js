@@ -8,6 +8,21 @@ export const TOUR_KEY = 'eden:tour';
 /** Every key the practice page writes lives under this prefix, and only there. */
 export const PRACTICE_PREFIX = 'eden:practice:';
 
+/**
+ * Whether the page answers its calls with mock.js (api.js): practice mode (?practice=1) on any host,
+ * since its storage is scoped under the practice prefix and its network is guarded (R3-1); ?mock=1
+ * alone only on a developer's own machine (localhost, 127.0.0.1, ::1, *.localhost, *.test), where it
+ * would otherwise write sample chats into a person's real storage on askeden.com (R2C-20).
+ */
+export function mockAllowed(hostname, search) {
+  const q = new URLSearchParams(search || '');
+  if (q.get('practice') === '1') return true;
+  return isLocalServer(hostname) && q.get('mock') === '1';
+}
+
+/** A developer's own machine (localhost, 127.0.0.1, ::1, *.localhost, *.test): where "model-router-ui" means something (R3-4). */
+export const isLocalServer = (hostname) => /^(localhost|127\.0\.0\.1|\[::1\]|::1|[a-z0-9.-]+\.localhost|[a-z0-9.-]+\.test)$/i.test(String(hostname || ''));
+
 /* ---------------- the practice sandbox's storage ---------------- */
 
 /**
@@ -182,7 +197,7 @@ export function unavailableReason(step, ctx) {
   if (!ctx || !step.needs) return null;
   const needs = [].concat(step.needs);
   for (const n of needs) {
-    if (n === 'mac' && !ctx.mac) return ctx.hosted ? 'Your Mac isn’t linked to askeden.com yet, so this needs the Jarvis app on your Mac.' : 'The Jarvis app on your Mac isn’t connected right now.';
+    if (n === 'mac' && !ctx.mac) return ctx.hosted ? 'Your Mac isn’t linked to askeden.com yet, so this needs the Eden app on your Mac.' : 'The Eden app on your Mac isn’t connected right now.';
     if (n === 'account' && !ctx.hosted) return 'Accounts live at askeden.com; Eden on your own Mac has no sign-in.';
     if (n === 'account' && !ctx.signedIn) return 'You aren’t signed in to askeden.com in this browser.';
     if (n === 'app' && !ctx.inApp) return 'This is part of the Eden iPhone app.';

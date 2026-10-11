@@ -29,7 +29,7 @@ export const IN_APP = typeof navigator !== 'undefined' && /\bEdenApp\//.test(nav
 /** The model id of Apple's on-device model, as the page knows it. */
 export const ON_DEVICE = 'apple-on-device';
 
-const caps = { online: true, serverLocal: false, activities: false, browser: false, print: false, ondevice: { available: false, reason: 'unknown', words: '' } };
+const caps = { online: true, serverLocal: false, activities: false, browser: false, print: false, plus: false, aiConsent: null, ondevice: { available: false, reason: 'unknown', words: '' } };
 const turns = new Map(); // turn id -> { push(event, data), end(), fail(error) }
 
 function toApp(msg) {
@@ -64,7 +64,9 @@ export function appPrint(title = '', { wait = 4000, giveUp = 180_000, onSlow = n
   const id = `print-${++printSeq}`;
   return new Promise((resolve) => {
     const slow = !caps.print && onSlow ? setTimeout(() => { try { onSlow(); } catch { /* the page's */ } }, wait) : null;
-    const end = setTimeout(() => { prints.delete(id); resolve('unsupported'); }, caps.print ? 30 * 60_000 : giveUp);
+    // an app that prints (caps.print) is never treated as an old one: its silence is a sheet left open
+    const can = caps.print;
+    const end = setTimeout(() => { prints.delete(id); resolve(can ? 'cancelled' : 'unsupported'); }, can ? 30 * 60_000 : giveUp);
     prints.set(id, (ok) => { clearTimeout(slow); clearTimeout(end); resolve(ok ? 'printed' : 'cancelled'); });
     toApp({ kind: 'print', title: String(title || '').slice(0, 200), id });
   });
@@ -73,6 +75,43 @@ export function appPrint(title = '', { wait = 4000, giveUp = 180_000, onSlow = n
 export function openAppSettings() {
   if (!IN_APP) return false;
   toApp({ kind: 'openSettings' });
+  return true;
+}
+
+/* ---------- Eden Plus from the App Store (the app's StoreKit; docs/bug-sweep/ios-2026-10-09-iap.md) ---------- */
+
+const plusListeners = new Set();
+/** The app sells Eden Plus with the App Store (Eden for iPhone; not Eden for Education). */
+export const appSellsPlus = () => IN_APP && caps.plus === true;
+/** True once the app said it has a print sheet (R2-8): the page then waits for it with no fallback. */
+export const appCanPrint = () => IN_APP && caps.print === true;
+/** plus.products | plus.buy {product} | plus.restore | plus.manage | plus.redeem, to the app. */
+export function appPlus(op, extra = {}) {
+  if (!appSellsPlus()) return false;
+  toApp({ kind: `plus.${op}`, ...extra });
+  return true;
+}
+/** Each plus.state the app sends; returns a function that stops listening. */
+export function onAppPlus(fn) { plusListeners.add(fn); return () => plusListeners.delete(fn); }
+
+/* ---------- AI consent (App Store 5.1.1(i)/5.1.2(i)) ---------- */
+
+/** What the page says before a cloud-model send when the person hasn't allowed it (or took it back). */
+export const AI_CONSENT_WORDS = 'Eden sends your messages to AI providers (OpenAI, Google, Moonshot, Anthropic) to answer. Allow?';
+/** The app said `aiConsent: false`: no message goes to a cloud model until it's allowed. (Unknown or true: as usual.) */
+export const aiConsentMissing = () => IN_APP && caps.aiConsent === false;
+/**
+ * Whether this send would reach a cloud model without consent. Answering on this iPhone (picked, or a
+ * private chat that this iPhone answers) stays allowed, and a private chat goes to the Mac, never a provider.
+ */
+export function aiConsentBlocks({ privacy = false, model = '' } = {}) {
+  if (!aiConsentMissing()) return false;
+  return !(model === ON_DEVICE || privacy === true);
+}
+/** `aiConsent.ask`: the app shows its consent sheet again. */
+export function reviewAiConsent() {
+  if (!IN_APP) return false;
+  toApp({ kind: 'aiConsent.ask' });
   return true;
 }
 
@@ -187,6 +226,10 @@ export function nativeTransport(path, init, next) {
     : body.privacy === true && caps.ondevice.available ? 'private'
       : offline() && caps.ondevice.available ? 'offline' : null;
   if (why) return onDeviceTurn(body, init.signal, why);
+  // no consent for the cloud models (chat.js asks first; this is for every other way a send gets here)
+  if (aiConsentMissing() && body.privacy !== true) {
+    return Promise.resolve(new Response(JSON.stringify({ error: tx(AI_CONSENT_WORDS), code: 'ai_consent' }), { status: 403, headers: { 'content-type': 'application/json' } }));
+  }
   if (!caps.ondevice.available) return null;
   // the network first; when it fails before any answer, this iPhone answers instead
   return next(path, init).catch((e) => {
@@ -299,13 +342,18 @@ function fromApp(e) {
     caps.activities = !!m.activities;
     caps.browser = !!m.browser;
     caps.print = !!m.print;
+    caps.plus = !!m.plus;
+    if (typeof m.aiConsent === 'boolean') caps.aiConsent = m.aiConsent;
     if (m.ondevice && typeof m.ondevice === 'object') {
       caps.ondevice = { available: !!m.ondevice.available, reason: String(m.ondevice.reason || ''), words: String(m.ondevice.words || '') };
     }
     if (JSON.stringify([listed(), caps.ondevice.available]) !== was) refreshModels();
+    if (typeof dispatchEvent === 'function') dispatchEvent(new CustomEvent('eden:caps'));
   } else if (m.kind === 'printed') {
     const done = prints.get(m.id);
     if (done) { prints.delete(m.id); done(m.ok !== false); }
+  } else if (m.kind === 'plus.state') {
+    for (const fn of plusListeners) { try { fn(m); } catch { /* a listener's own */ } }
   } else if (m.kind === 'turn') {
     const t = turns.get(m.id);
     if (t && typeof m.event === 'string') t.push(m.event, m.data);

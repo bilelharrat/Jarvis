@@ -12,11 +12,11 @@
 import { el, ico, toast, debounce, placePopup } from './util.js';
 import { api, getJSON, postJSON, isMock } from './api.js';
 const isMockMail = () => isMock;
-import { openCalendar } from './calendar.js';
+import { openCalendar } from './calendar-entry.js';
 import { parseIcs, icsToDraft, icsStatusFor, draftFromEmail } from './calendar-rules.js';
 import { timeText } from './calendar-model.js';
 import { state } from './state.js';
-import { initCompose, openCompose, draftReplyText, stripMd } from './compose.js';
+import { initCompose, openCompose, draftReplyText, stripMd } from './compose-entry.js'; // compose.js loads on first use
 import { routeSettings, modelInfo } from './router.js';
 import { renderMarkdown } from './markdown.js';
 import {
@@ -223,7 +223,7 @@ export async function mailPanel(body) {
     if (!mail.known) gmail('contacts').then((r) => { mail.contacts = (r && r.contacts) || []; mail.known = new Set(mail.contacts.filter((c) => c.count >= 2).map((c) => String(c.email).toLowerCase())); if (mail.redraw) mail.redraw(); }, () => { mail.known = new Set(); });
     maybeAutoLearn(samplesFrom('gmail'), 'gmail');
   } else if (!H.jarvisAvailable()) {
-    gate(emptyState('mail', 'Your Mac isn’t connected', `${H.jarvisReason() || ''} Mail on your Mac comes through the Jarvis app: open it to connect.`.trim()));
+    gate(emptyState('mail', 'Your Mac isn’t connected', `${H.jarvisReason() || ''} Mail on your Mac comes through the Eden app: open it to connect.`.trim()));
     return;
   }
 
@@ -312,7 +312,7 @@ export async function mailPanel(body) {
     if (!rows.length) {
       parts.push(mail.query ? emptyState('search', 'No mail matches that', `Nothing in ${boxes.find(([b]) => b === mail.mailbox)?.[1] || 'this mailbox'} for “${mail.query}”.`)
         : emptyState(FOLDER_ICO[mail.mailbox] || 'mail', inbox ? 'You’re all caught up' : 'Nothing here', inbox ? 'New mail lands here. Eden can draft and schedule replies for you.' : null));
-      list.replaceChildren(...parts);
+      list.replaceChildren(...parts.filter(Boolean));
       return;
     }
     const ranked = inbox && mail.ranked;
@@ -325,7 +325,7 @@ export async function mailPanel(body) {
       : groupByDay(shown);
     for (const g of groups) parts.push(el('section', { class: 'mx-group', 'aria-label': g.label }, el('h4', `mx-day${g.lv ? ` rk-h rk-${g.lv}` : ''}`, el('span', '', g.label), el('span', 'n', String(g.items.length))), ...g.items.map((m) => row(m, ranks.get(String(m.id))))));
     if (ranked && !shown.length) parts.push(emptyState('sort', `Nothing marked ${RANK_LABEL[mail.filter]}`, null));
-    list.replaceChildren(...parts);
+    list.replaceChildren(...parts.filter(Boolean)); // (a null would show as the text "null")
     paintSel();
   };
   const rankMap = () => { const m = new Map(); for (const r of mail.rows) { const v = rankCache.get(ck(r.id)); if (v) m.set(String(r.id), v); } return m; };
@@ -629,8 +629,8 @@ async function openMessage(body, m) {
     senderCard(msg),
     el('div', 'mv-eden',
       el('span', 'mv-eden-l', ico('spark', 13), 'Eden'),
-      btn('doc', 'Summarize', () => summarize(false), 'mx-chip'),
       isMacDraft || !safeForAuto(shieldOf(msg)) ? null : btn('spark', 'Draft reply with Eden', () => compose('reply', { ai: 'reply' }), 'mx-chip accent'),
+      btn('doc', 'Summarize', () => summarize(false), 'mx-chip'),
       btn('chat', 'Ask Eden', () => H.askEden(msg), 'mx-chip'),
       isMacDraft ? null : btn('cal', 'Add to calendar', () => addToCalendar(msg), 'mx-chip')),
     inviteCard(msg),
@@ -649,7 +649,7 @@ async function openMessage(body, m) {
       mail.mailbox === 'inbox' ? btn('clock', 'Remind me', (e) => snoozeMenu([m], e.currentTarget)) : null,
       btn('star', m.labels.includes('STARRED') ? (mail.source === 'gmail' ? 'Unstar' : 'Unflag') : (mail.source === 'gmail' ? 'Star' : 'Flag'), () => toggleStar(m)),
       mail.source === 'gmail' && teamMail.available() && msg.threadId ? btn('user', 'Share with team', () => shareThread(msg)) : null),
-    isMacDraft ? el('p', 'sp-note', 'Saving from Eden makes a new draft in Mail; Jarvis can’t edit this one in place.') : null].filter(Boolean));
+    isMacDraft ? el('p', 'sp-note', 'Saving from Eden makes a new draft in Mail; Eden can’t edit this one in place.') : null].filter(Boolean));
   stopOpen();
   if (sumCache.get(ck(msg.id))) summarize(false); // already summarized: shown again, not billed again
   prefetch();
@@ -960,7 +960,7 @@ async function doneRows(ms, { snoozing = false, quiet = false } = {}) {
   if (mail.source === 'mac' && !snoozing) setTimeout(async () => {
     if (!keys.every((k) => isDone(k))) return; // undone meanwhile
     try { await call('mail_triage', { action: 'archive', message_ids: ms.map((m) => m.id), confirm: true }); mail.rows = mail.rows.filter((r) => !ms.includes(r)); markDone(keys, false); }
-    catch { /* an older Jarvis, or Mail said no: kept in Eden */ }
+    catch { /* an older Eden, or Mail said no: kept in Eden */ }
   }, 6000);
   const undo = async () => {
     if (archived) await modify(ms.map((m) => m.id), ['INBOX'], []).catch(() => {});
@@ -1011,7 +1011,7 @@ function snoozeMenu(ms, anchor) {
 
 async function toggleStar(m, { quiet = false } = {}) {
   const on = !m.labels.includes('STARRED');
-  if (mail.source === 'mac') { // a flag in Mail on your Mac (Jarvis's mail_triage)
+  if (mail.source === 'mac') { // a flag in Mail on your Mac (Eden's mail_triage)
     try { toast(await call('mail_triage', { action: on ? 'flag' : 'unflag', message_ids: [m.id], confirm: true })); m.labels = on ? [...m.labels, 'STARRED'] : m.labels.filter((l) => l !== 'STARRED'); mail.redraw(); }
     catch (e) { toast(`Couldn’t flag it: ${e.message}`); }
     return;
@@ -1154,7 +1154,7 @@ function senderCard(msg) {
         const j = parseJSON(text);
         const hits = (arrayIn(j, ['results', 'items', 'notes']) || []).slice(0, 3);
         if (hits.length && document.contains(notes)) notes.replaceChildren(el('b', '', 'In your notes'), el('ul', '', ...hits.map((h) => own('li', '', String(h.title || h.name || tx('A note')).slice(0, 80)))));
-      } catch { /* Jarvis said no, or nothing */ }
+      } catch { /* Eden said no, or nothing */ }
     })();
   });
   return box;

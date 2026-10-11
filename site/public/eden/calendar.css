@@ -337,8 +337,6 @@ body.cal-resizing,body.cal-resizing *{cursor:ns-resize!important;-webkit-user-se
 /* waiting on the owner's "Let Eden use Jarvis?" card */
 .cal-banner.wait{background:color-mix(in srgb,var(--wait) 14%,transparent);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--wait) 45%,transparent)}
 .cal-banner.wait .ic{color:var(--warn)}
-.listen.wait .ld{background:var(--wait);animation:pulse 1.2s ease-in-out infinite}
-.listen.wait{color:var(--text2)}
 @media (prefers-reduced-transparency: reduce){
   .cal,.cal-pop,.cal-sheet-card,.cal-connect{background:#f2f2f7}
   [data-theme="dark"] .cal,[data-theme="dark"] .cal-pop,[data-theme="dark"] .cal-sheet-card,[data-theme="dark"] .cal-connect{background:#2c2c2e}

@@ -16,7 +16,7 @@ const MSG = {
   'Eden sent back nothing.': 'Eden n’a rien renvoyé.',
   'no Google Calendar you can add to': 'aucun agenda Google où vous pouvez ajouter',
   'Mail said no.': 'Mail a refusé.',
-  'The Jarvis app said no.': 'L’app Jarvis a refusé.',
+  'The Eden app said no.': 'L’app Eden a refusé.',
 };
 const msg = (s) => MSG[s] || s;
 
@@ -129,7 +129,7 @@ export default {
     'Connect Gmail': 'Connecter Gmail',
     'Signed in to Gmail': 'Connecté à Gmail',
     'Your Mac isn’t connected': 'Votre Mac n’est pas connecté',
-    'Mail on your Mac comes through the Jarvis app: open it to connect.': 'Mail sur votre Mac passe par l’app Jarvis : ouvrez-la pour vous connecter.',
+    'Mail on your Mac comes through the Eden app: open it to connect.': 'Mail sur votre Mac passe par l’app Eden : ouvrez-la pour vous connecter.',
     Mailbox: 'Boîte aux lettres',
     Inbox: 'Boîte de réception',
     Sent: 'Envoyés',
@@ -223,7 +223,7 @@ export default {
     Flag: 'Ajouter un drapeau',
     Unflag: 'Retirer le drapeau',
     'Share with team': 'Partager avec l’équipe',
-    'Saving from Eden makes a new draft in Mail; Jarvis can’t edit this one in place.': 'Enregistrer depuis Eden crée un nouveau brouillon dans Mail ; Jarvis ne peut pas modifier celui-ci directement.',
+    'Saving from Eden makes a new draft in Mail; Eden can’t edit this one in place.': 'Enregistrer depuis Eden crée un nouveau brouillon dans Mail ; Eden ne peut pas modifier celui-ci directement.',
     // invitations
     Going: 'Participe',
     'Not going': 'Ne participe pas',
@@ -356,7 +356,7 @@ export default {
     'Eden couldn’t do that.': 'Eden n’a pas pu le faire.',
     'Eden sent back nothing.': 'Eden n’a rien renvoyé.',
     'Mail said no.': 'Mail a refusé.',
-    'The Jarvis app said no.': 'L’app Jarvis a refusé.',
+    'The Eden app said no.': 'L’app Eden a refusé.',
     'Eden couldn’t answer.': 'Eden n’a pas pu répondre.',
     'Eden’s answer had no ranks in it.': 'La réponse d’Eden ne contenait aucun classement.',
     'Eden’s answer was empty. Try again.': 'La réponse d’Eden était vide. Réessayez.',
@@ -561,7 +561,7 @@ export default {
     'Search meetings': 'Rechercher des réunions',
     'Asking your Mac…': 'Interrogation de votre Mac…',
     'No meeting notes match that.': 'Aucune note de réunion ne correspond.',
-    'No meeting notes yet. Say “Jarvis, take notes” in a meeting, or start notes from Jarvis’s meeting card.': 'Pas encore de notes de réunion. Dites « Jarvis, prends des notes » pendant une réunion, ou lancez les notes depuis la carte de réunion de Jarvis.',
+    'No meeting notes yet. Say “Eden, take notes” in a meeting, or start notes from Eden’s meeting card.': 'Pas encore de notes de réunion. Dites « Eden, prends des notes » pendant une réunion, ou lancez les notes depuis la carte de réunion de Eden.',
     'Notes stay on your Mac. Action items are picked out by a low-cost model through the router; nothing happens until you approve each one.': 'Les notes restent sur votre Mac. Les actions à mener sont repérées par un modèle peu coûteux via le routeur ; rien ne se passe tant que vous ne les approuvez pas une à une.',
     Meetings: 'Réunions',
     'Reading the notes…': 'Lecture des notes…',
@@ -575,7 +575,7 @@ export default {
     'Pick again': 'Repérer à nouveau',
     'Save as commitment': 'Enregistrer comme engagement',
     'Waiting for your OK on your Mac…': 'En attente de votre accord sur votre Mac…',
-    'Kept: Jarvis reminds you before it’s due.': 'Enregistré : Jarvis vous le rappellera avant l’échéance.',
+    'Kept: Eden reminds you before it’s due.': 'Enregistré : Eden vous le rappellera avant l’échéance.',
     'Not kept.': 'Non enregistré.',
     'Draft email': 'Rédiger un e-mail',
     'That time doesn’t look right: set it in the calendar.': 'Cet horaire semble incorrect : réglez-le dans le calendrier.',

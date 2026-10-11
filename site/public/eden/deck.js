@@ -8,7 +8,7 @@
 // (deck-pptx.js), PDF (the browser’s print of a script-free copy), Google Slides (the PowerPoint
 // converted in the person's Drive with sheet-google.js driveUpload, drive.file only), Markdown outline; Publish (G10) shares a live, view-only copy.
 
-import { $, el, ico, toast, isMobile } from './util.js';
+import { $, el, ico, toast, isMobile, noteAsset } from './util.js';
 import { t as tx } from './i18n.js';
 import { state, nodeText, saveConversation, path } from './state.js';
 import { api, apiUrl, addSendExtra } from './api.js';
@@ -16,7 +16,7 @@ import { openDeckCanvas, deckCanvasVersion, pushDeckVersion, artifactSend, close
 import { setComposerText } from './composer.js';
 import { openPublish } from './publish.js';
 import { labelView } from './verify-model.js';
-import { IN_APP, appPrint } from './native.js'; // the PDF in the iPhone app: the app prints (R2-8)
+import { IN_APP, appPrint, appCanPrint } from './native.js'; // the PDF in the iPhone app: the app prints (R2-8)
 import {
   THEMES, normalizeDeck, deckFromReply, deckSystem, deckContext, slidesAsked, addVersion, setText, moveSlide, deleteSlide,
   duplicateSlide, setTheme, setImage, missingAlt, imagesUsed, editablePath, slideRequest, deckOutline, deckFileName, looseJson,
@@ -24,7 +24,7 @@ import {
 // the deck's own page (deck-render.js, 48 KB): loaded when a deck is first drawn, printed or shared
 // (a load that failed, offline, is tried again the next time: R2C-19)
 let renderP = null;
-const deckRender = () => (renderP ??= import('./deck-render.js').catch((e) => { renderP = null; throw e; }));
+const deckRender = () => (renderP ??= import('./deck-render.js').then((m) => { noteAsset(new URL('./deck-render.js', import.meta.url).href); return m; }, (e) => { renderP = null; throw e; }));
 
 const versionsOf = (c) => (c && Array.isArray(c.deckVersions) ? c.deckVersions : []);
 const latest = (c) => { const v = versionsOf(c).at(-1); return v ? v.deck : null; };
@@ -446,7 +446,8 @@ async function appPdf(deck, html) {
   // Say so, with the PowerPoint to share instead (a late print sheet still works).
   const onSlow = () => toast('No print sheet? This version of the Eden app can’t make a PDF', { label: 'Share the PowerPoint', run: () => exportPptx() });
   let r = 'unsupported';
-  try { r = await appPrint(deck.title || 'Slides', { onSlow }); } catch { /* the app is gone */ }
+  // (an app that says it prints, caps.print, is simply waited for: no fallback prompt behind its sheet)
+  try { r = await appPrint(deck.title || 'Slides', appCanPrint() ? {} : { onSlow }); } catch { /* the app is gone */ }
   end();
   if (r === 'unsupported') {
     toast('This version of the Eden app can’t make a PDF: here’s the PowerPoint instead');

@@ -16,7 +16,7 @@ import { setOverride } from './router.js';
 import { closeArtifact } from './artifact.js';
 import { bootSoundWelcomeRow } from './boot-sound.js';
 import { closeSpace } from './panels.js';
-import { closeCalendar, calendarOpen } from './calendar.js';
+import { closeCalendar, calendarOpen } from './calendar-entry.js';
 import { closeBrief, briefOpen } from './brief.js';
 import { closeMemory, memoryOpen } from './memory.js';
 import { closeTasks, tasksOpen } from './tasks.js';

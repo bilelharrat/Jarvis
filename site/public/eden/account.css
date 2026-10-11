@@ -42,6 +42,11 @@
 .acct-plus-btns{display:flex;flex-direction:column;gap:6px;flex:none}
 .acct-plus-btns .btn{justify-content:center}
 .acct-packs{padding:10px 0 12px;border-top:.5px solid var(--sep);flex-wrap:wrap}
+/* Eden Plus in the iPhone app (App Store): one column, its buttons, the subscription terms */
+.acct-iap{flex-direction:column;align-items:stretch}
+.acct-iap .acct-row-actions{margin-top:0}
+.acct-iap .acct-iap-terms{font-size:11px;color:var(--text3);line-height:1.45;margin-top:0}
+.acct-iap .acct-iap-terms a{color:inherit;text-decoration:underline}
 .acct-auto{display:flex;align-items:flex-start;gap:10px;padding:10px 0 12px;border-top:.5px solid var(--sep);cursor:pointer;font-size:13px}
 .acct-auto input{margin-top:2px;flex:none}
 .acct-auto .grow{flex:1;min-width:0;line-height:1.45}

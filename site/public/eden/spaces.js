@@ -16,7 +16,7 @@
 
 import { $, el, ico, toast, copyText, relDay } from './util.js';
 import { state, ui, addConversation } from './state.js';
-import { apiUrl, isMock } from './api.js';
+import { askedenJSON } from './api.js';
 import * as E from './eden-crypto.js';
 import { deviceKey, keepSecret, keyGet, openEnvelope } from './sync.js';
 import { setActing } from './acting.js';
@@ -28,16 +28,7 @@ const fill = (node, ...kids) => node.replaceChildren(...kids.filter((k) => k !==
 const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString(locale(), { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol' }) : '—');
 const LEVEL_WORDS = { 1: 'Cheapest', 2: 'Thrifty', 3: 'Balanced', 4: 'Strong', 5: 'Best' };
 
-async function api(path, body) {
-  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST', headers: { 'X-Jarvis-Chat': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) };
-  let res;
-  try { res = isMock ? await (await import('./mock.js')).mockFetch(path, init) : await fetch(apiUrl(path), init); }
-  catch { throw new Error('Can’t reach askeden.com. Check your connection.'); }
-  let out = {};
-  try { out = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) throw Object.assign(new Error(out.error || `askeden.com said ${res.status}.`), { status: res.status, code: out.code });
-  return out;
-}
+const api = askedenJSON; // (api.js: the same call sync.js makes)
 
 const field = (label, input, note) => el('label', 'acct-field', el('span', 'acct-k', label), input, note ? el('span', 'acct-sub', note) : null);
 const levelSelect = (value) => {

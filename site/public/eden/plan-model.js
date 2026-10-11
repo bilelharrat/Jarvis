@@ -16,17 +16,20 @@ export const isLimitError = (message) => typeof message === 'string' && LIMIT_RE
  * Portal); yearly: the yearly price, if sold; credits: credit packs can be bought here (on Free
  * or Plus); balance: the credits left, in dollars.
  */
-export function planOffer(account, config, inApp = false) {
+export function planOffer(account, config, inApp = false, appSells = false) {
   if (!account || typeof account !== 'object' || account.acting) return null;
   const plan = account.plan || {};
   const cfg = config || {};
   const plus = plan.active === true || plan.name === 'plus';
   const here = cfg.billing === true && (!inApp || cfg.billing_in_app === true);
   const manage = plan.manage || {};
-  const price = account.plus && typeof account.plus.price_usd === 'number' ? account.plus.price_usd : null;
+  // Inside the app that sells Plus with Apple (caps.plus): Upgrade opens the in-app Plan section (Apple's
+  // products), never a web price (3.1.1; R3C-5/6), and credits are neither sold nor mentioned (R3C-7).
+  const apple = inApp && appSells;
+  const price = apple ? null : account.plus && typeof account.plus.price_usd === 'number' ? account.plus.price_usd : null;
   const offer = account.plus || {};
-  const yearly = typeof offer.yearly_usd === 'number' ? offer.yearly_usd : null;
-  const credits = here && Array.isArray(offer.credit_packs) && offer.credit_packs.length > 0;
-  const balance = account.credits && typeof account.credits.balance_usd === 'number' ? account.credits.balance_usd : 0;
-  return { plus, upgrade: !plus && here, portal: plus && Boolean(manage.stripe) && (!inApp || cfg.billing_in_app === true), price, yearly, credits, balance };
+  const yearly = !apple && typeof offer.yearly_usd === 'number' ? offer.yearly_usd : null;
+  const credits = !inApp && here && Array.isArray(offer.credit_packs) && offer.credit_packs.length > 0;
+  const balance = !inApp && account.credits && typeof account.credits.balance_usd === 'number' ? account.credits.balance_usd : 0;
+  return { plus, upgrade: !plus && (here || apple), portal: plus && !apple && Boolean(manage.stripe) && (!inApp || cfg.billing_in_app === true), price, yearly, credits, balance };
 }

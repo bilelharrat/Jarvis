@@ -9,7 +9,7 @@
 // Mac while it runs (src/chat/tasks.ts). Both answer GET /api/chat/tasks and POST /api/chat/tasks
 // { action, args } (docs/chat-api.md "Tasks"); ?mock=1 answers from tasksMock() below.
 
-import { el, ico, isMobile, toast } from './util.js';
+import { el, ico, isMobile, toast, whileVisible } from './util.js';
 import { state, ui } from './state.js';
 import { getJSON, postJSON } from './api.js';
 import { locale, t as tl } from './i18n.js';
@@ -149,7 +149,7 @@ function paint() {
   } else if (!S.error) parts.push(el('div', 'muted', 'Loading your tasks…'));
   parts.push(el('p', 'sp-note', hosted()
     ? 'Tasks run in your askeden.com account, with your Mac off and this page closed. Each run uses a small model on your included AI, within the task’s budget. Eden writes drafts on its own; it sends email or changes your calendar only after you approve, here or from the notification on your iPhone.'
-    : 'Tasks run while Eden is running on this Mac. Each run uses Claude Haiku (your API key or Claude Code), within the task’s budget. Eden writes drafts on its own; it sends email or changes your calendar only after you approve here. Notes reach your iPhone through Jarvis.'));
+    : 'Tasks run while Eden is running on this Mac. Each run uses Claude Haiku (your API key or Claude Code), within the task’s budget. Eden writes drafts on its own; it sends email or changes your calendar only after you approve here. Notes reach your iPhone through Eden.'));
   body.replaceChildren(...parts);
   body.scrollTop = keepScroll;
 }
@@ -365,6 +365,7 @@ function paintCard() {
   if (!pending.length || S.open) { if (card) card.hidden = true; return; }
   if (!card) {
     card = el('div', { class: 'tk-float glass', id: 'tkFloat', role: 'region', 'aria-label': 'A task is waiting for you', 'aria-live': 'polite' });
+    card.addEventListener('pointerdown', (e) => e.stopPropagation()); // a tap on the card isn't a tap outside Mail's panel (panels.js)
     document.body.append(card);
   }
   card.hidden = false;
@@ -378,8 +379,8 @@ function paintCard() {
   // (replaceChildren would turn a null into the text "null": the parts not shown are dropped first)
   card.replaceChildren(...[
     el('div', 'tk-float-h', ico('bell', 14),
-      mini ? el('button', { type: 'button', class: 'grow tk-float-open', 'aria-expanded': 'false', onclick: () => { S.expanded = sig; paintCard(); } }, title) : el('span', 'grow', title),
-      el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Hide for now', onclick: () => { for (const p of pending) S.dismissed.add(p.id); saveHidden(); paintCard(); } }, ico('x', 14))),
+      mini ? el('button', { type: 'button', class: 'grow tk-float-open', 'aria-expanded': 'false', onclick: (e) => { e.stopPropagation(); S.expanded = sig; paintCard(); } }, title) : el('span', 'grow', title),
+      el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Hide for now', onclick: (e) => { e.stopPropagation(); for (const p of pending) S.dismissed.add(p.id); saveHidden(); paintCard(); } }, ico('x', 14))),
     mini ? null : approvalCard(a, { compact: true }),
     mini ? null : el('button', { type: 'button', class: 'cap tk-float-all', onclick: () => openTasks() }, pending.length > 1 ? `Open Tasks (${pending.length})` : 'Open Tasks'),
   ].filter(Boolean));
@@ -392,7 +393,7 @@ export function initTasks(handlers = {}) {
   H = handlers;
   const poll = () => { if (document.visibilityState === 'visible') refresh({ quiet: true }); };
   refresh({ quiet: true });
-  S.timer = setInterval(poll, POLL_MS);
+  S.timer = whileVisible(poll, POLL_MS); // (no timer while hidden; coming back polls at once, below)
   document.addEventListener('visibilitychange', poll);
   const fromLink = () => {
     if (!/^#tasks\b/.test(location.hash)) return;

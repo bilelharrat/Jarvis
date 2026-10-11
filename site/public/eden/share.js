@@ -12,7 +12,7 @@
 //   POST /api/chat/shares/revoke  { id } → { id, revoked: true }
 //   GET  /s/<id>                  the read-only page (share.html); /s/<id>/data its ciphertext
 
-import { el, ico, toast, copyText } from './util.js';
+import { el, ico, toast, copyText, addStylesheet } from './util.js';
 import { state, saveConversation } from './state.js';
 import { getJSON, postJSON, apiUrl } from './api.js';
 import { EXPIRY, SHARE_LIMITS, buildSnapshot, expiresAt, personalData, personalIn, sealSnapshot, shareLink, shareRecord, shareable } from './share-model.js';
@@ -21,11 +21,7 @@ import { renderSnapshot, wireSnapshot } from './share-render.js';
 let H = {};
 export function initShare(handlers = {}) {
   H = handlers;
-  if (!document.querySelector('link[data-share]')) {
-    const l = el('link', { rel: 'stylesheet', href: new URL('./share.css', import.meta.url).href });
-    l.dataset.share = '1';
-    document.head.append(l);
-  }
+  addStylesheet(new URL('./share.css', import.meta.url).href, 'share');
 }
 
 /** Sharing needs a server that keeps shares: askeden.com, or the Mac's Eden server (which says so in meta.share). */

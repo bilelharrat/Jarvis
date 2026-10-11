@@ -3,12 +3,15 @@
 
 import { nativeTransport } from './native.js';
 import { actingAnswer } from './acting.js';
+import { mockAllowed, isLocalServer } from './tour-model.js';
 import { deadline, singleFlight, approvalGap, DEADLINE } from './resilience.js';
 
-// Only on a developer's own machine (localhost, 127.0.0.1, ::1, *.localhost, *.test): on askeden.com or
-// any real server the mock would write sample chats into a person's real storage, which then syncs (R2C-20).
-const DEV_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|::1|[a-z0-9.-]+\.localhost|[a-z0-9.-]+\.test)$/i.test(String(location.hostname || ''));
-const MOCK = DEV_HOST && new URLSearchParams(location.search).get('mock') === '1';
+// Practice mode (?practice=1) on any host: its storage is sandboxed. ?mock=1 alone only on a developer's own
+// machine (localhost, 127.0.0.1, ::1, *.localhost, *.test): on askeden.com or any real server the mock would
+// write sample chats into a person's real storage, which then syncs (R2C-20, R3-1; tour-model.js mockAllowed).
+const MOCK = mockAllowed(location.hostname, location.search);
+/** Only a developer's own server is "model-router-ui"; on askeden.com and in the app the page says nothing of it (R3-4). */
+export const LOCAL_SERVER = isLocalServer(location.hostname);
 
 /**
  * Where the server lives. Every request is built from API_ROOT: by default the path the page
@@ -41,6 +44,22 @@ async function network(path, init) {
   return fetch(apiUrl(path), init);
 }
 export const isMock = MOCK;
+/** Straight to the server (or ?mock=1's sample answers): no acting refusal, no on-device turn. */
+export const rawFetch = network;
+/**
+ * askeden.com's own JSON calls (sync, team spaces): GET without a body, else POST it. Errors carry
+ * `status` (0: no connection) and the server's `code`.
+ */
+export async function askedenJSON(path, body) {
+  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST', headers: { 'X-Jarvis-Chat': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) };
+  let res;
+  try { res = await network(path, init); }
+  catch { throw Object.assign(new Error('Can’t reach askeden.com. Check your connection.'), { status: 0 }); }
+  let out = {};
+  try { out = await res.json(); } catch { /* not JSON */ }
+  if (!res.ok) throw Object.assign(new Error(out.error || `askeden.com said ${res.status}.`), { status: res.status, code: out.code });
+  return out;
+}
 
 export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -60,7 +79,7 @@ async function errorFrom(res) {
     if (j && (j.error || j.message)) msg = j.error || j.message;
     if (j && typeof j.code === 'string') code = j.code;
   } catch { /* not JSON */ }
-  if (res.status === 404) msg = `${msg} — is the Eden server running (model-router-ui)?`;
+  if (res.status === 404 && LOCAL_SERVER) msg = `${msg} — is the Eden server running (model-router-ui)?`;
   const e = new ApiError(res.status, msg);
   if (code) e.code = code; // askeden.com's { error, code } (mac_timeout, approval_pending, request_id_reused…)
   return e;
@@ -75,12 +94,20 @@ function lateError(message = LATE) { const e = new ApiError(0, message); e.timeo
  * GET JSON. `timeout` (ms): a client deadline over the whole request, body included; past it the
  * call fails with an ApiError whose `timeout` is true (`late` is its message).
  */
-export async function getJSON(path, { signal, timeout = 0, late = LATE } = {}) {
+export const getJSON = (path, opts) => requestJSON(path, { method: 'GET', headers: headers(path) }, opts);
+
+/**
+ * getJSON's and postJSON's one request: `init` is the fetch options, or `init(signal)` gives them (a
+ * POST mints its approval token there, under the same deadline); then the answer as JSON, with the
+ * same errors. A GET is sent at once (in the same turn, as before).
+ */
+async function requestJSON(path, init, { signal, timeout = 0, late = LATE } = {}) {
   const d = timeout ? deadline(timeout, signal) : null;
+  const sig = d ? d.signal : signal;
   try {
     let res;
-    try { res = await transport(path, { method: 'GET', headers: headers(path), signal: d ? d.signal : signal }); }
-    catch (e) { if (d && d.timedOut()) throw lateError(late); if (e.name === 'AbortError') throw e; throw new ApiError(0, 'Can’t reach the server.'); }
+    try { res = await transport(path, { ...(typeof init === 'function' ? await init(sig) : init), signal: sig }); }
+    catch (e) { if (d && d.timedOut()) throw lateError(late); if (e.name === 'AbortError' || e instanceof ApiError) throw e; throw new ApiError(0, 'Can’t reach the server.'); }
     if (!res.ok) throw await errorFrom(res);
     try { return await res.json(); } catch (e) { if (d && d.timedOut()) throw lateError(late); throw e; }
   } finally { if (d) d.done(); }
@@ -106,19 +133,10 @@ async function approvalFor(path, body, signal) {
   return (await res.json()).token || null;
 }
 
-export async function postJSON(path, body, { signal, timeout = 0, late = LATE } = {}) {
-  const d = timeout ? deadline(timeout, signal) : null;
-  const sig = d ? d.signal : signal;
-  try {
-    let res;
-    try {
-      const token = await approvalFor(path, body, sig);
-      res = await transport(path, { method: 'POST', headers: headers(path, { 'content-type': 'application/json', ...(token ? { 'x-eden-approval': token } : {}) }), body: JSON.stringify(body), signal: sig });
-    } catch (e) { if (d && d.timedOut()) throw lateError(late); if (e.name === 'AbortError' || e instanceof ApiError) throw e; throw new ApiError(0, 'Can’t reach the server.'); }
-    if (!res.ok) throw await errorFrom(res);
-    try { return await res.json(); } catch (e) { if (d && d.timedOut()) throw lateError(late); throw e; }
-  } finally { if (d) d.done(); }
-}
+export const postJSON = (path, body, opts) => requestJSON(path, async (sig) => {
+  const token = await approvalFor(path, body, sig);
+  return { method: 'POST', headers: headers(path, { 'content-type': 'application/json', ...(token ? { 'x-eden-approval': token } : {}) }), body: JSON.stringify(body) };
+}, opts);
 
 /**
  * POST and read Server-Sent Events from the response body: onEvent(type, data) for each

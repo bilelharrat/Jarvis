@@ -25,8 +25,8 @@
 
 import { state, ui, persistConversation } from './state.js';
 import * as Convs from './convstore.js';
-import { store } from './util.js';
-import { apiUrl, isMock } from './api.js';
+import { store, whileVisible } from './util.js';
+import { askedenJSON } from './api.js';
 import * as E from './eden-crypto.js';
 import { merge, wire, payload as payloadOf } from './sync-model.js';
 
@@ -54,16 +54,7 @@ const listeners = new Set();
 
 /* ---------- askeden.com ---------- */
 
-async function api(path, body) {
-  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST', headers: { 'X-Jarvis-Chat': '1', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) };
-  let res;
-  try { res = isMock ? await (await import('./mock.js')).mockFetch(path, init) : await fetch(apiUrl(path), init); }
-  catch { throw Object.assign(new Error('Can’t reach askeden.com. Check your connection.'), { status: 0 }); }
-  let out = {};
-  try { out = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) throw Object.assign(new Error(out.error || `askeden.com said ${res.status}.`), { status: res.status, code: out.code });
-  return out;
-}
+const api = askedenJSON; // (api.js: the same call spaces.js makes)
 
 /* ---------- this browser's keys (IndexedDB) ---------- */
 
@@ -657,10 +648,10 @@ function start() {
   addEventListener('eden:conv-saved', onSaved);
   addEventListener('eden:conv-deleted', onDeleted);
   document.addEventListener('visibilitychange', onVisible);
-  timer = setInterval(() => { if (document.visibilityState === 'visible') syncNow(); }, EVERY);
+  timer = whileVisible(syncNow, EVERY); // (no timer while hidden: onVisible syncs on coming back)
 }
 function stop() {
-  clearInterval(timer);
+  if (timer) timer();
   timer = null;
   clearTimeout(pushTimer);
   removeEventListener('eden:conv-saved', onSaved);

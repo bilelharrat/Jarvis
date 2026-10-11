@@ -121,6 +121,9 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 .listen{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)}
 .listen .ld{width:6px;height:6px;border-radius:50%;background:var(--done)}
 .listen.on .ld{background:var(--run);animation:pulse 2.4s ease-in-out infinite}
+/* waiting on the owner's "Let Eden use Jarvis?" card (was in calendar.css, which now loads with the calendar) */
+.listen.wait .ld{background:var(--wait);animation:pulse 1.2s ease-in-out infinite}
+.listen.wait{color:var(--text2)}
 @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
 .iconbtn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;color:var(--text2);transition:background .15s;flex:none}
 .iconbtn:hover{background:rgba(120,120,128,.14);color:var(--text)}

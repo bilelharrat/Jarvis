@@ -256,21 +256,6 @@ u.cw-glyph{text-underline-offset:2px}
 .cw-sig-ed[contenteditable="false"]{opacity:.5}
 .cw-sigdlg select{width:100%}
 
-/* Mail panel extras (mail.js): scheduled sends and draft badges */
-.mail-badge{display:inline-block;font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:9px;margin-left:6px;background:var(--accent-soft);color:var(--accent);white-space:nowrap;vertical-align:1px}
-.mail-badge.warn{background:rgba(255,159,10,.14);color:var(--warn)}
-.mail-badge.bad{background:rgba(255,69,58,.12);color:var(--danger)}
-.mail-badge.ok{background:rgba(48,209,88,.14);color:var(--run)}
-.mail-sched{display:flex;flex-direction:column;gap:3px;padding:9px 10px;border-bottom:.5px solid var(--sep)}
-.mail-sched .ms-top{display:flex;gap:8px;align-items:baseline;font-size:13px}
-.mail-sched .ms-top b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
-.mail-sched .ms-when{font-size:11.5px;color:var(--text2);white-space:nowrap}
-.mail-sched .ms-sub{font-size:11.5px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mail-sched .ms-err{font-size:11.5px;color:var(--text2);line-height:1.4}
-.mail-sched .ms-acts{display:flex;gap:6px;margin-top:3px}
-.mail-acts-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-.mail-acts-row .grow{flex:1}
-
 /* inline image sizes: a frame with a corner handle over the picked image, preset sizes above it */
 .cw-ed img{cursor:pointer}
 .cw-imgbox{position:absolute;z-index:3;pointer-events:none;border-radius:6px;box-shadow:0 0 0 2px var(--accent)}

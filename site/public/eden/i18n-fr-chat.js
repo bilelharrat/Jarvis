@@ -13,6 +13,7 @@ const X = {
   'EVES did not write an answer. Try again, or turn EVES off.': 'EVES n’a pas écrit de réponse. Réessayez, ou désactivez EVES.',
   'The model sent an empty reply.': 'Le modèle a envoyé une réponse vide.',
   'The turn failed.': 'La réponse a échoué.',
+  'The connection dropped before the reply finished. Check your connection, then retry.': 'La connexion a été coupée avant la fin de la réponse. Vérifiez votre connexion, puis réessayez.',
   'The connection to the Eden server dropped before the reply finished. Is model-router-ui still running?': 'La connexion au serveur Eden a été coupée avant la fin de la réponse. model-router-ui est-il toujours lancé ?',
   'The comparison failed.': 'La comparaison a échoué.',
   'This model failed.': 'Ce modèle a échoué.',

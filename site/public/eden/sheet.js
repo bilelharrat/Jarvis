@@ -152,7 +152,7 @@ export async function openMacSearch() {
       list.replaceChildren(el('div', 'muted', 'Asking your Mac…'));
       try {
         const r = await api.jarvis('files_search', { query: v, kind: 'spreadsheet', limit: 20 });
-        if (r.is_error) throw new Error(r.text || 'Jarvis said no.');
+        if (r.is_error) throw new Error(r.text || 'Eden said no.');
         const files = (JSON.parse(r.text).files || []).filter((f) => /\.(xlsx|xls|csv|tsv)$/i.test(f.path || f.name || ''));
         list.replaceChildren(...(files.length ? files.map((f) => el('button', { type: 'button', class: 'sh-file', onclick: () => { close(); openMacSheet(f.path); } }, ico('chart', 14), el('span', { 'data-no-i18n': '' }, f.name || f.path), el('small', { 'data-no-i18n': '' }, f.display || f.path))) : [el('div', 'muted', 'No spreadsheets matched.')]));
       } catch (e) { list.replaceChildren(el('div', 'sh-err', e.message)); }

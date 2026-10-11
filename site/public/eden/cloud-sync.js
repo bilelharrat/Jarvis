@@ -12,7 +12,7 @@
 // browser; images stay local (a placeholder travels; a conversation over ~1.4 MB isn't synced).
 
 import { state, ui, persistConversation } from './state.js';
-import { store } from './util.js';
+import { store, whileVisible } from './util.js';
 import { apiUrl, isMock } from './api.js';
 import { applyConv, removeConv } from './sync.js';
 import { merge, payload, syncable, stub, planList, onConflict, differs, MAX_ACCOUNT_JSON } from './sync-model.js';
@@ -204,10 +204,10 @@ function start() {
   addEventListener('eden:conv-opened', onOpened);
   addEventListener('focus', onVisible);
   document.addEventListener('visibilitychange', onVisible);
-  timer = setInterval(() => { if (document.visibilityState === 'visible') syncNow(); }, EVERY);
+  timer = whileVisible(syncNow, EVERY); // (no timer while hidden: onVisible syncs on coming back)
 }
 function stop() {
-  clearInterval(timer);
+  if (timer) timer();
   timer = null;
   clearTimeout(pushTimer);
   removeEventListener('eden:conv-saved', onSaved);

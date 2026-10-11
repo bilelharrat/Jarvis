@@ -4,14 +4,14 @@
 import './i18n.js'; // first of all: the page's language (French loads its strings before any module draws)
 import './practice.js'; // first: practice mode (the tour's sandbox) scopes storage before any module reads it
 import { keyStatus, providerGlyph } from './settings-model.js';
-import { $, el, ico, qsa, toast, copyText, copyRich, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
+import { $, el, ico, qsa, toast, lazy, whileVisible, copyText, copyRich, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
 import { LANGS, langPref, setLang, isFr, locale, t as tx } from './i18n.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
 // The apps page (J.A.R.V.I.S., Eden Messenger) lives on askeden.com; a local Eden links there.
 const DOWNLOAD_URL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? 'https://askeden.com/download' : '/download';
 import { initMail, connectGmail, emailText, queueTeamOpen } from './mail.js';
-import { openCompose, initSignatures } from './compose.js';
+import { openCompose, initSignatures } from './compose-entry.js'; // compose.js loads with the first email written (efficiency pass 2)
 import { initMailkit } from './mailkit.js';
 import { parseEmailDraft } from './md-plain.js';
 import { renderMessage, emptyState, ui_open, artifactsIn } from './render.js';
@@ -28,7 +28,7 @@ import { planCommand } from './plan.js';
 import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
 import { initPublish } from './publish.js';
 import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
-import { initCalendar, openCalendar, calendarReturnPending } from './calendar.js';
+import { initCalendar, openCalendar, calendarReturnPending, RETURN_KEY as CAL_RETURN_KEY } from './calendar-entry.js'; // calendar.js loads when it opens (efficiency pass 2)
 import { initMemory } from './memory.js';
 import { importLabel } from './import-label.js'; // the sidebar's "Imported from …" (the readers load with the Import dialog)
 import { initBrief, openBrief } from './brief.js';
@@ -49,24 +49,17 @@ import { initTour, startTour } from './tour.js'; // I1: the try-it tour
 import { reportFileName, reportTitle } from './research-model.js'; // Q2: the research report's title and file name
 import { decorateFirstRun, initFirstRun } from './first-run.js'; // Q4: the first minute
 import { initHelp, helpCommands, helpButton } from './help.js'; // Help Center: FAQ and Ask Help
-import { IN_APP, openAppSettings } from './native.js';
+import { IN_APP, openAppSettings, AI_CONSENT_WORDS, reviewAiConsent } from './native.js';
 import './edu-budget.js'; // its send extra (`eduOwn` on a course chat sent from here) must be on at startup, before Courses ever opens (R2C-6); small: util + api only
 
 /* ---------- features loaded when first used, not at startup (efficiency pass 1) ---------- */
 // Each module loads once and is handed what it needs from here; a load that fails (offline) says so and is tried again next time.
 // A background load (`{ quiet: true }`) fails without a word: only a load someone asked for says so (R2C-19).
-function lazy(load) {
-  let p = null;
-  return ({ quiet = false } = {}) => {
-    p ??= load().catch((e) => { p = null; throw e; });
-    return quiet ? p : p.catch((e) => { toast(`Couldn’t load that part of Eden: ${e.message}`); throw e; });
-  };
-}
 // Q3: share a chat as a read-only link (share.js, its model and share.css)
-const shareMod = lazy(() => import('./share.js').then((m) => { m.initShare({ openDialog, closeDialog }); return m; }));
+const shareMod = lazy(() => import('./share.js').then((m) => { m.initShare({ openDialog, closeDialog }); return m; }), [new URL('./share.js', import.meta.url).href]);
 const openShare = (c) => shareMod().then((m) => m.openShare(c), () => {});
 // Import chats from ChatGPT, Claude or Gemini (import-chatgpt.js and the three readers, import-chatgpt.css)
-const importMod = lazy(() => import('./import-chatgpt.js').then((m) => { m.initImportChatGPT({ openDialog, closeDialog, toast }); return m; }));
+const importMod = lazy(() => import('./import-chatgpt.js').then((m) => { m.initImportChatGPT({ openDialog, closeDialog, toast }); return m; }), [new URL('./import-chatgpt.js', import.meta.url).href]);
 const openImportChats = () => importMod().then((m) => m.openImportChats(), () => {});
 /** Settings › Memory: a line on what Import does and a button that opens the dialog. */
 function importCard() {
@@ -82,7 +75,7 @@ const browserMod = lazy(() => import('./browser-pane.js').then((m) => {
   m.initBrowserPane({ openSpace, addContext, sendMessage, focusComposer, openPalette });
   browserPane = m;
   return m;
-}));
+}), [new URL('./browser-pane.js', import.meta.url).href]);
 // Before the panel has loaded, a toggle means "open" (it's closed): decided now, not once loaded, so
 // a tap or ⌘⇧B during the load can't open it and shut it again after the reopen at init (R2C-19).
 const toggleBrowser = (force, ...rest) => {
@@ -818,6 +811,14 @@ function confirmDialog(text, okLabel, run, danger) {
       el('button', { type: 'button', class: 'btn', onclick: closeDialog }, 'Cancel'),
       el('button', { type: 'button', class: `btn ${danger ? 'danger' : 'primary'}`, onclick: () => { closeDialog(); run(); } }, okLabel))));
 }
+// The iPhone app has no OK for AI providers yet (caps.aiConsent === false): chat.js sends nothing and asks here.
+addEventListener('eden:ai-consent', () => {
+  openDialog('Allow AI providers?', el('div', '',
+    el('p', { style: { fontSize: '14px', lineHeight: '1.45', color: 'var(--text2)' } }, AI_CONSENT_WORDS),
+    el('div', { class: 'dlg-acts', style: { marginTop: '16px' } },
+      el('button', { type: 'button', class: 'btn', onclick: closeDialog }, 'Not now'),
+      el('button', { type: 'button', class: 'btn primary', onclick: () => { closeDialog(); reviewAiConsent(); } }, 'Review'))));
+});
 function editPersona(id) {
   const p = id ? persona(id) : null;
   const name = el('input', { type: 'text', maxlength: 60, placeholder: 'e.g. Code Reviewer' });
@@ -1051,7 +1052,7 @@ async function drawSettings() {
       el('div', 'about-chips', ver ? el('span', 'chip-s', `Version ${ver}`) : null, el('span', 'chip-s', hosted ? 'askeden.com' : 'On this Mac'), isMock ? el('span', 'chip-s warn', 'Mock mode') : null)),
     el('div', 'set-sec about',
       el('div', 'icard about-card',
-        el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Jarvis app on your Mac, and Code sessions for your projects.'),
+        el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Eden app on your Mac, and Code sessions for your projects.'),
         el('p', '', 'Voice: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
         state.meta && state.meta.scope ? el('p', '', state.meta.scope) : null,
         isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null),
@@ -1091,7 +1092,7 @@ async function drawAccounts(body) {
     el('code', { class: 'readout', style: { display: 'block', userSelect: 'all' } }, redirect),
     el('p', 'sp-note', 'Paste its client ID and secret here. They’re stored on this Mac by the server and never shown again. Then press Connect Gmail and sign in.')),
   el('div', 'set-sec', el('h3', '', 'Mail on your Mac'),
-    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Jarvis app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${state.jarvis.reason || 'open the Jarvis app on your Mac'}.`)));
+    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Eden app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${state.jarvis.reason || 'open the Eden app on your Mac'}.`)));
 }
 
 // askeden.com: Google is askeden.com's own sign-in client, so there's no client ID or secret to
@@ -1102,7 +1103,7 @@ function drawHostedAccounts(body, st) {
     try {
       const r = await api.googleConnect('calendar');
       if (!r || !r.url) { toast('Couldn’t start the Google sign-in'); return; }
-      try { sessionStorage.setItem('eden:cal:return', '1'); } catch { /* private mode */ } // calendar.js's RETURN_KEY: back to the Calendar
+      try { sessionStorage.setItem(CAL_RETURN_KEY, '1'); } catch { /* private mode */ } // back to the Calendar
       location.assign(r.url);
     } catch (e) { toast(`Couldn’t connect Google Calendar: ${e.message}`); }
   };
@@ -1115,7 +1116,7 @@ function drawHostedAccounts(body, st) {
       st.gmail || st.calendar ? el('div', 'dlg-acts', el('button', { type: 'button', class: 'cap rev', onclick: async () => { try { await api.googleDisconnect(); toast('Google disconnected'); drawAccounts(body); } catch (e) { toast(e.message); } } }, 'Disconnect Google')) : null),
     el('p', 'sp-note', 'On askeden.com, Eden asks Google for Gmail and for Calendar separately, through askeden.com’s own Google sign-in: there’s nothing to set up here. Your Google tokens are kept encrypted in your account and never reach this page; Disconnect also removes Eden’s access at Google.')),
   el('div', 'set-sec', el('h3', '', 'Mail on your Mac'),
-    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Jarvis app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${String(state.jarvis.reason || 'open the Jarvis app on your Mac').replace(/\.+$/, '')}.`)));
+    el('p', 'sp-note', state.jarvis.available ? 'Connected through the Eden app on your Mac: your Mail accounts show in the Mail panel.' : `Not connected: ${String(state.jarvis.reason || 'open the Eden app on your Mac').replace(/\.+$/, '')}.`)));
 }
 
 function keyRow(p, k) {
@@ -1540,7 +1541,7 @@ async function init() {
   // The Mac's line comes up some seconds after the page loads (Ask Eden for Mac links itself at launch): look again until it answers.
   const recheckJarvis = () => { const was = state.jarvis.available; return checkJarvis().then(() => { if (state.jarvis.available !== was) { renderSidebar(); renderComposer(); } }); };
   // Never two looks at once (checkJarvis shares the one in flight, 8 s at most), and none while the page is hidden (B1, C3).
-  setInterval(() => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); }, 8000);
+  whileVisible(() => { if (!state.jarvis.available) recheckJarvis().catch(() => {}); }, 8000); // (no timer at all while hidden)
   addEventListener('focus', () => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); });
   // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {
@@ -1549,7 +1550,7 @@ async function init() {
     // On every device, where the person is looking (a phone's sidebar is closed): A1, C2. The open panel says it too (panels.js).
     if (w) toast('Approve Eden on your Mac: it’s asking “Let Eden use Jarvis?”');
     $('jarvisState').classList.toggle('wait', w);
-    $('jarvisState').title = w ? 'Jarvis is asking “Let Eden use Jarvis?” on your Mac' : state.jarvis.available ? 'Connected through the Jarvis app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Jarvis app on your Mac isn’t reachable');
+    $('jarvisState').title = w ? 'Eden is asking “Let Eden use Jarvis?” on your Mac' : state.jarvis.available ? 'Connected through the Eden app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Eden app on your Mac isn’t reachable');
     $('jarvisStateText').textContent = w ? 'approve Eden on your Mac' : state.jarvis.available ? 'connected' : 'not connected';
   });
   if (isMock) document.title = 'Eden (mock)';

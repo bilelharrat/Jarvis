@@ -22,7 +22,7 @@ const live = (s) => s === 'waiting_owner' || s === 'running';
 
 async function jarvis(tool, args) {
   const r = await api.jarvis(tool, args);
-  if (r.is_error) throw new Error(r.text || 'The Jarvis app said no.');
+  if (r.is_error) throw new Error(r.text || 'The Eden app said no.');
   return JSON.parse(r.text);
 }
 
@@ -57,7 +57,7 @@ async function form(root, goal = '', start = '') {
       watch(root, r.id);
     } catch (err) { toast(err.message); go.disabled = false; }
   } },
-  el('div', 'field', 'What should Jarvis do on a website?', ta),
+  el('div', 'field', 'What should Eden do on a website?', ta),
   el('div', 'field', 'Start at', url),
   el('label', 'web-check', shots, el('span', '', 'Show pictures of the page here (you choose on your Mac too)')),
   el('div', 'dlg-acts', go));
@@ -71,7 +71,7 @@ async function form(root, goal = '', start = '') {
       el('span', 'act-ico', ico('globe', 15)),
       el('span', 'act-main', el('span', 'act-top', el('b', { 'data-no-i18n': '' }, t.goal), el('span', `web-pill s-${(STATUS[t.status] || STATUS.done).c}`, (STATUS[t.status] || { t: t.status }).t)),
         el('span', 'act-sub', `${t.steps} step${t.steps === 1 ? '' : 's'}`)))));
-  } catch { /* Jarvis away: the form says enough */ }
+  } catch { /* Eden away: the form says enough */ }
 }
 
 function watch(root, id) {
@@ -106,7 +106,7 @@ function watch(root, id) {
     let s;
     try { s = await jarvis('browser_task_status', { id, thumbnail: n++ % 2 === 0 }); } catch (e) {
       if (!root.isConnected) return;
-      if (/No browser task/.test(e.message)) { remember(''); form(root); toast('That task is gone (Jarvis restarted).'); return; }
+      if (/No browser task/.test(e.message)) { remember(''); form(root); toast('That task is gone (Eden restarted).'); return; }
       result.replaceChildren(el('div', 'sp-warn', el('b', '', 'Can’t reach your Mac'), e.message));
       timer = setTimeout(tick, POLL_MS * 2);
       return;

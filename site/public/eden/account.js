@@ -23,14 +23,14 @@
 
 import { $, el, svgEl, ico, toast } from './util.js';
 import { state, ui, deleteConversation } from './state.js';
-import { apiUrl, isMock } from './api.js';
+import { rawFetch, isMock } from './api.js';
 import { setActing } from './acting.js';
 import * as Sync from './sync.js';
 import * as Cloud from './cloud-sync.js';
 import { passphraseProblem, suggestPassphrase, verifyCode } from './eden-crypto.js';
 import { spacesSection, inviteCard, enableWorkflowSharing } from './spaces.js';
 import { publishedSection } from './publish.js';
-import { IN_APP } from './native.js';
+import { IN_APP, appPlus, appSellsPlus, onAppPlus } from './native.js';
 import { setPlanOffer } from './plan.js';
 import { locale, t, tr, isFr } from './i18n.js';
 // Included AI is shown as a share left, never in dollars.
@@ -64,8 +64,7 @@ const fill = (node, ...kids) => node.replaceChildren(...kids.filter((k) => k !==
 
 async function call(path, init = {}) {
   const opts = { cache: 'no-store', ...init, headers: { 'X-Jarvis-Chat': '1', ...(init.body ? { 'content-type': 'application/json' } : {}), ...(init.headers || {}) } };
-  if (isMock) return (await import('./mock.js')).mockFetch(path, opts);
-  return fetch(apiUrl(path), opts);
+  return rawFetch(path, opts);
 }
 
 async function read(res) {
@@ -620,8 +619,11 @@ function meter(leftUsd, totalUsd, label) {
     el('span', { class: 'fill', style: { width: `${(ratio * 100).toFixed(1)}%` } }));
 }
 
-// Where Plus was bought (the plan's `source`), as the plan's line says it.
-const SOURCE_WORDS = { app_store: 'bought in the iPhone app', stripe: 'billed on askeden.com', both: 'in the App Store and on askeden.com', promo: 'free with a promo code' };
+// Where Plus was bought (the plan's `source`), as the plan's line says it. In the iPhone app
+// askeden.com's billing is never named (App Store 3.1.1).
+const SOURCE_WORDS = IN_APP
+  ? { app_store: 'App Store subscription', stripe: 'on your Eden account', both: 'two subscriptions', promo: 'free with a code' }
+  : { app_store: 'bought in the iPhone app', stripe: 'billed on askeden.com', both: 'in the App Store and on askeden.com', promo: 'free with a promo code' };
 
 // Stripe Checkout or its Customer Portal: askeden.com makes the session, then the browser goes there.
 // kind: checkout ({ plan: "monthly" | "yearly" }), credits ({ pack }), or portal.
@@ -652,7 +654,8 @@ function showNote(text) {
   card.querySelector('button').focus();
 }
 
-// "Have a promo code?": free Plus for a while (accounts/promo.js). Works on the web page; the apps have their own.
+// "Have a promo code?": free Plus for a while (accounts/promo.js). Web only: in the iPhone app,
+// Apple's Redeem Code (App Store offer codes) instead (guideline 3.1.1).
 function promoRow() {
   const input = el('input', { type: 'text', class: 'inp', placeholder: 'EDEN-ABCD-2345', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', 'aria-label': 'Promo code', maxlength: '24' });
   const button = el('button', { type: 'button', class: 'cap primary' }, 'Redeem');
@@ -674,7 +677,7 @@ function promoRow() {
   return el('div', 'acct-row-actions acct-promo', el('span', 'acct-sub', 'Have a promo code?'), input, button);
 }
 
-function planSection(a, config = {}) {
+export function planSection(a, config = {}) { // (exported for its page test: account-iap.test.ts)
   const plan = a.plan || {};
   const u = a.usage || {};
   const plus = plan.active === true || plan.name === 'plus';
@@ -692,10 +695,14 @@ function planSection(a, config = {}) {
   const manageRow = manage.stripe || manage.app_store ? el('div', 'acct-row-actions acct-manage',
     portal ? el('button', { type: 'button', class: 'cap primary', onclick: (e) => openBilling(e.currentTarget, 'portal') }, 'Manage billing') : null,
     manage.stripe && !portal && !IN_APP ? el('span', 'acct-sub', 'Billing is managed at askeden.com in a browser.') : null, // never in the iOS app (App Store 3.1.1: C14)
-    manage.app_store ? el('a', { class: 'cap', href: manage.app_store, target: '_blank', rel: 'noopener' }, 'Manage in the App Store') : null) : null;
+    manage.app_store ? (appSellsPlus()
+      ? el('button', { type: 'button', class: 'cap', onclick: () => appPlus('manage') }, 'Manage Subscription')
+      : el('a', { class: 'cap', href: manage.app_store, target: '_blank', rel: 'noopener' }, 'Manage in the App Store')) : null) : null;
   const warnings = [
     plan.payment_failed ? el('div', 'sp-warn acct-notice', el('b', '', 'Your last payment didn’t go through'), portal ? 'Update your card in Manage billing, or Plus stops in a few days.' : IN_APP ? 'Update your payment method, or Plus stops in a few days.' : 'Update your card at askeden.com, or Plus stops in a few days.') : null,
-    plan.source === 'both' ? el('p', 'sp-note', 'You’re paying for Plus twice: in the App Store and on askeden.com. Cancel one of them.') : null,
+    plan.source === 'both' ? el('p', 'sp-note', IN_APP
+      ? 'You have Plus from two subscriptions: one in the App Store and one outside it. Cancel one so you’re not billed twice.'
+      : 'You’re paying for Plus twice: in the App Store and on askeden.com. Cancel one of them.') : null,
   ];
 
   let allowance;
@@ -717,7 +724,9 @@ function planSection(a, config = {}) {
   const price = usd(a.plus && typeof a.plus.price_usd === 'number' ? a.plus.price_usd : 10, null);
   const yearly = a.plus && typeof a.plus.yearly_usd === 'number' ? a.plus.yearly_usd : null;
   let getPlus = null;
-  if (!plus && web) {
+  const appStore = appSellsPlus(); // the iPhone app sells Plus itself: Apple's products only, never Stripe
+  if (appStore) getPlus = appPlusBlock(plan, included);
+  else if (!plus && web) {
     getPlus = el('div', 'acct-plus',
       el('div', 'grow',
         el('b', '', 'Plus'),
@@ -739,8 +748,61 @@ function planSection(a, config = {}) {
   return el('section', { class: 'set-sec', 'aria-labelledby': 'acctPlanH' }, el('h3', { id: 'acctPlanH', 'data-no-i18n': '' }, isFr ? 'Forfait' : 'Plan'),
     ...warnings.filter(Boolean),
     el('div', 'icard acct-card', head, allowance, manageRow),
-    el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Models & API keys).'), getPlus, promoRow(),
-    creditsSection(a, web));
+    el('p', 'sp-note', 'Chats on your own keys don’t use your allowance (Settings › Models & API keys).'), getPlus, IN_APP ? null : promoRow(),
+    creditsSection(a, web && !appStore));
+}
+
+// Eden Plus in the iPhone app: Apple's products and prices (native.js plus.*), Subscribe, Restore
+// Purchases, Manage Subscription, Redeem Code, and the subscription terms Apple requires (3.1.2).
+// Never a web or Stripe price here (3.1.1). The app's `error`/`notice` texts come localized.
+let stopPlus = null;
+let plusSeen = null; // the app's last word on whether Plus is active: a change redraws the account once
+function appPlusBlock(plan, included) {
+  const box = el('div', 'acct-plus acct-iap', el('div', 'grow', el('b', '', 'Eden Plus'), el('p', 'acct-sub', t('Loading…'))));
+  const per = (p) => (p.period === 'year' ? t('year') : p.period === 'week' ? t('week') : p.period === 'day' ? t('day') : t('month'));
+  const btn = (label, op, extra, cls = 'cap') => el('button', { type: 'button', class: cls, onclick: () => appPlus(op, extra) }, label);
+  const draw_ = (s) => {
+    if (!document.contains(box)) { if (stopPlus) { stopPlus(); stopPlus = null; } return; }
+    const products = Array.isArray(s.products) ? s.products.filter((x) => x && typeof x.id === 'string') : [];
+    const p = s.plan || plan || {};
+    const active = p.active === true;
+    // after a purchase, restore, refund or offer code: the account (allowance, plan line) is read again, once
+    if (s.plan && plusSeen !== null && plusSeen !== active) { plusSeen = active; draw(); return; }
+    if (s.plan) plusSeen = active;
+    const has = (active && p.source !== 'promo') || s.entitled === true; // StoreKit already holds Eden Plus (R3-7)
+    const busy = s.purchasing || s.restoring;
+    const buy = has || !products.length ? null : el('div', 'acct-plus-btns', ...products.map((x, i) => {
+      const b = btn(s.purchasing && s.product === x.id ? t('Subscribing…') : `${t('Subscribe')}: ${x.displayPrice}/${per(x)}`, 'buy', { product: x.id }, i ? 'btn' : 'btn primary');
+      b.setAttribute('data-no-i18n', '');
+      if (busy) b.disabled = true;
+      return b;
+    }));
+    const prices = products.map((x) => `${x.displayPrice}/${per(x)}`).join(t(' or '));
+    const terms = el('p', 'sp-note acct-iap-terms',
+      products.length ? `${t('Eden Plus is an auto-renewing subscription')}: ${prices}. ` : '',
+      t('Payment is charged to your Apple Account when you confirm the purchase. The subscription renews automatically at the same price for the same period unless auto-renew is turned off at least 24 hours before the end of the current period; your account is charged for the renewal within 24 hours before the end of the period. Cancel or change it any time in Manage Subscription (or Settings › your name › Subscriptions).'),
+      ' ',
+      el('a', { href: '/terms', target: '_blank', rel: 'noopener' }, t('Terms of Use (EULA)')),
+      ' · ',
+      el('a', { href: '/privacy', target: '_blank', rel: 'noopener' }, t('Privacy Policy')));
+    terms.setAttribute('data-no-i18n', ''); // put together from t() already (prices are Apple's)
+    box.replaceChildren(...[ // (replaceChildren would show a null as "null")
+      el('div', 'grow',
+        el('b', '', 'Eden Plus'),
+        el('p', '', `Includes ${included} of AI every month.`)),
+      buy,
+      el('div', 'acct-row-actions',
+        btn(s.restoring ? t('Restoring…') : t('Restore Purchases'), 'restore'),
+        btn(t('Manage Subscription'), 'manage'),
+        btn(t('Redeem Code'), 'redeem')),
+      s.error ? el('p', 'sp-warn acct-notice', String(s.error)) : s.notice && !s.pending ? el('p', 'sp-note', String(s.notice)) : null, // pending says it once, below
+      s.pending ? el('p', 'sp-note', t('Waiting for approval (Ask to Buy).')) : null,
+      terms].filter(Boolean));
+  };
+  if (stopPlus) stopPlus();
+  stopPlus = onAppPlus(draw_);
+  appPlus('products'); // the app answers plus.state with Apple's products and the plan
+  return box;
 }
 
 /* ---------- credits: pay as you go, after the included AI ---------- */
@@ -761,6 +823,7 @@ async function setAutoTopUp(input, on) {
 }
 
 function creditsSection(a, web) {
+  if (IN_APP) return null; // the iPhone app never sells or mentions credits (R3C-7; they're still spent normally)
   const c = a.credits;
   const offer = a.plus || {};
   const packs = web && Array.isArray(offer.credit_packs) ? offer.credit_packs : [];

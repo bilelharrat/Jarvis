@@ -10,7 +10,7 @@
 // The reading and converting is import-chatgpt-model.js, import-claude-model.js and
 // import-gemini-model.js; which export a file is, import-sources-model.js.
 
-import { el } from './util.js';
+import { el, addStylesheet } from './util.js';
 import { locale } from './i18n.js';
 import { state, ui, attachmentData, addConversation, saveConversation, savePersonas, flushed } from './state.js';
 import { api } from './api.js';
@@ -28,11 +28,7 @@ const MAX_SIDE = 1280; // kept images are shrunk to this and stored as JPEG
 
 export function initImportChatGPT(h) {
   host = { ...host, ...h };
-  if (!document.querySelector('link[data-imp]')) {
-    const l = el('link', { rel: 'stylesheet', href: new URL('./import-chatgpt.css', import.meta.url).href });
-    l.dataset.imp = '1';
-    document.head.append(l);
-  }
+  addStylesheet(new URL('./import-chatgpt.css', import.meta.url).href, 'import');
   // app.js loads this module when it's first needed and calls hydrateImport() as an imported chat opens
 }
 

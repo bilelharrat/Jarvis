@@ -1,5 +1,19 @@
 /* Mail (mail.js): a sticky head, the list beside a reading pane on a wide panel (one pane on a
    phone), sender avatars, day groups, Eden's card (Summarize, Rank by priority) and its digest. */
+/* Mail panel extras (mail.js): scheduled sends and draft badges (from compose.css, which now loads with the first email written) */
+.mail-badge{display:inline-block;font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:9px;margin-left:6px;background:var(--accent-soft);color:var(--accent);white-space:nowrap;vertical-align:1px}
+.mail-badge.warn{background:rgba(255,159,10,.14);color:var(--warn)}
+.mail-badge.bad{background:rgba(255,69,58,.12);color:var(--danger)}
+.mail-badge.ok{background:rgba(48,209,88,.14);color:var(--run)}
+.mail-sched{display:flex;flex-direction:column;gap:3px;padding:9px 10px;border-bottom:.5px solid var(--sep)}
+.mail-sched .ms-top{display:flex;gap:8px;align-items:baseline;font-size:13px}
+.mail-sched .ms-top b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.mail-sched .ms-when{font-size:11.5px;color:var(--text2);white-space:nowrap}
+.mail-sched .ms-sub{font-size:11.5px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-sched .ms-err{font-size:11.5px;color:var(--text2);line-height:1.4}
+.mail-sched .ms-acts{display:flex;gap:6px;margin-top:3px}
+.mail-acts-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.mail-acts-row .grow{flex:1}
 
 #spacePanel.mailp{width:min(1120px,95vw);height:min(800px,88vh);height:min(800px,88dvh);max-height:none}
 #spacePanel.mailp .sp-head{border-bottom:0;padding-bottom:6px}
@@ -221,7 +235,19 @@
   .mx-bar .seg{order:1;flex:1 1 100%}
   .mail-who{order:2}
   .mx-acct{order:2}
-  .mx-new{order:3;padding:6px 12px}
+  .mail-who{flex:1 1 auto;min-width:0}
+  .mx-gear{order:3}
+  .mx-new{order:4;padding:6px 12px}
+  /* Eden's inbox card: two chips a row, none cut off at the edge */
+  .mx-eden-acts{flex-wrap:wrap}
+  .mx-eden-acts .mx-chip{flex:1 1 calc(50% - 3px);min-width:0}
+  .mx-eden-acts .mx-chip span{overflow:hidden;text-overflow:ellipsis}
+  /* an email's Eden row: the label, then the actions in an even two-column grid */
+  .mv-eden{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .mv-eden-l{grid-column:1/-1;padding:2px 4px}
+  .mv-eden .mx-chip{justify-content:center;min-width:0;height:34px}
+  .mv-eden .mx-chip span{overflow:hidden;text-overflow:ellipsis}
+  .mv-eden > .mx-chip:last-child:nth-child(even){grid-column:1/-1}
   .mx-search{flex:1 1 100%;order:-1;height:36px}
   .mx-search kbd{display:none}
   .mx-folders{flex:1 1 100%}

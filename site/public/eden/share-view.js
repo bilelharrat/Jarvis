@@ -8,6 +8,10 @@ import { openSnapshot, keyFromHash, idFromPath } from './share-model.js';
 import { renderSnapshot, wireSnapshot } from './share-render.js';
 
 const main = document.getElementById('shr');
+// "Report this chat" (App Store 1.2): an email to support naming this page. The link's key (after the #) is not
+// added: the server can't read the chat, and the reporter decides whether to send the full link.
+const report = document.getElementById('shrReport');
+if (report) report.href = `mailto:support@askeden.com?subject=${encodeURIComponent('Report a shared Eden chat')}&body=${encodeURIComponent(`${location.origin}${location.pathname}\n\nWhat is wrong with it:\n`)}`;
 const say = (title, words) => { main.replaceChildren(el('div', 'shr-note-box', el('h1', 'shr-title', title), el('p', 'shr-note', words))); document.title = `${title} · Eden`; };
 
 async function show() {

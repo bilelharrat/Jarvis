@@ -147,7 +147,7 @@ function fetchMentions(q) {
       if (mentionQuery !== q) return;
       mentionItems = notes.slice(0, 8).map((n) => ({ label: n.title, help: `Note · ${n.meta}`, value: n.title, note: n }));
       renderSuggestions();
-    } catch { /* Jarvis away: no notes */ }
+    } catch { /* Eden away: no notes */ }
   }, 250);
 }
 
@@ -408,10 +408,14 @@ const streamingNow = () => { const c = state.current; return !!(c && state.strea
 async function takeShare(d) {
   // a fresh share's own new chat, pressed now that it's this share's turn (not when it arrived: a
   // share queued behind another would otherwise switch that one's chat under it, R2C-9)
-  if (d.fresh) { const b = document.getElementById('btnNew'); if (b) b.click(); }
   const inp = input();
   const hadDraft = !!(inp.value.trim() || attachments.length || reading.size);
-  if (d.fresh) { attachments = []; state.draftContext = []; renderAttachments(); } // only what was shared goes
+  const before = state.current;
+  if (d.fresh) { const b = document.getElementById('btnNew'); if (b) b.click(); }
+  // New chat makes no new chat when this one is empty already: what's in its composer (an earlier share, or the
+  // person's own words) stays, and this share is added to it (R3-2)
+  const addTo = hadDraft && (!d.fresh || state.current === before);
+  if (d.fresh && !addTo) { attachments = []; state.draftContext = []; renderAttachments(); } // only what was shared goes
   for (const f of (Array.isArray(d.files) ? d.files : []).slice(0, MAX_FILES)) {
     let file = null;
     try {
@@ -425,7 +429,7 @@ async function takeShare(d) {
   }
   for (let waited = 0; reading.size && waited < 10000; waited += 50) await new Promise((r) => setTimeout(r, 50));
   const text = stripBidi(String(d.prompt || ''));
-  const keep = hadDraft && !d.fresh; // a link over a draft: added to it, never sent
+  const keep = addTo; // a link, or a second share into an empty chat, over a draft: added to it, never sent
   if (text) setComposerText(text, { append: keep }); else focusComposer();
   if (d.send && text.trim() && !keep) {
     // a reply still streaming takes only words (attachments wait for a new message): this share waits for it, two minutes at most

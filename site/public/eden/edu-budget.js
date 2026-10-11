@@ -90,7 +90,7 @@ export async function budgetTab(pane, c, { names = false } = {}) {
   } },
   el('label', { class: 'crs-field', for: 'crsBudget' }, 'Monthly course budget (US dollars, AI cost)', monthly),
   el('label', { class: 'crs-field', for: 'crsDaily' }, 'Each student, at most a day', daily),
-  el('p', 'sp-note', 'It comes out of your own Eden Plus allowance first, then your credits; askeden.com never charges a card for it. Students use it first, then their free daily allowance. Set $0 to stop funding.'),
+  el('p', 'sp-note', 'It comes out of your own included AI first, then any credits on your account; askeden.com never charges a card for it. Students use it first, then their free daily allowance. Set $0 to stop funding.'),
   el('div', 'edu-own-acts',
     d.funded ? el('button', { type: 'button', class: 'btn', onclick: async () => {
       try { await postJSON(`${BASE}/${c.id}/budget`, { paused: !d.paused }); toast(d.paused ? 'Budget resumed' : 'Budget paused'); budgetTab(pane, c, { names }); } catch (err) { toast(err.message); }
