@@ -664,7 +664,7 @@
   function busy(on) {
     document.body.classList.toggle('busy', on);
     for (const b of document.querySelectorAll('#actions .chip')) b.disabled = on;
-    $('send').textContent = on ? '■' : '↑';
+    $('send').classList.toggle('stop', on); // the ↑ becomes ■ (both drawn in the button; the CSS shows one)
     $('send').setAttribute('aria-label', on ? t('stop') : t('ask'));
     $('send').title = on ? t('stop') : t('ask');
     $('log').setAttribute('aria-busy', on ? 'true' : 'false');
@@ -1017,6 +1017,9 @@
     const res = reply.result;
     const job = reply.job;
     if (reply.applying || live) return;
+    // A double-click's second press is not the "press again" (R1X5): the confirmation must be read first. The
+    // layout no longer moves the button out from under the pointer when the warning appears.
+    if (reply.askedAt && Date.now() - reply.askedAt < 700) return;
     reply.applying = true;
     render({ focus: reply });
     try {
@@ -1113,6 +1116,7 @@
       res.warn = t('cantWrite', { why: error && error.message ? ` (${error.message})` : '' });
     }
     reply.applying = false;
+    reply.askedAt = res.confirm && !res.done ? Date.now() : 0;
     render({ focus: reply });
     announce(res.done || res.warn || res.confirm || '');
   }
@@ -1265,7 +1269,7 @@
     $('input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-        if (!live) submit(); // Enter never stops an answer; the ■ button does
+        if (!live) submit(); // Enter never stops an answer; the ■ (Stop) button does
       }
     });
     $('input').addEventListener('input', grow);
@@ -1316,7 +1320,25 @@
     });
   }
 
+  /** Office's theme when it says one (Excel's Dark Gray or Black): light or dark by its background. Without
+   *  it the pane follows the system (prefers-color-scheme in the CSS). */
+  function followTheme() {
+    const theme = globalThis.Office && Office.context && Office.context.officeTheme;
+    const hex = theme && /^#?([0-9a-f]{6})$/i.exec(String(theme.bodyBackgroundColor || '').trim());
+    if (!hex) return void document.documentElement.removeAttribute('data-theme');
+    const n = parseInt(hex[1], 16);
+    const light = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+    document.documentElement.dataset.theme = light < 0.5 ? 'dark' : 'light';
+  }
+
   function start(info) {
+    followTheme();
+    try {
+      const doc = Office.context.document;
+      if (doc && Office.EventType && Office.EventType.OfficeThemeChanged) doc.addHandlerAsync(Office.EventType.OfficeThemeChanged, followTheme, () => {});
+    } catch {
+      // Excel without the theme event: the theme read at start stays
+    }
     inExcel = Boolean(info && globalThis.Office && info.host === Office.HostType.Excel);
     const lang = (globalThis.Office && Office.context && Office.context.displayLanguage) || navigator.language;
     t = X.wordsFor(lang);
