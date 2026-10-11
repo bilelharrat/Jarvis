@@ -122,23 +122,55 @@
     $('connectBtn').textContent = t(busyNow ? 'connecting' : 'connect');
   }
 
-  // Connect's timing: the relay is looked at about every 1.5 s while the window is open; after Office says
-  // it closed (12006), more and more slowly (up to every 5 s) for 5 minutes (R2X1). Tests shorten them.
-  const connectTiming = { pollMs: 1500, maxPollMs: 5000, waitMs: 5 * 60_000, openMs: 10 * 60_000, lateMs: 10 * 60_000 };
-  let late = null; // { mine, until }: an attempt that ran out of time; a code relayed later still connects
+  // Connect's timing: the relay is looked at about every 1.5 s while the window is open; after Excel on the
+  // web says it closed (12006), more and more slowly (up to every 5 s) for 5 minutes (R2X1); after that, every
+  // 10 s for 10 minutes, so a late sign-in still connects by itself (R3X8). A look gives up after 8 s and the
+  // code's exchange after 15 s, so a stuck connection never stops Connect (R3X5). Tests shorten them.
+  const connectTiming = { pollMs: 1500, maxPollMs: 5000, waitMs: 5 * 60_000, openMs: 10 * 60_000, lateMs: 10 * 60_000, latePollMs: 10_000, lookMs: 8000, redeemMs: 15_000 };
+  let late = null; // { mine, until, timer }: an attempt that ran out of time; a code relayed later still connects
 
-  /** The relay's code for a state, or null (nothing yet, offline, busy). */
-  async function take(state) {
+  /** A fetch and its JSON body, given up after `ms`: { res, body } or null (offline, too slow). */
+  async function fetchJson(ms, url, init) {
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), ms);
     try {
-      const res = await fetch('/api/eden/relay/take', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ state }) });
-      if (res.status === 200) {
-        const body = await res.json().catch(() => ({}));
-        if (typeof body.code === 'string' && body.code) return body.code;
-      }
+      const res = await fetch(url, { ...init, signal: stop.signal });
+      return { res, body: await res.json().catch(() => ({})) };
     } catch {
-      // offline for a moment: the next poll tries again
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
-    return null;
+  }
+
+  /** One look at the relay for a state: { code }, { wait } (a 429: at least its Retry-After, ms), or {} (nothing yet, offline, too slow). */
+  async function take(state) {
+    const got = await fetchJson(connectTiming.lookMs, '/api/eden/relay/take', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ state }) });
+    if (!got) return {};
+    if (got.res.status === 429) {
+      const secs = Number(got.res.headers.get('retry-after'));
+      return { wait: Number.isFinite(secs) && secs > 0 ? Math.min(secs, 60) * 1000 : connectTiming.maxPollMs };
+    }
+    const code = got.res.status === 200 && got.body && got.body.code;
+    return typeof code === 'string' && code ? { code } : {};
+  }
+
+  /** The attempt that ran out of time is looked at every few seconds until its time is up (one look at a time, R3X8). */
+  function lookLate(rec, wait = 0) {
+    clearTimeout(rec.timer);
+    rec.timer = setTimeout(async () => {
+      if (late !== rec || token || Date.now() > rec.until) return;
+      const got = await take(rec.mine.state);
+      if (late !== rec || token) return;
+      if (!got.code) return lookLate(rec, got.wait);
+      forgetLate();
+      await redeem(got.code, rec.mine.verifier);
+    }, Math.max(connectTiming.latePollMs, wait));
+  }
+
+  function forgetLate() {
+    if (late) clearTimeout(late.timer);
+    late = null;
   }
 
   /** A note while connecting: the words and a Cancel that ends it (R2X14: a Cancel on the web never reaches the pane). */
@@ -172,7 +204,7 @@
     freshPkce();
     // An earlier attempt that ran out of time is still looked at for a while: its code may come late.
     const earlier = late && late.until > Date.now() ? late.mine : null;
-    late = null;
+    forgetLate(); // this attempt looks at it now
     const job = { mine, earlier, dialog: null, timer: 0, done: false, delay: connectTiming.pollMs, until: Date.now() + connectTiming.openMs };
     connecting = job;
     job.end = (words, kind = 'warn', { keep = false } = {}) => {
@@ -186,7 +218,7 @@
       }
       job.dialog = null;
       if (connecting === job) connecting = null;
-      if (keep) late = { mine, until: Date.now() + connectTiming.lateMs };
+      if (keep) lookLate((late = { mine, until: Date.now() + connectTiming.lateMs, timer: 0 }));
       connectButton(false);
       note(words || '', { kind: words ? kind : '' });
     };
@@ -196,24 +228,30 @@
       await redeem(code, verifier);
     };
     job.poll = async () => {
-      // One look at a time, then one timer: a window opened again during a look sets a timer too.
+      // One look at a time, then one timer: a window opened again during a look sets a timer too. Each look
+      // ends within lookMs, and the next one is set whatever happened, after a 429's Retry-After (R3X5).
       if (job.done || job.looking) return;
       job.looking = true;
+      let wait = 0;
       try {
-        const code = await take(mine.state);
-        if (code) return job.got(code);
-        if (job.earlier && !job.done) {
+        const now = await take(mine.state);
+        if (now.code) return job.got(now.code);
+        wait = now.wait || 0;
+        if (job.earlier && !job.done && !wait) {
           const old = await take(job.earlier.state);
-          if (old) return job.got(old, job.earlier.verifier);
+          if (old.code) return job.got(old.code, job.earlier.verifier);
+          wait = old.wait || 0;
         }
       } finally {
         job.looking = false;
+        if (!job.done) job.next(wait);
       }
-      if (job.done) return;
+    };
+    job.next = (wait) => {
       if (Date.now() > job.until) return job.end(t('connectExpired'), 'warn', { keep: true });
       if (!job.dialog) job.delay = Math.min(connectTiming.maxPollMs, Math.round(job.delay * 1.3));
       clearTimeout(job.timer);
-      job.timer = setTimeout(job.poll, job.delay);
+      job.timer = setTimeout(job.poll, Math.max(job.delay, wait));
     };
     openDialog(job, ui);
   }
@@ -270,8 +308,12 @@
         } catch {
           // already closed
         }
-        if (arg.error === 12006) {
-          // Closed, or cut off from the pane by a sign-in page: the person may still be signing in there.
+        // Excel on the web reports 12006 when a sign-in page cuts the window off from the pane: the person may
+        // still be signing in there. On Windows, Mac and iPad, the window is Office's own: 12006 means it was
+        // closed, so it ends as before (R3X7). An unknown platform waits, the safe side for connecting.
+        const platform = globalThis.Office && Office.context && Office.context.platform;
+        const web = !platform || platform === ((Office.PlatformType && Office.PlatformType.OfficeOnline) || 'OfficeOnline');
+        if (arg.error === 12006 && web) {
           job.waiting = true;
           job.until = Date.now() + connectTiming.waitMs;
           connectButton(false);
@@ -279,12 +321,15 @@
           announce(t('connectWaiting'));
           return;
         }
-        // The page didn't load, or another error: the code may still be on its way (a few more looks).
+        // Closed, the page didn't load, or another error: the code may still be on its way (a few more looks).
+        // Connect pressed meanwhile opens a window that carries the attempt on.
         clearTimeout(job.timer);
-        for (let i = 0; i < 3 && !job.done; i++) {
-          const code = await take(mine.state);
-          if (code) return job.got(code);
-          await X.sleep(connectTiming.pollMs);
+        for (let i = 0; i < 3; i++) {
+          const got = await take(mine.state);
+          if (job.done || job.dialog) return;
+          if (got.code) return job.got(got.code);
+          await X.sleep(Math.max(connectTiming.pollMs, got.wait || 0));
+          if (job.done || job.dialog) return;
         }
         job.end(arg.error === 12002 || arg.error === 12003 ? t('cantLoadSignIn') : t('signInClosed'));
       });
@@ -292,21 +337,12 @@
   }
 
   async function redeem(code, verifier) {
-    let res;
-    try {
-      res = await fetch('/api/eden/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(X.tokenBody({ code, verifier, origin: location.origin })) });
-    } catch {
-      return warn(X.errorWords(0, '', '', t).words);
-    }
-    let answer = {};
-    try {
-      answer = await res.json();
-    } catch {
-      answer = {};
-    }
-    if (!res.ok || !X.saveToken(undefined, answer)) return warn(t('connectUnfinished'));
+    const got = await fetchJson(connectTiming.redeemMs, '/api/eden/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(X.tokenBody({ code, verifier, origin: location.origin })) });
+    if (!got) return warn(X.errorWords(0, '', '', t).words);
+    const answer = got.body || {};
+    if (!got.res.ok || !X.saveToken(undefined, answer)) return warn(t('connectUnfinished'));
     token = answer.access_token;
-    late = null;
+    forgetLate();
     setConnected(true);
     note(t('connected'), { kind: 'ok' });
     // Cells that asked before the connection: work them out again (answers already saved stay saved).
@@ -343,6 +379,7 @@
     $('menu').open = false;
     const old = token;
     token = null;
+    forgetLate();
     X.forgetToken();
     // Saved cell answers came from this account's asks: they go with it.
     if (globalThis.EdenCells) EdenCells.clearSaved();
@@ -427,10 +464,10 @@
   }
 
   /**
-   * A range's cells in one round trip with how many of its rows (and `columns`) are hidden or filtered,
-   * (`right`) the column to its right, and (`beside`, a range on the same rows) its cells and hidden rows.
-   * If Excel can't give an extra, the cells are read alone, then the hidden count on its own (0 when Excel
-   * can't say); `next` and `besideHidden` are then null.
+   * A range's cells in one round trip with how many of its rows (and `columns`) are hidden or filtered
+   * (`hidden`, and `view`: { rows, columns }), (`right`) the column to its right, and (`beside`: { range,
+   * width } on the same rows) its cells and its hidden { rows, columns }. If Excel can't give an extra, the
+   * cells are read alone, then the hidden count on its own (0 when Excel can't say); `next` and `beside` are then null.
    */
   async function cellsWith(context, range, fields, rows, columns, right, beside) {
     const viewOf = (r) => {
@@ -445,7 +482,7 @@
     try {
       view = viewOf(range);
       if (right) (next = range.getLastColumn().getOffsetRange(0, 1)).load('address');
-      if (beside) besideView = viewOf(beside.load(fields) || beside);
+      if (beside) besideView = viewOf(beside.range.load(fields) || beside.range);
       await context.sync();
     } catch {
       next = null;
@@ -459,8 +496,21 @@
         view = null;
       }
     }
-    const hiddenIn = (v, cols) => (v ? Math.max(0, rows - v.rowCount) + Math.max(0, cols - v.columnCount) : 0);
-    return { hidden: hiddenIn(view, columns), next, besideHidden: besideView ? hiddenIn(besideView, 0) : null };
+    const hiddenIn = (v, cols) => (v ? { rows: Math.max(0, rows - v.rowCount), columns: Math.max(0, cols - v.columnCount) } : { rows: 0, columns: 0 });
+    const own = hiddenIn(view, columns);
+    return { hidden: own.rows + own.columns, view: own, next, beside: besideView ? hiddenIn(besideView, beside.width) : null };
+  }
+
+  /** Which of a range's `width` columns are hidden (one more trip, only when `some` are): [true|false], or null. */
+  async function hiddenColumns(context, range, width, some) {
+    if (!some) return null;
+    try {
+      const cols = Array.from({ length: width }, (_, i) => range.getColumn(i).load('columnHidden'));
+      await context.sync();
+      return cols.map((col) => col.columnHidden === true);
+    } catch {
+      return null;
+    }
   }
 
   const tooLong = (range, at, action) => t('cellTooLong', { cell: X.cellName(X.topLeftOf(range.address), at[0], at[1]), action: t(action).toLowerCase(), n: t.n(X.LIMITS.cellChars) });
@@ -499,7 +549,7 @@
       // right of the data (so empty) reads the columns beside it in the same trip.
       const fields = action === 'clean' || action === 'fill' ? 'address,values,text,formulas,numberFormat' : 'address,values,text,numberFormat';
       const beside = action === 'fill' && dim.columnCount === 1 && !used.isNullObject && dim.columnIndex >= used.columnIndex + used.columnCount ? besideOf(ws, dim, used) : null;
-      const got = await cellsWith(context, range, fields, dim.rowCount, dim.columnCount, action === 'fill', beside && beside.range);
+      const got = await cellsWith(context, range, fields, dim.rowCount, dim.columnCount, action === 'fill', beside);
       const long = action === 'fill' || action === 'clean' ? X.longCell(range.values, action === 'clean') : null;
       if (long) return { error: tooLong(range, long, action) };
       let values = X.gridOf(range.values, range.text, range.numberFormat);
@@ -513,12 +563,19 @@
           // One empty column selected: fill it from the filled columns right next to it, on the same rows
           // (at most LIMITS.fillColumns, up to the first empty column), never the whole sheet to its left (R2X5).
           if (used.isNullObject || used.columnIndex >= dim.columnIndex) return { error: t('fillWhere') };
-          const read = got.besideHidden !== null;
+          const read = got.beside !== null;
           const { width, range: near } = read ? beside : besideOf(ws, dim, used);
-          const nearHidden = read ? got.besideHidden : (await cellsWith(context, near, fields, dim.rowCount, 0, false)).hidden;
+          const nearHidden = read ? got.beside : (await cellsWith(context, near, fields, dim.rowCount, width, false)).view;
           const grid = X.gridOf(near.values, near.text, near.numberFormat);
-          let k = 0; // filled columns next to the selection
-          while (k < width && X.hasData(grid.map((row) => [row[width - 1 - k]]))) k++;
+          // Hidden columns among them (R3X6): one with data is sent only after the hidden notice, as when it's
+          // selected; a hidden empty one doesn't end the columns next to the selection (on screen, they touch).
+          const hiddenCol = await hiddenColumns(context, near, width, nearHidden.columns);
+          const filledAt = (j) => X.hasData(grid.map((row) => [row[j]]));
+          let k = 0; // the columns next to the selection, up to the last filled one before an empty one shown
+          for (let n = 0; n < width; n++) {
+            if (filledAt(width - 1 - n)) k = n + 1;
+            else if (!hiddenCol || !hiddenCol[width - 1 - n]) break;
+          }
           if (!k) return { error: t('fillEmptyLeft') };
           const pick = (g) => g.map((row) => row.slice(width - k));
           const longLeft = X.longCell(pick(near.values));
@@ -529,7 +586,9 @@
           job.target = address;
           address = from;
           job.source = address;
-          hidden = nearHidden;
+          // Can't tell which columns are hidden: count them all (the notice errs on the side of saying).
+          const sentHidden = hiddenCol ? hiddenCol.filter((h, j) => h && j >= width - k && filledAt(j)).length : nearHidden.columns;
+          hidden = nearHidden.rows + sentHidden;
         } else {
           let target = got.next;
           if (!target) {
@@ -738,14 +797,14 @@
           }
           throw { status: res.status, info, used };
         }
-        // With a trailer (x-eden-trailer: 1 back): the answer, then U+0000 and how it ended, as JSON, so a cut-off,
-        // a refusal and a dropped connection each get their own words (R2X13). Without one (an older Worker), a
-        // clean close is a whole answer and an error is a break.
-        const trailed = res.headers.get('x-eden-trailer') === '1';
+        // The answer, then U+0000 and how it ended, as JSON, so a cut-off, a refusal and a dropped connection each
+        // get their own words (R2X13). The request asked for it, so the stream is split at U+0000 even when a proxy
+        // dropped the x-eden-trailer header (the answer's own text never holds one), and a stream with no U+0000
+        // broke off: trailer text never reaches a cell (R3X4). This pane is served by the same Worker that answers.
         let tail = null;
         const feed = (text) => {
           if (tail !== null) return void (tail += text);
-          const at = trailed ? text.indexOf(X.TRAILER) : -1;
+          const at = text.indexOf(X.TRAILER);
           if (at < 0) return void (text && onText(text));
           if (at) onText(text.slice(0, at));
           tail = text.slice(at + 1);
@@ -764,7 +823,6 @@
           if (abort.signal.aborted) throw { stopped: true };
           throw timedOut ? { timeout: true } : { broken: true };
         }
-        if (!trailed) return;
         const end = X.trailerOf(tail);
         if (end.complete) return;
         if (end.timeout) throw { timeout: true };
@@ -916,8 +974,11 @@
         const w = X.cellWrite(text, 'auto', { lang: t.lang });
         const was = formats && formats[r] ? formats[r][c] : 'General';
         const general = was === 'General' || (was === '@' && typeof w.v !== 'string');
+        // A number in a date or time format would show as a date (42 → 2/11/1900), and a percentage Eden wrote
+        // keeps its % whatever the cell had (R3X9). Other formats are the person's: kept.
+        const reset = typeof w.v === 'number' && (X.isDateFormat(was) || /%$/.test(w.format || ''));
         values[r].push(w.v);
-        numberFormat[r].push(w.asText ? '@' : general ? w.format || 'General' : was);
+        numberFormat[r].push(w.asText ? '@' : general || reset ? w.format || 'General' : was);
       });
     });
     return { values, numberFormat };

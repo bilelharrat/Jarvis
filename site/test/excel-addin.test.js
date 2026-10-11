@@ -87,8 +87,8 @@ test('connect on Excel on the web: the landing page relays the code, the pane po
   assert.match(landing, /fetch\('\/api\/eden\/relay', \{ method: 'POST', headers: \{ 'content-type': 'application\/json' \}, body: JSON\.stringify\(\{ state, code \}\) \}\)/);
   assert.match(landing, /try \{\s*ui\.messageParent/, 'messageParent can throw: caught (R1X29)');
   const pane = read('taskpane.js');
-  assert.match(pane, /fetch\('\/api\/eden\/relay\/take', \{ method: 'POST', headers: \{ 'content-type': 'application\/json' \}, body: JSON\.stringify\(\{ state \}\) \}\)/);
-  assert.match(pane, /const code = await take\(mine\.state\)/);
+  assert.match(pane, /fetchJson\(connectTiming\.lookMs, '\/api\/eden\/relay\/take', \{ method: 'POST', headers: \{ 'content-type': 'application\/json' \}, body: JSON\.stringify\(\{ state \}\) \}\)/);
+  assert.match(pane, /const now = await take\(mine\.state\);\s*if \(now\.code\) return job\.got\(now\.code\);/);
   assert.match(pane, /pollMs: 1500/, 'about every 1.5 s while the dialog is open');
   assert.match(pane, /12007 \? t\('finishSignIn'\)/, 'a second Connect while one is open (R1X44)');
   assert.match(pane, /12002 \|\| arg\.error === 12003 \? t\('cantLoadSignIn'\)/, 'a page that didn’t load isn’t "closed" (R1X29)');
@@ -98,7 +98,7 @@ test('connect: a window closed or cut off (12006) doesn’t end it; the pane wai
   const pane = read('taskpane.js');
   const start = pane.slice(pane.indexOf('function startConnect('), pane.indexOf('async function redeem('));
   // 12006: the attempt goes on; the relay is polled, more slowly, for 5 minutes, and the pane says so.
-  assert.match(start, /if \(arg\.error === 12006\) \{[\s\S]*?job\.waiting = true;[\s\S]*?job\.until = Date\.now\(\) \+ connectTiming\.waitMs;[\s\S]*?connectNote\(t\('connectWaiting'\)\)[\s\S]*?return;/);
+  assert.match(start, /if \(arg\.error === 12006 && web\) \{[\s\S]*?job\.waiting = true;[\s\S]*?job\.until = Date\.now\(\) \+ connectTiming\.waitMs;[\s\S]*?connectNote\(t\('connectWaiting'\)\)[\s\S]*?return;/);
   assert.match(pane, /waitMs: 5 \* 60_000/);
   assert.match(start, /job\.delay = Math\.min\(connectTiming\.maxPollMs, Math\.round\(job\.delay \* 1\.3\)\)/, 'backing off while waiting');
   assert.doesNotMatch(start, /12006 \? t\('cancelled'\)/, '12006 is no longer "cancelled"');
@@ -106,7 +106,7 @@ test('connect: a window closed or cut off (12006) doesn’t end it; the pane wai
   assert.match(start, /if \(connecting\) \{\s*if \(connecting\.dialog\) return connectNote\(t\('finishSignIn'\), 'warn'\);\s*return openDialog\(connecting, ui\);/);
   // A code that comes after the attempt ran out of time still connects on the next Connect.
   assert.match(start, /job\.end\(t\('connectExpired'\), 'warn', \{ keep: true \}\)/);
-  assert.match(start, /const old = await take\(job\.earlier\.state\);\s*if \(old\) return job\.got\(old, job\.earlier\.verifier\);/);
+  assert.match(start, /const old = await take\(job\.earlier\.state\);\s*if \(old\.code\) return job\.got\(old\.code, job\.earlier\.verifier\);/);
   // Cancel is there while connecting (a Cancel on the consent page can't reach the pane on the web).
   assert.match(pane, /button\('link', t\('cancel'\), \(\) => job\.end\(t\('cancelled'\), ''\)\)/);
   for (const lang of ['en', 'fr']) for (const key of ['connectWaiting', 'cancel', 'landingRelayed']) assert.ok(X.STRINGS[lang][key], `${lang}.${key}`);
@@ -440,7 +440,8 @@ test('numbers go as their value, dates as shown; Clean never writes back a displ
   assert.equal(X.cellOf(123456789, '1.2E+08', 'General'), 123456789);
   assert.equal(X.cellOf(1234567, '1.2M', '0.0,,"M"'), 1234567);
   assert.equal(X.cellOf(1234567, '1,235K', '#,##0,"K"'), 1234567);
-  assert.equal(X.cellOf(0.5, '1/2', '# ?/?'), 0.5);
+  assert.equal(X.cellOf(0.5, '1/2', '# ?/?'), '1/2', 'a fraction shown exactly goes as shown (R3X1)');
+  assert.equal(X.cellOf(0.3333, '1/3', '# ?/?'), 0.3333, 'a rounded fraction goes as its value');
   assert.equal(X.cellOf(0, '-', '_($* #,##0_);_($* (#,##0);_($* "-"??_);_(@_)'), 0);
   assert.equal(X.cellOf(45291.5729, '12/31/2023', 'm/d/yyyy'), '12/31/2023');
   assert.equal(X.cellOf(0.5, '12:00 PM', 'h:mm AM/PM'), '12:00 PM');
@@ -448,7 +449,7 @@ test('numbers go as their value, dates as shown; Clean never writes back a displ
   assert.equal(X.cellOf(45291, '########', '[$-409]d-mmm-yy;@'), '2023-12-31');
   assert.equal(X.cellOf(12, '########', 'General'), 12);
   assert.equal(X.cellOf(1.5, '36:00', '[h]:mm'), '36:00');
-  assert.equal(X.cellOf(0.25, '25%', '0%'), 0.25);
+  assert.equal(X.cellOf(0.25, '25%', '0%'), '25%', 'a percentage keeps its unit (R3X1)');
   assert.equal(X.cellOf(3, '3', '"Red" 0'), 3, 'quoted text in a format isn’t a date part');
   // Without one (a cell function's quick read), a shown date still decides; a rounded number doesn't.
   assert.equal(X.cellOf(123456789, '1.2E+08'), 123456789);
@@ -587,7 +588,11 @@ test('a streamed answer’s trailer: cut off, refused and dropped each get their
   assert.match(X.errorWords(no.status, no.info.code, no.info.error, X.wordsFor('fr')).words, /décliné/);
   const pane = read('taskpane.js');
   assert.match(pane, /'x-eden-trailer': '1'/);
-  assert.match(pane, /const trailed = res\.headers\.get\('x-eden-trailer'\) === '1';/);
+  // R3X4: split at U+0000 whatever the response headers say (a proxy may drop x-eden-trailer); no U+0000 is a break.
+  assert.doesNotMatch(pane, /res\.headers\.get\('x-eden-trailer'\)/);
+  assert.match(pane, /const at = text\.indexOf\(X\.TRAILER\);/);
+  assert.doesNotMatch(pane, /if \(!trailed\) return;/);
+  assert.match(pane, /const end = X\.trailerOf\(tail\);\s*if \(end\.complete\) return;/);
   assert.doesNotMatch(X.STRINGS.en.brokeOff, /too long/, 'a break is a break now');
 });
 
@@ -610,7 +615,7 @@ test('the pane: Fill reads only the columns next to an empty column, checks valu
   assert.match(beside, /const width = Math\.min\(X\.LIMITS\.fillColumns, dim\.columnIndex - used\.columnIndex\);/);
   assert.match(beside, /ws\.getRangeByIndexes\(dim\.rowIndex, dim\.columnIndex - width, dim\.rowCount, width\)/);
   assert.match(fill, /besideOf\(ws, dim, used\)/);
-  assert.match(fill, /while \(k < width && X\.hasData/, 'stops at the first empty column');
+  assert.match(fill, /if \(filledAt\(width - 1 - n\)\) k = n \+ 1;\s*else if \(!hiddenCol \|\| !hiddenCol\[width - 1 - n\]\) break;/, 'stops at the first empty column shown');
   assert.doesNotMatch(pane, /getRangeByIndexes\((range|dim)\.rowIndex, used\.columnIndex/, 'never from the sheet’s first column');
   assert.match(pane, /'values,text,formulas,numberFormat'/, 'number formats come with the cells (R2X4)');
   assert.match(pane, /JSON\.stringify\(X\.rawOf\(source\.values, source\.formulas\)\) !== JSON\.stringify\(job\.raw\)/, 'Fill compares values and formulas');
@@ -888,6 +893,112 @@ test('=EDEN.ASK: the pane’s counter is told once per turn, with the latest num
   }
 });
 
+test('percentages, money and fractions reach Eden in their unit, exactly; Clean still never writes a number (R3X1)', async () => {
+  // Shown exactly: as shown (the person's own unit and spelling).
+  assert.equal(X.cellOf(0.05, '5%', '0%'), '5%');
+  assert.equal(X.cellOf(1.25, '125%', '0%'), '125%');
+  assert.equal(X.cellOf(0.05, '5 %', '0 %'), '5 %');
+  assert.equal(X.cellOf(1234.5, '1 234,50 €', '#,##0.00 [$€-x-euro2]'), '1 234,50 €');
+  assert.equal(X.cellOf(1234.5, '$1,234.50', '$#,##0.00'), '$1,234.50');
+  assert.equal(X.cellOf(-1234.5, '($1,234.50)', '$#,##0.00_);($#,##0.00)'), '($1,234.50)');
+  assert.equal(X.cellOf(100, 'USD 100.00', '[$USD] 0.00'), 'USD 100.00');
+  assert.equal(X.cellOf(1234.5, '1’234.50 CHF', '#,##0.00 [$CHF]'), '1’234.50 CHF');
+  assert.equal(X.cellOf(1.25, '1 1/4', '# ?/?'), '1 1/4');
+  assert.equal(X.cellOf(5, '5 kg', '0 "kg"'), '5 kg');
+  // Shown rounded: never the rounded text (R2X4); the exact value, with its unit.
+  assert.equal(X.cellOf(0.12345, '12%', '0%'), '12.345%');
+  assert.equal(X.cellOf(0.05, '####', '0%'), '5%');
+  assert.equal(X.cellOf(1234.5678, '$1,234.57', '$#,##0.00'), '$1234.5678');
+  assert.equal(X.cellOf(-1234.5678, '-1 234,57 €', '#,##0.00 €'), '-1234.5678 €');
+  assert.equal(X.cellOf(-1234.5678, '($1,234.57)', '$#,##0.00_);($#,##0.00)'), '-$1234.5678');
+  // No unit to keep, or none to read: the value, as before.
+  assert.equal(X.cellOf(0, '$ -', '_($* #,##0_);_($* (#,##0);_($* "-"??_);_(@_)'), 0);
+  assert.equal(X.cellOf(1234.5, '########', '$#,##0.00'), 1234.5);
+  assert.equal(X.cellOf(0.3333, '1/3', '# ?/?'), 0.3333);
+  assert.equal(X.cellOf(1234567, '1.2M', '0.0,,"M"'), 1234567, 'a scaled unit isn’t exact');
+  assert.equal(X.cellOf(1234567, '$1,235K', '$#,##0,"K"'), 1234567, 'money in thousands: the value, never "$1234567K"');
+  assert.equal(X.cellOf(-1234.5, '(1,234.50)', '#,##0.00_);(#,##0.00)'), -1234.5, 'no unit: the value');
+  assert.equal(X.cellOf(3, '3', '"Red" 0'), 3, 'the shown number alone stays a number');
+  assert.equal(X.cellOf(1234, '1,234', '#,##0'), 1234);
+  assert.equal(X.cellOf(0.25, '25%'), 0.25, 'no format known: the value');
+  for (const [f, u] of [['0%', 'percent'], ['0.00%', 'percent'], ['$#,##0.00', 'money'], ['[$€-x-euro2] #,##0.00', 'money'], ['_($* #,##0.00_)', 'money'], ['# ?/?', 'fraction'], ['0 "kg"', 'unit'], ['General', null], ['0.00', null], ['#,##0', null], ['[$-409]0.00', null], ['[Red]0.00', null], ['0.00E+00', null]]) assert.equal(X.unitOf(f), u, f);
+  // Read back in the way its separators allow, and nothing else.
+  assert.equal(X.readsBack('1.234,50 €', 1234.5), true);
+  assert.equal(X.readsBack('1,234', 1.234), true);
+  assert.equal(X.readsBack('1,234', 1234), true);
+  assert.equal(X.readsBack('1,235', 1234), false);
+  assert.equal(X.readsBack('Rs. 1,234.50', 1234.5), true);
+  assert.equal(X.readsBack('-', 0), false);
+  // A sheet like BREAK Z10's goes in its units, and the server takes it.
+  const values = X.gridOf([['Sales', 'Ratio'], [1200, 1.25], [800, 0.5]], [['Sales', 'Ratio'], ['1 200,00 €', '125%'], ['800,00 €', '50%']], [['General', 'General'], ['#,##0.00 €', '0%'], ['#,##0.00 €', '0%']]);
+  assert.deepEqual(values, [['Sales', 'Ratio'], ['1 200,00 €', '125%'], ['800,00 €', '50%']]);
+  assert.equal(parseSheet(X.sheetBody({ action: 'analyze', sheet: { name: 'S', range: 'A1:B3', values } }).body).action, 'analyze');
+  // Clean: a number cell is never written; its unit spelled another way is no change; another value is left as it is.
+  const raw = [[1234.5], [0.05], [1234.5]];
+  const formats = [['$#,##0.00'], ['0%'], ['$#,##0.00']];
+  const sent = X.gridOf(raw, [['$1,234.50'], ['5%'], ['$1,234.50']], formats);
+  const kinds = X.kindsOf(raw, formats);
+  const changes = X.cleanChanges(sent, [['1234.50 USD'], ['5 %'], ['$1,234.60']], null, { kinds, raw, formats });
+  assert.deepEqual([...changes], []);
+  assert.equal(changes.kept, 1, 'only the changed amount is counted, never written');
+  // =EDEN.ASK reads the same way (its range read loads text and numberFormat).
+  const realFetch = globalThis.fetch;
+  const realExcel = globalThis.Excel;
+  try {
+    storage.map.clear();
+    X.saveToken(undefined, { access_token: 'es1.acc.id.secret', expires_in: 3600 });
+    const { C, calls } = loadCells(async () => new Response('ok', { status: 200 }));
+    globalThis.Excel = {
+      run: async (fn) => fn({
+        workbook: { worksheets: { getItem: () => ({ getRange: () => ({ getCell: () => ({ getResizedRange: () => ({ load() {}, values: [[0.05], [1234.5]], text: [['5%'], ['1 234,50 €']], numberFormat: [['0%'], ['#,##0.00 €']] }) }) }) }) } },
+        sync: async () => {},
+      }),
+    };
+    await C.ask('Which is bigger?', [[0.05], [1234.5]], { parameterAddresses: ['Z1', 'Data!A1:A2'] });
+    assert.deepEqual(calls.at(-1).body.sheet.values, [['5%'], ['1 234,50 €']]);
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.Excel = realExcel;
+    storage.map.clear();
+  }
+});
+
+test('round 3 in the pane: the trailer without its header, Connect that can’t stall, desktop close, late codes, hidden neighbours, Fill formats, IMPORT* (R3X4–R3X10)', () => {
+  const pane = read('taskpane.js');
+  // R3X4: trailer text never reaches a cell: split at U+0000 always; none means the stream broke off.
+  assert.deepEqual(X.trailerOf(null), { broken: true });
+  assert.match(pane, /if \(at < 0\) return void \(text && onText\(text\)\);\s*if \(at\) onText\(text\.slice\(0, at\)\);\s*tail = text\.slice\(at \+ 1\);/);
+  // R3X5: every look and the code's exchange end on their own; a 429 waits its Retry-After; one poller.
+  assert.match(pane, /lookMs: 8000, redeemMs: 15_000/);
+  assert.match(pane, /const timer = setTimeout\(\(\) => stop\.abort\(\), ms\);\s*try \{\s*const res = await fetch\(url, \{ \.\.\.init, signal: stop\.signal \}\);\s*return \{ res, body: await res\.json\(\)\.catch\(\(\) => \(\{\}\)\) \};/);
+  assert.match(pane, /if \(got\.res\.status === 429\) \{\s*const secs = Number\(got\.res\.headers\.get\('retry-after'\)\);/);
+  assert.match(pane, /fetchJson\(connectTiming\.redeemMs, '\/api\/eden\/token'/);
+  // R3X7: only Excel on the web waits after 12006; Windows, Mac and iPad end as before ("The sign-in window closed").
+  assert.match(pane, /const web = !platform \|\| platform === \(\(Office\.PlatformType && Office\.PlatformType\.OfficeOnline\) \|\| 'OfficeOnline'\);/);
+  assert.match(pane, /const got = await take\(mine\.state\);\s*if \(job\.done \|\| job\.dialog\) return;\s*if \(got\.code\) return job\.got\(got\.code\);/, 'Connect pressed during the last looks: its window carries on');
+  // R3X8: an attempt that ran out of time keeps being looked at (slowly, one look at a time) for lateMs; the words say so.
+  assert.match(pane, /if \(keep\) lookLate\(\(late = \{ mine, until: Date\.now\(\) \+ connectTiming\.lateMs, timer: 0 \}\)\);/);
+  assert.match(pane, /if \(late !== rec \|\| token \|\| Date\.now\(\) > rec\.until\) return;/);
+  assert.match(pane, /latePollMs: 10_000/);
+  for (const lang of ['en', 'fr']) assert.ok(X.STRINGS[lang].connectExpired.length > 60, `${lang}: says a late sign-in still connects`);
+  assert.match(X.STRINGS.en.connectExpired, /still connects by itself/);
+  assert.match(X.STRINGS.en.landingRelayed, /If it doesn’t show Connected, press Connect there/);
+  assert.match(X.STRINGS.fr.landingRelayed, /S’il n’affiche pas Connecté, appuyez sur Connecter/);
+  // R3X6: hidden neighbour columns with data get the hidden notice; a hidden empty one doesn't end the columns.
+  assert.match(pane, /return \{ hidden: own\.rows \+ own\.columns, view: own, next, beside: besideView \? hiddenIn\(besideView, beside\.width\) : null \};/);
+  assert.match(pane, /range\.getColumn\(i\)\.load\('columnHidden'\)/);
+  assert.match(pane, /hidden = nearHidden\.rows \+ sentHidden;/);
+  // R3X9: a number into a date format, or a percentage, gets its own format.
+  assert.match(pane, /const reset = typeof w\.v === 'number' && \(X\.isDateFormat\(was\) \|\| \/%\$\/\.test\(w\.format \|\| ''\)\);/);
+  assert.match(pane, /numberFormat\[r\]\.push\(w\.asText \? '@' : general \|\| reset \? w\.format \|\| 'General' : was\);/);
+  // R3X10: IMPORTTEXT, IMPORTCSV (and any IMPORT… to come) read files and web addresses: flagged.
+  assert.deepEqual(X.reachesOut('=IMPORTCSV("https://x.example/a.csv")'), ['IMPORTCSV']);
+  assert.deepEqual(X.reachesOut('=_xlfn.IMPORTTEXT("https://x/?"&A1)'), ['IMPORTTEXT']);
+  assert.deepEqual(X.reachesOut('=importcsv(A1)+IMPORTCSV(B1)'), ['IMPORTCSV']);
+  assert.deepEqual(X.reachesOut('=A1&"IMPORTCSV("'), [], 'words inside text are fine');
+  assert.deepEqual(X.reachesOut('=MYIMPORT(A1)'), []);
+});
+
 test('the pane asks Excel in few round trips, and a closed pane doesn’t follow the selection', () => {
   const pane = read('taskpane.js');
   // readFor: the selection (and, for formula, explain and fill, the data's extent) in the first sync.
@@ -904,9 +1015,9 @@ test('the pane asks Excel in few round trips, and a closed pane doesn’t follow
   assert.match(pane, /async function cellsWith\(context, range, fields, rows, columns, right, beside\)/);
   assert.match(pane, /dim\.columnIndex >= used\.columnIndex \+ used\.columnCount \? besideOf\(ws, dim, used\) : null;/);
   // The relay: one look at a time and one poll timer per Connect attempt, even when the window opens again during a look (e2).
-  assert.match(pane, /if \(job\.done \|\| job\.looking\) return;\s*job\.looking = true;\s*try \{/);
-  assert.match(pane, /\} finally \{\s*job\.looking = false;\s*\}/);
-  assert.match(pane, /clearTimeout\(job\.timer\);\s*job\.timer = setTimeout\(job\.poll, job\.delay\);\s*\};/);
+  assert.match(pane, /if \(job\.done \|\| job\.looking\) return;\s*job\.looking = true;\s*let wait = 0;\s*try \{/);
+  assert.match(pane, /\} finally \{\s*job\.looking = false;\s*if \(!job\.done\) job\.next\(wait\);\s*\}/, 'the next look is set whatever the look did (R3X5)');
+  assert.match(pane, /clearTimeout\(job\.timer\);\s*job\.timer = setTimeout\(job\.poll, Math\.max\(job\.delay, wait\)\);\s*\};/);
   // Apply: the sheet check and the reads it needs in one trip; a failed trip still says "gone" or "protected".
   assert.match(pane, /async function sheetFor\(context, job, read\)/);
   assert.match(pane, /const found = read \? await sheetFor\(context, job\)\.catch\(\(\) => null\) : null;/);

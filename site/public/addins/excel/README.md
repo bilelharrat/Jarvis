@@ -22,22 +22,27 @@ the manifest, the pane and the API are all on askeden.com.
   it 2 minutes) and Office's `messageParent`. While the dialog is open the pane polls
   `POST /api/eden/relay/take {state}` about every 1.5 s; whichever arrives first wins (Excel on the web can cut
   the dialog off from the pane, so the relay is its way back). Excel on the web reports the window closed (12006)
-  as soon as it reaches a sign-in page that cuts it off (COOP), so 12006 doesn't end the attempt: the pane says
+  as soon as it reaches a sign-in page that cuts it off (COOP), so there 12006 doesn't end the attempt: the pane says
   "Finish signing in in the window that opened; this pane will connect by itself" with a Cancel, and keeps polling
   (backing off to every 5 s) for 5 minutes; Connect meanwhile reopens the window for the same attempt (same state
-  and verifier). An attempt that ran out of time is still polled for 10 minutes by the next Connect, so a late code
-  connects. The landing page says "Connected" only when `messageParent` handed the code over; relayed only, it
-  says to go back to Excel. The pane checks the state, redeems the code at
+  and verifier). On Windows, Mac and iPad the window is Office's own, so 12006 means it was closed: a few more looks,
+  then "The sign-in window closed". An attempt that ran out of time is still looked at every 10 s for 10 minutes
+  (and by the next Connect), so a late sign-in connects by itself. One look at a time; each gives up after 8 s, the
+  code's exchange after 15 s, and a 429 waits its Retry-After. The landing page says "Connected" only when
+  `messageParent` handed the code over; relayed only, it says to go back to Excel (and press Connect if it doesn't
+  show Connected). The pane checks the state, redeems the code at
   `POST /api/eden/token` (same origin) with its verifier and keeps the scoped `ask` token in localStorage. A
   401 forgets only the token it was for (a newer one stays); another pane's Connect or Disconnect is followed.
   Disconnect calls `POST /api/eden/disconnect` and forgets the token and the saved cell answers.
 - **The pane** (`taskpane.html/.js/.css`): shows the selection's address; Ask (the input), Analyze, Write a
   formula, Explain formula, Fill column, Clean, Make a table; answers stream in from `POST /api/eden/sheet` (with `x-eden-trailer: 1`: the stream
-  ends with U+0000 and how it ended, so a cut-off, a refusal and a dropped connection get their own words), with
+  ends with U+0000 and how it ended, so a cut-off, a refusal and a dropped connection get their own words; the pane
+  splits at U+0000 even if a proxy drops the response header, and a stream without one broke off), with
   follow-ups. One ask at a time (a second press or Enter does nothing; ■ stops). Nothing is read or sent until a
   button is pressed, and then only what the action needs: the selected cells (values; formulas for Clean and
   Explain); for Write a formula / Explain on one cell, the active cell plus the sheet's header row and first 5
-  rows. Hidden or filtered rows are included, and the pane says so before sending (press again to send).
+  rows. Hidden or filtered rows (and hidden columns, also among Fill's neighbour columns) are included, and the
+  pane says so before sending (press again to send).
   Each Excel round trip (`context.sync()`) is a trip to Excel's server on the web, so most actions read in two
   (the selection with the data's extent, then the cells with their number formats and hidden-row count; a whole
   column is clipped to the data without a trip of its own, and Fill into a column right of the data reads the
@@ -50,12 +55,15 @@ the manifest, the pane and the API are all on askeden.com.
   (`fillTokens`, 8,000: long answers like translations go in smaller parts) and 5,000 cells. Fill into an empty
   column reads and sends only the filled columns right next to it (at most 10, up to the first empty column).
   Numbers go as their values (never their shown rounding: `1.2E+08`, `1.2M`); dates and times as shown (by
-  their number format). Clean never writes a date or number cell (a value Eden would change is left as it is and
+  their number format); percentages, money, fractions and numbers with a unit keep their unit: as shown when the
+  shown text is exactly the value (`5%`, `1 234,50 €`), else the exact value with its unit (`12.345%`,
+  `$1234.5678`). Fill and Make a table give a number written into a date-formatted cell, or a percentage, its own
+  format. Clean never writes a date or number cell (a value Eden would change is left as it is and
   counted), nor a cell whose line breaks Eden dropped. The "rows changed" checks compare values and formulas,
   not shown text. Clean sends line breaks and tabs inside a cell escaped (`\n`, `\t`,
   `\\`) so a cell stays one field, and turns them back. Changes to the sheet are always shown first: **Insert**
   puts a formula in the active cell (a formula that reaches outside the workbook — WEBSERVICE, IMAGE, HYPERLINK,
-  DDE, external links… — is flagged and its button says "Insert anyway"), **Fill** writes one line per row into
+  IMPORTCSV, IMPORTTEXT, DDE, external links… — is flagged and its button says "Insert anyway"), **Fill** writes one line per row into
   the column to the right (refused when the count doesn't match or the rows changed), **Replace with cleaned
   data** writes only changed cells and never formulas (refused when the shape doesn't match or the cells
   changed), **Insert table** writes at the active cell. Writing over filled cells needs a second press; a

@@ -205,9 +205,75 @@
   }
 
   /**
+   * The unit an Excel number format shows (R3X1): 'percent' (5%), 'money' (a currency symbol or code:
+   * $1,234.50, 1 234,50 €, accounting), 'fraction' (1 1/4), 'unit' (other literal text: 5 kg, 3 days), or null.
+   */
+  function unitOf(format) {
+    const f = String(format ?? '');
+    const bare = f.replace(/"[^"]*"/g, '').replace(/\\.|_.|\*./g, '').replace(/\[[^\]]*\]/g, '');
+    if (bare.includes('%')) return 'percent';
+    if (/\[\$[^\]-]+/.test(f) || /[$€£¥₹₩₽¢₪₫฿₺₴₦₱]/.test(f.replace(/\[[^\]]*\]/g, ''))) return 'money';
+    if (/[#0?]\s*\/\s*[#0?\d]/.test(bare)) return 'fraction';
+    if (/"[^"]*\p{L}[^"]*"|\\\p{L}/u.test(f)) return 'unit';
+    return null;
+  }
+
+  const same = (a, b) => a === b || Math.abs(a - b) <= Math.abs(b) * 1e-12;
+
+  /**
+   * Whether a number as shown ("5%", "$1,234.50", "1 234,50 €", "(1,234.50)", "1 1/4", "5 kg") is exactly
+   * `value`, read in every way its separators allow (1,234 or 1.234: the value says which).
+   */
+  function readsBack(text, value) {
+    let s = String(text ?? '').trim();
+    if (!s || !/\d/.test(s) || typeof value !== 'number') return false;
+    let sign = 1;
+    if (/\(.*\)/.test(s)) {
+      sign = -1;
+      s = s.replace(/[()]/g, '');
+    }
+    const scale = s.includes('%') ? 0.01 : 1;
+    s = s.replace(/[^\d.,\s'’/+\-−]/gu, '').trim();
+    s = s.replace(/^[.,]\s+/, '').replace(/\s+[.,]$/, ''); // the dot of "Rs." or "kr."
+    if (/^[-−]|[-−]$/.test(s)) sign = -sign;
+    s = s.replace(/^[+\-−]\s*|\s*[-−]$/g, '');
+    if (/[+\-−]/.test(s)) return false;
+    const fraction = /^(?:(\d+)\s+)?(\d+)\s*\/\s*(\d+)$/.exec(s);
+    const tries = [];
+    if (fraction) {
+      if (Number(fraction[3])) tries.push(Number(fraction[1] || 0) + Number(fraction[2]) / Number(fraction[3]));
+    } else {
+      s = s.replace(/[\s'’]/g, '');
+      const dots = (s.match(/\./g) || []).length;
+      const commas = (s.match(/,/g) || []).length;
+      const as = (thousands, decimal) => {
+        const t2 = decimal ? s.split(thousands).join('').replace(decimal, '.') : s.split(thousands).join('');
+        if (/^(\d+(\.\d+)?|\.\d+)$/.test(t2)) tries.push(Number(t2));
+      };
+      if (!dots && !commas) as(',', '.');
+      else if (dots && commas) (s.lastIndexOf('.') > s.lastIndexOf(',') ? as(',', '.') : as('.', ','));
+      else {
+        const mark = dots ? '.' : ',';
+        if (dots + commas > 1) as(mark, '');
+        else {
+          as(mark === '.' ? ',' : '.', mark); // the mark as a decimal point
+          if (/^\d{1,3}[.,]\d{3}$/.test(s)) as(mark, ''); // or as a thousands separator
+        }
+      }
+    }
+    return tries.some((n) => same(sign * n * scale, value));
+  }
+
+  /** A number as plain text, as exact as Excel holds it (15 significant digits). */
+  const plainNumber = (n) => String(Number(n.toPrecision(15)));
+
+  /**
    * One cell as sent: a number as its value (never as rounded shown text: 1.2E+08, 1.2M, "-"), except a
    * date or a time, which goes as it's shown (Excel holds them as serial numbers: 45291); a date shown as
    * #### as ISO text. With no number format known, a shown text that looks like a date or a time decides.
+   * A percentage, an amount of money, a fraction or a number with a unit goes with its unit (R3X1): as shown
+   * when the shown text is exactly the value ("5%", "1 234,50 €"); else a percentage as its exact percent
+   * ("12.345%") and money as its exact amount with the shown symbol ("$1234.5678"); else as its value.
    * Empty → null; an error (a cell function's input) as its code ("#N/A"); text is capped with "…".
    */
   function cellOf(value, text, format) {
@@ -216,9 +282,20 @@
       if (!Number.isFinite(value)) return String(value);
       const shown = typeof text === 'string' ? text.trim() : '';
       const hashes = /^#+$/.test(shown);
-      const dated = format !== undefined && format !== null ? isDateFormat(format) : Boolean(shown) && !hashes && DATEISH.test(shown);
-      if (!dated) return value;
-      return shown && !hashes ? clip(shown, LIMITS.cellChars) : serialText(value);
+      const known = format !== undefined && format !== null;
+      const dated = known ? isDateFormat(format) : Boolean(shown) && !hashes && DATEISH.test(shown);
+      if (dated) return shown && !hashes ? clip(shown, LIMITS.cellChars) : serialText(value);
+      const unit = known ? unitOf(format) : null;
+      if (!unit) return value;
+      // Shown exactly, with something besides the number (a plain "3" stays the number 3).
+      if (!hashes && readsBack(shown, value) && /[^\d\s.,'’+\-−]/.test(shown)) return clip(shown, LIMITS.cellChars);
+      if (unit === 'percent') return `${plainNumber(value * 100)}%`;
+      // Money shown in thousands or millions ($#,##0,"K": a comma after the digits) has no exact amount to show.
+      const scaled = /[0#?],+(?![0#?,])/.test(String(format).replace(/"[^"]*"|\\.|_.|\*.|\[[^\]]*\]/g, ''));
+      const core = unit === 'money' && !hashes && !scaled ? /\d(?:[\d\s.,'’]*\d)?/.exec(shown) : null;
+      if (!core) return value;
+      const edge = (s) => s.replace(/[()+\-−]/g, '');
+      return `${value < 0 ? '-' : ''}${edge(shown.slice(0, core.index)).trimStart()}${plainNumber(Math.abs(value))}${edge(shown.slice(core.index + core[0].length)).trimEnd()}`;
     }
     if (typeof value === 'boolean') return value;
     if (typeof value === 'object') return cut(String(value.code || value.errorType || value.message || '#ERROR'), 40);
@@ -299,8 +376,8 @@
   function sameValue(raw, to, kind, format, lang) {
     if (typeof raw !== 'number') return false;
     const n = numberOf(to, { lang });
-    if (n !== null && Math.abs(n - raw) <= Math.abs(raw) * 1e-12) return true;
-    if (kind !== 'date') return false;
+    if (n !== null && same(n, raw)) return true;
+    if (kind !== 'date') return readsBack(to, raw); // "$1,234.50", "5 %", "1 234,50 €" (R3X1): the same value
     const got = dateOf(to, format);
     if (!got) return false;
     const day = Math.floor(raw);
@@ -710,6 +787,8 @@
     const found = [];
     for (const name of REACH) if (new RegExp(`(^|[^A-Za-z0-9_.])(_xlfn\\.)?${name.replace('.', '\\.')}\\s*\\(`, 'i').test(bare)) found.push(name);
     if (/(^|[^A-Za-z0-9_.])(_xlfn\.)?CUBE[A-Z]*\s*\(/i.test(bare)) found.push('CUBE'); // a data connection's server
+    // IMPORTTEXT and IMPORTCSV read a file or a web address into the sheet (Microsoft 365, R3X10), and any IMPORT… to come.
+    for (const m of bare.matchAll(/(?:^|[^A-Za-z0-9_.])(?:_xlfn\.)?(IMPORT[A-Z0-9]*)\s*\(/gi)) if (!found.includes(m[1].toUpperCase())) found.push(m[1].toUpperCase());
     if (/\|/.test(bare)) found.push('DDE');
     // [Book.xlsx]Sheet!A1, 'C:\path\[x]S'!A1, [1]Sheet!A1, a defined name in another file (Budget.xlsx!Total),
     // and INDIRECT built from text that names one (R2X17).
@@ -1005,7 +1084,7 @@
       cantLoadSignIn: 'Couldn’t load the sign-in page. Check your connection and press Connect again.',
       signInClosed: 'The sign-in window closed. Press Connect again.',
       connectUnfinished: 'Connecting didn’t finish. Press Connect again.',
-      connectExpired: 'The sign-in took too long. Press Connect again.',
+      connectExpired: 'The sign-in took too long. If you finish it in the next few minutes, this pane still connects by itself; or press Connect again.',
       connectWaiting: 'Finish signing in in the window that opened; this pane will connect by itself.',
       cancel: 'Cancel',
       cantRead: 'Excel couldn’t read the selection{why}. Try again.',
@@ -1101,7 +1180,7 @@
       landingBack: 'You can close this window and go back to Excel.',
       landingNot: 'Not connected',
       landingAlmost: 'Almost there',
-      landingRelayed: 'Go back to Excel: Ask Eden connects by itself in a few seconds. You can close this window.',
+      landingRelayed: 'Go back to Excel: Ask Eden connects by itself within a few seconds. If it doesn’t show Connected, press Connect there. You can close this window.',
       landingOpen: 'Go back to Excel. If Ask Eden doesn’t show Connected in a few seconds, press Connect there again. You can close this window.',
       landingBad: 'This sign-in link isn’t complete. In Excel, press Connect in Ask Eden again.',
     },
@@ -1157,7 +1236,7 @@
       cantLoadSignIn: 'Impossible de charger la page de connexion. Vérifiez votre connexion et appuyez de nouveau sur Connecter.',
       signInClosed: 'La fenêtre de connexion s’est fermée. Appuyez de nouveau sur Connecter.',
       connectUnfinished: 'La connexion n’a pas abouti. Appuyez de nouveau sur Connecter.',
-      connectExpired: 'La connexion a pris trop de temps. Appuyez de nouveau sur Connecter.',
+      connectExpired: 'La connexion a pris trop de temps. Si vous la terminez dans les prochaines minutes, ce volet se connecte quand même tout seul ; sinon, appuyez de nouveau sur Connecter.',
       connectWaiting: 'Terminez la connexion dans la fenêtre qui s’est ouverte ; ce volet se connectera tout seul.',
       cancel: 'Annuler',
       cantRead: 'Excel n’a pas pu lire la sélection{why}. Réessayez.',
@@ -1253,7 +1332,7 @@
       landingBack: 'Vous pouvez fermer cette fenêtre et revenir à Excel.',
       landingNot: 'Non connecté',
       landingAlmost: 'Presque fini',
-      landingRelayed: 'Revenez à Excel : Ask Eden se connecte tout seul dans quelques secondes. Vous pouvez fermer cette fenêtre.',
+      landingRelayed: 'Revenez à Excel : Ask Eden se connecte tout seul en quelques secondes. S’il n’affiche pas Connecté, appuyez sur Connecter. Vous pouvez fermer cette fenêtre.',
       landingOpen: 'Revenez à Excel. Si Ask Eden n’affiche pas Connecté dans quelques secondes, appuyez de nouveau sur Connecter. Vous pouvez fermer cette fenêtre.',
       landingBad: 'Ce lien de connexion est incomplet. Dans Excel, appuyez de nouveau sur Connecter dans Ask Eden.',
     },
@@ -1274,7 +1353,7 @@
     SITE, CLIENT, CALLBACK, START, LIMITS, ACTIONS, TOKEN_KEY, CACHE_PREFIX, STRINGS,
     randomCode, challengeOf, redirectFor, connectUrl, dialogUrl, startTarget, readRedirect, tokenBody,
     readToken, saveToken, forgetToken,
-    cellOf, gridOf, kindsOf, rawOf, isDateFormat, numberOf, dateOf, sameValue, isFormula, formulaGrid, hasData, widthOf, longCell, sizeProblem, fitRows, sheetBody,
+    cellOf, gridOf, kindsOf, rawOf, isDateFormat, unitOf, readsBack, numberOf, dateOf, sameValue, isFormula, formulaGrid, hasData, widthOf, longCell, sizeProblem, fitRows, sheetBody,
     cleanTokens, fillTokens, chunksFor, cleanSend, cleanReceive,
     unfence, formulaOf, linesOf, fillCheck, parseTsv, cleanCheck, cleanChanges, tableCheck, cellWrite, reachesOut,
     splitAddress, cellsOf, topLeftOf, cellName, rangeName,
