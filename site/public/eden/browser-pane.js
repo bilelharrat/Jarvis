@@ -36,7 +36,7 @@ const local = () => { try { return localStorage; } catch { return null; } };
 
 export const browserOpen = () => document.body.classList.contains('browser-open');
 
-/** app.js: wire the button, the shortcut's handler and what the panel may open. */
+/** app.js, when the panel is first needed (it loads this module then): wire the button, the shortcut's handler and what the panel may open. */
 export function initBrowserPane(hooks = {}) {
   Object.assign(H, hooks);
   bridge = appBridge(window);
@@ -62,8 +62,6 @@ export function toggleBrowser(force, { quiet = false } = {}) {
 }
 export function closeBrowser() { if (!browserOpen()) return false; toggleBrowser(false); const b = $('btnBrowser'); if (b) b.focus(); return true; }
 
-/** Kept for app.js: the panel no longer depends on the Mac. */
-export function browserJarvisChanged() {}
 
 /* ---------- the panel's frame (J.A.R.V.I.S.'s browser: tabs, then the bar) ---------- */
 
@@ -543,7 +541,7 @@ function startCloud() {
   const pageToChat = (m) => {
     if (m.error) { toast(m.error); return; }
     const block = { title: `Page: ${m.title || siteOf(m.url)}`.slice(0, 80), text: `${m.title || ''}\n${m.url}\n\n${m.text || ''}`.trim() };
-    if (m.for === 'summarize' && H.sendMessage) { H.sendMessage(`Summarize this page: ${m.title || m.url}`, [], { context: [block] }); return; }
+    if (m.for === 'summarize' && H.sendMessage) { H.sendMessage(`Summarize this page: ${m.title || m.url}`, [], { context: [block], origin: 'browser' }); return; } // Eden's own prompt, the page given: no auto-search on its title or link (AC2-10)
     if (H.addContext) H.addContext(block);
     if (H.focusComposer) H.focusComposer();
   };

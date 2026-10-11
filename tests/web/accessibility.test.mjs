@@ -96,6 +96,6 @@ test('the edition has its name', () => {
 
 test('the keys a PC talks on read as the keys', () => {
   assert.equal(A.keyWords('⌃⌥J', false), 'Ctrl+Alt+J');
-  assert.equal(A.keyWords('Say “Hey Jarvis” · ⌃⌥J talk', false), 'Say “Hey Jarvis” · Ctrl+Alt+J talk');
+  assert.equal(A.keyWords('Say “Hey Eden” · ⌃⌥J talk', false), 'Say “Hey Eden” · Ctrl+Alt+J talk');
   assert.equal(A.keyWords('⌃⌥J', true), '⌃⌥J');
 });

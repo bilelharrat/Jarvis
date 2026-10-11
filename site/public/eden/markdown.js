@@ -15,6 +15,8 @@ import('./i18n.js').then((m) => { if (m && typeof m.t === 'function') t = m.t; }
 // a fence opener: ``` or ~~~ then an info string (a backtick fence's has no backticks).
 // Parsed in two steps, not one regex with overlapping quantifiers: a long line with a stray
 // backtick made that backtrack quadratically (about a second per render at 50k characters).
+// AC10: each block finds its own direction (an Arabic or Hebrew paragraph reads right to left, an English one left to right)
+const AUTO = { dir: 'auto' };
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 const FENCE = {
   exec(line) {
@@ -42,6 +44,44 @@ export function renderMarkdown(src, opts = {}) {
   const frag = document.createDocumentFragment();
   const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n');
   blocks(lines, frag, opts);
+  return frag;
+}
+
+/**
+ * AC12: a long reply while it streams. Its finished blocks (the text before the last blank line that is outside a code fence
+ * and followed by an unindented line) are rendered once and kept in `cache` (one object per reply part); each paint renders
+ * only the rest, and the kept nodes move into the new bubble (the old one is thrown away). Text that doesn't extend what was
+ * kept starts over. The final paint (not streaming) renders the whole text with renderMarkdown, as before.
+ */
+export function renderMarkdownGrowing(src, opts = {}, cache = {}) {
+  const s = String(src || '').replace(/\r\n?/g, '\n');
+  const key = `${opts.untrusted ? 1 : 0}:${opts.sources ? opts.sources.length : 0}:${opts.noCanvas ? 1 : 0}`;
+  if (!cache.nodes || cache.key !== key || !s.startsWith(cache.src)) Object.assign(cache, { key, src: '', nodes: [], scan: 0, fence: null, blank: false });
+  let split = cache.src.length;
+  let at = cache.scan;
+  for (let nl = s.indexOf('\n', at); nl >= 0; at = nl + 1, nl = s.indexOf('\n', at)) { // complete lines only
+    const line = s.slice(at, nl);
+    if (cache.fence) {
+      const t = line.trim();
+      if (t.startsWith(cache.fence[0].repeat(cache.fence.length)) && t.replace(new RegExp(`^\\${cache.fence[0]}+`), '').trim() === '') cache.fence = null;
+      cache.blank = false;
+      continue;
+    }
+    if (!line.trim()) { cache.blank = true; continue; }
+    if (cache.blank && !/^[ \t]/.test(line)) split = at; // a block starts here: everything before it is finished
+    cache.blank = false;
+    const f = FENCE.exec(line);
+    if (f) cache.fence = f[1];
+  }
+  cache.scan = at;
+  if (split > cache.src.length) {
+    const done = renderMarkdown(s.slice(cache.src.length, split), opts);
+    for (const n of [...done.childNodes]) cache.nodes.push(n);
+    cache.src = s.slice(0, split);
+  }
+  const frag = document.createDocumentFragment();
+  for (const n of cache.nodes) frag.append(n); // moved from the last paint's bubble
+  frag.append(renderMarkdown(s.slice(cache.src.length), opts));
   return frag;
 }
 
@@ -73,7 +113,7 @@ function blocks(lines, out, opts) {
       continue;
     }
     if ((m = HEADING.exec(line))) {
-      const h = el(`h${m[1].length}`);
+      const h = el(`h${m[1].length}`, AUTO);
       inline(headingText(m[2]), h, opts);
       out.append(h);
       i++;
@@ -83,7 +123,7 @@ function blocks(lines, out, opts) {
     if (QUOTE.test(line)) {
       const inner = [];
       while (i < lines.length && lines[i].trim() && QUOTE.test(lines[i])) { inner.push(QUOTE.exec(lines[i])[1]); i++; }
-      const bq = el('blockquote');
+      const bq = el('blockquote', AUTO);
       blocks(inner, bq, opts);
       out.append(bq);
       continue;
@@ -96,7 +136,7 @@ function blocks(lines, out, opts) {
     // paragraph
     const para = [];
     while (i < lines.length && lines[i].trim() && !(para.length && isBlockStart(lines[i], lines[i + 1]))) { para.push(lines[i]); i++; }
-    const p = el('p');
+    const p = el('p', AUTO);
     inline(para.join('\n'), p, opts);
     out.append(p);
   }
@@ -131,7 +171,7 @@ function list(lines, i, out, opts) {
       content.push(indentOf(l) >= width ? l.slice(Math.min(width, l.length - l.trimStart().length)) : l.trimStart());
       i++;
     }
-    const li = el('li');
+    const li = el('li', AUTO);
     const tmp = document.createDocumentFragment();
     blocks(content, tmp, opts);
     // a tight item: its paragraph's words sit straight in the <li>
@@ -171,14 +211,14 @@ function table(lines, i, out, opts) {
   const t = el('table');
   const thead = el('thead');
   const tr = el('tr');
-  head.forEach((c, k) => { const th = el('th'); if (aligns[k]) th.style.textAlign = aligns[k]; inline(c, th, opts); tr.append(th); });
+  head.forEach((c, k) => { const th = el('th', AUTO); if (aligns[k]) th.style.textAlign = aligns[k]; inline(c, th, opts); tr.append(th); });
   thead.append(tr);
   t.append(thead);
   const tbody = el('tbody');
   while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
     const row = el('tr');
     const cells = splitRow(lines[i]);
-    for (let k = 0; k < head.length; k++) { const td = el('td'); if (aligns[k]) td.style.textAlign = aligns[k]; inline(cells[k] || '', td, opts); row.append(td); }
+    for (let k = 0; k < head.length; k++) { const td = el('td', AUTO); if (aligns[k]) td.style.textAlign = aligns[k]; inline(cells[k] || '', td, opts); row.append(td); }
     tbody.append(row);
     i++;
   }
@@ -196,6 +236,7 @@ function codeBlock(lang, code, opts, closed) {
   head.append(el('span', 'lang', lang || 'text'));
   if (!opts.noCanvas) {
     if (CANVAS_LANGS.has(lang)) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'canvas', title: t('Open in canvas') }, ico('art'), t('Open in canvas')));
+    else if (/^(jsx|tsx|react)$/i.test(lang)) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'codeview', title: t('Open in canvas: see it running') }, ico('art'), t('Open in canvas'))); // React draws live (canvas-app.js)
     else if (code.replace(/\n+$/, '').split('\n').length >= 4) head.append(el('button', { type: 'button', class: 'canvas', 'data-act': 'codeview', title: t('Open in canvas: edit and run it') }, ico('code'), t('Open in canvas')));
   }
   head.append(el('button', { type: 'button', 'data-act': 'copy-code', title: t('Copy code'), 'aria-label': t(`Copy ${lang || ''} code`) }, ico('copy'), t('Copy')));

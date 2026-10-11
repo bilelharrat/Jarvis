@@ -187,7 +187,7 @@ def test_a_shared_link_is_saved_and_asked_about_as_outside_content(phone, monkey
     assert path.suffix == ".webloc" and plistlib.loads(path.read_bytes()) == {
         "URL": "https://example.com/a?b=1"
     }
-    assert "J.A.R.V.I.S." in quarantined(path)
+    assert ";Eden;" in quarantined(path)
     [ask] = phone.asked
     assert ask["text"] == "summarize this\n\nhttps://example.com/a?b=1"
     assert ask["untrusted"] == "something shared from your phone" and ask["photos"] is None

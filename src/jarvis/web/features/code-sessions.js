@@ -458,6 +458,13 @@
     const go = (fork, withText) => {
       const text = area.value.trim();
       if (withText && !text) { area.focus(); return; }
+      const n = withText && text.length > 100000 ? [...text].length : 0;  // (code points, as the backend)
+      if (n > 100000) {  // (CA2-8) never cut: it stays here, and says so
+        err.textContent = `That message is ${n.toLocaleString('en-US')} characters; a session takes up to 100,000. Shorten it and send again.`;
+        err.hidden = false;
+        area.focus();
+        return;
+      }
       editing.set(uuid, { text, rewindOnly: !withText, close, err, box });
       row.querySelectorAll('button').forEach((b) => { b.disabled = true; });
       if (!F.send({ type: 'code_rewind', id: task.id, uuid, text: withText ? text : '', files: !fork && tick.checked, fork })) {
@@ -704,6 +711,7 @@
     tab.dataset.tab = id;
     tabs.append(tab);
     const panel = el('div', 'jcs-body cs-jcs');
+    panel.id = `jcs-${id}`;  // (app.js selectJcsTab ties the tab and its panel together by it)
     panel.setAttribute('role', 'tabpanel');
     panel.hidden = true;
     card.append(panel);

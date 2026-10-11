@@ -41,6 +41,7 @@ from typing import Any
 from claude_agent_sdk import HookMatcher, create_sdk_mcp_server, tool
 
 from .. import (
+    code_export,
     code_projects,
     codetests,
     computer,
@@ -69,6 +70,7 @@ TOOL_CHARS = 16_000
 SCHEMES_FRESH = 300.0  # seconds a project's Xcode schemes are kept before asking again
 TESTS_START = 3.0  # after a turn, seconds for the watch's run to begin
 TESTS_WAIT = 180.0  # ... and for it to end, before the check goes on without it
+PROBLEMS_WAIT = 300.0  # a newer Problems check took over the turn's: seconds to wait for it
 
 PREF_VERIFY = "code_verify_new_sessions"  # new sessions check the preview after each turn
 prefs.register_feature_pref(PREF_VERIFY, False)
@@ -126,12 +128,14 @@ class CodeVerify:
     _tasks: set[asyncio.Task] = field(default_factory=set)
     _ended: set[int] = field(default_factory=set)  # sessions whose end has been handled
     _schemes: dict[str, tuple[float, Any]] = field(default_factory=dict)  # project -> Xcode's
-    # Where a page's errors come from besides the app's own check (add_error_source).
+    # Where a page's errors come from besides the app's own check (add_error_source): no
+    # feature adds one yet; kept as the place the browser's console and network tools plug in.
     error_sources: list[previewcheck.ErrorSource] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.servers = DevServers(self.hub.emit)
-        self.tests = SuiteRunner(self.hub.emit)
+        # (a run's end, with its results' tree, to the window that asked for it)
+        self.tests = SuiteRunner(self.hub.emit, answer=getattr(self.hub, "emit_to_caller", None))
         self.diags = Diagnostics(self.hub.emit)
         self.pages = PageChecks(self.hub.emit, lambda: bool(self.hub.browser_available))
         self.proofs = ProofStore(self.hub.feature_path("code-verify-proofs"))
@@ -369,7 +373,8 @@ class CodeVerify:
             Finding(str(f.get("kind", "")), str(f.get("text", "")), str(f.get("where", "")))
             for f in entry["findings"]
         ]
-        if not self.hub.tasks.send(task.id, previewcheck.note_text(findings, entry.get("url", ""))):
+        note = self.safe(task, previewcheck.note_text(findings, entry.get("url", "")))
+        if not self.hub.tasks.send(task.id, note):
             self.error("The session couldn't take another message just now.")
 
     # ── the check after a turn ──
@@ -440,7 +445,9 @@ class CodeVerify:
                 except Exception:
                     log.exception("a page error source failed")
                     continue
-                findings += [Finding("source", str(line)[:500]) for line in (lines or [])[:10]]
+                findings += [
+                    Finding("source", _clip(str(line), 500)) for line in (lines or [])[:10]
+                ]
         elif checks.verify or by_owner:
             configs, _ = await asyncio.to_thread(devservers.read_launch, task.cwd)
             extra["page_error"] = (
@@ -450,6 +457,7 @@ class CodeVerify:
             )
         if checks.problems:
             check = await self._problems_run(task.cwd, slow=False, after_turn=True)
+            check = await self._final_check(task.cwd, check)
             if check is not None:
                 errors = [p for p in check.problems if p.severity == "error"]
                 extra["problems"] = {
@@ -473,7 +481,7 @@ class CodeVerify:
                 Finding(
                     "test",
                     f"{c.name} failed"
-                    + (f": {c.message.splitlines()[0][:200]}" if c.message else ""),
+                    + (f": {_clip(c.message.splitlines()[0], 200)}" if c.message else ""),
                     f"{c.file}:{c.line or ''}",
                 )
                 for c in run.results.failures()[:8]
@@ -483,15 +491,23 @@ class CodeVerify:
             if checks.said_nothing_to_check:
                 return  # said once in this session: not after every turn
             checks.said_nothing_to_check = True
+        # A page that couldn't be looked at (no app window, no answer) wasn't checked: with
+        # nothing else checked, nothing passed either.
+        page_missed = (
+            str(extra["page_error"]) if server is not None and "page_error" in extra else ""
+        )
+        unchecked = nothing_checked or (
+            bool(page_missed) and "problems" not in extra and "tests" not in extra
+        )
         proof = self.proofs.save(page.get("shot")) if page.get("shot") else ""
-        status = "problems" if findings else "skipped" if nothing_checked else "ok"
+        status = "problems" if findings else "skipped" if unchecked else "ok"
         sent, why_not = False, ""
         if findings and not by_owner:
             ok, why_not = checks.follow_ups.may_send()
             if ok and (task.busy or not task.inbox.empty()):
                 ok, why_not = False, "Not sent: the session had moved on to your next message."
             if ok:
-                note = previewcheck.note_text(findings, extra.get("url", ""))
+                note = self.safe(task, previewcheck.note_text(findings, extra.get("url", "")))
                 sent = self.hub.tasks.send(task.id, note, note=True)
                 if sent:
                     checks.follow_ups.sent()
@@ -501,7 +517,7 @@ class CodeVerify:
                     checks.edit_marks = {}
                 else:
                     why_not = "Not sent: the session couldn't take another message."
-        elif not findings and not nothing_checked:
+        elif status == "ok":
             checks.follow_ups.reset()  # a check passed: the streak starts over
         entry = {
             "status": status,
@@ -514,7 +530,13 @@ class CodeVerify:
             "by_owner": by_owner,
             **extra,
         }
-        text = previewcheck.summary(findings, server is not None, not nothing_checked)
+        text = previewcheck.summary(
+            findings,
+            server is not None and not page_missed,
+            not nothing_checked,
+            page_missed,
+            others="problems" in extra or "tests" in extra,
+        )
         self.hub.tasks.add_entry(task.id, "verify", text, **entry)
         checks.last = {
             "status": status,
@@ -524,6 +546,45 @@ class CodeVerify:
             "proof": proof,
             "thumb": entry["thumb"],
         }
+
+    async def _final_check(self, project: Path, check: Any) -> Any:
+        """The turn's Problems check, or the newer one that took over from it (the owner
+        pressed Check meanwhile), once that's done. None when there's no finished one."""
+        end = time.monotonic() + PROBLEMS_WAIT
+        while check is not None and check.superseded:
+            newer = self.diags.latest(project)
+            if newer is None or newer is check:
+                return None
+            check = newer
+            while check.status == "running" and not check.superseded:
+                if time.monotonic() > end:
+                    return None
+                await asyncio.sleep(0.2)
+        return check if check is not None and check.status == "done" else None
+
+    def safe(self, task: Any, text: str) -> str:
+        """What the session is sent of the app's output (a server's log, a check's note):
+        keys, tokens and passwords in it masked (code_export.mask_output), and the secrets
+        the owner gave it, in any form they're printed in. Masked whole, before any cut: a
+        key cut in two is no longer recognized."""
+        text = code_export.strip_ansi(text or "")
+        redact = getattr(self.hub.tasks, "redact", None)
+        if redact:
+            text = redact(task, text)
+        return code_export.mask_output(text, self.saved_secrets(task))
+
+    def saved_secrets(self, task: Any) -> dict[str, str]:
+        """{value: $NAME} of the secrets the owner gave this session or its project."""
+        sec = getattr(self.hub, "code_secrets", None)
+        if sec is None or task is None or getattr(task, "kind", "") != "code":
+            return {}
+        try:
+            if not sec.session_names.get(task.id) and not sec.index()["projects"]:
+                return {}  # (none given anywhere: the usual case, nothing looked up)
+            return sec.values_for(task)
+        except Exception:
+            log.exception("Eden Code: the saved secrets couldn't be looked up")
+            return {}
 
     # ── Xcode, for the tests and checks of an Xcode project ──
 
@@ -576,6 +637,12 @@ class CodeVerify:
             self.spawn(self._tests_watch(project, task, msg))
         elif action == "fix":
             self._tests_fix(project, task)
+        elif action == "message":
+            file, name = str(msg.get("file") or ""), str(msg.get("name") or "")
+            text = self.tests.message(project, file, name)
+            if text is not None:
+                answer = getattr(self.hub, "emit_to_caller", self.hub.emit)
+                answer("cv_tests_message", path=str(project), file=file, name=name, message=text)
 
     async def _tests_state(self, project: Path, task: Any) -> None:
         suites = await self.suites(project)
@@ -648,7 +715,8 @@ class CodeVerify:
         if run is None or run.results is None or not run.results.failures():
             self.error("There are no failures to fix.")
             return
-        if not self.hub.tasks.send(task.id, codetests.fix_message(run.suite.label, run.results)):
+        text = self.safe(task, codetests.fix_message(run.suite.label, run.results))
+        if not self.hub.tasks.send(task.id, text, by_user=True):  # (CA3-4) the owner's Fix
             self.error("The session couldn't take another message just now.")
 
     # ── the Problems pane ──
@@ -679,7 +747,9 @@ class CodeVerify:
                 self.error("Open a session to send it the problems.")
             elif check is None or not check.problems:
                 self.error("There are no problems to fix.")
-            elif not self.hub.tasks.send(task.id, diagnostics.fix_message(check.problems)):
+            elif not self.hub.tasks.send(
+                task.id, self.safe(task, diagnostics.fix_message(check.problems)), by_user=True
+            ):
                 self.error("The session couldn't take another message just now.")
 
     async def _problems_state(self, project: Path, task: Any) -> None:
@@ -798,6 +868,20 @@ def suite_key(suite: codetests.Suite) -> str:
     return f"{suite.id}:{suite.cwd}:{dict(suite.extra).get('scheme', '')}"
 
 
+def _clip(text: str, most: int) -> str:
+    """At most `most` characters, cut between words: a key cut in two keeps its prefix
+    whole or none of it, so masking still knows it (text.split()[0] longer than `most`
+    keeps its start, prefix included)."""
+    if len(text) <= most:
+        return text
+    cut = text[:most]
+    if not text[most].isspace():
+        space = max(cut.rfind(" "), cut.rfind("\t"))
+        if space > 0:
+            cut = cut[:space]
+    return cut.rstrip() + "…"
+
+
 def _int(value: Any) -> int:
     try:
         return int(value or 0)
@@ -845,7 +929,7 @@ def dev_tools(cv: CodeVerify, task: Any) -> list[Any]:
         {},
     )
     async def dev_servers(_args):
-        return _text(await asyncio.to_thread(listing))
+        return _text(cv.safe(task, await asyncio.to_thread(listing)))
 
     @tool(
         "dev_server_start",
@@ -864,7 +948,7 @@ def dev_tools(cv: CodeVerify, task: Any) -> list[Any]:
         while server.status == "starting" and time.monotonic() < end:
             await asyncio.sleep(0.25)
         if server.status in ("exited", "failed"):
-            tail = "\n".join(server.ring.tail(30))
+            tail = cv.safe(task, "\n".join(server.ring.tail(30)))
             return _text(f"{name} {server.message or 'stopped'}\n\nIts output:\n{tail}", error=True)
         where = server.address()
         if server.status == "starting":
@@ -902,7 +986,7 @@ def dev_tools(cv: CodeVerify, task: Any) -> list[Any]:
             found = server.errors_since(0, count)
         else:
             found = server.ring.tail(count)
-        body = "\n".join(found)[-TOOL_CHARS:] or "(nothing)"
+        body = cv.safe(task, "\n".join(found))[-TOOL_CHARS:] or "(nothing)"
         state = f"{name}: {server.status}" + (f" · {server.message}" if server.message else "")
         return _text(f"{state}\n<dev-server-output>\n{body}\n</dev-server-output>")
 

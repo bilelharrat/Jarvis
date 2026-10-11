@@ -133,7 +133,12 @@ async def test_the_wait_is_said_and_shown_and_so_is_the_model_being_ready(desk):
     ears.ready = True
     await asyncio.wait_for(task, 2)
     assert said[-1] == "I can hear you now."
-    assert events[-1] == ("toast", {"title": "Speech", "text": "I can hear you now."})
+    # Eden's windows only: never Eden Code's (CH3-10)
+    assert events[0][1]["eden_only"] is True
+    assert events[-1] == (
+        "toast",
+        {"title": "Speech", "text": "I can hear you now.", "eden_only": True},
+    )
 
 
 async def test_a_model_that_could_not_come_is_said_with_what_to_do(desk):
@@ -144,7 +149,9 @@ async def test_a_model_that_could_not_come_is_said_with_what_to_do(desk):
     ears.error = "ConnectionError: offline"
     await asyncio.wait_for(task, 2)
     assert "couldn't download my speech model" in said[-1] and "restart me" in said[-1]
-    assert events[-1][0] == "error"
+    assert (
+        events[-1][0] == "error" and events[-1][1]["eden_only"] is True
+    )  # (not to Eden Code: CH3-10)
 
 
 async def test_the_wait_is_not_kept_forever(desk, monkeypatch):

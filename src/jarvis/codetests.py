@@ -2,13 +2,15 @@
 
 - Discovery reads the project's files: pytest (its config, conftest.py, a tests folder),
   vitest and jest (package.json, and the project's own installed binary: never npx, which
-  could download one), go test, cargo test, swift test, and xcodebuild test for an Xcode
-  project with a scheme.
+  could download one), node --test (package.json's test script, run as `npm test`), go
+  test, cargo test, swift test, and xcodebuild test for an Xcode project with a scheme.
 - A run is a supervised process (runproc): its output streams to the window as it comes,
   and Stop takes down everything it started.
-- Results come from each runner's own report where it has one (pytest's JUnit XML in a temp
-  file, vitest's and jest's JSON, go's -json events), else from its output (cargo, swift,
-  xcodebuild), as a tree: file, then its tests, failures with their message and line.
+- Results come from each runner's own report where it has one (pytest's and node's JUnit
+  XML in a temp file, vitest's and jest's JSON, go's -json events), else from its output
+  (cargo, swift, xcodebuild), as a tree: file, then its tests, failures with their message
+  and line. Only a run read from its output keeps that output (OUTPUT_CHARS at most), and
+  only until it's read.
 - Watch mode runs the last choice again when the project's files change (polled, debounced),
   one run at a time.
 """
@@ -28,15 +30,19 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from . import runproc
 
 log = logging.getLogger("jarvis")
 
 OUTPUT_LINES = 3000  # of a run's output, kept for the pane
+OUTPUT_CHARS = 20_000_000  # of a run's output kept to read its results from (go, cargo, swift…)
+FROM_OUTPUT = ("go", "cargo", "swift", "xcode")  # suites whose results are read from their output
 OUT_EVERY = 0.2  # seconds between batches of output to the windows
 MAX_CASES = 5000  # results kept of one run
-MESSAGE_CHARS = 4000  # of one failure's message
+MESSAGE_CHARS = 4000  # of one failure's message, at most
+MESSAGE_SHOWN = 1500  # of it in a run's tree (the rest when the owner asks: "Show more")
 WATCH_EVERY = 2.5  # seconds between looks at the project's files
 WATCH_QUIET = 1.0  # after a change, this long without another before the run
 WATCH_FILES = 10_000  # files a watch looks at, at most
@@ -53,11 +59,14 @@ WATCHED = {
     ".go", ".rs", ".swift", ".m", ".h", ".json", ".toml", ".yaml", ".yml", ".html", ".css",
 }  # fmt: skip
 _JS_TEST = re.compile(r"\.(test|spec)\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$")
+_NODE_TEST = re.compile(r"\bnode\b[^&|;]*\s--test\b")
+_REPORTER = re.compile(r"--test-reporter(?![-\w])")
+_DESTINATION = re.compile(r"--test-reporter-destination\b")
 
 
 @dataclass(frozen=True)
 class Suite:
-    id: str  # pytest | vitest | jest | go | cargo | swift | xcode
+    id: str  # pytest | vitest | jest | node | go | cargo | swift | xcode
     label: str
     argv: tuple[str, ...]  # how all of it runs, without the report's options
     cwd: str = ""  # relative to the project
@@ -88,14 +97,17 @@ class Case:
     seconds: float | None = None
 
     def public(self) -> dict[str, Any]:
-        return {
+        out = {
             "file": self.file,
             "name": self.name,
             "status": self.status,
-            "message": self.message[:MESSAGE_CHARS],
+            "message": self.message[:MESSAGE_SHOWN],
             "line": self.line,
             "target": self.target,
         }
+        if len(self.message) > MESSAGE_SHOWN:
+            out["more"] = min(len(self.message), MESSAGE_CHARS)  # (its whole length shown)
+        return out
 
 
 @dataclass
@@ -217,6 +229,16 @@ def discover(project: Path, xcode_schemes: list[tuple[str, str, str]] | None = N
                 label = f"{runner} · {rel}" if rel else runner
                 suites.append(Suite(runner, label, argv, cwd=rel, ready=ready, why=why))
                 break
+        else:
+            if _NODE_TEST.search(script):  # node's own runner, through the project's script
+                label = f"node --test · {rel}" if rel else "node --test"
+                why = f"{rel + '/' if rel else ''}package.json"
+                # Its own reporters (the run's show those, beside ours): each needs a
+                # destination when ours are given one.
+                reporters = len(_REPORTER.findall(script))
+                bare = reporters if not _DESTINATION.search(script) else 0
+                extra = (("reporters", str(reporters)), ("bare", str(bare))) if reporters else ()
+                suites.append(Suite("node", label, ("npm", "test"), cwd=rel, why=why, extra=extra))
     if (project / "go.mod").exists():
         suites.append(Suite("go", "go test", ("go", "test", "./..."), why="go.mod"))
     if (project / "Cargo.toml").exists():
@@ -340,6 +362,8 @@ def command(suite: Suite, target: dict[str, str], report: Path, destination: str
                 argv.append(rel)
             if one:
                 argv += ["-t", one]
+        # node: the script is the project's (a build first, say); the report and the one
+        # test go in NODE_OPTIONS (node_options), as options after its files wouldn't be.
         case "go":
             argv = ["go", "test", "-json"]
             package = target.get("package") or (
@@ -363,6 +387,199 @@ def command(suite: Suite, target: dict[str, str], report: Path, destination: str
 
 
 # ── reading results ──
+
+
+# Our reporter for node --test: each test's start and end as a line of JSON, with the file
+# and line node knows for every test (its JUnit has a file for none of them).
+NODE_REPORTER = """// Eden Code's report of a node --test run (the Tests pane reads it).
+export default async function* edenReport(source) {
+  for await (const { type, data } of source) {
+    if (type !== 'test:start' && type !== 'test:pass' && type !== 'test:fail') continue;
+    const out = { type, name: String(data.name), nesting: data.nesting | 0, file: data.file || '', line: data.line || null };
+    if (type !== 'test:start') {
+      const d = data.details || {};
+      out.suite = d.type === 'suite';
+      out.seconds = typeof d.duration_ms === 'number' ? d.duration_ms / 1000 : null;
+      out.skip = (data.skip !== undefined && data.skip !== false) || (data.todo !== undefined && data.todo !== false);
+      if (type === 'test:fail') {
+        const err = d.error;
+        const cause = err && err.cause ? err.cause : err;
+        let text = '';
+        try { text = String((cause && (cause.stack || cause.message)) || cause || 'failed'); } catch { text = 'failed'; }
+        out.message = text.slice(0, 20000);
+      }
+    }
+    yield JSON.stringify(out) + '\\n';
+  }
+}
+"""
+
+
+def node_reporter() -> Path:
+    """Our reporter's module, written to the temp folder (once per app run)."""
+    import hashlib
+
+    digest = hashlib.sha1(NODE_REPORTER.encode()).hexdigest()[:10]
+    path = Path(tempfile.gettempdir()) / f"jarvis-node-report-{digest}.mjs"
+    if _read(path, len(NODE_REPORTER) + 10) != NODE_REPORTER:
+        path.write_text(NODE_REPORTER, encoding="utf-8")
+    return path
+
+
+def js_escape(text: str) -> str:
+    """A JavaScript RegExp matching this text exactly where it stands."""
+    return re.sub(r"[.*+?^${}()|[\]\\/]", lambda m: "\\" + m.group(0), text)
+
+
+def node_options(
+    target: dict[str, str], report: Path, have: str = "", reporter: str = "", suite: Any = None
+) -> str:
+    """NODE_OPTIONS for a node --test run: its own report beside the output (ours: each
+    test with its file; reporter is its module's URL), and the one test asked for, by its
+    full name (its describes' names and its own, as node matches them: exactly that one).
+    A script that picks its own reporters keeps them on show instead of node's spec, and
+    each one without a destination gets stdout (node wants one for each, once ours has
+    one)."""
+
+    def quoted(option: str) -> str:
+        return '"' + option.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    extra = dict(suite.extra) if suite is not None else {}
+    own, bare = int(extra.get("reporters", 0)), int(extra.get("bare", 0))
+    parts = [] if own else ["--test-reporter=spec", "--test-reporter-destination=stdout"]
+    parts += [
+        quoted(f"--test-reporter={reporter}") if reporter else "--test-reporter=junit",
+        quoted(f"--test-reporter-destination={report}"),
+        *["--test-reporter-destination=stdout"] * bare,
+    ]
+    if one := target.get("test", ""):
+        parts.append(quoted(f"--test-name-pattern=^{js_escape(one)}$"))
+    return " ".join([have, *parts]).strip()
+
+
+async def _node_takes_a_name(cwd: Path, env: dict[str, str]) -> bool:
+    """Whether the project's node takes --test-name-pattern in NODE_OPTIONS (22 and later;
+    20 refuses to start)."""
+    code, out = await runproc.run_quiet(["node", "--version"], cwd, env, timeout=10)
+    found = re.match(r"v(\d+)\.", out.strip())
+    return code == 0 and found is not None and int(found.group(1)) >= 22
+
+
+def parse_node_junit(text: str, project: Path) -> Results:
+    """node --test's JUnit XML: each test by its name, inside its describe()s; a failure's
+    file and line from the first place in the project its stack names."""
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return Results(complete=False)
+    results = Results()
+    # A stack's frame: "at f (/a b/x.test.js:3:9)", "at file:///a%20b/x.mjs:3:9".
+    where = re.compile(r"(?:\(|\bat )(file://)?(/[^()\n]+?):(\d+):\d+")
+
+    def walk(node: Any, names: list[str]) -> None:
+        for child in node:
+            if child.tag == "testsuite":
+                walk(child, [*names, child.get("name") or ""])
+            elif child.tag == "testcase":
+                name = child.get("name") or ""
+                status, message, file, line = "passed", "", "", None
+                for item in child:
+                    if item.tag in ("failure", "error"):
+                        status = "failed"
+                        message = "\n".join(
+                            p for p in (item.get("message") or "", (item.text or "").strip()) if p
+                        )
+                        break
+                    if item.tag == "skipped":
+                        status = "skipped"
+                for m in where.finditer(message):
+                    path = unquote(m.group(2)) if m.group(1) else m.group(2)
+                    if "/node_modules/" in path:
+                        continue
+                    rel = _suite_file(project, path)
+                    if rel != path:  # inside the project
+                        file, line = rel, int(m.group(3))
+                        break
+                results.cases.append(
+                    Case(
+                        file=file or " › ".join(n for n in names if n),
+                        name=" › ".join([*(n for n in names if n), name]),
+                        status=status,
+                        message=message.strip(),
+                        line=line,
+                        target=" ".join([*(n for n in names if n), name]),
+                        seconds=_float(child.get("time")),
+                    )
+                )
+
+    walk(root, [])
+    return results
+
+
+def parse_node_events(text: str, project: Path) -> Results:
+    """Our reporter's lines (NODE_REPORTER): each test under its file, by its full name
+    (its describes' and its own); a describe, or a test with subtests, isn't one itself
+    unless it failed with none of them failing (a hook). A failure's line: the first place
+    in its own file its stack names, else where the test is."""
+    results = Results()
+    stacks: dict[str, list[dict[str, Any]]] = {}  # file -> the tests open, by nesting
+    where = re.compile(r"(?:\(|\bat )(file://)?(/[^()\n]+?):(\d+):\d+")
+    seen = False
+    for raw in text.splitlines():
+        try:
+            ev = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(ev, dict) or not isinstance(ev.get("name"), str):
+            continue
+        seen = True
+        file, name = str(ev.get("file") or ""), ev["name"]
+        nesting = ev.get("nesting") if isinstance(ev.get("nesting"), int) else 0
+        stack = stacks.setdefault(file, [])
+        if ev.get("type") == "test:start":
+            del stack[nesting:]
+            if stack and len(stack) == nesting and nesting:
+                stack[-1]["children"] = True
+            stack.append({"name": name, "children": False, "failed_below": False})
+            continue
+        node = (
+            stack[nesting]
+            if len(stack) > nesting and stack[nesting]["name"] == name
+            else {"name": name, "children": False, "failed_below": False}
+        )
+        ancestors = [s["name"] for s in stack[:nesting]]
+        failed = ev.get("type") == "test:fail"
+        if failed:
+            for s in stack[:nesting]:
+                s["failed_below"] = True
+        del stack[nesting:]
+        if ev.get("suite") or node["children"]:
+            if not failed or node["failed_below"]:
+                continue  # (its tests are the cases)
+        elif not nesting and file and file.endswith(name.lstrip("./")):
+            continue  # a file all of whose tests a name pattern left out
+        rel = _suite_file(project, unquote(file[7:]) if file.startswith("file://") else file)
+        message = str(ev.get("message") or "") if failed else ""
+        line = ev.get("line") if isinstance(ev.get("line"), int) else None
+        for m in where.finditer(message):
+            path = unquote(m.group(2)) if m.group(1) else m.group(2)
+            if path == file or _suite_file(project, path) == rel:
+                line = int(m.group(3))
+                break
+        results.cases.append(
+            Case(
+                file=rel or " › ".join(ancestors),
+                name=" › ".join([*ancestors, name]),
+                status="failed" if failed else "skipped" if ev.get("skip") else "passed",
+                message=message.strip(),
+                line=line,
+                target=" ".join([*ancestors, name]),
+                seconds=_float(ev.get("seconds")),
+            )
+        )
+        if len(results.cases) >= MAX_CASES * 4:
+            break
+    return results if seen else Results(complete=False)
 
 
 def _suite_file(project: Path, raw: str, cwd: str = "") -> str:
@@ -598,6 +815,12 @@ def read_results(suite: Suite, project: Path, report: Path, lines: list[str]) ->
     match suite.id:
         case "pytest":
             return parse_junit(text, project) if text else Results(complete=False)
+        case "node":
+            if not text.strip():
+                return Results(complete=False)
+            if text.lstrip().startswith("<"):  # (JUnit XML)
+                return parse_node_junit(text, project)
+            return parse_node_events(text, project)
         case "vitest" | "jest":
             try:
                 data = json.loads(text) if text else None
@@ -657,8 +880,11 @@ class Run:
     exit_code: int | None = None
     message: str = ""
     watch: bool = False  # started by watch mode
+    limit: asyncio.TimerHandle | None = field(default=None, repr=False)  # RUN_LIMIT's stop
 
-    def public(self, with_output: bool = False) -> dict[str, Any]:
+    def public(self, with_output: bool = False, tree: bool = True) -> dict[str, Any]:
+        """tree=False: without its results' tree (every window is told a run ended; the one
+        that asked gets the tree)."""
         results = self.results
         out = {
             "project": str(self.project),
@@ -671,11 +897,13 @@ class Run:
             "message": self.message,
             "summary": results.summary() if results and results.cases else "",
             "counts": results.counts() if results else None,
-            "tree": results.tree() if results else [],
+            "tree": results.tree() if results and tree else [],
             "complete": results.complete if results else True,
             "lines": self.ring.seq,
             "watch": self.watch,
         }
+        if not tree:
+            out["slim"] = True
         if with_output:
             out["output"] = [[n, t] for n, t in self.ring.since(0, 1000)]
         return out
@@ -685,18 +913,34 @@ Emit = Callable[..., None]
 
 
 class SuiteRunner:
-    """Test runs across projects: one at a time in each, and watch mode."""
+    """Test runs across projects: one at a time in each, and watch mode.
 
-    def __init__(self, emit: Emit, env: Callable[[], dict[str, str]] | None = None) -> None:
+    One run per project: Runs pressed while one is starting are taken as one (the newest
+    goes, the ones waiting before it don't start at all), and Stop stops what's running or
+    starting, and what's waiting to start. A watch's run never stops one the owner asked
+    for."""
+
+    def __init__(
+        self,
+        emit: Emit,
+        env: Callable[[], dict[str, str]] | None = None,
+        answer: Emit | None = None,
+    ) -> None:
         self.emit = emit
+        # A run's end, with its results' tree, to the window that asked for it (every window
+        # gets the run without the tree: a big suite's was 232 KB to each).
+        self.answer = answer
         self.env = env or runproc.shell_env
         self.runs: dict[str, Run] = {}  # project -> its latest run
         self.watches: dict[str, asyncio.Task] = {}  # project -> its watch loop
         self.watching: dict[str, dict[str, Any]] = {}  # project -> what the watch runs
+        # Told of each finished run (no feature listens yet; the tests do).
         self.on_finished: Callable[[Run], None] | None = None
+        self._starting: dict[str, asyncio.Lock] = {}  # project -> one start at a time
         self._pending: dict[str, list[tuple[int, str]]] = {}
         self._flush: asyncio.TimerHandle | None = None
         self._again: dict[str, bool] = {}  # a change came during a watch run: run again after
+        self._asked: dict[str, int] = {}  # project -> the latest Run or Stop (its number)
         self._tmp = Path(tempfile.gettempdir())
         self._closing = False
 
@@ -713,8 +957,41 @@ class SuiteRunner:
         destination: str = "",
     ) -> Run:
         """Run the suite (all, a file or one test). One at a time per project: a new run
-        stops the one going."""
+        stops the one going. None when a newer Run, or a Stop, came before this one started
+        (a Run pressed again while one starts: only the last runs)."""
         key = str(project)
+        lock = self._starting.setdefault(key, asyncio.Lock())
+        if watch and (lock.locked() or self._owners_run(key)):
+            return None  # the owner's run is starting or going: the watch doesn't take over
+        if not watch:
+            self._again.pop(key, None)  # (a watch's "again" queued before it: not after it)
+        number = self._asked[key] = self._asked.get(key, 0) + 1
+        async with lock:
+            if self._asked.get(key) != number:
+                return None  # a newer Run, or a Stop, came while it waited
+            return await self._start(
+                project, suite, target, watch=watch, destination=destination, number=number
+            )
+
+    def _owners_run(self, key: str) -> bool:
+        current = self.runs.get(key)
+        return current is not None and current.status == "running" and not current.watch
+
+    async def _start(
+        self,
+        project: Path,
+        suite: Suite,
+        target: dict[str, str] | None,
+        *,
+        watch: bool,
+        destination: str,
+        number: int = 0,
+    ) -> Run | None:
+        key = str(project)
+
+        def superseded() -> bool:
+            return bool(number) and self._asked.get(key) != number
+
         current = self.runs.get(key)
         if current is not None and current.status == "running" and current.proc is not None:
             await current.proc.stop(grace=2.0)
@@ -727,6 +1004,15 @@ class SuiteRunner:
         # As the owner's own run would be (no CI: jest would stop writing new snapshots).
         env = {**(await asyncio.to_thread(self.env)), "NO_COLOR": "1", "FORCE_COLOR": "0"}
         cwd = project / suite.cwd if suite.cwd else project
+        if suite.id == "node":
+            if target.get("test") and not await _node_takes_a_name(cwd, env):
+                raise ValueError("Running one test needs Node 22 or later. Run them all instead.")
+            reporter = (await asyncio.to_thread(node_reporter)).as_uri()
+            env["NODE_OPTIONS"] = node_options(
+                target, report, env.get("NODE_OPTIONS", ""), reporter, suite
+            )
+        if superseded():
+            return None  # Stop (or another Run) while it got ready: it doesn't start
         argv = command(suite, target, report, destination)
         exe = runproc.which(argv[0], env, cwd)
         if exe is None:
@@ -734,11 +1020,15 @@ class SuiteRunner:
         run = Run(project, suite, target, watch=watch)
         self.runs[key] = run
         run.ring.add([f"$ {runproc.public_argv(argv)}"])
-        lines: list[str] = []
+        lines: list[str] = []  # only for the suites read from their output
+        keep = suite.id in FROM_OUTPUT
+        size = 0
 
         def output(new: list[str]) -> None:
-            if len(lines) < 200_000:
+            nonlocal size
+            if keep and size < OUTPUT_CHARS:
                 lines.extend(new)
+                size += sum(len(line) for line in new)
             added = run.ring.add(new)
             self._pending.setdefault(key, []).extend(added)
             if self._flush is None:
@@ -748,11 +1038,15 @@ class SuiteRunner:
         def ended(code: int | None) -> None:
             run.exit_code = code
             run.finished = time.time()
+            if run.limit is not None:
+                run.limit.cancel()  # (its timer held the run, and the run its output)
+                run.limit = None
             try:
                 run.results = read_results(suite, project, report, lines)
             except Exception:
                 log.exception("couldn't read a test run's results")
                 run.results = Results(complete=False)
+            lines.clear()
             with contextlib.suppress(OSError):
                 report.unlink()
             failed = bool(run.results and run.results.failures())
@@ -769,20 +1063,25 @@ class SuiteRunner:
                 self._flush.cancel()
                 self._send()
             if not self._closing:
-                self.emit("cv_tests_run", run=run.public())
+                self.emit("cv_tests_run", run=run.public(tree=self.answer is None))
+                if self.answer is not None:
+                    self.answer("cv_tests_run", run=run.public())
                 if self.on_finished is not None:
                     self.on_finished(run)
                 if self._again.pop(key, False) and key in self.watching:
                     asyncio.get_running_loop().call_soon(self._watch_run, key)
 
-        run.proc = runproc.Proc([exe, *argv[1:]], cwd, env, output, ended)
+        run.proc = runproc.Proc([exe, *argv[1:]], cwd, env, output, ended, orphans=True)
         try:
             await run.proc.start()
         except OSError as exc:
             run.status, run.message = "error", f"It didn't start: {exc.strerror or exc}"
             raise ValueError(run.message) from exc
         self.emit("cv_tests_run", run=run.public())
-        asyncio.get_running_loop().call_later(RUN_LIMIT, self._too_long, run)
+        if superseded():  # a Stop came while it started: it stops now
+            asyncio.ensure_future(run.proc.stop(grace=2.0))
+        if run.status == "running":
+            run.limit = asyncio.get_running_loop().call_later(RUN_LIMIT, self._too_long, run)
         return run
 
     def _too_long(self, run: Run) -> None:
@@ -791,11 +1090,27 @@ class SuiteRunner:
             asyncio.ensure_future(run.proc.stop())
 
     async def stop(self, project: Path) -> bool:
-        run = self.runs.get(str(project))
+        """Stop the run going, and the ones starting or waiting to (they don't start).
+        False when there was nothing to stop."""
+        key = str(project)
+        lock = self._starting.get(key)
+        starting = lock is not None and lock.locked()
+        self._asked[key] = self._asked.get(key, 0) + 1
+        self._again.pop(key, None)
+        run = self.runs.get(key)
         if run is None or run.status != "running" or run.proc is None:
-            return False
+            return starting
         await run.proc.stop(grace=3.0)
         return True
+
+    def message(self, project: Path, file: str, name: str) -> str | None:
+        """A failure's whole message (up to MESSAGE_CHARS), from the latest run: "Show
+        more" in its tree."""
+        run = self.runs.get(str(project))
+        for case in run.results.cases if run is not None and run.results else []:
+            if case.name == name and (case.file or "(no file)") == (file or "(no file)"):
+                return case.message[:MESSAGE_CHARS]
+        return None
 
     def _send(self) -> None:
         self._flush = None
@@ -845,8 +1160,11 @@ class SuiteRunner:
             return
         current = self.runs.get(key)
         if current is not None and current.status == "running":
-            self._again[key] = True  # after this one, once
+            self._again[key] = True  # after this one (never instead of it), once
             return
+        lock = self._starting.get(key)
+        if lock is not None and lock.locked():
+            return  # a run is starting: it reads the files as they are now
         suite = info["suite"]
         asyncio.ensure_future(
             self._start_quietly(Path(key), suite, info.get("target"), info.get("destination", ""))

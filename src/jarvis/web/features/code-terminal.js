@@ -79,6 +79,7 @@
   const asked = new Set();  // keys whose terminals were asked for
   const making = new Set();  // keys a terminal is being made for
   const armed = new Map();  // term -> timer: × clicked once while something runs in it
+  const closing = new Set();  // terms this page asked to close: a "still running" note is for it
   let startFor = '';  // the key the pane was opened for, until its list is seen: none there starts one
   // The key whose terminal takes the keys when it's next drawn: the pane was opened, or a tab,
   // +, Split or × pressed. Never on a redraw from elsewhere (another session, a new list), so
@@ -310,7 +311,8 @@
       F.send({ type: 'cw_term_close', term, force: true });
       return;
     }
-    F.send({ type: 'cw_term_close', term });
+    closing.add(term);
+    F.send({ type: 'cw_term_close', term, ref: term });
     if (x) x.disabled = true;
   }
 
@@ -364,7 +366,7 @@
     lists.set(ev.folder, ev.items || []);
     if (ev.ref) folderOf.set(ev.ref, ev.folder);
     const now = new Set((ev.items || []).map((i) => i.term));
-    for (const term of before) if (!now.has(term)) { dispose(term); armed.delete(term); }
+    for (const term of before) if (!now.has(term)) { dispose(term); armed.delete(term); closing.delete(term); }
     if (paneShown() && folderOf.get(keyNow()) === ev.folder) render(F.$('jc-pane-body'));
   });
 
@@ -408,6 +410,8 @@
   });
 
   F.on('cw_term_busy', (ev) => {
+    // (CF3-10) Only this page's own close (its ref): not another pane's or window's.
+    if (ev.ref !== undefined && !closing.delete(ev.ref)) return;
     focusFor = '';  // (nothing closed: nothing new to give the keys to)
     const item = currentItems().find((i) => i.term === ev.term);
     armed.set(ev.term, setTimeout(() => { armed.delete(ev.term); if (paneShown()) drawTabs(); if (busyNote) busyNote.hidden = true; }, 5000));

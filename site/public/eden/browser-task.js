@@ -71,7 +71,7 @@ async function form(root, goal = '', start = '') {
       el('span', 'act-ico', ico('globe', 15)),
       el('span', 'act-main', el('span', 'act-top', el('b', { 'data-no-i18n': '' }, t.goal), el('span', `web-pill s-${(STATUS[t.status] || STATUS.done).c}`, (STATUS[t.status] || { t: t.status }).t)),
         el('span', 'act-sub', `${t.steps} step${t.steps === 1 ? '' : 's'}`)))));
-  } catch { /* Eden away: the form says enough */ }
+  } catch { /* Jarvis away: the form says enough */ }
 }
 
 function watch(root, id) {

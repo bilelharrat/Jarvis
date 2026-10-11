@@ -3,7 +3,7 @@
 // badge, their notifications), hands it heads-ups to raise as macOS notifications, carries
 // out what its menus, notifications and jarvis:// links ask over this window's connection,
 // and adds the "This Mac" group to Settings (the menu bar icon, opening at login, the
-// global shortcuts, the Services menu's "Ask JARVIS", waking the Mac for the briefing).
+// global shortcuts, the Services menu's "Ask Eden", waking the Mac for the briefing).
 (() => {
   // ── pure helpers (tests/web/shell.test.mjs requires this file for them) ──
 
@@ -225,7 +225,7 @@
   // own: sent, the request goes marked as a link's (from_link), so the backend treats it as
   // outside content, and no word in it counts as the owner asking for anything. The mark
   // stays until the box is emptied: words typed after a link's don't make its words theirs.
-  // From the Services menu's "Ask JARVIS" (service: the owner's own click, as the app vouches)
+  // From the Services menu's "Ask Eden" (service: the owner's own click, as the app vouches)
   // it's sent at once, still marked as a link's, unless Settings › This Mac › "Ask before
   // sending messages to J.A.R.V.I.S." is on.
   let fromLink = false;
@@ -388,7 +388,7 @@
     bridge.invoke(`${CH}login`, typeof on === 'boolean' ? { on } : {}).then((state) => { loginState = state; renderLogin(); }, () => {});
   }
 
-  // The Services menu's "Ask JARVIS": Add writes the Quick Action, Remove takes it away.
+  // The Services menu's "Ask Eden": Add writes the Quick Action, Remove takes it away.
   function serviceRow() {
     const row = F.el('div', 'row shell-service-row');
     row.id = 'shell-service-row';
@@ -396,7 +396,7 @@
     const words = F.el('span');
     words.append(
       F.el('strong', '', 'Ask about a selection'),
-      F.el('small', '', 'Adds “Ask JARVIS” to the Services menu: select text in any app, then right-click › Services. The text is sent to Eden at once (or waits in the request box, with the switch below).'),
+      F.el('small', '', 'Adds “Ask Eden” to the Services menu: select text in any app, then right-click › Services. The text is sent to Eden at once (or waits in the request box, with the switch below).'),
     );
     const button = F.el('button', 'btn', 'Add');
     button.type = 'button';
@@ -415,7 +415,7 @@
     F.$('shell-service').disabled = serviceState.taken;
     const note = F.$('shell-service-note');
     const problem = serviceState.taken
-      ? en('There’s already a Quick Action named “Ask JARVIS” in ~/Library/Services. Rename or remove it first.')
+      ? en('There’s already a Quick Action named “Ask Eden” in ~/Library/Services. Rename or remove it first.')
       : serviceState.error ? en('That didn’t work. Try again.') : '';
     note.hidden = !problem || !serviceState.available;
     note.textContent = problem;
@@ -532,7 +532,7 @@
       note,
       serviceRow(),
       serviceNote,
-      switchRow('sw-shell-ask-confirm', 'Ask before sending messages to Eden', 'For “Ask JARVIS” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.'),
+      switchRow('sw-shell-ask-confirm', 'Ask before sending messages to Eden', 'For “Ask Eden” from the Services menu: the text waits in the request box until you press Return. Off: it’s sent at once. Links from web pages always wait.'),
       ...wakeRows(),
     );
     const settings = F.$('settings');
@@ -719,7 +719,8 @@
   new MutationObserver(() => { if (!F.$('settings').hidden) { wakeAsked = ''; askWake(); } })
     .observe(F.$('settings'), { attributes: true, attributeFilter: ['hidden'] });
 
-  if (bridge) {
+  // (Eden Code's app has no shell feature, app/flavor.js: asking it hello only logged "No handler registered" at every load, CH14)
+  if (bridge && document.body.dataset.app !== 'eden-code') {
     bridge.on(`${CH}command`, run);
     // The note under the request box goes with the link's text: sent, or cleared.
     F.$('ask-form').addEventListener('submit', () => { const n = F.$('shell-link-note'); if (n) n.hidden = true; });

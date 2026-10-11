@@ -299,13 +299,13 @@
         b.type = 'button';
         b.setAttribute('role', 'radio');
         b.setAttribute('aria-checked', String(on === value));
-        b.append(data(el('strong', '', name)), data(el('small', '', sub)));
+        b.append(el('strong', '', name), el('small', '', sub));  // (translated: only the language card's names stay as written, CH3-8)
         b.addEventListener('click', () => setPrefs({ boot_sound: value }));
         choices.append(b);
       }
       return {
         visual: tile('wave', 'violet'), title: 'Boot-up sound?',
-        lead: EDEN ? 'Eden Code plays a short sound as it opens. Keep it, or open quietly.' : 'Jarvis plays a short sound as it opens. Keep it, or open quietly.',
+        lead: EDEN ? 'Eden Code plays a short sound as it opens. Keep it, or open quietly.' : 'Eden plays a short sound as it opens. Keep it, or open quietly.',
         body: [choices, para('You can change this any time in Settings › General.', 'intro-note intro-center')],
       };
     }
@@ -347,6 +347,16 @@
     }
     // done
     const list = el('ul', 'intro-try-list');
+    if (EDEN) { // Eden Code's own last card: coding to try, and its own way back here (CH2-6)
+      for (const said of ['“Explain how this project is laid out.”', '“Run the tests and fix what fails.”', '“Review my last commit.”', '“Add a dark mode to the settings page.”']) list.append(el('li', '', said));
+      const mark = el('div', 'intro-eden-mark');
+      mark.setAttribute('aria-hidden', 'true');
+      return {
+        visual: mark, ok: true, title: 'You’re all set', primary: 'Start using Eden Code',
+        lead: 'Open a project, then ask, for example:',
+        body: [list, para('Anything you skipped is in Settings (the gear, or ⌘,), and Settings › Privacy & Safety › Set up Eden again… brings this back.', 'intro-note intro-center')],
+      };
+    }
     for (const said of ['“Eden, what’s on my calendar today?”', '“Eden, brief me.”', '“Eden, remind me at 5 to call Sam.”', '“Eden, open Eden Code.”', '“Eden, run a checkup.”']) list.append(el('li', '', said));
     return {
       visual: orb(false), ok: true, title: 'You’re all set', primary: 'Start using Eden',
@@ -908,10 +918,17 @@
     return root;
   }
 
+  // A stop Tab can reach: laid out, and not hidden by visibility either ("Not now" keeps its place hidden that way, and
+  // counted as the last stop, Tab from the real last one left the sheet: CH12).
+  function reachable(n) {
+    if (n.offsetParent === null) return false;
+    if (typeof n.checkVisibility === 'function') return n.checkVisibility({ visibilityProperty: true, checkVisibilityCSS: true });
+    return getComputedStyle(n).visibility !== 'hidden';
+  }
   function trapTab(e) {
     if (e.key !== 'Tab') return;
     const pop = e.currentTarget;
-    const stops = [...pop.querySelectorAll('button:not([disabled]), a[href], input, select, summary, [tabindex="0"]')].filter((n) => n.offsetParent !== null);
+    const stops = [...pop.querySelectorAll('button:not([disabled]), a[href], input, select, summary, [tabindex="0"]')].filter(reachable);
     if (!stops.length) return;
     const first = stops[0];
     const last = stops[stops.length - 1];
@@ -921,6 +938,16 @@
 
   let returnFocus = null;
   let pollTimer = null;
+  // The page behind the sheet is inert while it's open: nothing there takes Tab or a screen reader (CH12).
+  let madeInert = [];
+  function inertBehind(root) {
+    madeInert = [...document.body.children].filter((n) => n !== root && n.localName !== 'script' && !n.inert);
+    for (const n of madeInert) n.inert = true;
+  }
+  function inertOff() {
+    for (const n of madeInert) n.inert = false;
+    madeInert = [];
+  }
   function isOpen() { const l = $('intro'); return Boolean(l && !l.hidden); }
 
   function open(card) {
@@ -932,6 +959,8 @@
     if (opsLayer && !opsLayer.hidden) { const x = $('ops-close'); if (x) x.click(); }
     root.hidden = false;
     S.open = true;
+    // (after Settings' own closing, which gives the page back its focus first: a microtask, settings-nav.js)
+    queueMicrotask(() => { if (isOpen() && !madeInert.length) inertBehind(root); });
     F.send({ type: 'connectors' }); // the accounts cards are made from the catalog
     show(card && cardIds().includes(card) ? card : 'welcome', 1);
   }
@@ -941,6 +970,7 @@
     if (!root || root.hidden) return;
     root.hidden = true;
     S.open = false;
+    inertOff();
     stopPoll();
     const back = returnFocus;
     returnFocus = null;
@@ -999,6 +1029,22 @@
     if (title) title.focus({ preventScroll: true });
   }
 
+  // A card taller than the window scrolls: with nothing in it to Tab to, the card itself takes the focus (named by
+  // its title), so the keyboard can scroll it too (CH2-6: axe's scrollable-region-focusable).
+  const TABBABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  function keyboardScroll(card) {
+    if (!card) return;
+    const scrolls = card.scrollHeight > card.clientHeight + 1;
+    if (scrolls && !card.querySelector(TABBABLE)) {
+      card.tabIndex = 0;
+      card.setAttribute('aria-labelledby', 'intro-title');
+    } else {
+      card.removeAttribute('tabindex');
+      card.removeAttribute('aria-labelledby');
+    }
+  }
+  window.addEventListener('resize', () => { if (S.open) keyboardScroll($('intro-card')); });
+
   // The current card drawn again (an event changed what it shows): what's typed in its
   // fields, the focus and the scroll stay as they were.
   function fill() {
@@ -1041,6 +1087,7 @@
       if (caret) { try { $(active).setSelectionRange(caret[0], caret[1]); } catch (_) { /* not a text field */ } }
     } else if (wasFocusTitle) title.focus({ preventScroll: true });
     card.scrollTop = scroll;
+    keyboardScroll(card);
     // the footer
     const next = $('intro-next');
     next.textContent = s.primary || 'Continue';
@@ -1074,7 +1121,9 @@
   });
 
   F.on('ops_state', (ev) => {
-    if (ev.setup && ev.setup.show && !S.autoShown) open();
+    // Shown by itself once only (owner, 2026-10-10): opening it counts as seen, so quitting or Escape doesn't bring it
+    // back at the next start; Finish still records "done", and Settings opens it again.
+    if (ev.setup && ev.setup.show && !S.autoShown) { open(); F.send({ type: 'ops_setup', state: 'skipped' }); }
   }, { replay: true });
 
   F.on('ops_permissions', (ev) => { S.perms = ev; if (S.open && (S.card === 'mic' || S.card === 'permissions')) fill(); });
@@ -1194,7 +1243,7 @@
     if (S.open && S.card === 'models') fill();
   });
 
-  // Escape closes the intro (it shows again at the next start until finished or skipped).
+  // Escape closes the intro (it doesn't open by itself again: Settings has it).
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !isOpen()) return;
     e.preventDefault();

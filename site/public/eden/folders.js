@@ -6,7 +6,7 @@ import { el, ico, store, toast } from './util.js';
 import { state, saveConversation } from './state.js';
 import { api } from './api.js';
 import { locale } from './i18n.js';
-import { cleanName, folderList, unfiled, setFolder, proposeRequest, parseFolders, assignRequest, parseAssign, MAX_FOLDERS } from './folders-model.js';
+import { cleanName, folderList, unfiled, setFolder, placeOf, untouchedSince, proposeRequest, parseFolders, assignRequest, parseAssign, MAX_FOLDERS } from './folders-model.js';
 
 let deps = { openDialog: () => {}, closeDialog: () => {}, render: () => {} };
 export const initFolders = (d) => { deps = { ...deps, ...d }; };
@@ -35,6 +35,7 @@ function nameDialog(title, initial, label, onDone) {
     el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' } },
       el('button', { type: 'button', class: 'btn', onclick: () => deps.closeDialog() }, 'Cancel'),
       el('button', { type: 'button', class: 'btn primary', onclick: go }, label))));
+  input.focus(); // now, in the tap: iOS shows the keyboard only for a focus inside the gesture (openDialog's comes a frame later)
 }
 
 export function newFolder(then) {
@@ -141,7 +142,7 @@ export function tidyCard() {
 }
 
 async function run(chats) {
-  const mine = { phase: 'run', done: 0, total: chats.length, text: 'Reading your chat titles…', cancelled: false };
+  const mine = { phase: 'run', done: 0, total: chats.length, text: 'Reading your chat titles…', cancelled: false, at: new Map(chats.map((c) => [c, placeOf(c)])) };
   tidy = mine;
   deps.render();
   const alive = () => tidy === mine && !mine.cancelled;
@@ -176,10 +177,10 @@ function openReview() {
   const body = el('div');
   const show = (...n) => body.replaceChildren(...n);
   deps.openDialog('Tidy up with Eden', body);
-  review(tidy.rows.map((r) => r.name), tidy.plan, tidy.chats, show, deps.closeDialog);
+  review(tidy.rows.map((r) => r.name), tidy.plan, tidy.chats, show, deps.closeDialog, tidy.at);
 }
 
-function review(names, plan, chats, show, closeDialog) {
+function review(names, plan, chats, show, closeDialog, at) {
   const rows = tidy.rows;
   const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '48vh', overflowY: 'auto', margin: '0 0 6px' } });
   rows.forEach((r) => {
@@ -193,16 +194,17 @@ function review(names, plan, chats, show, closeDialog) {
     list,
     buttons(
       el('button', { type: 'button', class: 'btn', onclick: () => closeDialog() }, 'Later'),
-      el('button', { type: 'button', class: 'btn primary', onclick: () => apply(rows, plan, show, closeDialog) }, 'Apply')));
+      el('button', { type: 'button', class: 'btn primary', onclick: () => apply(rows, plan, show, closeDialog, at) }, 'Apply')));
 }
 
-function apply(rows, plan, show, closeDialog) {
+function apply(rows, plan, show, closeDialog, at) {
   const use = new Map(rows.filter((r) => r.on).map((r) => [r.name, cleanName(r.edit ?? r.name) || r.name]));
   const before = [];
   let moved = 0;
   for (const [c, f] of plan) {
     const to = use.get(f);
     if (!to) continue;
+    if (at && !untouchedSince(c, at.get(c), state.convs)) continue; // moved, renamed or deleted while Eden sorted: the person's choice stands
     before.push([c, c.folder || '', c.metaAt]);
     setFolder(c, to);
     saveConversation(c);

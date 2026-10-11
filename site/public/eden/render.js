@@ -3,9 +3,18 @@
 // research cards and sources, drafts pagers. Actions are data-act attributes handled by
 // one delegated listener (app.js).
 
+import { withoutToolBlocks, writingEssay, streamingEssay } from './eden-tools.js';
+import { countWords } from './essay-model.js';
 import { el, ico, fmtCost, effortLabel, shortModel, sizeText, noKeys } from './util.js';
 import { state, siblings, summarizeInput, nodeText, attachmentData, persona } from './state.js';
-import { renderMarkdown, CANVAS_LANGS } from './markdown.js';
+import { renderMarkdown, renderMarkdownGrowing, CANVAS_LANGS } from './markdown.js';
+// AC12: very long replies. Past GROWING_REPLY characters a streaming reply re-renders only its end; past HUGE_REPLY the
+// blocks off screen skip layout (content-visibility). One cache per streaming text part.
+const GROWING_REPLY = 20_000, HUGE_REPLY = 100_000;
+const growCache = new WeakMap();
+const growing = (part) => { let g = growCache.get(part); if (!g) growCache.set(part, (g = {})); return g; };
+import { searchLabel } from './autosearch-rules.js';
+import { clampedText } from './long-text.js'; // AC4: a collapsed long message lays out only its start
 import { parseEmailDraft } from './md-plain.js';
 import { ratedBadge } from './router.js';
 import { whereBadge } from './privacy.js';
@@ -18,10 +27,17 @@ import { toolCards } from './tools-ui.js'; // Google Calendar / Gmail approval c
 import { feedbackButtons } from './learned.js';
 import { limitAction } from './plan.js';
 import { clock } from './video-model.js';
-import { groundingStrip, stripSources } from './courses.js';
+import { groundingStrip, stripSources } from './course-strip.js'; // not courses.js: the Courses panel loads when it opens (panels.js)
 import { t as tx, locale } from './i18n.js';
 import { spentWords, stepsView } from './research-model.js'; // Q2: research's progress steps
 import { deckPart } from './deck-card.js'; // Q14: slide decks
+// Eden's essay text while it streams, drawn in the open essay (essay.js essayPreview); one reply at a time
+let previewing = null;
+function livePreview(node, live) {
+  if (!document.querySelector('#artifact.essay-on')) { previewing = null; return; }
+  previewing = live ? node.id : null;
+  import('./essay.js').then((E) => E.essayPreview(live)).catch(() => {});
+}
 
 export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), editing: null };
 // an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
@@ -61,8 +77,9 @@ function userMessage(c, node, last) {
   const lines = text.length > 1200 ? text.split('\n').length : 0;
   const long = text.length > 3000 || lines > 24;
   const open = ui_open.expanded.has(node.id);
-  const bubble = el('div', { class: `bubble${long && !open ? ' clamp' : ''}`, 'data-no-i18n': '' }); // the person's own words: never translated (its few labels go through tx)
-  bubble.append(long ? el('span', 'utext', text) : document.createTextNode(text));
+  const bubble = el('div', { class: `bubble${long && !open ? ' clamp' : ''}`, 'data-no-i18n': '', dir: 'auto' }); // the person's own words: never translated (its few labels go through tx); AC10: right-to-left text reads right to left
+  // AC4: a collapsed long message lays out only what the clamp shows; the whole text is built on "Show all" (Copy reads node.content)
+  bubble.append(long ? el('span', 'utext', open ? text : clampedText(text)) : document.createTextNode(text));
   if (long) bubble.append(el('button', { type: 'button', class: 'more', 'data-act': 'expand-user', 'aria-expanded': String(open) },
     tx(open ? 'Show less' : `Show all · ${lines > 1 ? `${lines} lines, ` : ''}${text.length.toLocaleString(locale())} characters`)));
   const data = attachmentData.get(node.id) || [];
@@ -105,7 +122,8 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   }
   const bubble = el('div', 'bubble');
   { const strip = sourceStrip(node); if (strip) bubble.append(strip); } // what this reply read from outside (H8)
-  if (node.autoSearched && node.role === 'assistant') bubble.append(el('div', { class: 'auto-search', style: 'display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:12px;opacity:.85' }, ico('globe', 14), el('span', 'chip-s', node.streaming && !(node.parts && node.parts.length) ? 'Searching the web…' : 'Searched the web'))); // auto-search (autosearch-rules.js)
+  const searched = searchLabel(node); // AC3: "Searched the web" only when a search really ran (autosearch-rules.js)
+  if (searched) bubble.append(el('div', { class: 'auto-search', style: 'display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:12px;opacity:.85' }, ico('globe', 14), el('span', 'chip-s', searched))); // auto-search (autosearch-rules.js)
   const sources = node.citations || [];
   const research = node.mode === 'research';
   if (research) {
@@ -148,20 +166,33 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
   for (const [i, part] of parts.entries()) {
     if (part.type === 'text') {
       const dp = deckPart(c, node, stripSources(part.text)); // Q14: a deck's JSON shows as its card, not code (deck-card.js)
-      const text = dp.text; // a checked reply's <sources> block shows as the strip below (courses.js)
-      if (!text && !dp.card) continue;
+      const text = withoutToolBlocks(dp.text); // a checked reply's <sources> block shows as the strip below (courses.js); Eden's tool lines never show
+      const writing = node.streaming && writingEssay(part.text); // Eden writing in the open essay (essay.js): a note, not the text twice
+      if (!text && !dp.card && !writing) continue;
       if (text) {
-        const md = el('div', 'md');
-        md.append(renderMarkdown(text, { sources, untrusted: isTainted(node) })); // H8: held images, visible link destinations
+        const md = el('div', text.length > HUGE_REPLY ? 'md huge' : 'md'); // AC12: .huge lays out only the blocks on screen (app.css)
+        const mdOpts = { sources, untrusted: isTainted(node) }; // H8: held images, visible link destinations
+        // AC12: a long reply while it streams renders only its unfinished end; the finished blocks are kept (markdown.js), also
+        // for the repaints after it ends (the label, a late note); a reply loaded from storage renders whole, once
+        md.append((node.streaming || growCache.has(part)) && text.length > GROWING_REPLY ? renderMarkdownGrowing(text, mdOpts, growing(part)) : renderMarkdown(text, mdOpts));
         bubble.append(md);
       }
       if (dp.card) bubble.append(dp.card);
+      if (writing) {
+        // the words appear in the essay as they come (essay.js essayPreview), and how many so far here (T19d)
+        const live = streamingEssay(part.text);
+        const n = live ? countWords(live.text.replace(/\[@[^\]]+\]/g, '')) : 0;
+        bubble.append(el('div', 'tc-writing', ico('edit', 13), n ? `Writing in your essay… ${n.toLocaleString()} word${n === 1 ? '' : 's'}` : 'Writing in your essay…'));
+        livePreview(node, live);
+      }
     } else if (part.type === 'tool') bubble.append(toolCard(c, node, part));
     else if (part.type === 'perm') bubble.append(part.approval ? approvalCard(c, node, part.approval, { perm: i }) : permCard(c, part, i));
     else if (part.type === 'note') bubble.append(el('div', 'notice', part.text));
     else if (part.type === 'mac') bubble.append(macCard(c, node, part)); // what Eden read on the Mac (files.js)
   }
+  if (!node.streaming && previewing === node.id) livePreview(node, null); // the reply ended: the real change lands (tools-ui.js)
   if (node.streaming && !nodeText(node) && !parts.some((p) => p.type === 'tool') && !node.thinkingLive) bubble.append(el('div', { class: 'typing', 'aria-label': 'Working' }, el('i'), el('i'), el('i')));
+  if (node.streaming && node.waiting && !nodeText(node)) bubble.append(el('div', { class: 'notice', role: 'status' }, node.waiting > 1 ? `Waiting for Claude: ${node.waiting} replies ahead of this one…` : 'Waiting for Claude: another reply is finishing first…')); // AC13 (cli.ts cliSlots)
   if (sources.length && !research) bubble.append(sourceList(sources));
   if (node.grounding && !node.streaming) bubble.append(groundingStrip(node.grounding)); // Eden for Education (courses.js)
   if (!node.streaming) {
@@ -189,12 +220,14 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
     bubble.append(el('div', { class: 'errbox', role: 'alert' }, ico('x'), el('span', '', node.error), plus,
       el('button', { type: 'button', class: `cap${plus ? '' : ' primary'}`, 'data-act': 'retry' }, ico('retry'), 'Retry')));
   } else if (node.finish === 'aborted') bubble.append(el('div', 'stopped', 'Stopped.'));
-  else if (node.finish === 'length') bubble.append(el('div', 'notice warn', 'Cut off at the model’s output limit.'));
+  else if (node.finish === 'length' && !(node.tools || []).some((t) => t.note === 'cutoff')) bubble.append(el('div', 'notice warn', 'Cut off at the model’s output limit.')); // an essay's own card says it (tools-ui.js)
   wrap.append(bubble);
   if (!node.streaming) {
     wrap.append(el('div', 'msg-acts',
       lane ? null : pager(c, node, 'Draft'),
       el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy reply' }, ico('copy')),
+      // a reply long enough to be essay text: into the essay writer, without the chat around it (essay.js pasteIntoEssay)
+      lane || c.kind === 'code' || countWords(withoutToolBlocks(nodeText(node))) < 60 ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'to-essay', title: 'Paste into essay: just the essay, in its format', 'aria-label': 'Paste into essay' }, ico('edit')),
       lane || !parseEmailDraft(nodeText(node)) ? null : el('button', { type: 'button', class: 'cap', 'data-act': 'open-mail', title: 'Open this draft in Eden’s Mail composer to review and send' }, ico('mail', 14), 'Open in Mail'),
       lane ? null : strongerButton(c, node),
       lane ? null : reopenButton(c, node),

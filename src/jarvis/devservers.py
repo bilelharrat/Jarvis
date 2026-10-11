@@ -456,6 +456,8 @@ class DevServer:
     printed_port: int | None = None
     last_output: float = 0.0  # monotonic, the latest line
     stop_note: str = ""  # why it was stopped, said once it has
+    port_taken: bool = False  # another program already answered on the config's port
+    heard: asyncio.Event = field(default_factory=asyncio.Event, repr=False)  # it said an address
 
     @property
     def key(self) -> str:
@@ -564,7 +566,11 @@ class DevServers:
         current = self.servers.get(key)
         if current is not None and (current.alive or current.status == "starting"):
             return current  # running, or on its way (a second click while it starts)
-        if sum(1 for s in self.servers.values() if s.alive) >= MAX_SERVERS:
+        # (counting the ones still starting: a burst of starts would all find room)
+        if (
+            sum(1 for s in self.servers.values() if s.alive or s.status == "starting")
+            >= MAX_SERVERS
+        ):
             raise ValueError(f"{MAX_SERVERS} dev servers are running already; stop one first.")
         server = DevServer(project, config, started_by=started_by)
         server.port = config.port
@@ -577,6 +583,10 @@ class DevServers:
         }
         cwd = (project / config.cwd) if config.cwd else project
         exe = runproc.which(config.command, env, cwd)
+        if exe is not None and config.port and await runproc.port_open(config.port):
+            # What answers there isn't this server: it's never taken for it.
+            server.port_taken = True
+            server.message = f"Port {config.port} is already in use by another program."
         if exe is None:
             server.status = "failed"
             server.message = f"{config.command} isn't installed, or isn't on your PATH."
@@ -589,6 +599,7 @@ class DevServers:
             env,
             on_lines=lambda lines: self._output(server, lines),
             on_exit=lambda code: self._ended(server, code),
+            orphans=True,  # (a server that daemonizes: its daemon stops with it)
         )
         server.proc = proc
         try:
@@ -662,6 +673,7 @@ class DevServers:
                 server.printed_url = url
             if port and not server.printed_port:
                 server.printed_port = port
+                server.heard.set()  # its watch looks now, not at its next turn
         if self._watched.get(server.key, 0.0) < time.monotonic():
             return  # no one is looking: the ring keeps it for when they do
         self._pending.setdefault(server.key, []).extend(added)
@@ -680,32 +692,50 @@ class DevServers:
         stopped = server.proc is not None and server.proc.stopping
         server.status = "stopped" if stopped else "exited"
         server.message = server.stop_note if stopped else f"It {runproc.describe_exit(code)}."
+        if server.port_taken and not stopped:
+            server.message += f" Port {server.config.port} is already in use by another program."
         server.ring.add([f"[the process {runproc.describe_exit(code)}]"])
         if not self._closing:
             self._changed()
 
     async def _watch(self, server: DevServer) -> None:
         """Find where it answers: the config's port, the address it prints, or a port its
-        processes listen on; ready once that answers."""
+        processes listen on; ready once that answers. A config's port another program held
+        before it started counts only once its own processes listen there (or it moved to
+        the address it printed)."""
         deadline = time.monotonic() + READY_WAIT
         looked = 0.0
         while server.alive and time.monotonic() < deadline:
             port = server.config.port or server.printed_port
-            if port is None and time.monotonic() - looked > 2.0 and server.proc is not None:
+            taken = server.port_taken and port == server.config.port
+            if taken and server.printed_port and server.printed_port != port:
+                port, taken = server.printed_port, False  # it moved (Vite does)
+            if (
+                (port is None or taken)
+                and time.monotonic() - looked > 2.0
+                and server.proc is not None
+            ):
                 looked = time.monotonic()
                 pid = server.proc.pid
                 if pid is not None:
                     ports = await asyncio.to_thread(runproc.listening_ports, pid)
-                    if ports:
-                        port = min(ports)
-            if port is not None:
+                    if taken and port in ports:
+                        taken = False  # its own, too
+                    elif ports:
+                        port, taken = min(ports), False
+            if port is not None and not taken:
                 server.port = port
                 if await runproc.port_open(port):
                     server.status = "ready"
                     server.message = ""
+                    server.port_taken = False  # (it answers on its own port now)
                     self._changed()
+                    if server.proc is not None:  # what it started, to stop with it
+                        await asyncio.to_thread(server.proc.note_kin)
                     return
-            await asyncio.sleep(0.5)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(server.heard.wait(), 0.5)
+            server.heard.clear()
         if server.alive:
             server.status = "running"
             if server.port is None:

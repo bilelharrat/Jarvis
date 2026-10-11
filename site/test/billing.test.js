@@ -547,7 +547,7 @@ test('deleting the account cancels its Stripe subscription at once', async () =>
   assert.equal(response.status, 204);
   const cancel = stripe.calls.find((c) => c.method === 'DELETE');
   assert.equal(cancel.path, '/v1/subscriptions/sub_test1');
-  assert.equal(cancel.headers.get('idempotency-key'), 'eden-cancel-sub_test1');
+  assert.equal(cancel.headers.get('idempotency-key'), 'eden-cancel-sub_test1-0', 'each try its own key (AW2-7)');
   assert.equal(stripe.subs.get('sub_test1').status, 'canceled');
   // Stripe's own news of it finds no account: acknowledged, nothing remade.
   assert.equal((await webhook(event('customer.subscription.deleted', stripe.subs.get('sub_test1')))).status, 200);
@@ -568,4 +568,110 @@ test('the fake Stripe of dev and tests is used only from STRIPE_API_BASE on loop
   env.STRIPE_API_BASE = 'https://stripe.example.com';
   assert.equal((await post('/api/web/billing/checkout', {}, { session })).status, 503);
   assert.equal(stripe.calls.length, 1);
+});
+
+test('AW2: Stripe down when a web account is deleted: the delete still happens, the person is told, and the cancel is retried until Stripe takes it', async () => {
+  const session = await browser(A);
+  await completeCheckout();
+  globalThis.fetch = async () => Response.json({ error: { type: 'api_error' } }, { status: 500 });
+  const r = await post('/api/web/account/delete', { confirm: 'DELETE' }, { session });
+  assert.equal(r.status, 200, await r.clone().text());
+  const body = await r.json();
+  assert.equal(body.stripe, 'pending');
+  assert.match(body.notice, /keep trying to cancel/);
+  assert.equal(env.ACCOUNTS.objects.get(A).ctx.storage.map.size, 0, 'the account is gone');
+  env.LINKS.get('stripe-cancel:sub_test1');
+  const pending = env.LINKS.objects.get('stripe-cancel:sub_test1');
+  assert.equal(pending.storage.map.get('cancel').subscription, 'sub_test1');
+  assert.ok(pending.storage.alarm > Date.now(), 'an alarm to try again');
+  // still down at the alarm: tried again later
+  await pending.alarm();
+  assert.equal(pending.storage.map.get('cancel').tries, 1);
+  // Stripe back: its next event for the subscription cancels it at once
+  globalThis.fetch = async (input, init) => fakeStripe(input, init);
+  assert.equal((await webhook(event('invoice.payment_failed', { id: 'in_1', object: 'invoice', customer: 'cus_test1', subscription: 'sub_test1', subscription_details: { metadata: { account_id: A } } }))).status, 200);
+  assert.equal(stripe.subs.get('sub_test1').status, 'canceled');
+  assert.equal(pending.storage.map.size, 0, 'nothing pending');
+});
+
+test('AW2: the pending cancel’s alarm alone cancels once Stripe answers', async () => {
+  const session = await browser(B);
+  await completeCheckout(B, subscription({ id: 'sub_b2', account: B }));
+  globalThis.fetch = async () => { throw new Error('offline'); };
+  assert.equal((await post('/api/web/account/delete', { confirm: 'DELETE' }, { session })).status, 200);
+  globalThis.fetch = async (input, init) => fakeStripe(input, init);
+  env.LINKS.get('stripe-cancel:sub_b2');
+  await env.LINKS.objects.get('stripe-cancel:sub_b2').alarm();
+  assert.equal(stripe.subs.get('sub_b2').status, 'canceled');
+});
+
+// ── AW2-7: the pending cancel's edge cases (bug sweep round 2) ──
+
+async function pendingCancel(account, sub) {
+  const session = await browser(account);
+  await completeCheckout(account, subscription({ id: sub, account }));
+  globalThis.fetch = async () => Response.json({ error: { type: 'api_error' } }, { status: 500 });
+  const r = await post('/api/web/account/delete', { confirm: 'DELETE' }, { session });
+  assert.equal((await r.json()).stripe, 'pending');
+  env.LINKS.get(`stripe-cancel:${sub}`);
+  return env.LINKS.objects.get(`stripe-cancel:${sub}`);
+}
+
+test('AW2-7: Stripe answering “no such subscription” ends the pending cancel at once (logged), not after weeks of retries', async () => {
+  const pending = await pendingCancel(A, 'sub_gone1');
+  stripe.subs.delete('sub_gone1'); // cancelled elsewhere long ago, or the other mode's key
+  globalThis.fetch = async (input, init) => fakeStripe(input, init);
+  const logged = [];
+  const was = console.error;
+  console.error = (...a) => logged.push(a.join(' '));
+  try { await pending.alarm(); } finally { console.error = was; }
+  assert.equal(pending.storage.map.size, 0, 'nothing pending');
+  assert.ok(logged.some((l) => /isn’t at Stripe for this key[\s\S]*Not retried/.test(l)), logged.join('\n'));
+  assert.ok(!logged.some((l) => /gave up/.test(l)));
+});
+
+test('AW2-7: each retry asks Stripe first and cancels under its own idempotency key', async () => {
+  const pending = await pendingCancel(B, 'sub_keys1');
+  const keys = [];
+  globalThis.fetch = async (input, init = {}) => {
+    if ((init.method || 'GET') === 'DELETE') { keys.push(new Headers(init.headers).get('idempotency-key')); return Response.json({ error: { type: 'api_error' } }, { status: 500 }); }
+    return fakeStripe(input, init);
+  };
+  await pending.alarm();
+  await pending.alarm();
+  assert.deepEqual(keys, ['eden-cancel-sub_keys1-1', 'eden-cancel-sub_keys1-2']);
+  // cancelled meanwhile (in the dashboard): the next look sees it and stops, with no DELETE
+  stripe.subs.get('sub_keys1').status = 'canceled';
+  await pending.alarm();
+  assert.equal(keys.length, 2);
+  assert.equal(pending.storage.map.size, 0);
+});
+
+test('AW2-7: the alarm and a webhook’s retry at once: the one that cancels wins; the failing one never brings the record back', async () => {
+  const pending = await pendingCancel(A, 'sub_race1');
+  let deletes = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    if ((init.method || 'GET') !== 'DELETE') return fakeStripe(input, init);
+    const n = ++deletes;
+    await new Promise((r) => setTimeout(r, n === 1 ? 10 : 30)); // the first answers first, and takes it
+    return n === 1 ? fakeStripe(input, init) : Response.json({ error: { type: 'api_error' } }, { status: 500 });
+  };
+  await Promise.all([pending.alarm(), pending.fetch(new Request('https://link/cancel-retry', { method: 'POST', body: '{}' }))]);
+  assert.equal(deletes, 2);
+  assert.equal(pending.storage.map.size, 0, 'not revived');
+});
+
+test('AW2-7: a lasting refusal (a 4xx) at deletion isn’t queued for retries: the person is told to contact support', async () => {
+  const session = await browser(B);
+  await completeCheckout(B, subscription({ id: 'sub_ref1', account: B }));
+  globalThis.fetch = async () => Response.json({ error: { type: 'invalid_request_error', code: 'parameter_invalid' } }, { status: 400 });
+  const was = console.error;
+  console.error = () => {};
+  let r;
+  try { r = await post('/api/web/account/delete', { confirm: 'DELETE' }, { session }); } finally { console.error = was; }
+  const body = await r.json();
+  assert.equal(body.stripe, 'refused');
+  assert.match(body.notice, /Contact Eden support/);
+  env.LINKS.get('stripe-cancel:sub_ref1');
+  assert.equal(env.LINKS.objects.get('stripe-cancel:sub_ref1').storage.map.size, 0, 'no pending cancel');
 });

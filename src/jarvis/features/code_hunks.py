@@ -35,6 +35,8 @@ ZH = {
     "That change in {path} has moved on since the view was made. Refresh and try again.": "{path} 里的那处改动在显示之后又变了。刷新后再试。",
     "Couldn't undo that change in {path}: {error}": "没能撤销 {path} 里的那处改动：{error}",
     "This folder isn't a git repository.": "这个文件夹不是 git 仓库。",
+    "Undid that change in {path}, but it's still staged: another git was using the index. Unstage it in the Git panel before you commit.": "已撤销 {path} 里的那处改动，但它仍在暂存区：当时另一个 git 正在使用索引。提交前请在 Git 面板里取消暂存。",
+    "Undid {n} changes, but {m} of them are still staged: another git was using the index. Unstage them in the Git panel before you commit.": "已撤销 {n} 处改动，但其中 {m} 处仍在暂存区：当时另一个 git 正在使用索引。提交前请在 Git 面板里取消暂存。",
 }
 lang.add_texts(ZH)
 
@@ -135,12 +137,23 @@ class Hunks:
         if not found:
             return "That change isn't there any more."
         found.sort(key=lambda pair: (pair[0].path, -pair[1].new_start))
+        staged: list[str] = []  # undone in the file, but still in the index (CB3-4)
         for f, h in found:
             problem = await asyncio.to_thread(
                 code_changes.undo_hunk, view.repo, f, h, against_head=view.base == head
             )
-            if problem:
+            if problem.startswith("Undid"):
+                staged.append(problem)
+            elif problem:
                 return problem
+        if staged:
+            if len(found) == 1:
+                return staged[0]
+            return (
+                f"Undid {len(found)} changes, but {len(staged)} of them are still staged: "
+                "another git was using the index. Unstage them in the Git panel before you "
+                "commit."
+            )
         return f"Undid {len(found)} change{'s' if len(found) != 1 else ''}."
 
     # ── the unchanged lines between hunks ──

@@ -13,13 +13,24 @@ from jarvis.code_mentions import fetch_page, page_text, parse, session_document,
 from jarvis.tasks import ClaudeTask
 
 
+@pytest.fixture(autouse=True)
+def no_real_dns(monkeypatch):
+    """No test looks a name up for real (CF2-8: a name that doesn't resolve isn't fetched,
+    so an offline run failed): every name is a public address unless a test says otherwise."""
+
+    async def public(host):
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(code_mentions, "_addresses", public)
+
+
 def test_the_mentions_a_message_brings_along():
     found = parse("see @https://example.com/a_(b). and @terminal, then ask @session-3 too")
     assert found.urls == ["https://example.com/a_(b)"]
     assert found.terminal and found.sessions == [3]
     # At a message's start, @session-3 routes it (code_voice): not one of these.
     assert parse("@session-3 how's it going").sessions == []
-    assert parse("hey @s12 and @session 4").sessions == [12, 4]
+    assert parse("hey @session-12 and @session 4").sessions == [12, 4]
     # Only as mentions: an email address or a word isn't one.
     none = parse("mail me at a@terminal.dev or read https://example.com (no @)")
     assert not none and none.urls == [] and not none.terminal
@@ -47,7 +58,11 @@ def transport(pages):
     return httpx.MockTransport(handler)
 
 
-async def test_a_page_goes_as_web_content_marked_as_data():
+async def test_a_page_goes_as_web_content_marked_as_data(monkeypatch):
+    async def public(host):  # (CF2-8: a name that doesn't resolve isn't fetched)
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(code_mentions, "_addresses", public)
     pages = {
         "https://docs.example/a": (
             200,
@@ -76,6 +91,91 @@ async def test_a_page_goes_as_web_content_marked_as_data():
         ):
             with pytest.raises(ValueError, match=why):
                 await fetch_page(url, client)
+
+
+def test_s3_is_a_bucket_not_a_session():
+    """CF7: "@s3" (and "@s3-client") mid-message brought session 3's reply along, or said
+    there was no session 3. Only @session-N and "@session N" name one."""
+    assert parse("upload it to the @s3 bucket").sessions == []
+    assert parse("use the @s3-client package").sessions == []
+    assert parse("see @session-3-notes.md").sessions == []
+    assert parse("ask @Session-3, then @session 12.").sessions == [3, 12]
+
+
+async def test_a_page_on_this_mac_or_its_network_is_never_fetched(monkeypatch):
+    """CF12: @https://… fetched localhost, the LAN and a cloud's metadata address, and
+    followed a public page's redirect there."""
+    asked = []
+    names = {"docs.example": ["93.184.216.34"], "lan.example": ["192.168.1.10"]}
+
+    async def addresses(host):
+        return names.get(host, [])
+
+    monkeypatch.setattr(code_mentions, "_addresses", addresses)
+
+    def handler(request):
+        asked.append(str(request.url))
+        path = request.url.path
+        if path == "/to-local":
+            return httpx.Response(302, headers={"location": "http://127.0.0.1:5174/secret"})
+        if path == "/to-metadata":
+            return httpx.Response(301, headers={"location": "http://169.254.169.254/latest"})
+        if path == "/moved":
+            return httpx.Response(302, headers={"location": "/b"})
+        if path == "/loop":
+            return httpx.Response(302, headers={"location": "/loop"})
+        return httpx.Response(200, headers={"content-type": "text/plain"}, content=b"page b")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        for url in (
+            "http://127.0.0.1:5174/x",
+            "http://localhost/x",
+            "http://LOCALHOST./x",
+            "http://[::1]/x",
+            "http://[::ffff:127.0.0.1]/x",
+            "http://169.254.169.254/latest/meta-data",
+            "http://10.0.0.5/",
+            "http://lan.example/",
+            "https://docs.example/to-local",
+            "https://docs.example/to-metadata",
+        ):
+            with pytest.raises(ValueError, match="this Mac or its network"):
+                await fetch_page(url, client)
+        assert not any("127.0.0.1" in u or "169.254" in u for u in asked)
+        doc = await fetch_page("https://docs.example/moved", client)
+        assert doc["name"] == "Web page: https://docs.example/b" and "page b" in doc["data"]
+        with pytest.raises(ValueError, match="too many redirects"):
+            await fetch_page("https://docs.example/loop", client)
+
+
+def test_the_symbol_index_answers_at_once_while_a_fresh_one_is_made(tmp_path, monkeypatch):
+    """The first @-symbol of a big project took 4.4 s, and again every two minutes: now an
+    old index answers while a fresh one is made in the background."""
+    import threading
+
+    (tmp_path / "a.py").write_text("def retry_one():\n    pass\n")
+    code_mentions._indexes.clear()
+    assert [s["name"] for s in symbols(tmp_path, "retry")] == ["retry_one"]
+    root = tmp_path.resolve()
+    at, index = code_mentions._indexes[root]
+    code_mentions._indexes[root] = (at - code_mentions.SYMBOLS_FRESH - 1, index)
+    (tmp_path / "a.py").write_text("def retry_two():\n    pass\n")
+    release = threading.Event()
+    real = code_mentions._index
+
+    def slow(r):
+        release.wait(5)
+        return real(r)
+
+    monkeypatch.setattr(code_mentions, "_index", slow)
+    # The old one, at once (the slow index isn't waited for)...
+    assert [s["name"] for s in symbols(tmp_path, "retry")] == ["retry_one"]
+    release.set()
+    for _ in range(200):  # ...then the fresh one
+        if root not in code_mentions._making:
+            break
+        threading.Event().wait(0.01)
+    assert [s["name"] for s in symbols(tmp_path, "retry")] == ["retry_two"]
 
 
 def test_where_names_are_defined(tmp_path):
@@ -136,7 +236,9 @@ async def test_a_message_without_such_mentions_goes_at_once_untouched(hub, tmp_p
     hub.tasks.tasks[7] = ClaudeTask(id=7, prompt="", cwd=tmp_path)
     calls = sent_to_sessions(hub)
     await hub.handle({"type": "task_send", "id": 7, "text": "look at @src/app.py please"})
-    assert calls == [(7, "look at @src/app.py please", None, {"plain": False, "steer": None})]
+    assert calls == [
+        (7, "look at @src/app.py please", None, {"plain": False, "steer": None, "by_user": True})
+    ]
 
 
 async def test_a_page_the_owner_mentions_goes_with_the_message_and_order_is_kept(hub, tmp_path):

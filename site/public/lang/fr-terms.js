@@ -48,8 +48,8 @@ SiteI18n.add({
     'Help': 'Aide',
   },
   blocks: {
-    'These terms are an agreement between you and Harrat Global Holdings, Inc. (“we”, “us”) for Eden: askeden.com, the Eden apps and J.A.R.V.I.S. (together, “Eden”). By using Eden you agree to them. Questions: support@askeden.com.':
-      'Ces conditions constituent un accord entre vous et Harrat Global Holdings, Inc. (« nous ») pour Eden : askeden.com, les apps Eden et J.A.R.V.I.S. (ensemble, « Eden »). En utilisant Eden, vous les acceptez. Questions : <a href="mailto:support@askeden.com">support@askeden.com</a>.',
+    'These terms are an agreement between you and Harrat Global Holdings, Inc. (“we”, “us”) for Eden: askeden.com and the Eden apps (together, “Eden”). By using Eden you agree to them. Questions: support@askeden.com.':
+      'Ces conditions constituent un accord entre vous et Harrat Global Holdings, Inc. (« nous ») pour Eden : askeden.com et les apps Eden (ensemble, « Eden »). En utilisant Eden, vous les acceptez. Questions : <a href="mailto:support@askeden.com">support@askeden.com</a>.',
     'What you write and upload is yours, and what Eden generates for you is yours to use, as far as the law and the model providers allow. You give us only the permission we need to run Eden for you: to store it where you ask (for example, encrypted sync or a published page) and to send it to the services that answer you. Our Privacy Policy says how.':
       'Ce que vous écrivez et envoyez vous appartient, et ce qu’Eden génère pour vous est à vous de l’utiliser, dans la mesure permise par la loi et par les fournisseurs de modèles. Vous nous donnez uniquement l’autorisation nécessaire pour faire fonctionner Eden pour vous : le stocker là où vous le demandez (par exemple, la synchronisation chiffrée ou une page publiée) et l’envoyer aux services qui vous répondent. Notre <a href="/privacy">Politique de confidentialité</a> explique comment.',
   },

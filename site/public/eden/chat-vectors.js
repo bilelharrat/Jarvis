@@ -25,22 +25,38 @@ const tx = (mode, fn) => open().then((d) => (!d ? undefined : new Promise((resol
 const BATCH = 50;
 const MAX_NEW = 600; // chats embedded in one search; the rest on the next one
 
-/** { chatId: vector } for the chats that have one, embedding up to MAX_NEW new or changed ones first. */
-export async function chatVectors(convs) {
+/** What a chat's vector was made from (bug sweep AS2-4): a hash of the very text embedded, so new opening lines (a synced stub filled in) embed it again. */
+function sig(c) {
+  const text = chatDigest(c);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `d${text.length}:${h.toString(36)}`;
+}
+
+/**
+ * { chatId: vector } for the chats that have one, embedding up to MAX_NEW new or changed ones first. A temporary,
+ * course or private chat (`privacy: true`, or `isPrivate(c)`: privacy.js privacyOn) is never sent to the embedding
+ * call, and a vector it had from before (made while it wasn't private) is deleted (bug sweep AS2-3).
+ */
+export async function chatVectors(convs, { isPrivate = () => false } = {}) {
   const have = new Map(((await tx('readonly', (s) => s.getAll())) || []).map((r) => [r.id, r]));
-  const sig = (c) => `${c.updated || 0}:${(c.title || '').length}`;
-  const todo = convs.filter((c) => !c.temp && c.nodes && (!have.has(c.id) || have.get(c.id).sig !== sig(c))).slice(0, MAX_NEW);
+  const off = (c) => !c || c.temp || c.course || c.privacy === true || isPrivate(c);
+  const ok = (convs || []).filter((c) => !off(c) && c.nodes);
+  const drop = (convs || []).filter((c) => c && off(c) && have.has(c.id)).map((c) => c.id);
+  if (drop.length) { for (const id of drop) have.delete(id); await tx('readwrite', (s) => { for (const id of drop) s.delete(id); }); }
+  const todo = ok.filter((c) => !have.has(c.id) || have.get(c.id).sig !== sig(c)).slice(0, MAX_NEW);
   for (let i = 0; i < todo.length; i += BATCH) {
     const part = todo.slice(i, i + BATCH);
     try {
       const r = await postJSON('/api/chat/embed', { texts: part.map(chatDigest) });
       if (!r || !Array.isArray(r.vectors) || r.vectors.length !== part.length) break;
-      part.forEach((c, k) => have.set(c.id, { id: c.id, sig: sig(c), vec: r.vectors[k] }));
-      await tx('readwrite', (s) => { part.forEach((c, k) => s.put({ id: c.id, sig: sig(c), vec: r.vectors[k] })); });
+      const recs = part.map((c, k) => ({ id: c.id, sig: sig(c), vec: r.vectors[k] }));
+      for (const rec of recs) have.set(rec.id, rec);
+      await tx('readwrite', (s) => { for (const rec of recs) s.put(rec); });
     } catch { break; }
   }
   const out = {};
-  for (const c of convs) { const r = have.get(c.id); if (r && Array.isArray(r.vec)) out[c.id] = r.vec; }
+  for (const c of ok) { const r = have.get(c.id); if (r && Array.isArray(r.vec)) out[c.id] = r.vec; }
   return out;
 }
 

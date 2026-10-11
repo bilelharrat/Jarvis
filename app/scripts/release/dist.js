@@ -25,7 +25,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { BuildError, run, say, setLog, sizeOf, megabytes } = require('./util');
+const { BuildError, run, say, setLog, sizeOf, megabytes, FLAVOR_IGNORE, bakeFlavor, EDEN_CODE_IGNORE } = require('./util');
 const macho = require('./macho');
 const { buildBackend } = require('./backend');
 const { buildHelpers } = require('./helpers');
@@ -168,14 +168,8 @@ function electronZipDir(version) {
 async function packageApp(spec = APPS.jarvis, out = spec.out) {
   const electron = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
   const { packager } = await import('@electron/packager');
-  // Which app it is (flavor.js), in the app folder only while it's copied.
-  const flavorFile = path.join(APP_DIR, 'flavor.json');
-  if (spec.flavor !== 'jarvis') fs.writeFileSync(flavorFile, `${JSON.stringify({ flavor: spec.flavor })}\n`);
-  try {
-    return await packageWith(packager, electron, spec, out);
-  } finally {
-    fs.rmSync(flavorFile, { force: true });
-  }
+  fs.rmSync(path.join(APP_DIR, 'flavor.json'), { force: true }); // (one an older build left behind; packageWith bakes its own)
+  return packageWith(packager, electron, spec, out);
 }
 
 async function packageWith(packager, electron, spec, out) {
@@ -196,7 +190,10 @@ async function packageWith(packager, electron, spec, out) {
     // As npm run package: the build's own folders stay out (but Eden Code's Dock icon, which
     // J.A.R.V.I.S. shows when it runs Eden Code itself), and so does the repo path
     // bake-home.js writes for the owner's own build.
-    ignore: [/^\/dist(\/|$)/, /^\/scripts(\/|$)/, /^\/build\/(?!eden-code(\/icon-1024\.png)?$)/, /^\/jarvis-home\.json$/],
+    ignore: [/^\/dist(\/|$)/, /^\/scripts(\/|$)/, /^\/build\/(?!eden-code(\/icon-1024\.png)?$)/, /^\/jarvis-home\.json$/, FLAVOR_IGNORE,
+      ...(spec.flavor === 'eden-code' ? EDEN_CODE_IGNORE : [])],
+    // Which app it is (flavor.js), written into the copy only (util.js bakeFlavor): none for J.A.R.V.I.S.
+    afterCopy: [bakeFlavor(spec.flavor)],
     // The app is one app.asar, as npm run package makes it, but the backend serves the
     // terminal's and hand tracking's scripts to the window and can't read inside an asar:
     // those two stay real files (app.asar.unpacked), where JARVIS_APP_DIR points.
@@ -261,7 +258,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
       // The update Squirrel downloads: the notarized, stapled app, and the feed pointing at it.
       const zipName = updateZipName(PKG.version, spec.files);
       published.push(zipApp(apps[i], path.join(OUT_DIR, zipName)));
-      const release = releaseFeed({ version: PKG.version, zipName, feedUrl: feed, notes: env.JARVIS_RELEASE_NOTES || '' });
+      const release = releaseFeed({ version: PKG.version, zipName, feedUrl: feed, notes: env.JARVIS_RELEASE_NOTES || '', appName: spec.display });
       const feedFile = spec === primary ? 'release.json' : `${spec.flavor}-release.json`;
       fs.writeFileSync(path.join(OUT_DIR, feedFile), `${JSON.stringify(release, null, 2)}\n`);
       say(`  ${spec.display}'s update: ${zipName} and ${feedFile}, for ${feed}`);

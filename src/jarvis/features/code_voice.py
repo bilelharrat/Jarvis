@@ -362,7 +362,7 @@ class CodeVoice:
             elif not lang.has_cjk(text):
                 # Said or typed to JARVIS: only spoken code into code ("hub dot py").
                 text = normalize(text)
-            if not self.hub.tasks.send(task.id, text):
+            if not self.hub.tasks.send(task.id, text, by_user=True):
                 return self.say("{session} has too many messages waiting.", session=cs.cap(name))
             return self.say("Told {session}.", session=name)
         if ask.kind == "stop":
@@ -712,7 +712,9 @@ class CodeVoice:
             return
         if question and not lang.has_cjk(question):
             question = await hub.with_code_hints(task, question)
-        hub.tasks.send(task.id, codelook.message(look.seen, question), look.seen.images())
+        hub.tasks.send(
+            task.id, codelook.message(look.seen, question), look.seen.images(), by_user=True
+        )
         hub.emit("show_session", id=task.id)
         if hub.voicecode.focus == task.id:
             hub.acknowledge()  # its answer is read out when it comes, as every reply is

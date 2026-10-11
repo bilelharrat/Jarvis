@@ -57,7 +57,11 @@ const cur = () => S.versions[S.i];
 const wb = () => cur().wb;
 const sheet = () => wb().sheets[Math.min(S.active, wb().sheets.length - 1)];
 function calcOf(v = cur()) {
-  if (!v.calc) v.calc = M.recalc(v.wb, fns, {});
+  if (!v.calc) {
+    // from the version before when it has its values: only what the edit reaches is evaluated again
+    const k = S.versions.indexOf(v), prev = k > 0 ? S.versions[k - 1] : null;
+    v.calc = M.recalc(v.wb, fns, prev && prev.calc ? { from: { wb: prev.wb, calc: prev.calc } } : {});
+  }
   return v.calc;
 }
 
@@ -152,7 +156,7 @@ export async function openMacSearch() {
       list.replaceChildren(el('div', 'muted', 'Asking your Mac…'));
       try {
         const r = await api.jarvis('files_search', { query: v, kind: 'spreadsheet', limit: 20 });
-        if (r.is_error) throw new Error(r.text || 'Jarvis said no.');
+        if (r.is_error) throw new Error(r.text || 'The Eden app said no.');
         const files = (JSON.parse(r.text).files || []).filter((f) => /\.(xlsx|xls|csv|tsv)$/i.test(f.path || f.name || ''));
         list.replaceChildren(...(files.length ? files.map((f) => el('button', { type: 'button', class: 'sh-file', onclick: () => { close(); openMacSheet(f.path); } }, ico('chart', 14), el('span', { 'data-no-i18n': '' }, f.name || f.path), el('small', { 'data-no-i18n': '' }, f.display || f.path))) : [el('div', 'muted', 'No spreadsheets matched.')]));
       } catch (e) { list.replaceChildren(el('div', 'sh-err', e.message)); }
@@ -336,6 +340,7 @@ function setStatus(t) { if (R) R.status.textContent = t || ''; }
 function render() {
   if (!R || !S.versions.length) return;
   const v = cur();
+  M.checkout(v.wb); // Undo/Redo: the version shown takes the sheet's live cells back (O(what changed), no copy)
   calcOf(v);
   const src = S.source;
   R.title.textContent = wb().title;
@@ -1008,7 +1013,7 @@ function previewChange(turn, raw, question) {
   let next;
   const baseIndex = S.i;
   try { next = M.applyChangeSet(wb(), v.cs, { calc: calcOf() }); } catch (e) { card.append(el('p', 'sh-err', e.message)); return; }
-  const nextCalc = M.recalc(next, fns, {});
+  const nextCalc = M.recalc(next, fns, { from: { wb: wb(), calc: calcOf() } });
   const d = M.diffWorkbooks(wb(), next);
   const errorsAfter = M.findProblems(next, nextCalc).filter((p) => p.kind === 'error' && d.cells.some((x) => x.sheet === p.sheet && x.addr === p.addr));
   card.append(el('b', v.cs.summary ? { 'data-no-i18n': '' } : '', v.cs.summary || 'Eden’s change'), el('div', 'muted', M.describeDiff(d)), diffTable(d, nextCalc, calcOf(), 25));
@@ -1018,6 +1023,7 @@ function previewChange(turn, raw, question) {
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
     card.append(document.importNode(doc.documentElement, true));
   }
+  M.checkout(wb()); // the preview borrowed the live cells: the version shown takes them back (O(what it changed))
   const apply = el('button', { type: 'button', class: 'btn primary' }, 'Apply');
   const discard = el('button', { type: 'button', class: 'btn' }, 'Discard');
   apply.onclick = () => {

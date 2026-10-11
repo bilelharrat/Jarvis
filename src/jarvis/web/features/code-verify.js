@@ -53,6 +53,49 @@
     return out.length > kept ? out.slice(out.length - kept) : out;
   }
 
+  // How a logs view goes from what it shows ({ first, last } line numbers) to these lines:
+  // { add: the lines to put at its end, from: the first line it keeps }, or null when it's
+  // drawn again whole (another server, Clear view, a gap, nothing shown yet).
+  function logStep(shown, lines) {
+    if (!shown || !lines.length) return null;
+    const first = lines[0][0];
+    const last = lines[lines.length - 1][0];
+    if (first < shown.first || first > shown.last + 1 || last < shown.last) return null;
+    return { add: lines.filter(([n]) => n > shown.last), from: first };
+  }
+
+  // Draws numbered lines ([n, text]) into a <pre>, only what's new: a text node per batch at its
+  // end, the oldest taken off its start (drawn whole, 1,500 long lines took 100 ms). was is what
+  // the last call returned for this same <pre> (null: drawn whole); returns what to pass next.
+  function paintLines(pre, lines, was, empty, textNode = (data) => document.createTextNode(data)) {
+    const step = logStep(was, lines);
+    const text = (part) => part.map(([, line]) => line).join('\n');
+    if (!step) {
+      pre.textContent = lines.length ? '' : empty;
+      const chunks = [];
+      for (let i = 0; i < lines.length; i += 100) {  // (small pieces: the oldest go a piece at a time)
+        const part = lines.slice(i, i + 100);
+        const node = textNode((i ? '\n' : '') + text(part));
+        pre.append(node);
+        chunks.push({ node, lines: part });
+      }
+      return lines.length ? { pre, first: lines[0][0], last: lines[lines.length - 1][0], chunks } : null;
+    }
+    const { chunks } = was;
+    let trimmed = false;
+    while (chunks.length && chunks[0].lines[chunks[0].lines.length - 1][0] < step.from) { chunks.shift().node.remove(); trimmed = true; }
+    if (chunks.length && chunks[0].lines[0][0] < step.from) { chunks[0].lines = chunks[0].lines.filter(([n]) => n >= step.from); trimmed = true; }
+    if (trimmed && chunks.length) chunks[0].node.data = text(chunks[0].lines);  // (the first has no line break before it)
+    if (step.add.length) {
+      const node = textNode((chunks.length ? '\n' : '') + text(step.add));
+      pre.append(node);
+      chunks.push({ node, lines: step.add });
+    }
+    was.first = step.from;
+    was.last = lines[lines.length - 1][0];
+    return was;
+  }
+
   // A problem as an @-mention for the composer: the file, and its line.
   function mentionFor(p) {
     if (!p || !p.file) return '';
@@ -97,7 +140,7 @@
   function checkHead(e) {
     const what = e.url ? 'Preview check' : 'Checks';
     const n = (e.findings || []).length + (e.more || 0);
-    if (e.status === 'skipped') return [what, 'Nothing to check'];
+    if (e.status === 'skipped') return [what, e.url ? 'Not checked' : 'Nothing to check'];
     return [what, n ? `${n} problem${n === 1 ? '' : 's'}` : 'No problems'];
   }
 
@@ -109,7 +152,30 @@
     return String(text || '').split(origin).join('');
   }
 
-  const api = { serverState, shortUrl, isLocal, mergeLines, mentionFor, countProblems, byFile, runLine, jpegSrc, checkHead, withoutOrigin };
+  // A run's news (cv_tests_run) taken in: every window is told a run ended without its
+  // results' tree ("slim"), the window that asked gets it whole. fresh: another run than
+  // the one shown; ask: the tree is to be asked for (unless the whole one comes meanwhile).
+  function takeRun(have, run) {
+    const fresh = !have || have.started !== run.started;
+    const ended = run.status !== 'running';
+    if (run.slim && !fresh && have.tree && have.tree.length && !have.slim && have.status === run.status) {
+      return { run: have, fresh, ask: false };  // (the whole one came first: kept)
+    }
+    const counted = run.counts ? run.counts.passed + run.counts.failed + run.counts.skipped : 0;
+    return { run, fresh, ask: !!run.slim && ended && counted > 0 };
+  }
+
+  // A failure's whole message arrived ("Show more"): put in its place in the run's tree.
+  function fullMessage(run, ev) {
+    for (const f of (run && run.tree) || []) {
+      if (f.file !== (ev.file || '(no file)')) continue;
+      const c = f.cases.find((x) => x.name === ev.name);
+      if (c) { c.message = ev.message; delete c.more; return true; }
+    }
+    return false;
+  }
+
+  const api = { serverState, shortUrl, isLocal, mergeLines, logStep, paintLines, mentionFor, countProblems, byFile, runLine, jpegSrc, checkHead, withoutOrigin, takeRun, fullMessage };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -280,15 +346,24 @@
     const pre = followed(mine(el('pre', 'jc-code cv-log')), state);
     pre.id = 'cv-log';
     box.append(head, pre);
-    requestAnimationFrame(drawLog);
+    drawLog();
     return box;
   }
 
+  // The logs view draws at most once a frame, and only what's new: a text node per batch
+  // at its end, the oldest taken off its start (drawn whole, 1,500 long lines took 100 ms).
+  let logFrame = 0;
+  let logShown = null;  // { pre, key, from, first, last, chunks: [{ node, lines }] }
   function drawLog() {
+    if (!logFrame) logFrame = requestAnimationFrame(() => { logFrame = 0; paintLog(); });
+  }
+  function paintLog() {
     const pre = F.$('cv-log');
     if (!pre) return;
     const lines = (state.logs.get(state.logKey) || []).filter(([n]) => n > state.from);
-    pre.textContent = lines.map(([, text]) => text).join('\n') || t('Nothing yet.');
+    const was = logShown && logShown.pre === pre && logShown.key === state.logKey && logShown.from === state.from ? logShown : null;
+    const shown = paintLines(pre, lines, was, t('Nothing yet.'));
+    logShown = shown && Object.assign(shown, { key: state.logKey, from: state.from });
     if (state.follow) pre.scrollTop = pre.scrollHeight;
   }
 
@@ -409,6 +484,7 @@
     if (ev.key === state.logKey) drawLog();
   });
   F.on('cv_error', (ev) => {
+    if (tests.starting) { tests.starting = null; renderTests(); }  // (a Run that couldn't start)
     if (typeof jcNote === 'function') jcNote(ev.text);
   });
   F.on('cv_session', (ev) => {
@@ -583,6 +659,8 @@
     openFiles: new Set(),  // result files unfolded
     filesOpen: false,  // "Run one file" unfolded
     filter: '',
+    starting: null,  // { path, at }: Run pressed there, until the run says it started (Stop shown)
+    askTimer: 0,  // a run ended, told without its tree: asked for unless the whole one comes
   };
 
   function send(msg, info) { F.send({ ...msg, ...whereOf(info) }); }  // (info: what the pane shows)
@@ -601,8 +679,13 @@
 
   function runTarget(target) {
     const suite = suiteNow();
-    if (suite) send({ type: 'cv_tests', action: 'run', suite: suite.key, ...target }, tests.info);
+    if (!suite) return;
+    tests.starting = { path: tests.info && tests.info.path, at: Date.now() };
+    send({ type: 'cv_tests', action: 'run', suite: suite.key, ...target }, tests.info);
+    renderTests();
   }
+  const isStarting = () => !!tests.starting && !!tests.info && tests.starting.path === tests.info.path
+    && Date.now() - tests.starting.at < 60000;
 
   function caseRow(c) {
     const li = el('li', `cv-case ${c.status}`);
@@ -617,7 +700,16 @@
       head.append(again);
     }
     li.append(head);
-    if (c.status === 'failed' && c.message) li.append(mine(el('pre', 'jc-code cv-case-msg', c.message)));
+    if (c.status === 'failed' && c.message) {
+      li.append(mine(el('pre', 'jc-code cv-case-msg', c.message)));
+      if (c.more) {
+        const more = button('Show more', 'jc-mini', () => {
+          more.disabled = true;
+          send({ type: 'cv_tests', action: 'message', file: c.file, name: c.name }, tests.info);
+        });
+        li.append(more);
+      }
+    }
     return li;
   }
 
@@ -649,14 +741,21 @@
     const pre = followed(mine(el('pre', 'jc-code cv-log')), tests);
     pre.id = 'cv-test-log';
     det.append(pre);
-    requestAnimationFrame(drawTestLog);
+    drawTestLog();
     return det;
   }
 
+  // The Tests pane's output, as the logs view: at most once a frame, and only the new lines (it
+  // was drawn whole, up to 3,000 lines, on every batch of a run's output).
+  let testFrame = 0;
+  let testShown = null;  // what paintLines drew in the output's <pre>
   function drawTestLog() {
+    if (!testFrame) testFrame = requestAnimationFrame(() => { testFrame = 0; paintTestLog(); });
+  }
+  function paintTestLog() {
     const pre = F.$('cv-test-log');
     if (!pre) return;
-    pre.textContent = tests.output.map(([, text]) => text).join('\n') || t('Nothing yet.');
+    testShown = paintLines(pre, tests.output, testShown && testShown.pre === pre ? testShown : null, t('Nothing yet.'));
     if (tests.follow) pre.scrollTop = pre.scrollHeight;
   }
 
@@ -718,7 +817,8 @@
     if (!suite.ready) {
       parts.push(head, el('p', 'cv-problems-list', suite.why));
     } else {
-      head.append(running ? button('Stop', 'jc-btn small danger', () => send({ type: 'cv_tests', action: 'stop' }, info))
+      // Stop while it runs, and while a Run pressed here is starting (it stops that too).
+      head.append(running || isStarting() ? button('Stop', 'jc-btn small danger', () => { tests.starting = null; send({ type: 'cv_tests', action: 'stop' }, info); renderTests(); })
         : button('Run all', 'jc-btn small filled', () => runTarget({})));
       parts.push(head);
       const watching = info.watch && info.watch.suite === suite.key;
@@ -782,10 +882,18 @@
   F.on('cv_tests_run', (ev) => {
     const info = tests.info;
     if (!info || ev.run.project !== info.path) return;
-    const fresh = !info.run || info.run.started !== ev.run.started;
+    const { run, fresh, ask } = takeRun(info.run, ev.run);
     if (fresh) { tests.output = []; tests.follow = true; }
-    info.run = ev.run;
+    if (tests.starting && tests.starting.path === info.path) tests.starting = null;
+    clearTimeout(tests.askTimer);
+    // Told it ended, without its results: the window that asked has them on their way.
+    if (ask) tests.askTimer = setTimeout(() => send({ type: 'cv_tests', action: 'state' }, info), 400);
+    info.run = run;
     renderTests();
+  });
+  F.on('cv_tests_message', (ev) => {
+    const info = tests.info;
+    if (info && ev.path === info.path && fullMessage(info.run, ev)) renderTests();
   });
   F.on('cv_tests_out', (ev) => {
     const info = tests.info;

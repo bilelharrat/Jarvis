@@ -80,6 +80,6 @@
     ["^(\\d+) commits$", "$1 个提交"],
     ["^(\\d+) uncommitted files are committed first$", "$1 个未提交的文件会先提交"],
     ["^(\\d+) uncommitted changes aren’t in it: commit in the Git panel first$", "$1 处未提交的改动不在里面：请先在 Git 面板里提交"],
-    ["^Sends the failing logs to the session when it’s idle, at most 3 times \\((\\d+) left\\), then pushes its fix behind the push card\\.$", "会话空闲时把失败的日志交给它，最多 3 次（还剩 $1 次），然后在推送确认后推送它的修复。"]
+    ["^Sends the failing logs to the session when it’s idle, at most 3 times \\((\\d+) left\\), then pushes its fix behind the push card\\. Conflicts with the base go to it too\\.$", "会话空闲时把失败的日志交给它，最多 3 次（还剩 $1 次），然后在推送确认后推送它的修复。和基础分支的冲突也会交给它。"]
   ]
 }

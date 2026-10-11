@@ -31,3 +31,23 @@ test('files mentioned in the composer, spaced from what’s there', () => {
   assert.equal(S.mentionText(['a.py', 'b.py'], 'look at'), ' @a.py @b.py ');
   assert.equal(S.mentionText(['a.py'], 'look at '), '@a.py ');
 });
+
+// Round 1 bug sweep (askeden/docs/bug-sweep/r1-eden-code-workspace.md).
+
+test('a partial answer says why: the time, or an expression too slow (CF2, CF3)', () => {
+  assert.equal(S.summary({ total: 3, files: [{}], stopped: true }), '3 matches in 1 file (the first ones only: the search ran out of time)');
+  assert.equal(S.summary({ total: 0, files: [], slow: 'big.min.js', engine: 'walk' }), 'That expression is too slow to search with (on big.min.js).');
+  assert.equal(S.summary({ total: 2, files: [{}], slow: 'a.txt', engine: 'walk' }), '2 matches in 1 file (the first ones only: the expression was too slow on a.txt)');
+  assert.equal(S.summary({ total: 2, files: [{}, {}], slow: 'a.txt', engine: 'git' }), '2 matches in 2 files (some unmarked: the expression was too slow on them)');
+});
+
+test('a mentioned path with a space goes in quotes (CF6)', () => {
+  assert.equal(S.mentionText(['dir with space/a b.py', 'src/a.py'], ''), '@"dir with space/a b.py" @src/a.py ');
+  assert.equal(S.mentionWord('café ✓ 文件.py'), '@"café ✓ 文件.py"');
+  assert.equal(S.mentionWord('src/a+b.py'), '@src/a+b.py');
+});
+
+test('a search’s ref carries its page, so windows never take each other’s answers (CF10)', () => {
+  assert.equal(S.newRef('k3x9q', 4), 'k3x9q-s4');
+  assert.notEqual(S.newRef('a', 1), S.newRef('b', 1));
+});

@@ -75,6 +75,36 @@ export async function sha256(data) {
 
 export const sha256Hex = async (data) => hex(await sha256(data));
 
+/**
+ * The network an address belongs to, for per-network limits: an IPv4 address as it is, an IPv6
+ * address as its /64 (one home or phone gets a whole /64, so counting single addresses counts nothing).
+ */
+export function networkOf(ip) {
+  return networkPrefix(ip, 64);
+}
+
+/**
+ * An address's wider network, for limits that a home line or a host's block could otherwise split across
+ * many /64s (AW2-4): an IPv6 address as its /`bits` (48, 56 or 64: 16-bit groups, the last one cut where
+ * `bits` falls); an IPv4 address (also written ::ffff:a.b.c.d) as it is.
+ */
+export function networkPrefix(ip, bits = 64) {
+  const text = String(ip || '').trim().toLowerCase();
+  const mapped = /^(?:::|(?:0{1,4}:){5})ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(text);
+  if (mapped) return mapped[1];
+  if (!text.includes(':')) return text || 'unknown';
+  const [head, tail = null] = text.split('::');
+  const part = (s) => (s ? s.split(':') : []);
+  const left = part(head);
+  const right = tail === null ? [] : part(tail);
+  const groups = tail === null ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right];
+  if (groups.length < 4 || groups.slice(0, 4).some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return text;
+  const whole = Math.floor(bits / 16);
+  const out = groups.slice(0, whole).map((g) => g.replace(/^0+(?=.)/, ''));
+  if (bits % 16) out.push((parseInt(groups[whole], 16) & (0xffff << (16 - (bits % 16))) & 0xffff).toString(16));
+  return `${out.join(':')}::/${bits}`;
+}
+
 export function randomBytes(n) {
   return crypto.getRandomValues(new Uint8Array(n));
 }

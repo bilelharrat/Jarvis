@@ -704,8 +704,10 @@ def test_the_words_mark_what_github_wrote_as_data():
     text = code_prs.fix_message(rec, [('te"s<t>s', "x" * 40_000)], 2)
     assert "fix 2 of 3" in text and '<ci-log check="tests">' in text
     assert len(text) < code_prs.LOG_BUDGET + 1500
-    assert code_prs.mention("@Jarvis, please rebase") == "please rebase"
-    assert code_prs.mention("hey @jarvis do it") is None
+    assert code_prs.mention("@Eden, please rebase") == "please rebase"
+    assert code_prs.mention("@Jarvis, please rebase") == "please rebase"  # the old name still works
+    assert code_prs.mention("hey @eden do it") is None
+    assert code_prs.mention("@edenfan do it") is None
     issue = {
         "number": 5,
         "title": 'Login "fails"',
@@ -726,3 +728,88 @@ def test_a_drafts_first_line_is_its_title():
     assert parse_draft('# "Fix the login."\n\nBody here') == ("Fix the login", "Body here")
     assert parse_draft("Title: Add retries\nDescription: because") == ("Add retries", "because")
     assert parse_draft("\n\n") == ("", "")
+
+
+# ── round-1 sweep fixes ──
+
+
+async def test_a_push_card_waiting_on_one_pull_request_never_holds_up_the_others(
+    hub, tmp_path, projects
+):
+    import time
+
+    repo, _bare = github_project(tmp_path, projects)
+    task = session(hub, repo)
+    git(repo, "push", "-q", "-u", "origin", "feature/login")
+    rec = watched(hub, repo, followup="fix")
+    (repo / "b.py").write_text("y = 2\n")
+    git(repo, "commit", "-qam", "Fix")
+    other = PullRecord(repo="acme/app", number=8, url="u", title="Other", branch="other",
+                       base="main", remote="origin", folder=str(repo), project="app",
+                       session_id="s-2", head_sha="h8", opened=1.0)  # fmt: skip
+    hub.code_pr.store().items.append(other)
+    hub.fake.pulls[("acme/app", 8)] = dict(hub.fake.pulls[("acme/app", 7)], number=8,
+                                           head={"ref": "other", "sha": "h8"})  # fmt: skip
+    hub.answers = []  # nobody answers the push card
+    pushing = asyncio.ensure_future(hub.code_pr.after_follow_up(rec, task))
+    try:
+        assert await until_card(hub)
+        hub.code_pr.next_poll.clear()
+        await asyncio.wait_for(hub.code_pr.tick(), 5)  # (it waited up to 5 minutes before)
+        assert other.checks and hub.code_pr.next_poll[rec.key] > time.time()
+    finally:
+        pushing.cancel()
+
+
+async def until_card(hub, seconds=10.0):
+    for _ in range(int(seconds * 100)):
+        if hub.cards:
+            return True
+        await asyncio.sleep(0.01)
+    return False
+
+
+async def test_a_fix_with_no_new_commit_hands_the_pull_request_back(
+    hub, tmp_path, projects, monkeypatch
+):
+    repo, _bare = github_project(tmp_path, projects)
+    git(repo, "push", "-q", "-u", "origin", "feature/login")
+    head = git(repo, "rev-parse", "HEAD").strip()
+    task = session(hub, repo)
+    sent = sends(hub, monkeypatch)
+    rec = watched(hub, repo, sha=head)
+    await hub.code_pr.poll(rec)
+    hub.fake.run(head, "tests", conclusion="failure")
+    await hub.code_pr.poll(rec)
+    assert len(sent) == 1 and rec.fix_attempts == 1
+    said = await hub.code_pr.after_follow_up(rec, task)  # its turn ended with no commit
+    assert said == ""
+    assert hub.alerts[-1].text == (
+        "The session's fix for pull request #7 made no new commit; it's over to you."
+    )
+
+
+async def test_the_drafts_uncommitted_count_counts_a_rename_once(hub, tmp_path, projects):
+    repo, _bare = github_project(tmp_path, projects)
+    task = session(hub, repo)
+    git(repo, "mv", "b.py", "c.py")
+    assert hub.code_pr._plan(task).uncommitted == 1
+
+
+async def test_a_commit_with_no_identity_set_says_so_never_makes_one_up(
+    hub, tmp_path, projects, monkeypatch
+):
+    repo, _bare = github_project(tmp_path, projects)
+    task = session(hub, repo)
+    empty = tmp_path / "empty-gitconfig"
+    empty.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for name in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(name, raising=False)
+    git(repo, "config", "--unset", "user.email")
+    git(repo, "config", "--unset", "user.name")
+    (repo / "a.py").write_text("x = 3\n")
+    git(repo, "add", "a.py")
+    said = await hub.code_git.commit({"id": task.id, "message": "x three"})
+    assert said == "git doesn't know who's committing here: set user.name and user.email first."

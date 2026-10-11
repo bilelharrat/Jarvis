@@ -140,7 +140,9 @@ class OnnxEmbedder:
 
     def __init__(self, path: Path) -> None:
         try:
-            import onnxruntime
+            from .vad import onnxruntime_quiet
+
+            onnxruntime = onnxruntime_quiet()  # (CA3-1) telemetry off
         except Exception as exc:  # pragma: no cover - it's a dependency
             raise Unavailable(f"onnxruntime isn't available ({exc})") from exc
         if not path.is_file():

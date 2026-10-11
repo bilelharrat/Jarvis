@@ -5,7 +5,8 @@
 // undone, and the row says so.
 
 import { el, ico, toast } from './util.js';
-import { getJSON, postJSON } from './api.js';
+import { getJSON, postJSON, MAC_LATE } from './api.js';
+import { DEADLINE } from './resilience.js';
 import { locale } from './i18n.js';
 
 const KIND = { calendar: 'cal', mail: 'mail', memory: 'bulb', promise: 'check', browser: 'globe', sheet: 'chart', other: 'more' };
@@ -37,7 +38,8 @@ async function render(root) {
   root.replaceChildren(seg, res);
   res.replaceChildren(el('div', 'muted act-busy', el('span', 'act-spin', ''), 'Asking your Mac…'));
   let data;
-  try { data = await getJSON('/api/chat/actions'); } catch (e) {
+  // a deadline of its own: on askeden.com an asleep Mac held this for the relay's 130 s (AJ12)
+  try { data = await getJSON('/api/chat/actions', { timeout: DEADLINE.jarvis, late: MAC_LATE }); } catch (e) {
     res.replaceChildren(el('div', 'sp-warn', el('b', '', 'That didn’t work'), e.message,
       el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn', onclick: () => render(root) }, 'Try again'))));
     return;
@@ -81,17 +83,20 @@ function review(root, card, it) {
   const go = el('button', { type: 'button', class: 'btn primary' }, 'Undo');
   const box = el('div', { class: 'act-review', role: 'group', 'aria-label': 'Undo this?' },
     el('b', '', 'Undo this?'), el('div', '', it.label),
-    el('div', 'muted', mac ? 'Jarvis asks you on your Mac too; it happens only on your yes there.' : it.tool === 'file_save' ? 'Eden puts the file on your Mac back as it was.' : 'Eden puts it back in Google now. Nobody is emailed about it.'),
+    el('div', 'muted', mac ? 'Eden asks you on your Mac too; it happens only on your yes there.' : it.tool === 'file_save' ? 'Eden puts the file on your Mac back as it was.' : 'Eden puts it back in Google now. Nobody is emailed about it.'),
     el('div', 'dlg-acts', el('button', { type: 'button', class: 'btn', onclick: () => { box.remove(); side.hidden = false; side.querySelector('button')?.focus(); } }, 'Cancel'), go));
   go.addEventListener('click', async () => {
     go.disabled = true;
     go.textContent = mac ? 'Waiting for your Mac…' : 'Undoing…';
     try {
-      const r = await postJSON('/api/chat/actions/undo', { id: it.id, confirm: true });
+      // the card on the Mac can take a while: as long as an approval may (AJ12)
+      const r = await postJSON('/api/chat/actions/undo', { id: it.id, confirm: true }, { timeout: mac ? DEADLINE.approval : DEADLINE.jarvis, late: MAC_LATE });
       toast(r.text || (r.done ? 'Undone.' : 'Nothing changed.'));
       if (root.isConnected) render(root);
     } catch (e) { toast(e.message); go.disabled = false; go.textContent = 'Undo'; }
   });
+  // Escape is Cancel (AS2-7), and doesn't also close the panel around it
+  box.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); box.querySelector('.dlg-acts .btn:not(.primary)').click(); } });
   card.querySelector('.act-main').append(box);
   go.focus();
 }

@@ -75,6 +75,15 @@ def quiet_onnxruntime() -> None:
         pass
 
 
+def onnxruntime_quiet() -> Any:
+    """(CA3-1) onnxruntime, imported only where a model is about to run and with its
+    telemetry off: every place in Eden that loads it goes through here, on every profile."""
+    import onnxruntime
+
+    quiet_onnxruntime()
+    return onnxruntime
+
+
 @atexit.register
 def _release() -> None:
     """Let the model go while Python is still whole, not in the interpreter's teardown."""

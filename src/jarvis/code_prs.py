@@ -298,11 +298,12 @@ def issue_prompt(repo: str, issue: dict[str, Any], label: str, labeller: str) ->
     )
 
 
-JARVIS_MENTION = re.compile(r"^\s*@jarvis\b[\s,:]*", re.IGNORECASE)
+# "@eden"; "@jarvis", the name before the rename, still works.
+JARVIS_MENTION = re.compile(r"^\s*@(?:eden|jarvis)\b[\s,:]*", re.IGNORECASE)
 
 
 def mention(body: str) -> str | None:
-    """The request in a comment that starts with @jarvis, or None when it doesn't."""
+    """The request in a comment that starts with @eden (or @jarvis), or None when it doesn't."""
     found = JARVIS_MENTION.match(body or "")
     if found is None:
         return None

@@ -32,7 +32,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .. import codemcp, codeplugins
+from .. import codemcp, codeplugins, projectfiles
 from ..codeplatform import background, code_task
 from ..codeplugins import Conflict, EditError
 
@@ -92,7 +92,10 @@ class PluginDesk:
             codeplugins.json_line(listed) if code == 0 else None
         )
         code, markets = await self.cli(task, "plugin", "marketplace", "list", "--json")
-        files = await asyncio.to_thread(codeplugins.list_files, task.cwd, self.home())
+        try:  # (a project's own files: their own pool, never long: CD3-1)
+            files = await projectfiles.run(codeplugins.list_files, task.cwd, self.home())
+        except TimeoutError:
+            files = []
         self.hub.emit(
             "cx_state",
             id=task.id,
@@ -261,7 +264,11 @@ class PluginDesk:
             self.hub.emit("cx_file", id=task.id, error=str(exc))
             return
         reader = codeplugins.read_hooks if kind == "hooks" else codeplugins.read_file
-        text, stamp = await asyncio.to_thread(reader, path)
+        try:
+            text, stamp = await projectfiles.run(reader, path)
+        except TimeoutError:
+            self.hub.emit("cx_file", id=task.id, error="That file took too long to read.")
+            return
         exists = bool(stamp) if kind != "hooks" else True
         if kind != "hooks" and not exists:
             text = codeplugins.TEMPLATES[kind].format(name=name.rsplit("/", 1)[-1])

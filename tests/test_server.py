@@ -1,10 +1,12 @@
+import re
+
 import pytest
 from conftest import CALENDAR_TURN, FakeClient
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from jarvis.hub import Hub
-from jarvis.server import create_app
+from jarvis.server import create_app, feature_assets
 
 BASE = "http://127.0.0.1:8123"  # where the window loads it from
 WS = "ws://127.0.0.1:8123/ws"  # and its socket
@@ -28,7 +30,7 @@ def client(settings, quiet_speaker, isolated):
 
 
 def test_page_and_health_are_served(client):
-    assert client.get("/health").json() == {"ok": True, "busy": False}
+    assert client.get("/health").json() == {"ok": True, "busy": False, "apps": []}
     assert "Talk to Eden" in client.get("/").text
     assert client.get("/static/app.js").status_code == 200
 
@@ -55,9 +57,56 @@ def test_health_says_when_a_restart_would_cut_something_off(settings, quiet_spea
         assert c.get("/health").json()["busy"] is True  # unsure counts as busy
 
 
+def test_idle_sessions_never_hold_back_a_quiet_update(settings, quiet_speaker, isolated):
+    """CH8: every open, idle Eden Code session is "waiting" ("Waiting for you"); only a
+    running one, one with messages held back, or a card up makes the backend busy."""
+    hub = Hub(
+        settings,
+        client_factory=FakeClient,
+        speaker=quiet_speaker,
+        transcriber=object(),
+        poll=False,
+        **isolated,
+    )
+    sessions = [{"status": "waiting", "queued": 0} for _ in range(10)]
+    hub.tasks.public = lambda: sessions
+    with TestClient(create_app(hub, "s3cret"), base_url=BASE) as c:
+        assert c.get("/health").json()["busy"] is False
+        sessions.append({"status": "waiting", "queued": 2})  # on hold, messages waiting
+        assert c.get("/health").json()["busy"] is True
+        sessions[-1] = {"status": "running", "queued": 0}
+        assert c.get("/health").json()["busy"] is True
+        sessions[-1] = {"status": "done"}
+        assert c.get("/health").json()["busy"] is False
+        hub.approvals["a1"] = {"id": "a1", "question": "Run npm test?"}  # a card up
+        assert c.get("/health").json()["busy"] is True
+        hub.approvals.clear()
+        assert c.get("/health").json()["busy"] is False
+        # which apps' windows are on it (CH9: the owner app warns before its quit cuts them off)
+        hub.app_windows.update({"eden-code": 2, "jarvis": 0})
+        assert c.get("/health").json()["apps"] == ["eden-code"]
+
+
 def test_window_modules_are_revalidated(client):
     # gestures.js is imported by hands.js without a version stamp
     assert client.get("/static/gestures.js").headers["cache-control"] == "no-cache"
+
+
+def test_stamped_files_are_kept_by_the_window(client):
+    # The page's and /features.json's ?v= stamp (each file's modification time) is a new address
+    # after an edit, so a split view pane, or the next load, takes them from the cache.
+    page = client.get("/?token=s3cret").text
+    stamped = re.search(r'/static/app\.js\?v=(\d+)"', page)
+    assert stamped and len(stamped.group(1)) >= 13  # (in ms)
+    assert client.get(f"/static/app.js?v={stamped.group(1)}").headers["cache-control"] == (
+        "max-age=31536000, immutable"
+    )
+    script = feature_assets()["scripts"][0]
+    assert client.get(script).headers["cache-control"] == "max-age=31536000, immutable"
+    # Anything else is still revalidated: no stamp, or a stamp that isn't one.
+    assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
+    assert client.get("/static/app.js?vv=1").headers["cache-control"] == "no-cache"
+    assert client.get("/static/nothing.js?v=1").status_code == 404
 
 
 def test_the_chinese_and_the_feature_list_are_served_as_they_are_made(client, isolated):
@@ -265,3 +314,142 @@ def test_progress_bars_never_make_a_semaphore_that_no_quit_unlinks(monkeypatch, 
             pass
     assert "semaphore" not in made
     assert isinstance(tqdm.get_lock(), type(threading.RLock()))
+
+
+def test_missing_vendor_files_are_a_404_not_a_traceback(
+    settings, quiet_speaker, isolated, monkeypatch, tmp_path, caplog
+):
+    """CH18: without npm install in app/, /xterm/* answered 500 with a traceback each time."""
+    import jarvis.server as server
+
+    monkeypatch.setattr(server, "XTERM_DIR", tmp_path / "missing" / "@xterm")
+    hub = Hub(
+        settings,
+        client_factory=FakeClient,
+        speaker=quiet_speaker,
+        transcriber=object(),
+        poll=False,
+        **isolated,
+    )
+    with TestClient(create_app(hub, "s3cret"), base_url=BASE) as c:
+        for _ in range(3):
+            r = c.get("/xterm/xterm/lib/xterm.js")
+            assert r.status_code == 404
+            assert "npm install" in r.text
+        told = [m for m in caplog.messages if "isn't installed" in m]
+        assert len(told) == 1  # one line, not one per request
+        # installed meanwhile: served at once
+        lib = tmp_path / "missing" / "@xterm" / "xterm" / "lib"
+        lib.mkdir(parents=True)
+        (lib / "xterm.js").write_text("// xterm")
+        assert c.get("/xterm/xterm/lib/xterm.js").text == "// xterm"
+        assert c.get("/xterm/../package.json").status_code == 404
+
+
+def test_text_is_sent_gzipped_to_a_browser_that_takes_it(client):
+    # 2.5 MB of Eden Code's page was 0.8 MB this way; the ETag, the cache rules and the 304s
+    # are the plain file's, and the bytes are the same once unpacked.
+    from jarvis.server import WEB_DIR
+
+    plain = (WEB_DIR / "app.js").read_bytes()
+    zipped = client.get("/static/app.js", headers={"accept-encoding": "gzip"})
+    assert zipped.headers["content-encoding"] == "gzip"
+    assert zipped.headers["vary"] == "Accept-Encoding"
+    assert int(zipped.headers["content-length"]) < len(plain) / 2
+    assert zipped.content == plain  # (unpacked by the client)
+    assert zipped.headers["cache-control"] == "no-cache"
+    as_is = client.get("/static/app.js", headers={"accept-encoding": "identity"})
+    assert "content-encoding" not in as_is.headers and as_is.content == plain
+    assert as_is.headers["etag"] == zipped.headers["etag"]
+    again = client.get(
+        "/static/app.js",
+        headers={"accept-encoding": "gzip", "if-none-match": zipped.headers["etag"]},
+    )
+    assert again.status_code == 304
+    part = client.get("/static/app.js", headers={"accept-encoding": "gzip", "range": "bytes=0-9"})
+    assert part.status_code == 206 and part.content == plain[:10]
+    assert "content-encoding" not in part.headers
+    page = client.get("/?token=s3cret").text
+    stamp = re.search(r'/static/app\.js\?v=(\d+)"', page).group(1)
+    kept = client.get(f"/static/app.js?v={stamp}", headers={"accept-encoding": "gzip"})
+    assert kept.headers["content-encoding"] == "gzip"
+    assert kept.headers["cache-control"] == "max-age=31536000, immutable"
+
+
+def _hub_of(client) -> Hub:
+    return next(
+        c.cell_contents
+        for route in client.app.routes
+        if getattr(route, "path", "") == "/ws"
+        for c in (route.endpoint.__closure__ or ())
+        if isinstance(c.cell_contents, Hub)
+    )
+
+
+def test_eden_codes_window_gets_neither_the_huds_parts_nor_its_events(client):
+    hub = _hub_of(client)
+    hub.markets.summary = {"status": "open", "indices": [{"symbol": "SPX", "pct": 1.0}]}
+    hub.status = {"next_event": {"title": "Dentist", "begin": "2026-10-10T15:00:00"}}
+    code = f"{WS}?token=s3cret&app=eden-code"
+    with client.websocket_connect(code, headers={"origin": BASE}) as ws:
+        hello = ws.receive_json()
+        for part in ("markets", "vitals", "defense", "status", "location"):
+            assert part not in hello, part
+        assert "tasks" in hello and "prefs" in hello and "usage" in hello
+        hub.emit("vitals", cpu=1)
+        hub.emit("status", next_event={"title": "Dentist"})
+        hub.emit("caption", text="after")
+        # (the HUD's two never came)
+        assert _next_of(ws, "vitals", "status", "caption")["type"] == "caption"
+    with client.websocket_connect(f"{WS}?token=s3cret&app=jarvis", headers={"origin": BASE}) as ws:
+        hello = ws.receive_json()
+        assert hello["markets"]["status"] == "open" and hello["status"]["next_event"]
+        assert hello["vitals"] is not None
+        hub.emit("vitals", cpu=1)
+        assert _next_of(ws, "vitals", "caption")["type"] == "vitals"
+
+
+def _next_of(ws, *kinds):
+    """The next event of these kinds (others, such as app_windows, are passed over)."""
+    while (event := ws.receive_json())["type"] not in kinds:
+        pass
+    return event
+
+
+def test_an_answer_goes_to_the_window_that_asked_only(client):
+    hub = _hub_of(client)
+    hub.register_command("probe_ask", lambda msg: hub.emit_to_caller("probe_answer", n=msg["n"]))
+    url = f"{WS}?token=s3cret&app=eden-code"
+    with client.websocket_connect(url, headers={"origin": BASE}) as a:
+        a.receive_json()
+        with client.websocket_connect(url, headers={"origin": BASE}) as b:
+            b.receive_json()
+            a.send_json({"type": "probe_ask", "n": 1})
+            got = _next_of(a, "probe_answer", "caption")
+            assert (got["type"], got["n"]) == ("probe_answer", 1) and got["seq"] > 0
+            b.send_json({"type": "probe_ask", "n": 2})
+            assert _next_of(b, "probe_answer", "caption")["n"] == 2  # A's never reached it
+            hub.emit("caption", text="to all")
+            assert _next_of(a, "probe_answer", "caption")["type"] == "caption"  # nor B's A
+    # With no window asking (the hub's own work, a test), it goes to every window as before.
+    seen = []
+    q = hub.subscribe()
+    hub.emit_to_caller("probe_answer", n=3)
+    while not q.empty():
+        seen.append(q.get_nowait())
+    hub.unsubscribe(q)
+    assert [e["n"] for e in seen if e["type"] == "probe_answer"] == [3]
+
+
+def test_the_line_serve_prints_once_up_says_eden():
+    """CH3-4: run by the app it lands in backend.log and on the problem screen, under the current name."""
+    from jarvis.server import listening_line
+
+    assert (
+        listening_line(5174, "t0k", by_app=True)
+        == "Eden listening on http://127.0.0.1:5174/ (token kept by the app)"
+    )
+    assert (
+        listening_line(5174, "t0k", by_app=False)
+        == "Eden listening on http://127.0.0.1:5174/?token=t0k"
+    )

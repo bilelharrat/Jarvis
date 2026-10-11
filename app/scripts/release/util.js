@@ -79,4 +79,16 @@ function megabytes(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 }
 
-module.exports = { BuildError, setLog, log, say, run, sha256File, sha256Text, copyTree, sizeOf, megabytes };
+// Which app a build is (flavor.js's flavor.json): written into the packager's own copy of the app folder (its afterCopy
+// hook), never into app/ itself, so a build stopped half way (Ctrl-C, a kill) can't leave one behind for `npm start`
+// or for the next J.A.R.V.I.S. build to copy. J.A.R.V.I.S. (the default) gets none, and app/'s own never ships.
+const FLAVOR_IGNORE = /^\/flavor\.json$/;
+function bakeFlavor(flavor) {
+  return async ({ buildPath }) => {
+    if (flavor && flavor !== 'jarvis') fs.writeFileSync(path.join(buildPath, 'flavor.json'), `${JSON.stringify({ flavor })}\n`);
+  };
+}
+// What Eden Code never uses, left out of its build: app/eden is the Ask Eden for Mac app (its own build, app/eden/build.js).
+const EDEN_CODE_IGNORE = [/^\/eden(\/|$)/];
+
+module.exports = { BuildError, setLog, log, say, run, sha256File, sha256Text, copyTree, sizeOf, megabytes, FLAVOR_IGNORE, bakeFlavor, EDEN_CODE_IGNORE };

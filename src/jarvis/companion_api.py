@@ -41,7 +41,9 @@ ENTRIES_AT_ONCE = 200  # transcript entries in one answer
 ENTRY_CHARS = 4000
 DIFF_FILES, DIFF_HUNKS, HUNK_LINES, LINE_CHARS = 40, 20, 200, 500
 SESSIONS_SHOWN = 50
-CODE_TEXT = 20_000  # characters of a message to a session (as the composer takes them)
+# characters of a message to a session (tasks.MESSAGE_MAX, as the composer takes them); a
+# longer one is refused with the reason, never cut (CA2-8)
+CODE_TEXT = 100_000
 CODE_TEXT_BODY = CODE_TEXT * 6 + 1024  # ... as JSON: every character escaped at worst
 DIGEST_HOURS = 24
 DIGEST_ITEMS = 100
@@ -518,7 +520,7 @@ def save_shared(
     try:  # marked as downloaded: macOS checks it before it can ever run
         subprocess.run(
             ["/usr/bin/xattr", "-w", "com.apple.quarantine",
-             f"0081;{int(now.timestamp()):x};J.A.R.V.I.S.;", str(path)],
+             f"0081;{int(now.timestamp()):x};Eden;", str(path)],
             capture_output=True, timeout=5, check=False,
         )  # fmt: skip
     except (OSError, subprocess.SubprocessError):
@@ -728,13 +730,19 @@ class Api:
         task = self._session(data.get("id"))
         if task is None:
             return _bad("no such session", 404)
-        text = str(data.get("text") or "").strip()[:CODE_TEXT]
+        text = str(data.get("text") or "").strip()
+        if len(text) > CODE_TEXT:
+            return _bad(
+                f"That message is {len(text):,} characters; a session takes up to "
+                f"{CODE_TEXT:,}. It wasn't sent.",
+                413,
+            )
         images = _pictures(data) or None
         if not text and not images:
             return _bad("empty")
         steer = data["steer"] if isinstance(data.get("steer"), bool) else None
         # Queued as the composer queues it; steer: into the running step now.
-        ok = self.hub.tasks.send(task.id, text, images, steer=steer)
+        ok = self.hub.tasks.send(task.id, text, images, steer=steer, by_user=True)
         if ok:
             self.companion.record(device, "code_sent", f"#{task.id}")
         return _ok(ok)

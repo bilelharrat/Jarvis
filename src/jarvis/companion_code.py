@@ -11,9 +11,11 @@ the phone can ask for too.
   Their answers come as hub events (a caption, the git panel's state, a command's output);
   the ones each action waits for are gathered and sent back.
 
-Only the actions listed here: there is no way through to any other window command. The
-phone asks for Face ID before the ones that run things on this Mac ("!" commands, Bypass
-permissions); every action is in the companion's audit log.
+Only the actions listed here: there is no way through to any other window command. "!"
+commands and Bypass permissions are refused from the phone (its token alone would be a
+shell on this Mac) until the phone can send a Face ID-backed proof the Mac checks; a new
+session that would start in Bypass (the owner's default) is refused too. Every action is in
+the companion's audit log.
 """
 
 from __future__ import annotations
@@ -86,6 +88,11 @@ ACTIONS: dict[str, Action] = {
     "commands": Action("slash_list", ("directory",), ("slash_list",), 15, session=False),
 }
 LISTENED = sorted({kind for a in ACTIONS.values() for kind in a.wait})
+# Actions the phone may not take yet (no Face ID-backed proof the Mac can check), and why.
+PHONE_REFUSED = {
+    "bash": "Commands can't be run from the phone yet: run it on the Mac, or ask the session.",
+}
+FROM_PHONE = "Bypass permissions can't be turned on from the phone: switch to it on the Mac."
 
 # The phone request a command is run for, while hub.handle runs it: the events its work
 # emits (in the request's own task, or in the background tasks it starts, which take a copy
@@ -94,6 +101,12 @@ LISTENED = sorted({kind for a in ACTIONS.values() for kind in a.wait})
 _ASKER: contextvars.ContextVar[asyncio.Queue | None] = contextvars.ContextVar(
     "phone_code_asker", default=None
 )
+
+
+def from_phone() -> bool:
+    """Whether the command being handled is a phone's (features.code_touchid: no Bypass from
+    the phone)."""
+    return _ASKER.get() is not None
 
 
 class CodeDesk:
@@ -192,10 +205,28 @@ def _pictures(data: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+class TooLong(ValueError):
+    """(CA3-2) Text past what a session takes: refused with why, never cut."""
+
+
+def _too_long(text: str) -> str:
+    from .tasks import MESSAGE_MAX
+
+    if len(text) <= MESSAGE_MAX:
+        return ""
+    return (
+        f"That message is {len(text):,} characters; a session takes up to {MESSAGE_MAX:,}. "
+        "It wasn't sent."
+    )
+
+
 def _value(value: Any) -> Any:
-    """A field as passed on: text and lists capped, numbers and switches as they are."""
+    """A field as passed on: text whole (refused past a session's limit, never cut), lists
+    capped, numbers and switches as they are."""
     if isinstance(value, str):
-        return value[:20000]
+        if _too_long(value):
+            raise TooLong(_too_long(value))
+        return value
     if isinstance(value, list):
         return [str(v)[:1000] for v in value[:200]]
     if isinstance(value, bool | int | float) or value is None:
@@ -224,10 +255,16 @@ def routes(api: Any) -> list[Route]:
         device, data, refused = await api._post(request, "act", PICTURES_BODY, upload=True)
         if refused is not None:
             return refused
-        prompt = str(data.get("prompt") or "").strip()[:20000]
-        directory = str(data.get("directory") or "").strip()[:1000]
+        prompt = data.get("prompt") if isinstance(data.get("prompt"), str) else ""
+        prompt = prompt.strip()
+        if _too_long(prompt):  # (CA3-2) refused whole, never cut at 20,000
+            return _bad(_too_long(prompt), 413)
+        directory = data.get("directory") if isinstance(data.get("directory"), str) else ""
+        directory = directory.strip()[:1000]
         if not prompt or not directory:
             return _bad("a project and what to do")
+        if data.get("mode") == "auto":
+            return _bad(FROM_PHONE, 403)
         command: dict[str, Any] = {"type": "task_new", "prompt": prompt, "directory": directory}
         for key in ("model", "mode", "effort", "title"):
             if isinstance(data.get(key), str) and data[key]:
@@ -261,6 +298,12 @@ def routes(api: Any) -> list[Route]:
         action = ACTIONS.get(name)
         if action is None:
             return _bad("not something the phone can do")
+        if name in PHONE_REFUSED:
+            # A phone's token alone would be a shell on this Mac: these wait for a Face ID
+            # proof the Mac can check (bug sweep r1, CD5).
+            return _bad(PHONE_REFUSED[name], 403)
+        if name == "mode" and data.get("mode") == "auto":
+            return _bad(FROM_PHONE, 403)
         command: dict[str, Any] = {"type": action.command}
         task = api._session(data.get("id")) if data.get("id") is not None else None
         if action.session and task is None:
@@ -271,6 +314,8 @@ def routes(api: Any) -> list[Route]:
             if key in data:
                 try:
                     command[key] = _value(data[key])
+                except TooLong as exc:  # (CA3-2)
+                    return _bad(str(exc), 413)
                 except TypeError:
                     continue
         if "directory" in action.fields and not command.get("directory"):

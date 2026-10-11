@@ -172,8 +172,20 @@ async function main() {
   // rename for what is found by it: the install folder, the program's file, the installer's file (askeden.com's worker).
   const display = { 'eden-code': 'Eden Code', jarvis: 'Eden', daredevil: 'J.A.R.V.I.S. Daredevil' }[flavor];
   const icons = { 'eden-code': 'build/eden-code', jarvis: 'build', daredevil: 'build/daredevil' }[flavor];
+  // Which app it is (flavor.js). electron-builder copies it from app/, so it is there only for the build, and only for
+  // Eden Code and Daredevil: J.A.R.V.I.S. ships none. One a stopped build left is removed first, and a Ctrl-C or kill
+  // removes this one too (the finally below doesn't run then).
   const flavorFile = path.join(APP, 'flavor.json');
-  fs.writeFileSync(flavorFile, JSON.stringify({ flavor }));
+  fs.rmSync(flavorFile, { force: true });
+  const clear = () => { try { fs.rmSync(flavorFile, { force: true }); } catch { /* gone already */ } };
+  const stopped = (signal) => { clear(); process.exit(signal === 'SIGINT' ? 130 : 143); };
+  if (flavor !== 'jarvis') {
+    fs.writeFileSync(flavorFile, JSON.stringify({ flavor }));
+    process.once('SIGINT', stopped);
+    process.once('SIGTERM', stopped);
+    process.once('SIGHUP', stopped);
+    process.once('exit', clear);
+  }
   const signed = !!process.env.WIN_CSC_LINK;
   try {
     const made = await builder.build({
@@ -190,11 +202,12 @@ async function main() {
           name: display, icon: path.join(APP, icons, 'icon.ico'), version: context.packager.appInfo.version,
         }),
         directories: { output: path.join('dist', 'win', flavor) },
-        files: ['*.js', '*.html', '*.css', '*.wav', 'features/**', 'flavor.json', `${icons}/*.png`, 'package.json',
+        files: ['*.js', '*.html', '*.css', '*.wav', 'features/**', ...(flavor !== 'jarvis' ? ['flavor.json'] : ['!flavor.json']), `${icons}/*.png`, 'package.json',
           '!jarvis-home.json', '!dist/**', '!scripts/**', '!eden/**'],
         asarUnpack: ['node_modules/@xterm/**', 'node_modules/@mediapipe/**'],
         extraResources: [{ from: engine, to: 'backend' }],
-        protocols: [{ name: display, schemes: [edenCode ? 'edencode' : 'jarvis'] }],
+        // jarvis:// links, which app/features/shell.js opens. Eden Code has no link handler (flavor.js), so it registers none (CH14).
+        ...(edenCode ? {} : { protocols: [{ name: display, schemes: ['jarvis'] }] }),
         win: {
           icon: `${icons}/icon-1024.png`,
           signAndEditExecutable: signed,
@@ -215,7 +228,7 @@ async function main() {
     });
     for (const file of made.filter((f) => /Setup.*\.exe$/.test(f))) checkInstaller(file);
   } finally {
-    fs.rmSync(flavorFile, { force: true });
+    clear();
   }
 }
 

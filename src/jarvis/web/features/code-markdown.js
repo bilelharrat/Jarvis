@@ -446,7 +446,22 @@
     return '';
   }
 
-  const api = { parse, inline, splitRow, linkTarget, fenceLang, trimUrl };
+  // Bidirectional controls (U+202A-202E, U+2066-2069) shown as what they are: drawn as is,
+  // "\u202Eevil.exe" read "exe.live", a name or code made to look like something else.
+  const BIDI = /[\u202A-\u202E\u2066-\u2069]/g;
+  function showBidi(text) {
+    return String(text).replace(BIDI, (c) => `‹U+${c.charCodeAt(0).toString(16).toUpperCase()}›`);
+  }
+
+  // A list item as it's drawn: its first paragraph on the line (after a to-do's box), then
+  // the rest as blocks. A to-do with a list in it drew its box alone, its words below.
+  function itemParts(item) {
+    const [first, ...rest] = item.blocks;
+    if (first && first.type === 'para' && (rest.length === 0 || item.task !== null)) return { line: first.text, blocks: rest };
+    return { line: null, blocks: item.blocks };
+  }
+
+  const api = { parse, inline, splitRow, linkTarget, fenceLang, trimUrl, showBidi, itemParts };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -484,7 +499,7 @@
         const cls = /^\+(?!\+\+)/.test(line) ? 'cw-add' : /^-(?!--)/.test(line) ? 'cw-del' : /^@@/.test(line) ? 'cw-hunk' : '';
         const row = document.createElement('span');
         row.className = `cw-line${cls ? ` ${cls}` : ''}`;
-        row.textContent = line || ' ';
+        row.textContent = showBidi(line) || ' ';
         code.append(row);
       }
     } else if (lang && D && D.highlight && lines.length <= HIGHLIGHT_LINES) {
@@ -493,16 +508,16 @@
         const lit = D.highlight(line, lang, state);
         state = lit.state;
         for (const [cls, piece] of lit.segs) {
-          if (!cls) { code.append(document.createTextNode(piece)); continue; }
+          if (!cls) { code.append(document.createTextNode(showBidi(piece))); continue; }
           const s = document.createElement('span');
           s.className = COLORS[cls] || '';
-          s.textContent = piece;
+          s.textContent = showBidi(piece);
           code.append(s);
         }
         if (k < lines.length - 1) code.append(document.createTextNode('\n'));
       });
     } else {
-      code.textContent = block.text;
+      code.textContent = showBidi(block.text);
     }
     pre.append(code, copyButton(() => block.text));
     return pre;
@@ -510,9 +525,9 @@
 
   function drawInline(tokens, into, ctx) {
     for (const tok of tokens) {
-      if (tok.t === 'text') into.append(document.createTextNode(tok.v));
+      if (tok.t === 'text') into.append(document.createTextNode(showBidi(tok.v)));
       else if (tok.t === 'br') into.append(document.createElement('br'));
-      else if (tok.t === 'code') { const c = document.createElement('code'); c.textContent = tok.v; into.append(c); }
+      else if (tok.t === 'code') { const c = document.createElement('code'); c.textContent = showBidi(tok.v); into.append(c); }
       else if (tok.t === 'strong' || tok.t === 'em' || tok.t === 'del' || tok.t === 'both') {
         const n = document.createElement(tok.t === 'both' ? 'strong' : tok.t);
         const inner = tok.t === 'both' ? n.appendChild(document.createElement('em')) : n;
@@ -569,8 +584,9 @@
             box.textContent = item.task ? '✓' : '';
             li.append(box);
           }
-          if (item.blocks.length === 1 && item.blocks[0].type === 'para') drawInline(inline(item.blocks[0].text), li, ctx);
-          else drawBlocks(item.blocks, li, ctx);
+          const parts = itemParts(item);
+          if (parts.line !== null) drawInline(inline(parts.line), li, ctx);
+          if (parts.blocks.length) drawBlocks(parts.blocks, li, ctx);
           list.append(li);
         }
         if (b.items.some((item) => item.task !== null)) list.classList.add('cw-tasks');

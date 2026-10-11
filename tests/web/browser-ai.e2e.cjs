@@ -260,14 +260,14 @@ test('The context says what is selected, without the hidden text inside it, and 
   assert(pageEvents[pageEvents.length - 1].length === 0, JSON.stringify(pageEvents));
 });
 
-test('Ask Jarvis is in the page’s menu for a selection: what’s selected as it shows goes to the window', async () => {
+test('Ask Eden is in the page’s menu for a selection: what’s selected as it shows goes to the window', async () => {
   await load(shown, '/article.html');
   await page(shown, `(() => { const r = document.createRange(); const ps = document.querySelectorAll('article p');
     r.setStart(ps[2].firstChild, 0); r.setEnd(document.querySelector('article li').firstChild, 8);
     const s = getSelection(); s.removeAllRanges(); s.addRange(r); return true; })()`);
   const items = menuFor(shown, { selectionText: 'Nutritionists say … Spoon Pro … Keep the' });
   const ask = items[items.length - 1];
-  assert(items[1].type === 'separator' && ask.label === 'Ask Jarvis', JSON.stringify(items.map((i) => i.label || i.type)));
+  assert(items[1].type === 'separator' && ask.label === 'Ask Eden', JSON.stringify(items.map((i) => i.label || i.type)));
   const labels = ask.submenu.map((i) => i.label || i.type);
   assert(JSON.stringify(labels) === JSON.stringify(['Explain', 'Summarize', 'Translate', 'Draft a Reply', 'separator', 'Save to Second Brain']), JSON.stringify(labels));
   const msg = await asked(() => ask.submenu[0].click());
@@ -283,16 +283,16 @@ test('Ask Jarvis is in the page’s menu for a selection: what’s selected as i
   const fromChinese = menuFor(shown, { selectionText: '汤对身体好，冬天尤其适合。' });
   assert(fromChinese[fromChinese.length - 2].label === 'Translate to English', JSON.stringify(fromChinese.map((i) => i.label || i.type)));
   // In the owner's language: the window gives the menu its words.
-  ipcMain.emit('feature:browser-ai:labels', { sender: null }, { ask: '问 Jarvis', explain: '解释', nope: 'x' });
+  ipcMain.emit('feature:browser-ai:labels', { sender: null }, { ask: '问 Eden', explain: '解释', nope: 'x' });
   const zh = menuFor(shown, { selectionText: 'x' }).pop();
-  assert(zh.label === '问 Jarvis' && zh.submenu[0].label === '解释' && zh.submenu[1].label === 'Summarize', JSON.stringify(zh.submenu.map((i) => i.label)));
-  ipcMain.emit('feature:browser-ai:labels', { sender: null }, { ask: 'Ask Jarvis', explain: 'Explain' });
+  assert(zh.label === '问 Eden' && zh.submenu[0].label === '解释' && zh.submenu[1].label === 'Summarize', JSON.stringify(zh.submenu.map((i) => i.label)));
+  ipcMain.emit('feature:browser-ai:labels', { sender: null }, { ask: 'Ask Eden', explain: 'Explain' });
   // Typing in a box, or nothing picked: no Ask Jarvis.
   assert(menuFor(shown, { selectionText: 'my words', isEditable: true }).length === 1, 'offered in a text box');
   assert(menuFor(shown, {}).length === 1, 'offered with nothing picked');
 });
 
-test('Ask Jarvis for a picture sends a picture of it with its words; for a link, its address', async () => {
+test('Ask Eden for a picture sends a picture of it with its words; for a link, its address', async () => {
   await load(shown, '/pictures.html');
   const box = await page(shown, `(() => { const r = document.getElementById('chart').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
   const src = `${base}/chart.png`;
@@ -328,7 +328,7 @@ test('A page that needs the owner is told from one that doesn’t (the hand back
   assert(!wrong.length, wrong.join('\n'));
 });
 
-test('A private tab and JARVIS’s signed-out tab read as every tab does: the hand back and recording work there too', async () => {
+test('A private tab and Eden’s signed-out tab read as every tab does: the hand back and recording work there too', async () => {
   for (const partition of PROFILES.slice(1)) {
     const view = newTab(partition);
     try {

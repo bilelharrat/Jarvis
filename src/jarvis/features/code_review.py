@@ -378,7 +378,7 @@ class Reviews:
         chosen = [f for f in findings if finding_id is None or f["id"] == finding_id]
         if not chosen:
             return ""
-        self.hub.tasks.send(task.id, fix_message(chosen))
+        self.hub.tasks.send(task.id, fix_message(chosen), by_user=True)  # (the owner's pick)
         n = len(chosen)
         return (
             "Sent the finding to the session." if n == 1 else f"Sent {n} findings to the session."

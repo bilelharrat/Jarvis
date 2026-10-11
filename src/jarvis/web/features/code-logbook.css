@@ -278,7 +278,8 @@ html body[data-skin="obsidian"] .deck.jc .sv-head .sv-btn > svg { display: none;
 html body[data-skin="obsidian"] .deck.jc .sv-head .sv-word { display: inline; }
 html body[data-skin="obsidian"] .deck.jc .sv-mark.needs { background: transparent; color: var(--ob-brass-text); box-shadow: inset 0 0 0 1px var(--ob-brass-line); }
 html body[data-skin="obsidian"] .deck.jc .sv-mark.new { background: transparent; color: var(--ob-arc); box-shadow: inset 0 0 0 1px rgba(var(--ob-arc-rgb), 0.4); }
-html body[data-skin="obsidian"] .deck.jc .sv-flip { background: transparent; box-shadow: inset 0 0 0 1px var(--ob-hair-2); font: 11px var(--mono); }
+html body[data-skin="obsidian"] .deck.jc .sv-tab { font: 11px var(--mono); }
+html body[data-skin="obsidian"] .deck.jc .sv-tab[aria-selected="true"] { background: transparent; box-shadow: inset 0 0 0 1px var(--ob-hair-2); }
 html body[data-skin="obsidian"] .deck.jc .sv-divider::before { display: none; }
 html body[data-skin="obsidian"] .deck.jc .sv-divider::after {
   width: 3px; height: 15px; margin: -7.5px 0 0 -1.5px; border-radius: 0;
@@ -288,8 +289,7 @@ html body[data-skin="obsidian"] .deck.jc .sv-divider:hover::after, html body[dat
   height: 15px; margin-top: -7.5px; background: radial-gradient(circle, var(--ob-arc) 1.4px, transparent 1.6px) 0 0 / 3px 6px repeat-y;
 }
 /* the drop zones while a session is dragged over */
-html body[data-skin="obsidian"] .deck.jc .sv-drop-half { border-color: var(--ob-hair-2); background: color-mix(in srgb, var(--bg) 70%, transparent); border-radius: 12px; }
-html body[data-skin="obsidian"] .deck.jc .sv-drop-half.on { border-color: var(--ob-arc); background: rgba(var(--ob-arc-rgb), 0.08); }
+html body[data-skin="obsidian"] .deck.jc .sv-drop-zone { border-color: var(--ob-arc); background: rgba(var(--ob-arc-rgb), 0.08); border-radius: 12px; }
 html body[data-skin="obsidian"] .deck.jc .sv-drop-label { font: 11px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; background: var(--ob-surface); box-shadow: 0 0 0 1px var(--ob-hair-2); }
 
 /* ── a narrow pane (split view, a small window): a narrower gutter, smaller type ── */

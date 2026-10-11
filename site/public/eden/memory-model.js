@@ -45,16 +45,16 @@ export const SAID_SOURCES = ['said', 'settings', 'synced'];
 export const WORDS = { stale: 'May be out of date', recheck: 'Still true?', inferred: 'inferred', review: 'Needs review', unknown: 'age unknown' };
 
 const INFERRED_WHY = {
-  noticed: 'Jarvis picked this up from a conversation; you didn’t tell it directly. Inferred facts are the likeliest to be wrong.',
-  proposed: 'Jarvis suggested this after a conversation and you approved it, but you didn’t say it in these words. Inferred facts are the likeliest to be wrong.',
-  dream: 'Jarvis drew this from your daily notes and you approved it, but you didn’t say it in these words. Inferred facts are the likeliest to be wrong.',
-  import: 'Imported from somewhere else, not something you told Jarvis. Inferred facts are the likeliest to be wrong.',
-  before: 'Kept from before Jarvis recorded where facts came from, so nothing shows that you said it. Inferred facts are the likeliest to be wrong.',
+  noticed: 'Eden picked this up from a conversation; you didn’t tell it directly. Inferred facts are the likeliest to be wrong.',
+  proposed: 'Eden suggested this after a conversation and you approved it, but you didn’t say it in these words. Inferred facts are the likeliest to be wrong.',
+  dream: 'Eden drew this from your daily notes and you approved it, but you didn’t say it in these words. Inferred facts are the likeliest to be wrong.',
+  import: 'Imported from somewhere else, not something you told Eden. Inferred facts are the likeliest to be wrong.',
+  before: 'Kept from before Eden recorded where facts came from, so nothing shows that you said it. Inferred facts are the likeliest to be wrong.',
 };
-const INFERRED_UNKNOWN = 'Nothing shows that you said this to Jarvis. Inferred facts are the likeliest to be wrong.';
+const INFERRED_UNKNOWN = 'Nothing shows that you said this to Eden. Inferred facts are the likeliest to be wrong.';
 const UNKNOWN_WHY = {
-  missing: 'Jarvis has no date for this fact, so it can’t tell how old it is. Worth checking that it is still true.',
-  invalid: 'Jarvis’s date for this fact can’t be read, so it can’t tell how old it is. Worth checking that it is still true.',
+  missing: 'Eden has no date for this fact, so it can’t tell how old it is. Worth checking that it is still true.',
+  invalid: 'Eden’s date for this fact can’t be read, so it can’t tell how old it is. Worth checking that it is still true.',
   future: 'The date on this fact is in the future, so it can’t be trusted to say how old it is. Worth checking that it is still true.',
 };
 

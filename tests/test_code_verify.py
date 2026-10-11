@@ -277,8 +277,23 @@ async def test_the_tests_pane_runs_the_projects_tests_and_sends_the_failures(
     await hub._handle({"type": "cv_tests", "action": "fix", "id": 4})
     assert (await wait_for(q, "cv_error"))["text"] == "There are no failures to fix."
     await hub._handle({"type": "cv_tests", "action": "run", "id": 4, "suite": suite["key"]})
-    done = await wait_for(q, "cv_tests_run", lambda ev: ev["run"]["status"] != "running")
+    # Every window is told it ended (without the tree), the one that asked gets the tree.
+    told = await wait_for(q, "cv_tests_run", lambda ev: ev["run"]["status"] != "running")
+    assert told["run"]["slim"] and told["run"]["tree"] == []
+    done = await wait_for(q, "cv_tests_run", lambda ev: not ev["run"].get("slim"))
     assert done["run"]["status"] == "failed" and done["run"]["summary"] == "1 passed · 1 failed"
+    failed = done["run"]["tree"][0]["cases"][0]
+    await hub._handle(
+        {
+            "type": "cv_tests",
+            "action": "message",
+            "id": 4,
+            "file": failed["file"],
+            "name": failed["name"],
+        }
+    )
+    whole = await wait_for(q, "cv_tests_message")
+    assert whole["name"] == failed["name"] and "assert" in whole["message"]
     await hub._handle({"type": "cv_tests", "action": "fix", "id": 4})
     [(task_id, text)] = sent
     assert task_id == 4 and "test_sub (tests/test_math.py:" in text and "<test-output>" in text
@@ -287,7 +302,9 @@ async def test_the_tests_pane_runs_the_projects_tests_and_sends_the_failures(
     await hub._handle(
         {"type": "cv_tests", "action": "run", "id": 4, "suite": suite["key"], "test": target}
     )
-    one = await wait_for(q, "cv_tests_run", lambda ev: ev["run"]["status"] != "running")
+    one = await wait_for(
+        q, "cv_tests_run", lambda ev: not ev["run"].get("slim") and ev["run"]["status"] != "running"
+    )
     assert one["run"]["target"] == {"test": "tests/test_math.py::test_sub"}
 
 
@@ -706,3 +723,203 @@ async def test_the_mac_is_a_sessions_only_when_the_owner_says_so(hub, project, m
     assert deny["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "jarvis_mac" not in hub.tasks.options_for(task).mcp_servers
     assert reopened[-1] == "This session no longer uses the Mac."
+
+
+# ── round-1 sweep fixes ──
+
+
+def quiet_server(project, lines=()):
+    script = project / "quiet.py"
+    body = "".join(f"print({line!r}, flush=True)\n" for line in lines)
+    script.write_text(f"import time\n{body}print('ready', flush=True)\ntime.sleep(600)\n")
+    return {
+        "name": "web",
+        "runtimeExecutable": sys.executable,
+        "runtimeArgs": [str(script)],
+        "url": "http://localhost:5173/",
+    }
+
+
+async def test_a_page_that_wasnt_looked_at_never_reads_as_passed(hub, project, monkeypatch):
+    launch(project, [quiet_server(project)])
+    task = ClaudeTask(id=3, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[3] = task
+    cv = hub.code_verify
+    server = await cv.servers.start(project.resolve(), "web", started_by=3)
+    assert await until(lambda: server.ring.seq >= 2)
+    await hub._handle({"type": "cv_session", "id": 3, "verify": True})
+    checks = cv.session(3)
+    hub.browser_available = False  # no app window: the page can't be checked
+    cv.on_task_event("task_log", {"id": 3, "entry": {"role": "user", "text": "make it"}})
+    checks.follow_ups.in_a_row = 1  # (a fix was asked for since)
+    cv.on_task_event("task_log", {"id": 3, "entry": {"role": "tool", "tool": "Edit"}})
+    cv.on_task_event(
+        "task_finished", {"id": 3, "task_kind": "code", "status": "done", "files": ["a"]}
+    )
+    assert await until(lambda: len(verify_entries(task)) == 1)
+    [entry] = verify_entries(task)
+    assert entry["status"] == "skipped" and "isn't open" in entry["page_error"]
+    assert entry["text"].startswith("Preview check: the page wasn't checked.")
+    assert checks.last["status"] == "skipped"
+    assert checks.follow_ups.in_a_row == 1  # nothing passed: the streak goes on
+
+
+async def test_a_turns_problems_check_taken_over_by_the_owners_reads_the_newer_one(
+    hub, project, monkeypatch
+):
+    (project / "pyproject.toml").write_text("[tool.mypy]\n")
+    fake = project / "fake_mypy.sh"
+    fake.write_text(
+        "#!/bin/sh\nsleep 2\necho 'app.py:1:1: error: Something is off  [misc]'\nexit 1\n"
+    )
+    fake.chmod(0o755)
+    tool_wrapper(project, "mypy", str(fake))
+    task = ClaudeTask(id=3, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[3] = task
+    cv = hub.code_verify
+    monkeypatch.setattr(hub.tasks, "send", lambda *a, **k: True)
+    await hub._handle({"type": "cv_session", "id": 3, "problems": True})
+    a_turn(cv, project)
+    await asyncio.sleep(0.6)
+    await hub._handle({"type": "cv_problems", "action": "run", "id": 3})  # the owner's Check
+    assert await until(lambda: len(verify_entries(task)) == 1, 60)
+    [entry] = verify_entries(task)
+    assert entry["problems"] == {"errors": 1, "warnings": 0}, entry
+    assert entry["status"] == "problems" and entry["text"] == "Checks: 1 problem."
+
+
+async def test_keys_in_a_servers_output_never_reach_the_session(hub, project, monkeypatch):
+    aws, anthropic = "AKIAIOSFODNN7EXAMPLE", "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef0123"
+    db = "postgres://admin:hunter2secret@db.local:5432/shop"
+    launch(
+        project, [quiet_server(project, [f"Error: bad key {aws} {anthropic}", f"Error: no {db}"])]
+    )
+    task = ClaudeTask(id=3, prompt="x", cwd=project.resolve())
+    hub.tasks.tasks[3] = task
+    cv = hub.code_verify
+    server = await cv.servers.start(project.resolve(), "web", started_by=3)
+    assert await until(lambda: server.ring.seq >= 4)
+    tools, _ = handlers(cv, task)
+    for args in ({"name": "web"}, {"name": "web", "errors_only": True}):
+        text = (await tools["dev_server_logs"](args))["content"][0]["text"]
+        assert "bad key" in text and "Error: no" in text
+        assert aws not in text and anthropic not in text and "hunter2secret" not in text
+    # The check's note to the session too.
+    await hub._handle({"type": "cv_session", "id": 3, "verify": True})
+
+    async def check(url, reload=True):
+        return {"ok": True, "errors": []}
+
+    monkeypatch.setattr(cv.pages, "check", check)
+    sent = []
+    monkeypatch.setattr(hub.tasks, "send", lambda tid, text, *a, **k: sent.append(text) or True)
+    cv.on_task_event("task_log", {"id": 3, "entry": {"role": "user", "text": "go"}})
+    checks = cv.session(3)
+    checks.turn_marks = {server.key: 0}  # (its output from the start counts)
+    cv.on_task_event(
+        "task_finished", {"id": 3, "task_kind": "code", "status": "done", "files": ["a"]}
+    )
+    assert await until(lambda: sent, 30)
+    assert "bad key" in sent[0] and aws not in sent[0] and anthropic not in sent[0]
+    assert "hunter2secret" not in sent[0]
+
+
+KEY = "sk-ant-api03-" + "Q7wZ" * 10  # 53 characters, no placeholder words
+
+
+def code_task(hub, project, n):
+    task = ClaudeTask(id=n, prompt="x", cwd=project.resolve())
+    task.kind = "code"
+    hub.tasks.tasks[n] = task
+    return task
+
+
+async def test_every_form_a_log_prints_a_secret_in_is_masked_for_the_session(
+    hub, project, monkeypatch
+):
+    """URL credentials (an empty user, a password with @), Authorization headers, a key a
+    logger wrapped onto the next line, and the owner's saved secret printed in another case
+    or base64: none reach the session. The owner's own logs view shows them as printed."""
+    basic = base64.b64encode(b"admin:Tr0ub4dor&3-horse").decode()
+    saved = "Corr3ct-Horse-Battery"
+    lines = [
+        "Error: redis connect failed redis://:S3cretRedisPass99@localhost:6379/0",
+        f"Error: upstream 401 with Authorization: Basic {basic}",
+        "Error: upstream 401 with Authorization: Bearer 9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeedd",
+        "Error: key was " + KEY[:20],
+        KEY[20:],
+        "Error: db failed postgres://app:p@ssw0rd!x9@db.local:5432/shop",
+        f"Error: login as {saved.upper()} failed",
+        "Error: token " + base64.b64encode(saved.encode()).decode(),
+    ]
+    launch(project, [quiet_server(project, lines)])
+    task = code_task(hub, project, 11)
+    cv = hub.code_verify
+    sec = hub.code_secrets
+    monkeypatch.setattr(sec, "session_names", {11: {"DB_PW"}})
+    monkeypatch.setattr(sec, "values_for", lambda t: {saved: "$DB_PW"} if t is task else {})
+    server = await cv.servers.start(project.resolve(), "web", started_by=11)
+    assert await until(lambda: server.ring.seq >= len(lines) + 2)
+    tools, _ = handlers(cv, task)
+    text = (await tools["dev_server_logs"]({"name": "web"}))["content"][0]["text"]
+    leaked = [
+        s
+        for s in ("S3cretRedisPass99", basic, "9f8e7d6c5b4a3928", KEY[20:], "ssw0rd!x9")
+        if s in text
+    ]
+    assert not leaked and saved.lower() not in text.lower(), text
+    assert "Error: redis connect failed" in text and "$DB_PW" in text
+    # The owner's logs view: as printed.
+    assert any(KEY[20:] == t for _, t in cv.servers.logs(server.key))
+
+
+async def test_a_log_is_masked_whole_before_it_is_cut_to_the_tools_size(hub, project):
+    """The tool keeps the last TOOL_CHARS of the lines: cut first, a key the cut fell in was
+    no longer recognized (40 of its 53 characters reached the session)."""
+    filler = ["y" * 990] * 16
+    keep = code_verify.TOOL_CHARS - 16 * 991
+    first = "x" * 299 + " " + KEY + " " + "z" * 97
+    assert len(first) - len(KEY) - 98 < len(first) - keep < len(first) - 98  # (inside the key)
+    launch(project, [quiet_server(project, [first, *filler])])
+    task = code_task(hub, project, 12)
+    cv = hub.code_verify
+    server = await cv.servers.start(project.resolve(), "web", started_by=12)
+    assert await until(lambda: server.ring.seq >= 19)
+    tools, _ = handlers(cv, task)
+    text = (await tools["dev_server_logs"]({"name": "web", "lines": 200}))["content"][0]["text"]
+    assert "Q7wZQ7wZ" not in text and "api03" not in text
+
+
+async def test_the_dev_servers_listing_is_masked_too(hub, project, monkeypatch):
+    launch(
+        project,
+        [
+            {
+                "name": "api",
+                "runtimeExecutable": sys.executable,
+                "runtimeArgs": [
+                    "-m",
+                    "http.server",
+                    "--token",
+                    KEY,
+                    "--pw",
+                    "Corr3ct-Horse-Battery",
+                ],
+            }
+        ],
+    )
+    task = code_task(hub, project, 13)
+    monkeypatch.setattr(hub.code_secrets, "session_names", {13: {"PW"}})
+    monkeypatch.setattr(hub.code_secrets, "values_for", lambda t: {"Corr3ct-Horse-Battery": "$PW"})
+    tools, _ = handlers(hub.code_verify, task)
+    text = (await tools["dev_servers"]({}))["content"][0]["text"]
+    assert "- api:" in text and "http.server" in text
+    assert KEY not in text and "Q7wZQ7wZ" not in text and "Corr3ct" not in text, text
+
+
+def test_a_findings_line_is_cut_between_words_never_inside_a_key():
+    for at in range(150, 200, 3):
+        line = "y" * at + " " + KEY + " more words"
+        cut = code_verify._clip(line, 200)
+        assert len(cut) <= 201 and "sk-ant" not in cut and "api03" not in cut, at
+    assert code_verify._clip("short", 200) == "short"

@@ -14,6 +14,7 @@ import { api, getJSON, postJSON } from './api.js';
 import { routeSettings } from './router.js';
 import { state } from './state.js';
 import { syncItem } from './sync.js';
+import { sigStore, hasSigs, signaturesSyncItem } from './mail-signatures.js';
 import { carryMarks, close as markClose, leadingMarks, MARKS_NOTE, open as markOpen, parseInline, stripMarks } from './compose-marks.js';
 import { voiceFor, voiceOn, recordEdit, addNote, prefs as mailPrefs, getKit, addFollowUp, openMailSettings, askCheap, addOffer, mailAI, privateMail } from './mailkit.js';
 import { freeSlots, slotText } from './mail-plan.js';
@@ -44,7 +45,7 @@ const MODE_TITLE = { new: 'New message', reply: 'Reply', replyAll: 'Reply all', 
 
 /* ================= small helpers ================= */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's (?:Jarvis|Eden)[^:)]*:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 function parseJSONText(text) {
   const t = strip(text);
@@ -159,7 +160,7 @@ const sameAddr = (a, b) => a.email.toLowerCase() === b.email.toLowerCase();
 /* ================= HTML: sanitize, to text, from Markdown ================= */
 const TAGS = new Set('a abbr address b big blockquote br caption center cite code col colgroup dd del div dl dt em font h1 h2 h3 h4 h5 h6 hr i img ins kbd li mark ol p pre q s small span strike strong sub sup table tbody td tfoot th thead tr tt u ul wbr'.split(' '));
 const DROP = new Set('script style title noscript template svg math iframe object embed applet textarea select option button input xmp noembed noframes canvas audio video head meta link base'.split(' '));
-const ATTRS = { '*': ['style', 'dir', 'title', 'class', 'align', 'lang'], a: ['href', 'name'], img: ['src', 'alt', 'width', 'height', 'data-cid'], font: ['color', 'size', 'face'], td: ['colspan', 'rowspan', 'width', 'valign', 'bgcolor'], th: ['colspan', 'rowspan', 'width', 'valign', 'bgcolor'], table: ['width', 'cellpadding', 'cellspacing', 'border', 'bgcolor'], col: ['span', 'width'], ol: ['start', 'type'], ul: ['type'], li: ['value'] };
+const ATTRS = { '*': ['style', 'dir', 'title', 'class', 'align', 'lang'], a: ['href', 'name'], img: ['src', 'alt', 'width', 'height', 'data-cid', 'data-remote-src'], font: ['color', 'size', 'face'], td: ['colspan', 'rowspan', 'width', 'valign', 'bgcolor'], th: ['colspan', 'rowspan', 'width', 'valign', 'bgcolor'], table: ['width', 'cellpadding', 'cellspacing', 'border', 'bgcolor'], col: ['span', 'width'], ol: ['start', 'type'], ul: ['type'], li: ['value'] };
 const STYLE_OK = new Set('color background-color font-size font-weight font-style font-family text-decoration text-align text-indent line-height letter-spacing white-space vertical-align direction list-style-type display width max-width height margin margin-left margin-right margin-top margin-bottom padding padding-left padding-right padding-top padding-bottom border border-left border-right border-top border-bottom border-color border-width border-style border-collapse border-radius'.split(' '));
 function safeUrl(v, schemes) {
   const s = String(v).replace(/[\u0000-\u0020\u007f-\u009f]+/g, '');
@@ -180,7 +181,10 @@ function safeAttr(tag, name, v, editor) {
     case 'href': return safeUrl(v, ['http:', 'https:', 'mailto:', 'tel:']);
     case 'src': return editor && /^data:image\/(png|jpe?g|gif|webp|bmp);base64,[A-Za-z0-9+/=\s]+$/i.test(v) ? v : safeUrl(v, ['https:', 'http:', 'cid:']);
     case 'style': return safeStyle(v) || null;
-    case 'class': return v.replace(/[^\w -]/g, '').slice(0, 120) || null;
+    // only Gmail's own markers (gmail_quote, gmail_signature, gmail_attr…): any other class would pick up
+    // Eden's stylesheet (a mail's class="sheet open" drew a fake Eden dialog over the compose window, AM6)
+    case 'class': return String(v).split(/\s+/).filter((c) => /^gmail_[\w-]{1,40}$/.test(c)).join(' ').slice(0, 120) || null;
+    case 'data-remote-src': return safeUrl(v, ['https:', 'http:']);
     case 'data-cid': return /^[A-Za-z0-9._%+-]{1,120}(@[A-Za-z0-9.-]{1,120})?$/.test(v) ? v : null;
     case 'title': case 'alt': case 'name': return String(v).slice(0, 500);
     case 'face': return /^[\w ,'"-]{1,120}$/.test(v) ? v : null;
@@ -190,8 +194,13 @@ function safeAttr(tag, name, v, editor) {
     default: return /^[\w%.#, -]{1,40}$/.test(v) ? v : null;
   }
 }
-/** Untrusted HTML → a fragment rebuilt from an allowlist (never innerHTML of the input). */
-export function sanitizeHtml(html, { editor = true } = {}) {
+/**
+ * Untrusted HTML → a fragment rebuilt from an allowlist (never innerHTML of the input).
+ * remote: false (a received mail's quote, the review): an http(s) image isn't loaded (tracking
+ * pixels, AM5) — it keeps its address in data-remote-src behind a blank placeholder, and the
+ * outgoing HTML (collect) or "Show images" (showRemoteImages) puts it back.
+ */
+export function sanitizeHtml(html, { editor = true, remote = true } = {}) {
   const doc = new DOMParser().parseFromString(`<!doctype html><body>${String(html || '').slice(0, 4 * 1024 * 1024)}`, 'text/html');
   const frag = document.createDocumentFragment();
   const walk = (src, dst, depth) => {
@@ -203,13 +212,20 @@ export function sanitizeHtml(html, { editor = true } = {}) {
       if (!TAGS.has(tag)) { walk(n, dst, depth + 1); continue; }
       const e = document.createElement(tag);
       const ok = new Set([...ATTRS['*'], ...(ATTRS[tag] || [])]);
+      let remoteUrl = null;
       for (const a of [...n.attributes]) {
         const name = a.name.toLowerCase();
         if (!ok.has(name) || (name === 'src' && tag !== 'img')) continue;
         const v = safeAttr(tag, name, a.value, editor);
         if (v === null || v === undefined) continue;
         if (name === 'src' && /^cid:/i.test(v)) { e.setAttribute('data-cid', v.slice(4)); e.setAttribute('data-pending', '1'); e.setAttribute('src', PENDING_IMG); continue; }
+        // a remote image: never set on the element first (a detached <img> in this document loads at once)
+        if (name === 'data-remote-src' || (name === 'src' && /^https?:/i.test(v))) { remoteUrl ||= v; continue; }
         e.setAttribute(name, v);
+      }
+      if (remoteUrl) { // loaded only when remote is allowed, else held back
+        if (remote) e.setAttribute('src', remoteUrl);
+        else { e.setAttribute('data-remote-src', remoteUrl); e.setAttribute('src', BLOCKED_IMG); }
       }
       if (tag === 'img' && !e.getAttribute('src')) continue;
       dst.append(e);
@@ -221,6 +237,14 @@ export function sanitizeHtml(html, { editor = true } = {}) {
 }
 /** Shown where a cid: image will go until its bytes arrive (a live <img src="cid:…"> would try to load). */
 const PENDING_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+/** Where a held-back remote image is (a transparent pixel: nothing is fetched). */
+const BLOCKED_IMG = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+/** "Show images": the held-back remote images under root load (the owner asked). → how many. */
+export function showRemoteImages(root) {
+  const imgs = [...root.querySelectorAll('img[data-remote-src]')];
+  for (const img of imgs) { img.setAttribute('src', img.getAttribute('data-remote-src')); img.removeAttribute('data-remote-src'); }
+  return imgs.length;
+}
 const BLOCK = new Set('address blockquote center dd div dl dt h1 h2 h3 h4 h5 h6 ol p pre table tbody thead tfoot tr ul'.split(' '));
 /** Inline elements that carry formatting Markdown can't (a colour, a size, a font, underline…). */
 const STYLED = new Set(['font', 'span', 'u', 's', 'strike', 'del', 'ins', 'sub', 'sup', 'mark', 'small', 'big', 'tt', 'code']);
@@ -332,36 +356,13 @@ const blankLine = () => el('div', '', el('br'));
 const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /* ================= signatures (per address) =================
-   Kept by Eden's server on the Mac (GET/POST /api/chat/signatures: every browser there has the
-   same ones); on askeden.com, the `eden/signatures` item of the account's end-to-end encrypted
-   sync (when Sync is on; otherwise this browser only). This browser keeps a copy either way, so a
-   window opens with its signature at once; the later change (`at`) wins. */
-let sigSyncHook = null;
-const sigStore = {
-  get() { const v = store.get(K.sigs, null); return v && Array.isArray(v.list) ? { list: v.list, defaults: v.defaults || {}, at: v.at || 0 } : { list: [], defaults: {}, at: 0 }; },
-  /** `from`: another browser's copy (the server's, or synced): kept here only. */
-  set(v, { from = false } = {}) {
-    const next = { list: v.list, defaults: v.defaults || {}, at: from ? v.at || 0 : Date.now() };
-    store.set(K.sigs, next);
-    if (from) return;
-    if (state.meta && state.meta.hosted) { if (sigSyncHook) sigSyncHook.changed(); return; }
-    postJSON('/api/chat/signatures', next).then((kept) => { if (kept && kept.at > next.at) sigStore.set(kept, { from: true }); }, () => { /* pushed again at the next load */ });
-  },
-};
-const hasSigs = (v) => v.list.length > 0 || Object.keys(v.defaults).length > 0;
+   Kept by Eden's server on the Mac, or in askeden.com's end-to-end encrypted sync; this browser keeps
+   a copy either way (mail-signatures.js: the store and the synced item, joined at startup on askeden.com
+   while Compose loads on first use). */
 /** After the page knows where it runs (state.meta): the server's signatures, or the synced ones. */
 export async function initSignatures() {
   if (state.meta && state.meta.hosted) {
-    syncItem({
-      key: 'eden/signatures',
-      value: () => sigStore.get(),
-      merge: (theirs) => {
-        if (!theirs || !Array.isArray(theirs.list) || !((theirs.at || 0) > sigStore.get().at)) return false;
-        sigStore.set(theirs, { from: true });
-        return true;
-      },
-      bind(hook) { sigSyncHook = hook; },
-    });
+    syncItem(signaturesSyncItem); // (mail-lazy.js joins it at startup already: the same item)
     return;
   }
   try {
@@ -607,6 +608,9 @@ class Compose {
     this.pt.hidden = true;
     this.trimB = el('button', { type: 'button', class: 'cw-trim', 'aria-expanded': 'false', title: 'Show trimmed content', 'aria-label': 'Show the quoted message', onclick: () => this.toggleQuote() }, '•••');
     this.trimB.hidden = true;
+    // the quote's remote images are held back (tracking pixels, AM5) until the owner asks for them
+    this.imgsB = el('button', { type: 'button', class: 'cw-trim cw-imgs', title: 'Load the images in the quoted email (the sender can see you opened it)', onclick: () => { showRemoteImages(this.quote); this.paintImgsB(); } }, 'Show images');
+    this.imgsB.hidden = true;
     this.quote = el('div', { class: 'cw-quote', contenteditable: 'true', 'aria-label': t('Quoted message'), spellcheck: 'false', 'data-no-i18n': '' });
     this.quote.hidden = true;
     this.attBox = el('div', { class: 'cw-atts', role: 'list', 'aria-label': 'Attachments' });
@@ -621,7 +625,7 @@ class Compose {
     this.imgBar.hidden = true;
     this.snipHint = el('div', { class: 'cw-snip-hint glass', 'aria-live': 'polite' });
     this.snipHint.hidden = true;
-    this.main = el('div', { class: 'cw-main' }, this.fields, this.notes, this.live, this.ed, this.pt, this.trimB, this.quote, this.attBox, this.imgBox, this.imgBar, this.snipHint);
+    this.main = el('div', { class: 'cw-main' }, this.fields, this.notes, this.live, this.ed, this.pt, this.trimB, this.imgsB, this.quote, this.attBox, this.imgBox, this.imgBar, this.snipHint);
     for (const x of [this.ed, this.pt]) { x.addEventListener('input', () => this.paintSnipHint()); x.addEventListener('blur', () => { this.snipHint.hidden = true; }); }
     // Ask Eden (always visible)
     const chip = (kind, label, title) => el('button', { type: 'button', class: 'cw-chipb', 'data-ai': kind, title: title || label, onclick: () => this.runAI(kind) }, label);
@@ -1150,11 +1154,14 @@ class Compose {
     this.trimB.hidden = !has || this.source === 'mac';
     this.quote.hidden = !has || !open || this.source === 'mac';
     this.trimB.setAttribute('aria-expanded', String(!this.quote.hidden));
+    this.paintImgsB();
   }
+  paintImgsB() { this.imgsB.hidden = this.quote.hidden || !this.quote.querySelector('img[data-remote-src]'); }
   toggleQuote() {
     this.quote.hidden = !this.quote.hidden;
     this.trimB.setAttribute('aria-expanded', String(!this.quote.hidden));
     this.trimB.title = this.quote.hidden ? 'Show trimmed content' : 'Hide trimmed content';
+    this.paintImgsB();
   }
   setPlain(on, { quiet = false } = {}) {
     if (on === this.plain) return;
@@ -1165,6 +1172,7 @@ class Compose {
       this.pt.value = `${this.messageText()}${sig ? `\n\n-- \n${sig}` : ''}`;
       this.plain = true;
       for (const img of imgs) {
+        if (img.hasAttribute('data-remote-src')) continue; // a held-back remote image: not a file of the owner's
         const m = /^data:([^;]+);base64,(.*)$/.exec(img.getAttribute('src') || '');
         if (!m || !this.caps.attach) continue;
         const up = this.imgUploads.get(img.getAttribute('data-cid'));
@@ -1294,8 +1302,8 @@ class Compose {
     if (html) {
       e.preventDefault();
       const box = document.createElement('div');
-      box.append(sanitizeHtml(html));
-      for (const img of box.querySelectorAll('img')) if (img.hasAttribute('data-pending') || !/^data:image\//.test(img.getAttribute('src') || '')) img.remove(); // remote images aren't pulled into the mail
+      box.append(sanitizeHtml(html, { remote: false }));
+      for (const img of box.querySelectorAll('img')) if (img.hasAttribute('data-pending') || img.hasAttribute('data-remote-src') || !/^data:image\//.test(img.getAttribute('src') || '')) img.remove(); // remote images aren't pulled into the mail (nor fetched)
       document.execCommand('insertHTML', false, box.innerHTML);
       this.changed();
     }
@@ -2027,6 +2035,8 @@ class Compose {
     const inline = [], shown = [];
     const seen = new Map();
     for (const img of [...root.querySelectorAll('img')]) {
+      // a remote image held back in the quote (AM5): the outgoing mail keeps its real address
+      if (img.hasAttribute('data-remote-src')) { img.setAttribute('src', img.getAttribute('data-remote-src')); img.removeAttribute('data-remote-src'); }
       const s = img.getAttribute('src') || '';
       const m = /^data:(image\/[a-z0-9.+-]+);base64,(.*)$/i.exec(s);
       img.removeAttribute('class');
@@ -2124,7 +2134,7 @@ class Compose {
     const preview = el('div', { class: 'cw-rv-body', tabindex: '0', 'aria-label': t('Message preview'), 'data-no-i18n': '' });
     if (b.html) {
       const cidSrc = new Map(b.shown.map((x) => [x.contentId, x.src]));
-      const frag = sanitizeHtml(b.html);
+      const frag = sanitizeHtml(b.html, { remote: false });
       for (const img of frag.querySelectorAll('img[data-pending]')) { const c = img.getAttribute('data-cid'); if (cidSrc.has(c)) { img.setAttribute('src', cidSrc.get(c)); img.removeAttribute('data-pending'); } }
       for (const a of frag.querySelectorAll('a')) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer'); }
       preview.append(frag);
@@ -2205,6 +2215,8 @@ class Compose {
     return box;
   }
   backToEdit() {
+    // editing again stops an undo-send countdown: nothing goes out while the owner edits (AM2)
+    if (this.countdown) { clearInterval(this.countdown); this.countdown = null; toast('Not sent: back to editing'); }
     this.view = 'edit';
     this.rv.hidden = true;
     this.root.classList.remove('reviewing');
@@ -2358,8 +2370,10 @@ class Compose {
 
   /* ---------- filling ---------- */
   fillFrom(o) {
-    for (const k of ['to', 'cc', 'bcc']) { this.recip[k] = (o[k] || []).flatMap((x) => splitAddresses(x)).map(parseAddress).filter((a) => a.email); this.renderChips(k); }
-    this.subj.value = o.subject || '';
+    // a list of addresses; one string (old or hand-edited storage) is taken as one too (AM2-12)
+    const list = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? [v] : []).filter((x) => typeof x === 'string');
+    for (const k of ['to', 'cc', 'bcc']) { this.recip[k] = list(o[k]).flatMap((x) => splitAddresses(x)).map(parseAddress).filter((a) => a.email); this.renderChips(k); }
+    this.subj.value = typeof o.subject === 'string' ? o.subject : '';
     this.tEl.textContent = this.title();
   }
   async loadDraft(id) {
@@ -2375,12 +2389,13 @@ class Compose {
     const fromEmail = parseAddress(splitAddresses(d.from || '')[0] || '').email.toLowerCase();
     if (fromEmail && fromEmail !== String((src.google && src.google.email) || '').toLowerCase()) this.account = fromEmail;
     if (d.html) {
-      const frag = sanitizeHtml(d.html);
+      const frag = sanitizeHtml(d.html, { remote: false });
       const box = document.createElement('div');
       box.append(frag);
       const wrap = box.children.length === 1 && box.firstElementChild.tagName === 'DIV' && box.firstElementChild.getAttribute('dir') === 'ltr' && !box.firstElementChild.className ? box.firstElementChild : box;
       const q = wrap.querySelector(':scope > .gmail_quote');
       if (q) q.remove();
+      showRemoteImages(wrap); // the owner's own words (a signature's logo): shown; only the quoted email's are held back
       this.plain = false;
       this.ed.replaceChildren(...wrap.childNodes);
       this.sigEl = this.ed.querySelector(':scope > .gmail_signature');
@@ -2419,7 +2434,7 @@ class Compose {
 /* ================= reply, reply all, forward ================= */
 function quoteNodes(m, mode) {
   const body = el('div');
-  if (m.html) body.append(sanitizeHtml(m.html)); else body.append(...textToNodes(m.body || m.snippet || ''));
+  if (m.html) body.append(sanitizeHtml(m.html, { remote: false })); else body.append(...textToNodes(m.body || m.snippet || ''));
   if (mode === 'forward') {
     const attr = el('div', { class: 'gmail_attr', dir: 'ltr' }, '---------- Forwarded message ---------', el('br'),
       'From: ', el('b', '', m.from || ''), el('br'), `Date: ${fmtLong(m.date)}`, el('br'), `Subject: ${m.subject || ''}`, el('br'),
@@ -2461,7 +2476,7 @@ export function openCompose(opts = {}) {
     else if (opts.html) { w.ed.replaceChildren(sanitizeHtml(opts.html)); w.sigEl = w.ed.querySelector(':scope > .gmail_signature'); }
     else w.setBody({ text: '' });
     w.sigId = opts.sigId || null;
-    if (opts.quote) w.setQuote([sanitizeHtml(opts.quote)], !!opts.quoteOpen);
+    if (opts.quote) w.setQuote([sanitizeHtml(opts.quote, { remote: false })], !!opts.quoteOpen);
     if (opts.geom && Number.isFinite(opts.geom.x)) { w.geom = { ...opts.geom }; w.clampGeom(); }
     w.state = opts.state === 'min' ? 'min' : opts.state === 'large' || opts.state === 'full' ? opts.state : 'normal';
     w.sv.dirty = !w.draftId && !w.isEmpty();
@@ -2627,14 +2642,31 @@ export function initCompose(handlers) {
   H = handlers;
   ensureLayer();
   try { document.execCommand('defaultParagraphSeparator', false, 'div'); document.execCommand('styleWithCSS', false, false); } catch { /* old engines */ }
-  refreshSources();
-  // emails being written when the page closed come back, minimised
+  sourcesReady = refreshSources().catch(() => {});
+  // emails being written when the page closed come back, minimised; one that can't be read (corrupted or old
+  // storage) is left out, not the ones after it (AM2-12)
   const saved = store.get(K.open, []);
   if (Array.isArray(saved) && saved.length) {
-    for (const s of saved.slice(0, 8)) if (s && typeof s === 'object') openCompose({ ...s, restore: true, state: 'min' });
-    toast(saved.length === 1 ? 'The email you were writing is below the chat' : `${saved.length} emails you were writing are below the chat`);
+    let back = 0;
+    for (const s of saved.slice(0, 8)) {
+      if (!s || typeof s !== 'object') continue;
+      const before = wins.length;
+      try { openCompose({ ...s, restore: true, state: 'min' }); back += 1; } catch {
+        for (const w of wins.slice(before)) { try { w.destroy(); } catch { wins.splice(wins.indexOf(w), 1); } } // the half-built window goes
+      }
+    }
+    if (back) toast(back === 1 ? 'The email you were writing is below the chat' : `${back} emails you were writing are below the chat`);
+    persistAll();
   }
 }
+
+/**
+ * Compose's sources (Google's status, its send-as addresses, the Mac's accounts) are known: a window opened before
+ * that picked "Mail on your Mac" or an unknown Gmail address, and no signature (AM2-3). mail-lazy.js waits for it
+ * (a short while at most) before opening the first window after Mail loads.
+ */
+let sourcesReady = null;
+export const composeReady = () => sourcesReady || Promise.resolve();
 
 
 /**

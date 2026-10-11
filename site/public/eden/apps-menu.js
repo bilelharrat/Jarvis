@@ -1,6 +1,7 @@
 // The Eden apps, from Eden's mark in the sidebar's foot: a click (or Enter/Space) opens a small
 // card above it with the other apps in the portfolio and where to get them. Eden Code (the coding
-// app, Eden's outline mark) comes first, then J.A.R.V.I.S. (the voice assistant, its blue orb).
+// app, Eden's outline mark) comes first, then Eden by voice (the voice assistant, its blue orb; "Eden (voice)",
+// not a second plain "Eden" under the header's "Eden · You're here": AC2-12; "Eden for Mac" is Ask Eden for Mac).
 // Eden for Education is its own app: askeden.com/edu (edu-app.js), and Eden Edu on the iPhone.
 // Eden Messenger is left out for now. The downloads are askeden.com's, from Eden on the Mac too.
 import { el } from './util.js';
@@ -9,7 +10,7 @@ import { state } from './state.js';
 const SITE = 'https://askeden.com';
 const APPS = [
   { id: 'eden-code', name: 'Eden Code', blurb: 'A coding agent for your projects: plans, edits, runs and explains.', href: `${SITE}/eden-code/download`, cta: 'Download for Mac' },
-  { id: 'jarvis', name: 'Eden', blurb: 'Your Mac by voice. Comes with Eden Code.', href: `${SITE}/jarvis/download`, cta: 'Download for Mac' },
+  { id: 'jarvis', name: 'Eden (voice)', blurb: 'Your Mac by voice. Comes with Eden Code.', href: `${SITE}/jarvis/download`, cta: 'Download for Mac' },
   { id: 'edu', name: 'Eden for Education', blurb: 'Study from your professor’s slides and readings, with every answer checked against them.', href: `${SITE}/edu`, cta: 'Open the app' }, // its own app (askeden.com/edu, edu.askeden.com, the Eden Edu iPhone app)
 ];
 
@@ -31,7 +32,16 @@ function outside(e) {
 }
 
 function onKey(e) {
-  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close({ focus: true }); }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close({ focus: true }); return; }
+  // Tab stays inside the card while it's open (it's a dialog: AS2-6), round from the last link to the first
+  if (e.key === 'Tab' && pop) {
+    const items = [...pop.querySelectorAll('a[href], button:not([disabled])')];
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement);
+    const next = e.shiftKey ? (at <= 0 ? items.length - 1 : at - 1) : (at < 0 || at === items.length - 1 ? 0 : at + 1);
+    e.preventDefault();
+    items[next].focus();
+  }
 }
 
 function open() {

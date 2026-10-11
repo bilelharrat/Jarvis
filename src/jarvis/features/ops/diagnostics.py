@@ -155,7 +155,7 @@ def build(
     home_re = redact.home_pattern(home)
     dest.mkdir(parents=True, exist_ok=True, mode=0o700)
     now = clock()
-    name = f"Jarvis diagnostics {now.strftime('%Y-%m-%d at %H.%M.%S')}"
+    name = f"Eden diagnostics {now.strftime('%Y-%m-%d at %H.%M.%S')}"
     target = dest / f"{name}.zip"
     n = 2
     while os.path.lexists(target):

@@ -15,6 +15,8 @@
   // of it ({ ok, path, name } | { error }). Another session shows its own, never this one.
   const jobs = new Map();  // session id -> { ref, pending, result }
   let refN = 0;
+  // (CF2-10) This page's mark on its refs: every window and split view pane counts from 1.
+  const PAGE = Math.random().toString(36).slice(2, 10) || 'p';
   function jobOf(t) {
     if (!jobs.has(t.id)) jobs.set(t.id, { ref: '', pending: false, result: null });
     return jobs.get(t.id);
@@ -70,7 +72,7 @@
     go.type = 'button';
     go.disabled = job.pending;
     go.addEventListener('click', () => {
-      const ref = `x${++refN}`;
+      const ref = `${PAGE}-x${++refN}`;
       // (not connected: nothing is being made, and Export stays as it was)
       if (!F.send({ type: 'cw_export', id: t.id, safe: choice.safe, anonymize: choice.anonymize, format: choice.format, ref })) return;
       Object.assign(job, { ref, pending: true, result: null });
@@ -80,7 +82,7 @@
     if (result && result.error) parts.push(el('p', 'cx-result bad', result.error));
     if (result && result.ok) {
       const done = el('div', 'cx-result');
-      done.append(el('span', '', 'Saved in Documents › Jarvis › Eden Code:'), mine(el('code', '', result.name)));
+      done.append(el('span', '', 'Saved in Documents › Eden Code:'), mine(el('code', '', result.name)));
       const reveal = el('button', 'jc-mini', 'Show in Finder');
       reveal.type = 'button';
       reveal.addEventListener('click', () => F.send({ type: 'cw_export_reveal', path: result.path }));

@@ -233,7 +233,8 @@ class LifeContext:
                 "Work out what it needs in this project and propose a plan."
             )
             try:
-                self.hub.tasks.start(prompt, project, mode="plan", title=item[:60])
+                # (CA3-4) the owner's own "Start a session" on the card
+                self.hub.tasks.start(prompt, project, mode="plan", title=item[:60], by_user=True)
                 started += 1
             except ValueError as exc:
                 log.warning("Eden Code: couldn't start a session from a meeting (%s)", exc)

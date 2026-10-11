@@ -8,6 +8,7 @@ import { mockArtifact } from './mock-artifact.js';
 import { apiUrl } from './api.js';
 import { macMock } from './mac-mock.js'; // Use my Mac, the screen, project knowledge
 import { evesMock } from './eves-mock.js'; // EVES: estimate, the stream, stop
+import { mergeMailkit, triageOf, restOf, joinKit, TRIAGE_SECTIONS } from './mailkit-merge.js'; // the mail kit as mailkit.ts keeps it
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -47,7 +48,7 @@ const LEVELS = [
 const keys = { anthropic: { set: false, source: null }, openai: { set: true, source: 'file' }, gemini: { set: true, source: 'env' }, kimi: { set: false, source: null } };
 let projects = [
   { path: '/Users/owner/Model Router', name: 'Model Router', branch: 'main' },
-  { path: '/Users/owner/JARVIS V1', name: 'JARVIS V1', branch: 'feat/permissions' },
+  { path: '/Users/owner/Eden', name: 'Eden', branch: 'feat/permissions' },
 ];
 
 function meta() {
@@ -218,9 +219,26 @@ function answerFor(prompt, mode, version) {
 }
 
 let sendCount = 0;
+/**
+ * QA for Eden writing in the open essay (eden-tools.js essay blocks, ROADMAP T19): a draft that streams in, a reply cut
+ * off at its limit, the old JSON form garbled as models garble it, a rewrite of the selection, a source with a citation,
+ * and a draft shorter than asked. Words from the prompt pick which.
+ */
+function essayAnswer(prompt) {
+  const para = (n) => `Social media has reshaped how teenagers see themselves, and the change is ${['measurable', 'uneven', 'not only harmful', 'still unfolding'][n % 4]}. ${'Studies of daily use link heavy scrolling to worse sleep, and worse sleep to lower mood, though the direction of cause is argued. '.repeat(3)}The question is not whether the platforms matter, but how much and for whom.`;
+  const body = (k) => Array.from({ length: k }, (_, i) => para(i)).join('\n\n');
+  if (/cut ?off|too long/i.test(prompt)) return { text: `Here is the full draft.\n<eden-essay where="end">\n${body(4)}\n\nA last paragraph that never ends because the model ran out of room and stopped in the mid`, finish: 'length' };
+  if (/garble|broken/i.test(prompt)) return { text: 'I added a conclusion at the end.\n<eden-tool>{"name":"essay_write","args":{"text":"In the end, \"likes\" are cheap.\n\nWhat they cost is attention.","where":"end"}</eden-tool>' };
+  if (/formal|selection|this paragraph/i.test(prompt)) return { text: 'I rewrote the paragraph you selected in a more formal register.\n<eden-essay where="selection">\nAdolescent use of social media has measurable consequences for sleep and mood, although the causal direction remains contested.\n</eden-essay>' };
+  if (/source|cite/i.test(prompt)) return { text: 'I added the Pew survey to your sources and cited it.\n<eden-essay-source key="pew2023">{"type":"website","authors":["Pew Research Center"],"title":"Teens, Social Media and Technology 2023","container":"Pew Research Center","year":"2023","month":"12","day":"11","url":"https://www.pewresearch.org/internet/2023/12/11/teens-social-media-and-technology-2023/"}</eden-essay-source>\n<eden-essay where="end">\nNearly half of teenagers say they are online almost constantly [@pew2023].\n</eden-essay>' };
+  if (/short/i.test(prompt)) return { text: `I wrote the essay.\n<eden-essay-title>Scrolling Toward Sleeplessness</eden-essay-title>\n<eden-essay where="end">\n${body(2)}\n</eden-essay>` };
+  return { text: `I drafted the essay and titled it.\n<eden-essay-title>The Cost of Likes</eden-essay-title>\n<eden-essay where="end">\n# Introduction\n\n${body(6)}\n</eden-essay>` };
+}
+
 /** QA for the Google tools (eden-tools.js): the model "asks" for tools when the system text offers them. */
 function toolAnswer(body, prompt) {
   const sys = String(body.system || '');
+  if (/essay is open beside this chat/.test(sys) && !/^(Give me feedback|Check my essay)/.test(prompt)) return { ...essayAnswer(prompt), thinking: '' };
   const on = /Google tools\./.test(sys), off = /once they connect Google/.test(sys);
   if (!on && !off) return null;
   const pad2 = (n) => String(n).padStart(2, '0');
@@ -281,7 +299,7 @@ function chatStream(body, signal) {
   const notional = r.pick.provider === 'anthropic' && body.settings && body.settings.subscriptionClaude;
   if (a.proposal) steps.push([200, 'approval', () => guardHold(g.turnId, a.proposal, g.provenance)]); // the server's gate held what the fooled model proposed
   steps.push([150, 'usage', { inputTokens: Math.round(inTok), outputTokens: Math.round(outTok), reasoningTokens: a.thinking ? 180 : 0, costUSD: Math.round(r.pick.costUSD * (0.7 + Math.random() * 0.6) * 1e5) / 1e5, notional: !!notional }]);
-  steps.push([60, 'done', { finish: 'stop' }]);
+  steps.push([60, 'done', { finish: a.finish || 'stop' }]);
   return sse(steps, signal);
 }
 
@@ -423,7 +441,7 @@ async function jarvisTool(tool, args = {}) {
     }
     case 'mail_read': { const m = MAILS.find((x) => x.id === args.id); return m ? { text: `${NOTE}\n\n${JSON.stringify(m)}`, is_error: false } : { text: 'No message with that id.', is_error: true }; }
     case 'mail_draft': MAILS.unshift({ id: `d${Date.now()}`, box: 'drafts', account: args.account || 'icloud', from: 'me', to: args.to, cc: args.cc || [], subject: args.subject, date: new Date().toISOString(), body: args.body }); return { text: 'Saved to Drafts.', is_error: false };
-    case 'mail_send': if (args.confirm !== true) return { text: 'confirm must be true', is_error: true }; await sleep(900); return { text: 'Jarvis: sent after you confirmed on your Mac.', is_error: false };
+    case 'mail_send': if (args.confirm !== true) return { text: 'confirm must be true', is_error: true }; await sleep(900); return { text: 'Eden: sent after you confirmed on your Mac.', is_error: false };
     case 'mail_triage': { // Done / flag / read on Mail on your Mac (mcp_endpoint _mail_triage)
       if (args.confirm !== true) return { text: 'mail_triage needs confirm: true (the owner chose it in the app).', is_error: true };
       const hit = MAILS.filter((m) => (args.message_ids || []).includes(m.id));
@@ -504,10 +522,29 @@ export async function mockFetch(path, init = {}) {
     const vec = (t) => { const v = new Array(256).fill(0); for (const w of String(t).toLowerCase().match(/[a-z]{3,}/g) || []) { let h = 0; for (const ch of w) h = (h * 31 + ch.charCodeAt(0)) % 256; v[h] += 0.3; } for (const [re, c] of CONCEPT) if (re.test(t)) { let h = 7; for (const ch of c) h = (h * 33 + ch.charCodeAt(0)) % 256; v[h] += 3; } return v; };
     return json({ vectors: (body.texts || []).map(vec), provider: 'gemini', model: 'gemini-embedding-001' });
   }
-  if (p === '/api/chat/mailkit') { // mailkit.ts: the writing style, snippets, snoozes, follow-ups (sessionStorage here), the later `at` wins
-    const kept = JSON.parse(sessionStorage.getItem('mock:mailkit') || 'null') || { at: 0 };
-    if (method === 'POST' && (body.at || 0) >= kept.at) { sessionStorage.setItem('mock:mailkit', JSON.stringify(body)); return json(body); }
-    return json(kept);
+  if (p === '/api/chat/mailkit' || p === '/api/chat/mailkit/triage') {
+    // mailkit.ts: the writing style, snippets, follow-ups… and, apart, the snoozes and Done marks (sessionStorage here:
+    // mock:mailkit, mock:mailtriage), merged per item as the Mac's server does (AM2-10: mock QA used to get a 404 for
+    // /triage and a "later object wins" store, so it never ran the split or the merge)
+    const read = (k) => { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch { return null; } };
+    const rest = read('mock:mailkit') || { at: 0 }, tri = read('mock:mailtriage');
+    const old = triageOf(rest);
+    const kept = tri ? joinKit(rest, old.snoozed !== undefined || old.done !== undefined ? mergeMailkit(old, tri) : tri) : rest;
+    if (method !== 'POST') return json(kept);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'mailkit: send an object with at.' }, 400);
+    const save = (k, v) => sessionStorage.setItem(k, JSON.stringify(v));
+    if (p.endsWith('/triage')) {
+      const other = Object.keys(body).find((k) => k !== 'at' && k !== 'stamps' && !TRIAGE_SECTIONS.includes(k));
+      if (other) return json({ error: `mailkit: only snoozed, done and their stamps here, not ${other.slice(0, 40)}.` }, 400);
+      const merged = triageOf(mergeMailkit(triageOf(kept), triageOf(body)));
+      save('mock:mailtriage', merged);
+      if (!tri) save('mock:mailkit', restOf(rest));
+      return json(merged);
+    }
+    const merged = mergeMailkit(kept, body);
+    save('mock:mailtriage', triageOf(merged));
+    save('mock:mailkit', restOf(merged));
+    return json(merged);
   }
   if (p === '/api/chat/signatures') { // signatures.ts: one copy for the "Mac" (sessionStorage here), the later `at` wins
     const kept = JSON.parse(sessionStorage.getItem('mock:signatures') || 'null') || { list: [], defaults: {}, at: 0 };
@@ -702,11 +739,11 @@ function receiptsMock(method, body) {
 }
 
 /* ================= calendar (calendar.js) =================
-   The Mac's calendars as Eden's JSON (`calendar` with format "json", and calendar_create /
+   The Mac's calendars as Jarvis's JSON (`calendar` with format "json", and calendar_create /
    _update / _delete, which on a real Mac also wait for the owner's card), and Google Calendar
    (/api/chat/gcal). Events are made around today. QA switches in the page's URL:
    mac=off|legacy|error|slow|decline|approve, gcal=ready|signin|reconnect|unset|error|slow, cal=empty.
-   mac=approve: the first Eden call waits 8 s for the "Let Eden use your Mac?" card, and the
+   mac=approve: the first Jarvis call waits 8 s for the "Let Eden use Jarvis?" card, and the
    status says approval: 'waiting' after 3 s of it (as Eden's server does). */
 
 const calQ = new URLSearchParams(location.search);
@@ -863,7 +900,7 @@ async function calendarMock(p, method, body) {
     const mac = calFlag('mac');
     if (mac === 'slow') await sleep(2200);
     if (body.tool === 'calendar') {
-      if (mac === 'legacy') return null; // the older Eden's text, answered by jarvisTool above
+      if (mac === 'legacy') return null; // the older Jarvis's text, answered by jarvisTool above
       if (mac === 'error') return json({ text: 'Calendar access is off for Eden (System Settings > Privacy & Security > Calendars).', is_error: true });
       if (a.format !== 'json') return null;
       const s = new Date(`${a.start}T00:00`), en = new Date(`${a.end}T00:00`);
@@ -1243,7 +1280,11 @@ async function gmailMock(body) {
       const n = GM_HIST.n - Number(a.startHistoryId || 0);
       return json({ historyId: String(GM_HIST.n), changes: Math.max(0, n), tooOld: false, ids: [] });
     }
-    case 'search': { const rows = GMAILS.filter((m) => (either ? m.box === 'inbox' || m.box === 'sent' : m.box === (a.mailbox || 'inbox')) && hit(m)).map(gmSummary); return json({ messages: rows, nextPageToken: null, estimate: rows.length }); }
+    case 'search': { // pages as Gmail's do (limit, pageToken → nextPageToken), so QA sees what a big inbox does
+      const all = GMAILS.filter((m) => (either ? m.box === 'inbox' || m.box === 'sent' : m.box === (a.mailbox || 'inbox')) && hit(m));
+      const lim = Math.max(1, Math.min(50, Number(a.limit) || 20)), off = Math.max(0, Number(a.pageToken) || 0);
+      const rows = all.slice(off, off + lim).map(gmSummary);
+      return json({ messages: rows, nextPageToken: off + lim < all.length ? String(off + lim) : null, estimate: all.length }); }
     case 'read': { const m = GMAILS.find((x) => x.id === a.id); return m ? json(gmDetail(m)) : json({ error: 'Not found in Gmail.', code: 'not_found' }, 404); }
     case 'drafts': return json({ drafts: [...GM_DRAFTS.values()].filter(hit).reverse().map((d) => ({ draftId: d.draftId, ...gmSummary(d), scheduledAt: gmJob(d.draftId)?.sendAt ?? null })), nextPageToken: null });
     case 'getDraft': { const d = GM_DRAFTS.get(a.id); return d ? json({ draftId: d.draftId, ...gmDetail(d), scheduled: gmJob(d.draftId) ?? null }) : json({ error: 'Not found in Gmail.', code: 'not_found' }, 404); }
@@ -1632,14 +1673,14 @@ function compareMock(p, method, body, signal) {
 }
 
 /* ================= Memory and the brief (memory.js, brief.js) =================
-   Eden's memory tools (memory_list with provenance; memory_update / delete / toggle, each
+   Jarvis's memory tools (memory_list with provenance; memory_update / delete / toggle, each
    "confirmed on the Mac" after a pause; commitments), POST /api/chat/brief (brief, events,
    prep) built from the calendar, mail and notes fixtures above, and the cheap model's summary
    (a /api/chat/send whose system prompt is the brief's or the prep's).
-   QA switches: mem=legacy (an older Eden: no memory_list), mem=decline (the owner says no
+   QA switches: mem=legacy (an older Jarvis: no memory_list), mem=decline (the owner says no
    on the Mac), mem=empty; brief=mac (POST /api/chat/brief answers 503 "needs your Mac", as
    askeden.com does before the Mac link forwards it); prep=soon (a meeting in 9 minutes, so
-   the prep card shows); mac=off (Eden not running, as the calendar's). */
+   the prep card shows); mac=off (Jarvis not running, as the calendar's). */
 const mbQ = new URLSearchParams(location.search);
 const mbAgo = (d, h = 9, m = 0) => { const x = new Date(); x.setDate(x.getDate() - d); x.setHours(h, m, 0, 0); return calIso(x); };
 let MEM = mbQ.get('mem') === 'empty' ? [] : [

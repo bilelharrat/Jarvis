@@ -210,6 +210,16 @@ export function setBlock(course, passages, count = 12) {
   ].filter(Boolean).join('\n\n');
 }
 
+/**
+ * The checked status of what an answer cites: `general` cites nothing; `verified` only when every quote checks out (and
+ * no part is general knowledge); `unverified` when none does; `partial` when some do and some don't (AW3-1).
+ */
+export function groundStatus(sources, general = false) {
+  if (!sources.length) return 'general';
+  const ok = sources.filter((s) => s.ok).length;
+  return !ok ? 'unverified' : ok === sources.length && !general ? 'verified' : 'partial';
+}
+
 /** A JSON answer's items (quiz questions, or a set's cards), each one's quote checked against its source. */
 function checkItems(answer, passages, key, scope) {
   let parsed = null;
@@ -222,8 +232,7 @@ function checkItems(answer, passages, key, scope) {
     const qn = norm(quote);
     return { n: i + 1, doc: p ? p.doc : null, file: p ? p.name : null, at: p ? p.loc : null, quote, ok: Boolean(p && qn.split(' ').length >= 3 && norm(p.text).includes(qn)) };
   });
-  const status = !sources.length ? 'general' : sources.every((s) => s.ok) ? 'verified' : 'partial';
-  return { status, scope, sources };
+  return { status: groundStatus(sources), scope, sources };
 }
 
 /** A quiz answer's questions, each one's quote checked: { status, scope: 'quiz', sources: [{ n, doc, file, at, quote, ok }] } (n = question number). */
@@ -254,10 +263,10 @@ export function checkGrounding(answer, passages) {
   for (const n of markers) if (!sources.some((s) => s.n === n)) sources.push({ n, doc: null, file: null, at: null, quote: '', ok: false });
   sources.sort((a, b) => a.n - b.n);
   const general = /general knowledge \(not from your course\)/i.test(body) || /course materials don.t cover this/i.test(body) || /beyond your course materials/i.test(body); // the last: the tutor's spoken way
-  const status = !sources.length ? 'general' : sources.every((s) => s.ok) && !general ? 'verified' : 'partial';
-  return { status, sources };
+  return { status: groundStatus(sources, general), sources };
 }
 
+const GROUND_STATUSES = ['verified', 'partial', 'unverified', 'general'];
 const GAP_MIN = 3; // distinct students before a not-covered question shows in insights
 const memberLabel = (label) => cleanName(label, 'Student').slice(0, 60);
 const visible = (d, now) => Boolean(d) && !d.hidden && !(d.from && d.from > now);
@@ -391,6 +400,7 @@ export class Course {
       const me = await this.member(body.account);
       const run = {
         view: () => this.view(course, me),
+        card: () => this.card(course, me),
         update: () => this.update(course, me, body),
         'doc-add': () => this.docAdd(course, me, body),
         'doc-delete': () => this.docDelete(me, body),
@@ -398,7 +408,8 @@ export class Course {
         search: () => this.search(course, me, body),
         source: () => this.source(me, body),
         record: () => this.record(course, body),
-        'quiz-record': () => this.quizRecord(course, body),
+        'quiz-record': () => this.quizRecord(course, me, body),
+        'quiz-issued': () => this.quizIssued(me, body), // chat.js, after a quiz turn (AW2-13)
         insights: () => this.insights(me, body),
         members: () => this.members(course, me),
         'member-remove': () => this.memberRemove(course, me, body),
@@ -452,18 +463,28 @@ export class Course {
     if (op === 'index-code-get') return { course: ((await this.storage.get('code')) || {}).course || null };
     if (op === 'index-code-delete') { await this.storage.deleteAll(); return { ok: true }; }
     const ids = (await this.storage.get('ids')) || [];
-    if (op === 'index-acct-list') return { ids };
+    // `owned`: the courses this account made, kept here so the cap is checked and counted in one place (a list
+    // made before it existed is null until the Worker seeds it once from the courses themselves)
+    const owned = (await this.storage.get('owned')) ?? null;
+    if (op === 'index-acct-list') return { ids, owned };
     if (op === 'index-acct-add') {
       if (!ids.includes(body.course)) {
         if (ids.length >= COURSES.perAccount) throw new ApiError(409, 'too_many', `You can be in at most ${COURSES.perAccount} courses.`);
-        if (body.owned && body.ownedCount >= COURSES.ownedPerAccount) throw new ApiError(409, 'too_many', `You can make at most ${COURSES.ownedPerAccount} courses.`);
+        if (body.owned) {
+          const mine = (owned ?? (Array.isArray(body.seed) ? body.seed : [])).filter((id) => ids.includes(id));
+          if (mine.length >= COURSES.ownedPerAccount) throw new ApiError(409, 'too_many', `You can make at most ${COURSES.ownedPerAccount} courses.`);
+          await this.storage.put('owned', [...mine, body.course]);
+        }
         ids.push(body.course);
         await this.storage.put('ids', ids);
       }
       return { ids };
     }
     if (op === 'index-acct-remove') {
-      await this.storage.put('ids', ids.filter((id) => id !== body.course));
+      // written only when it changes: the clean-ups call this for members whose accounts (and so this object)
+      // may be gone, and an untouched object stays empty (AW2-12)
+      if (ids.includes(body.course)) await this.storage.put('ids', ids.filter((id) => id !== body.course));
+      if (owned && owned.includes(body.course)) await this.storage.put('owned', owned.filter((id) => id !== body.course));
       return { ok: true };
     }
     throw new ApiError(404, 'not_found', 'No such thing.');
@@ -509,6 +530,14 @@ export class Course {
       exams: course.exams || [],
       docs: docs.map(({ id, name, kind, parts, added, hidden, from, week }) => ({ id, name, kind, parts, added, week: week || null, ...(isStaff ? { hidden: Boolean(hidden), from: from || null } : {}) })),
     };
+  }
+
+  /** What a list of courses shows (the course list, LTI's pick a course): view()'s fields without reading every
+   * member (staff's student count) or describing each file. `docs` is the number of files this member sees. */
+  async card(course, me) {
+    const now = this.now();
+    const all = [...(await this.storage.list({ prefix: 'd:' })).values()];
+    return { id: course.id, name: course.name, term: course.term, role: me.role, verified: course.verified, docs: staff(me) ? all.length : all.filter((d) => visible(d, now)).length };
   }
 
   async update(course, me, body) {
@@ -706,42 +735,125 @@ export class Course {
   async record(course, body) {
     const at = this.now();
     const member = (await sha256Hex(`${course.id}:${body.account}`)).slice(0, 12);
-    const status = ['verified', 'partial', 'general'].includes(body.status) ? body.status : 'general';
+    const status = GROUND_STATUSES.includes(body.status) ? body.status : 'general'; // AW3-1: an unverified turn stays unverified, not a not-covered question
     const hits = (Array.isArray(body.hits) ? body.hits : []).slice(0, 3).map((h) => ({ name: String(h.name || '').slice(0, 120), loc: String(h.loc || '').slice(0, 40) }));
     const q = status === 'general' ? String(body.question || '').replace(/\s+/g, ' ').trim().slice(0, 140) : null;
     const hint = validAssignmentId(body.hint) ? body.hint : null; // Q10: which graded assignment put this turn in hint mode
-    await this.storage.put(`r:${String(at).padStart(14, '0')}:${b64url(randomBytes(6))}`, { at, member, status, hits, q, ...(hint ? { hint } : {}) }); // unique even within a millisecond
-    const all = await this.storage.list({ prefix: 'r:' });
-    const old = [...all].filter(([, r]) => r.at < at - 365 * 864e5).map(([k]) => k); // kept a year at most
-    const over = [...all.keys()].slice(0, Math.max(0, all.size - COURSES.records));
-    const drop = [...new Set([...old, ...over])].slice(0, 128);
-    if (drop.length) await this.storage.delete(drop);
+    await this.addRecord(`r:${String(at).padStart(14, '0')}:${b64url(randomBytes(6))}`, { at, member, status, hits, q, ...(hint ? { hint } : {}) }, at); // unique even within a millisecond
     return { ok: true };
+  }
+
+  /**
+   * Keeps one `r:` record, and the rule below, without reading them all: `rn` counts the records, so a write reads only
+   * the oldest few (over the cap, or past a year). A course from before the count is counted once, the old way.
+   */
+  async addRecord(key, record, at) {
+    const n = await this.storage.get('rn');
+    if (!Number.isInteger(n) || n < 0) {
+      await this.storage.put(key, record);
+      const all = await this.storage.list({ prefix: 'r:' });
+      const dropped = await this.trimRecords(at, all);
+      await this.storage.put('rn', all.size - dropped);
+      return;
+    }
+    let count = n + 1;
+    await this.storage.put({ [key]: record, rn: count });
+    const year = at - 365 * 864e5;
+    for (;;) {
+      const over = Math.max(0, count - COURSES.records);
+      const page = 8;
+      const oldest = await this.storage.list({ prefix: 'r:', limit: over + page });
+      const keys = [...oldest.keys()];
+      const drop = keys.filter((k, i) => i < over || oldest.get(k).at < year);
+      if (!drop.length) return;
+      for (let i = 0; i < drop.length; i += 128) await this.storage.delete(drop.slice(i, i + 128));
+      count -= drop.length;
+      await this.storage.put('rn', count);
+      if (drop.length < keys.length || keys.length < over + page) return; // a record kept (newer than a year), or none left: done
+    }
+  }
+
+  /** Records kept a year at most and COURSES.records in all (the oldest go first), whatever wrote the last one. */
+  async trimRecords(at, all = null) {
+    // (the full pass: a course's first write since the count, addRecord; the number dropped is returned)
+    all = all || (await this.storage.list({ prefix: 'r:' }));
+    const old = [...all].filter(([, r]) => r.at < at - 365 * 864e5).map(([k]) => k);
+    const over = [...all.keys()].slice(0, Math.max(0, all.size - COURSES.records));
+    const drop = [...new Set([...old, ...over])];
+    for (let i = 0; i < drop.length; i += 128) await this.storage.delete(drop.slice(i, i + 128));
+    return drop.length;
   }
 
   /** One page or slide, for the source viewer (what a citation points to). */
   async source(me, body) {
-    this.notPaused(await this.storage.get('course'), me);
+    const course = await this.storage.get('course');
+    this.notPaused(course, me);
     if (!DOC.test(String(body.doc))) throw bad('No such file.');
     const d = await this.storage.get(`d:${body.doc}`);
     if (!d || (!staff(me) && !visible(d, this.now()))) throw new ApiError(404, 'not_found', 'That page isn’t in the course any more.');
     const loc = String(body.loc || '');
-    for (const p of (await this.storage.list({ prefix: `p:${body.doc}:` })).values()) {
-      if (p.loc === loc) return { doc: d.id, name: d.name, kind: d.kind, loc: p.loc, text: p.text };
+    // students: only pages inside the professor's chapter scope (Q8), as search and the outline
+    const scope = staff(me) ? null : (course && course.scope) || null;
+    for (const [key, p] of await this.storage.list({ prefix: `p:${body.doc}:` })) {
+      if (p.loc !== loc) continue;
+      if (scope && !inScope(scope, new Map([[`d:${d.id}`, d]]), { doc: d.id, i: Number(key.split(':')[2]) })) continue;
+      return { doc: d.id, name: d.name, kind: d.kind, loc: p.loc, text: p.text };
     }
     throw new ApiError(404, 'not_found', 'That page isn’t in the course any more.');
   }
 
   /** A practice quiz's score, anonymous (for insights). */
-  async quizRecord(course, body) {
+  async quizRecord(course, me, body) {
     const total = Math.round(Number(body.total));
     const score = Math.round(Number(body.score));
     if (!(total >= 1 && total <= 50 && score >= 0 && score <= total)) throw bad('A quiz score is 0 to the number of questions.');
     const at = this.now();
     const member = (await sha256Hex(`${course.id}:${body.account}`)).slice(0, 12);
     // Q11: the questions missed and where their answer is (a generated question and its source, never the student's words)
-    const missed = (Array.isArray(body.missed) ? body.missed : []).slice(0, 10).map((m) => ({ q: String((m && m.q) || '').replace(/\s+/g, ' ').trim().slice(0, 160), name: String((m && (m.file || m.name)) || '').slice(0, 120), loc: String((m && (m.at || m.loc)) || '').slice(0, 40) })).filter((m) => m.name && m.loc);
-    await this.storage.put(`r:${String(at).padStart(14, '0')}:${b64url(randomBytes(6))}`, { at, member, kind: 'quiz', score, total, topic: String(body.topic || '').slice(0, 80), ...(missed.length ? { missed } : {}) });
+    let missed = (Array.isArray(body.missed) ? body.missed : []).slice(0, 10).map((m) => ({ q: missedText(m && m.q), name: String((m && (m.file || m.name)) || '').slice(0, 120), loc: String((m && (m.at || m.loc)) || '').slice(0, 40) })).filter((m) => m.name && m.loc);
+    // a student's quiz scores a day: more is a script, not studying (nothing kept, nothing said). Counted in `qd`
+    // (today's counts by member, one key that starts again each day); its first use today counts the records once.
+    const today = at - (at % 864e5);
+    let qd = await this.storage.get('qd');
+    if (!qd || qd.day !== today || !qd.counts || typeof qd.counts !== 'object') {
+      const counts = {};
+      for (const r of (await this.storage.list({ prefix: 'r:', start: `r:${String(today).padStart(14, '0')}` })).values()) if (r.kind === 'quiz' && r.at >= today) counts[r.member] = (counts[r.member] || 0) + 1;
+      qd = { day: today, counts };
+    }
+    const mine = qd.counts[member] || 0;
+    if (mine >= QUIZ_RECORDS_A_DAY) return { ok: true, kept: false };
+    // a missed question counts only where it points at a page this student may see (the professor reads these as confusions)
+    if (missed.length) {
+      const index = await this.loadIndex();
+      const now = this.now();
+      const scope = staff(me) ? null : course.scope || null;
+      const pages = new Set(index.docs.filter((d) => staff(me) || (visible(index.meta.get(`d:${d.doc}`), now) && inScope(scope, index.meta, d))).map((d) => `${d.name}\u0000${d.loc}`));
+      missed = missed.filter((m) => pages.has(`${m.name}\u0000${m.loc}`));
+    }
+    // ...and only a question Eden wrote for this student's quiz, with its page: never text the client made up (AW2-13)
+    if (missed.length) {
+      const issued = new Set(((await this.storage.get(`qi:${me.account}`)) || []).map((x) => x.k));
+      const keys = await Promise.all(missed.map(issuedKey));
+      missed = missed.filter((m, i) => issued.has(keys[i]));
+    }
+    const key = `r:${String(at).padStart(14, '0')}:${b64url(randomBytes(6))}`;
+    const record = { at, member, kind: 'quiz', score, total, topic: String(body.topic || '').slice(0, 80), ...(missed.length ? { missed } : {}) };
+    qd.counts[member] = mine + 1;
+    await this.storage.put('qd', qd);
+    await this.addRecord(key, record, at);
+    return { ok: true };
+  }
+
+  /** A quiz Eden wrote for this member: its questions (text and page) remembered a week, for the score's "missed". */
+  async quizIssued(me, body) {
+    const at = this.now();
+    const fresh = (Array.isArray(body.questions) ? body.questions : []).slice(0, 40)
+      .map((m) => ({ q: missedText(m && m.q), name: String((m && m.name) || '').slice(0, 120), loc: String((m && m.loc) || '').slice(0, 40) }))
+      .filter((m) => m.q && m.name && m.loc);
+    if (!fresh.length) return { ok: true };
+    const keys = await Promise.all(fresh.map(issuedKey));
+    const kept = ((await this.storage.get(`qi:${me.account}`)) || []).filter((x) => x.at >= at - ISSUED.days * 864e5 && !keys.includes(x.k));
+    await this.storage.put(`qi:${me.account}`, [...kept, ...keys.map((k) => ({ k, at }))].slice(-ISSUED.max));
     return { ok: true };
   }
 
@@ -831,7 +943,7 @@ export class Course {
 
   async chatPut(me, body) {
     const c = body.chat || {};
-    if (!/^[A-Za-z0-9_-]{4,40}$/.test(String(c.id))) throw bad('A chat needs an id.');
+    if (typeof c.id !== 'string' || !/^[A-Za-z0-9_-]{4,40}$/.test(c.id)) throw bad('A chat needs an id.'); // not String(undefined)
     const messages = (Array.isArray(c.messages) ? c.messages : []).slice(-200).map((m) => ({
       role: m && m.role === 'assistant' ? 'assistant' : 'user', text: String((m && m.text) || '').slice(0, 40_000),
       ...(m && m.grounding && typeof m.grounding === 'object' ? { grounding: m.grounding } : {}), ...(m && m.meta ? { meta: String(m.meta).slice(0, 120) } : {}),
@@ -867,7 +979,7 @@ export class Course {
 
   async notePut(me, body) {
     const n = body.note || {};
-    if (!/^[A-Za-z0-9_-]{4,40}$/.test(String(n.id))) throw bad('A note needs an id.');
+    if (typeof n.id !== 'string' || !/^[A-Za-z0-9_-]{4,40}$/.test(n.id)) throw bad('A note needs an id.');
     const text = String(n.body || '');
     if (text.length > COURSES.noteChars) throw new ApiError(413, 'too_big', 'This note is too long; split it into two.');
     const key = `nt:${me.account}:${n.id}`;
@@ -952,7 +1064,7 @@ export class Course {
   async planDelete(me) { await this.storage.delete(`pl:${me.account}`); return { ok: true }; }
 
   async dropChats(account) {
-    await this.storage.delete([`sk:${account}`, `pl:${account}`]);
+    await this.storage.delete([`sk:${account}`, `pl:${account}`, `qi:${account}`]);
     const reviews = [...(await this.storage.list({ prefix: `sr:${account}:` })).keys()];
     for (let i = 0; i < reviews.length; i += 128) await this.storage.delete(reviews.slice(i, i + 128));
     const notes = [...(await this.storage.list({ prefix: `nt:${account}:` })).keys()];
@@ -978,6 +1090,7 @@ export class Course {
       days, questions: recs.length, students: new Set(all.map((r) => r.member)).size,
       verifiedShare: recs.length ? Math.round((verified / recs.length) * 100) : null,
       general: recs.filter((r) => r.status === 'general').length,
+      unverified: recs.filter((r) => r.status === 'unverified').length, // AW3-1: cited, but no quote was found
       topics: [...topics].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => { const [name, loc] = k.split('\u0000'); return { name, loc, n }; }),
       // a question shows only once several students asked it, so no one student's words are singled out
       gaps: [...gaps.values()].filter((g) => g.who.size >= GAP_MIN).sort((a, b) => b.n - a.n).slice(0, 6).map(({ q, n }) => ({ q, n })),
@@ -1003,7 +1116,7 @@ export class Course {
     const docs = await this.storage.list({ prefix: 'd:' });
     const now = this.now();
     const all = [...(await this.storage.list({ prefix: 'a:' })).values()].filter((a) => isStaff || assignmentActive(a, now));
-    return { assignments: all.sort((a, b) => (a.due || Infinity) - (b.due || Infinity) || a.created - b.created).map((a) => ({ ...assignmentView(a, { staff: isStaff, docs }), active: assignmentActive(a, now) })) };
+    return { assignments: all.sort((a, b) => (a.due || Infinity) - (b.due || Infinity) || a.created - b.created).map((a) => ({ ...assignmentView(a, { staff: isStaff, docs, now }), active: assignmentActive(a, now) })) };
   }
 
   async assignmentPut(me, body) {
@@ -1049,9 +1162,32 @@ export class Course {
     const course = await this.storage.get('course');
     await this.storage.deleteAll();
     this.index = null;
+    // the other members' course lists are cleaned from here, a batch per alarm, so one request never makes a
+    // thousand calls (their lists also drop a deleted course when next read)
+    const others = members.filter((m) => m !== me.account);
+    if (others.length && course && this.storage.setAlarm) {
+      await this.storage.put('gone', { id: course.id, members: others });
+      await this.storage.setAlarm(this.now());
+    }
     return { ok: true, members, code: course && course.code };
   }
+
+  /** A deleted course's member clean-up: MEMBER_BATCH course lists an alarm, until none are left. */
+  async alarm() {
+    const gone = await this.storage.get('gone');
+    if (!gone || (await this.storage.get('course'))) return;
+    const batch = gone.members.slice(0, MEMBER_BATCH);
+    await Promise.all(batch.map((m) => op(this.env, `acct:${m}`, 'index-acct-remove', { course: gone.id }).catch(() => {})));
+    const left = gone.members.slice(MEMBER_BATCH);
+    if (left.length) {
+      await this.storage.put('gone', { id: gone.id, members: left });
+      await this.storage.setAlarm(this.now() + 1000);
+    } else await this.storage.deleteAll();
+  }
 }
+
+const MEMBER_BATCH = 50;
+export const QUIZ_RECORDS_A_DAY = 60; // a student's practice-quiz scores a course keeps a day
 
 // ── the API (chat.js routes /api/chat/courses… here, signed in) ──
 
@@ -1063,6 +1199,21 @@ async function op(env, name, what, body = {}) {
   if (response.status >= 400) throw new ApiError(response.status, out.code || 'error', out.error || 'Something went wrong.');
   return out;
 }
+// A course read for a list: GONE when the course answers that it's deleted or this account isn't in it (the
+// one answer that drops it from the account's list), null when it couldn't be read after a second try.
+const GONE = Symbol('gone');
+const isGone = (e) => e instanceof ApiError && e.status === 404 && e.code === 'not_found';
+async function readCourse(env, id, what, account) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await op(env, id, what, { account });
+    } catch (e) {
+      if (isGone(e)) return GONE;
+      if (attempt >= 1) { console.error(`course ${what} failed`, id, e && e.message); return null; }
+    }
+  }
+}
+const cardOf = (env, id, account) => readCourse(env, id, 'card', account);
 const codeKey = async (code) => `code:${await sha256Hex(`course-code:${code}`)}`;
 
 /** The passages and course settings for a turn in a course; throws when the asker isn't in it. */
@@ -1085,9 +1236,28 @@ export async function courseForTurn(env, who, courseId, query, { quiz = false, t
   return { id: courseId, quiz: task === 'quiz', task, summary: Boolean(summary && !task), course, passages, block: hinted ? `${block}\n\n${hintBlock(hinted)}` : block, ...(hinted ? { hint: hinted } : {}) };
 }
 
+/** A quiz reply's questions the student is shown (their quote checked, as courses.js runQuiz keeps them), as { q, name, loc }. */
+export function quizQuestions(answer, check) {
+  let parsed = null;
+  try { parsed = JSON.parse(String(answer || '').replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, '')); } catch { /* not JSON */ }
+  const qs = parsed && Array.isArray(parsed.questions) ? parsed.questions.slice(0, 40) : [];
+  const sources = (check && check.sources) || [];
+  return qs.map((q, i) => ({ q: missedText(q && q.q), name: sources[i] && sources[i].ok ? String(sources[i].file || '').slice(0, 120) : '', loc: sources[i] && sources[i].ok ? String(sources[i].at || '').slice(0, 40) : '' })).filter((m) => m.q && m.name && m.loc);
+}
+// a missed question's text as kept (the page sends its first 160 characters)
+const missedText = (q) => String(q || '').slice(0, 160).replace(/\s+/g, ' ').trim();
+const issuedKey = (m) => sha256Hex(`${m.q}\u0000${m.name}\u0000${m.loc}`).then((h) => h.slice(0, 16));
+const ISSUED = { max: 300, days: 7 }; // a student's quiz questions remembered for their scores (AW2-13)
+
 /** After a course turn: its anonymous record for the professor's insights (never for a quiz or a study set). */
-export function recordTurn(env, who, turn, grounding, question) {
-  if (turn.task === 'quiz' || turn.task === 'set') return Promise.resolve(); // a tutor's turn is a question like any other
+export function recordTurn(env, who, turn, grounding, question, answer = '') {
+  // a quiz: the questions it asked, so its score's "missed" can only name them (AW2-13: never free text)
+  if (turn.task === 'quiz') {
+    const questions = quizQuestions(answer, grounding);
+    if (!questions.length) return Promise.resolve();
+    return op(env, turn.id, 'quiz-issued', { account: who.account, questions }).catch((e) => console.error('course quiz-issued failed', e && e.message));
+  }
+  if (turn.task === 'set') return Promise.resolve(); // a tutor's turn is a question like any other
   return op(env, turn.id, 'record', { account: who.account, status: grounding.status, hits: turn.passages.slice(0, 3), question, ...(turn.hint ? { hint: turn.hint.id } : {}) }).catch((e) => console.error('course record failed', e && e.message));
 }
 
@@ -1100,28 +1270,35 @@ export async function coursesApi(request, env, who, path, { call, limited, readB
   const method = request.method;
 
   if (!rest.length && method === 'GET') {
-    const { ids } = await op(env, `acct:${account}`, 'index-acct-list');
+    const { ids, owned } = await op(env, `acct:${account}`, 'index-acct-list');
+    // the courses' cards at once, not one after another (each is its own object); order kept
+    const cards = await Promise.all(ids.map((id) => cardOf(env, id, account)));
     const courses = [];
-    for (const id of ids) {
-      try {
-        const v = await op(env, id, 'view', { account });
-        courses.push({ id: v.id, name: v.name, term: v.term, role: v.role, verified: v.verified, docs: v.docs.length });
-      } catch {
-        await op(env, `acct:${account}`, 'index-acct-remove', { course: id }); // deleted, or left
-      }
+    for (const [i, v] of cards.entries()) {
+      if (v === GONE) await op(env, `acct:${account}`, 'index-acct-remove', { course: ids[i] }); // deleted, or left
+      else if (v) courses.push({ id: v.id, name: v.name, term: v.term, role: v.role, verified: v.verified, docs: v.docs });
+      // couldn't be read just now (a deploy resetting the object, an overloaded one): kept in the list and in
+      // the index, read again next time (AW2-3)
+      else courses.push({ id: ids[i], name: 'Couldn’t load this course', term: 'Try again in a moment', role: owned && owned.includes(ids[i]) ? 'owner' : 'student', verified: null, docs: 0, unavailable: true });
     }
     return { courses };
   }
   if (!rest.length && method === 'POST') {
     const body = await readBody(request, 8 * 1024);
-    const { ids } = await op(env, `acct:${account}`, 'index-acct-list');
-    let owned = 0;
-    for (const id of ids) owned += await op(env, id, 'view', { account }).then((v) => (v.role === 'owner' ? 1 : 0), () => 0);
+    const { ids, owned } = await op(env, `acct:${account}`, 'index-acct-list');
+    // the owned-course cap is counted and checked inside the account's index object (no race between two creates);
+    // an index made before it kept that list is seeded once from the courses themselves
+    // (a course that can't be read just now refuses the create: counting it out could pass the cap, AW2-3)
+    const seed = owned ? undefined : (await Promise.all(ids.map((id) => readCourse(env, id, 'ping', account).then((v) => {
+      if (v === GONE) return null;
+      if (!v) throw new ApiError(503, 'unavailable', 'Couldn’t check your courses just now. Try again in a moment.');
+      return v.role === 'owner' ? id : null;
+    })))).filter(Boolean);
     const me = await call(env, account, 'get', {}, who.token);
     const verified = (me.identities || []).map((i) => schoolDomain(i.email)).find(Boolean) || null;
     const id = b64url(randomBytes(16));
     const code = newInviteCode();
-    await op(env, `acct:${account}`, 'index-acct-add', { course: id, owned: true, ownedCount: owned });
+    await op(env, `acct:${account}`, 'index-acct-add', { course: id, owned: true, ...(seed ? { seed } : {}) });
     await op(env, await codeKey(code), 'index-code-put', { course: id });
     return await op(env, id, 'create', { id, account, name: body.name, term: body.term, code, verified });
   }
@@ -1146,7 +1323,7 @@ export async function coursesApi(request, env, who, path, { call, limited, readB
   if (rest[1] === 'delete' && rest.length === 2 && method === 'POST') {
     const out = await op(env, id, 'delete', { account });
     if (out.code) await op(env, await codeKey(out.code), 'index-code-delete');
-    for (const m of out.members) await op(env, `acct:${m}`, 'index-acct-remove', { course: id }).catch(() => {});
+    await op(env, `acct:${account}`, 'index-acct-remove', { course: id }).catch(() => {}); // the others' lists: the course object's alarm (destroy)
     return { ok: true };
   }
   if (rest[1] === 'leave' && rest.length === 2 && method === 'POST') {
@@ -1232,7 +1409,8 @@ export async function ocrPages(env, who, body, { call, fetch: f } = {}) {
     if (!im || typeof im.data !== 'string' || im.data.length > COURSES.ocrImageChars || !/^[A-Za-z0-9+/=]+$/.test(im.data)) throw bad('Each page picture must be a JPEG, base64, under 1.5 MB.');
   }
   const { serviceAiReady, serviceFetch } = await import('../accounts/service-ai.js');
-  const { costOf, priceOf } = await import('../accounts/proxy.js');
+  const { costOf, priceOf, pricesReady } = await import('../accounts/proxy.js');
+  await pricesReady();
   if (!serviceAiReady(env)) throw new ApiError(503, 'not_set_up', 'Reading scanned pages isn’t set up on askeden.com yet.');
   const [inPrice, outPrice] = priceOf(OCR_MODEL);
   const maxOut = describe ? 600 : 2000;
@@ -1313,7 +1491,7 @@ export async function eraseCourses(env, account) {
       if (role === 'owner') {
         const out = await op(env, id, 'delete', { account });
         if (out.code) await op(env, await codeKey(out.code), 'index-code-delete').catch(() => {});
-        for (const m of out.members) if (m !== account) await op(env, `acct:${m}`, 'index-acct-remove', { course: id }).catch(() => {});
+        // the other members' course lists: the course object's alarm, in batches (destroy), not this request
       } else await op(env, id, 'leave', { account });
     } catch { /* gone already */ }
   }

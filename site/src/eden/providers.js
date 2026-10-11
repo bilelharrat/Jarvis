@@ -8,10 +8,11 @@
 //
 // Every provider key used by hosted chat comes from here. Today: the Worker secret
 // (OPENAI_API_KEY, GEMINI_API_KEY, MOONSHOT_API_KEY), source 'service', unless the provider is
-// switched off (EDEN_ANTHROPIC / EDEN_OPENAI / EDEN_GEMINI / EDEN_KIMI = "off"). Claude is
-// bring-your-own-key only (BYOK_ONLY): ANTHROPIC_API_KEY is never used for hosted chat, so Claude
-// runs only on the asker's own Anthropic key, or for the owner through their Mac (via-mac.js);
-// elsewhere its models are listed as locked (CLAUDE_NEEDS_KEY, hostedFor's `locked`).
+// switched off (EDEN_ANTHROPIC / EDEN_OPENAI / EDEN_GEMINI / EDEN_KIMI = "off"). Claude for everyone
+// (owner, 2026-10-10): with ANTHROPIC_API_KEY set, Claude runs on askeden.com's key like the others
+// (serviceClaude), in hosted chat and in the Ask Eden apps (eden/ask.js, eden/ext-chat.js). Without
+// it, Claude (BYOK_ONLY) runs only on the asker's own Anthropic key, or for the owner through their
+// Mac (via-mac.js), and its models are listed as locked (CLAUDE_NEEDS_KEY, hostedFor's `locked`).
 // Bring-your-own-key: the account owner's own key comes first (source 'user', user-keys.js). The candidate set and
 // /api/chat/meta are computed per asker from it (hostedFor), and a 'user' key's calls are metered
 // for display only: never held or spent on the included AI (metered()).
@@ -25,12 +26,16 @@
 // reasoning 100 tokens a second until the first text (capped by the request's output cap).
 
 import { ApiError } from '../accounts/util.js';
-import { userKeyFor } from '../accounts/user-keys.js';
+import { userKeyFor, userKeysFor } from '../accounts/user-keys.js';
 import { withVideoParts } from './video.js';
 import { MODELS, createLocalRouter } from './vendor/model-router.js';
+import { registerModels } from '../accounts/proxy.js';
 import { PROVIDER_NAMES, buildStreamRequest, computedWhere, createStreamParser, hasVision, readSse, redact, requestMaxOutputTokens, usageCost, withMaxOutputTokens } from './vendor/providers.js';
 
 export { PROVIDER_NAMES, computedWhere, hasVision };
+
+// Hosted chat has the registry loaded already: hand it to proxy.js's priceOf (which doesn't import it, to keep it off startup).
+registerModels(MODELS);
 
 export const PROVIDER_IDS = ['anthropic', 'openai', 'gemini', 'kimi'];
 export const KEY_VARS = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', kimi: 'MOONSHOT_API_KEY' };
@@ -43,7 +48,7 @@ export const GEMINI_GROUNDED_USD = 0.035; // Gemini 2.5 grounding, per grounded 
 export const CHARS_PER_TOKEN = 3;
 export const HIDDEN_REASONING_TPS = 100;
 
-/** Providers hosted Eden never runs on a service key: only the asker's own (or the owner's Mac). */
+/** Providers hosted Eden runs on a service key only when serviceClaude says so; else only the asker's own (or the owner's Mac). */
 export const BYOK_ONLY = ['anthropic'];
 export const CLAUDE_NEEDS_KEY = 'Add your Anthropic API key in Settings to use Claude';
 /** Where the page links a locked model's words: Settings › Models & API keys. */
@@ -64,9 +69,10 @@ const switchedOff = (env, p) => /^(off|0|false|no)$/i.test(String(env[SWITCH_VAR
 export const serviceClaude = (env) => Boolean(String(env.ANTHROPIC_API_KEY || '').trim()) && !switchedOff(env, 'anthropic');
 
 /** The key a provider's calls use for this asker, and whose it is; null: none. Stable contract (top of file). */
-export async function providerKey(env, who, provider) {
+// `owned`: the owner's own key for it, already read (hostedFor reads every provider's in one call); else read here.
+export async function providerKey(env, who, provider, owned) {
   if (!PROVIDER_IDS.includes(provider) || switchedOff(env, provider)) return null;
-  const own = await userKeyFor(env, who, provider); // the owner's own key first (accounts/user-keys.js)
+  const own = owned !== undefined ? owned : await userKeyFor(env, who, provider); // the owner's own key first (accounts/user-keys.js)
   if (own) return own;
   if (BYOK_ONLY.includes(provider) && !serviceClaudeForTests && !serviceClaude(env)) return null; // Claude: own key only, unless the service has an Anthropic key (serviceClaude)
   const key = String(env[KEY_VARS[provider]] || '').trim();
@@ -83,9 +89,13 @@ export const metered = (keys, provider) => Boolean(keys[provider] && keys[provid
  */
 export async function hostedFor(env, who, cfg, request = null) {
   const keys = {};
-  for (const p of PROVIDER_IDS) keys[p] = await providerKey(env, who, p);
+  const owned = await userKeysFor(env, who, PROVIDER_IDS.filter((p) => !switchedOff(env, p))); // one call to the account
+  // the owner's own keys unread (AW2-14): those providers get no key at all (never the service's), and the
+  // turn routes refuse with keysUnread (chat.js) rather than run on the included allowance
+  const unread = owned.unread || null;
+  for (const p of PROVIDER_IDS) keys[p] = unread && unread.providers.includes(p) ? null : await providerKey(env, who, p, owned[p] ?? null);
   const locked = cfg.models.filter((m) => !keys[m.provider] && BYOK_ONLY.includes(m.provider) && !switchedOff(env, m.provider) && !serviceClaudeForTests && !serviceClaude(env));
-  return { ...cfg, models: cfg.models.filter((m) => keys[m.provider]), locked, keys, base: devProviderBase(env, request) };
+  return { ...cfg, models: cfg.models.filter((m) => keys[m.provider]), locked, keys, base: devProviderBase(env, request), ...(unread ? { keysUnread: unread } : {}) };
 }
 
 /** The model a new account starts on: DEFAULT_MODEL when the asker has it, else the cheapest non-Claude one; null: none. */
@@ -280,13 +290,21 @@ export function ratingRouter(cfg, keys, efforts, base = null) {
 
 // ── one streamed call ──
 
-async function* chunks(reader) {
+async function* chunks(reader, onChunk = () => {}) {
   for (;;) {
     const { done, value } = await reader.read();
     if (done) return;
+    onChunk();
     yield value;
   }
 }
+
+/**
+ * The longest a provider may send nothing (before its headers, or mid-stream) before the call counts as failed (askeden
+ * r2 AC2-1): a hung provider held the turn open while the page's `: ping`s kept it looking alive. The Mac's server does
+ * the same (askeden src/chat/stream.ts MODEL_IDLE). Some models reason silently before their first word: 3 min. Tests shorten it.
+ */
+export const PROVIDER_IDLE = { ms: 180_000 };
 
 /**
  * Streams one call with the Mac's request builder and parser. `emit(type, data)` gets text and
@@ -326,14 +344,26 @@ export async function streamCall({ model, request, messages, system, search = fa
     if (search && provider === 'gemini' && !usage.webSearches && citations.length) usage.webSearches = 1;
     return { text, citations, usage, costUSD: usageUSD(model, usage), stopped: false, failure: null, finish: null, status: null, ...extra };
   };
+  // the idle watchdog: any bytes from the provider reset it; past PROVIDER_IDLE.ms of nothing, the call is cut off and failed
+  const idle = new AbortController();
+  let quiet = false, idleTimer = null;
+  const kick = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => { quiet = true; idle.abort(); }, PROVIDER_IDLE.ms); };
+  const onStop = () => idle.abort();
+  if (signal.aborted) idle.abort(); else signal.addEventListener('abort', onStop, { once: true });
+  const silent = () => ({ ...result({ failure: `${PROVIDER_NAMES[provider]} stopped answering (nothing for ${Math.round(PROVIDER_IDLE.ms / 1000)} s). Try again.` }) });
+  const unwatch = () => { clearTimeout(idleTimer); signal.removeEventListener('abort', onStop); };
+  kick();
   let upstream;
   try {
-    upstream = await fetch(viaBase(base, http.url), { method: 'POST', headers: http.headers, body: JSON.stringify(http.body), signal });
+    upstream = await fetch(viaBase(base, http.url), { method: 'POST', headers: http.headers, body: JSON.stringify(http.body), signal: idle.signal });
   } catch (error) {
+    unwatch();
+    if (quiet) return { ...silent(), usage: null, costUSD: 0 };
     if (signal.aborted) return result({ stopped: true });
     return { ...result({ failure: clean(`Couldn't reach ${PROVIDER_NAMES[provider]}: ${error.message}`) }), usage: null, costUSD: 0 };
   }
   if (!upstream.ok || !upstream.body) {
+    unwatch();
     const body = await upstream.text().catch(() => '');
     let detail = body.trim();
     try {
@@ -349,7 +379,8 @@ export async function streamCall({ model, request, messages, system, search = fa
   }
   const reader = upstream.body.getReader();
   const onAbort = () => reader.cancel().catch(() => {});
-  signal.addEventListener('abort', onAbort, { once: true });
+  idle.signal.addEventListener('abort', onAbort, { once: true }); // Stop, or the watchdog
+  kick();
   const take = (events) => {
     for (const e of events) {
       if (e.type === 'text') {
@@ -369,17 +400,20 @@ export async function streamCall({ model, request, messages, system, search = fa
     return null;
   };
   try {
-    for await (const m of readSse(chunks(reader))) {
-      if (signal.aborted) break;
+    for await (const m of readSse(chunks(reader, kick))) {
+      if (signal.aborted || quiet) break;
       take(parser.push(m));
     }
     if (signal.aborted) return result({ stopped: true });
+    if (quiet) return silent();
     return result({ finish: take(parser.end()) || 'stop' });
   } catch (error) {
     if (signal.aborted) return result({ stopped: true });
+    if (quiet) return silent();
     return result({ failure: clean(error && error.message ? error.message : error) });
   } finally {
-    signal.removeEventListener('abort', onAbort);
+    idle.signal.removeEventListener('abort', onAbort);
+    unwatch();
   }
 }
 

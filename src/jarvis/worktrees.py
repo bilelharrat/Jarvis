@@ -247,8 +247,14 @@ def create(
         _not_making(making, slug)
         raise CopyError(f"Couldn't make a folder for the copy: {exc.strerror or exc}") from exc
     branch = BRANCH_PREFIX + slug
+    # Its files written by one worker per core (git's parallel checkout, the same files as
+    # one at a time): 20,000 files took 1.0-1.6 s instead of 1.8-2.2 s, and far longer one at
+    # a time on a busy Mac. A git too old for it ignores the setting.
     made = git(
-        repo.top, "worktree", "add", "-b", branch, str(checkout), head, timeout=CREATE_SECONDS
+        repo.top,
+        *("-c", "checkout.workers=0"),
+        *("worktree", "add", "-b", branch, str(checkout), head),
+        timeout=CREATE_SECONDS,
     )
     if not made.ok:
         shutil.rmtree(folder, ignore_errors=True)
@@ -417,6 +423,146 @@ def _heads(repo: str, *branches: str) -> dict[str, str]:
     return out
 
 
+def _names(files: list[str]) -> str:
+    """Up to five names, and how many more."""
+    return ", ".join(files[:5]) + (f" and {len(files) - 5} more" if len(files) > 5 else "")
+
+
+def _git_dir(checkout: Path | str) -> Path | None:
+    """A checkout's own git folder (a copy's is under the repository's .git/worktrees/)."""
+    found = git(checkout, "rev-parse", "--path-format=absolute", "--git-dir")
+    text = found.out.strip()
+    return Path(text) if found.ok and text else None
+
+
+_UNDER_WAY = (
+    ("MERGE_HEAD", "a merge"),
+    ("CHERRY_PICK_HEAD", "a cherry-pick"),
+    ("REVERT_HEAD", "a revert"),
+    ("rebase-merge", "a rebase"),
+    ("rebase-apply", "a rebase"),
+)
+
+
+def under_way(gitdir: Path) -> str:
+    """What a checkout (by its own git folder) is in the middle of: "a merge", "a
+    cherry-pick", "a revert" or "a rebase"; "" when nothing."""
+    for name, what in _UNDER_WAY:
+        if (gitdir / name).exists():
+            return what
+    return ""
+
+
+def _dirty(checkout: Path, env: dict[str, str] | None = None) -> list[str]:
+    """What in a checkout isn't in its index as it is on disk, or not committed (env: with
+    another index): its paths, ["(git status failed)"] when git couldn't say."""
+    status = git(checkout, "status", "--porcelain", "-z", "--untracked-files=all", env=env)
+    if not status.ok:
+        return ["(git status failed)"]
+    return [path for _code, path in status_entries(status.out)]
+
+
+def _untracked_repos(checkout: Path) -> list[str]:
+    """Folders in a checkout that are git repositories of their own and not part of it: git
+    lists each as one entry ending in "/" (add -A would keep only a link to it, and its
+    files would go with the copy)."""
+    listed = git(checkout, "ls-files", "--others", "--exclude-standard", "-z", timeout=120)
+    return [p.rstrip("/") for p in listed.out.split("\0") if p.endswith("/")]
+
+
+def _new_gitlinks(
+    checkout: Path, since: str, *, cached: bool = False, env: dict[str, str] | None = None
+) -> list[str]:
+    """Links to other repositories (gitlinks) added since `since` that the checkout's
+    .gitmodules doesn't declare: the repository they name lives only inside the copy.
+    Committed ones (HEAD), or with cached the ones in the (env's) index."""
+    args = ["diff", "--raw", "-z", "--no-renames", "--no-abbrev"]
+    args += ["--cached", since] if cached else [since, "HEAD"]
+    found = git(checkout, *args, env=env, timeout=60)
+    fields_ = found.out.split("\0")
+    added: list[str] = []
+    for i in range(0, len(fields_) - 1, 2):
+        meta = fields_[i].lstrip(":").split()
+        if len(meta) >= 2 and meta[1] == "160000" and meta[0] != "160000":
+            added.append(fields_[i + 1])
+    if not added:
+        return []
+    declared = git(checkout, "config", "-f", ".gitmodules", "--get-regexp", r"\.path$")
+    paths = {line.split(" ", 1)[1] for line in declared.out.splitlines() if " " in line}
+    return [p for p in added if p not in paths]
+
+
+_MARKER = ": leftover conflict marker"
+
+
+def conflict_markers(checkout: Path, since: str) -> list[str]:
+    """Files whose lines added since `since` (committed or not) hold both a <<<<<<< and a
+    >>>>>>> conflict marker line: a merge's conflicts staged as they were. (A lone =======
+    is a Markdown heading's underline as often as a marker.)"""
+    found = git(checkout, "diff", "--check", since, timeout=120)
+    if found.code == 0:
+        return []
+    flagged: dict[str, set[int]] = {}
+    for line in found.out.splitlines():
+        if not line.endswith(_MARKER):
+            continue
+        where, _, number = line[: -len(_MARKER)].rpartition(":")
+        if number.isdigit() and where:
+            where = code_changes._unquote(where) if where.startswith('"') else where
+            flagged.setdefault(where, set()).add(int(number))
+    files: list[str] = []
+    for rel, numbers in list(flagged.items())[:50]:
+        try:
+            lines = (checkout / rel).read_bytes().split(b"\n")
+        except OSError:
+            continue
+        kinds = {lines[n - 1][:7] for n in numbers if 0 < n <= len(lines)}
+        if b"<<<<<<<" in kinds and b">>>>>>>" in kinds:
+            files.append(rel)
+    return files
+
+
+def _not_ready(copy: Copy, fork: str) -> str:
+    """Why the copy can't be landed as it is ("" when it can): a merge, rebase, cherry-pick
+    or revert half done in it, conflicts or their markers left, its HEAD off its branch, or
+    a git repository of its own inside it."""
+    checkout = Path(copy.checkout)
+    listed = git(checkout, "ls-files", "-u", "-z")
+    unmerged = sorted({e.split("\t", 1)[1] for e in listed.out.split("\0") if "\t" in e})
+    if unmerged:
+        return (
+            f"The copy has unresolved conflicts in {_names(unmerged)}; resolve and commit "
+            "them (or use Resolve in session), then land."
+        )
+    gitdir = _git_dir(checkout)
+    what = under_way(gitdir) if gitdir is not None else ""
+    if what:
+        return f"The copy is in the middle of {what}; finish it (or use Resolve in session), then land."
+    on = git(checkout, "symbolic-ref", "-q", "HEAD").out.strip()
+    if on != f"refs/heads/{copy.branch}":
+        if on.startswith("refs/heads/"):
+            other = on.removeprefix("refs/heads/")
+            return (
+                f"The copy is on {other}, not {copy.branch}; switch it back (git switch "
+                f"{copy.branch}), then land."
+            )
+        return (
+            f"The copy isn't on its branch {copy.branch} (its HEAD is detached); put its "
+            f"commits back on {copy.branch}, then land."
+        )
+    nested = _untracked_repos(checkout)
+    if nested:
+        return (
+            f"{_names(nested)} is a git repository of its own inside the copy, so landing "
+            "would keep only a link to it. Remove its .git folder (or add it as a submodule), "
+            "then land."
+        )
+    markers = conflict_markers(checkout, fork) if fork else []
+    if markers:
+        return f"Conflict markers are left in {_names(markers)}; resolve them, then land."
+    return ""
+
+
 def _lines_in(path: Path) -> int:
     """How many lines a new file adds (a big or unreadable one: none counted)."""
     try:
@@ -482,7 +628,7 @@ def commit_all(copy: Copy, message: str) -> str:
     added = git(checkout, "add", "-A")
     if not added.ok:
         return f"Couldn't stage the copy's work: {added.err.strip()[:300]}"
-    done = git(checkout, "commit", "-q", "-m", message, timeout=120)
+    done = git(checkout, *code_changes.OWN_IDENTITY, "commit", "-q", "-m", message, timeout=120)
     if done.ok:
         return ""
     why = (done.err or done.out).strip()
@@ -500,6 +646,38 @@ def _holder(repo: str, branch: str) -> str:
             current = line[9:]
         elif line == f"branch refs/heads/{branch}":
             return current
+    return ""
+
+
+def _busy_with(repo: str, branch: str) -> str:
+    """What a checkout of the repository is in the middle of on branch, "rebase" or
+    "bisect" (it shows as detached then, so _holder doesn't find it), else "". Moving the
+    branch under it would break it: git rebase --continue can't lock the ref any more."""
+    common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir").out.strip()
+    if not common:
+        return ""
+    root = Path(common)
+    linked = root / "worktrees"
+    try:
+        dirs = [root, *(d for d in linked.iterdir() if d.is_dir())] if linked.is_dir() else [root]
+    except OSError:
+        dirs = [root]
+    ref = f"refs/heads/{branch}"
+    for gitdir in dirs:
+        for name in ("rebase-merge/head-name", "rebase-apply/head-name"):
+            with contextlib.suppress(OSError):
+                if (gitdir / name).read_text(errors="replace").strip() == ref:
+                    return "rebase"
+        with contextlib.suppress(OSError):
+            if (gitdir / "BISECT_START").read_text(errors="replace").strip() in (branch, ref):
+                return "bisect"
+        # A merge, cherry-pick or revert half done where the branch is checked out: "a
+        # merge"… (said plainly, not with git's hints).
+        with contextlib.suppress(OSError):
+            if (gitdir / "HEAD").read_text(errors="replace").strip() == f"ref: {ref}":
+                what = under_way(gitdir)
+                if what and what != "a rebase":
+                    return what
     return ""
 
 
@@ -524,11 +702,31 @@ def land(copy: Copy, message: str) -> Landed:
     straight to the branch (no working tree is touched to make it). A conflict leaves
     everything as it was and names the files. The branch is moved only if nobody moved it
     meanwhile, and where it's checked out (the main folder), only when its own uncommitted
-    changes are in files the landing doesn't touch."""
-    if Path(copy.checkout).is_dir():
-        problem = commit_all(copy, message)
+    changes are in files the landing doesn't touch. Nothing is committed or landed while the
+    copy is half way through a merge (or rebase, cherry-pick, revert), has conflicts or
+    their markers left, isn't on its own branch, or holds a git repository of its own; and
+    nothing is landed when files in it changed while it was being committed."""
+    checkout = Path(copy.checkout)
+    if checkout.is_dir():
+        fork = code_changes.merge_base(checkout, "HEAD", f"refs/heads/{copy.into}") or copy.base
+        problem = _not_ready(copy, fork) or commit_all(copy, message)
         if problem:
             return Landed(False, problem)
+        changed = _dirty(checkout)
+        if changed:
+            return Landed(
+                False,
+                f"Files in the copy changed while it was being committed ({_names(changed)}); "
+                "land again.",
+            )
+        links = _new_gitlinks(checkout, fork)
+        if links:
+            return Landed(
+                False,
+                f"{_names(links)} is a git repository of its own inside the copy, so landing "
+                "would keep only a link to it. Remove its .git folder (or add it as a "
+                "submodule), then land.",
+            )
     head = _rev(copy.repo, f"refs/heads/{copy.branch}")
     tip = _rev(copy.repo, f"refs/heads/{copy.into}")
     if not head:
@@ -565,6 +763,7 @@ def land(copy: Copy, message: str) -> Landed:
         title = copy.title or copy.slug
         made = git(
             copy.repo,
+            *code_changes.OWN_IDENTITY,
             "commit-tree",
             tree,
             "-p",
@@ -583,6 +782,13 @@ def land(copy: Copy, message: str) -> Landed:
                 )
             return Landed(False, f"Couldn't make the merge commit: {why[:300]}")
         new = made.out.strip()
+    busy = _busy_with(copy.repo, copy.into)
+    if busy == "rebase":
+        return Landed(False, f"{copy.into} is in the middle of a rebase; finish it, then land.")
+    if busy == "bisect":
+        return Landed(False, f"{copy.into} is in the middle of a bisect; finish it, then land.")
+    if busy:  # a merge, cherry-pick or revert there (git would refuse, in its own words)
+        return Landed(False, f"{copy.into} is in the middle of {busy}; finish it, then land.")
     holder = _holder(copy.repo, copy.into)
     if holder:
         moved = git(holder, "merge", "--ff-only", "--no-edit", new, timeout=120)
@@ -606,6 +812,29 @@ def land(copy: Copy, message: str) -> Landed:
     return Landed(
         True, f"Landed {copy.branch} in {copy.into} ({how}).", commit=new, fast_forward=fast
     )
+
+
+def remove_landed(copy: Copy, root: Path) -> str:
+    """A landed copy taken away, only once everything in it is provably in the branch it
+    landed in: nothing uncommitted (or untracked) in it and its HEAD part of that branch.
+    Raises CopyError, the copy left as it is, when something there isn't (written after its
+    work was committed, say). Else as remove: "" or what was left behind."""
+    checkout = Path(copy.checkout)
+    if checkout.is_dir():
+        changed = _dirty(checkout)
+        if changed:
+            raise CopyError(
+                f"{_names(changed)} changed in the copy after its work was committed, so the "
+                "copy is kept: land or discard what's new."
+            )
+        head = _rev(checkout, "HEAD")
+        tip = _rev(copy.repo, f"refs/heads/{copy.into}")
+        if not head or not (head == tip or _is_ancestor(copy.repo, head, tip)):
+            raise CopyError(
+                f"The copy has commits that aren't in {copy.into}, so it's kept: land or "
+                "discard them."
+            )
+    return remove(copy, root)
 
 
 def remove(copy: Copy, root: Path, force: bool = True) -> str:
@@ -653,46 +882,123 @@ def remove(copy: Copy, root: Path, force: bool = True) -> str:
 # ── discarding and bringing back ──
 
 
+KEEP_FAILED = "Couldn't keep a recovery copy, so nothing was discarded: "
+SNAPSHOT_TRIES = 3  # a file that vanished while it was added, or one written meanwhile
+_DISCARDED = "Eden Code: work left in "
+
+
+def _commit_now(cwd: Path | str, tree: str, parent: str, branch: str, env: dict) -> str:
+    """A recovery commit of tree on parent, dated now (its date is when it was discarded,
+    for the sweeper, even when it holds nothing new): its id, "" when git couldn't."""
+    made = git(
+        cwd, "commit-tree", tree, "-p", parent, "-m", f"{_DISCARDED}{branch}, discarded", env=env
+    )
+    return made.out.strip() if made.ok else ""
+
+
+def _add_problem(err: str) -> tuple[str, bool]:
+    """Why add -A failed, in words, and whether trying again could help (a file that
+    vanished while it ran could; one git can't read can't)."""
+    m = re.search(r'open\("(.+?)"\): ([^\n]+)', err)
+    if m and "No such file" not in m.group(2):
+        return (
+            f"{m.group(1)} can't be read ({m.group(2).strip()}); make it readable or move it "
+            "out of the copy, then discard.",
+            False,
+        )
+    lines = [ln.strip() for ln in err.splitlines() if ln.strip()]
+    first = next(
+        (ln for ln in lines if ln.startswith(("error:", "fatal:"))), lines[0] if lines else ""
+    )
+    return f"git couldn't add everything in the copy ({first[:200] or 'it failed'}).", True
+
+
 def _snapshot(copy: Copy) -> str:
     """A commit of everything in the copy, uncommitted and untracked work included (never
-    ignored files), on top of its branch; its branch's head when there's nothing more."""
+    ignored files), on top of its HEAD, dated now. Raises CopyError (so nothing is
+    discarded) unless it provably holds all of that: git failed to add a file (one it
+    can't read, one that vanished), files kept changing while it was made, or a git
+    repository of its own is inside (only a link to it would be kept)."""
     checkout = Path(copy.checkout)
     head = _rev(checkout, "HEAD")
     if not head:
+        try:
+            anything = any(p.name != ".git" for p in checkout.iterdir())
+        except OSError:
+            anything = False
+        if anything:
+            raise CopyError(
+                f"{KEEP_FAILED}{checkout} isn't a git checkout git can read any more; move "
+                "what you need out of it, then discard."
+            )
         return ""
-    with tempfile.TemporaryDirectory() as scratch:
-        env = {"GIT_INDEX_FILE": str(Path(scratch) / "index"), **_SNAPSHOT_ID}
-        if not git(checkout, "read-tree", "HEAD", env=env).ok:
-            return head
-        git(checkout, "add", "-A", env=env, timeout=120)
-        tree = git(checkout, "write-tree", env=env).out.strip()
-        if not tree or tree == git(checkout, "rev-parse", "HEAD^{tree}").out.strip():
-            return head
-        made = git(
-            checkout,
-            "commit-tree",
-            tree,
-            "-p",
-            head,
-            "-m",
-            f"Eden Code: work left in {copy.branch}, discarded",
-            env=env,
+    nested = _untracked_repos(checkout)
+    if nested:
+        raise CopyError(
+            f"{KEEP_FAILED}{_names(nested)} is a git repository of its own inside the copy, "
+            "so its files can't go in a recovery copy. Move it out of the copy, then discard."
         )
-        return made.out.strip() if made.ok else head
+    problem = "it failed"
+    for _ in range(SNAPSHOT_TRIES):
+        with tempfile.TemporaryDirectory() as scratch:
+            env = {"GIT_INDEX_FILE": str(Path(scratch) / "index"), **_SNAPSHOT_ID}
+            if not git(checkout, "read-tree", "HEAD", env=env).ok:
+                problem = "git couldn't read the copy's last commit."
+                continue
+            added = git(checkout, "add", "-A", env=env, timeout=120)
+            if not added.ok:
+                problem, again = _add_problem(added.err)
+                if not again:
+                    break
+                continue
+            # Provably whole: nothing on disk differs from what was added (a file written or
+            # changed meanwhile would), and no repository inside was kept as a mere link.
+            status = git(checkout, "status", "--porcelain", "-z", "--untracked-files=all", env=env)
+            # (Against the snapshot's own index: its second column is what isn't in it.)
+            unseen = [p for code, p in status_entries(status.out) if code[1] != " "]
+            if not status.ok or unseen:
+                problem = (
+                    f"files in it kept changing while it was saved ({_names(unseen or ['?'])}); "
+                    "stop whatever is writing there, then discard."
+                )
+                continue
+            links = _new_gitlinks(checkout, copy.base or head, cached=True, env=env)
+            if links:
+                raise CopyError(
+                    f"{KEEP_FAILED}{_names(links)} is a git repository of its own inside the "
+                    "copy, so its files can't go in a recovery copy. Move it out of the copy, "
+                    "then discard."
+                )
+            tree = git(checkout, "write-tree", env=env).out.strip()
+            made = _commit_now(checkout, tree, head, copy.branch, env) if tree else ""
+            if made:
+                return made
+            problem = "git couldn't write the recovery commit."
+    raise CopyError(KEEP_FAILED + problem)
 
 
 def discard(copy: Copy, root: Path) -> dict[str, Any]:
     """Throw the copy away, keeping all of its work as refs/jarvis/trash/<slug> for
-    TRASH_DAYS. Returns the trash record."""
+    TRASH_DAYS. Returns the trash record. Raises CopyError, and nothing is thrown away,
+    when its work can't all be kept."""
     snapshot = _snapshot(copy) if Path(copy.checkout).is_dir() else ""
-    snapshot = snapshot or _rev(copy.repo, f"refs/heads/{copy.branch}")
+    if not snapshot:
+        branch_head = _rev(copy.repo, f"refs/heads/{copy.branch}")
+        tree = git(copy.repo, "rev-parse", f"{branch_head}^{{tree}}").out.strip()
+        snapshot = (
+            _commit_now(copy.repo, tree, branch_head, copy.branch, dict(_SNAPSHOT_ID))
+            if branch_head and tree
+            else ""
+        ) or branch_head
     ref = TRASH_PREFIX + copy.slug
     if snapshot:
         n = 2
         while _rev(copy.repo, ref):
             ref = f"{TRASH_PREFIX}{copy.slug}-{n}"
             n += 1
-        kept = git(copy.repo, "update-ref", ref, snapshot)
+        # (Its reflog says when it was discarded, for the sweeper: the commit's own date
+        # says when the work was done.)
+        kept = git(copy.repo, "update-ref", "--create-reflog", ref, snapshot)
         if not kept.ok:
             raise CopyError(
                 f"Couldn't keep a recovery copy, so nothing was discarded: {kept.err.strip()[:200]}"
@@ -724,6 +1030,18 @@ def restore(
     slug = slug_for(stem, taken)
     folder = root / str(item.get("project") or Path(repo).name) / slug
     checkout = folder / Path(repo).name
+    # A recovery commit that holds nothing new (it's there for its date) isn't brought back:
+    # the copy comes back at its own last commit, as it was.
+    start = ref
+    info = git(repo, "log", "-1", "--format=%T %P%x00%s", ref).out.strip()
+    ids, _, subject = info.partition("\0")
+    parts = ids.split()
+    if (
+        len(parts) == 2
+        and subject.startswith(_DISCARDED)
+        and parts[0] == git(repo, "rev-parse", f"{parts[1]}^{{tree}}").out.strip()
+    ):
+        start = parts[1]
     if making is not None:
         making[slug] = time.monotonic()
     try:
@@ -738,7 +1056,7 @@ def restore(
         "-b",
         BRANCH_PREFIX + slug,
         str(checkout),
-        ref,
+        start,
         timeout=CREATE_SECONDS,
     )
     if not made.ok:
@@ -746,7 +1064,7 @@ def restore(
         _not_making(making, slug)
         raise CopyError(f"Couldn't bring it back: {made.err.strip()[:300]}")
     git(repo, "update-ref", "-d", ref)
-    into = str(item.get("into") or "") or code_changes.default_branch(Path(repo)) or "main"
+    into = str(item.get("into") or "") or code_changes.local_default_branch(Path(repo)) or "main"
     return Copy(
         slug=slug,
         project=str(item.get("project") or Path(repo).name),
@@ -814,7 +1132,7 @@ def adopt(store: CopyStore, root: Path) -> list[str]:
             if not branch.startswith(BRANCH_PREFIX) or not common:
                 continue
             repo = str(Path(common).parent)
-            into = code_changes.default_branch(Path(repo)) or "main"
+            into = code_changes.local_default_branch(Path(repo)) or "main"
             base = code_changes.merge_base(Path(repo), branch, into) or _rev(checkout, "HEAD")
             store.copies.append(
                 Copy(
@@ -883,10 +1201,21 @@ def sweep(
         kept = {str(t.get("ref")) for t in store.trash}
         for line in listed.out.splitlines():
             ref, _, when = line.partition("\0")
-            if ref not in kept and when.isdigit() and int(when) < cutoff:
+            if ref in kept or not when.isdigit() or int(when) >= cutoff:
+                continue
+            discarded = _discarded_at(repo, ref)  # (an old commit may have been thrown away today)
+            if discarded is None or discarded < cutoff:
                 git(repo, "update-ref", "-d", ref)
                 report.expired.append(ref.removeprefix(TRASH_PREFIX))
     return report
+
+
+def _discarded_at(repo: str, ref: str) -> float | None:
+    """When a recovery ref was made, from its reflog (None for one made without one, by an
+    older build: its commit's date is all there is then)."""
+    found = git(repo, "reflog", "show", "--date=unix", "-n1", "--format=%gd", ref)
+    m = re.search(r"@\{(\d+)\}$", found.out.strip()) if found.ok else None
+    return float(m.group(1)) if m else None
 
 
 def _forget(store: CopyStore, copy: Copy) -> None:

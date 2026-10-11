@@ -76,7 +76,32 @@ def test_lines_are_split_however_the_output_is_chunked():
 def test_a_huge_line_with_no_end_is_taken_as_it_is():
     s = runproc.LineSplitter()
     out = s.feed(b"x" * (runproc.PARTIAL_MAX + 10))
-    assert len(out) == 1 and len(out[0]) == runproc.LINE_MAX
+    assert len(out) == 1 and len(out[0]) == runproc.LINE_MAX and out[0].endswith("…")
+
+
+def test_a_very_long_line_is_said_once_cut_and_a_progress_bar_waits_for_its_end():
+    s = runproc.LineSplitter()
+    # 5 MB with no end: one cut line, not hundreds; the rest of it left out until its end.
+    out = []
+    for _ in range(50):
+        out += s.feed(b"y" * 100_000)
+    assert len(out) == 1 and out[0].endswith("…") and len(out[0]) == runproc.LINE_MAX
+    assert s.feed(b"yyy\nnext line\n") == ["next line"]
+    # A line just over the cut, with its end: marked as cut.
+    assert s.feed(b"z" * (runproc.LINE_MAX + 5) + b"\n") == ["z" * (runproc.LINE_MAX - 1) + "…"]
+    # A progress bar that redraws with \r and never ends a line: nothing until its end, then
+    # its last drawing only.
+    bar = b"".join(f"\rprogress {i:05d}".encode() for i in range(3000))
+    assert s.feed(bar) == [] and s.feed(bar) == []
+    assert s.feed(b"\rdone\n") == ["done"]
+
+
+def test_output_read_as_data_keeps_its_lines_whole():
+    """A checker's JSON on one line (eslint's): never cut at LINE_MAX."""
+    s = runproc.LineSplitter(None, 4_000_000)
+    line = json.dumps([{"filePath": "/a.js", "source": "x" * 5000, "messages": []}])
+    assert s.feed(line.encode() + b"\n") == [line]
+    assert s.feed(b"w" * 20_000) == [] and s.flush() == ["w" * 20_000]
 
 
 def test_the_log_ring_numbers_lines_and_keeps_the_newest():
@@ -517,3 +542,207 @@ async def test_a_stop_while_it_is_still_starting_still_stops_it(tmp_path):
     assert await until(lambda: proc.finished, 30), "a stop during its start was lost"
     if marker.exists() and marker.read_text().strip():
         assert await until(lambda: not pid_alive(int(marker.read_text())), 20)
+
+
+async def test_a_child_that_moved_to_a_session_of_its_own_stops_with_its_server(tmp_path):
+    """A server that starts a helper in a new session (a daemon, a watcher with setsid):
+    out of its group and session, still stopped with it, and the stop doesn't wait on it."""
+    marker = tmp_path / "loose.pid"
+    script = server_script(
+        tmp_path,
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import os, sys, time; "
+        'open(sys.argv[1], "w").write(str(os.getpid())); time.sleep(600)\', sys.argv[1]], '
+        "start_new_session=True)\n"
+        "print('Server listening on port 1', flush=True)\n"
+        "time.sleep(600)\n",
+    )
+    launch(
+        tmp_path,
+        [
+            {
+                "name": "loose",
+                "runtimeExecutable": sys.executable,
+                "runtimeArgs": [str(script), str(marker)],
+            }
+        ],
+    )
+    servers = DevServers(lambda *a, **k: None, env=plain_env)
+    server = await servers.start(tmp_path, "loose")
+    assert await until(lambda: marker.exists() and marker.read_text().strip())
+    loose = int(marker.read_text())
+    try:
+        assert os.getsid(loose) != os.getsid(server.proc.pid)
+        t0 = time.monotonic()
+        assert await servers.stop(server.key)
+        assert time.monotonic() - t0 < 4.5, "the stop waited on what it set loose"
+        assert await until(lambda: not pid_alive(loose), 10), "what it set loose outlived Stop"
+    finally:
+        with contextlib.suppress(OSError):
+            os.kill(loose, signal.SIGKILL)
+
+
+async def test_a_port_another_program_holds_is_never_taken_for_the_server(tmp_path):
+    port = free_port()
+    hold = socket.socket()
+    hold.bind(("127.0.0.1", port))
+    hold.listen(5)
+    try:
+        launch(
+            tmp_path,
+            [
+                {
+                    "name": "site",
+                    "runtimeExecutable": sys.executable,
+                    "runtimeArgs": ["-m", "http.server", str(port), "--bind", "127.0.0.1"],
+                    "port": port,
+                }
+            ],
+        )
+        servers = DevServers(lambda *a, **k: None, env=plain_env)
+        server = await servers.start(tmp_path, "site")
+        seen = set()
+        end = time.monotonic() + 20
+        while server.alive and time.monotonic() < end:
+            seen.add(server.status)
+            await asyncio.sleep(0.02)
+        assert "ready" not in seen and server.status == "exited"
+        assert f"Port {port} is already in use by another program." in server.message
+    finally:
+        hold.close()
+
+
+async def test_the_server_cap_counts_the_ones_still_starting(tmp_path, monkeypatch):
+    monkeypatch.setattr(devservers, "MAX_SERVERS", 2)
+    script = server_script(tmp_path, "import time\ntime.sleep(600)\n")
+    launch(
+        tmp_path,
+        [
+            {"name": f"s{i}", "runtimeExecutable": sys.executable, "runtimeArgs": [str(script)]}
+            for i in range(3)
+        ],
+    )
+
+    def slow_env():
+        time.sleep(0.3)  # (the login shell's environment, being read)
+        return plain_env()
+
+    servers = DevServers(lambda *a, **k: None, env=slow_env)
+    got = await asyncio.gather(
+        *(servers.start(tmp_path, f"s{i}") for i in range(3)), return_exceptions=True
+    )
+    try:
+        refused = [g for g in got if isinstance(g, ValueError)]
+        assert len(refused) == 1 and "2 dev servers are running already" in str(refused[0])
+        assert sum(1 for s in servers.servers.values() if s.alive) == 2
+    finally:
+        await servers.close()
+
+
+async def test_a_server_that_says_its_address_is_ready_without_waiting_a_turn(tmp_path):
+    port = free_port()
+    script = server_script(
+        tmp_path,
+        "import socket, sys, time\n"
+        "s = socket.socket(); s.bind(('127.0.0.1', int(sys.argv[1]))); s.listen(5)\n"
+        "time.sleep(0.15)\n"
+        "print(f'Local: http://127.0.0.1:{sys.argv[1]}/', flush=True)\n"
+        "time.sleep(600)\n",
+    )
+    launch(
+        tmp_path,
+        [
+            {
+                "name": "quick",
+                "runtimeExecutable": sys.executable,
+                "runtimeArgs": [str(script), str(port)],
+            }
+        ],
+    )
+    servers = DevServers(lambda *a, **k: None, env=plain_env)
+    server = await servers.start(tmp_path, "quick")
+    try:
+        assert await until(lambda: server.printed_port == port, 20)
+        said = time.monotonic()
+        assert await until(lambda: server.status == "ready", 5)
+        assert time.monotonic() - said < 0.2, "ready only at the watch's next half-second turn"
+    finally:
+        await servers.close()
+
+
+def test_a_progress_bar_drawn_by_moving_to_the_lines_start_keeps_its_last_drawing():
+    """A bar that redraws with ESC[2K ESC[1G (Node's readline.cursorTo(0)), no \\r: its
+    last drawing, never a 1,000-character line of every drawing with its end lost."""
+    s = runproc.LineSplitter()
+    out = []
+    for i in range(4000):
+        out += s.feed(f"\x1b[2K\x1b[1G[{'#' * (i // 100)}] {i // 40}%".encode())
+    out += s.feed(b"\x1b[2K\x1b[1Gdone\n")
+    out += s.feed(b"next line\n")
+    assert out == ["done", "next line"]
+    # The escape split across two reads of the output: still a move to the line's start.
+    s = runproc.LineSplitter()
+    assert s.feed(b"50%\x1b[") == [] and s.feed(b"G100%\n") == ["100%"]
+    assert s.feed(b"\x1b[0Gall \x1b[1mgood\x1b[0m\n") == ["all good"]
+
+
+def test_a_cut_line_ends_between_words_so_a_key_is_never_cut_in_two():
+    """A long line is cut at LINE_MAX: back to the space before a key the cut falls in, so
+    masking (which knows a key by its prefix) never meets its start alone."""
+    key = "sk-ant-api03-" + "Q7wZ" * 10
+    for at in range(runproc.LINE_MAX - 45, runproc.LINE_MAX - 5, 7):
+        line = "x" * (at - 1) + " " + key + " tail"
+        cut = runproc.LineSplitter().feed(line.encode() + b"\n")[0]
+        assert cut.endswith("…") and len(cut) <= runproc.LINE_MAX
+        assert "sk-ant" not in cut and "api03" not in cut, at
+    # No space near the cut (minified code): cut where it falls, as before.
+    assert runproc.LineSplitter().feed(b"y" * 5000 + b"\n") == ["y" * (runproc.LINE_MAX - 1) + "…"]
+
+
+async def test_a_daemon_forked_twice_stops_with_its_server(tmp_path):
+    """A server that daemonizes (fork, setsid, fork again: the daemon's parent is launchd at
+    once, in neither the group nor the session): Stop finds it by its mark and stops it."""
+    pidfile = tmp_path / "daemon.pid"
+    port = free_port()
+    script = server_script(
+        tmp_path,
+        "import os, socket, sys, time\n"
+        "if os.fork() == 0:\n"
+        "    os.setsid()\n"
+        "    if os.fork() == 0:\n"
+        "        devnull = os.open(os.devnull, os.O_RDWR)\n"
+        "        for fd in (0, 1, 2): os.dup2(devnull, fd)\n"
+        "        open(sys.argv[1], 'w').write(str(os.getpid()))\n"
+        "        time.sleep(120)\n"
+        "        os._exit(0)\n"
+        "    os._exit(0)\n"
+        f"s = socket.socket(); s.bind(('127.0.0.1', {port})); s.listen(5)\n"
+        f"print('listening on http://127.0.0.1:{port}/', flush=True)\n"
+        "time.sleep(120)\n",
+    )
+    launch(
+        tmp_path,
+        [
+            {
+                "name": "d",
+                "runtimeExecutable": sys.executable,
+                "runtimeArgs": [str(script), str(pidfile)],
+                "port": port,
+            }
+        ],
+    )
+    servers = DevServers(lambda *a, **k: None, env=plain_env)
+    server = await servers.start(tmp_path, "d")
+    daemon = 0
+    try:
+        assert await until(lambda: server.status == "ready", 30)
+        assert await until(lambda: pidfile.exists() and pidfile.read_text().strip(), 10)
+        daemon = int(pidfile.read_text())
+        assert os.getsid(daemon) != os.getsid(server.proc.pid)
+        assert await servers.stop(server.key)
+        assert await until(lambda: not pid_alive(daemon), 10), "the daemon outlived Stop"
+    finally:
+        if daemon:
+            with contextlib.suppress(OSError):
+                os.kill(daemon, signal.SIGKILL)
+        await servers.close()

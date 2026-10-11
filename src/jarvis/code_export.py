@@ -161,13 +161,7 @@ def redact_secrets(text: str) -> str:
     """Keys, tokens and passwords blanked out: the formats secret_scan knows (a private key
     whole), a value given to a secret's name (api_key = "…", "password": "…", password: …,
     密码：…), and long random-looking quoted strings. Placeholders stay."""
-    for kind, pattern in secret_scan.PATTERNS:
-        if kind == "Password in a URL":
-            text = pattern.sub(lambda m: m.group(0).replace(m.group(1), REDACTED), text)
-        elif kind == "Private key":
-            text = _PRIVATE_KEY.sub(REDACTED, text)
-        else:
-            text = pattern.sub(REDACTED, text)
+    text = _formats(text)
 
     def assigned(m: re.Match[str]) -> str:
         value = m.group("value")
@@ -194,9 +188,119 @@ def redact_secrets(text: str) -> str:
             return m.group(0).replace(value, REDACTED)
         return m.group(0)
 
-    text = secret_scan.ASSIGNED.sub(assigned, text)
-    text = _SECRET_VALUE.sub(said, text)
+    text = _assigned_sub(assigned, text)
+    text = _secret_value_sub(said, text)
     return secret_scan.QUOTED.sub(quoted, text)
+
+
+def _formats(text: str, more: bool = False) -> str:
+    """The formats secret_scan knows, masked (a private key whole; a URL's password). A
+    pattern is tried only on text holding one of its literals (it can't match without).
+    more: the output-only formats too (_MORE_KEYS)."""
+    for kind, pattern in secret_scan.PATTERNS:
+        literals = secret_scan._LITERALS.get(kind)
+        if literals is not None and not any(lit in text for lit in literals):
+            continue
+        if kind == "Password in a URL":
+            text = pattern.sub(lambda m: m.group(0).replace(m.group(1), REDACTED), text)
+        elif kind == "Private key":
+            text = _PRIVATE_KEY.sub(REDACTED, text)
+        else:
+            text = pattern.sub(REDACTED, text)
+    if more:
+        for literals, pattern in _MORE_KEYS:
+            if any(lit in text for lit in literals):
+                text = pattern.sub(REDACTED, text)
+    return text
+
+
+_NAME_CHAR = re.compile(r"[\w.-]*")
+# What follows a secret's name in ASSIGNED (its name ends where a [\w.-] run does).
+_ASSIGN_TAIL = re.compile(r"""["']?\s*(?::=|=>|[:=])\s*(["'`]?)[^\s"'`,;)}\]]{12,256}\1""")
+_KEY_TAIL = re.compile(r"""["']?\s*(?::=|=>|[:=])""")
+# The words in each of ASSIGNED's names (lower case), and the first word of each of
+# _SECRET_VALUE's (its English ones: a text with any other letter takes the patterns' own
+# search).
+_NAME_WORDS = secret_scan._NAME_WORDS
+_SAID_WORDS = (
+    "pass", "pwd", "pin", "secret", "token", "api", "access", "private", "client", "account",
+    "routing", "iban", "cvv", "cvc", "ssn",
+)  # fmt: skip
+
+
+def _words_at(text: str, words: tuple[str, ...]) -> list[tuple[int, int]]:
+    """Where the words are in an ASCII text, in any case: [(start, end)], in order (str.find
+    is a fast scan; a regex alternation of them, tried at every character, isn't)."""
+    low = text.lower()
+    found = []
+    for word in words:
+        at = low.find(word)
+        while at >= 0:
+            found.append((at, at + len(word)))
+            at = low.find(word, at + 1)
+    found.sort()
+    return found
+
+
+def _named_sub(pattern: re.Pattern[str], tail: re.Pattern[str], repl: Any, text: str, hits: Any) -> str:
+    """pattern.sub(repl, text) for a pattern whose name part is a whole [\w.-] run holding a
+    name word (hits: where those words are, in order), then what tail matches: each run
+    tried once, from its start, and only when tail follows it. (Searched at every
+    character, ASSIGNED's name part was quadratic on long runs: seconds on a JSON log.)"""
+    out: list[str] = []
+    done = 0  # text before this is in out
+    seen = 0  # runs before this were tried
+    for hit_start, hit_end in hits:
+        if hit_start < seen:
+            continue  # (in a run already tried, or a value already matched)
+        start = hit_start
+        while start > done and (text[start - 1].isalnum() or text[start - 1] in "_.-"):
+            start -= 1
+        end = _NAME_CHAR.match(text, hit_end).end()
+        seen = end
+        if not tail.match(text, end):
+            continue
+        m = pattern.match(text, start)
+        if m is None:
+            continue
+        out.append(text[done : m.start()])
+        out.append(repl(m))
+        done = seen = m.end()
+    if not out:
+        return text
+    out.append(text[done:])
+    return "".join(out)
+
+
+def _assigned_sub(repl: Any, text: str) -> str:
+    """secret_scan.ASSIGNED.sub(repl, text), linear: tried only where a secret's name stands."""
+    if text.isascii():
+        hits: Any = _words_at(text, _NAME_WORDS)
+    else:  # (IGNORECASE folds the likes of "ſ" and "K": the pattern's own search)
+        hits = ((m.start(), m.end()) for m in _SECRET_NAME.finditer(text))
+    return _named_sub(secret_scan.ASSIGNED, _ASSIGN_TAIL, repl, text, hits)
+
+
+def _secret_value_sub(repl: Any, text: str) -> str:
+    """_SECRET_VALUE.sub(repl, text), tried only where one of its words starts (in an ASCII
+    text: the same matches, a fraction of the time)."""
+    if not text.isascii():
+        return _SECRET_VALUE.sub(repl, text)
+    out: list[str] = []
+    done = 0
+    for start, _ in _words_at(text, _SAID_WORDS):
+        if start < done:
+            continue
+        m = _SECRET_VALUE.match(text, start)
+        if m is None:
+            continue
+        out.append(text[done:start])
+        out.append(repl(m))
+        done = m.end()
+    if not out:
+        return text
+    out.append(text[done:])
+    return "".join(out)
 
 
 _PRIVATE_KEY = re.compile(
@@ -204,6 +308,530 @@ _PRIVATE_KEY = re.compile(
     r"(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----|\Z)",
     re.DOTALL,
 )
+
+
+# ── an app's output, on its way to a session ──
+#
+# Stricter than redact_secrets (which a share-safe export uses, and which leaves alone what
+# looks like a placeholder): a dev server's log, a failing test's message or a checker's
+# report goes to Claude, so a value given to a secret's name is masked whatever words it
+# holds (MyVault2024 is a password, not a placeholder), and the shapes a log prints a secret
+# in are known too: credentials in any URL (an empty user, a password holding @ or /, any
+# scheme's case), Authorization headers, cookies, connection strings, OAuth query values,
+# command lines (-p, -u user:…, --password), netrc and pgpass lines, Docker and npm auths, a
+# key a logger wrapped onto the next line, a private key whose BEGIN line was cut off (or
+# both its ends), a PuTTY key, and a key \u-escaped or base64-encoded; also formats the
+# pre-commit scan doesn't block on (test keys, more providers' tokens). What a log says that
+# isn't a secret stays: words after "password:" ("must be at least 8 characters"), token
+# counts, ARNs, and a failing test's values. Every pass is linear: masking runs on every
+# tool answer. The owner's own panes show the output as it is.
+
+_ANSI = re.compile(
+    r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>78]"
+)
+# user:password@host, the password up to the last @ before a host (it may hold @, / and :);
+# never a port and its path (http://localhost:3000/a?to=b@c.d), nor past a query.
+_URL_CREDS = re.compile(
+    r"(?i)\b([a-z][a-z0-9+.-]{1,30}://[^\s/@:'\"<>]*:)(?!\d{1,5}(?:[/?#\s'\"<>,;)\]]|$))"
+    r"([^\s'\"<>?#]{1,256})(@[\w.-]+(?::\d+)?(?=[/?#\s'\",;)\]}>]|$))"
+)
+_AUTH_HEADER = re.compile(
+    r"(?i)\b((?:proxy-)?authori[sz]ation\b[\"']?\s*[:=]\s*[\"']?"
+    r"(?:(?:bearer|basic|token|digest|negotiate|ntlm|apikey|key)\s+)?)([^\s\"',;]{6,})"
+)
+# (a token has a digit: "bearer authentication" is words)
+_BEARER = re.compile(r"(?i)\b(bearer\s+)((?=[A-Za-z._~+/=-]*\d)[A-Za-z0-9._~+/=-]{12,})")
+_COOKIE = re.compile(r"(?i)\b((?:set-)?cookie\b[\"']?\s*[:=]\s*[\"']?)([^\r\n\"']+)")
+_COOKIE_PAIR = re.compile(r"(^|;\s*)([^=;\s]+)=([^;]*)")
+_COOKIE_ATTRS = {"path", "domain", "expires", "max-age", "samesite", "priority", "version"}
+_CONN_STRING = re.compile(
+    r"(?i)\b((?:AccountKey|SharedAccessKey|SharedAccessSignature|Password|Pwd)\s*=\s*)"
+    r"([^;\s\"']{4,})"
+)
+_QUERY_SECRET = re.compile(
+    r"(?i)([?&](?:code|access_token|refresh_token|id_token|token|client_secret|secret|password"
+    r"|passwd|pwd|api_key|apikey|key|sig|signature|auth|session)=)([^&\s#\"'<>]{6,})"
+)
+# A private key's END line (a body before it, its BEGIN line cut off: _key_body).
+_KEY_END = re.compile(r"(?m)^-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----")
+_KEY_LINE = re.compile(r"[A-Za-z0-9+/=]{16,}\r?")
+_U_ESCAPE = re.compile(r"\\u00([2-7][0-9a-fA-F])")
+_B64_RUN = re.compile(r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{20,4096}={0,2}")
+# What a secret's name may be given that isn't a secret: a reference to one, a template, a
+# mask (or a saved secret's $NAME, put in by the session's own redaction).
+_REFERENCE = re.compile(
+    r"(?i)^[\"'`]?(?:\$\{?[A-Za-z_]\w*\}?|\{\{.*\}\}|<[^>]*>|%\(\w+\)s|(?:process\.env|os\.environ"
+    r"|import\.meta\.env|env)\b.*|(?:os\.)?getenv\(.*|[*•x.]{3,}|\[redacted\]|none|null|true|false"
+    r"|undefined)[\"'`]?$"
+)
+# Formats a session is never sent but the pre-commit scan doesn't block on (test keys, more
+# providers): (literals, one of which each match holds; the pattern), masked whole.
+_MORE_KEYS: list[tuple[tuple[str, ...], re.Pattern[str]]] = [
+    (("k_test_",), re.compile(r"\b[sr]k_test_[A-Za-z0-9]{16,}")),
+    (("whsec_",), re.compile(r"\bwhsec_[A-Za-z0-9+/=]{24,}")),
+    (("ya29.",), re.compile(r"\bya29\.[A-Za-z0-9_-]{20,}")),
+    (("1//0",), re.compile(r"(?<![\w/:.])1//0[A-Za-z0-9_-]{40,}")),  # Google refresh token
+    (
+        ("Q~",),  # an Azure app's client secret
+        re.compile(
+            r"(?<![A-Za-z0-9_~.-])[A-Za-z0-9_~.-]{3}\dQ~[A-Za-z0-9_~.-]{31,34}(?![A-Za-z0-9_~.-])"
+        ),
+    ),
+    (("xapp-",), re.compile(r"\bxapp-\d-[A-Za-z0-9-]{20,}")),
+    (("dckr_pat_",), re.compile(r"\bdckr_pat_[A-Za-z0-9_-]{20,}")),
+    (("hvs.", "hvb.", "hvr."), re.compile(r"\bhv[sbr]\.[A-Za-z0-9_-]{24,}")),
+    (("shp",), re.compile(r"\bshp(?:at|ss|ca|pa)_[A-Fa-f0-9]{32}")),
+    (("dp.",), re.compile(r"\bdp\.(?:st|ct|sa|scim|audit|pt)\.[A-Za-z0-9_.-]{20,}")),
+    (("_v1_",), re.compile(r"\bdo[por]_v1_[a-f0-9]{64}")),
+    (("gsk_",), re.compile(r"\bgsk_[A-Za-z0-9]{40,}")),
+    (("xai-",), re.compile(r"\bxai-[A-Za-z0-9]{40,}")),
+    (("pplx-",), re.compile(r"\bpplx-[A-Za-z0-9]{40,}")),
+    (("AGE-SECRET-KEY-1",), re.compile(r"\bAGE-SECRET-KEY-1[0-9A-Z]{50,}")),
+    (("-us",), re.compile(r"\b[0-9a-f]{32}-us\d{1,2}\b")),  # Mailchimp
+    (("lin_api_",), re.compile(r"\blin_api_[A-Za-z0-9]{40}")),
+    (("ntn_",), re.compile(r"\bntn_[A-Za-z0-9]{40,}")),
+    (("figd_",), re.compile(r"\bfigd_[A-Za-z0-9_-]{40,}")),
+    (("gl",), re.compile(r"\bgl(?:ptt|dt|rt|cbt|oas)-[A-Za-z0-9_-]{20,}")),
+    (("rubygems_",), re.compile(r"\brubygems_[a-f0-9]{48}")),
+    (("pat",), re.compile(r"\bpat[A-Za-z0-9]{14}\.[a-f0-9]{64}\b")),  # Airtable
+]
+# The formats a logger may wrap onto the next line: (literals, pattern).
+_WRAPPED: list[tuple[tuple[str, ...], re.Pattern[str]]] = [
+    (secret_scan._LITERALS[kind], p)
+    for kind, p in secret_scan.PATTERNS
+    if kind not in ("Private key", "Password in a URL")
+] + _MORE_KEYS
+_WRAP_LITERALS = re.compile(
+    "|".join(
+        re.escape(lit)
+        for lit in sorted({lit for lits, _ in _WRAPPED for lit in lits if lit != "."}, key=len)[::-1]
+    )
+)
+WRAP_WINDOW = 512  # a wrapped key's halves: in the last and first this many characters
+_HEAD = re.compile(r"[ \t]*(\S+)")
+# The words ASSIGNED needs in a secret's name: a line without one is never looked through
+# with it.
+_SECRET_NAME = re.compile(
+    r"(?i)api[_-]?key|apikey|secret|token|passw(?:or)?d|passwd|pwd|auth[_-]?key|access[_-]?key"
+    r"|private[_-]?key|credential|signing[_-]?key"
+)
+# A key's name that ASSIGNED doesn't know (a bare *_KEY): ENCRYPTION_KEY=…, APP_KEY=…,
+# "master_key": "…" (an upper-case env name, or a key word before it).
+_KEY_ASSIGNED = re.compile(
+    r"(?<![\w.-])((?:[A-Z][A-Z0-9]*_)+KEY|(?i:(?:encryption|master|app|enc|hmac|cipher|crypto|aes"
+    r"|jwt|license|signing|webhook|secret|private|decryption)[_-]?key))"
+    r"([\"']?\s*(?::=|=>|[:=])\s*[\"'`]?)([^\s\"'`,;)}\]]{8,256})"
+)
+# Command lines that carry a password: (the part before it, the password).
+_COMMANDS = [
+    re.compile(
+        r"(?i)(\b(?:docker|podman|nerdctl|helm|buildah|skopeo|oras|crane)\b[^\n]{0,200}?"
+        r"\blogin\b[^\n]{0,200}?\s(?:-p|--password)(?:[ =]\s*))([^\s'\"]+)"
+    ),
+    re.compile(r"(\bmysql(?:dump|admin|sh|import)?\b[^\n]{0,200}?\s-p)([^\s'\"-][^\s'\"]*)"),
+    re.compile(r"(\bsshpass\s+-p\s*)([^\s'\"]+)"),
+    re.compile(
+        r"(?i)(\b(?:curl|wget|http)\b[^\n]{0,200}?\s(?:-u|--user)(?:[ =]\s*)?['\"]?[^\s:'\"]+:)"
+        r"([^\s'\"@]+)"
+    ),
+    re.compile(
+        r"(?i)((?<![\w-])--(?:password|passwd|pass|token|api-key|apikey|secret|client-secret)"
+        r"(?:=|\s+)['\"]?)([^\s'\"]+)"
+    ),
+    re.compile(r"(?i)(\bmachine\s+\S+\s+(?:login\s+\S+\s+)?password\s+)(\S+)"),  # netrc
+    re.compile(r"(?i)(\bdefault\s+login\s+\S+\s+password\s+)(\S+)"),
+    # pgpass: host:port:database:user:password
+    re.compile(r"(?m)^([A-Za-z0-9_.*-]+:(?:\d{1,5}|\*):[A-Za-z0-9_.*-]+:[A-Za-z0-9_.*@-]+:)(\S+)$"),
+]
+_SECRET_STR = re.compile(r"(\b(?:SecretStr|SecretBytes)\(\s*b?['\"])([^'\"\n]+)")  # pydantic's
+# A Docker or npm auth: base64 of user:password.
+_AUTH_B64 = re.compile(r"(?i)([\"']?\b_?auth[\"']?\s*[:=]\s*[\"']?)([A-Za-z0-9+/]{12,}={0,2})")
+# An AWS secret key printed bare after its key id.
+_AWS_PAIR = re.compile(
+    r"(\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}[\s,:;'\"=|]{1,5})([A-Za-z0-9+/]{40})(?![A-Za-z0-9+/=])"
+)
+# A secret's name, then (a space, no "=" or ":") a random-looking value: "token 6f9b…".
+_SAID_BARE = re.compile(
+    r"(?i)\b(token|secret|api[ _-]?key|key|password|passwd|pwd|passphrase|credentials?)"
+    r"(s?\s+(?:is\s+|of\s+)?)([A-Za-z0-9_\-+/=.~]{20,})"
+)
+# A PuTTY key's private part.
+_PUTTY = re.compile(
+    r"(?m)^(Private-Lines:[ \t]*\d+[ \t]*\r?\n)((?:[A-Za-z0-9+/=]{4,}[ \t]*\r?(?:\n|\Z))+)"
+)
+_PEM_LINE = re.compile(r"[ \t]*([A-Za-z0-9+/]{64}|[A-Za-z0-9+/]{70})[ \t]*\r?")
+_PEM_LAST = re.compile(r"[ \t]*[A-Za-z0-9+/]{4,69}={0,2}[ \t]*\r?")
+# Not a secret, though a secret's name comes before it.
+_NUMBER = re.compile(r"[-+]?\d+(?:[.,]\d+)*(?:e[-+]?\d+)?")
+_COUNT_NAME = re.compile(r"(?i)tokens|token_?(?:count|limit|len|length|usage|budget|type)")
+_PROSE = re.compile(r"[A-Za-z][a-z]+")
+_IDENT = re.compile(r"[A-Za-z_][\w.]*")
+_B64_MOST = 200  # base64-looking runs decoded, at most, in one text
+_B64_CHARS = 400_000  # and their characters, at most
+_PRINTABLE = bytes([9, 10, 13, *range(32, 127)])
+MASK_SECONDS = 10.0  # mask_async's budget, then the crude mask
+
+
+def strip_ansi(text: str) -> str:
+    return _ANSI.sub("", text)
+
+
+Saved = tuple[re.Pattern[str], dict[str, str]]  # (every form, as one pattern; form -> $NAME)
+
+
+def _saved_variants(saved: dict[str, str]) -> Saved | None:
+    """One pattern for every form a saved secret is printed in: as it is, URL-encoded,
+    JSON-escaped, base64 (alone, or as a Basic header's user:value can't be known: those
+    are caught by decoding), in any case."""
+    import base64
+    from urllib.parse import quote, quote_plus
+
+    forms: dict[str, str] = {}
+    for value, placeholder in saved.items():
+        if not value:
+            continue
+        raw = value.encode()
+        for form in (
+            value,
+            quote(value, safe=""),
+            quote_plus(value),
+            json.dumps(value)[1:-1],
+            json.dumps(value, ensure_ascii=True)[1:-1],
+            html.escape(value),
+            base64.b64encode(raw).decode().rstrip("="),
+            base64.urlsafe_b64encode(raw).decode().rstrip("="),
+        ):
+            if len(form) >= 4:
+                forms.setdefault(form.lower(), placeholder)
+    if not forms:
+        return None
+    alternation = "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
+    return re.compile(alternation, re.IGNORECASE), forms
+
+
+def _masked_value(m: re.Match[str], group: int | str = 2) -> str:
+    value = m.group(group)
+    if REDACTED in value or _REFERENCE.match(value):
+        return m.group(0)
+    start, end = m.span(group)
+    whole = m.group(0)
+    return whole[: start - m.start()] + REDACTED + whole[end - m.start() :]
+
+
+def _plainly_not_secret(m: re.Match[str], name: str, group: int | str) -> bool:
+    """A value given to a secret's name that a log says isn't one: a count (max_tokens:
+    4096), words ("password: must be at least 8 characters"), another name
+    (secretsmanager:GetSecretValue), a part of an ARN, a publishable key."""
+    value = m.group(group)
+    start, end = m.span(group)
+    text = m.string
+    bare = value.strip("\"'`")
+    if _NUMBER.fullmatch(bare) and _COUNT_NAME.search(name):
+        return True
+    if bare.startswith(("pk_live_", "pk_test_")):
+        return True
+    if bare == value and _PROSE.fullmatch(value) and re.match(r" +[A-Za-z]", text[end : end + 3]):
+        return True
+    gap = text[m.start() + len(name) : start] if text.startswith(name, m.start()) else ""
+    if gap == ":" and _IDENT.fullmatch(value) and not re.search(r"\d", value):
+        return True
+    # (in an ARN: arn:aws:secretsmanager:us-east-1:…:secret:prod/db)
+    head = text[max(0, m.start() - 300) : m.start()]
+    word = re.split(r"[\s\"'=(,]", head)[-1]
+    return word.startswith("arn:")
+
+
+def _output_value(m: re.Match[str], group: int | str, name: str) -> str:
+    if _plainly_not_secret(m, name, group):
+        return m.group(0)
+    return _masked_value(m, group)
+
+
+def _auth(m: re.Match[str]) -> str:
+    """An Authorization header's credentials: after its scheme (Bearer, Basic…), or a bare
+    value with a digit in it ("authorization: required" is words)."""
+    if m.group(1).rstrip()[-1:].isalpha() or re.search(r"\d", m.group(2)):
+        return _masked_value(m)
+    return m.group(0)
+
+
+def _cookie(m: re.Match[str]) -> str:
+    def pair(p: re.Match[str]) -> str:
+        name, value = p.group(2), p.group(3).strip()
+        if name.lower() in _COOKIE_ATTRS or len(value) < 6 or REDACTED in value:
+            return p.group(0)
+        return f"{p.group(1)}{name}={REDACTED}"
+
+    return m.group(1) + _COOKIE_PAIR.sub(pair, m.group(2))
+
+
+def _auth_b64(m: re.Match[str]) -> str:
+    """A Docker or npm auth: masked when it is base64 of user:password."""
+    import base64
+
+    try:
+        raw = base64.b64decode(m.group(2) + "=" * (-len(m.group(2)) % 4))
+    except ValueError:
+        return m.group(0)
+    if b":" in raw and not raw.translate(None, _PRINTABLE):
+        return _masked_value(m)
+    return m.group(0)
+
+
+def _random_value(value: str) -> bool:
+    """Letters and digits, random-looking, and not a path or an address."""
+    if value.startswith(("/", "./", "../", "~/")) or "://" in value:
+        return False
+    if not (re.search(r"\d", value) and re.search(r"[A-Za-z]", value)):
+        return False
+    return secret_scan.entropy(value) >= 3.5
+
+
+def _said_bare(m: re.Match[str]) -> str:
+    return _masked_value(m, 3) if _random_value(m.group(3)) else m.group(0)
+
+
+def _key_assigned(m: re.Match[str]) -> str:
+    """A bare *_KEY name's value: masked when it's random-looking (CACHE_KEY=user:cart and
+    I18N_KEY=checkout.title aren't secrets)."""
+    bare = m.group(3).strip("\"'`")
+    if not (_random_value(bare) or (len(bare) >= 20 and secret_scan.entropy(bare) >= 3.5)):
+        return m.group(0)
+    return _output_value(m, 3, m.group(1))
+
+
+def _command_value(m: re.Match[str]) -> str:
+    """A password on a command line: not a usage text's stand-in (--token TOKEN, <pass>)."""
+    if re.fullmatch(r"[A-Z][A-Z_]*|<[^>]*>?|\[[^\]]*\]?|\.{3}", m.group(2)):
+        return m.group(0)
+    return _masked_value(m)
+
+
+def _key_body(text: str) -> str:
+    """A private key's body whose BEGIN line was cut off (a log's tail), up to its END line:
+    each line looked at once (a pattern for it consumed every following line at each line's
+    start, waiting for an END line that wasn't there: quadratic)."""
+    if "-----END " not in text or "PRIVATE KEY" not in text:
+        return text
+    out: list[str] = []
+    done = 0
+    for m in _KEY_END.finditer(text):
+        cut = m.start()
+        while cut > done and text[cut - 1] == "\n":
+            begin = text.rfind("\n", 0, cut - 1) + 1
+            if begin < done or not _KEY_LINE.fullmatch(text, begin, cut - 1):
+                break
+            cut = begin
+        if cut < m.start():
+            out += [text[done:cut], REDACTED + "\n"]
+            done = m.start()
+    out.append(text[done:])
+    return "".join(out)
+
+
+def _pem_lines(text: str) -> str:
+    """A private key's body with both its ends cut off (the middle of a log): three or more
+    lines of a key's width (64, or OpenSSH's 70) of random base64. A certificate's or a
+    public key's body stays."""
+    if text.count("\n") < 2:
+        return text
+    lines = text.split("\n")
+    public = False
+    run: list[int] = []
+    hits: list[int] = []
+
+    def close() -> None:
+        if len(run) >= 3:
+            hits.extend(run)
+            last = run[-1] + 1
+            if last < len(lines) and _PEM_LAST.fullmatch(lines[last]):
+                hits.append(last)
+        run.clear()
+
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("-----"):
+            close()
+            if "-----BEGIN " in line:
+                public = "PRIVATE" not in line
+            elif "-----END " in line:
+                public = False
+            continue
+        m = None if public else _PEM_LINE.fullmatch(line)
+        body = m.group(1) if m else ""
+        if (
+            body
+            and re.search(r"[A-Z]", body)
+            and re.search(r"[a-z]", body)
+            and re.search(r"\d", body)
+        ):
+            run.append(i)
+        else:
+            close()
+    close()
+    if not hits:
+        return text
+    for i in hits:
+        lines[i] = REDACTED
+    return "\n".join(lines)
+
+
+def _across_lines(text: str) -> str:
+    """A key of a known format that a logger wrapped onto the next line: both halves."""
+    if "\n" not in text:
+        return text
+    lines = text.split("\n")
+    for i in range(len(lines) - 1):
+        line = lines[i]
+        if not line or line[-1].isspace():
+            continue  # (a wrapped key ends its line)
+        start = max(line.rfind(" "), line.rfind("\t"), len(line) - WRAP_WINDOW - 1) + 1
+        head = _HEAD.match(lines[i + 1])
+        if not head:
+            continue
+        a, b = line[start:], head.group(1)[:WRAP_WINDOW]
+        joined = a + b
+        if "." not in joined and not _WRAP_LITERALS.search(joined):
+            continue  # (no format's literal: none of them can match)
+        for literals, pattern in _WRAPPED:
+            if not any(lit in joined for lit in literals):
+                continue
+            m = pattern.search(joined)
+            if not m or not m.start() < len(a) < m.end():
+                continue
+            # A whole key that ends its line is masked where it is: the next line's first
+            # word is taken for its rest only when it looks like one (8 or more, a digit).
+            alone = pattern.search(a)
+            rest = joined[len(a) : m.end()]
+            if alone and alone.end() == len(a) and not (len(rest) >= 8 and re.search(r"\d", rest)):
+                continue
+            lines[i] = line[: start + m.start()] + REDACTED
+            cut = head.start(1) + (m.end() - len(a))
+            lines[i + 1] = lines[i + 1][: head.start(1)] + REDACTED + lines[i + 1][cut:]
+            break
+    return "\n".join(lines)
+
+
+def _unescape(m: re.Match[str]) -> str:
+    char = chr(int(m.group(1), 16))
+    return char if char.isalnum() or char in "-_.+/=:@" else m.group(0)
+
+
+def _core(text: str, saved: Saved | None) -> str:
+    if saved is not None:
+        pattern, forms = saved
+        text = pattern.sub(lambda m: forms.get(m.group(0).lower(), REDACTED), text)
+    if "Secret" in text:
+        text = _SECRET_STR.sub(_masked_value, text)
+    if "://" in text:
+        text = _URL_CREDS.sub(lambda m: f"{m.group(1)}{REDACTED}{m.group(3)}", text)
+    text = _AUTH_HEADER.sub(_auth, text)
+    text = _BEARER.sub(_masked_value, text)
+    text = _COOKIE.sub(_cookie, text)
+    text = _CONN_STRING.sub(_masked_value, text)
+    text = _QUERY_SECRET.sub(_masked_value, text)
+    text = _key_body(text)
+    if "Private-Lines:" in text:
+        text = _PUTTY.sub(lambda m: m.group(1) + REDACTED + "\n", text)
+    text = _pem_lines(text)
+    for pattern in _COMMANDS:
+        text = pattern.sub(_command_value, text)
+    text = _AUTH_B64.sub(_auth_b64, text)
+    if any(k in text for k in ("AKIA", "ASIA", "ABIA", "ACCA")):
+        text = _AWS_PAIR.sub(_masked_value, text)
+    # A value given to a secret's name, whatever words it holds (but not what a log says
+    # that isn't one: _plainly_not_secret).
+    text = _assigned_sub(lambda m: _output_value(m, "value", m.group("name")), text)
+    if text.isascii():
+        hits: Any = _words_at(text, ("key",))
+    else:
+        hits = ((m.start(), m.end()) for m in re.finditer("(?i)key", text))
+    text = _named_sub(_KEY_ASSIGNED, _KEY_TAIL, _key_assigned, text, hits)
+    text = _secret_value_sub(lambda m: _output_value(m, 3, m.group(1)), text)
+    text = _across_lines(text)
+    text = _SAID_BARE.sub(_said_bare, text)
+    return _formats(text, more=True)
+
+
+def mask_output(text: str, saved: dict[str, str] | None = None) -> str:
+    """An app's output (a server's log, a test's failure, a checker's problem) as a session
+    is sent it: terminal codes out, \\u-escaped letters read, and every secret masked, the
+    owner's saved ones ({value: $NAME}) in any of their printed forms. Linear in the text:
+    a few milliseconds a kilobyte at most (mask_async runs it off the event loop)."""
+    if not text:
+        return text
+    import base64
+
+    text = strip_ansi(text)
+    if "\\u00" in text:
+        text = _U_ESCAPE.sub(_unescape, text)
+    if "\\/" in text:
+        text = text.replace("\\/", "/")  # (a JSON-escaped URL, its credentials seen)
+    pattern = _saved_variants(saved) if saved else None
+    text = _core(text, pattern)
+
+    # A secret inside base64 (a Basic header's user:password, a base64 env file): the runs
+    # that decode to text, each masked as the output is.
+    def decoded(m: re.Match[str]) -> str:
+        nonlocal tried, chars
+        run = m.group(0)
+        if REDACTED in run or tried >= _B64_MOST or chars >= _B64_CHARS:
+            return run
+        tried += 1
+        chars += len(run)
+        try:
+            raw = base64.b64decode(
+                run.replace("-", "+").replace("_", "/") + "=" * (-len(run) % 4), validate=False
+            )
+        except ValueError:
+            return run
+        if len(raw) < 8 or len(raw.translate(None, _PRINTABLE)) > len(raw) * 0.05:
+            return run
+        inner = raw.decode("utf-8", errors="replace")
+        return REDACTED if _core(inner, pattern) != inner else run
+
+    tried = chars = 0
+    return _B64_RUN.sub(decoded, text)
+
+
+_CRUDE_KEEP = re.compile(r"[A-Za-z]+[.,:;!?)\]]*|\(?[A-Za-z]+|\d{1,6}[.,:;)]*|[^\w\s]{1,3}")
+
+
+def crude_mask(text: str, saved: dict[str, str] | None = None) -> str:
+    """When masking runs out of time (mask_async): the saved secrets' forms, then every
+    word that isn't plain letters or a short number, blanked. Nothing random-looking left;
+    what the output says in words stays readable."""
+    text = strip_ansi(text or "")
+    pattern = _saved_variants(saved) if saved else None
+    if pattern is not None:
+        regex, forms = pattern
+        text = regex.sub(lambda m: forms.get(m.group(0).lower(), REDACTED), text)
+    return re.sub(
+        r"\S+",
+        lambda m: m.group(0)
+        if _CRUDE_KEEP.fullmatch(m.group(0)) or m.group(0).startswith("$")
+        else REDACTED,
+        text,
+    )
+
+
+async def mask_async(
+    text: str, saved: dict[str, str] | None = None, seconds: float = MASK_SECONDS
+) -> str:
+    """mask_output in a worker thread, so the event loop (every window, voice, the other
+    sessions) is never held by it: within seconds, else crude_mask (nothing leaks)."""
+    import asyncio
+
+    if not text:
+        return text
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(mask_output, text, saved), seconds)
+    except asyncio.TimeoutError:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Eden Code: masking %d characters took over %.0f s; crude mask used", len(text), seconds
+        )
+        return crude_mask(text, saved)
 
 
 @dataclass
@@ -714,5 +1342,8 @@ def render(
 
 def file_stem(title: str, safe: bool, when: datetime | None = None) -> str:
     when = when or datetime.now()
-    slug = re.sub(r"[^A-Za-z0-9 ]+", "", title or "Session").strip()[:60] or "Session"
+    # Letters and digits of any language ("修复登录 bug" kept whole), spaces; nothing a
+    # file name can't hold (/ : NUL) or that isn't a word (✓, controls).
+    words = re.sub(r"[^\w ]+", " ", title or "Session").split()
+    slug = " ".join(words)[:60].strip() or "Session"
     return f"{when:%Y-%m-%d %H%M} {slug}{' (share-safe)' if safe else ''}"

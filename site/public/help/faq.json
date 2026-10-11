@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-06",
+ "updated": "2026-10-10",
  "support": "support@askeden.com",
  "categories": [
   {
@@ -77,6 +77,21 @@
    "id": "iphone",
    "title": "iPhone app",
    "icon": "phone"
+  },
+  {
+   "id": "chrome",
+   "title": "Ask Eden for Chrome",
+   "icon": "globe"
+  },
+  {
+   "id": "excel",
+   "title": "Ask Eden for Excel",
+   "icon": "list"
+  },
+  {
+   "id": "sheets",
+   "title": "Ask Eden for Google Sheets",
+   "icon": "list"
   },
   {
    "id": "trouble",
@@ -236,7 +251,7 @@
    "id": "where-eden-runs",
    "cat": "start",
    "q": "Where can I use Eden?",
-   "a": "Three places, one account:\n- **askeden.com** in any browser.\n- **The Eden iPhone and iPad app**, which shows the same page.\n- **Eden on your Mac** (it comes with the Eden app), at http://localhost:5174.\n\nOn askeden.com, Eden runs GPT, Gemini and Kimi on the AI included with your account; Claude needs your own Anthropic API key (Settings › Models & API keys). On your Mac it can use every model you have keys for.",
+   "a": "Three places, one account:\n- **askeden.com** in any browser.\n- **The Eden iPhone and iPad app**, which shows the same page.\n- **Eden on your Mac** (it comes with the Eden app), at http://localhost:5174.\n\nOn askeden.com, Eden runs Claude, GPT, Gemini and Kimi on the AI included with your account, or on your own API keys if you add them (Settings › Models & API keys). On your Mac it can use every model you have keys for.",
    "keywords": [
     "web",
     "website",
@@ -547,7 +562,7 @@
    "id": "plans",
    "cat": "account",
    "q": "What does Eden cost?",
-   "a": "- **Trial**: every new account gets $1 of included AI, once.\n- **Plus**: $20 a month, which includes $20 of AI each month at list prices.\n\nThe included AI covers GPT, Gemini and Kimi. Claude is bring-your-own-key: add your Anthropic API key in Settings › Models & API keys. On your own Mac, Eden can also use your own API keys or your Claude subscription; those never touch the allowance.",
+   "a": "- **Trial**: every new account gets $1 of included AI, once.\n- **Plus**: $20 a month, which includes $20 of AI each month at list prices.\n\nThe included AI covers Claude, GPT, Gemini and Kimi: Eden picks the model for each message, or you pick one. You can also add your own API keys on askeden.com (Settings › Models & API keys), and on your own Mac Eden can use them or your Claude subscription; those never touch the allowance.",
    "keywords": [
     "price",
     "cost",
@@ -1065,7 +1080,7 @@
    "id": "calendar-readonly",
    "cat": "calendar",
    "q": "Why can't I change events from my Mac's calendar?",
-   "a": "Changing Mac calendar events needs the newest the Eden app on your Mac. Update it and restart Eden; until then Mac events are read-only. Google events can be changed once Calendar is connected.",
+   "a": "Changing Mac calendar events needs the newest Eden app on your Mac. Update it and restart Eden; until then Mac events are read-only. Google events can be changed once Calendar is connected.",
    "keywords": [
     "read only",
     "can't edit",
@@ -1583,6 +1598,173 @@
    ]
   },
   {
+   "id": "chrome-install",
+   "cat": "chrome",
+   "q": "How do I install and connect Ask Eden for Chrome?",
+   "a": "Add **Ask Eden** from the Chrome Web Store. It also works in Edge, Brave and Arc. Pin it (the puzzle-piece button) to keep it in the toolbar.\n\nThe first time, press **Connect your Eden account**. askeden.com opens: sign in if needed, then press **Connect**. The extension can only ask Eden (for 90 days): it can't read your chats, mail, calendar or account. Disconnect in the extension's options, or in your account page › **Connected apps** › **Revoke**.",
+   "keywords": [
+    "chrome extension",
+    "browser extension",
+    "ask eden for chrome",
+    "install",
+    "web store",
+    "edge",
+    "brave",
+    "arc",
+    "connect",
+    "connect your eden account",
+    "disconnect",
+    "toolbar"
+   ]
+  },
+  {
+   "id": "chrome-use",
+   "cat": "chrome",
+   "q": "How do I use Ask Eden on a web page?",
+   "a": "**Highlight text** on any page and click the Eden button beside it: Explain, Summarize, Rewrite, Fix spelling & grammar, Shorter, Draft a reply, Translate, Change tone, or your own question. In a text box, **Replace selection** puts an edit in its place; elsewhere it's copied.\n\nThe **side panel** (the Ask Eden toolbar button, or **⌘⇧Y** / **Ctrl+Shift+Y**) is a short chat beside the page: about the selection, the whole page (**Summarize this page**) or anything, with Search, Research, a model of your choice and files. **⌘⇧E** / **Ctrl+Shift+E** opens Eden on the selection; right-click offers **Ask Eden about…**.\n\n**Talk** in the side panel is a spoken conversation with Eden; **Dictate** types what you say. Chrome asks for the microphone once, in a tab.",
+   "keywords": [
+    "highlight",
+    "selection",
+    "web page",
+    "side panel",
+    "summarize this page",
+    "rewrite",
+    "translate",
+    "replace",
+    "talk",
+    "speak",
+    "dictate",
+    "microphone",
+    "chrome shortcut",
+    "right-click"
+   ]
+  },
+  {
+   "id": "chrome-privacy",
+   "cat": "chrome",
+   "q": "What does Ask Eden for Chrome send, and when?",
+   "a": "Nothing until you press one of Eden's buttons. Then only the selected or typed text (for **Summarize this page**, the page's main text), any files you add in the side panel, the page title and its address without the part after ? or #. askeden.com keeps none of it. Eden never reads password, card, bank, ID-number or one-time-code fields.\n\nAnswers come from Anthropic (Claude), OpenAI, Google (Gemini) or Moonshot AI (Kimi) on your account's included AI; **Search** and **Research** also use that model's web search. Talk and Dictate listen with your browser's speech recognition (in Chrome, Google's); Eden's spoken replies use the Eden voice up to a daily allowance, then your browser's voice. To keep Eden's buttons off some sites, list them in the extension's options.",
+   "keywords": [
+    "extension privacy",
+    "what is sent",
+    "page text",
+    "passwords",
+    "permissions",
+    "chrome privacy",
+    "speech recognition",
+    "eden voice",
+    "not on these sites"
+   ]
+  },
+  {
+   "id": "excel-install",
+   "cat": "excel",
+   "q": "How do I add Ask Eden to Excel and connect it?",
+   "a": "In Excel on Mac, Windows or the web, open **Home › Add-ins** (or **Insert › Get Add-ins**), search for **Ask Eden** and add it. An **Ask Eden** button appears on the Home tab: it opens Eden's pane.\n\nPress **Connect** in the pane. A window opens on askeden.com: sign in if needed, then press **Connect**. On Excel for the web, if that window doesn't close by itself, leave the pane open: it connects on its own. Disconnect in the pane, or in your account page › **Connected apps**.",
+   "keywords": [
+    "excel",
+    "excel add-in",
+    "office add-in",
+    "ask eden for excel",
+    "install",
+    "appsource",
+    "get add-ins",
+    "connect",
+    "task pane",
+    "disconnect"
+   ]
+  },
+  {
+   "id": "excel-use",
+   "cat": "excel",
+   "q": "What can Ask Eden do in Excel?",
+   "a": "Select some cells, then press a button in the pane: **Ask** (your own question), **Analyze**, **Write a formula**, **Explain formula**, **Fill column**, **Clean** or **Make a table**. You can ask follow-ups.\n\nNothing in your sheet changes until you press **Insert**, **Fill**, **Replace with cleaned data** or **Insert table**, and Eden asks before writing over filled cells.\n\nIn a cell, **=EDEN.ASK(\"your question\", A1:B10)** puts Eden's short answer in that cell (the range is optional). Eden remembers answers, so recalculating doesn't ask again.",
+   "keywords": [
+    "excel formula",
+    "write a formula",
+    "explain formula",
+    "analyze",
+    "fill column",
+    "clean data",
+    "make a table",
+    "=eden.ask",
+    "eden.ask",
+    "cell function",
+    "custom function"
+   ]
+  },
+  {
+   "id": "excel-limits",
+   "cat": "excel",
+   "q": "What are Ask Eden for Excel's limits?",
+   "a": "- One ask at a time in the pane (**■** stops it).\n- At most 5,000 cells and 60,000 characters at once. Fill and Clean take up to 1,000 rows, in parts if needed: nothing is written unless every part came back right.\n- A cell over 2,000 characters can't be filled or cleaned.\n- **=EDEN.ASK**: 2 at a time, 100 answers per session (the pane's **=EDEN.ASK in cells** section allows more), questions up to 2,000 characters.\n- Each ask uses your Eden account's included AI. Only the cells you select, what you type and what an action needs (a formula's header row and first 5 rows, the filled columns beside a Fill) are sent. askeden.com keeps none of it.",
+   "keywords": [
+    "excel limits",
+    "too much at once",
+    "1000 rows",
+    "5000 cells",
+    "eden.ask limit",
+    "included ai",
+    "excel privacy",
+    "what is sent"
+   ]
+  },
+  {
+   "id": "sheets-install",
+   "cat": "sheets",
+   "q": "How do I add Ask Eden to Google Sheets and connect it?",
+   "a": "Install **Ask Eden** from the Google Workspace Marketplace (in a sheet: **Extensions › Add-ons › Get add-ons**). Then **Extensions › Ask Eden › Open Ask Eden** opens the sidebar.\n\nPress **Connect your Eden account**. askeden.com opens in a new tab: sign in if needed, press **Connect**, then close the tab; the sidebar connects by itself. If the sidebar won't load and you're signed in to several Google accounts, try a window signed in to only one (a Google limit for add-ons). To disconnect: **Extensions › Ask Eden › Disconnect**.",
+   "keywords": [
+    "google sheets",
+    "sheets add-on",
+    "ask eden for google sheets",
+    "install",
+    "workspace marketplace",
+    "extensions menu",
+    "sidebar",
+    "connect",
+    "several google accounts",
+    "disconnect"
+   ]
+  },
+  {
+   "id": "sheets-use",
+   "cat": "sheets",
+   "q": "What can Ask Eden do in Google Sheets?",
+   "a": "Select cells, then press **Ask**, **Analyze**, **Write a formula**, **Explain formula**, **Fill column**, **Clean** or **Make a table** in the sidebar, and ask follow-ups. You see the result first: nothing is written until you press its button (**Insert**, **Write** or **Replace**), and Eden asks before writing over filled cells.\n\nIn a cell, **=EDEN(\"your question\", A1:B10)** puts a short answer in it (the range is optional). Turn it on for each file with **Allow =EDEN in this file** at the bottom of the sidebar. =EDEN uses the file owner's connection and included AI, so only the owner's switch counts.",
+   "keywords": [
+    "sheets formula",
+    "write a formula",
+    "explain formula",
+    "analyze",
+    "fill column",
+    "clean data",
+    "make a table",
+    "=eden",
+    "eden function",
+    "allow =eden in this file",
+    "shared file",
+    "owner"
+   ]
+  },
+  {
+   "id": "sheets-limits",
+   "cat": "sheets",
+   "q": "What are Ask Eden for Google Sheets' limits?",
+   "a": "- At most 5,000 cells and 60,000 characters at once (Ask and Analyze send the first rows that fit, and say so).\n- Fill and Clean take up to 1,000 rows, in parts with **Stop** and **Go on from part…**: nothing is written until every part has answered. They skip hidden and filtered-out rows.\n- A cell over 2,000 characters can't be filled or cleaned.\n- **=EDEN** has Google's 30 seconds to answer. Answers are kept for 6 hours, and a failed cell shows #ERROR! with the reason when you point at it.\n- Each ask uses your Eden account's included AI. Only the selected cells, the sheet's name and range, what you type and, for a Fill, the filled columns beside it are sent. askeden.com keeps none of it.",
+   "keywords": [
+    "sheets limits",
+    "too much at once",
+    "1000 rows",
+    "#error!",
+    "30 seconds",
+    "=eden limit",
+    "included ai",
+    "sheets privacy",
+    "what is sent"
+   ]
+  },
+  {
    "id": "err-mac-offline",
    "cat": "trouble",
    "q": "\"Your Mac is offline\"",
@@ -1641,7 +1823,7 @@
    "id": "err-approve-mac",
    "cat": "trouble",
    "q": "\"Approve Eden on your Mac\"",
-   "a": "the Eden app on your Mac is showing **Let Eden use your Mac?** and waiting for you. Eden can't read your calendar, mail or notes until you allow it.\n\n**Fix:** go to the Mac and click **Allow** on that card. If you said no by mistake, just try again: the card comes back.",
+   "a": "The Eden app on your Mac is showing **Let Eden use your Mac?** and waiting for you. Eden can't read your calendar, mail or notes until you allow it.\n\n**Fix:** go to the Mac and click **Allow** on that card. If you said no by mistake, just try again: the card comes back.",
    "keywords": [
     "approve eden on your mac",
     "let eden use jarvis",
@@ -1663,7 +1845,7 @@
    "id": "err-jarvis-not-running",
    "cat": "trouble",
    "q": "\"Eden is not running on this Mac\"",
-   "a": "Eden on your Mac talks to the Eden app for calendar, mail, memory and files, and it isn't open (or is too old).\n\n**Fix:** open Eden. If it's open, quit and reopen it. If Eden says Eden \"sent something Eden can't read\" or a tool is missing, update Eden and restart it.",
+   "a": "Eden on your Mac talks to the Eden app for calendar, mail, memory and files, and it isn't open (or is too old).\n\n**Fix:** open Eden. If it's open, quit and reopen it. If Eden says \"Eden sent something Eden can't read\" or a tool is missing, update the Eden app and restart it.",
    "keywords": [
     "jarvis not running",
     "jarvis app",

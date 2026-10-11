@@ -22,7 +22,8 @@
     "The sandbox's allowed domains changed; it goes on with them.": "沙盒允许的域名已更改；会话会按新的列表继续。",
     "Type a domain, like registry.npmjs.org.": "请输入域名，例如 registry.npmjs.org。",
     "That's as many domains as one project can allow.": "这个项目允许的域名已经达到上限。",
-    "Another agent: Claude Code’s sandbox doesn’t reach it; its own settings decide.": "另一个代理：Claude Code 的沙盒管不到它；由它自己的设置决定。"
+    "Another agent: Claude Code’s sandbox doesn’t reach it; its own settings decide.": "另一个代理：Claude Code 的沙盒管不到它；由它自己的设置决定。",
+    "Take this Bypass session out of the sandbox? Its commands could then write anywhere and reach any site.": "要让这个绕过权限的会话离开沙盒吗？之后它的命令可以写入任何位置、访问任何网站。"
   },
   "patterns": []
 }

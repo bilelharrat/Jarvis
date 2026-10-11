@@ -41,7 +41,17 @@ ZH = {
     "The page answered {code}.": "网页返回了 {code}。",
     "That's not a page of text ({kind}).": "那不是文字网页（{kind}）。",
     "Couldn't reach it: {error}": "连不上：{error}",
+    "The site didn't answer in time.": "那个网站没有及时回应。",
+    "A secure connection to the site couldn't be made.": "没能和那个网站建立安全连接。",
+    "The site refused the connection.": "那个网站拒绝了连接。",
+    "Couldn't connect to the site.": "没能连上那个网站。",
+    "The site closed the connection.": "那个网站断开了连接。",
+    "Couldn't reach the site.": "连不上那个网站。",
+    "Only three pages are read per message: {url} wasn't.": "每条消息最多读取三个网页：{url} 没有读取。",
     "It took too long to answer.": "它太久没有回应。",
+    "That's an address on this Mac or its network: it isn't fetched.": "那是这台 Mac 或其所在网络上的地址：不会去读取。",
+    "It sent me on too many redirects.": "它重定向的次数太多了。",
+    "Couldn't find that site's address.": "找不到那个网站的地址。",
 }
 lang.add_texts(ZH)
 
@@ -137,20 +147,22 @@ class Mentions:
                 else:
                     why = lang.translate(why, self.hub.language)
                     self.say(msg, "Couldn't read {url}: {why}", url=url, why=why)
+        for url in found.dropped:  # (CF3-13) said, never dropped without a word
+            self.say(msg, "Only three pages are read per message: {url} wasn't.", url=url)
         return docs
 
     # ── the composer's suggestions ──
 
     async def cmd_symbols(self, msg: dict[str, Any]) -> None:
-        ref = str(msg.get("ref") or "")[:200]
+        ref = str(msg.get("ref") or "")[:1000]  # (echoed whole: a split pane's mark goes before it)
         try:
             root = folder_of(self.hub, msg)
         except ValueError:
-            self.hub.emit("cw_symbols", ref=ref, items=[])
+            self.hub.emit_to_caller("cw_symbols", ref=ref, items=[])
             return
         query = str(msg.get("query") or "")[:100]
         items = await asyncio.to_thread(code_mentions.symbols, root, query)
-        self.hub.emit("cw_symbols", ref=ref, items=items)
+        self.hub.emit_to_caller("cw_symbols", ref=ref, items=items)  # (the asking window's)
 
 
 def install(hub: Any) -> None:

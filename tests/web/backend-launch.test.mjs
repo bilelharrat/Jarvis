@@ -174,3 +174,84 @@ test('on Windows the bundled Python is python.exe, the PATH is joined with semic
   assert.equal('PYTHONPATH' in how.env, false);
   assert.equal(how.env.JARVIS_APP_DIR, `${res}\\app.asar.unpacked`);
 });
+
+test('the repo the backend runs from: from source, the app\'s own; packaged, the baked one while it exists (CH1)', () => {
+  const { repoHome } = require('../../app/backend-launch.js');
+  const dir = '/Users/owner/Moved Here/JARVIS V1/app';
+  const stale = JSON.stringify({ path: '/Users/owner/Old Place/JARVIS V1' });
+  const fresh = JSON.stringify({ path: '/Users/owner/Moved Here/JARVIS V1' });
+  const read = (body) => () => body;
+  // from source: a jarvis-home.json left by an old `npm run package` never wins, moved or not
+  assert.equal(repoHome({ env: {}, packaged: false, dir, read: read(stale), exists: () => false }), '/Users/owner/Moved Here/JARVIS V1');
+  assert.equal(repoHome({ env: {}, packaged: false, dir, read: read(stale), exists: () => true }), '/Users/owner/Moved Here/JARVIS V1');
+  // packaged: the baked repo, unless that folder is gone
+  const pdir = '/Applications/J.A.R.V.I.S.app/Contents/Resources/app.asar';
+  assert.equal(repoHome({ env: {}, packaged: true, dir: pdir, read: read(fresh), exists: (p) => p === '/Users/owner/Moved Here/JARVIS V1' }), '/Users/owner/Moved Here/JARVIS V1');
+  assert.equal(repoHome({ env: {}, packaged: true, dir: pdir, read: read(stale), exists: () => false }), '/Applications/J.A.R.V.I.S.app/Contents/Resources');
+  assert.equal(repoHome({ env: {}, packaged: true, dir: pdir, read: () => { throw new Error('ENOENT'); } }), '/Applications/J.A.R.V.I.S.app/Contents/Resources');
+  assert.equal(repoHome({ env: {}, packaged: true, dir: pdir, read: read('{nope') }), '/Applications/J.A.R.V.I.S.app/Contents/Resources');
+  // JARVIS_HOME always wins
+  assert.equal(repoHome({ env: { JARVIS_HOME: '/x' }, packaged: false, dir, read: read(stale) }), '/x');
+  // main.js asks it
+  const main = fs.readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  assert.match(main, /repoHome\(\{ env: process\.env, packaged: app\.isPackaged, dir: __dirname \}\)/);
+});
+
+test('an installed app says why it can\'t start: no engine, or the repo it was built from moved (CH2-8)', () => {
+  const { missingBackend } = require('../../app/backend-launch.js');
+  const dir = '/Users/owner/Applications/Eden Code.app/Contents/Resources/app.asar';
+  const baked = JSON.stringify({ path: '/Users/owner/Old Place/JARVIS V1' });
+  const read = (body) => () => body;
+  const none = () => { throw new Error('ENOENT'); };
+  // from source, bundled, or JARVIS_HOME: nothing missing
+  assert.equal(missingBackend({ packaged: false, bundled: false, env: {}, dir, read: none }), null);
+  assert.equal(missingBackend({ packaged: true, bundled: true, env: {}, dir, read: none }), null);
+  assert.equal(missingBackend({ packaged: true, bundled: false, env: { JARVIS_HOME: '/x' }, dir, read: none }), null);
+  // a downloaded app whose engine files are gone
+  assert.deepEqual(missingBackend({ packaged: true, bundled: false, env: {}, dir, read: none }), { kind: 'engine' });
+  // the owner's own build: runs from its repo while it's there (never "engine files are missing")
+  assert.equal(missingBackend({ packaged: true, bundled: false, env: {}, dir, read: read(baked), exists: () => true }), null);
+  // ...and says so when that folder moved, instead of running uv in Resources
+  assert.deepEqual(missingBackend({ packaged: true, bundled: false, env: {}, dir, read: read(baked), exists: () => false }),
+    { kind: 'moved', baked: '/Users/owner/Old Place/JARVIS V1' });
+  const main = fs.readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  assert.match(main, /missingBackend\(\{ packaged: app\.isPackaged, bundled: how\.bundled, env: process\.env, dir: __dirname \}\)/);
+  assert.match(main, /which isn’t there any more \(moved or renamed\?\)\. Build it again/);
+});
+
+test('the problem screen names how the backend stopped and shows its last words (CH2-9)', () => {
+  const { exitWords, lastWords } = require('../../app/backend-launch.js');
+  assert.equal(exitWords(1, null, 'darwin'), 'stopped (exit 1)');
+  assert.equal(exitWords(2, null, 'darwin'), 'stopped (exit 2)');
+  // uv reports a child killed by a signal as 128 + its number
+  assert.match(exitWords(137, null, 'darwin'), /^was force-stopped \(SIGKILL: macOS does that when memory runs short/);
+  assert.equal(exitWords(null, 'SIGKILL', 'darwin'), exitWords(137, null, 'darwin'));
+  assert.equal(exitWords(143, null, 'linux'), 'was asked to stop (SIGTERM)');
+  assert.equal(exitWords(139, null, 'darwin'), 'crashed (SIGSEGV)');
+  assert.equal(exitWords(null, 'SIGUSR1', 'darwin'), 'was stopped (SIGUSR1)');
+  assert.equal(exitWords(137, null, 'win32'), 'stopped (exit 137)'); // a Windows code is just a code
+  assert.equal(exitWords(200, null, 'darwin'), 'stopped (exit 200)');
+  // main.js's own start marker is never the "details"
+  assert.equal(lastWords('--- 2026-10-10T21:31:47.911Z'), '');
+  assert.equal(lastWords('--- 2026-10-10T21:31:47.911Z', 'Traceback (most recent call last):\nMemoryError'), 'Traceback (most recent call last):\nMemoryError');
+  assert.equal(lastWords('--- 2026-10-10T21:31:47.911Z\nModuleNotFoundError: x', 'older'), 'ModuleNotFoundError: x');
+  assert.equal(lastWords('--- 2026-10-10T21:31:47.911Z', '--- 2026-10-10T21:30:00.000Z'), '');
+  assert.equal(lastWords('--- not a marker'), '--- not a marker');
+  const main = fs.readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  assert.match(main, /const how = exitWords\(code, signal\)/);
+  assert.match(main, /taken \? '' : backendWords\(\), \{ retry: true \}/);
+  assert.match(main, /backendBefore = backendWords\(\);[^\n]*\n\s+backendTail\.reset\(\);/); // the latest start that said anything
+});
+
+// CH3-4: after starts killed before they said anything, the detail was an earlier healthy start's "JARVIS listening
+// on http://127.0.0.1:<old port>/ (token kept by the app)": the old name and a wrong port, read as the cause.
+test('the problem screen never shows serve’s own "listening on" line as what went wrong (CH3-4)', () => {
+  const { lastWords } = require('../../app/backend-launch.js');
+  const healthy = '--- 2026-10-10T21:30:00.000Z\nJARVIS listening on http://127.0.0.1:56283/ (token kept by the app)';
+  assert.equal(lastWords('--- 2026-10-10T21:31:47.911Z', healthy), ''); // (before: that line, as the detail)
+  assert.equal(lastWords('', 'Eden listening on http://127.0.0.1:5/ (token kept by the app)'), '');
+  assert.equal(lastWords('Eden listening on http://127.0.0.1:5/?token=abc'), '');
+  // what the engine said around it stays
+  assert.equal(lastWords('Eden listening on http://127.0.0.1:5/ (token kept by the app)\nTraceback (most recent call last):\nMemoryError'), 'Traceback (most recent call last):\nMemoryError');
+  assert.equal(lastWords('a server of the project: listening on http://127.0.0.1:3000/'), 'a server of the project: listening on http://127.0.0.1:3000/');
+});

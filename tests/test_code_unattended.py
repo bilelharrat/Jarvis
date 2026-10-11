@@ -81,6 +81,13 @@ def test_a_runs_commands_are_local_ones_only():
         assert "can't be one of its commands" in check_command(bad), bad
     assert "runs anything it's given" in check_command("bash")
     assert check_command("python -m pytest") == ""
+    # CD15 (bug sweep r1): a runner with one word after it was in scope, and then every
+    # command after it too (bash -c "…", env anything).
+    for anything in ("bash -c", "sh -lc", "python3 -c", "node -e", "perl -E", "env FOO=1",
+                     "xargs -n1", "timeout 60", "npx -c", "python -"):  # fmt: skip
+        assert "runs anything it's given" in check_command(anything), anything
+    for fine in ("python manage.py test", "node scripts/test.js", "bash scripts/ci.sh", "bash -e scripts/ci.sh"):
+        assert check_command(fine) == "", fine
 
 
 async def test_the_card_shows_the_whole_scope_and_no_means_nothing_starts(hub, projects):
@@ -554,3 +561,64 @@ def test_every_sentence_it_says_has_chinese_with_the_same_slots():
     assert (
         lang.translate("Merged pull request #7 into main.", "zh") == "已把拉取请求 #7 合并进 main。"
     )
+
+
+async def test_a_run_never_reads_edens_own_data_folder(hub, projects):
+    """CD6 (bug sweep r1): an unattended run's guard let "a read-only command" read the
+    window's token (backend.json) with nobody there; now refused, as in every session."""
+    runs = hub.code_runs
+    repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    task = ClaudeTask(id=3, prompt="x", cwd=repo, mode="edits", allow_edits=True)
+    hub.tasks.tasks[3] = task
+    runs.active[3] = Run("r1", "t", "p", "proj", "edits", ["npm test"], 5.0, 2.0)
+    data = hub.feature_path("backend.json")
+    data.write_text('{"token": "x"}')
+
+    async def inner(name, tool_input, context):
+        return PermissionResultAllow()
+
+    guard = runs.guard(task, inner)
+    for name, tool_input in (
+        ("Bash", {"command": f"cat '{data}'"}),
+        ("Read", {"file_path": str(data)}),
+    ):
+        out = await guard(name, tool_input, None)
+        assert isinstance(out, PermissionResultDeny), name
+        assert "Eden's own data folder" in out.message
+    assert isinstance(await guard("Bash", {"command": "git status"}, None), PermissionResultAllow)
+    runs.active.pop(3)
+
+
+def test_an_interpreters_clustered_code_flag_is_refused_like_a_shells():
+    # CD2-2 (bug sweep r2): python3 -Ic passed as a scope entry, then admitted any code.
+    for anything in ("python3 -Ic", "python3 -Sc 'x'", "python3 -Bc", "python3 -OOc x",
+                     "python3 -cprint(1)", "ruby -we 'x'", "perl -ne x", "perl -lne x",
+                     "node -pe x", "php -nr x"):  # fmt: skip
+        assert "runs anything it's given" in check_command(anything), anything
+    for fine in ("python3 -u script.py", "python3 -I script.py", "python3 -W error a.py",
+                 "ruby -w a.rb", "perl -w a.pl", "node --experimental-vm-modules a.js"):  # fmt: skip
+        assert check_command(fine) == "", fine
+
+
+class _Rules:
+    def for_project(self, project):
+        return []
+
+
+class _Tasks:
+    rules = _Rules()
+
+    def project_path(self, project):
+        return str(project)
+
+
+def test_a_scope_entry_never_admits_code_handed_to_an_interpreter_after_it(tmp_path):
+    hub = type("H", (), {"tasks": _Tasks()})()
+    runs = Runs(hub)
+    task = type("X", (), {"cwd": tmp_path})()
+    run = type("Rn", (), {"project": str(tmp_path), "commands": ["python3 -I", "uv run", "npm test"]})()
+    for code in ("python3 -I -c '__import__(\"os\")'", "python3 -Ic 'x'",
+                 "uv run python -c 'x'", "uv run python3 -Ic 'x'", "uv run bash -c 'x'"):  # fmt: skip
+        assert not runs.allowed(run, task, code), code
+    for fine in ("python3 -I tests/run.py", "uv run pytest -q", "npm test -- --watch=false"):
+        assert runs.allowed(run, task, fine), fine

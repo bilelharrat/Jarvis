@@ -38,14 +38,37 @@
     return scored.sort((a, b) => a[0] - b[0] || a[1] - b[1] || (a[2] < b[2] ? -1 : 1)).slice(0, limit).map((s) => s[2]);
   }
 
+  // A path as it goes in a mention: in quotes when it has a space ("my dir/a b.py").
+  function quotePath(path) { return /\s/.test(path) ? `"${path}"` : path; }
+
   // What a symbol suggestion puts in the message: its file, and where in it.
-  function symbolValue(s) { return `${s.path} (${s.name}, line ${s.line})`; }
+  function symbolValue(s) { return `${quotePath(s.path)} (${s.name}, line ${s.line})`; }
+
+  // The @-word typed just before the caret: { query, start (at its @), quoted }, or null.
+  // A name has letters of any language (café, 文件), + and the like; in quotes, spaces too
+  // (@"my dir/a b"). An @ inside a word (an email address) isn't one.
+  function atQuery(before) {
+    const text = String(before || '');
+    const m = text.match(/(?:^|\s)@(?:"([^"]*)|([^\s@"]*))$/u);
+    if (!m) return null;
+    const quoted = m[1] !== undefined;
+    return { query: quoted ? m[1] : m[2], start: m.index + m[0].indexOf('@'), quoted };
+  }
+
+  // What picking a suggestion puts in: "@value ", the value in quotes when it has a space
+  // (raw: a value already written as it should go, a symbol's "path (name, line 3)").
+  function atInsert(value, raw) { return `@${raw ? value : quotePath(String(value))} `; }
 
   // Whether @ is after the message's first words (where @session-3 is a mention, not a route).
-  function midMessage(before) { return /\S/.test(String(before || '').replace(/@[\w./-]*$/, '')); }
+  function midMessage(before) {
+    const text = String(before || '');
+    const at = atQuery(text);
+    return /\S/.test(at ? text.slice(0, at.start) : text.replace(/@[^\s@]*$/u, ''));
+  }
 
-  const api = { foldersOf, matchFolders, symbolValue, midMessage };
+  const api = { foldersOf, matchFolders, symbolValue, midMessage, atQuery, atInsert, quotePath };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
+  root.JarvisAt = { query: atQuery, insert: atInsert };  // (app.js: the composer's @ list)
 
   const F = root.jarvisFeatures;
   if (!F || !F.registerMentions) return;
@@ -92,6 +115,9 @@
 
   // Files and folders change: the answers made from them go.
   F.on('project_files', () => symbolAnswers.clear());
+  // A reconnect: an answer being waited for went to the connection before (it's the asking
+  // window's only), so it's asked again as it's typed.
+  F.on('hello', () => { for (const [k, v] of symbolAnswers) if (v === 'asking') symbolAnswers.delete(k); });
 
   F.registerMentions((query, before) => {
     const q = String(query || '');
@@ -113,7 +139,7 @@
     }
     for (const d of matchFolders(folders(), q)) items.push({ label: `${d}/`, help: t('Folder'), value: `${d}/` });
     if (q.length >= 2 && /^[\w$]+$/.test(q)) {
-      for (const s of symbolsFor(q).slice(0, SYMBOLS_SHOWN)) items.push({ label: s.name, help: `${s.path}:${s.line}`, value: symbolValue(s) });
+      for (const s of symbolsFor(q).slice(0, SYMBOLS_SHOWN)) items.push({ label: s.name, help: `${s.path}:${s.line}`, value: symbolValue(s), raw: true });
     }
     return items;
   });

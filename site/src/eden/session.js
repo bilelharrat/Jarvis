@@ -29,11 +29,12 @@ import { ALGS, verifyAssertion, verifyRegistration } from '../accounts/webauthn.
 import { HUMAN_SECONDS, checkHuman, checkSignups, signupsOpen, turnstileOn, turnstileSiteKey } from '../accounts/turnstile.js';
 import { WEB_LINK_MAC_MS, WEB_LINK_MAC_STALE, WEB_SESSION_DAYS } from '../accounts/account.js';
 import { cleanCode, newCode } from '../accounts/link.js';
-import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, parseToken, randomBytes, readJson, safeDecode, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
+import { ApiError, b64ToBytes, b64url, b64urlText, cleanName, networkOf, networkPrefix, parseToken, randomBytes, readJson, safeDecode, sameText, sha256Hex, webAllowed } from '../accounts/util.js';
 import { SIGN_IN_SCOPES, buildAuthUrl, exchangeCode, googleReady, pkcePair, verifyIdToken } from './google.js';
 import { qrRows } from './qr.js';
 import { edenSyncApi } from '../accounts/eden-sync.js';
 import { chatMergeApi, chatSyncApi, mintMergeToken } from '../accounts/chat-sync.js';
+import { essaySyncApi } from '../accounts/essay-sync.js';
 import { actingSession, actingView, delegatesApi, endActing } from '../accounts/delegates.js';
 import { spacesApi } from '../accounts/space.js';
 import { billingApi, billingConfig, billingReturn, plusOffer } from './billing.js';
@@ -160,7 +161,7 @@ export async function web(request, env, ctx, path) {
     // Back from Stripe (another site, so no Strict cookie yet): a page that moves on (billing.js).
     if (path === '/api/web/billing/return' && method === 'GET') return billingReturn(request);
     // Eden sync (H1), delegates (H14), team spaces (G8): the browser's own session, never a delegate's.
-    const extra = /^\/api\/web\/(esync|csync|merge|deleg|space|billing)(?:\/([a-z-]+))?$/.exec(path); // billing: Plus with Stripe, F15 (billing.js)
+    const extra = /^\/api\/web\/(esync|csync|essays|merge|deleg|space|billing)(?:\/([a-z-]+))?$/.exec(path); // billing: Plus with Stripe, F15 (billing.js)
     if (extra) return await accountExtras(request, env, extra[1], extra[2] || '');
     throw new ApiError(404, 'not_found', 'No such thing here.');
   } catch (error) {
@@ -243,9 +244,43 @@ async function signedIn(request, env) {
   throw error;
 }
 
+/**
+ * signedIn() and the account's own view in ONE call to the account (it was whoami, then get): the
+ * `get` op checks the device the same way and also says who it is (`me`). The same rules as
+ * currentSession's fresh check: a 401 or a device that isn't this browser's own clears the cookie;
+ * the isolate's cache of checked sessions is refreshed. `slim`: plan, usage and sign-ins only.
+ */
+async function signedInView(request, env, { slim = false } = {}) {
+  const token = sessionToken(request);
+  if (!token || !env.ACCOUNTS) return { who: await signedIn(request, env), account: null }; // no cookie: no call (as before)
+  const key = `${token.account}.${token.device}.${token.secret}`;
+  const out = () => {
+    recent.delete(key);
+    const error = new ApiError(401, 'signed_out', 'This browser is signed out of Eden.');
+    error.headers = { 'set-cookie': clearCookie(SESSION_COOKIE) };
+    return error;
+  };
+  let view;
+  try {
+    view = await call(env, token.account, 'get', { slim, me: true }, token);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) throw out();
+    throw error;
+  }
+  const { me, ...account } = view;
+  const device = me && me.device;
+  if (!device || device.kind !== 'web' || device.grant || !webAllowed(env, account.id)) throw out();
+  const who = { account: account.id, device };
+  recent.set(key, { until: Date.now() + RECENT_MS, who });
+  if (recent.size > 1000) recent.delete(recent.keys().next().value);
+  return { who: { token, ...who }, account };
+}
+
+// GET /api/web/session?account=1: the session and, under `account`, exactly what GET /api/web/account answers, from one
+// call to the account (its full view) and one acting look, so a page that needs both at boot asks once. Both routes stay.
 async function session(request, env) {
-  const who = await signedIn(request, env);
-  const account = await call(env, who.account, 'get', {}, who.token);
+  const both = new URL(request.url).searchParams.get('account') === '1';
+  const { who, account } = await signedInView(request, env, { slim: !both });
   // Acting for someone (a delegate, a space): what's left is that grant's, not this account's.
   const found = await actingSession(request, env, who);
   const as = found && !found.ended ? found : null;
@@ -259,14 +294,19 @@ async function session(request, env) {
     identities: account.identities || [],
     acting: as && grant ? actingView(as) : null,
     acting_ended: Boolean(found && found.ended),
+    ...(both ? { account: accountBody(env, who, account, found) } : {}),
   });
 }
 
 async function accountView(request, env) {
-  const who = await signedIn(request, env);
-  const account = await call(env, who.account, 'get', {}, who.token);
+  const { who, account } = await signedInView(request, env);
   const as = await actingSession(request, env, who);
-  return json({
+  return json(accountBody(env, who, account, as));
+}
+
+/** GET /api/web/account's answer, from the account's full view and the acting look. */
+function accountBody(env, who, account, as) {
+  return {
     account_id: who.account,
     acting: as && !as.ended ? actingView(as) : null,
     acting_ended: Boolean(as && as.ended),
@@ -284,13 +324,17 @@ async function accountView(request, env) {
     })),
     identities: account.identities || [],
     plus: plusOffer(env), // the iPhone app's App Store, and on the web with Stripe once it's set up (billing.js)
-  });
+  };
 }
 
 // Delete account, from the account page: the person types DELETE, within 10 minutes of signing in. Everything goes (eraseAccount:
 // every device signed out, the account's data, its sign-ins and passkeys, published pages, a web
 // Plus subscription cancelled at Stripe), and this browser's cookie with it.
 const DELETE_STALE = 'To delete your account, sign in again first: Eden deletes an account only within 10 minutes of signing in.';
+
+const STRIPE_PENDING = 'Your Eden account is deleted. Stripe didn’t answer when we cancelled your Eden Plus subscription, so Eden will keep trying to cancel it for the next two weeks. If you see another charge, contact Eden support.';
+
+const STRIPE_REFUSED = 'Your Eden account is deleted, but Stripe wouldn’t let Eden cancel your Eden Plus subscription. Contact Eden support and we’ll cancel it; until then, Stripe may still charge you.';
 
 async function deleteWebAccount(request, env) {
   ownPage(request);
@@ -300,8 +344,16 @@ async function deleteWebAccount(request, env) {
   // A fresh sign-in only (as for linking a Mac): an old or stolen session can't delete the account.
   if (Date.now() - (who.device.created || 0) > WEB_LINK_MAC_MS) throw new ApiError(403, 'sign_in_again', DELETE_STALE);
   await limited(env, 'AUTH_RATE', `delete:${who.account}`);
-  await eraseAccount(env, who.account, who.token, { confirm: body.confirm });
+  const erased = await eraseAccount(env, who.account, who.token, { confirm: body.confirm });
   forgetSessions(who.account);
+  // Stripe couldn't cancel a web Plus subscription just now: the account is gone, the cancel is retried
+  // (eden/billing.js cancelOrQueue), and the person is told so rather than assuming billing stopped.
+  if (erased && erased.stripe === 'pending') {
+    return withCookies(json({ deleted: true, stripe: 'pending', notice: STRIPE_PENDING }), clearCookie(SESSION_COOKIE));
+  }
+  if (erased && erased.stripe === 'refused') {
+    return withCookies(json({ deleted: true, stripe: 'refused', notice: STRIPE_REFUSED }), clearCookie(SESSION_COOKIE));
+  }
   return withCookies(noContent(), clearCookie(SESSION_COOKIE));
 }
 
@@ -314,13 +366,32 @@ async function signOut(request, env) {
   return withCookies(noContent(), clearCookie(SESSION_COOKIE), await endActing(request, env)); // and any delegate's session it held
 }
 
+// /api/web/csync, /esync, /essays: the sync ops check the device in the account themselves (account.authenticate,
+// with the cookie's token), so the isolate's checked session (30 s) is enough before them: one call to the account
+// per request instead of two (a first upload is thousands, every device lists every 30 s). A sign-out shows as the
+// op's 401, which clears the cookie as signedIn's would.
+async function syncRoute(request, env, area, op) {
+  const { session: cached } = await currentSession(request, env);
+  const who = cached || (await signedIn(request, env));
+  try {
+    if (area === 'esync') return await edenSyncApi(request, env, who, op);
+    if (area === 'essays') return await essaySyncApi(request, env, who, op);
+    return await chatSyncApi(request, env, who, op);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      recent.delete(`${who.token.account}.${who.token.device}.${who.token.secret}`);
+      throw new ApiError(401, 'signed_out', 'This browser is signed out of Eden.', { 'set-cookie': clearCookie(SESSION_COOKIE) });
+    }
+    throw error;
+  }
+}
+
 // /api/web/esync, /api/web/deleg, /api/web/space (accounts/eden-sync.js, delegates.js,
 // space.js): a fresh check of this browser's own session; the acting one only to report it.
 async function accountExtras(request, env, area, op) {
+  if (area === 'csync' || area === 'esync' || area === 'essays') return syncRoute(request, env, area, op);
   const who = await signedIn(request, env);
   const origin = new URL(request.url).origin;
-  if (area === 'esync') return edenSyncApi(request, env, who, op);
-  if (area === 'csync') return chatSyncApi(request, env, who, op);
   if (area === 'merge') return chatMergeApi(request, env, who, op);
   const found = await actingSession(request, env, who);
   const acting = found && !found.ended ? found : null;
@@ -687,9 +758,19 @@ function noPage(request) {
   if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the Eden app may do that.');
 }
 
+// www.askeden.com's pages all move to askeden.com (worker.js), so a passkey is made and used on the apex only: one
+// made for www (RP www.askeden.com) would never work there (AW2-10). A tab left open on www is told where to go.
+const WWW_HOST = 'www.askeden.com';
+function apexOnly(request) {
+  if (new URL(request.url).hostname === WWW_HOST) {
+    throw new ApiError(409, 'use_apex', 'Passkeys work on askeden.com (without “www”). Open askeden.com and try again.', {}, { to: 'https://askeden.com/signin' });
+  }
+}
+
 async function passkeyOptions(request, env, { native = false } = {}) {
   if (native) noPage(request);
   else ownPage(request);
+  apexOnly(request);
   if (!env.IDENTITIES) throw new ApiError(503, 'not_set_up', 'Passkeys aren’t set up here yet.');
   await limited(env, 'AUTH_RATE', `pk:${clientIp(request)}`);
   const body = await readJson(request, 8 * 1024);
@@ -716,6 +797,7 @@ async function passkeyOptions(request, env, { native = false } = {}) {
       // as a native Apple account) and one global bucket for all native passkey sign-ups.
       await nativeNewAccount(env, clientIp(request));
       await limited(env, 'AUTH_RATE', 'native-pk-signup:global');
+      await nativeSignupsToday(env, request, { peek: true }); // the day's cap per network, before the sheet opens
     }
   }
   const challenge = b64url(randomBytes(32));
@@ -738,6 +820,37 @@ async function passkeyOptions(request, env, { native = false } = {}) {
   });
 }
 
+// Native passkey sign-ups have no Turnstile (and no App Attest yet): besides the per-minute buckets above,
+// each network (an IPv4 address, an IPv6 /64) may make NATIVE_SIGNUPS_PER_NETWORK_DAY of them a day
+// (default 20; a Link object per network and UTC day keeps the count). An IPv6 line is usually a /56 (256
+// /64s) and a host's block a /48, so those are counted too (AW2-4): NATIVE_SIGNUPS_PER_56_DAY (default 40)
+// and NATIVE_SIGNUPS_PER_48_DAY (default 100). Interim until App Attest (owner, AW1). Signing in is never counted.
+export const NATIVE_SIGNUPS_PER_NETWORK_DAY = 20;
+export const NATIVE_SIGNUPS_PER_56_DAY = 40;
+export const NATIVE_SIGNUPS_PER_48_DAY = 100;
+const NATIVE_SIGNUPS_FULL = 'Too many new Eden accounts were made from this network today. Try again tomorrow, sign up at askeden.com, or continue with Apple.';
+
+async function nativeSignupsToday(env, request, { peek = false } = {}) {
+  const capOf = (v, fallback) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : fallback; };
+  const day = new Date().toISOString().slice(0, 10);
+  const ip = clientIp(request);
+  const buckets = [{ net: networkOf(ip), cap: capOf(env.NATIVE_SIGNUPS_PER_NETWORK_DAY, NATIVE_SIGNUPS_PER_NETWORK_DAY) }];
+  if (String(ip || '').includes(':') && networkOf(ip).endsWith('/64')) {
+    buckets.push({ net: networkPrefix(ip, 56), cap: capOf(env.NATIVE_SIGNUPS_PER_56_DAY, NATIVE_SIGNUPS_PER_56_DAY) });
+    buckets.push({ net: networkPrefix(ip, 48), cap: capOf(env.NATIVE_SIGNUPS_PER_48_DAY, NATIVE_SIGNUPS_PER_48_DAY) });
+  }
+  const names = await Promise.all(buckets.map(async (b) => `native-signups:${day}:${await sha256Hex(`native-signups:${b.net}`)}`));
+  const full = () => new ApiError(429, 'slow_down', NATIVE_SIGNUPS_FULL, { 'retry-after': '3600' });
+  // every bucket looked at first, so a full /48 doesn't use up a /64's count; then each counted (atomic per bucket)
+  const looks = await Promise.all(buckets.map((b, i) => callLink(env, names[i], 'count', { cap: b.cap, seconds: 86400, peek: true })));
+  if (looks.some(({ body }) => !body.ok)) throw full();
+  if (peek) return;
+  for (const [i, b] of buckets.entries()) {
+    const { body } = await callLink(env, names[i], 'count', { cap: b.cap, seconds: 86400 });
+    if (!body.ok) throw full();
+  }
+}
+
 /** The challenge clientDataJSON names, before anything else is trusted. */
 function challengeOf(credential) {
   try {
@@ -752,6 +865,7 @@ function challengeOf(credential) {
 async function passkeyVerify(request, env, { native = false } = {}) {
   if (native) noPage(request);
   else ownPage(request);
+  apexOnly(request);
   if (!env.IDENTITIES) throw new ApiError(503, 'not_set_up', 'Passkeys aren’t set up here yet.');
   await limited(env, 'AUTH_RATE', `pkv:${clientIp(request)}`);
   const body = await readJson(request, 64 * 1024);
@@ -800,6 +914,7 @@ async function passkeyVerify(request, env, { native = false } = {}) {
   // signup: Turnstile passed when this challenge was issued (passkeyOptions).
   const subHash = await subHashOf('passkey', made.id);
   if ((await callIdentity(env, 'passkey', subHash, 'get')).state !== 'none') throw new ApiError(409, 'identity_taken', 'This passkey is already used by an Eden account. Sign in with it instead.');
+  if (native) await nativeSignupsToday(env, request); // counted once the account is about to be made
   if (native) return json({ handoff: await stashHandoff(request, env, { provider: 'passkey', sub: made.id, email: null, cred }), created: true, expires_in: HANDOFF_SECONDS });
   const opened = await signInBrowser(request, env, { provider: 'passkey', sub: made.id, email: null, cred });
   return withCookies(json({ signed_in: true, created: true, to: back }), cookie(SESSION_COOKIE, opened.token, { maxAge: SESSION_SECONDS }));

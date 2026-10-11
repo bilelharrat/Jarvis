@@ -17,6 +17,7 @@ export function speechText(md) {
   // fenced code (an unclosed fence, cut off mid-stream, runs to the end): never read out
   t = t.replace(/^[ \t]*(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?)?(?:\n[ \t]*\1[ \t]*(?=\n|$)|(?![\s\S]))/gm, `\n${CODE_SAID}\n`);
   t = t.replace(new RegExp(`(?:${CODE_SAID}\\s*){2,}`, 'g'), `${CODE_SAID}\n`);
+  t = t.replace(/<eden-(?:tool|essay(?:-[a-z]+)?)\b[\s\S]*?(<\/eden-(?:tool|essay(?:-[a-z]+)?)>|$)|<invoke\b[\s\S]*?(<\/invoke>|$)|<\/?function_calls>/g, ' '); // Eden's tool lines (an essay's text, a calendar event): never read out
   t = t.replace(/<!--[\s\S]*?-->/g, ' ');
   t = t.replace(/<\/?[a-z][^<>]*>/gi, ' ');
   t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1'); // images: their alt text
@@ -82,7 +83,9 @@ export function safeCut(md, from = 0, final = false) {
   let open = null;
   for (const m of text.matchAll(/^[ \t]*(`{3,}|~{3,})/gm)) {
     if (!open) open = { at: m.index, fence: m[1] };
-    else if (m[1][0] === open.fence[0] && m[1].length >= open.fence.length) open = null;
+    // a closing fence counts once its line has ended: "```" at the very end may still grow, and a
+    // cut just before it would start the next piece on a fence that looks unclosed (AJ2)
+    else if (m[1][0] === open.fence[0] && m[1].length >= open.fence.length && text.indexOf('\n', m.index) >= 0) open = null;
   }
   if (open) limit = open.at;
   if (limit <= from) return from;
@@ -99,4 +102,48 @@ export const RECORDING_TYPES = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus
 export const MAX_RECORDING_S = 120; // the server's limit too (POST /api/chat/transcribe)
 export function recordingType(supported) {
   return RECORDING_TYPES.find((t) => { try { return !!supported(t); } catch { return false; } }) || '';
+}
+
+// ── Where the browser's speech recognition can't work (AJ2-1) ──
+
+/**
+ * A desktop app around Eden's page: Ask Eden for Mac (window.askEdenMac), Ask Eden for Windows
+ * (askEdenWin), Eden's window in J.A.R.V.I.S. (jarvisBrowser), or any Electron. Electron has
+ * SpeechRecognition, but it starts, then fails with "network" (no Google speech key): there,
+ * Dictate and Talk record and the server transcribes from the first try.
+ */
+export function inDesktopApp(w = globalThis) {
+  try {
+    return !!(w.askEdenMac || w.askEdenWin || w.jarvisBrowser) || /\bElectron\//.test((w.navigator && w.navigator.userAgent) || '');
+  } catch { return false; }
+}
+
+/**
+ * Does this recognition error mean "use recording instead"? "not-allowed"/"service-not-allowed":
+ * recognition this browser won't run (Chrome on iPhone; the microphone itself is asked for again
+ * by recording). "network", "audio-capture", "language-not-supported": recognition that can't
+ * work here (Electron), unless it already worked on this page (then it's a passing failure).
+ */
+export function recognitionFallback(error, { worked = false } = {}) {
+  if (error === 'not-allowed' || error === 'service-not-allowed') return true;
+  return !worked && (error === 'network' || error === 'audio-capture' || error === 'language-not-supported');
+}
+
+/**
+ * Talk by recording (AJ2-1): when your turn ends, from the microphone's level (RMS, 0–1) sampled
+ * every ~50 ms. You spoke (`speechMs` above the room's noise), then paused `pauseMs`: 'send'. A
+ * turn `maxMs` long: 'send' too. That long with nothing said: 'restart' (the silence is dropped).
+ * Pure: `prev` is the last step's `s` (null to start a turn).
+ */
+export function vadStep(prev, level, now, { pauseMs = 1200, maxMs = 30_000, speechMs = 300 } = {}) {
+  const s = prev ? { ...prev } : { start: now, at: now, floor: 0.01, voiced: 0, last: 0 };
+  const dt = Math.min(200, Math.max(0, now - s.at));
+  s.at = now;
+  const lvl = Number(level) || 0;
+  if (lvl > Math.max(0.02, s.floor * 3)) { s.voiced += dt; s.last = now; }
+  else s.floor = Math.max(0.002, Math.min(0.05, s.floor * 0.95 + lvl * 0.05)); // the room, learned while it's quiet
+  const spoke = s.voiced >= speechMs;
+  if (spoke && now - s.last >= pauseMs) return { s, action: 'send', spoke };
+  if (now - s.start >= maxMs) return { s, action: spoke ? 'send' : 'restart', spoke };
+  return { s, action: 'none', spoke };
 }

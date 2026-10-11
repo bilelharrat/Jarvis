@@ -1,6 +1,13 @@
 /* Eden Code's transcript in full Markdown (features/code-markdown.js): Claude's words in
    the transcript's own type, calm headings, lists, tables and quotes; code in colour. */
 
+/* A long unbroken word (a hash, a path, base64, a web address) wraps inside the card
+   instead of running past it, in one pane or two; code blocks keep their lines and scroll,
+   and a table scrolls rather than squeezing its columns. */
+.cw-md { overflow-wrap: anywhere; }
+.cw-md pre.cw-pre { overflow-wrap: normal; }
+.cw-md .cw-table { overflow-wrap: break-word; }
+.jc-user { overflow-wrap: anywhere; }  /* (the owner's own messages too) */
 .cw-md > :first-child { margin-top: 0; }
 .cw-md > :last-child { margin-bottom: 0; }
 .cw-md h1, .cw-md h2, .cw-md h3, .cw-md h4, .cw-md h5, .cw-md h6 { margin: 16px 0 6px; line-height: 1.3; font-weight: 650; letter-spacing: -0.01em; color: rgb(var(--c-ink)); }

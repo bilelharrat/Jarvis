@@ -69,7 +69,7 @@ SEND_FILE_TO_CHAT = """on run argv
 end run"""
 
 _PREFIX = re.compile(
-    r"^\s*(?:(?:hey|ok|okay)[\s,，]+)?(?:eden|jarvis|伊甸|贾维斯)(?:(?![:：])[\s,，!！.。、]+|$)",
+    r"^\s*(?:(?:hey|ok|okay)[\s,，]+)?(?:eden|伊甸)(?:(?![:：])[\s,，!！.。、]+|$)",
     re.IGNORECASE,
 )
 _AUDIO = (".caf", ".m4a", ".amr", ".aac", ".mp3", ".wav", ".opus", ".ogg")

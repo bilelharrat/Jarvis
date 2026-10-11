@@ -52,7 +52,8 @@
     "Type the command that starts the server, like npx -y some-mcp-server.": "请输入启动服务器的命令，例如 npx -y some-mcp-server。",
     "settings.local.json can't be read, so nothing was written to it.": "settings.local.json 无法读取，所以没有写入任何内容。",
     "settings.local.json isn't a settings object, so nothing was written to it.": "settings.local.json 不是设置对象，所以没有写入任何内容。",
-    "settings.local.json has server lists of a kind this can't change.": "settings.local.json 里的服务器列表格式无法更改。"
+    "settings.local.json has server lists of a kind this can't change.": "settings.local.json 里的服务器列表格式无法更改。",
+    "Off until you trust this folder": "信任这个文件夹之前不会运行"
   },
   "patterns": [
     [

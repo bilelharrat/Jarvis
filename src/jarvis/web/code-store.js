@@ -104,7 +104,27 @@
     };
   }
 
-  const api = { createStore, STATE };
+  // The hub sends the sessions whole in its snapshot (hello.tasks) and after it only those
+  // that changed (tasks_patch: items, and the ids removed). This turns each patch back into
+  // the whole list, as a "tasks" event (newest first, as the hub lists them), so everything
+  // after it in the window reads the sessions as it always has.
+  function createTasksPatcher() {
+    let known = new Map();
+    return function patched(ev) {
+      if (!ev || typeof ev.type !== 'string') return ev;
+      if (ev.type === 'hello' && Array.isArray(ev.tasks)) known = new Map(ev.tasks.map((t) => [t.id, t]));
+      else if (ev.type === 'tasks' && Array.isArray(ev.items)) known = new Map(ev.items.map((t) => [t.id, t]));
+      else if (ev.type === 'tasks_patch') {
+        for (const id of Array.isArray(ev.removed) ? ev.removed : []) known.delete(id);
+        for (const t of Array.isArray(ev.items) ? ev.items : []) if (t && t.id !== undefined) known.set(t.id, t);
+        const { items: _items, removed: _removed, ...rest } = ev;
+        return { ...rest, type: 'tasks', items: [...known.values()].sort((a, b) => b.id - a.id) };
+      }
+      return ev;
+    };
+  }
+
+  const api = { createStore, createTasksPatcher, STATE };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.jarvisCodeStoreApi = api;
 })(typeof window === 'object' ? window : globalThis);

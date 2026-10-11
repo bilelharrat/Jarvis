@@ -138,7 +138,7 @@
       wrap.append(actions);
       const group = el('div', 'jcs-group');
       const left = pr.fixes_left;
-      group.append(sw('Fix failing checks by itself', `Sends the failing logs to the session when it’s idle, at most 3 times (${left} left), then pushes its fix behind the push card.`, pr.autofix,
+      group.append(sw('Fix failing checks by itself', `Sends the failing logs to the session when it’s idle, at most 3 times (${left} left), then pushes its fix behind the push card. Conflicts with the base go to it too.`, pr.autofix,
         (on) => send({ type: 'code_pr_set', id: task.id, autofix: on })));
       group.append(sw('Merge when green', 'When every check passes and GitHub says it can merge, it’s merged without asking again. Asks once, now.', pr.auto_merge,
         (on) => send({ type: 'code_pr_set', id: task.id, auto_merge: on })));

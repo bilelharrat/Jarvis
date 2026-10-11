@@ -35,7 +35,6 @@ what it names:
 from __future__ import annotations
 
 import functools
-import json
 import logging
 import re
 import shlex
@@ -44,7 +43,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from . import jsonstore
+from . import jsonstore, projectfiles
 
 log = logging.getLogger("jarvis")
 
@@ -477,11 +476,8 @@ def read_claude(project: Path) -> dict[str, dict[str, list[str]]]:
     read has none."""
     out: dict[str, dict[str, list[str]]] = {}
     for name in CLAUDE_FILES.values():
-        path = project / ".claude" / name
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, UnicodeDecodeError):
-            continue
+        # (a pipe, a device or a huge file is never waited on or read whole: CD3-1)
+        data, _why = projectfiles.load_json(project / ".claude" / name)
         permissions = data.get("permissions") if isinstance(data, dict) else None
         if not isinstance(permissions, dict):
             continue
@@ -505,14 +501,10 @@ def write_claude(project: Path, target: str, rules: dict[str, list[str]]) -> int
     if name is None:
         raise ValueError("That isn't a settings file.")
     path = project / ".claude" / name
-    data: dict[str, Any] = {}
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, UnicodeDecodeError) as exc:
-            raise OSError(f"{name} can't be read, so nothing was written to it.") from exc
-        if not isinstance(data, dict):
-            raise OSError(f"{name} isn't a settings object, so nothing was written to it.")
+    found, why = projectfiles.load_json(path, 64_000_000)
+    if why:
+        raise OSError(f"{name} can't be read, so nothing was written to it: {why}.")
+    data: dict[str, Any] = found if isinstance(found, dict) else {}
     permissions = data.get("permissions")
     if permissions is None:
         permissions = data["permissions"] = {}

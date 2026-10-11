@@ -254,7 +254,7 @@ async def test_unicode_titles_messages_and_exports(settings, tmp_path, monkeypat
     path = tm.export(task.id)
     body = path.read_text()
     assert "# 重命名 🚀" in body and "> 修复登录 bug 🐛" in body
-    assert path.name.endswith(" Session.md")  # no ASCII to name it by
+    assert path.name.endswith(" 重命名.md")  # its own letters (the emoji, no letter, left out)
     again = tm.export(task.id)
     assert again != path and path.exists()  # a second export never overwrites the first
     assert _session_title("🐛 " * 20).endswith("…")

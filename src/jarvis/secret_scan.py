@@ -80,6 +80,62 @@ LOCKFILES = {
 MAX_FINDINGS = 50
 LINE_CHARS = 4000
 
+# Cheap checks first, so the costly patterns run only on the lines they could match (the
+# findings are the same: each check is something a match can't do without). A land's scan
+# of 10,000 new files spent most of its time in ASSIGNED's search, tried at every character
+# of every line. Each pattern's literals: one of them is in every text it matches (none:
+# always tried).
+_LITERALS: dict[str, tuple[str, ...]] = {
+    "Private key": ("PRIVATE KEY",),
+    "AWS access key": ("AKIA", "ASIA", "ABIA", "ACCA"),
+    "GitHub token": ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"),
+    "GitLab token": ("glpat-",),
+    "Slack token": ("xox",),
+    "Slack webhook": ("https://hooks.slack.com/services/",),
+    "Stripe secret key": ("k_live_",),
+    "Google API key": ("AIza",),
+    "Google OAuth secret": ("GOCSPX-",),
+    "Anthropic API key": ("sk-ant-",),
+    "OpenAI API key": ("sk-",),
+    "Hugging Face token": ("hf_",),
+    "npm token": ("npm_",),
+    "PyPI token": ("pypi-",),
+    "SendGrid key": ("SG.",),
+    "Twilio key": ("SK",),
+    "Mailgun key": ("key-",),
+    "Discord bot token": (".",),
+    "Telegram bot token": (":AA",),
+    "JSON Web Token": ("eyJ",),
+    "Password in a URL": ("://",),
+}
+_DISCORD = "Discord bot token"
+_ONLY_DISCORD = [(kind, pattern) for kind, pattern in PATTERNS if kind == _DISCORD]
+# Any of those literals at all (Discord's "." aside: most lines have one): one search
+# that rules out most of the patterns on most lines.
+_ANY_LITERAL = re.compile(
+    "|".join(
+        re.escape(lit)
+        for lit in sorted(
+            {lit for kind, lits in _LITERALS.items() if kind != _DISCORD for lit in lits},
+            key=len,
+            reverse=True,
+        )
+    )
+)
+# ASSIGNED's name always holds one of these (lower-cased), and an "=" or ":" follows it.
+_NAME_WORDS = ("key", "secret", "token", "passw", "pwd", "credential")
+
+
+def _may_assign(text: str) -> bool:
+    """Whether ASSIGNED could match text. Its IGNORECASE is plain ASCII case on ASCII text;
+    other text (where re also folds the likes of "ſ" and "K") is always tried."""
+    if not text.isascii():
+        return True
+    if "=" not in text and ":" not in text:
+        return False
+    low = text.lower()
+    return any(word in low for word in _NAME_WORDS)
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -132,7 +188,11 @@ def scan_line(text: str) -> list[tuple[str, str]]:
     def free(span: tuple[int, int]) -> bool:
         return all(span[1] <= a or span[0] >= b for a, b in taken)
 
-    for kind, pattern in PATTERNS:
+    some = _ANY_LITERAL.search(text) is not None  # (none: only Discord's could match)
+    for kind, pattern in PATTERNS if some else _ONLY_DISCORD:
+        literals = _LITERALS.get(kind)
+        if literals is not None and not any(lit in text for lit in literals):
+            continue
         for m in pattern.finditer(text):
             if not free(m.span()):
                 continue
@@ -143,7 +203,7 @@ def scan_line(text: str) -> list[tuple[str, str]]:
                 found.append((kind, m.group(0).replace(m.group(1), "••••")))
             else:
                 found.append((kind, mask(m.group(0))))
-    for m in ASSIGNED.finditer(text):
+    for m in ASSIGNED.finditer(text) if _may_assign(text) else ():
         value = m.group("value")
         if not free(m.span("value")) or _PLACEHOLDER.search(value):
             continue
@@ -152,8 +212,9 @@ def scan_line(text: str) -> list[tuple[str, str]]:
         if _random_looking(value):
             taken.append(m.span("value"))
             found.append((f"Secret-looking value for {m.group('name')[:40]}", mask(value)))
-    if not _HASHY.search(text):
-        for m in QUOTED.finditer(text):
+    quoted = list(QUOTED.finditer(text))  # (cheap; _HASHY's search isn't)
+    if quoted and not _HASHY.search(text):
+        for m in quoted:
             value = m.group(1)
             if not free(m.span(1)) or _PLACEHOLDER.search(value):
                 continue

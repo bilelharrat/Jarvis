@@ -6,7 +6,7 @@
 // the folder a chat goes in from its project. The zip reader and the JSON streaming are shared
 // with the ChatGPT import (import-chatgpt-model.js).
 
-import { parseMemoryLines } from './import-chatgpt-model.js';
+import { parseMemoryLines, importTitle } from './import-chatgpt-model.js';
 
 export const SOURCE = 'claude';
 /** The id an imported conversation gets in Eden: derived from Claude's uuid, so re-importing finds the same chat. */
@@ -142,12 +142,12 @@ export function convertClaudeConversation(raw, { importedAt = Date.now(), projec
 
   const created = time(raw.created_at) || Math.min(...times, importedAt);
   const updated = time(raw.updated_at) || Math.max(...times, created);
-  let title = String(raw.name || '').replace(/\s+/g, ' ').trim();
-  if (!title) title = (firstUser || 'Claude chat').replace(/\s+/g, ' ').slice(0, 60);
+  let title = importTitle(raw.name);
+  if (!title) title = importTitle(firstUser || 'Claude chat', 60) || 'Claude chat';
   const projectId = raw.project_uuid || (raw.project && raw.project.uuid) || '';
   const project = projectId && projects ? projects.get(String(projectId)) : null;
   const conv = {
-    id: edenIdFor(origId), title: title.slice(0, 200), titleSet: true, created, updated, pinned: false, temp: false, kind: 'chat', project: null, sessionId: null, personaId: null,
+    id: edenIdFor(origId), title, titleSet: true, created, updated, pinned: false, temp: false, kind: 'chat', project: null, sessionId: null, personaId: null,
     mode: 'chat', nodes, root, lastRoute: null, allowTools: [], todos: [], queue: [], status: 'idle',
     source: SOURCE,
     import: { source: SOURCE, id: origId, updated, at: importedAt, nodes: Object.keys(nodes).length },

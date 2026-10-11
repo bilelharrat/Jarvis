@@ -39,6 +39,7 @@ const SPLIT_PANE_QUIET = new Set([
 // window's jobs for the hub (the built-in browser, PDFs, page checks) while no J.A.R.V.I.S.
 // window is open on the same backend (hub.window_joined); with one open, that window does them.
 const inEdenCode = !inSplitPane && document.body.dataset.app === 'eden-code';
+const SETTINGS_FRESH_MS = 30_000; // Settings' own asks (shortcuts, phone, providers…) at most this often (toggleSettings)
 const EDEN_CODE_SKIPS = new Set(['ui', 'desktop_hands', 'remote_code', 'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed']);
 const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture']);
 let jarvisWindows = 0;  // J.A.R.V.I.S. windows on this backend (hello.app_windows, app_windows)
@@ -92,7 +93,12 @@ let galaxyData = null;
 let galaxyMode = 'off'; // off | ambient | open
 let ambientTimer = null;
 let selectedNote = null;
-const galaxy = new window.Galaxy($('galaxy-canvas'));
+// Eden Code's page leaves galaxy.js out (server.eden_code_page: it never shows the second brain's stars): a stand-in
+// that has no stars and does nothing, for the code here and in brain.js and gestures.js that asks it.
+const galaxy = window.Galaxy ? new window.Galaxy($('galaxy-canvas')) : new Proxy({ nodes: [], labels: {}, running: false, interactive: false, counts: () => ({}) }, {
+  get: (t, k) => (k in t ? t[k] : () => {}),
+  set: (t, k, v) => { t[k] = v; return true; },
+});
 galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 
 // ── socket ──
@@ -102,12 +108,16 @@ galaxy.onSelect = (id) => { selectedNote = id; send({ type: 'note', id }); };
 let lastSeq = 0;
 // The window's one Eden Code store (code-store.js): every event goes in first, in order.
 const codeStore = window.jarvisCodeStoreApi ? window.jarvisCodeStoreApi.createStore() : null;
+// The hub's tasks_patch (only the sessions that changed), back into the whole list.
+const wholeTasks = window.jarvisCodeStoreApi ? window.jarvisCodeStoreApi.createTasksPatcher() : (ev) => ev;
 function heard(ev) {
+  ev = wholeTasks(ev);
   if (inEdenCode && ev && (ev.type === 'hello' || ev.type === 'app_windows')) {
     const before = jarvisWindows;
     jarvisWindows = Number((ev.type === 'hello' ? ev.app_windows : ev.windows || {})?.jarvis) || 0;
     // J.A.R.V.I.S. closed: this window takes its jobs back, and says what it can do.
     if (before > 0 && jarvisWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
+    if ((before > 0) !== (jarvisWindows > 0) && voiceFocus) onVoiceCode(voiceFocus); // what the box says about listening
   }
   if (inEdenCode && ev && (EDEN_CODE_SKIPS.has(ev.type) || (edenDefers() && WINDOW_DUTIES.has(ev.type)))) return;
   if (inSplitPane && ev && SPLIT_PANE_SKIPS.has(ev.type)) return;  // the main window's
@@ -453,6 +463,19 @@ function onEvent(ev) {
         const known = new Set(codeHistory.map((h) => h.session_id));
         if (gone.some((s) => !known.has(s))) send({ type: 'claude_history' });
       }
+      // (CF2-13) The session on show left the list (pruned): none is, rather than its last
+      // words under the welcome. Once split view has had its say (it may move another in).
+      if (!inSplitPane && ccSelected != null && before.has(ccSelected) && !ccTasks.some((t) => t.id === ccSelected)) {
+        setTimeout(() => {
+          if (ccSelected == null || ccTasks.some((t) => t.id === ccSelected) || jcSplit) return;
+          const previous = ccSelected;
+          ccSelected = null;
+          featureEvent({ type: 'jc_select', id: null, previous });
+          $('deck-timeline').replaceChildren();
+          renderCC(ccTasks);
+          if (currentPane) renderPaneBody();
+        }, 0);
+      }
       break;
     }
     case 'task_log': if (ev.id === ccSelected) appendEntry(ev.entry); break;
@@ -485,7 +508,11 @@ function onEvent(ev) {
       mergeHistory(ev.items || []);
       break;
     case 'claude_history': codeHistory = sortedHistory(ev.items || []); renderProjects(deckProjects); break;
-    case 'task_context': ccContext[ev.id] = ev; renderCC(ccTasks); if (ev.id === ccSelected) renderCtxPop(); break;
+    case 'task_context':
+      // closed: the session isn't running, so there's nothing to measure (the last reading stays).
+      if (ev.closed) { ccContextClosed.add(ev.id); if (ev.id === ccSelected) renderCtxPop(); break; }
+      ccContextClosed.delete(ev.id);
+      ccContext[ev.id] = ev; renderCC(ccTasks); if (ev.id === ccSelected) renderCtxPop(); break;
     case 'task_finished': onTaskFinished(ev); break;
     case 'muted': setMuted(ev.value); break;
     case 'prefs': renderPrefs(ev); break;
@@ -593,10 +620,12 @@ document.addEventListener('keydown', (e) => {
   const typing = field || e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLElement && e.target.isContentEditable);
   if (e.key === 'Escape') {
     if (field && !srMode()) e.target.blur();
-    if (!$('browser').hidden && !typing) toggleBrowser(false);
-    else if (!$('cc').hidden) { if (!jcEscape(e)) toggleCC(false); }
-    else if (!$('accounts').hidden) toggleAccounts(false);
+    // The topmost layer first: Settings (and Accounts) are modal over everything, Eden Code's panel and the browser
+    // included. Esc closes them and only them: it never interrupts a session or closes a pane behind them (CH3-2).
+    if (!$('accounts').hidden) toggleAccounts(false);
     else if (!$('settings').hidden) toggleSettings(false);
+    else if (!$('browser').hidden && !typing) toggleBrowser(false);
+    else if (!$('cc').hidden) { if (!jcEscape(e)) toggleCC(false); }
     else if (galaxyMode === 'open') setGalaxyMode('off');
     else if (!$('activity').hidden) toggleDrawer(false);
     if (state !== 'idle') send({ type: 'stop' });
@@ -1179,8 +1208,16 @@ function setPrefs(changes) {
 }
 
 function toggleSettings(open) {
+  // Never over the Eden Code settings sheet: both were inert, and nothing but Esc got out (CH3-3). It closes first.
+  if (open && !$('jc-settings').hidden) closeJcSettings();
   $('settings').hidden = !open;
-  if (open) { send({ type: 'shortcuts' }); send({ type: 'phone_status' }); send({ type: 'providers_list' }); }
+  // What Settings shows, asked afresh when it opens: once in SETTINGS_FRESH_MS (opening it again and again asked again
+  // each time; what changes meanwhile comes as events anyway).
+  if (open && Date.now() - (toggleSettings.askedAt || 0) > SETTINGS_FRESH_MS) {
+    if (send({ type: 'shortcuts' })) toggleSettings.askedAt = Date.now();
+    send({ type: 'phone_status' });
+    send({ type: 'providers_list' });
+  }
   $('settings-btn').setAttribute('aria-expanded', String(open));
   // Settings always opens (and leaves) showing everything: a control it's asked to focus,
   // like the model menu from the model chip, is never filtered out.
@@ -1525,6 +1562,15 @@ $('fallback-select').addEventListener('change', (e) => setPrefs({ fallback_model
 $('sw-fallback-code').addEventListener('click', () => setPrefs({ fallback_code: prefs.fallback_code === false }));
 $('sw-fallback-always').addEventListener('click', () => setPrefs({ fallback_always: !prefs.fallback_always }));
 $('fallback-add').addEventListener('click', () => { toggleSettings(false); toggleCC(true); jcsKind = 'gemini'; openJcSettings('models'); });
+// Settings › Eden Code: the way into Eden Code's own settings (new-session defaults, Models & API keys, and the tabs
+// features add), now that the gear and ⌘, open Settings (CH2-4).
+function openJcSettingsFromSettings(tab) {
+  toggleSettings(false);
+  if ($('cc').hidden) toggleCC(true);  // (Eden's window: its Eden Code panel first)
+  openJcSettings(tab);
+}
+$('open-jc-settings').addEventListener('click', () => openJcSettingsFromSettings('general'));
+$('open-jc-models').addEventListener('click', () => openJcSettingsFromSettings('models'));
 $('wake-call-time').addEventListener('change', (e) => setPrefs({ wake_call_time: e.target.value }));
 function onPhoneStatus(ev) {
   $('phone-signed').textContent = ev.signed_in ? tr('Signed in') + ` · ${ev.sid_hint}` : tr('Not set up yet');
@@ -2856,7 +2902,7 @@ function selectProject(name) {
   // it's drawn again for the project picked, so its buttons never act on another.
   if (other && !ccSelected && currentPane) renderPaneBody();
   send({ type: 'claude_sessions', directory: name });
-  if (!projectFiles[name]) send({ type: 'project_files', directory: name });
+  askProjectFiles(name, true);
   document.querySelectorAll('.cc-project-name').forEach((n) => { n.textContent = name; });
   renderProjects(deckProjects);
   renderPast();
@@ -2894,6 +2940,7 @@ const MODE_LINES = {
 };
 const MODEL_LABELS = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-4-5': 'Haiku 4.5', 'claude-fable-5-1': 'Fable 5.1' };
 let ccContext = {};
+const ccContextClosed = new Set();  // sessions asked about while not running
 let workingSince = 0;
 let renaming = null;  // the session whose new name is being typed in the title
 
@@ -3201,13 +3248,38 @@ const TIMELINE_MAX = 400;  // what the hub keeps of a session (tasks.py); the wi
 // after it: reading it after every insert laid out the whole transcript each time.
 // how: 'follow' (only if at the bottom), 'show' (always, gliding) or 'jump' (always, at once:
 // a session opening lands on its newest entry instead of gliding through all of them).
-const follow = { frame: 0, bottom: true, jump: false };
+// Whether the reader is following (reader) is changed by their own scrolling only: a
+// wheel, a touch, a key or the scroll bar that leaves the bottom stops it, and coming back
+// to the bottom starts it again. The transcript's own glide to the bottom (smooth, so it
+// passes through places far from the bottom while entries keep coming) and a resize that
+// reflows it (a split pane dragged, the window narrowed) never stop it: they did, and two
+// busy panes stopped following their newest entries.
+const follow = { frame: 0, bottom: true, jump: false, reader: true, watched: null, userAt: 0, dragging: false };
+function watchReader(box) {
+  if (follow.watched === box || !box) return;
+  follow.watched = box;
+  const user = () => { follow.userAt = performance.now(); };
+  for (const kind of ['wheel', 'touchmove', 'keydown']) box.addEventListener(kind, user, { passive: true });
+  window.addEventListener('keydown', (e) => {
+    if (/^(PageUp|PageDown|Home|End|ArrowUp|ArrowDown| )$/.test(e.key) && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '') && !(e.target && e.target.isContentEditable)) user();
+  });
+  box.addEventListener('pointerdown', () => { follow.dragging = true; });
+  window.addEventListener('pointerup', () => { follow.dragging = false; });
+  box.addEventListener('scroll', () => {
+    if (box.scrollHeight - box.scrollTop - box.clientHeight < 140) follow.reader = true;
+    else if (follow.dragging || performance.now() - follow.userAt < 400) follow.reader = false;
+  }, { passive: true });
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => { if (follow.reader && !follow.frame) box.scrollTo({ top: box.scrollHeight, behavior: 'instant' }); }).observe(box);
+  }
+}
 function followBottom(how = 'follow') {
   const box = $('cc-scroll');
-  if (how !== 'follow') follow.bottom = true;
+  watchReader(box);
+  if (how !== 'follow') follow.bottom = follow.reader = true;
   if (how === 'jump') follow.jump = true;
   if (follow.frame) return;
-  if (how === 'follow') follow.bottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+  if (how === 'follow') follow.bottom = follow.reader || box.scrollHeight - box.scrollTop - box.clientHeight < 140;
   follow.frame = requestAnimationFrame(() => {
     follow.frame = 0;
     if (follow.bottom) box.scrollTo({ top: box.scrollHeight, behavior: follow.jump ? 'instant' : 'auto' });
@@ -3546,6 +3618,52 @@ const JC_KEYS = [
   ['@', 'Mention a file'], ['!', 'Run a shell command'], ['#', 'Save a note to CLAUDE.md'],
 ];
 const projectFiles = {};
+// (CF2-5) A project's list is asked for again when it may miss files made since it was read
+// (a session's turn ended, a "!" command ran, a file was made here, the window came back), as
+// the Files pane opens or an @ is typed: a file Claude just made can be opened and mentioned.
+const projectFilesAt = {};  // project -> when the list it has was asked for (ms)
+const projectFilesAsking = {};  // project -> when it was asked for, while the answer is on its way
+let projectFilesChangedAt = 0;  // when files may last have changed
+const PROJECT_FILES_FRESH_MS = 5000;
+function askProjectFiles(dir, again = false) {
+  if (!dir) return;
+  const now = Date.now();
+  const at = projectFilesAt[dir] || 0;
+  if (projectFiles[dir] && !(again && (at < projectFilesChangedAt || now - at > PROJECT_FILES_FRESH_MS))) return;
+  if (now - (projectFilesAsking[dir] || 0) < 3000) return;  // (one ask at a time)
+  // fresh: files changed since its list was read, so the backend reads it again now.
+  if (send({ type: 'project_files', directory: dir, ...(at < projectFilesChangedAt ? { fresh: true } : {}) })) projectFilesAsking[dir] = now;
+}
+function projectFilesChanged() {
+  projectFilesChangedAt = Date.now();
+  const pane = $('jc-pane');
+  if (currentPane === 'files' && pane && !pane.hidden) askProjectFiles(deckProject, true);
+}
+window.addEventListener('focus', () => projectFilesChanged());  // (back from another app: files may be new)
+// A big project's list holds its first 6,000 files (project_files' total says how many it
+// has): the ones matching what's typed are asked of the backend ({query}) and join it.
+const projectFilesTotal = {};  // project -> how many files it has
+const projectFilesAsked = {};  // project -> Map(query -> how many matched, or null: asked)
+const PROJECT_FILES_FOUND_MAX = 300;  // (the backend's answer to a query, at most)
+// Whether a project's list is only part of its files; with a query, asks for its matches.
+function moreProjectFiles(dir, query) {
+  const list = projectFiles[dir];
+  if (!list || !(projectFilesTotal[dir] > list.length)) return false;
+  const q = String(query || '').trim().toLowerCase();
+  if (q.length < 2) return true;
+  const asked = projectFilesAsked[dir] || (projectFilesAsked[dir] = new Map());
+  // (a shorter query that found them all, under the cap, found these too)
+  const known = asked.has(q) || [...asked].some(([k, n]) => n !== null && n < PROJECT_FILES_FOUND_MAX && q.includes(k));
+  if (!known && send({ type: 'project_files', directory: dir, query: q })) asked.set(q, null);
+  return true;
+}
+// The @-word before the caret (code-mentions.js: quoted names, any letters; this plain
+// form until it has loaded).
+function atWord(v) {
+  if (window.JarvisAt) return window.JarvisAt.query(v);
+  const m = v.match(/(?:^|\s)@([\w./-]*)$/);
+  return m && { query: m[1], start: m.index + m[0].indexOf('@') };
+}
 const customSlash = {};  // project -> its and the user's custom commands and skills
 let pickIndex = 0;
 let attachments = [];
@@ -3570,12 +3688,13 @@ function suggestions() {
       ].slice(0, 60),
     };
   }
-  const m = v.match(/(?:^|\s)@([\w./-]*)$/);
-  if (m) {
-    const q = m[1].toLowerCase();
+  const at = atWord(v);
+  if (at) {
+    const q = at.query.toLowerCase();
+    if (deckProject) { askProjectFiles(deckProject, true); moreProjectFiles(deckProject, q); }
     const files = (projectFiles[deckProject] || []).filter((f) => f.toLowerCase().includes(q)).sort((x, y) => x.length - y.length).slice(0, 12);
-    const more = featureMentions.flatMap((suggest) => { try { return suggest(m[1], v) || []; } catch (err) { console.error('feature mentions', err); return []; } });
-    return { kind: 'at', query: m[1], items: [...more, ...files.map((f) => ({ label: f, help: '', value: f }))].slice(0, 16) };
+    const more = featureMentions.flatMap((suggest) => { try { return suggest(at.query, v) || []; } catch (err) { console.error('feature mentions', err); return []; } });
+    return { kind: 'at', query: at.query, items: [...more, ...files.map((f) => ({ label: f, help: '', value: f }))].slice(0, 16) };
   }
   return { kind: '', items: [] };
 }
@@ -3622,7 +3741,10 @@ function pick(s, item) {
     else input.focus();
     return;
   }
-  const before = input.value.slice(0, input.selectionStart).replace(/@[\w./-]*$/, `@${item.value} `);
+  const head = input.value.slice(0, input.selectionStart);
+  const at = atWord(head);
+  const word = window.JarvisAt ? window.JarvisAt.insert(item.value, item.raw) : `@${item.value} `;
+  const before = at ? head.slice(0, at.start) + word : head;
   input.value = before + input.value.slice(input.selectionStart);
   input.selectionStart = input.selectionEnd = before.length;
   $('cc-slash').hidden = true;
@@ -3686,6 +3808,8 @@ const SLASH_MODE_IDS = { manual: 'ask', ask: 'ask', edits: 'edits', auto: 'smart
 // With no session open yet, these work on their own; a mode command starts the session in
 // that mode ("/plan add a cache": planning that). Anything else starts one with it.
 const SLASH_WITHOUT_SESSION = new Set(['files', 'terminal', 'help', 'resume', 'memory', 'settings', 'config', 'effort', 'ultracode', 'add-dir']);
+// …and these with no project picked yet either (the rest work in a project: its files, its terminal, its sessions).
+const SLASH_WITHOUT_PROJECT = new Set(['help', 'settings', 'config', 'effort', 'ultracode', 'model', '']);
 function slashWithoutSession(text) {
   const [word, ...rest] = text.slice(1).split(/\s+/);
   const name = word.toLowerCase();
@@ -3707,7 +3831,9 @@ function slashWithoutSession(text) {
 }
 
 function localSlash(text) {
-  const [name, ...rest] = text.slice(1).split(' ');
+  // Any capitalisation is the same command (/BYPASS asks as /bypass does), as on the backend.
+  const [word, ...rest] = text.slice(1).split(' ');
+  const name = word.toLowerCase();
   const arg = rest.join(' ').trim();
   const t = currentTask();
   switch (name) {
@@ -3733,8 +3859,8 @@ function localSlash(text) {
       return true;
     case 'export': if (t) send({ type: 'task_export', id: t.id }); return true;
     case 'effort':
-      if (arg === 'ultracode') applyEffort(5);
-      else if (arg && EFFORTS.includes(arg)) applyEffort(EFFORTS.indexOf(arg));
+      if (arg.toLowerCase() === 'ultracode') applyEffort(5);
+      else if (arg && EFFORTS.includes(arg.toLowerCase())) applyEffort(EFFORTS.indexOf(arg.toLowerCase()));
       else openEffort();
       return true;
     case 'ultracode': applyEffort(composerState().ultracode ? EFFORTS.indexOf('high') : 5); return true;
@@ -3787,10 +3913,24 @@ function sendToSession(text, steer) {
   if (!text && !images.length) return true;
   const t = currentTask();
   if (!t) {
-    if (!deckProject) return false;
+    if (!deckProject) {
+      // No project yet: the commands that need none still work (/help, /settings…), and the rest say why nothing
+      // happened instead of doing nothing at all (CH3-6).
+      if (!text.startsWith('/') || images.length) return false;
+      if (SLASH_WITHOUT_PROJECT.has(text.slice(1).split(/\s+/)[0].toLowerCase()) && slashWithoutSession(text)) return true;
+      jcNote('Pick a project first.');
+      return false;
+    }
     if (text.startsWith('/') && !images.length && slashWithoutSession(text)) return true;
+    // ! and # work with no session too: in the project picked, not as a new session's prompt.
+    if (text.startsWith('!') && !images.length) { runBang(null, text.slice(1).trim()); return true; }
+    if (text.startsWith('#') && !images.length) { saveMemory(null, text.slice(1).trim()); return true; }
+    const key = projectBangKey();
+    const prompt = withRan(bangContext.get(key), text);
+    if (tooLong(prompt)) return false;
     const extra = { add_dirs: [...pending.dirs], plugins: [...pending.plugins] };
-    if (!send({ type: 'task_new', directory: deckProject, prompt: text, images, ...extra, ...featureSessionFields(text) })) return unsent();
+    if (!send({ type: 'task_new', directory: deckProject, prompt, images, ...extra, ...featureSessionFields(text) })) return unsent();
+    bangContext.delete(key);
     takePending();  // the folders and plugins went with it
     clearAttachments();
     awaitingNewSession = true;
@@ -3799,21 +3939,55 @@ function sendToSession(text, steer) {
   if (text.startsWith('/') && !images.length) {
     if (localSlash(text)) return true;
     if (!send({ type: 'code_command', id: t.id, text })) return unsent();
-    if (text === '/new' || text === '/clear') awaitingNewSession = true;
+    if (/^\/(new|clear)$/i.test(text)) awaitingNewSession = true;
     return true;
   }
   if (text.startsWith('!') && !images.length) { runBang(t, text.slice(1).trim()); return true; }
   if (text.startsWith('#') && !images.length) { saveMemory(t, text.slice(1).trim()); return true; }
-  const ran = bangContext.get(t.id);
-  if (ran && ran.length) {
-    // What the user ran with ! goes to Claude with their next message, as in Claude Code.
-    const blocks = ran.map((r) => `$ ${r.command}\n${r.output.trim() || '(no output)'}${r.code ? `\n(exit ${r.code})` : ''}`);
-    text = `I ran this in the project first:\n\n\`\`\`\n${blocks.join('\n\n')}\n\`\`\`\n\n${text}`;
-  }
+  text = withRan(bangContext.get(t.id), text);
+  if (tooLong(text)) return false;
   if (!send({ type: 'task_send', id: t.id, text, images, ...(steer === undefined ? {} : { steer }), ...featureSendFields(t, text) })) return unsent();
   bangContext.delete(t.id);  // only once it went with this message
   clearAttachments();
   return true;
+}
+
+// The most a message to a session may be (tasks.MESSAGE_MAX, the same on the backend, which
+// refuses a longer one): never cut, the composer keeps it and says so.
+const MESSAGE_MAX = 100000;
+// Characters as the backend counts them (code points): an emoji is one, not two (CA2-13).
+function codePoints(text) {
+  let n = text.length;
+  for (let i = 0; i < text.length - 1; i++) {
+    const c = text.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = text.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) { n--; i++; }
+    }
+  }
+  return n;
+}
+function tooLong(text) {
+  if (text.length <= MESSAGE_MAX) return false;  // (never more code points than that)
+  const n = codePoints(text);
+  if (n <= MESSAGE_MAX) return false;
+  jcNote(`That message is ${n.toLocaleString('en-US')} characters; a session takes up to ${MESSAGE_MAX.toLocaleString('en-US')}. It's still here: shorten it and send again.`);
+  return true;
+}
+
+// What the user ran with ! goes to Claude with their next message, as in Claude Code: before
+// their words, each output's end kept (shortened when they'd make the message too long, so
+// their own words always go whole).
+function withRan(ran, text) {
+  if (!ran || !ran.length) return text;
+  const room = Math.max(0, MESSAGE_MAX - text.length - 120 - ran.reduce((n, r) => n + r.command.length + 40, 0));
+  const each = Math.floor(room / ran.length);
+  const blocks = ran.map((r) => {
+    let out = r.output.trim() || '(no output)';
+    if (out.length > each) out = `…${out.slice(out.length - each)}`;
+    return `$ ${r.command}\n${out}${r.code ? `\n(exit ${r.code})` : ''}`;
+  });
+  return `I ran this in the project first:\n\n\`\`\`\n${blocks.join('\n\n')}\n\`\`\`\n\n${text}`;
 }
 
 // ! runs a command in the project (its output rides along with the next message); #
@@ -3821,23 +3995,30 @@ function sendToSession(text, steer) {
 const bangContext = new Map();
 const bangEntries = new Map();
 let bangRef = 0;
+// (CA2-5) This page's own mark on its refs: every window and split-view pane counts from 1,
+// and an answer meant for another page's b1 must never end up in this one's next message.
+const BANG_PAGE = Math.random().toString(36).slice(2, 10) || 'p';
 
 function runBang(t, command) {
   if (!command) return;
-  const ref = `b${++bangRef}`;
+  const ref = `${BANG_PAGE}-b${++bangRef}`;
   const li = el('li', 'jc-bang');
   const head = el('div', 'jc-bang-head');
   head.append(el('span', 'jc-bang-prompt', '$'), el('code', '', command), el('span', 'jc-bang-state', 'Running…'));
   li.append(head);
   $('deck-timeline').append(li);
   $('cc-scroll').scrollTop = $('cc-scroll').scrollHeight;
-  bangEntries.set(ref, { li, task: t.id });
-  send({ type: 'task_bash', id: t.id, command, ref });
+  bangEntries.set(ref, { li, task: t ? t.id : projectBangKey() });
+  send({ type: 'task_bash', ...(t ? { id: t.id } : { directory: deckProject }), command, ref });
 }
+
+// With no session open, what ! ran waits for the project's next new session.
+const projectBangKey = () => `project:${deckProject}`;
 
 function onBang(ev) {
   const entry = bangEntries.get(ev.ref);
   if (!entry) return;
+  projectFilesChanged();  // (it may have made files)
   bangEntries.delete(ev.ref);
   entry.li.querySelector('.jc-bang-state').textContent = ev.code ? `exit ${ev.code}` : 'Done · goes with your next message';
   entry.li.classList.toggle('failed', !!ev.code);
@@ -3850,7 +4031,7 @@ function onBang(ev) {
 
 function saveMemory(t, note) {
   if (!note) return;
-  send({ type: 'task_memory', id: t.id, text: note });
+  send({ type: 'task_memory', ...(t ? { id: t.id } : { directory: deckProject }), text: note });
 }
 
 function onMemory(ev) {
@@ -4097,7 +4278,13 @@ document.addEventListener('keydown', (e) => {
   if (cmd(e) && !e.altKey && !other(e)) {
     const key = e.key.toLowerCase();
     if (key === 'u' && !e.shiftKey) { e.preventDefault(); $('jc-file').click(); return; }
-    if (key === ',' && !e.shiftKey) { e.preventDefault(); openJcSettings('general'); return; }
+    if (key === ',' && !e.shiftKey) {
+      e.preventDefault();
+      // Eden Code: ⌘, is its gear's Settings (its tooltip says so), not a second sheet (CH10): the Eden Code handler above does it.
+      if (inEdenCode) return;
+      openJcSettings('general');
+      return;
+    }
     if (e.shiftKey && key === 'm') { e.preventDefault(); setMode(nextMode()); return; }
     if (e.shiftKey && key === 'i') { e.preventDefault(); modelMenu(); return; }
     if (e.shiftKey && key === 'e') { e.preventDefault(); openEffort(); return; }
@@ -4484,7 +4671,12 @@ function renderCtxPop() {
   const pop = $('jc-ctx-pop');
   if (pop.hidden) return;
   const c = ccContext[ccSelected];
-  if (!c) { $('cx-total').textContent = '…'; return; }
+  if (!c) {
+    const closed = ccContextClosed.has(ccSelected);
+    $('cx-total').textContent = closed ? '—' : '…';
+    if (closed) $('cx-note').textContent = 'It shows once the session is running again.';
+    return;
+  }
   $('cx-total').textContent = c.max ? `${tokens(c.tokens)} / ${tokens(c.max)} (${c.percent}%)` : tokens(c.tokens);
   const cats = c.categories || [];
   $('cx-bar').replaceChildren(...cats.map((cat, i) => {
@@ -4661,7 +4853,7 @@ function plusMenu() {
     { icon: 'plug', label: 'Connectors', sub: connectorItems, subKind: 'connectors' },
     { icon: 'puzzle', label: 'Add plugins', note: t ? '' : 'Joins the next session', run: addCodePlugin },
     '-',
-    { icon: 'gear', label: 'Eden Code settings', key: '⌘,', run: () => openJcSettings('general') },
+    { icon: 'gear', label: 'Eden Code settings', key: inEdenCode ? '' : '⌘,', run: () => openJcSettings('general') }, // (⌘, is Settings in Eden Code)
   ]);
 }
 $('jc-plus').addEventListener('click', () => { if ($('jc-menu').hidden || $('jc-menu').dataset.anchor !== 'jc-plus') plusMenu(); else closeMenu(); });
@@ -4700,8 +4892,20 @@ function onDictation(ev) {
 let jcsKind = 'openrouter';
 const providerChecks = {};  // provider id -> its last check (models it offers)
 
+// The sheet's tabs follow the tabs pattern (CH3-7): each tab names its panel and the panel its tab, and only the
+// selected tab is a Tab stop (the arrow keys, Home and End move between them: the keydown below). Features add tabs
+// as they load (Machines, Limits, Projects, Snippets): their panel is #jcs-<tab>, wired here each time.
 function selectJcsTab(tab) {
-  document.querySelectorAll('.jcs-tabs [role="tab"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  document.querySelectorAll('.jcs-tabs [role="tab"]').forEach((b) => {
+    const on = b.dataset.tab === tab;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    const panel = $(`jcs-${b.dataset.tab}`);
+    if (!panel) return;
+    b.id = b.id || `jcs-tab-${b.dataset.tab}`;
+    b.setAttribute('aria-controls', panel.id);
+    panel.setAttribute('aria-labelledby', b.id);
+  });
   $('jcs-general').hidden = tab !== 'general';
   $('jcs-models').hidden = tab !== 'models';
   if (tab === 'models') checkGeminiOnce();
@@ -4716,24 +4920,68 @@ function checkGeminiOnce() {
     send({ type: 'providers_check', id: p.id });
   }
 }
+// The sheet is modal for the keyboard too (CH2-5): while it's open everything around it is inert (no Tab stops,
+// nothing a screen reader walks into), and closing it puts the focus back where it was.
+let jcsInert = [];
+let jcsOpener = null;
+function jcsModal(open) {
+  for (const n of jcsInert) n.inert = false;
+  jcsInert = [];
+  if (!open) return;
+  for (let node = $('jc-settings'); node && node.parentElement && node !== document.body; node = node.parentElement) {
+    for (const other of node.parentElement.children) {
+      if (other !== node && !other.inert && other.localName !== 'script' && other.localName !== 'style') {
+        other.inert = true;
+        jcsInert.push(other);
+      }
+    }
+  }
+}
 function openJcSettings(tab = 'general') {
   closeMenu();
   closeEffort();
+  if ($('jc-settings').hidden) {
+    const active = document.activeElement;
+    jcsOpener = active && active !== document.body ? active : null;
+  }
   $('jc-settings').hidden = false;
   selectJcsTab(tab);
   renderJcGeneral();
   renderProviders();
   send({ type: 'providers_list' });
-  (tab === 'models' ? $('jcs-key') : $('jcs-close')).focus();
+  const first = () => (tab === 'models' ? $('jcs-key') : $('jcs-close'));
+  first().focus();
+  // After whatever closed on the way here (Settings, the palette) has given its window back: the inert set is made
+  // from what's around the sheet then, and the focus is put in it again if Settings' own closing took it away.
+  queueMicrotask(() => {
+    if ($('jc-settings').hidden) return;
+    jcsModal(true);
+    if (!$('jc-settings').contains(document.activeElement)) first().focus();
+  });
 }
 function closeJcSettings() {
   $('jc-settings').hidden = true;
   $('jcs-key').value = '';  // a key never lingers in the window
-  $('deck-input').focus();
+  jcsModal(false);
+  const back = jcsOpener;
+  jcsOpener = null;
+  // Back to what opened it when that's still on screen (the plus menu's item is gone with the menu: the composer).
+  if (back && back.isConnected && !back.closest('[hidden], [inert]') && back.getClientRects().length) back.focus();
+  else $('deck-input').focus();
 }
 $('jcs-close').addEventListener('click', closeJcSettings);
 $('jc-settings').addEventListener('mousedown', (e) => { if (e.target === $('jc-settings')) closeJcSettings(); });
 document.querySelectorAll('.jcs-tabs [role="tab"]').forEach((b) => b.addEventListener('click', () => selectJcsTab(b.dataset.tab)));
+document.querySelector('.jcs-tabs').addEventListener('keydown', (e) => {
+  const tabs = [...e.currentTarget.querySelectorAll('[role="tab"]')].filter((b) => !b.hidden);
+  const at = tabs.indexOf(e.target);
+  const to = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (at < 0 || to === undefined || e.metaKey || e.ctrlKey || e.altKey) return;
+  e.preventDefault();
+  const next = tabs[(to + tabs.length) % tabs.length];
+  next.click();  // (each tab's own click selects it: a feature's tab included)
+  next.focus();
+});
 
 function option(value, label, selected) {
   const o = el('option', '', label);
@@ -5041,11 +5289,13 @@ function openPane(kind) {
   $('jc-pane-title').textContent = PANE_TITLES[kind] || kind;
   document.querySelectorAll('.jc-tool[data-pane]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pane === kind)));
   const t = currentTask();
-  if (kind === 'diff' && t) send({ type: 'task_diff', id: t.id });
+  // The old whole-folder diff: for the plain Changes pane (the Changes feature's own asks for
+  // code_changes) and the Artifacts pane's new files.
+  if (t && ((kind === 'diff' && !featurePanes.has('diff')) || kind === 'artifacts')) send({ type: 'task_diff', id: t.id });
   if (kind === 'mcp' && t) { mcpAnswer = null; mcpAsked = t.id; send({ type: 'task_mcp', id: t.id }); }
   if (kind === 'rules' && t) send({ type: 'task_rules', id: t.id });
   if (kind === 'audit' && t) askAudit(t);
-  if ((kind === 'files' || kind === 'artifacts') && deckProject && !projectFiles[deckProject]) send({ type: 'project_files', directory: deckProject });
+  if ((kind === 'files' || kind === 'artifacts') && deckProject) askProjectFiles(deckProject, true);
   renderPaneBody();
 }
 
@@ -5290,11 +5540,16 @@ function loadScript(src) {
 async function ensureXterm() {
   if (window.Terminal && window.FitAddon) return;
   if (!term.loading) {
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = '/xterm/xterm/css/xterm.css';
-    document.head.append(css);
-    term.loading = loadScript('/xterm/xterm/lib/xterm.js').then(() => loadScript('/xterm/addon-fit/lib/addon-fit.js'));
+    if (!document.getElementById('xterm-css')) {
+      const css = document.createElement('link');
+      css.id = 'xterm-css';
+      css.rel = 'stylesheet';
+      css.href = '/xterm/xterm/css/xterm.css';
+      document.head.append(css);
+    }
+    // A load that failed isn't kept: the next try asks again (once the files are installed, CH18).
+    term.loading = loadScript('/xterm/xterm/lib/xterm.js').then(() => loadScript('/xterm/addon-fit/lib/addon-fit.js'))
+      .catch((err) => { term.loading = null; throw err; });
   }
   await term.loading;
 }
@@ -5345,7 +5600,11 @@ function onVoiceCode(focus) {
   if (voiceFocus) $('code-text').textContent = `Voice coding · ${voiceFocus.folder} · ${MODE_LABELS[voiceFocus.mode] || voiceFocus.mode}`;
   $('cc-voice-head').setAttribute('aria-pressed', String(!!voiceFocus));
   $('cc-voice-label').textContent = voiceFocus ? `Voice · ${voiceFocus.folder}` : 'Voice off';
-  $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected ? 'Listening: just talk (say “exit code mode” to stop), or type…' : 'Ask Eden Code to plan, build or fix something…';
+  // Eden Code alone (no Eden window on its backend) has no microphone open: the focus waits for Eden to hear it (CH5).
+  const hears = !inEdenCode || jarvisWindows > 0;
+  $('deck-input').placeholder = voiceFocus && voiceFocus.id === ccSelected
+    ? (hears ? 'Listening: just talk (say “exit code mode” to stop), or type…' : 'Voice is on for this session: Eden hears you while Eden is open. Or type…')
+    : 'Ask Eden Code to plan, build or fix something…';
   renderProjects(deckProjects);
 }
 
@@ -5370,7 +5629,30 @@ function onJarvisCodeEvent(ev) {
     case 'providers_check': onProviderCheck(ev); return true;
     case 'providers_error': onProvidersError(ev); return true;
     case 'slash_list': customSlash[ev.directory] = ev.items || []; if (!$('cc-slash').hidden) renderSuggestions(); return true;
-    case 'project_files': projectFiles[ev.directory] = ev.files || []; if (currentPane === 'files' && ev.directory === deckProject) renderPaneBody(); return true;
+    case 'project_files': {
+      const files = Array.isArray(ev.files) ? ev.files : [];
+      if (ev.query && projectFiles[ev.directory]) {  // a query's matches among all: they join the list
+        const have = new Set(projectFiles[ev.directory]);
+        const added = files.filter((f) => !have.has(f));
+        if (added.length) projectFiles[ev.directory] = [...projectFiles[ev.directory], ...added];
+        (projectFilesAsked[ev.directory] || (projectFilesAsked[ev.directory] = new Map())).set(String(ev.query), files.length);
+        const box = $('cc-slash');
+        if (added.length && ev.directory === deckProject && document.activeElement === $('deck-input') && box && !box.hidden) renderSuggestions();
+      } else if (!ev.query) {
+        projectFilesAt[ev.directory] = projectFilesAsking[ev.directory] || Date.now();
+        delete projectFilesAsking[ev.directory];
+        projectFiles[ev.directory] = files;
+        projectFilesTotal[ev.directory] = Number.isInteger(ev.total) ? ev.total : files.length;
+        delete projectFilesAsked[ev.directory];
+        const box = $('cc-slash');  // (an @ being typed: with the files made since)
+        if (ev.directory === deckProject && document.activeElement === $('deck-input') && box && !box.hidden) renderSuggestions();
+      }
+      if (currentPane === 'files' && ev.directory === deckProject) {
+        renderPaneBody();
+        if (!ev.query) askProjectFiles(ev.directory, true);  // (files changed while it was on its way)
+      }
+      return true;
+    }
     case 'file_content': if (fileView && ev.path === fileView.path) { fileView = ev; drawViewer(); } return true;
     case 'term_open': onTermOpen(ev); return true;
     case 'term_data': onTermData(ev); return true;
@@ -6661,6 +6943,7 @@ $('meeting-stop').addEventListener('click', () => send({ type: 'meeting_stop' })
 $('chip-meeting').addEventListener('click', () => send({ type: 'meeting_start', title: 'Meeting' }));
 
 function onTaskFinished(ev) {
+  if (ev.task_kind === 'code') projectFilesChanged();  // (its turn may have made files)
   if (ev.id === ccSelected) send({ type: 'task_context', id: ev.id });
   // The session on screen shows its own end of turn: a card would only cover its Changes pane.
   if (ev.task_kind === 'code' && sessionOnScreen(ev.id) && !$('cc').hidden) return;

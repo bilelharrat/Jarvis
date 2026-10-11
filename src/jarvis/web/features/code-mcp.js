@@ -20,6 +20,7 @@
 
   // How a server is doing, in words, and its dot's class.
   function statusOf(s) {
+    if (s.untrusted) return ['Off until you trust this folder', 'idle'];
     if (s.approved === null && s.scope === 'project') return ['Waiting for your OK', 'idle'];
     if (s.approved === false) return ['Refused here', 'idle'];
     if (s.off) return ['Off in this session', 'idle'];

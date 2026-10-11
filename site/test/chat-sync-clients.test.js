@@ -19,7 +19,7 @@ const ORIGIN = 'https://askeden.com';
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const realFetch = globalThis.fetch;
 const timers = { setTimeout: globalThis.setTimeout, setInterval: globalThis.setInterval, clearTimeout: globalThis.clearTimeout, clearInterval: globalThis.clearInterval };
-const KEYS = ['localStorage', 'document', 'location', 'addEventListener', 'removeEventListener', 'dispatchEvent', 'fetch', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'];
+const KEYS = ['localStorage', 'document', 'location', 'BroadcastChannel', 'addEventListener', 'removeEventListener', 'dispatchEvent', 'fetch', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'];
 const saved = Object.fromEntries(KEYS.map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
 let env;
 let root;
@@ -63,6 +63,7 @@ async function browser(name) {
       return worker.fetch(new Request(u, { ...init, headers }), env, { waitUntil() {} });
     },
     setTimeout: () => 0, setInterval: () => 0, clearTimeout() {}, clearInterval() {},
+    BroadcastChannel: undefined, // tabs of one browser talk over it (state.js); two devices never share one
   };
   const b = { tab, log: [] };
   b.use = () => { for (const k of KEYS) Object.defineProperty(globalThis, k, { value: tab[k], configurable: true, writable: true }); };
@@ -149,14 +150,21 @@ test('a first upload of hundreds of chats is not cut off by the chat-turn allowa
 });
 
 test('too many calls: the pass stops, says so in plain words, keeps its progress, and goes on', async () => {
-  env.CSYNC_RATE = rateLimiter(40);
+  // 3 calls: the page now uploads chats in batches (askeden web/chat/cloud-sync.js, a few calls for 100 chats),
+  // so a limit of 40 is no longer reached; 3 stops the pass part-way, with or without batches (AW2-8)
+  env.CSYNC_RATE = rateLimiter(3);
   const a = await browser('A');
   for (let i = 0; i < 100; i++) chat(a, `Chat ${i}`);
   const first = await a.start();
   assert.match(first.error, /slow down/);
   assert.equal(first.last, 0);
-  env.CSYNC_RATE.max = 1000; // a minute later
-  const second = await a.sync();
+  const kept = [...(await env.ACCOUNTS.objects.get(ACCOUNT).storage.list({ prefix: 'cvm:' })).keys()].length;
+  assert.ok(kept < 100, `${kept} chats uploaded before the stop`);
+  env.CSYNC_RATE.max = 1000; // a minute later (the page holds every sync until retry-after has passed: bug sweep AS6)
+  const realNow = Date.now;
+  Date.now = () => realNow() + 65_000;
+  let second;
+  try { second = await a.sync(); } finally { Date.now = realNow; }
   assert.equal(second.error, '');
   assert.ok(second.last > 0);
   const stored = [...(await env.ACCOUNTS.objects.get(ACCOUNT).storage.list({ prefix: 'cvm:' })).keys()];

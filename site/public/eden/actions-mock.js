@@ -170,7 +170,7 @@ export async function actionsMock(p, method, body) {
     if (body.confirm !== true) return json({ error: 'Undo needs confirm: true.' }, 400);
     const a = ACTIONS.find((x) => x.id === body.id);
     if (!a) return json({ done: false, status: 'not_done', text: 'Too old to undo.' });
-    await sleep(a.where === 'mac' ? 1800 : 700); // the Mac: the owner answering Eden's card
+    await sleep(a.where === 'mac' ? 1800 : 700); // the Mac: the owner answering Jarvis's card
     if (a.undone) return json({ done: false, status: 'not_done', text: 'That was undone already.' });
     if (!a.undo.possible) return json({ done: false, status: 'not_done', text: a.undo.why });
     a.undone = local(new Date());

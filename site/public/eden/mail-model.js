@@ -5,6 +5,15 @@
 // untrusted (H8); answers are cached per message id so reopening never bills again.
 // No imports: the tests load this file on its own.
 
+/**
+ * Header text as shown (subjects, names, snippets): the bidi overrides and isolates (U+202A–202E,
+ * U+2066–2069) taken out, so "Invoice\u202Egnp.exe" can't show as "Invoiceexe.png" (AM9). The
+ * text's own direction (Arabic, Hebrew) is kept: the browser still lays it out.
+ */
+export function cleanHeader(t) {
+  return String(t ?? '').replace(/[\u202A-\u202E\u2066-\u2069]/g, '');
+}
+
 /** The address in "Name <a@b>" (or the text itself). */
 export function emailOf(from) {
   const s = String(from || '').trim();

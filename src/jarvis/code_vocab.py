@@ -24,7 +24,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REFRESH_SECONDS = 600
-MAX_FILES = 20000
+# The file list alone (git ls-files, or a walk: not the names defined in the files) is
+# listed again when it's older than this for the Files pane and @ (CF2-5: a file made after
+# the list was read never showed for ten minutes, a reload included).
+FILES_FRESH_SECONDS = 3.0  # the whole list, asked for as the Files pane opens or after a turn
+FILES_QUERY_SECONDS = 15.0  # a big project's search among all of them, asked as one types
+FILES_CHANGED_SECONDS = 0.5  # asked for because files changed (one ask per pane at once)
+MAX_FILES = 20000  # files the vocabulary learns from (all_files lists them all)
+ALL_FILES_MAX = 200_000  # a project's files listed, at most (for the Files pane's search)
+WALK_FILES_MAX = 100_000  # ...and in a folder that isn't a git repository (walked)
 MAX_SCANNED = 400
 SOURCE_EXTS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".swift", ".go", ".rs", ".java", ".kt",
@@ -83,36 +91,62 @@ class _Tables:
 class ProjectVocab:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
-        self.files: list[str] = []  # relative paths
+        self.files: list[str] = []  # relative paths: the first MAX_FILES of all_files
+        self.all_files: list[str] = []  # every one (up to ALL_FILES_MAX), for finding by name
         self.idents: list[str] = []  # most common first
         self._at = 0.0
+        self._files_at = 0.0
         self._kept: _Tables | None = None
 
     def refresh(self, force: bool = False) -> None:
         if not force and self.files and time.monotonic() - self._at < REFRESH_SECONDS:
             return
-        self._at = time.monotonic()
-        self.files = self._list_files()
+        self._at = self._files_at = time.monotonic()
+        self.all_files = self._list_files()
+        self.files = self.all_files[:MAX_FILES]
         self.idents = self._scan_idents()
+
+    def refresh_files(self, within: float) -> None:
+        """The file list again when it was read more than `within` seconds ago."""
+        if self.files and time.monotonic() - self._files_at < within:
+            return
+        self._files_at = time.monotonic()
+        found = self._list_files()
+        self.all_files, self.files = found, found[:MAX_FILES]
+
+    def find(self, query: str, limit: int = 300) -> list[str]:
+        """Files whose path has the words typed (any case) among all of them, the shortest
+        first: the window's list carries only the first ones of a big project."""
+        q = str(query or "").strip().lower()
+        if not q:
+            return []
+        hits = [f for f in self.all_files if q in f.lower()]
+        hits.sort(key=lambda f: (len(f), f))
+        return hits[:limit]
 
     def _list_files(self) -> list[str]:
         try:
+            # -z: names as they are. Without it git quotes one with a byte past ASCII in
+            # octal ("caf\303\251.py"), which can't be opened or mentioned.
             out = subprocess.run(
                 [
                     "git",
                     "-C",
                     str(self.root),
+                    "-c",
+                    "core.quotePath=false",
                     "ls-files",
+                    "-z",
                     "--cached",
                     "--others",
                     "--exclude-standard",
                 ],
                 capture_output=True,
-                text=True,
                 timeout=10,
             )
-            if out.returncode == 0 and out.stdout.strip():
-                return out.stdout.splitlines()[:MAX_FILES]
+            if out.returncode == 0 and out.stdout.strip(b"\0"):
+                names = out.stdout.decode("utf-8", errors="replace").split("\0")
+                return [n for n in names if n][:ALL_FILES_MAX]
         except (OSError, subprocess.SubprocessError):
             pass
         found = []
@@ -120,7 +154,7 @@ class ProjectVocab:
             dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
             for name in filenames:
                 found.append(str(Path(dirpath, name).relative_to(self.root)))
-                if len(found) >= MAX_FILES:
+                if len(found) >= WALK_FILES_MAX:
                     return found
         return found
 
@@ -304,7 +338,8 @@ _vocabs_lock = threading.Lock()  # (asked for from more than one thread at once)
 VOCABS_KEPT = 16
 
 
-def vocab_for(root: Path) -> ProjectVocab:
+def vocab_for(root: Path, files_within: float | None = None) -> ProjectVocab:
+    """The project's vocabulary; files_within: its file list no older than that (seconds)."""
     root = Path(root).resolve()
     with _vocabs_lock:
         vocab = _vocabs.pop(root, None) or ProjectVocab(root)
@@ -312,4 +347,6 @@ def vocab_for(root: Path) -> ProjectVocab:
         while len(_vocabs) > VOCABS_KEPT:
             del _vocabs[next(iter(_vocabs))]
     vocab.refresh()
+    if files_within is not None:
+        vocab.refresh_files(files_within)
     return vocab

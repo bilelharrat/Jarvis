@@ -658,6 +658,9 @@ def whisper_transcriber(model_name: str, language: str) -> Transcribe:
             with wave.open(str(wav), "rb") as w:
                 frames = min(w.getnframes(), MEMO_MINUTES * 60 * w.getframerate())
                 audio = np.frombuffer(w.readframes(frames), dtype="<i2").astype(np.float32) / 32768
+        from .vad import quiet_onnxruntime
+
+        quiet_onnxruntime()  # (CA3-1) faster-whisper's voice detection runs on onnxruntime
         pieces, _info = model.transcribe(
             audio, beam_size=1, vad_filter=True, condition_on_previous_text=False, **options
         )

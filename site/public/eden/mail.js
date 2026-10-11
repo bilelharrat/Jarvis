@@ -20,7 +20,7 @@ import { initCompose, openCompose, draftReplyText, stripMd } from './compose.js'
 import { routeSettings, modelInfo } from './router.js';
 import { renderMarkdown } from './markdown.js';
 import {
-  nameOf, emailOf, avatarFor, groupByDay, dayLabel, mailLines, AI_MAX, RANKS, RANK_LABEL, RANK_SYSTEM, DIGEST_SYSTEM, SUMMARY_SYSTEM,
+  nameOf, emailOf, avatarFor, groupByDay, dayLabel, mailLines, cleanHeader, AI_MAX, RANKS, RANK_LABEL, RANK_SYSTEM, DIGEST_SYSTEM, SUMMARY_SYSTEM,
   parseRanks, sortByRank, rankCounts, parseDigest, makeCache, digestKey,
 } from './mail-model.js';
 import {
@@ -46,7 +46,7 @@ const own = (tag, cls, text) => el(tag, { class: cls, 'data-no-i18n': '' }, PLAC
 const DONE = isFr ? 'Terminé' : 'Done'; // Mail's Done (archive), not the dialogs' "OK"
 
 let H = {};
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's (?:Jarvis|Eden)[^:)]*:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 
 async function call(tool, args = {}) {
@@ -67,7 +67,7 @@ const SOURCES = {
     search: async (args) => {
       if (args.mailbox === 'drafts') { const j = await gmail('drafts', { limit: args.limit, ...(args.query ? { query: args.query } : {}) }); return { rows: arrayIn(j, ['drafts']) || [], text: '' }; }
       const j = await gmail('search', args);
-      return { rows: arrayIn(j, ['messages', 'results', 'items']) || [], text: '' };
+      return { rows: arrayIn(j, ['messages', 'results', 'items']) || [], text: '', next: (j && typeof j.nextPageToken === 'string' && j.nextPageToken) || null };
     },
     read: async (id) => gmail('read', { id }),
   },
@@ -110,9 +110,9 @@ function normMsg(m) {
   return {
     id: String(m.id ?? m.message_id ?? m.messageId ?? ''),
     draftId: m.draftId ? String(m.draftId) : '',
-    from: str(m.from ?? m.sender), to: list(m.to), cc: list(m.cc), bcc: list(m.bcc), replyTo: str(m.replyTo ?? m.reply_to),
-    subject: str(m.subject) || '(no subject)', date: str(m.date ?? m.received ?? m.sent),
-    snippet: str(m.snippet ?? m.preview ?? m.excerpt), body: str(m.body ?? m.text ?? m.content ?? m.plain),
+    from: cleanHeader(str(m.from ?? m.sender)), to: list(m.to).map(cleanHeader), cc: list(m.cc).map(cleanHeader), bcc: list(m.bcc), replyTo: str(m.replyTo ?? m.reply_to),
+    subject: cleanHeader(str(m.subject)) || '(no subject)', date: str(m.date ?? m.received ?? m.sent),
+    snippet: cleanHeader(str(m.snippet ?? m.preview ?? m.excerpt)), body: str(m.body ?? m.text ?? m.content ?? m.plain),
     html: typeof m.html === 'string' ? m.html : '',
     hidden: Number(m.hidden) || 0, // hidden HTML parts the server left out of `body` (H8: the source card's badge)
     unread: m.unread === true || m.read === false, account: str(m.account), mailbox: str(m.mailbox),
@@ -131,13 +131,17 @@ let panelBody = null;
 const LS = (() => { try { return localStorage; } catch { return null; } })();
 try { mail.ranked = LS && LS.getItem('eden:mail:ranked') === '1'; } catch { /* storage blocked */ }
 // Eden's answers, per message id (and per set of messages for the digest): reopening never bills again.
-const rankCache = makeCache(LS, 'eden:mail:ranks', 400);
-const sumCache = makeCache(LS, 'eden:mail:sums', 120);
-const instantCache = makeCache(LS, 'eden:mail:instant', 150);
+// mock mode (?mock=1) keeps its own copies, as the mail kit and Auto Drafts do (AM10)
+const MOCK_KEY = isMockMail() ? ':mock' : '';
+const rankCache = makeCache(LS, `eden:mail:ranks${MOCK_KEY}`, 400);
+const sumCache = makeCache(LS, `eden:mail:sums${MOCK_KEY}`, 120);
+const instantCache = makeCache(LS, `eden:mail:instant${MOCK_KEY}`, 150);
 const autoCache = makeCache(LS, isMockMail() ? 'eden:mail:auto:mock' : 'eden:mail:auto', 120); // Auto Drafts, per message id
-const digestCache = makeCache(LS, 'eden:mail:digests', 12);
+const digestCache = makeCache(LS, `eden:mail:digests${MOCK_KEY}`, 12);
 const ck = (id) => `${mail.source}:${id}`;
 
+/** Emails per list read (Load more reads the next page). */
+const PAGE = 30;
 const FOLDER_ICO = { inbox: 'inbox', sent: 'send', drafts: 'doc', scheduled: 'clock', team: 'user' };
 
 /** The row's time: today → 14:05, this week → Mon, else 3 Oct. */
@@ -158,6 +162,14 @@ function avatar(from, big = false) {
 }
 const iconBtn = (name, label, onclick, cls = '') => el('button', { type: 'button', class: `mx-ib ${cls}`.trim(), 'aria-label': label, title: label, onclick }, ico(name, 15));
 const rankPill = (r) => (r ? el('span', { class: `rk rk-${r.level}`, title: r.reason || RANK_LABEL[r.level] }, RANK_LABEL[r.level]) : null);
+/** Makes `parent`'s children exactly `want`, removing what's gone and moving only what isn't in place yet (nodes left where
+ * they are keep their layout, focus and scroll). */
+function place(parent, want) {
+  const keep = new Set(want);
+  for (let c = parent.firstChild; c;) { const nx = c.nextSibling; if (!keep.has(c)) parent.removeChild(c); c = nx; }
+  let cur = parent.firstChild;
+  for (const node of want) { if (node === cur) cur = cur.nextSibling; else parent.insertBefore(node, cur); }
+}
 
 /**
  * Keyboard focus into the panel: the selected source tab. It's drawn at once, before Gmail or
@@ -237,7 +249,8 @@ export async function mailPanel(body) {
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const search = el('label', 'mx-search', ico('search', 14), q, el('kbd', { 'aria-hidden': 'true' }, isMac ? '⌘F' : 'Ctrl F'));
   head.append(el('div', 'mx-bar2', folders, search));
-  const paintCounts = () => folders.querySelectorAll('[data-count]').forEach((c) => { const n = counts[c.dataset.count]; c.textContent = n ? String(n) : ''; c.hidden = !n; });
+  // a "+" when only some of the mailbox is loaded (more pages in Gmail): the count is of what's here (AM4)
+  const paintCounts = () => folders.querySelectorAll('[data-count]').forEach((c) => { const n = counts[c.dataset.count]; c.textContent = n ? `${n}${counts.more && counts.more[c.dataset.count] ? '+' : ''}` : ''; c.hidden = !n; });
   const paintSeg = () => {
     folders.querySelectorAll('[data-box]').forEach((b) => { const on = b.dataset.box === mail.mailbox; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); });
     search.hidden = mail.mailbox === 'scheduled' || mail.mailbox === 'team';
@@ -257,8 +270,11 @@ export async function mailPanel(body) {
     const my = (mail.runId = (mail.runId || 0) + 1);
     const key = listKey(mail.source, mail.account || (mail.google && mail.google.email) || '', mail.mailbox);
     const stopPanel = timing('panel');
-    const show = (rows) => {
+    const show = (rows, next = null) => {
       mail.rows = rows.map(normMsg);
+      mail.next = next;
+      mail.autoMore = 0;
+      (counts.more ||= {})[mail.mailbox] = !!next;
       counts[mail.mailbox] = mail.mailbox === 'inbox' ? (mail.query ? counts.inbox : visibleRows().filter((m) => m.unread).length) : mail.rows.length;
       paintCounts();
       drawList();
@@ -266,7 +282,7 @@ export async function mailPanel(body) {
     const cached = mail.query ? null : await getList(key);
     if (my !== mail.runId) return;
     let shown = false;
-    if (cached && Array.isArray(cached.rows)) { mail.sel = -1; show(cached.rows); stopPanel(); shown = true; prefetch(); }
+    if (cached && Array.isArray(cached.rows)) { mail.sel = -1; show(cached.rows, cached.next || null); stopPanel(); shown = true; prefetch(); }
     else list.replaceChildren(skeleton());
     const after = () => {
       if (mail.ranked && mail.mailbox === 'inbox') rankInbox();
@@ -280,22 +296,47 @@ export async function mailPanel(body) {
         if (my !== mail.runId) return;
         if (h && !h.tooOld && !h.changes) { after(); return; } // nothing changed: the cache is the mailbox
       }
-      const args = { mailbox: mail.mailbox, limit: 30, ...(mail.query ? { query: mail.query } : {}), ...(mail.account ? { account: mail.account } : {}) };
+      const args = pageArgs();
       const [res, prof] = await Promise.all([src.search(args), mail.source === 'gmail' && !mail.query ? gmail('profile').catch(() => null) : null]);
       if (my !== mail.runId) return;
       const { rows, text } = res;
       if (!rows) { mail.rows = []; list.replaceChildren(el('p', { class: 'note-full' }, text || 'Nothing found.')); return; }
       if (!shown) mail.sel = -1;
       const keepOpen = mail.open;
-      show(rows);
+      show(rows, res.next || null);
       if (keepOpen) mail.open = keepOpen;
       if (!shown) stopPanel();
-      if (!mail.query) putList(key, { rows, historyId: (prof && prof.historyId) || null });
+      if (!mail.query) putList(key, { rows, historyId: (prof && prof.historyId) || null, next: res.next || null });
       prefetch();
       after();
     } catch (e) { if (!shown) list.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t read Mail'), e.message)); else toast(`Couldn’t refresh Mail: ${e.message}`); }
   };
 
+  /** What a list read asks for (a page of PAGE; the next with its token). */
+  const pageArgs = (pageToken) => ({ mailbox: mail.mailbox, limit: PAGE, ...(mail.query ? { query: mail.query } : {}), ...(mail.account ? { account: mail.account } : {}), ...(pageToken ? { pageToken } : {}) });
+  /** Load more (AM4): Gmail's next page added to the list (an older server that ignores the token adds nothing: then no more). */
+  const loadMore = async () => {
+    if (!mail.next || mail.loadingMore) return;
+    const my = mail.runId, box = mail.mailbox;
+    mail.loadingMore = true;
+    drawList();
+    try {
+      const res = await src.search(pageArgs(mail.next));
+      if (my !== mail.runId) return;
+      const have = new Set(mail.rows.map((m) => String(m.id)));
+      const add = (res.rows || []).map(normMsg).filter((m) => m.id && !have.has(String(m.id)));
+      mail.next = add.length ? res.next || null : null;
+      mail.rows = [...mail.rows, ...add];
+      (counts.more ||= {})[box] = !!mail.next;
+      if (box === 'inbox' && !mail.query) counts.inbox = visibleRows().filter((m) => m.unread).length;
+      else if (box !== 'inbox') counts[box] = mail.rows.length;
+      paintCounts();
+    } catch (e) { toast(`Couldn’t load more mail: ${e.message}`); }
+    finally { mail.loadingMore = false; if (my === mail.runId && document.contains(list)) drawList(); }
+  };
+  const moreBtn = () => (mail.next ? el('button', { type: 'button', class: 'cap mx-more', disabled: !!mail.loadingMore, onclick: loadMore }, mail.loadingMore ? 'Loading more…' : 'Load more') : null);
+
+  const drawn = { rows: new Map(), groups: new Map() }; // what drawList drew last time (see keyedRow): id → { m, sig, el } · group key → { sec, head, n }
   /** The list: Eden's card, the digest, then the messages by day (or by rank). */
   const drawList = () => {
     const inbox = mail.mailbox === 'inbox';
@@ -310,6 +351,14 @@ export async function mailPanel(body) {
     if (inbox && rows.length) parts.push(edenCard(rows));
     if (mail.digest) parts.push(digestCard());
     if (!rows.length) {
+      // more in Gmail than what's loaded: not "all caught up" (AM4); the next page is read by itself (a few at most)
+      drawn.rows.clear(); drawn.groups.clear();
+      if (mail.next) {
+        parts.push(emptyState(FOLDER_ICO[mail.mailbox] || 'mail', mail.loadingMore ? 'Loading more…' : 'Nothing left in what’s loaded', null, moreBtn()));
+        list.replaceChildren(...parts);
+        if (!mail.loadingMore && (mail.autoMore || 0) < 5) { mail.autoMore = (mail.autoMore || 0) + 1; loadMore(); }
+        return;
+      }
       parts.push(mail.query ? emptyState('search', 'No mail matches that', `Nothing in ${boxes.find(([b]) => b === mail.mailbox)?.[1] || 'this mailbox'} for “${mail.query}”.`)
         : emptyState(FOLDER_ICO[mail.mailbox] || 'mail', inbox ? 'You’re all caught up' : 'Nothing here', inbox ? 'New mail lands here. Eden can draft and schedule replies for you.' : null));
       list.replaceChildren(...parts);
@@ -323,10 +372,51 @@ export async function mailPanel(body) {
     const groups = ranked
       ? RANKS.map((lv) => ({ label: RANK_LABEL[lv], lv, items: shown.filter((m) => ranks.get(String(m.id))?.level === lv) })).concat([{ label: 'Not ranked yet', items: shown.filter((m) => !ranks.get(String(m.id))) }]).filter((g) => g.items.length)
       : groupByDay(shown);
-    for (const g of groups) parts.push(el('section', { class: 'mx-group', 'aria-label': g.label }, el('h4', `mx-day${g.lv ? ` rk-h rk-${g.lv}` : ''}`, el('span', '', g.label), el('span', 'n', String(g.items.length))), ...g.items.map((m) => row(m, ranks.get(String(m.id))))));
+    const used = new Set(), usedGroups = new Set();
+    for (const g of groups) parts.push(groupEl(g, g.items.map((m) => keyedRow(m, ranks.get(String(m.id)), used)), usedGroups));
+    for (const id of drawn.rows.keys()) if (!used.has(id)) drawn.rows.delete(id);
+    for (const k of drawn.groups.keys()) if (!usedGroups.has(k)) drawn.groups.delete(k);
     if (ranked && !shown.length) parts.push(emptyState('sort', `Nothing marked ${RANK_LABEL[mail.filter]}`, null));
-    list.replaceChildren(...parts);
+    const more = moreBtn();
+    if (more) parts.push(el('div', 'mx-more-row', more));
+    place(list, parts.filter(Boolean));
     paintSel();
+  };
+  // Speed: the rows and day groups drawn last time, by message. A redraw (a star, read/unread, ranks, a kit change from
+  // another device) builds again only the rows whose content changed and leaves the rest where they are, instead of
+  // building and laying out every row again (1,000 rows: ~300 ms a star before).
+  /** Everything a row shows (row() below), as one string: equal means the row drawn last time is still right. */
+  const rowSig = (m, rank) => {
+    const out = mail.mailbox === 'drafts' || mail.mailbox === 'sent';
+    const sh = out ? null : shieldOf(m);
+    const rc = out && mail.receipts && m.threadId && mail.receipts.get(m.threadId);
+    return JSON.stringify([mail.mailbox, document.documentElement.lang, mail.open === m.id, !!m.unread, m.draftId || '', m.from, m.to, m.subject, m.snippet || '',
+      m.labels.includes('STARRED'), m.attachments.length, rowDate(m.date), m.scheduledAt ? when(m.scheduledAt) : '',
+      rc ? [rc.opens.length, receiptText(rc, Date.now(), locale())] : 0,
+      !out && !!(autoCache.get(ck(m.id))?.text || bgDraft(m)),
+      sh && !safeForAuto(sh) ? sh.map((x) => x.text) : 0,
+      rank ? [rank.level, rank.reason || ''] : 0]);
+  };
+  const keyedRow = (m, rank, used) => {
+    const id = String(m.id), sig = rowSig(m, rank), hit = drawn.rows.get(id);
+    used.add(id);
+    if (hit && hit.m === m && hit.sig === sig) return hit.el; // same message object (its buttons act on it), same content
+    const r = row(m, rank);
+    drawn.rows.set(id, { m, sig, el: r });
+    return r;
+  };
+  const groupEl = (g, items, used) => {
+    const key = `${document.documentElement.lang}\n${g.lv || ''}\n${g.label}`;
+    used.add(key);
+    let hit = drawn.groups.get(key);
+    if (!hit) {
+      const n = el('span', 'n', String(g.items.length));
+      hit = { n, head: el('h4', `mx-day${g.lv ? ` rk-h rk-${g.lv}` : ''}`, el('span', '', g.label), n) };
+      hit.sec = el('section', { class: 'mx-group', 'aria-label': g.label }, hit.head);
+      drawn.groups.set(key, hit);
+    } else if (hit.n.textContent !== String(g.items.length)) hit.n.textContent = String(g.items.length);
+    place(hit.sec, [hit.head, ...items]);
+    return hit.sec;
   };
   const rankMap = () => { const m = new Map(); for (const r of mail.rows) { const v = rankCache.get(ck(r.id)); if (v) m.set(String(r.id), v); } return m; };
 
@@ -364,18 +454,18 @@ export async function mailPanel(body) {
     const today = rows.filter((m) => dayLabel(m.date) === 'Today').length;
     const c = rankCounts(rows, rankMap());
     const stats = [
-      [String(unread), unread === 1 ? 'unread' : 'unread', unread ? 'hot' : ''],
+      [`${unread}${mail.next ? '+' : ''}`, unread === 1 ? 'unread' : 'unread', unread ? 'hot' : ''], // "+": more pages in Gmail (AM4)
       [String(today), 'today', ''],
       ...(mail.ranked ? [[String(c.urgent), 'urgent', c.urgent ? 'urg' : ''], [String(c.reply), 'need a reply', c.reply ? 'rep' : '']] : []),
     ];
-    const rankBtn = el('button', { type: 'button', class: `mx-chip${mail.ranked ? ' on' : ''}`, 'aria-pressed': String(mail.ranked), title: 'Order the inbox by importance: urgent, needs reply, FYI, low', onclick: () => {
+    const rankBtn = el('button', { type: 'button', class: `mx-chip${mail.ranked ? ' on' : ''}`, 'aria-pressed': String(mail.ranked), 'aria-label': 'Rank by priority', title: 'Order the inbox by importance: urgent, needs reply, FYI, low', onclick: () => {
       mail.ranked = !mail.ranked; mail.filter = 'all';
       try { LS && LS.setItem('eden:mail:ranked', mail.ranked ? '1' : '0'); } catch { /* blocked */ }
       drawList();
       if (mail.ranked) rankInbox();
-    } }, ico('sort', 14), el('span', '', mail.ranked ? 'Ranked by priority' : 'Rank by priority'));
-    const sumBtn = el('button', { type: 'button', class: 'mx-chip', title: 'Your daily brief: every unread and recent email, ranked by importance, with what it’s about, what they ask and the key details', onclick: () => openBrief(false) }, ico('spark', 14), el('span', '', 'Daily brief'));
-    const readBtn = el('button', { type: 'button', class: 'mx-chip', title: 'Read my inbox out loud (V)', 'aria-label': 'Read my inbox out loud (V)', onclick: () => readInbox() }, ico('speaker', 14), el('span', '', 'Read it to me'));
+    } }, ico('sort', 14), el('span', 'lg', mail.ranked ? 'Ranked by priority' : 'Rank by priority'), el('span', 'sh', mail.ranked ? 'Ranked' : 'Rank'));
+    const sumBtn = el('button', { type: 'button', class: 'mx-chip', 'aria-label': 'Daily brief', title: 'Your daily brief: every unread and recent email, ranked by importance, with what it’s about, what they ask and the key details', onclick: () => openBrief(false) }, ico('spark', 14), el('span', 'lg', 'Daily brief'), el('span', 'sh', 'Brief'));
+    const readBtn = el('button', { type: 'button', class: 'mx-chip', title: 'Read my inbox out loud (V)', 'aria-label': 'Read my inbox out loud (V)', onclick: () => readInbox() }, ico('speaker', 14), el('span', 'lg', 'Read it to me'), el('span', 'sh', 'Listen'));
     const chips = mail.ranked ? el('div', { class: 'mx-filters', role: 'radiogroup', 'aria-label': 'Importance' },
       ...['all', ...RANKS].map((lv) => el('button', { type: 'button', role: 'radio', 'aria-checked': String(mail.filter === lv), class: `mx-f${mail.filter === lv ? ' on' : ''}${lv !== 'all' ? ` rk-${lv}` : ''}`, onclick: () => { mail.filter = lv; drawList(); } },
         lv === 'all' ? 'All' : RANK_LABEL[lv], lv !== 'all' && c[lv] ? el('span', 'n', String(c[lv])) : null))) : null;
@@ -450,6 +540,34 @@ export async function mailPanel(body) {
 
   mail.refresh = run;
   mail.redraw = () => { if (document.contains(list) && mail.mailbox !== 'scheduled' && mail.rows) drawList(); };
+  /**
+   * Done / snooze (speed): just those rows out of the list, their day's count and the counts on
+   * top (Eden's card, the split tabs) set again, instead of the whole list drawn again. → false
+   * when that can't be done (then the caller redraws).
+   */
+  mail.removeRows = (ms) => {
+    if (!document.contains(list) || mail.mailbox !== 'inbox') return false;
+    const ids = new Set(ms.map((m) => String(m.id)));
+    const els = [...list.querySelectorAll('.mx-group:not(.mx-attn) .mail-row')].filter((r) => ids.has(r.dataset.id));
+    if (els.length !== ms.length) return false;
+    for (const r of els) {
+      const sec = r.closest('.mx-group');
+      r.remove();
+      const left = sec.querySelectorAll('.mail-row').length;
+      if (!left) sec.remove();
+      else { const n = sec.querySelector('.mx-day .n'); if (n) n.textContent = String(left); }
+    }
+    if (!list.querySelector('.mx-group:not(.mx-attn) .mail-row')) { drawList(); return true; } // empty: its own state
+    const all = visibleRows();
+    const splitOn = !mail.query && prefs().split;
+    const bySplit = splitOn ? splitRows(all) : null;
+    const bar = list.querySelector('.mx-splits');
+    if (bar && bySplit) bar.replaceWith(splitBar(bySplit));
+    const card = list.querySelector('.mx-eden');
+    if (card) card.replaceWith(edenCard(splitOn ? bySplit[mail.split] || [] : all));
+    paintSel();
+    return true;
+  };
   mail.list = list;
   mail.quick = quick;
   mail.paintCounts = paintCounts;
@@ -618,7 +736,7 @@ async function openMessage(body, m) {
   };
   const btn = (icon, label, onclick, cls = 'btn') => el('button', { type: 'button', class: cls, onclick }, ico(icon, 14), el('span', '', label));
   view.replaceChildren(...[
-    el('div', 'mv-subj-row', own('h3', 'mail-subj', msg.subject), rankPill(rank)),
+    el('div', 'mv-subj-row', longSubject(own('h3', 'mail-subj', msg.subject)), rankPill(rank)),
     rank && rank.reason ? own('p', 'mv-why', rank.reason) : null,
     meta,
     shieldBanner(msg),
@@ -649,10 +767,19 @@ async function openMessage(body, m) {
       mail.mailbox === 'inbox' ? btn('clock', 'Remind me', (e) => snoozeMenu([m], e.currentTarget)) : null,
       btn('star', m.labels.includes('STARRED') ? (mail.source === 'gmail' ? 'Unstar' : 'Unflag') : (mail.source === 'gmail' ? 'Star' : 'Flag'), () => toggleStar(m)),
       mail.source === 'gmail' && teamMail.available() && msg.threadId ? btn('user', 'Share with team', () => shareThread(msg)) : null),
-    isMacDraft ? el('p', 'sp-note', 'Saving from Eden makes a new draft in Mail; Jarvis can’t edit this one in place.') : null].filter(Boolean));
+    isMacDraft ? el('p', 'sp-note', 'Saving from Eden makes a new draft in Mail; Eden can’t edit this one in place.') : null].filter(Boolean));
   stopOpen();
   if (sumCache.get(ck(msg.id))) summarize(false); // already summarized: shown again, not billed again
   prefetch();
+}
+
+/** A very long subject shows 3 lines (the shield and the buttons stay in view); a click shows it all (AM9). */
+function longSubject(h) {
+  if (h.textContent.length < 160) return h;
+  h.classList.add('clamp');
+  h.title = 'Show the whole subject';
+  h.addEventListener('click', () => { h.classList.remove('clamp'); h.removeAttribute('title'); }, { once: true });
+  return h;
 }
 
 /* ---------------- invitations and "Add to calendar" ---------------- */
@@ -757,7 +884,7 @@ export async function connectGmail() {
 export function initMail(handlers) {
   H = handlers;
   setMailkitHandlers({ openDialog: handlers.openDialog, closeDialog: handlers.closeDialog });
-  onKit(() => { if (mail.redraw) mail.redraw(); });
+  onKit(() => { if (mail.redraw && !mail.quietKit) mail.redraw(); }); // (triage updates its own rows: quietKit)
   addEventListener('keydown', onMailKey);
   // ⌘F (Ctrl F) in the Mail panel: its search, not the page's
   addEventListener('keydown', (e) => {
@@ -940,36 +1067,43 @@ async function modify(ids, add, remove) {
   }
 }
 
+/** A mail kit change whose rows the caller updates itself: the kit's listener doesn't redraw the whole list. */
+function quietly(fn) { mail.quietKit = true; try { fn(); } finally { mail.quietKit = false; } }
+
 /** Done (E): out of the inbox. Gmail archives it (labels only: nothing is deleted); else Eden hides it. Undo with Z. */
 async function doneRows(ms, { snoozing = false, quiet = false } = {}) {
   if (!ms.length) return;
   const keys = ms.map((m) => ck(m.id));
   const stopAct = timing('action');
   const idx = Math.max(0, mail.sel);
-  if (!snoozing) markDone(keys); // hidden at once; replaced by Gmail's archive when that works
+  if (!snoozing) quietly(() => markDone(keys)); // hidden at once; replaced by Gmail's archive when that works
   if (mail.open && ms.some((m) => m.id === mail.open)) closeReader();
   mail.sel = Math.min(idx, visibleRows().length - 1);
-  mail.redraw();
+  if (!(mail.removeRows && mail.removeRows(ms))) mail.redraw(); // just those rows (speed), else the whole list
   stopAct();
-  let archived = false;
+  let archived = false, undone = false, inflight = null;
+  // this action's Undo is the one Z / the toast runs from now on, before Gmail answers (AM3)
+  const undo = async () => {
+    undone = true;
+    if (inflight) await inflight; // the archive lands first, then it's put back
+    if (archived) await modify(ms.map((m) => m.id), ['INBOX'], []).catch(() => {});
+    if (!mail.rows.some((r) => ms.includes(r))) mail.rows = [...mail.rows, ...ms];
+    quietly(() => { markDone(keys, false); for (const k of keys) unsnooze(k); });
+    mail.redraw();
+  };
+  mail.undo = undo;
   if (mail.source === 'gmail' && mail.canModify !== false) {
-    try { await modify(ms.map((m) => m.id), [], ['INBOX']); archived = true; } catch { /* kept in Eden */ }
+    inflight = modify(ms.map((m) => m.id), [], ['INBOX']).then(() => { archived = true; }, () => { /* kept in Eden */ });
+    await inflight;
   }
-  if (archived) { mail.rows = mail.rows.filter((r) => !ms.includes(r)); if (!snoozing) markDone(keys, false); mail.redraw(); }
+  // archived: out of the rows (it was already hidden, so the list as drawn is still right: no redraw)
+  if (archived && !undone) { mail.rows = mail.rows.filter((r) => !ms.includes(r)); if (!snoozing) quietly(() => markDone(keys, false)); }
   // Mail on your Mac: Jarvis archives it in Mail once the Undo has had its moment (Mail has no "unarchive" script)
   if (mail.source === 'mac' && !snoozing) setTimeout(async () => {
     if (!keys.every((k) => isDone(k))) return; // undone meanwhile
     try { await call('mail_triage', { action: 'archive', message_ids: ms.map((m) => m.id), confirm: true }); mail.rows = mail.rows.filter((r) => !ms.includes(r)); markDone(keys, false); }
     catch { /* an older Jarvis, or Mail said no: kept in Eden */ }
   }, 6000);
-  const undo = async () => {
-    if (archived) await modify(ms.map((m) => m.id), ['INBOX'], []).catch(() => {});
-    if (!mail.rows.some((r) => ms.includes(r))) mail.rows = [...mail.rows, ...ms];
-    markDone(keys, false);
-    for (const k of keys) unsnooze(k);
-    mail.redraw();
-  };
-  mail.undo = undo;
   const where = archived ? ' · archived in Gmail' : mail.source === 'mac' ? ' · Mail on your Mac archives it in a few seconds' : mail.source === 'gmail' ? (state.meta && state.meta.hosted ? ' · kept in Eden' : ' · kept in Eden (reconnect Gmail in Settings › Accounts to archive there too)') : ' · kept in Eden';
   if (!snoozing && !quiet) { toast(`${ms.length === 1 ? 'Done' : `${ms.length} done`}${where}`, { label: 'Undo', run: undo }); announce(`${ms.length === 1 ? `Done: ${ms[0].subject}` : `${ms.length} emails done`}. Z to undo.`); }
 }
@@ -983,9 +1117,10 @@ function snoozeMenu(ms, anchor) {
   const choose = (at) => {
     if (!(at instanceof Date) || Number.isNaN(at.getTime()) || at.getTime() < Date.now() + 60_000) { toast('Pick a time at least a minute from now'); return; }
     close();
-    for (const m of ms) kitSnooze(ck(m.id), { until: at.toISOString(), from: m.from, subject: m.subject, snippet: m.snippet, date: m.date, threadId: m.threadId });
+    quietly(() => { for (const m of ms) kitSnooze(ck(m.id), { until: at.toISOString(), from: m.from, subject: m.subject, snippet: m.snippet, date: m.date, threadId: m.threadId }); });
     doneRows(ms, { snoozing: true });
-    toast(`Snoozed until ${when(at)}`, { label: 'Undo', run: () => mail.undo && mail.undo() });
+    const undo = mail.undo; // this snooze's own Undo (set before doneRows' first await)
+    toast(`Snoozed until ${when(at)}`, { label: 'Undo', run: () => undo && undo() });
   };
   const custom = el('input', { type: 'datetime-local', 'aria-label': 'Pick a date and time' });
   const pad = (n) => String(n).padStart(2, '0');
@@ -1052,13 +1187,16 @@ function current() {
   return rowMsg(rowEls()[mail.sel]);
 }
 function typing(t) {
-  return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest('.cw, [role="dialog"], .dlg, .mx-pop'));
+  // #spacePanel (the panel Mail lives in) is itself a role="dialog": only dialogs on top of it count (AM1)
+  return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest('.cw, [role="dialog"]:not(#spacePanel), .dlg, .mx-pop'));
 }
 function onMailKey(e) {
   if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
   if (!mail.root || !document.contains(mail.root) || mail.root.closest('[hidden]') || !document.getElementById('spacePanel')?.classList.contains('open')) return;
   if (typing(e.target) || document.getElementById('dlg')?.classList.contains('open')) return;
   const k = e.key;
+  // Enter / Space on a focused button or link is that control's own (New email, a folder tab…)
+  if ((k === 'Enter' || k === ' ') && e.target && e.target.closest && e.target.closest('button, a[href], [role="tab"], [role="button"], summary')) return;
   const rs = rowEls();
   const move = (d) => { if (!rs.length) return; mail.sel = Math.max(0, Math.min(rs.length - 1, (mail.sel < 0 ? (d > 0 ? -1 : rs.length) : mail.sel) + d)); paintSel(); const m = rowMsg(rs[mail.sel]); if (m) announce(`${m.unread ? 'Unread. ' : ''}${nameOf(m.from)}: ${m.subject}. ${mail.sel + 1} of ${rs.length}.`); if (mail.open && m) openMessage(mail.body, m); };
   const m = current();
@@ -1305,7 +1443,7 @@ async function openTeam(spaceId, id) {
     const th = value.thread || { messages: [] };
     const comments = el('div', 'mt-comments', ...(value.comments || []).map((c) => el('div', 'mt-c',
       el('div', 'mt-c-h', avatar(c.label, false), own('b', '', c.label), el('span', 'muted', when(c.at)),
-        c.member === got.me.member ? iconBtn('trash', 'Delete your comment', async () => { try { paint(await teamMail.comment(spaceId, id, '', { remove: c.id })); } catch (e) { toast(e.message); } }) : null),
+        c.member === got.me.member ? iconBtn('trash', 'Delete your comment', async () => { try { const next = await teamMail.comment(spaceId, id, '', { remove: c.id }); paint(next); syncTeamRow(id, next); } catch (e) { toast(e.message); } }) : null),
       own('div', 'mt-c-t', c.text))), (value.comments || []).length ? null : el('p', 'muted', 'No comments yet. Start the conversation for your team.'));
     const box = el('textarea', { rows: '2', class: 'mt-in', placeholder: 'Comment for your team… (⌘↵ to post)', 'aria-label': 'Comment for your team', maxlength: '2000' });
     const post = async () => {
@@ -1501,10 +1639,16 @@ function autoDraftCard(msg) {
 /* ================= The shield (ROADMAP P2, mail-check.js): scams and text aimed at AI ================= */
 
 /** This email's warnings (known: the people the owner writes to; contacts: their names, for impersonation). */
+// per message, while the contacts it was checked against are the same: every redraw of the list asked again (speed)
+const shieldMemo = new WeakMap();
 function shieldOf(m) {
   const me = mail.google && mail.google.email ? mail.google.email.toLowerCase() : '';
   if (!m || emailOf(m.from) === me) return [];
-  return scamSignals(m, { known: mail.known || new Set(), contacts: mail.contacts || [], me });
+  const hit = shieldMemo.get(m);
+  if (hit && hit.known === mail.known && hit.contacts === mail.contacts && hit.me === me && hit.html === m.html && hit.body === m.body) return hit.sig;
+  const sig = scamSignals(m, { known: mail.known || new Set(), contacts: mail.contacts || [], me });
+  shieldMemo.set(m, { known: mail.known, contacts: mail.contacts, me, html: m.html, body: m.body, sig });
+  return sig;
 }
 function shieldBanner(msg) {
   const sig = shieldOf(msg);

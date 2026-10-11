@@ -81,18 +81,23 @@ class Terminals:
         except OSError as exc:  # no pseudo-terminal left, the shell wouldn't start
             why = f"The terminal didn't start: {exc}"
         else:
-            self.hub.emit("cw_term_new", ref=ref, **shell.info())
+            # (CF3-10) To the window that asked only: its ref is a project's key, the same in
+            # every window, and another window's terminal view would switch to this shell.
+            self.hub.emit_to_caller("cw_term_new", ref=ref, **shell.info())
             self.listing(folder)
             return
         why = lang.translate(why, self.hub.language)
-        self.hub.emit("cw_term_new", ref=ref, error=why)
+        self.hub.emit_to_caller("cw_term_new", ref=ref, error=why)
         self.hub.emit("caption", text=why)
 
     def cmd_attach(self, msg: dict[str, Any]) -> None:
         shell = self.shells.get(str(msg.get("term") or ""))
         if shell is not None:
             data = base64.b64encode(bytes(shell.scrollback)).decode()
-            self.hub.emit("cw_term_replay", term=shell.id, data=data, alive=not shell.exited)
+            # To the window that asked only: the others showing it have had theirs (700 KB each).
+            self.hub.emit_to_caller(
+                "cw_term_replay", term=shell.id, data=data, alive=not shell.exited
+            )
 
     def cmd_input(self, msg: dict[str, Any]) -> None:
         shell = self.shells.get(str(msg.get("term") or ""))
@@ -112,7 +117,12 @@ class Terminals:
         if not shell.exited and msg.get("force") is not True:
             what = await asyncio.to_thread(shell.busy)
             if what:
-                self.hub.emit("cw_term_busy", term=shell.id, what=what)
+                # (CF3-10) To the page that asked (its ref): elsewhere the note armed a one-click
+                # force close of a shell nobody there asked to close.
+                ref = str(msg.get("ref") or "")[:200]
+                self.hub.emit_to_caller(
+                    "cw_term_busy", term=shell.id, what=what, **({"ref": ref} if ref else {})
+                )
                 return
         self.shells.close(shell.id)
         self.listing(shell.cwd)
@@ -124,19 +134,23 @@ class Terminals:
         command = str(msg.get("command", "")).strip()[:2000]
         ref = str(msg.get("ref", ""))[:40]
         folder = self.hub._code_folder(msg)
+        # (CA2-5) Everything about it goes to the window that ran it (its page's own ref), not
+        # to every window, where another page's "!" could take it for its own.
+        answer = self.hub.emit_to_caller
         if not command or folder is None:
-            self.hub.emit(
-                "task_bash", ref=ref, command=command, output="No project folder.", code=-1
-            )
+            answer(
+                "task_bash", or_all=True, ref=ref, command=command, output="No project folder.",
+                code=-1,
+            )  # fmt: skip
             return
-        run = BangRun(ref, command, folder, self.hub.emit)
+        run = BangRun(ref, command, folder, answer)
         try:
             run.start()
         except OSError as exc:  # the folder went away, no pseudo-terminal left
-            self.hub.emit("task_bash", ref=ref, command=command, output=str(exc), code=-1)
+            answer("task_bash", or_all=True, ref=ref, command=command, output=str(exc), code=-1)
             return
         self.runs[ref] = run
-        self.hub.emit("cw_bang_start", ref=ref)
+        answer("cw_bang_start", ref=ref)
         self.hub._spawn(self._finish(run))  # (cancelled when the app quits: then it's killed)
 
     async def _finish(self, run: BangRun) -> None:
@@ -150,8 +164,9 @@ class Terminals:
         output = run.output(BASH_OUTPUT)
         if run.cancelled:
             output = f"{output}\n(cancelled)" if output else "(cancelled)"
-        self.hub.emit(
+        self.hub.emit_to_caller(
             "task_bash",
+            or_all=True,
             ref=run.ref,
             command=run.command,
             output=output,

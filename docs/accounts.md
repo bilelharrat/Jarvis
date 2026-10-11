@@ -424,7 +424,9 @@ Redeem: `POST /api/promo/redeem` `{ "code" }` (the apps, bearer token) or
 
 `POST /voice` as before (`X-Jarvis-Install`); with `Authorization: Bearer <token>` it
 counts against the account instead: `VOICE_DAILY_FREE` (20 000) characters a day, Plus
-`VOICE_DAILY_PLUS` (100 000).
+`VOICE_DAILY_PLUS` (100 000). The account's characters are taken first and given back (`voice-give`,
+`scoped-voice-give` for the extension's Talk; the shared `VoiceQuota` `/give`) when no audio comes of them: the
+everyone-together quota refused or the voice service failed (R3C6, 2026-10-10). Nobody is charged for silence.
 
 ### Sync
 
@@ -518,6 +520,23 @@ own router and stream code (askeden `src/chat/stream.ts`, bundled by `scripts/sy
 `MOONSHOT_API_KEY`, each optional; `EDEN_<PROVIDER> = "off"` switches one off). The candidates are
 `EDEN_MODELS` (`all`: every registry model not deprecated) narrowed to the providers with a key;
 meta, the preview, send and compare all use that set, per asker.
+
+- **Claude for everyone** (owner, 2026-10-10; replaces "Claude is bring-your-own-key" of 2026-10-07): with
+  `ANTHROPIC_API_KEY` set (and `EDEN_ANTHROPIC` not "off"), Claude runs on askeden.com's key for every account like
+  the other providers (`providers.js` `serviceClaude`): web chat, the Chrome side panel (`/api/eden/chat`,
+  `/api/eden/models`) and the Ask Eden apps' routes. Without that key, Claude runs only on the asker's own Anthropic
+  key and its models are listed as locked (`CLAUDE_NEEDS_KEY`).
+- **The Ask Eden apps** (`eden/ask.js`: Messenger's `/api/eden/ask`, Chrome's `/api/eden/text`, Excel's and Sheets'
+  `/api/eden/sheet`): hosted Eden's models on askeden.com's keys (an app's token never reads the account's own keys),
+  picked per action at the model's lowest effort. Edits (Chrome's reply/rewrite/fix/shorter/longer/tone/translate/
+  write, the sheets' formula/fill/clean) get Claude Sonnet when it is there; everything else, and an edit without
+  Sonnet, gets the cheapest capable model (`gemini-3.8-flash`, else the cheapest other non-Claude one, else the
+  cheapest Claude). Each provider's cut-off and refusal map to the apps' `cut`/`cut_off` and `refused`.
+- **Per-ask ceiling for app tokens** (R3C4, 2026-10-10): one ask from Messenger, Chrome (quick actions and the side
+  panel, Search and Research included), Excel or Sheets holds at most `EDEN_APP_ASK_MAX_USD` (default $0.50) of the
+  included AI, then the credits. The app routes fall back to the cheaper model, then shorten a prose answer; the side
+  panel lowers the answer's budget (thinking included) and the number of searches. When nothing fits: 402
+  `over_ask_limit`. The consent page says the ceiling.
 
 - **Billing** (service keys only; own keys are metered for display, never held or spent): the
   registry's list price (input; output and reasoning at the output rate; the long-context rate
@@ -846,9 +865,11 @@ The professor's and TAs' own turns, OCR and figure descriptions stay on their ow
 
 ### Included AI without an Anthropic key
 
-Help's chat (`eden/help.js`), @Eden for Messenger (`eden/ask.js`), background tasks
-(`accounts/tasks.js`) and the Eden apps' included AI (`POST /api/anthropic/v1/messages`,
-`accounts/proxy.js`) ask Claude on `ANTHROPIC_API_KEY` when it's set. Without it they don't stop:
+Help's chat (`eden/help.js`), background tasks (`accounts/tasks.js`) and the Eden apps' included AI
+(`POST /api/anthropic/v1/messages`, `accounts/proxy.js`) ask Claude on `ANTHROPIC_API_KEY` when it's set.
+(The Ask Eden apps' routes in `eden/ask.js`, Messenger's @Eden, the Chrome extension, Excel and Google
+Sheets, don't use this: they stream on hosted Eden's models, Claude included when the key is set; see "Hosted
+Eden's providers".) Without it they don't stop:
 `accounts/service-ai.js` answers the same Anthropic Messages request on the service's Gemini key
 (`gemini-3.8-flash`), else its OpenAI key (`gpt-6-luna`), either switched off by `EDEN_GEMINI` /
 `EDEN_OPENAI = "off"`. The request is translated (system, text, images and PDFs, tools and tool
@@ -861,9 +882,11 @@ with none of the three keys do these answer 503 `not_set_up`.
 ## What the owner sets up once
 
 Worker secrets (`cd site && npx wrangler secret put NAME`):
-- `ANTHROPIC_API_KEY` (optional): the key Jarvis Plus, Help, @Eden and background tasks spend on
-  Claude; without it they run on `GEMINI_API_KEY` or `OPENAI_API_KEY` ("Included AI without an
-  Anthropic key").
+- `ANTHROPIC_API_KEY` (optional): the key hosted Eden (web chat and the Ask Eden apps, for every
+  account: "Claude for everyone"), Jarvis Plus, Help and background tasks spend on Claude; without it
+  Claude is bring-your-own-key and they run on `GEMINI_API_KEY` or `OPENAI_API_KEY` ("Included AI
+  without an Anthropic key"). The var `EDEN_APP_ASK_MAX_USD` (default 0.50) caps one ask from an
+  app's token.
 - optional `GOOGLE_CLIENT_SECRET` (with the var `GOOGLE_CLIENT_ID`): Sign in with Google on
   the web. The var `WEB_APPLE_SERVICES_ID` turns on Sign in with Apple on the web. Steps:
   docs/web-auth.md "Owner steps".

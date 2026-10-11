@@ -1,0 +1,12 @@
+/* The card asking to trust a project folder (code-trust.js). */
+.ct-card { list-style: none; display: flex; flex-direction: column; gap: 8px; background: rgb(var(--c-surface)); border-radius: 14px; box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-danger-ink) / 0.6); padding: 12px 14px; font-size: 13px; max-width: 560px; }
+.ct-card.trusted { box-shadow: var(--shadow-card), inset 3px 0 0 rgb(var(--c-success) / 0.7); }
+.ct-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ct-head strong { font-weight: 600; }
+.ct-name { font: 12px var(--mono); background: rgb(var(--c-ink) / 0.06); border-radius: 6px; padding: 1px 6px; }
+.ct-why { margin: 0; color: rgb(var(--c-ink-2)); font-size: 12.5px; line-height: 1.45; }
+.ct-items { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font: 12px var(--mono); color: rgb(var(--c-ink)); overflow-wrap: anywhere; max-height: 220px; overflow: auto; }
+.ct-buttons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ct-yes { background: rgb(var(--c-accent)); color: #fff; }
+.ct-note { color: rgb(var(--c-muted)); font-size: 11.5px; }
+.ct-state { font-size: 12.5px; color: rgb(var(--c-ink-2)); }

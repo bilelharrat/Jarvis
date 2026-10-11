@@ -3,8 +3,10 @@
 //
 // - the workbook: { title, sheets: [{ name, cells: { A1: Cell }, widths: { col: px }, freeze, charts }] }
 //   Cell = { v: number|string|boolean|null, f?: '=formula', z?: number format, s?: { b, i, u, color, fill, align } }
-//   Cells are never changed in place: an edit makes a new workbook that shares every untouched sheet
-//   and cell (copy-on-write), so each version is cheap to keep and Undo is "show the one before".
+//   A version never changes as far as a reader can tell: an edit makes a new workbook that shares every untouched sheet
+//   and cell, and the edited sheet's cells object moves to the new version (changed in place, O(cells changed)) while
+//   the old one keeps a patch (see "versions of a sheet's cells"), so each version is cheap to keep and Undo is
+//   "show the one before" (checkout()).
 // - recalc: every formula's value, with sheet-calc.mjs and formula.js (injected: `fns`).
 // - change sets: what Eden proposes ("add a margin column", "a pivot by region"): a JSON list of
 //   operations on ranges, checked strictly (validateChangeSet), applied to a copy (applyChangeSet),
@@ -37,11 +39,149 @@ export function newWorkbook(title = 'Untitled spreadsheet') { return { title, sh
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 export const sheetByName = (wb, name) => wb.sheets.find((s) => s.name.toLowerCase() === String(name ?? '').toLowerCase());
 
+// ── versions of a sheet's cells ──
+//
+// A version's cells never change as far as anyone reading them can tell, but they aren't copied either: one object per
+// chain of versions is LIVE and edit() changes it in place (O(cells changed), not O(cells)), and the version it came
+// from keeps a patch (the addresses the edit touched, as they were) and reads through to the live object. Reading a
+// patched version's `cells` builds it its own object (one copy); checkout(wb) instead moves the live object back to that
+// version (Undo/Redo, O(patch)). Key order is kept exactly as plain copies keep it: a patch adds cells at the end,
+// changes them in place or removes them, and a cell an edit removed (clearing) comes back where it was: the edit noted
+// the cell before it (`runs`: anchor → the removed cells after it, shared by the patches both ways), and putting it
+// back rebuilds the order from there (O(cells after it), only when going back past a removal).
+const LAZY = new WeakMap(); // sheet version → { from: sheet version, patch: Map(addr → cell | undefined), runs }: this = from + patch
+const CHANGES = new WeakMap(); // sheet version → { parent: sheet version, keys: Set of addresses | null (not known) }
+
+function ownCells(sheet, cells) {
+  LAZY.delete(sheet);
+  Object.defineProperty(sheet, 'cells', { value: cells, writable: true, enumerable: true, configurable: true });
+  return cells;
+}
+function patched(sheet, from, patch, runs = null) {
+  LAZY.set(sheet, { from, patch, runs });
+  Object.defineProperty(sheet, 'cells', {
+    configurable: true, enumerable: true,
+    get() { return LAZY.has(this) ? ownCells(this, materialize(this)) : undefined; },
+    set(v) { ownCells(this, v); },
+  });
+}
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+function applyPatch(obj, patch, runs) {
+  let back = null; // removed cells coming back: in their old places, not at the end
+  for (const [k, v] of patch) {
+    if (v === undefined) delete obj[k];
+    else if (runs && runs.keys.has(k) && !own(obj, k)) (back ||= new Map()).set(k, v);
+    else obj[k] = v;
+  }
+  if (back) putBack(obj, runs.at, back);
+}
+/** Cells removed by an edit, each where it was: after its anchor (the nearest cell kept before it; null: first). */
+function putBack(obj, at, back) {
+  const order = [];
+  const after = (a) => { const ks = at.get(a); if (ks) for (const k of ks) if (back.has(k)) order.push(k); };
+  after(null);
+  for (const k in obj) { order.push(k); after(k); }
+  const placed = new Set(order);
+  for (const k of back.keys()) if (!placed.has(k)) order.push(k); // its anchor gone (can't happen): at the end rather than lost
+  const from = order.findIndex((k) => back.has(k));
+  const tail = order.slice(from).map((k) => [k, back.has(k) ? back.get(k) : obj[k]]);
+  for (const [k] of tail) delete obj[k];
+  for (const [k, v] of tail) obj[k] = v;
+}
+/** Where the cells `gone` sit in `obj`: { at: anchor → [cells in order], keys }; one pass, stopping at the last. */
+function anchorsOf(obj, gone) {
+  const at = new Map();
+  let last = null, left = gone.size;
+  for (const k in obj) {
+    if (!gone.has(k)) { last = k; continue; }
+    if (!at.has(last)) at.set(last, []);
+    at.get(last).push(k);
+    if (!--left) break;
+  }
+  return { at, keys: gone };
+}
+/** The versions from `sheet` to the one holding an object (that one last). */
+function pathOf(sheet) {
+  const path = [];
+  for (let x = sheet; LAZY.has(x); x = LAZY.get(x).from) path.push(x);
+  return path;
+}
+function materialize(sheet) {
+  const path = pathOf(sheet);
+  const holder = LAZY.get(path.at(-1)).from;
+  const out = { ...holder.cells };
+  for (let i = path.length - 1; i >= 0; i--) applyPatch(out, LAZY.get(path[i]).patch, LAZY.get(path[i]).runs);
+  return out;
+}
+/** Gives `sheet` the live object of its chain back, in place (each step O(its patch)); the versions passed become patched. */
+function checkoutSheet(sheet) {
+  if (!LAZY.has(sheet)) return;
+  const path = pathOf(sheet);
+  let holder = LAZY.get(path.at(-1)).from;
+  const obj = holder.cells;
+  for (let i = path.length - 1; i >= 0; i--) {
+    const node = path[i];
+    const { patch, runs } = LAZY.get(node);
+    const back = new Map();
+    for (const k of patch.keys()) back.set(k, Object.prototype.hasOwnProperty.call(obj, k) ? obj[k] : undefined);
+    applyPatch(obj, patch, runs);
+    ownCells(node, obj);
+    patched(holder, node, back, runs);
+    holder = node;
+  }
+}
+/** Makes every sheet of `wb` hold its own cells cheaply (Undo/Redo before drawing a version). */
+export function checkout(wb) { for (const s of wb.sheets) checkoutSheet(s); return wb; }
+
+/** One cell of a version without building that version's cells. */
+function cellIn(sheet, addr) {
+  for (let x = sheet; ;) {
+    const lz = LAZY.get(x);
+    if (!lz) return x.cells[addr];
+    if (lz.patch.has(addr)) return lz.patch.get(addr);
+    x = lz.from;
+  }
+}
+/** The addresses that differ between an older version of a sheet and a newer one made from it by edit(), or null. */
+function changedKeys(older, newer) {
+  const keys = new Set();
+  let hops = 0;
+  for (let x = newer; x !== older;) {
+    const c = CHANGES.get(x);
+    if (!c || !c.keys || ++hops > 64) return null;
+    for (const k of c.keys) keys.add(k);
+    x = c.parent;
+  }
+  return keys;
+}
+
+// Per-version caches, keyed by the sheet version (a version's cells never change once edit() returns it): its used area
+// and its formula cells, so one edit in a 50,000-row sheet doesn't rescan 500,000 cells for each (edit() carries both
+// forward from the version before). The formula list knows whether it is also in the cells' own order (only a full
+// recalc needs that). Versions an edit is still writing are OPEN: not cached.
+const EXTENTS = new WeakMap();
+const FORMULAS = new WeakMap(); // sheet version → { set: Set of addresses, ordered: boolean }
+const OPEN = new WeakSet();
+
 /** The used area of a sheet: { rows, cols } (0 when empty). */
 export function extent(sheet) {
+  const hit = EXTENTS.get(sheet);
+  if (hit) return { ...hit };
   let rows = 0, cols = 0;
-  for (const k of Object.keys(sheet.cells)) { const p = parseA1(k); if (p) { if (p.row > rows) rows = p.row; if (p.col > cols) cols = p.col; } }
+  for (const k in sheet.cells) { const p = parseA1(k); if (p) { if (p.row > rows) rows = p.row; if (p.col > cols) cols = p.col; } }
+  if (!OPEN.has(sheet)) EXTENTS.set(sheet, { rows, cols });
   return { rows, cols };
+}
+
+/** The addresses of a sheet's formula cells; `ordered`: in the cells' own order. */
+function formulasOf(sheet, ordered = false) {
+  const hit = FORMULAS.get(sheet);
+  if (hit && (hit.ordered || !ordered)) return hit.set;
+  const set = new Set();
+  const cells = sheet.cells;
+  for (const k in cells) if (cells[k].f) set.add(k);
+  if (!OPEN.has(sheet)) FORMULAS.set(sheet, { set, ordered: true });
+  return set;
 }
 
 /**
@@ -50,32 +190,71 @@ export function extent(sheet) {
  */
 export function edit(wb, fn) {
   const next = { ...wb, sheets: wb.sheets.slice() };
-  const own = new Set();
+  // each sheet this edit changes: { parent, base: the parent's cells, buf: Map(addr → cell) of the writes kept aside so
+  // far, in the order they would have reached a copy; copy: the copy once there is one; direct: its cells were handed
+  // out (a sort, a pivot writes them itself), so what changed isn't known; fresh: a sheet this edit added }
+  const work = new Map();
+  const isEmpty = (cell) => !cell || (cell.v === null || cell.v === undefined || cell.v === '') && !cell.f && !cell.z && !cell.s;
   const mine = (name) => {
     const i = next.sheets.findIndex((s) => s.name.toLowerCase() === String(name).toLowerCase());
     if (i < 0) throw new Error(`There’s no sheet called “${name}”.`);
-    if (!own.has(next.sheets[i])) {
+    if (!work.has(next.sheets[i])) {
       const s = next.sheets[i];
-      next.sheets[i] = { ...s, cells: { ...s.cells }, widths: { ...s.widths }, charts: s.charts.slice() };
-      own.add(next.sheets[i]);
+      checkoutSheet(s);
+      const t = { parent: s, base: s.cells, buf: new Map(), keys: new Set(), dropped: new Set(), copy: null, size: -1, direct: false };
+      const child = { ...s, widths: { ...s.widths }, charts: s.charts.slice() };
+      // the cells are copied only if someone asks for them (a sort, a pivot): set() alone keeps its writes aside
+      Object.defineProperty(child, 'cells', {
+        configurable: true, enumerable: true,
+        get() { t.direct = true; return ownCells(this, t.copy || toCopy(t)); },
+        set(v) { t.direct = true; ownCells(this, v); },
+      });
+      next.sheets[i] = child;
+      work.set(child, t);
+      OPEN.add(child);
     }
     return next.sheets[i];
   };
   const w = {
     wb: next,
-    sheet: mine,
-    get: (name, addr) => (sheetByName(next, name) || { cells: {} }).cells[addr],
+    sheet: (name) => mine(name),
+    get(name, addr) {
+      const s = sheetByName(next, name);
+      if (!s) return undefined;
+      const t = work.get(s);
+      if (t && !t.direct && !t.fresh) {
+        if (t.copy) return t.copy[addr];
+        return t.buf.has(addr) ? t.buf.get(addr) : t.base[addr];
+      }
+      return s.cells[addr];
+    },
     set(name, addr, cell) {
       const s = mine(name);
-      if (!cell || (cell.v === null || cell.v === undefined || cell.v === '') && !cell.f && !cell.z && !cell.s) delete s.cells[addr];
-      else s.cells[addr] = Object.freeze(clean(cell));
+      const t = work.get(s);
+      t.keys.add(addr);
+      const empty = isEmpty(cell);
+      if (empty) t.dropped.add(addr);
+      if (!t.direct && !t.fresh && !t.copy) {
+        const had = Object.prototype.hasOwnProperty.call(t.base, addr);
+        // rewriting a good part of the sheet, or writing again a cell this edit removed (a copy moves it to the end): copy,
+        // as before (a patch would only cost more)
+        if ((!empty && had && t.buf.has(addr) && t.buf.get(addr) === undefined) || (t.buf.size >= 10_000 && t.buf.size * 8 >= (t.size < 0 ? (t.size = Object.keys(t.base).length) : t.size))) toCopy(t);
+        else {
+          if (empty) { if (had) t.buf.set(addr, undefined); else t.buf.delete(addr); return; } // removed (clearing); or it wasn't there (or only since this edit): nothing to keep, written again it goes last
+          t.buf.set(addr, Object.freeze(clean(cell)));
+          return;
+        }
+      }
+      const cells = t.copy || s.cells;
+      if (empty) delete cells[addr]; else cells[addr] = Object.freeze(clean(cell));
     },
     addSheet(name) {
       const n = uniqueName(next, name);
       if (next.sheets.length >= LIMITS.sheets) throw new Error(`A workbook here holds at most ${LIMITS.sheets} sheets.`);
       const s = newSheet(n);
       next.sheets.push(s);
-      own.add(s);
+      work.set(s, { fresh: true, keys: new Set(), dropped: new Set() });
+      OPEN.add(s);
       return s;
     },
     removeSheet(name) {
@@ -91,8 +270,60 @@ export function edit(wb, fn) {
       s.name = n;
     },
   };
-  fn(w);
+  try { fn(w); } finally { for (const s of work.keys()) OPEN.delete(s); }
+  for (const [s, t] of work) {
+    if (t.fresh || !next.sheets.includes(s)) continue;
+    if (t.direct) { CHANGES.set(s, { parent: t.parent, keys: null }); continue; } // its cells are its own copy already
+    carryForward(s, t);
+    if (t.copy) ownCells(s, t.copy);
+    else {
+      // in place: the parent keeps what the edit changed and reads the rest through this version's object
+      const live = t.base, back = new Map(), gone = new Set();
+      for (const [k, v] of t.buf) if (v === undefined) gone.add(k);
+      const runs = gone.size ? anchorsOf(live, gone) : null; // where the removed cells were, for Undo
+      for (const [k, v] of t.buf) { back.set(k, Object.prototype.hasOwnProperty.call(live, k) ? live[k] : undefined); if (v === undefined) delete live[k]; else live[k] = v; }
+      ownCells(s, live);
+      patched(t.parent, s, back, runs);
+    }
+    CHANGES.set(s, { parent: t.parent, keys: t.keys });
+  }
   return next;
+}
+
+/** Switches an edit of a sheet to a copy of the parent's cells (as edits always did), with the writes kept aside so far. */
+function toCopy(t) {
+  const cells = { ...t.base };
+  for (const [k, v] of t.buf) { if (v === undefined) delete cells[k]; else cells[k] = v; } // in order, as a copy would have had them
+  t.buf = new Map();
+  t.copy = cells;
+  return cells;
+}
+
+/** A copied sheet's caches from its old version's plus the addresses set() changed (dropped when that can't be exact). */
+function carryForward(s, { parent, base, buf, copy, keys, dropped }) {
+  const now = copy ? (k) => copy[k] : (k) => (buf.has(k) ? buf.get(k) : base[k]);
+  const ext = EXTENTS.get(parent), formulas = FORMULAS.get(parent);
+  if (ext) {
+    let { rows, cols } = ext, exact = true;
+    for (const k of keys) {
+      const p = parseA1(k);
+      if (!p) continue;
+      if (now(k)) { if (p.row > rows) rows = p.row; if (p.col > cols) cols = p.col; }
+      else if (p.row >= rows || p.col >= cols) exact = false; // emptied on the edge: the area may shrink
+    }
+    if (exact) EXTENTS.set(s, { rows, cols });
+  }
+  if (formulas) {
+    const set = new Set(formulas.set);
+    let ordered = formulas.ordered;
+    for (const k of keys) {
+      const cell = now(k);
+      // a value cell turned formula keeps its place in the cells' order, and one emptied then written again moves to the end
+      if (cell && cell.f) { if ((!set.has(k) && Object.prototype.hasOwnProperty.call(base, k)) || dropped.has(k)) ordered = false; set.add(k); }
+      else set.delete(k);
+    }
+    FORMULAS.set(s, { set, ordered });
+  }
 }
 
 function clean(cell) {
@@ -139,58 +370,316 @@ const daySerial = (y, m, d) => (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) 
 /**
  * Every formula's value: Map(sheet name lower → Map(A1 → value)). Errors are Error objects
  * ('#DIV/0!' …), a loop is '#CIRC!'. fns: formula.js's module. now(): for TODAY()/NOW().
+ * from: { wb, calc } — an earlier version made into `wb` by edit() and its recalc(): only the formulas that read
+ * what changed (directly or through other formulas), the volatile ones (NOW, TODAY, RAND…) and, when a sheet's used
+ * area changed, the ones with a range on it are evaluated again; the rest keep their values. Anything this can't do
+ * exactly as a full recalc would (a loop, a sheet added or renamed, cells written behind edit()'s back) does a full one.
  */
-export function recalc(wb, fns, { now } = {}) {
-  const out = new Map();
+export function recalc(wb, fns, { now, from } = {}) {
+  let index = null;
+  if (from && from.calc && from.wb) {
+    const r = recalcFrom(wb, fns, now, from);
+    if (r && r.out) return r.out;
+    if (r) index = r.index;
+  }
+  return recalcAll(wb, fns, now, index);
+}
+
+const META = new WeakMap(); // a recalc's result → { wb, cyclic, overflow, index }
+const BAIL = Symbol('bail');
+const VOLATILE = /^(?:_XLFN\.)?(?:RAND|RANDBETWEEN|RANDARRAY|NOW|TODAY)$/;
+const TREES = new Map(); // formula text → its tree, or { bad: what parsing threw } (trees are never changed: shared)
+function treeOf(f) {
+  let t = TREES.get(f);
+  if (t === undefined) {
+    try { t = parse(f); } catch (e) { if (e instanceof RangeError) throw e; t = { bad: e }; } // too deep for this stack: not the text's fault, never cached (AV2-4)
+    if (TREES.size >= 100_000) TREES.clear();
+    TREES.set(f, t);
+  }
+  if (t.bad) throw t.bad;
+  return t;
+}
+
+// A chain of formulas (A1 reads A2, which reads A3…) is evaluated recursively only MAX_DEPTH formulas deep
+// (as deep as any ordinary sheet goes: below it nothing changes). Past that the evaluation stops (NEED;
+// nothing half-done is kept), what the needed cell reads that isn't evaluated yet is put in order without
+// recursion (deepest first) and evaluated from an explicit stack, then the waiting cell again. Evaluated in
+// that order, a cell finds what it reads done, unless it reads one still to come: only a loop does that, and
+// it's #CIRC! there (no deep walk round the loop). So a chain of any depth computes, the same in every
+// browser and in both recalcs (AV2-4); a stack overflow is left to a single absurdly nested formula (#NUM!).
+const MAX_DEPTH = 128;
+const PAD_CELLS = 10_000;
+class Need { constructor(at) { this.at = at; } }
+
+/** The evaluator both recalcs share. `own`: the value maps are copied before this calc first writes them (incremental). */
+function engine(wb, fns, now, out, incremental) {
   const visiting = new Set();
-  const trees = new Map();
+  const waiting = new Set(); // cells on the explicit stack below the one being evaluated: as good as visiting
+  const planned = new Set(); // cells put in order, not evaluated yet: read before their turn, only through a loop
+  let depth = 0;
   const dims = new Map();
-  for (const s of wb.sheets) out.set(s.name.toLowerCase(), new Map());
+  const st = { cyclic: false, overflow: false };
+  const owned = new Set();
+  const memoW = (sl) => { if (incremental && !owned.has(sl)) { out.set(sl, new Map(out.get(sl))); owned.add(sl); } return out.get(sl); };
   const dimOf = (s) => { if (!dims.has(s)) dims.set(s, extent(s)); return dims.get(s); };
   const valueAt = (sheetName, row, col) => {
     const s = sheetByName(wb, sheetName);
     if (!s) return err('#REF!');
-    const addr = a1(row, col);
+    return valueIn(s, row, col, a1(row, col));
+  };
+  const valueIn = (s, row, col, addr) => {
     const cell = s.cells[addr];
     if (!cell) return null;
     if (!cell.f) return cell.v ?? null;
-    const memo = out.get(s.name.toLowerCase());
+    const sl = s.name.toLowerCase();
+    const memo = out.get(sl);
     if (memo.has(addr)) return memo.get(addr);
-    const key = `${s.name.toLowerCase()}!${addr}`;
-    if (visiting.has(key)) return err('#CIRC!');
+    const key = `${sl}!${addr}`;
+    if (visiting.has(key) || waiting.has(key) || planned.has(key)) { st.cyclic = true; if (incremental) throw BAIL; return err('#CIRC!'); }
+    if (depth >= MAX_DEPTH) throw new Need([s, row, col, addr]);
     visiting.add(key);
+    depth++;
     let v;
     try {
-      let tree = trees.get(cell.f);
-      if (!tree) { tree = parse(cell.f); trees.set(cell.f, tree); }
-      v = scalar(evaluate(tree, ctxFor(s.name, row, col)));
+      v = scalar(evaluate(treeOf(cell.f), ctxFor(s.name, row, col)));
     } catch (e) {
-      v = isErr(e) && e.excel ? e : err('#NAME?');
+      if (e === BAIL || e instanceof Need) { visiting.delete(key); depth--; throw e; }
+      if (e instanceof RangeError) { st.overflow = true; if (incremental) throw BAIL; } // too deep even so: the order mattered
+      v = isErr(e) && e.excel ? e : err(e instanceof RangeError ? '#NUM!' : '#NAME?');
     }
     visiting.delete(key);
-    memo.set(addr, v);
+    depth--;
+    memoW(sl).set(addr, v);
     return v;
   };
-  const rangeAt = (sheetName, r1, c1, r2, c2) => {
+  // valueAt for the recalcs: what a cell needs past MAX_DEPTH goes on the stack and is evaluated first
+  const keyOf = (at) => `${at[0].name.toLowerCase()}!${at[3]}`;
+  const todo = (ts, r, c, list) => { const a = a1(r, c), x = ts.cells[a]; if (x && x.f && !out.get(ts.name.toLowerCase()).has(a)) list.push([ts, r, c, a]); };
+  const unevaluated = (at) => { // the formula cells `at` reads that have no value yet (ranges cut as rangeAt does)
+    const list = [];
+    let tree;
+    try { tree = treeOf(at[0].cells[at[3]].f); } catch { return list; }
+    const walk = (n) => {
+      switch (n.k) {
+        case 'ref': {
+          const ts = n.sheet == null ? at[0] : sheetByName(wb, n.sheet);
+          if (!ts) break;
+          if (!n.b) { todo(ts, n.a.row, n.a.col, list); break; }
+          const d = dimOf(ts), r1 = Math.min(n.a.row, n.b.row), c1 = Math.min(n.a.col, n.b.col);
+          const r2 = Math.min(Math.max(n.a.row, n.b.row), Math.max(d.rows, r1)), c2 = Math.min(Math.max(n.a.col, n.b.col), Math.max(d.cols, c1));
+          if ((r2 - r1 + 1) * (c2 - c1 + 1) > 2_000_000) break;
+          for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) todo(ts, r, c, list);
+          break;
+        }
+        case 'fn': n.args.forEach(walk); break;
+        case 'bin': walk(n.l); walk(n.r); break;
+        case 'neg': case 'pct': walk(n.x); break;
+        default: break;
+      }
+    };
+    walk(tree);
+    return list;
+  };
+  const inOrder = (x) => { // x and what it reads with no value yet, readers after what they read (a loop is cut where it closes)
+    const order = [], seen = new Set([keyOf(x)]), path = [[x, unevaluated(x), 0]];
+    while (path.length) {
+      const top = path[path.length - 1];
+      if (top[2] < top[1].length) {
+        const d = top[1][top[2]++], k = keyOf(d);
+        if (!seen.has(k) && !waiting.has(k)) { seen.add(k); path.push([d, unevaluated(d), 0]); }
+      } else { path.pop(); order.push(top[0]); }
+    }
+    return order;
+  };
+  const evalAt = (sheetName, row, col) => {
+    const s0 = sheetByName(wb, sheetName);
+    if (!s0) return err('#REF!');
+    const stack = [[s0, row, col, a1(row, col)]];
+    for (;;) {
+      const at = stack[stack.length - 1], k = keyOf(at);
+      waiting.delete(k); planned.delete(k); // its turn
+      let v;
+      try { v = valueIn(at[0], at[1], at[2], at[3]); } catch (e) {
+        if (!(e instanceof Need)) throw e;
+        waiting.add(k);
+        const order = inOrder(e.at);
+        for (let i = order.length - 1; i >= 0; i--) { stack.push(order[i]); planned.add(keyOf(order[i])); }
+        continue;
+      }
+      stack.pop();
+      if (!stack.length) return v;
+    }
+  };
+  // A range is read up to the sheet's used area (nothing is past it, so SUM(A:A) reads only what's there);
+  // `full` (a function that sees the shape: INDEX, TEXTJOIN, SUMPRODUCT…, sheet-calc.mjs SHAPED) gets one of
+  // at most PAD_CELLS cells with blanks up to its full size, as Excel sees it (AV2-6). ROWS, COLUMNS and
+  // COUNTBLANK take the size from the reference itself.
+  const rangeAt = (sheetName, r1, c1, r2, c2, full) => {
     const s = sheetByName(wb, sheetName);
     if (!s) return err('#REF!');
     const d = dimOf(s);
+    const pad = full && (r2 - r1 + 1) * (c2 - c1 + 1) <= PAD_CELLS ? [r2 - r1 + 1, c2 - c1 + 1] : null;
     r2 = Math.min(r2, Math.max(d.rows, r1));
     c2 = Math.min(c2, Math.max(d.cols, c1));
     if ((r2 - r1 + 1) * (c2 - c1 + 1) > 2_000_000) return err('#NUM!');
-    const rows = [];
-    for (let r = r1; r <= r2; r++) { const row = []; for (let c = c1; c <= c2; c++) row.push(valueAt(s.name, r, c)); rows.push(row); }
+    const rows = [], letters = [];
+    for (let c = c1; c <= c2; c++) letters.push(colName(c));
+    for (let r = r1; r <= r2; r++) { const row = []; for (let c = c1; c <= c2; c++) row.push(valueIn(s, r, c, letters[c - c1] + r)); rows.push(row); }
+    if (pad) {
+      if (pad[1] > rows[0].length) for (const row of rows) while (row.length < pad[1]) row.push(null);
+      while (rows.length < pad[0]) rows.push(new Array(pad[1]).fill(null));
+    }
     return rows;
   };
   const ctxFor = (sheet, row, col) => ({ sheet, row, col, cell: valueAt, range: rangeAt, fns, now });
+  return { valueAt: evalAt, memoW, st };
+}
+
+function recalcAll(wb, fns, now, index = null) {
+  const out = new Map();
+  for (const s of wb.sheets) out.set(s.name.toLowerCase(), new Map());
+  const e = engine(wb, fns, now, out, false);
   for (const s of wb.sheets) {
-    for (const [addr, cell] of Object.entries(s.cells)) {
-      if (!cell.f) continue;
+    for (const addr of formulasOf(s, true)) {
       const p = parseA1(addr);
-      if (p) valueAt(s.name, p.row, p.col);
+      if (p) e.valueAt(s.name, p.row, p.col);
     }
   }
+  META.set(out, { wb, cyclic: e.st.cyclic, overflow: e.st.overflow, index });
   return out;
+}
+
+// The dependency index: what each formula reads (cells, and ranges bucketed by column), keyed by the sheet read.
+const K = (sl, addr) => `${sl}\u0001${addr}`;
+function newIndex() { return { refs: new Map(), cell: new Map(), cols: new Map(), wide: new Map(), ranges: new Map(), volatile: new Set(), entries: 0 }; }
+function indexFormula(ix, sl, sheetName, addr, f) {
+  let tree;
+  try { tree = treeOf(f); } catch { return; } // it doesn't parse: it reads nothing
+  const fk = K(sl, addr), list = [];
+  const walk = (n) => {
+    switch (n.k) {
+      case 'ref': {
+        const tsl = String(n.sheet ?? sheetName).toLowerCase();
+        if (!n.b) {
+          const t = K(tsl, a1(n.a.row, n.a.col));
+          if (!ix.cell.has(t)) ix.cell.set(t, new Set());
+          ix.cell.get(t).add(fk);
+          list.push({ t });
+        } else {
+          const e = { fk, tsl, r1: Math.min(n.a.row, n.b.row), c1: Math.min(n.a.col, n.b.col), r2: Math.max(n.a.row, n.b.row), c2: Math.max(n.a.col, n.b.col) };
+          if (e.c2 - e.c1 < 64) {
+            if (!ix.cols.has(tsl)) ix.cols.set(tsl, new Map());
+            const m = ix.cols.get(tsl);
+            for (let c = e.c1; c <= e.c2; c++) { if (!m.has(c)) m.set(c, new Set()); m.get(c).add(e); }
+          } else {
+            if (!ix.wide.has(tsl)) ix.wide.set(tsl, new Set());
+            ix.wide.get(tsl).add(e);
+          }
+          if (!ix.ranges.has(tsl)) ix.ranges.set(tsl, new Set());
+          ix.ranges.get(tsl).add(e);
+          list.push(e);
+        }
+        ix.entries++;
+        break;
+      }
+      case 'fn': if (VOLATILE.test(n.name)) ix.volatile.add(fk); n.args.forEach(walk); break;
+      case 'bin': walk(n.l); walk(n.r); break;
+      case 'neg': case 'pct': walk(n.x); break;
+      default: break;
+    }
+  };
+  walk(tree);
+  ix.refs.set(fk, list);
+}
+function unindex(ix, sl, addr) {
+  const fk = K(sl, addr), list = ix.refs.get(fk);
+  ix.volatile.delete(fk);
+  if (!list) return;
+  for (const e of list) {
+    ix.entries--;
+    if (e.t) { const set = ix.cell.get(e.t); if (set) { set.delete(fk); if (!set.size) ix.cell.delete(e.t); } continue; }
+    if (e.c2 - e.c1 < 64) { const m = ix.cols.get(e.tsl); for (let c = e.c1; c <= e.c2; c++) m.get(c).delete(e); } else ix.wide.get(e.tsl).delete(e);
+    ix.ranges.get(e.tsl).delete(e);
+  }
+  ix.refs.delete(fk);
+}
+function buildIndex(wb) {
+  const ix = newIndex();
+  for (const s of wb.sheets) {
+    const sl = s.name.toLowerCase();
+    for (const addr of formulasOf(s)) indexFormula(ix, sl, s.name, addr, s.cells[addr].f);
+  }
+  return ix;
+}
+
+function recalcFrom(wb, fns, now, from) {
+  const meta = META.get(from.calc);
+  const prev = from.wb;
+  if (!meta || meta.wb !== prev || meta.cyclic || meta.overflow || prev.sheets.length !== wb.sheets.length) return null;
+  const changed = [];
+  for (let i = 0; i < wb.sheets.length; i++) {
+    const s = wb.sheets[i], ps = prev.sheets[i];
+    if (s.name.toLowerCase() !== ps.name.toLowerCase() || !from.calc.has(s.name.toLowerCase())) return null;
+    if (s === ps) continue;
+    const keys = changedKeys(ps, s);
+    if (!keys) return null;
+    changed.push({ s, ps, sl: s.name.toLowerCase(), keys });
+  }
+  // the index of the version before, brought up to this one (taken: the version before rebuilds one if it needs it)
+  let ix = meta.index;
+  meta.index = null;
+  if (ix) {
+    for (const { s, sl, keys } of changed) for (const addr of keys) { unindex(ix, sl, addr); const c = s.cells[addr]; if (c && c.f) indexFormula(ix, sl, s.name, addr, c.f); }
+  } else ix = buildIndex(wb);
+
+  // what may have changed: the cells written, then every formula reading them, and so on
+  const dirty = new Map(); // key → [sheet lower, addr] of the formulas to evaluate again
+  const queue = [], queued = new Set();
+  const push = (sl, addr) => { const k = K(sl, addr); if (!queued.has(k)) { queued.add(k); queue.push([sl, addr]); } };
+  const mark = (fk) => { if (!dirty.has(fk)) { const i = fk.indexOf('\u0001'); const sl = fk.slice(0, i), addr = fk.slice(i + 1); dirty.set(fk, [sl, addr]); push(sl, addr); } };
+  const rangesOn = (sl) => { const set = ix.ranges.get(sl); if (set) for (const e of set) mark(e.fk); };
+  for (const { s, ps, sl, keys } of changed) {
+    for (const addr of keys) { push(sl, addr); const c = s.cells[addr]; if (c && c.f) mark(K(sl, addr)); }
+    if (ix.ranges.has(sl) && ix.ranges.get(sl).size) { // ranges are cut at the used area: if it changed, they read differently
+      const was = EXTENTS.get(ps), is = extent(s);
+      if (!was || was.rows !== is.rows || was.cols !== is.cols) rangesOn(sl);
+    }
+  }
+  for (const fk of ix.volatile) mark(fk);
+  let work = 0;
+  const budget = 4 * (ix.entries + ix.refs.size) + 100_000;
+  for (let q = 0; q < queue.length; q++) {
+    const [sl, addr] = queue[q];
+    const set = ix.cell.get(K(sl, addr));
+    if (set) for (const fk of set) mark(fk);
+    const p = parseA1(addr);
+    if (!p) continue;
+    const m = ix.cols.get(sl), b = m && m.get(p.col);
+    if (b) for (const e of b) { work++; if (p.row >= e.r1 && p.row <= e.r2) mark(e.fk); }
+    const wd = ix.wide.get(sl);
+    if (wd) for (const e of wd) { work++; if (p.row >= e.r1 && p.row <= e.r2 && p.col >= e.c1 && p.col <= e.c2) mark(e.fk); }
+    if ((work += 1) > budget) return { index: ix }; // as much work as a full recalc: do that
+  }
+
+  const out = new Map();
+  for (const s of wb.sheets) out.set(s.name.toLowerCase(), from.calc.get(s.name.toLowerCase()));
+  const e = engine(wb, fns, now, out, true);
+  for (const { s, sl, keys } of changed) {
+    const before = from.calc.get(sl);
+    for (const addr of keys) { const c = s.cells[addr]; if (before.has(addr) && !(c && c.f)) e.memoW(sl).delete(addr); } // no longer a formula
+  }
+  for (const [sl, addr] of dirty.values()) if (out.get(sl).has(addr)) e.memoW(sl).delete(addr);
+  try {
+    for (const [sl, addr] of dirty.values()) {
+      const s = sheetByName(wb, sl), p = parseA1(addr);
+      if (s && p) e.valueAt(s.name, p.row, p.col);
+    }
+  } catch (x) {
+    if (x === BAIL) return { index: ix };
+    throw x;
+  }
+  META.set(out, { wb, cyclic: false, overflow: false, index: ix });
+  return { out };
 }
 
 /** A cell's value for display and charts: the computed one for a formula. */
@@ -301,6 +790,14 @@ export function unsafeFormula(f) {
   if (s.length > LIMITS.formulaChars) return `a formula is over ${LIMITS.formulaChars} characters`;
   const outside = s.replace(/"(?:[^"]|"")*"/g, '""');
   if (/\|/.test(outside)) return 'it looks like a DDE link (it would start another program)';
+  // text the formula writes that another spreadsheet would read as a DDE link or a blocked function once
+  // exported (="=cmd|' /C calc'!A0", ="+HYPERLINK(…)"): CSV export escapes it too, this refuses it up front
+  for (const m of s.matchAll(/"((?:[^"]|"")*)"/g)) {
+    const text = m[1].replace(/""/g, '"');
+    if (/\|[^!]*!/.test(text) || (/^[=+\-@]/.test(text) && (/\|/.test(text) || functionsIn(`=${text.slice(1)}`).some((n) => BLOCKED_FUNCTIONS.includes(n))))) {
+      return 'its text would read as a DDE link or an outside function once exported';
+    }
+  }
   if (/\[[^\]]*\]/.test(outside)) return 'it points at another workbook';
   const bad = functionsIn(s).find((n) => BLOCKED_FUNCTIONS.includes(n));
   if (bad) return `${bad}() reaches outside the workbook (Google Sheets or Excel would fetch from the internet)`;
@@ -618,7 +1115,10 @@ export function diffWorkbooks(a, b) {
     }
     if (!old) { sheetsAdded.push(s.name); for (const [addr, cell] of Object.entries(s.cells)) cells.push({ sheet: s.name, addr, before: undefined, after: cell }); for (const ch of s.charts) charts.push({ sheet: s.name, chart: ch }); continue; }
     if (old === s) continue;
-    if (old.cells !== s.cells) {
+    const keys = changedKeys(old, s); // made from `old` by edit(): only the addresses it wrote can differ
+    if (keys) {
+      for (const addr of keys) { const before = cellIn(old, addr), after = cellIn(s, addr); if (!sameCell(before, after)) cells.push({ sheet: s.name, addr, before, after }); }
+    } else if (old.cells !== s.cells) {
       for (const [addr, cell] of Object.entries(s.cells)) if (!sameCell(old.cells[addr], cell)) cells.push({ sheet: s.name, addr, before: old.cells[addr], after: cell });
       for (const [addr, cell] of Object.entries(old.cells)) if (!(addr in s.cells)) cells.push({ sheet: s.name, addr, before: cell, after: undefined });
     }
@@ -713,8 +1213,10 @@ export function sheetToCsv(sheet, calc) {
     const out = [];
     for (let c = 1; c <= cols; c++) {
       const cell = sheet.cells[a1(r, c)];
-      let t = cell ? formatValue(valueOf(sheet, a1(r, c), calc), cell.z) : '';
-      if (cell && !cell.f && typeof cell.v === 'string' && /^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+      const v = cell ? valueOf(sheet, a1(r, c), calc) : null;
+      let t = cell ? formatValue(v, cell.z) : '';
+      // any shown text, typed or a formula's result (="=cmd|…" shows =cmd|…); a number's own minus sign stays
+      if (cell && (/^[=+@\t\r]/.test(t) || (t.startsWith('-') && typeof v !== 'number'))) t = `'${t}`;
       out.push(/[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t);
     }
     lines.push(out.join(','));

@@ -4,13 +4,16 @@
 // page at /s/<id>) both use it; the tests load it alone.
 //
 // Why the key is in the link's #fragment, and what that trades away:
-// Eden's chats are end-to-end encrypted (H1): askeden.com never holds their plaintext. A shared
-// link has to be readable by someone with no Eden account and no key of the owner's, so a share
+// A shared link has to be readable by someone with no Eden account and no key of the owner's, so a share
 // is a separate snapshot, made on purpose, of only the messages the owner picked. It is encrypted
 // here with a fresh random AES-256-GCM key for that one share; the server stores only the
 // ciphertext and the key travels in the link after the "#", which browsers never send to any
-// server (not in requests, not in Referer). So askeden.com (or the Mac's server) still can't read
-// a shared chat, and revoking it deletes the ciphertext, which makes every copy of the link dead.
+// server (not in requests, not in Referer). So the share's own copy at askeden.com (or the Mac's
+// server) is ciphertext it can't read, and revoking it deletes the ciphertext, which makes every
+// copy of the link dead. The owner's record of the link (key included) travels with the chat in
+// `c.shares`: with end-to-end sync (H1) askeden.com can't read it; with the default account sync
+// (cloud-sync.js) askeden.com seals chats with its own key, so it could open the chat, the record
+// and so the shared text, as it could the chat itself (bug sweep AS15).
 // The costs: anyone who has the whole link can read it (as with any "anyone with the link"
 // share; the link is the secret, so it must be shared with care); the server can't preview,
 // search or scan what it holds, so abuse reports need the full link; a link copied without its
@@ -67,6 +70,14 @@ export function shareable(c) {
 }
 
 /** The snapshot of the picked messages (ids from shareable()), exactly what the link will show. */
+/** The picked messages longer than a share keeps (SHARE_LIMITS.text): [{ index (1-based among the picked), length }]. The preview says so (AS12). */
+export function clippedIn(items, picked) {
+  const keep = (items || []).filter((x) => picked.has(x.id)).slice(0, SHARE_LIMITS.messages);
+  const out = [];
+  keep.forEach((x, i) => { const n = String(x.text ?? '').replace(/\r\n?/g, '\n').length; if (n > SHARE_LIMITS.text) out.push({ index: i + 1, length: n }); });
+  return out;
+}
+
 export function buildSnapshot({ title, items, picked, now = Date.now() }) {
   const keep = (items || []).filter((x) => picked.has(x.id)).slice(0, SHARE_LIMITS.messages);
   return {

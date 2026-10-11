@@ -87,3 +87,12 @@ test('a session let go from the list and reopened from the history: its own stil
   assert.deepEqual([...C.store.data.keys()], ['8:session']);
   stillThere(C, 'after a reconnect');
 });
+
+test('opening the Changes pane asks only for code_changes, not the old whole-folder task_diff', () => {
+  const app = fs.readFileSync(new URL('../../src/jarvis/web/app.js', import.meta.url), 'utf8');
+  const open = app.slice(app.indexOf('function openPane('), app.indexOf('\n}\n', app.indexOf('function openPane(')));
+  const line = open.split('\n').find((l) => l.includes("type: 'task_diff'"));
+  assert.ok(line, 'openPane still has the fallback');
+  assert.match(line, /kind === 'diff' && !featurePanes\.has\('diff'\)/);
+  assert.ok(!/kind === 'diff' && t\) send\(\{ type: 'task_diff'/.test(open));
+});

@@ -422,5 +422,5 @@ test('the /link page: signed in only, under the sign-in page’s policy', async 
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
   assert.equal((await hit('/link/link.js', { chat: false })).status, 200);
-  assert.equal((await hit('/link/other.js', { chat: false })).status, 302, 'not a file of the page');
+  assert.equal((await hit('/link/other.js', { chat: false })).status, 404, 'not a file of the page');
 });

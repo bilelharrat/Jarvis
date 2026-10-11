@@ -428,6 +428,7 @@ async function drawSync(box) {
       inner));
 }
 
+const E2E_ITEMS = 1000;
 async function drawE2e(box) {
   const i = Sync.info();
   const s = i.server;
@@ -442,7 +443,10 @@ async function drawE2e(box) {
       go.disabled = true; go.textContent = 'Turning on…';
       try { await Sync.turnOn(f.value()); toast('Sync is on'); } catch (e) { toast(e.message); go.disabled = false; go.textContent = 'Turn on sync'; }
     } }, 'Turn on sync');
-    box.replaceChildren(lead, el('div', 'icard acct-card acct-form',
+    // End-to-end sync holds about 1,000 items (eden-sync.js EDEN_SYNC.items), account sync 5,000 chats: say so before switching (AS16).
+    const chats = state.convs.filter((c) => !c.temp && c.nodes && Object.keys(c.nodes).length).length;
+    const cap = chats > E2E_ITEMS ? el('p', 'sp-warn', `You have ${chats.toLocaleString(locale())} chats. End-to-end sync holds about ${E2E_ITEMS.toLocaleString(locale())}, so about ${(chats - E2E_ITEMS).toLocaleString(locale())} would stay only on this device. Account sync (the default) holds up to 5,000.`) : null;
+    box.replaceChildren(lead, ...(cap ? [cap] : []), el('div', 'icard acct-card acct-form',
       el('b', '', 'Choose a recovery passphrase'),
       el('p', 'acct-sub', 'It unlocks your history in a browser when no other device is at hand (at least 12 characters; a few unrelated words work well). It’s stretched with PBKDF2 (600 000 rounds) and never sent.'),
       f.a, f.b, f.shown, el('div', 'acct-row-actions', f.suggest, go)));
@@ -640,14 +644,19 @@ async function openBilling(button, kind, payload = {}) {
   }
 }
 
-// A message that came with a promo code, over the page; text only, never HTML.
-function showNote(text) {
-  const close = () => back.remove();
-  const card = el('div', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'A message for you', style: { background: 'var(--bg, #fff)', color: 'var(--text, #111)', maxWidth: '420px', width: 'calc(100% - 48px)', padding: '28px', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,.35)', font: 'inherit', lineHeight: '1.5', whiteSpace: 'pre-wrap' } },
-    el('span', { 'data-no-i18n': '' }, text), el('div', { style: { marginTop: '20px', textAlign: 'right' } }, el('button', { type: 'button', class: 'btn primary', onclick: close }, 'Close')));
-  const back = el('div', { style: { position: 'fixed', inset: '0', zIndex: '9999', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onclick: (e) => { if (e.target === back) close(); } }, card);
+// A message over the page (one that came with a promo code; askeden.com's notice after deleting the account); text
+// only, never HTML. Resolves when it's closed. `stay`: only its button closes it (not a click beside it).
+function showNote(text, { label = 'Close', title = 'A message for you', stay = false } = {}) {
+  let done;
+  const closed = new Promise((r) => { done = r; });
+  const close = () => { back.remove(); done(); };
+  const card = el('div', { role: stay ? 'alertdialog' : 'dialog', 'aria-modal': 'true', 'aria-label': title, style: { background: 'var(--bg, #fff)', color: 'var(--text, #111)', maxWidth: '420px', width: 'calc(100% - 48px)', padding: '28px', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,.35)', font: 'inherit', lineHeight: '1.5', whiteSpace: 'pre-wrap' } },
+    el('span', { class: 'acct-msg-text', 'data-no-i18n': '' }, text), el('div', { style: { marginTop: '20px', textAlign: 'right' } }, el('button', { type: 'button', class: 'btn primary', onclick: close }, label)));
+  const back = el('div', { class: 'acct-msg-back', style: { position: 'fixed', inset: '0', zIndex: '9999', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.45)' }, onclick: (e) => { if (e.target === back && !stay) close(); } }, card);
+  card.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); if (e.key === 'Escape') close(); } }); // one button: focus stays on it
   document.body.append(back);
   card.querySelector('button').focus();
+  return closed;
 }
 
 // "Have a promo code?": free Plus for a while (accounts/promo.js). Works on the web page; the apps have their own.
@@ -936,8 +945,13 @@ function deleteSection() {
     go.disabled = true;
     go.textContent = 'Deleting…';
     try {
-      await post('/api/web/account/delete', { confirm: 'DELETE' });
+      const r = await post('/api/web/account/delete', { confirm: 'DELETE' });
       try { await Sync.forgetAllKeys(); } catch { /* the account is gone either way */ }
+      // Stripe didn't confirm the cancel (session.js: `stripe` pending or refused, each with its `notice`): the person reads it before leaving (AS2-5).
+      if (r && typeof r.notice === 'string' && r.notice.trim()) {
+        go.textContent = 'Account deleted';
+        await showNote(r.notice, { label: 'OK', title: 'Your account is deleted', stay: true });
+      }
       location.replace(HOME());
     } catch (e) {
       // Signed in too long ago: sign out, then back here after a fresh sign-in.
@@ -1031,6 +1045,15 @@ function acted() {
   dispatchEvent(new CustomEvent('eden:acting'));
 }
 
+/** GET /api/web/account's answer from the page's one session read at load (hosted.js), once; null when there's none. */
+async function bootAccount() {
+  const p = globalThis.edenBootSession;
+  if (!p || typeof p.then !== 'function') return null;
+  globalThis.edenBootSession = null; // once: later reads (the account page) ask again
+  const s = await Promise.resolve(p).catch(() => null);
+  return s && s.account && typeof s.account === 'object' && s.account.account_id ? s.account : null;
+}
+
 /**
  * Finds out whether this Eden has accounts (askeden.com, or ?mock=1) and, if so, shows the
  * Settings button and opens the page for #account. Call once meta has loaded.
@@ -1043,15 +1066,20 @@ export async function initAccount(handlers = {}) {
   // "Opening…") comes out of the back-forward cache, so it's drawn again.
   addEventListener('pageshow', (e) => { if (e.persisted && accountOpen()) draw(); });
   if (!isMock && !(state.meta && state.meta.hosted)) { if (setActing(null)) acted(); return; } // the local server: no accounts
-  let res;
-  try { res = await call('/api/web/account'); } catch { return; }
-  if (!res.ok) return;
+  // askeden.com's page asked for the session with the account in it once, at load (hosted.js: GET /api/web/session?account=1):
+  // that answer is used here instead of a second read (opt2-ae-web). Without it (an older Worker, ?mock=1), as before.
+  let me = await bootAccount();
+  if (!me) {
+    let res;
+    try { res = await call('/api/web/account'); } catch { return; }
+    if (!res.ok) return;
+    me = await read(res);
+  }
   available = true;
   addEventListener('eden:get-plus', () => openAccount({ focusPlus: true }));
   addEventListener('eden:add-credits', () => openAccount({ focusCredits: true }));
   addEventListener('eden:manage-billing', () => openBilling(null, 'portal'));
   enableWorkflowSharing(); // Workflows › Share to a space… (spaces.js)
-  const me = await read(res);
   // What the page assumed at load (acting.js keeps it between loads) against what's true now.
   if (setActing(me.acting || null)) acted();
   // Acting for someone: say so everywhere, and start a space's chats at its router level.

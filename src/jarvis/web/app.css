@@ -175,6 +175,9 @@ body[data-state="speaking"] .orb-core { animation: speak 0.9s ease-in-out infini
 }
 .card.needs-ok { border-color: var(--action); }
 .cards-clear { align-self: flex-end; font-size: 12px; padding: 4px 12px; }
+/* The stack's gaps let clicks through to what's under it; its cards and button take them. */
+.cards { pointer-events: none; }
+.cards > * { pointer-events: auto; }
 /* A sheet on the right (Settings, Tools & Accounts): the stack steps to its left instead of
    covering its controls, as it does for the browser dock. These sheets and Eden Code are
    the body's own children, and each body:has() here asks only the body's children (> #id):
@@ -2043,6 +2046,8 @@ body.in-app .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; }
 .jc-slider #ep-range:active::-webkit-slider-thumb, .jc-slider #jcs-effort:active::-webkit-slider-thumb { transform: scale(0.94); }
 .jc-slider + .ep-ticks { margin: 8px 14px 0; }
 .jcs-effort .jc-slider { flex: 1; min-width: 180px; }
+/* the keyboard's place on it: the whole track is ringed (the input itself is a transparent strip over it, CH3-12) */
+.jc-slider:has(input:focus-visible) { outline: 2px solid var(--action); outline-offset: 2px; }
 
 /* dashboard cards: clear glass (the room behind shows through; the rim catches light) */
 body[data-look="orb"] {

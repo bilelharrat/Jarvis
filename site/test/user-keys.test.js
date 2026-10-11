@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { sha256Hex } from '../src/accounts/util.js';
 import { openWith } from '../src/accounts/tokens.js';
-import { billsAllowance, checkShape, fakeProviderBase, keysApi, scrub, userKeyFor } from '../src/accounts/user-keys.js';
-import { chatApi } from '../src/eden/chat.js';
-import { metered, providerKey } from '../src/eden/providers.js';
+import { billsAllowance, checkShape, fakeProviderBase, keysApi, keysUnreadError, scrub, userKeyFor } from '../src/accounts/user-keys.js';
+import { chatApi, hostedConfig } from '../src/eden/chat.js';
+import { hostedFor, metered, providerKey } from '../src/eden/providers.js';
+import { readFileSync } from 'node:fs';
 import { Account, namespace, rateLimiter } from './fakes.js';
 
 const ACCOUNT = 'a'.repeat(32);
@@ -148,4 +149,46 @@ test('the fake provider base is honoured only on loopback', () => {
   assert.equal(fakeProviderBase(env, new Request('https://askeden.com/api/chat/keys')), null);
   assert.equal(fakeProviderBase({ EDEN_FAKE_PROVIDER_BASE: 'http://evil.example' }, get()), null);
   assert.equal(fakeProviderBase(env, get()), 'http://127.0.0.1:9');
+});
+
+test('AW2-14: the owner’s keys unread (the account didn’t answer, twice): their providers get no key at all, never the service’s, and turns refuse in plain words', async () => {
+  await keysApi(post({ provider: 'openai', key: OPENAI }), env, who(OWNER), { readBody });
+  env.OPENAI_API_KEY = 'sk-service-key-not-the-users';
+  env.GEMINI_API_KEY = 'AIza-service-key';
+  const get = env.ACCOUNTS.get.bind(env.ACCOUNTS);
+  let failures = 0;
+  env.ACCOUNTS.get = (name) => {
+    const stub = get(name);
+    return { fetch: async (input, init) => {
+      if (String(input).endsWith('/ukeys-get') && failures > 0) { failures--; throw new Error('Durable Object overloaded'); }
+      return stub.fetch(input, init);
+    } };
+  };
+  // one blip: read again, the owner's own key
+  failures = 1;
+  let cfg = await hostedFor(env, who(OWNER), hostedConfig(env));
+  assert.deepEqual(cfg.keys.openai, { key: OPENAI, source: 'user' });
+  assert.equal(cfg.keysUnread, undefined);
+  // twice: no key for any provider of the owner's, so nothing runs on the included allowance; logged without the key
+  failures = 2;
+  cfg = await hostedFor(env, who(OWNER), hostedConfig(env));
+  assert.equal(cfg.keys.openai, null);
+  assert.equal(cfg.keys.gemini, null);
+  assert.equal(cfg.keysUnread.reason, 'read');
+  assert.ok(!cfg.models.some((m) => metered(cfg.keys, m.provider)), 'no model on the service’s key');
+  assert.ok(logs.some((l) => /keys couldn’t be read/.test(l)) && !logs.join('\n').includes(OPENAI));
+  const e = keysUnreadError(cfg.keysUnread);
+  assert.equal(e.status, 503);
+  assert.match(e.message, /couldn’t read your saved API keys[\s\S]*won’t use your included AI/);
+  // a saved key that can't be opened: that provider only, and a message saying what to do
+  const record = await storage().get('ukey:openai');
+  await storage().put('ukey:openai', { ...record, ct: 'AAAA' });
+  cfg = await hostedFor(env, who(OWNER), hostedConfig(env));
+  assert.deepEqual(cfg.keysUnread, { reason: 'open', providers: ['openai'] });
+  assert.equal(cfg.keys.openai, null);
+  assert.match(keysUnreadError(cfg.keysUnread).message, /open your saved OpenAI key[\s\S]*Save it again/);
+  // the turn routes refuse while keys are unread (chat.js)
+  const chat = readFileSync(new URL('../src/eden/chat.js', import.meta.url), 'utf8');
+  assert.match(chat, /if \(cfg\.keysUnread && request\.method === 'POST' && KEY_SPENDING\.has\(path\)\) throw keysUnreadError/);
+  assert.match(chat, /KEY_SPENDING = new Set\(\['\/api\/chat\/send', '\/api\/chat\/compare', '\/api\/chat\/embed'\]\)/);
 });

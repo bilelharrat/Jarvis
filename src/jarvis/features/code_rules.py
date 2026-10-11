@@ -130,7 +130,7 @@ class RuleDesk:
             project=project,
             name=Path(project).name,
             rules=self.book.rules(project),
-            legacy=self.hub.tasks.rules.for_project(task.cwd),
+            legacy=self.hub.tasks.rules.for_project(self.hub.tasks.rule_folder(task)),
             claude=claude,
             **extra,
         )
@@ -226,7 +226,8 @@ class RuleDesk:
         target = "project" if msg.get("target") == "project" else "local"
         project = self.project(task)
         rules = self.book.rules(project)
-        legacy = [f"Bash({key}:*)" for key in self.hub.tasks.rules.for_project(task.cwd)]
+        folder = self.hub.tasks.rule_folder(task)
+        legacy = [f"Bash({key}:*)" for key in self.hub.tasks.rules.for_project(folder)]
         rules["allow"] = [*rules["allow"], *(r for r in legacy if r not in rules["allow"])]
         name = coderules.CLAUDE_FILES[target]
         try:

@@ -767,6 +767,7 @@ class Speaker:
         self._streams = asyncio.Semaphore(3)
         self._live: LivePlayer | None = None
         self._live_lock: asyncio.Lock | None = None
+        self._live_closes = 0  # close_live() calls: a player started across one is closed
         # What makes the live player (duplex.Duplex's while JARVIS can be talked over).
         self.player_factory: Callable[[Path, int, bool], LivePlayer] = LivePlayer
 
@@ -803,13 +804,32 @@ class Speaker:
                 current.close()
             factory = getattr(self, "player_factory", LivePlayer)
             fresh = factory(self.player_path, self.live_rate, self.effect)
+            closes = getattr(self, "_live_closes", 0)
             try:
                 await fresh.start()
             except OSError as exc:
                 log.warning("live player didn't start (%s)", exc)
+                fresh.close()
+                return None
+            except BaseException:
+                # Cancelled while it started (an Eden window that left at once, a timeout):
+                # the process it began goes too, never left running unreferenced (CH2-1).
+                fresh.close()
+                raise
+            if closes != getattr(self, "_live_closes", 0):  # close_live() came while it started
+                fresh.close()
                 return None
             self._live = fresh
             return fresh
+
+    def close_live(self) -> None:
+        """The live player goes, and one being started right now goes as soon as it has
+        (the last Eden window left a backend Eden Code started). The next live() starts
+        a new one."""
+        self._live_closes = getattr(self, "_live_closes", 0) + 1
+        if getattr(self, "_live", None) is not None:
+            self._live.close()
+            self._live = None
 
     def shutdown(self) -> None:
         """Quitting: the live player goes too, and the voice service's connection."""

@@ -5,7 +5,23 @@
 // from the answer's usage once it's done. A request that starts inside the allowance always
 // finishes; the next one is refused when it's spent.
 
-import { MODELS } from '../eden/vendor/model-router.js';
+// The Model Router's registry (MODELS), for the price of a model that isn't Claude (the service's stand-in, service-ai.js).
+// It isn't imported here: loading eden/vendor/model-router.js compiles its classifier, so it stays off the isolate's start
+// (worker.js chatModule). Hosted chat registers it when it loads (eden/providers.js); every other path that prices an
+// answer awaits pricesReady() first (the Anthropic door, background tasks, course OCR, forward below).
+let registry = null;
+let loading = null;
+/** Hands priceOf the registry (eden/providers.js, at load). */
+export function registerModels(models) {
+  if (Array.isArray(models)) registry = models;
+}
+/** Tests: priceOf forgets the registry, as in a new isolate. */
+export const testOnlyForgetModels = () => { registry = null; };
+/** Resolves once priceOf knows every registry model's price (loads the registry the first time). */
+export function pricesReady() {
+  if (registry) return Promise.resolve();
+  return (loading ??= import('../eden/vendor/model-router.js').then((m) => registerModels(m.MODELS)).finally(() => { loading = null; }));
+}
 import { serviceFallback, serviceFetch, sseOf as sseText } from './service-ai.js';
 
 const ANTHROPIC = 'https://api.anthropic.com';
@@ -58,7 +74,7 @@ export const WEB_SEARCH_USD = WEB_SEARCH;
 export function priceOf(model) {
   for (const [pattern, price] of PRICES) if (pattern.test(String(model))) return price;
   // The stand-in for Claude without an Anthropic key (service-ai.js): its own registry price.
-  const other = MODELS.find((m) => m.id === model);
+  const other = registry && registry.find((m) => m.id === model);
   if (other) return [other.pricing.inputPer1M, other.pricing.outputPer1M, 0.1];
   return UNKNOWN;
 }

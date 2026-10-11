@@ -17,10 +17,19 @@ function bootSoundSwitch(onChange) {
   const sw = el('input', { type: 'checkbox', 'aria-label': 'Boot-up sound' });
   sw.checked = true;
   sw.disabled = true;
-  Promise.resolve(b.getBootSound()).then((on) => { sw.checked = on !== false; sw.disabled = false; }).catch(() => { sw.disabled = false; });
-  sw.addEventListener('change', () => {
-    Promise.resolve(b.setBootSound(sw.checked)).catch(() => {});
-    if (onChange) onChange(sw.checked);
+  // AC2-11: an app that never answers leaves the switch usable (on, the default) after 3 s, not greyed out for good
+  const ready = setTimeout(() => { sw.disabled = false; }, 3000);
+  Promise.resolve(b.getBootSound()).then((on) => { sw.checked = on !== false; }).catch(() => {}).finally(() => { clearTimeout(ready); sw.disabled = false; });
+  sw.addEventListener('change', async () => {
+    // AC2-11: the switch shows what the app saved: it answers with the value it kept (the old one when the write
+    // failed); a refusal or a different value puts the switch back and says so, never "saved"
+    const want = sw.checked;
+    sw.disabled = true;
+    let kept;
+    try { kept = await b.setBootSound(want); } catch { kept = !want; }
+    sw.disabled = false;
+    if (typeof kept === 'boolean' && kept !== want) { sw.checked = kept; toast('Couldn’t save the boot-up sound. Try again.'); return; }
+    if (onChange) onChange(want);
   });
   return el('label', 'switch', sw, el('span', 'tr'));
 }

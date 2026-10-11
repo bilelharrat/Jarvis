@@ -301,3 +301,22 @@ test('the course budget’s per-student daily cap holds the same way', async () 
   assert.ok(after.today.by[by] <= 0.5 + 1e-9, `the student’s day: ${after.today.by[by]}`);
   assert.equal((await getJ(student, `/api/chat/courses/${course}/allowance`)).free.left_usd, EDU_FREE.dailyUSD, 'the free allowance untouched');
 });
+
+test('AW14: a free study turn’s route note names the free study allowance; the professor’s own turn names their included AI', async () => {
+  const { prof, student, course } = await classroom();
+  const notes = async (who) => (await readEvents(await ask(who, course))).find((e) => e.type === 'route').data.notes;
+  const free = await notes(student);
+  assert.ok(free.includes('on askeden.com: your free study allowance'), JSON.stringify(free));
+  assert.ok(!free.some((n) => /included AI$/.test(n)), JSON.stringify(free));
+  assert.ok((await notes(prof)).includes('on askeden.com: your Eden account’s included AI'));
+});
+
+test('AW16: a browser signed out elsewhere can’t keep changing course data from this copy’s 30-second session cache', async () => {
+  const { student, course } = await classroom();
+  await getJ(student, `/api/chat/courses/${course}`); // the session is now cached here
+  const me = await getJ(student, '/api/web/session');
+  // the phone signs the browser out (another copy of the Worker in real life: this one's cache isn't told)
+  assert.equal((await hit(`/api/devices/${me.device.id}`, { method: 'DELETE', browser: false, token: student.token })).status, 204);
+  const r = await chat(student, `/api/chat/courses/${course}/notes`, { method: 'POST', body: { id: 'note-1', title: 'x', body: 'y' } });
+  assert.equal(r.status, 401);
+});

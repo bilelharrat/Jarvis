@@ -85,13 +85,46 @@ export function renderPlan() {
 }
 
 /* ---------- Changes tab ---------- */
+/** A path as git prints it in a diff: plain (a name with spaces ends in a tab on ---/+++ lines) or C-quoted ("caf\303\251.txt": octal escapes are UTF-8 bytes). */
+export function gitPath(raw) {
+  const s = String(raw).replace(/\t$/, '');
+  if (!(s.length >= 2 && s.startsWith('"') && s.endsWith('"'))) return s;
+  const bytes = [];
+  const named = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
+  for (const m of s.slice(1, -1).matchAll(/\\([0-7]{1,3})|\\([\s\S])|([^\\]+)/g)) {
+    if (m[1]) bytes.push(parseInt(m[1], 8) & 0xff);
+    else if (m[2]) bytes.push(named[m[2]] ?? m[2].charCodeAt(0));
+    else bytes.push(...new TextEncoder().encode(m[3]));
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+const unprefix = (p, pre) => (p.startsWith(pre) ? p.slice(pre.length) : p);
+
+/** The new path on a `diff --git` line: quoted, the same name twice ("a/x y b/x y"), or a best guess (the ---/+++ lines then say for sure). */
+function headerPath(rest) {
+  if (rest.startsWith('"')) {
+    const end = /^"(?:[^"\\]|\\.)*"/.exec(rest);
+    const second = end ? rest.slice(end[0].length).trim() : '';
+    return unprefix(gitPath(second || rest), 'b/');
+  }
+  const n = (rest.length - 5) / 2;
+  if (Number.isInteger(n) && n > 0 && rest.startsWith('a/') && rest.slice(2, 2 + n) === rest.slice(5 + n) && rest.slice(2 + n, 5 + n) === ' b/') return rest.slice(2, 2 + n);
+  const m = /^a\/(.+?) b\/(.+)$/.exec(rest);
+  return m ? gitPath(m[2]) : rest;
+}
+
 export function parseDiff(diff) {
   const files = [];
   let f = null, h = null;
   for (const line of String(diff || '').split('\n')) {
-    const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
-    if (m) { f = { path: m[2], hunks: [] }; files.push(f); h = null; continue; }
+    if (line.startsWith('diff --git ')) { f = { path: headerPath(line.slice(11)), hunks: [] }; files.push(f); h = null; continue; }
     if (!f) continue;
+    // before the first hunk, ---/+++ name the file exactly (+++ wins; --- for a deleted file)
+    if (!h && (line.startsWith('--- ') || line.startsWith('+++ '))) {
+      const p = gitPath(line.slice(4));
+      if (p !== '/dev/null') f.path = unprefix(p, line[0] === '+' ? 'b/' : 'a/');
+      continue;
+    }
     if (line.startsWith('@@')) { h = { header: line, lines: [] }; f.hunks.push(h); continue; }
     if (h && (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ') || line === '\\ No newline at end of file')) h.lines.push(line);
   }

@@ -7,8 +7,10 @@ note, and another once session 3 has answered (on screen only, never to its Clau
 jarvis_sessions: an MCP server every Eden Code session gets, so one can coordinate the
 others: list_sessions, session_summary and message_session. A message follows the
 target's permission mode: it goes straight in when the target accepts edits, is on Auto
-or bypasses permissions, and asks the owner first (a card, said aloud while voice
-coding) when it's on Manual or planning. It's framed as another session's words, not the
+or bypasses permissions, and asks the owner first (a card, said aloud while voice coding)
+when it's on Manual or planning, or on Auto or Bypass while the sender is in a stricter
+mode (Plan messaging Bypass). An unattended run can't
+message the others at all. It's framed as another session's words, not the
 owner's; nothing here can answer a permission request, so a session can never approve
 another's; and a session may message the others at most PER_HOUR times an hour.
 """
@@ -31,6 +33,11 @@ TOOLS = [
 ]
 PER_HOUR = 20  # messages one session may send the others in an hour
 FREE_MODES = ("edits", "smart", "auto")  # a target in these takes messages without asking
+# How much a mode lets go by unasked. A target that runs commands unasked (Auto, Bypass)
+# takes a message without the owner's yes only from a session in a mode at least as loose:
+# Plan or Manual never drives a Bypass session by itself.
+LOOSENESS = {"plan": 0, "ask": 1, "edits": 2, "smart": 3, "auto": 4}
+RUNS_UNASKED = ("smart", "auto")
 MESSAGE_LIMIT = 8000  # characters of one message between sessions
 MENTION = re.compile(r"^\s*@(?:session[-\s]?|s)?(\d{1,4})\b[\s,:]*", re.IGNORECASE)
 SHOWN_RESULT = 600  # characters of an answer noted in the session that asked
@@ -188,7 +195,18 @@ class Peers:
                 "before sending more.",
                 error=True,
             )
-        if target.mode not in FREE_MODES and not await self.owner_says_yes(sender, target, text):
+        if self.unattended(sender):
+            return _text(
+                "A run without the owner can't message other sessions; leave it in your "
+                "summary for them.",
+                error=True,
+            )
+        looser = target.mode in RUNS_UNASKED and LOOSENESS.get(target.mode, 4) > LOOSENESS.get(
+            sender.mode, 0
+        )
+        if (target.mode not in FREE_MODES or looser) and not await self.owner_says_yes(
+            sender, target, text
+        ):
             return _text(
                 f"The owner said no: session {target.id} is in "
                 f"{MODE_LABELS.get(target.mode, target.mode)} mode, so it asks them first.",
@@ -206,6 +224,11 @@ class Peers:
             f"Sent to session {target.id}. Its answer shows in that session; read it with "
             "session_summary once it's done."
         )
+
+    def unattended(self, task: Any) -> bool:
+        """An unattended run's session ("Run this without me", features.code_unattended)."""
+        runs = getattr(getattr(self.hub, "code_runs", None), "active", None)
+        return isinstance(runs, dict) and task.id in runs
 
     async def owner_says_yes(self, sender: Any, target: Any, text: str) -> bool:
         """The target asks before it takes anything: a card for its session (said aloud

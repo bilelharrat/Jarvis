@@ -54,17 +54,25 @@ function mount(session) {
   }
 }
 
-async function main() {
-  let session = null;
+// The session, with the account page's view in it (?account=1), asked for once as the page loads: Eden's account.js
+// takes `account` from it at startup instead of a second read of GET /api/web/account (askeden opt2-ae-web). An older
+// Worker answers without `account`, and account.js then reads it itself.
+const sessionRead = (async () => {
   try {
-    const res = await fetch('/api/web/session', { headers: { 'X-Jarvis-Chat': '1' }, cache: 'no-store' });
-    if (res.status === 401) {
-      location.replace('/'); // signed out elsewhere (the app, or the 30 days ran out)
-      return;
-    }
-    if (res.ok) session = await res.json();
+    const res = await fetch('/api/web/session?account=1', { headers: { 'X-Jarvis-Chat': '1' }, cache: 'no-store' });
+    if (res.status === 401) return { signedOut: true };
+    return res.ok ? { session: await res.json() } : {};
   } catch {
-    // offline: the page says so itself
+    return {}; // offline: the page says so itself
+  }
+})();
+globalThis.edenBootSession = sessionRead.then((r) => r.session || null);
+
+async function main() {
+  const { session = null, signedOut = false } = await sessionRead;
+  if (signedOut) {
+    location.replace('/'); // signed out elsewhere (the app, or the 30 days ran out)
+    return;
   }
   mount(session);
 }

@@ -849,7 +849,8 @@ async def test_waiting_messages_can_be_taken_back(settings, quiet_speaker, isola
     assert [i["text"] for i in queue] == ["and the docs", "and the changelog"]
     q = hub.subscribe()
     await hub.handle({"type": "task_unqueue", "id": task.id, "item": queue[0]["id"]})
-    items = [e for e in drain(q) if e["type"] == "tasks"][-1]["items"]
+    # (the windows get only the sessions that changed: tasks_patch)
+    items = [e for e in drain(q) if e["type"] == "tasks_patch"][-1]["items"]
     assert [i["text"] for i in items[0]["queue"]] == ["and the changelog"]
     assert items[0]["queued"] == 1
     task.handle.cancel()

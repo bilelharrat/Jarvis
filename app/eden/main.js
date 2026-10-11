@@ -25,12 +25,12 @@ const { spawn } = require('child_process');
 const { backendCommand, BackendLog } = require('../backend-launch');
 const share = require('../backend-share');
 const { createUpdater, fetchFeed, feedFrom } = require('../features/updates');
+const policy = require('./mac-policy');
 
 const NAME = 'Ask Eden';
 const HOME_URL = 'https://askeden.com/';
 const QUICK_KEYS = 'Alt+Space';
 const EDEN_PORT = 5174;
-const SIGN_IN_HOSTS = new Set(['appleid.apple.com', 'accounts.google.com']);
 // A browser's user agent, as the website sees one (without Electron's and this app's tokens:
 // sign-in providers refuse an embedded browser).
 app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|Ask Eden|ask-eden-app)\/\S+/gi, '');
@@ -62,14 +62,9 @@ app.on('second-instance', (_e, argv) => {
 
 // ── the web page in a window ──
 
-const isEdenSite = (url) => {
-  try { const u = new URL(url); return u.protocol === 'https:' && (u.hostname === 'askeden.com' || u.hostname.endsWith('.askeden.com')); } catch { return false; }
-};
-const staysIn = (url) => {
-  if (isEdenSite(url)) return true;
-  try { const u = new URL(url); return u.protocol === 'https:' && SIGN_IN_HOSTS.has(u.hostname); } catch { return false; }
-};
-const openOutside = (url) => { if (/^(https|mailto):/i.test(url)) shell.openExternal(url).catch(() => {}); };
+const { isEdenSite } = policy;
+// AJ3-10: web pages (http too) in the user's browser; mailto:, tel:, webcal:, FaceTime and meeting links in their apps
+const openOutside = (url) => { if (policy.outsideAllowed(url)) shell.openExternal(url).catch(() => {}); };
 
 // The window chrome the page needs on a Mac, and nothing of the page's own look.
 const DESKTOP_CSS = `
@@ -82,18 +77,22 @@ const DESKTOP_CSS = `
   html.eden-desktop.eden-fullscreen body::before { content: ''; position: fixed; top: 0; left: 84px; right: 0; height: 12px; -webkit-app-region: drag; pointer-events: none; }
 `;
 
-function guard(wc) {
-  wc.setWindowOpenHandler(({ url }) => {
-    if (isEdenSite(url)) return { action: 'allow' };
-    if (staysIn(url)) return { action: 'allow' }; // a sign-in popup
-    openOutside(url);
-    return { action: 'deny' };
-  });
-  wc.on('will-navigate', (event, url) => {
-    if (staysIn(url)) return;
-    event.preventDefault();
-    openOutside(url);
-  });
+// The windows stay on askeden.com; a sign-in started there may pass through Google's, Apple's and a
+// company's hosts until it's back (AJ2-8, AJ3-2, AJ3-12); askeden.com's download links download in the
+// app (AJ3-3). Pop-ups get the same guard. window-policy.js, shared with Ask Eden for Windows.
+const guard = policy.createGuard({ openOutside });
+
+// askeden.com can't be reached (offline at launch, a Wi-Fi change): a page that says so and tries
+// again (5 s, 10 s… every minute, at once on a wake or Reload), never a blank window (AJ3-9)
+const offline = policy.createOfflineRetry({
+  show: (url, ms) => { if (win && !win.isDestroyed()) win.loadURL(policy.offlinePageUrl({ name: NAME, url, seconds: ms / 1000 })).catch(() => {}); },
+  retry: (url) => { if (win && !win.isDestroyed()) win.loadURL(url).catch(() => {}); },
+});
+function reloadFocused() { // View › Reload: on the offline page, askeden.com again, not the offline page
+  const w = BrowserWindow.getFocusedWindow() || win;
+  if (!w || w.isDestroyed()) return;
+  if (w === win && offline.retryNow()) return;
+  w.webContents.reload();
 }
 
 function createMain() {
@@ -112,7 +111,37 @@ function createMain() {
     win.webContents.executeJavaScript("document.documentElement.classList.add('eden-desktop')").catch(() => {});
   };
   const fs_ = (on) => win && !win.isDestroyed() && win.webContents.executeJavaScript(`document.documentElement.classList.toggle('eden-fullscreen', ${on})`).catch(() => {});
-  win.webContents.on('dom-ready', () => { apply(); fs_(win.isFullScreen()); });
+  win.webContents.on('dom-ready', () => { apply(); fs_(win.isFullScreen()); if (isEdenSite(win.webContents.getURL())) quickRetry(); });
+  // AJ2-5: askeden.com loaded after a sign-in: linking looks again soon. AJ3-11: another page, or the window
+  // brought forward, at most every 30 minutes. AJ3-1: the sign-in page on screen counts as someone looking.
+  let mainUrl = '';
+  win.webContents.on('did-navigate', (_e, url) => {
+    const prev = mainUrl;
+    mainUrl = String(url || '');
+    if (isEdenSite(mainUrl)) offline.loaded();
+    const nudge = policy.linkNudgeFor(prev, mainUrl);
+    if (nudge === 'signed-in') autoLink.nudge(); else if (nudge === 'focus') autoLink.focused();
+    if (isEdenSite(mainUrl) && /^\/signin(\/|$)/.test(new URL(mainUrl).pathname)) autoLink.signInShown();
+  });
+  win.on('focus', () => autoLink.focused());
+  win.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
+    const again = policy.offlineTarget(url, { code, isMainFrame });
+    if (again && !quitting) offline.failed(again);
+  });
+  // AJ2-10: a crashed page (memory, on a very long chat) loads again instead of a blank window; a
+  // page that keeps crashing waits longer each time (3 s, 6 s… 5 min)
+  win.webContents.on('render-process-gone', (_e, details) => {
+    const reason = details && details.reason;
+    console.warn(`page gone: ${reason}`);
+    if (reason === 'clean-exit' || quitting) return;
+    const wait = crashBackoff.next();
+    setTimeout(() => {
+      if (!win || win.isDestroyed() || quitting) return;
+      crashBackoff.started();
+      const at = win.webContents.getURL();
+      win.loadURL(isEdenSite(at) ? at : HOME_URL).catch(() => {});
+    }, wait);
+  });
   win.on('enter-full-screen', () => fs_(true));
   win.on('leave-full-screen', () => fs_(false));
   win.once('ready-to-show', () => win.show());
@@ -124,10 +153,12 @@ function createMain() {
     if (win && !win.isDestroyed() && win.webContents.getURL().startsWith('file:')) win.loadURL(first).catch(() => {});
   });
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } }); // stays in the menu bar
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => { win = null; autoLink.stop(); }); // no window, nothing to link with
   win.loadFile(path.join(__dirname, 'loading.html')).catch(() => {});
   pendingUrl = '';
 }
+
+const crashBackoff = policy.createBackoff({ min: 1000 }); // AJ2-10
 
 function showMain() {
   if (!win || win.isDestroyed()) createMain();
@@ -137,11 +168,11 @@ function showMain() {
 }
 
 function openDeepLink(link) {
-  // askeden://chat/abc?x=1 -> https://askeden.com/chat/abc?x=1
-  let target = HOME_URL;
-  try { const u = new URL(link); target = new URL(`${u.hostname ? `/${u.hostname}` : ''}${u.pathname === '/' ? '' : u.pathname}${u.search}${u.hash}`, HOME_URL).toString(); } catch { /* home */ }
-  if (!isEdenSite(target)) target = HOME_URL; // askeden:////evil.com/x resolves to another host
-  if (!win || win.isDestroyed()) { pendingUrl = target; showMain(); return; }
+  // askeden://chat/abc?x=1 -> https://askeden.com/chat/abc?x=1 (anything else: home)
+  const target = policy.deepLinkTarget(link);
+  const action = policy.deepLinkAction({ ready: app.isReady(), hasWindow: Boolean(win && !win.isDestroyed()) });
+  if (action === 'wait') { pendingUrl = target; return; } // a cold launch by a link: createMain opens it (AJ7)
+  if (action === 'open') { pendingUrl = target; showMain(); return; }
   win.loadURL(target).catch(() => {});
   showMain();
 }
@@ -185,18 +216,36 @@ function toggleQuick() {
 }
 
 ipcMain.on('eden:quick:close', (e) => { if (quick && e.sender === quick.webContents) quick.hide(); });
-ipcMain.on('eden:quick:send', async (e, text) => {
-  if (!quick || e.sender !== quick.webContents || !String(text).trim()) return;
-  quick.hide();
+const quickGate = policy.createGate({ gapMs: 1000 }); // F11: one send a second at most
+let quickPending = null; // { text, at }: a quick ask the page couldn't take yet (loading, signed out: AJ15)
+async function sendQuick(text, at = Date.now()) {
   await newChat();
   // The page's own composer: the text in, then the form submitted, as typing it would.
-  await inPage(`(() => {
-    const i = document.getElementById('deck-input'); if (!i) return;
-    i.value = ${JSON.stringify(String(text))};
-    i.dispatchEvent(new Event('input', { bubbles: true }));
-    setTimeout(() => { const f = document.getElementById('deck-composer'); if (f) f.requestSubmit(); }, 60);
-  })()`);
+  const took = await inPage(policy.quickAskScript(text, HOME_URL)); // AJ2-9: 'not-ready' before the page's chat is
+  const first = !quickPending;
+  quickPending = took === true ? null : { text: String(text), at };
+  if (quickPending && first && Notification.isSupported()) new Notification({ title: NAME, body: 'Eden will ask that once the chat is open (sign in first if it asks).' }).show();
+  // AJ2-9: the page is there but its chat isn't ready yet: try again shortly (no new page load will)
+  if (took === 'not-ready' && quickPending) quickAgain(quickPending);
+}
+function quickAgain(q) {
+  if (q.again) return;
+  q.again = true;
+  setTimeout(() => { q.again = false; if (quickPending === q && Date.now() - q.at < 120_000) sendQuick(q.text, q.at); }, 1500);
+}
+ipcMain.on('eden:quick:send', async (e, text) => {
+  if (!quick || e.sender !== quick.webContents || !String(text).trim()) return;
+  if (!quickGate()) return;
+  quick.hide();
+  await sendQuick(String(text).slice(0, 20_000));
 });
+function quickRetry() { // the chat page loaded: a quick ask kept for it (2 minutes at most) goes now
+  const q = quickPending;
+  if (!q || q.retrying) return;
+  q.retrying = true;
+  if (Date.now() - q.at >= 120_000) { quickPending = null; return; }
+  setTimeout(() => { if (quickPending === q) sendQuick(q.text, q.at); }, 800);
+}
 
 // ── bridge: Dock badge and notifications ──
 
@@ -209,7 +258,7 @@ ipcMain.on('eden:notify', (e, title, body) => {
   n.on('click', showMain);
   n.show();
 });
-ipcMain.handle('eden:relink', (e) => { if (!fromEden(e)) return false; linkLastAsk = 0; autoLink().catch(() => {}); return true; });
+ipcMain.handle('eden:relink', (e) => { if (!fromEden(e)) return false; autoLink.relink(); return true; }); // at most once every 10 s (F12)
 ipcMain.handle('eden:boot-sound', (e, on) => {
   if (!fromEden(e)) return null;
   if (typeof on === 'boolean') { try { fs.writeFileSync(BOOT_SOUND_FILE(), `${JSON.stringify({ on })}\n`); } catch { /* read-only: stays as it was */ } }
@@ -226,12 +275,11 @@ const freePort = () => new Promise((resolve, reject) => {
   srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
 });
 
-function jarvisHome() {
-  if (process.env.JARVIS_HOME) return process.env.JARVIS_HOME;
-  for (const file of [path.join(__dirname, 'jarvis-home.json'), path.join(__dirname, '..', 'jarvis-home.json')]) {
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')).path; } catch { /* next */ }
-  }
-  return path.join(os.homedir(), 'JARVIS V1');
+function jarvisHome() { // a baked folder that no longer exists is skipped (AJ10)
+  return policy.jarvisHome({
+    env: process.env, files: [path.join(__dirname, 'jarvis-home.json'), path.join(__dirname, '..', 'jarvis-home.json')],
+    read: (f) => fs.readFileSync(f, 'utf8'), exists: fs.existsSync, edenDir: __dirname,
+  });
 }
 function findUv() {
   for (const dir of EXTRA_PATH) { const c = path.join(dir, 'uv'); if (fs.existsSync(c)) return c; }
@@ -246,8 +294,9 @@ async function waitForEngine(port, tries = 120) {
   return false;
 }
 
+const engineBackoff = policy.createBackoff(); // F3: 3 s, 6 s… 5 min between restarts; 3 s again after a minute up
 async function startEngine() {
-  if (process.env.ASK_EDEN_NO_ENGINE === '1') return;
+  if (process.env.ASK_EDEN_NO_ENGINE === '1' || quitting) return;
   const found = await share.discover(DATA_DIR);
   if (found) { // J.A.R.V.I.S. or Eden Code runs it already: one engine per Mac
     engine = { port: found.port, token: found.token, shared: true };
@@ -269,7 +318,7 @@ async function startEngine() {
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port} for ${NAME}\n`);
   const child = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   engine = { port, token, shared: false, child };
-  if (child.pid) share.advertise(DATA_DIR, { port, token, pid: child.pid, app: 'ask-eden', launcher: process.pid });
+  engineBackoff.started();
   child.stdout.pipe(log, { end: false });
   child.stderr.pipe(log, { end: false });
   child.once('close', () => log.end());
@@ -277,9 +326,17 @@ async function startEngine() {
   child.on('exit', () => {
     share.withdraw(DATA_DIR, process.pid);
     if (engine && engine.child === child) { engine = null; dropApprovalWin(); }
-    if (!quitting) setTimeout(startEngine, 3000);
+    if (!quitting) {
+      const wait = engineBackoff.next();
+      log.write(`--- engine stopped; starting again in ${Math.round(wait / 1000)} s\n`);
+      setTimeout(startEngine, wait);
+    }
   });
-  if (await waitForEngine(port)) watchApprovals();
+  if (await waitForEngine(port) && engine && engine.child === child) {
+    // F2: told to the other apps only once it answers (it holds the data folder by then)
+    if (child.pid && child.exitCode === null) share.advertise(DATA_DIR, { port, token, pid: child.pid, app: 'ask-eden', launcher: process.pid });
+    watchApprovals();
+  }
 }
 
 // Eden's own server on this Mac (the Mac link's other end): started when nothing answers.
@@ -290,20 +347,24 @@ function edenUp() {
     req.on('error', () => resolve(false));
   });
 }
+const edenBackoff = policy.createBackoff();
 async function startEdenServer() {
-  if (process.env.ASK_EDEN_NO_ENGINE === '1' || await edenUp()) return;
-  const candidates = [
-    path.join(process.resourcesPath || '', 'eden-server', 'dist', 'ui', 'server.js'),
-    process.env.ASKEDEN_HOME && path.join(process.env.ASKEDEN_HOME, 'dist', 'ui', 'server.js'),
-    path.join(os.homedir(), 'askeden', 'dist', 'ui', 'server.js'),
-  ].filter(Boolean);
-  const entry = candidates.find((f) => fs.existsSync(f));
+  if (process.env.ASK_EDEN_NO_ENGINE === '1' || quitting || await edenUp()) return;
+  // the app's own copy, ASKEDEN_HOME, the askeden repo next to this one (never ~/askeden, an old copy: AJ10)
+  const entry = policy.edenServerCandidates({ resourcesPath: process.resourcesPath, env: process.env, edenDir: __dirname }).find((f) => fs.existsSync(f));
   if (!entry) return;
-  eden = spawn(process.execPath, [entry, '--port', String(EDEN_PORT)], {
-    cwd: path.dirname(path.dirname(path.dirname(entry))), stdio: 'ignore',
+  let out = 'ignore';
+  try { fs.mkdirSync(LOG_DIR, { recursive: true }); out = fs.openSync(path.join(LOG_DIR, 'eden-server.log'), 'a'); } catch { /* no log */ }
+  const child = spawn(process.execPath, [entry, '--port', String(EDEN_PORT)], {
+    cwd: path.dirname(path.dirname(path.dirname(entry))), stdio: ['ignore', out, out],
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PATH: [...EXTRA_PATH, process.env.PATH || '/usr/bin:/bin'].join(':') },
   });
-  eden.on('exit', () => { eden = null; });
+  if (typeof out === 'number') fs.close(out, () => {});
+  eden = child;
+  edenBackoff.started();
+  child.on('error', () => {});
+  // AJ17: a crash no longer leaves "Eden isn't running on your Mac" until the app restarts
+  child.on('exit', () => { if (eden === child) eden = null; if (!quitting) setTimeout(() => startEdenServer().catch(() => {}), edenBackoff.next()); });
 }
 
 // Pending approvals on the Dock icon: the engine's socket, read from a hidden page on the
@@ -316,9 +377,11 @@ function watchApprovals() {
   if (!engine || approvalWin) return;
   const { port, token } = engine;
   approvalWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, backgroundThrottling: false } });
-  approvalWin.webContents.on('console-message', (_e, _lvl, message) => {
+  approvalWin.webContents.on('console-message', (e) => { // one argument: the positional ones are deprecated (AJ16)
+    const { message } = e;
+    if (typeof message !== 'string') return;
     const a = /^eden-account:(.+)$/.exec(message);
-    if (a) { try { onAccount(JSON.parse(a[1])); } catch { /* ignore */ } return; }
+    if (a) { try { autoLink.onAccount(JSON.parse(a[1])).catch(() => {}); } catch { /* ignore */ } return; }
     const m = /^eden-approvals:(\d+)$/.exec(message);
     if (!m) return;
     const n = Number(m[1]);
@@ -345,9 +408,6 @@ function watchApprovals() {
 // The engine's own "account_link" command makes the code (as Settings › Account › Link this Mac
 // does); this window's askeden.com session approves it at /api/web/mac-link (as askeden.com/link
 // does), which the server only allows within 10 minutes of the sign-in.
-let linkBusy = false;
-let linkOpenedPage = '';
-let linkLastAsk = 0;
 const sendEngine = (obj) => (approvalWin && !approvalWin.isDestroyed()
   ? approvalWin.webContents.executeJavaScript(`window.__edenWs && window.__edenWs.readyState === 1 && (window.__edenWs.send(${JSON.stringify(JSON.stringify(obj))}), true)`).catch(() => false)
   : Promise.resolve(false));
@@ -355,47 +415,22 @@ const webApi = (p, method = 'GET') => {
   if (!win || win.isDestroyed()) return Promise.resolve(null);
   return win.webContents.session.fetch(new URL(p, HOME_URL).toString(), {
     method, credentials: 'include', headers: { accept: 'application/json', 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}),
+    signal: AbortSignal.timeout(policy.LINK_REQUEST_MS), // AJ2-4: a stalled request ends
   }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) })).catch(() => null);
 };
-async function onAccount(acct) {
-  if (acct.linked || linkBusy) return;
-  if (!(acct.link && acct.link.state === 'waiting') && Date.now() - linkLastAsk > 60_000) {
-    linkLastAsk = Date.now();
-    await sendEngine({ type: 'account_link' }); // the engine answers with an "account" event holding the code
-    return;
-  }
-  const waiting = acct.link && acct.link.state === 'waiting' && acct.link.code;
-  if (!waiting) return;
-  linkBusy = true;
-  try {
-    const ready = await webApi('/api/web/mac-link');
-    if (!ready || ready.status !== 200) return; // not signed in here yet: tried again later
-    if (ready.body.fresh) {
-      const done = await webApi(`/api/web/mac-link/${encodeURIComponent(acct.link.code)}/approve`, 'POST');
-      console.log(`mac link: approve -> ${done && done.status}`);
-    } else if (linkOpenedPage !== acct.link.code) { // signed in too long ago: one click on the page after signing in again
-      linkOpenedPage = acct.link.code;
-      if (win && !win.isDestroyed()) win.loadURL(new URL(`/signin?return=${encodeURIComponent('/link#' + acct.link.code)}`, HOME_URL).toString()).catch(() => {});
-      showMain();
-    }
-  } finally { linkBusy = false; }
-}
-async function autoLink() {
-  if (!engine || !approvalWin || !win || win.isDestroyed()) return;
-  const ready = await webApi('/api/web/mac-link');
-  if (!ready || ready.status !== 200) return;
-  await sendEngine({ type: 'account' }); // answered with an "account" event
-}
-let linkTimer = null;
-function startAutoLink() {
-  if (linkTimer) return;
-  const tick = async () => {
-    // Ask for a code only when the engine says it's unlinked and has none waiting (onAccount).
-    await autoLink();
-  };
-  linkTimer = setInterval(tick, 15_000);
-  setTimeout(tick, 4000);
-}
+// Every 15 s while unlinked, every 15 minutes once linked (F5/AJ13); the sign-in page once per run (AJ9);
+// signed out, or waiting for a sign-in, less and less often (AJ2-5); a stalled request ends at 15 s (AJ2-4).
+const autoLink = policy.createAutoLink({
+  sendEngine, webApi,
+  canRun: () => Boolean(engine && approvalWin && win && !win.isDestroyed()),
+  isLooking: () => Boolean(win && !win.isDestroyed() && win.isVisible() && win.isFocused()), // AJ3-1
+  onLinked: () => inPage("dispatchEvent(new Event('eden:mac-linked'))"), // AJ3-14: "Your Mac" looks again now
+  openSignIn: (code) => {
+    if (win && !win.isDestroyed()) win.loadURL(new URL(`/signin?return=${encodeURIComponent('/link#' + code)}`, HOME_URL).toString()).catch(() => {});
+    showMain();
+  },
+  log: (line) => console.log(line),
+});
 
 // ── updates, menu bar, menus ──
 
@@ -405,13 +440,24 @@ function setupUpdates() {
     version: app.getVersion(), feed, autoUpdater,
     fetchText: (url) => fetchFeed(net, url),
     inApplications: () => app.isInApplicationsFolder(),
-    onChange: () => buildTray(),
+    onChange: (s) => { buildTray(); if (s && s.state === 'ready') updateReady(s); },
     log: (line) => console.log(line),
     isQuiet: async () => powerMonitor.getSystemIdleTime() > 120 && !(win && win.isFocused()),
+    beforeInstall: () => { quitting = true; },
   });
   if (!feed) return;
   setTimeout(() => updater.check(), 60_000).unref?.();
   setInterval(() => updater.check(), 3_600_000).unref?.();
+  setInterval(() => { updater.quiet().catch(() => {}); }, 60_000).unref?.(); // AJ17: a ready update installs itself when the Mac is idle
+}
+let updateTold = '';
+function updateReady(s) { // once per version: where to find it, if it doesn't install itself first
+  const v = String(s.version || '');
+  if (updateTold === v || !Notification.isSupported()) return;
+  updateTold = v;
+  const n = new Notification({ title: NAME, body: 'An update is ready. It installs when your Mac is idle, or now from the menu bar: Restart to update.' });
+  n.on('click', showMain);
+  n.show();
 }
 
 function buildTray() {
@@ -439,7 +485,7 @@ function buildMenu() {
     { label: NAME, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { type: 'separator' }, { label: 'Quit Ask Eden', accelerator: 'Command+Q', click: () => { quitting = true; app.quit(); } }] },
     { label: 'File', submenu: [{ label: 'New chat', accelerator: 'Command+N', click: () => newChat() }, { label: 'Quick ask', click: () => toggleQuick() }, { role: 'close' }] },
     { role: 'editMenu' },
-    { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }] },
+    { label: 'View', submenu: [{ label: 'Reload', accelerator: 'CommandOrControl+R', click: reloadFocused }, { role: 'togglefullscreen' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }] },
     { role: 'windowMenu' },
   ]));
 }
@@ -467,6 +513,12 @@ function playBootSound() {
 
 app.whenReady().then(async () => {
   if (app.dock) app.dock.setIcon(path.join(__dirname, 'build', 'icon-1024.png'));
+  // AJ8 (F9): Electron grants every permission by default. askeden.com gets what its page uses
+  // (the microphone, notifications, copy and paste, full screen); nothing else, and no other page.
+  const { session } = require('electron');
+  // AJ2-3: by the asking frame's origin too: a sandboxed artifact frame or page on askeden.com
+  // (an opaque origin, "null") gets nothing, whatever its URL.
+  policy.setPermissions(session.defaultSession); // (window-policy.js: the same in Ask Eden for Windows)
   buildMenu();
   createMain();
   buildTray();
@@ -475,7 +527,8 @@ app.whenReady().then(async () => {
   await startEdenServer();
   await startEngine();
   buildTray();
-  startAutoLink();
+  autoLink.start();
+  powerMonitor.on('resume', () => { autoLink.wake(); offline.retryNow(); });
 });
 
 app.on('activate', showMain);

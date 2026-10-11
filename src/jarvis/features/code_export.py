@@ -2,7 +2,7 @@
 
 - cw_export {id, safe, anonymize, format: "html" | "pdf", ref}: the session read whole from
   Claude Code's own record (every message, each step's input and output, the thinking),
-  written to ~/Documents/Jarvis/Eden Code as a page (HTML) or a PDF laid out by the app's
+  written to ~/Documents/Eden Code as a page (HTML) or a PDF laid out by the app's
   window -> cw_export {ref, ok, path, name} or {ref, error}. Share-safe blanks out keys,
   tokens and passwords and leaves pictures out; anonymize hides where things are on this
   Mac. A session that never connected has no record: what its transcript kept goes.
@@ -56,8 +56,7 @@ def _entries(task: Any) -> list[dict[str, Any]]:
 
 
 def _write(stem: str, suffix: str, data: bytes) -> Path:
-    folder = tasks.EXPORT_DIR
-    folder.mkdir(parents=True, exist_ok=True)
+    folder = tasks.export_dir()
     path = folder / f"{stem}{suffix}"
     for n in itertools.count(2):  # a second export in the same minute is its own file
         if not path.exists():
@@ -71,6 +70,12 @@ class Exports:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
 
+    def answer(self, **data: Any) -> None:
+        """What came of an export: to the window that asked (CF2-10: refs restart at 1 in every
+        page, and another window's export panel took this one's file for its own). If that
+        window has reconnected meanwhile, to every window: only the asking page's ref matches."""
+        self.hub.emit_to_caller("cw_export", or_all=True, **data)
+
     def tr(self, text: str) -> str:
         return lang.translate(text, self.hub.language)
 
@@ -78,7 +83,7 @@ class Exports:
         ref = str(msg.get("ref") or "")[:40]
         task = session_of(self.hub, msg)
         if task is None:
-            self.hub.emit("cw_export", ref=ref, error=self.tr("Open a session to export it."))
+            self.answer(ref=ref, error=self.tr("Open a session to export it."))
             return
         safe = msg.get("safe") is True
         pdf = msg.get("format") == "pdf"
@@ -108,17 +113,16 @@ class Exports:
             else:
                 path = await asyncio.to_thread(_write, stem, ".html", page.encode("utf-8"))
         except ValueError as exc:
-            self.hub.emit("cw_export", ref=ref, error=self.tr(str(exc)))
+            self.answer(ref=ref, error=self.tr(str(exc)))
             return
         except OSError as exc:  # a full disk, Documents not writable
-            self.hub.emit(
-                "cw_export",
+            self.answer(
                 ref=ref,
                 error=self.tr(f"Couldn't save the export: {exc.strerror or exc}"),
             )
             return
-        self.hub.emit(
-            "cw_export", ref=ref, ok=True, path=str(path), name=path.name, entries=len(entries)
+        self.answer(
+            ref=ref, ok=True, path=str(path), name=path.name, entries=len(entries)
         )
 
     async def cmd_reveal(self, msg: dict[str, Any]) -> None:
@@ -128,11 +132,12 @@ class Exports:
             return
         path = Path(given).expanduser()
         try:
-            folder = tasks.EXPORT_DIR.resolve()
+            # (CF3-14) Or one still in the folder used before the Eden rename.
+            folders = {tasks.EXPORT_DIR.resolve(), tasks.old_export_dir().resolve()}
             path = path.resolve()
         except OSError:
             return
-        if folder in path.parents and path.is_file():
+        if folders & set(path.parents) and path.is_file():
             await mac_tools.run_command("open", "-R", str(path), timeout=20)
 
 

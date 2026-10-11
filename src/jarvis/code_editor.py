@@ -23,6 +23,7 @@ import os
 import shutil
 import stat
 import tempfile
+import threading
 import time
 import urllib.parse
 from collections.abc import Callable
@@ -34,6 +35,16 @@ from .computer import is_sensitive
 EDIT_MAX = 1_000_000  # bytes: bigger files open read-only
 VIEW_MAX = 300_000  # ... showing this much of them
 SNIFF = 8000  # bytes looked at for a NUL (a binary file)
+
+
+# (CF3-1) A save checks the version on disk, then writes: two saves of one file from the same
+# version must not both pass the check. One lock per path (striped: a fixed set, no growth)
+# makes check-and-write one step; saves of different files rarely share a stripe.
+_SAVE_LOCKS = tuple(threading.Lock() for _ in range(64))
+
+
+def _save_lock(path: Path) -> threading.Lock:
+    return _SAVE_LOCKS[hash(str(path)) % len(_SAVE_LOCKS)]
 
 
 class EditorError(ValueError):
@@ -179,20 +190,21 @@ def save(
     data = (text.replace("\n", "\r\n") if crlf else text).encode("utf-8")
     if len(data) > EDIT_MAX * 2:
         return {"path": rel, "error": "That's too big to save from here."}
-    exists = path.exists()
-    if exists and not path.is_file():
-        return {"path": rel, "error": "Not a file."}
-    if base is None and not exists and not create:
-        return {"path": rel, "error": "There's no such file."}
-    if not force:
-        # Opened as new, and made meanwhile; or opened, and changed or deleted since.
-        if (base is None and exists) or (base is not None and not same_version(path, base)):
-            return {"path": rel, "conflict": True, **disk_now(path)}
-    try:
-        write_atomic(path, data)
-    except OSError as exc:
-        return {"path": rel, "error": f"Couldn't save it: {exc.strerror or exc}"}
-    return {"path": rel, "ok": True, "version": version_of(path, data)}
+    with _save_lock(path):
+        exists = path.exists()
+        if exists and not path.is_file():
+            return {"path": rel, "error": "Not a file."}
+        if base is None and not exists and not create:
+            return {"path": rel, "error": "There's no such file."}
+        if not force:
+            # Opened as new, and made meanwhile; or opened, and changed or deleted since.
+            if (base is None and exists) or (base is not None and not same_version(path, base)):
+                return {"path": rel, "conflict": True, **disk_now(path)}
+        try:
+            write_atomic(path, data)
+        except OSError as exc:
+            return {"path": rel, "error": f"Couldn't save it: {exc.strerror or exc}"}
+        return {"path": rel, "ok": True, "version": version_of(path, data)}
 
 
 def disk_now(path: Path) -> dict[str, Any]:

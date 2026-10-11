@@ -3,6 +3,7 @@
 // Origin checks, the pages and their headers, and hosted chat (meta, routing, a streamed turn
 // on the included AI with its caps and metering, a stopped turn, artifacts, "needs your Mac").
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,8 +12,11 @@ import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { bytesToB64, parseToken } from '../src/accounts/util.js';
 import { DECK_REPLY_TOKENS, DEFAULTS, effortsFor, hostedConfig, searchTool } from '../src/eden/chat.js';
-import { EDEN_FILES } from '../src/eden/manifest.js';
+import * as manifest from '../src/eden/manifest.js';
+import { EDEN_FILES, EDEN_HASHES } from '../src/eden/manifest.js';
+import { buildOf, edenBuild, edenScriptHashes } from '../src/eden/build.js';
 import { forgetSessions } from '../src/eden/session.js';
+import { RTC_GUARD, SHELL_CSP } from '../src/eden/web.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, readEvents, sseBody } from './fakes.js';
 
 const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -370,8 +374,8 @@ test('/signin is the sign-in page signed out and Eden signed in, each with a str
   assert.equal(signin.headers.get('cache-control'), 'no-store');
   assert.equal((await hit('/app.js')).status, 401);
   assert.equal((await hit('/signin/signin.js')).status, 200);
-  assert.equal((await hit('/signin/secret.txt')).status, 302);
-  assert.equal((await hit('/eden/app.js')).status, 302, 'the copy itself is not reachable by its folder');
+  assert.equal((await hit('/signin/secret.txt')).status, 404);
+  assert.equal((await hit('/eden/app.js')).status, 404, 'the copy itself is not reachable by its folder');
 
   const owner = await phone();
   const value = await signedInBrowser(owner);
@@ -380,7 +384,7 @@ test('/signin is the sign-in page signed out and Eden signed in, each with a str
   assert.equal(eden.status, 200);
   assert.deepEqual(env.assets, ['/eden/']);
   const csp = eden.headers.get('content-security-policy');
-  assert.match(csp, /default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';/);
+  assert.match(csp, /default-src 'self'; script-src 'self'( 'sha256-[A-Za-z0-9+/=]+')*; style-src 'self' 'unsafe-inline';/); // + the synced page's import map (eden-versions.mjs)
   assert.match(csp, /frame-ancestors 'none'/);
   assert.equal(eden.headers.get('cross-origin-opener-policy'), 'same-origin');
   const js = await hit('/app.js', { session: value });
@@ -393,6 +397,36 @@ test('/signin is the sign-in page signed out and Eden signed in, each with a str
   env.assets.length = 0;
   await hit('/', { session: owner.token });
   assert.deepEqual(env.assets, ['/home/']);
+});
+
+test('Eden’s files by their versioned address are kept a year; the page’s CSP allows its import map; GET /api/chat/build is one stamp', async () => {
+  const owner = await phone();
+  const value = await signedInBrowser(owner);
+  const name = 'app.js';
+  const v = EDEN_HASHES[name];
+  assert.ok(v, 'app.js has a content hash');
+  const kept = await hit(`/${name}?v=${v}`, { session: value });
+  assert.equal(kept.status, 200);
+  assert.equal(kept.headers.get('cache-control'), 'private, max-age=31536000, immutable');
+  assert.equal(env.assets.at(-1), `/eden/${name}`, 'the same file');
+  assert.equal(kept.headers.get('cross-origin-resource-policy'), 'same-origin');
+  // another version's address (a page from before a deploy), or none: revalidated as before
+  assert.equal((await hit(`/${name}?v=0000000000000000`, { session: value })).headers.get('cache-control'), 'private, no-cache');
+  assert.equal((await hit(`/${name}`, { session: value })).headers.get('cache-control'), 'private, no-cache');
+  assert.equal((await hit(`/${name}?v=${v}`)).status, 401, 'still signed in only');
+  // the page: no-store, and its import map's hash in script-src when the sync wrote one
+  const eden = await hit('/', { session: value });
+  assert.equal(eden.headers.get('cache-control'), 'no-store');
+  const scriptSrc = /script-src ([^;]+);/.exec(eden.headers.get('content-security-policy'))[1].split(' ');
+  assert.deepEqual(scriptSrc, ["'self'", ...edenScriptHashes()]);
+  assert.ok(!scriptSrc.includes("'unsafe-inline'"));
+  // the deploy's one stamp: no session needed, never cached, the same for the same files
+  const b = await hit('/api/chat/build', { headers: { 'x-jarvis-chat': '1' } });
+  assert.equal(b.status, 200);
+  assert.equal(b.headers.get('cache-control'), 'no-store');
+  // the sync's stamp, written into the pages too (AW2-1); before such a sync, the hashes' own
+  assert.deepEqual(await b.json(), { build: typeof manifest.EDEN_BUILD === 'string' ? manifest.EDEN_BUILD : buildOf(EDEN_HASHES) });
+  assert.equal((await (await hit('/api/chat/build', { session: value })).json()).build, edenBuild());
 });
 
 test('signed out, / is Eden\'s front page: sign in, and Download apps to the apps page', async () => {
@@ -434,8 +468,11 @@ test('the Eden copy is web/chat plus the hosted script, and stays inside the pag
   assert.ok(EDEN_FILES.includes('index.html') && EDEN_FILES.includes('hosted.js') && EDEN_FILES.includes('app.js'));
   for (const name of EDEN_FILES) assert.ok(fs.existsSync(path.join(SITE, 'public', 'eden', name)), `public/eden/${name}`);
   const html = fs.readFileSync(path.join(SITE, 'public', 'eden', 'index.html'), 'utf8');
-  assert.match(html, /<script type="module" src="hosted\.js"><\/script>\n<\/head>/);
-  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/i, 'no inline <script> (script-src self)');
+  assert.match(html, /<script type="module" src="hosted\.js(\?v=[0-9a-f]{16})?"><\/script>\n<\/head>/);
+  // No inline <script> (script-src self), except the sync's import map, allowed by its hash (eden-versions.mjs)
+  const inline = [...html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/gi)];
+  assert.ok(inline.every((m) => /^\s*type="importmap"\s*$/.test(m[1])), 'only the import map is inline');
+  for (const m of inline) assert.ok(edenScriptHashes().includes(`'sha256-${crypto.createHash('sha256').update(m[2]).digest('base64')}'`), 'its hash is in the CSP');
   assert.doesNotMatch(html, /\son[a-z]+=/i, 'no on…= handlers');
   assert.doesNotMatch(html, /(src|href)="(https?:)?\/\//i, 'nothing from another origin');
   for (const reserved of ['download', 'latest.json', 'jarvis', 'messenger', 'api', 'artifact', 'signin']) assert.ok(!EDEN_FILES.includes(reserved));
@@ -455,7 +492,16 @@ test('meta: with only an Anthropic key, Claude on the account; the other provide
   assert.equal(meta.code.available, false);
   assert.equal(meta.levels.length, 5);
   assert.deepEqual(await (await chat('/api/chat/jarvis/status', value)).json(), { available: false, reason: meta.jarvis.reason });
-  for (const [p, method] of [['/api/chat/jarvis', 'POST'], ['/api/chat/projects', 'GET'], ['/api/chat/code', 'POST'], ['/api/chat/keys', 'GET'], ['/api/chat/keys', 'POST'], ['/api/chat/gmail', 'POST'], ['/api/chat/google/status', 'GET'], ['/api/chat/code/changes', 'GET'], ['/api/chat/gcal/status', 'GET'], ['/api/chat/something-new', 'POST']]) {
+  // the boot's projects list and meeting-prep look: with no Mac linked, empty at once (200), not a 503 on every boot
+  const projects = await chat('/api/chat/projects', value);
+  assert.equal(projects.status, 200);
+  assert.deepEqual(await projects.json(), []);
+  const events = await chat('/api/chat/brief', value, { method: 'POST', body: { kind: 'events', day: '2026-10-10', tzOffset: 0 } });
+  assert.equal(events.status, 200);
+  assert.deepEqual(await events.json(), { events: [], day: '2026-10-10' });
+  // the brief itself still says why (its card shows it)
+  assert.equal((await chat('/api/chat/brief', value, { method: 'POST', body: { kind: 'brief', day: '2026-10-10' } })).status, 503);
+  for (const [p, method] of [['/api/chat/jarvis', 'POST'], ['/api/chat/projects', 'POST'], ['/api/chat/code', 'POST'], ['/api/chat/keys', 'GET'], ['/api/chat/keys', 'POST'], ['/api/chat/gmail', 'POST'], ['/api/chat/google/status', 'GET'], ['/api/chat/code/changes', 'GET'], ['/api/chat/gcal/status', 'GET'], ['/api/chat/something-new', 'POST']]) {
     const response = await chat(p, value, { method, ...(method === 'POST' ? { body: {} } : {}) });
     assert.equal(response.status, 503, p);
     const body = await response.json();
@@ -764,8 +810,16 @@ test('artifacts: kept for the account a few hours, served under the sandbox CSP,
   assert.match(url, /^\/artifact\/[0-9a-f]{24}$/);
   const shown = await hit(url, { session: value });
   assert.equal(shown.status, 200);
-  assert.equal(await shown.text(), html);
-  assert.equal(shown.headers.get('content-security-policy'), "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; frame-ancestors 'self'");
+  assert.equal(await shown.text(), html.replace('<!doctype html>', `<!doctype html>${RTC_GUARD}`), 'the WebRTC guard first (AV2)');
+  assert.equal(shown.headers.get('x-dns-prefetch-control'), 'off', 'AV2-5');
+  assert.equal(shown.headers.get('content-security-policy'), "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'; frame-ancestors 'self'; webrtc 'block'");
+  // "Open in a new tab": the tab gets a shell framing the page sandboxed, so the page can't navigate it (AV3)
+  const tab = await hit(url, { session: value, headers: { 'sec-fetch-dest': 'document' } });
+  assert.equal(tab.status, 200);
+  assert.equal(tab.headers.get('content-security-policy'), SHELL_CSP);
+  const shell = await tab.text();
+  assert.match(shell, new RegExp(`<iframe sandbox="allow-scripts" src="${url}"`));
+  assert.ok(!shell.includes('document.title'), 'not the page itself');
   assert.equal((await hit(url)).status, 401, 'signed out');
   const stranger = await signedInBrowser(await phone('apple-user-3'));
   assert.equal((await hit(url, { session: stranger })).status, 404, 'another account');

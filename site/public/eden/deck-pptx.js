@@ -192,10 +192,28 @@ export function buildPptx(Pptx, deck, { images = {}, label = '' } = {}) {
   return pres;
 }
 
+/**
+ * Speed: the JSZip inside the PptxGenJS bundle picks its scheduler when it loads: setImmediate if the page has one, else
+ * setTimeout(0), which browsers hold back at least 4 ms once nested. A 60-slide deck takes ~1,100 such steps, so the
+ * export spent ~4.5 s waiting for ~0.4 s of work (the bundle installs its own setImmediate only after JSZip has looked).
+ * Giving the page a setImmediate first (a MessageChannel, as that polyfill uses) runs the same steps in the same order:
+ * the same file, without the waits. Nothing is replaced when the page already has one (the .docx/.xlsx bundles add one).
+ */
+export function ensureSetImmediate(g = globalThis) {
+  if (typeof g.setImmediate === 'function' || typeof g.MessageChannel !== 'function') return;
+  const ch = new g.MessageChannel(), jobs = new Map();
+  let next = 0;
+  ch.port1.onmessage = (e) => { const job = jobs.get(e.data); if (!job) return; jobs.delete(e.data); job.fn(...job.args); };
+  if (ch.port1.unref) ch.port1.unref(); // (Node, in tests: doesn't keep the process alive)
+  g.setImmediate = (fn, ...args) => { const id = ++next; jobs.set(id, { fn: typeof fn === 'function' ? fn : () => {}, args }); ch.port2.postMessage(id); return id; };
+  g.clearImmediate = (id) => { jobs.delete(id); };
+}
+
 let loading = null;
 /** PptxGenJS, loaded once from Eden's own copy (the page's CSP allows only its own scripts). */
 export function loadPptx() {
   if (globalThis.PptxGenJS) return Promise.resolve(globalThis.PptxGenJS);
+  ensureSetImmediate();
   loading ||= new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = new URL('./pptxgen.bundle.js', import.meta.url).href;

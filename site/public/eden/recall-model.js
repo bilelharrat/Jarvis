@@ -48,7 +48,9 @@ export function findRecall(convs, prompt, { currentId = null, max = 4, isPrivate
     const minimum = q.size >= 3 ? 2.2 : 1.2;
     if (total >= minimum || (back && total > 0)) {
       hits.sort((a, b) => b.s - a.s);
-      scored.push({ total, c: d.c, snippets: hits.slice(0, 3).map((h) => `${h.m.n.role === 'user' ? 'User' : 'Eden'}: ${h.m.t.replace(/\s+/g, ' ').trim().slice(0, 360)}`) });
+      // "The user said: …", not "User: …": a line that opens like a chat role is escaped by Eden's own guard and flagged the
+      // turn as "possible hidden instructions" (provenance.ts neutralize; T20b)
+      scored.push({ total, c: d.c, snippets: hits.slice(0, 3).map((h) => `${h.m.n.role === 'user' ? 'The user said' : 'Eden replied'}: ${h.m.t.replace(/\s+/g, ' ').trim().slice(0, 360)}`) });
     }
   }
   scored.sort((a, b) => b.total - a.total);
@@ -56,7 +58,7 @@ export function findRecall(convs, prompt, { currentId = null, max = 4, isPrivate
   if (back && !out.length) { // "what did I ask you about ...": nothing matched, so the newest chats' openings
     out = pool.slice().sort((a, b) => (b.updated || 0) - (a.updated || 0)).slice(0, max).map((c) => {
       const first = Object.values(c.nodes).find((n) => n.role === 'user' && (n.content || '').trim());
-      return { total: 0, c, snippets: first ? [`User: ${first.content.replace(/\s+/g, ' ').trim().slice(0, 240)}`] : [] };
+      return { total: 0, c, snippets: first ? [`The user said: ${first.content.replace(/\s+/g, ' ').trim().slice(0, 240)}`] : [] };
     }).filter((x) => x.snippets.length);
   }
   return out.map((x) => ({ title: x.c.title || 'Untitled chat', when: x.c.updated || x.c.created || 0, snippets: x.snippets }));

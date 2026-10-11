@@ -205,6 +205,35 @@ def test_an_isolated_copy_and_a_subfolder_are_as_before(tm, tmp_path):
     same_as_before(sub.task)
 
 
+def test_an_isolated_copys_branch_view_is_its_session_diff_not_a_second_one(tm, tmp_path, calls):
+    # Its copy started from main's tip on its own branch: the branch forks where the session
+    # view's base is, so the branch view is that same diff (one diff where it made two).
+    repo = make_repo(tmp_path / "p", {"a.py": numbered(20), "b.py": numbered(10, "b")})
+    base = git(repo, "rev-parse", "HEAD").strip()
+    git(repo, "checkout", "-q", "-b", "jarvis/s")
+    (repo / "a.py").write_text(numbered(20).replace("line 2\n", "committed\n"))
+    git(repo, "commit", "-qam", "its work")
+    (repo / "b.py").write_text(numbered(10, "b").replace("b 3\n", "not committed\n"))
+    task = ClaudeTask(id=1, prompt="x", cwd=repo)
+    task.workspace = {"slug": "s", "branch": "jarvis/s", "base": base, "into": "main"}
+    calls.clear()
+    view = cc.task_view(task, "branch")
+    assert [c.split()[0] for c in calls].count("diff") == 1, calls
+    calls.clear()
+    before = old_task_view(task, "branch")
+    assert [c.split()[0] for c in calls].count("diff") == 2
+    assert seen_as(view) == seen_as(before)
+    assert sorted(f.path for f in view.files) == ["a.py", "b.py"]
+    same_as_before(task)
+    git(repo, "checkout", "-q", "main")  # main moves on: the fork is no longer the base
+    (repo / "c.py").write_text("c\n")
+    git(repo, "add", "c.py")
+    git(repo, "commit", "-qm", "main moved")
+    git(repo, "checkout", "-q", "jarvis/s")
+    git(repo, "merge", "-q", "--no-edit", "main")
+    same_as_before(task)
+
+
 # ── the untracked files a session's view reads ──
 
 

@@ -15,7 +15,9 @@ Settings it keeps (prefs.features):
   connects and drops.
 
 Window commands: account (the state, asked of askeden.com now), account_link (a new code;
-{browser: true}: approved in the owner's browser, so the server's /link page opens with it),
+{browser: true}: approved in the owner's browser, so the server's /link page opens with it;
+{visible: false}: nobody is looking at it, Ask Eden for Mac approves it itself, so it's polled for
+a minute only), account_link_watch (poll that code again for a minute: it was just approved),
 account_link_open (that page again), account_link_cancel, account_unlink, account_sync (sync now), and approving a browser's
 sign-in to Eden: account_web_peek {code}, account_web_approve {code}, account_web_deny
 {code}, account_web_clear; each answered with an "account" event: {linked, account_id,
@@ -66,6 +68,7 @@ COMMANDS = (
     "account_link",
     "account_link_cancel",
     "account_link_open",
+    "account_link_watch",
     "account_unlink",
     "account_sync",
     "account_web_peek",
@@ -272,7 +275,7 @@ class AccountDesk:
             browser = msg.get("browser") is True
             self.use_server()
             try:
-                await account.link_start(browser=browser)
+                await account.link_start(browser=browser, visible=msg.get("visible") is not False)
             except AccountError as exc:
                 self.emit(error=lang.translate(exc.message, self.hub.language))
                 return
@@ -280,6 +283,8 @@ class AccountDesk:
                 self.open_link_page()
         elif kind == "account_link_open":
             self.open_link_page()
+        elif kind == "account_link_watch":
+            account.link_watch()
         elif kind == "account_link_cancel":
             account.cancel_link()
         elif kind == "account_unlink":
@@ -394,7 +399,7 @@ def install(hub: Any) -> None:
     hub.account = desk.account
     hub.account_desk = desk
     for kind in COMMANDS:
-        fast = kind in ("account_link_cancel", "account_web_clear")
+        fast = kind in ("account_link_cancel", "account_link_watch", "account_web_clear")
         hub.register_command(kind, desk.command, slow=not fast)
     hub.add_event_sink(("prefs",), desk.prefs_changed)
     hub.add_event_sink(("remote",), desk.remote_changed)

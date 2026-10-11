@@ -141,15 +141,27 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 .kbdhint:hover{background:rgba(120,120,128,.12);color:var(--text2)}
 #btnHamburger{display:none}
 #btnCanvasBack{display:none}
+/* A narrow chat column (a canvas, the essay writer beside it): the chat's title keeps its room and the extras give
+   way, the context % and cost, the Upgrade label, Help (it's in ⌘K), then Search (⌘K) (askeden ROADMAP T20d) */
+#titlebar{container:tb/inline-size}
+#tbDots:empty,#tbTags:empty{display:none}
+@container tb (max-width:700px){
+  #titlebar>.orb,#titlebar #btnHelp,#titlebar #tbCost,#titlebar .ctxl,#titlebar .tbu-l{display:none}
+  #titlebar .tb-plus{padding:0 7px}
+  #titlebar>.iconbtn,#titlebar>.tb-private,#titlebar>.tb-plus{margin:0 -2px}
+}
+@container tb (max-width:520px){
+  #titlebar #btnPalette{display:none}
+}
 
 /* ============ SPLIT / TRANSCRIPT ============ */
 #split{flex:1;min-height:0;display:flex;gap:0;position:relative}
 #scrollcol{flex:1;min-width:0;overflow-y:auto;padding:4px 4px 20px;scroll-padding-bottom:20px}
 #transcript{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:18px;padding:4px 8px}
-#divider{width:12px;flex:none;cursor:col-resize;display:none;align-items:center;justify-content:center;touch-action:none}
-#divider::after{content:"";width:4px;height:44px;border-radius:2px;background:rgba(120,120,128,.35);transition:background .15s}
+/* the canvas's left edge (it's a column of its own, like the browser panel): drag to resize, double-click resets */
+#divider{position:absolute;left:0;top:0;bottom:0;width:10px;cursor:col-resize;z-index:6;touch-action:none}
+#divider::after{content:"";position:absolute;left:3px;top:24px;bottom:24px;width:2px;border-radius:2px;background:transparent;transition:background .15s}
 #divider:hover::after,#divider:focus-visible::after{background:var(--accent)}
-#split.art-open #divider{display:flex}
 body.col-resize{user-select:none;cursor:col-resize}
 body.col-resize iframe{pointer-events:none}
 
@@ -361,6 +373,8 @@ sup.cite{color:var(--accent);font-weight:600;cursor:pointer;padding:0 1px;font-s
 /* ============ MARKDOWN ============ */
 .md{font-size:15px;line-height:1.55}
 .md>*:first-child{margin-top:0}
+/* AC12: a very long reply (render.js HUGE_REPLY) lays out only the blocks near the screen */
+.md.huge>*{content-visibility:auto;contain-intrinsic-size:auto 2.5em}
 .md p,.md ul,.md ol,.md blockquote,.md table,.md .cblock,.md hr,.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{margin:10px 0}
 .md h1{font-size:22px;line-height:28px;font-weight:700;letter-spacing:-.3px}
 .md h2{font-size:18px;line-height:24px;font-weight:700;letter-spacing:-.2px}
@@ -388,10 +402,25 @@ sup.cite{color:var(--accent);font-weight:600;cursor:pointer;padding:0 1px;font-s
 .cblock pre code{background:none;padding:0;font-size:inherit}
 
 /* ============ ARTIFACT PANE ============ */
-#artifact{width:46%;flex:none;display:none;flex-direction:column;border-radius:var(--r-lg);overflow:hidden;min-width:280px}
-#split.art-open #artifact{display:flex}
-.art-head{display:flex;align-items:center;gap:10px;padding:10px 12px;flex:none}
-.art-head .a-t{font-size:13px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Its own full-height column beside the title bar, chat and composer, laid out like the browser panel
+   (browser.css): a tab row (the open file, its versions, Wide, Close), then a bar (views and actions). */
+#artifact{width:42%;flex:0 1 auto;display:none;flex-direction:column;border-radius:18px;overflow:hidden;min-width:300px;position:relative}
+body:has(#split.art-open) #artifact{display:flex}
+body:has(#split.art-open) #center{min-width:440px} /* the canvas gives way (flex-shrink) before the chat and its title bar get cramped */
+#artifact.full{position:fixed;inset:8px;width:auto!important;max-width:none;margin:0;z-index:60;box-shadow:var(--sh2)}
+#artifact.full #divider{display:none}
+.art-strip{display:flex;align-items:center;gap:4px;padding:8px 8px 6px;flex:none;min-width:0}
+.art-tab{display:flex;align-items:center;gap:6px;height:30px;min-width:72px;max-width:260px;padding:0 12px 0 11px;border-radius:9px;font-size:12.5px;font-weight:500;color:var(--text);background:var(--content);box-shadow:0 1px 2px rgba(0,0,0,.07),inset 0 0 0 .5px var(--hairline)}
+.art-tab .ic{flex:none;width:13px;height:13px;opacity:.7}
+.art-tab .a-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.art-strip .iconbtn,.art-head .iconbtn{width:30px;height:30px}
+.art-sp{flex:1;min-width:4px}
+.art-head{display:flex;align-items:center;gap:4px;padding:2px 8px 8px;flex:none;min-width:0}
+@media (max-width:1100px){
+  #artifact{position:fixed;top:8px;right:8px;bottom:8px;width:min(64vw,calc(100% - 16px))!important;min-width:0;z-index:52;box-shadow:var(--sh2)}
+  body:has(#split.art-open) #center{min-width:0}
+  #divider{display:none}
+}
 .ver{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);font-variant-numeric:tabular-nums}
 .ver button{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2)}
 .ver button:hover{background:rgba(120,120,128,.15)}
@@ -410,6 +439,41 @@ sup.cite{color:var(--accent);font-weight:600;cursor:pointer;padding:0 1px;font-s
 #editAsk{flex:1;display:flex;gap:6px;min-width:0}
 #editAsk[hidden]{display:none}
 #editAsk input{flex:1;min-width:0;font:inherit;font-size:12px;padding:4px 8px;border-radius:7px;border:.5px solid var(--sep);background:var(--content);color:var(--text)}
+/* live previews: Split (code beside the preview), sizes, the preview's console (artifact.js, canvas-app.js) */
+.art-bodies{flex:1;min-height:0;display:flex;flex-direction:column}
+#artifact.split .art-bodies{flex-direction:row}
+#artifact.split .art-bodies>.art-body{flex:1 1 50%;min-width:0}
+#artifact.split #artCode{order:-1;border-right:.5px solid var(--sep)}
+#artPv:not([hidden]){display:flex;flex-direction:column;overflow:hidden}
+.pv-bar{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:.5px solid var(--sep);flex:none}
+.pv-bar[hidden]{display:none}
+.pv-bar .iconbtn{width:26px;height:26px}
+.pv-bar .iconbtn[hidden]{display:none}
+.pv-bar .iconbtn[aria-pressed="true"]{background:rgba(120,120,128,.18);color:var(--text)}
+.pv-stage{flex:1;min-height:0;position:relative;overflow:hidden}
+#artPreview{position:relative;height:100%;overflow:auto}
+#artPv[data-dev="phone"] .pv-stage,#artPv[data-dev="tablet"] .pv-stage{background:rgba(120,120,128,.1)}
+#artPv[data-dev="phone"] #artPreview{width:390px}
+#artPv[data-dev="tablet"] #artPreview{width:820px}
+#artPv[data-dev="phone"] #artPreview,#artPv[data-dev="tablet"] #artPreview{max-width:calc(100% - 24px);height:calc(100% - 24px);margin:12px auto;border-radius:14px;overflow:hidden;box-shadow:0 0 0 .5px var(--hairline),0 6px 24px rgba(0,0,0,.14)}
+.pv-con{flex:none;border-top:.5px solid var(--sep);background:var(--content);display:flex;flex-direction:column}
+.pv-con[hidden]{display:none}
+.pv-con .con-head{padding:4px 10px}
+.pv-con .con-out{max-height:160px;padding-bottom:8px}
+.pv-con .con-out[hidden]{display:none}
+.pv-con-t{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text3)}
+.pv-con-t .ic{width:9px;height:9px;transition:transform .2s}
+.pv-con-t[aria-expanded="true"] .ic{transform:rotate(90deg)}
+#artifact.split .ed-bar select{min-width:110px}
+#artCode.app-code .con,#artCode.app-code .con-grip,#artCode.app-code .ed-tabs{display:none!important}
+.ed-bar .ed-tabs{display:none} /* phones only (below); .seg's display:flex would otherwise win */
+@media (max-width:640px){.ed-bar .ed-tabs{display:flex}}
+.cap.pv-fix{background:var(--accent);color:#fff}
+.cap.pv-fix .ic{width:10px;height:10px}
+.cap.pv-fix[hidden]{display:none}
+.pv-fail{margin:16px;padding:12px 14px;border-radius:10px;background:rgba(255,59,48,.1);color:var(--danger);font:12px/1.5 ui-monospace,"SF Mono",Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+.con-warn{color:var(--orange,#b26a00)}
+@media (max-width:640px){#artSeg .seg-split,#pvDev,.art-strip #btnArtClose{display:none} /* a phone: no Split or sizes; the bar above has Close */}
 /* the code canvas: editor + console */
 #artCode:not([hidden]){display:flex;flex-direction:column;overflow:hidden}
 .ed-bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:.5px solid var(--sep);flex:none}
@@ -1004,7 +1068,8 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
   #inspector.peek{height:30dvh}
   .grab{display:block}
   #artifact{position:fixed;inset:0;z-index:52;width:auto!important;min-width:0;border-radius:0}
-  #split.art-open.chat-view #artifact{display:none}
+  body.canvas-hidden #artifact{display:none!important}
+  #artifact .art-wide{display:none}
   body.canvas-hidden #btnCanvasBack{display:flex}
   #divider{display:none!important}
   .art-mobile-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top))}
@@ -1041,7 +1106,7 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 .srow:hover .srow-edit,.srow:focus-within .srow-edit{opacity:1}
 @media (hover:none){.srow .srow-edit{opacity:1}}
 @media(max-width:1100px){#sidebar:not(.expanded) .srow-edit{display:none}}
-@media(max-width:640px){#sidebar .srow-edit{display:flex}}
+@media(max-width:640px){#sidebar .srow-edit,#sidebar:not(.expanded) .srow-edit{display:flex}} /* (the phone's drawer is never .expanded: the rule above, more specific, hid the folders' ⋯ there) */
 
 /* the narrow sidebar (an icon rail, 641–1100px, not expanded): icons only. A section's header
    would leave just its chevron (a stray "⌄" between the icons), so sections are set apart by a
@@ -1132,6 +1197,8 @@ body.side-resizing #sidebar{transition:none}
 .sitem.child.more-row,.sitem.more-row{color:var(--accent);font-size:12.5px}
 .side-empty.child{padding-left:34px}
 .sitem[draggable=true]{cursor:default}
+/* Touch and hold opens a chat's or folder's menu (util.js onMenuGesture): no text selection or callout under the finger */
+@media (pointer:coarse){#sidebar .sitem,#sidebar .srow{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}}
 .tidy-nudge{display:flex;align-items:center;gap:2px;margin:4px 0 6px;border-radius:var(--r-sm);background:var(--accent-soft)}
 .tidy-go{flex:1;min-width:0;display:flex;align-items:center;gap:9px;padding:7px 8px;text-align:left;color:var(--accent);font-size:13px}
 .tidy-go span{display:flex;flex-direction:column;min-width:0}.tidy-go small{font-size:11.5px;color:var(--text3)}

@@ -50,7 +50,8 @@
     "On hold": "已暂停",
     "Spending limits changed; it goes on with the new ones.": "花费上限已更改；会话会按新的上限继续。",
     "It stopped at its spending limit.": "它在花费上限处停下了。",
-    "Within the limit": "在额度内"
+    "Within the limit": "在额度内",
+    "Sharing the spending limit with the other sessions running; it goes on in a moment.": "正在和其他运行中的会话分配花费上限，马上继续。"
   },
   "patterns": [
     [

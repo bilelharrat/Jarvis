@@ -349,7 +349,7 @@ async def on_note(hub: Any, task: Any, intent: Intent, say: Any) -> None:
     excerpt = excerpt or next((t.strip() for tag, t in h.lines if tag == "-" and t.strip()), "")
     quote = f" (`{excerpt[:80]}`)" if excerpt else ""
     text = f"Review comments:\n- {view.repo.shown(f.path)}:{h.first_changed}{quote} — {intent.text}"
-    hub.tasks.send(task.id, text)
+    hub.tasks.send(task.id, text, by_user=True)
     say(lang.tr("Sent your note on change {n}.", hub.language, n=n), follow_up=False)
 
 

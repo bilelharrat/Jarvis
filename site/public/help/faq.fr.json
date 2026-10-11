@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-06",
+ "updated": "2026-10-10",
  "support": "support@askeden.com",
  "lang": "fr",
  "categories": [
@@ -78,6 +78,21 @@
    "id": "iphone",
    "title": "App iPhone",
    "icon": "phone"
+  },
+  {
+   "id": "chrome",
+   "title": "Ask Eden pour Chrome",
+   "icon": "globe"
+  },
+  {
+   "id": "excel",
+   "title": "Ask Eden pour Excel",
+   "icon": "list"
+  },
+  {
+   "id": "sheets",
+   "title": "Ask Eden pour Google Sheets",
+   "icon": "list"
   },
   {
    "id": "trouble",
@@ -211,7 +226,7 @@
   "signin-code": {
    "src": "img/signin-code.webp",
    "alt": "La page de connexion affichant un QR code et un code de huit caractères en attente d’approbation depuis l’app iPhone.",
-   "caption": "Scannez le QR code ou saisissez le code dans l’app iPhone J.A.R.V.I.S.",
+   "caption": "Scannez le QR code ou saisissez le code dans Eden pour iPhone.",
    "phone": true
   }
  },
@@ -220,7 +235,7 @@
    "id": "what-is-eden",
    "cat": "start",
    "q": "Qu’est-ce qu’Eden ?",
-   "a": "Eden, c’est une seule discussion pour de nombreux modèles d’IA. Vous écrivez, et Eden envoie chaque message au modèle qui lui convient : les questions simples vont à des modèles rapides et économiques, les plus difficiles aux plus puissants.\n\nEden fonctionne aussi avec votre propre Mac grâce à l’app J.A.R.V.I.S. : votre calendrier, vos e-mails, vos fichiers et vos notes, sans les envoyer en ligne.",
+   "a": "Eden, c’est une seule discussion pour de nombreux modèles d’IA. Vous écrivez, et Eden envoie chaque message au modèle qui lui convient : les questions simples vont à des modèles rapides et économiques, les plus difficiles aux plus puissants.\n\nEden fonctionne aussi avec votre propre Mac grâce à l’app Eden : votre calendrier, vos e-mails, vos fichiers et vos notes, sans les envoyer en ligne.",
    "keywords": [
     "à propos",
     "présentation",
@@ -243,7 +258,7 @@
    "id": "where-eden-runs",
    "cat": "start",
    "q": "Où puis-je utiliser Eden ?",
-   "a": "À trois endroits, avec un seul compte :\n- **askeden.com** dans n’importe quel navigateur.\n- **L’app Eden pour iPhone et iPad**, qui affiche la même page.\n- **Eden sur votre Mac** (fourni avec J.A.R.V.I.S.), à l’adresse http://localhost:5174.\n\nSur askeden.com, Eden utilise GPT, Gemini et Kimi avec l’IA incluse dans votre compte ; Claude nécessite votre propre clé API Anthropic (Réglages › Modèles et clés API). Sur votre Mac, Eden peut utiliser tous les modèles pour lesquels vous avez une clé.",
+   "a": "À trois endroits, avec un seul compte :\n- **askeden.com** dans n’importe quel navigateur.\n- **L’app Eden pour iPhone et iPad**, qui affiche la même page.\n- **Eden sur votre Mac** (fourni avec l’app Eden), à l’adresse http://localhost:5174.\n\nSur askeden.com, Eden utilise Claude, GPT, Gemini et Kimi avec l’IA incluse dans votre compte, ou avec vos propres clés API si vous en ajoutez (Réglages › Modèles et clés API). Sur votre Mac, Eden peut utiliser tous les modèles pour lesquels vous avez une clé.",
    "keywords": [
     "web",
     "site web",
@@ -490,7 +505,7 @@
    "id": "signin-ways",
    "cat": "signin",
    "q": "Comment me connecter à askeden.com ?",
-   "a": "Allez sur **askeden.com/signin** et choisissez :\n- **Se connecter avec Apple**\n- **Se connecter avec Google**\n- **Approuver depuis votre iPhone** : la page affiche un code et un QR code ; approuvez-le dans l’app J.A.R.V.I.S. pour iPhone.\n\nLes trois ouvrent le même compte Eden. Pas besoin de vous inscrire : la première connexion crée votre compte, avec l’essai gratuit. Dans l’app Eden pour iPhone, **Se connecter avec Apple** utilise Face ID. Vous utilisez déjà l’app J.A.R.V.I.S. pour iPhone ? Connectez-vous avec le même identifiant Apple pour ouvrir le même compte.",
+   "a": "Allez sur **askeden.com/signin** et choisissez :\n- **Se connecter avec Apple**\n- **Se connecter avec Google**\n- **Approuver depuis votre iPhone** : la page affiche un code et un QR code ; approuvez-le dans Eden pour iPhone.\n\nLes trois ouvrent le même compte Eden. Pas besoin de vous inscrire : la première connexion crée votre compte, avec l’essai gratuit. Dans l’app Eden pour iPhone, **Se connecter avec Apple** utilise Face ID. Vous utilisez déjà Eden pour iPhone ? Connectez-vous avec le même identifiant Apple pour ouvrir le même compte.",
    "keywords": [
     "se connecter",
     "connexion",
@@ -536,7 +551,7 @@
    "id": "signin-code",
    "cat": "signin",
    "q": "Comment fonctionne la connexion avec un code depuis mon iPhone ?",
-   "a": "Sur la page de connexion, choisissez **Approuver depuis votre iPhone**. Eden affiche un code de huit caractères et un QR code.\n\nSur votre iPhone, ouvrez J.A.R.V.I.S. › Réglages › Compte › **Associer un Mac ou approuver une connexion**, scannez le QR code ou saisissez le code, puis touchez **Approuver la connexion**. La page se connecte d’elle-même. Vous pouvez aussi approuver depuis J.A.R.V.I.S. sur votre Mac (Réglages › Compte › Approuver une connexion à Eden).",
+   "a": "Sur la page de connexion, choisissez **Approuver depuis votre iPhone**. Eden affiche un code de huit caractères et un QR code.\n\nSur votre iPhone, ouvrez Eden › Réglages › Compte › **Associer un Mac ou approuver une connexion**, scannez le QR code ou saisissez le code, puis touchez **Approuver la connexion**. La page se connecte d’elle-même. Vous pouvez aussi approuver depuis l’app Eden sur votre Mac (Réglages › Compte › Approuver une connexion à Eden).",
    "keywords": [
     "code",
     "qr",
@@ -586,7 +601,7 @@
    "id": "sign-out",
    "cat": "signin",
    "q": "Comment me déconnecter, ou déconnecter un autre navigateur ?",
-   "a": "Réglages › **Compte** › **Appareils** liste tous les navigateurs et apps liés à votre compte. Déconnectez-y un navigateur, ou choisissez **Se déconnecter partout**.\n\nLes apps (iPhone, iPad, Mac) se retirent depuis l’app J.A.R.V.I.S. elle-même. Un navigateur reste connecté pendant 30 jours.",
+   "a": "Réglages › **Compte** › **Appareils** liste tous les navigateurs et apps liés à votre compte. Déconnectez-y un navigateur, ou choisissez **Se déconnecter partout**.\n\nLes apps (iPhone, iPad, Mac) se retirent depuis l’app Eden elle-même. Un navigateur reste connecté pendant 30 jours.",
    "keywords": [
     "se déconnecter",
     "déconnexion",
@@ -636,7 +651,7 @@
    "id": "plans",
    "cat": "account",
    "q": "Combien coûte Eden ?",
-   "a": "- **Essai** : chaque nouveau compte reçoit 1 $ d’IA incluse, une seule fois.\n- **Plus** : 20 $ par mois, avec 20 $ d’IA incluse chaque mois aux prix catalogue.\n\nL’IA incluse couvre GPT, Gemini et Kimi. Pour Claude, vous apportez votre propre clé : ajoutez votre clé API Anthropic dans Réglages › Modèles et clés API. Sur votre propre Mac, Eden peut aussi utiliser vos propres clés API ou votre abonnement Claude ; ils n’entament jamais le quota.",
+   "a": "- **Essai** : chaque nouveau compte reçoit 1 $ d’IA incluse, une seule fois.\n- **Plus** : 20 $ par mois, avec 20 $ d’IA incluse chaque mois aux prix catalogue.\n\nL’IA incluse couvre Claude, GPT, Gemini et Kimi : Eden choisit le modèle de chaque message, ou vous le choisissez. Vous pouvez aussi ajouter vos propres clés API sur askeden.com (Réglages › Modèles et clés API), et sur votre propre Mac, Eden peut les utiliser ou utiliser votre abonnement Claude ; ils n’entament jamais le quota.",
    "keywords": [
     "prix",
     "coût",
@@ -694,7 +709,7 @@
    "id": "get-plus",
    "cat": "account",
    "q": "Comment obtenir Plus ?",
-   "a": "Deux façons, le même Plus :\n- **Sur le web** : page de votre compte › **Passer à Plus : 20 $/mois** (paiement via Stripe).\n- **Dans l’app J.A.R.V.I.S. pour iPhone** : via l’App Store.\n\nDans l’app Eden pour iPhone, vous verrez plutôt « Obtenez Plus dans l’app J.A.R.V.I.S. pour iPhone », en raison des règles d’Apple.",
+   "a": "Deux façons, le même Plus :\n- **Sur le web** : page de votre compte › **Passer à Plus : 20 $/mois** (paiement via Stripe).\n- **Dans Eden pour iPhone** : via l’App Store.\n\nDans l’app Eden pour iPhone, vous verrez plutôt « Passer à Plus dans Eden pour iPhone », en raison des règles d’Apple.",
    "keywords": [
     "acheter",
     "achat",
@@ -754,7 +769,7 @@
    "id": "delete-account",
    "cat": "account",
    "q": "Comment supprimer mon compte ?",
-   "a": "Supprimez-le depuis l’app J.A.R.V.I.S. (Réglages › Compte › Supprimer le compte). Tout est effacé : appareils, méthodes de connexion, discussions synchronisées, pages publiées et accès Google. Un abonnement Plus souscrit sur le web est résilié immédiatement.",
+   "a": "Supprimez-le depuis l’app Eden (Réglages › Compte › Supprimer le compte). Tout est effacé : appareils, méthodes de connexion, discussions synchronisées, pages publiées et accès Google. Un abonnement Plus souscrit sur le web est résilié immédiatement.",
    "keywords": [
     "supprimer le compte",
     "supprimer mon compte",
@@ -1133,7 +1148,7 @@
    "id": "voice-dictate",
    "cat": "voice",
    "q": "Comment parler au lieu de taper ?",
-   "a": "Appuyez sur le **micro** dans la zone de saisie pour dicter : parlez, relisez, puis envoyez. Appuyez sur le bouton **forme d’onde** pour **Parler** : une conversation mains libres avec la voix JARVIS, qui envoie quand vous faites une pause et continue jusqu’à ce que vous appuyiez sur Terminer ou Esc. Le micro n’est utilisé que lorsque l’un de ces modes est actif.\n\nFirefox n’a pas de reconnaissance vocale : Eden y enregistre donc plutôt (jusqu’à 2 minutes) et transforme l’enregistrement en texte ; sur askeden.com, cela compte sur votre quota.",
+   "a": "Appuyez sur le **micro** dans la zone de saisie pour dicter : parlez, relisez, puis envoyez. Appuyez sur le bouton **forme d’onde** pour **Parler** : une conversation mains libres avec la voix d’Eden, qui envoie quand vous faites une pause et continue jusqu’à ce que vous appuyiez sur Terminer ou Esc. Le micro n’est utilisé que lorsque l’un de ces modes est actif.\n\nFirefox n’a pas de reconnaissance vocale : Eden y enregistre donc plutôt (jusqu’à 2 minutes) et transforme l’enregistrement en texte ; sur askeden.com, cela compte sur votre quota.",
    "keywords": [
     "voix",
     "vocal",
@@ -1161,7 +1176,7 @@
    "id": "voice-read",
    "cat": "voice",
    "q": "Eden peut-il lire les réponses à voix haute ?",
-   "a": "Oui : le bouton haut-parleur sur n’importe quelle réponse, ou Réglages › Apparence › **Lire les réponses à voix haute** pour toutes les réponses. Eden utilise la voix JARVIS.",
+   "a": "Oui : le bouton haut-parleur sur n’importe quelle réponse, ou Réglages › Apparence › **Lire les réponses à voix haute** pour toutes les réponses. La lecture utilise la voix d’Eden.",
    "keywords": [
     "lire à voix haute",
     "lire les réponses",
@@ -1183,7 +1198,7 @@
    "id": "voice-allowance",
    "cat": "voice",
    "q": "La voix est-elle limitée ?",
-   "a": "Oui, chaque jour, en caractères : 20 000 par jour en gratuit, 100 000 avec Plus. Le compteur se réinitialise à minuit UTC. Sur votre Mac, Eden passe à la voix du Mac une fois la voix JARVIS du jour épuisée.",
+   "a": "Oui, chaque jour, en caractères : 20 000 par jour en gratuit, 100 000 avec Plus. Le compteur se réinitialise à minuit UTC. Sur votre Mac, Eden passe à la voix du Mac une fois la voix d’Eden du jour épuisée.",
    "keywords": [
     "limite de voix",
     "limite",
@@ -1201,7 +1216,7 @@
    "id": "calendar-open",
    "cat": "calendar",
    "q": "Quels calendriers Eden affiche-t-il ?",
-   "a": "Les calendriers de votre Mac (via J.A.R.V.I.S.) et Google Calendar (connectez-le dans Réglages › Comptes). Ouvrez **Calendrier** dans la barre latérale ou avec ⌘K : vues mois, semaine, jour et agenda.",
+   "a": "Les calendriers de votre Mac (via l’app Eden) et Google Calendar (connectez-le dans Réglages › Comptes). Ouvrez **Calendrier** dans la barre latérale ou avec ⌘K : vues mois, semaine, jour et agenda.",
    "keywords": [
     "calendrier",
     "google calendar",
@@ -1255,7 +1270,7 @@
    "id": "calendar-readonly",
    "cat": "calendar",
    "q": "Pourquoi ne puis-je pas modifier les événements du calendrier de mon Mac ?",
-   "a": "Pour modifier les événements du calendrier Mac, il faut la dernière version de J.A.R.V.I.S. sur votre Mac. Mettez-le à jour et redémarrez J.A.R.V.I.S. ; d’ici là, les événements Mac sont en lecture seule. Les événements Google peuvent être modifiés une fois Calendrier connecté.",
+   "a": "Pour modifier les événements du calendrier Mac, il faut la dernière version de l’app Eden sur votre Mac. Mettez-la à jour et redémarrez-la ; d’ici là, les événements Mac sont en lecture seule. Les événements Google peuvent être modifiés une fois Calendrier connecté.",
    "keywords": [
     "lecture seule",
     "impossible de modifier",
@@ -1272,7 +1287,7 @@
    "id": "gmail-connect",
    "cat": "mail",
    "q": "Comment connecter Gmail ?",
-   "a": "Réglages › **Comptes** › **Connecter Gmail** (et **Connecter Calendrier** séparément). Connectez-vous avec Google et autorisez l’accès. Eden conserve l’accès chiffré et vous pouvez le déconnecter à tout moment ; cela le supprime aussi chez Google.\n\nSur votre Mac, le panneau Mail affiche aussi les comptes de l’app Mail via J.A.R.V.I.S.",
+   "a": "Réglages › **Comptes** › **Connecter Gmail** (et **Connecter Calendrier** séparément). Connectez-vous avec Google et autorisez l’accès. Eden conserve l’accès chiffré et vous pouvez le déconnecter à tout moment ; cela le supprime aussi chez Google.\n\nSur votre Mac, le panneau Mail affiche aussi les comptes de l’app Mail via Eden.",
    "keywords": [
     "gmail",
     "google",
@@ -1367,7 +1382,7 @@
    "id": "mac-link",
    "cat": "mac",
    "q": "Comment connecter askeden.com à mon Mac ?",
-   "a": "Installez J.A.R.V.I.S. sur votre Mac et connectez-vous avec le même compte. Dans J.A.R.V.I.S. › Réglages › Compte, activez **Eden sur le web accède à ce Mac**. L’état indiqué est Connecté, Connexion… ou Hors ligne.\n\naskeden.com et l’app Eden pour iPhone peuvent alors utiliser les fichiers, le calendrier, les e-mails, les notes, les modèles locaux et le mode Code de votre Mac. Seuls vos propres appareils connectés à votre compte peuvent utiliser ce lien, et votre Mac vérifie chaque requête par rapport à une liste d’actions autorisées. Le trafic transite par askeden.com sans être stocké ni journalisé (il n’est pas encore chiffré de bout en bout).",
+   "a": "Installez l’app Eden sur votre Mac et connectez-vous avec le même compte. Dans Eden › Réglages › Compte, activez **Eden sur le web accède à ce Mac**. L’état indiqué est Connecté, Connexion… ou Hors ligne.\n\naskeden.com et l’app Eden pour iPhone peuvent alors utiliser les fichiers, le calendrier, les e-mails, les notes, les modèles locaux et le mode Code de votre Mac. Seuls vos propres appareils connectés à votre compte peuvent utiliser ce lien, et votre Mac vérifie chaque requête par rapport à une liste d’actions autorisées. Le trafic transite par askeden.com sans être stocké ni journalisé (il n’est pas encore chiffré de bout en bout).",
    "keywords": [
     "associer un mac",
     "associer mac",
@@ -1388,8 +1403,8 @@
   {
    "id": "jarvis-approval",
    "cat": "mac",
-   "q": "Qu’est-ce que la carte « Autoriser Eden à utiliser Jarvis ? » sur mon Mac ?",
-   "a": "La première fois qu’Eden demande quelque chose à J.A.R.V.I.S., votre Mac affiche **Autoriser Eden à utiliser Jarvis ?**. Cliquez sur Autoriser. Eden s’en souvient : on ne vous le redemandera pas après un redémarrage.\n\nPendant que la carte attend, Eden affiche **Approuvez Eden sur votre Mac**.",
+   "q": "Qu’est-ce que la carte « Autoriser Eden à utiliser votre Mac ? » sur mon Mac ?",
+   "a": "La première fois qu’Eden demande quelque chose à l’app Eden, votre Mac affiche **Autoriser Eden à utiliser votre Mac ?**. Cliquez sur Autoriser. Eden s’en souvient : on ne vous le redemandera pas après un redémarrage.\n\nPendant que la carte attend, Eden affiche **Approuvez Eden sur votre Mac**.",
    "keywords": [
     "autoriser eden à utiliser jarvis",
     "let eden use jarvis",
@@ -1408,7 +1423,7 @@
    "id": "mac-files",
    "cat": "mac",
    "q": "Eden peut-il lire les fichiers de mon Mac ?",
-   "a": "Oui, avec **Utiliser mon Mac** : Eden recherche, lit et résume des fichiers sans les envoyer nulle part. C’est en lecture seule ; Eden cherche par défaut dans votre dossier de départ, et jamais dans les dossiers masqués, la Bibliothèque ou les fichiers de clés. Choisissez les dossiers autorisés dans J.A.R.V.I.S. › Réglages › Eden sur votre Mac.",
+   "a": "Oui, avec **Utiliser mon Mac** : Eden recherche, lit et résume des fichiers sans les envoyer nulle part. C’est en lecture seule ; Eden cherche par défaut dans votre dossier de départ, et jamais dans les dossiers masqués, la Bibliothèque ou les fichiers de clés. Choisissez les dossiers autorisés dans Eden › Réglages › Eden sur votre Mac.",
    "keywords": [
     "fichiers",
     "documents",
@@ -1432,7 +1447,7 @@
    "id": "mac-screen",
    "cat": "mac",
    "q": "Puis-je poser une question sur ce qui est affiché à l’écran de mon Mac ?",
-   "a": "Oui : **+** › **Poser une question sur mon écran** ajoute la fenêtre au premier plan (app, titre, texte) à votre message. Votre Mac demande l’autorisation à chaque fois, sauf si la connaissance de l’écran est activée dans J.A.R.V.I.S.",
+   "a": "Oui : **+** › **Poser une question sur mon écran** ajoute la fenêtre au premier plan (app, titre, texte) à votre message. Votre Mac demande l’autorisation à chaque fois, sauf si la connaissance de l’écran est activée dans Eden.",
    "keywords": [
     "écran",
     "mon écran",
@@ -1542,7 +1557,7 @@
    "id": "website-task",
    "cat": "day",
    "q": "Eden peut-il faire quelque chose sur un site web à ma place ?",
-   "a": "Oui : ⌘K › **Faire ceci sur un site web…**. Le navigateur de J.A.R.V.I.S. sur votre Mac s’en charge et vous voyez chaque étape, avec **Arrêter** à tout moment. Toute action risquée (un achat, un formulaire) attend votre accord sur le Mac.",
+   "a": "Oui : ⌘K › **Faire ceci sur un site web…**. Le navigateur d’Eden sur votre Mac s’en charge et vous voyez chaque étape, avec **Arrêter** à tout moment. Toute action risquée (un achat, un formulaire) attend votre accord sur le Mac.",
    "keywords": [
     "site web",
     "site",
@@ -1884,7 +1899,7 @@
    "id": "mac-hotkey",
    "cat": "iphone",
    "q": "Existe-t-il un raccourci pour interroger Eden depuis n’importe où sur mon Mac ?",
-   "a": "Oui : **⌃⌥Space** ouvre Ask Eden. Activez-le dans J.A.R.V.I.S. › Réglages › Ce Mac (il est désactivé par défaut).",
+   "a": "Oui : **⌃⌥Space** ouvre Ask Eden. Activez-le dans Eden › Réglages › Ce Mac (il est désactivé par défaut).",
    "keywords": [
     "raccourci",
     "raccourci clavier",
@@ -1899,10 +1914,182 @@
    ]
   },
   {
+   "id": "chrome-install",
+   "cat": "chrome",
+   "q": "Comment installer et connecter Ask Eden pour Chrome ?",
+   "a": "Ajoutez **Ask Eden** depuis le Chrome Web Store. L’extension marche aussi dans Edge, Brave et Arc. Épinglez-la (le bouton en forme de pièce de puzzle) pour la garder dans la barre d’outils.\n\nLa première fois, appuyez sur **Connecter votre compte Eden**. askeden.com s’ouvre : connectez-vous si besoin, puis appuyez sur **Connecter**. L’extension peut seulement poser des questions à Eden (pendant 90 jours) : elle ne peut lire ni vos discussions, ni vos e-mails, ni votre agenda, ni votre compte. Pour déconnecter : les options de l’extension, ou la page de votre compte › **Apps connectées** › **Révoquer**.",
+   "keywords": [
+    "extension chrome",
+    "extension du navigateur",
+    "ask eden pour chrome",
+    "installer",
+    "web store",
+    "edge",
+    "brave",
+    "arc",
+    "connecter",
+    "connecter votre compte eden",
+    "déconnecter",
+    "barre d’outils",
+    "chrome extension"
+   ]
+  },
+  {
+   "id": "chrome-use",
+   "cat": "chrome",
+   "q": "Comment utiliser Ask Eden sur une page web ?",
+   "a": "**Surlignez du texte** sur n’importe quelle page et cliquez sur le bouton Eden à côté : Expliquer, Résumer, Réécrire, Corriger, Plus court, Rédiger une réponse, Traduire, Changer le ton, ou votre propre question. Dans un champ de texte, **Remplacer la sélection** met la modification à sa place ; ailleurs, elle est copiée.\n\nLe **panneau latéral** (le bouton Ask Eden de la barre d’outils, ou **⌘⇧Y** / **Ctrl+Maj+Y**) est une petite discussion à côté de la page : sur la sélection, sur toute la page (**Résumer cette page**) ou sur n’importe quoi, avec Recherche, Enquête, le modèle de votre choix et des fichiers. **⌘⇧E** / **Ctrl+Maj+E** ouvre Eden sur la sélection ; le clic droit propose **Demander à Eden à propos de…**.\n\n**Parler**, dans le panneau latéral, est une conversation à voix haute avec Eden ; **Dicter** écrit ce que vous dites. Chrome demande le micro une seule fois, dans un onglet.",
+   "keywords": [
+    "surligner",
+    "sélection",
+    "page web",
+    "panneau latéral",
+    "résumer cette page",
+    "réécrire",
+    "traduire",
+    "remplacer",
+    "parler",
+    "talk",
+    "dicter",
+    "micro",
+    "raccourci chrome",
+    "clic droit",
+    "side panel"
+   ]
+  },
+  {
+   "id": "chrome-privacy",
+   "cat": "chrome",
+   "q": "Qu’est-ce qu’Ask Eden pour Chrome envoie, et quand ?",
+   "a": "Rien tant que vous n’appuyez pas sur un bouton d’Eden. Ensuite, seulement le texte sélectionné ou saisi (pour **Résumer cette page**, le texte principal de la page), les fichiers ajoutés dans le panneau latéral, le titre de la page et son adresse sans ce qui suit ? ou #. askeden.com n’en garde rien. Eden ne lit jamais les champs de mot de passe, de carte, de banque, de numéro d’identité ou de code à usage unique.\n\nLes réponses viennent d’Anthropic (Claude), d’OpenAI, de Google (Gemini) ou de Moonshot AI (Kimi), sur l’IA incluse de votre compte ; **Recherche web** et **Recherche approfondie** utilisent aussi la recherche web de ce modèle. Parler et Dicter écoutent avec la reconnaissance vocale de votre navigateur (dans Chrome, celle de Google) ; Eden répond avec la voix d’Eden jusqu’à une limite quotidienne, puis avec la voix du navigateur. Pour garder les boutons d’Eden hors de certains sites, listez-les dans les options de l’extension.",
+   "keywords": [
+    "confidentialité de l’extension",
+    "ce qui est envoyé",
+    "texte de la page",
+    "mots de passe",
+    "autorisations",
+    "confidentialité chrome",
+    "reconnaissance vocale",
+    "voix d’eden",
+    "pas sur ces sites",
+    "privacy"
+   ]
+  },
+  {
+   "id": "excel-install",
+   "cat": "excel",
+   "q": "Comment ajouter Ask Eden à Excel et le connecter ?",
+   "a": "Dans Excel sur Mac, Windows ou le web, ouvrez **Accueil › Compléments** (ou **Insertion › Obtenir des compléments**), cherchez **Ask Eden** et ajoutez-le. Un bouton **Ask Eden** apparaît dans l’onglet Accueil : il ouvre le volet d’Eden.\n\nAppuyez sur **Connecter** dans le volet. Une fenêtre s’ouvre sur askeden.com : connectez-vous si besoin, puis appuyez sur **Connecter**. Dans Excel pour le web, si cette fenêtre ne se ferme pas toute seule, laissez le volet ouvert : il se connecte de lui-même. Pour déconnecter : le volet, ou la page de votre compte › **Apps connectées**.",
+   "keywords": [
+    "excel",
+    "complément excel",
+    "complément office",
+    "ask eden pour excel",
+    "installer",
+    "appsource",
+    "obtenir des compléments",
+    "connecter",
+    "volet",
+    "déconnecter",
+    "add-in"
+   ]
+  },
+  {
+   "id": "excel-use",
+   "cat": "excel",
+   "q": "Que peut faire Ask Eden dans Excel ?",
+   "a": "Sélectionnez des cellules, puis appuyez sur un bouton du volet : **Demander** (votre propre question), **Analyser**, **Écrire une formule**, **Expliquer la formule**, **Remplir la colonne**, **Nettoyer** ou **Créer un tableau**. Vous pouvez poser des questions de suivi.\n\nRien ne change dans votre feuille tant que vous n’appuyez pas sur **Insérer**, **Remplir**, **Remplacer par les données nettoyées** ou **Insérer le tableau**, et Eden demande avant d’écrire sur des cellules remplies.\n\nDans une cellule, **=EDEN.ASK(\"votre question\"; A1:B10)** y met la réponse courte d’Eden (la plage est facultative). Eden garde les réponses en mémoire : un recalcul ne redemande rien.",
+   "keywords": [
+    "formule excel",
+    "écrire une formule",
+    "expliquer la formule",
+    "analyser",
+    "remplir la colonne",
+    "nettoyer les données",
+    "créer un tableau",
+    "=eden.ask",
+    "eden.ask",
+    "fonction de cellule",
+    "fonction personnalisée"
+   ]
+  },
+  {
+   "id": "excel-limits",
+   "cat": "excel",
+   "q": "Quelles sont les limites d’Ask Eden pour Excel ?",
+   "a": "- Une demande à la fois dans le volet (**■** l’arrête).\n- Au plus 5 000 cellules et 60 000 caractères à la fois. Remplir et Nettoyer acceptent jusqu’à 1 000 lignes, en plusieurs parties si besoin : rien n’est écrit tant que chaque partie n’est pas revenue correcte.\n- Une cellule de plus de 2 000 caractères ne peut être ni remplie ni nettoyée.\n- **=EDEN.ASK** : 2 à la fois, 100 réponses par session (la section **=EDEN.ASK dans les cellules** du volet permet d’aller plus loin), des questions jusqu’à 2 000 caractères.\n- Chaque demande utilise l’IA incluse de votre compte Eden. Seuls les cellules sélectionnées, ce que vous tapez et ce dont une action a besoin (la ligne d’en-tête et les 5 premières lignes pour une formule, les colonnes remplies à côté pour Remplir) sont envoyés. askeden.com n’en garde rien.",
+   "keywords": [
+    "limites excel",
+    "trop à la fois",
+    "1000 lignes",
+    "5000 cellules",
+    "limite eden.ask",
+    "ia incluse",
+    "confidentialité excel",
+    "ce qui est envoyé"
+   ]
+  },
+  {
+   "id": "sheets-install",
+   "cat": "sheets",
+   "q": "Comment ajouter Ask Eden à Google Sheets et le connecter ?",
+   "a": "Installez **Ask Eden** depuis Google Workspace Marketplace (dans une feuille : **Extensions › Modules complémentaires › Télécharger des modules complémentaires**). Ensuite, **Extensions › Ask Eden › Ouvrir Ask Eden** ouvre le panneau latéral.\n\nAppuyez sur **Connecter votre compte Eden**. askeden.com s’ouvre dans un nouvel onglet : connectez-vous si besoin, appuyez sur **Connecter**, puis fermez l’onglet ; le panneau se connecte de lui-même. Si le panneau ne se charge pas et que vous êtes connecté à plusieurs comptes Google, essayez une fenêtre connectée à un seul (une limite de Google pour les modules). Pour déconnecter : **Extensions › Ask Eden › Déconnecter**.",
+   "keywords": [
+    "google sheets",
+    "module sheets",
+    "ask eden pour google sheets",
+    "installer",
+    "workspace marketplace",
+    "menu extensions",
+    "panneau latéral",
+    "connecter",
+    "plusieurs comptes google",
+    "déconnecter",
+    "add-on"
+   ]
+  },
+  {
+   "id": "sheets-use",
+   "cat": "sheets",
+   "q": "Que peut faire Ask Eden dans Google Sheets ?",
+   "a": "Sélectionnez des cellules, puis appuyez sur **Demander**, **Analyser**, **Écrire une formule**, **Expliquer la formule**, **Remplir la colonne**, **Nettoyer** ou **Créer un tableau** dans le panneau, et posez des questions de suivi. Vous voyez d’abord le résultat : rien n’est écrit avant que vous n’appuyiez sur son bouton (**Insérer**, **Écrire** ou **Remplacer**), et Eden demande avant d’écrire sur des cellules remplies.\n\nDans une cellule, **=EDEN(\"votre question\"; A1:B10)** y met une réponse courte (la plage est facultative). Activez-la pour chaque fichier avec **Autoriser =EDEN dans ce fichier** en bas du panneau. =EDEN utilise la connexion et l’IA incluse du propriétaire du fichier : seul son réglage compte.",
+   "keywords": [
+    "formule sheets",
+    "écrire une formule",
+    "expliquer la formule",
+    "analyser",
+    "remplir la colonne",
+    "nettoyer les données",
+    "créer un tableau",
+    "=eden",
+    "fonction eden",
+    "autoriser =eden dans ce fichier",
+    "fichier partagé",
+    "propriétaire"
+   ]
+  },
+  {
+   "id": "sheets-limits",
+   "cat": "sheets",
+   "q": "Quelles sont les limites d’Ask Eden pour Google Sheets ?",
+   "a": "- Au plus 5 000 cellules et 60 000 caractères à la fois (Demander et Analyser envoient les premières lignes qui tiennent, et le disent).\n- Remplir et Nettoyer acceptent jusqu’à 1 000 lignes, en parties avec **Arrêter** et **Reprendre à la partie…** : rien n’est écrit tant que chaque partie n’a pas répondu. Ils sautent les lignes masquées ou filtrées.\n- Une cellule de plus de 2 000 caractères ne peut être ni remplie ni nettoyée.\n- **=EDEN** a les 30 secondes de Google pour répondre. Les réponses sont gardées 6 heures, et une cellule en échec affiche #ERROR! avec la raison quand vous la survolez.\n- Chaque demande utilise l’IA incluse de votre compte Eden. Seuls les cellules sélectionnées, le nom et la plage de la feuille, ce que vous tapez et, pour Remplir, les colonnes remplies à côté sont envoyés. askeden.com n’en garde rien.",
+   "keywords": [
+    "limites sheets",
+    "trop à la fois",
+    "1000 lignes",
+    "#error!",
+    "30 secondes",
+    "limite =eden",
+    "ia incluse",
+    "confidentialité sheets",
+    "ce qui est envoyé"
+   ]
+  },
+  {
    "id": "err-mac-offline",
    "cat": "trouble",
    "q": "\"Votre Mac est hors ligne\"",
-   "a": "Un Mac est associé à votre compte, mais il n’est pas connecté pour le moment. Eden en a besoin pour Jarvis, le mode Code, les fichiers, les e-mails sur le Mac et le mode confidentialité.\n\n**Solution :**\n- Réveillez le Mac et ouvrez **J.A.R.V.I.S.** (avec Eden en cours d’exécution).\n- Dans J.A.R.V.I.S. › Réglages › Compte, vérifiez que **Eden sur le web accède à ce Mac** est activé et indique Connecté.\n- Puis réessayez. La simple discussion sur askeden.com fonctionne sans le Mac.",
+   "a": "Un Mac est associé à votre compte, mais il n’est pas connecté pour le moment. Eden en a besoin pour l’app Eden, le mode Code, les fichiers, les e-mails sur le Mac et le mode confidentialité.\n\n**Solution :**\n- Réveillez le Mac et ouvrez **Eden**.\n- Dans Eden › Réglages › Compte, vérifiez que **Eden sur le web accède à ce Mac** est activé et indique Connecté.\n- Puis réessayez. La simple discussion sur askeden.com fonctionne sans le Mac.",
    "keywords": [
     "mac hors ligne",
     "hors ligne",
@@ -1944,7 +2131,7 @@
    "id": "err-needs-mac",
    "cat": "trouble",
    "q": "\"Nécessite votre Mac\"",
-   "a": "Cette fonctionnalité s’exécute sur votre propre Mac (vos fichiers, Mail sur le Mac, le mode Code, les clés API, les modèles locaux), et askeden.com ne peut joindre aucun Mac pour ce compte.\n\n**Solution :** installez J.A.R.V.I.S. sur votre Mac, connectez-vous avec le même compte et activez **Eden sur le web accède à ce Mac** (Réglages › Compte). Si vous n’avez pas de Mac, utilisez ce qui fonctionne sur le web : la discussion, Comparer, Gmail et Google Calendar.",
+   "a": "Cette fonctionnalité s’exécute sur votre propre Mac (vos fichiers, Mail sur le Mac, le mode Code, les clés API, les modèles locaux), et askeden.com ne peut joindre aucun Mac pour ce compte.\n\n**Solution :** installez l’app Eden sur votre Mac, connectez-vous avec le même compte et activez **Eden sur le web accède à ce Mac** (Réglages › Compte). Si vous n’avez pas de Mac, utilisez ce qui fonctionne sur le web : la discussion, Comparer, Gmail et Google Calendar.",
    "keywords": [
     "nécessite votre mac",
     "besoin du mac",
@@ -1979,7 +2166,7 @@
    "id": "err-approve-mac",
    "cat": "trouble",
    "q": "\"Approuvez Eden sur votre Mac\"",
-   "a": "J.A.R.V.I.S. affiche **Autoriser Eden à utiliser Jarvis ?** sur votre Mac et attend votre réponse. Eden ne peut pas lire votre calendrier, vos e-mails ni vos notes tant que vous ne l’autorisez pas.\n\n**Solution :** allez sur le Mac et cliquez sur **Autoriser** sur cette carte. Si vous avez refusé par erreur, réessayez simplement : la carte réapparaît.",
+   "a": "L’app Eden affiche **Autoriser Eden à utiliser votre Mac ?** sur votre Mac et attend votre réponse. Eden ne peut pas lire votre calendrier, vos e-mails ni vos notes tant que vous ne l’autorisez pas.\n\n**Solution :** allez sur le Mac et cliquez sur **Autoriser** sur cette carte. Si vous avez refusé par erreur, réessayez simplement : la carte réapparaît.",
    "keywords": [
     "approuver eden sur votre mac",
     "autoriser eden à utiliser jarvis",
@@ -1994,13 +2181,13 @@
    ],
    "messages": [
     "Approve Eden on your Mac",
-    "Let Eden use Jarvis?",
+    "Let Eden use your Mac?",
     "Waiting for you on your Mac",
     "Waiting for your OK on your Mac",
     "You said no on your Mac, so nothing changed",
     "Nobody answered the card on your Mac in time",
     "Approuvez Eden sur votre Mac",
-    "Autoriser Eden à utiliser Jarvis ?",
+    "Autoriser Eden à utiliser votre Mac ?",
     "En attente de votre réponse sur votre Mac",
     "En attente de votre accord sur votre Mac",
     "Vous avez refusé sur votre Mac, rien n’a donc changé",
@@ -2011,8 +2198,8 @@
   {
    "id": "err-jarvis-not-running",
    "cat": "trouble",
-   "q": "\"Jarvis n’est pas lancé sur ce Mac\"",
-   "a": "Sur votre Mac, Eden communique avec l’app J.A.R.V.I.S. pour le calendrier, les e-mails, la mémoire et les fichiers, et celle-ci n’est pas ouverte (ou est trop ancienne).\n\n**Solution :** ouvrez J.A.R.V.I.S. Si elle est ouverte, quittez-la et rouvrez-la. Si Eden indique que Jarvis « a envoyé quelque chose qu’Eden ne peut pas lire » ou qu’un outil manque, mettez à jour J.A.R.V.I.S. et redémarrez-la.",
+   "q": "\"Eden ne tourne pas sur ce Mac\"",
+   "a": "Sur votre Mac, Eden communique avec l’app Eden pour le calendrier, les e-mails, la mémoire et les fichiers, et celle-ci n’est pas ouverte (ou est trop ancienne).\n\n**Solution :** ouvrez l’app Eden. Si elle est ouverte, quittez-la et rouvrez-la. Si Eden indique que l’app Eden « a envoyé quelque chose qu’Eden ne peut pas lire » ou qu’un outil manque, mettez à jour l’app Eden et redémarrez-la.",
    "keywords": [
     "jarvis ne fonctionne pas",
     "jarvis pas lancé",
@@ -2027,25 +2214,25 @@
     "jarvis ne répond pas"
    ],
    "messages": [
-    "Jarvis is not running on this Mac",
-    "Jarvis isn’t reachable on your Mac",
-    "The Jarvis app didn’t answer",
-    "Jarvis sent something Eden can’t read",
-    "Your Jarvis app is from before",
-    "Jarvis has no tool called",
-    "Jarvis n’est pas lancé sur ce Mac",
-    "Jarvis est injoignable sur votre Mac",
-    "L’app Jarvis n’a pas répondu",
-    "Jarvis a envoyé quelque chose qu’Eden ne peut pas lire",
-    "Votre app Jarvis est d’une version antérieure",
-    "Jarvis n’a aucun outil nommé"
+    "Eden is not running on this Mac",
+    "Eden isn’t reachable on your Mac",
+    "The Eden app didn’t answer",
+    "Eden sent something Eden can’t read",
+    "Your Eden app is from before",
+    "Eden has no tool called",
+    "Eden ne tourne pas sur ce Mac",
+    "Eden n’est pas joignable sur votre Mac",
+    "L’app Eden n’a pas répondu",
+    "Eden a envoyé quelque chose qu’Eden ne sait pas lire",
+    "Votre app Eden date d’avant",
+    "Eden n’a aucun outil nommé"
    ]
   },
   {
    "id": "err-privacy-offline",
    "cat": "trouble",
    "q": "\"Le mode confidentialité nécessite votre Mac\" ou \"Activez Ollama ou LM Studio\"",
-   "a": "Une discussion privée n’est traitée que par un modèle local sur votre Mac, et aucun n’est joignable. Rien n’a été envoyé.\n\n**Solution :**\n- Sur askeden.com : ouvrez J.A.R.V.I.S. sur votre Mac associé.\n- Sur le Mac : lancez **Ollama** ou **LM Studio** et chargez un modèle de discussion.\n- Ou appuyez de nouveau sur **Privé** pour désactiver la confidentialité dans cette discussion.",
+   "a": "Une discussion privée n’est traitée que par un modèle local sur votre Mac, et aucun n’est joignable. Rien n’a été envoyé.\n\n**Solution :**\n- Sur askeden.com : ouvrez Eden sur votre Mac associé.\n- Sur le Mac : lancez **Ollama** ou **LM Studio** et chargez un modèle de discussion.\n- Ou appuyez de nouveau sur **Privé** pour désactiver la confidentialité dans cette discussion.",
    "keywords": [
     "mode confidentialité",
     "confidentialité",
@@ -2106,12 +2293,12 @@
     "payer"
    ],
    "messages": [
-    "The free trial of Jarvis AI is used up",
+    "The free trial of Eden AI is used up",
     "AI allowance is used up",
     "No included AI is left",
     "no_allowance",
     "Not enough of your included AI is left",
-    "L’essai gratuit de Jarvis AI est épuisé",
+    "L’essai gratuit de l’IA d’Eden est épuisé",
     "Le quota d’IA est épuisé",
     "Il ne reste plus d’IA incluse",
     "Il ne reste pas assez de votre IA incluse"
@@ -2340,7 +2527,7 @@
    "id": "err-code-expired",
    "cat": "trouble",
    "q": "\"Ce code n’est plus valable\"",
-   "a": "Les codes de connexion durent environ 10 minutes, et chacun ne sert qu’une fois.\n\n**Solution :** appuyez sur **Obtenir un nouveau code** et approuvez-le dans l’app iPhone J.A.R.V.I.S. en quelques minutes. Si le message indique « Refusé dans l’app », quelqu’un y a appuyé sur Refuser : obtenez un nouveau code.",
+   "a": "Les codes de connexion durent environ 10 minutes, et chacun ne sert qu’une fois.\n\n**Solution :** appuyez sur **Obtenir un nouveau code** et approuvez-le dans Eden pour iPhone en quelques minutes. Si le message indique « Refusé dans l’app », quelqu’un y a appuyé sur Refuser : obtenez un nouveau code.",
    "keywords": [
     "code expiré",
     "code plus valable",
@@ -2503,7 +2690,7 @@
    "id": "err-mac-mail",
    "cat": "trouble",
    "q": "\"Mail sur votre Mac ne peut pas joindre de fichiers\" (ni Cci, ni envoi programmé)",
-   "a": "Mail sur votre Mac (via J.A.R.V.I.S.) envoie uniquement du texte brut : un seul destinataire À, sans Cci, pièces jointes ni envoi programmé.\n\n**Solution :** dans la fenêtre de rédaction, passez le champ **De** sur votre compte Gmail.",
+   "a": "Mail sur votre Mac (via l’app Eden) envoie uniquement du texte brut : un seul destinataire À, sans Cci, pièces jointes ni envoi programmé.\n\n**Solution :** dans la fenêtre de rédaction, passez le champ **De** sur votre compte Gmail.",
    "keywords": [
     "mail mac",
     "impossible de joindre",

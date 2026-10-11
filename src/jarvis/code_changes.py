@@ -17,23 +17,42 @@ Everything here runs git in the project (or the copy) with a timeout, off the ev
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import hashlib
 import os
 import re
 import subprocess
+import threading
+import time
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import osplat
 from .computer import is_sensitive
 
 GIT_SECONDS = 20.0
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git's own id for "nothing"
 # Settings every git call here runs with: never an fsmonitor hook, a pager or a terminal
-# prompt, and file names as they are (not \-escaped octal).
-_SAFE = ("-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "-c", "color.ui=false")
+# prompt, and file names as they are (not \-escaped octal). And git diff never rewrites the
+# index on its way out (diff.autoRefreshIndex, which GIT_OPTIONAL_LOCKS below doesn't stop):
+# its index.lock made the owner's own git commit fail now and then while the Changes pane
+# refreshed. (Files only touched still don't show as changed: their content is compared.)
+_SAFE = (
+    *("-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "-c", "color.ui=false"),
+    *("-c", "diff.autoRefreshIndex=false"),
+)
+# For a commit: never as an identity git makes up from the Mac's name (user@Host.local,
+# then pushed); with nothing configured, it refuses, and that says to set one.
+OWN_IDENTITY = ("-c", "user.useConfigOnly=true")
+# GIT_OPTIONAL_LOCKS=0: a read (git status above all) never takes index.lock to refresh the
+# index on the way, which made the owner's own git commands, and a session's, fail with
+# "index.lock: File exists" while a panel was refreshing. Writes (add, apply --cached,
+# commit) still lock as they must.
 _ENV = {
+    "GIT_OPTIONAL_LOCKS": "0",
     "GIT_TERMINAL_PROMPT": "0",
     "GIT_LITERAL_PATHSPECS": "1",
     "GIT_PAGER": "cat",
@@ -46,7 +65,13 @@ MAX_FILES = 300
 MAX_VIEW_LINES = 20_000
 MAX_HUNK_LINES = 1_500
 MAX_UNTRACKED = 200
+SCAN_UNTRACKED = 10_000  # untracked files a secret scan reads (what landing or a PR commits)
 UNTRACKED_BYTES = 256_000
+# A tracked file whose patch is bigger than this is listed (as binary, as an untracked file
+# past UNTRACKED_BYTES is) without its lines, which are dropped as git writes them: a 48 MB
+# rewrite took 11 s and half a gigabyte to parse, after every step, for a view that shows a
+# few thousand of its lines.
+PATCH_BYTES = 8_000_000
 # Marks a session keeps (each holds the stripped lines of one edit, capped per edit).
 MAX_MARKS = 2_000
 MARK_LINES = 400
@@ -72,26 +97,271 @@ def git(
     input: str | None = None,
     env: dict[str, str] | None = None,
     timeout: float = GIT_SECONDS,
+    cut: set[int] | None = None,
+    stop: dict[str, Any] | None = None,
 ) -> Git:
     """One git command in cwd. Never raises: a missing git, a timeout or a folder that went
-    away come back as a failure with the reason in err."""
+    away come back as a failure with the reason in err. Its output is read as git wrote it:
+    \r\n line ends stay, and bytes that aren't UTF-8 come back as surrogates (and go back
+    out the same in input), so a patch made from a diff of a Windows or Latin-1 file still
+    applies. Text for a window or for Claude goes through readable() first. cut: a patch
+    (git diff) read as it's written, each file's lines past PATCH_BYTES dropped; the files
+    cut so (by their order in it) are added to cut. stop: git is stopped at the first file
+    cut so, and stop gets that file's header ("section") and its place ("index"); what
+    came before it is returned (_diff_patch makes the rest)."""
+    if cut is not None and input is None:
+        return _patch(cwd, list(args), env, timeout, cut, stop)
+    started = time.time()
     try:
-        proc = subprocess.run(
+        # Its own process group: past its time it's asked to stop (SIGTERM, which git
+        # catches to take its lock files away) with whatever it started (a clean filter, a
+        # hook), and only killed if it doesn't (CB3-2).
+        proc = subprocess.Popen(
             ["git", "-C", str(cwd), *_SAFE, *args],
-            input=input,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
+            stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             env={**os.environ, **_ENV, **(env or {})},
-            stdin=None if input is not None else subprocess.DEVNULL,
+            **osplat.group_popen_kwargs(),
         )
-    except subprocess.TimeoutExpired:
-        return Git(124, "", f"git {args[0] if args else ''} took too long")
     except OSError as exc:
         return Git(127, "", str(exc))
-    return Git(proc.returncode, proc.stdout, proc.stderr)
+    try:
+        out, err = proc.communicate(
+            input.encode("utf-8", "surrogateescape") if input is not None else None,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        if _stop(proc):  # killed: whatever lock it held is still there
+            clear_stale_locks(cwd, newer_than=started)
+        return Git(124, "", f"git {args[0] if args else ''} took too long")
+    except BaseException:
+        _stop(proc, grace=0)
+        raise
+    return Git(
+        proc.returncode, out.decode("utf-8", "surrogateescape"), err.decode("utf-8", "replace")
+    )
+
+
+STOP_GRACE = 3.0  # seconds a git asked to stop has to go (it takes its lock files away)
+
+
+def _stop(proc: subprocess.Popen, grace: float = STOP_GRACE) -> bool:
+    """Stop a git and what it started: SIGTERM, a few seconds, then SIGKILL. True when it
+    had to be killed (a lock file it held is left behind then). Its output isn't waited for
+    (a filter it started could hold the pipe open for minutes)."""
+    if grace > 0:
+        with contextlib.suppress(OSError):
+            osplat.kill_group(proc.pid)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=grace)
+    killed = proc.poll() is None
+    with contextlib.suppress(OSError):  # (what it started, too, if that ignored SIGTERM)
+        osplat.kill_group(proc.pid, force=True)
+    if killed:
+        with contextlib.suppress(OSError):
+            proc.kill()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=10)
+    for pipe in (proc.stdin, proc.stdout, proc.stderr):
+        with contextlib.suppress(OSError):
+            if pipe is not None:
+                pipe.close()
+    return killed
+
+
+# ── lock files a killed git left ──
+
+LOCK_REF_FOLDERS = ("refs/heads", "refs/jarvis")
+
+
+def _git_dirs(cwd: Path | str) -> tuple[Path, Path] | None:
+    """A checkout's own git folder and the repository's common one."""
+    try:
+        found = subprocess.run(
+            ["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-dir",
+             "--git-common-dir"],
+            capture_output=True, text=True, env={**os.environ, **_ENV}, timeout=GIT_SECONDS,
+            stdin=subprocess.DEVNULL, check=False,
+        )  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = found.stdout.splitlines() if found.returncode == 0 else []
+    if len(lines) < 2:
+        return None
+    return Path(lines[0]), Path(lines[1])
+
+
+def lock_files(cwd: Path | str) -> list[Path]:
+    """The lock files git has in a checkout's repository just now: its index's (and the main
+    checkout's), HEAD's, packed-refs' and those of the branches and recovery refs."""
+    dirs = _git_dirs(cwd)
+    return _locks_in(*dirs) if dirs is not None else []
+
+
+def _locks_in(own: Path, common: Path) -> list[Path]:
+    found = [
+        p
+        for p in {own / "index.lock", common / "index.lock", own / "HEAD.lock",
+                  common / "packed-refs.lock"}
+        if p.exists()
+    ]  # fmt: skip
+    for sub in LOCK_REF_FOLDERS:
+        with contextlib.suppress(OSError):
+            found += [p for p in (common / sub).rglob("*.lock") if p.is_file()]
+    return sorted(found)
+
+
+def _checkouts(common: Path) -> list[Path]:
+    """Every checkout of a repository, by its common git folder: the main one and each
+    linked worktree (read from the files git keeps, no git started)."""
+    out = [common.parent]
+    with contextlib.suppress(OSError):
+        for linked in (common / "worktrees").iterdir():
+            with contextlib.suppress(OSError):
+                out.append(Path((linked / "gitdir").read_text().strip()).parent)
+    return out
+
+
+def git_running(folders: list[Path]) -> bool | None:
+    """Whether a git process is at work in any of these folders (or under them), by its
+    working folder (git -C moves there). None when it can't be told (no lsof): then
+    nothing is taken for stale."""
+    if osplat.IS_WIN:
+        return None
+    try:
+        found = subprocess.run(
+            ["lsof", "-a", "-c", "git", "-d", "cwd", "-Fn"],
+            capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL, check=False,
+        )  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if found.returncode not in (0, 1):
+        return None
+    roots = []
+    for folder in folders:
+        with contextlib.suppress(OSError):
+            roots.append(folder.resolve())
+    for line in found.stdout.splitlines():
+        if not line.startswith("n/"):
+            continue
+        try:
+            where = Path(line[1:]).resolve()
+        except OSError:
+            continue
+        if any(where == r or r in where.parents for r in roots):
+            return True
+    return False
+
+
+def clear_stale_locks(
+    cwd: Path | str, *, before: float | None = None, newer_than: float | None = None
+) -> list[str]:
+    """Take away lock files a git that's gone left behind (killed part-way, or a crash), so
+    git works in the repository again: only when no git is at work in it, and only locks
+    made before `before` (a check before a command: they were there when it began) or since
+    `newer_than` (the git just killed made them). The ones taken away, by path."""
+    dirs = _git_dirs(cwd)
+    if dirs is None:
+        return []
+    own, common = dirs
+    picked = []
+    for lock in _locks_in(own, common):
+        try:
+            made = lock.stat().st_mtime
+        except OSError:
+            continue
+        if (before is not None and made < before) or (
+            newer_than is not None and made >= newer_than - 1
+        ):
+            picked.append(lock)
+    if not picked or git_running([Path(cwd), common, *_checkouts(common)]) is not False:
+        return []
+    gone = []
+    for lock in picked:
+        with contextlib.suppress(OSError):
+            lock.unlink()
+            gone.append(str(lock))
+    return gone
+
+
+def _patch(
+    cwd: Path | str,
+    args: list[str],
+    env: dict[str, str] | None,
+    timeout: float,
+    cut: set[int],
+    stop: dict[str, Any] | None = None,
+) -> Git:
+    """git diff's patch as git() gives it, read as git writes it: a file whose patch grows
+    past PATCH_BYTES keeps its header and a "Binary files differ" line, and its lines are
+    dropped as they come (never all held at once). Which files (by their order in the
+    patch) were cut so goes in cut."""
+    try:
+        proc = subprocess.Popen(
+            ["git", "-C", str(cwd), *_SAFE, *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            env={**os.environ, **_ENV, **(env or {})},
+        )
+    except OSError as exc:
+        return Git(127, "", str(exc))
+    late = threading.Timer(timeout, proc.kill)
+    late.start()
+    kept: list[bytes] = []
+    section: list[bytes] = []
+    size, index, cutting = 0, -1, False
+    try:
+        assert proc.stdout is not None and proc.stderr is not None
+        for line in proc.stdout:
+            if line.startswith(b"diff --git "):
+                kept += section
+                section, size, index, cutting = [line], len(line), index + 1, False
+                continue
+            if cutting:
+                continue
+            section.append(line)
+            size += len(line)
+            if size > PATCH_BYTES and index >= 0:
+                head = []
+                for kept_line in section:
+                    if kept_line.startswith(b"@@"):
+                        break
+                    head.append(kept_line)
+                section = [*head, b"Binary files differ\n"]
+                cut.add(index)
+                cutting = True
+                if stop is not None:  # (git would go on writing it for a while yet)
+                    stop["section"], stop["index"] = b"".join(section), index
+                    proc.kill()
+                    proc.wait()
+                    return Git(0, b"".join(kept).decode("utf-8", "surrogateescape"), "")
+        kept += section
+        err = proc.stderr.read()
+        proc.wait()
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        raise
+    finally:
+        timed_out = not late.is_alive() and proc.returncode is not None and proc.returncode < 0
+        late.cancel()
+    if timed_out:
+        cut.clear()
+        return Git(124, "", f"git {args[0] if args else ''} took too long")
+    return Git(
+        proc.returncode,
+        b"".join(kept).decode("utf-8", "surrogateescape"),
+        err.decode("utf-8", "replace"),
+    )
+
+
+def readable(text: str) -> str:
+    """Text from git() as a window or Claude reads it: a byte that isn't UTF-8 becomes U+FFFD."""
+    if text.isascii():
+        return text
+    return text.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
 
 
 @dataclass
@@ -148,6 +418,18 @@ def default_branch(top: Path) -> str:
     for name in ("main", "master", "trunk", "develop"):
         if git(top, "rev-parse", "--verify", "-q", f"refs/heads/{name}").ok:
             return name
+    return ""
+
+
+def local_default_branch(top: Path) -> str:
+    """default_branch as a local branch, the kind work lands in: the remote's default by its
+    local name ("origin/main" is main), else a local main or master…, else ""."""
+    name = default_branch(top)
+    if not name.startswith("origin/"):
+        return name
+    for local in (name.removeprefix("origin/"), "main", "master", "trunk", "develop"):
+        if git(top, "rev-parse", "--verify", "-q", f"refs/heads/{local}").ok:
+            return local
     return ""
 
 
@@ -257,6 +539,7 @@ class FileDiff:
     new_mode: str = ""
     sensitive: bool = False  # credentials: listed, never their lines
     hunks: list[Hunk] = field(default_factory=list)
+    big: bool = False  # its patch past PATCH_BYTES: listed (as binary), its lines dropped
 
     @property
     def added(self) -> int:
@@ -402,40 +685,84 @@ def diff_files(
     cached: bool = False,
     worktree: bool = True,
     only: set[str] | None = None,
+    untracked_cap: int = MAX_UNTRACKED,
 ) -> list[FileDiff]:
     """Every file that differs between base and the working tree (or, cached, between base
     and the index; worktree False with cached: the index against base only), within the
     session's folder, plus untracked files as new ones. Credentials show as changed, never
     with their lines; an untracked link shows as new, never with what it points to. only:
-    the untracked files wanted, by root-relative path (untracked_files)."""
+    the untracked files wanted, by root-relative path (untracked_files); untracked_cap: how
+    many of them (a secret scan reads up to SCAN_UNTRACKED)."""
     spec = repo.prefix or "."
     args = [*_diff_args(), "-U3", "--no-color", "--no-ext-diff", "--no-textconv", "-M"]
     if cached:
         args.append("--cached")
     if base:
         args.append(base)
-    found = git(repo.top, *args, "--", spec, timeout=60)
-    files = parse_patch(found.out) if found.ok else []
+    files = _diff_patch(repo.top, args, spec)
     for f in files:
         if is_sensitive(repo.top / f.path):
             f.sensitive, f.hunks = True, []
     if untracked and worktree:
-        files += untracked_files(repo, only)
+        files += untracked_files(repo, only, cap=untracked_cap)
     return files
 
 
-def untracked_files(repo: Repo, only: set[str] | None = None) -> list[FileDiff]:
-    """The untracked files (the first MAX_UNTRACKED git lists), each as a new file with its
-    lines. only: the root-relative paths wanted, of those; the rest are left out unread (a
-    session's own view keeps the files its edits touched alone, and reading every other
-    untracked file in the project, after every step, was for nothing)."""
+def _diff_patch(top: Path, args: list[str], spec: str) -> list[FileDiff]:
+    """git diff's files for diff_files, a file whose patch passes PATCH_BYTES listed as big,
+    without its lines. Git is stopped as soon as one does (it took as long again to write
+    the rest of a big rewrite's patch, and longer still to read it) and run again without
+    that file, which goes back in its place: they're found in git's order."""
+    skip: list[str] = []
+    bigs: list[tuple[str | None, FileDiff]] = []  # (the path listed before it, the file)
+    stopping = True
+    while True:
+        cut: set[int] = set()
+        stop: dict[str, Any] | None = {} if stopping else None
+        if skip:  # (GIT_LITERAL_PATHSPECS off: each path says :(literal) itself)
+            found = git(top, *args, "--", f":(literal){spec}", *skip, timeout=60, cut=cut,
+                        stop=stop, env={"GIT_LITERAL_PATHSPECS": "0"})  # fmt: skip
+        else:
+            found = git(top, *args, "--", spec, timeout=60, cut=cut, stop=stop)
+        files = parse_patch(found.out) if found.ok else []
+        for i in cut - {stop.get("index", -1) if stop else -1}:
+            if i < len(files):
+                files[i].big, files[i].binary, files[i].hunks = True, True, []
+        if not stop:
+            break
+        big = parse_patch(stop["section"].decode("utf-8", "surrogateescape"))
+        if not big or len(bigs) >= MAX_FILES:  # (then as before: cut, and git goes on)
+            stopping = False
+            continue
+        big[0].big, big[0].binary, big[0].hunks = True, True, []
+        bigs.append((files[-1].path if files else None, big[0]))
+        skip += [
+            f":(exclude,literal){p}" for p in dict.fromkeys((big[0].old_path, big[0].path)) if p
+        ]
+    found_big = set()
+    for before, f in bigs:
+        at = next((i + 1 for i, g in enumerate(files) if g.path == before), 0)
+        while at < len(files) and id(files[at]) in found_big:  # (found earlier: before it)
+            at += 1
+        files.insert(at, f)
+        found_big.add(id(f))
+    return files
+
+
+def untracked_files(
+    repo: Repo, only: set[str] | None = None, *, cap: int = MAX_UNTRACKED
+) -> list[FileDiff]:
+    """The untracked files (the first cap of them git lists), each as a new file with its
+    lines. only: the root-relative paths wanted; the rest are left out unread (a session's
+    own view keeps the files its edits touched alone, and reading every other untracked file
+    in the project, after every step, was for nothing). The cap counts the wanted ones, so a
+    session's own new file shows however many others the project has."""
     listed = git(
         repo.top, "ls-files", "--others", "--exclude-standard", "-z", "--", repo.prefix or "."
     )
     out: list[FileDiff] = []
-    for rel in [p for p in listed.out.split("\0") if p][:MAX_UNTRACKED]:
-        if only is not None and rel not in only:
-            continue
+    wanted = [p for p in listed.out.split("\0") if p and (only is None or _nfc(p) in only)]
+    for rel in wanted[:cap]:
         path = repo.top / rel
         f = FileDiff(rel, status="?", new_mode="100644")
         out.append(f)
@@ -452,7 +779,7 @@ def untracked_files(repo: Repo, only: set[str] | None = None) -> list[FileDiff]:
         if b"\0" in data[:8000]:
             f.binary = True
             continue
-        text = data.decode("utf-8", errors="replace")
+        text = data.decode("utf-8", errors="surrogateescape")  # as git() reads a diff
         lines = text.split("\n")
         ends_open = not text.endswith("\n") and bool(text)
         if not ends_open:
@@ -585,9 +912,23 @@ def _written(marks: list[EditMark]) -> tuple[set[str], set[str], bool]:
     return wrote, took, any(m.whole for m in marks)
 
 
+def _spellings(lines: set[str]) -> set[str]:
+    """A hunk's lines and, for one holding bytes that aren't UTF-8 (git() keeps them as
+    surrogates), the ways the session may have seen it: with U+FFFD for them, and read as
+    Latin-1 (café). What the session's edit wrote then matches either way."""
+    out = set(lines)
+    for line in lines:
+        if line.isascii() or not any("\udc80" <= ch <= "\udcff" for ch in line):
+            continue
+        raw = line.encode("utf-8", "surrogateescape")
+        out.add(raw.decode("utf-8", "replace"))
+        out.add(raw.decode("latin-1"))
+    return out
+
+
 def _owned(hunk: Hunk, wrote: set[str], took: set[str], whole: bool) -> bool:
-    added = _norm(hunk.added)
-    removed = _norm(hunk.removed)
+    added = _spellings(_norm(hunk.added))
+    removed = _spellings(_norm(hunk.removed))
     check_added = {line for line in added if _telling(line)} or added
     check_removed = {line for line in removed if _telling(line)} or removed
     if check_added & wrote or check_removed & took:
@@ -616,13 +957,22 @@ def marks_by_file(marks: list[EditMark], top: Path) -> dict[str, list[EditMark]]
 
 
 def _relative(raw: str, root: Path) -> str | None:
-    """Where a mark's path leads, relative to the (resolved) root; None when it's outside."""
+    """Where a mark's path leads, relative to the (resolved) root, composed (NFC); None when
+    it's outside."""
     try:
         path = Path(raw)
         path = (path if path.is_absolute() else root / path).resolve()
-        return path.relative_to(root).as_posix()
+        return _nfc(path.relative_to(root).as_posix())
     except (OSError, ValueError, RuntimeError):
         return None
+
+
+def _nfc(path: str) -> str:
+    """A path with its accents composed (NFC). On a Mac git names files composed
+    (core.precomposeunicode) while a file's name on disk, and so the path a session's edit
+    names, can be decomposed (NFD: from a zip or an old disk): compared composed, a
+    session's own change to résumé.txt is its own whichever way it was spelled."""
+    return path if path.isascii() else unicodedata.normalize("NFC", path)
 
 
 def scope(files: list[FileDiff], marks: list[EditMark], top: Path) -> list[FileDiff]:
@@ -634,7 +984,7 @@ def _scoped(files: list[FileDiff], by_file: dict[str, list[EditMark]]) -> list[F
     """scope, with the marks by file already worked out (marks_by_file)."""
     kept: list[FileDiff] = []
     for f in files:
-        mine = by_file.get(f.path) or (by_file.get(f.old_path) if f.old_path else None)
+        mine = by_file.get(_nfc(f.path)) or (by_file.get(_nfc(f.old_path)) if f.old_path else None)
         if not mine:
             continue
         if f.sensitive or f.binary or not f.hunks:
@@ -653,6 +1003,7 @@ def _scoped(files: list[FileDiff], by_file: dict[str, list[EditMark]]) -> list[F
                     f.new_mode,
                     f.sensitive,
                     hunks,
+                    f.big,
                 )
             )
     return kept
@@ -714,10 +1065,11 @@ def public(
     files = []
     for f in view.files[:MAX_FILES]:
         item: dict[str, Any] = {
-            "path": view.repo.shown(f.path),
-            "old_path": view.repo.shown(f.old_path) if f.old_path else "",
+            "path": readable(view.repo.shown(f.path)),
+            "old_path": readable(view.repo.shown(f.old_path)) if f.old_path else "",
             "status": f.status,
             "binary": f.binary,
+            "big": f.big,
             "sensitive": f.sensitive,
             "added": f.added,
             "removed": f.removed,
@@ -737,10 +1089,12 @@ def public(
                     "old_count": h.old_count,
                     "new_start": h.new_start,
                     "new_count": h.new_count,
-                    "header": h.header[:200],
+                    "header": readable(h.header[:200]),
                     "where": h.where,
                     "line": h.first_changed,
-                    "lines": [[tag, text[:2000]] for tag, text in h.lines[:MAX_HUNK_LINES]],
+                    "lines": [
+                        [tag, readable(text[:2000])] for tag, text in h.lines[:MAX_HUNK_LINES]
+                    ],
                     "cut": max(0, len(h.lines) - MAX_HUNK_LINES),
                     "kept": h.id in kept,
                 }
@@ -766,7 +1120,7 @@ def file_public(
     """One file of a view with its lines (one the whole view listed as omitted), up to four
     views' worth of lines."""
     for f in view.files:
-        if view.repo.shown(f.path) == path:
+        if readable(view.repo.shown(f.path)) == path:
             item = public(View(view.repo, view.base, [f], view.numbers), kept, 4 * MAX_VIEW_LINES)
             return item["files"][0] if item["files"] else None
     return None
@@ -778,7 +1132,7 @@ def describe(repo: Repo, f: FileDiff, h: Hunk, max_lines: int = 30) -> str:
     body = [f"-{line}" for line in h.removed[:max_lines]] + [
         f"+{line}" for line in h.added[:max_lines]
     ]
-    return f"{repo.shown(f.path)} line {h.first_changed}{where}:\n" + "\n".join(body)
+    return readable(f"{repo.shown(f.path)} line {h.first_changed}{where}:\n" + "\n".join(body))
 
 
 def as_text(view: View, limit: int = 60_000) -> str:
@@ -812,11 +1166,11 @@ def as_text(view: View, limit: int = 60_000) -> str:
             block = "\n".join(rows)
             if size + len(block) > limit:
                 out.append("[… the rest of the diff is left out]")
-                return "\n".join(out)
+                return readable("\n".join(out))
             size += len(block)
             out.append(block)
         out.append("")
-    return "\n".join(out)
+    return readable("\n".join(out))
 
 
 # ── undoing, keeping and staging one hunk ──
@@ -854,16 +1208,55 @@ def undo_hunk(repo: Repo, f: FileDiff, h: Hunk, *, against_head: bool = True) ->
     if f.sensitive or f.binary:
         return f"{shown} can't be undone a change at a time here."
     patch = hunk_patch(f, h)
-    if not git(repo.top, "apply", "-R", "--check", "--whitespace=nowarn", "-", input=patch).ok:
-        return (
-            f"That change in {shown} has moved on since the view was made. Refresh and try again."
-        )
-    done = git(repo.top, "apply", "-R", "--whitespace=nowarn", "-", input=patch)
-    if not done.ok:
-        return f"Couldn't undo that change in {shown}: {done.err.strip()[:200]}"
-    if against_head and git(repo.top, "apply", "-R", "--cached", "--check", "-", input=patch).ok:
-        git(repo.top, "apply", "-R", "--cached", "-", input=patch)
+    # One undo at a time in a checkout: git apply rewrites a file whole (unlink, create), so
+    # two at once in one file lost one of them, or failed on the file briefly not there.
+    with _undo_lock(repo.top):
+        if not git(repo.top, "apply", "-R", "--check", "--whitespace=nowarn", "-", input=patch).ok:
+            return (
+                f"That change in {shown} has moved on since the view was made. Refresh and try "
+                "again."
+            )
+        done = git(repo.top, "apply", "-R", "--whitespace=nowarn", "-", input=patch)
+        if not done.ok:
+            return f"Couldn't undo that change in {shown}: {done.err.strip()[:200]}"
+        if against_head and not _unstage(repo, patch):
+            return STILL_STAGED.format(path=shown)
     return ""
+
+
+STILL_STAGED = (
+    "Undid that change in {path}, but it's still staged: another git was using the index. "
+    "Unstage it in the Git panel before you commit."
+)
+INDEX_TRIES = 12  # an index another git has locked is tried again for a few seconds
+
+
+def _unstage(repo: Repo, patch: str) -> bool:
+    """A staged copy of an undone hunk taken out of the index too. False only when it's
+    still there: another git held the index each time it was tried (CB3-4). Half way, a
+    lock no git holds any more (one killed, a crash) is taken away."""
+    started = time.time()
+    for i in range(INDEX_TRIES):
+        if not git(repo.top, "apply", "-R", "--cached", "--check", "-", input=patch).ok:
+            return True  # not staged (or staged otherwise): nothing of it to take out
+        done = git(repo.top, "apply", "-R", "--cached", "-", input=patch)
+        if done.ok:
+            return True
+        if "index.lock" not in done.err and i >= 2:
+            return False
+        if i == INDEX_TRIES // 2:
+            clear_stale_locks(repo.top, before=started)
+        time.sleep(min(0.05 * (i + 1), 0.4))
+    return False
+
+
+_UNDO_LOCKS: dict[str, threading.Lock] = {}
+_UNDO_LOCKS_GUARD = threading.Lock()
+
+
+def _undo_lock(top: Path) -> threading.Lock:
+    with _UNDO_LOCKS_GUARD:
+        return _UNDO_LOCKS.setdefault(str(top), threading.Lock())
 
 
 def stage_hunk(repo: Repo, f: FileDiff, h: Hunk, *, unstage: bool = False) -> str:
@@ -945,8 +1338,11 @@ def view_for(
     # of the session's own has no files, so none of its hunks takes a number from the
     # branch's (making it anyway cost a dozen gits and a whole diff after every step of a
     # session that has committed its work, or has only run commands).
+    # (An isolated copy's session view is the whole diff from its start: when the branch's
+    # fork is that same commit, the branch view is that same diff, not a second one.)
+    same = None if scoped else session
     branch = (
-        branch_view(session.repo, branch_into, head=head)
+        branch_view(session.repo, branch_into, head=head, same=same)
         if which not in ("session", "turn")
         else None
     )
@@ -956,19 +1352,26 @@ def view_for(
     if which == "turn":
         files = scope(session.files, turn, session.repo.top)
         return View(session.repo, session.base, files, numbers)
-    branch = branch or branch_view(session.repo, branch_into, head=head)
+    branch = branch or branch_view(session.repo, branch_into, head=head, same=same)
     return View(branch.repo, branch.base, branch.files, numbers)
 
 
-def branch_view(repo: Repo, into: str = "", *, head: str | None = None) -> View:
+def branch_view(
+    repo: Repo, into: str = "", *, head: str | None = None, same: View | None = None
+) -> View:
     """Everything on this branch that isn't on the one it goes into (anyone's), plus the
     work not committed yet: on that branch itself, just the uncommitted work. head: HEAD's
-    commit when the caller has just read it (None: read here)."""
+    commit when the caller has just read it (None: read here). same: a whole (unscoped)
+    view of this checkout just made; when its base is the branch's fork, its files are
+    the branch's and the diff isn't made twice."""
     into = into or default_branch(repo.top)
     head = head_commit(repo.top) if head is None else head
     fork = merge_base(repo.top, head, into) if into and head else ""
     base = fork or head or EMPTY_TREE
-    files = spoken_order(diff_files(repo, base))
+    if same is not None and same.repo.top == repo.top and same.base == base:
+        files = same.files
+    else:
+        files = spoken_order(diff_files(repo, base))
     return View(repo, base, files, number(files))
 
 
@@ -1002,10 +1405,10 @@ def undo_file(task: Any, path: str) -> str:
     view = task_view(task)
     if view is None:
         return "This folder isn't a git repository."
-    target = next((f for f in view.files if view.repo.shown(f.path) == path), None)
+    target = next((f for f in view.files if readable(view.repo.shown(f.path)) == path), None)
     if target is None:
         repo_changed = any(
-            view.repo.shown(f.path) == path for f in diff_files(view.repo, view.base)
+            readable(view.repo.shown(f.path)) == path for f in diff_files(view.repo, view.base)
         )
         if repo_changed:
             return (

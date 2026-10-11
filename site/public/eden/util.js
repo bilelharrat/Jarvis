@@ -175,6 +175,49 @@ export function noKeys(text, touch = isTouch()) {
   return touch ? String(text).replace(KEY_HINT, '').replace(/\s+([.,;:])/g, '$1') : text;
 }
 export const isNarrow = () => matchMedia('(max-width:1100px)').matches;
+/** A touch screen is the main pointer (iPhone, iPad even with a keyboard or trackpad): touch-and-hold, not drag, there. */
+export const touchFirst = () => matchMedia('(pointer:coarse)').matches;
+
+/*
+ * A row's menu (a chat's, a folder's): right-click or the menu key, and on a touch screen, where there is no
+ * right-click (iOS never sends contextmenu for a long press), touch and hold. The hold buzzes in the Eden app
+ * (eden:haptic; the app's bridge plays it), and the tap that ends it doesn't also open the row.
+ */
+const HOLD_MS = 450;
+let swallow = null; // { node, until }: the click that ends a hold
+let swallowing = false;
+function swallowClicks() { // one listener for the page, added with the first row that needs it
+  if (swallowing) return;
+  swallowing = true;
+  document.addEventListener('click', (e) => {
+    const s = swallow;
+    swallow = null;
+    if (s && Date.now() < s.until && s.node.contains(e.target)) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+}
+export function onMenuGesture(node, open) {
+  swallowClicks();
+  let timer = 0, x0 = 0, y0 = 0, held = false, heldAt = 0;
+  const cancel = () => { clearTimeout(timer); timer = 0; };
+  node.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (Date.now() - heldAt > 1000) open(node); // (a WebKit that also sends contextmenu for the hold: one menu)
+  });
+  node.addEventListener('pointerdown', (e) => {
+    cancel();
+    held = false;
+    if (e.pointerType === 'mouse' || !e.isPrimary) return;
+    x0 = e.clientX; y0 = e.clientY;
+    timer = setTimeout(() => {
+      timer = 0; held = true; heldAt = Date.now();
+      document.dispatchEvent(new CustomEvent('eden:haptic', { detail: 'hold' }));
+      open(node);
+    }, HOLD_MS);
+  });
+  node.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) cancel(); }); // a scroll, not a hold
+  node.addEventListener('pointerup', () => { cancel(); if (held) swallow = { node, until: Date.now() + 600 }; });
+  node.addEventListener('pointercancel', cancel);
+}
 
 /** Position a fixed popup next to an anchor (Jarvis Code's placePopup). */
 export function placePopup(pop, anchor, side) {

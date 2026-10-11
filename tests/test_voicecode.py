@@ -671,6 +671,19 @@ async def test_a_mode_with_a_request_says_the_mode_it_set(
     await hub.voice_code("proj")
     task = hub.voicecode.task
     hub.tasks.send = lambda task_id, text, **_k: sent.append(text) or True
+    # Words alone never turn Bypass on (bug sweep r1, CD4): the Mac's window is asked for
+    # the fingerprint, and nothing is sent.
+    await hub.voicecode.handle("full auto and fix the tests")
+    assert task.mode != "auto" and sent == [] and "fingerprint" in said[-1]
+    # With the app's proof (as the window sends it after Touch ID), it goes as before.
+    import secrets
+    import time
+
+    from jarvis.features import code_touchid
+
+    ts, nonce = int(time.time()), secrets.token_hex(16)
+    sig = code_touchid.sign(hub.touch_gate.key(), "bypass", ts, nonce)
+    await hub._handle({"type": "touchid_proof", "kind": "bypass", "ts": ts, "nonce": nonce, "sig": sig})
     await hub.voicecode.handle("full auto and fix the tests")
     assert task.mode == "auto" and said[-1] == "Full auto. On it." and sent == ["fix the tests"]
     await hub.voicecode.handle("accept edits, then add a retry")

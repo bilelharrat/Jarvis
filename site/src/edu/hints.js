@@ -75,8 +75,10 @@ export function cleanAssignment(body, { docs = new Map(), now = Date.now(), id, 
 export const validAssignmentId = (id) => ID.test(String(id || ''));
 
 /** What a student sees of an assignment (no pasted questions, no scope details beyond the files' pages). */
-export function assignmentView(a, { staff = false, docs = new Map() } = {}) {
-  const files = a.files.map((f) => ({ doc: f.doc, name: (docs.get(`d:${f.doc}`) || {}).name || 'A removed file', pages: pagesText(f.pages) }));
+export function assignmentView(a, { staff = false, docs = new Map(), now = Date.now() } = {}) {
+  // a student never sees the name of a file hidden from them (an answer key, a unit that opens later)
+  const shown = staff ? a.files : a.files.filter((f) => { const d = docs.get(`d:${f.doc}`); return !d || (!d.hidden && !(d.from && d.from > now)); });
+  const files = shown.map((f) => ({ doc: f.doc, name: (docs.get(`d:${f.doc}`) || {}).name || 'A removed file', pages: pagesText(f.pages) }));
   return { id: a.id, name: a.name, due: a.due, graded: a.graded, files, ...(staff ? { text: a.text, created: a.created, updated: a.updated } : {}) };
 }
 

@@ -94,7 +94,7 @@ async function answer(approve) {
     kept(null);
     if (approve) {
       show('done');
-      status('Linked. the Eden app on your Mac finishes by itself in a moment.', 'ok');
+      status('Linked. The Eden app on your Mac finishes by itself in a moment.', 'ok');
     } else {
       show('enter');
       $('code').value = '';

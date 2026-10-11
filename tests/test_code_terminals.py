@@ -94,6 +94,28 @@ async def test_the_number_of_terminals_is_bounded(tmp_path, monkeypatch):
     shells.close_all()
 
 
+async def test_the_core_s_term_close_leaves_eden_code_s_terminals_to_their_tabs(tmp_path):
+    """CF8: the core's term_close on "cw:t1" killed the shell, but Eden Code still listed it
+    alive (no exit came) and counted it toward its cap of 12 until its tab was closed."""
+    from jarvis.workbench import Workbench
+
+    bench = Workbench(lambda *a, **k: None)
+    shells = Shells(lambda *a, **k: None, bench)
+    one = shells.open(tmp_path)
+    assert not bench.close_terminal(f"cw:{one.id}")
+    assert not one.term.closed and bench.terminal(f"cw:{one.id}") is one.term
+    assert shells.close(one.id) and one.term.closed
+    shells.close_all()
+
+
+def test_the_core_viewer_hears_back_about_a_name_with_a_nul(tmp_path):
+    """CF13: a NUL in the path raised (a traceback in the log); the viewer never heard back."""
+    from jarvis.workbench import Workbench
+
+    got = Workbench.read_file(tmp_path, "a\0b.txt")
+    assert got["path"] == "a\0b.txt" and got["error"]
+
+
 # ── "!" commands ──
 
 

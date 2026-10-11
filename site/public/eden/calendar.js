@@ -17,7 +17,7 @@ const FIRST_DAY = M.firstDayOfWeek(LOCALE);
 const HOUR_PX = 48;
 const LANE_PX = 21;
 const ALLDAY_LANES = 3;
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's (?:Jarvis|Eden)[^:)]*:[^)]*\)\s*/;
 const VIEW_LABEL = { day: 'Day', week: 'Week', month: 'Month', year: 'Year', agenda: 'Schedule' };
 const VIEW_KEY = { day: 'D', week: 'W', month: 'M', year: 'Y', agenda: 'A' };
 /** Working hours, shaded outside in the day and week views (kept in this browser). */
@@ -50,7 +50,7 @@ const S = {
   google: { state: 'idle', reason: '', email: '', calendars: [], events: [], errors: [], range: null, loadedIds: null },
   macSeq: 0, gSeq: 0, pop: null, sheet: null, timer: null, ro: null, returnFocus: null,
   scroll: null, alldayOpen: false, selectedDay: null, sideOpen: false,
-  approval: jarvisApprovalWaiting(), // a Eden call is waiting on the "Let Eden use your Mac?" card
+  approval: jarvisApprovalWaiting(), // a Jarvis call is waiting on the "Let Eden use Jarvis?" card
   drag: null, preview: null, dragDirty: false, justDragged: 0, colorMenu: null,
   query: '', contacts: null, seriesRules: new Map(),
 };
@@ -132,6 +132,7 @@ async function load(force = false) {
 async function loadMac(r, seq, force) {
   const m = S.mac;
   if (!force && m.state === 'ready' && covers(m.range, r)) return;
+  m.wasReady = m.state === 'ready' || (m.state === 'loading' && !!m.wasReady);
   m.state = 'loading';
   let st;
   try { st = await api.jarvisStatus(); } catch (e) { st = { available: false, reason: e.message }; }
@@ -162,6 +163,7 @@ async function loadMac(r, seq, force) {
 async function loadGoogle(r, seq, force) {
   const g = S.google;
   if (!force && g.state === 'ready' && covers(g.range, r)) return;
+  g.wasReady = g.state === 'ready' || (g.state === 'loading' && !!g.wasReady);
   g.state = 'loading';
   let st;
   try { st = await getJSON('/api/chat/gcal/status'); } catch (e) { if (seq === S.gSeq) { Object.assign(g, { state: 'error', reason: e.message }); render(); } return; }
@@ -1327,8 +1329,10 @@ function useEvent(e) {
 
 function writableCalendars() {
   const out = [];
-  if (S.mac.state === 'ready' && !S.mac.legacy) for (const c of S.mac.calendars.values()) if (!c.readOnly) out.push(c);
-  if (S.google.state === 'ready') for (const c of S.google.calendars) if (!c.readOnly) out.push(c);
+  // while a source reloads (another range, a refresh) its calendars from the last good read still count (AM8)
+  const usable = (x) => x.state === 'ready' || (x.state === 'loading' && x.wasReady);
+  if (usable(S.mac) && !S.mac.legacy) for (const c of S.mac.calendars.values()) if (!c.readOnly) out.push(c);
+  if (usable(S.google)) for (const c of S.google.calendars) if (!c.readOnly) out.push(c);
   return out;
 }
 

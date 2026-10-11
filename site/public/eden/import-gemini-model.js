@@ -5,6 +5,8 @@
 // HTML is turned into Markdown here, as text: nothing in it is ever put on a page as HTML, and
 // Eden renders the result with its own safe Markdown renderer.
 
+import { importTitle } from './import-chatgpt-model.js';
+
 export const SOURCE = 'gemini';
 export const SESSION_GAP = 30 * 60 * 1000; // a longer pause starts a new conversation
 export const SESSION_MAX = 80; // prompts in one conversation at most
@@ -248,7 +250,7 @@ export function convertGeminiSession(group, { importedAt = Date.now() } = {}) {
   const origId = hash(`${first.at}\n${first.prompt}`);
   const created = first.at || importedAt;
   const updated = group[group.length - 1].at || created;
-  const title = first.prompt.replace(/\s+/g, ' ').slice(0, 60) || 'Gemini chat';
+  const title = importTitle(first.prompt, 60) || 'Gemini chat'; // cleaned as a rename is (AS2-9)
   const conv = {
     id: `gem-${origId}`, title, titleSet: true, created, updated, pinned: false, temp: false, kind: 'chat', project: null, sessionId: null, personaId: null,
     mode: 'chat', nodes, root, lastRoute: null, allowTools: [], todos: [], queue: [], status: 'idle',

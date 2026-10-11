@@ -122,8 +122,8 @@ function fakes({ canceled = false, paths = ['/Users/a/Backups'], dev = false } =
 
 test('the folder and file pickers say what they ask in the window’s words', async () => {
   const f = fakes();
-  assert.equal(await f.h.pickFolder('/Users/a/Old', '选择 Jarvis 保存备份的位置'), '/Users/a/Backups');
-  assert.equal(f.asked[0].options.message, '选择 Jarvis 保存备份的位置');
+  assert.equal(await f.h.pickFolder('/Users/a/Old', '选择 Eden 保存备份的位置'), '/Users/a/Backups');
+  assert.equal(f.asked[0].options.message, '选择 Eden 保存备份的位置');
   assert.equal(f.asked[0].options.defaultPath, '/Users/a/Old');
   assert.deepEqual(f.asked[0].options.properties, ['openDirectory', 'createDirectory']);
   await f.h.pickBackup('relative/path', 42);

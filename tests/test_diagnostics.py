@@ -215,3 +215,100 @@ async def test_a_real_check_with_the_projects_checkers(tmp_path):
     )
     assert outcomes["eslint"]["error"] == "It exited with code 2: Oops!"
     assert [d["check"]["status"] for k, d in events if k == "cv_problems"] == ["running", "done"]
+
+
+async def test_eslints_one_line_json_is_read_whole(tmp_path):
+    """ESLint prints its JSON on one line, with each file's source in it: far past the
+    1,000 characters a log line keeps. Every problem still comes back, at exit 1 too."""
+    (tmp_path / "app.js").write_text("x\n")
+    report = [
+        {
+            "filePath": str(tmp_path / "app.js"),
+            "source": "const unused = 1;\n" * 200,
+            "messages": [
+                {
+                    "line": i,
+                    "column": 7,
+                    "severity": 2,
+                    "message": f"'v{i}' is unused",
+                    "ruleId": "no-unused-vars",
+                }
+                for i in range(1, 13)
+            ],
+        }
+    ]
+    fake = tmp_path / "fake_eslint.py"
+    fake.write_text(f"import json\nprint(json.dumps({report!r}))\nraise SystemExit(1)\n")
+    checker = Checker("eslint", "ESLint", (sys.executable, str(fake)))
+    check = await Diagnostics(lambda kind, **d: None, env=plain_env).run(tmp_path, [checker])
+    assert len(json.dumps(report)) > 3000
+    assert check.checkers[0]["error"] == "" and check.checkers[0]["count"] == 12
+    assert {(p.file, p.code) for p in check.problems} == {("app.js", "no-unused-vars")}
+
+
+async def test_a_check_a_newer_one_took_over_says_so(tmp_path):
+    import asyncio
+
+    slow = Checker("mypy", "mypy", (sys.executable, "-c", "import time; time.sleep(30)"))
+    quick = Checker("mypy", "mypy", (sys.executable, "-c", "print('a.py:1:1: error: x  [misc]')"))
+    diags = Diagnostics(lambda kind, **d: None, env=plain_env)
+    first = asyncio.ensure_future(diags.run(tmp_path, [slow]))
+    await asyncio.sleep(1.0)
+    newer = await diags.run(tmp_path, [quick])
+    old = await first
+    assert old.superseded and old.status == "running" and old.public()["superseded"]
+    assert newer.status == "done" and not newer.superseded and diags.latest(tmp_path) is newer
+
+
+def _big_eslint_report(root: Path, files: int = 300) -> list:
+    """ESLint's JSON of a big repo with warnings: each file's whole source in it (4.5 MB)."""
+    return [
+        {
+            "filePath": str(root / f"f{i}.js"),
+            "source": "const unused = 1; // padding the source\n" * 380,
+            "messages": [
+                {
+                    "line": 1,
+                    "column": 7,
+                    "severity": 1,
+                    "message": "'unused' is unused",
+                    "ruleId": "no-unused-vars",
+                }
+            ],
+        }
+        for i in range(files)
+    ]
+
+
+async def test_eslints_report_past_4_mb_is_read_from_its_file(tmp_path):
+    """ESLint writes its report to a file (--output-file), read whole: a big repo's 4.5 MB
+    of JSON still gives its problems back, never "no problems" (it was cut at 4 MB)."""
+    report = _big_eslint_report(tmp_path)
+    data = tmp_path / "report.json"
+    data.write_text(json.dumps(report))
+    assert data.stat().st_size > diagnostics.MAX_OUTPUT
+    fake = tmp_path / "fake_eslint.py"
+    fake.write_text(
+        "import shutil, sys\n"
+        "out = sys.argv[sys.argv.index('--output-file') + 1]\n"
+        f"shutil.copy({str(data)!r}, out)\n"
+        f"open({str(tmp_path / 'where')!r}, 'w').write(out)\n"
+    )
+    checker = Checker("eslint", "ESLint", (sys.executable, str(fake), "--format", "json", "."))
+    check = await Diagnostics(lambda kind, **d: None, env=plain_env).run(tmp_path, [checker])
+    assert check.checkers[0]["error"] == "" and check.checkers[0]["count"] == 300
+    assert len(check.problems) == diagnostics.MAX_PROBLEMS or len(check.problems) == 300
+    assert not Path((tmp_path / "where").read_text()).exists(), "its report file was left"
+
+
+async def test_a_checkers_json_cut_on_its_way_is_said_never_read_as_no_problems(tmp_path):
+    """A checker that prints its JSON (no --output-file of its own) past 4 MB: the cut
+    report is said to be too big, at exit 0 too, never 0 problems."""
+    data = tmp_path / "report.json"
+    data.write_text(json.dumps(_big_eslint_report(tmp_path)))
+    fake = tmp_path / "fake_eslint.py"
+    fake.write_text(f"import sys\nsys.stdout.write(open({str(data)!r}).read())\n")
+    checker = Checker("eslint", "ESLint", (sys.executable, str(fake)))
+    check = await Diagnostics(lambda kind, **d: None, env=plain_env).run(tmp_path, [checker])
+    assert check.problems == []
+    assert "too big to read" in check.checkers[0]["error"], check.checkers

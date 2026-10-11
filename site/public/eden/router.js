@@ -227,6 +227,8 @@ export function initRouteControls() {
 }
 
 /* ---------- live preview (POST /api/route, debounced 600 ms) ---------- */
+// T18d: with the essay writer open, the estimate is priced as the essay turn will route (tools-ui.js; loaded only then)
+const essayPreview = (text) => (document.querySelector('#artifact.essay-on') ? import('./tools-ui.js').then((m) => m.essayPreviewBody(text)).catch(() => ({})) : Promise.resolve({}));
 // Rules only while typing (G1): the Gemini rating runs once, on send. With an override the
 // rows still come, so the estimate line can price the pinned model. In Compare mode the
 // compare estimate (POST /api/chat/compare/estimate) comes with it: its lanes are what runs.
@@ -257,7 +259,7 @@ const runPreview = debounce(async () => {
   try {
     const [res, compare, research] = await Promise.all([
       // eden: the owner's routing (H2 profile, H3 autopilot) shapes the preview as it will the send
-      api.route({ prompt: text, ...r, classifier: 'off', eden: true, ...learnedBody(), ...autopilotBody({ preview: true }) }, mine.signal),
+      essayPreview(text).then((essay) => api.route({ prompt: text, ...r, classifier: 'off', eden: true, ...learnedBody(), ...autopilotBody({ preview: true }), ...essay }, mine.signal)), // the open essay: priced as the send routes it (T18d)
       comparing ? api.compareEstimate({ prompt: text, settings: r }, mine.signal).catch((e) => (e.name === 'AbortError' ? Promise.reject(e) : { error: e.message })) : null,
       researching ? api.researchEstimate({ prompt: text, settings: r, budgetUSD: capOf(state.settings), ...(currentOverride() ? { override: currentOverride() } : {}) }, mine.signal).catch((e) => (e.name === 'AbortError' ? Promise.reject(e) : { error: e.message })) : null,
     ]);

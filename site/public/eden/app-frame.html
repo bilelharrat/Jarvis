@@ -1,0 +1,108 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><script>(function g(){var W=window,O=Object,dp=O.defineProperty,gd=O.getOwnPropertyDescriptor,ap=Reflect.apply,k;for(k of["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel"])try{dp(W,k,{value:undefined,writable:false,configurable:false})}catch(e){}try{var I=W.HTMLIFrameElement,E=W.Element,M=W.MutationObserver,N=W.Node,D=W.Document,F=W.DocumentFragment,SR=W.ShadowRoot,L=W.HTMLLinkElement,A=W.Attr,T=W.DOMTokenList,R=W.Range,WS=W.WeakSet;if(!I||!E||!M||!N||!F||!L||!A)return;var S="<script>("+g+")()<\/script>",IP=I.prototype,EP=E.prototype,NP=N.prototype,AP=A.prototype,SP=String.prototype,sw=SP.startsWith,sl=SP.slice,lc=SP.toLowerCase,rp=SP.replace,ts=RegExp.prototype.test,PI=parseInt,FC=String.fromCharCode,nn=gd(NP,"nodeName").get,nt=gd(NP,"nodeType").get,ga=EP.getAttribute,sa=EP.setAttribute,sn=EP.setAttributeNS,eq=EP.querySelectorAll,fq=F.prototype.querySelectorAll,sd=gd(IP,"srcdoc"),nl=gd(NodeList.prototype,"length").get,ni=NodeList.prototype.item,rt=gd(MutationRecord.prototype,"target").get,ra=gd(MutationRecord.prototype,"addedNodes").get,ob=M.prototype.observe,an=gd(AP,"name").get,av=gd(AP,"value"),ao=gd(AP,"ownerElement").get,rl=new WS,wa=WS.prototype.add,wh=WS.prototype.has,DSD=/([^\w-]|^)shadowrootmode(?=\s*=)/gi,LK=/<link(?=[\s\/>])/i,LKS=/<link(?=[\s\/>])/gi,NR=/&#(?:x([0-9a-f]+)|([0-9]+));?/gi,HW=/prefetch|preconnect|prerender/i,HT=/(^|\s)(dns-prefetch|preconnect|prefetch|prerender)(?=\s|$)/gi,html=function(v){v=ap(rp,""+v,[DSD,"$1data-shadowrootmode"]);if(ap(ts,LK,[v])&&ap(ts,HW,[ap(rp,v,[NR,function(m,x,d){var n=x?PI(x,16):PI(d,10);return n<128?FC(n):"?"}])]))v=ap(rp,v,[LKS,"<link-off"]);return v},add=function(v){v=html(v);return ap(sw,v,[S])?v:S+v},rel=function(v){return ap(rp,""+v,[HT,"$1x-$2"])},nm=function(n){try{return ap(nn,n,[])}catch(e){return""}},fix=function(n){var x=nm(n),v,w;if(x==="IFRAME"){v=ap(ga,n,["srcdoc"]);if(v!==null&&(w=add(v))!==v)ap(sd.set,n,[w])}else if(x==="LINK"){v=ap(ga,n,["rel"]);if(v!==null&&(w=rel(v))!==v)ap(sa,n,["rel",w])}},scan=function(n){var t,c,i,m;try{t=ap(nt,n,[])}catch(e){return}if(t===1){fix(n);c=ap(eq,n,["iframe,link"])}else if(t===11)c=ap(fq,n,["iframe,link"]);else return;m=ap(nl,c,[]);for(i=0;i<m;i++)fix(ap(ni,c,[i]))},mo=new M(function(rs){for(var i=0;i<rs.length;i++){var a=ap(ra,rs[i],[]),j,m=ap(nl,a,[]);fix(ap(rt,rs[i],[]));for(j=0;j<m;j++)scan(ap(ni,a,[j]))}}),opts={childList:true,subtree:true,attributes:true,attributeFilter:["srcdoc","rel"]},watch=function(r){try{ap(ob,mo,[r,opts])}catch(e){}},wrap=function(o,n,f1,ix){var f=o&&o[n];if(typeof f==="function")o[n]=function(){var a=[],i;for(i=0;i<arguments.length;i++)a[i]=ix<0||i===ix?f1(arguments[i]):arguments[i];return ap(f,this,a)}},pre=function(o,n,ix){wrap(o,n,function(x){scan(x);return x},ix)},str=function(o,n,ix){wrap(o,n,html,ix)},acc=function(o,n,f1){var d=o&&gd(o,n);if(d&&d.set)dp(o,n,{get:d.get,set:function(v){ap(d.set,this,[f1(v,this)])},enumerable:d.enumerable,configurable:true})},attr=function(o,n,v){n=ap(lc,""+n,[]);var x=nm(o);return n==="srcdoc"&&x==="IFRAME"?add(v):n==="rel"&&x==="LINK"?rel(v):v};dp(IP,"srcdoc",{get:function(){var v=ap(sd.get,this,[]);return ap(sw,v,[S])?ap(sl,v,[S.length]):v},set:function(v){ap(sd.set,this,[add(v)])},enumerable:true,configurable:true});acc(L.prototype,"rel",rel);EP.setAttribute=function(n,v){n=""+n;return ap(sa,this,[n,attr(this,n,v)])};EP.setAttributeNS=function(s,n,v){n=""+n;return ap(sn,this,[s,n,attr(this,n,v)])};acc(AP,"value",function(v,a){var o=ap(ao,a,[]);return o?attr(o,ap(an,a,[]),v):v});var san=function(o,x){try{ap(av.set,x,[attr(o,ap(an,x,[]),ap(av.get,x,[]))])}catch(e){}};var sAN=EP.setAttributeNode,sANS=EP.setAttributeNodeNS;EP.setAttributeNode=function(x){san(this,x);return ap(sAN,this,[x])};if(sANS)EP.setAttributeNodeNS=function(x){san(this,x);return ap(sANS,this,[x])};if(T){var rg=gd(L.prototype,"relList");if(rg&&rg.get)dp(L.prototype,"relList",{get:function(){var l=ap(rg.get,this,[]);ap(wa,rl,[l]);return l},enumerable:true,configurable:true});var tok=function(n,ix){var f=T.prototype[n];if(typeof f==="function")T.prototype[n]=function(){var a=[],i,h=ap(wh,rl,[this]);for(i=0;i<arguments.length;i++)a[i]=h&&(ix<0||i===ix)?rel(arguments[i]):arguments[i];return ap(f,this,a)}};tok("add",-1);tok("toggle",0);tok("replace",1);var tv=gd(T.prototype,"value");if(tv&&tv.set)dp(T.prototype,"value",{get:tv.get,set:function(v){ap(tv.set,this,[ap(wh,rl,[this])?rel(v):v])},enumerable:true,configurable:true})}for(k of["appendChild","insertBefore","replaceChild"])pre(NP,k,0);for(k of["append","prepend","replaceChildren","before","after","replaceWith"]){pre(EP,k,-1);pre(F.prototype,k,-1);if(D)pre(D.prototype,k,-1)}pre(EP,"insertAdjacentElement",1);if(R){pre(R.prototype,"insertNode",0);pre(R.prototype,"surroundContents",0)}acc(EP,"innerHTML",html);acc(EP,"outerHTML",html);str(EP,"insertAdjacentHTML",1);str(EP,"setHTMLUnsafe",0);str(EP,"setHTML",0);if(SR){acc(SR.prototype,"innerHTML",html);str(SR.prototype,"setHTMLUnsafe",0);str(SR.prototype,"setHTML",0)}if(D){str(D,"parseHTMLUnsafe",0);str(D,"parseHTML",0);str(D.prototype,"write",-1);str(D.prototype,"writeln",-1);acc(D.prototype,"body",function(v){scan(v);return v})}var as=EP.attachShadow;if(as)EP.attachShadow=function(o){var r=ap(as,this,[o]);watch(r);return r};watch(document)}catch(e){}})()</script><!-- first: no WebRTC (src/chat/artifacts.ts RTC_GUARD) --><meta name="viewport" content="width=device-width,initial-scale=1"><title>Eden preview</title>
+<!--
+  The code canvas's live UI preview for React (canvas-app.js frames it; canvas-model.js says what's
+  React). Served with its own policy (APP_CSP): an opaque-origin sandbox with no cookies, no storage
+  and no way into Eden's page. Its only network is esm.sh (React and the packages the code imports)
+  and cdn.jsdelivr.net (Tailwind, when the code uses its classes). The page compiles nothing: it gets
+  ready-to-run module code by postMessage, once per load (each draw is a fresh frame), and reports
+  the console and errors back.
+-->
+<script type="importmap">{ "imports": {
+  "react": "https://esm.sh/react@18.3.1",
+  "react/": "https://esm.sh/react@18.3.1/",
+  "react-dom": "https://esm.sh/*react-dom@18.3.1",
+  "react-dom/": "https://esm.sh/*react-dom@18.3.1/",
+  "scheduler": "https://esm.sh/scheduler@0.23.2"
+} }</script>
+<style>
+:where(html){background:#fff;color:#16181d;color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+:where(html.dark){background:#111317;color:#e9eaee;color-scheme:dark}
+:where(body){margin:0}
+#eden-error{margin:16px;padding:12px 14px;border-radius:10px;background:#fdecec;color:#a4161a;font:12px/1.5 ui-monospace,"SF Mono",Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+html.dark #eden-error{background:#3a1416;color:#ffb4b4}
+</style>
+</head>
+<body><div id="root"></div>
+<script type="module">
+const TAILWIND = 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4';
+const parentWin = window.parent;
+const send = (m) => parentWin.postMessage({ ...m, edenPreview: 1 }, '*'); // the parent checks event.source; nothing secret is sent
+
+const fmt = (a) => {
+  if (typeof a === 'string') return a;
+  if (a instanceof Error) return a.stack && a.stack.includes(a.message) ? a.stack : `${a.name}: ${a.message}${a.stack ? `\n${a.stack}` : ''}`;
+  try { return JSON.stringify(a, null, 2) ?? String(a); } catch { return String(a); }
+};
+// the console goes to the canvas too, up to 500 lines (a logging loop mustn't flood Eden's page)
+let lines = 0;
+for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
+  const orig = console[level].bind(console);
+  console[level] = (...a) => {
+    orig(...a);
+    if (++lines === 501) send({ type: 'log', level: 'warn', text: 'More console output was left out.' });
+    if (lines <= 500) send({ type: 'log', level, text: a.map(fmt).join(' ').slice(0, 8000) });
+  };
+}
+addEventListener('error', (e) => send({ type: 'error', text: e.error ? fmt(e.error) : String(e.message || 'Error') }));
+addEventListener('unhandledrejection', (e) => send({ type: 'error', text: `Unhandled promise rejection: ${fmt(e.reason)}` }));
+addEventListener('securitypolicyviolation', (e) => send({ type: 'error', text: `The preview’s sandbox blocked ${e.blockedURI || 'something'} (${e.effectiveDirective}): previews reach only esm.sh (packages) and cdn.jsdelivr.net, so other data must be in the code.` }));
+
+function theme(t) {
+  document.documentElement.classList.toggle('dark', t === 'dark');
+}
+function showError(err) {
+  const pre = document.createElement('pre');
+  pre.id = 'eden-error';
+  pre.textContent = err && err.message ? err.message : String(err);
+  document.body.replaceChildren(pre);
+}
+function tailwind() {
+  return new Promise((resolve) => {
+    const st = document.createElement('style');
+    st.type = 'text/tailwindcss';
+    st.textContent = '@custom-variant dark (&:where(.dark, .dark *));'; // the canvas's Light/Dark switch drives dark: classes
+    document.head.append(st);
+    const s = document.createElement('script');
+    s.src = TAILWIND;
+    s.onload = resolve;
+    s.onerror = () => { send({ type: 'log', level: 'warn', text: 'Tailwind didn’t load: its classes are unstyled.' }); resolve(); };
+    document.head.append(s);
+  });
+}
+
+let started = false;
+addEventListener('message', async (e) => {
+  if (e.source !== parentWin) return;
+  const m = e.data || {};
+  if (m.type === 'theme') { theme(m.theme); return; }
+  if (m.type !== 'render' || started) return;
+  started = true;
+  theme(m.theme);
+  try {
+    if (m.tailwind) await tailwind();
+    const mod = await import(URL.createObjectURL(new Blob([String(m.js)], { type: 'text/javascript' })));
+    if (m.mount) {
+      const Comp = mod.default;
+      if (typeof Comp !== 'function' && !(Comp && typeof Comp === 'object' && Comp.$$typeof)) {
+        throw new Error('Nothing to show: make the component the default export (export default function App() { … }).');
+      }
+      const [{ createElement, Component }, { createRoot }] = await Promise.all([import('react'), import('react-dom/client')]);
+      class Boundary extends Component {
+        constructor(p) { super(p); this.state = { err: null }; }
+        static getDerivedStateFromError(err) { return { err }; }
+        render() { return this.state.err ? createElement('pre', { id: 'eden-error' }, String(this.state.err.message || this.state.err)) : this.props.children; }
+      }
+      createRoot(document.getElementById('root')).render(createElement(Boundary, null, createElement(Comp)));
+    }
+    send({ type: 'rendered' });
+  } catch (err) {
+    showError(err);
+    send({ type: 'error', text: fmt(err) });
+  }
+});
+send({ type: 'ready' });
+// React fetched while the frame waits (canvas-app.js loads a spare frame ahead of the next draw): the code's own imports then find it loaded
+Promise.all([import('react'), import('react/jsx-runtime'), import('react-dom/client')]).catch(() => { /* the draw reports it */ });
+</script>
+</body></html>

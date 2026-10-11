@@ -21,8 +21,10 @@ KEY = "labs"
 LABS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "code_acp": ("Other agents (ACP)", "Run Gemini CLI, Codex and other ACP agents as sessions.", ("code-acp",)),
     "code_plugins": ("Plugins", "Claude Code plugins: their commands, agents and hooks in sessions.", ("code-plugins",)),
-    "code_split": ("Split view", "Two live sessions side by side (⌘⇧\\ or /split).", ("code-split",)),
 }  # fmt: skip
+# Graduated out of Labs, on for everyone now: a name of theirs still in prefs is left out
+# (_clean, enabled), never an error. Split view: 2026-10-10.
+GRADUATED = frozenset({"code_split"})
 
 
 def _clean(value: Any) -> list[str] | None:

@@ -216,9 +216,16 @@
   "On": "开",
   "Off": "关",
   "Boot-up sound?": "要开机音效吗？",
-  "Jarvis plays a short sound as it opens. Keep it, or open quietly.": "Jarvis 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
+  "Eden plays a short sound as it opens. Keep it, or open quietly.": "Eden 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
   "Eden Code plays a short sound as it opens. Keep it, or open quietly.": "Eden Code 打开时会播放一段简短的音效。可以保留，也可以安静地打开。",
-  "You can change this any time in Settings › General.": "你可以随时在“设置 › 通用”中更改。"
+  "You can change this any time in Settings › General.": "你可以随时在“设置 › 通用”中更改。",
+  "Start using Eden Code": "开始使用 Eden Code",
+  "Open a project, then ask, for example:": "打开一个项目，然后试着这样问：",
+  "“Explain how this project is laid out.”": "“讲讲这个项目是怎么组织的。”",
+  "“Run the tests and fix what fails.”": "“运行测试，把失败的修好。”",
+  "“Review my last commit.”": "“审查我最近一次提交。”",
+  "“Add a dark mode to the settings page.”": "“给设置页加上深色模式。”",
+  "Anything you skipped is in Settings (the gear, or ⌘,), and Settings › Privacy & Safety › Set up Eden again… brings this back.": "跳过的内容都在设置里（齿轮按钮或 ⌘,）；“设置 › 隐私与安全 › 重新设置 Eden…”可以再次打开这里。"
  },
  "patterns": []
 }

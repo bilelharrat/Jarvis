@@ -11,7 +11,9 @@ Where Claude Code keeps them:
   / "disabledMcpjsonServers" / "enableAllProjectMcpServers" in its settings files, or the
   choices Claude Code kept in ~/.claude.json for the folder.
 
-Everything is read defensively (a file that isn't there or isn't JSON has none), and only
+Everything is read defensively (a file that isn't there or isn't JSON has none; a project's
+.mcp.json or settings that are a pipe, a device or huge are never waited on or read whole:
+projectfiles, CD3-1), and only
 the CLI writes ~/.claude.json: Claude Code rewrites that file itself, all the time. What the
 window is shown of a server is its program and arguments or its address, with anything that
 looks like a secret masked, never its environment or headers.
@@ -21,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import os
 import re
 import shlex
@@ -31,13 +32,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from . import jsonstore, secret_scan
+from . import jsonstore, projectfiles, secret_scan
 
 SCOPES = ("project", "local", "user")
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$")
 CLI_TIMEOUT = 60.0  # adding or removing
 LOGIN_TIMEOUT = 300.0  # a sign-in in the browser
 OUTPUT_KEPT = 2000
+FILE_CAP = 64_000_000  # .mcp.json, ~/.claude.json and settings files are read this far
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _SECRET_FLAG = re.compile(
     r"^--?[\w-]*(?:token|key|secret|password|passwd|auth)[\w-]*(?:=(.*))?$", re.I
@@ -85,12 +87,15 @@ class Server:
         }
 
 
+def _load(path: Path) -> tuple[dict[str, Any], str]:
+    """A JSON file's object (a BOM skipped, odd bytes replaced, as Claude Code reads it) and
+    "", or ({}, why) when it's there and can't be used: a pipe, a device, over FILE_CAP."""
+    data, why = projectfiles.load_json(path, FILE_CAP, lossy=True)
+    return (data if isinstance(data, dict) else {}), why
+
+
 def _read(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return _load(path)[0]
 
 
 def _hidden(word: str) -> str:
@@ -176,11 +181,17 @@ def approval(
     return everything, enabled, disabled
 
 
-def configured(folder: Path, state_path: Path, settings: Path) -> list[Server]:
-    """The servers a folder's sessions have, from every scope."""
+def configured(
+    folder: Path, state_path: Path, settings: Path, problems: list[str] | None = None
+) -> list[Server]:
+    """The servers a folder's sessions have, from every scope. Why the folder's .mcp.json
+    couldn't be read, if it couldn't, goes in problems."""
     state = _read(state_path)
     found: list[Server] = []
-    shared = _read(folder / ".mcp.json").get("mcpServers")
+    data, why = _load(folder / ".mcp.json")
+    if why and problems is not None:
+        problems.append(f"Couldn't read this folder's MCP servers file (.mcp.json): {why}.")
+    shared = data.get("mcpServers")
     everything, enabled, disabled = approval(folder, state, settings)
     for name, config in shared.items() if isinstance(shared, dict) else []:
         server = describe(name, config, "project")
@@ -206,18 +217,10 @@ def approve(folder: Path, name: str, yes: bool) -> None:
     """Approve (or refuse) one of a folder's shared servers, in its settings.local.json (the
     owner's alone), keeping everything else there. OSError when the file can't be used."""
     path = folder / ".claude" / "settings.local.json"
-    data: dict[str, Any] = {}
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, UnicodeDecodeError) as exc:
-            raise OSError(
-                "settings.local.json can't be read, so nothing was written to it."
-            ) from exc
-        if not isinstance(data, dict):
-            raise OSError(
-                "settings.local.json isn't a settings object, so nothing was written to it."
-            )
+    found, why = projectfiles.load_json(path, FILE_CAP)  # (strict: it's written back)
+    if why:
+        raise OSError(f"settings.local.json can't be read, so nothing was written to it: {why}.")
+    data: dict[str, Any] = found if isinstance(found, dict) else {}
     add, drop = "enabledMcpjsonServers", "disabledMcpjsonServers"
     if not yes:
         add, drop = drop, add

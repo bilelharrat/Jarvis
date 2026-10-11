@@ -29,7 +29,7 @@ function env({ latest = { version: '0.1.0', size: BYTES.length, file: FILE }, fi
   };
 }
 
-const get = (path, e, init = {}) => worker.fetch(new Request(`https://www.askeden.com${path}`, init), e);
+const get = (path, e, init = {}) => worker.fetch(new Request(`https://askeden.com${path}`, init), e);
 
 test('the apps page is at /jarvis and /download, Eden\'s front page at / signed out; images stay by path', async () => {
   const e = env();
@@ -41,7 +41,7 @@ test('the apps page is at /jarvis and /download, Eden\'s front page at / signed 
   assert.deepEqual(e.assets, ['/home/', '/jarvis/', '/jarvis/', '/jarvis/', '/jarvis/icon.png']);
   const old = await get('/features', e); // an old address: home (/pricing is the front page's plans now)
   assert.equal(old.status, 302);
-  assert.equal(old.headers.get('location'), 'https://www.askeden.com/');
+  assert.equal(old.headers.get('location'), 'https://askeden.com/');
 });
 
 test('/messenger is Eden Messenger, at messenger.askeden.com; its download buttons stay here', async () => {

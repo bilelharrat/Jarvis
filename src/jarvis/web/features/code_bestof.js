@@ -82,10 +82,18 @@
     tests.append(el('span', '', 'Tests (optional)'), testInput);
     wrap.append(mode, tests, el('p', 'jc-dim jcx-bnote', 'The test command runs in each copy once they’re all done. Each variant is a real session on its model, and costs what it costs; a short judgment (Haiku) follows.'));
     const start = button('Start', 'jc-btn filled jcx-bstart', () => {
-      send({ type: 'code_bestof', directory: project(), prompt: form.prompt, variants: form.variants, mode: form.mode, tests: form.tests });
-      state.showForm = false;
-      state.form = null;
-      render();
+      const go = () => {
+        // (CA3-2) Past a session's limit: said, and the form keeps the request (never cut).
+        if (typeof tooLong === 'function' && tooLong(form.prompt)) return;
+        send({ type: 'code_bestof', directory: project(), prompt: form.prompt, variants: form.variants, mode: form.mode, tests: form.tests });
+        state.showForm = false;
+        state.form = null;
+        render();
+      };
+      // Bypass for all of them is asked about first (Touch ID), as a session's own is.
+      const check = form.mode === 'auto' && F.check ? F.check('bypass', { text: 'Bypass permissions lets these sessions run any command and change any file without asking you. Start them in it?' }) : null;
+      if (check) check.then((ok) => { if (ok) go(); });
+      else if (form.mode !== 'auto' || window.confirm(F.t('Bypass permissions lets these sessions run any command and change any file without asking you. Start them in it?'))) go();
     });
     start.disabled = !form.prompt.trim();
     request.addEventListener('input', () => { start.disabled = !request.value.trim(); });
@@ -112,7 +120,7 @@
     const actions = el('div', 'jcx-bactions');
     const open = () => { if (typeof selectTask === 'function') selectTask(v.task_id); };
     actions.append(button('Open', 'jc-btn small', open), button('Changes', 'jc-btn small', () => { open(); F.openPane('diff'); }));
-    if (group.status === 'done') actions.append(button('Keep this one', 'jc-btn small filled', () => send({ type: 'code_bestof_keep', group: group.group, n: v.n }), 'Land this copy and discard the others (asks first)'));
+    if (group.status === 'done' && !group.keeping) actions.append(button('Keep this one', 'jc-btn small filled', () => send({ type: 'code_bestof_keep', group: group.group, n: v.n }), 'Land this copy and discard the others (asks first)'));
     card.append(actions);
     if (group.status === 'kept' && group.kept === v.n) card.classList.add('kept');
     return card;

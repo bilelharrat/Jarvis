@@ -86,11 +86,12 @@ async def test_a_burst_from_one_window_does_not_cut_off_the_others(
         assert (await w.next())["type"] == "websocket.accept"
         assert (await w.event())["type"] == "hello"
     burst = 2 * hubmod.WINDOW_QUEUE + 500  # every reply goes to every window
-    flood.say(*({"type": "task_transcript", "id": 5} for _ in range(burst)))
+    # (task_audit's answer goes to every window; task_transcript's now only to the asker, CA2-9)
+    flood.say(*({"type": "task_audit", "id": 5} for _ in range(burst)))
     for w in (other, flood):
         for _ in range(burst):
             event = await w.event()
-            assert event.get("type") == "task_transcript", event  # never {"closed": 4408}
+            assert event.get("type") == "task_audit", event  # never {"closed": 4408}
     for w in (flood, other):
         await w.leave()
 

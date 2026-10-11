@@ -278,7 +278,7 @@ async def test_a_shared_conversation_needs_the_name_in_front(world):
     db.say("chat1234", "what's for dinner?", from_me=1)  # the owner, to the family
     db.say("chat1234", "Eden, what's on tomorrow?", sender=BOB)  # not the owner
     db.say("chat1234", "Eden, what's on tomorrow?", from_me=1)
-    db.say("chat1234", "贾维斯，明天有什么安排？", from_me=1)
+    db.say("chat1234", "伊甸，明天有什么安排？", from_me=1)
     await adapter.poll_once()
     await settle(router)
     assert hub.client.said[-2:] == ["what's on tomorrow?", "明天有什么安排？"]

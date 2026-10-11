@@ -55,8 +55,8 @@ export function takeFIFO(lots, usd, now) {
   return { lots: out, taken: round(usd - Math.max(0, want)) };
 }
 
-export async function creditsOf(account) {
-  return (await account.storage.get('credits')) || { customer: null, payment_method: null, lots: [] };
+export async function creditsOf(account, store = account.storage) {
+  return (await store.get('credits')) || { customer: null, payment_method: null, lots: [] };
 }
 
 /**
@@ -96,16 +96,16 @@ export async function spendCredits(account, usd) {
   return taken;
 }
 
-export async function autoOf(account) {
-  return (await account.storage.get('credit_auto')) || { enabled: false, threshold_usd: AUTO.threshold, amount_usd: AUTO.amount, n: 0, pending: null, last: null };
+export async function autoOf(account, store = account.storage) {
+  return (await store.get('credit_auto')) || { enabled: false, threshold_usd: AUTO.threshold, amount_usd: AUTO.amount, n: 0, pending: null, last: null };
 }
 
 /** What the account page shows. */
-export async function creditsView(account, plan) {
+export async function creditsView(account, plan, store = account.storage) {
   const now = account.now();
-  const credits = await creditsOf(account);
-  const auto = await autoOf(account);
-  const stripe = await account.storage.get('stripe_plan');
+  const credits = await creditsOf(account, store);
+  const auto = await autoOf(account, store);
+  const stripe = await store.get('stripe_plan');
   const soonest = credits.lots.filter((l) => l.expires > now && l.left > 0).reduce((m, l) => Math.min(m, l.expires), Infinity);
   return {
     balance_usd: balanceOf(credits, now),

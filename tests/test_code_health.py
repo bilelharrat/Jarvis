@@ -94,7 +94,8 @@ async def test_asks_while_a_look_is_under_way_share_it(hub):
     for _ in range(3):
         await hub.handle({"type": "cw_health"})
     first = await answer(seen, 3)
-    assert asked == [("--version",), ("auth", "status", "--json")]  # one look for the three
+    # one look for the three (its version and sign-in are asked side by side: either first)
+    assert sorted(asked) == [("--version",), ("auth", "status", "--json")]
     assert [d["engine"] for k, d in seen if k == "cw_health"] == [first["engine"]] * 3
     await hub.handle({"type": "cw_health"})
     await hub.handle({"type": "cw_health", "fresh": True})

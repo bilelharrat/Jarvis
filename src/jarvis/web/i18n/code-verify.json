@@ -115,7 +115,9 @@
     "Let this session use the Mac": "允许这个会话使用这台 Mac",
     "See the screen, click and type. Every step asks, except in Bypass permissions.": "查看屏幕、点击和输入。每一步都会先询问，绕过权限模式除外。",
     "This session may use the Mac now: it can see the screen, click and type. Every step asks first, unless the session is in Bypass permissions.": "这个会话现在可以使用这台 Mac：它可以查看屏幕、点击和输入。每一步都会先询问，除非会话处于绕过权限模式。",
-    "This session no longer uses the Mac.": "这个会话不再使用这台 Mac。"
+    "This session no longer uses the Mac.": "这个会话不再使用这台 Mac。",
+    "Not checked": "未检查",
+    "Running one test needs Node 22 or later. Run them all instead.": "运行单个测试需要 Node 22 或更高版本。请改为全部运行。"
   },
   "patterns": [
     [
@@ -237,6 +239,14 @@
     [
       "^(\\d+) dev servers are running already; stop one first\\.$",
       "已经有 $1 个开发服务器在运行；请先停止一个。"
+    ],
+    [
+      "^Port (\\d+) is already in use by another program\\.$",
+      "端口 $1 已被另一个程序占用。"
+    ],
+    [
+      "^It exited with code (\\d+)\\. Port (\\d+) is already in use by another program\\.$",
+      "它已退出，代码 $1。端口 $2 已被另一个程序占用。"
     ]
   ]
 }

@@ -218,6 +218,9 @@
       }
       wrap.append(branchRow(task, data));
       if (data.merging) wrap.append(el('p', 'jcx-gmerge', 'A merge is under way: resolve its conflicts, stage them, then commit to finish it.'));
+      if (data.rebasing) wrap.append(el('p', 'jcx-gmerge', 'A rebase is under way: resolve its conflicts and stage them, then git rebase --continue (or --abort).'));
+      if (data.cherry_picking) wrap.append(el('p', 'jcx-gmerge', 'A cherry-pick is under way: resolve its conflicts and stage them, then git cherry-pick --continue (or --abort).'));
+      if (data.reverting) wrap.append(el('p', 'jcx-gmerge', 'A revert is under way: resolve its conflicts and stage them, then git revert --continue (or --abort).'));
       wrap.append(section(task, data, 'Staged', data.staged, true), commitBox(task, data), section(task, data, 'Changes', data.unstaged, false), history(data));
     }
     target.replaceChildren(wrap);
@@ -255,14 +258,23 @@
 
   F.on('code_git', (ev) => {
     state.data.set(ev.key, ev);
-    // Files that are no longer where they were shown are closed.
+    // Files that are no longer where they were shown are closed; the open ones are asked
+    // for again, all of one side in one message (the backend diffs the folder once for them,
+    // not once per open file).
+    const again = { true: [], false: [] };
     for (const id of [...state.open]) {
       if (!id.startsWith(`${ev.key}:`)) continue;
       const [, , staged, ...rest] = id.split(':');
       const path = rest.join(':');
       const list = staged === 'true' ? ev.staged : ev.unstaged;
       if (!(list || []).some((f) => f.path === path)) state.open.delete(id);
-      else send({ type: 'code_git_file', ...(ev.key.startsWith('id:') ? { id: Number(ev.key.slice(3)) } : { directory: ev.key.slice(4) }), path, staged: staged === 'true' });
+      else again[staged === 'true'].push(path);
+    }
+    const whose = ev.key.startsWith('id:') ? { id: Number(ev.key.slice(3)) } : { directory: ev.key.slice(4) };
+    for (const staged of [false, true]) {
+      const paths = again[staged];
+      if (paths.length === 1) send({ type: 'code_git_file', ...whose, path: paths[0], staged });
+      else if (paths.length) send({ type: 'code_git_file', ...whose, path: paths[0], paths, staged });
     }
     if (keyOf(F.currentTask()) === ev.key) render();
   });

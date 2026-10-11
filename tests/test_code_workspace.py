@@ -290,3 +290,43 @@ async def test_a_newer_search_stops_the_one_before(hub, tmp_path, monkeypatch):
     await hub.handle({"type": "cw_search", "directory": "demo", "text": "second", "ref": "s2"})
     got = {d["ref"]: d for d in await settle(seen, "cw_search", 2)}
     assert got["s1"]["stopped"] and not got["s2"]["stopped"]
+
+
+async def test_one_window_s_search_never_stops_another_s(hub, tmp_path, monkeypatch):
+    """CF10 / smell 23: refs restart at s1 in every window, and one search slot served them
+    all: once searches could be stopped (CF1), one window's search stopped another's. Now
+    a window's refs carry its page ("<page>-s1") and each window has its own slot."""
+    import threading
+
+    from jarvis import code_search
+
+    demo(tmp_path)
+    started = threading.Event()
+    stops = {}
+
+    def slow(root, query, stop):
+        stops[query.text] = stop
+        if query.text == "first":
+            started.set()
+            stop.event.wait(2)  # (until stopped, or 2 s)
+        return {
+            "files": [],
+            "total": 0,
+            "truncated": False,
+            "stopped": bool(stop),
+            "engine": "walk",
+        }
+
+    monkeypatch.setattr(code_search, "search", slow)
+    seen = record(hub)
+    await hub.handle({"type": "cw_search", "directory": "demo", "text": "first", "ref": "pA-s1"})
+    for _ in range(400):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.005)
+    await hub.handle({"type": "cw_search", "directory": "demo", "text": "other", "ref": "pB-s1"})
+    await settle(seen, "cw_search", 1)
+    assert not stops["first"].event.is_set()  # the other window's search left it running
+    await hub.handle({"type": "cw_search", "directory": "demo", "text": "newer", "ref": "pA-s2"})
+    got = {d["ref"]: d for d in await settle(seen, "cw_search", 3)}
+    assert got["pA-s1"]["stopped"] and not got["pB-s1"]["stopped"]

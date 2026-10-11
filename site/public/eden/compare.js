@@ -316,7 +316,7 @@ export function compareView(c, user) {
   const on = Math.min(tabOf(user), nodes.length - 1);
   const box = el('div', { class: `cmp ${g.kind || 'compare'}`, 'data-cmp': user.id });
   box.style.setProperty('--n', String(Math.max(1, nodes.length)));
-  const title = g.kind === 'stronger' ? 'Side by side with a stronger model' : `${nodes.length} models, side by side`;
+  const title = g.kind === 'stronger' ? 'Side by side with a stronger model' : `${nodes.length} model${nodes.length === 1 ? '' : 's'}, side by side`;
   box.append(el('div', 'cmp-head', el('span', 'cmp-title', title), el('span', 'cmp-hint', 'Keep one: it becomes this conversation’s branch.')));
   box.append(el('div', { class: 'cmp-tabs', role: 'tablist', 'aria-label': 'Answers' },
     ...nodes.map((n, i) => el('button', { type: 'button', role: 'tab', class: i === on ? 'on' : '', 'aria-selected': String(i === on), 'data-act': 'cmp-tab', 'data-i': String(i) }, laneHead(n)))));

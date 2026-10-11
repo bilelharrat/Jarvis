@@ -72,3 +72,37 @@ test('every string the Touch ID switch and question show has its Chinese', () =>
   const extra = ['Touch ID for Bypass and risky steps', 'This step can’t easily be undone, or reaches past this Mac. Allow it?'];
   assert.deepEqual([...shown, ...extra].filter((s) => !(s in zh.strings)), []);
 });
+
+test('a yes comes with a proof only the app can sign, and a Mac without Touch ID asks with its own dialog', async () => {
+  const { signer, PROVED } = require('../../app/features/touchid.js');
+  const crypto = require('crypto');
+  const key = 'ab'.repeat(32);
+  const files = {};
+  const sign = signer('/data', { readFile: (p) => { if (!(p in files)) throw new Error('none'); return files[p]; }, now: () => 1_700_000_000_000, random: () => Buffer.alloc(16, 7) });
+  assert.equal(sign('bypass'), null);  // no key yet: no proof (the backend refuses then)
+  files['/data/touchid.key'] = `${key}\n`;
+  const proof = sign('bypass');
+  const nonce = '07'.repeat(16);
+  assert.deepEqual(proof, { kind: 'bypass', ts: 1_700_000_000, nonce, sig: crypto.createHmac('sha256', Buffer.from(key)).update(`bypass|1700000000|${nonce}`).digest('hex') });
+  assert.equal(sign('approve'), null);  // (only what the backend checks)
+  assert.deepEqual([...PROVED].sort(), ['bypass', 'bypass-default', 'sandbox-off', 'touchid-off']);
+  for (const kind of PROVED) assert.ok(REASONS.en[kind] && REASONS.zh[kind], kind);
+
+  const touch = handlers({ systemPreferences: { canPromptTouchID: () => true, promptTouchID: async () => {} }, sign });
+  assert.deepEqual(await touch.prompt('bypass', 'en'), { ok: true, proof: sign('bypass') });
+  const asked = [];
+  let answer = true;
+  const dialog = handlers({ systemPreferences: { canPromptTouchID: () => false }, sign, confirm: async (reason) => { asked.push(reason); return answer; } });
+  assert.equal((await dialog.prompt('touchid-off', 'en')).ok, true);
+  answer = false;
+  assert.deepEqual(await dialog.prompt('bypass', 'en'), { ok: false, cancelled: true });
+  assert.deepEqual(asked, [REASONS.en['touchid-off'], REASONS.en.bypass]);
+});
+
+test('every string the Touch ID refusals show has its Chinese', () => {
+  const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code-touchid.json', import.meta.url), 'utf8'));
+  const py = readFileSync(new URL('../../src/jarvis/features/code_touchid.py', import.meta.url), 'utf8');
+  const said = [...py.matchAll(/^\s+"[a-z-]+": "([^"]+)",$/gm)].map((m) => m[1]);
+  assert.equal(said.length, 4);
+  for (const text of [...said, 'Turn off Touch ID for Bypass and risky steps?']) assert.ok(text in zh.strings, text);
+});

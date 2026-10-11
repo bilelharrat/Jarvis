@@ -7,7 +7,7 @@
 //   question about it gets hints and step checks from Eden, never the final answer.
 // - weeklyCard: the top of Insights. The week's five most-struggled-with pages or slides (questions,
 //   wrong practice-quiz answers, hint use), questions the materials don't cover (3+ students), and fixes.
-// - hintNote: the "Hint mode: graded assignment" line under a student's reply (courses.js groundingStrip).
+// - hintNote: the "Hint mode: graded assignment" line under a student's reply (course-strip.js groundingStrip).
 
 import { el, ico, toast } from './util.js';
 import { getJSON, postJSON } from './api.js';

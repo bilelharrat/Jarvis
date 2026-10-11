@@ -23,6 +23,27 @@ SiteI18n.add({
     'Privacy': 'Confidentialité',
     'Terms': 'Conditions',
     '© Harrat Global Holdings, Inc.': '© Harrat Global Holdings, Inc.',
+    // the films (2026-10-10; not yet read by a French speaker)
+    'For professors': 'Pour les enseignants',
+    'Set up your class in minutes.': 'Votre cours prêt en quelques minutes.',
+    'Drop in your syllabus, slides and readings. Students join with one code, and you see what they ask about.':
+      'Déposez votre programme, vos diapositives et vos lectures. Les étudiants rejoignent le cours avec un seul code, et vous voyez sur quoi portent leurs questions.',
+    'Answers you can trust': 'Des réponses fiables',
+    'Straight from your course.': 'Tirées directement de votre cours.',
+    'Every answer cites the slide or page, checked word for word. Anything not in your materials is labeled.':
+      'Chaque réponse cite la diapositive ou la page, vérifiée mot pour mot. Tout ce qui ne vient pas de vos supports est signalé.',
+    'Flashcards and games': 'Fiches et jeux',
+    'Study smarter, not longer.': 'Étudiez mieux, pas plus longtemps.',
+    'Ask for flashcards and Eden makes a set from your class’s materials, each card checked against its source.':
+      'Demandez des fiches et Eden crée une série à partir des supports de votre cours, chaque fiche vérifiée par rapport à sa source.',
+    'Your tutor, out loud': 'Votre tuteur, à voix haute',
+    'Talk it through.': 'Parlez-en.',
+    'Ask out loud and Eden answers in its own voice, points you to the slide, then asks you a question back.':
+      'Posez votre question à voix haute : Eden répond avec sa propre voix, vous indique la diapositive, puis vous pose une question à son tour.',
+    'Exam prep': 'Préparer l’examen',
+    'Walk in ready.': 'Arrivez prêt.',
+    'Practice quizzes with a source for every question, and a day-by-day plan to the exam.':
+      'Des quiz d’entraînement avec une source pour chaque question, et un plan jour par jour jusqu’à l’examen.',
   },
   blocks: {
     'Oxygen is the final electron acceptor. At complex IV it takes the electrons and combines with H⁺ to form water 1. Without it the chain backs up and ATP synthase stops 2.':

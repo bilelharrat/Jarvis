@@ -136,11 +136,16 @@ test('J.A.R.V.I.S. Daredevil\'s page: a skip link, landmarks, the download, the 
   for (const m of html.matchAll(/<img\b[^>]*>/g)) assert.match(m[0], /\balt=/, m[0]);
 });
 
-test('the public pages say Eden, not the old J.A.R.V.I.S. name (routes, file names and the header stay)', () => {
-  for (const page of ['home/index.html', 'jarvis/index.html', 'daredevil/index.html', 'privacy/index.html', 'terms/index.html', 'signin/index.html', 'link/index.html']) {
+test('the public pages say Eden, not the old J.A.R.V.I.S. name (routes, file names, the header and J.A.R.V.I.S. Daredevil stay)', () => {
+  const pages = ['home/index.html', 'home/features.js', 'jarvis/index.html', 'daredevil/index.html', 'privacy/index.html', 'terms/index.html',
+    'signin/index.html', 'signin/signin.js', 'signin/return.js', 'link/index.html', 'link/link.js', 'accuracy/index.html',
+    'edu-home/index.html', 'edu-home/privacy.html', 'edu-home/terms.html',
+    ...fs.readdirSync(new URL('../public/lang/', import.meta.url)).map((f) => `lang/${f}`)]; // the French too: its keys are the English
+  for (const page of pages) {
     const text = read(page)
-      .replace(/X-Jarvis-Chat|JARVIS-LINK:\/\//g, '') // the API header and the Mac's link scheme
-      .replace(/%LOCALAPPDATA%\\Jarvis\\Logs\\jarvis\.log/g, ''); // where installed builds keep their log
+      .replace(/X-Jarvis-Chat|JARVIS-LINK:(?:\\?\/){2}/g, '') // the API header and the Mac's link scheme (also as a regex in link.js)
+      .replace(/%LOCALAPPDATA%(?:\\{1,2})Jarvis(?:\\{1,2})Logs(?:\\{1,2})jarvis\.log/g, '') // where installed builds keep their log (escaped in the French file)
+      .replace(/J\.A\.R\.V\.I\.S\. Daredevil|J-A-R-V-I-S-Daredevil/g, ''); // the blind edition keeps its name (owner, 2026-10-10)
     assert.doesNotMatch(text, /J\.A\.R\.V\.I\.S|Jarvis|JARVIS/, page);
   }
 });

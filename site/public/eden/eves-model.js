@@ -89,38 +89,15 @@ export function riskReasons(text) {
  * server's risk class for this very text (`risk`, from POST /api/chat/eves/estimate: { eves: 'auto' }). This is the
  * only place Auto starts EVES (POST /api/chat/send never does), so the chip has shown the price first.
  */
-export function wantsEves({ mode, applies = { ok: true }, text = '', factual = () => false, risk = null } = {}) {
+export function wantsEves({ mode, applies = { ok: true }, text = '', factual = () => false, risk = null, internal = false } = {}) {
   const m = normalizeMode(mode);
   if (m === 'off' || !applies.ok) return null;
   if (m === 'on') return 'on';
+  if (internal) return null; // a prompt Eden wrote for itself (essay rubric/feedback, canvas Fix it, deck): its wording is not a risky question (AC1)
   return riskReasons(text).length > 0 || !!factual(text) || !!(risk && risk.eves === 'auto') ? 'auto' : null;
 }
 
-/* ---------- a normal reply's stream (chat.js runChat) ---------- */
-
-/**
- * What chat.js does with one event of a normal reply's stream (POST /api/chat/send). `phase` is 'reply' until the
- * reply's `done`, then 'after' (the turn is over for the person; the server may still send the label). →
- *   'eves'          an EVES stream came instead (an `eves` event): hand it to the EVES handler
- *   'ignore'        not for the reply: a lane's own event (lane 0..2, the work behind EVES), or, after `done`, anything
- *                   but the label, a late note and the end
- *   'done'          the reply is complete: end the turn now (composer, queue, approvals)
- *   'verification'  the label under the reply (before or after `done`)
- *   'note'          after `done`: a note about the finished reply that a server may send late (memory, grounding)
- *   'end'           the stream's last event
- *   'apply'         a reply event (route, text, usage, …), including EVES's final answer (lane "final")
- */
-const LATE_NOTES = ['memory', 'grounding', 'refusal', 'research_report']; // research_report: the checked research report's title and sources (Q2)
-export function turnStreamStep(phase, type, data) {
-  const d = data && typeof data === 'object' ? data : {};
-  if (type === 'verification') return 'verification';
-  if (type === 'end') return 'end';
-  if (phase === 'after') return LATE_NOTES.includes(type) && (d.lane === undefined || d.lane === null) ? 'note' : 'ignore';
-  if (type === 'eves') return 'eves';
-  if (d.lane !== undefined && d.lane !== null && d.lane !== 'final') return 'ignore';
-  if (type === 'done') return 'done';
-  return 'apply';
-}
+/* (a normal reply's stream, turnStreamStep: turn-stream.js, so chat.js doesn't load this module where EVES isn't offered) */
 
 /* ---------- words ---------- */
 

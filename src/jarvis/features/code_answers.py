@@ -10,9 +10,12 @@ for the answer itself (TaskManager.pre_answer):
   shares the question's words ("We use pnpm, never npm" answers "Which package manager?").
 
 Otherwise, while the owner is in a meeting (meeting notes on, or a calendar event now:
-hub._in_meeting) or a Focus mode (hub.quiet_now), a question that
+hub._in_meeting) or a Focus mode or quiet hours (hub.quiet_now), a question that
 isn't risky isn't put to them at all: the session is told to choose the safest, most
-reversible option itself, say which and why, and carry on. Each such choice is kept, and
+reversible option itself, say which and why, and carry on. Never in a session the owner is
+using: one they sent a message to in the last ACTIVE_SECONDS gets its questions as cards,
+meeting or not. What the session is told is true: a meeting when there is one, else that
+they're away. Each such choice is kept, and
 said in one heads-up once the owner is free again, and in the morning briefing ("While you
 were busy, sessions chose for themselves: …"). A risky question (deleting, pushing,
 deploying, money, secrets, migrations) always reaches them.
@@ -50,6 +53,7 @@ SAME = 0.95  # word overlap that counts as the same question, answered once
 CLOSE = 0.65  # close enough, answered the same way twice
 FACT_WORDS = 2  # a fact shares at least this many of the question's words
 CHECK_EVERY = 60.0  # how often the digest looks whether the owner is free again
+ACTIVE_SECONDS = 10 * 60  # a message to the session this recently: the owner is at it
 
 _STOP = set(
     "a an the to of in on for and or is are be it this that which what should we i you use "
@@ -62,8 +66,13 @@ _RISKY = re.compile(
     re.IGNORECASE,
 )
 GO_ON = (
-    "The user is in a meeting or has Focus on, so they can't answer now. Don't wait for "
+    "The user is in a meeting, so they can't answer now. Don't wait for "
     "them: choose the safest, most reversible option yourself, say plainly in your reply "
+    "which you chose and why, and carry on. They'll review it later."
+)
+GO_ON_AWAY = (
+    "The user is away just now (their quiet hours or Focus), so they can't answer. Don't wait "
+    "for them: choose the safest, most reversible option yourself, say plainly in your reply "
     "which you chose and why, and carry on. They'll review it later."
 )
 
@@ -173,7 +182,8 @@ class Answers:
                 found = from_memory(facts[:20], asked)
             if found is not None:
                 return ("answer", found[0], found[1])
-        if self._pref(PREF_QUIET) and not risky(asked) and self._busy():
+        away = self._away(task) if self._pref(PREF_QUIET) and not risky(asked) else ""
+        if away:
             self.chosen.append(
                 {
                     "at": time.time(),
@@ -185,11 +195,28 @@ class Answers:
             )
             del self.chosen[:-CHOSEN_MAX]
             self._save()
-            why = (
-                "You were busy (a meeting or Focus): it chose for itself, listed for you to review."
-            )
-            return ("go_on", GO_ON, why)
+            if away == "meeting":
+                why = "You were in a meeting: it chose for itself, listed for you to review."
+                return ("go_on", GO_ON, why)
+            why = "You were away (quiet hours or Focus): it chose for itself, listed for you to review."
+            return ("go_on", GO_ON_AWAY, why)
         return None
+
+    def _away(self, task: Any) -> str:
+        """Why the owner can't be asked now: "meeting", "quiet" (quiet hours, a Focus mode, a
+        pause), or "" when they can: not busy, or using this very session (a message to it in
+        the last ACTIVE_SECONDS), whatever the clock or the calendar says."""
+        at = getattr(task, "user_at", 0.0) or 0.0
+        if at and time.monotonic() - at < ACTIVE_SECONDS:
+            return ""
+        for check, why in (("_in_meeting", "meeting"), ("quiet_now", "quiet")):
+            fn = getattr(self.hub, check, None)
+            try:
+                if fn is not None and fn():
+                    return why
+            except Exception:
+                continue
+        return ""
 
     def _busy(self) -> bool:
         """In a meeting (taking notes, or a calendar event now) or a Focus mode / quiet hours."""
@@ -260,7 +287,7 @@ class Answers:
 
     def _cmd_list(self, _msg: dict[str, Any]) -> None:
         self._load()
-        self.hub.emit("code_answers", learned=self.learned[-100:], chosen=self.chosen)
+        self.hub.emit_to_caller("code_answers", learned=self.learned[-100:], chosen=self.chosen)
 
     def _cmd_forget(self, msg: dict[str, Any]) -> None:
         self._load()

@@ -315,6 +315,9 @@ const webUploads ={ start: noUploads, chunk: noUploads, put: noUploads, get: noU
 
 // Recent correspondents (contacts) per account and address, 10 minutes, this isolate.
 const contactsCache = new Map();
+// Gmail's batch endpoint switched off (it failed as a whole) for this isolate, not one request: a client is made per
+// request, and its own switch lasted one request, so a failing batch endpoint cost an extra request on every search (AM2-9).
+const gmailBatch = { offUntil: 0 };
 
 // ── the routes ──
 
@@ -374,7 +377,7 @@ export async function googleData(request, env, ctx, path, { gate, readBody, maxB
         // Attachments uploaded ahead (gmail-uploads.js): kept in the account object; drafts and sends name them.
         if (UPLOAD_ACTIONS.has(action)) return json(await uploadAction(env, who, action, args, { token, fetch: f }));
         const up = await outgoingUploads(env, who, action, args);
-        const api = createGmailApi({ token, fetch: up ? up.fetch(f, token) : action === 'contacts' ? contactsFetch(f) : f });
+        const api = createGmailApi({ token, fetch: up ? up.fetch(f, token) : action === 'contacts' ? contactsFetch(f) : f, batch: gmailBatch });
         const from = found.tokens.email || undefined;
         const key = `${who.account}:${from || ''}`;
         const hit = contactsCache.get(key);

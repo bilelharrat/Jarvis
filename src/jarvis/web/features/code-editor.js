@@ -27,6 +27,23 @@
   const DRAFTS_KEY = 'jarvis.editor.drafts';  // unsaved changes, kept in the window's storage
   const DRAFTS_MAX = 12;  // files with unsaved changes kept, the newest
   const DRAFT_CHARS = 2000000;  // a bigger file's unsaved changes aren't kept
+  // Characters past which typing's bookkeeping (line numbers, the caret's place, find's
+  // count) waits for a pause in the typing, and a draft is kept less often: in a ~1 MB file
+  // it cost some 50 ms a key.
+  const BIG_TEXT = 200000;
+  const BIG_WAIT_MS = 150;
+  // Lines one edit can put in through the box's own typing (so ⌘Z undoes it): Chrome's
+  // insertText takes time growing with their square (1,000 lines 1.3 s, 6,000 lines 65 s),
+  // and Replace All in a big file froze the window for minutes. More go in at once,
+  // without an undo step.
+  const UNDOABLE_LINES = 800;
+  // Files past these open in a fast read-only view that draws only the lines in sight, with
+  // "Edit anyway" for the text box: in a ~1 MB file the box's own layout cost some 60 ms a
+  // key, and a 1 MB one-line file took seconds to open. Unsaved changes always open in the box.
+  const BIG_VIEW_CHARS = 512 * 1024;
+  const BIG_VIEW_LINES = 20000;
+  const ROW_CHARS = 2000;  // the view draws a longer line as several rows (a minified file is one line)
+  const VIEW_PAD = 10;  // the view's top padding (as the text box's)
   const USER_MEMORY = '~/.claude/CLAUDE.md';  // the owner's own memory file, outside any project
   const MEMORY = { project: 'CLAUDE.md', local: 'CLAUDE.local.md', user: USER_MEMORY };
   const PREVIEWS = { md: 'markdown', markdown: 'markdown', html: 'html', htm: 'html', csv: 'csv', tsv: 'csv', json: 'json' };
@@ -42,6 +59,104 @@
       start = i + 1;
     }
     return { line, col: pos - start + 1 };
+  }
+
+  // Whether an edit putting this text in can go through the box's typing (and its undo).
+  function undoable(text) {
+    let lines = 0;
+    for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) if (++lines > UNDOABLE_LINES) return false;
+    return true;
+  }
+
+  // How many lines a text has (one more than its newlines).
+  function lineCount(text) {
+    let lines = 1;
+    for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) lines += 1;
+    return lines;
+  }
+
+  // The gutter's numbers from line `from` to `to`, each on its line ("4\n5\n").
+  function numbersText(from, to) {
+    const out = [];
+    for (let i = from; i <= to; i += 1) out.push(`${i}\n`);
+    return out.join('');
+  }
+
+  // How long the gutter's text is for n lines ("1\n2\n…n\n"), worked out, not counted.
+  function numbersLength(n) {
+    let total = 0;
+    for (let digits = 1, low = 1; low <= n; digits += 1, low *= 10) total += (Math.min(n, low * 10 - 1) - low + 1) * (digits + 1);
+    return total;
+  }
+
+  // Whether a text opens in the fast read-only view.
+  function bigView(text) {
+    if (text.length > BIG_VIEW_CHARS) return true;
+    return text.length > BIG_VIEW_LINES && lineCount(text) > BIG_VIEW_LINES;
+  }
+
+  // The read-only view's rows: where each starts and ends in the text, and its line number
+  // (0 for the next rows of a line longer than `max`).
+  function viewRows(text, max = ROW_CHARS) {
+    const start = [];
+    const end = [];
+    const line = [];
+    let n = 1;
+    for (let s = 0; ; n += 1) {
+      const nl = text.indexOf('\n', s);
+      const e = nl < 0 ? text.length : nl;
+      for (let a = s, first = true; first || a < e; first = false) {
+        const b = rowEnd(text, a, e, max);
+        start.push(a);
+        end.push(b);
+        line.push(first ? n : 0);
+        a = b;
+      }
+      if (nl < 0) break;
+      s = nl + 1;
+    }
+    return { start, end, line, count: start.length, lines: n };
+  }
+
+  // Where a row of a long line that starts at `a` ends (the line ends at `e`): `max` units
+  // on, or a little before, never between the two halves of an emoji (a surrogate pair,
+  // which drew as two "�"), nor before a mark, joiner or variation selector that belongs
+  // with the character before it (CF2-11).
+  const JOINS = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe00-\ufe0f\ufe20-\ufe2f\u200c\u200d]/;
+  const highHalf = (code) => code >= 0xd800 && code <= 0xdbff;
+  const lowHalf = (code) => code >= 0xdc00 && code <= 0xdfff;
+  const flagHalf = (cp) => cp >= 0x1f1e6 && cp <= 0x1f1ff;  // (a flag is two of these)
+  function cuttable(text, c) {
+    const before = text.charCodeAt(c - 1);
+    if (lowHalf(text.charCodeAt(c)) && highHalf(before)) return false;  // an emoji's two halves
+    if (before === 0x200d) return false;  // just after a joiner (woman technologist: U+1F469 U+200D U+1F4BB)
+    const cp = text.codePointAt(c);
+    if (JOINS.test(String.fromCodePoint(cp))) return false;  // a mark, joiner or selector
+    if ((cp >= 0x1f3fb && cp <= 0x1f3ff) || (cp >= 0xe0020 && cp <= 0xe007f)) return false;  // a skin tone, a flag's tag
+    if (flagHalf(cp)) {  // inside a flag when an odd number of these comes just before
+      let n = 0;
+      for (let k = c - 2; k >= 0 && lowHalf(text.charCodeAt(k + 1)) && flagHalf(text.codePointAt(k)); k -= 2) n += 1;
+      if (n % 2) return false;
+    }
+    return true;
+  }
+  function rowEnd(text, a, e, max) {
+    const b = Math.min(e, a + max);
+    if (b >= e) return e;
+    for (let c = b, floor = Math.max(a + 1, b - 32); c >= floor; c -= 1) if (cuttable(text, c)) return c;
+    // (a run of marks longer than that is cut, but never between an emoji's halves)
+    return lowHalf(text.charCodeAt(b)) && highHalf(text.charCodeAt(b - 1)) && b - 1 > a ? b - 1 : b;
+  }
+
+  // The row of the view a position in the text is on.
+  function rowOf(rows, pos) {
+    let lo = 0;
+    let hi = rows.count - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (rows.start[mid] <= pos) lo = mid; else hi = mid - 1;
+    }
+    return lo;
   }
 
   // Where lines `from` to `to` (1-based, inclusive) are in the text: [start, end).
@@ -66,9 +181,10 @@
 
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-  // Every match of a query in the text: [[start, end], …] (at most MATCHES_MAX), or an
-  // error for a regular expression that isn't one.
+  // Every match of a query in the text: [[start, end], …] (at most opts.max, MATCHES_MAX
+  // unless said), or an error for a regular expression that isn't one.
   function findAll(text, query, opts = {}) {
+    const max = opts.max === undefined ? MATCHES_MAX : opts.max;
     if (!query) return { ranges: [], error: '' };
     let re;
     try {
@@ -79,7 +195,7 @@
     }
     const ranges = [];
     let m;
-    while ((m = re.exec(text)) !== null && ranges.length < MATCHES_MAX) {
+    while ((m = re.exec(text)) !== null && ranges.length < max) {
       if (m[0] === '') { re.lastIndex += 1; continue; }  // an empty match finds nothing
       ranges.push([m.index, m.index + m[0].length]);
     }
@@ -156,7 +272,21 @@
     return [out, cut];
   }
 
-  const api = { lineCol, lineSpan, findAll, replacement, rankFiles, indentUnit, previewKind, outdent };
+  // (CF2-1) A command's ref: this page's own mark and the file's key. Every window and every
+  // split view pane has the same keys for a project's files, and an answer to another page's
+  // read or save must never be taken for this one's ("Saved." for a save it didn't make).
+  function refOf(page, key) { return `${page}|${key}`; }
+  function keyOfRef(page, ref) {
+    const mark = `${page}|`;
+    return typeof ref === 'string' && ref.startsWith(mark) ? ref.slice(mark.length) : null;
+  }
+
+  // What a partial file list says (a big project: its first files, and those found).
+  function listedNote(listed, total) {
+    return `${listed.toLocaleString('en-US')} of ${Number(total).toLocaleString('en-US')} files listed: what you type is looked for in all of them.`;
+  }
+
+  const api = { lineCol, lineSpan, findAll, replacement, rankFiles, indentUnit, previewKind, outdent, listedNote, lineCount, numbersText, numbersLength, undoable, bigView, viewRows, rowOf, rowEnd, refOf, keyOfRef, BIG_VIEW_CHARS, BIG_VIEW_LINES, ROW_CHARS };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -166,6 +296,7 @@
 
   // ── state ──
 
+  const PAGE = Math.random().toString(36).slice(2, 10) || 'p';  // this page's mark on its refs
   const docs = new Map();  // key -> doc
   const scopes = new Map();  // scope -> { open: [paths], active: path, view: 'list'|'editor'|<registered> }
   const recentFiles = new Map();  // scope -> [paths opened lately]
@@ -204,9 +335,9 @@
     const d = readDrafts();
     if (key in d) { delete d[key]; writeDrafts(d); }
   }
-  function stashSoon(doc) {
+  function stashSoon(doc, wait = 500) {
     clearTimeout(doc.stashTimer);
-    doc.stashTimer = setTimeout(() => stashDraft(doc), 500);
+    doc.stashTimer = setTimeout(() => stashDraft(doc), wait);
   }
   // The files of this scope that had unsaved changes: open again, once a page load.
   function reopenDrafts(scope) {
@@ -315,7 +446,7 @@
   // Its text, asked for. Not out when there was no connection, or once a reconnect lost its
   // answer: asked again when it shows (drawDoc).
   function ask(doc) {
-    doc.asked = F.send({ type: 'cw_file_read', ...whereOf(doc), path: doc.rel, ref: doc.key });
+    doc.asked = F.send({ type: 'cw_file_read', ...whereOf(doc), path: doc.rel, ref: refOf(PAGE, doc.key) });
   }
 
   // ── the editor for one file ──
@@ -336,8 +467,9 @@
     const markBar = el('div', 'ce-mark');
     markBar.hidden = true;
     box.append(markBar, ta);
-    wrap.append(gutter, box);
-    doc.ui = { wrap, gutter, ta, markBar, lines: 0 };
+    const big = makeBig(doc);
+    wrap.append(gutter, box, big.box);
+    doc.ui = { wrap, gutter, box, ta, markBar, lines: 0, big };
     ta.addEventListener('input', () => { onEdit(doc); });
     ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; placeMark(doc); });
     ta.addEventListener('keydown', (e) => onKey(doc, e));
@@ -353,29 +485,191 @@
     ta.readOnly = !doc.editable;
     doc.unit = indentUnit(text);
     ta.style.tabSize = doc.unit === '\t' ? '4' : String(doc.unit.length);
-    numberLines(doc);
+    // A big file opens in the fast view, unless it has unsaved changes or "Edit anyway" was asked.
+    doc.viewing = !doc.dirty && !doc.editAnyway && bigView(text);
+    const b = doc.ui.big;
+    b.rows = doc.viewing ? viewRows(text) : null;
+    b.hit = null;
+    b.all = false;
+    b.drawn = null;
+    b.el.scrollTop = 0;
+    b.el.style.tabSize = ta.style.tabSize;
+    showMode(doc);
+    if (!doc.viewing) numberLines(doc);
   }
 
-  function numberLines(doc) {
-    const { ta, gutter } = doc.ui;
-    let lines = 1;
-    for (let i = ta.value.indexOf('\n'); i >= 0; i = ta.value.indexOf('\n', i + 1)) lines += 1;
-    if (lines === doc.ui.lines) return;
+  // ── the fast read-only view of a big file ──
+
+  function makeBig(doc) {
+    const box = el('div', 'ce-big-box');
+    Object.assign(box.style, { flex: '1', minWidth: '0', display: 'none', flexDirection: 'column' });
+    const note = el('div', 'ce-big-note');
+    Object.assign(note.style, { display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 12px', fontSize: '12px', color: 'rgb(var(--c-ink-2))', background: 'rgb(var(--c-accent) / 0.08)', borderBottom: '0.5px solid rgb(var(--c-border))' });
+    const say = el('span', 'ce-big-say', 'A big file, shown read-only so it opens and scrolls fast.');
+    say.style.flex = '1';
+    const go = button('Edit anyway', 'jc-mini', () => editAnyway(doc), 'Shows it in the text box: typing there is slower in a file this big');
+    note.append(say, go);
+    const view = mine(el('div', 'ce-big'));
+    view.tabIndex = 0;
+    view.setAttribute('role', 'document');
+    view.setAttribute('aria-label', `Contents of ${doc.path}`);
+    Object.assign(view.style, { flex: '1', minHeight: '0', overflow: 'auto', position: 'relative', outline: 'none', font: '12px/1.6 var(--mono)', color: 'rgb(var(--c-ink))', whiteSpace: 'pre', tabSize: '4' });
+    const space = el('div', 'ce-big-space');
+    space.style.position = 'relative';
+    const rowsEl = el('div', 'ce-big-rows');
+    Object.assign(rowsEl.style, { position: 'absolute', left: '0', minWidth: '100%' });
+    space.append(rowsEl);
+    view.append(space);
+    box.append(note, view);
+    const b = { box, note, go, el: view, space, rowsEl, rows: null, lh: 0, hit: null, mark: null, all: false, drawn: null, frame: 0 };
+    view.addEventListener('scroll', () => { if (!b.frame) b.frame = requestAnimationFrame(() => { b.frame = 0; drawBig(doc); }); });
+    view.addEventListener('keydown', (e) => onBigKey(doc, e));
+    view.addEventListener('mousedown', () => { b.all = false; });
+    // ⌘A then ⌘C copies the whole file (only the rows in sight are drawn)
+    view.addEventListener('copy', (e) => { if (b.all && e.clipboardData) { e.preventDefault(); e.clipboardData.setData('text/plain', doc.ui.ta.value); } });
+    return b;
+  }
+
+  // The text box, or the fast view: one of them shows.
+  function showMode(doc) {
+    const { gutter, box, big } = doc.ui;
+    gutter.style.display = doc.viewing ? 'none' : '';
+    box.style.display = doc.viewing ? 'none' : '';
+    big.box.style.display = doc.viewing ? 'flex' : 'none';
+    big.go.title = doc.editable ? 'Shows it in the text box: typing there is slower in a file this big' : 'Shows it in the text box (read-only): slower in a file this big';
+    if (doc.viewing) requestAnimationFrame(() => drawBig(doc));
+  }
+
+  function bigLineHeight(b) {
+    if (!b.lh) { const h = parseFloat(getComputedStyle(b.el).lineHeight); if (Number.isFinite(h) && h > 0) b.lh = h; }
+    return b.lh || 19.2;
+  }
+
+  // Only the rows in sight (and some around them) are in the page.
+  function drawBig(doc, force) {
+    if (!doc.ui || !doc.viewing) return;
+    const b = doc.ui.big;
+    const rows = b.rows;
+    if (!rows) return;
+    const lh = bigLineHeight(b);
+    const top = b.el.scrollTop;
+    const height = b.el.clientHeight || 600;
+    const first = Math.max(0, Math.floor((top - VIEW_PAD) / lh) - 30);
+    const last = Math.min(rows.count, Math.ceil((top + height) / lh) + 30);
+    b.space.style.height = `${VIEW_PAD + rows.count * lh + 24}px`;
+    const key = `${first}:${last}:${b.hit ? b.hit.join() : ''}:${b.mark ? `${b.mark.start}-${b.mark.end}` : ''}`;
+    if (!force && b.drawn === key) return;
+    b.drawn = key;
+    const text = doc.ui.ta.value;
+    const digits = `${String(rows.lines || lineCount(text)).length + 1}ch`;  // (counted once, with the rows)
+    let line = 0;
+    for (let r = first; r >= 0 && !line; r -= 1) line = rows.line[r];
+    const out = [];
+    for (let r = first; r < last; r += 1) {
+      if (rows.line[r]) line = rows.line[r];
+      const row = el('div', 'ce-big-row');
+      row.style.height = `${lh}px`;
+      const n = el('span', 'ce-big-n', rows.line[r] ? String(rows.line[r]) : '');
+      Object.assign(n.style, { display: 'inline-block', width: digits, paddingRight: '10px', marginRight: '10px', textAlign: 'right', color: 'rgb(var(--c-subtle))', background: 'rgb(var(--c-surface-muted))', position: 'sticky', left: '0', userSelect: 'none' });
+      row.append(n);
+      const s = rows.start[r];
+      const e = rows.end[r];
+      if (b.mark && line >= b.mark.start && line <= b.mark.end) row.style.background = 'rgb(var(--c-accent) / 0.1)';
+      if (b.hit && b.hit[0] < Math.max(e, s + 1) && b.hit[1] > s) {
+        const hs = Math.max(s, b.hit[0]);
+        const he = Math.min(e, b.hit[1]);
+        const m = el('mark', '', text.slice(hs, he));
+        row.append(text.slice(s, hs), m, text.slice(he, e));
+      } else row.append(text.slice(s, e));
+      out.push(row);
+    }
+    b.rowsEl.style.top = `${VIEW_PAD + first * lh}px`;
+    b.rowsEl.replaceChildren(...out);
+  }
+
+  // Scrolls the view so a position in the text shows about a third of the way down.
+  function bigScrollTo(doc, pos) {
+    const b = doc.ui.big;
+    if (!b.rows) return;
+    const lh = bigLineHeight(b);
+    b.el.scrollTop = Math.max(0, VIEW_PAD + rowOf(b.rows, pos) * lh - (b.el.clientHeight || 600) / 3);
+    drawBig(doc);
+  }
+
+  function onBigKey(doc, e) {
+    const cmd = e.metaKey || e.ctrlKey;
+    const key = e.key.toLowerCase();
+    const stop = () => { e.preventDefault(); e.stopPropagation(); };
+    if (cmd && key === 's') { stop(); save(doc, false); return; }
+    if (cmd && key === 'f') { stop(); openFind(doc); return; }
+    if (cmd && key === 'g') { stop(); step(doc, e.shiftKey ? -1 : 1); return; }
+    if (cmd && key === 'a') { stop(); doc.ui.big.all = true; const sel = window.getSelection(); if (sel) sel.selectAllChildren(doc.ui.big.rowsEl); return; }
+    if (e.key === 'Escape') {
+      e.stopPropagation();  // never the session's interrupt or the pane closing from here
+      if (doc.find && doc.find.open) { e.preventDefault(); closeFind(doc); } else doc.ui.big.el.blur();
+    }
+  }
+
+  // "Edit anyway": the text box, at the line the view was showing.
+  function editAnyway(doc) {
+    if (!doc.ui || !doc.viewing) return;
+    const b = doc.ui.big;
+    const lh = bigLineHeight(b);
+    let line = 0;
+    if (b.rows) for (let r = Math.min(b.rows.count - 1, Math.max(0, Math.floor((b.el.scrollTop - VIEW_PAD) / lh))); r >= 0 && !line; r -= 1) line = b.rows.line[r];
+    doc.editAnyway = true;
+    doc.viewing = false;
+    b.rows = null;
+    b.rowsEl.replaceChildren();
+    showMode(doc);
+    numberLines(doc);
+    const { ta } = doc.ui;
+    if (line > 1) {
+      const [s] = lineSpan(ta.value, line);
+      if (ta.selectionStart === 0 && ta.selectionEnd === 0) ta.setSelectionRange(s, s);
+      scrollToLine(doc, line);
+    }
+    ta.focus({ preventScroll: true });
+    showCaret(doc);
+  }
+
+  function numberLines(doc, text = doc.ui.ta.value) {
+    const { gutter } = doc.ui;
+    const lines = lineCount(text);
+    const had = doc.ui.lines;
+    if (lines === had) return;
     doc.ui.lines = lines;
-    const out = new Array(lines);
-    for (let i = 0; i < lines; i += 1) out[i] = String(i + 1);
-    gutter.textContent = `${out.join('\n')}\n`;
-    gutter.style.width = `${Math.max(3, String(lines).length) + 1.6}ch`;
+    const node = gutter.firstChild;
+    if (had && node && node.nodeType === 3 && node === gutter.lastChild && node.length === numbersLength(had)) {
+      // A few lines more or fewer: the numbers at the end change, not all 20,000 again.
+      if (lines > had) node.appendData(numbersText(had + 1, lines));
+      else node.deleteData(numbersLength(lines), node.length - numbersLength(lines));
+    } else gutter.textContent = numbersText(1, lines);
+    if (String(lines).length !== String(had).length) gutter.style.width = `${Math.max(3, String(lines).length) + 1.6}ch`;
   }
 
   function onEdit(doc) {
-    numberLines(doc);
-    const dirty = doc.ui.ta.value !== doc.text;
+    const text = doc.ui.ta.value;
+    const dirty = text !== doc.text;
     if (dirty !== doc.dirty) { doc.dirty = dirty; drawTabs(); drawDocBar(doc); }
-    stashSoon(doc);
-    showCaret(doc);
-    if (doc.find && doc.find.open) refind(doc, false);
     if (doc.mark) { doc.mark = null; placeMark(doc); }
+    clearTimeout(doc.editTimer);
+    if (text.length > BIG_TEXT) {
+      doc.editTimer = setTimeout(() => afterEdit(doc), BIG_WAIT_MS);
+      stashSoon(doc, 2000);
+    } else {
+      afterEdit(doc, text);
+      stashSoon(doc);
+    }
+  }
+
+  // What follows an edit: the line numbers, where the caret is, find's matches.
+  function afterEdit(doc, text) {
+    if (!doc.ui) return;
+    const now = text === undefined ? doc.ui.ta.value : text;
+    numberLines(doc, now);
+    showCaret(doc, now);
+    if (doc.find && doc.find.open) refind(doc, false);
   }
 
   function lineHeight(doc) {
@@ -395,6 +689,16 @@
     if (!doc.ui || !doc.mark) return;
     const { ta } = doc.ui;
     const [s, e] = lineSpan(ta.value, doc.mark.start, doc.mark.end);
+    if (doc.viewing) {
+      ta.setSelectionRange(s, e);
+      doc.ui.big.mark = { ...doc.mark };
+      requestAnimationFrame(() => {
+        doc.ui.big.el.focus({ preventScroll: true });
+        bigScrollTo(doc, s);
+        showCaret(doc);
+      });
+      return;
+    }
     requestAnimationFrame(() => {
       ta.focus({ preventScroll: true });
       ta.setSelectionRange(s, e);
@@ -415,22 +719,25 @@
     bar.style.height = `${(doc.mark.end - doc.mark.start + 1) * lh}px`;
   }
 
-  function showCaret(doc) {
+  function showCaret(doc, text) {
     if (!doc.ui || !doc.ui.status) return;
     const { ta } = doc.ui;
-    const { line, col } = lineCol(ta.value, ta.selectionStart);
+    const { line, col } = lineCol(text === undefined ? ta.value : text, ta.selectionStart);
     const picked = ta.selectionEnd - ta.selectionStart;
     doc.ui.caret.textContent = `Ln ${line}, Col ${col}${picked ? ` (${picked} selected)` : ''}`;
   }
 
-  // Typing as the owner would, so ⌘Z undoes it: the box's own undo keeps every step.
+  // Typing as the owner would, so ⌘Z undoes it: the box's own undo keeps every step. A text
+  // of very many lines goes in at once instead (undoable): false then.
   function insert(ta, text) {
-    if (!document.execCommand('insertText', false, text)) {
+    if (!undoable(text) || !document.execCommand('insertText', false, text)) {
       const { selectionStart: s, selectionEnd: e, value } = ta;
       ta.value = value.slice(0, s) + text + value.slice(e);
       ta.selectionStart = ta.selectionEnd = s + text.length;
       ta.dispatchEvent(new Event('input'));
+      return false;
     }
+    return true;
   }
 
   function onKey(doc, e) {
@@ -544,7 +851,7 @@
   function closeFind(doc) {
     doc.find.open = false;
     doc.find.bar.hidden = true;
-    doc.ui.ta.focus();
+    if (doc.viewing) { doc.ui.big.hit = null; drawBig(doc); doc.ui.big.el.focus(); } else doc.ui.ta.focus();
   }
 
   function refind(doc, jump) {
@@ -577,6 +884,13 @@
     const r = f.ranges[f.at];
     if (!r) return;
     const { ta } = doc.ui;
+    if (doc.viewing) {  // the match marked in the view (the hidden box keeps it as its selection)
+      ta.setSelectionRange(r[0], r[1]);
+      doc.ui.big.hit = [r[0], r[1]];
+      bigScrollTo(doc, r[0]);
+      showCaret(doc);
+      return;
+    }
     if (focus) ta.focus({ preventScroll: true });
     ta.setSelectionRange(r[0], r[1]);
     scrollToLine(doc, lineCol(ta.value, r[0]).line);
@@ -599,6 +913,7 @@
     if (ta.readOnly || !f.ranges.length) return;
     const r = f.ranges[f.at];
     if (!r) return;
+    editAnyway(doc);  // (a change: in the text box, where ⌘Z undoes it)
     ta.focus({ preventScroll: true });
     ta.setSelectionRange(r[0], r[1]);
     insert(ta, replacement(ta.value.slice(r[0], r[1]), f.input.value, f.rinput.value, f, ta.value, r[0]));
@@ -613,9 +928,12 @@
     const f = doc.find;
     const { ta } = doc.ui;
     if (ta.readOnly || !f.ranges.length) return;
+    editAnyway(doc);  // (a change: in the text box, where ⌘Z undoes it)
+    // Every match: the count stops at MATCHES_MAX, Replace All doesn't (it left the rest).
+    const every = findAll(ta.value, f.input.value, { ...f, max: Infinity }).ranges;
     let out = '';
     let at = 0;
-    for (const [s, e] of f.ranges) {
+    for (const [s, e] of every) {
       out += ta.value.slice(at, s) + replacement(ta.value.slice(s, e), f.input.value, f.rinput.value, f, ta.value, s);
       at = e;
     }
@@ -623,10 +941,13 @@
     const top = ta.scrollTop;
     ta.focus({ preventScroll: true });
     ta.setSelectionRange(0, ta.value.length);
-    insert(ta, out);  // one step to undo
+    const undo = insert(ta, out);  // one step to undo (when it isn't too big for one)
     ta.setSelectionRange(0, 0);
     ta.scrollTop = top;
-    refind(doc, false);
+    clearTimeout(doc.editTimer);
+    afterEdit(doc);  // (now, however big: the count below is about this text)
+    f.count.classList.remove('bad');
+    f.count.textContent = `Replaced ${every.length.toLocaleString('en-US')}${undo ? '' : ' (too big to undo)'}`;
   }
 
   // ── saving, and what's on disk ──
@@ -635,7 +956,7 @@
     if (!doc.ui || !doc.editable || doc.saving) return;
     doc.sent = doc.ui.ta.value;  // (what's on disk once it's saved: typing may go on meanwhile)
     // No connection (a restart, a reconnect): nothing went, and nothing waits for an answer.
-    doc.saving = F.send({ type: 'cw_file_save', ...whereOf(doc), path: doc.rel, text: doc.sent, base: doc.version, crlf: doc.crlf, force: !!force, ref: doc.key, create: !!doc.create });
+    doc.saving = F.send({ type: 'cw_file_save', ...whereOf(doc), path: doc.rel, text: doc.sent, base: doc.version, crlf: doc.crlf, force: !!force, ref: refOf(PAGE, doc.key), create: !!doc.create });
     if (!doc.saving) { doc.banner = { kind: 'error', text: 'Not connected yet: nothing was saved. Save again in a moment.' }; drawBanner(doc); }
     drawDocBar(doc);
   }
@@ -645,12 +966,12 @@
     doc.reloading = true;
     clearTimeout(doc.stashTimer);
     dropDraft(doc.key);  // (what's on disk now, in place of the unsaved changes)
-    F.send({ type: 'cw_file_read', ...whereOf(doc), path: doc.rel, ref: doc.key });
+    F.send({ type: 'cw_file_read', ...whereOf(doc), path: doc.rel, ref: refOf(PAGE, doc.key) });
     drawBanner(doc);
   }
 
   function compare(doc) {
-    F.send({ type: 'cw_file_compare', ...whereOf(doc), path: doc.rel, text: doc.ui.ta.value, ref: doc.key });
+    F.send({ type: 'cw_file_compare', ...whereOf(doc), path: doc.rel, text: doc.ui.ta.value, ref: refOf(PAGE, doc.key) });
     doc.banner = { ...(doc.banner || {}), comparing: true };
     drawBanner(doc);
   }
@@ -663,7 +984,7 @@
       const { scope, state } = current();
       for (const path of state.open) {
         const doc = docs.get(keyOf(scope, path));
-        if (doc && doc.version && !doc.saving && !doc.loading) F.send({ type: 'cw_file_stat', ...whereOf(doc), path: doc.rel, base: doc.version, ref: doc.key });
+        if (doc && doc.version && !doc.saving && !doc.loading) F.send({ type: 'cw_file_stat', ...whereOf(doc), path: doc.rel, base: doc.version, ref: refOf(PAGE, doc.key) });
       }
     }, 400);
   }
@@ -734,12 +1055,17 @@
     const all = (typeof projectFiles !== 'undefined' && projectFiles[project()]) || null;
     if (!all) {
       list.replaceChildren(el('li', 'jc-empty', project() ? 'Reading the project…' : 'Pick a project first.'));
-      if (project() && typeof projectFiles !== 'undefined' && !(project() in projectFiles)) F.send({ type: 'project_files', directory: project() });
+      if (project() && typeof askProjectFiles === 'function') askProjectFiles(project());
+      else if (project() && typeof projectFiles !== 'undefined' && !(project() in projectFiles)) F.send({ type: 'project_files', directory: project() });
       return;
     }
     const shown = rankFiles(all, filter.value, recentFiles.get(scope) || []);
     const open = new Set(state.open);
-    list.replaceChildren(...(shown.length ? shown.map((f) => {
+    // A big project's list is its first files only: what's typed is looked for among all
+    // of them (app.js moreProjectFiles), and the list says it's partial.
+    const partial = typeof moreProjectFiles === 'function' && moreProjectFiles(project(), filter.value);
+    const note = partial ? [el('li', 'jc-empty ce-partial', listedNote(all.length, projectFilesTotal[project()]))] : [];
+    list.replaceChildren(...note, ...(shown.length ? shown.map((f) => {
       const li = el('li');
       const b = el('button', open.has(f) ? 'open' : '');
       b.type = 'button';
@@ -879,7 +1205,7 @@
     doc.ui.facts.replaceChildren(...facts.filter(Boolean).map((f) => el('span', '', f)));  // (each its own words, for Chinese)
     if (why && !doc.banner) { doc.banner = { kind: 'info', text: why }; drawBanner(doc); }
     showCaret(doc);
-    if (showing === 'edit') requestAnimationFrame(() => placeMark(doc));
+    if (showing === 'edit') requestAnimationFrame(() => { placeMark(doc); drawBig(doc); });
   }
 
   function draw() {
@@ -997,12 +1323,15 @@
 
   // ── events ──
 
-  function docOf(ev) { return ev && ev.ref ? docs.get(ev.ref) : null; }
+  function docOf(ev) {
+    const key = ev ? keyOfRef(PAGE, ev.ref) : null;
+    return key === null ? null : docs.get(key) || null;
+  }
 
   F.on('cw_file', (ev) => {
     const doc = docOf(ev);
     if (!doc) return;
-    const keepAt = doc.ui && doc.reloading ? { s: doc.ui.ta.selectionStart, e: doc.ui.ta.selectionEnd, top: doc.ui.ta.scrollTop } : null;
+    const keepAt = doc.ui && doc.reloading ? { s: doc.ui.ta.selectionStart, e: doc.ui.ta.selectionEnd, top: doc.ui.ta.scrollTop, big: doc.ui.big.el.scrollTop } : null;
     const opening = doc.loading;  // (only a file opening goes to its lines: a reload never takes the keys)
     doc.loading = false;
     doc.reloading = false;
@@ -1036,6 +1365,7 @@
       if (keepAt) {
         doc.ui.ta.setSelectionRange(Math.min(keepAt.s, shown.length), Math.min(keepAt.e, shown.length));
         doc.ui.ta.scrollTop = keepAt.top;
+        if (doc.viewing) { doc.ui.big.el.scrollTop = keepAt.big; drawBig(doc); }
       }
     } else if (!doc.ui) doc.pendingText = shown;
     const { scope, state } = current();
@@ -1047,6 +1377,7 @@
     if (!doc) return;
     doc.saving = false;
     if (ev.ok) {
+      if (doc.create && typeof projectFilesChanged === 'function') projectFilesChanged();  // (a new file: listed)
       doc.version = ev.version;
       // What was sent is on disk now: anything typed since is still unsaved, and kept.
       doc.text = doc.sent;

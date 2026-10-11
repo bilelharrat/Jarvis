@@ -102,6 +102,9 @@
 .cw-ed .gmail_signature,.cw-rv-body .gmail_signature{color:var(--text2);font-size:13px}
 .cw-trim{align-self:flex-start;margin:0 14px 8px;padding:0 9px;height:18px;line-height:16px;border-radius:9px;font-size:12px;letter-spacing:1px;color:var(--text2);background:rgba(120,120,128,.14)}
 .cw-trim:hover{background:rgba(120,120,128,.24)}
+.cw-imgs{letter-spacing:0;margin-top:-4px}
+/* a quoted email's own widths never push the window wider (AM6) */
+.cw-quote *{max-width:100%}
 .cw-quote{padding:2px 14px 14px;font-size:13px;line-height:1.45;color:var(--text2);overflow-wrap:anywhere}
 .cw-quote .gmail_attr{color:var(--text3);margin-bottom:4px}
 

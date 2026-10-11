@@ -21,6 +21,7 @@ Haiku 4.5, on the owner's click, 60 a day).
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import re
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from ..code_changes import git
 from ..hub import _msg_int
 
 LOG_COUNT = 50
+OPEN_FILES = 50  # open files one refresh asks for again at once
 BRANCHES = 100
 MESSAGE_DIFF = 24_000  # characters of the staged diff a commit message is written from
 PUSH_SECONDS = 180.0
@@ -83,6 +85,7 @@ ZH = {
     "Couldn't push: {error}": "没能推送：{error}",
     "This folder isn't a git repository.": "这个文件夹不是 git 仓库。",
     "That change has moved on. Refresh and try again.": "那处改动已经变了。刷新后再试。",
+    "This session works in an isolated copy, which stays on its own branch: land it, or switch branches in the project's own folder.": "这个会话在独立副本里工作，副本要留在自己的分支上：请合并它，或在项目自己的文件夹里切换分支。",
 }
 lang.add_texts(ZH)
 
@@ -117,14 +120,48 @@ def parse_status(out: str) -> dict[str, Any]:
 
 
 def state(folder: Path) -> dict[str, Any]:
-    """Everything the panel shows about a folder's repository."""
-    repo = code_changes.repo_of(folder)
+    """Everything the panel shows about a folder's repository. Its git calls don't wait on
+    one another, so they run at once (each costs a process start from the big backend)."""
+    repo, head = code_changes._repo_and_head(folder)
     if repo is None:
         return {"repo": False}
+    if head is None:
+        head = code_changes.head_commit(repo.top)
     spec = repo.prefix or "."
-    status = git(
-        repo.top, "status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all", "--", spec
-    )
+    with concurrent.futures.ThreadPoolExecutor(6) as pool:
+        asked_status = pool.submit(
+            git,
+            repo.top,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--branch",
+            "--untracked-files=all",
+            "--",
+            spec,
+        )
+        asked_log = (
+            pool.submit(git, repo.top, "log", f"-{LOG_COUNT}", "--format=%h%x1f%s%x1f%an%x1f%at")
+            if head
+            else None
+        )
+        asked_branches = pool.submit(
+            git,
+            repo.top,
+            "for-each-ref",
+            "--sort=-committerdate",
+            f"--count={BRANCHES}",
+            "--format=%(refname:short)",
+            "refs/heads",
+        )
+        asked_remotes = pool.submit(git, repo.top, "remote")
+        # Its own git folder, then MERGE_HEAD's commit when there is one (one git, not two:
+        # the folder is printed either way, and it succeeds only with a merge under way).
+        asked_gitdir = pool.submit(
+            git, repo.top, "rev-parse", "--path-format=absolute", "--git-dir", "--verify", "-q",
+            "MERGE_HEAD",
+        )  # fmt: skip
+    status = asked_status.result()
     parsed = (
         parse_status(status.out)
         if status.ok
@@ -140,11 +177,9 @@ def state(folder: Path) -> dict[str, Any]:
             staged.append({"path": shown, "code": code[0]})
         if code[1] not in " ?!":
             unstaged.append({"path": shown, "code": code[1]})
-    head = code_changes.head_commit(repo.top)
     log = []
-    if head:
-        listed = git(repo.top, "log", f"-{LOG_COUNT}", "--format=%h%x1f%s%x1f%an%x1f%at")
-        for line in listed.out.splitlines():
+    if asked_log is not None:
+        for line in asked_log.result().out.splitlines():
             parts = line.split("\x1f")
             if len(parts) == 4:
                 log.append(
@@ -155,16 +190,13 @@ def state(folder: Path) -> dict[str, Any]:
                         "at": int(parts[3] or 0),
                     }
                 )
-    branches = git(
-        repo.top,
-        "for-each-ref",
-        "--sort=-committerdate",
-        f"--count={BRANCHES}",
-        "--format=%(refname:short)",
-        "refs/heads",
-    ).out.split()
-    remotes = git(repo.top, "remote").out.split()
-    merging = git(repo.top, "rev-parse", "-q", "--verify", "MERGE_HEAD").ok
+    branches = asked_branches.result().out.split()
+    remotes = asked_remotes.result().out.split()
+    found_gitdir = asked_gitdir.result()
+    merging = found_gitdir.ok
+    first = found_gitdir.out.split("\n", 1)[0].strip()
+    gitdir = Path(first) if first else None
+    under = worktrees.under_way(gitdir) if gitdir is not None else ""
     return {
         "repo": True,
         "branch": parsed["branch"],
@@ -178,8 +210,23 @@ def state(folder: Path) -> dict[str, Any]:
         "branches": branches,
         "remotes": remotes,
         "merging": merging,
+        # A rebase, cherry-pick or revert half done (a rebase shows as detached, too).
+        "rebasing": under == "a rebase",
+        "cherry_picking": under == "a cherry-pick",
+        "reverting": under == "a revert",
         "empty": not head,
     }
+
+
+def files_public(folder: Path, paths: list[str], staged: bool) -> dict[str, dict[str, Any] | None]:
+    """Files of the folder's staged or unstaged changes, each with its hunks, from one diff
+    of the folder however many are asked for."""
+    repo = code_changes.repo_of(folder)
+    if repo is None:
+        return {}
+    files = code_changes.diff_files(repo, "", cached=staged, untracked=not staged)
+    view = code_changes.View(repo, "", files, {})
+    return {path: code_changes.file_public(view, path) for path in paths}
 
 
 def _inside(repo: code_changes.Repo, shown: str) -> str | None:
@@ -259,21 +306,26 @@ class GitPanel:
         self.spawn(self.file(msg))
 
     async def file(self, msg: dict[str, Any]) -> None:
+        """One file's hunks (path), or several open ones' (paths: a refresh of the panel
+        asks for all of them at once, and the folder is diffed once for them all)."""
         where = self.folder(msg)
         if where is None:
             return
         folder, _task, key = where
-        path, staged = str(msg.get("path") or "")[:1000], bool(msg.get("staged"))
-        found = await asyncio.to_thread(self._file, folder, path, staged)
-        self.hub.emit("code_git_file", key=key, path=path, staged=staged, file=found)
+        staged = bool(msg.get("staged"))
+        many = msg.get("paths")
+        if isinstance(many, list) and many:
+            paths = list(
+                dict.fromkeys(str(p)[:1000] for p in many[:OPEN_FILES] if isinstance(p, str))
+            )
+        else:
+            paths = [str(msg.get("path") or "")[:1000]]
+        found = await asyncio.to_thread(files_public, folder, paths, staged)
+        for path in paths:
+            self.hub.emit("code_git_file", key=key, path=path, staged=staged, file=found.get(path))
 
     def _file(self, folder: Path, path: str, staged: bool) -> dict[str, Any] | None:
-        repo = code_changes.repo_of(folder)
-        if repo is None:
-            return None
-        files = code_changes.diff_files(repo, "", cached=staged, untracked=not staged)
-        view = code_changes.View(repo, "", files, {})
-        return code_changes.file_public(view, path)
+        return files_public(folder, [path], staged).get(path)
 
     def cmd_stage(self, msg: dict[str, Any]) -> None:
         self.spawn(self.stage(msg))
@@ -461,6 +513,7 @@ class GitPanel:
             done = await asyncio.to_thread(
                 git,
                 repo.top,
+                *code_changes.OWN_IDENTITY,
                 "commit",
                 "-q",
                 "-F",
@@ -518,11 +571,16 @@ class GitPanel:
             or not (await asyncio.to_thread(git, folder, "check-ref-format", "--branch", name)).ok
         ):
             return "That isn't a name a branch can have."
-        busy = [
-            t
-            for t in self.hub.tasks.tasks.values()
-            if t.kind == "code" and t.busy and t.cwd == folder
-        ]
+        desk = getattr(self.hub, "code_desk", None)
+        if (_task is not None and _task.workspace) or (
+            desk is not None and desk.store().by_path(folder) is not None
+        ):  # (landing takes its branch: work committed on another one wouldn't land)
+            return (
+                "This session works in an isolated copy, which stays on its own branch: land "
+                "it, or switch branches in the project's own folder."
+            )
+        working = [t.cwd for t in self.hub.tasks.tasks.values() if t.kind == "code" and t.busy]
+        busy = await asyncio.to_thread(_busy_in, folder, working) if working else []
         if busy:
             return "A session is working in this folder; switching branches would move its files under it. Stop it first."
         async with self.lock(folder):
@@ -614,6 +672,25 @@ class GitPanel:
             "findings": findings,
             "url": url,
         }
+
+
+def _busy_in(folder: Path, working: list[Any]) -> list[Path]:
+    """The folders of busy sessions (working) that are in a folder's checkout: a subfolder
+    of it, or the same folder by another path. A branch switch moves their files too."""
+    repo = code_changes.repo_of(folder)
+    try:
+        top = (repo.top if repo is not None else folder).resolve()
+    except OSError:
+        return []
+    inside = []
+    for cwd in working:
+        try:
+            where = Path(cwd).resolve()
+        except OSError:
+            continue
+        if where == top or top in where.parents:
+            inside.append(where)
+    return inside
 
 
 def _strip_urls(text: str) -> str:

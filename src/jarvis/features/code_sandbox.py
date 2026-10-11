@@ -1,6 +1,6 @@
 """Claude Code's sandbox for Eden Code sessions that run unwatched (codesandbox): with the
-switch on, a session in Bypass permissions, or an unattended one, runs its commands in
-Claude Code's sandbox, where they can write only in the project (and its added folders) and
+switch on, a session in Bypass permissions, and always an unattended one, runs its commands
+in Claude Code's sandbox, where they can write only in the project (and its added folders) and
 reach only the domains the owner allowed for the project; any session can also be put in
 it, or kept out, on its own.
 
@@ -16,7 +16,9 @@ What it adds, and where:
   session should be in the sandbox but its connection isn't yet, its commands ask first.
 - Window commands: cs_state {id}, cs_session {id, on: true | false | null (the default)},
   cs_domains {id, add: [domain] | preset, remove: domain}; each answers with cs_state.
-- Settings (feature prefs): code_sandbox_bypass (off by default: today's behaviour).
+- Settings (feature prefs): code_sandbox_bypass (off by default: Bypass sessions run
+  outside it unless switched on). Unattended runs are sandboxed whatever it says, and a
+  Bypass session taken out of the sandbox needs the owner's fingerprint (code_touchid).
 
 The allowlists are JARVIS's, in code_sandbox.json beside the settings.
 
@@ -45,6 +47,7 @@ NOW_OFF = "Commands run outside the sandbox now."
 ALLOWLIST = "The sandbox's allowed domains changed; it goes on with them."
 PENDING = "the sandbox (on at this session's next step)"
 DOMAINS_AT_ONCE = 20  # domains one window command may add
+_UNSET = object()
 
 
 class SandboxDesk:
@@ -55,6 +58,7 @@ class SandboxDesk:
         self._book: SandboxBook | None = None
         self.own: dict[int, bool] = {}  # task id -> the session's own choice
         self._applied: dict[int, tuple[bool, tuple[str, ...]]] = {}  # what its connection has
+        self._seen: bool | None = None  # the switch as the panes were last told
 
     @property
     def book(self) -> SandboxBook:
@@ -86,11 +90,16 @@ class SandboxDesk:
         Claude Code's sandbox doesn't reach it)."""
         if task.kind != "code" or other_agent(task):
             return False
+        if self.unattended(task):
+            run = self.hub.code_runs.active.get(task.id)
+            # A run without the owner always is, whatever the switch; an issue's run has its
+            # own (no network), or none where the owner turned it off for its repository.
+            return not getattr(run, "untrusted", False)
         if task.id in self.own:
             return self.own[task.id]
         if self.hub.prefs.feature(PREF) is not True:
             return False
-        return task.mode == "auto" or self.unattended(task)
+        return task.mode == "auto"
 
     def key(self, task: Any) -> Any:
         if not self.wanted(task):
@@ -178,10 +187,22 @@ class SandboxDesk:
         if task is None:
             return
         on = msg.get("on")
+        if on is not None and not isinstance(on, bool):
+            return
+        was, before = self.own.get(task.id, _UNSET), self.wanted(task)
         if on is None:
             self.own.pop(task.id, None)
-        elif isinstance(on, bool):
+        else:
             self.own[task.id] = on
+        gate = getattr(self.hub, "touch_gate", None)
+        if before and not self.wanted(task) and task.mode == "auto" and gate is not None:
+            if not gate.allow("sandbox-off"):  # Bypass, unsandboxed: the fingerprint first
+                if was is _UNSET:
+                    self.own.pop(task.id, None)
+                else:
+                    self.own[task.id] = was
+                self.state(task, error=gate.refuse("sandbox-off", task.id))
+                return
         self.settle(task)
         self.state(task)
 
@@ -211,9 +232,13 @@ class SandboxDesk:
         self.state(task)
 
     def on_prefs(self, _event: dict[str, Any]) -> None:
-        """The switch may have changed: sessions it covers take it up."""
+        """The switch may have changed: sessions it covers take it up, and the panes say so."""
+        now = self.hub.prefs.feature(PREF) is True
+        changed, self._seen = now != self._seen, now
         for task in list(self.hub.tasks.tasks.values()):
             self.settle(task)
+            if changed and task.kind == "code":
+                self.state(task)
 
 
 class _Options:

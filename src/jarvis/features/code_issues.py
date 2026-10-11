@@ -36,6 +36,7 @@ model.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import time
@@ -69,6 +70,7 @@ ZH = {
     "Not opted in.": "没有开启。",
     "Issues labelled “{label}” in {repo} now start a session.": "{repo} 里贴上“{label}”标签的议题现在会开启一个会话。",
     "{repo} is off the list: its issues start nothing now.": "{repo} 已移出列表：它的议题不会再开启会话。",
+    "{repo} isn't on the list.": "{repo} 不在列表里。",
     "{project} isn't a folder Eden Code knows.": "{project} 不是 Eden Code 认识的文件夹。",
     "A label is up to 50 characters, without commas.": "标签最多 50 个字符，不能有逗号。",
     "{repo} is already on the list.": "{repo} 已经在列表里了。",
@@ -292,8 +294,9 @@ class Issues:
     async def remove(self, repo: str) -> str:
         listed = self.repos()
         kept = [r for r in listed if r["repo"] != repo]
-        if len(kept) != len(listed):
-            self.hub.set_feature_prefs({PREF: kept})
+        if len(kept) == len(listed):
+            return f"{repo} isn't on the list."
+        self.hub.set_feature_prefs({PREF: kept})
         await self.publish()
         return f"{repo} is off the list: its issues start nothing now."
 
@@ -363,15 +366,15 @@ class Issues:
                 if issue.get("state") == "closed" or issue.get("pull_request"):
                     seen.append(event_id)
                     continue
-                try:
-                    self.caps.take("issue")
-                except code_ai.OverBudget:
+                if not self.caps.left("issue"):  # (again: other looks ran meanwhile)
                     self._capped()
                     break
-                seen.append(event_id)
+                seen.append(event_id)  # (one that can't start is told once, not retried)
                 labeller = str((event.get("actor") or {}).get("login") or "")
                 said = self.start(entry, issue, labeller)
-                if not said:
+                if not said:  # a day's slot only for a session that started (left above)
+                    with contextlib.suppress(code_ai.OverBudget):
+                        self.caps.take("issue")
                     started.append(number)
         finally:
             del seen[:-SEEN_KEPT]

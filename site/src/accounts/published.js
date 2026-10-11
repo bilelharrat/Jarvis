@@ -29,7 +29,7 @@
 // account object, which imports this): the Worker's callers hand in who's signed in.
 
 import { ApiError, b64url, json, randomBytes } from './util.js';
-import { ARTIFACT_CSP, page as pageHeaders, withHeaders } from '../eden/web.js';
+import { ARTIFACT_CSP, SHELL_CSP, framedShell, page as pageHeaders, topLevelVisit, withHeaders, withRtcGuard } from '../eden/web.js';
 
 export const PUBLISHED = { max: 20, bytes: 2 * 1024 * 1024, chunk: 60_000, title: 120 };
 export const ACCESS = ['private', 'link'];
@@ -262,6 +262,7 @@ export async function publishedPage(request, env, id, session) {
   }
   const headers = {
     'content-security-policy': ARTIFACT_CSP,
+    'x-dns-prefetch-control': 'off', // resource hints: see web.js RTC_GUARD / inertHtml (Chrome ignores this header for them)
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
@@ -276,5 +277,8 @@ export async function publishedPage(request, env, id, session) {
     if (who.account !== owner) return withHeaders(notHere(), { vary: 'cookie' });
     headers.vary = 'cookie';
   }
-  return withHeaders(new Response(page.html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), headers);
+  if (topLevelVisit(request)) { // a visitor's tab: the page framed and sandboxed, so it can't navigate the tab away (web.js framedShell)
+    return withHeaders(new Response(framedShell(`/p/${id}`, page.title || 'Eden page'), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), { ...headers, 'content-security-policy': SHELL_CSP });
+  }
+  return withHeaders(new Response(withRtcGuard(page.html), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), headers);
 }

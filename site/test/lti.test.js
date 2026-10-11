@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import worker from '../src/worker.js';
 import { Course, coursesApi } from '../src/edu/course.js';
 import { STATE_COOKIE, TICKET_COOKIE, checkClaims, forgetPlatformKeys, ltiAdmin, ltiRoute, roleOf, verifyJwt } from '../src/edu/lti.js';
+import { LTI_STORE } from '../src/edu/lti-store.js';
 import { b64urlText } from '../src/accounts/util.js';
 import { namespace, rsaSigner } from './fakes.js';
 
@@ -324,4 +325,56 @@ test('the Worker sends /lti/* here before its cross-site and GET-only rules; the
   const course = await edenCourse();
   const r = await env.COURSES.get(course.id).fetch('https://course/lti-reg-list', { method: 'POST', body: '{}' });
   assert.equal(r.status, 404, 'a course object never answers registry ops');
+});
+
+// ── bug sweep round 1 (askeden docs/bug-sweep/r1-ask-eden-site-edu.md AW3, AW5, AW12) ──
+
+test('AW3: a flood of logins for one school fills only that school’s quota; states are found and expired without listing them all', async () => {
+  await register();
+  const OTHER_PLAT = 'https://moodle.other.edu';
+  await admin('POST', { action: 'put', ...REG, name: 'Other U Moodle', issuer: OTHER_PLAT, client_id: 'other-client', auth_url: `${OTHER_PLAT}/auth`, token_url: `${OTHER_PLAT}/token`, jwks_url: `${OTHER_PLAT}/jwks` });
+  const registry = () => { env.COURSES.get('lti:registry'); return env.COURSES.objects.get('lti:registry'); };
+  const lists = [];
+  const storage = registry().storage;
+  const realList = storage.list.bind(storage);
+  storage.list = (opts = {}) => { lists.push(opts.prefix); return realList(opts); };
+  const was = LTI_STORE.states;
+  LTI_STORE.states = 5;
+  try {
+    await login();
+    lists.length = 0; // the one-time move to the expiry index (lti-v2) lists once; logins after it never do
+    for (let i = 1; i < 5; i++) await login();
+    const q = new URLSearchParams({ iss: PLATFORM, login_hint: 'hint-1', target_link_uri: `${ORIGIN}/lti/launch`, client_id: CLIENT, lti_deployment_id: DEP });
+    const full = await route(`/lti/login?${q}`);
+    assert.equal(full.status, 429, 'this school’s quota is full');
+    const other = new URLSearchParams({ iss: OTHER_PLAT, login_hint: 'hint-9', target_link_uri: `${ORIGIN}/lti/launch`, client_id: 'other-client', lti_deployment_id: DEP });
+    const fine = await route(`/lti/login?${other}`);
+    assert.equal(fine.status, 302, 'another school still signs in');
+    assert.ok(!lists.includes('st:'), 'no login lists every state');
+    // 21 minutes on: the expired states go as new logins come, and the quota is free again
+    const later = Date.now() + 21 * 60e3;
+    registry().now = () => later;
+    assert.equal((await route(`/lti/login?${q}`)).status, 302);
+    const left = [...storage.map.keys()].filter((k) => k.startsWith('st:'));
+    assert.equal(left.length, 1, 'the expired states were dropped');
+  } finally {
+    LTI_STORE.states = was;
+  }
+});
+
+test('AW5: LMS user ids with + and = (base64 subjects) can be linked', async () => {
+  const store = (op, body) => env.COURSES.get('lti:registry').fetch(`https://course/${op}`, { method: 'POST', body: JSON.stringify(body) });
+  const key = 'reg12345|AbC+dEf/gh==';
+  const put = await store('lti-user-put', { key, account: STUDENT });
+  assert.equal(put.status, 200, await put.clone().text());
+  assert.equal((await (await store('lti-user-get', { key })).json()).user.account, STUDENT);
+  assert.equal((await store('lti-user-put', { key: 'reg12345|bad\u0000id', account: STUDENT })).status, 400, 'control characters still refused');
+});
+
+test('AW12: the tool JWKS without a key is a 503 nobody caches', async () => {
+  const empty = await ltiRoute(new Request(`${ORIGIN}/lti/jwks`), { ...env, LTI_PRIVATE_KEY: '' }, ctx, '/lti/jwks');
+  assert.equal(empty.status, 503);
+  assert.equal(empty.headers.get('cache-control'), 'no-store');
+  const ok = await route('/lti/jwks');
+  assert.equal(ok.headers.get('cache-control'), 'public, max-age=300');
 });

@@ -31,13 +31,17 @@ const QUIET_EVERY = 60 * 1000;
 const FETCH_TIMEOUT = 20 * 1000;
 const CH = 'feature:updates:';
 
-// What the window shows for each problem (it has the Chinese); the detail goes to the log.
-const WORDS = {
+// What the window shows for each problem (it has the Chinese); the detail goes to the log. Under the app's own name:
+// Eden Code's says Eden Code (CH16).
+const wordsFor = (name = 'Eden') => ({
   offline: 'Couldn’t reach the update server.',
-  feed: 'The update feed isn’t one Eden can read.',
+  feed: `The update feed isn’t one ${name} can read.`,
   install: 'The update couldn’t be downloaded or installed.',
-  move: 'Move Eden to your Applications folder to get updates.',
-};
+  move: `Move ${name} to your Applications folder to get updates.`,
+});
+const WORDS = wordsFor('Eden');
+// The name the updater says: Eden Code's own, else Eden (J.A.R.V.I.S. and its editions).
+const appNameFor = (flavor) => (flavor && flavor.id === 'eden-code' ? 'Eden Code' : 'Eden');
 
 // The feed baked into this copy of the app: '' when there is none.
 function feedFrom(resourcesPath, packaged, readFile = fs.readFileSync) {
@@ -52,19 +56,22 @@ function feedFrom(resourcesPath, packaged, readFile = fs.readFileSync) {
 // The updater's state and what moves it; Electron's pieces are passed in (tests use stand-ins).
 function createUpdater({
   version, feed, autoUpdater, fetchText, inApplications, onChange = () => {}, log = () => {},
-  isQuiet = async () => false, beforeInstall = () => {}, follows = false,
+  isQuiet = async () => false, beforeInstall = () => {}, follows = false, name = 'Eden',
+  askFirst = async () => true, onInstallFailed = () => {},
 }) {
+  const words = wordsFor(name);
   let state = feed ? { state: 'idle' } : { state: 'off' };
   let offered = null; // the release being downloaded or ready
   let wired = false;
   let checking = null;
+  let installing = ''; // while quitAndInstall is under way: 'asked' (Restart to update) or 'quiet'
 
   const set = (next) => {
     state = next;
     onChange(public_());
   };
   // follows: the owner's own install, which has no feed and follows the repo (follow-repo.js).
-  const public_ = () => ({ version, enabled: Boolean(feed), ...(!feed && follows ? { follows: true } : {}), ...state });
+  const public_ = () => ({ version, ...(name !== 'Eden' ? { app: name } : {}), enabled: Boolean(feed), ...(!feed && follows ? { follows: true } : {}), ...state });
 
   function wire() {
     if (wired) return;
@@ -77,7 +84,18 @@ function createUpdater({
     });
     autoUpdater.on('error', (err) => {
       log(`update: ${err && err.message}`);
-      if (state.state !== 'ready') set({ state: 'error', error: WORDS.install });
+      if (installing) {
+        // The install itself failed (a signature Squirrel won't take, a read-only app, a damaged download): the app
+        // carries on (main.js puts its window back), the update is said to have failed, and the next check
+        // downloads it again. Before, it stayed "ready" for good and no check ever ran again (CH3-1).
+        const how = installing;
+        installing = '';
+        offered = null;
+        set({ state: 'error', error: words.install });
+        onInstallFailed(how);
+        return;
+      }
+      if (state.state !== 'ready') set({ state: 'error', error: words.install });
     });
     autoUpdater.setFeedURL({ url: feed, serverType: 'json' });
   }
@@ -89,15 +107,15 @@ function createUpdater({
       text = await fetchText(feed);
     } catch (err) {
       log(`update: the feed didn't answer (${err && err.message})`);
-      set({ state: 'error', error: WORDS.offline });
+      set({ state: 'error', error: words.offline });
       return;
     }
     let release;
     try {
-      release = parseFeed(text, feed);
+      release = parseFeed(text, feed, name);
     } catch (err) {
       log(`update: ${err.message}`);
-      set({ state: 'error', error: WORDS.feed });
+      set({ state: 'error', error: words.feed });
       return;
     }
     const newer = newerRelease(release, version);
@@ -106,7 +124,7 @@ function createUpdater({
       return;
     }
     if (!inApplications()) {
-      set({ state: 'move', available: newer.version, error: WORDS.move });
+      set({ state: 'move', available: newer.version, error: words.move });
       return;
     }
     offered = newer;
@@ -116,7 +134,7 @@ function createUpdater({
       autoUpdater.checkForUpdates();
     } catch (err) {
       log(`update: ${err && err.message}`);
-      set({ state: 'error', error: WORDS.install });
+      set({ state: 'error', error: words.install });
     }
   }
 
@@ -129,9 +147,14 @@ function createUpdater({
       if (!checking) checking = run().finally(() => { checking = null; });
       return checking.then(public_);
     },
-    // At once, when the owner asks (an update that's ready).
-    restart() {
+    // At once, when the owner asks (an update that's ready). Like a quit, it first asks when the other app is busy
+    // on this app's backend (askFirst: main.js's CH9 question), since the restart stops that backend too (CH3-5).
+    async restart() {
       if (state.state !== 'ready') return false;
+      let go = false;
+      try { go = await askFirst(); } catch { go = false; }
+      if (!go || state.state !== 'ready') return false;
+      installing = 'asked';
       autoUpdater.quitAndInstall();
       return true;
     },
@@ -143,6 +166,7 @@ function createUpdater({
       if (!calm || state.state !== 'ready') return false;
       log(`update: installing ${offered && offered.version} quietly`);
       beforeInstall();
+      installing = 'quiet';
       autoUpdater.quitAndInstall();
       return true;
     },
@@ -240,7 +264,21 @@ function install(ctx) {
       backendBusy: () => ctx.backendBusy(),
     }),
     beforeInstall: () => ctx.relaunchAsItWas(),
+    askFirst: () => (ctx.mayQuit ? ctx.mayQuit() : true),
+    // Said plainly when the owner pressed Restart to update and it didn't install; a quiet install that fails says
+    // nothing more than Settings' updates line (nobody was there to ask for it).
+    onInstallFailed: (how) => {
+      if (how !== 'asked') return;
+      const { dialog } = require('electron');
+      const app = appNameFor(ctx.flavor);
+      dialog.showMessageBox({
+        type: 'warning',
+        message: `${app} couldn’t install the update.`,
+        detail: `${app} carries on as before and will try the update again later. What happened is in its log.`,
+      }).catch(() => {});
+    },
     follows: !ctx.dev && ctx.app.isPackaged && Boolean(ctx.backendFromRepo && ctx.backendFromRepo()),
+    name: appNameFor(ctx.flavor),
   });
   ctx.ipcMain.handle(`${CH}state`, (event) => (ctx.fromWindow(event) ? updater.state() : null));
   ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? updater.check() : null));
@@ -253,4 +291,4 @@ function install(ctx) {
   });
 }
 
-module.exports = { install, installWindows, createUpdater, feedFrom, fetchFeed, quietMoment, WORDS, CHECK_EVERY, FIRST_CHECK, QUIET_IDLE };
+module.exports = { install, installWindows, createUpdater, feedFrom, fetchFeed, quietMoment, WORDS, wordsFor, appNameFor, CHECK_EVERY, FIRST_CHECK, QUIET_IDLE };

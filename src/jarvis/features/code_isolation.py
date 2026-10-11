@@ -36,9 +36,12 @@ log = logging.getLogger("jarvis")
 PREF_DEFAULT = "code_isolate_default"
 PREF_ENV = "code_iso_env"
 PREF_LINK = "code_iso_link"
+WAITING_OFFER = "Waiting for you: an isolated copy?"  # its row in the list, while the card is up
 OFFER_SECONDS = 90  # a card offering a copy waits this long, then the session shares
 SWEEP_EVERY = 24 * 3600
 SWEEP_FIRST = 30  # after startup, once the app has settled
+SCAN_SECONDS = 20.0  # Land's secret scan stops here (the card then says only part was checked)
+SCAN_SHOW_AFTER = 1.0  # a scan still going after this says so in a caption
 
 
 def _project_names(value: Any) -> list[str] | None:
@@ -84,12 +87,29 @@ ZH = {
     "The branch {branch} is gone, so there's nothing to land.": "分支 {branch} 已经不在了，没什么可合并的。",
     "The branch {into} it lands in is gone.": "要合并进去的分支 {into} 已经不在了。",
     "{into} moved while landing; land again.": "合并时 {into} 发生了变化，请再合并一次。",
+    "{into} is in the middle of a rebase; finish it, then land.": "{into} 正在变基（rebase）中；先完成它，再合并。",
+    "{into} is in the middle of a bisect; finish it, then land.": "{into} 正在二分查找（bisect）中；先完成它，再合并。",
     "Couldn't stage the copy's work: {error}": "没能暂存副本里的工作：{error}",
     "Couldn't commit the copy's work: {error}": "没能提交副本里的工作：{error}",
     "Couldn't merge: {error}": "没能合并：{error}",
     "Couldn't make the merge commit: {error}": "没能创建合并提交：{error}",
     "Couldn't update {into}: {error}": "没能更新 {into}：{error}",
     "Couldn't keep a recovery copy, so nothing was discarded: {error}": "没能保留恢复副本，所以什么都没丢弃：{error}",
+    "The copy has unresolved conflicts in {files}; resolve and commit them (or use Resolve in session), then land.": "副本里 {files} 还有没解决的冲突；先解决并提交（或用“在会话中解决”），再合并。",
+    "The copy is in the middle of {what}; finish it (or use Resolve in session), then land.": "副本正在进行 {what}；先完成它（或用“在会话中解决”），再合并。",
+    "The copy is on {other}, not {branch}; switch it back (git switch {branch}), then land.": "副本在 {other} 上，不在 {branch} 上；先切回去（git switch {branch}），再合并。",
+    "The copy isn't on its branch {branch} (its HEAD is detached); put its commits back on {branch}, then land.": "副本不在它的分支 {branch} 上（HEAD 处于分离状态）；先把它的提交放回 {branch}，再合并。",
+    "{files} is a git repository of its own inside the copy, so landing would keep only a link to it. Remove its .git folder (or add it as a submodule), then land.": "{files} 是副本里一个独立的 git 仓库，合并只会留下指向它的链接。先删掉它的 .git 文件夹（或把它加成子模块），再合并。",
+    "Conflict markers are left in {files}; resolve them, then land.": "{files} 里还留着冲突标记；先解决，再合并。",
+    "Files in the copy changed while it was being committed ({files}); land again.": "提交副本时其中的文件又变了（{files}）；请再合并一次。",
+    "{into} is in the middle of {what}; finish it, then land.": "{into} 正在进行 {what}；先完成它，再合并。",
+    "{files} changed in the copy after its work was committed, so the copy is kept: land or discard what's new.": "副本的工作提交之后 {files} 又变了，所以副本保留了下来：请合并或丢弃新的内容。",
+    "The copy has commits that aren't in {into}, so it's kept: land or discard them.": "副本里有不在 {into} 中的提交，所以保留了下来：请合并或丢弃它们。",
+    "Checking {branch}'s work for secrets…": "正在检查 {branch} 的工作里有没有密钥……",
+    "Only part of the work was checked for secrets ({n} of {total} files): there's too much to check in time.": "只检查了部分工作里有没有密钥（{total} 个文件中的 {n} 个）：内容太多，来不及全部检查。",
+    "A session is working in the main folder ({name}); landing changes its files under it.": "有会话正在主文件夹里工作（{name}）；合并会在它工作时改动它的文件。",
+    "Not sent: this session's isolated copy is being landed just now. Send it again once that's done.": "没有发送：这个会话的独立副本正在合并。完成后请再发一次。",
+    "Not sent: this session's isolated copy is being discarded just now. Send it again once that's done.": "没有发送：这个会话的独立副本正在丢弃。完成后请再发一次。",
     "Discarded {branch}; its work is kept for 30 days.": "已丢弃 {branch}；它的工作会保留 30 天。",
     "Brought it back as {branch}.": "已找回，分支为 {branch}。",
     "That discarded copy isn't there any more.": "那个丢弃的副本已经不在了。",
@@ -126,6 +146,14 @@ class Desk:
         # Spent copies the sweeper is taking away just now: no session is moved into one
         # until it's done.
         self.going: set[str] = set()
+        # The isolated-copy offer up in each folder: sessions started there meanwhile wait on
+        # the same card (its answer goes for each), never one card apiece.
+        self.offers: dict[Any, asyncio.Future] = {}
+        # Copies being landed or discarded just now (slug -> "landed" | "discarded"): a
+        # message to a session in one is refused, and a session starting in one waits, so
+        # nothing is written there between its work being committed (or kept) and the copy
+        # being removed.
+        self.held: dict[str, str] = {}
 
     # ── the list of copies ──
 
@@ -219,6 +247,10 @@ class Desk:
             # it's done, it's there still, or it's gone as if before this session started.
             async with self.lock("sweep"):
                 copy = self._copy_of(task)
+        if copy is not None and copy.slug in self.held:
+            # Being landed or discarded just now: nothing starts in it until that's done.
+            async with self.lock(copy.repo):
+                copy = self._copy_of(task)
         if copy is not None:
             self.bind(task, copy)
             return
@@ -231,6 +263,24 @@ class Desk:
                 want = await self.offer(task)
         if want:
             await self.isolate(task)
+
+    def send_route(self, task: Any, _text: str, _images: Any) -> bool | None:
+        """TaskManager.send asks first: a message to a session whose copy is being landed or
+        discarded is refused (with a line saying so), never started as a turn there."""
+        slug = self.bound.get(task.id)
+        what = self.held.get(slug) if slug else None
+        if not what:
+            return None
+        self.hub.tasks._log(
+            task,
+            "system",
+            self.tr(
+                f"Not sent: this session's isolated copy is being {what} just now. Send it "
+                "again once that's done."
+            ),
+        )
+        self.hub.tasks._changed()
+        return False
 
     def _copy_of(self, task: Any) -> worktrees.Copy | None:
         """The copy a session starts in (its folder is one, or its Claude Code session ran
@@ -256,6 +306,20 @@ class Desk:
         ]
 
     async def offer(self, task: Any) -> bool:
+        """Ask whether this session gets an isolated copy, on a card in the session (one card
+        for the sessions started in that folder meanwhile); its list row says it waits."""
+        pending = self.offers.get(task.cwd)
+        if pending is None or pending.done():
+            pending = self.offers[task.cwd] = asyncio.ensure_future(self._offer_card(task))
+        task.last_action = WAITING_OFFER
+        self.hub.tasks._changed()
+        try:
+            return await asyncio.shield(pending)
+        finally:
+            if task.last_action == WAITING_OFFER:
+                task.last_action = "Starting"
+
+    async def _offer_card(self, task: Any) -> bool:
         project = task.cwd.name
         question = f"Another session is working in {project}. Give this one an isolated copy?"
         detail = (
@@ -270,6 +334,7 @@ class Desk:
                     detail,
                     [("isolate", "Isolated copy"), ("share", "Share the folder")],
                     speak,
+                    context={"task_id": task.id},
                 ),
                 OFFER_SECONDS,
             )
@@ -284,6 +349,8 @@ class Desk:
         self.hub.tasks._changed()
         names = set(self.hub.prefs.feature(PREF_ENV) or [])
         linked = set(self.hub.prefs.feature(PREF_LINK) or [])
+        if not self.is_listed(project_dir):  # (the opt-ins are by name: the listed one's)
+            names = linked = set()
         store = self.store()
         # The ones being made count too, and this one counts from here on (no await in
         # between): a burst of isolated starts (Best of N, say) never makes more than the cap.
@@ -334,6 +401,16 @@ class Desk:
         self.hub.tasks._changed()
         self.publish_soon()
 
+    def is_listed(self, folder: Path) -> bool:
+        """Whether a folder is the project its name names on the list: the per-project
+        opt-ins are kept by name, so another folder with the same name (opened by its path)
+        never gets that project's .env files or links."""
+        try:
+            listed = self.hub.tasks.project_path(folder.name)
+            return listed.resolve() == folder.resolve()
+        except (OSError, RuntimeError):
+            return False
+
     def bind(self, task: Any, copy: worktrees.Copy) -> None:
         task.cwd = copy.cwd
         task.workspace = {
@@ -341,6 +418,8 @@ class Desk:
             "branch": copy.branch,
             "base": copy.base,
             "into": copy.into,
+            # Its project (the main folder), whose "don't ask again" rules hold in it too.
+            "project": str(Path(copy.repo) / copy.prefix).rstrip("/"),
         }
         self.bound[task.id] = copy.slug
         if task.session_id and task.session_id not in copy.sessions:
@@ -355,14 +434,22 @@ class Desk:
         return lang.translate(text, self.hub.language)
 
     async def ask(
-        self, question: str, detail: str, choices: list[tuple[str, str]], speak: bool = False
+        self,
+        question: str,
+        detail: str,
+        choices: list[tuple[str, str]],
+        speak: bool = False,
+        context: dict[str, Any] | None = None,
     ) -> str:
         """A card (and, when asked by voice, the question out loud first: an answer in the
-        next minute counts). Always the last choice when nobody answers."""
+        next minute counts). Always the last choice when nobody answers. context: the
+        card's own fields (task_id: shown in that session)."""
         question, detail = self.tr(question), self.tr(detail)
         choices = [(choice, self.tr(label)) for choice, label in choices]
         if speak:
             self.hub._say(question)
+        if context:
+            return await self.hub.request_approval(question, detail, choices, context=context)
         return await self.hub.request_approval(question, detail, choices)
 
     def caption(self, text: str) -> None:
@@ -425,13 +512,48 @@ class Desk:
             self.caption(said)
         await self.publish()
 
-    def _scan_copy(self, copy: worktrees.Copy) -> list[secret_scan.Finding]:
-        """What landing would commit (the copy's uncommitted work), checked for secrets."""
+    def _scan_copy(
+        self, copy: worktrees.Copy, seconds: float | None = None
+    ) -> tuple[list[secret_scan.Finding], int, int]:
+        """What landing would bring into the branch it lands in, checked for secrets: all
+        of the copy's work since it began, its commits as well as what isn't committed.
+        Returns the findings, and how many of how many files were checked: past seconds
+        (10,000 new files took nearly a minute), the rest aren't."""
         repo = code_changes.repo_of(Path(copy.checkout))
         if repo is None:
+            return [], 0, 0
+        deadline = time.monotonic() + (SCAN_SECONDS if seconds is None else seconds)
+        # Where its branch and the one it lands in part (its start, or the last time the
+        # session merged that branch in): what's on that branch already isn't news.
+        fork = code_changes.merge_base(repo.top, "HEAD", f"refs/heads/{copy.into}")
+        base = fork or copy.base or code_changes.head_commit(repo.top) or code_changes.EMPTY_TREE
+        files = code_changes.diff_files(repo, base, untracked_cap=code_changes.SCAN_UNTRACKED)
+        findings: list[secret_scan.Finding] = []
+        for checked, f in enumerate(files):
+            if time.monotonic() > deadline:
+                return findings, checked, len(files)
+            findings += secret_scan.scan([f], repo.shown)
+            if len(findings) >= secret_scan.MAX_FINDINGS:
+                break
+        return findings[: secret_scan.MAX_FINDINGS], len(files), len(files)
+
+    def _busy_in_main(self, copy: worktrees.Copy) -> list[Any]:
+        """Sessions at work in the main checkout a copy lands in (any folder in it)."""
+        try:
+            main = Path(copy.repo).resolve()
+        except OSError:
             return []
-        head = code_changes.head_commit(repo.top) or code_changes.EMPTY_TREE
-        return secret_scan.scan(code_changes.diff_files(repo, head), repo.shown)
+        out = []
+        for t in self.hub.tasks.tasks.values():
+            if t.kind != "code" or not t.busy or t.workspace:
+                continue
+            try:
+                where = Path(t.cwd).resolve()
+            except OSError:
+                continue
+            if where == main or main in where.parents:
+                out.append(t)
+        return out
 
     async def land(self, slug: str, by_voice: bool = False) -> str:
         """Land a copy: a card first (with any secrets its uncommitted work holds), then
@@ -445,7 +567,11 @@ class Desk:
         if any(t.busy for t in inside):
             return "It's still working. Stop it first, then land."
         found = await asyncio.to_thread(worktrees.state, copy)
-        findings = await asyncio.to_thread(self._scan_copy, copy)
+        scan = asyncio.ensure_future(asyncio.to_thread(self._scan_copy, copy))
+        done, _ = await asyncio.wait({scan}, timeout=SCAN_SHOW_AFTER)
+        if not done:  # (a big copy: the card would otherwise take a while to come up)
+            self.caption(f"Checking {copy.branch}'s work for secrets…")
+        findings, checked, total = await scan
         question = f"Land {copy.branch} in {copy.into}?"
         detail = (
             f"{found.files} file{'s' if found.files != 1 else ''} changed, +{found.added} "
@@ -453,9 +579,22 @@ class Desk:
             "then removes the copy and ends its sessions."
         )
         choices = [("land", "Land"), ("deny", "Not now")]
+        busy_main = self._busy_in_main(copy)
+        if busy_main:
+            name = busy_main[0].title or busy_main[0].prompt[:60] or f"session {busy_main[0].id}"
+            detail += (
+                f"\n\nA session is working in the main folder ({name}); landing changes its "
+                "files under it."
+            )
         if findings:
             detail += "\n\nPossible secrets in the work it would commit:\n" + secret_scan.summary(
                 findings
+            )
+            choices = [("land", "Land anyway"), ("deny", "Don't land")]
+        if checked < total:
+            detail += (
+                f"\n\nOnly part of the work was checked for secrets ({checked} of {total} "
+                "files): there's too much to check in time."
             )
             choices = [("land", "Land anyway"), ("deny", "Don't land")]
         if await self.ask(question, detail, choices, speak=by_voice) != "land":
@@ -464,20 +603,37 @@ class Desk:
 
     async def land_now(self, copy: worktrees.Copy) -> str:
         """Land a copy the owner has already said yes to (Land's card, or best-of-N's Keep
-        this one): its work committed and merged, its sessions ended, the copy removed."""
-        inside = self.tasks_in(copy)
+        this one): its work committed and merged, its sessions ended, the copy removed.
+        Looked at again once it's its turn: landed or discarded meanwhile (a second card),
+        or a session in it working again since the card went up, it's left alone."""
         message = f"Eden Code: {copy.title or copy.slug}"
         async with self.lock(copy.repo):
-            landed = await asyncio.to_thread(worktrees.land, copy, message)
-            if not landed.ok:
-                if landed.conflicts:
-                    self.conflicts[copy.slug] = landed.conflicts
-                return landed.message
-            self.conflicts.pop(copy.slug, None)
-            for task in inside:
-                self.hub.tasks.cancel(task.id)
-            await self._ended(inside)
-            problem = await asyncio.to_thread(worktrees.remove, copy, self.root)
+            if copy not in self.store().copies:
+                return "That isolated copy isn't there any more."
+            inside = self.tasks_in(copy)
+            if any(t.busy for t in inside):
+                return "It's still working. Stop it first, then land."
+            # From here until it's gone, no message starts a turn in it (send_route).
+            self.held[copy.slug] = "landed"
+            try:
+                landed = await asyncio.to_thread(worktrees.land, copy, message)
+                if not landed.ok:
+                    if landed.conflicts:
+                        self.conflicts[copy.slug] = landed.conflicts
+                    return landed.message
+                self.conflicts.pop(copy.slug, None)
+                inside = self.tasks_in(copy)
+                for task in inside:
+                    self.hub.tasks.cancel(task.id)
+                await self._ended(inside)
+                try:
+                    # Only once everything in it is provably in the branch it landed in.
+                    problem = await asyncio.to_thread(worktrees.remove_landed, copy, self.root)
+                except worktrees.CopyError as exc:
+                    log.warning("a landed copy was kept: %s", exc)
+                    return f"{self.tr(landed.message)} {self.tr(str(exc))}"
+            finally:
+                self.held.pop(copy.slug, None)
         if copy in self.store().copies:
             self.store().copies.remove(copy)
         self.save()
@@ -512,24 +668,35 @@ class Desk:
 
     async def discard_now(self, copy: worktrees.Copy) -> str:
         """Discard a copy the owner has already said yes to, keeping all of its work as a
-        recovery ref for TRASH_DAYS."""
-        inside = self.tasks_in(copy)
+        recovery ref for TRASH_DAYS. Landed or discarded meanwhile (a second card), it's
+        left alone."""
         async with self.lock(copy.repo):
-            for task in inside:
-                self.hub.tasks.cancel(task.id)
-            await self._ended(inside)
+            if copy not in self.store().copies:
+                return "That isolated copy isn't there any more."
+            # From here until it's gone (or kept), no message starts a turn in it.
+            self.held[copy.slug] = "discarded"
             try:
-                item = await asyncio.to_thread(worktrees.discard, copy, self.root)
-            except worktrees.CopyError as exc:
-                return str(exc)
+                inside = self.tasks_in(copy)
+                for task in inside:
+                    self.hub.tasks.cancel(task.id)
+                await self._ended(inside)
+                try:
+                    item = await asyncio.to_thread(worktrees.discard, copy, self.root)
+                except worktrees.CopyError as exc:
+                    return str(exc)
+            finally:
+                self.held.pop(copy.slug, None)
         store = self.store()
         if copy in store.copies:
             store.copies.remove(copy)
-        store.trash.append(item)
+        if item.get("ref"):  # (nothing of it was left to keep: no record that can't come back)
+            store.trash.append(item)
         self.save()
         self.conflicts.pop(copy.slug, None)
         for task in inside:
             self.bound.pop(task.id, None)
+        if not item.get("ref"):
+            return "That isolated copy isn't there any more."
         return f"Discarded {copy.branch}; its work is kept for {worktrees.TRASH_DAYS} days."
 
     async def restore(self, slug: str) -> str:
@@ -562,7 +729,11 @@ class Desk:
         session = copy.sessions[-1] if copy.sessions else ""
         try:
             task = self.hub.tasks.start(
-                "", str(copy.cwd), resume=session, title=copy.title if session else ""
+                "",
+                str(copy.cwd),
+                resume=session,
+                title=copy.title if session else "",
+                by_user=True,  # (CA3-4) the owner's click
             )
         except ValueError as exc:
             return str(exc)
@@ -585,12 +756,12 @@ class Desk:
         )
         open_here = [t for t in self.tasks_in(copy) if t.handle is not None and not t.handle.done()]
         if open_here:
-            self.hub.tasks.send(open_here[-1].id, text)
+            self.hub.tasks.send(open_here[-1].id, text, by_user=True)  # (CA3-4) their click
             self.hub.emit("show_session", id=open_here[-1].id)
             return "Sent the conflicts to the session."
         session = copy.sessions[-1] if copy.sessions else ""
         try:
-            task = self.hub.tasks.start(text, str(copy.cwd), resume=session)
+            task = self.hub.tasks.start(text, str(copy.cwd), resume=session, by_user=True)
         except ValueError as exc:
             return str(exc)
         self.hub.emit("show_session", id=task.id)
@@ -678,6 +849,7 @@ def install(hub: Any) -> None:
     desk = Desk(hub)
     hub.code_desk = desk  # (for the other Eden Code features and the tests)
     hub.tasks.prepare = desk.prepare
+    hub.tasks.send_routes.insert(0, desk.send_route)  # (first: nothing gets past it)
     hub.tasks.isolated_dir = desk.isolated_dir
     hub.register_command("code_copies", desk.cmd_copies)
     hub.register_command("code_copy", desk.cmd_copy)

@@ -34,6 +34,9 @@ body.eden-code .orb {
 #note:empty { display: none; }
 #detail { max-width: 560px; max-height: 160px; overflow: auto; margin: -12px 0 0; padding: 10px 12px; border: 1px solid currentColor; border-radius: 8px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; text-align: left; -webkit-app-region: no-drag; user-select: text; }
 #detail[hidden] { display: none; }
+#retry { -webkit-app-region: no-drag; font: inherit; padding: 8px 18px; border-radius: 8px; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
+#retry[hidden] { display: none; }
+#retry:focus-visible { outline: 2px solid #3fb8f2; outline-offset: 2px; }
 body.error #message { color: #b3261e; }
 @media (prefers-color-scheme: dark) { body.error #message { color: #ff8a80; } }
 

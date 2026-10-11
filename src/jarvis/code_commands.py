@@ -6,10 +6,11 @@ session as they are, and Claude Code expands them itself; this only lists them. 
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
+
+from . import projectfiles
 
 MAX_ITEMS = 200
 MAX_READ = 16_000  # bytes of a command file read for its description
@@ -51,11 +52,9 @@ def _describe(text: str) -> str:
 
 
 def _read(path: Path) -> str:
-    try:
-        with path.open("rb") as f:
-            return f.read(MAX_READ).decode("utf-8", errors="replace")
-    except OSError:
-        return ""
+    """The start of a command, skill or agent file ("" for a pipe or a device: never
+    waited on or read, CD3-1)."""
+    return projectfiles.read_text(path, MAX_READ)
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -138,9 +137,8 @@ def hooks(project: Path, home: Path | None = None) -> list[dict[str, str]]:
         ("project", project / ".claude" / "settings.json"),
         ("local", project / ".claude" / "settings.local.json"),
     ):
-        try:
-            data = json.loads(_read(path) or "{}") if path.is_file() else {}
-        except ValueError:
+        data, why = projectfiles.load_json(path, lossy=True)
+        if why:
             out.append(
                 {"event": "", "matcher": "", "command": "", "scope": f"{scope} (unreadable)"}
             )

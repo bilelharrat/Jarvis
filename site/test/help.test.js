@@ -3,6 +3,7 @@
 // stripped and marked untrusted, the daily caps and Eden's own budget, apart from the allowance.
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
+import { readFileSync } from 'node:fs';
 import { after, beforeEach, test } from 'node:test';
 import worker, { VoiceQuota } from '../src/worker.js';
 import { forgetSessions } from '../src/eden/session.js';
@@ -11,6 +12,7 @@ import { FAQ, HELP_FILES, INDEX, NOT_SURE, hasImageMetadata, search } from '../s
 import { Account, Link, appleJwk, identityToken, namespace, rateLimiter } from './fakes.js';
 
 const ORIGIN = 'https://askeden.com';
+const FAQ_MAX = 200; // FAQ pages the Worker bundle is sized for (askeden had 110 on 2026-10-10)
 let env;
 let calls;
 let anthropic; // (payload) => Response
@@ -108,15 +110,19 @@ test('/help works signed out, with a strict CSP; its files and pictures too', as
     assert.equal(r.status, 200, p);
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
   }
-  assert.equal((await hit('/help/../worker.js')).status, 302, 'not a Help file: home');
-  assert.equal((await hit('/help/secret.txt')).status, 302);
+  assert.equal((await hit('/help/../worker.js')).status, 404, 'not a Help file: a real 404 (AW11)');
+  assert.equal((await hit('/help/secret.txt')).status, 404);
   assert.equal((await hit('/help', { method: 'POST', body: {} })).status, 405);
   assert.ok(HELP_FILES.includes('index.html') && HELP_FILES.includes('faq.json'));
   assert.ok(!HELP_FILES.includes('package.json'));
 });
 
 test('the FAQ and its index came from web/help (sync-eden.mjs)', () => {
-  assert.ok(FAQ.entries.length >= 60 && FAQ.entries.length <= 100);
+  // the bundled FAQ is the synced one (public/help/faq.json, copied from askeden web/help by the same sync), whatever
+  // its size; FAQ_MAX only guards the Worker bundle (the FAQ and its BM25 index are built into it): raise it on purpose
+  const source = JSON.parse(readFileSync(new URL('../public/help/faq.json', import.meta.url), 'utf8'));
+  assert.equal(FAQ.entries.length, source.entries.length, 'the bundle and public/help come from the same sync');
+  assert.ok(FAQ.entries.length >= 60 && FAQ.entries.length <= FAQ_MAX, `${FAQ.entries.length} FAQ pages (60–${FAQ_MAX})`);
   assert.equal(INDEX.N, FAQ.entries.length);
   assert.equal(search(INDEX, 'Your Mac is offline')[0].id, 'err-mac-offline');
   for (const e of FAQ.entries) for (const k of e.img || []) assert.ok(HELP_FILES.includes(FAQ.images[k].src), `${e.id}: ${k}`);

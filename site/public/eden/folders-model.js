@@ -11,6 +11,12 @@ export const NUDGE_DAYS = 21; // how long a "Not now" or a finished tidy-up keep
 /** A folder name: one line, trimmed, at most MAX_NAME; '' when nothing is left. */
 export const cleanName = (raw) => String(raw ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/^["'“‘#*\-\s]+|["'”’*\s]+$/g, '').slice(0, MAX_NAME).trim();
 
+/**
+ * A chat title from a rename: one line, no control characters, no bidi overrides or isolates
+ * (U+202A–U+202E, U+2066–U+2069: they can make a title read as something else), at most `max`.
+ */
+export const cleanTitle = (raw, max = 120) => String(raw ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max).trim();
+
 const key = (n) => cleanName(n).toLowerCase();
 
 /** The folders in use: [{ name, count }] (a name's first spelling wins), plus empty ones the user made. */
@@ -84,6 +90,14 @@ function jsonIn(text) {
 }
 
 /** Put a chat in a folder ('' or null takes it out); stamps metaAt so the other devices take the newer choice. */
+/** Where a chat was when Tidy up started reading (its folder and the stamp a move or rename leaves). */
+export const placeOf = (c) => ({ folder: cleanName(c && c.folder), metaAt: (c && c.metaAt) || 0 });
+/**
+ * Whether Tidy up's Apply may file this chat: it's still in the list (`convs`) and nobody moved, renamed or pinned
+ * it while the run went on (bug sweep AS2-8: Apply overrode a move made meanwhile). `at` is placeOf at the start.
+ */
+export const untouchedSince = (c, at, convs) => Boolean(c && at && (!convs || convs.includes(c)) && cleanName(c.folder) === at.folder && ((c.metaAt || 0) === at.metaAt));
+
 export function setFolder(c, name, now = Date.now()) {
   const n = cleanName(name);
   if (n) c.folder = n; else delete c.folder;

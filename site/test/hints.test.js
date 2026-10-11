@@ -138,6 +138,9 @@ test('the weekly summary: top confusions with their pages and fixes, gaps only f
   for (const s of [STUDENT, S2, S3]) {
     await recordTurn(env, { account: s }, t, { status: 'partial' }, 'q');
     await recordTurn(env, { account: s }, t, { status: 'general' }, 'What is air resistance?');
+    // the quiz Eden wrote for this student (its score's "missed" can only name these: AW2-13)
+    const quizAnswer = JSON.stringify({ questions: [{ q: 'Which velocity stays constant?' }, { q: 'What is v after 2 s?' }] });
+    await recordTurn(env, { account: s }, { id: made.id, task: 'quiz', passages: [] }, { sources: [{ ok: true, file: PHYSICS.name, at: 'slide 14' }, { ok: true, file: PHYSICS.name, at: 'slide 7' }] }, '', quizAnswer);
     await api(s, 'POST', `/api/chat/courses/${made.id}/quiz-score`, { score: 1, total: 3, topic: 'projectiles', missed: [{ q: 'Which velocity stays constant?', file: PHYSICS.name, at: 'slide 14' }, { q: 'What is v after 2 s?', file: PHYSICS.name, at: 'slide 7' }] });
   }
   const w = await api(PROF, 'GET', `/api/chat/courses/${made.id}/weekly`);

@@ -324,3 +324,20 @@ async def test_a_finished_issue_run_drafts_its_pull_request_for_the_owners_ok(
     # …but its Claude Code session, resumed, still is.
     run.session_id = "sess-1"
     assert runs.issue_for(ClaudeTask(id=3, prompt="y", cwd=repo, session_id="sess-1")) == 5
+
+
+async def test_removing_a_repository_that_isnt_listed_says_so(hub, projects):
+    assert (
+        await hub.code_issues.remove("nobody/never-listed")
+        == "nobody/never-listed isn't on the list."
+    )
+
+
+async def test_an_issue_that_cant_start_a_session_uses_no_daily_slot(hub, projects, monkeypatch):
+    app_project(projects)
+    entry = opted_in(hub)
+    monkeypatch.setattr(hub.code_runs, "start", lambda scope, **kw: "The project folder is gone.")
+    labelled(hub.fake, 1)
+    assert await hub.code_issues.look(entry) == []
+    assert hub.alerts[-1].text.startswith("Issue #1 in acme/app didn't start a session")
+    assert hub.code_issues.caps.left("issue") == code_issues.ISSUE_RUNS_A_DAY

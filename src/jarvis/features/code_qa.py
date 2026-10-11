@@ -61,23 +61,31 @@ class QA:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.runs: dict[int, list[float]] = {}
-        self.pending: set[int] = set()  # sessions whose next turn is a QA pass
+        # Sessions with a QA pass to come: how many turn ends until the pass's own (2 when
+        # it was queued behind the turn going: that turn's end isn't the pass's).
+        self.pending: dict[int, int] = {}
 
     def start(self, task_id: int, files: list[str] | None = None) -> bool:
         task = self.hub.tasks.tasks.get(task_id)
         if task is None or task.kind != "code":
             return False
         files = files if files is not None else sorted(task.files_changed)[-12:]
-        self.pending.add(task_id)
+        busy = bool(getattr(task, "busy", False))
+        if not self.hub.tasks.send(task_id, qa_prompt([str(f) for f in files]), note=True):
+            return False  # not taken: no pass to wait for, and none counted
+        # (the app's note goes first in the queue: the pass is the next turn after this one)
+        self.pending[task_id] = 2 if busy else 1
         self.runs.setdefault(task_id, []).append(time.time())
-        return bool(self.hub.tasks.send(task_id, qa_prompt([str(f) for f in files]), note=True))
+        return True
 
     def task_event(self, kind: str, data: dict[str, Any]) -> None:
         if kind != "task_finished" or data.get("task_kind") != "code":
             return
         task_id = data.get("id")
-        if task_id in self.pending:  # the pass itself ended: never one after it
-            self.pending.discard(task_id)
+        if task_id in self.pending:  # the pass (or the turn it waited behind) ended
+            self.pending[task_id] -= 1
+            if self.pending[task_id] <= 0:
+                del self.pending[task_id]
             return
         if not self.hub.prefs.feature(PREF_AUTO) or data.get("status") != "done":
             return

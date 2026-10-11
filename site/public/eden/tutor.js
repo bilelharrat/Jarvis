@@ -425,7 +425,7 @@ async function pump() {
   }
   T.playhead = at;
   const done = () => { if (T.queue[0] === job) T.queue.shift(); T.playing = false; if (T.queue.length) pump(); else afterSpeaking(); };
-  if (job.failed && !job.chunks.length) { // no Eden voice: the browser's own reads this phrase
+  if (job.failed && !job.chunks.length) { // no J.A.R.V.I.S. voice: the browser's own reads this phrase
     if (!window.speechSynthesis) { done(); return; }
     const u = new SpeechSynthesisUtterance(job.text);
     const voices = speechSynthesis.getVoices();

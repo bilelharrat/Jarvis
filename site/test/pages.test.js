@@ -97,8 +97,12 @@ test('signed out, / is Eden\'s front page (its own CSP, only the language script
   assert.notEqual(download.headers.get('cache-control'), 'no-store');
   // Eden's own files stay closed.
   assert.equal((await hit('/app.js')).status, 401);
-  assert.equal((await hit('/index.html')).status, 200);
-  assert.equal(env.assets.at(-1), '/home/');
+  const again = await hit('/index.html');
+  assert.equal(again.status, 200);
+  // The front page's HTML is kept in the isolate after the first read (pages.js pageAsset): the same bytes, no asset read.
+  assert.equal(await again.text(), 'asset /home/');
+  assert.equal(env.assets.at(-1), '/jarvis/');
+  assert.equal(again.headers.get('content-security-policy'), home.headers.get('content-security-policy'));
 });
 
 test('the front page shows the plans: Free and Eden Plus, with the Worker\'s own numbers, and /pricing goes there', async () => {
@@ -125,13 +129,13 @@ test('the front page shows the plans: Free and Eden Plus, with the Worker\'s own
   assert.equal(safeReturn('/#plus'), '/#plus');
 });
 
-test('the front page has seven short films (six features and the accuracy chart), each in its own section: muted, lazy, with a poster; its script is the site\'s own; files are served in ranges', async () => {
+test('the front page has eight films (six features, the accuracy chart and Eden anywhere), each in its own section: muted, lazy, with a poster; its script is the site\'s own; files are served in ranges', async () => {
   const home = await hit('/');
   assert.match(home.headers.get('content-security-policy'), /; media-src 'self'; /);
   const html = read('public/home/index.html');
   const videos = html.match(/<video [^>]*>/g) || [];
-  assert.equal(videos.length, 7);
-  assert.deepEqual(videos.map((v) => /src="\/jarvis\/(walk-\d)\.mp4"/.exec(v)[1]).sort(), ['walk-1', 'walk-2', 'walk-3', 'walk-4', 'walk-5', 'walk-6', 'walk-7']);
+  assert.equal(videos.length, 8);
+  assert.deepEqual(videos.map((v) => /src="\/jarvis\/(walk-\d)\.mp4"/.exec(v)[1]).sort(), ['walk-1', 'walk-2', 'walk-3', 'walk-4', 'walk-5', 'walk-6', 'walk-7', 'walk-8']);
   videos.forEach((v) => {
     const n = /src="\/jarvis\/walk-(\d)\.mp4"/.exec(v)[1];
     assert.match(v, new RegExp(`poster="/jarvis/walk-${n}\\.jpg"`));
@@ -140,7 +144,7 @@ test('the front page has seven short films (six features and the accuracy chart)
     assert.doesNotMatch(v, / autoplay/);          // the script starts it when it is on screen
     assert.match(v, /aria-label="[^"]{20,}"/);
   });
-  assert.equal((html.match(/<section class="feature"/g) || []).length, 7);
+  assert.equal((html.match(/<section class="feature"/g) || []).length, 8);
   assert.doesNotMatch(html, /\sstyle=|<script>[^<]/i);                       // no inline style, no inline script
   assert.doesNotMatch(html, /eden-ad/);                                      // the old 15-second ad (with a song) is gone from the page
   assert.ok(!fs.existsSync(path.join(SITE, 'public/jarvis/eden-ad.mp4')), 'the old ad file is not served any more');
@@ -150,7 +154,7 @@ test('the front page has seven short films (six features and the accuracy chart)
   assert.equal(js.status, 200);
   assert.equal(env.assets.at(-1), '/home/features.js');
   assert.equal(js.headers.get('x-content-type-options'), 'nosniff');
-  for (let n = 1; n <= 7; n++) {
+  for (let n = 1; n <= 8; n++) {
     for (const f of [`public/jarvis/walk-${n}.mp4`, `public/jarvis/walk-${n}.jpg`]) {
       const size = fs.statSync(path.join(SITE, f)).size;
       assert.ok(size > 10_000 && size < 25 * 1024 * 1024, `${f}: ${size} bytes`);
@@ -175,6 +179,41 @@ test('the front page has seven short films (six features and the accuracy chart)
   assert.equal(all.headers.get('accept-ranges'), 'bytes');
 });
 
+test('/edu has five films, the professors\' first (owner, 2026-10-10): muted, lazy, with posters, played by the front page\'s script; only the tutor film has a sound button; served in ranges', async () => {
+  const html = read('public/edu-home/index.html');
+  const videos = html.match(/<video [^>]*>/g) || [];
+  assert.deepEqual(videos.map((v) => /src="\/edu-home\/film-(\d)\.mp4"/.exec(v)[1]), ['1', '2', '3', '4', '5']);
+  assert.match(html, /<section class="feature" id="f-prof"[\s\S]*?film-1\.mp4/);
+  for (const v of videos) {
+    const n = /film-(\d)\.mp4/.exec(v)[1];
+    assert.match(v, new RegExp(`poster="/edu-home/film-${n}\\.jpg"`));
+    for (const attr of ['controls', 'muted', 'loop', 'playsinline']) assert.match(v, new RegExp(` ${attr}[ >]`), `${n} ${attr}`);
+    assert.match(v, /preload="none"/);
+    assert.doesNotMatch(v, / autoplay/);
+    assert.match(v, /aria-label="[^"]{20,}"/);
+  }
+  assert.equal((html.match(/class="fbtn fsnd"/g) || []).length, 1);
+  assert.match(html, /id="f-tutor"[\s\S]*?class="fbtn fsnd"[\s\S]*?id="f-exam"/);
+  assert.match(html, /<script src="\/home\/features\.js" defer><\/script>/);
+  assert.doesNotMatch(html, /\sstyle=|<script>[^<]/i);
+  const page = await hit('/edu');
+  assert.match(page.headers.get('content-security-policy'), /; media-src 'self'; /);
+  for (let n = 1; n <= 5; n++) {
+    for (const f of [`public/edu-home/film-${n}.mp4`, `public/edu-home/film-${n}.jpg`]) {
+      const size = fs.statSync(path.join(SITE, f)).size;
+      assert.ok(size > 10_000 && size < 25 * 1024 * 1024, `${f}: ${size} bytes`);
+    }
+    const head = fs.readFileSync(path.join(SITE, `public/edu-home/film-${n}.mp4`)).subarray(0, 262144);
+    assert.ok(head.includes('moov') && (!head.includes('mdat') || head.indexOf('moov') < head.indexOf('mdat')), `film-${n}: the index first`);
+  }
+  const part = await hit('/edu-home/film-1.mp4', { headers: { range: 'bytes=0-4' } });
+  assert.equal(part.status, 206);
+  assert.equal(await part.text(), 'asset /edu-home/film-1.mp4'.slice(0, 5));
+  const poster = await hit('/edu-home/film-4.jpg');
+  assert.equal(poster.status, 200);
+  assert.equal(poster.headers.get('x-content-type-options'), 'nosniff');
+});
+
 test('the front page names its company: the footer line and an "Ask Eden by" line, spelled as the legal pages spell it', () => {
   const html = read('public/home/index.html');
   assert.match(html, /<footer>\s*<span>© 2026 Harrat Global Holdings, Inc\.<\/span>/);
@@ -196,14 +235,16 @@ test('/signin is the sign-in page with its strict CSP; its files are served, not
     env.assets.length = 0;
     const res = await hit(p);
     assert.equal(res.status, 200, p);
-    assert.deepEqual(env.assets, ['/signin/']);
+    // read once, then kept in the isolate (pages.js pageAsset)
+    assert.deepEqual(env.assets, p === '/signin' ? ['/signin/'] : []);
+    assert.equal(await res.clone().text(), 'asset /signin/');
     assert.match(res.headers.get('content-security-policy'), SIGNIN);
     assert.equal(res.headers.get('cache-control'), 'no-store');
     assert.equal(res.headers.get('vary'), 'cookie');
   }
   assert.equal((await hit('/signin/signin.js')).status, 200);
   assert.equal((await hit('/signin/signin.css')).status, 200);
-  assert.equal((await hit('/signin/other.js')).status, 302);
+  assert.equal((await hit('/signin/other.js')).status, 404); // a file that isn't here: a real 404 (AW11)
 });
 
 test('a sign-in that came back to / with ?error= is shown on the sign-in page', async () => {
@@ -219,7 +260,7 @@ test('signed in, / is Eden and /signin goes back to /', async () => {
   const eden = await hit('/', { session });
   assert.equal(eden.status, 200);
   assert.deepEqual(env.assets, ['/eden/']);
-  assert.match(eden.headers.get('content-security-policy'), /^default-src 'self'; script-src 'self';/);
+  assert.match(eden.headers.get('content-security-policy'), /^default-src 'self'; script-src 'self'( 'sha256-[A-Za-z0-9+/=]+')*;/); // + the synced page's import map (eden-versions.mjs)
   assert.equal(eden.headers.get('vary'), 'cookie');
   assert.equal(eden.headers.get('cache-control'), 'no-store');
   const signin = await hit('/signin', { session });
@@ -328,7 +369,7 @@ test('/accuracy: the hallucination chart and how it was measured, for everyone, 
   const css = await hit('/accuracy/accuracy.css');
   assert.equal(css.status, 200);
   assert.equal(css.headers.get('x-content-type-options'), 'nosniff');
-  assert.equal((await hit('/accuracy/other.css')).status, 302, 'nothing else under it');
+  assert.equal((await hit('/accuracy/other.css')).status, 404, 'nothing else under it');
 
   const html = read('public/accuracy/index.html');
   assert.match(html, /<title>How often AI makes things up · Eden<\/title>/);

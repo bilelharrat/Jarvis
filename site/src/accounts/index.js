@@ -9,11 +9,12 @@ import { takenWords } from './identity.js';
 import { cleanCode, newCode } from './link.js';
 import { edenSyncApi } from './eden-sync.js';
 import { chatSyncApi } from './chat-sync.js';
-import { CHARS_PER_TOKEN, anthropicError, costOf, forward } from './proxy.js';
+import { essaySyncApi } from './essay-sync.js';
+import { CHARS_PER_TOKEN, anthropicError, costOf, forward, pricesReady } from './proxy.js';
 import { APPLE_ROOT_G3, verifyAppleJws } from './storekit.js';
 import { checkSignups } from './turnstile.js';
 import { redeemPromo } from './promo.js';
-import { cancelSubscription } from '../eden/billing.js';
+import { cancelOrQueue } from '../eden/billing.js';
 import {
   ApiError,
   BUNDLE_ID,
@@ -23,6 +24,7 @@ import {
   cleanName,
   cleanVersion,
   json,
+  networkOf,
   randomBytes,
   readJson,
   safeDecode,
@@ -135,6 +137,11 @@ export async function api(request, env, ctx) {
       const token = auth(request);
       return await edenSyncApi(request, env, { account: token.account, token }, esync[1] || '');
     }
+    const essays = /^\/essays\/([a-z]+)$/.exec(path); // essays, as chats (essay-sync.js)
+    if (essays) {
+      const token = auth(request);
+      return await essaySyncApi(request, env, { account: token.account, token }, essays[1]);
+    }
     const csync = /^\/csync\/([a-z]+)$/.exec(path);
     if (csync) {
       const token = auth(request);
@@ -217,8 +224,17 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   if (grant) await revoke(env, grant);
   // The Eden apps' grants, each with the client id it was issued to (eden/session.js nativeApple).
   for (const [clientId, token] of Object.entries(grants || {})) await revoke(env, token, fetch, clientId);
-  // Plus bought on the web stops now (best effort); the App Store's is the person's to cancel.
-  if (stripeSub) await cancelSubscription(env, stripeSub);
+  // Plus bought on the web stops now; if Stripe can't be reached, a pending cancel is kept and retried
+  // (eden/billing.js cancelOrQueue). The App Store's is the person's to cancel.
+  const stripe = stripeSub ? await cancelOrQueue(env, stripeSub) : 'none';
+  // Its sign-ins open nothing now (passkeys included), released before the fan-out below so a big
+  // cleanup can't leave them linked: an Apple ID goes back to the account its id derives from (a new
+  // one), a Google account to a new one.
+  if (env.IDENTITIES) {
+    for (const { provider, sub_hash: subHash } of identities) {
+      if (subHash) await callIdentity(env, provider, subHash, 'forget', { account_id: accountId }).catch(() => {});
+    }
+  }
   if (team) await team.m.eraseTeamData(env, accountId, team.snap).catch((e) => console.error('team cleanup failed', e && e.message));
   // Its published pages' links go too (accounts/published.js `pub:<id>`).
   for (const id of published) await call(env, `pub:${id}`, 'pub-index-drop', { account: accountId }).catch(() => {});
@@ -228,15 +244,9 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   if (env.BROWSER_SESSIONS) {
     await env.BROWSER_SESSIONS.get(env.BROWSER_SESSIONS.idFromName(accountId)).fetch('https://browser/erase', { method: 'POST' }).catch((e) => console.error('cloud browser cleanup failed', e && e.message));
   }
-  // Its sign-ins open nothing now (passkeys included): an Apple ID goes back to the account its
-  // id derives from (a new one), a Google account to a new one.
   // Eden for Education: out of every course, its own courses deleted (edu/course.js)
   await import('../edu/course.js').then((m) => m.eraseCourses(env, accountId)).catch((e) => console.error('course cleanup failed', e && e.message));
-  if (env.IDENTITIES) {
-    for (const { provider, sub_hash: subHash } of identities) {
-      if (subHash) await callIdentity(env, provider, subHash, 'forget', { account_id: accountId }).catch(() => {});
-    }
-  }
+  return { stripe };
 }
 
 // A new account from an app's own Sign in with Apple (the J.A.R.V.I.S. and Eden iOS apps): no
@@ -245,7 +255,7 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
 // on top of every new account's own `new:` count (docs/web-auth.md "Turnstile").
 export const NATIVE_NEW_WEIGHT = 5;
 export async function nativeNewAccount(env, ip) {
-  for (let i = 0; i < NATIVE_NEW_WEIGHT; i++) await limited(env, 'AUTH_RATE', `native-new:${ip}`);
+  for (let i = 0; i < NATIVE_NEW_WEIGHT; i++) await limited(env, 'AUTH_RATE', `native-new:${networkOf(ip)}`); // an IPv6 /64 is one network
 }
 
 export const clientIp = (request) => request.headers.get('cf-connecting-ip') || 'unknown';
@@ -490,6 +500,7 @@ async function anthropic(request, env, ctx, path) {
   let allow;
   try {
     await limited(env, 'API_RATE', token.account);
+    if (path === '/v1/messages') await pricesReady(); // the stand-in's price, for the hold and the bill (proxy.js)
     // Its worst case held until it's done (account.js holdProxy): parallel requests can't spend past the allowance.
     if (path === '/v1/messages') allow = await call(env, token.account, 'hold-proxy', { usd: await worstCase(request.clone()) }, token);
     else {

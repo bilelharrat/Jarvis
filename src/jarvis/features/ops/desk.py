@@ -158,9 +158,9 @@ class Ops:
     # ── state and first-run setup ──
 
     def setup_info(self) -> dict[str, Any]:
-        """Setup shows by itself on a fresh install, and once on an install from before
-        the intro that has never been through it, until it's finished or skipped; it can
-        always be opened from Settings."""
+        """Setup shows by itself once: on a fresh install, or on an install from before the
+        intro that has never been through it (the window marks it seen as it opens, so it
+        doesn't come back at the next start); it can always be opened from Settings."""
         state = self.hub.prefs.feature("ops_setup_state") or ""
         if state == "" and STARTUP["folder"] is not None and Path(STARTUP["folder"]) == self.data:
             self.hub.set_feature_prefs({"ops_setup_state": "pending"})

@@ -116,7 +116,14 @@
       b.setAttribute('role', 'radio');
       b.dataset.on = String(value);
       b.setAttribute('aria-checked', String(s.own === value || (value === null && (s.own === undefined || s.own === null))));
-      b.addEventListener('click', () => F.send({ type: 'cs_session', id: task.id, on: value }));
+      b.addEventListener('click', () => {
+        const go = () => F.send({ type: 'cs_session', id: task.id, on: value });
+        // A Bypass session out of the sandbox: the owner's fingerprint first (as Bypass is).
+        const out = s.bypass && s.on && value !== true && !(value === null && s.default);
+        const check = out && F.check ? F.check('sandbox-off', { text: 'Take this Bypass session out of the sandbox? Its commands could then write anywhere and reach any site.' }) : null;
+        if (check) check.then((ok) => { if (ok) go(); });
+        else go();
+      });
       seg.append(b);
     }
     mineRow.append(seg);

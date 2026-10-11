@@ -305,15 +305,25 @@ export function evaluate(node, ctx) {
 function refValue(node, ctx) {
   const sheet = node.sheet ?? ctx.sheet;
   if (!node.b) return ctx.cell(sheet, node.a.row, node.a.col);
-  return ctx.range(sheet, Math.min(node.a.row, node.b.row), Math.min(node.a.col, node.b.col), Math.max(node.a.row, node.b.row), Math.max(node.a.col, node.b.col));
+  return ctx.range(sheet, Math.min(node.a.row, node.b.row), Math.min(node.a.col, node.b.col), Math.max(node.a.row, node.b.row), Math.max(node.a.col, node.b.col), ctx.full);
 }
 
+const SHAPED = new Set(['INDEX', 'TEXTJOIN', 'SUMPRODUCT', 'MMULT', 'TRANSPOSE']);
+const refSize = (n) => (n.b ? [Math.abs(n.b.row - n.a.row) + 1, Math.abs(n.b.col - n.a.col) + 1] : [1, 1]);
 const LAZY = { IF: true, IFERROR: true, IFNA: true, IFS: true };
 const NATIVE = {
   ROW: (args, ctx) => (args[0] ? (args[0].k === 'ref' ? args[0].a.row : err('#VALUE!')) : ctx.row),
   COLUMN: (args, ctx) => (args[0] ? (args[0].k === 'ref' ? args[0].a.col : err('#VALUE!')) : ctx.col),
-  ROWS: (args, ctx) => { const v = evaluate(args[0], ctx); return Array.isArray(v) ? v.length : 1; },
-  COLUMNS: (args, ctx) => { const v = evaluate(args[0], ctx); return Array.isArray(v) ? (v[0] || []).length : 1; },
+  // a reference's own size, not the cells read (a long range stops at the sheet's used area, AV2-6)
+  ROWS: (args, ctx) => { const v = evaluate(args[0], ctx); return v instanceof Error ? v : args[0].k === 'ref' ? refSize(args[0])[0] : Array.isArray(v) ? v.length : 1; },
+  COLUMNS: (args, ctx) => { const v = evaluate(args[0], ctx); return v instanceof Error ? v : args[0].k === 'ref' ? refSize(args[0])[1] : Array.isArray(v) ? (v[0] || []).length : 1; },
+  COUNTBLANK: (args, ctx) => { // the reference's cells less the ones holding something ("" counts as blank)
+    const v = evaluate(args[0], ctx);
+    if (v instanceof Error) return v;
+    const cells = Array.isArray(v) ? v.flat() : [v];
+    const [r, c] = args[0].k === 'ref' ? refSize(args[0]) : [cells.length, 1];
+    return r * c - cells.filter((x) => x !== null && x !== undefined && x !== '').length;
+  },
   IF: (args, ctx) => {
     const c = evaluate(args[0], ctx);
     if (c instanceof Error) return c;
@@ -353,8 +363,11 @@ function call(node, ctx) {
   if (NATIVE[name]) return NATIVE[name](node.args, ctx);
   const fn = lookup(ctx.fns, name);
   if (typeof fn !== 'function') return err('#NAME?');
+  // a range stops at the sheet's used area (SUM, COUNT… skip blanks: no need to read them), except for the
+  // functions that see its shape, blanks included: their ranges come at full size, up to a limit (AV2-6)
+  const actx = SHAPED.has(name) ? (ctx.full ? ctx : { ...ctx, full: true }) : ctx.full ? { ...ctx, full: false } : ctx;
   const args = node.args.map((a) => {
-    const v = evaluate(a, ctx);
+    const v = evaluate(a, actx);
     return v;
   });
   let out;

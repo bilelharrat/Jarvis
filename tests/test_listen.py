@@ -569,3 +569,87 @@ def test_a_microphone_opened_before_access_is_granted_is_opened_again(monkeypatc
     listener._run()
     assert len(opened) >= 2  # the silent stream was opened again
     assert any(level > 0 for level in levels)  # and the new one heard the room
+
+
+def test_a_stalled_microphone_is_stopped_and_kept_before_portaudio_resets(monkeypatch):
+    """CH6: after a stall, PortAudio was torn down right away while CoreAudio's thread could
+    still call the (garbage-collected) callback: a segfault took every session. The stream is
+    aborted, closed and still referenced, and only then is PortAudio reset."""
+    import gc
+
+    import sounddevice as sd
+
+    from jarvis import listen
+
+    events = []
+
+    class Stalled:
+        def __init__(self, **kw):
+            self.callback = kw["callback"]
+            self.closed = False
+            self.active = True
+            events.append("open")
+
+        def __enter__(self):
+            return self
+
+        def abort(self, ignore_errors=True):
+            events.append("abort")
+
+        def __exit__(self, *_exc):
+            events.append("close")
+            self.active = False
+            self.closed = True
+            return False
+
+    class Lib:
+        def Pa_Terminate(self):  # noqa: N802
+            # the stream and its callback are still alive while PortAudio goes
+            alive = [s for s in listen._STREAMS if isinstance(s, Stalled)]
+            events.append(f"terminate (kept: {len(alive)})")
+            return 0
+
+        def Pa_Initialize(self):  # noqa: N802
+            events.append("initialize")
+            return 0
+
+    monkeypatch.setattr(sd, "InputStream", Stalled)
+    monkeypatch.setattr(sd, "_lib", Lib())
+    monkeypatch.setattr(listen, "STALL_SECONDS", 0.01)
+    monkeypatch.setattr(listen, "SETTLE_SECONDS", 0.0)
+    before = sd._initialized
+    listen._STREAMS.clear()
+    with pytest.raises(RuntimeError, match="no audio arrived"):
+        listen.record_utterance(0.5)
+    gc.collect()
+    assert events == ["open", "abort", "close", "terminate (kept: 1)", "initialize"]
+    assert sd._initialized == before
+    listen._STREAMS.clear()
+
+
+def test_settle_waits_for_a_stream_that_is_still_running():
+    from jarvis import listen
+
+    class Running:
+        closed = False
+
+        def __init__(self):
+            self.checks = 0
+            self.aborted = 0
+
+        @property
+        def active(self):
+            self.checks += 1
+            return self.checks < 3  # stops on the third look
+
+        def abort(self, ignore_errors=True):
+            self.aborted += 1
+
+    stream = Running()
+    listen._STREAMS.clear()
+    listen._STREAMS.append(stream)
+    slept = []
+    listen._settle(timeout=5, sleep=slept.append)
+    assert stream.checks == 3 and stream.aborted == 2
+    assert slept == [0.02, 0.02, listen.SETTLE_SECONDS]
+    listen._STREAMS.clear()

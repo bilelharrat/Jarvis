@@ -46,6 +46,31 @@ def test_a_session_that_cant_start_says_why(api, monkeypatch):  # noqa: F811
     assert reply.status_code == 400 and "too broad" in reply.json()["error"]
 
 
+def test_a_long_prompt_from_the_phone_is_refused_or_sent_whole(api, tmp_path, monkeypatch):  # noqa: F811
+    """CA3-2 (bug sweep r3): /api/code/new cut the prompt at 20,000 and answered ok. Now
+    past a session's limit it's refused with why (413); under it, it goes whole."""
+    from jarvis.tasks import MESSAGE_MAX
+
+    started = []
+
+    def start(prompt, directory, **kw):
+        started.append(prompt)
+        return session(api.hub, 42, tmp_path / "alpha")
+
+    monkeypatch.setattr(api.hub.tasks, "start", start)
+    reply = api.post("/api/code/new", {"prompt": "x" * (MESSAGE_MAX + 1), "directory": "alpha"})
+    assert reply.status_code == 413 and "100,001 characters" in reply.json()["error"]
+    assert started == []
+    whole = "y" * 50_000 + "END"
+    assert api.post("/api/code/new", {"prompt": whole, "directory": "alpha"}).json()["ok"]
+    assert started == [whole]
+    task = session(api.hub, 5, tmp_path / "alpha")
+    reply = api.post(
+        "/api/code/action", {"id": task.id, "action": "command", "text": "z" * (MESSAGE_MAX + 1)}
+    )
+    assert reply.status_code == 413
+
+
 def test_only_listed_actions_go_through(api, tmp_path):  # noqa: F811
     session(api.hub, 5, tmp_path / "alpha")
     assert api.post("/api/code/action", {"id": 5, "action": "cw_term_new"}).json() == {
@@ -67,24 +92,37 @@ def test_settings_go_to_the_session(api, tmp_path, monkeypatch):  # noqa: F811
     assert task.id == 5
 
 
-def test_a_bang_command_answers_with_its_own_output(api, tmp_path, monkeypatch):  # noqa: F811
-    session(api.hub, 5, tmp_path / "alpha")
-
-    async def task_bash(msg):
-        api.hub.emit("task_bash", ref="someone-elses", command="ls", output="other", code=0)
-        api.hub.emit("task_bash", ref=msg["ref"], command=msg["command"], output="ok\n", code=0)
-
-    monkeypatch.setattr(api.hub, "task_bash", task_bash)
+def test_a_bang_command_and_bypass_are_refused_from_the_phone(api, tmp_path, monkeypatch):  # noqa: F811
+    """CD5 (bug sweep r1): the phone's token alone was a shell on the Mac ("!" commands,
+    Bypass permissions, a new session in Bypass). They wait for a Face ID-backed proof."""
+    task = session(api.hub, 5, tmp_path / "alpha")
+    ran = []
     real = api.hub.handle
 
     async def handle(msg):
-        if msg.get("type") == "task_bash":
-            return await task_bash(msg)
+        ran.append(msg.get("type"))
         return await real(msg)
 
     monkeypatch.setattr(api.hub, "handle", handle)
-    reply = api.post("/api/code/action", {"id": 5, "action": "bash", "command": "echo ok"}).json()
-    assert reply["task_bash"]["output"] == "ok\n" and reply["task_bash"]["command"] == "echo ok"
+    marker = tmp_path / "alpha" / "PHONE_BANG"
+    reply = api.post("/api/code/action", {"id": 5, "action": "bash", "command": f"touch '{marker}'"})
+    assert reply.status_code == 403 and "can't be run from the phone" in reply.json()["error"]
+    reply = api.post("/api/code/action", {"id": 5, "action": "mode", "mode": "auto"})
+    assert reply.status_code == 403 and task.mode != "auto"
+    reply = api.post(
+        "/api/code/new", {"prompt": "x", "directory": str(tmp_path / "alpha"), "mode": "auto"}
+    )
+    assert reply.status_code == 403
+    assert ran == [] and not marker.exists()
+    # "/bypass" typed on the phone reaches voice coding's mode switch: refused there too.
+    api.post("/api/code/action", {"id": 5, "action": "command", "text": "/bypass"})
+    assert task.mode != "auto"
+    # ... and a new session that would start in Bypass by the owner's default.
+    api.hub.prefs.code_mode = "auto"
+    reply = api.post("/api/code/new", {"prompt": "x", "directory": str(tmp_path / "alpha")})
+    assert reply.status_code == 400 and "phone" in reply.json()["error"]
+    assert [t.mode for t in api.hub.tasks.tasks.values()] == [task.mode]
+    api.hub.prefs.code_mode = "ask"
 
 
 def test_the_desk_gathers_the_answering_events(api):  # noqa: F811

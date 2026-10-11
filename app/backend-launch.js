@@ -51,6 +51,42 @@ function bundledEnv(base, { resourcesPath, token, extraPath, platform = process.
   });
 }
 
+// The repo uv runs the backend from (main.js). JARVIS_HOME wins. Run from source, it is the folder this app is in
+// (app/..): a jarvis-home.json left in app/ by an earlier `npm run package` names wherever the repo was then, and
+// after a move that folder is gone (every start failed, exit 2). A packaged app reads the path bake-home.js
+// recorded, while that folder still exists.
+function repoHome({ env = process.env, packaged = false, dir, exists = fs.existsSync, read = (f) => fs.readFileSync(f, 'utf8') } = {}) {
+  if (env.JARVIS_HOME) return env.JARVIS_HOME;
+  const own = path.resolve(dir, '..');
+  if (!packaged) return own;
+  try {
+    const baked = JSON.parse(read(path.join(dir, 'jarvis-home.json'))).path;
+    if (typeof baked === 'string' && baked && exists(baked)) return baked;
+  } catch { /* none baked, or damaged */ }
+  return own;
+}
+
+// The repo path a from-repo build recorded (bake-home.js's jarvis-home.json), '' when none.
+function bakedHome({ dir, read = (f) => fs.readFileSync(f, 'utf8') } = {}) {
+  try {
+    const baked = JSON.parse(read(path.join(dir, 'jarvis-home.json'))).path;
+    return typeof baked === 'string' ? baked : '';
+  } catch {
+    return '';
+  }
+}
+
+// Why an installed app can't start its backend, before trying: null when it can. A downloaded app without its
+// own engine had its files removed ('engine'). The owner's own build (npm run install-app / install-eden-code)
+// runs the backend from the repo it recorded, which is fine unless that folder moved ('moved', CH2-8: uv was
+// run in the app's Resources folder instead and failed three times, with no word of why).
+function missingBackend({ packaged, bundled, env = process.env, dir, exists = fs.existsSync, read } = {}) {
+  if (!packaged || bundled || env.JARVIS_HOME) return null;
+  const baked = bakedHome({ dir, read });
+  if (!baked) return { kind: 'engine' };
+  return exists(baked) ? null : { kind: 'moved', baked };
+}
+
 // {command, args, env, cwd, bundled} for spawn(). uv and home are asked only when uv runs it.
 function backendCommand({ packaged, resourcesPath, env, port, token, extraPath, uv, home, dataDir, exists, platform = process.platform }) {
   const P = pathsFor(platform);
@@ -79,6 +115,29 @@ function backendCommand({ packaged, resourcesPath, env, port, token, extraPath, 
     },
     cwd: undefined,
   };
+}
+
+// How the backend stopped, for the window: a signal by name and what usually sends it. uv (and a shell) report a
+// child killed by a signal as exit 128 + its number, so a SIGKILLed backend read "stopped (exit 137)" (CH2-9).
+const SIGNALS = { 1: 'SIGHUP', 2: 'SIGINT', 4: 'SIGILL', 6: 'SIGABRT', 9: 'SIGKILL', 10: 'SIGBUS', 11: 'SIGSEGV', 15: 'SIGTERM' };
+function exitWords(code, signal, platform = process.platform) {
+  const sig = signal || (platform !== 'win32' && code > 128 && code < 160 ? SIGNALS[code - 128] : '');
+  if (!sig) return `stopped (exit ${code})`;
+  if (sig === 'SIGKILL') return 'was force-stopped (SIGKILL: macOS does that when memory runs short, and so does Force Quit)';
+  if (sig === 'SIGTERM') return 'was asked to stop (SIGTERM)';
+  if (['SIGSEGV', 'SIGBUS', 'SIGABRT', 'SIGILL'].includes(sig)) return `crashed (${sig})`;
+  return `was stopped (${sig})`;
+}
+
+// The backend's last lines for the problem screen: this start's, else (killed before it said anything) the start
+// before's. main.js's own "--- <time>" start markers aren't words of the backend's (CH2-9: the detail was only one),
+// and nor is serve's "listening on" line: a start that went well says it, so after starts killed before they said
+// anything it was the whole detail, an old port under the old name, read as the cause (CH3-4).
+const MARKER = /^--- \d{4}-\d\d-\d\dT[^\n]*$/;
+const LISTENING = /^(?:JARVIS|Eden) listening on http:\/\/127\.0\.0\.1:\d+\/(?: \(token kept by the app\)|\?token=\S*)?$/;
+function lastWords(now, before = '') {
+  const words = (text) => String(text || '').split('\n').filter((line) => line.trim() && !MARKER.test(line.trim()) && !LISTENING.test(line.trim())).join('\n');
+  return words(now) || words(before);
 }
 
 // backend.log, as the backend runs: what it prints (stdout and stderr, piped in) is
@@ -148,4 +207,4 @@ class BackendLog extends Writable {
   }
 }
 
-module.exports = { backendCommand, bundledEnv, bundledPython, BackendLog, BUNDLED_PYTHON };
+module.exports = { backendCommand, bundledEnv, bundledPython, repoHome, bakedHome, missingBackend, exitWords, lastWords, BackendLog, BUNDLED_PYTHON };

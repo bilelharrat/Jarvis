@@ -28,7 +28,7 @@ import * as Convs from './convstore.js';
 import { store } from './util.js';
 import { apiUrl, isMock } from './api.js';
 import * as E from './eden-crypto.js';
-import { merge, wire, payload as payloadOf } from './sync-model.js';
+import { merge, wire, payload as payloadOf, stampOf, takeIn, cleanTitle } from './sync-model.js';
 
 const PUSH_DELAY = 2500;
 const EVERY = 60_000;
@@ -180,7 +180,23 @@ async function fillRing(st) {
 /* ---------- state ---------- */
 
 const stateKey = () => `jchat:esync:${account}`;
-const saveLocal = () => store.set(stateKey(), local);
+// `gen`: which run of this state it is (a new key or a restarted server makes a new one); another tab's is taken in only from the same run.
+const newGen = () => Math.random().toString(36).slice(2, 10);
+const fresh = () => ({ gen: newGen(), since: 0, revs: {}, hashes: {}, deleted: [], last: 0, tooBig: 0 });
+// Deletes askeden.com answered for, from this tab: never queued again from what another tab saved before it knew.
+const sent = new Set();
+/**
+ * Every tab of this browser keeps its sync state under one key (bug sweep AS2-2, as cloud-sync.js): before a pass
+ * and before each save, what another tab saved is taken in (its unsent deletes; its revisions for chats this tab
+ * holds as that tab sent them), so a delete queued in a tab closed early is still sent, and an edit goes up once.
+ */
+function takeShared() {
+  if (!local) return;
+  const have = new Map(state.convs.map((c) => [c.id, c]));
+  const took = takeIn(local, store.get(stateKey(), null), { sent, keyOf: itemName, stampHere: (id) => { const c = have.get(id); return !c ? undefined : c.remote ? null : stampOf(c); } });
+  for (const id of took) dirty.delete(id);
+}
+const saveLocal = () => { if (!local) return; takeShared(); store.set(stateKey(), local); };
 const itemName = (id) => `eden/conv.${id}`;
 const idOf = (key) => (key.startsWith('eden/conv.') ? key.slice(10) : null);
 
@@ -292,8 +308,8 @@ export async function turnOn(passphrase) {
     mac: await E.memberMac(secret, d.alg, d.public),
   });
   sealed = await keepSecret('sync', secret, gen, E.SEAL_LABEL, null, { epoch: 1, ring: [] });
-  local = { since: 0, revs: {}, hashes: {}, deleted: [], last: 0, tooBig: 0 };
-  saveLocal();
+  local = fresh();
+  store.set(stateKey(), local); // (a new key: nothing of an earlier state is taken in)
   await refreshStatus();
   start();
   return syncNow();
@@ -312,7 +328,7 @@ export async function unlock(passphrase) {
 async function adopt(secret, gen, envelope, via) {
   const proved = await proveHere(secret, via); // its epoch: the key of now (the older ones come from the chain)
   sealed = await keepSecret('sync', secret, gen, E.SEAL_LABEL, envelope, { epoch: epochOf(proved), ring: [] });
-  local = store.get(stateKey(), null) || { since: 0, revs: {}, hashes: {}, deleted: [], last: 0, tooBig: 0 };
+  local = store.get(stateKey(), null) || fresh();
   local.since = 0; // everything, merged with what's here
   saveLocal();
   await refreshStatus();
@@ -438,12 +454,17 @@ function payload(c) {
 
 export { merge };
 
+// A chat's parts that never travel (sync-model.js wire leaves the pictures out): the copy from another device
+// lacking them doesn't drop them here (a merged chat lost its deck's and its chat's pictures).
+const DEVICE_ONLY = new Set(['queue', 'status', 'deckImages', 'images']);
 export function applyConv(c) {
+  // A title from another device, cleaned as a rename is (AS2-9: an older page or an import could send any characters).
+  if (typeof c.title === 'string') { const t = cleanTitle(c.title); if (t !== c.title) c.title = t || 'New chat'; }
   c.queue = [];
   c.status = 'idle';
   const existing = state.convs.find((x) => x.id === c.id);
   if (existing) {
-    for (const k of Object.keys(existing)) if (!(k in c) && k !== 'queue' && k !== 'status') delete existing[k];
+    for (const k of Object.keys(existing)) if (!(k in c) && !DEVICE_ONLY.has(k)) delete existing[k];
     Object.assign(existing, c);
   } else {
     const at = state.convs.findIndex((x) => (x.updated || 0) < (c.updated || 0));
@@ -468,7 +489,7 @@ async function pull() {
   let current = false;
   for (let page = 0; page < 50; page++) {
     const got = await api('/api/web/esync/pull', { since: local.since });
-    if (got.rev < local.since) { local.since = 0; local.revs = {}; local.hashes = {}; continue; } // wiped and restarted
+    if (got.rev < local.since) { local.since = 0; local.revs = {}; local.hashes = {}; local.gen = newGen(); continue; } // wiped and restarted
     for (const item of got.items) {
       if (item.key === 'eden/keycheck') {
         if (!item.deleted) {
@@ -507,13 +528,16 @@ async function pull() {
   if (changedView) { ui.renderSidebar(); if (current) ui.render(); }
 }
 
+// Nothing is taken off the queue (deletes, dirty chats, their `seen` stamp, extras) until askeden.com
+// answered for it: a push that fails leaves all of it for the next pass (bug sweep AS3).
 async function push() {
   const work = [];
-  for (const id of local.deleted || []) {
+  // A delete of a chat that never synced has nothing to send (nor one this tab already had answered).
+  local.deleted = (local.deleted || []).filter((id) => local.revs[itemName(id)] && !sent.has(id));
+  for (const id of new Set(local.deleted)) {
     const key = itemName(id);
-    if (local.revs[key]) work.push({ id, key, item: { key, deleted: true, base_rev: local.revs[key] } });
+    work.push({ id, key, item: { key, deleted: true, base_rev: local.revs[key] } });
   }
-  local.deleted = [];
   // A few items still sealed under an older key: pushed again (same content, the new key).
   const reseal = new Set((local.reseal || []).slice(0, RESEAL));
   local.reseal = (local.reseal || []).filter((k) => !reseal.has(k));
@@ -523,14 +547,13 @@ async function push() {
     if (c.temp || state.streams.has(c.id) || !c.nodes || !Object.keys(c.nodes).length) continue;
     const key = itemName(c.id);
     if (!/^eden\/[A-Za-z0-9._:-]{1,120}$/.test(key)) continue;
-    if (local.hashes[key] && !dirty.has(c.id) && local.seen && local.seen[c.id] === c.updated) continue;
+    const stamp = stampOf(c);
+    if (local.hashes[key] && !dirty.has(c.id) && local.seen && local.seen[c.id] === stamp) continue;
     const p = payload(c);
     if (!p) { tooBig += 1; continue; }
     const h = await E.digest(p.text);
-    (local.seen ||= {})[c.id] = c.updated;
-    dirty.delete(c.id);
-    if (local.hashes[key] === h) continue;
-    work.push({ id: c.id, key, hash: h, item: { key, data: await E.sealItem(sealed.key, key, p.value), base_rev: local.revs[key] || 0 } });
+    if (local.hashes[key] === h) { (local.seen ||= {})[c.id] = stamp; dirty.delete(c.id); continue; } // nothing new to send
+    work.push({ id: c.id, key, hash: h, stamp, item: { key, data: await E.sealItem(sealed.key, key, p.value), base_rev: local.revs[key] || 0 } });
   }
   local.tooBig = tooBig;
   for (const [key, x] of extras) {
@@ -541,13 +564,18 @@ async function push() {
     if (text.length > MAX_JSON) continue;
     const h = await E.digest(text);
     if (local.hashes[key] === h) continue;
-    work.push({ id: null, key, hash: h, item: { key, data: await E.sealItem(sealed.key, key, value), base_rev: local.revs[key] || 0 } });
+    work.push({ id: null, key, hash: h, extra: x, item: { key, data: await E.sealItem(sealed.key, key, value), base_rev: local.revs[key] || 0 } });
   }
   for (let i = 0; i < work.length; i += BATCH) {
     const chunk = work.slice(i, i + BATCH);
-    const { results } = await api('/api/web/esync/push', { items: chunk.map((w) => w.item) });
+    let results;
+    try { ({ results } = await api('/api/web/esync/push', { items: chunk.map((w) => w.item) })); }
+    catch (e) { for (const w of work.slice(i)) if (w.extra) w.extra.dirty = true; throw e; } // not sent: all of it waits for the next pass
     for (const [j, r] of results.entries()) {
       const w = chunk[j];
+      // askeden.com answered for it: off the queue (a conflict or a refusal is handled below, not sent again as is)
+      if (w.item.deleted) { local.deleted = (local.deleted || []).filter((id) => id !== w.id); sent.add(w.id); }
+      else if (w.id) { (local.seen ||= {})[w.id] = w.stamp; dirty.delete(w.id); }
       if (r.rev) {
         if (w.item.deleted) { delete local.revs[w.key]; delete local.hashes[w.key]; } else { local.revs[w.key] = r.rev; local.hashes[w.key] = w.hash; }
       } else if (r.conflict) {
@@ -584,8 +612,22 @@ export async function syncNow() {
   if (!sealed || !local) return info();
   if (running) { again = true; return info(); }
   running = true;
+  // One tab of this browser syncs at a time (Web Locks, where there are any); the other goes a little later, from what it saved.
+  const L = typeof navigator !== 'undefined' && navigator && navigator.locks && typeof navigator.locks.request === 'function' ? navigator.locks : null;
+  if (!L) return onePass();
+  let ran = false;
+  try {
+    await L.request(`eden-esync:${account}`, { ifAvailable: true }, async (lock) => { if (!lock) return; ran = true; await onePass(); });
+  } catch { if (!ran) return onePass(); }
+  if (!ran) { running = false; clearTimeout(pushTimer); pushTimer = setTimeout(() => syncNow(), PUSH_DELAY); }
+  return info();
+}
+
+async function onePass() {
+  running = true;
   notify();
   try {
+    takeShared();
     for (let pass = 0; pass < 3; pass++) {
       again = false;
       await pull();
@@ -678,7 +720,7 @@ export async function initSync(accountId) {
   try {
     const rec = await keyGet('sync');
     if (rec && rec.key && rec.envelope) sealed = rec;
-    local = sealed ? store.get(stateKey(), null) || { since: 0, revs: {}, hashes: {}, deleted: [], last: 0, tooBig: 0 } : null;
+    local = sealed ? store.get(stateKey(), null) || fresh() : null;
     await refreshStatus();
     if (sealed && status.me.trusted) { start(); syncNow(); }
   } catch (e) {

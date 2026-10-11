@@ -222,16 +222,33 @@ async def claude_check(probe: Probe) -> dict[str, Any]:
             if bundled
             else "Run uv sync in Eden's folder to put it back, then restart Eden.",
         )
-    version = ""
+    # Its version alongside the sign-in check, not before it: each is a Node start of a second
+    # or more, and the Health pane's first look took both, one after the other (2.3-3.1 s).
+    versioning = asyncio.ensure_future(_cli_version(probe, cli))
+    try:
+        return await _claude_signin(probe, cli, title, bundled, versioning)
+    finally:
+        if not versioning.done():
+            versioning.cancel()
+
+
+async def _cli_version(probe: Probe, cli: str) -> str:
     with contextlib.suppress(OSError, TimeoutError, ValueError):
         code, out, _err = await probe.run(cli, "--version", timeout=15)
         if code == 0:
-            version = out.strip().split(" ")[0][:40]
+            return out.strip().split(" ")[0][:40]
+    return ""
+
+
+async def _claude_signin(
+    probe: Probe, cli: str, title: str, bundled: bool, versioning: asyncio.Future
+) -> dict[str, Any]:
     key = None
     if probe.key_signin is not None:
         with contextlib.suppress(Exception):
             key = await probe.key_signin()
     if key is not None:  # signed in with the user's own API key, asked of Anthropic now
+        version = await versioning
         if key.get("ok"):
             meta = " · ".join(x for x in ("API key", version) if x)
             return check("claude", "jarvis", title, "ok", "Signed in", meta=meta)
@@ -251,6 +268,7 @@ async def claude_check(probe: Probe) -> dict[str, Any]:
         status = _last_json(out)
     except (OSError, TimeoutError, ValueError):
         status = None
+    version = await versioning
     if status is None or not isinstance(status.get("loggedIn"), bool):
         return check(
             "claude",

@@ -77,6 +77,10 @@
   #titlebar > .orb { display: none; }
   #titlebar > .iconbtn { width: 28px; }
   #titlebar .tb-title { min-width: 64px; }
+  /* At the large text sizes (A7) the session cost's text alone took a third of the bar: the
+     title was "Sw…" and the globe was cut off the right edge (AI6). It stays one tap away (the
+     context ring's spend card) and under the composer. */
+  html.eden-big-text #titlebar #tbCost { display: none; }
 }
 
 /* Eden in the iPad app (the app adds .eden-app, and .eden-ipad on an iPad), wider than a

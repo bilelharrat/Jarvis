@@ -327,7 +327,7 @@ function learn(body) {
     const after = (ok, shown) => {
       if (ok) right[k]++; else right[k] = Math.max(0, right[k] - 1);
       feedback.className = `stu-feedback ${ok ? 'ok' : 'no'}`;
-      feedback.replaceChildren(el('b', '', ok ? 'Correct' : 'Not quite'), ok ? null : el('span', '', `Answer: ${shown}`), srcChip(card),
+      feedback.replaceChildren(el('b', '', ok ? 'Correct' : 'Not quite'), ok ? '' : el('span', '', `Answer: ${shown}`), srcChip(card),
         el('button', { type: 'button', class: 'btn primary stu-next', onclick: next }, 'Continue'));
       feedback.querySelector('.stu-next').focus();
     };

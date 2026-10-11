@@ -33,8 +33,7 @@ export function initImportChatGPT(h) {
     l.dataset.imp = '1';
     document.head.append(l);
   }
-  addEventListener('eden:conv-opened', (e) => hydrate(e.detail && e.detail.conv));
-  setTimeout(() => hydrate(state.current), 1500); // a reload with an imported chat open
+  // app.js loads this module when it's first needed and calls hydrateImport() as an imported chat opens
 }
 
 /* ---------- imported images: shrunk, kept in IndexedDB, loaded back when a chat opens ---------- */
@@ -73,7 +72,8 @@ async function shrink(bytes, mime) {
 }
 const imgKey = (convId, nodeId, name) => `${convId}/${nodeId}/${name}`;
 
-async function hydrate(c) {
+/** An imported chat's images, back from IndexedDB as it opens (app.js: on eden:conv-opened, and after a reload). */
+export async function hydrateImport(c) {
   if (!c || c.source !== SOURCE) return;
   let any = false;
   for (const n of Object.values(c.nodes)) {
@@ -95,7 +95,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 /** The first item of a JSON array stream (to tell ChatGPT's, Claude's and Gemini's apart), or null. */
 async function firstItem(stream) {
-  for await (const x of jsonArrayItems(stream)) return x;
+  for await (const x of jsonArrayItems(stream, { onBad: () => {} })) return x; // the first readable one
   return null;
 }
 
@@ -131,23 +131,28 @@ async function openExport(file, want = '') {
  * tab it was dropped on (a hint; the file decides).
  */
 export async function runImport(file, { on = () => {}, shouldStop = () => false, source: want = '' } = {}) {
-  const sum = { source: want || 'chatgpt', chats: 0, updated: 0, unchanged: 0, edited: 0, skipped: 0, messages: 0, images: 0, imagesMissing: 0, full: false, cancelled: false, instructions: null, userJson: null, memories: [], projects: [], prompts: 0 };
+  const sum = { source: want || 'chatgpt', chats: 0, updated: 0, unchanged: 0, edited: 0, skipped: 0, incomplete: false, messages: 0, images: 0, imagesMissing: 0, full: false, cancelled: false, instructions: null, userJson: null, memories: [], projects: [], prompts: 0 };
   const ex = await openExport(file, want);
   sum.source = ex.source;
   let idx = null;
   let total = 1, read = 0;
   const onBytes = (n) => { read += n; };
+  // A broken chat is skipped and counted, not the end of the import; a file cut off says so (AS8).
+  let bad = 0;
+  const onBad = () => { bad++; };
+  const onIncomplete = () => { sum.incomplete = true; };
+  const tolerant = { onBytes, onBad, onIncomplete };
   let items; // an async iterable of converted chats ({ conv, images, stats, instructions? }) or null for an unreadable one
 
   if (ex.source === 'gemini') {
     let entries = [];
     if (ex.isZip) {
       for (const e of geminiActivityEntries(ex.entries)) {
-        if (/\.json$/i.test(e.name)) { for await (const x of jsonArrayItems(await entryStream(file, e))) entries.push(x); }
+        if (/\.json$/i.test(e.name)) { for await (const x of jsonArrayItems(await entryStream(file, e), { onBad, onIncomplete })) entries.push(x); }
         else entries.push(...parseActivityHtml(new TextDecoder().decode(await entryBytes(file, e, 200e6))));
       }
     } else if (ex.html) entries = parseActivityHtml(await file.text());
-    else for await (const x of jsonArrayItems(file.stream())) entries.push(x);
+    else for await (const x of jsonArrayItems(file.stream(), { onBad, onIncomplete })) entries.push(x);
     const { results, prompts } = convertGeminiActivity(entries);
     sum.prompts = prompts;
     if (!results.length) throw new Error('No Gemini prompts in this file. In Takeout, pick My Activity › Gemini Apps.');
@@ -163,7 +168,7 @@ export async function runImport(file, { on = () => {}, shouldStop = () => false,
     const streams = cidx ? cidx.conversations.map((e) => ({ size: e.size, open: () => entryStream(file, e) })) : [{ size: file.size, open: async () => file.stream() }];
     total = streams.reduce((a, s) => a + s.size, 0) || 1;
     items = (async function* () {
-      for (const s of streams) for await (const raw of jsonArrayItems(await s.open(), { onBytes })) { let r = null; try { r = convertClaudeConversation(raw, { projects }); } catch { r = null; } yield r; }
+      for (const s of streams) for await (const raw of jsonArrayItems(await s.open(), tolerant)) { let r = null; try { r = convertClaudeConversation(raw, { projects }); } catch { r = null; } yield r; }
     })();
   } else {
     let streams;
@@ -177,7 +182,7 @@ export async function runImport(file, { on = () => {}, shouldStop = () => false,
     }
     total = streams.reduce((a, s) => a + s.size, 0) || 1;
     items = (async function* () {
-      for (const s of streams) for await (const raw of jsonArrayItems(await s.open(), { onBytes })) { let r = null; try { r = convertConversation(raw); } catch { r = null; } yield r; }
+      for (const s of streams) for await (const raw of jsonArrayItems(await s.open(), tolerant)) { let r = null; try { r = convertConversation(raw); } catch { r = null; } yield r; }
     })();
   }
 
@@ -213,6 +218,7 @@ export async function runImport(file, { on = () => {}, shouldStop = () => false,
       await tick();
     }
   }
+  sum.skipped += bad;
   on({ phase: 'done', done: total, total, chats: sum.chats });
   ui.renderSidebar();
   return sum;
@@ -256,13 +262,7 @@ export function openImportChats(source = lastSource) {
 }
 export const openImportChatGPT = () => openImportChats('chatgpt'); // older callers
 
-/** A settings card: a line on what it does and a button that opens the dialog. */
-export function importCard() {
-  return el('div', 'set-sec', el('h3', '', 'Import chats'),
-    el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Bring your chats from ChatGPT, Claude or Gemini'),
-      el('div', 'p-c', 'Export your data there, drop the file here, and your chats appear in Eden: searchable, and synced end-to-end encrypted like the rest. It’s read in this browser and never uploaded.')),
-    el('button', { type: 'button', class: 'btn', onclick: () => openImportChats() }, 'Import…'))));
-}
+// Its card in Settings › Memory is app.js importCard(): drawn without loading this module.
 
 const stepLine = (parts) => el('li', '', ...parts.map((t, i) => (i % 2 ? el('b', '', t) : t)));
 
@@ -303,7 +303,8 @@ function start(body, file, source) {
       label.textContent = `${p.chats.toLocaleString(locale())} chats read · ${Math.round((p.done / p.total) * 100)}%`;
     },
   }).then((sum) => paintSummary(body, sum), (e) => {
-    body.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t import that'), e.message || String(e)),
+    const msg = e instanceof SyntaxError ? 'The file isn’t valid JSON (it may be damaged or cut off). Download the export again.' : e.message || String(e); // no raw parser text
+    body.replaceChildren(el('div', 'sp-warn', el('b', '', 'Couldn’t import that'), msg),
       el('div', 'dlg-acts', el('span', 'grow'), el('button', { type: 'button', class: 'btn', onclick: () => paintStart(body, source) }, 'Try another file')));
   });
 }
@@ -317,10 +318,11 @@ function paintSummary(body, s) {
     s.unchanged ? `${s.unchanged.toLocaleString(locale())} already imported, unchanged` : '',
     s.edited ? `${s.edited.toLocaleString(locale())} left alone because you’ve continued them in Eden` : '',
     s.skipped ? `${s.skipped.toLocaleString(locale())} empty or unreadable, skipped` : '',
+    s.incomplete ? 'The file ends early (the download may have been cut off): chats after that point aren’t in it. Download the export again to get the rest.' : '',
     s.imagesMissing ? `${s.imagesMissing.toLocaleString(locale())} image${s.imagesMissing === 1 ? '' : 's'} not in the export or too large, skipped` : '',
   ].filter(Boolean);
   const ci = s.source === 'chatgpt' ? customInstructionsOf(s) : null;
-  const out = [el('h3', 'imp-h', s.cancelled ? 'Stopped' : s.full ? 'Imported until storage filled up' : 'Done'),
+  const out = [el('h3', 'imp-h', s.cancelled ? 'Stopped' : s.full ? 'Imported until storage filled up' : s.incomplete ? 'Done, but the file is incomplete' : 'Done'),
     el('ul', 'imp-sum', ...lines.map((l) => el('li', '', l)))];
   if (s.full) out.push(el('div', 'sp-warn', el('b', '', 'This browser’s storage is full'), 'The newest chats were kept. Delete some chats and import again to add the rest.'));
   const review = el('div', 'imp-review');

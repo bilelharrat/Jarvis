@@ -31,6 +31,7 @@ from .. import code_ai, code_changes, lang, osplat, prefs, runproc, worktrees
 POLL_SECONDS = 2.0
 TEST_SECONDS = 600
 TEST_OUTPUT = 2000  # characters of a test run's output kept (its end)
+STOP_SECONDS = 15.0  # Keep waits this long for interrupted variants to stop before landing
 JUDGE_DIFF = 30_000
 MODES = ("edits", "ask", "smart", "plan", "auto")
 PREF_TESTS = "code_quick_tests"
@@ -52,6 +53,7 @@ ZH = {
     "Pick two or three to compare.": "请选两个或三个来比较。",
     "Say what they should all do first.": "请先说明它们都要做什么。",
     "That comparison isn't there any more.": "那次比较已经不在了。",
+    "Another of its variants is being kept just now.": "它的另一个变体正在保留中。",
     "That isolated copy isn't there any more.": "那个独立副本已经不在了。",
     "{name} isn't a git repository, so its variants can't each have a copy.": "{name} 不是 git 仓库，所以没法给每个变体一个副本。",
     "{name} has no commits yet, so there's nothing to copy.": "{name} 还没有提交，所以没什么可复制的。",
@@ -111,6 +113,7 @@ class Group:
     judge: str = ""
     kept: int = 0
     started: float = field(default_factory=time.time)
+    keeping: int = 0  # the variant being kept just now (one Keep at a time; 0: none)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -121,6 +124,7 @@ class Group:
             "status": self.status,
             "judge": self.judge,
             "kept": self.kept,
+            "keeping": self.keeping,
             "started": self.started,
             "variants": [v.public() for v in self.variants],
         }
@@ -148,19 +152,26 @@ class BestOf:
 
     def cmd_start(self, msg: dict[str, Any]) -> None:
         said = self.start(msg)
-        if said:
-            self.hub.emit("caption", text=self.tr(said))
+        if said:  # (CA3-8) why it didn't start: the window that asked
+            self.hub.emit_to_caller("caption", text=self.tr(said))
 
     def start(self, msg: dict[str, Any]) -> str:
         """Start the sessions, one per variant, each in a copy of its own."""
+        from ..hub import _too_long
         from ..tasks import EFFORTS
 
-        prompt = str(msg.get("prompt") or "").strip()[:20_000]
+        prompt = msg.get("prompt") if isinstance(msg.get("prompt"), str) else ""
+        prompt = prompt.strip()
+        if _too_long(prompt):  # (CA3-2) refused whole (the form keeps it), never cut
+            return _too_long(prompt)
         variants = [v for v in (msg.get("variants") or []) if isinstance(v, dict)][:3]
         if not prompt:
             return "Say what they should all do first."
         if len(variants) < 2:
             return "Pick two or three to compare."
+        gate = getattr(self.hub, "touch_gate", None)
+        if msg.get("mode") == "auto" and gate is not None and not gate.allow("bypass"):
+            return gate.refuse("bypass")  # (one fingerprint for all of them)
         directory = str(msg.get("directory") or "")
         try:
             folder = self.hub.tasks.resolve_dir(directory)
@@ -172,7 +183,10 @@ class BestOf:
         mode = msg.get("mode") if msg.get("mode") in MODES else "edits"
         tests = str(msg.get("tests") or "").strip()[:500]
         saved = dict(self.hub.prefs.feature(PREF_TESTS) or {})
-        if tests != saved.get(folder.name, ""):
+        desk = getattr(self.hub, "code_desk", None)
+        # (Kept by name: only for the listed project of that name, never another folder's.)
+        listed = desk is None or desk.is_listed(folder)
+        if listed and tests != saved.get(folder.name, ""):
             if tests:
                 saved[folder.name] = tests
             else:
@@ -196,6 +210,7 @@ class BestOf:
                 provider_settings=cfg.get("settings") or "",
                 isolate=True,
                 title=f"Best of {len(variants)}: {label}",
+                by_user=True,
             )
             group.variants.append(Variant(n, label, cfg["ref"], effort, task.id))
         self.groups[group.id] = group
@@ -332,6 +347,8 @@ class BestOf:
         chosen = next((v for v in group.variants if v.n == n), None) if group else None
         if group is None or chosen is None or desk is None or group.status == "kept":
             return "That comparison isn't there any more."
+        if group.keeping:
+            return "Another of its variants is being kept just now."
         copy = desk.store().find(chosen.slug) if chosen.slug else None
         if copy is None:
             return "That isolated copy isn't there any more."
@@ -347,10 +364,33 @@ class BestOf:
         )
         if answer != "keep":
             return ""
-        for v in group.variants:  # nobody keeps working on what's being decided
-            task = self.hub.tasks.tasks.get(v.task_id)
-            if task is not None and task.busy:
+        # Looked at again once answered: another Keep's card may have been answered first
+        # (both would land, and each discard the other).
+        if group.status == "kept" or self.groups.get(group_id) is not group:
+            return "That comparison isn't there any more."
+        if group.keeping:
+            return "Another of its variants is being kept just now."
+        group.keeping = n
+        self.publish(group)  # (the other Keep buttons go)
+        try:
+            return await self._keep_now(group, chosen, copy, others, n)
+        finally:
+            group.keeping = 0
+            self.publish(group)
+
+    async def _keep_now(
+        self, group: Group, chosen: Variant, copy: Any, others: list[Variant], n: int
+    ) -> str:
+        desk = self.hub.code_desk
+        tasks = [t for v in group.variants if (t := self.hub.tasks.tasks.get(v.task_id))]
+        for task in tasks:  # nobody keeps working on what's being decided
+            if task.busy:
                 await self.hub.tasks.interrupt(task.id)
+        # Landed once their steps have stopped (land_now refuses a copy still at work, so
+        # nothing half-written lands).
+        deadline = time.monotonic() + STOP_SECONDS
+        while any(t.busy for t in tasks) and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
         landed = await desk.land_now(copy)
         if desk.store().find(copy.slug) is not None:  # it didn't land (a conflict, say)
             await desk.publish()

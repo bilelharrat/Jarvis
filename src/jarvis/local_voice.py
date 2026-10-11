@@ -127,7 +127,9 @@ def total_size(files: dict[str, dict[str, Any]] | None = None) -> int:
 
 def _session(path: Path) -> Any:
     try:
-        import onnxruntime
+        from .vad import onnxruntime_quiet
+
+        onnxruntime = onnxruntime_quiet()  # (CA3-1) telemetry off
     except Exception as exc:  # pragma: no cover - it's a dependency
         raise Unavailable(f"onnxruntime isn't available ({exc})") from exc
     opts = onnxruntime.SessionOptions()

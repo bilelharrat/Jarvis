@@ -12,7 +12,7 @@
 
   // What the group says for the app's state (English; i18n.js translates it as it appears).
   function lineFor(s) {
-    if (s && !s.enabled && s.follows) return 'Updates itself from your Jarvis folder whenever main changes.';
+    if (s && !s.enabled && s.follows) return 'Updates itself from its source folder whenever main changes.';
     if (!s || !s.enabled) return 'This copy doesn’t check for updates.';
     switch (s.state) {
       case 'checking': return 'Checking for updates…';
@@ -24,7 +24,7 @@
       case 'installing': return 'Starting the installer. The app closes now and opens again when it’s done.';
       case 'ready': return `${s.available} is ready to install.`;
       case 'move': case 'error': return s.error || 'Couldn’t check for updates.';
-      default: return s.platform === 'win32' ? 'Checks for updates once a day.' : 'Checks for updates every 6 hours.';
+      default: return s.platform === 'win32' ? 'Checks for updates once a day.' : 'Checks for updates every hour.'; // (app/features/updates.js CHECK_EVERY)
     }
   }
 
@@ -116,7 +116,7 @@
     if (!next) return;
     state = next;
     if (!group) buildGroup();
-    F.$('updates-version').textContent = `${state.name || 'Eden'} ${state.version}`;
+    F.$('updates-version').textContent = `${state.app || 'Eden'} ${state.version}`; // (the app's own name: Eden Code's says so)
     F.$('updates-line').textContent = lineFor(state);
     F.$('updates-check').hidden = !state.enabled || ['downloading', 'ready', 'installing'].includes(state.state);
     F.$('updates-restart').hidden = state.state !== 'ready';

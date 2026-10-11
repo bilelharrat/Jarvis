@@ -5,6 +5,7 @@ with a recovery ref and brought back; and the sweeper, which removes only spent 
 Real git in temp repositories; fake Claude Code sessions."""
 
 import asyncio
+import os
 import subprocess
 import threading
 import time
@@ -94,6 +95,7 @@ async def test_an_isolated_session_runs_in_its_own_copy_on_its_own_branch(hub, p
         "branch": copy.branch,
         "base": copy.base,
         "into": "main",
+        "project": str(repo.resolve()),  # (whose "don't ask again" rules hold in the copy)
     }
     assert task.public()["workspace"] == {"slug": copy.slug, "branch": copy.branch, "into": "main"}
     # Its edits happen in the copy; the main folder doesn't change.
@@ -572,3 +574,152 @@ def test_a_feature_adds_its_sentences_to_the_translations_without_replacing_the_
     assert lang.ZH_TEXTS["Opening {app}."] == core
     assert lang.translate("A brand new sentence only here.", "zh") == "只在这里的新句子。"
     lang.ZH_TEXTS.pop("A brand new sentence only here.")
+
+
+# ── round-1 sweep fixes ──
+
+
+async def test_landing_waits_while_the_main_folder_is_mid_rebase(hub, projects):
+    repo = make_repo(projects / "proj", {"a.py": numbered(10)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "b.py").write_text("new\n")
+    git(repo, "switch", "-q", "-c", "side")
+    (repo / "a.py").write_text(numbered(10).replace("line 1\n", "side\n"))
+    git(repo, "commit", "-qam", "side")
+    git(repo, "switch", "-q", "main")
+    (repo / "a.py").write_text(numbered(10).replace("line 1\n", "main\n"))
+    git(repo, "commit", "-qam", "main")
+    stopped = subprocess.run(["git", "-C", str(repo), "rebase", "side"], capture_output=True)
+    assert stopped.returncode != 0  # stopped on the conflict, main checked out nowhere
+    before = git(repo, "rev-parse", "refs/heads/main")
+    said = await hub.code_desk.land_now(copy)
+    assert said == "main is in the middle of a rebase; finish it, then land."
+    assert git(repo, "rev-parse", "refs/heads/main") == before
+    git(repo, "rebase", "--abort")
+
+
+async def test_a_session_that_got_busy_while_the_land_card_was_up_isnt_landed(hub, projects):
+    repo = make_repo(projects / "proj", {"a.py": numbered(10)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "a.py").write_text("half-written by a turn\n")
+    hub.cards = []
+
+    def sink(card):  # the owner sent it a message while the card was up: a turn runs
+        hub.cards.append(card)
+        task.busy = True
+        hub.resolve(card["id"], "land")
+
+    hub.add_approval_sink(sink)
+    said = await hub.code_desk.land(copy.slug)
+    task.busy = False
+    assert said == "It's still working. Stop it first, then land."
+    assert (repo / "a.py").read_text() == numbered(10) and copy in hub.code_desk.store().copies
+
+
+async def test_discarding_twice_or_after_landing_leaves_one_honest_record(hub, projects):
+    make_repo(projects / "proj", {"a.py": numbered(10)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "a.py").write_text("work\n")
+    answer(hub, "discard", "discard")
+    said = await asyncio.gather(hub.code_desk.discard(copy.slug), hub.code_desk.discard(copy.slug))
+    assert sorted(said) == [
+        "Discarded " + copy.branch + "; its work is kept for 30 days.",
+        "That isolated copy isn't there any more.",
+    ]
+    trash = hub.code_desk.store().trash
+    assert len(trash) == 1 and trash[0]["ref"]
+    # Landed, then a Discard card answered after: nothing more happens.
+    second = await isolated_session(hub)
+    other = copy_of(hub, second)
+    (second.cwd / "b.py").write_text("more\n")
+    assert (await hub.code_desk.land_now(other)).startswith("Landed")
+    assert await hub.code_desk.discard_now(other) == "That isolated copy isn't there any more."
+    assert len(hub.code_desk.store().trash) == 1
+
+
+async def test_a_copy_taken_back_in_lands_in_the_local_branch(hub, projects, tmp_path):
+    repo = make_repo(projects / "proj", {"a.py": numbered(10)})
+    bare = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    git(repo, "remote", "add", "origin", str(bare))
+    git(repo, "push", "-q", "-u", "origin", "main")
+    git(repo, "remote", "set-head", "origin", "main")
+    assert code_changes.default_branch(repo) == "origin/main"
+    assert code_changes.local_default_branch(repo) == "main"
+    task = await isolated_session(hub)
+    (task.cwd / "b.py").write_text("new\n")
+    store = hub.code_desk.store()
+    store.copies.clear()  # the list was lost
+    assert worktrees.adopt(store, hub.code_desk.root) == [task.workspace["slug"]]
+    [adopted] = store.copies
+    assert adopted.into == "main"
+    landed = await asyncio.to_thread(worktrees.land, adopted, "Eden Code: adopted")
+    assert landed.ok, landed.message
+
+
+async def test_a_recovery_ref_off_the_list_lasts_thirty_days_from_its_discard(hub, projects):
+    make_repo(projects / "proj", {"a.py": numbered(10)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "a.py").write_text("old work\n")
+    old = {"GIT_COMMITTER_DATE": "2026-01-01T00:00:00", "GIT_AUTHOR_DATE": "2026-01-01T00:00:00"}
+    subprocess.run(["git", "-C", str(task.cwd), "commit", "-qam", "old"], check=True,
+                   env={**os.environ, **old})  # fmt: skip
+    assert (await hub.code_desk.discard_now(copy)).startswith("Discarded")
+    trash = hub.code_desk.store().trash
+    ref = trash[0]["ref"]
+    later = time.time() + 31 * 86400
+    # The list lost its record (another discard of the project's is still on it).
+    trash[:] = [{"slug": "other", "repo": copy.repo, "ref": "", "at": later}]
+    swept = await hub.code_desk.sweep()
+    assert ref.removeprefix(worktrees.TRASH_PREFIX) not in swept.expired
+    assert git(copy.repo, "for-each-ref", "--format=%(refname)", ref).strip() == ref
+    swept = await hub.code_desk.sweep(now=later)  # thirty days after the discard
+    assert git(copy.repo, "for-each-ref", "--format=%(refname)", ref).strip() == ""
+
+
+async def test_landing_scans_the_copys_commits_for_secrets_too(hub, projects):
+    make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "config.py").write_text('AWS = "AKIAIOSFODNN7EXAMPLF"\n')
+    git(task.cwd, "add", "config.py")
+    git(task.cwd, "commit", "-qm", "config")  # committed in the copy, nothing uncommitted
+    answer(hub, "deny")
+    assert await hub.code_desk.land(copy.slug) == "Not landed."
+    card = hub.cards[0]
+    assert [c["label"] for c in card["choices"]] == ["Land anyway", "Don't land"]
+    assert "AWS access key in config.py line 1" in card["detail"]
+
+
+async def test_env_opt_in_is_the_listed_projects_never_a_same_named_folders(hub, projects):
+    make_repo(projects / "proj", {".gitignore": ".env\n", "a.py": "x\n"})
+    other = make_repo(projects / "clients" / "proj", {".gitignore": ".env\n", "a.py": "y\n"})
+    (other / ".env").write_text("THEIR_TOKEN=xyz\n")
+    hub.set_feature_prefs({"code_iso_env": ["proj"]})
+    assert hub.code_desk.is_listed((projects / "proj").resolve())
+    assert not hub.code_desk.is_listed(other.resolve())
+    task = await isolated_session(hub, name=str(other))
+    assert task.workspace and not (task.cwd / ".env").exists()
+
+
+async def test_dont_ask_again_in_a_copy_holds_in_the_project(hub, projects):
+    from claude_agent_sdk import ToolPermissionContext
+
+    from jarvis.tasks import ALWAYS
+
+    main = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    task = await isolated_session(hub)
+    answer(hub, ALWAYS)
+    await hub.tasks.policy_for(task)("Bash", {"command": "make build"}, ToolPermissionContext())
+    assert list(hub.tasks.rules.rules) == [str(main.resolve())]
+    other = hub.tasks.start("", "proj")
+    await until(lambda: other.client is not None)
+    hub.cards.clear()
+    decided = await hub.tasks.policy_for(other)(
+        "Bash", {"command": "make build"}, ToolPermissionContext()
+    )
+    assert hub.cards == [] and decided.behavior == "allow"

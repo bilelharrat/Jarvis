@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { SKIP_SIGNATURE, serviceAiReady, serviceFallback, serviceFetch, sseOf } from '../src/accounts/service-ai.js';
-import { forward, priceOf } from '../src/accounts/proxy.js';
+import { forward, priceOf, pricesReady } from '../src/accounts/proxy.js';
 import { askModel } from '../src/accounts/tasks.js';
 
 const geminiAnswer = (parts, finishReason = 'STOP') => ({ candidates: [{ content: { role: 'model', parts }, finishReason }], usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, thoughtsTokenCount: 5 } });
@@ -99,7 +99,8 @@ test('a streamed request gets the answer as Anthropic events', async () => {
   assert.ok(sseOf({ model: 'm', content: [{ type: 'tool_use', id: 'i', name: 'n', input: { a: 1 } }], stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 2 } }).includes('input_json_delta'));
 });
 
-test('the stand-in is priced at its own list price, not as an unknown model', () => {
+test('the stand-in is priced at its own list price, not as an unknown model', async () => {
+  await pricesReady(); // the registry loads on first use, off the Worker's startup (opt2)
   assert.deepEqual(priceOf('gemini-3.8-flash').slice(0, 2), [0.75, 3.75]);
   assert.deepEqual(priceOf('nothing-known'), [15, 75, 0.1]);
 });

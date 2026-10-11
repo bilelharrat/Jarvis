@@ -9,7 +9,14 @@ const path = require('path');
 
 const MAX_BYTES = 1024 * 1024;
 
-function createTrace(file, { max = MAX_BYTES, fsys = fs, now = Date.now } = {}) {
+// The backend's session token never goes into app.log, onto the problem screen or into its URL: whoever has it can
+// drive the sessions. Its startup line (server.py) and any URL carry it as token=…; JARVIS_TOKEN=… in an environment dump.
+function redact(text) {
+  return String(text).replace(/(\b(?:JARVIS_)?token=)[^\s&"'<>]+/gi, '$1…').replace(/\b[0-9a-f]{48,}\b/gi, '…'); // (and a bare one: the tail can start mid-line)
+}
+
+// pid: put on each line, so two copies of the app writing one app.log (two Eden Codes on one Mac) read apart.
+function createTrace(file, { max = MAX_BYTES, fsys = fs, now = Date.now, pid = 0 } = {}) {
   const began = now();
   let opened = false;
 
@@ -25,7 +32,7 @@ function createTrace(file, { max = MAX_BYTES, fsys = fs, now = Date.now } = {}) 
 
   function write(text) {
     const at = now();
-    const line = `${new Date(at).toISOString()} +${((at - began) / 1000).toFixed(1)}s ${String(text).replace(/\r?\n/g, '\n    ')}\n`;
+    const line = `${new Date(at).toISOString()} +${((at - began) / 1000).toFixed(1)}s ${pid ? `[${pid}] ` : ''}${redact(text).replace(/\r?\n/g, '\n    ')}\n`;
     try {
       if (!opened) open();
       fsys.appendFileSync(file, line);
@@ -42,14 +49,17 @@ function createTail(maxChars = 4000) {
   return {
     add(chunk) {
       text += String(chunk);
-      if (text.length > maxChars * 2) text = text.slice(-maxChars);
+      if (text.length > maxChars * 2) {
+        text = text.slice(-maxChars);
+        text = text.slice(text.indexOf('\n') + 1); // from a whole line: never half a line (or half a token, CH3)
+      }
     },
     reset() { text = ''; }, // a new start: only what it says counts
     last(lines = 6, chars = 900) {
-      const kept = text.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(-lines).join('\n');
+      const kept = redact(text).split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(-lines).join('\n');
       return kept.length > chars ? kept.slice(-chars) : kept;
     },
   };
 }
 
-module.exports = { createTrace, createTail, MAX_BYTES };
+module.exports = { createTrace, createTail, redact, MAX_BYTES };

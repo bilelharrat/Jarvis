@@ -64,8 +64,9 @@ class OnnxEmbedder:
     def __init__(self, folder: Path | None = None, *, session: Any = None, tokenizer: Any = None) -> None:
         folder = folder or model_dir()
         if session is None:
-            import onnxruntime as ort
+            from .vad import onnxruntime_quiet
 
+            ort = onnxruntime_quiet()  # (CA3-1) telemetry off
             options = ort.SessionOptions()
             options.intra_op_num_threads = 2  # (a background job: the rest of the app stays quick)
             session = ort.InferenceSession(str(folder / MODEL_FILE), options, providers=["CPUExecutionProvider"])

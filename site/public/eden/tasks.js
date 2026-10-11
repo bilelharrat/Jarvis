@@ -15,13 +15,29 @@ import { getJSON, postJSON } from './api.js';
 import { locale, t as tl } from './i18n.js';
 
 const POLL_MS = 60_000;
+const POLL_IDLE_MAX = 15 * 60_000; // with nothing to watch, the wait doubles up to this (opt2-ae-web)
 const KINDS = [['gmail', 'New email'], ['time', 'A time'], ['calendar', 'A meeting']];
 const REPEATS = [['none', 'Once'], ['hourly', 'Every hour'], ['daily', 'Every day'], ['weekdays', 'Weekdays'], ['weekly', 'Every week']];
 const ACTION_WORDS = { notify: 'Tell me', draft: 'Write Gmail drafts', send: 'Ask me to send them', calendar: 'Ask me to add events' };
 const STATUS = { active: ['Active', 'ok'], paused: ['Paused', 'warn'], done: ['Done', ''], expired: ['Ended', ''] };
 const OUTCOME = { acted: 'Acted', nothing: 'Nothing to do', skipped: 'Skipped', error: 'Didn’t work' };
 
-const S = { data: null, error: null, draft: null, proposing: false, saving: false, open: false, timer: null, dismissed: new Set() };
+// "Hide for now" on the approval card lasts across reloads and relaunches (iOS sweep AI1: it came
+// back on every load, over the phone's sidebar): the approvals hidden, by id, in this browser.
+const HIDDEN_KEY = 'eden:tasks-hidden';
+const HIDDEN_MAX = 100;
+function hiddenIds() {
+  try {
+    const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]');
+    return new Set(Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(-HIDDEN_MAX) : []);
+  } catch { return new Set(); }
+}
+function hideApprovals(ids) {
+  for (const id of ids) S.dismissed.add(id);
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...S.dismissed].slice(-HIDDEN_MAX))); } catch { /* storage off: for this page only */ }
+}
+
+const S = { data: null, error: null, draft: null, proposing: false, saving: false, open: false, timer: null, dismissed: hiddenIds() };
 let H = {};
 let sheet = null;
 let card = null;
@@ -111,8 +127,10 @@ export function openTasks({ prefill = null } = {}) {
   if (prefill) S.draft = { task: prefill, problems: [] };
   sheet.classList.add('open');
   paint();
-  refresh();
-  requestAnimationFrame(() => { const f = sheet.querySelector(S.draft ? '.tk-form input' : '#tkAsk') || sheet.querySelector('button'); if (f) f.focus(); });
+  // Focus goes into the sheet, and again once the tasks arrive (that repaint replaced the focused field), so Escape and Tab work (AS9).
+  const focusIn = () => { if (!S.open || sheet.contains(document.activeElement)) return; const f = sheet.querySelector(S.draft ? '.tk-form input' : '#tkAsk') || sheet.querySelector('button'); if (f) f.focus(); };
+  refresh().then(focusIn, focusIn).finally(schedule); // (open: back to a look a minute)
+  requestAnimationFrame(focusIn);
 }
 export function closeTasks() {
   if (!sheet || !sheet.classList.contains('open')) return false;
@@ -308,10 +326,17 @@ function approvalCard(a, { compact = false } = {}) {
   }
   for (const d of a.details || []) if (!details.some(([k]) => k === d.label) && !compact) details.push([d.label, d.value]);
   const flags = a.flags || [];
-  return el('div', { class: `tk-appr${compact ? ' compact' : ''}`, role: 'group', 'aria-label': `Approval: ${a.summary}` },
+  const shown = details.filter(([, v]) => v);
+  const words = [
     el('div', 'tk-appr-h', ico(a.kind === 'send' ? 'send' : 'cal', 15), el('b', '', a.summary)),
     el('div', 'tk-appr-from', `From your task “${a.task_title}” · ${ago(a.created)}`),
-    el('dl', 'tk-appr-d', ...details.filter(([, v]) => v).flatMap(([k, v]) => [el('dt', '', k), el('dd', { 'data-no-i18n': '' }, v)])),
+    el('dl', 'tk-appr-d', ...shown.flatMap(([k, v]) => [el('dt', '', k), el('dd', { 'data-no-i18n': '' }, v)])),
+  ];
+  // The floating card's words are one element for VoiceOver (iOS sweep AI10: each row was its own
+  // too-small target, and the address alone a label that isn't words); the buttons stay their own.
+  const said = `${a.summary}. ${shown.map(([k, v]) => `${tl(k)}: ${v}`).join('. ')}${shown.length ? '. ' : ''}${tl('From your task')} “${a.task_title}”, ${ago(a.created)}.`;
+  return el('div', { class: `tk-appr${compact ? ' compact' : ''}`, role: 'group', 'aria-label': `Approval: ${a.summary}` },
+    ...(compact ? [el('div', { class: 'tk-appr-text', role: 'text', 'aria-label': said }, ...words)] : words),
     flags.length ? el('div', 'tk-flags', ...flags.map((f) => el('div', '', ico('lock', 12), f))) : null,
     el('div', 'tk-appr-acts', denyBtn, approveBtn));
 }
@@ -368,7 +393,7 @@ function paintCard() {
   // (replaceChildren would turn a null into the text "null": the parts not shown are dropped first)
   card.replaceChildren(...[
     el('div', 'tk-float-h', ico('bell', 14), el('span', 'grow', pending.length > 1 ? `${pending.length} tasks are waiting for you` : 'A task is waiting for you'),
-      el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Hide for now', onclick: () => { for (const p of pending) S.dismissed.add(p.id); paintCard(); } }, ico('x', 14))),
+      el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Hide for now', onclick: () => { hideApprovals(pending.map((p) => p.id)); paintCard(); } }, ico('x', 14))),
     approvalCard(a, { compact: true }),
     el('button', { type: 'button', class: 'cap tk-float-all', onclick: () => openTasks() }, pending.length > 1 ? `Open Tasks (${pending.length})` : 'Open Tasks'),
   ]);
@@ -376,13 +401,34 @@ function paintCard() {
 
 /* ---------------- wiring ---------------- */
 
-/** At page load: the approval card, a poll every minute while the page is visible, #tasks (from a push) opens the panel. */
+/*
+ * The poll: every minute while there is something to watch (a task, an approval waiting, the panel open), as before;
+ * with nothing (no tasks, or none for this account here), the wait doubles from a minute up to 15 (opt2-ae-web: an
+ * idle page asked for an empty list every minute, all day). Coming back to the page, or opening Tasks, asks at once
+ * and starts from a minute again; nothing is asked while the page is hidden.
+ */
+let idleLooks = 0;
+const watching = () => Boolean(S.open || (S.data && ((S.data.tasks || []).length || (S.data.approvals || []).some((a) => a.status === 'pending'))));
+function schedule() {
+  clearTimeout(S.timer);
+  idleLooks = watching() ? 0 : idleLooks + 1;
+  const wait = idleLooks ? Math.min(POLL_IDLE_MAX, POLL_MS * 2 ** (idleLooks - 1)) : POLL_MS;
+  S.timer = setTimeout(poll, wait);
+  if (S.timer && typeof S.timer.unref === 'function') S.timer.unref(); // (Node, in the tests)
+}
+function poll() {
+  if (document.visibilityState !== 'visible') { S.timer = null; return; } // looked at again when the page shows
+  refresh({ quiet: true }).finally(schedule);
+}
+/** Ask now and start the minute over (the page came back, the panel opened). */
+function pollNow() { idleLooks = 0; clearTimeout(S.timer); poll(); }
+
+/** At page load: the approval card, the poll while the page is visible, #tasks (from a push) opens the panel. */
 export function initTasks(handlers = {}) {
   H = handlers;
-  const poll = () => { if (document.visibilityState === 'visible') refresh({ quiet: true }); };
-  refresh({ quiet: true });
-  S.timer = setInterval(poll, POLL_MS);
-  document.addEventListener('visibilitychange', poll);
+  refresh({ quiet: true }).finally(schedule);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollNow(); });
+  addEventListener('focus', () => { if (idleLooks > 1) pollNow(); }); // back to the window while it was backing off
   const fromLink = () => {
     if (!/^#tasks\b/.test(location.hash)) return;
     history.replaceState(null, '', location.pathname + location.search);

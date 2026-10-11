@@ -42,6 +42,12 @@
   // money are J.A.R.V.I.S.'s, and stay in its own Settings (they're there for search still).
   const EDEN = document.body.dataset.app === 'eden-code';
   const EDEN_PANES = new Set(['general', 'accessibility', 'ai', 'accounts', 'code', 'browser', 'safety']);
+  // …and in those panes, the assistant's own groups (email and calendars, its personality, its conversation and picture
+  // model, texting and WhatsApp) aren't a coding app's: never shown in Eden Code, searched or not (CH10). By id, or by
+  // a control inside for index.html's sections that have none.
+  const JARVIS_ONLY = ['mail-group', 'calendars-group', 'convo-group', 'pictures-group', 'wa-group', 'sms-line-group'];
+  const JARVIS_ONLY_INSIDE = ['persona-group', 'reset-btn'];
+  const edenOff = (g) => EDEN && (JARVIS_ONLY.includes(g.id) || JARVIS_ONLY_INSIDE.some((id) => g.querySelector(`#${id}`)));
   // [id, label, icon, tile colour]; an empty id is a gap between clusters, as in System Settings.
   const PANES = [
     ['general', 'General', 'gear', 'gray'],
@@ -143,8 +149,10 @@
   list.setAttribute('role', 'tablist');
   list.setAttribute('aria-orientation', 'vertical');
   for (const [id, label, icon, tone] of PANES) {
-    if (!id) { list.append(el('li', 'sn-gap')); continue; }
+    // (the list items are only layout: role none, so the tablist's children are its tabs, CH11)
+    if (!id) { const gap = el('li', 'sn-gap'); gap.setAttribute('role', 'none'); list.append(gap); continue; }
     const li = el('li');
+    li.setAttribute('role', 'none');
     const b = el('button', 'sn-item');
     b.type = 'button';
     b.id = `sn-${id}`;
@@ -193,7 +201,7 @@
 
   function show() {
     const searching = sheet.classList.contains('searching');
-    for (const g of groups()) g.classList.toggle('sn-out', !searching && paneOf(g) !== current);
+    for (const g of groups()) g.classList.toggle('sn-out', edenOff(g) || (!searching && paneOf(g) !== current));
     for (const b of list.querySelectorAll('.sn-item')) {
       const on = !searching && b.dataset.pane === current;
       b.setAttribute('aria-selected', String(on));
@@ -242,6 +250,33 @@
   narrow.addEventListener('change', fit);
   fit();
 
+  // Settings is modal (CH11): while it's open the window behind it is inert (no Tab stops, nothing a screen reader
+  // walks into), focus starts in it unless a caller already put it on a control there, and goes back where it was.
+  const BEHIND = ['body > header.top', 'body > .layout', 'body > footer.bottom', '#cc', '#activity', '#galaxy', '#browser'];
+  let madeInert = [];
+  let focusBefore = null;
+  function modal(open) {
+    if (open) {
+      madeInert = BEHIND.map((q) => document.querySelector(q)).filter((n) => n && !n.inert);
+      for (const n of madeInert) n.inert = true;
+      const active = document.activeElement;
+      if (!sheet.contains(active) && !nav.contains(active)) {
+        focusBefore = active;
+        const field = $('settings-search');
+        const tab = list.querySelector('.sn-item[aria-selected="true"]');
+        const to = field && field.offsetParent !== null ? field : tab;
+        if (to) to.focus({ preventScroll: true });
+      }
+    } else {
+      for (const n of madeInert) n.inert = false;
+      madeInert = [];
+      const back = focusBefore;
+      focusBefore = null;
+      const active = document.activeElement;
+      if (back && back.isConnected && (!active || active === document.body || sheet.contains(active) || nav.contains(active))) back.focus({ preventScroll: true });
+    }
+  }
+
   // Shown and hidden with the sheet; opening starts on the list when narrow.
   new MutationObserver(() => {
     const open = !sheet.hidden;
@@ -250,6 +285,7 @@
     if (open && !document.body.dataset.settingsView) document.body.dataset.settingsView = 'list';
     if (!open) document.body.dataset.settingsView = 'list';
     if (open) show();
+    modal(open);
   }).observe(sheet, { attributes: true, attributeFilter: ['hidden'] });
 
   // ── Tools & Accounts, as the Accounts pane ──
@@ -297,6 +333,7 @@
 
   // ⌘, opens and closes Settings, as in every Mac app.
   document.addEventListener('keydown', (e) => {
+    if (EDEN) return; // (Eden Code's ⌘, is app.js's own: two toggles opened and closed it again, CH10)
     if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key !== ',') return;
     e.preventDefault();
     toggleSettings(sheet.hidden);

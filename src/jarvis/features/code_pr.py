@@ -65,7 +65,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import code_ai, code_changes, code_prs, github, lang, prefs, secret_scan
+from .. import code_ai, code_changes, code_prs, github, lang, prefs, secret_scan, worktrees
 from ..code_changes import git
 from ..code_prs import FIX_ATTEMPTS, PullRecord
 from ..hub import _msg_int
@@ -128,6 +128,7 @@ ZH = {
     "Checks pass on pull request #{n} now.": "拉取请求 #{n} 的检查现在通过了。",
     "Merged pull request #{n} into {base}.": "已把拉取请求 #{n} 合并进 {base}。",
     "Pull request #{n} still fails after {k} fixes; it's over to you.": "拉取请求 #{n} 修了 {k} 次还是失败；接下来交给你了。",
+    "The session's fix for pull request #{n} made no new commit; it's over to you.": "会话对拉取请求 #{n} 的修复没有产生新的提交；接下来交给你了。",
     "Pull request #{n} conflicts with {base}; the session is resolving it.": "拉取请求 #{n} 和 {base} 有冲突；会话正在解决。",
     "The work for pull request #{n} is ready to push: push it from Eden Code's pull request pane.": "拉取请求 #{n} 的改动已经可以推送了：请在 Eden Code 的拉取请求面板里推送。",
     "Pushed the work for pull request #{n}.": "已推送拉取请求 #{n} 的改动。",
@@ -155,12 +156,12 @@ ZH = {
     "Asked the session to resolve the conflicts with {base}.": "已让会话解决与 {base} 的冲突。",
     "Sent {n} new review comment to the session.": "已把 {n} 条新的审查评论交给会话。",
     "Sent {n} new review comments to the session.": "已把 {n} 条新的审查评论交给会话。",
-    "Sent your @jarvis comment to the session.": "已把你在拉取请求上给我的评论交给会话。",
+    "Sent your @eden comment to the session.": "已把你在拉取请求上给我的评论交给会话。",
     "That's today's {n} automatic {what} sent; the rest wait for you.": "今天已自动发送了 {n} 次{what}；其余的等你处理。",
     "fixes": "修复",
     "review batches": "审查评论",
     "conflict requests": "冲突处理",
-    "@jarvis requests": "评论里给我的请求",
+    "@eden requests": "评论里给我的请求",
     "Fix failing checks": "修复失败的检查",
     "Resolve conflicts with {base}": "解决与 {base} 的冲突",
     "Address review comments": "处理审查意见",
@@ -171,6 +172,8 @@ ZH = {
     "Not pushed.": "没有推送。",
     "Couldn't commit the session's work: {error}": "没能提交会话的改动：{error}",
     "A pull request for issue #{n} is ready for your OK in Eden Code.": "为议题 #{n} 准备的拉取请求已就绪，请在 Eden Code 里确认。",
+    "The folder of pull request #{n} is on {branch}, not the pull request's branch {pr_branch}, so the session's work wasn't pushed: switch back to {pr_branch} to let it go on.": "拉取请求 #{n} 的文件夹在 {branch} 上，不在拉取请求的分支 {pr_branch} 上，所以会话的改动没有推送：切回 {pr_branch} 才能继续。",
+    "Pull request #{n} waits on your answer to its push card first.": "拉取请求 #{n} 正在等你先回答推送卡片。",
 }
 lang.add_texts(ZH)
 
@@ -178,7 +181,7 @@ CAP_WORDS = {
     "fix": "fixes",
     "review": "review batches",
     "conflict": "conflict requests",
-    "jarvis": "@jarvis requests",
+    "jarvis": "@eden requests",
 }
 COMMIT_WORDS = {
     "fix": "Fix failing checks",
@@ -246,6 +249,9 @@ class PullDesk:
         self._repos: dict[str, dict[str, Any]] = {}  # repo -> its settings on GitHub
         self._wake: asyncio.Event | None = None
         self._capped: set[str] = set()  # kinds the owner was told are capped, today
+        # The folder's own HEAD when a follow-up was sent (key -> commit): a fix that made
+        # no commit since is told apart from one that did, whatever GitHub's head is.
+        self.sent_heads: dict[str, str] = {}
 
     # ── plumbing ──
 
@@ -389,7 +395,8 @@ class PullDesk:
             "--",
             repo.prefix or ".",
         )
-        uncommitted = len([e for e in status.out.split("\0") if e.strip()]) if status.ok else 0
+        # (Entries, not -z fields: a rename is two fields and one change.)
+        uncommitted = len(worktrees.status_entries(status.out)) if status.ok else 0
         return Plan(
             repo.top,
             repo.prefix,
@@ -626,7 +633,8 @@ class PullDesk:
     def _scan_uncommitted(plan: Plan) -> list[secret_scan.Finding]:
         repo = code_changes.Repo(plan.top, plan.prefix)
         head = code_changes.head_commit(plan.top) or code_changes.EMPTY_TREE
-        return secret_scan.scan(code_changes.diff_files(repo, head), repo.shown)
+        files = code_changes.diff_files(repo, head, untracked_cap=code_changes.SCAN_UNTRACKED)
+        return secret_scan.scan(files, repo.shown)
 
     @staticmethod
     def _commit_all(top: Path, prefix: str, message: str) -> str:
@@ -636,7 +644,7 @@ class PullDesk:
             return f"Couldn't commit the session's work: {added.err.strip()[:300]}"
         if not git(top, "diff", "--cached", "--quiet").code:
             return ""  # nothing to commit after all
-        done = git(top, "commit", "-q", "-m", message, timeout=120)
+        done = git(top, *code_changes.OWN_IDENTITY, "commit", "-q", "-m", message, timeout=120)
         if done.ok:
             return ""
         why = (done.err or done.out).strip()
@@ -767,8 +775,14 @@ class PullDesk:
         self.next_poll[rec.key] = now + step
 
     async def poll(self, rec: PullRecord) -> None:
-        """Read one pull request's state, checks and comments, and act on what changed."""
-        async with self.lock(rec.key):
+        """Read one pull request's state, checks and comments, and act on what changed. One
+        whose follow-up is waiting on a card (push it?) is looked at again soon: waiting on
+        its lock here would hold up every other pull request's poll until it's answered."""
+        lock = self.lock(rec.key)
+        if lock.locked():
+            self.next_poll[rec.key] = time.time() + POLL_SOON
+            return
+        async with lock:
             try:
                 changed = await self._poll(rec)
             except github.RateLimited:
@@ -944,15 +958,22 @@ class PullDesk:
                 task = self.hub.tasks.start("", rec.folder, resume=rec.session_id)
             except ValueError as exc:
                 return str(exc)
+        # (A fix's: whether the session's turn made a commit is told from it afterwards.)
+        head = (
+            await asyncio.to_thread(code_changes.head_commit, Path(task.cwd))
+            if kind == "fix"
+            else ""
+        )
         if not self.hub.tasks.send(task.id, text, note=True):
             return "Too many messages are waiting for that session already."
+        self.sent_heads[rec.key] = head
         rec.followup = kind
         rec.awaiting_push = False
         self.save()
         said = {
             "fix": f"Sent the failing checks' logs to the session (fix {rec.fix_attempts} of {FIX_ATTEMPTS}).",
             "conflict": f"Asked the session to resolve the conflicts with {rec.base}.",
-            "jarvis": "Sent your @jarvis comment to the session.",
+            "jarvis": "Sent your @eden comment to the session.",
         }.get(kind, "")
         if kind == "review":
             n = text.count("<review-comment ")
@@ -988,11 +1009,21 @@ class PullDesk:
         """The session's done with a follow-up: its work committed (in its isolated copy)
         and pushed, behind the Git panel's card."""
         kind, rec.followup = rec.followup, ""
+        sent_head = self.sent_heads.pop(rec.key, "")
         self.save()
         async with self.lock(rec.key):
             plan = await asyncio.to_thread(self._plan, task, rec.base)
             if isinstance(plan, str):
                 return plan
+            if rec.branch and plan.branch != rec.branch:
+                # (Switched since: its work would be committed and pushed to another branch.)
+                said = (
+                    f"The folder of pull request #{rec.number} is on {plan.branch}, not the "
+                    f"pull request's branch {rec.branch}, so the session's work wasn't pushed: "
+                    f"switch back to {rec.branch} to let it go on."
+                )
+                self.notify(f"pr-branch:{rec.key}:{plan.branch}", said)
+                return said
             if plan.copy and plan.uncommitted:
                 base = rec.base
                 words = COMMIT_WORDS.get(kind) or f"Resolve conflicts with {base}"
@@ -1015,6 +1046,17 @@ class PullDesk:
                 problem = await asyncio.to_thread(self._commit_all, plan.top, plan.prefix, words)
                 if problem:
                     return problem
+            elif kind == "fix":
+                head = await asyncio.to_thread(code_changes.head_commit, plan.top)
+                # Nothing new since the fix was asked for (or, not known, since the checks
+                # failed): a commit made on GitHub meanwhile doesn't count as the fix.
+                if head and head == (sent_head or rec.head_sha):
+                    self.notify(
+                        f"pr-nofix:{rec.key}:{rec.head_sha[:7]}",
+                        f"The session's fix for pull request #{rec.number} made no new commit; "
+                        "it's over to you.",
+                    )
+                    return ""
             return await self._push(rec, task, plan)
 
     async def _push(self, rec: PullRecord, task: Any, plan: Plan) -> str:
@@ -1235,6 +1277,10 @@ class PullDesk:
         _task, rec = self._rec(msg)
         if rec is not None:
             rec.watch = rec.state == "open"
+            if self.lock(rec.key).locked():  # (poll would put it off, saying nothing)
+                self.caption(
+                    f"Pull request #{rec.number} waits on your answer to its push card first."
+                )
             self.spawn(self.poll(rec))
 
     def cmd_log(self, msg: dict[str, Any]) -> None:

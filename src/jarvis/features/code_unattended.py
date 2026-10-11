@@ -87,6 +87,48 @@ NEVER_PAIRS = {
     "cargo publish", "docker push", "twine upload", "gem push", "pod trunk",
 }  # fmt: skip
 _SHELL = re.compile(r"[;&|<>`\r\n]|\$\(")
+# Runners whose next words are a whole command of their own (tasks._RUNNERS' others are
+# interpreters and shells, fine with a script's path: "python manage.py test").
+_WRAPPERS = {
+    "sudo", "doas", "su", "env", "xargs", "exec", "eval", "source", ".", "nohup", "time",
+    "timeout", "nice", "watch", "command", "builtin", "parallel", "script", "expect", "open",
+    "ssh", "launchctl", "crontab", "at", "cd",
+}  # fmt: skip
+# A shell's or an interpreter's flag for code given right there (bash -lc, python -c,
+# node -e, perl -E, php -r, npx -c), or "-" (code from the input).
+_SHELLS = {"bash", "sh", "zsh", "fish", "dash", "ksh", "csh", "tcsh"}
+_CODE_FLAGS = {
+    "python": {"-c"}, "python2": {"-c"}, "python3": {"-c"}, "node": {"-e", "-p", "--eval", "--print"},
+    "deno": {"eval", "-e"}, "ruby": {"-e"}, "perl": {"-e", "-E"}, "php": {"-r"}, "lua": {"-e"},
+    "npx": {"-c", "--call"}, "pnpx": {"-c"}, "bunx": {"-e"}, "uvx": {"-c"},
+}  # fmt: skip
+
+
+def _code_flag(first: str, word: str) -> bool:
+    if word == "-":
+        return True
+    if first in _SHELLS:
+        return word == "--command" or bool(re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", word))
+    flags = _CODE_FLAGS.get(re.sub(r"[\d.]+$", "", first), set()) | _CODE_FLAGS.get(first, set())
+    if word in flags or any(word.startswith(f"{f}=") for f in flags if f.startswith("--")):
+        return True
+    # A one-letter code flag in a cluster of them, as shells' are (CD2-2): python3 -Ic,
+    # -Sc, ruby -we, perl -ne, node -pe; or with the code joined on (python3 -cprint(1)).
+    letters = "".join(f[1] for f in flags if len(f) == 2 and f[0] == "-" and f[1] != "-")
+    return bool(letters) and bool(re.match(rf"-[A-Za-z]*[{letters}]", word))
+
+
+def _hands_code(words: list[str]) -> bool:
+    """Whether a command hands a shell or an interpreter code to run anywhere in it
+    (uv run python -c …, python3 -I -c … under a scope entry "python3 -I")."""
+    for at, word in enumerate(words):
+        name = word.rsplit("/", 1)[-1]
+        if name in _SHELLS or re.sub(r"[\d.]+$", "", name) in _CODE_FLAGS or name in _CODE_FLAGS:
+            if any(_code_flag(name, w) for w in words[at + 1 :]):
+                return True
+    return False
+
+
 MODE_ZH = {"edits": "自动接受编辑", "smart": "自动"}  # as the window's own Chinese names them
 # The schedules a run may have (the routines' own daily, weekdays, weekly and once).
 SCHEDULES = ("daily", "weekdays", "weekly", "once")
@@ -265,6 +307,13 @@ def check_command(entry: str) -> str:
         return f"“{entry}” can't be one of its commands: nothing that sends, deletes or changes the Mac."
     if len(words) == 1 and first in tasks._RUNNERS:
         return f"“{entry}” runs anything it's given, so it can't be one of its commands on its own."
+    # A runner whose words after it are the command it runs (env, xargs, timeout…), or a
+    # shell or interpreter handed code to run (bash -c, python -c, node -e): any command
+    # after it would be in scope.
+    if first in tasks._RUNNERS and (
+        first in _WRAPPERS or any(_code_flag(first, w) for w in words[1:])
+    ):
+        return f"“{entry}” runs anything it's given, so it can't be one of its commands."
     return ""
 
 
@@ -799,10 +848,17 @@ class Runs:
                     "them, and nobody's here to ask. Don't try to get it done another way: carry "
                     "on without it if you can, otherwise stop and say what you'd need."
                 )
+            # A private folder and Eden's own data folder (its window token): never, as in
+            # every session (tasks.TaskManager._refused_now).
+            refused = self.hub.tasks._refused_now(task, tool_name, tool_input)
+            if refused is not None:
+                what = tasks.describe_tool(tool_name, tool_input)[:160]
+                run.denied = [*run.denied, what][-DENIED_KEPT:]
+                return refused
             free = self.hub.tasks._goes_ahead(task, tool_name, tool_input)
             if free is None and tool_name == "Bash":
                 command = str(tool_input.get("command", ""))
-                if self.allowed(run, task, command):
+                if self.allowed(run, task, command) and not self.reads_outside(task, command):
                     free = ("auto", "a command its scope allows")
             if free is not None:
                 self.hub.tasks._audit(
@@ -825,6 +881,14 @@ class Runs:
 
         return can_use_tool
 
+    def reads_outside(self, task: Any, command: str) -> bool:
+        """A command its scope allows that still reads past the session's folders or names a
+        place holding keys (owner decision 2026-10-10): with nobody to ask, refused."""
+        if tasks.outside_reads.secret_command(command, task.cwd):
+            return True
+        roots = self.hub.tasks._read_roots(task)
+        return tasks.outside_reads.command_reach(command, task.cwd, roots) is not None
+
     def allowed(self, run: Run, task: Any, command: str) -> bool:
         """A command the run's scope allows: one of its own (a rule, "npm test", or the
         words it starts with, "uv run pytest"), or one of the project's saved rules."""
@@ -840,6 +904,8 @@ class Runs:
             words = shlex.split(command)
         except ValueError:
             return False
+        if _hands_code(words):
+            return False  # (its scope's words, then code of any kind: CD2-2)
         for entry in run.commands:
             want = entry.split()
             if want and words[: len(want)] == want:

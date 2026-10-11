@@ -3,9 +3,10 @@
 // be public (share-render.js, the same drawing as the public page) with warnings where it looks
 // like personal data, choose when it expires, and confirm. The snapshot is encrypted here with a
 // new key (share-model.js explains the key-in-the-#fragment design): askeden.com, or the Mac's
-// server, keeps only ciphertext; the key lives in the link and in the chat's own `shares` list,
-// which syncs end-to-end encrypted with the chat (H1), so the owner can copy or revoke the link
-// from any of their devices. Revoking deletes the ciphertext at once.
+// server, keeps only ciphertext of the share; the key lives in the link and in the chat's own
+// `shares` list, which syncs with the chat (end-to-end encrypted only in end-to-end mode, H1; with
+// the default account sync askeden.com seals it with its own key), so the owner can copy or revoke
+// the link from any of their devices. Revoking deletes the ciphertext at once.
 //
 //   POST /api/chat/share          { blob, expires } → { id, url: "/s/<id>", created, expires, bytes }
 //   GET  /api/chat/shares         → { shares: [{ id, url, created, expires, bytes }], max }
@@ -15,8 +16,9 @@
 import { el, ico, toast, copyText } from './util.js';
 import { state, saveConversation } from './state.js';
 import { getJSON, postJSON, apiUrl } from './api.js';
-import { EXPIRY, SHARE_LIMITS, buildSnapshot, expiresAt, personalData, personalIn, sealSnapshot, shareLink, shareRecord, shareable } from './share-model.js';
+import { EXPIRY, SHARE_LIMITS, buildSnapshot, clippedIn, expiresAt, personalData, personalIn, sealSnapshot, shareLink, shareRecord, shareable } from './share-model.js';
 import { renderSnapshot, wireSnapshot } from './share-render.js';
+import { liveShares } from './sync-model.js';
 
 let H = {};
 export function initShare(handlers = {}) {
@@ -33,7 +35,7 @@ export const shareAvailable = () => !!(state.meta && (state.meta.hosted || (stat
 const onMac = () => !!(state.meta && !state.meta.hosted && state.meta.share && state.meta.share.where === 'mac');
 const linkFor = (rec) => shareLink(new URL(apiUrl('/'), location.href).href, rec.id, rec.key);
 const day = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-const live = (c) => (c && Array.isArray(c.shares) ? c.shares.filter((s) => !s.revoked && !(s.expires && s.expires < Date.now())) : []);
+const live = (c) => liveShares(c);
 
 function touch(c) { c.metaAt = Date.now(); saveConversation(c, { now: true }); } // a share list change syncs like a folder move
 
@@ -87,6 +89,7 @@ function paintPick(c, items, st) {
 function paintPreview(c, items, st) {
   const snap = buildSnapshot({ title: st.title, items, picked: st.picked });
   const warn = personalData(snap);
+  const cut = clippedIn(items, st.picked);
   const preview = el('div', 'share-preview');
   const drawn = renderSnapshot(snap, { preview: true });
   preview.append(drawn);
@@ -121,6 +124,7 @@ function paintPreview(c, items, st) {
       el('ul', '', ...warn.map((w) => el('li', '', `${w.index < 0 ? 'The title' : `${w.role === 'user' ? 'Your message' : 'A reply'} (${w.index + 1})`}: ${w.labels.join(', ')}`))),
       'Go back and untick those messages, or edit the title, unless you mean to share them.') : null,
     el('p', 'sp-note', 'Also check for names, places and details about other people: the automatic check can miss them.'),
+    cut.length ? el('p', 'sp-note share-cut', ...cut.map((x) => `Message ${x.index} is cut to ${SHARE_LIMITS.text.toLocaleString()} characters (it has ${x.length.toLocaleString()}). `)) : null,
     preview,
     tooBig ? el('div', 'sp-warn', el('b', '', 'Too long to share'), 'A shared chat is at most about 1.4 MB of text. Untick some messages.') : null,
     el('label', 'share-ok', ok, el('span', '', 'I’ve read the preview. Anyone with the link can see exactly this.')),
@@ -156,6 +160,17 @@ export async function revoke(c, rec) {
   if (owner) { owner.shares = owner.shares.map((s) => (s.id === rec.id ? { ...s, revoked: true } : s)); touch(owner); }
   toast('Link revoked: it no longer opens');
   return true;
+}
+
+/** A deleted chat's links (app.js removeConversation): revoked quietly; → how many stopped. */
+export async function revokeLinks(recs) {
+  let n = 0;
+  for (const rec of recs || []) {
+    try { await postJSON('/api/chat/shares/revoke', { id: rec.id }); n++; }
+    catch (e) { if (e.status === 404) n++; } // already gone
+  }
+  if (n) toast(n === 1 ? 'Its shared link no longer opens' : `Its ${n} shared links no longer open`);
+  return n;
 }
 
 /** This chat's live links, and (folded) every shared link on the account, each with Copy and Revoke. */

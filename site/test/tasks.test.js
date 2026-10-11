@@ -784,13 +784,16 @@ test('with the owner’s time zone, repeats keep their local time across dayligh
 
 // ── "Contacts" in batches ──
 
-test('Contacts reads ~100 messages in 4 Gmail requests (batches); without batches at most the cap', async () => {
+test('Contacts reads ~100 messages in a few Gmail requests (batches); without batches at most the cap', async () => {
   const { session } = await owner();
   const before = world.calls.length;
   const r = await gmail(session, 'contacts', { fresh: true });
   assert.equal(r.status, 200, await r.clone().text());
   const gmailCalls = world.calls.slice(before).filter((c) => c.url.includes('googleapis.com'));
-  assert.equal(gmailCalls.filter((c) => c.url.includes('/batch/')).length, 2, '100 messages, 50 a batch');
+  // ~100 messages in batches: 2 of 50 from the Worker's shim, or 3 from Eden's Gmail core once it batches by
+  // itself (askeden src/chat/gmail.ts, vendored at the next sync: AW2-8); never one request per message
+  const batches = gmailCalls.filter((c) => c.url.includes('/batch/')).length;
+  assert.ok(batches >= 2 && batches <= 3, `${batches} batch requests`);
   assert.ok(gmailCalls.length <= 5, `${gmailCalls.length} Google calls`);
   assert.ok((await r.json()).contacts.length > 0);
   world.batchWorks = false;

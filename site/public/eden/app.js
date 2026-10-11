@@ -4,53 +4,88 @@
 import './i18n.js'; // first of all: the page's language (French loads its strings before any module draws)
 import './practice.js'; // first: practice mode (the tour's sandbox) scopes storage before any module reads it
 import { keyStatus, providerGlyph } from './settings-model.js';
-import { $, el, ico, qsa, toast, copyText, copyRich, download, fmtCost, relDay, isMobile, isNarrow, isTouch, setSeg, store, shortModel } from './util.js';
+import { essayCommand, essayStyleIn, imagesOn } from './eden-tools.js';
+import { $, el, ico, qsa, toast, copyText, copyRich, download, fmtCost, relDay, isMobile, isNarrow, isTouch, touchFirst, onMenuGesture, setSeg, store, shortModel } from './util.js';
 import { LANGS, langPref, setLang, isFr, locale, t as tx } from './i18n.js';
-import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
+import { state, ui, saveSettings, savePersonas, loadConversations, loadListRecords, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
 // The apps page (J.A.R.V.I.S., Eden Messenger) lives on askeden.com; a local Eden links there.
 const DOWNLOAD_URL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? 'https://askeden.com/download' : '/download';
-import { initMail, connectGmail, emailText, queueTeamOpen } from './mail.js';
-import { openCompose, initSignatures } from './compose.js';
-import { initMailkit } from './mailkit.js';
+// Mail, Compose and Calendar load on first use (mail-lazy.js stands in for them from boot)
+import { initMail, connectGmail, emailText, queueTeamOpen, openCompose, mailMetaReady, initCalendar, openCalendar, calendarReturnPending } from './mail-lazy.js';
 import { parseEmailDraft } from './md-plain.js';
 import { renderMessage, emptyState, ui_open, artifactsIn } from './render.js';
 import { routeSettings, initRouteControls, renderRouteControls, renderTurnCard, routePopContent, openChipPop, closeChipPop, chipPopOpenFor, initChipPop, hoverIntent, setOverride, setLevel, availableModels, currentOverride, modelInfo, schedulePreview, levels } from './router.js';
 import { initComposer, renderComposer, composerEscape, focusComposer, setComposerText, addContext, setMode, modelMenu, openMenu, closeMenu, clearAttachments, renderAttachments, addFile } from './composer.js';
 import { sendMessage, runChat, stop, retry, regenerate, editResend, answerPermission, queueFollowUp, steerNow, dropQueued, runCode } from './chat.js';
 import { initArtifact, openArtifact, closeArtifact, artifactOpen, refreshArtifact } from './artifact.js';
+import { essayStays, essayFollows, initEssayChat } from './essay-chat.js';
 import { sheetCommands, sheetReturnPending, resumeSheet } from './sheet-entry.js'; // Q15: the spreadsheet canvas, loaded on first use
 import { initPageUpdate } from './page-update.js'; // a page left open picks up a deploy; the app's text follows the system size
 import { initPanels, openSpace, closeSpace, spaceOpen, checkJarvis, renderMemoryTab, searchNotes, attachNote, notify } from './panels.js';
-import { initAccount } from './account.js';
+import { initAccount } from './account-lazy.js'; // account.js loads where there are accounts (askeden.com), after meta
 import { planCommand } from './plan.js';
 import { initPrivacy, paint as paintPrivacy, privacyBody, privacySettings } from './privacy.js';
 import { initPublish } from './publish.js';
-import { initShare, openShare } from './share.js'; // Q3: share a chat as a read-only link
+import { jarvisPollDelay } from './resilience.js';
 import { initCode, projectPicker, loadProjects, renderPlan, loadChanges, setHunk, renderActivity, toggleDrawer } from './code.js';
-import { initCalendar, openCalendar, calendarReturnPending } from './calendar.js';
 import { initMemory } from './memory.js';
-import { initImportChatGPT, importCard, openImportChats } from './import-chatgpt.js';
-import { importLabel } from './import-sources-model.js';
+import { importLabel } from './import-label.js'; // the sidebar's "Imported from …" (the readers load with the Import dialog)
 import { initBrief, openBrief } from './brief.js';
 import { initFiles, openFiles, closePane } from './files.js';
 import { initKnowledge, knowledgeItem } from './knowledge.js';
 import { initFolders, folders as folderRows, chatsIn, newFolder, renameFolder, deleteFolder, moveChat, moveItems, tidyUp, tidyCard, tidyLast, tidyDismiss } from './folders.js';
-import { folderList, unfiled, shouldNudge, cleanName } from './folders-model.js';
+import { folderList, unfiled, shouldNudge, cleanName, cleanTitle } from './folders-model.js';
+import { liveShares } from './sync-model.js';
 import { voiceSettings } from './voice.js';
 import { bootSoundSettings } from './boot-sound.js'; // the desktop apps' boot-up sound, in Settings › Appearance
 import { initTasks, openTasks, pendingApprovals } from './tasks.js';
 import { initWorkflows, openWorkflows, saveWorkflowFrom } from './workflows.js';
 import { initLearned, learnedSettings } from './learned.js';
 import { initAutopilot, autopilotSettings } from './autopilot.js';
-import { decorateEves, evesSettings } from './eves.js'; // N13: EVES's progress line and badge on a reply, and its switch in Settings › Routing
+import { decorateEves, evesSettings, evesMetaReady } from './eves-lazy.js'; // N13: EVES's progress line and badge on a reply, and its switch in Settings › Routing
 import { decorateVerify } from './verify.js'; // N13: the label under a reply
 import { acting, actingHas } from './acting.js';
-import { initTour, startTour } from './tour.js'; // I1: the try-it tour
+import { initTour, startTour } from './tour-lazy.js'; // I1: the try-it tour (tour.js loads when it's used)
 import { reportFileName, reportTitle } from './research-model.js'; // Q2: the research report's title and file name
 import { decorateFirstRun, initFirstRun } from './first-run.js'; // Q4: the first minute
 import { initHelp, helpCommands, helpButton } from './help.js'; // Help Center: FAQ and Ask Help
-import { initBrowserPane, toggleBrowser, closeBrowser, browserJarvisChanged } from './browser-pane.js'; // the browser panel
+import { IN_APP } from './native.js';
+import { lazyModule } from './lazy-load.js';
+import { sidePreview, bootList } from './side-preview.js'; // the sidebar's first paint from the list records
+// Slide decks (deck.js: its send extra and listeners), imported here last rather than as a third <script> in index.html:
+// artifact.js imports it too, so as an entry it had to keep a plain address (revalidated on every load, opt2-ae-web).
+import './deck.js';
+
+// AC11: a browser tab keeps ⌘N for a new window; there New chat is ⌘⇧O (both are bound in onKey)
+const newChatKey = () => (document.documentElement.classList.contains('eden-app') ? '⌘N' : '⌘⇧O');
+
+/* ---------- features loaded when first used, not at startup (efficiency pass 1) ---------- */
+// Each module loads once and is handed what it needs from here; a load that fails (offline) says so and is tried again
+// next time, under a new address (lazy-load.js: the browser keeps a failed import, so the same address failed at once).
+// Q3: share a chat as a read-only link (share.js, its model and share.css)
+const shareMod = lazyModule('./share.js', (m) => { m.initShare({ openDialog, closeDialog }); return m; });
+const openShare = (c) => shareMod().then((m) => m.openShare(c), () => {});
+// Import chats from ChatGPT, Claude or Gemini (import-chatgpt.js and the three readers, import-chatgpt.css)
+const importMod = lazyModule('./import-chatgpt.js', (m) => { m.initImportChatGPT({ openDialog, closeDialog, toast }); return m; });
+const openImportChats = () => importMod().then((m) => m.openImportChats(), () => {});
+/** Settings › Memory: a line on what Import does and a button that opens the dialog. */
+function importCard() {
+  return el('div', 'set-sec', el('h3', '', 'Import chats'),
+    el('div', 'icard', el('div', 'prov', el('div', 'grow', el('div', 'p-n', 'Bring your chats from ChatGPT, Claude or Gemini'),
+      el('div', 'p-c', 'Export your data there, drop the file here, and your chats appear in Eden: searchable, and synced end-to-end encrypted like the rest. It’s read in this browser and never uploaded.')),
+    el('button', { type: 'button', class: 'btn', onclick: () => openImportChats() }, 'Import…'))));
+}
+// The browser panel (browser-pane.js, browser-model.js). In the Eden app the app's own browser opens
+// instead, so there it loads on first use; elsewhere just after startup (it reopens if it was open).
+let browserPane = null;
+const browserMod = lazyModule('./browser-pane.js', (m) => {
+  m.initBrowserPane({ openSpace, addContext, sendMessage, focusComposer, openPalette });
+  browserPane = m;
+  return m;
+});
+const toggleBrowser = (...a) => browserMod().then((m) => m.toggleBrowser(...a), () => {});
+const closeBrowser = () => (browserPane ? browserPane.closeBrowser() : false); // focus in the panel: it's loaded
 
 /* ================= theme ================= */
 const darkMQ = matchMedia('(prefers-color-scheme: dark)');
@@ -153,10 +188,11 @@ function switchTo(c) {
   ui_open.editing = null;
   state.selectedNode = c ? [...path(c)].reverse().find((n) => n.role === 'assistant' && n.route) || null : null;
   store.set('jchat:current', c && !c.temp ? c.id : null);
-  closeArtifact();
+  if (!essayStays(c)) closeArtifact(); // T20e (essay-chat.js): an open essay stays for a new chat or its own chat
   closeChipPop();
   renderAll();
   dispatchEvent(new CustomEvent('eden:conv-opened', { detail: { conv: c } })); // import-chatgpt.js loads an imported chat's images
+  essayFollows(c); // that chat's essay comes back beside it (c.essayId)
   if (curTab === 'Changes' && inspectorVisible()) loadChanges();
   if (isMobile()) closeOverlays();
   schedulePreview();
@@ -180,18 +216,22 @@ function newCodeSession(project) {
   switchTo(c);
 }
 function renameConversation(c, title) {
-  const t = String(title || '').trim();
+  const t = cleanTitle(title); // one line, no control or bidi-override characters (AS13)
   if (!c || !t) return;
-  c.title = t.slice(0, 120);
+  c.title = t;
   c.titleSet = true;
+  c.metaAt = Date.now(); // other devices take the newer rename (sync-model.js merge; AS2)
   saveConversation(c);
   renderTitle(); renderSidebar();
 }
-function togglePin(c) { if (!c || c.temp) return; c.pinned = !c.pinned; saveConversation(c); renderSidebar(); toast(c.pinned ? 'Pinned' : 'Unpinned'); }
+function togglePin(c) { if (!c || c.temp) return; c.pinned = !c.pinned; c.metaAt = Date.now(); saveConversation(c); renderSidebar(); toast(c.pinned ? 'Pinned' : 'Unpinned'); }
 function removeConversation(c) {
   if (!c) return;
-  confirmDialog(`Delete “${c.title}”? This can’t be undone.`, 'Delete', () => {
+  const links = liveShares(c); // AS11: its shared links stop working with it
+  const also = links.length ? ` Its ${links.length === 1 ? 'shared link stops' : `${links.length} shared links stop`} working too.` : '';
+  confirmDialog(`Delete “${c.title}”? This can’t be undone.${also}`, 'Delete', () => {
     stop(c);
+    if (links.length) shareMod().then((m) => m.revokeLinks(links)).catch(() => {});
     deleteConversation(c);
     if (state.current === c) switchTo(null);
     renderSidebar();
@@ -205,7 +245,7 @@ function exportConversation(c) {
 }
 function setPersona(id) {
   const c = state.current;
-  if (c) { c.personaId = id || null; saveConversation(c); }
+  if (c) { c.personaId = id || null; c.metaAt = Date.now(); saveConversation(c); }
   else state.draftPersona = id || null;
   const p = persona(id);
   toast(p ? `Persona: ${p.name}` : 'No persona');
@@ -227,17 +267,27 @@ function section(id, title, items, { add, extra = [], grow = false, cls = '' } =
   sec.append(head, el('div', 'sec-items', el('div', '', ...items)));
   return sec;
 }
+/** A tap on the row whose menu is open shuts the menu (as on iOS) instead of opening the row: true when it did. */
+function menuShut(row) {
+  if ($('jc-menu').hidden || $('jc-menu')._anchor !== row) return false;
+  closeMenu();
+  return true;
+}
 function convItem(c, { child } = {}) {
   const streaming = state.streams.has(c.id);
+  const stand = sidePre && sidePre.showing(); // the first paint's stand-ins (side-preview.js)
+  const on = stand ? c.id === sidePre.current() : state.current === c;
   const lbl = el('span', { class: 'lbl', 'data-no-i18n': '' }, titleOf(c)); // the chat's own title: never translated
   if (c.kind === 'code' && !child) lbl.append(el('span', 'sub', c.project ? c.project.name : 'Code'));
   const st = streaming ? 'run' : c.status === 'waiting' ? 'wait' : null;
-  return el('button', { type: 'button', class: `sitem${child ? ' child' : ''}${state.current === c ? ' active' : ''}`, 'aria-current': state.current === c ? 'page' : null, title: importLabel(c) ? `${c.title} (imported from ${importLabel(c)})` : c.title, onclick: () => switchTo(c),
-    draggable: c.temp || child ? null : 'true', ondragstart: (e) => { try { e.dataTransfer.setData('text/eden-chat', c.id); e.dataTransfer.effectAllowed = 'move'; } catch {} },
-    oncontextmenu: (e) => { e.preventDefault(); convMenu(e.currentTarget, c); } },
+  // On a touch screen a hold opens the menu (Move to folder is in it), so the row isn't draggable there: iOS would lift it instead.
+  const b = el('button', { type: 'button', class: `sitem${child ? ' child' : ''}${on ? ' active' : ''}`, 'aria-current': on ? 'page' : null, 'data-cid': stand ? c.id : null, title: importLabel(c) ? `${c.title} (imported from ${importLabel(c)})` : c.title, onclick: (e) => { if (!menuShut(e.currentTarget)) switchTo(c); },
+    draggable: c.temp || child || touchFirst() ? null : 'true', ondragstart: (e) => { try { e.dataTransfer.setData('text/eden-chat', c.id); e.dataTransfer.effectAllowed = 'move'; } catch {} } },
     ico(c.temp ? 'clock' : c.kind === 'code' ? 'term' : 'chat'), lbl,
     c.pinned && !child ? ico('pin', 11, 'pin-ic') : null,
     st ? el('span', 'dots', el('span', { class: `dot ${st}`, title: st === 'run' ? tx('running') : tx('waiting for you') })) : null);
+  onMenuGesture(b, (n) => { if (sideReal) convMenu(n, c); }); // right-click, or touch and hold (not on the first paint's stand-ins)
+  return b;
 }
 let moreState = { apps: [], as: null, temps: [] };
 /** The card under the strip: what is waiting or unfinished. Nothing when there's nothing to pick up. */
@@ -286,7 +336,31 @@ function folderMenu(anchor, name) {
   ]);
 }
 function statusDot(c) { return state.streams.has(c.id) ? 'run' : c.status === 'waiting' ? 'wait' : 'done'; }
+/*
+ * The first paint of the sidebar, before the chats' bodies load (opt2-ae-web, side-preview.js): drawn from the list
+ * records standing in for state.convs during that one synchronous draw only, so nothing else ever sees them and they're
+ * never saved. While they show, a tap in the sidebar is held, and done at the end of startup.
+ */
+let sidePre = null; // side-preview.js's hold, from the first draw
+// Only for a long list: reading the records and drawing them costs ~0.1 s on a slow phone before the page is ready, and
+// with fewer chats the bodies are read about as fast (measured, a 4×-slowed CPU: 1,000 chats, sidebar 0.1 s sooner and
+// ready 0.1 s later; 2,000+, sidebar 0.25–0.5 s sooner). jchat:index is the saved chats' ids, read synchronously.
+const SIDE_PREVIEW_MIN = 1500;
+const sidePreviewWorth = () => { const ids = store.get('jchat:index', []); return Array.isArray(ids) && ids.length >= SIDE_PREVIEW_MIN; };
+const sideHold = () => (sidePre ??= sidePreview($('sideScroll')));
+let sideReal = false; // the sidebar has been drawn from state.convs
 function renderSidebar() {
+  const stand = sidePre && sidePre.convs();
+  if (stand) {
+    const real = state.convs;
+    state.convs = stand;
+    try { drawSidebar(); } finally { state.convs = real; }
+    return;
+  }
+  sideReal = true;
+  drawSidebar();
+}
+function drawSidebar() {
   const nav = $('sideScroll');
   const scroll = nav.scrollTop;
   const saved = state.convs.filter((c) => !c.temp);
@@ -326,17 +400,19 @@ function renderSidebar() {
   for (const f of folderRows()) {
     const openKey = `f:${f.name.toLowerCase()}`;
     const expanded = secState[openKey] === true;
-    const inside = chatsIn(f.name).filter((c) => !c.pinned).sort((a, b) => b.updated - a.updated);
+    const inside = chatsIn(f.name).sort((a, b) => b.updated - a.updated); // pinned ones too (also under Pinned): the count includes them (AS10)
     const more = folderMore.get(openKey) || 40;
+    const fb = el('button', { type: 'button', class: 'sitem', 'aria-expanded': String(expanded), title: `${f.name} · ${f.count} chat${f.count === 1 ? '' : 's'}`, onclick: (e) => { if (menuShut(e.currentTarget)) return; secState[openKey] = !expanded; store.set('jchat:secs', secState); renderSidebar(); } },
+      ico(expanded ? 'chevd' : 'chevr', 12, 'f-chev'), ico('folder'), el('span', { class: 'lbl', 'data-no-i18n': '' }, f.name), el('span', 'f-count', f.count.toLocaleString(locale())));
+    onMenuGesture(fb, (n) => { if (sideReal) folderMenu(n, f.name); }); // the ⋯ button's menu, by right-click or touch and hold too
     folderItems.push(el('div', { class: 'srow folder-row', ondragover: (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('text/eden-chat')) { e.preventDefault(); e.currentTarget.classList.add('drop'); } }, ondragleave: (e) => e.currentTarget.classList.remove('drop'),
       ondrop: (e) => { e.preventDefault(); e.currentTarget.classList.remove('drop'); const c = state.convs.find((x) => x.id === e.dataTransfer.getData('text/eden-chat')); if (c) { moveChat(c, f.name); secState[openKey] = true; store.set('jchat:secs', secState); renderSidebar(); } } },
-      el('button', { type: 'button', class: 'sitem', 'aria-expanded': String(expanded), title: `${f.name} · ${f.count} chat${f.count === 1 ? '' : 's'}`, onclick: () => { secState[openKey] = !expanded; store.set('jchat:secs', secState); renderSidebar(); } },
-        ico(expanded ? 'chevd' : 'chevr', 12, 'f-chev'), ico('folder'), el('span', { class: 'lbl', 'data-no-i18n': '' }, f.name), el('span', 'f-count', f.count.toLocaleString(locale()))),
+      fb,
       el('button', { type: 'button', class: 'iconbtn srow-edit', title: `${f.name} options`, 'aria-label': `Options for folder ${f.name}`, onclick: (e) => folderMenu(e.currentTarget, f.name) }, '⋯')));
     if (expanded) {
       for (const c of inside.slice(0, more)) folderItems.push(convItem(c, { child: true }));
       if (inside.length > more) folderItems.push(el('button', { type: 'button', class: 'sitem more-row child', onclick: () => { folderMore.set(openKey, more + 200); renderSidebar(); } }, el('span', 'lbl', `Show ${Math.min(200, inside.length - more)} more`)));
-      if (!inside.length) folderItems.push(el('div', 'side-empty child', 'Empty. Drag a chat here.'));
+      if (!inside.length) folderItems.push(el('div', 'side-empty child', touchFirst() ? 'Empty. Touch and hold a chat to move it here.' : 'Empty. Drag a chat here.'));
     }
   }
   if (!folderItems.length) folderItems.push(el('div', 'side-empty', 'Group chats into folders. Add one with +.'));
@@ -370,6 +446,7 @@ function renderSidebar() {
   // The strip under the header: the few places used every day, with a badge when something waits.
   const strip = [
     ...['mail', 'calendar', 'courses', 'brief'].map((k) => apps.find((x) => x.k === k)).filter(Boolean),
+    ...(as ? [] : [{ k: 'essays', t: 'Essays', tip: 'Essays: MLA, APA, Chicago or Harvard, laid out for you', i: 'edit', run: () => openEssayWriter() }]),
     ...(as ? [] : [{ k: 'tasks', t: 'Tasks', tip: 'Tasks: watches Eden runs in the background', i: 'list', run: () => openTasks(), badge: approvals }]),
     { k: 'workflows', t: 'Workflows', tip: 'Workflows: saved recipes you run in one tap', i: 'spark', run: () => openWorkflows() },
   ];
@@ -387,7 +464,7 @@ function renderSidebar() {
     ondrop: (e) => { const c = state.convs.find((x) => x.id === e.dataTransfer.getData('text/eden-chat')); if (c && c.folder && !e.target.closest('.folder-row')) { e.preventDefault(); moveChat(c, ''); toast('Moved out of its folder'); } } },
   working,
   section('folders', 'Folders', folderItems, { cls: 'folders', extra: [{ title: 'Tidy up with Eden', icon: 'spark', run: () => tidyUp() }], add: { title: 'New folder', run: () => newFolder() } }),
-  section('chats', 'Chats', chatItems, { grow: true, add: { title: 'New chat (⌘N)', run: newChat } }));
+  section('chats', 'Chats', chatItems, { grow: true, add: { title: `New chat (${newChatKey()})`, run: newChat } }));
   nav.replaceChildren(head, top, mid);
   const again = nav.querySelector('.sec.grow .sec-items');
   if (again) again.scrollTop = midTop;
@@ -587,6 +664,7 @@ function onTranscriptClick(e) {
       break;
     }
     case 'copy-msg': if (node.role === 'user') copyText(node.content || ''); else copyRich(nodeText(node)); break;
+    case 'to-essay': import('./essay.js').then((m) => m.pasteIntoEssay(nodeText(node))).catch((e) => toast(`Couldn’t open the essay writer: ${e.message}`)); break;
     case 'open-mail': { const d = parseEmailDraft(nodeText(node)); if (d) openCompose({ to: d.to, cc: d.cc, subject: d.subject, body: d.body }); break; } // the user reviews and sends
     case 'expand-user':
       if (ui_open.expanded.has(node.id)) ui_open.expanded.delete(node.id); else ui_open.expanded.add(node.id);
@@ -644,7 +722,7 @@ let palIdx = 0, palItems = [];
 function commands() {
   const c = state.current;
   const list = [
-    { t: 'New chat', s: '⌘N', i: 'edit', run: newChat },
+    { t: 'New chat', s: newChatKey(), i: 'edit', run: newChat },
     { t: 'New temporary chat', s: 'Not saved', i: 'clock', run: newTemp },
     { t: 'New code session…', s: 'Code', i: 'term', run: projectPicker },
     { t: 'Open Route console', s: 'Inspector', i: 'sliders', run: () => openInspector('Route') },
@@ -662,6 +740,8 @@ function commands() {
     { t: 'New calendar event…', s: 'Calendar', i: 'cal', run: () => openCalendar({ newEvent: true }) },
     { t: 'Open Mail', s: 'Gmail · Mail on your Mac', i: 'mail', run: () => openSpace('mail') },
     { t: 'Tasks', s: 'Background watches · approvals', i: 'list', run: () => openTasks() },
+    { t: 'Essays', s: 'MLA · APA · Chicago · Harvard', i: 'edit', run: () => openEssayWriter() },
+    ...['mla', 'apa', 'chicago', 'harvard'].map((k) => ({ t: `New ${k === 'mla' || k === 'apa' ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1)} essay`, s: 'Essays · formatted for you', i: 'edit', run: () => openEssayWriter(k) })),
     { t: 'Workflows', s: 'Saved recipes', i: 'spark', run: () => openWorkflows() },
     { t: 'New email…', s: 'Compose · Gmail or Mail on your Mac', i: 'mail', run: () => openCompose({}) },
     { t: 'Send me a heads-up…', s: 'Your Mac · notify', i: 'bell', run: () => openSpace('routines') },
@@ -740,6 +820,17 @@ function execPal(i) { const it = palItems[i]; if (!it) return; $('palette').clas
 let dlgReturn = null;
 // Spaces that work without the Mac (Gmail and Google Calendar through askeden.com, Courses); the rest need Eden on a Mac.
 const MAC_FREE = new Set(['mail', 'calendar', 'courses']);
+/** The essay writer (essay.js, ROADMAP T11–T12), loaded when first opened: its list, or a new essay in a style. */
+// A dropped rubric or assignment sheet (composer.js eden:attached): the essay writer opens, set up from it (essay-model.js rubricOf)
+addEventListener('eden:attached', (ev) => {
+  const d = ev.detail || {};
+  if (state.current && state.current.kind === 'code') return;
+  import('./essay-model.js').then(({ rubricOf }) => {
+    const r = rubricOf(d.name, d.text);
+    if (r) import('./essay.js').then((m) => m.startFromRubric(r));
+  }).catch(() => {});
+});
+const openEssayWriter = (style) => import('./essay.js').then((m) => (style ? m.newEssayIn(style) : m.openEssays())).catch((e) => toast(`Couldn’t open the essay writer: ${e.message}`));
 const IN_MAC_APP = () => document.documentElement.classList.contains('eden-desktop');
 function connectMacDialog() {
   const p = (t) => el('p', { style: { fontSize: '14px', lineHeight: '1.45', color: 'var(--text2)', margin: '0 0 10px' } }, t);
@@ -802,7 +893,7 @@ function editPersona(id) {
       p ? el('button', { type: 'button', class: 'btn danger', onclick: () => {
         state.personas = state.personas.filter((x) => x !== p);
         savePersonas();
-        for (const c of state.convs) if (c.personaId === p.id) { c.personaId = null; saveConversation(c); }
+        for (const c of state.convs) if (c.personaId === p.id) { c.personaId = null; c.metaAt = Date.now(); saveConversation(c); }
         closeDialog(); renderSidebar(); renderAttachments(); toast('Persona deleted');
       } }, 'Delete') : null,
       el('span', 'grow'),
@@ -821,7 +912,7 @@ function convMenu(anchor, c) {
     return;
   }
   openMenu(anchor, [
-    { label: 'Rename', run: () => { if (state.current !== c) switchTo(c); startRename(); } },
+    { label: 'Rename', run: () => { if (touchFirst()) { renameDialog(c); return; } if (state.current !== c) switchTo(c); startRename(); } },
     ...(c.temp ? [] : [{ label: c.pinned ? 'Unpin' : 'Pin', run: () => togglePin(c) }]),
     ...(c.temp || c.kind === 'code' ? [] : [moveItems(c, openMenu, anchor)]),
     ...(c.temp || c.kind === 'code' ? [] : [{ label: 'Share a read-only link…', run: () => openShare(c) }]), // Q3
@@ -832,9 +923,23 @@ function convMenu(anchor, c) {
     { label: 'Delete…', danger: true, run: () => removeConversation(c) },
   ]);
 }
+/** Rename in a box: on a touch screen, where editing the title bar in place is fiddly (and from the sidebar, the open chat stays open). */
+function renameDialog(c) {
+  if (!c) { toast('Send a message first'); return; }
+  const input = el('input', { type: 'text', class: 'inp', value: c.title || '', maxlength: '120', 'aria-label': 'Chat name', enterkeyhint: 'done', autocomplete: 'off', style: { width: '100%' } });
+  const go = () => { const t = cleanTitle(input.value); if (!t) { input.focus(); return; } closeDialog(); if (t !== c.title) { renameConversation(c, t); toast('Renamed'); } };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  openDialog('Rename chat', el('div', '', input,
+    el('div', { class: 'dlg-acts', style: { marginTop: '14px' } },
+      el('button', { type: 'button', class: 'btn', onclick: closeDialog }, 'Cancel'),
+      el('button', { type: 'button', class: 'btn primary', onclick: go }, 'Rename'))));
+  input.focus(); // now, in the tap: iOS shows the keyboard only for a focus inside the gesture
+  input.select();
+}
 function startRename() {
   const t = $('tbTitle');
   if (!state.current) { toast('Send a message first'); return; }
+  if (touchFirst()) { renameDialog(state.current); return; }
   t.contentEditable = 'true';
   t.focus();
   const r = document.createRange(); r.selectNodeContents(t);
@@ -987,8 +1092,8 @@ async function drawSettings() {
       el('div', 'about-chips', ver ? el('span', 'chip-s', `Version ${ver}`) : null, el('span', 'chip-s', hosted ? 'askeden.com' : 'On this Mac'), isMock ? el('span', 'chip-s warn', 'Mock mode') : null)),
     el('div', 'set-sec about',
       el('div', 'icard about-card',
-        el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Jarvis app on your Mac, and Code sessions for your projects.'),
-        el('p', '', 'Voice from J.A.R.V.I.S.: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
+        el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Eden app on your Mac, and Code sessions for your projects.'),
+        el('p', '', 'Voice from Eden: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
         state.meta && state.meta.scope ? el('p', '', state.meta.scope) : null,
         isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null),
       el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Eden Code.'),
@@ -1103,6 +1208,12 @@ function slash(name, arg) {
       if (arg) setTimeout(() => sendFromComposer(arg, [], []), 0);
       else if (c) dispatchEvent(new CustomEvent('eden:open-deck', { detail: { c } }));
       return true;
+    case 'image': // a picture (eden-tools.js make_image, image-tool.js): the words go to Eden as a request for one
+      if ((c && c.kind === 'code') || !imagesOn()) return false;
+      if (!arg) { toast('Say what to draw: /image a fox reading under an oak tree'); return true; }
+      if (c && c.mode !== 'chat' && c.mode !== 'search') setMode('chat');
+      setTimeout(() => sendFromComposer(`Make a picture: ${arg}`, [], []), 0);
+      return true;
     case 'manual': case 'edits': case 'plan': case 'auto':
       if (!c || c.kind !== 'code') return false;
       setMode({ manual: 'default', edits: 'acceptEdits', plan: 'plan', auto: 'bypassPermissions' }[name]);
@@ -1173,25 +1284,47 @@ async function compact() {
   const c = state.current;
   if (!c || !path(c).length) { toast('Nothing to compact yet'); return; }
   if (c.kind === 'code') { sendMessage('/compact', []); return; }
+  if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return; } // AC2-14: also a second /compact while one runs
+  // AC2-14: the composer shows it is busy, and Stop (or Esc) ends it, like a reply
+  const ctrl = new AbortController();
+  state.streams.set(c.id, { abort: () => ctrl.abort(), node: null, kind: 'compact', ctrl });
+  ui.renderComposer();
   toast('Compacting: summarizing this chat…');
   const messages = path(c).filter((n) => n.role === 'user' || nodeText(n)).map((n) => ({ role: n.role, content: n.role === 'user' ? n.content || '' : nodeText(n) }));
   messages.push({ role: 'user', content: 'Summarize our conversation so far as compact notes: the goal, the decisions and facts established, open questions, and anything I asked you to remember. Under 300 words.' });
+  const ov = currentOverride(); // AC2-14: the model the person picked, else a small routed one
   let summary = '';
+  let failed = '';
   try {
-    await api.send({ ...privacyBody(c), messages, settings: { ...(await import('./router.js')).routeSettings(), level: 1, efficiency: 80, performance: 30 }, mode: 'chat' }, {
+    await api.send({
+      ...privacyBody(c), messages, settings: { ...(await import('./router.js')).routeSettings(), level: 1, efficiency: 80, performance: 30 }, mode: 'chat',
+      ...(ov ? { override: ov } : {}),
+      ...(c.temp ? { temporary: true } : {}), // AC2-3: a temporary chat's summary reads no memories and saves none
+    }, {
+      signal: ctrl.signal,
       onEvent: (t, d) => { if (t === 'text') summary += d.text || ''; if (t === 'error') throw new Error(d.message); },
     });
-  } catch (e) { toast(`Couldn’t compact: ${e.message}`); return; }
+  } catch (e) { failed = e.name === 'AbortError' ? 'stopped' : e.message; }
+  if (state.streams.get(c.id) && state.streams.get(c.id).ctrl === ctrl) state.streams.delete(c.id);
+  ui.renderComposer();
+  if (failed === 'stopped') { toast('Compacting stopped'); return; }
+  if (failed) { toast(`Couldn’t compact: ${failed}`); return; }
   if (!summary.trim()) { toast('Couldn’t compact: empty summary'); return; }
+  if (state.current !== c) { toast('Compacted, but you left that chat: nothing changed'); return; }
   const pid = c.personaId;
   const title = c.title;
-  newChat();
+  const queued = (c.queue || []).filter((q) => q.state === 'queued');
+  c.queue = (c.queue || []).filter((q) => q.state !== 'queued');
+  if (c.temp) newTemp(); else newChat(); // AC2-3: a temporary chat compacts into another temporary chat (nothing saved or synced)
   if (pid) setPersona(pid);
   addContext({ title: `Earlier: ${title}`.slice(0, 70), text: summary.trim() });
+  if (queued.length) setComposerText(queued.map((q) => q.text).join('\n\n')); // typed while it ran: in the box, to go with the summary
 }
 
 /* ================= sending from the composer ================= */
 function sendFromComposer(text, attachments, context) {
+  // "open the essay writer", "start an APA essay": opened here, at once, with nothing sent (eden-tools.js essayCommand)
+  if (!(attachments && attachments.length) && !(state.current && state.current.kind === 'code') && essayCommand(text)) { openEssayWriter(essayStyleIn(text) || undefined); return true; }
   const meta = state.meta;
   const c = state.current;
   if (c && c.kind === 'code') {
@@ -1264,6 +1397,7 @@ function initGrab() {
 async function reloadMeta() {
   try { state.meta = await api.meta(); state.metaError = null; }
   catch (e) { state.metaError = e.message; }
+  evesMetaReady(); // EVES (eves.js) loads where the server offers it (the Mac's), never on askeden.com
   renderRouteControls();
   renderComposer();
   if (!state.current || !path(state.current).length) renderTranscript();
@@ -1278,15 +1412,27 @@ async function init() {
   const lockZoom = () => root.classList.contains('eden-app') && (document.querySelector('meta[name="viewport"]')?.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'), true);
   if (!lockZoom()) { const mo = new MutationObserver(() => { if (lockZoom()) mo.disconnect(); }); mo.observe(root, { attributes: true, attributeFilter: ['class'] }); }
   applyTheme();
-  await loadConversations();
-  const cur = store.get('jchat:current', null);
-  state.current = state.convs.find((c) => c.id === cur) || null;
-  if (state.current) state.selectedNode = [...path(state.current)].reverse().find((n) => n.role === 'assistant' && n.route) || null;
   if (!isNarrow()) {
     if (store.get('jchat:sidebar', true) === false) $('sidebar').classList.add('closed');
     $('inspector').classList.toggle('closed', !store.get('jchat:inspector', false));
   }
   syncDock();
+  // The chat list from its small records first (opt2-ae-web): read, then drawn while the bodies are read (asked
+  // for after the records: IndexedDB reads them in turn, and two reads at once slowed the small one 2-3×).
+  // The stand-ins end when the bodies are in, or when reading them failed (no chats then, as an empty browser, rather
+  // than a page that never starts with its sidebar held), and the real list is drawn at once.
+  await bootList({
+    records: () => (sidePreviewWorth() ? loadListRecords() : null),
+    bodies: loadConversations,
+    show: (recs) => { if (!state.convs.length && sideHold().show(recs, store.get('jchat:current', null))) renderSidebar(); },
+    // (the real list is drawn by renderAll below, in this same task, so no tap comes between; were startup to stop
+    // before it, the next task draws it)
+    end: () => { if (sideHold().end()) setTimeout(() => { if (!sideReal) renderSidebar(); }, 0); },
+    failed: (e) => console.warn('Eden: could not read the saved chats', e),
+  });
+  const cur = store.get('jchat:current', null);
+  state.current = state.convs.find((c) => c.id === cur) || null;
+  if (state.current) state.selectedNode = [...path(state.current)].reverse().find((n) => n.role === 'assistant' && n.route) || null;
   Object.assign(ui, { render: () => { renderTranscript(); renderTitle(); renderComposer(); }, renderSidebar, renderTitle, renderComposer, updateMessage, renderInspector: () => renderTurnCard(state.selectedNode), renderPlan, loadChanges: (quiet) => { if (curTab === 'Changes' && inspectorVisible()) loadChanges(quiet); }, renderActivity });
 
   initRouteControls();
@@ -1299,10 +1445,10 @@ async function init() {
     searchNotes, attachNote, save: (c) => { saveConversation(c); renderTitle(); renderSidebar(); }, confirm: (text, ok, run) => confirmDialog(text, ok, run, true),
     compact, clear: clearConversation,
   });
-  initArtifact({ quote: (t) => setComposerText(t, { append: true }), send: (t) => sendMessage(t) });
+  initArtifact({ quote: (t) => setComposerText(t, { append: true }), send: (t, opts) => sendMessage(t, [], opts || {}) });
+  initEssayChat(); // the chat open at startup gets its essay back beside it (essay-chat.js, T20e)
   initPrivacy({ confirm: (text, ok, run) => confirmDialog(text, ok, run, true), schedulePreview });
   initPublish({ openDialog, closeDialog });
-  initShare({ openDialog, closeDialog });
   initPanels({ addContext: (b) => { addContext(b); closeSpace(); } });
   initCalendar({ addContext: (b) => addContext(b), openSettings });
   initMemory({ addContext: (b) => addContext(b) });
@@ -1436,10 +1582,13 @@ async function init() {
   renderRouteControls();
   renderAll();
   addEventListener('eden:open-team-mail', (e) => { queueTeamOpen(e.detail || {}); clearPhoneOverlays(); openSpace('mail'); }); // a team space's shared email (spaces.js)
-  reloadMeta().then(() => { renderAll(); initAccount({ beforeOpen: clearPhoneOverlays, closeSettings }); initLearned(); initAutopilot(); initSignatures(); initMailkit(); }); // H2/H3, signatures: after meta (askeden.com or the Mac)
+  reloadMeta().then(() => { renderAll(); initAccount({ beforeOpen: clearPhoneOverlays, closeSettings }); initLearned(); initAutopilot(); mailMetaReady(); }); // H2/H3, signatures and Mail's settings: after meta (askeden.com or the Mac)
   initTour(); // I1: practice mode's tour, or the welcome on a first visit
   initFirstRun({ setComposerText: (t) => { setComposerText(t); focusComposer(); }, startTour: () => startTour() }); // Q4: a new person's first answer explained
-  initImportChatGPT({ openDialog, closeDialog, toast });
+  // an imported ChatGPT chat's images are kept in this browser (IndexedDB): the importer loads to bring them back
+  const importedOpen = (c) => { if (c && c.source === 'chatgpt') importMod().then((m) => m.hydrateImport(c), () => {}); };
+  addEventListener('eden:conv-opened', (e) => importedOpen(e.detail && e.detail.conv));
+  setTimeout(() => importedOpen(state.current), 1500); // a reload with an imported chat open
   initHelp({ runCommand: (t) => commands().find((x) => x.t === t)?.run(), hasCommand: (t) => commands().some((x) => x.t === t), openSettings, openPalette, startTour, beforeOpen: clearPhoneOverlays });
   addEventListener('eden:open-settings', (e) => openSettings((e.detail && e.detail.tab) || 0)); // autopilot.js
   addEventListener('eden:acting', () => { renderSidebar(); checkJarvis().then(() => renderComposer()); }); // account.js: acting for someone began or ended under the page
@@ -1461,19 +1610,39 @@ async function init() {
     if (prompt) sendMessage(prompt);
   });
   loadProjects().then(() => renderSidebar());
-  initBrowserPane({ openSpace, addContext, sendMessage, focusComposer, openPalette });
-  checkJarvis().then(() => { renderComposer(); browserJarvisChanged(); if (curTab === 'Memory') renderMemoryTab(true); });
+  const btnBrowser = $('btnBrowser');
+  if (btnBrowser) btnBrowser.addEventListener('click', () => { if (!browserPane) toggleBrowser(); }); // once loaded, browser-pane.js handles it
+  // Eden at the controls (chat.js, browser-agent.js): load the panel, then hand it the event
+  for (const type of ['eden:browser-open', 'eden:browser-takeover']) {
+    addEventListener(type, (e) => { if (!browserPane) browserMod().then(() => dispatchEvent(new CustomEvent(type, { detail: e.detail })), () => {}); });
+  }
+  if (!IN_APP) setTimeout(() => browserMod().catch(() => {}), 0);
+  checkJarvis().then(() => { renderComposer(); if (curTab === 'Memory') renderMemoryTab(true); });
   // The Mac's line comes up some seconds after the page loads (Ask Eden for Mac links itself at launch): look again until it answers.
-  const recheckJarvis = () => { const was = state.jarvis.available; return checkJarvis().then(() => { if (state.jarvis.available !== was) { renderSidebar(); renderComposer(); browserJarvisChanged(); } }); };
+  const recheckJarvis = () => { const was = state.jarvis.available; return checkJarvis().then(() => { if (state.jarvis.available !== was) { renderSidebar(); renderComposer(); } }); };
   // Never two looks at once (checkJarvis shares the one in flight, 8 s at most), and none while the page is hidden (B1, C3).
-  setInterval(() => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); }, 8000);
-  addEventListener('focus', () => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); });
+  // While it doesn't answer, the looks back off (8, 16, 32 s, then every minute: AI7, most phones have no Mac); none while
+  // the page is hidden, and from 8 s again on coming back to it.
+  let jarvisMisses = 0, jarvisTimer = null;
+  const pollJarvis = () => {
+    clearTimeout(jarvisTimer);
+    jarvisTimer = document.hidden ? null : setTimeout(() => {
+      jarvisTimer = null;
+      if (document.hidden) return;
+      if (state.jarvis.available) { jarvisMisses = 0; pollJarvis(); return; }
+      recheckJarvis().catch(() => {}).finally(() => { jarvisMisses += 1; pollJarvis(); });
+    }, jarvisPollDelay(jarvisMisses));
+  };
+  const lookAgain = () => { jarvisMisses = 0; if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}).finally(pollJarvis); else pollJarvis(); };
+  pollJarvis();
+  addEventListener('focus', lookAgain);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { clearTimeout(jarvisTimer); jarvisTimer = null; } else lookAgain(); });
   // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {
     const w = !!(e.detail && e.detail.waiting);
-    if (w) macNotify('Eden', tx('Eden is asking “Let Eden use Jarvis?” on your Mac.'));
+    if (w) macNotify('Eden', tx('Eden is asking “Let Eden use your Mac?” on your Mac.'));
     // On every device, where the person is looking (a phone's sidebar is closed): A1, C2. The open panel says it too (panels.js).
-    if (w) toast('Approve Eden on your Mac: it’s asking “Let Eden use Jarvis?”');
+    if (w) toast('Approve Eden on your Mac: it’s asking “Let Eden use your Mac?”');
     $('jarvisState').classList.toggle('wait', w);
     $('jarvisState').title = w ? 'Eden is asking “Let Eden use your Mac?” on your Mac' : state.jarvis.available ? 'Connected through the Eden app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Eden app on your Mac isn’t reachable');
     $('jarvisStateText').textContent = w ? 'approve Eden on your Mac' : state.jarvis.available ? 'connected' : 'not connected';
@@ -1481,6 +1650,7 @@ async function init() {
   if (isMock) document.title = 'Eden (mock)';
   initPageUpdate();
   focusComposer();
+  sideHold().replay({ chat: (id) => state.convs.find((x) => x.id === id), open: switchTo, buttons: () => [...$('sideScroll').querySelectorAll('button')] }); // a tap held while the first paint's stand-ins showed
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

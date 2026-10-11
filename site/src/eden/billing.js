@@ -26,7 +26,7 @@
 // Dev and tests only: STRIPE_API_BASE points the module at a fake Stripe on this machine
 // (loopback only, test keys only); anything else turns billing off.
 
-import { call, limited } from '../accounts/index.js';
+import { call, callLink, limited } from '../accounts/index.js';
 import { AUTO, PACKS } from '../accounts/credits.js';
 import { redeemPromo } from '../accounts/promo.js';
 import { legacyPrices, legacyPrice } from '../accounts/stripe-plan.js';
@@ -164,16 +164,75 @@ function stripePage(env, url, host) {
   return text.startsWith(`https://${host}/`) || Boolean(fake && text.startsWith(`${fake}/`));
 }
 
-/** Cancels a subscription at once (the account was deleted): best effort, never throws. */
-export async function cancelSubscription(env, subscription) {
-  if (!subscription || !KEY.test(stripeKey(env))) return false;
+/**
+ * Cancels a subscription at once (the account was deleted): best effort, never throws. `tries`: the pending
+ * cancel's earlier tries (accounts/link.js). → 'cancelled' (Stripe took it, or it was already cancelled);
+ * 'missing' (Stripe has no such subscription for this key: cancelled long ago, or made in the other mode);
+ * 'refused' (a 4xx that trying again won't change); 'failed' (Stripe down or busy: worth another try).
+ * A retry asks Stripe first and cancels under its own idempotency key: Stripe keeps a key's first answer
+ * for a day, an error included, so one key for every try would get the first try's error back (AW2-7).
+ */
+export async function cancelSubscription(env, subscription, { tries = 0 } = {}) {
+  if (!subscription || !KEY.test(stripeKey(env))) return 'failed';
+  const path = `/subscriptions/${encodeURIComponent(subscription)}`;
+  const outcome = (r) => {
+    if (r.ok) return 'cancelled';
+    const code = (r.body && r.body.error && r.body.error.code) || '';
+    if (r.status === 404 || code === 'resource_missing') return 'missing';
+    if (r.status === 409 || r.status === 429 || r.status >= 500) return 'failed';
+    return r.status >= 400 ? 'refused' : 'failed';
+  };
   try {
-    await stripe(env, 'DELETE', `/subscriptions/${encodeURIComponent(subscription)}`, null, { idempotency: `eden-cancel-${subscription}` });
-    return true;
+    if (tries > 0) {
+      const now = await stripe(env, 'GET', path, null, { raw: true });
+      if (now.ok && now.body && now.body.status === 'canceled') return 'cancelled';
+      if (!now.ok && outcome(now) !== 'failed') return logRefusal(subscription, now, outcome(now));
+    }
+    const r = await stripe(env, 'DELETE', path, null, { idempotency: `eden-cancel-${subscription}-${tries}`, raw: true });
+    const out = outcome(r);
+    if (out === 'failed') console.error('stripe: cancelling a deleted account’s subscription failed', r.status);
+    if (out === 'missing' || out === 'refused') return logRefusal(subscription, r, out);
+    return out;
   } catch (error) {
     console.error('stripe: cancelling a deleted account’s subscription failed', error && error.message);
-    return false;
+    return 'failed';
   }
+}
+
+function logRefusal(subscription, r, out) {
+  const e = (r.body && r.body.error) || {};
+  console.error(out === 'missing'
+    ? `stripe: a deleted account’s subscription ${subscription} isn’t at Stripe for this key (${r.status} ${e.code || ''}): cancelled already, or made in the other mode. Not retried; check it in the Stripe dashboard.`
+    : `stripe: Stripe refused to cancel a deleted account’s subscription ${subscription} (${r.status} ${e.type || ''} ${e.code || ''}). Not retried; cancel it in the Stripe dashboard.`);
+  return out;
+}
+
+const cancelObject = (subscription) => `stripe-cancel:${subscription}`;
+
+/**
+ * A deleted account's subscription: cancelled now, or (Stripe down or busy) kept as a pending cancel that
+ * its own object retries on an alarm and on Stripe's next event for it (accounts/link.js). → "cancelled" |
+ * "pending" | "refused" (Stripe said a lasting no) | "none" (nothing to cancel, or Stripe isn't set up here).
+ */
+export async function cancelOrQueue(env, subscription) {
+  if (!subscription || !KEY.test(stripeKey(env))) return 'none';
+  const first = await cancelSubscription(env, subscription);
+  if (first === 'cancelled') return 'cancelled';
+  if (first === 'missing') return 'none'; // nothing at Stripe to cancel (logged)
+  if (first === 'refused') return 'refused'; // trying again won't help: the person is told (eden/session.js), and it's logged
+  if (!env.LINKS) return 'pending';
+  try {
+    await callLink(env, cancelObject(subscription), 'cancel-later', { subscription });
+  } catch (error) {
+    console.error('stripe: could not keep the pending cancel', subscription, error && error.message);
+  }
+  return 'pending';
+}
+
+/** Stripe's event for a subscription whose account is gone: a pending cancel of it is tried again now. */
+async function retryPendingCancel(env, subscription) {
+  if (!subscription || !env.LINKS || !/^sub_[A-Za-z0-9]{1,250}$/.test(subscription)) return;
+  await callLink(env, cancelObject(subscription), 'cancel-retry').catch((error) => console.error('stripe: pending cancel retry failed', error && error.message));
 }
 
 // ── /api/web/billing/<op> (eden/session.js: the browser's own session, checked fresh) ──
@@ -305,11 +364,35 @@ export async function verifyStripeSignature(payload, header, secret, { now = Dat
 const received = (extra = {}) => json({ received: true, ...extra });
 const idOf = (x) => (typeof x === 'string' ? x : x && typeof x.id === 'string' ? x.id : null);
 
+/**
+ * The body as text, refused (413) past `cap` bytes before it is all read (AW3-8: the route has no auth, its signature is
+ * checked on the text): by its Content-Length when it says, and by counting the stream when it doesn't (or lies).
+ */
+export async function cappedText(request, cap) {
+  const tooBig = () => new ApiError(413, 'too_big', 'That event is too big.');
+  const said = Number(request.headers.get('content-length'));
+  if (Number.isFinite(said) && said > cap) { try { await request.body?.cancel(); } catch { /* gone */ } throw tooBig(); }
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const parts = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > cap) { try { await reader.cancel(); } catch { /* gone */ } throw tooBig(); }
+    parts.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { bytes.set(p, at); at += p.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
+
 async function webhook(request, env) {
   const secret = webhookSecret(env);
   if (!secret) throw new ApiError(503, 'not_set_up', 'Stripe isn’t set up here.');
-  const raw = await request.text();
-  if (raw.length > WEBHOOK_BYTES) throw new ApiError(413, 'too_big', 'That event is too big.');
+  const raw = await cappedText(request, WEBHOOK_BYTES); // AW3-8: never the whole of an unauthenticated body
   if (!(await verifyStripeSignature(raw, request.headers.get('stripe-signature'), secret))) {
     throw new ApiError(400, 'bad_signature', 'That isn’t signed by Stripe.');
   }
@@ -424,8 +507,18 @@ async function handle(env, event) {
   const object = event.data.object;
   const base = { id: event.id, type: event.type, created: Number(event.created) || 0, livemode: Boolean(event.livemode) };
   const apply = async (account, facts) => {
-    if (!account) return { ignored: 'no_account' };
-    return call(env, account, 'stripe-event', { ...base, ...facts });
+    // a subscription whose account was deleted while Stripe couldn't cancel it: Stripe is up now, so try again
+    const sub = (facts.subscription && facts.subscription.id) || (facts.invoice && facts.invoice.subscription) || null;
+    if (!account) {
+      await retryPendingCancel(env, sub);
+      return { ignored: 'no_account' };
+    }
+    try {
+      return await call(env, account, 'stripe-event', { ...base, ...facts });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) await retryPendingCancel(env, sub);
+      throw error;
+    }
   };
   switch (event.type) {
     case 'checkout.session.completed': {

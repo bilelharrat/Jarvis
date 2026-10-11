@@ -3,7 +3,7 @@
 // cards waiting for an OK); macOS notifications for those cards, with Allow / Not now when
 // the window isn't in front, and for heads-ups, which open JARVIS on their card; the
 // global shortcuts for Talk and What's this?, the ones the user chose in Settings;
-// jarvis:// links, and the Services menu's "Ask JARVIS" that sends a selection to one; the
+// jarvis:// links, and the Services menu's "Ask Eden" that sends a selection to one; the
 // app's menu bar; opening at login; the window's place, remembered for each set of
 // displays; a crashed page reloaded; and a quit that lets the backend finish first.
 //
@@ -375,7 +375,7 @@ function install(ctx) {
   // ── jarvis:// links ──
   // Any web page can open one, so a link only ever shows JARVIS: the request box filled in
   // (never sent), a panel, an Eden Code project. At most five every ten seconds. The one
-  // exception: "Ask JARVIS" from the Services menu, the owner's own click, carries this Mac's
+  // exception: "Ask Eden" from the Services menu, the owner's own click, carries this Mac's
   // key (service-key, 0600; only the Quick Action has it), so the window may send it at once
   // (marked as outside words all the same) unless the owner chose to confirm first.
 
@@ -404,6 +404,16 @@ function install(ctx) {
     if (!allowed.ok) { console.warn('shell: jarvis:// links are coming too fast; this one is ignored'); return; }
     const link = links.parseLink(raw);
     if (!link) { console.warn('shell: ignored a jarvis:// link JARVIS doesn\'t open'); return; }
+    // The owner's own "Ask Eden" in the Services menu: its text opens Eden's pop-up, as the
+    // selection (app/features/eden-pop.js), when the pop-up is on. Any other link fills the box.
+    if (link.action === 'ask' && link.text && ctx.edenPopService && fromService(link.key)) {
+      Promise.resolve(ctx.edenPopService(link.text)).then((shown) => {
+        if (shown) return;
+        showWindow();
+        toWindow({ action: 'prefill', text: link.text, service: true });
+      }, () => {});
+      return;
+    }
     showWindow();
     if (link.action === 'ask') toWindow({ action: 'prefill', text: link.text, ...(fromService(link.key) ? { service: true } : {}) });
     else if (link.action === 'open' && link.panel) toWindow({ action: 'open', panel: link.panel });
@@ -414,17 +424,27 @@ function install(ctx) {
   else app.on('open-url', (event, url) => { event.preventDefault(); openLink(url); });
   if (installed && !app.isDefaultProtocolClient('jarvis')) app.setAsDefaultProtocolClient('jarvis');
 
-  // ── the Services menu's "Ask JARVIS" ──
+  // ── the Services menu's "Ask Eden" ──
   // Written into ~/Library/Services only when the owner clicks Add in Settings; only ours
   // is ever replaced or removed (never a Quick Action of theirs with the same name).
 
   const serviceDir = path.join(servicesDir, links.SERVICE_BUNDLE);
   const serviceInfo = () => readText(path.join(serviceDir, 'Contents', 'Info.plist'));
+  // Ours under its name from before the rename ("Ask JARVIS"): replaced by the new one.
+  const oldServices = () => links.OLD_SERVICE_BUNDLES.map((name) => path.join(servicesDir, name))
+    .filter((dir) => links.isOurService(readText(path.join(dir, 'Contents', 'Info.plist'))));
+  function removeOldServices() {
+    for (const dir of oldServices()) {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
+        console.warn(`shell: couldn't remove the old Quick Action: ${err && err.message}`);
+      }
+    }
+  }
 
   function serviceStatus(error = '') {
     const info = serviceInfo();
     const ours = links.isOurService(info);
-    return { available: installed, installed: ours, taken: Boolean(info) && !ours, error };
+    return { available: installed, installed: ours || oldServices().length > 0, taken: Boolean(info) && !ours, error };
   }
 
   function addService() {
@@ -438,6 +458,7 @@ function install(ctx) {
       }
       fs.rmSync(serviceDir, { recursive: true, force: true }); // ours, from before
       fs.renameSync(staging, serviceDir);
+      removeOldServices(); // and the one from before the rename: never two in the menu
     } catch (err) {
       fs.rmSync(staging, { recursive: true, force: true });
       console.warn(`shell: couldn't add the Quick Action: ${err && err.message}`);
@@ -448,9 +469,11 @@ function install(ctx) {
   }
 
   function removeService() {
-    if (!links.isOurService(serviceInfo())) return serviceStatus();
+    const ours = links.isOurService(serviceInfo());
+    if (!ours && !oldServices().length) return serviceStatus();
     try {
-      fs.rmSync(serviceDir, { recursive: true, force: true });
+      if (ours) fs.rmSync(serviceDir, { recursive: true, force: true });
+      removeOldServices();
     } catch (err) {
       console.warn(`shell: couldn't remove the Quick Action: ${err && err.message}`);
       return serviceStatus('failed');
@@ -459,6 +482,12 @@ function install(ctx) {
     return serviceStatus();
   }
 
+  // One written under its name from before the rename: moved to the new name, once (the old
+  // one goes; if the new name is taken by a Quick Action of the owner's, the old one stays).
+  if (installed && oldServices().length) {
+    if (!serviceInfo()) addService();
+    else if (links.isOurService(serviceInfo())) { removeOldServices(); run('/System/Library/CoreServices/pbs', ['-update']); }
+  }
   // One written before it carried this Mac's key (or with an old one): rewritten, once.
   if (installed && links.isOurService(serviceInfo())) {
     const want = links.serviceFiles(serviceKey(true))['Contents/document.wflow'];
@@ -676,6 +705,7 @@ function install(ctx) {
   let released = false;
   let waiting = false;
   app.on('before-quit', (event) => {
+    if (event && event.defaultPrevented) return; // a quit put off (main.js asks first when the other app is busy on this backend)
     quitting = true;
     if (placeTimer) { clearTimeout(placeTimer); placeTimer = null; keepPlace(); } // a move just made
     if (released || ctx.dev || !ctx.backend) return;

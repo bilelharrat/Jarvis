@@ -66,7 +66,7 @@ const FLAVORS = {
     size: { width: 1240, height: 820, minWidth: 720, minHeight: 560 },
     profile: 'code',
     // The app features (app/features/*.js) Eden Code needs; J.A.R.V.I.S. loads them all.
-    features: new Set(['code-sessions.js', 'code-verify.js', 'design-match.js', 'platform.js', 'touchid.js', 'updates.js', 'video-proof.js']),
+    features: new Set(['code-sessions.js', 'code-verify.js', 'design-match.js', 'platform.js', 'touchid.js', 'updates.js', 'video-proof.js', 'window-place.js']),
   },
 };
 
@@ -74,11 +74,12 @@ function readBaked(dir) {
   try { return JSON.parse(fs.readFileSync(path.join(dir, 'flavor.json'), 'utf8')).flavor || ''; } catch { return ''; }
 }
 
-/** The flavor for this launch: { id, name, … } from FLAVORS. */
-function resolveFlavor({ env = process.env, argv = process.argv, dir = __dirname } = {}) {
+/** The flavor for this launch: { id, name, … } from FLAVORS. A baked flavor.json counts only in a packaged app
+ * (main.js passes app.isPackaged): one left in app/ by a build that was stopped half way never turns `npm start` into Eden Code. */
+function resolveFlavor({ env = process.env, argv = process.argv, dir = __dirname, packaged = true } = {}) {
   if (env.EDEN_CODE === '1' || argv.includes('--eden-code')) return FLAVORS['eden-code'];
   if (env.DAREDEVIL === '1' || argv.includes('--daredevil')) return FLAVORS.daredevil;
-  const baked = readBaked(dir);
+  const baked = packaged ? readBaked(dir) : '';
   return FLAVORS[baked] || FLAVORS.jarvis;
 }
 

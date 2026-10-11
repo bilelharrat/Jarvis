@@ -22,8 +22,25 @@ const verify = require('../../app/features/code-verify');
 // Each load of the page has the next colour, so a picture shows which load it's of.
 const COLOURS = [[220, 30, 30], [30, 60, 220], [240, 200, 20], [140, 40, 200]];
 let loads = 0;
+let slowLoads = 0;
 function serve() {
   const server = http.createServer((req, res) => {
+    if (req.url === '/slow') {  // answers late: a second check's reload would cut the first's load short
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'text/html' });
+        res.end(`<!doctype html><title>slow</title><script>console.error('error from load ${++slowLoads}')</script>`);
+      }, 800);
+      return;
+    }
+    if (req.url === '/sse-stream') {  // an event stream, open until the page goes
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('data: hi\n\n');
+      return;
+    }
+    const page = (body) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(`<!doctype html><title>t</title>${body}`); };
+    if (req.url === '/sse') return page(`<script>new EventSource('/sse-stream')</script>`);
+    if (req.url === '/late') return page(`<script>setTimeout(() => console.error('late error at 900 ms'), 900)</script>`);
+    if (req.url === '/fetchlate') return page(`<script>setTimeout(() => fetch('/gone').then((r) => { if (!r.ok) console.error('fetch failed ' + r.status) }), 800)</script>`);
     if (req.url === '/') {
       const [r, g, b] = COLOURS[loads++ % COLOURS.length];
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -99,6 +116,41 @@ test('Two checks at once share the preview, and it stops drawing once both are d
   assert(a.ok && b.ok && a.shot && b.shot, JSON.stringify([a.error, b.error]));
   const open = previews();
   assert(open.length === 1 && open[0].webContents.isPainting() === false, `${open.length} previews, drawing: ${open.map((w) => w.webContents.isPainting())}`);
+});
+
+test('Two checks of one page at once each see their own load’s errors', async () => {
+  const [a, b] = await Promise.all([verify.check({ url: `${base}/slow` }), verify.check({ url: `${base}/slow` })]);
+  const said = (r) => (r.errors || []).filter((e) => /error from load/.test(e.text)).map((e) => e.text);
+  assert(a.ok && b.ok, JSON.stringify([a.error, b.error]));
+  assert(said(a).length === 1 && said(b).length === 1 && said(a)[0] !== said(b)[0], `a: ${JSON.stringify(said(a))}, b: ${JSON.stringify(said(b))}`);
+});
+
+test('The hidden preview settles once its requests are quiet, not after the longest wait', async () => {
+  const t0 = Date.now();
+  const r = await verify.check({ url: `${base}/`, settle: 5000 });
+  const took = Date.now() - t0;
+  assert(r.ok && r.errors.some((e) => /missing\.json → 404/.test(e.text)), JSON.stringify(r.errors || r.error));
+  assert(took < 4000, `it waited ${took} ms`);
+});
+
+test('A page holding an event stream is checked again and again without the old load’s stream counted', async () => {
+  // Each reload ends the load before's EventSource (net::ERR_FAILED): never this check's.
+  for (let i = 0; i < 3; i++) {
+    const r = await verify.check({ url: `${base}/sse` });
+    assert(r.ok, JSON.stringify(r.error));
+    assert(!r.errors.some((e) => e.kind === 'network'), `check ${i + 1}: ${JSON.stringify(r.errors)}`);
+  }
+});
+
+test('Errors a page says 0.8-0.9 s after its load are its own', async () => {
+  const late = await verify.check({ url: `${base}/late` });
+  assert(late.errors.some((e) => /late error at 900 ms/.test(e.text)), `missed: ${JSON.stringify(late.errors)}`);
+  const fetched = await verify.check({ url: `${base}/fetchlate` });
+  assert(fetched.errors.some((e) => /\/gone → 404/.test(e.text)), `missed: ${JSON.stringify(fetched.errors)}`);
+  // Still quicker than the longest wait on a quiet page.
+  const t0 = Date.now();
+  await verify.check({ url: `${base}/`, settle: 5000 });
+  assert(Date.now() - t0 < 4000, `it waited ${Date.now() - t0} ms`);
 });
 
 test('A tab that can’t be pictured goes to the preview, which waits undrawn even when its picture fails', async () => {

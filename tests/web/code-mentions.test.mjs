@@ -27,3 +27,25 @@ test('a symbol goes in as its file and where it is, and @ counts as mid-message 
   assert.equal(M.midMessage('  @'), false);
   assert.equal(M.midMessage('ask @ses'), true);
 });
+
+// Round 1 bug sweep (askeden/docs/bug-sweep/r1-eden-code-workspace.md).
+
+test('the @-word typed: any letters, +, and in quotes spaces (CF6)', () => {
+  assert.deepEqual(M.atQuery('look at @café'), { query: 'café', start: 8, quoted: false });
+  assert.equal(M.atQuery('@prøj').query, 'prøj');
+  assert.equal(M.atQuery('see @文件').query, '文件');
+  assert.equal(M.atQuery('see @src/a+b.py').query, 'src/a+b.py');
+  assert.deepEqual(M.atQuery('see @"dir with sp'), { query: 'dir with sp', start: 4, quoted: true });
+  assert.equal(M.atQuery('@').query, '');
+  assert.equal(M.atQuery('mail me at a@b.dev'), null);  // an email address isn't one
+  assert.equal(M.atQuery('done @a.py '), null);  // a space after it: it's finished
+});
+
+test('what a pick puts in: quoted when it has a space; a symbol as written (CF6)', () => {
+  assert.equal(M.atInsert('dir with space/a b.py'), '@"dir with space/a b.py" ');
+  assert.equal(M.atInsert('src/a.py'), '@src/a.py ');
+  assert.equal(M.symbolValue({ name: 'retry', path: 'my dir/app.py', line: 3 }), '"my dir/app.py" (retry, line 3)');
+  assert.equal(M.atInsert(M.symbolValue({ name: 'retry', path: 'my dir/app.py', line: 3 }), true), '@"my dir/app.py" (retry, line 3) ');
+  assert.equal(M.midMessage('ask @café'), true);
+  assert.equal(M.midMessage('@"my dir'), false);
+});

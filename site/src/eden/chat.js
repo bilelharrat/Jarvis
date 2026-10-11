@@ -35,15 +35,17 @@ import { currentSession } from './session.js';
 import { GOOGLE_DATA_ROUTES, fakeBase, googleData, googleDataReady } from './google-data.js';
 import { receiptToken } from '../accounts/receipts.js';
 import { checkTexts, embedTexts, embedUSD, EMBED_MODELS } from './embed.js';
-import { ARTIFACT_CSP, crossSite, json, problem, sameOrigin, withHeaders } from './web.js';
+import { ARTIFACT_CSP, SHELL_CSP, crossSite, framedShell, json, problem, sameOrigin, topLevelVisit, withHeaders, withRtcGuard } from './web.js';
 import { contextKind, createLedger } from './vendor/google.js';
 import { publishedApi } from '../accounts/published.js';
 import { sharedChatsApi, sharedRoute } from '../accounts/shared-chats.js';
 import { ENDED as GRANT_ENDED, grantAllows, grantRefusal, ownRoute } from '../accounts/delegates.js';
 import { tasksApi } from '../accounts/tasks.js';
-import { keysApi } from '../accounts/user-keys.js';
+import { edenBuild } from './build.js';
+import { keysApi, keysUnreadError } from '../accounts/user-keys.js';
 import { EXTRACT_MODEL, extractMemory, memoryApi, memoryForTurn } from './memory.js';
 import { transcribeApi } from './transcribe.js';
+import { imageApi } from './image.js';
 import { videoApi } from './video.js';
 import { SUMMARY_STYLE, summaryIntent, checkGrounding, checkQuiz, checkSet, courseForTurn, coursesApi, filesForTurn, recordTurn, riskBlock, riskOf } from '../edu/course.js';
 import { HINT_LABEL, hintStream } from '../edu/hints.js'; // Q10: graded work gets hints, never a final answer
@@ -59,8 +61,12 @@ import { CLAUDE_NEEDS_KEY, KEYS_SETTINGS, PROVIDER_IDS, capRequest, defaultModel
 // The router that learns from you (H2) and the spending autopilot (H3): Eden's own pure modules
 // (askeden web/chat, copied here by scripts/sync-eden.mjs), so the stepping and the caps are the page's.
 import { refusalPlan } from './refusal.js';
+// Essay turns (askeden T18): a floor of strong writers, task hints, room for the reply, no fact checks (essay-route.js).
+import { ESSAY_MIN_REPLY_TOKENS, cheapestWriter, essayFloor, essayHints, essayOf, essayPool, essayRoom, withoutToolBlocks } from './essay-route.js';
 // Eden's two fact checks (askeden ROADMAP N19: the assumption check before an answer, the web check after one; checks.js).
 import { CHECKS_SKIPPED, answerCheck, checkModels, checksFor, checksWorst, hostedAsk, premiseAudit, premiseRoute, premiseRouteNote, riskOfTurn, verificationFor } from './checks.js';
+// Today's date and the rules for facts that change and for a disputed answer: the Mac's own text (askeden src/verify/prompts.ts).
+import { changingFacts, disputedAnswer, knowledgeDate } from './vendor/verify.js';
 import { capabilityOverrides, cleanAdjustments, taskClass } from '../../public/eden/learned-model.js';
 import { STAGES, TOP_MODEL, autopilotStage, autopilotState, monthBounds, stageExclusions, steppedLevel } from '../../public/eden/autopilot-model.js';
 import {
@@ -100,7 +106,7 @@ const PING_MS = 15_000;
 const PREMISE_NOTE_TOKENS = 700; // the assumption check's note to the model, at most (held for before it runs)
 
 export const NEEDS_MAC =
-  'Needs your Mac. On askeden.com, Eden runs Claude on your Eden account; this part runs through Eden on your Mac, which askeden.com can’t reach yet.';
+  'Needs your Mac: this part runs through Eden on your Mac, which askeden.com can’t reach yet.';
 
 const KEY_ON_MAC = 'Needs your Mac (its API key stays there)';
 // Acting for someone (a delegate, a team space): the owner's Mac is theirs, never reached from here.
@@ -263,6 +269,7 @@ export function parseSend(body, cfg) {
   if (n(s.performance) !== undefined) settings.performance = n(s.performance);
   if (Array.isArray(s.providers)) settings.providers = s.providers.filter((p) => PROVIDER_IDS.includes(p)); // narrowFor (providers.js) applies it
   if (['off', 'always', 'auto', 'ambiguous'].includes(s.classifier)) settings.classifier = s.classifier;
+  if (s.autoSearch === false) settings.autoSearch = false; // Auto-search off, or Chat picked on purpose: no search from the risk rules below
   // N19: the fact-check switches (on unless the page sends false; checks.js)
   for (const k of ['premiseCheck', 'answerCheck']) {
     if (s[k] === undefined || s[k] === null) continue;
@@ -323,9 +330,20 @@ export const EDEN_IDENTITY = "You are Eden, the AI assistant of Ask Eden (askede
 /** Added when the user talks in Talk mode with the JARVIS voice (the send's `persona: 'jarvis'`). */
 export const JARVIS_PERSONA = 'The user is talking to you in Talk mode, in the Eden voice; answer as Eden.';
 
-/** The persona, the saved memories (memory.js), context blocks (notes, Mac memory, mail…), the page's system, the mode's instructions, then the untrusted-content notice. */
-export function systemPrompt({ system, context, mode, ledger, memory, persona }) {
-  const parts = [EDEN_IDENTITY];
+/**
+ * Today's date, that training data ends, and that facts which change are given as of training and never used to tell the
+ * person they are wrong (2026-10-10: with no date in the prompt, a model said Kirk Cousins "hasn't left Atlanta" and
+ * "that is not Kirk Cousins" when told he was on the Raiders).
+ */
+export const freshnessNote = (now = new Date()) => `${knowledgeDate(now)} ${changingFacts}`;
+
+/** The risk reasons (askeden src/verify/risk.ts) that make a chat turn a web-search one here: something that changes, a
+ * disputed answer, or a high-stakes topic carried by a follow-up. (Exact numbers, quotes, links alone: the web check after.) */
+const FRESH_SEARCH = new Set(['recent', 'is_this_true', 'medical', 'legal', 'financial', 'safety']);
+
+/** The persona, today's date, the saved memories (memory.js), context blocks (notes, Mac memory, mail…), the page's system, the mode's instructions, then the untrusted-content notice. */
+export function systemPrompt({ system, context, mode, ledger, memory, persona, now }) {
+  const parts = [EDEN_IDENTITY, freshnessNote(now)];
   if (memory) parts.push(memory);
   if (context.length) {
     parts.push(
@@ -463,6 +481,23 @@ async function viaMac(request, env, ctx, who, opts = {}) {
   }
 }
 
+/**
+ * GET /api/chat/projects and POST /api/chat/brief `{ kind: 'events' }` for an owner with no Mac linked (no
+ * delegate, no linked Mac at all): what the Mac would answer with nothing there (200). Anything else (a Mac
+ * linked, even offline: its reason matters; the brief or a meeting prep, whose card says why) → null.
+ */
+async function noMacYet(request, env, who, route) {
+  if (who.grant) return null;
+  let kind = null;
+  if (route === 'POST /api/chat/brief') {
+    const body = await request.clone().json().catch(() => null);
+    if (!body || body.kind !== 'events') return null;
+    kind = body;
+  }
+  if ((await macStatus(env, who)).macs) return null;
+  return json(kind ? { events: [], day: typeof kind.day === 'string' ? kind.day.slice(0, 10) : null } : []);
+}
+
 /** GET /api/chat/jarvis/status: Jarvis on the Mac, as the Mac sees it; else why not. */
 async function jarvisStatus(request, env, ctx, who, known = null) {
   const mac = known || (await macStatus(env, who));
@@ -560,7 +595,10 @@ async function gate(request, env, { header = true, audio = false, video = false 
   }
   // A delegate's or space member's session, when this browser holds one: only the routes its
   // grant allows (accounts/delegates.js; the owner's account object checks every op again).
-  const { session, ended } = await currentSession(request, env, { acting: true });
+  // course changes are checked against the account now, not this copy's 30-second cache: the course object trusts the
+  // account id it's given, so a browser signed out elsewhere can't keep writing there (the account's own ops re-check anyway)
+  const fresh = request.method === 'POST' && new URL(request.url).pathname.startsWith('/api/chat/courses');
+  const { session, ended } = await currentSession(request, env, { acting: true, fresh });
   if (!session) throw new ApiError(401, 'signed_out', 'This browser is signed out of Eden. Reload the page to sign in.');
   if (ended && request.method !== 'GET') throw new ApiError(403, 'grant_ended', GRANT_ENDED); // reads go on as this person (the page then switches back)
   const path = new URL(request.url).pathname.replace(/\/+$/, '');
@@ -569,8 +607,16 @@ async function gate(request, env, { header = true, audio = false, video = false 
   return session;
 }
 
+// The routes that call a model with the asker's keys (refused while those keys are unread: AW2-14).
+const KEY_SPENDING = new Set(['/api/chat/send', '/api/chat/compare', '/api/chat/embed']);
+// What an open page polls (tasks every minute, Eden on the Mac's status, the projects list and the meeting-prep look):
+// none of them uses a model or a key, so they skip hostedFor's read of the owner's keys (one call to the account fewer each).
+const NO_KEYS = new Set(['GET /api/chat/tasks', 'POST /api/chat/tasks', 'GET /api/chat/jarvis/status', 'GET /api/chat/projects', 'POST /api/chat/brief']);
+
 export async function chatApi(request, env, ctx, path) {
   try {
+    // The deployed page's one build stamp (askeden web/chat/page-update.js): a constant, no session or account read
+    if (path === '/api/chat/build' && (request.method === 'GET' || request.method === 'HEAD')) return json({ build: edenBuild() });
     if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden accounts are not set up here yet.');
     let cfg = hostedConfig(env);
     if (path === '/api/route') {
@@ -585,13 +631,19 @@ export async function chatApi(request, env, ctx, path) {
     if (GOOGLE_DATA_ROUTES.has(`${request.method} ${path}`) && googleDataReady(env)) return await googleData(request, env, ctx, path, { gate, readBody, maxBody: MAX_BODY });
     // Dictation by recording, where the browser has no speech recognition: the audio is the body (transcribe.js).
     if (path === '/api/chat/transcribe') return await transcribeApi(request, env, await gate(request, env, { audio: true }), { call, limited });
+    // A picture for a reply's make_image card: the prompt in, the picture back (image.js).
+    if (path === '/api/chat/image') return await imageApi(request, env, await gate(request, env), { call, limited, readBody });
     // A video for the next turn: streamed on to Gemini's Files API (video.js).
     if (path === '/api/chat/video') {
       const vw = await gate(request, env, { video: true });
-      return await videoApi(request, env, vw, { cfg: await hostedFor(env, vw, cfg, request), call, limited });
+      const vcfg = await hostedFor(env, vw, cfg, request);
+      if (vcfg.keysUnread && request.method === 'POST') throw keysUnreadError(vcfg.keysUnread); // AW2-14
+      return await videoApi(request, env, vw, { cfg: vcfg, call, limited });
     }
     const who = await gate(request, env);
-    cfg = await hostedFor(env, who, cfg, request); // the models this asker has keys for (providers.js)
+    if (!NO_KEYS.has(`${request.method} ${path}`)) cfg = await hostedFor(env, who, cfg, request); // the models this asker has keys for (providers.js)
+    // the owner's own keys couldn't be read: no model call this time, rather than one on their included AI (AW2-14)
+    if (cfg.keysUnread && request.method === 'POST' && KEY_SPENDING.has(path)) throw keysUnreadError(cfg.keysUnread);
     if (path === '/api/chat/publish' || path.startsWith('/api/chat/published')) return await publishedApi(request, env, who, path); // G10 (accounts/published.js)
     if (sharedRoute(path)) return await sharedChatsApi(request, env, who, path); // shared chats, askeden Q3 (accounts/shared-chats.js)
     if (path === '/api/chat/courses' || path.startsWith('/api/chat/courses/')) return json(await coursesApi(request, env, who, path, { call, limited, readBody })); // Eden for Education (edu/course.js)
@@ -682,13 +734,19 @@ export async function chatApi(request, env, ctx, path) {
       case 'GET /api/chat/keys': // the owner's own API keys, sealed in the account (accounts/user-keys.js)
       case 'POST /api/chat/keys':
         return json(await keysApi(request, env, who, { readBody }));
-      case 'POST /api/chat/jarvis':
       case 'GET /api/chat/projects':
+      case 'POST /api/chat/brief': {
+        // the page's boot asks for both (the projects list; the meeting-prep look's `events`): with no Mac linked
+        // at all, an empty answer at once instead of a 503 on every hosted boot (r2 sweep, latency)
+        const none = await noMacYet(request, env, who, route);
+        if (none) return none;
+        return await viaMac(request, env, ctx, who);
+      }
+      case 'POST /api/chat/jarvis':
       case 'POST /api/chat/projects': // add, make or pick a project folder on the Mac
       case 'POST /api/chat/code':
       case 'POST /api/chat/code/steer':
       case 'GET /api/chat/code/changes':
-      case 'POST /api/chat/brief':
       case 'POST /api/chat/meetings/actions':
       case 'GET /api/chat/actions':
       case 'POST /api/chat/actions/undo':
@@ -714,10 +772,17 @@ export function routePreview(body, cfg) {
   if (prompt.length > 400_000) throw new ApiError(413, 'too_big', 'That prompt is too long to preview.');
   if (!cfg.models.length) throw new ApiError(422, 'cant_route', 'No models are set up on askeden.com.');
   if (Array.isArray(body.providers)) cfg = narrowFor(cfg, { settings: { providers: body.providers.filter((p) => PROVIDER_IDS.includes(p)) } });
+  // T18d: an essay turn is previewed as it will be sent (the floor, the hints), with the open essay's size as the
+  // session (`context.sessionTokens`), so the estimate shows the real model and a realistic cost.
+  const essay = essayOf(body);
+  const pool = essayPool(cfg, essay);
+  cfg = pool.cfg;
+  const sessionTokens = Math.min(5_000_000, Math.max(0, Math.floor(Number(isObj(body.context) ? body.context.sessionTokens : 0)) || 0));
+  const extras = { ...routeSettings(body), ...(sessionTokens > 0 ? { context: { sessionTokens } } : {}) };
   // The page's profile (H2) and the stage it knows (H3: a hint, for the preview only; the send checks the allowance itself).
   const hint = body.autopilot && typeof body.autopilot === 'object' ? Math.max(0, Math.min(3, Math.floor(Number(body.autopilot.stage)) || 0)) : 0;
-  const { result, info } = personalRoute(cfg, prompt, routeSettings(body), { stage: body.autopilot === false ? 0 : hint, learned: learnedOf(body, cfg) });
-  return { scope: meta(cfg).scope, ...result, ...routeInfo(info) };
+  const { result, info } = personalRoute(cfg, prompt, extras, { stage: body.autopilot === false ? 0 : hint, learned: learnedOf(body, cfg), essay, floored: pool.floored });
+  return { scope: meta(cfg).scope, ...result, ...(pool.note ? { notes: [...(result.notes || []), pool.note] } : {}), ...routeInfo(info) };
 }
 
 // ── your routing: the profile learned from you (H2) and the spending autopilot (H3) ──
@@ -785,14 +850,22 @@ const levelOf = (x) => {
  * Routing with the autopilot's stage and the page's profile: { result (what to send), pool (the
  * models it could use), info (what the route event says) }.
  */
-export function personalRoute(cfg, prompt, extras, { stage = 0, learned = null, autopilot = null, rated = null } = {}) {
+export function personalRoute(cfg, prompt, extras, { stage = 0, learned = null, autopilot = null, rated = null, essay = null, floored = false } = {}) {
   let ex = extras;
   let pool = cfg;
   if (stage > 0) {
     ex = { ...extras, ...steppedLevel(levelOf(extras), stage), sticky: undefined }; // a stepped level re-routes freely (D5)
-    const out = stageExclusions(cfg.models, stage, []);
+    let out = stageExclusions(cfg.models, stage, []);
+    // T18: on an essay turn `cfg` is already the writers' floor; the last stage's fast models aren't in it, so it
+    // keeps the floor's cheapest writer instead of leaving nothing out
+    if (floored && stage >= 3 && !out.length && cfg.models.length > 1) {
+      const keep = cheapestWriter(cfg.models, (m) => ratesOf(m));
+      out = cfg.models.filter((m) => m !== keep).map((m) => m.id);
+    }
     if (out.length) pool = { ...cfg, models: cfg.models.filter((m) => !out.includes(m.id)) };
   }
+  // T18: an essay turn's task hints, at the level it routes at (the autopilot's stepped one included)
+  if (essay) ex = { ...ex, hints: essayHints(essay, levelOf(ex)) };
   const base = rated && stage === 0 ? rated : routed(pool, prompt, ex); // `rated`: the Gemini rating's route (send)
   const cls = taskClass(base.task && base.task.weights);
   const info = { taskClass: cls, notes: [] };
@@ -837,7 +910,21 @@ async function hostedSpend(env, who) {
 
 // ── one turn ──
 
-function routeEvent(result, choice, { rationale, notes = [], override = false, info = null, cfg = null } = {}) {
+/**
+ * T18: an essay turn with too little left for a reply that isn't cut off half-way. A student's (`source`: who pays)
+ * keeps the code the page answers with the choice of their own allowance (edu/budget.js usedUp).
+ */
+export function essayShort(source = null) {
+  const words = 'there isn’t enough left for a whole essay reply (it needs room for about 2,500 tokens), so nothing was sent';
+  if (source === 'course') return new ApiError(402, 'edu_allowance_used', `Not enough of your share of the course budget is left today for essay writing: ${words}. It refills at midnight UTC. You can keep going on your own Eden allowance if you choose.`, {}, { edu: true });
+  if (source === 'free') return new ApiError(402, 'edu_allowance_used', `Not enough of today’s free study AI is left for essay writing: ${words}. It refills at midnight UTC. You can keep going on your own Eden allowance if you choose.`, {}, { edu: true });
+  return new ApiError(402, 'no_allowance', `Not enough of your included AI is left for essay writing: ${words}. Ask for a shorter part, or wait for the allowance to renew.`);
+}
+
+// A student's course turn paid by the free study allowance or the professor's course budget (edu/budget.js coursePayer), not the account's own.
+const PAID_BY = { free: 'on askeden.com: your free study allowance', course: 'on askeden.com: your professor’s course budget' };
+
+function routeEvent(result, choice, { rationale, notes = [], override = false, info = null, cfg = null, paidBy = null } = {}) {
   const c = result.classification;
   const rows = result.rows || [];
   let shown = rows.slice(0, 6);
@@ -871,7 +958,7 @@ function routeEvent(result, choice, { rationale, notes = [], override = false, i
     })),
     fallbacks: (result.fallbacks || []).filter((f) => f.model !== choice.model).slice(0, 3).map((f) => ({ model: f.model, effort: f.effort })),
     warnings: result.pick.warnings || [],
-    notes: [...(result.notes || []), ...notes, ...(info ? info.notes : []), own ? 'on askeden.com: your own API key (not counted on your included AI)' : 'on askeden.com: your Eden account’s included AI'],
+    notes: [...(result.notes || []), ...notes, ...(info ? info.notes : []), own ? 'on askeden.com: your own API key (not counted on your included AI)' : PAID_BY[paidBy] || 'on askeden.com: your Eden account’s included AI'],
     where: computedWhere(provider),
     ...(own ? { ownKey: true } : {}),
     ...routeInfo(info),
@@ -921,6 +1008,8 @@ async function send(request, env, ctx, who, cfg) {
   if (raw.privacy !== undefined && raw.privacy !== null && raw.privacy !== false) return await privateTurn(request, env, ctx, who, raw);
   // A course turn (edu/course.js) is answered here, from the course's materials, never on the Mac.
   const inCourse = typeof raw.course === 'string' && raw.course;
+  // T18: a turn the page made beside the open essay (`essay: { kind, words }`, essay-route.js)
+  const essay = essayOf(raw);
   // askeden L9: a student's course turn is paid by the course budget, then their free study allowance, never their own
   // allowance unless they chose it (`eduOwn`); the payer stands in for `call` in the money ops below (edu/budget.js)
   const payer = inCourse ? await coursePayer(env, who, raw.course, { request, own: raw.eduOwn === true }) : null;
@@ -944,7 +1033,8 @@ async function send(request, env, ctx, who, cfg) {
   }
   // A summary: the model is chosen below, once the material's length is known (summaryModel).
   const lastRaw = Array.isArray(raw.messages) && raw.messages.length ? raw.messages[raw.messages.length - 1] : null;
-  const summary = !raw.courseTask && lastRaw && lastRaw.role === 'user' && summaryIntent(lastRaw.content);
+  // (not an essay turn: "write a conclusion that recaps the main points" is the essay's, not a summary for Luna)
+  const summary = !raw.courseTask && !essay && lastRaw && lastRaw.role === 'user' && summaryIntent(lastRaw.content);
   const summaryPick = summary && !isObj(raw.override);
   const body = parseSend(raw, cfg);
   // The allowance check doesn't depend on anything below: asked now, it runs while memory and the
@@ -978,7 +1068,14 @@ async function send(request, env, ctx, who, cfg) {
   if (grounding && grounding.hint) body.mode = 'chat'; // Q10: graded work: no web search (it could fetch a posted solution)
   const risk = !grounding && body.mode === 'chat' && !raw.override ? riskOf(question) : null;
   if (risk && cfg.models.some((m) => m.provider === searchProvider(cfg))) body.mode = 'search';
-  let system = [systemPrompt({ ...body, memory: mem ? mem.block : '' }), grounding && grounding.block, risk && riskBlock(risk), summary && !(grounding && grounding.summary) ? SUMMARY_STYLE : ''].filter(Boolean).join('\n\n');
+  // Eden's risk rules with the earlier messages (vendor/verify.js assessRisk): a follow-up on a risky or current topic ("how
+  // much did he leave with"), a reply that says the last answer is wrong ("wtf, he's on the Raiders"), or who plays for /
+  // runs what, goes to the web too. 2026-10-10: those were answered from memory, and the person was told they were wrong.
+  const turnRisk = riskOfTurn(body);
+  const lastImages = (lastMsg.attachments || []).some((a) => a && a.kind === 'image');
+  if (!risk && !grounding && body.mode === 'chat' && !raw.override && body.settings.autoSearch !== false && raw.privacy !== true && !lastImages &&
+    turnRisk.action.search && turnRisk.reasons.some((r) => FRESH_SEARCH.has(r)) && cfg.models.some((m) => m.provider === searchProvider(cfg))) body.mode = 'search';
+  let system = [systemPrompt({ ...body, memory: mem ? mem.block : '' }), grounding && grounding.block, risk && riskBlock(risk), turnRisk.disputed && !grounding ? disputedAnswer : '', summary && !(grounding && grounding.summary) ? SUMMARY_STYLE : ''].filter(Boolean).join('\n\n');
   const videos = videosOf(body.messages[body.messages.length - 1]);
   const textTokens = inputEstimate(body.messages, system);
   if (textTokens > cfg.maxInputTokens) {
@@ -1029,6 +1126,10 @@ async function send(request, env, ctx, who, cfg) {
     }
   }
   const anyMetered = cfg.models.some((m) => metered(cfg.keys, m.provider));
+  // T18: an essay turn routes among strong writers only, unless the person picked a model (a student's turn too:
+  // their level applies within the floor); none of them here: the usual pool, and the route says so.
+  const essayTurn = essay && !body.override && !videos.length ? essayPool(cfg, essay) : { cfg, note: null, floored: false };
+  cfg = essayTurn.cfg;
 
   // Route (before the stream starts, so a bad request is a plain error).
   const last = body.messages[body.messages.length - 1];
@@ -1038,6 +1139,9 @@ async function send(request, env, ctx, who, cfg) {
     ...routeSettings(body.settings),
     ...(sessionTokens > 0 ? { context: { sessionTokens } } : {}),
     ...(body.sticky && cfg.models.some((m) => m.id === body.sticky.model) ? { sticky: { current: body.sticky } } : {}),
+    // T18: the essay turn's task hints (the router bundle takes them after the next sync-eden; personalRoute
+    // recomputes them at the autopilot's stepped level). A model the person picked is priced for the same task.
+    ...(essay ? { hints: essayHints(essay, levelOf(body.settings)) } : {}),
   };
   // H2/H3: the page's profile, and the autopilot on the allowance (a pick of your own, `autopilot: false`, or only your own keys skip it).
   const autopilot = videos.length || body.override || raw.autopilot === false || !allow.ok || !anyMetered ? null : hostedAutopilot(env, allow);
@@ -1045,7 +1149,8 @@ async function send(request, env, ctx, who, cfg) {
   let rated = null;
   let ratingUSD = 0;
   const mode = body.override ? 'off' : body.settings.classifier || 'always';
-  const rater = mode !== 'off' && !(autopilot && autopilot.stage > 0) ? ratingRouter(cfg, cfg.keys, (m) => effortsFor(m, cfg.maxEffort), cfg.base) : null;
+  // not on an essay turn: the rating sees only the message ("continue"); the floor and the hints decide (T18)
+  const rater = mode !== 'off' && !essay && !(autopilot && autopilot.stage > 0) ? ratingRouter(cfg, cfg.keys, (m) => effortsFor(m, cfg.maxEffort), cfg.base) : null;
   if (rater) {
     try {
       rated = await rater.router.route({ prompt, ...extras, classifier: mode });
@@ -1054,8 +1159,9 @@ async function send(request, env, ctx, who, cfg) {
       rated = null; // the rules decide
     }
   }
-  const { result, info } = personalRoute(cfg, prompt, extras, { stage: autopilot ? autopilot.stage : 0, learned: body.override ? null : learnedOf(raw, cfg), autopilot, rated });
+  const { result, info } = personalRoute(cfg, prompt, extras, { stage: autopilot ? autopilot.stage : 0, learned: body.override ? null : learnedOf(raw, cfg), autopilot, rated, essay, floored: essayTurn.floored });
   const notes = [];
+  if (essayTurn.note) notes.push(essayTurn.note);
   const choose = (model, effort, from = result) => {
     const m = cfg.models.find((x) => x.id === model);
     const allowed = effortsFor(m, cfg.maxEffort);
@@ -1073,21 +1179,31 @@ async function send(request, env, ctx, who, cfg) {
     const pick = pinned.pick;
     return { model, name: m.name, provider: m.provider, effort: pick.effort, request: pick.request, costUSD: pick.costUSD, quality: pick.quality };
   };
-  const first = videos.length ? choose(cfg.models[0].id, null) : body.override ? choose(body.override.model, body.override.effort) : choose(result.pick.model, result.pick.effort);
+  let first = videos.length ? choose(cfg.models[0].id, null) : body.override ? choose(body.override.model, body.override.effort) : choose(result.pick.model, result.pick.effort);
   // The router sizes a reply from the question alone; it never sees the course or file behind it, so
   // "Summarize the lecture" got a one-liner's room and a thinking model spent it all thinking.
   // A summary gets room for a long answer; any answer from course or file material, enough for one.
   // Q14: a slide deck (`deck: true`, askeden web/chat/deck.js) is one long JSON reply: room for a whole deck.
-  const roomFor = raw.deck === true ? DECK_REPLY_TOKENS : summary ? SUMMARY_REPLY_TOKENS : grounding ? GROUNDED_REPLY_TOKENS : 0;
-  if (roomFor && (requestMaxOutputTokens(first.request) || 0) < roomFor) first.request = withMaxOutputTokens(first.request, Math.min(roomFor, cfg.maxTokens));
+  // T18: an essay turn, room for the words it asks for (and the thinking before them); feedback, a page of comments.
+  const roomFor = raw.deck === true ? DECK_REPLY_TOKENS : essay ? essayRoom(essay) : summary ? SUMMARY_REPLY_TOKENS : grounding ? GROUNDED_REPLY_TOKENS : 0;
+  const withRoom = (choice) => {
+    const room = Math.min(roomFor, cfg.maxTokens, (modelOf(choice.model) || {}).maxOutputTokens || Infinity);
+    if (roomFor && (requestMaxOutputTokens(choice.request) || 0) < room) choice.request = withMaxOutputTokens(choice.request, room);
+    return choice;
+  };
+  withRoom(first);
   if (body.override && !autoPick) notes.unshift(`you picked ${first.name}`);
   notes.push(...payNotes);
   if (videos.length) notes.unshift(`video: read by ${first.name}${isObj(raw.override) ? ' (a video goes to Gemini, whatever the pick)' : ''}`);
   // The turn's worst case is held on the allowance until it's done (a 402 now if not even a
   // short reply fits; a 429 with two turns already running). The asker's own keys hold nothing.
   const searches = body.mode === 'chat' ? 0 : body.mode === 'research' ? cfg.searchUses * 2 : cfg.searchUses;
+  // An essay turn's room shrinks to what the allowance can hold (fitCall), but never below ESSAY_MIN_REPLY_TOKENS:
+  // less than that and the draft would stop half-way, so the turn is refused up front instead (essayShort).
+  const minReply = essay ? Math.max(MIN_REPLY_TOKENS, Math.min(ESSAY_MIN_REPLY_TOKENS, roomFor || ESSAY_MIN_REPLY_TOKENS, cfg.maxTokens)) : MIN_REPLY_TOKENS;
   const fit = (choice, leftUSD) => {
-    const f = fitCall(modelOf(choice.model), choice.request, { leftUSD: metered(cfg.keys, choice.provider) ? leftUSD : Infinity, inputTokens, searches, maxTokens: cfg.maxTokens, minReply: MIN_REPLY_TOKENS, resultTokens: SEARCH_RESULT_TOKENS });
+    const f = fitCall(modelOf(choice.model), choice.request, { leftUSD: metered(cfg.keys, choice.provider) ? leftUSD : Infinity, inputTokens, searches, maxTokens: cfg.maxTokens, minReply, resultTokens: SEARCH_RESULT_TOKENS });
+    if (f.short === 'money' && essay) throw essayShort(payer && metered(cfg.keys, choice.provider) ? payer.source() : null);
     if (f.short && payer && payer.source() && metered(cfg.keys, choice.provider)) throw payer.tooLittle(); // a student's course turn: the free allowance or course share can't pay a short reply (edu/budget.js)
     if (f.short === 'search') throw new ApiError(402, 'no_allowance', 'Not enough of your included AI is left for a web search. Ask without search, or wait for the allowance to renew.');
     if (f.short) throw new ApiError(402, 'no_allowance', 'Not enough of your included AI is left for this conversation. Start a new chat, or wait for the allowance to renew.');
@@ -1098,7 +1214,8 @@ async function send(request, env, ctx, who, cfg) {
   const vrisk = riskOfTurn(body);
   const picks = checkModels(checkPool, body.settings.providers);
   const requestFor = (pick, text) => routed(cfg, text, {}, { model: pick.model.id, effort: pick.effort }).pick.request;
-  let checks = checksFor({ body, raw, risk: vrisk, question, inCourse, grounding, picks });
+  // T18/T20c: never on an essay turn (the reply is the student's essay and Eden's changes to it, not claims to check)
+  let checks = essay ? { premise: false, answer: false } : checksFor({ body, raw, risk: vrisk, question, inCourse, grounding, picks });
   let checksUSD = 0;
   let checksSkipped = false;
   if (checks.premise || checks.answer) {
@@ -1109,6 +1226,19 @@ async function send(request, env, ctx, who, cfg) {
       checks = { premise: false, answer: false }; // no request for the checks' models: the turn goes on without them
     }
     if (checks.premise) inputTokens += PREMISE_NOTE_TOKENS;
+  }
+  // T18: an essay turn the router's writer can't fit on what's left goes to the floor's cheapest writer (at its lowest
+  // effort, so more of the room is the essay) before it's refused; never over a model the person picked.
+  if (essayTurn.floored && !videos.length) {
+    try {
+      fit(first, allow.ok ? allow.left - ratingUSD : 0);
+    } catch (error) {
+      const cheap = cheapestWriter(cfg.models, (m) => ratesOf(m, inputTokens));
+      if (!(error instanceof ApiError) || error.status !== 402 || !cheap || cheap.id === first.model) throw error;
+      const efforts = effortsFor(cheap, cfg.maxEffort).slice().sort((a, b) => rank(a) - rank(b));
+      first = withRoom(choose(cheap.id, efforts[0] || null));
+      notes.push(`essay: on ${first.name}, the strong writer your allowance has room for`);
+    }
   }
   const firstMetered = metered(cfg.keys, first.provider);
   const firstPlan = fit(first, allow.ok ? allow.left - ratingUSD : 0);
@@ -1197,13 +1327,15 @@ async function send(request, env, ctx, who, cfg) {
     if (hinting) ({ text: r.text, struck } = hinting.end());
     if (r.citations.length) write('citations', { sources: r.citations });
     // each cited quote checked against its source (edu/course.js); M5: the verdict is logged for measuring
+    // (the quotes in the reply's prose: Eden's tool and essay blocks left out)
     if (grounding) {
-      const g = grounding.task === 'quiz' ? checkQuiz(r.text, grounding.passages) : grounding.task === 'set' ? checkSet(r.text, grounding.passages) : { ...checkGrounding(r.text, grounding.passages), scope: inCourse ? 'course' : 'files' };
+      const g = grounding.task === 'quiz' ? checkQuiz(r.text, grounding.passages) : grounding.task === 'set' ? checkSet(r.text, grounding.passages) : { ...checkGrounding(withoutToolBlocks(r.text), grounding.passages), scope: inCourse ? 'course' : 'files' };
       if (grounding.hint) g.hint = { label: HINT_LABEL, name: grounding.hint.name, due: grounding.hint.due || null, struck }; // the student's label (courses.js groundingStrip)
-      write('grounding', g);
-      if (inCourse) ctx.waitUntil(recordTurn(env, who, grounding, g, question));
+      // T20c: no quote check on an essay turn (the reply is the essay); hint mode's label stays, and a course still records the turn
+      if (!essay || grounding.hint) write('grounding', g);
+      if (inCourse) ctx.waitUntil(recordTurn(env, who, grounding, g, question, r.text)); // a quiz: its questions, for its score (AW2-13)
       console.log(JSON.stringify({ kind: 'grounding', scope: g.scope, status: g.status, cited: g.sources.length, unsupported: g.sources.filter((s) => !s.ok).length, model: model.id }));
-    } else if (risk) {
+    } else if (risk && !essay) {
       const g = { status: r.citations.length ? 'web' : 'unchecked', scope: 'web', risk, sources: [] };
       write('grounding', g);
       console.log(JSON.stringify({ kind: 'grounding', scope: 'web', status: g.status, risk, cited: r.citations.length, model: model.id }));
@@ -1244,7 +1376,7 @@ async function send(request, env, ctx, who, cfg) {
           notes.push(premiseRouteNote(premise.corrected));
         }
       }
-      write('route', { ...routeEvent(result, first, { notes, override: Boolean(body.override) && !autoPick, info, cfg, ...(autoPick ? { rationale: autoPick } : {}) }), ...(premise ? { premiseCheck: premiseRoute(premise) } : {}) });
+      write('route', { ...routeEvent(result, first, { notes, override: Boolean(body.override) && !autoPick, info, cfg, paidBy: payer ? payer.source() : null, ...(autoPick ? { rationale: autoPick } : {}) }), ...(premise ? { premiseCheck: premiseRoute(premise) } : {}) });
       if (memoryEvent) write('memory', memoryEvent);
       // What the turn read from outside: the page's source strip; its links and images are held (H8).
       if (body.ledger.tainted) write('provenance', body.ledger.summary());
@@ -1262,8 +1394,8 @@ async function send(request, env, ctx, who, cfg) {
         // One retry on the router's next choice, as Eden on the Mac does (D10).
         write('fallback', { from: { model: first.model, effort: first.effort }, reason: error.message });
         const second = choose(next.model, next.effort);
-        if (roomFor && (requestMaxOutputTokens(second.request) || 0) < roomFor) second.request = withMaxOutputTokens(second.request, Math.min(roomFor, cfg.maxTokens));
-        write('route', routeEvent(result, second, { rationale: `Fallback: ${first.name} failed before answering (${error.message}).`, cfg }));
+        withRoom(second);
+        write('route', routeEvent(result, second, { rationale: `Fallback: ${first.name} failed before answering (${error.message}).`, cfg, paidBy: payer ? payer.source() : null }));
         try {
           // Within what the turn holds, less what the first attempt cost; a pricier model holds more.
           let secondPlan;
@@ -1287,7 +1419,7 @@ async function send(request, env, ctx, who, cfg) {
         if (memoryEvent && !(mem && mem.event)) write('memory', memoryEvent);
         // A refusal (refusal.js): a benign one is retried once on another provider by the page (or offered, when the user picked the model)
         if (!videos.length && !(grounding && grounding.task)) {
-          const plan = refusalPlan({ prompt: question, text: outcome.text, retried: raw.refusalRetry === true, pinned: Boolean(body.override), candidate: () => refusalCandidate(cfg, outcome.choice || first, result, prompt, extras) });
+          const plan = refusalPlan({ prompt: question, text: withoutToolBlocks(outcome.text), retried: raw.refusalRetry === true, pinned: Boolean(body.override), candidate: () => refusalCandidate(cfg, outcome.choice || first, result, prompt, extras) });
           refused = Boolean(plan);
           if (plan) {
             write('refusal', plan);
@@ -1299,8 +1431,10 @@ async function send(request, env, ctx, who, cfg) {
         // search, then ONE `verification` event when a check ran (checks.js; the page reads on for it).
         let after = null;
         const t1 = Date.now();
-        if (checks.answer && body.mode === 'chat' && !refused && !(outcome.citations && outcome.citations.length) && String(outcome.text || '').trim()) {
-          after = await answerCheck(ask, question, outcome.text, abort.signal);
+        // (the reply's prose only: an action card's or an essay block's text is not an answer to check)
+        const prose = withoutToolBlocks(outcome.text).trim();
+        if (checks.answer && body.mode === 'chat' && !refused && !(outcome.citations && outcome.citations.length) && prose) {
+          after = await answerCheck(ask, question, prose, abort.signal);
         }
         if ((premise || after) && !abort.signal.aborted && !(after && after.stopped)) {
           const ev = verificationFor({ risk: vrisk, searched: body.mode !== 'chat', citations: outcome.citations || [], premise, after, costUSD: round6(checkSpent), latencyMs: (premise ? premise.latencyMs : 0) + (after ? Date.now() - t1 : 0) });
@@ -1721,8 +1855,14 @@ export async function artifactPage(request, env, id) {
   if (!session) return problem(401, 'Sign in to Eden to see this artifact.', 'signed_out');
   try {
     const { html } = await call(env, session.account, 'artifact-get', { id }, session.token);
-    return withHeaders(new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), {
+    if (topLevelVisit(request)) { // "Open in a new tab": the page framed and sandboxed, so it can't navigate the tab (web.js framedShell)
+      return withHeaders(new Response(framedShell(`/artifact/${id}`), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), {
+        'content-security-policy': SHELL_CSP, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',
+      });
+    }
+    return withHeaders(new Response(withRtcGuard(html), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }), {
       'content-security-policy': ARTIFACT_CSP,
+      'x-dns-prefetch-control': 'off', // Chrome ignores it for <link rel=dns-prefetch> (the guard renames those); other browsers may not
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',

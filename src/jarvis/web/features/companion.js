@@ -438,10 +438,14 @@
     send({ type: 'companion_new_certificate' });
   });
 
-  // Fresh "last used" times whenever Settings opens.
+  // Fresh "last used" times whenever Settings opens (once in 30 s: opening it again and again asked each time).
   const sheet = $('settings');
+  let askedAt = 0;
   if (sheet) {
-    new MutationObserver(() => { if (!sheet.hidden) send({ type: 'companion' }); })
+    new MutationObserver(() => {
+      if (sheet.hidden || Date.now() - askedAt < 30_000) return;
+      if (send({ type: 'companion' }) !== false) askedAt = Date.now();
+    })
       .observe(sheet, { attributes: true, attributeFilter: ['hidden'] });
   }
 })();

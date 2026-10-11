@@ -30,6 +30,7 @@ import { ApiError } from './util.js';
 import { openWith, sealWith } from './tokens.js';
 import { backgroundFetch, gmailScopesOk, googleInAccount, scheduleJob, unscheduleJob } from './schedule.js';
 import { askModel, notifyOwner, runLedger, worstUsd } from './tasks.js';
+import { pricesReady } from './proxy.js';
 import { runGmailAction } from '../eden/vendor/google.js';
 import { voiceInstructions, pickExamples, exampleContext, expectedFrame, enforceFrame, situationOf, languageOf } from '../../public/eden/mail-voice.js';
 import { scamSignals, safeForAuto } from '../../public/eden/mail-check.js';
@@ -152,6 +153,7 @@ export async function autodraftPass(account, cfg, now = account.now(), deps = {}
     const p = draftPrompt(style, msg, earlier, ledger);
     // the included AI, as a task run holds it: the worst case first, then what it cost
     const input = Math.ceil(new TextEncoder().encode(p.system + p.user).length / 3) + 300;
+    await pricesReady(); // a stand-in model's price (proxy.js)
     const worst = worstUsd(model, input, AD.maxTokens);
     const allow = await account.allowAi();
     if (!allow.ok) { result.skipped = allow.why; break; }

@@ -31,6 +31,7 @@ import { publishedOp } from './published.js';
 import { sharedChatsOp, sharedIds } from './shared-chats.js';
 import { edenSyncOp } from './eden-sync.js';
 import { chatMergeOp, chatSyncOp } from './chat-sync.js';
+import { essaySyncOp } from './essay-sync.js';
 import { memoryOp } from '../eden/memory.js';
 import { delegateOp, grantAllow, grantGuard, grantView, poolSpend } from './delegates.js';
 import { eduAccountOp } from '../edu/budget.js';
@@ -44,6 +45,8 @@ import { combinePlans, legacyPrice, planSource, stripeOp, stripeToCancel } from 
 import { balanceOf, creditsOf, creditsView, markupFor, maybeTopUp, spendCredits } from './credits.js';
 
 const SEEN_EVERY = 3600_000; // last_seen is saved at most hourly
+// What view() reads (the plan, the usage, credits, sign-ins, sync), fetched together in one storage.get.
+const VIEW_KEYS = ['account', 'plan', 'stripe_plan', 'promo_plan', 'usage', 'voice', 'credits', 'credit_auto', 'identities', 'syncrev', 'synccount'];
 const MAX_DEVICES = 20;
 export const WEB_SESSION_DAYS = 30; // a browser's sign-in at askeden.com ends after this
 // A browser may approve linking a Mac only this soon after it signed in (docs/web-auth.md).
@@ -56,6 +59,7 @@ export const EDEN_TURNS = 2;
 // its worst case too (capped at what's left), so parallel requests can't spend past the allowance.
 export const PROXY_TURNS = 8;
 const HOLD_MS = 15 * 60_000;
+const VOICE_TAKE_MS = 2 * 60_000; // how long a voice take may be given back (worker.js voice: the quota, then the voice service)
 // A browser signed in at askeden.com (a `web` device) uses the included AI and its own
 // artifacts, and signs itself out. It can't delete the account, change devices, send
 // pushes, buy, read or write sync, use the relay, or approve any link. It may use the JARVIS
@@ -106,6 +110,7 @@ export class Account {
     this.pending = new Map(); // relay stream id -> { size, chunks }: what a phone sent before its Mac answered
     this.pushTimes = [];
     this.holds = new Map(); // hosted Eden's turns in flight: id → { usd, bucket, until }
+    this.voiceTakes = new Map(); // voice characters taken for audio not sent yet: id → { chars, day, until } (voiceGive)
     if (ctx.setWebSocketAutoResponse && globalThis.WebSocketRequestResponsePair) {
       ctx.setWebSocketAutoResponse(new globalThis.WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
     }
@@ -124,6 +129,7 @@ export class Account {
       if (op.startsWith('esync-')) return await edenSyncOp(this, op, request); // Eden's end-to-end encrypted history, H1 (eden-sync.js)
       if (op.startsWith('cmerge-')) return await chatMergeOp(this, op, request); // another sign-in's chats copied into the account that proved it (chat-sync.js)
       if (op.startsWith('csync-')) return await chatSyncOp(this, op, request); // chat history on every device, sealed server-side (chat-sync.js)
+      if (op.startsWith('essay-')) return await essaySyncOp(this, op, request); // essays on every device, sealed the same way (essay-sync.js, askeden T11)
       if (op.startsWith('deleg-')) return await delegateOp(this, op, request); // delegates and grants, H14/G8 (delegates.js)
       if (op.startsWith('edu-')) return await eduAccountOp(this, op, request); // course budgets and students' free study AI, askeden L9 (edu/budget.js)
       if (op.startsWith('stripe-')) return await stripeOp(this, op, request); // Plus bought on the web, F15 (stripe-plan.js)
@@ -153,7 +159,10 @@ export class Account {
       if (op.startsWith('rcpt-')) { if (device.grant) throw new ApiError(403, 'forbidden', 'Read receipts are the owner’s.'); return json(await receiptOp(this, op, body)); } // read receipts (receipts.js)
       if (op.startsWith('task-')) return json(await taskOp(this, op, body, device)); // background tasks (tasks.js)
       switch (op) {
-        case 'get': return json(await this.view(device));
+        case 'get': { // slim: the browser's session check (plan, usage, sign-ins); me: who's asking, as whoami says (session.js)
+          const view = await this.view(device, { slim: body.slim === true });
+          return json(body.me === true ? { ...view, me: { device: this.publicDevice(device, device.id) } } : view);
+        }
         case 'whoami': return json({ account_id: (await this.storage.get('account')).id, device: this.publicDevice(device, device.id) });
         case 'promo-grant': return json(await grantPromo(this, body)); // a promo code's days, once per code (promo.js)
         case 'delete': return json(await this.deleteAll());
@@ -176,6 +185,7 @@ export class Account {
         case 'voice':
           if (device.kind === 'web' && body.eden !== true) throw new ApiError(403, 'forbidden', "A browser's sign-in uses the voice through Eden at askeden.com only.");
           return json(await this.voice(body));
+        case 'voice-give': return json(await this.voiceGive(body)); // worker.js voice: no audio came of that take (R3C6)
         case 'subscription': return json(await this.subscription(device, body));
         case 'sync-get': return json(await this.syncGet(Number(body.since) || 0));
         case 'sync-put': return json(await this.syncPut(body));
@@ -315,10 +325,10 @@ export class Account {
 
   // An account the iPhone app made before identities were kept lists its Apple ID, whose
   // sub_hash is filled in at its next sign-in. (No raw sub is ever stored here.)
-  async identities() {
-    const stored = await this.storage.get('identities');
+  async identities(store = this.storage) {
+    const stored = await store.get('identities');
     if (stored) return stored;
-    const account = await this.storage.get('account');
+    const account = await store.get('account');
     if (!account || (account.origin && account.origin !== 'apple')) return [];
     return [{ provider: 'apple', sub_hash: null, email: null, added: account.created }];
   }
@@ -469,44 +479,58 @@ export class Account {
 
   // ── what the app shows ──
 
-  async view(device) {
+  // Everything view() reads, in one storage.get (it was ~14 separate reads), then served from that copy.
+  // `slim` (the browser's session check) leaves out what it never shows: devices, credits, sync.
+  async view(device, { slim = false } = {}) {
     if (device.grant) return grantView(this, device); // a delegate sees its own limit, nothing of the owner's
-    const account = await this.storage.get('account');
-    const plan = await this.planNow();
-    const usage = await this.usageNow();
+    const [got, all] = await Promise.all([this.storage.get(VIEW_KEYS), slim ? null : this.devices()]);
+    const store = { get: async (key) => structuredClone(got.get(key)) }; // a copy each time, as storage.get gives
+    const account = got.get('account');
+    const plan = await this.planNow(store);
+    const usage = await this.usageNow(store);
     const caps = allowances(this.env);
-    const voice = (await this.storage.get('voice')) || {};
+    const voice = got.get('voice') || {};
     const voiceToday = voice.day === today(this.now()) ? voice.chars : 0;
-    const budget = plan.active ? await this.plusCap(plan) : 0;
-    const devices = (await this.devices()).filter((d) => !d.grant).sort((a, b) => a.created - b.created).map((d) => this.publicDevice(d, device.id));
+    const budget = plan.active ? await this.plusCap(plan, store) : 0;
+    const identities = this.publicIdentities(await this.identities(store));
+    if (slim) return { id: account.id, created: account.created, plan: this.planView(plan), usage: this.usageView(usage, plan, budget, caps, voiceToday), identities };
+    const devices = all.filter((d) => !d.grant).sort((a, b) => a.created - b.created).map((d) => this.publicDevice(d, device.id));
     return {
       id: account.id,
       created: account.created,
-      plan: {
-        name: plan.active ? 'plus' : 'free',
-        active: plan.active,
-        product_id: plan.product_id || null,
-        expires: plan.expires || null,
-        renews: plan.renews ?? null,
-        environment: plan.environment || null,
-        ...planSource(plan), // source "app_store" | "stripe" | "both", manage, payment_failed (stripe-plan.js)
-      },
-      usage: {
-        period_start: monthStart(usage.month),
-        period_end: nextMonth(usage.month),
-        spent_usd: round(usage.spent),
-        budget_usd: budget,
-        left_usd: round(Math.max(0, budget - usage.spent)),
-        trial_left_usd: round(Math.max(0, caps.trial - usage.trial_spent)),
-        trial_usd: caps.trial, // the trial's size and a month of Plus, for the meters
-        plus_usd: plan.active ? budget : caps.plus,
-        voice_today: voiceToday,
-        voice_daily: plan.active ? caps.voicePlus : caps.voiceFree,
-      },
-      credits: await creditsView(this, plan), // pay-as-you-go, after the included AI (credits.js)
+      plan: this.planView(plan),
+      usage: this.usageView(usage, plan, budget, caps, voiceToday),
+      credits: await creditsView(this, plan, store), // pay-as-you-go, after the included AI (credits.js)
       devices,
-      identities: this.publicIdentities(await this.identities()),
-      sync: { rev: (await this.storage.get('syncrev')) || 0, items: (await this.storage.get('synccount')) || 0 },
+      identities,
+      sync: { rev: got.get('syncrev') || 0, items: got.get('synccount') || 0 },
+    };
+  }
+
+  planView(plan) {
+    return {
+      name: plan.active ? 'plus' : 'free',
+      active: plan.active,
+      product_id: plan.product_id || null,
+      expires: plan.expires || null,
+      renews: plan.renews ?? null,
+      environment: plan.environment || null,
+      ...planSource(plan), // source "app_store" | "stripe" | "both", manage, payment_failed (stripe-plan.js)
+    };
+  }
+
+  usageView(usage, plan, budget, caps, voiceToday) {
+    return {
+      period_start: monthStart(usage.month),
+      period_end: nextMonth(usage.month),
+      spent_usd: round(usage.spent),
+      budget_usd: budget,
+      left_usd: round(Math.max(0, budget - usage.spent)),
+      trial_left_usd: round(Math.max(0, caps.trial - usage.trial_spent)),
+      trial_usd: caps.trial, // the trial's size and a month of Plus, for the meters
+      plus_usd: plan.active ? budget : caps.plus,
+      voice_today: voiceToday,
+      voice_daily: plan.active ? caps.voicePlus : caps.voiceFree,
     };
   }
 
@@ -514,9 +538,9 @@ export class Account {
 
   // The App Store's plan and Stripe's (bought on the web), together: Plus while either is
   // active, until the later one ends (stripe-plan.js combinePlans).
-  async planNow() {
-    const plan = (await this.storage.get('plan')) || {};
-    return combinePlans(plan, await this.storage.get('stripe_plan'), this.now(), await this.storage.get('promo_plan'));
+  async planNow(store = this.storage) {
+    const plan = (await store.get('plan')) || {};
+    return combinePlans(plan, await store.get('stripe_plan'), this.now(), await store.get('promo_plan'));
   }
 
   // A transaction already checked against Apple's chain (storekit.js), for this account.
@@ -561,9 +585,9 @@ export class Account {
 
   // ── what the included AI may spend ──
 
-  async usageNow() {
+  async usageNow(store = this.storage) {
     const now = this.now();
-    const usage = (await this.storage.get('usage')) || { month: month(now), spent: 0, trial_spent: 0 };
+    const usage = (await store.get('usage')) || { month: month(now), spent: 0, trial_spent: 0 };
     if (usage.month !== month(now)) {
       usage.month = month(now);
       usage.spent = 0;
@@ -592,10 +616,10 @@ export class Account {
 
   // A month of Plus in dollars: the plan's price decides (grandfathered $20 subscribers, and the
   // App Store's, keep the old allowance; today's monthly and yearly prices get PLUS_BUDGET_USD).
-  async plusCap(plan) {
+  async plusCap(plan, store = this.storage) {
     const caps = allowances(this.env);
     if (!plan.active) return 0;
-    const stripe = (await this.storage.get('stripe_plan')) || {};
+    const stripe = (await store.get('stripe_plan')) || {};
     const apple = plan.source === 'app_store' || plan.source === 'both';
     const web = plan.source === 'stripe' || plan.source === 'both';
     let cap = apple ? caps.legacy : plan.promo ? caps.plus : 0;
@@ -745,7 +769,23 @@ export class Account {
       };
     }
     await this.storage.put('voice', { day, chars: used + n });
-    return { ok: true, left: daily - used - n };
+    // A take the worker gives back if no audio comes of it (the shared quota or the voice service refused: R3C6).
+    const now = this.now();
+    for (const [id, t] of this.voiceTakes) if (t.until <= now) this.voiceTakes.delete(id);
+    const take = crypto.randomUUID();
+    if (n > 0) this.voiceTakes.set(take, { chars: n, day, until: now + VOICE_TAKE_MS });
+    return { ok: true, left: daily - used - n, take };
+  }
+
+  // Gives back a take's characters (once, the same UTC day, within VOICE_TAKE_MS): its audio never came.
+  async voiceGive({ take }) {
+    const t = this.voiceTakes.get(String(take || ''));
+    this.voiceTakes.delete(String(take || ''));
+    if (!t || t.until <= this.now()) return { ok: false };
+    const voice = (await this.storage.get('voice')) || {};
+    if (voice.day !== t.day) return { ok: false };
+    await this.storage.put('voice', { day: t.day, chars: Math.max(0, (voice.chars || 0) - t.chars) });
+    return { ok: true };
   }
 
   // ── pushes through askeden.com's key ──

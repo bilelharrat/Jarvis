@@ -74,3 +74,63 @@ test('a finding reads without the page’s own address', () => {
   assert.equal(cv.withoutOrigin('https://cdn.example.com/x.js:1', 'http://127.0.0.1:5173/'), 'https://cdn.example.com/x.js:1');
   assert.equal(cv.withoutOrigin('TypeError', ''), 'TypeError');
 });
+
+test('a check whose page couldn’t be looked at reads as not checked', () => {
+  assert.deepEqual(cv.checkHead({ url: 'http://localhost:5173/', status: 'skipped', findings: [] }), ['Preview check', 'Not checked']);
+});
+
+test('the logs view adds only the new lines, and takes the oldest off its start', () => {
+  const lines = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => [a + i, `line ${a + i}`]);
+  assert.equal(cv.logStep(null, lines(1, 3)), null);  // nothing shown yet: drawn whole
+  assert.deepEqual(cv.logStep({ first: 1, last: 3 }, lines(1, 5)), { add: lines(4, 5), from: 1 });
+  assert.deepEqual(cv.logStep({ first: 1, last: 3 }, lines(3, 6)), { add: lines(4, 6), from: 3 });
+  assert.deepEqual(cv.logStep({ first: 1, last: 3 }, lines(1, 3)), { add: [], from: 1 });
+  assert.equal(cv.logStep({ first: 1, last: 3 }, lines(5, 6)), null);  // a gap: drawn whole
+  assert.equal(cv.logStep({ first: 4, last: 6 }, lines(1, 6)), null);  // older than shown (a new run)
+  assert.equal(cv.logStep({ first: 1, last: 3 }, []), null);
+});
+
+test('the Tests pane’s output is drawn as the logs view is: the new lines only, the same text as drawn whole', () => {
+  const lines = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => [a + i, `line ${a + i}`]);
+  // A <pre> stand-in: its text is its nodes' text, as the browser's.
+  const pre = { nodes: [], appended: 0, append(n) { n.pre = this; this.nodes.push(n); this.appended += 1; },
+    set textContent(v) { this.nodes = v ? [{ data: v }] : []; }, get text() { return this.nodes.map((n) => n.data).join(''); } };
+  const node = (data) => ({ data, remove() { this.pre.nodes = this.pre.nodes.filter((x) => x !== this); } });
+  const whole = (ls) => ls.map(([, l]) => l).join('\n');
+  let shown = cv.paintLines(pre, [], null, 'Nothing yet.', node);
+  assert.equal(shown, null);
+  assert.equal(pre.text, 'Nothing yet.');
+  let out = lines(1, 250);
+  shown = cv.paintLines(pre, out, shown, 'Nothing yet.', node);
+  assert.equal(pre.text, whole(out));
+  const before = pre.appended;
+  out = lines(1, 260);  // a batch of ten more: one node added, nothing drawn again
+  shown = cv.paintLines(pre, out, shown, 'Nothing yet.', node);
+  assert.equal(pre.appended - before, 1);
+  assert.equal(pre.text, whole(out));
+  out = lines(180, 400);  // kept to the newest: the oldest come off the start
+  shown = cv.paintLines(pre, out, shown, 'Nothing yet.', node);
+  assert.equal(pre.text, whole(out));
+  out = lines(1, 5);  // a new run numbers from 1 again: drawn whole
+  shown = cv.paintLines(pre, out, shown, 'Nothing yet.', node);
+  assert.equal(pre.text, whole(out));
+});
+
+test('a run told without its tree asks for it, unless the whole one came first', () => {
+  const running = { started: 1, status: 'running', tree: [] };
+  const slim = { started: 1, status: 'failed', slim: true, tree: [], counts: { passed: 3, failed: 1, skipped: 0 } };
+  const whole = { started: 1, status: 'failed', tree: [{ file: 'a.py', cases: [] }], counts: slim.counts };
+  assert.deepEqual(cv.takeRun(running, slim), { run: slim, fresh: false, ask: true });
+  assert.deepEqual(cv.takeRun(slim, whole), { run: whole, fresh: false, ask: false });
+  assert.deepEqual(cv.takeRun(whole, slim), { run: whole, fresh: false, ask: false });
+  // A run with nothing to show, or one starting: nothing to ask for.
+  assert.equal(cv.takeRun(null, { ...slim, counts: { passed: 0, failed: 0, skipped: 0 } }).ask, false);
+  assert.deepEqual(cv.takeRun(whole, { started: 2, status: 'running', tree: [] }).fresh, true);
+});
+
+test('a failure’s whole message takes the cut one’s place', () => {
+  const run = { tree: [{ file: '(no file)', cases: [{ name: 'x', message: 'abc', more: 9000 }] }] };
+  assert.equal(cv.fullMessage(run, { file: '', name: 'y', message: 'no' }), false);
+  assert.equal(cv.fullMessage(run, { file: '', name: 'x', message: 'abcdef' }), true);
+  assert.deepEqual(run.tree[0].cases[0], { name: 'x', message: 'abcdef' });
+});

@@ -173,9 +173,18 @@ export function helpButton(onBefore) {
   return el('button', { type: 'button', class: 'btn', onclick: () => { onBefore?.(); openHelp(); } }, 'Help and FAQ');
 }
 
+/** An address through the page's import map, when it has one for it (import.meta.resolve; else as it is). */
+function mapped(href) {
+  try { if (typeof import.meta.resolve === 'function' && href.startsWith('/')) { const u = import.meta.resolve(href); if (/^https?:/.test(u)) return u; } } catch { /* not mapped */ }
+  return href;
+}
+
 export function initHelp(lend = {}) {
   host = lend;
-  const link = (href) => { if (!document.querySelector(`link[href="${href}"]`)) document.head.append(el('link', { rel: 'stylesheet', href })); };
+  // help.css is in index.html's head (so askeden.com and the Mac name it by its versioned address: opt2-ae-web); the
+  // FAQ's own /help/help.css is added here, by its versioned address where the page's import map has one (the Mac).
+  const has = (href) => [...document.querySelectorAll('link[rel="stylesheet"][href]')].some((l) => { try { return new URL(l.href, document.baseURI).pathname === new URL(href, document.baseURI).pathname; } catch { return false; } });
+  const link = (href) => { if (!has(href)) document.head.append(el('link', { rel: 'stylesheet', href: mapped(href) })); };
   link('help.css');
   link(`${API_ROOT}/help/help.css`);
   // the "?" in the title bar, beside ⌘K

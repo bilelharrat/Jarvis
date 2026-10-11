@@ -44,7 +44,7 @@ LINKED_EVERY = 5.0  # seconds a look at whether WhatsApp is linked is trusted
 STATE_EVERY = 2.0
 TEXT_ONLY_EVERY = 600.0
 _PREFIX = re.compile(
-    r"^\s*@?(?:(?:hey|ok|okay)[\s,，]+)?(?:eden|jarvis|伊甸|贾维斯)(?:(?![:：])[\s,，!！.。、]+|$)",
+    r"^\s*@?(?:(?:hey|ok|okay)[\s,，]+)?(?:eden|伊甸)(?:(?![:：])[\s,，!！.。、]+|$)",
     re.IGNORECASE,
 )
 

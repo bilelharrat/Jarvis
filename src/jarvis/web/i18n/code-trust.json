@@ -1,0 +1,14 @@
+{
+  "strings": {
+    "Trusted: its sessions load this folder’s settings.": "已信任：它的会话会载入这个文件夹的设置。",
+    "This folder’s settings changed": "这个文件夹的设置变了",
+    "Trust this folder?": "信任这个文件夹吗？",
+    "Its own Claude Code settings would run these on your Mac, or let steps run without asking. Until you trust it, this session uses only your own settings (not the folder’s CLAUDE.md either).": "它自己的 Claude Code 设置会在你的 Mac 上运行这些，或让步骤不经询问就运行。在你信任它之前，这个会话只使用你自己的设置（也不读这个文件夹的 CLAUDE.md）。",
+    "Trust this folder": "信任这个文件夹",
+    "Only if you know where this folder came from.": "只在你清楚这个文件夹来源时才这样做。",
+    "This folder's own Claude Code settings are off until you trust it.": "在你信任这个文件夹之前，它自己的 Claude Code 设置不会生效。",
+    "Trusted this folder: its sessions load its settings from their next step.": "已信任这个文件夹：它的会话从下一步起载入它的设置。",
+    "This folder isn't trusted any more: its sessions load only your own settings.": "这个文件夹不再受信任：它的会话只载入你自己的设置。"
+  },
+  "patterns": []
+}

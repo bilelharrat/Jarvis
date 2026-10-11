@@ -17,7 +17,7 @@ from jarvis import companion_api, remote
 from jarvis.answering import Call
 from jarvis.delegate import Delegation
 from jarvis.interrupts import Announced, Item
-from jarvis.tasks import ClaudeTask
+from jarvis.tasks import MESSAGE_MAX, ClaudeTask
 
 GETS = [
     "/api/chats",
@@ -496,13 +496,20 @@ def test_a_message_goes_to_a_session_as_the_composer_sends_it(api, tmp_path, mon
         "ok": True
     }
     assert sent == [(5, "also add a test")]
-    # A long message (a pasted log, a page of Chinese) is taken, up to the composer's 20,000
-    # characters, never refused as too big: 12,000 Chinese characters are 36 KB of JSON.
+    # A long message (a pasted log, a page of Chinese) is taken whole, up to the composer's
+    # 100,000 characters (tasks.MESSAGE_MAX): 12,000 Chinese characters are 36 KB of JSON.
     long_zh = "修复" * 6_000
     assert api.post("/api/code/send", {"id": 5, "text": long_zh}).json() == {"ok": True}
     assert sent[-1] == (5, long_zh)
     assert api.post("/api/code/send", {"id": 5, "text": "x" * 30_000}).json() == {"ok": True}
-    assert sent[-1] == (5, "x" * 20_000)
+    assert sent[-1] == (5, "x" * 30_000)  # (was cut at 20,000 and answered ok: CA2-8)
+    assert companion_api.CODE_TEXT == MESSAGE_MAX
+    whole = "y" * MESSAGE_MAX
+    assert api.post("/api/code/send", {"id": 5, "text": whole}).json() == {"ok": True}
+    assert sent[-1] == (5, whole)
+    over = api.post("/api/code/send", {"id": 5, "text": whole + "z"})
+    assert over.status_code == 413 and "100,001 characters" in over.json()["error"]
+    assert sent[-1] == (5, whole)  # refused, never cut
     assert api.post("/api/code/send", {"id": 5, "text": "   "}).status_code == 400
     assert api.post("/api/code/send", {"id": 9, "text": "hi"}).status_code == 404
     assert api.post("/api/code/stop", {"id": 5}).json() == {"ok": True} and stopped == [5]

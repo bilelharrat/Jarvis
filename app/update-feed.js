@@ -54,7 +54,7 @@ function cleanFeedUrl(value) {
 
 // The release the feed offers: {version, name, notes, pubDate, url}. Throws, in words to
 // show, when the feed isn't one.
-function parseFeed(text, feedUrl) {
+function parseFeed(text, feedUrl, appName = 'Eden') {
   if (typeof text !== 'string' || text.length > MAX_FEED) throw new Error("the update feed isn't a feed");
   let data;
   try { data = JSON.parse(text); } catch { throw new Error("the update feed isn't valid JSON"); }
@@ -69,7 +69,7 @@ function parseFeed(text, feedUrl) {
   if (!url.startsWith('https://')) throw new Error("the update's address isn't https");
   return {
     version: current,
-    name: String(to.name || `Eden ${current}`).slice(0, 80),
+    name: String(to.name || `${appName} ${current}`).slice(0, 80),
     notes: String(to.notes || '').slice(0, MAX_NOTES),
     pubDate: String(to.pub_date || '').slice(0, 40),
     url,
@@ -83,7 +83,7 @@ function newerRelease(release, running) {
 }
 
 // release.json for the dist build: the zip's address is the feed's own folder plus its name.
-function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date() }) {
+function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date(), appName = 'Eden' }) {
   if (!parseVersion(version)) throw new Error(`package.json's version ${version} isn't x.y.z`);
   const base = cleanFeedUrl(feedUrl);
   if (!base) throw new Error(`the update feed's address must be https (JARVIS_UPDATE_URL is ${JSON.stringify(String(feedUrl || ''))})`);
@@ -92,7 +92,7 @@ function releaseFeed({ version, zipName, feedUrl, notes = '', date = new Date() 
     currentRelease: version,
     releases: [{
       version,
-      updateTo: { version, name: `Eden ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
+      updateTo: { version, name: `${appName} ${version}`, pub_date: date.toISOString(), notes: String(notes).slice(0, MAX_NOTES), url },
     }],
   };
 }

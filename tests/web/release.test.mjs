@@ -292,3 +292,65 @@ test('every tracked file of the package must be in the installed copy', () => {
   touch(path.join(site, 'jarvis', 'web', 'index.html'));
   assert.deepEqual(backend.packageGaps(root, ['src/jarvis/__init__.py', 'src/jarvis/web/index.html', 'src/jarvis/audio/jarvis-hear.swift']), ['src/jarvis/audio/jarvis-hear.swift']);
 });
+
+test('flavor.json is baked into the packaged copy only, never into app/ or a J.A.R.V.I.S. build (CH2)', async () => {
+  const util = require('../../app/scripts/release/util.js');
+  const app = (name) => readFileSync(new URL(`../../app/${name}`, import.meta.url), 'utf8');
+  // the hook writes into the packager's copy, and only for Eden Code / Daredevil
+  for (const [flavor, want] of [['eden-code', 'eden-code'], ['daredevil', 'daredevil'], ['jarvis', null]]) {
+    const copy = mkdtempSync(path.join(tmpdir(), 'copy-'));
+    await util.bakeFlavor(flavor)({ buildPath: copy });
+    const file = path.join(copy, 'flavor.json');
+    assert.equal(existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')).flavor : null, want, flavor);
+  }
+  assert.ok(util.FLAVOR_IGNORE.test('/flavor.json'));
+  assert.ok(!util.FLAVOR_IGNORE.test('/flavor.js'));
+  // no script writes it into app/ any more on the Mac; every packaging ignores app/'s own
+  for (const script of ['scripts/eden-code/package.js', 'scripts/release/dist.js']) {
+    const src = app(script);
+    assert.doesNotMatch(src, /writeFileSync\([^)]*flavor/i, script);
+    assert.match(src, /FLAVOR_IGNORE/, script);
+    assert.match(src, /afterCopy: \[bakeFlavor\(/, script);
+  }
+  assert.ok(JSON.parse(app('package.json')).scripts.package.includes("--ignore='^/flavor\\.json$'"));
+  // Windows: none for J.A.R.V.I.S.; a stray one removed first; a Ctrl-C or kill cleans up
+  const win = app('scripts/release/windows.js');
+  assert.match(win, /if \(flavor !== 'jarvis'\) \{\n\s+fs\.writeFileSync\(flavorFile/);
+  assert.match(win, /\.\.\.\(flavor !== 'jarvis' \? \['flavor\.json'\] : \['!flavor\.json'\]\)/);
+  assert.match(win, /process\.once\('SIGINT', stopped\)/);
+  assert.ok(win.indexOf('fs.rmSync(flavorFile, { force: true });') < win.indexOf('fs.writeFileSync(flavorFile'));
+  // Eden Code leaves out what it never uses (CH22): the Ask Eden for Mac app's folder
+  assert.ok(util.EDEN_CODE_IGNORE.some((r) => r.test('/eden/main.js')));
+  assert.ok(!util.EDEN_CODE_IGNORE.some((r) => r.test('/eden-preload.js')));
+});
+
+test('publishing takes Eden Code\'s update along, under a name GitHub keeps, its feed pointing there (CH17)', () => {
+  const { edenCodeUpdate } = require('../../app/scripts/release/publish.js');
+  const feed = require('../../app/update-feed.js');
+  const files = new Map();
+  const exists = (f) => files.has(f);
+  const read = (f) => files.get(f);
+  const base = 'https://github.com/o/r/releases/latest/download/eden-code-release.json';
+  const json = (v, zip) => JSON.stringify(feed.releaseFeed({ version: v, zipName: zip, feedUrl: base, appName: 'Eden Code' }));
+  // nothing built for Eden Code: nothing to add
+  assert.equal(edenCodeUpdate({ version: '0.2.0', out: '/o', outEdenCode: '/e', exists, read }), null);
+  // built beside J.A.R.V.I.S.'s (dist.js's combined build)
+  files.set('/o/Eden Code-0.2.0-mac.zip', 'zip');
+  files.set('/o/eden-code-release.json', json('0.2.0', 'Eden Code-0.2.0-mac.zip'));
+  const up = edenCodeUpdate({ version: '0.2.0', out: '/o', outEdenCode: '/e', exists, read });
+  assert.equal(up.zip, '/o/Eden Code-0.2.0-mac.zip');
+  assert.equal(up.safeName, 'Eden.Code-0.2.0-mac.zip');
+  assert.equal(feed.parseFeed(up.feedText, base, 'Eden Code').url, 'https://github.com/o/r/releases/latest/download/Eden.Code-0.2.0-mac.zip');
+  // a feed for another version, or without its zip, stops the publish
+  files.set('/o/eden-code-release.json', json('0.1.9', 'Eden Code-0.1.9-mac.zip'));
+  assert.throws(() => edenCodeUpdate({ version: '0.2.0', out: '/o', outEdenCode: '/e', exists, read }), /isn't Eden Code 0\.2\.0's feed/);
+  files.delete('/o/Eden Code-0.2.0-mac.zip');
+  assert.throws(() => edenCodeUpdate({ version: '0.1.9', out: '/o', outEdenCode: '/e', exists, read }), /half there/);
+  // built on its own (dist:eden-code)
+  files.clear();
+  files.set('/e/Eden Code-0.2.0-mac.zip', 'zip');
+  files.set('/e/release.json', json('0.2.0', 'Eden Code-0.2.0-mac.zip'));
+  assert.equal(edenCodeUpdate({ version: '0.2.0', out: '/o', outEdenCode: '/e', exists, read }).zip, '/e/Eden Code-0.2.0-mac.zip');
+  const src = readFileSync(new URL('../../app/scripts/release/publish.js', import.meta.url), 'utf8');
+  assert.ok(src.indexOf('stageEdenCode(edenCode)') < src.indexOf("run('gh', ['release', 'upload', tag, feed,"));
+});

@@ -137,3 +137,28 @@ test('a long reply parses in linear time', () => {
   assert.ok(Date.now() - began < 1500, `took ${Date.now() - began} ms`);
   assert.deepEqual(types(blocks), ['para', 'code', 'list']);
 });
+
+// Round 1 bug sweep (askeden/docs/bug-sweep/r1-eden-code-workspace.md).
+
+test('a to-do with a list in it keeps its words on its box’s line (CF15)', () => {
+  const [list] = M.parse('- [ ] todo\n  1. nested\n- plain\n- two\n\n  paras');
+  const parts = list.items.map(M.itemParts);
+  assert.equal(parts[0].line, 'todo');
+  assert.deepEqual(parts[0].blocks.map((b) => b.type), ['list']);
+  assert.deepEqual(parts[1], { line: 'plain', blocks: [] });
+  assert.equal(parts[2].line, null);  // (an item of paragraphs stays blocks)
+});
+
+test('bidirectional controls show as what they are (CF16)', () => {
+  assert.equal(M.showBidi('a\u202Eexe.live'), 'a‹U+202E›exe.live');
+  assert.equal(M.showBidi('x\u2066y\u2069'), 'x‹U+2066›y‹U+2069›');
+  assert.equal(M.showBidi('שלום plain'), 'שלום plain');
+});
+
+test('long unbroken words wrap inside a reply; code blocks keep scrolling (CF5b)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../../src/jarvis/web/features/code-markdown.css', import.meta.url), 'utf8');
+  assert.match(css, /\.cw-md \{[^}]*overflow-wrap: anywhere/);
+  assert.match(css, /\.cw-md pre\.cw-pre \{[^}]*overflow-wrap: normal/);
+  assert.match(css, /\.jc-user \{[^}]*overflow-wrap: anywhere/);
+});

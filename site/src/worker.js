@@ -42,12 +42,16 @@
 import { api, call } from './accounts/index.js';
 import { PIXEL, openVia, readReceiptToken } from './accounts/receipts.js';
 import { tokenFrom } from './accounts/util.js';
-import { chatApi } from './eden/chat.js';
-import { connectPage, edenApi } from './eden/ask.js';
+// Hosted chat (eden/chat.js) and @Eden (eden/ask.js) load on their first request, not at the isolate's start: they bring the
+// Model Router's classifier (eden/vendor/model-router.js), which compiles its patterns when loaded (about two thirds of the
+// Worker's startup CPU). Every page, sign-in and Durable Object start that doesn't chat skips that.
+const chatModule = () => import('./eden/chat.js');
+const askModule = () => import('./eden/ask.js');
 import { stripeApi } from './eden/billing.js';
 import { promoAdmin } from './accounts/promo.js';
 import { ltiAdmin, ltiRoute } from './edu/lti.js';
 import { edenPage } from './eden/pages.js';
+import { addinFile } from './eden/addins.js';
 import { helpApi } from './eden/help.js';
 import { APPLE_CALLBACK, currentSession, web } from './eden/session.js';
 import { LANDING_CSP, baseline, foreignOrigin, page, problem, sameOrigin } from './eden/web.js';
@@ -88,12 +92,18 @@ async function route(request, env, ctx) {
   // edu.askeden.com: Eden for Education's own address, a doorway to askeden.com/edu (one sign-in, one cookie)
   if (url.hostname === 'edu.askeden.com') return Response.redirect('https://askeden.com/edu', 301);
   const path = url.pathname.replace(/\/+$/, '') || '/';
+  // www.askeden.com: one address, one cookie and one passkey site (the apex). Pages move with a 301; the API, LTI and
+  // Apple's site association file answer on www as before (apps and platforms that call them don't follow redirects).
+  if (url.hostname === 'www.askeden.com' && (request.method === 'GET' || request.method === 'HEAD') && path !== '/api' && !path.startsWith('/api/') && !path.startsWith('/lti/') && !path.startsWith('/.well-known/')) {
+    return new Response(null, { status: 301, headers: { location: `https://askeden.com${url.pathname}${url.search}`, 'cache-control': 'public, max-age=3600' } });
+  }
   if (path.startsWith('/r/')) return receiptPixel(request, env, ctx, path); // Eden Mail's read receipts (accounts/receipts.js)
   // LTI 1.3 (Canvas, Moodle, Blackboard): the platform posts here cross-site, so before the Origin and GET-only rules (edu/lti.js)
   if (path.startsWith('/lti/')) return ltiRoute(request, env, ctx, path);
   if (path === '/api' || path.startsWith('/api/')) {
     // @Eden for Eden Messenger: its own Origin rules (CORS for Messenger only; eden/ask.js).
-    if (path.startsWith('/api/eden/')) return edenApi(request, env, ctx, path);
+    if (path === '/api/eden/voice') return voice(request, env, path); // Talk in the Ask Eden extension (its token: eden/ask.js voiceCaller)
+    if (path.startsWith('/api/eden/')) return (await askModule()).edenApi(request, env, ctx, path);
     // Stripe's webhook: a server, so no Origin and no session; its signature is the guard (eden/billing.js).
     if (path === '/api/stripe' || path.startsWith('/api/stripe/')) return stripeApi(request, env, ctx, path);
     // Minting promo codes: the owner's server call, guarded by PROMO_ADMIN_TOKEN (accounts/promo.js).
@@ -105,7 +115,7 @@ async function route(request, env, ctx) {
     if (path === BROWSER_PATH) return browserApi(request, env); // the cloud browser's socket (browser/api.js)
     if (path === RUN_PATH) return runApi(request, env); // the code canvas's cloud runner (eden/run.js)
     if (path === '/api/voice' || path === '/api/chat/voice') return voice(request, env, path);
-    if (path === '/api/route' || path === '/api/chat' || path.startsWith('/api/chat/')) return chatApi(request, env, ctx, path);
+    if (path === '/api/route' || path === '/api/chat' || path.startsWith('/api/chat/')) return (await chatModule()).chatApi(request, env, ctx, path);
     if (path === '/api/help' || path.startsWith('/api/help/')) return helpApi(request, env, ctx, path);
     if (path.startsWith('/api/web/')) return web(request, env, ctx, path);
     return api(request, env, ctx);
@@ -123,15 +133,37 @@ async function route(request, env, ctx) {
   if (Object.hasOwn(SOON, path)) return elsewhere(path, env);
   if (path === '/messenger' || path.startsWith('/messenger/')) return toMessenger(url);
   if (path === '/latest.json' || path === '/jarvis/latest.json') return latestInfo(env);
-  if (path === '/eden/connect') return connectPage(request, env, url); // "Connect Eden Messenger?" (eden/ask.js)
+  if (path === '/eden/connect') return (await askModule()).connectPage(request, env, url); // "Connect Eden Messenger?" (eden/ask.js)
+  const addin = await addinFile(request, env, path); // Ask Eden for Excel's pane and manifest (eden/addins.js)
+  if (addin) return addin;
   const eden = await edenPage(request, env, path);
   if (eden) return eden;
   if (path.startsWith('/jarvis/')) {
     const asset = await env.ASSETS.fetch(request);
     if (asset.status !== 404) return asset;
   }
+  // Crawlers' files: what they may read, and the icon browsers ask for at /favicon.ico.
+  if (path === '/robots.txt') return new Response(request.method === 'HEAD' ? null : ROBOTS, { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=3600' } });
+  if (path === '/favicon.ico') {
+    const icon = await env.ASSETS.fetch(new Request(new URL('/jarvis/eden-favicon.png', url), request));
+    if (icon.status === 200) return new Response(icon.body, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
+  }
+  // A file that isn't here (the path ends in an extension: /sitemap.xml, /wp-login.php): a real 404, not the home page.
+  if (/\.[A-Za-z0-9]{1,8}$/.test(path)) return notFound(request);
   // An old Eden address, a typo: home, not a dead end.
   return Response.redirect(new URL('/', url).toString(), 302);
+}
+
+// What crawlers may read: the public pages; never the API, sign-in, LTI, shared or published pages, artifacts or read receipts.
+const ROBOTS = ['User-agent: *', 'Disallow: /api/', 'Disallow: /lti/', 'Disallow: /s/', 'Disallow: /p/', 'Disallow: /r/', 'Disallow: /artifact/', 'Disallow: /signin', 'Disallow: /link', 'Allow: /', ''].join('\n');
+
+const NOT_FOUND = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Not found · Eden</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0e13;color:#f4f5f7;font:400 17px/1.55 -apple-system,system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}h1{margin:0 0 12px;font-weight:300;font-size:40px}a{color:#f4f5f7}</style>
+</head><body><main><h1>Not found</h1><p>There’s nothing at this address.</p><p><a href="/">Go to askeden.com</a></p></main></body></html>`;
+
+function notFound(request) {
+  const response = new Response(request.method === 'HEAD' ? null : NOT_FOUND, { status: 404, headers: { 'content-type': 'text/html; charset=utf-8', 'x-robots-tag': 'noindex' } });
+  return page(response, LANDING_CSP, { cache: 'public, max-age=300' });
 }
 
 // The landing page (J.A.R.V.I.S. and Eden Messenger), at /download and /jarvis, without a redirect.
@@ -396,14 +428,21 @@ async function voice(request, env, path = '/api/voice') {
   const eden = path === '/api/chat/voice';
   if (eden && (request.headers.get('x-jarvis-chat') !== '1' || !sameOrigin(request))) return json({ error: 'Only askeden.com’s own page may do that.' }, 403);
   if (!env.FISH_API_KEY || !env.VOICE_QUOTA) return json({ error: 'The Eden voice is not set up here yet.' }, 503);
-  const install = eden ? '' : String(request.headers.get('x-jarvis-install') || '');
-  let account = eden ? null : tokenFrom(request);
+  // The Ask Eden extension's Talk: its scoped token, checked before the body is read (eden/ask.js).
+  let scoped = null;
+  if (path === '/api/eden/voice') {
+    const checked = await (await askModule()).voiceCaller(request, env, path);
+    if (checked.response) return checked.response;
+    scoped = checked.who;
+  }
+  const install = eden || scoped ? '' : String(request.headers.get('x-jarvis-install') || '');
+  let account = eden || scoped ? null : tokenFrom(request);
   if (eden) {
     const { session } = await currentSession(request, env);
     if (!session) return json({ error: 'Signed out. Sign in at askeden.com again.', code: 'signed_out' }, 401);
     account = session.token;
   }
-  if (!account && !/^[0-9a-f]{32}$/.test(install)) return json({ error: 'Unknown install.' }, 400);
+  if (!account && !scoped && !/^[0-9a-f]{32}$/.test(install)) return json({ error: 'Unknown install.' }, 400);
   let body;
   try {
     body = await request.json();
@@ -425,6 +464,17 @@ async function voice(request, env, path = '/api/voice') {
   // A student's J.A.R.V.I.S. tutor in a course (`course`): the free study voice, or more while the course is funded (edu/budget.js)
   const studyVoice = eden && account && env.ACCOUNTS && typeof body.course === 'string' ? await courseVoice(env, account, body.course, text.length, { own: body.eduOwn === true }).catch(() => null) : null;
   if (studyVoice && !studyVoice.ok) return json({ error: studyVoice.why, allowance: 'study' }, 429, { 'retry-after': '3600' });
+  // The account's characters are taken first (atomic per account), and given back when no audio comes of them: the
+  // everyone-together quota or the voice service refused (R3C6). Nobody is charged for silence.
+  const gives = [];
+  const giveBack = () => Promise.all(gives.splice(0).map((give) => give().catch(() => {})));
+  if (scoped) {
+    const ask = await askModule();
+    const taken = await ask.voiceTake(env, scoped, text.length).catch((error) => ({ ok: false, status: error.status, why: error.message }));
+    if (taken.status === 401) return json({ error: taken.why || 'Connect Eden first.', code: 'not_connected' }, 401);
+    if (!taken.ok) return json({ error: taken.why || 'No voice allowance left today.', allowance: 'account', code: 'no_voice' }, 429, { 'retry-after': '3600' });
+    if (taken.take) gives.push(() => ask.voiceGive(env, scoped, taken.take));
+  }
   if (account && env.ACCOUNTS && !studyVoice) {
     const answer = await env.ACCOUNTS.get(env.ACCOUNTS.idFromName(account.account)).fetch('https://account/voice', {
       method: 'POST',
@@ -435,13 +485,29 @@ async function voice(request, env, path = '/api/voice') {
     if (answer.status === 401) return json({ error: verdict.error || 'Signed out.', code: 'signed_out' }, 401);
     if (answer.status === 403) return json({ error: verdict.error || 'Not allowed.', code: 'forbidden' }, 403);
     if (!verdict.ok) return json({ error: verdict.why || 'No voice allowance left today.', allowance: 'account' }, 429, { 'retry-after': '3600' });
+    if (verdict.take) {
+      const who = account;
+      gives.push(() => env.ACCOUNTS.get(env.ACCOUNTS.idFromName(who.account)).fetch('https://account/voice-give', {
+        method: 'POST',
+        headers: { 'x-jarvis-device': who.device, 'x-jarvis-secret': who.secret },
+        body: JSON.stringify({ take: verdict.take, ...(eden ? { eden: true } : {}) }),
+      }));
+    }
   }
   const quota = env.VOICE_QUOTA.get(env.VOICE_QUOTA.idFromName('daily'));
-  const verdict = await (await quota.fetch('https://quota/take', {
-    method: 'POST',
-    body: JSON.stringify({ install: account ? `a:${account.account}` : install, network, chars: text.length, limits: account ? { ...cap, install: 1e12, network: 1e12 } : cap }),
-  })).json();
-  if (!verdict.ok) return json({ error: verdict.why, allowance: verdict.which }, 429, { 'retry-after': String(verdict.retryAfter || 3600) });
+  const shared = { install: account || scoped ? `a:${(account || scoped).account}` : install, network, chars: text.length };
+  let verdict;
+  try {
+    verdict = await (await quota.fetch('https://quota/take', { method: 'POST', body: JSON.stringify({ ...shared, limits: account || scoped ? { ...cap, install: 1e12, network: 1e12 } : cap }) })).json();
+  } catch (error) {
+    await giveBack();
+    throw error;
+  }
+  if (!verdict.ok) {
+    await giveBack();
+    return json({ error: verdict.why, allowance: verdict.which }, 429, { 'retry-after': String(verdict.retryAfter || 3600) });
+  }
+  gives.push(() => quota.fetch('https://quota/give', { method: 'POST', body: JSON.stringify(shared) }));
   const speed = Number(body.speed);
   const fish = await fetch('https://api.fish.audio/v1/tts', {
     method: 'POST',
@@ -458,8 +524,11 @@ async function voice(request, env, path = '/api/voice') {
       latency: 'low',
       ...(Number.isFinite(speed) && Math.abs(speed - 1) >= 0.01 ? { prosody: { speed: Math.min(2, Math.max(0.5, speed)) } } : {}),
     }),
-  });
-  if (!fish.ok) return json({ error: `The voice service said ${fish.status}.` }, 502);
+  }).catch(() => null);
+  if (!fish || !fish.ok) {
+    await giveBack(); // no audio: the characters go back, the account's and the shared quota's
+    return json({ error: fish ? `The voice service said ${fish.status}.` : 'The voice service didn’t answer.' }, 502);
+  }
   return new Response(fish.body, {
     status: 200,
     headers: { 'content-type': format === 'wav' ? 'audio/wav' : 'application/octet-stream', 'cache-control': 'no-store' },
@@ -482,6 +551,13 @@ export class VoiceQuota {
     }
     const keys = { install: `i:${install}`, network: `n:${network}`, everyone: 'all' };
     const used = await this.storage.get(Object.values(keys));
+    // /give: a take whose audio never came (worker voice, R3C6), given back the same day; never below nothing.
+    if (new URL(request.url).pathname === '/give') {
+      const back = {};
+      for (const key of Object.values(keys)) back[key] = Math.max(0, (used.get(key) || 0) - (Number(chars) || 0));
+      await this.storage.put(back);
+      return Response.json({ ok: true });
+    }
     const nextMidnight = Math.ceil((Date.parse(`${day}T00:00:00Z`) + 86400000 - Date.now()) / 1000);
     for (const [which, key] of Object.entries(keys)) {
       if ((used.get(key) || 0) + chars > cap[which]) {

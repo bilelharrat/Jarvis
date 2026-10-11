@@ -13,6 +13,7 @@ import { t as tx } from './i18n.js';
 import { state, nodeText, saveConversation, path } from './state.js';
 import { api, apiUrl, addSendExtra } from './api.js';
 import { openDeckCanvas, deckCanvasVersion, pushDeckVersion, artifactSend, closeArtifact } from './artifact.js';
+import { pageKey, stillServed } from './canvas-model.js';
 import { setComposerText } from './composer.js';
 import { openPublish } from './publish.js';
 import { labelView } from './verify-model.js';
@@ -20,7 +21,9 @@ import {
   THEMES, normalizeDeck, deckFromReply, deckSystem, deckContext, slidesAsked, addVersion, setText, moveSlide, deleteSlide,
   duplicateSlide, setTheme, setImage, missingAlt, imagesUsed, editablePath, slideRequest, deckOutline, deckFileName, looseJson,
 } from './deck-model.js';
-import { deckDocument, LABELS } from './deck-render.js';
+// the deck's own page (deck-render.js, 48 KB): loaded when a deck is first drawn, printed or shared
+let renderP = null;
+const deckRender = () => (renderP ??= import('./deck-render.js'));
 
 const versionsOf = (c) => (c && Array.isArray(c.deckVersions) ? c.deckVersions : []);
 const latest = (c) => { const v = versionsOf(c).at(-1); return v ? v.deck : null; };
@@ -102,7 +105,7 @@ addEventListener('eden:report-slides', () => {
   if (!c) return;
   c.mode = 'slides';
   save(c);
-  artifactSend('Make a slide deck from the research report above: its key findings, one idea per slide, with charts or tables where it has numbers. Keep its citations as [n] and list its sources.');
+  artifactSend('Make a slide deck from the research report above: its key findings, one idea per slide, with charts or tables where it has numbers. Keep its citations as [n] and list its sources.', { origin: 'deck' });
 });
 
 // ── the canvas ──
@@ -152,7 +155,7 @@ function labelFor(c, v) {
   return '';
 }
 
-const labels = () => Object.fromEntries(Object.entries(LABELS).map(([k, s]) => [k, tx(s)]));
+const labels = (LABELS) => Object.fromEntries(Object.entries(LABELS).map(([k, s]) => [k, tx(s)]));
 const darkUi = () => document.documentElement.dataset.theme === 'dark';
 
 /** Draw the shown version in the canvas (artifact.js calls this for a deck). */
@@ -169,16 +172,21 @@ export async function renderDeckPreview(box, v) {
     v.deckIdx = versionsOf(c).length - 1;
     save(c);
   }
+  const { deckDocument, LABELS } = await deckRender();
   const deck = r.deck;
-  const html = deckDocument(deck, { mode: 'edit', images: c.deckImages || {}, start: view.at, label: labelFor(c, v), labels: labels(), darkUi: darkUi(), lang: document.documentElement.lang || 'en' });
+  const html = deckDocument(deck, { mode: 'edit', images: c.deckImages || {}, start: view.at, label: labelFor(c, v), labels: labels(LABELS), darkUi: darkUi(), lang: document.documentElement.lang || 'en' });
   const wrap = el('div', { class: 'deck-stage', id: 'deckStage' });
   box.replaceChildren(toolbar(c, deck), el('div', { class: 'deck-panel', id: 'deckPanel', hidden: true }), wrap);
-  let url = view.urls.get(html);
+  const pk = await pageKey(html); // a hash, not the page (a deck with pictures is megabytes)
+  if (deckCanvasVersion() !== v) return;
+  let url = view.urls.get(pk);
+  if (url && !(await stillServed(url))) { view.urls.delete(pk); url = null; } // the server dropped it: send it again (AV2-8)
+  if (deckCanvasVersion() !== v) return;
   if (!url) {
     wrap.append(el('div', 'art-loading', 'Drawing the slides…'));
     try { url = apiUrl((await api.artifact(html)).url); } catch (e) { wrap.replaceChildren(el('div', 'art-loading', `Couldn’t draw the slides: ${e.message}`)); return; }
     if (view.urls.size > 30) view.urls.delete(view.urls.keys().next().value);
-    view.urls.set(html, url);
+    view.urls.set(pk, url);
     if (deckCanvasVersion() !== v) return;
   }
   const frame = el('iframe', { sandbox: 'allow-scripts', src: url, title: `${tx('Slides')}: ${deck.title}`, referrerpolicy: 'no-referrer', class: 'deck-frame' });
@@ -196,7 +204,7 @@ function emptyState(c) {
     el('h3', '', 'Slides'),
     el('p', '', 'Describe a deck below (Slides mode is on), attach a PDF, Word or PowerPoint file to build it from, or bring in a PowerPoint to restyle or continue.'),
     el('div', 'deck-empty-acts',
-      hasChat ? el('button', { type: 'button', class: 'cap primary', onclick: () => artifactSend('Make a slide deck from this conversation: the main points, one idea per slide, with speaker notes.') }, ico('art', 14), 'Make slides from this chat') : null,
+      hasChat ? el('button', { type: 'button', class: 'cap primary', onclick: () => artifactSend('Make a slide deck from this conversation: the main points, one idea per slide, with speaker notes.', { origin: 'deck' }) }, ico('art', 14), 'Make slides from this chat') : null,
       el('button', { type: 'button', class: 'cap', onclick: () => file.click() }, ico('doc', 14), 'Import a PowerPoint (.pptx)…'),
       file));
 }
@@ -282,7 +290,7 @@ function ask(text) {
   if (!c) return;
   if (state.streams.has(c.id)) { toast('Wait for the current reply to finish'); return; }
   if (c.mode !== 'slides') { c.mode = 'slides'; save(c); }
-  artifactSend(text);
+  artifactSend(text, { origin: 'deck' });
 }
 
 // ── present ──
@@ -393,19 +401,22 @@ async function exportPptx() {
   const c = cur(), deck = currentDeck();
   if (!c || !deck) return;
   if (missingAlt(deck).length) toast('Some pictures have no alt text: PowerPoint will have none for them');
+  const slow = setTimeout(() => toast('Making the PowerPoint file…'), 400); // a big deck (pictures, many charts) on a slow machine
   try {
     const { pptxBlob } = await import('./deck-pptx.js');
     const { blob, name } = await pptxBlob(deck, { images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()) });
     downloadBlob(blob, name);
     toast('Saved as a PowerPoint file');
   } catch (e) { toast(`PowerPoint export failed: ${e.message}`); }
+  finally { clearTimeout(slow); }
 }
 
-function exportPdf() {
+async function exportPdf() {
   const c = cur(), deck = currentDeck();
   if (!c || !deck) return;
+  const { deckDocument, LABELS } = await deckRender();
   // a copy with no script at all, in a frame that can't run any: the browser's print, "Save as PDF"
-  const html = deckDocument(deck, { mode: 'static', images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()), labels: labels() });
+  const html = deckDocument(deck, { mode: 'static', images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()), labels: labels(LABELS) });
   const f = el('iframe', { sandbox: 'allow-same-origin allow-modals', title: 'Print', 'aria-hidden': 'true', style: { position: 'fixed', right: '0', bottom: '0', width: '1px', height: '1px', border: '0', opacity: '0' } });
   f.addEventListener('load', () => {
     try { f.contentWindow.focus(); f.contentWindow.print(); } catch { toast('Printing isn’t available here: download the PowerPoint instead'); }
@@ -445,11 +456,12 @@ function googleSlides() {
     status)]);
 }
 
-function share() {
+async function share() {
   const c = cur(), deck = currentDeck();
   if (!c || !deck) return;
+  const { deckDocument, LABELS } = await deckRender();
   // a view-only copy: present mode, no editing, nothing sent back
-  openPublish({ title: deck.title, html: deckDocument(deck, { mode: 'present', images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()), labels: labels(), embedded: false }) });
+  openPublish({ title: deck.title, html: deckDocument(deck, { mode: 'present', images: c.deckImages || {}, label: labelFor(c, deckCanvasVersion()), labels: labels(LABELS), embedded: false }) });
 }
 
 export { closeArtifact as closeDeck };

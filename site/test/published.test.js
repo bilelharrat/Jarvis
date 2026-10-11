@@ -9,7 +9,7 @@ import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { PUBLISHED, newPublishedId, validPublishedId } from '../src/accounts/published.js';
 import { PRIVACY_NEEDS_MAC } from '../src/eden/chat.js';
 import { forgetSessions } from '../src/eden/session.js';
-import { ARTIFACT_CSP } from '../src/eden/web.js';
+import { ARTIFACT_CSP, RTC_GUARD, SHELL_CSP, withRtcGuard } from '../src/eden/web.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, sseBody } from './fakes.js';
 
 const ORIGIN = 'https://askeden.com';
@@ -95,6 +95,51 @@ const chat = (p, session, opts = {}) => hit(p, { session, ...opts, headers: { 'x
 const publish = (session, body) => chat('/api/chat/publish', session, { method: 'POST', body });
 const HTML = '<!doctype html><html><head><title>Tip calculator</title></head><body><h1>Tips</h1><script>document.body.dataset.ok = 1</script></body></html>';
 
+test('a published page in a visitor’s tab is framed and sandboxed: it can’t navigate askeden.com away (AV3); WebRTC is off (AV2)', async () => {
+  assert.equal(withRtcGuard(HTML), `<!doctype html>${RTC_GUARD}<html><head><title>Tip calculator</title></head>${HTML.slice(HTML.indexOf('<body>'))}`, 'right after the doctype');
+  assert.ok(withRtcGuard('<p>x</p>').startsWith(RTC_GUARD));
+  assert.ok(withRtcGuard('<!-- <head> --><!DOCTYPE html><p>').startsWith(`<!-- <head> --><!DOCTYPE html>${RTC_GUARD}`));
+  assert.match(ARTIFACT_CSP, /webrtc 'block'/);
+  const me = await browserOf(await phone());
+  const page = await (await publish(me, { html: HTML, title: 'Tips <b>"x"</b>' })).json();
+  await chat('/api/chat/published/access', me, { method: 'POST', body: { id: page.id, access: 'link' } });
+  const tab = await hit(page.url, { headers: { 'sec-fetch-dest': 'document' } });
+  assert.equal(tab.status, 200);
+  assert.equal(tab.headers.get('content-security-policy'), SHELL_CSP);
+  assert.match(SHELL_CSP, /frame-src 'self'/);
+  assert.match(SHELL_CSP, /frame-ancestors 'none'/);
+  assert.doesNotMatch(SHELL_CSP, /script-src/, 'the shell runs no script');
+  const shell = await tab.text();
+  assert.ok(!shell.includes('<h1>Tips</h1>'), 'the page itself is not in the tab');
+  assert.match(shell, new RegExp(`<iframe sandbox="allow-scripts" src="/p/${page.id}"`));
+  assert.doesNotMatch(shell, /allow-top-navigation|allow-same-origin|allow-popups|allow-forms/);
+  assert.match(shell, /<title>Tips &lt;b&gt;&quot;x&quot;&lt;\/b&gt;<\/title>/, 'the title escaped');
+  const framed = await hit(page.url, { headers: { 'sec-fetch-dest': 'iframe' } });
+  assert.equal(await framed.text(), withRtcGuard(HTML), 'the shell’s frame gets the page');
+  assert.equal(framed.headers.get('content-security-policy'), ARTIFACT_CSP);
+  // private: a stranger's tab still gets the "private" note, not a shell
+  await chat('/api/chat/published/access', me, { method: 'POST', body: { id: page.id, access: 'private' } });
+  assert.equal((await hit(page.url, { headers: { 'sec-fetch-dest': 'document' } })).status, 401);
+});
+
+test('a published page is served inert where the guard can’t reach: resource hints and declarative shadow roots; DNS prefetch off (AV2-5, AV2-2)', async () => {
+  const html = '<!doctype html><html><head><link rel="dns-prefetch" href="//leak.example"><link rel="pre&#99;onnect" href="https://x.example"></head><body><div><template shadowrootmode="closed"><iframe srcdoc="x"></iframe></template></div></body></html>';
+  const out = withRtcGuard(html);
+  assert.ok(out.startsWith(`<!doctype html>${RTC_GUARD}`));
+  assert.doesNotMatch(out.slice(RTC_GUARD.length), /<link[\s>]/, 'no live <link> left');
+  assert.match(out, /<link-off rel="dns-prefetch"/);
+  assert.match(out, /<template data-shadowrootmode="closed">/);
+  assert.equal(withRtcGuard(HTML), `<!doctype html>${RTC_GUARD}${HTML.slice('<!doctype html>'.length)}`, 'a page without either: unchanged');
+  assert.match(RTC_GUARD, /dns-prefetch\|preconnect\|prefetch\|prerender/, 'the guard renames hints a script adds');
+  assert.match(RTC_GUARD, /srcdoc/, 'and puts itself in frames the page makes');
+  const me = await browserOf(await phone());
+  const page = await (await publish(me, { html, title: 'Hints' })).json();
+  await chat('/api/chat/published/access', me, { method: 'POST', body: { id: page.id, access: 'link' } });
+  const framed = await hit(page.url, { headers: { 'sec-fetch-dest': 'iframe' } });
+  assert.equal(await framed.text(), out);
+  assert.equal(framed.headers.get('x-dns-prefetch-control'), 'off');
+});
+
 test('publish: a private page for its owner only, then shared with the link, under the sandbox CSP; the link hides the account', async () => {
   const owner = await phone();
   const me = await browserOf(owner);
@@ -111,7 +156,7 @@ test('publish: a private page for its owner only, then shared with the link, und
   // Only me: the owner's browser sees it; signed out is told to sign in; another account sees nothing.
   const mine = await hit(page.url, { session: me });
   assert.equal(mine.status, 200);
-  assert.equal(await mine.text(), HTML);
+  assert.equal(await mine.text(), withRtcGuard(HTML), 'the page, the WebRTC guard first (AV2)');
   assert.equal(mine.headers.get('content-security-policy'), ARTIFACT_CSP);
   assert.equal(mine.headers.get('cache-control'), 'no-store');
   assert.equal(mine.headers.get('vary'), 'cookie');
@@ -128,7 +173,7 @@ test('publish: a private page for its owner only, then shared with the link, und
   assert.equal((await shared.json()).access, 'link');
   const anyone = await hit(page.url);
   assert.equal(anyone.status, 200);
-  assert.equal(await anyone.text(), HTML);
+  assert.equal(await anyone.text(), withRtcGuard(HTML));
   assert.equal(anyone.headers.get('content-security-policy'), ARTIFACT_CSP);
   assert.equal((await hit(page.url, { session: stranger })).status, 200);
   // And back to only me, at once (nothing cached).
@@ -178,7 +223,7 @@ test('caps: 2 MB a page (in pieces), 20 pages an account; bad ids and paths are 
   assert.equal((await publish(me, { html: HTML, access: 'everyone' })).status, 400);
   const big = `<!doctype html><p>${'é'.repeat(500_000)}</p>`;
   const page = await (await publish(me, { html: big, access: 'link' })).json();
-  assert.equal(await (await hit(page.url)).text(), big, 'reassembled from its pieces');
+  assert.equal(await (await hit(page.url)).text(), withRtcGuard(big), 'reassembled from its pieces');
   for (let i = 1; i < PUBLISHED.max; i++) assert.equal((await publish(me, { html: `<p>${i}</p>` })).status, 200);
   const full = await publish(me, { html: '<p>one more</p>' });
   assert.equal(full.status, 409);

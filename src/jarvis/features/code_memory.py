@@ -45,7 +45,7 @@ class Memory:
         note = code_memory.clean_note(str(msg.get("text", "")))
         folder = self.hub._code_folder(msg)
         if not note or folder is None:
-            self.hub.emit("task_memory", ok=False, text=note, path="")
+            self.hub.emit_to_caller("task_memory", ok=False, text=note, path="")
             return
         now = time.monotonic()
         for ref in [r for r, w in self.waiting.items() if now - w["at"] > WAITING_SECONDS]:
@@ -54,7 +54,8 @@ class Memory:
             self.waiting.pop(next(iter(self.waiting)))
         ref = uuid.uuid4().hex[:12]
         self.waiting[ref] = {"note": note, "folder": folder, "at": now}
-        self.hub.emit(
+        # (CA2-4) To the window that typed it, not as a stray card in every other one.
+        self.hub.emit_to_caller(
             "cw_memory_ask",
             ref=ref,
             id=msg.get("id") or 0,
@@ -72,11 +73,13 @@ class Memory:
         try:
             await asyncio.to_thread(code_memory.append_note, path, waiting["note"])
         except OSError:  # read-only, a link, not a file: the window says it wasn't saved
-            self.hub.emit("task_memory", ok=False, text=waiting["note"], path="")
+            self.hub.emit_to_caller("task_memory", ok=False, text=waiting["note"], path="")
             return
         if self.hub.prefs.feature(PREF) != target:
             self.hub.set_feature_prefs({PREF: target})
-        self.hub.emit("task_memory", ok=True, text=waiting["note"], path=str(path), target=target)
+        self.hub.emit_to_caller(
+            "task_memory", ok=True, text=waiting["note"], path=str(path), target=target
+        )
 
 
 def install(hub: Any) -> None:

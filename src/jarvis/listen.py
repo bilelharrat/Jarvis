@@ -183,16 +183,58 @@ def default_input() -> int | None:
     return int(device.value) if status == 0 else None
 
 
+# Every input stream opened lately, kept referenced after it closes. A stalled device can fail
+# to close (CoreAudio's AUHAL err 35) while its IO thread still calls the stream's callback;
+# once the garbage collector freed that callback, the next call crashed the whole backend in
+# CoreAudio's thread (EXC_BAD_ACCESS in ffi_closure_SYSV_inner), every session with it.
+_STREAMS: deque[Any] = deque(maxlen=16)
+SETTLE_SECONDS = 0.25  # after the last stream stopped: one CoreAudio IO cycle in flight ends
+
+
+def _keep(stream: Any) -> Any:
+    _STREAMS.append(stream)
+    return stream
+
+
+def _abort(stream: Any) -> None:
+    """Stop a stream at once, without waiting on a device that sends nothing."""
+    abort = getattr(stream, "abort", None)
+    if abort is not None:
+        with contextlib.suppress(Exception):
+            abort(ignore_errors=True)
+
+
+def _settle(timeout: float = 1.0, sleep: Callable[[float], None] = time.sleep) -> None:
+    """Wait until no stream PortAudio knows of can still run its callback (each closed or no
+    longer active), then a moment more: only then is PortAudio torn down."""
+    deadline = time.monotonic() + timeout
+    for stream in list(_STREAMS):
+        while time.monotonic() < deadline:
+            try:
+                if getattr(stream, "closed", True) or not getattr(stream, "active", False):
+                    break
+            except Exception:  # noqa: BLE001 (a stream PortAudio already forgot)
+                break
+            _abort(stream)
+            sleep(0.02)
+    sleep(SETTLE_SECONDS)
+
+
 def reset_portaudio() -> None:
     """Forget PortAudio's device list and build it again. After sleep or a device change,
     opening a stream can fail with -9986 forever until this happens.
 
     Straight to PortAudio rather than sounddevice's _terminate()/_initialize(): those point
     the whole process's stderr at /dev/null while PortAudio starts, which swallowed log
-    lines from every other thread and handed /dev/null to any process started meanwhile."""
+    lines from every other thread and handed /dev/null to any process started meanwhile.
+
+    Only once every stream has stopped (_settle), and the streams stay referenced (_STREAMS):
+    a callback still running in CoreAudio's thread never meets a terminated PortAudio or a
+    freed callback."""
     import sounddevice as sd
 
     with PORTAUDIO_LOCK:
+        _settle()
         if sd._initialized > 0:
             sd._lib.Pa_Terminate()
             sd._initialized -= 1
@@ -220,20 +262,23 @@ def record_utterance(
     stalled = False
     with (
         PORTAUDIO_LOCK,
-        sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="float32",
-            blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
-            callback=on_audio,
-            device=device,
-        ),
+        _keep(
+            sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
+                callback=on_audio,
+                device=device,
+            )
+        ) as stream,
     ):
         while True:
             try:
                 block = blocks.get(timeout=STALL_SECONDS)
             except queue.Empty:  # a stalled device would otherwise hold the lock forever
                 stalled = True
+                _abort(stream)  # at once: stopping waits on buffers a stalled device never sends
                 break
             if cancel is not None and cancel.is_set():
                 return None  # the microphone closes as the with-block ends
@@ -642,13 +687,15 @@ class ContinuousListener:
         import sounddevice as sd
 
         device = pick_input_device(self.device_preference)
-        with sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="float32",
-            blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
-            callback=lambda data, *_, q=blocks: q.put(data[:, 0].copy()),
-            device=device,
+        with _keep(  # (kept referenced past its close: _STREAMS)
+            sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                blocksize=int(SAMPLE_RATE * BLOCK_SECONDS),
+                callback=lambda data, *_, q=blocks: q.put(data[:, 0].copy()),
+                device=device,
+            )
         ):
             name = sd.query_devices(device if device is not None else sd.default.device[0])["name"]
             log.info("hands-free microphone open: %s", name)

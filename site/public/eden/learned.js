@@ -296,5 +296,9 @@ export function initLearned() {
   const base = ui.renderInspector;
   ui.renderInspector = (...a) => { base(...a); fresh(); };
   renderCard();
-  refreshLearned();
+  // The profile is shown only in the Route console and Settings: fetched when the page is idle, off the
+  // startup's path (opt1-ae-web); opening the inspector fetches it at once (fresh, above).
+  if (hosted()) refreshLearned();
+  else if (typeof requestIdleCallback === 'function') requestIdleCallback(() => { if (!view) refreshLearned(); }, { timeout: 3000 });
+  else setTimeout(() => { if (!view) refreshLearned(); }, 1500);
 }

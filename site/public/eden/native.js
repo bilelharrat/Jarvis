@@ -95,6 +95,9 @@ function refreshModels() {
 
 const offline = () => (caps.online === false && !caps.serverLocal) || (typeof navigator !== 'undefined' && navigator.onLine === false);
 
+/** How long an on-device turn may stay silent before the page gives up on it. */
+export const QUIET_MS = 20000;
+
 function onDeviceTurn(body, signal, why) {
   const id = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const enc = new TextEncoder();
@@ -126,8 +129,9 @@ function onDeviceTurn(body, signal, why) {
       kind: 'turn', id, why,
       request: { messages: body.messages || [], system: body.system || null, context: body.context || [], mode: body.mode || 'chat' },
     });
-    // the app answers at once (a route event); silence means it never got the turn
-    quiet = setTimeout(() => t.push('error', { message: 'This iPhone didn’t answer. Try again.' }), 20000);
+    // the app answers at once (a route event); silence means it never got the turn, and the app
+    // is told to stop it (iOS sweep AI8: the model kept generating for up to 90 s, unseen)
+    quiet = setTimeout(() => { toApp({ kind: 'cancel', id }); t.push('error', { message: 'This iPhone didn’t answer. Try again.' }); }, QUIET_MS);
   }
   return Promise.resolve(new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
 }
@@ -138,6 +142,7 @@ function onDeviceTurn(body, signal, why) {
  */
 export function nativeTransport(path, init, next) {
   if (!IN_APP) return null;
+  wake(); // a reply, a compare or a Code turn starts with a call: the Live Activity scan looks again
   if (path === '/api/chat/meta') {
     return next(path, init).then(async (res) => {
       if (!res.ok || !listed()) return res;
@@ -233,6 +238,21 @@ function scan() {
   }
 }
 
+// The scan runs once a second only while something streams or a Live Activity is up from one; it
+// stops when there's nothing (iOS sweep: it ran every second for as long as the app was open).
+// Every stream starts with a call through nativeTransport, which wakes it.
+let scanTimer = null;
+const watching = () => state.streams.size > 0 || [...tracked.values()].some((t) => !t.own);
+function scanTick() {
+  scan();
+  if (!watching()) { clearInterval(scanTimer); scanTimer = null; }
+}
+function wake() {
+  if (scanTimer) return;
+  scanTimer = setInterval(scanTick, 1000);
+  if (scanTimer && scanTimer.unref) scanTimer.unref(); // (tests run this in Node)
+}
+
 /** A feature's own long task (eden:task): passed on as it is, checked. */
 function ownTask(e) {
   const d = e.detail;
@@ -301,8 +321,7 @@ if (IN_APP) {
   document.addEventListener('eden:bridge-ready', hello);
   const start = () => setTimeout(() => {
     hello();
-    const t = setInterval(scan, 1000);
-    if (t && t.unref) t.unref(); // (tests run this in Node)
+    wake();
   }, 0);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true }); else start();
 }

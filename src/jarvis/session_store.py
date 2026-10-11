@@ -34,7 +34,9 @@ STORE_LIMIT = 60  # sessions kept: the open ones and the ended ones the list sho
 KEEP_LIMIT = 2000
 AUDIT_KEEP = 500  # permission decisions kept per session
 QUEUE_KEEP = 50  # messages waiting (tasks.MAX_QUEUED)
-TEXT_LIMIT = 20_000  # a queued message or a draft (the window's own limit for a message)
+# a queued message or a draft: the window's own limit for a message (tasks.MESSAGE_MAX), so
+# nothing kept over a restart is cut shorter than it was sent (CA2-8)
+TEXT_LIMIT = 100_000
 FILES_KEEP = 500
 REMEMBERED_LIMIT = 200  # sessions whose settings are kept for a resume from the history
 KEY = re.compile(r"[a-f0-9]{8,32}")

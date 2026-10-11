@@ -14,7 +14,9 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import re
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -27,6 +29,12 @@ log = logging.getLogger("jarvis")
 
 MAX_PROBLEMS = 500  # kept of one check, across its checkers
 MAX_OUTPUT = 4_000_000  # characters of a checker's output read
+# eslint's and ruff's JSON goes to a file (--output-file), read up to this: a big repo's
+# eslint report (each file with problems carries its whole source) passes 4 MB.
+MAX_REPORT = 64_000_000
+TO_FILE = ("eslint", "ruff")  # checkers that write their JSON to a file
+JSON_CHECKERS = ("eslint", "ruff", "pyright")
+TOO_BIG = "Its report was too big to read ({size} MB), so its problems aren't shown."
 CHECK_LIMIT = 15 * 60  # seconds one checker may take
 MESSAGE_CHARS = 1000
 
@@ -392,6 +400,7 @@ def fix_message(problems: list[Problem], limit: int = 6000) -> str:
 class Check:
     project: Path
     status: str = "running"  # running | done
+    superseded: bool = False  # a newer check took over before it was done: its result is partial
     started: float = field(default_factory=time.time)
     finished: float | None = None
     problems: list[Problem] = field(default_factory=list)
@@ -408,6 +417,7 @@ class Check:
             "checkers": self.checkers,
             "errors": sum(1 for p in self.problems if p.severity == "error"),
             "after_turn": self.after_turn,
+            "superseded": self.superseded,
         }
 
 
@@ -428,15 +438,19 @@ class Diagnostics:
 
     async def run(self, project: Path, checkers: list[Checker], after_turn: bool = False) -> Check:
         key = str(project)
+        check = Check(project, after_turn=after_turn)
+        before = self.checks.get(key)
+        if before is not None and before.status == "running":
+            before.superseded = True  # (before its checker is stopped: it isn't taken as done)
+        self.checks[key] = check
         current = self._procs.pop(key, None)
         if current is not None:
             await current.stop(grace=1.0)
-        check = Check(project, after_turn=after_turn)
-        self.checks[key] = check
         self.emit("cv_problems", check=check.public())
         env = {**(await asyncio.to_thread(self.env)), "NO_COLOR": "1", "FORCE_COLOR": "0"}
         for checker in checkers:
             if self.checks.get(key) is not check:
+                check.superseded = True
                 return check  # a newer check took over
             outcome = {"id": checker.id, "label": checker.label, "count": 0, "error": ""}
             if not checker.ready:
@@ -448,6 +462,9 @@ class Diagnostics:
             check.checkers.append(outcome)
             room = MAX_PROBLEMS - len(check.problems)
             check.problems.extend(found[: max(0, room)])
+        if self.checks.get(key) is not check:
+            check.superseded = True  # (its last checker was stopped by the newer one)
+            return check
         check.status, check.finished = "done", time.time()
         if self.checks.get(key) is check:
             self.emit("cv_problems", check=check.public())
@@ -468,9 +485,17 @@ class Diagnostics:
             for line in lines:
                 if size < MAX_OUTPUT:
                     chunks.append(line)
-                    size += len(line) + 1
+                size += len(line) + 1  # (all of it counted: a cut report is told apart)
 
-        proc = runproc.Proc([exe, *checker.argv[1:]], cwd, env, take)
+        argv = [exe, *checker.argv[1:]]
+        report: Path | None = None
+        if checker.id in TO_FILE:
+            fd, name = tempfile.mkstemp(prefix=f"jarvis-{checker.id}-", suffix=".json")
+            os.close(fd)
+            report = Path(name)
+            argv += ["--output-file", name]
+        # Lines kept whole: eslint's JSON is one line (with each file's source in it).
+        proc = runproc.Proc(argv, cwd, env, take, line_max=None)
         self._procs[key] = proc
         try:
             await proc.start()
@@ -478,15 +503,27 @@ class Diagnostics:
                 code = await asyncio.wait_for(proc.wait(), CHECK_LIMIT)
             except TimeoutError:
                 await proc.stop(grace=1.0)
+                if report is not None:
+                    report.unlink(missing_ok=True)
                 return [], "It took too long and was stopped."
         except OSError as exc:
+            if report is not None:
+                report.unlink(missing_ok=True)
             return [], f"It didn't start: {exc.strerror or exc}"
         finally:
             if self._procs.get(key) is proc:
                 del self._procs[key]
         output = "\n".join(chunks)
-        # Up to 4 MB of output, and a path looked up for each file: never on the loop.
+        if report is not None:
+            written, report_size = await asyncio.to_thread(_report, report)
+            if report_size > MAX_REPORT:
+                return [], TOO_BIG.format(size=round(report_size / 1e6))
+            if written.strip():
+                output, size = written, report_size
+        # A path looked up for each file, and up to 64 MB of JSON: never on the loop.
         found = await asyncio.to_thread(parse, checker, output, project)
+        if not found and checker.id in JSON_CHECKERS and size > MAX_OUTPUT and not proc.stopping:
+            return [], TOO_BIG.format(size=round(size / 1e6))  # (cut: never "no problems")
         if not found and code not in (0, None) and not proc.stopping:
             tail = " ".join(line for line in chunks[-3:] if line.strip())[:300]
             return (
@@ -504,3 +541,16 @@ class Diagnostics:
 
     def shutdown(self) -> None:
         runproc.kill_all_now(list(self._procs.values()))
+
+
+def _report(path: Path) -> tuple[str, int]:
+    """A checker's report file: (its text, or "" past MAX_REPORT; its size), then gone."""
+    try:
+        size = path.stat().st_size
+        if size > MAX_REPORT:
+            return "", size
+        return path.read_text(encoding="utf-8", errors="replace"), size
+    except OSError:
+        return "", 0
+    finally:
+        path.unlink(missing_ok=True)

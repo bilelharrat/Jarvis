@@ -302,7 +302,8 @@
   function maybeOpen() {
     if (opened || dialog || paused || features.a11y_setup_done === true || !lib.prefsSeen() || lib.inEdenCode() || !lib.effective()) return;
     opened = true;
-    root.setTimeout(() => { if (!dialog && lib.effective()) open(0); }, 600); // (after the welcome is said)
+    // (after the welcome is said) It opens by itself once only: opening it counts as done (owner, 2026-10-10).
+    root.setTimeout(() => { if (!dialog && lib.effective()) { open(0); send({ type: 'a11y_setup', open: true, step: STEPS[0].id, done: true }); } }, 600);
   }
 
   F.on('prefs', (ev) => {

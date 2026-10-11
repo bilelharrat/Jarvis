@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import code_asides, code_projects, prefs, worktrees
-from ..hub import _msg_int
+from ..hub import _msg_int, _too_long
 from ..session_store import (
     AUDIT_KEEP,
     FILES_KEEP,
@@ -71,6 +71,7 @@ SLOW = {
 }  # fmt: skip
 BRANCH_TTL = 30.0
 BTW_AT_ONCE = 2
+BTW_LIMIT = 4000  # characters in a /btw side question (CA3-3: refused past it, never cut)
 
 
 def install(hub: Any) -> None:
@@ -92,6 +93,7 @@ class CodeSessions:
         self._saving = False
         self._again = False
         self._writers: set[asyncio.Future] = set()
+        self.failing = False  # saves are failing (said once in the windows till one works)
         self._printed: dict[str, tuple] = {}  # key -> what its last save was made from
         self.parked: set[str] = set()  # kept sessions whose folder isn't there just now
         # Kept sessions let go from the list (older than the MAX_ENDED ended ones it shows):
@@ -476,6 +478,7 @@ class CodeSessions:
             log.warning("Eden Code: couldn't save the sessions (%s)", exc)
             for key in changed:
                 self._printed.pop(key, None)
+            self._save_failed(exc)
         else:
             self._saved(changed)
         finally:
@@ -506,12 +509,29 @@ class CodeSessions:
             await asyncio.to_thread(self._write_all, changed, keep, remembered)
         except Exception as exc:
             log.warning("Eden Code: couldn't save the sessions (%s)", exc)
+            self._save_failed(exc)
         else:
             self._saved(changed)
+
+    def _save_failed(self, exc: Exception) -> None:
+        """Said in the windows once (not only the log): what isn't saved won't outlast a restart."""
+        if self.failing:
+            return
+        self.failing = True
+        why = getattr(exc, "strerror", None) or str(exc) or type(exc).__name__
+        self.hub.emit(
+            "toast",
+            title="Eden Code",
+            text=f"Eden Code can't save its sessions ({why[:120]}). Drafts, queued messages and "
+            "settings won't be there after a restart until it can. Is the disk full?",
+        )
 
     def _saved(self, changed: dict[str, dict[str, Any]]) -> None:
         """The records of sessions let go from the list are on disk, ended: only their lines
         are held from now on."""
+        if self.failing:
+            self.failing = False
+            self.hub.emit("toast", title="Eden Code", text="Eden Code is saving its sessions again.")
         for key, record in changed.items():
             if self.letting_go.get(key) is record:
                 del self.letting_go[key]
@@ -762,8 +782,20 @@ class CodeSessions:
         if task is None or not isinstance(text, str):
             return
         meta = self._meta_of(task)
-        if meta["draft"] != text[:TEXT_LIMIT]:
-            meta["draft"] = text[:TEXT_LIMIT]
+        if len(text) > TEXT_LIMIT:
+            # (CA3-3) Never kept cut: the window keeps it whole, and an older draft doesn't
+            # come back in its place after a restart.
+            if meta["draft"]:
+                meta["draft"] = ""
+                self._touched(meta)
+            self.hub.emit_to_caller(
+                "caption",
+                text=f"That draft is {len(text):,} characters: too long to keep over a restart "
+                f"(up to {TEXT_LIMIT:,}). It stays in this window.",
+            )
+            return
+        if meta["draft"] != text:
+            meta["draft"] = text
             self._touched(meta)
 
     def _cmd_meta_set(self, msg: dict[str, Any]) -> None:
@@ -829,22 +861,25 @@ class CodeSessions:
         asked), or in a fork; with new words to send from there, if given."""
         task = self._task(msg)
         target = str(msg.get("uuid") or "")
-        text = str(msg.get("text") or "").strip()[:TEXT_LIMIT]
+        text = str(msg.get("text") or "").strip()
         if task is None or not target:
+            return
+        if why := _too_long(text):  # (CA2-8) refused whole, never cut: the window keeps it
+            self.hub.emit_to_caller("error", text=why)
             return
         if msg.get("fork") is True:
             fork = self.tm.fork(task.id, target)
             if fork is None:
                 return  # (fork says why, in the session)
             if text:
-                self.tm.send(fork.id, text)
+                self.tm.send(fork.id, text, by_user=True)
             self.hub.emit("show_session", id=fork.id)
             return
         ok, reply = await self.rewind_in_place(task, target, files=msg.get("files") is True)
         # (the window says why it couldn't, where the message is being edited)
-        self.hub.emit("code_rewound", id=task.id, uuid=target, ok=ok, text=reply)
+        self.hub.emit_to_caller("code_rewound", id=task.id, uuid=target, ok=ok, text=reply)
         if ok and text:
-            self.tm.send(task.id, text)
+            self.tm.send(task.id, text, by_user=True)
 
     async def rewind_in_place(self, task: ClaudeTask, target: str, files: bool) -> tuple[bool, str]:
         tm = self.tm
@@ -946,7 +981,7 @@ class CodeSessions:
                 "branch": str(getattr(task, "branch", "") or await self._branch(task.cwd)),
                 "updated": updated,
             }
-        self.hub.emit("code_board", items=items)
+        self.hub.emit_to_caller("code_board", items=items)  # (CA3-8) the board that asked
 
     async def _branch(self, cwd: Path) -> str:
         now = time.monotonic()
@@ -991,9 +1026,21 @@ class CodeSessions:
 
     async def _cmd_btw(self, msg: dict[str, Any]) -> None:
         task = self._task(msg)
-        question = str(msg.get("question") or "").strip()[:4000]
+        question = msg.get("question") if isinstance(msg.get("question"), str) else ""
+        question = question.strip()
         ref = str(msg.get("ref") or "")[:40]
         if task is None or not question:
+            return
+        if len(question) > BTW_LIMIT:  # (CA3-3) said, never cut
+            self.hub.emit_to_caller(
+                "code_btw",
+                id=task.id,
+                ref=ref,
+                question=question[:200],
+                state="error",
+                text=f"That side question is {len(question):,} characters; a side question "
+                f"takes up to {BTW_LIMIT:,}. It wasn't asked.",
+            )
             return
         say = {"id": task.id, "ref": ref, "question": question}
         if self._btw_running >= BTW_AT_ONCE:
@@ -1054,7 +1101,15 @@ class CodeSessions:
         if task is None:
             return
         action = msg.get("action")
-        typed = str(msg.get("text") or "").strip()[: code_asides.GOAL_LIMIT]
+        typed = msg.get("text") if isinstance(msg.get("text"), str) else ""
+        typed = typed.strip()
+        if len(typed) > code_asides.GOAL_LIMIT:  # (CA3-3) said, never cut
+            self.hub.emit_to_caller(
+                "caption",
+                text=f"That goal is {len(typed):,} characters; a goal takes up to "
+                f"{code_asides.GOAL_LIMIT:,}. It wasn't set.",
+            )
+            return
         text = code_asides.one_line(typed)  # as it rides in the note, on one line
         meta = self._meta_of(task)
         goal = meta["goal"]
@@ -1096,13 +1151,20 @@ class CodeSessions:
 
     async def _cmd_goal_new(self, msg: dict[str, Any]) -> None:
         """/goal with no session open: a new one in the project, working toward it."""
-        text = str(msg.get("text") or "").strip()
+        text = msg.get("text") if isinstance(msg.get("text"), str) else ""
+        text = text.strip()
         if not text:
             return
+        if len(text) > code_asides.GOAL_LIMIT:  # (CA3-3) said before a session starts
+            self.hub.emit_to_caller(
+                "caption",
+                text=f"That goal is {len(text):,} characters; a goal takes up to "
+                f"{code_asides.GOAL_LIMIT:,}. It wasn't set.",
+            )
+            return
         known = set(self.tm.tasks)
-        await self.hub._handle(
-            {"type": "task_new", "directory": str(msg.get("directory") or ""), "prompt": ""}
-        )
+        directory = msg.get("directory") if isinstance(msg.get("directory"), str) else ""
+        await self.hub._handle({"type": "task_new", "directory": directory, "prompt": ""})
         fresh = [t for i, t in self.tm.tasks.items() if i not in known and t.kind == "code"]
         if not fresh:
             return  # (task_new said why)

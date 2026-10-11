@@ -7,8 +7,7 @@
 
 import { el, ico, toast, debounce } from './util.js';
 import { api, postJSON } from './api.js';
-import { openCompose } from './compose.js';
-import { openCalendar } from './calendar.js';
+import { openCompose, openCalendar } from './mail-lazy.js'; // Compose and the calendar load on first use
 import { closeSpace } from './panels.js';
 import { locale } from './i18n.js';
 

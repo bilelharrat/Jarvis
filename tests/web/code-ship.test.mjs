@@ -64,7 +64,7 @@ test('the pull request pane’s sentences with numbers in them are covered', () 
   for (const s of ['Checks (3)', 'Comments (12)', '1 commit', '4 commits', '1 uncommitted file is committed first',
     '2 uncommitted files are committed first', '1 uncommitted change isn’t in it: commit in the Git panel first',
     '3 uncommitted changes aren’t in it: commit in the Git panel first',
-    'Sends the failing logs to the session when it’s idle, at most 3 times (2 left), then pushes its fix behind the push card.']) {
+    'Sends the failing logs to the session when it’s idle, at most 3 times (2 left), then pushes its fix behind the push card. Conflicts with the base go to it too.']) {
     assert.ok(chinese(s), s);
   }
 });

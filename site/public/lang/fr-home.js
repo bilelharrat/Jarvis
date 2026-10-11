@@ -1,7 +1,7 @@
 // French for the front page (public/home/index.html). See site-i18n.js.
 SiteI18n.add({
   title: 'Eden · askeden.com',
-  description: 'Eden : une seule discussion qui confie chaque question au modèle le plus doué pour y répondre, et qui accède à votre ordinateur grâce à J.A.R.V.I.S. Des apps pour Mac et Windows.',
+  description: 'Eden : une seule discussion qui confie chaque question au modèle le plus doué pour y répondre, et qui accède à votre ordinateur grâce à l’app Eden, pour Mac et Windows.',
   exact: {
     'Skip to the main content': 'Aller au contenu principal',
     'Eden, askeden.com': 'Eden, askeden.com',
@@ -9,8 +9,8 @@ SiteI18n.add({
     'Download': 'Télécharger',
     'Pricing': 'Tarifs',
     'Sign in': 'Se connecter',
-    'One chat for every model. Eden sends each question to the model best at it — GPT, Gemini, Kimi, or Claude with your own key — and, with J.A.R.V.I.S. on your Mac, works with your files, calendar and memory.':
-      'Une seule discussion pour tous les modèles. Eden confie chaque question au modèle le plus doué pour y répondre — GPT, Gemini, Kimi, ou Claude avec votre propre clé — et, avec J.A.R.V.I.S. sur votre Mac, travaille avec vos fichiers, votre calendrier et votre mémoire.',
+    'One chat for every model. Eden sends each question to the model best at it — GPT, Gemini, Kimi, or Claude with your own key — and, with the Eden app on your Mac, works with your files, calendar and memory.':
+      'Une seule discussion pour tous les modèles. Eden confie chaque question au modèle le plus doué pour y répondre — GPT, Gemini, Kimi, ou Claude avec votre propre clé — et, avec l’app Eden sur votre Mac, travaille avec vos fichiers, votre calendrier et votre mémoire.',
     'Get started': 'Commencer',
     'Sign in with Apple, Google or a passkey. One account for the web and the apps.': 'Connectez-vous avec Apple, Google ou une clé d’accès. Un seul compte pour le web et les apps.',
     'Eden in 15 seconds': 'Eden en 15 secondes',
@@ -25,25 +25,12 @@ SiteI18n.add({
     'Windows 10 or 11 · 64-bit': 'Windows 10 ou 11 · 64 bits',
     'Ask Eden is a beta and isn\'t signed yet. On a Mac, the first time, Control-click it and choose Open. On Windows: If Edge says the file “isn’t commonly downloaded”, choose the three dots, then Keep, then Keep anyway. If Windows says “Windows protected your PC”, choose More info, then Run anyway. (Microsoft asks this about every program that isn’t signed yet; it is not a virus warning.)':
       'Ask Eden est une bêta et n’est pas encore signée. Sur un Mac, la première fois, cliquez dessus en maintenant la touche Contrôle et choisissez Ouvrir. Sur Windows : si Edge indique que le fichier « n’est pas fréquemment téléchargé », choisissez les trois points, puis Conserver, puis Conserver quand même. Si Windows affiche « Windows a protégé votre ordinateur », choisissez Informations complémentaires, puis Exécuter quand même. (Microsoft le demande pour tout programme qui n’est pas encore signé ; ce n’est pas une alerte de virus.)',
-    'For Windows · beta': 'Pour Windows · bêta',
-    'J.A.R.V.I.S. for people who are blind or have low vision. Talk to it, or use only the keyboard. It works with NVDA, JAWS and Narrator, and shows large yellow type on black.':
-      'J.A.R.V.I.S. pour les personnes aveugles ou malvoyantes. Parlez-lui, ou utilisez uniquement le clavier. Il fonctionne avec NVDA, JAWS et le Narrateur, et affiche de grands caractères jaunes sur fond noir.',
-    'Reads your email and writes it as you dictate, in Outlook, in your own signature and font. You can say the punctuation.':
-      'Lit vos e-mails et les écrit sous votre dictée, dans Outlook, avec votre signature et votre police. Vous pouvez dicter la ponctuation.',
-    'Reads documents, PDFs, scans and photos aloud, a part at a time, and describes pictures.':
-      'Lit à voix haute documents, PDF, numérisations et photos, une partie à la fois, et décrit les images.',
-    'Tells you when email that matters arrives. Calendar, reminders and your files, by voice.':
-      'Vous prévient quand un e-mail important arrive. Calendrier, rappels et fichiers, à la voix.',
-    'Download J.A.R.V.I.S. Daredevil for Windows': 'Télécharger J.A.R.V.I.S. Daredevil pour Windows',
-    'How it works, and the quick-start guide': 'Comment ça marche, et le guide de démarrage rapide',
-    'Windows 10 or 11, 64-bit. Its own installer: it opens in screen-reader mode every time. A beta, not signed yet. If Edge says the file “isn’t commonly downloaded”, choose the three dots, then Keep, then Keep anyway. If Windows says “Windows protected your PC”, choose More info, then Run anyway. (Microsoft asks this about every program that isn’t signed yet; it is not a virus warning.)':
-      'Windows 10 ou 11, 64 bits. Son propre programme d’installation : il s’ouvre à chaque fois en mode lecteur d’écran. Une bêta, pas encore signée. Si Edge indique que le fichier « n’est pas fréquemment téléchargé », choisissez les trois points, puis Conserver, puis Conserver quand même. Si Windows affiche « Windows a protégé votre ordinateur », choisissez Informations complémentaires, puis Exécuter quand même. (Microsoft le demande pour tout programme qui n’est pas encore signé ; ce n’est pas une alerte de virus.)',
     'Download apps': 'Télécharger les apps',
-    'Eden Code and J.A.R.V.I.S. for Mac and Windows': 'Eden Code et J.A.R.V.I.S. pour Mac et Windows',
+    'Eden Code and the Eden app for Mac and Windows': 'Eden Code et l’app Eden pour Mac et Windows',
     'Routed': 'Routé',
     'Each message goes to the model that fits it; you can pin one any time.': 'Chaque message va au modèle qui lui convient ; vous pouvez en épingler un à tout moment.',
     'Your computer': 'Votre ordinateur',
-    'Link J.A.R.V.I.S. and Eden can reach your second brain, memory and calendar.': 'Associez J.A.R.V.I.S. et Eden peut accéder à votre second cerveau, à votre mémoire et à votre calendrier.',
+    'Link the Eden app and Eden can reach your second brain, memory and calendar.': 'Associez l’app Eden et Eden peut accéder à votre second cerveau, à votre mémoire et à votre calendrier.',
     'Yours': 'À vous',
     'No ads, no selling your data. Read the policy below.': 'Pas de publicité, aucune vente de vos données. Lisez la politique ci-dessous.',
     'Start free. Upgrade when you want more of Eden’s included AI.': 'Commencez gratuitement. Passez à Plus quand vous voulez davantage d’IA incluse dans Eden.',
@@ -78,6 +65,9 @@ SiteI18n.add({
     'Voice': 'Voix',
     'Just say it.': 'Dites-le, simplement.',
     'Dictate, or talk hands-free and hear Eden answer. Collapse it to a sphere while you work.': 'Dictez, ou parlez mains libres et écoutez la réponse d’Eden. Réduisez-le en sphère pendant que vous travaillez.',
+    'Everywhere': 'Partout',
+    'Eden, wherever you work.': 'Eden, partout où vous travaillez.',
+    'Highlight text in Chrome and fix it in one click, clean a column in Excel, fill one in Google Sheets, or press ⌃⌥E in any app on your Mac.': 'Surlignez un texte dans Chrome et corrigez-le en un clic, nettoyez une colonne dans Excel, remplissez-en une dans Google Sheets, ou appuyez sur ⌃⌥E dans n’importe quelle app de votre Mac.',
     // the accuracy section (the "Accuracy" kicker is the footer's word above; the numbers are /accuracy's)
     'Fewer made-up answers.': 'Moins de réponses inventées.',
     'We asked EVES, our fact-checker, and three leading AI models the same 432 factual questions. EVES made something up the least often.':
@@ -112,13 +102,13 @@ SiteI18n.add({
     // Free
     'Free included AI to try Eden': '<b>IA incluse gratuite</b> pour essayer Eden',
     '60 minutes of Eden’s cloud browser a month': '<b>60 minutes</b> de navigateur cloud d’Eden par mois',
-    '20,000 characters of JARVIS voice a day': '<b>20 000 caractères</b> de voix JARVIS par jour',
+    '20,000 characters of Eden voice a day': '<b>20 000 caractères</b> de voix d’Eden par jour',
     // Plus
     '$10/month': '<b>10 $</b><span>/mois</span>',
     'Included AI every month — thousands of everyday messages': '<b>IA incluse chaque mois</b> — des milliers de messages du quotidien',
     'Or $96 a year (two months free)': 'Ou <b>96 $ par an</b> (deux mois offerts)',
     '600 minutes of Eden’s cloud browser a month': '<b>600 minutes</b> de navigateur cloud d’Eden par mois',
-    '100,000 characters of JARVIS voice a day': '<b>100 000 caractères</b> de voix JARVIS par jour',
+    '100,000 characters of Eden voice a day': '<b>100 000 caractères</b> de voix d’Eden par jour',
     // Pay as you go
     '$5, $10 or $25': '<b>5 $</b><span>, 10 $ ou 25 $</span>',
     'Credits for more AI, on Free or Plus': '<b>Des crédits</b> pour plus d’IA, avec Gratuit ou Plus',

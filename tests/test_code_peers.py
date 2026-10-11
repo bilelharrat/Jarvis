@@ -128,7 +128,7 @@ async def test_a_session_can_never_answer_anothers_permission_request(
     settings, quiet_speaker, isolated, tmp_path
 ):
     hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj", "api")
-    me = session(hub, "proj", "Add a retry")
+    me = session(hub, "proj", "Add a retry", mode="auto")  # (no looser than its target: no card)
     api = session(hub, "api", "Serve the API", mode="auto")
     pending = await ask_for(hub, api)
     out = await tools_of(hub, me)["message_session"](
@@ -151,7 +151,7 @@ async def test_messages_between_sessions_are_capped_and_sensible(
 ):
     monkeypatch.setattr(codepeers, "PER_HOUR", 2)
     hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj")
-    me = session(hub, "proj", "One")
+    me = session(hub, "proj", "One", mode="auto")
     other = session(hub, "proj", "Two", mode="auto")
     recording(hub)
     message = tools_of(hub, me)["message_session"]
@@ -212,3 +212,41 @@ def drain_all(q):
     while not q.empty():
         events.append(q.get_nowait())
     return events
+
+
+async def test_a_stricter_session_asks_before_it_drives_a_bypass_one(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """CD8 (bug sweep r1): Plan or Manual messaging a session on Bypass (or Auto) asks the
+    owner; a session already on Bypass messages another on Bypass as before."""
+    hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj", "api")
+    planner = session(hub, "proj", "Plan it", mode="plan")
+    target = session(hub, "api", "Deploy", mode="auto")
+    sent = recording(hub)
+    asked = asyncio.create_task(
+        tools_of(hub, planner)["message_session"]({"session": target.id, "message": "Deploy now."})
+    )
+    assert await until(lambda: hub.approvals)
+    (card,) = hub.approvals.values()
+    assert card["task_id"] == target.id and "Bypass permissions" in card["detail"]
+    hub.resolve(card["id"], "deny")
+    out = await asked
+    assert out["is_error"] and sent == []
+    peer = session(hub, "proj", "Also bypass", mode="auto")
+    out = await tools_of(hub, peer)["message_session"]({"session": target.id, "message": "Hi."})
+    assert not out.get("is_error") and [s[0] for s in sent] == [target.id] and not hub.approvals
+    close_all(hub)
+
+
+async def test_an_unattended_run_cant_message_other_sessions(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj", "api")
+    run = session(hub, "proj", "Run", mode="edits")
+    target = session(hub, "api", "Other", mode="edits")
+    hub.code_runs.active[run.id] = object()
+    sent = recording(hub)
+    out = await tools_of(hub, run)["message_session"]({"session": target.id, "message": "x"})
+    assert out["is_error"] and "without the owner" in said(out) and sent == []
+    hub.code_runs.active.pop(run.id)
+    close_all(hub)

@@ -36,7 +36,8 @@
     "Comparing…": "正在比较…",
     "Done: pick the one to keep.": "完成：挑一个保留。",
     "Kept.": "已保留。",
-    "Judge (Haiku)": "评判（Haiku）"
+    "Judge (Haiku)": "评判（Haiku）",
+    "Bypass permissions lets these sessions run any command and change any file without asking you. Start them in it?": "绕过权限会让这些会话不经询问就运行任何命令、修改任何文件。要以它开始吗？"
   },
   "patterns": [
     ["^tests failed \\((-?\\d+)\\)$", "测试失败（$1）"],

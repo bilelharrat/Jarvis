@@ -20,7 +20,8 @@ const NAME = 'Ask Eden';
 const BUNDLE_ID = 'com.askeden.eden.mac';
 const TEAM = '8CV4X23Y2T';
 const { buildBackend } = require('../scripts/release/backend');
-const EDEN_SRC = process.env.ASKEDEN_HOME || path.join(os.homedir(), 'askeden');
+// Eden's server: ASKEDEN_HOME, else the askeden repo next to this one, never ~/askeden (an old copy: AJ10).
+const EDEN_SRC = require('./mac-policy').askedenHome({ env: process.env, edenDir: __dirname });
 const ENGINE_CACHE = process.env.ASK_EDEN_BACKEND || path.join(APP_DIR, 'dist', '.engine-cache');
 const DEFAULT_FEED = 'https://askeden.com/downloads/ask-eden/release.json';
 
@@ -43,6 +44,9 @@ function addEngine(resources) {
   const backend = path.join(resources, 'backend');
   fs.mkdirSync(backend, { recursive: true });
   execFileSync('/usr/bin/ditto', [path.join(ENGINE_CACHE, 'python'), path.join(backend, 'python')]);
+  if (!fs.existsSync(path.join(EDEN_SRC, 'dist', 'ui', 'server.js'))) {
+    throw new Error(`Eden's server isn't built at ${EDEN_SRC} (dist/ui/server.js): run npm run build there, or set ASKEDEN_HOME`);
+  }
   const server = path.join(resources, 'eden-server');
   fs.mkdirSync(server, { recursive: true });
   for (const f of ['dist', 'web', 'package.json', 'model-router.config.json']) {
@@ -92,7 +96,7 @@ async function main() {
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-eden-'));
   const put = (from, to = from) => { fs.mkdirSync(path.dirname(path.join(stage, to)), { recursive: true }); fs.cpSync(path.join(APP_DIR, from), path.join(stage, to), { recursive: true }); };
   for (const f of ['backend-launch.js', 'backend-share.js', 'update-feed.js', 'features/updates.js']) put(f);
-  for (const f of ['main.js', 'preload.js', 'quick.html', 'quick-preload.js', 'loading.html', 'loading.css']) put(`eden/${f}`);
+  for (const f of ['main.js', 'mac-policy.js', 'window-policy.js', 'preload.js', 'quick.html', 'quick-preload.js', 'loading.html', 'loading.css']) put(`eden/${f}`);
   put('eden/build/icon-1024.png');
   put('eden/build/boot-sound.wav');
   for (const f of fs.readdirSync(path.join(APP_DIR, 'eden', 'build')).filter((n) => /Template(@2x)?\.png$/.test(n))) put(`eden/build/${f}`);

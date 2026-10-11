@@ -17,8 +17,9 @@ on disk, the newest previewcheck.PROOFS_KEPT, like the Preview check's.
 
 Cost policy (Claude): this feature never calls a model itself. Each refinement round is one
 more turn of the session (its own model, its own spending caps), sent only when the owner
-presses Refine on that round's card: at most MAX_ROUNDS (the owner picks 1-5, default
-DEFAULT_ROUNDS) per design. The comparisons cost nothing.
+presses Refine on that round's card: at most the match's rounds per design. The window
+doesn't ask for a number, so each match gets DEFAULT_ROUNDS; dm_start's `rounds` (and
+task_send's `design_rounds`) would set 1-MAX_ROUNDS. The comparisons cost nothing.
 """
 
 from __future__ import annotations
@@ -223,8 +224,9 @@ class DesignMatch:
         text = f"{BUILD_PROMPT}\n\n{words}" if words else BUILD_PROMPT
         media, data, name = design
         if not self.hub.tasks.send(
-            task.id, text, [{"media_type": media, "data": data, "name": name or "design"}]
-        ):
+            task.id, text, [{"media_type": media, "data": data, "name": name or "design"}],
+            by_user=True,
+        ):  # fmt: skip
             self.error("The session couldn't take another message just now.")
             return
         self.begin(task.id, design, msg.get("rounds"))

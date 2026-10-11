@@ -15,7 +15,8 @@
 
 import { $, el, ico, toast, debounce, setSeg } from './util.js';
 import { state, ui, saveSettings, path } from './state.js';
-import { streamSSE, postJSON } from './api.js';
+import { streamSSE, postJSON, QUIET_LIMIT } from './api.js';
+import { DEADLINE } from './resilience.js';
 import { routeSettings } from './router.js';
 import { privacyOn } from './privacy.js';
 import { macBody } from './files.js';
@@ -106,7 +107,7 @@ export function evesWanted(c, user, text) {
     if (c && c.kind !== 'code' && !told.has(applies.why)) { told.add(applies.why); toast(`EVES is on, but not for this message. ${applies.why}`); }
     return null;
   }
-  const m = wantsEves({ mode, applies, text, factual, risk: serverRisk(text) });
+  const m = wantsEves({ mode, applies, text, factual, risk: serverRisk(text), internal: !!(user && user.origin) }); // AC1: never Auto on Eden's own prompt
   if (!m) return null;
   const t = String(text || '').trim();
   const ev = est && est.data && !est.loading && est.text === t ? estimateView(est.data, { privacy: privacyOn(c) }) : null;
@@ -253,7 +254,7 @@ export function beginEves(node, plan, ctrl, onChange) {
   const turn = {
     state: s,
     /** The body for POST /api/chat/eves from the body a normal reply would send; resolves when the stream ends. */
-    send: (base) => streamSSE('/api/chat/eves', evesBody(base, plan), { signal: ctrl.signal, onEvent: turn.onEvent }),
+    send: (base) => streamSSE('/api/chat/eves', evesBody(base, plan), { signal: ctrl.signal, onEvent: turn.onEvent, idleTimeout: DEADLINE.idle, quietTimeout: QUIET_LIMIT.ms }), // AC2-2: a stalled EVES ends (timeout + Retry)
     onEvent(type, d) {
       const data = d && typeof d === 'object' ? d : {};
       if (type === 'provenance') node.provenance = data;

@@ -16,12 +16,12 @@ import { setOverride } from './router.js';
 import { closeArtifact } from './artifact.js';
 import { bootSoundWelcomeRow } from './boot-sound.js';
 import { closeSpace } from './panels.js';
-import { closeCalendar, calendarOpen } from './calendar.js';
+import { closeCalendar, calendarOpen } from './mail-lazy.js'; // false while the calendar isn't loaded
 import { closeBrief, briefOpen } from './brief.js';
 import { closeMemory, memoryOpen } from './memory.js';
 import { closeTasks, tasksOpen } from './tasks.js';
 import { closeWorkflows, workflowsOpen } from './workflows.js';
-import { openAccount, closeAccount, accountOpen } from './account.js';
+import { openAccount, closeAccount, accountOpen } from './account-lazy.js';
 import { closePane } from './files.js';
 import { IN_APP } from './native.js';
 import { CHAPTERS, STEPS, WHATS_THIS, stepsOf } from './tour-steps.js';
@@ -76,7 +76,7 @@ const A = {
     if (b) b.click();
   },
   closePopovers: () => { for (const id of ['spendPop', 'costPop', 'chipPop']) { const n = $(id); if (n) n.classList.remove('show'); } },
-  openAccount: () => { try { if (!accountOpen()) openAccount(); } catch { /* not here */ } },
+  openAccount: () => { try { if (!accountOpen()) openAccount().catch(() => {}); } catch { /* not here */ } },
   /** Closes every sheet, panel and page the earlier steps opened. */
   closeSurfaces: () => {
     A.closePalette(); A.closeDialog(); A.closeSettings();
@@ -112,7 +112,7 @@ function enterPractice({ step = null, fresh = false } = {}) {
   if (state.streams && state.streams.size) { toast('Wait for the reply to finish (or stop it), then start the tour.'); return; }
   let p = load();
   if (fresh) { p = { ...M.newProgress(), seen: true }; resetPractice(); }
-  p = { ...p, seen: true, optOut: false, active: true, step: step || p.step, ctx: PRACTICE ? p.ctx : realCtx(), returnTo: PRACTICE ? p.returnTo : hereUrl() };
+  p = { ...p, seen: true, optOut: false, active: true, resumeAsked: false, step: step || p.step, ctx: PRACTICE ? p.ctx : realCtx(), returnTo: PRACTICE ? p.returnTo : hereUrl() };
   save(p);
   if (PRACTICE) { closeSheet(); runFrom(step ? STEPS.find((s) => s.id === step) : M.resumeStep(STEPS, p)); return; }
   location.assign(practiceUrl({ step: p.step }));
@@ -165,6 +165,9 @@ function openSheet(card, label, { calmMs = 0 } = {}) {
 
 /** The welcome: what the tour is, its chapters with minutes and progress, Start or Resume. */
 export function openWelcome({ chapter = null, auto = false } = {}) {
+  // Shown by itself once only (owner, 2026-10-10: "only the first time, not every log in"): seen as soon as it
+  // opens, so closing it with Escape, a reload or signing in again doesn't bring it back. ⌘K › Take the tour does.
+  if (auto) save({ ...load(), seen: true });
   const p = load();
   const chapters = M.chapterStatus(CHAPTERS, STEPS, p);
   const total = chapters.reduce((m, c) => m + c.minutes, 0);
@@ -620,7 +623,11 @@ function useSample(where) {
 
 /* ---------------- "What's this?" on each feature ---------------- */
 
+// Off (owner, 2026-10-09: "get rid of the ? i already have one i dont need two"): the title bar's ? already
+// opens Help and the tour, so the panels don't each get a second one. WHATS_THIS stays for the tour's chapters.
+const WHATS_THIS_ON = false;
 function whatsThis() {
+  if (!WHATS_THIS_ON) return;
   for (const w of WHATS_THIS) {
     for (const head of document.querySelectorAll(w.sel)) {
       if (head.querySelector(':scope > .tour-whats') || head.closest('.tour-ui')) continue;
@@ -642,19 +649,26 @@ function whatsThis() {
 /* ---------------- start ---------------- */
 
 let inited = false;
-export function initTour() {
+/**
+ * The tour's start (tour-lazy.js calls it once this module has loaded). `deferred`: loaded later, on first use, so the
+ * decisions made at page load (practice mode, the first visit's welcome, the resume offer) were already made there and
+ * nothing runs again here. `appEvents: false`: the iPhone app's hand-off is listened for by tour-lazy.js (from boot).
+ */
+export function initTour({ deferred = false, appEvents = true } = {}) {
   if (inited) return;
   inited = true;
   document.body.append(el('div', { id: 'tourLive', class: 'sr-only', 'aria-live': 'polite', role: 'status' }));
   // "What's this?": added as feature sheets open
+  // (a reply streaming into the conversation changes nothing a "What's this?" goes on: those changes don't look)
   let wt = false;
-  new MutationObserver(() => { if (wt) return; wt = true; requestAnimationFrame(() => { wt = false; whatsThis(); }); }).observe(document.body, { childList: true, subtree: true });
+  const log = $('transcript');
+  new MutationObserver((list) => {
+    if (wt || (log && list.every((m) => log.contains(m.target)))) return;
+    wt = true; requestAnimationFrame(() => { wt = false; whatsThis(); });
+  }).observe(document.body, { childList: true, subtree: true });
   // the iPhone app's welcome hands off here (ios/Eden/Onboarding.swift, through the bridge)
-  addEventListener('eden:from-app', (e) => {
-    let m = e.detail;
-    if (typeof m === 'string') { try { m = JSON.parse(m); } catch { return; } }
-    if (m && m.kind === 'tour' && m.op === 'start') enterPractice({ step: m.step || null, fresh: !!m.fresh });
-  });
+  if (appEvents) addEventListener('eden:from-app', (e) => { const m = appTourStart(e.detail); if (m) enterPractice(m); });
+  if (deferred) return;
   if (PRACTICE) {
     document.documentElement.classList.add('eden-practice');
     startDetect(); // first, so a step sees the microphone tap the next listener keeps from the real one
@@ -686,7 +700,18 @@ export function initTour() {
       openWelcome({ auto: true });
     });
   }
-  else if (p.active && !IN_APP) setTimeout(() => toast('Pick up the tour where you left off?', { label: 'Resume', run: () => enterPractice() }), 1200);
+  // asked once per tour left part-way, not at every visit
+  else if (p.active && !p.resumeAsked && !IN_APP) {
+    save({ ...p, resumeAsked: true });
+    setTimeout(() => toast('Pick up the tour where you left off?', { label: 'Resume', run: () => enterPractice() }), 1200);
+  }
+}
+
+/** The iPhone app's "start the tour" message (eden:from-app) → enterPractice's options, or null. */
+export function appTourStart(detail) {
+  let m = detail;
+  if (typeof m === 'string') { try { m = JSON.parse(m); } catch { return null; } }
+  return m && m.kind === 'tour' && m.op === 'start' ? { step: m.step || null, fresh: !!m.fresh } : null;
 }
 
 export { enterPractice, A as tourActions };

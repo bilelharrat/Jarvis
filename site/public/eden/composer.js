@@ -8,19 +8,21 @@
 // Search / Research, or Manual / Accept edits / Plan / Auto in Code conversations. Dictate
 // and Talk (the mic and the waveform beside send) live in voice.js.
 
-import { $, el, toast, fmtCost, fmtTokens, sizeText, placePopup, shortModel, effortLabel, EFFORT_SHORT, store, isTouch, noKeys } from './util.js';
+import { $, el, toast, fmtCost, fmtTokens, sizeText, placePopup, shortModel, effortLabel, EFFORT_SHORT, store, isTouch, touchFirst, noKeys } from './util.js';
 import { browseMode, setBrowseMode } from './browser-agent.js';
 import { state, path, nodeText, sessionCost, persona, ui } from './state.js';
 import { initVoice, voiceEscape } from './voice.js';
 import { currentOverride, setOverride, availableModels, modelInfo, setPreviewText as setRoutePreviewText, levels, setLevel, scatter, rowsToCandidates, openChipPop, closeChipPop, chipPopOpenFor, PROVIDER_NAMES, schedulePreview } from './router.js';
 import { initCompare, renderEstimate } from './compare.js';
-import { initEves, renderEvesChip, setEvesDraft } from './eves.js'; // EVES: the switch in this row, and the price of the draft
+import { initEves, renderEvesChip, setEvesDraft } from './eves-lazy.js'; // EVES: the switch in this row, and the price of the draft
 import { macChips, macMenuItems } from './files.js';
 import { api } from './api.js';
 import { mentionEntries, setScope, dropScope } from './tools-ui.js'; // @calendar / @mail scope chips
+import { imagesOn } from './eden-tools.js'; // pictures (make_image): /image only while they're on
 import { clock, confirmText, isVideo, needsConfirm, videoProblem } from './video-model.js';
 import { deckEstimate } from './deck-model.js'; // Q14: a deck's cost before it's made
-import { stripBidi, putDraft, getDraft, DRAFT_KEY } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
+import { stripBidi, putDraft, getDraft, DRAFT_KEY, earlyStop } from './resilience.js'; // shares one at a time, the draft kept per chat (B3, B9, B18)
+import { pasteAttachment } from './long-text.js'; // AC4: a very long paste goes as a text file, not into the composer
 
 let H = {}; // handlers from app.js
 
@@ -87,7 +89,7 @@ const curMode = () => { const c = state.current; return c ? c.mode : (state.pend
 /* ---------- slash commands, keys ---------- */
 const SLASH_CHAT = [
   ['new', 'New chat'], ['temp', 'New temporary chat (not saved)'], ['chat', 'Chat mode'], ['search', 'Search mode: web, with sources'],
-  ['research', 'Research mode: a sourced report'], ['slides', 'Slides mode: a deck in the canvas'], ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
+  ['research', 'Research mode: a sourced report'], ['slides', 'Slides mode: a deck in the canvas'], ...(imagesOn() ? [['image', 'Make a picture: /image what to draw']] : []), ['model', 'Switch model: /model sonnet (or auto)'], ['effort', 'How hard it thinks: /effort high'],
   ['level', 'Router level: /level 1–5'], ['persona', 'Persona: /persona name (or none)'], ['note', 'Attach a note from your Mac: /note query'],
   ['memory', 'What your Mac remembers'], ['calendar', 'Your calendar this week'], ['brief', 'Your day: the brief and meeting prep'], ['brain', 'Search your second brain'],
   ['meetings', 'Meeting notes and their action items'], ['web', 'Do this on a website: /web what to do'], ['browse', 'Eden uses the cloud browser: /browse what to do'], ['undo', 'What Eden did, with Undo'],
@@ -99,10 +101,11 @@ const SLASH_CODE = [
   ['code', 'New Code session'], ['manual', 'Ask before each edit and command'], ['edits', 'Accept edits automatically'], ['plan', 'Plan first, you approve'],
   ['auto', 'Auto: run anything without asking'], ['changes', 'Show what changed'], ['todos', 'The to-do list'], ['activity', 'Tool activity (⌘J)'],
 ];
-const KEYS = [
+// app.js onKey. AC14: ⌘⇧B and ⌘⇧O were missing; AC11: a browser keeps ⌘N for a new window, so there it lists ⌘⇧O only
+const KEYS = (inApp) => [
   ['⏎', 'Send'], ['⇧⏎', 'New line'], ['⌘⏎', 'Steer: queue for the running Code step'], ['↑ ↓', 'Your earlier messages'],
   ['⇧⇥', 'Switch mode'], ['⌘⇧M', 'Mode menu'], ['⌘⇧I', 'Model'], ['⌘⇧E', 'Effort'], ['⌘U', 'Attach files'],
-  ['⌘K', 'Search and commands'], ['⌘N', 'New chat'], ['⌘B', 'Sidebar'], ['⌘⌥0', 'Inspector'], ['⌘J', 'Code activity'], ['⌘,', 'Settings'],
+  ['⌘K', 'Search and commands'], ...(inApp ? [['⌘N', 'New chat']] : []), ['⌘⇧O', 'New chat'], ['⌘B', 'Sidebar'], ['⌘⇧B', 'Browser'], ['⌘⌥0', 'Inspector'], ['⌘J', 'Code activity'], ['⌘,', 'Settings'],
   ['Esc', 'Stop, or close a menu or pane'], ['/', 'Commands'], ['@', 'Mention a note or persona'],
 ];
 
@@ -118,7 +121,7 @@ const input = () => $('deck-input');
 function suggestions() {
   const inp = input();
   const v = inp.value.slice(0, inp.selectionStart);
-  if (inp.value === '?') return { kind: 'keys', items: KEYS.map(([key, help]) => ({ label: key, help, value: '' })) };
+  if (inp.value === '?') return { kind: 'keys', items: KEYS(document.documentElement.classList.contains('eden-app')).map(([key, help]) => ({ label: key, help, value: '' })) };
   if (/^\/[\w.:-]*$/.test(v)) {
     const q = v.slice(1).toLowerCase();
     const list = [...SLASH_CHAT, ...(state.current && state.current.kind === 'code' ? SLASH_CODE : SLASH_CODE.slice(0, 1))];
@@ -147,7 +150,7 @@ function fetchMentions(q) {
       if (mentionQuery !== q) return;
       mentionItems = notes.slice(0, 8).map((n) => ({ label: n.title, help: `Note · ${n.meta}`, value: n.title, note: n }));
       renderSuggestions();
-    } catch { /* Eden away: no notes */ }
+    } catch { /* Jarvis away: no notes */ }
   }, 250);
 }
 
@@ -287,11 +290,14 @@ async function cleanPicture(file) {
   }
 }
 /** A video's length and first frame (a small JPEG), read in the page: { seconds, thumb }. */
-function probeVideo(file) {
+export const PROBE_VIDEO_MS = 10_000; // a file the browser never finishes reading: an answer anyway (its length if known)
+function probeVideo(file, ms = PROBE_VIDEO_MS) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement('video');
-    const done = (out) => { URL.revokeObjectURL(url); resolve(out); };
+    let over = false;
+    const timer = setTimeout(() => done(Number.isFinite(v.duration) && v.duration > 0 ? { seconds: v.duration, thumb: '' } : null), ms);
+    const done = (out) => { if (over) return; over = true; clearTimeout(timer); URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(out); };
     v.preload = 'metadata'; v.muted = true; v.playsInline = true;
     v.onerror = () => done(null);
     v.onloadedmetadata = () => { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); };
@@ -354,6 +360,7 @@ export function addFile(file) {
     if (kind === 'text') {
       if (result.includes('\u0000')) { toast(`${file.name} isn’t a text file.`); return; }
       attachments.push({ kind, mime: file.type || 'text/plain', text: result, name: file.name, size: file.size });
+      dispatchEvent(new CustomEvent('eden:attached', { detail: { name: file.name, text: result } })); // app.js: a rubric opens the essay writer
     } else attachments.push({ kind, mime: file.type, data: result.split(',', 2)[1], url: result, name: file.name, size: file.size });
     renderAttachments();
   };
@@ -384,6 +391,7 @@ function addDocument(file) {
     }
     if (cut) { text += cut; toast(`${file.name} is long: its first part is attached (as much as one message carries).`); }
     attachments.push({ kind: 'text', mime: 'text/plain', text: text.trim(), name: file.name, size: text.length });
+    dispatchEvent(new CustomEvent('eden:attached', { detail: { name: file.name, text: text.trim() } })); // app.js: a rubric opens the essay writer
     renderAttachments();
   }, (e) => { reading.delete(slot); renderAttachments(); toast(`${file.name}: ${e.message || 'couldn’t be read.'}`); });
 }
@@ -904,6 +912,20 @@ export function setComposerText(text, { append = false } = {}) {
   renderComposer();
 }
 export function clearAttachments() { attachments = []; renderAttachments(); }
+/**
+ * Talk shrunk to the orb sends its own words alone (AJ2-6): the files and context waiting in the
+ * composer are set aside, and the function returned puts them back.
+ */
+export function setAsideAttachments() {
+  const kept = attachments, ctx = state.draftContext;
+  attachments = [];
+  state.draftContext = [];
+  return () => {
+    attachments = kept.concat(attachments);
+    state.draftContext = ctx.concat(state.draftContext || []);
+    renderAttachments();
+  };
+}
 
 /* The unsent draft, per chat, for this tab (sessionStorage): back after a reload, or after iOS
    ends the app's page in the background (B9). Words only; what's attached isn't kept. */
@@ -949,6 +971,8 @@ export function initComposer(handlers) {
     if (c && state.streams.has(c.id)) {
       e.preventDefault();
       if (inp.value.trim()) { steerThis = true; $('deck-composer').requestSubmit(); return; }
+      const st = state.streams.get(c.id);
+      if (earlyStop(st && st.node && st.node.startedAt)) return; // AC7: the second click of a double click on Send
       H.stop();
     }
   });
@@ -1032,12 +1056,34 @@ export function initComposer(handlers) {
   inp.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== inp) $('cc-slash').hidden = true; }, 120));
   inp.addEventListener('paste', (e) => {
     const files = [...(e.clipboardData ? e.clipboardData.files : [])];
-    if (files.length) { e.preventDefault(); files.forEach(addFile); }
+    if (files.length) { e.preventDefault(); files.forEach(addFile); return; }
+    // AC4: megabytes of text in the box (and then in the chat) made send and reload take many seconds, or crash the tab
+    const big = e.clipboardData ? pasteAttachment(e.clipboardData.getData('text/plain'), MAX_TEXT) : null;
+    if (!big) return;
+    e.preventDefault();
+    attachLongText(big, 'paste');
   });
+  /** A paste or drop too long for the box goes as a text file (AC4); with six attachments already, it says why it went nowhere (AC2-16). */
+  function attachLongText(big, how) {
+    if ([...attachments, ...reading].length >= MAX_FILES) { toast(`This ${how} is too long for the box, so it goes as a text file, but this message already has six attachments (the most). Remove one, then ${how} it again.`); return; }
+    attachments.push({ kind: 'text', mime: 'text/plain', text: big.text, name: how === 'drop' ? 'Dropped text.txt' : 'Pasted text.txt', size: big.text.length });
+    renderAttachments();
+    toast(big.cut ? `Long ${how}: its first part is attached as a text file (as much as one message carries).` : `Long ${how} attached as a text file.`);
+  }
   const comp = $('deck-composer');
   comp.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); comp.classList.add('drag'); } });
   comp.addEventListener('dragleave', () => comp.classList.remove('drag'));
-  comp.addEventListener('drop', (e) => { e.preventDefault(); comp.classList.remove('drag'); [...e.dataTransfer.files].forEach(addFile); });
+  comp.addEventListener('drop', (e) => {
+    comp.classList.remove('drag');
+    const files = [...e.dataTransfer.files];
+    if (files.length) { e.preventDefault(); files.forEach(addFile); return; }
+    // AC2-17: dragged text goes in the box (the drop used to be cancelled): where it's dropped in the box, at the end elsewhere on the composer
+    const text = e.dataTransfer.getData('text/plain');
+    if (!text) return;
+    const big = pasteAttachment(text, MAX_TEXT);
+    if (big) { e.preventDefault(); attachLongText(big, 'drop'); return; }
+    if (e.target !== inp) { e.preventDefault(); setComposerText(text, { append: true }); }
+  });
   // a drop anywhere on the conversation attaches too
   $('split').addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); comp.classList.add('drag'); } });
   $('split').addEventListener('dragleave', (e) => { if (!$('split').contains(e.relatedTarget)) comp.classList.remove('drag'); });
@@ -1079,14 +1125,24 @@ export function initComposer(handlers) {
       else if (e.key === 'Tab') closeMenu();
     });
   }
-  document.addEventListener('mousedown', (e) => {
+  // pointerdown, not mousedown: iOS sends mouse events only for a tap on something tappable, so a tap on blank space
+  // (the sidebar under a chat's menu) never closed the menu there.
+  document.addEventListener('pointerdown', (e) => {
     const inside = (id) => $(id).contains(e.target);
     if (!$('jc-menu').hidden && !inside('jc-menu') && !inside('jc-submenu') && !($('jc-menu')._anchor && $('jc-menu')._anchor.contains(e.target))) closeMenu();
     if (!$('jc-effort-pop').hidden && !inside('jc-effort-pop') && !e.target.closest('#jc-effort')) closeEffort();
     if (!$('jc-ctx-pop').hidden && !e.target.closest('#jc-ctx-pop, #jc-ctx')) closeCtx();
     if ($('costPop').classList.contains('show') && !e.target.closest('#costPop, #cc-meta')) closeCostPop();
   });
-  addEventListener('resize', () => { closeMenu(); closeEffort(); closeCtx(); closeCostPop(); });
+  // On a touch screen only a change of width closes them: the keyboard opening or closing changes the height alone,
+  // and a menu opened while typing moves the focus out of the text box, so the keyboard's going shut it at once.
+  let resizeW = innerWidth;
+  addEventListener('resize', () => {
+    const sameW = innerWidth === resizeW;
+    resizeW = innerWidth;
+    if (sameW && touchFirst()) return;
+    closeMenu(); closeEffort(); closeCtx(); closeCostPop();
+  });
 
   // global composer keys
   document.addEventListener('keydown', (e) => {

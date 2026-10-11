@@ -66,13 +66,14 @@ The Mac that builds needs Xcode (for swiftc), uv with its own CPython 3.12 and t
      Integrations › App Store Connect API › Team Keys › + (Developer access). Download the
      `.p8` once, and note its Key ID and the Issuer ID.
 
-3. **Store it for notarytool, once** (it lives in your keychain under the profile name):
+3. **Store it for notarytool, once** (it lives in your keychain under the profile name; use a
+   profile of team 8CV4X23Y2T only, never the older `jarvis-notary` one, which is another team's):
 
    ```sh
    # with the app-specific password (it asks for it):
-   xcrun notarytool store-credentials jarvis-notary --apple-id you@example.com --team-id 8CV4X23Y2T
+   xcrun notarytool store-credentials bilel-notary --apple-id you@example.com --team-id 8CV4X23Y2T
    # or with the API key:
-   xcrun notarytool store-credentials jarvis-notary --key ~/AuthKey_ABC123DEFG.p8 --key-id ABC123DEFG --issuer 01234567-89ab-cdef-0123-456789abcdef
+   xcrun notarytool store-credentials bilel-notary --key ~/AuthKey_ABC123DEFG.p8 --key-id ABC123DEFG --issuer 01234567-89ab-cdef-0123-456789abcdef
    ```
 
 4. **Build it.** Bump `version` in `app/package.json` first for every release you publish.
@@ -80,7 +81,7 @@ The Mac that builds needs Xcode (for swiftc), uv with its own CPython 3.12 and t
    ```sh
    cd app
    JARVIS_SIGN_IDENTITY="Developer ID Application: Bilel Harrat (8CV4X23Y2T)" \
-   JARVIS_NOTARY_PROFILE=jarvis-notary \
+   JARVIS_NOTARY_PROFILE=bilel-notary \
    JARVIS_UPDATE_URL=https://github.com/bilelharrat/Jarvis/releases/latest/download/release.json \
    npm run dist
    ```

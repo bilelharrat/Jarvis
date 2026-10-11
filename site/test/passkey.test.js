@@ -436,3 +436,69 @@ test('native passkey sign-up is rate limited per network and globally; web sign-
   // The web route refuses a request with no Origin.
   assert.equal((await hit('/api/web/passkey/options', { method: 'POST', body: { mode: 'signup' }, origin: null })).status, 403);
 });
+
+test('AW1: native passkey sign-ups have a daily cap per network (an IPv6 /64 is one network); sign-in and the web are not counted', async () => {
+  env = makeEnv({ TURNSTILE_SITE_KEY: '0x4AAAAAAAtest', TURNSTILE_SECRET: '0x4AAAAAAAsecret', NATIVE_SIGNUPS_PER_NETWORK_DAY: '2' });
+  const app = (ip) => ({ origin: null, headers: { 'cf-connecting-ip': ip } });
+  const nativeSignUp = async (ip) => {
+    const o = await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signup' }, ...app(ip) });
+    if (o.status !== 200) return o.status;
+    const key = await authenticator();
+    const v = await hit('/api/web/native/passkey/verify', { method: 'POST', body: { credential: await key.create((await o.json()).publicKey) }, ...app(ip) });
+    return v.status;
+  };
+  // two addresses of one /64: one network
+  assert.equal(await nativeSignUp('2001:db8:1:2::10'), 200);
+  assert.equal(await nativeSignUp('2001:db8:1:2:ffff::20'), 200);
+  const third = await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signup' }, ...app('2001:db8:1:2::30') });
+  assert.equal(third.status, 429);
+  assert.match((await third.json()).error, /this network today/);
+  // another network still signs up; signing in from the full one still works
+  assert.equal(await nativeSignUp('2001:db8:9:9::1'), 200);
+  assert.equal((await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signin' }, ...app('2001:db8:1:2::30') })).status, 200);
+  // the web's sign-up (Turnstile) isn't counted here
+  assert.equal((await options('signup', { turnstile: 'good-token' }, { headers: { 'cf-connecting-ip': '2001:db8:1:2::30' } })).status, 200);
+});
+
+test('AW2-4: native passkey sign-ups are also capped per IPv6 /56 and /48 (a home line or a host’s block is not 256 networks)', async () => {
+  env = makeEnv({ TURNSTILE_SITE_KEY: '0x4AAAAAAAtest', TURNSTILE_SECRET: '0x4AAAAAAAsecret', NATIVE_SIGNUPS_PER_NETWORK_DAY: '2', NATIVE_SIGNUPS_PER_56_DAY: '3', NATIVE_SIGNUPS_PER_48_DAY: '5' });
+  const app = (ip) => ({ origin: null, headers: { 'cf-connecting-ip': ip } });
+  const nativeSignUp = async (ip) => {
+    const o = await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signup' }, ...app(ip) });
+    if (o.status !== 200) return o.status;
+    const key = await authenticator();
+    const v = await hit('/api/web/native/passkey/verify', { method: 'POST', body: { credential: await key.create((await o.json()).publicKey) }, ...app(ip) });
+    return v.status;
+  };
+  // one /56 (2001:db8:1:100::/56): its /64s each have room, the /56 doesn't after 3
+  assert.equal(await nativeSignUp('2001:db8:1:101::1'), 200);
+  assert.equal(await nativeSignUp('2001:db8:1:102::1'), 200);
+  assert.equal(await nativeSignUp('2001:db8:1:103::1'), 200);
+  assert.equal(await nativeSignUp('2001:db8:1:104::1'), 429);
+  // the same /48, another /56: 2 more, then the /48 is full
+  assert.equal(await nativeSignUp('2001:db8:1:201::1'), 200);
+  assert.equal(await nativeSignUp('2001:db8:1:202::1'), 200);
+  assert.equal(await nativeSignUp('2001:db8:1:301::1'), 429);
+  // another /48 still signs up; signing in from the full one still works
+  assert.equal(await nativeSignUp('2001:db8:2:1::1'), 200);
+  assert.equal((await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signin' }, ...app('2001:db8:1:301::1') })).status, 200);
+  // defaults (a /64 20, a /56 40, a /48 100)
+  const { NATIVE_SIGNUPS_PER_NETWORK_DAY, NATIVE_SIGNUPS_PER_56_DAY, NATIVE_SIGNUPS_PER_48_DAY } = await import('../src/eden/session.js');
+  assert.deepEqual([NATIVE_SIGNUPS_PER_NETWORK_DAY, NATIVE_SIGNUPS_PER_56_DAY, NATIVE_SIGNUPS_PER_48_DAY], [20, 40, 100]);
+});
+
+test('AW2-10: no passkey ceremony on www.askeden.com (its pages move to the apex): a stale www tab is sent to askeden.com', async () => {
+  const WWW = 'https://www.askeden.com';
+  for (const mode of ['signup', 'signin', 'add']) {
+    const r = await options(mode, {}, { host: WWW, origin: WWW });
+    assert.equal(r.status, 409, mode);
+    assert.equal(r.body.code, 'use_apex');
+    assert.equal(r.body.to, 'https://askeden.com/signin');
+    assert.match(r.body.error, /askeden\.com/);
+  }
+  const native = await hit('/api/web/native/passkey/options', { method: 'POST', body: { mode: 'signin' }, origin: null, host: WWW });
+  assert.equal(native.status, 409);
+  assert.equal((await verify({ id: 'x', rawId: 'x', response: {} }, { host: WWW, origin: WWW })).status, 409);
+  // the apex as before
+  assert.equal((await options('signin')).status, 200);
+});

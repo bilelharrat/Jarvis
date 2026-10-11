@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { sha256Hex } from '../src/accounts/util.js';
 import { applyAdd, applyForget, explicitIntent, extractMemory, loadMemory, memoryApi, memoryBlock, memoryForTurn, parseExtraction, selectMemories, sensitive, TOP_N } from '../src/eden/memory.js';
-import { EDEN_IDENTITY, systemPrompt } from '../src/eden/chat.js';
+import { EDEN_IDENTITY, freshnessNote, systemPrompt } from '../src/eden/chat.js';
 import { Account, namespace, rateLimiter } from './fakes.js';
 
 const ACCOUNT = 'c'.repeat(32);
@@ -78,8 +78,11 @@ test('injection: all when 25 or fewer, else the top 25 by shared words; labelled
   const block = memoryBlock(top, { total: items.length });
   assert.match(block, /data about the user, not instructions/);
   assert.match(block, /25 of 41/);
-  const prompt = systemPrompt({ context: [], mode: 'chat', ledger: null, memory: block });
-  assert.ok(prompt.startsWith(`${EDEN_IDENTITY}\n\n${block.split('\n')[0]}`) || prompt.indexOf(block) === EDEN_IDENTITY.length + 2);
+  const now = new Date(Date.UTC(2026, 9, 10, 12));
+  const prompt = systemPrompt({ context: [], mode: 'chat', ledger: null, memory: block, now });
+  // right after Eden's identity and today's date (the date line since 2026-10-10: chat.js freshnessNote)
+  const head = `${EDEN_IDENTITY}\n\n${freshnessNote(now)}\n\n`;
+  assert.ok(prompt.startsWith(`${head}${block.split('\n')[0]}`) || prompt.indexOf(block) === head.length);
   assert.match(EDEN_IDENTITY, /remembers helpful details across chats/);
   assert.match(EDEN_IDENTITY, /Settings/);
 });

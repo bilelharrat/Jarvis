@@ -8,7 +8,8 @@ Each runs in its own session and process group, under a small supervisor:
   command) checks once a second that the app is still its parent; when the app has gone
   without stopping it (a crash, a kill -9), it takes its whole group down.
 - Output (stdout and stderr together) arrives as lines: colours stripped, a progress bar's
-  redraws (\\r) kept to their last state, a line with no end cut at LINE_MAX.
+  redraws (\\r) kept to their last state, a very long line cut at LINE_MAX (marked "…"),
+  except for output read as data (a checker's JSON: line_max=None).
 - The environment is the owner's login shell's, as a terminal has it: an app started from
   the Dock has only the system's PATH, without Homebrew, nvm, uv or cargo.
 """
@@ -122,6 +123,12 @@ _ANSI = re.compile(
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
+# Back to the start of the line (ESC[G, ESC[0G, ESC[1G: Node's readline.cursorTo(0)) or the
+# whole line erased (ESC[2K): a redraw in place, as a \r is.
+_TO_LINE_START = re.compile(r"\x1b\[(?:[01]?G|2K)")
+CUT_BACK = 120  # a cut line goes back this far, at most, to end between words
+
+
 def strip_ansi(text: str) -> str:
     """Colours, cursor moves and other terminal controls out of a line of output."""
     return _CONTROL.sub("", _ANSI.sub("", text))
@@ -129,33 +136,67 @@ def strip_ansi(text: str) -> str:
 
 class LineSplitter:
     """Output as it comes (in any chunks) -> finished lines. A \\r without a \\n (a progress
-    bar redrawing) keeps only what's after it, as a terminal shows it."""
+    bar redrawing) keeps only what's after it, as a terminal shows it. A line longer than
+    line_max is cut, marked with "…" (None: kept whole, for output read as data: a
+    checker's JSON). One with no end past partial_max: a progress bar keeps only its latest
+    drawing and waits for its end; anything else is said once, cut, and the rest of it is
+    left out until its end."""
 
-    def __init__(self) -> None:
+    def __init__(self, line_max: int | None = LINE_MAX, partial_max: int = PARTIAL_MAX) -> None:
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._partial = ""
+        self._skipping = False  # the rest of a line already said (cut) is left out
+        self.line_max, self.partial_max = line_max, partial_max
 
     def feed(self, data: bytes) -> list[str]:
         text = self._partial + self._decoder.decode(data)
+        if "\x1b[" in text:  # a bar redrawn by moving to the line's start (no \r)
+            text = _TO_LINE_START.sub("\r", text)
         parts = text.split("\n")
         self._partial = parts.pop()
-        if len(self._partial) > PARTIAL_MAX:  # no end in sight: take it as it is
-            parts.append(self._partial)
+        if self._skipping and parts:  # the end of the over-long line: its rest goes
+            parts.pop(0)
+            self._skipping = False
+        out = [_line(p, self.line_max) for p in parts]
+        if self._skipping:
             self._partial = ""
-        return [_line(p) for p in parts]
+        elif len(self._partial) > self.partial_max:
+            if self.line_max is None:  # (read as data: taken as it is)
+                out.append(_line(self._partial, None))
+                self._partial = ""
+            else:
+                if "\r" in self._partial:  # a progress bar: only its latest drawing
+                    self._partial = self._partial.rsplit("\r", 1)[-1]
+                if len(self._partial) > self.partial_max:  # one very long line: said once
+                    out.append(_line(self._partial, self.line_max, cut=True))
+                    self._partial, self._skipping = "", True
+        return out
 
     def flush(self) -> list[str]:
         """What's left at the end of the output."""
         rest = self._partial + self._decoder.decode(b"", final=True)
         self._partial = ""
-        return [_line(rest)] if rest.strip() else []
+        if self._skipping:
+            self._skipping = False
+            return []
+        return [_line(rest, self.line_max)] if rest.strip() else []
 
 
-def _line(raw: str) -> str:
+def _line(raw: str, line_max: int | None = LINE_MAX, cut: bool = False) -> str:
     raw = raw.rstrip("\r")
     if "\r" in raw:  # redrawn in place: only the last drawing is what shows
         raw = raw.rsplit("\r", 1)[-1]
-    return strip_ansi(raw)[:LINE_MAX]
+    text = strip_ansi(raw)
+    if line_max is not None and (cut or len(text) > line_max):
+        # Between words where there's one near: a key the cut fell in goes whole (its
+        # prefix with it), never its start alone, which masking would no longer know.
+        kept = text[: line_max - 1]
+        if len(text) >= line_max and not text[line_max - 1].isspace():
+            space = kept.rfind(" ", len(kept) - CUT_BACK)
+            if space > 0:
+                kept = kept[:space]
+        return kept + "…"
+    return text
 
 
 class LogRing:
@@ -290,9 +331,20 @@ class Proc:
         env: dict[str, str],
         on_lines: Callable[[list[str]], None],
         on_exit: Callable[[int | None], None] | None = None,
+        line_max: int | None = LINE_MAX,
+        orphans: bool = False,
     ) -> None:
         self.argv, self.cwd, self.env = list(argv), cwd, env
+        # orphans: what it set loose as a daemon (forked twice, its own session, launchd its
+        # parent) is found at Stop by the mark its environment carries, and stops with it.
+        self.orphans = orphans
+        self.tag = f"{os.getpid()}-{id(self)}-{time.time_ns()}"
+        self.started_at = 0.0
         self.on_lines, self.on_exit = on_lines, on_exit
+        self.line_max = line_max  # None: lines kept whole (output read as data)
+        # Processes seen under it: {pid: when it started}. One that moved to a session of
+        # its own (a daemon, setsid) is out of the group and the session, and still goes.
+        self._kin: dict[int, float] = {}
         self.proc: asyncio.subprocess.Process | None = None
         self.returncode: int | None = None
         self.stopping = False
@@ -315,6 +367,8 @@ class Proc:
 
     async def start(self) -> None:
         """Raises OSError when it can't start at all."""
+        env = {**self.env, RUN_TAG: self.tag} if self.orphans else self.env
+        self.started_at = time.time()
         try:
             self.proc = await asyncio.create_subprocess_exec(
                 sys.executable,
@@ -324,7 +378,7 @@ class Proc:
                 SUPERVISE_WIN if osplat.IS_WIN else SUPERVISE,
                 *self.argv,
                 cwd=str(self.cwd),
-                env=self.env,
+                env=env,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -338,7 +392,11 @@ class Proc:
 
     async def _read(self) -> None:
         assert self.proc is not None and self.proc.stdout is not None
-        splitter = LineSplitter()
+        splitter = (
+            LineSplitter()
+            if self.line_max == LINE_MAX
+            else LineSplitter(self.line_max, PARTIAL_MAX if self.line_max else 4_000_000)
+        )
         ended_at = killed_at = 0.0
         try:
             while True:
@@ -353,7 +411,7 @@ class Proc:
                     now = time.monotonic()
                     ended_at = ended_at or now
                     if not killed_at and now - ended_at >= LINGER:
-                        await asyncio.to_thread(kill_leftovers, self.proc.pid)
+                        await asyncio.to_thread(self.kill_rest)
                         killed_at = time.monotonic()
                     elif killed_at and now - killed_at >= LINGER:
                         transport = getattr(self.proc, "_transport", None)
@@ -371,7 +429,7 @@ class Proc:
                 self._deliver(rest)
             self.returncode = await self.proc.wait()
             # What it left running in its session (a watcher it spawned) goes with it.
-            await asyncio.to_thread(kill_leftovers, self.proc.pid)
+            await asyncio.to_thread(self.kill_rest)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -408,13 +466,66 @@ class Proc:
             if self.proc is None:
                 return  # it never started
         pid = self.proc.pid
+        await asyncio.to_thread(self.note_kin)
         signal_group(pid, signal.SIGTERM)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._done.wait(), grace)
+        if self.orphans:  # (looked for after the SIGTERM: they're launchd's already)
+            await asyncio.to_thread(self.note_orphans, signal.SIGTERM)
+        end = time.monotonic() + grace
+        ended_at = 0.0
+        while not self._done.is_set() and time.monotonic() < end:
+            if self.proc.returncode is not None and self._kin:
+                ended_at = ended_at or time.monotonic()
+                if time.monotonic() - ended_at >= 1.0:
+                    # It ended a moment ago, and something it set loose still holds its
+                    # output: that goes too.
+                    await asyncio.to_thread(self.kill_kin)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._done.wait(), 0.1)
         if not self._done.is_set():
-            await asyncio.to_thread(kill_leftovers, pid)
+            await asyncio.to_thread(self.kill_rest)
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._done.wait(), 3.0)
+        if self._kin:  # (a daemon found after its end was taken in)
+            await asyncio.to_thread(self.kill_kin)
+
+    def note_orphans(self, sig: int | None = None) -> None:
+        """Remember (and send sig to) the daemons it set loose: blocking."""
+        for pid, born in find_orphans({self.tag: self}).get(self.tag, {}).items():
+            self._kin.setdefault(pid, born)
+            if sig is not None:
+                with contextlib.suppress(OSError):
+                    os.kill(pid, sig)
+
+    def note_kin(self) -> None:
+        """Remember the processes under it now (blocking: psutil)."""
+        if self.proc is None or self.proc.returncode is not None:
+            return
+        import psutil
+
+        with contextlib.suppress(Exception):
+            for child in psutil.Process(self.proc.pid).children(recursive=True):
+                with contextlib.suppress(Exception):
+                    self._kin.setdefault(child.pid, child.create_time())
+
+    def kill_kin(self) -> None:
+        """SIGKILL to the processes seen under it that are still there (the same ones: a
+        pid used again by another process is left alone)."""
+        if not self._kin:
+            return
+        import psutil
+
+        for pid, born in list(self._kin.items()):
+            with contextlib.suppress(Exception):
+                found = psutil.Process(pid)
+                if abs(found.create_time() - born) < 0.01:
+                    found.kill()
+        self._kin.clear()
+
+    def kill_rest(self) -> None:
+        """Its group, its session and what was seen under it: SIGKILL (blocking)."""
+        if self.proc is not None:
+            kill_leftovers(self.proc.pid)
+        self.kill_kin()
 
     def kill_now(self) -> None:
         """The app is quitting: the group gets SIGTERM, then SIGKILL a moment later (one
@@ -423,6 +534,33 @@ class Proc:
         if self.proc is None or self.proc.returncode is not None:
             return
         signal_group(self.proc.pid, signal.SIGTERM)
+
+
+RUN_TAG = "JARVIS_RUN_TAG"  # in the environment of what a Proc(orphans=True) starts
+
+
+def find_orphans(procs: dict[str, Proc]) -> dict[str, dict[int, float]]:
+    """{tag: {pid: when it started}}: processes whose parent is launchd (a daemon, forked
+    twice: in neither the group nor the session), started since its Proc, by the same
+    user, carrying its mark. One look at the process list for all of them (blocking)."""
+    if osplat.IS_WIN or not procs:
+        return {}
+    import psutil
+
+    since = min(p.started_at for p in procs.values()) - 1.0
+    me = os.getuid()
+    found: dict[str, dict[int, float]] = {}
+    for pid in psutil.pids():
+        with contextlib.suppress(Exception):
+            p = psutil.Process(pid)
+            with p.oneshot():
+                if p.ppid() != 1 or p.create_time() < since or p.uids().real != me:
+                    continue
+                born = p.create_time()
+            tag = p.environ().get(RUN_TAG)
+            if tag in procs and born >= procs[tag].started_at - 1.0:
+                found.setdefault(tag, {})[pid] = born
+    return found
 
 
 def signal_group(pgid: int, sig: int) -> None:
@@ -441,11 +579,14 @@ def session_pids(sid: int) -> list[int]:
         with contextlib.suppress(Exception):
             return [sid, *(c.pid for c in psutil.Process(sid).children(recursive=True))]
         return []
+    # The bare pid list and one getsid each: 1.5 ms for 600 processes, where process_iter
+    # (a psutil.Process made for each) took 9-30 ms, and 70 ms on a busy Mac, every 2 s
+    # while a dev server hadn't said its address (devservers._watch).
     found = []
-    for p in psutil.process_iter(["pid"]):
+    for pid in psutil.pids():
         with contextlib.suppress(OSError):
-            if os.getsid(p.info["pid"]) == sid:
-                found.append(p.info["pid"])
+            if os.getsid(pid) == sid:
+                found.append(pid)
     return found
 
 
@@ -462,9 +603,15 @@ def kill_leftovers(sid: int) -> None:
 
 def kill_all_now(procs: Iterable[Proc], grace: float = 1.5) -> None:
     """At exit, synchronously: SIGTERM to every group, a moment, then SIGKILL."""
+    procs = list(procs)
     live = [p for p in procs if p.proc is not None and p.proc.returncode is None]
     for p in live:
+        p.note_kin()
         p.kill_now()
+    with contextlib.suppress(Exception):  # their daemons too (one look for all of them)
+        tagged = {p.tag: p for p in live if p.orphans}
+        for tag, pids in find_orphans(tagged).items():
+            tagged[tag]._kin.update(pids)
     deadline = time.monotonic() + grace
     while live and time.monotonic() < deadline:
         live = [p for p in live if _group_alive(p.proc.pid)]  # type: ignore[union-attr]
@@ -472,6 +619,9 @@ def kill_all_now(procs: Iterable[Proc], grace: float = 1.5) -> None:
             time.sleep(0.05)
     for p in live:
         kill_leftovers(p.proc.pid)  # type: ignore[union-attr]
+    for p in procs:
+        with contextlib.suppress(Exception):
+            p.kill_kin()
 
 
 def _group_alive(pgid: int) -> bool:
@@ -548,7 +698,7 @@ async def run_quiet(
                 lines.append(line)
                 size += len(line) + 1
 
-    proc = Proc(argv, cwd, env, take)
+    proc = Proc(argv, cwd, env, take, line_max=None)
     try:
         await proc.start()
     except OSError as exc:

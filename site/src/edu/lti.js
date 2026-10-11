@@ -217,6 +217,9 @@ export function cleanRegistration(body, id) {
   };
 }
 
+// The tool's registered addresses are always the apex (AW3-7): a registration copied from www.askeden.com would strand
+// students between the two hosts (the ticket cookie on www, sign-in on the apex). Other hosts (local, tests) as asked.
+export const canonicalOrigin = (origin) => (/^https:\/\/www\.askeden\.com$/i.test(origin) ? 'https://askeden.com' : origin);
 const toolUrls = (origin) => ({ login: `${origin}/lti/login`, redirect: `${origin}/lti/launch`, launch: `${origin}/lti/launch`, deep_link: `${origin}/lti/launch`, jwks: `${origin}/lti/jwks` });
 
 /** GET/POST /api/admin/lti: the owner's server call (Bearer LTI_ADMIN_TOKEN, no browser). */
@@ -227,7 +230,7 @@ export async function ltiAdmin(request, env) {
     if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Not from a web page.');
     const bearer = /^Bearer\s+(.+)$/i.exec(request.headers.get('authorization') || '');
     if (!bearer || !sameText(bearer[1], secret)) throw new ApiError(401, 'unauthorized', 'No.');
-    const origin = new URL(request.url).origin;
+    const origin = canonicalOrigin(new URL(request.url).origin);
     if (request.method === 'GET') return json({ tool: { ...toolUrls(origin), key: Boolean(await toolKey(env)) }, ...(await store(env, 'lti-reg-list')) });
     if (request.method !== 'POST') throw new ApiError(405, 'method', 'GET or POST.');
     const body = await request.json().catch(() => ({}));
@@ -273,7 +276,8 @@ export async function ltiRoute(request, env, ctx, path, deps = {}) {
   try {
     if (path === '/lti/jwks' && request.method === 'GET') {
       const key = await toolKey(env);
-      return json(key ? { keys: [key.jwk] } : { keys: [] }, key ? 200 : 503, { 'cache-control': 'public, max-age=300', 'access-control-allow-origin': '*' });
+      // no key yet: not cached anywhere, so platforms see the key as soon as it's set
+      return json(key ? { keys: [key.jwk] } : { keys: [] }, key ? 200 : 503, { 'cache-control': key ? 'public, max-age=300' : 'no-store', 'access-control-allow-origin': '*' });
     }
     const ip = request.headers.get('cf-connecting-ip') || 'unknown';
     // logins write a state: limited per network (120 a minute; a class behind one school address fits); a launch needs a state already
@@ -373,13 +377,10 @@ async function carryOn(request, env, origin, deps) {
 }
 
 async function ownedCourses(env, account) {
-  const { ids } = await courseOp(env, `acct:${account}`, 'index-acct-list');
-  const out = [];
-  for (const id of ids) {
-    const v = await courseOp(env, id, 'view', { account }).catch(() => null);
-    if (v && v.role === 'owner') out.push({ id: v.id, name: v.name, term: v.term });
-  }
-  return out;
+  const { ids, owned } = await courseOp(env, `acct:${account}`, 'index-acct-list');
+  // the courses it made (the index keeps them, edu/course.js), read at once
+  const views = await Promise.all((owned || ids).map((id) => courseOp(env, id, 'card', { account }).catch(() => null)));
+  return views.filter((v) => v && v.role === 'owner').map((v) => ({ id: v.id, name: v.name, term: v.term }));
 }
 const roleIn = (env, course, account) => courseOp(env, course, 'ping', { account }).then((r) => r.role, () => null);
 
@@ -425,7 +426,7 @@ async function act(env, origin, { t, hash, account, link, p, deps }) {
       await store(env, 'lti-ticket-delete', { hash });
       return done(`<h1>Connected</h1><p>Students who open Eden from “${esc(t.context.title)}” now join your Eden course.</p><a class="btn" href="/edu#/course/${esc(course)}">Open the course in Eden</a>`);
     }
-    const view = await courseOp(env, course, 'view', { account });
+    const view = await courseOp(env, course, 'card', { account }); // its name
     const { reg } = await store(env, 'lti-reg-get', { id: t.reg });
     const jwt = await signJwt(env, {
       iss: reg.client_id, aud: [reg.issuer], iat: Math.floor(deps.now / 1000), exp: Math.floor(deps.now / 1000) + 300, nonce: b64url(randomBytes(16)),

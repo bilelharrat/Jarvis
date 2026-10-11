@@ -17,9 +17,10 @@ What it adds, and where:
   (claude mcp add-json, remove, login: the sign-in opens the browser, and the server is
   reconnected when it's done).
 
-A project's shared servers (.mcp.json) run commands whoever wrote the file chose: one found
-there waits for the owner's approval (the pane shows what it runs), kept in the folder's
-settings.local.json (the owner's alone). Nothing goes into a project's shared files but a
+A project's shared servers (.mcp.json) run commands whoever wrote the file chose: none runs
+until the owner trusts the folder (features.code_trust), and then one found there waits for
+the owner's approval (the pane shows what it runs; until then it's switched off on the
+session's connection), kept in the folder's settings.local.json (the owner's alone). Nothing goes into a project's shared files but a
 server the owner adds there with "This project, shared".
 
 Cost policy (Claude): this feature never calls a model.
@@ -34,7 +35,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .. import codemcp
+from .. import codemcp, projectfiles
 from ..codeplatform import background, code_task
 from ..connectors import SERVER_PREFIX as SHARED_PREFIX
 from ..connectors import server_name
@@ -51,6 +52,10 @@ REFUSED = "The project's MCP server {name} stays off here."
 SHARED = "{name} (from Tools & Accounts) is shared with this session now."
 UNSHARED = "{name} isn't shared with this session any more."
 SIGNED_IN = "Signed in to {name}."
+SLOW_FILES = (
+    "Couldn't read this folder's MCP servers files in time (a slow or stuck disk?): "
+    "its servers aren't listed."
+)
 
 
 def _last_line(text: str) -> str:
@@ -148,8 +153,18 @@ class McpDesk:
 
     async def state(self, task: Any, **extra: Any) -> None:
         state_path, settings_path = self.paths()
-        servers = await asyncio.to_thread(codemcp.configured, task.cwd, state_path, settings_path)
+        problems: list[str] = []
+        try:  # (a project's own files: their own pool, never long: CD3-1)
+            servers = await projectfiles.run(
+                codemcp.configured, task.cwd, state_path, settings_path, problems
+            )
+        except TimeoutError:
+            servers, problems = [], [SLOW_FILES]
+        if problems and "note" not in extra:
+            extra["note"] = " ".join(problems)
         live = await self.live(task)
+        trust = getattr(self.hub, "code_trust", None)
+        trusted = trust is None or trust.trusted(task)
         rows = []
         for server in servers:
             row = server.public()
@@ -157,6 +172,8 @@ class McpDesk:
             if server.approved is not False:  # (one refused here isn't the session's)
                 row.update(info)
             row.update(off=server.name in task.disabled_mcp, removable=True)
+            if server.scope == "project" and not trusted:
+                row.update(untrusted=True)  # the folder isn't trusted: it doesn't run
             rows.append(row)
         for name, info in live.items():  # JARVIS's own, a plugin's, or claude.ai's
             rows.append(
@@ -180,6 +197,7 @@ class McpDesk:
             servers=rows,
             connectors=self.connectors(task),
             live=task.client is not None,
+            trusted=trusted,
             signing=sorted(name for (where, name) in self.signing if where == folder),
             **extra,
         )
@@ -218,8 +236,8 @@ class McpDesk:
             await self.state(task, error=f"Claude Code didn't add it: {_last_line(said) or code}")
             return
         if scope == "project":  # the owner's own server: approved here as it's added
-            with contextlib.suppress(OSError):
-                await asyncio.to_thread(codemcp.approve, task.cwd, name, True)
+            with contextlib.suppress(OSError):  # (TimeoutError is one)
+                await projectfiles.run(codemcp.approve, task.cwd, name, True)
         self.reopen(task, ADDED.format(name=name))
         await self.state(task, added=name)
 
@@ -249,7 +267,12 @@ class McpDesk:
             return
         yes = msg.get("approve") is True
         try:
-            await asyncio.to_thread(codemcp.approve, task.cwd, name, yes)
+            await projectfiles.run(codemcp.approve, task.cwd, name, yes)
+        except TimeoutError:
+            await self.state(
+                task, error="settings.local.json took too long to save: look again in a moment."
+            )
+            return
         except OSError as exc:
             await self.state(task, error=str(exc))
             return

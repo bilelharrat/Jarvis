@@ -3,7 +3,8 @@
 // Eden (when Gmail can't archive: no gmail.modify grant, or Mail on your Mac), follow-up
 // reminders, VIPs and settings. Kept in this browser, and by Eden's server on the Mac
 // (src/chat/mailkit.ts) or, on askeden.com, in the account's end-to-end encrypted sync
-// (`eden/mailkit`), like signatures. The later `at` wins.
+// (`eden/mailkit`), like signatures. Two copies merge per item (mailkit-merge.js): the later
+// change of each snooze, Done mark, rule… wins, not the later object.
 //
 // Your writing style: Eden reads up to 120 of the owner's sent emails, keeps only what they
 // wrote (mail-voice.js ownText), measures how they write (styleStats) and asks a cheap model
@@ -19,6 +20,7 @@ import { timings, SPEED_TARGETS, clearMailCache } from './mail-cache.js';
 import { RULE_SYSTEM, parseRule, describeRule, matchRule } from './mail-rules.js';
 import { routeSettings, modelInfo } from './router.js';
 import { locale } from './i18n.js';
+import { mergeMailkit, stampChanges, pruneStamps, canonical, triageOf, restOf, joinKit, TRIAGE_SECTIONS, STAMP_MAX } from './mailkit-merge.js';
 import {
   ownText, stripCommonTail, styleStats, describeStyle, pickExamples, voiceInstructions, exampleContext, editContext,
   STYLE_GUIDE_SYSTEM, guideContext, languageOf, intentOf, situationOf, expectedFrame, embedText, packVec, unpackVec,
@@ -27,6 +29,7 @@ import {
 
 // Mock mode (?mock=1) keeps its own copy: a real page on the same origin must never pick up test data and sync it to the server.
 const KEY = isMock ? 'eden:mail:kit:mock' : 'eden:mail:kit';
+const TRIAGE_KEY = `${KEY}:triage`; // the snoozes and Done marks, kept apart: a Done writes only them
 export const DEFAULT_PREFS = { voice: true, instant: true, split: true, undoSend: 10, autoLearn: true, receipts: false, autoDrafts: true, autoDraftsPerDay: 10, checkDrafts: true, privateMail: false, dailyBrief: true };
 const MAX_EXAMPLES = 100;
 const MAX_EDITS = 40; // drafts next to what was sent, and notes (kept small: the whole object syncs)
@@ -35,12 +38,18 @@ const RELEARN_MS = 7 * 86_400_000;
 
 let H = {};
 let syncHook = null;
+let triageHook = null;
+let triageRoute = true; // false once the Mac's server said it has no /api/chat/mailkit/triage (an older one)
 let kit = load();
 const listeners = new Set();
 
 function load() {
   const v = store.get(KEY, null);
-  return v && typeof v === 'object' ? v : { at: 0 };
+  const base = v && typeof v === 'object' ? v : { at: 0 };
+  const t = store.get(TRIAGE_KEY, null);
+  if (!t || typeof t !== 'object') return base; // before the split (or nothing yet): the one copy as it is
+  const old = triageOf(base); // a copy from before the split still holding snoozes or Done marks: merged per item
+  return joinKit(base, old.snoozed !== undefined || old.done !== undefined ? mergeMailkit(old, t) : t);
 }
 const hosted = () => !!(state.meta && state.meta.hosted);
 
@@ -56,15 +65,85 @@ export function update(fn) {
   next.at = Date.now();
   // Done marks older than 30 days go (the message is long out of the inbox's first page)
   if (next.done) for (const [id, t] of Object.entries(next.done)) if (Date.now() - t > 30 * 86_400_000) delete next.done[id];
+  next.stamps = stampChanges(kit, next, next.at); // what changed, per item (the merge's clock)
   set(next);
-  if (hosted()) { if (syncHook) syncHook.changed(); return; }
-  postJSON('/api/chat/mailkit', next).then((kept) => { if (kept && kept.at > next.at) set(kept); }, () => { /* pushed again at the next load */ });
+  if (hosted()) { if (syncHook) syncHook.changed(); if (triageHook) triageHook.changed(); return; }
+  postJSON('/api/chat/mailkit', next).then((kept) => adopt(kept), (e) => refused(e, () => postJSON('/api/chat/mailkit', kit).then((kept) => adopt(kept)))); // else pushed again at the next load
 }
-function set(v) {
-  kit = v;
-  if (!store.set(KEY, v) && v.voice) { // a full quota: the style's examples are the big part
-    store.set(KEY, { ...v, voice: { ...v.voice, examples: (v.voice.examples || []).slice(0, 20) } });
+
+/**
+ * The Mac's server refused a save (400: too big, too many stamps; AM2-1): this copy is made smaller (stamps pruned
+ * and capped, the style's examples cut) and sent once more; refused again, the owner is told, not left thinking it
+ * was kept. Anything else (no server, offline): sent again at the next load, as before.
+ */
+let refusedOnce = false;
+function refused(e, again) {
+  if (!e || e.status !== 400) return;
+  if (!refusedOnce) {
+    refusedOnce = true;
+    const next = { ...kit, stamps: pruneStamps({ ...(kit.stamps || {}) }, kit, Date.now()) };
+    const st = Object.keys(next.stamps);
+    if (st.length > STAMP_MAX / 2) for (const p of st.filter((x) => x.startsWith('i:')).sort((x, y) => next.stamps[x] - next.stamps[y]).slice(0, st.length - STAMP_MAX / 2)) delete next.stamps[p];
+    if (JSON.stringify(next).length > 1_400_000 && next.voice && Array.isArray(next.voice.examples)) next.voice = { ...next.voice, examples: next.voice.examples.slice(0, 40) };
+    set(next);
+    again().then(() => { refusedOnce = false; }, (e2) => { if (e2 && e2.status === 400) toast(`Eden couldn’t save your Mail settings on this Mac (${e2.message}). They’re kept in this browser.`); refusedOnce = false; });
+    return;
   }
+  toast(`Eden couldn’t save your Mail settings on this Mac (${e.message}). They’re kept in this browser.`);
+}
+
+/**
+ * A change to the snoozes and Done marks only (snooze, unsnooze, markDone): the same as update(), but it copies,
+ * stamps, stores and sends those alone (a few KB), not the whole object with the writing style's examples (up to
+ * 1.5 MB) on every Done. The Mac's server gets /api/chat/mailkit/triage (an older one: the whole object, as
+ * before); askeden.com the small `eden/mailtriage` sync item.
+ */
+function updateTriage(fn) {
+  const before = triageOf(kit);
+  const t = JSON.parse(JSON.stringify(before));
+  fn(t);
+  t.at = Date.now();
+  if (t.done) for (const [id, at] of Object.entries(t.done)) if (Date.now() - at > 30 * 86_400_000) delete t.done[id];
+  // the stamps update() would make: the other sections are the same objects, so only these can have changed
+  const next = { ...kit, at: t.at };
+  for (const s of TRIAGE_SECTIONS) { if (t[s] !== undefined) next[s] = t[s]; else delete next[s]; }
+  next.stamps = stampChanges({ ...before, stamps: kit.stamps }, t, t.at, next); // pruned against the whole copy
+  set(next, { triage: true });
+  if (hosted()) { if (triageHook) triageHook.changed(); return; }
+  const whole = () => postJSON('/api/chat/mailkit', kit).then((kept) => adopt(kept));
+  if (!triageRoute) { whole().catch((e) => refused(e, whole)); return; }
+  postJSON('/api/chat/mailkit/triage', triageOf(next)).then((kept) => adoptTriage(kept), (e) => {
+    if (e && e.status === 404) { triageRoute = false; whole().catch((e2) => refused(e2, whole)); }
+    else refused(e, () => postJSON('/api/chat/mailkit/triage', triageOf(kit)).then((kept) => adoptTriage(kept)));
+  });
+}
+/** Another copy of the snoozes and Done marks (the Mac's answer, another device's): merged in; → whether anything changed. */
+function adoptTriage(theirs) {
+  if (!theirs || typeof theirs !== 'object') return false;
+  const mine = triageOf(kit);
+  const merged = mergeMailkit(mine, triageOf(theirs));
+  if (canonical(merged) === canonical(mine)) return false;
+  set(joinKit(kit, merged), { triage: true });
+  return true;
+}
+/** Another copy (the server's answer, another device's): merged in; → whether anything here changed. */
+function adopt(theirs) {
+  if (!theirs || typeof theirs !== 'object') return false;
+  const merged = mergeMailkit(kit, theirs);
+  if (canonical(merged) === canonical(kit)) return false;
+  set(merged);
+  return true;
+}
+// `triage`: only the snoozes and Done marks changed, so only their small copy is written again
+function set(v, { triage = false } = {}) {
+  kit = v;
+  if (!triage) {
+    const rest = restOf(v);
+    if (!store.set(KEY, rest) && v.voice) { // a full quota: the style's examples are the big part
+      store.set(KEY, { ...rest, voice: { ...v.voice, examples: (v.voice.examples || []).slice(0, 20) } });
+    }
+  }
+  store.set(TRIAGE_KEY, triageOf(v));
   for (const fn of listeners) { try { fn(kit); } catch { /* a listener's own problem */ } }
 }
 
@@ -74,17 +153,26 @@ export async function initMailkit() {
   if (hosted()) {
     syncItem({
       key: 'eden/mailkit',
-      value: () => kit,
-      merge: (theirs) => { if (!theirs || typeof theirs !== 'object' || !((theirs.at || 0) > (kit.at || 0))) return false; set(theirs); return true; },
+      value: () => kit, // still the whole object (a device on an older page reads only this item)
+      merge: (theirs) => adopt(theirs),
       bind(hook) { syncHook = hook; },
+    });
+    syncItem({ // the snoozes and Done marks alone: what a Done or a snooze pushes (updateTriage)
+      key: 'eden/mailtriage',
+      value: () => triageOf(kit),
+      merge: (theirs) => adoptTriage(theirs),
+      bind(hook) { triageHook = hook; },
     });
     return;
   }
   try {
     const kept = await getJSON('/api/chat/mailkit');
-    if (kept && (kept.at || 0) > (kit.at || 0)) set(kept);
-    else if ((kit.at || 0) > (kept.at || 0)) { const stored = await postJSON('/api/chat/mailkit', kit); if (stored) set(stored); }
-  } catch { /* no server (or an older one): this browser's copy */ }
+    adopt(kept);
+    // this browser had something the server didn't: it gets the merged copy (and merges it too). Compared as
+    // canonical text: the server's copy lists its keys in another order, which re-sent the whole kit on every
+    // Mail open (AM2-4)
+    if (canonical(kit) !== canonical(kept)) adopt(await postJSON('/api/chat/mailkit', kit));
+  } catch (e) { refused(e, () => postJSON('/api/chat/mailkit', kit).then((k) => adopt(k))); /* else no server (or an older one): this browser's copy */ }
 }
 
 /* ---------------- private mode (ROADMAP P4): Mail's AI on this Mac only ---------------- */
@@ -284,9 +372,9 @@ export const serverDrafts = { get: () => getJSON('/api/chat/autodrafts'), set: (
 
 /* ---------------- snoozes, Done, follow-ups ---------------- */
 
-export function snooze(id, info) { update((k) => { (k.snoozed ||= {})[id] = info; }); }
-export function unsnooze(id) { update((k) => { if (k.snoozed) delete k.snoozed[id]; }); }
-export function markDone(ids, on = true) { update((k) => { k.done ||= {}; for (const id of ids) { if (on) k.done[id] = Date.now(); else delete k.done[id]; } }); }
+export function snooze(id, info) { updateTriage((k) => { (k.snoozed ||= {})[id] = info; }); }
+export function unsnooze(id) { updateTriage((k) => { if (k.snoozed) delete k.snoozed[id]; }); }
+export function markDone(ids, on = true) { updateTriage((k) => { k.done ||= {}; for (const id of ids) { if (on) k.done[id] = Date.now(); else delete k.done[id]; } }); }
 export const isDone = (id) => !!(kit.done && kit.done[id]);
 export const snoozedOf = (id) => (kit.snoozed && kit.snoozed[id]) || null;
 export function addFollowUp(f) { update((k) => { k.followups = [...(k.followups || []).filter((x) => x.threadId !== f.threadId), { id: uid('fu'), ...f }].slice(-200); }); }
@@ -368,7 +456,7 @@ function speedNode() {
       el('tbody', '', ...rows.map((t) => { const target = SPEED_TARGETS[t.kind]; const ok = t.p95 !== null && target && t.p95 <= target;
         return el('tr', '', el('td', '', t.label), el('td', '', `${t.p50} ms`), el('td', ok ? 'ok' : 'slow', `${t.p95} ms`), el('td', 'muted', target ? `${target} ms` : ''), el('td', 'muted', String(t.n))); })))
       : el('p', 'muted', 'Nothing measured yet: open Mail and a few emails, then come back.'),
-    el('div', 'dlg-acts', el('span', 'grow'), el('button', { type: 'button', class: 'btn', onclick: async (e) => { await clearMailCache(); e.currentTarget.textContent = 'Cleared'; toast('Mail kept in this browser cleared'); } }, 'Clear cached mail')));
+    el('div', 'dlg-acts', el('span', 'grow'), el('button', { type: 'button', class: 'btn', onclick: async (e) => { const b = e.currentTarget; await clearMailCache(); b.textContent = 'Cleared'; toast('Mail kept in this browser cleared'); } }, 'Clear cached mail')));
 }
 
 /**

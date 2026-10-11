@@ -7,7 +7,7 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.bshventures.jarvis.ask-service</string>
 	<key>CFBundleName</key>
-	<string>Ask JARVIS</string>
+	<string>Ask Eden</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>NSServices</key>
@@ -20,7 +20,7 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Ask JARVIS</string>
+				<string>Ask Eden</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>runWorkflowAsService</string>

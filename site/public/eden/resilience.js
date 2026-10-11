@@ -4,7 +4,7 @@
 // No DOM here: src/__tests__/resilience.test.ts loads this file as the page serves it.
 
 /** How long the page waits before it says so (ms). */
-export const DEADLINE = { status: 8_000, jarvis: 25_000, google: 5_000, voice: 15_000, head: 25_000, approval: 130_000 };
+export const DEADLINE = { status: 8_000, jarvis: 25_000, google: 5_000, voice: 15_000, head: 25_000, approval: 130_000, idle: 90_000 }; // idle: a chat reply silent this long has stalled (AC5; servers ping every 15 s)
 
 /**
  * A signal that aborts when `parent` does or after `ms`. `timedOut()` tells the two apart; `clear()`
@@ -128,6 +128,26 @@ export function updateAction({ streaming, draft, talking }) {
   return streaming || draft || talking ? 'banner' : 'reload';
 }
 
+/** The deploy's one build stamp from GET /api/chat/build ({ build }), or null (an older server: the per-file check). */
+export function buildStampOf(body) {
+  const b = body && typeof body === 'object' ? body.build : null;
+  return typeof b === 'string' && b && b.length <= 200 ? `b:${b}` : null;
+}
+
+/* ---------- the Mac's line, while it doesn't answer ---------- */
+
+/**
+ * The wait before the next Jarvis status look after `misses` looks that found no Mac: 8 s, 16 s,
+ * 32 s (the Mac's app links itself some seconds after launch), then 1, 2 and 4 minutes, then every
+ * 5 minutes (iOS sweep AI7: every 8 s for good, ~450 requests an hour on a phone with no Mac linked;
+ * opt2-ae-web: once a minute was still ~60 an hour on an idle page). Coming back to the page, or
+ * focusing it, starts again from 8 s, so a Mac linked meanwhile shows as soon as the page is used.
+ */
+export function jarvisPollDelay(misses) {
+  const n = Number.isFinite(misses) && misses > 0 ? Math.floor(misses) : 0;
+  return n < 3 ? 8000 * 2 ** n : Math.min(300_000, 60_000 * 2 ** (n - 3));
+}
+
 /* ---------- the unsent draft, per chat ---------- */
 
 export const DRAFT_KEY = 'eden:drafts';
@@ -151,3 +171,11 @@ export function getDraft(map, chat) {
 
 /** Bidi override and isolate controls (U+202A–202E, U+2066–2069): a shared prompt or file name that reads differently from what it is. */
 export const stripBidi = (s) => String(s == null ? '' : s).replace(/[‪-‮⁦-⁩]/g, '');
+
+/**
+ * AC7 (F7): the Send button turns into Stop as the reply starts, so the second click of a quick double click
+ * (150 ms apart) stopped the reply it had just started. A click on Stop this soon after the turn began is that
+ * second click and is ignored; Esc and later clicks stop as before.
+ */
+export const STOP_GRACE_MS = 400;
+export const earlyStop = (startedAt, now = Date.now()) => Number(startedAt) > 0 && now - startedAt >= 0 && now - startedAt < STOP_GRACE_MS;

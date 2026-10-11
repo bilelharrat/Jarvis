@@ -57,7 +57,7 @@ def test_a_backup_holds_the_stores_and_never_secrets_logs_or_binaries(data, tmp_
     (data / "linked.json").symlink_to(outside)  # a link is never followed into a backup
     (data / "folder.json").mkdir()  # nor is a folder with a store's name
     made = backup.create(data, tmp_path / "Backups", clock=at())
-    assert made["name"] == "Jarvis backup 2026-09-29 at 20.15.12.zip"
+    assert made["name"] == "Eden backup 2026-09-29 at 20.15.12.zip"
     assert made["kind"] == "manual" and made["files"] == 5 and not made["knowledge"]
     assert zip_names(made["path"]) == [
         "data/devices.json",
@@ -98,9 +98,9 @@ def test_kinds_are_named_and_a_second_one_in_the_same_second_gets_its_own_name(d
     daily = backup.create(data, dest, kind="daily", clock=at())
     again = backup.create(data, dest, kind="daily", clock=at())
     safety = backup.create(data, dest, kind="safety", clock=at())
-    assert daily["name"] == "Jarvis backup 2026-09-29 at 20.15.12 (daily).zip"
-    assert again["name"] == "Jarvis backup 2026-09-29 at 20.15.12 (daily) 2.zip"
-    assert safety["name"] == "Jarvis backup 2026-09-29 at 20.15.12 (before restore).zip"
+    assert daily["name"] == "Eden backup 2026-09-29 at 20.15.12 (daily).zip"
+    assert again["name"] == "Eden backup 2026-09-29 at 20.15.12 (daily) 2.zip"
+    assert safety["name"] == "Eden backup 2026-09-29 at 20.15.12 (before restore).zip"
     assert not [p for p in os.listdir(dest) if p.startswith(".")]  # no partial file left
 
 
@@ -213,7 +213,7 @@ def test_the_list_holds_jarvis_backups_newest_first(data, tmp_path):
     backup.create(data, dest, clock=at(0))
     backup.create(data, dest, kind="daily", clock=at(60))
     (dest / "holiday photos.zip").write_bytes(b"PK")  # someone else's zip
-    (dest / ".Jarvis backup x.zip.part").write_bytes(b"PK")
+    (dest / ".Eden backup x.zip.part").write_bytes(b"PK")
     listed = backup.list_backups([dest, tmp_path / "missing"])
     assert [b["kind"] for b in listed] == ["daily", "manual"]
     assert listed[0]["created"] == "2026-09-29T21:15:12" and listed[0]["files"] == 5
@@ -245,7 +245,7 @@ def test_a_restore_is_staged_then_applied_at_the_next_start(data, tmp_path):
     (data / "memory.json").write_text('{"facts": ["changed"]}')
     (data / "transactions.json").write_text('{"spent": 450}')
     (data / "devices.json").write_text("[]")  # a lost phone unpaired since
-    staged = backup.stage(made_path(made), data, safety="Jarvis backup safety.zip", clock=at(5))
+    staged = backup.stage(made_path(made), data, safety="Eden backup safety.zip", clock=at(5))
     assert staged["files"] == 3 and staged["backup"] == made["name"]
     # Nothing the app has open changes until the next start.
     assert json.loads((data / "memory.json").read_text()) == {"facts": ["changed"]}
@@ -328,8 +328,8 @@ def test_old_daily_and_safety_backups_go_but_a_manual_one_or_another_zip_never(d
     (dest / "photos.zip").write_bytes(b"PK")
     removed = backup.prune(dest, "daily")
     assert removed == [
-        "Jarvis backup 2026-09-30 at 20.15.12 (daily).zip",
-        "Jarvis backup 2026-09-29 at 20.15.12 (daily).zip",
+        "Eden backup 2026-09-30 at 20.15.12 (daily).zip",
+        "Eden backup 2026-09-29 at 20.15.12 (daily).zip",
     ]
     left = backup.list_backups([dest])
     assert sum(b["kind"] == "daily" for b in left) == 7

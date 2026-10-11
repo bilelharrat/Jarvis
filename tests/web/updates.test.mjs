@@ -101,11 +101,12 @@ function squirrel() {
   return s;
 }
 
-function updater({ text = releaseJson('0.2.0'), version = '0.1.0', inApplications = true, url = FEED, quiet = false } = {}) {
+function updater({ text = releaseJson('0.2.0'), version = '0.1.0', inApplications = true, url = FEED, quiet = false, ...more } = {}) {
   const auto = squirrel();
   const seen = [];
   const prepared = [];
   const u = updates.createUpdater({
+    ...more,
     version,
     feed: url,
     autoUpdater: auto,
@@ -146,7 +147,7 @@ test('a quiet moment: the Mac untouched ten minutes, the window not in front, JA
 test('a newer release is downloaded by Squirrel, then offered; Restart installs it at once', async () => {
   const { u, auto, seen } = updater();
   assert.equal(u.state().state, 'idle');
-  assert.equal(u.restart(), false); // nothing ready: no restart
+  assert.equal(await u.restart(), false); // nothing ready: no restart
   const state = await u.check();
   assert.equal(state.state, 'downloading');
   assert.equal(state.available, '0.2.0');
@@ -156,7 +157,7 @@ test('a newer release is downloaded by Squirrel, then offered; Restart installs 
   auto.emit('update-downloaded');
   assert.deepEqual({ ...u.state(), notes: undefined }, { version: '0.1.0', enabled: true, state: 'ready', available: '0.2.0', name: 'Eden 0.2.0', notes: undefined });
   assert.deepEqual(auto.calls.slice(2), []); // downloaded, and still running: not while the owner is around
-  assert.equal(u.restart(), true);
+  assert.equal(await u.restart(), true);
   assert.deepEqual(auto.calls.at(-1), ['install']);
   assert.deepEqual(seen.map((s) => s.state), ['checking', 'downloading', 'ready']);
 });
@@ -201,7 +202,7 @@ test('the owner’s own install, which follows the repo, says so instead of “d
   const u = updates.createUpdater({ version: '0.1.5', feed: '', autoUpdater: squirrel(), fetchText: async () => { throw new Error('fetched'); }, inApplications: () => true, follows: true });
   const s = await u.check();
   assert.deepEqual(s, { version: '0.1.5', enabled: false, follows: true, state: 'off' });
-  assert.equal(windowSide.lineFor(s), 'Updates itself from your Jarvis folder whenever main changes.');
+  assert.equal(windowSide.lineFor(s), 'Updates itself from its source folder whenever main changes.');
   assert.equal(windowSide.lineFor({ version: '0.1.5', enabled: false, state: 'off' }), 'This copy doesn’t check for updates.');
   // A feed wins: a downloaded copy never says it follows a folder.
   const fed = updates.createUpdater({ version: '0.1.5', feed: 'https://example.invalid/release.json', autoUpdater: squirrel(), fetchText: async () => '{}', inApplications: () => true, follows: true });
@@ -278,13 +279,107 @@ test('every line the window shows has its Chinese', () => {
     windowSide.lineFor({ enabled: true, platform: 'win32', state: 'downloading', available: '0.1.15', size: 1000, received: 420 }),
     windowSide.lineFor({ enabled: true, platform: 'win32', state: 'installing', available: '0.1.15' }),
     windowSide.cardFor({ name: 'J.A.R.V.I.S. Daredevil', state: 'available', available: '0.1.15', size: 327754786 }),
-    windowSide.cardFor({ name: 'J.A.R.V.I.S.', state: 'available', available: '0.1.15', size: 303723280 }),
+    windowSide.cardFor({ name: 'Eden', state: 'available', available: '0.1.15', size: 303723280 }),
   ];
   assert.deepEqual(lines.filter((line) => chinese(line) === null), []);
   assert.equal(chinese('Downloading 1.2.3…'), '正在下载 1.2.3…');
-  assert.equal(chinese('J.A.R.V.I.S. 1.0.0-beta.2 is ready. Restart to install it.'), 'J.A.R.V.I.S. 1.0.0-beta.2 已准备好，重新启动即可安装。');
+  assert.equal(chinese('Eden 1.0.0-beta.2 is ready. Restart to install it.'), 'Eden 1.0.0-beta.2 已准备好，重新启动即可安装。');
 });
 
 test('the fragment never changes a Chinese string the window already had', () => {
   for (const [key, value] of Object.entries(ours.strings)) if (key in base.strings) assert.equal(value, base.strings[key], key);
+});
+
+test('Eden Code\'s updater says Eden Code, and the window says how often it really checks (CH16)', async () => {
+  assert.equal(updates.appNameFor({ id: 'eden-code', name: 'Eden Code' }), 'Eden Code');
+  assert.equal(updates.appNameFor({ id: 'jarvis', name: 'Eden' }), 'Eden');
+  assert.equal(updates.appNameFor(undefined), 'Eden');
+  const words = updates.wordsFor('Eden Code');
+  assert.equal(words.move, 'Move Eden Code to your Applications folder to get updates.');
+  assert.equal(words.feed, 'The update feed isn’t one Eden Code can read.');
+  assert.deepEqual(updates.wordsFor('Eden'), updates.WORDS);
+  // the feed's own name for it, and the fallback when a feed names none
+  const json = feed.releaseFeed({ version: '0.2.0', zipName: 'Eden Code-0.2.0-mac.zip', feedUrl: FEED, appName: 'Eden Code' });
+  assert.equal(json.releases[0].updateTo.name, 'Eden Code 0.2.0');
+  delete json.releases[0].updateTo.name;
+  assert.equal(feed.parseFeed(JSON.stringify(json), FEED, 'Eden Code').name, 'Eden Code 0.2.0');
+  // an updater made with the name reports it (the About row) and words its problems with it
+  const u = updates.createUpdater({ version: '0.1.0', feed: FEED, name: 'Eden Code', autoUpdater: { on() {}, setFeedURL() {} },
+    fetchText: async () => { throw new Error('offline'); }, inApplications: () => true });
+  assert.equal(u.state().app, 'Eden Code');
+  assert.equal(updates.CHECK_EVERY, 60 * 60 * 1000);
+  const page = readFileSync(new URL('../../src/jarvis/web/features/updates.js', import.meta.url), 'utf8');
+  assert.match(page, /'Checks for updates every hour\.'/);
+  assert.doesNotMatch(page, /every 6 hours/);
+  const dist = readFileSync(new URL('../../app/scripts/release/dist.js', import.meta.url), 'utf8');
+  assert.match(dist, /appName: spec\.display/);
+});
+
+// CH3-1: the install itself fails (Squirrel's error after quitAndInstall). Before, the state stayed "ready" for good,
+// check() refused to run while ready, and nothing was said but a log line.
+test('an install that fails is said, and the next check downloads it again', async () => {
+  for (const how of ['asked', 'quiet']) {
+    const failed = [];
+    let fetched = 0;
+    const { u, auto } = updater({ quiet: true, onInstallFailed: (h) => failed.push(h) });
+    await u.check();
+    fetched += 1;
+    auto.emit('update-downloaded');
+    assert.equal(u.state().state, 'ready');
+    assert.equal(how === 'asked' ? await u.restart() : await u.quiet(), true);
+    assert.deepEqual(auto.calls.at(-1), ['install']);
+    auto.emit('error', new Error('ShipIt: code signature did not match'));
+    assert.deepEqual([u.state().state, u.state().error], ['error', updates.WORDS.install]);
+    assert.deepEqual(failed, [how]); // (main's dialog only for the owner's own Restart: install())
+    const again = await u.check(); // retryable: the feed is read and Squirrel asked again
+    fetched += 1;
+    assert.equal(again.state, 'downloading');
+    assert.equal(auto.calls.filter(([c]) => c === 'check').length, fetched);
+    auto.emit('update-downloaded');
+    assert.equal(u.state().state, 'ready');
+  }
+});
+
+test('an error with nothing installing leaves a ready update ready (as before)', async () => {
+  const failed = [];
+  const { u, auto } = updater({ onInstallFailed: (h) => failed.push(h) });
+  await u.check();
+  auto.emit('update-downloaded');
+  auto.emit('error', new Error('a stray one'));
+  assert.equal(u.state().state, 'ready');
+  assert.deepEqual(failed, []);
+});
+
+// CH3-5: Restart to update stops this app's backend as a quit does, so it asks the quit's question first (main.js
+// mayQuit: the other app busy on it). Cancel: nothing installs, and the update stays ready.
+test('Restart to update asks first when the other app is busy, and Cancel keeps it ready', async () => {
+  let answer = false;
+  const asked = [];
+  const { u, auto } = updater({ askFirst: async () => { asked.push(true); return answer; } });
+  await u.check();
+  auto.emit('update-downloaded');
+  assert.equal(await u.restart(), false);
+  assert.equal(asked.length, 1);
+  assert.equal(auto.calls.some(([c]) => c === 'install'), false);
+  assert.equal(u.state().state, 'ready');
+  answer = true;
+  assert.equal(await u.restart(), true);
+  assert.deepEqual(auto.calls.at(-1), ['install']);
+  // a question that throws is a no
+  const broken = updater({ askFirst: async () => { throw new Error('no window'); } });
+  await broken.u.check();
+  broken.auto.emit('update-downloaded');
+  assert.equal(await broken.u.restart(), false);
+  // the quiet install never asks (it waits for nothing going: /health's busy)
+  const quiet = updater({ quiet: true, askFirst: async () => { throw new Error('asked'); } });
+  await quiet.u.check();
+  quiet.auto.emit('update-downloaded');
+  assert.equal(await quiet.u.quiet(), true);
+  // main.js hands it the quit's own question
+  const main = readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  assert.match(main, /async function mayQuit\(\) \{\n\s+if \(DEV_URL \|\| !backend\) return true;/);
+  assert.match(main, /async function askBeforeQuitting\(\) \{\n\s+if \(await mayQuit\(\)\) app\.quit\(\);\n\s+else quitAsked = false;\n\}/);
+  assert.match(main, /\n\s+mayQuit, \/\/ before Restart to update/);
+  const app = readFileSync(new URL('../../app/features/updates.js', import.meta.url), 'utf8');
+  assert.match(app, /askFirst: \(\) => \(ctx\.mayQuit \? ctx\.mayQuit\(\) : true\),/);
 });

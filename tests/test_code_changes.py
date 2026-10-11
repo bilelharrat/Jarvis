@@ -490,3 +490,44 @@ def test_scope_keeps_just_the_hunks_owns_says_are_the_sessions(tmp_path):
     }
     assert [h.header for h in kept[0].hunks] == [""] * len(kept[0].hunks)
     assert "src/c.py" not in {f.path for f in kept}  # no mark of the session's in it
+
+
+def test_a_hunk_in_a_crlf_or_latin_1_file_undoes_and_stages(tmp_path):
+    """git's output is read as it is (\r\n kept, other bytes as surrogates), so a patch made
+    from a Windows or Latin-1 file's hunk applies; the window still gets readable text."""
+    repo = make_repo(tmp_path / "r", {"keep.txt": "x\n"})
+    git(repo, "config", "core.autocrlf", "false")
+    crlf = b"a\r\nb\r\nc\r\nd\r\n"
+    latin = "café\nb\nc\nd\n".encode("latin-1")
+    (repo / "crlf.txt").write_bytes(crlf)
+    (repo / "latin.txt").write_bytes(latin)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "more")
+    (repo / "crlf.txt").write_bytes(crlf.replace(b"b\r\n", b"B\r\n"))
+    (repo / "latin.txt").write_bytes(latin.replace(b"b\n", b"B\n"))
+    r = cc.repo_of(repo)
+    files = {f.path: f for f in cc.diff_files(r, cc.head_commit(r.top))}
+    crlf_file, latin_file = files["crlf.txt"], files["latin.txt"]
+    assert cc.stage_hunk(r, crlf_file, crlf_file.hunks[0]) == ""
+    assert git(repo, "diff", "--cached", "--name-only").split() == ["crlf.txt"]
+    assert cc.stage_hunk(r, crlf_file, crlf_file.hunks[0], unstage=True) == ""
+    assert git(repo, "diff", "--cached", "--name-only").split() == []
+    assert cc.undo_hunk(r, crlf_file, crlf_file.hunks[0]) == ""
+    assert cc.undo_hunk(r, latin_file, latin_file.hunks[0]) == ""
+    assert (repo / "crlf.txt").read_bytes() == crlf
+    assert (repo / "latin.txt").read_bytes() == latin
+    shown = cc.public(cc.View(r, "", [latin_file], cc.number([latin_file])))
+    assert [" ", "caf�"] in shown["files"][0]["hunks"][0]["lines"]
+
+
+def test_a_sessions_own_new_file_shows_past_the_untracked_cap(tmp_path):
+    """The cap counts the files wanted, not every untracked one; a secret scan reads more."""
+    repo = make_repo(tmp_path / "r", {"a.py": "x = 1\n"})
+    for i in range(cc.MAX_UNTRACKED + 1):
+        (repo / f"out_{i:03d}.log").write_text("x\n")
+    (repo / "zz_feature.py").write_text("def feature():\n    return 42\n")
+    r = cc.repo_of(repo)
+    assert [f.path for f in cc.untracked_files(r, {"zz_feature.py"})] == ["zz_feature.py"]
+    assert len(cc.untracked_files(r)) == cc.MAX_UNTRACKED
+    scanned = cc.diff_files(r, cc.head_commit(r.top), untracked_cap=cc.SCAN_UNTRACKED)
+    assert "zz_feature.py" in {f.path for f in scanned}

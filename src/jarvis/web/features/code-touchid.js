@@ -6,7 +6,8 @@
 // instead. Its switch is in Eden Code settings › General (feature pref code_touchid).
 //
 // Answers given by voice, on the phone or from a notification are the owner's own there and
-// go as they did. Pure helpers are exported for node --test (tests/web/code-touchid.test.mjs).
+// go as they did. Bypass, new sessions in it, Touch ID off and a Bypass session out of the
+// sandbox are held by the backend too: a yes here sends the app's proof first. Pure helpers are exported for node --test (tests/web/code-touchid.test.mjs).
 (function (root) {
   'use strict';
 
@@ -53,29 +54,47 @@
   const bridge = () => (root.jarvisApp && root.jarvisApp.feature) || null;
   const lang = () => (root.jarvisI18n && root.jarvisI18n.lang() === 'zh' ? 'zh' : 'en');
 
-  // The owner's fingerprint: true or false, or null where there's no Touch ID to ask with.
+  // The owner's fingerprint (or, on a Mac without Touch ID, the app's own dialog): true or
+  // false, or null outside the app. A yes comes with the app's proof, which goes to the
+  // backend first: it refuses Bypass and the rest without one (features/code_touchid.py).
   async function fingerprint(kind) {
     const app = bridge();
     if (!app) return null;
-    let available = false;
-    try { available = await app.invoke('feature:touchid:available'); } catch { available = false; }
-    if (!available) return null;
     try {
       const got = await app.invoke('feature:touchid:prompt', kind, lang());
-      return !!(got && got.ok);
+      if (got && got.unavailable) return null;
+      if (!(got && got.ok)) return false;
+      if (got.proof && typeof got.proof === 'object') F.send({ type: 'touchid_proof', ...got.proof });
+      return true;
     } catch { return false; }
   }
 
+  const PROVED = new Set(['bypass', 'bypass-default', 'touchid-off', 'sandbox-off']);
   const RISKY_QUESTION = 'This step can’t easily be undone, or reaches past this Mac. Allow it?';
   F.registerCheck((kind, info) => {
     if (!on) return null;
-    if (kind === 'bypass' || kind === 'bypass-default') {
-      return fingerprint(kind).then((ok) => (ok === null ? root.confirm(t(info.text)) : ok));
+    if (PROVED.has(kind)) {
+      return fingerprint(kind).then((ok) => (ok === null ? root.confirm(t((info && info.text) || TEXTS[kind])) : ok));
     }
     if (kind === 'approve' && risky(info.approval, info.choice)) {
       return fingerprint('approve').then((ok) => (ok === null ? root.confirm(t(RISKY_QUESTION)) : ok));
     }
     return null;
+  });
+  const TEXTS = {
+    bypass: 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?',
+    'touchid-off': 'Turn off Touch ID for Bypass and risky steps?',
+  };
+
+  // The backend asked for the fingerprint (Bypass by voice or from a typed command): the
+  // window asks, then does it. Only in the app, and not twice in a row for one session.
+  let lastAsk = { key: '', at: 0 };
+  F.on('code_touchid_ask', (ev) => {
+    if (!on || !bridge() || ev.need !== 'bypass' || typeof ev.id !== 'number') return;
+    const key = `${ev.need}:${ev.id}`;
+    if (lastAsk.key === key && Date.now() - lastAsk.at < 5000) return;
+    lastAsk = { key, at: Date.now() };
+    fingerprint('bypass').then((ok) => { if (ok) F.send({ type: 'task_mode', id: ev.id, mode: 'auto' }); });
   });
 
   // Eden Code settings › General: its switch, in a Safety group of its own.
@@ -95,7 +114,13 @@
     sw.setAttribute('role', 'switch');
     sw.setAttribute('aria-label', 'Touch ID for Bypass and risky steps');
     sw.setAttribute('aria-checked', String(on));
-    sw.addEventListener('click', () => F.send({ type: 'feature_prefs', changes: { code_touchid: !on } }));
+    sw.addEventListener('click', () => {
+      const go = () => F.send({ type: 'feature_prefs', changes: { code_touchid: !on } });
+      if (!on) { go(); return; }
+      // Off takes the fingerprint too: otherwise anything that can send could switch it off.
+      const check = F.check('touchid-off', { text: TEXTS['touchid-off'] });
+      if (check) check.then((ok) => { if (ok) go(); }); else go();
+    });
     row.append(text, sw);
     group.append(row);
     const foot = general.querySelector('.jcs-foot');

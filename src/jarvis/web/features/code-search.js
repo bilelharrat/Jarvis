@@ -27,23 +27,39 @@
     return out;
   }
 
-  // What a result says: "12 matches in 3 files", or why there are none.
+  // What a result says: "12 matches in 3 files", or why there are none, and when it's only
+  // part of them: a limit, the time running out, an expression too slow on a file (r.slow:
+  // the walk stopped there; git's matches are all there, some without their marks).
   function summary(r) {
     if (!r) return '';
     if (r.error) return r.error;
-    if (!r.total) return r.stopped ? 'Stopped before anything matched.' : 'No matches.';
+    if (!r.total) {
+      if (r.slow) return `That expression is too slow to search with (on ${r.slow}).`;
+      return r.stopped ? 'Stopped before anything matched.' : 'No matches.';
+    }
     const files = r.files.length;
     const head = `${r.total} ${r.total === 1 ? 'match' : 'matches'} in ${files} ${files === 1 ? 'file' : 'files'}`;
-    return r.truncated || r.stopped ? `${head} (the first ones only)` : head;
+    if (r.slow && r.engine === 'git') return `${head} (some unmarked: the expression was too slow on them)`;
+    if (r.slow) return `${head} (the first ones only: the expression was too slow on ${r.slow})`;
+    if (r.stopped) return `${head} (the first ones only: the search ran out of time)`;
+    return r.truncated ? `${head} (the first ones only)` : head;
   }
+
+  // A path as an @-mention: in quotes when it has a space (@"my dir/a b.py").
+  function mentionWord(path) { return /\s/.test(path) ? `@"${path}"` : `@${path}`; }
 
   // Text for the composer that mentions files: "@a.py @b.py ", spaced from what's there.
   function mentionText(paths, before) {
-    const words = paths.map((p) => `@${p}`).join(' ');
+    const words = paths.map(mentionWord).join(' ');
     return `${before && !/\s$/.test(before) ? ' ' : ''}${words} `;
   }
 
-  const api = { pieces, summary, mentionText };
+  // This page's own refs: answers go to every window, and each window's count starts at 1,
+  // so a ref carries the page too ("k3x9q-s4"); the backend stops only this page's older
+  // search for a newer one (features/code_workspace.py).
+  function newRef(page, n) { return `${page}-s${n}`; }
+
+  const api = { pieces, summary, mentionText, mentionWord, newRef };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -53,6 +69,7 @@
 
   const state = { text: '', regex: false, case: false, word: false, include: '', result: null, ref: '', busy: false, where: '' };
   let refN = 0;
+  const PAGE = Math.random().toString(36).slice(2, 10) || 'p';
   let timer = 0;
   let host = null;
   let ui = null;
@@ -78,7 +95,7 @@
       return;
     }
     const go = () => {
-      state.ref = `s${++refN}`;
+      state.ref = newRef(PAGE, ++refN);
       state.busy = true;
       const where = root.JarvisEditor.where();
       state.where = JSON.stringify(where);
@@ -164,7 +181,9 @@
         line.type = 'button';
         line.title = `${f.path}:${m.line}`;
         const text = mine(el('span', 'cs-text'));
-        for (const [piece, hit] of pieces(m.text, m.spans)) text.append(hit ? el('mark', '', piece) : document.createTextNode(piece));
+        // (bidi controls shown as what they are: code-markdown.js showBidi)
+        const plain = (x) => (root.JarvisMarkdown && root.JarvisMarkdown.showBidi ? root.JarvisMarkdown.showBidi(x) : x);
+        for (const [piece, hit] of pieces(m.text, m.spans)) text.append(hit ? el('mark', '', plain(piece)) : document.createTextNode(plain(piece)));
         line.append(el('span', 'cs-line', String(m.line)), text);
         line.addEventListener('click', () => root.JarvisEditor.open(f.path, m.line));
         group.append(line);
@@ -198,4 +217,8 @@
     state.result = ev;
     draw();
   });
+
+  // (CA2-12) Connected again while a search was out: its answer went to the old connection,
+  // so it's asked again (a new ref), never left at "Searching…".
+  F.on('hello', () => { if (state.busy && state.text.trim()) run(true); });
 })(typeof window === 'object' ? window : globalThis);

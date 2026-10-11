@@ -79,3 +79,51 @@ test('which files preview as what they are', () => {
   assert.equal(E.previewKind('data/x.TSV'), 'csv');
   assert.equal(E.previewKind('hub.py'), '');
 });
+
+// Round 1 bug sweep (askeden/docs/bug-sweep/r1-eden-code-workspace.md).
+
+test('Replace All finds every match, past the count’s 10,000 (CF14)', () => {
+  const text = 'a '.repeat(25000);
+  assert.equal(E.findAll(text, 'a').ranges.length, 10000);
+  assert.equal(E.findAll(text, 'a', { max: Infinity }).ranges.length, 25000);
+});
+
+test('line numbers worked out without rebuilding them all (CF11)', () => {
+  assert.equal(E.lineCount(''), 1);
+  assert.equal(E.lineCount('a\nb\n'), 3);
+  assert.equal(E.numbersText(9, 11), '9\n10\n11\n');
+  for (const n of [1, 9, 10, 99, 100, 999, 1000, 20001]) assert.equal(E.numbersLength(n), E.numbersText(1, n).length, String(n));
+});
+
+test('a big project’s list says it’s partial (CF5)', () => {
+  assert.equal(E.listedNote(6000, 100000), '6,000 of 100,000 files listed: what you type is looked for in all of them.');
+});
+
+test('an edit of very many lines skips the box’s typing, whose time grows with their square (CF14)', () => {
+  assert.equal(E.undoable('x\n'.repeat(800)), true);
+  assert.equal(E.undoable('x\n'.repeat(801)), false);
+  assert.equal(E.undoable('one line'), true);
+});
+
+// Round-1 optimization (askeden/docs/bug-sweep/r1-optimize-client-compute.md): big files open in a
+// read-only view that draws only the rows in sight; "Edit anyway" gives the text box.
+test('which files open in the fast view, and its rows (a long line is several rows)', () => {
+  assert.equal(E.bigView('x'.repeat(E.BIG_VIEW_CHARS)), false);
+  assert.equal(E.bigView('x'.repeat(E.BIG_VIEW_CHARS + 1)), true);
+  assert.equal(E.bigView('a\n'.repeat(E.BIG_VIEW_LINES - 1)), false);  // 20,000 lines
+  assert.equal(E.bigView('a\n'.repeat(E.BIG_VIEW_LINES)), true);  // 20,001
+  const text = 'ab\ncdefg\n\nh';
+  const rows = E.viewRows(text, 2);
+  assert.deepEqual(rows.line, [1, 2, 0, 0, 3, 4]);
+  assert.deepEqual(rows.start.map((s, i) => text.slice(s, rows.end[i])), ['ab', 'cd', 'ef', 'g', '', 'h']);
+  assert.equal(E.rowOf(rows, 0), 0);
+  assert.equal(E.rowOf(rows, 6), 2);  // the "f" of "cdefg"
+  assert.equal(E.rowOf(rows, text.length), 5);
+  // a 1 MB one-line file: 500 rows of 2,000 characters, nothing lost
+  const line = 'v'.repeat(1_000_000);
+  const r = E.viewRows(line);
+  assert.equal(r.count, 500);
+  assert.equal(r.start.map((s, i) => line.slice(s, r.end[i])).join(''), line);
+  assert.equal(E.viewRows('').count, 1);
+  assert.equal(E.viewRows('a\n').count, 2);  // the empty last line is a row too
+});

@@ -67,7 +67,7 @@ def test_the_bundle_masks_and_keeps_only_headlines(tmp_path):
         megabytes=7,  # not one of the sizes offered: the default
         clock=lambda: datetime(2026, 9, 29, 20, 15, 12),
     )
-    assert path.name == "Jarvis diagnostics 2026-09-29 at 20.15.12.zip"
+    assert path.name == "Eden diagnostics 2026-09-29 at 20.15.12.zip"
     with zipfile.ZipFile(path) as zf:
         log = zf.read("logs/jarvis.log").decode()
         checked = json.loads(zf.read("checkup.json"))
@@ -86,7 +86,7 @@ def test_the_bundle_masks_and_keeps_only_headlines(tmp_path):
         review=None,
         clock=lambda: datetime(2026, 9, 29, 20, 15, 12),
     )
-    assert again.name == "Jarvis diagnostics 2026-09-29 at 20.15.12 2.zip"
+    assert again.name == "Eden diagnostics 2026-09-29 at 20.15.12 2.zip"
     assert not [p for p in os.listdir(tmp_path / "out") if p.startswith(".")]
 
 

@@ -30,10 +30,17 @@ export function cleanCode(text) {
   return `${raw.slice(0, 4)}-${raw.slice(4)}`;
 }
 
+// A day's counter (`count { cap, seconds, peek }`, e.g. native sign-ups per network a day, eden/session.js)
+// and a deleted account's Stripe subscription still to cancel (`cancel-later { subscription }`, retried
+// by the object's alarm and on Stripe's next event for it; `cancel-retry` tries at once if one is pending).
+const CANCEL_TRIES = 15; // about two weeks of retries (13.5 days), the gap doubling from 5 minutes up to 2 days
+const cancelGap = (tries) => Math.min(2 * 86400_000, 5 * 60_000 * 2 ** tries);
+
 export class Link {
-  constructor(ctx) {
+  constructor(ctx, env) {
     this.ctx = ctx;
     this.storage = ctx.storage;
+    this.env = env || {};
     this.now = () => Date.now();
   }
 
@@ -43,6 +50,9 @@ export class Link {
     try {
       if (op === 'stash') return json(await this.stash(body));
       if (op === 'take') return json(await this.take());
+      if (op === 'count') return json(await this.count(body));
+      if (op === 'cancel-later') return json(await this.cancelLater(body));
+      if (op === 'cancel-retry') return json(await this.cancelRetry());
       const link = await this.storage.get('link');
       if (op === 'start') return json(await this.start(link, body));
       if (!link || link.expires <= this.now()) {
@@ -120,7 +130,62 @@ export class Link {
     return { value: kept.value };
   }
 
+  async count({ cap, seconds, peek = false }) {
+    const now = this.now();
+    let c = await this.storage.get('count');
+    if (!c || c.expires <= now) c = { n: 0, expires: now + Math.min(2 * 86400, Math.max(60, Number(seconds) || 86400)) * 1000 };
+    const max = Math.max(0, Number(cap) || 0);
+    if (peek || c.n >= max) return { ok: c.n < max, n: c.n };
+    c.n += 1;
+    await this.storage.put('count', c);
+    if (c.n === 1 && this.storage.setAlarm) await this.storage.setAlarm(c.expires + 1000);
+    return { ok: true, n: c.n };
+  }
+
+  async cancelLater({ subscription }) {
+    if (!/^sub_[A-Za-z0-9]{1,250}$/.test(String(subscription || ''))) throw new ApiError(400, 'bad_request', 'No subscription.');
+    const had = await this.storage.get('cancel');
+    if (had) return { pending: true };
+    const next = this.now() + cancelGap(0);
+    await this.storage.put('cancel', { subscription, tries: 0, since: this.now(), next });
+    if (this.storage.setAlarm) await this.storage.setAlarm(next);
+    return { pending: true };
+  }
+
+  /**
+   * A pending cancel tried now: gone when Stripe takes it (or has nothing to cancel, or says a lasting no:
+   * logged, not retried); otherwise tried again later, then given up loudly.
+   */
+  async cancelRetry() {
+    const was = await this.storage.get('cancel');
+    if (!was) return { pending: false };
+    const { cancelSubscription } = await import('../eden/billing.js');
+    const out = await cancelSubscription(this.env, was.subscription, { tries: was.tries + 1 });
+    if (out !== 'failed') {
+      await this.storage.deleteAll();
+      return { pending: false, cancelled: out === 'cancelled', ...(out === 'cancelled' ? {} : { outcome: out }) };
+    }
+    // Stripe's call let other events in (the alarm and a webhook's retry at once): one that finished the
+    // cancel meanwhile is never brought back (AW2-7)
+    const pending = await this.storage.get('cancel');
+    if (!pending) return { pending: false };
+    pending.tries += 1;
+    if (pending.tries >= CANCEL_TRIES) {
+      console.error(`stripe: gave up cancelling a deleted account’s subscription ${pending.subscription} after ${pending.tries} tries; cancel it in the Stripe dashboard`);
+      await this.storage.deleteAll();
+      return { pending: false, cancelled: false, gave_up: true };
+    }
+    pending.next = this.now() + cancelGap(pending.tries);
+    await this.storage.put('cancel', pending);
+    if (this.storage.setAlarm) await this.storage.setAlarm(pending.next);
+    return { pending: true };
+  }
+
   async alarm() {
+    if (await this.storage.get('cancel')) {
+      await this.cancelRetry();
+      return;
+    }
     await this.storage.deleteAll();
   }
 }

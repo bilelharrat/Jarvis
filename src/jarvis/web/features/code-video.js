@@ -82,15 +82,36 @@
   }
   F.registerEntry('video', videoEntry);
 
+  // Sessions recording now (vp_state): asked when a session comes on show, so a reload
+  // during a recording still knows of it.
+  const recording = new Set();
+  let stateFor = null;
+  function askState() {
+    const task = F.currentTask();
+    const id = task ? task.id : null;
+    if (id === stateFor) return;
+    stateFor = id;
+    if (id !== null) F.send({ type: 'vp_state', id });
+  }
+  F.on('tasks', askState);
+  F.on('task_transcript', askState);
+  const recordingNow = () => { const task = F.currentTask(); return !!task && recording.has(task.id); };
   F.registerMoreItem({
     label: 'Record a video proof',
-    note: 'A few seconds of the dev server’s page, kept with the session',
+    get note() { return recordingNow() ? 'Recording a video proof…' : 'A few seconds of the dev server’s page, kept with the session'; },
     when: (task) => !!task,
-    run: () => { const task = F.currentTask(); if (task) F.send({ type: 'vp_record', id: task.id }); },
+    run: () => {
+      const task = F.currentTask();
+      if (!task) return;
+      if (recording.has(task.id)) { if (typeof jcNote === 'function') jcNote(t('Recording a video proof…')); return; }
+      F.send({ type: 'vp_record', id: task.id });
+    },
   });
   F.on('vp_state', (ev) => {
+    const was = recording.has(ev.id);
+    if (ev.recording) recording.add(ev.id); else recording.delete(ev.id);
     const task = F.currentTask();
-    if (ev.recording && task && task.id === ev.id && typeof jcNote === 'function') jcNote(t('Recording a video proof…'));
+    if (ev.recording && !was && task && task.id === ev.id && typeof jcNote === 'function') jcNote(t('Recording a video proof…'));
   });
   F.on('vp_error', (ev) => { if (typeof jcNote === 'function') jcNote(ev.text); });
 })(typeof window === 'object' ? window : globalThis);

@@ -182,6 +182,7 @@ class AcpDesk:
                 model=PREFIX + agent["id"],
                 model_label=agent["name"],
                 model_ref=PREFIX + agent["id"],
+                by_user=True,
             )
         except (ValueError, OSError) as exc:
             self.emit(error=str(exc)[:300] or "That folder can't be opened.")

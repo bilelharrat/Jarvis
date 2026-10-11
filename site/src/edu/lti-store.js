@@ -13,16 +13,62 @@
 
 import { ApiError } from '../accounts/util.js';
 
-export const LTI_STORE = { states: 5000, tickets: 5000, regs: 200 };
-const KEY = /^[A-Za-z0-9_|:.\-~/@]{1,600}$/;
+// states: logins a registration (one school's platform) may start in a 10-minute window and the one before
+// it, so a flood of logins for one school can't lock out the others; and all together, a ceiling on storage.
+// statesFloor: what each school may still start while everyone together is past the ceiling, so floods on a
+// few schools can't refuse every other one (AW2-5); storage stays bounded (statesAll + regs × statesFloor).
+export const LTI_STORE = { states: 5000, statesAll: 50_000, statesFloor: 1000, tickets: 5000, regs: 200 };
+// LMS ids (users, contexts, deployments) are any printable ASCII (OIDC: up to 255 ASCII characters), e.g. base64 with + and =
+const KEY = /^[\x20-\x7e]{1,600}$/;
 const HASH = /^[0-9a-f]{64}$/;
 const bad = (m) => new ApiError(400, 'bad_request', m);
+const busy = () => new ApiError(429, 'busy', 'Too many sign-ins in progress. Try again in a few minutes.');
+const WINDOW_MS = 10 * 60e3;
+const pad = (n) => String(n).padStart(15, '0');
 
-async function sweep(storage, prefix, now, max) {
-  const all = await storage.list({ prefix });
-  const gone = [...all].filter(([, v]) => !v || v.expires <= now).map(([k]) => k).slice(0, 128);
+// States and tickets are found by their hash (st:/tk:) and listed by when they expire (sx:/tx:<expires>:<hash>),
+// so a write drops the expired ones from the front of that list and never reads the whole store.
+async function dropExpired(storage, index, prefix, now) {
+  const first = await storage.list({ prefix: index, limit: 64 });
+  const gone = [];
+  for (const k of first.keys()) {
+    const [, at, hash] = k.split(':');
+    if (Number(at) > now || gone.length >= 128) break;
+    gone.push(k, `${prefix}${hash}`);
+  }
   if (gone.length) await storage.delete(gone);
-  if (all.size - gone.length >= max) throw new ApiError(429, 'busy', 'Too many sign-ins in progress. Try again in a few minutes.');
+}
+
+/** Once: states and tickets written before the expiry index (st:/tk: alone) are dropped when expired, or indexed. */
+async function migrate(storage, now) {
+  if (await storage.get('lti-v2')) return;
+  for (const [prefix, index] of [['st:', 'sx:'], ['tk:', 'tx:']]) {
+    const all = [...(await storage.list({ prefix }))];
+    const gone = all.filter(([, v]) => !v || v.expires <= now).map(([k]) => k);
+    for (let i = 0; i < gone.length; i += 128) await storage.delete(gone.slice(i, i + 128));
+    const kept = all.filter(([, v]) => v && v.expires > now).map(([k, v]) => [`${index}${pad(v.expires)}:${k.slice(prefix.length)}`, 1]);
+    for (let i = 0; i < kept.length; i += 128) await storage.put(Object.fromEntries(kept.slice(i, i + 128)));
+  }
+  await storage.put('lti-v2', true);
+}
+
+/** Window counters (`<prefix><window>`) older than the last window, however long ago (AW2-6: not only w - 2). */
+async function dropOldWindows(storage, prefix, w) {
+  const old = [...(await storage.list({ prefix, limit: 64 })).keys()].filter((k) => Number(k.slice(prefix.length)) < w - 1);
+  if (old.length) await storage.delete(old);
+}
+
+/** A login's window counts: this registration's and everyone's, this window and the last. */
+async function takeLoginSlot(storage, reg, now) {
+  const w = Math.floor(now / WINDOW_MS);
+  const keys = [`sq:${reg}:${w}`, `sq:${reg}:${w - 1}`, `sq:*:${w}`, `sq:*:${w - 1}`];
+  const got = await storage.get(keys);
+  const n = (k) => got.get(k) || 0;
+  const mine = n(keys[0]) + n(keys[1]);
+  if (mine >= LTI_STORE.states || (n(keys[2]) + n(keys[3]) >= LTI_STORE.statesAll && mine >= LTI_STORE.statesFloor)) throw busy();
+  await dropOldWindows(storage, `sq:${reg}:`, w);
+  await dropOldWindows(storage, 'sq:*:', w);
+  return { [keys[0]]: n(keys[0]) + 1, [keys[2]]: n(keys[2]) + 1 };
 }
 
 /** One op on the registry object (course.js dispatches `lti-*` here). `self`: the Durable Object. */
@@ -44,20 +90,29 @@ export async function ltiStoreOp(self, op, body) {
     case 'lti-reg-delete': await s.delete(`reg:${String(body.id)}`); return { ok: true };
     case 'lti-state-put': {
       if (!HASH.test(String(body.hash))) throw bad('state');
-      await sweep(s, 'st:', now, LTI_STORE.states);
-      await s.put(`st:${body.hash}`, { ...body.data, expires: now + 10 * 60e3 });
+      await migrate(s, now);
+      await dropExpired(s, 'sx:', 'st:', now);
+      const counts = await takeLoginSlot(s, String((body.data && body.data.reg) || ''), now);
+      const expires = now + 10 * 60e3;
+      await s.put({ ...counts, [`st:${body.hash}`]: { ...body.data, expires }, [`sx:${pad(expires)}:${body.hash}`]: 1 });
       return { ok: true };
     }
     case 'lti-state-take': { // one use: a replayed state finds nothing
       if (!HASH.test(String(body.hash))) return { data: null };
       const v = await s.get(`st:${body.hash}`);
-      if (v) await s.delete(`st:${body.hash}`);
+      if (v) await s.delete([`st:${body.hash}`, `sx:${pad(v.expires)}:${body.hash}`]);
       return { data: v && v.expires > now ? v : null };
     }
-    case 'lti-ticket-put': {
+    case 'lti-ticket-put': { // after a launch the platform signed: not something an anonymous flood can make
       if (!HASH.test(String(body.hash))) throw bad('ticket');
-      await sweep(s, 'tk:', now, LTI_STORE.tickets);
-      await s.put(`tk:${body.hash}`, { ...body.data, expires: now + 15 * 60e3 });
+      await migrate(s, now);
+      await dropExpired(s, 'tx:', 'tk:', now);
+      const w = Math.floor(now / WINDOW_MS);
+      const got = await s.get([`tq:${w}`, `tq:${w - 1}`]);
+      if ((got.get(`tq:${w}`) || 0) + (got.get(`tq:${w - 1}`) || 0) >= 2 * LTI_STORE.tickets) throw busy();
+      const expires = now + 15 * 60e3;
+      await dropOldWindows(s, 'tq:', w);
+      await s.put({ [`tq:${w}`]: (got.get(`tq:${w}`) || 0) + 1, [`tk:${body.hash}`]: { ...body.data, expires }, [`tx:${pad(expires)}:${body.hash}`]: 1 });
       return { ok: true };
     }
     case 'lti-ticket-get': {
@@ -65,7 +120,12 @@ export async function ltiStoreOp(self, op, body) {
       const v = await s.get(`tk:${body.hash}`);
       return { data: v && v.expires > now ? v : null };
     }
-    case 'lti-ticket-delete': if (HASH.test(String(body.hash))) await s.delete(`tk:${body.hash}`); return { ok: true };
+    case 'lti-ticket-delete': {
+      if (!HASH.test(String(body.hash))) return { ok: true };
+      const v = await s.get(`tk:${body.hash}`);
+      await s.delete([`tk:${body.hash}`, ...(v ? [`tx:${pad(v.expires)}:${body.hash}`] : [])]);
+      return { ok: true };
+    }
     case 'lti-ctx-get': return { link: KEY.test(String(body.key)) ? (await s.get(`ctx:${body.key}`)) || null : null };
     case 'lti-ctx-put': {
       if (!KEY.test(String(body.key))) throw bad('context');

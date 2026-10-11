@@ -51,7 +51,7 @@ test('quotes are checked word for word against their source', () => {
   assert.equal(checkGrounding(good, passages).status, 'verified');
   const made = 'Cyanide blocks complex IV [1].\n<sources>\n[1] S3 "cyanide binds to complex IV"\n</sources>';
   const r = checkGrounding(made, passages);
-  assert.equal(r.status, 'partial');
+  assert.equal(r.status, 'unverified', 'its only quote isn’t in the source (AW3-1)');
   assert.equal(r.sources[0].ok, false);
   const missing = 'It forms water [1] and heat [2].\n<sources>\n[1] S3 "combines with H+ to form water"\n</sources>';
   assert.deepEqual(checkGrounding(missing, passages).sources.map((s) => s.ok), [true, false]);

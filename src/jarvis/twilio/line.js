@@ -615,7 +615,7 @@ function limitsOf(data) {
 // Why a yes Claude chose isn't within the card ({say, why}), or null when it is.
 function agreement(data, reply) {
   const who = data.owner || 'them';
-  if (data.mode !== 'out') return { say: "I'm sorry, I can't agree to anything on this call.", why: 'not a call Jarvis placed' };
+  if (data.mode !== 'out') return { say: "I'm sorry, I can't agree to anything on this call.", why: 'not a call Eden placed' };
   const l = limitsOf(data);
   const later = `I'll take that back to ${who}, who will get back to you.`;
   if (!l.commit) {

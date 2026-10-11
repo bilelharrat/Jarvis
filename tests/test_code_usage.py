@@ -194,7 +194,7 @@ async def test_a_cap_set_before_the_first_turn_goes_with_the_session(
 
 
 async def test_the_day_s_cap_used_up_stops_the_others_and_holds_everyone(
-    settings, quiet_speaker, isolated, tmp_path
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
 ):
     (tmp_path / "other").mkdir()
     hub = _fresh(settings, quiet_speaker, isolated, tmp_path, code_budget_day=0.25)
@@ -204,11 +204,30 @@ async def test_the_day_s_cap_used_up_stops_the_others_and_holds_everyone(
     second = hub.tasks.start("two", "other")
     assert await until(lambda: second.status == "waiting" and second.cost_usd == 0.1)
     assert Stream.instances[1].options.max_budget_usd == 0.15  # what's left of the day
-    first.client.hold = True
+    # The first connection was given the whole day while it ran alone: 0.15 of it unspent is
+    # more than the day has left (0.05), so its next turn waits for a new connection with
+    # what's left (CD9: together they never spend past the cap).
+    opened = Stream.__init__
+
+    def holding(self, *args, **kwargs):
+        opened(self, *args, **kwargs)
+        self.hold = True
+
+    monkeypatch.setattr(Stream, "__init__", holding)
     hub.tasks.send(first.id, "long job")
-    assert await until(lambda: first.busy)
+    assert await until(lambda: first.busy, 800)
+    assert len(Stream.instances) == 3 and first.client is Stream.instances[2]
+    assert Stream.instances[2].options.max_budget_usd == 0.05
+
+    def resumed(self, *args, **kwargs):  # (a resumed connection's total starts at the session's)
+        opened(self, *args, **kwargs)
+        self.total = 0.1
+
+    monkeypatch.setattr(Stream, "__init__", resumed)
     hub.tasks.send(second.id, "three")  # 0.3 of 0.25: the day is spent
-    assert await until(lambda: first.client.interrupted)
+    assert await until(lambda: first.client.interrupted, 800)
+    # (the second, too, had more left than the day: it went on with the day's last cent)
+    assert Stream.instances[3].options.max_budget_usd == 0.01
     assert await until(
         lambda: "Eden Code has spent today's $0.25 limit" in first.transcript[-1]["text"]
     )
@@ -429,7 +448,7 @@ async def test_an_isolated_copys_project_is_looked_up_once_a_pass(
     options = SimpleNamespace(max_budget_usd=None)
     meter.apply(first, options)
     assert options.max_budget_usd == 0.01  # (nothing left: the least it can be)
-    assert meter._applied[first.id] == (0.0, 0.15, 0.0, meter.usage.day())
+    assert meter._applied[first.id] == (0.0, 0.15, 0.0, meter.usage.day(), 0)
     assert looked == [first.id]
     looked.clear()
     public = meter.public()
@@ -462,3 +481,18 @@ async def test_a_save_due_as_the_app_quits_is_written_not_lost(tmp_path, monkeyp
     await usage._writer
     assert Usage(path).today() == 0.25
     assert not usage._writing
+
+
+async def test_sessions_starting_together_share_the_day_s_cap(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """CD9 (bug sweep r1): four sessions opened at once under a $10 day each got $10 to
+    spend; now the room is split, so together they can't pass the cap."""
+    (tmp_path / "other").mkdir()
+    hub = _fresh(settings, quiet_speaker, isolated, tmp_path, code_budget_day=10.0)
+    tasks = [hub.tasks.start("go", d) for d in ("proj", "other", "proj", "other")]
+    assert await until(lambda: len(Stream.instances) >= 4, 800)
+    budgets = [s.options.max_budget_usd for s in Stream.instances[:4]]
+    assert budgets == [2.5] * 4 and sum(budgets) <= 10.0
+    assert len(tasks) == 4
+    await end_all(hub)

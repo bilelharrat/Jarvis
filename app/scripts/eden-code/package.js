@@ -12,32 +12,28 @@ const { execFileSync } = require('child_process');
 const APP_DIR = path.resolve(__dirname, '..', '..');
 const NAME = 'Eden Code';
 const BUNDLE_ID = 'com.bshventures.edencode';
-const FLAVOR_FILE = path.join(APP_DIR, 'flavor.json');
+const { FLAVOR_IGNORE, bakeFlavor, EDEN_CODE_IGNORE } = require('../release/util');
 
 async function main() {
   const { packager } = await import('@electron/packager');
   const electron = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
-  // In the app folder only while it's copied: J.A.R.V.I.S. built from this folder stays J.A.R.V.I.S.
-  fs.writeFileSync(FLAVOR_FILE, `${JSON.stringify({ flavor: 'eden-code' })}\n`);
-  let folder;
-  try {
-    [folder] = await packager({
-      dir: APP_DIR,
-      name: NAME,
-      platform: 'darwin',
-      arch: 'arm64',
-      out: path.join(APP_DIR, 'dist'),
-      overwrite: true,
-      icon: path.join(APP_DIR, 'build', 'eden-code', 'icon.icns'),
-      extendInfo: path.join(APP_DIR, 'build', 'eden-code', 'extend-info.plist'),
-      appBundleId: BUNDLE_ID,
-      electronVersion: electron,
-      ignore: [/^\/dist(\/|$)/, /^\/scripts(\/|$)/, /^\/build\/(?!eden-code(\/icon-1024\.png)?$)/],
-      quiet: true,
-    });
-  } finally {
-    fs.rmSync(FLAVOR_FILE, { force: true });
-  }
+  fs.rmSync(path.join(APP_DIR, 'flavor.json'), { force: true }); // (one an older build left behind)
+  const [folder] = await packager({
+    dir: APP_DIR,
+    name: NAME,
+    platform: 'darwin',
+    arch: 'arm64',
+    out: path.join(APP_DIR, 'dist'),
+    overwrite: true,
+    icon: path.join(APP_DIR, 'build', 'eden-code', 'icon.icns'),
+    extendInfo: path.join(APP_DIR, 'build', 'eden-code', 'extend-info.plist'),
+    appBundleId: BUNDLE_ID,
+    electronVersion: electron,
+    ignore: [/^\/dist(\/|$)/, /^\/scripts(\/|$)/, /^\/build\/(?!eden-code(\/icon-1024\.png)?$)/, FLAVOR_IGNORE, ...EDEN_CODE_IGNORE],
+    // Which app it is (flavor.js), in the copy only: J.A.R.V.I.S. built from this folder stays J.A.R.V.I.S.
+    afterCopy: [bakeFlavor('eden-code')],
+    quiet: true,
+  });
   const app = path.join(folder, `${NAME}.app`);
   execFileSync('sh', [path.join(APP_DIR, 'scripts', 'finish-app.sh')], {
     cwd: APP_DIR, stdio: 'inherit', env: { ...process.env, APP: app, DISPLAY_NAME: NAME },

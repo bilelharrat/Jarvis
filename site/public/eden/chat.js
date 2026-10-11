@@ -16,9 +16,9 @@ import { codeKnowledge } from './knowledge.js';
 import { learnedBody } from './learned.js';
 import { autopilotBody, endAutopilotSkip } from './autopilot.js';
 import { browserBody, parseBrowse, followUpRoute, steerNote } from './browser-agent.js';
-import { typedMention, fillScopes, toolsSystemFor } from './tools-ui.js'; // chat that acts on Google Calendar and Gmail (eden-tools.js)
-import { evesWanted, beginEves, withEvesSetting } from './eves.js'; // EVES: several models, the facts they disagree on checked, one answer (POST /api/chat/eves)
-import { turnStreamStep } from './eves-model.js'; // what a normal reply's stream event is for (lanes ignored, the turn ends on `done`)
+import { typedMention, fillScopes, toolsSystemFor, essayBody } from './tools-ui.js'; // chat that acts on Google Calendar and Gmail (eden-tools.js)
+import { evesWanted, beginEves, withEvesSetting } from './eves-lazy.js'; // EVES: several models, the facts they disagree on checked, one answer (POST /api/chat/eves)
+import { turnStreamStep } from './turn-stream.js'; // what a normal reply's stream event is for (lanes ignored, the turn ends on `done`)
 import { noteVerification } from './verify.js'; // the label under a reply, and a repaired answer swapped in
 import { applyReport, applyStep, capOf, verifiedResearch } from './research-model.js'; // Q2: research's progress steps and its budget cap
 import { replyLanguageNote } from './i18n.js'; // "reply in French" when the page is in French
@@ -57,7 +57,9 @@ export function ensureConversation() {
 }
 
 /** The composer's send: text + attachments ([{kind,name,mime,size,data,url,text}]). */
-export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null, toolResult = false } = {}) {
+// origin: a prompt Eden wrote for itself from a canvas ('essay' rubric/feedback, 'canvas' Fix it/edit, 'deck'): kept on the
+// message so auto-search (and EVES Auto) don't treat its wording as the person's question.
+export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null, toolResult = false, origin = '', internal = false } = {}) {
   const c = ensureConversation();
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return false; }
   // "/browse what to do": this message goes to the cloud browser (browser-agent.js); a steer of a browser run stays there.
@@ -74,6 +76,7 @@ export function sendMessage(text, attachments = [], { context = [], steered = fa
     context: context.map((x) => ({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) })),
     ...(steered ? { steered: true } : {}),
     ...(toolResult ? { toolResult: true } : {}),
+    ...(origin || internal ? { origin: String(origin || 'eden') } : {}), // `internal: true` is the same mark without a canvas name
     ...browse,
     ...(browser ? { browserAnswer: browser } : {}),
   });
@@ -111,7 +114,9 @@ function historyFor(c, upTo) {
       }
       out.push({ role: 'user', content: n.content || '', ...(atts.length ? { attachments: atts } : {}) });
     } else {
-      const t = nodeText(n);
+      // the pictures it made (image-tool.js), so "make it blue" knows what "it" is: their prompts, not the pictures
+      const pics = (n.tools || []).filter((x) => x.name === 'make_image' && x.state === 'done' && x.raw && x.raw.args).map((x) => `[Eden made a picture: "${String(x.raw.args.prompt || '').slice(0, 600)}"]`);
+      const t = [nodeText(n), ...pics].filter(Boolean).join('\n\n');
       // a reply written after reading untrusted content is itself untrusted (prompt-injection guard, H8)
       if (t) out.push({ role: 'assistant', content: t, ...(n.provenance && n.provenance.tainted ? { untrusted: true } : {}) });
       else if (out.length && out.at(-1).role === 'user') out.pop(); // a failed turn: its question goes again below
@@ -198,13 +203,13 @@ function appendText(node, text) {
 export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   const user = parentOf(c, node);
   const ctrl = beginStream(c, node, 'chat');
-  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null, steps: [], browserCard: null, browserRun: false, verification: null, eves: null, research: null });
+  Object.assign(node, { parts: [], thinking: '', thinkMs: 0, route: null, usage: null, citations: [], notes: [], error: null, finish: null, mode: node.mode || c.mode, provenance: null, approvals: [], turnId: null, steps: [], browserCard: null, browserRun: false, verification: null, eves: null, research: null, waiting: 0 });
   if (refusalRetry) node.notes.push(`Retried with ${refusalRetry.name} — the first model declined`);
   const ov = override || currentOverride();
   const sig = settingsSig();
   // Auto-search: a plain Chat message that needs current information goes as a Search one (autosearch-rules.js; no model call).
   // Never in a temporary or private chat, a course, with attachments, when turned off in Settings › Routing, or when Chat was picked on purpose.
-  if ((node.mode || 'chat') === 'chat' && !node.autoSearched) {
+  if ((node.mode || 'chat') === 'chat' && !node.autoSearched && !user.origin) { // not on a prompt Eden wrote for itself (essay rubric/feedback, Fix it)
     const m = autoSearchMode({
       text: user.content || '', mode: 'chat', enabled: state.settings.autoSearch !== false, temp: !!c.temp, privacy: privacyOn(c),
       pinnedChat: !!c.chatPinned || !!c.course, hasImages: !!(user.attachments && user.attachments.length),
@@ -217,7 +222,10 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   // Before the send: Stop ends these waits at once, and a slow Google answer is gone without (B2).
   await untilStopped(fillScopes(user), ctrl.signal, 8000); // @calendar / @mail: this week's events / the recent inbox, read when the message is sent
   const ctx = contextFor(c, user);
-  if (!c.temp && !c.course && !privacyOn(c) && state.settings.recall !== false) { const r = recallBlock(state.convs, user.content || '', { currentId: c.id, isPrivate: privacyOn }); if (r) ctx.push(r); } // other chats that bear on this message (recall-model.js)
+  // other chats that bear on this message (recall-model.js); not on a turn about the open essay or from its buttons (it pulled
+  // other essays into this one's prompt: T20b)
+  const essayTurn = user.origin === 'essay' || Boolean(document.querySelector('#split.art-open') && document.querySelector('#artifact.essay-on'));
+  if (!c.temp && !c.course && !privacyOn(c) && state.settings.recall !== false && !essayTurn) { const r = recallBlock(state.convs, user.content || '', { currentId: c.id, isPrivate: privacyOn }); if (r) ctx.push(r); }
   const sys = [await untilStopped(toolsSystemFor(user, p && p.system ? p.system : '').catch(() => (p && p.system) || ''), ctrl.signal, 0, ''), replyLanguageNote()].filter(Boolean).join('\n\n');
   const body = {
     ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac (first: it may drop a local sticky)
@@ -227,7 +235,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     ...(c.temp ? { temporary: true } : { chatId: c.id }),
     // the EVES setting rides along when it isn't Off; autoSearch: false tells the server's risk rules not to turn this into a search
     // (Auto-search is off in Settings › Routing, or Chat was picked on purpose / this is a course chat)
-    settings: withEvesSetting({ ...routeSettings(), ...(state.settings.autoSearch === false || c.chatPinned || c.course ? { autoSearch: false } : {}), ...factCheckSettings(state.settings) }), // N19: the two fact-check switches, sent only when off
+    settings: withEvesSetting({ ...routeSettings(), ...(state.settings.autoSearch === false || c.chatPinned || c.course || user.origin ? { autoSearch: false } : {}), ...factCheckSettings(state.settings) }), // N19: the two fact-check switches, sent only when off
     mode: node.mode === 'search' || node.mode === 'research' ? node.mode : 'chat',
     // Q2: the verified research pipeline (server meta.research) never spends more than the cap the estimate line shows
     ...(node.mode === 'research' && verifiedResearch(state.meta) ? { budgetUSD: capOf(state.settings) } : {}),
@@ -241,6 +249,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
     ...(refusalRetry ? { refusalRetry: true } : {}), // a refusal's one retry: never retried again
 
     ...browserBody(user, { panelOpen: document.body.classList.contains('browser-open') }), // Eden drives the cloud browser (browser-agent.js)
+    ...essayBody(user), // a turn about the open essay: `essay: { kind, words }`, routed as careful writing with room for it (T18)
   };
   let thinkStart = 0;
   // 'reply' until the reply's `done`; then 'after': the turn is over for the person (composer, queue, approval cards go
@@ -295,13 +304,16 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
             if (!ov) c.lastRoute = { model: d.model, effort: d.effort, sig };
             if (state.selectedNode === null || state.selectedNode === undefined || state.selectedNode.parent === node.parent) { state.selectedNode = node; ui.renderInspector(); }
             break;
+          case 'waiting': node.waiting = d.ahead === 0 ? 0 : Math.max(1, Number(d.ahead) || 1); break; // AC13: Claude (the CLI) is busy with other replies: this one waits its turn (its place updates as the queue moves; 0: its turn now, AC2-13)
           case 'thinking':
+            node.waiting = 0;
             if (!thinkStart) thinkStart = Date.now();
             node.thinking = (node.thinking || '') + (d.text || '');
             node.thinkingLive = true;
             node.thinkMs = Date.now() - thinkStart;
             break;
           case 'text':
+            node.waiting = 0;
             if (node.thinkingLive) { node.thinkingLive = false; node.thinkMs = Date.now() - thinkStart; }
             appendText(node, d.text || '');
             break;
@@ -368,10 +380,12 @@ function retryRefused(c, node) {
 addEventListener('eden:refusal-retry', (e) => { const { c, node } = e.detail || {}; if (c && node && !retryRefused(c, node)) toast('Wait for the reply, or stop it first'); });
 
 /** The browser's bare "network error" when the stream breaks, said plainly. */
+const TOO_BIG = 'This message is too big to send (over 25 MB with its pictures and files). Remove a picture or a file and try again, or start a new chat: the pictures from earlier messages go again with each one.';
 function failure(e) {
   if (e && e.name === 'TypeError' && /network|fetch|load failed|connection/i.test(e.message || '')) {
     return 'The connection to the Eden server dropped before the reply finished. Is model-router-ui still running?';
   }
+  if (e && e.status === 413) return TOO_BIG; // AC6: what to do, not "request too large"
   return (e && e.message) || String(e);
 }
 

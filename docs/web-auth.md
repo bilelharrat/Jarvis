@@ -222,8 +222,9 @@ model menu, the routing preview, send and compare:
 counts on the included AI at the registry's list price; with no usable key, the owner's chats go
 through their Mac.
 
-Claude is bring-your-own-key only (2026-10-07, `providers.js` `BYOK_ONLY`): hosted chat never uses
-a service Anthropic key, for anyone. Claude's models are candidates only with the person's own
+Claude for everyone (owner, 2026-10-10, replacing the bring-your-own-key rule of 2026-10-07): with
+`ANTHROPIC_API_KEY` set on the Worker, Claude is a candidate for everyone on askeden.com's key
+(`providers.js` `serviceClaude`). Without it, Claude's models are candidates only with the person's own
 Anthropic key (Settings › Models & API keys), or for the owner while their Mac is online (the turn
 goes through the Mac). Elsewhere meta lists them `available: false, needsKey: true` with "Add your
 Anthropic API key in Settings to use Claude" and `link: "/#settings=keys"`; a Claude pick answers

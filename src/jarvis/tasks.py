@@ -14,14 +14,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import heapq
 import itertools
 import json
 import logging
+import os
 import re
 import shlex
 import threading
 import time
+import unicodedata
 import warnings
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
@@ -29,6 +32,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -56,7 +64,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from . import browser_gate, code_changes, code_tools, private_folders
+from . import browser_gate, code_changes, code_tools, osplat, outside_reads, private_folders
 from .claude_signin import signed_in
 from .code_projects import in_app_data
 from .computer import is_sensitive
@@ -71,14 +79,30 @@ READ_TOOLS = {"Read", "Glob", "Grep", "LS", "NotebookRead"}
 EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 # Inside the project, but "edits" mode still asks: git's internals and hooks, Claude
 # Code's own settings, and files other tools run on their own.
-_PROTECTED_DIRS = {".git", ".claude", ".husky", ".githooks"}
-_PROTECTED_FILES = {".envrc", ".vscode/tasks.json"}
+_PROTECTED_DIRS = {".git", ".claude", ".husky", ".githooks", ".devcontainer"}
+# (.mcp.json and .claude.json: servers Claude Code starts at the session's next connection)
+_PROTECTED_FILES = {".envrc", ".vscode/tasks.json", ".mcp.json", ".claude.json"}
 
 ALLOW, ALLOW_EDITS, DENY, ALWAYS = "allow", "allow_edits", "deny", "always"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 AGENT_TOOLS = {"Task", "Agent"}
-EXPORT_DIR = Path.home() / "Documents" / "Jarvis" / "Eden Code"
+EXPORT_DIR = Path.home() / "Documents" / "Eden Code"
 log = logging.getLogger("jarvis")
+
+
+def old_export_dir() -> Path:
+    """Where exports went before the Eden rename: Documents/Jarvis/Eden Code (beside EXPORT_DIR)."""
+    return EXPORT_DIR.parent / "Jarvis" / EXPORT_DIR.name
+
+
+def export_dir() -> Path:
+    """EXPORT_DIR, made. (CF3-14) The first time, the old folder's exports move into it."""
+    old = old_export_dir()
+    if not EXPORT_DIR.exists() and old.is_dir():
+        with contextlib.suppress(OSError):
+            old.rename(EXPORT_DIR)
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    return EXPORT_DIR
 
 
 # ── "don't ask again" for shell commands ──
@@ -88,7 +112,50 @@ _TWO_WORD = {
     "git", "npm", "pnpm", "yarn", "bun", "uv", "cargo", "go", "make", "docker", "gh", "pip",
     "pip3", "poetry", "swift", "xcodebuild", "kubectl", "terraform", "brew", "bundle", "mix",
     "dotnet", "flutter", "dart", "composer", "gradle", "mvn", "rake", "pipenv", "pdm", "hatch",
+    # (CA2-2) tools with many commands, some harmless and some not: a rule names the command
+    "gem", "pipx", "conda", "rustup", "aws", "gcloud", "az", "wrangler", "firebase", "vercel",
+    "netlify", "heroku", "fly", "flyctl", "supabase", "stripe", "hdiutil", "tmutil",
+    "security", "diskutil", "defaults", "shortcuts",
 }  # fmt: skip
+# (CA2-2) System tools whose rules may only name one of these harmless commands; any other
+# command of theirs (security find-generic-password, diskutil eraseDisk, defaults write,
+# shortcuts run) is asked every time.
+_SAFE_SUBCOMMANDS = {
+    "security": {"find-identity", "find-certificate", "list-keychains", "show-keychain-info",
+                 "verify-cert"},
+    "diskutil": {"list", "info"},
+    "defaults": {"read", "read-type", "domains", "find"},
+    "shortcuts": {"list", "view"},
+    "tmutil": {"listbackups", "latestbackup", "status", "destinationinfo", "isexcluded"},
+}  # fmt: skip
+# (CA2-2) Tools whose commands come in groups ("gh pr view", "docker compose up",
+# "aws s3 rm"): the rule names the command inside the group too. None: every second word is
+# a group. The number is how many words the key may have at most.
+_GROUPS: dict[str, tuple[set[str] | None, int]] = {
+    "git": ({"stash", "remote", "worktree", "submodule", "notes", "lfs", "bisect", "reflog",
+             "sparse-checkout"}, 3),
+    "gh": (None, 3), "aws": (None, 3), "az": (None, 4), "gcloud": (None, 4),
+    "docker": ({"compose", "image", "container", "volume", "network", "system", "builder",
+                "buildx", "context", "plugin", "swarm", "node", "service", "stack", "secret",
+                "config", "manifest", "trust"}, 3),
+    "kubectl": ({"config", "rollout", "auth", "certificate"}, 3),
+    "wrangler": ({"r2", "kv", "d1", "secret", "queues", "pages", "versions", "deployments",
+                  "vectorize", "hyperdrive", "workflows", "kv:key", "kv:namespace", "r2:object"},
+                 4),
+    "brew": ({"services"}, 3), "uv": ({"pip"}, 3), "go": ({"mod", "tool"}, 3),
+    "swift": ({"package"}, 3), "npm": ({"cache", "pkg"}, 3), "firebase": ({"hosting"}, 3),
+    "flutter": ({"pub"}, 3), "dart": ({"pub"}, 3),
+}  # fmt: skip
+# (CA2-2) Programs no "don't ask again" ever covers: they erase disks, change the whole
+# system, stop other programs, read stored passwords or send files to other machines.
+_ALWAYS_ASK = {
+    "dd", "mkfs", "newfs", "fdisk", "gpt", "asr", "bless", "csrutil", "nvram", "pmset",
+    "systemsetup", "networksetup", "scutil", "dscl", "dseditgroup", "fdesetup", "spctl",
+    "tccutil", "shutdown", "reboot", "halt", "mount", "umount", "softwareupdate", "installer",
+    "pkill", "killall", "scp", "sftp", "ftp", "nc", "ncat", "netcat", "socat", "telnet",
+    "op", "pass", "gopass", "lpass", "bw", "vault", "secret-tool", "keychain", "srm", "shred",
+}  # fmt: skip
+_ALWAYS_ASK_PREFIX = ("mkfs.", "newfs_", "docker-credential-", "git-credential-")
 # Programs that run whatever they're handed (shells, interpreters, runners, sudo): the
 # rest of the command is the real one, so no rule ever covers them.
 _RUNNERS = {
@@ -97,6 +164,15 @@ _RUNNERS = {
     "sudo", "doas", "su", "env", "xargs", "exec", "eval", "source", ".", "nohup", "time",
     "timeout", "nice", "watch", "command", "builtin", "parallel", "script", "expect", "open",
     "ssh", "launchctl", "crontab", "at", "cd",
+    # (CA2-2) tools that start whatever they're handed, or editors and debuggers that can
+    "caffeinate", "vim", "vi", "nvim", "view", "ex", "emacs", "gdb", "lldb", "tmux", "screen",
+    "xcrun", "sandbox-exec", "arch", "chroot", "flock", "stdbuf", "unbuffer", "entr",
+    "nodemon", "dtruss", "direnv", "dotenv", "busybox", "ssh-agent", "sshpass",
+    # (round 3) shell builtins that change what later commands run or how they're read
+    "alias", "unalias", "export", "unset", "set", "trap", "hash", "rehash", "enable", "shopt",
+    "setopt", "unsetopt", "declare", "typeset", "local", "readonly", "function", "functions",
+    "unfunction", "autoload", "zmodload", "fc", "bindkey", "emulate", "noglob", "nocorrect",
+    "coproc", "ulimit", "umask", "disown", "zle", "zstyle", "compdef",
 }  # fmt: skip
 # Subcommands that run arbitrary commands or packages, or rewrite the tool's own config.
 _NEVER = {
@@ -104,7 +180,78 @@ _NEVER = {
     "pnpm create", "yarn exec", "yarn dlx", "yarn create", "bun x", "bun create", "uv run",
     "uv tool", "poetry run", "pipenv run", "pdm run", "hatch run", "bundle exec", "git config",
     "docker run", "docker exec", "kubectl exec", "gh extension",
+    # (CA2-2) stored passwords and tokens, tool config that names programs to run, history
+    # rewrites, installing a program for the whole Mac, commands run inside the tool
+    "gh auth", "gh alias", "gh config", "git credential", "git credential-osxkeychain",
+    "git credential-cache", "git credential-store", "aws configure", "aws sts", "gcloud auth",
+    "az account", "npm token", "npm config", "pnpm config", "yarn config", "pip config",
+    "pip3 config", "docker login", "heroku auth:token", "firebase login:ci", "git filter-branch",
+    "git filter-repo", "git update-ref", "git replace", "git submodule foreach", "git bisect run",
+    "brew install", "brew reinstall", "brew upgrade", "brew tap", "brew bundle", "cargo install",
+    "go install", "go get", "gem install", "pipx install", "pipx run", "pipx inject",
+    "npm link", "npm pkg set", "kubectl config", "docker compose exec", "docker compose run",
+    "docker container exec", "docker container run",
 }  # fmt: skip
+# (CA2-2) Installing named packages runs their install scripts: a rule for these covers only
+# the project's own dependencies ("npm install", "pip install -r requirements.txt").
+_INSTALLS = {
+    "npm install", "npm i", "npm in", "npm add", "npm isntall", "pnpm add", "pnpm install",
+    "pnpm i", "yarn add", "yarn install", "yarn global", "bun add", "bun install", "bun i",
+    "pip install", "pip3 install", "pip download", "uv add", "uv pip install", "poetry add",
+    "pipenv install", "pdm add", "composer require", "bundle add", "cargo add", "dotnet add",
+    "conda install", "flutter pub add", "dart pub add",
+}  # fmt: skip
+_INSTALL_FILES = {"-r", "--requirement", "-c", "--constraint"}  # a file in the project
+_INSTALL_SOURCES = {
+    "--registry", "-i", "--index-url", "--extra-index-url", "-f", "--find-links",
+    "--trusted-host", "--index", "--default-index",
+}  # fmt: skip
+# (CA2-2) Forms of a command that throw work or history away, or run another program: no
+# rule covers them. Long options match "--opt" and "--opt=…"; short letters match anywhere
+# in a cluster ("git clean -fdx"); words are exact arguments ("git checkout -- .").
+_DANGER: dict[str, tuple[tuple[str, ...], str, set[str]]] = {
+    "git push": (("--force", "--force-with-lease", "--force-if-includes", "--delete",
+                  "--mirror", "--prune"), "fd", set()),
+    "git reset": (("--hard", "--merge", "--keep"), "", set()),
+    "git checkout": (("--force", "--ours", "--theirs", "--discard-changes",
+                      "--pathspec-from-file"), "fB", {"--", ".", "./", ":/", "*"}),
+    "git switch": (("--force", "--discard-changes"), "fC", set()),
+    "git restore": (("--worktree", "--source", "--pathspec-from-file"), "Ws",
+                    {"--", ".", "./", ":/", "*"}),
+    "git clean": (("--force",), "f", set()),
+    "git branch": (("--delete", "--force", "--move", "--copy"), "DdfMmCc", set()),
+    "git tag": (("--delete", "--force"), "df", set()),
+    "git gc": (("--prune",), "", set()),
+    "rsync": (("--rsh", "--rsync-path", "--remove-source-files"), "e", set()),
+    "tar": (("--checkpoint-action", "--to-command", "--use-compress-program", "--info-script",
+             "--new-volume-script", "--rsh-command", "--absolute-names"), "IFP", set()),
+    "zip": (("--unzip-command",), "", {"-TT"}),
+    "curl": (("--upload-file", "--data", "--data-binary", "--data-raw", "--data-urlencode",
+              "--data-ascii", "--form", "--form-string", "--config", "--json", "--request"),
+             "TdFKX", set()),
+    "wget": (("--execute", "--post-file", "--post-data", "--body-file", "--body-data",
+              "--method", "--use-askpass"), "e", set()),
+    "go build": (("-toolexec", "-exec", "-overlay"), "", set()),
+    "go test": (("-toolexec", "-exec", "-overlay"), "", set()),
+    "go run": (("-toolexec", "-exec", "-overlay"), "", set()),
+    "go vet": (("-vettool", "-toolexec"), "", set()),
+    "sqlite3": (("-cmd", "-init"), "", set()),
+    "sort": (("--compress-program",), "", set()),  # (round 3) runs that program
+}  # fmt: skip
+# git commands that delete what they're given: like rm, never the whole project or .git
+_GIT_DESTRUCTIVE = {"git rm", "git mv", "git clean"}
+_AWK = {"awk", "gawk", "nawk", "mawk"}
+_AWK_RUNS = re.compile(r"\bsystem\b|getline|\||>|\bENVIRON\b")
+# sqlite3's own dot-commands that only show things; any other (.shell, .system, .output,
+# .load, .open, and their short forms) asks. SQL that reads or writes files asks too.
+_SQLITE_SHOWS = {
+    "tables", "schema", "indexes", "indices", "headers", "header", "mode", "help", "show",
+    "databases", "fullschema", "dbinfo", "width", "nullvalue", "separator", "timer", "stats",
+    "eqp", "changes", "echo", "dump", "quit", "exit",
+}  # fmt: skip
+_SQLITE_RUNS = re.compile(
+    r"load_extension|writefile|readfile|\bedit\s*\(|\battach\b|vacuum\s+into", re.IGNORECASE
+)
 # Where the next word names a script, the rule names it too: "npm run build".
 _SCRIPTS = {"npm run", "npm run-script", "pnpm run", "yarn run", "bun run"}
 # Options a tool takes before its subcommand: (flags, options with a value, options
@@ -171,6 +318,102 @@ def _within(cwd: Path | None, raw: str) -> bool:
     return path == root or root in path.parents
 
 
+# Programs that delete, move or overwrite what they're given: a rule for one never covers the
+# project folder itself as the target ("rm -rf .").
+_DESTRUCTIVE = frozenset(
+    {
+        "rm", "rmdir", "unlink", "mv", "cp", "ln", "chmod", "chown", "chgrp", "dd",
+        "truncate", "shred", "srm", "rsync", "install",
+    }
+)  # fmt: skip
+
+
+def _is_project(cwd: Path, raw: str) -> bool:
+    try:
+        return (Path(raw).expanduser() if raw.startswith("/") else cwd / raw).resolve() == cwd.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return True
+
+
+def _reaches_outside(arg: str, cwd: Path | None, destructive: bool) -> bool:
+    """Whether a command's argument names something past the project: a path outside it
+    (absolute, ~, ..), a variable ($HOME/Library) or, for a program that deletes or
+    overwrites, the project folder itself. No "don't ask again" rule covers such a command."""
+    if arg.startswith("-"):
+        value = _option(arg)[1]
+        values = [value] if value else []
+    else:
+        values = [arg, arg.split("=", 1)[1]] if "=" in arg else [arg]  # dd of=/dev/disk2
+    for value in values:
+        if "$" in value or value.startswith("~"):
+            return True
+        if (value.startswith("/") or ".." in Path(value).parts) and not _within(cwd, value):
+            return True
+        if destructive and cwd is not None and not arg.startswith("-") and _is_project(cwd, value):
+            return True
+        if destructive and _PROTECTED_DIRS & set(Path(value).parts):
+            return True  # (CA2-2) rm -rf .git, cp x .git/hooks/pre-commit
+    return False
+
+
+def _expansion(command: str) -> tuple[bool, list[str]]:
+    """(CA2-1) What the shell would rewrite before the program sees it, read the way the shell
+    reads quotes: (True, []) for a brace ({~,x}), a ~ starting a word or after = or :, a $ or
+    a backtick outside single quotes, or zsh's =cmd; else (False, words holding a glob)."""
+    globs: list[str] = []
+    word, glob, quote, start, prev = "", False, "", True, ""
+    for c in command:
+        if quote == "'":
+            quote = "" if c == "'" else quote
+        elif prev == "\\":
+            prev = ""  # an escaped character is taken as it is
+            word += c
+            continue
+        elif c == "\\":
+            pass
+        elif quote == '"':
+            if c in "$`":
+                return True, []
+            quote = "" if c == '"' else quote
+        elif c in " \t":
+            if glob:
+                globs.append(word)
+            word, glob, start, prev = "", False, True, c
+            continue
+        elif c in "'\"":
+            quote = c
+        elif c in "$`()" or (c == "=" and start) or (c == "{" and prev != "@"):
+            return True, []  # ( ): a subshell, or zsh's *(e:…:) glob that runs code
+        elif c == "~" and (start or prev in "=:"):
+            return True, []
+        elif c in "*?[":
+            glob = True
+        word += c
+        start, prev = False, c
+    if glob:
+        globs.append(word)
+    return False, globs
+
+
+def _glob_may_leave(word: str) -> bool:
+    """A glob part that could match '..' (.*, .?, [.]…) or start outside the project."""
+    if word.startswith(("/", "~")):
+        return True
+    return any(part[:1] in (".", "[") and any(g in part for g in "*?[") for part in word.split("/"))
+
+
+def _danger(key: str, args: list[str]) -> bool:
+    """(CA2-2) Whether the command's options or arguments are one of the forms of `key` that
+    throw work away or run something else (_DANGER), whatever a rule says."""
+    longs, shorts, words = _DANGER.get(key, ((), "", set()))
+    for a in args:
+        if a in words or a.split("=", 1)[0] in longs:
+            return True
+        if shorts and a.startswith("-") and not a.startswith("--") and set(a[1:]) & set(shorts):
+            return True
+    return False
+
+
 def _option(word: str) -> tuple[str, str | None]:
     """'--prefix=app' -> ('--prefix', 'app'); '-j4' -> ('-j', '4'); '-s' -> ('-s', None)."""
     if word.startswith("--") and "=" in word:
@@ -181,19 +424,148 @@ def _option(word: str) -> tuple[str, str | None]:
     return word, None
 
 
+# (round 3) A program's name and a tool's command as a rule names them: plain words only.
+_WORD = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._+-]*")
+_SUBCOMMAND = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*")
+# (round 3) Characters the shell reads specially, and look-alikes of them: a command with a
+# character that only looks like one (∕etc, ．．/, ˜) is asked, as is one with an invisible
+# or control character (zero-width, bidi, no-break space, line separator).
+_SHELL_LOOKS = set("~./\\$;&|<>`{}*?[]'\"= ")
+_CONFUSABLE_NAMES = ("SOLIDUS", "SLASH", "TILDE", "DOT LEADER", "FULL STOP")
+
+
+def _odd_characters(command: str) -> bool:
+    for c in command:
+        if c.isascii():
+            if not (c.isprintable() or c in "\t\n\r"):
+                return True  # NUL, escape, form feed… (newlines are refused as syntax)
+            continue
+        if unicodedata.category(c)[0] in "CZM":  # control, format, spaces, marks
+            return True
+        if set(unicodedata.normalize("NFKC", c)) & _SHELL_LOOKS:
+            return True
+        name = unicodedata.name(c, "")
+        if c != "\u3002" and any(n in name for n in _CONFUSABLE_NAMES):
+            return True  # (the ideographic full stop 。 ends Chinese sentences: fine)
+    return False
+
+
+def _names_protected(arg: str) -> bool:
+    """(round 3) Whether an argument names git's internals, Claude Code's settings or a file
+    other tools run on their own (_PROTECTED_DIRS, _PROTECTED_FILES)."""
+    if arg.startswith("-"):
+        value = _option(arg)[1]
+        values = [value] if value else []
+    else:
+        values = [arg, arg.split("=", 1)[1]] if "=" in arg else [arg]
+    for value in values:
+        parts = Path(value).parts
+        if _PROTECTED_DIRS & set(parts):
+            return True
+        posix = Path(value).as_posix().removeprefix("./")
+        if any(posix == f or posix.endswith("/" + f) for f in _PROTECTED_FILES):
+            return True
+    return False
+
+
+def _plain_remote(args: list[str]) -> bool:
+    """(round 3) git push/fetch/pull to a remote by its name (origin), never to a URL, a
+    host:path or a folder: a rule for pushing never sends the code somewhere new."""
+    positional, skip = [], False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if "://" in a or re.match(r"[^/:]*@[^/:]+:", a):
+            return False
+        if a.split("=", 1)[0] == "--repo":
+            return False
+        if a in ("-o", "--push-option", "--server-option"):
+            skip = True
+        elif not a.startswith("-"):
+            positional.append(a)
+    return not positional or not re.search(r"[:/@\\]", positional[0])
+
+
+# (round 3) A sed script a rule may cover: addresses (a line, $, /regex/, a range) and the
+# commands that only print or delete lines, or s/// with flags that neither write (w) nor
+# run (e) anything. Any other script (w, r, e, a/i/c text, labels, braces) is asked.
+_SED_ADDR = r"(?:\d+|\$|/(?:\\.|[^/\\])*/)"
+_SED_CMD = re.compile(
+    rf"\s*(?:{_SED_ADDR}(?:\s*,\s*{_SED_ADDR})?\s*!?\s*)?"
+    r"(?:[pdqPDnNgGhHx=l]|s(?P<d>[^\\\n\w\s])(?:\\.|(?!(?P=d)).)*(?P=d)"
+    r"(?:\\.|(?!(?P=d)).)*(?P=d)[gpiI0-9]*)\s*"
+)
+_SED_FLAGS = set("nErsuz")
+_SED_LONG = {"--quiet", "--silent", "--regexp-extended", "--posix", "--null-data",
+             "--separate", "--unbuffered", "--debug"}  # fmt: skip
+
+
+def _plain_sed_script(script: str) -> bool:
+    return all(_SED_CMD.fullmatch(part) for part in script.split(";") if part.strip())
+
+
+def _plain_sed(args: list[str]) -> bool:
+    """(round 3) sed with only the options that shape its reading and plain scripts. On a Mac
+    a bare -i takes the next word as the backup's suffix ("" or .bak)."""
+    scripts: list[str] = []
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-e", "--expression"):
+            if i + 1 >= len(args):
+                return False
+            scripts.append(args[i + 1])
+            i += 2
+            continue
+        if a.startswith("--expression="):
+            scripts.append(a.split("=", 1)[1])
+        elif a == "-i":
+            if i + 1 >= len(args) or not re.fullmatch(r"[\w.~-]*", args[i + 1]):
+                return False
+            i += 2
+            continue
+        elif a.startswith("-i") or a.startswith("--in-place"):
+            if not re.fullmatch(r"(?:-i|--in-place=?)[\w.~-]*", a):
+                return False
+        elif a.startswith("--"):
+            if a not in _SED_LONG:
+                return False
+        elif a.startswith("-") and a != "-":
+            if not set(a[1:]) <= _SED_FLAGS:
+                return False  # -f script, -ne (a script next): asked
+        else:
+            positional.append(a)
+        i += 1
+    if not scripts:
+        if not positional:
+            return False
+        scripts = [positional[0]]
+    return all(_plain_sed_script(s) for s in scripts)
+
+
 def command_key(command: str, cwd: Path | None = None) -> str | None:
     """What "don't ask again" knows a shell command by: its program, plus the subcommand
-    for tools like git or npm ("git commit", "npm run build"). None when no rule may cover
-    it: chained, piped or redirected commands; shells, interpreters and runners; and
-    options that point the tool outside the project or at other code to run."""
+    for tools like git or npm ("git commit", "npm run build", "gh pr view"). None when no rule
+    may cover it: chained, piped or redirected commands; anything the shell would expand
+    first (braces, ~, $, backticks, zsh's =cmd, a glob that could leave the project or name
+    what a deleting program removes); shells, interpreters and runners; options that point
+    the tool outside the project or at other code to run; and the forms that are asked every
+    time (stored passwords, disks and the system, destructive git, installing packages)."""
+    if _odd_characters(command.strip(" \t")):
+        return None  # (round 3) invisible, control or look-alike characters: asked
     command = command.strip()
     first = _CD_FIRST.match(command)
     if first:  # "cd sub && npm test": fine while it stays in the project
         target = first.group(1).strip("'\"")
-        if not _within(cwd, target):
-            return None
+        if target.startswith("-") or not _within(cwd, target):
+            return None  # (CA2-2) "cd -" goes back to $OLDPWD, wherever that is
         command = command[first.end() :]
     if not command or _SHELL_SYNTAX.search(command):
+        return None
+    expands, globs = _expansion(command)
+    if expands or any(_glob_may_leave(g) for g in globs):
         return None
     try:
         words = shlex.split(command)
@@ -205,13 +577,25 @@ def command_key(command: str, cwd: Path | None = None) -> str | None:
         words = words[1:]
     if not words or "/" in words[0] or words[0] in _RUNNERS:
         return None
+    if not _WORD.fullmatch(words[0]):
+        return None  # (round 3) 'npm test' quoted as one word, a look-alike name
     program, args = words[0], words[1:]
+    if program in _ALWAYS_ASK or program.startswith(_ALWAYS_ASK_PREFIX):
+        return None
+    if program in ("make", "gmake") and any("=" in a and not a.startswith("-") for a in args):
+        return None  # make test SHELL=evil: a variable can name what runs
+    if globs and program in _DESTRUCTIVE:
+        return None  # rm -rf *, chmod -R 000 .*: asked every time
     if any(_option(a)[0] in _UNSAFE_OPTS for a in args):
         return None
+    if any(_reaches_outside(a, cwd, program in _DESTRUCTIVE) for a in args):
+        return None  # rm -rf ~, rm -rf /, rm -rf $HOME/Library, ../other: always asked
+    if program not in _READ_SAFE and any(_names_protected(a) for a in args):
+        return None  # (round 3) tee .git/hooks/pre-commit, curl -o .envrc: asked
     if program == "find":
         return None if _FIND_ACTIONS & set(args) else "find"
     if program not in _TWO_WORD:
-        return program
+        return _one_word(program, args, cwd)
     flags, valued, dirs = _GLOBAL_OPTS.get(program, (set(), set(), set()))
     i = 0
     while i < len(args) and args[i].startswith("-"):
@@ -226,15 +610,124 @@ def command_key(command: str, cwd: Path | None = None) -> str | None:
             return None  # an option we can't read: a value mistaken for the subcommand
         i += 1
     if i >= len(args):
-        return program
+        return None if program in _SAFE_SUBCOMMANDS else program
+    if not _SUBCOMMAND.fullmatch(args[i]):
+        return None  # (round 3) cargo +nightly …: a toolchain, not a command a rule names
     key = f"{program} {args[i]}"
-    rest = set(args[i + 1 :])
-    if key in _NEVER or _UNSAFE_BY_COMMAND.get(key, set()) & rest:
+    rest = args[i + 1 :]
+    if key in _NEVER or _UNSAFE_BY_COMMAND.get(key, set()) & set(rest) or _danger(key, rest):
         return None
+    if program in _SAFE_SUBCOMMANDS and args[i] not in _SAFE_SUBCOMMANDS[program]:
+        return None
+    if key in _GIT_DESTRUCTIVE and any(_reaches_outside(a, cwd, True) for a in rest):
+        return None  # git rm -r ., git clean -x .git
     if key in _SCRIPTS:
-        script = args[i + 1] if i + 1 < len(args) else ""
+        script = rest[0] if rest else ""
         return f"{key} {script}" if script and not script.startswith("-") else None
+    if key == "gh api" and _danger_api(rest):
+        return None
+    if key == "git push" and any(a.startswith(("+", ":")) for a in rest):
+        return None  # +main forces, :main deletes
+    if key in ("git push", "git fetch", "git pull") and not _plain_remote(rest):
+        return None  # (round 3) git push https://elsewhere/x.git: the code sent away
+    groups, most = _GROUPS.get(program, (set(), 2))
+    parts = [program, args[i]]
+    while len(parts) < most and rest and not rest[0].startswith("-"):
+        if len(parts) == 2 and groups is not None and parts[1] not in groups:
+            break
+        if not _SUBCOMMAND.fullmatch(rest[0]):
+            return None  # (round 3)
+        parts.append(rest[0])
+        rest = rest[1:]
+        key = " ".join(parts)
+        if key in _NEVER:
+            return None
+    if key in _INSTALLS and _names_packages(rest if len(parts) > 2 else args[i + 1 :], cwd):
+        return None
     return key
+
+
+def _one_word(program: str, args: list[str], cwd: Path | None) -> str | None:
+    """The key of a program without subcommands, or None for its forms that run another
+    program or reach past what its rule was for (CA2-2)."""
+    if program in _AWK and (
+        any(a in ("-f", "--file", "-E", "--exec") or a.startswith("--file=") for a in args)
+        or any(_AWK_RUNS.search(a) for a in args)
+    ):
+        return None  # awk 'BEGIN{system("…")}'
+    if program == "sqlite3" and (
+        _danger(program, args)
+        or any(_SQLITE_RUNS.search(a) for a in args)
+        or any(
+            a.lstrip().startswith(".") and a.lstrip()[1:].split(" ", 1)[0] not in _SQLITE_SHOWS
+            for a in args[1:]
+        )
+    ):
+        return None  # sqlite3 db '.shell …'
+    if program == "tar" and args and not args[0].startswith("-") and set(args[0]) & set("IFP"):
+        return None  # old-style "tar cIf …"
+    if program == "rsync" and any(":" in a.split("/", 1)[0] for a in args if not a.startswith("-")):
+        return None  # host:path sends files to another machine
+    if program == "kill" and not _plain_kill(args):
+        return None
+    if program in ("sed", "gsed") and not _plain_sed(args):
+        return None  # (round 3) sed 'w /tmp/x', sed '1e cmd', s///w: writes or runs
+    if _danger(program, args):
+        return None
+    return program
+
+
+def _plain_kill(args: list[str]) -> bool:
+    """kill PID… or kill -SIGNAL PID…, never -1 (every process) or a process group."""
+    options = [a for a in args if a.startswith("-")]
+    pids = [a for a in args if not a.startswith("-")]
+    return (
+        len(options) <= 1
+        and (not options or args[0] == options[0])
+        and "--" not in args
+        and bool(pids)
+        and all(p.isdigit() and int(p) > 1 for p in pids)
+    )
+
+
+def _danger_api(args: list[str]) -> bool:
+    """gh api with a method or fields: it writes (POST, PATCH, DELETE), not just reads."""
+    for i, a in enumerate(args):
+        name = a.split("=", 1)[0]
+        if name in ("-X", "--method"):
+            value = a.split("=", 1)[1] if "=" in a else (args[i + 1] if i + 1 < len(args) else "")
+            if value.upper() != "GET":
+                return True
+        elif name in ("-f", "-F", "--field", "--raw-field", "--input") or (
+            a.startswith("-X") and a[2:].upper() != "GET" and len(a) > 2
+        ):
+            return True
+    return False
+
+
+def _names_packages(args: list[str], cwd: Path | None) -> bool:
+    """Whether an install names packages (or another index) rather than installing the
+    project's own dependencies: "npm install lodash" yes; "npm install", "pip install -r
+    requirements.txt", "pip install -e ." no."""
+    skip = False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        name = a.split("=", 1)[0]
+        if name in _INSTALL_SOURCES:
+            return True
+        if name in _INSTALL_FILES:
+            skip = "=" not in a
+            continue
+        if a in ("-e", "--editable"):
+            continue
+        if a.startswith("-"):
+            continue
+        if (a == "." or a.startswith(("./", ".["))) and _within(cwd, a.split("[", 1)[0]):
+            continue  # the project itself
+        return True
+    return False
 
 
 # Shell commands that only look: nothing written, sent, deleted or run beyond themselves.
@@ -536,6 +1029,12 @@ ROOM_IDLE = 60.0  # idle this long, an open session may close to make room (neve
 CONNECTS_PER_SECOND = 3  # Claude Codes started in any one second (a burst waits its turn)
 SPAWN_WINDOW = 1.0
 MAX_QUEUED = 50  # messages waiting for one session: more is a runaway, not someone typing
+# The longest message a window may send a session (task_new's prompt, task_send's text): a
+# longer one is refused with a note, never cut (web/app.js says so before sending). An entry
+# in the transcript (a reply, a message) is kept whole up to the same length, else cut with a
+# marker saying how much more there was.
+MESSAGE_MAX = 100_000
+ENTRY_MAX = MESSAGE_MAX
 QUEUE_SHOWN = 20  # of those, what the windows' list carries (the count is always whole)
 CHANGED_EVERY = 0.1  # the windows' list of sessions: at most this often in a burst of changes
 REOPEN_QUIET = 0.75  # a burst of + menu changes reopens once, when they've stopped
@@ -817,6 +1316,11 @@ class ClaudeTask:
     # ... and those messages, so a connection that closes first gives them back to the queue
     steered_items: list[dict[str, Any]] = field(default_factory=list)
     ending: bool = False  # End session pressed: a second press must not cut the shutdown short
+    # A message the user sent while End session was shutting it down: it opens again for it.
+    sent_while_ending: bool = False
+    # When the user last sent it something (time.monotonic(), 0: never): they're at it, so its
+    # questions reach them even in quiet hours (features/code_answers).
+    user_at: float = 0.0
     in_flight: dict[str, Any] | None = None  # the message sent whose turn hasn't begun yet
     restarts: int = 0  # reopened by itself for waiting messages since the last finished turn
     reopen_at: float = 0.0  # the latest change that needs a reopen
@@ -1034,6 +1538,152 @@ def _private_target(tool_name: str, tool_input: dict[str, Any]) -> str:
     return ""
 
 
+# Eden's own data folder holds the window's socket token (backend.json), the phone pairings,
+# the Touch ID proof key, the settings and the permission rules: a session never reads,
+# searches, edits or names them, in any mode (with that token a step could answer its own
+# cards). Every file at its top is the app's own, and so are these folders in it (the
+# helpers and programs it runs, its MCP config, hooks, browser profile, records); the rest
+# (its isolated copies, work folders) are a session's to work in.
+DATA_CLOSED = {
+    "mcp", "hooks", "helpers", "helper", "bin", "eden_browser", "whatsapp", "brain",
+    "code_sessions", "handoff", "sounds", "models", "cli-args", "Reminders", "Calendar",
+    "action_log",
+}  # fmt: skip
+DATA_TOKENS = ("backend.json", "touchid.key", "devices.json", "companion-tls.pem")
+_REACHES_OUT = re.compile(r"~|\$\{?HOME\b|/Users/|/home/|Library|(^|[\s;&|(])find\s+/")
+DATA_REFUSAL = (
+    "That is Eden's own data folder (its window token, settings and permission rules): no "
+    "session may read, search, edit or run anything on it, in any mode. Don't try another "
+    "way to get at it; go on without it."
+)
+
+
+def _plain(text: str) -> str:
+    """A command or path as compared: escaped spaces and quotes gone, one kind of slash,
+    no case."""
+    return text.replace("\\ ", " ").replace("\\", "/").replace('"', "").replace("'", "").casefold()
+
+
+def _data_closed(folder: Path, first: str) -> bool:
+    """Whether a path in the data folder whose first name there is this is the app's own:
+    the folder itself, a file at its top (or a name that's no folder there), or one of
+    DATA_CLOSED."""
+    if not first or first.casefold() in {n.casefold() for n in DATA_CLOSED}:
+        return True
+    try:
+        for entry in folder.iterdir():  # (names as the disk has them: case ignored, as macOS does)
+            if entry.name.casefold() == first.casefold():
+                return not entry.is_dir()
+    except OSError:
+        return True
+    return True  # not there (yet): the app's, until it's a work folder
+
+
+@functools.lru_cache(maxsize=16)
+def _real_dirs(folders: tuple[Path, ...]) -> tuple[Path, ...]:
+    """The data folders as compared (links followed), worked out once."""
+    real = []
+    for folder in folders:
+        with contextlib.suppress(OSError):
+            real.append(folder.expanduser().resolve())
+    return tuple(real)
+
+
+@functools.lru_cache(maxsize=16)
+def _data_forms(folder: Path) -> list[str]:
+    """How a command may spell the data folder: whole, from ~ or $HOME, or by its last two
+    names ("application support/jarvis")."""
+    whole = folder.as_posix()
+    forms = {whole, "/".join(folder.parts[-2:])}
+    with contextlib.suppress(ValueError):
+        rel = folder.relative_to(Path.home()).as_posix()
+        forms |= {f"~/{rel}", f"$home/{rel}", f"${{home}}/{rel}"}
+    return [_plain(f).rstrip("/") for f in forms if f]
+
+
+def _data_files(real: tuple[Path, ...]) -> set[tuple[int, int]]:
+    """The (device, inode) of each file at the top of the data folders (backend.json,
+    touchid.key, the pairings): another name for one, a hard link, is one of them."""
+    out: set[tuple[int, int]] = set()
+    for folder in real:
+        with contextlib.suppress(OSError):
+            for entry in folder.iterdir():
+                with contextlib.suppress(OSError):
+                    if not entry.is_symlink() and entry.is_file():
+                        st = entry.stat()
+                        out.add((st.st_dev, st.st_ino))
+    return out
+
+
+def _linked_data(path: Path, real: tuple[Path, ...]) -> bool:
+    """Whether a file elsewhere is a hard link to one of the data folders' own files (one a
+    project brought in already made: resolve() can't see it, CD2-4)."""
+    try:
+        st = path.stat()
+    except (OSError, ValueError):
+        return False
+    if st.st_nlink < 2 or not path.is_file():
+        return False  # (one name only: the usual case, no folder listed)
+    return (st.st_dev, st.st_ino) in _data_files(real)
+
+
+_WORD_SPLIT = re.compile(r"[\s;&|<>()`'\"=]+")
+
+
+def data_target(
+    tool_name: str, tool_input: dict[str, Any], folders: list[Path], cwd: Path | None = None
+) -> bool:
+    """Whether a step would read, search, edit or name a file in Eden's data folder (outside
+    its work folders: _data_closed), or search a folder above it."""
+    real = _real_dirs(tuple(folders))
+    if not real:
+        return False
+    for raw in _read_paths(tool_name, tool_input):
+        if not raw:
+            continue
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            if cwd is None:
+                continue
+            path = cwd / path
+        try:
+            path = path.resolve()
+        except OSError:
+            continue
+        for folder in real:
+            if path == folder or folder in path.parents:
+                rel = path.relative_to(folder).parts
+                if _data_closed(folder, rel[0] if rel else ""):
+                    return True
+            elif path in folder.parents and tool_name in ("Grep", "Glob"):
+                return True  # a search over a folder it's in
+        if _linked_data(path, real):
+            return True
+    command = str(tool_input.get("command") or "")
+    if command and cwd is not None:  # a command's words that name a file there (cat link)
+        for word in [w for w in _WORD_SPLIT.split(command) if w and w[0] != "-"][:64]:
+            with contextlib.suppress(OSError, RuntimeError, ValueError):
+                if _linked_data(cwd / Path(word).expanduser(), real):
+                    return True
+    for key in ("command", "pattern", "path", "file_path", "url", "glob"):
+        text = _plain(str(tool_input.get(key) or ""))
+        if not text:
+            continue
+        for folder in real:
+            for form in _data_forms(folder):
+                at = text.find(form)
+                while at >= 0:
+                    rest = text[at + len(form) :]
+                    first = rest[1:].split("/", 1)[0] if rest.startswith("/") else ""
+                    first = re.split(r"[\s;&|)`$*?\[{]", first, maxsplit=1)[0]
+                    if _data_closed(folder, first):
+                        return True
+                    at = text.find(form, at + 1)
+        if key == "command" and any(n in text for n in DATA_TOKENS) and _REACHES_OUT.search(text):
+            return True
+    return False
+
+
 def auto_capable(model: str) -> bool:
     """Claude Code's auto mode runs on Claude's Opus, Sonnet and Fable: not on Haiku, and
     not on another provider's model (its safety check is Claude's)."""
@@ -1101,6 +1751,8 @@ class TaskManager:
         self.claude_back: Callable[[], bool] | None = None
         # Settings: read-only shell commands (ls, git status, grep…) run without asking.
         self.read_only_free: Callable[[], bool] = lambda: True
+        # Eden's data folder (DATA_REFUSAL): the app's own, and the hub's (a test's) beside it.
+        self.data_dirs: list[Path] = [osplat.app_support()]
         # Models added with an API key (providers.ProviderStore; the hub sets it): each
         # connection re-derives the session's settings, re-checking the key's Keychain seal.
         self.providers: Any = None
@@ -1164,6 +1816,8 @@ class TaskManager:
     # ── folders ──
 
     def resolve_dir(self, directory: str) -> Path:
+        if not directory.strip():  # (CA3-7) none given: said plainly
+            raise ValueError("Pick a project first.")
         if self.isolated_dir is not None and (copy := self.isolated_dir(directory)) is not None:
             return copy  # a session's own isolated copy of a project
         raw = Path(directory.strip()).expanduser()
@@ -1194,8 +1848,15 @@ class TaskManager:
                 )
             if path.is_dir() and any(path == r or r in path.parents for r in roots):
                 return path
+        known = self.projects()
+        if not known:  # (CA3-9) never "Known projects:" and nothing after it
+            raise ValueError(
+                f"No project folder called {directory!r}, and none are on your list yet: add "
+                "one in Settings › Projects."
+            )
         raise ValueError(
-            f"No project folder called {directory!r}. Known projects: {', '.join(self.projects())}"
+            f"No project folder called {directory!r}. Known projects: {', '.join(known)}. "
+            "Add another in Settings › Projects."
         )
 
     def projects(self) -> list[str]:
@@ -1221,6 +1882,14 @@ class TaskManager:
         """Where a project on the list lives: the projects folder's, or one from Settings."""
         own = self.settings.projects_dir / name
         return own if own.is_dir() else self._more_projects()[0].get(name, own)
+
+    @staticmethod
+    def rule_folder(task: ClaudeTask) -> Path:
+        """The folder a session's "don't ask again" rules belong to: an isolated copy's
+        project (the main folder), so a rule made in a copy holds in the project and outlives
+        the copy; else the session's own folder."""
+        project = task.workspace.get("project") if task.workspace else ""
+        return Path(project) if project else task.cwd
 
     def defaults_for(self, directory: str, session_id: str = "") -> dict[str, Any]:
         """What a new session in this project starts with, where the project (or, resumed, the
@@ -1259,18 +1928,21 @@ class TaskManager:
         add_dirs: list[str] | None = None,
         plugins: list[str] | None = None,
         isolate: bool | None = None,
+        by_user: bool = False,
     ) -> ClaudeTask:
         """A new session (or the open one that is this resume). images go with the first
         message; add_dirs and plugins are the composer's + menu choices made before it;
         isolate asks for (True) or against (False) its own isolated copy of the project,
-        None leaving it to the owner's default."""
+        None leaving it to the owner's default. by_user: the owner started it themselves
+        (a window, the phone, their voice), so they're at it (user_at); an automation's
+        start or resume (a usage limit's reset, a PR autofix, an issue run) never is."""
         cwd = self.resolve_dir(directory)
         if resume and self.revive is not None and self._by_session(resume) is None:
             self.revive(resume)  # a kept session let go from the list: back as it was
         same = self._by_session(resume) if resume else None
         if same is not None:  # already open here: the same session, never a second copy
             if prompt.strip() or images:
-                self.send(same.id, prompt, images)
+                self.send(same.id, prompt, images, by_user=by_user)
             elif same.handle is None or same.handle.done():
                 same.status = "running"
                 same.handle = asyncio.create_task(self._session(same))
@@ -1294,6 +1966,8 @@ class TaskManager:
         )
         if task.mode == "smart" and not auto_capable(task.model or self.model):
             task.mode = "ask"  # Claude Code's auto mode needs Opus, Sonnet or Fable
+        if by_user:  # (CA2-6)
+            task.user_at = time.monotonic()
         if task.prompt or images:
             task.inbox.put(task.prompt, (images or [])[:6])
         self.tasks[task.id] = task
@@ -1350,17 +2024,24 @@ class TaskManager:
         plain: bool = False,
         steer: bool | None = None,
         note: bool = False,
+        by_user: bool = False,
     ) -> bool:
         """A follow-up message; queued if the session is mid-step, and it reopens a
         finished session by resuming it. images: [{media_type, data (base64)}]; plain:
         exactly this wording (a git command), never with the ultracode keyword. steer:
         True sends it into the running step without stopping it (Claude Code takes it up
         after the tool it's on), False queues it; None follows the owner's setting. note:
-        the app's own words (see Inbox.put), always queued."""
+        the app's own words (see Inbox.put), always queued. by_user: the owner's own message
+        (a window, the phone, their voice), not a peer's, a job's or a check's (CA2-6)."""
         task = self.tasks.get(task_id)
         text = text.strip()
         if task is None or task.kind != "code" or not (text or images):
             return False
+        if not note:
+            if by_user:
+                task.user_at = time.monotonic()
+            if task.ending:  # End session is shutting it down: it opens again for this, after
+                task.sent_while_ending = True
         for route in self.send_routes:
             taken = route(task, text, images)
             if taken is not None:
@@ -1437,6 +2118,7 @@ class TaskManager:
         item = task.inbox.pop(item_id)
         if item is None:
             return False
+        task.user_at = time.monotonic()  # (the owner's own press: they're at it)
         self._take_steer(task, item["text"], item["images"])  # (moved, not added: within the cap)
         self._changed()
         return True
@@ -1538,9 +2220,9 @@ class TaskManager:
             return "It's still working; stop it first."
         if not task.checkpoints:
             return "There's nothing to undo in this session."
-        reply = await self._rewind(task, task.checkpoints[-1])
+        reply = await self._rewind(task, task.checkpoints[-1], verb="undo")
         if not reply.startswith("Rewound"):
-            return reply.replace("rewind", "undo").replace("Rewind", "Undo")
+            return reply
         self._log(task, "system", "Undid the last round of file changes.")
         self._changed()
         return "Undone: the files are back as they were before that change."
@@ -1557,14 +2239,16 @@ class TaskManager:
         self._changed()
         return reply
 
-    async def _rewind(self, task: ClaudeTask, uuid: str) -> str:
+    async def _rewind(self, task: ClaudeTask, uuid: str, verb: str = "rewind") -> str:
+        """Files back to a checkpoint. verb: how a failure is worded ("undo" for undo()), the
+        error itself (Claude Code's words) quoted as it came."""
         if task.busy:
-            return "It's still working. Stop it first, then rewind."
+            return f"It's still working. Stop it first, then {verb}."
         if uuid not in task.checkpoints:
-            return "Couldn't rewind to that message: it's too far back, or already undone."
+            return f"Couldn't {verb} to that message: it's too far back, or already undone."
         if task.client is None:
             if not task.session_id:
-                return "Couldn't rewind: the session never started."
+                return f"Couldn't {verb}: the session never started."
             if task.handle is None or task.handle.done():
                 task.status, task.restarts = "running", 0
                 task.handle = asyncio.create_task(self._session(task))
@@ -1573,11 +2257,11 @@ class TaskManager:
                     break
                 await asyncio.sleep(0.2)
             else:
-                return "Couldn't reopen the session to rewind it. Try again in a moment."
+                return f"Couldn't reopen the session to {verb} it. Try again in a moment."
         try:
             await task.client.rewind_files(uuid)
         except Exception as exc:  # the checkpoint stays, so it can be tried again
-            return f"Couldn't rewind: {exc}"
+            return f"Couldn't {verb}: {exc}"
         if uuid in task.checkpoints:
             at = task.checkpoints.index(uuid)
             kept = set().union(
@@ -1677,13 +2361,42 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if task is None or task.kind != "code":
             return "No such session."
-        path = Path(directory).expanduser().resolve()
-        home = Path.home().resolve()
-        broad = {home, Path("/"), Path(path.anchor), *(home / n for n in _HOME_FOLDERS)}
+        # (CA2-3) The disk's own spelling of the folder (/users/me is /Users/me on a Mac's
+        # disk), and every comparison below without letter case, so no spelling gets past.
+        raw = Path(directory).expanduser()
+        path = _real_dir(raw)
+        home = _real_dir(Path.home())
+        fold, fhome = _folded(path), _folded(home)
+        # (CA3-6) Outside home, only a folder on another disk (/Volumes/<disk>/<folder>) or
+        # under a project root (Settings › Projects, the projects folder): never a system
+        # folder (/usr/local/bin, /opt/homebrew/bin, /private/var/folders, /System/Volumes/…,
+        # /home, /Users/Shared…).
+        listed, more_roots = self._more_projects()
+        roots = [self.settings.projects_dir, *more_roots, *listed.values()]
+        rooted = {_folded(_real_dir(Path(r).expanduser())) for r in roots}
+        placed = (
+            fhome in fold.parents
+            or (len(fold.parts) >= 4 and fold.parts[1] == "volumes")
+            or any(fold == r or r in fold.parents for r in rooted if r not in _broad_of(fhome))
+        )
+        tops = (fhome / _folded(n) for n in _HOME_FOLDERS)
+        broad = {fhome, Path("/"), _folded(path.anchor), *tops}
+        # The folders above home (/Users, and home as the Data volume names it) hold all of
+        # it, ~/Library included; a system root or a whole disk is never a project either.
+        data_home = Path("/system/volumes/data", *fhome.parts[1:])
         if (
             not path.is_dir()
-            or path in broad
-            or (home / "Library") in path.parents
+            or not placed
+            # (CA3-5) /.nofollow/…, /.resolve/1/…, /.vol/…: other spellings of any folder,
+            # and a folder whose real path can't be read can't be checked: never added
+            or {_folded(p) for p in (*raw.parts[1:2], *path.parts[1:2])} & _MAGIC_ROOTS
+            or not _openable(path)
+            or fold in broad
+            or fhome.is_relative_to(fold)
+            or data_home.is_relative_to(fold)
+            or fold in _SYSTEM_ROOTS_FOLDED
+            or fold.parent == Path("/volumes")
+            or (fhome / "library") in fold.parents
             or in_app_data(home, path)
             or is_sensitive(path)
         ):
@@ -1781,13 +2494,14 @@ class TaskManager:
         return task.live_effort is not None and task.live_effort != wanted
 
     def export(self, task_id: int) -> Path | None:
-        """The transcript as Markdown in ~/Documents/Jarvis/Eden Code."""
+        """The transcript as Markdown in ~/Documents/Eden Code."""
         task = self.tasks.get(task_id)
         if task is None:
             return None
-        EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        export_dir()
+        # Letters and digits of any script ("修复登录错误"), never a character a path can't take.
         slug = (
-            re.sub(r"[^A-Za-z0-9 ]+", "", task.title or task.prompt or "Session").strip()[:60]
+            re.sub(r"[^\w ]+", "", task.title or task.prompt or "Session").strip()[:60]
             or "Session"
         )
         stem = f"{datetime.now():%Y-%m-%d %H%M} {slug}"
@@ -1798,10 +2512,10 @@ class TaskManager:
             path = EXPORT_DIR / f"{stem} {n}.md"
         lines = [f"# {task.title or task.prompt or 'Eden Code session'}", "", f"_{task.cwd}_", ""]
         # (each line scrubbed again below: an entry kept before a secret was given)
-        for e in task.transcript:
+        for e in self._export_entries(task):
             role, text = e.get("role"), e.get("text", "")
             if role == "user":
-                lines += [f"> {text}", ""]
+                lines += ["\n".join(f"> {line}" if line else ">" for line in text.split("\n")), ""]
             elif role == "assistant":
                 lines += [text, ""]
             elif role == "tool":
@@ -1812,6 +2526,20 @@ class TaskManager:
                 lines += [f"_{text}_", ""]
         path.write_text(self.redact(task, "\n".join(lines)), encoding="utf-8")
         return path
+
+    def _export_entries(self, task: ClaudeTask) -> list[dict[str, Any]]:
+        """What /export writes: the transcript the windows have, or, when that's only the
+        newest TRANSCRIPT_KEEP of a longer conversation, all of it from Claude Code's record."""
+        entries = list(task.transcript)
+        if len(entries) < TRANSCRIPT_KEEP or not task.session_id or task.resume_at:
+            return entries
+        try:
+            messages = get_session_messages(task.session_id, directory=str(task.cwd))
+            whole = _history(messages, task.cwd, whole=True)["entries"]
+        except Exception:  # an unreadable record: the newest entries, as before
+            log.warning("Couldn't read session %s's record to export it", task.id, exc_info=True)
+            return entries
+        return whole if len(whole) > len(entries) else entries
 
     async def mcp_status(self, task_id: int) -> list[dict[str, str]]:
         task = self.tasks.get(task_id)
@@ -1995,13 +2723,16 @@ class TaskManager:
         if self.redactors:
             text = self.redact(task, text)
             extra = {k: self._scrub(task, v) for k, v in extra.items()}
+        text, cut = entry_text(text)
         entry = {
             "n": task.seq,
             "role": role,
-            "text": text[:8000],
+            "text": text,
             "at": datetime.now().isoformat(timespec="seconds"),
             **extra,
         }
+        if cut:
+            entry["truncated"] = cut
         task.transcript.append(entry)
         del task.transcript[:-TRANSCRIPT_KEEP]
         self.emit("task_log", id=task.id, entry=entry)
@@ -2194,7 +2925,12 @@ class TaskManager:
             can_use_tool=self.policy_for(task),
             add_dirs=list(task.add_dirs),
             plugins=[{"type": "local", "path": p} for p in task.plugins],
-            disallowed_tools=[f"mcp__{name}" for name in sorted(task.disabled_mcp)],
+            # (and Eden's data folder's own files, where Claude Code decides by itself too:
+            # Auto mode's safety check never calls policy_for for a step it lets by)
+            disallowed_tools=[
+                *(f"mcp__{name}" for name in sorted(task.disabled_mcp)),
+                *self._data_rules(),
+            ],
             # The owner's environment for its commands, not the app launcher's (packaged).
             env={**session_env(), **task.env},
             settings=task.provider_settings or None,
@@ -2251,6 +2987,8 @@ class TaskManager:
             await self._run(task)
             return
         task.status = "running"
+        began = time.monotonic()
+        never_opened = False  # Claude Code failed to start at all (not: went away later)
         try:
             if self.prepare is not None:  # (its own isolated copy: made, or found again)
                 await self.prepare(task)
@@ -2265,6 +3003,7 @@ class TaskManager:
         except Exception as exc:  # the CLI crashed or refused to start
             task.status = "failed"
             task.result = str(exc)
+            never_opened = task.last_active < began  # (set as each connection opens)
             self._log(task, "system", f"Stopped with an error: {exc}")
         finally:
             mid_turn = task.busy
@@ -2278,11 +3017,16 @@ class TaskManager:
                 status = "failed" if task.status == "failed" else "stopped"
                 self._turn_finished(task, status, always=True)
             ending, task.ending = task.ending, False
+            sent_while_ending, task.sent_while_ending = task.sent_while_ending, False
             if (
                 task.status in ("closed", "stopped", "failed")
                 and not task.inbox.empty()
                 and not task.gated  # (held back: release() opens it again when they may go)
-                and not ending
+                # After End session the queue waits for the user, unless they sent one as it ended.
+                and (not ending or sent_while_ending)
+                # A Claude Code that wouldn't start fails the same way again: said once, and
+                # the message waits for the user's next send (or Reconnect).
+                and not never_opened
                 and not self.closing
                 and task.restarts < AUTO_RESTARTS
                 and task.hold_until <= time.time()  # (waiting out Claude's limit: not yet)
@@ -3093,12 +3837,34 @@ class TaskManager:
     # ── permissions ──
 
     def _free_read(self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]) -> bool:
-        """Reading inside the project, credentials aside, needs no OK."""
-        for raw in _read_paths(tool_name, tool_input):
-            path = _inside(task.cwd, raw)
-            if path is None or is_sensitive(path):
+        """Reading inside the session's own folders (the project, an isolated copy's
+        project, the folders added with /add-dir), credentials aside, needs no OK."""
+        paths = _read_paths(tool_name, tool_input)
+        roots = self._read_roots(task)
+        if outside_reads.tool_reach(paths, task.cwd, roots, tool_name in ("Grep", "Glob")):
+            return False
+        for raw in paths:
+            path = Path(raw).expanduser() if raw else task.cwd
+            with contextlib.suppress(OSError, RuntimeError):
+                path = (path if path.is_absolute() else task.cwd / path).resolve()
+            if is_sensitive(path):
                 return False
         return True
+
+    def _read_roots(self, task: ClaudeTask) -> list[str]:
+        """The folders a session reads unasked (outside_reads, owner decision 2026-10-10)."""
+        return outside_reads.roots_of([task.cwd, self.rule_folder(task), *task.add_dirs])
+
+    def _secret_step(self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]) -> bool:
+        """A step that names a place holding keys or passwords (outside_reads.SECRET): asked
+        every time, whatever a rule says, but in Bypass."""
+        if task.mode == "auto":
+            return False
+        paths = _read_paths(tool_name, tool_input)
+        found = outside_reads.step_reach(
+            tool_name, tool_input, paths, task.cwd, self._read_roots(task), READ_TOOLS
+        )
+        return found == outside_reads.SECRET
 
     def _free_edit(self, task: ClaudeTask, tool_input: dict[str, Any]) -> bool:
         """Where "edits" mode may write unasked: inside the project, but not git's
@@ -3137,6 +3903,9 @@ class TaskManager:
                     "nothing in it may be read, searched, run or sent to Claude. Don't try "
                     "to get at it another way; tell the user, and go on without it."
                 )
+            if data_target(tool_name, tool_input, self.data_dirs, task.cwd):  # every mode
+                self._audit(task, tool_name, tool_input, "denied", "Eden's own data folder")
+                return PermissionResultDeny(message=DATA_REFUSAL)
             asked_by_rule = ruled is not None and ruled[0] == "ask"
             if free := self._goes_ahead(task, tool_name, tool_input):
                 return allow(*free)
@@ -3151,7 +3920,9 @@ class TaskManager:
             editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
             command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
             # (a step the owner's ask rule covers asks every time: nothing broader to offer)
-            rule = command_rule(command, task.cwd) if command and not asked_by_rule else ""
+            secret = bool(command) and self._secret_step(task, tool_name, tool_input)
+            offer = command and not asked_by_rule and not secret  # (a secret place: every time)
+            rule = command_rule(command, task.cwd) if offer else ""
             choices = [(ALLOW, "Yes")]
             if editable and not asked_by_rule:
                 choices.append((ALLOW_EDITS, "Yes, allow all edits this session"))
@@ -3196,19 +3967,27 @@ class TaskManager:
                     if ask.done():
                         choice = ask.result()
                         break
+                    if (late := self._refused_now(task, tool_name, tool_input)) is not None:
+                        return late  # a deny rule came in while it waited: the card goes
                     if free := self._goes_ahead(task, tool_name, tool_input):
                         ask.cancel()
                         return allow(*free)
             finally:
                 ask.cancel()
+            if choice in (ALLOW, ALLOW_EDITS, ALWAYS):
+                # A yes is weighed again as it's applied: a deny rule (or a private folder)
+                # added while the card waited still holds.
+                if (late := self._refused_now(task, tool_name, tool_input)) is not None:
+                    return late
             if choice == ALLOW_EDITS:
                 task.allow_edits = True
                 self._loosen(task)
             if choice == ALWAYS and rule:
-                self.rules.add(task.cwd, rule)
+                folder = self.rule_folder(task)
+                self.rules.add(folder, rule)
                 self._log(task, "system", f"Won't ask again for {rule} commands here.")
-                for other in self.tasks.values():  # the rule is the project's
-                    if other.cwd == task.cwd:
+                for other in self.tasks.values():  # the rule is the project's (copies too)
+                    if self.rule_folder(other) == folder:
                         self._loosen(other)
             if choice in (ALLOW, ALLOW_EDITS, ALWAYS):
                 why = {
@@ -3237,6 +4016,40 @@ class TaskManager:
 
         return can_use_tool
 
+    def _data_rules(self) -> list[str]:
+        """Claude Code's own deny rules for the files at the top of Eden's data folder (its
+        copies and work folders below it stay open)."""
+        rules = []
+        for folder in self.data_dirs:
+            with contextlib.suppress(OSError):
+                spelled = folder.expanduser().resolve().as_posix()
+                rules += [f"Read(/{spelled}/*)", f"Edit(/{spelled}/*)"]
+        return list(dict.fromkeys(rules))
+
+    def _refused_now(
+        self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
+    ) -> PermissionResultDeny | None:
+        """The deny a step meets now, from the owner's rules, a private folder or Eden's data
+        folder (audited), else None: checked again when a card's yes is applied."""
+        ruled = self._ruled(task, tool_name, tool_input)
+        if ruled is not None and ruled[0] == "deny":
+            self._audit(task, tool_name, tool_input, "denied", f"your rule: {ruled[1]}")
+            return PermissionResultDeny(
+                message=f"The user's permission rule {ruled[1]} doesn't allow this. Don't "
+                "try to get it done another way; ask them if it's needed."
+            )
+        if private := _private_target(tool_name, tool_input):
+            self._audit(task, tool_name, tool_input, "denied", "a private folder")
+            return PermissionResultDeny(
+                message=f"{private} is a folder the user keeps private (local only): "
+                "nothing in it may be read, searched, run or sent to Claude. Don't try "
+                "to get at it another way; tell the user, and go on without it."
+            )
+        if data_target(tool_name, tool_input, self.data_dirs, task.cwd):
+            self._audit(task, tool_name, tool_input, "denied", "Eden's own data folder")
+            return PermissionResultDeny(message=DATA_REFUSAL)
+        return None
+
     async def _browser_target(
         self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
     ) -> browser_gate.Target | None:
@@ -3263,6 +4076,8 @@ class TaskManager:
         ruled = self._ruled(task, tool_name, tool_input)
         if ruled is not None and ruled[0] != "allow":
             return None
+        if self._secret_step(task, tool_name, tool_input):
+            return None  # ~/.ssh, the Keychain, ps eww…: asked every time (outside_reads)
         found = self._unasked(task, tool_name, tool_input)
         if found is None and ruled is not None:
             return "auto", f"your rule: {ruled[1]}"
@@ -3300,14 +4115,18 @@ class TaskManager:
         command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
         if not command:
             return None
-        rules = self.rules.for_project(task.cwd)
+        rules = self.rules.for_project(self.rule_folder(task))
         # The command's key once, not once per rule (rule_allows): each works it out again,
         # resolving any folder it names, on the event loop for every step.
         key = command_key(command, task.cwd) if any(rules) else None
         matched = next((r for r in rules if r and key == r), "")
         if matched:
             return "auto", f"your rule: {matched} commands"
-        if self.read_only_free() and is_read_only(command):
+        if (
+            self.read_only_free()
+            and is_read_only(command)
+            and not outside_reads.command_reach(command, task.cwd, self._read_roots(task))
+        ):  # (one that reads past the session's folders asks: outside_reads)
             return "auto", "a read-only command"
         return None
 
@@ -3649,6 +4468,68 @@ TEXT_TYPES = (
 )  # fmt: skip
 
 # Folders in the home folder that hold far more than a project.
+# Folders at the top of the disk that are the system's, never a project (add_dir).
+_SYSTEM_ROOTS = frozenset(
+    Path(p)
+    for p in (
+        "/private", "/private/var", "/private/etc", "/private/tmp", "/var", "/etc", "/tmp",
+        "/System", "/System/Volumes", "/Volumes", "/usr", "/usr/local", "/bin", "/sbin", "/opt",
+        "/Library", "/Applications", "/cores", "/dev", "/Network",
+    )
+)  # fmt: skip
+_SYSTEM_ROOTS_FOLDED = frozenset(Path(str(p).casefold()) for p in _SYSTEM_ROOTS)
+
+
+def _folded(path: Path | str) -> Path:
+    return Path(str(path).casefold())
+
+
+# (CA3-5) macOS paths that reach any folder another way: never a folder to add.
+_MAGIC_ROOTS = {Path(".nofollow"), Path(".resolve"), Path(".vol")}
+
+
+def _broad_of(fhome: Path) -> set[Path]:
+    """(CA3-6) Roots too broad to make whatever is under them addable: the disk, home and
+    above it, and the system roots (a projects folder set to one of them adds nothing)."""
+    return {Path("/"), *fhome.parents, fhome, *_SYSTEM_ROOTS_FOLDED}
+
+
+def _openable(path: Path) -> bool:
+    """(CA3-5) Whether the folder can be opened, so its real path is known (on a Mac); a
+    folder that can't be (locked, or protected by the system) can't be checked."""
+    if not (fcntl and getattr(fcntl, "F_GETPATH", None)):
+        return True
+    try:
+        os.close(os.open(path, os.O_RDONLY))
+    except OSError:
+        return False
+    return True
+
+
+def _real_dir(path: Path) -> Path:
+    """(CA2-3) A folder as the disk spells it: links followed, and on a Mac the real letter
+    case and the firmlinked name (/System/Volumes/Data/USERS is /Users), when it can be
+    opened; else just resolved."""
+    try:
+        path = path.resolve()
+    except (OSError, RuntimeError):
+        return path
+    getpath = getattr(fcntl, "F_GETPATH", None) if fcntl else None
+    if getpath is None:
+        return path
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return path
+    try:
+        real = fcntl.fcntl(fd, getpath, bytes(1024)).split(b"\0", 1)[0].decode()
+        return Path(real) if real else path
+    except (OSError, UnicodeDecodeError):
+        return path
+    finally:
+        os.close(fd)
+
+
 _HOME_FOLDERS = (
     "Desktop",
     "Documents",
@@ -3954,7 +4835,9 @@ def _history_blocks(message: Any) -> list[dict[str, Any]]:
     return [b for b in content or [] if isinstance(b, dict)]
 
 
-def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]:
+def _history(
+    messages: list[Any], cwd: Path, before: str = "", whole: bool = False
+) -> dict[str, Any]:
     """session_history's reading of a conversation's messages. before: the message before
     the first of them (the fork point of the first of the user's messages), when they're
     only its newest.
@@ -4017,7 +4900,7 @@ def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]
             elif role != "user" and text:
                 entries.append({"role": role, "text": text})
         last = message.uuid or last
-    kept = entries[-TRANSCRIPT_KEEP:]
+    kept = entries if whole else entries[-TRANSCRIPT_KEEP:]  # (whole: all of it, for /export)
     if worded:
         kept_ids = {id(entry) for entry in kept}
         for entry, name, args in worded:
@@ -4027,7 +4910,9 @@ def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]
     for entry in kept:
         if "output" in entry:
             entry["output"] = _output_text(entry["output"])
-        entry["text"] = entry["text"][:8000]
+        entry["text"], cut = entry_text(entry["text"])
+        if cut:
+            entry["truncated"] = cut
         entry["past"] = True
     shown = {e["uuid"] for e in kept if e.get("uuid")}
     return {
@@ -4037,6 +4922,15 @@ def _history(messages: list[Any], cwd: Path, before: str = "") -> dict[str, Any]
         "checkpoints": checkpoints[-50:],  # as _user_turn keeps them
         "checkpoint_files": changed,
     }
+
+
+def entry_text(text: str) -> tuple[str, int]:
+    """A transcript entry's words: whole up to ENTRY_MAX characters, else cut there with a
+    line saying how many more there were; and how many were cut (0: none)."""
+    cut = len(text) - ENTRY_MAX
+    if cut <= 0:
+        return text, 0
+    return f"{text[:ENTRY_MAX]}\n\n(Cut here: {cut:,} more characters.)", cut
 
 
 def _ended(message: ResultMessage) -> str:

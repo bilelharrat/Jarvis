@@ -366,6 +366,9 @@ def whisper_transcribe(transcriber: Any) -> Transcribe:
 
     def run(audio: np.ndarray, stop: threading.Event) -> list[Segment]:
         model = transcriber._load()
+        from .vad import quiet_onnxruntime
+
+        quiet_onnxruntime()  # (CA3-1) faster-whisper's voice detection runs on onnxruntime
         language = getattr(transcriber, "language", "en")
         options = lang.transcribe_options(language)
         options.pop("hotwords", None)

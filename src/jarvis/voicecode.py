@@ -821,9 +821,15 @@ class VoiceCoder:
         elif intent.kind == "undo":
             say(await tasks.undo(task.id))
         elif intent.kind == "compact":
-            tasks.send(task.id, "/compact")
+            tasks.send(task.id, "/compact", by_user=True)
             say("Compacting the conversation.", follow_up=False)
         elif intent.kind == "mode":
+            gate = getattr(self.hub, "touch_gate", None)
+            if intent.arg == "auto" and task.mode != "auto" and gate is not None:
+                if not gate.allow("bypass"):  # words alone never turn Bypass on
+                    note = gate.refuse("bypass", task.id)
+                    say(note if typed else f"{note} I've asked there.", follow_up=False)
+                    return
             tasks.set_mode(task.id, intent.arg)
             self._changed()
             if intent.text:
@@ -1000,11 +1006,11 @@ class VoiceCoder:
         if hint and not typed:  # typed names are already exact
             text = await self.hub.with_code_hints(task, text)
         if plain:
-            self.hub.tasks.send(task.id, text, plain=True)
+            self.hub.tasks.send(task.id, text, plain=True, by_user=True)
         elif images:  # what the owner pointed at, as a picture
-            self.hub.tasks.send(task.id, text, images)
+            self.hub.tasks.send(task.id, text, images, by_user=True)
         else:
-            self.hub.tasks.send(task.id, text)
+            self.hub.tasks.send(task.id, text, by_user=True)
         if typed:
             return
         self.hub.acknowledge()  # "On it." right away; the work takes a moment

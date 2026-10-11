@@ -706,7 +706,8 @@ test('In the smallest window (760 × 620), Eden Code uses the whole width and it
     await frames(3);
     const r = await js(`(() => { const box = (id) => $(id).getBoundingClientRect();
       return { main: Math.round(document.querySelector('.jc-main').getBoundingClientRect().left), side: $('jc-side').checkVisibility(), close: Math.round(box('cc-close').right), more: Math.round(box('jc-more').right), title: Math.round(box('jc-title').width), vw: innerWidth }; })()`);
-    assert(!r.side && r.main === 0 && r.close <= r.vw && r.more <= r.vw && r.title > 40, JSON.stringify(r));
+    // (Eden Code wears Ask Eden's look: its main column floats 12 px in from the window's edge.)
+    assert(!r.side && r.main <= 12 && r.close <= r.vw && r.more <= r.vw && r.title > 40, JSON.stringify(r));
   } finally {
     await cdp('Emulation.clearDeviceMetricsOverride');
   }
@@ -980,7 +981,7 @@ async function loadShell(hello = { dev: false, notify: true, recovered: false },
 }
 const reports = () => js('__app.sent.filter(([c]) => c === "feature:shell:state").map(([, m]) => m)');
 
-test('The shell tells the app what JARVIS is doing, and adds This Mac to Settings', async () => {
+test('The shell tells the app what Eden is doing, and adds This Mac to Settings', async () => {
   await loadShell();
   let r = await reports();
   const first = r[r.length - 1];
@@ -1064,7 +1065,7 @@ test('The shell tells the app which cards wait, and answers one only as its noti
   assert(JSON.stringify(s) === JSON.stringify([{ type: 'approve', id: 'p1', choice: 'allow', feedback: '' }]), `only a waiting card, with allow or deny: ${JSON.stringify(s)}`);
 });
 
-test('The shell raises heads-ups through the app, and opens JARVIS on the card a notification names', async () => {
+test('The shell raises heads-ups through the app, and opens Eden on the card a notification names', async () => {
   await loadShell();
   await js(`window.__notes = []; window.Notification = function (title) { __notes.push(title); }; document.hasFocus = () => false;
     __app.sent.length = 0;
@@ -1184,7 +1185,7 @@ test('A jarvis:// link fills in the request box and sends nothing; Return sends 
   ]), JSON.stringify(r));
 });
 
-test('"Ask JARVIS" from the Services menu is sent at once (marked as a link’s); with "Ask before sending" on, it waits', async () => {
+test('"Ask Eden" from the Services menu is sent at once (marked as a link’s); with "Ask before sending" on, it waits', async () => {
   await loadShell();
   await js(`__event({ type: 'prefs', language: 'en', features: {} }); __sent.length = 0; true`);
   await js('__app.on["feature:shell:command"]({ action: "prefill", text: "What does idempotent mean?", service: true }); true');
@@ -1224,7 +1225,7 @@ test('A jarvis:// link opens an Eden Code project, once the list of projects is 
   assert(r.on === 'beta' && r.said.includes('No Eden Code project named “zeta”.'), JSON.stringify(r));
 });
 
-test('Settings adds “Ask JARVIS” to the Services menu and takes it away; never over one of the owner’s', async () => {
+test('Settings adds “Ask Eden” to the Services menu and takes it away; never over one of the owner’s', async () => {
   await loadShell(undefined, `
     window.__service = { available: true, installed: false, taken: false, error: '' };
     __app.answer = (channel, req) => {
@@ -1251,7 +1252,7 @@ test('Settings adds “Ask JARVIS” to the Services menu and takes it away; nev
   await js(`__service = { available: true, installed: false, taken: true, error: 'taken' }; $('shell-service').click(); true`);
   await settle();
   r = await row();
-  assert(r.disabled && /already a Quick Action named “Ask JARVIS”/.test(r.note), JSON.stringify(r));
+  assert(r.disabled && /already a Quick Action named “Ask Eden”/.test(r.note), JSON.stringify(r));
   // The test window, or a build from source: no row at all.
   await js(`__service = { available: false, installed: false, taken: false, error: '' }; $('shell-service').disabled = false; $('shell-service').click(); true`);
   await settle();
@@ -1388,7 +1389,7 @@ test('Settings › Health & safety opens its sheet on the tab picked; Escape clo
 test('A checkup lists what needs you; a fix and System Settings go only after a click, a fix after its confirmation', async () => {
   await withOps();
   await opsEvent({ type: 'ops_doctor', at: new Date().toISOString(), counts: { problem: 2, warn: 1, ok: 1 }, worst: 'problem',
-    groups: { permissions: 'Permissions', jarvis: 'Jarvis', data: 'Your data' },
+    groups: { permissions: 'Permissions', jarvis: 'Eden', data: 'Your data' },
     checks: [
       opsCheck('perm:screen', { group: 'permissions', title: 'Screen Recording', state: 'problem', summary: 'Not allowed yet', hint: 'Turn on J.A.R.V.I.S. in System Settings › Privacy & Security › Screen Recording, then restart Jarvis.', pane: 'screen' }),
       opsCheck('logs', { title: 'Errors in the log', state: 'warn', summary: '2 in the last hour', details: ['2026-09-29 20:00:00,000 ERROR boom <img src=x onerror="window.__pwned=1">'] }),
@@ -1401,7 +1402,7 @@ test('A checkup lists what needs you; a fix and System Settings go only after a 
   await js('document.querySelector("[data-ops-tab=checkup]").click(); __sent.length = 0; true');
   const shown = await js('({ items: [...document.querySelectorAll("#ops-tab-checkup .ops-item")].map((li) => li.dataset.check + ":" + li.dataset.state), groups: [...document.querySelectorAll("#ops-tab-checkup .ops-group-title")].map((h) => h.textContent), imgs: document.querySelectorAll("#ops-tab-checkup img").length, logData: !!document.querySelector("[data-check=logs] details ul[data-no-i18n]") })');
   assert(JSON.stringify(shown.items) === JSON.stringify(['perm:screen:problem', 'logs:warn', 'file_index:problem', 'disk:ok']), JSON.stringify(shown));
-  assert(JSON.stringify(shown.groups) === JSON.stringify(['Permissions', 'Jarvis', 'Your data']) && shown.imgs === 0 && shown.logData, JSON.stringify(shown));
+  assert(JSON.stringify(shown.groups) === JSON.stringify(['Permissions', 'Eden', 'Your data']) && shown.imgs === 0 && shown.logData, JSON.stringify(shown));
   assert(await clickText('[data-check="perm:screen"]', 'Open System Settings'), 'no Open System Settings');
   assert(await clickText('[data-check="file_index"]', 'Rebuild'), 'no Rebuild');
   let s = await js('__sent');
@@ -1458,7 +1459,7 @@ test('A restore shows what changes, then restores and restarts; the waiting rest
   await opsEvent({ type: 'ops_restore_staged', ok: true, pending: { backup: backups.items[0].name, created: '2026-09-28T03:00:00', files: 4 }, safety: { name: 'x', kind: 'safety' }, text: '' });
   await opsEvent({ ...backups, pending: { backup: backups.items[0].name, created: '2026-09-28T03:00:00', staged: '', safety: 'x', files: 4 } });
   const r = await js('({ toast: document.querySelector("#ops-tab-backups .ops-toast").textContent, banner: document.querySelector("#ops-tab-backups .ops-banner").textContent, line: $("ops-line-backups").textContent, path: document.querySelector("#ops-tab-backups .ops-path").textContent })');
-  assert(r.toast === 'Restart Jarvis to finish: quit it and open it again.', JSON.stringify(r));
+  assert(r.toast === 'Restart Eden to finish: quit it and open it again.', JSON.stringify(r));
   assert(r.banner.includes('A restore is ready') && r.line === 'A restore is waiting for a restart' && r.path === '~/Documents/Jarvis/Backups', JSON.stringify(r));
   assert(await clickText('#ops-tab-backups .ops-banner', 'Cancel the restore'), 'no Cancel the restore');
   await js('document.querySelector("#ops-tab-backups [data-pref=ops_backup_daily]").click(); true');
@@ -1529,7 +1530,7 @@ test('Tools & Accounts is the Accounts pane: every way in opens Settings there, 
   // No Jarvis account section, no top row; with one, the row opens its pane.
   await js('toggleSettings(true); true');
   assert(await js('$("sn-account").hidden'), 'the account row showed with no account');
-  await js('(() => { const g = document.createElement("section"); g.className = "group account-group"; g.id = "account-group"; g.dataset.settingsPane = "devices"; g.innerHTML = "<h3>Jarvis account</h3><p>x</p>"; $("settings").append(g); })(); true');
+  await js('(() => { const g = document.createElement("section"); g.className = "group account-group"; g.id = "account-group"; g.dataset.settingsPane = "devices"; g.innerHTML = "<h3>Eden account</h3><p>x</p>"; $("settings").append(g); })(); true');
   await sleep(20);
   await js('$("sn-account").click(); true');
   r = await js('({ row: !$("sn-account").hidden, pane: jarvisSettingsNav.pane() })');
@@ -1636,13 +1637,15 @@ test('The intro shows by itself on a fresh install, once; Continue, Back, Not no
   await opsEvent({ type: 'ops_state', setup: { state: 'pending', show: true }, backups: null, restored: null, busy: [] });
   assert(await js('!$("intro").hidden'), 'the intro did not show');
   let r = await js('({ card: window.jarvisIntro.card(), title: $("intro-title").textContent, back: $("intro-back").hidden, next: $("intro-next").textContent, dots: document.querySelectorAll("#intro-dots li").length, on: document.querySelector("#intro-dots li.on").dataset.section })');
-  assert(r.card === 'welcome' && r.back && r.next === 'Get started' && r.dots === 12 && r.on === 'welcome', JSON.stringify(r));
+  assert(r.card === 'welcome' && r.back && r.next === 'Get started' && r.dots === 13 && r.on === 'welcome', JSON.stringify(r));  // (13 sections since "Your voice")
   await introNext();
   await js('document.querySelector("#intro-card [data-lang=zh]").click(); true');
+  await introNext();  // the boot-up sound (its choice only on a press)
+  assert((await introCard()) === 'sound', await introCard());
   await introNext();  // the microphone
   assert((await introCard()) === 'mic', await introCard());
   await js('$("intro-back").click(); true');
-  assert((await introCard()) === 'language', 'Back went nowhere');
+  assert((await introCard()) === 'sound', 'Back went nowhere');
   await introNext();
   await js('$("intro-later").click(); true');  // Not now: the next card
   assert((await introCard()) === 'permissions', await introCard());
@@ -1657,10 +1660,13 @@ test('The intro shows by itself on a fresh install, once; Continue, Back, Not no
   assert((await introCard()) === 'iphone-calls', await introCard());
   await introGo('done');
   r = await js('({ next: $("intro-next").textContent, later: $("intro-later").hidden, on: document.querySelector("#intro-dots li.on").dataset.section })');
-  assert(r.next === 'Start using Jarvis' && r.later && r.on === 'done', JSON.stringify(r));
+  assert(r.next === 'Start using Eden' && r.later && r.on === 'done', JSON.stringify(r));
   await introNext();
   const s = await js('__sent.filter((m) => ["set_prefs", "ops_open_settings", "ops_setup", "ops_mic_meter", "signin_key", "phone_credentials", "voice_key", "providers_add", "connect"].includes(m.type))');
   assert(JSON.stringify(s) === JSON.stringify([
+    // Shown by itself, it counts as seen at once (owner, 2026-10-10): quitting or Escape
+    // never brings it back at the next start. Finish still records "done".
+    { type: 'ops_setup', state: 'skipped' },
     { type: 'set_prefs', changes: { language: 'zh' } },
     { type: 'ops_open_settings', pane: 'screen' },
     { type: 'ops_setup', state: 'done' },
@@ -1670,7 +1676,7 @@ test('The intro shows by itself on a fresh install, once; Continue, Back, Not no
   assert(await js('$("intro").hidden'), 'the intro came back in the same window');
 });
 
-test('Skip setup says so and closes; Escape only closes; Settings › Set up Jarvis again… opens it from the start', async () => {
+test('Skip setup says so and closes; Escape only closes; Settings › Set up Eden again… opens it from the start', async () => {
   await withIntro({ ops: true });
   await js('window.jarvisIntro.open(); true');
   await introNext();
@@ -1708,7 +1714,7 @@ test('Intro › Only answer my voice: whose voice, the model, the five sentences
   assert(r.line === 'Two.' && r.card.includes('Read sentence 2 of 5 aloud:'), JSON.stringify(r));
   await vid({ on: true, scope: 'all', model: true, enrolled: true, clips: 5 });
   r = await js('({ title: $("intro-title").textContent, ok: $("intro-card").dataset.ok, checked: $("intro-voice-id-all").getAttribute("aria-checked") })');
-  assert(r.title === 'Jarvis knows your voice' && r.ok === 'true' && r.checked === 'true', JSON.stringify(r));
+  assert(r.title === 'Eden knows your voice' && r.ok === 'true' && r.checked === 'true', JSON.stringify(r));
   await js('$("intro-skip").click(); true');
 });
 
@@ -1732,14 +1738,14 @@ test('Intro › microphone: the bars follow the hub’s levels, a voice is a suc
   assert(r.ok === 'false' && r.tallest > 6, JSON.stringify(r));
   await opsEvent({ type: 'ops_mic', state: 'level', level: 0.5 });
   r = await js('({ ok: $("intro-card").dataset.ok, title: $("intro-title").textContent, badge: !!document.querySelector("#intro-card .intro-check") })');
-  assert(r.ok === 'true' && r.title === 'Jarvis hears you' && r.badge, JSON.stringify(r));
+  assert(r.ok === 'true' && r.title === 'Eden hears you' && r.badge, JSON.stringify(r));
   // the run ends; another that hears nothing: what to do, and the button to the pane
   await opsEvent({ type: 'ops_mic', state: 'metered', peak: 0.5 });
   await js('$("intro-mic-test").click(); true');
   await opsEvent({ type: 'ops_mic', state: 'listening' });
   await opsEvent({ type: 'ops_mic', state: 'metered', peak: 0 });
   r = await js('({ ok: $("intro-card").dataset.ok, text: document.querySelector("#intro-card .intro-callout").textContent })');
-  assert(r.ok === 'false' && r.text.includes('Privacy & Security › Microphone') && r.text.includes('Quit Jarvis (⌘Q)'), JSON.stringify(r));
+  assert(r.ok === 'false' && r.text.includes('Privacy & Security › Microphone') && r.text.includes('Quit Eden (⌘Q)'), JSON.stringify(r));
   assert(await clickText('#intro-card .intro-callout', 'Open Microphone settings'), 'no Open Microphone settings');
   assert(JSON.stringify(await sentOf('ops_open_settings')) === '[{"type":"ops_open_settings","pane":"microphone"}]', 'not the Microphone pane');
 });
@@ -1761,7 +1767,7 @@ test('Intro › Try it succeeds only on the hub’s own events: ⌥ Space’s li
   let r = await js('({ ok: $("intro-card").dataset.ok, you: document.querySelector("#intro-card .intro-bubble.you").textContent, me: document.querySelector("#intro-card .intro-bubble.jarvis").textContent, data: document.querySelectorAll("#intro-card .intro-bubble [data-no-i18n]").length, bold: document.querySelectorAll("#intro-card b").length, later: $("intro-later").hidden })');
   assert(r.ok === 'true' && r.you === 'what time is it <b>now</b>' && r.me === 'It’s 3:42.' && r.data === 2 && r.bold === 0 && r.later, JSON.stringify(r));
   await opsEvent({ type: 'state', value: 'idle' });
-  assert((await js('$("intro-card").dataset.ok')) === 'true', 'the success went when Jarvis stopped');
+  assert((await js('$("intro-card").dataset.ok')) === 'true', 'the success went when Eden stopped');
   await js('document.querySelector("#intro-card button.intro-orb").click(); true');
   assert((await sentOf('listen')).length === 1, 'the orb didn’t talk');
   // the wake word: hands-free first, then what it heard and its answer
@@ -1775,7 +1781,7 @@ test('Intro › Try it succeeds only on the hub’s own events: ⌥ Space’s li
   assert((await js('$("intro-card").dataset.ok')) === 'false', 'done before the answer');
   await opsEvent({ type: 'reply', rid: 'w1', text: 'Ten past nine.' });
   r = await js('({ ok: $("intro-card").dataset.ok, title: $("intro-title").textContent })');
-  assert(r.ok === 'true' && r.title === 'Jarvis heard its name', JSON.stringify(r));
+  assert(r.ok === 'true' && r.title === 'Eden heard its name', JSON.stringify(r));
   // two claps: the hub's "hands on"
   await introNext();
   await opsEvent({ type: 'ui', action: 'panel', name: 'settings', open: true });
@@ -1920,7 +1926,7 @@ test('In Chinese the intro reads in Chinese, and what the owner said stays as it
   await opsEvent({ type: 'reply', rid: '', text: 'It’s noon.' });
   await frames(3);
   const r = await js('({ title: $("intro-title").textContent, next: $("intro-next").textContent, you: document.querySelector("#intro-card .intro-bubble.you").textContent, skip: $("intro-skip").textContent })');
-  assert(r.title === '你和 Jarvis 说上话了' && r.next === '继续' && r.skip === '跳过设置' && r.you === 'what time is it', JSON.stringify(r));
+  assert(r.title === '你和 Eden 说上话了' && r.next === '继续' && r.skip === '跳过设置' && r.you === 'what time is it', JSON.stringify(r));
 });
 
 test('In Chinese the sheet reads in Chinese, and a path or a log line stays as it is', async () => {
@@ -1932,7 +1938,7 @@ test('In Chinese the sheet reads in Chinese, and a path or a log line stays as i
   })();
   await js(`(() => { const zh = ${JSON.stringify(JSON.stringify(merged))}; const real = window.fetch; window.fetch = (url, o) => (String(url).includes('i18n-zh.json') ? Promise.resolve(new Response(zh)) : real(url, o)); })(); true`);
   await js('window.jarvisI18n.setLang("zh")');
-  await opsEvent({ type: 'ops_doctor', at: new Date().toISOString(), counts: { warn: 3 }, worst: 'warn', groups: { permissions: 'Permissions', jarvis: 'Jarvis', data: 'Your data' },
+  await opsEvent({ type: 'ops_doctor', at: new Date().toISOString(), counts: { warn: 3 }, worst: 'warn', groups: { permissions: 'Permissions', jarvis: 'Eden', data: 'Your data' },
     checks: [opsCheck('logs', { title: 'Errors in the log', state: 'warn', summary: '3 in the last hour', hint: "If something isn't working, make a diagnostics file and share it when you ask for help.", details: ['2026-09-29 20:00:00,000 ERROR the backup folder is gone'] })] });
   await js('toggleSettings(true); document.querySelector("[data-ops-tab=checkup]").click(); true');
   await frames(3);
@@ -2677,7 +2683,7 @@ test('Settings › Chats: iMessage picks a conversation, how Messages is signed 
     { id: 'chat77', guid: 'iMessage;+;chat77', name: 'Family', group: true, self: false, handles: ['+15105550100', '+14155550199'] }] }); true`);
   await js(`(() => { const s = document.querySelector('details.channel[data-channel="imessage"] select'); s.value = 'chat77'; s.dispatchEvent(new Event('change')); })(); true`);
   await js('document.querySelector(\'.channel-handle input[value="+15105550100"]\').click(); true');
-  await clickText('details.channel[data-channel="imessage"] .segmented', 'Jarvis’s own Apple ID');
+  await clickText('details.channel[data-channel="imessage"] .segmented', 'Eden’s own Apple ID');
   await clickText('details.channel[data-channel="imessage"]', 'Use this conversation');
   const sent = await js('__sent.filter((m) => m.type.startsWith("channels_"))');
   assert(JSON.stringify(sent) === JSON.stringify([
@@ -2756,8 +2762,11 @@ test('Isolated copy: the switch goes with a new session, and is on when another 
   await js('$("deck-input").value = "second"; $("deck-composer").requestSubmit()');
   news = await js('__sent.filter((m) => m.type === "task_new")');
   assert(news.length === 1 && news[0].isolated === true, JSON.stringify(news));
-  // The owner's own choice wins for the next session, then it's back to the default.
-  await js('__sent.length = 0');
+  // The owner's own choice wins for the next session, then it's back to the default. (The
+  // composer is minimal by default and folds again after a send: its orb unfolds the row
+  // the switch is in.)
+  await js('__sent.length = 0; setComposerExpanded(true, { focus: false }); true');
+  await sleep(320);
   await clickIn('#jcx-iso-switch');
   await js('$("cc-start-typed").click()');
   news = await js('__sent.filter((m) => m.type === "task_new")');
@@ -3811,11 +3820,11 @@ test('Listening sits after Voice, asks for its state and switches the detector',
 test('Wake words: each has Remove (not the last), a name is added, the hint follows', async () => {
   await loadVoiceFeature('voice');
   await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); true`);
-  await js(`featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: true, wake_words: ["Jarvis", "Friday"], wake_error: "" }); true`);
+  await js(`featureEvent({ type: "voice", detector: "neural", threshold: 0.5, neural_ok: true, wake_words: ["Eden", "Friday"], wake_error: "" }); true`);
   let r = await js(`({ names: [...$('voice-wake-list').querySelectorAll('.fact')].map((n) => n.textContent),
     disabled: [...$('voice-wake-list').querySelectorAll('button')].map((b) => b.disabled), hint: $('hint').firstChild.nodeValue })`);
-  assert(JSON.stringify(r.names) === '["Jarvis","Friday"]' && JSON.stringify(r.disabled) === '[false,false]', JSON.stringify(r));
-  assert(r.hint === 'Say “Hey Jarvis” · ', r.hint);
+  assert(JSON.stringify(r.names) === '["Eden","Friday"]' && JSON.stringify(r.disabled) === '[false,false]', JSON.stringify(r));
+  assert(r.hint === 'Say “Hey Eden” · ', r.hint);
   await js('__sent.length = 0; true');
   await clickText('#voice-wake-list li:nth-child(2)', 'Remove');
   await js(`$('voice-wake-input').value = '  Computer '; $('voice-wake-form').requestSubmit(); true`);
@@ -3828,14 +3837,14 @@ test('Wake words: each has Remove (not the last), a name is added, the hint foll
   assert(JSON.stringify(r.disabled) === '[true]' && r.hint === 'Say “Hey Friday” · ' && /at least one/.test(r.error), JSON.stringify(r));
   // app.js writes the hint afresh on a settings change: it's named again straight after.
   await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); featureEvent({ type: 'prefs' }); true`);
-  assert(await js(`$('hint').firstChild.nodeValue === 'Say “Hey Friday” · '`), 'the hint went back to Jarvis');
+  assert(await js(`$('hint').firstChild.nodeValue === 'Say “Hey Friday” · '`), 'the hint went back to Eden');
 });
 
 test('Speaking: .env is the default, a key goes once and never stays, voices are picked and previewed', async () => {
   await loadVoiceFeature('voice');
   const cloud = (extra = {}) => ({ voice: { id: 'Rachel1', name: 'Rachel1' }, voice_from_env: true, model: 'eleven_flash_v2_5',
     models: ['eleven_flash_v2_5', 'eleven_v3'], key: '', env_key: true, voices: null, ...extra });
-  const base = { detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'], provider: 'elevenlabs', provider_set: false,
+  const base = { detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Eden'], provider: 'elevenlabs', provider_set: false,
     env_provider: 'elevenlabs', mac_voice: 'Daniel', mac_voices: [{ name: 'Ava (Premium)', family: 'Ava', locale: 'en_US', quality: 'premium' },
     { name: 'Daniel', family: 'Daniel', locale: 'en_GB', quality: 'standard' }], fallback_voice: 'Ava (Premium)', speed: 100, cloud_on: true,
     cloud_error: '', speaking_error: '', busy: '', clouds: { elevenlabs: cloud(), fish: cloud({ voice: { id: '', name: '' }, env_key: false }) } };
@@ -3880,7 +3889,7 @@ test('Speaking: .env is the default, a key goes once and never stays, voices are
 
 test('Speech recognition: Apple offers its download only on a press, and captions come and go', async () => {
   await loadVoiceFeature('voice');
-  const voice = (apple, engine = 'apple') => js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'],
+  const voice = (apple, engine = 'apple') => js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Eden'],
     engine: ${JSON.stringify(engine)}, apple: ${JSON.stringify(apple)}, provider: 'say', clouds: {}, mac_voices: [], speed: 100 }); true`);
   await voice({ state: 'off' }, 'whisper');
   let r = await js(`({ checked: $('voice-engine').querySelector('[aria-checked="true"]').textContent, note: $('voice-engine-note').textContent, dl: $('voice-engine-download').hidden })`);
@@ -3898,19 +3907,19 @@ test('Speech recognition: Apple offers its download only on a press, and caption
   await clickText('#voice-engine', 'Whisper');
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_settings', changes: { voice_engine: 'whisper' } }]), 'no switch');
 
-  await js(`featureEvent({ type: 'voice_live', text: 'Jarvis, what’s the', final: false }); true`);
+  await js(`featureEvent({ type: 'voice_live', text: 'Eden, what’s the', final: false }); true`);
   r = await js(`({ heard: $('heard').textContent, live: $('heard').classList.contains('live') })`);
-  assert(r.heard === '“Jarvis, what’s the…”' && r.live, JSON.stringify(r));
+  assert(r.heard === '“Eden, what’s the…”' && r.live, JSON.stringify(r));
   // The request takes the caption's place (and isn't cleared by it later).
   await js(`onEvent({ type: 'turn', rid: 'r1', user: 'what’s the weather' }); featureEvent({ type: 'turn', rid: 'r1', user: 'what’s the weather' }); true`);
   r = await js(`({ heard: $('heard').textContent, live: $('heard').classList.contains('live') })`);
   assert(r.heard === '“what’s the weather”' && !r.live, JSON.stringify(r));
 });
 
-test('Talk over Jarvis: the switch, why it can’t run, and the hands-free row says what’s true', async () => {
+test('Talk over Eden: the switch, why it can’t run, and the hands-free row says what’s true', async () => {
   await loadVoiceFeature('voice');
   await js(`onEvent({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, hands_free: true }); true`);
-  const voice = (on, talk) => js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'],
+  const voice = (on, talk) => js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Eden'],
     engine: 'whisper', apple: { state: 'off' }, talk_over: ${on}, talk_over_state: ${JSON.stringify(talk)}, provider: 'say', clouds: {}, mac_voices: [], speed: 100 }); true`);
   const handsFree = `$('sw-handsfree').closest('.row').querySelector('small').textContent`;
   await voice(true, { state: 'on', device: 'MacBook Pro Microphone' });
@@ -3918,7 +3927,7 @@ test('Talk over Jarvis: the switch, why it can’t run, and the hands-free row s
   assert(r.checked === 'true' && /echo cancellation keeps my own voice out/.test(r.note) && /talk over me to interrupt/.test(r.row), JSON.stringify(r));
   await voice(true, { state: 'unavailable', why: 'the Mac’s input is AirPods Pro, not its own microphone' });
   r = await js(`({ note: $('voice-talk-over-note').textContent, why: $('voice-talk-over-note').querySelector('.voice-why').textContent, row: ${handsFree} })`);
-  assert(/couldn’t start here/.test(r.note) && r.why === 'the Mac’s input is AirPods Pro, not its own microphone' && /“Jarvis, stop” to interrupt me/.test(r.row), JSON.stringify(r));
+  assert(/couldn’t start here/.test(r.note) && r.why === 'the Mac’s input is AirPods Pro, not its own microphone' && /“Eden, stop” to interrupt me/.test(r.row), JSON.stringify(r));
   await js('__sent.length = 0; true');
   await js(`$('voice-talk-over').click(); true`);
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_settings', changes: { voice_talk_over: false } }]), 'no switch');
@@ -3927,7 +3936,7 @@ test('Talk over Jarvis: the switch, why it can’t run, and the hands-free row s
 test('Recognise my voice: in Listening, the size before the download, then five sentences to read', async () => {
   await loadVoiceFeature('voice');
   await loadVoiceFeature('voice_id');
-  await js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'], engine: 'whisper', apple: { state: 'off' } }); true`);
+  await js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Eden'], engine: 'whisper', apple: { state: 'off' } }); true`);
   const base = { on: false, scope: 'risky', configured: true, size: 26500000, model: false, enrolled: false, clips: 0, downloading: null, enrolling: null, sentences: 5, why: '', error: '' };
   const deliverId = (over) => js(`featureEvent(${JSON.stringify({ type: 'voice_id', ...base, ...over })}); true`);
   // Shown by the pane (Settings itself may be closed in this harness).
@@ -3951,7 +3960,7 @@ test('Recognise my voice: in Listening, the size before the download, then five 
   r = await js(`({ progress: $('voice-id-progress').value, shown: ${shown('voice-id-progress')}, download: ${shown('voice-id-download')}, note: $('voice-id-scope-note').textContent })`);
   assert(r.progress === 0.5 && r.shown && !r.download && /Anyone else is ignored/.test(r.note), JSON.stringify(r));
   // The model is here: teach it, one sentence at a time.
-  await deliverId({ on: true, model: true, why: 'Teach Jarvis your voice to turn this on. Until then, voices aren’t checked.' });
+  await deliverId({ on: true, model: true, why: 'Teach Eden your voice to turn this on. Until then, voices aren’t checked.' });
   await js('__sent.length = 0; true');
   await js(`$('voice-id-start').click(); true`);
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_id_enroll', action: 'start' }]), 'start sent nothing');
@@ -3961,7 +3970,7 @@ test('Recognise my voice: in Listening, the size before the download, then five 
   // Enrolled: Retrain and Forget my voice.
   await deliverId({ on: true, model: true, enrolled: true, clips: 5 });
   r = await js(`({ start: $('voice-id-start').textContent, forget: ${shown('voice-id-forget')}, note: $('voice-id-teach-note').textContent, sentence: ${shown('voice-id-sentence')} })`);
-  assert(r.start === 'Retrain' && r.forget && r.note === 'Jarvis knows your voice.' && !r.sentence, JSON.stringify(r));
+  assert(r.start === 'Retrain' && r.forget && r.note === 'Eden knows your voice.' && !r.sentence, JSON.stringify(r));
   await js('__sent.length = 0; true');
   await js(`$('voice-id-forget').click(); true`);
   assert(JSON.stringify(await js('__sent')) === JSON.stringify([{ type: 'voice_id_forget' }]), 'forget sent nothing');
@@ -3970,7 +3979,7 @@ test('Recognise my voice: in Listening, the size before the download, then five 
 test('Realtime conversation: in Listening, its minutes and why; on the orb, a ring and a tap ends it', async () => {
   await loadVoiceFeature('voice');
   await loadVoiceFeature('realtime');
-  await js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Jarvis'], engine: 'whisper', apple: { state: 'off' } }); true`);
+  await js(`featureEvent({ type: 'voice', detector: 'neural', threshold: 0.5, neural_ok: true, wake_words: ['Eden'], engine: 'whisper', apple: { state: 'off' } }); true`);
   const base = { on: false, provider: 'auto', minutes: 20, used: 0, keys: { openai: false, gemini: false }, active: false, using: '', state: '', talk_over: false, why: '' };
   const deliver = (over) => js(`featureEvent(${JSON.stringify({ type: 'realtime', ...base, ...over })}); true`);
   await deliver({});
@@ -4008,7 +4017,7 @@ test('Conversations for you: the nudge delay shows what is saved, and changing i
   assert(JSON.stringify(r) === JSON.stringify([{ type: 'feature_prefs', changes: { delegate_nudge_hours: 12 } }]), JSON.stringify(r));
 });
 
-test('Texts to the Jarvis number: under Phone, the switches save, and a text shows as it was written', async () => {
+test('Texts to the Eden number: under Phone, the switches save, and a text shows as it was written', async () => {
   await loadFeatures('sms_line.js', 'sms_line.css');
   await js('featureEvent({ type: "hello", prefs: { features: {} } }); true');  // as the socket gives it
   assert((await sentOf('sms_line')).length === 1, 'the texts were not asked for');
@@ -4326,7 +4335,7 @@ test('Hand-off: Continue on… lists the machines, a handed-off session says whe
   await js(`__ev({ type: 'code_handoffs', machines: ${JSON.stringify(machines)}, hosts: [], handoffs: [${JSON.stringify(rec)}] })`);
   await frames(2);
   const bar = await js(`({ hidden: document.querySelector('.jch-bar').hidden, text: document.querySelector('.jch-bar').textContent })`);
-  assert(!bar.hidden && bar.text.includes('On studio') && bar.text.includes('Working') && bar.text.includes('$0.50') && bar.text.includes('outside JARVIS’s limits'), JSON.stringify(bar));
+  assert(!bar.hidden && bar.text.includes('On studio') && bar.text.includes('Working') && bar.text.includes('$0.50') && bar.text.includes('outside Eden’s limits'), JSON.stringify(bar));
   await js('__sent.length = 0');
   assert(await clickText('.jch-bar', 'Stop'), 'no Stop in the bar');
   assert(await clickText('.jch-bar', 'Bring it back'), 'no Bring it back in the bar');
@@ -4410,7 +4419,7 @@ test('Settings › Speaking up: security heads-ups follow the setting and change
   assert(JSON.stringify(sent) === JSON.stringify([{ type: 'feature_prefs', changes: { defense_alerts: true } }]), JSON.stringify(sent));
 });
 
-test('Tools & Accounts lists what Jarvis did in connected accounts, and which need connecting again', async () => {
+test('Tools & Accounts lists what Eden did in connected accounts, and which need connecting again', async () => {
   await loadFeatures('connector-activity.js', 'connector-activity.css');
   const conns = { type: 'connectors', catalog: [], redirect_uri: '', connections: [
     { id: 'notion', name: 'Notion', kind: 'http', url: 'https://mcp.notion.com/mcp', command: '', auth: 'oauth', policy: 'ask', status: 'connected', error: '', sign_in_url: '', tools: [], always_allow: [], rescope: false },
@@ -4443,7 +4452,7 @@ const HELLO = { type: 'hello', hub_id: 'hub-a', state: 'idle', muted: true, stat
   prefs: { look: 'orb', language: 'en', models: [], personas: [], humor: 50, fallback_model: '', fallback_always: false, features: {} } };
 const BUILTIN = [{ ref: 'haiku', label: 'Haiku 4.5', name: 'Haiku 4.5', builtin: true }, { ref: 'sonnet', label: 'Sonnet 5.5', name: 'Sonnet 5.5', builtin: true }];
 
-test('Settings › Brain finds a model server on this Mac, adds it, and runs Jarvis offline on it', async () => {
+test('Settings › Brain finds a model server on this Mac, adds it, and runs Eden offline on it', async () => {
   await loadFeatures('local-models.js', 'local-models.css');
   await js(`__ev(${JSON.stringify({ ...HELLO, providers: { models: BUILTIN, providers: [] } })})`);
   assert((await sentOf('local_models_scan')).length === 1, 'it did not look for servers');
@@ -4451,7 +4460,7 @@ test('Settings › Brain finds a model server on this Mac, adds it, and runs Jar
   const line = await js('document.querySelector("#lm-servers .lm-server").textContent');
   assert(line.includes('Ollama') && line.includes('qwen3, llama3.2'), line);
   assert(await js('$("lm-offline").hidden'), 'offline mode shown with no local model added');
-  assert(await clickText('#lm-servers', 'Add to Jarvis'), 'no Add to Jarvis');
+  assert(await clickText('#lm-servers', 'Add to Eden'), 'no Add to Eden');
   assert(JSON.stringify(await sentOf('local_models_add')) === '[{"type":"local_models_add","port":11434}]', 'the add was not asked for');
   const local = { ref: 'custom:m1', provider: 'p1', name: 'qwen3 · Ollama', label: 'qwen3', model: 'qwen3', builtin: false };
   await js(`__ev({ type: 'providers', providers: [{ id: 'p1', kind: 'openai', base_url: 'http://localhost:11434', name: 'Ollama', models: [] }], models: ${JSON.stringify([...BUILTIN, local])} })`);
@@ -4526,7 +4535,7 @@ test('Settings › Brain: the background tasks’ model', async () => {
   assert(await js('$("background-model").value') === 'opus', 'the kept model is not shown');
 });
 
-test('Settings › Jarvis in other apps: on and off, asking first, the lines to paste and what apps did', async () => {
+test('Settings › Eden in other apps: on and off, asking first, the lines to paste and what apps did', async () => {
   await loadFeatures('jarvis-mcp.js', 'jarvis-mcp.css');
   await js(`__ev(${JSON.stringify(HELLO)})`);
   assert((await sentOf('mcp_state')).length === 1, 'the state was not asked for');
@@ -4535,7 +4544,7 @@ test('Settings › Jarvis in other apps: on and off, asking first, the lines to 
     desktop_json: '{\n  "mcpServers": {\n    "jarvis": {\n      "command": "/Users/o/Investment agent/jarvis/.venv/bin/jarvis",\n      "args": ["mcp"]\n    }\n  }\n}' };
   await js(`__ev(${JSON.stringify(off)})`);
   let shown = await js('({ on: $("sw-mcp").getAttribute("aria-checked"), ask: $("sw-mcp-ask").disabled, setup: $("mcp-setup").hidden, status: $("mcp-status").textContent })');
-  assert(shown.on === 'false' && shown.ask && shown.setup && shown.status === 'Off: no app can reach Jarvis.', JSON.stringify(shown));
+  assert(shown.on === 'false' && shown.ask && shown.setup && shown.status === 'Off: no app can reach Eden.', JSON.stringify(shown));
   await js('__sent.length = 0; $("sw-mcp").click()');
   assert(JSON.stringify(await sentOf('mcp_enable')) === '[{"type":"mcp_enable","on":true}]', 'the switch did not ask');
   const recent = [
@@ -4861,7 +4870,7 @@ test('Settings › Memory opens the memory wiki; its pages list, a page shows wh
     also: [...document.querySelectorAll('[data-statement="fact:a1"] .wiki-tag')].map((b) => b.textContent),
   })`);
   assert(page.title === 'Ann Lee' && page.own && page.imgs === 0 && !page.pwned && page.summary === 'Ann is your co-founder.', JSON.stringify(page));
-  assert(JSON.stringify(page.sections) === '["What Jarvis knows","Promises","In your journal","In conversations","Linked pages"]', JSON.stringify(page.sections));
+  assert(JSON.stringify(page.sections) === '["What Eden knows","Promises","In your journal","In conversations","Linked pages"]', JSON.stringify(page.sections));
   // A person's page offers their card, asked for by name as Settings › Memory › People does.
   assert(await clickText('#wiki-main .wiki-card', 'Show the person card'), 'no person card');
   assert(JSON.stringify(await sentOf('memory_person')) === JSON.stringify([{ type: 'memory_person', name: 'Ann Lee' }]), 'card asked');
@@ -4871,7 +4880,7 @@ test('Settings › Memory opens the memory wiki; its pages list, a page shows wh
   assert(page.fact.startsWith('You told me') && page.fact.includes('remember that'), page.fact);
   assert(page.promise.startsWith('An email you sent') && page.promise.includes('I will send the deck'), page.promise);
   assert(page.journal.startsWith('Daily note'), page.journal);
-  assert(page.convo.startsWith('A conversation with Jarvis') && page.convo.includes('“Deck”'), page.convo);
+  assert(page.convo.startsWith('A conversation with Eden') && page.convo.includes('“Deck”'), page.convo);
   assert(JSON.stringify(page.also) === '["Oakland"]', JSON.stringify(page.also));
 });
 
@@ -5206,11 +5215,14 @@ test('The Permissions pane’s Sandbox section: the switch, this session’s own
 // ── Touch ID for Bypass and risky steps (web/features/code-touchid.js) ──
 
 // The app's Touch ID, faked: what it was asked, and what the finger says (true, false, or
-// null for a Mac without Touch ID).
+// null where the app can't ask: the prompt answers { unavailable } then, and the window asks
+// its usual question). The window asks the prompt straight away (app/features/touchid.js
+// answers for a Mac without Touch ID with a dialog of its own); a yes may carry the app's proof.
 const fakeTouchId = (answer) => js(`window.__touch = []; window.__finger = ${JSON.stringify(answer)}; window.__confirms = [];
   window.confirm = (q) => { __confirms.push(q); return window.__confirmAnswer !== false; };
   window.jarvisApp = { feature: { invoke: async (channel, kind) => { __touch.push(kind || channel);
-    if (channel === 'feature:touchid:available') return __finger !== null; return { ok: __finger === true }; } } }; true`);
+    if (channel === 'feature:touchid:available') return __finger !== null;
+    return __finger === null ? { unavailable: true } : { ok: __finger === true }; } } }; true`);
 
 test('Bypass and a risky step allowed from its card ask for Touch ID first, or the usual question without it', async () => {
   await featureScript('code-touchid.js');
@@ -5219,7 +5231,7 @@ test('Bypass and a risky step allowed from its card ask for Touch ID first, or t
   await js('__sent.length = 0; $("jc-bypass").click(); true');
   await sleep(60);
   assert(JSON.stringify(await sentOf('task_mode')) === JSON.stringify([{ type: 'task_mode', id: 1, mode: 'auto' }]), JSON.stringify(await js('__sent')));
-  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['feature:touchid:available', 'bypass']) && (await js('__confirms.length')) === 0, JSON.stringify(await js('__touch')));
+  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['bypass']) && (await js('__confirms.length')) === 0, JSON.stringify(await js('__touch')));
   // The finger says no: nothing goes; no Touch ID here: the usual question decides.
   await js('__sent.length = 0; __finger = false; $("jc-bypass").click(); true');
   await sleep(60);
@@ -5260,7 +5272,7 @@ test('A notification’s Allow on a risky Eden Code step asks for Touch ID, as t
   const answered = () => js('__sent.filter((m) => m.type === "approve").map((m) => m.id + " " + m.choice)');
   // The risky step waited for the finger, which said no; an ordinary one and a no went at once.
   assert(JSON.stringify(await answered()) === JSON.stringify(['r2 allow', 'r3 deny']), JSON.stringify(await js('__sent')));
-  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['feature:touchid:available', 'approve']), JSON.stringify(await js('__touch')));
+  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['approve']), JSON.stringify(await js('__touch')));
   await js(`__finger = true; __app.on['feature:shell:command']({ action: 'approve', id: 'r1', choice: 'allow' }); true`);
   await sleep(80);
   assert(JSON.stringify(await answered()) === JSON.stringify(['r2 allow', 'r3 deny', 'r1 allow']), JSON.stringify(await js('__sent')));
@@ -5268,15 +5280,20 @@ test('A notification’s Allow on a risky Eden Code step asks for Touch ID, as t
 
 test('Eden Code settings has the Touch ID switch; off, Bypass asks the usual question', async () => {
   await featureScript('code-touchid.js');
-  await fakeTouchId(true);
+  await fakeTouchId(false);
   await open(1);
   await js('openJcSettings(); selectJcsTab("general"); true');
   assert(await js('$("jcs-general").contains($("ct-touchid")) && $("ct-touchid").getAttribute("aria-checked") === "true"'), 'no Touch ID switch in General');
+  // Switching it off takes the finger too (else anything that can send could switch it off).
   await js('__sent.length = 0; $("ct-touchid").click(); true');
+  await sleep(60);
+  assert(JSON.stringify(await js('__touch')) === JSON.stringify(['touchid-off']) && !(await sentOf('feature_prefs')).length, JSON.stringify(await js('__sent')));
+  await js('__finger = true; __touch.length = 0; $("ct-touchid").click(); true');
+  await sleep(60);
   assert(JSON.stringify(await sentOf('feature_prefs')) === JSON.stringify([{ type: 'feature_prefs', changes: { code_touchid: false } }]), JSON.stringify(await js('__sent')));
   await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { code_touchid: false } });
   assert(await js('$("ct-touchid").getAttribute("aria-checked") === "false"'), 'the switch didn’t follow the setting');
-  await js('closeJcSettings && closeJcSettings(); __sent.length = 0; $("jc-bypass").click(); true');
+  await js('closeJcSettings && closeJcSettings(); __sent.length = 0; __touch.length = 0; $("jc-bypass").click(); true');
   await sleep(60);
   assert((await js('__touch.length')) === 0 && (await js('__confirms.length')) === 1, JSON.stringify(await js('__touch')));
   assert(JSON.stringify(await sentOf('task_mode')) === JSON.stringify([{ type: 'task_mode', id: 1, mode: 'auto' }]), JSON.stringify(await js('__sent')));
@@ -5705,9 +5722,12 @@ test('Unsaved changes come back after a reload, still saved only over the versio
   await open(1);
   await js('jarvisFeatures.openPane("files"); true');
   const [again] = await sentOf('cw_file_read');
-  assert(again && again.path === 'src/app.py' && again.ref === read.ref, JSON.stringify(await js('__sent')));
+  // (An editor's refs are "<page>|<doc key>" since CF2-1: the reloaded page asks for the same
+  // document under its own page's id, and takes only answers to that.)
+  const docKey = (ref) => String(ref).split('|').slice(1).join('|');
+  assert(again && again.path === 'src/app.py' && again.ref !== read.ref && docKey(again.ref) === docKey(read.ref), JSON.stringify(await js('__sent')));
   // It changed on disk meanwhile: the changes are back, and the save is still checked.
-  await deliver({ type: 'cw_file', path: 'src/app.py', ref: read.ref, text: 'a = 1\nb = 2\nclaude = 3\n', version: { mtime_ns: 9, size: 22, sha: 'zzz' }, crlf: false, editable: true });
+  await deliver({ type: 'cw_file', path: 'src/app.py', ref: again.ref, text: 'a = 1\nb = 2\nclaude = 3\n', version: { mtime_ns: 9, size: 22, sha: 'zzz' }, crlf: false, editable: true });
   await js('[...document.querySelectorAll("#jc-pane-body .ce-tab-name")].find((b) => b.title === "src/app.py").click(); true');
   await frames(2);
   const r = await js('({ text: document.querySelector("#jc-pane-body .ce-text").value, dirty: !!document.querySelector("#jc-pane-body .ce-tab.dirty"), banner: (document.querySelector("#jc-pane-body .ce-banner") || {}).className })');
@@ -5717,7 +5737,7 @@ test('Unsaved changes come back after a reload, still saved only over the versio
   const [save] = await sentOf('cw_file_save');
   assert(save && save.base.sha === 'aaa', JSON.stringify(save));
   // Saved: the kept copy goes.
-  await deliver({ type: 'cw_file_saved', path: 'src/app.py', ref: read.ref, ok: true, version: { mtime_ns: 10, size: 20, sha: 'yyy' } });
+  await deliver({ type: 'cw_file_saved', path: 'src/app.py', ref: again.ref, ok: true, version: { mtime_ns: 10, size: 20, sha: 'yyy' } });
   assert(await js('!localStorage.getItem("jarvis.editor.drafts") || !Object.keys(JSON.parse(localStorage.getItem("jarvis.editor.drafts"))).length'), 'the kept copy stayed');
 });
 
@@ -5807,7 +5827,7 @@ test('A save keeps what was typed while it was saving: still unsaved, kept, and 
   await deliver({ type: 'cw_file_saved', path: 'src/app.py', ref: read.ref, ok: true, version: { mtime_ns: 2, size: 17, sha: 'bbb' } });
   await frames(2);
   const r = await js(`({ text: document.querySelector('#jc-pane-body .ce-text').value, dirty: !!document.querySelector('#jc-pane-body .ce-tab.on.dirty'),
-    chip: $('jc-pane-body').textContent.includes('Unsaved'), kept: JSON.parse(localStorage.getItem('jarvis.editor.drafts') || '{}')[${JSON.stringify(read.ref)}] || null })`);
+    chip: $('jc-pane-body').textContent.includes('Unsaved'), kept: JSON.parse(localStorage.getItem('jarvis.editor.drafts') || '{}')[${JSON.stringify(read.ref.split('|').slice(1).join('|'))}] || null })`);  // (kept by its doc key: the ref after its page's id, CF2-1)
   assert(r.text === 'a = 1\nb = 2\nc = 3\nd = 4' && r.dirty && r.chip && r.kept && r.kept.text === r.text && r.kept.base.sha === 'bbb', JSON.stringify(r));
   // Claude changing the file now doesn't read it over what was typed.
   await js('__sent.length = 0; true');
@@ -6429,7 +6449,7 @@ test('The Health pane shows the engine, the sign-in with the command that signs 
     command: (document.querySelector('#jc-pane-body .ch-command code') || {}).textContent,
     error: (document.querySelector('#jc-pane-body .ch-error') || {}).textContent,
     markup: document.querySelectorAll('#jc-pane-body b, #jc-pane-body i').length })`);
-  assert(r.title === 'Health' && r.text.includes('2.1.3') && r.text.includes('Built into Jarvis') && r.text.includes('Not signed in'), JSON.stringify(r));
+  assert(r.title === 'Health' && r.text.includes('2.1.3') && r.text.includes('Built into Eden') && r.text.includes('Not signed in'), JSON.stringify(r));
   assert(r.command === 'claude auth <b>login</b>' && r.error === 'Claude Code exited: <i>boom</i>' && r.markup === 0, JSON.stringify(r));
   assert(r.text.includes('It stopped with an error') && r.text.includes('Not connected'), r.text);
   await js('__sent.length = 0; true');
@@ -6842,7 +6862,7 @@ test('Settings › About shows the version; an update that has downloaded is off
   await js('toggleSettings(true); true');
   await frames(2);
   let r = await js('({ version: $("updates-version").textContent, line: $("updates-line").textContent, check: !$("updates-check").hidden, restart: !$("updates-restart").hidden, card: $("updates-card").hidden, last: $("settings").lastElementChild.id })');
-  assert(r.version === 'J.A.R.V.I.S. 0.1.0' && r.line === 'Up to date.' && r.check && !r.restart && r.card && r.last === 'updates-group', JSON.stringify(r));
+  assert(r.version === 'Eden 0.1.0' && r.line === 'Up to date.' && r.check && !r.restart && r.card && r.last === 'updates-group', JSON.stringify(r));
   await js('$("updates-check").click(); true');
   await frames(2);
   assert((await js('__appCalls')).includes('feature:updates:check'), 'Check for updates asked nothing');
@@ -6863,12 +6883,12 @@ test('Without a feed (the owner’s own build) About shows the version and no Ch
   await featureScript('updates.js');
   await frames(2);
   const r = await js('({ version: $("updates-version").textContent, line: $("updates-line").textContent, check: $("updates-check").hidden })');
-  assert(r.version === 'J.A.R.V.I.S. 0.1.0' && r.check && /doesn’t check for updates/.test(r.line), JSON.stringify(r));
+  assert(r.version === 'Eden 0.1.0' && r.check && /doesn’t check for updates/.test(r.line), JSON.stringify(r));
 });
 
 // ── What Jarvis did (web/features/actions.js): the Activity drawer's History tab ──
 
-test('Activity: a History tab searches what Jarvis did, a day at a time', async () => {
+test('Activity: a History tab searches what Eden did, a day at a time', async () => {
   await loadFeatures('actions.js', 'actions.css');
   const day = (back) => { const d = new Date(Date.now() - back * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   await js(`toggleDrawer(true); __sent.length = 0; true`);
@@ -6896,7 +6916,7 @@ test('Activity: a History tab searches what Jarvis did, a day at a time', async 
   const searched = await sentOf('action_log');
   assert(searched.length === 1 && searched[0].q === 'safari' && searched[0].before === '', JSON.stringify(searched));
   await js(`__ev({ type: 'action_log', q: 'safari', before: '', seq: ${JSON.stringify(searched[0].seq)}, more: false, items: [] }); true`);
-  assert(await js(`!$('act-empty').hidden && $('act-empty').textContent === 'Nothing Jarvis did matches.' && $('act-more').hidden && !document.querySelector('.act-day')`), 'no empty note');
+  assert(await js(`!$('act-empty').hidden && $('act-empty').textContent === 'Nothing Eden did matches.' && $('act-more').hidden && !document.querySelector('.act-day')`), 'no empty note');
   await js(`$('act-tab-now').click(); true`);
   assert(await js(`!$('activity-list').classList.contains('act-away') && $('act-history').hidden && $('act-tab-now').getAttribute('aria-selected') === 'true'`), 'Now did not come back');
   await js(`toggleDrawer(false); true`);
@@ -6972,7 +6992,7 @@ test('Conversation: Settings carries on after a restart, and the note offers a n
   assert(await js(`$('convo-note').hidden`), 'the note stayed after a new turn');
 });
 
-test('Conversation: Settings says how much Jarvis thinks, and a request thought through says so', async () => {
+test('Conversation: Settings says how much Eden thinks, and a request thought through says so', async () => {
   await loadFeatures(...CONVO);
   await js(`__ev({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: { conversation_resume: true, conversation_thinking: 'medium' } }); __sent.length = 0; true`);
   const row = await js(`(() => { const s = $('convo-thinking'); return { value: s.value, options: [...s.options].map((o) => o.value + ':' + o.textContent), group: s.closest('section.group').id }; })()`);
@@ -7011,11 +7031,11 @@ test('Conversation: incognito shows a banner with Leave, and past ones wait till
   assert(await js(`$('convo-incognito').hidden && !document.body.hasAttribute('data-incognito') && $('convo-settings-incognito').textContent === 'Start an incognito conversation'`), 'the banner stayed');
 });
 
-test('Conversation: what Jarvis heard is fixed with a click, and hearing says what it learned', async () => {
+test('Conversation: what Eden heard is fixed with a click, and hearing says what it learned', async () => {
   await loadFeatures('conversation_heard.js', 'conversation.css');
   await js(`__ev({ type: 'hearing', corrections: [], words: [] }); __ev({ type: 'turn', rid: 'r1', user: 'What time is it?' }); true`);
   assert(await js(`!$('heard').classList.contains('heard-fixable') && !$('heard').hasAttribute('role')`), 'a typed request could be fixed');
-  await js(`__ev({ type: 'heard', text: 'Jarvis call oaken' }); __ev({ type: 'turn', rid: 'r2', user: 'call oaken' }); __sent.length = 0; true`);
+  await js(`__ev({ type: 'heard', text: 'Eden call oaken' }); __ev({ type: 'turn', rid: 'r2', user: 'call oaken' }); __sent.length = 0; true`);
   const offered = await js(`({ fixable: $('heard').classList.contains('heard-fixable'), role: $('heard').getAttribute('role'), title: $('heard').title, text: $('heard').textContent })`);
   assert(offered.fixable && offered.role === 'button' && offered.title === 'Click to fix what I heard' && offered.text === '“call oaken”', JSON.stringify(offered));
   await js(`$('heard').click(); true`);
@@ -7509,7 +7529,7 @@ test('The ⋯ button asks for the page’s menu where it is; Settings › Browse
   assert(await js('$("bp-clear-status").textContent === "Cleared. You’re signed out of sites."'), await js('$("bp-clear-status").textContent'));
 });
 
-test('A private tab and JARVIS’s signed-out tabs look their part; ⌘⇧N opens a private tab; Settings sets JARVIS’s profile', async () => {
+test('A private tab and Eden’s signed-out tabs look their part; ⌘⇧N opens a private tab; Settings sets Eden’s profile', async () => {
   await loadBrowser(`__b.answer = (channel, msg) => channel === 'feature:browser:hello' ? __b.hello : channel === 'feature:browser:settings' ? { ...__b.hello, ...msg } : null;`);
   await js(`$("browser").hidden = false; tabsShown = ''; renderTabs([
     { id: 1, title: 'Mail', url: 'https://mail.example/', active: false },
@@ -7520,7 +7540,7 @@ test('A private tab and JARVIS’s signed-out tabs look their part; ⌘⇧N open
     { id: 2, title: 'Secret gift', url: 'https://shop.example/', active: true, private: true },
   ] }); true`);
   const looks = await js(`[...document.querySelectorAll('#bd-tabs .bd-tab')].map((t) => [t.classList.contains('bp-private'), t.classList.contains('bp-agent'), (t.querySelector('.bp-tab-mark') || {}).title || ''].join('|'))`);
-  assert(JSON.stringify(looks) === '["false|false|","true|false|Private: nothing it visits or keeps stays after it closes","false|true|JARVIS’s own profile, signed out of your sites"]', JSON.stringify(looks));
+  assert(JSON.stringify(looks) === '["false|false|","true|false|Private: nothing it visits or keeps stays after it closes","false|true|Eden’s own profile, signed out of your sites"]', JSON.stringify(looks));
   assert(await js('!$("bp-private").hidden && $("bp-private").textContent === "Private" && $("bp-private").nextElementSibling === $("br-url")'), 'no Private in the address');
   await js(`__state({ url: 'https://mail.example/', tabs: [{ id: 1, title: 'Mail', url: 'https://mail.example/', active: true }] }); true`);
   assert(await js('$("bp-private").hidden'), 'Private stayed on a normal tab');
@@ -7761,11 +7781,11 @@ test('Settings › Browser remembers pages only when switched on, and forgets th
   assert(await js('$("bai-memories").hidden && $("sw-bai-memories").getAttribute("aria-checked") === "false"'), 'still shown when off and empty');
 });
 
-test('Ask Jarvis: what the owner picked in the page’s menu goes to the hub, and the menu gets its words', async () => {
+test('Ask Eden: what the owner picked in the page’s menu goes to the hub, and the menu gets its words', async () => {
   await browserAi();
   await deliver({ type: 'prefs', look: 'orb', language: 'en', models: [], personas: [], humor: 50, features: {} });
   const sentWords = await js('__toApp.filter(([c]) => c === "feature:browser-ai:labels").pop()[1]');
-  assert(sentWords.ask === 'Ask Jarvis' && sentWords.reply === 'Draft a Reply' && sentWords.image === 'Explain This Picture', JSON.stringify(sentWords));
+  assert(sentWords.ask === 'Ask Eden' && sentWords.reply === 'Draft a Reply' && sentWords.image === 'Explain This Picture', JSON.stringify(sentWords));
   await js(`__sent.length = 0; __on['feature:browser-ai:ask']({ action: 'explain', url: 'https://news.example/a', title: 'A', tab: 5, selection: 'Soup is good.', evil: 'x', type: 'ask' }); true`);
   const asks = await js('__sent');
   assert(JSON.stringify(asks) === JSON.stringify([{ type: 'browser_ai_ask', action: 'explain', url: 'https://news.example/a', title: 'A', tab: 5, selection: 'Soup is good.' }]), JSON.stringify(asks));
@@ -8024,7 +8044,7 @@ test('A video proof plays from the window’s own server when its poster is clic
   await featureScript('code-video.js');
   await open(1);
   await deliver({ type: 'task_log', id: 1, entry: { n: 11, role: 'video', text: 'Video proof: 7.9 s', status: 'ok', video: '0123456789abcdef01234567', poster: 'QUJDRA==', seconds: 7.9, url: 'http://localhost:5173/' } });
-  await deliver({ type: 'task_log', id: 1, entry: { n: 12, role: 'video', text: 'Video proof: no app', status: 'problem', why: 'The video is recorded in the J.A.R.V.I.S. app window, and it isn’t open.' } });
+  await deliver({ type: 'task_log', id: 1, entry: { n: 12, role: 'video', text: 'Video proof: no app', status: 'problem', why: 'The video is recorded in the Eden app window, and it isn’t open.' } });
   await frames(2);
   const before = await js(`(() => { const cards = document.querySelectorAll('#deck-timeline .vp-card'); return { n: cards.length, text: cards[0].textContent, second: cards[1].textContent }; })()`);
   assert(before.n === 2 && before.text.includes('7.9 s') && before.second.includes('app window'), JSON.stringify(before));
@@ -8037,7 +8057,7 @@ test('A video proof plays from the window’s own server when its poster is clic
 // ── The owner's agents (web/features/agents.js, Settings › Agents, and the orb) ──
 
 const AGENTS_EV = (extra = '') => `__ev({ type: 'agents', error: '', active: 'main', max: 6, channels: ['telegram', 'imessage', 'slack', 'discord'],
-  personas: [{ id: 'jarvis', name: 'JARVIS' }, { id: 'friday', name: 'FRIDAY' }],
+  personas: [{ id: 'jarvis', name: 'Eden' }, { id: 'friday', name: 'FRIDAY' }],
   tools: [{ name: 'calendar', label: 'Calendar', account: '' }, { name: 'mail', label: 'Mail', account: '' }, { name: 'acct_work', label: '', account: 'Work Gmail <b>' }],
   items: [], ${extra} }); true`;
 
@@ -8045,23 +8065,23 @@ test('Agents: made in Settings under Personality with their persona, tools and c
   await loadFeatures('agents.js', 'agents.css');
   await js(AGENTS_EV());
   const shown = await js(`({ after: $('persona-group').closest('section').nextElementSibling.id, rows: [...document.querySelectorAll('.agent-item strong')].map((n) => n.textContent), badge: $('agent-badge').hidden, form: $('agent-form').hidden })`);
-  assert(shown.after === 'agents-group' && shown.rows.join() === 'Jarvis' && shown.badge && shown.form, JSON.stringify(shown));
+  assert(shown.after === 'agents-group' && shown.rows.join() === 'Eden' && shown.badge && shown.form, JSON.stringify(shown));
   await js(`$('agent-new').click(); true`);
   const editor = await js(`({ personas: [...$('agent-persona').options].map((o) => o.value), tools: [...document.querySelectorAll('#agent-tools input')].map((c) => c.value + ':' + c.checked), account: [...document.querySelectorAll('.agent-tool span')].pop().getAttribute('data-no-i18n') })`);
   assert(editor.personas.join() === 'jarvis,friday' && editor.tools.join() === 'calendar:false,mail:false,acct_work:false' && editor.account === '', JSON.stringify(editor));
-  await js(`$('agent-name').value = 'Work Jarvis'; $('agent-persona').value = 'friday';
+  await js(`$('agent-name').value = 'Work Eden'; $('agent-persona').value = 'friday';
     document.querySelector('#agent-tools input[value="mail"]').checked = true; document.querySelector('#agent-tools input[value="acct_work"]').checked = true;
     [...document.querySelectorAll('.agent-form .btn')].find((b) => b.textContent === 'Add a chat').click();
     const r = document.querySelector('.agent-route'); r.querySelector('select').value = 'slack'; r.querySelector('input').value = ' T-ACME ';
     __sent.length = 0; $('agent-form').requestSubmit(); true`);
   const made = await sentOf('agent_save');
-  assert(JSON.stringify(made) === JSON.stringify([{ type: 'agent_save', agent: { name: 'Work Jarvis', zh_name: '', persona: 'friday', servers: ['mail', 'acct_work'], routes: [{ channel: 'slack', place: 'T-ACME' }] } }]), JSON.stringify(made));
+  assert(JSON.stringify(made) === JSON.stringify([{ type: 'agent_save', agent: { name: 'Work Eden', zh_name: '', persona: 'friday', servers: ['mail', 'acct_work'], routes: [{ channel: 'slack', place: 'T-ACME' }] } }]), JSON.stringify(made));
   await js(AGENTS_EV(`error: 'Another agent has that name.'`).replace("error: '',", ''));
   assert(await js(`!$('agent-form').hidden && $('agent-error').textContent === 'Another agent has that name.' && !$('agent-save').disabled`), 'an error closed the editor');
   const work = `{ id: 'work', name: 'Work <i>J</i>', zh_name: '', persona: 'friday', servers: ['mail'], routes: [] }`;
   await js(`$('agent-form').requestSubmit(); ${AGENTS_EV(`items: [${work}], active: 'work',`).replace("active: 'main', ", '')}`);
   const listed = await js(`({ form: $('agent-form').hidden, rows: [...document.querySelectorAll('.agent-item strong')].map((n) => n.textContent), sub: document.querySelectorAll('.agent-item small')[1].textContent, inUse: document.querySelector('[data-agent="work"] .agent-in-use') !== null, badge: !$('agent-badge').hidden && $('agent-badge').textContent, italics: document.querySelectorAll('.agent-item i, #agent-badge i').length, below: $('orb').nextElementSibling.id })`);
-  assert(listed.form && listed.rows.join('|') === 'Jarvis|Work <i>J</i>' && listed.sub === 'FRIDAY · 1 tool' && listed.inUse && listed.badge === 'Work <i>J</i>' && listed.italics === 0 && listed.below === 'agent-badge', JSON.stringify(listed));
+  assert(listed.form && listed.rows.join('|') === 'Eden|Work <i>J</i>' && listed.sub === 'FRIDAY · 1 tool' && listed.inUse && listed.badge === 'Work <i>J</i>' && listed.italics === 0 && listed.below === 'agent-badge', JSON.stringify(listed));
   await js(`__sent.length = 0; [...document.querySelectorAll('[data-agent="main"] .btn')].find((b) => b.textContent === 'Use').click(); true`);
   assert(JSON.stringify(await sentOf('agent_use')) === '[{"type":"agent_use","id":"main"}]', 'Use did not switch back');
   const press = (label) => js(`[...document.querySelectorAll('[data-agent="work"] .btn')].find((b) => b.textContent === ${JSON.stringify(label)}).click(); true`);
@@ -8075,7 +8095,7 @@ test('Agents: made in Settings under Personality with their persona, tools and c
   assert((await sentOf('agent_delete')).length === 0, 'one press deleted it');
   await press('Delete it?');
   assert(JSON.stringify(await sentOf('agent_delete')) === '[{"type":"agent_delete","id":"work"}]', 'the second press did not delete it');
-  assert(await js(`$('agent-badge').hidden`), 'the everyday Jarvis still showed a badge');
+  assert(await js(`$('agent-badge').hidden`), 'the everyday Eden still showed a badge');
 });
 
 // ── An Eden Code session that seems stuck (web/features/loops.js) ──
@@ -8511,7 +8531,7 @@ test('A screenshot dropped on the window waits by the request box and goes with 
   assert(await js('askPics.length === 0 && document.querySelector("#ask-form [data-pics]").hidden'), 'the thumbnail stayed after sending');
 });
 
-test('A big screenshot is scaled down; pasted with nothing typed it asks Jarvis to take a look', async () => {
+test('A big screenshot is scaled down; pasted with nothing typed it asks Eden to take a look', async () => {
   await js(PICTURE);
   await js('$("ask-input").focus(); __png(5120, 2880).then((f) => __dropOn("#ask-input", [f], true)); true');
   assert(await until('askPics.length === 1'), 'the pasted picture was not attached');

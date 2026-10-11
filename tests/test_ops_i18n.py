@@ -20,7 +20,7 @@ SAMPLES = {"currency": "USD", "name": "Notion", "label": "Webhooks on", "folder"
 # Sentences that aren't the window's: file and folder names, the spoken summary for Claude
 # (Claude says it in the owner's language), the voice sample (lang.py has its Chinese).
 NOT_SHOWN = re.compile(
-    r"^(?:Jarvis backup|Jarvis diagnostics|Damaged files|Checkup done|Details and fixes|"
+    r"^(?:Eden backup|Eden diagnostics|Damaged files|Checkup done|Details and fixes|"
     r"Hello\. This is how I sound|Run Eden's own checkup|Today's backup didn't work|"
     # the plan and the paths are shown as they are (data-no-i18n)
     r"(?:Max|Pro|Team|Enterprise|API key|Library|Logs|Documents|Jarvis|Backups|Diagnostics)$)"

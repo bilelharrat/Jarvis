@@ -195,6 +195,56 @@ async def test_a_code_past_its_time_expires_without_asking_again():
     assert "/link/poll" not in [c[1] for c in fake.calls]
 
 
+async def test_a_code_nobody_looks_at_is_polled_for_a_minute_then_only_when_watched():
+    """AJ3-1: Ask Eden for Mac's own codes ({visible: false}) poll /link/poll for a minute, not every
+    2 s for the code's 10 minutes (about 30 askeden.com requests a code instead of 300); a link_watch()
+    (the app just approved it) polls again for a minute; a code shown in Settings polls its whole life."""
+    fake = FakeAskeden()
+    fake.polls = ["waiting"] * 1000
+    now = [0.0]
+
+    async def tick(seconds):
+        now[0] += seconds
+        await asyncio.sleep(0)
+
+    quiet = client(fake, clock=lambda: now[0])
+    quiet.sleep = tick
+    await quiet.link_start(visible=False)
+    await finish(quiet)
+    polls = [c[1] for c in fake.calls].count("/link/poll")
+    assert quiet.link.state == "expired"
+    assert 25 <= polls <= 31, polls
+    # watched: a minute more of polls, then quiet again
+    fake.calls.clear()
+    now[0] = 0.0
+    quiet.sleep = lambda _s: asyncio.sleep(3600)
+    await quiet.link_start(visible=False)
+    assert quiet.link_watch() is True
+    quiet.cancel_link()
+    assert quiet.link_watch() is False, "nothing waiting"
+
+    async def watch_at_300(seconds):
+        now[0] += seconds
+        if now[0] == 300:
+            quiet.link_watch()
+        await asyncio.sleep(0)
+
+    fake.calls.clear()
+    now[0] = 0.0
+    quiet.sleep = watch_at_300
+    await quiet.link_start(visible=False)
+    await finish(quiet)
+    assert 50 <= [c[1] for c in fake.calls].count("/link/poll") <= 62
+    # shown in Settings (the default): every 2 s until it expires
+    fake.calls.clear()
+    shown = client(fake, clock=lambda: now[0])
+    now[0] = 0.0
+    shown.sleep = tick
+    await shown.link_start()
+    await finish(shown)
+    assert [c[1] for c in fake.calls].count("/link/poll") >= 290
+
+
 async def test_a_new_code_lets_the_one_before_go():
     fake = FakeAskeden()
     made = client(fake)
@@ -432,6 +482,22 @@ async def test_settings_link_shows_the_code_and_qr_then_the_account(setup):
     assert TOKEN not in json.dumps(last)
     await hub._handle({"type": "account_unlink"})
     assert not hub.account.linked
+
+
+async def test_ask_eden_asks_for_a_quiet_code_and_watches_it_once_approved(setup):
+    """AJ3-1: {visible: false} reaches link_start; account_link_watch polls it again."""
+    hub, fake = setup
+    hub.account.sleep = lambda _s: asyncio.sleep(3600)
+    await hub._handle({"type": "account_link", "visible": False})
+    link = hub.account.link
+    assert link.state == "waiting" and link.watch_until != float("inf")
+    before = link.watch_until
+    hub.account.clock = lambda: before + 30
+    await hub._handle({"type": "account_link_watch"})
+    assert link.watch_until == before + 30 + account_mod.QUIET_POLL_SECONDS
+    await hub._handle({"type": "account_link"})
+    assert hub.account.link.watch_until == float("inf"), "Settings' code polls its whole life"
+    hub.account.cancel_link()
 
 
 async def test_settings_says_why_when_askeden_cant_be_reached(setup):

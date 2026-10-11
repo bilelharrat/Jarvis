@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import httpx
@@ -694,3 +695,114 @@ def test_mail_triage_from_eden_skips_the_card_other_apps_get_it(settings, quiet_
     assert seen[-1] == ({"action": "archive", "message_ids": ["a@b"]}, True)
     run({"action": "flag", "message_ids": ["a@b"], "confirm": True}, "Claude Code")
     assert seen[-1][1] is False, "another app gets Jarvis's card"
+
+
+# ── a call Eden names runs once (bug sweep 2026-10-10 AJ2-2, AJ2-11) ──
+
+
+async def test_a_named_call_runs_once_across_eden_restarts_and_its_own(settings, quiet_speaker, isolated, short_folder):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    endpoint = endpoint_for(hub, short_folder)
+    runs = []
+    gate = asyncio.Event()
+
+    async def make(tool, text="Added it.", error=False):
+        async def run():
+            runs.append(tool)
+            await gate.wait()
+            return text, error
+
+        return run
+
+    args = {"title": "Dentist", "start": "2026-10-11T09:00", "confirm": True}
+    # Eden's server asks, then goes away (restarted) while the card is up: the run goes on
+    first = asyncio.ensure_future(endpoint.once("call-0000000001", "Eden", "calendar_create", args, await make("calendar_create")))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    first.cancel()
+    # the restarted server asks again with the same id: it joins, nothing runs twice
+    again = asyncio.ensure_future(endpoint.once("call-0000000001", "Eden", "calendar_create", dict(reversed(list(args.items()))), await make("calendar_create")))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    gate.set()
+    assert await again == ("Added it.", False)
+    assert runs == ["calendar_create"]
+    # a repeat a minute later gets the answer kept, even after this endpoint restarts (mcp/calls.json)
+    restarted = endpoint_for(hub, short_folder)
+    assert await restarted.once("call-0000000001", "Eden", "calendar_create", args, await make("calendar_create")) == ("Added it.", False)
+    assert runs == ["calendar_create"]
+    assert stat.S_IMODE(os.stat(short_folder / "calls.json").st_mode) == 0o600
+    assert "Dentist" not in (short_folder / "calls.json").read_text()  # keyed by a hash
+    # other arguments, another app, or no id: a call of its own
+    await restarted.once("call-0000000001", "Eden", "calendar_create", {**args, "title": "Gym"}, await make("calendar_create"))
+    await restarted.once("call-0000000001", "Claude Code", "calendar_create", args, await make("calendar_create"))
+    await restarted.once("", "Eden", "calendar_create", args, await make("calendar_create"))
+    await restarted.once("short", "Eden", "calendar_create", args, await make("calendar_create"))
+    assert len(runs) == 5
+    # AJ2-11: a read keeps nothing once done (a "Try again" reads afresh); a failed change neither
+    await restarted.once("call-0000000002", "Eden", "mail_search", {"query": "x"}, await make("mail_search", "[]"))
+    await restarted.once("call-0000000002", "Eden", "mail_search", {"query": "x"}, await make("mail_search", "[]"))
+    assert runs.count("mail_search") == 2
+    await restarted.once("call-0000000003", "Eden", "notify_me", {"message": "x"}, await make("notify_me", "No.", True))
+    await restarted.once("call-0000000003", "Eden", "notify_me", {"message": "x"}, await make("notify_me"))
+    assert runs.count("notify_me") == 2
+    # kept a few minutes only
+    kept = json.loads((short_folder / "calls.json").read_text())
+    for v in kept.values():
+        v["at"] -= mcp_endpoint.CALL_KEEP_SECONDS + 1
+    (short_folder / "calls.json").write_text(json.dumps(kept))
+    late = endpoint_for(hub, short_folder)
+    await late.once("call-0000000001", "Eden", "calendar_create", args, await make("calendar_create"))
+    assert runs.count("calendar_create") == 6, "ten minutes on, it's a new call"
+
+
+async def test_a_malformed_calls_file_is_ignored_never_a_failure(settings, quiet_speaker, isolated, short_folder):
+    """AJ3-13: an entry without a number in "at" (null, text, a list) is dropped and the file rebuilt;
+    before, every named call raised TypeError (a 500) until the file was deleted."""
+    hub = make_hub(settings, quiet_speaker, isolated)
+    now = time.time()
+    short_folder.mkdir(parents=True, exist_ok=True)
+    (short_folder / "calls.json").write_text(
+        json.dumps({"a": {"at": None}, "b": {"at": "soon"}, "c": {"at": [1]}, "d": "x", "e": {"at": True}, "f": {"at": str(now), "text": "kept", "error": False}})
+    )
+    endpoint = endpoint_for(hub, short_folder)
+    runs = []
+
+    async def run():
+        runs.append(1)
+        return "Added it.", False
+
+    args = {"title": "Dentist", "confirm": True}
+    assert await endpoint.once("call-0000000009", "Eden", "calendar_create", args, run) == ("Added it.", False)
+    assert await endpoint.once("call-0000000009", "Eden", "calendar_create", args, run) == ("Added it.", False)
+    assert runs == [1]
+    kept = json.loads((short_folder / "calls.json").read_text())
+    assert set(kept) - {"f"} and not {"a", "b", "c", "d", "e"} & set(kept)
+    assert all(isinstance(v["at"], float) for v in kept.values())
+    # a file that isn't JSON at all: an empty one, rebuilt on the next kept call
+    (short_folder / "calls.json").write_text("{not json")
+    again = endpoint_for(hub, short_folder)
+    assert await again.once("call-0000000010", "Eden", "calendar_create", args, run) == ("Added it.", False)
+    assert isinstance(json.loads((short_folder / "calls.json").read_text()), dict)
+
+
+def test_the_call_route_passes_edens_call_id_on(settings, quiet_speaker, isolated, short_folder):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_feature_prefs({"mcp_ask": False})
+    endpoint = endpoint_for(hub, short_folder)
+    ran = []
+
+    async def call(tool, args, app):
+        ran.append((tool, args, app))
+        return f"did {tool}", False
+
+    endpoint.call = call
+    client = TestClient(build_app(endpoint))
+    headers = {"Authorization": "Bearer the-token", "X-Jarvis-Session": SESSION, "X-Jarvis-Client": "Eden", "X-Eden-Call": "Zx81-call_00001"}
+    body = {"tool": "notify_me", "arguments": {"message": "hi"}}
+    for _ in range(3):
+        r = client.post("/call", json=body, headers=headers)
+        assert r.json() == {"text": "did notify_me", "is_error": False}
+    assert len(ran) == 1, "a change asked three times with one id runs once"
+    client.post("/call", json=body, headers={k: v for k, v in headers.items() if k != "X-Eden-Call"})
+    assert len(ran) == 2, "without an id it runs, as before"

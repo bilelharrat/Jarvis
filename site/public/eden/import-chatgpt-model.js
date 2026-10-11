@@ -94,9 +94,11 @@ export async function entryBytes(blob, e, max = Infinity) {
 
 /**
  * Yields the elements of a top-level JSON array (as parsed values) from a ReadableStream of bytes,
- * without holding the whole text. `onBytes(n)` reports progress in decoded input bytes.
+ * without holding the whole text. `onBytes(n)` reports progress in decoded input bytes. An element
+ * that isn't valid JSON is passed to `onBad(error)` and skipped (the rest still come); a stream that
+ * ends inside the array (a cut-off download) calls `onIncomplete()`. Without `onBad`, a bad element throws as before.
  */
-export async function* jsonArrayItems(stream, { onBytes } = {}) {
+export async function* jsonArrayItems(stream, { onBytes, onBad, onIncomplete } = {}) {
   const reader = stream.getReader();
   const dec = new TextDecoder('utf-8');
   let started = false, depth = 0, inStr = false, esc = false, buf = '', from = -1;
@@ -121,14 +123,17 @@ export async function* jsonArrayItems(stream, { onBytes } = {}) {
         else if (ch === 125 || ch === 93) {
           depth--;
           if (depth === 0 && from >= 0) {
-            yield JSON.parse(buf.slice(from, i + 1));
+            let item, ok = true;
+            try { item = JSON.parse(buf.slice(from, i + 1)); }
+            catch (e) { if (!onBad) throw e; ok = false; onBad(e); }
+            if (ok) yield item;
             buf = buf.slice(i + 1);
             i = -1; from = -1;
           } else if (depth < 0) return;
         } else if (depth === 0 && from < 0 && ch === 93) return;
       }
       if (from < 0) buf = ''; else if (from > 0) { buf = buf.slice(from); from = 0; }
-      if (done) return;
+      if (done) { if (started && onIncomplete) onIncomplete(); return; } // the array never closed
     }
   } finally { try { reader.releaseLock(); } catch { /* done */ } }
 }
@@ -158,6 +163,11 @@ export function indexExport(entries) {
 
 export const SOURCE = 'chatgpt';
 /** The id an imported conversation gets in Eden: derived from ChatGPT's, so re-importing finds the same chat. */
+/**
+ * A chat title from an import, cleaned as a rename is (folders-model.js cleanTitle, AS13; bug sweep AS2-9): one line,
+ * no control characters, no bidi overrides or isolates, at most `max`. (This file is loaded alone: no imports.)
+ */
+export const importTitle = (raw, max = 120) => String(raw ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max).trim();
 export const edenIdFor = (origId) => `cgpt-${String(origId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64)}`;
 
 const PUA_OPEN = String.fromCharCode(0xe200), PUA_CLOSE = String.fromCharCode(0xe201);
@@ -345,8 +355,8 @@ export function convertConversation(raw, { importedAt = Date.now() } = {}) {
 
   const created = ms(raw.create_time) || Math.min(...times, importedAt);
   const updated = ms(raw.update_time) || Math.max(...times, created);
-  let title = String(raw.title || '').trim();
-  if (!title || /^new chat$/i.test(title)) title = (firstUser || 'ChatGPT chat').replace(/\s+/g, ' ').slice(0, 60);
+  let title = importTitle(raw.title);
+  if (!title || /^new chat$/i.test(title)) title = importTitle(firstUser || 'ChatGPT chat', 60) || 'ChatGPT chat';
   const conv = {
     id: edenIdFor(origId), title, titleSet: true, created, updated, pinned: false, temp: false, kind: 'chat', project: null, sessionId: null, personaId: null,
     mode: 'chat', nodes, root, lastRoute: null, allowTools: [], todos: [], queue: [], status: 'idle',

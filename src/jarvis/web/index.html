@@ -216,7 +216,7 @@
       <input type="text" id="weather-city" maxlength="80" placeholder="Your city"></label>
   </section>
 
-  <section class="group" data-settings-pane="voice" data-keywords="speech speak audio sound microphone mic wake word hey jarvis listening gestures">
+  <section class="group" data-settings-pane="voice" data-keywords="speech speak audio sound microphone mic wake word hey eden listening gestures">
     <h3>Voice</h3>
     <div class="row"><span><strong>Spoken replies</strong></span><button type="button" class="switch" role="switch" id="sw-voice" aria-checked="true" aria-label="Spoken replies"></button></div>
     <div class="row"><span><strong>AI voice effect</strong><small>A faint doubled, in-the-room sheen</small></span><button type="button" class="switch" role="switch" id="sw-effect" aria-checked="true" aria-label="AI voice effect"></button></div>
@@ -264,9 +264,15 @@
       <textarea id="invoice-payment" rows="2" placeholder="Pay by bank transfer or at pay.example.com"></textarea></label>
   </section>
 
+  <section class="group" id="jc-settings-group" data-settings-pane="code" data-keywords="eden code settings defaults new session model permission mode effort queue awake models api keys providers openrouter gemini machines projects snippets limits">
+    <h3>Eden Code</h3>
+    <div class="row"><span><strong>Eden Code settings</strong><small>What new sessions start with (model, permission mode, effort), how they work, and the other tabs of Eden Code’s own settings</small></span><button type="button" class="btn" id="open-jc-settings">Open…</button></div>
+    <div class="row"><span><strong>Models &amp; API keys</strong><small>Models from other providers, with your own keys</small></span><button type="button" class="btn" id="open-jc-models">Open…</button></div>
+  </section>
+
   <section class="group" data-settings-pane="code">
     <h3>Voice coding</h3>
-    <p class="small-status">Say “Eden, let’s code in jarvis” and talk to Eden Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
+    <p class="small-status">Say “Eden, let’s code in askeden” and talk to Eden Code: plan mode, undo that, what changed, explain the second change, commit that, exit code mode.</p>
     <div class="row"><span><strong>Narrate progress</strong><small>Short notes like “Editing hub dot py” while it works</small></span><button type="button" class="switch" role="switch" id="sw-code-narrate" aria-checked="true" aria-label="Narrate progress"></button></div>
     <label class="row" for="code-sentences"><span><strong>Reply length</strong><small>Sentences read aloud; the rest stays on screen</small></span>
       <select id="code-sentences"><option value="2">Short (2)</option><option value="3">Normal (3)</option><option value="5">Long (5)</option><option value="8">Everything (8)</option></select></label>
@@ -568,7 +574,7 @@
   </defs>
 </svg>
 <section id="cc" class="deck jc" hidden aria-label="Eden Code">
-  <aside class="jc-side glass-panel" id="jc-side" aria-label="Projects and sessions">
+  <nav class="jc-side glass-panel" id="jc-side" aria-label="Projects and sessions"><!-- (a nav: a complementary landmark can't sit inside Eden Code's region, CH13) -->
     <div class="jc-side-head">
       <span class="jc-mark" aria-hidden="true"></span>
       <h2>Eden Code</h2>
@@ -588,7 +594,7 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
     </div>
-  </aside>
+  </nav>
 
   <div class="jc-main">
     <header class="jc-toolbar">

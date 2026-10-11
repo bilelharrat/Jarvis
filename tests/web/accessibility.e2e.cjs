@@ -117,7 +117,7 @@ test('the page is arranged for a screen reader: panels out of the way, a skip li
 test('Chromium’s accessibility tree has the orb and the request box, and none of the decorative panels', async () => {
   const tree = await axTree();
   const names = tree.map((n) => `${n.role}:${n.name}`);
-  assert(names.some((n) => /^button:Talk to Jarvis$/.test(n)), `no orb in ${names.slice(0, 40)}`);
+  assert(names.some((n) => /^button:Talk to Eden$/.test(n)), `no orb in ${names.slice(0, 40)}`);
   assert(tree.some((n) => n.role === 'textbox' && /Type a request/.test(n.name || '')), 'no request box');
   assert(tree.some((n) => n.role === 'link' && /Skip to the request box/.test(n.name || '')), 'no skip link');
   assert(!tree.some((n) => /System stats|Markets|Weather/.test(n.name || '')), `a decorative panel is still read: ${names.filter((n) => /System stats|Markets|Weather/.test(n))}`);
@@ -165,7 +165,7 @@ test('R reads the last reply again', async () => {
   assert(lines.length === 2 && lines[1] === 'Hello there.', `announced ${JSON.stringify(lines)}`);
 });
 
-test('with Jarvis’s own voice picked, the screen reader is told nothing of the reply', async () => {
+test('with Eden’s own voice picked, the screen reader is told nothing of the reply', async () => {
   await fresh({ a11y_mode: 'on', a11y_voice: 'jarvis' });
   await js(`heard({ type: 'turn', rid: 'r3', user: 'hi' }); heard({ type: 'reply', rid: 'r3', text: 'Hello there.' }); heard({ type: 'turn_done', rid: 'r3' }); true`);
   assert((await said()).length === 0, `announced ${JSON.stringify(await said())}`);
@@ -222,13 +222,13 @@ test('Settings › Accessibility shows what is set, and a choice goes to the bac
   const r = await js(`(() => {
     const g = document.getElementById('a11y-group');
     const checked = (label) => [...g.querySelectorAll('[aria-label="' + label + '"] [role=radio]')].filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.textContent);
-    return { first: document.querySelector('#settings .group') === g, mode: checked('Screen-reader mode'), length: checked('How much Jarvis says'), cues: g.querySelector('[role=switch]').getAttribute('aria-checked') };
+    return { first: document.querySelector('#settings .group') === g, mode: checked('Screen-reader mode'), length: checked('How much Eden says'), cues: g.querySelector('[role=switch]').getAttribute('aria-checked') };
   })()`);
   assert(r.first, 'the group is not first in Settings');
   assert(r.mode.join() === 'On' && r.length.join() === 'Brief' && r.cues === 'true', JSON.stringify(r));
-  await js(`document.querySelector('#a11y-group [aria-label="How much Jarvis says"] [data-value=detailed]').click(); true`);
+  await js(`document.querySelector('#a11y-group [aria-label="How much Eden says"] [data-value=detailed]').click(); true`);
   assert((await sent()).includes('prefs {"a11y_verbosity":"detailed"}'), `sent ${await sent()}`);
-  assert(await js(`document.querySelector('#a11y-group [aria-label="How much Jarvis says"] [data-value=detailed]').getAttribute('aria-checked')`) === 'true', 'the choice did not show');
+  assert(await js(`document.querySelector('#a11y-group [aria-label="How much Eden says"] [data-value=detailed]').getAttribute('aria-checked')`) === 'true', 'the choice did not show');
 });
 
 test('the arrow keys move through a group of choices, one tab stop each', async () => {
@@ -278,7 +278,7 @@ test('on Windows the Mac’s key glyphs read as the keys Windows has', async () 
   assert(r.key === 'Control+Comma', `keyshortcuts: ${r.key}`);
 });
 
-test('U says what Jarvis is doing', async () => {
+test('U says what Eden is doing', async () => {
   await fresh();
   await js(`heard({ type: 'state', value: 'thinking' }); document.getElementById('state-line').textContent = 'Thinking…'; true`);
   await chord('U');
@@ -299,11 +299,11 @@ test('while it is on the window calls itself J.A.R.V.I.S. Daredevil and says whe
   if (!mac) assert(tree.some((n) => /J\.A\.R\.V\.I\.S\. Daredevil/.test(n.name || '')), 'the name is not in the accessibility tree');
 });
 
-test('with it off the window is just Jarvis again, and it says nothing of its own', async () => {
+test('with it off the window is just Eden again, and it says nothing of its own', async () => {
   await fresh({ a11y_mode: 'on' });
   await js(`heard({ type: 'prefs', features: { a11y_mode: 'off' } }); true`);
   const r = await js(`({ title: document.title, mark: document.getElementById('wordmark').textContent, home: jarvisAccessibility.homeName() })`);
-  assert(r.title === 'Jarvis' && r.mark === 'Jarvis' && r.home === 'Jarvis', JSON.stringify(r));
+  assert(r.title === 'Eden' && r.mark === 'Eden' && r.home === 'Eden', JSON.stringify(r));
   await fresh({ a11y_mode: 'off' });
   assert((await js('window.__welcome')).length === 0, 'it welcomed with it off');
 });
@@ -374,7 +374,7 @@ test('Settings › Accessibility has the colour choices as samples, and picking 
   const size = await js(`[...document.querySelectorAll('#a11y-group [aria-label="Text size"] [role="radio"]')].map((b) => b.textContent)`);
   assert(size.join('|') === 'Auto|Normal|Large|Larger|Largest', `sizes ${size}`);
   const voice = await js(`[...document.querySelectorAll('#a11y-group [aria-label="Who reads replies aloud"] [role="radio"]')].map((b) => b.textContent)`);
-  assert(voice.join('|') === 'Auto|My screen reader|Jarvis’s voice', `voices ${voice}`);
+  assert(voice.join('|') === 'Auto|My screen reader|Eden’s voice', `voices ${voice}`);
 });
 
 test('Settings has an Accessibility category in its sidebar, which holds this section', async () => {
@@ -478,7 +478,7 @@ const calendarsPage = async (open = true) => {
   if (open) await js(`document.getElementById('settings').hidden = false; true`);
 };
 const CALS = [
-  { id: 'local', title: 'Jarvis', kind: 'local', writable: true, color: '#1A73E8', source: 'This PC', default: true, error: '', checked: '' },
+  { id: 'local', title: 'Eden', kind: 'local', writable: true, color: '#1A73E8', source: 'This PC', default: true, error: '', checked: '' },
   { id: 'feed-1', title: 'Brightspace', kind: 'feed', writable: false, color: '#188038', source: 'Calendar link', default: false, error: '', checked: '2026-10-08T09:00:00' },
 ];
 
@@ -488,11 +488,11 @@ test('the calendars page stays away until the backend has calendars (a Mac has t
   assert((await sent()).includes('calendars_status'), `sent ${await sent()}`);
   await js(`heard({ type: 'calendars', calendars: ${JSON.stringify(CALS)} }); true`);
   assert(!(await js(`document.getElementById('calendars-group').hidden`)), 'still hidden');
-  assert(await js(`document.getElementById('calendars-summary').textContent`) === 'Jarvis’s own calendar and 1 calendar link.', 'no count');
+  assert(await js(`document.getElementById('calendars-summary').textContent`) === 'Eden’s own calendar and 1 calendar link.', 'no count');
   const names = await js(`[...document.querySelectorAll('#calendars-list button')].map((b) => b.getAttribute('aria-label'))`);
   assert(names.join('|') === 'Read again Brightspace|Remove Brightspace', `buttons ${names}`);
   const lines = await js(`[...document.querySelectorAll('#calendars-list .cal-name')].map((n) => n.textContent)`);
-  assert(/Jarvis, kept on this computer/.test(lines[0]) && /Brightspace, a calendar link, read only, read 2026-10-08 09:00/.test(lines[1]), JSON.stringify(lines));
+  assert(/Eden, kept on this computer/.test(lines[0]) && /Brightspace, a calendar link, read only, read 2026-10-08 09:00/.test(lines[1]), JSON.stringify(lines));
 });
 
 test('every field of the calendar form has a name a screen reader says', async () => {
@@ -659,7 +659,7 @@ test('J.A.R.V.I.S. Daredevil: on from the start with no screen reader, in yellow
   assert(on.sr === '1', `the mode is not on: data-sr ${on.sr}`);
   assert(on.contrast === 'yellow', `colours ${on.contrast}`);
   assert(on.state.edition === true && on.state.effective === true && on.state.detected === false, JSON.stringify(on.state));
-  assert(on.state.readerSpeaks === false, 'with no screen reader, the replies are Jarvis’s own voice');
+  assert(on.state.readerSpeaks === false, 'with no screen reader, the replies are Eden’s own voice');
   assert(mac || on.title === 'J.A.R.V.I.S. Daredevil', `window title ${on.title}`);
   assert(on.welcome.length === 1 && /T to talk/.test(on.welcome[0]), `welcome ${JSON.stringify(on.welcome)}`);
   assert(/In J\.A\.R\.V\.I\.S\. Daredevil, Auto keeps it on/.test(on.settings), 'the Settings note for Auto does not say what it does here');
@@ -792,7 +792,7 @@ test('the backend’s short lines are announced: a private window, the screen se
   assert(JSON.stringify(await said()) === '["Now in Outlook: Inbox."]', `polite ${JSON.stringify(await said())}`);
   await fresh({ a11y_mode: 'on', a11y_voice: 'jarvis' });
   await js(`heard({ type: 'a11y_say', text: 'Now in Word.' }); true`);
-  assert((await said()).length === 0, 'with Jarvis’s voice the screen reader was told too');
+  assert((await said()).length === 0, 'with Eden’s voice the screen reader was told too');
 });
 
 test('Settings › Accessibility has reading speed and amount, switch control and the screen choice, and the keys list names the new keys', async () => {

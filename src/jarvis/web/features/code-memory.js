@@ -61,7 +61,9 @@
     cards.set(ev.ref, { id: ev.id, li });
     const task = F.currentTask();
     const timeline = F.$('deck-timeline');
-    if (!timeline || !task || task.id !== ev.id) return;  // (another session's: shown with it)
+    // (another session's: shown with it). A note typed with no session open (id 0, the
+    // project's) shows in the deck there, where that ! output shows too (CA2-4).
+    if (!timeline || (task ? task.id !== ev.id : !!ev.id)) return;
     timeline.append(li);
     const scroll = F.$('cc-scroll');
     if (scroll) scroll.scrollTop = scroll.scrollHeight;

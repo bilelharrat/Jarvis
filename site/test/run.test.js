@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { RUN_LIMITS, RUN_MINUTES, addRun, checkRun, mayRun, runAllowance, runApi, runCharge, runMinutesLeft } from '../src/eden/run.js';
-import { RUNNER_CSP } from '../src/eden/web.js';
+import { APP_CSP, RUNNER_CSP } from '../src/eden/web.js';
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
 
@@ -64,4 +64,13 @@ test('the in-browser runner page is a sandbox with no network but Pyodide’s CD
   assert.match(RUNNER_CSP, /^sandbox allow-scripts;/);
   assert.doesNotMatch(RUNNER_CSP, /allow-same-origin|connect-src[^;]*'self'/);
   assert.match(RUNNER_CSP, /connect-src https:\/\/cdn\.jsdelivr\.net;/);
+});
+
+test('the React preview page is a sandbox whose only network is the package CDNs (askeden ROADMAP T1)', () => {
+  assert.match(APP_CSP, /^sandbox allow-scripts allow-forms;/);
+  assert.doesNotMatch(APP_CSP, /allow-same-origin|allow-top-navigation|allow-popups|'self'/);
+  assert.match(APP_CSP, /form-action 'none'/);
+  assert.match(APP_CSP, /connect-src https:\/\/esm\.sh https:\/\/cdn\.jsdelivr\.net;/);
+  // no image or media from just any https address: code could carry a chat out in one
+  assert.doesNotMatch(APP_CSP, /(img|media)-src[^;]*https:(;| )/);
 });

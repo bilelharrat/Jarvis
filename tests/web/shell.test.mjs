@@ -776,7 +776,7 @@ test('a link shows JARVIS and fills in the request box, opens a panel or a proje
   assert.equal(t.win.shown, 4);
 });
 
-test('"Ask JARVIS" from the Services menu (this Mac’s key) is marked to send; any other link only fills in', async () => {
+test('"Ask Eden" from the Services menu (this Mac’s key) is marked to send; any other link only fills in', async () => {
   const t = fakeContext({ packaged: true });
   shell.install(t.ctx);
   await t.hello();
@@ -792,9 +792,31 @@ test('"Ask JARVIS" from the Services menu (this Mac’s key) is marked to send; 
   ]);
 });
 
+test('"Ask Eden" from the Services menu opens Eden’s pop-up when it’s on (eden-pop.js); other links still fill in', async () => {
+  const t = fakeContext({ packaged: true });
+  const popped = [];
+  let on = true;
+  t.ctx.edenPopService = async (text) => { popped.push(text); return on; };
+  shell.install(t.ctx);
+  await t.hello();
+  t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action: 'add' });
+  const key = readFileSync(path.join(t.userData, 'service-key'), 'utf8');
+  const shownBefore = t.win.shown;
+  t.ctx.openLink(`jarvis://ask?key=${key}&text=What%20is%20this`);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(popped, ['What is this']);
+  assert.equal(t.win.shown, shownBefore, 'Eden’s window stays where it was');
+  t.ctx.openLink('jarvis://ask?text=from%20a%20page'); // a web page's link: never the pop-up
+  on = false; // the pop-up is off: the window, as before
+  t.ctx.openLink(`jarvis://ask?key=${key}&text=Again`);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(popped, ['What is this', 'Again']);
+  assert.deepEqual(t.commands(), [{ action: 'prefill', text: 'from a page' }, { action: 'prefill', text: 'Again', service: true }]);
+});
+
 test('a Quick Action written before it had a key is rewritten with this Mac’s, once', () => {
   const t = fakeContext({ packaged: true });
-  const bundle = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow');
+  const bundle = path.join(t.ctx.servicesDir, 'Ask Eden.workflow');
   for (const [rel, text] of Object.entries(links.serviceFiles())) {
     mkdirSync(path.dirname(path.join(bundle, rel)), { recursive: true });
     writeFileSync(path.join(bundle, rel), text);
@@ -807,6 +829,51 @@ test('a Quick Action written before it had a key is rewritten with this Mac’s,
   again.ctx.servicesDir = t.ctx.servicesDir;
   shell.install(again.ctx);
   assert.equal(again.ctx.ran.length, 0, 'already current: left alone');
+});
+
+test('a Quick Action of ours under its old name (Ask JARVIS) becomes Ask Eden: one in the menu, never two', () => {
+  const t = fakeContext({ packaged: true });
+  const old = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow');
+  for (const [rel, text] of Object.entries(links.serviceFiles())) {
+    mkdirSync(path.dirname(path.join(old, rel)), { recursive: true });
+    writeFileSync(path.join(old, rel), text.replace(/Ask Eden/g, 'Ask JARVIS'));
+  }
+  shell.install(t.ctx);
+  const bundle = path.join(t.ctx.servicesDir, 'Ask Eden.workflow');
+  const key = readFileSync(path.join(t.userData, 'service-key'), 'utf8');
+  assert.equal(existsSync(old), false, 'the old one is gone');
+  assert.match(readFileSync(path.join(bundle, 'Contents/Info.plist'), 'utf8'), /<string>Ask Eden<\/string>/);
+  assert.ok(readFileSync(path.join(bundle, 'Contents/document.wflow'), 'utf8').includes(`key=${key}`));
+  assert.deepEqual(t.ctx.ran, [['/System/Library/CoreServices/pbs', '-update']]);
+  const service = (action) => t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action });
+  assert.deepEqual(service('status'), { available: true, installed: true, taken: false, error: '' });
+});
+
+test('an old-named Quick Action is taken away by Remove too, and one of the owner’s by that name is never touched', () => {
+  const t = fakeContext({ packaged: true });
+  const theirs = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow', 'Contents');
+  mkdirSync(theirs, { recursive: true });
+  writeFileSync(path.join(theirs, 'Info.plist'), '<plist><dict><key>CFBundleIdentifier</key><string>com.them</string></dict></plist>');
+  // The new name is taken by a Quick Action of the owner's: ours under the old name stays, still working.
+  const u = fakeContext({ packaged: true });
+  const ours = path.join(u.ctx.servicesDir, 'Ask JARVIS.workflow');
+  for (const [rel, text] of Object.entries(links.serviceFiles())) {
+    mkdirSync(path.dirname(path.join(ours, rel)), { recursive: true });
+    writeFileSync(path.join(ours, rel), text);
+  }
+  const taken = path.join(u.ctx.servicesDir, 'Ask Eden.workflow', 'Contents');
+  mkdirSync(taken, { recursive: true });
+  writeFileSync(path.join(taken, 'Info.plist'), '<plist><dict><key>CFBundleIdentifier</key><string>com.them</string></dict></plist>');
+  for (const c of [t, u]) shell.install(c.ctx);
+  assert.match(readFileSync(path.join(theirs, 'Info.plist'), 'utf8'), /com\.them/);
+  assert.equal(existsSync(path.join(t.ctx.servicesDir, 'Ask Eden.workflow')), false, 'nothing written for theirs');
+  assert.equal(existsSync(ours), true);
+  assert.match(readFileSync(path.join(taken, 'Info.plist'), 'utf8'), /com\.them/);
+  const service = (action) => u.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: u.wc }, { action });
+  assert.deepEqual(service('status'), { available: true, installed: true, taken: true, error: '' });
+  assert.deepEqual(service('remove'), { available: true, installed: false, taken: true, error: '' });
+  assert.equal(existsSync(ours), false, 'Remove takes the old one away');
+  assert.match(readFileSync(path.join(taken, 'Info.plist'), 'utf8'), /com\.them/, 'theirs stays');
 });
 
 test('links coming too fast are dropped, five every ten seconds at most', async () => {
@@ -833,7 +900,7 @@ test('only the installed app becomes the jarvis:// app', () => {
   assert.deepEqual(installed.app.protocols, ['jarvis']);
 });
 
-// ── the Services menu's "Ask JARVIS" ──
+// ── the Services menu's "Ask Eden" ──
 
 test('Add writes the Quick Action (its golden copy) and refreshes the Services menu; Remove takes it away', async () => {
   const t = fakeContext({ packaged: true });
@@ -841,7 +908,7 @@ test('Add writes the Quick Action (its golden copy) and refreshes the Services m
   const service = (action) => t.ctx.ipcMain.handlers.get('feature:shell:service')({ sender: t.wc }, { action });
   assert.deepEqual(service('status'), { available: true, installed: false, taken: false, error: '' });
   assert.deepEqual(service('add'), { available: true, installed: true, taken: false, error: '' });
-  const bundle = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow');
+  const bundle = path.join(t.ctx.servicesDir, 'Ask Eden.workflow');
   const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url));
   assert.equal(readFileSync(path.join(bundle, 'Contents/Info.plist'), 'utf8'), readFileSync(path.join(fixtures, 'ask-jarvis.Info.plist'), 'utf8'));
   const key = readFileSync(path.join(t.userData, 'service-key'), 'utf8');
@@ -859,7 +926,7 @@ test('Add writes the Quick Action (its golden copy) and refreshes the Services m
 
 test('a Quick Action of the owner’s own with the same name is never touched', () => {
   const t = fakeContext({ packaged: true });
-  const theirs = path.join(t.ctx.servicesDir, 'Ask JARVIS.workflow', 'Contents');
+  const theirs = path.join(t.ctx.servicesDir, 'Ask Eden.workflow', 'Contents');
   mkdirSync(theirs, { recursive: true });
   writeFileSync(path.join(theirs, 'Info.plist'), '<plist><dict><key>CFBundleIdentifier</key><string>com.them</string></dict></plist>');
   shell.install(t.ctx);

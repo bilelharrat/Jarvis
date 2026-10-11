@@ -1,5 +1,5 @@
 // French for the sign-in page (public/signin/index.html, signin.js). See site-i18n.js.
-// The J.A.R.V.I.S. app's own labels (Settings › Account, Approve a Sign-In) stay as the app shows them.
+// The Eden app's own labels (Settings › Account, Approve a Sign-In) stay as the app shows them.
 SiteI18n.add({
   title: 'Se connecter à Eden',
   exact: {
@@ -16,16 +16,16 @@ SiteI18n.add({
     'Sign-in code': 'Code de connexion',
     'Getting a code…': 'Obtention d’un code…',
     'Get a new code': 'Obtenir un nouveau code',
-    'New here? Continuing with Apple or Google, or creating a passkey, makes your Eden account, with some AI included to try it. Already use J.A.R.V.I.S.? It’s the same account.':
-      'Nouveau sur Eden ? Continuer avec Apple ou Google, ou créer une clé d’accès, crée votre compte Eden, avec un peu d’IA incluse pour l’essayer. Vous utilisez déjà J.A.R.V.I.S. ? C’est le même compte.',
-    'Eden is opening soon — sign-ups are closed for now. Already have an Eden or J.A.R.V.I.S. account? Sign in above.':
-      'Eden ouvre bientôt — les inscriptions sont fermées pour le moment. Vous avez déjà un compte Eden ou J.A.R.V.I.S. ? Connectez-vous ci-dessus.',
-    'No account yet? Make one in the J.A.R.V.I.S. app for iPhone.': 'Pas encore de compte ? Créez-en un dans l’app J.A.R.V.I.S. pour iPhone.',
+    'New here? Continuing with Apple or Google, or creating a passkey, makes your Eden account, with some AI included to try it. Already use the Eden app? It’s the same account.':
+      'Nouveau sur Eden ? Continuer avec Apple ou Google, ou créer une clé d’accès, crée votre compte Eden, avec un peu d’IA incluse pour l’essayer. Vous utilisez déjà l’app Eden ? C’est le même compte.',
+    'Eden is opening soon — sign-ups are closed for now. Already have an Eden account? Sign in above.':
+      'Eden ouvre bientôt — les inscriptions sont fermées pour le moment. Vous avez déjà un compte Eden ? Connectez-vous ci-dessus.',
+    'No account yet? Make one in the Eden app for iPhone.': 'Pas encore de compte ? Créez-en un dans l’app Eden pour iPhone.',
     'Get the apps': 'Obtenir les apps',
     '. Trouble signing in?': '. Un problème pour vous connecter ?',
     'Get help': 'Obtenir de l’aide',
-    '. askeden.com passes your messages to the AI model that answers them (OpenAI, Google or Moonshot; Anthropic only with your own key) and keeps none of them; your chats stay in this browser.':
-      '. askeden.com transmet vos messages au modèle d’IA qui y répond (OpenAI, Google ou Moonshot ; Anthropic uniquement avec votre propre clé) et n’en conserve aucun ; vos discussions restent dans ce navigateur.',
+    '. askeden.com passes your messages to the AI model that answers them (Anthropic, OpenAI, Google or Moonshot) and keeps none of them; your chats stay in this browser.':
+      '. askeden.com transmet vos messages au modèle d’IA qui y répond (Anthropic, OpenAI, Google ou Moonshot) et n’en conserve aucun ; vos discussions restent dans ce navigateur.',
     'Privacy': 'Confidentialité',
     'Terms': 'Conditions',
     // signin.js: a sign-in that came back with ?error=
@@ -52,8 +52,8 @@ SiteI18n.add({
     'That passkey didn’t work here. Try again, or use another way in.': 'Cette clé d’accès n’a pas fonctionné ici. Réessayez, ou utilisez un autre moyen de connexion.',
   },
   blocks: {
-    'In J.A.R.V.I.S. on your iPhone or Mac, open Settings › Account and choose Approve a Sign-In, then scan the QR code or type this code.':
-      'Dans <b>J.A.R.V.I.S.</b> sur votre iPhone ou votre Mac, ouvrez <span class="path">Settings › Account</span> et choisissez <b>Approve a Sign-In</b>, puis scannez le code QR ou saisissez ce code.',
+    'In the Eden app on your iPhone or Mac, open Settings › Account and choose Approve a Sign-In, then scan the QR code or type this code.':
+      'Dans l’app <b>Eden</b> sur votre iPhone ou votre Mac, ouvrez <span class="path">Settings › Account</span> et choisissez <b>Approve a Sign-In</b>, puis scannez le code QR ou saisissez ce code.',
   },
   patterns: [
     [/^This (?:(Apple|Google) )?account is already used by another Eden account\. Sign in with it to open that one, or choose a different (?:Apple |Google )?account\.$/,
@@ -72,28 +72,29 @@ SiteI18n.add({
 SiteI18n.add({
   exact: {
     "Approve a Mac from your iPhone.": "Approuvez un Mac depuis votre iPhone.",
-    "Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.": "Approuvez-le dans l’app J.A.R.V.I.S. sur votre iPhone ou votre Mac.",
+    "Approve it in the Eden app on your iPhone or Mac.": "Approuvez-le dans l’app Eden sur votre iPhone ou votre Mac.",
     "Eden is opening soon — sign-ups are closed for now. If you already have an Eden account, sign in with the way you used before.": "Eden ouvre bientôt — les inscriptions sont fermées pour l’instant. Si vous avez déjà un compte Eden, connectez-vous comme la dernière fois.",
     "Eden on the web isn't open to this account yet.": "Eden sur le web n’est pas encore ouvert à ce compte.",
     "Finish the check on the sign-in page (it confirms you’re a person), then try again.": "Terminez la vérification sur la page de connexion (elle confirme que vous êtes une personne), puis réessayez.",
     "Finish the check on the sign-in page, then continue.": "Terminez la vérification sur la page de connexion, puis continuez.",
-    "Jarvis accounts are not set up here yet.": "Les comptes Jarvis ne sont pas encore configurés ici.",
+    "Eden accounts are not set up here yet.": "Les comptes Eden ne sont pas encore configurés ici.",
     "Linking sign-ins is not set up here yet.": "La liaison des connexions n’est pas encore configurée ici.",
     "No such thing here.": "Introuvable ici.",
-    "Notifications through Jarvis accounts are not set up yet.": "Les notifications via les comptes Jarvis ne sont pas encore configurées.",
+    "Notifications through Eden accounts are not set up yet.": "Les notifications via les comptes Eden ne sont pas encore configurées.",
     "Only askeden.com’s own page may do that.": "Seule la page d’askeden.com peut faire cela.",
     "Only messages are available here.": "Seuls les messages sont disponibles ici.",
     "Only the Eden app may do that.": "Seule l’app Eden peut faire cela.",
-    "Only the J.A.R.V.I.S. app answers from a notification.": "Seule l’app J.A.R.V.I.S. répond depuis une notification.",
+    "Only the Eden app answers from a notification.": "Seule l’app Eden répond depuis une notification.",
     "Only the account’s owner can add a passkey.": "Seul le titulaire du compte peut ajouter une clé d’accès.",
     "Passkeys aren’t set up here yet.": "Les clés d’accès ne sont pas encore configurées ici.",
+    "Passkeys work on askeden.com (without “www”). Open askeden.com and try again.": "Les clés d’accès fonctionnent sur askeden.com (sans «\u00a0www\u00a0»). Ouvrez askeden.com et réessayez.",
     "Sign in to Eden in this browser first, then add another way in.": "Connectez-vous d’abord à Eden dans ce navigateur, puis ajoutez un autre moyen de connexion.",
-    "Sign in to your Jarvis account on this device.": "Connectez-vous à votre compte Jarvis sur cet appareil.",
+    "Sign in to your Eden account on this device.": "Connectez-vous à votre compte Eden sur cet appareil.",
     "Something went wrong on the server. Try again.": "Un problème est survenu sur le serveur. Réessayez.",
     "Something went wrong.": "Un problème est survenu.",
     "That app isn’t connected any more.": "Cette app n’est plus connectée.",
-    "That code is for a browser’s sign-in, not a Mac. Approve it in the J.A.R.V.I.S. app.": "Ce code sert à connecter un navigateur, pas un Mac. Approuvez-le dans l’app J.A.R.V.I.S.",
-    "That isn’t a code from J.A.R.V.I.S. on your Mac. It has eight letters and numbers, like K7QM-4ZTR.": "Ce n’est pas un code de J.A.R.V.I.S. sur votre Mac. Il comporte huit lettres et chiffres, comme K7QM-4ZTR.",
+    "That code is for a browser’s sign-in, not a Mac. Approve it in the Eden app.": "Ce code sert à connecter un navigateur, pas un Mac. Approuvez-le dans l’app Eden.",
+    "That isn’t a code from the Eden app on your Mac. It has eight letters and numbers, like K7QM-4ZTR.": "Ce n’est pas un code de l’app Eden sur votre Mac. Il comporte huit lettres et chiffres, comme K7QM-4ZTR.",
     "That isn’t a valid key.": "Ce n’est pas une clé valide.",
     "That passkey answer can’t be read.": "La réponse de la clé d’accès est illisible.",
     "That passkey answer has no id.": "La réponse de la clé d’accès n’a pas d’identifiant.",

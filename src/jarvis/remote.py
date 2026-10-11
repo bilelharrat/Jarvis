@@ -585,7 +585,8 @@ def create_remote_app(
             return gate.too_big()
         choice = str(data.get("choice", ""))
         feedback = " ".join(str(data.get("feedback") or "").split())[:2000]
-        ok = hub.resolve(str(data.get("id", "")), choice, feedback)
+        answer = getattr(hub, "resolve_by_owner", hub.resolve)  # (CA3-4) the owner's tap
+        ok = answer(str(data.get("id", "")), choice, feedback)
         if ok:
             if choice == "deny":
                 record(device, "said_no_because" if feedback else "said_no")

@@ -341,7 +341,7 @@ func listen(_ code: String) async -> Int32 {
                     .withUnsafeBytes { $0.load(as: UInt32.self) }
                 let total = 5 + Int(UInt32(littleEndian: size))
                 guard "ABFC".utf8.contains(kind), total <= 16_000_000 else {
-                    emit(["t": "error", "why": "out of step with Jarvis"])
+                    emit(["t": "error", "why": "out of step with Eden"])
                     break reading
                 }
                 if pending.count < total { break }

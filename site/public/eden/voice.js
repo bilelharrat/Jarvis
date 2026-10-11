@@ -5,7 +5,8 @@
 //    the microphone is asked for only on a click. No recognition (Firefox): the mic records
 //    instead (MediaRecorder, two minutes at most) and POST /api/chat/transcribe turns the
 //    recording into words (G7.2): on the Mac J.A.R.V.I.S.'s own Whisper, on askeden.com Workers
-//    AI's Whisper on the account's allowance. Talk mode still needs recognition.
+//    AI's Whisper on the account's allowance. The same where recognition exists but can't work:
+//    the Mac and Windows apps (Electron: it fails with "network"), from the first try (AJ2-1).
 //  - Read aloud: a button on each reply, and Settings › Appearance › Read replies aloud, which
 //    starts as the reply streams in. POST /api/chat/voice: on the Mac, src/chat/voice.ts (the
 //    JARVIS voice on J.A.R.V.I.S.'s allowance for this Mac, else the Mac's own voice); on
@@ -16,14 +17,17 @@
 //    reply aloud from its first sentences, then listens again. Speaking over the voice stops
 //    it (barge-in: speech recognition hears words that aren't his, barge-in.js, or the mic's
 //    level well above his echo); Space or a tap on the orb does too. Esc or End closes it.
+//    Without working recognition (Firefox, the desktop apps), each turn is recorded, ends at a
+//    pause in the mic's level (voice-text.js vadStep) and is transcribed as Dictate's is (AJ2-1).
 
 import { $, el, ico, toast, store } from './util.js';
 import { state, ui, nodeText } from './state.js';
 import { apiUrl, isMock, addSendExtra } from './api.js';
 import { watchForInterrupt, isSpaceToInterrupt } from './barge-in.js';
-import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S } from './voice-text.js';
+import { speechChunks, chunkText, speechText, safeCut, recordingType, MAX_RECORDING_S, inDesktopApp, recognitionFallback, vadStep } from './voice-text.js';
 import { speechLang } from './i18n.js';
-import { deadline, talkStep, talkText, DEADLINE, TALK_PAUSE_MS } from './resilience.js';
+import { deadline, talkStep, talkText, DEADLINE, TALK_PAUSE_MS, TALK_MAX_MS } from './resilience.js';
+import { setAsideAttachments } from './composer.js';
 
 const prefs = { autoRead: false, ...store.get('jchat:voice', {}) };
 const savePrefs = () => store.set('jchat:voice', prefs);
@@ -31,6 +35,7 @@ const Recognition = () => window.SpeechRecognition || window.webkitSpeechRecogni
 // Recording for the server to transcribe, where there's no recognition (Firefox).
 const Recorder = () => (window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? window.MediaRecorder : null);
 const HOSTED = !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const DESKTOP = inDesktopApp(); // Ask Eden for Mac or Windows, Eden in J.A.R.V.I.S.: recognition there fails (AJ2-1)
 const MIC_BLOCKED = 'Eden can’t use the microphone. Allow it for this site in the browser’s settings.';
 
 /* ---------- audio out ---------- */
@@ -52,10 +57,13 @@ function audio() {
 let noteShown = false;
 // One piece of speech: 15 s at most, then it fails with a message (said in a toast by the speaker)
 // instead of leaving Talk on "Speaking…" (A2).
-async function fetchVoice(text, signal) {
+// voice: the voice this reply began in ('jarvis' or 'mac', from X-Eden-Voice on the Mac): its next
+// pieces keep to it (a slow piece waits for the Eden voice instead of switching to the Mac's halfway).
+const PINNED_VOICE_MS = 30_000; // src/chat/voice.ts HOSTED_PINNED_TIMEOUT_MS, then the Mac's voice
+async function fetchVoice(text, signal, voice = null, onVoice = null) {
   const path = '/api/chat/voice';
-  const d = deadline(DEADLINE.voice, signal);
-  const init = { method: 'POST', headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: JSON.stringify({ text }), signal: d.signal };
+  const d = deadline(voice === 'jarvis' ? PINNED_VOICE_MS : DEADLINE.voice, signal);
+  const init = { method: 'POST', headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: JSON.stringify(voice ? { text, voice } : { text }), signal: d.signal };
   const late = () => new Error('The voice didn’t answer in time.');
   try {
     let res;
@@ -71,6 +79,7 @@ async function fetchVoice(text, signal) {
       try { const j = await res.json(); if (j && j.error) msg = j.error; } catch { /* not JSON */ }
       throw new Error(msg);
     }
+    if (onVoice) onVoice(res.headers.get('x-eden-voice'));
     const note = res.headers.get('x-eden-voice-note'); // on the Mac: why the Mac's voice reads instead
     if (note && !noteShown) { noteShown = true; try { toast(decodeURIComponent(note)); } catch { /* malformed */ } }
     try { return await res.arrayBuffer(); } catch (e) { if (d.timedOut()) throw late(); throw e; }
@@ -83,6 +92,7 @@ async function fetchVoice(text, signal) {
  */
 const speaker = {
   id: null, jobs: [], ended: false, source: null, waiting: false, ctrl: null, onDone: null, playing: false,
+  voice: null, // the voice this reading began in ('jarvis', 'mac', or '' where the server doesn't say)
   start(id, onDone) {
     this.stop();
     this.id = id;
@@ -96,9 +106,15 @@ const speaker = {
     const ac = audio();
     if (!ac) return this.close('error', new Error('This browser can’t play audio.'));
     const ctrl = this.ctrl;
-    for (const job of this.jobs.slice(0, 3)) {
+    // the first piece alone until its voice is known, then up to three ahead in that voice
+    for (const job of this.jobs.slice(0, this.voice === null ? 1 : 3)) {
       if (job.p) continue;
-      job.p = fetchVoice(job.text, ctrl.signal).then((b) => ac.decodeAudioData(b));
+      const first = this.voice === null;
+      job.p = fetchVoice(job.text, ctrl.signal, this.voice || null, first ? (v) => {
+        if (ctrl !== this.ctrl || this.voice !== null) return;
+        this.voice = v === 'jarvis' || v === 'mac' ? v : '';
+        Promise.resolve().then(() => { if (ctrl === this.ctrl) this.pump(); });
+      } : null).then((b) => ac.decodeAudioData(b));
       job.p.catch(() => {});
     }
     if (this.source || this.waiting) return;
@@ -131,7 +147,7 @@ const speaker = {
     const done = this.onDone;
     if (this.ctrl) this.ctrl.abort();
     const src = this.source;
-    Object.assign(this, { id: null, jobs: [], ended: false, source: null, waiting: false, ctrl: null, onDone: null, playing: false });
+    Object.assign(this, { id: null, jobs: [], ended: false, source: null, waiting: false, ctrl: null, onDone: null, playing: false, voice: null });
     if (src) { try { src.stop(); } catch { /* not started */ } }
     reader = null;
     if (reason === 'error') toast((err && err.message) || 'The voice stopped.');
@@ -175,7 +191,11 @@ function follow(node, final) {
 
 const seen = new Set(); // replies already considered for reading
 function onUpdate(c, node, opts = {}) {
-  if (!node || node.role !== 'assistant' || c !== state.current) return;
+  if (!node || node.role !== 'assistant') return;
+  // The reply being read (or the one Talk waits for) is followed even after you switch chats (AJ6):
+  // else it never ends and Talk stays on "Thinking…" with nothing listening.
+  const ours = (reader && reader.id === node.id) || (talk.on && (talk.replyId === node.id || (talk.awaiting && talk.conv && c === talk.conv)));
+  if (c !== state.current && !ours) return;
   if (!seen.has(node.id)) {
     const fresh = node.streaming || (opts.final && node.doneAt && Date.now() - node.doneAt < 3000);
     if (fresh) {
@@ -215,7 +235,7 @@ function onSpeakClick(e) {
 }
 
 /* ---------- Dictate ---------- */
-const dict = { rec: null, base: '', said: '', busy: false };
+const dict = { rec: null, base: '', said: '', busy: false, starting: null }; // starting: a recording waiting for the mic (AJ3)
 function writeDictation(words) {
   const ta = $('deck-input');
   const w = words.replace(/^\s+/, '');
@@ -225,8 +245,10 @@ function writeDictation(words) {
   ta.selectionStart = ta.selectionEnd = ta.value.length;
 }
 // Speech recognition this browser has but won't run (Chrome on iPhone: the microphone is allowed,
-// yet recognition says "not allowed"): record and transcribe instead, from then on.
-let recognitionRefused = false;
+// yet recognition says "not allowed"), or can't (Electron: "network"): record and transcribe
+// instead, from then on. In the desktop apps, from the start (AJ2-1).
+let recognitionRefused = DESKTOP;
+let recognitionWorked = false; // it heard something on this page: a later failure is a passing one
 function startDictation() {
   const R = recognitionRefused ? null : Recognition();
   if (!R) { startRecording(); return; }
@@ -242,6 +264,7 @@ function startDictation() {
   dict.said = '';
   rec.onresult = (e) => {
     if (dict.rec !== rec) return;
+    recognitionWorked = true;
     let fin = '';
     let mid = '';
     for (const r of e.results) { if (r.isFinal) fin += r[0].transcript; else mid += r[0].transcript; }
@@ -250,7 +273,7 @@ function startDictation() {
   };
   rec.onerror = (e) => {
     if (dict.rec !== rec) return;
-    if ((e.error === 'not-allowed' || e.error === 'service-not-allowed') && Recorder() && !dict.said) {
+    if (recognitionFallback(e.error, { worked: recognitionWorked }) && Recorder() && !dict.said) {
       // Not necessarily the microphone: record instead (startRecording says so if the microphone is blocked).
       recognitionRefused = true;
       dict.rec = null;
@@ -274,6 +297,7 @@ function startDictation() {
 /** Stop dictating. keep: leave the text as it is now (typing, sending) instead of the final words. */
 function stopDictation(keep = false) {
   const rec = dict.rec;
+  if (!rec && dict.starting) { dict.starting.cancel = true; dict.starting = null; paintMic(); return true; } // the mic isn't open yet: it won't record
   if (!rec) return false;
   if (keep) { dict.rec = null; try { rec.abort(); } catch { /* ended */ } }
   else { try { rec.stop(); } catch { /* ended */ } }
@@ -283,7 +307,7 @@ function stopDictation(keep = false) {
 function paintMic() {
   const b = $('jc-dictate');
   if (!b) return;
-  const on = !!dict.rec;
+  const on = !!(dict.rec || dict.starting); // the mic opening counts as on: a click then stops it (AJ3)
   b.classList.toggle('live', on);
   b.classList.toggle('busy', dict.busy);
   b.disabled = dict.busy;
@@ -296,14 +320,23 @@ async function startRecording() {
   const R = Recorder();
   if (!R) { toast('This browser can’t record from the microphone.'); return; }
   if (talk.on || dict.rec || dict.busy) return;
+  // A second click while the mic opens (a permission prompt, a slow mic) is "stop", never a second recorder (AJ3).
+  if (dict.starting) { stopDictation(); return; }
+  const starting = { cancel: false };
+  dict.starting = starting;
+  paintMic();
   speaker.stop();
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
   } catch (e) {
-    toast(e && e.name === 'NotFoundError' ? 'No microphone found.' : MIC_BLOCKED);
+    if (dict.starting === starting) dict.starting = null;
+    paintMic();
+    if (!starting.cancel) toast(e && e.name === 'NotFoundError' ? 'No microphone found.' : MIC_BLOCKED);
     return;
   }
+  if (dict.starting === starting) dict.starting = null;
+  if (starting.cancel || talk.on || dict.rec) { stream.getTracks().forEach((t) => t.stop()); paintMic(); return; }
   const type = recordingType((t) => R.isTypeSupported && R.isTypeSupported(t));
   let recorder;
   try {
@@ -336,22 +369,31 @@ async function startRecording() {
   paintMic();
 }
 
-async function transcribe(blob, seconds) {
-  dict.busy = true;
-  paintMic();
+/** A recording's words: { text } or { error } (POST /api/chat/transcribe, 90 s at most). Dictate and Talk. */
+async function transcribeBlob(blob, seconds) {
   const path = '/api/chat/transcribe';
-  const init = { method: 'POST', headers: { 'content-type': blob.type.split(';')[0] || 'audio/webm', 'X-Jarvis-Chat': '1', 'X-Eden-Seconds': String(Math.round(seconds)), 'X-Eden-Lang': speechLang() }, body: blob };
+  const init = { method: 'POST', headers: { 'content-type': blob.type.split(';')[0] || 'audio/webm', 'X-Jarvis-Chat': '1', 'X-Eden-Seconds': String(Math.max(1, Math.round(seconds))), 'X-Eden-Lang': speechLang() }, body: blob };
+  if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) init.signal = AbortSignal.timeout(90_000);
   try {
     const res = isMock ? await (await import('./mock.js')).mockFetch(path, init) : await fetch(apiUrl(path), init);
     let j = null;
     try { j = await res.json(); } catch { /* not JSON */ }
-    if (!res.ok) { toast((j && j.error) || `Dictation said ${res.status}.`); return; }
-    const words = String((j && j.text) || '').trim();
-    if (!words) { toast('Nothing was heard. Try again a little closer to the microphone.'); return; }
-    dict.base = $('deck-input').value; // what was typed meanwhile stays
-    writeDictation(words);
+    if (!res.ok) return { error: (j && j.error) || `Dictation said ${res.status}.` };
+    return { text: String((j && j.text) || '').trim() };
   } catch {
-    toast('Can’t reach Eden to transcribe that.');
+    return { error: 'Can’t reach Eden to transcribe that.' };
+  }
+}
+
+async function transcribe(blob, seconds) {
+  dict.busy = true;
+  paintMic();
+  try {
+    const r = await transcribeBlob(blob, seconds);
+    if (r.error) { toast(r.error); return; }
+    if (!r.text) { toast('Nothing was heard. Try again a little closer to the microphone.'); return; }
+    dict.base = $('deck-input').value; // what was typed meanwhile stays
+    writeDictation(r.text);
   } finally {
     dict.busy = false;
     paintMic();
@@ -365,6 +407,11 @@ const talk = {
   stream: null, src: null, mic: null, raf: 0, floor: 0.01, echo: 0.02, loudFrames: 0, ends: 0, box: null, back: null,
   watch: null, seed: '', turn: null,
   mini: false, dragged: false,
+  session: 0, conv: null, // session: each open (AJ4); conv: the chat Talk's turn went to (AJ6)
+  // AJ2-1: byRec: this session records each turn (no working recognition); recorder: the turn being
+  // recorded; vad/vadT: where its end is detected; spoke: it heard you; transcribing: the turn's words are on their way
+  byRec: false, recorder: null, vad: null, vadT: 0, spoke: false, transcribing: false, fails: 0,
+  stopped: false, // AJ2-7: it stopped listening after failures in a row: "Listen again"
 };
 
 // In Talk mode (the Eden voice) the server answers as J.A.R.V.I.S. (turn.ts JARVIS_PERSONA).
@@ -385,7 +432,7 @@ function talkBox() {
       el('div', { class: 'talk-you', id: 'talkYou', 'data-no-i18n': '' }),
       el('div', { class: 'talk-reply', id: 'talkReply', 'data-no-i18n': '' }),
       el('div', 'talk-acts',
-        el('button', { type: 'button', class: 'btn primary', id: 'talkSend', onclick: () => sendTalk() }, 'Send now'),
+        el('button', { type: 'button', class: 'btn primary', id: 'talkSend', onclick: () => (talk.stopped ? resumeTalk() : sendTalk()) }, 'Send now'),
         el('button', { type: 'button', class: 'btn', id: 'talkEnd', onclick: () => closeTalk() }, 'End'))));
   document.body.append(box);
   talk.box = box;
@@ -394,8 +441,9 @@ function talkBox() {
 }
 
 function orbTap() {
-  if (talk.mini) { if (!talk.dragged) setTalkMini(false); talk.dragged = false; return; }
+  if (talk.mini) { if (!talk.dragged) setTalkMini(false); talk.dragged = false; resumeTalk(); return; }
   if (talk.state === 'replying') bargeIn();
+  else resumeTalk();
 }
 
 /* Collapsed, Talk is just the orb: a sphere floating over the app (drag it anywhere; it stays put
@@ -454,26 +502,31 @@ function paintTalk() {
   const s = talk.state;
   const speaking = s === 'replying' && speaker.playing;
   talk.box.dataset.state = speaking ? 'speaking' : s;
+  const said = (talk.heard + talk.mid).trim();
   $('talkState').textContent = talk.error && s === 'listening' ? talk.error
-    : s === 'listening' ? ((talk.heard + talk.mid).trim() ? 'Listening… pause to send' : 'Listening…')
+    : s === 'listening' ? (talk.transcribing ? 'Transcribing…' : said || talk.spoke ? 'Listening… pause to send' : 'Listening…')
       : s === 'sending' ? 'Sending…' : speaking ? 'Speaking… talk over me, or press Space, to interrupt' : 'Thinking…';
-  $('talkYou').textContent = s === 'listening' ? (talk.heard + talk.mid).trim() : talk.you || '';
+  $('talkYou').textContent = s === 'listening' ? said : talk.you || '';
   $('talkYou').classList.toggle('mid', s === 'listening' && !!talk.mid);
   const r = s === 'listening' ? '' : talk.reply;
   $('talkReply').textContent = r.length > 420 ? `…${r.slice(-420)}` : r;
   $('talkSend').hidden = s !== 'listening';
-  $('talkSend').disabled = !(talk.heard + talk.mid).trim();
+  // stopped (failures in a row, AJ2-7): the button listens again; else it sends what was heard
+  $('talkSend').textContent = talk.stopped ? 'Listen again' : 'Send now';
+  $('talkSend').disabled = talk.stopped ? false : talk.transcribing || !(said || (talk.byRec && talk.spoke));
   $('talkOrb').setAttribute('aria-label', talk.mini ? `Talk, ${$('talkState').textContent} (tap to open, drag to move)` : s === 'replying' ? 'Interrupt' : 'Level');
 }
 
 async function openTalk() {
-  if (!Recognition()) { toast('Talking needs speech recognition: Chrome, Edge or Safari.'); return; }
+  if (!Recognition() && !Recorder()) { toast('Talking needs a browser that can listen: Chrome, Edge, Safari or Firefox.'); return; }
   if (talk.on) return;
   stopDictation(true);
   speaker.stop();
   audio(); // unlocked by this click, so the reply can play later
   talkBox().hidden = false;
-  Object.assign(talk, { on: true, error: '', you: '', reply: '', ends: 0, floor: 0.01, loudFrames: 0, back: document.activeElement });
+  const session = ++talk.session; // AJ4: open, End, open: the first open's mic is stopped, never kept
+  Object.assign(talk, { on: true, error: '', you: '', reply: '', ends: 0, floor: 0.01, loudFrames: 0, back: document.activeElement,
+    byRec: recognitionRefused || !Recognition(), recorder: null, vad: null, spoke: false, transcribing: false, fails: 0, stopped: false });
   document.documentElement.classList.add('talking');
   setTalk('listening');
   $('talkX').focus();
@@ -481,7 +534,7 @@ async function openTalk() {
   // the mic's level, for the meter and barge-in (recognition works without it)
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-    if (!talk.on) { stream.getTracks().forEach((t) => t.stop()); return; }
+    if (!talk.on || talk.session !== session || talk.stream) { stream.getTracks().forEach((t) => t.stop()); return; }
     const ac = audio();
     talk.stream = stream;
     talk.src = ac.createMediaStreamSource(stream);
@@ -489,8 +542,13 @@ async function openTalk() {
     talk.mic.fftSize = 1024;
     talk.src.connect(talk.mic);
   } catch (e) {
+    if (talk.session !== session) return;
     if (e && e.name === 'NotAllowedError') { closeTalk(); toast(MIC_BLOCKED); return; }
+    // recording needs the microphone itself (recognition works without it)
+    if (talk.byRec) { closeTalk(); toast(e && e.name === 'NotFoundError' ? 'No microphone found.' : MIC_BLOCKED); return; }
   }
+  if (talk.session !== session || !talk.on) return;
+  if (talk.byRec && talk.state === 'listening') recordTurn(); // the first turn waited for the microphone
   meter();
 }
 
@@ -501,12 +559,13 @@ function closeTalk() {
   const rec = talk.rec;
   talk.rec = null;
   if (rec) { try { rec.abort(); } catch { /* ended */ } }
+  endTurn(false);
   if (talk.replyId && speaker.id === talk.replyId) speaker.stop();
   cancelAnimationFrame(talk.raf);
   unwatch();
   if (talk.stream) talk.stream.getTracks().forEach((t) => t.stop());
   if (talk.src) talk.src.disconnect();
-  Object.assign(talk, { state: 'off', stream: null, src: null, mic: null, awaiting: false, replyId: null, mini: false });
+  Object.assign(talk, { state: 'off', stream: null, src: null, mic: null, awaiting: false, replyId: null, mini: false, conv: null, transcribing: false, stopped: false });
   talk.box.hidden = true;
   talk.box.classList.remove('mini');
   talk.box.setAttribute('aria-modal', 'true');
@@ -520,15 +579,19 @@ function closeTalk() {
 function listen(seed = '') {
   if (!talk.on) return;
   unwatch();
-  Object.assign(talk, { heard: seed, mid: '', replyId: null, seed: seed ? `${seed} ` : '', turn: null });
+  Object.assign(talk, { heard: seed, mid: '', replyId: null, seed: seed ? `${seed} ` : '', turn: null, stopped: false });
   setTalk('listening');
+  if (talk.byRec) { recordTurn(); return; } // (before the microphone is open, openTalk starts it)
   const rec = new (Recognition())();
+  const began = Date.now();
+  let failed = false;
   rec.lang = speechLang();
   rec.continuous = true;
   rec.interimResults = true;
   talk.rec = rec;
   rec.onresult = (e) => {
     if (talk.rec !== rec) return;
+    recognitionWorked = true;
     let fin = '';
     let mid = '';
     for (const r of e.results) { if (r.isFinal) fin += r[0].transcript; else mid += r[0].transcript; }
@@ -548,7 +611,16 @@ function listen(seed = '') {
   };
   rec.onerror = (e) => {
     if (talk.rec !== rec) return;
-    if (e.error === 'service-not-allowed') { closeTalk(); toast('Talk needs speech recognition, which this browser won’t run. Use the microphone button to dictate instead.'); }
+    failed = true;
+    if (recognitionFallback(e.error, { worked: recognitionWorked }) && Recorder() && !(talk.heard + talk.mid).trim()) {
+      // AJ2-1: recognition this browser won't (or can't) run here: record each turn and transcribe it instead
+      recognitionRefused = true;
+      talk.byRec = true;
+      talk.rec = null;
+      try { rec.abort(); } catch { /* ended */ }
+      talk.error = '';
+      listen(talk.seed.trim()); // (the microphone still opening: openTalk starts the recording once it is)
+    } else if (e.error === 'service-not-allowed') { closeTalk(); toast('Talk needs speech recognition, which this browser won’t run. Use the microphone button to dictate instead.'); }
     else if (e.error === 'not-allowed') { closeTalk(); toast(MIC_BLOCKED); }
     else if (e.error === 'audio-capture') talk.error = 'No microphone found.';
     else if (e.error === 'network') talk.error = 'Speech recognition needs the network in this browser.';
@@ -558,16 +630,96 @@ function listen(seed = '') {
     talk.rec = null;
     if (!talk.on || talk.state !== 'listening') return;
     if ((talk.heard + talk.mid).trim()) { sendTalk(); return; }
-    // the browser ends a quiet session by itself: listen again, unless it keeps failing
-    if (++talk.ends > 4) { talk.error = talk.error || 'Stopped listening. Press Send now or End.'; paintTalk(); return; }
-    setTimeout(() => { if (talk.on && talk.state === 'listening' && !talk.rec) listen(); }, 300);
+    // AJ2-7: hidden, the browser ends it (Safari, the iPhone): it starts again when the page is shown
+    if (document.hidden) return;
+    // a quiet session the browser ended by itself: listen again. One that failed or ended at once
+    // counts against it: five of those in a row and it stops ("Listen again").
+    if (failed || Date.now() - began < 1000) {
+      if (++talk.ends > 4) { talk.stopped = true; talk.error = talk.error || 'Stopped listening. Press Listen again, or End.'; paintTalk(); return; }
+    } else talk.ends = 0;
+    setTimeout(() => { if (talk.on && talk.state === 'listening' && !talk.rec && !document.hidden) listen(); }, 300);
   };
   try { rec.start(); } catch { talk.error = 'Listening couldn’t start.'; paintTalk(); }
+}
+
+/** AJ2-7: listening again where it had stopped (shown again, a tap on the orb, "Listen again"). */
+function resumeTalk() {
+  if (!talk.on || talk.state !== 'listening' || talk.rec || talk.recorder || talk.transcribing) return;
+  if (!talk.byRec && (talk.heard + talk.mid).trim()) return;
+  Object.assign(talk, { ends: 0, fails: 0, stopped: false, error: '' });
+  listen();
+}
+
+/* Talk by recording (AJ2-1): each turn is a recording of the microphone that ends at a pause in
+   its level (or Send now), then its words are sent as recognition's would be. */
+function recordTurn() {
+  if (!talk.on || !talk.stream || talk.recorder || talk.transcribing || talk.state !== 'listening') return;
+  const R = Recorder();
+  const type = recordingType((t) => R.isTypeSupported && R.isTypeSupported(t));
+  let mr;
+  try {
+    mr = new R(talk.stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined);
+  } catch {
+    talk.error = 'Listening couldn’t start.';
+    paintTalk();
+    return;
+  }
+  const turn = { mr, chunks: [], keep: false, began: Date.now(), session: talk.session };
+  mr.ondataavailable = (e) => { if (e.data && e.data.size) turn.chunks.push(e.data); };
+  mr.onstop = () => {
+    if (talk.recorder === turn) talk.recorder = null;
+    if (!turn.keep || !talk.on || talk.session !== turn.session) return;
+    if (!turn.chunks.length) { talk.transcribing = false; recordTurn(); return; }
+    hearTurn(new Blob(turn.chunks, { type: mr.mimeType || type || 'audio/webm' }), (Date.now() - turn.began) / 1000, turn.session);
+  };
+  Object.assign(talk, { recorder: turn, vad: null, spoke: false });
+  try { mr.start(1000); } catch { talk.recorder = null; talk.error = 'Listening couldn’t start.'; paintTalk(); return; }
+  clearInterval(talk.vadT);
+  talk.vadT = setInterval(vadTick, 50); // not requestAnimationFrame: it goes on while the window is behind others
+  paintTalk();
+}
+/** Stops the turn's recording; keep: its words are transcribed and sent. */
+function endTurn(keep) {
+  clearInterval(talk.vadT);
+  talk.vadT = 0;
+  const turn = talk.recorder;
+  if (!turn) return;
+  turn.keep = keep;
+  talk.recorder = null;
+  try { if (turn.mr.state !== 'inactive') turn.mr.stop(); } catch { /* stopped */ }
+}
+function vadTick() {
+  if (!talk.on || !talk.recorder || talk.state !== 'listening') return;
+  const step = vadStep(talk.vad, talk.mic ? rms(talk.mic) : 0, Date.now(), { pauseMs: PAUSE_MS, maxMs: TALK_MAX_MS });
+  talk.vad = step.s;
+  if (step.spoke !== talk.spoke) { talk.spoke = step.spoke; if (step.spoke) talk.error = ''; paintTalk(); }
+  if (step.action === 'send') { talk.transcribing = true; paintTalk(); endTurn(true); }
+  else if (step.action === 'restart') { endTurn(false); recordTurn(); }
+}
+async function hearTurn(blob, seconds, session) {
+  talk.transcribing = true;
+  paintTalk();
+  const r = await transcribeBlob(blob, seconds);
+  if (!talk.on || talk.session !== session) return;
+  talk.transcribing = false;
+  if (talk.state !== 'listening') return;
+  if (r.text) {
+    Object.assign(talk, { fails: 0, error: '', heard: talk.seed + r.text, mid: '' });
+    sendTalk();
+    return;
+  }
+  if (r.error) {
+    talk.error = r.error;
+    if (++talk.fails > 2) { talk.stopped = true; paintTalk(); return; } // "Listen again"
+  }
+  recordTurn(); // nothing heard (a noise): listening goes on
 }
 
 function sendTalk() {
   clearTimeout(talk.pauseT);
   talk.pauseT = 0;
+  // recording a turn: Send now ends it here (its words are sent once transcribed)
+  if (talk.byRec && talk.recorder) { if (talk.spoke && talk.state === 'listening') { talk.transcribing = true; paintTalk(); endTurn(true); } return; }
   const text = talkText(`${talk.heard} ${talk.mid}`);
   if (!talk.on || talk.state !== 'listening' || !text) return;
   const rec = talk.rec;
@@ -579,11 +731,22 @@ function sendTalk() {
   setTalk('sending');
   talk.awaiting = true;
   const ta = $('deck-input');
+  // What you typed in the composer (Talk shrunk to the orb leaves the app to you) is kept: Talk's
+  // words are sent in its place, then your draft comes back (AJ5). So are the files and context you
+  // added there for your own message: they wait, then come back (AJ2-6).
+  const draft = ta.value;
+  const restore = talk.mini ? setAsideAttachments() : null;
   ta.value = text;
   ta.dispatchEvent(new Event('input', { bubbles: true }));
-  $('deck-composer').requestSubmit();
+  try { $('deck-composer').requestSubmit(); } finally { if (restore) restore(); }
+  const sent = ta.value !== text;
+  if (sent) talk.conv = state.current;
+  if (draft.trim() && ta.value !== draft) {
+    ta.value = draft;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   // not sent (the composer kept the draft: no model available, a / command…): back to listening
-  if (ta.value === text && talk.state === 'sending') {
+  if (!sent && talk.state === 'sending') {
     talk.awaiting = false;
     talk.error = 'That didn’t send. Try again, or type it.';
     listen();
@@ -619,7 +782,7 @@ function meter() {
   const mic = talk.mic ? rms(talk.mic) : 0;
   const out = speaking && outLevel ? rms(outLevel) : 0;
   // while he speaks, recognition listens for your words over his (barge-in.js)
-  if (speaking && !talk.watch) talk.watch = watchForInterrupt({ spoken: () => talk.reply, onInterrupt: (heard) => { talk.watch = null; bargeIn(heard); }, lang: speechLang() });
+  if (speaking && !talk.watch && !talk.byRec) talk.watch = watchForInterrupt({ spoken: () => talk.reply, onInterrupt: (heard) => { talk.watch = null; bargeIn(heard); }, lang: speechLang() });
   else if (!speaking && talk.watch && talk.state !== 'replying') unwatch();
   if (talk.mic) {
     if (talk.state !== 'replying') { talk.floor = Math.max(0.003, talk.floor * 0.97 + mic * 0.03); talk.echo = 0.02; }
@@ -647,11 +810,14 @@ export function voiceSettings() {
   const where = HOSTED
     ? 'On askeden.com the Eden voice uses your account’s daily voice allowance (more with Plus).'
     : 'On this Mac: the Eden voice, on the daily voice allowance for this Mac; the Mac’s own voice when that’s used up or offline.';
-  const rec = Recognition()
-    ? 'Dictation and Talk use this browser’s speech recognition (Chrome sends the audio to Google to transcribe it).'
-    : Recorder()
-      ? `This browser has no speech recognition: Dictation records (two minutes at most) and ${HOSTED ? 'askeden.com transcribes it (Whisper on Cloudflare, counted on your Eden account’s included AI)' : 'Eden on this Mac transcribes it (the audio stays on this Mac)'}. Talk needs speech recognition (Chrome, Edge or Safari).`
-      : 'This browser has no speech recognition, so Dictation and Talk are off (use Chrome, Edge or Safari).';
+  const transcribes = HOSTED ? 'askeden.com transcribes it (Whisper on Cloudflare, counted on your Eden account’s included AI)' : 'Eden on this Mac transcribes it (the audio stays on this Mac)';
+  const rec = DESKTOP && Recorder()
+    ? `In this app, Dictation and Talk record what you say (two minutes at most) and ${transcribes}.` // AJ2-1
+    : Recognition()
+      ? 'Dictation and Talk use this browser’s speech recognition (Chrome sends the audio to Google to transcribe it).'
+      : Recorder()
+        ? `This browser has no speech recognition: Dictation and Talk record what you say (two minutes at most) and ${transcribes}.`
+        : 'This browser has no speech recognition, so Dictation and Talk are off (use Chrome, Edge or Safari).';
   return el('div', 'set-sec', el('h3', '', 'Voice'),
     el('div', 'icard', el('div', 'prov',
       el('div', 'grow', el('div', 'p-n', 'Read replies aloud'), el('div', 'p-c', 'In the Eden voice, as each reply streams in (code is skipped). Talk mode always reads aloud.')),
@@ -676,8 +842,8 @@ export function initVoice() {
   $('transcript').addEventListener('click', onSpeakClick);
   const mic = $('jc-dictate');
   const talkBtn = $('jc-talk');
-  if (!Recognition()) { if (mic && !Recorder()) mic.hidden = true; if (talkBtn) talkBtn.hidden = true; }
-  if (mic) mic.addEventListener('click', () => (dict.rec ? stopDictation() : startDictation()));
+  if (!Recognition() && !Recorder()) { if (mic) mic.hidden = true; if (talkBtn) talkBtn.hidden = true; } // else Talk records each turn (AJ2-1)
+  if (mic) mic.addEventListener('click', () => (dict.rec || dict.starting ? stopDictation() : startDictation()));
   if (talkBtn) talkBtn.addEventListener('click', openTalk);
   const ta = $('deck-input');
   // typing or sending while dictating keeps the words as they are
@@ -696,6 +862,8 @@ export function initVoice() {
       f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
     }
   }, true);
+  // AJ2-7: Talk listens again when the page is shown (hidden, the browser ended its listening)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeTalk(); });
   // reading aloud needs audio unlocked by a gesture: any click or key while it's on
   const unlock = () => { if (prefs.autoRead) audio(); };
   document.addEventListener('pointerdown', unlock, true);

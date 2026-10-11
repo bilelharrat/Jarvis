@@ -1,5 +1,5 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>Eden runner</title></head>
+<html><head><meta charset="utf-8"><script>(function g(){var W=window,O=Object,dp=O.defineProperty,gd=O.getOwnPropertyDescriptor,ap=Reflect.apply,k;for(k of["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel"])try{dp(W,k,{value:undefined,writable:false,configurable:false})}catch(e){}try{var I=W.HTMLIFrameElement,E=W.Element,M=W.MutationObserver,N=W.Node,D=W.Document,F=W.DocumentFragment,SR=W.ShadowRoot,L=W.HTMLLinkElement,A=W.Attr,T=W.DOMTokenList,R=W.Range,WS=W.WeakSet;if(!I||!E||!M||!N||!F||!L||!A)return;var S="<script>("+g+")()<\/script>",IP=I.prototype,EP=E.prototype,NP=N.prototype,AP=A.prototype,SP=String.prototype,sw=SP.startsWith,sl=SP.slice,lc=SP.toLowerCase,rp=SP.replace,ts=RegExp.prototype.test,PI=parseInt,FC=String.fromCharCode,nn=gd(NP,"nodeName").get,nt=gd(NP,"nodeType").get,ga=EP.getAttribute,sa=EP.setAttribute,sn=EP.setAttributeNS,eq=EP.querySelectorAll,fq=F.prototype.querySelectorAll,sd=gd(IP,"srcdoc"),nl=gd(NodeList.prototype,"length").get,ni=NodeList.prototype.item,rt=gd(MutationRecord.prototype,"target").get,ra=gd(MutationRecord.prototype,"addedNodes").get,ob=M.prototype.observe,an=gd(AP,"name").get,av=gd(AP,"value"),ao=gd(AP,"ownerElement").get,rl=new WS,wa=WS.prototype.add,wh=WS.prototype.has,DSD=/([^\w-]|^)shadowrootmode(?=\s*=)/gi,LK=/<link(?=[\s\/>])/i,LKS=/<link(?=[\s\/>])/gi,NR=/&#(?:x([0-9a-f]+)|([0-9]+));?/gi,HW=/prefetch|preconnect|prerender/i,HT=/(^|\s)(dns-prefetch|preconnect|prefetch|prerender)(?=\s|$)/gi,html=function(v){v=ap(rp,""+v,[DSD,"$1data-shadowrootmode"]);if(ap(ts,LK,[v])&&ap(ts,HW,[ap(rp,v,[NR,function(m,x,d){var n=x?PI(x,16):PI(d,10);return n<128?FC(n):"?"}])]))v=ap(rp,v,[LKS,"<link-off"]);return v},add=function(v){v=html(v);return ap(sw,v,[S])?v:S+v},rel=function(v){return ap(rp,""+v,[HT,"$1x-$2"])},nm=function(n){try{return ap(nn,n,[])}catch(e){return""}},fix=function(n){var x=nm(n),v,w;if(x==="IFRAME"){v=ap(ga,n,["srcdoc"]);if(v!==null&&(w=add(v))!==v)ap(sd.set,n,[w])}else if(x==="LINK"){v=ap(ga,n,["rel"]);if(v!==null&&(w=rel(v))!==v)ap(sa,n,["rel",w])}},scan=function(n){var t,c,i,m;try{t=ap(nt,n,[])}catch(e){return}if(t===1){fix(n);c=ap(eq,n,["iframe,link"])}else if(t===11)c=ap(fq,n,["iframe,link"]);else return;m=ap(nl,c,[]);for(i=0;i<m;i++)fix(ap(ni,c,[i]))},mo=new M(function(rs){for(var i=0;i<rs.length;i++){var a=ap(ra,rs[i],[]),j,m=ap(nl,a,[]);fix(ap(rt,rs[i],[]));for(j=0;j<m;j++)scan(ap(ni,a,[j]))}}),opts={childList:true,subtree:true,attributes:true,attributeFilter:["srcdoc","rel"]},watch=function(r){try{ap(ob,mo,[r,opts])}catch(e){}},wrap=function(o,n,f1,ix){var f=o&&o[n];if(typeof f==="function")o[n]=function(){var a=[],i;for(i=0;i<arguments.length;i++)a[i]=ix<0||i===ix?f1(arguments[i]):arguments[i];return ap(f,this,a)}},pre=function(o,n,ix){wrap(o,n,function(x){scan(x);return x},ix)},str=function(o,n,ix){wrap(o,n,html,ix)},acc=function(o,n,f1){var d=o&&gd(o,n);if(d&&d.set)dp(o,n,{get:d.get,set:function(v){ap(d.set,this,[f1(v,this)])},enumerable:d.enumerable,configurable:true})},attr=function(o,n,v){n=ap(lc,""+n,[]);var x=nm(o);return n==="srcdoc"&&x==="IFRAME"?add(v):n==="rel"&&x==="LINK"?rel(v):v};dp(IP,"srcdoc",{get:function(){var v=ap(sd.get,this,[]);return ap(sw,v,[S])?ap(sl,v,[S.length]):v},set:function(v){ap(sd.set,this,[add(v)])},enumerable:true,configurable:true});acc(L.prototype,"rel",rel);EP.setAttribute=function(n,v){n=""+n;return ap(sa,this,[n,attr(this,n,v)])};EP.setAttributeNS=function(s,n,v){n=""+n;return ap(sn,this,[s,n,attr(this,n,v)])};acc(AP,"value",function(v,a){var o=ap(ao,a,[]);return o?attr(o,ap(an,a,[]),v):v});var san=function(o,x){try{ap(av.set,x,[attr(o,ap(an,x,[]),ap(av.get,x,[]))])}catch(e){}};var sAN=EP.setAttributeNode,sANS=EP.setAttributeNodeNS;EP.setAttributeNode=function(x){san(this,x);return ap(sAN,this,[x])};if(sANS)EP.setAttributeNodeNS=function(x){san(this,x);return ap(sANS,this,[x])};if(T){var rg=gd(L.prototype,"relList");if(rg&&rg.get)dp(L.prototype,"relList",{get:function(){var l=ap(rg.get,this,[]);ap(wa,rl,[l]);return l},enumerable:true,configurable:true});var tok=function(n,ix){var f=T.prototype[n];if(typeof f==="function")T.prototype[n]=function(){var a=[],i,h=ap(wh,rl,[this]);for(i=0;i<arguments.length;i++)a[i]=h&&(ix<0||i===ix)?rel(arguments[i]):arguments[i];return ap(f,this,a)}};tok("add",-1);tok("toggle",0);tok("replace",1);var tv=gd(T.prototype,"value");if(tv&&tv.set)dp(T.prototype,"value",{get:tv.get,set:function(v){ap(tv.set,this,[ap(wh,rl,[this])?rel(v):v])},enumerable:true,configurable:true})}for(k of["appendChild","insertBefore","replaceChild"])pre(NP,k,0);for(k of["append","prepend","replaceChildren","before","after","replaceWith"]){pre(EP,k,-1);pre(F.prototype,k,-1);if(D)pre(D.prototype,k,-1)}pre(EP,"insertAdjacentElement",1);if(R){pre(R.prototype,"insertNode",0);pre(R.prototype,"surroundContents",0)}acc(EP,"innerHTML",html);acc(EP,"outerHTML",html);str(EP,"insertAdjacentHTML",1);str(EP,"setHTMLUnsafe",0);str(EP,"setHTML",0);if(SR){acc(SR.prototype,"innerHTML",html);str(SR.prototype,"setHTMLUnsafe",0);str(SR.prototype,"setHTML",0)}if(D){str(D,"parseHTMLUnsafe",0);str(D,"parseHTML",0);str(D.prototype,"write",-1);str(D.prototype,"writeln",-1);acc(D.prototype,"body",function(v){scan(v);return v})}var as=EP.attachShadow;if(as)EP.attachShadow=function(o){var r=ap(as,this,[o]);watch(r);return r};watch(document)}catch(e){}})()</script><!-- first: no WebRTC (src/chat/artifacts.ts RTC_GUARD) --><title>Eden runner</title></head>
 <body>
 <!--
   The canvas's in-browser runner (canvas-run.js frames it; canvas-model.js says what runs here).
@@ -14,58 +14,155 @@ const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.28.3/full/';
 const parentWin = window.parent;
 const send = (m) => parentWin.postMessage(m, '*'); // the parent checks event.source; nothing secret is sent
 
-const SHIM = `
-const __send = (stream, args) => postMessage({ type: 'out', stream, text: args.map((a) => typeof a === 'string' ? a : (() => { try { return JSON.stringify(a, null, 2) ?? String(a); } catch { return String(a); } })()).join(' ') + '\\n' });
-console.log = console.info = console.debug = (...a) => __send('stdout', a);
-console.warn = console.error = (...a) => __send('stderr', a);
-let __stdin = [];
-const readline = () => (__stdin.length ? __stdin.shift() : null);
-const prompt = (q) => { if (q) __send('stdout', [q]); return readline(); };
-self.fetch = self.XMLHttpRequest = self.WebSocket = self.EventSource = undefined;
+// Output leaves a worker in batches (every 50 ms, or at 64 KB), at most OUT_CAP characters a run, then
+// one "truncated" line: a loop printing a million lines must not post a million messages to this page
+// (it shares its main thread with Eden's tab, and the time limit's timer waits behind the queue).
+// Everything a worker says to this page goes through a private MessageChannel port this page hands it
+// with the run (__setPort), kept in a closure the run's code can't see (the code is spliced in after it,
+// outside it: not even eval reaches it). The worker's own postMessage belongs to the code: this page
+// never takes what arrives there as output or control (a fake "started" can't move the time limit, a
+// flood of messages ends the run), see MAX_STRAY / MAX_PORT below.
+const OUT_CAP = 190000;
+const OUT_NOTE = '\\n… output truncated: the run printed more than the console keeps (about 200 KB); the rest isn’t shown\\n';
+const OUTBUF = `
+const apply = Reflect.apply, portPost = MessagePort.prototype.postMessage, setT = setTimeout, clearT = clearTimeout;
+let port = null, q = [], qn = 0, sent = 0, cut = false, ft = 0;
+const post = (m) => { if (port) apply(portPost, port, [m]); };
+const setPort = (p) => { port = p || null; };
+const flush = () => { clearT(ft); ft = 0; if (q.length) { const segs = q; q = []; qn = 0; post({ type: 'out', segs }); } };
+const emit = (stream, text) => {
+  if (cut) return;
+  if (sent + text.length > ${OUT_CAP}) { text = text.slice(0, Math.max(0, ${OUT_CAP} - sent)); cut = true; }
+  sent += text.length; qn += text.length;
+  const last = q[q.length - 1];
+  if (last && last[0] === stream) last[1] += text; else if (text) q.push([stream, text]);
+  if (cut) { q.push(['stderr', '${OUT_NOTE}']); flush(); }
+  else if (qn >= 65536) flush();
+  else if (!ft) ft = setT(flush, 50);
+};
+const resetOut = () => { clearT(ft); q = []; qn = 0; sent = 0; cut = false; ft = 0; };
+`;
+
+// console.log's text for a value: strings as they are, other values as indented JSON, plus what JSON
+// can't say (a cycle is [Circular], a BigInt 1n, undefined kept, NaN/Infinity as such), up to `cap`
+// characters (the console keeps about 200 KB anyway).
+function inspect(a, cap) {
+  if (typeof a === 'string') return a;
+  if (typeof a === 'bigint') return `${a}n`;
+  if (a === null || typeof a !== 'object') return String(a);
+  const seen = [];
+  let room = cap;
+  const walk = (v, ind) => {
+    if (room <= 0) return '…';
+    if (v && typeof v.toJSON === 'function') { try { v = v.toJSON(); } catch { /* as is */ } }
+    if (typeof v === 'string') { const s = JSON.stringify(v); room -= s.length; return s; }
+    if (typeof v === 'bigint') return `${v}n`;
+    if (v === undefined) return 'undefined';
+    if (v === null || typeof v !== 'object') return typeof v === 'function' || typeof v === 'symbol' ? undefined : String(v);
+    if (seen.includes(v)) return '[Circular]';
+    if (seen.length >= 64) return '[…]';
+    seen.push(v);
+    const pad = `${ind}  `, items = [];
+    if (Array.isArray(v)) for (let i = 0; i < v.length && room > 0; i++) { const s = walk(v[i], pad); items.push(s === undefined ? 'null' : s); room -= 2; }
+    else for (const k of Object.keys(v)) { if (room <= 0) break; const s = walk(v[k], pad); if (s !== undefined) { items.push(`${JSON.stringify(k)}: ${s}`); room -= k.length + 4; } }
+    seen.pop();
+    const [o, c] = Array.isArray(v) ? ['[', ']'] : ['{', '}'];
+    return items.length ? `${o}\n${pad}${items.join(`,\n${pad}`)}\n${ind}${c}` : `${o}${c}`;
+  };
+  try { return walk(a, ''); } catch { try { return String(a); } catch { return '[object]'; } }
+}
+
+const SHIM = `${OUTBUF}
+const inspect = ${inspect};
+const send = (stream, args) => emit(stream, args.map((a) => inspect(a, ${OUT_CAP})).join(' ') + '\\n');
+console.log = console.info = console.debug = (...a) => send('stdout', a);
+console.warn = console.error = (...a) => send('stderr', a);
+self.fetch = self.XMLHttpRequest = self.WebSocket = self.EventSource = self.RTCDataChannel = self.RTCPeerConnection = undefined;
+self.addEventListener('error', (e) => { emit('stderr', String(e.message) + '\\n'); flush(); post({ type: 'exit', code: 1 }); e.preventDefault(); });
 `;
 
 function jsWorker(code, stdin) {
-  const src = `${SHIM}
-__stdin = ${JSON.stringify(String(stdin).split('\n'))};
-self.onmessage = async () => {
+  // the shim and its port live in the closure; the code (below it, outside it) sees readline, prompt and __run
+  const src = `const { readline, prompt, __run } = (() => {
+${SHIM}
+const stdin = ${JSON.stringify(String(stdin).split('\n'))};
+const readline = () => (stdin.length ? stdin.shift() : null);
+const prompt = (q) => { if (q) send('stdout', [q]); return readline(); };
+let ran = false;
+const __run = (main) => async (e) => {
+  if (ran) return;
+  ran = true;
+  setPort(e && e.ports && e.ports[0]);
   let exitCode = 0;
-  try { await (async () => {
-${code}
-  })(); } catch (e) { exitCode = 1; postMessage({ type: 'out', stream: 'stderr', text: (e && e.stack ? e.stack : String(e)) + '\\n' }); }
-  postMessage({ type: 'exit', code: exitCode });
+  try { await main(); } catch (err) { exitCode = 1; emit('stderr', (err && err.stack ? err.stack : String(err)) + '\\n'); }
+  flush(); post({ type: 'exit', code: exitCode });
 };
-self.addEventListener('error', (e) => { postMessage({ type: 'out', stream: 'stderr', text: String(e.message) + '\\n' }); postMessage({ type: 'exit', code: 1 }); e.preventDefault(); });
+return { readline, prompt, __run };
+})();
+self.onmessage = __run(async () => {
+${code}
+});
 `;
   return new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
 }
 
-const PY_WORKER = `
+// A Python error without Pyodide's own frames ahead of the code's (File "/lib/python313.zip/_pyodide/…"):
+// the traceback starts where the user's code does; frames the code itself calls into stay.
+function userTraceback(text) {
+  const lines = String(text).split('\n');
+  if (!lines.some((l) => /^  File "<exec>"/.test(l))) return lines.join('\n');
+  const out = [];
+  let mine = false, skip = false;
+  for (const l of lines) {
+    if (/^  File "/.test(l)) { if (/^  File "<exec>"/.test(l)) mine = true; skip = !mine && /^  File "\/lib\/python/.test(l); }
+    else if (!/^    /.test(l)) skip = false;
+    if (!skip) out.push(l);
+  }
+  return out.join('\n');
+}
+
+// Python's code can't reach the closure either (its js module sees globals; eval sees no closure).
+// Output goes on as written (not line by line), and Python's own buffers are flushed before the exit, so
+// a run ending without a newline shows its last line, and nothing of it waits for the next run (AV2-9).
+const PY_WORKER = `(() => {
+${OUTBUF}
+const userTraceback = ${userTraceback};
 importScripts('${PYODIDE}pyodide.js');
 let py = null;
-const out = (stream) => ({ batched: (t) => postMessage({ type: 'out', stream, text: t + '\\n' }) });
+const out = (stream) => { const dec = new TextDecoder(); return { write: (b) => { emit(stream, dec.decode(b, { stream: true })); return b.length; } }; }; // as written: a line without its newline too
+const done = (code) => { try { py.runPython('import sys\\nsys.stdout.flush()\\nsys.stderr.flush()'); } catch { /* nothing pending */ } flush(); post({ type: 'exit', code }); };
 self.onmessage = async (e) => {
-  const { code, stdin } = e.data;
+  const { code, stdin } = e.data || {};
+  setPort(e.ports && e.ports[0]);
+  resetOut();
   try {
-    if (!py) { postMessage({ type: 'status', text: 'Loading Python…' }); py = await loadPyodide({ indexURL: '${PYODIDE}' }); }
-    postMessage({ type: 'started' });
+    if (!py) { post({ type: 'status', text: 'Loading Python…' }); py = await loadPyodide({ indexURL: '${PYODIDE}' }); }
+    post({ type: 'started' });
     py.setStdout(out('stdout')); py.setStderr(out('stderr'));
     const lines = String(stdin || '').split('\\n'); let k = 0;
     py.setStdin({ stdin: () => (k < lines.length ? lines[k++] : undefined) });
     try { await py.loadPackagesFromImports(code); } catch { /* the import fails below with its own message */ }
     const ns = py.globals.get('dict')();
-    try { await py.runPythonAsync(code, { globals: ns }); postMessage({ type: 'exit', code: 0 }); }
+    try { await py.runPythonAsync(code, { globals: ns }); done(0); }
     catch (err) {
       const m = /SystemExit: (\\d+)/.exec(String(err));
-      if (m) postMessage({ type: 'exit', code: Number(m[1]) });
-      else { postMessage({ type: 'out', stream: 'stderr', text: String(err.message || err).replace(/^PythonError: /, '') + '\\n' }); postMessage({ type: 'exit', code: 1 }); }
+      if (m) done(Number(m[1]));
+      else { try { py.runPython('import sys\\nsys.stdout.flush()'); } catch { /* nothing pending */ } emit('stderr', userTraceback(String(err.message || err).replace(/^PythonError: /, '')) + '\\n'); done(1); }
     } finally { ns.destroy(); }
-  } catch (err) { postMessage({ type: 'out', stream: 'stderr', text: 'Python couldn’t start: ' + (err && err.message || err) + '\\n' }); postMessage({ type: 'exit', code: 1 }); }
+  } catch (err) { emit('stderr', 'Python couldn’t start: ' + (err && err.message || err) + '\\n'); done(1); }
 };
+})();
 `;
 
-let worker = null, pyWorker = null, timer = 0, runId = 0;
+// What a run may send this page. Through its port the worker sends at most ~20 batches a second plus a
+// few control messages; far past that (MAX_PORT) something is wrong. On the worker's own postMessage
+// (the code's) nothing is expected: MAX_STRAY of them end the run, so a flood costs Eden's tab only a
+// moment. Each is counted before anything else is done with it.
+const MAX_PORT = 5000, MAX_STRAY = 1000, MAX_STATUS = 20;
+let worker = null, pyWorker = null, timer = 0, runId = 0, chan = null;
 function stop(reason) {
   clearTimeout(timer);
+  if (chan) { chan.port1.onmessage = null; chan.port1.close(); chan = null; }
   if (worker) { worker.terminate(); if (worker === pyWorker) pyWorker = null; worker = null; }
   if (reason) send({ type: 'exit', id: runId, code: reason === 'timeout' ? 124 : 130, reason });
 }
@@ -78,24 +175,46 @@ window.addEventListener('message', (e) => {
   stop();
   runId = m.id;
   const id = m.id, limit = Math.min(Number(m.timeMs) || 30000, 30000);
-  const arm = () => { clearTimeout(timer); timer = setTimeout(() => stop('timeout'), limit); };
+  let armed = false; // the time limit starts once a run (JavaScript: now; Python: once loaded) and nothing moves it
+  const arm = () => { if (armed) return; armed = true; timer = setTimeout(() => stop('timeout'), limit); };
   try {
     if (m.lang === 'py') {
       if (!pyWorker) pyWorker = new Worker(URL.createObjectURL(new Blob([PY_WORKER], { type: 'text/javascript' })));
       worker = pyWorker;
     } else worker = jsWorker(m.code, m.stdin || '');
   } catch (err) { send({ type: 'out', id, stream: 'stderr', text: `The runner couldn’t start: ${err.message}\n` }); send({ type: 'exit', id, code: 1 }); return; }
-  const w = worker;
-  w.onmessage = (ev) => {
-    if (w !== worker) return;
+  const w = worker, ch = chan = new MessageChannel();
+  const tooMany = (what) => { if (w !== worker) return; send({ type: 'out', id, segs: [['stderr', `\nThe run was stopped: it sent ${what} (the console takes console.log / print).\n`]] }); stop(); send({ type: 'exit', id, code: 1, reason: 'flood' }); };
+  let forwarded = 0, onPort = 0, stray = 0, statuses = 0, started = false; // this run's output sent on; past the cap (plus its note) the rest is dropped here too
+  w.onmessage = () => { if (w === worker && ++stray > MAX_STRAY) tooMany('too many messages of its own'); };
+  ch.port1.onmessage = (ev) => {
+    if (w !== worker || ch !== chan) return;
+    if (++onPort > MAX_PORT) { tooMany('too many messages'); return; }
     const d = ev.data || {};
-    if (d.type === 'started') { arm(); send({ type: 'started', id }); return; }
-    if (d.type === 'exit') { clearTimeout(timer); if (w !== pyWorker) { w.terminate(); } worker = null; }
-    send({ ...d, id });
+    if (d.type === 'started') { if (!started && m.lang === 'py') { started = true; arm(); send({ type: 'started', id }); } return; }
+    if (d.type === 'status') { if (++statuses <= MAX_STATUS) send({ type: 'status', id, text: String(d.text || '').slice(0, 200) }); return; }
+    if (d.type === 'out') {
+      const keep = [];
+      for (const seg of Array.isArray(d.segs) ? d.segs : []) {
+        if (forwarded >= OUT_CAP + 1000 || !Array.isArray(seg)) break;
+        const text = String(seg[1] ?? '').slice(0, OUT_CAP + 1000 - forwarded);
+        forwarded += text.length;
+        keep.push([seg[0] === 'stderr' ? 'stderr' : 'stdout', text]);
+      }
+      if (keep.length) send({ type: 'out', id, segs: keep });
+      return;
+    }
+    if (d.type === 'exit') {
+      clearTimeout(timer);
+      ch.port1.onmessage = null; ch.port1.close(); chan = null;
+      if (w !== pyWorker) w.terminate();
+      worker = null;
+      send({ type: 'exit', id, code: Number(d.code) || 0 });
+    }
   };
   w.onerror = (ev) => { ev.preventDefault(); if (w !== worker) return; send({ type: 'out', id, stream: 'stderr', text: `${ev.message || 'The runner failed.'}\n` }); stop(); send({ type: 'exit', id, code: 1 }); };
-  if (m.lang === 'py') w.postMessage({ code: m.code, stdin: m.stdin || '' });
-  else { arm(); send({ type: 'started', id }); w.postMessage({}); }
+  if (m.lang === 'py') w.postMessage({ code: m.code, stdin: m.stdin || '' }, [ch.port2]);
+  else { arm(); send({ type: 'started', id }); w.postMessage({}, [ch.port2]); }
 });
 send({ type: 'ready' });
 </script>

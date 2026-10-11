@@ -9,7 +9,9 @@
 .cs-status.bad { color: rgb(var(--c-danger-ink)); }
 .cs-all[hidden] { display: none; }
 .cs-results { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
-.cs-file { border-radius: 9px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); overflow: hidden; }
+/* (CF3-5) flex: none: with many files the groups keep their height and the list scrolls,
+   instead of shrinking into stripes. */
+.cs-file { flex: none; border-radius: 9px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); overflow: hidden; }
 .cs-file-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; cursor: pointer; list-style: none; font-size: 12px; }
 .cs-file-head::-webkit-details-marker { display: none; }
 .cs-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }

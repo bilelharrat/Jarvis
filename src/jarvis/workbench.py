@@ -260,6 +260,18 @@ else:
     Terminal = PosixTerminal
 
 
+def _reap(proc: Any, grace: float = 2.0) -> None:
+    """Wait for a process asked to end (no zombie left), killing it after grace seconds."""
+    try:
+        proc.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(Exception):
+            proc.kill()
+            proc.wait(timeout=grace)
+    except Exception:  # (a stand-in with no wait, a process already reaped)
+        pass
+
+
 class _WinAwake:
     """Stands in for caffeinate's Popen on Windows."""
 
@@ -297,7 +309,11 @@ class Workbench:
         return term if term is not None and not term.closed else None
 
     def close_terminal(self, term_id: str) -> bool:
-        """The window closed a terminal: hang it up."""
+        """The window closed a terminal: hang it up. Not one of Eden Code's ("cw:t3"): its
+        tabs close those (code_terminals.Shells), which would still count one closed here
+        as alive, toward their cap."""
+        if term_id.startswith("cw:"):
+            return False
         term = self.terminals.pop(term_id, None)
         if term is None:
             return False
@@ -321,10 +337,13 @@ class Workbench:
             # -w: it ends with this process too, however the app goes.
             self._awake = subprocess.Popen(["caffeinate", "-dimsu", "-w", str(os.getpid())])  # noqa: S607
         elif not on and self.awake:
-            self._awake.terminate()
-            with contextlib.suppress(Exception):
-                self._awake.wait(timeout=2)
-            self._awake = None
+            proc, self._awake = self._awake, None
+            proc.terminate()
+            # Reaped off the event loop: a caffeinate slow to go held every window's events
+            # for up to 2 s here (it goes on SIGTERM in a few ms; KILL after 2 s if not).
+            threading.Thread(
+                target=_reap, args=(proc,), name="caffeinate-reap", daemon=True
+            ).start()
         return self.awake
 
     # ── iOS Simulator ──
@@ -394,7 +413,10 @@ class Workbench:
         """A project file for the viewer: inside the project, not a credential or private
         folder (by its own name or the one a link points to), text only, and never more
         than 300 KB read, however big the file."""
-        path = (root / rel).resolve()
+        try:  # (a NUL in the name raised, and the viewer never heard back)
+            path = (root / rel).resolve()
+        except (ValueError, OSError):
+            return {"path": rel, "error": "There's no such file."}
         if root.resolve() not in path.parents:
             return {"path": rel, "error": "That's outside the project."}
         if computer.is_sensitive(path) or computer.is_sensitive(root / rel):

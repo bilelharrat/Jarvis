@@ -276,3 +276,108 @@ def test_each_message_says_when_it_was_written():
     local = datetime.fromisoformat("2026-09-30T16:30:00+00:00").astimezone().strftime("%H:%M")
     assert f'<div class="who">You · {local}</div>' in shown
     assert '<div class="who">Eden Code</div>' in shown  # (no time known: none shown)
+
+
+def test_export_names_keep_every_language_s_letters():
+    """CF18: every non-ASCII letter was dropped: "修复登录 bug" -> "… bug"."""
+    from datetime import datetime
+
+    from jarvis.code_export import file_stem
+
+    when = datetime(2026, 10, 10, 6, 4)
+    assert file_stem("修复登录 bug", False, when) == "2026-10-10 0604 修复登录 bug"
+    assert file_stem("Café ✓ résumé", True, when) == "2026-10-10 0604 Café résumé (share-safe)"
+    assert file_stem("a/b:c\0d", False, when) == "2026-10-10 0604 a b c d"
+    assert file_stem("✓✓", False, when) == "2026-10-10 0604 Session"
+
+
+# ── an app's output on its way to a session (mask_output) ──
+
+KEY = "sk-ant-api03-" + "Q7wZ" * 10
+
+
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        ("redis connect failed redis://:S3cretRedisPass99@localhost:6379/0", "S3cretRedisPass99"),
+        ("db failed postgres://app:p@ssw0rd!x9@db.local:5432/shop", "ssw0rd!x9"),
+        ("postgres://app:ab/cd3fgh@db.local:5432/x", "cd3fgh"),
+        ("POSTGRES://app:hunter2hunter2@db:5432/x", "hunter2hunter2"),
+        (
+            "upstream 401 Authorization: Bearer 9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeedd",
+            "9f8e7d6c5b4a",
+        ),
+        ("upstream 401 Authorization: Basic YWRtaW46VHIwdWI0ZG9yJjMtaG9yc2U=", "YWRtaW46VHIw"),
+        ("Error: key was " + KEY[:20] + "\n" + KEY[20:] + " more", KEY[20:]),
+        ("Error: key was " + KEY[:40] + "\n" + KEY[40:] + "zz12", KEY[40:]),
+        (
+            "Set-Cookie: session=eyJ1c2VyIjoxfQ.ZxYwVw.abcdefghijklmnopqrstuvwxyz12; Path=/",
+            "abcdefghijkl",
+        ),
+        ("Cookie: sid=s%3Aabc123def456ghi; theme=dark", "abc123def456"),
+        (
+            '{"k":"sk\\u002dant\\u002dapi03\\u002dAbcdefghij0123456789KLMNOPqrstuv"}',
+            "Abcdefghij0123",
+        ),
+        (
+            "env QU5USFJPUElDX0FQSV9LRVk9c2stYW50LWFwaTAzLVE3d1pRN3daUTd3WlE3d1pRN3daUTd3WlE3d1pRN3daUTd3WlE3d1o=",
+            "QU5USFJPUElD",
+        ),
+        (
+            "AccountName=x;AccountKey=abcdEFGH1234ijklMNOP5678qrstUVWX9012yzAB==;EndpointSuffix=x",
+            "abcdEFGH1234",
+        ),
+        ("GET /cb?code=4/0AX4XfWh123456789abcdefghijklmno&state=x", "0AX4XfWh123"),
+        ("DB_PASSWORD=MyVault2024x9q", "MyVault2024x9q"),
+        (
+            "MIIEowIBAAKCAQEA7abcdefgh\nQWERTYUIOPASDFGHJKL123\n-----END RSA PRIVATE KEY-----",
+            "MIIEow",
+        ),
+        ('{"url":"postgres:\\/\\/app:s3cretpw99@db.local\\/x"}', "s3cretpw99"),
+        ("key \x1b[1msk-ant-api03-\x1b[0m" + "Q7wZ" * 10, "Q7wZQ7wZQ7wZ"),
+    ],
+)
+def test_output_sent_to_a_session_has_every_form_of_a_secret_masked(text, secret):
+    from jarvis.code_export import mask_output
+
+    out = mask_output(text)
+    assert secret not in out and "[redacted]" in out, out
+
+
+def test_output_masking_leaves_what_isnt_a_secret():
+    from jarvis.code_export import mask_output
+
+    for text in (
+        "GET http://localhost:3000/login?email=bob@x.com 200",
+        "https://cdn.jsdelivr.net/npm/foo@1.2.3/dist/x.js",
+        "Missing bearer authentication for the route",
+        "commit 3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a39 merged",
+        "API_KEY=${API_KEY} and token = process.env.TOKEN",
+        "Server listening on http://127.0.0.1:8000, ready",
+    ):
+        assert mask_output(text) == text
+    # A whole key ending its line: the next line's first word is its own.
+    assert (
+        mask_output(f"Error: bad key {KEY}\nError: no db")
+        == "Error: bad key [redacted]\nError: no db"
+    )
+
+
+def test_a_saved_secret_is_masked_in_any_form_it_is_printed_in():
+    import base64
+    import json as jsonlib
+    from urllib.parse import quote
+
+    from jarvis.code_export import mask_output
+
+    saved = {"Hunter2Saved!": "$DB_PW"}
+    for text in (
+        "pw HUNTER2SAVED! up",
+        "q=" + quote("Hunter2Saved!", safe=""),
+        jsonlib.dumps({"p": "Hunter2Saved!"}),
+        "x " + base64.b64encode(b"Hunter2Saved!").decode(),
+        "b64 " + base64.b64encode(b"user=bob pass=Hunter2Saved! end").decode(),
+        "Hunter\x1b[1m2Saved!",
+    ):
+        out = mask_output(text, saved)
+        assert "unter2" not in out.lower() and out != text, (text, out)

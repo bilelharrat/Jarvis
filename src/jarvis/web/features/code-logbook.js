@@ -775,7 +775,9 @@
           when.dataset.text = text;
           when.replaceChildren(state === 'needs' ? el('span', '', 'you') : mine(el('span', '', text)));
         }
-        const pane = split && split.on ? (id != null && id === ccSelected ? 'L' : id != null && id === split.right ? 'R' : '') : '';
+        // (split view's panes: L and R for two, else each pane's number, as ⌘1…⌘6 picks it)
+        const where = split && split.on && id != null && Array.isArray(split.panes) ? split.panes.indexOf(id) : -1;
+        const pane = where < 0 ? '' : split.panes.length === 2 ? 'LR'[where] : String(where + 1);
         let tag = row.querySelector(':scope > .lb-pane');
         if (pane && !tag) { tag = extra('span', 'lb-pane'); tag.setAttribute('data-no-i18n', ''); row.append(tag); }
         if (tag) { if (pane) { if (tag.textContent !== pane) tag.textContent = pane; } else tag.remove(); }

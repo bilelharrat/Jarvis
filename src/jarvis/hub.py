@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import contextvars
 import dataclasses
 import functools
 import itertools
@@ -123,7 +124,7 @@ from .providers import SERVER_NAME as MODELS_SERVER
 from .providers import build_server as models_server
 from .routines import RoutineStore
 from .speech import Speaker, SpeechQueue, ai_voice_effect, cloud_voice_from, is_silent
-from .tasks import CLAUDE_DOWN, ClaudeTask, TaskManager
+from .tasks import CLAUDE_DOWN, MESSAGE_MAX, ClaudeTask, TaskManager
 from .wake import find_wake, is_homecoming, names_another
 
 # After Claude couldn't answer, JARVIS stays on the fallback model till Claude's usage limit
@@ -266,10 +267,72 @@ TOOL_LABELS.update(
 
 log = logging.getLogger("jarvis")
 
+FIRST_CONNECT_WAIT = 1.0  # s: start() waits this long for Claude Code, then carries on without it
 REPLAY_KEEP = 3000  # transcript events kept for a window that reconnects
 # What a reconnecting window is sent again: a session's transcript as it grew. Everything
 # else is state the snapshot carries whole.
 REPLAYED = {"task_log", "task_log_update", "task_entry_meta"}
+# What only Eden's own window shows (its HUD: system stats and their pop-out, the markets,
+# the Defense panel, the status line's battery and next event). Eden Code's window hides all
+# of it, so it isn't sent these, nor their parts of the snapshot (HUD_SNAPSHOT), and their
+# loops look only while a window that shows them is open (Hub._hud_watched).
+HUD_ONLY = frozenset({"vitals", "sysmon", "markets", "defense", "status"})
+# How long the assistant's Claude Code stays connected after the last Eden window left a
+# backend Eden Code started (Hub._drop_connection): a reload comes back well within it.
+CLIENT_GRACE_SECONDS = 45
+HUD_SNAPSHOT = ("vitals", "markets", "defense", "status", "location")
+# The window whose command is being handled (server.socket sets it for each window's
+# commands; the background work a command starts inherits it): Hub.emit_to_caller answers
+# that window alone.
+CALLER: contextvars.ContextVar[Any] = contextvars.ContextVar("jarvis_caller", default=None)
+# Feature loops (hub.register_loop) only Eden's own window has a use for: they read the
+# calendar, Mail's index, health data or the second brain on their own, feed its panels, or
+# get its voice ready. With only Eden Code on the backend they wait for an Eden window
+# (Hub._spawn_eden_loops). Loops that carry out what the owner set up (routines,
+# automations, price and paper alerts, invoices, the phone, SMS and WhatsApp lines,
+# delegated conversations, reminders) run whichever app started the backend.
+EDEN_ONLY_LOOPS = frozenset(
+    {
+        "calendar_look", "meeting_offer", "wrapup", "weather_watch", "orders", "oura", "wiki",
+        "mail_index", "meeting_agent", "voice_id_setup", "defense_watch", "brain_semantic_warm",
+        # (CA2-15) the Mac's voices listed (`say -v ?`) for Eden's own voice, which Eden Code
+        # alone never speaks with (its voice loops wait for an Eden window too)
+        "voice_setup",
+        # (CA3-1) the daily note (reads the calendar from 21:00), dreams, promise reminders
+        # (Messages and Mail when that's on); the ears (onnxruntime and Apple's recognizer);
+        # the heartbeat check-ins (the calendar ahead, when switched on)
+        "memory", "voice_ears", "heartbeat",
+    }
+)  # fmt: skip
+# (CA3-1) What Eden Code alone may run in the background: its own sessions' upkeep, and what
+# the owner set up and switched on themselves (routines and timers, alerts, invoices, the
+# phone/SMS/WhatsApp lines and chat channels, the paired phone, the outside-tool server,
+# backups and sync of Eden's own data, Focus state for quiet hours). Every other feature loop,
+# including any new one, waits for an Eden window (Hub._spawn_eden_loops): nothing that reads
+# the calendar, Mail, Messages, Notes, Contacts, Photos, location, the screen or the
+# microphone on its own runs with only Eden Code open. tests/test_code_profile_privacy.py
+# holds every registered loop to one of the two lists.
+CODE_PROFILE_LOOPS = frozenset(
+    {
+        # Eden Code's own
+        "code_sessions", "code_copies_sweeper", "code_issue_watch", "code_pr_watch",
+        "code_handoff_watch", "code_verify", "code_voice_journal", "code_answers_digest",
+        "code_usage_midnight", "code-secrets-sweep", "model_router_nightly", "openai_relay",
+        "quality_keeper", "focus",
+        # what the owner set up (each idle until they did)
+        "timers", "triggers", "reminders", "price_alerts", "paper_alerts", "invoicing",
+        "whatsapp", "sms_line", "calls_live", "channels", "companion_live", "jarvis_mcp",
+        "browser_watches", "account", "ops_daily_backup", "a11y",
+    }
+)  # fmt: skip
+
+
+def _code_profile_loop(name: str) -> bool:
+    """(CA3-1) Whether a feature loop runs with only Eden Code open: on the allowlist and not
+    Eden's own. Unlisted loops wait for an Eden window (safe by default)."""
+    return name in CODE_PROFILE_LOOPS and name not in EDEN_ONLY_LOOPS
+
+
 BRAIN_BUILD_SECONDS = 15 * 60  # a whole rebuild: sources get 5 min, layout and save the rest
 BRAIN_DONE_GRACE = 30  # a rebuild that has said it's done must be gone by then
 
@@ -388,6 +451,47 @@ def _msg_int(msg: dict[str, Any], key: str) -> int:
         return 0
 
 
+# (CA3-7) Eden Code's window commands, and their fields that are text: a list, an object or
+# a number there is refused (never turned into text with str() and sent, run or looked up);
+# null is taken as the field left out.
+_CODE_KINDS = ("task_", "code_", "cw_", "slash_", "project_", "file_", "claude_")
+_TEXT_FIELDS = ("text", "prompt", "command", "directory", "uuid", "question", "message")
+ODD_FIELD = "That command came with a field of the wrong kind, so nothing was done."
+
+
+def _typed_fields(msg: dict[str, Any]) -> dict[str, Any] | None:
+    """The command with its null text fields left out, or None when one isn't text."""
+    if not any(f in msg for f in _TEXT_FIELDS):
+        return msg
+    kept = dict(msg)
+    for name in _TEXT_FIELDS:
+        if name not in kept:
+            continue
+        if kept[name] is None:
+            del kept[name]
+        elif not isinstance(kept[name], str):
+            return None
+    return kept
+
+
+def _msg_strs(value: Any, limit: int = 10) -> list[str]:
+    """A window command's list of names or folders: only a list's strings (an object, a
+    string or a number names none, never each character as one)."""
+    if not isinstance(value, list):
+        return []
+    return [v for v in value if isinstance(v, str)][:limit]
+
+
+def _too_long(text: str) -> str:
+    """Why a message to a session isn't sent ("" when it may go): never cut, refused."""
+    if len(text) <= MESSAGE_MAX:
+        return ""
+    return (
+        f"That message is {len(text):,} characters; a session takes up to {MESSAGE_MAX:,}. "
+        "It wasn't sent."
+    )
+
+
 def _settable(changes: Any) -> Any:
     """Settings changes without the values nested past PREFS_DEPTH; each feature setting
     (prefs.features) is weighed on its own, so the others in the same change still apply."""
@@ -405,16 +509,26 @@ def _settable(changes: Any) -> Any:
 
 
 def _text_size(event: dict[str, Any]) -> int:
-    """How big an event is, near enough: its top-level text. The big ones carry their bulk
-    there (a terminal's output, a simulator picture, a file's text)."""
-    return sum(len(v) for v in event.values() if isinstance(v, str))
+    """How big an event is, near enough: its top-level text, where most big ones carry their
+    bulk (a terminal's output, a simulator picture, a file's text), and a session's entries
+    (task_log's entry, task_transcript's entries: each up to ENTRY_MAX, CA2-10)."""
+    size = sum(len(v) for v in event.values() if isinstance(v, str))
+    entry = event.get("entry")
+    if isinstance(entry, dict) and isinstance(entry.get("text"), str):
+        size += len(entry["text"])
+    entries = event.get("entries")
+    if isinstance(entries, list):
+        size += sum(
+            len(e["text"]) for e in entries if isinstance(e, dict) and isinstance(e.get("text"), str)
+        )
+    return size
 
 
 class Event(dict):
     """A window event: a dict as before (and equal to one), with the number it was emitted
     with (Hub.seq), which goes to the window with it."""
 
-    __slots__ = ("seq",)
+    __slots__ = ("seq", "text")  # text: (numbered, its JSON) once a big one is made (server)
 
 
 class WindowQueue:
@@ -430,6 +544,9 @@ class WindowQueue:
         self.max_bytes = WINDOW_BYTES
         self.bytes = 0  # the top-level text of the events waiting: what makes them big
         self.cut_off = False
+        # Which app's window reads it (server.APPS; "" when it didn't say): Eden Code's
+        # window isn't sent what only Eden's own shows (HUD_ONLY).
+        self.app = ""
 
     def put_nowait(self, event: dict[str, Any]) -> None:
         if self.cut_off:
@@ -457,7 +574,7 @@ class WindowQueue:
         if not self._items:
             raise asyncio.QueueEmpty
         event = self._items.popleft()
-        self.bytes -= _text_size(event)
+        self.bytes = max(0, self.bytes - _text_size(event))  # (an entry may have grown since)
         if not self._items:
             self._ready.clear()
             self.bytes = 0
@@ -1033,6 +1150,10 @@ class Hub:
         self._spoke_until = 0.0
         self._hands_free_before_meeting: bool | None = None
         self._rebuild_again: set[str] | None = None
+        # Rebuilds asked for while only Eden Code uses this backend (profile "code"): Eden Code
+        # never asked for the second brain (Notes, Mail, Messages), so they wait for an Eden
+        # window (window_joined).
+        self._brain_deferred: set[str] | None = None
         self.watcher = Watcher(
             self.notify,
             events=self._upcoming_events,
@@ -1125,6 +1246,7 @@ class Hub:
         # feature module): each gives {lat, lon} or None, asked in order.
         self.travel_fixes: list[Callable[[], dict[str, Any] | None]] = []
         self._build_proc: Any = None
+        self._brain_task: asyncio.Task | None = None  # the rebuild running now (CA3-11)
         # The galaxy each window was last sent. Every window gets every emit, and every one
         # asks after galaxy_changed: W windows got the whole galaxy W times each.
         self._galaxy_sent: weakref.WeakKeyDictionary[WindowQueue, dict[str, Any]] = (
@@ -1156,12 +1278,17 @@ class Hub:
         self._in_code = False  # inside a ``` block of the streaming reply: not voiced
         self._code_tail = ""  # its last two characters: a ``` can be split across deltas
         self.client: Any = None
+        # The first connection of Eden's own Claude Code (_first_connection), made in the
+        # background: None until it's started.
+        self._connecting: asyncio.Task | None = None
+        self._tasks_sent: dict[Any, str] = {}  # each session as the windows last had it (_tasks_patch)
         # What feature modules (jarvis.features) add, kept apart from the core tables.
         self._extra_servers: dict[str, Callable[[], Any]] = {}
         self._extra_prompts: list[Callable[[], str]] = []
         self._commands: dict[str, list[Callable[[dict[str, Any]], Any]]] = {}
         self._slow_commands: set[str] = set()  # features' kinds that run as SLOW_COMMANDS do
         self._loops: list[tuple[str, Callable[[], Any]]] = []
+        self._eden_loops: list[asyncio.Task] = []  # _spawn_eden_loops: started once
         self._notify_sinks: list[Callable[[Alert], Any]] = []
         self._approval_sinks: list[Callable[[dict[str, Any]], Any]] = []
         self._approval_done_sinks: list[Callable[[str], Any]] = []
@@ -1497,8 +1624,61 @@ class Hub:
             )
             if self.profile == "full":
                 self._warm_up_ears()
+        if self.profile == "full":
+            # In the background: the windows (and /health) never wait on Claude Code's start
+            # (seconds; far longer when its CLI hangs). A request waits for it (ask).
+            await asyncio.wait({self._connect_soon()}, timeout=FIRST_CONNECT_WAIT)
+        # Eden Code on its own (profile "code") doesn't use this connection: it's made when
+        # first needed (a request, or an Eden window joining), not one more Claude Code at start.
+        await self.connectors.start_all()
+        if self.poll:
+            if self.profile == "full":
+                self._spawn(self._briefing_clock())
+                self._spawn_eden_loops()
+            # Eden Code alone (profile "code"): what only Eden's own window has a use for
+            # (reading Mail, Messages and the calendar for heads-ups, the file index, the
+            # markets) waits for an Eden window (window_joined), as the second brain does.
+            stale = not self.kb.notes or not self.kb.clusters or self.kb.age_hours() > 24
+            if self._brain_sources_on() and stale:
+                self._spawn(self.rebuild_brain())
+            self._spawn(self._refresh_recent())
+            self._spawn(self._vitals_loop())
+            if self.profile == "full":
+                self._spawn_voice_loops()
+            if self.profile == "full":  # (CA2-15) Eden Code alone: built when first asked
+                self._spawn(self.hands_guard.probe.prepare())  # the accessibility probe, once
+            self._spawn(self.delegate.run())
+            self._spawn(self.answering.run())
+            self._spawn(self._routine_clock())
+            self._spawn(self._defense_loop())
+            self._spawn(self._plan_loop())
+            self._spawn(self._sysmon_loop())
+            self._spawn(self._awake_loop())
+            # Awake from the moment a session starts working (each change to the list),
+            # not up to the loop's next look (a turn under 5 s never kept the Mac awake).
+            self.add_event_sink(("tasks",), lambda _event: self._sync_awake())
+            self._spawn(self._number_gemini_starters())
+            for name, factory in self._loops:
+                if _code_profile_loop(name):  # (the rest: _spawn_eden_loops)
+                    self._spawn(self._feature_loop(name, factory))
+        await self._relay_if_needed()
+        # Hands steering the Mac: lets go of a held button if the window stops talking.
+        self._spawn(self.desktop_hands.watch(lambda e: self.emit("desktop_hands", **e)))
+        if self.prefs.remote_enabled:
+            await self.remote.start()
+        if self.profile == "full":
+            self._start_listening()
+
+    async def _first_connection(self) -> None:
+        """Eden's own Claude Code, connected the first time: carrying on the conversation from
+        before a restart when Settings says so (first_connect), else a new one."""
         try:
-            if self.first_connect is None or not await self.first_connect():
+            if getattr(self, "_connection_dropped", False):
+                # Let go when the last Eden window left Eden Code's backend (CH2-10): the
+                # same conversation again, not the one from before a restart.
+                self._connection_dropped = False
+                await self._reconnect()
+            elif self.first_connect is None or not await self.first_connect():
                 await self._connect()
         except Exception as exc:  # Claude Code won't start: the window still opens to fix it
             log.exception("couldn't start Claude Code")
@@ -1511,56 +1691,61 @@ class Hub:
                     "at": _now(),
                 }
             )
-        await self.connectors.start_all()
-        if self.poll:
-            self._spawn(self._poll_status())
-            if self.profile == "full":
-                self._spawn(self._briefing_clock())
-            stale = not self.kb.notes or not self.kb.clusters or self.kb.age_hours() > 24
-            if self._brain_sources_on() and stale:
-                self._spawn(self.rebuild_brain())
-            self._spawn(self._refresh_recent())
-            self._spawn(self._vitals_loop())
-            if self.profile == "full":
-                self._spawn_voice_loops()
-            self._spawn(self.hands_guard.probe.prepare())  # the accessibility probe, built once
-            self._spawn(self.shortcuts.refresh())
-            self._spawn(self.watcher.run())
-            self._spawn(self.interrupts.run())
-            self._spawn(self.suggester.run())
-            self._spawn(self.delegate.run())
-            self._spawn(self.answering.run())
+
+    def _connect_soon(self) -> asyncio.Task:
+        """The first connection, started once (in the background)."""
+        if self._connecting is None:
+            self._connecting = self._spawn(self._first_connection())
+        return self._connecting
+
+    async def _connection_ready(self) -> None:
+        """Wait for the first connection (starting it if nothing has yet)."""
+        first = self._connect_soon()
+        if first is asyncio.current_task() or first.done():
+            return
+        await asyncio.shield(first)
+
+    def _spawn_eden_loops(self) -> None:
+        """What only Eden's own window (the assistant) has a use for, started once: at start
+        for Eden's backend, when the first Eden window joins for one Eden Code started. The
+        status line's battery and next event, the proactive watcher, heads-ups from Mail and
+        Messages, suggestion cards, the file index, the Shortcuts list, the markets panel,
+        and the features' loops of that kind (EDEN_ONLY_LOOPS). They read the owner's
+        Mail, Messages, calendar and files on their own: someone with only Eden Code open
+        never asked for that. On a backend Eden Code started they stop again when the last
+        Eden window leaves (window_left), and start again with the next one (CA2-7)."""
+        if self._eden_loops or not self.poll:
+            return
+        self._eden_loops = [
+            self._spawn(self._poll_status()),
+            self._spawn(self.shortcuts.refresh()),
+            self._spawn(self.watcher.run()),
+            self._spawn(self.interrupts.run()),
+            self._spawn(self.suggester.run()),
             self._spawn(
                 fileindex.keep_fresh(
                     self.files,
                     enabled=lambda: self.prefs.file_index,
                     progress=self._files_progress,
                 )
-            )
-            self._spawn(self._routine_clock())
-            self._spawn(self._markets_loop())
-            self._spawn(self._defense_loop())
-            self._spawn(self._plan_loop())
-            self._spawn(self._sysmon_loop())
-            self._spawn(self._awake_loop())
-            self._spawn(self._number_gemini_starters())
-            for name, factory in self._loops:
+            ),
+            self._spawn(self._markets_loop()),
+            *(
                 self._spawn(self._feature_loop(name, factory))
-        await self._relay_if_needed()
-        # Hands steering the Mac: lets go of a held button if the window stops talking.
-        self._spawn(self.desktop_hands.watch(lambda e: self.emit("desktop_hands", **e)))
-        if self.prefs.remote_enabled:
-            await self.remote.start()
-        if self.profile == "full":
-            self._start_listening()
+                for name, factory in self._loops
+                if not _code_profile_loop(name)
+            ),
+        ]
 
-    def _spawn_voice_loops(self) -> None:
+    def _spawn_voice_loops(self) -> list[asyncio.Task]:
         """What only a voice assistant needs running: the speech player and its fillers,
         the location clock and the names hearing learns."""
-        self._spawn(self._prepare_player())
-        self._spawn(self._prepare_fillers())
-        self._spawn(self._location_loop())
-        self._spawn(self._hearing_names_loop())
+        return [
+            self._spawn(self._prepare_player()),
+            self._spawn(self._prepare_fillers()),
+            self._spawn(self._location_loop()),
+            self._spawn(self._hearing_names_loop()),
+        ]
 
     def _start_listening(self) -> None:
         if self.prefs.hands_free:
@@ -1582,19 +1767,20 @@ class Hub:
             fetching = False
         warm_up()
         if fetching and self.poll:
-            self._spawn(self._ears_notice(ears))
+            self._ears_task = self._spawn(self._ears_notice(ears))
 
     async def _ears_notice(self, ears: Any) -> None:
         first = (
             "Getting my hearing ready. The first time, I download a speech model, which takes "
             "a minute or two. I'll tell you when I can hear you."
         )
-        self.emit("toast", title="Speech", text=first)
+        # Eden's windows only: Eden Code's user never asked to be heard (CH3-10).
+        self.emit("toast", title="Speech", text=first, eden_only=True)
         self._say(first)
         for _ in range(EARS_WAIT_SECONDS // 2):
             await asyncio.sleep(2)
             if ears.loaded():
-                self.emit("toast", title="Speech", text="I can hear you now.")
+                self.emit("toast", title="Speech", text="I can hear you now.", eden_only=True)
                 self._say("I can hear you now.")
                 return
             if getattr(ears, "error", ""):
@@ -1602,7 +1788,7 @@ class Hub:
                     "I couldn't download my speech model. Check the internet connection, "
                     "then restart me."
                 )
-                self.emit("error", text=failed)
+                self.emit("error", text=failed, eden_only=True)
                 self._say(failed)
                 return
 
@@ -1614,10 +1800,17 @@ class Hub:
             self.profile = "full"
             log.info("a J.A.R.V.I.S. window joined Eden Code's backend: voice on")
             self._warm_up_ears()
+            self._connect_soon()  # the assistant's own connection, which Eden Code didn't need
             if self.poll:
-                self._spawn(self._briefing_clock())
-                self._spawn_voice_loops()
+                self._joined_voice = [self._spawn(self._briefing_clock()), *self._spawn_voice_loops()]
+                self._spawn_eden_loops()
+                self._spawn(self.hands_guard.probe.prepare())  # (built once; CA2-15)
+                deferred, self._brain_deferred = self._brain_deferred, None
+                if deferred:  # the second brain, which waited for an Eden window
+                    self._spawn(self.rebuild_brain(only=None if "*" in deferred else deferred))
             self._start_listening()
+            if self.voicecode.task is not None:  # voice coding was on: now it can hear (CH5)
+                self._spawn(self._prepare_code_listening(self.voicecode.task))
         self.emit("app_windows", windows=dict(self.app_windows), profile=self.profile)
 
     def window_left(self, app: str) -> None:
@@ -1626,9 +1819,95 @@ class Hub:
             self.app_windows[app] = left
         else:
             self.app_windows.pop(app, None)
+        if (
+            app == "jarvis"
+            and not self.app_windows.get("jarvis")
+            and self.profile == "full"
+            and os.environ.get("JARVIS_PROFILE") == "code"
+        ):
+            # The last J.A.R.V.I.S. window left a backend Eden Code started: back to Eden Code's
+            # profile, so someone with only Eden Code open is never listened to (window_joined
+            # woke these for that window).
+            self.profile = "code"
+            log.info("the last J.A.R.V.I.S. window left Eden Code's backend: voice off")
+            self._stop_listening()
+            for task in getattr(self, "_joined_voice", []):
+                task.cancel()
+            self._joined_voice = []
+            # (CA2-7) The Eden-only loops too (Mail and Messages heads-ups, the calendar
+            # watcher, the file index…): none of that reads on with only Eden Code open.
+            for task in self._eden_loops:
+                task.cancel()
+            self._eden_loops = []
+            # (CA3-11) A second-brain rebuild (reading Notes, Mail, Messages) stops too: its
+            # process is ended, and it runs again when the next Eden window joins.
+            brain = getattr(self, "_brain_task", None)
+            if brain is not None and not brain.done():
+                brain.cancel()
+            # (CH2-2) Nothing more is said: the "hearing ready" notice stops, and what was
+            # queued to speak is dropped (it would start the player again after this).
+            ears_task = getattr(self, "_ears_task", None)
+            if ears_task is not None:
+                ears_task.cancel()
+                self._ears_task = None
+            with contextlib.suppress(Exception):
+                self.speech.clear()
+            with contextlib.suppress(Exception):  # the speech player goes; a J.A.R.V.I.S. window starts it again
+                self.speaker.stop()
+                close_live = getattr(self.speaker, "close_live", None)
+                if close_live is not None:  # (CH2-1: one still starting goes too)
+                    close_live()
+                else:
+                    live = getattr(self.speaker, "_live", None)
+                    if live is not None:
+                        live.close()
+                        self.speaker._live = None
+            # (CH2-10) The assistant's own Claude Code goes too: the next request or Eden
+            # window connects again, carrying the conversation on.
+            if self._connecting is not None:
+                self._spawn(self._drop_connection())
         self.emit("app_windows", windows=dict(self.app_windows), profile=self.profile)
 
+    async def _drop_connection(self) -> None:
+        """The last Eden window left a backend Eden Code started: the assistant's Claude
+        Code (a `claude` process and its tool servers) disconnects, once any request under
+        way has ended. Nothing if an Eden window came back meanwhile."""
+        first = self._connecting
+        if first is None:
+            return
+        # A grace period first: an Eden window reloading (or closed and opened again) comes back
+        # within it and finds the client still there, instead of a ~107 MB `claude` stopped and
+        # started each time.
+        await asyncio.sleep(CLIENT_GRACE_SECONDS)
+        await asyncio.wait({first})  # one still being made finishes first (never cut mid-start)
+        async with self._lock:  # never under a request
+            if self.profile != "code" or self._connecting is not first:
+                return
+            client, self.client, self._connecting = self.client, None, None
+            self._connection_dropped = True
+            log.info("the last Eden window left Eden Code's backend: Claude disconnected")
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
+
+    def _stop_listening(self) -> None:
+        """Undoes _start_listening: the hands-free microphone and screen watching stop (the
+        settings stay as they are)."""
+        if self._listener is not None:
+            self._listener.stop()
+            self._listener = None
+            if self._heard is not None:
+                self._heard.put_nowait(None)
+            if self.state == "listening":
+                self.set_state("idle")
+        self.screen_watch.stop()
+
     async def _connect(self, resume: str = "") -> None:
+        first = self._connecting
+        if first is not None and not first.done() and first is not asyncio.current_task():
+            # The first connection is still being made (in the background, since start()):
+            # this one (a conversation switched, a reload) comes after it, never beside it.
+            await asyncio.shield(first)
         account_servers, account_allowed = self.connectors.build_servers()
         options = build_options(
             self.settings,
@@ -2277,7 +2556,15 @@ class Hub:
             return True
         if self.meeting is not None:
             return True
-        return any(t.get("status") in ("running", "waiting") for t in self.tasks.public())
+        if self.approvals:  # a card up (a session's permission or question): it would be lost
+            return True
+        # "waiting" is also every open session that's idle ("Waiting for you"): only one with
+        # messages queued (held back, on hold) has something a restart would cut off. Counting
+        # the idle ones kept quiet updates waiting for as long as any session was open (CH8).
+        return any(
+            t.get("status") == "running" or (t.get("status") == "waiting" and t.get("queued"))
+            for t in self.tasks.public()
+        )
 
     def remote_state(self) -> dict[str, Any]:
         return {
@@ -2707,7 +2994,9 @@ class Hub:
             return None
         return [(n, e) for n, e in self._recent if since < n <= until]
 
-    def emit(self, kind: str, **data: Any) -> None:
+    def emit(self, kind: str, *, eden_only: bool = False, **data: Any) -> None:
+        """Sends an event to every window. eden_only: not to Eden Code's, as the HUD's events
+        aren't (the assistant's own notices, such as its hearing getting ready: CH3-10)."""
         self.seq += 1
         event = Event({"type": kind, **data})
         event.seq = self.seq
@@ -2715,13 +3004,70 @@ class Hub:
             if len(self._recent) == self._recent.maxlen:
                 self._let_go = self._recent[0][0]
             self._recent.append((self.seq, event))
-        for queue in list(self._subscribers):
-            queue.put_nowait(event)
+        shown: Event | None = event
+        if kind == "tasks" and isinstance(data.get("items"), list):
+            # The windows get only the sessions that changed (the features' sinks, the list).
+            shown = self._tasks_patch(data["items"])
+            if shown is not None:
+                shown.seq = self.seq
+        hud = eden_only or kind in HUD_ONLY
+        for queue in list(self._subscribers) if shown is not None else ():
+            if hud and getattr(queue, "app", "") == "eden-code":
+                continue  # (its window hides the HUD, and isn't the assistant)
+            queue.put_nowait(shown)
             if queue.cut_off:  # stopped reading: no more events pile up for it
                 self.unsubscribe(queue)
         sinks = self._event_sinks.get(kind)
         if sinks:
             self._call_sinks(sinks, dict(event))
+
+    def emit_to_caller(self, kind: str, *, or_all: bool = False, **data: Any) -> None:
+        """An answer to the window command being handled (a terminal's replay, up to 700 KB;
+        a file's text; search results), sent to the window that asked, not to every window.
+        With no asking window known (a test, the phone, the hub's own work) it goes to all
+        of them, as emit does; when the window that asked has gone, to none, or with or_all
+        to all of them (an answer only the asking page's ref matches, which that page,
+        connected again, still waits for: a "!" command's end)."""
+        queue = CALLER.get()
+        if (
+            queue is None
+            or kind in REPLAYED
+            or kind == "tasks"
+            or (or_all and queue not in self._subscribers)
+        ):
+            self.emit(kind, **data)
+            return
+        self.seq += 1
+        event = Event({"type": kind, **data})
+        event.seq = self.seq
+        if queue in self._subscribers:
+            queue.put_nowait(event)
+            if queue.cut_off:
+                self.unsubscribe(queue)
+        sinks = self._event_sinks.get(kind)
+        if sinks:
+            self._call_sinks(sinks, dict(event))
+
+    def _tasks_patch(self, items: list[Any]) -> Event | None:
+        """The windows' copy of a "tasks" list: tasks_patch, with only the sessions that
+        changed since the last one (whole) and the ids of those gone; None when nothing did.
+        A window has them all from its snapshot and puts the list back together after each
+        (web/code-store.js createTasksPatcher). Fifty sessions were 45 KB per rename."""
+        sent = getattr(self, "_tasks_sent", {})  # (a list emitted while the hub is made)
+        now: dict[Any, str] = {}
+        changed = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            text = json.dumps(item, sort_keys=True, default=str)
+            now[item.get("id")] = text
+            if sent.get(item.get("id")) != text:
+                changed.append(item)
+        removed = [key for key in sent if key not in now]
+        self._tasks_sent = now
+        if not changed and not removed:
+            return None
+        return Event({"type": "tasks_patch", "items": changed, "removed": removed})
 
     def prefs_payload(self) -> dict[str, Any]:
         return {
@@ -2731,8 +3077,16 @@ class Hub:
             "languages": lang.languages_payload(),
         }
 
-    def snapshot(self) -> dict[str, Any]:
-        return {
+    def snapshot(self, app: str = "") -> dict[str, Any]:
+        """Everything a window shows, as it connects. Eden Code's (app "eden-code") is sent
+        without what only Eden's HUD shows (HUD_SNAPSHOT): 5 KB of markets, the system's
+        numbers, the status line's next event."""
+        hud = app != "eden-code"
+        # (CA2-11) A batched update of the sessions that's due goes now: the list in this
+        # snapshot is then what every window was last sent, so no later change is missed.
+        if getattr(self.tasks, "_changed_timer", None) is not None:
+            self.tasks._emit_changed()
+        snap = {
             "type": "hello",
             "hub_id": self.instance_id,
             "model": self.prefs.model_id(),
@@ -2747,7 +3101,7 @@ class Hub:
             "prefs": self.prefs_payload(),
             "brain": {**self.kb.summary(), **self.brain_state},
             "history": list(self.history),
-            "vitals": self.vitals(),
+            "vitals": self.vitals() if hud else None,
             "usage": self.usage_summary(),
             "defense": self.defense,
             "weather": self.weather,
@@ -2778,6 +3132,10 @@ class Hub:
             if self.meeting is not None
             else None,
         }
+        if not hud:
+            for key in HUD_SNAPSHOT:
+                del snap[key]
+        return snap
 
     def set_state(self, state: str) -> None:
         if state != self.state:
@@ -2831,6 +3189,17 @@ class Hub:
             self._voice_asked.pop(approval_id, None)
             self.emit("approval_resolved", id=approval_id)
             self._call_sinks(self._approval_done_sinks, approval_id)
+
+    def resolve_by_owner(self, approval_id: str, choice: str, feedback: str = "") -> bool:
+        """(CA3-4) An approval the owner answered themselves (a window's card, their voice,
+        the phone): its session counts them as there (user_at), so its next question during
+        quiet hours or a meeting is theirs to answer, not chosen for them."""
+        task_id = self.approvals.get(approval_id, {}).get("task_id")
+        ok = self.resolve(approval_id, choice, feedback)
+        task = self.tasks.tasks.get(task_id) if ok and task_id else None
+        if task is not None:
+            task.user_at = time.monotonic()
+        return ok
 
     def resolve(self, approval_id: str, choice: str, feedback: str = "") -> bool:
         """Answer an approval. A 'no' can carry what to do instead ('deny:<feedback>')."""
@@ -2956,7 +3325,7 @@ class Hub:
             self._reask(approval)
             return True
         log.info("approval answered by voice: %s", choice)
-        return self.resolve(approval["id"], choice, feedback)
+        return self.resolve_by_owner(approval["id"], choice, feedback)
 
     def _reask(self, approval: dict[str, Any]) -> None:
         """Put an open question (again): its answer didn't fit, or it was never said."""
@@ -3288,6 +3657,7 @@ class Hub:
                         self._alert_notes.clear()
                     self._claude_down, self._claude_said = "", ""
                     self._stale_signin = self._signin_retried = False
+                    await self._connection_ready()  # made in the background at start (or now)
                     if (
                         self._main_ref() != self._connected_ref
                     ):  # the fallback's time is up (or began)
@@ -3690,6 +4060,7 @@ class Hub:
     async def reset(self) -> None:
         await self.stop()
         async with self._lock:
+            await self._connection_ready()  # (never a second connection beside the first)
             with contextlib.suppress(Exception):
                 await self.client.disconnect()
             await self._connect()
@@ -3706,6 +4077,7 @@ class Hub:
         await asyncio.sleep(1.5)  # let a burst of changes settle
         async with self._lock:
             self._reload_pending = False
+            await self._connection_ready()
             await self._reconnect()
         self.emit("tools_reloaded", accounts=self.connectors.connected_names())
 
@@ -4396,7 +4768,7 @@ class Hub:
             return
         intent = slash_intent(name, rest)  # with what was typed after it: "/plan fix login"
         if intent is None:  # Claude Code's own or the project's custom command
-            self.tasks.send(task.id, text)
+            self.tasks.send(task.id, text, by_user=True)
             return
         await self.voicecode.handle(text, task=task, typed=True, intent=intent)
 
@@ -4465,8 +4837,9 @@ class Hub:
             titles = "; ".join(p["title"][:60] for p in past[:3])
             return f"I couldn't tell which. The latest are: {titles}."
         fresh = self.tasks.start(
-            "", str(task.cwd), mode=task.mode, resume=best["session_id"], title=best["title"]
-        )
+            "", str(task.cwd), mode=task.mode, resume=best["session_id"], title=best["title"],
+            by_user=True,
+        )  # fmt: skip
         self.voicecode.focus = fresh.id
         self.voicecode._changed()
         return f"Back in {best['title'][:80]}. What next?"
@@ -4526,6 +4899,10 @@ class Hub:
 
         # hotwords() looks at every file's age: off the event loop too.
         self._code_hotwords = await asyncio.to_thread(lambda: vocab_for(task.cwd).hotwords())
+        # Eden Code alone (profile "code") hears nothing hands-free: the ~480 MB model is fetched
+        # only where something listens (window_joined fetches it if voice focus is on then).
+        if self.profile != "full":
+            return
         if self._code_stt is None and hasattr(self.transcriber, "model_name"):  # not a test fake
             self._code_stt = Transcriber(
                 lang.whisper_model(self.language, NOTES_MODEL), self.language
@@ -4560,8 +4937,9 @@ class Hub:
         if path is None:
             return "Which project? " + ", ".join(tasks.projects())
         task = tasks.start(
-            await self.with_code_hints_for(path, request) if request else "", str(path)
-        )
+            await self.with_code_hints_for(path, request) if request else "", str(path),
+            by_user=True,
+        )  # fmt: skip
         self._spawn(self._prepare_code_listening(task))
         return self.voicecode.enter(task.id)
 
@@ -4601,12 +4979,20 @@ class Hub:
     async def rebuild_brain(self, only: set[str] | None = None) -> None:
         """Rebuild in a separate low-priority process (jarvis.brain_build), then reload.
         Doing it in here held Python's lock for minutes and stalled the voice loop."""
+        if self.profile == "code":
+            # Only Eden Code uses this backend: it never asked for the second brain (reading
+            # Notes, Mail, Messages), so that waits for an Eden window (window_joined).
+            self._brain_deferred = (self._brain_deferred or set()) | (only or {"*"})
+            return
         if self.brain_state["state"] == "building":
             # Asked while a rebuild runs (e.g. new meeting notes): do it once that's done.
             self._rebuild_again = (self._rebuild_again or set()) | (only or {"*"})
             return
         import sys
 
+        # (CA3-11) The rebuild running now: the last Eden window leaving Eden Code's backend
+        # cancels it (window_left), and what it was for waits for the next Eden window.
+        self._brain_task = asyncio.current_task()
         self._brain_status("building", "Starting…")
         args = {
             "store": str(self.kb.store),
@@ -4636,6 +5022,14 @@ class Hub:
             if not done and proc.returncode != 0:
                 raise RuntimeError(f"the rebuild stopped (exit {proc.returncode})")
             await asyncio.to_thread(self.kb.load)
+        except asyncio.CancelledError:
+            if self.profile == "code":  # (CA3-11) the last Eden window left: later, again
+                again, self._rebuild_again = self._rebuild_again, None
+                self._brain_deferred = (
+                    (self._brain_deferred or set()) | (only or {"*"}) | (again or set())
+                )
+                self._brain_status("idle", "")
+            raise
         except TimeoutError:
             log.warning("second brain: the rebuild ran past %ss; stopped", BRAIN_BUILD_SECONDS)
             self._brain_status("error", "the rebuild took too long, so it was stopped")
@@ -4827,9 +5221,18 @@ class Hub:
 
     async def _projects_overview(self) -> list[dict[str, Any]]:
         items = []
-        for name in self.tasks.projects():
-            path = self.tasks.project_path(name)  # (one from Settings › Projects too)
-            branch = await self._git(path, "rev-parse", "--abbrev-ref", "HEAD")
+        names = self.tasks.projects()
+        paths = [self.tasks.project_path(name) for name in names]  # (Settings › Projects too)
+        # Each project's branch, several gits at once (one after another, 30 projects took 6 s
+        # under load, at every window's start), in the list's order.
+        room = asyncio.Semaphore(8)
+
+        async def branch_of(path: Path) -> str:
+            async with room:
+                return await self._git(path, "rev-parse", "--abbrev-ref", "HEAD")
+
+        branches = await asyncio.gather(*(branch_of(path) for path in paths))
+        for name, path, branch in zip(names, paths, branches, strict=True):
             running = sum(
                 1
                 for t in self.tasks.tasks.values()
@@ -4854,12 +5257,19 @@ class Hub:
         branch = await self._git(path, "rev-parse", "--abbrev-ref", "HEAD")
         if not branch:
             return {"directory": directory, "git": False}
-        status = await self._git(path, "status", "--porcelain")
-        stat = await self._git(path, "diff", "--stat", "HEAD")
-        log_lines = await self._git(path, "log", "--oneline", "-8")
+        # (--no-optional-locks: a look never takes index.lock from the owner's own git.)
+        status, stat, log_lines = await asyncio.gather(  # (at once: none waits on another)
+            self._git(path, "--no-optional-locks", "status", "--porcelain"),
+            self._git(path, "-c", "diff.autoRefreshIndex=false", "diff", "--stat", "HEAD"),
+            self._git(path, "log", "--oneline", "-8"),
+        )
+        # (_git strips its output, and with it the first line's leading space: " M a.txt"
+        # came out as path ".txt". Each line's code, then its path, read either way.)
         files = [
-            {"status": line[:2].strip() or "?", "path": line[3:]}
-            for line in status.splitlines()[:200]
+            {"status": code.strip() or "?", "path": path.lstrip(" ")}
+            for code, _, path in (
+                line.lstrip().partition(" ") for line in status.splitlines()[:200]
+            )
         ]
         return {
             "directory": directory,
@@ -4945,7 +5355,10 @@ class Hub:
         folder = self._code_folder(msg)
         ref = str(msg.get("ref", ""))
         if not command or folder is None:
-            self.emit("task_bash", ref=ref, command=command, output="No project folder.", code=-1)
+            self.emit_to_caller(
+                "task_bash", or_all=True, ref=ref, command=command, output="No project folder.",
+                code=-1,
+            )  # fmt: skip
             return
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -4957,7 +5370,9 @@ class Hub:
                 start_new_session=True,
             )
         except OSError as exc:  # the folder went away: the window's "Running…" still ends
-            self.emit("task_bash", ref=ref, command=command, output=str(exc), code=-1)
+            self.emit_to_caller(
+                "task_bash", or_all=True, ref=ref, command=command, output=str(exc), code=-1
+            )
             return
 
         async def finish() -> str:
@@ -4976,7 +5391,11 @@ class Hub:
             output = f"(stopped after {BASH_SECONDS} seconds)"
         if len(output) > BASH_OUTPUT:
             output = "…" + output[-BASH_OUTPUT:]
-        self.emit("task_bash", ref=ref, command=command, output=output, code=proc.returncode)
+        # (CA2-5) Only the window that ran it: its output is nobody else's next message.
+        self.emit_to_caller(
+            "task_bash", or_all=True, ref=ref, command=command, output=output,
+            code=proc.returncode,
+        )  # fmt: skip
 
     def task_memory(self, msg: dict[str, Any]) -> None:
         """ "# always use pnpm" in the composer: a line in the project's CLAUDE.md, which
@@ -6099,7 +6518,7 @@ class Hub:
         """Every two seconds while a window is open: the charts' numbers, and the tab on
         show in full while the pop-out is open."""
         while True:
-            if self._subscribers:
+            if self._hud_watched():
                 try:
                     await asyncio.to_thread(self.sysmon.sample)
                     if self._sysmon_tab:
@@ -6761,6 +7180,11 @@ class Hub:
 
     async def _handle(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
+        if isinstance(kind, str) and kind.startswith(_CODE_KINDS):
+            msg = _typed_fields(msg)
+            if msg is None:  # (CA3-7) a list or an object where text goes: refused, not str()-ed
+                self.emit_to_caller("error", text=ODD_FIELD)
+                return
         for handler in self._commands.get(kind, ()) if isinstance(kind, str) else ():
             result = handler(msg)  # a feature module's command (register_command)
             if asyncio.iscoroutine(result):
@@ -6810,7 +7234,9 @@ class Hub:
         elif kind == "stop":
             await self.stop()
         elif kind == "approve":
-            self.resolve(str(msg.get("id")), str(msg.get("choice")), str(msg.get("feedback", "")))
+            self.resolve_by_owner(
+                str(msg.get("id")), str(msg.get("choice")), str(msg.get("feedback", ""))
+            )
         elif kind == "alert_reaction":  # an interruption's card: "opened" or "dismissed"
             key, action = str(msg.get("key") or ""), str(msg.get("action") or "")
             self.interrupts.card_reaction(key, action)
@@ -6873,20 +7299,24 @@ class Hub:
             self.tasks.cancel(_msg_int(msg, "id"))
         elif kind == "task_new":
             known = set(self.tasks.tasks)
+            prompt = str(msg.get("prompt") or "")
+            if why := _too_long(prompt):
+                self.emit_to_caller("error", text=why)
+                return
+            # (null or another type is no folder, never the folder called "None")
+            directory = msg["directory"] if isinstance(msg.get("directory"), str) else ""
             try:
                 # A new session starts as the composer was set (Settings › Eden Code), or as
                 # its project's own defaults say (a resumed one: as it last ran).
-                own = self.tasks.defaults_for(
-                    str(msg.get("directory", "")), str(msg.get("session_id", ""))
-                )
+                own = self.tasks.defaults_for(directory, str(msg.get("session_id") or ""))
                 ref = str(msg.get("model") or own.get("model") or self.prefs.code_model or "")
                 cfg = self._model_config(ref)
                 task = self.tasks.start(
-                    str(msg.get("prompt", "")),
-                    str(msg.get("directory", "")),
+                    prompt,
+                    directory,
                     mode=str(msg.get("mode") or own.get("mode") or self.prefs.code_mode or "ask"),
-                    resume=str(msg.get("session_id", "")),
-                    title=str(msg.get("title", "")),
+                    resume=str(msg.get("session_id") or ""),
+                    title=" ".join(str(msg.get("title") or "").split())[:100].rstrip(),  # as a rename
                     model=cfg["model"] or "",
                     model_label=cfg["label"] if cfg["model"] else "",
                     model_ref=cfg["ref"],
@@ -6899,26 +7329,25 @@ class Hub:
                         msg.get("ultracode", own.get("ultracode", self.prefs.code_ultracode))
                     ),
                     images=self._attachments(msg),
-                    add_dirs=[
-                        str(d) for d in (msg.get("add_dirs") or own.get("add_dirs") or [])[:10]
-                    ],
-                    plugins=[str(d) for d in (msg.get("plugins") or own.get("plugins") or [])[:10]],
+                    add_dirs=_msg_strs(msg.get("add_dirs")) or _msg_strs(own.get("add_dirs")),
+                    plugins=_msg_strs(msg.get("plugins")) or _msg_strs(own.get("plugins")),
                     # The composer's "Isolated copy" switch; absent, the owner's default.
                     isolate=msg["isolated"] if isinstance(msg.get("isolated"), bool) else None,
+                    by_user=True,  # (a window's or the phone's: the owner's own)
                 )
             except ValueError as exc:
-                self.emit("error", text=str(exc))
+                self.emit_to_caller("error", text=str(exc))
             else:
                 if task.id in known:  # that session is already open: show it, never a copy
                     self.emit("show_session", id=task.id)
         elif kind == "task_add_dir":
             problem = self.tasks.add_dir(_msg_int(msg, "id"), str(msg.get("directory", "")))
             if problem:
-                self.emit("error", text=problem)
+                self.emit_to_caller("error", text=problem)
         elif kind == "task_add_plugin":
             problem = self.tasks.add_plugin(_msg_int(msg, "id"), str(msg.get("directory", "")))
             if problem:
-                self.emit("error", text=problem)
+                self.emit_to_caller("error", text=problem)
         elif kind == "task_mcp_toggle":
             self.tasks.set_mcp(
                 _msg_int(msg, "id"), str(msg.get("name", "")), bool(msg.get("enabled"))
@@ -6938,16 +7367,21 @@ class Hub:
         elif kind == "task_unqueue":
             self.tasks.unqueue(_msg_int(msg, "id"), _msg_int(msg, "item"))
         elif kind == "task_send":
+            text = str(msg.get("text") or "")
+            if why := _too_long(text):  # (the window says so first, and keeps it)
+                self.emit_to_caller("error", text=why)
+                return
             self.tasks.send(
                 _msg_int(msg, "id"),
-                str(msg.get("text", ""))[:20000],
+                text,
                 self._attachments(msg),
                 plain=msg.get("plain") is True,  # the window's own wording (/init, /review)
                 steer=msg["steer"] if isinstance(msg.get("steer"), bool) else None,
+                by_user=True,
             )
         elif kind == "task_audit":  # the session's permission decisions, for Activity
             task_id = _msg_int(msg, "id")
-            self.emit("task_audit", id=task_id, items=self.tasks.audit_of(task_id))
+            self.emit_to_caller("task_audit", id=task_id, items=self.tasks.audit_of(task_id))
         elif kind == "task_steer":  # a waiting message, into the running step now
             self.tasks.steer_queued(_msg_int(msg, "id"), _msg_int(msg, "item"))
         elif kind == "slash_list":
@@ -6959,7 +7393,7 @@ class Hub:
             except ValueError:
                 return
             items = await asyncio.to_thread(catalog, project)
-            self.emit("slash_list", directory=str(msg.get("directory", "")), items=items)
+            self.emit_to_caller("slash_list", directory=str(msg.get("directory", "")), items=items)
         elif kind == "task_model":
             await self._task_model(_msg_int(msg, "id"), str(msg.get("ref", "")))
         elif kind.startswith("providers_"):
@@ -6977,28 +7411,31 @@ class Hub:
         elif kind == "task_effort":
             self.tasks.set_effort(_msg_int(msg, "id"), str(msg.get("effort", "")))
         elif kind == "task_export":
-            try:
-                path = self.tasks.export(_msg_int(msg, "id"))
+            try:  # (a long session's record is read whole: off the event loop)
+                path = await asyncio.to_thread(self.tasks.export, _msg_int(msg, "id"))
             except OSError as exc:  # a full disk, Documents not writable: say so
-                self.emit("caption", text=f"Couldn't save the transcript: {exc.strerror or exc}")
+                self.emit_to_caller(  # (CA3-8) the asking window
+                    "caption", text=f"Couldn't save the transcript: {exc.strerror or exc}"
+                )
                 return
             if path is not None:
-                self.emit("caption", text=f"Saved the transcript to {path.name}.")
+                self.emit_to_caller("caption", text=f"Saved the transcript to {path.name}.")
                 self._spawn(self._quiet(mac_tools.run_command("open", "-R", str(path))))
         elif kind == "task_mcp":
             task_id = _msg_int(msg, "id")
             task = self.tasks.tasks.get(task_id)
             live = task is not None and task.client is not None  # its servers run with it
             servers = await self.tasks.mcp_status(task_id)
-            self.emit("task_mcp", id=task_id, servers=servers, connected=live)
+            self.emit_to_caller("task_mcp", id=task_id, servers=servers, connected=live)
         elif kind == "task_bg_stop":
             await self.tasks.stop_background(_msg_int(msg, "id"), str(msg.get("bg", "")))
         elif kind == "task_rules":
             task = self.tasks.tasks.get(_msg_int(msg, "id"))
             if task is not None:
+                folder = self.tasks.rule_folder(task)  # (a copy's: its project's)
                 if msg.get("remove"):
-                    self.tasks.rules.remove(task.cwd, str(msg["remove"]))
-                self.emit("task_rules", id=task.id, rules=self.tasks.rules.for_project(task.cwd))
+                    self.tasks.rules.remove(folder, str(msg["remove"]))
+                self.emit("task_rules", id=task.id, rules=self.tasks.rules.for_project(folder))
         elif kind == "task_diff":
             task = self.tasks.tasks.get(_msg_int(msg, "id"))
             if task is not None:
@@ -7009,15 +7446,30 @@ class Hub:
                 self.emit("caption", text=await self._revert_file(task, str(msg.get("path", ""))))
                 self.emit("task_diff", id=task.id, files=await self._diff_files(task))
         elif kind == "project_files":
-            from .code_vocab import vocab_for
+            from .code_vocab import FILES_CHANGED_SECONDS, FILES_FRESH_SECONDS
+            from .code_vocab import FILES_QUERY_SECONDS, vocab_for
 
             try:
                 path = self.tasks.resolve_dir(str(msg.get("directory", "")))
             except ValueError:
                 return
-            vocab = await asyncio.to_thread(vocab_for, path)
-            self.emit(
-                "project_files", directory=str(msg.get("directory", "")), files=vocab.files[:6000]
+            # The first 6,000 and how many there are; with a query, the ones among all of
+            # them whose path has it (the window adds them to its list). The list is read
+            # again when it's a few seconds old, or at once when the window knows files changed
+            # (fresh: a turn ended, a "!" ran) (CF2-5: files made since were never listed).
+            query = str(msg.get("query") or "")[:200]
+            within = FILES_QUERY_SECONDS if query else FILES_FRESH_SECONDS
+            if not query and msg.get("fresh") is True:
+                within = FILES_CHANGED_SECONDS
+            vocab = await asyncio.to_thread(vocab_for, path, within)
+            found = await asyncio.to_thread(vocab.find, query) if query else vocab.files[:6000]
+            # To the window that asked (up to 6,000 paths): another asks for its own.
+            self.emit_to_caller(
+                "project_files",
+                directory=str(msg.get("directory", "")),
+                files=found,
+                total=len(vocab.all_files),
+                **({"query": query} if query else {}),
             )
         elif kind == "task_interrupt":
             await self.tasks.interrupt(_msg_int(msg, "id"))
@@ -7025,9 +7477,12 @@ class Hub:
             self.tasks.set_mode(_msg_int(msg, "id"), str(msg.get("mode", "")))
         elif kind == "task_transcript":
             task_id = _msg_int(msg, "id")
-            self.emit("task_transcript", id=task_id, entries=self.tasks.transcript(task_id))
-        elif kind == "claude_projects":
-            self.emit("claude_projects", items=await self._projects_overview())
+            # (CA2-9) The window that asked: up to 40 MB, never to every window again.
+            self.emit_to_caller(
+                "task_transcript", id=task_id, entries=self.tasks.transcript(task_id)
+            )
+        elif kind == "claude_projects":  # (CA3-8: answers the asking window)
+            self.emit_to_caller("claude_projects", items=await self._projects_overview())
         elif kind == "project_git":
             self.emit("project_git", **await self._git_status(str(msg.get("directory", ""))))
         elif kind == "claude_sessions":
@@ -7187,7 +7642,9 @@ class Hub:
         elif kind == "task_context":
             usage = await self.tasks.context_usage(_msg_int(msg, "id"))
             if usage:
-                self.emit("task_context", id=_msg_int(msg, "id"), **usage)
+                self.emit_to_caller("task_context", id=_msg_int(msg, "id"), **usage)
+            elif _msg_int(msg, "id") in self.tasks.tasks:  # not running: nothing to measure
+                self.emit_to_caller("task_context", id=_msg_int(msg, "id"), closed=True)
         elif kind == "task_undo":
             self.emit("caption", text=await self.tasks.undo(_msg_int(msg, "id")))
         elif kind == "voicecode_start":
@@ -7381,7 +7838,7 @@ class Hub:
         internet every thirty seconds, while a window is watching."""
         checked = -1e9
         while True:
-            if self._subscribers:
+            if self._hud_watched():
                 if time.monotonic() - checked > 600:
                     shields, link = await asyncio.gather(
                         asyncio.to_thread(defense.read_shields),
@@ -7395,9 +7852,13 @@ class Hub:
 
     async def _vitals_loop(self) -> None:
         while True:
-            if self._subscribers:
+            if self._hud_watched():
                 self.emit("vitals", **self.vitals())
             await asyncio.sleep(3)
+
+    def _hud_watched(self) -> bool:
+        """Whether a window that shows the HUD (HUD_ONLY) is open: any but Eden Code's."""
+        return any(getattr(q, "app", "") != "eden-code" for q in self._subscribers)
 
     async def _refresh_location(self) -> None:
         if not self.prefs.use_location:

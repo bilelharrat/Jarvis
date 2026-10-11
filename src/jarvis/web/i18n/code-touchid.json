@@ -3,7 +3,13 @@
     "Safety": "安全",
     "Touch ID for Bypass and risky steps": "绕过权限和有风险的步骤使用触控 ID",
     "Switching to Bypass permissions, and allowing a step that deletes, pushes, publishes or runs as root, asks for your fingerprint. Without Touch ID, it asks you to confirm.": "切换到绕过权限，以及允许会删除、推送、发布或以 root 身份运行的步骤时，会要求验证你的指纹。没有触控 ID 时，会请你确认。",
-    "This step can’t easily be undone, or reaches past this Mac. Allow it?": "这一步不容易撤销，或者会影响到这台 Mac 以外。要允许吗？"
+    "This step can’t easily be undone, or reaches past this Mac. Allow it?": "这一步不容易撤销，或者会影响到这台 Mac 以外。要允许吗？",
+    "Bypass permissions needs your fingerprint on the Mac first.": "绕过权限需要先在 Mac 上验证你的指纹。",
+    "Starting sessions in Bypass permissions needs your fingerprint on the Mac first.": "让会话以绕过权限开始，需要先在 Mac 上验证你的指纹。",
+    "Turning off Touch ID for Eden Code needs your fingerprint on the Mac first.": "关闭 Eden Code 的触控 ID，需要先在 Mac 上验证你的指纹。",
+    "Taking a Bypass session out of the sandbox needs your fingerprint on the Mac first.": "让绕过权限的会话离开沙盒，需要先在 Mac 上验证你的指纹。",
+    "Bypass permissions can't be turned on from the phone: switch to it on the Mac.": "不能从手机开启绕过权限：请在 Mac 上切换。",
+    "Turn off Touch ID for Bypass and risky steps?": "要关闭绕过权限和有风险步骤的触控 ID 吗？"
   },
   "patterns": []
 }

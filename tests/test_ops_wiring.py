@@ -162,7 +162,7 @@ async def test_setup_shows_by_itself_only_on_a_fresh_install(
     await hub._handle({"type": "ops_state"})
     state = await queue.next("ops_state")
     assert state["setup"] == {"state": "pending", "show": True}
-    # Kept: quitting half way through shows it again next time.
+    # Kept until a window has shown it: the window marks it seen as it opens (intro.js), so it shows once.
     saved = json.loads((tmp_path / "prefs.json").read_text())
     assert saved["features"]["ops_setup_state"] == "pending"
     await hub._handle({"type": "ops_setup", "state": "skipped"})

@@ -559,10 +559,11 @@
   setInterval(() => {
     if (sheet && !sheet.hidden && esyncNode.isConnected && esync && esync.state === 'on') send({ type: 'account_esync' });
   }, 6000);
+  let askedAt = 0;
   if (sheet) {
     new MutationObserver(() => {
-      if (sheet.hidden) return;
-      send({ type: 'account' });
+      if (sheet.hidden || Date.now() - askedAt < 30_000) return;  // (once in 30 s, however often it's opened)
+      if (send({ type: 'account' }) !== false) askedAt = Date.now();
       if (status && status.linked) send({ type: 'account_esync' });
     })
       .observe(sheet, { attributes: true, attributeFilter: ['hidden'] });

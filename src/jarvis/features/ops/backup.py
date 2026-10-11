@@ -191,7 +191,7 @@ def create(
     if not files:
         raise NothingToBackUp("There's nothing to back up yet.")
     now = clock()
-    target = _unique(dest, f"Jarvis backup {_stamp(now)}{SUFFIX[kind]}")
+    target = _unique(dest, f"Eden backup {_stamp(now)}{SUFFIX[kind]}")
     partial = target.with_name(f".{target.name}.part")
     rows: list[dict[str, Any]] = []
     total = 0

@@ -212,7 +212,7 @@ let legacySeq = 0;
  * for the range it was asked → normalized events (read-only: that Jarvis can't change events).
  */
 export function parseLegacyText(text, rangeStart, rangeEnd) {
-  const t = String(text || '').replace(/^\(From the owner's Jarvis:[^)]*\)\s*/, '').trim();
+  const t = String(text || '').replace(/^\(From the owner's (?:Jarvis|Eden)[^:)]*:[^)]*\)\s*/, '').trim();
   if (!t || /^Nothing on the calendar/i.test(t)) return { calendars: [], events: [] };
   const calendars = new Map();
   const events = [];

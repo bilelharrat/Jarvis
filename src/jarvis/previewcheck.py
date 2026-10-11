@@ -113,14 +113,24 @@ def note_text(findings: list[Finding], url: str = "", limit: int = NOTE_CHARS) -
     return f"{head}\n\n<check-output>\n{body}\n</check-output>\n{tail}"
 
 
-def summary(findings: list[Finding], checked_page: bool, checked: bool = True) -> str:
-    """The transcript entry's text (what an export or another reader sees)."""
+def summary(
+    findings: list[Finding],
+    checked_page: bool,
+    checked: bool = True,
+    page_missed: str = "",
+    others: bool = False,
+) -> str:
+    """The transcript entry's text (what an export or another reader sees). page_missed:
+    why the page couldn't be looked at; others: the checkers or tests were looked at."""
     what = "Preview check" if checked_page else "Checks"
     if not checked:
         return "Nothing to check yet."
+    if page_missed and not findings and not others:
+        return f"Preview check: the page wasn't checked. {page_missed}"
+    missed = " The page wasn't checked." if page_missed else ""
     if not findings:
-        return f"{what}: no problems."
-    return f"{what}: {len(findings)} problem{'s' if len(findings) != 1 else ''}."
+        return f"{what}: no problems.{missed}"
+    return f"{what}: {len(findings)} problem{'s' if len(findings) != 1 else ''}.{missed}"
 
 
 def thumb(data: Any) -> str:

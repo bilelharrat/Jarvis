@@ -5,11 +5,7 @@
 import { looksLikeClaudeZip, isClaudeChat } from './import-claude-model.js';
 import { geminiActivityEntries, looksLikeActivity } from './import-gemini-model.js';
 
-export const SOURCES = {
-  chatgpt: { label: 'ChatGPT', file: 'the .zip from ChatGPT', steps: [['In ChatGPT, open ', 'Settings › Data controls › Export data', '.'], ['ChatGPT emails you a link. Download the .zip.'], ['Drop it below. (A bare conversations.json works too.)']] },
-  claude: { label: 'Claude', file: 'the .zip from Claude', steps: [['In Claude, open ', 'Settings › Privacy › Export data', '.'], ['Claude emails you a link. Download the .zip.'], ['Drop it below. (A bare conversations.json works too.) Projects become folders; memories you can review.']] },
-  gemini: { label: 'Gemini', file: 'the Takeout .zip, or MyActivity.json', steps: [['Open ', 'takeout.google.com', ', choose ', 'Deselect all', ', then tick ', 'My Activity', '.'], ['Under “All activity data included”, keep only ', 'Gemini Apps', ' (JSON is best; HTML works). Export, then download the .zip.'], ['Drop the .zip or its MyActivity.json below. Google doesn’t keep which prompts were one chat: prompts less than 30 minutes apart become one.']] },
-};
+export { SOURCES, importSource, importLabel } from './import-label.js'; // names and steps: their own small module (app.js's sidebar)
 
 /** The source a zip's file list is from, or '' when it isn't an export Eden knows. */
 export function sourceOfZip(entries) {
@@ -27,7 +23,3 @@ export function sourceOfItem(first) {
   if (looksLikeActivity(first)) return 'gemini';
   return '';
 }
-
-/** Which source an imported conversation came from ('' for Eden's own). */
-export const importSource = (c) => (c && (c.source === 'chatgpt' || c.source === 'claude' || c.source === 'gemini') ? c.source : '');
-export const importLabel = (c) => { const s = importSource(c); return s ? SOURCES[s].label : ''; };

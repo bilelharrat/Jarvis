@@ -12,12 +12,12 @@ import { api, postJSON } from './api.js';
 import { state } from './state.js';
 import { routeSettings } from './router.js';
 import { renderMarkdown } from './markdown.js';
-import { openCalendar } from './calendar.js';
+import { openCalendar } from './mail-lazy.js'; // loads the calendar on first use
 import { openMemory } from './memory.js';
 import { openSpace } from './panels.js';
 import { locale, isFr, t, replyLanguageNote } from './i18n.js';
 
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's (?:Jarvis|Eden)[^:)]*:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 const LEAD_MS = 10 * 60_000; // prep is offered this long before a meeting
 const EVENTS_EVERY_MS = 5 * 60_000; // the prep timer re-reads today's calendar this often
@@ -37,7 +37,9 @@ const S = {
   expanded: new Map(), // `${kind}:${id}` → { state, text }
   settingsOpen: false,
 };
-const P = { events: [], day: '', fetchedAt: 0, timer: null, offerEl: null, offered: new Set(store.get(KEYS.offered, [])) };
+const P = { events: [], day: '', fetchedAt: 0, fails: 0, retryAt: 0, noMac: false, asking: false, timer: null, offerEl: null, offered: new Set(store.get(KEYS.offered, [])) };
+const BACKOFF_MAX_MS = 15 * 60_000; // a failing look waits 1, 2, 4, 8, then 15 minutes (AI2-2)
+const NO_MAC_MS = 60 * 60_000; // askeden.com with no Mac linked: looked at again hourly, or when a Mac answers
 let R = {};
 
 const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -471,18 +473,40 @@ function renderSettings() {
 
 function rememberEvents(events, day) {
   P.events = (events || []).filter((e) => e.prep);
-  P.day = day;
+  P.day = day || localDay();
   P.fetchedAt = Date.now();
+  P.noMac = false;
 }
+/**
+ * Today's meetings, read again every 5 minutes. A failure (no Mac answering: 503) waits longer each time, 1 minute
+ * up to 15 (AI2-2: it was asked again every 30 s). On askeden.com with no Mac linked, the Worker answers an empty day
+ * itself (no `sources`, which the Mac's answer has): nothing to do, so the next look is an hour later (5 minutes once
+ * a Mac answers Eden's status look).
+ */
 async function refreshEvents() {
-  if (P.day === localDay() && Date.now() - P.fetchedAt < EVENTS_EVERY_MS) return;
-  P.fetchedAt = Date.now(); // a failure waits as long as a success
-  const r = await postJSON('/api/chat/brief', { kind: 'events', day: localDay(), tzOffset: new Date().getTimezoneOffset() });
-  rememberEvents(r.events, r.day);
+  const now = Date.now();
+  if (P.asking || now < P.retryAt) return;
+  if (P.day === localDay() && now - P.fetchedAt < (P.noMac && !state.jarvis.available ? NO_MAC_MS : EVENTS_EVERY_MS)) return;
+  P.fetchedAt = now;
+  P.asking = true;
+  let r;
+  try {
+    r = await postJSON('/api/chat/brief', { kind: 'events', day: localDay(), tzOffset: new Date().getTimezoneOffset() });
+  } catch (e) {
+    P.fails += 1;
+    P.retryAt = Date.now() + Math.min(BACKOFF_MAX_MS, TICK_MS * 2 ** P.fails);
+    throw e;
+  } finally { P.asking = false; }
+  P.fails = 0;
+  P.retryAt = 0;
+  rememberEvents(r && r.events, r && r.day);
+  P.noMac = !!(state.meta && state.meta.hosted) && !(r && r.sources);
 }
 const offerKey = (e) => `${e.source}|${e.id}|${e.start}`;
 async function tickPrep() {
   if (!prepOn()) return;
+  // nothing to show while the page is hidden; the heads-up to the iPhone (if on) still goes, as before
+  if (typeof document !== 'undefined' && document.hidden && !(store.get(KEYS.push, false) && state.jarvis.available)) return;
   try { await refreshEvents(); } catch { return; }
   const now = Date.now();
   for (const e of P.events) {
@@ -514,10 +538,16 @@ function offer(e) {
   P.offerEl = card;
   setTimeout(() => { if (P.offerEl === card) close(); }, LEAD_MS + 5 * 60_000);
 }
+let seenAgain = false;
 function startPrepTimer() {
   clearInterval(P.timer);
   P.timer = setInterval(tickPrep, TICK_MS);
   setTimeout(tickPrep, 4000);
+  // back on the page: a meeting that came close meanwhile is offered at once, not up to 30 s later
+  if (!seenAgain && typeof document !== 'undefined' && document.addEventListener) {
+    seenAgain = true;
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && prepOn()) tickPrep(); });
+  }
 }
 
 export function initBrief(handlers) {

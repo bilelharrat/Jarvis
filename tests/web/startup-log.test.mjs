@@ -70,21 +70,24 @@ test('the tail keeps what the engine said last, a few lines of it', () => {
 
 function runLoading(search) {
   const nodes = {
-    message: { textContent: 'Waking up Jarvis…', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } },
+    message: { textContent: 'Waking up Eden…', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } },
     note: { textContent: '' },
     detail: { textContent: '', hidden: true },
   };
   const classes = new Set();
-  const document = { title: 'Jarvis', body: { classList: { add: (c) => classes.add(c) } }, getElementById: (id) => nodes[id] };
+  const document = { title: 'Eden', body: { classList: { add: (c) => classes.add(c) } }, getElementById: (id) => nodes[id] };
   const window = {};
   vm.runInNewContext(appFile('loading.js'), { URLSearchParams, location: { search }, document, window });
   return { nodes, classes, document, window };
 }
 
-test('the waiting window is J.A.R.V.I.S.\'s unless an app says otherwise', () => {
+test('the waiting window is Eden\'s unless an app says otherwise', () => {
+  const html = appFile('loading.html');
+  assert.match(html, /<title>Eden<\/title>/);
+  assert.match(html, />Waking up Eden…<\/p>/);
   const { nodes, classes, document } = runLoading('?app=jarvis');
-  assert.equal(nodes.message.textContent, 'Waking up Jarvis…');
-  assert.equal(document.title, 'Jarvis');
+  assert.equal(nodes.message.textContent, 'Waking up Eden…');
+  assert.equal(document.title, 'Eden');
   assert.equal(classes.size, 0);
 });
 
@@ -300,4 +303,144 @@ test('every edition opens with the boot-up sound, once, and never when it starts
   assert.match(main, /\.boot_sound !== false/);
   assert.match(main, /hidden \|\| DEV_URL \? \{ quiet: '1' \}/);
   assert.match(appFile('scripts/release/windows.js'), /'\*\.wav'/);
+});
+
+test('the backend\'s token never reaches app.log, the problem screen or its URL (CH3)', () => {
+  const { redact } = require('../../app/startup-log.js');
+  const token = 'ab12'.repeat(12);
+  const said = `JARVIS listening on http://127.0.0.1:51234/?token=${token}\nJARVIS_TOKEN=${token} in env\nTraceback: boom`;
+  assert.doesNotMatch(redact(said), new RegExp(token));
+  assert.match(redact(said), /\?token=…/);
+  assert.match(redact(said), /Traceback: boom/);
+  // the tail (what the problem screen and its ?detail= show) and the trace (app.log)
+  const tail = createTail(200);
+  tail.add('x'.repeat(150));
+  tail.add(`\nJARVIS listening on http://127.0.0.1:5/?tok`);
+  tail.add(`en=${token}\n`);
+  assert.doesNotMatch(tail.last(), new RegExp(token));
+  // cut off mid-line by the tail's own trimming: a bare token is hidden too
+  const cut = createTail(60);
+  cut.add(`${'y'.repeat(70)}\nlistening on http://127.0.0.1:5/?token=${token}\n`);
+  cut.add('z'.repeat(40));
+  assert.doesNotMatch(cut.last(), new RegExp(token.slice(-24)));
+  const dir = temp();
+  const trace = createTrace(path.join(dir, 'app.log'));
+  trace.write(`the engine stopped; it last said:\n${said}`);
+  trace.write(`page loaded: http://127.0.0.1:5/?token=${token}&app=code`);
+  assert.doesNotMatch(readFileSync(path.join(dir, 'app.log'), 'utf8'), new RegExp(token));
+});
+
+test('after three stops the problem screen offers Try again, which asks main for a fresh start (CH7)', () => {
+  const sent = [];
+  const make = () => {
+    const retry = { hidden: true, disabled: false, listeners: {}, addEventListener(ev, fn) { this.listeners[ev] = fn; } };
+    const nodes = {
+      message: { textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } },
+      note: { textContent: '' }, detail: { textContent: '', hidden: true }, retry,
+    };
+    const document = { title: 'Eden', body: { classList: { add() {} } }, getElementById: (id) => nodes[id] };
+    const window = { jarvisApp: { feature: { send: (ch) => sent.push(ch) } } };
+    return { nodes, document, window };
+  };
+  const run = (search) => {
+    const ctx = make();
+    vm.runInNewContext(appFile('loading.js'), { URLSearchParams, location: { search }, document: ctx.document, window: ctx.window });
+    return ctx.nodes.retry;
+  };
+  const shown = run(`?app=eden-code&error=${encodeURIComponent('The backend stopped (exit 2) three times in five minutes.')}&retry=1`);
+  assert.equal(shown.hidden, false);
+  shown.listeners.click();
+  assert.deepEqual(sent, ['feature:app:retry']);
+  assert.equal(shown.disabled, true);
+  assert.equal(run('?app=eden-code&error=Oops').hidden, true); // only where main asks for it
+  assert.equal(run('?app=eden-code').hidden, true);
+  assert.match(appFile('loading.html'), /<button id="retry" type="button" hidden>Try again<\/button>/);
+  const main = appFile('main.js');
+  assert.match(main, /ipcMain\.on\('feature:app:retry'/);
+  assert.match(main, /\{ retry: true \}\);/);
+  // every restart takes a fresh port
+  const restart = main.slice(main.indexOf('function restartBackend('), main.indexOf('function waitForBackend('));
+  assert.match(restart, /port = await freePort\(\)/);
+  assert.match(restart, /The folder it runs from is missing/);
+});
+
+test('two copies writing one app.log read apart: each line carries its pid (CH20)', () => {
+  const dir = temp();
+  const file = path.join(dir, 'app.log');
+  let clock = Date.parse('2026-10-09T04:00:00.000Z');
+  createTrace(file, { now: () => clock, pid: 4242 }).write('started');
+  createTrace(file, { now: () => clock, pid: 4343 }).write('started too');
+  assert.deepEqual(readFileSync(file, 'utf8').trim().split('\n'),
+    ['2026-10-09T04:00:00.000Z +0.0s [4242] started', '2026-10-09T04:00:00.000Z +0.0s [4343] started too']);
+  const main = appFile('main.js');
+  assert.match(main, /createTrace\(path\.join\(LOG_DIR, 'app\.log'\), \{ pid: process\.pid \}\)/);
+  assert.match(main, /found\.app === FLAVOR\.id \? `The other \$\{FLAVOR\.name\}`/);
+});
+
+// CH3-9: a notice of what happens next isn't a problem: it was red and an assertive alert. And the screen is said in
+// Chinese when the owner chose it (main.js passes lang=zh), every line main.js shows there included.
+test('a notice ("Starting it again…", the other app quit) is said politely, not as a red alert (CH3-9)', () => {
+  const info = runLoading(`?app=eden-code&kind=info&error=${encodeURIComponent('The other Eden Code quit, so Eden Code is starting its own backend…')}`);
+  assert.equal(info.nodes.message.textContent, 'The other Eden Code quit, so Eden Code is starting its own backend…');
+  assert.equal(info.classes.has('error'), false);
+  assert.deepEqual(info.nodes.message.attrs, {}); // (loading.html's role=status, aria-live=polite stay)
+  const problem = runLoading(`?app=eden-code&error=${encodeURIComponent('The backend crashed (SIGSEGV) three times in five minutes. Details are in backend.log.')}`);
+  assert.ok(problem.classes.has('error'));
+  assert.equal(problem.nodes.message.attrs.role, 'alert');
+  const main = appFile('main.js');
+  assert.match(main, /`The backend \$\{how\}\. Starting it again…`, '', \{ info: true \}\);/);
+  assert.match(main, /is starting its own backend…`, '', \{ info: true \}\);/);
+  assert.match(main, /\.\.\.\(info \? \{ kind: 'info' \} : \{\}\), \.\.\.loadingQuery\(\)/);
+});
+
+test('the waiting and problem screen speaks Chinese when the owner chose it, every line main.js says there (CH3-9)', () => {
+  const zh = (search) => runLoading(`${search}&lang=zh`);
+  assert.equal(zh('?app=eden-code').nodes.message.textContent, '正在打开 Eden Code…');
+  assert.equal(zh('?app=jarvis').nodes.message.textContent, '正在唤醒 Eden…');
+  const lines = [
+    'Eden Code was built from /Users/me/Old/JARVIS V1, which isn’t there any more (moved or renamed?). Build it again from where the folder is now: npm run install-eden-code.',
+    "Eden Code's engine files are missing (C:\\Eden Code\\resources\\backend). Windows Security or another antivirus may have removed them. Install Eden Code again, and allow it in Windows Security if it asks.",
+    "Eden Code's engine files are missing from the app (/Applications/Eden Code.app/Contents/Resources/backend). Download Eden Code again and replace the copy in Applications.",
+    "Couldn't start the backend: spawn uv ENOENT",
+    'Another Eden backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Eden again.',
+    'Another Eden backend is still using your data. Waiting for it to finish…',
+    'The backend was force-stopped (SIGKILL: macOS does that when memory runs short, and so does Force Quit) three times in five minutes. Details are in backend.log.',
+    'The backend stopped (exit 1) three times in five minutes. The folder it runs from is missing: /Users/me/JARVIS V1. Details are in backend.log.',
+    'The backend crashed (SIGSEGV). Starting it again…',
+    'The backend was asked to stop (SIGTERM). Starting it again…',
+    'The backend was stopped (SIGHUP). Starting it again…',
+    "Eden Code couldn't start again: ETIMEDOUT. Details are in backend.log.",
+    "Eden Code couldn't start: ETIMEDOUT. Details are in backend.log.",
+    'The other Eden Code quit, so Eden Code is starting its own backend…',
+    'Eden quit, so Eden Code is starting its own backend…',
+  ];
+  for (const line of lines) {
+    const said = zh(`?app=eden-code&error=${encodeURIComponent(line)}`).nodes.message.textContent;
+    assert.notEqual(said, line, line);
+    assert.match(said, /[\u4e00-\u9fff]/, line);
+    assert.doesNotMatch(said, /\b(?:the|is|was|again|quit|starting|missing|Details)\b/i, said); // no English left around the names
+  }
+  // names, paths and the engine's own words stay as they are
+  assert.match(zh(`?error=${encodeURIComponent("Couldn't start the backend: spawn uv ENOENT")}`).nodes.message.textContent, /spawn uv ENOENT$/);
+  // the notes while it waits
+  const { nodes, window } = zh('?app=eden-code');
+  for (const text of ['Still starting…', ...SLOW_WORDS.map(([, t]) => t.replace('%LOG%', 'app.log'))]) {
+    window.sayWhileWaiting(text);
+    assert.match(nodes.note.textContent, /[\u4e00-\u9fff]/, text);
+  }
+  // English stays English
+  assert.equal(runLoading(`?app=eden-code&error=${encodeURIComponent('Eden quit, so Eden Code is starting its own backend…')}`).nodes.message.textContent, 'Eden quit, so Eden Code is starting its own backend…');
+  // main.js tells every load of the page the owner's language
+  const main = appFile('main.js');
+  assert.match(main, /function loadingQuery\(\) \{[\s\S]*?\.language === 'zh' \? 'zh' : ''/);
+  assert.equal((main.match(/loadingQuery\(\)/g) || []).length >= 4, true);
+  assert.doesNotMatch(main, /query: \{ app: FLAVOR\.id/);
+});
+
+test('a Mac says nothing about Windows: the engine-missing screen and the slow-start notes (CH3-11)', () => {
+  const main = appFile('main.js');
+  assert.match(main, /showProblem\(plat\.WIN\n\s+\? `\$\{FLAVOR\.name\}'s engine files are missing \(\$\{path\.join\(process\.resourcesPath, 'backend'\)\}\)\. Windows Security/);
+  assert.match(main, /: `\$\{FLAVOR\.name\}'s engine files are missing from the app \([^`]*\)\. Download \$\{FLAVOR\.name\} again and replace the copy in Applications\.`\);/);
+  assert.match(main, /words: \(plat\.WIN \? SLOW_WORDS : \[\[20000, 'Still starting…'\], SLOW_WORDS\.at\(-1\)\]\)/);
+  assert.doesNotMatch(SLOW_WORDS.at(-1)[1], /Windows/);
 });

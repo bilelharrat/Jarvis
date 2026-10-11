@@ -121,3 +121,20 @@ async def test_a_page_check_is_asked_of_the_app_window(monkeypatch):
     assert not checks.answer(data["id"], {})  # answered once
     monkeypatch.setattr(previewcheck, "PAGE_WAIT", 0.05)
     assert "didn't answer" in (await checks.check("http://localhost:5173/"))["error"]
+
+
+def test_a_page_that_wasnt_looked_at_is_said_so():
+    why = "The page is checked in the Eden app window, and it isn't open."
+    assert (
+        previewcheck.summary([], False, page_missed=why)
+        == f"Preview check: the page wasn't checked. {why}"
+    )
+    found = [previewcheck.Finding("server", "Error: x")]
+    assert (
+        previewcheck.summary(found, False, page_missed=why)
+        == "Checks: 1 problem. The page wasn't checked."
+    )
+    assert (
+        previewcheck.summary([], False, page_missed=why, others=True)
+        == "Checks: no problems. The page wasn't checked."
+    )

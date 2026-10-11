@@ -27,10 +27,13 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from . import projectfiles
+
 KINDS = ("agents", "commands", "skills")
 FILE_SCOPES = ("project", "user")
 HOOK_SCOPES = ("project", "local", "user")
 FILE_CHARS = 200_000
+STAMP_CAP = 64_000_000  # a file's stamp hashes this much of it (its size and time: all)
 FILES_LISTED = 300
 _PART = r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}"
 NAME = re.compile(rf"^{_PART}$")
@@ -66,9 +69,10 @@ class EditError(ValueError):
 
 
 def stamp_of(path: Path) -> str:
-    """A file's version ("" when it isn't there)."""
+    """A file's version ("" when it isn't there, or isn't a regular file: a pipe or a
+    device is never waited on or read: CD3-1)."""
     try:
-        data = path.read_bytes()
+        data = projectfiles.read_capped(path, STAMP_CAP)
         info = path.stat()
     except OSError:
         return ""
@@ -125,7 +129,7 @@ def read_file(path: Path) -> tuple[str, str]:
     if not stamp:
         return "", ""
     try:
-        text = path.read_bytes()[:FILE_CHARS].decode("utf-8", "replace")
+        text = projectfiles.read_capped(path, FILE_CHARS)[:FILE_CHARS].decode("utf-8", "replace")
     except OSError:
         return "", ""
     return text, stamp

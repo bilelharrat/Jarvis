@@ -61,6 +61,18 @@ async function errorFrom(res) {
 
 /** The error a client deadline ends a request with (`timeout: true`, so a caller can offer Retry). */
 export const LATE = 'The server didn’t answer in time. Try again.';
+/** The largest request the servers take (src/chat/http.ts MAX_BODY_BYTES). */
+export const MAX_SEND = 25 * 1024 * 1024;
+/** A reply that stopped coming mid-way (AC5). */
+export const STALLED = 'The reply stopped coming: the server went quiet. Try again.';
+/** A stream that stays open (the server's `: ping` keeps coming) but sends no event (AC2-1). */
+export const QUIET = 'The reply stopped coming: the model went quiet. Try again.';
+/**
+ * AC2-1/AC2-2: the longest a chat, Compare or EVES stream may go without a real event. The servers' `: ping` comments
+ * (every 15 s, for proxies) keep `idleTimeout` happy, so a hung model used to look alive forever; this limit counts only
+ * events. The Mac's server ends a silent model at 2-3 min itself (stream.ts MODEL_IDLE): this is the net behind it.
+ */
+export const QUIET_LIMIT = { ms: 240_000 };
 export const MAC_LATE = 'Your Mac didn’t answer in time. Check that Eden is open on your Mac, then try again.';
 function lateError(message = LATE) { const e = new ApiError(0, message); e.timeout = true; return e; }
 
@@ -118,13 +130,19 @@ export async function postJSON(path, body, { signal, timeout = 0, late = LATE } 
  * `event: <type>\ndata: <json>` block. Resolves when the stream ends; rejects with
  * AbortError when aborted.
  */
-export async function streamSSE(path, body, { signal, onEvent, headTimeout = 0, late = LATE }) {
+export async function streamSSE(path, body, { signal, onEvent, headTimeout = 0, idleTimeout = 0, quietTimeout = 0, late = LATE }) {
   // `headTimeout`: how long the server may take to start answering (a turn through the Mac); the
   // stream itself then runs as long as it needs (Stop still ends it: the caller's signal goes on).
-  const d = headTimeout ? deadline(headTimeout, signal) : null;
+  // `idleTimeout` (AC5): the longest silence allowed, before the answer starts and between any two bytes after it
+  // (the servers send a `: ping` comment every 15 s, so a long think never trips it); past it the turn ends with
+  // an ApiError whose `timeout` is true, and the page offers Retry.
+  // `quietTimeout` (AC2-1): the longest time with no event at all (pings don't count): a model that hangs behind a live server.
+  const json = JSON.stringify(body);
+  if (json.length > MAX_SEND) throw new ApiError(413, `request too large (over ${MAX_SEND / 1024 / 1024} MB)`); // AC6: the server's limit, said before uploading it
+  const d = headTimeout || idleTimeout ? deadline(headTimeout || idleTimeout, signal) : null;
   let res;
   try {
-    res = await transport(path, { method: 'POST', headers: headers(path, { 'content-type': 'application/json', accept: 'text/event-stream' }), body: JSON.stringify(body), signal: d ? d.signal : signal });
+    res = await transport(path, { method: 'POST', headers: headers(path, { 'content-type': 'application/json', accept: 'text/event-stream' }), body: json, signal: d ? d.signal : signal });
   } catch (e) { if (d && d.timedOut()) { d.done(); throw lateError(late); } if (d) d.done(); if (e.name === 'AbortError') throw e; throw new ApiError(0, 'Can’t reach the server.'); }
   if (d) d.clear();
   if (!res.ok || !res.body) {
@@ -147,13 +165,25 @@ export async function streamSSE(path, body, { signal, onEvent, headTimeout = 0, 
       else if (field === 'data') data.push(value);
     }
     if (!data.length) return;
+    heard(); // a real event, not a `: ping`
     let parsed;
-    try { parsed = JSON.parse(data.join('\n')); } catch { parsed = { text: data.join('\n') }; }
+    // AC9: every event's data is JSON; anything else is a broken stream, never words in the reply
+    try { parsed = JSON.parse(data.join('\n')); } catch { console.warn(`Eden: an unreadable "${type}" event was dropped`); return; }
     onEvent(type, parsed);
   };
+  let stalled = false, idle = null, silent = false, hush = null;
+  const quiet = () => { clearTimeout(idle); if (idleTimeout) idle = setTimeout(() => { stalled = true; reader.cancel().catch(() => {}); }, idleTimeout); };
+  function heard() { clearTimeout(hush); if (quietTimeout) hush = setTimeout(() => { silent = true; reader.cancel().catch(() => {}); }, quietTimeout); }
+  heard();
+  const stop = () => { reader.cancel().catch(() => {}); }; // Stop ends the read even where the body isn't tied to the request's signal
+  if (signal) signal.addEventListener('abort', stop, { once: true });
   try {
     for (;;) {
+      quiet();
       const { value, done } = await reader.read();
+      if (signal && signal.aborted) throw new DOMException('Stopped', 'AbortError');
+      if (stalled) throw lateError(STALLED);
+      if (silent) throw lateError(QUIET);
       if (done) break;
       buf += decoder.decode(value, { stream: true });
       let m;
@@ -166,6 +196,9 @@ export async function streamSSE(path, body, { signal, onEvent, headTimeout = 0, 
     buf += decoder.decode();
     if (buf.trim()) flush(buf);
   } finally {
+    clearTimeout(idle);
+    clearTimeout(hush);
+    if (signal) signal.removeEventListener('abort', stop);
     if (d) d.done();
     try { reader.releaseLock(); } catch { /* already released */ }
   }
@@ -192,9 +225,11 @@ async function watchApproval(p) {
     const me = {};
     // one look at a time (the next is set after this one ends); none while the page is hidden,
     // nor while a call that the server said is waiting looks for itself (jarvisCall)
+    // the first look at 3 s, then 1.5, 3 and every 5 s (AJ14: each look is a round trip to the Mac on askeden.com)
     const poll = () => (document.hidden || holding ? Promise.resolve() : statusOnce()
       .then((s) => { if (approvalPoll === me && !holding) setApproval(!!s && s.approval === 'waiting'); }, () => {}))
-      .finally(() => { if (approvalPoll === me) me.t = setTimeout(poll, 1500); });
+      .finally(() => { if (approvalPoll === me) me.t = setTimeout(poll, STATUS_GAPS[Math.min(me.n++, STATUS_GAPS.length - 1)]); });
+    me.n = 0;
     me.t = setTimeout(poll, 3000);
     approvalPoll = me;
   }
@@ -203,7 +238,77 @@ async function watchApproval(p) {
   }
 }
 
+const STATUS_GAPS = [1500, 3000, 5000];
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * AJ1: each Jarvis call carries an id (`call` in the body) that Eden on the Mac remembers for a few
+ * minutes, so asking again (after askeden.com gave up at 20 s, after the approval card, "Try again")
+ * joins the first run instead of doing it twice. A call that ended without an answer (too slow,
+ * unreachable, stopped) leaves its id here: the same tool with the same arguments asked again within
+ * RETRY_KEEP_MS is that retry. A call that got an answer (or a 4xx refusal) doesn't: doing it again is new.
+ * AJ2-2: the id is written down while the call runs too, in localStorage (keyed by a hash of the
+ * tool and arguments, never the arguments): after a reload, or from another tab, the same action
+ * asked while it's pending (or unanswered) is that same call. AJ2-11: kept 10 minutes, which covers
+ * Jarvis's 300 s card and the 5 minutes Eden keeps an answer.
+ */
+const RETRY_KEEP_MS = 10 * 60_000;
+const PENDING_KEY = 'eden:jarvis-calls';
+const unanswered = new Map(); // hash → { id, at }: this page's copy (storage can be off)
+function newCallId() {
+  const a = new Uint8Array(12);
+  crypto.getRandomValues(a);
+  return btoa(String.fromCharCode(...a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+/** A short hash of a call's tool and arguments (cyrb53): what's stored, so no email or event text is. */
+function callHash(str) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36);
+}
+function storedCalls() {
+  try { const m = JSON.parse(localStorage.getItem(PENDING_KEY) || '{}'); return m && typeof m === 'object' && !Array.isArray(m) ? m : {}; } catch { return {}; }
+}
+function changeStored(fn) {
+  try {
+    const m = storedCalls();
+    fn(m);
+    const now = Date.now();
+    const keys = Object.keys(m).filter((k) => m[k] && typeof m[k].id === 'string' && now - m[k].at < RETRY_KEEP_MS).sort((a, b) => m[b].at - m[a].at).slice(0, 50);
+    localStorage.setItem(PENDING_KEY, JSON.stringify(Object.fromEntries(keys.map((k) => [k, m[k]]))));
+  } catch { /* storage off: this page's copy only */ }
+}
+function callIdFor(key) {
+  const now = Date.now();
+  const mine = unanswered.get(key);
+  const stored = storedCalls()[key];
+  const kept = [mine, stored].filter((e) => e && typeof e.id === 'string' && now - e.at < RETRY_KEEP_MS).sort((a, b) => b.at - a.at)[0];
+  const id = kept ? kept.id : newCallId();
+  rememberCall(key, id); // pending: a reload or another tab asking the same joins it
+  return id;
+}
+function rememberCall(key, id) {
+  const e = { id, at: Date.now() };
+  unanswered.set(key, e);
+  for (const k of unanswered.keys()) { if (unanswered.size <= 50) break; unanswered.delete(k); }
+  changeStored((m) => { m[key] = e; });
+}
+function forgetCall(key, id) {
+  if (unanswered.get(key)?.id === id) unanswered.delete(key);
+  changeStored((m) => { if (m[key] && m[key].id === id) delete m[key]; });
+}
+function keepUnanswered(key, id, e) {
+  if (e instanceof ApiError && e.status >= 400 && e.status < 500) { forgetCall(key, id); return; } // refused: it didn't run
+  rememberCall(key, id);
+}
+
 /**
  * POST /api/chat/jarvis with a client deadline (25 s; longer only while the Mac shows its "Let
  * Eden use Jarvis?" card, up to 130 s). `x-eden-wait: 20` asks askeden.com to answer within 20 s:
@@ -212,9 +317,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * that doesn't know the header holds the request as before; the status poll above still says so.
  */
 async function jarvisCall(tool, args) {
+  const key = callHash(`${tool}\u0000${JSON.stringify(args)}`);
+  const id = callIdFor(key);
+  let out;
+  try { out = await jarvisAsk(tool, args, id); } catch (e) { keepUnanswered(key, id, e); throw e; }
+  forgetCall(key, id); // answered: doing it again is a new call
+  return out;
+}
+async function jarvisAsk(tool, args, id) {
   const started = Date.now();
-  const body = JSON.stringify({ tool, arguments: args });
+  const body = JSON.stringify({ tool, arguments: args, call: id });
   const path = '/api/chat/jarvis';
+  let gap = 0; // the looks between asks space out across re-asks too (a 202 that keeps coming: AJ14)
   for (;;) {
     const d = deadline(DEADLINE.jarvis, null, { extend: () => approvalWaiting && Date.now() - started < DEADLINE.approval });
     let res, out;
@@ -223,7 +337,7 @@ async function jarvisCall(tool, args) {
       if (!res.ok) throw await errorFrom(res);
       out = await res.json();
     } catch (e) {
-      if (d.timedOut()) throw lateError(approvalWaiting ? 'Eden is still waiting for you to approve it on your Mac (“Let Eden use Jarvis?”). Approve it there, then try again.' : MAC_LATE);
+      if (d.timedOut()) throw lateError(approvalWaiting ? 'Eden is still waiting for you to approve it on your Mac (“Let Eden use your Mac?”). Approve it there, then try again.' : MAC_LATE);
       if (e instanceof ApiError || e.name === 'AbortError') throw e;
       throw new ApiError(0, 'Can’t reach the server.');
     } finally { d.done(); }
@@ -232,9 +346,9 @@ async function jarvisCall(tool, args) {
     holding++;
     try {
       setApproval(true);
-      for (let n = 0; ; n++) {
-        if (Date.now() - started > DEADLINE.approval) throw lateError('Eden is still waiting for you to approve it on your Mac (“Let Eden use Jarvis?”). Approve it there, then try again.');
-        await sleep(approvalGap(n));
+      for (;;) {
+        if (Date.now() - started > DEADLINE.approval) throw lateError('Eden is still waiting for you to approve it on your Mac (“Let Eden use your Mac?”). Approve it there, then try again.');
+        await sleep(approvalGap(gap++));
         if (document.hidden) continue;
         const s = await statusOnce().catch(() => null);
         if (!s || s.approval !== 'waiting') break;
@@ -279,9 +393,9 @@ export const api = {
   artifact: (html) => postJSON('/api/chat/artifact', { html }),
   // A turn that uses the Mac ("Use my Mac", project knowledge: files.js) goes to mac/send, which askeden.com forwards to the Mac.
   // A Talk turn (persona 'jarvis') or a "Use my Mac" turn may go through the Mac: it must start answering within 25 s (C4).
-  send: (body, opts) => { const b = withSendExtras(body); const viaMac = !!(b && (b.mac || b.persona === 'jarvis')); return streamSSE(b && b.mac ? '/api/chat/mac/send' : '/api/chat/send', b, viaMac ? { headTimeout: DEADLINE.head, late: b.mac ? MAC_LATE : 'Eden didn’t start answering in time. Try again.', ...opts } : opts); },
+  send: (body, opts) => { const b = withSendExtras(body); const viaMac = !!(b && (b.mac || b.persona === 'jarvis')); return streamSSE(b && b.mac ? '/api/chat/mac/send' : '/api/chat/send', b, viaMac ? { headTimeout: DEADLINE.head, idleTimeout: DEADLINE.idle, quietTimeout: QUIET_LIMIT.ms, late: b.mac ? MAC_LATE : 'Eden didn’t start answering in time. Try again.', ...opts } : { idleTimeout: DEADLINE.idle, quietTimeout: QUIET_LIMIT.ms, ...opts }); }, // AC5: never "typing" forever
   // Compare (G6): several models at once, lane-tagged events; its estimate; stop one lane.
-  compare: (body, opts) => streamSSE('/api/chat/compare', body, opts),
+  compare: (body, opts) => streamSSE('/api/chat/compare', body, { idleTimeout: DEADLINE.idle, quietTimeout: QUIET_LIMIT.ms, ...opts }), // AC2-2: a stalled compare ends too
   compareEstimate: (body, signal) => postJSON('/api/chat/compare/estimate', body, { signal }),
   researchEstimate: (body, signal) => postJSON('/api/chat/research/estimate', body, { signal }), // Q2: { searches, typicalUSD, maxUSD, fits, latencyS, models }
   compareStop: (id, lane) => postJSON('/api/chat/compare/stop', { id, lane }),

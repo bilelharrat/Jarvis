@@ -12,15 +12,16 @@ const os = require('os');
 const path = require('path');
 const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // what the address bar makes of what's typed
 const { createAgent } = require('./browser-agent');
-const { backendCommand, BackendLog } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
+const { backendCommand, repoHome, missingBackend, exitWords, lastWords, BackendLog } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
 const { isCertError } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // J.A.R.V.I.S. or Eden Code
 const share = require('./backend-share'); // one backend for both apps
 const { createTrace, createTail } = require('./startup-log'); // app.log: how this start went
 const { waitForHealth, SLOW_WORDS } = require('./wait-backend'); // the engine's first answer, and what is said until then
+const { hideOnClose, quitForUpdate } = require('./window-close'); // the close button hides; a quit (or update) closes
 
-const FLAVOR = resolveFlavor();
+const FLAVOR = resolveFlavor({ packaged: app.isPackaged }); // (from source, a stray app/flavor.json doesn't count)
 const EDEN_CODE = FLAVOR.id === 'eden-code';
 app.setName(FLAVOR.appName || FLAVOR.name); // (appName: the name before the rename, for the Keychain: flavor.js)
 if (process.platform === 'darwin') app.setAboutPanelOptions({ applicationName: FLAVOR.name });
@@ -42,7 +43,7 @@ const LOG_DIR = plat.logDir(FLAVOR.logName);
 const LOG_LABEL = plat.logLabel(FLAVOR.logName);
 const DATA_DIR = plat.dataDir(); // the backend's (prefs.APP_SUPPORT)
 // app.log: what the app did on the way up and what went wrong, for a start that shows nothing (startup-log.js).
-const trace = createTrace(path.join(LOG_DIR, 'app.log'));
+const trace = createTrace(path.join(LOG_DIR, 'app.log'), { pid: process.pid }); // (two copies can share one app.log)
 const APP_LOG_LABEL = LOG_LABEL.replace(/backend\.log$/, 'app.log');
 trace.write(`${FLAVOR.name} ${app.getVersion()} (electron ${process.versions.electron}, ${process.platform} ${process.arch}, ${os.release()}) ${app.isPackaged ? 'installed' : 'from source'}: ${process.execPath} ${JSON.stringify(process.argv.slice(1))}`);
 // Development only: show a backend that's already running (no microphone of its own)
@@ -74,6 +75,7 @@ trace.write(gotLock ? 'the only copy running: starting' : 'another copy is alrea
 if (!gotLock) app.quit();
 app.on('second-instance', () => {
   trace.write(`started again while running${win && !win.isDestroyed() ? ': bringing the window forward' : ' (no window yet)'}`);
+  if (win && win.isDestroyed() && !quitting) { reopenWindow(); return; } // (closed for an update that didn't install: CH3-1)
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
   if (DEV_URL) {
@@ -116,10 +118,7 @@ app.on('render-process-gone', (_event, _contents, details) => {
 });
 
 function jarvisHome() {
-  if (process.env.JARVIS_HOME) return process.env.JARVIS_HOME;
-  const baked = path.join(__dirname, 'jarvis-home.json');
-  if (fs.existsSync(baked)) return JSON.parse(fs.readFileSync(baked, 'utf8')).path;
-  return path.resolve(__dirname, '..');
+  return repoHome({ env: process.env, packaged: app.isPackaged, dir: __dirname }); // (backend-launch.js: from source, this folder's repo)
 }
 
 // Apps opened from Finder don't inherit the shell's PATH, so look where uv usually lives.
@@ -172,6 +171,8 @@ async function askForMicrophone() {
 
 // What the backend printed last, for the window to say when it stops (a ModuleNotFoundError, a port in use).
 const backendTail = createTail();
+let backendBefore = ''; // the last words of the latest start before this one that said any, for one killed before it said anything (CH2-9)
+const backendWords = () => lastWords(backendTail.last(), backendBefore);
 
 function startBackend() {
   fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -181,10 +182,21 @@ function startBackend() {
     extraPath: EXTRA_PATH, uv: findUv, home: jarvisHome, dataDir: DATA_DIR, exists: fs.existsSync,
   });
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
-  if (app.isPackaged && !how.bundled && !process.env.JARVIS_HOME) {
+  const missing = missingBackend({ packaged: app.isPackaged, bundled: how.bundled, env: process.env, dir: __dirname });
+  if (missing && missing.kind === 'moved') {
+    // The owner's own build, made from a repo that has moved since (CH2-8): uv would run in Resources and fail.
+    trace.write(`the repo this app was built from is gone: ${missing.baked}`);
+    showProblem(`${FLAVOR.name} was built from ${missing.baked}, which isn’t there any more (moved or renamed?). Build it again from where the folder is now: npm run ${EDEN_CODE ? 'install-eden-code' : 'install-app'}.`);
+    log.end();
+    return;
+  }
+  if (missing) {
     // An installed app with no engine of its own: its files were removed (security software does that) or the install was cut short.
     trace.write(`the engine is missing: no ${path.join(process.resourcesPath, 'backend', 'python')}`);
-    showProblem(`${FLAVOR.name}'s engine files are missing (${path.join(process.resourcesPath, 'backend')}). Windows Security or another antivirus may have removed them. Install ${FLAVOR.name} again, and allow it in Windows Security if it asks.`);
+    // (Windows Security is named on Windows only: a Mac app missing them was damaged or cut short, CH3-11.)
+    showProblem(plat.WIN
+      ? `${FLAVOR.name}'s engine files are missing (${path.join(process.resourcesPath, 'backend')}). Windows Security or another antivirus may have removed them. Install ${FLAVOR.name} again, and allow it in Windows Security if it asks.`
+      : `${FLAVOR.name}'s engine files are missing from the app (${path.join(process.resourcesPath, 'backend')}). Download ${FLAVOR.name} again and replace the copy in Applications.`);
     log.end();
     return;
   }
@@ -200,6 +212,7 @@ function startBackend() {
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''} for ${FLAVOR.name}\n`);
   backendFromRepo = !how.bundled;
   trace.write(`starting the engine on port ${port}: ${how.command} ${how.args.join(' ')}${how.bundled ? '' : ' (not the bundled one)'}`);
+  backendBefore = backendWords(); // (the latest start that said anything: one killed at once says nothing)
   backendTail.reset();
   backendTail.add(`--- ${new Date().toISOString()}\n`);
   backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }); // (windowsHide: no console window for the engine)
@@ -214,7 +227,7 @@ function startBackend() {
   backend.once('close', () => log.end());
   backend.on('error', (err) => {
     trace.write(`the engine could not be started: ${err.message}`);
-    showProblem(`Couldn't start the backend: ${err.message}`, backendTail.last());
+    showProblem(`Couldn't start the backend: ${err.message}`, backendWords());
   });
   backend.on('exit', (code, signal) => {
     trace.write(`the engine stopped (exit ${code}${signal ? `, ${signal}` : ''}); it last said:\n${backendTail.last(12, 1800)}`);
@@ -250,10 +263,12 @@ function restartBackendQuietly() {
 }
 
 // Whether the backend has something going that a restart would cut off (/health's busy).
-// Unsure (no answer) counts as busy: nothing is restarted on a guess.
+// Unsure (no answer) counts as busy: nothing is restarted on a guess. Asked of the backend the window is on,
+// this app's own or the one it shares (with no backend of its own, it used to be "busy" for good, so an app on
+// the other one's backend never updated quietly).
 function backendBusy() {
   return new Promise((resolve) => {
-    if (!backend || !port) return resolve(true);
+    if ((!backend && !sharedFrom) || !port) return resolve(true);
     const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 3000 }, (res) => {
       let body = '';
       res.setEncoding('utf8');
@@ -295,19 +310,22 @@ function restartBackend(code, signal) {
   // 75: another backend holds the data folder (server.serve): one still quitting, or a
   // `jarvis serve` started in a terminal.
   const taken = code === 75;
-  const how = signal ? `was stopped (${signal})` : `stopped (exit ${code})`;
+  const how = exitWords(code, signal); // (uv's 137 is a SIGKILL: CH2-9)
   if (restarts.length >= 3) {
+    // uv's own words for a repo folder that isn't there say only "No such file or directory": name it.
+    const gone = !taken && backendFromRepo && !fs.existsSync(jarvisHome()) ? ` The folder it runs from is missing: ${jarvisHome()}.` : '';
     showProblem(taken
       ? 'Another Eden backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Eden again.'
-      : `The backend ${how} three times in five minutes. Details are in ${LOG_LABEL}.`, taken ? '' : backendTail.last());
+      : `The backend ${how} three times in five minutes.${gone} Details are in ${LOG_LABEL}.`, taken ? '' : backendWords(), { retry: true });
     return;
   }
   restarts.push(now);
-  showProblem(taken ? 'Another Eden backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
+  showProblem(taken ? 'Another Eden backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`, '', { info: true });
   setTimeout(async () => {
     if (quitting || backend) return;
     // The other app's backend has the data folder (both started at once): share it instead.
     if (taken && (await shareBackend())) { restarts = []; return; }
+    try { port = await freePort(); } catch { /* the same port, then */ } // (a port another program took meanwhile fails every retry)
     startBackend();
     try {
       await waitForBackend();
@@ -325,7 +343,8 @@ function waitForBackend(timeoutMs = plat.WIN ? 600000 : 90000) {
     port: () => port,
     running: () => Boolean(backend),
     timeoutMs,
-    words: SLOW_WORDS.map(([after, text]) => [after, text.replace('%LOG%', APP_LOG_LABEL)]),
+    // (Windows checking the new files is a PC's first start: a Mac says only that it's still starting.)
+    words: (plat.WIN ? SLOW_WORDS : [[20000, 'Still starting…'], SLOW_WORDS.at(-1)]).map(([after, text]) => [after, text.replace('%LOG%', APP_LOG_LABEL)]),
     say: sayWhileWaiting,
     note: (text) => trace.write(text),
   });
@@ -337,10 +356,30 @@ function sayWhileWaiting(text) {
   win.webContents.executeJavaScript(`window.sayWhileWaiting && window.sayWhileWaiting(${JSON.stringify(text)})`).catch(() => {});
 }
 
-function showProblem(message, detail = '') {
+// info: a notice of what happens next ("Starting it again…"), not a problem: said politely, not as an alert (CH3-9).
+function showProblem(message, detail = '', { retry = false, info = false } = {}) {
   trace.write(`the window says: ${message}${detail ? `\n${detail}` : ''}`);
-  if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, 'loading.html'), { query: { error: message, ...(detail ? { detail } : {}), app: FLAVOR.id } });
+  if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, 'loading.html'), { query: { error: message, ...(detail ? { detail } : {}), ...(retry ? { retry: '1' } : {}), ...(info ? { kind: 'info' } : {}), ...loadingQuery() } });
 }
+
+// What every load of the waiting page is told: which app, and the language the owner chose (Settings › General), so
+// it waits and reports in Chinese too (loading.js, CH3-9).
+function loadingQuery() {
+  let lang = '';
+  try { lang = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'prefs.json'), 'utf8')).language === 'zh' ? 'zh' : ''; } catch { /* no settings yet: English */ }
+  return { app: FLAVOR.id, ...(lang ? { lang } : {}) };
+}
+
+// The problem screen's "Try again" (loading.js), after the backend stopped three times: the count starts over and
+// the backend starts afresh, on a new port (or the other app's, when it has one running now).
+ipcMain.on('feature:app:retry', (event) => {
+  if (!win || win.isDestroyed() || event.sender !== win.webContents || !win.webContents.getURL().startsWith('file:')) return;
+  if (backend || quitting || DEV_URL) return;
+  trace.write('trying again, as asked on the problem screen');
+  restarts = [];
+  win.loadFile(path.join(__dirname, 'loading.html'), { query: { ...loadingQuery(), quiet: '1' } });
+  openOnBackend();
+});
 
 function appUrl() {
   return `http://127.0.0.1:${port}/`;
@@ -388,7 +427,8 @@ async function shareBackend() {
     sharedFrom = '';
     if (quitting) return;
     TOKEN = crypto.randomBytes(24).toString('hex');
-    showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'Eden'} quit, so ${FLAVOR.name} is starting its own backend…`);
+    const who = found.app === FLAVOR.id ? `The other ${FLAVOR.name}` : (found.app === 'eden-code' ? 'Eden Code' : 'Eden'); // (two copies of one app: CH20)
+    showProblem(`${who} quit, so ${FLAVOR.name} is starting its own backend…`, '', { info: true });
     startOwnBackend();
   });
   return true;
@@ -446,7 +486,7 @@ function createWindow() {
   });
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
-  win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
+  win.loadFile(path.join(__dirname, 'loading.html'), { query: { ...loadingQuery(), ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
 
   // The window only ever shows Jarvis; any other link opens in the browser.
   const external = (url) => {
@@ -463,17 +503,23 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Closing the window hides it; Jarvis keeps running for ⌥Space. ⌘Q quits.
-  win.on('close', (event) => {
-    if (!quitting) {
-      event.preventDefault();
-      win.hide();
-    }
-  });
+  // Closing the window hides it; Jarvis keeps running for ⌥Space. ⌘Q quits, and so does an
+  // update installing (quitForUpdate below: its windows close before before-quit, CH2-3).
+  hideOnClose(win, () => quitting);
+}
+
+// A window again when the one there was has been closed for real while the app carries on: an update whose install
+// failed (CH3-1), and then a Dock click or a second launch. On the backend still running, else on a fresh start.
+function reopenWindow() {
+  trace.write('opening a new window (the last one was closed for an update that didn’t install)');
+  createWindow();
+  if (DEV_URL) { win.loadURL(DEV_URL); return; }
+  if (backend || sharedFrom) loadApp();
+  else openOnBackend().catch((err) => showProblem(`${FLAVOR.name} couldn't start: ${err.message}. Details are in ${LOG_LABEL}.`));
 }
 
 function summon() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   win.show();
   win.focus();
   app.focus({ steal: true });
@@ -1741,8 +1787,12 @@ const featureContext = {
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
   backend: () => backend, // the running `jarvis serve` (shell.js waits for it to stop when quitting)
+  // Where the window's backend listens, and its token: for a feature's own calls to it from here
+  // (eden-pop.js: the pop-up's selection, answer and paste). null until it's known.
+  backendAddress: () => (port ? { port, token: TOKEN } : null),
   backendBusy, // whether a restart now would cut something off (updates.js, follow-repo.js)
   relaunchAsItWas, // before a quiet update: reopen hidden if the window is hidden
+  mayQuit, // before Restart to update: asks first when the other app is busy on this backend (CH9, CH3-5)
   backendFromRepo: () => backendFromRepo,
   restartBackendQuietly,
   repoHome: () => jarvisHome(),
@@ -1803,7 +1853,12 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('activate', () => win && win.show());
+// A Dock click. The window may have been closed for an update that then didn't install: show() on it threw "Object has
+// been destroyed" (an error box), so a new one is made (CH3-1).
+app.on('activate', () => {
+  if (win && win.isDestroyed()) { if (!quitting) reopenWindow(); return; }
+  if (win) win.show();
+});
 // ── Hands steering the whole Mac: a small always-on-top indicator (never focused, clicks go
 // through it), and the window keeps getting camera frames while it's behind other apps ──
 let hud = null;
@@ -1837,8 +1892,60 @@ ipcMain.on('jarvis:hand-hud', (event, update) => {
   if (hud && !hud.isDestroyed()) hud.webContents.send('hand-hud:update', update);
 });
 
-app.on('before-quit', () => {
+// Quitting the app whose backend the other app's window is on (backend-share.js) stops that backend too, and with it
+// whatever that app's sessions are doing. When something is going on there, the owner is asked first (CH9). The
+// question is asked here, before every other before-quit handler, and they leave a quit put off (defaultPrevented).
+let quitAsked = false;
+function backendHealth() {
+  return new Promise((resolve) => {
+    if (!port) return resolve(null);
+    const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 1500 }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve(null); } });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+// Whether quitting now is all right: true at once unless the other app is busy on this app's own backend, and then
+// the owner's answer. Asked by a quit, and by Restart to update (updates.js), which stops the backend just the same (CH3-5).
+async function mayQuit() {
+  if (DEV_URL || !backend) return true; // (only the app that started the backend)
+  const health = await backendHealth();
+  const others = (health && Array.isArray(health.apps) ? health.apps : []).filter((a) => a !== FLAVOR.socketApp);
+  if (health && health.busy && others.length) {
+    trace.write(`quitting while ${others.join(', ')} is busy on this backend: asking first`);
+    const other = others.includes('eden-code') ? 'Eden Code' : 'Eden';
+    const { response } = await dialog.showMessageBox(win && !win.isDestroyed() && win.isVisible() ? win : undefined, {
+      type: 'warning',
+      buttons: [`Quit ${FLAVOR.name}`, 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: `${other} is working on ${FLAVOR.name}’s engine.`,
+      detail: `Quitting ${FLAVOR.name} stops what ${other} is doing now; it starts its own engine again in a few seconds.`,
+    });
+    return response === 0;
+  }
+  return true;
+}
+async function askBeforeQuitting() {
+  if (await mayQuit()) app.quit();
+  else quitAsked = false;
+}
+app.prependListener('before-quit', (event) => {
+  if (quitAsked || quitting || DEV_URL || !backend) return; // (only the app that started the backend)
+  quitAsked = true;
+  event.preventDefault();
+  askBeforeQuitting().catch(() => app.quit());
+});
+let quitStarted = false; // a real quit is under way (⌘Q, Quit, an update that did install)
+app.on('before-quit', (event) => {
+  if (event.defaultPrevented) return; // put off: askBeforeQuitting asks first
+  trace.write('quitting');
   quitting = true;
+  quitStarted = true;
   if (stopWatching) stopWatching();
   share.withdraw(DATA_DIR, process.pid);
   showHandHud(false);
@@ -1846,3 +1953,22 @@ app.on('before-quit', () => {
   if (backend) plat.killTree(backend);
 });
 app.on('window-all-closed', () => {});
+// An update installing (updates.js: Restart to update, or quietly): quitAndInstall closes the windows first, then quits.
+try {
+  quitForUpdate(require('electron').autoUpdater, () => {
+    trace.write('quitting to install an update');
+    quitting = true;
+  }, (err) => {
+    // The install failed after the windows closed (CH3-1): the app carries on as it was. Quitting is undone (or a
+    // backend that stops is never started again), a window comes back (hidden after a quiet install whose window was
+    // hidden: createWindow uses the mark up), and the mark goes either way. updates.js says it failed and tries again.
+    // Electron tries the install again on every later quit (its updater still waits for the windows to close): one
+    // that fails then is that quit's, which goes on. Nothing is undone, or a window came back mid-quit.
+    if (quitStarted) { trace.write(`the update didn't install while quitting (${(err && err.message) || err})`); return; }
+    trace.write(`the update didn't install (${(err && err.message) || err}): carrying on as before`);
+    quitting = false;
+    quitAsked = false;
+    if (win && win.isDestroyed()) reopenWindow();
+    try { fs.rmSync(HIDDEN_MARK(), { force: true }); } catch { /* none */ }
+  });
+} catch { /* no updater on this platform */ }

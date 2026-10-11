@@ -62,6 +62,10 @@ EDEN_KEY = "eden_key"
 LINK_INFO = b"jarvis-link-v1"  # HKDF info and AEAD associated data for the sealed sync key
 LINK_SCHEME = "jarvis-link://"
 POLL_SECONDS = 2.0
+# AJ3-1: a code nobody is looking at (Ask Eden for Mac's own, approved by the app itself) is polled
+# this long after it's made or link_watch(), then not at all until it's watched again or expires:
+# about 30 askeden.com requests a code instead of 300.
+QUIET_POLL_SECONDS = 60.0
 STATUS_SECONDS = 60.0  # GET /account is asked again after this
 REQUEST_SECONDS = 15.0
 RELAY_PREF = "account_relay"  # Settings: reach this Mac through the account (on by default)
@@ -207,6 +211,7 @@ class Link:
     error: str = ""
     qr: list[str] = field(default_factory=list)
     browser: bool = False  # approved in the owner's browser (<server>/link), not on the iPhone
+    watch_until: float = float("inf")  # /link/poll is asked until then (AJ3-1: a quiet code's minute)
 
     @property
     def url(self) -> str:
@@ -488,10 +493,12 @@ class Account:
 
     # ── linking ──
 
-    async def link_start(self, browser: bool = False) -> Link:
+    async def link_start(self, browser: bool = False, visible: bool = True) -> Link:
         """A new code to show (the one before, if any, is let go). The poller runs until
         it's approved, denied or expired. browser: the owner approves it at the server's /link
-        page (link_page) rather than on the iPhone; the same code either way."""
+        page (link_page) rather than on the iPhone; the same code either way. visible=False: no
+        one is looking at it (Ask Eden for Mac approves it itself): polled for a minute, then
+        only after link_watch() (AJ3-1)."""
         if self._poller is not None and not self._poller.done():
             self._poller.cancel()
         private, public = _new_key_pair()
@@ -515,6 +522,8 @@ class Account:
         if not isinstance(seconds, int | float) or isinstance(seconds, bool) or seconds <= 0:
             seconds = 600
         link = Link(code, poll, self.clock() + float(seconds), private, browser=browser)
+        if not visible:
+            link.watch_until = self.clock() + QUIET_POLL_SECONDS
         from . import qr
 
         with contextlib.suppress(ValueError):
@@ -532,6 +541,15 @@ class Account:
         if link is None or link.state != "waiting":
             return ""
         return f"{self.web_base}/link#{link.code}"
+
+    def link_watch(self) -> bool:
+        """Someone is waiting on the code now (Ask Eden for Mac just approved it): poll it again
+        for a minute (AJ3-1). False without a code waiting."""
+        link = self.link
+        if link is None or link.state != "waiting":
+            return False
+        link.watch_until = max(link.watch_until, self.clock() + QUIET_POLL_SECONDS)
+        return True
 
     def cancel_link(self) -> None:
         if self._poller is not None and not self._poller.done():
@@ -552,6 +570,8 @@ class Account:
                 if self.clock() >= link.expires_at:
                     link.state = "expired"
                     break
+                if self.clock() >= link.watch_until:  # nobody is waiting on it (AJ3-1)
+                    continue
                 try:
                     response = await self.send(
                         "POST",

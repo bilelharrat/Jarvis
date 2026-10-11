@@ -109,7 +109,7 @@ async def test_requests_carry_hints_and_explanations_quote_the_change(
     await hub.voice_code("proj")
     task = hub.voicecode.task
     sent = []
-    hub.tasks.send = lambda task_id, text: sent.append(text) or True
+    hub.tasks.send = lambda task_id, text, **_kw: sent.append(text) or True
     await hub.voicecode.handle("add a retry in hub dot py")
     assert sent[-1].startswith("add a retry in hub.py") and "Likely meant: src/hub.py" in sent[-1]
     (repo / "src" / "hub.py").write_text("MAX_RETRIES = 9\n")

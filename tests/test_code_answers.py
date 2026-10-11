@@ -88,3 +88,25 @@ async def test_a_calendar_meeting_counts_as_busy_without_focus(tmp_path):
     task = SimpleNamespace(id=1, title="", prompt="x", cwd=Path("/p/web"), workspace={})
     out = await ca.Answers(hub).pre_answer(task, asked("Tabs or spaces?", ["Tabs", "Spaces"]))
     assert out[0] == "go_on"
+
+
+async def test_a_session_the_owner_is_using_asks_even_in_quiet_hours(tmp_path):
+    # Round 1 sweep CA2: quiet hours (22:00-07:00 by default) hid every question, even in a
+    # session the owner had just typed into, and told Claude they were "in a meeting".
+    import time
+
+    hub = Hub(tmp_path, busy=True)  # quiet hours (or Focus) now, no meeting
+    desk = ca.Answers(hub)
+    task = SimpleNamespace(id=3, title="", prompt="x", cwd=Path("/p/web"), workspace={})
+    task.user_at = time.monotonic() - 5  # they sent it a message five seconds ago
+    q = asked("Tabs or spaces?", ["Tabs", "Spaces"])
+    assert await desk.pre_answer(task, q) is None  # a card, as at any other hour
+    hub._in_meeting = lambda: True
+    assert await desk.pre_answer(task, q) is None  # typing into it in a meeting: still asked
+    task.user_at = time.monotonic() - ca.ACTIVE_SECONDS - 1  # ... and gone a while
+    out = await desk.pre_answer(task, q)
+    assert out[0] == "go_on" and "in a meeting" in out[1]
+    hub._in_meeting = lambda: False
+    out = await desk.pre_answer(task, q)
+    assert out[0] == "go_on" and "meeting" not in out[1] and "away" in out[1]
+    assert "quiet hours" in out[2]

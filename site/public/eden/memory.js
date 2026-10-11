@@ -11,13 +11,13 @@
 // "Needs review" filter lists the stale ones.
 
 import { el, ico, toast, debounce, isMobile } from './util.js';
-import { api } from './api.js';
+import { api, apiUrl, isMock } from './api.js';
 import { state } from './state.js';
 import { checkJarvis } from './panels.js';
 import { assess, summarize, WORDS } from './memory-model.js';
 import { locale } from './i18n.js';
 
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's (?:Jarvis|Eden)[^:)]*:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 const TOPICS = [
   ['people', 'People'], ['preferences', 'Preferences'], ['work', 'Work'], ['health', 'Health'], ['places', 'Places'], ['other', 'Other'],
@@ -111,7 +111,7 @@ function build() {
   R.review = el('button', { type: 'button', class: 'mem-topic mem-review', 'aria-pressed': 'false', title: 'Facts that may be out of date: worth checking they are still true' }, el('span', 'nm', WORDS.review), R.reviewN);
   R.review.addEventListener('click', () => { S.review = !S.review; renderList(); });
   R.side = el('aside', 'mem-side', el('div', 'mem-side-h', 'Topics'), R.topics, el('div', 'mem-side-h', 'Show'), R.show, R.review,
-    el('p', 'mem-side-note', 'Each change is confirmed on your Mac: Jarvis shows a card, and nothing changes until you say yes there.'));
+    el('p', 'mem-side-note', 'Each change is confirmed on your Mac: Eden shows a card, and nothing changes until you say yes there.'));
   R.banner = el('div', { class: 'mem-banners', 'aria-live': 'polite' });
   R.list = el('div', { class: 'mem-list', role: 'list', 'aria-label': 'What Eden remembers' });
   R.main = el('main', 'mem-main', R.banner, R.list);
@@ -240,7 +240,7 @@ function renderList() {
   }
   const facts = visible();
   if (!facts.length) {
-    R.list.replaceChildren(el('div', 'mem-empty', S.facts.length ? (S.review ? (S.query ? `Nothing that needs review matches “${S.query}”.` : 'Nothing here needs review.') : S.query ? `Nothing remembered matches “${S.query}”.` : 'Nothing here.') : 'Jarvis doesn’t remember anything about you yet. Tell it something in a conversation (“remember that…”), or add facts in Jarvis Settings.'));
+    R.list.replaceChildren(el('div', 'mem-empty', S.facts.length ? (S.review ? (S.query ? `Nothing that needs review matches “${S.query}”.` : 'Nothing here needs review.') : S.query ? `Nothing remembered matches “${S.query}”.` : 'Nothing here.') : 'Eden doesn’t remember anything about you yet. Tell it something in a conversation (“remember that…”), or add facts in Eden Settings.'));
     return;
   }
   const out = [];
@@ -369,7 +369,7 @@ function editor(f) {
   requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); });
   const a = assess(f, S.now);
   return el('div', 'mf-editor',
-    S.recheck === f.id && a.stale ? el('p', 'mf-edit-why', `${WORDS.recheck} ${a.staleWhy} Correct it below if it has changed. If it is still true, leave it: Jarvis can’t yet record that you checked, so the note stays.`) : null,
+    S.recheck === f.id && a.stale ? el('p', 'mf-edit-why', `${WORDS.recheck} ${a.staleWhy} Correct it below if it has changed. If it is still true, leave it: Eden can’t yet record that you checked, so the note stays.`) : null,
     ta,
     el('div', 'mf-edit-row',
       el('label', '', el('span', '', 'Topic'), topic),
@@ -392,7 +392,12 @@ function change(f, kind, args) {
   S.pending.set(f.id, { kind, args });
   renderList();
   const tool = { update: 'memory_update', delete: 'memory_delete', toggle: 'memory_toggle' }[kind];
+  if (kind === 'delete') unsent.set(f.id, f);
   return queue(async () => {
+    if (kind === 'delete') {
+      unsent.delete(f.id);
+      if (sentOnExit.has(f.id)) { S.pending.delete(f.id); return; } // already sent as the page went away
+    }
     let out;
     try { out = parseResult(await jarvis(tool, { id: f.id, ...args, confirm: true })); }
     catch (e) { out = { done: false, status: 'failed', text: e.message }; }
@@ -413,12 +418,38 @@ function change(f, kind, args) {
   });
 }
 
-function forget(f) {
+// Forgets waiting out their Undo: sent at once when the page is hidden or closed, so leaving
+// within the 5 s doesn't keep the fact (AS14).
+const forgetting = new Map(); // fact id -> send()
+function sendForgets() { for (const send of [...forgetting.values()]) send(); }
+// On close (AS2-10): the queue sends one change at a time and its requests don't outlive the page, so only the
+// first forget was started and could be cut off. Every forget still waiting goes now, each in a `keepalive`
+// request (it finishes after the page is gone), all started at once. (One call a fact: memory_delete takes one id.)
+const unsent = new Map(); // fact id -> fact: queued deletes not started yet
+const sentOnExit = new Set();
+export function sendForgetsOnExit(send = (body) => fetch(apiUrl('/api/chat/jarvis'), { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json', 'X-Jarvis-Chat': '1' }, body: JSON.stringify(body) })) {
+  sendForgets();
+  if (isMock) return 0;
+  let n = 0;
+  for (const id of [...unsent.keys()]) {
+    unsent.delete(id);
+    sentOnExit.add(id);
+    const call = `forget-${id}-${Date.now().toString(36)}`; // (the server joins a repeat of the same call)
+    try { Promise.resolve(send({ tool: 'memory_delete', arguments: { id, confirm: true }, call })).catch(() => {}); n++; } catch { /* going away anyway */ }
+  }
+  return n;
+}
+addEventListener('pagehide', () => { sendForgetsOnExit(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') sendForgets(); });
+
+export function forget(f) {
   S.hidden.add(f.id);
   renderList();
   let undone = false;
-  const t = setTimeout(() => { if (!undone) change(f, 'delete', {}); }, UNDO_MS);
-  toast(`Forgetting “${f.text.length > 48 ? `${f.text.slice(0, 47)}…` : f.text}”`, { label: 'Undo', run: () => { undone = true; clearTimeout(t); S.hidden.delete(f.id); renderList(); } });
+  const send = () => { clearTimeout(t); forgetting.delete(f.id); if (!undone) change(f, 'delete', {}); };
+  const t = setTimeout(send, UNDO_MS);
+  forgetting.set(f.id, send);
+  toast(`Forgetting “${f.text.length > 48 ? `${f.text.slice(0, 47)}…` : f.text}”`, { label: 'Undo', run: () => { undone = true; clearTimeout(t); forgetting.delete(f.id); S.hidden.delete(f.id); renderList(); } });
 }
 
 async function lookUp(f) {

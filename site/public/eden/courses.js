@@ -23,9 +23,12 @@ import { mergeFigures, figureCost } from './figures.js';
 import { voiceBtn, pickSpoken } from './voice-answer.js';
 import { allowanceLine, budgetTab } from './edu-budget.js'; // who pays for students' AI (ROADMAP L9)
 import { t, isFr, locale, replyLanguageNote } from './i18n.js';
-import { assignmentsTab, weeklyCard, hintNote } from './assignments.js'; // graded work in hint mode, the weekly summary (ROADMAP Q10, Q11)
+import { SHIELD, groundingStrip, stripSources } from './course-strip.js'; // under a reply: its own module, so chats don't load this panel
+import { assignmentsTab, weeklyCard } from './assignments.js'; // graded work in hint mode, the weekly summary (ROADMAP Q10, Q11)
 
 const BASE = '/api/chat/courses';
+export { groundingStrip, stripSources }; // edu-app.js and tutor.js import them from here
+
 let where = { view: 'home' }; // reopening the panel goes back to the same place
 
 const study = (course, prompt = '', focus = null) => dispatchEvent(new CustomEvent('eden:course-chat', { detail: { course: { id: course.id, name: course.name, verified: course.verified || null }, prompt, ...(focus ? { focus } : {}) } }));
@@ -41,7 +44,6 @@ const initials = (name) => {
 };
 const tile = (c, size = '') => el('span', { class: `crs-tile ${size}`, style: { '--h': hueOf(c.id || c.name) }, 'aria-hidden': 'true', 'data-no-i18n': '' }, initials(c.name));
 
-const SHIELD = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3z"/><path d="m9 12 2 2 4-4"/></svg>';
 const CAP = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9.5 12 5l10 4.5-10 4.5L2 9.5z"/><path d="M6 11.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-4.5"/><path d="M22 9.5V15"/></svg>';
 const BOOK = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M8 7h8M8 11h6"/></svg>';
 const UPLOAD = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>';
@@ -308,7 +310,7 @@ function materialsTab(root, pane, c) {
     const isNew = !owner && last && d.added > last;
     return el('div', 'crs-file',
       el('span', { class: `crs-ext ${d.kind}` }, tag),
-      el('span', 'crs-file-txt', el('b', '', el('span', { 'data-no-i18n': '' }, d.name), isNew ? el('span', 'crs-new', 'New') : null), el('span', 'muted', `${d.parts} ${unit} · added ${ago(d.added)}`)),
+      el('span', 'crs-file-txt', el('b', '', el('span', { 'data-no-i18n': '' }, d.name), isNew ? el('span', 'crs-new', 'New') : null), el('span', 'muted', `${d.parts} ${d.parts === 1 ? unit.replace(/s$/, "") : unit} · added ${ago(d.added)}`)),
       status,
       owner ? el('button', { type: 'button', class: 'crs-icon-btn plain', 'aria-label': `Who sees ${d.name}`, title: 'Who sees it', onclick: () => visibility(root, c, d) }, ico('sliders', 14)) : null,
       owner ? el('button', { type: 'button', class: 'crs-icon-btn', 'aria-label': `Remove ${d.name}`, title: 'Remove', onclick: async () => {
@@ -738,35 +740,6 @@ async function runQuiz(box, c, topic, start, ranges = null) {
     qh.focus({ preventScroll: i === 0 }); // a screen reader reads each new question
   };
   show();
-}
-
-/* ---------- under a reply ---------- */
-
-/** Under a reply in a course chat: Verified / Partly verified / General, and the checked quotes. */
-export function groundingStrip(g, courseId = null) {
-  if (!g) return null;
-  const where = g.scope === 'files' ? 'your files' : 'your course';
-  const label = g.scope === 'web'
-    ? (g.status === 'web' ? 'High-stakes question: checked against the web sources above' : 'High-stakes question: not checked against sources. Confirm with a professional.')
-    : { verified: `Verified from ${where}`, partial: 'Partly verified', general: `Not from ${where === 'your files' ? 'your files' : 'your course materials'}` }[g.status] || '';
-  if (g.scope === 'web') return el('div', { class: `crs-ground ${g.status === 'web' ? 'partial' : 'general'}` }, el('div', 'crs-ground-h', ico('info', 12), label));
-  const box = el('div', { class: `crs-ground ${g.status}` }, el('div', 'crs-ground-h', g.status === 'verified' ? svg(SHIELD) : ico('info', 12), label));
-  if (g.hint) box.append(hintNote(g.hint)); // Q10: "Hint mode: graded assignment"
-  for (const s of g.sources || []) {
-    const open = courseId && s.doc && s.at ? () => dispatchEvent(new CustomEvent('eden:study-source', { detail: { course: courseId, doc: s.doc, loc: s.at, quote: s.ok ? s.quote : '' } })) : null;
-    const said = `Source ${s.n}: ${s.file ? `${s.file}, ${s.at}` : 'none given'}${s.ok ? '' : s.file ? ', quote not found in the source' : ', unsupported'}${open ? '. Opens the page.' : ''}`;
-    box.append(el(open ? 'button' : 'div', { ...(open ? { type: 'button', onclick: open, 'aria-label': said } : { role: 'note', 'aria-label': said }), class: `crs-src${s.ok ? '' : ' bad'}${open ? ' link' : ''}`, title: s.quote ? `“${s.quote}”` : '' },
-      el('b', '', `${s.n}`), el('span', { class: 'crs-src-txt', ...(s.file ? { 'data-no-i18n': '' } : {}) }, s.file ? `${s.file} · ${s.at}` : 'No source given'),
-      s.ok ? null : el('span', 'crs-flag', s.file ? 'quote not found in the source' : 'unsupported')));
-  }
-  return box;
-}
-
-/** A course reply's text for display: the <sources> block (shown by groundingStrip instead) cut off, also while it streams. */
-export function stripSources(text) {
-  const t = String(text).replace(/\s*<sources>[\s\S]*$/i, '');
-  const lt = t.lastIndexOf('<');
-  return lt >= 0 && t.length - lt < 9 && '<sources>'.startsWith(t.slice(lt).toLowerCase()) ? t.slice(0, lt).trimEnd() : t;
 }
 
 /* ---------- review today and the exam plan (Q7, Q8) ---------- */

@@ -9,7 +9,7 @@
   is web/features/code-editor.js, in place of the core's read-only viewer.
   The owner's own memory file, ~/.claude/CLAUDE.md, is one too ({memory: "user"}).
 - Search (cw_search; code_search): the project's files by text or regular expression, a
-  newer search stopping the one before; web/features/code-search.js shows the matches in
+  newer search stopping the one before in the same window; web/features/code-search.js shows the matches in
   the Files pane, opens them at their line and mentions their files in the composer.
 
 Window commands are cw_*; each answers with an event of the same name. Work that reads
@@ -23,18 +23,29 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import functools
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from .. import code_editor, code_memory, code_search, lang, mac_tools
 from ..code_editor import Editors
 from ..code_records import RecordMedia
-from ..hub import _msg_int
+from ..hub import CALLER, _msg_int
 
 log = logging.getLogger("jarvis")
+
+# Searches run in threads of their own: each can hold one for up to code_search.SECONDS, and
+# in the event loop's shared pool (12 threads here) forty windows' searches made a file
+# open wait 5 s behind them. At most SEARCHES_PER_WINDOW run for one window at once (its split
+# view panes share its connection). (CF3-4) More wait their turn instead of stopping another
+# pane's search; only the same page's newer search stops an older one, waiting or running.
+SEARCH_THREADS = 4
+SEARCHES_PER_WINDOW = 3
+_SEARCH_POOL = ThreadPoolExecutor(max_workers=SEARCH_THREADS, thread_name_prefix="eden-search")
 
 # The sentences this feature shows in the caption line, with their Chinese.
 ZH = {
@@ -53,7 +64,11 @@ class Workspace:
         self.media = RecordMedia()
         self.editors = Editors()
         self._tasks: set[asyncio.Task] = set()
-        self._search: code_search.Stop | None = None  # the search running, to stop for a newer one
+        # The search running in each window (by its refs' page part, "<page>-s3"), to stop
+        # for that window's newer one: one window's search never stops another's.
+        self._searches: dict[str, code_search.Stop] = {}
+        # id(its connection) -> [its slots (SEARCHES_PER_WINDOW at once), searches holding or awaiting one]
+        self._per_window: dict[int, list[Any]] = {}
 
     # ── helpers ──
 
@@ -85,8 +100,8 @@ class Workspace:
 
     def _answer(self, kind: str, msg: dict[str, Any], **data: Any) -> None:
         """An event answering a window command: the file it was about and the ref the
-        window gave it, with what came of it."""
-        self.hub.emit(
+        window gave it, with what came of it: to that window only (a file's whole text)."""
+        self.hub.emit_to_caller(
             kind,
             path=str(msg.get("path") or "")[:1000],
             ref=str(msg.get("ref") or "")[:2000],
@@ -105,7 +120,7 @@ class Workspace:
         items: dict[str, Any] = {}
         if task is not None and task.session_id and keys:
             items = await asyncio.to_thread(self.media.pictures, task.session_id, task.cwd, keys)
-        self.hub.emit(
+        self.hub.emit_to_caller(
             "cw_media",
             id=task.id if task else 0,
             keys=keys,
@@ -185,11 +200,24 @@ class Workspace:
         """{id | directory, text, regex, case, word, include, ref}: the project's matches.
         A newer search stops this one (its answer then says stopped)."""
         ref = str(msg.get("ref") or "")[:40]
-        if self._search is not None:
-            self._search.set()
-        stop = self._search = code_search.Stop()
+        window = ref.rsplit("-", 1)[0] if "-" in ref else ""
+        before = self._searches.pop(window, None)
+        if before is not None:
+            before.set()
+        stop = self._searches[window] = code_search.Stop()
+        conn = id(CALLER.get())
+        slots = self._per_window.setdefault(conn, [asyncio.Semaphore(SEARCHES_PER_WINDOW), 0])
+        slots[1] += 1
         started = time.monotonic()
+        held = False
         try:
+            held = await _take_slot(slots[0], stop)
+            if not held:  # this page searched again while it waited
+                self.hub.emit_to_caller(
+                    "cw_search", ref=ref, files=[], total=0, truncated=False, stopped=True
+                )
+                return
+            stop.until = time.monotonic() + code_search.SECONDS  # (its time starts now)
             root = self.folder(msg)
             query = code_search.Query(
                 text=str(msg.get("text") or ""),
@@ -198,14 +226,23 @@ class Workspace:
                 word=msg.get("word") is True,
                 include=str(msg.get("include") or "")[:300],
             )
-            found = await asyncio.to_thread(code_search.search, root, query, stop)
+            found = await asyncio.get_running_loop().run_in_executor(
+                _SEARCH_POOL, functools.partial(code_search.search, root, query, stop)
+            )
         except ValueError as exc:  # a query that can't run, or not a project
-            self.hub.emit("cw_search", ref=ref, error=str(exc), files=[], total=0)
+            self.hub.emit_to_caller("cw_search", ref=ref, error=str(exc), files=[], total=0)
             return
         finally:
-            if self._search is stop:
-                self._search = None
-        self.hub.emit("cw_search", ref=ref, seconds=round(time.monotonic() - started, 2), **found)
+            if self._searches.get(window) is stop:
+                del self._searches[window]
+            if held:
+                slots[0].release()
+            slots[1] -= 1
+            if not slots[1] and self._per_window.get(conn) is slots:
+                del self._per_window[conn]
+        self.hub.emit_to_caller(
+            "cw_search", ref=ref, seconds=round(time.monotonic() - started, 2), **found
+        )
 
     async def cmd_editors(self, _msg: dict[str, Any]) -> None:
         found = await asyncio.to_thread(self.editors.list)
@@ -307,6 +344,18 @@ def hunks(old: str, new: str, context: int = 3) -> list[dict[str, Any]]:
         if len(out) >= HUNKS_MAX or total >= HUNK_LINES_MAX:
             break
     return out
+
+
+async def _take_slot(slots: asyncio.Semaphore, stop: code_search.Stop) -> bool:
+    """One of a window's search slots, waited for; False when the search is stopped (its
+    page searched again) before one is free."""
+    while not stop.event.is_set():
+        try:
+            await asyncio.wait_for(slots.acquire(), 0.2)
+            return True
+        except TimeoutError:
+            continue
+    return False
 
 
 def _log_failure(task: asyncio.Task) -> None:

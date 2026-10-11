@@ -127,6 +127,13 @@ export async function userKeysOp(account, op, request) {
       return json({ keys });
     }
     case 'ukeys-get': {
+      if (Array.isArray(body.providers)) { // several in one call and one read (userKeysFor: hosted chat's every request)
+        const wanted = KEY_PROVIDERS.filter((p) => body.providers.includes(p));
+        const got = await account.storage.get(wanted.map(recordKey));
+        const records = {};
+        for (const p of wanted) { const r = got.get(recordKey(p)); records[p] = r ? { iv: r.iv, ct: r.ct } : null; }
+        return json({ records });
+      }
       const r = await account.storage.get(recordKey(providerOf(body)));
       return json({ record: r ? { iv: r.iv, ct: r.ct } : null });
     }
@@ -169,6 +176,53 @@ export async function userKeyFor(env, who, provider) {
   }
 }
 
+/**
+ * userKeyFor for several providers in one call to the account (hostedFor asked once per provider, four calls in
+ * a row on every hosted chat request): { [provider]: { key, source: 'user' } | null }.
+ * When the owner's keys can't be read (the account didn't answer, twice) or a saved one can't be opened, the
+ * answer says so (`unread`, not enumerated: { reason: 'read' | 'open', providers }), and those providers are
+ * never given the service's key instead: a turn the person pays for with their own key must not land on their
+ * included allowance (AW2-14). Logged without the key or the error's text.
+ */
+export async function userKeysFor(env, who, providers) {
+  const out = Object.fromEntries(providers.map((p) => [p, null]));
+  const wanted = providers.filter((p) => KEY_PROVIDERS.includes(p));
+  if (!own(who) || !wanted.length || !tokenSecret(env)) return out;
+  let records = null;
+  for (let attempt = 0; attempt < 2 && !records; attempt++) {
+    try {
+      records = (await call(env, who.account, 'ukeys-get', { providers: wanted }, who.token)).records || {};
+    } catch (error) {
+      if (attempt) {
+        console.error('user keys: the account’s keys couldn’t be read', (error && (error.status || error.name)) || 'error');
+        return unread(out, { reason: 'read', providers: wanted });
+      }
+    }
+  }
+  const unopened = [];
+  for (const p of wanted) {
+    if (!records[p]) continue;
+    const opened = await openWith(env, `account:${who.account}`, aad(who.account, p), records[p]).catch(() => null);
+    if (opened && typeof opened.key === 'string') out[p] = { key: opened.key, source: 'user' };
+    else unopened.push(p);
+  }
+  if (unopened.length) {
+    console.error('user keys: a saved key couldn’t be opened', unopened.join(','));
+    return unread(out, { reason: 'open', providers: unopened });
+  }
+  return out;
+}
+const unread = (out, why) => Object.defineProperty(out, 'unread', { value: why, enumerable: false });
+
+/** The error for a turn while the owner's own keys are unread (hostedFor's `keysUnread`). */
+export function keysUnreadError(why) {
+  if (why && why.reason === 'open') {
+    const names = why.providers.map((p) => NAMES[p] || p).join(', ');
+    return new ApiError(503, 'keys_unread', `Eden couldn’t open your saved ${names} key, so nothing was sent. Save it again in Settings › API keys (or remove it to use your included AI).`);
+  }
+  return new ApiError(503, 'keys_unread', 'Eden couldn’t read your saved API keys just now, so nothing was sent (it won’t use your included AI instead). Try again in a moment.', { 'retry-after': '5' });
+}
+
 /** Whether a turn on a key from providerKey() holds and spends the included allowance (only the service's). */
 export const billsAllowance = (source) => source !== 'user';
 
@@ -187,7 +241,7 @@ async function status(env, who) {
 export async function keysApi(request, env, who, { readBody }) {
   if (!own(who)) throw new ApiError(403, 'grant_forbidden', 'API keys stay with the account’s owner.');
   // Without the sealing secret, keys stay where they were: in Eden on the Mac.
-  if (!tokenSecret(env)) throw new ApiError(503, 'needs_mac', 'Needs your Mac. API keys stay in Eden on your Mac; on askeden.com, Claude runs on the AI included with your Eden account.');
+  if (!tokenSecret(env)) throw new ApiError(503, 'needs_mac', 'Needs your Mac. API keys can’t be saved on askeden.com yet, so they stay in Eden on your Mac (on askeden.com, Claude needs your own key).');
   await limited(env, 'API_RATE', who.account);
   if (request.method === 'GET') return status(env, who);
   const body = await readBody(request, 4096);

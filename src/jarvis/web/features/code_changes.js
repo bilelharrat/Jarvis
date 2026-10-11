@@ -241,6 +241,7 @@
     const fill = () => {
       const hunks = el('div', 'jcx-hunks');
       if (file.sensitive) hunks.append(el('p', 'jcx-cut', 'Credentials: changed, but its lines aren’t shown.'));
+      else if (file.big) hunks.append(el('p', 'jcx-cut', 'A very big file changed: too big to show line by line.'));
       else if (file.binary) hunks.append(el('p', 'jcx-cut', 'A binary file changed.'));
       else if (file.omitted) {
         hunks.append(button('Show its changes', 'jc-btn small', () => request(task, { path: file.path })));

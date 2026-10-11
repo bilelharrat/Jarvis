@@ -178,7 +178,8 @@ async def test_refine_sends_one_round_per_press_up_to_the_rounds(hub, tmp_path, 
         }
     )
     [((_, text, images), kwargs)] = sent
-    assert text.startswith("Build this design") and images[0]["data"] == PNG and kwargs == {}
+    assert text.startswith("Build this design") and images[0]["data"] == PNG
+    assert kwargs == {"by_user": True}  # (the owner's own press: CA2-6)
     hub.tasks.emit("task_log", id=4, entry={"role": "user", "text": text})
     first, _ = await a_comparison(hub, q, task, header=(220, 38, 38))
     # Nothing goes to the session without the owner's press.

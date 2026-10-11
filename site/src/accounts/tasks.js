@@ -36,7 +36,7 @@
 // imports this): chat.js hands in `call` and `limited`.
 
 import { ApiError, isPhone, json } from './util.js';
-import { costOf, priceOf } from './proxy.js';
+import { costOf, priceOf, pricesReady } from './proxy.js';
 import { serviceAiReady, serviceFetch } from './service-ai.js';
 import { GONE, MAX_PAYLOAD, pushReady, sendPush } from './apns.js';
 import { TOKEN_RECORD, openTokens } from './tokens.js';
@@ -364,6 +364,7 @@ export async function askModel(env, { system, user, schema, maxTokens, model, fe
     return { ok: false, error: `Couldn’t reach Claude: ${e.message}`, costUSD: 0, model };
   }
   const body = await res.json().catch(() => null);
+  await pricesReady(); // the stand-in's price (proxy.js)
   const usage = (body && body.usage) || {};
   const used = (body && body.model) || model;
   const costUSD = round(costOf(used, usage));
@@ -649,6 +650,7 @@ export async function runTask(account, task, now) {
     const { system, user } = runPrompt(task, { now, ledger, materialText: blocks.join('\n\n') });
     const input = tokensOf(system, user, JSON.stringify(RUN_SCHEMA)) + 300;
     let maxTokens = TASKS.maxTokens;
+    await pricesReady(); // a stand-in model's price (proxy.js)
     let worst = worstUsd(model, input, maxTokens);
     if (worst > task.budget.run_usd) {
       const [inPrice, outPrice] = priceOf(model);
@@ -931,6 +933,7 @@ async function propose(env, who, args, { call, local }) {
   const model = String(env.EDEN_TASK_MODEL || TASKS.model);
   const { system, user } = proposalPrompt(text, now, tz, zone);
   const maxTokens = 700;
+  await pricesReady(); // a stand-in model's price (proxy.js)
   const worst = worstUsd(model, tokensOf(system, user, JSON.stringify(PROPOSAL_SCHEMA)) + 300, maxTokens);
   const hold = await call(env, who.account, 'hold-ai', { eden: true, usd: worst }, who.token);
   if (!hold.ok) throw new ApiError(402, 'no_allowance', hold.why);

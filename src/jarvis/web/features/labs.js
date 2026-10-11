@@ -10,7 +10,6 @@
   const LABS = [
     ['code_acp', 'Other agents (ACP)', 'Run Gemini CLI, Codex and other ACP agents as sessions.'],
     ['code_plugins', 'Plugins', 'Claude Code plugins: their commands, agents and hooks in sessions.'],
-    ['code_split', 'Split view', 'Two live sessions side by side (⌘⇧\\ or /split).'],
   ];
   let on = [];
   let atStart = null;  // what was on when the window loaded: a change shows "restart"
@@ -52,7 +51,8 @@
   }
 
   const take = (features) => {
-    on = Array.isArray(features && features.labs) ? features.labs : [];
+    // (only the Labs listed here: one that graduated, such as split view, is on for everyone)
+    on = Array.isArray(features && features.labs) ? features.labs.filter((n) => LABS.some(([name]) => name === n)) : [];
     if (atStart === null) atStart = [...on];
     draw();
   };

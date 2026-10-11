@@ -1,5 +1,6 @@
-// The front page's six films: each plays, muted, while it is on screen, and pauses when it leaves. Two buttons on each: pause and sound
-// (only one film has sound at a time). Without this script the browser's own controls show, and nothing loads until someone presses play.
+// The front page's films: each plays, muted, while it is on screen, and pauses when it leaves. A pause button on each; only the Voice film
+// and the Eden-anywhere film (keys and voices, no music) have sound (the others' audio was dropped, owner 2026-10-10), so only they have a sound button.
+// Without this script the browser's own controls show, and nothing loads until someone presses play.
 (() => {
   'use strict';
   const films = [...document.querySelectorAll('video.fv')];
@@ -10,19 +11,20 @@
     const box = v.closest('.fvid'), pp = box.querySelector('.fpp'), snd = box.querySelector('.fsnd');
     pp.dataset.state = v.paused ? 'paused' : 'playing';
     pp.setAttribute('aria-label', v.paused ? 'Play' : 'Pause');
-    snd.setAttribute('aria-pressed', String(!v.muted));
-    snd.setAttribute('aria-label', v.muted ? 'Turn sound on' : 'Turn sound off');
+    if (snd) {
+      snd.setAttribute('aria-pressed', String(!v.muted));
+      snd.setAttribute('aria-label', v.muted ? 'Turn sound on' : 'Turn sound off');
+    }
   }
-  function hush(except) { for (const v of films) if (v !== except && !v.muted) v.muted = true; }
 
   for (const v of films) {
     const box = v.closest('.fvid'), ctl = box.querySelector('.fctl'), pp = box.querySelector('.fpp'), snd = box.querySelector('.fsnd');
-    v.controls = false; ctl.hidden = false;
+    v.muted = true; v.controls = false; ctl.hidden = false;
     pp.addEventListener('click', () => { if (v.paused) { v.dataset.hold = ''; v.play().catch(() => {}); } else { v.dataset.hold = '1'; v.pause(); } });
     v.addEventListener('click', () => pp.click());                       // a tap on the picture pauses or plays too
-    snd.addEventListener('click', () => {
+    if (snd) snd.addEventListener('click', () => {
       v.muted = !v.muted;
-      if (!v.muted) { hush(v); if (v.paused) { v.dataset.hold = ''; v.play().catch(() => {}); } }
+      if (!v.muted && v.paused) { v.dataset.hold = ''; v.play().catch(() => {}); }
     });
     for (const ev of ['play', 'pause', 'volumechange']) v.addEventListener(ev, () => sync(v));
     sync(v);
