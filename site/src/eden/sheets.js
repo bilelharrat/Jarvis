@@ -46,7 +46,7 @@
 // with no Origin. Nothing asked is stored or logged here.
 
 import { ApiError } from '../accounts/util.js';
-import { bad, cut, fence, fenceRule, isObj, known, oneLine, points, str, strip, thread, turnsOf, utf8Bytes } from './ext.js';
+import { bad, cut, fence, fenceRule, isObj, known, oneLine, points, str, strip, textTokens, thread, turnsOf, utf8Bytes } from './ext.js';
 
 /** askeden.com's own origins (the Excel task pane's), plus EDEN_SELF_ORIGINS for a preview Worker. */
 export function selfOrigins(env = {}) {
@@ -131,12 +131,13 @@ function grid(value, label, budget) {
     const out = [];
     for (let c = 0; c < row.length; c += 1) {
       const cell = row[c];
-      if (cell === null || cell === undefined) {
+      // Empty (most of a formulas grid): nothing to check or count.
+      if (cell === null || cell === undefined || cell === '') {
         out.push('');
         continue;
       }
       if (typeof cell !== 'string' && typeof cell !== 'number' && typeof cell !== 'boolean') bad(`${label}: a cell must be text, a number or true/false`);
-      const raw = strip(String(cell));
+      const raw = typeof cell === 'string' ? strip(cell) : String(cell); // a number or true/false has nothing to strip
       const n = points(raw);
       if (n > SHEET.cellChars) budget.long.push([r, c]);
       budget.chars += Math.min(n, SHEET.cellChars);
@@ -277,17 +278,23 @@ export function cellsBlock(sheet) {
   return out;
 }
 
+/** The selection's formulas as "B9: =…" lines, the first FORMULA_LINES only (built no further). */
+const FORMULA_LINES = 400;
 function formulasBlock(sheet) {
   if (!sheet || !sheet.formulas) return '';
   const start = topLeft(sheet.range);
   const out = [];
-  sheet.formulas.forEach((row, i) => row.forEach((f, j) => {
-    if (typeof f === 'string' && f.startsWith('=')) out.push(`${columnName(start.col + j)}${rowOf(sheet, start, i)}: ${tsvCell(f)}`);
-  }));
-  return out.slice(0, 400).join('\n');
+  for (let i = 0; i < sheet.formulas.length && out.length < FORMULA_LINES; i += 1) {
+    const row = sheet.formulas[i];
+    for (let j = 0; j < row.length && out.length < FORMULA_LINES; j += 1) {
+      const f = row[j];
+      if (typeof f === 'string' && f.startsWith('=')) out.push(`${columnName(start.col + j)}${rowOf(sheet, start, i)}: ${tsvCell(f)}`);
+    }
+  }
+  return out.join('\n');
 }
 
-/** A clean's answer budget: every value again (bytes ÷ 2.2 covers English and CJK), a separator per cell. */
+/** A clean's answer budget: every value again (textTokens), a separator per cell. */
 export function cleanTokens(values) {
   let bytes = 0;
   let cells = 0;
@@ -295,22 +302,19 @@ export function cleanTokens(values) {
     for (const c of row) bytes += utf8Bytes(c);
     cells += Math.max(1, row.length);
   }
-  return Math.ceil(bytes / 2.2) + cells + 200;
+  return textTokens(bytes) + cells + 200;
 }
 
 /**
  * A fill's answer budget: per row, a value as long as the row's longest cell (× 1.6: a translation can
- * grow; bytes ÷ 2.2 covers English and CJK), at least SHEET.rowTokens, and its line break; then 200.
+ * grow), at least SHEET.rowTokens, and its line break; then 200.
  */
 export function fillTokens(values) {
   let tokens = 200;
   for (const row of values || []) {
     let longest = 0;
-    for (const c of row) {
-      const bytes = utf8Bytes(c);
-      if (bytes > longest) longest = bytes;
-    }
-    tokens += Math.max(SHEET.rowTokens, Math.ceil((longest * 1.6) / 2.2)) + 1;
+    for (const c of row) longest = Math.max(longest, utf8Bytes(c));
+    tokens += Math.max(SHEET.rowTokens, textTokens(longest, 1.6)) + 1;
   }
   return tokens;
 }

@@ -313,11 +313,10 @@ export const forgetBearers = () => BOX.clear();
 const boxKey = (request, who) => `${clientIp(request)} ${who.account}`;
 
 function boxed(request, who) {
+  if (!BOX.size) return false; // nearly always: no key to build
   const key = boxKey(request, who);
-  const until = BOX.get(key);
-  if (until === undefined) return false;
-  if (until > Date.now()) return true;
-  BOX.delete(key);
+  if (BOX.get(key) > Date.now()) return true;
+  BOX.delete(key); // expired, or never boxed
   return false;
 }
 
@@ -591,6 +590,11 @@ function failure(end, prompt) {
   if (end.error === 'refused') return { status: 422, code: 'refused', error: 'Eden declined this request. Try asking another way.' };
   return { status: 502, code: 'upstream', error: end.why };
 }
+/** The same, as the ApiError a buffered answer (or one whose headers came too late) is refused with. */
+const failed = (end, prompt) => {
+  const { status, code, error } = failure(end, prompt);
+  return new ApiError(status, code, error);
+};
 
 /**
  * One answer, held on the allowance first and billed however it ends. Streamed as text/plain (with a
@@ -599,8 +603,9 @@ function failure(end, prompt) {
  */
 async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, trailer = false, started = Date.now() } = {}) {
   const deadline = started + (buffered ? TIMING.bufferedMs : TIMING.streamMs);
-  // The worst case (input at a token per 3 bytes, the longest answer) is held on the allowance.
-  const inputTokens = Math.ceil(utf8Bytes(prompt.system + prompt.messages.map((m) => m.content).join('')) / 3);
+  // The worst case (input at a token per 3 bytes, the longest answer) is held on the allowance. Counted
+  // piece by piece, never joined: no piece holds a lone surrogate (strip), so the bytes add up exactly.
+  const inputTokens = Math.ceil(prompt.messages.reduce((n, m) => n + utf8Bytes(m.content), utf8Bytes(prompt.system)) / 3);
   const [inPrice, outPrice] = priceOf(model);
   const worstUSD = Math.round(((inputTokens * inPrice + prompt.maxTokens * outPrice) / 1e6) * 1e6) / 1e6;
   const held = await hold(env, who, worstUSD);
@@ -614,7 +619,7 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
     upstream = await serviceFetch(env, { model, max_tokens: prompt.maxTokens, system: prompt.system, messages: prompt.messages, stream: true }, { signal: abort.signal, url: ANTHROPIC });
   } catch {
     await letGo();
-    if (Date.now() >= deadline) throw new ApiError(504, 'too_slow', failure({ error: 'too_slow' }, prompt).error);
+    if (Date.now() >= deadline) throw failed({ error: 'too_slow' }, prompt);
     throw new ApiError(502, 'upstream', 'Eden couldn’t reach Claude. Try again.');
   } finally {
     clearTimeout(late);
@@ -629,7 +634,8 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
   const meter = usageMeter();
   let stopped = false; // the person stopped it, or the page went away
   const reader = upstream.body.getReader();
-  // Reads Claude's stream, sending its text to `emit`; → how it ended: { cut } or { error, why }.
+  // Reads Claude's stream, sending its text to `emit`; → how it ended: { answer: complete|cut } (the
+  // trailer's own JSON) or { error, why }.
   const pump = async (emit) => {
     const decoder = new TextDecoder();
     let buffer = '';
@@ -664,9 +670,9 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
       if (stop === 'max_tokens') {
         if (prompt.structured) return { error: 'cut_off' };
         emit(CUT_NOTE);
-        return { cut: true };
+        return { answer: 'cut' };
       }
-      return { cut: false };
+      return { answer: 'complete' };
     } catch (error) {
       return { error: 'upstream', why: `The answer broke off: ${error.message}` };
     } finally {
@@ -684,11 +690,8 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
     const end = await pump((piece) => {
       text += piece;
     });
-    if (end.error) {
-      const { status, code, error } = failure(end, prompt);
-      throw new ApiError(status, code, error);
-    }
-    return new Response(text, { status: 200, headers: { ...headers, 'x-eden-answer': end.cut ? 'cut' : 'complete' } });
+    if (end.error) throw failed(end, prompt);
+    return new Response(text, { status: 200, headers: { ...headers, 'x-eden-answer': end.answer } });
   }
 
   // Streamed: the answer's text as it comes. A failure errors the stream (or, with a trailer, ends it
@@ -712,7 +715,7 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, tr
     if (stopped) return;
     try {
       if (trailer) {
-        controller.enqueue(encoder.encode(TRAILER + JSON.stringify(end.error ? failure(end, prompt) : { answer: end.cut ? 'cut' : 'complete' })));
+        controller.enqueue(encoder.encode(TRAILER + JSON.stringify(end.error ? failure(end, prompt) : end)));
         controller.close();
       } else if (end.error) controller.error(new Error(failure(end, prompt).error));
       else controller.close();

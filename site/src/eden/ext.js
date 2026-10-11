@@ -122,8 +122,13 @@ export function cut(text, max) {
 /** A one-line field (a name, an address, a range): no line breaks, so it can't start a "Request:" line. */
 export const oneLine = (text) => String(text).replace(/[\r\n\u0085\u2028\u2029\t\v\f]+/g, ' ');
 const ENCODER = new TextEncoder();
+// Written into, never read: encoding a string up to a third of its size allocates nothing (a budget
+// counts every cell: 5,000 short ones were 5,000 new arrays). Each UTF-16 unit is at most 3 bytes.
+const SCRATCH = new Uint8Array(64 * 1024);
 /** UTF-8 bytes of a string. */
-export const utf8Bytes = (text) => ENCODER.encode(text).length;
+export const utf8Bytes = (text) => (typeof text === 'string' && text.length * 3 <= SCRATCH.length ? ENCODER.encodeInto(text, SCRATCH).written : ENCODER.encode(text).length);
+/** An answer's tokens for `bytes` of UTF-8 text (÷ 2.2 covers English and CJK alike), × `factor` when it grows. */
+export const textTokens = (bytes, factor = 1) => Math.ceil((bytes * factor) / 2.2);
 /**
  * A per-request random tag suffix: quoted data sits inside <name_XXXX>…</name_XXXX>, which the data
  * can't close because it can't know XXXX (look-alike or invisible-character closers don't matter).
@@ -214,11 +219,8 @@ export function parseText(body) {
   return { action, text, instruction, tone, language, page, field, history: turns };
 }
 
-/** An edit's answer budget: a copy of the text (bytes ÷ 2.2 covers English and CJK alike), more for longer/translate. */
-export function editTokens(action, text) {
-  const factor = action === 'longer' || action === 'translate' ? 1.6 : 1;
-  return Math.ceil((utf8Bytes(text) * factor) / 2.2) + 400;
-}
+/** An edit's answer budget: a copy of the text, more for longer/translate. */
+export const editTokens = (action, text) => textTokens(utf8Bytes(text), action === 'longer' || action === 'translate' ? 1.6 : 1) + 400;
 
 // An edit answer's floor: write and reply aren't the length of what is selected (often nothing, or a
 // short message), and longer adds to it.
@@ -226,7 +228,7 @@ const FLOOR = { write: 4000, reply: 2000, longer: 2000 };
 /** The longest answer an ask may need: room for an edited copy of the selection, at least its floor (≤ 8,000). */
 export function answerTokens({ action, text }) {
   if (!ACTIONS[action].edit) return TEXT.proseTokens;
-  const room = action === 'translate' ? Math.ceil((utf8Bytes(text) * 3) / 2.2) + 400 : editTokens(action, text);
+  const room = action === 'translate' ? textTokens(utf8Bytes(text), 3) + 400 : editTokens(action, text);
   return Math.min(TEXT.editTokens, Math.max(FLOOR[action] || 1000, room));
 }
 

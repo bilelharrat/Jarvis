@@ -6,7 +6,8 @@ import worker from '../src/worker.js';
 import { forgetAppleKeys } from '../src/accounts/apple.js';
 import { challengeOf } from '../src/accounts/scoped.js';
 import { BEARER, CUT_NOTE, CUT_OFF, TIMING, TRAILER, forgetBearers } from '../src/eden/ask.js';
-import { TEXT, answerTokens, editTokens, parseText, strip, textPrompt } from '../src/eden/ext.js';
+import { TEXT, answerTokens, editTokens, parseText, strip, textPrompt, textTokens, utf8Bytes } from '../src/eden/ext.js';
+import { priceOf } from '../src/accounts/proxy.js';
 import { SHEET, cellsBlock, fillTokens, parseSheet, sheetPrompt, topLeft } from '../src/eden/sheets.js';
 import { forgetSessions } from '../src/eden/session.js';
 import { Account, Link, appleJwk, claudeAnswer, identityToken, namespace, rateLimiter, sseBody } from './fakes.js';
@@ -411,4 +412,72 @@ test('R2S16: a buffered answer’s deadline counts from arrival; Claude’s time
   // A streamed answer's 5 minutes count from arrival too; a quick one is untouched.
   upstream = answer({ text: ['quick'] });
   assert.equal(await (await askAs('chrome', tokens.chrome)).text(), 'quick');
+});
+
+// ── efficiency pass 2 (askeden/docs/bug-sweep/anywhere/e2-server.md): same results, less work ──
+
+test('E2: utf8Bytes is TextEncoder’s count at any length (either side of its scratch buffer), lone surrogates and non-strings included', () => {
+  const enc = new TextEncoder();
+  for (const n of [0, 1, 21_844, 21_845, 21_846, 40_000]) {
+    for (const unit of ['a', 'é', '漢', '😀', '\ud800', '\udc00', 'a\ud800']) {
+      const text = unit.repeat(Math.ceil(n / unit.length)).slice(0, n);
+      assert.equal(utf8Bytes(text), enc.encode(text).length, `${n} × ${JSON.stringify(unit)}`);
+    }
+  }
+  for (const x of [undefined, null, 5, true]) assert.equal(utf8Bytes(x), enc.encode(x).length, String(x));
+  assert.equal(textTokens(2200), 1000);
+  assert.equal(textTokens(2200, 1.6), Math.ceil((2200 * 1.6) / 2.2));
+  assert.equal(editTokens('translate', 'é'.repeat(1100)), textTokens(2200, 1.6) + 400);
+});
+
+test('E2: the formulas block stops at 400 lines, the first ones in order, labelled by sheet.rows', () => {
+  const formulas = Array.from({ length: 300 }, (_, r) => ['', `=A${r}*2`, `=B${r}+1`]);
+  const values = formulas.map((row) => row.map(() => 1));
+  const rows = values.map((_, i) => 3 + i * 2);
+  const { messages } = sheetPrompt(parseSheet({ action: 'explain', app: 'excel', sheet: { range: 'C3', values, formulas, rows } }));
+  const block = /<formulas_[0-9a-f]+>\n([\s\S]*?)\n<\/formulas_/.exec(messages.at(-1).content)[1].split('\n');
+  assert.equal(block.length, 400);
+  assert.deepEqual(block.slice(0, 3), ['D3: =A0*2', 'E3: =B0+1', 'D5: =A1*2']);
+  assert.equal(block.at(-1), `E${3 + 199 * 2}: =B199+1`);
+});
+
+test('E2: empty, number and true/false cells parse as before', () => {
+  const sheet = { values: [['', 0, -0, 1e21, 0.5, true, false, null, ' a\u0000b ']], formulas: [['', '', '=A1']] };
+  const req = parseSheet({ action: 'analyze', app: 'excel', sheet });
+  assert.deepEqual(req.sheet.values, [['', '0', '0', '1e+21', '0.5', 'true', 'false', '', ' ab ']]);
+  assert.deepEqual(req.sheet.formulas, [['', '', '=A1']]);
+  // Every character still counts against the 60,000.
+  const big = Array.from({ length: 5 }, () => Array.from({ length: 1000 }, () => 1234567890123)); // 13 characters each
+  assert.throws(() => parseSheet({ action: 'analyze', app: 'excel', sheet: { values: big, formulas: [] } }), (e) => e.status === 413);
+  assert.doesNotThrow(() => parseSheet({ action: 'analyze', app: 'excel', sheet: { values: big.slice(0, 4) } }));
+});
+
+test('E2: the hold covers every byte of the prompt Claude gets (counted piece by piece, never joined)', async () => {
+  const { tokens } = await connected('e2-hold', ['chrome', 'excel']);
+  const held = [];
+  const get = env.ACCOUNTS.get;
+  env.ACCOUNTS.get = (name) => {
+    const stub = get(name);
+    return {
+      fetch: async (input, init) => {
+        const req = input instanceof Request ? input : new Request(input, init);
+        if (new URL(req.url).pathname === '/scoped-hold') held.push((await req.clone().json()).usd);
+        return stub.fetch(req);
+      },
+    };
+  };
+  const [inPrice, outPrice] = priceOf('claude-sonnet-5-5');
+  const asks = [
+    ['chrome', { action: 'rewrite', text: 'Grüße 😀 漢字 '.repeat(200), history: [{ role: 'user', text: 'é' }, { role: 'eden', text: '😀' }], page: { title: 'Ünï', url: 'https://x' } }],
+    ['excel', { action: 'analyze', app: 'excel', sheet: { name: 'Feuille', range: 'A1', values: [['😀', 'é'], [1, true]] }, active: { address: 'A1', value: '漢' } }],
+  ];
+  for (const [client, body] of asks) {
+    held.length = 0;
+    sent = [];
+    assert.equal((await askAs(client, tokens[client], body)).status, 200);
+    const p = sent[0];
+    const input = Math.ceil(new TextEncoder().encode(p.system + p.messages.map((m) => m.content).join('')).length / 3);
+    assert.deepEqual(held, [0, Math.round(((input * inPrice + p.max_tokens * outPrice) / 1e6) * 1e6) / 1e6], client);
+  }
+  env.ACCOUNTS.get = get;
 });
