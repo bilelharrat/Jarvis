@@ -199,7 +199,9 @@ test('answer sizes follow the job', () => {
   assert.equal(answerTokens({ action: 'cell' }), 300);
   assert.equal(answerTokens({ action: 'formula' }), 600);
   assert.equal(answerTokens({ action: 'fill', sheet: { values: Array.from({ length: 5 }, () => ['x']) } }), 500);
-  assert.equal(answerTokens({ action: 'fill', sheet: { values: Array.from({ length: 200 }, () => ['x']) } }), 200 * 35 + 200);
+  // R2X2: per row max(35, the longest cell × 1.6 ÷ 2.2 tokens) and its line break, then 200 (≤ 8,000 for Excel).
+  assert.equal(answerTokens({ action: 'fill', sheet: { values: Array.from({ length: 200 }, () => ['x']) } }), 200 * 36 + 200);
+  assert.equal(answerTokens({ action: 'fill', app: 'sheets', sheet: { values: Array.from({ length: 50 }, () => ['x'.repeat(300)]) } }), 2000);
   assert.equal(answerTokens({ action: 'table', app: 'excel' }), 4000);
   assert.equal(answerTokens({ action: 'table', app: 'sheets' }), 2000);
   assert.equal(answerTokens({ action: 'analyze', sheet: { values: [['1']] } }), 1500);

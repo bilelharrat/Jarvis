@@ -6,8 +6,12 @@
 //
 //   POST /api/eden/sheet   Authorization: Bearer <access_token>;
 //                          { action, app: "excel"|"sheets", instruction?, sheet?: { name?, range?,
-//                            values?: [[…]], formulas?: [[…]] }, active?: { address?, formula?,
-//                            value? }, history?: [{ role, text }] }
+//                            values?: [[…]], formulas?: [[…]], rows?: [n, …] }, active?: { address?,
+//                            formula?, value? }, history?: [{ role, text }] }
+//                          sheet.rows (optional): the sheet row number of each row of values, when the
+//                          client skipped hidden rows (e.g. [2, 5, 6]); whole numbers 1–10,000,000,
+//                          rising, exactly one per row of values. Without it, rows count down from the
+//                          range's top-left cell.
 //                          → the answer: streamed as text/plain to Excel; to Google Sheets (Apps
 //                            Script can't read a stream) the whole answer at once, sent only when it is
 //                            complete, with `x-eden-answer: complete` (or `cut` for a prose answer that
@@ -21,7 +25,11 @@
 //     instruction ≤ 2,000; sheet.name ≤ 120; range and active.address ≤ 200; history ≤ 20 turns of
 //     ≤ 8,000; the body ≤ 768 KiB;
 //   - one answer must hold the result. Per request, by app (SHEET.apps):
-//       fill   rows ≤ 200 (Excel) / 50 (Google Sheets)
+//       fill   rows ≤ 200 (Excel) / 50 (Google Sheets); the answer budget is
+//              fillTokens(values) = Σ per row max(35, ceil(UTF-8 bytes of the row's longest cell × 1.6
+//              ÷ 2.2)) + 1, + 200, at most 8,000 (Excel) / 2,000 (Google Sheets). Not refused over it:
+//              short answers (categories) fit anyway; a client splits long-text fills (translations,
+//              summaries) into parts whose fillTokens fit the app's cap.
 //       clean  cleanTokens(values) = ceil(UTF-8 bytes of the values ÷ 2.2) + cells + 200
 //              ≤ 8,000 (Excel) / 2,000 (Google Sheets), and rows ≤ 1,000
 //       table  answers up to 4,000 tokens (Excel) / 2,000 (Google Sheets)
@@ -68,10 +76,11 @@ export const SHEET = {
   bodyBytes: 768 * 1024,
   // One answer's limits per app: Google Sheets' are smaller so an answer ends well inside Apps Script's ~60 s.
   apps: {
-    excel: { fillRows: 200, cleanTokens: 8000, tableTokens: 4000 },
-    sheets: { fillRows: 50, cleanTokens: 2000, tableTokens: 2000 },
+    excel: { fillRows: 200, fillTokens: 8000, cleanTokens: 8000, tableTokens: 4000 },
+    sheets: { fillRows: 50, fillTokens: 2000, cleanTokens: 2000, tableTokens: 2000 },
   },
-  rowTokens: 35, // fill: an answer line per row
+  rowTokens: 35, // fill: an answer line per row, at least
+  maxRow: 10_000_000, // sheet.rows: Google Sheets' most cells (Excel's most rows is 1,048,576)
 };
 const APPS = { excel: 'Microsoft Excel', sheets: 'Google Sheets' };
 
@@ -94,6 +103,8 @@ const OUT_RULES = {
   table: 'Answer with only the table as tab-separated values: one line per row, cells separated by a single tab character, no Markdown, no code fences, no notes before or after.',
   cell: 'Answer with only the value for the cell: a number, a date, a word or a short phrase (at most one sentence), with no explanation and no line breaks.',
 };
+// Excel's Clean sends a cell holding a line break or a tab escaped (its pane turns the answer back).
+const CLEAN_ESCAPES = 'Inside a cell, \\n, \\t and \\\\ (and \\u2028, \\u2029, \\u0085) are escapes for a line break, a tab, a backslash (and other line breaks): keep each one exactly as written, as two or more characters, where it is in the cell. Never remove, expand, add or move them; they are not mistakes to clean.';
 // Structured answers (pasted or written into cells) must never be used cut off.
 const STRUCTURED = new Set(['formula', 'lines', 'table', 'cell']);
 
@@ -154,8 +165,8 @@ export function parseSheet(body) {
   const budget = { chars: points(instruction), long: [] };
   let sheet = null;
   if (body.sheet !== undefined && body.sheet !== null) {
-    if (!isObj(body.sheet)) bad('sheet must be { name?, range?, values?, formulas? }');
-    known(body.sheet, ['name', 'range', 'values', 'formulas'], 'sheet');
+    if (!isObj(body.sheet)) bad('sheet must be { name?, range?, values?, formulas?, rows? }');
+    known(body.sheet, ['name', 'range', 'values', 'formulas', 'rows'], 'sheet');
     const values = grid(body.sheet.values, 'sheet.values', budget);
     const long = budget.long.splice(0);
     sheet = {
@@ -164,6 +175,8 @@ export function parseSheet(body) {
       values,
       formulas: grid(body.sheet.formulas, 'sheet.formulas', budget),
     };
+    const rows = rowNumbers(body.sheet.rows, values);
+    if (rows) sheet.rows = rows;
     budget.long = long; // only values are written back
   }
   let active = null;
@@ -193,7 +206,7 @@ export function parseSheet(body) {
     if (budget.long.length) {
       const [r, c] = budget.long[0];
       const start = topLeft(sheet.range);
-      tooLong(`Cell ${columnName(start.col + c)}${start.row + r} is too long to ${action} (at most ${fmt(SHEET.cellChars)} characters). Leave it out of the selection.`);
+      tooLong(`Cell ${columnName(start.col + c)}${rowOf(sheet, start, r)} is too long to ${action} (at most ${fmt(SHEET.cellChars)} characters). Leave it out of the selection.`);
     }
     if (action === 'fill' && sheet.values.length > limits.fillRows) tooLong(`Select at most ${limits.fillRows} rows for this.`);
     if (action === 'clean' && sheet.values.length > SHEET.rows) tooLong(`Select at most ${SHEET.rows} rows for this.`);
@@ -201,6 +214,22 @@ export function parseSheet(body) {
   }
   return { action, app, instruction, sheet, active, history: turns };
 }
+
+/** sheet.rows checked: one rising whole number (1 to SHEET.maxRow) per row of values; null when absent. */
+function rowNumbers(value, values) {
+  if (value === undefined || value === null) return null;
+  if (!values) bad('sheet.rows needs sheet.values');
+  if (!Array.isArray(value) || value.length !== values.length) bad('sheet.rows must hold one row number per row of values');
+  let last = 0;
+  for (const n of value) {
+    if (!Number.isInteger(n) || n <= last || n > SHEET.maxRow) bad(`sheet.rows must be rising whole numbers from 1 to ${fmt(SHEET.maxRow)}`);
+    last = n;
+  }
+  return value.slice();
+}
+
+/** The sheet row number of the i-th row sent: sheet.rows when the client gave them, else counted from the range. */
+const rowOf = (sheet, start, i) => (sheet.rows && i < sheet.rows.length ? sheet.rows[i] : start.row + i);
 
 /** Column letters for a 0-based index: 0 → A, 26 → AA. */
 export function columnName(index) {
@@ -214,9 +243,13 @@ export function columnName(index) {
   return out;
 }
 
-/** The top-left cell of an A1 range ("Sheet1!B3:D9" → { col: 1, row: 3 }), or A1. */
+/**
+ * The top-left cell of an A1 range ("Sheet1!B3:D9" → { col: 1, row: 3 }), or A1. Read after the last "!",
+ * so a quoted sheet name holding one ("'Q1!AB12'!C5:D9") can't pass for the cell.
+ */
 export function topLeft(range) {
-  const m = /(?:^|!)\$?([A-Z]{1,3})\$?(\d{1,7})/i.exec(String(range || ''));
+  const text = String(range || '');
+  const m = /^\$?([A-Z]{1,3})\$?(\d{1,7})/i.exec(text.slice(text.lastIndexOf('!') + 1));
   if (!m) return { col: 0, row: 1 };
   const letters = m[1].toUpperCase();
   let col = 0;
@@ -224,8 +257,9 @@ export function topLeft(range) {
   return { col: col - 1, row: Number(m[2]) };
 }
 
-// Tabs and line breaks inside a cell are shown as spaces (one cell, one TSV field): a client compares a
-// cleaned multi-line cell against this flattened form, and leaves it as it is.
+// Tabs and line breaks inside a cell are shown as spaces (one cell, one TSV field). Excel's pane sends a
+// Clean's multi-line cells already escaped (\n, \t, \\ as two characters: CLEAN_ESCAPES tells the model)
+// and turns the answer back; Google Sheets compares a cleaned cell against this flattened form.
 const tsvCell = (text) => String(text).replace(/[\t\r\n\u0085\u2028\u2029]+/g, ' ');
 
 /** The selection as data: each row labelled with its sheet row number, columns with their letters. */
@@ -237,7 +271,7 @@ export function cellsBlock(sheet) {
   // One string built as it goes (up to 5,000 cells: no array per row).
   sheet.values.forEach((row, i) => {
     if (i) out += '\n';
-    out += start.row + i;
+    out += rowOf(sheet, start, i);
     for (const cell of row) out += `\t${tsvCell(cell)}`;
   });
   return out;
@@ -248,7 +282,7 @@ function formulasBlock(sheet) {
   const start = topLeft(sheet.range);
   const out = [];
   sheet.formulas.forEach((row, i) => row.forEach((f, j) => {
-    if (typeof f === 'string' && f.startsWith('=')) out.push(`${columnName(start.col + j)}${start.row + i}: ${tsvCell(f)}`);
+    if (typeof f === 'string' && f.startsWith('=')) out.push(`${columnName(start.col + j)}${rowOf(sheet, start, i)}: ${tsvCell(f)}`);
   }));
   return out.slice(0, 400).join('\n');
 }
@@ -264,13 +298,30 @@ export function cleanTokens(values) {
   return Math.ceil(bytes / 2.2) + cells + 200;
 }
 
+/**
+ * A fill's answer budget: per row, a value as long as the row's longest cell (× 1.6: a translation can
+ * grow; bytes ÷ 2.2 covers English and CJK), at least SHEET.rowTokens, and its line break; then 200.
+ */
+export function fillTokens(values) {
+  let tokens = 200;
+  for (const row of values || []) {
+    let longest = 0;
+    for (const c of row) {
+      const bytes = utf8Bytes(c);
+      if (bytes > longest) longest = bytes;
+    }
+    tokens += Math.max(SHEET.rowTokens, Math.ceil((longest * 1.6) / 2.2)) + 1;
+  }
+  return tokens;
+}
+
 /** The longest answer an ask may need (parseSheet already refused what can't fit). */
 export function answerTokens({ action, app = 'excel', sheet }) {
   const limits = SHEET.apps[app] || SHEET.apps.excel;
   const rows = sheet && sheet.values ? sheet.values.length : 0;
   if (action === 'cell') return 300;
   if (action === 'formula') return 600;
-  if (action === 'fill') return Math.max(500, rows * SHEET.rowTokens + 200);
+  if (action === 'fill') return Math.min(Math.max(limits.fillTokens, rows * SHEET.rowTokens + 200), Math.max(500, fillTokens(sheet && sheet.values)));
   if (action === 'clean') return Math.min(limits.cleanTokens, Math.max(800, cleanTokens(sheet && sheet.values)));
   if (action === 'table') return limits.tableTokens;
   return 1500;
@@ -290,6 +341,7 @@ export function sheetPrompt(req) {
       ? `Use ${appName}’s formula syntax and functions${req.app === 'sheets' ? ' (Google Sheets functions such as QUERY, FILTER, ARRAYFORMULA and REGEXMATCH are available)' : ' (Excel 365 functions such as XLOOKUP, FILTER, LET and LAMBDA are available)'}. Any formula you write uses the English function names and commas between arguments (as in en-US), whatever the language of the request or of the spreadsheet.`
       : '',
     // =EDEN.ASK gets a range's values, never its formats: a date arrives as Excel's serial number.
+    req.action === 'clean' && req.app === 'excel' ? CLEAN_ESCAPES : '',
     req.action === 'cell' && req.app === 'excel' ? 'Whole numbers between about 20000 and 80000 in a column of dates are probably Excel date serial numbers (days since 1899-12-30; 45292 is 2024-01-01): read them as dates when the request is about dates.' : '',
     'Answer in the language of the person’s request, or of the data when there is no request.',
   ].filter(Boolean).join('\n\n');
@@ -302,6 +354,7 @@ export function sheetPrompt(req) {
     const formulas = formulasBlock(req.sheet);
     if (formulas) parts.push(`<formulas_${tag}>\n${formulas}\n</formulas_${tag}>`);
     if ((req.action === 'fill' || req.action === 'clean') && req.sheet.values) parts.push(`(${req.sheet.values.length} rows${req.action === 'clean' ? ` × ${widthOf(req.sheet.values)} columns` : ''}.)`);
+    if (cells && req.sheet.rows && req.sheet.rows.some((n, i) => i && n !== req.sheet.rows[i - 1] + 1)) parts.push('(Rows not listed are hidden in the sheet and were left out; each row keeps its own sheet row number.)');
   }
   if (req.active && (req.active.address || req.active.formula)) parts.push(`<active_${tag} address="${attr(req.active.address)}">${tsvCell(req.active.formula || req.active.value)}</active_${tag}>`);
   const now = req.instruction ? `Request: ${req.instruction}` : `Request: ${req.action}`;

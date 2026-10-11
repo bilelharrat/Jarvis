@@ -25,6 +25,18 @@
 // Excel and Sheets /sheet). A token is checked before anything else is done for it: before the body is
 // read, before the account's rate limits, before the prompt is built. Bodies are read up to the route's
 // cap in bytes (ASK.bodyBytes, TEXT.bodyBytes, SHEET.bodyBytes; 4 KiB for /token and the relay).
+// Refused tokens are counted per network (AUTH_RATE `eden-bearer:<ip>`, 20 a minute): past that, that
+// network gets 429 (Retry-After 60) for that account for BEARER.boxMs without asking the account's
+// object, so a flood of made-up tokens can't keep a known account's object busy.
+//
+// How an answer ends. Streamed (the default; text/plain): a clean close is a whole answer; a failure
+// errors the stream. A client that sends `x-eden-trailer: 1` (and gets `x-eden-trailer: 1` back) instead
+// gets every stream ended by a trailer: U+0000, then one JSON object, then a clean close (the answer's
+// text never holds U+0000): {"answer":"complete"}, {"answer":"cut"} (prose ending with the cut-off note),
+// or {"error","code","status"} with the buffered path's codes: cut_off 413, refused 422, too_slow 504,
+// upstream 502. A stream with no trailer broke off on the way. Buffered (`x-eden-buffer: 1`, and always
+// for Google Sheets): the whole answer with `x-eden-answer: complete|cut`, or a JSON error. The deadlines
+// (TIMING.bufferedMs, streamMs) count from when the request arrived.
 //
 // Busy (429, with Retry-After in seconds, exposed to CORS callers): an account has at most two AI answers
 // in flight at once, shared with askeden.com's own chat (accounts/account.js EDEN_TURNS), and each app at
@@ -94,7 +106,7 @@ export function askOrigins(env = {}) {
 /** CORS answer headers for this Origin, or null when it may not call. */
 function corsFor(env, origin) {
   if (!origin || !(askOrigins(env).includes(origin) || extOrigins(env).includes(origin))) return null;
-  return { 'access-control-allow-origin': origin, 'access-control-expose-headers': 'retry-after, x-eden-answer', vary: 'origin' };
+  return { 'access-control-allow-origin': origin, 'access-control-expose-headers': 'retry-after, x-eden-answer, x-eden-trailer', vary: 'origin' };
 }
 
 const withCors = (response, cors) => (cors ? withHeaders(response, cors) : response);
@@ -288,13 +300,58 @@ async function readBody(request, max) {
   throw new ApiError(400, 'bad_request', 'Send a JSON object.');
 }
 
+// Refused tokens, per network (R2V1). AUTH_RATE counts them; a network past its limit is kept out, for
+// the account it named, for boxMs: without asking the account's object (best effort, per Worker
+// isolate; the counter itself is shared). Keyed by account too, so others on a shared network (Google's
+// servers, for every Sheets user) keep going.
+export const BEARER = { boxMs: 60_000, boxMax: 10_000 };
+const BOX = new Map(); // `<ip> <account>` → until (ms)
+
+/** Forget the boxed networks (tests). */
+export const forgetBearers = () => BOX.clear();
+
+const boxKey = (request, who) => `${clientIp(request)} ${who.account}`;
+
+function boxed(request, who) {
+  const key = boxKey(request, who);
+  const until = BOX.get(key);
+  if (until === undefined) return false;
+  if (until > Date.now()) return true;
+  BOX.delete(key);
+  return false;
+}
+
+/** After the account's object refused a token: count it for this network, and box it past the limit. */
+async function refusedToken(env, request, who) {
+  try {
+    await limited(env, 'AUTH_RATE', `eden-bearer:${clientIp(request)}`);
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 429)) throw error;
+    if (BOX.size >= BEARER.boxMax) BOX.delete(BOX.keys().next().value); // the oldest
+    BOX.set(boxKey(request, who), Date.now() + BEARER.boxMs);
+  }
+}
+
+const slowDown = () => new ApiError(429, 'slow_down', 'Too many tries; wait a minute.', { 'retry-after': '60' });
+
 /** The scoped token on this request (its shape only), or a 401 the app understands ("connect again"). */
 function bearer(request, env) {
   const auth = /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') || '');
   const token = auth ? parseScopedToken(auth[1]) : null;
   if (!token) throw new ApiError(401, 'not_connected', 'Connect Eden first.');
   if (!webAllowed(env, token.account)) throw new ApiError(403, 'forbidden', 'This Eden account can’t use Eden on the web yet.');
+  if (boxed(request, token)) throw slowDown();
   return token;
+}
+
+/** One account-object call for a token: a 401 from it is counted against the network (refusedToken). */
+async function asToken(env, request, who, op) {
+  try {
+    return await op();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) await refusedToken(env, request, who);
+    throw error;
+  }
 }
 
 /** `usd` held on the account's included AI for the token's ask (401 for a bad token, 429 when two answers are in flight, 402). */
@@ -314,8 +371,8 @@ const release = (env, who, held) => call(env, who.account, 'release-ai', { hold:
  * when it has gone. The real hold, and every answer sent before it, waits for that: this ask never
  * counts twice against the two, and a client's next ask never meets this one's check.
  */
-async function verified(env, who, path) {
-  const check = await hold(env, who, 0);
+async function verified(env, request, who, path) {
+  const check = await asToken(env, request, who, () => hold(env, who, 0));
   const released = release(env, who, check);
   const app = Object.hasOwn(CLIENTS, check.client) ? CLIENTS[check.client] : null;
   if (!app || !(app.routes || []).includes(path)) {
@@ -361,7 +418,7 @@ async function token(request, env, origin) {
 
 async function disconnect(request, env) {
   const who = bearer(request, env);
-  await call(env, who.account, 'scoped-revoke', { id: who.id, secret: who.secret }).catch((error) => {
+  await asToken(env, request, who, () => call(env, who.account, 'scoped-revoke', { id: who.id, secret: who.secret })).catch((error) => {
     if (!(error instanceof ApiError && error.status === 401)) throw error; // already gone: fine
   });
   return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
@@ -485,9 +542,10 @@ async function appLimits(env, who, client, { cell = false } = {}) {
  * The check's release goes on while the body is read and parsed; the real hold waits for it.
  */
 async function appAsk(request, env, ctx, path, max, build) {
+  const started = Date.now(); // the deadlines count from here
   const who = bearer(request, env);
   const model = askModel503(env);
-  const { client, released } = await verified(env, who, path);
+  const { client, released } = await verified(env, request, who, path);
   let prompt;
   try {
     prompt = build(await readBody(request, max), client);
@@ -497,7 +555,8 @@ async function appAsk(request, env, ctx, path, max, build) {
   }
   // Apps Script (Google Sheets) can't read a stream: it gets the whole answer, or a clear error.
   const buffered = client === 'sheets' || request.headers.get('x-eden-buffer') === '1';
-  return streamAnswer(env, ctx, who, model, prompt, { buffered });
+  const trailer = request.headers.get('x-eden-trailer') === '1';
+  return streamAnswer(env, ctx, who, model, prompt, { buffered, trailer, started });
 }
 
 const ask = (request, env, ctx) =>
@@ -517,18 +576,29 @@ const sheetText = (request, env, ctx) =>
 /** The extension's ask about page text (ext.js). */
 const pageText = (request, env, ctx) => appAsk(request, env, ctx, '/api/eden/text', TEXT.bodyBytes, (body) => textPrompt(parseText(body)));
 
-// How long an answer may take: no progress for idleMs ends it; a streamed answer ends after streamMs,
-// a buffered one (Google Sheets) after bufferedMs, inside Apps Script's ~60 s. Tests shorten them.
+// How long an answer may take, from when the request arrived: no progress for idleMs ends it; a
+// streamed answer ends after streamMs, a buffered one (Google Sheets) after bufferedMs, inside Apps
+// Script's ~60 s with room for the spend and the release. Tests shorten them.
 export const TIMING = { idleMs: 60_000, streamMs: 5 * 60_000, bufferedMs: 50_000 };
 export const CUT_OFF = 'The answer was too long and was cut off. Select less and try again.';
 export const CUT_NOTE = '\n\n(Eden’s answer was cut off here: it was too long.)';
+export const TRAILER = '\u0000'; // starts a stream's trailer (x-eden-trailer: 1)
+
+/** How a failed answer is told: { status, code, error } (buffered: the response; trailer: its JSON). */
+function failure(end, prompt) {
+  if (end.error === 'cut_off') return { status: 413, code: 'cut_off', error: prompt.cutOff || CUT_OFF };
+  if (end.error === 'too_slow') return { status: 504, code: 'too_slow', error: 'Eden took too long. Select less and try again.' };
+  if (end.error === 'refused') return { status: 422, code: 'refused', error: 'Eden declined this request. Try asking another way.' };
+  return { status: 502, code: 'upstream', error: end.why };
+}
 
 /**
- * One answer, held on the allowance first and billed however it ends. Streamed as text/plain, or
- * (`buffered`) sent whole once it is complete. An answer stopped at max_tokens: a structured one
- * (pasted or written into cells) fails, a prose one ends with CUT_NOTE.
+ * One answer, held on the allowance first and billed however it ends. Streamed as text/plain (with a
+ * trailer when `trailer`), or (`buffered`) sent whole once it is complete. An answer stopped at
+ * max_tokens: a structured one (pasted or written into cells) fails, a prose one ends with CUT_NOTE.
  */
-async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } = {}) {
+async function streamAnswer(env, ctx, who, model, prompt, { buffered = false, trailer = false, started = Date.now() } = {}) {
+  const deadline = started + (buffered ? TIMING.bufferedMs : TIMING.streamMs);
   // The worst case (input at a token per 3 bytes, the longest answer) is held on the allowance.
   const inputTokens = Math.ceil(utf8Bytes(prompt.system + prompt.messages.map((m) => m.content).join('')) / 3);
   const [inPrice, outPrice] = priceOf(model);
@@ -537,12 +607,17 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } =
   const letGo = () => release(env, who, held);
 
   const abort = new AbortController();
+  // Claude's time to its headers counts against the deadline too.
+  const late = setTimeout(() => abort.abort(), Math.max(0, deadline - Date.now()));
   let upstream;
   try {
     upstream = await serviceFetch(env, { model, max_tokens: prompt.maxTokens, system: prompt.system, messages: prompt.messages, stream: true }, { signal: abort.signal, url: ANTHROPIC });
   } catch {
     await letGo();
+    if (Date.now() >= deadline) throw new ApiError(504, 'too_slow', failure({ error: 'too_slow' }, prompt).error);
     throw new ApiError(502, 'upstream', 'Eden couldn’t reach Claude. Try again.');
+  } finally {
+    clearTimeout(late);
   }
   if (!upstream.ok || !upstream.body) {
     await upstream.text().catch(() => '');
@@ -552,7 +627,6 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } =
   }
 
   const meter = usageMeter();
-  const deadline = Date.now() + (buffered ? TIMING.bufferedMs : TIMING.streamMs);
   let stopped = false; // the person stopped it, or the page went away
   const reader = upstream.body.getReader();
   // Reads Claude's stream, sending its text to `emit`; → how it ended: { cut } or { error, why }.
@@ -560,13 +634,13 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } =
     const decoder = new TextDecoder();
     let buffer = '';
     let stop = null;
-    let failure = null;
+    let failed = null;
     let last = Date.now();
     const onLine = (line) => {
       const event = meter.line(line);
       if (!event || event.type === 'ping') return;
       last = Date.now();
-      if (event.type === 'error') failure = (event.error && event.error.message) || 'the answer broke off';
+      if (event.type === 'error') failed = (event.error && event.error.message) || 'the answer broke off';
       else if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) emit(event.delta.text);
       else if (event.type === 'message_delta' && typeof event.delta?.stop_reason === 'string') stop = event.delta.stop_reason;
     };
@@ -582,13 +656,13 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } =
         const lines = (buffer + decoder.decode(chunk.value, { stream: true })).split('\n');
         buffer = lines.pop(); // a line not ended yet
         for (const line of lines) onLine(line.trimEnd());
-        if (failure || stopped) break;
+        if (failed || stopped) break;
       }
       if (buffer) meter.tail(buffer.trimEnd());
-      if (failure || stop === null) return { error: 'upstream', why: failure || 'The answer ended early.' };
-      if (stop === 'refusal') return { error: 'refused', why: 'Claude declined this request.' };
+      if (failed || stop === null) return { error: 'upstream', why: failed || 'The answer ended early.' };
+      if (stop === 'refusal') return { error: 'refused' };
       if (stop === 'max_tokens') {
-        if (prompt.structured) return { error: 'cut_off', why: CUT_OFF };
+        if (prompt.structured) return { error: 'cut_off' };
         emit(CUT_NOTE);
         return { cut: true };
       }
@@ -610,15 +684,15 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } =
     const end = await pump((piece) => {
       text += piece;
     });
-    if (end.error === 'cut_off') throw new ApiError(413, 'cut_off', CUT_OFF);
-    if (end.error === 'too_slow') throw new ApiError(504, 'too_slow', 'Eden took too long. Select less and try again.');
-    if (end.error === 'refused') throw new ApiError(422, 'refused', end.why);
-    if (end.error) throw new ApiError(502, 'upstream', end.why);
+    if (end.error) {
+      const { status, code, error } = failure(end, prompt);
+      throw new ApiError(status, code, error);
+    }
     return new Response(text, { status: 200, headers: { ...headers, 'x-eden-answer': end.cut ? 'cut' : 'complete' } });
   }
 
-  // Streamed: the answer's text as it comes. A failure errors the stream, so a client never takes a
-  // broken or cut-off structured answer as whole.
+  // Streamed: the answer's text as it comes. A failure errors the stream (or, with a trailer, ends it
+  // with the failure's JSON), so a client never takes a broken or cut-off structured answer as whole.
   const encoder = new TextEncoder();
   let controller;
   const stream = new ReadableStream({
@@ -633,18 +707,21 @@ async function streamAnswer(env, ctx, who, model, prompt, { buffered = false } =
   });
   const run = async () => {
     const end = await pump((piece) => {
-      if (!stopped) controller.enqueue(encoder.encode(piece));
+      if (!stopped) controller.enqueue(encoder.encode(trailer ? piece.replaceAll(TRAILER, '') : piece));
     });
     if (stopped) return;
     try {
-      if (end.error) controller.error(new Error(end.error === 'too_slow' ? 'The answer took too long.' : end.why));
+      if (trailer) {
+        controller.enqueue(encoder.encode(TRAILER + JSON.stringify(end.error ? failure(end, prompt) : { answer: end.cut ? 'cut' : 'complete' })));
+        controller.close();
+      } else if (end.error) controller.error(new Error(failure(end, prompt).error));
       else controller.close();
     } catch {
       // already gone
     }
   };
   ctx.waitUntil(run());
-  return new Response(stream, { status: 200, headers: { ...headers, 'x-accel-buffering': 'no' } });
+  return new Response(stream, { status: 200, headers: { ...headers, 'x-accel-buffering': 'no', ...(trailer && { 'x-eden-trailer': '1' }) } });
 }
 
 // ── /api/eden/* ──
@@ -665,7 +742,7 @@ export async function edenApi(request, env, ctx, path) {
         headers: {
           ...cors,
           'access-control-allow-methods': 'POST',
-          'access-control-allow-headers': 'authorization, content-type, x-eden-buffer',
+          'access-control-allow-headers': 'authorization, content-type, x-eden-buffer, x-eden-trailer',
           'access-control-max-age': '600',
           'cache-control': 'no-store',
         },

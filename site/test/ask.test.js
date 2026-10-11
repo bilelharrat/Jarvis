@@ -297,7 +297,7 @@ test('CORS: Messenger’s origin only (and loopback dev origins when listed); no
   assert.equal(pre.status, 204);
   assert.equal(pre.headers.get('access-control-allow-origin'), MESSENGER_ORIGIN);
   assert.equal(pre.headers.get('access-control-allow-methods'), 'POST');
-  assert.equal(pre.headers.get('access-control-allow-headers'), 'authorization, content-type, x-eden-buffer');
+  assert.equal(pre.headers.get('access-control-allow-headers'), 'authorization, content-type, x-eden-buffer, x-eden-trailer');
   assert.equal(pre.headers.get('access-control-allow-credentials'), null);
   assert.equal(pre.headers.get('vary'), 'origin');
 

@@ -17,6 +17,9 @@
 //   + 400 ≤ 8,000, factor 1.6 for longer and translate, else 1 (about 16,700 ASCII characters, 5,500 CJK;
 //   about 10,500 ASCII for longer/translate). An answer that still reaches the limit is cut off: for an
 //   edit action the stream fails (never paste it); for the others it ends with a short "(cut off)" note.
+//   The answer's own budget (answerTokens, max_tokens) is ≥ that and has a floor per action: write 4,000,
+//   reply and longer 2,000, other edits 1,000, prose 1,500; translate budgets 3 × the bytes ÷ 2.2 (a
+//   script such as Hindi or Thai takes more tokens than the English it came from); all ≤ 8,000.
 //
 // Who may call: the extension's pages and service worker (Origin chrome-extension://<id>) for the
 // ids in EXT_IDS plus EDEN_EXT_IDS (comma-separated: the Chrome Web Store's and Edge Add-ons' ids
@@ -90,8 +93,15 @@ export const known = (obj, keys, label) => {
   for (const key of Object.keys(obj)) if (!keys.includes(key)) bad(`${label}: unknown key ${JSON.stringify(key.slice(0, 40))}`);
 };
 
-/** Control characters out (tab, line feed and carriage return kept). */
-export const strip = (text) => String(text).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+const LONE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+/**
+ * Control characters out (tab, line feed and carriage return kept), and lone surrogates (half an emoji
+ * from a client's UTF-16 cut: JSON to Claude can't carry one). A well-formed string skips the second pass.
+ */
+export const strip = (text) => {
+  const out = String(text).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+  return out.isWellFormed() ? out : out.replace(LONE, '');
+};
 const HIGH = /[\ud800-\udbff]/;
 const PAIRS = /[\ud800-\udbff][\udc00-\udfff]/g;
 /**
@@ -210,10 +220,14 @@ export function editTokens(action, text) {
   return Math.ceil((utf8Bytes(text) * factor) / 2.2) + 400;
 }
 
-/** The longest answer an ask may need: room for an edited copy of the selection (parseText caps it). */
+// An edit answer's floor: write and reply aren't the length of what is selected (often nothing, or a
+// short message), and longer adds to it.
+const FLOOR = { write: 4000, reply: 2000, longer: 2000 };
+/** The longest answer an ask may need: room for an edited copy of the selection, at least its floor (≤ 8,000). */
 export function answerTokens({ action, text }) {
   if (!ACTIONS[action].edit) return TEXT.proseTokens;
-  return Math.min(TEXT.editTokens, Math.max(1000, editTokens(action, text)));
+  const room = action === 'translate' ? Math.ceil((utf8Bytes(text) * 3) / 2.2) + 400 : editTokens(action, text);
+  return Math.min(TEXT.editTokens, Math.max(FLOOR[action] || 1000, room));
 }
 
 /** Eden's instructions, and the turns: the page and selection as data, then what was asked. */
@@ -239,5 +253,7 @@ export function textPrompt(req) {
   const now = req.instruction ? `Request: ${req.instruction}` : `Request: ${req.action}${extra}`;
   // A follow-up in the side panel: the turns so far (the person's own words, not quoted data), then
   // the page and selection as data with what is asked now.
-  return { system, messages: thread(req.history, parts.join('\n\n'), now), maxTokens: answerTokens(req), structured: how.edit };
+  // A cut-off write has nothing selected to make smaller: its own words.
+  const cutOff = req.action === 'write' && !req.text ? 'That is longer than Eden can write in one answer. Ask for a shorter text, or write it in parts.' : undefined;
+  return { system, messages: thread(req.history, parts.join('\n\n'), now), maxTokens: answerTokens(req), structured: how.edit, ...(cutOff && { cutOff }) };
 }
