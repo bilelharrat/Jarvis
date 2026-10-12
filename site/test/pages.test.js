@@ -270,7 +270,7 @@ test('/privacy and /terms: everyone, static, their own strict CSP; linked from t
   const pub = (f) => read(`public/${f}`);
   for (const f of ['jarvis/index.html', 'signin/index.html']) assert.match(pub(f), /href="\/privacy"[\s\S]*href="\/terms"/, f);
   const privacy = pub('privacy/index.html');
-  for (const must of ['Harrat Global Holdings, Inc.', 'support@askeden.com', 'October 7, 2026', 'Limited Use', 'Stripe', 'Cloudflare', 'Moonshot', 'don’t sell']) assert.ok(privacy.includes(must), must);
+  for (const must of ['Harrat Global Holdings, Inc.', 'support@askeden.com', 'October 11, 2026', 'Limited Use', 'Stripe', 'Cloudflare', 'Moonshot', 'don’t sell']) assert.ok(privacy.includes(must), must);
   assert.match(pub('terms/index.html'), /Delaware/);
 });
 

@@ -8,7 +8,7 @@ SiteI18n.add({
   ],
   exact: {
     'Privacy Policy': 'Politique de confidentialité',
-    'Effective October 7, 2026': 'En vigueur le 7 octobre 2026',
+    'Effective October 11, 2026': 'En vigueur le 11 octobre 2026',
     'The short version': 'En bref',
     'We don’t sell your data, and there are no ads.': 'Nous ne vendons pas vos données, et il n’y a pas de publicité.',
     'Your chats are sent to the AI company whose model answers them, and askeden.com does not keep a copy for itself. To show your chat history on your other devices, we store it encrypted on askeden.com; deleting a chat, or your account, erases it there. Temporary chats are never stored. You can switch to end-to-end encryption, where we can’t read your chats at all.':
@@ -66,12 +66,14 @@ SiteI18n.add({
       '<b>Fournisseurs de modèles d’IA :</b> les messages, fichiers et images d’une conversation vont au fournisseur du modèle qui répond : OpenAI, Google (Gemini) ou Moonshot AI (Kimi) pour l’IA incluse avec votre compte (y compris la discussion de l’Aide, @Eden dans Eden Messenger, les tâches en arrière-plan et l’IA incluse des apps J.A.R.V.I.S.), et Anthropic (Claude) uniquement si vous avez ajouté votre propre clé API Anthropic. Pour choisir un modèle, Eden peut demander à Gemini de Google d’évaluer la difficulté d’un message. Chaque fournisseur traite ces données selon ses propres conditions d’API. Les vidéos que vous joignez sont envoyées à Google (Gemini) pour être traitées et ne sont pas stockées par Eden ; Eden les supprime chez Google après la réponse, et Google supprime celles qui resteraient sous 48 heures.',
     'Cloudflare hosts askeden.com and runs it (including speech-to-text for dictation in browsers that can’t do it themselves).':
       '<b>Cloudflare</b> héberge et fait fonctionner askeden.com (y compris la transcription de la parole pour la dictée dans les navigateurs qui ne savent pas la faire eux-mêmes).',
-    'Stripe processes payments for Plus on the web. We never see your full card number. Plus bought in the iPhone app goes through Apple.':
-      '<b>Stripe</b> traite les paiements de Plus sur le web. Nous ne voyons jamais votre numéro de carte complet. Plus acheté dans l’app iPhone passe par Apple.',
+    'Stripe processes payments for Plus on the web. We never see your full card number. Plus bought in the iPhone app goes through Apple: Apple processes the payment, and Eden receives the signed App Store transaction (the product, its dates and a random id that links it to your account) and keeps it with your account to know your plan.':
+      '<b>Stripe</b> traite les paiements de Plus sur le web. Nous ne voyons jamais votre numéro de carte complet. Plus acheté dans l’app iPhone passe par Apple : Apple traite le paiement, et Eden reçoit la transaction App Store signée (le produit, ses dates et un identifiant aléatoire qui la relie à votre compte) et la conserve avec votre compte pour connaître votre formule.',
     'Apple and Google when you sign in with them, and Apple for app notifications.':
       '<b>Apple et Google</b> quand vous vous connectez avec eux, et Apple pour les notifications des apps.',
-    'Fish Audio turns text into the JARVIS voice, if you use read-aloud with that voice.':
-      '<b>Fish Audio</b> transforme le texte en voix JARVIS, si vous utilisez la lecture à voix haute avec cette voix.',
+    'Fish Audio turns text into the Eden voice, if you use read-aloud with that voice.':
+      '<b>Fish Audio</b> transforme le texte en voix Eden, si vous utilisez la lecture à voix haute avec cette voix.',
+    'Your OK comes first in the iPhone app: before Eden sends your messages, files or images to an AI provider, it asks for your OK, and you can change your answer any time in Settings › AI providers. Answers on this iPhone, by Apple’s on-device model, never leave it.':
+      '<b>Votre accord d’abord, dans l’app iPhone :</b> avant qu’Eden envoie vos messages, fichiers ou images à un fournisseur d’IA, l’app demande votre accord, et vous pouvez changer votre réponse à tout moment dans Réglages › Fournisseurs d’IA. Les réponses sur cet iPhone, données par le modèle intégré d’Apple, ne le quittent jamais.',
     'Your own Mac, if you link one: requests for things that live on it (Jarvis, Code mode, local models) are passed to it.':
       '<b>Votre propre Mac,</b> si vous en associez un : les demandes portant sur ce qui s’y trouve (Jarvis, le mode Code, les modèles locaux) lui sont transmises.',
     'Connected apps you approve, such as Eden Messenger: they can only ask Eden what you choose to send them, and you can revoke them any time.':
@@ -80,8 +82,8 @@ SiteI18n.add({
       'L’utilisation et le transfert par Eden des informations reçues des API Google respectent la <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a> (règles relatives aux données utilisateur des services d’API Google), y compris les exigences de « Limited Use » (utilisation limitée). En particulier, nous n’utilisons les données utilisateur Google que pour fournir les fonctionnalités que vous utilisez dans Eden ; nous ne les utilisons pas à des fins publicitaires, ne les vendons pas, et ne laissons personne les lire sauf si vous nous le demandez (par exemple pour l’assistance), si c’est nécessaire à la sécurité ou si la loi l’exige. Quand vous interrogez Eden sur vos e-mails ou votre calendrier, les parties nécessaires sont envoyées au modèle d’IA qui répond, pour cette réponse uniquement. Les données utilisateur Google ne servent pas à entraîner des modèles d’IA.',
     'See and change: your account page in Eden shows your plan, devices, ways to sign in and connected apps. You can remove a sign-in method, sign browsers out, revoke apps and disconnect Google there.':
       '<b>Consulter et modifier :</b> la page de votre compte dans Eden indique votre forfait, vos appareils, vos moyens de connexion et vos apps connectées. Vous pouvez y retirer un moyen de connexion, déconnecter des navigateurs, révoquer des apps et déconnecter Google.',
-    'Delete your account: on askeden.com (your account page › Delete account, then type DELETE), in the J.A.R.V.I.S. app (Settings › Account › Delete Account), or email support@askeden.com from an address on your account and we’ll delete it for you.':
-      '<b>Supprimer votre compte :</b> sur askeden.com (page de votre compte › Supprimer le compte, puis tapez DELETE), dans l’app J.A.R.V.I.S. (Settings › Account › Delete Account), ou écrivez à <a href="mailto:support@askeden.com">support@askeden.com</a> depuis une adresse liée à votre compte et nous le supprimerons pour vous.',
+    'Delete your account: on askeden.com (your account page › Delete account, then type DELETE), in the Eden iPhone app (Settings › Delete Account…), in the J.A.R.V.I.S. app (Settings › Account › Delete Account), or email support@askeden.com from an address on your account and we’ll delete it for you.':
+      '<b>Supprimer votre compte :</b> sur askeden.com (page de votre compte › Supprimer le compte, puis tapez DELETE), dans l’app iPhone Eden (Réglages › Supprimer le compte…), dans l’app J.A.R.V.I.S. (Settings › Account › Delete Account), ou écrivez à <a href="mailto:support@askeden.com">support@askeden.com</a> depuis une adresse liée à votre compte et nous le supprimerons pour vous.',
     'Ask us: for a copy of your data, a correction, or anything else about your privacy, email us. We answer within 30 days.':
       '<b>Nous demander :</b> pour obtenir une copie de vos données, une rectification, ou pour toute autre question sur votre vie privée, écrivez-nous. Nous répondons sous 30 jours.',
   },
