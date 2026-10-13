@@ -1,6 +1,6 @@
 // Signing a browser in to Eden at askeden.com (/api/web/*). The contract is docs/web-auth.md.
 //
-//   - A code the J.A.R.V.I.S. app approves (POST /api/web/link): a link of kind `web`, the same
+//   - A code the Eden Secretary app approves (POST /api/web/link): a link of kind `web`, the same
 //     kind of link a Mac makes (accounts/link.js), without a key pair. The page shows the code
 //     and its QR code (jarvis-link://XXXX-XXXX); the code's poll secret goes into an HttpOnly
 //     cookie, never to the page's script. Approved on the iPhone or a linked Mac; the page polls
@@ -124,7 +124,7 @@ const MAC_LINK = /^\/api\/web\/mac-link\/([^/]+)(?:\/(approve|deny))?$/;
 export async function web(request, env, ctx, path) {
   const method = request.method;
   try {
-    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Jarvis accounts are not set up here yet.');
+    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden Secretary accounts are not set up here yet.');
     if (path === '/api/web/config' && method === 'GET') return json({ apple: appleReady(env), google: googleReady(env), passkey: Boolean(env.IDENTITIES), turnstile: turnstileSiteKey(env), signups: signupsOpen(env) ? 'open' : 'closed', code: true, ...billingConfig(env) });
     if (path === '/api/web/passkey/options' && method === 'POST') return await passkeyOptions(request, env);
     if (path === '/api/web/passkey/verify' && method === 'POST') return await passkeyVerify(request, env);
@@ -178,6 +178,12 @@ export function browserName(request) {
   const city = request.cf && typeof request.cf.city === 'string' ? request.cf.city.replace(/[^\p{L}\p{N} .'-]/gu, '').slice(0, 30) : '';
   return cleanName(`Eden on the web: ${browser}${os ? ` on ${os}` : ''}${city ? `, near ${city}` : ''}`, 'Eden on the web');
 }
+
+// "Eden app on an iPhone, near X": the app's web view isn't a browser to its owner (browserName says "a browser on an iPhone").
+const appDeviceName = (web) => {
+  const rest = String(web).replace(/^Eden on the web: /, '');
+  return /^(?:a browser|Safari|Chrome|Firefox|Edge) on /.test(rest) ? `Eden app on ${rest.replace(/^(?:a browser|Safari|Chrome|Firefox|Edge) on /, '')}` : `Eden app: ${rest}`;
+};
 
 const withCookies = (response, ...values) => {
   for (const value of values) response.headers.append('set-cookie', value);
@@ -373,9 +379,9 @@ async function linkMac(request, env, rawCode, action) {
   const who = await signedIn(request, env);
   await limited(env, 'LINK_RATE', `look:${who.account}`);
   const code = cleanCode(safeDecode(rawCode));
-  if (!code) throw new ApiError(404, 'not_found', 'That isn’t a code from J.A.R.V.I.S. on your Mac. It has eight letters and numbers, like K7QM-4ZTR.');
+  if (!code) throw new ApiError(404, 'not_found', 'That isn’t a code from Eden Secretary on your Mac. It has eight letters and numbers, like K7QM-4ZTR.');
   const link = (await callLink(env, code, 'peek')).body;
-  if (link.kind !== 'mac') throw new ApiError(403, 'not_a_mac', 'That code is for a browser’s sign-in, not a Mac. Approve it in the J.A.R.V.I.S. app.');
+  if (link.kind !== 'mac') throw new ApiError(403, 'not_a_mac', 'That code is for a browser’s sign-in, not a Mac. Approve it in the Eden Secretary app.');
   if (action === 'deny') {
     await callLink(env, code, 'deny');
     return noContent();
@@ -880,7 +886,7 @@ async function handoff(request, env) {
       create: true,
       identity: { provider: kept.provider || 'apple', sub_hash: kept.sub_hash, email: kept.email || null },
       ...(kept.apple_grant ? { apple_grant: kept.apple_grant } : {}), // the Eden app's Apple grant, for revoking on deletion
-      device: { name: cleanName(`Eden app: ${browserName(request).replace(/^Eden on the web: /, '')}`, 'Eden app'), app_version: 'askeden.com (Eden app)' },
+      device: { name: cleanName(appDeviceName(browserName(request)), 'Eden app'), app_version: 'askeden.com (Eden app)' },
     });
     // The web view started this load itself (no other site in the chain): a plain redirect
     // carries the new cookie.
