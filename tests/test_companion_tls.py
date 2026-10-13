@@ -206,6 +206,27 @@ async def test_plain_http_is_refused_unless_the_owner_allows_it(tmp_path):
         await server.stop()
 
 
+def test_plain_http_is_only_for_loopback_and_tailscale():
+    for near in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "100.101.102.103", "fd7a:115c:a1e0::1"):
+        assert remote.plain_address(near), near
+    for far in ("192.168.1.20", "10.0.0.5", "fe80::1%en0", "8.8.8.8", "100.128.0.1", "", "mac"):
+        assert not remote.plain_address(far), far
+
+
+async def test_plain_http_from_the_wifi_is_refused_even_when_allowed(tmp_path, monkeypatch):
+    # Tokens and pairing codes in cleartext over the Wi-Fi: refused, the switch on or not.
+    monkeypatch.setattr(remote, "plain_address", lambda host: False)  # as a phone on the LAN
+    hub = FakeHub(plain=True)
+    server = server_for(tmp_path, hub)
+    assert await server.start()
+    try:
+        assert status(await _plain(server.port, get("/api/state", "some-token"))) == 426
+        reply = await exchange(server.port, server.identity.fingerprint, get("/api/state"))
+        assert status(reply) == 401  # TLS as ever
+    finally:
+        await server.stop()
+
+
 async def test_connections_that_say_nothing_are_capped_and_dropped(tmp_path, monkeypatch):
     monkeypatch.setattr(remote, "OPENING_PER_ADDRESS", 2)
     monkeypatch.setattr(remote, "REQUEST_SECONDS", 0.4)
