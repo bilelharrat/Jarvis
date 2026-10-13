@@ -204,6 +204,9 @@ async def test_the_day_s_cap_used_up_stops_the_others_and_holds_everyone(
     second = hub.tasks.start("two", "other")
     assert await until(lambda: second.status == "waiting" and second.cost_usd == 0.1)
     assert Stream.instances[1].options.max_budget_usd == 0.15  # what's left of the day
+    # The first's connection may still spend 0.15 of the 0.05 left: it reopens with that.
+    assert await until(lambda: len(Stream.instances) == 3 and first.client is not None, 600)
+    assert Stream.instances[2].options.max_budget_usd == 0.05
     first.client.hold = True
     hub.tasks.send(first.id, "long job")
     assert await until(lambda: first.busy)

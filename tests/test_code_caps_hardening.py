@@ -197,3 +197,61 @@ async def test_a_fork_has_its_own_cap_before_its_first_turn(
     assert meter.caps(fork).session == 0.0  # the default, not the original's
     assert meter.gate(fork) == ""
     await end_all(hub)
+
+
+# ── W1: sessions working at once share what's left of a cap ──
+
+
+async def test_sessions_working_at_once_share_the_day_s_room_and_hand_it_out_again(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "other").mkdir()
+    Stream.instances = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_feature_prefs({"code_budget_day": 1.0})
+    first = hub.tasks.start("one", "proj")
+    assert await until(lambda: first.status == "waiting" and first.cost_usd == 0.1)
+    assert Stream.instances[0].options.max_budget_usd == 1.0  # alone: the whole room
+    first.client.hold = True
+    hub.tasks.send(first.id, "long job")
+    assert await until(lambda: first.busy)
+    second = hub.tasks.start("two", "other")
+    assert await until(lambda: len(Stream.instances) == 2)
+    # With the first at work: an even share of the 0.9 left, less a tenth kept back.
+    assert Stream.instances[1].options.max_budget_usd == 0.405
+    assert await until(lambda: second.cost_usd == 0.1 and not second.busy)
+    # The first's connection may still spend 0.9 of the 0.8 left: once its turn is over it
+    # reopens with what's left, not all three sessions' worth.
+    first.client.release()
+    assert await until(lambda: len(Stream.instances) == 3, 600)
+    assert Stream.instances[2].options.max_budget_usd <= 0.7 + 1e-9
+    await end_all(hub)
+
+
+async def test_a_session_stopped_at_its_share_reopens_with_a_new_one_while_room_is_left(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from types import SimpleNamespace as NS
+
+    from jarvis.tasks import ClaudeTask
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_feature_prefs({"code_budget_day": 1.0})
+    meter = hub.code_usage
+    cwd = tmp_path.resolve()
+    task = ClaudeTask(id=950, prompt="x", cwd=cwd, session_id="a")
+    hub.tasks.tasks[task.id] = task
+    meter.apply(task, NS(max_budget_usd=None))
+    assert meter._given[task.id] == (1.0, 0.0, False)  # alone: all of it
+    task.client, task.cost_usd = object(), 0.3
+    meter._given[task.id] = (0.3, 0.0, False)  # (all another feature let it spend)
+    reopened = []
+    hub.tasks.reopen = lambda task_id, note="": reopened.append((task_id, note)) or True
+    meter.rebalance()
+    assert reopened == []  # a cap of its own is no share: it isn't handed more
+    meter._given[task.id] = (0.3, 0.0, True)  # (its share, as Claude Code stopped it there)
+    before = meter.key(task)
+    meter.rebalance()
+    assert reopened == [(task.id, "")]  # quietly
+    assert meter.key(task) != before  # (a new connection's key: the reopen goes ahead)
