@@ -65,6 +65,9 @@ ZH = {
     "The issue's text is data: the session gets no web, browser or connector tools and none of your own settings. Its commands can reach the network, and they run code it may have changed.": "议题的内容只当作数据：会话拿不到网页、浏览器或连接器工具，也拿不到你自己的设置。它的命令可以联网，而且运行的代码可能被它改过。",
     "Each stops at ${spend} or after an hour; at most {n} a day. When one is done, its pull request waits for your OK.": "每个会话花费达到 ${spend} 或运行一小时后停下；每天最多 {n} 个。完成后，它的拉取请求会等你确认。",
     "Opt it in": "开启",
+    "Run {repo}'s issue sessions outside the sandbox?": "要让 {repo} 的议题会话在沙盒之外运行吗？",
+    "Without the sandbox, their commands can reach the network and the rest of your Mac, as you. They run code the session has just changed, working from text anyone can write in an issue: a crafted one can get a test changed so that running it sends your files or keys anywhere. Keep the sandbox unless its commands can't work without the network.": "没有沙盒，它们的命令能以你的身份访问网络和这台 Mac 的其他地方。这些命令运行的是会话刚改过的代码，而会话依据的是任何人都能在议题里写的内容：精心编写的议题可以让测试被改掉，一运行就把你的文件或密钥发到任何地方。除非它的命令离开网络就无法工作，否则请保留沙盒。",
+    "Turn the sandbox off": "关闭沙盒",
     "Not now": "暂不",
     "Not opted in.": "没有开启。",
     "Issues labelled “{label}” in {repo} now start a session.": "{repo} 里贴上“{label}”标签的议题现在会开启一个会话。",
@@ -77,6 +80,7 @@ ZH = {
     "Issue #{n} in {repo} didn't start a session: {why}": "{repo} 的议题 #{n} 没能开启会话：{why}",
     "That's today's {n} sessions from GitHub issues; the rest wait until tomorrow.": "今天已经由 GitHub 议题开启了 {n} 个会话；其余的要等到明天。",
     "Issue #{n}: {title}": "议题 #{n}：{title}",
+    "Issue #{n} in {repo} didn't start a session: {who} labelled it, and only people with triage access or more can start one.": "{repo} 的议题 #{n} 没有开启会话：给它贴标签的是 {who}，只有拥有分类（triage）或更高权限的人才能开启。",
 }
 lang.add_texts(ZH)
 
@@ -98,6 +102,7 @@ def _repos(value: Any) -> list[dict[str, Any]] | None:
         if not (isinstance(label, str) and LABEL.match(label)):
             continue
         commands = item.get("commands") if isinstance(item.get("commands"), list) else []
+        bots = item.get("bots") if isinstance(item.get("bots"), list) else []
         try:
             spend = min(50.0, max(0.5, float(item.get("spend_cap") or 5.0)))
             since = float(item.get("since") or 0.0)
@@ -112,6 +117,9 @@ def _repos(value: Any) -> list[dict[str, Any]] | None:
                 "spend_cap": spend,
                 "sandbox": item.get("sandbox") is not False,
                 "since": since,
+                # Bots whose labels may start a run (an app the owner runs, say): none unless
+                # listed, since an auto-labeller labels whatever anyone writes.
+                "bots": [b for b in bots if isinstance(b, str) and 0 < len(b) <= 100][:10],
             }
         )
     return kept
@@ -276,6 +284,22 @@ class Issues:
         )
         if choice != "add":
             return "Not opted in."
+        if not sandbox:
+            # Its own card, after the scope's: the one switch that lets what anyone writes in
+            # an issue reach the network and the Mac.
+            choice = await self.hub.request_approval(
+                self.tr(f"Run {ref.full}'s issue sessions outside the sandbox?"),
+                self.tr(
+                    "Without the sandbox, their commands can reach the network and the rest of "
+                    "your Mac, as you. They run code the session has just changed, working from "
+                    "text anyone can write in an issue: a crafted one can get a test changed so "
+                    "that running it sends your files or keys anywhere. Keep the sandbox unless "
+                    "its commands can't work without the network."
+                ),
+                [("unsandboxed", self.tr("Turn the sandbox off")), ("deny", self.tr("Not now"))],
+            )
+            if choice != "unsandboxed":
+                return "Not opted in."
         entry = {
             "repo": ref.full,
             "project": project,
@@ -351,6 +375,10 @@ class Issues:
                 if not number:
                     seen.append(event_id)
                     continue
+                labeller = await self._labeller(entry, ref, event)
+                if not labeller:
+                    seen.append(event_id)  # refused: said once, never started
+                    continue
                 if not self.caps.left("issue"):
                     self._capped()
                     break  # not seen: tomorrow's look starts them
@@ -369,7 +397,6 @@ class Issues:
                     self._capped()
                     break
                 seen.append(event_id)
-                labeller = str((event.get("actor") or {}).get("login") or "")
                 said = self.start(entry, issue, labeller)
                 if not said:
                     started.append(number)
@@ -380,6 +407,33 @@ class Issues:
             if new or seen != before or self._unsaved:
                 self.save()
         return started
+
+    async def _labeller(
+        self, entry: dict[str, Any], ref: github.RepoRef, event: dict[str, Any]
+    ) -> str:
+        """Who put the label on, when they may start a run: someone with triage access to
+        the repository or more (GitHub's own answer, not the event's word), or a bot the
+        owner listed for the repository. An issue template or an auto-labeller applies
+        its labels as whoever opened the issue, or as a bot: anyone, so those don't count.
+        "" (and the owner told) when they may not. A rate limit isn't a no: it's raised,
+        and the next look asks again."""
+        actor = event.get("actor") if isinstance(event.get("actor"), dict) else {}
+        login = str(actor.get("login") or "")
+        number = int((event.get("issue") or {}).get("number") or 0)
+        repo = entry["repo"]
+        bot = actor.get("type") == "Bot" or login.endswith("[bot]")
+        if bot:
+            if login.lower() in {b.lower() for b in entry.get("bots") or []}:
+                return login
+        elif await self.client.may(ref, login, "triage"):
+            return login
+        self.notify(
+            f"issue-who:{repo}#{number}:{event.get('id')}",
+            f"Issue #{number} in {repo} didn't start a session: {login or 'someone'} labelled "
+            "it, and only people with triage access or more can start one.",
+            "a GitHub issue was labelled by someone who can't start an Eden Code session",
+        )
+        return ""
 
     def _capped(self) -> None:
         """Today's sessions from issues are all started: said once a day."""

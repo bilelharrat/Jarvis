@@ -71,6 +71,11 @@ ZH = {
 lang.add_texts(ZH)
 
 
+# GitHub's repository roles, least first; ROLE_FRESH: how long one is kept once asked.
+ROLES = ("none", "read", "triage", "write", "maintain", "admin")
+ROLE_FRESH = 600.0
+
+
 class GitHubError(Exception):
     """Why a call didn't work, in words for the owner (status: GitHub's, 0 when none)."""
 
@@ -239,6 +244,7 @@ class Client:
         self.reset_at = 0.0  # when the hourly limit resets
         self.limited_until = 0.0  # a used-up limit: nothing is asked before this
         self._login: str = ""
+        self._roles: dict[tuple[str, str], tuple[str, float]] = {}  # (repo, login) -> (role, when)
 
     # ── plumbing ──
 
@@ -436,6 +442,46 @@ class Client:
             me = await self.request("GET", "/user")
             self._login = str((me or {}).get("login") or "")
         return self._login
+
+    async def role(self, ref: RepoRef, login: str) -> str:
+        """What a GitHub user may do in the repository, in GitHub's own role names, least
+        first (ROLES): what an author_association can't say (MEMBER is anyone in the
+        organisation, COLLABORATOR includes read-only ones). A custom role counts as the
+        one it's built on. "none" for someone GitHub doesn't know there. Kept ROLE_FRESH
+        seconds."""
+        key = (ref.full.lower(), login.lower())
+        kept = self._roles.get(key)
+        if kept is not None and self.clock() - kept[1] < ROLE_FRESH:
+            return kept[0]
+        try:
+            found = await self.request(
+                "GET", f"/repos/{ref.full}/collaborators/{login}/permission", repo=ref.full
+            )
+        except GitHubError as exc:
+            if exc.status != 404:
+                raise
+            found = None
+        found = found if isinstance(found, dict) else {}
+        named = str(found.get("role_name") or "").lower()
+        legacy = str(found.get("permission") or "").lower()
+        role = named if named in ROLES else legacy if legacy in ROLES else "none"
+        self._roles[key] = (role, self.clock())
+        while len(self._roles) > 500:
+            self._roles.pop(next(iter(self._roles)))
+        return role
+
+    async def may(self, ref: RepoRef, login: str, least: str) -> bool:
+        """Whether login has at least that role in the repository ("triage", "write"…).
+        False when GitHub can't say (the token isn't allowed to ask): never a guess."""
+        if not login:
+            return False
+        try:
+            role = await self.role(ref, login)
+        except RateLimited:
+            raise
+        except GitHubError:
+            return False
+        return ROLES.index(role) >= ROLES.index(least)
 
     # ── repositories and pull requests ──
 

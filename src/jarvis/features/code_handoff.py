@@ -55,7 +55,7 @@ from typing import Any
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .. import code_changes, github, handoff, jsonstore, lang, secret_scan, tasks, worktrees
-from ..code_changes import git
+from ..code_changes import NO_HOOKS, git
 from ..handoff import Handoff, Machine
 from ..hub import _msg_int
 
@@ -1224,7 +1224,7 @@ class Desk:
             return f"!Couldn't bring it back: {fetched.err.strip()[-300:]}"
         listed = git(checkout, "log", "--format=%h %s", "--max-count=50", f"{rec.base}..{ref}")
         commits = [line[:120] for line in listed.out.splitlines() if line.strip()]
-        merged = git(checkout, "merge", "-q", "--ff-only", ref)
+        merged = git(checkout, *NO_HOOKS, "merge", "-q", "--ff-only", ref)
         if not merged.ok:
             return f"Brought back as {ref}: the copy changed meanwhile, so merge it there yourself."
         git(checkout, "update-ref", "-d", ref)

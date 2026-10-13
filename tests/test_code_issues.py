@@ -144,6 +144,27 @@ async def test_opting_in_shows_the_whole_scope_on_a_card_first(hub, projects):
     assert issues.repos() == []
 
 
+async def test_turning_the_sandbox_off_is_a_card_of_its_own(hub, projects):
+    app_project(projects)
+    issues = hub.code_issues
+    hub.answers = ["add", "deny"]  # the scope's yes isn't enough
+    said = await issues.add({"project": "app", "commands": ["npm test"], "sandbox": False})
+    assert said == "Not opted in." and issues.repos() == []
+    second = hub.cards[-1]
+    assert second["question"] == "Run acme/app's issue sessions outside the sandbox?"
+    assert "sends your files or keys anywhere" in second["detail"]
+    assert [c["label"] for c in second["choices"]] == ["Turn the sandbox off", "Not now"]
+    hub.answers = ["add", "unsandboxed"]
+    await issues.add({"project": "app", "commands": ["npm test"], "sandbox": False})
+    assert issues.repos()[0]["sandbox"] is False
+    # With the sandbox on, the scope's card is the only one.
+    await issues.remove("acme/app")
+    hub.cards.clear()
+    hub.answers = ["add"]
+    await issues.add({"project": "app", "commands": ["npm test"]})
+    assert len(hub.cards) == 1 and issues.repos()[0]["sandbox"] is True
+
+
 async def test_what_cant_be_opted_in_says_why(hub, projects):
     issues = hub.code_issues
     repo = make_repo(projects / "local", {"a.py": "x\n"})
@@ -210,6 +231,41 @@ async def test_an_issue_labelled_after_opting_in_starts_one_run_with_its_text_as
     assert await hub.code_issues.look(entry) == []
     labelled(fake, 5, event_id=555, at="2026-09-30T10:00:00Z")
     assert await hub.code_issues.look(entry) == [5]
+
+
+async def test_only_people_with_triage_access_or_a_listed_bot_can_start_one(
+    hub, projects, monkeypatch
+):
+    app_project(projects)
+    entry = opted_in(hub, bots=["eden-helper[bot]"])
+    started = starts(hub, monkeypatch)
+    fake = hub.fake
+    fake.roles[("acme/app", "maintainer")] = "triage"
+    fake.roles[("acme/app", "member")] = "read"  # in the organisation, but reads only
+    labelled(fake, 1, actor="reporter")  # an issue template's label: its author's
+    labelled(fake, 2, actor="member")
+    fake.events["acme/app"][0]["actor"]["type"] = "User"
+    labelled(fake, 3, actor="github-actions[bot]")  # an auto-labeller: anyone's words
+    fake.events["acme/app"][0]["actor"]["type"] = "Bot"
+    labelled(fake, 4, actor="maintainer")
+    labelled(fake, 5, actor="eden-helper[bot]")
+    assert await hub.code_issues.look(entry) == [4, 5]
+    assert len(started) == 2 and "labelled “jarvis” by maintainer" in started[0][0].prompt
+    refused = [a.text for a in hub.alerts if "triage access" in a.text]
+    assert refused[0] == (
+        "Issue #1 in acme/app didn't start a session: reporter labelled it, and only people "
+        "with triage access or more can start one."
+    )
+    assert len(refused) == 3
+    assert hub.code_issues.caps.counts["issue"] == 2  # the refused took none of the day's
+    # Seen: refused once, not again at the next look.
+    assert await hub.code_issues.look(entry) == [] and len(started) == 2
+    # A token GitHub won't answer for (no access to collaborators): a no, never a guess.
+    asked = ("GET", "/repos/acme/app/collaborators/maintainer/permission")
+    fake.fail[asked] = (403, {"message": "x"}, {})
+    hub.code_pr.client._roles.clear()
+    labelled(fake, 6, actor="maintainer")
+    assert await hub.code_issues.look(entry) == [] and len(started) == 2
 
 
 async def test_a_days_cap_stops_it_and_the_rest_wait_for_tomorrow(hub, projects, monkeypatch):

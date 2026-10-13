@@ -104,8 +104,22 @@ async def test_a_project_outside_the_projects_folder_is_refused(hub):
     assert events(q, "cv_error")
 
 
+def answering(hub, *choices):
+    """Answer each card as it goes up, in order; the cards are kept on the list returned."""
+    cards, queue = [], list(choices)
+
+    def sink(card):
+        cards.append(card)
+        if queue:
+            hub.resolve(card["id"], queue.pop(0))
+
+    hub.add_approval_sink(sink)
+    return cards
+
+
 async def test_the_owner_starts_and_stops_a_server_from_the_pane(hub, project):
     launch(project, [sleeper(project)])
+    answering(hub, "start")
     q = hub.subscribe()
     await hub._handle({"type": "cv_server", "action": "start", "directory": "shop", "name": "api"})
     cv = hub.code_verify
@@ -120,6 +134,49 @@ async def test_the_owner_starts_and_stops_a_server_from_the_pane(hub, project):
     await hub._handle({"type": "cv_server", "action": "stop", "key": key})
     assert await until(lambda: not server.alive)
     assert any(ev["type"] == "devservers" for ev in events(q))
+
+
+async def test_a_repos_launch_json_asks_on_its_first_start_and_whenever_it_changes(hub, project):
+    config = sleeper(project) | {"env": {"NODE_OPTIONS": "--require ./x.js", "PORT": "7070"}}
+    (project / ".jarvis").mkdir()
+    (project / ".jarvis" / "launch.json").write_text(
+        json.dumps({"version": "0.0.1", "configurations": [config]})
+    )
+    cards = answering(hub, "deny", "start")
+    cv = hub.code_verify
+    key = f"{project.resolve()}::api"
+    start = {"type": "cv_server", "action": "start", "directory": "shop", "name": "api"}
+    await hub._handle(start)
+    await asyncio.sleep(0.2)
+    assert key not in cv.servers.servers  # said no to: nothing ran
+    card = cards[0]
+    assert card["question"] == "Start api from shop's launch.json?"
+    assert "NODE_OPTIONS=--require ./x.js  ← changes what runs" in card["detail"]
+    assert "PORT=7070\n" in card["detail"] and "from .jarvis/launch.json" in card["detail"]
+    await hub._handle(start)
+    assert await until(lambda: key in cv.servers.servers and cv.servers.servers[key].alive)
+    assert len(cards) == 2
+    # Said yes once: a restart, or a start after it stops, asks nothing more…
+    first = cv.servers.servers[key]
+    await hub._handle({"type": "cv_server", "action": "restart", "key": key})
+    assert await until(lambda: cv.servers.servers[key] is not first)
+    assert await until(lambda: cv.servers.servers[key].alive) and len(cards) == 2
+    await hub._handle({"type": "cv_server", "action": "stop", "key": key})
+    assert await until(lambda: not cv.servers.servers[key].alive)
+    # …until what it runs changes.
+    config["env"]["DYLD_INSERT_LIBRARIES"] = "/tmp/evil.dylib"
+    (project / ".jarvis" / "launch.json").write_text(
+        json.dumps({"version": "0.0.1", "configurations": [config]})
+    )
+    await hub._handle(start)
+    await asyncio.sleep(0.2)
+    assert len(cards) == 3 and "DYLD_INSERT_LIBRARIES=/tmp/evil.dylib" in cards[2]["detail"]
+    assert not cv.servers.servers[key].alive  # (unanswered: not started)
+    # A session's own start card shows the environment too.
+    detail = tasks.approval_detail(
+        f"mcp__{code_verify.DEV}__dev_server_start", {"name": "api"}, project
+    )
+    assert "DYLD_INSERT_LIBRARIES=/tmp/evil.dylib  ← changes what runs" in detail
 
 
 async def test_a_session_gets_dev_server_tools_that_look_freely_and_ask_to_start(hub, project):

@@ -66,7 +66,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import code_ai, code_changes, code_prs, github, lang, prefs, secret_scan
-from ..code_changes import git
+from ..code_changes import NO_HOOKS, git
 from ..code_prs import FIX_ATTEMPTS, PullRecord
 from ..hub import _msg_int
 from ..proactive import Alert
@@ -86,10 +86,19 @@ POLL_IDLE = 300.0
 POLL_QUIET = 900.0  # nothing has changed for QUIET_AFTER
 QUIET_AFTER = 24 * 3600
 POLL_ERROR = 120.0
+# A follow-up whose session never said it was done (it was closed, the app quit, its turn's
+# end went to another pull request's record) stops holding everything else back after this.
+FOLLOWUP_STALE = 4 * 3600.0
 POLL_SOON = 8.0  # after something the owner did (opened, pushed, refreshed)
 PUSH_SECONDS = 180.0
 MAX_WATCHED = 30
-REVIEWERS = ("OWNER", "MEMBER", "COLLABORATOR")  # who can write to the repository
+# Who might write to the repository, by GitHub's word on a comment: only these are asked
+# about (github.Client.may), since MEMBER is anyone in the organisation and COLLABORATOR
+# includes read-only ones. What counts is GitHub's answer: write access or more.
+REVIEWERS = ("OWNER", "MEMBER", "COLLABORATOR")
+# Sessions that act without asking: Bypass permissions ("auto") and Auto ("smart"). Review
+# comments are anyone-with-write's words, so they wait for the owner there.
+UNASKED_MODES = ("auto", "smart")
 NOTE = "a pull request update (Eden Code's pull request pane has it)"
 
 PR_SYSTEM = (
@@ -170,6 +179,8 @@ ZH = {
     "Don't push": "不推送",
     "Not pushed.": "没有推送。",
     "Couldn't commit the session's work: {error}": "没能提交会话的改动：{error}",
+    "New review comments on pull request #{n} wait for you: its session doesn't ask before it acts, so I don't send them by myself. Switch the session to another mode and they go to it.": "拉取请求 #{n} 有新的审查评论在等你：它的会话行动前不会询问，所以我不会自己把评论发给它。把会话切换到别的模式，评论就会发过去。",
+    "Couldn't read the pull request; I'll try again in a few minutes.": "没能读取这个拉取请求；几分钟后我再试。",
     "A pull request for issue #{n} is ready for your OK in Eden Code.": "为议题 #{n} 准备的拉取请求已就绪，请在 Eden Code 里确认。",
 }
 lang.add_texts(ZH)
@@ -246,6 +257,7 @@ class PullDesk:
         self._repos: dict[str, dict[str, Any]] = {}  # repo -> its settings on GitHub
         self._wake: asyncio.Event | None = None
         self._capped: set[str] = set()  # kinds the owner was told are capped, today
+        self._held: dict[str, str] = {}  # key -> the review comments held (told once)
 
     # ── plumbing ──
 
@@ -636,7 +648,7 @@ class PullDesk:
             return f"Couldn't commit the session's work: {added.err.strip()[:300]}"
         if not git(top, "diff", "--cached", "--quiet").code:
             return ""  # nothing to commit after all
-        done = git(top, "commit", "-q", "-m", message, timeout=120)
+        done = git(top, *NO_HOOKS, "commit", "-q", "-m", message, timeout=120)
         if done.ok:
             return ""
         why = (done.err or done.out).strip()
@@ -769,12 +781,24 @@ class PullDesk:
     async def poll(self, rec: PullRecord) -> None:
         """Read one pull request's state, checks and comments, and act on what changed."""
         async with self.lock(rec.key):
+            if rec.followup and time.time() - rec.followup_at > FOLLOWUP_STALE:
+                rec.followup, rec.followup_task = "", 0  # its end never came: let go
             try:
                 changed = await self._poll(rec)
             except github.RateLimited:
                 return
             except github.GitHubError as exc:
                 self.details.setdefault(rec.key, {})["error"] = str(exc)
+                self.next_poll[rec.key] = time.time() + POLL_ERROR
+                self._publish_rec(rec)
+                return
+            except Exception:
+                # A bug, or an answer nobody expected: it's logged and tried again after
+                # POLL_ERROR, never at every TICK (each try is a few GitHub calls).
+                log.exception("pull requests: %s couldn't be read", rec.key)
+                self.details.setdefault(rec.key, {})["error"] = self.tr(
+                    "Couldn't read the pull request; I'll try again in a few minutes."
+                )
                 self.next_poll[rec.key] = time.time() + POLL_ERROR
                 self._publish_rec(rec)
                 return
@@ -946,7 +970,7 @@ class PullDesk:
                 return str(exc)
         if not self.hub.tasks.send(task.id, text, note=True):
             return "Too many messages are waiting for that session already."
-        rec.followup = kind
+        rec.followup, rec.followup_task, rec.followup_at = kind, task.id, time.time()
         rec.awaiting_push = False
         self.save()
         said = {
@@ -969,16 +993,30 @@ class PullDesk:
         task = self.hub.tasks.tasks.get(data.get("id"))
         if task is None:
             return
-        rec = self.store().for_session(task.session_id, str(task.cwd))
+        found = self.store().for_session(task.session_id, str(task.cwd))
+        if found is not None and found.state == "open" and task.session_id and not found.session_id:
+            found.session_id = task.session_id
+            self.save()
+        # The record the follow-up was sent from, by the session it went to: with two pull
+        # requests in one folder, the newest isn't always it. (A record kept from before
+        # follow-ups named their session: the session's own, as then.)
+        rec = next(
+            (
+                r
+                for r in self.store().items
+                if r.state == "open"
+                and r.followup
+                and r.followup_task == task.id
+                and r.folder == str(task.cwd)
+            ),
+            None,
+        )
+        if rec is None and found is not None and found.followup and not found.followup_task:
+            rec = found
         if rec is None or rec.state != "open":
             return
-        if task.session_id and not rec.session_id:
-            rec.session_id = task.session_id
-            self.save()
-        if not rec.followup:
-            return
         if data.get("status") != "done":
-            rec.followup = ""
+            rec.followup, rec.followup_task = "", 0
             self.save()
             return
         if self.idle(task):
@@ -987,7 +1025,7 @@ class PullDesk:
     async def after_follow_up(self, rec: PullRecord, task: Any) -> str:
         """The session's done with a follow-up: its work committed (in its isolated copy)
         and pushed, behind the Git panel's card."""
-        kind, rec.followup = rec.followup, ""
+        kind, rec.followup, rec.followup_task = rec.followup, "", 0
         self.save()
         async with self.lock(rec.key):
             plan = await asyncio.to_thread(self._plan, task, rec.base)
@@ -1057,7 +1095,7 @@ class PullDesk:
                 {
                     "id": int(item.get("id") or 0),
                     "author": str((item.get("user") or {}).get("login") or ""),
-                    "trusted": item.get("author_association") in REVIEWERS,
+                    "trusted": item.get("author_association") in REVIEWERS,  # (asked below)
                     "path": str(item.get("path") or ""),
                     "line": int(item.get("line") or item.get("original_line") or 0),
                     "body": str(item.get("body") or "")[:4000],
@@ -1078,6 +1116,7 @@ class PullDesk:
                 "at": str(item.get("submitted_at") or ""),
             }
             review_rows.append(row)
+        await self._writers(ref, [*shown, *review_rows])
         details["reviews"] = review_rows[-30:]
         details["comments"] = sorted(shown, key=lambda c: c["at"])[-60:]
         every = [c["id"] for c in shown] + [r["id"] for r in review_rows if r["body"].strip()]
@@ -1112,10 +1151,32 @@ class PullDesk:
             if not await self.follow_up(rec, "jarvis", code_prs.owner_message(rec, request)):
                 handled.append(c["id"])
                 free = False
-        if batch and free and not rec.followup and self._take("review"):
+        unasked = task is not None and task.mode in UNASKED_MODES
+        if batch and unasked:
+            # Not sent by itself, nor marked seen: once the session is in another mode, the
+            # next look sends them. The owner hears once for each set.
+            marker = ",".join(str(c["id"]) for c in batch)
+            if self._held.get(rec.key) != marker:
+                self._held[rec.key] = marker
+                self.notify(
+                    f"pr-held:{rec.key}:{marker[-40:]}",
+                    f"New review comments on pull request #{rec.number} wait for you: its "
+                    "session doesn't ask before it acts, so I don't send them by myself. "
+                    "Switch the session to another mode and they go to it.",
+                )
+        elif batch and free and not rec.followup and self._take("review"):
             if not await self.follow_up(rec, "review", code_prs.review_message(rec, batch)):
                 handled += [c["id"] for c in batch]
         rec.seen = [*rec.seen, *handled][-code_prs.SEEN_KEPT :]
+
+    async def _writers(self, ref: github.RepoRef, rows: list[dict[str, Any]]) -> None:
+        """Each row trusted only when GitHub says its author can write to the repository
+        (asked once for each author, and only for those whose comment says they might)."""
+        authors = sorted({r["author"] for r in rows if r["trusted"] and r["author"]})
+        answers = await asyncio.gather(*(self.client.may(ref, a, "write") for a in authors))
+        writers = {a for a, ok in zip(authors, answers, strict=True) if ok}
+        for row in rows:
+            row["trusted"] = row["author"] in writers
 
     # ── conflicts ──
 

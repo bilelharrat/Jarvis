@@ -59,7 +59,16 @@
     return String(text || '').split(/[\s,]+/).map((d) => d.trim()).filter(Boolean).slice(0, 20);
   }
 
-  const api = { ruleKind, claudeRows, count, sandboxLine, domainsOf, BEHAVIORS };
+  // GitHub in the allowlist is a way out as much as in: said under the domains, with what to
+  // do instead of a token that reaches everything.
+  const GITHUB_DOMAINS = /(^|\.)(github\.com|githubusercontent\.com)$/;
+  function domainWarning(domains) {
+    return (domains || []).some((d) => GITHUB_DOMAINS.test(String(d).replace(/^\*\./, '')))
+      ? 'With GitHub allowed, a sandboxed command can send what it reads to any repository on GitHub, not just this one, and fetch anyone’s code. If its commands need GitHub, give them a token scoped to this repository only (a fine-grained token with just its access), never your own.'
+      : '';
+  }
+
+  const api = { ruleKind, claudeRows, count, sandboxLine, domainsOf, domainWarning, BEHAVIORS };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -140,6 +149,8 @@
       }));
       parts.push(ul);
     }
+    const warning = domainWarning(domains);
+    if (warning) parts.push(el('p', 'cs-warn', warning));
     const add = el('div', 'cr-add-row cs-add');
     const input = el('input', 'jc-field cs-input');
     input.placeholder = 'registry.npmjs.org';

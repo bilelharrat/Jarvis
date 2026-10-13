@@ -399,7 +399,10 @@ async def test_the_pane_s_commands_edit_import_and_export(
             {"permissions": {"allow": ["Bash(npm test:*)", "Oops("], "deny": ["Read(.env)"]}}
         )
     )
-    await hub._handle({"type": "cr_import", "id": task.id})
+    importing = asyncio.create_task(hub._handle({"type": "cr_import", "id": task.id}))
+    card = await _answer(hub, "all")
+    await importing
+    assert card["question"] == "Import 1 allow rule from proj's .claude settings?"
     state = last()
     assert state["note"] == "Imported 2 rules. Left out 1 this can't read."
     assert state["rules"] == {"deny": ["Read(.env)"], "ask": [], "allow": ["Bash(npm test:*)"]}
@@ -449,7 +452,9 @@ async def test_an_import_never_weakens_a_rule_and_weighs_the_files_as_claude_cod
     (claude / "settings.local.json").write_text(
         json.dumps({"permissions": {"deny": ["Bash(rm -rf:*)"], "allow": ["Bash(npm publish)"]}})
     )
-    await hub._handle({"type": "cr_import", "id": task.id})
+    importing = asyncio.create_task(hub._handle({"type": "cr_import", "id": task.id}))
+    await _answer(hub, "all")
+    await importing
     rules = last()["rules"]
     assert rules["deny"] == ["Bash(git push:*)", "Bash(rm -rf:*)"]
     assert rules["ask"] == ["WebFetch(domain:example.com)", "Bash(npm publish)"]
@@ -457,6 +462,45 @@ async def test_an_import_never_weakens_a_rule_and_weighs_the_files_as_claude_cod
     decide = hub.tasks.rule_check
     assert decide(task, "Bash", {"command": "git push"})[0] == "deny"
     assert decide(task, "Bash", {"command": "rm -rf build"})[0] == "deny"
+    await end_all(hub)
+
+
+async def test_a_repos_allow_rules_are_listed_on_a_card_before_they_come_in(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from code_session_fakes import events_of
+
+    hub, task = await _session(settings, quiet_speaker, isolated, tmp_path)
+    seen = events_of(hub)
+    last = lambda: [e for e in seen() if e["type"] == "cr_state"][-1]  # noqa: E731
+    claude = tmp_path / "proj" / ".claude"
+    claude.mkdir()
+    (claude / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": ["Bash(curl:*)", "WebFetch(domain:evil.test)"],
+                    "deny": ["Read(.env)"],
+                }
+            }
+        )
+    )
+    importing = asyncio.create_task(hub._handle({"type": "cr_import", "id": task.id}))
+    card = await _answer(hub, "strict")
+    await importing
+    assert card["question"] == "Import 2 allow rules from proj's .claude settings?"
+    assert "  Bash(curl:*)\n  WebFetch(domain:evil.test)" in card["detail"]
+    assert [c["label"] for c in card["choices"]] == ["Import them too", "Only ask and deny"]
+    state = last()
+    assert state["rules"] == {"deny": ["Read(.env)"], "ask": [], "allow": []}
+    assert state["note"] == "Imported 1 rule. Left out 2 allow rules."
+    assert hub.tasks.rule_check(task, "Bash", {"command": "curl x"}) is None
+    # Only ask and deny rules to bring in: no card.
+    (claude / "settings.json").write_text(
+        json.dumps({"permissions": {"ask": ["Bash(npm publish)"]}})
+    )
+    await hub._handle({"type": "cr_import", "id": task.id})
+    assert last()["note"] == "Imported 1 rule." and not hub.approvals
     await end_all(hub)
 
 

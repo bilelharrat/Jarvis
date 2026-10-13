@@ -30,6 +30,8 @@ from __future__ import annotations
 import asyncio
 import atexit
 import contextlib
+import hashlib
+import json
 import logging
 import re
 import time
@@ -46,6 +48,7 @@ from .. import (
     computer,
     devservers,
     diagnostics,
+    jsonstore,
     prefs,
     previewcheck,
     runproc,
@@ -247,7 +250,12 @@ class CodeVerify:
             elif action == "forget":
                 self.servers.forget(key)
             else:
+                server = self.servers.servers.get(key)
                 try:
+                    if server is not None and not await self.owner_may_start(
+                        server.project, server.config.name
+                    ):
+                        return
                     await self.servers.restart(key)
                 except ValueError as exc:
                     self.error(str(exc))
@@ -256,10 +264,58 @@ class CodeVerify:
             return
         try:
             project, _task = self.project_of(msg)
+            name = str(msg.get("name") or "")
+            if not await self.owner_may_start(project, name):
+                return
             # Started from the pane: the owner's own server, whatever session is open.
-            await self.servers.start(project, str(msg.get("name") or ""), started_by=None)
+            await self.servers.start(project, name, started_by=None)
         except ValueError as exc:
             self.error(str(exc))
+
+    # ── which configs the owner has said yes to ──
+
+    def _starts_path(self) -> Path:
+        return self.hub.feature_path("code-verify-starts.json")
+
+    def _started_ok(self) -> dict[str, list[str]]:
+        try:
+            data = jsonstore.load_json(self._starts_path(), dict) or {}
+        except jsonstore.Unreadable:
+            data = {}
+        return {
+            k: [f for f in v if isinstance(f, str)] for k, v in data.items() if isinstance(v, list)
+        }
+
+    def _remember_start(self, project: Path, config: devservers.LaunchConfig) -> None:
+        kept = self._started_ok()
+        mine = [f for f in kept.get(str(project), []) if f != _fingerprint(config)]
+        kept[str(project)] = [*mine, _fingerprint(config)][-50:]
+        with contextlib.suppress(OSError):  # a full disk: it asks again next time
+            jsonstore.save_json(self._starts_path(), kept)
+
+    async def owner_may_start(self, project: Path, name: str) -> bool:
+        """Whether the owner's click on a project's dev server may run it. A launch.json is
+        the repository's to write (a cloned one's authors', or a session's): the first time
+        each config is started from the pane, and again whenever its command, folder or
+        environment changes, a card shows all of it. A config that isn't there: True, and
+        the start says so."""
+        config = await asyncio.to_thread(self.servers.config, project, name)
+        if config is None:
+            return True
+        if _fingerprint(config) in self._started_ok().get(str(project), []):
+            return True
+        choice = await self.hub.request_approval(
+            f"Start {name} from {project.name}'s launch.json?",
+            _config_detail(config)
+            + "\n\nIt runs as you, outside any sandbox. A launch.json is written by whoever "
+            "wrote the repository (or by a session): start it only if that command is one you "
+            "trust. I ask again if it changes.",
+            [("start", "Start it"), ("deny", "Not now")],
+        )
+        if choice != "start":
+            return False
+        await asyncio.to_thread(self._remember_start, project, config)
+        return True
 
     def cmd_logs(self, msg: dict[str, Any]) -> None:
         key = str(msg.get("key") or "")
@@ -280,6 +336,9 @@ class CodeVerify:
             if found is None:
                 raise ValueError("That suggestion isn't there anymore.")
             await asyncio.to_thread(devservers.save_config, project, found)
+            saved = await asyncio.to_thread(self.servers.config, project, found.name)
+            if saved is not None:  # the owner's own pick of Eden's suggestion: no card for it
+                await asyncio.to_thread(self._remember_start, project, saved)
         except (ValueError, OSError) as exc:
             self.error(str(exc) if isinstance(exc, ValueError) else "Couldn't save it.")
             return
@@ -930,15 +989,45 @@ def ask_every_time(tools: tuple[str, ...] = RUNS_PROJECT_CODE) -> HookMatcher:
     return HookMatcher(matcher="|".join(re.escape(t) for t in tools), hooks=[hook])
 
 
+# Variables that change what a program loads or runs, beyond the command itself: flagged on
+# the card, since a launch.json's env is as much its command as runtimeExecutable is.
+_RUNS_CODE_ENV = re.compile(
+    r"^(NODE_OPTIONS|DYLD_\w+|LD_\w+|PYTHON(STARTUP|PATH|HOME|INSPECT)|PERL5?(OPT|LIB)|"
+    r"RUBYOPT|RUBYLIB|BASH_ENV|ENV|ZDOTDIR|PATH|GIT_\w+|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|"
+    r"npm_config_\w+|NPM_CONFIG_\w+)$"
+)
+
+
+def _fingerprint(config: devservers.LaunchConfig) -> str:
+    """What a yes to a config covers: its command, folder and environment, as read."""
+    shape = config.to_json() | {"source": config.source}
+    return hashlib.sha256(json.dumps(shape, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def _config_detail(config: devservers.LaunchConfig) -> str:
+    """A config on a card: the command, where it runs, every environment variable it sets
+    (those that change what runs marked), and the file it's from."""
+    where = f"\nin {config.cwd}/" if config.cwd else ""
+    lines = [f"{config.name}: $ {config.command_line}{where}"]
+    if config.env:
+        lines.append("with environment:")
+        for key, value in config.env:
+            shown = value if len(value) <= 200 else value[:200] + "…"
+            mark = "  ← changes what runs" if _RUNS_CODE_ENV.match(key) else ""
+            lines.append(f"  {key}={shown}{mark}")
+    lines.append(f"from {config.source}")
+    return "\n".join(lines)
+
+
 def _start_detail(tool_input: dict[str, Any], cwd: Path) -> str:
-    """What an approval card shows for dev_server_start: the command it would run."""
+    """What an approval card shows for dev_server_start: the command it would run, with
+    its environment."""
     name = str(tool_input.get("name") or "")
     configs, _ = devservers.read_launch(cwd)
     config = next((c for c in configs if c.name == name), None)
     if config is None:
         return f"{name} (not in the project's launch.json)"
-    where = f"\nin {config.cwd}/" if config.cwd else ""
-    return f"{name}: $ {config.command_line}{where}\nfrom {config.source}"
+    return _config_detail(config)
 
 
 class _SessionOptions:

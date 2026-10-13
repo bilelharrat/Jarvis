@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from . import code_changes
-from .code_changes import git
+from .code_changes import NO_HOOKS, git
 
 BRANCH_PREFIX = "jarvis/"
 TRASH_PREFIX = "refs/jarvis/trash/"
@@ -482,7 +482,7 @@ def commit_all(copy: Copy, message: str) -> str:
     added = git(checkout, "add", "-A")
     if not added.ok:
         return f"Couldn't stage the copy's work: {added.err.strip()[:300]}"
-    done = git(checkout, "commit", "-q", "-m", message, timeout=120)
+    done = git(checkout, *NO_HOOKS, "commit", "-q", "-m", message, timeout=120)
     if done.ok:
         return ""
     why = (done.err or done.out).strip()
@@ -585,7 +585,7 @@ def land(copy: Copy, message: str) -> Landed:
         new = made.out.strip()
     holder = _holder(copy.repo, copy.into)
     if holder:
-        moved = git(holder, "merge", "--ff-only", "--no-edit", new, timeout=120)
+        moved = git(holder, *NO_HOOKS, "merge", "--ff-only", "--no-edit", new, timeout=120)
         if not moved.ok:
             names = overwritten_files(moved.err)
             if names:

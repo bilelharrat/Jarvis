@@ -827,11 +827,15 @@ class Runs:
 
     def allowed(self, run: Run, task: Any, command: str) -> bool:
         """A command the run's scope allows: one of its own (a rule, "npm test", or the
-        words it starts with, "uv run pytest"), or one of the project's saved rules."""
+        words it starts with, "uv run pytest"), or one of the project's saved rules. A git
+        entry allows only its own options: "git diff" lets a path or a commit follow, never
+        an option ("git diff --output=…" writes anywhere, "--ext-diff" runs a program);
+        "git diff --stat" is its own entry."""
         command = command.strip()
         project = self.hub.tasks.project_path(run.project)
         rules = self.hub.tasks.rules.for_project(project)
-        for rule in [*run.commands, *rules]:
+        own = [c for c in run.commands if c.split()[:1] != ["git"]]
+        for rule in [*own, *rules]:
             if tasks.rule_allows(rule, command, task.cwd):
                 return True
         if not command or _SHELL.search(command):
@@ -842,7 +846,13 @@ class Runs:
             return False
         for entry in run.commands:
             want = entry.split()
-            if want and words[: len(want)] == want:
+            if not want or words[: len(want)] != want:
+                continue
+            if want[0] != "git":
+                return True
+            rest = words[len(want) :]
+            options = rest[: rest.index("--")] if "--" in rest else rest  # (paths after --)
+            if not any(w.startswith("-") for w in options):
                 return True
         return False
 

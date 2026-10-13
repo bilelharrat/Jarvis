@@ -175,6 +175,27 @@ async def test_no_isolated_copy_means_it_never_starts_in_the_shared_folder(hub, 
 # ── the guard ──
 
 
+async def test_a_git_entry_in_the_scope_allows_only_its_own_options(hub, projects):
+    runs = hub.code_runs
+    repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    task = ClaudeTask(id=3, prompt="x", cwd=repo, mode="edits", allow_edits=True)
+    run = Run("r1", "t", "p", "proj", "edits", ["git diff", "git log --oneline"], 5.0, 2.0)
+    ok = [
+        "git diff", "git diff HEAD~1", "git diff -- a.py", "git diff -- --output=x",
+        "git log --oneline", "git log --oneline main",
+    ]  # fmt: skip
+    for command in ok:
+        assert runs.allowed(run, task, command), command
+    refused = [
+        "git diff --output=/tmp/x", "git diff --ext-diff", "git diff HEAD -p --no-index /etc a",
+        "git log --oneline --output=x", "git log -p",
+    ]  # fmt: skip
+    for command in refused:
+        assert not runs.allowed(run, task, command), command
+    # Other tools' entries keep matching the words they start with.
+    assert runs.allowed(replace(run, commands=["uv run pytest"]), task, "uv run pytest -x tests")
+
+
 async def test_what_the_scope_doesnt_cover_is_refused_never_asked(hub, projects):
     runs = hub.code_runs
     repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
