@@ -1539,9 +1539,13 @@ class Hub:
             self._spawn(self._sysmon_loop())
             self._spawn(self._awake_loop())
             self._spawn(self._number_gemini_starters())
+            # The relays listen before the feature loops start: code_sessions brings back
+            # sessions on Gemini or OpenAI-compatible models, which need one to point at.
+            await self._relay_if_needed()
             for name, factory in self._loops:
                 self._spawn(self._feature_loop(name, factory))
-        await self._relay_if_needed()
+        else:
+            await self._relay_if_needed()
         # Hands steering the Mac: lets go of a held button if the window stops talking.
         self._spawn(self.desktop_hands.watch(lambda e: self.emit("desktop_hands", **e)))
         if self.prefs.remote_enabled:
@@ -6684,6 +6688,9 @@ class Hub:
             )
         else:
             await self.tasks.set_model(task_id, model, cfg["label"], cfg["ref"])
+        limit = getattr(self, "code_limit", None)  # off Claude: its limit isn't waited out
+        if limit is not None and task.hold_until > 0 and task.model_ref.startswith("custom:"):
+            limit.leave(task, self.providers.describe(task.model_ref))
 
     def _providers_changed(self) -> None:
         self.emit("providers", **self.providers.public())
