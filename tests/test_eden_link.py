@@ -572,6 +572,31 @@ async def test_bypass_only_when_allowed_and_plain_modes_pass():
     await stop(ws, task)
 
 
+async def test_from_the_web_accept_edits_is_refused_and_allow_tools_only_read():
+    # ["Bash"] or acceptEdits would be Bypass by another name: refused, or cut to the tools
+    # that only read, unless the owner allowed edits from the web on the Mac.
+    link, eden, _ = make()
+    ws, task = await started(link)
+    request(ws, "POST", "/api/chat/code", {"prompt": "go", "mode": "acceptEdits"}, sid="1" * 16)
+    body = {"prompt": "go", "allowTools": ["Bash", "Read", "Grep(*.py)", "Write", "mcp__x__y"]}
+    request(ws, "POST", "/api/chat/code", body, sid="2" * 16)
+    for sid in ("1" * 16, "2" * 16):
+        await ws.until(lambda sid=sid: ended(ws, sid))
+    codes = {t["id"]: (t["status"], t["code"]) for t in ws.texts() if t["t"] == "error"}
+    assert codes == {"1" * 16: (403, "not_allowed")}
+    (sent,) = eden.requests
+    assert json.loads(sent.content)["allowTools"] == ["Read", "Grep(*.py)"]
+    await stop(ws, task)
+
+    link, eden, _ = make(edits=lambda: True)  # allowed on the Mac: as asked
+    ws, task = await started(link)
+    request(ws, "POST", "/api/chat/code", {"prompt": "go", "mode": "acceptEdits", **body})
+    await ws.until(lambda: ended(ws))
+    (sent,) = eden.requests
+    assert json.loads(sent.content)["allowTools"] == body["allowTools"]
+    await stop(ws, task)
+
+
 # ── streaming, Stop, the window ──
 
 
