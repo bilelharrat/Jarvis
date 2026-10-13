@@ -270,8 +270,72 @@ test('/privacy and /terms: everyone, static, their own strict CSP; linked from t
   const pub = (f) => read(`public/${f}`);
   for (const f of ['jarvis/index.html', 'signin/index.html']) assert.match(pub(f), /href="\/privacy"[\s\S]*href="\/terms"/, f);
   const privacy = pub('privacy/index.html');
-  for (const must of ['Harrat Global Holdings, Inc.', 'support@askeden.com', 'October 11, 2026', 'Limited Use', 'Stripe', 'Cloudflare', 'Moonshot', 'don’t sell']) assert.ok(privacy.includes(must), must);
+  for (const must of ['Harrat Global Holdings, Inc.', 'support@askeden.com', 'October 13, 2026', 'Limited Use', 'Stripe', 'Cloudflare', 'Moonshot', 'don’t sell']) assert.ok(privacy.includes(must), must);
   assert.match(pub('terms/index.html'), /Delaware/);
+});
+
+test('EDU_HOST: askedenedu.com serves Edu at its front; askeden.com/edu, edu.askeden.com and www forward to it', async () => {
+  const on = { ...env, EDU_HOST: 'askedenedu.com' };
+  const front = await worker.fetch(new Request('https://askedenedu.com/'), on, {});
+  assert.equal(front.status, 200);
+  assert.equal(await front.text(), 'asset /edu-home/');
+  const direct = await worker.fetch(new Request('https://askedenedu.com/edu'), on, {});
+  assert.equal(direct.status, 200);
+  const cases = [['https://askeden.com/edu', 'https://askedenedu.com/'], ['https://askeden.com/edu/terms?x=1', 'https://askedenedu.com/edu/terms?x=1'], ['https://edu.askeden.com/', 'https://askedenedu.com/'], ['https://www.askedenedu.com/edu/privacy', 'https://askedenedu.com/edu/privacy']];
+  for (const [from, to] of cases) {
+    const out = await worker.fetch(new Request(from), on, {});
+    assert.equal(out.status, 301, from);
+    assert.equal(out.headers.get('location'), to, from);
+  }
+  const aasa = await worker.fetch(new Request('https://askedenedu.com/.well-known/apple-app-site-association'), on, {});
+  assert.match(await aasa.text(), /com\.askeden\.edu/);
+  const other = await worker.fetch(new Request('https://askeden.com/signin'), on, {});
+  assert.notEqual(other.status, 301);
+});
+
+test('Eden Code\'s site: /eden-code serves it (fonts allowed, no inline script); CODE_HOST makes askedencode.com its front and forwards the page, not the downloads', async () => {
+  const out = await worker.fetch(new Request(`${ORIGIN}/eden-code`), env, {});
+  assert.equal(out.status, 200);
+  assert.equal(await out.text(), 'asset /eden-code-home/');
+  const csp = out.headers.get('content-security-policy');
+  assert.match(csp, /default-src 'none'/);
+  assert.match(csp, /font-src https:\/\/fonts\.gstatic\.com/);
+  assert.doesNotMatch(csp, /unsafe-inline/);
+  for (const host of ['askedencode.com', 'www.askedencode.com']) {
+    const door = await worker.fetch(new Request(`https://${host}/anything`), env, {});
+    assert.equal(door.status, 301);
+    assert.equal(door.headers.get('location'), 'https://askeden.com/eden-code');
+  }
+  const on = { ...env, CODE_HOST: 'askedencode.com' };
+  const front = await worker.fetch(new Request('https://askedencode.com/'), on, {});
+  assert.equal(front.status, 200);
+  assert.equal(await front.text(), 'asset /eden-code-home/');
+  const cases = [['https://askeden.com/eden-code', 'https://askedencode.com/'], ['https://www.askedencode.com/x?y=1', 'https://askedencode.com/x?y=1']];
+  for (const [from, to] of cases) {
+    const fwd = await worker.fetch(new Request(from), on, {});
+    assert.equal(fwd.status, 301, from);
+    assert.equal(fwd.headers.get('location'), to, from);
+  }
+  const dl = await worker.fetch(new Request('https://askedencode.com/eden-code/download'), on, {});
+  assert.notEqual(dl.status, 301);
+  const html = read('public/eden-code-home/index.html');
+  assert.doesNotMatch(html, OTHER_SCRIPT);
+  assert.doesNotMatch(html, /style=|onclick=/);
+  assert.equal((html.match(/<script/g) || []).length, 1); // only /home/features.js (OTHER_SCRIPT above)
+  for (let n = 1; n <= 5; n++) assert.match(html, new RegExp(`src="/eden-code-home/film-${n}\\.mp4" poster="/eden-code-home/film-${n}\\.jpg"`));
+  const poster = await worker.fetch(new Request(`${ORIGIN}/eden-code-home/film-3.jpg`), env, {});
+  assert.equal(poster.status, 200);
+  assert.match(html, /href="\/eden-code\/download"/);
+  assert.match(html, /href="\/eden-code\/windows"/);
+  assert.match(read('public/jarvis/index.html'), /<a href="\/eden-code">Eden Code<\/a>/);
+});
+
+test('askeden.ai and www.askeden.ai forward to askeden.com, keeping path and query', async () => {
+  for (const host of ['askeden.ai', 'www.askeden.ai']) {
+    const out = await worker.fetch(new Request(`https://${host}/edu?x=1`), env, {});
+    assert.equal(out.status, 301);
+    assert.equal(out.headers.get('location'), 'https://askeden.com/edu?x=1');
+  }
 });
 
 test('Eden for Education: /edu is its landing page signed out (only the language script), its app signed in; edu.askeden.com forwards there', async () => {
@@ -287,6 +351,11 @@ test('Eden for Education: /edu is its landing page signed out (only the language
   const edu = await worker.fetch(new Request('https://edu.askeden.com/anything'), env, {});
   assert.equal(edu.status, 301);
   assert.equal(edu.headers.get('location'), 'https://askeden.com/edu');
+  for (const host of ['askedenedu.com', 'www.askedenedu.com']) {
+    const door = await worker.fetch(new Request(`https://${host}/anything`), env, {});
+    assert.equal(door.status, 301);
+    assert.equal(door.headers.get('location'), 'https://askeden.com/edu');
+  }
   const cookie = await signedIn();
   const app = await worker.fetch(new Request(`${ORIGIN}/edu`, { headers: { cookie: `__Host-eden=${cookie}` } }), env, {});
   assert.equal(await app.text(), 'asset /eden/edu');
