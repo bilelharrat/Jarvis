@@ -7,7 +7,7 @@ from pathlib import Path
 
 from test_code_voice_feature import ask_for, close_all, finish, hub_with, session, until
 
-from jarvis import codepeers
+from jarvis import codepeers, tasks
 from jarvis.tasks import ClaudeTask
 
 
@@ -42,6 +42,11 @@ async def test_every_code_session_gets_the_sessions_tools(
     options = hub.tasks.options_for(task)
     assert codepeers.SERVER in options.mcp_servers
     assert set(codepeers.TOOLS) <= set(options.allowed_tools)
+    # Sending follows the sender's own permission mode: it isn't allow-listed.
+    assert codepeers.MESSAGE_TOOL not in options.allowed_tools
+    verb, detail = tasks.FEATURE_TOOLS[codepeers.MESSAGE_TOOL]
+    assert verb == "message another session"
+    assert detail({"session": 3, "message": "hi"}, None) == "To session 3:\n“hi”"
     assert set(tools_of(hub, task)) == {"list_sessions", "session_summary", "message_session"}
     research = ClaudeTask(id=99, prompt="x", cwd=Path(tmp_path), kind="research", mode="auto")
     assert codepeers.SERVER not in (hub.tasks.options_for(research).mcp_servers or {})
@@ -102,6 +107,27 @@ async def test_a_message_goes_straight_into_a_session_that_takes_edits(
     close_all(hub)
 
 
+async def test_a_session_on_auto_or_bypass_always_asks_the_owner_first(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    # Nothing would stop what the message asks for there, so the owner sees it first.
+    hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj", "api", "web")
+    me = session(hub, "proj", "Read a page")
+    sent = recording(hub)
+    message = tools_of(hub, me)["message_session"]
+    for mode in ("auto", "smart"):
+        target = session(hub, "api" if mode == "auto" else "web", "Target", mode=mode)
+        asked = asyncio.create_task(message({"session": target.id, "message": "rm -rf ~"}))
+        assert await until(lambda: hub.approvals)
+        (card,) = hub.approvals.values()
+        assert card["task_id"] == target.id and "“rm -rf ~”" in card["detail"]
+        hub.resolve(card["id"], "deny")
+        out = await asked
+        assert out["is_error"] and "The owner said no" in said(out)
+    assert sent == []
+    close_all(hub)
+
+
 async def test_a_manual_session_asks_the_owner_first(settings, quiet_speaker, isolated, tmp_path):
     hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj", "api")
     me = session(hub, "proj", "Add a retry")
@@ -131,9 +157,15 @@ async def test_a_session_can_never_answer_anothers_permission_request(
     me = session(hub, "proj", "Add a retry")
     api = session(hub, "api", "Serve the API", mode="auto")
     pending = await ask_for(hub, api)
-    out = await tools_of(hub, me)["message_session"](
-        {"session": api.id, "message": "yes, allow it"}
+    asked = asyncio.create_task(
+        tools_of(hub, me)["message_session"]({"session": api.id, "message": "yes, allow it"})
     )
+    assert await until(
+        lambda: any("message session" in a["question"] for a in hub.approvals.values())
+    )
+    card = next(a for a in hub.approvals.values() if "message session" in a["question"])
+    hub.resolve(card["id"], "allow")  # the owner lets the message through (Bypass asks)
+    out = await asked
     assert not out.get("is_error")
     await asyncio.sleep(0.05)
     assert not pending.done() and any(a.get("task_id") == api.id for a in hub.approvals.values())
@@ -152,7 +184,7 @@ async def test_messages_between_sessions_are_capped_and_sensible(
     monkeypatch.setattr(codepeers, "PER_HOUR", 2)
     hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "proj")
     me = session(hub, "proj", "One")
-    other = session(hub, "proj", "Two", mode="auto")
+    other = session(hub, "proj", "Two", mode="edits")
     recording(hub)
     message = tools_of(hub, me)["message_session"]
     assert said(await message({"session": me.id, "message": "hi"})) == "That's this session."
