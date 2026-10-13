@@ -14,10 +14,17 @@
 // or task: /health's busy). The app comes back as it was, hidden if it was hidden. The
 // window's Restart still installs it at once; quitting installs it too (Squirrel).
 //
+// An update Squirrel failed on (a build signed by the wrong team, a damaged zip) is remembered
+// by its version (update-failure.json beside the app's settings), and the hourly check leaves
+// it alone for a while, twice as long after each failure (one hour, two, four … a week at
+// most): it would otherwise download ~200 MB every hour, for ever (audit W26). Check for
+// updates in Settings still tries at once; a newer version, or one that installs, starts over.
+//
 // On Windows (installWindows, win-update.js): askeden.com/windows/latest.json, two minutes after
 // launch, then daily and on Check for updates; a newer installer of this flavor (Eden Secretary or
 // Eden Daredevil) is offered on a card and a Windows notification, and only the owner's
-// Install now downloads it to Downloads and runs it (it closes the app and replaces it).
+// Install now downloads it into the app's data folder, checks it against the signed list and
+// runs it (it closes the app and replaces it). While Eden Secretary is busy the window asks first.
 'use strict';
 
 const fs = require('fs');
@@ -29,6 +36,26 @@ const CHECK_EVERY = 60 * 60 * 1000;
 const QUIET_IDLE = 10 * 60; // seconds the Mac has gone untouched before an update installs itself
 const QUIET_EVERY = 60 * 1000;
 const FETCH_TIMEOUT = 20 * 1000;
+const BACKOFF_FIRST = 60 * 60 * 1000;
+const BACKOFF_MOST = 7 * 24 * 60 * 60 * 1000;
+
+// How long to leave a version alone after its n-th failure.
+const backoffFor = (n) => Math.min(BACKOFF_MOST, BACKOFF_FIRST * 2 ** Math.max(0, n - 1));
+
+// The failure memory in a file ({ version, count, until }): {} when there's none.
+function failureFile(file) {
+  return {
+    get() { try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); return v && typeof v === 'object' ? v : {}; } catch { return {}; } },
+    set(value) {
+      try {
+        if (!value || !value.version) { fs.rmSync(file, { force: true }); return; }
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(value));
+      } catch { /* kept in memory only: the next failure writes it again */ }
+    },
+  };
+}
+const inMemory = () => { let v = {}; return { get: () => v, set: (next) => { v = next || {}; } }; };
 const CH = 'feature:updates:';
 
 // What the window shows for each problem (it has the Chinese); the detail goes to the log.
@@ -52,7 +79,7 @@ function feedFrom(resourcesPath, packaged, readFile = fs.readFileSync) {
 // The updater's state and what moves it; Electron's pieces are passed in (tests use stand-ins).
 function createUpdater({
   version, feed, autoUpdater, fetchText, inApplications, onChange = () => {}, log = () => {},
-  isQuiet = async () => false, beforeInstall = () => {}, follows = false,
+  isQuiet = async () => false, beforeInstall = () => {}, follows = false, failures = inMemory(), now = Date.now,
 }) {
   let state = feed ? { state: 'idle' } : { state: 'off' };
   let offered = null; // the release being downloaded or ready
@@ -70,6 +97,7 @@ function createUpdater({
     if (wired) return;
     wired = true;
     autoUpdater.on('update-downloaded', () => {
+      failures.set({}); // it worked: nothing to hold back
       if (offered) set({ state: 'ready', available: offered.version, name: offered.name, notes: offered.notes });
     });
     autoUpdater.on('update-not-available', () => {
@@ -77,12 +105,20 @@ function createUpdater({
     });
     autoUpdater.on('error', (err) => {
       log(`update: ${err && err.message}`);
-      if (state.state !== 'ready') set({ state: 'error', error: WORDS.install });
+      if (state.state === 'ready') return;
+      if (offered) {
+        const before = failures.get();
+        const count = before.version === offered.version ? (Number(before.count) || 0) + 1 : 1;
+        const until = now() + backoffFor(count);
+        failures.set({ version: offered.version, count, until });
+        log(`update: ${offered.version} failed ${count} time${count === 1 ? '' : 's'}; the next try is after ${new Date(until).toISOString()}`);
+      }
+      set({ state: 'error', error: WORDS.install });
     });
     autoUpdater.setFeedURL({ url: feed, serverType: 'json' });
   }
 
-  async function run() {
+  async function run({ asked = false } = {}) {
     set({ state: 'checking' });
     let text;
     try {
@@ -109,6 +145,12 @@ function createUpdater({
       set({ state: 'move', available: newer.version, error: WORDS.move });
       return;
     }
+    // A version that failed lately is left alone until its time (unless the owner asked).
+    const failed = failures.get();
+    if (!asked && failed.version === newer.version && now() < Number(failed.until)) {
+      set({ state: 'error', error: WORDS.install, available: newer.version });
+      return;
+    }
     offered = newer;
     set({ state: 'downloading', available: newer.version });
     try {
@@ -122,11 +164,11 @@ function createUpdater({
 
   return {
     state: public_,
-    // A check now (launch, the timer, or Check for updates). One at a time; none while an
-    // update is downloading or waiting to be installed.
-    check() {
+    // A check now (launch, the timer, or Check for updates: asked, which tries a failed version
+    // again at once). One at a time; none while an update is downloading or waiting to be installed.
+    check({ asked = false } = {}) {
       if (!feed || ['downloading', 'ready'].includes(state.state)) return Promise.resolve(public_());
-      if (!checking) checking = run().finally(() => { checking = null; });
+      if (!checking) checking = run({ asked }).finally(() => { checking = null; });
       return checking.then(public_);
     },
     // At once, when the owner asks (an update that's ready).
@@ -194,7 +236,11 @@ function installWindows(ctx, deps = {}) {
     fetchText: (url) => fetchFeed(electron.net, url),
     download: (url, target, opts) => win.downloadTo(electron.net, fs, url, target, opts),
     runInstaller: (file, args) => win.startInstaller(deps.spawn || require('child_process').spawn, file, args),
-    downloadsDir: () => ctx.app.getPath('downloads'),
+    saveDir: () => path.join(ctx.app.getPath('userData'), 'updates'), // the app's own, not Downloads (S8)
+    hashFile: (file) => win.sha256Of(fs, file),
+    checkSigner: (file) => win.authenticode(deps.execFile || require('child_process').execFile, file),
+    removeFile: (file) => fs.promises.rm(file, { force: true }),
+    busy: async () => Boolean(ctx.backendBusy && (await ctx.backendBusy())), // a running turn: the window warns first (W27)
     onChange: (state) => ctx.send(`${CH}state`, state),
     log: (line) => console.log(line),
     // A Windows notification (screen readers read it), and the window's card says the same.
@@ -211,7 +257,7 @@ function installWindows(ctx, deps = {}) {
   ctx.ipcMain.handle(`${CH}state`, (event) => (ctx.fromWindow(event) ? updater.state() : null));
   ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? updater.check() : null));
   ctx.ipcMain.handle(`${CH}restart`, () => false);
-  ctx.ipcMain.handle(`${CH}install`, (event) => (ctx.fromWindow(event) ? updater.install() : false));
+  ctx.ipcMain.handle(`${CH}install`, (event, force) => (ctx.fromWindow(event) ? updater.install({ force: force === true }) : false));
   ctx.app.whenReady().then(() => {
     setTimeout(() => updater.check(), win.FIRST_CHECK).unref?.();
     setInterval(() => updater.check(), win.CHECK_EVERY).unref?.();
@@ -240,10 +286,11 @@ function install(ctx) {
       backendBusy: () => ctx.backendBusy(),
     }),
     beforeInstall: () => ctx.relaunchAsItWas(),
+    failures: feed ? failureFile(path.join(ctx.app.getPath('userData'), 'update-failure.json')) : undefined,
     follows: !ctx.dev && ctx.app.isPackaged && Boolean(ctx.backendFromRepo && ctx.backendFromRepo()),
   });
   ctx.ipcMain.handle(`${CH}state`, (event) => (ctx.fromWindow(event) ? updater.state() : null));
-  ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? updater.check() : null));
+  ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? updater.check({ asked: true }) : null));
   ctx.ipcMain.handle(`${CH}restart`, (event) => (ctx.fromWindow(event) ? updater.restart() : false));
   if (!feed) return;
   ctx.app.whenReady().then(() => {
@@ -253,4 +300,4 @@ function install(ctx) {
   });
 }
 
-module.exports = { install, installWindows, createUpdater, feedFrom, fetchFeed, quietMoment, WORDS, CHECK_EVERY, FIRST_CHECK, QUIET_IDLE };
+module.exports = { install, installWindows, createUpdater, feedFrom, fetchFeed, quietMoment, failureFile, backoffFor, WORDS, CHECK_EVERY, FIRST_CHECK, QUIET_IDLE, BACKOFF_FIRST, BACKOFF_MOST };

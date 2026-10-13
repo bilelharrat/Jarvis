@@ -11,14 +11,16 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // what the address bar makes of what's typed
-const { createAgent } = require('./browser-agent');
+const { createAgent, fileNotTheirs, FILE_REFUSED } = require('./browser-agent');
 const { backendCommand, BackendLog } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
-const { isCertError } = require('./browser-lib');
+const { isCertError, riskyClick } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
 const { createTrace, createTail } = require('./startup-log'); // app.log: how this start went
 const { waitForHealth, SLOW_WORDS } = require('./wait-backend'); // the engine's first answer, and what is said until then
+const guards = require('./window-guards'); // deny-by-default permissions for the app's own windows (S6)
+const { forEden } = require('./features/eden-window'); // what the Ask Eden window may hear of the browser (S13)
 
 const FLAVOR = resolveFlavor();
 const EDEN_CODE = FLAVOR.id === 'eden-code';
@@ -56,6 +58,7 @@ if (DEV_URL) {
 }
 
 let win = null;
+let windowTyped = () => false; // the person at the Mac just used the window (window-guards.js inputClock)
 let backend = null;
 let port = 0;
 let quitting = false;
@@ -107,6 +110,8 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   trace.write(`unhandled rejection: ${(reason && reason.stack) || reason}`);
 });
+// No client certificate is ever sent, by any page the app has (Electron would send the first one in the keychain).
+guards.guardApp(app);
 app.on('child-process-gone', (_event, details) => {
   trace.write(`a ${details.type} process went (${details.reason}, exit ${details.exitCode}${details.name ? `, ${details.name}` : ''})`);
 });
@@ -218,7 +223,8 @@ function startBackend() {
   backend.on('exit', (code, signal) => {
     trace.write(`the engine stopped (exit ${code}${signal ? `, ${signal}` : ''}); it last said:\n${backendTail.last(12, 1800)}`);
     backend = null;
-    share.withdraw(DATA_DIR, process.pid);
+    // A restart on purpose keeps backend.json, marked restarting, so the other app waits for it (W24).
+    if (!quietRestart || quitting) share.withdraw(DATA_DIR, process.pid);
     if (quitting) return;
     if (quietRestart) {
       quietRestart = false;
@@ -241,18 +247,42 @@ async function reopenBackend() {
 }
 
 // Restarts the backend (onto the repo's newest code); false when there's none running.
+let restartedFrom = 0; // the pid it restarted from: backendAnswers waits for another one
 function restartBackendQuietly() {
   if (!backend) return false;
+  restartedFrom = backend.pid;
   quietRestart = true;
+  share.markRestarting(DATA_DIR, process.pid); // the other app waits instead of starting its own (backend-share.js)
   plat.killTree(backend);
   return true;
 }
 
-// Whether the backend has something going that a restart would cut off (/health's busy).
-// Unsure (no answer) counts as busy: nothing is restarted on a guess.
+// Whether the backend came back after a restart on purpose: a new process (not the one it
+// restarted from, still quitting) answering /health within ms (follow-repo.js, W23).
+function backendAnswers(ms = 120000) {
+  const until = Date.now() + ms;
+  return new Promise((resolve) => {
+    const again = () => (Date.now() > until ? resolve(false) : setTimeout(look, 1000));
+    function look() {
+      if (!backend || backend.pid === restartedFrom || !port) { again(); return; }
+      const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 2000 }, (res) => {
+        res.resume();
+        if (res.statusCode === 200) resolve(true); else again();
+      });
+      req.on('timeout', () => req.destroy());
+      req.on('error', again);
+    }
+    setTimeout(look, 1500);
+  });
+}
+
+// Whether the backend has something going that a restart would cut off (/health's busy): this
+// app's own, or the one it shares (the other app started it: its /health on the shared port, so
+// a sharing app can install an update quietly too, W27). Unsure (no answer) counts as busy:
+// nothing is restarted on a guess.
 function backendBusy() {
   return new Promise((resolve) => {
-    if (!backend || !port) return resolve(true);
+    if (!port || (!backend && !stopWatching)) return resolve(true); // (stopWatching: sharing the other app's)
     const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 3000 }, (res) => {
       let body = '';
       res.setEncoding('utf8');
@@ -382,14 +412,14 @@ async function shareBackend() {
   sharedFrom = found.app;
   console.log(`${FLAVOR.name}: sharing the backend ${found.app || 'another app'} started (port ${port})`);
   loadApp();
-  stopWatching = share.watch(port, () => {
+  stopWatching = share.watch(port, () => { // (a backend restarting on purpose is waited for: dataDir)
     stopWatching = null;
     sharedFrom = '';
     if (quitting) return;
     TOKEN = crypto.randomBytes(24).toString('hex');
     showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'Eden Secretary'} quit, so ${FLAVOR.name} is starting its own backend…`);
     startOwnBackend();
-  });
+  }, { dataDir: DATA_DIR });
   return true;
 }
 
@@ -443,6 +473,14 @@ function createWindow() {
     trace.write(`the window's page crashed (${details.reason}, exit ${details.exitCode})`);
     if (details.reason !== 'clean-exit' && !quitting && port) setTimeout(() => { if (win && !win.isDestroyed()) loadApp(); }, 1000);
   });
+  // Deny-by-default (window-guards.js, S6): only the app's own page on its backend gets the camera,
+  // the microphone and the rest it uses; its loading page, an iframe or anything else, nothing.
+  guards.guardSession(win.webContents.session, {
+    policy: guards.mainPolicy(() => (DEV_URL ? guards.originOf(DEV_URL) : port ? `http://127.0.0.1:${port}` : '')),
+    log: (line) => trace.write(line),
+  });
+  guards.guardContents(win.webContents);
+  windowTyped = guards.inputClock(win.webContents); // what the address bar sends right after a key or a press is typed (S29)
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
   win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
@@ -481,12 +519,13 @@ function summon() {
 
 // Screen-reader mode (web/features/accessibility.js): Electron knows when assistive technology is
 // in use (NVDA, JAWS, Narrator, VoiceOver); the page asks, and hears when that changes.
-ipcMain.handle('a11y:supported', () => app.isAccessibilitySupportEnabled());
+ipcMain.handle('a11y:supported', (event) => (fromWindow(event) ? app.isAccessibilitySupportEnabled() : false));
 app.on('accessibility-support-changed', (_event, enabled) => {
   if (win && !win.isDestroyed()) win.webContents.send('a11y:changed', enabled);
 });
 
-ipcMain.handle('jarvis:pick-folder', async () => {
+ipcMain.handle('jarvis:pick-folder', async (event) => {
+  if (!fromWindow(event)) return null;
   const result = await dialog.showOpenDialog(win, {
     title: 'Add a folder to the second brain',
     defaultPath: path.join(os.homedir(), 'Documents'),
@@ -572,8 +611,9 @@ function sendBrowserState(extra = {}) {
     ...extra,
   };
   win.webContents.send('browser:state', payload);
+  // The Ask Eden window, while Eden's own page is in it: the tab on show only (forEden, S13).
   const eden = dockWin && !dockWin.isDestroyed() ? dockWin : null;
-  if (eden) eden.webContents.send('feature:eden:browser:state', { ...payload, docked: browserShown });
+  if (eden && featureContext.edenShown && featureContext.edenShown()) eden.webContents.send('feature:eden:browser:state', forEden(payload, browserShown));
 }
 
 function updateLock() {
@@ -1390,6 +1430,8 @@ async function runBrowserCommand({ action, args = {} }) {
   const where = () => ({ url: wc.getURL(), title: wc.getTitle(), tab: wc.id });
   const signIn = onResearch(wc.getURL()) && RESEARCH_AUTH.test(researchPath(wc.getURL()));
   const lockedHere = onResearch(wc.getURL()) && !signIn;
+  // A file on this Mac the user didn't open themselves is neither read nor used (S29).
+  if (['read', 'click', 'type', 'search', 'scroll', 'pointed'].includes(action) && fileNotTheirs(view)) return { ok: false, message: FILE_REFUSED };
   if (signIn && ['click', 'type', 'search'].includes(action)) {
     return { error: 'The Research Center is on its sign-in page. The user signs in themselves; after that I can drive it.' };
   }
@@ -1422,7 +1464,8 @@ async function runBrowserCommand({ action, args = {} }) {
     case 'click': {
       const found = await pageCall('locate', { text: String(args.text || ''), selector: String(args.selector || '') }, 6000, view);
       if (!found.ok) return found;
-      if (found.risky && !args.force) {
+      // The page's label, and what the click really submits (riskyClick, S31).
+      if (riskyClick(found, wc.getURL()) && !args.force) {
         return { ok: false, needsConfirm: true, label: found.label, message: `“${found.label}” needs the user's OK first.`, ...where() };
       }
       // behind other tabs or apps, the press goes in over the DevTools protocol
@@ -1538,7 +1581,13 @@ ipcMain.handle('browser:bounds', (event, bounds) => {
 ipcMain.handle('browser:nav', async (event, { action, url }) => {
   if (!fromWindow(event)) return;
   const wc = ensureBrowser().webContents;
-  if (action === 'go') { browserAsked = true; wc.loadURL(toUrl(url, { typed: true })).catch(() => {}); }
+  if (action === 'go') {
+    browserAsked = true;
+    // Typed only when the person just used the window: a page sending addresses by itself never opens a file (S29).
+    const target = toUrl(url, { typed: windowTyped() });
+    if (/^file:/i.test(target)) browserView.userFile = target; // theirs: the agent may read it (browser-agent.js fileNotTheirs)
+    wc.loadURL(target).catch(() => {});
+  }
   if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
   if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
   if (action === 'reload') wc.reload();
@@ -1654,7 +1703,8 @@ ipcMain.handle('jarvis:pdf', async (event, page) => {
   }
 });
 
-ipcMain.on('jarvis:attention', () => {
+ipcMain.on('jarvis:attention', (event) => {
+  if (!fromWindow(event)) return;
   if (win && !win.isFocused()) app.dock?.bounce('informational');
 });
 
@@ -1736,6 +1786,7 @@ const featureContext = {
   flavor: FLAVOR, // which app this is (flavor.js): Eden Secretary or Eden Code
   sharedFrom: () => sharedFrom, // the app whose backend the window is on, when not this one's
   logDir: LOG_DIR,
+  dataDir: DATA_DIR, // the backend's data folder (eden-window.js keeps its handshake key there)
   summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
@@ -1744,6 +1795,8 @@ const featureContext = {
   relaunchAsItWas, // before a quiet update: reopen hidden if the window is hidden
   backendFromRepo: () => backendFromRepo,
   restartBackendQuietly,
+  backendToken: () => TOKEN, // the backend's token: touchid.js signs its proofs with it (S30)
+  backendAnswers, // the restarted backend's /health, within two minutes (follow-repo.js)
   repoHome: () => jarvisHome(),
   extraPath: EXTRA_PATH,
   // The built-in browser's tabs, for features that work with them (browser-ai.js): the
@@ -1842,6 +1895,6 @@ app.on('before-quit', () => {
   share.withdraw(DATA_DIR, process.pid);
   showHandHud(false);
   globalShortcut.unregisterAll();
-  if (backend) plat.killTree(backend);
+  if (backend) plat.killTree(backend, { outlive: true }); // (killed after 8 s if it hangs, by a watcher that outlives the app: W28)
 });
 app.on('window-all-closed', () => {});

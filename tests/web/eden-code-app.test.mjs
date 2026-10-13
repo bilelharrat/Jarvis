@@ -145,6 +145,35 @@ test('a shared backend that stops answering twice in a row is gone, once', async
   assert.equal(called, false);
 });
 
+test('a backend restarting on purpose is waited for (up to half a minute), not replaced (W24)', async () => {
+  const dir = temp('share-');
+  share.advertise(dir, { port: 51234, token: TOKEN, pid: 4242, app: 'jarvis', launcher: 4241 });
+  assert.equal(share.markRestarting(dir, 9999), false, 'only the app that owns it marks it');
+  let now = 1_000_000;
+  assert.equal(share.markRestarting(dir, 4241, now), true);
+  assert.equal(share.read(dir).restarting, now);
+  assert.equal(share.read(dir).token, TOKEN, 'the rest stays');
+  assert.equal(share.restartingNow(dir, now + 5000), true);
+  assert.equal(share.restartingNow(dir, now + share.RESTART_GRACE), false, 'not for ever');
+  let gone = 0;
+  let answers = false;
+  const stop = share.watch(51234, () => { gone += 1; }, { every: 1, isHealthy: async () => answers, dataDir: dir, now: () => now });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(gone, 0, 'it waits while the mark is fresh');
+  answers = true; // back up, advertised again (the mark goes with the old file)
+  share.advertise(dir, { port: 51234, token: TOKEN, pid: 4343, app: 'jarvis', launcher: 4241 });
+  await new Promise((r) => setTimeout(r, 10));
+  answers = false;
+  now += 60_000;
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(gone, 1, 'no mark: gone as before');
+  stop();
+  const main = readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  assert.match(main, /quietRestart = true;\s*share\.markRestarting\(DATA_DIR, process\.pid\);/);
+  assert.match(main, /if \(!quietRestart \|\| quitting\) share\.withdraw\(DATA_DIR, process\.pid\);/);
+  assert.match(main, /startOwnBackend\(\);\s*\}, \{ dataDir: DATA_DIR \}\);/);
+});
+
 test('Eden Secretary finds an installed Eden Code.app beside it, in /Applications or ~/Applications', () => {
   const have = new Set();
   const exists = (p) => have.has(p);

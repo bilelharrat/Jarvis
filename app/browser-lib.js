@@ -372,7 +372,30 @@ function mergeImport(store, data = {}, { label = 'Imported' } = {}) {
   return added;
 }
 
+// ── "needs your OK": a click the agent asks the user about first (audit S31) ──
+// The page's own label (page-preload.js's risky) is the page's to choose, so a hostile page can
+// call its Pay button "Next". What the click will really do is checked here too, in the main
+// process: the form it submits (sent by POST, or to another site), signs of a payment or a
+// password in that form, and words of money or deletion in the form's address or the page's own.
+const RISKY_PATH = /(^|[/_.-])(checkout|pay|payment|payments|purchase|buy|order|orders|billing|subscribe|subscription|donate|transfer|wire|withdraw|delete|remove|destroy|unsubscribe|cancel|close-account|deactivate)([/_.?-]|$)/i;
+function riskyClick(found, pageUrl) {
+  if (!found || typeof found !== 'object') return true; // nothing said about it: ask
+  if (found.risky) return true;
+  const form = found.form && typeof found.form === 'object' ? found.form : null;
+  const pathOf = (url) => { try { const u = new URL(String(url)); return `${u.pathname}${u.search}`; } catch { return ''; } };
+  if (RISKY_PATH.test(pathOf(pageUrl))) return true;
+  if (!form) return false;
+  if (form.payment || form.password) return true;
+  if (String(form.method || 'get').toLowerCase() === 'post') return true;
+  const action = String(form.action || '');
+  if (action && RISKY_PATH.test(pathOf(action))) return true;
+  const there = originOfUrl(action);
+  const here = originOfUrl(pageUrl);
+  return Boolean(action && there && here && there !== here); // a form sent to another site
+}
+
 module.exports = {
+  riskyClick, RISKY_PATH,
   cleanUserAgent, isPopup, hostOf, originOfUrl, popupTitle, popupBounds, POPUP_MIN,
   authAllowed, authInsecure, isCertError, certProblem,
   sessionOf, pinnedFirst, moveTab, suggest, pagesOf, PAUSE_MEDIA, zoomKey,

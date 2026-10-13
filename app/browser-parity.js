@@ -23,6 +23,7 @@ const { fileURLToPath } = require('url');
 const { SitePermissions, KINDS, originOf, hostOfOrigin } = require('./site-permissions');
 const { BrowserStore } = require('./browser-store');
 const lib = require('./browser-lib');
+const { inputClock } = require('./window-guards');
 const { ENGINES, setSearchEngine, searchEngine, homeUrl, toUrl } = require('./url-input');
 
 const PARTITION = 'persist:jarvis-browser';
@@ -906,6 +907,7 @@ class BrowserParity {
     };
     fit();
     popWin.on('resize', fit);
+    popWin.typed = inputClock(popWin.webContents); // its bar's address is typed only right after a key or a press (S29)
     popWin.webContents.on('did-finish-load', () => this.popoutState(view));
     popWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     popWin.webContents.on('will-navigate', (event) => event.preventDefault()); // the bar stays the bar
@@ -959,7 +961,12 @@ class BrowserParity {
     else if (action === 'forward' && history.canGoForward()) history.goForward();
     else if (action === 'reload') wc.reload();
     else if (action === 'stop') wc.stop();
-    else if (action === 'go' && typeof url === 'string' && url.trim()) wc.loadURL(toUrl(url.slice(0, 4000), { typed: true })).catch(() => {});
+    else if (action === 'go' && typeof url === 'string' && url.trim()) {
+      const typed = Boolean(view.popout && typeof view.popout.typed === 'function' && view.popout.typed());
+      const target = toUrl(url.slice(0, 4000), { typed });
+      if (/^file:/i.test(target)) view.userFile = target; // the user's own: the agent may read it (browser-agent.js)
+      wc.loadURL(target).catch(() => {});
+    }
     else if (action === 'dock') return this.popIn(view);
     else return false;
     return true;

@@ -34,7 +34,11 @@
     "The update list on askeden.com isn’t one J.A.R.V.I.S. can read.": "Eden Secretary 无法读取 askeden.com 上的更新列表。",
     "The update couldn’t be downloaded.": "无法下载这个更新。",
     "The download wasn’t the size it should be, so it wasn’t run.": "下载的文件大小不对，所以没有运行它。",
-    "The installer couldn’t be started.": "无法启动安装程序。"
+    "The installer couldn’t be started.": "无法启动安装程序。",
+    "The update list on askeden.com isn’t signed by Eden, so nothing was installed.": "askeden.com 上的更新列表没有 Eden 的签名，所以什么都没有安装。",
+    "The download isn’t the file Eden published, so it wasn’t run.": "下载的文件不是 Eden 发布的那个，所以没有运行它。",
+    "The installer isn’t signed by Eden, so it wasn’t run.": "安装程序没有 Eden 的签名，所以没有运行它。",
+    "Eden Secretary is in the middle of something (an answer, meeting notes or a task). Installing now stops it. Install anyway?": "Eden Secretary 正在处理事情（回答、会议记录或任务）。现在安装会中断它。仍要安装吗？"
   },
   "patterns": [
     ["^Downloading (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?)…$", "正在下载 $1…"],
@@ -42,6 +46,6 @@
     ["^(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is ready to install\\.$", "$1 已可以安装。"],
     ["^(\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is available \\((\\d+) MB\\)\\.$", "$1 可以更新了（$2 MB）。"],
     ["^(?:Eden Secretary|Jarvis|JARVIS|J\\.A\\.R\\.V\\.I\\.S\\.) (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is ready\\. Restart to install it\\.$", "Eden Secretary $1 已准备好，重新启动即可安装。"],
-    ["^((?:Eden Secretary|Jarvis|JARVIS|J\\.A\\.R\\.V\\.I\\.S\\.)|Eden Daredevil) (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is available \\((\\d+) MB\\)\\. Install it now\\? It downloads to your Downloads folder, then the app closes while it installs and opens again\\.$", "$1 $2 可以更新了（$3 MB）。现在安装吗？它会下载到“下载”文件夹，然后应用会在安装时关闭，装好后再打开。"]
+    ["^((?:Eden Secretary|Jarvis|JARVIS|J\\.A\\.R\\.V\\.I\\.S\\.)|Eden Daredevil) (\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?) is available \\((\\d+) MB\\)\\. Install it now\\? It downloads into \\1’s own folder, then the app closes while it installs and opens again\\.$", "$1 $2 可以更新了（$3 MB）。现在安装吗？它会下载到 $1 自己的文件夹，然后应用会在安装时关闭，装好后再打开。"]
   ]
 }

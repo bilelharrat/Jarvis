@@ -75,3 +75,21 @@ test('every string the Touch ID switch and question show has its Chinese', () =>
   const extra = ['Touch ID for Bypass and risky steps', 'This step can’t easily be undone, or reaches past this Mac. Allow it?'];
   assert.deepEqual([...shown, ...extra].filter((s) => !(s in zh.strings)), []);
 });
+
+test('a yes gives the window a proof the backend can check, signed in the main process under the backend’s token (S30)', async () => {
+  const prefs = { canPromptTouchID: () => true, promptTouchID: async () => {} };
+  const token = 'ab'.repeat(24);
+  const got = await handlers({ systemPreferences: prefs, secret: () => token }).prompt('bypass', 'en');
+  assert.equal(got.ok, true);
+  const [v, kind, expires, nonce, mac] = got.proof.split('.');
+  assert.deepEqual([v, kind], ['v1', 'bypass']);
+  assert.ok(Number(expires) > Date.now() && Number(expires) <= Date.now() + 2 * 60 * 1000 + 50);
+  assert.match(nonce, /^[0-9a-f]{32}$/);
+  const crypto = await import('node:crypto');
+  assert.equal(mac, crypto.createHmac('sha256', token).update(`eden-touchid|v1|bypass|${expires}|${nonce}`).digest('hex'));
+  const fixed = await import('node:module').then(({ createRequire: r }) => r(import.meta.url)('../../app/features/touchid.js'));
+  assert.equal(fixed.makeProof('', 'bypass'), '', 'no backend token: no proof');
+  const no = { canPromptTouchID: () => true, promptTouchID: async () => { throw new Error('cancelled'); } };
+  assert.equal((await handlers({ systemPreferences: no, secret: () => token }).prompt('bypass', 'en')).proof, undefined, 'a no gives none');
+  assert.match(readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8'), /backendToken: \(\) => TOKEN,/);
+});

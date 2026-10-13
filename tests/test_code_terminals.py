@@ -232,3 +232,24 @@ def test_the_terminal_that_printed_last_is_the_one_mentioned(tmp_path):
     assert shells.latest(tmp_path) is one
     elsewhere.keep(b"later, elsewhere\n")
     assert shells.latest(tmp_path) is one and shells.latest(tmp_path / "none") is None
+
+
+def test_a_shell_that_ended_is_dropped_with_its_scrollback(tmp_path):
+    """W28: an exited shell no longer keeps its (up to 512 KB) scrollback in items forever."""
+    events = []
+
+    class Bench:
+        terminals: dict = {}
+
+    bench = Bench()
+    shells = Shells(lambda kind, **data: events.append((kind, data)), bench)
+    holder: dict = {}
+    shell = holder["shell"] = Shell("t1", tmp_path, "zsh 1", None)
+    shells.items["t1"] = shell
+    bench.terminals["cw:t1"] = object()
+    shells._heard(holder, "term_data", {"data": base64.b64encode(b"x" * 1000).decode()})
+    assert shells.get("t1") is shell
+    shells._heard(holder, "term_exit", {})
+    assert shell.exited and shells.get("t1") is None and not shells.items
+    assert "cw:t1" not in bench.terminals
+    assert events[-1] == ("cw_term_exit", {"term": "t1"})

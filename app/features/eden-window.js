@@ -14,16 +14,33 @@
 // Eden's own page in this window may ask ('feature:eden:browser:…'); the window widens while
 // the panel is open and goes back to its size after.
 // Electron comes from ctx.electron in the tests, else the real one.
+//
+// Who counts as Eden here (audit S13, S28): exactly https://askeden.com (no other *.askeden.com
+// page, which could be anyone's), or Eden on this Mac once it has proved itself. Anything else
+// can answer on localhost:5174 (a dev server, another app), so the window asks it for a proof
+// first: GET /api/eden/handshake?nonce=<32 hex> must answer { proof } = HMAC-SHA256 of
+// "eden-window:<nonce>" under the key in the data folder's eden-handshake.key (made here, 32
+// random bytes as hex, this user only; Eden's server on this Mac reads the same file). A page
+// that can't is still shown, but gets nothing: no browser panel, no microphone. Only Eden's
+// page gets the browser's state, and of the tabs only the one on show has its address and
+// title: the others are just there.
+// The window's session is deny-by-default (app/window-guards.js, S6): the clipboard and full
+// screen for Eden's page, the microphone only for it and only after the owner's yes.
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const lib = require('./shell-lib.js');
+const guards = require('../window-guards.js');
 
 const CH = 'feature:eden:';
 const LOCAL = 'http://localhost:5174/';
 const HOSTED = 'https://askeden.com/';
+const LOCAL_ORIGIN = 'http://localhost:5174';
+const HOSTED_ORIGIN = 'https://askeden.com';
+const KEY_FILE = 'eden-handshake.key';
 const DEFAULT_KEYS = 'Control+Alt+Space';
 const SIZE = { width: 440, height: 660 };
 // Pages that may open inside the window besides Eden's own: the sign-in providers askeden.com sends you to.
@@ -49,6 +66,59 @@ function localUp(timeoutMs = 600) {
   });
 }
 
+// The handshake's key, in the data folder: made the first time (this user only), else read.
+function handshakeKey(dataDir) {
+  const file = path.join(dataDir, KEY_FILE);
+  try {
+    const kept = fs.readFileSync(file, 'utf8').trim();
+    if (/^[0-9a-f]{64}$/.test(kept)) return kept;
+  } catch { /* not made yet */ }
+  const key = crypto.randomBytes(32).toString('hex');
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(`${file}.${process.pid}.tmp`, key, { mode: 0o600 });
+    fs.renameSync(`${file}.${process.pid}.tmp`, file);
+  } catch { return ''; }
+  return key;
+}
+
+const proofFor = (key, nonce) => crypto.createHmac('sha256', key).update(`eden-window:${nonce}`).digest('hex');
+
+// Whether what answers on localhost:5174 knows the key: true only for a proof that matches.
+function localProves(key, { get = http.get, timeoutMs = 800 } = {}) {
+  return new Promise((resolve) => {
+    if (!/^[0-9a-f]{64}$/.test(String(key || ''))) { resolve(false); return; }
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const want = Buffer.from(proofFor(key, nonce), 'hex');
+    const req = get(`${LOCAL}api/eden/handshake?nonce=${nonce}`, { timeout: timeoutMs }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { if (body.length < 4096) body += chunk; });
+      res.on('end', () => {
+        try {
+          const proof = String(JSON.parse(body).proof || '');
+          const got = /^[0-9a-f]{64}$/.test(proof) ? Buffer.from(proof, 'hex') : Buffer.alloc(0);
+          resolve(res.statusCode === 200 && got.length === want.length && crypto.timingSafeEqual(got, want));
+        } catch { resolve(false); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
+}
+
+// The state of the built-in browser as Eden's page hears it: the tab on show in full, the
+// others only as tabs (no address, no title, no icon: which sites the owner has open is
+// nobody else's business).
+function forEden(payload, docked) {
+  const tabs = Array.isArray(payload && payload.tabs) ? payload.tabs : [];
+  return {
+    ...payload,
+    tabs: tabs.map((t) => (t && t.active ? t : { id: t && t.id, active: false, loading: Boolean(t && t.loading), title: '', url: '' })),
+    docked: Boolean(docked),
+  };
+}
+
 function install(ctx) {
   const electron = ctx.electron || require('electron');
   const { app, ipcMain } = ctx;
@@ -62,6 +132,8 @@ function install(ctx) {
   let stepAside = false;
   let win = null;
   let loadedFrom = '';
+  let localProved = false; // Eden on this Mac answered the handshake (the last time it was loaded)
+  const proves = ctx.edenHandshake || (() => localProves(handshakeKey(ctx.dataDir || app.getPath('userData'))));
 
   const save = () => {
     try { fs.writeFileSync(`${file}.tmp`, JSON.stringify(setting)); fs.renameSync(`${file}.tmp`, file); } catch { /* the next report saves it */ }
@@ -125,9 +197,12 @@ function install(ctx) {
 
   // ── the window ──
 
+  // The same page's origin exactly: no subdomains.
   function sameSite(url, base) {
-    try { const u = new URL(url), b = new URL(base); return u.origin === b.origin || (b.hostname === 'askeden.com' && u.protocol === 'https:' && u.hostname.endsWith('.askeden.com')); } catch { return false; }
+    try { const u = new URL(url), b = new URL(base); return u.origin === b.origin; } catch { return false; }
   }
+  // Eden itself: askeden.com, or Eden on this Mac after its proof.
+  const trusted = (origin) => origin === HOSTED_ORIGIN || (origin === LOCAL_ORIGIN && localProved && loadedFrom === LOCAL);
   function staysIn(url) {
     if (sameSite(url, loadedFrom)) return true;
     try { const u = new URL(url); return u.protocol === 'https:' && SIGN_IN_HOSTS.has(u.hostname); } catch { return false; }
@@ -145,6 +220,7 @@ function install(ctx) {
     });
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     const wc = win.webContents;
+    guard(wc);
     wc.setWindowOpenHandler(({ url }) => {
       if (sameSite(url, loadedFrom)) return { action: 'allow' }; // an artifact, a sign-in popup
       openOutside(url);
@@ -160,12 +236,39 @@ function install(ctx) {
     win.on('closed', () => { dock().hide(win); win = null; loadedFrom = ''; narrow = null; });
   }
 
+  // Deny-by-default (window-guards.js): once for the window's session, and for each window's page.
+  let guarded = null;
+  function guard(wc) {
+    if (wc.session && guarded !== wc.session) {
+      guarded = wc.session;
+      guards.guardSession(wc.session, { policy: guards.edenPolicy(trusted), ask: askMic, log: (line) => console.warn(line) });
+    }
+    if (typeof wc.on === 'function') guards.guardContents(wc);
+  }
+  // The owner's yes to Eden's microphone: a box on the window, in the app's own words.
+  async function askMic(_wc, origin) {
+    const { dialog } = electron;
+    if (!dialog || !win || win.isDestroyed()) return false;
+    const where = origin === HOSTED_ORIGIN ? 'askeden.com' : 'Eden on this Mac';
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question', buttons: ['Allow', 'Don’t Allow'], defaultId: 1, cancelId: 1,
+      message: 'Let Eden use the microphone?', detail: `${where} asks to hear you, for voice input. It can until Eden Secretary quits.`,
+    });
+    return response === 0;
+  }
+  // Whether the window shows Eden's own page just now (what may hear the browser's state).
+  const edenShown = () => {
+    if (!win || win.isDestroyed()) return false;
+    const url = win.webContents.getURL();
+    return sameSite(url, loadedFrom) && trusted(guards.originOf(url));
+  };
+
   // ── Eden's browser panel: Eden Secretary's browser, docked in this window ──
 
   const dock = () => ctx.browserDock || { show() {}, hide() {}, bounds() {}, nav() {}, tab() {}, shields() {}, state() {} };
   let narrow = null; // the window's size before the panel widened it
   const fromEden = (event) => Boolean(win && !win.isDestroyed() && event && event.sender === win.webContents
-    && (!event.senderFrame || event.senderFrame === win.webContents.mainFrame) && sameSite(win.webContents.getURL(), loadedFrom));
+    && (!event.senderFrame || event.senderFrame === win.webContents.mainFrame) && edenShown());
   const rect = (b) => {
     const n = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0);
     return b && typeof b === 'object' ? { x: n(b.x), y: n(b.y), width: n(b.width), height: n(b.height) } : null;
@@ -224,6 +327,8 @@ function install(ctx) {
     if (win && !win.isDestroyed() && win.isVisible() && win.isFocused()) { win.hide(); return 'hidden'; }
     if (!win || win.isDestroyed()) create();
     const want = (await probe()) ? LOCAL : HOSTED;
+    // Eden on this Mac proves itself each time it's opened (another server may have the port now).
+    localProved = want === LOCAL ? (await proves().catch(() => false)) === true : false;
     if (loadedFrom !== want) {
       loadedFrom = want;
       win.loadURL(want).catch(() => {});
@@ -262,8 +367,9 @@ function install(ctx) {
   });
 
   ctx.openEden = toggle;
+  ctx.edenShown = edenShown; // main.js: only Eden's own page hears the browser's state (forEden)
   register();
   return { toggle, status, use, tryKeys, window: () => win };
 }
 
-module.exports = { install, normalize, localUp, DEFAULT_KEYS, LOCAL, HOSTED };
+module.exports = { install, normalize, localUp, localProves, handshakeKey, proofFor, forEden, DEFAULT_KEYS, LOCAL, HOSTED, KEY_FILE };

@@ -7,6 +7,12 @@
 // The app that started the backend owns it: the backend goes when that app quits
 // (launcher_watch.py). An app sharing it watches it (watch), and when it stops answering,
 // starts one of its own and reloads its window on that.
+//
+// A restart on purpose (follow-repo.js's onto new code) leaves backend.json in place, marked
+// "restarting" (markRestarting): the backend is gone for a few seconds and comes back on the
+// same port. An app watching it waits up to RESTART_GRACE when it sees the mark, instead of
+// starting a competing backend (which lost the data folder's lock race, reloaded its windows
+// and said the other app had quit).
 'use strict';
 
 const fs = require('fs');
@@ -14,6 +20,7 @@ const http = require('http');
 const path = require('path');
 
 const FILE = 'backend.json';
+const RESTART_GRACE = 30_000;
 
 function alive(pid) {
   if (!Number.isInteger(pid) || pid <= 1) return false;
@@ -40,7 +47,7 @@ function read(dataDir) {
   const pid = Number(info.pid);
   const token = typeof info.token === 'string' ? info.token : '';
   if (!Number.isInteger(port) || port <= 0 || port > 65535 || !/^[0-9a-f]{16,128}$/.test(token)) return null;
-  return { port, pid, token, app: String(info.app || ''), launcher: Number(info.launcher) || 0 };
+  return { port, pid, token, app: String(info.app || ''), launcher: Number(info.launcher) || 0, ...(Number(info.restarting) > 0 ? { restarting: Number(info.restarting) } : {}) };
 }
 
 /** Says where this app's backend is. Written through a temporary file, user-only. */
@@ -55,6 +62,28 @@ function advertise(dataDir, { port, token, pid, app, launcher }) {
   } catch {
     return false;
   }
+}
+
+/** Marks this app's backend as restarting on purpose (only when backend.json is still its own). */
+function markRestarting(dataDir, launcher, now = Date.now()) {
+  const info = read(dataDir);
+  if (!info || info.launcher !== launcher) return false;
+  try {
+    const file = path.join(dataDir, FILE);
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ ...raw, restarting: now }), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether backend.json says a restart on purpose began less than RESTART_GRACE ago. */
+function restartingNow(dataDir, now = Date.now(), grace = RESTART_GRACE) {
+  const info = dataDir ? read(dataDir) : null;
+  return Boolean(info && info.restarting && now - info.restarting >= 0 && now - info.restarting < grace);
 }
 
 /** Takes backend.json away, only when it still names this app's backend. */
@@ -73,8 +102,9 @@ async function discover(dataDir, { isAlive = alive, isHealthy = healthy } = {}) 
   return info;
 }
 
-/** Calls onGone once, after the shared backend stops answering twice in a row. Returns stop(). */
-function watch(port, onGone, { every = 2000, isHealthy = healthy } = {}) {
+/** Calls onGone once, after the shared backend stops answering twice in a row (and, with
+ * dataDir, isn't marked as restarting on purpose: then it waits for it). Returns stop(). */
+function watch(port, onGone, { every = 2000, isHealthy = healthy, dataDir = '', now = Date.now } = {}) {
   let misses = 0;
   let stopped = false;
   let timer = null;
@@ -82,11 +112,11 @@ function watch(port, onGone, { every = 2000, isHealthy = healthy } = {}) {
     if (stopped) return;
     misses = (await isHealthy(port)) ? 0 : misses + 1;
     if (stopped) return;
-    if (misses >= 2) { stopped = true; onGone(); return; }
+    if (misses >= 2 && !restartingNow(dataDir, now())) { stopped = true; onGone(); return; }
     timer = setTimeout(tick, every);
   };
   timer = setTimeout(tick, every);
   return () => { stopped = true; clearTimeout(timer); };
 }
 
-module.exports = { FILE, advertise, alive, discover, healthy, read, watch, withdraw };
+module.exports = { FILE, RESTART_GRACE, advertise, alive, discover, healthy, markRestarting, read, restartingNow, watch, withdraw };

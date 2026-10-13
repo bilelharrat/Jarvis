@@ -19,6 +19,7 @@
     "publish-release": "node scripts/release/publish.js"
   },
   "devDependencies": {
+    "@electron/fuses": "^1.8.0",
     "@electron/packager": "^20.3.0",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3"

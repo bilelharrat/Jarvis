@@ -195,7 +195,14 @@ class Shells:
             shell.keep(base64.b64decode(data["data"]))
             self.emit("cw_term_data", term=shell.id, data=data["data"])
         elif kind == "term_exit":
+            # A shell that ended (exit, a crash) is dropped, with its scrollback (up to
+            # SCROLLBACK each): the window has heard it end, and nothing comes back to a closed
+            # shell. The terminal has hung itself up already (workbench.Terminal).
             shell.exited = True
+            if self.items.get(shell.id) is shell:
+                del self.items[shell.id]
+            if self.workbench is not None:
+                self.workbench.terminals.pop(f"cw:{shell.id}", None)
             self.emit("cw_term_exit", term=shell.id)
 
     def get(self, term_id: str) -> Shell | None:

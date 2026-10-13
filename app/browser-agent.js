@@ -32,6 +32,17 @@ const LOG_MAX = 200; // console messages or requests in one answer
 const DIALOG_WAIT = 60 * 1000; // an agent's page dialog unanswered this long goes to the user
 const DIALOG_MODE = 2500; // after an action, the page's dialogs go to the agent this much longer (then the user's box)
 const QUIET_ACTIONS = new Set(['dialog', 'tabs', 'console', 'network']);
+// A page on this Mac (file:) is read, shown or acted in only when the user opened that very
+// file themselves (typed it in the address bar: main.js marks the tab's userFile). One the
+// agent or a page went to by itself could be any file the user can read (audit S29).
+const PAGE_READS = new Set(['snapshot', 'describe', 'act', 'wait', 'screenshot', 'console', 'network', 'eval', 'upload']);
+const FILE_REFUSED = 'That tab shows a file on this Mac the user didn’t open themselves, so I can’t read or use it. The user can open it in the address bar.';
+function fileNotTheirs(view) {
+  const wc = view && view.webContents;
+  if (!wc || (wc.isDestroyed && wc.isDestroyed())) return false;
+  const url = String(wc.getURL() || '');
+  return /^file:/i.test(url) && view.userFile !== url;
+}
 const EVAL_MAX = 20000; // characters of an evaluation's result
 // Only on pages on this Mac (an Eden Code session's own app): checked again inside the page,
 // in the same run as the script, so a page that just navigated away can't be reached.
@@ -1383,6 +1394,7 @@ class BrowserAgent {
     } catch (err) {
       return { ok: false, message: err.message };
     }
+    if (PAGE_READS.has(action) && fileNotTheirs(view)) return { ok: false, message: FILE_REFUSED };
     if (!QUIET_ACTIONS.has(action) && !(action === 'open' && args.newTab)) {
       const waiting = this.waiting(view);
       if (waiting) return waiting;
@@ -1410,4 +1422,4 @@ class BrowserAgent {
   }
 }
 
-module.exports = { createAgent, BrowserAgent };
+module.exports = { createAgent, BrowserAgent, fileNotTheirs, FILE_REFUSED, PAGE_READS };

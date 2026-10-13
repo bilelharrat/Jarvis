@@ -33,12 +33,15 @@
     const name = (s && s.name) || 'Eden Secretary';
     if (s && s.state === 'ready') return `${name} ${s.available} is ready. Restart to install it.`;
     if (s && s.state === 'available') {
-      return `${name} ${s.available} is available (${megabytes(s.size)}). Install it now? It downloads to your Downloads folder, then the app closes while it installs and opens again.`;
+      return `${name} ${s.available} is available (${megabytes(s.size)}). Install it now? It downloads into ${name}’s own folder, then the app closes while it installs and opens again.`;
     }
     return '';
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = { lineFor, cardFor, megabytes };
+  // Asked when Install now finds Eden Secretary in the middle of something (app/win-update.js 'busy').
+  const BUSY_QUESTION = 'Eden Secretary is in the middle of something (an answer, meeting notes or a task). Installing now stops it. Install anyway?';
+
+  if (typeof module === 'object' && module.exports) module.exports = { lineFor, cardFor, megabytes, BUSY_QUESTION };
   if (typeof window === 'undefined' || !window.jarvisFeatures) return;
   const F = window.jarvisFeatures;
   const bridge = window.jarvisApp && window.jarvisApp.feature ? window.jarvisApp.feature : null;
@@ -78,10 +81,18 @@
     installNow.type = 'button';
     installNow.id = 'updates-install';
     installNow.hidden = true;
-    installNow.addEventListener('click', () => bridge.invoke(`${CH}install`));
+    installNow.addEventListener('click', () => install());
     row.append(text, check, restart, installNow);
     group.append(F.el('h3', '', 'About'), row);
     F.$('settings').append(group);
+  }
+
+  // Install now: once more, with force, after a yes when the app says it's busy.
+  function install() {
+    return bridge.invoke(`${CH}install`).then((got) => {
+      if (got === 'busy' && window.confirm(F.t(BUSY_QUESTION))) return bridge.invoke(`${CH}install`, true);
+      return got;
+    }).catch(() => {});
   }
 
   function card() {
@@ -99,7 +110,7 @@
     now.addEventListener('click', () => {
       if (state && state.state === 'available') {
         box.hidden = true;
-        bridge.invoke(`${CH}install`).then(() => {}).catch(() => {});
+        install();
       } else bridge.invoke(`${CH}restart`);
     });
     const later = F.el('button', 'btn', 'Later');
