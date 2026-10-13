@@ -7,9 +7,10 @@ reached": switch to the fallback model (as before, the default) or wait for it t
 Waiting: the turn Claude couldn't answer ends quietly (as a move to the fallback does),
 the session says until when it waits, and its queue is held (TaskManager: hold_until):
 messages the owner sends meanwhile wait there, shown as queued, with a countdown in the
-session's header. When the limit resets (the time Claude Code gave with its limit, or half
-an hour later when it gave none, and then again), the session is told to carry on from
-where it stopped, and the queued messages follow. The owner can try Claude again at once,
+session's header. When the limit resets (the time Claude Code gave with this session's
+own limit, or half an hour later when it gave none, and then again, RETRIES times in a row
+at most before it goes to the fallback), the session is told to carry on from where it
+stopped, and the queued messages follow. The owner can try Claude again at once,
 or move it to the fallback model after all, from the header. The wait outlasts a restart
 (code_sessions keeps until when it waits): the session comes back waiting, and carries on
 when the limit resets, at once if it reset while the app was closed.
@@ -34,13 +35,16 @@ from datetime import datetime
 from typing import Any
 
 from .. import lang, prefs
-from ..hub import _msg_int
+from ..hub import _epoch, _msg_int
 from ..proactive import Alert
 
 PREF = "code_limit_wait"
 prefs.register_feature_pref(PREF, False)
 RETRY = 30 * 60.0  # Claude Code gave no reset time: try again this much later
 LONGEST = 7 * 24 * 3600.0  # a weekly limit, at most
+# Waits with no reset time given, one after another (each limit again soon after carrying
+# on), before it stops waiting and leaves the session to the fallback: 3 hours of tries.
+RETRIES = 6
 EARLY = 1.0  # the wait ends this much before the hold, so the note goes first
 # The longest the wait sleeps at once: asyncio's clock stops while the Mac sleeps, so a
 # wait slept whole would carry on as late as the Mac slept. It looks at the clock again.
@@ -94,6 +98,8 @@ class LimitWait:
         self.waits: dict[int, asyncio.Task] = {}
         self.since: dict[int, float] = {}  # session -> when Claude's limit stopped it
         self._told: set[int] = set()  # reset times a heads-up was given for
+        # session -> the waits in a row with no reset time given, and when the last ended
+        self.tries: dict[int, tuple[int, float]] = {}
 
     def tr(self, text: str) -> str:
         return lang.translate(text, self.hub.language)
@@ -117,14 +123,36 @@ class LimitWait:
                 or str(task.model_ref).startswith("custom:")  # another provider's limit
             ):
                 return inner(task, why, said) if inner is not None else False
-            self.hub._claude_couldnt()
             now = time.time()
-            back = float(getattr(self.hub, "_claude_back_at", 0.0) or 0.0)
+            back = self.reset_of(task)
+            if back <= now:
+                # No reset time: try again in a while, though not for ever. A limit that
+                # comes again soon after each try is a wait in a row; after RETRIES of them
+                # the session goes to the fallback, as with the setting off.
+                count, ended = self.tries.get(task.id, (0, 0.0))
+                count = count + 1 if now - ended < RETRY else 1
+                if count > RETRIES:
+                    self.tries.pop(task.id, None)
+                    return inner(task, why, said) if inner is not None else False
+                self.tries[task.id] = (count, now)
+            else:
+                self.tries.pop(task.id, None)
+            self.hub._claude_couldnt()
             until = back if back > now else now + RETRY
             self.hold(task, min(until, now + LONGEST))
             return True  # the turn's end is a handover, not a failure
 
         return down
+
+    @staticmethod
+    def reset_of(task: Any) -> float:
+        """When the limit that stopped this session resets: the time Claude Code gave with
+        its own connection's report (a weekly Opus limit never holds a Sonnet session for
+        days, as the app's latest report from any session could), 0 when it gave none."""
+        info = getattr(task, "rate_limit", None)
+        if info is None or getattr(info, "status", "") != "rejected":
+            return 0.0
+        return _epoch(getattr(info, "resets_at", None))
 
     def hold(self, task: Any, until: float) -> None:
         task.hold_until = until
@@ -198,6 +226,8 @@ class LimitWait:
             wait.cancel()
         task.hold_until = 0.0
         task.falling_back = False  # the next limit is heard again
+        if task.id in self.tries:  # (a limit again soon after this is a wait in a row)
+            self.tries[task.id] = (self.tries[task.id][0], time.time())
         since = self.since.pop(task.id, time.time())
         if task.status == "stopped":
             # Ended meanwhile (by the owner, or its run's cap): it doesn't carry on by itself.

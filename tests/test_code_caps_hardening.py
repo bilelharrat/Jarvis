@@ -255,3 +255,57 @@ async def test_a_session_stopped_at_its_share_reopens_with_a_new_one_while_room_
     meter.rebalance()
     assert reopened == [(task.id, "")]  # quietly
     assert meter.key(task) != before  # (a new connection's key: the reopen goes ahead)
+
+
+# ── W5: a session's own usage-limit reset, and a cap on tries ──
+
+
+async def test_a_session_waits_for_its_own_limit_s_reset_not_the_app_s_latest(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    import time
+
+    from claude_agent_sdk.types import RateLimitInfo
+
+    from jarvis.tasks import ClaudeTask
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_feature_prefs({"code_limit_wait": True})
+    now = time.time()
+    hub._claude_back_at = now + 5 * 24 * 3600  # another session's weekly Opus limit
+    task = ClaudeTask(id=960, prompt="x", cwd=tmp_path.resolve(), session_id="s")
+    hub.tasks.tasks[task.id] = task
+    task.rate_limit = RateLimitInfo(
+        status="rejected", rate_limit_type="five_hour", resets_at=int((now + 3600) * 1000)
+    )
+    down = hub.code_limit.claude_down(lambda *_a: False)
+    try:
+        assert down(task, "rate_limit", "")
+        assert abs(task.hold_until - (now + 3600)) < 2  # its own five-hour reset, in ms
+    finally:
+        hub.code_limit.forget()
+
+
+async def test_waits_with_no_reset_time_stop_after_a_few_tries_in_a_row(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from jarvis.features import code_limit
+    from jarvis.tasks import ClaudeTask
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.set_feature_prefs({"code_limit_wait": True})
+    task = ClaudeTask(id=961, prompt="x", cwd=tmp_path.resolve(), session_id="s")
+    hub.tasks.tasks[task.id] = task
+    fallback = []
+    down = hub.code_limit.claude_down(lambda t, why, said: fallback.append(t.id) or True)
+    try:
+        for _ in range(code_limit.RETRIES):
+            assert down(task, "rate_limit", "")
+            assert task.hold_until > 0 and fallback == []
+            hub.code_limit.release(task)  # (half an hour on: it tries, and is limited again)
+        assert down(task, "rate_limit", "")
+        assert fallback == [task.id]  # no more waiting: the fallback takes it
+        assert task.id not in hub.code_limit.tries
+    finally:
+        hub.code_limit.forget()
+        await end_all(hub)

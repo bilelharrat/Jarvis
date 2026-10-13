@@ -804,6 +804,9 @@ class ClaudeTask:
     # Resumed with no record of what it cost before (a past session opened by its id): the
     # first report is taken as where it stood, not as one turn's cost.
     cost_unknown: bool = False
+    # The usage-limit report Claude Code last gave on this session's own connection (its
+    # model's window, its reset time): a wait for the limit goes by this, not another's.
+    rate_limit: Any = None
     finished_background: dict[str, None] = field(default_factory=dict)  # newest last, bounded
     # As in Claude Code's composer: more folders, plugins, connectors switched off for
     # this session, ultracode, and another provider's model (its environment).
@@ -2959,6 +2962,7 @@ class TaskManager:
             self._on_background(task, message)
             return
         if isinstance(message, RateLimitEvent):
+            task.rate_limit = message.rate_limit_info
             if self.on_rate_limit is not None:
                 self.on_rate_limit(message.rate_limit_info)
             return
