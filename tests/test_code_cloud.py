@@ -35,7 +35,7 @@ class Tasks:
         self.tasks[task_id].busy = False
         return True
 
-    def send(self, task_id, text, images=None):
+    def send(self, task_id, text, images=None, note=False):
         self.sent.append((task_id, text))
         return True
 
@@ -51,6 +51,20 @@ class Desk:
         self.machines = [SimpleNamespace(alias=a, ok=True, problem="") for a in machines]
         self.handed = []
         self.records = {}
+        self.problem = ""  # the machine's, when it's checked
+        self.why = {}  # task id -> why it can't go (ready), or "secret"
+        self.result = "Handed off to {alias}: it carries on there."
+        self.checked = []
+
+    async def check_machine(self, alias):
+        self.checked.append(alias)
+        return self.problem
+
+    async def ready(self, task, alias, instructions="", check=True, idle=True):
+        why = self.why.get(task.id, "")
+        if why == "secret":
+            return (None, None, {"findings": ["a key"]})
+        return why or (None, None, {"findings": []})
 
     def load(self):
         pass
@@ -66,7 +80,7 @@ class Desk:
 
     async def hand_off(self, task, alias, instructions="", by_voice=False, preapproved=False):
         self.handed.append((task.id, alias, instructions, preapproved))
-        return f"Handed off to {alias}: it carries on there."
+        return self.result.format(alias=alias)
 
 
 class Hub:
@@ -253,3 +267,56 @@ def test_the_assistants_cloud_start_never_falls_back_to_running_here():
     finally:
         code_cloud.COPY_WAIT = 90.0
     assert "Not started" in said and hub.tasks.sent == []
+
+
+def test_a_failed_start_in_the_cloud_runs_its_first_message_here():
+    """W19: the first message was only ever going there; a hand-off that fails runs it here."""
+    hub = Hub()
+    hub.code_handoff.result = "Couldn't start Claude Code on {alias}: no answer"
+    task = hub.tasks.add(workspace={"slug": "s1"})
+    said = asyncio.run(Cloud(hub).to_cloud(task, "jarvis-cloud", "Fix the flaky test"))
+    assert said.startswith("Couldn't start")
+    assert hub.tasks.sent == [(task.id, "Fix the flaky test")]
+
+
+def test_heading_out_never_moves_a_session_an_issue_started():
+    """S17: an issue's run keeps its lock-down, sandbox and caps here; it's named on the card."""
+    hub = Hub()
+    tm = hub.tasks
+    mine = tm.add(busy=True, workspace={"slug": "a"}, title="Mine")
+    issue = tm.add(busy=True, workspace={"slug": "b"}, title="Fix issue 12")
+    runs = {issue.id: SimpleNamespace(untrusted=True), mine.id: SimpleNamespace(untrusted=False)}
+    hub.code_runs = SimpleNamespace(run_of=lambda task: runs.get(task.id))
+    said = asyncio.run(Cloud(hub).away())
+    question, detail, _ = hub.cards[0]
+    assert question == "Move 1 working session to jarvis-cloud?"
+    assert "started by an issue" in detail and "Fix issue 12" in detail
+    assert [m[0] for m in hub.code_handoff.handed] == [mine.id]
+    assert tm.interrupted == [mine.id] and said.startswith("Moved 1 of 1")
+
+
+def test_heading_out_checks_the_machine_and_each_session_before_pausing_any():
+    """W12: a machine that's down moves nothing and pauses nothing; a session that couldn't
+    go (or would send secrets) is named and keeps working; one that fails after it was
+    paused is told to carry on here."""
+    hub = Hub()
+    tm = hub.tasks
+    one = tm.add(busy=True, workspace={"slug": "a"}, title="One")
+    two = tm.add(busy=True, workspace={"slug": "b"}, title="Two")
+    three = tm.add(busy=True, workspace={"slug": "c"}, title="Three")
+    hub.code_handoff.problem = "jarvis-cloud isn't reachable right now."
+    said = asyncio.run(Cloud(hub).away())
+    assert said == "Nothing moved: jarvis-cloud isn't reachable right now."
+    assert hub.cards == [] and tm.interrupted == [] and hub.code_handoff.handed == []
+
+    hub.code_handoff.problem = ""
+    hub.code_handoff.why = {two.id: "The isolated copy's folder is missing.", three.id: "secret"}
+    hub.code_handoff.result = "Couldn't set up the checkout on {alias}: exit 9"
+    said = asyncio.run(Cloud(hub).away())
+    question, detail, _ = hub.cards[0]
+    assert question == "Move 1 working session to jarvis-cloud?"
+    assert "The isolated copy's folder is missing.): Two" in detail
+    assert "possible secrets in what it would send): Three" in detail
+    assert tm.interrupted == [one.id]  # only the one that can go was paused
+    assert tm.sent == [(one.id, code_cloud.STAYED_NOTE)]  # and, not moved, carries on here
+    assert "Not moved: Couldn't set up" in said

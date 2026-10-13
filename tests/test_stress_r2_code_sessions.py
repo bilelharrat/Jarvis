@@ -401,7 +401,7 @@ async def test_two_quick_messages_to_a_handed_off_session_start_one_run_with_bot
         rec.state = "working"
         return ""
 
-    async def write(rec, lines):
+    async def write(rec, lines, live_only=False):
         writes.append(lines)
         return True
 

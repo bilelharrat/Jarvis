@@ -9,7 +9,10 @@ server with git, tmux and the Claude Code CLI signed in to the owner's own Claud
   secret scan finds something).
 - I'm heading out: "/away", the code_cloud_away command or by voice ("I'm heading out",
   "move my sessions to the cloud"): one card for every session that's working, then each is
-  interrupted between steps if it must be and continues there, told where it was.
+  interrupted between steps if it must be and continues there, told where it was. The
+  machine is checked and each move planned (secret scan and all) before the card, so a
+  machine that's down pauses nothing; one paused that still doesn't move is told to carry
+  on here. A session an issue started never moves (its lock-down and caps hold only here).
 - A session that isn't in an isolated copy can't move (the hand-off needs a branch of its
   own): it's named, and stays here.
 
@@ -54,6 +57,15 @@ RESUME_NOTE = (
     "This session was just moved to another machine so it can keep working while the owner's "
     "Mac sleeps; it was interrupted to move. Carry on with the task where you left off."
 )
+# For a session paused to move that didn't: it carries on here, on this Mac.
+STAYED_NOTE = (
+    "You were paused to move to the owner's cloud machine, but the move didn't happen, so "
+    "you're still on the Mac. Carry on with the task where you left off."
+)
+
+
+def name(task: Any) -> str:
+    return task.title or task.prompt[:60] or f"Session {task.id}"
 
 
 class Cloud:
@@ -144,7 +156,10 @@ class Cloud:
             return "It runs here: no isolated copy."
         said = await self.desk().hand_off(task, alias, prompt, preapproved=preapproved)
         if not said.startswith("Handed off"):
+            # Its first message was only ever going there: it runs here instead, not lost.
             tm._log(task, "system", self.tr(said))
+            tm._log(task, "system", self.tr("It didn't move to the cloud, so it runs here."))
+            tm.send(task.id, prompt)
         return said
 
     def known_project(self, project: str) -> bool:
@@ -181,6 +196,14 @@ class Cloud:
             out.append(task)
         return out
 
+    def untrusted(self, task: Any) -> bool:
+        """A session an issue started (its request is anyone's words): here it runs locked
+        down (no MCP, no web, sandboxed commands) within its spending and time caps; on the
+        cloud machine none of that holds, so it never moves there with the rest."""
+        runs = getattr(self.hub, "code_runs", None)
+        run = runs.run_of(task) if runs is not None else None
+        return bool(run is not None and run.untrusted)
+
     async def away(self, by_voice: bool = False) -> str:
         """Every working session moved to the cloud machine, after one card."""
         alias = self.alias()
@@ -191,20 +214,53 @@ class Cloud:
         working = self.working()
         if not working:
             return "No Eden Code session is working right now, so there's nothing to move."
-        movable = [t for t in working if (t.workspace or {}).get("slug")]
-        stuck = [t for t in working if t not in movable]
-        if not movable:
+        copied = [t for t in working if (t.workspace or {}).get("slug")]
+        stuck = [t for t in working if t not in copied]
+        if not copied:
             return (
                 "None of the working sessions is in an isolated copy, so they can't move: start "
                 "sessions with Isolated copy (or Cloud) on to be able to."
             )
-        lines = [f"• {t.title or t.prompt[:60] or f'Session {t.id}'}" for t in movable]
+        issues = [t for t in copied if self.untrusted(t)]
+        # Before the card and before anything is paused: the machine checked once, and each
+        # session's hand-off planned (its secret scan too). A machine that's down moves
+        # nothing and stops nothing; a session that couldn't go keeps working here.
+        desk = self.desk()
+        problem = await desk.check_machine(alias)
+        if problem:
+            return f"Nothing moved: {self.tr(problem)}"
+        movable, held = [], []
+        for task in copied:
+            if task in issues:
+                continue
+            ready = await desk.ready(task, alias, RESUME_NOTE, check=False, idle=False)
+            if isinstance(ready, str):
+                held.append((task, ready))
+            elif ready[2]["findings"]:
+                held.append((task, "possible secrets in what it would send"))
+            else:
+                movable.append(task)
+        if not movable:
+            why = [f"{name(t)}: {self.tr(w)}" for t, w in held] + [
+                f"{name(t)}: {self.tr('started by an issue')}" for t in issues
+            ]
+            return "None of them can move right now. " + " ".join(why)
+        lines = [f"• {name(t)}" for t in movable]
         if stuck:
             lines.append("")
             lines.append(
                 "Staying here (not in an isolated copy): "
                 + ", ".join(t.title or f"session {t.id}" for t in stuck)
             )
+        if issues:
+            lines.append("")
+            lines.append(
+                "Staying here (started by an issue: on the cloud machine its lock-down, "
+                "sandbox and caps wouldn't hold): " + ", ".join(name(t) for t in issues)
+            )
+        for task, why in held:
+            lines.append("")
+            lines.append(f"Staying here ({self.tr(why)}): {name(task)}")
         lines += [
             "",
             "Each is paused between steps, its work committed and sent there, and it carries "
@@ -240,16 +296,22 @@ class Cloud:
     async def _move(self, task: Any, alias: str) -> str:
         tm = self.hub.tasks
         doing = task.last_action or ""
+        paused = False
         if task.busy:
             await tm.interrupt(task.id)
+            paused = True
             waited = 0.0
             while task.busy and waited < IDLE_WAIT:
                 await asyncio.sleep(0.5)
                 waited += 0.5
             if task.busy:
-                return f"{task.title or f'Session {task.id}'} didn't pause in time."
+                return f"{name(task)} didn't pause in time."
         note = RESUME_NOTE + (f" It was last: {doing}." if doing else "")
-        return await self.desk().hand_off(task, alias, note, preapproved=True)
+        said = await self.desk().hand_off(task, alias, note, preapproved=True)
+        if paused and not said.startswith("Handed off"):
+            # Paused for a move that didn't happen: told to carry on here, not left waiting.
+            tm.send(task.id, STAYED_NOTE, note=True)
+        return said
 
     async def cmd_away(self, _msg: dict[str, Any]) -> None:
         said = await self.away()

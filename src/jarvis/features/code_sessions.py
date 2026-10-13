@@ -568,8 +568,12 @@ class CodeSessions:
 
     def _worth_keeping(self, task: ClaudeTask) -> bool:
         meta = self.meta.get(self.keys.get(task.id, ""), {})
+        # A session on another machine that started there has no Claude Code session here,
+        # but its hand-off finds it again after a restart (by its isolated copy): kept.
+        handoffs = getattr(self.hub, "code_handoff", None)
         return bool(
             task.session_id
+            or (handoffs is not None and handoffs.of_task(task) is not None)
             or not task.inbox.empty()
             or task.in_flight is not None
             or meta.get("draft")
