@@ -88,7 +88,7 @@ def test_quiet_hours_wrap_midnight():
 
 async def test_watcher_announces_each_thing_once():
     """Email isn't the watcher's: the interrupter announces the mail and texts that
-    matter (interrupts.py), people the user told JARVIS about included."""
+    matter (interrupts.py), people the user told Jarvis about included."""
     said = []
     power = {"percent": 50, "plugged": False}
 

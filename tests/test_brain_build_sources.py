@@ -37,7 +37,7 @@ def test_the_rebuild_reads_the_newer_sources_it_is_given(tmp_path):
     saved = home / "Documents" / "Jarvis" / "Conversations"
     saved.mkdir(parents=True)
     (saved / "Conversation 2026-09-01 10.00.md").write_text(
-        "# Conversation with J.A.R.V.I.S.\n\n**You**\n\nThe wifi password: hunter2 for the lake house"
+        "# Conversation with Jarvis\n\n**You**\n\nThe wifi password: hunter2 for the lake house"
     )
     safari = home / "Library" / "Safari"
     safari.mkdir(parents=True)

@@ -136,7 +136,7 @@ export function providerStates(keys, cfg) {
     const name = PROVIDER_NAMES[id];
     const k = keys[id];
     const some = cfg.models.some((m) => m.provider === id);
-    if (k && some) return { id, name, available: true, via: k.source === 'user' ? 'your API key' : 'your Jarvis account', reason: null };
+    if (k && some) return { id, name, available: true, via: k.source === 'user' ? 'your API key' : 'your Eden Secretary account', reason: null };
     if (!k && BYOK_ONLY.includes(id)) return { id, name, available: false, via: null, reason: CLAUDE_NEEDS_KEY, needsKey: true, link: KEYS_SETTINGS };
     return { id, name, available: false, via: null, reason: k ? `No ${name} models are set up on askeden.com` : `No ${name.split(' ').pop()} API key on askeden.com` };
   });

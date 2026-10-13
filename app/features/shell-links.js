@@ -1,10 +1,10 @@
-// jarvis:// links, and the Services menu's "Ask JARVIS" that sends a selection to one. Pure
+// jarvis:// links, and the Services menu's "Ask Eden Secretary" that sends a selection to one. Pure
 // (app/features/shell.js opens the links and writes the Quick Action on the owner's click).
 //
-// Any web page or app can open a jarvis:// link, so a link only ever shows JARVIS: it fills
+// Any web page or app can open a jarvis:// link, so a link only ever shows Eden Secretary: it fills
 // in the request box (never sends it: the owner presses Return), opens a panel, or opens a
 // Eden Code project. Everything in one is checked and capped here. The one exception is the
-// owner's own click on "Ask JARVIS" in the Services menu: its Quick Action carries this Mac's
+// owner's own click on "Ask Eden Secretary" in the Services menu: its Quick Action carries this Mac's
 // key (key=, written only into ~/Library/Services, never known to a web page), and that
 // request is sent at once unless the owner asked to confirm first (Settings).
 'use strict';
@@ -60,7 +60,7 @@ function parseLink(raw) {
 
 // ── the Services menu's "Ask JARVIS": an Automator Quick Action in ~/Library/Services ──
 
-const SERVICE_NAME = 'Ask JARVIS';
+const SERVICE_NAME = 'Ask Eden Secretary';
 const SERVICE_BUNDLE = `${SERVICE_NAME}.workflow`;
 const SERVICE_ID = 'com.bshventures.jarvis.ask-service'; // what marks the Quick Action as ours
 const SERVICE_KEY = /^[0-9a-f]{32}$/; // this Mac's Quick Action key: 16 random bytes, in hex
@@ -70,7 +70,7 @@ const SERVICE_KEY = /^[0-9a-f]{32}$/; // this Mac's Quick Action key: 16 random 
 // language), and macOS opens the link. The text never passes through the shell.
 // With this Mac's key (serviceScript(key)) the link says it's the owner's own click.
 const serviceScript = (key = '') => [
-  '# Ask J.A.R.V.I.S. about the selected text: it is sent to J.A.R.V.I.S. (or, if you',
+  '# Ask Eden Secretary about the selected text: it is sent to Eden Secretary (or, if you',
   '# chose to confirm first in Settings, waits in the request box for Return).',
   "url=$(/usr/bin/osascript -l JavaScript -e 'ObjC.import(\"Foundation\");",
   'const data = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;',

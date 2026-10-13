@@ -6,7 +6,7 @@
   'use strict';
 
   const CLOUD_NAMES = { elevenlabs: 'ElevenLabs voices', fish: 'Fish Audio voices' };  // (as its group of choices is headed)
-  const LOCAL_NAME = 'JARVIS (on this Mac)';  // the offline voices' group
+  const LOCAL_NAME = 'Eden Secretary (on this Mac)';  // the offline voices' group
 
   function valueOf(voice) {
     if (!voice || !voice.provider) return '';

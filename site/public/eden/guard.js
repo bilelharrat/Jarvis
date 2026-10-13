@@ -19,7 +19,7 @@ import { locale } from './i18n.js';
 const SOURCE_LABELS = {
   mail: 'Email', web: 'Web page', search: 'Web search', file: 'File', attachment: 'Attached file', image: 'Image',
   screen: 'Screen text', meeting: 'Meeting transcript', calendar: 'Calendar event', note: 'Note', memory: 'Memory',
-  brief: 'Brief', browser: 'Browser page', tool: 'Tool output', reply: 'Earlier reply', context: 'Attached context',
+  brief: 'Brief', browser: 'Browser page', tool: 'Tool output', reply: 'Earlier reply', context: 'Attached context', recall: 'Earlier chat',
 };
 const STATE_TEXT = {
   done: 'Done', approved: 'Approved', denied: 'Denied — nothing was done', expired: 'Expired — nothing was done (approvals last 15 minutes)', failed: 'Approved, but it failed',

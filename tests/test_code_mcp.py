@@ -1,6 +1,6 @@
 """Eden Code's MCP manager (codemcp, features.code_mcp): servers read from every scope with
 secrets masked, a project's shared ones waiting for approval, adding, removing and signing
-in through Claude Code's CLI (faked here), and JARVIS's connectors shared into a session."""
+in through Claude Code's CLI (faked here), and Jarvis's connectors shared into a session."""
 
 import asyncio
 import json

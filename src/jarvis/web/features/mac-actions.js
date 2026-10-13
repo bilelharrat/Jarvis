@@ -63,7 +63,7 @@
 
   const box = el('div', 'homeq');
   const title = el('div', 'homeq-title');
-  title.append(el('strong', '', 'Home questions'), el('small', '', 'Shortcuts that only look, like “Is the garage closed”: ask “Jarvis, is the garage closed?” and I run it without asking and tell you what it says.'));
+  title.append(el('strong', '', 'Home questions'), el('small', '', 'Shortcuts that only look, like “Is the garage closed”: ask “Eden, is the garage closed?” and I run it without asking and tell you what it says.'));
   const list = el('ul', 'itemlist homeq-list');
   const add = el('select', 'homeq-add');
   add.setAttribute('aria-label', 'Add a home question');
@@ -72,7 +72,7 @@
     marked = [...marked, add.value];
     save();
   });
-  const focus = el('p', 'small-status homeq-focus', 'Focus and Do Not Disturb: make shortcuts with the Set Focus action named like “Work Focus On” and “Focus Off”, then say “Jarvis, turn on work focus.”');
+  const focus = el('p', 'small-status homeq-focus', 'Focus and Do Not Disturb: make shortcuts with the Set Focus action named like “Work Focus On” and “Focus Off”, then say “Eden, turn on work focus.”');
   box.append(title, list, add, focus);
   shortcuts.after(box);
 

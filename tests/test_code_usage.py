@@ -273,7 +273,7 @@ async def test_rate_limit_reports_reach_the_fallback_and_the_meter(
         RateLimitInfo(status="rejected", rate_limit_type="five_hour", resets_at=4_000_000_000)
     )
     assert _alerts(seen)[-1] == "You've reached Claude's 5-hour limit."
-    assert hub._claude_back_at == 4_000_000_000  # JARVIS's fallback still hears when it resets
+    assert hub._claude_back_at == 4_000_000_000  # Jarvis's fallback still hears when it resets
     hub.set_feature_prefs({"code_budget_alerts": False})
     hub.tasks.on_rate_limit(
         RateLimitInfo(

@@ -1,4 +1,4 @@
-// Project knowledge (ROADMAP H11): folders indexed on the owner's Mac by Jarvis (its second
+// Project knowledge (ROADMAP H11): folders indexed on the owner's Mac by Eden Secretary (its second
 // brain's own index and search by meaning; nothing is uploaded), attached to Eden's projects.
 // Chats started from a project and its Code sessions search the attached folders before each
 // turn and cite the files ([K1], [K2]…, drawn as cards that open the file). Chats send the
@@ -128,7 +128,7 @@ function newProjectChat(project) {
 
 /**
  * Before a Code turn in a project with knowledge: the best passages, as a card on the reply and
- * as untrusted context for Claude Code (null when there's none, or Jarvis failed: the card says so).
+ * as untrusted context for Claude Code (null when there's none, or Eden Secretary failed: the card says so).
  */
 export async function codeKnowledge(c, node, prompt) {
   const ids = projectKnowledge(c);

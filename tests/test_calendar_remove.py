@@ -1,4 +1,4 @@
-"""JARVIS removes calendar events: the one event asked for, only after a yes on a card that
+"""Jarvis removes calendar events: the one event asked for, only after a yes on a card that
 shows the event itself (its calendar, whether it repeats, who else may hear of it)."""
 
 from datetime import date, datetime

@@ -29,12 +29,12 @@ def client(settings, quiet_speaker, isolated):
 
 def test_page_and_health_are_served(client):
     assert client.get("/health").json() == {"ok": True, "busy": False}
-    assert "Talk to Jarvis" in client.get("/").text
+    assert "Talk to Eden Secretary" in client.get("/").text
     assert client.get("/static/app.js").status_code == 200
 
 
 def test_health_says_when_a_restart_would_cut_something_off(settings, quiet_speaker, isolated):
-    # The app's quiet updates wait while JARVIS has something going.
+    # The app's quiet updates wait while Jarvis has something going.
     hub = Hub(
         settings,
         client_factory=FakeClient,

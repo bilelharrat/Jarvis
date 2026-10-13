@@ -200,15 +200,61 @@ function closeNotebook() {
   refreshActs();
 }
 const toggleNotebook = () => (notebookOpen() ? closeNotebook() : openNotebook());
+/* The notebook floats: drag it by its header, resize it by the corner it shows then, and it comes back where you left it.
+   Double-click the header to dock it again. Small screens keep the full-width sheet. */
+const NB_POS = 'eden.edu.nbpos';
+let nbDragReady = false;
+const nbClamp = (r) => {
+  const width = Math.min(Math.max(r.width, 300), innerWidth - 16), height = Math.min(Math.max(r.height, 260), innerHeight - 16);
+  return { width, height, left: Math.min(Math.max(r.left, 8), innerWidth - width - 8), top: Math.min(Math.max(r.top, 8), innerHeight - height - 8) };
+};
+function nbFloat(pane, r) {
+  pane.classList.add('nb-float');
+  Object.assign(pane.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, right: 'auto', bottom: 'auto' });
+}
+function nbDock(pane) {
+  pane.classList.remove('nb-float');
+  pane.removeAttribute('style');
+  try { localStorage.removeItem(NB_POS); } catch { /* private window */ }
+}
+function nbDraggable(pane) {
+  if (nbDragReady) return;
+  nbDragReady = true;
+  try { const saved = JSON.parse(localStorage.getItem(NB_POS) || 'null'); if (saved && innerWidth > 760) nbFloat(pane, nbClamp(saved)); } catch { /* none kept */ }
+  pane.addEventListener('dblclick', (e) => { if (e.target.closest('.stu-head') && !e.target.closest('button')) nbDock(pane); });
+  pane.addEventListener('pointerdown', (e) => {
+    if (innerWidth <= 760 || e.button !== 0) return;
+    const grip = e.target.closest('.nb-grip'), head = e.target.closest('.stu-head');
+    if (!grip && (!head || e.target.closest('button'))) return;
+    e.preventDefault();
+    const r0 = pane.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+    let moved = false;
+    const move = (ev) => {
+      const dx = ev.clientX - x0, dy = ev.clientY - y0;
+      if (!moved && Math.hypot(dx, dy) < 4) return;
+      moved = true;
+      nbFloat(pane, nbClamp(grip ? { left: r0.left, top: r0.top, width: r0.width + dx, height: r0.height + dy } : { left: r0.left + dx, top: r0.top + dy, width: r0.width, height: r0.height }));
+    };
+    const up = () => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+      if (!moved) return;
+      const r = pane.getBoundingClientRect();
+      try { localStorage.setItem(NB_POS, JSON.stringify({ left: r.left, top: r.top, width: r.width, height: r.height })); } catch { /* private window */ }
+    };
+    addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  });
+}
 function paintNotebook() {
   const pane = $('notebookPane');
+  nbDraggable(pane);
   const c = courses.find((x) => x.id === (nbAt.noteId ? nbAt.noteCourse : nbAt.filter));
   const body = el('div', 'nb-pane-body');
   pane.replaceChildren(
     el('div', 'stu-head',
       el('div', 'stu-title', el('b', '', 'Notebook'), el('span', 'muted', c ? c.name : 'All courses')),
       el('button', { type: 'button', class: 'iconbtn', 'aria-label': 'Close the notebook', title: 'Close', onclick: closeNotebook }, ico('x'))),
-    body);
+    body,
+    el('span', { class: 'nb-grip', 'aria-hidden': 'true' }));
   notebookView(body, {
     courses, courseId: nbAt.noteId ? nbAt.noteCourse : nbAt.filter, noteId: nbAt.noteId,
     go: (filter, noteId, noteCourse) => { nbAt = { filter: noteId ? nbAt.filter : filter, noteId, noteCourse: noteCourse || filter }; paintNotebook(); body.scrollTop = 0; },
@@ -221,7 +267,7 @@ let actsExtra = [];
 const tutorBtn = () => el('button', { type: 'button', class: 'iconbtn', title: 'Talk it through with Eden, your tutor', 'aria-label': 'Talk with Eden', onclick: () => { const c = contextCourse(); if (c) tutor(c); } }, el('span', 'tut-mini'));
 function refreshActs() { $('eduActs').replaceChildren(...actsExtra, ...(contextCourse() ? [tutorBtn(), studyBtn()] : []), notebookBtn()); }
 
-/** J.A.R.V.I.S. out loud: in this study chat when there is one, else a new one marked as a tutor conversation. */
+/** Eden Secretary out loud: in this study chat when there is one, else a new one marked as a tutor conversation. */
 function tutor(course, chat = null) {
   if (!chat) {
     chat = here.view === 'chat' ? chatById(here.id) : null;

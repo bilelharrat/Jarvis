@@ -15,8 +15,8 @@
   const SWITCHES = [
     { key: 'brain_semantic', on: false, kind: 'semantic', title: 'Search by meaning',
       small: 'Finds notes about what you ask even when they use other words, with Apple’s on-device language models (English and Chinese). The first time, macOS may download Apple’s model.' },
-    { key: 'brain_conversations', source: 'conversations', on: true, title: 'Jarvis conversations',
-      small: 'What you and Jarvis said, from Jarvis’s own records, secrets blanked out' },
+    { key: 'brain_conversations', source: 'conversations', on: true, title: 'Eden Secretary conversations',
+      small: 'What you and Eden Secretary said, from Eden Secretary’s own records, secrets blanked out' },
     { key: 'brain_images', source: 'images', on: true, title: 'Text in screenshots and images',
       small: 'Read on this Mac by Apple’s Vision in the folders above, a few hundred each update. Never your Photos library.' },
     { key: 'brain_safari', source: 'safari', on: false, title: 'Safari bookmarks and Reading List',
@@ -25,7 +25,7 @@
     { key: 'brain_reminders', source: 'reminders', on: false, title: 'Reminders',
       small: 'Read only. macOS asks once.' },
     { key: 'brain_voicememos', source: 'voicememos', on: false, title: 'Voice Memos',
-      small: 'Transcribed on this Mac with Jarvis’s speech model, a few each update. Needs Full Disk Access.' },
+      small: 'Transcribed on this Mac with Eden Secretary’s speech model, a few each update. Needs Full Disk Access.' },
     { key: 'research_local', on: true, kind: 'research', title: 'Research reads my own material',
       small: 'After the web, a second pass reads your second brain, the BSH desk and your files (with no web access then) and adds what bears on the topic.' },
   ];
@@ -214,7 +214,7 @@
       clearTimeout(search.timer);
       runSearch(true);
     }, true);
-    // Filters are for the open galaxy: the ambient one (Jarvis showing what it draws on)
+    // Filters are for the open galaxy: the ambient one (Eden Secretary showing what it draws on)
     // shows every star.
     new MutationObserver(() => {
       if (ui.root.hidden) galaxy.setVisible(null);
@@ -421,7 +421,7 @@
     const list = ui.reports.querySelector('.brain-hits');
     const items = ev.items || [];
     if (!items.length) {
-      list.replaceChildren(el('li', 'brain-empty', 'No research reports yet. Ask Jarvis to research something.'));
+      list.replaceChildren(el('li', 'brain-empty', 'No research reports yet. Ask Eden Secretary to research something.'));
       return;
     }
     list.replaceChildren(...items.map((r) => {
@@ -489,20 +489,20 @@
       box.dataset.name = name;
       box.dataset.title = name ? n.title : '';
     }
-    // A conversation from Jarvis's own records is all here: nothing to open elsewhere.
+    // A conversation from Eden Secretary's own records is all here: nothing to open elsewhere.
     if (String(n.id).startsWith('conversation:') && $('note-open')) $('note-open').hidden = true;
   }
 
   function onExported(ev) {
     if (typeof notice !== 'function') return;
     if (ev.error) {
-      notice('Research', 'Couldn’t save that report', ev.error === 'missing' ? 'That report isn’t in Documents › Jarvis › Research any more.' : ev.error, 10000);
+      notice('Research', 'Couldn’t save that report', ev.error === 'missing' ? 'That report isn’t in Documents › Eden Secretary › Research any more.' : ev.error, 10000);
       return;
     }
     const open = button('btn primary', 'Open');
     open.addEventListener('click', () => send({ type: 'report_open', path: ev.path }));
     const title = ev.pdf ? 'Saved as PDF' : 'Saved as a web page';
-    const text = ev.pdf ? 'It’s beside the report in Documents › Jarvis › Research.' : 'No window could print a PDF, so it was saved as a web page beside the report.';
+    const text = ev.pdf ? 'It’s beside the report in Documents › Eden Secretary › Research.' : 'No window could print a PDF, so it was saved as a web page beside the report.';
     notice('Research', title, text, 12000, open);
   }
 

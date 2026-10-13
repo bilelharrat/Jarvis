@@ -5,7 +5,7 @@
 // the whole Mac (a "desktop" target: gestures become real cursor events, posted by
 // desktop_hands.py on the backend).
 //
-// Desktop mode has to keep working while JARVIS's window is behind other apps or hidden.
+// Desktop mode has to keep working while Eden Secretary's window is behind other apps or hidden.
 // requestVideoFrameCallback only fires for a window that is being drawn, so there frames
 // come straight off the camera track (MediaStreamTrackProcessor), or failing that from a
 // timer; either needs the window's background throttling off (main.js).

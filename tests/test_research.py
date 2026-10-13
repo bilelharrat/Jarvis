@@ -88,7 +88,7 @@ def test_instant_commands(said, action, args):
         "read this to me",
         "how is the market doing today",
         "summarize the top story on the news desk for me please",
-        "going back",  # JARVIS's own words, not a command
+        "going back",  # Jarvis's own words, not a command
         "scrolling down",
         "",
     ],
@@ -165,7 +165,7 @@ def test_the_lock_switches_both_ways_and_says_which():
     assert "J.A.R.V.I.S. only" in on["message"]
 
     async def no_window(_action, _args=None):
-        return {"error": "The Research Center only opens in the J.A.R.V.I.S. app window."}
+        return {"error": "The Research Center only opens in the Jarvis app window."}
 
     assert run(research.set_lock(no_window, False))["error"].startswith("The Research Center")
 

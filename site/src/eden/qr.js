@@ -1,5 +1,5 @@
 // QR codes for askeden.com's web sign-in: the page shows a jarvis-link://XXXX-XXXX code as a QR
-// that the J.A.R.V.I.S. iPhone app scans.
+// that the Eden Secretary iPhone app scans.
 //
 // A port of src/jarvis/qr.py: same algorithm, same output, module for module. QR Code Model 2
 // (ISO/IEC 18004), byte mode (UTF-8), error correction level M, the smallest version (1-40) the

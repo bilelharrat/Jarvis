@@ -1,4 +1,4 @@
-"""Rewind and branches of JARVIS's own conversation (jarvis.features.conversation_branch): a
+"""Rewind and branches of Jarvis's own conversation (jarvis.features.conversation_branch): a
 rewind carries the conversation on from before an earlier message as a new Claude Code
 session (resume + fork_session + resume_session_at), after a card that says nothing in the
 world is undone and offers undo for the dropped turns' undoable actions; a fork branches this

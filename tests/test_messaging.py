@@ -127,7 +127,7 @@ async def test_a_spoken_yes_counts_only_after_the_text_is_read_out(
 ):
     """By voice the message itself is read out, through the speech queue, before a yes
     counts: what the mic hears of that reading ("OK, see you then", the closing question)
-    is never taken for the answer, and JARVIS never says its own name doing it."""
+    is never taken for the answer, and Jarvis never says its own name doing it."""
     import asyncio
 
     from test_hub import make_hub

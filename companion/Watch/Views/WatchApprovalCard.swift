@@ -99,7 +99,7 @@ struct WatchUnpairedView: View {
                         .font(.headline)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Palette.ink)
-                    Text("Open J.A.R.V.I.S. on your iPhone and pair it with your Mac. The Watch picks it up by itself.")
+                    Text("Open Eden Secretary on your iPhone and pair it with your Mac. The Watch picks it up by itself.")
                         .font(.footnote)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Palette.muted)

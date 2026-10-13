@@ -4,7 +4,7 @@
 // gets { text } back. Here Workers AI's Whisper hears it (the AI binding in wrangler.toml), counted
 // on the account's included AI at Cloudflare's price, the way a chat turn is: the allowance asked,
 // the worst case held, what it cost spent, the hold let go. On the Mac, Eden's server asks
-// J.A.R.V.I.S.'s own Whisper instead (askeden src/chat/transcribe.ts), with the same limits.
+// Eden Secretary's own Whisper instead (askeden src/chat/transcribe.ts), with the same limits.
 //
 // The recording is never stored or logged, nor are its words.
 

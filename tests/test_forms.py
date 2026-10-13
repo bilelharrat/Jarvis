@@ -231,7 +231,7 @@ def test_a_no_fills_nothing_and_a_password_or_unknown_field_is_refused(desk, mon
 
 def test_this_apps_own_window_is_not_taken_for_the_form(desk, monkeypatch):
     monkeypatch.setattr(osplat, "IS_WIN", True)
-    monkeypatch.setattr(winforms, "_process_name", lambda pid: "J.A.R.V.I.S..exe")
+    monkeypatch.setattr(winforms, "_process_name", lambda pid: "Jarvis.exe")
     out = tools_of(Hub())["list"]()
     assert "this app's own" in out["content"][0]["text"]
 

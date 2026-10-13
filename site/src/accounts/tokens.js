@@ -129,7 +129,7 @@ export async function googleOp(account, op, body, request) {
 
 /**
  * account.js deleteAll(), before storage.deleteAll(): revokes the account's Google grant, so
- * deleting the Jarvis account also ends Eden's access to the mail and calendar. Never throws.
+ * deleting the Eden Secretary account also ends Eden's access to the mail and calendar. Never throws.
  */
 export async function forgetGoogleOnDelete(account, { fetch: f = (url, init) => fetch(url, init) } = {}) {
   try {

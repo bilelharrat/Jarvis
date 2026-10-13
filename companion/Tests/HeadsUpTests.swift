@@ -1,7 +1,7 @@
 import XCTest
 @testable import JarvisCompanion
 
-/// What Jarvis notices before being asked, and what it interrupts for.
+/// What Eden Secretary notices before being asked, and what it interrupts for.
 final class HeadsUpTests: XCTestCase {
     private let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)

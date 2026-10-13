@@ -30,7 +30,7 @@
   let features = {}; // prefs.features
   let told = null; // what the app was last told
 
-  // Only once the backend has said whether screen-reader mode is on: J.A.R.V.I.S. Daredevil's
+  // Only once the backend has said whether screen-reader mode is on: Eden Daredevil's
   // app starts with the fixes on, and a "no" before then would undo them for nothing.
   function tell() {
     if (!a11y) return;
@@ -91,7 +91,7 @@
 
   F.on('page_a11y_cmd', async (ev) => {
     let result;
-    if (!app || !app.feature) result = { ok: false, message: 'The built-in browser is only in the J.A.R.V.I.S. app.' };
+    if (!app || !app.feature) result = { ok: false, message: 'The built-in browser is only in the Eden Secretary app.' };
     else {
       try {
         result = await app.feature.invoke('feature:page-a11y:call', { action: ev.action, args: ev.args || {} });

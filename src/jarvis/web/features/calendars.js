@@ -1,5 +1,5 @@
-// Settings › Calendars (features/wincalendar.py): the calendars Jarvis reads on a PC (on a Mac, the Calendar
-// app is used and this page never appears: the backend doesn't answer). Jarvis keeps a calendar of its
+// Settings › Calendars (features/wincalendar.py): the calendars Eden Secretary reads on a PC (on a Mac, the Calendar
+// app is used and this page never appears: the backend doesn't answer). Eden Secretary keeps a calendar of its
 // own, and reads the ones you already use from their "subscribe" links (Brightspace, Outlook on the web,
 // Google Calendar), read only. The link goes to the backend once, straight to the system's secret store,
 // and the field is cleared; it is never shown again. Every control has a label, the results are announced
@@ -11,8 +11,8 @@
     // What to say about a list of calendars.
     summary(calendars) {
       const links = calendars.filter((c) => c.kind === 'feed').length;
-      if (!links) return 'Jarvis’s own calendar only. Add a calendar link to read the one you already use.';
-      return `Jarvis’s own calendar and ${links} ${links === 1 ? 'calendar link' : 'calendar links'}.`;
+      if (!links) return 'Eden Secretary’s own calendar only. Add a calendar link to read the one you already use.';
+      return `Eden Secretary’s own calendar and ${links} ${links === 1 ? 'calendar link' : 'calendar links'}.`;
     },
     // A calendar link is a web address; the page says so before it goes anywhere.
     looksLikeLink(text) {
@@ -100,7 +100,7 @@
     group.dataset.settingsPane = 'general';
     group.dataset.keywords = 'calendar calendars events schedule brightspace d2l outlook google ics subscribe link feed meetings appointments';
     group.append(el('h3', '', t('Calendars')));
-    group.append(el('p', 'group-note', t('Jarvis keeps a calendar of its own on this computer, and can read the calendars you already use from their subscribe links. Those stay read only. The link is kept in the system’s password store and is never shown again.')));
+    group.append(el('p', 'group-note', t('Eden Secretary keeps a calendar of its own on this computer, and can read the calendars you already use from their subscribe links. Those stay read only. The link is kept in the system’s password store and is never shown again.')));
     field.summary = el('p', 'small-status');
     field.summary.id = 'calendars-summary';
     field.list = el('ul', 'cal-list');
@@ -113,7 +113,7 @@
     field.outlookRow.setAttribute('for', 'calendars-outlook');
     field.outlookRow.hidden = true;
     const outlookWords = el('span');
-    outlookWords.append(el('strong', '', t('Read my Outlook calendar')), el('small', '', t('The Outlook program on this PC, while it is open. Jarvis only reads it; new events go on Jarvis’s own calendar.')));
+    outlookWords.append(el('strong', '', t('Read my Outlook calendar')), el('small', '', t('The Outlook program on this PC, while it is open. Eden Secretary only reads it; new events go on Eden Secretary’s own calendar.')));
     field.outlook = el('input');
     field.outlook.type = 'checkbox';
     field.outlook.id = 'calendars-outlook';
@@ -135,7 +135,7 @@
     field.name = el('input');
     field.name.type = 'text';
     field.name.autocomplete = 'off';
-    form.append(labeled('calendars-name', 'Name', 'Optional. What Jarvis calls it, such as Brightspace.', field.name));
+    form.append(labeled('calendars-name', 'Name', 'Optional. What Eden Secretary calls it, such as Brightspace.', field.name));
     const actions = el('div', 'cal-actions');
     const submit = el('button', 'btn primary', t('Add calendar'));
     submit.type = 'submit';

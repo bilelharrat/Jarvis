@@ -1,4 +1,4 @@
-// Settings › Speaking › JARVIS (on this Mac): the offline voices as a persona's choices
+// Settings › Speaking › Eden Secretary (on this Mac): the offline voices as a persona's choices
 // (personas-voices.js), and the pane script's Chinese fragment (voice_offline.js; its
 // sentences are checked in tests/test_offline_voice.py).
 import assert from 'node:assert/strict';
@@ -19,7 +19,7 @@ test('the offline voices are a persona’s choices once they are downloaded', ()
   // The persona's own offline voice stays a choice before the download.
   const kept = pv.options({ local }, { provider: 'local', id: 'am_michael', name: 'Michael · American' });
   assert.deepEqual(kept.map((o) => [o.group, o.label]), [['', 'The usual voice'], ['local', 'Michael · American']]);
-  assert.equal(pv.LOCAL_NAME, 'JARVIS (on this Mac)');
+  assert.equal(pv.LOCAL_NAME, 'Eden Secretary (on this Mac)');
 });
 
 test('the offline voice pane has its Chinese fragment', () => {

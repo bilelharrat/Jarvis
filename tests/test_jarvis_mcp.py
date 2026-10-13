@@ -1,4 +1,4 @@
-"""JARVIS for other apps (jarvis.mcp_endpoint, jarvis.mcp_bridge, jarvis.features.jarvis_mcp):
+"""Jarvis for other apps (jarvis.mcp_endpoint, jarvis.mcp_bridge, jarvis.features.jarvis_mcp):
 the endpoint's locks (a private socket, a token, too many wrong ones refused, a card once per
 app session), each tool on the hub's own data, the MCP protocol the bridge speaks, and a
 whole call from the bridge to the endpoint over a real Unix socket on this Mac. No model, no

@@ -76,10 +76,10 @@ struct WatchHomeView: View {
     }
 
     private var talkButton: some View {
-        TextFieldLink(prompt: Text("Ask Jarvis")) {
+        TextFieldLink(prompt: Text("Ask Eden Secretary")) {
             VStack(spacing: 6) {
                 ReactorView(mode: model.reactorMode, size: 100)
-                Text(model.pending?.isOpen == true ? "Thinking…" : "Ask Jarvis")
+                Text(model.pending?.isOpen == true ? "Thinking…" : "Ask Eden Secretary")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Palette.cyan)
             }
@@ -89,7 +89,7 @@ struct WatchHomeView: View {
             Task { await model.ask(text) }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Talk to Jarvis")
+        .accessibilityLabel("Talk to Eden Secretary")
         .accessibilityHint("Dictate or scribble a request")
     }
 

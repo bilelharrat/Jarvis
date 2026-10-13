@@ -127,7 +127,7 @@ async def test_a_bang_command_and_the_owner_s_shell_get_the_owner_s_environment(
     assert await asyncio.wait_for(run.done, 60) == 0
     assert run.output(1000).strip().splitlines()[-1] == "none|none|none"
     # The dev servers', tests' and checkers' environment: the login shell is asked with the
-    # owner's, and what it answers carries none of JARVIS's own either.
+    # owner's, and what it answers carries none of Jarvis's own either.
     asked = {}
 
     def fake_run(argv, **kwargs):

@@ -1,5 +1,5 @@
 """Eden Code as an app of its own (app/flavor.js): its page (/?app=code), the backend it
-starts (JARVIS_PROFILE=code: no microphone, voice or screen watching), and a J.A.R.V.I.S.
+starts (JARVIS_PROFILE=code: no microphone, voice or screen watching), and a Jarvis.
 window joining that backend, which wakes what it left off (hub.window_joined)."""
 
 import pytest
@@ -54,7 +54,7 @@ async def test_a_code_backend_opens_no_microphone_until_jarvis_joins(
 ):
     monkeypatch.setenv("JARVIS_PROFILE", "code")
     hub = make_hub(settings, quiet_speaker, isolated)
-    hub.prefs.hands_free = True  # on in J.A.R.V.I.S.'s settings
+    hub.prefs.hands_free = True  # on in Jarvis's settings
     hub.prefs.screen_aware = True
     listening, watching = [], []
     hub._apply_hands_free = lambda: listening.append(True)
@@ -66,7 +66,7 @@ async def test_a_code_backend_opens_no_microphone_until_jarvis_joins(
     q = hub.subscribe()
     hub.window_joined("eden-code")  # Eden Code's own window: still nothing
     assert (listening, watching, hub.profile) == ([], [], "code")
-    hub.window_joined("jarvis")  # a J.A.R.V.I.S. window: the assistant wakes
+    hub.window_joined("jarvis")  # a Jarvis window: the assistant wakes
     assert (listening, watching, hub.profile) == ([True], [True], "full")
     assert hub.transcriber.warmed == 1
     hub.window_joined("jarvis")  # a second one wakes nothing again
@@ -110,7 +110,7 @@ def test_eden_code_s_page_is_the_same_page_marked_for_eden_code(client):
     assert '<body data-app="eden-code" class="eden-code" data-state="idle"' in page
     assert "/static/eden-code.css" in page
     jarvis = client.get("/").text
-    assert "<title>Jarvis</title>" in jarvis and 'data-app="eden-code"' not in jarvis
+    assert "<title>Eden Secretary</title>" in jarvis and 'data-app="eden-code"' not in jarvis
 
 
 def test_eden_code_wears_ask_eden_s_look_whatever_jarvis_wears(client):
@@ -121,7 +121,7 @@ def test_eden_code_wears_ask_eden_s_look_whatever_jarvis_wears(client):
 
 
 def test_eden_code_page_marks_only_the_first_body():
-    html = '<title>Jarvis</title><body data-state="idle"><p>a <body x></p>'
+    html = '<title>Eden Secretary</title><body data-state="idle"><p>a <body x></p>'
     out = eden_code_page(html)
     assert out.count('data-app="eden-code"') == 1 and "<title>Eden Code</title>" in out
 
@@ -155,11 +155,11 @@ def test_windows_say_which_app_they_are(client):
 
 def test_daredevil_s_page_is_named_marked_and_in_its_colours_from_the_first_paint(client):
     page = client.get("/?edition=daredevil").text
-    assert "<title>J.A.R.V.I.S. Daredevil</title>" in page
+    assert "<title>Eden Daredevil</title>" in page
     assert '<html lang="en" data-contrast="yellow">' in page
     assert '<body data-edition="daredevil" data-state="idle"' in page
     plain = client.get("/").text
-    assert "<title>Jarvis</title>" in plain and "data-edition" not in plain and "data-contrast" not in plain
+    assert "<title>Eden Secretary</title>" in plain and "data-edition" not in plain and "data-contrast" not in plain
     # a word that isn't the edition is no edition
     assert "data-edition" not in client.get("/?edition=other").text
 
@@ -189,9 +189,9 @@ def test_edition_colors_are_a_known_pairing_or_nothing():
 
 
 def test_daredevil_page_marks_only_the_first_body():
-    html = '<html lang="en"><title>Jarvis</title><body data-state="idle"><p>a <body x></p>'
+    html = '<html lang="en"><title>Eden Secretary</title><body data-state="idle"><p>a <body x></p>'
     out = daredevil_page(html)
-    assert out.count('data-edition="daredevil"') == 1 and "<title>J.A.R.V.I.S. Daredevil</title>" in out
+    assert out.count('data-edition="daredevil"') == 1 and "<title>Eden Daredevil</title>" in out
     assert out.count("data-contrast") == 1
 
 

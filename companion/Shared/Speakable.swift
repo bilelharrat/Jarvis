@@ -19,7 +19,7 @@ enum Speakable {
     }
 
     /// The language to say a reply in with the device's own voice (a BCP-47 tag for
-    /// AVSpeechSynthesisVoice). Jarvis answers in English or Chinese, as it was asked: a
+    /// AVSpeechSynthesisVoice). Eden Secretary answers in English or Chinese, as it was asked: a
     /// Chinese reply gets the person's own Chinese (Taiwan, Hong Kong) or else Mandarin as
     /// spoken in China, and any other reply their own English or else US English.
     static func voiceLanguage(for text: String, preferred: [String] = Locale.preferredLanguages) -> String {

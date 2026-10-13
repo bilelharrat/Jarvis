@@ -14,7 +14,7 @@ from jarvis.speech import Speaker, is_silent
 
 @pytest.fixture(autouse=True)
 def _the_window_is_believed(monkeypatch):
-    """(On a PC JARVIS asks Windows whether a screen reader runs; these tests are about the window's
+    """(On a PC Jarvis asks Windows whether a screen reader runs; these tests are about the window's
     word, so Windows has no answer, unless a test says otherwise.)"""
     monkeypatch.setattr(accessibility.osplat, "screen_reader_running", lambda: None)
 
@@ -174,7 +174,7 @@ def test_on_the_real_hub_screen_reader_mode_quiets_the_voice_and_adds_the_note(
 
 
 def test_on_a_pc_windows_flag_decides_not_the_windows_word(monkeypatch):
-    # Something that reads windows through UI Automation (JARVIS's own PC control, a dictation
+    # Something that reads windows through UI Automation (Jarvis's own PC control, a dictation
     # tool) makes Electron say "a screen reader" for the rest of the session. Windows' own flag,
     # which only Narrator, NVDA and JAWS set, says there isn't one.
     monkeypatch.setattr(accessibility.osplat, "screen_reader_running", lambda: False)

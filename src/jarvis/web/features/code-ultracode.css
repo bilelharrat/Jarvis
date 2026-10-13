@@ -1,4 +1,4 @@
-/* Ultracode's shimmer, in Jarvis blue and in CSS alone (tests/web/code-ultracode.test.mjs).
+/* Ultracode's shimmer, in Eden Secretary blue and in CSS alone (tests/web/code-ultracode.test.mjs).
    When Eden Code's effort slider sits on Ultracode, its track becomes a stream of tiny square
    pixels pouring out of the thumb and flowing right to left, dense and bright at the thumb,
    thinning and fading toward the left. Two pixel layers flow at different speeds so the cells
@@ -91,7 +91,7 @@ html body[data-skin="obsidian"][data-tone="light"] .deck.jc {
   animation: uc-letters 2.4s linear infinite;
 }
 @keyframes uc-letters { from { background-position: 0 0; } to { background-position: 100% 0; } }
-/* the composer's effort button on Ultracode: Jarvis blue, not app.css's violet */
+/* the composer's effort button on Ultracode: Eden Secretary blue, not app.css's violet */
 .deck.jc #jc-effort.ultra { color: rgb(var(--uc-tx-1)); }
 .deck.jc #jc-effort.ultra .g-fill { stroke: rgb(var(--uc-tx-2)); filter: drop-shadow(0 0 3px rgb(var(--uc-tx-2) / 0.5)); }
 html body[data-skin="obsidian"] #jc-effort.ultra .g-fill { filter: none; }

@@ -637,7 +637,7 @@ async def test_a_finished_request_is_answered_before_the_full_silence(
     assert [q.rstrip("?") for q in hub.client.said] == ["what's on my calendar tomorrow"]
     await hub._early_utterance(4, "Jarvis, what's the weather in")  # sounds unfinished: wait
     hub._armed_until, hub._armed_window = 0.0, time.monotonic() - 1  # the window has passed
-    await hub._early_utterance(5, "so anyway the meeting went fine.")  # not for JARVIS
+    await hub._early_utterance(5, "so anyway the meeting went fine.")  # not for Jarvis
     assert hub._listener.committed == [3]
 
 
@@ -920,7 +920,7 @@ async def test_two_claps_turn_hand_control_on(settings, quiet_speaker, isolated)
     await asyncio.sleep(0.01)
     assert {"type": "ui", "action": "hands", "on": True, "source": "claps"} in drain(q)
 
-    hub.state = "speaking"  # JARVIS's own voice never counts
+    hub.state = "speaking"  # Jarvis's own voice never counts
     hub._listener.on_double_clap()
     await asyncio.sleep(0.01)
     assert not [e for e in drain(q) if e["type"] == "ui"]

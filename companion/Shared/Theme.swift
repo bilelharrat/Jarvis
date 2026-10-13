@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The J.A.R.V.I.S. look: Apple's craft with Stark's materials. SF Pro and Apple's layouts,
+/// The Eden Secretary look: Apple's craft with Stark's materials. SF Pro and Apple's layouts,
 /// every surface Liquid Glass over a night lit by the arc reactor, one accent (reactor blue),
 /// and Stark gold, sparingly, for what needs the owner. Telemetry in small SF Mono caps.
 /// In Obsidian (Look.swift) the same names give the Mac's graphite and porcelain instead:
@@ -119,7 +119,7 @@ extension Font {
     static let display = Font.largeTitle.weight(.bold)
     static let serifTitle = Font.title2.weight(.bold)
     static let serifHeadline = Font.title3.weight(.semibold)
-    /// Jarvis's own words.
+    /// Eden Secretary's own words.
     static let voice = Font.body
 }
 
@@ -246,7 +246,7 @@ extension View {
     }
 }
 
-/// Jarvis's mark: a small lit sphere (an avatar for Jarvis's lines, a monogram).
+/// Eden Secretary's mark: a small lit sphere (an avatar for Eden Secretary's lines, a monogram).
 struct OrbMark: View {
     var size: CGFloat = 10
     var glow = true

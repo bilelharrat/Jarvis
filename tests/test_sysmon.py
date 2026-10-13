@@ -42,7 +42,7 @@ Processes: 1730 total
 PID    COMMAND          POWER
 428    WindowServer     62.1
 11557  Claude Helper    25.8
-3747   J.A.R.V.I.S Help 16.9
+3747   Jarvis Help 16.9
 """
 
 
@@ -65,7 +65,7 @@ def test_battery_health_cycles_and_the_power_flowing():
 
 def test_energy_impact_is_read_from_tops_second_sample():
     rows = energy_impact(TOP)
-    assert [r["name"] for r in rows] == ["WindowServer", "Claude Helper", "J.A.R.V.I.S Help"]
+    assert [r["name"] for r in rows] == ["WindowServer", "Claude Helper", "Jarvis Help"]
     assert rows[0] == {"pid": 428, "name": "WindowServer", "energy": 62.1}
     assert energy_impact("") == []
 

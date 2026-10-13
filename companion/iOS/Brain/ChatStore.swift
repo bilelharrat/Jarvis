@@ -1,6 +1,6 @@
 import Foundation
 
-/// The conversations Jarvis on the iPhone has had, kept on the iPhone (the App Group
+/// The conversations Eden Secretary on the iPhone has had, kept on the iPhone (the App Group
 /// container) so they can be found, picked up again, renamed, pinned or deleted, as in the
 /// Claude, ChatGPT and Gemini apps. A temporary chat is never kept.
 struct SavedChat: Codable, Identifiable, Equatable {

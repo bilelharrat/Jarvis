@@ -1,6 +1,6 @@
-// jarvis-duplex: JARVIS's voice and the microphone through one AVAudioEngine with Apple's
+// jarvis-duplex: Eden Secretary's voice and the microphone through one AVAudioEngine with Apple's
 // voice processing on (the echo cancellation FaceTime uses), so the microphone hears the
-// room without JARVIS's own voice in it, and the owner can talk over JARVIS.
+// room without Eden Secretary's own voice in it, and the owner can talk over Eden Secretary.
 //
 //   jarvis-duplex <sample-rate> --live [--effect] --capture-fd <fd> [--input builtin|default]
 //
@@ -13,12 +13,12 @@
 //   'V' <u32 permille>             the voice's volume, 0-1000 (lowered while you talk over it)
 //
 // The microphone, echo cancelled, goes to <fd> as 16 kHz mono 16-bit PCM, as it comes
-// (a write that would block is dropped: Jarvis reading late never stalls the audio).
+// (a write that would block is dropped: Eden Secretary reading late never stalls the audio).
 // stdout lines: "M <id>" as above; "R" when the output device changed and queued audio
 // was lost; "C <input name>" once the first cancelled audio is on its way; "E <why>" when
-// it can't do this (it exits then, and Jarvis goes back to its usual microphone).
+// it can't do this (it exits then, and Eden Secretary goes back to its usual microphone).
 //
-// --input builtin (Jarvis's default): only the Mac's own microphone. With AirPods as the
+// --input builtin (Eden Secretary's default): only the Mac's own microphone. With AirPods as the
 // Mac's input it exits instead: opening their microphone would drop them into call quality.
 //
 // Other apps' sound isn't turned down while this runs (voice processing ducks it by
@@ -125,8 +125,8 @@ final class Capture: @unchecked Sendable {
         let bytes = Int(out.frameLength) * 2
         let written = write(fd, out.int16ChannelData![0], bytes)
         if written < 0 {
-            if errno == EPIPE { exit(0) }  // Jarvis closed its end: nobody is listening
-            dropped += 1  // EAGAIN: Jarvis is reading late; this piece is dropped
+            if errno == EPIPE { exit(0) }  // Eden Secretary closed its end: nobody is listening
+            dropped += 1  // EAGAIN: Eden Secretary is reading late; this piece is dropped
         }
         if !told {
             told = true

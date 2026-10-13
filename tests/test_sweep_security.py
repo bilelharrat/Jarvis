@@ -52,7 +52,7 @@ async def read_by_the_session(runner, routine, run, tool_name):
 async def test_a_routine_that_read_the_inbox_asks_before_a_page_can_carry_it_off(made):
     """A standing "may read web pages" is for reading the web, not for sending what the run
     read to any address: once the run has read the owner's mail, a page on a site the
-    routine doesn't name asks first, as JARVIS's own turn gate does."""
+    routine doesn't name asks first, as Jarvis's own turn gate does."""
     _hub, feature, cards = made
     routine = web_routine()
     run = jobs.Run(at="now", cause="test")
@@ -145,7 +145,7 @@ async def test_a_script_widget_after_a_read_asks_first(settings, quiet_speaker, 
 
 @pytest.fixture
 async def gated(settings, quiet_speaker, isolated):
-    """JARVIS's own permission policy as Claude Code calls it, on a hub whose cards are
+    """Jarvis's own permission policy as Claude Code calls it, on a hub whose cards are
     all answered no (and recorded)."""
     from test_hub import make_hub
 

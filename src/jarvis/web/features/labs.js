@@ -44,7 +44,7 @@
       row.append(text, sw);
       group.append(row);
     }
-    note = el('small', 'jcs-note', t('Restart Jarvis to apply.'));
+    note = el('small', 'jcs-note', t('Restart Eden Secretary to apply.'));
     note.hidden = true;
     group.append(note);
     general.append(label, group);

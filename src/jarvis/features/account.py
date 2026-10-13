@@ -5,7 +5,7 @@ and speaking.py use the account when it's there.
 
 Settings it keeps (prefs.features):
 - account_relay: reach this Mac through the account from anywhere (on unless turned off).
-- account_plus_ai: Jarvis Plus answers instead of the Claude sign-in or an API key. Off
+- account_plus_ai: Eden Plus answers instead of the Claude sign-in or an API key. Off
   unless chosen; a linked Mac with no other way in to Claude uses it anyway.
 - account_server: the server this Mac links to, askeden.com or preview.askeden.com (its own
   accounts). Changes only while unlinked; a linked Mac stays with the server its token is for.
@@ -35,7 +35,7 @@ done, error}. Eden's key, this Mac's private key and the passphrase never reach 
 Its loop (the app's, never in tests): the Keychain read once, whether Claude Code is signed
 in to a Claude account (local, no model), the relay kept up while it's wanted, and sync.
 
-Claude cost policy: nothing here calls a model. Jarvis Plus changes who pays for the
+Claude cost policy: nothing here calls a model. Eden Plus changes who pays for the
 runs JARVIS already makes, not how many there are.
 """
 
@@ -83,11 +83,11 @@ COMMANDS = (
 SIGNIN_SECONDS = 30 * 60  # whether Claude Code is signed in, looked at again after this
 
 PLUS_USED_UP = (
-    "Your Jarvis Plus allowance for this month is used up. It starts again with your next "
+    "Your Eden Plus allowance for this month is used up. It starts again with your next "
     "month; until then, sign in to Claude or add an Anthropic API key in Settings to carry on."
 )
 TRIAL_USED_UP = (
-    "Your Jarvis Plus trial is used up. Subscribe to Jarvis Plus in the J.A.R.V.I.S. app on "
+    "Your Eden Plus trial is used up. Subscribe to Eden Plus in the Jarvis app on "
     "your iPhone, or sign in to Claude or add an Anthropic API key in Settings."
 )
 PLUS_SIGNED_OUT = (
@@ -132,7 +132,7 @@ class AccountDesk:
         self.trust = EdenTrust(self.account)
         self.trust.on_change.append(self.emit_esync)
         self.account.on_change.append(self._changed)
-        self._plus = False  # whether runs went through Jarvis Plus, as last seen
+        self._plus = False  # whether runs went through Eden Plus, as last seen
         self._was_linked = False
 
     # ── what's wanted ──
@@ -157,13 +157,13 @@ class AccountDesk:
         return claude_signin.plus_of(self.hub) is not None
 
     def _plus_moved(self) -> None:
-        """Runs go through Jarvis Plus now and didn't before, or the other way round: the
+        """Runs go through Eden Plus now and didn't before, or the other way round: the
         conversation's Claude Code starts again, signed in the new way (the conversation
         kept); Eden Code's next sessions follow by themselves."""
         now = self.plus_in_use()
         if now != self._plus:
             self._plus = now
-            log.info("account: Jarvis Plus %s", "in use" if now else "not in use")
+            log.info("account: Eden Plus %s", "in use" if now else "not in use")
             claude_signin.forget(claude_signin.PLUS_CACHE)
             reload = getattr(self.hub, "_tools_changed", None)
             if callable(reload) and getattr(self.hub, "poll", False):
@@ -221,7 +221,7 @@ class AccountDesk:
     # ── words ──
 
     def error_words(self, kind: str) -> str:
-        """In place of Claude Code's words for an error, while Jarvis Plus answers: the
+        """In place of Claude Code's words for an error, while Eden Plus answers: the
         allowance used up, or the account not taking the token ("" for anything else)."""
         if not self.plus_in_use():
             return ""

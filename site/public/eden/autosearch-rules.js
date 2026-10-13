@@ -38,6 +38,45 @@ const CHANGED = any([
   'qué\\s+pasó\\s+con', 'que\\s+pasó\\s+con', 'que\\s+s’?est-il\\s+passé', 'was\\s+ist\\s+(?:mit|bei)\\s+[\\p{L}]+\\s+passiert',
 ]);
 
+// Products and models that change every year: "New MacBooks", "the new iPhone", "upcoming GPUs", "newest Pixel". A short
+// message that opens with new/newest/upcoming, or a new + product pair anywhere, is a request for what's out now.
+const NEWNESS = word("(?:the\\s+)?(?:new(?:est)?|upcoming|just\\s+(?:released|announced|launched)|next[\\s-]gen(?:eration)?)\\b");
+const GADGET = any(['macbooks?', 'mac\\s+(?:mini|studio|pro)', 'imacs?', 'iphones?', 'ipads?', 'apple\\s+watch', 'airpods', 'vision\\s+pro', 'galaxy(?:\\s+[a-z]\\d+)?', 'pixel(?:\\s+\\d+)?', 'playstation|ps\\d', 'xbox', 'switch\\s*\\d?', 'rtx|radeon|geforce|gpus?|cpus?|chips?|processors?', 'laptops?', 'phones?|smartphones?', 'tablets?', 'tvs?', 'cars?|evs?', 'models?', 'versions?', 'releases?', 'lineup', 'games?|movies?|shows?|episodes?|albums?|songs?', 'iOS|macOS|android|windows|chatgpt|claude|gemini|gpt[\\w.-]*']);
+
+// Facts about named people, works and teams ("What episodes did Tom Selleck narrate of 30 for 30", "Did Eisenhower ...",
+// "Who directed Heat"): a model answers these from fuzzy memory and will deny a true premise, so they go to the web.
+// A fact question that names something: a full name or title (two capitalised words), or a capitalised name after
+// did/was/has/who/what... The first word of a sentence doesn't count.
+const FACT_OPEN = /^\s*(?:what|which|who|whom|whose|when|where|how\s+(?:many|much|old|tall|long|far)|did|does|do|was|were|is|are|has|have|had|can\s+you\s+(?:name|list|tell\s+me))\b/i;
+const NAMED_TWO = /(?<![.!?]\s)(?<!^)\b[A-Z][\p{L}'’.-]{1,}(?:\s+(?:of|the|de|van|von|for|and|&)\s+|\s+)[A-Z0-9][\p{L}0-9'’.-]*/u;
+const NAMED_ONE = /\b(?:[Dd]id|[Dd]oes|[Ww]as|[Ww]ere|[Hh]as|[Hh]ad|about|of|by|with|from|starring|directed|wrote|written|played|plays|narrated|sang|composed|invented|founded|created|produced|starred\s+in|stars\s+in|born|died)\s+(?:the\s+)?[A-Z][\p{L}'’.-]{2,}/u;
+
+// Getting somewhere: trains, buses, flights, ferries, timetables, "be in Palo Alto by noon". Live schedules a model can't
+// know (2026-10-13: Eden made up a Caltrain departure window instead of looking at the timetable).
+const TRIP = any([
+  'trains?', 'caltrain', 'bart', 'amtrak', 'subway', 'metro', 'tube', 'tram', 'light\\s+rail', 'muni', 'buse?s?', 'shuttle', 'ferry', 'ferries', 'flights?',
+  'timetable', 'schedules?', 'departures?', 'arrivals?', 'next\\s+(?:train|bus|ferry|flight|departure)', 'last\\s+(?:train|bus|ferry)',
+  'traffic', 'commute', 'directions?\\s+to', 'how\\s+(?:do|can|should)\\s+i\\s+get\\s+to', 'get\\s+(?:me\\s+)?to\\s+[\\p{L} ]{2,30}\\s+by',
+]);
+const TRIP_ASK = any([
+  'find', 'which', 'what\\s+time', 'when', 'next', 'should\\s+i', 'can\\s+i', 'need\\s+to\\s+(?:be|get)', 'by\\s+(?:noon|midnight|\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)?)', 'leave', 'catch', 'take', 'how\\s+long', 'running', 'delayed?', 'on\\s+time',
+]);
+
+// Anything else that changes by the minute or the hour (2026-10-13, owner: "make sure this never happens again in any
+// similar scenario"): traffic and ETAs, everyday weather questions, events, wait times, outages, local prices, tracking.
+const LIVE = any([
+  // traffic, roads, ETA
+  'traffic', 'my\\s+eta', 'eta\\s+(?:to|for|if|from|at)', 'how\\s+long\\s+(?:will\\s+it|does\\s+it|would\\s+it|to)\\s+(?:take\\s+(?:me\\s+)?)?(?:to\\s+)?(?:drive|get|walk|bike|ride)', 'drive\\s+time', 'travel\\s+time', 'commute\\s+time',
+  'road\\s+(?:closures?|closed|conditions?)', 'accidents?\\s+on', 'is\\s+(?:the\\s+)?(?:\\d{1,3}|i-?\\d{1,3}|highway\\s+\\d{1,3}|bridge|freeway|highway)\\s+(?:closed|backed\\s+up|jammed|busy|open)', 'fastest\\s+(?:way|route)', 'best\\s+route', 'when\\s+should\\s+i\\s+leave',
+  // weather in everyday words
+  'umbrella', 'jacket', 'coat\\s+today', 'rain(?:ing)?\\s+(?:today|tonight|tomorrow|later|this)', 'will\\s+it\\s+be\\s+(?:hot|cold|sunny|windy|nice)', 'temperature\\s+(?:today|now|outside|in)', 'how\\s+(?:hot|cold|warm)\\s+is\\s+it',
+  'air\\s+quality', 'aqi', 'smoke\\s+(?:today|in)', 'uv\\s+index', 'pollen', 'sunrise', 'sunset', 'tides?', 'surf\\s+(?:report|conditions?)', 'snow\\s+report', 'heat\\s+wave', 'storm\\s+(?:warning|watch|coming)', 'hurricane', 'wildfire', 'earthquake',
+  // what's on, waits, outages, local prices, tracking
+  "what(?:'s|’s|\\s+is)\\s+(?:happening|going\\s+on|on)\\s+(?:tonight|today|this\\s+weekend|near)", 'events?\\s+(?:tonight|today|this\\s+weekend|near)', 'concerts?\\s+(?:tonight|this)', 'tickets?\\s+(?:for|to)',
+  'wait\\s+times?', 'how\\s+busy\\s+is', 'is\\s+[\\p{L}\\p{N}\\s\\-]{2,30}\\s+(?:down|crowded|busy)', 'outages?', 'power\\s+out',
+  'gas\\s+prices?', 'price\\s+of\\s+gas', 'cheapest\\s+gas', 'flight\\s+(?:status|delayed|on\\s+time)', '(?:track|tracking)\\s+(?:my\\s+)?(?:package|order|shipment)', 'where\\s+is\\s+my\\s+(?:package|order|flight)',
+]);
+
 // Asks to make or change text: "the latest version of my essay" is not news.
 const MAKES = /^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|pls\s+)?(?:write|draft|compose|rewrite|rephrase|translate|proofread|edit|fix|refactor|debug|summari[sz]e|paraphrase|generate|create|make|code|implement|explain\s+how|redacta|escribe|traduce|écris|écrire|traduis|schreib|übersetze)\b/i;
 
@@ -52,6 +91,13 @@ export function needsCurrentInfo(text) {
   if (MAKES.test(t)) return false;
   if (WEATHER.test(t) || SPORTS.test(t) || MARKET.test(t) || NEAR.test(t) || OPEN.test(t) || RELEASE.test(t) || CHANGED.test(t)) return true;
   if (YEAR.test(t) && /\?/.test(t)) return true;
+  if (FACT_OPEN.test(t) && t.length <= 200 && (NAMED_TWO.test(t.replace(/^\s*\S+\s*/, '')) || NAMED_ONE.test(t)) && !/^\s*(?:what|how)\s+(?:is|are|does|do)\s+(?:the\s+)?(?:difference|meaning|definition|syntax)\b/i.test(t)) return true;
+  // "Where is Rains", "what's Rains Hall", "who is Kai Trump": a short question about something named. A model can't know
+  // every dorm, shop or person, and guessing (or searching the person's own chats) is worse than looking it up.
+  if (t.length <= 120 && /^\s*(?:[Ww]here|[Ww]hat|[Ww]ho|[Ww]hich)(?:'s|’s|\s+(?:is|are|was|were))\s+(?:the\s+|a\s+|an\s+)?[A-Z][\p{L}\p{N}'’.&-]*/u.test(t)) return true;
+  if (TRIP.test(t) && TRIP_ASK.test(t) && t.length <= 400) return true;
+  if (LIVE.test(t) && t.length <= 400) return true;
+  if (NEWNESS.test(t) && GADGET.test(t) && (t.length <= 90 || /\?/.test(t))) return true;
   const timed = TIME.test(t) || TODAY.test(t);
   // "today" or "latest" alone also appears in ordinary requests; with a question it is a request for fresh facts.
   return timed && (/\?\s*$/.test(t) || /^(?:what|who|when|where|which|how\s+(?:much|many)|is|are|did|does|do|has|have|any|tell\s+me|give\s+me|show\s+me|qué|quién|cuándo|dónde|qui|quand|où|quel|was|wer|wann|wo)\b/i.test(t) || /\b(?:news|headlines?|noticias|actualités|nachrichten)\b/i.test(t));

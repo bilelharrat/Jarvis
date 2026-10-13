@@ -1,4 +1,4 @@
-// The Ask Eden window's page (features/eden-window.js) gets one thing from Electron: Jarvis's
+// The Ask Eden window's page (features/eden-window.js) gets one thing from Electron: Eden Secretary's
 // built-in browser, docked in Eden's browser panel (askeden web/chat/browser-pane.js). Only
 // its own 'feature:eden:browser:…' channels, which the window checks come from Eden's page.
 const { contextBridge, ipcRenderer } = require('electron');

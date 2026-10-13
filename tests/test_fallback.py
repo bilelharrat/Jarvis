@@ -1,5 +1,5 @@
-"""When Claude can't answer (its usage limit, an outage), JARVIS and Eden Code carry on
-with the fallback model (Gemini through JARVIS's relay), every tool included."""
+"""When Claude can't answer (its usage limit, an outage), Jarvis and Eden Code carry on
+with the fallback model (Gemini through Jarvis's relay), every tool included."""
 
 import asyncio
 import itertools
@@ -409,7 +409,7 @@ async def test_with_automatic_the_fallback_is_there_without_picking_one(
     assert hub._fallback_ref() == gemini  # ... until it's removed: Automatic again
 
 
-# ── JARVIS's own conversation ──
+# ── Jarvis's own conversation ──
 
 
 class ToolThenLimit(FakeClient):
@@ -729,8 +729,8 @@ async def test_a_sign_in_that_stays_gone_is_asked_again_only_once(
 async def test_with_no_way_to_sign_in_jarvis_says_where_to_sign_in(
     settings, quiet_speaker, isolated
 ):
-    """No Claude account, API key or Jarvis Plus, and no fallback: in place of Claude Code's
-    ask for a /login nobody can type here, JARVIS says where to sign in (in the user's
+    """No Claude account, API key or Eden Plus, and no fallback: in place of Claude Code's
+    ask for a /login nobody can type here, Jarvis says where to sign in (in the user's
     language), and no heads-up sends them off to add a Gemini key instead."""
     from jarvis.hub import NOT_SIGNED_IN
 

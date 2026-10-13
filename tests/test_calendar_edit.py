@@ -1,4 +1,4 @@
-"""JARVIS changes calendar events: the one event asked for, only after a yes on a card that
+"""Jarvis changes calendar events: the one event asked for, only after a yes on a card that
 shows each change as old → new, in the language the user speaks."""
 
 from dataclasses import replace

@@ -1,4 +1,4 @@
-// Meetings (ROADMAP H5): Jarvis's meeting notes (meetings_list → meeting_read) and their action
+// Meetings (ROADMAP H5): Eden Secretary's meeting notes (meetings_list → meeting_read) and their action
 // items, picked out by a cheap routed model (POST /api/chat/meetings/actions, held to a strict
 // schema on the server). Each item turns into something only through its own approval: "Add to
 // calendar" opens the calendar's own editor and review card, "Draft email" a compose window

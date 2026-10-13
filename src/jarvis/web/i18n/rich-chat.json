@@ -10,7 +10,10 @@
     "Save": "保存",
     "Cancel": "取消",
     "Thanks. Noted.": "谢谢，已记下。",
-    "Got it. Jarvis won’t do that again.": "明白了，Jarvis 不会再这样做。",
+    "Got it. Eden Secretary won’t do that again.": "明白了，Eden Secretary 不会再这样做。",
+    "Got it. Jarvis won’t do that again.": "明白了，Eden Secretary 不会再这样做。",
+    "Got it. JARVIS won’t do that again.": "明白了，Eden Secretary 不会再这样做。",
+    "Got it. J.A.R.V.I.S. won’t do that again.": "明白了，Eden Secretary 不会再这样做。",
     "Noted, but not kept: this conversation is incognito.": "已记下，但不会保存：这是无痕对话。"
   },
   "patterns": []

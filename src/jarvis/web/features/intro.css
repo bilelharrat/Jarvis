@@ -71,7 +71,7 @@ body[data-look="orb"] .intro-pop {
 .intro-body { width: 100%; max-width: 480px; margin-top: 22px; display: flex; flex-direction: column; gap: 12px; text-align: left; }
 .intro-center { text-align: center; }
 
-/* the orb: Jarvis's own, small, breathing; it swells with the hub's level as it hears */
+/* the orb: Eden Secretary's own, small, breathing; it swells with the hub's level as it hears */
 .intro-orb { position: relative; width: 112px; aspect-ratio: 1; border-radius: 50%; border: 0; padding: 0; background: transparent; }
 button.intro-orb { cursor: pointer; }
 .intro-orb-core {

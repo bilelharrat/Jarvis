@@ -1,4 +1,4 @@
-// JARVIS's own conversation (the conversation feature, jarvis.features.conversation):
+// Eden Secretary's own conversation (the conversation feature, jarvis.features.conversation):
 // Settings › Conversation; the note under the reply when a conversation carries on (after a
 // restart, or one reopened); and Conversations (a dock app): this conversation (how full its
 // context is, what it has cost, Compact now), and the past ones, searched, read back and
@@ -92,7 +92,7 @@
     group.id = 'convo-group';
     group.append(el('h3', '', 'Conversation'));
     group.append(switchRow('sw-convo-resume', 'Carry on after a restart',
-      'When Jarvis starts again, pick up the conversation where it was. New conversation still starts afresh.',
+      'When Eden Secretary starts again, pick up the conversation where it was. New conversation still starts afresh.',
       () => send({ type: 'feature_prefs', changes: { conversation_resume: !featurePref('conversation_resume', true) } })));
     group.append(thinkingRow());
     const actions = el('div', 'row-actions');
@@ -109,7 +109,7 @@
     return group;
   }
 
-  // How much Jarvis thinks before an everyday answer (a request can still ask to think hard).
+  // How much Eden Secretary thinks before an everyday answer (a request can still ask to think hard).
   function thinkingRow() {
     const row = el('label', 'row');
     row.htmlFor = 'convo-thinking';

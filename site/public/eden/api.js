@@ -201,8 +201,8 @@ export async function streamSSE(path, body, { signal, onEvent, headTimeout = 0, 
 }
 
 /**
- * Jarvis's first call from Eden waits for the owner's "Let Eden use Jarvis?" card on the Mac.
- * While any Jarvis call has run 3 s, the status is polled; when the server says the call is
+ * Eden Secretary's first call from Eden waits for the owner's "Let Eden use Eden Secretary?" card on the Mac.
+ * While any Eden Secretary call has run 3 s, the status is polled; when the server says the call is
  * waiting on that card, `eden:jarvis-approval` fires on window with { waiting: true }, and with
  * { waiting: false } once nothing is waiting. jarvisApprovalWaiting() reads the current state.
  */
@@ -235,7 +235,7 @@ async function watchApproval(p) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * POST /api/chat/jarvis with a client deadline (25 s; longer only while the Mac shows its "Let
- * Eden use Jarvis?" card, up to 130 s). `x-eden-wait: 20` asks askeden.com to answer within 20 s:
+ * Eden use Eden Secretary?" card, up to 130 s). `x-eden-wait: 20` asks askeden.com to answer within 20 s:
  * when the card is up it says so at once (202 { approval: 'waiting' }) instead of holding the
  * request, and the call looks at the status until the card is answered, then asks again. A server
  * that doesn't know the header holds the request as before; the status poll above still says so.
@@ -276,7 +276,7 @@ async function jarvisCall(tool, args) {
       if (!res.ok) throw await errorFrom(res);
       out = await res.json();
     } catch (e) {
-      if (d.timedOut()) { keepForRetry(); throw lateError(approvalWaiting ? 'Eden is still waiting for you to approve it on your Mac (“Let Eden use Jarvis?”). Approve it there, then try again.' : MAC_LATE); }
+      if (d.timedOut()) { keepForRetry(); throw lateError(approvalWaiting ? 'Eden is still waiting for you to approve it on your Mac (“Let Eden use Eden Secretary?”). Approve it there, then try again.' : MAC_LATE); }
       if (e instanceof ApiError && e.status === 409 && e.code === 'request_id_reused' && !reminted) { reminted = true; id = newRequestId(); again = true; }
       else if (e instanceof ApiError && e.status === 504 && e.code === 'mac_timeout') { keepForRetry(); throw lateError(MAC_LATE); }
       else if (e instanceof ApiError && e.status === 504 && e.code === 'approval_pending') { keepForRetry(); e.approvalPending = true; throw e; } // it runs once approved: not asked again
@@ -290,7 +290,7 @@ async function jarvisCall(tool, args) {
     try {
       setApproval(true);
       for (let n = 0; ; n++) {
-        if (Date.now() - started > DEADLINE.approval) { keepForRetry(); throw lateError('Eden is still waiting for you to approve it on your Mac (“Let Eden use Jarvis?”). Approve it there, then try again.'); }
+        if (Date.now() - started > DEADLINE.approval) { keepForRetry(); throw lateError('Eden is still waiting for you to approve it on your Mac (“Let Eden use Eden Secretary?”). Approve it there, then try again.'); }
         await sleep(approvalGap(n));
         if (document.hidden) continue;
         const s = await statusOnce().catch(() => null);

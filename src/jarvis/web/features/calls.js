@@ -1,4 +1,4 @@
-// A call Jarvis placed for the owner, live in the window (the backend is jarvis.features.calls):
+// A call Eden Secretary placed for the owner, live in the window (the backend is jarvis.features.calls):
 // the transcript as it goes, the question it's waiting on (answered here, on its card, on the
 // phone or out loud), "Tell it…" (words that join the next turn), Take over (the owner's own
 // phone is put through) and Hang up. What the other side says is their words: text only, marked

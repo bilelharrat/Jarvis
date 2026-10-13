@@ -1,4 +1,4 @@
-"""Realtime conversation in JARVIS (features/realtime.py and the hub's hooks): the wake word
+"""Realtime conversation in Jarvis (features/realtime.py and the hub's hooks): the wake word
 starting one, ask_jarvis running the usual turn, the owner-voice check, the fallbacks and
 the daily cap. A fake local realtime server, fake audio and a fake player: no microphone,
 no audio played, no network, no model."""
@@ -267,7 +267,7 @@ async def test_settings_and_status(settings, quiet_speaker, isolated):
     assert state["on"] is True and state["minutes"] == 45 and state["provider"] == "auto"
     assert state["why"] == feature_module.WHY_NO_KEY
     assert state["keys"] == {"openai": False, "gemini": False}
-    assert state["voice"] == "jarvis"  # JARVIS's own voice unless the owner picks the model's
+    assert state["voice"] == "jarvis"  # Jarvis's own voice unless the owner picks the model's
     await hub.handle({"type": "realtime_settings", "changes": {"realtime_voice": "model"}})
     assert [e for e in drain(q) if e["type"] == "realtime"][-1]["voice"] == "model"
 

@@ -1,5 +1,5 @@
 // jarvis-hear: Apple's on-device speech recognition (SpeechAnalyzer + SpeechTranscriber,
-// macOS 26+) for Jarvis's hands-free listening. It never opens the microphone: Jarvis
+// macOS 26+) for Eden Secretary's hands-free listening. It never opens the microphone: Eden Secretary
 // hands it the utterances it already hears.
 //
 //   jarvis-hear status <en|zh>    one JSON line: {"available", "locale", "installed"}
@@ -341,7 +341,7 @@ func listen(_ code: String) async -> Int32 {
                     .withUnsafeBytes { $0.load(as: UInt32.self) }
                 let total = 5 + Int(UInt32(littleEndian: size))
                 guard "ABFC".utf8.contains(kind), total <= 16_000_000 else {
-                    emit(["t": "error", "why": "out of step with Jarvis"])
+                    emit(["t": "error", "why": "out of step with Eden Secretary"])
                     break reading
                 }
                 if pending.count < total { break }

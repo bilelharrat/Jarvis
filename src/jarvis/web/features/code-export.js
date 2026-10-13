@@ -80,7 +80,7 @@
     if (result && result.error) parts.push(el('p', 'cx-result bad', result.error));
     if (result && result.ok) {
       const done = el('div', 'cx-result');
-      done.append(el('span', '', 'Saved in Documents › Jarvis › Eden Code:'), mine(el('code', '', result.name)));
+      done.append(el('span', '', 'Saved in Documents › Eden Secretary › Eden Code:'), mine(el('code', '', result.name)));
       const reveal = el('button', 'jc-mini', 'Show in Finder');
       reveal.type = 'button';
       reveal.addEventListener('click', () => F.send({ type: 'cw_export_reveal', path: result.path }));

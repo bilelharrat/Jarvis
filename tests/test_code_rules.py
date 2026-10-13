@@ -213,7 +213,7 @@ def test_a_long_command_is_looked_through_in_linear_time(tmp_path):
     assert min(large for _small, large in pairs) < 5.0, pairs
 
 
-# ── JARVIS's own rules, and Claude Code's settings files ──
+# ── Jarvis's own rules, and Claude Code's settings files ──
 
 
 def test_the_rule_book_keeps_one_behavior_per_rule(tmp_path):

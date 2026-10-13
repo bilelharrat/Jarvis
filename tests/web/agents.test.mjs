@@ -1,6 +1,6 @@
 // The agents, loop notices and videos in the window (web/features/agents.js, loops.js,
 // video_gen.js): every sentence they show has its Chinese in their i18n fragment or the
-// window's own i18n-zh.json (names of apps and of Jarvis itself stay as they are), and the
+// window's own i18n-zh.json (names of apps and of Eden Secretary itself stay as they are), and the
 // fragments are well formed. node --test tests/web/
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const WEB = process.env.JARVIS_WEB_DIR || fileURLToPath(new URL('../../src/jarvis/web/', import.meta.url));
 const core = JSON.parse(readFileSync(`${WEB}/i18n-zh.json`, 'utf8'));
-const NAMES = new Set(['Jarvis', 'Telegram', 'Slack', 'Discord', 'WhatsApp', 'Escape', 'Enter']);
+const NAMES = new Set(['Jarvis', 'Eden Secretary', 'Telegram', 'Slack', 'Discord', 'WhatsApp', 'Escape', 'Enter']);
 
 function check(feature) {
   const source = readFileSync(`${WEB}/features/${feature}.js`, 'utf8');

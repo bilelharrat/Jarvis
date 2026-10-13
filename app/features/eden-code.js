@@ -1,10 +1,10 @@
-// Eden Code, the coding app split out of J.A.R.V.I.S. (flavor.js), opened from Jarvis: the
+// Eden Code, the coding app split out of Eden Secretary (flavor.js), opened from Eden Secretary: the
 // Code button in the dock ('feature:eden-code:open') opens it as an app of its own, which
-// shares this app's backend (backend-share.js), so its sessions are the ones Jarvis knows.
+// shares this app's backend (backend-share.js), so its sessions are the ones Eden Secretary knows.
 //
 // Which Eden Code: the installed Eden Code.app (beside this app, in /Applications or
-// ~/Applications: the J.A.R.V.I.S. disk image carries both), else this app's own code run as
-// Eden Code (--eden-code: the same files, Eden's name, window and icon), so Jarvis always has it.
+// ~/Applications: the Eden Secretary disk image carries both), else this app's own code run as
+// Eden Code (--eden-code: the same files, Eden's name, window and icon), so Eden Secretary always has it.
 // Only the window may ask (ctx.fromWindow).
 'use strict';
 

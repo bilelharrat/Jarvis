@@ -1,5 +1,5 @@
-// One backend for J.A.R.V.I.S. and Eden Code. The backend holds the data folder's lock
-// (server.serve), so two can't run on one Mac, and Eden Code's sessions are J.A.R.V.I.S.'s.
+// One backend for Eden Secretary and Eden Code. The backend holds the data folder's lock
+// (server.serve), so two can't run on one Mac, and Eden Code's sessions are Eden Secretary's.
 // Whichever app starts first starts it and says where it is in backend.json, in the data
 // folder: its port, its token and its pid, readable by this user only. The other app finds it
 // there, checks it's alive and answering, and opens its window on it.

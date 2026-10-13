@@ -76,7 +76,7 @@ struct MacFeatureView: View {
         GlassList {
             switch feature {
             case .memory:
-                addRow(prompt: "Something for Jarvis to remember") { text in
+                addRow(prompt: "Something for Eden Secretary to remember") { text in
                     await act("api/memory/add", ["text": .string(text)], id: "add", done: "Remembered on your Mac.")
                 }
                 section("Remembered", items(value["items"])) { item in

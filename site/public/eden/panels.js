@@ -1,6 +1,6 @@
-// Jarvis spaces through POST /api/chat/jarvis: Second Brain (search_notes → read_note →
+// Eden Secretary spaces through POST /api/chat/jarvis: Second Brain (search_notes → read_note →
 // "Use in chat"), Memory (its own page now: memory.js), Calendar (calendar.js), Routines
-// (heads-up via notify_me), plus the inspector's Memory tab (recall, with a way into the page). Everything Jarvis returns is data: shown as text only.
+// (heads-up via notify_me), plus the inspector's Memory tab (recall, with a way into the page). Everything Eden Secretary returns is data: shown as text only.
 
 import { $, el, ico, toast, debounce, isTouch } from './util.js';
 import { state, ui } from './state.js';
@@ -8,7 +8,7 @@ import { api } from './api.js';
 import { mailPanel, focusMail } from './mail.js';
 
 let H = {};
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's Eden Secretary:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 
 export function parseNotes(text) {
@@ -242,14 +242,14 @@ export async function openMemoryPage(opts = {}) {
   try { (await import('./memory.js')).openMemory(opts); } catch (e) { toast(e.message); }
 }
 
-// The Mac is showing "Let Eden use Jarvis?" (api.js): say so in the open panel, where the person is
+// The Mac is showing "Let Eden use Eden Secretary?" (api.js): say so in the open panel, where the person is
 // looking (on a phone the sidebar's status line is out of sight), until it's answered (A1, C2).
 addEventListener('eden:jarvis-approval', (e) => {
   const w = !!(e.detail && e.detail.waiting);
   const body = document.getElementById('spBody');
   const had = document.getElementById('spApproval');
   if (!w || !body || !spaceOpen()) { if (had) had.remove(); return; }
-  if (!had) body.prepend(el('div', { class: 'sp-warn', id: 'spApproval', role: 'status' }, el('b', '', 'Approve Eden on your Mac'), 'Your Mac is asking “Let Eden use Jarvis?”. Choose Allow there and this continues by itself.'));
+  if (!had) body.prepend(el('div', { class: 'sp-warn', id: 'spApproval', role: 'status' }, el('b', '', 'Approve Eden on your Mac'), 'Your Mac is asking “Let Eden use Eden Secretary?”. Choose Allow there and this continues by itself.'));
 });
 
 export function initPanels(handlers) {

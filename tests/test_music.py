@@ -168,7 +168,7 @@ def tools(settings, quiet_speaker, isolated, monkeypatch, mac):
 def test_what_other_devices_are_called_counts_as_data(tools):
     """Speakers are named by whoever set each one up (on a shared network, anyone), and
     set_speakers answers with those names ("Playing on …", "Available: …"): like
-    list_speakers, its answer is the owner's data to the turn gate, not JARVIS's own words."""
+    list_speakers, its answer is the owner's data to the turn gate, not Jarvis's own words."""
     from jarvis import hub as hub_module
 
     quiet = hub_module.EXTRA_QUIET_RESULTS

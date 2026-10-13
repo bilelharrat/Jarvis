@@ -189,7 +189,7 @@ final class TranscriptTests: XCTestCase {
         let request = PendingRequest(question: "Compare these", history: [])
         var lines = Transcript.lines(state: RemoteState(), pending: request, pictures: ["Compare these": thumbs])
         XCTAssertEqual(lines[0].pictures, thumbs)
-        XCTAssertEqual(lines[1].pictures, [])  // not Jarvis's answer
+        XCTAssertEqual(lines[1].pictures, [])  // not Eden Secretary's answer
 
         var state = RemoteState()
         state.history = [

@@ -58,7 +58,7 @@ def test_chunking_splits_long_text():
 
 
 def test_collect_folder_reads_text_and_skips_hidden(tmp_path):
-    (tmp_path / "ideas.md").write_text("# Big idea\nBuild JARVIS.")
+    (tmp_path / "ideas.md").write_text("# Big idea\nBuild Jarvis.")
     (tmp_path / ".secret.md").write_text("nope")
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "node_modules" / "x.md").write_text("nope")

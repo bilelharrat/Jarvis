@@ -19,7 +19,7 @@ import { DEFAULT_CLASSIFIER_MODEL } from './vendor/model-router.js';
 export const VIA_MAC_LABEL = 'via your Mac (Claude Max)';
 export const VIA_MAC_OFFLINE = 'Your Mac is offline. Eden on askeden.com answers through your Mac until askeden.com has AI provider keys set up.';
 export const VIA_MAC_NEEDS_MAC =
-  'No Mac is linked to your account. Eden on askeden.com answers through your Mac until askeden.com has AI provider keys set up: in J.A.R.V.I.S. on your Mac, open Settings › Account and link it.';
+  'No Mac is linked to your account. Eden on askeden.com answers through your Mac until askeden.com has AI provider keys set up: in Eden Secretary on your Mac, open Settings › Account and link it.';
 export const VIA_MAC_OWNER_ONLY =
   'Eden here answers through its owner’s Mac, on their own Claude subscription, which serves only them. Delegates and team spaces need an Anthropic API key on askeden.com.';
 export const VIA_MAC_COMPARE = 'Compare needs an Anthropic API key on askeden.com. Until one is added, Eden here answers through your Mac, one model at a time.';
@@ -169,7 +169,7 @@ function cleanMacMeta(body) {
 
 /**
  * GET /api/chat/meta through the Mac: the Mac's providers and models (so the model menu is the
- * Mac's), Jarvis, Code and privacy mode's local models as it has them; offline or for anyone but
+ * Mac's), Eden Secretary, Code and privacy mode's local models as it has them; offline or for anyone but
  * the owner, nothing to pick and why.
  */
 export async function viaMacMeta(m, request, env, ctx, who) {

@@ -1,4 +1,4 @@
-"""The security review (jarvis.features.ops.audit): what JARVIS may do on its own, found
+"""The security review (jarvis.features.ops.audit): what Jarvis may do on its own, found
 on a real hub, and tightens that only ever narrow it."""
 
 import os

@@ -2,9 +2,9 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-/// "Point and ask", Show Jarvis's live view (Settings › Sensors › Camera, off until turned
+/// "Point and ask", Show Eden Secretary's live view (Settings › Sensors › Camera, off until turned
 /// on): the camera shows on this screen only, and each question takes one still frame and
-/// sends it as Show Jarvis sends a photo. Never a video stream; the camera stops when the
+/// sends it as Show Eden Secretary sends a photo. Never a video stream; the camera stops when the
 /// view closes or the app leaves the screen.
 struct LiveCameraView: View {
     @Environment(AppModel.self) private var model
@@ -75,7 +75,7 @@ struct LiveCameraView: View {
             .padding(.vertical, 6)
             .glassCard(cornerRadius: 14)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("One frame goes to Jarvis only when you ask")
+            .accessibilityLabel("One frame goes to Eden Secretary only when you ask")
         }
         .padding(.top, Space.xs)
     }
@@ -85,7 +85,7 @@ struct LiveCameraView: View {
             Image(systemName: "camera.fill")
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(.white.opacity(0.8))
-            Text(LiveCamera.available ? "The camera is off for J.A.R.V.I.S." : "This device has no camera.")
+            Text(LiveCamera.available ? "The camera is off for Eden Secretary." : "This device has no camera.")
                 .font(.title3.weight(.medium))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
@@ -126,7 +126,7 @@ struct LiveCameraView: View {
             .padding(Space.m)
             .glassCard(cornerRadius: 18)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Jarvis: \(reply)")
+            .accessibilityLabel("Eden Secretary: \(reply)")
         case .note(let text):
             Label(text, systemImage: "clock")
                 .font(.subheadline)
@@ -182,7 +182,7 @@ struct LiveCameraView: View {
                 }
                 .buttonStyle(CircleGlassButtonStyle(tint: Palette.cyan))
                 .disabled(phase == .sending || question.trimmed.isEmpty)
-                .accessibilityLabel("Ask Jarvis")
+                .accessibilityLabel("Ask Eden Secretary")
             }
         }
     }

@@ -1,5 +1,5 @@
 // French for the sign-in page (public/signin/index.html, signin.js). See site-i18n.js.
-// The J.A.R.V.I.S. app's own labels (Settings › Account, Approve a Sign-In) stay as the app shows them.
+// The Eden Secretary app's own labels (Settings › Account, Approve a Sign-In) stay as the app shows them.
 SiteI18n.add({
   title: 'Se connecter à Eden',
   exact: {
@@ -72,28 +72,28 @@ SiteI18n.add({
 SiteI18n.add({
   exact: {
     "Approve a Mac from your iPhone.": "Approuvez un Mac depuis votre iPhone.",
-    "Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.": "Approuvez-le dans l’app J.A.R.V.I.S. sur votre iPhone ou votre Mac.",
+    "Approve it in the Eden Secretary app on your iPhone or Mac.": "Approuvez-le dans l’app Eden Secretary sur votre iPhone ou votre Mac.",
     "Eden is opening soon — sign-ups are closed for now. If you already have an Eden account, sign in with the way you used before.": "Eden ouvre bientôt — les inscriptions sont fermées pour l’instant. Si vous avez déjà un compte Eden, connectez-vous comme la dernière fois.",
     "Eden on the web isn't open to this account yet.": "Eden sur le web n’est pas encore ouvert à ce compte.",
     "Finish the check on the sign-in page (it confirms you’re a person), then try again.": "Terminez la vérification sur la page de connexion (elle confirme que vous êtes une personne), puis réessayez.",
     "Finish the check on the sign-in page, then continue.": "Terminez la vérification sur la page de connexion, puis continuez.",
-    "Jarvis accounts are not set up here yet.": "Les comptes Jarvis ne sont pas encore configurés ici.",
+    "Eden Secretary accounts are not set up here yet.": "Les comptes Eden Secretary ne sont pas encore configurés ici.",
     "Linking sign-ins is not set up here yet.": "La liaison des connexions n’est pas encore configurée ici.",
     "No such thing here.": "Introuvable ici.",
-    "Notifications through Jarvis accounts are not set up yet.": "Les notifications via les comptes Jarvis ne sont pas encore configurées.",
+    "Notifications through Eden Secretary accounts are not set up yet.": "Les notifications via les comptes Eden Secretary ne sont pas encore configurées.",
     "Only askeden.com’s own page may do that.": "Seule la page d’askeden.com peut faire cela.",
     "Only messages are available here.": "Seuls les messages sont disponibles ici.",
     "Only the Eden app may do that.": "Seule l’app Eden peut faire cela.",
-    "Only the J.A.R.V.I.S. app answers from a notification.": "Seule l’app J.A.R.V.I.S. répond depuis une notification.",
+    "Only the Eden Secretary app answers from a notification.": "Seule l’app Eden Secretary répond depuis une notification.",
     "Only the account’s owner can add a passkey.": "Seul le titulaire du compte peut ajouter une clé d’accès.",
     "Passkeys aren’t set up here yet.": "Les clés d’accès ne sont pas encore configurées ici.",
     "Sign in to Eden in this browser first, then add another way in.": "Connectez-vous d’abord à Eden dans ce navigateur, puis ajoutez un autre moyen de connexion.",
-    "Sign in to your Jarvis account on this device.": "Connectez-vous à votre compte Jarvis sur cet appareil.",
+    "Sign in to your Eden Secretary account on this device.": "Connectez-vous à votre compte Eden Secretary sur cet appareil.",
     "Something went wrong on the server. Try again.": "Un problème est survenu sur le serveur. Réessayez.",
     "Something went wrong.": "Un problème est survenu.",
     "That app isn’t connected any more.": "Cette app n’est plus connectée.",
-    "That code is for a browser’s sign-in, not a Mac. Approve it in the J.A.R.V.I.S. app.": "Ce code sert à connecter un navigateur, pas un Mac. Approuvez-le dans l’app J.A.R.V.I.S.",
-    "That isn’t a code from J.A.R.V.I.S. on your Mac. It has eight letters and numbers, like K7QM-4ZTR.": "Ce n’est pas un code de J.A.R.V.I.S. sur votre Mac. Il comporte huit lettres et chiffres, comme K7QM-4ZTR.",
+    "That code is for a browser’s sign-in, not a Mac. Approve it in the Eden Secretary app.": "Ce code sert à connecter un navigateur, pas un Mac. Approuvez-le dans l’app Eden Secretary.",
+    "That isn’t a code from Eden Secretary on your Mac. It has eight letters and numbers, like K7QM-4ZTR.": "Ce n’est pas un code d’Eden Secretary sur votre Mac. Il comporte huit lettres et chiffres, comme K7QM-4ZTR.",
     "That isn’t a valid key.": "Ce n’est pas une clé valide.",
     "That passkey answer can’t be read.": "La réponse de la clé d’accès est illisible.",
     "That passkey answer has no id.": "La réponse de la clé d’accès n’a pas d’identifiant.",

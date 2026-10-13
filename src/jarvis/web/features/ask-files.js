@@ -73,7 +73,7 @@
   }
 
   function notify(text) {
-    if (typeof root.notice === 'function') root.notice('Jarvis', '', t(text), 5000);
+    if (typeof root.notice === 'function') root.notice('Eden Secretary', '', t(text), 5000);
   }
 
   function mount() {

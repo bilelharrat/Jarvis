@@ -10,6 +10,7 @@ import { parseEmailDraft } from './md-plain.js';
 import { ratedBadge } from './router.js';
 import { whereBadge } from './privacy.js';
 import { isSpeaking } from './voice.js';
+import { IN_APP } from './native.js';
 import { compareView, openGroupOf, reopenButton, setLaneRenderer, strongerButton } from './compare.js';
 import { approvalCard, isTainted, sourceStrip } from './guard.js';
 import { macCard } from './files.js';
@@ -23,7 +24,7 @@ import { t as tx, locale } from './i18n.js';
 import { spentWords, stepsView } from './research-model.js'; // Q2: research's progress steps
 import { deckPart } from './deck-card.js'; // Q14: slide decks
 
-export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), editing: null };
+export const ui_open = { thinks: new Set(), tools: new Set(), expanded: new Set(), meta: new Set(), editing: null };
 // an answer drawn as one lane of a side-by-side comparison (compare.js): no pager, no "Try again"
 setLaneRenderer((c, node) => assistantMessage(c, node, false, { lane: true }));
 
@@ -45,6 +46,13 @@ function pager(c, node, label) {
 }
 
 function userMessage(c, node, last) {
+  // a lookup Eden made mid-answer (tools-ui.js runReads) goes back to the model as a turn of its own; it's not something
+  // the person typed, so it shows as one quiet line, like ChatGPT's "Searched …", not as their bubble
+  if (node.toolResult) {
+    const what = (node.context || []).map((x) => x.title)[0] || '';
+    const label = /chat/i.test(what) ? 'Searched your chats' : /calendar/i.test(what) ? 'Checked your calendar' : /mail/i.test(what) ? 'Checked your mail' : 'Looked something up';
+    return el('div', { class: 'msg tool-step', 'data-id': node.id }, el('span', 'tool-step-line', ico('search', 13), tx(label)));
+  }
   const wrap = el('div', { class: `msg user${last ? ' last' : ''}`, 'data-id': node.id });
   if (ui_open.editing === node.id) {
     const ta = el('textarea', { 'aria-label': 'Edit your message', 'data-edit': '1' });
@@ -66,13 +74,20 @@ function userMessage(c, node, last) {
   if (long) bubble.append(el('button', { type: 'button', class: 'more', 'data-act': 'expand-user', 'aria-expanded': String(open) },
     tx(open ? 'Show less' : `Show all · ${lines > 1 ? `${lines} lines, ` : ''}${text.length.toLocaleString(locale())} characters`)));
   const data = attachmentData.get(node.id) || [];
+  // images sit above the bubble as pictures (no file name, no size), like ChatGPT; other files stay chips inside it
+  const pics = [];
   for (const a of node.attachments || []) {
     const live = data.find((d) => d.name === a.name && d.kind === a.kind);
-    const thumb = a.kind === 'image' && live && live.url ? el('img', { class: 'thumb', src: live.url, alt: '' }) : a.kind === 'video' && a.thumb ? el('img', { class: 'thumb', src: a.thumb, alt: '' }) : el('span', 'thumb');
-    bubble.append(el('span', 'attach', thumb, `${a.name}${a.kind === 'video' && a.seconds ? ` · ${clock(a.seconds)}` : ''}${a.size ? ` · ${sizeText(a.size)}` : ''}${a.kind === 'image' && !live ? tx(' · image not kept after reload') : ''}`));
+    if (a.kind === 'image') {
+      pics.push(live && live.url ? el('img', { class: 'u-img', src: live.url, alt: '' }) : el('span', { class: 'u-img gone', title: tx('Image not kept after reload') }));
+      continue;
+    }
+    const thumb = a.kind === 'video' && a.thumb ? el('img', { class: 'thumb', src: a.thumb, alt: '' }) : el('span', 'thumb');
+    bubble.append(el('span', 'attach', thumb, `${a.name}${a.kind === 'video' && a.seconds ? ` · ${clock(a.seconds)}` : ''}${a.size ? ` · ${sizeText(a.size)}` : ''}`));
   }
+  if (pics.length) wrap.append(el('div', { class: `u-imgs${pics.length > 1 ? ' multi' : ''}` }, ...pics));
   for (const ctx of node.context || []) bubble.append(el('span', 'ctxchip', `⧉ ${ctx.title}`));
-  wrap.append(bubble);
+  if (text || bubble.querySelector('.attach, .ctxchip') || !pics.length) wrap.append(bubble); // a picture alone has no empty bubble
   wrap.append(el('div', 'msg-acts',
     pager(c, node, 'Branch'),
     el('button', { type: 'button', class: 'iconbtn', 'data-act': 'copy-msg', title: 'Copy', 'aria-label': 'Copy message' }, ico('copy')),
@@ -94,11 +109,14 @@ function routeChip(node) {
 }
 
 function assistantMessage(c, node, last, { lane = false } = {}) {
-  const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}${node.streaming ? ' streaming' : ''}`, 'data-id': node.id });
+  // which model answered, where, why and any fallback: shown only after a tap on the reply (owner, 2026-10-12)
+  const showMeta = lane || ui_open.meta.has(node.id);
+  const wrap = el('div', { class: `msg assistant${last ? ' last' : ''}${node.streaming ? ' streaming' : ''}${showMeta ? '' : ' meta-hidden'}`, 'data-id': node.id });
   if (node.route) {
     const head = el('div', 'msg-head');
     head.append(el('div', 'chip-wrap', routeChip(node), whereBadge(node.route)));
     if (node.route.rationale && !lane) head.append(el('div', 'rationale', node.route.rationale));
+    for (const f of node.fallbacks || []) head.append(el('div', 'rationale', f));
     wrap.append(head);
   } else if (node.imported && node.importedModel) { // Q1: the model that wrote an imported reply, from the export
     wrap.append(el('div', 'msg-head', el('div', 'chip-wrap', el('span', { class: 'chip imp-model', title: 'Imported: the model named in the export' }, node.importedModel))));
@@ -199,7 +217,7 @@ function assistantMessage(c, node, last, { lane = false } = {}) {
       lane ? null : strongerButton(c, node),
       lane ? null : reopenButton(c, node),
       lane ? null : feedbackButtons(c, node), // H2: 👍 / 👎 teach the router (learned.js)
-      nodeText(node).trim() ? el('button', { type: 'button', class: `iconbtn${isSpeaking(node.id) ? ' on' : ''}`, 'data-act': 'speak', 'aria-pressed': String(isSpeaking(node.id)), title: isSpeaking(node.id) ? 'Stop reading' : 'Read aloud', 'aria-label': 'Read aloud' }, ico('speaker')) : null,
+      nodeText(node).trim() && !IN_APP ? el('button', { type: 'button', class: `iconbtn${isSpeaking(node.id) ? ' on' : ''}`, 'data-act': 'speak', 'aria-pressed': String(isSpeaking(node.id)), title: isSpeaking(node.id) ? 'Stop reading' : 'Read aloud', 'aria-label': 'Read aloud' }, ico('speaker')) : null,
       c.kind === 'code' || lane ? null : el('button', { type: 'button', class: 'iconbtn', 'data-act': 'regen', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Try again', 'aria-label': 'Try again' }, ico('retry')),
       node.route ? el('button', { type: 'button', class: 'iconbtn', 'data-act': 'inspect', title: 'Route console', 'aria-label': 'Open in Route console' }, ico('sliders')) : null));
   }

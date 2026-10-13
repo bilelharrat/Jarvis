@@ -1,5 +1,5 @@
 """The browser agent (jarvis.browser_agent and the purchase guard's act path): snapshots
-with refs, acting by ref, waiting; what JARVIS and Eden Code sessions ask before a risky
+with refs, acting by ref, waiting; what Jarvis and Eden Code sessions ask before a risky
 press; and the purchase guard on exactly the elements a ref names. The window is a fake
 that answers the way app/browser-agent.js does."""
 

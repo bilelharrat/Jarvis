@@ -1,4 +1,4 @@
-// JARVIS's own conversation in the window (web/features/conversation*.js): every sentence
+// Eden Secretary's own conversation in the window (web/features/conversation*.js): every sentence
 // it shows has its Chinese in web/i18n/conversation.json or the window's own i18n-zh.json,
 // and the dynamic ones are covered by patterns. node --test tests/web/
 import assert from 'node:assert/strict';

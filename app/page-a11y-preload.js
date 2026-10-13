@@ -1,8 +1,8 @@
-// Pages made usable with a screen reader, in J.A.R.V.I.S.'s built-in browser (app/features/
+// Pages made usable with a screen reader, in Eden Secretary's built-in browser (app/features/
 // page-a11y.js registers it for the browser's tabs; it runs in each tab's main frame, in the
 // same isolated world as page-preload.js, so the page's own scripts can't see or reach it).
 //
-// While screen-reader mode is on (J.A.R.V.I.S. Daredevil; Settings › Accessibility can turn
+// While screen-reader mode is on (Eden Daredevil; Settings › Accessibility can turn
 // these fixes off), each page is mended as it loads and as it changes:
 // - labels: a button, link or form field with no name gets one from the best source there is
 //   (a title inside it, the words beside a field, its placeholder, its icon's own words or
@@ -454,7 +454,7 @@ body[${MARK}-scroll="fixed"] { position: static !important; }`;
       if (!guess) continue;
       set(el, 'aria-label', guess.name);
       set(el, `${MARK}-label`, `guessed:${guess.from}`);
-      if (!el.hasAttribute('aria-description') && !el.hasAttribute('aria-describedby')) set(el, 'aria-description', 'Label guessed by Jarvis');
+      if (!el.hasAttribute('aria-description') && !el.hasAttribute('aria-describedby')) set(el, 'aria-description', 'Label guessed by Eden Secretary');
       counts.labels += 1;
     }
   }

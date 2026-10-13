@@ -1,5 +1,5 @@
 // Eden's web relay (docs/accounts.md, "Eden web relay"): hosted Eden at askeden.com reaching
-// Eden on the owner's Mac, for what only the Mac has (Jarvis, Code mode, its projects).
+// Eden on the owner's Mac, for what only the Mac has (Eden Secretary, Code mode, its projects).
 //
 // The Mac (a `mac` device) holds one WebSocket, GET /api/relay/web, tagged `web` and
 // `web:<device id>` in the account's Durable Object. Hosted Eden (src/eden/chat.js) never
@@ -27,18 +27,18 @@ export const WEB_RELAY = {
   body: 10 * 1024 * 1024, // a request's body (Code mode's images included)
   response: 64 * 1024 * 1024, // a response's body, in all
   streams: 16, // requests in flight per account
-  probeStreams: 4, // more, for the short Jarvis status checks only (askMacBy's probe never finds the limit reached)
+  probeStreams: 4, // more, for the short Eden Secretary status checks only (askMacBy's probe never finds the limit reached)
   window: 256 * 1024, // response bytes the Mac may send ahead of acks
-  headMs: 130_000, // for the Mac to answer: Jarvis may be waiting on its "Let Eden use Jarvis?" card (120 s)
+  headMs: 130_000, // for the Mac to answer: Eden Secretary may be waiting on its "Let Eden use Eden Secretary?" card (120 s)
   idleMs: 10 * 60_000, // between two pieces of an answer (a Code turn's events)
   // The page's own deadline, `x-eden-wait: <seconds>` (askMacBy): clamped to these, in seconds of `second` ms
-  // (tests shorten `second`); then `probeMs` at most to ask the Mac whether Jarvis waits on its card.
+  // (tests shorten `second`); then `probeMs` at most to ask the Mac whether Eden Secretary waits on its card.
   clientWaitMin: 5,
   clientWaitMax: 60,
   second: 1000,
   probeMs: 3000,
-  // A Jarvis call with the page's `x-eden-request-id` (R2C-4): its answer is kept this long, in this object's
-  // memory only, for the page's retry after a 202; and at most this big (Jarvis answers are small JSON).
+  // A Eden Secretary call with the page's `x-eden-request-id` (R2C-4): its answer is kept this long, in this object's
+  // memory only, for the page's retry after a 202; and at most this big (Eden Secretary answers are small JSON).
   replayMs: 120_000,
   replayMax: 2 * 1024 * 1024,
   replays: 64, // kept answers per account, at most
@@ -46,9 +46,9 @@ export const WEB_RELAY = {
 
 // The one route whose request may get a 202 { approval: "waiting" } (askMacBy) and carries a request id.
 export const JARVIS_CALL = '/api/chat/jarvis';
-// The page's id for one Jarvis call, the same on every retry of it (R2C-4): a UUID fits.
+// The page's id for one Eden Secretary call, the same on every retry of it (R2C-4): a UUID fits.
 export const REQUEST_ID = /^[A-Za-z0-9_-]{16,64}$/;
-// Jarvis tools that only read (askeden src/chat/jarvis.ts): a 202 is safe for them without a request id,
+// Eden Secretary tools that only read (askeden src/chat/jarvis.ts): a 202 is safe for them without a request id,
 // as running one twice changes nothing. Any other tool needs the id for a 202 (askMacBy).
 export const JARVIS_READS = new Set([
   'search_notes', 'read_note', 'recall', 'calendar', 'mail_accounts', 'mail_search', 'mail_read', 'memory_list',
@@ -71,7 +71,7 @@ export const MAC_ROUTES = new Set([
   'GET /api/chat/code/changes',
   'POST /api/chat/brief', // the morning brief and meeting prep: reads only (Eden's src/chat/brief.ts)
   // Meetings' action items, the Activity timeline and its Undo (Eden's src/chat/eden-actions.ts);
-  // the Mac lets only Jarvis's own actions be undone from here, each on the owner's card.
+  // the Mac lets only Eden Secretary's own actions be undone from here, each on the owner's card.
   'POST /api/chat/meetings/actions',
   'GET /api/chat/actions',
   'POST /api/chat/actions/undo',
@@ -89,7 +89,7 @@ export const MAC_ROUTES = new Set([
 ]);
 
 export const MAC_OFFLINE =
-  'Your Mac is offline. Jarvis and Code mode run on your Mac: open J.A.R.V.I.S. there (with Eden running) and try again.';
+  'Your Mac is offline. Eden Secretary and Code mode run on your Mac: open Eden Secretary there (with Eden running) and try again.';
 
 const ID = /^[0-9a-f]{16}$/;
 const ID_BYTES = 16;
@@ -131,8 +131,8 @@ const relayError = (status, code, message) => json({ error: message, code }, sta
 // ── in the Account object ──
 
 const streamsOf = (account) => (account.webStreams ??= new Map());
-// R2C-4: browsers waiting on another stream's Jarvis call (same page request id), by their own stream id;
-// finished Jarvis calls' answers by "<browser device> <request id>"; ids the browser stopped before they arrived.
+// R2C-4: browsers waiting on another stream's Eden Secretary call (same page request id), by their own stream id;
+// finished Eden Secretary calls' answers by "<browser device> <request id>"; ids the browser stopped before they arrived.
 const waitersOf = (account) => (account.webWaiters ??= new Map());
 const replaysOf = (account) => (account.webReplays ??= new Map());
 const earlyOf = (account) => (account.webEarly ??= new Map());
@@ -225,7 +225,7 @@ async function forward(account, device, request) {
   if (body.byteLength > WEB_RELAY.body) throw new ApiError(413, 'too_big', 'That request is too big for your Mac’s link.');
   const wait = Math.min(WEB_RELAY.headMs, Number(request.headers.get('x-eden-wait')) || WEB_RELAY.headMs);
 
-  // R2C-4: the same Jarvis call asked again (the page's retry after a 202): its kept answer, or a wait on the
+  // R2C-4: the same Eden Secretary call asked again (the page's retry after a 202): its kept answer, or a wait on the
   // call still running. The Mac isn't asked twice. The same id with another body is the page's mistake.
   const key = rid ? `${device.id} ${rid}` : null;
   // The replay cache keeps the body's SHA-256, not the body (R3C-11): 64 answers of 10 MB would be too much.
@@ -235,12 +235,12 @@ async function forward(account, device, request) {
     prune(replays, Date.now(), WEB_RELAY.replays);
     const done = replays.get(key);
     if (done) {
-      if (done.ask !== ask) throw new ApiError(409, 'request_id_reused', 'That request id was used for another Jarvis call.');
+      if (done.ask !== ask) throw new ApiError(409, 'request_id_reused', 'That request id was used for another Eden Secretary call.');
       return keptAnswer(done);
     }
     const live = [...streams.values()].find((x) => x.key === key);
     if (live) {
-      if (live.ask !== ask) throw new ApiError(409, 'request_id_reused', 'That request id was used for another Jarvis call.');
+      if (live.ask !== ask) throw new ApiError(409, 'request_id_reused', 'That request id was used for another Eden Secretary call.');
       return attach(account, live, id, device.id, wait);
     }
   }
@@ -250,7 +250,7 @@ async function forward(account, device, request) {
     const { macs } = await online(account);
     throw macs ? new ApiError(503, 'mac_offline', MAC_OFFLINE) : new ApiError(503, 'needs_mac', 'No Mac is linked to this account.');
   }
-  // The short Jarvis status checks (askMacBy's probe) have room of their own, so a busy account still gets
+  // The short Eden Secretary status checks (askMacBy's probe) have room of their own, so a busy account still gets
   // its "waiting on the card" answer (R2C-14b); everything else shares WEB_RELAY.streams.
   const probe = method === 'GET' && target === '/api/chat/jarvis/status';
   const busy = [...streams.values()].filter((x) => !x.probe).length;
@@ -289,12 +289,12 @@ async function forward(account, device, request) {
   return head;
 }
 
-/** A kept Jarvis answer, as the Mac gave it (R2C-4); `x-eden-replayed: 1` says it wasn't asked again. */
+/** A kept Eden Secretary answer, as the Mac gave it (R2C-4); `x-eden-replayed: 1` says it wasn't asked again. */
 function keptAnswer(done) {
   return new Response(done.bytes, { status: done.status, headers: { ...done.headers, 'x-eden-replayed': '1' } });
 }
 
-/** A browser waits on a Jarvis call already running for the same request id (R2C-4), `wait` ms at most. */
+/** A browser waits on a Eden Secretary call already running for the same request id (R2C-4), `wait` ms at most. */
 function attach(account, s, id, from, wait) {
   return new Promise((resolve) => {
     const w = { id, from, s, resolve, timer: null };
@@ -314,7 +314,7 @@ function dropWaiter(account, w) {
 }
 
 /**
- * The browser that asked a Jarvis call got its 202 and let go, but the call goes on (R2C-4): the Mac
+ * The browser that asked a Eden Secretary call got its 202 and let go, but the call goes on (R2C-4): the Mac
  * isn't told to stop, the call may wait on its card as long as the relay allows (WEB_RELAY.headMs from
  * now), and its answer is kept for the page's retry.
  */
@@ -353,7 +353,7 @@ function finish(account, s, error = null) {
     return;
   }
   if (s.buffered) {
-    // A Jarvis call with a request id (R2C-4): its whole answer, to its browser (if still there), to any
+    // A Eden Secretary call with a request id (R2C-4): its whole answer, to its browser (if still there), to any
     // waiting on it, and kept for a retry. Only the Mac's own complete answer is kept, never a relay error.
     s.phase = 'done';
     const b = s.buffered;
@@ -437,7 +437,7 @@ function startBody(account, s, m) {
   if (/^text\/event-stream\b/i.test(headers['content-type'])) headers['x-accel-buffering'] = 'no';
   s.phase = 'body';
   if (s.key) {
-    // A Jarvis call with a request id: gathered whole here (finish), so it can be kept for a retry.
+    // A Eden Secretary call with a request id: gathered whole here (finish), so it can be kept for a retry.
     s.buffered = { status, headers, chunks: [], size: 0 };
     arm(account, s, WEB_RELAY.idleMs);
     return;
@@ -664,11 +664,11 @@ export const APPROVAL_WAITING = { approval: 'waiting' };
 export const macTooSlow = (seconds) =>
   `Your Mac didn’t answer within ${Math.round(seconds)} seconds. Check that it’s awake and that Eden is running on it, then try again.`;
 export const APPROVAL_PENDING =
-  'Eden is waiting for you to approve this on your Mac (“Let Eden use Jarvis?”). Once you approve it there, it runs; you don’t need to ask again.';
+  'Eden is waiting for you to approve this on your Mac (“Let Eden use Eden Secretary?”). Once you approve it there, it runs; you don’t need to ask again.';
 const KEEP_ON_MAC = Symbol('keep on the Mac');
 
 /**
- * The page's `x-eden-request-id` on a Jarvis call (POST /api/chat/jarvis): one id per call, the same on
+ * The page's `x-eden-request-id` on a Eden Secretary call (POST /api/chat/jarvis): one id per call, the same on
  * every retry of it (R2C-4). null without it or on any other route; a malformed one is a 400.
  */
 export function requestIdOf(request, target) {
@@ -679,7 +679,7 @@ export function requestIdOf(request, target) {
   return raw;
 }
 
-/** The tool a Jarvis call's body names, when it's one that only reads (JARVIS_READS). */
+/** The tool a Eden Secretary call's body names, when it's one that only reads (JARVIS_READS). */
 function readsOnly(bytes) {
   try {
     const { tool } = JSON.parse(new TextDecoder().decode(bytes));
@@ -689,7 +689,7 @@ function readsOnly(bytes) {
   }
 }
 
-/** Whether Jarvis on the Mac is waiting on its "Let Eden use Jarvis?" card (its status says so); false when it can't tell. */
+/** Whether Eden Secretary on the Mac is waiting on its "Let Eden use Eden Secretary?" card (its status says so); false when it can't tell. */
 export async function approvalWaiting(request, env, ctx, who) {
   try {
     const asking = new Request(request.url, { method: 'GET', headers: { accept: 'application/json' } });
@@ -704,8 +704,8 @@ export async function approvalWaiting(request, env, ctx, who) {
 /**
  * askMac, with the page's own deadline when it sends `x-eden-wait` (clientWait). When the Mac hasn't
  * answered by then:
- *  - a Jarvis call (POST /api/chat/jarvis, the only route that may get a 202, R2C-5) while Jarvis waits
- *    on the owner's "Let Eden use Jarvis?" card on the Mac: 202 { approval: "waiting" }. The page polls
+ *  - a Eden Secretary call (POST /api/chat/jarvis, the only route that may get a 202, R2C-5) while Eden Secretary waits
+ *    on the owner's "Let Eden use Eden Secretary?" card on the Mac: 202 { approval: "waiting" }. The page polls
  *    GET /api/chat/jarvis/status and, once it's approved, asks again with the same `x-eden-request-id`.
  *    With that id the call isn't cancelled: it goes on on the Mac and its answer is kept for the retry
  *    (forward/detach, R2C-4). Without an id, only a tool that only reads gets the 202 (it's cancelled

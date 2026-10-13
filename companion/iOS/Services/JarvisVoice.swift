@@ -1,10 +1,10 @@
 import AVFoundation
 import Foundation
 
-/// The JARVIS voice, wherever the iPhone is: the Mac's own (`/api/say`, the voice set up
-/// there) while it can be reached, else askeden.com's hosted JARVIS voice (the same Fish
+/// The Eden Secretary voice, wherever the iPhone is: the Mac's own (`/api/say`, the voice set up
+/// there) while it can be reached, else askeden.com's hosted Eden Secretary voice (the same Fish
 /// voice the Mac app uses without a key of its own, within a daily allowance per install, or
-/// per Jarvis account when the owner is signed in).
+/// per Eden Secretary account when the owner is signed in).
 /// nil means neither could speak it; the caller uses the iPhone's own voice.
 enum JarvisVoice {
     static let hostedURL = URL(string: "https://askeden.com/api/voice")!
@@ -21,7 +21,7 @@ enum JarvisVoice {
         return id
     }
 
-    /// The reply as WAV clips in the JARVIS voice, in order.
+    /// The reply as WAV clips in the Eden Secretary voice, in order.
     static func clips(for text: String, mac: JarvisAPI?) async -> [Data]? {
         let words = Speakable.clean(text)
         guard !words.isEmpty else { return nil }

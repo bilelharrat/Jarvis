@@ -16,8 +16,8 @@ final class SpeechController {
 
         var errorDescription: String? {
             switch self {
-            case .speechDenied: "Speech Recognition is off for J.A.R.V.I.S. You can turn it on in Settings, or type instead."
-            case .microphoneDenied: "The microphone is off for J.A.R.V.I.S. You can turn it on in Settings, or type instead."
+            case .speechDenied: "Speech Recognition is off for Eden Secretary. You can turn it on in Settings, or type instead."
+            case .microphoneDenied: "The microphone is off for Eden Secretary. You can turn it on in Settings, or type instead."
             case .unavailable: "Speech recognition isn’t available right now. Type your request instead."
             case .noMicrophone: "No microphone is available right now."
             }

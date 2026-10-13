@@ -7,7 +7,7 @@
 // mode, attachments and inline images (cid:), signatures, reply/reply all/forward with the
 // quoted thread and threading headers, autosaved drafts (drafts.update), schedule send (held
 // by Eden's server), and a final review before anything goes. Mail on your Mac (through
-// Jarvis) can't take HTML, Bcc, attachments or a schedule: the window says so up front.
+// Eden Secretary) can't take HTML, Bcc, attachments or a schedule: the window says so up front.
 
 import { $, el, toast, uid, sizeText, store, isMobile, svgEl } from './util.js';
 import { stripMd, sigStore } from './compose-entry.js'; // (kept there: mail.js and the signatures' sync work without loading this file)
@@ -46,7 +46,7 @@ const MODE_TITLE = { new: 'New message', reply: 'Reply', replyAll: 'Reply all', 
 
 /* ================= small helpers ================= */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's Eden Secretary:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 function parseJSONText(text) {
   const t = strip(text);

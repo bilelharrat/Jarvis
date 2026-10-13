@@ -1,5 +1,5 @@
 // After a change is undone in the Changes pane (features/code_lessons.py): one optional
-// line, "Why? Jarvis will remember", kept as a lesson in Jarvis memory for this project (or
+// line, "Why? Eden Secretary will remember", kept as a lesson in Eden Secretary memory for this project (or
 // every project, when it says "always", "from now on" or "every project"). Dismissed, nothing is kept.
 (function (root) {
   'use strict';
@@ -13,7 +13,7 @@
   F.on('code_lesson_ask', (ev) => {
     close();
     box = F.el('form', 'cl-ask');
-    const label = F.el('label', 'cl-label', t('Why undo it? Jarvis will remember for next time.'));
+    const label = F.el('label', 'cl-label', t('Why undo it? Eden Secretary will remember for next time.'));
     const input = F.el('input', 'cl-input');
     input.type = 'text';
     input.maxLength = 240;

@@ -1,4 +1,4 @@
-// Jarvis Chat — the page's wiring: layout (source list, conversation, inspector), the
+// Eden Secretary Chat — the page's wiring: layout (source list, conversation, inspector), the
 // transcript, conversations, palette, settings, dialogs, shortcuts and Esc order.
 
 import './i18n.js'; // first of all: the page's language (French loads its strings before any module draws)
@@ -8,7 +8,7 @@ import { $, el, ico, qsa, toast, lazy, whileVisible, copyText, copyRich, downloa
 import { LANGS, langPref, setLang, isFr, locale, t as tx } from './i18n.js';
 import { state, ui, saveSettings, savePersonas, loadConversations, saveConversation, addConversation, deleteConversation, newConversation, path, selectSibling, nodeText, sessionCost, persona, conversationMarkdown } from './state.js';
 import { api, isMock, API_ROOT } from './api.js';
-// The apps page (J.A.R.V.I.S., Eden Messenger) lives on askeden.com; a local Eden links there.
+// The apps page (Eden Secretary, Eden Messenger) lives on askeden.com; a local Eden links there.
 const DOWNLOAD_URL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? 'https://askeden.com/download' : '/download';
 import { initMail, connectGmail, emailText, queueTeamOpen } from './mail.js';
 import { openCompose, initSignatures } from './compose-entry.js'; // compose.js loads with the first email written (efficiency pass 2)
@@ -395,13 +395,14 @@ function renderSidebar() {
     { k: 'mail', t: 'Mail', i: 'mail', run: go(() => openSpace('mail')) },
     { k: 'routines', t: 'Routines', i: 'routine', run: go(() => openSpace('routines')) },
     ...[['meetings', 'Meetings', 'quote'], ['web', 'On a website', 'globe'], ['activity', 'Activity', 'clock']].map(([k, t, i]) => ({ k, t, i, run: go(() => openSpace(k)) })), // H5–H7
-    // Eden for Education (courses.js): askeden.com only
-    ...(state.meta && state.meta.hosted ? [{ k: 'courses', t: 'Courses', i: 'doc', run: go(() => openSpace('courses')) }] : []),
+    // Courses (courses.js) is off the menus; the code and the ?courses=1 link stay.
   ].filter((x) => !as || ((x.k === 'mail' || x.k === 'calendar') && actingHas(x.k))).filter((x) => as || state.jarvis.available || MAC_FREE.has(x.k));
   const approvals = pendingApprovals();
   // The strip under the header: the few places used every day, with a badge when something waits.
   const strip = [
-    ...['mail', 'calendar', 'courses', 'brief'].map((k) => apps.find((x) => x.k === k)).filter(Boolean),
+    ...['mail', 'calendar'].map((k) => apps.find((x) => x.k === k)).filter(Boolean),
+    { k: 'newchat', t: 'New chat', tip: 'New chat (⌘N)', i: 'edit', run: () => newChat() },
+    ...['brief'].map((k) => apps.find((x) => x.k === k)).filter(Boolean),
     ...(as ? [] : [{ k: 'tasks', t: 'Tasks', tip: 'Tasks: watches Eden runs in the background', i: 'list', run: () => openTasks(), badge: approvals }]),
     { k: 'workflows', t: 'Workflows', tip: 'Workflows: saved recipes you run in one tap', i: 'spark', run: () => openWorkflows() },
   ];
@@ -510,17 +511,19 @@ function macNotifyTurn(c, node) {
   const waiting = c.status === 'waiting';
   macNotify(c.title || 'Eden', tx(waiting ? 'Eden is waiting for your approval.' : 'Your reply is ready.'));
 }
-function updateMessage(c, node, { final } = {}) {
+function updateMessage(c, node, { final, keepScroll } = {}) {
   if (final) macNotifyTurn(c, node);
   if (c !== state.current) { if (final) renderSidebar(); return; }
   const old = $('transcript').querySelector(`.msg[data-id="${node.id}"]`);
-  const stick = nearBottom();
+  const stick = nearBottom() && !keepScroll;
+  const keepTop = keepScroll ? scrollcol().scrollTop : 0;
   const nodes = path(c);
   if (!old) { renderTranscript(); return; }
   const focusAct = document.activeElement && old.contains(document.activeElement) ? document.activeElement.dataset.act : null;
   const fresh = msgEl(c, node, nodes.at(-1) === node);
   old.replaceWith(fresh);
-  if (focusAct) { const f = fresh.querySelector(`[data-act="${focusAct}"]`); if (f) f.focus(); }
+  if (focusAct) { const f = fresh.querySelector(`[data-act="${focusAct}"]`); if (f) f.focus({ preventScroll: true }); }
+  if (keepScroll) scrollcol().scrollTop = keepTop;
   if (stick) followReply(fresh);
   if (final) { renderComposer(); renderTitle(); refreshArtifact(); if (c.kind === 'code') renderPlan(); }
   else { renderTitle(); }
@@ -1000,7 +1003,7 @@ async function drawSettings() {
           el('span', 'tt-label', el('span', 'tt-radio'), el('b', '', label), el('span', '', sub))))),
         el('p', 'sp-note', 'Desktop shows Eden full screen, with apps, your PC and chats in one sidebar. It needs a window at least 760 px wide.')),
       el('div', 'set-sec', el('h3', '', 'Language'), langSeg,
-        el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')), ...[bootSoundSettings()].filter(Boolean), voiceSettings(), ...[appSettingsCard()].filter(Boolean));
+        el('p', 'sp-note', 'Menus, buttons and Eden’s replies follow this. Automatic uses your browser’s language.')), ...[bootSoundSettings()].filter(Boolean), ...[voiceSettings()].filter(Boolean), ...[appSettingsCard()].filter(Boolean));
     setSeg(langSeg, Math.max(0, LANGS.findIndex(([v]) => v === langPref)));
   } else if (setTabI === 4) {
     drawMemory(body, hosted);
@@ -1053,10 +1056,10 @@ async function drawSettings() {
     el('div', 'set-sec about',
       el('div', 'icard about-card',
         el('p', '', 'Each message is routed by the Model Router (rules, rated by Gemini) and streamed from the model it picks, with your second brain, memory and calendar through the Eden app on your Mac, and Code sessions for your projects.'),
-        el('p', '', 'Voice: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'),
+        IN_APP ? null : el('p', '', 'Voice: dictate with the mic in the input bar, have replies read aloud in the Eden voice, or talk with the waveform button. The microphone is used only when you press one of them.'), // no voice in the iPhone app for now (voice.js)
         state.meta && state.meta.scope ? el('p', '', state.meta.scope) : null,
         isMock ? el('p', '', el('b', '', 'Mock mode: '), 'every answer on this page is simulated in the browser (?mock=1).') : null),
-      el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Jarvis Code.'),
+      el('p', 'sp-note', 'Eden · design: Kimi K3 (Atelier). Input bar: from Eden Code.'),
       el('div', 'dlg-acts about-acts', helpButton(closeSettings), el('a', { class: 'btn', href: DOWNLOAD_URL }, ico('down', 14), 'Download apps'), el('button', { type: 'button', class: 'btn primary', onclick: () => { closeSettings(); startTour(); } }, 'Take the tour'))),
     ...[appSettingsCard()].filter(Boolean));
   }
@@ -1298,8 +1301,8 @@ function onKey(e) {
   if (closeSpace()) return;
   if (closePane()) return;
   if (ui_open.editing) { ui_open.editing = null; renderTranscript(); return; }
-  // the running turn stops before panes close (as Jarvis Code interrupts first)
-  // Esc stops the running reply (as in Jarvis Code), never with unsent text in the composer
+  // the running turn stops before panes close (as Eden Code interrupts first)
+  // Esc stops the running reply (as in Eden Code), never with unsent text in the composer
   const tag = document.activeElement && document.activeElement.tagName;
   const inField = (tag === 'INPUT' || tag === 'TEXTAREA') && document.activeElement.id !== 'deck-input';
   const draft = document.activeElement && document.activeElement.id === 'deck-input' && $('deck-input').value.trim();
@@ -1543,14 +1546,14 @@ async function init() {
   // Never two looks at once (checkJarvis shares the one in flight, 8 s at most), and none while the page is hidden (B1, C3).
   whileVisible(() => { if (!state.jarvis.available) recheckJarvis().catch(() => {}); }, 8000); // (no timer at all while hidden)
   addEventListener('focus', () => { if (!state.jarvis.available && !document.hidden) recheckJarvis().catch(() => {}); });
-  // A Jarvis call waiting on the owner's "Let Eden use Jarvis?" card (api.js): say so instead of spinning.
+  // A Eden Secretary call waiting on the owner's "Let Eden use Eden Secretary?" card (api.js): say so instead of spinning.
   addEventListener('eden:jarvis-approval', (e) => {
     const w = !!(e.detail && e.detail.waiting);
-    if (w) macNotify('Eden', tx('Eden is asking “Let Eden use Jarvis?” on your Mac.'));
+    if (w) macNotify('Eden', tx('Eden is asking “Let Eden use Eden Secretary?” on your Mac.'));
     // On every device, where the person is looking (a phone's sidebar is closed): A1, C2. The open panel says it too (panels.js).
-    if (w) toast('Approve Eden on your Mac: it’s asking “Let Eden use Jarvis?”');
+    if (w) toast('Approve Eden on your Mac: it’s asking “Let Eden use Eden Secretary?”');
     $('jarvisState').classList.toggle('wait', w);
-    $('jarvisState').title = w ? 'Eden is asking “Let Eden use Jarvis?” on your Mac' : state.jarvis.available ? 'Connected through the Eden app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Eden app on your Mac isn’t reachable');
+    $('jarvisState').title = w ? 'Eden is asking “Let Eden use Eden Secretary?” on your Mac' : state.jarvis.available ? 'Connected through the Eden app on your Mac: second brain, memory, calendar' : (state.jarvis.reason || 'The Eden app on your Mac isn’t reachable');
     $('jarvisStateText').textContent = w ? 'approve Eden on your Mac' : state.jarvis.available ? 'connected' : 'not connected';
   });
   if (isMock) document.title = 'Eden (mock)';
@@ -1671,4 +1674,61 @@ document.addEventListener('scroll', (e) => {
   };
   document.addEventListener('touchend', end, { passive: true });
   document.addEventListener('touchcancel', () => { if (g) { g = null; reset(); syncScrim(); } }, { passive: true });
+})();
+
+// Phone gestures copied from the ChatGPT app: with the keyboard up, a swipe down on the chat or a tap on it closes the
+// keyboard (iOS's own interactive dismiss can't fire: the chat is its own scroller, not the page). And a round ↓ button
+// above the composer while you're scrolled up, back to the latest message (2026-10-12, owner's request).
+(() => {
+  const col = scrollcol();
+  if (!col) return;
+  const typing = () => { const a = document.activeElement; return a && a !== document.body && a.matches?.('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), [contenteditable="true"]'); };
+  let keyboardTapAt = -1e9;
+  const interactive = (el) => el.closest?.('a, button, input, textarea, select, label, summary, [role="button"], [contenteditable="true"], [data-act], .route-chip, .codeblk, pre');
+  if ('ontouchstart' in window) {
+    let t = null; // { x0, y0, t0, done }
+    col.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1 || !typing() || col.contains(document.activeElement)) { t = null; return; } // editing a message in the chat keeps its keyboard
+      t = { x0: e.touches[0].clientX, y0: e.touches[0].clientY, t0: performance.now(), done: false };
+    }, { passive: true });
+    col.addEventListener('touchmove', (e) => {
+      if (!t || t.done) return;
+      const dx = e.touches[0].clientX - t.x0, dy = e.touches[0].clientY - t.y0;
+      if (dy > 30 && dy > Math.abs(dx) * 1.5) { t.done = true; document.activeElement.blur(); } // a swipe down: the keyboard goes
+    }, { passive: true });
+    col.addEventListener('touchend', (e) => {
+      if (!t || t.done) { t = null; return; }
+      const c = e.changedTouches[0], moved = Math.hypot(c.clientX - t.x0, c.clientY - t.y0);
+      if (moved < 10 && performance.now() - t.t0 < 350 && !interactive(e.target)) { document.activeElement.blur(); keyboardTapAt = performance.now(); } // a tap on the chat
+      t = null;
+    }, { passive: true });
+  }
+  // A tap on a reply shows which model answered it (and where, why, any fallback); another tap hides it again.
+  // Not when that tap only closed the keyboard, and not on links, buttons, code or while selecting text.
+  $('transcript').addEventListener('click', (e) => {
+    const b = e.target.closest?.('.msg.assistant > .bubble');
+    if (!b || interactive(e.target) || performance.now() - keyboardTapAt < 600 || String(window.getSelection?.() || '')) return;
+    const m = b.parentElement, id = m.dataset.id;
+    if (!id || !m.querySelector(':scope > .msg-head')) return;
+    const show = !ui_open.meta.has(id);
+    if (show) ui_open.meta.add(id); else ui_open.meta.delete(id);
+    m.classList.toggle('meta-hidden', !show);
+  });
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const ic = document.createElementNS(svgNS, 'svg');
+  ic.setAttribute('viewBox', '0 0 24 24'); ic.setAttribute('aria-hidden', 'true'); ic.classList.add('ic');
+  const p = document.createElementNS(svgNS, 'path'); p.setAttribute('d', 'M12 5v14M6.5 13.5L12 19l5.5-5.5'); ic.append(p);
+  const down = el('button', { type: 'button', class: 'jump-down glass', 'aria-label': 'Scroll to the latest message', title: 'Latest message', tabindex: '-1' }, ic);
+  col.parentElement.append(down);
+  const sync = () => down.classList.toggle('on', col.scrollHeight - col.scrollTop - col.clientHeight > 240);
+  // The keyboard opening or closing changes the chat's height. Like ChatGPT, the bottom stays put: what was just above
+  // the composer stays just above it (scrolled to the end stays at the end), instead of the latest lines sliding out of view.
+  let fromBottom = 0, lastH = col.clientHeight;
+  col.addEventListener('scroll', () => { if (col.clientHeight === lastH) fromBottom = col.scrollHeight - col.scrollTop - col.clientHeight; sync(); }, { passive: true });
+  new ResizeObserver(() => {
+    if (col.clientHeight !== lastH) { lastH = col.clientHeight; col.scrollTop = col.scrollHeight - col.clientHeight - fromBottom; }
+    sync();
+  }).observe(col);
+  new ResizeObserver(sync).observe($('transcript'));
+  down.addEventListener('click', () => col.scrollTo({ top: col.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
 })();

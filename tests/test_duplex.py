@@ -1,4 +1,4 @@
-"""Talk over Jarvis (duplex.py and Hub.on_heard): while hands-free listens, JARVIS's voice and
+"""Talk over Jarvis (duplex.py and Hub.on_heard): while hands-free listens, Jarvis's voice and
 the microphone go through one echo-cancelling helper; the listener hears through it; the
 voice ducks while you talk over it; what you said is handled as if "Jarvis" came first; and
 anything that goes wrong puts the usual player and microphone back. The helper is
@@ -97,7 +97,7 @@ async def test_the_voice_and_the_microphone_go_through_the_helper(speaking_hub, 
     with talk.source(blocks):
         first = await asyncio.to_thread(blocks.get, True, 3)
         assert first.shape == (800,) and first.dtype == np.float32
-        assert hub.talk_over()  # the listener hears through it: JARVIS can be talked over
+        assert hub.talk_over()  # the listener hears through it: Jarvis can be talked over
         await hub.speaker.play(np.zeros(2205, np.float32), 22050)
     assert not hub.talk_over()
     assert any(c.startswith("A ") for c in commands(log)) and any(
@@ -262,7 +262,7 @@ async def test_turned_off_it_hands_the_listener_back_to_the_usual_microphone(spe
     assert talk.state == "off" and listening.reopened == 1
 
 
-# ── what was said over JARVIS (Hub.on_heard) ──
+# ── what was said over Jarvis (Hub.on_heard) ──
 
 
 async def test_said_over_a_reply_it_stops_it_and_asks(settings, quiet_speaker, isolated):

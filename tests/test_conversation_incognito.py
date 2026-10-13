@@ -1,5 +1,5 @@
 """An incognito conversation (jarvis.features.conversation): nothing from it is kept. Claude
-Code writes no record of it (so no past conversation, no recall, no resume); JARVIS
+Code writes no record of it (so no past conversation, no recall, no resume); Jarvis
 remembers and forgets nothing in it, learns nothing from the words said in it, and doesn't
 keep it as the conversation to carry on. Leaving it carries on the conversation from before.
 Claude Code's records are fakes: never the owner's ~/.claude."""

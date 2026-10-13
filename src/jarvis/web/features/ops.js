@@ -1,5 +1,5 @@
 // Health & safety (features/ops): Settings' checkup, security review, backups and
-// diagnostics file, in one sheet; and "Set up Jarvis again…", which opens the first-run
+// diagnostics file, in one sheet; and "Set up Eden Secretary again…", which opens the first-run
 // intro (features/intro.js) any time. Everything the hub sends is rendered as text; what's the
 // owner's own (paths, phone and account names, what the microphone heard, log lines)
 // carries data-no-i18n.
@@ -46,7 +46,7 @@
     'transactions.json': 'Purchase log',
     'delegations.json': 'Conversations for you',
     'answering.json': 'Calls to your number',
-    'hearing.json': 'Words Jarvis learned',
+    'hearing.json': 'Words Eden Secretary learned',
     'interrupt_learning.json': 'Who matters',
     'interrupts.json': 'Texts and email',
     'suggestions.json': 'Suggestions',
@@ -98,12 +98,12 @@
       return b;
     };
     rows.append(
-      row('checkup', 'Checkup', 'ops-line-checkup', 'Is everything Jarvis needs in place?'),
-      row('security', 'Security review', 'ops-line-security', 'What Jarvis may do on its own'),
+      row('checkup', 'Checkup', 'ops-line-checkup', 'Is everything Eden Secretary needs in place?'),
+      row('security', 'Security review', 'ops-line-security', 'What Eden Secretary may do on its own'),
       row('backups', 'Backups', 'ops-line-backups', 'Your settings and data, kept safe'),
       row('diagnostics', 'Diagnostics file', 'ops-line-diagnostics', 'Recent logs to share when you ask for help'),
     );
-    const setup = button('Set up Jarvis again…', 'btn', () => { if (window.jarvisIntro) window.jarvisIntro.open(); });
+    const setup = button('Set up Eden Secretary again…', 'btn', () => { if (window.jarvisIntro) window.jarvisIntro.open(); });
     setup.id = 'ops-setup-open';
     group.append(rows, setup);
     const before = $('open-accounts') && $('open-accounts').closest('section.group');
@@ -292,7 +292,7 @@
     run.id = 'ops-run-checkup';
     const parts = [];
     if (d && d.at) parts.push(el('span', '', 'Checked'), document.createTextNode(' '), data(el('span', '', when(d.at))));
-    else parts.push(el('span', '', busy ? 'Checking Jarvis…' : 'See what’s working and what needs you, with a fix where one is safe.'));
+    else parts.push(el('span', '', busy ? 'Checking Eden Secretary…' : 'See what’s working and what needs you, with a fix where one is safe.'));
     const nodes = [head(parts, run)];
     if (S.toast.checkup) nodes.push(el('p', 'ops-toast', S.toast.checkup));
     if (d && Array.isArray(d.checks)) {
@@ -367,14 +367,14 @@
     const again = button('Review again', 'btn', () => F.send({ type: 'ops_security' }));
     const parts = r && r.at
       ? [el('span', '', 'Reviewed'), document.createTextNode(' '), data(el('span', '', when(r.at)))]
-      : [el('span', '', 'What Jarvis may do on its own, and a way to tighten each.')];
+      : [el('span', '', 'What Eden Secretary may do on its own, and a way to tighten each.')];
     const nodes = [head(parts, again)];
     if (S.toast.security) nodes.push(el('p', 'ops-toast', S.toast.security));
     if (r && Array.isArray(r.findings)) {
       const list = el('ul', 'ops-list');
       r.findings.forEach((f) => list.append(findingItem(f)));
       nodes.push(list);
-      nodes.push(el('p', 'ops-note', 'Tightening only ever narrows what Jarvis may do; nothing here loosens anything.'));
+      nodes.push(el('p', 'ops-note', 'Tightening only ever narrows what Eden Secretary may do; nothing here loosens anything.'));
     }
     panel.replaceChildren(...nodes);
   }
@@ -443,7 +443,7 @@
     const now = button(busy ? 'Backing up…' : 'Back up now', 'btn primary', () => F.send({ type: 'ops_backup' }));
     now.disabled = busy || isBusy('restore');
     now.id = 'ops-backup-now';
-    nodes.push(head('Your settings, memory, routines, goals, rules and other Jarvis data, in one zip with a checksum for every file. Never your passwords and keys (they stay in the Keychain), logs or apps.', now));
+    nodes.push(head('Your settings, memory, routines, goals, rules and other Eden Secretary data, in one zip with a checksum for every file. Never your passwords and keys (they stay in the Keychain), logs or apps.', now));
     if (S.toast.backups) nodes.push(el('p', 'ops-toast', S.toast.backups));
     if (b.pending) nodes.push(pendingBanner(b.pending));
 
@@ -488,9 +488,9 @@
   function pendingBanner(p) {
     const box = el('div', 'ops-banner');
     const text = el('p', '');
-    text.append(el('span', '', 'A restore is ready: the backup from'), document.createTextNode(' '), data(el('span', '', when(p.created) || p.backup)), document.createTextNode(' '), el('span', '', 'goes into place when Jarvis restarts.'));
+    text.append(el('span', '', 'A restore is ready: the backup from'), document.createTextNode(' '), data(el('span', '', when(p.created) || p.backup)), document.createTextNode(' '), el('span', '', 'goes into place when Eden Secretary restarts.'));
     const actions = el('div', 'ops-actions');
-    if (shell()) actions.append(button('Restart Jarvis now', 'btn primary', restartNow));
+    if (shell()) actions.append(button('Restart Eden Secretary now', 'btn primary', restartNow));
     actions.append(button('Cancel the restore', 'btn', () => { S.preview = null; F.send({ type: 'ops_restore_cancel' }); }));
     box.append(text, actions);
     return box;
@@ -561,7 +561,7 @@
       box.append(button('Close', 'btn', () => { S.preview = null; renderBackups(); }));
       return box;
     }
-    box.append(el('p', 'ops-hint', 'First Jarvis makes a safety backup of how things are now. Then it restarts, and the backup goes into place as it starts, before anything reads your data. Anything you change before the restart isn’t kept. After it, the security review shows what the restored settings allow.'));
+    box.append(el('p', 'ops-hint', 'First Eden Secretary makes a safety backup of how things are now. Then it restarts, and the backup goes into place as it starts, before anything reads your data. Anything you change before the restart isn’t kept. After it, the security review shows what the restored settings allow.'));
     const actions = el('div', 'ops-actions');
     actions.append(
       button('Cancel', 'btn', () => { S.preview = null; renderBackups(); }),
@@ -581,8 +581,8 @@
     let result = null;
     try { result = await s.invoke('feature:ops:restart'); } catch (_) { result = null; }
     S.toast.backups = result && result.ok
-      ? 'Jarvis is restarting to finish the restore…'
-      : 'Restart Jarvis to finish: quit it and open it again.';
+      ? 'Eden Secretary is restarting to finish the restore…'
+      : 'Restart Eden Secretary to finish: quit it and open it again.';
     if (sheetOpen() && S.tab === 'backups') renderBackups();
   }
 
@@ -590,7 +590,7 @@
     const s = shell();
     let chosen = null;
     if (s) {
-      try { chosen = await s.invoke('feature:ops:pick-folder', S.backups ? S.backups.folder : '', T('Choose where Jarvis keeps its backups')); } catch (_) { chosen = null; }
+      try { chosen = await s.invoke('feature:ops:pick-folder', S.backups ? S.backups.folder : '', T('Choose where Eden Secretary keeps its backups')); } catch (_) { chosen = null; }
     } else {
       chosen = window.prompt(T('The full path of the folder for backups:'));
     }
@@ -601,7 +601,7 @@
     const s = shell();
     let chosen = null;
     if (s) {
-      try { chosen = await s.invoke('feature:ops:pick-backup', S.backups ? S.backups.folder : '', T('Choose a Jarvis backup to restore')); } catch (_) { chosen = null; }
+      try { chosen = await s.invoke('feature:ops:pick-backup', S.backups ? S.backups.folder : '', T('Choose a Eden Secretary backup to restore')); } catch (_) { chosen = null; }
     } else {
       chosen = window.prompt(T('The full path of the backup (a .zip):'));
     }
@@ -619,7 +619,7 @@
     const panel = $('ops-tab-diagnostics');
     const busy = isBusy('diagnostics');
     const nodes = [];
-    nodes.push(el('p', 'ops-top-line', 'A zip of Jarvis’s recent logs, versions and a fresh checkup, to share when you ask for help. Tokens, keys, passwords, email addresses and phone numbers are masked, and none of your data (memory, messages, files) is in it. Nothing is sent anywhere: you choose who gets it.'));
+    nodes.push(el('p', 'ops-top-line', 'A zip of Eden Secretary’s recent logs, versions and a fresh checkup, to share when you ask for help. Tokens, keys, passwords, email addresses and phone numbers are masked, and none of your data (memory, messages, files) is in it. Nothing is sent anywhere: you choose who gets it.'));
     const row = el('div', 'ops-row-line');
     const label = el('label', 'ops-row-text');
     label.htmlFor = 'ops-diag-size';
@@ -647,7 +647,7 @@
       if (S.diag.ok) {
         const done = el('div', 'ops-banner ok');
         const p = el('p', '');
-        p.append(el('span', '', 'Saved in Documents › Jarvis › Diagnostics:'), document.createTextNode(' '), data(el('strong', '', S.diag.name)));
+        p.append(el('span', '', 'Saved in Documents › Eden Secretary › Diagnostics:'), document.createTextNode(' '), data(el('strong', '', S.diag.name)));
         done.append(p, button('Show in Finder', 'btn', () => F.send({ type: 'ops_reveal', path: S.diag.path })));
         nodes.push(done);
       } else {
@@ -755,9 +755,9 @@
       if (sheetOpen() && S.tab === 'backups') renderBackups();
       return;
     }
-    // Ready: the banner says so (ops_backups follows), and Jarvis restarts to finish.
+    // Ready: the banner says so (ops_backups follows), and Eden Secretary restarts to finish.
     S.preview = null;
-    S.toast.backups = 'Restart Jarvis to finish: quit it and open it again.';
+    S.toast.backups = 'Restart Eden Secretary to finish: quit it and open it again.';
     if (sheetOpen() && S.tab === 'backups') renderBackups();
     if (shell()) restartNow();
   });

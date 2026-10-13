@@ -38,7 +38,7 @@ test('dist writes the feed Squirrel reads, the zip beside it', () => {
   const data = JSON.parse(releaseJson('0.2.0'));
   assert.equal(data.currentRelease, '0.2.0');
   assert.deepEqual(data.releases[0].updateTo, {
-    version: '0.2.0', name: 'J.A.R.V.I.S. 0.2.0', pub_date: '2026-10-01T12:00:00.000Z', notes: 'Faster.',
+    version: '0.2.0', name: 'Eden Secretary 0.2.0', pub_date: '2026-10-01T12:00:00.000Z', notes: 'Faster.',
     url: 'https://downloads.example.com/jarvis/J.A.R.V.I.S.-0.2.0-mac.zip',
   });
   assert.throws(() => feed.releaseFeed({ version: '0.2', zipName: 'x.zip', feedUrl: FEED }), /isn't x\.y\.z/);
@@ -133,7 +133,7 @@ test('a downloaded update installs itself, but only at a quiet moment', async ()
   assert.deepEqual(prepared, ['as it was']); // reopens hidden if it was hidden
 });
 
-test('a quiet moment: the Mac untouched ten minutes, the window not in front, JARVIS idle', async () => {
+test('a quiet moment: the Mac untouched ten minutes, the window not in front, Eden Secretary idle', async () => {
   const moment = (over) => updates.quietMoment({ idleSeconds: () => 700, windowInFront: () => false, backendBusy: async () => false, ...over });
   assert.equal(await moment({}), true);
   assert.equal(await moment({ idleSeconds: () => 120 }), false);
@@ -154,7 +154,7 @@ test('a newer release is downloaded by Squirrel, then offered; Restart installs 
   assert.equal((await u.check()).state, 'downloading'); // no second check while it downloads
   assert.equal(auto.calls.length, 2);
   auto.emit('update-downloaded');
-  assert.deepEqual({ ...u.state(), notes: undefined }, { version: '0.1.0', enabled: true, state: 'ready', available: '0.2.0', name: 'J.A.R.V.I.S. 0.2.0', notes: undefined });
+  assert.deepEqual({ ...u.state(), notes: undefined }, { version: '0.1.0', enabled: true, state: 'ready', available: '0.2.0', name: 'Eden Secretary 0.2.0', notes: undefined });
   assert.deepEqual(auto.calls.slice(2), []); // downloaded, and still running: not while the owner is around
   assert.equal(u.restart(), true);
   assert.deepEqual(auto.calls.at(-1), ['install']);
@@ -201,7 +201,7 @@ test('the owner’s own install, which follows the repo, says so instead of “d
   const u = updates.createUpdater({ version: '0.1.5', feed: '', autoUpdater: squirrel(), fetchText: async () => { throw new Error('fetched'); }, inApplications: () => true, follows: true });
   const s = await u.check();
   assert.deepEqual(s, { version: '0.1.5', enabled: false, follows: true, state: 'off' });
-  assert.equal(windowSide.lineFor(s), 'Updates itself from your Jarvis folder whenever main changes.');
+  assert.equal(windowSide.lineFor(s), 'Updates itself from your Eden Secretary folder whenever main changes.');
   assert.equal(windowSide.lineFor({ version: '0.1.5', enabled: false, state: 'off' }), 'This copy doesn’t check for updates.');
   // A feed wins: a downloaded copy never says it follows a folder.
   const fed = updates.createUpdater({ version: '0.1.5', feed: 'https://example.invalid/release.json', autoUpdater: squirrel(), fetchText: async () => '{}', inApplications: () => true, follows: true });
@@ -271,18 +271,18 @@ test('every line the window shows has its Chinese', () => {
     ...Object.values(updates.WORDS),
     ...Object.values(winUpdate.WORDS),
     'About', 'Check for updates', 'Restart to update', 'Restart now', 'Later', 'Install now',
-    'J.A.R.V.I.S. 0.2.0 is ready. Restart to install it.',
+    'Eden Secretary 0.2.0 is ready. Restart to install it.',
     // Windows: an installer offered, downloading, starting
     windowSide.lineFor({ enabled: true, platform: 'win32', state: 'idle' }),
     windowSide.lineFor({ enabled: true, platform: 'win32', state: 'available', available: '0.1.15', size: 327754786 }),
     windowSide.lineFor({ enabled: true, platform: 'win32', state: 'downloading', available: '0.1.15', size: 1000, received: 420 }),
     windowSide.lineFor({ enabled: true, platform: 'win32', state: 'installing', available: '0.1.15' }),
-    windowSide.cardFor({ name: 'J.A.R.V.I.S. Daredevil', state: 'available', available: '0.1.15', size: 327754786 }),
-    windowSide.cardFor({ name: 'J.A.R.V.I.S.', state: 'available', available: '0.1.15', size: 303723280 }),
+    windowSide.cardFor({ name: 'Eden Daredevil', state: 'available', available: '0.1.15', size: 327754786 }),
+    windowSide.cardFor({ name: 'Eden Secretary', state: 'available', available: '0.1.15', size: 303723280 }),
   ];
   assert.deepEqual(lines.filter((line) => chinese(line) === null), []);
   assert.equal(chinese('Downloading 1.2.3…'), '正在下载 1.2.3…');
-  assert.equal(chinese('J.A.R.V.I.S. 1.0.0-beta.2 is ready. Restart to install it.'), 'J.A.R.V.I.S. 1.0.0-beta.2 已准备好，重新启动即可安装。');
+  assert.equal(chinese('Eden Secretary 1.0.0-beta.2 is ready. Restart to install it.'), 'Eden Secretary 1.0.0-beta.2 已准备好，重新启动即可安装。');
 });
 
 test('the fragment never changes a Chinese string the window already had', () => {

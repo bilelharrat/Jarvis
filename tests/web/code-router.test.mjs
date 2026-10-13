@@ -2,7 +2,7 @@
 // which of the picker's models it routes among, at which efforts (the relays' models too),
 // and a pick as a session takes it; when a message waits for Gemini's rating (route_wait,
 // never for a trivial one) and the route it then gets; how long Gemini's problems pause the
-// asking; what Jarvis knows of the session for the route; what the log keeps; and the
+// asking; what Eden Secretary knows of the session for the route; what the log keeps; and the
 // feature in a stand-in window (Shadow mode, learned overrides, the adapter's calls,
 // per-project levels, the budget). node --test tests/web/
 import assert from 'node:assert/strict';
@@ -200,7 +200,7 @@ test('a trivial message: under 4 words, or a confirmation, in English or Chinese
   assert.ok(R.isRated({ result: trivial }, 'always'));  // (the router's own D6 says so too)
 });
 
-// ── what Jarvis knows of the session, for the route ──
+// ── what Eden Secretary knows of the session, for the route ──
 
 test('the session’s extras: context, agentic calls, stickiness, Claude as quota, latency', () => {
   const state = {
@@ -274,7 +274,7 @@ test('prices for the models it routes among (USD per 1M tokens)', () => {
   assert.deepEqual(R.pricesOf(null, ['x']), {});
 });
 
-// ── the window: the feature wired to a stand-in Jarvis window and router ──
+// ── the window: the feature wired to a stand-in Eden Secretary window and router ──
 
 
 const SOURCE = readFileSync(new URL('../../src/jarvis/web/features/code-router.js', import.meta.url), 'utf8');

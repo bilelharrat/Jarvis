@@ -1,4 +1,4 @@
-// The Twilio Function that answers the Jarvis number (src/jarvis/twilio/line.js), run here
+// The Twilio Function that answers the Eden Secretary number (src/jarvis/twilio/line.js), run here
 // as Twilio runs it: handler(context, event, callback), with Sync faked in memory. A caller
 // can always leave a message; booking offers only open times, and a pick is noted in Sync
 // before the caller hears it's theirs. node --test tests/web/
@@ -78,7 +78,7 @@ test('with times open, the caller hears who they reached and can press 1 or leav
   reset({ owner: 'Bilel', booking: true, slots: slots(4) });
   const xml = await call({});
   wellFormed(xml);
-  assert.match(xml, /Hello, you've reached Jarvis, Bilel's AI assistant\. To book a time to meet Bilel, press 1 now\. Or, please leave a message for Bilel after the tone\./);
+  assert.match(xml, /Hello, you've reached Eden Secretary, Bilel's AI assistant\. To book a time to meet Bilel, press 1 now\. Or, please leave a message for Bilel after the tone\./);
   assert.match(xml, /<Gather input="dtmf" numDigits="1"[^>]*action="https:\/\/jarvis-line-1-line\.twil\.io\/call\?step=choose"/);
   assert.match(xml, /<\/Gather><Record maxLength="180"/); // no key pressed: the message
   assert.equal(sync.requests[0].auth, 'AC1:secret');
@@ -94,7 +94,7 @@ test('without booking, or with Sync down, it is a plain voicemail', async () => 
   sync.down = true;
   xml = await call({});
   wellFormed(xml);
-  assert.match(xml, /Hello, you've reached Jarvis, an AI assistant\. Please leave a message after the tone\.<\/Say><Record /);
+  assert.match(xml, /Hello, you've reached Eden Secretary, an AI assistant\. Please leave a message after the tone\.<\/Say><Record /);
 });
 
 test('a caller who withheld their number is asked for one, and offered no times', async () => {

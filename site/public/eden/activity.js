@@ -1,6 +1,6 @@
 // Activity (ROADMAP H7): one timeline of what Eden did, grouped by day, with Undo where it can
-// be undone (GET /api/chat/actions, POST /api/chat/actions/undo). Changes made through Jarvis
-// (the Mac's calendar and Mail, memory, promises, browser tasks) are undone by Jarvis after its
+// be undone (GET /api/chat/actions, POST /api/chat/actions/undo). Changes made through Eden Secretary
+// (the Mac's calendar and Mail, memory, promises, browser tasks) are undone by Eden Secretary after its
 // card on the Mac; Eden's own Google changes after this panel's review. A sent email can't be
 // undone, and the row says so.
 
@@ -72,7 +72,7 @@ function row(root, it) {
   return card;
 }
 
-/** The review before an undo: what goes back; Jarvis's card on the Mac follows for Mac changes. */
+/** The review before an undo: what goes back; Eden Secretary's card on the Mac follows for Mac changes. */
 function review(root, card, it) {
   if (card.querySelector('.act-review')) return;
   const mac = it.where !== 'google';

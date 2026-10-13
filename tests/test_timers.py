@@ -330,7 +330,7 @@ def test_missed_while_closed_is_said_as_missed_never_rung(tmp_path):
     timers.add(tk.new_timer(60, "pasta", NOW))
     timers.add(tk.new_alarm("15:45", "", NOW))
     timers.add(tk.new_reminder("stretch", NOW, every_minutes=20))
-    clock.tick(hours=2)  # JARVIS was closed
+    clock.tick(hours=2)  # Jarvis was closed
     timers.fire_due(clock())
     texts = [a.text for a, _busy in heard]
     assert texts == [

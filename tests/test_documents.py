@@ -1,4 +1,4 @@
-"""Documents JARVIS writes and remembers. A temp home folder (HOME points at it), a fake
+"""Documents Jarvis writes and remembers. A temp home folder (HOME points at it), a fake
 converter and opener; one test runs macOS's own textutil into the temp folder."""
 
 import asyncio

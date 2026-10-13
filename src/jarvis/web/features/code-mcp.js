@@ -2,7 +2,7 @@
 // built-in list. Each of the session's servers with its scope and how it's doing, switched off
 // for the session, signed in to, reconnected, removed (a second press), or, for one a
 // project shares (.mcp.json), approved or refused here; a server added as a command or an
-// address, for this project (shared or just the owner's) or every project; and JARVIS's own
+// address, for this project (shared or just the owner's) or every project; and Eden Secretary's own
 // connectors (Tools & Accounts) shared into the session.
 //
 // Names, commands, addresses and errors are data: text only, marked data-no-i18n. Pure
@@ -15,7 +15,7 @@
     local: 'This project, just me',
     user: 'All my projects',
     shared: 'From Tools & Accounts',
-    other: 'From JARVIS or a plugin',
+    other: 'From Eden Secretary or a plugin',
   };
 
   // How a server is doing, in words, and its dot's class.
@@ -192,7 +192,7 @@
     }
     if (state.note) parts.push(el('p', 'cr-note', state.note));
     parts.push(addForm(task, state));
-    parts.push(el('p', 'jc-label cr-head', 'JARVIS’s connectors'));
+    parts.push(el('p', 'jc-label cr-head', 'Eden Secretary’s connectors'));
     const conns = state.connectors || [];
     if (!conns.length) parts.push(el('p', 'jc-dim cr-none', 'Connect services in Tools & Accounts, then share them with a session here.'));
     else {
@@ -212,7 +212,7 @@
         li.append(text, sw);
         return li;
       }));
-      parts.push(ul, el('p', 'jc-dim cr-intro', 'JARVIS keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.'));
+      parts.push(ul, el('p', 'jc-dim cr-intro', 'Eden Secretary keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.'));
     }
     body.replaceChildren(...parts);
   }

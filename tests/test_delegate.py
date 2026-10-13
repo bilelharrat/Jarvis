@@ -1485,7 +1485,7 @@ def test_announcements_never_say_the_wake_word_but_keep_the_weekday():
     assert delegate.unwoken("Sam asked if Jarvis is free Friday.") == (
         "Sam asked if the assistant is free Friday."
     )
-    assert delegate.unwoken("J.A.R.V.I.S. and jervis") == "the assistant and the assistant"
+    assert delegate.unwoken("Jarvis and jervis") == "the assistant and the assistant"
     assert delegate.unwoken("Sam问Jarvis是不是机器人", "zh") == "Sam问助手是不是机器人"
 
 
@@ -2060,7 +2060,7 @@ async def test_a_model_or_inbox_that_never_answers_counts_as_a_failure(tmp_path,
     assert await engine.step() == {d.id: "expired"}
 
 
-# notices never wake JARVIS
+# notices never wake Jarvis
 
 
 def test_split_or_joined_names_dont_wake_it_either(monkeypatch):

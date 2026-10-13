@@ -1,4 +1,4 @@
-// jarvis:// links and the Services menu's "Ask JARVIS" Quick Action (app/features/shell-links.js).
+// jarvis:// links and the Services menu's "Ask Eden Secretary" Quick Action (app/features/shell-links.js).
 // Nothing here opens a link or touches ~/Library: the Quick Action is written to a temp folder
 // and read back with macOS's own tools. node --test tests/web/
 import assert from 'node:assert/strict';
@@ -63,7 +63,7 @@ test('the Quick Action is written exactly as its golden copy', () => {
   assert.equal(links.isOurService(readFileSync(path.join(dir, 'Contents/Info.plist'), 'utf8')), true);
   assert.equal(links.isOurService('<plist><dict><key>CFBundleIdentifier</key><string>com.someone.else</string></dict></plist>'), false);
   if (!onMac || !existsSync('/usr/bin/plutil')) return;
-  // macOS reads it: valid property lists, in the canonical form, and a text service named Ask JARVIS.
+  // macOS reads it: valid property lists, in the canonical form, and a text service named Ask Eden Secretary.
   for (const file of ['Contents/Info.plist', 'Contents/document.wflow']) {
     execFileSync('/usr/bin/plutil', ['-lint', path.join(dir, file)]);
     assert.equal(execFileSync('/usr/bin/plutil', ['-convert', 'xml1', '-o', '-', path.join(dir, file)]).toString(), readFileSync(path.join(dir, file), 'utf8'));
@@ -73,7 +73,7 @@ test('the Quick Action is written exactly as its golden copy', () => {
   if (existsSync(pbs)) {
     const read = spawnSync(pbs, ['-read_bundle', dir], { encoding: 'utf8', timeout: 60_000 });
     const entries = `${read.stdout}${read.stderr}`;
-    assert.match(entries, /default = "Ask JARVIS";/);
+    assert.match(entries, /default = "Ask Eden Secretary";/);
     assert.match(entries, /NSMessage = runWorkflowAsService;/);
     assert.match(entries, /"public\.utf8-plain-text"/);
     assert.match(entries, /NSRequiredContext = +\{\s*\};/, 'on in the Services menu from the start');

@@ -278,14 +278,14 @@
     if (!settings) return;
     const routinesGroup = F.$('routine-list')?.closest('section.group');
     const intro = routinesGroup?.querySelector('.small-status');
-    if (intro) intro.textContent = 'Things I do on my own schedule, or when something happens. Say “Jarvis, every weekday at 7, brief me”, “every 30 minutes from 9 to 6, check the build”, or “when I get home, turn on the lights”.';
+    if (intro) intro.textContent = 'Things I do on my own schedule, or when something happens. Say “Eden, every weekday at 7, brief me”, “every 30 minutes from 9 to 6, check the build”, or “when I get home, turn on the lights”.';
     timersGroup = el('section', 'group auto-group');
     timersGroup.id = 'auto-timers';
     const list = el('ul', 'itemlist auto-timer-list');
     list.id = 'auto-timer-list';
     timersGroup.append(
       el('h3', '', 'Timers & reminders'),
-      el('p', 'small-status', 'Say “Jarvis, set a timer for 12 minutes”, “wake me at 6:30” or “remind me every 20 minutes to stretch until 6”.'),
+      el('p', 'small-status', 'Say “Eden, set a timer for 12 minutes”, “wake me at 6:30” or “remind me every 20 minutes to stretch until 6”.'),
       list,
       row('Ring my phone for alarms', 'An alarm you ask to call you also rings your phone (set it up under Phone).',
         toggle('sw-auto-alarm-phone', 'Ring my phone for alarms', features.alarm_phone,
@@ -475,7 +475,7 @@
     });
     emailGroup.append(
       el('h3', '', 'Email rules'),
-      el('p', 'small-status', 'When an email from someone, or about something, arrives, I read it with no tools at hand (what it says is never obeyed) and tell you, or do what you say with it. Say “Jarvis, when an email from Ann arrives, tell me what she needs”, or add one here. It uses the same watch on Mail as interruptions.'),
+      el('p', 'small-status', 'When an email from someone, or about something, arrives, I read it with no tools at hand (what it says is never obeyed) and tell you, or do what you say with it. Say “Eden, when an email from Ann arrives, tell me what she needs”, or add one here. It uses the same watch on Mail as interruptions.'),
       list,
       form,
     );
@@ -597,7 +597,7 @@
     if (where) {
       where.replaceChildren();
       if (items.length && webhooks.url_file) {
-        where.append(el('bdi', '', 'The port changes when Jarvis restarts: scripts can read the current address from'), ' ', mine(el('code', '', webhooks.url_file)));
+        where.append(el('bdi', '', 'The port changes when Eden Secretary restarts: scripts can read the current address from'), ' ', mine(el('code', '', webhooks.url_file)));
       }
     }
   }

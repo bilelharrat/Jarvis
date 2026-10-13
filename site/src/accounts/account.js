@@ -1,4 +1,4 @@
-// One Jarvis account: a Durable Object named by the account id (docs/accounts.md). It keeps
+// One Eden Secretary account: a Durable Object named by the account id (docs/accounts.md). It keeps
 // the account's devices (each with the SHA-256 of its secret, never the secret), its plan,
 // what it has spent, its sealed sync items, and, for a moment, the relay's sockets.
 //
@@ -60,7 +60,7 @@ export const PROXY_TURNS = 8;
 const HOLD_MS = 15 * 60_000;
 // A browser signed in at askeden.com (a `web` device) uses the included AI and its own
 // artifacts, and signs itself out. It can't delete the account, change devices, send
-// pushes, buy, read or write sync, use the relay, or approve any link. It may use the JARVIS
+// pushes, buy, read or write sync, use the relay, or approve any link. It may use the Eden Secretary
 // voice only through hosted Eden (Read aloud, talk mode: eden: true), on the account's daily
 // voice allowance like the apps.
 const WEB_FORBIDDEN = new Set(['delete', 'device-update', 'push-check', 'subscription', 'sync-get', 'sync-put', 'sync-delete', 'sync-wipe']);
@@ -149,7 +149,7 @@ export class Account {
       // A browser may delete the account only when the person typed DELETE (the account page).
       const webDelete = op === 'delete' && body.confirm === 'DELETE' && !device.grant;
       if (device.kind === 'web' && WEB_FORBIDDEN.has(op) && !webDelete) {
-        throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the J.A.R.V.I.S. app on your iPhone or Mac.");
+        throw new ApiError(403, 'forbidden', "Eden on the web can't do that. Use the Eden Secretary app on your iPhone or Mac.");
       }
       if (op.startsWith('approve-')) return json(await approvalOp(this, op, body, device)); // one-click approvals for Gmail/Calendar writes (approvals.js)
       if (op.startsWith('mail-')) return json(await mailOp(this, op, body)); // scheduled Gmail sends (schedule.js)
@@ -284,7 +284,7 @@ export class Account {
     if (approver.kind === 'web') {
       // A browser approves a Mac only: as the account's owner (never a delegate's or a space
       // member's session), and only within WEB_LINK_MAC_MS of signing in.
-      if (kind !== 'mac' || approver.grant) throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+      if (kind !== 'mac' || approver.grant) throw new ApiError(403, 'forbidden', 'Approve it in the Eden Secretary app on your iPhone or Mac.');
       if (!(this.now() - (approver.created || 0) <= WEB_LINK_MAC_MS)) throw new ApiError(403, 'sign_in_again', WEB_LINK_MAC_STALE);
     } else if (!web && !isPhone(approver.kind)) throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
     const account = await this.storage.get('account');
@@ -313,7 +313,7 @@ export class Account {
 
   // An Eden app's Sign in with Apple grant (eden/session.js nativeApple): its refresh token, kept by the
   // client id it was issued to, so deleting the account revokes it with that id (accounts/index.js).
-  // The J.A.R.V.I.S. app's own grant stays in `apple_grant` (signIn).
+  // The Eden Secretary app's own grant stays in `apple_grant` (signIn).
   async keepAppleGrant(grant) {
     if (!grant || typeof grant.token !== 'string' || !grant.token || !GRANT_CLIENTS.includes(grant.client_id)) return;
     const grants = (await this.storage.get('apple_grants')) || {};
@@ -388,14 +388,14 @@ export class Account {
     if (!entry) throw new ApiError(404, 'not_linked', 'That sign-in isn’t on this account.');
     if (list.length <= 1) throw new ApiError(409, 'last_method', 'This is the only way to sign in to this account. Link another one first.');
     if (!entry.sub_hash) {
-      throw new ApiError(409, 'needs_proof', 'Sign in with Apple once more (here or in the J.A.R.V.I.S. app), then unlink it.');
+      throw new ApiError(409, 'needs_proof', 'Sign in with Apple once more (here or in the Eden Secretary app), then unlink it.');
     }
     await this.storage.put('identities', list.filter((i) => i !== entry));
     return { provider, sub_hash: entry.sub_hash };
   }
 
   // A browser signs out browsers: one (`id`) or every one (`all`), itself included. The apps'
-  // devices are removed only from the J.A.R.V.I.S. app.
+  // devices are removed only from the Eden Secretary app.
   async webSignOut(caller, { id, all = false }) {
     const removed = [];
     for (const d of await this.devices()) {
@@ -406,7 +406,7 @@ export class Account {
     }
     if (!all && !removed.length) {
       if (validDeviceId(id) && (await this.storage.get(`dev:${id}`))) {
-        throw new ApiError(403, 'forbidden', 'Remove the apps in the J.A.R.V.I.S. app on your iPhone.');
+        throw new ApiError(403, 'forbidden', 'Remove the apps in the Eden Secretary app on your iPhone.');
       }
       throw new ApiError(404, 'not_found', 'That browser is already signed out.');
     }
@@ -439,7 +439,7 @@ export class Account {
   async deleteDevice(caller, id) {
     const target = id === 'me' || !id ? caller.id : String(id);
     if (caller.kind === 'web' && target !== caller.id) {
-      throw new ApiError(403, 'forbidden', 'Remove devices in the J.A.R.V.I.S. app on your iPhone.');
+      throw new ApiError(403, 'forbidden', 'Remove devices in the Eden Secretary app on your iPhone.');
     }
     if (!(await this.storage.get(`dev:${target}`))) throw new ApiError(404, 'not_found', 'That device is already gone.');
     await this.storage.delete(`dev:${target}`);
@@ -539,7 +539,7 @@ export class Account {
     if (!isPlusPurchase(tx)) throw new ApiError(400, 'bad_transaction', "That isn't a Plus purchase.");
     const token = String(tx.appAccountToken || '').toLowerCase();
     if (token ? token !== account.id : !claimed) {
-      throw new ApiError(403, 'forbidden', 'That purchase belongs to another Jarvis account.');
+      throw new ApiError(403, 'forbidden', 'That purchase belongs to another Eden Secretary account.');
     }
     const plan = (await this.storage.get('plan')) || {};
     const expires = Number(tx.expiresDate) || 0;
@@ -638,7 +638,7 @@ export class Account {
     const stripe = (await this.storage.get('stripe_plan')) || {};
     const apple = plan.source === 'app_store' || plan.source === 'both';
     const web = plan.source === 'stripe' || plan.source === 'both';
-    // Eden for iPhone's App Store Plus is sold at today's price: today's allowance (Jarvis's, the old one).
+    // Eden for iPhone's App Store Plus is sold at today's price: today's allowance (Eden Secretary's, the old one).
     const store = apple ? (await this.storage.get('plan')) || {} : {};
     // A Sandbox purchase (TestFlight, App Review: free, and signed with Apple's own chain) is Plus,
     // with a trial-size allowance only (R3C-3).
@@ -771,7 +771,7 @@ export class Account {
     }
   }
 
-  // ── the JARVIS voice, counted per account ──
+  // ── the Eden Secretary voice, counted per account ──
 
   async voice({ chars }) {
     const plan = await this.planNow();
@@ -785,8 +785,8 @@ export class Account {
       return {
         ok: false,
         why: plan.active
-          ? "Today's JARVIS voice allowance is used up; it resets at midnight UTC."
-          : "Today's JARVIS voice allowance is used up; it resets at midnight UTC. Jarvis Plus has five times as much.",
+          ? "Today's Eden Secretary voice allowance is used up; it resets at midnight UTC."
+          : "Today's Eden Secretary voice allowance is used up; it resets at midnight UTC. Eden Plus has five times as much.",
       };
     }
     await this.storage.put('voice', { day, chars: used + n });

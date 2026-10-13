@@ -32,7 +32,7 @@ final class SpeakableTests: XCTestCase {
         XCTAssertEqual(Speakable.voiceLanguage(for: "好的。", preferred: ["zh-Hant"]), "zh-TW")
         XCTAssertEqual(Speakable.voiceLanguage(for: "好的。", preferred: ["en_US"]), "zh-CN")
         XCTAssertEqual(Speakable.voiceLanguage(for: "Done.", preferred: ["zh-Hans-CN", "en-AU"]), "en-AU")
-        // Jarvis speaks English or Chinese: a French phone still hears English in English.
+        // Eden Secretary speaks English or Chinese: a French phone still hears English in English.
         XCTAssertEqual(Speakable.voiceLanguage(for: "Done.", preferred: ["fr-FR"]), "en-US")
         XCTAssertEqual(Speakable.voiceLanguage(for: "Done.", preferred: []), "en-US")
     }

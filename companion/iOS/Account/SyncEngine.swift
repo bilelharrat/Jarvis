@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// Sync through the Jarvis account (docs/accounts.md › Sync): memory, the owner's settings
+/// Sync through the Eden Secretary account (docs/accounts.md › Sync): memory, the owner's settings
 /// and this iPhone's chats, each sealed here with the sync key before it leaves, so
 /// askeden.com keeps only what it can't read. Runs a few seconds after something changes,
 /// when the app opens, and every five minutes while it's open.
@@ -56,7 +56,7 @@ final class SyncEngine {
     static let enabledKey = "sync.enabled"
     private static let stateKey = "sync.state"
     private static let settingsKey = "sync.settings"
-    /// Where the iPhone keeps what Jarvis calls the owner.
+    /// Where the iPhone keeps what Eden Secretary calls the owner.
     static let addressKey = "brain.address"
 
     init(memory: LocalMemory? = nil, chats: ChatStore? = nil, defaults: UserDefaults = .standard) {
@@ -92,7 +92,7 @@ final class SyncEngine {
                 MainActor.assumeIsolated { self?.settingsMayHaveChanged() }
             })
         }
-        settingsMayHaveChanged()  // what Jarvis calls the owner, set before sync was on
+        settingsMayHaveChanged()  // what Eden Secretary calls the owner, set before sync was on
         Task { await sync() }
     }
 
@@ -354,7 +354,7 @@ final class SyncEngine {
 
     @ObservationIgnored private var seenAddress: String?
 
-    /// What Jarvis calls the owner changed here: a newer settings item.
+    /// What Eden Secretary calls the owner changed here: a newer settings item.
     private func settingsMayHaveChanged() {
         guard !applying else { return }
         let address = defaults.string(forKey: Self.addressKey)?.trimmed ?? ""

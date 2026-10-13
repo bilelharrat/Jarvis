@@ -4,7 +4,7 @@
 export const BUNDLE_ID = 'com.askeden.jarvis';
 export const PLUS_PRODUCTS = ['com.askeden.jarvis.plus.monthly', 'com.askeden.jarvis.plus.yearly'];
 // Eden for iPhone sells Plus with StoreKit 2 too (group "Eden Plus"; askeden/ios Eden/PlusStore.swift),
-// at today's web price, so it gets today's allowance (account.js plusCap), not the Jarvis legacy one.
+// at today's web price, so it gets today's allowance (account.js plusCap), not the Eden Secretary legacy one.
 export const EDEN_BUNDLE_ID = 'com.askeden.eden';
 export const EDEN_PLUS_PRODUCTS = ['com.askeden.eden.plus.monthly', 'com.askeden.eden.plus.yearly'];
 /** The apps that sell Plus through the App Store, and their products. */
@@ -46,7 +46,7 @@ export class ApiError extends Error {
   }
 }
 
-export const signedOut = () => new ApiError(401, 'signed_out', 'This device is signed out of its Jarvis account.');
+export const signedOut = () => new ApiError(401, 'signed_out', 'This device is signed out of its Eden Secretary account.');
 
 export async function readJson(request, cap = 1 << 20) {
   const text = await request.text();

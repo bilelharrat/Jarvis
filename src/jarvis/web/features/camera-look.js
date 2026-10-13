@@ -50,7 +50,7 @@
 
   F.on('camera_cmd', async (ev) => {
     if (!ev || !ev.id || busy) return;
-    if (doc.body && doc.body.dataset.app === 'eden-code') return; // (J.A.R.V.I.S.'s window answers)
+    if (doc.body && doc.body.dataset.app === 'eden-code') return; // (Eden Secretary's window answers)
     busy = true;
     const wait = Number(ev.wait) || 0;
     say(wait > 1.5 ? `Looking through the camera in ${Math.round(wait)} seconds. Hold it in front of the camera.` : 'Looking through the camera.');

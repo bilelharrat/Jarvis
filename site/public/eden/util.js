@@ -227,7 +227,7 @@ export function noKeys(text, touch = isTouch()) {
 }
 export const isNarrow = () => matchMedia('(max-width:1100px)').matches;
 
-/** Position a fixed popup next to an anchor (Jarvis Code's placePopup). */
+/** Position a fixed popup next to an anchor (Eden Code's placePopup). */
 export function placePopup(pop, anchor, side) {
   const r = anchor.getBoundingClientRect();
   const w = pop.offsetWidth, h = pop.offsetHeight;

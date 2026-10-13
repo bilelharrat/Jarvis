@@ -1,4 +1,4 @@
-// What bridge.mjs sends Jarvis about chats, contacts and messages: plain JSON, shaped here so
+// What bridge.mjs sends Eden Secretary about chats, contacts and messages: plain JSON, shaped here so
 // it can be checked without a WhatsApp connection.
 
 import { getContentType, isJidGroup, jidNormalizedUser, normalizeMessageContent } from '@whiskeysockets/baileys';
@@ -50,7 +50,7 @@ export function textOf(message) {
   }
 }
 
-// What a message replies to and whom it mentions (its contextInfo), for Jarvis's chat
+// What a message replies to and whom it mentions (its contextInfo), for Eden Secretary's chat
 // channel: the quoted message's id, author and words, and the mentioned addresses.
 export function contextOf(message) {
   const content = normalizeMessageContent(message);
@@ -69,7 +69,7 @@ export function contextOf(message) {
   return out;
 }
 
-// own: the ids of the messages Jarvis itself sent (never read back as the owner's).
+// own: the ids of the messages Eden Secretary itself sent (never read back as the owner's).
 export function brief(msg, own) {
   const key = msg && msg.key;
   const chat = norm(key && key.remoteJid);

@@ -1,6 +1,6 @@
 // WhatsApp in Tools & Accounts (features/whatsapp.py): link the owner's own account by
 // scanning a code with the phone, see that it's connected, unlink it. Reading and sending
-// are JARVIS's tools; every send is a card with the exact text first.
+// are Eden Secretary's tools; every send is a card with the exact text first.
 (function whatsappFeature() {
   const F = window.jarvisFeatures;
   const sheet = F && F.$('accounts');
@@ -37,7 +37,7 @@
   const note = el(
     'p',
     'group-note',
-    'Jarvis links as one of your WhatsApp devices, as WhatsApp Web does, and stays offline so your phone keeps its notifications. It reads your chats and sends only what you approve. WhatsApp doesn’t officially support assistants like this: use it for your own everyday messages, never bulk sending.',
+    'Eden Secretary links as one of your WhatsApp devices, as WhatsApp Web does, and stays offline so your phone keeps its notifications. It reads your chats and sends only what you approve. WhatsApp doesn’t officially support assistants like this: use it for your own everyday messages, never bulk sending.',
   );
   group.append(head, status, error, qrBox, actions, announceRow, note);
   const first = sheet.querySelector('section.group');
@@ -51,7 +51,7 @@
       send({ type: 'whatsapp_unlink' });  // stop waiting for a scan
       return;
     }
-    if (confirm(F.t('Unlink WhatsApp from Jarvis? Jarvis logs out of your account and forgets what it saw.'))) {
+    if (confirm(F.t('Unlink WhatsApp from Eden Secretary? Eden Secretary logs out of your account and forgets what it saw.'))) {
       send({ type: 'whatsapp_unlink' });
     }
   });

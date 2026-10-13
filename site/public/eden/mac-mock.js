@@ -1,5 +1,5 @@
 // Mock mode (?mock=1) for "Use my Mac" and project knowledge (files.js, knowledge.js):
-// Jarvis's files_search / file_read / file_summarize / screen_context / knowledge_* tools and
+// Eden Secretary's files_search / file_read / file_summarize / screen_context / knowledge_* tools and
 // POST /api/chat/mac/send (a turn whose server reads the Mac first: `mac` cards, then the
 // answer), answered in the browser with a pretend Mac. URL switches: macfiles=deny (the owner
 // says no on the files card), screen=deny|nopic, kn=empty.
@@ -89,7 +89,7 @@ async function jarvisTool(t, a = {}) {
     case 'file_read':
     case 'file_summarize': {
       const f = find(a.path);
-      if (!f) return tool('That file isn’t one Eden may read (Settings › Jarvis in other apps).', true);
+      if (!f) return tool('That file isn’t one Eden may read (Settings › Eden Secretary in other apps).', true);
       if (t === 'file_summarize') return tool({ version: 1, note: NOTE, ...card(f), chars: f.text.length, sampled: false, instructions: 'Summarise this file for the owner.', text: f.text });
       const pages = Math.max(1, Math.ceil(f.text.length / PAGE));
       const page = a.page || 1;
@@ -105,7 +105,7 @@ async function jarvisTool(t, a = {}) {
         text: 'Numbers — window “Q3 budget”\n- table “Summary”\n  - row: Lisbon offsite = “€4,000”\n  - row: Contractors = “£18,500”\n  - row: Total = “£212,300”',
         url: '', truncated: false,
         image: flag('screen') === 'nopic' ? null : { mime: 'image/png', data: windowPicture() },
-        notes: flag('screen') === 'nopic' ? ['Pictures of the screen are off in Jarvis (Settings › Jarvis in other apps).'] : [],
+        notes: flag('screen') === 'nopic' ? ['Pictures of the screen are off in Eden Secretary (Settings › Eden Secretary in other apps).'] : [],
       });
     }
     case 'knowledge_list': return tool({ version: 1, folders: folders().map(kpublic) });

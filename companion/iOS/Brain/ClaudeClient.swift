@@ -4,8 +4,8 @@ import Foundation
 /// time, its content blocks rebuilt exactly as they arrived so the turn can go back into
 /// the conversation unchanged (thinking blocks and their signatures included).
 struct ClaudeClient: Sendable {
-    /// Whose Claude it is: the owner's own API key straight to Anthropic, or their Jarvis
-    /// account through askeden.com (Jarvis Plus, or the trial), which takes the same requests
+    /// Whose Claude it is: the owner's own API key straight to Anthropic, or their Eden Secretary
+    /// account through askeden.com (Eden Plus, or the trial), which takes the same requests
     /// with the account's token in place of a key.
     enum Credential: Sendable, Equatable {
         case apiKey(String)
@@ -37,7 +37,7 @@ struct ClaudeClient: Sendable {
 
     static let defaultModel = "claude-opus-5-5"
     static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
-    /// askeden.com's Anthropic-compatible proxy, for the AI included with a Jarvis account.
+    /// askeden.com's Anthropic-compatible proxy, for the AI included with a Eden Secretary account.
     static let accountEndpoint = URL(string: "https://askeden.com/api/anthropic/v1/messages")!
 
     init(apiKey: String, model: String = ClaudeClient.defaultModel, effort: String = "low") {
@@ -64,9 +64,9 @@ struct ClaudeClient: Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .badKey: "Your Claude API key wasn’t accepted. Check it in Settings › Jarvis on iPhone."
-            case .noAllowance: "The AI included with your Jarvis account is used up for now. Upgrade to Jarvis Plus for more, or add your own Claude key in Settings › Jarvis on iPhone."
-            case .signedOut: "You’ve been signed out of your Jarvis account. Sign in again in Settings › Account."
+            case .badKey: "Your Claude API key wasn’t accepted. Check it in Settings › Eden Secretary on iPhone."
+            case .noAllowance: "The AI included with your Eden Secretary account is used up for now. Upgrade to Eden Plus for more, or add your own Claude key in Settings › Eden Secretary on iPhone."
+            case .signedOut: "You’ve been signed out of your Eden Secretary account. Sign in again in Settings › Account."
             case .rateLimited: "Claude is rate limiting this key right now. Try again in a minute."
             case .overloaded: "Claude is busy right now. Try again in a moment."
             case .server(let status, let message): message.isEmpty ? "Claude couldn’t answer (\(status))." : message
@@ -155,7 +155,7 @@ struct ClaudeClient: Sendable {
         return Response(content: stream.blocks, stopReason: stopReason)
     }
 
-    /// viaAccount: the request went through askeden.com on the owner's Jarvis account.
+    /// viaAccount: the request went through askeden.com on the owner's Eden Secretary account.
     static func failure(status: Int, body: Data, viaAccount: Bool = false) -> Failure {
         let error = (try? JSONDecoder().decode(JSONValue.self, from: body))?["error"]
         let message = error?["message"]?.stringValue ?? ""

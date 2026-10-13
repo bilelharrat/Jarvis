@@ -1,4 +1,4 @@
-"""JARVIS's file index: what it walks and what it leaves alone, what it reads out of each
+"""Jarvis's file index: what it walks and what it leaves alone, what it reads out of each
 kind of file, how it ranks, and that searches carry on while it refreshes. Everything runs on
 a synthetic folder tree in a temp dir, with stand-ins for Spotlight's importers."""
 
@@ -680,7 +680,7 @@ async def test_a_hostile_file_in_downloads_never_stalls_the_voice_loop(tmp_path,
     index = make_index(tmp_path, home)
     refresh = asyncio.create_task(asyncio.to_thread(index.refresh))
     longest, last = 0.0, time.monotonic()
-    while not refresh.done():  # the event loop JARVIS listens and speaks on
+    while not refresh.done():  # the event loop Jarvis listens and speaks on
         await asyncio.sleep(0.005)
         now = time.monotonic()
         longest, last = max(longest, now - last), now

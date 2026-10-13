@@ -1,4 +1,4 @@
-"""Claude Code's command line on Windows (longcmd.py): JARVIS's system prompt is about 40,000
+"""Claude Code's command line on Windows (longcmd.py): Jarvis's system prompt is about 40,000
 characters and Windows starts a program from one line of at most 32,767, so the long values go
 in files the program is told to read. (Run here as on any computer; what a Windows machine does
 with the real thing is checked by the Windows workflow.)"""
@@ -10,8 +10,8 @@ from pathlib import Path
 
 from jarvis import longcmd, osplat
 
-PROMPT = "You are JARVIS. " + "Remember the owner's plans. " * 1500  # about 42,000 characters
-CLI = r"C:\Users\ann\AppData\Local\Programs\J.A.R.V.I.S\resources\backend\python\Lib\site-packages\claude_agent_sdk\_bundled\claude.exe"
+PROMPT = "You are Jarvis. " + "Remember the owner's plans. " * 1500  # about 42,000 characters
+CLI = r"C:\Users\ann\AppData\Local\Programs\Jarvis\resources\backend\python\Lib\site-packages\claude_agent_sdk\_bundled\claude.exe"
 
 
 def line(prompt=PROMPT, mcp="x" * 200):
@@ -100,7 +100,7 @@ def test_it_does_nothing_on_a_mac():
 
 
 def test_on_a_pc_the_sdk_builds_the_short_line(monkeypatch, tmp_path):
-    """The real SDK transport, with a prompt as long as JARVIS's: the line it builds fits."""
+    """The real SDK transport, with a prompt as long as Jarvis's: the line it builds fits."""
     from claude_agent_sdk import ClaudeAgentOptions
     from claude_agent_sdk._internal.transport import subprocess_cli
 
@@ -122,7 +122,7 @@ def test_on_a_pc_the_sdk_builds_the_short_line(monkeypatch, tmp_path):
 def test_the_real_conversations_line_fits_on_a_pc(
     settings, quiet_speaker, isolated, monkeypatch, tmp_path
 ):
-    """JARVIS's own options (the whole system prompt, every tool) through the real transport."""
+    """Jarvis's own options (the whole system prompt, every tool) through the real transport."""
     import asyncio
 
     from claude_agent_sdk._internal.transport import subprocess_cli
@@ -150,7 +150,7 @@ def test_the_real_conversations_line_fits_on_a_pc(
     transport = cls(prompt="", options=Client.options)
     transport._cli_path = CLI
     raw = longcmd.line_length([CLI, "--system-prompt", Client.options.system_prompt])
-    assert raw > 32_767, "JARVIS's prompt is no longer too long for one line: this test is moot"
+    assert raw > 32_767, "Jarvis's prompt is no longer too long for one line: this test is moot"
     cmd = transport._build_command()
     assert longcmd.line_length(cmd) < longcmd.LIMIT
     prompt_file = Path(cmd[cmd.index("--system-prompt-file") + 1])

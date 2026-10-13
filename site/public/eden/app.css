@@ -1,5 +1,5 @@
-/* Jarvis Chat — design: Kimi K3's "Atelier" (docs/mockups/unified-chat-kimi/option-1.html),
-   with Jarvis Code's composer (Summit Glass, scoped to .jc so its tokens don't fight Atelier's). */
+/* Eden Secretary Chat — design: Kimi K3's "Atelier" (docs/mockups/unified-chat-kimi/option-1.html),
+   with Eden Code's composer (Summit Glass, scoped to .jc so its tokens don't fight Atelier's). */
 
 /* ============ TOKENS (Atelier) ============ */
 :root{
@@ -121,7 +121,7 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 .listen{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)}
 .listen .ld{width:6px;height:6px;border-radius:50%;background:var(--done)}
 .listen.on .ld{background:var(--run);animation:pulse 2.4s ease-in-out infinite}
-/* waiting on the owner's "Let Eden use Jarvis?" card (was in calendar.css, which now loads with the calendar) */
+/* waiting on the owner's "Let Eden use Eden Secretary?" card (was in calendar.css, which now loads with the calendar) */
 .listen.wait .ld{background:var(--wait);animation:pulse 1.2s ease-in-out infinite}
 .listen.wait{color:var(--text2)}
 @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
@@ -147,7 +147,7 @@ svg.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;str
 
 /* ============ SPLIT / TRANSCRIPT ============ */
 #split{flex:1;min-height:0;display:flex;gap:0;position:relative}
-#scrollcol{flex:1;min-width:0;overflow-y:auto;padding:4px 4px 20px;scroll-padding-bottom:20px}
+#scrollcol{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;padding:4px 4px 20px;scroll-padding-bottom:20px}
 #transcript{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:18px;padding:4px 8px}
 #divider{width:12px;flex:none;cursor:col-resize;display:none;align-items:center;justify-content:center;touch-action:none}
 #divider::after{content:"";width:4px;height:44px;border-radius:2px;background:rgba(120,120,128,.35);transition:background .15s}
@@ -173,7 +173,7 @@ body.col-resize iframe{pointer-events:none}
 /* messages */
 .msg{display:flex;flex-direction:column;position:relative}
 .msg.user{align-items:flex-end}
-.msg.user .msg-acts{margin:2px 0 -28px;position:relative;z-index:2}
+.msg.user .msg-acts{margin:2px 0 0;position:relative;z-index:2}
 .msg.user .bubble{background:var(--accent);color:#fff;border-radius:19px 19px 5px 19px;padding:9px 14px;max-width:75%;font-size:15px;box-shadow:0 1px 3px rgba(10,132,255,.35);white-space:pre-wrap;overflow-wrap:anywhere}
 .msg.user .bubble .utext{display:block}
 .msg.user .bubble.clamp .utext{max-height:16.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
@@ -181,6 +181,10 @@ body.col-resize iframe{pointer-events:none}
 .msg.user .bubble .more:hover{background:rgba(255,255,255,.3)}
 .msg.user .bubble .more:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .steered{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--accent);margin:0 4px 3px 0;align-self:flex-end}
+.msg.user .u-imgs{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;max-width:75%;margin-bottom:8px}
+.msg.user .u-img{display:block;max-width:min(240px,100%);max-height:192px;width:auto;height:auto;border-radius:18px;object-fit:cover;background:rgba(120,120,128,.18)}
+.msg.user .u-imgs.multi .u-img{width:108px;height:108px;max-width:none}
+.msg.user .u-img.gone{width:108px;height:108px}
 .msg.user .bubble .ctxchip{display:inline-flex;margin:6px 4px 0 0;font-size:11.5px;background:rgba(255,255,255,.18);padding:3px 9px;border-radius:10px;white-space:nowrap}
 .attach{display:flex;align-items:center;gap:8px;margin-top:8px;background:rgba(255,255,255,.16);border-radius:10px;padding:6px 9px;font-size:12px;white-space:normal}
 .attach .thumb{width:30px;height:22px;border-radius:5px;background:linear-gradient(135deg,#8ec9f2,#3b6ea5 60%,#1d3a5f);box-shadow:inset 0 1px 0 rgba(255,255,255,.4);object-fit:cover;flex:none}
@@ -675,7 +679,7 @@ a.btn{text-decoration:none}
 #scrim{position:fixed;inset:0;z-index:59;background:rgba(0,0,0,.18);display:none}
 #scrim.on{display:block}
 
-/* ═════════════ Jarvis Code composer (ported from JARVIS V1 web, scoped to .jc) ═════════════ */
+/* ═════════════ Eden Code composer (ported from JARVIS V1 web, scoped to .jc) ═════════════ */
 .jc {
   --c-canvas: 244 244 246; --c-surface: 255 255 255; --c-surface-muted: 248 248 250; --c-raised: 255 255 255;
   --c-border: 228 228 233; --c-border-strong: 208 208 214;
@@ -754,7 +758,7 @@ a.btn{text-decoration:none}
 .jc-composer-top textarea:focus-visible { outline: none; }
 .jc-composer-top textarea::placeholder { color: rgb(var(--c-subtle)); }
 .jc-composer-top .jc-round, .jc-composer-top .jc-steer, .jc-composer-top .jc-send { flex: none; margin-bottom: 1px; }
-/* the reactor toggle — Jarvis blue, fills when the drawer is open */
+/* the reactor toggle — Eden Secretary blue, fills when the drawer is open */
 .jc-orb { width: 30px; height: 30px; flex: none; margin-bottom: 1px; border: 0; border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: rgb(var(--c-accent)); background: rgb(var(--c-accent) / 0.13); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.32); transition: background 200ms ease, box-shadow 200ms ease, transform 120ms ease; }
 .jc-orb:hover { background: rgb(var(--c-accent) / 0.2); box-shadow: inset 0 0 0 1px rgb(var(--c-accent) / 0.45), 0 0 14px rgb(var(--c-glow) / 0.3); }
 .jc-orb:active { transform: scale(0.9); }
@@ -767,7 +771,7 @@ a.btn{text-decoration:none}
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='43 81 410 422'%3E%3Cg fill='none' stroke='%23000' stroke-width='18' stroke-linejoin='round'%3E%3Cpolygon points='211,93 314,90 444,236 343,353 249,352 333,251'/%3E%3Cpolygon points='252,235 160,346 282,491 186,494 52,350 151,234'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
 }
 .jc-orb:focus-visible { outline: 2px solid rgb(var(--c-accent) / 0.7); outline-offset: 1px; }
-.jc-composer.expanded .jc-orb { color: #fff; background: rgb(var(--c-accent)); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 0 16px rgb(var(--c-glow) / 0.45); }
+.jc-composer.expanded .jc-orb { color: #fff; background: rgb(var(--c-accent)); box-shadow: 0 0 16px rgb(var(--c-glow) / 0.45); }
 .jc-composer.pinned .jc-orb::after { content: ""; position: absolute; width: 5px; height: 5px; border-radius: 50%; background: rgb(var(--c-accent)); transform: translate(13px, 13px); box-shadow: 0 0 0 1.5px rgb(var(--c-surface)); }
 /* drawer: unfolds the full control row out of the capsule */
 .jc-composer-drawer { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 300ms cubic-bezier(0.32, 0.72, 0.24, 1); width: 100%; }
@@ -777,7 +781,7 @@ a.btn{text-decoration:none}
 .jc-composer .jc-composer-row { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; padding: 10px 0 2px; margin-top: 9px; opacity: 0; transform: translateY(-4px); transition: opacity 200ms ease 60ms, transform 260ms cubic-bezier(0.32, 0.72, 0.24, 1) 60ms; }
 .jc-composer .jc-composer-row::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 0.5px; background: linear-gradient(90deg, transparent, rgb(var(--c-ink) / 0.14), transparent); }
 .jc-composer.expanded .jc-composer-row { opacity: 1; transform: none; }
-/* the drawer's controls as pills: a tinted capsule with a hairline, the mode one in Jarvis blue */
+/* the drawer's controls as pills: a tinted capsule with a hairline, the mode one in Eden Secretary blue */
 .jc-composer-row > :is(.jc-pill, #jc-ctx, #jc-plus) { height: 26px; border: 0; border-radius: 999px; background: rgb(var(--c-ink) / 0.06); box-shadow: inset 0 0 0 0.5px rgb(var(--c-ink) / 0.11); color: rgb(var(--c-ink-2)); font-size: 12px; font-weight: 550; cursor: pointer; }
 .jc-composer-row > .jc-pill { padding: 0 10px; gap: 6px; }
 .jc-composer-row > #jc-plus { width: 26px; padding: 0; }
@@ -948,7 +952,7 @@ button.jc-ctx { border: 0; background: transparent; color: rgb(var(--c-muted)); 
 .jc .cx-btn:active { transform: scale(0.97); }
 .jc .cx-btn.danger { color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger) / 0.12); }
 .jc .cx-btn.danger.armed { color: #fff; background: rgb(var(--c-danger)); }
-/* the JARVIS reactor */
+/* the Eden Secretary reactor */
 .jc-reactor { display: block; flex: none; overflow: visible; }
 .jc-reactor .halo { fill: none; stroke: #3fb8f2; stroke-opacity: 0.35; stroke-width: 1.2; }
 .jc-reactor .ring { fill: none; stroke: #6fd0ff; stroke-width: 2.6; stroke-dasharray: 4.1 2.3; transform-origin: 20px 20px; }
@@ -1202,3 +1206,12 @@ body:has(#inspector:not(.closed)) #btnHelp{display:none}
   html.eden-printing body>:not(#edenPrint){display:none!important}
   html.eden-printing #edenPrint{display:block!important}
 }
+/* The ↓ button over the chat's bottom edge while you're scrolled up (app.js, like ChatGPT's) */
+.jump-down{position:absolute;left:50%;bottom:10px;z-index:6;width:40px;height:40px;margin-left:-20px;border:0;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text);box-shadow:0 2px 10px rgba(0,0,0,.18),inset 0 0 0 .5px var(--hairline);cursor:pointer;opacity:0;transform:translateY(8px) scale(.9);pointer-events:none;transition:opacity .18s,transform .18s}
+.jump-down.on{opacity:1;transform:none;pointer-events:auto}
+.jump-down .ic{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* Which model answered: hidden until the reply is tapped (app.js); a lookup Eden made mid-answer, as one quiet line (render.js) */
+.msg.assistant.meta-hidden>.msg-head{display:none}
+.msg.tool-step{align-items:flex-start;margin:-4px 0 2px}
+.tool-step-line{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text3);padding:2px 4px}
+.tool-step-line .ic{width:13px;height:13px}

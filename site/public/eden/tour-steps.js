@@ -509,7 +509,4 @@ export const WHATS_THIS = [
   { sel: '#workflowsSheet .sheet-head', chapter: 'auto' },
   { sel: '#accountSheet .sheet-head', chapter: 'account' },
   { sel: '#macPane .mac-head, #macPane header', chapter: 'mac' },
-  { sel: '#artifact .art-head', chapter: 'create' },
-  { sel: '#inspector .insp-tabs', chapter: 'basics' },
-  { sel: '#spacePanel .sp-head', chapter: (title, tr) => { const m = { Mail: 'mail', Meetings: 'day', 'On a website': 'mac', Activity: 'safety', Memory: 'day' }; const k = Object.keys(m).find((x) => x === title || (tr && tr(x) === title)); return k ? m[k] : null; } }, // tr: the title may be French
 ];

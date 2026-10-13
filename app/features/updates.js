@@ -1,4 +1,4 @@
-// Updates for the J.A.R.V.I.S. people download: Electron's autoUpdater (Squirrel.Mac) with
+// Updates for the Eden Secretary people download: Electron's autoUpdater (Squirrel.Mac) with
 // the static feed the dist build writes (release.json, serverType 'json'). Squirrel installs
 // an update only when its signature satisfies the running app's designated requirement, that
 // is, signed by the same Developer ID team; nothing else can replace the app.
@@ -10,13 +10,13 @@
 // It checks a minute after launch and then every hour: the feed first (update-feed.js
 // decides whether it's newer, so nothing older is ever offered), then Squirrel downloads it
 // in the background. Once it's ready it installs itself, quietly: when the Mac has been idle
-// ten minutes, the window isn't in front and JARVIS has nothing going (no turn, meeting notes
+// ten minutes, the window isn't in front and Eden Secretary has nothing going (no turn, meeting notes
 // or task: /health's busy). The app comes back as it was, hidden if it was hidden. The
 // window's Restart still installs it at once; quitting installs it too (Squirrel).
 //
 // On Windows (installWindows, win-update.js): askeden.com/windows/latest.json, two minutes after
-// launch, then daily and on Check for updates; a newer installer of this flavor (J.A.R.V.I.S. or
-// J.A.R.V.I.S. Daredevil) is offered on a card and a Windows notification, and only the owner's
+// launch, then daily and on Check for updates; a newer installer of this flavor (Eden Secretary or
+// Eden Daredevil) is offered on a card and a Windows notification, and only the owner's
 // Install now downloads it to Downloads and runs it (it closes the app and replaces it).
 'use strict';
 
@@ -34,9 +34,9 @@ const CH = 'feature:updates:';
 // What the window shows for each problem (it has the Chinese); the detail goes to the log.
 const WORDS = {
   offline: 'Couldn’t reach the update server.',
-  feed: 'The update feed isn’t one J.A.R.V.I.S. can read.',
+  feed: 'The update feed isn’t one Eden Secretary can read.',
   install: 'The update couldn’t be downloaded or installed.',
-  move: 'Move J.A.R.V.I.S. to your Applications folder to get updates.',
+  move: 'Move Eden Secretary to your Applications folder to get updates.',
 };
 
 // The feed baked into this copy of the app: '' when there is none.
@@ -164,8 +164,8 @@ async function fetchFeed(net, url) {
   }
 }
 
-// Nobody would notice an update now: the Mac untouched for a while, JARVIS's window not in
-// front, and nothing going in JARVIS.
+// Nobody would notice an update now: the Mac untouched for a while, Eden Secretary's window not in
+// front, and nothing going in Eden Secretary.
 async function quietMoment({ idleSeconds, windowInFront, backendBusy }) {
   if (idleSeconds() < QUIET_IDLE || windowInFront()) return false;
   return !(await backendBusy());
@@ -190,7 +190,7 @@ function installWindows(ctx, deps = {}) {
   const updater = win.createWinUpdater({
     version: ctx.app.getVersion(),
     flavor,
-    name: (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.',
+    name: (ctx.flavor && ctx.flavor.name) || 'Eden Secretary',
     fetchText: (url) => fetchFeed(electron.net, url),
     download: (url, target, opts) => win.downloadTo(electron.net, fs, url, target, opts),
     runInstaller: (file, args) => win.startInstaller(deps.spawn || require('child_process').spawn, file, args),
@@ -201,7 +201,7 @@ function installWindows(ctx, deps = {}) {
     tell: (text) => {
       try {
         if (!electron.Notification || !electron.Notification.isSupported()) return;
-        const note = new electron.Notification({ title: (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.', body: text });
+        const note = new electron.Notification({ title: (ctx.flavor && ctx.flavor.name) || 'Eden Secretary', body: text });
         note.on('click', () => { const w = ctx.getWindow && ctx.getWindow(); if (w && !w.isDestroyed()) { w.show(); w.focus(); } });
         note.show();
       } catch { /* a notification is never worth a failed check */ }

@@ -83,7 +83,7 @@ function backendCommand({ packaged, resourcesPath, env, port, token, extraPath, 
 
 // backend.log, as the backend runs: what it prints (stdout and stderr, piped in) is
 // appended, and past `max` bytes the file becomes <name>.1.log (replacing the one before) and
-// a new one starts, there and then. Not only at a start: closing the window keeps JARVIS
+// a new one starts, there and then. Not only at a start: closing the window keeps Eden Secretary
 // running for weeks, and a noisy backend (a retry storm, a traceback over and over) would
 // otherwise fill the disk. Writes go one at a time, so a turn of the file never splits or
 // reorders them, and the backend waits (its pipes do) while the disk catches up. A write the

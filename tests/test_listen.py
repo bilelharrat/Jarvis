@@ -186,7 +186,7 @@ def test_without_a_commit_the_whole_utterance_comes_out_once():
 
 
 def test_a_threshold_set_while_jarvis_talked_comes_back_down():
-    """The stream reopened mid-reply: JARVIS's own voice calibrated the room. Once it's
+    """The stream reopened mid-reply: Jarvis's own voice calibrated the room. Once it's
     quiet, an ordinary voice must count as speech again."""
     import numpy as np
 
@@ -199,7 +199,7 @@ def test_a_threshold_set_while_jarvis_talked_comes_back_down():
         np.full(800, 0.05, np.float32),
     )
     for _ in range(4):
-        seg.feed(speaking, 0.1)  # calibrated on JARVIS's reply
+        seg.feed(speaking, 0.1)  # calibrated on Jarvis's reply
     assert seg.threshold > 0.3
     for _ in range(4):
         seg.feed(room, 0.002)  # the reply ends; the room is quiet

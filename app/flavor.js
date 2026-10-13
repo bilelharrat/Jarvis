@@ -1,14 +1,14 @@
-// Which app this is: J.A.R.V.I.S., Eden Code (the coding app split out of it), or J.A.R.V.I.S.
+// Which app this is: Eden Secretary, Eden Code (the coding app split out of it), or Eden Secretary.
 // Daredevil. All are this one folder (main.js, the features, the same Python backend); they differ
 // in name, in window and in what they start.
 //
-//   - J.A.R.V.I.S. (the default): the voice assistant, with Eden Code one click away.
+//   - Eden Secretary (the default): the voice assistant, with Eden Code one click away.
 //   - Eden Code: Eden Code alone, in its own window and Dock icon, in Ask Eden's look. No
 //     microphone, no global shortcuts, no menu bar item: it runs its backend with
-//     JARVIS_PROFILE=code, or shares the one J.A.R.V.I.S. is already running
+//     JARVIS_PROFILE=code, or shares the one Eden Secretary is already running
 //     (backend-share.js).
-//   - J.A.R.V.I.S. Daredevil: J.A.R.V.I.S. for people who are blind or have low vision, as an app of its
-//     own (the Windows download of that name). The same program, data and settings as J.A.R.V.I.S.:
+//   - Eden Daredevil: Eden Secretary for people who are blind or have low vision, as an app of its
+//     own (the Windows download of that name). The same program, data and settings as Eden Secretary:
 //     it opens in screen-reader mode, in yellow on black, under its own name, so installing one
 //     over the other changes the edition and nothing else.
 //
@@ -23,8 +23,8 @@ const path = require('path');
 const FLAVORS = {
   jarvis: {
     id: 'jarvis',
-    name: 'J.A.R.V.I.S.',
-    title: 'J.A.R.V.I.S.',
+    name: 'Eden Secretary',
+    title: 'Eden Secretary',
     logName: 'Jarvis',
     appUserModelId: 'com.askeden.jarvis.win', // Windows: the installer's appId, which toasts are shown under
     socketApp: 'jarvis', // what its window says on the socket (server.APPS)
@@ -36,10 +36,10 @@ const FLAVORS = {
   },
   daredevil: {
     id: 'daredevil',
-    name: 'J.A.R.V.I.S. Daredevil',
-    title: 'J.A.R.V.I.S. Daredevil',
+    name: 'Eden Daredevil',
+    title: 'Eden Daredevil',
     logName: 'Jarvis', // J.A.R.V.I.S.'s logs and data folder: it is the same program
-    appUserModelId: 'com.askeden.jarvis.win', // J.A.R.V.I.S.'s too: one app to Windows, so one replaces the other
+    appUserModelId: 'com.askeden.jarvis.win', // Eden Secretary's too: one app to Windows, so one replaces the other
     userDataName: 'J.A.R.V.I.S.', // …and its Electron profile (window place, the one-at-a-time lock), so never two at once
     socketApp: 'jarvis',
     query: 'edition=daredevil', // the page opens in screen-reader mode and yellow on black from its first paint
@@ -60,7 +60,7 @@ const FLAVORS = {
     background: { dark: '#161618', light: '#f5f5f7' }, // Ask Eden's --bg
     size: { width: 1240, height: 820, minWidth: 720, minHeight: 560 },
     profile: 'code',
-    // The app features (app/features/*.js) Eden Code needs; J.A.R.V.I.S. loads them all.
+    // The app features (app/features/*.js) Eden Code needs; Eden Secretary loads them all.
     features: new Set(['code-sessions.js', 'code-verify.js', 'design-match.js', 'platform.js', 'touchid.js', 'updates.js', 'video-proof.js']),
   },
 };

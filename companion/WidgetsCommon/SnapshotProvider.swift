@@ -91,10 +91,10 @@ struct CircularGlance: View {
     }
 
     private var accessibility: String {
-        guard let snapshot else { return "Jarvis: not paired" }
-        if snapshot.pendingApprovals > 0 { return "Jarvis: \(GlanceText.approvals(snapshot.pendingApprovals))" }
-        if snapshot.isStale() { return "Jarvis: can’t reach your Mac" }
-        return "Jarvis: " + (GlanceText.code(snapshot) ?? "all quiet")
+        guard let snapshot else { return "Eden Secretary: not paired" }
+        if snapshot.pendingApprovals > 0 { return "Eden Secretary: \(GlanceText.approvals(snapshot.pendingApprovals))" }
+        if snapshot.isStale() { return "Eden Secretary: can’t reach your Mac" }
+        return "Eden Secretary: " + (GlanceText.code(snapshot) ?? "all quiet")
     }
 }
 
@@ -172,10 +172,10 @@ struct InlineGlance: View {
                     Image(systemName: "calendar")
                 }
             } else {
-                Label(snapshot.isStale() ? "Jarvis · Offline" : "Jarvis · All quiet", systemImage: "sparkle")
+                Label(snapshot.isStale() ? "Eden Secretary · Offline" : "Eden Secretary · All quiet", systemImage: "sparkle")
             }
         } else {
-            Label("Jarvis · Pair with your Mac", systemImage: "link")
+            Label("Eden Secretary · Pair with your Mac", systemImage: "link")
         }
     }
 }

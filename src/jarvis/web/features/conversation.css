@@ -1,4 +1,4 @@
-/* JARVIS's own conversation (features/conversation.js): the note under the reply when a
+/* Eden Secretary's own conversation (features/conversation.js): the note under the reply when a
    conversation carries on, the app's notes in the conversation list, and Conversations (a
    dock app): the weather pop-out's glass, as Health & safety has it. Calm and small: the
    conversation itself stays what's read. */
@@ -173,7 +173,7 @@ body[data-look="orb"] .convo-pop {
 .convo-cx-legend b { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
 .convo-cx-note { margin: 0; font-size: 12px; color: var(--muted); }
 
-/* Click to fix what Jarvis heard (features/conversation_heard.js): the transcript under the
+/* Click to fix what Eden Secretary heard (features/conversation_heard.js): the transcript under the
    orb is a quiet button after a spoken request, and becomes a small field when clicked. */
 .heard.heard-fixable { cursor: text; border-radius: 8px; padding: 2px 6px; margin: -2px -6px; }
 .heard.heard-fixable:hover, .heard.heard-fixable:focus-visible { background: var(--chip-hover); color: var(--ink-2); outline: none; }

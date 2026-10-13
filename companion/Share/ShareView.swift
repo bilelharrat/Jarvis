@@ -30,7 +30,7 @@ final class ShareViewController: UIViewController {
     }
 }
 
-/// "Send to Jarvis": what's going, an optional line for Jarvis ("Summarize this"), Send.
+/// "Send to Eden Secretary": what's going, an optional line for Eden Secretary ("Summarize this"), Send.
 struct ShareView: View {
     @Bindable var model: ShareModel
     @FocusState private var noteFocused: Bool
@@ -46,7 +46,7 @@ struct ShareView: View {
                         outcome(symbol: "checkmark.circle.fill", tint: Palette.online, title: "Sent", message: message)
                     case .kept:
                         outcome(symbol: "tray.full.fill", tint: Palette.champagne, title: "Waiting for your Mac",
-                                message: "Your Mac can’t be reached right now. J.A.R.V.I.S. sends this when it’s back, within the hour.")
+                                message: "Your Mac can’t be reached right now. Eden Secretary sends this when it’s back, within the hour.")
                     default:
                         if model.item != nil { form }
                         if case .failed(let message) = model.phase {
@@ -59,7 +59,7 @@ struct ShareView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.1)))
-            .navigationTitle("Send to Jarvis")
+            .navigationTitle("Send to Eden Secretary")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -91,14 +91,14 @@ struct ShareView: View {
     private var form: some View {
         preview
         VStack(alignment: .leading, spacing: Space.s) {
-            Eyebrow("Ask Jarvis to…")
+            Eyebrow("Ask Eden Secretary to…")
             TextField("", text: $model.note, prompt: Text("Nothing: just keep it on my Mac").foregroundStyle(Palette.muted), axis: .vertical)
                 .lineLimit(1...4)
                 .focused($noteFocused)
                 .foregroundStyle(Palette.ink)
                 .padding(Space.m)
                 .glassCard(cornerRadius: 16, tint: noteFocused ? Palette.cyan : .white, strength: noteFocused ? 0.6 : 1)
-                .accessibilityLabel("What Jarvis should do with it")
+                .accessibilityLabel("What Eden Secretary should do with it")
             ScrollView(.horizontal) {
                 HStack(spacing: Space.xs) {
                     ForEach(ShareModel.suggestions, id: \.self) { suggestion in
@@ -118,7 +118,7 @@ struct ShareView: View {
                 .padding(.vertical, 2)
             }
             .scrollIndicators(.hidden)
-            Text("Shared things are kept in Documents › Jarvis › Inbox on your Mac. Jarvis reads them as content, never as instructions.")
+            Text("Shared things are kept in Documents › Eden Secretary › Inbox on your Mac. Eden Secretary reads them as content, never as instructions.")
                 .font(.footnote)
                 .foregroundStyle(Palette.muted)
                 .fixedSize(horizontal: false, vertical: true)

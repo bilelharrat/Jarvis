@@ -1,7 +1,7 @@
 import MessageUI
 import SwiftUI
 
-/// What Jarvis on the iPhone prepared for the owner to finish: a text or email (opened in
+/// What Eden Secretary on the iPhone prepared for the owner to finish: a text or email (opened in
 /// the system composer to look over and send), a call, a link. Nothing goes without a tap.
 struct ActionCards: View {
     let actions: [PhoneAction]

@@ -1,7 +1,7 @@
 import Foundation
 
 /// How a request reaches the paired Mac: straight to its address, or, on the iPhone signed in
-/// to a Jarvis account, through the encrypted relay when that address can't be reached.
+/// to a Eden Secretary account, through the encrypted relay when that address can't be reached.
 /// JarvisAPI asks here before every request, so no caller has to know. Without a router (the
 /// Watch, the widgets, the share extension) every request goes straight, as it always has.
 ///

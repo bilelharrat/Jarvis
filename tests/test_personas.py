@@ -1,6 +1,6 @@
 """The owner's own personas (personas.py): kept beside the built-in three, tidied, bounded,
 with ids that never change, registered so Settings, the system prompt and set_personality
-treat them as they treat JARVIS, TARS and FRIDAY."""
+treat them as they treat Jarvis, TARS and FRIDAY."""
 
 import json
 

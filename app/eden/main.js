@@ -2,12 +2,12 @@
 // J.A.R.V.I.S.'s Mac engine built in. Its own app (bundle id com.askeden.eden.mac, its own
 // userData folder and update feed); it reuses J.A.R.V.I.S.'s pieces, not its window:
 //   - backend-launch.js / backend-share.js: the engine (`jarvis serve`), headless. When
-//     J.A.R.V.I.S. (or Eden Code) already runs it, that one is used; never two engines.
+//     Eden Secretary (or Eden Code) already runs it, that one is used; never two engines.
 //   - update-feed.js / features/updates.js: Squirrel.Mac updates from a feed of its own.
 // The page is untouched. Only macOS window chrome is added: the title bar's drag region (a
 // desktop-only class, html.eden-desktop, injected from here) and the traffic lights' place.
 //
-// "Your Mac" lights up through the engine, as in J.A.R.V.I.S.'s Eden window: the engine holds
+// "Your Mac" lights up through the engine, as in Eden Secretary's Eden window: the engine holds
 // the Mac link to askeden.com (jarvis/eden_link.py) and passes the web's Mac requests to
 // Eden's server on this Mac (model-router-ui, 127.0.0.1:5174), which this app starts when it
 // isn't running.
@@ -249,7 +249,7 @@ async function waitForEngine(port, tries = 120) {
 async function startEngine() {
   if (process.env.ASK_EDEN_NO_ENGINE === '1') return;
   const found = await share.discover(DATA_DIR);
-  if (found) { // J.A.R.V.I.S. or Eden Code runs it already: one engine per Mac
+  if (found) { // Eden Secretary or Eden Code runs it already: one engine per Mac
     engine = { port: found.port, token: found.token, shared: true };
     stopWatching = share.watch(found.port, () => { engine = null; dropApprovalWin(); if (!quitting) startEngine(); });
     watchApprovals();
@@ -265,7 +265,7 @@ async function startEngine() {
   });
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
   how.env.JARVIS_LAUNCHER_PID = String(process.pid);
-  how.env.JARVIS_PROFILE = 'code'; // headless: no microphone until a J.A.R.V.I.S. window joins
+  how.env.JARVIS_PROFILE = 'code'; // headless: no microphone until a Eden Secretary window joins
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port} for ${NAME}\n`);
   const child = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   engine = { port, token, shared: false, child };
@@ -428,7 +428,7 @@ function buildTray() {
     { label: 'Open Ask Eden', click: () => showMain() },
     { type: 'separator' },
     ...(u.state === 'ready' ? [{ label: 'Restart to update', click: () => updater.restart() }] : []),
-    { label: engine ? `Mac engine: ${engine.shared ? 'shared with J.A.R.V.I.S.' : 'running'}` : 'Mac engine: starting…', enabled: false },
+    { label: engine ? `Mac engine: ${engine.shared ? 'shared with Eden Secretary' : 'running'}` : 'Mac engine: starting…', enabled: false },
     { type: 'separator' },
     { label: 'Quit Ask Eden', accelerator: 'CommandOrControl+Q', click: () => { quitting = true; app.quit(); } },
   ]));

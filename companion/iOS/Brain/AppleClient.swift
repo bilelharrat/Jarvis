@@ -156,8 +156,8 @@ struct AppleClient: BrainClient {
         return "\n\nThe conversation so far:\n" + lines.reversed().joined(separator: "\n")
     }
 
-    /// The brief: Jarvis's own for the cloud model (cut to fit), a short one on the iPhone,
-    /// with today's date and the owner's name if Jarvis knows it.
+    /// The brief: Eden Secretary's own for the cloud model (cut to fit), a short one on the iPhone,
+    /// with today's date and the owner's name if Eden Secretary knows it.
     static func brief(_ system: String, roomy: Bool) -> String {
         if roomy { return String(system.prefix(briefRoomy)) }
         let now = Date().formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute())

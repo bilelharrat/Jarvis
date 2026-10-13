@@ -1,4 +1,4 @@
-// Tools & Accounts, for the connectors (jarvis.connector_log): every call Jarvis made in a
+// Tools & Accounts, for the connectors (jarvis.connector_log): every call Eden Secretary made in a
 // connected account (the service, the tool, when, whether it read or changed something, and
 // whether it was done, failed or declined; never what went in or came out), and a note on a
 // connection that needs connecting again to be allowed more (Google Calendar's changes).
@@ -38,7 +38,7 @@
   const empty = el('p', 'empty', 'Nothing yet.');
   group.append(
     el('h3', '', 'Recent activity'),
-    el('p', 'small-status', 'Every call Jarvis makes in your connected accounts: the tool, when, and whether it read or changed something. What was sent and what came back is never kept.'),
+    el('p', 'small-status', 'Every call Eden Secretary makes in your connected accounts: the tool, when, and whether it read or changed something. What was sent and what came back is never kept.'),
     list,
     empty,
   );

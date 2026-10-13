@@ -1,4 +1,4 @@
-// What the built-in browser makes of an address typed in its bar, or one JARVIS asks it to
+// What the built-in browser makes of an address typed in its bar, or one Eden Secretary asks it to
 // open: a web page, a page on this Mac or the local network, a file the user typed, or
 // words for a search (Google unless the owner picked another engine in Settings).
 //
@@ -6,7 +6,7 @@
 //   Mac and the local network (localhost, *.localhost, *.local, IP addresses), which get
 //   http: "localhost:3000", "127.0.0.1:8010", "[::1]:5173", "192.168.1.5".
 // - A name with no dot is a search ("weather"), unless it has a port ("devbox:8080").
-// - file: only when the user typed it themselves (typed: true), never an address JARVIS or a
+// - file: only when the user typed it themselves (typed: true), never an address Eden Secretary or a
 //   page asks for; about:blank either way. javascript:, data: and any other scheme are never
 //   opened: they're searched for, like words.
 //

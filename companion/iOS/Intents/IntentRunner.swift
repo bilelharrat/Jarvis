@@ -1,6 +1,6 @@
 import Foundation
 
-/// What Siri, Shortcuts, Spotlight and the Action Button get from Jarvis: always a short
+/// What Siri, Shortcuts, Spotlight and the Action Button get from Eden Secretary: always a short
 /// sentence to say or show, never an error dialog. Siri waits only so long, so a request
 /// that takes longer carries on on the Mac and its answer lands in the app.
 enum IntentRunner {
@@ -11,9 +11,9 @@ enum IntentRunner {
         var digest: @Sendable () async throws -> Digest
         /// Keeps a request for when the Mac is back.
         var keep: @Sendable (OutboxItem) throws -> Void
-        /// Asks the Mac to open JARVIS (it was quit); true when it's opening.
+        /// Asks the Mac to open Eden Secretary (it was quit); true when it's opening.
         var wake: @Sendable () async -> Bool = { false }
-        /// How long to wait between tries while JARVIS opens.
+        /// How long to wait between tries while Eden Secretary opens.
         var pause: @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) }
 
         /// Through this device's pinned pairing; nil when it isn't paired.
@@ -32,27 +32,27 @@ enum IntentRunner {
 
     /// Siri keeps a spoken request open for about this long.
     static let waitForReply: TimeInterval = 25
-    /// How long to wait for JARVIS to open on the Mac before keeping the request.
+    /// How long to wait for Eden Secretary to open on the Mac before keeping the request.
     static let waitForMac: TimeInterval = 15
     /// What a spoken answer is kept to (the whole reply is in the app).
     static let longestSpoken = 900
 
-    static let notPaired = "Open J.A.R.V.I.S. to pair your Mac or add a Claude or Gemini API key first, or turn on Apple Intelligence."
+    static let notPaired = "Open Eden Secretary to pair your Mac or add a Claude or Gemini API key first, or turn on Apple Intelligence."
 
     /// Answers on the iPhone itself (nil when it can't: no API key and no Apple Intelligence).
     typealias Local = @Sendable (String) async -> String?
 
-    /// Jarvis on the iPhone, for Siri: answers when there's no Mac or it can't be reached.
+    /// Eden Secretary on the iPhone, for Siri: answers when there's no Mac or it can't be reached.
     static let phoneAnswer: Local = { text in
         await MainActor.run { BrainSettings.canAnswer } ? await PhoneAnswer.ask(text) : nil
     }
 
-    /// Asks Jarvis and returns what to say: the reply, or why there isn't one yet.
+    /// Asks Eden Secretary and returns what to say: the reply, or why there isn't one yet.
     /// phoneFirst: the iPhone answers first and the Mac only when it can't (nil: as set in
-    /// Settings › Jarvis on iPhone).
-    static func ask(_ raw: String, client: Client?, local: Local? = nil, phoneFirst: Bool? = nil, stillWorking: String = "Jarvis is still working on that. The answer will be in the app.") async -> String {
+    /// Settings › Eden Secretary on iPhone).
+    static func ask(_ raw: String, client: Client?, local: Local? = nil, phoneFirst: Bool? = nil, stillWorking: String = "Eden Secretary is still working on that. The answer will be in the app.") async -> String {
         let text = raw.trimmed
-        guard !text.isEmpty else { return "What should I ask Jarvis?" }
+        guard !text.isEmpty else { return "What should I ask Eden Secretary?" }
         guard let client else {
             if let local, let reply = await local(text) { return spoken(reply) }
             return notPaired
@@ -71,7 +71,7 @@ enum IntentRunner {
                 return reply.isEmpty ? "Done." : reply
             }
             if !result.approvals.isEmpty {
-                return "Jarvis needs your OK first. It’s waiting on your iPhone."
+                return "Eden Secretary needs your OK first. It’s waiting on your iPhone."
             }
             return stillWorking
         } catch JarvisError.timedOut, JarvisError.connectionLost {
@@ -85,7 +85,7 @@ enum IntentRunner {
         }
     }
 
-    /// JARVIS on the Mac was quit: open it there and ask again once it answers (nil: it
+    /// Eden Secretary on the Mac was quit: open it there and ask again once it answers (nil: it
     /// isn't opening, or didn't come up in time).
     private static func askOnceOpened(_ text: String, client: Client, stillWorking: String) async -> String? {
         guard await client.wake() else { return nil }
@@ -100,7 +100,7 @@ enum IntentRunner {
                     let reply = spoken(result.reply)
                     return reply.isEmpty ? "Done." : reply
                 }
-                return result.approvals.isEmpty ? stillWorking : "Jarvis needs your OK first. It’s waiting on your iPhone."
+                return result.approvals.isEmpty ? stillWorking : "Eden Secretary needs your OK first. It’s waiting on your iPhone."
             } catch let error as JarvisError where error.neverDelivered {
                 continue  // not up yet
             } catch JarvisError.timedOut, JarvisError.connectionLost {
@@ -114,7 +114,7 @@ enum IntentRunner {
 
     static func brief(client: Client?, local: Local? = nil) async -> String {
         if let local, client == nil || BrainSettings.prefersPhone, let reply = await local(AppModel.phoneBriefing) { return spoken(reply) }
-        return await ask("Brief me.", client: client, local: local, phoneFirst: false, stillWorking: "Your briefing is on its way. It’ll be in J.A.R.V.I.S. in a moment.")
+        return await ask("Brief me.", client: client, local: local, phoneFirst: false, stillWorking: "Your briefing is on its way. It’ll be in Eden Secretary in a moment.")
     }
 
     static func whatDidIMiss(client: Client?) async -> String {
@@ -136,7 +136,7 @@ enum IntentRunner {
             switch command {
             case .stop: return "Stopped."
             case .meetingStart: return "Taking meeting notes on your Mac."
-            case .meetingStop: return "Stopped. Jarvis is writing up the notes."
+            case .meetingStop: return "Stopped. Eden Secretary is writing up the notes."
             case .briefing: return "Your briefing is on its way."
             case .runRoutine: return "Started on your Mac."
             }
@@ -158,11 +158,11 @@ enum IntentRunner {
 
     private static func problem(_ error: Error) -> String {
         switch error as? JarvisError {
-        case .unpaired?: return "Your Mac doesn’t know this iPhone anymore. Open J.A.R.V.I.S. to pair again."
-        case .busy?: return "Jarvis is still on your last request. Try again in a moment."
-        case .certificateMismatch?: return "That isn’t your Mac. Open J.A.R.V.I.S. to check."
-        case let known?: return "Jarvis couldn’t do that. \(known.title)."
-        case nil: return "Jarvis couldn’t do that right now."
+        case .unpaired?: return "Your Mac doesn’t know this iPhone anymore. Open Eden Secretary to pair again."
+        case .busy?: return "Eden Secretary is still on your last request. Try again in a moment."
+        case .certificateMismatch?: return "That isn’t your Mac. Open Eden Secretary to check."
+        case let known?: return "Eden Secretary couldn’t do that. \(known.title)."
+        case nil: return "Eden Secretary couldn’t do that right now."
         }
     }
 
@@ -178,7 +178,7 @@ enum IntentRunner {
     }
 }
 
-/// One question to Jarvis on the iPhone, outside the app's conversation (Siri, Shortcuts).
+/// One question to Eden Secretary on the iPhone, outside the app's conversation (Siri, Shortcuts).
 @MainActor
 enum PhoneAnswer {
     private static let brain = LocalBrain()

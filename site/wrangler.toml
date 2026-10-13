@@ -13,6 +13,15 @@ routes = [
   { pattern = "askeden.com/*", zone_name = "askeden.com" },
   { pattern = "www.askeden.com/*", zone_name = "askeden.com" },
   { pattern = "edu.askeden.com", custom_domain = true }, # Eden for Education: forwards to askeden.com/edu (worker.js)
+  # Eden for Education's home:
+  { pattern = "askedenedu.com/*", zone_name = "askedenedu.com" }, # Eden for Education's home (EDU_HOST)
+  { pattern = "www.askedenedu.com/*", zone_name = "askedenedu.com" }, # forwards to askedenedu.com (worker.js)
+  # Eden Code's home:
+  { pattern = "askedencode.com/*", zone_name = "askedencode.com" }, # Eden Code's home (CODE_HOST)
+  { pattern = "www.askedencode.com/*", zone_name = "askedencode.com" }, # forwards to askedencode.com (worker.js)
+  # And once askeden.ai is a zone here too (forwards to askeden.com, worker.js):
+  # { pattern = "askeden.ai/*", zone_name = "askeden.ai" },
+  # { pattern = "www.askeden.ai/*", zone_name = "askeden.ai" },
 ]
 
 [assets]
@@ -24,6 +33,11 @@ run_worker_first = true
 #   npx wrangler secret put FISH_API_KEY
 # and these are the daily allowances in characters (src/worker.js LIMITS has the defaults).
 [vars]
+# Eden for Education at its own address (src/worker.js route): "askedenedu.com", with its routes above;
+# askeden.com/edu and edu.askeden.com then forward to it.
+EDU_HOST = "askedenedu.com"
+# Eden Code at its own address (src/worker.js route): "askedencode.com", with its routes above; askeden.com/eden-code then forwards to it.
+CODE_HOST = "askedencode.com"
 FISH_MODEL = "s2.1-pro-free"  # what the owner's own JARVIS voice uses
 VOICE_DAILY_PER_INSTALL = "20000"
 VOICE_DAILY_PER_NETWORK = "40000"
@@ -57,7 +71,7 @@ MESSENGER_IPHONE_URL = ""
 # EDEN_KIMI = "off" switch one off with its key in place. EDEN_MODELS = "all": every registry
 # model not deprecated. Then the highest effort, the longest reply and conversation, web searches
 # a search turn may make (twice that for research). Model ids are the Model Router's.
-EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5,gpt-6.1-sol,gpt-6-sol,gpt-6-luna,gemini-3.1-pro-preview,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3,kimi-k2.7-code"
+EDEN_MODELS = "claude-opus-5-5,claude-sonnet-5-5,claude-haiku-4-5,gpt-6.1-sol,gpt-6-sol,gpt-6-luna,gemini-4-argon,gemini-3.1-pro-preview,gemini-3.8-flash,gemini-3.5-flash-lite,kimi-k3,kimi-k2.7-code"
 EDEN_MAX_EFFORT = "high"
 EDEN_MAX_TOKENS = "16000"
 EDEN_MAX_INPUT_TOKENS = "150000"

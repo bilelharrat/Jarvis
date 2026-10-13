@@ -1,4 +1,4 @@
-// Jarvis Code's composer, ported from JARVIS V1 (src/jarvis/web/app.js 3434-4609): the
+// Eden Code's composer, ported from JARVIS V1 (src/jarvis/web/app.js 3434-4609): the
 // reactor orb unfolds the control row (right-click pins it), auto-grow to 220px, Enter sends
 // and Shift+Enter breaks a line, attachments (paste, drag and drop, ⌘U), / commands,
 // @ mentions, ? shortcuts, ↑ recall, ⇧Tab mode cycle, ⌘⇧M / ⌘⇧I / ⌘⇧E, Esc in order, the
@@ -27,7 +27,7 @@ let H = {}; // handlers from app.js
 /** The draft changed: the router prices it, and so does EVES (eves.js). */
 function setPreviewText(text) { setRoutePreviewText(text); setEvesDraft(text); }
 
-/* ---------- icons (Jarvis Code's ICON_PATHS) ---------- */
+/* ---------- icons (Eden Code's ICON_PATHS) ---------- */
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ICON_PATHS = {
   ask: ['M5.4 8.4V4.2a1 1 0 0 1 2 0v3.4', 'M7.4 7.4V3.1a1 1 0 0 1 2 0v4.3', 'M9.4 7.5V4.1a1 1 0 0 1 2 0v4.8c0 2.8-1.8 4.6-4.3 4.6-1.6 0-2.6-.7-3.4-2L2.3 9a1 1 0 0 1 1.7-1l1.4 1.6'],
@@ -472,7 +472,7 @@ export function addContext(block) {
   toast(`“${block.title}” goes with your next message`);
 }
 
-/* ---------- menus (Jarvis Code's engine) ---------- */
+/* ---------- menus (Eden Code's engine) ---------- */
 function menuItem(item) {
   if (item === '-') return el('hr');
   if (item.heading) return el('p', { class: 'jc-menu-head', role: 'presentation' }, item.heading);

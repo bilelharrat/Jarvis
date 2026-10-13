@@ -1,6 +1,6 @@
 import Foundation
 
-/// The models Jarvis on the iPhone answers with: Claude and Gemini on the owner's own keys,
+/// The models Eden Secretary on the iPhone answers with: Claude and Gemini on the owner's own keys,
 /// and Apple's (AppleClient), which need no key, for when there's neither a key nor a Mac.
 enum BrainProvider: String, CaseIterable, Identifiable, Sendable {
     case claude

@@ -6,7 +6,7 @@ private let projectFileTypes: [UTType] = [.pdf, .plainText, .text, .rtf, .commaS
 
 // MARK: - This iPhone
 
-/// Projects for Jarvis on this iPhone (ProjectStore): chats kept together, with instructions
+/// Projects for Eden Secretary on this iPhone (ProjectStore): chats kept together, with instructions
 /// and files that go with every request in them.
 struct PhoneProjectsView: View {
     /// Closes the chats sheet (a chat was opened or started).
@@ -26,7 +26,7 @@ struct PhoneProjectsView: View {
                     Label("New Project", systemImage: "folder.badge.plus")
                 }
             } footer: {
-                Text("A project keeps chats together, with instructions and files Jarvis uses in each of them.")
+                Text("A project keeps chats together, with instructions and files Eden Secretary uses in each of them.")
             }
             if !store.projects.isEmpty {
                 Section("Projects") {
@@ -110,7 +110,7 @@ struct PhoneProjectView: View {
                 } header: {
                     Text("Instructions")
                 } footer: {
-                    Text("How Jarvis should answer in this project, and what to keep in mind.")
+                    Text("How Eden Secretary should answer in this project, and what to keep in mind.")
                 }
                 Section("Files") {
                     ForEach(project.files) { file in

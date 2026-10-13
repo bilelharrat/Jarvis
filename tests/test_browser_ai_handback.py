@@ -1,5 +1,5 @@
 """Hand back: at a captcha, a password, card details, a one-time code or a sign-in wall
-JARVIS stops, says it's the owner's turn and waits; "carry on" picks up. It never touches a
+Jarvis stops, says it's the owner's turn and waits; "carry on" picks up. It never touches a
 captcha."""
 
 import asyncio
@@ -158,7 +158,7 @@ async def test_codes_follow_the_owner_s_setting(settings, quiet_speaker, isolate
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     desk, looks, _ = desk_with(hub, {})
     await hub.browser_call("click", {"text": "Go"})
-    assert looks[-1][1]["codes"] is True  # JARVIS may type a code from the owner's mail
+    assert looks[-1][1]["codes"] is True  # Jarvis may type a code from the owner's mail
     hub.set_prefs({"type_codes": False})
     await hub.browser_call("click", {"text": "Go"})
     assert looks[-1][1]["codes"] is False
@@ -202,7 +202,7 @@ async def test_continue_is_carry_on_not_a_scroll_while_one_is_open(
 
 
 def test_the_feature_s_chinese_never_says_the_wake_word():
-    """What JARVIS says in Chinese must never wake it (test_lang checks the core's; these
+    """What Jarvis says in Chinese must never wake it (test_lang checks the core's; these
     join the core's only once a hub has installed the feature)."""
     import re
 

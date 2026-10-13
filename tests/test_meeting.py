@@ -119,7 +119,7 @@ async def test_hub_meeting_mode(settings, quiet_speaker, isolated, tmp_path):
     assert "Taking notes" in reply and hub.prefs.hands_free and hub.meeting is not None
     for line in ["We need the deck by Thursday.", "Ann will own the financials."] * 8:
         await hub._heard.put(line)
-    await hub._heard.put("Jarvis what time is it")  # addressed to JARVIS: not notes
+    await hub._heard.put("Jarvis what time is it")  # addressed to Jarvis: not notes
     # Heard in order: once the last is asked, every line before it is in the notes.
     assert await until(lambda: hub.client is not None and hub.client.said)
     assert len(hub.meeting.lines) == 16 and hub.meeting.words() > 25
@@ -227,7 +227,7 @@ async def test_meeting_speech_that_echoes_the_title_is_kept(
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     hub.meeting = Meeting("budget review", tmp_path)
     hub.turn = {"reply": "Taking notes for the budget review. Everything said is transcribed."}
-    hub._spoke_until = 0  # JARVIS finished talking long ago
+    hub._spoke_until = 0  # Jarvis finished talking long ago
     assert hub._meeting_capture(None, "So the budget review is done")
     assert "budget review is done" in hub.meeting.transcript()
     hub._armed_until = __import__("time").monotonic() + 5  # "Jarvis" … then the question

@@ -1,4 +1,4 @@
-// askeden.com/api/…: Jarvis accounts (docs/accounts.md). The Worker's side: it reads the
+// askeden.com/api/…: Eden Secretary accounts (docs/accounts.md). The Worker's side: it reads the
 // device token, finds the account's Durable Object, and does the parts that talk to the
 // world (Apple's sign-in keys, Apple's push service, Anthropic) itself, so an account's
 // object is never kept busy by a stream.
@@ -100,7 +100,7 @@ export async function api(request, env, ctx) {
   const path = url.pathname.replace(/^\/api/, '').replace(/\/+$/, '');
   const method = request.method;
   try {
-    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Jarvis accounts are not set up here yet.');
+    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden Secretary accounts are not set up here yet.');
     if (path.startsWith('/anthropic/')) return await anthropic(request, env, ctx, path.slice('/anthropic'.length));
     if (path.startsWith('/relay/')) return await relay(request, env, path.slice('/relay/'.length));
     if (path === '/account/apple' && method === 'POST') return json(await signIn(request, env));
@@ -166,7 +166,7 @@ export async function api(request, env, ctx) {
 // accounts/tasks.js): the same decision as Eden's Tasks panel, by the app's own device token. Apps
 // send no Origin; a page can't make this call (no cookie counts here, and an Origin is refused).
 async function taskApproval(request, env, id) {
-  if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the J.A.R.V.I.S. app answers from a notification.');
+  if (request.headers.get('origin')) throw new ApiError(403, 'forbidden', 'Only the Eden Secretary app answers from a notification.');
   const token = auth(request);
   await limited(env, 'API_RATE', token.account);
   const { decision } = await readJson(request, 4096);
@@ -214,7 +214,7 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   // Team spaces and delegations are read first (the account's own object is about to go), erased after.
   const team = env.ACCOUNTS ? await import('./space.js').then((m) => m.teamSnapshot(env, accountId, auth).then((snap) => ({ m, snap }))).catch(() => null) : null;
   const { apple_grant: grant, apple_grants: grants = {}, identities = [], stripe_subscription: stripeSub, published = [], shared = [], appstore_claims: claims = [] } = await call(env, accountId, 'delete', confirm ? { confirm } : {}, auth);
-  // Every Apple grant at once (R2C-13): the J.A.R.V.I.S. app's, and the Eden apps' each with the client id it
+  // Every Apple grant at once (R2C-13): the Eden Secretary app's, and the Eden apps' each with the client id it
   // was issued to (eden/session.js nativeApple). Each call is capped at 5 s and logs its own failure (status
   // and client id only); none holds up or stops the deletion.
   await Promise.allSettled([...(grant ? [revoke(env, grant)] : []), ...Object.entries(grants || {}).map(([clientId, token]) => revoke(env, token, fetch, clientId))]);
@@ -242,7 +242,7 @@ export async function eraseAccount(env, accountId, auth, { confirm = null } = {}
   }
 }
 
-// A new account from an app's own Sign in with Apple (the J.A.R.V.I.S. and Eden iOS apps): no
+// A new account from an app's own Sign in with Apple (the Eden Secretary and Eden iOS apps): no
 // Turnstile there (a native sheet, no page), so it costs NATIVE_NEW_WEIGHT tries of AUTH_RATE
 // on a counter of its own per network: at most 20 / 5 = 4 new accounts a minute from one network,
 // on top of every new account's own `new:` count (docs/web-auth.md "Turnstile").
@@ -385,7 +385,7 @@ async function linkByCode(request, env, rawCode, action, method) {
   if (!code) throw new ApiError(404, 'not_found', "That code isn't one we know. Check it on the Mac.");
   const { device } = await call(env, token.account, 'whoami', {}, token);
   // A browser approves nothing; a Mac approves a browser's sign-in (kind `web`), never a Mac.
-  if (device.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone or Mac.');
+  if (device.kind === 'web') throw new ApiError(403, 'forbidden', 'Approve it in the Eden Secretary app on your iPhone or Mac.');
   const link = (await callLink(env, code, 'peek')).body;
   const web = link.kind === 'web';
   if (!web && device.kind === 'mac') throw new ApiError(403, 'forbidden', 'Approve a Mac from your iPhone.');
@@ -418,7 +418,7 @@ async function linkByCode(request, env, rawCode, action, method) {
 // ── pushes ──
 
 async function push(request, env) {
-  if (!pushReady(env)) throw new ApiError(503, 'not_set_up', 'Notifications through Jarvis accounts are not set up yet.');
+  if (!pushReady(env)) throw new ApiError(503, 'not_set_up', 'Notifications through Eden Secretary accounts are not set up yet.');
   const token = auth(request);
   const accountId = token.account;
   const body = await readJson(request, 64 * 1024);
@@ -492,7 +492,7 @@ async function anthropic(request, env, ctx, path) {
     return anthropicError(404, 'not_found_error', 'Only messages are available here.');
   }
   const token = tokenFrom(request, { apiKey: true });
-  if (!token) return anthropicError(401, 'authentication_error', 'Sign in to your Jarvis account on this device.');
+  if (!token) return anthropicError(401, 'authentication_error', 'Sign in to your Eden Secretary account on this device.');
   let allow;
   try {
     await limited(env, 'API_RATE', token.account);

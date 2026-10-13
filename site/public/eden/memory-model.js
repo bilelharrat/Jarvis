@@ -1,13 +1,13 @@
 // The pure part of Eden's memory hygiene (ROADMAP N11): how old each remembered fact is, in
 // words, and whether it is worth asking "is this still true?". A wrong or outdated fact is
 // handed to later chats as if it were true, so the Memory page shows every fact's age and
-// marks the ones that may have gone stale or that Jarvis worked out itself. No DOM, no fetch
+// marks the ones that may have gone stale or that Eden Secretary worked out itself. No DOM, no fetch
 // and no imports (src/__tests__/memory-staleness.test.ts runs this file as it is; memory.js
 // draws with it). Every function takes `now` so the result is the same on any day.
 //
-// A fact as memory_list gives it (Jarvis, memory.py): { id, text, category, confidence, expires,
+// A fact as memory_list gives it (Eden Secretary, memory.py): { id, text, category, confidence, expires,
 // on, source, origin, learned, changed }. `learned` is when it was first learned and `changed`
-// when it was last edited, switched on or off, or said again; both are ISO times Jarvis wrote
+// when it was last edited, switched on or off, or said again; both are ISO times Eden Secretary wrote
 // without a time zone (the Mac's own clock), or missing.
 //
 // Stale = not touched for as long as facts of its topic stay true, counted from the later of
@@ -17,13 +17,13 @@
 //   work 120 days    (jobs, projects, employers, tools)
 //   preferences 180  (likes and habits drift)
 //   places 180       (where they live, travel, favourite spots)
-//   other 365        (and any topic Jarvis adds later)
+//   other 365        (and any topic Eden Secretary adds later)
 //   people 730       (names, birthdays, who is related to whom: slow to change)
 // Never touched with no usable date (missing, unreadable, or in the future beyond clock skew) =
 // "age unknown", treated as possibly stale. A fact with an end date still ahead (`expires`) is the
-// owner's own time limit: Jarvis drops it that day, so it is not flagged.
+// owner's own time limit: Eden Secretary drops it that day, so it is not flagged.
 //
-// Inferred = Jarvis worked it out or took it from somewhere else, rather than the owner saying it
+// Inferred = Eden Secretary worked it out or took it from somewhere else, rather than the owner saying it
 // or typing it into Settings: noticed, proposed (suggested, then approved), dream (drawn from daily
 // notes, then approved), import and before (provenance not kept) are marked; said and settings are
 // not. A fact synced from the owner's iPhone is not marked: it is the owner's own memory, only its
@@ -125,7 +125,7 @@ export function thresholdWords(days) {
   return y === 1 ? 'a year' : `${y} years`;
 }
 
-/** A topic Jarvis knows, else 'other' (so a topic added later still gets a limit). */
+/** A topic Eden Secretary knows, else 'other' (so a topic added later still gets a limit). */
 export function topicOf(category) {
   const k = typeof category === 'string' ? category.trim().toLowerCase() : '';
   return Object.hasOwn(REVIEW_AFTER_DAYS, k) ? k : 'other';
@@ -155,7 +155,7 @@ function hasFutureEnd(expires, now) {
  *   thresholdDays  the topic's limit; topic: the topic used ('other' for a stray one)
  *   stale          worth asking "is this still true?"; staleReason: 'old' | 'age-unknown' | null
  *   staleWhy       the reason in a sentence for people ('' when not stale)
- *   inferred       Jarvis worked it out rather than the owner saying it; inferredWhy: the sentence
+ *   inferred       Eden Secretary worked it out rather than the owner saying it; inferredWhy: the sentence
  */
 export function assess(fact, now = Date.now()) {
   const t = toNow(now);

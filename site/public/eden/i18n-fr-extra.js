@@ -71,7 +71,7 @@ const DECK_THEME_FR = { glass: 'Liquid Glass', 'glass dark': 'Liquid Glass sombr
 
 export default {
   exact: {
-    // Edu tutor, renamed from J.A.R.V.I.S.
+    // Edu tutor, renamed from Eden Secretary.
     'Talk with Eden': 'Parler avec Eden',
     'Eden speaks on the quickest model, so it answers without a pause.': 'Eden parle avec le modèle le plus rapide, pour répondre sans attendre.',
     // course budget (edu/budget.js)
@@ -382,7 +382,7 @@ export default {
     'Eden puts the file on your Mac back as it was.': 'Eden remet le fichier de votre Mac dans son état précédent.',
     'Eden is waiting for your approval.': 'Eden attend votre accord.',
     'Your reply is ready.': 'Votre réponse est prête.',
-    'Eden is asking “Let Eden use Jarvis?” on your Mac.': `Eden demande «${N}Let Eden use Jarvis?${N}» sur votre Mac.`,
+    'Eden is asking “Let Eden use Eden Secretary?” on your Mac.': `Eden demande «${N}Let Eden use Eden Secretary?${N}» sur votre Mac.`,
     'Share this chat…': 'Partager cette discussion…',
     'A read-only link to the messages you pick': 'Un lien en lecture seule vers les messages choisis',
     'Share a read-only link…': 'Partager un lien en lecture seule…',

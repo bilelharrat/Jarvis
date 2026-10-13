@@ -1,4 +1,4 @@
-// The menu bar icon, drawn in code: a ring (the orb) with what JARVIS is doing inside it.
+// The menu bar icon, drawn in code: a ring (the orb) with what Eden Secretary is doing inside it.
 // Black on transparent, so macOS draws it as a template image (white in a dark menu bar,
 // inverted while its menu is open). One PNG per scale, 18 points square: crisp at 1× and 2×.
 //

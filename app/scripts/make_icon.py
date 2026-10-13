@@ -1,4 +1,4 @@
-"""Draws the J.A.R.V.I.S. app icon (a glowing reactor orb on a dark squircle) as build/icon.icns.
+"""Draws the Eden Secretary app icon (a glowing reactor orb on a dark squircle) as build/icon.icns.
 
 cd app && uv run --project .. python scripts/make_icon.py
 """

@@ -242,7 +242,7 @@ const exact = {
   'Help is busy right now. Try again in a moment.': 'L’Aide est occupée. Réessayez dans un instant.',
   'Help couldn’t answer just now. Try again in a moment.': 'L’Aide n’a pas pu répondre. Réessayez dans un instant.',
 
-  /* --- Jarvis / Mac --- */
+  /* --- Eden Secretary / Mac --- */
   'Eden is not running (no MCP socket or token)': 'Eden ne tourne pas (pas de socket MCP ni de jeton)',
   'Eden reply too large': 'Réponse de Eden trop volumineuse',
   'Eden did not answer in time': 'Eden n’a pas répondu à temps',
@@ -281,7 +281,7 @@ const exact = {
   'It has finished.': 'Elle est terminée.',
   'Resume the task first.': 'Reprenez d’abord la tâche.',
   'Eden was busy with your chats; it tries again in a few minutes.': 'Eden était occupé avec vos discussions ; il réessaiera dans quelques minutes.',
-  'Eden is waiting for you to approve this on your Mac (“Let Eden use Jarvis?”). Once you approve it there, it runs; you don’t need to ask again.': 'Eden attend que vous l’approuviez sur votre Mac (« Laisser Eden utiliser Eden ? »). Une fois approuvé, il s’exécute ; inutile de redemander.',
+  'Eden is waiting for you to approve this on your Mac (“Let Eden use Eden Secretary?”). Once you approve it there, it runs; you don’t need to ask again.': 'Eden attend que vous l’approuviez sur votre Mac (« Laisser Eden utiliser Eden ? »). Une fois approuvé, il s’exécute ; inutile de redemander.',
   'Approve it in the Eden app on your iPhone, or in Eden’s Tasks.': 'Approuvez-la dans l’app Eden sur votre iPhone, ou dans les Tâches d’Eden.',
   'The included AI is not set up on askeden.com yet.': 'L’IA incluse n’est pas encore configurée sur askeden.com.',
 
@@ -297,9 +297,9 @@ const exact = {
   'Nothing to say.': 'Rien à dire.',
   'The Mac voice needs macOS.': 'La voix du Mac nécessite macOS.',
   'Eden isn’t set up on this Mac, so the Mac’s voice reads instead.': 'Eden n’est pas configuré sur ce Mac : la voix du Mac lit à sa place.',
-  'The JARVIS voice isn’t reachable (offline?), so the Mac’s voice reads instead.': 'La voix JARVIS n’est pas joignable (hors ligne ?) : la voix du Mac lit à sa place.',
+  'The Eden Secretary voice isn’t reachable (offline?), so the Mac’s voice reads instead.': 'La voix Eden Secretary n’est pas joignable (hors ligne ?) : la voix du Mac lit à sa place.',
   'No voice is available on this Mac right now.': 'Aucune voix n’est disponible sur ce Mac pour le moment.',
-  'The JARVIS voice is not set up here yet.': 'La voix JARVIS n’est pas encore configurée ici.',
+  'The Eden Secretary voice is not set up here yet.': 'La voix Eden Secretary n’est pas encore configurée ici.',
   'Signed out. Sign in at askeden.com again.': 'Déconnecté. Reconnectez-vous sur askeden.com.',
   'Signed out.': 'Déconnecté.',
   'Unknown install.': 'Installation inconnue.',
@@ -864,7 +864,7 @@ const P = [
   [/^The brief only reads \(not (.+)\)\.$/, 'Le briefing ne fait que lire (pas $1).'],
   [/^Eden answered HTTP (\d+)$/, 'Eden a répondu HTTP $1'],
   [/^Eden couldn’t transcribe that: (.+)$/, 'Eden n’a pas pu transcrire cela : $1'],
-  [/^The JARVIS voice said (\d+), so the Mac’s voice reads instead\.$/, 'La voix JARVIS a répondu $1 : la voix du Mac lit à sa place.'],
+  [/^The Eden Secretary voice said (\d+), so the Mac’s voice reads instead\.$/, 'La voix Eden Secretary a répondu $1 : la voix du Mac lit à sa place.'],
   [/^At most ([\d,]+) characters at a time\.$/, (_m, n) => `${num(n)} caractères à la fois au maximum.`],
   [/^Searching your Mac for “(.+)”$/, 'Recherche de « $1 » sur votre Mac'],
   [/^Reading (.+) to summarise$/, 'Lecture de $1 pour le résumer'],

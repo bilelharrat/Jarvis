@@ -1,7 +1,7 @@
 // The owner's own install (npm run install-app) runs its backend from the repo and has no
 // update feed: what lands in the repo reaches it by itself. Every five minutes this reads the
 // repo's HEAD. When it has moved and nobody would notice (updates.js quietMoment: the Mac idle
-// ten minutes, the window not in front, nothing going in JARVIS), the backend restarts on the
+// ten minutes, the window not in front, nothing going in Eden Secretary), the backend restarts on the
 // new code and the window reloads with the new page. When app/ changed as well, the app
 // rebuilds itself (npm run package, as install-app does), swaps the new copy in and reopens
 // as it was, hidden if it was hidden. A build that fails leaves the running app as it is.

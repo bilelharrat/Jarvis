@@ -2,7 +2,7 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-/// "Show Jarvis": take a photo (or pick one, a screenshot too) and ask about it. The photo goes to the Mac only when you
+/// "Show Eden Secretary": take a photo (or pick one, a screenshot too) and ask about it. The photo goes to the Mac only when you
 /// send it (POST /api/photo), as a silent request there; the reply shows here (and is
 /// spoken, when spoken replies are on).
 struct ShowJarvisView: View {
@@ -48,7 +48,7 @@ struct ShowJarvisView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(SpaceBackground(glow: UnitPoint(x: 0.5, y: -0.1)))
-        .navigationTitle("Show Jarvis")
+        .navigationTitle("Show Eden Secretary")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if photo != nil {
@@ -85,7 +85,7 @@ struct ShowJarvisView: View {
             Image(systemName: "camera.viewfinder")
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(Palette.ice)
-            Text("Take a photo or pick one, then ask Jarvis about it.")
+            Text("Take a photo or pick one, then ask Eden Secretary about it.")
                 .font(.system(.title3, design: .serif).weight(.medium))
                 .foregroundStyle(Palette.ink)
                 .multilineTextAlignment(.center)
@@ -119,7 +119,7 @@ struct ShowJarvisView: View {
                         .frame(minHeight: 48)
                 }
                 .buttonStyle(GlassButtonStyle(tint: Palette.cyan))
-                .accessibilityHint("Shows the camera live; one frame goes to Jarvis each time you ask.")
+                .accessibilityHint("Shows the camera live; one frame goes to Eden Secretary each time you ask.")
             }
         }
         .padding(Space.l)
@@ -141,7 +141,7 @@ struct ShowJarvisView: View {
             } label: {
                 HStack(spacing: Space.xs) {
                     if phase == .sending { ProgressView().tint(Palette.onAction) }
-                    Text(phase == .sending ? "Asking…" : "Ask Jarvis")
+                    Text(phase == .sending ? "Asking…" : "Ask Eden Secretary")
                 }
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 52)
@@ -187,8 +187,8 @@ struct ShowJarvisView: View {
     }
 }
 
-/// One picture asked about, from Show Jarvis or its live view: Jarvis on the Mac looks at
-/// it (POST /api/photo), or Jarvis on the iPhone when it's the one answering (no Mac, or it
+/// One picture asked about, from Show Eden Secretary or its live view: Eden Secretary on the Mac looks at
+/// it (POST /api/photo), or Eden Secretary on the iPhone when it's the one answering (no Mac, or it
 /// can't be reached). The answer is spoken when spoken replies are on.
 @MainActor
 enum PhotoQuestion {
@@ -214,8 +214,8 @@ enum PhotoQuestion {
                 return .answered(result.reply)
             }
             model.expectActivity()
-            if !result.approvals.isEmpty { return .note("Jarvis needs your OK first. The card is on the main screen.") }
-            return .note("Jarvis is still working on it. The answer will be in the conversation.")
+            if !result.approvals.isEmpty { return .note("Eden Secretary needs your OK first. The card is on the main screen.") }
+            return .note("Eden Secretary is still working on it. The answer will be in the conversation.")
         } catch {
             Haptics.failure()
             guard let problem = model.handle(error) else { return .idle }
@@ -223,7 +223,7 @@ enum PhotoQuestion {
         }
     }
 
-    /// Jarvis on the iPhone looks at it.
+    /// Eden Secretary on the iPhone looks at it.
     private static func askPhone(about photo: UIImage, _ question: String, model: AppModel) async -> ShowJarvisView.Phase {
         guard let jpeg = PhotoPrep.jpeg(from: photo, longest: 1568, maxBytes: 4 * 1024 * 1024) else {
             return .failed("Couldn’t prepare that photo.")
@@ -234,7 +234,7 @@ enum PhotoQuestion {
             return .answered(reply)
         }
         Haptics.failure()
-        return .failed(model.brain.turns.last?.text ?? "Jarvis couldn’t look at it right now.")
+        return .failed(model.brain.turns.last?.text ?? "Eden Secretary couldn’t look at it right now.")
     }
 }
 

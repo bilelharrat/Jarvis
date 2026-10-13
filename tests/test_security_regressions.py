@@ -22,7 +22,7 @@ def page_at(hub, url, title="A page"):
     async def raw(action, args=None):
         seen.append(action)
         if url is None:
-            return {"error": "The built-in browser is only in the J.A.R.V.I.S. app window."}
+            return {"error": "The built-in browser is only in the Jarvis app window."}
         return {"url": url, "title": title, "text": ""} if action == "read" else {"ok": True}
 
     hub._browser_raw = raw
@@ -411,8 +411,8 @@ def test_the_new_cards_read_in_chinese():
 async def test_the_gate_weighs_jarvis_s_own_tab_not_the_one_on_show(
     settings, quiet_speaker, isolated
 ):
-    """JARVIS works in a tab of its own for the rest of a request. With the owner looking
-    at a site they named in the tab on show, typing private data into JARVIS's own tab on
+    """Jarvis works in a tab of its own for the rest of a request. With the owner looking
+    at a site they named in the tab on show, typing private data into Jarvis's own tab on
     another site must still ask: the gate reads the tab the typing lands in."""
     hub = await started(
         settings, quiet_speaker, isolated, said="summarize my inbox and check docs.example.com"
@@ -754,7 +754,7 @@ def _url_cases():
 
 
 def test_browser_address_reads_addresses_as_the_window_does():
-    """brain.browser_address and app/url-input.js agree on every case JARVIS could ask
+    """brain.browser_address and app/url-input.js agree on every case Jarvis could ask
     for (tests/web/urlinput.test.mjs runs the same cases against the window's side)."""
     cases = _url_cases()
     assert len(cases) > 30
@@ -1081,7 +1081,7 @@ def test_the_hub_gives_the_purchase_guard_its_rates(settings, quiet_speaker, iso
     assert hub.fx.enabled is False  # poll off: never the network
 
 
-# ── 7. someone you told JARVIS about counts like a contact ──
+# ── 7. someone you told Jarvis about counts like a contact ──
 
 
 def test_people_in_memory_are_matched_by_address_number_or_full_name():

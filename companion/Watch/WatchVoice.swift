@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// Replies spoken on the wrist, in JARVIS's own voice when the Mac can make it
+/// Replies spoken on the wrist, in Eden Secretary's own voice when the Mac can make it
 /// (POST /api/say, a WAV), else the Watch's own voice in the reply's language. Only replies
 /// to what was asked here, only while the app is frontmost, and only with Speak replies on.
 /// No model calls: the Mac renders the voice, the Watch only plays it.

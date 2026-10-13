@@ -1,6 +1,6 @@
-// WhatsApp for Jarvis: the owner's own account, linked as one of its devices the way WhatsApp
+// WhatsApp for Eden Secretary: the owner's own account, linked as one of its devices the way WhatsApp
 // Web is (on the phone: Settings → Linked devices). Run by src/jarvis/features/whatsapp.py,
-// one per Jarvis, it speaks JSON lines: events on stdout, requests on stdin ({req, type, …},
+// one per Eden Secretary, it speaks JSON lines: events on stdout, requests on stdin ({req, type, …},
 // each answered by {type: "result", req, ok, …}). It ends when stdin does.
 //
 //   node bridge.mjs <auth folder>
@@ -9,12 +9,12 @@
 // replaced | link_expired, me?, code?}, chats {chats, update?}, contacts {contacts},
 // lids {map: [[lid, pn]…]}, messages {messages, live}.
 // Requests: send {to, text}, send_file {to, path, name, mimetype, caption}, check {phone},
-// logout. A message Jarvis sends gets an id made here first, and each message of its own
+// logout. A message Eden Secretary sends gets an id made here first, and each message of its own
 // comes back marked jarvis: true, so its chat channel never reads its own words as the owner's.
 //
-// Jarvis stays offline on the account (markOnlineOnConnect: false), so the phone keeps
+// Eden Secretary stays offline on the account (markOnlineOnConnect: false), so the phone keeps
 // getting its notifications. Nothing here reads a message aloud or sends one on its own:
-// every send is a request from Jarvis, after the owner said yes to its exact text.
+// every send is a request from Eden Secretary, after the owner said yes to its exact text.
 
 import makeWASocket, {
   Browsers,
@@ -44,7 +44,7 @@ function out(event) {
   process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
-const own = new Set(); // ids of what Jarvis sent, newest last
+const own = new Set(); // ids of what Eden Secretary sent, newest last
 function ours(id) {
   own.add(id);
   while (own.size > 500) own.delete(own.values().next().value);

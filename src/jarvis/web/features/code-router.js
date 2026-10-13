@@ -19,7 +19,7 @@
 //   order, at most ROUTE_WAIT_SECONDS) for {type: 'model_router_route', token, route?}, sent
 //   here once this text's rating is in (no route: keep the message's own). No key, today's
 //   cap, Google unreachable: the rules alone for a while, and nothing waits.
-// - Every route also says what Jarvis knows of the session (model_router_state from the
+// - Every route also says what Eden Secretary knows of the session (model_router_state from the
 //   backend): its context size, agentic calls per message, its current model (stickiness),
 //   Claude as plan quota and how much of the plan is used, interactive (voice) latency, the
 //   learned overrides, and the month's budget (past 80% the router leans cheaper). A route
@@ -186,7 +186,7 @@
     try { const m = JSON.parse(String(body || '')).error.message; return typeof m === 'string' ? m : ''; } catch { return ''; }
   }
 
-  // What Jarvis knows of the session, as the router takes it (CONTRACT §1 RouteExtras): its
+  // What Eden Secretary knows of the session, as the router takes it (CONTRACT §1 RouteExtras): its
   // context so far (D3), model calls per message (D4), its current model (D5 stickiness),
   // Claude as plan quota (D8) and the plan's use (D9), interactive and voice latency (D20).
   // state: the backend's model_router_state; task: the session (null: a new one). sticky
@@ -378,7 +378,7 @@
       });
       let body;
       try { body = JSON.parse(init.body); } catch { body = null; }
-      if (!F.send({ type: 'model_router_classify', rid, model: m[1], body })) { classifying.delete(rid); reject(new Error('Jarvis isn’t connected.')); }
+      if (!F.send({ type: 'model_router_classify', rid, model: m[1], body })) { classifying.delete(rid); reject(new Error('Eden Secretary isn’t connected.')); }
     });
   }
   F.on('model_router_classified', (ev) => {
@@ -408,7 +408,7 @@
   }
 
   // The route body for a prompt: the settings (the session's project defaults over them, and
-  // the budget's lean) and what Jarvis knows of the session.
+  // the budget's lean) and what Eden Secretary knows of the session.
   function bodyFor(text, s, t, more = {}) {
     const boost = budgetBoost(state);
     const extras = extrasFor(t, s, state, { sticky: isOn() });
@@ -442,9 +442,9 @@
   function call(op, args = {}, ms = 15000) {
     return new Promise((resolve, reject) => {
       const rid = `mc${++seq}`;
-      const timer = setTimeout(() => { calls.delete(rid); reject(new Error('Jarvis didn’t answer.')); }, ms);
+      const timer = setTimeout(() => { calls.delete(rid); reject(new Error('Eden Secretary didn’t answer.')); }, ms);
       calls.set(rid, (ev) => { clearTimeout(timer); if (ev.ok) resolve(ev.data); else reject(new Error(ev.error || 'That didn’t work.')); });
-      if (!F.send({ type: 'model_router_call', rid, op, ...args })) { clearTimeout(timer); calls.delete(rid); reject(new Error('Jarvis isn’t connected.')); }
+      if (!F.send({ type: 'model_router_call', rid, op, ...args })) { clearTimeout(timer); calls.delete(rid); reject(new Error('Eden Secretary isn’t connected.')); }
     });
   }
 

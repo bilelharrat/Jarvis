@@ -1,4 +1,4 @@
-// jarvis-axprobe: what JARVIS's mouse and keyboard are about to press, through the Mac's
+// jarvis-axprobe: what Eden Secretary's mouse and keyboard are about to press, through the Mac's
 // accessibility interface, as one line of JSON.
 //
 //   jarvis-axprobe focus         the app in front, its window's title, and the focused
@@ -10,7 +10,7 @@
 // Read-only: it never performs an action or changes a value. Each element is described by
 // its role, subrole, title, description, help, identifier and value (cut short), and
 // whether its value can be set (a text box). "trusted" says whether this Mac lets the app
-// running JARVIS read other apps at all (Accessibility): without it, nothing but the app's
+// running Eden Secretary read other apps at all (Accessibility): without it, nothing but the app's
 // name comes back.
 
 import AppKit

@@ -2,7 +2,7 @@ import XCTest
 @testable import JarvisCompanion
 
 /// Voice mode: replies spoken sentence by sentence as they're written, and the owner told
-/// apart from Jarvis's own voice coming back through the microphone.
+/// apart from Eden Secretary's own voice coming back through the microphone.
 final class VoiceModeTests: XCTestCase {
     func testFinishedSentencesAreSpokenAsTheyCome() {
         var (pieces, next) = VoicePlayer.sentences(in: "The weather today is sunny. Highs of", from: 0, final: false)

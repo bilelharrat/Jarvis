@@ -724,7 +724,7 @@ test('Bookmarks renamed and filed; a folder renamed; another browser’s brought
   assert(parity.importData({ label: '', bookmarks: [] }) === null && parity.importData({ label: 'x'.repeat(200) }) === null, 'an import without its folder’s name went through');
 });
 
-test('A PDF shows in Chromium’s viewer; JARVIS reads it through the tab’s own sign-in, and only its own reads carry the file', async () => {
+test('A PDF shows in Chromium’s viewer; Eden Secretary reads it through the tab’s own sign-in, and only its own reads carry the file', async () => {
   const view = newTab();
   active = view;
   await view.webContents.loadURL(`${base}/signin`);
@@ -859,7 +859,7 @@ test('A private tab keeps nothing: its own cookies, no visits, no session, no zo
   assert(!(await inProfile(session.fromPartition(PRIVATE_PARTITION))).includes('secret'), 'the private cookie outlived the last private tab');
 });
 
-test('JARVIS browses signed out when the owner says: its own tabs in a profile of their own', async () => {
+test('Eden Secretary browses signed out when the owner says: its own tabs in a profile of their own', async () => {
   assert(JSON.stringify(parity.agentTab('jarvis')) === '{}', 'signed out without the owner choosing it');
   parity.settings({ agentProfile: true });
   assert(parity.hello().agentProfile === true, 'the setting did not stick');
@@ -869,11 +869,11 @@ test('JARVIS browses signed out when the owner says: its own tabs in a profile o
   await page(own, `document.cookie = 'owner=signed-in; path=/'; 1`);
   const agent = newTab(parity.agentTab('jarvis'));
   agent.agentOwner = 'jarvis';
-  assert(agent.agentProfile === true && parity.tabInfo(agent).agentProfile === true, 'not marked as JARVIS’s profile');
+  assert(agent.agentProfile === true && parity.tabInfo(agent).agentProfile === true, 'not marked as Eden Secretary’s profile');
   await agent.webContents.loadURL(`${base}/other`);
   const owners = await session.fromPartition(PARTITION).cookies.get({ url: base });
   const mine = await session.fromPartition(AGENT_PARTITION).cookies.get({ url: base });
-  assert(owners.some((c) => c.name === 'owner') && mine.length === 0, `the owner’s cookies reached JARVIS’s profile: ${mine.map((c) => c.name)} (owner’s: ${owners.map((c) => c.name)})`);
+  assert(owners.some((c) => c.name === 'owner') && mine.length === 0, `the owner’s cookies reached Eden Secretary’s profile: ${mine.map((c) => c.name)} (owner’s: ${owners.map((c) => c.name)})`);
   assert((await page(agent, 'navigator.userAgent')).includes('Chrome/') && !(await page(agent, 'navigator.userAgent')).includes('Electron'), 'its user agent');
   parity.sessionNow();
   assert(!parity.state().session.tabs.some((t) => t === agent), 'kept');

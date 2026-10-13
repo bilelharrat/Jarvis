@@ -1,5 +1,5 @@
 // Hosted Eden: the website ↔ server contract (docs/chat-api.md in the Model Router repo) for
-// what can run without the owner's Mac, on askeden.com, for a browser signed in to a Jarvis
+// what can run without the owner's Mac, on askeden.com, for a browser signed in to a Eden Secretary
 // account (session.js):
 //
 //   GET  /api/chat/meta          the models the asker has keys for (providers.js); the rest "needs your Mac"
@@ -16,7 +16,7 @@
 // conversation and its settings. Each turn needs allowance left (Plus, or the trial), and
 // counts what it cost at list prices, a stopped turn included.
 //
-// Jarvis (notes, memory, calendar, mail), Code mode and its projects live on the Mac: while
+// Eden Secretary (notes, memory, calendar, mail), Code mode and its projects live on the Mac: while
 // the owner's Mac holds its link to askeden.com (accounts/webrelay.js, "Eden web relay" in
 // docs/accounts.md) those requests go through to Eden on it and stream back; otherwise they
 // answer 503 "Your Mac is offline" (a Mac is linked) or "needs your Mac" (none is). Adding
@@ -81,7 +81,7 @@ const rank = (level) => EFFORTS.indexOf(level);
 export const DEFAULT_MODELS = [
   'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5',
   'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna',
-  'gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.5-flash-lite',
+  'gemini-4-argon', 'gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.5-flash-lite',
   'kimi-k3', 'kimi-k2.7-code',
 ];
 export const DEFAULTS = {
@@ -100,7 +100,7 @@ const PING_MS = 15_000;
 const PREMISE_NOTE_TOKENS = 700; // the assumption check's note to the model, at most (held for before it runs)
 
 export const NEEDS_MAC =
-  'Needs your Mac. On askeden.com, Eden runs Claude on your Jarvis account; this part runs through Eden on your Mac, which askeden.com can’t reach yet.';
+  'Needs your Mac. On askeden.com, Eden runs Claude on your Eden Secretary account; this part runs through Eden on your Mac, which askeden.com can’t reach yet.';
 
 const KEY_ON_MAC = 'Needs your Mac (its API key stays there)';
 // Acting for someone (a delegate, a team space): the owner's Mac is theirs, never reached from here.
@@ -125,9 +125,9 @@ export const ACTING_NO_MAC = 'Not while you’re using someone else’s Eden: th
 // Privacy mode (G9) keeps a turn on the owner's Mac, on a local model: askeden.com never answers
 // one itself. With the Mac's link up it goes there (privateTurn below), else one of these.
 export const PRIVACY_NEEDS_MAC =
-  'Privacy mode needs your Mac: a private chat is answered by a local model on your Mac, and no Mac is linked to your account. Nothing was sent. Link one in J.A.R.V.I.S. on it (Settings › Account), or turn privacy off for this chat.';
+  'Privacy mode needs your Mac: a private chat is answered by a local model on your Mac, and no Mac is linked to your account. Nothing was sent. Link one in Eden Secretary on it (Settings › Account), or turn privacy off for this chat.';
 export const PRIVACY_MAC_OFFLINE =
-  'Your Mac is offline: privacy mode needs it. Nothing was sent. Open J.A.R.V.I.S. on your Mac (with Eden running there) and try again, or turn privacy off for this chat.';
+  'Your Mac is offline: privacy mode needs it. Nothing was sent. Open Eden Secretary on your Mac (with Eden running there) and try again, or turn privacy off for this chat.';
 const PRIVACY_COMPARE =
   'Compare in privacy mode runs only in Eden on your Mac, with its local models side by side. Nothing was sent. Turn privacy off for this chat to compare Claude models here.';
 
@@ -294,7 +294,8 @@ export function parseSend(body, cfg) {
     if (!isObj(c) || typeof c.text !== 'string') bad(`context ${i + 1} must be { title, text }`);
     const title = typeof c.title === 'string' ? c.title.slice(0, 300) : `Context ${i + 1}`;
     const hidden = typeof c.hidden === 'number' && c.hidden > 0 ? Math.min(Math.floor(c.hidden), 10_000) : undefined;
-    return { title, text: ledger.untrusted(contextKind(c.source ?? c.kind, title), c.text, { title, hidden, origin: typeof c.origin === 'string' ? c.origin.slice(0, 300) : undefined }), wrapped: true };
+    const kind = contextKind(c.source ?? c.kind, title);
+    return { title, text: ledger.untrusted(kind, c.text, { title, hidden, origin: typeof c.origin === 'string' ? c.origin.slice(0, 300) : undefined, ...(kind === 'recall' ? { skip: ['addressed-to-ai'] } : {}) }), wrapped: true };
   });
   if (mode !== 'chat') ledger.mark('search', mode === 'research' ? 'Web research results' : 'Web search results');
   return {
@@ -448,7 +449,7 @@ export function checksMeta(cfg) {
 
 // ── the Mac's part, through its link (accounts/webrelay.js) ──
 
-const STATUS_WAIT_MS = 8_000; // meta and the Jarvis status don't wait long for the Mac
+const STATUS_WAIT_MS = 8_000; // meta and the Eden Secretary status don't wait long for the Mac
 
 /** A Mac-only route, answered by Eden on the owner's Mac; "offline" / "needs your Mac" without it. */
 async function viaMac(request, env, ctx, who, opts = {}) {
@@ -456,14 +457,14 @@ async function viaMac(request, env, ctx, who, opts = {}) {
   const target = url.pathname + url.search;
   if (!macRoute(request.method, target)) return needsMac();
   try {
-    return await askMacBy(request, env, ctx, who, target, opts); // the page's `x-eden-wait`, if it sends one (202 while Jarvis's card waits)
+    return await askMacBy(request, env, ctx, who, target, opts); // the page's `x-eden-wait`, if it sends one (202 while Eden Secretary's card waits)
   } catch (error) {
     if (error instanceof ApiError && error.code === 'needs_mac') return needsMac();
     throw error;
   }
 }
 
-/** GET /api/chat/jarvis/status: Jarvis on the Mac, as the Mac sees it; else why not. */
+/** GET /api/chat/jarvis/status: Eden Secretary on the Mac, as the Mac sees it; else why not. */
 async function jarvisStatus(request, env, ctx, who, known = null) {
   const mac = known || (await macStatus(env, who));
   if (!mac.online) return { available: false, reason: mac.macs ? MAC_OFFLINE : NEEDS_MAC };
@@ -507,7 +508,7 @@ async function localModels(request, env, ctx, who, known = null) {
   }
 }
 
-/** meta, with Jarvis, Code and privacy mode's local models as the Mac has them while it's online. */
+/** meta, with Eden Secretary, Code and privacy mode's local models as the Mac has them while it's online. */
 async function withMac(m, request, env, ctx, who) {
   if (who.grant) {
     m.jarvis = m.code = { available: false, reason: ACTING_NO_MAC };
@@ -571,7 +572,7 @@ async function gate(request, env, { header = true, audio = false, video = false 
 
 export async function chatApi(request, env, ctx, path) {
   try {
-    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Jarvis accounts are not set up here yet.');
+    if (!env.ACCOUNTS || !env.LINKS) throw new ApiError(503, 'not_set_up', 'Eden Secretary accounts are not set up here yet.');
     let cfg = hostedConfig(env);
     if (path === '/api/route') {
       if (request.method !== 'POST') throw new ApiError(405, 'bad_request', 'POST a JSON body to /api/route');
@@ -871,7 +872,7 @@ function routeEvent(result, choice, { rationale, notes = [], override = false, i
     })),
     fallbacks: (result.fallbacks || []).filter((f) => f.model !== choice.model).slice(0, 3).map((f) => ({ model: f.model, effort: f.effort })),
     warnings: result.pick.warnings || [],
-    notes: [...(result.notes || []), ...notes, ...(info ? info.notes : []), own ? 'on askeden.com: your own API key (not counted on your included AI)' : 'on askeden.com: your Jarvis account’s included AI'],
+    notes: [...(result.notes || []), ...notes, ...(info ? info.notes : []), own ? 'on askeden.com: your own API key (not counted on your included AI)' : 'on askeden.com: your Eden Secretary account’s included AI'],
     where: computedWhere(provider),
     ...(own ? { ownKey: true } : {}),
     ...routeInfo(info),
@@ -931,7 +932,7 @@ async function send(request, env, ctx, who, cfg) {
   if (lockedPick && !inCourse && !who.grant && (await macStatus(env, who)).online) return await viaMacTurn(request, env, ctx, who, raw);
   if (lockedPick) throw new ApiError(422, 'needs_key', `${CLAUDE_NEEDS_KEY}.`);
   if (!cfg.models.length) throw new ApiError(503, 'not_set_up', 'No models are set up on askeden.com.');
-  // J.A.R.V.I.S. tutoring out loud (edu tutor.js): every turn on the quickest model there is, at its lowest
+  // Eden Secretary tutoring out loud (edu tutor.js): every turn on the quickest model there is, at its lowest
   // effort, and no rating call before it; a spoken turn is short, and waiting is what makes it feel like a machine.
   let autoPick = null; // the model chosen here for this kind of turn (not by the person, not by the router)
   if (inCourse && raw.courseTask === 'tutor' && !isObj(raw.override)) {
@@ -961,7 +962,7 @@ async function send(request, env, ctx, who, cfg) {
   const prevUser = body.messages.slice(0, -1).reverse().find((m) => m.role === 'user');
   const lastMsg = body.messages[body.messages.length - 1];
   const question = typeof lastMsg.content === 'string' ? lastMsg.content : messageText(lastMsg);
-  const task = inCourse && ['quiz', 'set', 'tutor'].includes(raw.courseTask) ? raw.courseTask : null; // a practice quiz, a study set (JSON), or J.A.R.V.I.S. tutoring out loud
+  const task = inCourse && ['quiz', 'set', 'tutor'].includes(raw.courseTask) ? raw.courseTask : null; // a practice quiz, a study set (JSON), or Eden Secretary tutoring out loud
   const grounding = inCourse
     ? await courseForTurn(env, who, raw.course, task === 'quiz' || task === 'set' ? String(raw.topic || '').slice(0, 300) : `${messageText(lastMsg)}\n${prevUser ? messageText(prevUser) : ''}`, { task, summary, focus: raw.focus, ranges: raw.ranges, wrap: (p) => body.ledger.untrusted('file', p.text, { title: `Course material: ${p.name} · ${p.loc}` }) }) // H8: outside content; focus: "Explain this page", ranges: an exam plan's day (Q8)
     : filesForTurn(lastMsg, question); // M2: the user's own attached files, checked the same way
@@ -1253,31 +1254,48 @@ async function send(request, env, ctx, who, cfg) {
         outcome = await attempt(first, firstPlan);
       } catch (error) {
         if (abort.signal.aborted) return;
-        // The router's next choice, on any provider this asker has; after one on their own key, only their own keys.
-        const next = body.override ? null : (result.fallbacks || []).find((f) => f.model !== first.model && cfg.models.some((m) => m.id === f.model && (firstMetered || !metered(cfg.keys, m.provider))));
-        if (!(error instanceof TurnFailed) || error.textSeen || !next) {
+        // The router's next choices, on any provider this asker has; after one on their own key, only their own keys.
+        const nexts = body.override ? [] : (result.fallbacks || []).filter((f) => f.model !== first.model && cfg.models.some((m) => m.id === f.model && (firstMetered || !metered(cfg.keys, m.provider)))).slice(0, 3);
+        if (!(error instanceof TurnFailed) || error.textSeen || !nexts.length) {
           write('error', { message: error.message });
           return;
         }
-        // One retry on the router's next choice, as Eden on the Mac does (D10).
-        write('fallback', { from: { model: first.model, effort: first.effort }, reason: error.message });
-        const second = choose(next.model, next.effort);
-        if (roomFor && (requestMaxOutputTokens(second.request) || 0) < roomFor) second.request = withMaxOutputTokens(second.request, Math.min(roomFor, cfg.maxTokens));
-        write('route', routeEvent(result, second, { rationale: `Fallback: ${first.name} failed before answering (${error.message}).`, cfg }));
-        try {
-          // Within what the turn holds, less what the first attempt cost; a pricier model holds more.
-          let secondPlan;
+        // Retries down the router's ranked choices (up to three) until one answers (D10).
+        let failed = first;
+        let failure = error;
+        const earlier = [`${first.name}: ${error.message}`];
+        outcome = null;
+        for (const next of nexts) {
+          write('fallback', { from: { model: failed.model, effort: failed.effort }, reason: failure.message });
+          const second = choose(next.model, next.effort);
+          if (roomFor && (requestMaxOutputTokens(second.request) || 0) < roomFor) second.request = withMaxOutputTokens(second.request, Math.min(roomFor, cfg.maxTokens));
+          write('route', routeEvent(result, second, { rationale: `Fallback: ${failed.name} failed before answering (${failure.message}).`, cfg }));
           try {
-            secondPlan = fit(second, firstPlan.worstUSD - charged);
-          } catch {
-            secondPlan = fit(second, allow.left - firstPlan.worstUSD - ratingUSD - checksUSD);
-            const more = await call(env, who.account, 'hold-ai', { eden: true, usd: secondPlan.worstUSD }, who.token);
-            if (!more.ok) throw new ApiError(402, 'no_allowance', more.why);
-            extraHolds.push(more);
+            // Within what the turn holds, less what the attempts so far cost; a pricier model holds more.
+            let secondPlan;
+            try {
+              secondPlan = fit(second, firstPlan.worstUSD - charged);
+            } catch {
+              secondPlan = fit(second, allow.left - firstPlan.worstUSD - ratingUSD - checksUSD);
+              const more = await call(env, who.account, 'hold-ai', { eden: true, usd: secondPlan.worstUSD }, who.token);
+              if (!more.ok) throw new ApiError(402, 'no_allowance', more.why);
+              extraHolds.push(more);
+            }
+            outcome = await attempt(second, secondPlan);
+            break;
+          } catch (again) {
+            if (abort.signal.aborted) return;
+            if (!(again instanceof TurnFailed) || again.textSeen) {
+              write('error', { message: again.message });
+              return;
+            }
+            earlier.push(`${second.name}: ${again.message}`);
+            failed = second;
+            failure = again;
           }
-          outcome = await attempt(second, secondPlan);
-        } catch (again) {
-          if (!abort.signal.aborted) write('error', { message: `${second.name} failed too: ${again.message} (first: ${first.name}: ${error.message})` });
+        }
+        if (!outcome) {
+          write('error', { message: `${failed.name} failed too: ${failure.message} (earlier: ${earlier.slice(0, -1).join('; ')})` });
           return;
         }
       }
@@ -1461,7 +1479,7 @@ const laneInfo = (l, lane) => {
   const provider = l.provider || modelOf(l.model).provider;
   return { lane, model: l.model, modelName: l.name, provider, effort: l.effort, effortLabel: effortLabel(l.effort), via: 'api', where: computedWhere(provider), costUSD: typeof l.costUSD === 'number' ? l.costUSD : null, quality: typeof l.quality === 'number' ? round1(l.quality) : null, latencyS: l.latencyS };
 };
-const COMPARE_NOTE = 'on askeden.com: each lane on its provider, counted on your Jarvis account’s included AI (your own keys aren’t)';
+const COMPARE_NOTE = 'on askeden.com: each lane on its provider, counted on your Eden Secretary account’s included AI (your own keys aren’t)';
 
 /** POST /api/chat/compare/estimate: the lanes, the summary and their sum before sending (rules only). */
 export function compareEstimate(raw, cfg) {

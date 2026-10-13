@@ -19,7 +19,7 @@ With no key set, signed_in() changes nothing: the owner's own login works as it 
 It acts only once activate() has named the running backend's hub (the feature does, as the
 app's hub is made, before its first connection; never for a test's hub).
 
-Jarvis Plus (account.py): a Mac linked to a Jarvis account runs Claude Code through
+Eden Plus (account.py): a Mac linked to a Jarvis account runs Claude Code through
 askeden.com's Anthropic-compatible proxy, whose own key and the account's allowance pay,
 when the owner chose that in Settings (it then comes before an API key), or when JARVIS has
 no other way in (no API key, and Claude Code isn't signed in to a Claude account). Those runs
@@ -40,7 +40,7 @@ from typing import Any
 PREF = "claude_signin"  # the provider holding the key JARVIS signs in with ("": the account)
 KIND = "anthropic"
 PLUS_BASE = "https://askeden.com/api/anthropic"
-PLUS_CACHE = "jarvis-account"  # _CACHE's entry for Jarvis Plus's settings
+PLUS_CACHE = "jarvis-account"  # _CACHE's entry for Eden Plus's settings
 # The apiKeyHelper for Jarvis Plus: the account's device token, read from the Keychain entry
 # account.py keeps it in (JARVIS's own Python, which the entry trusts, in isolated mode).
 PLUS_HELPER = """\
@@ -112,7 +112,7 @@ def forget(provider_id: str) -> None:
 
 
 def plus_of(hub: Any) -> Any:
-    """The account JARVIS's runs go through (Jarvis Plus), or None: linked, and either the
+    """The account Jarvis's runs go through (Eden Plus), or None: linked, and either the
     owner chose it, or there's no other way in (no API key, Claude Code not signed in)."""
     account = getattr(hub, "account", None)
     if account is None or not getattr(account, "linked", False):
@@ -131,7 +131,7 @@ def plus_of(hub: Any) -> Any:
 
 
 def plus_settings() -> str:
-    """Jarvis Plus's settings: the proxy's address, the token's helper, every other address,
+    """Eden Plus's settings: the proxy's address, the token's helper, every other address,
     credential and model variable blank, and the Mac's own network settings."""
     cached = _CACHE.get(PLUS_CACHE)
     if cached is None:
@@ -153,7 +153,7 @@ def plus_settings() -> str:
 
 
 def using_plus() -> bool:
-    """Whether JARVIS's runs go through Jarvis Plus now (the running backend's hub)."""
+    """Whether Jarvis's runs go through Eden Plus now (the running backend's hub)."""
     hub = _HUB() if _HUB is not None else None
     return hub is not None and plus_of(hub) is not None
 

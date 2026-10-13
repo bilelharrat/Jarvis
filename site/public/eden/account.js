@@ -891,7 +891,7 @@ function confirmButton(label, question, run, { danger = true } = {}) {
 
 function deviceRow(d) {
   const web = d.kind === 'web';
-  const name = String(d.name || (web ? t('A browser') : APPS[d.kind] || t('A device'))).replace(/^Eden on the web: /, '');
+  const name = String(d.name || (web ? t('A browser') : APPS[d.kind] || t('A device'))).replace(/^Eden on the web: /, '').replace(/^Eden app: (?:a browser|Safari|Chrome|Firefox|Edge) on /, 'Eden app on '); // the app's own web view is no browser to its owner
   const facts = [web ? 'Browser' : APPS[d.kind] || d.kind, ago(d.last_seen), web && d.expires ? left(d.expires) : ''].filter(Boolean).map(t).join(' · ');
   let action;
   if (web && d.this) {
@@ -1110,7 +1110,7 @@ function fromHash() {
   return { notice: null };
 }
 
-/** The acting state changed under the page: the panels it hides or shows, and Jarvis's status. */
+/** The acting state changed under the page: the panels it hides or shows, and Eden Secretary's status. */
 function acted() {
   ui.renderSidebar();
   dispatchEvent(new CustomEvent('eden:acting'));

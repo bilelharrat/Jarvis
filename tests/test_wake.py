@@ -82,7 +82,7 @@ def test_a_no_anywhere_is_a_no_and_a_wait_is_not_a_yes():
 
 
 def test_jarvis_code_is_the_panel_not_the_wake_word():
-    # JARVIS says "Eden Code" itself (heads-ups, questions, entering code mode).
+    # Jarvis says "Eden Code" itself (heads-ups, questions, entering code mode).
     assert find_wake("Eden Code finished in proj. All tests pass.")[0] is False
     assert not find_wake(
         "Voice coding in proj, ask first. Everything you say now goes to Eden Code, "

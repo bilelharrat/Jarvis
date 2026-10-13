@@ -1,5 +1,5 @@
 """The supervisor's words (codesupervisor): what an utterance asks of the sessions, which
-session a spoken name means, what each session did, and what JARVIS says about them, in
+session a spoken name means, what each session did, and what Jarvis says about them, in
 English and Mandarin."""
 
 import re

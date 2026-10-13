@@ -1,4 +1,4 @@
-// The Jarvis account's Settings script (src/jarvis/web/features/account.js): the link's QR
+// The Eden Secretary account's Settings script (src/jarvis/web/features/account.js): the link's QR
 // code, its words for how a link is going, the plan and the relay. node --test tests/web/
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -33,7 +33,7 @@ test('the plan, the money and the relay in words', () => {
   const { dollars, planLine, relayLine } = helpers();
   assert.equal(dollars(0.42), '$0.42');
   assert.equal(dollars('x'), '');
-  assert.equal(planLine({ name: 'plus', active: true }), 'Jarvis Plus');
+  assert.equal(planLine({ name: 'plus', active: true }), 'Eden Plus');
   assert.equal(planLine({ name: 'plus', active: false }), 'Free plan');
   assert.equal(relayLine({ on: false }), 'Off');
   assert.equal(relayLine({ on: true, state: 'listening' }), 'Reachable from anywhere');
@@ -71,9 +71,9 @@ test('Eden sync on this Mac says where it stands and what to do next', () => {
 
 test('Eden on the web reaching this Mac says whether its line is up, and why not', () => {
   const { edenLinkLine } = helpers();
-  assert.deepEqual(edenLinkLine({ on: false, state: 'off' }), ['Off: Eden at askeden.com can’t reach Jarvis, Code mode or privacy mode on this Mac.', false]);
+  assert.deepEqual(edenLinkLine({ on: false, state: 'off' }), ['Off: Eden at askeden.com can’t reach Eden Secretary, Code mode or privacy mode on this Mac.', false]);
   assert.equal(edenLinkLine(null)[0].startsWith('Off'), true);
-  assert.deepEqual(edenLinkLine({ on: true, state: 'open', error: '' }), ['Connected: Eden at askeden.com reaches Jarvis, Code mode and privacy mode here.', false]);
+  assert.deepEqual(edenLinkLine({ on: true, state: 'open', error: '' }), ['Connected: Eden at askeden.com reaches Eden Secretary, Code mode and privacy mode here.', false]);
   assert.deepEqual(edenLinkLine({ on: true, state: 'waiting', error: 'Couldn’t reach askeden.com.' }), ['Offline: Couldn’t reach askeden.com. Trying again…', true]);
   assert.deepEqual(edenLinkLine({ on: true, state: 'waiting', error: '' }), ['Offline. Trying again…', true]);
   assert.deepEqual(edenLinkLine({ on: true, state: 'connecting' }), ['Connecting to askeden.com…', false]);

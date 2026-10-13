@@ -171,5 +171,9 @@ function editor(root, courses, courseId, noteId, go) {
       el('button', { type: 'button', class: 'btn', title: 'Quiz me on this note', onclick: () => dispatchEvent(new CustomEvent('eden:course-chat', { detail: { course, prompt: `Quiz me on these notes of mine, one question at a time, checking against the course materials where you can:\n\n${body.value.slice(0, 6000)}` } })) }, ico('spark', 13), 'Quiz me on it'),
       el('button', { type: 'button', class: 'crs-icon-btn', 'aria-label': 'Delete this note', title: 'Delete', onclick: () => { if (confirm(`Delete “${note.title}”?`)) { drop(note); go(courseId, null); } } }, ico('trash', 14))),
     title, body, preview));
-  if (!note.body) body.focus(); else mode(true); // a note with something in it opens to read; tap Write to edit
+  // A note is always editable: it opens in Write, and a tap on the rendered text (Read) goes back to Write, with the cursor where you tapped.
+  preview.addEventListener('click', (e) => { if (e.target.closest('a')) return; mode(false); body.focus(); });
+  preview.title = t('Tap to edit');
+  mode(false);
+  if (!note.body) body.focus();
 }

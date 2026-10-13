@@ -1,5 +1,5 @@
 // Plus on the web, with Stripe (ROADMAP F15; docs/web-auth.md "Billing on the web (Stripe)"),
-// beside the App Store purchase in the J.A.R.V.I.S. iPhone app, never instead of it:
+// beside the App Store purchase in the Eden Secretary iPhone app, never instead of it:
 //
 //   POST /api/web/billing/checkout   the signed-in browser's own account (not while acting for
 //                                    someone) → { url }: a Stripe Checkout Session for a
@@ -220,7 +220,7 @@ export async function billingApi(request, env, who, op, { acting = null, origin 
     const { code } = await request.json().catch(() => ({}));
     return json(await redeemPromo(env, who, code, call));
   }
-  if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in the J.A.R.V.I.S. iPhone app.');
+  if (!billingReady(env)) throw new ApiError(503, 'not_set_up', 'Buying Plus on the web isn’t set up here yet. Get it in the Eden Secretary iPhone app.');
   if (acting) throw new ApiError(409, 'acting', 'You’re using someone else’s Eden right now. Switch back to your own account first.');
   await limited(env, 'EDEN_RATE', `billing:${who.account}`);
   const body = await request.json().catch(() => ({}));

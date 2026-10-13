@@ -398,7 +398,7 @@ async def test_the_persona_in_use_speaks_with_its_own_voice(
     from jarvis import prefs
 
     monkeypatch.setitem(prefs.PERSONAS, "alfred", ("Alfred", "A butler."))
-    # .env says the Mac voice: "the usual voice" here is a Mac one, not the JARVIS voice
+    # .env says the Mac voice: "the usual voice" here is a Mac one, not the Jarvis voice
     hub = make_hub(replace(settings, tts="say", tts_set=True), real_speaker, isolated)
     feature = voice_feature.feature_for(hub)
     await feature.speaking.setup()
@@ -419,12 +419,12 @@ async def test_the_persona_in_use_speaks_with_its_own_voice(
     vault(hub).set("voice:fish", "api_key", "fish-test-key-1234")
     await feature.speaking.apply()
     assert (real_speaker.cloud.provider, real_speaker.cloud.voice_id) == ("fish", "abc123")
-    hub.set_prefs({"persona": "jarvis"})  # back to JARVIS: the usual voice
+    hub.set_prefs({"persona": "jarvis"})  # back to Jarvis: the usual voice
     await asyncio.sleep(0.01)
     assert real_speaker.cloud is None and real_speaker.voice == usual
 
 
-# ── the JARVIS voice: the default, on the owner's Fish key or through askeden.com ──
+# ── the Jarvis voice: the default, on the owner's Fish key or through askeden.com ──
 
 
 async def test_with_no_choice_anywhere_the_jarvis_voice_speaks_hosted(
@@ -445,7 +445,7 @@ async def test_with_no_choice_anywhere_the_jarvis_voice_speaks_hosted(
     await hub._handle({"type": "voice_status"})
     state = sent[-1][1]
     assert state["provider"] == "jarvis" and not state["jarvis_own_key"]
-    # Their own Fish key: the JARVIS voice on it, unlimited.
+    # Their own Fish key: the Jarvis voice on it, unlimited.
     await hub._handle({"type": "voice_key", "provider": "fish", "key": "fish-own-key-9876"})
     cloud = real_speaker.cloud
     assert (cloud.provider, cloud.api_key, cloud.voice_id) == (

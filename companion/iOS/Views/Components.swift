@@ -84,7 +84,7 @@ struct ErrorCallout: View {
     }
 }
 
-/// Three dots while Jarvis thinks.
+/// Three dots while Eden Secretary thinks.
 struct ThinkingDots: View {
     var color: Color = .secondary
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

@@ -5,7 +5,7 @@
 //   and says what's on it when asked;
 // - the window says whether the fixes are wanted ('feature:page-a11y:mode': screen-reader
 //   mode is on and Settings › Accessibility hasn't turned them off), and every tab hears it at
-//   once; a page that loads asks (page-a11y:start). J.A.R.V.I.S. Daredevil starts with them on,
+//   once; a page that loads asks (page-a11y:start). Eden Daredevil starts with them on,
 //   before the window has said, so its first page is mended too;
 // - the window's calls ('feature:page-a11y:call'): summary (what's on the page: the
 //   page_summary tool) and stats (what was fixed), for the tab named or the one on show.

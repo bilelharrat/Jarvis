@@ -89,7 +89,7 @@
     head.append(F.el('h3', '', t('Projects')), button('New project', 'cp-new', () => { editing = 'new'; draw(); }));
     panel.append(head);
     if (!listing.items.length) {
-      panel.append(F.el('p', 'cp-empty', t('A project keeps conversations together, with instructions and files Jarvis uses in each of them.')));
+      panel.append(F.el('p', 'cp-empty', t('A project keeps conversations together, with instructions and files Eden Secretary uses in each of them.')));
       return;
     }
     const list = F.el('ul', 'cp-list');
@@ -147,7 +147,7 @@
     const instructions = F.el('textarea', 'cp-text');
     instructions.rows = 5;
     instructions.maxLength = 8000;
-    instructions.placeholder = t('Instructions for Jarvis in this project (how to answer, what to keep in mind)…');
+    instructions.placeholder = t('Instructions for Eden Secretary in this project (how to answer, what to keep in mind)…');
     instructions.value = project ? project.instructions : '';
     const save = button(project ? 'Save' : 'Create and open', 'cp-btn primary', () => {
       const msg = { type: 'chat_project_save', name: name.value, instructions: instructions.value };

@@ -45,6 +45,7 @@ SUGGESTED = (
     "gemini-flash-lite-latest",
     "gemini-3.8-flash",
     "gemini-3.1-pro-preview",
+    "gemini-4-argon",
 )
 
 

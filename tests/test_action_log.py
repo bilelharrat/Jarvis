@@ -1,4 +1,4 @@
-"""JARVIS's action log (action_log.py): every tool call, per day, kept 90 days, with a short
+"""Jarvis's action log (action_log.py): every tool call, per day, kept 90 days, with a short
 summary that says nothing private, searchable newest first, and bounded however busy a day."""
 
 import json

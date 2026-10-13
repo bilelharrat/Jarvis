@@ -16,7 +16,7 @@ struct MacPrefsView: View {
                 LoadStateView(state: state, retry: load)
             }
         }
-        .navigationTitle("Jarvis on Your Mac")
+        .navigationTitle("Eden Secretary on Your Mac")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
     }
@@ -38,7 +38,7 @@ struct MacPrefsView: View {
                         if !editing { save(["humor"]) }
                     }
                 }
-                TextField("What Jarvis calls you", text: binding("address", ""))
+                TextField("What Eden Secretary calls you", text: binding("address", ""))
                     .onSubmit { save(["address"]) }
                 TextField("Your name", text: binding("owner_name", ""))
                     .onSubmit { save(["owner_name"]) }
@@ -76,12 +76,12 @@ struct MacPrefsView: View {
             } header: {
                 Text("Heads-Ups")
             } footer: {
-                Text("What Jarvis on your Mac brings up by itself, and when it keeps quiet.")
+                Text("What Eden Secretary on your Mac brings up by itself, and when it keeps quiet.")
             }
 
             Section {
                 Toggle("Hands-Free on the Mac", isOn: flag("hands_free"))
-                Toggle("Jarvis Voice Effect", isOn: flag("voice_effect"))
+                Toggle("Eden Secretary Voice Effect", isOn: flag("voice_effect"))
             } header: {
                 Text("Listening and Voice")
             } footer: {

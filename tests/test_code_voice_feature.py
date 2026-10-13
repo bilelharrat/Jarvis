@@ -173,7 +173,7 @@ async def test_a_message_goes_to_the_session_named(settings, quiet_speaker, isol
     assert sent[-1] == (focused.id, "tell the user session manager to refresh tokens")  # Claude's
     reply = await hub.ask("ask the docs session what it changed")  # not voice coding: the same
     assert sent[-1] == (docs.id, "What you changed?") and reply.startswith("Told")
-    await hub.ask("tell the docs session to link readme dot md")  # typed or said to JARVIS
+    await hub.ask("tell the docs session to link readme dot md")  # typed or said to Jarvis
     assert sent[-1] == (docs.id, "link readme.md")  # no "dictated by voice" hint then
     close_all(hub)
 
@@ -244,7 +244,7 @@ async def test_who_needs_me_while_voice_coding(settings, quiet_speaker, isolated
     pending = await ask_for(hub, other)
     await hub.voicecode.handle("who needs me?")
     assert said[-1] == f"Session {other.id} (Second) wants to run npm test. Should it?"
-    # Said to JARVIS itself, not voice coding, the same words are its own to answer.
+    # Said to Jarvis itself, not voice coding, the same words are its own to answer.
     hub.voicecode.exit()
     await hub.ask("who needs me?")
     assert hub.client.said == ["who needs me?"]
@@ -453,7 +453,7 @@ async def test_model_names_are_only_the_sessions_while_voice_coding(
 ):
     hub = make_hub(settings, quiet_speaker, isolated=isolated)
     await hub.start()
-    await hub.ask("use gemini pro")  # to JARVIS itself: its own business
+    await hub.ask("use gemini pro")  # to Jarvis itself: its own business
     assert hub.client.said == ["use gemini pro"]
 
 
@@ -584,7 +584,7 @@ async def test_look_at_this_goes_into_the_session_in_voice_focus(
     assert task_id == task.id and text.startswith("why is this failing\n\n(The owner pressed")
     assert "Safari, “Build failed · CI”" in text and "TypeError: x is undefined" in text
     assert images == [{"media_type": "image/jpeg", "data": "V0lO"}]
-    assert hub.client.queries == []  # not JARVIS's own What's-this
+    assert hub.client.queries == []  # not Jarvis's own What's-this
     close_all(hub)
 
 

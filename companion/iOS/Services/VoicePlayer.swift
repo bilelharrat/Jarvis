@@ -1,6 +1,6 @@
 import AVFoundation
 
-/// Plays replies in JARVIS's own voice: POST /api/say returns a WAV rendered on the Mac.
+/// Plays replies in Eden Secretary's own voice: POST /api/say returns a WAV rendered on the Mac.
 @MainActor
 @Observable
 final class VoicePlayer {
@@ -12,7 +12,7 @@ final class VoicePlayer {
     @ObservationIgnored private var fetch: Task<Void, Never>?
     @ObservationIgnored private let finishWatcher = FinishWatcher()
     @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
-    /// Called when a reply has finished playing (to listen for "Hey Jarvis" again).
+    /// Called when a reply has finished playing (to listen for "Hey Eden Secretary" again).
     @ObservationIgnored var onFinish: (() -> Void)?
     /// Voice mode: the microphone stays open while it speaks (to hear the owner cut in), with
     /// the session's echo cancellation, and the session stays active between turns.
@@ -30,10 +30,10 @@ final class VoicePlayer {
         synthesizer.delegate = finishWatcher
     }
 
-    /// The rest of a reply in the hosted JARVIS voice, played one clip after another.
+    /// The rest of a reply in the hosted Eden Secretary voice, played one clip after another.
     @ObservationIgnored private var queued: [Data] = []
 
-    /// Says it without the Mac: in the JARVIS voice from askeden.com when it answers, else
+    /// Says it without the Mac: in the Eden Secretary voice from askeden.com when it answers, else
     /// in the iPhone's own best voice.
     func speakLocally(_ text: String) {
         stop()
@@ -168,9 +168,9 @@ final class VoicePlayer {
                 self?.play(wav)
             } catch is CancellationError {
             } catch JarvisError.unavailable {
-                self?.failed("Jarvis’s voice isn’t available on the Mac right now.")
+                self?.failed("Eden Secretary’s voice isn’t available on the Mac right now.")
             } catch {
-                self?.failed("Couldn’t get Jarvis’s voice: \((error as? JarvisError)?.title ?? error.localizedDescription).")
+                self?.failed("Couldn’t get Eden Secretary’s voice: \((error as? JarvisError)?.title ?? error.localizedDescription).")
             }
         }
     }
@@ -200,7 +200,7 @@ final class VoicePlayer {
             guard player.play() else { throw CocoaError(.fileReadCorruptFile) }
             self.player = player
         } catch {
-            failed("Couldn’t play Jarvis’s voice.")
+            failed("Couldn’t play Eden Secretary’s voice.")
         }
     }
 

@@ -35,12 +35,12 @@ enum NotificationSetup {
         let deny = UNNotificationAction(identifier: NotificationCategories.deny, title: no, options: [.destructive])
         let reason = UNTextInputNotificationAction(
             identifier: NotificationCategories.denyReason, title: "No, because…", options: [],
-            textInputButtonTitle: "Send", textInputPlaceholder: "What should Jarvis do instead?"
+            textInputButtonTitle: "Send", textInputPlaceholder: "What should Eden Secretary do instead?"
         )
         #if os(iOS)
         return UNNotificationCategory(
             identifier: identifier, actions: [allow, deny, reason], intentIdentifiers: [],
-            hiddenPreviewsBodyPlaceholder: "Jarvis needs your OK", options: []
+            hiddenPreviewsBodyPlaceholder: "Eden Secretary needs your OK", options: []
         )
         #else
         return UNNotificationCategory(identifier: identifier, actions: [allow, deny, reason], intentIdentifiers: [], options: [])
@@ -102,8 +102,8 @@ enum NotificationActionHandler {
     static func retryContent(for push: JarvisPush, userInfo: [AnyHashable: Any], now: Date = Date()) -> UNNotificationContent? {
         guard push.isApproval, now.timeIntervalSince(push.at ?? now) < 290 else { return nil }
         let content = UNMutableNotificationContent()
-        content.title = push.title.isEmpty ? "Jarvis needs your OK" : push.title
-        content.body = "Your Mac didn’t get that answer. Try again, or open J.A.R.V.I.S."
+        content.title = push.title.isEmpty ? "Eden Secretary needs your OK" : push.title
+        content.body = "Your Mac didn’t get that answer. Try again, or open Eden Secretary."
         content.categoryIdentifier = push.kind == .codeApproval ? NotificationCategories.codeApproval : NotificationCategories.approval
         content.userInfo = userInfo
         content.sound = .default

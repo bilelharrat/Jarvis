@@ -11,16 +11,16 @@ struct JarvisWidgetBundle: WidgetBundle {
     }
 }
 
-/// Control Center, the Lock Screen and the Action Button: one press and Jarvis is listening.
+/// Control Center, the Lock Screen and the Action Button: one press and Eden Secretary is listening.
 struct TalkToJarvisControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.askeden.jarvis.talk") {
             ControlWidgetButton(action: TalkToJarvisIntent()) {
-                Label("Talk to Jarvis", systemImage: "waveform.circle.fill")
+                Label("Talk to Eden Secretary", systemImage: "waveform.circle.fill")
             }
         }
-        .displayName("Talk to Jarvis")
-        .description("Opens Jarvis, listening.")
+        .displayName("Talk to Eden Secretary")
+        .description("Opens Eden Secretary, listening.")
     }
 }
 
@@ -50,7 +50,7 @@ struct JarvisCodeWidget: Widget {
     }
 }
 
-// MARK: - Jarvis
+// MARK: - Eden Secretary
 
 struct StatusWidgetView: View {
     let entry: SnapshotEntry
@@ -96,7 +96,7 @@ struct StatusWidgetView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if let question = snapshot.approvalQuestion, snapshot.pendingApprovals > 0 {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(snapshot.approvalFromCode ? "JARVIS CODE ASKS" : "JARVIS ASKS")
+                            Text(snapshot.approvalFromCode ? "Eden Secretary CODE ASKS" : "Eden Secretary ASKS")
                                 .font(.caption2.weight(.semibold))
                                 .tracking(0.8)
                                 .foregroundStyle(Palette.champagne)
@@ -212,7 +212,7 @@ private struct NotPaired: View {
             Text("Not paired")
                 .font(.system(.title3, design: .serif).weight(.medium))
                 .foregroundStyle(Palette.ink)
-            Text("Open J.A.R.V.I.S. to pair with your Mac.")
+            Text("Open Eden Secretary to pair with your Mac.")
                 .font(.caption)
                 .foregroundStyle(Palette.muted)
         }
@@ -309,7 +309,7 @@ struct CodeWidgetView: View {
             Image(systemName: "chevron.left.forwardslash.chevron.right")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(Palette.cyan)
-            Text("JARVIS CODE")
+            Text("Eden Secretary CODE")
                 .font(.caption.weight(.semibold))
                 .tracking(1.2)
                 .foregroundStyle(Palette.ink2)

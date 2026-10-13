@@ -1,4 +1,4 @@
-// Settings › Conversations for you: how long a conversation Jarvis holds for the owner waits
+// Settings › Conversations for you: how long a conversation Eden Secretary holds for the owner waits
 // in silence, after its last message, before one gentle follow-up (the backend is
 // jarvis.features.scheduling and delegate.py). The follow-up asks first like any message.
 (() => {
@@ -20,7 +20,7 @@
     const words = el('span');
     words.append(
       el('strong', '', 'Nudge when they go quiet'),
-      el('small', '', 'One short, polite follow-up after Jarvis’s last message, shown to you before it goes like any other'),
+      el('small', '', 'One short, polite follow-up after Eden Secretary’s last message, shown to you before it goes like any other'),
     );
     select = el('select');
     select.id = 'delegate-nudge';

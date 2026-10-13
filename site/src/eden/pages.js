@@ -16,6 +16,7 @@
 //   /link, /link/<file>  linking a Mac from this browser (public/link/), signed in only
 //   /privacy, /terms   the Privacy Policy and Terms of Service (public/privacy/, public/terms/):
 //                      everyone, the sign-in page's stylesheet, only the language script
+//   /eden-code         Eden Code's own site (public/eden-code-home/), everyone; askedencode.com when CODE_HOST is set (worker.js)
 //   /accuracy          "How often AI makes things up": the hallucination chart and how it was measured
 //                      (public/accuracy/), everyone; its own stylesheet, no script
 //   /lang/<file>       the site pages' French (public/lang/: site-i18n.js and its fr-<page>.js files),
@@ -40,6 +41,8 @@ const LEGAL_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-
 // Eden's signed-out front page: its stylesheet (the mark is a data: image in it), the apps' icons, the films (media-src) and its own script
 // and the language script (/lang/; no inline script).
 const HOME_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// Eden Code's own site (askedencode.com, or askeden.com/eden-code): the same, plus Google Fonts for the serif and sans (as the apps page has).
+const CODE_CSP = "default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const SIGNIN_FILES = new Set(['signin.css', 'signin.js', 'return.js']);
 const LINK_FILES = new Set(['link.css', 'link.js']);
 // The site pages' French (public/lang/, site-i18n.js): the script, and one dictionary per page.
@@ -99,8 +102,15 @@ export async function edenPage(request, env, path) {
   if (path === '/edu/privacy' || path === '/edu/terms') return page(await asset(env, request, `/edu-home/${path.slice(5)}`), HOME_CSP, { cache: 'public, max-age=300' }); // Eden for Education's student privacy notice and materials terms
   if (path === '/edu-home/edu-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   if (path === '/edu-home/edu-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
+  // Eden Code's site (public/eden-code-home/): everyone, signed in or not; with CODE_HOST set, askedencode.com serves it at its front (worker.js)
+  if (path === '/eden-code') return page(await asset(env, request, '/eden-code-home/'), CODE_CSP, { cache: 'public, max-age=300' });
+  if (path === '/eden-code-home/eden-code-home.css') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
+  if (path === '/eden-code-home/eden-code.png' || path === '/eden-code-home/eden-code-logo.svg') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
+  if (/^\/eden-code-home\/film-\d\.mp4$/.test(path)) return rangedAsset(env, request, path); // the chapters' films, once made
+  if (/^\/eden-code-home\/film-\d\.jpg$/.test(path)) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
   if (path === '/home/home.css' || path === '/home/features.js') return withHeaders(await asset(env, request, path), { 'cache-control': 'public, no-cache', 'x-content-type-options': 'nosniff' });
-  if (/^\/jarvis\/walk-\d\.mp4$/.test(path)) return rangedAsset(env, request, path); // the front page's films (public/jarvis/walk-N.mp4)
+  if (/^\/jarvis\/walk-\d\.mp4$/.test(path) || /^\/edu-home\/film-\d\.mp4$/.test(path)) return rangedAsset(env, request, path); // the front page's films (public/jarvis/walk-N.mp4) and /edu's (public/edu-home/film-N.mp4)
+  if (/^\/edu-home\/film-\d\.jpg$/.test(path)) return withHeaders(await asset(env, request, path), { 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }); // their posters
   const langFile = /^\/lang\/([\w.-]+)$/.exec(path);
   if (langFile) {
     if (!LANG_FILES.has(langFile[1])) return null;

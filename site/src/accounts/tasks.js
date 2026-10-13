@@ -852,7 +852,7 @@ export async function taskOp(account, op, body, device = null) {
     case 'task-approve':
     case 'task-deny':
       // From a notification (POST /api/tasks/approvals/<id>, accounts/index.js): the account's own app only.
-      if (body.from_app === true && !(device && isPhone(device.kind))) throw new ApiError(403, 'forbidden', 'Approve it in the J.A.R.V.I.S. app on your iPhone, or in Eden’s Tasks.');
+      if (body.from_app === true && !(device && isPhone(device.kind))) throw new ApiError(403, 'forbidden', 'Approve it in the Eden Secretary app on your iPhone, or in Eden’s Tasks.');
       return { approval: approvalView(await decide(account, body, op === 'task-approve')) };
     default:
       throw new ApiError(404, 'not_found', 'No such thing.');

@@ -1,4 +1,4 @@
-// What "Read aloud" says: a reply's markdown turned into plain sentences, the way J.A.R.V.I.S.
+// What "Read aloud" says: a reply's markdown turned into plain sentences, the way Eden Secretary.
 // cleans a reply for speech (src/jarvis/speech.py clean_for_speech), then cut into pieces the
 // voice takes one at a time. Pure (no DOM), so the tests load it as it is served.
 

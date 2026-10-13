@@ -37,7 +37,7 @@ body.eden-code .orb {
 body.error #message { color: #b3261e; }
 @media (prefers-color-scheme: dark) { body.error #message { color: #ff8a80; } }
 
-/* J.A.R.V.I.S. Daredevil (loading.js): large yellow type on black, a plain ring for the orb; no motion. */
+/* Eden Daredevil (loading.js): large yellow type on black, a plain ring for the orb; no motion. */
 body.daredevil { --bg: #000000; --ink: #ffff00; font-size: 26px; }
 body.daredevil p { max-width: 640px; line-height: 1.45; }
 body.daredevil .orb { width: 140px; height: 140px; background: #000; border: 10px solid #ffff00; box-shadow: none; animation: none; }

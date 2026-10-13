@@ -21,21 +21,21 @@ const DEFAULT_LABELS = {
   paused: 'Heads-ups paused',
   pausedUntil: '',
   resume: 'Resume heads-ups',
-  open: 'Open J.A.R.V.I.S.',
+  open: 'Open Eden Secretary',
   code: 'Eden Code',
   browser: 'Browser',
-  quit: 'Quit J.A.R.V.I.S.',
+  quit: 'Quit Eden Secretary',
   needsOk: 'Needs your OK',
   allow: 'Allow',
   notNow: 'Not now',
-  purchaseHint: 'Say “confirm purchase”, or confirm it in J.A.R.V.I.S.',
+  purchaseHint: 'Say “confirm purchase”, or confirm it in Eden Secretary.',
   // the app's menu bar
-  about: 'About J.A.R.V.I.S.',
+  about: 'About Eden Secretary',
   settings: 'Settings…',
   history: 'History',
   bookmarks: 'Bookmarks',
   services: 'Services',
-  hide: 'Hide J.A.R.V.I.S.',
+  hide: 'Hide Eden Secretary',
   hideOthers: 'Hide Others',
   showAll: 'Show All',
   edit: 'Edit',
@@ -130,7 +130,7 @@ function dockTemplate(s, L, act) {
 }
 
 // ── the app's menu bar ──
-// Its first menu (macOS names it J.A.R.V.I.S.) has JARVIS's own places beside the usual
+// Its first menu (macOS names it Eden Secretary) has Eden Secretary's own places beside the usual
 // About, Services, Hide and Quit; Edit is the standard one, so copy and paste work in the
 // window and the browser; View and Window as before. act(name): settings, code, browser,
 // history, bookmarks. The key equivalents reach a page first: one it uses itself (⌘Y in
@@ -140,7 +140,7 @@ function appMenuTemplate(L, act, platform = process.platform) {
   if (platform !== 'darwin') return windowsMenuTemplate(L, act);
   return [
     {
-      label: 'J.A.R.V.I.S.',
+      label: 'Eden Secretary',
       submenu: [
         { role: 'about', label: L.about },
         sep,
@@ -278,7 +278,7 @@ function normalizeApproval(raw) {
 
 // What its macOS notification says, and its buttons. Only a plain yes-or-no card gets
 // buttons (its own words for them: Allow / Not now, Send / Don't send): a purchase needs
-// the spoken words "confirm purchase" or JARVIS itself, and a plan or a question has
+// the spoken words "confirm purchase" or Eden Secretary itself, and a plan or a question has
 // more answers than two buttons hold.
 function approvalNotice(a, L) {
   const allow = a.choices.find((c) => c.id === 'allow');
@@ -314,7 +314,7 @@ const KEYS = new Set([
 // Alt+Space is Windows' own window menu, which a screen-reader user may want. On a PC Talk is
 // Ctrl+Alt+J: J is the key a finger finds by touch (it has the bump), and Ctrl+Alt+<key> is how
 // Windows itself starts a program from the keyboard (the installer's shortcuts have it too, so it
-// opens J.A.R.V.I.S. Daredevil with the app closed as well as running).
+// opens Eden Daredevil with the app closed as well as running).
 // Stop talking (speech and any reading, from any program): on a PC Ctrl+Alt+Backspace, which
 // neither Windows, NVDA, JAWS nor Narrator use, which types nothing with AltGr, and which the
 // fingers find at the keyboard's top right; on a Mac ⌘⌥. (VoiceOver has ⌃⌥ for itself).

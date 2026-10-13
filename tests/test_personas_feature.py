@@ -140,7 +140,7 @@ async def test_claude_knows_them(settings, quiet_speaker, isolated):
     await hub._handle({"type": "persona_save", "persona": ALFRED})
     await settle(hub)
     assert "alfred (Alfred)" in feature.prompt() and "alfred (Alfred)" in hub._feature_prompt()
-    assert "mcp__personas__list_personas" in EXTRA_QUIET_RESULTS  # JARVIS's own settings
+    assert "mcp__personas__list_personas" in EXTRA_QUIET_RESULTS  # Jarvis's own settings
     (list_personas,) = hub.personas.tools()
     out = (await list_personas.handler({}))["content"][0]["text"]
     lines = out.splitlines()

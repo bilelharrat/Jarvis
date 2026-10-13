@@ -1,13 +1,13 @@
-// The app's shell on the Mac (main.js loads it from app/features): JARVIS in the menu bar
+// The app's shell on the Mac (main.js loads it from app/features): Eden Secretary in the menu bar
 // with what it's doing, and the quick controls there; the Dock's menu and its badge (the
 // cards waiting for an OK); macOS notifications for those cards, with Allow / Not now when
-// the window isn't in front, and for heads-ups, which open JARVIS on their card; the
+// the window isn't in front, and for heads-ups, which open Eden Secretary on their card; the
 // global shortcuts for Talk and What's this?, the ones the user chose in Settings;
-// jarvis:// links, and the Services menu's "Ask JARVIS" that sends a selection to one; the
+// jarvis:// links, and the Services menu's "Ask Eden Secretary" that sends a selection to one; the
 // app's menu bar; opening at login; the window's place, remembered for each set of
 // displays; a crashed page reloaded; and a quit that lets the backend finish first.
 //
-// The window is the go-between: it hears the backend's events and reports JARVIS's state
+// The window is the go-between: it hears the backend's events and reports Eden Secretary's state
 // here ('feature:shell:state'), and carries out what the menus ask ('feature:shell:command')
 // over its own connection. Electron comes from ctx.electron in the tests, else the real one.
 'use strict';
@@ -53,8 +53,8 @@ function install(ctx) {
   let trayShown = '';
   let pauseTimer = null;
   const icons = new Map();
-  // What the program is called here: J.A.R.V.I.S., or J.A.R.V.I.S. Daredevil (flavor.js).
-  const appName = (ctx.flavor && ctx.flavor.name) || 'J.A.R.V.I.S.';
+  // What the program is called here: Eden Secretary, or Eden Daredevil (flavor.js).
+  const appName = (ctx.flavor && ctx.flavor.name) || 'Eden Secretary';
   const canNotify = !ctx.dev && Boolean(Notification && Notification.isSupported());
   const approvals = new Map(); // id -> the card, as the window reported it
   const approvalNotes = new Map(); // id -> its notification
@@ -137,7 +137,7 @@ function install(ctx) {
   function icon(glyph) {
     if (!icons.has(glyph)) {
       const mac = process.platform === 'darwin';
-      const colour = mac ? undefined : [79, 168, 255]; // (JARVIS blue: shows on any taskbar)
+      const colour = mac ? undefined : [79, 168, 255]; // (Eden Secretary blue: shows on any taskbar)
       const image = nativeImage.createFromBuffer(iconPng(glyph, 1, colour), { scaleFactor: 1 });
       image.addRepresentation({ scaleFactor: 2, buffer: iconPng(glyph, 2, colour) });
       image.setTemplateImage(mac);
@@ -213,7 +213,7 @@ function install(ctx) {
 
   // A card that went up while the window isn't in front: Allow / Not now on the notification
   // answer it through the window (the backend's approve command, as the card's buttons do);
-  // a click opens JARVIS on it.
+  // a click opens Eden Secretary on it.
   function notifyApproval(a) {
     if (!canNotify || inFront() || approvalNotes.has(a.id)) return;
     const n = lib.approvalNotice(a, labels);
@@ -253,7 +253,7 @@ function install(ctx) {
   // ── global shortcuts ──
 
   const SHORTCUT_ACTIONS = {
-    ask: () => act('ask'), // show JARVIS and listen
+    ask: () => act('ask'), // show Eden Secretary and listen
     whatsThis: () => ctx.send('jarvis:whats-this'), // deliberately doesn't bring the window forward
     // Stop talking, from any program: speech and any reading stop at once. The window stays where
     // it is (behind, or hidden in the tray), and a window not yet there has nothing to stop.
@@ -294,7 +294,7 @@ function install(ctx) {
   function shortcutStatus() {
     const status = { live: takesShortcuts };
     for (const slot of Object.keys(SHORTCUT_ACTIONS)) {
-      // (the stand-in, when there is one: it is what opens J.A.R.V.I.S. now, so it is what is said)
+      // (the stand-in, when there is one: it is what opens Eden Secretary now, so it is what is said)
       const now = live[slot] || shortcuts[slot];
       status[slot] = {
         accelerator: now,
@@ -373,9 +373,9 @@ function install(ctx) {
   });
 
   // ── jarvis:// links ──
-  // Any web page can open one, so a link only ever shows JARVIS: the request box filled in
+  // Any web page can open one, so a link only ever shows Eden Secretary: the request box filled in
   // (never sent), a panel, an Eden Code project. At most five every ten seconds. The one
-  // exception: "Ask JARVIS" from the Services menu, the owner's own click, carries this Mac's
+  // exception: "Ask Eden Secretary" from the Services menu, the owner's own click, carries this Mac's
   // key (service-key, 0600; only the Quick Action has it), so the window may send it at once
   // (marked as outside words all the same) unless the owner chose to confirm first.
 
@@ -403,7 +403,7 @@ function install(ctx) {
     linkTimes = allowed.times;
     if (!allowed.ok) { console.warn('shell: jarvis:// links are coming too fast; this one is ignored'); return; }
     const link = links.parseLink(raw);
-    if (!link) { console.warn('shell: ignored a jarvis:// link JARVIS doesn\'t open'); return; }
+    if (!link) { console.warn('shell: ignored a jarvis:// link Eden Secretary doesn\'t open'); return; }
     showWindow();
     if (link.action === 'ask') toWindow({ action: 'prefill', text: link.text, ...(fromService(link.key) ? { service: true } : {}) });
     else if (link.action === 'open' && link.panel) toWindow({ action: 'open', panel: link.panel });
@@ -414,7 +414,7 @@ function install(ctx) {
   else app.on('open-url', (event, url) => { event.preventDefault(); openLink(url); });
   if (installed && !app.isDefaultProtocolClient('jarvis')) app.setAsDefaultProtocolClient('jarvis');
 
-  // ── the Services menu's "Ask JARVIS" ──
+  // ── the Services menu's "Ask Eden Secretary" ──
   // Written into ~/Library/Services only when the owner clicks Add in Settings; only ours
   // is ever replaced or removed (never a Quick Action of theirs with the same name).
 
@@ -658,7 +658,7 @@ function install(ctx) {
   });
 
   // A new page in the window (a reload, the backend back after a restart): it says hello
-  // again when it's ready, and until then JARVIS counts as offline.
+  // again when it's ready, and until then Eden Secretary counts as offline.
   const win = windowOf();
   if (win) {
     win.webContents.on('did-navigate', () => {
@@ -671,7 +671,7 @@ function install(ctx) {
 
   // Quitting lets the backend finish first: main.js has asked it to stop (SIGTERM, which
   // `uv run` passes on and `jarvis serve` answers by saving and closing), and the app waits
-  // up to five seconds for it to be gone, out of sight meanwhile. A Jarvis opened again
+  // up to five seconds for it to be gone, out of sight meanwhile. A Eden Secretary opened again
   // straight away then finds its data free instead of another backend still holding it.
   let released = false;
   let waiting = false;

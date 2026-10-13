@@ -14,8 +14,8 @@
   const KINDS = [
     ['approvals', 'Approvals', 'Cards waiting on your yes, with Allow and No on the Lock Screen'],
     ['code', 'Eden Code', 'A session finished or stopped'],
-    ['delegations', 'Conversations', 'One Jarvis holds for you needs you'],
-    ['calls', 'Calls', 'How a call went, and calls to the Jarvis number'],
+    ['delegations', 'Conversations', 'One Eden Secretary holds for you needs you'],
+    ['calls', 'Calls', 'How a call went, and calls to the Eden Secretary number'],
   ];
   const HEADSUPS = [['urgent', 'Urgent only'], ['all', 'All'], ['off', 'Off']];
 
@@ -69,7 +69,7 @@
   const group = $('sw-remote') && $('sw-remote').closest('section.group');
   if (!group || !$('remote-on')) return;
 
-  const certNote = el('p', 'small-status companion-note', 'The first time, Safari warns about this Mac’s certificate: tap Show Details, then visit this website. The J.A.R.V.I.S. app checks it for you.');
+  const certNote = el('p', 'small-status companion-note', 'The first time, Safari warns about this Mac’s certificate: tap Show Details, then visit this website. The Eden Secretary app checks it for you.');
   $('remote-url').closest('p').after(certNote);
 
   const qrBox = el('div', 'companion-qr');
@@ -80,7 +80,7 @@
   qrSvg.setAttribute('shape-rendering', 'crispEdges');
   const qrText = el('div', 'companion-qr-text');
   qrText.append(
-    el('strong', '', 'Scan with the J.A.R.V.I.S. app'),
+    el('strong', '', 'Scan with the Eden Secretary app'),
     el('small', '', 'It pairs and checks this Mac’s certificate in one go.'),
   );
   const typed = el('small', 'companion-typed');
@@ -286,8 +286,8 @@
     pushActions.hidden = !configured && info.via !== 'account';
     replaceKey.hidden = removeKey.hidden = !configured;
     if (!configured && info.via === 'account') {
-      // No key of the owner's own: the Jarvis account's (jarvis.features.account) is used.
-      pushStatus.replaceChildren(el('span', '', 'Through your Jarvis account. A push key of your own here would be used instead.'));
+      // No key of the owner's own: the Eden Secretary account's (jarvis.features.account) is used.
+      pushStatus.replaceChildren(el('span', '', 'Through your Eden Secretary account. A push key of your own here would be used instead.'));
     } else if (!configured) {
       pushStatus.replaceChildren(el('span', '', 'Not set up yet. With Apple’s push key, approvals and heads-ups reach your phone even when its app is closed.'));
     } else if (info.error) {
@@ -345,7 +345,7 @@
     const names = new Map(((status && status.devices) || []).map((d) => [d.id, d.name]));
     const entries = Object.entries(results || {});
     if (!entries.length) {
-      testResult.replaceChildren(el('li', 'muted', 'No phone has notifications turned on yet. Open the J.A.R.V.I.S. app and allow them.'));
+      testResult.replaceChildren(el('li', 'muted', 'No phone has notifications turned on yet. Open the Eden Secretary app and allow them.'));
       return;
     }
     testResult.replaceChildren(...entries.map(([id, code]) => {

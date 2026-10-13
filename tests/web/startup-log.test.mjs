@@ -70,7 +70,7 @@ test('the tail keeps what the engine said last, a few lines of it', () => {
 
 function runLoading(search) {
   const nodes = {
-    message: { textContent: 'Waking up Jarvis…', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } },
+    message: { textContent: 'Waking up Eden Secretary…', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } },
     note: { textContent: '' },
     detail: { textContent: '', hidden: true },
   };
@@ -81,21 +81,21 @@ function runLoading(search) {
   return { nodes, classes, document, window };
 }
 
-test('the waiting window is J.A.R.V.I.S.\'s unless an app says otherwise', () => {
+test('the waiting window is Eden Secretary\'s unless an app says otherwise', () => {
   const { nodes, classes, document } = runLoading('?app=jarvis');
-  assert.equal(nodes.message.textContent, 'Waking up Jarvis…');
+  assert.equal(nodes.message.textContent, 'Waking up Eden Secretary…');
   assert.equal(document.title, 'Jarvis');
   assert.equal(classes.size, 0);
 });
 
-test('Eden Code waits under its own name, and so does J.A.R.V.I.S. Daredevil, in its own colours', () => {
+test('Eden Code waits under its own name, and so does Eden Daredevil, in its own colours', () => {
   const eden = runLoading('?app=eden-code');
   assert.deepEqual([...eden.classes], ['eden-code']);
   assert.equal(eden.nodes.message.textContent, 'Opening Eden Code…');
   const dare = runLoading('?app=daredevil');
   assert.deepEqual([...dare.classes], ['daredevil']);
-  assert.equal(dare.document.title, 'J.A.R.V.I.S. Daredevil');
-  assert.equal(dare.nodes.message.textContent, 'Opening J.A.R.V.I.S. Daredevil…');
+  assert.equal(dare.document.title, 'Eden Daredevil');
+  assert.equal(dare.nodes.message.textContent, 'Opening Eden Daredevil…');
 });
 
 test('a problem is said at once (to a screen reader too), with what the engine last said', () => {
@@ -133,7 +133,7 @@ test('the build ships the new files: every top-level script and page is in the a
   assert.ok(existsSync(new URL('../../app/startup-log.js', import.meta.url)));
   // …and the daredevil flavor has its own build, name and icons
   assert.match(build, /--daredevil/);
-  assert.match(build, /'J\.A\.R\.V\.I\.S\. Daredevil'/);
+  assert.match(build, /'J.A.R.V.I.S. Daredevil'/);
   assert.ok(existsSync(new URL('../../app/build/daredevil/icon-1024.png', import.meta.url)));
 });
 

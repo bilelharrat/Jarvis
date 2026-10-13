@@ -2,8 +2,8 @@
 // dock and the page's own commands): per-site permission prompts, sign-in and payment popups,
 // the leave-page question, HTTP sign-in, certificate warnings, pinned and muted tabs and their
 // order, the tabs reopened next time, each site's zoom, the address bar's suggestions,
-// bookmark folders and what's imported from another browser, PDFs (read for JARVIS, saved),
-// clearing a site's data, private tabs and JARVIS's own signed-out profile, split view (two
+// bookmark folders and what's imported from another browser, PDFs (read for Eden Secretary, saved),
+// clearing a site's data, private tabs and Eden Secretary's own signed-out profile, split view (two
 // tabs side by side in the dock), a tab popped out into a window of its own, the user agent
 // Google's sign-in accepts, and Settings › Browser. main.js hands it what it needs
 // as hooks (createParity) and calls it where a tab or a session is made.
@@ -11,7 +11,7 @@
 // What the window shows comes over the app feature channels ('feature:browser:…', which
 // preload.js passes through): what the tab on show waits on (a permission, a sign-in, a
 // certificate warning), the site's menu, the Settings group. Nothing here is reachable from a
-// page: every handler checks it's the window. JARVIS's own hands (the DevTools layer) reach
+// page: every handler checks it's the window. Eden Secretary's own hands (the DevTools layer) reach
 // tabs only, so a popup, a sign-in box or "Continue anyway" is always the user's to answer.
 'use strict';
 
@@ -27,7 +27,7 @@ const { ENGINES, setSearchEngine, searchEngine, homeUrl, toUrl } = require('./ur
 
 const PARTITION = 'persist:jarvis-browser';
 const PRIVATE_PARTITION = 'jarvis-private'; // in memory only, and emptied when the last private tab closes
-const AGENT_PARTITION = 'persist:jarvis-agent'; // JARVIS's own tabs, when it browses signed out
+const AGENT_PARTITION = 'persist:jarvis-agent'; // Eden Secretary's own tabs, when it browses signed out
 const CH = 'feature:browser:';
 const GESTURE_MS = 5000; // a click or key this recent opened it (Chrome's user activation)
 const POPUPS_MAX = 6; // popup windows open at once
@@ -35,7 +35,7 @@ const POPUP_BURST = 3; // popups one page may open in POPUP_BURST_MS
 const POPUP_BURST_MS = 10000;
 const AUTH_MAX = 3; // sign-in requests one tab may have waiting; more are cancelled at once
 const SESSION_MS = 1000; // the tabs are written down a moment after they change
-const PDF_MAX = 25 * 1024 * 1024; // the biggest PDF read for JARVIS (browser_pdf.py takes the same)
+const PDF_MAX = 25 * 1024 * 1024; // the biggest PDF read for Eden Secretary (browser_pdf.py takes the same)
 const POPOUT_BAR = 44; // the bar over a popped-out tab (popout.html)
 const ZOOM_SITES_MAX = 1000;
 
@@ -73,7 +73,7 @@ class BrowserParity {
     this.seq = 0;
     this.inputAt = new WeakMap(); // webContents -> the user's last click or key in it
     this.spent = new WeakMap(); // webContents -> the click or key (its inputAt) a tab or a page it went to used up
-    this.sentAt = new WeakMap(); // webContents -> when the owner last sent it to a page (an address, back, JARVIS's own)
+    this.sentAt = new WeakMap(); // webContents -> when the owner last sent it to a page (an address, back, Eden Secretary's own)
     this.byItself = new WeakMap(); // webContents -> true while its main frame goes where its page sent it by itself
     this.bursts = new WeakMap(); // webContents -> when it opened its last popups
     this.popups = new Set(); // popup windows open
@@ -178,7 +178,7 @@ class BrowserParity {
     return (wc && this.hooks.tabs().find((v) => v.webContents === wc)) || null;
   }
 
-  // The window a page is in: the J.A.R.V.I.S. window for a tab, its own for a popup or a tab
+  // The window a page is in: the Eden Secretary window for a tab, its own for a popup or a tab
   // popped out of the dock.
   ownerOf(wc) {
     const view = this.viewOf(wc);
@@ -222,7 +222,7 @@ class BrowserParity {
     let perms = this.permissions.get(ses);
     if (!perms) {
       const data = this.state();
-      // The owner's own profile keeps each site's answer; a private tab's and JARVIS's
+      // The owner's own profile keeps each site's answer; a private tab's and Eden Secretary's
       // signed-out profile's are asked afresh and kept nowhere.
       // Each profile's prompts have ids of their own (o1, x1, j1…), so an answer finds its own.
       const onChange = () => this.refreshAsk();
@@ -281,7 +281,7 @@ class BrowserParity {
 
   wireTab(view) {
     const wc = view.webContents;
-    // Which profile the tab is in: the owner's, a private one, or JARVIS's signed-out one.
+    // Which profile the tab is in: the owner's, a private one, or Eden Secretary's signed-out one.
     if (wc.session === session.fromPartition(PRIVATE_PARTITION)) view.private = true;
     else if (wc.session === session.fromPartition(AGENT_PARTITION)) view.agentProfile = true;
     if (view.private) wc.once('destroyed', () => this.privateClosed(view));
@@ -291,7 +291,7 @@ class BrowserParity {
     }
     wc.on('before-input-event', (event, input) => { if (view.popout && this.popoutKey(view, input)) event.preventDefault(); });
     for (const event of ['page-title-updated', 'did-navigate']) wc.on(event, () => { if (this.split === view) this.sendSplit(); });
-    // The Research Center takes only JARVIS's input, which reaches the tab on show in the
+    // The Research Center takes only Eden Secretary's input, which reaches the tab on show in the
     // dock: a tab beside it or in a window of its own that goes there comes back first.
     wc.on('did-navigate', () => {
       if (!this.research(view)) return;
@@ -324,7 +324,7 @@ class BrowserParity {
       const same = e && typeof e.isSameDocument === 'boolean' ? e.isSameDocument : inPlace;
       if (!main || same) return;
       // Whose doing the coming page is: the owner's (an address typed, back or forward,
-      // JARVIS's own, none of them started by the page; or a link clicked a moment ago, which
+      // Eden Secretary's own, none of them started by the page; or a link clicked a moment ago, which
       // uses the click up) or the page's own (a redirect by script, a meta refresh, with no
       // click behind it), so a page sending itself on and on after one click goes on by itself.
       const byItself = Boolean(e && e.initiator) && !this.gesture(wc, { spend: true });
@@ -371,7 +371,7 @@ class BrowserParity {
 
   // ── what the owner did: a click or key in the page, a page they went to ──
 
-  // Whether the user's own click or key in this page (JARVIS's too) came a moment ago: what
+  // Whether the user's own click or key in this page (Eden Secretary's too) came a moment ago: what
   // the page opens now is theirs (Chrome's user activation). spend: what it opens uses the
   // click up, so one click opens one tab, never a run of them.
   gesture(wc, { spend = false } = {}) {
@@ -427,7 +427,7 @@ class BrowserParity {
       minHeight: lib.POPUP_MIN.height,
       fullscreenable: false,
       // The opener's session (Electron keeps it: the popup shares its sign-in); none of
-      // JARVIS's hand in the page, no Bluetooth.
+      // Eden Secretary's hand in the page, no Bluetooth.
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, disableBlinkFeatures: 'WebBluetooth', plugins: true },
     };
   }
@@ -793,7 +793,7 @@ class BrowserParity {
   }
 
   // What main.js's tab list adds for each tab: pinned, playing sound, muted, private, in
-  // JARVIS's signed-out profile; a tab not loaded yet (put back from last time) shows the page
+  // Eden Secretary's signed-out profile; a tab not loaded yet (put back from last time) shows the page
   // it will load.
   tabInfo(view) {
     const wc = view.webContents;
@@ -855,7 +855,7 @@ class BrowserParity {
     this.popupAt(items, x, y);
   }
 
-  // The dock closed: every video and sound in its tabs stops (JARVIS's own tabs too; one
+  // The dock closed: every video and sound in its tabs stops (Eden Secretary's own tabs too; one
   // popped out into a window of its own plays on).
   dock({ open }) {
     this.dockOpen = Boolean(open);
@@ -872,7 +872,7 @@ class BrowserParity {
   }
 
   // ── a tab in a window of its own: its page moves out of the dock under a slim bar
-  // (popout.html); the dock's strip still lists it (a click brings its window forward), JARVIS
+  // (popout.html); the dock's strip still lists it (a click brings its window forward), Eden Secretary
   // still reaches it, and closing the window puts it back in the dock ──
 
   popOut(view) {
@@ -931,7 +931,7 @@ class BrowserParity {
     return true;
   }
 
-  // Its tab closed (from the dock's strip, or by JARVIS): the window goes too.
+  // Its tab closed (from the dock's strip, or by Eden Secretary): the window goes too.
   popoutGone(view) {
     const popWin = view.popout;
     view.popout = null;
@@ -1073,7 +1073,7 @@ class BrowserParity {
     this.load(view, t);
   }
 
-  // ── private tabs, and JARVIS's own signed-out profile ──
+  // ── private tabs, and Eden Secretary's own signed-out profile ──
 
   // A private tab: a profile in memory only, its visits never kept; everything it held goes
   // when the last private tab closes (as in Chrome).
@@ -1098,7 +1098,7 @@ class BrowserParity {
   }
 
   // The profile a page's new tabs open in: its own (a private tab's links stay private,
-  // JARVIS's signed-out tab's stay signed out); the owner's gives none to ask for.
+  // Eden Secretary's signed-out tab's stay signed out); the owner's gives none to ask for.
   profileOf(wc) {
     const ses = wc && !wc.isDestroyed() ? wc.session : null;
     if (ses && ses === session.fromPartition(PRIVATE_PARTITION)) return { partition: PRIVATE_PARTITION };
@@ -1110,7 +1110,7 @@ class BrowserParity {
     return [PARTITION, PRIVATE_PARTITION, AGENT_PARTITION];
   }
 
-  // A tab JARVIS opens for itself: in its own profile, signed out of the owner's sites, when
+  // A tab Eden Secretary opens for itself: in its own profile, signed out of the owner's sites, when
   // the owner chose that (Settings › Browser); Eden Code's session tabs stay as they are.
   agentTab(owner) {
     return owner === 'jarvis' && this.state().agentProfile ? { partition: AGENT_PARTITION } : {};
@@ -1237,7 +1237,7 @@ class BrowserParity {
   async clearAll({ labels } = {}) {
     this.setLabels(labels);
     if (!(await this.confirm(this.label('clearAllTitle'), this.label('clearAllDetail')))) return { cleared: false };
-    for (const partition of this.partitions()) { // the owner's, JARVIS's signed-out one, private tabs'
+    for (const partition of this.partitions()) { // the owner's, Eden Secretary's signed-out one, private tabs'
       const ses = session.fromPartition(partition);
       await ses.clearData().catch(() => {});
       await ses.clearAuthCache().catch(() => {});
@@ -1293,7 +1293,7 @@ class BrowserParity {
     return true;
   }
 
-  // ── a PDF on show, for JARVIS to read (browser_read): its bytes, which the backend reads
+  // ── a PDF on show, for Eden Secretary to read (browser_read): its bytes, which the backend reads
   // with pypdf (browser_pdf.py), fetched through the tab's own session so a PDF behind a
   // sign-in reads too; none sent again for one whose text the backend already has ──
 

@@ -9,7 +9,7 @@ export const DEADLINE = { status: 8_000, jarvis: 25_000, google: 5_000, voice: 1
 /**
  * A signal that aborts when `parent` does or after `ms`. `timedOut()` tells the two apart; `clear()`
  * stops the clock (the parent still aborts it). `extend()` (optional) is asked when the clock runs
- * out: true gives it another `ms` (a Jarvis call while its approval card is up on the Mac).
+ * out: true gives it another `ms` (a Eden Secretary call while its approval card is up on the Mac).
  */
 export function deadline(ms, parent, { extend } = {}) {
   const ctrl = new AbortController();

@@ -58,6 +58,25 @@ export function ensureConversation() {
 }
 
 /** The composer's send: text + attachments ([{kind,name,mime,size,data,url,text}]). */
+/** The person's date, weekday and local time: without it a model guessed at "it's 9:40, which train?" (weekday and weekend timetables differ). */
+export function nowNote(d = new Date()) {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const when = d.toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return `Right now it is ${when}${zone ? ` (${zone})` : ''} for the user. Use this for "today", "now", schedules and deadlines.\n` +
+      'Live facts (departures and timetables, traffic and ETAs, weather, scores, prices, opening hours, events, delays): never estimate or make them up. ' +
+      'Give the specific times or values from the web results you have, with their source; if those results don\u2019t contain them, say so plainly and point to the official live source ' +
+      '(the transit agency\u2019s trip planner, Google Maps for traffic, the weather service). The user\u2019s location is only what they say in the conversation.';
+  } catch { return ''; }
+}
+
+/** A provider's error in plain words: a raw JSON body ({"error":{"message":…}}) becomes its message; an empty account says so. */
+export function plainError(text) {
+  const s = String(text || '');
+  if (/insufficient_quota|credit_balance|billing_hard_limit|exceeded your current quota/i.test(s)) return s.replace(/\s*[({][\s\S]*$/, '').replace(/[:\s]+$/, '') + ': the account is out of API credit';
+  return s.replace(/\{[\s\S]*"message"\s*:\s*"((?:[^"\\]|\\.)*)"[\s\S]*\}/, (_, m) => m.replace(/\\"/g, '"')).slice(0, 300);
+}
+
 export function sendMessage(text, attachments = [], { context = [], steered = false, browser = null, toolResult = false } = {}) {
   const c = ensureConversation();
   if (state.streams.has(c.id)) { toast('Wait for the reply, or stop it first'); return false; }
@@ -124,7 +143,7 @@ function historyFor(c, upTo) {
 }
 
 function contextFor(c, user) {
-  // context blocks attached to any user message on the path (Jarvis notes, memory)
+  // context blocks attached to any user message on the path (Eden Secretary notes, memory)
   const blocks = [];
   for (const n of path(c)) {
     if (n.role === 'user') for (const x of n.context || []) blocks.push({ title: x.title, text: x.text, ...(x.source ? { source: x.source } : {}), ...(x.hidden ? { hidden: x.hidden } : {}) });
@@ -221,7 +240,7 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
   await untilStopped(fillScopes(user), ctrl.signal, 8000); // @calendar / @mail: this week's events / the recent inbox, read when the message is sent
   const ctx = contextFor(c, user);
   if (!c.temp && !c.course && !privacyOn(c) && state.settings.recall !== false) { const r = recallBlock(state.convs, user.content || '', { currentId: c.id, isPrivate: privacyOn }); if (r) ctx.push(r); } // other chats that bear on this message (recall-model.js)
-  const sys = [await untilStopped(toolsSystemFor(user, p && p.system ? p.system : '').catch(() => (p && p.system) || ''), ctrl.signal, 0, ''), replyLanguageNote()].filter(Boolean).join('\n\n');
+  const sys = [await untilStopped(toolsSystemFor(user, p && p.system ? p.system : '').catch(() => (p && p.system) || ''), ctrl.signal, 0, ''), nowNote(), replyLanguageNote()].filter(Boolean).join('\n\n');
   const body = {
     ...privacyBody(c), // G9: { privacy: true, localModel } keeps it on this Mac (first: it may drop a local sticky)
     ...macBody(c), // G2/H11: { mac: { files, knowledge } }: the server reads the Mac first (files.js)
@@ -316,10 +335,10 @@ export async function runChat(c, node, { override, refusalRetry = null } = {}) {
           case 'usage': node.usage = d; break;
           case 'fallback': {
             const m = modelInfo(d.from && d.from.model);
-            node.notes.push(`${m ? m.name : (d.from && d.from.model) || 'The pick'} failed (${d.reason || 'error'}); retried on the next choice.`);
+            (node.fallbacks ||= []).push(`${m ? m.name : (d.from && d.from.model) || 'The pick'} failed (${plainError(d.reason || 'error')}); retried on the next choice.`);
             break;
           }
-          case 'error': node.error = d.message || 'The turn failed.'; break;
+          case 'error': node.error = plainError(d.message || 'The turn failed.'); break;
           // H8: what the turn read from outside (guard.js source strip), and actions the server's gate holds for the owner
           case 'provenance': node.provenance = d; break;
           case 'refusal': node.refusal = d; break; // the model declined (server refusal.js): retried below, or a "Try another model" button (render.js)
@@ -753,7 +772,7 @@ export function answerPermission(c, node, index, choice, { approval } = {}) {
 }
 
 /**
- * Steer without interrupting (Jarvis Code's Steer, for every conversation): while a reply
+ * Steer without interrupting (Eden Code's Steer, for every conversation): while a reply
  * streams, what you send waits in the queue above the composer. A Code turn takes it at
  * once (POST /api/chat/code/steer, into the running step); a chat turn sends it as the next
  * message the moment the reply ends. "Steer now" stops the reply (keeping what it wrote)

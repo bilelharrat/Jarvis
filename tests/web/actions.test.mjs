@@ -1,4 +1,4 @@
-// What Jarvis did, in the window (web/features/actions.js, the Activity drawer's History):
+// What Eden Secretary did, in the window (web/features/actions.js, the Activity drawer's History):
 // every sentence it shows has its Chinese in web/i18n/actions.json or the window's own
 // i18n-zh.json. node --test tests/web/
 import assert from 'node:assert/strict';

@@ -63,3 +63,33 @@ h1{letter-spacing:-.04em}
 .lede{margin-left:auto;margin-right:auto}
 .cta{justify-content:center}
 .demo{margin-left:auto;margin-right:auto}
+
+/* The films (index.html #films), as the front page's (home.css .features): a headline, a sentence and a muted film that plays while on screen
+   (/home/features.js); only the tutor film has a sound button */
+.features{margin:24px 0 88px}
+.feature{margin-top:96px;text-align:center;scroll-margin-top:84px}
+.feature:first-child{margin-top:0}
+.feature .kicker{margin:0 0 10px;font-size:15px;font-weight:600;letter-spacing:.1px;color:var(--green)}
+.feature h2{margin:0;font-size:44px;line-height:1.07;letter-spacing:-1.4px}
+.feature .sub{margin:16px auto 0;max-width:30em;color:var(--text2);font-size:19px;line-height:1.45}
+.fvid{position:relative;left:50%;transform:translateX(-50%);width:min(960px,calc(100vw - 32px));margin:34px 0 0}
+.fv{display:block;width:100%;height:auto;aspect-ratio:16/9;border-radius:26px;background:#0E2747;box-shadow:var(--sh1)}
+.fctl{position:absolute;right:14px;bottom:14px;display:flex;gap:8px}
+.fctl[hidden]{display:none}
+.fbtn{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.22);background:rgba(18,18,20,.55);color:#fff;
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;
+  transition:background .2s,transform .2s}
+.fbtn:hover{background:rgba(18,18,20,.75);transform:scale(1.06)}
+.fbtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.fbtn svg{width:20px;height:20px}
+.fpp[data-state="paused"] .i-pause,.fpp:not([data-state="paused"]) .i-play{display:none}
+.fsnd[aria-pressed="true"] .i-off,.fsnd:not([aria-pressed="true"]) .i-on{display:none}
+@media (max-width:720px){
+  .features{margin:8px 0 64px}
+  .feature{margin-top:72px}
+  .feature h2{font-size:30px;letter-spacing:-.8px}
+  .feature .sub{font-size:17px}
+  .fv{border-radius:18px}
+  .fvid{margin-top:26px}
+}
+@media (prefers-reduced-motion:reduce){.fbtn{transition:none}}

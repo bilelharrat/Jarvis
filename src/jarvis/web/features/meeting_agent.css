@@ -1,4 +1,4 @@
-/* JARVIS in a call (meeting_agent.js): a clear glass side panel at the right, under the
+/* Eden Secretary in a call (meeting_agent.js): a clear glass side panel at the right, under the
    Settings sheet; the transcript scrolls inside it. */
 .ma-panel {
   position: fixed; right: 18px; top: 72px; z-index: 34; /* over the side widgets, under Settings (35) */

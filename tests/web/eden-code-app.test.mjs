@@ -1,5 +1,5 @@
-// Eden Code, the coding app split out of J.A.R.V.I.S.: which app a launch is (app/flavor.js),
-// the one backend both share (app/backend-share.js), and Jarvis opening Eden Code as an app of
+// Eden Code, the coding app split out of Eden Secretary: which app a launch is (app/flavor.js),
+// the one backend both share (app/backend-share.js), and Eden Secretary opening Eden Code as an app of
 // its own (app/features/eden-code.js). node --test tests/web/
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -16,7 +16,7 @@ const opener = require('../../app/features/eden-code.js');
 const temp = (prefix) => mkdtempSync(path.join(tmpdir(), prefix));
 const TOKEN = 'ab'.repeat(24);
 
-test('a launch is J.A.R.V.I.S. unless something says Eden Code', () => {
+test('a launch is Eden Secretary unless something says Eden Code', () => {
   const empty = temp('flavor-');
   assert.equal(resolveFlavor({ env: {}, argv: [], dir: empty }).id, 'jarvis');
   assert.equal(resolveFlavor({ env: { EDEN_CODE: '1' }, argv: [], dir: empty }).id, 'eden-code');
@@ -25,7 +25,7 @@ test('a launch is J.A.R.V.I.S. unless something says Eden Code', () => {
   const baked = temp('flavor-');
   writeFileSync(path.join(baked, 'flavor.json'), JSON.stringify({ flavor: 'eden-code' }));
   assert.equal(resolveFlavor({ env: {}, argv: [], dir: baked }).id, 'eden-code');
-  // a damaged or unknown one is J.A.R.V.I.S.
+  // a damaged or unknown one is Eden Secretary.
   writeFileSync(path.join(baked, 'flavor.json'), '{nope');
   assert.equal(resolveFlavor({ env: {}, argv: [], dir: baked }).id, 'jarvis');
   writeFileSync(path.join(baked, 'flavor.json'), JSON.stringify({ flavor: 'other' }));
@@ -40,10 +40,10 @@ test('Eden Code never listens: a code backend, its own page, only its own app fe
   for (const f of ['code-sessions.js', 'code-verify.js', 'touchid.js', 'video-proof.js', 'design-match.js']) assert.ok(eden.features.has(f), f);
   for (const f of ['shell.js', 'eden-window.js', 'eden-code.js', 'follow-repo.js', 'browser-ai.js']) assert.ok(!eden.features.has(f), f);
   assert.equal(FLAVORS.jarvis.profile, 'full');
-  assert.equal(FLAVORS.jarvis.features, undefined); // J.A.R.V.I.S. loads them all
+  assert.equal(FLAVORS.jarvis.features, undefined); // Eden Secretary loads them all
 });
 
-test('Eden Code has a Windows ID of its own; J.A.R.V.I.S. Daredevil has J.A.R.V.I.S.\'s (one program, so one replaces the other)', () => {
+test('Eden Code has a Windows ID of its own; Eden Daredevil has Eden Secretary\'s (one program, so one replaces the other)', () => {
   assert.equal(FLAVORS.jarvis.appUserModelId, 'com.askeden.jarvis.win');
   assert.equal(FLAVORS['eden-code'].appUserModelId, 'com.askeden.edencode.win');
   assert.equal(FLAVORS.daredevil.appUserModelId, FLAVORS.jarvis.appUserModelId);
@@ -51,27 +51,27 @@ test('Eden Code has a Windows ID of its own; J.A.R.V.I.S. Daredevil has J.A.R.V.
   assert.match(release, /appId: require\('\.\.\/\.\.\/flavor'\)\.FLAVORS\[flavor\]\.appUserModelId/);
 });
 
-test('a launch is J.A.R.V.I.S. Daredevil when something says so: DAREDEVIL=1, --daredevil, or the flavor the build bakes in', () => {
+test('a launch is Eden Daredevil when something says so: DAREDEVIL=1, --daredevil, or the flavor the build bakes in', () => {
   const empty = temp('flavor-');
   assert.equal(resolveFlavor({ env: { DAREDEVIL: '1' }, argv: [], dir: empty }).id, 'daredevil');
   assert.equal(resolveFlavor({ env: {}, argv: ['electron', '.', '--daredevil'], dir: empty }).id, 'daredevil');
   const baked = temp('flavor-');
   writeFileSync(path.join(baked, 'flavor.json'), JSON.stringify({ flavor: 'daredevil' }));
   assert.equal(resolveFlavor({ env: {}, argv: [], dir: baked }).id, 'daredevil');
-  // Eden Code, asked for by hand, still wins; nothing else means J.A.R.V.I.S.
+  // Eden Code, asked for by hand, still wins; nothing else means Eden Secretary.
   assert.equal(resolveFlavor({ env: { EDEN_CODE: '1' }, argv: [], dir: baked }).id, 'eden-code');
   assert.equal(resolveFlavor({ env: { DAREDEVIL: '0' }, argv: [], dir: empty }).id, 'jarvis');
 });
 
-test('J.A.R.V.I.S. Daredevil is J.A.R.V.I.S. under its own name: same logs, data, profile and engine, opened in screen-reader mode', () => {
+test('Eden Daredevil is Eden Secretary under its own name: same logs, data, profile and engine, opened in screen-reader mode', () => {
   const d = FLAVORS.daredevil;
   const j = FLAVORS.jarvis;
-  assert.equal(d.name, 'J.A.R.V.I.S. Daredevil');
+  assert.equal(d.name, 'Eden Daredevil');
   assert.equal(d.title, d.name);
   assert.equal(d.logName, j.logName); // the same folder of logs, so one place to look
-  assert.equal(d.profile, 'full'); // it listens, like J.A.R.V.I.S.
+  assert.equal(d.profile, 'full'); // it listens, like Eden Secretary.
   assert.equal(d.socketApp, 'jarvis');
-  assert.equal(d.features, undefined); // every app feature, like J.A.R.V.I.S.
+  assert.equal(d.features, undefined); // every app feature, like Eden Secretary.
   assert.equal(d.userDataName, 'J.A.R.V.I.S.'); // its Electron profile and one-at-a-time lock are J.A.R.V.I.S.'s
   assert.equal(d.edition, 'daredevil');
   assert.equal(d.query, 'edition=daredevil'); // what server.index turns into the Daredevil page
@@ -145,7 +145,7 @@ test('a shared backend that stops answering twice in a row is gone, once', async
   assert.equal(called, false);
 });
 
-test('Jarvis finds an installed Eden Code.app beside it, in /Applications or ~/Applications', () => {
+test('Eden Secretary finds an installed Eden Code.app beside it, in /Applications or ~/Applications', () => {
   const have = new Set();
   const exists = (p) => have.has(p);
   const bundle = '/Volumes/Apps/J.A.R.V.I.S.app';
@@ -158,7 +158,7 @@ test('Jarvis finds an installed Eden Code.app beside it, in /Applications or ~/A
   assert.equal(opener.findInstalled({ bundle, home: '/Users/x', exists }), '/Volumes/Apps/Eden Code.app');
 });
 
-test('without Eden Code.app, Jarvis runs its own code as Eden Code', () => {
+test('without Eden Code.app, Eden Secretary runs its own code as Eden Code', () => {
   assert.deepEqual(opener.launchCommand({ installed: '/Applications/Eden Code.app', packaged: true, execPath: '/x', appPath: '/y' }),
     { command: '/usr/bin/open', args: ['-a', '/Applications/Eden Code.app'] });
   assert.deepEqual(opener.launchCommand({ installed: '', packaged: true, execPath: '/J.app/Contents/MacOS/J', appPath: '/y' }),
@@ -167,7 +167,7 @@ test('without Eden Code.app, Jarvis runs its own code as Eden Code', () => {
     { command: '/electron', args: ['/repo/app', '--eden-code'] });
 });
 
-test('only J.A.R.V.I.S.\'s own window opens Eden Code; Eden Code and the test window don\'t install it', async () => {
+test('only Eden Secretary\'s own window opens Eden Code; Eden Code and the test window don\'t install it', async () => {
   const handlers = new Map();
   const ipcMain = { handle: (ch, fn) => handlers.set(ch, fn) };
   const app = { isPackaged: false, getAppPath: () => '/repo/app' };

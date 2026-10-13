@@ -1,4 +1,4 @@
-// Study mode's switch, by the main request box (features/study_mode.py): JARVIS tutors step by
+// Study mode's switch, by the main request box (features/study_mode.py): Eden Secretary tutors step by
 // step, checks understanding and offers a quiz, instead of only answering.
 (function (root) {
   'use strict';

@@ -155,7 +155,7 @@ APPS = {"jarvis", "eden-code"}
 def eden_code_page(html: str) -> str:
     """The page as Eden Code's window shows it: the same page and modules, marked so app.js
     and eden-code.css show Eden Code alone, in Ask Eden's look, from the first paint."""
-    html = html.replace("<title>Jarvis</title>", "<title>Eden Code</title>", 1)
+    html = html.replace("<title>Eden Secretary</title>", "<title>Eden Code</title>", 1)
     return re.sub(r"<body ", '<body data-app="eden-code" class="eden-code" ', html, count=1)
 
 
@@ -178,7 +178,7 @@ def edition_colors(hub: Any) -> str:
 def daredevil_page(html: str, colors: str = "yellow") -> str:
     """The page as J.A.R.V.I.S. Daredevil's window shows it: named for the edition, marked so accessibility.js
     turns screen-reader mode on, and in its colours from the first paint (not after the scripts have run)."""
-    html = html.replace("<title>Jarvis</title>", "<title>J.A.R.V.I.S. Daredevil</title>", 1)
+    html = html.replace("<title>Eden Secretary</title>", "<title>Eden Daredevil</title>", 1)
     if colors in HIGH_CONTRAST:
         html = html.replace('<html lang="en">', f'<html lang="en" data-contrast="{colors}">', 1)
     return re.sub(r"<body ", '<body data-edition="daredevil" ', html, count=1)

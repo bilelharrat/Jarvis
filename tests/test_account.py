@@ -1,6 +1,6 @@
 """The Mac's Jarvis account (jarvis.account, jarvis.features.account): linking with the
 iPhone and unsealing the sync key it hands over, the account's status, signing out, pushes
-through the account, the companion's one-tap link, Jarvis Plus for Claude Code, and the
+through the account, the companion's one-tap link, Eden Plus for Claude Code, and the
 hosted voice. askeden.com is a fake (account_fakes.FakeAskeden: an httpx MockTransport),
 the Keychain a MemoryVault: never the network, never the owner's real Keychain."""
 
@@ -447,7 +447,7 @@ async def test_settings_says_why_when_askeden_cant_be_reached(setup):
     assert event["error"] == "Couldn't reach askeden.com." and event["link"] is None
 
 
-# ── Jarvis Plus ──
+# ── Eden Plus ──
 
 
 def options():
@@ -523,7 +523,7 @@ async def test_jarvis_code_says_the_allowance_too(plus):
     hub, _fake = plus
     await hub.account._keep(TOKEN, None)
     hub.set_feature_prefs({PLUS_PREF: True})
-    assert hub.tasks.error_words("billing_error").startswith("Your Jarvis Plus")
+    assert hub.tasks.error_words("billing_error").startswith("Your Eden Plus")
 
 
 # ── the hosted voice ──

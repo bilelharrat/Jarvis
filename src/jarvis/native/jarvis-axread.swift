@@ -12,7 +12,7 @@
 // Chromium's AXManualAccessibility on the browser, the switch Chromium offers assistive
 // apps so its pages' accessibility tree is filled in (it stays on until the browser quits
 // and changes none of the owner's settings). "trusted" says whether this Mac lets the app
-// running JARVIS read other apps at all (Accessibility).
+// running Eden Secretary read other apps at all (Accessibility).
 
 import AppKit
 import ApplicationServices

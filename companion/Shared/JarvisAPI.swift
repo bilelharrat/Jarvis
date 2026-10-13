@@ -13,7 +13,7 @@ enum JarvisError: LocalizedError, Equatable {
     case wrongCode(String)
     /// 400 (or 403, 409 outside pairing): the Mac refused the request.
     case rejected(String)
-    /// 503: e.g. JARVIS's voice isn't available right now.
+    /// 503: e.g. Eden Secretary's voice isn't available right now.
     case unavailable
     /// 429: one request at a time, or too many lately.
     case busy(String)
@@ -21,9 +21,9 @@ enum JarvisError: LocalizedError, Equatable {
     case tooBig
     /// The request took longer than we wait; the Mac may still be working on it.
     case timedOut
-    /// Something answered, but not the Jarvis companion API.
+    /// Something answered, but not the Eden Secretary companion API.
     case notJarvis
-    /// 404 on a newer endpoint: the Mac's Jarvis doesn't have it yet.
+    /// 404 on a newer endpoint: the Mac's Eden Secretary doesn't have it yet.
     case unsupported
     /// 404 with the Mac's reason ("no such session"): what it was about isn't on the Mac
     /// anymore (closed, finished or deleted there).
@@ -34,7 +34,7 @@ enum JarvisError: LocalizedError, Equatable {
     case certificateMismatch
     /// 409 while pairing: the Mac's certificate isn't the one this device pinned.
     case fingerprintRefused
-    /// No encrypted connection could be made (an older Jarvis, or not Jarvis at all).
+    /// No encrypted connection could be made (an older Eden Secretary, or not Eden Secretary at all).
     case notEncrypted
     /// There's no pinned certificate to talk to the Mac with: pair again.
     case notPinned
@@ -47,10 +47,10 @@ enum JarvisError: LocalizedError, Equatable {
         case .wrongCode(let message): message.localizedCaseInsensitiveContains("too many") ? "Too many tries" : "Wrong code"
         case .rejected: "The Mac said no"
         case .unavailable: "Not available right now"
-        case .busy: "Jarvis is busy"
+        case .busy: "Eden Secretary is busy"
         case .tooBig: "Too big to send"
         case .timedOut: "Still working"
-        case .notJarvis: "That isn’t Jarvis"
+        case .notJarvis: "That isn’t Eden Secretary"
         case .unsupported: "Not on this Mac yet"
         case .gone: "Not on your Mac anymore"
         case .server: "The Mac had a problem"
@@ -65,27 +65,27 @@ enum JarvisError: LocalizedError, Equatable {
     var message: String {
         switch self {
         case .unreachable:
-            "Is ‘Let my phone connect’ on in Jarvis Settings? Your iPhone and Mac need the same Wi‑Fi, or Tailscale on both."
+            "Is ‘Let my phone connect’ on in Eden Secretary Settings? Your iPhone and Mac need the same Wi‑Fi, or Tailscale on both."
         case .connectionLost:
             "Your Mac may still have got it. The conversation will show it if it did."
         case .unpaired:
-            "Jarvis on your Mac doesn’t know this device anymore. Pair it again."
+            "Eden Secretary on your Mac doesn’t know this device anymore. Pair it again."
         case .wrongCode(let message):
             message.isEmpty ? "That code isn’t right, or it expired. Make a new one on the Mac." : message
         case .rejected(let message):
             message
         case .unavailable:
-            "Jarvis can’t do that right now."
+            "Eden Secretary can’t do that right now."
         case .busy(let message):
             message.isEmpty ? "Try again in a moment." : message
         case .tooBig:
             "Your Mac takes files up to 25 MB from here."
         case .timedOut:
-            "Jarvis is taking a while. The reply will show up here when it’s ready."
+            "Eden Secretary is taking a while. The reply will show up here when it’s ready."
         case .notJarvis:
-            "Something answered at that address, but it isn’t the Jarvis companion. Check the address and port (usually 8765)."
+            "Something answered at that address, but it isn’t the Eden Secretary companion. Check the address and port (usually 8765)."
         case .unsupported:
-            "Update Jarvis on your Mac to use this from your iPhone."
+            "Update Eden Secretary on your Mac to use this from your iPhone."
         case .gone:
             "It may have been closed or deleted there."
         case .server(let status, let message):
@@ -97,15 +97,15 @@ enum JarvisError: LocalizedError, Equatable {
         case .fingerprintRefused:
             "Your Mac’s certificate isn’t the one this iPhone saw, so something may be in between. Pair again on your home network."
         case .notEncrypted:
-            "Couldn’t set up an encrypted connection. Make sure Jarvis on your Mac is up to date."
+            "Couldn’t set up an encrypted connection. Make sure Eden Secretary on your Mac is up to date."
         case .notPinned:
-            "Jarvis on your Mac now encrypts the connection. Pair again to trust it."
+            "Eden Secretary on your Mac now encrypts the connection. Pair again to trust it."
         }
     }
 
     var errorDescription: String? {
         switch self {
-        case .unreachable: "Can’t reach the Mac — is ‘Let my phone connect’ on in Jarvis Settings?"
+        case .unreachable: "Can’t reach the Mac — is ‘Let my phone connect’ on in Eden Secretary Settings?"
         default: "\(title). \(message)"
         }
     }
@@ -182,7 +182,7 @@ struct JarvisAPI: Sendable {
         } catch JarvisError.timedOut {
             throw JarvisError.unreachable("The Mac didn’t answer in time.")
         } catch JarvisError.unsupported {
-            throw JarvisError.notJarvis  // every Jarvis has this one
+            throw JarvisError.notJarvis  // every Eden Secretary has this one
         }
         return try decode(RemoteState.self, from: data)
     }
@@ -206,7 +206,7 @@ struct JarvisAPI: Sendable {
         _ = try await post("api/command", command.json, timeout: 15)
     }
 
-    /// The text in JARVIS's own voice, as WAV. Throws `.unavailable` when the Mac can't speak.
+    /// The text in Eden Secretary's own voice, as WAV. Throws `.unavailable` when the Mac can't speak.
     func say(_ text: String) async throws -> Data {
         try await post("api/say", ["text": .string(text)], timeout: 45)
     }
@@ -319,7 +319,7 @@ struct JarvisAPI: Sendable {
     }
 
     /// The Mac's Claude and Gemini API keys ("claude", "gemini"; only those it has), for
-    /// Jarvis on this iPhone to answer with while the Mac can't be reached.
+    /// Eden Secretary on this iPhone to answer with while the Mac can't be reached.
     func brainKeys() async throws -> [String: String] {
         struct Keys: Decodable { var keys: [String: String] }
         return try decode(Keys.self, from: await post("api/brain/keys", [:], timeout: 15)).keys
@@ -402,9 +402,9 @@ struct JarvisAPI: Sendable {
         try await send(path, body: body, timeout: timeout)
     }
 
-    // MARK: - Opening JARVIS on the Mac
+    // MARK: - Opening Eden Secretary on the Mac
 
-    /// Where the Mac's wake listener is (jarvis.companion_wake): launchd keeps it while JARVIS
+    /// Where the Mac's wake listener is (jarvis.companion_wake): launchd keeps it while Eden Secretary
     /// is quit, on the same address, with the same certificate.
     static let wakePort = 8764
 
@@ -415,7 +415,7 @@ struct JarvisAPI: Sendable {
         return parts.url.map { JarvisAPI(baseURL: $0, token: token, fingerprint: fingerprint) }
     }
 
-    /// Asks the Mac to open JARVIS (it does nothing when JARVIS is already open). True when
+    /// Asks the Mac to open Eden Secretary (it does nothing when Eden Secretary is already open). True when
     /// it's opening. Never throws: a Mac without the listener (older, asleep, the companion
     /// off) is just a false, and never unpairs this device.
     func wake() async -> Bool {
@@ -486,7 +486,7 @@ struct JarvisAPI: Sendable {
             // back the way they do when the Mac can't be reached.
             if relayed, delegate.rejected == false, Self.mayBeRelayRefusal(mapped),
                let router = MacRoute.router, await router.relayFailed(base) {
-                throw JarvisError.unreachable("Your Mac isn’t connected to the Jarvis relay right now.")
+                throw JarvisError.unreachable("Your Mac isn’t connected to the Eden Secretary relay right now.")
             }
             throw mapped
         } catch is CancellationError {
@@ -575,7 +575,7 @@ private struct ErrorBody: Decodable { var error: String? }
 /// POST /api/share: `{ok, saved_as?, asked}`.
 struct ShareResult: Equatable, Sendable, Decodable {
     var savedAs: String?
-    /// The note went to Jarvis as a request.
+    /// The note went to Eden Secretary as a request.
     var asked: Bool
 
     init(savedAs: String?, asked: Bool) {

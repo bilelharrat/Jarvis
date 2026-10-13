@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Your chats with Jarvis on this iPhone, as the Claude, ChatGPT and Gemini apps keep them:
+/// Your chats with Eden Secretary on this iPhone, as the Claude, ChatGPT and Gemini apps keep them:
 /// search, pinned ones first, swipe to pin, rename or delete, tap to pick one up again.
 struct ChatsView: View {
     @Environment(AppModel.self) private var model
@@ -59,12 +59,12 @@ struct ChatsView: View {
                     Label("Projects", systemImage: "folder")
                 }
             } footer: {
-                Text("A temporary chat isn’t kept here, and Jarvis remembers nothing from it.")
+                Text("A temporary chat isn’t kept here, and Eden Secretary remembers nothing from it.")
             }
             if found.isEmpty {
                 ContentUnavailableView(query.isEmpty ? "No Chats Yet" : "No Matches",
                                        systemImage: "bubble.left.and.bubble.right",
-                                       description: Text(query.isEmpty ? "Chats with Jarvis on this iPhone show up here." : "Nothing said in your chats matches “\(query)”."))
+                                       description: Text(query.isEmpty ? "Chats with Eden Secretary on this iPhone show up here." : "Nothing said in your chats matches “\(query)”."))
             } else {
                 Section(query.isEmpty ? "Chats" : "Matches") {
                     ForEach(found) { chat in

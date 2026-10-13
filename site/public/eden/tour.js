@@ -24,7 +24,10 @@ import { closeWorkflows, workflowsOpen } from './workflows.js';
 import { openAccount, closeAccount, accountOpen } from './account.js';
 import { closePane } from './files.js';
 import { IN_APP } from './native.js';
-import { CHAPTERS, STEPS, WHATS_THIS, stepsOf } from './tour-steps.js';
+// The iPhone app has no dictation, reading aloud or Talk for now (voice.js), so its tour has no Voice chapter.
+const CHAPTERS = IN_APP ? ALL_CHAPTERS.filter((c) => c.id !== 'voice') : ALL_CHAPTERS;
+const STEPS = IN_APP ? ALL_STEPS.filter((x) => x.chapter !== 'voice') : ALL_STEPS;
+import { CHAPTERS as ALL_CHAPTERS, STEPS as ALL_STEPS, WHATS_THIS, stepsOf } from './tour-steps.js';
 import * as M from './tour-model.js';
 import { PRACTICE, realStorage, practiceUrl, leavePractice, resetPractice } from './practice.js';
 import { t, isFr } from './i18n.js';
@@ -664,7 +667,7 @@ export function initTour() {
     document.documentElement.classList.add('eden-practice');
     startDetect(); // first, so a step sees the microphone tap the next listener keeps from the real one
     document.addEventListener('click', onVoiceClick, true);
-    for (const id of ['jc-dictate', 'jc-talk']) { const b = $(id); if (b) b.hidden = false; } // practice runs them without a microphone
+    if (!IN_APP) for (const id of ['jc-dictate', 'jc-talk']) { const b = $(id); if (b) b.hidden = false; } // practice runs them without a microphone
     badge();
     const p = load();
     const want = params.get('step');

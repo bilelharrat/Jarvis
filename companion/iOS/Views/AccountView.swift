@@ -2,7 +2,7 @@ import AuthenticationServices
 import StoreKit
 import SwiftUI
 
-/// Settings › Account: the optional Jarvis account. Signed out, what it adds and Sign in with
+/// Settings › Account: the optional Eden Secretary account. Signed out, what it adds and Sign in with
 /// Apple; signed in, the plan and what's been used, the devices on it, linking a Mac or
 /// approving a browser's sign-in to Eden, sync, and signing out or deleting it.
 struct AccountView: View {
@@ -77,18 +77,18 @@ struct AccountView: View {
             if offer.info.isWeb {
                 Text("“\(offer.info.name)” asks to sign in to your account at askeden.com. It can use Eden and the AI included with your plan for 30 days, until you sign it out. Only approve a sign-in you just started yourself.")
             } else {
-                Text("It joins your account: it can use the AI included with your plan, send notifications to this iPhone, be reached through the Jarvis relay, and read what you sync. Only link a Mac that’s yours.")
+                Text("It joins your account: it can use the AI included with your plan, send notifications to this iPhone, be reached through the Eden Secretary relay, and read what you sync. Only link a Mac that’s yours.")
             }
         }
-        .confirmationDialog("Sign out of your Jarvis account?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+        .confirmationDialog("Sign out of your Eden Secretary account?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) { Task { await store.signOut() } }
         } message: {
             Text("This iPhone leaves the account. Your other devices, your plan and what’s synced stay.")
         }
-        .confirmationDialog("Delete your Jarvis account?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .confirmationDialog("Delete your Eden Secretary account?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await store.deleteAccount() } }
         } message: {
-            Text("Every device is signed out, and your plan record, usage and everything synced are deleted. This can’t be undone. If you subscribe to Jarvis Plus, also cancel the subscription in Settings › Subscriptions, or Apple keeps renewing it.")
+            Text("Every device is signed out, and your plan record, usage and everything synced are deleted. This can’t be undone. If you subscribe to Eden Plus, also cancel the subscription in Settings › Subscriptions, or Apple keeps renewing it.")
         }
         .confirmationDialog(
             removing.map { "Sign out “\($0.name)”?" } ?? "", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
@@ -115,7 +115,7 @@ struct AccountView: View {
             HStack(spacing: Space.m) {
                 OrbMark(size: 44)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("A Jarvis Account")
+                    Text("A Eden Secretary Account")
                         .font(.title3.weight(.semibold))
                     Text("Optional. Everything works without one, exactly as it does now.")
                         .font(.subheadline)
@@ -127,10 +127,10 @@ struct AccountView: View {
         }
 
         Section {
-            feature("sparkles", .purple, "AI Included", "Jarvis answers on this iPhone without an API key of your own: a free trial to start, and Jarvis Plus for more.")
+            feature("sparkles", .purple, "AI Included", "Eden Secretary answers on this iPhone without an API key of your own: a free trial to start, and Eden Plus for more.")
             feature("bell.badge.fill", .red, "Notifications from Your Mac", "Approvals and heads-ups reach this iPhone with nothing to set up.")
             feature("globe", .blue, "Your Mac from Anywhere", "No shared Wi‑Fi or Tailscale needed. Encrypted from this iPhone to your Mac; nobody in between can read it.")
-            feature("arrow.triangle.2.circlepath", .green, "Sync", "Memory, what Jarvis calls you, and your chats on all your devices, sealed so only they can open them.")
+            feature("arrow.triangle.2.circlepath", .green, "Sync", "Memory, what Eden Secretary calls you, and your chats on all your devices, sealed so only they can open them.")
         } header: {
             Text("What It Adds")
         } footer: {
@@ -192,7 +192,7 @@ struct AccountView: View {
                 .frame(maxWidth: .infinity)
                 .disabled(store.isWorking)
         } footer: {
-            Text("Deletes the account and everything in it. A Jarvis Plus subscription is billed by Apple: cancel it in Settings › Subscriptions too.")
+            Text("Deletes the account and everything in it. A Eden Plus subscription is billed by Apple: cancel it in Settings › Subscriptions too.")
         }
     }
 
@@ -204,7 +204,7 @@ struct AccountView: View {
             HStack(spacing: Space.m) {
                 IconTile(symbol: plan.isPlus ? "sparkles" : "person.crop.circle.fill", tint: plan.isPlus ? .purple : .blue)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(plan.isPlus ? "Jarvis Plus" : "Free")
+                    Text(plan.isPlus ? "Eden Plus" : "Free")
                         .font(.title3.weight(.semibold))
                     Text(planDetail)
                         .font(.subheadline)
@@ -222,7 +222,7 @@ struct AccountView: View {
             }
             if usage.voiceDaily > 0 {
                 meter(
-                    "JARVIS Voice Today", value: usage.voiceFraction,
+                    "Eden Secretary Voice Today", value: usage.voiceFraction,
                     detail: "\(usage.voiceToday.formatted()) of \(usage.voiceDaily.formatted()) characters", tint: .pink
                 )
             }
@@ -230,7 +230,7 @@ struct AccountView: View {
                 Button {
                     showUpgrade = true
                 } label: {
-                    Label("Upgrade to Jarvis Plus", systemImage: "sparkles")
+                    Label("Upgrade to Eden Plus", systemImage: "sparkles")
                 }
             } else {
                 Button {
@@ -403,7 +403,7 @@ struct AccountView: View {
         } header: {
             Text("Link a Mac or Approve a Sign-In")
         } footer: {
-            Text("Linking JARVIS on your Mac, or signing in to Eden at askeden.com, shows a code like K7QM-4ZTR and a QR code. Type the code or scan it here.")
+            Text("Linking Eden Secretary on your Mac, or signing in to Eden at askeden.com, shows a code like K7QM-4ZTR and a QR code. Type the code or scan it here.")
         }
     }
 
@@ -520,7 +520,7 @@ struct AccountView: View {
     }
 }
 
-/// Jarvis Plus, bought with Apple's own purchase sheet. The purchase carries the account id
+/// Eden Plus, bought with Apple's own purchase sheet. The purchase carries the account id
 /// (appAccountToken), and goes to askeden.com as soon as Apple confirms it.
 private struct UpgradeSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -529,9 +529,9 @@ private struct UpgradeSheet: View {
         SubscriptionStoreView(productIDs: Subscriptions.productIDs) {
             VStack(spacing: Space.s) {
                 OrbMark(size: 64)
-                Text("Jarvis Plus")
+                Text("Eden Plus")
                     .font(.largeTitle.weight(.bold))
-                Text("AI included: Jarvis answers on your iPhone, and on your Mac, without an API key of your own, with a monthly allowance of included AI and more JARVIS voice each day. Claude needs your own Anthropic API key.")
+                Text("AI included: Eden Secretary answers on your iPhone, and on your Mac, without an API key of your own, with a monthly allowance of included AI and more Eden Secretary voice each day. Claude needs your own Anthropic API key.")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
                     .multilineTextAlignment(.center)
@@ -579,7 +579,7 @@ private struct LinkScanSheet: View {
                         Image(systemName: "qrcode.viewfinder")
                             .font(.system(size: 44, weight: .light))
                             .foregroundStyle(Palette.muted)
-                        Text(access == .denied ? "Camera is off for J.A.R.V.I.S." : "No camera here")
+                        Text(access == .denied ? "Camera is off for Eden Secretary." : "No camera here")
                             .font(.headline)
                         Text("Type the code your Mac shows instead.")
                             .font(.subheadline)
@@ -590,7 +590,7 @@ private struct LinkScanSheet: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if access == .granted {
-                    Text(notALink ? "That isn’t a Jarvis link code." : "Point at the code on your Mac or in the browser.")
+                    Text(notALink ? "That isn’t a Eden Secretary link code." : "Point at the code on your Mac or in the browser.")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(notALink ? Palette.amber : Palette.ink)
                         .multilineTextAlignment(.center)

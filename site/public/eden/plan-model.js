@@ -5,7 +5,7 @@
 // while acting for someone (a delegate, a team space): the plan isn't this browser's to buy.
 
 /** What a turn refused for want of included AI says (site: accounts/account.js, eden/chat.js, eden/ask.js). */
-export const LIMIT_RE = /included AI|trial of Jarvis AI|trial of Eden’s AI|AI allowance/i;
+export const LIMIT_RE = /included AI|trial of (?:Eden Secretary|Jarvis) AI|trial of Eden’s AI|AI allowance/i;
 
 /** True when an error message is the included allowance running out. */
 export const isLimitError = (message) => typeof message === 'string' && LIMIT_RE.test(message);

@@ -1,7 +1,7 @@
-// Settings › Jarvis in other apps: what Eden (and the other apps reaching Jarvis) may do with
+// Settings › Eden Secretary in other apps: what Eden (and the other apps reaching Eden Secretary) may do with
 // this Mac's files and screen (the backend is jarvis.features.eden_mac): search and read files,
 // in which folders, a picture of the window for "What's on my screen?", and the folders indexed
-// as project knowledge (removing one deletes Jarvis's index, never the files). Paths and names
+// as project knowledge (removing one deletes Eden Secretary's index, never the files). Paths and names
 // are this Mac's own: shown as data.
 (() => {
   const F = window.jarvisFeatures;

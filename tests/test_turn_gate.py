@@ -44,7 +44,7 @@ def project(settings, name):
 
 
 def never_heard_as_an_answer(spoken):
-    """However much of the start the microphone misses, its copy of what JARVIS says is
+    """However much of the start the microphone misses, its copy of what Jarvis says is
     no yes or no, and it never says its own name (the wake word)."""
     words = spoken.split()
     assert all(yes_no(" ".join(words[i:])) is None for i in range(len(words))), spoken

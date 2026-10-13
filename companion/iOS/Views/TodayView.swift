@@ -3,7 +3,7 @@ import EventKit
 import SwiftUI
 
 /// Today at a glance, from this iPhone and your Mac: what needs you, what's next, the
-/// weather, reminders due, and what Jarvis is working on.
+/// weather, reminders due, and what Eden Secretary is working on.
 struct TodayView: View {
     @Environment(AppModel.self) private var model
     @Binding var showSettings: Bool
@@ -64,7 +64,7 @@ struct TodayView: View {
                         .font(.title2)
                         .foregroundStyle(Palette.champagne)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(model.visibleApprovals.count == 1 ? "Jarvis needs your OK" : "\(model.visibleApprovals.count) things need your OK")
+                        Text(model.visibleApprovals.count == 1 ? "Eden Secretary needs your OK" : "\(model.visibleApprovals.count) things need your OK")
                             .font(.headline)
                         Text(model.visibleApprovals.first?.question ?? "")
                             .font(.subheadline)
@@ -148,7 +148,7 @@ struct TodayView: View {
         }
     }
 
-    /// What Jarvis noticed before you asked.
+    /// What Eden Secretary noticed before you asked.
     private var headsUpCard: some View {
         card(header: "Heads-Up", symbol: "sparkles") {
             VStack(alignment: .leading, spacing: Space.s) {

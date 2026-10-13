@@ -254,7 +254,7 @@ async def test_jarvis_s_own_voice_says_the_models_words(kind):
 
     async def speak(text):
         said.append(text)
-        yield b"\x02\x00" * 2400  # JARVIS's voice, 0.1 s a chunk
+        yield b"\x02\x00" * 2400  # Jarvis's voice, 0.1 s a chunk
         yield b"\x02\x00" * 2400
 
     conv = make(kind, server.url, asked, player, speak=speak, speak_rate=24000)

@@ -1,7 +1,7 @@
 // The cloud browser's rules, without Cloudflare (browser/session.js runs them; test/browser.test.js
 // checks them): what an address bar entry becomes, which addresses the browser may load, the
 // ad and tracker blocklist, what the page's mouse and keys become in Chrome (CDP), how fast a
-// viewer may send, the history, bookmarks and suggestions (as J.A.R.V.I.S.'s own browser ranks
+// viewer may send, the history, bookmarks and suggestions (as Eden Secretary's own browser ranks
 // them: app/browser-lib.js), zoom, and each account's monthly browser minutes.
 
 import { BLOCKED_HOSTS } from './blocklist.js';
@@ -107,7 +107,7 @@ export const REFUSED = {
 };
 
 /**
- * What the address bar makes of what's typed (J.A.R.V.I.S.'s app/url-input.js, for a browser
+ * What the address bar makes of what's typed (Eden Secretary's app/url-input.js, for a browser
  * in the cloud): http(s) as it is, a host gets https, words are a search. Local addresses and
  * other schemes are refused, never searched for silently.
  */
@@ -129,7 +129,7 @@ export function toUrl(input, engine = 'duckduckgo') {
   return { ok: true, url: searchUrl(text, engine), search: true };
 }
 
-// ── ads and trackers: blocked by host, as the lists J.A.R.V.I.S.'s browser uses say ──
+// ── ads and trackers: blocked by host, as the lists Eden Secretary's browser uses say ──
 
 let blocked = null;
 const blockedSet = () => (blocked ??= new Set(BLOCKED_HOSTS.split('\n')));
@@ -303,7 +303,7 @@ export function toggleBookmark(bookmarks, { url, title, folder = '' }) {
   return { bookmarks: [{ url, title: cleanTitle(title) || url, ...(f ? { folder: f } : {}), at: Date.now() }, ...list].slice(0, LIMITS.bookmarks), on: true };
 }
 
-// The address bar's suggestions, ranked as J.A.R.V.I.S.'s browser does (app/browser-lib.js suggest).
+// The address bar's suggestions, ranked as Eden Secretary's browser does (app/browser-lib.js suggest).
 const DAY = 864e5;
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const afterScheme = (url) => String(url || '').replace(/^[a-z]+:\/\/(www\.)?/i, '').toLowerCase();

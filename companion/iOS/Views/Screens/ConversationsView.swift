@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Conversations Jarvis holds for you (delegations): who with, the goal, where it stands.
+/// Conversations Eden Secretary holds for you (delegations): who with, the goal, where it stands.
 /// One still going can be stopped, after a confirmation.
 struct ConversationsView: View {
     @Environment(AppModel.self) private var model
@@ -14,7 +14,7 @@ struct ConversationsView: View {
                     ContentUnavailableView {
                         Label("No conversations", systemImage: "bubble.left.and.bubble.right")
                     } description: {
-                        Text("When you ask Jarvis to talk to someone for you, like booking a table or finding a time, it shows up here.")
+                        Text("When you ask Eden Secretary to talk to someone for you, like booking a table or finding a time, it shows up here.")
                     }
                 } else {
                     list(items)
@@ -45,7 +45,7 @@ struct ConversationsView: View {
                 } header: {
                     ListHeader("Going on")
                 } footer: {
-                    ListFooter("Jarvis says only what you allowed, and asks you before anything else.")
+                    ListFooter("Eden Secretary says only what you allowed, and asks you before anything else.")
                 }
                 .glassRow()
             }
@@ -166,7 +166,7 @@ private struct StopConversationButton: View {
         .confirmationDialog("Stop the conversation with \(item.with)?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Stop", role: .destructive, action: onStop)
         } message: {
-            Text("Jarvis stops replying for you and sends nothing more.")
+            Text("Eden Secretary stops replying for you and sends nothing more.")
         }
     }
 }

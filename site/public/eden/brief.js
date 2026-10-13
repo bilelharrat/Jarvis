@@ -3,8 +3,8 @@
 // about today's people and the promises due — gathered by Eden's server (POST /api/chat/brief)
 // and summarised by a cheap routed model (POST /api/chat/send at router level 1), whose lines
 // cite the items ([E1], [M2]) as links. Ten minutes before a meeting with other people, an
-// in-page timer offers a prep card (past threads with them, related notes, what Jarvis
-// remembers, open promises), and, only if the owner turns it on, a heads-up through Jarvis
+// in-page timer offers a prep card (past threads with them, related notes, what Eden Secretary
+// remembers, open promises), and, only if the owner turns it on, a heads-up through Eden Secretary
 // (notify_me) that reaches their iPhone. Read-only: nothing here sends mail or changes events.
 
 import { el, ico, store, fmtCost, shortModel } from './util.js';
@@ -17,7 +17,7 @@ import { openMemory } from './memory.js';
 import { openSpace } from './panels.js';
 import { locale, isFr, t, replyLanguageNote } from './i18n.js';
 
-const DATA_NOTE = /^\(From the owner's Jarvis:[^)]*\)\s*/;
+const DATA_NOTE = /^\(From the owner's Eden Secretary:[^)]*\)\s*/;
 const strip = (t) => String(t || '').replace(DATA_NOTE, '').trim();
 const LEAD_MS = 10 * 60_000; // prep is offered this long before a meeting
 const EVENTS_EVERY_MS = 5 * 60_000; // the prep timer re-reads today's calendar this often

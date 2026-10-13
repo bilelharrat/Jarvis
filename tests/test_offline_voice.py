@@ -1,4 +1,4 @@
-"""JARVIS's offline voice at work (the Speaker's local path, Settings › Speaking,
+"""Jarvis's offline voice at work (the Speaker's local path, Settings › Speaking,
 features/offline_voice.py and the pane's Chinese). A fake ONNX session, fake lexicons and
 a fake download (test_local_voice.py's): no model, no network, no audio."""
 
@@ -177,7 +177,7 @@ async def test_with_a_cloud_voice_it_is_the_fallback(hub_with_store, tmp_path):
 
 
 async def test_the_jarvis_voice_falls_back_to_the_offline_voice(hub_with_store, tmp_path):
-    """The chain: the JARVIS voice (own Fish key or askeden.com), then the offline voice for
+    """The chain: the Jarvis voice (own Fish key or askeden.com), then the offline voice for
     English, then the Mac voice."""
     hub, store = hub_with_store
     put_files(store, tmp_path)
@@ -239,10 +239,10 @@ def _offline_strings():
         "The voice is 111 MB and stays on this Mac. It downloads once.",
         "Downloading… 42%",
         "The offline voice didn’t download: the voice model download didn't match its checksum",
-        "If ElevenLabs fails, JARVIS (on this Mac) speaks instead.",
-        "Speaking as JARVIS. If it can’t be reached, JARVIS (on this Mac) speaks.",
-        "The JARVIS voice wasn't available last time (its daily allowance may be used up);"
-        " JARVIS (on this Mac) spoke instead.",
+        "If ElevenLabs fails, Jarvis (on this Mac) speaks instead.",
+        "Speaking as Jarvis. If it can’t be reached, Jarvis (on this Mac) speaks.",
+        "The Jarvis voice wasn't available last time (its daily allowance may be used up);"
+        " Jarvis (on this Mac) spoke instead.",
         speaking.LOCAL_NAME,
     }
     return sorted((shown | names | sent | built) - {speaking.PREVIEW})

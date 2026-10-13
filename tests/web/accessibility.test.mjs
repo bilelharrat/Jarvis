@@ -91,11 +91,11 @@ test('the window’s words about a Mac are said about a PC, and a Mac keeps its 
 });
 
 test('the edition has its name', () => {
-  assert.equal(A.EDITION, 'J.A.R.V.I.S. Daredevil');
+  assert.equal(A.EDITION, 'Eden Daredevil');
 });
 
 test('the keys a PC talks on read as the keys', () => {
   assert.equal(A.keyWords('⌃⌥J', false), 'Ctrl+Alt+J');
-  assert.equal(A.keyWords('Say “Hey Jarvis” · ⌃⌥J talk', false), 'Say “Hey Jarvis” · Ctrl+Alt+J talk');
+  assert.equal(A.keyWords('Say “Hey Eden Secretary” · ⌃⌥J talk', false), 'Say “Hey Eden Secretary” · Ctrl+Alt+J talk');
   assert.equal(A.keyWords('⌃⌥J', true), '⌃⌥J');
 });

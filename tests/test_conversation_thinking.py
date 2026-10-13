@@ -1,4 +1,4 @@
-"""Thinking in JARVIS's conversation (jarvis.features.conversation): a Settings level for
+"""Thinking in Jarvis's conversation (jarvis.features.conversation): a Settings level for
 everyday turns (off by default, for speed), and "think hard about…", "take your time" (and
 their Chinese) for one request. The SDK can't turn thinking on for one query, so that
 request's connection is made again with thinking, carrying the conversation on, and made

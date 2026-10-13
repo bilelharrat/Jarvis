@@ -2,7 +2,7 @@ import CryptoKit
 import XCTest
 @testable import JarvisCompanion
 
-/// The optional Jarvis account (docs/accounts.md): its credential and JSON, link codes, the
+/// The optional Eden Secretary account (docs/accounts.md): its credential and JSON, link codes, the
 /// sealing for sync and for handing a Mac the sync key, memory merging, the relay tunnel's
 /// byte copying, the route to the Mac, and what a spent allowance says.
 final class AccountTests: XCTestCase {
@@ -138,7 +138,7 @@ final class AccountTests: XCTestCase {
         let body = Data(#"{"type":"error","error":{"type":"billing_error","message":"No allowance left."}}"#.utf8)
         let failure = ClaudeClient.failure(status: 402, body: body, viaAccount: true)
         XCTAssertEqual(failure, .noAllowance)
-        XCTAssertTrue(failure.errorDescription?.contains("Upgrade to Jarvis Plus") ?? false)
+        XCTAssertTrue(failure.errorDescription?.contains("Upgrade to Eden Plus") ?? false)
         XCTAssertEqual(ClaudeClient.failure(status: 401, body: Data(), viaAccount: true), .signedOut)
         XCTAssertEqual(ClaudeClient.failure(status: 401, body: Data()), .badKey)  // the owner's own key
     }

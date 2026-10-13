@@ -824,7 +824,7 @@ async def test_a_burst_of_heads_ups_chimes_once_and_says_a_summary(settings, iso
     assert len(voice.synthesized) <= 3, voice.synthesized
 
 
-# ── telling a barge-in from JARVIS's own voice ──
+# ── telling a barge-in from Jarvis's own voice ──
 
 LONG_REPLY = (
     "You have three meetings today. "
@@ -851,7 +851,7 @@ async def test_a_barge_in_about_what_is_still_queued_is_not_taken_for_an_echo(se
     hub._utterance_began = time.monotonic() - 1.0
     # the microphone hearing the sentence that is playing: an echo
     assert hub._echo("You have three meetings today")
-    # the user, over it, about something JARVIS hasn't said yet: not an echo
+    # the user, over it, about something Jarvis hasn't said yet: not an echo
     assert not hub._echo("Jarvis, is the dentist appointment on Thursday?")
     await hub.stop()
     turn.cancel()

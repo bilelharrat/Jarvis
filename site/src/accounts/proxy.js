@@ -1,5 +1,5 @@
 // Included AI: an Anthropic-compatible door (POST /api/anthropic/v1/messages and
-// …/count_tokens). The app sends Anthropic's own request with its Jarvis token; the server
+// …/count_tokens). The app sends Anthropic's own request with its Eden Secretary token; the server
 // asks the account whether there's allowance left, swaps in its own key (Worker secret
 // ANTHROPIC_API_KEY), passes the answer through as it streams, and counts what it cost
 // from the answer's usage once it's done. A request that starts inside the allowance always
@@ -218,7 +218,7 @@ export const anthropicError = (status, type, message, headers = {}) =>
 // usage)` counts the cost afterwards (through ctx.waitUntil).
 export async function forward(request, env, ctx, path, record) {
   const fallback = serviceFallback(env);
-  if (!env.ANTHROPIC_API_KEY && !fallback) return anthropicError(503, 'api_error', 'Jarvis Plus AI is not set up on the server yet.');
+  if (!env.ANTHROPIC_API_KEY && !fallback) return anthropicError(503, 'api_error', 'Eden Plus AI is not set up on the server yet.');
   const bodyText = await request.text();
   let body;
   try {

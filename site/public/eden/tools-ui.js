@@ -10,7 +10,7 @@ import { state, ui, path, nodeText, saveConversation } from './state.js';
 import * as T from './eden-tools.js';
 import { openCalendar } from './calendar-entry.js';
 import { openCompose } from './compose-entry.js';
-import { searchChats } from './recall-model.js';
+import { searchChats, asksBack } from './recall-model.js';
 import { chatVectors, queryVector } from './chat-vectors.js';
 import { privacyOn } from './privacy.js';
 import { locale } from './i18n.js';
@@ -111,7 +111,10 @@ export async function toolsSystemFor(user, base = '') {
   const parts = [base || ''];
   if (c.calendar || c.mail) parts.push(T.toolsSystem({ calendar: c.calendar, mail: c.mail, now: new Date(), zone: zone(), scope: scope === 'calendar' || scope === 'mail' ? scope : null }));
   else parts.push(T.connectSystem());
-  parts.push(T.chatsSystem());
+  // Chat search only when the message points back at an earlier chat ("what did I ask before", "in my other chat").
+  // Offered on every message, a small model searched the person's chats for a plain question about the world
+  // ("Rains" at LMU, 2026-10-12) instead of answering or searching the web.
+  if (asksBack(user && user.content)) parts.push(T.chatsSystem());
   if (scope === 'memory') parts.push('The user pointed at @memory: save the durable facts they state and use what you remember.');
   return parts.filter(Boolean).join('\n\n');
 }

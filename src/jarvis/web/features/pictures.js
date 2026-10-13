@@ -36,7 +36,7 @@
       img.src = `data:${ev.mime};base64,${ev.data}`;
     }
     const saved = el('div', 'card-text pic-saved');
-    saved.append(document.createTextNode(F.t('Saved in Documents › Jarvis › Images as') + ' '), mine(el('span', '', ev.name || '')));
+    saved.append(document.createTextNode(F.t('Saved in Documents › Eden Secretary › Images as') + ' '), mine(el('span', '', ev.name || '')));
     const price = el('div', 'card-text pic-saved');  // the backend's words, in the owner's language
     price.append(document.createTextNode(F.t('Billed to your Gemini key:') + ' '), mine(el('span', '', ev.cost || '')));
     card.append(el('div', 'card-kicker', 'Picture'), mine(el('div', 'card-title pic-prompt', ev.prompt || '')), img, saved, price);
@@ -82,7 +82,7 @@
   function render() {
     if (!group() || !pictures) return;
     F.$('pictures-status').textContent = pictures.key
-      ? F.t('Ask for a picture and Jarvis makes it with your Google Gemini key, then saves it in Documents › Jarvis › Images.')
+      ? F.t('Ask for a picture and Eden Secretary makes it with your Google Gemini key, then saves it in Documents › Eden Secretary › Images.')
       : F.t('To make pictures, add a Google Gemini key in Settings › Models.');
     const input = F.$('image-model');
     if (document.activeElement !== input) input.value = pictures.model || '';

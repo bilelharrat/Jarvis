@@ -1,4 +1,4 @@
-"""The listener that opens JARVIS for a paired phone (jarvis.companion_wake)."""
+"""The listener that opens Jarvis for a paired phone (jarvis.companion_wake)."""
 
 from __future__ import annotations
 
@@ -132,7 +132,7 @@ def test_the_agent_has_launchd_listen_and_start_one_answer_per_connection(tmp_pa
 
 
 def test_installing_writes_and_loads_it_once(tmp_path):
-    app = tmp_path / "J.A.R.V.I.S..app"
+    app = tmp_path / "Jarvis.app"
     app.mkdir()
     launchctl = Launchctl()
     assert companion_wake.install(str(app), tmp_path, "/py", home=tmp_path, run=launchctl)
@@ -162,7 +162,7 @@ def test_without_its_app_nothing_is_installed(tmp_path, monkeypatch):
 
 
 def test_a_launchd_refusal_is_reported(tmp_path):
-    app = tmp_path / "J.A.R.V.I.S..app"
+    app = tmp_path / "Jarvis.app"
     app.mkdir()
     assert not companion_wake.install(
         str(app), tmp_path, "/py", home=tmp_path, run=Launchctl(fails=True)

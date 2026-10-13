@@ -1,16 +1,16 @@
 import AVFoundation
 import Speech
 
-/// "Hey Jarvis": on-device speech recognition listening for the name, while the owner has it
+/// "Hey Eden Secretary": on-device speech recognition listening for the name, while the owner has it
 /// on. Recognition never leaves the iPhone (it runs only where on-device recognition is
 /// supported) and nothing is kept: each stretch is thrown away unless it holds the name.
-/// "Hey Jarvis" alone starts listening for a request; "Hey Jarvis, what's next?" in one
+/// "Hey Eden Secretary" alone starts listening for a request; "Hey Eden Secretary, what's next?" in one
 /// breath sends what came after the name straight away.
 ///
 /// iOS lets an app listen only while it's in front, or in the background while its audio
 /// session stays active (the orange dot shows), until a call, Siri or another app takes the
 /// microphone. For the Lock Screen and a phone in a pocket, Settings explains Vocal Shortcuts
-/// ("Hey Jarvis" trained in iOS itself), which needs none of this.
+/// ("Hey Eden Secretary" trained in iOS itself), which needs none of this.
 @MainActor
 @Observable
 final class WakeWordListener {
@@ -34,7 +34,7 @@ final class WakeWordListener {
     static let stretch: TimeInterval = 50
     /// After the name, this much quiet ends the request.
     static let pause: TimeInterval = 1.1
-    nonisolated static let names = ["jarvis", "jarvus", "jervis", "travis jarvis"]
+    nonisolated static let names = ["eden", "edan", "eadan"]
 
     func start() {
         guard !isListening else { return }
@@ -86,7 +86,7 @@ final class WakeWordListener {
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
             request.requiresOnDeviceRecognition = true
-            request.contextualStrings = ["Jarvis", "Hey Jarvis", "OK Jarvis"]
+            request.contextualStrings = ["Eden", "Hey Eden", "OK Eden"]
             request.taskHint = .search
 
             let engine = AVAudioEngine()

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// First run: the orb, and two ways in — pair Jarvis on your Mac (everything it does), or
-/// run Jarvis on this iPhone with your own Claude or Gemini API key. Either can be added later.
+/// First run: the orb, and two ways in — pair Eden Secretary on your Mac (everything it does), or
+/// run Eden Secretary on this iPhone with your own Claude or Gemini API key. Either can be added later.
 struct WelcomeView: View {
     @Environment(AppModel.self) private var model
     @State private var showKey = false
@@ -24,7 +24,7 @@ struct WelcomeView: View {
                             .multilineTextAlignment(.center)
                     }
                     VStack(alignment: .leading, spacing: Space.l) {
-                        feature("waveform", .purple, "Just ask", "Say “Hey Jarvis”, press the Action Button, or tap the orb.")
+                        feature("waveform", .purple, "Just ask", "Say “Hey Eden Secretary”, press the Action Button, or tap the orb.")
                         feature("desktopcomputer", .blue, "Everything on your Mac", "Eden Code, files, mail, iMessage, routines and approvals, from anywhere.")
                         feature("iphone", .green, "Works on its own", "Calendar, reminders, weather, timers, music, Home and the web, right here.")
                     }
@@ -62,7 +62,7 @@ struct WelcomeView: View {
                     GlassForm {
                         PhoneBrainSettings()
                     }
-                    .navigationTitle("Jarvis on iPhone")
+                    .navigationTitle("Eden Secretary on iPhone")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {

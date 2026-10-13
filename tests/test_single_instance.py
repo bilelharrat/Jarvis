@@ -1,4 +1,4 @@
-"""One JARVIS backend per Mac: a second `jarvis serve` refuses to start and says why, the
+"""One Jarvis backend per Mac: a second `jarvis serve` refuses to start and says why, the
 lock goes with the process however it ends, a backend that is still quitting is waited
 for, and only serve() takes it (the app window's server and the tests never do)."""
 

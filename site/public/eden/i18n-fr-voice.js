@@ -299,7 +299,7 @@ export default {
     'Eden is paused': 'Eden est en pause',
     'Eden never types passwords or payment details': 'Eden ne saisit jamais de mots de passe ni de données de paiement',
 
-    /* ---------- browser-task.js (and the step labels Jarvis sends) ---------- */
+    /* ---------- browser-task.js (and the step labels Eden Secretary sends) ---------- */
     'Waiting for your OK on your Mac': 'En attente de votre accord sur votre Mac',
     'Working': 'En cours',
     'Didn’t finish': 'Inachevé',

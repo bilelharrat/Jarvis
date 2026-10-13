@@ -10,7 +10,7 @@
 //
 // Tools & Accounts is a pane here too (Accounts): #accounts' sections move into #settings,
 // and toggleAccounts() (Eden Code's "Open Tools & Accounts", WhatsApp's
-// pairing) opens Settings on it. The sidebar's top row is the Jarvis account, when its
+// pairing) opens Settings on it. The sidebar's top row is the Eden Secretary account, when its
 // section (features/account.js, #account-group) is there.
 (() => {
   const F = window.jarvisFeatures;
@@ -39,7 +39,7 @@
     back: '<path d="M15 5l-7 7 7 7"/>',
   };
   // Eden Code's window (app/flavor.js) keeps what coding needs; the voice, the day, the phone and
-  // money are J.A.R.V.I.S.'s, and stay in its own Settings (they're there for search still).
+  // money are Eden Secretary's, and stay in its own Settings (they're there for search still).
   const EDEN = document.body.dataset.app === 'eden-code';
   const EDEN_PANES = new Set(['general', 'accessibility', 'ai', 'accounts', 'code', 'browser', 'safety']);
   // [id, label, icon, tile colour]; an empty id is a gap between clusters, as in System Settings.
@@ -129,9 +129,9 @@
   const account = el('button', 'sn-account');
   account.type = 'button';
   account.id = 'sn-account';
-  account.hidden = true;  // until the Jarvis account's section is there
+  account.hidden = true;  // until the Eden Secretary account's section is there
   const accountText = el('span', 'sn-account-text');
-  accountText.append(el('strong', '', 'Jarvis Account'), el('small', '', 'Sign in, Plus and sync'));
+  accountText.append(el('strong', '', 'Eden Secretary Account'), el('small', '', 'Sign in, Plus and sync'));
   account.append(tile('person', 'blue'), accountText, el('span', 'sn-chev', '›'));
   account.addEventListener('click', () => {
     const g = $('account-group');

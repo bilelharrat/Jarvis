@@ -1,7 +1,7 @@
 """This Mac's Jarvis account, at askeden.com (docs/accounts.md is the contract).
 
 Optional, and off until the owner links: everything works without it, as before. Linked,
-the Mac gets what it can't do alone: AI included (Jarvis Plus), notifications without a
+the Mac gets what it can't do alone: AI included (Eden Plus), notifications without a
 push key of the owner's own, the phone reaching it from anywhere (relay.py), and memory and
 settings synced with their iPhone (account_sync.py).
 
@@ -65,7 +65,7 @@ POLL_SECONDS = 2.0
 STATUS_SECONDS = 60.0  # GET /account is asked again after this
 REQUEST_SECONDS = 15.0
 RELAY_PREF = "account_relay"  # Settings: reach this Mac through the account (on by default)
-PLUS_PREF = "account_plus_ai"  # Settings: Jarvis Plus answers instead of the Claude sign-in
+PLUS_PREF = "account_plus_ai"  # Settings: Eden Plus answers instead of the Claude sign-in
 _TOKEN = re.compile(
     r"jv1\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([0-9a-f]{16})\."
     r"[A-Za-z0-9_-]{43}"
@@ -282,7 +282,7 @@ class Account:
         self.info: dict[str, Any] | None = None  # the latest GET /account
         self.error = ""  # the latest problem, in words for Settings
         # Whether Claude Code is signed in to a Claude account (the feature checks it);
-        # None: not known. Not signed in and linked: Jarvis Plus answers (claude_signin).
+        # None: not known. Not signed in and linked: Eden Plus answers (claude_signin).
         self.claude_signed_in: bool | None = None
         self.on_change: list[Callable[[], Any]] = []
         self._read = False

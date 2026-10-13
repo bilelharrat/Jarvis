@@ -1,4 +1,4 @@
-"""JARVIS's offline voice: its phonemes (local_phonemes.py), the model (local_voice.py,
+"""Jarvis's offline voice: its phonemes (local_phonemes.py), the model (local_voice.py,
 with a fake ONNX session) and the checked download (fake). No model, no network, no audio."""
 
 import hashlib
