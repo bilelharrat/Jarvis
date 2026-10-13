@@ -33,6 +33,10 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git's own id for "not
 # Settings every git call here runs with: never an fsmonitor hook, a pager or a terminal
 # prompt, and file names as they are (not \-escaped octal).
 _SAFE = ("-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "-c", "color.ui=false")
+# Put before a commit or merge Eden makes by itself: the repository's hooks don't run. A
+# session can edit what they run (a lint-staged or pre-commit config in the project), and
+# Eden's own git runs outside the sandbox, as the owner. The owner's own commits keep them.
+NO_HOOKS = ("-c", "core.hooksPath=/dev/null")
 _ENV = {
     "GIT_TERMINAL_PROMPT": "0",
     "GIT_LITERAL_PATHSPECS": "1",

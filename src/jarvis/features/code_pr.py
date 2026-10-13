@@ -66,7 +66,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import code_ai, code_changes, code_prs, github, lang, prefs, secret_scan
-from ..code_changes import git
+from ..code_changes import NO_HOOKS, git
 from ..code_prs import FIX_ATTEMPTS, PullRecord
 from ..hub import _msg_int
 from ..proactive import Alert
@@ -636,7 +636,7 @@ class PullDesk:
             return f"Couldn't commit the session's work: {added.err.strip()[:300]}"
         if not git(top, "diff", "--cached", "--quiet").code:
             return ""  # nothing to commit after all
-        done = git(top, "commit", "-q", "-m", message, timeout=120)
+        done = git(top, *NO_HOOKS, "commit", "-q", "-m", message, timeout=120)
         if done.ok:
             return ""
         why = (done.err or done.out).strip()

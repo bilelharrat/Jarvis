@@ -71,8 +71,24 @@ READ_TOOLS = {"Read", "Glob", "Grep", "LS", "NotebookRead"}
 EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 # Inside the project, but "edits" mode still asks: git's internals and hooks, Claude
 # Code's own settings, and files other tools run on their own.
-_PROTECTED_DIRS = {".git", ".claude", ".husky", ".githooks"}
+# Eden's own .jarvis/ holds launch.json, whose commands the dev-server button runs.
+_PROTECTED_DIRS = {".git", ".claude", ".husky", ".githooks", ".jarvis"}
 _PROTECTED_FILES = {".envrc", ".vscode/tasks.json"}
+# Git hook managers' own config, at any depth: an edit here is code that runs as the owner
+# the next time anyone commits (Eden's own commits skip hooks, the owner's don't).
+_HOOK_CONFIGS = {
+    ".pre-commit-config.yaml", ".pre-commit-config.yml", "lefthook.yml", "lefthook.yaml",
+    ".lefthook.yml", ".lefthook.yaml", "lefthook-local.yml", "lefthook-local.yaml",
+    ".huskyrc", ".huskyrc.json", ".huskyrc.js", ".simple-git-hooks.json", ".simple-git-hooks.js",
+    ".simple-git-hooks.cjs", "simple-git-hooks.json", "simple-git-hooks.js",
+    "simple-git-hooks.cjs", ".overcommit.yml",
+}  # fmt: skip
+_HOOK_CONFIG_PREFIXES = (".lintstagedrc", "lint-staged.config.", ".nano-staged", "nano-staged.")
+# The same, as package.json keys ("config.ghooks" sits one level down).
+_HOOK_KEYS = (
+    "husky", "lint-staged", "nano-staged", "simple-git-hooks", "pre-commit", "pre-push",
+    "gitHooks", "git-hooks", "ghooks",
+)  # fmt: skip
 
 ALLOW, ALLOW_EDITS, DENY, ALWAYS = "allow", "allow_edits", "deny", "always"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -1006,6 +1022,45 @@ def _inside(root: Path, raw: str) -> Path | None:
     except (OSError, RuntimeError):
         return None
     return path if path == root or root in path.parents else None
+
+
+def _hook_sections(text: str) -> Any:
+    """What a package.json says to its git hook managers (None when it isn't JSON)."""
+    try:
+        found = json.loads(text) if text.strip() else {}
+    except ValueError:
+        return None
+    if not isinstance(found, dict):
+        return None
+    config = found.get("config")
+    nested = config.get("ghooks") if isinstance(config, dict) else None
+    return [found.get(key) for key in _HOOK_KEYS], nested
+
+
+def _touches_hook_keys(path: Path, tool_input: dict[str, Any]) -> bool:
+    """Whether an edit to a package.json changes what its git hooks run: the edit is played
+    on the file as it is now and the hook keys compared before and after. An edit that
+    can't be played (its old text isn't there, the result isn't JSON) counts as touching
+    them, so it asks."""
+    try:
+        before = path.read_text(encoding="utf-8") if path.exists() else ""
+    except (OSError, UnicodeDecodeError):
+        return True
+    if "content" in tool_input:
+        after = str(tool_input.get("content") or "")
+    else:
+        edits = tool_input.get("edits")
+        steps = edits if isinstance(edits, list) else [tool_input]
+        after = before
+        for step in steps:
+            if not isinstance(step, dict):
+                return True
+            old, new = str(step.get("old_string") or ""), str(step.get("new_string") or "")
+            if not old or old not in after:
+                return True
+            after = after.replace(old, new, -1 if step.get("replace_all") else 1)
+    then, now = _hook_sections(before), _hook_sections(after)
+    return then is None or now is None or then != now
 
 
 def _read_paths(tool_name: str, tool_input: dict[str, Any]) -> list[str]:
@@ -3108,7 +3163,11 @@ class TaskManager:
         if path is None:
             return False
         rel = path.relative_to(task.cwd.resolve())
-        return not (_PROTECTED_DIRS & set(rel.parts)) and rel.as_posix() not in _PROTECTED_FILES
+        if _PROTECTED_DIRS & set(rel.parts) or rel.as_posix() in _PROTECTED_FILES:
+            return False
+        if path.name in _HOOK_CONFIGS or path.name.startswith(_HOOK_CONFIG_PREFIXES):
+            return False
+        return path.name != "package.json" or not _touches_hook_keys(path, tool_input)
 
     def policy_for(self, task: ClaudeTask):
         async def can_use_tool(
