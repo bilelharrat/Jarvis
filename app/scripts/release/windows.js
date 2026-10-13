@@ -12,6 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { windowsFuses } = require('./fuses');
 
 const APP = path.resolve(__dirname, '..', '..');
 const REPO = path.resolve(APP, '..');
@@ -190,6 +191,8 @@ async function main() {
         files: ['*.js', '*.html', '*.css', '*.wav', 'features/**', 'flavor.json', `${icons}/*.png`, 'package.json',
           '!jarvis-home.json', '!dist/**', '!scripts/**', '!eden/**'],
         asarUnpack: ['node_modules/@xterm/**', 'node_modules/@mediapipe/**'],
+        // Electron's fuses (fuses.js): flipped by electron-builder after afterPack, right before it signs.
+        electronFuses: windowsFuses(),
         extraResources: [{ from: engine, to: 'backend' }],
         protocols: [{ name, schemes: [edenCode ? 'edencode' : 'jarvis'] }],
         win: {

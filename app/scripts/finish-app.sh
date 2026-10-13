@@ -16,6 +16,10 @@ TEAM="8CV4X23Y2T"
 # CFBundleName stays "J.A.R.V.I.S": Electron finds "J.A.R.V.I.S Helper.app" by it, and a
 # mismatch crashes the app at launch. The menu bar name comes from app.setName in main.js.
 
+# Electron's fuses, before signing (scripts/release/fuses.js): no run-as-Node, NODE_OPTIONS or
+# --inspect in the signed app.
+"${NODE:-node}" "$(dirname "$0")/release/fuses.js" "$APP"
+
 IDENTITY="$JARVIS_SIGN_IDENTITY"
 if [ -z "$IDENTITY" ]; then
   # The first code-signing certificate issued to the team (its OU is the team id).

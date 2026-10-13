@@ -2,7 +2,9 @@
 //   1. package the app with @electron/packager (the flags `npm run package` uses, but no
 //      repo path baked in: no jarvis-home.json);
 //   2. add the bundled backend (backend.js) and the prebuilt Swift helpers (helpers.js);
-//   3. sign it inside-out (sign.js) with the Developer ID named in JARVIS_SIGN_IDENTITY;
+//   3. flip Electron's fuses (fuses.js: no run-as-Node, NODE_OPTIONS or --inspect; app.asar
+//      integrity checked and only it loaded), then sign it inside-out (sign.js) with the
+//      Developer ID named in JARVIS_SIGN_IDENTITY;
 //   4. verify it (verify.js);
 //   5. zip it, have Apple notarize it (JARVIS_NOTARY_PROFILE) and staple the ticket to it;
 //   6. build the disk image with an Applications link (dmg.js);
@@ -30,6 +32,7 @@ const macho = require('./macho');
 const { buildBackend } = require('./backend');
 const { buildHelpers } = require('./helpers');
 const { signApp } = require('./sign');
+const { flipMacApp } = require('./fuses');
 const { verifyApp, buildMacStrings } = require('./verify');
 const { notarize, staple, zipApp } = require('./notarize');
 const { makeDmg, signDmg, writeChecksums } = require('./dmg');
@@ -291,7 +294,9 @@ async function buildApp(spec, { args, identity, profile, backend, minimum, helpe
   if (feed) fs.writeFileSync(path.join(resources, 'update.json'), `${JSON.stringify({ feed }, null, 2)}\n`);
   say(`  minimum macOS ${minimum}; ${spec.display} is ${megabytes(sizeOf(app))}; ${feed ? `updates from ${feed}` : `no updates (${spec.feedEnv} isn't set)`}`);
 
-  say(`3. signing ${spec.display} ${args.adhoc ? 'ad hoc' : `as ${identity}`}`);
+  say(`3. ${spec.display}'s fuses, then signing it ${args.adhoc ? 'ad hoc' : `as ${identity}`}`);
+  const { asar } = await flipMacApp(app); // in the binary: before the signature, which covers them
+  if (!asar) throw new BuildError(`${spec.display} isn't an app.asar, so its integrity can't be checked`);
   const helperEntitlements = Object.fromEntries(Object.entries(helpers.helpers).map(([n, h]) => [n, h.entitlements]));
   signApp(app, { identity, helperEntitlements });
 
