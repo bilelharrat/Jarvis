@@ -337,6 +337,8 @@ def _mode(said: str) -> str | None:
     return None
 
 
+BYPASS_BY_VOICE = "code_bypass_by_voice"  # the card's tool: Touch ID asks with its tap
+
 MODE_NAMES = {
     "plan": "Plan mode: I'll plan and check with you before changing anything.",
     "ask": "Ask mode: I'll ask before each edit and command.",
@@ -787,6 +789,33 @@ class VoiceCoder:
         self.focus = None
         self._changed()
 
+    async def _set_mode(self, task: Any, mode: str, text: str, say: Any) -> None:
+        self.hub.tasks.set_mode(task.id, mode)
+        self._changed()
+        if text:
+            await self._send(task, text)
+            name = MODE_NAMES[mode].split(":")[0]
+            doing = "Planning that now." if mode == "plan" else "On it."
+            say(f"{name}. {doing}", follow_up=False)
+        else:
+            say(MODE_NAMES[mode])
+
+    async def _bypass_on_tap(self, task: Any, text: str, say: Any) -> None:
+        """Full auto asked for by voice: a card only a tap answers (never one said aloud,
+        nor the session's own, so "yes" from across the room or a video can't), and then the
+        switch and the request that came with it."""
+        choice = await self.hub.request_approval(
+            f"Turn on Bypass permissions for {task.cwd.name}?",
+            "Asked for by voice. The session will run anything without asking"
+            + (f", starting with:\n“{text[:600]}”" if text else "."),
+            [("allow", "Turn on full auto"), ("deny", "Not now")],
+            context={"tool": BYPASS_BY_VOICE, "tap_only": True},
+        )
+        if choice != "allow":
+            say("Left the mode as it was.", follow_up=False)
+            return
+        await self._set_mode(task, "auto", text, say)
+
     # ── what the user says ──
 
     async def handle(
@@ -824,15 +853,18 @@ class VoiceCoder:
             tasks.send(task.id, "/compact")
             say("Compacting the conversation.", follow_up=False)
         elif intent.kind == "mode":
-            tasks.set_mode(task.id, intent.arg)
-            self._changed()
-            if intent.text:
-                await self._send(task, intent.text)
-                name = MODE_NAMES[intent.arg].split(":")[0]
-                doing = "Planning that now." if intent.arg == "plan" else "On it."
-                say(f"{name}. {doing}", follow_up=False)
-            else:
-                say(MODE_NAMES[intent.arg])
+            # A mode switch by voice is a risky step: only the owner's voice makes it (a
+            # video saying "Eden, full auto and delete…" doesn't), and Bypass permissions
+            # also needs a tap on its card (Touch ID with it in the app), which no voice
+            # can answer. Typed slash commands are the owner's own and go as they did.
+            if not typed and not await self.hub._voice_allows(risky=True):
+                say("Only your own voice can change how this session asks.")
+                return
+            if not typed and intent.arg == "auto" and task.mode != "auto":
+                self.hub._spawn(self._bypass_on_tap(task, intent.text, say))
+                say("Tap the card on screen to turn on full auto.", follow_up=False)
+                return
+            await self._set_mode(task, intent.arg, intent.text, say)
         elif intent.kind == "changes":
             say(await self.hub.changes_speech(task))
         elif intent.kind == "explain_change":
