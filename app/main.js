@@ -476,7 +476,7 @@ function createWindow() {
   // Deny-by-default (window-guards.js, S6): only the app's own page on its backend gets the camera,
   // the microphone and the rest it uses; its loading page, an iframe or anything else, nothing.
   guards.guardSession(win.webContents.session, {
-    policy: guards.mainPolicy(() => (port ? `http://127.0.0.1:${port}` : '')),
+    policy: guards.mainPolicy(() => (DEV_URL ? guards.originOf(DEV_URL) : port ? `http://127.0.0.1:${port}` : '')),
     log: (line) => trace.write(line),
   });
   guards.guardContents(win.webContents);
