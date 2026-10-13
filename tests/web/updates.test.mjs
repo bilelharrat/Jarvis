@@ -3,7 +3,9 @@
 // it checks the feed, downloads only something newer and never restarts unasked) and the
 // window's (web/features/updates.js: every sentence has its Chinese). node --test tests/web/
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
@@ -297,4 +299,46 @@ test('the app sharing the other one’s backend asks that backend whether it’s
   const body = main.slice(start, main.indexOf('\n}\n', start));
   assert.match(body, /if \(!port \|\| \(!backend && !stopWatching\)\) return resolve\(true\);/);
   assert.ok(!/if \(!backend \|\| !port\)/.test(body), 'no longer "busy" just because the backend is the other app’s');
+});
+
+test('an update Squirrel keeps failing on is left alone longer each time, not downloaded every hour (W26)', async () => {
+  let now = 1_000_000;
+  const memory = (() => { let v = {}; return { get: () => v, set: (next) => { v = next || {}; } }; })();
+  const auto = squirrel();
+  const u = updates.createUpdater({
+    version: '0.1.0', feed: FEED, autoUpdater: auto, inApplications: () => true, failures: memory, now: () => now,
+    fetchText: async () => releaseJson('0.2.0'),
+  });
+  const downloads = () => auto.calls.filter((c) => c[0] === 'check').length;
+  await u.check();
+  auto.emit('error', new Error('Code signature … did not pass validation: team XXXX'));
+  assert.deepEqual(memory.get(), { version: '0.2.0', count: 1, until: now + updates.BACKOFF_FIRST });
+  now += 10 * 60 * 1000;
+  assert.equal((await u.check()).state, 'error', 'within the hour: not again');
+  assert.equal(downloads(), 1);
+  now += updates.BACKOFF_FIRST;
+  await u.check();
+  assert.equal(downloads(), 2, 'tried again after its time');
+  auto.emit('error', new Error('again'));
+  assert.equal(memory.get().count, 2);
+  assert.equal(memory.get().until, now + 2 * updates.BACKOFF_FIRST, 'twice as long');
+  now += updates.BACKOFF_FIRST + 1;
+  await u.check();
+  assert.equal(downloads(), 2, 'still waiting');
+  await u.check({ asked: true });
+  assert.equal(downloads(), 3, 'Check for updates tries at once');
+  auto.emit('update-downloaded');
+  assert.deepEqual(memory.get(), {}, 'one that worked starts over');
+  assert.equal(updates.backoffFor(30), updates.BACKOFF_MOST, 'a week at most');
+});
+
+test('the failure is remembered on disk across launches', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'update-failure-'));
+  const file = path.join(dir, 'update-failure.json');
+  const a = updates.failureFile(file);
+  assert.deepEqual(a.get(), {});
+  a.set({ version: '0.2.0', count: 3, until: 42 });
+  assert.deepEqual(updates.failureFile(file).get(), { version: '0.2.0', count: 3, until: 42 });
+  a.set({});
+  assert.deepEqual(updates.failureFile(file).get(), {});
 });
