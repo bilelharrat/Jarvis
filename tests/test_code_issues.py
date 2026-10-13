@@ -212,6 +212,41 @@ async def test_an_issue_labelled_after_opting_in_starts_one_run_with_its_text_as
     assert await hub.code_issues.look(entry) == [5]
 
 
+async def test_only_people_with_triage_access_or_a_listed_bot_can_start_one(
+    hub, projects, monkeypatch
+):
+    app_project(projects)
+    entry = opted_in(hub, bots=["eden-helper[bot]"])
+    started = starts(hub, monkeypatch)
+    fake = hub.fake
+    fake.roles[("acme/app", "maintainer")] = "triage"
+    fake.roles[("acme/app", "member")] = "read"  # in the organisation, but reads only
+    labelled(fake, 1, actor="reporter")  # an issue template's label: its author's
+    labelled(fake, 2, actor="member")
+    fake.events["acme/app"][0]["actor"]["type"] = "User"
+    labelled(fake, 3, actor="github-actions[bot]")  # an auto-labeller: anyone's words
+    fake.events["acme/app"][0]["actor"]["type"] = "Bot"
+    labelled(fake, 4, actor="maintainer")
+    labelled(fake, 5, actor="eden-helper[bot]")
+    assert await hub.code_issues.look(entry) == [4, 5]
+    assert len(started) == 2 and "labelled “jarvis” by maintainer" in started[0][0].prompt
+    refused = [a.text for a in hub.alerts if "triage access" in a.text]
+    assert refused[0] == (
+        "Issue #1 in acme/app didn't start a session: reporter labelled it, and only people "
+        "with triage access or more can start one."
+    )
+    assert len(refused) == 3
+    assert hub.code_issues.caps.counts["issue"] == 2  # the refused took none of the day's
+    # Seen: refused once, not again at the next look.
+    assert await hub.code_issues.look(entry) == [] and len(started) == 2
+    # A token GitHub won't answer for (no access to collaborators): a no, never a guess.
+    asked = ("GET", "/repos/acme/app/collaborators/maintainer/permission")
+    fake.fail[asked] = (403, {"message": "x"}, {})
+    hub.code_pr.client._roles.clear()
+    labelled(fake, 6, actor="maintainer")
+    assert await hub.code_issues.look(entry) == [] and len(started) == 2
+
+
 async def test_a_days_cap_stops_it_and_the_rest_wait_for_tomorrow(hub, projects, monkeypatch):
     app_project(projects)
     entry = opted_in(hub)

@@ -38,6 +38,9 @@ class FakeGitHub:
         self.requests: list[httpx.Request] = []
         self.fail: dict[tuple[str, str], tuple[int, dict[str, Any], dict[str, str]]] = {}
         self.merged: list[dict[str, Any]] = []
+        # (repo, login) -> GitHub's role for them there; the token's own login is admin,
+        # anyone else not listed reads (as a stranger does a public repository).
+        self.roles: dict[tuple[str, str], str] = {}
         self.remaining = 4999
         self.ids = iter(range(1000, 10**6))
 
@@ -194,6 +197,12 @@ class FakeGitHub:
                 return self.reply(200, self.issue_comments.get((repo, number), []))
             issue = self.issues.get((repo, number))
             return self.reply(200, issue) if issue else self.reply(404, {"message": "Not Found"})
+        m = re.match(r"^/collaborators/([^/]+)/permission$", rest)
+        if m:
+            who = m.group(1)
+            role = "admin" if who == self.login else self.roles.get((repo, who), "read")
+            legacy = {"maintain": "write", "triage": "read"}.get(role, role)
+            return self.reply(200, {"permission": legacy, "role_name": role, "user": {"login": who}})
         if rest == "/issues/events":
             return self.reply(200, self.events.get(repo, []))
         m = re.match(r"^/actions/jobs/(\d+)/logs$", rest)

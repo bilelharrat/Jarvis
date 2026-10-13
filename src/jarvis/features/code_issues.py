@@ -77,6 +77,7 @@ ZH = {
     "Issue #{n} in {repo} didn't start a session: {why}": "{repo} 的议题 #{n} 没能开启会话：{why}",
     "That's today's {n} sessions from GitHub issues; the rest wait until tomorrow.": "今天已经由 GitHub 议题开启了 {n} 个会话；其余的要等到明天。",
     "Issue #{n}: {title}": "议题 #{n}：{title}",
+    "Issue #{n} in {repo} didn't start a session: {who} labelled it, and only people with triage access or more can start one.": "{repo} 的议题 #{n} 没有开启会话：给它贴标签的是 {who}，只有拥有分类（triage）或更高权限的人才能开启。",
 }
 lang.add_texts(ZH)
 
@@ -98,6 +99,7 @@ def _repos(value: Any) -> list[dict[str, Any]] | None:
         if not (isinstance(label, str) and LABEL.match(label)):
             continue
         commands = item.get("commands") if isinstance(item.get("commands"), list) else []
+        bots = item.get("bots") if isinstance(item.get("bots"), list) else []
         try:
             spend = min(50.0, max(0.5, float(item.get("spend_cap") or 5.0)))
             since = float(item.get("since") or 0.0)
@@ -112,6 +114,9 @@ def _repos(value: Any) -> list[dict[str, Any]] | None:
                 "spend_cap": spend,
                 "sandbox": item.get("sandbox") is not False,
                 "since": since,
+                # Bots whose labels may start a run (an app the owner runs, say): none unless
+                # listed, since an auto-labeller labels whatever anyone writes.
+                "bots": [b for b in bots if isinstance(b, str) and 0 < len(b) <= 100][:10],
             }
         )
     return kept
@@ -351,6 +356,10 @@ class Issues:
                 if not number:
                     seen.append(event_id)
                     continue
+                labeller = await self._labeller(entry, ref, event)
+                if not labeller:
+                    seen.append(event_id)  # refused: said once, never started
+                    continue
                 if not self.caps.left("issue"):
                     self._capped()
                     break  # not seen: tomorrow's look starts them
@@ -369,7 +378,6 @@ class Issues:
                     self._capped()
                     break
                 seen.append(event_id)
-                labeller = str((event.get("actor") or {}).get("login") or "")
                 said = self.start(entry, issue, labeller)
                 if not said:
                     started.append(number)
@@ -380,6 +388,33 @@ class Issues:
             if new or seen != before or self._unsaved:
                 self.save()
         return started
+
+    async def _labeller(
+        self, entry: dict[str, Any], ref: github.RepoRef, event: dict[str, Any]
+    ) -> str:
+        """Who put the label on, when they may start a run: someone with triage access to
+        the repository or more (GitHub's own answer, not the event's word), or a bot the
+        owner listed for the repository. An issue template or an auto-labeller applies
+        its labels as whoever opened the issue, or as a bot: anyone, so those don't count.
+        "" (and the owner told) when they may not. A rate limit isn't a no: it's raised,
+        and the next look asks again."""
+        actor = event.get("actor") if isinstance(event.get("actor"), dict) else {}
+        login = str(actor.get("login") or "")
+        number = int((event.get("issue") or {}).get("number") or 0)
+        repo = entry["repo"]
+        bot = actor.get("type") == "Bot" or login.endswith("[bot]")
+        if bot:
+            if login.lower() in {b.lower() for b in entry.get("bots") or []}:
+                return login
+        elif await self.client.may(ref, login, "triage"):
+            return login
+        self.notify(
+            f"issue-who:{repo}#{number}:{event.get('id')}",
+            f"Issue #{number} in {repo} didn't start a session: {login or 'someone'} labelled "
+            "it, and only people with triage access or more can start one.",
+            "a GitHub issue was labelled by someone who can't start an Eden Code session",
+        )
+        return ""
 
     def _capped(self) -> None:
         """Today's sessions from issues are all started: said once a day."""
