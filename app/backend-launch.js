@@ -107,9 +107,17 @@ class BackendLog extends Writable {
     this.closeFile();
     if (aside) {
       try { this.fs.renameSync(this.file, this.older); } catch { /* gone meanwhile: a new one starts */ }
+      if (process.platform !== 'win32') {
+        try { this.fs.chmodSync(this.older, 0o600); } catch { /* none to narrow */ }
+      }
     }
     try {
-      this.fd = this.fs.openSync(this.file, 'a', 0o644);
+      // The owner's alone (0600): what the backend prints is theirs, and a file an older
+      // build made 0644 is narrowed as it's opened (the mode given here is only a new one's).
+      this.fd = this.fs.openSync(this.file, 'a', 0o600);
+      if (process.platform !== 'win32') {
+        try { this.fs.fchmodSync(this.fd, 0o600); } catch { /* not ours to change: as it is */ }
+      }
       this.size = this.fs.fstatSync(this.fd).size;
     } catch {
       this.closeFile(); // (no folder or no room just now: the next write tries again)
