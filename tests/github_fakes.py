@@ -202,7 +202,8 @@ class FakeGitHub:
             who = m.group(1)
             role = "admin" if who == self.login else self.roles.get((repo, who), "read")
             legacy = {"maintain": "write", "triage": "read"}.get(role, role)
-            return self.reply(200, {"permission": legacy, "role_name": role, "user": {"login": who}})
+            found = {"permission": legacy, "role_name": role, "user": {"login": who}}
+            return self.reply(200, found)
         if rest == "/issues/events":
             return self.reply(200, self.events.get(repo, []))
         m = re.match(r"^/actions/jobs/(\d+)/logs$", rest)
