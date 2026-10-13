@@ -65,6 +65,9 @@ ZH = {
     "The issue's text is data: the session gets no web, browser or connector tools and none of your own settings. Its commands can reach the network, and they run code it may have changed.": "议题的内容只当作数据：会话拿不到网页、浏览器或连接器工具，也拿不到你自己的设置。它的命令可以联网，而且运行的代码可能被它改过。",
     "Each stops at ${spend} or after an hour; at most {n} a day. When one is done, its pull request waits for your OK.": "每个会话花费达到 ${spend} 或运行一小时后停下；每天最多 {n} 个。完成后，它的拉取请求会等你确认。",
     "Opt it in": "开启",
+    "Run {repo}'s issue sessions outside the sandbox?": "要让 {repo} 的议题会话在沙盒之外运行吗？",
+    "Without the sandbox, their commands can reach the network and the rest of your Mac, as you. They run code the session has just changed, working from text anyone can write in an issue: a crafted one can get a test changed so that running it sends your files or keys anywhere. Keep the sandbox unless its commands can't work without the network.": "没有沙盒，它们的命令能以你的身份访问网络和这台 Mac 的其他地方。这些命令运行的是会话刚改过的代码，而会话依据的是任何人都能在议题里写的内容：精心编写的议题可以让测试被改掉，一运行就把你的文件或密钥发到任何地方。除非它的命令离开网络就无法工作，否则请保留沙盒。",
+    "Turn the sandbox off": "关闭沙盒",
     "Not now": "暂不",
     "Not opted in.": "没有开启。",
     "Issues labelled “{label}” in {repo} now start a session.": "{repo} 里贴上“{label}”标签的议题现在会开启一个会话。",
@@ -281,6 +284,22 @@ class Issues:
         )
         if choice != "add":
             return "Not opted in."
+        if not sandbox:
+            # Its own card, after the scope's: the one switch that lets what anyone writes in
+            # an issue reach the network and the Mac.
+            choice = await self.hub.request_approval(
+                self.tr(f"Run {ref.full}'s issue sessions outside the sandbox?"),
+                self.tr(
+                    "Without the sandbox, their commands can reach the network and the rest of "
+                    "your Mac, as you. They run code the session has just changed, working from "
+                    "text anyone can write in an issue: a crafted one can get a test changed so "
+                    "that running it sends your files or keys anywhere. Keep the sandbox unless "
+                    "its commands can't work without the network."
+                ),
+                [("unsandboxed", self.tr("Turn the sandbox off")), ("deny", self.tr("Not now"))],
+            )
+            if choice != "unsandboxed":
+                return "Not opted in."
         entry = {
             "repo": ref.full,
             "project": project,

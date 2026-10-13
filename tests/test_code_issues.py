@@ -144,6 +144,27 @@ async def test_opting_in_shows_the_whole_scope_on_a_card_first(hub, projects):
     assert issues.repos() == []
 
 
+async def test_turning_the_sandbox_off_is_a_card_of_its_own(hub, projects):
+    app_project(projects)
+    issues = hub.code_issues
+    hub.answers = ["add", "deny"]  # the scope's yes isn't enough
+    said = await issues.add({"project": "app", "commands": ["npm test"], "sandbox": False})
+    assert said == "Not opted in." and issues.repos() == []
+    second = hub.cards[-1]
+    assert second["question"] == "Run acme/app's issue sessions outside the sandbox?"
+    assert "sends your files or keys anywhere" in second["detail"]
+    assert [c["label"] for c in second["choices"]] == ["Turn the sandbox off", "Not now"]
+    hub.answers = ["add", "unsandboxed"]
+    await issues.add({"project": "app", "commands": ["npm test"], "sandbox": False})
+    assert issues.repos()[0]["sandbox"] is False
+    # With the sandbox on, the scope's card is the only one.
+    await issues.remove("acme/app")
+    hub.cards.clear()
+    hub.answers = ["add"]
+    await issues.add({"project": "app", "commands": ["npm test"]})
+    assert len(hub.cards) == 1 and issues.repos()[0]["sandbox"] is True
+
+
 async def test_what_cant_be_opted_in_says_why(hub, projects):
     issues = hub.code_issues
     repo = make_repo(projects / "local", {"a.py": "x\n"})
