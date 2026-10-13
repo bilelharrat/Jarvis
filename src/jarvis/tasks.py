@@ -811,6 +811,18 @@ class ClaudeTask:
     last_uuid: str = ""  # the latest entry in Claude Code's own transcript
     live_effort: str | None = None  # the effort the open connection was started with
     conn_cost: float | None = None  # the open connection's running total
+    # The running total Claude Code last reported on an earlier connection (it carries a
+    # session's total on into a resume): a new connection's first report is counted from it.
+    last_total: float | None = None
+    # A fork's: what its original had spent when it forked (in cost_usd, as Claude Code's
+    # total carries it on; its own caps count what it spent since).
+    cost_inherited: float = 0.0
+    # Resumed with no record of what it cost before (a past session opened by its id): the
+    # first report is taken as where it stood, not as one turn's cost.
+    cost_unknown: bool = False
+    # The usage-limit report Claude Code last gave on this session's own connection (its
+    # model's window, its reset time): a wait for the limit goes by this, not another's.
+    rate_limit: Any = None
     finished_background: dict[str, None] = field(default_factory=dict)  # newest last, bounded
     # As in Claude Code's composer: more folders, plugins, connectors switched off for
     # this session, ultracode, and another provider's model (its environment).
@@ -1346,6 +1358,7 @@ class TaskManager:
             provider_settings=provider_settings or "",
             ultracode=bool(ultracode),
             isolate=isolate,
+            cost_unknown=bool(resume),
         )
         if task.mode == "smart" and not auto_capable(task.model or self.model):
             task.mode = "ask"  # Claude Code's auto mode needs Opus, Sonnet or Fable
@@ -1687,6 +1700,12 @@ class TaskManager:
             disabled_mcp=set(task.disabled_mcp),
             ultracode=task.ultracode,
         )
+        if not fresh:
+            # Claude Code's total carries the original's spend on into the fork: it starts
+            # from there, so its first turn counts only what that turn cost.
+            fork.cost_usd = task.cost_usd
+            fork.cost_inherited = task.cost_usd or 0.0
+            fork.last_total = task.conn_cost if task.conn_cost is not None else task.last_total
         self.tasks[fork.id] = fork
         fork.handle = asyncio.create_task(self._session(fork))
         self._changed()
@@ -2457,6 +2476,8 @@ class TaskManager:
             self._make_room()
             await self._spawn_slot()  # a burst of sessions starts a few Claude Codes a second
             async with self.client_factory(options=options) as client:
+                if task.conn_cost is not None:  # (the last connection's total, carried on)
+                    task.last_total = task.conn_cost
                 task.client, task.live_effort, task.conn_cost = client, options.effort, None
                 task.live_key, task.last_active = live_key, time.monotonic()
                 await self._catch_up(task, client, options)
@@ -2909,15 +2930,27 @@ class TaskManager:
         task.stirred.set()
 
     def _count_cost(self, task: ClaudeTask, total: float | None) -> float:
-        """This turn's cost. Claude Code reports a running total per connection (after a
-        resume, one that starts from the session's earlier total)."""
+        """This turn's cost. Claude Code reports a running total per connection; a resume
+        (a reconnect, a fork) starts it from the session's earlier total, as Claude Code
+        kept it. A connection's first report is counted from the total the last one
+        reported (else from Eden's own figure), never below it: a total that came back
+        lower (a connection that ended before Claude Code kept its figure) isn't counted a
+        second time in full. A past session opened by its id, whose earlier cost Eden never
+        saw, takes its first report as where it stood: its old spend isn't today's."""
         if total is None:
             return 0.0
         before = task.cost_usd or 0.0
+        if task.conn_cost is None and task.cost_unknown:
+            task.cost_unknown = False
+            task.conn_cost = total
+            task.cost_usd = round(max(before, total), 6)
+            return 0.0
+        task.cost_unknown = False
         if task.conn_cost is None:  # this connection's first report
-            turn = total - before if total >= before else total
+            base = task.last_total if task.last_total is not None else before
         else:
-            turn = max(0.0, total - task.conn_cost)
+            base = task.conn_cost
+        turn = max(0.0, total - base)
         task.conn_cost = total
         task.cost_usd = round(before + turn, 6)
         return turn
@@ -2984,6 +3017,7 @@ class TaskManager:
             self._on_background(task, message)
             return
         if isinstance(message, RateLimitEvent):
+            task.rate_limit = message.rate_limit_info
             if self.on_rate_limit is not None:
                 self.on_rate_limit(message.rate_limit_info)
             return

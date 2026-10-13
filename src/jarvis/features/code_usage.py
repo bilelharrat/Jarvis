@@ -11,7 +11,9 @@ What it adds, and where:
   day's caps, and of any cap another feature set before it), so Claude Code itself stops
   at the cap mid-turn. Its key is the caps (and the day, while a day's cap holds), so a
   cap changed reopens an open session, same conversation, between steps, and a new day
-  reopens it quietly with the day's room.
+  reopens it quietly with the day's room. Sessions working at once share what's left of
+  the day's and a project's caps (Meter.budget), and the room is handed out again as each
+  turn ends (Meter.rebalance), so parallel sessions can't each spend all of it.
 - TaskManager.turn_gate: while a cap is used up, a session's next message waits, with a
   note in its transcript saying which cap and how to go on; a cap raised (or a new day)
   lets it go. A turn that uses up the day's or a project's cap interrupts the other
@@ -32,7 +34,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -50,11 +51,20 @@ PREF_ALERTS = "code_budget_alerts"
 CAP_MAX = 100_000.0  # a cap past this is a typo, not a budget
 NEAR = 0.005  # spent within half a cent of a cap counts as the cap reached
 EMIT_EVERY = 0.5  # the meter's pushes to the windows, at most this often
+RESERVE = 0.1  # of a shared cap's room, kept back while several sessions work at once
+DAY_LOOK = 30.0  # seconds between looks at the day (for the midnight reset)
 
 
 def _cap(value: Any) -> float | None:
     found = money_value(value)
     return found if found is not None and found <= CAP_MAX else None
+
+
+def spent(task: Any) -> float:
+    """What a session itself has spent: its total, less what a fork's original had spent
+    before it (Claude Code's total carries that on into the fork)."""
+    total = task.cost_usd or 0.0
+    return max(0.0, total - (getattr(task, "cost_inherited", 0.0) or 0.0))
 
 
 prefs.register_feature_pref(PREF_SESSION, 0.0, _cap)
@@ -98,6 +108,11 @@ class Meter:
         self.hub = hub
         self._usage: Usage | None = None
         self._applied: dict[int, tuple] = {}  # task id -> the caps its connection was given
+        # task id -> what its open connection may spend (None: no cap), what the session had
+        # spent when it opened (what's still open to it is the one less what it spent since),
+        # and whether that was a share of a shared cap's room (less than all that was left).
+        self._given: dict[int, tuple[float | None, float, bool]] = {}
+        self._shares: dict[int, int] = {}  # task id -> its share's turn (a reopen for a new one)
         self._emit_timer: asyncio.TimerHandle | None = None
         self._emitted = 0.0
         self._defaults_seen: Caps | None = None  # the defaults the last prefs event had
@@ -121,7 +136,12 @@ class Meter:
 
     @staticmethod
     def session_key(task: Any) -> str:
-        return task.session_id or f"task:{task.id}"
+        """Whose cap a session's is: its Claude Code session's, or, before it has one of its
+        own, its number's. A fork carries its original's session id until its first turn
+        gives it its own: till then it goes by its number, never by the original's cap."""
+        if not task.session_id or getattr(task, "fork", False):
+            return f"task:{task.id}"
+        return task.session_id
 
     def project(self, task: Any) -> str:
         return project_of(self.hub, task)
@@ -140,12 +160,93 @@ class Meter:
         caps = self.caps(task, project)
         room = []
         if caps.session > 0:
-            room.append(caps.session - (task.cost_usd or 0.0))
+            room.append(caps.session - spent(task))
         if caps.project > 0:
             room.append(caps.project - self.usage.project_today(project))
         if caps.day > 0:
             room.append(caps.day - self.usage.today())
         return min(room) if room else None
+
+    # ── shares of a shared cap ──
+
+    def _open(self, also: Any = None, project: str = "") -> list[tuple[Any, str]]:
+        """The sessions with a connection open on Claude (and their projects): those that
+        share the day's and the projects' room. also: one opening now (no connection yet),
+        in project."""
+        out = []
+        for t in list(self.hub.tasks.tasks.values()):
+            if t.kind != "code" or other_agent(t):
+                continue
+            if t is also:
+                out.append((t, project))
+            elif t.client is not None:
+                out.append((t, self.project(t)))
+        return out
+
+    def budget(self, task: Any, project: str, others: list[tuple[Any, str]]) -> float | None:
+        """What a connection opening now may spend: its session's own room, and its share of
+        the room left of the project's and the day's caps. Several sessions working at once
+        each get a share, not the whole of it (each would otherwise be let spend all that's
+        left, and a $10 day be spent three times over before any of their turns ended):
+        alone, the whole room; with others working, an even share of all but RESERVE of it
+        (kept back for the next to start). rebalance() hands out the room again as turns
+        end. others: the open sessions (_open), with their projects."""
+        caps = self.caps(task, project)
+        room = []
+        if caps.session > 0:
+            room.append(caps.session - spent(task))
+        if caps.project > 0:
+            n = sum(1 for t, p in others if p == project and t is not task and t.busy)
+            share = (1 - RESERVE) / (n + 1) if n else 1.0
+            room.append((caps.project - self.usage.project_today(project)) * share)
+        if caps.day > 0:
+            n = sum(1 for t, _ in others if t is not task and t.busy)
+            share = (1 - RESERVE) / (n + 1) if n else 1.0
+            room.append((caps.day - self.usage.today()) * share)
+        return min(room) if room else None
+
+    def _outstanding(self, task: Any) -> float | None:
+        """What this session's open connection may still spend, as Claude Code counts it."""
+        given = self._given.get(task.id)
+        if given is None or given[0] is None:
+            return None
+        return max(0.0, given[0] - (spent(task) - given[1]))
+
+    def rebalance(self, also: Any = None, project: str = "") -> None:
+        """The room of the shared caps handed out again: when what the open connections may
+        still spend comes to more than is left (one opened while the others held the whole
+        room), those holding more than their share now reopen with it, quietly, between
+        turns; one stopped at its share while room is left reopens with a new one."""
+        open_now = self._open(also, project)
+        if len(open_now) < 2 and not any(
+            self._given.get(t.id, (0, 0, False))[2] for t, _ in open_now
+        ):
+            return
+        held: dict[int, float] = {}
+        for t, _ in open_now:
+            o = self._outstanding(t)
+            if o is not None:
+                held[t.id] = o
+        today = self.usage.today()
+        all_held = sum(held.values())
+        by_project: dict[str, float] = {}
+        for t, p in open_now:
+            by_project[p] = by_project.get(p, 0.0) + held.get(t.id, 0.0)
+        for t, where in open_now:
+            if t is also or t.id not in held:
+                continue
+            caps = self.caps(t, where)
+            over = (caps.day > 0 and all_held > caps.day - today + NEAR) or (
+                caps.project > 0
+                and by_project[where] > caps.project - self.usage.project_today(where) + NEAR
+            )
+            fair = self.budget(t, where, open_now)
+            if fair is None:
+                continue
+            used_up = held[t.id] <= NEAR and self._given[t.id][2]  # (its share, not its cap)
+            if (over and held[t.id] > fair + NEAR) or (used_up and fair > NEAR):
+                self._shares[t.id] = self._shares.get(t.id, 0) + 1
+                self.hub.tasks.reopen(t.id, "")
 
     def gate(self, task: Any) -> str:
         """TaskManager.turn_gate: why this session's next message must wait, "" if it
@@ -154,7 +255,7 @@ class Meter:
             return ""
         project = self.project(task)
         caps = self.caps(task, project)
-        if caps.session > 0 and (task.cost_usd or 0.0) >= caps.session - NEAR:
+        if caps.session > 0 and spent(task) >= caps.session - NEAR:
             return HELD_SESSION.format(cap=money(caps.session))
         if caps.day > 0 and self.usage.today() >= caps.day - NEAR:
             return HELD_DAY.format(cap=money(caps.day))
@@ -184,7 +285,8 @@ class Meter:
         day's cap holds (a new day has room again)."""
         caps = self.caps(task, project)
         day = self.usage.day() if caps.project > 0 or caps.day > 0 else ""
-        return (caps.session, caps.project, caps.day, day)
+        share = self._shares.get(task.id, 0)  # (a new share of the room: rebalance)
+        return (caps.session, caps.project, caps.day, day) + ((share,) if share else ())
 
     def apply(self, task: Any, options: Any) -> None:
         """TaskManager.option_hooks: what this connection may spend, so Claude Code stops
@@ -192,16 +294,28 @@ class Meter:
         another feature set (an unattended run's) holds too: the lower one."""
         if task.kind != "code":
             return
+        if other_agent(task):  # (Claude Code's budget doesn't reach another agent)
+            return
         project = self.project(task)
         self._applied[task.id] = self.key(task, project)
-        left = self.left(task, project)
+        caps = self.caps(task, project)
+        others = self._open(task, project) if caps.project > 0 or caps.day > 0 else []
+        left = self.budget(task, project, others)
         if left is None:
+            self._given[task.id] = (None, spent(task), False)
             return
+        whole = self.left(task, project)
+        shared = whole is not None and left < whole - NEAR
         left = round(max(left, 0.01), 4)
         other = options.max_budget_usd
         if isinstance(other, int | float) and not isinstance(other, bool) and other > 0:
+            shared = shared and left <= float(other)  # (another feature's lower cap is its own)
             left = min(left, float(other))
         options.max_budget_usd = left
+        self._given[task.id] = (left, spent(task), shared)
+        if len(others) > 1:
+            with contextlib.suppress(Exception):  # (shares are a guard: never a failure)
+                self.rebalance(task, project)
 
     # ── what it hears ──
 
@@ -210,12 +324,15 @@ class Meter:
             entry = data.get("entry") or {}
             if entry.get("role") == "turn":
                 task = self.hub.tasks.tasks.get(data.get("id"))
-                if task is not None and task.kind == "code":
+                # (another agent's turn, over ACP, spends nothing on Claude)
+                if task is not None and task.kind == "code" and not other_agent(task):
                     return self.on_turn(task, entry.get("cost") or 0.0)
         elif kind == "tasks":
             gone = set(self._applied) - set(self.hub.tasks.tasks)
             for task_id in gone:  # sessions let go of: nothing to remember for them
                 self._applied.pop(task_id, None)
+                self._given.pop(task_id, None)
+                self._shares.pop(task_id, None)
         return None
 
     def on_turn(self, task: Any, cost: Any) -> Any:
@@ -226,7 +343,7 @@ class Meter:
         project = self.project(task)
         before_day, before_project = self.usage.add(project, cost)
         caps = self.caps(task, project)
-        after = task.cost_usd or 0.0
+        after = spent(task)
         marks = [
             (crossed(before_day, before_day + cost, caps.day), 3, "day"),
             (crossed(before_project, before_project + cost, caps.project), 2, "project"),
@@ -242,14 +359,23 @@ class Meter:
         if caps.project > 0 and self.usage.project_today(project) >= caps.project - NEAR:
             note = STOPPED_PROJECT.format(project=Path(project).name, cap=money(caps.project))
             stop += [(t, note) for t in self._busy(task) if self.project(t) == project]
+        if not stop and (caps.day > 0 or caps.project > 0):
+            with contextlib.suppress(Exception):  # (shares are a guard: never a failure)
+                self.rebalance()
         self.changed()
         return self._stop(stop) if stop else None
 
     def _busy(self, besides: Any) -> list[Any]:
+        """The other sessions working now under Claude's caps (another agent's, over ACP,
+        spends nothing on Claude: Claude's caps never stop it)."""
         return [
             t
             for t in self.hub.tasks.tasks.values()
-            if t.kind == "code" and t is not besides and t.busy and t.client is not None
+            if t.kind == "code"
+            and t is not besides
+            and t.busy
+            and t.client is not None
+            and not other_agent(t)
         ]
 
     async def _stop(self, stop: list[tuple[Any, str]]) -> None:
@@ -356,7 +482,8 @@ class Meter:
             project = self.project(task)
             caps = self.caps(task, project)
             sessions[str(task.id)] = {
-                "cost": task.cost_usd or 0.0,
+                "cost": spent(task),
+                "inherited": getattr(task, "cost_inherited", 0.0) or 0.0,  # (a fork's)
                 "cap": caps.session,
                 "own": self.session_key(task) in usage.session_caps,
                 "held": task.gated,
@@ -414,13 +541,20 @@ class Meter:
             self.caps_changed()
 
     async def forever(self) -> None:
-        """At each midnight the day's caps start over: held sessions may go on."""
+        """At each midnight the day's caps start over: held sessions may go on. It looks at
+        the day every DAY_LOOK seconds rather than sleeping till midnight in one go:
+        asyncio's clock stops while the Mac sleeps (a lid shut at 11 pm would carry the
+        reset on hours late, sessions held and open connections on yesterday's budget),
+        and a clock change (summer time) moves midnight. The new day is the one Usage
+        counts by, so the reset and the counts start over together."""
+        day = self.usage.day()
         while True:
-            now = datetime.now()
-            midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=5, microsecond=0)
-            await asyncio.sleep(max(1.0, (midnight - now).total_seconds()))
+            await asyncio.sleep(DAY_LOOK)
             with contextlib.suppress(Exception):
-                self.caps_changed()
+                today = self.usage.day()
+                if today != day:
+                    day = today
+                    self.caps_changed()
 
 
 class _Budget:
