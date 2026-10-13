@@ -132,4 +132,15 @@ function edenPolicy(trusted) {
   };
 }
 
-module.exports = { guardSession, guardContents, guardApp, mainPolicy, edenPolicy, originOf, mediaKinds, FRAME_SCHEMES, OWN_PAGE };
+// Whether the person at the Mac just used this window (a key or a press in the last moment):
+// Electron's own input events, which a page's script can't make. An address the window's page
+// sends counts as typed in the address bar (a file: path is allowed then: url-input.js) only
+// right after such input (audit S29), never when the page sends one by itself.
+function inputClock(wc, { within = 1500, now = Date.now } = {}) {
+  let last = -Infinity;
+  wc.on('before-input-event', (_e, input) => { if (input && (input.type === 'keyDown' || input.type === 'rawKeyDown')) last = now(); });
+  wc.on('before-mouse-event', (_e, mouse) => { if (mouse && mouse.type === 'mouseDown') last = now(); });
+  return () => now() - last <= within;
+}
+
+module.exports = { inputClock, guardSession, guardContents, guardApp, mainPolicy, edenPolicy, originOf, mediaKinds, FRAME_SCHEMES, OWN_PAGE };

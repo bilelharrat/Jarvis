@@ -11,10 +11,10 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // what the address bar makes of what's typed
-const { createAgent } = require('./browser-agent');
+const { createAgent, fileNotTheirs, FILE_REFUSED } = require('./browser-agent');
 const { backendCommand, BackendLog } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
-const { isCertError } = require('./browser-lib');
+const { isCertError, riskyClick } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
 const { createTrace, createTail } = require('./startup-log'); // app.log: how this start went
@@ -58,6 +58,7 @@ if (DEV_URL) {
 }
 
 let win = null;
+let windowTyped = () => false; // the person at the Mac just used the window (window-guards.js inputClock)
 let backend = null;
 let port = 0;
 let quitting = false;
@@ -454,6 +455,7 @@ function createWindow() {
     log: (line) => trace.write(line),
   });
   guards.guardContents(win.webContents);
+  windowTyped = guards.inputClock(win.webContents); // what the address bar sends right after a key or a press is typed (S29)
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
   win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
@@ -1403,6 +1405,8 @@ async function runBrowserCommand({ action, args = {} }) {
   const where = () => ({ url: wc.getURL(), title: wc.getTitle(), tab: wc.id });
   const signIn = onResearch(wc.getURL()) && RESEARCH_AUTH.test(researchPath(wc.getURL()));
   const lockedHere = onResearch(wc.getURL()) && !signIn;
+  // A file on this Mac the user didn't open themselves is neither read nor used (S29).
+  if (['read', 'click', 'type', 'search', 'scroll', 'pointed'].includes(action) && fileNotTheirs(view)) return { ok: false, message: FILE_REFUSED };
   if (signIn && ['click', 'type', 'search'].includes(action)) {
     return { error: 'The Research Center is on its sign-in page. The user signs in themselves; after that I can drive it.' };
   }
@@ -1435,7 +1439,8 @@ async function runBrowserCommand({ action, args = {} }) {
     case 'click': {
       const found = await pageCall('locate', { text: String(args.text || ''), selector: String(args.selector || '') }, 6000, view);
       if (!found.ok) return found;
-      if (found.risky && !args.force) {
+      // The page's label, and what the click really submits (riskyClick, S31).
+      if (riskyClick(found, wc.getURL()) && !args.force) {
         return { ok: false, needsConfirm: true, label: found.label, message: `“${found.label}” needs the user's OK first.`, ...where() };
       }
       // behind other tabs or apps, the press goes in over the DevTools protocol
@@ -1551,7 +1556,13 @@ ipcMain.handle('browser:bounds', (event, bounds) => {
 ipcMain.handle('browser:nav', async (event, { action, url }) => {
   if (!fromWindow(event)) return;
   const wc = ensureBrowser().webContents;
-  if (action === 'go') { browserAsked = true; wc.loadURL(toUrl(url, { typed: true })).catch(() => {}); }
+  if (action === 'go') {
+    browserAsked = true;
+    // Typed only when the person just used the window: a page sending addresses by itself never opens a file (S29).
+    const target = toUrl(url, { typed: windowTyped() });
+    if (/^file:/i.test(target)) browserView.userFile = target; // theirs: the agent may read it (browser-agent.js fileNotTheirs)
+    wc.loadURL(target).catch(() => {});
+  }
   if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
   if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
   if (action === 'reload') wc.reload();

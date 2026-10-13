@@ -102,6 +102,22 @@ function risky(el) {
   return RISKY.test(labelOf(el)) || (el.matches('button[type="submit"], input[type="submit"]') && !!el.form);
 }
 
+// What a click on el would submit, for the main process's own check (browser-lib.js riskyClick):
+// the form's address and method, and whether it asks for a card or a password. null when the
+// element submits no form.
+function formOf(el) {
+  const control = el.closest('button, input, [role="button"]') || el;
+  const form = control.form || el.closest('form');
+  if (!form) return null;
+  const submits = control.matches('button:not([type]), button[type="submit"], input[type="submit"], input[type="image"]');
+  if (!submits && !control.matches('[role="button"]')) return null;
+  const method = String((control.getAttribute && control.getAttribute('formmethod')) || form.getAttribute('method') || 'get').toLowerCase();
+  const action = String((control.formAction && control.hasAttribute('formaction') ? control.formAction : form.action) || '');
+  const payment = Boolean(form.querySelector('input[autocomplete^="cc-"], input[name*="card" i], input[id*="card" i], input[name*="cvc" i], input[name*="cvv" i], input[name*="iban" i]'));
+  const password = Boolean(form.querySelector('input[type="password"]'));
+  return { action: action.slice(0, 500), method, payment, password };
+}
+
 function usable(el) {
   if (!el || el === document.body || el === document.documentElement) return false;
   if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
@@ -825,7 +841,7 @@ async function command({ action, args = {} }) {
       const z = webFrame.getZoomFactor();
       place(el, ' flash');
       setTimeout(() => { if (hover !== el) place(hover); }, 900);
-      return { ok: true, label: labelOf(el), risky: risky(el), x: Math.round(c.x * z), y: Math.round(c.y * z) };
+      return { ok: true, label: labelOf(el), risky: risky(el), form: formOf(el), x: Math.round(c.x * z), y: Math.round(c.y * z) };
     }
     case 'read': return readPage(args);
     case 'scroll': return scrollPage(args);
