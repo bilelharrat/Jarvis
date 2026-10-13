@@ -133,6 +133,38 @@ def test_secrets_blanked_out_in_their_usual_forms():
     )  # (random-looking)
 
 
+def test_share_safe_blanks_auth_headers_cookies_logins_and_short_secret_named_values():
+    """A command's headers and logins are secrets too, however short: a bearer or basic
+    Authorization, a Cookie or Set-Cookie header, curl's -u/--user and -b/--cookie, and a
+    short value given to a name that says it's secret (AUTH_KEY=abc123)."""
+    lines = [
+        'curl -H "Authorization: Bearer abc123xyz" https://api.example.com',
+        "Authorization: Basic dXNlcjpwYXNz",
+        "proxy-authorization: Token tok9tok9",
+        "Cookie: session=abcd1234; csrftoken=zz99",
+        "Set-Cookie: sid=s3cr3tv; Path=/",
+        "curl -u admin:hunter22 https://x.example.com",
+        "curl --user=admin:hunter22 x",
+        'curl -b "sid=abc123" x',
+        "curl --cookie sid=abc124 x",
+        "AUTH_KEY=abc123",
+        "credential: abc12",
+        "signing_key=abcd99",
+    ]
+    out = redact_secrets("\n".join(lines))
+    for secret in (
+        "abc123xyz", "dXNlcjpwYXNz", "tok9tok9", "abcd1234", "zz99", "s3cr3tv", "hunter22",
+        "sid=abc123", "abc124", "AUTH_KEY=abc123", "abc12", "abcd99",
+    ):  # fmt: skip
+        assert secret not in out, secret
+    # What they were stays readable: the header, the scheme, the user, the address.
+    for kept in ("Authorization: Bearer", "Basic", "Cookie:", "admin:", "https://x.example.com"):
+        assert kept in out, kept
+    # A placeholder isn't a value: the command that uses one is shown as it is.
+    used = 'curl -H "Authorization: Bearer $SECRET_API_TOKEN" -u "me:$SECRET_PASS" https://x'
+    assert redact_secrets(used) == used
+
+
 def test_claude_s_markdown_is_drawn_escaped_and_links_go_only_to_the_web():
     from jarvis.code_export import markdown_html
 
