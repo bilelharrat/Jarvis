@@ -247,12 +247,33 @@ async function reopenBackend() {
 }
 
 // Restarts the backend (onto the repo's newest code); false when there's none running.
+let restartedFrom = 0; // the pid it restarted from: backendAnswers waits for another one
 function restartBackendQuietly() {
   if (!backend) return false;
+  restartedFrom = backend.pid;
   quietRestart = true;
   share.markRestarting(DATA_DIR, process.pid); // the other app waits instead of starting its own (backend-share.js)
   plat.killTree(backend);
   return true;
+}
+
+// Whether the backend came back after a restart on purpose: a new process (not the one it
+// restarted from, still quitting) answering /health within ms (follow-repo.js, W23).
+function backendAnswers(ms = 120000) {
+  const until = Date.now() + ms;
+  return new Promise((resolve) => {
+    const again = () => (Date.now() > until ? resolve(false) : setTimeout(look, 1000));
+    function look() {
+      if (!backend || backend.pid === restartedFrom || !port) { again(); return; }
+      const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 2000 }, (res) => {
+        res.resume();
+        if (res.statusCode === 200) resolve(true); else again();
+      });
+      req.on('timeout', () => req.destroy());
+      req.on('error', again);
+    }
+    setTimeout(look, 1500);
+  });
 }
 
 // Whether the backend has something going that a restart would cut off (/health's busy): this
@@ -1774,6 +1795,7 @@ const featureContext = {
   relaunchAsItWas, // before a quiet update: reopen hidden if the window is hidden
   backendFromRepo: () => backendFromRepo,
   restartBackendQuietly,
+  backendAnswers, // the restarted backend's /health, within two minutes (follow-repo.js)
   repoHome: () => jarvisHome(),
   extraPath: EXTRA_PATH,
   // The built-in browser's tabs, for features that work with them (browser-ai.js): the

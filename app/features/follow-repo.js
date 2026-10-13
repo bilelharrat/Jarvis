@@ -5,6 +5,15 @@
 // new code and the window reloads with the new page. When app/ changed as well, the app
 // rebuilds itself (npm run package, as install-app does), swaps the new copy in and reopens
 // as it was, hidden if it was hidden. A build that fails leaves the running app as it is.
+//
+// The build takes minutes, so the moment is asked about again once it's done (audit W22): a
+// busy one keeps the new copy waiting, and it's swapped in at the next quiet moment. Nothing
+// is followed while the repo is mid rebase, merge or cherry-pick, or while app/, src/ or the
+// lock files have uncommitted changes (another session's half-written files, W23): the next
+// look tries again. After a restart onto new code the backend must answer /health; one that
+// doesn't marks that commit bad (logged, never restarted onto again: only a newer commit is
+// followed). Going back to the old code isn't done: the backend runs from the repo's working
+// tree, which holds only the new.
 'use strict';
 
 const { execFile, spawn } = require('child_process');
@@ -25,35 +34,75 @@ function run(command, args, options = {}) {
   });
 }
 
-// What it does, given its pieces (tests use stand-ins).
-function createFollower({ head, appChanged, isQuiet, restartBackend, rebuildApp, log = () => {} }) {
+// What it does, given its pieces (tests use stand-ins). buildApp gives the new copy (or null);
+// swapApp puts it in place and quits; treeState says 'clean', 'dirty' or 'busy' (mid rebase or
+// merge); backendHealthy waits for the restarted backend's /health.
+function createFollower({
+  head, appChanged, isQuiet, restartBackend, buildApp, swapApp,
+  treeState = async () => 'clean', backendHealthy = async () => true, log = () => {},
+}) {
   let seen = null;
   let working = false;
+  let built = null; // { app, commit }: a new copy, built, waiting for a quiet moment to go in
+  const bad = new Set(); // commits whose backend didn't come up
+  const quiet = () => isQuiet().catch(() => false);
   return {
     // The commit the running code came from.
     async start() {
       seen = await head().catch(() => null);
       return seen;
     },
-    // One look: 'same', 'waiting' (newer code, not a quiet moment), 'restarted', 'rebuilt',
-    // 'failed', or 'none' (no repo to follow).
+    // One look: 'same', 'waiting' (newer code, not a quiet moment), 'unsettled' (mid rebase or
+    // merge, or uncommitted changes), 'built' (the new copy waits for a quiet moment),
+    // 'restarted', 'rebuilt', 'unhealthy' (the backend didn't come back: the commit is bad),
+    // 'bad' (that commit again), 'failed', or 'none' (no repo to follow).
     async tick() {
       if (working) return 'working';
       const now = await head().catch(() => null);
       if (!now) return 'none';
       if (seen === null) { seen = now; return 'same'; }
+      if (built && built.commit !== now) built = null; // newer still: built again from that
       if (now === seen) return 'same';
-      if (!(await isQuiet().catch(() => false))) return 'waiting';
+      if (bad.has(now)) return 'bad';
+      if (built) {
+        if (!(await quiet())) return 'waiting';
+        working = true;
+        try {
+          log(`follow-repo: swapping in the app built from ${now.slice(0, 7)}`);
+          if (!(await swapApp(built.app))) return 'failed';
+          seen = now;
+          built = null;
+          return 'rebuilt';
+        } finally {
+          working = false;
+        }
+      }
+      const tree = await treeState().catch(() => 'busy');
+      if (tree !== 'clean') return 'unsettled';
+      if (!(await quiet())) return 'waiting';
       working = true;
       try {
         if (await appChanged(seen, now).catch(() => false)) {
           log(`follow-repo: app/ changed (${seen.slice(0, 7)} → ${now.slice(0, 7)}): rebuilding`);
-          if (!(await rebuildApp())) return 'failed';  // tried again at the next quiet moment
+          const app = await buildApp();
+          if (!app) return 'failed'; // tried again at the next quiet moment
+          // The build took minutes: is it still a quiet moment? (W22)
+          if (!(await quiet())) {
+            built = { app, commit: now };
+            log('follow-repo: built; it goes in at the next quiet moment');
+            return 'built';
+          }
+          if (!(await swapApp(app))) return 'failed';
           seen = now;
           return 'rebuilt';
         }
         log(`follow-repo: ${seen.slice(0, 7)} → ${now.slice(0, 7)}: restarting the backend`);
         if (!restartBackend()) return 'failed';
+        if (!(await backendHealthy().catch(() => false))) {
+          bad.add(now); // (seen stays: a newer commit is compared with the last good one)
+          log(`follow-repo: the backend didn't answer after restarting onto ${now.slice(0, 7)}: that commit is marked bad`);
+          return 'unhealthy';
+        }
         seen = now;
         return 'restarted';
       } finally {
@@ -63,8 +112,17 @@ function createFollower({ head, appChanged, isQuiet, restartBackend, rebuildApp,
   };
 }
 
-// Builds the app from the repo, then swaps it in once this copy has quit, and reopens it.
-async function rebuild(ctx, home, log) {
+// Whether the repo is settled enough to follow: 'busy' mid rebase, merge, cherry-pick or
+// revert; 'dirty' with uncommitted changes to what the app or the backend run from.
+async function repoState(home, git = run, exists = fs.existsSync) {
+  const gitDir = await git('/usr/bin/git', ['-C', home, 'rev-parse', '--absolute-git-dir']);
+  if (['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'].some((m) => exists(path.join(gitDir, m)))) return 'busy';
+  const changed = await git('/usr/bin/git', ['-C', home, 'status', '--porcelain', '--untracked-files=no', '--', 'app', 'src', 'pyproject.toml', 'uv.lock']);
+  return changed ? 'dirty' : 'clean';
+}
+
+// Builds the app from the repo: the new copy's path, or null.
+async function build(ctx, home, log) {
   const appDir = path.join(home, 'app');
   const env = { ...process.env, PATH: [...ctx.extraPath, process.env.PATH || '/usr/bin:/bin'].join(':') };
   const built = await new Promise((resolve) => {
@@ -76,8 +134,13 @@ async function rebuild(ctx, home, log) {
   const fresh = path.join(appDir, 'dist', 'J.A.R.V.I.S-darwin-arm64', 'J.A.R.V.I.S.app');
   if (!built || !fs.existsSync(fresh)) {
     log('follow-repo: the app build failed; the running app stays');
-    return false;
+    return null;
   }
+  return fresh;
+}
+
+// Swaps the new copy in once this copy has quit, and reopens it.
+function swap(ctx, fresh) {
   const running = path.resolve(process.execPath, '..', '..', '..');
   const script = path.join(os.tmpdir(), `jarvis-swap-${process.pid}.sh`);
   fs.writeFileSync(script, [
@@ -115,7 +178,10 @@ function install(ctx) {
       });
     },
     restartBackend: () => ctx.restartBackendQuietly(),
-    rebuildApp: () => rebuild(ctx, ctx.repoHome(), log),
+    buildApp: () => build(ctx, ctx.repoHome(), log),
+    swapApp: async (fresh) => swap(ctx, fresh),
+    treeState: () => repoState(ctx.repoHome()),
+    backendHealthy: () => (ctx.backendAnswers ? ctx.backendAnswers() : Promise.resolve(true)),
     log,
   });
   ctx.app.whenReady().then(() => {
@@ -125,4 +191,4 @@ function install(ctx) {
   });
 }
 
-module.exports = { install, createFollower };
+module.exports = { install, createFollower, repoState };
