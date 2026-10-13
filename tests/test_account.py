@@ -7,6 +7,7 @@ the Keychain a MemoryVault: never the network, never the owner's real Keychain."
 import asyncio
 import base64
 import json
+import shlex
 from pathlib import Path
 
 import httpx
@@ -17,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from test_hub import drain, make_hub
 
 from jarvis import account as account_mod
-from jarvis import claude_signin, push, remote
+from jarvis import claude_signin, key_proxy, push, remote
 from jarvis.account import PLUS_PREF, Account
 from jarvis.connectors import MemoryVault
 from jarvis.providers import CREDENTIAL_ENV
@@ -474,16 +475,25 @@ async def test_jarvis_plus_runs_claude_code_through_the_proxy_with_the_token_kep
     hub.set_feature_prefs({PLUS_PREF: True})
     made = claude_signin.signed_in(options())
     settings = json.loads(made.settings)
-    assert settings["env"]["ANTHROPIC_BASE_URL"] == "https://askeden.com/api/anthropic"
+    # Through the key proxy, which sends it on to askeden.com's with the token in the pass's
+    # place: the helper prints the pass, and reads nothing.
+    assert settings["env"]["ANTHROPIC_BASE_URL"] == key_proxy.PROXY.address
     assert all(settings["env"][name] == "" for name in CREDENTIAL_ENV)
-    assert (
-        "jarvis-account:token" in settings["apiKeyHelper"] and " -I -c " in settings["apiKeyHelper"]
+    token = shlex.split(settings["apiKeyHelper"])[-1]
+    assert settings["apiKeyHelper"] == key_proxy.token_helper(token)
+    assert "jarvis-account" not in made.settings and "keyring" not in made.settings
+    assert key_proxy.GRANTS.target(token, key_proxy.DIRECT) == (
+        "https://askeden.com/api/anthropic",
+        TOKEN,
     )
     assert made.env["ANTHROPIC_API_KEY"] == "" and made.env["X"] == "1"
     assert TOKEN not in made.settings and TOKEN not in json.dumps(made.env)
     assert claude_signin.using_plus()
     own = ClaudeAgentOptions(settings='{"apiKeyHelper": "a provider of its own"}')
     assert claude_signin.signed_in(own).settings == '{"apiKeyHelper": "a provider of its own"}'
+    # Unlinked, the pass stands for nothing.
+    await hub.account.forget()
+    assert key_proxy.GRANTS.target(token, key_proxy.DIRECT) is None
 
 
 async def test_a_linked_mac_with_no_other_way_in_uses_jarvis_plus(plus):
@@ -493,7 +503,9 @@ async def test_a_linked_mac_with_no_other_way_in_uses_jarvis_plus(plus):
     hub.account.claude_signed_in = True
     assert claude_signin.signed_in(options()).settings is None
     hub.account.claude_signed_in = False
-    assert "askeden.com/api/anthropic" in claude_signin.signed_in(options()).settings
+    helper = json.loads(claude_signin.signed_in(options()).settings)["apiKeyHelper"]
+    target = key_proxy.GRANTS.target(shlex.split(helper)[-1], key_proxy.DIRECT)
+    assert target == ("https://askeden.com/api/anthropic", TOKEN)
 
 
 async def test_the_allowance_used_up_is_said_plainly_not_as_a_sign_in_error(plus):

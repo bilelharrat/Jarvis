@@ -144,9 +144,18 @@ async def test_declined_too_short_and_stale_answers(hub, task):
     assert hub.code_secrets.names_for(task) == {}
 
 
-async def test_a_command_naming_the_secret_runs_through_secret_run_after_the_policy(hub, task):
+async def test_a_command_naming_the_secret_asks_in_every_mode_and_gets_it_through_a_pipe_once(
+    hub, task
+):
     await given(hub, task)
-    task.mode = "auto"  # Bypass: the policy lets it go without a card
+    task.mode = "auto"  # Bypass: the policy lets it go without a card, but a secret asks
+    cards = []
+
+    async def approve(title, detail, choices, context=None):
+        cards.append((title, detail, [c for c, _ in choices]))
+        return tasks.ALLOW
+
+    hub.tasks.approve = approve
     options = hub.tasks.options_for(task)
     assert code_secrets.SERVER in options.mcp_servers
     assert code_secrets.ASK_TOOL in options.allowed_tools
@@ -154,21 +163,25 @@ async def test_a_command_naming_the_secret_runs_through_secret_run_after_the_pol
     command = 'curl -H "Authorization: Bearer $SECRET_STRIPE_KEY" http://localhost:4242/'
     result = await options.can_use_tool("Bash", {"command": command}, context)
     assert isinstance(result, PermissionResultAllow)
+    [(title, detail, choices)] = cards
+    assert "$SECRET_STRIPE_KEY" in title and VALUE not in title + detail
+    assert choices == [tasks.ALLOW, tasks.DENY]
     wrapped = result.updated_input["command"]
     assert VALUE not in wrapped
     argv = shlex.split(wrapped)
-    assert argv[:3] == [sys.executable, "-I", secret_run.__file__] or argv[2].endswith(
-        "secret_run.py"
-    )
-    assert argv[3] == SERVICE and argv[-1] == command and argv[-2] == "-c"
-    assert (
-        argv[4] == f"SECRET_STRIPE_KEY=code-secret:{hub.code_secrets.sessions[6]}:SECRET_STRIPE_KEY"
-    )
-    # One that doesn't name it runs as it is.
+    assert argv[:2] == [sys.executable, "-I"] and argv[2].endswith("secret_run.py")
+    assert argv[4] == "--" and argv[-1] == command and argv[-2] == "-c"
+    # Nothing on the line can fetch a secret: no Keychain service, no account, only a pipe
+    # made for this command, which gives the values to its first reader and is gone.
+    assert SERVICE not in wrapped and "code-secret:" not in wrapped
+    pipe = argv[3]
+    assert secret_run.read_pipe(pipe) == {"values": {"SECRET_STRIPE_KEY": VALUE}, "missing": []}
+    assert secret_run.read_pipe(pipe) is None
+    # One that doesn't name it runs as it is, with no card.
     plain = await options.can_use_tool("Bash", {"command": "ls"}, context)
     assert isinstance(plain, PermissionResultAllow) and not plain.updated_input
-    # The policy's no stays a no.
-    task.mode = "plan"
+    assert len(cards) == 1
+    # The owner's no on that card is a no, Bypass or not.
 
     async def deny(*_a, **_k):
         return "deny"
@@ -177,6 +190,20 @@ async def test_a_command_naming_the_secret_runs_through_secret_run_after_the_pol
     options = hub.tasks.options_for(task)
     refused = await options.can_use_tool("Bash", {"command": command}, context)
     assert isinstance(refused, PermissionResultDeny)
+    # The policy's own card counts: asked once there, not twice.
+    task.mode = "ask"
+    hub.tasks.approve = approve
+    options = hub.tasks.options_for(task)
+    again = await options.can_use_tool("Bash", {"command": command}, context)
+    assert isinstance(again, PermissionResultAllow) and len(cards) == 2
+    assert secret_run.read_pipe(shlex.split(again.updated_input["command"])[3])["values"]
+    # And the policy's no stays a no.
+    task.mode = "plan"
+    hub.tasks.approve = deny
+    options = hub.tasks.options_for(task)
+    assert isinstance(
+        await options.can_use_tool("Bash", {"command": command}, context), PermissionResultDeny
+    )
 
 
 async def test_the_hook_sends_such_commands_to_the_policy_and_keeps_files_with_secrets_away(
@@ -301,33 +328,107 @@ def test_secret_run_gives_the_command_its_value_and_scrubs_its_output():
     stdout, stderr = io.BytesIO(), io.BytesIO()
     seen = []
 
-    def read(service, account):
-        seen.append((service, account))
-        return VALUE if account == "acct-1" else None
+    def fetch(pipe):
+        seen.append(pipe)
+        return {"values": {"SECRET_X": VALUE}, "missing": ["SECRET_GONE"]}
 
     code = secret_run.run(
         [
-            "svc",
-            "SECRET_X=acct-1",
-            "SECRET_GONE=acct-2",
+            "/some/pipe",
             "--",
             "/bin/sh",
             "-c",
             'echo "out:$SECRET_X"; echo "err:$SECRET_X" >&2; echo "gone:[$SECRET_GONE]"; exit 3',
         ],
-        read=read,
+        fetch=fetch,
         stdout=stdout,
         stderr=stderr,
     )
     assert code == 3
-    assert seen == [("svc", "acct-1"), ("svc", "acct-2")]
+    assert seen == ["/some/pipe"]
     assert stdout.getvalue() == b"out:$SECRET_X\ngone:[]\n"
     assert (
         b"err:$SECRET_X" in stderr.getvalue()
         and b"no value is saved for $SECRET_GONE" in stderr.getvalue()
     )
     assert VALUE.encode() not in stdout.getvalue() + stderr.getvalue()
-    assert secret_run.run(["svc", "--"], read=read, stdout=stdout, stderr=stderr) == 2
+    assert secret_run.run(["p", "--"], fetch=fetch, stdout=stdout, stderr=stderr) == 2
+    # Nothing offered (a pipe read already, or none): the command doesn't run at all.
+    ran = io.BytesIO()
+    assert secret_run.run(["p", "--", "/bin/sh", "-c", "echo ran"], fetch=lambda _p: None, stdout=ran, stderr=io.BytesIO()) == 2  # fmt: skip
+    assert ran.getvalue() == b""
+
+
+def test_secret_run_reads_no_keychain_and_a_pipe_is_read_once_for_real(tmp_path):
+    """The program a session's commands go through holds no way to ask for a secret: it
+    imports no keyring, takes no service or account, and the pipe it reads (made by the
+    backend for one command) gives its values once."""
+    source = open(secret_run.__file__, encoding="utf-8").read()
+    assert "keyring" not in source and "Keychain entry" not in source
+    from jarvis.key_proxy import Handoffs
+
+    offers = Handoffs(folder=tmp_path / "handoff", wait=5)
+    pipe = offers.offer({"SECRET_X": VALUE}, ["SECRET_GONE"])
+    assert oct((tmp_path / "handoff").stat().st_mode & 0o777) == "0o700"
+    stdout, stderr = io.BytesIO(), io.BytesIO()
+    code = secret_run.run(
+        [pipe, "--", "/bin/sh", "-c", 'echo "[$SECRET_X]" | base64; echo "$SECRET_X" | rev'],
+        stdout=stdout,
+        stderr=stderr,
+    )
+    assert code == 0
+    out = stdout.getvalue()
+    assert VALUE.encode() not in out and VALUE[::-1].encode() not in out
+    assert out.count(b"$SECRET_X") == 2
+    # Read once: the same pipe again gets nothing, and the command doesn't run.
+    again = io.BytesIO()
+    assert secret_run.run([pipe, "--", "/bin/sh", "-c", "echo ran"], stdout=again, stderr=io.BytesIO()) == 2  # fmt: skip
+    assert again.getvalue() == b""
+    # A pipe no command reads goes by itself.
+    unread = Handoffs(folder=tmp_path / "late", wait=0.2)
+    left = unread.offer({"SECRET_X": VALUE})
+    assert until_gone(left)
+
+
+def until_gone(path, seconds=3.0):
+    import os
+
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if not os.path.exists(path):
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_secret_run_scrubs_the_shapes_a_value_is_easily_turned_into():
+    import base64
+    from urllib.parse import quote
+
+    secret = "s3cr3t-Value_9/+x"
+    shown = [
+        base64.b64encode(secret.encode()),
+        base64.b64encode(b"admin:" + secret.encode()),  # curl -v -u admin:… prints this
+        base64.b64encode(b"ab" + secret.encode() + b"\n"),
+        base64.urlsafe_b64encode(secret.encode()).rstrip(b"="),
+        secret.encode().hex().encode(),
+        secret.encode().hex().upper().encode(),
+        quote(secret, safe="").encode(),
+        secret[::-1].encode(),
+        secret[2:12].encode(),  # a run of 8 or more of its characters
+        secret[-9:].encode(),
+    ]
+    for form in shown:
+        out = secret_run.scrub({secret: "$SECRET_V"}, "x " + form.decode() + " y")
+        assert "$SECRET_V" in out, form
+        assert form.decode() not in out, form
+    # Words around it, and runs shorter than 8 of its characters, stay as they are.
+    assert secret_run.scrub({secret: "$SECRET_V"}, "the s3cr3t- part") == "the s3cr3t- part"
+    # Split between reads, the shapes are caught too.
+    scrub = secret_run.Scrubber({secret: "$SECRET_V"})
+    coded = base64.b64encode(secret.encode())
+    out = scrub.feed(b"a " + coded[:5]) + scrub.feed(coded[5:] + b" b") + scrub.end()
+    assert coded not in out and out.startswith(b"a $SECRET_V") and out.endswith(b" b")
 
 
 def _old_names_for(sec, task):

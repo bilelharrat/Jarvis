@@ -13,14 +13,19 @@ types the value and picks where it's kept:
 Claude only ever gets a placeholder: $SECRET_STRIPE_KEY. How the value reaches a command, and
 nothing else:
 
-- A session's Bash command that names a placeholder is run through secret_run.py (JARVIS's
-  own Python, isolated), which reads the values from the Keychain into that one command's
-  environment and scrubs them from everything it prints, so the tool output Claude and the
-  transcript get carries $SECRET_… instead. The value is never on a command line, in a file
-  or in the session's own environment: a command that doesn't go through it has no value.
-  (The rewrite is the session's permission policy's own answer, after the owner's rules and
-  cards have looked at the command as Claude wrote it; a PreToolUse hook sends every such
-  command there, past any allow rule in the owner's settings.)
+- A session's Bash command that names a placeholder asks the owner on a card, in every
+  mode (Bypass and "don't ask again" rules too: a command that uses a secret can send it
+  anywhere). Let go, it runs through secret_run.py (JARVIS's own Python, isolated), which
+  gets the values from the backend through a named pipe made for that one command and
+  read once (key_proxy.Handoffs: secret_run never reads the Keychain, so running it again
+  gets nothing), puts them in that command's environment and scrubs them from everything
+  it prints (their base64, hex, URL-encoded and reversed shapes, and any run of 8 or more
+  of their characters, too), so the tool output Claude and the transcript get carries
+  $SECRET_… instead. The value is never on a command line, in a file or in the session's
+  own environment: a command that doesn't go through it has no value. (The rewrite is the
+  session's permission policy's own answer, after the owner's rules and cards have looked
+  at the command as Claude wrote it; a PreToolUse hook sends every such command there,
+  past any allow rule in the owner's settings.)
 - A step that would show Claude a file holding a value (Read, Edit's snippet, Grep's lines)
   is refused, naming the placeholder to use instead.
 - Everything the session records (transcript entries, tool output, live words, exports) goes
@@ -54,12 +59,12 @@ from typing import Any
 from claude_agent_sdk import (
     HookMatcher,
     PermissionResultAllow,
+    PermissionResultDeny,
     create_sdk_mcp_server,
     tool,
 )
 
-from .. import jsonstore, lang, secret_run, tasks
-from ..connectors import SERVICE
+from .. import jsonstore, key_proxy, lang, secret_run, tasks
 
 log = logging.getLogger("jarvis")
 
@@ -122,22 +127,21 @@ def _scope_of_folder(folder: str) -> str:
     return "p-" + hashlib.sha256(folder.encode()).hexdigest()[:20]
 
 
-def wrap(command: str, names: dict[str, str], python: str | None = None) -> str:
-    """The command as it runs: through secret_run.py, with each NAME's Keychain account."""
+def wrap(command: str, pipe: str, python: str | None = None) -> str:
+    """The command as it runs: through secret_run.py, with the pipe its values come through
+    (made for it, read once: nothing on this line can fetch a secret again)."""
     shell = os.environ.get("SHELL", "")
     shell = (
         shell
         if Path(shell).name in ("zsh", "bash") and Path(shell).is_absolute()
         else (shutil.which("bash") or "/bin/bash")
     )
-    pairs = [f"{name}={account}" for name, account in sorted(names.items())]
     return shlex.join(
         [
             python or sys.executable,
             "-I",
             str(Path(secret_run.__file__).resolve()),
-            SERVICE,
-            *pairs,
+            pipe,
             "--",
             shell,
             "-c",
@@ -246,6 +250,20 @@ class Secrets:
             self.values[key] = found or ""  # (none saved: not asked again on every line)
         return self.values[key] or None
 
+    def offer(self, task: Any, names: set[str]) -> str:
+        """These secrets of a session, read now and offered to one command (key_proxy's
+        pipe): its path. A name with no value saved any more is said to be missing."""
+        scopes = self._scopes(task)
+        values: dict[str, str] = {}
+        missing: list[str] = []
+        for name in sorted(names):
+            found = self.value(scopes[name], name) if name in scopes else None
+            if found:
+                values[name] = found
+            else:
+                missing.append(name)
+        return key_proxy.HANDOFFS.offer(values, missing)
+
     def values_for(self, task: Any) -> dict[str, str]:
         """{value: $NAME} for a session's secrets, for the redaction pass."""
         out: dict[str, str] = {}
@@ -263,11 +281,11 @@ class Secrets:
             return text
         if not self.session_names.get(task.id) and not self.index()["projects"]:
             return text
-        for found, placeholder in sorted(
-            self.values_for(task).items(), key=lambda vp: len(vp[0]), reverse=True
-        ):
-            text = text.replace(found, placeholder)
-        return text
+        values = self.values_for(task)
+        if not values:
+            return text
+        # As a command's output is: each value's shapes and long runs of it too.
+        return secret_run.scrub(values, text)
 
     def save(self, task: Any, name: str, value: str, scope_kind: str) -> str:
         """Keep a value: in the Keychain for the session or the project. Raises ValueError
@@ -572,24 +590,60 @@ class Secrets:
     def policy(self, task: Any, inner: Any) -> Any:
         """The session's permission policy, with a Bash command that names a secret run
         through secret_run once the policy (rules, cards, the mode) has let it go as Claude
-        wrote it."""
+        wrote it, and the owner has said yes on a card: if the policy let it by without one
+        (Bypass, a rule, a mode), the card comes now."""
 
         async def can_use_tool(tool_name: str, tool_input: dict[str, Any], context: Any):
+            audit = getattr(task, "audit", None)
+            before = audit[-1] if audit else None
             result = await inner(tool_name, tool_input, context)
             if tool_name != "Bash" or not isinstance(result, PermissionResultAllow):
                 return result
             given = getattr(result, "updated_input", None) or tool_input
             command = str(given.get("command", ""))
-            names = self.names_for(task)
-            wanted = {n: a for n, a in names.items() if n in named_in(command)}
+            wanted = named_in(command) & set(self.names_for(task))
             if not wanted:
                 return result
+            last = audit[-1] if audit else None
+            carded = last is not None and last is not before and last.get("decision") == "allowed"
+            if not carded and not await self._card(task, command, wanted):
+                return PermissionResultDeny(
+                    message="The user didn't let this command use their secret. Don't try to "
+                    "get it to another command; ask them what to do."
+                )
+            try:
+                pipe = await asyncio.to_thread(self.offer, task, wanted)
+            except OSError:
+                return PermissionResultDeny(
+                    message="Jarvis couldn't hand the secret to the command on this computer."
+                )
             return PermissionResultAllow(
-                updated_input={**given, "command": wrap(command, wanted)},
+                updated_input={**given, "command": wrap(command, pipe)},
                 updated_permissions=getattr(result, "updated_permissions", None),
             )
 
         return can_use_tool
+
+    async def _card(self, task: Any, command: str, names: set[str]) -> bool:
+        """The owner's yes for a command that uses their secrets, on a card of its own."""
+        manager = self.hub.tasks
+        shown = ", ".join(f"${n}" for n in sorted(names))
+        choice = await manager.approve(
+            f"Eden Code in {Path(task.cwd).name} wants to run a command with your secret {shown}",
+            tasks.approval_detail("Bash", {"command": command}, Path(task.cwd)),
+            [(tasks.ALLOW, "Yes, run it"), (tasks.DENY, "No")],
+            context={"task_id": task.id, "tool": "Bash"},
+        )
+        allowed = choice == tasks.ALLOW
+        with contextlib.suppress(Exception):
+            manager._audit(
+                task,
+                "Bash",
+                {"command": command},
+                "allowed" if allowed else "denied",
+                "you allowed it (it uses your secret)" if allowed else "you said no (a secret)",
+            )
+        return allowed
 
 
 def _holding(values: dict[str, str], path: Path, limit: int) -> str:

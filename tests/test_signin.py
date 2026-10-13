@@ -4,13 +4,15 @@ checked by a stand-in: nothing here reaches Anthropic, and the Keychain is a Mem
 
 import ast
 import json
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
 from conftest import FakeClient
 
-from jarvis import claude_signin
+from jarvis import claude_signin, key_proxy
 from jarvis.features import signin as signin_feature
 from jarvis.features.ops import doctor
 from jarvis.hub import Hub
@@ -72,12 +74,15 @@ async def test_a_pasted_key_signs_every_run_in_through_the_keychain(hub):
     claude_signin.activate(hub)
     made = claude_signin.signed_in(options())
     settings = json.loads(made.settings)
-    assert (
-        f"provider:{pid}:api_key" in settings["apiKeyHelper"]
-        and " -I -c " in settings["apiKeyHelper"]
-    )
+    # The helper prints a pass, nothing that reads the Keychain; the key proxy spends it on
+    # the way to Anthropic, with the key in its place.
+    token = shlex.split(settings["apiKeyHelper"])[-1]
+    assert settings["apiKeyHelper"] == key_proxy.token_helper(token)
+    assert key_proxy.GRANTS.target(token, key_proxy.DIRECT) == ("https://api.anthropic.com", KEY)
+    for reader in (f"provider:{pid}", "keyring", sys.executable):
+        assert reader not in made.settings
     pins = settings["env"]
-    assert pins["ANTHROPIC_BASE_URL"] == "" and pins["ANTHROPIC_MODEL"] == ""  # Claude's own
+    assert pins["ANTHROPIC_BASE_URL"] == key_proxy.PROXY.address and pins["ANTHROPIC_MODEL"] == ""
     assert all(pins[name] == "" for name in CREDENTIAL_ENV)
     assert made.env["ENABLE_TOOL_SEARCH"] == "false"  # the run's own env kept
     assert all(made.env[name] == "" for name in CREDENTIAL_ENV)  # no inherited credential

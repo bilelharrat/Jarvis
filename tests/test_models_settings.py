@@ -3,8 +3,11 @@ from the window to the Keychain and never comes back; sessions on another provid
 model get its environment, and leave it when switched back to Claude."""
 
 import json
+import shlex
 
 from test_hub import drain, make_hub
+
+from jarvis import key_proxy
 
 KEY = "sk-or-v1-" + "0123456789abcdef" * 4
 
@@ -75,11 +78,12 @@ async def test_sessions_take_the_provider_model_and_can_go_back(
     await hub._handle({"type": "task_new", "directory": "proj", "model": ref})  # in projects_dir
     task = list(hub.tasks.tasks.values())[-1]
     assert task.model == "openai/gpt-5" and task.model_ref == ref
-    # The key is nowhere a shell command could read it: a Keychain helper fetches it.
+    # The key is nowhere a shell command could read it: the helper prints a pass, which the
+    # key proxy spends on the way to OpenRouter.
     settings_json = json.loads(task.provider_settings)
-    assert settings_json["apiKeyHelper"] and settings_json["env"]["ANTHROPIC_BASE_URL"].startswith(
-        "https://openrouter.ai"
-    )
+    assert settings_json["env"]["ANTHROPIC_BASE_URL"] == key_proxy.PROXY.address
+    token = shlex.split(settings_json["apiKeyHelper"])[-1]
+    assert key_proxy.GRANTS.target(token, key_proxy.DIRECT) == ("https://openrouter.ai/api", KEY)
     options = hub.tasks.options_for(task)
     assert KEY not in json.dumps(dict(options.env)) and KEY not in (options.settings or "")
     assert KEY not in json.dumps(task.public()) and "OpenRouter" in task.public()["model_label"]

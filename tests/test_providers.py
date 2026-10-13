@@ -10,20 +10,18 @@ import string
 import subprocess
 import sys
 import time
-import types
 from pathlib import Path
 
 import httpx
 import pytest
 
-from jarvis import providers
-from jarvis.connectors import SERVICE, MemoryVault, Vault
+from jarvis import key_proxy, providers
+from jarvis.connectors import SERVICE, MemoryVault
 from jarvis.prefs import MODEL_NAMES, MODELS
 from jarvis.providers import (
     CREDENTIAL_ENV,
     CUSTOM,
     DESTINATION_ENV,
-    HELPER_CODE,
     KEY_ADVICE,
     MAX_MODELS,
     MAX_PROVIDERS,
@@ -38,7 +36,6 @@ from jarvis.providers import (
     clean_base_url,
     clean_model_id,
     clean_name,
-    keychain_helper,
     looks_like_key,
     mask,
 )
@@ -77,6 +74,14 @@ def block_saving(store, tmp_path):
 
 def settings_of(config):
     return json.loads(config["settings"])
+
+
+def pass_of(config):
+    """The run's pass its apiKeyHelper prints (run as Claude Code runs it, through /bin/sh)."""
+    command = settings_of(config)["apiKeyHelper"]
+    token = shlex.split(command)[-1]
+    assert command == key_proxy.token_helper(token) and key_proxy.is_token(token)
+    return token
 
 
 def router_client(routes, seen, **options):
@@ -889,12 +894,15 @@ def test_openrouter_sessions_follow_openrouters_recipe(tmp_path):
     pins = settings_of(config)["env"]
     assert (config["model"], config["label"]) == ("openai/gpt-5", "GPT-5 · OpenRouter")
     assert config["provider"] == pid and config["claude"] is False
-    assert pins["ANTHROPIC_BASE_URL"] == "https://openrouter.ai/api"
+    assert pins["ANTHROPIC_BASE_URL"] == key_proxy.PROXY.address  # the key proxy, on this Mac
     assert pins["ANTHROPIC_AUTH_TOKEN"] == "" and pins["ANTHROPIC_API_KEY"] == ""
     assert pins["ANTHROPIC_MODEL"] == "openai/gpt-5"
     assert all(pins[name] == "openai/gpt-5" for name in TIER_ENV)
     assert pins["ANTHROPIC_CUSTOM_HEADERS"] == "" and pins["CLAUDE_CODE_USE_BEDROCK"] == ""
-    assert settings_of(config)["apiKeyHelper"] == keychain_helper(pid)
+    # Its pass stands for the key, on the way to OpenRouter only.
+    token = pass_of(config)
+    assert key_proxy.GRANTS.target(token, key_proxy.DIRECT) == ("https://openrouter.ai/api", OR_KEY)
+    assert key_proxy.GRANTS.target(token, key_proxy.GEMINI) is None
 
 
 def test_an_anthropic_key_session_uses_the_key_instead_of_the_plan(tmp_path):
@@ -904,10 +912,11 @@ def test_an_anthropic_key_session_uses_the_key_instead_of_the_plan(tmp_path):
     config = store.session_config(opus["ref"], {})
     pins = settings_of(config)["env"]
     assert config["model"] == MODELS["opus"] and config["claude"] is True
-    assert pins["ANTHROPIC_BASE_URL"] == ""  # Claude Code's own address, api.anthropic.com
+    assert pins["ANTHROPIC_BASE_URL"] == key_proxy.PROXY.address  # on to api.anthropic.com
     assert all(pins[name] == "" for name in TIER_ENV)  # its own Claude tiers, on the key
     assert pins["CLAUDE_CODE_OAUTH_TOKEN"] == ""  # never the owner's own sign-in
-    assert settings_of(config)["apiKeyHelper"] == keychain_helper(added["id"])
+    token = pass_of(config)
+    assert key_proxy.GRANTS.target(token, key_proxy.DIRECT) == ("https://api.anthropic.com", ANT_KEY)
 
 
 @pytest.mark.parametrize("auth", [None, "bearer", "x-api-key", "API-Key"])
@@ -917,7 +926,8 @@ def test_custom_endpoints_get_their_address(tmp_path, auth):
     ref = store.add_model(pid["id"], "qwen3-coder")["ref"]
     config = store.session_config(ref, {})
     pins = settings_of(config)["env"]
-    assert pins["ANTHROPIC_BASE_URL"] == "http://localhost:4000"
+    assert pins["ANTHROPIC_BASE_URL"] == key_proxy.PROXY.address
+    assert key_proxy.GRANTS.target(pass_of(config), key_proxy.DIRECT)[0] == "http://localhost:4000"
     assert all(pins[name] == "qwen3-coder" for name in TIER_ENV)  # a local model stays local
     assert config["claude"] is False
 
@@ -932,7 +942,9 @@ def test_custom_endpoints_get_their_address(tmp_path, auth):
 )
 def test_a_session_never_carries_the_key(tmp_path, kind, key, url):
     """Not in the environment (the session's shell would inherit it), not in the settings
-    (they go on the command line): the helper reads it from the Keychain."""
+    (they go on the command line), and nothing that could read it either: no Keychain
+    service or entry, no Python, no keyring. The helper prints a pass, which only the key
+    proxy can spend, on the way to the provider's own address."""
     store = make_store(tmp_path)
     pid = store.add_provider(kind, "", key, url)["id"]
     ref = store.add_model(pid, "vendor/some-model")["ref"]
@@ -941,6 +953,17 @@ def test_a_session_never_carries_the_key(tmp_path, kind, key, url):
     assert set(settings_of(config)) == {"apiKeyHelper", "env"}
     assert set(settings_of(config)["env"]) == set(ROUTING_ENV)
     assert config["env"] == dict.fromkeys(CREDENTIAL_ENV, "")
+    carried = json.dumps(config)
+    for reader in (SERVICE, f"provider:{pid}", "api_key", "keyring", sys.executable, "-I"):
+        assert reader not in carried, reader
+    done = subprocess.run(
+        ["/bin/sh", "-c", settings_of(config)["apiKeyHelper"]],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        cwd=tmp_path,
+    )
+    assert done.returncode == 0 and key_proxy.is_token(done.stdout) and key not in done.stdout
 
 
 def test_the_environment_alone_never_points_a_session_at_the_provider(tmp_path):
@@ -1082,86 +1105,19 @@ def test_network_settings_follow_this_macs_own(tmp_path, monkeypatch):
     assert settings_of(store.session_config(ref))["env"]["ALL_PROXY"] == "socks5://127.0.0.1:1080"
 
 
-def test_the_key_helper_names_the_keychain_entry_the_vault_writes(monkeypatch):
-    written = []
-    fake = types.ModuleType("keyring")
-    fake.set_password = lambda service, account, value: written.append((service, account))
-    monkeypatch.setitem(sys.modules, "keyring", fake)
-    Vault().set("provider:abc123def456", "api_key", "{}")
-    command = shlex.split(keychain_helper("abc123def456", "/opt/py"))
-    assert command == ["/opt/py", "-I", "-c", HELPER_CODE, *written[0]]
-    assert written == [(SERVICE, "provider:abc123def456:api_key")]
-    assert shlex.split(keychain_helper("abc123def456"))[0] == sys.executable
-
-
-def run_helper(monkeypatch, capsys, stored=None, fail=False):
-    """HELPER_CODE run here, on a stand-in for keyring's macOS backend."""
-    asked = []
-
-    class Keyring:
-        def get_password(self, service, account):
-            asked.append((service, account))
-            if fail:
-                raise RuntimeError("keychain locked")
-            return stored
-
-    macos = types.ModuleType("keyring.backends.macOS")
-    macos.Keyring = Keyring
-    backends = types.ModuleType("keyring.backends")
-    backends.macOS = macos
-    monkeypatch.setitem(sys.modules, "keyring", types.ModuleType("keyring"))
-    monkeypatch.setitem(sys.modules, "keyring.backends", backends)
-    monkeypatch.setitem(sys.modules, "keyring.backends.macOS", macos)
-    monkeypatch.setattr(sys, "argv", ["-c", SERVICE, "provider:abc123def456:api_key"])
-    code = compile(HELPER_CODE, "<apiKeyHelper>", "exec")
-    try:
-        exec(code, {"__name__": "__main__"})
-        exit_message = None
-    except SystemExit as stop:
-        exit_message = stop.code
-    out = capsys.readouterr()
-    assert asked == [(SERVICE, "provider:abc123def456:api_key")]
-    return out.out, exit_message
-
-
-def test_the_key_helper_prints_only_the_key(tmp_path, monkeypatch, capsys):
-    vault = MemoryVault()
-    store = make_store(tmp_path, vault)
-    pid = store.add_provider("openrouter", "", OR_KEY)["id"]
-    record = vault.get(f"provider:{pid}", "api_key")
-    assert run_helper(monkeypatch, capsys, record) == (OR_KEY, None)
-    for stored, fail in [
-        (None, False),
-        (OR_KEY, False),
-        ("[1]", False),
-        ("{}", False),
-        (None, True),
-    ]:
-        out, message = run_helper(monkeypatch, capsys, stored, fail)
-        assert out == "" and message.startswith("Jarvis ")  # to stderr, with exit status 1
-
-
 def test_the_helper_command_survives_the_shell(tmp_path):
-    """The command runs through /bin/sh as Claude Code runs it: an argument-printing stand-in
-    for Python, in a folder with a space and a quote in its name, gets the exact code."""
-    folder = tmp_path / "Jarvis's venv" / "bin"
-    folder.mkdir(parents=True)
-    fake = folder / "py thon"
-    echo = "import json, sys; print(json.dumps(sys.argv[1:]))"
-    fake.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} -c {shlex.quote(echo)} "$@"\n')
-    fake.chmod(0o755)
-    command = keychain_helper("abc123def456", str(fake))
+    """The command runs through /bin/sh as Claude Code runs it, in the project's folder: it
+    prints the pass exactly, with nothing after it, and reads nothing."""
+    token = key_proxy.GRANTS.mint(key_proxy.DIRECT, lambda: None)
     done = subprocess.run(
-        ["/bin/sh", "-c", command], capture_output=True, text=True, timeout=20, cwd=tmp_path
+        ["/bin/sh", "-c", key_proxy.token_helper(token)],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        cwd=tmp_path,
     )
     assert done.returncode == 0, done.stderr
-    assert json.loads(done.stdout) == [
-        "-I",
-        "-c",
-        HELPER_CODE,
-        SERVICE,
-        "provider:abc123def456:api_key",
-    ]
+    assert done.stdout == token
 
 
 def test_an_isolated_python_ignores_a_projects_own_modules(tmp_path):
@@ -1184,10 +1140,12 @@ def test_an_isolated_python_ignores_a_projects_own_modules(tmp_path):
 
 
 def test_a_helper_can_be_given(tmp_path):
-    store = make_store(tmp_path, helper=lambda pid: f"printf %s test-{pid}")
+    given = []
+    store = make_store(tmp_path, helper=lambda token: given.append(token) or f"printf %s t-{token}")
     pid = store.add_provider("openrouter", "", OR_KEY)["id"]
     ref = store.add_model(pid, "openai/gpt-5")["ref"]
-    assert settings_of(store.session_config(ref, {}))["apiKeyHelper"] == f"printf %s test-{pid}"
+    helper = settings_of(store.session_config(ref, {}))["apiKeyHelper"]
+    assert helper == f"printf %s t-{given[0]}" and key_proxy.is_token(given[0])
 
 
 def test_session_config_errors_say_what_to_do(tmp_path):
@@ -2080,41 +2038,28 @@ def test_heavy_churn_keeps_the_file_whole_and_free_of_keys(tmp_path):
 # ── the key helper on a PC ──
 
 
-def test_on_a_pc_the_key_helper_is_a_script_file_read_from_credential_manager(tmp_path):
+def test_on_a_pc_the_key_helper_is_a_script_file_that_prints_the_pass(tmp_path, monkeypatch, capsys):
     import subprocess
 
-    from jarvis.providers import HELPER_CODE_WINDOWS, helper_command
+    from jarvis.providers import helper_command
 
-    assert "from keyring.backends import Windows" in HELPER_CODE_WINDOWS
-    assert "WinVaultKeyring()" in HELPER_CODE_WINDOWS and "macOS" not in HELPER_CODE_WINDOWS
     py = r"C:\Users\Robert Parker\AppData\Local\Programs\J.A.R.V.I.S. Daredevil\resources\backend\python\python.exe"
-    command = helper_command(py, HELPER_CODE_WINDOWS, "Jarvis", "vault:abc:key", platform="win32", folder=tmp_path)
+    code = key_proxy._PRINT_CODE
+    assert "keyring" not in code
+    command = helper_command(py, code, "eden-run-abc", platform="win32", folder=tmp_path)
     scripts = list(tmp_path.glob("helper-*.py"))
-    assert len(scripts) == 1 and scripts[0].read_text(encoding="utf-8") == HELPER_CODE_WINDOWS
+    assert len(scripts) == 1 and scripts[0].read_text(encoding="utf-8") == code
     # quoted the Windows way: the path with spaces in one piece, no code on the command line
-    assert command == subprocess.list2cmdline([py, "-I", str(scripts[0]), "Jarvis", "vault:abc:key"])
+    assert command == subprocess.list2cmdline([py, "-I", str(scripts[0]), "eden-run-abc"])
     assert command.startswith('"C:\\Users\\Robert Parker\\') and "import" not in command
     # the same code twice: the same file, not rewritten
     stamp = scripts[0].stat().st_mtime_ns
-    assert helper_command(py, HELPER_CODE_WINDOWS, "a", platform="win32", folder=tmp_path).count("helper-") == 1
+    assert helper_command(py, code, "a", platform="win32", folder=tmp_path).count("helper-") == 1
     assert scripts[0].stat().st_mtime_ns == stamp
     # a Mac keeps its own: the code itself, quoted for /bin/sh
     mac = helper_command("/opt/py", "print(1)", "x", platform="darwin")
     assert shlex.split(mac) == ["/opt/py", "-I", "-c", "print(1)", "x"]
-
-
-def test_the_windows_helper_reads_the_saved_key_like_the_macs(monkeypatch, capsys):
-    import types
-
-    from jarvis.providers import HELPER_CODE_WINDOWS
-
-    saved = {("svc", "acct"): json.dumps({"key": "sk-ant-test-123"})}
-    win = types.ModuleType("keyring.backends.Windows")
-    win.WinVaultKeyring = lambda: types.SimpleNamespace(get_password=lambda s, a: saved.get((s, a)))
-    monkeypatch.setitem(sys.modules, "keyring.backends.Windows", win)
-    import keyring.backends as backends
-
-    monkeypatch.setattr(backends, "Windows", win, raising=False)
-    monkeypatch.setattr(sys, "argv", ["helper", "svc", "acct"])
-    exec(compile(HELPER_CODE_WINDOWS, "<apiKeyHelper>", "exec"), {})
-    assert capsys.readouterr().out == "sk-ant-test-123"
+    # and the script prints the pass it's given, nothing more
+    monkeypatch.setattr(sys, "argv", ["helper", "eden-run-abc"])
+    exec(compile(code, "<apiKeyHelper>", "exec"), {})
+    assert capsys.readouterr().out == "eden-run-abc"
