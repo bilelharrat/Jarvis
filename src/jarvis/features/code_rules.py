@@ -194,13 +194,34 @@ class RuleDesk:
                         skipped += 1
                     else:
                         wanted[rule.text] = min(wanted.get(rule.text, strictness), strictness)
+        # The files are the project's words, not the owner's: a rule the owner keeps as
+        # strictly or more (their deny, say) is never loosened by one.
+        fresh = []
+        for text, strictness in wanted.items():
+            kept = next((i for i, b in enumerate(BEHAVIORS) if text in have[b]), None)
+            if kept is None or kept > strictness:
+                fresh.append((text, strictness))
+        # An ask or a deny only ever asks more; an allow lets a session do something without
+        # asking ("Bash(curl:*)"), and a cloned repository's settings are its authors' to
+        # write. Those are listed on a card first; without a yes, only the stricter come in.
+        allows = [text for text, strictness in fresh if BEHAVIORS[strictness] == "allow"]
+        left_out = 0
+        if allows:
+            shown = "\n".join(f"  {text}" for text in allows[:30])
+            more = f"\n  …and {len(allows) - 30} more" if len(allows) > 30 else ""
+            choice = await self.hub.request_approval(
+                f"Import {len(allows)} allow rule{'' if len(allows) == 1 else 's'} from "
+                f"{Path(project).name}'s .claude settings?",
+                "Each lets a session do it without asking you, in every mode:\n\n"
+                f"{shown}{more}\n\nThese files are written by whoever wrote the "
+                "repository. The ask and deny rules in them come in either way.",
+                [("all", "Import them too"), ("strict", "Only ask and deny")],
+            )
+            if choice != "all":
+                fresh = [(t, s) for t, s in fresh if BEHAVIORS[s] != "allow"]
+                left_out = len(allows)
         try:
-            for text, strictness in wanted.items():
-                # The files are the project's words, not the owner's: a rule the owner keeps
-                # as strictly or more (their deny, say) is never loosened by one.
-                kept = next((i for i, b in enumerate(BEHAVIORS) if text in have[b]), None)
-                if kept is not None and kept <= strictness:
-                    continue
+            for text, strictness in fresh:
                 self.book.add(project, BEHAVIORS[strictness], text)
                 added += 1
         except (RuleError, OSError) as exc:
@@ -215,6 +236,8 @@ class RuleDesk:
         )
         if skipped:
             note += f" Left out {skipped} this can't read."
+        if left_out:
+            note += f" Left out {left_out} allow rule{'' if left_out == 1 else 's'}."
         await self.state(task, note=note)
 
     async def cmd_export(self, msg: dict[str, Any]) -> None:
