@@ -582,6 +582,64 @@ async def test_a_turn_over_after_a_follow_up_starts_the_push(hub, tmp_path, proj
     assert len(pushed) == 1 and rec.followup == ""
 
 
+async def test_with_two_pull_requests_in_one_folder_the_follow_up_clears_on_its_own_record(
+    hub, tmp_path, projects, monkeypatch
+):
+    repo, _bare = github_project(tmp_path, projects)
+    task = session(hub, repo, session_id="")
+    sends(hub, monkeypatch)
+    older = watched(hub, repo)
+    newer = PullRecord(repo="acme/app", number=8, url="u", title="Another", branch="feature/two",
+                       base="main", remote="origin", folder=str(repo), project="app",
+                       head_sha="head2", opened=2.0)  # fmt: skip
+    hub.code_pr.store().items.append(newer)
+    assert hub.code_pr.store().for_session("", str(repo)) is newer  # the one a folder finds
+    assert await hub.code_pr.follow_up(older, "fix", "logs") == ""
+    assert older.followup == "fix" and older.followup_task == task.id
+    pushed = []
+
+    async def after(r, t):
+        pushed.append(r.key)
+
+    monkeypatch.setattr(hub.code_pr, "after_follow_up", after)
+    hub.code_pr.on_task("task_finished", {"id": task.id, "task_kind": "code", "status": "done"})
+    await asyncio.sleep(0.01)
+    assert pushed == ["acme/app#7"]  # the record it was sent from, not the folder's newest
+    older.followup = "fix"
+    hub.code_pr.on_task("task_finished", {"id": task.id, "task_kind": "code", "status": "stopped"})
+    assert older.followup == "" and older.followup_task == 0
+    # One whose end never comes (the session closed, the app quit) is let go after hours.
+    older.followup, older.followup_at = "review", __import__("time").time() - 5 * 3600
+    await hub.code_pr.poll(older)
+    assert older.followup == ""
+    older.followup, older.followup_at = "review", __import__("time").time()
+    await hub.code_pr.poll(older)
+    assert older.followup == "review"  # a fresh one holds
+
+
+async def test_an_unexpected_error_in_a_poll_waits_before_the_next(
+    hub, tmp_path, projects, monkeypatch
+):
+    import time as clock
+
+    repo, _bare = github_project(tmp_path, projects)
+    session(hub, repo)
+    rec = watched(hub, repo)
+    desk = hub.code_pr
+
+    async def broken(_rec):
+        raise KeyError("an answer nobody expected")
+
+    monkeypatch.setattr(desk, "_poll", broken)
+    await desk.tick()
+    assert desk.next_poll[rec.key] - clock.time() > 100  # not again at the next 10 s tick
+    assert desk.details[rec.key]["error"].startswith("Couldn't read the pull request")
+    calls = []
+    monkeypatch.setattr(desk, "poll", lambda r: calls.append(r) or asyncio.sleep(0))
+    await desk.tick()
+    assert calls == []
+
+
 async def test_follow_ups_are_capped_a_day_and_the_owner_is_told_once(
     hub, tmp_path, projects, monkeypatch
 ):

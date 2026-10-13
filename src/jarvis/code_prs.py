@@ -67,6 +67,8 @@ class PullRecord:
     seen: list[int] = field(default_factory=list)  # comment and review ids handled
     baseline: bool = False  # the comments there when it was first read are seen
     followup: str = ""  # what the session was last sent: fix | conflict | review | jarvis
+    followup_task: int = 0  # the session (task id) it went to: only its turn's end clears it
+    followup_at: float = 0.0  # when it went: past FOLLOWUP_STALE, it's let go
     awaiting_push: bool = False  # the session's work waits to be pushed
     watch: bool = True
 
@@ -116,6 +118,10 @@ def record_from(raw: Any) -> PullRecord | None:
         setattr(rec, name, value if type(value) is int and value >= 0 else 0)
     if not isinstance(rec.opened, int | float):
         rec.opened = 0.0
+    if type(rec.followup_task) is not int or rec.followup_task < 0:
+        rec.followup_task = 0
+    if not isinstance(rec.followup_at, int | float) or isinstance(rec.followup_at, bool):
+        rec.followup_at = 0.0
     rec.seen = (
         [i for i in rec.seen if type(i) is int][-SEEN_KEPT:] if isinstance(rec.seen, list) else []
     )
