@@ -309,3 +309,150 @@ async def test_waits_with_no_reset_time_stop_after_a_few_tries_in_a_row(
     finally:
         hub.code_limit.forget()
         await end_all(hub)
+
+
+# ── W29: test reports read off the loop, and bounded ──
+
+
+async def test_a_run_s_results_are_read_off_the_event_loop(tmp_path, monkeypatch):
+    import threading
+
+    from test_codetests import PYTEST, plain_env, tiny_project
+    from test_codetests import until as until_long
+
+    from jarvis import codetests
+
+    where = []
+    real = codetests.read_results
+
+    def reading(*args):
+        where.append(threading.current_thread() is threading.main_thread())
+        return real(*args)
+
+    monkeypatch.setattr(codetests, "read_results", reading)
+    project = tiny_project(tmp_path)
+    tests = codetests.SuiteRunner(lambda *a, **k: None, env=plain_env)
+    run = await tests.start(project, PYTEST)
+    assert await until_long(lambda: run.status != "running")
+    assert where == [False]  # (in a thread: the chats and the voice go on meanwhile)
+    assert run.status == "failed" and run.results.failures()
+    await tests.close()
+
+
+def test_a_report_past_the_limit_isn_t_read(tmp_path, monkeypatch):
+    from jarvis import codetests
+
+    report = tmp_path / "report.xml"
+    report.write_text('<testsuite><testcase classname="t" name="x"/></testsuite>')
+    suite = codetests.Suite("pytest", "pytest", ("pytest",))
+    assert codetests.read_results(suite, tmp_path, report, []).cases
+    monkeypatch.setattr(codetests, "REPORT_MAX", 10)
+    results = codetests.read_results(suite, tmp_path, report, [])
+    assert not results.cases and not results.complete
+
+
+async def test_a_chatty_run_s_output_is_kept_for_its_results_only_up_to_a_size(
+    tmp_path, monkeypatch
+):
+    from test_codetests import plain_env
+    from test_codetests import until as until_long
+
+    from jarvis import codetests
+
+    monkeypatch.setattr(codetests, "OUTPUT_KEPT", 1000)
+    seen = []
+    monkeypatch.setattr(
+        codetests,
+        "read_results",
+        lambda s, p, r, lines: seen.append(list(lines)) or codetests.Results(complete=False),
+    )
+    script = tmp_path / "chatty.py"
+    script.write_text("for i in range(2000):\n    print('x' * 100)\n")
+    import sys
+
+    suite = codetests.Suite("cargo", "cargo test", (sys.executable, str(script)))
+    tests = codetests.SuiteRunner(lambda *a, **k: None, env=plain_env)
+    run = await tests.start(tmp_path, suite)
+    assert await until_long(lambda: run.status != "running")
+    assert seen and 1000 <= sum(len(line) for line in seen[0]) < 1000 + 100 * 200
+    assert len(seen[0]) < 2000
+    await tests.close()
+
+
+# ── W30: watch mode's bounds ──
+
+
+def test_a_watch_s_look_goes_through_so_many_names_at_most(tmp_path, monkeypatch):
+    from jarvis import codetests
+
+    monkeypatch.setattr(codetests, "WATCH_WALK", 50)
+    for i in range(200):
+        (tmp_path / f"data{i}.bin").write_text("x")
+    (tmp_path / "z").mkdir()
+    (tmp_path / "z" / "app.py").write_text("x")
+    walked = []
+    real = codetests.os.walk
+
+    def walk(top):
+        for folder, dirs, files in real(top):
+            walked.append(folder)
+            yield folder, dirs, files
+
+    monkeypatch.setattr(codetests.os, "walk", walk)
+    codetests.snapshot(tmp_path)
+    assert walked == [str(tmp_path)]  # past the bound: no further folders
+
+
+async def test_files_a_run_writes_itself_don_t_start_another_run(tmp_path, monkeypatch):
+    import time
+
+    from test_codetests import plain_env
+
+    from jarvis import codetests
+
+    tests = codetests.SuiteRunner(lambda *a, **k: None, env=plain_env)
+    key = str(tmp_path)
+    suite = codetests.Suite("pytest", "pytest", ("pytest",))
+    run = codetests.Run(tmp_path, suite, {})
+    run.started, run.finished, run.status = time.time() - 10, time.time() - 1, "passed"
+    tests.runs[key] = run
+    during = run.started + 5
+    assert tests._its_own(key, {"/p/__snapshots__/a.snap": during})
+    assert not tests._its_own(key, {"/p/a.py": time.time()})  # after it: the owner's
+    assert not tests._its_own(key, {"/p/a.py": during, "/p/b.py": time.time()})
+    assert not tests._its_own(key, {"/p/gone.py": None})  # a file deleted
+    run.status, run.finished = "running", None
+    assert tests._its_own(key, {"/p/cache.json": time.time()})  # (still running: its own)
+
+
+async def test_a_watched_suite_whose_tests_write_files_runs_once_not_for_ever(
+    tmp_path, monkeypatch
+):
+    from test_codetests import PYTEST, plain_env
+    from test_codetests import until as until_long
+
+    from jarvis import codetests
+
+    monkeypatch.setattr(codetests, "WATCH_EVERY", 0.1)
+    monkeypatch.setattr(codetests, "WATCH_QUIET", 0.1)
+    project = tmp_path / "snap"
+    (project / "tests").mkdir(parents=True)
+    test_file = project / "tests" / "test_snap.py"
+    test_file.write_text(
+        "import json, pathlib, time\n\n\ndef test_writes_a_snapshot():\n"
+        "    out = pathlib.Path(__file__).parent / 'snapshot.json'\n"
+        "    out.write_text(json.dumps({'at': time.time()}))\n"
+    )
+    runs = []
+    tests = codetests.SuiteRunner(lambda *a, **k: None, env=plain_env)
+    tests.on_finished = runs.append
+    tests.set_watch(project, True, {"suite": PYTEST, "target": {}})
+    try:
+        await asyncio.sleep(0.3)
+        test_file.write_text(test_file.read_text() + "\n")  # the owner's edit
+        assert await until_long(lambda: len(runs) == 1)
+        await asyncio.sleep(1.5)  # many looks later
+        assert len(runs) == 1, [r.status for r in runs]  # its own snapshot started nothing
+    finally:
+        tests.set_watch(project, False)
+        await tests.close()

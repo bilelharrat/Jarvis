@@ -40,8 +40,14 @@ MESSAGE_CHARS = 4000  # of one failure's message
 WATCH_EVERY = 2.5  # seconds between looks at the project's files
 WATCH_QUIET = 1.0  # after a change, this long without another before the run
 WATCH_FILES = 10_000  # files a watch looks at, at most
+WATCH_WALK = 50_000  # names (files and folders) a watch's look goes through, at most
+RUN_WROTE_SLACK = 0.5  # seconds either side of a run in which a file it changed is its own
 FILES_SHOWN = 400  # test files listed in the pane
 RUN_LIMIT = 60 * 60  # seconds a run may take before it's stopped
+# A run's report file, and the output kept for reading results from, at most (a huge jest
+# JSON or a chatty run would otherwise take hundreds of MB, and seconds to read).
+REPORT_MAX = 20 * 1024 * 1024
+OUTPUT_KEPT = 20 * 1024 * 1024  # characters
 SKIP_DIRS = {
     ".git", "node_modules", ".venv", "venv", "env", "__pycache__", "dist", "build", ".next",
     "target", ".build", "DerivedData", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
@@ -591,10 +597,13 @@ def _float(value: Any) -> float | None:
 
 
 def read_results(suite: Suite, project: Path, report: Path, lines: list[str]) -> Results:
-    """A run's results: from its report file, else from its output."""
+    """A run's results: from its report file, else from its output. (Slow for a big one:
+    SuiteRunner reads it off the event loop.) A report past REPORT_MAX isn't read: the run
+    says it couldn't tell, rather than the app stalling on it."""
     text = ""
     with contextlib.suppress(OSError):
-        text = report.read_text(encoding="utf-8", errors="replace")
+        if report.stat().st_size <= REPORT_MAX:
+            text = report.read_text(encoding="utf-8", errors="replace")
     match suite.id:
         case "pytest":
             return parse_junit(text, project) if text else Results(complete=False)
@@ -699,6 +708,7 @@ class SuiteRunner:
         self._again: dict[str, bool] = {}  # a change came during a watch run: run again after
         self._tmp = Path(tempfile.gettempdir())
         self._closing = False
+        self._finishing: set[asyncio.Future] = set()  # runs' ends being read (kept alive)
 
     def latest(self, project: Path) -> Run | None:
         return self.runs.get(str(project))
@@ -735,10 +745,12 @@ class SuiteRunner:
         self.runs[key] = run
         run.ring.add([f"$ {runproc.public_argv(argv)}"])
         lines: list[str] = []
+        kept = [0]  # characters in lines
 
         def output(new: list[str]) -> None:
-            if len(lines) < 200_000:
+            if len(lines) < 200_000 and kept[0] < OUTPUT_KEPT:
                 lines.extend(new)
+                kept[0] += sum(len(line) for line in new)
             added = run.ring.add(new)
             self._pending.setdefault(key, []).extend(added)
             if self._flush is None:
@@ -748,8 +760,15 @@ class SuiteRunner:
         def ended(code: int | None) -> None:
             run.exit_code = code
             run.finished = time.time()
+            # The results are read off the event loop (a big report would hold up every
+            # chat and the voice while it's parsed); the run says it's over once they're in.
+            reading = asyncio.ensure_future(finish(code))
+            self._finishing.add(reading)
+            reading.add_done_callback(self._finishing.discard)
+
+        async def finish(code: int | None) -> None:
             try:
-                run.results = read_results(suite, project, report, lines)
+                run.results = await asyncio.to_thread(read_results, suite, project, report, lines)
             except Exception:
                 log.exception("couldn't read a test run's results")
                 run.results = Results(complete=False)
@@ -832,12 +851,28 @@ class SuiteRunner:
             if info is None:
                 return
             if now != before:
+                changed = _changes(before, now)
                 before = now
-                info["dirty_at"] = time.monotonic()
+                if not self._its_own(key, changed):
+                    info["dirty_at"] = time.monotonic()
             dirty = info.get("dirty_at")
             if dirty and time.monotonic() - dirty >= WATCH_QUIET:
                 info["dirty_at"] = None
                 self._watch_run(key)
+
+    def _its_own(self, key: str, changed: dict[str, float | None]) -> bool:
+        """Whether every change a watch saw was written by the project's latest test run
+        while it ran (a snapshot test, a cache, a report beside the code): those don't start
+        another run, which would write them again, and run again, for ever. A file deleted
+        is the owner's (or a session's) doing."""
+        run = self.runs.get(key)
+        if run is None or not changed:
+            return False
+        end = (run.finished or time.time()) + RUN_WROTE_SLACK
+        return all(
+            mtime is not None and run.started - RUN_WROTE_SLACK <= mtime <= end
+            for mtime in changed.values()
+        )
 
     def _watch_run(self, key: str) -> None:
         info = self.watching.get(key)
@@ -887,11 +922,25 @@ def _watched(name: str) -> bool:
     return dot > 0 and name[dot:] in WATCHED
 
 
+def _changes(before: dict[str, float], now: dict[str, float]) -> dict[str, float | None]:
+    """What changed between two snapshots: each path, with its new time (None: deleted)."""
+    out: dict[str, float | None] = {p: t for p, t in now.items() if before.get(p) != t}
+    out.update({p: None for p in before.keys() - now.keys()})
+    return out
+
+
 def snapshot(project: Path) -> dict[str, float]:
-    """The project's source files and when each last changed (for watch mode)."""
+    """The project's source files and when each last changed (for watch mode). At most
+    WATCH_FILES of them, and WATCH_WALK names gone through to find them: a folder of
+    hundreds of thousands of other files (data, build output under another name) would
+    otherwise be walked whole every few seconds."""
     out: dict[str, float] = {}
+    walked = 0
     for folder, dirs, files in os.walk(project):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
+        walked += len(dirs) + len(files)
+        if walked > WATCH_WALK:
+            files = files[: max(0, len(files) - (walked - WATCH_WALK))]
         for name in files:
             if not _watched(name):
                 continue
@@ -900,4 +949,6 @@ def snapshot(project: Path) -> dict[str, float]:
                 out[path] = os.stat(path).st_mtime
             if len(out) >= WATCH_FILES:
                 return out
+        if walked >= WATCH_WALK:
+            return out
     return out
