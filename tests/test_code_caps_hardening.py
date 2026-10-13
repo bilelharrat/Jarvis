@@ -4,9 +4,10 @@ time, a session's own usage-limit reset, the restart check that waits for termin
 runs, test runs and preview checks, test reports read off the loop, watch mode's bounds,
 and no git on the Mac."""
 
+import asyncio
 from types import SimpleNamespace
 
-from code_session_fakes import make_hub
+from code_session_fakes import Stream, end_all, make_hub, until
 
 from jarvis import hub as hub_module
 
@@ -60,3 +61,139 @@ async def test_a_restart_waits_for_terminal_jobs_bang_runs_test_runs_and_preview
 
     hub.code_terminal.shells.items = {"t4": SimpleNamespace(exited=False, busy=broken)}
     assert not hub.busy()  # a shell that can't be asked never holds an update back
+
+
+# ── W2, W3: forks, past sessions and reconnects counted once ──
+
+
+def _parent(hub, tmp_path, cost=0.3, total=0.3):
+    from jarvis.tasks import ClaudeTask
+
+    (tmp_path / "proj").mkdir(exist_ok=True)
+    task = ClaudeTask(id=900, prompt="x", cwd=(tmp_path / "proj").resolve(), session_id="s-parent")
+    task.cost_usd, task.conn_cost = cost, total
+    hub.tasks.tasks[task.id] = task
+    return task
+
+
+async def test_a_fork_starts_from_its_original_s_spend_and_counts_only_its_own_turn(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    Stream.instances = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    parent = _parent(hub, tmp_path)
+    fork = hub.tasks.fork(parent.id)
+    assert fork.cost_usd == 0.3 and fork.cost_inherited == 0.3
+    # Claude Code's total carries the original's on: the first turn is 0.1, not 0.4.
+    assert round(hub.tasks._count_cost(fork, 0.4), 6) == 0.1
+    assert fork.cost_usd == 0.4
+    from jarvis.features.code_usage import spent
+
+    assert round(spent(fork), 6) == 0.1  # its own caps count its own spend
+    await end_all(hub)
+
+
+async def test_a_past_session_opened_by_its_id_takes_its_first_report_as_where_it_stood(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    (tmp_path / "proj").mkdir()
+    Stream.instances = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    task = hub.tasks.start("", "proj", resume="old-session")
+    assert task.cost_unknown
+    assert hub.tasks._count_cost(task, 5.0) == 0.0  # its past isn't today's spend
+    assert task.cost_usd == 5.0
+    assert round(hub.tasks._count_cost(task, 5.2), 6) == 0.2
+    await end_all(hub)
+
+
+async def test_a_reconnect_s_total_that_came_back_lower_is_not_counted_again_in_full(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    hub = make_hub(settings, quiet_speaker, isolated)
+    task = _parent(hub, tmp_path, cost=0.5, total=0.5)
+    task.last_total, task.conn_cost = 0.5, None  # (a new connection: as _session sets it)
+    # Claude Code kept 0.4 of it (the last connection ended before its figure was kept);
+    # this turn cost 0.05: the 0.45 isn't counted again.
+    assert hub.tasks._count_cost(task, 0.45) == 0.0
+    assert task.cost_usd == 0.5
+    assert round(hub.tasks._count_cost(task, 0.55), 6) == 0.1
+    # Carried on as kept: only the turn.
+    task.last_total, task.conn_cost = 0.6, None
+    task.cost_usd = 0.6
+    assert round(hub.tasks._count_cost(task, 0.7), 6) == 0.1
+
+
+# ── W4: the midnight reset ──
+
+
+async def test_a_new_day_is_noticed_within_a_minute_even_after_the_mac_slept(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from datetime import date, timedelta
+
+    from jarvis.features import code_usage
+
+    monkeypatch.setattr(code_usage, "DAY_LOOK", 0.01)
+    hub = make_hub(settings, quiet_speaker, isolated)
+    meter = hub.code_usage
+    calls = []
+    monkeypatch.setattr(meter, "caps_changed", lambda: calls.append(meter.usage.day()))
+    loop = asyncio.ensure_future(meter.forever())
+    try:
+        await asyncio.sleep(0.05)
+        assert calls == []  # the same day: nothing to do
+        meter.usage._today = lambda: date.today() + timedelta(days=1)
+        assert await until(lambda: len(calls) == 1)
+        await asyncio.sleep(0.05)
+        assert len(calls) == 1  # once a day
+    finally:
+        loop.cancel()
+
+
+DAY_LOOK_MAX = 60.0
+
+
+def test_the_day_is_looked_at_at_least_every_minute():
+    from jarvis.features import code_usage
+
+    assert 0 < code_usage.DAY_LOOK <= DAY_LOOK_MAX
+
+
+# ── W6, W7: other agents, and a fork's own cap ──
+
+
+async def test_claude_s_caps_never_count_or_stop_another_agent_s_session(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    from jarvis.tasks import ClaudeTask
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    meter = hub.code_usage
+    cwd = tmp_path.resolve()
+    claude = ClaudeTask(id=901, prompt="x", cwd=cwd, session_id="a")
+    agent = ClaudeTask(id=902, prompt="x", cwd=cwd, session_id="b", model_ref="acp:gemini")
+    for t in (claude, agent):
+        t.busy, t.client = True, object()
+        hub.tasks.tasks[t.id] = t
+    assert meter._busy(claude) == []  # (the agent isn't Claude's to stop)
+    assert meter._busy(agent) == [claude]
+    meter.on_task_event("task_log", {"id": agent.id, "entry": {"role": "turn", "cost": 2.0}})
+    assert meter.usage.today() == 0.0  # nothing it does is counted against Claude's caps
+
+
+async def test_a_fork_has_its_own_cap_before_its_first_turn(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    Stream.instances = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    meter = hub.code_usage
+    parent = _parent(hub, tmp_path)
+    meter.usage.set_session_cap(parent.session_id, 0.2)  # the original's own cap: spent
+    assert meter.gate(parent).startswith("On hold: this session")
+    fork = hub.tasks.fork(parent.id)
+    assert fork.session_id == parent.session_id and fork.fork
+    assert meter.session_key(fork) == f"task:{fork.id}"
+    assert meter.caps(fork).session == 0.0  # the default, not the original's
+    assert meter.gate(fork) == ""
+    await end_all(hub)
