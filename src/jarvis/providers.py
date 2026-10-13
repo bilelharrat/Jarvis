@@ -14,15 +14,18 @@ in the macOS Keychain (connectors.Vault, under "provider:<id>"), sealed together
 provider's kind, address and way of sending it, so an edited file can't send the key
 anywhere else. It goes only to that address, over https unless the address is this Mac.
 
-A session never gets the key in its environment or on its command line, where its own
-shell commands (and so the model, or text planted in a repo) could read it. Claude Code
-asks an apiKeyHelper for it instead: a short command that reads the Keychain entry and
-prints the key. The session's settings carry that helper and pin every variable that
-decides where requests go and with what credential; settings passed that way outrank the
-project's own .claude/settings.json, so a cloned repo can't reroute the key or the
-session. What no setting can stop: a program running as the owner can run the same
-helper, as it could read any of JARVIS's Keychain entries. Hence the advice to use keys
-with a spending limit.
+A session never gets the key, nor anything that reads it: not in its environment, not on
+its command line, where its own shell commands (and so the model, or text planted in a
+repo) could find it. It gets a pass made for that run (key_proxy.Grants), which its
+apiKeyHelper prints, and its ANTHROPIC_BASE_URL is JARVIS's key proxy on this Mac (or the
+Gemini or OpenAI-compatible relay), which puts the key in the pass's place as each request
+goes through, to the address sealed with the key and nowhere else. The session's settings
+carry that helper and pin every variable that decides where requests go and with what
+credential; settings passed that way outrank the project's own .claude/settings.json, so a
+cloned repo can't reroute the session. What a pass can't stop: a command can send requests
+through the proxy while JARVIS runs, as the session does, and a program running as the
+owner could still ask the Keychain itself for an entry that trusts JARVIS's Python. Hence
+the advice to use keys with a spending limit.
 """
 
 from __future__ import annotations
@@ -48,7 +51,7 @@ import httpx
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from . import jsonstore
-from .connectors import SERVICE, Vault
+from .connectors import Vault
 from .prefs import APP_SUPPORT, MODEL_NAMES, MODELS
 
 SERVER_NAME = "providers"
@@ -280,31 +283,11 @@ _PROXY_URLS = frozenset(  # the ones that hold a proxy's address, perhaps with a
 )
 ROUTING_ENV = (*DESTINATION_ENV, *CREDENTIAL_ENV, *MODEL_ENV, *NETWORK_ENV)
 
-# The apiKeyHelper Claude Code runs (through /bin/sh, in the project's folder) for a
-# provider session's key. Python in isolated mode keeps the project's folder and PYTHON*
-# variables off its import path, and keyring's macOS backend is used directly so no
-# keyring config can swap it. It prints only the key; anything else goes to stderr.
-HELPER_CODE = """\
-import json, sys
-from keyring.backends import macOS
-try:
-    saved = macOS.Keyring().get_password(sys.argv[1], sys.argv[2])
-except Exception:
-    sys.exit("Jarvis could not read the key from the Keychain.")
-try:
-    key = json.loads(saved or "")["key"]
-except Exception:
-    key = None
-if not isinstance(key, str) or not key:
-    sys.exit("Jarvis has no key saved for this provider.")
-sys.stdout.write(key)
-"""
-# On a PC the key is in Credential Manager (keyring's Windows backend), and Claude Code runs the helper
-# through cmd or Git Bash: a script file, named by its contents, with the command quoted the Windows way
-# (a program on the command line with Python code in it, quoted for /bin/sh, worked on neither).
-HELPER_CODE_WINDOWS = HELPER_CODE.replace(
-    "from keyring.backends import macOS", "from keyring.backends import Windows"
-).replace("macOS.Keyring()", "Windows.WinVaultKeyring()").replace("from the Keychain", "from Credential Manager")
+# The apiKeyHelper Claude Code runs (through /bin/sh, in the project's folder) prints the
+# run's pass (key_proxy.token_helper), never a key: no helper reads the Keychain any more,
+# so none a session can see would print a key run again by one of its commands. On a PC
+# Claude Code runs it through cmd or Git Bash: a script file, named by its contents, with the
+# command quoted the Windows way (helper_command below).
 
 
 def helper_command(python: str, code: str, *args: str, platform: str | None = None, folder: Path | None = None) -> str:
@@ -641,13 +624,15 @@ def _mismatch(provider: Provider) -> str:
     )
 
 
-def keychain_helper(provider_id: str, python: str | None = None) -> str:
-    """The apiKeyHelper command for a provider's key: JARVIS's own Python (the program the
-    Keychain entry trusts, so no prompt) running HELPER_CODE on the entry. It names the
-    entry, never the key."""
-    account = f"{VAULT_PREFIX}{provider_id}:{KEY_NAME}"
-    code = HELPER_CODE_WINDOWS if sys.platform == "win32" else HELPER_CODE
-    return helper_command(python or sys.executable, code, SERVICE, account)
+def route_of(provider: Provider) -> str:
+    """Which way out a provider's pass is for (key_proxy): the proxy itself, or a relay."""
+    from . import key_proxy
+
+    if provider.kind == "gemini":
+        return key_proxy.GEMINI
+    if provider.kind == "openai":
+        return key_proxy.OPENAI + provider.id
+    return key_proxy.DIRECT
 
 
 # ── reading the file back ──
@@ -715,7 +700,7 @@ def _entry_from(raw: dict[str, Any]) -> ModelEntry | None:
 # ── the store ──
 
 
-Helper = Callable[[str], str]  # a provider id -> the apiKeyHelper command for its key
+Helper = Callable[[str], str]  # a run's pass -> the apiKeyHelper command that prints it
 
 
 class ProviderStore:
@@ -726,13 +711,16 @@ class ProviderStore:
     ) -> None:
         self.path = path or APP_SUPPORT / "providers.json"
         self.vault = vault if vault is not None else Vault()
-        self.helper = helper or keychain_helper
+        if helper is None:
+            from .key_proxy import token_helper as helper
+        self.helper = helper
         self.providers: dict[str, Provider] = {}
         self.entries: dict[str, ModelEntry] = {}
         self.status: dict[str, dict[str, Any]] = {}  # each provider's last check, this run
         self._versions: dict[str, int] = {}  # bumped when a provider's key changes or goes
         # (provider, key version, address) -> (the sealed key's digest, the sealed address)
         self._relay_memo: dict[tuple[str, int, str], tuple[str, str]] = {}
+        self._grant_memo: dict[tuple[str, int, str], tuple[str, str]] = {}
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
         self._load()
 
@@ -918,6 +906,34 @@ class ProviderStore:
             memo.clear()
         memo[stamp] = (key_digest(record["key"]), record["base_url"])
         return record["base_url"] if secrets_equal(key_digest(record["key"]), digest) else None
+
+    def grant_target(self, provider_id: str) -> tuple[str, str] | None:
+        """For the key proxy and the relays, as a run's pass is spent: the address sealed
+        with this provider's key and the key, or None (no such provider any more, the file
+        edited since, no key). Read from the Keychain once per provider and key version,
+        then kept in this process only (it never leaves it but to that address)."""
+        provider = self.providers.get(str(provider_id or ""))
+        if provider is None:
+            return None
+        stamp = (provider.id, self._versions.get(provider.id, 0), provider.base_url)
+        known = self._grant_memo.get(stamp)
+        if known is not None:
+            return known
+        try:
+            record = self._saved(provider)
+        except ValueError:
+            return None
+        if len(self._grant_memo) > 4 * MAX_PROVIDERS:
+            self._grant_memo.clear()
+        self._grant_memo[stamp] = (record["base_url"], record["key"])
+        return self._grant_memo[stamp]
+
+    def grant_for(self, provider: Provider) -> str:
+        """A new pass for one run on this provider's key (key_proxy.GRANTS)."""
+        from . import key_proxy
+
+        pid = provider.id
+        return key_proxy.GRANTS.mint(route_of(provider), lambda: self.grant_target(pid))
 
     # providers
 
@@ -1337,9 +1353,10 @@ class ProviderStore:
 
         A built-in model (or none: the default) runs exactly as before: no settings, no
         extra environment. Another provider's model gets settings with an apiKeyHelper
-        that reads its key from the Keychain and env pins that send every request to the
-        provider's address with that key and nothing else. The key itself is in none of
-        it. env only blanks inherited credentials: applied without the settings, the
+        that prints a pass made for this run (grant_for) and env pins that send every
+        request to the key proxy or the provider's relay, which put the key in the pass's
+        place on the way to the provider's sealed address. Neither the key nor anything
+        that reads it is in any of it. env only blanks inherited credentials: applied without the settings, the
         session goes nowhere near the provider. environ is this Mac's environment (for
         the network pins); tests pass their own. Raises ValueError, in words to show,
         for a model that's gone or whose key is missing or doesn't match."""
@@ -1357,7 +1374,7 @@ class ProviderStore:
             raise ValueError("That model isn't on the list any more; pick another one.")
         self._saved(provider)  # a key is there, and it belongs to this very address
         pins = session_pins(provider, entry.model, os.environ if environ is None else environ)
-        settings = {"apiKeyHelper": self.helper(provider.id), "env": pins}
+        settings = {"apiKeyHelper": self.helper(self.grant_for(provider)), "env": pins}
         claude = provider.kind == "anthropic" or "claude" in entry.model.lower()
         return _config(
             entry.model,
@@ -1499,11 +1516,12 @@ def _config(
 
 
 def session_pins(provider: Provider, model: str, environ: Mapping[str, str]) -> dict[str, str]:
-    """The environment a provider session's settings pin: the provider's address (Claude
-    Code's own for Anthropic) and the chosen model; every other address, backend,
-    credential and model variable blank; and the network settings this Mac already has.
-    Anthropic keeps Claude's own tiers (they're all real Claude models there); any other
-    provider gets the chosen model for every tier. No key: that comes from the helper."""
+    """The environment a provider session's settings pin: where its requests go (the key
+    proxy, or the provider's relay, on this Mac) and the chosen model; every other address,
+    backend, credential and model variable blank; and the network settings this Mac already
+    has. Anthropic keeps Claude's own tiers (they're all real Claude models there); any other
+    provider gets the chosen model for every tier. No key: the helper gives a pass, which
+    the proxy or relay swaps for the key."""
     pins = dict.fromkeys((*DESTINATION_ENV, *CREDENTIAL_ENV, *MODEL_ENV), "")
     pins["ANTHROPIC_MODEL"] = model
     if provider.kind == "gemini":
@@ -1528,9 +1546,14 @@ def session_pins(provider: Provider, model: str, environ: Mapping[str, str]) -> 
             # A model on this Mac: Claude Code's own telemetry, error reports and update
             # checks stay off too, so nothing needs the network.
             pins["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
-    elif provider.kind != "anthropic":
-        pins["ANTHROPIC_BASE_URL"] = provider.base_url
-        pins.update(dict.fromkeys(TIER_ENV, model))
+    else:
+        # Anthropic, OpenRouter or a custom endpoint: the key proxy, which sends each request
+        # on to the address sealed with the key (Anthropic's own for an Anthropic key).
+        from .key_proxy import PROXY as KEY_PROXY
+
+        pins["ANTHROPIC_BASE_URL"] = KEY_PROXY.ensure()
+        if provider.kind != "anthropic":
+            pins.update(dict.fromkeys(TIER_ENV, model))
     for name in NETWORK_ENV:
         value = str(environ.get(name) or "")
         if name in _PROXY_URLS and "@" in value:

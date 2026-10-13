@@ -158,6 +158,24 @@ test('a disk that refuses the log never stops the backend: its lines are dropped
   assert.equal(fs.readFileSync(file, 'utf8'), 'kept\n');
 });
 
+test('backend.log is for the owner alone (0600), new or kept from an older build that made it 0644', { skip: process.platform === 'win32' }, async (t) => {
+  const dir = logFolder(t);
+  const file = path.join(dir, 'backend.log');
+  fs.writeFileSync(file, 'older\n', { mode: 0o644 });
+  fs.chmodSync(file, 0o644);
+  const log = new BackendLog(file, { max: 1 << 20 });
+  const done = ended(log);
+  log.end('--- starting\n');
+  await done;
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  const fresh = path.join(dir, 'new.log');
+  const again = new BackendLog(fresh, { max: 1 << 20 });
+  const over = ended(again);
+  again.end('x\n');
+  await over;
+  assert.equal(fs.statSync(fresh).mode & 0o777, 0o600);
+});
+
 test('on Windows the bundled Python is python.exe, the PATH is joined with semicolons, and UTF-8 is on', () => {
   const res = 'C:\\Users\\Ann\\AppData\\Local\\Programs\\Eden Code\\resources';
   const python = `${res}\\backend\\python\\python.exe`;

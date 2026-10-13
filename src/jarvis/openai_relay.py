@@ -10,10 +10,10 @@ or takes no request at all ("Responses API only" models). Any other server that 
 Completions that way gets that model's requests on its Responses API from then on.
 
 It listens on 127.0.0.1 only. Each provider has its own path on it (/p/<provider id>), which
-a session's ANTHROPIC_BASE_URL names (providers.session_pins). The key never lives here: each
-request carries it (Claude Code gets it from the Keychain through the provider's
-apiKeyHelper), and it goes on only to the address sealed with that very key in the Keychain
-(ProviderStore.relay_target): a request whose key doesn't match goes nowhere. So the relay is
+a session's ANTHROPIC_BASE_URL names (providers.session_pins). A session's request carries
+its run's pass (key_proxy), never the key: the pass is swapped for the key here, only when
+it was made for this very provider, and the key goes on only to the address sealed with it
+in the Keychain (ProviderStore.relay_target): a request whose key doesn't match goes nowhere. So the relay is
 no open proxy: a local program can reach only the providers the owner added, and only with
 a key it already has.
 
@@ -50,6 +50,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from . import key_proxy
 from .gemini_proxy import TOOL_HABITS, clean_schema
 
 log = logging.getLogger(__name__)
@@ -919,7 +920,8 @@ def build_app(relay: OpenAIRelay, resolve: Callable[[], Resolver | None]):
         if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
             return refuse(403, "Only this Mac.")
         pid = request.path_params.get("pid", "")
-        key = _key_from(request.headers)
+        # A run's pass (key_proxy) stands for the key: made for this very provider, or none.
+        key = await asyncio.to_thread(key_proxy.swap, _key_from(request.headers), f"openai:{pid}")
         if not key:
             return refuse(401, "No key came with the request.")
         finder = resolve()

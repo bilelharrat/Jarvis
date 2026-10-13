@@ -439,6 +439,13 @@ def thread_lock_for_progress_bars() -> None:
     tqdm.set_lock(threading.RLock())
 
 
+def listening_line(port: int) -> str:
+    """What the backend prints once it's listening: the port, never the launch token. Run by
+    the app, what it prints goes to backend.log, a file that's kept for weeks; whoever
+    started it has the token already (it gave it in JARVIS_TOKEN)."""
+    return f"JARVIS listening on http://127.0.0.1:{port}/"
+
+
 def serve(port: int, token: str) -> None:
     import logging
     import logging.handlers
@@ -518,7 +525,7 @@ def serve(port: int, token: str) -> None:
 
     launcher_watch.start()  # the app quits or crashes: this backend goes too, lock and all
     app = create_app(Hub(load_settings()), token)
-    print(f"JARVIS listening on http://127.0.0.1:{port}/?token={token}", flush=True)
+    print(listening_line(port), flush=True)
     uvicorn.run(app, host="127.0.0.1", port=port, **SERVE_OPTIONS)
     left = end_children()  # nothing it started outlives it (hub.close left it behind)
     if left:

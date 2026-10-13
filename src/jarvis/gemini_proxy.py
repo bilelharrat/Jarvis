@@ -2,9 +2,9 @@
 and Google's Gemini API on the other, so JARVIS and Eden Code run on Gemini with every
 tool, picture and streamed word they have on Claude.
 
-It listens on 127.0.0.1 only. The key never lives here: each request carries it (Claude
-Code gets it from the Keychain through the provider's apiKeyHelper) and it goes on to
-Google and nowhere else. Two kinds of Google key work: a Gemini API key ("AIza…", Google AI
+It listens on 127.0.0.1 only. The key never lives here: a session's request carries its
+run's pass (key_proxy), swapped here for the key only when it was made for a Gemini
+provider, and the key goes on to Google and nowhere else. Two kinds of Google key work: a Gemini API key ("AIza…", Google AI
 Studio) and a Vertex AI express-mode key ("AQ.…"); the endpoint that accepts a key is
 remembered (by a hash of it, not the key).
 
@@ -32,6 +32,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+
+from . import key_proxy
 
 log = logging.getLogger(__name__)
 
@@ -603,7 +605,8 @@ def build_app(relay: GeminiRelay):
     async def messages(request: Request):
         if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
             return JSONResponse(anthropic_error(403, "Only this Mac.")[1], status_code=403)
-        key = _key_from(request.headers)
+        # A run's pass (key_proxy) stands for the key: one made for a Gemini provider only.
+        key = await asyncio.to_thread(key_proxy.swap, _key_from(request.headers), key_proxy.GEMINI)
         if not key:
             status, body = anthropic_error(401, "No Gemini key came with the request.")
             return JSONResponse(body, status_code=status)

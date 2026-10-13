@@ -265,3 +265,17 @@ def test_progress_bars_never_make_a_semaphore_that_no_quit_unlinks(monkeypatch, 
             pass
     assert "semaphore" not in made
     assert isinstance(tqdm.get_lock(), type(threading.RLock()))
+
+
+def test_the_backend_prints_its_port_but_never_its_launch_token():
+    """Run by the app, what the backend prints is backend.log, kept for weeks: the line that
+    says it's listening names the port, never the token (the app gave it that already)."""
+    import inspect
+
+    from jarvis import server
+
+    line = server.listening_line(5123)
+    assert "5123" in line and "token" not in line
+    # serve() prints that line, and nothing that carries the token.
+    source = inspect.getsource(server.serve)
+    assert "listening_line(port)" in source and "token={token}" not in source

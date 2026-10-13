@@ -159,8 +159,24 @@ def entries_from_transcript(transcript: list[dict[str, Any]]) -> list[dict[str, 
 
 def redact_secrets(text: str) -> str:
     """Keys, tokens and passwords blanked out: the formats secret_scan knows (a private key
-    whole), a value given to a secret's name (api_key = "…", "password": "…", password: …,
-    密码：…), and long random-looking quoted strings. Placeholders stay."""
+    whole), what a request carries (an Authorization header's credential, after its scheme;
+    a Cookie or Set-Cookie header's whole value; curl's -u password and -b cookies), a value
+    given to a secret's name however short (api_key = "…", "password": "…", password: …,
+    AUTH_KEY=abc123, 密码：…), and long random-looking quoted strings. Placeholders stay: a
+    command that sends $SECRET_TOKEN is shown as it is."""
+
+    def kept(value: str) -> bool:
+        found = secret_scan._PLACEHOLDER.search(value)
+        return value.startswith("$") or REDACTED in value or found is not None
+
+    def blank_last(m: re.Match[str]) -> str:
+        value = m.group(m.lastindex or 0)
+        if kept(value):
+            return m.group(0)
+        return m.group(0)[: m.start(m.lastindex) - m.start()] + REDACTED
+
+    for pattern in _SENT:
+        text = pattern.sub(blank_last, text)
     for kind, pattern in secret_scan.PATTERNS:
         if kind == "Password in a URL":
             text = pattern.sub(lambda m: m.group(0).replace(m.group(1), REDACTED), text)
@@ -194,10 +210,25 @@ def redact_secrets(text: str) -> str:
             return m.group(0).replace(value, REDACTED)
         return m.group(0)
 
-    text = secret_scan.ASSIGNED.sub(assigned, text)
+    text = _ASSIGNED_ANY.sub(assigned, text)
     text = _SECRET_VALUE.sub(said, text)
     return secret_scan.QUOTED.sub(quoted, text)
 
+
+# What a request carries, each with the secret part last: an Authorization header after its
+# scheme (Bearer, Basic, Token…), a cookie header's whole value (to the line's or the
+# quote's end), curl's -u/--user password (the user stays) and its -b/--cookie cookies.
+_SENT = (
+    re.compile(
+        r"(?i)\b(?:proxy-)?authorization[\"']?\s*[:=]\s*[\"']?"
+        r"(?:(?:bearer|basic|token|digest|bot|apikey|key|negotiate)\s+)?([^\s\"',;]{3,})"
+    ),
+    re.compile(r"(?i)\b(?:set-)?cookie[\"']?\s*:\s*([^\r\n\"']{3,})"),
+    re.compile(r"(?<!\S)(?:-u|--user|--proxy-user)(?:\s+|=)[\"']?[^\s:\"']*:([^\s\"']{1,})"),
+    re.compile(r"(?<!\S)(?:-b|--cookie)(?:\s+|=)[\"']?([^\s\"']*=[^\s\"']*)"),
+)
+# Any value given to a secret's name, however short: a share is no place for even a PIN.
+_ASSIGNED_ANY = secret_scan.assigned(3)
 
 _PRIVATE_KEY = re.compile(
     r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----.*?"
