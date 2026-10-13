@@ -41,8 +41,9 @@ SSH_OPTIONS = (
     "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-T",
 )  # fmt: skip
 ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
-MODEL = re.compile(r"^[A-Za-z0-9._\[\]-]{1,80}$")
-SESSION = re.compile(r"^[A-Za-z0-9-]{1,80}$")
+# Never with a leading "-": a value that reads as an option to the CLI it's given to.
+MODEL = re.compile(r"^[A-Za-z0-9._\[\]][A-Za-z0-9._\[\]-]{0,79}$")
+SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,79}$")
 CHECK_SECONDS = 25.0
 SETUP_SECONDS = 600.0  # a first fetch of a big repository takes a while
 WRITE_SECONDS = 30.0
@@ -382,13 +383,27 @@ fi
 """
 
 
+SETUP_DIRTY, SETUP_AHEAD = 7, 10
+
+
+def remote_url_ok(url: str) -> bool:
+    """A remote's address that git can't read as an option (--upload-pack=…), there or here."""
+    return bool(url) and not url.startswith("-") and "\n" not in url
+
+
 def setup_script(rec: Handoff, source: str, url: str = "") -> str:
     """The remote checkout on the session's branch, from the project's remote (url) or the
-    bundle sent over SSH. Refuses a checkout with uncommitted work from last time."""
+    bundle sent over SSH. Refuses a checkout with uncommitted work from last time (exit 7),
+    and a branch there with commits the one sent lacks (exit 10: an earlier hand-off's work
+    that never came back, which `checkout -B` would throw away). Every address goes after
+    "--", so none is ever read as an option."""
     d = rec.folder
+    branch = shlex.quote(rec.branch)
+    local = shlex.quote("refs/heads/" + rec.branch)
     origin = (
-        f"git remote get-url origin >/dev/null 2>&1 || git remote add origin {shlex.quote(url)}; "
-        if url
+        "git remote get-url origin >/dev/null 2>&1 || "
+        f"git remote add -- origin {shlex.quote(url)}; "
+        if remote_url_ok(url)
         else ""
     )
     return (
@@ -396,23 +411,30 @@ def setup_script(rec: Handoff, source: str, url: str = "") -> str:
         "export GIT_SSH_COMMAND='ssh -o BatchMode=yes'; "
         f'D={d}; mkdir -p "$D" && cd "$D" || exit 3; '
         "if [ ! -d repo/.git ]; then git init -q repo || exit 3; fi; cd repo || exit 3; "
-        'if [ -n "$(git status --porcelain 2>/dev/null)" ]; then echo DIRTY >&2; exit 7; fi; '
-        f"git fetch -q {source} {shlex.quote('refs/heads/' + rec.branch)} || exit 8; "
-        f"git checkout -q -B {shlex.quote(rec.branch)} FETCH_HEAD || exit 9; "
+        'if [ -n "$(git status --porcelain 2>/dev/null)" ]; then echo DIRTY >&2; '
+        f"exit {SETUP_DIRTY}; fi; "
+        f"git fetch -q -- {source} {local} || exit 8; "
+        f"if git rev-parse -q --verify {local} >/dev/null; then "
+        f"git merge-base --is-ancestor {local} FETCH_HEAD || {{ echo AHEAD >&2; "
+        f"exit {SETUP_AHEAD}; }}; fi; "
+        f"git checkout -q -B {branch} FETCH_HEAD || exit 9; "
         f"{origin}"
         'rm -f "$D/handoff.bundle"; git rev-parse HEAD'
     )
 
 
-def start_script(rec: Handoff, run_sh: str) -> str:
+def start_script(rec: Handoff, run_sh: str, fresh: bool = False) -> str:
     """run.sh written, a fresh inbox with the first lines in it (from stdin: inbox_bytes),
-    and the runner started under tmux (or nohup). Says which."""
+    and the runner started under tmux (or nohup). Says which. fresh: a new hand-off, whose
+    reading starts at line one: an earlier hand-off's out.jsonl in this folder is emptied,
+    or its old run (messages, cards, cost) would be read again as this one's."""
     d = rec.folder
     session = shlex.quote(f"jarvis-{rec.id}")
+    out = ": > out.jsonl; : > err.log; " if fresh else "touch out.jsonl; "
     return (
         f'umask 077; D={d}; cd "$D" || exit 3; '
         f"printf '%s' {shlex.quote(run_sh)} > run.sh; "
-        "cat > inbox.jsonl; touch out.jsonl; "
+        f"cat > inbox.jsonl; {out}"
         "rm -f exit.code claude.pid; "
         "if command -v tmux >/dev/null 2>&1; then "
         f"tmux kill-session -t {session} >/dev/null 2>&1; "
@@ -451,8 +473,22 @@ def status_script(rec: Handoff) -> str:
     )
 
 
-def write_script(rec: Handoff) -> str:
-    return f'D={rec.folder}; cd "$D" || exit 3; cat >> inbox.jsonl'
+WRITE_DEAD = 11
+
+
+def write_script(rec: Handoff, live_only: bool = False) -> str:
+    """Lines added to the inbox. live_only: only while the run there is still going (exit 11,
+    nothing written, once it has ended or its process is gone), checked in the same call: a
+    message written to a dead run's inbox is never read, and the next start replaces it. A
+    run whose process id isn't written yet is just starting, and reads its inbox from the
+    top."""
+    alive = (
+        f'if [ -f exit.code ] || {{ [ -f claude.pid ] && ! kill -0 "$(cat claude.pid)" '
+        f"2>/dev/null; }}; then cat >/dev/null; exit {WRITE_DEAD}; fi; "
+        if live_only
+        else ""
+    )
+    return f'D={rec.folder}; cd "$D" || exit 3; {alive}cat >> inbox.jsonl'
 
 
 def stop_script(rec: Handoff) -> str:

@@ -462,6 +462,11 @@ async def test_a_session_moves_there_asks_here_and_comes_back_ready_to_land(
     # Its next message here says what happened there.
     note = hub.tasks.turn_note(task)
     assert "carried on on studio" in note and "Done with turn 2 there." in note
+    # S5: what came from there (its reply, its commits' messages) is marked as its words.
+    from jarvis.features.code_handoff import UNTRUSTED_NOTE
+
+    assert note.index(UNTRUSTED_NOTE) < note.index("Done with turn 2 there.")
+    assert "</from-studio>" in note
     assert "carried on" not in hub.tasks.turn_note(task)  # once
 
 
@@ -672,3 +677,342 @@ async def test_its_voice_tools_are_there_and_pick_the_session_in_focus(hub, proj
     assert desk.spoken_task(None) is second  # the latest
     hub.voicecode.focus = first.id
     assert desk.spoken_task(None) is first and desk.spoken_task(second.id) is second
+
+
+# ── what can go wrong, and doesn't lose work ──
+
+
+async def handed_off(hub, alias="studio", first="hello"):
+    """A session handed off to alias with its first turn there done."""
+    desk = hub.code_handoff
+    await desk.add_machine(alias)
+    task = await isolated_session(hub)
+    answer(hub, "go")
+    assert (await desk.hand_off(task, alias, first)).startswith("Handed off"), said(task)
+    rec = desk.of_task(task)
+    assert await until(lambda: rec.turns >= 1), said(task)
+    return desk, task, rec
+
+
+def remote_folder(remotes, rec, alias="studio"):
+    return remotes / alias / ".jarvis-handoff" / rec.id
+
+
+def test_remote_addresses_and_ids_are_never_read_as_options():
+    """S27: every address goes after "--", one with a leading "-" isn't used, and a model or
+    session id with one never reaches the CLI."""
+    rec = Handoff(id="x", alias="studio", slug="x", project="p", branch="b", base="c")
+    script = handoff.setup_script(rec, "'https://example.com/r.git'", "--upload-pack=touch /x")
+    assert "git fetch -q -- 'https://example.com/r.git'" in script
+    assert "upload-pack" not in script  # never made its origin
+    assert "git remote add -- origin" in handoff.setup_script(rec, "src", "https://e.com/r")
+    assert not handoff.remote_url_ok("--upload-pack=x") and handoff.remote_url_ok("git@h:r")
+    runner = handoff.runner("/x/claude", "default", True, "-oops", "-resume-me")
+    assert "-oops" not in runner and "-resume-me" not in runner
+
+
+async def test_a_secret_in_the_summary_is_on_the_card_before_it_goes(hub, projects, remotes):
+    """S27: the summary it starts from there (the owner's words, its replies) is scanned
+    too: a token pasted in the conversation is on the card, even for a preapproved move."""
+    make_repo(projects / "proj", {"a.py": numbered(5)})
+    desk = hub.code_handoff
+    await desk.add_machine("studio")
+    task = await isolated_session(hub)
+    token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0" * 2
+    task.transcript.append({"role": "user", "text": f"use this token: {token}"})
+    answer(hub, "deny")
+    assert await desk.hand_off(task, "studio", preapproved=True) == "Not handed off."
+    detail = hub.cards[0]["detail"]
+    assert "Possible secrets" in detail and "the session's summary" in detail
+    assert token not in detail
+    assert not (remotes / "studio" / ".jarvis-handoff").exists()
+
+
+async def test_a_second_hand_off_never_replaces_one_not_brought_back(hub, projects, remotes):
+    """W10: stopped there, its record is the only way back to its work: a new hand-off of
+    the same copy is refused until it's brought back or forgotten."""
+    make_repo(projects / "proj", {"a.py": numbered(5)})
+    desk, task, rec = await handed_off(hub)
+    assert await desk.stop(rec) == "Stopped it on studio."
+    answer(hub, "go")
+    said_now = await desk.hand_off(task, "studio")
+    assert said_now == (
+        "It's still on studio from an earlier hand-off: bring that back, or forget it, first."
+    )
+    assert desk.handoffs == [rec]
+
+
+def test_the_setup_there_never_throws_away_commits_that_didnt_come_back(tmp_path):
+    """W10: the checkout there has commits on the branch that the one sent lacks (an earlier
+    hand-off's, never brought back): setup refuses (exit 10) and they stay."""
+    source = make_repo(tmp_path / "here", {"a.py": numbered(3)})
+    git(source, "checkout", "-q", "-b", "feature")
+    home = tmp_path / "a home"
+    rec = Handoff(id="ahead", alias="studio", slug="ahead", project="p", branch="feature",
+                  base=git(source, "rev-parse", "HEAD").strip())  # fmt: skip
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+
+    def setup():
+        script = handoff.setup_script(rec, shlex.quote(str(source)))
+        return subprocess.run(["sh", "-c", script], env=env, capture_output=True, timeout=60)
+
+    assert setup().returncode == 0  # the first time: checked out
+    there = home / handoff.ROOT / rec.id / "repo"
+    (there / "b.py").write_text("work there\n")
+    git(there, "-c", "user.email=x@y", "-c", "user.name=x", "add", "-A")
+    git(there, "-c", "user.email=x@y", "-c", "user.name=x", "commit", "-q", "-m", "there")
+    kept = git(there, "rev-parse", "HEAD").strip()
+    done = setup()
+    assert done.returncode == handoff.SETUP_AHEAD, done.stderr
+    assert git(there, "rev-parse", "HEAD").strip() == kept
+    # Sent again with that commit in it (brought back and handed off again): it goes ahead.
+    git(source, "fetch", "-q", str(there), "feature")
+    git(source, "merge", "-q", "--ff-only", "FETCH_HEAD")
+    assert setup().returncode == 0
+
+
+async def test_a_permission_answer_that_didnt_get_there_keeps_going(hub, monkeypatch):
+    """W11: its reader still connected, nothing would reconnect and resend it: the answer
+    is tried again, backing off, until it's there."""
+    from jarvis.features import code_handoff
+
+    monkeypatch.setattr(code_handoff, "ANSWER_RETRY", 0.01)
+    monkeypatch.setattr(code_handoff, "RETRY_MAX", 0.02)
+    desk = hub.code_handoff
+    desk.load()
+    rec = Handoff(id="ans", alias="studio", slug="ans", project="p", branch="b", base="c",
+                  state="working")  # fmt: skip
+    item = {"request_id": "perm1", "tool": "Write", "input": {}, "answer": "{}"}
+    rec.pending.append(item)
+    desk.handoffs.append(rec)
+    tries = []
+
+    async def flaky(rec_, lines):
+        tries.append(lines)
+        return len(tries) > 5
+
+    monkeypatch.setattr(desk, "_write", flaky)
+    await asyncio.wait_for(desk._send_answer(rec, item), 10)
+    assert len(tries) == 6 and rec.pending == []
+
+
+async def test_a_second_hand_off_to_the_same_machine_never_replays_the_first(
+    hub, projects, remotes
+):
+    """W13: the folder there is the same; the old run's out.jsonl is emptied, so its
+    messages, cards and cost aren't read again as the new run's."""
+    make_repo(projects / "proj", {"a.py": numbered(5)})
+    desk, task, rec = await handed_off(hub)
+    answer(hub, "back")
+    assert (await desk.bring_back(rec)).startswith("Brought back")
+    answer(hub, "go")
+    assert (await desk.hand_off(task, "studio", "again")).startswith("Handed off")
+    again = desk.of_task(task)
+    assert await until(lambda: said(task).count("Done with turn 1 there.") >= 2), said(task)
+    assert await until(lambda: again.turns >= 1)
+    await asyncio.sleep(1.5)  # anything replayed would be read by now
+    assert said(task).count("Done with turn 1 there.") == 2
+    assert again.turns == 1 and again.cost == 0.25
+
+
+async def test_a_message_to_a_run_that_died_there_starts_the_next_one(hub, projects, remotes):
+    """W14: the run there is over but its reader hasn't heard: the message isn't written
+    into an inbox nobody reads, it starts the next run (on the same conversation)."""
+    make_repo(projects / "proj", {"a.py": numbered(5)})
+    desk, task, rec = await handed_off(hub)
+    desk._followers.pop(rec.id).cancel()  # its reader hasn't heard the end yet
+    folder = remote_folder(remotes, rec)
+    os.kill(int((folder / "claude.pid").read_text()), signal.SIGKILL)
+    assert await until(lambda: (folder / "exit.code").exists())
+    assert rec.live
+    assert hub.tasks.send(task.id, "are you there")
+    assert await until(lambda: rec.turns >= 2, 60), said(task)
+    prompts = (remotes / "studio" / "prompts.jsonl").read_text()
+    assert "are you there" in prompts
+
+
+async def test_an_unreadable_kept_file_is_never_saved_over(hub, tmp_path, monkeypatch):
+    """W15: one file that can't be read now (permissions, a disk error) would have been
+    replaced by an empty list, and every hand-off in it lost."""
+    from jarvis import jsonstore
+    from jarvis.features.code_handoff import Desk
+
+    desk = Desk(hub)
+    desk.path.parent.mkdir(parents=True, exist_ok=True)
+    desk.path.write_text('{"machines": [{"alias": "studio"}], "handoffs": []}')
+
+    def unreadable(*_args, **_kwargs):
+        raise jsonstore.Unreadable("can't read it now")
+
+    monkeypatch.setattr(jsonstore, "load_json", unreadable)
+    desk.load()
+    desk.machines.append(Machine(alias="quiet"))
+    desk.save()
+    assert json.loads(desk.path.read_text())["machines"] == [{"alias": "studio"}]
+
+
+async def test_bring_backs_park_under_refs_of_their_own_and_never_merge_risky_files(
+    hub, projects, tmp_path
+):
+    """W16: one parked (the copy moved on) is never fetched over by the next. S5: one that
+    changes a file that can run code here (Claude Code's settings, hook configs) isn't
+    merged: it's parked and named."""
+    from jarvis.features import code_handoff
+
+    make_repo(projects / "proj", {"a.py": numbered(5), "package.json": '{"name": "p"}\n'})
+    desk = hub.code_handoff
+    task = await isolated_session(hub)
+    copy = hub.code_desk.store().find(task.workspace["slug"])
+    checkout = Path(copy.checkout)
+    base = git(checkout, "rev-parse", "HEAD").strip()
+    there = tmp_path / "there"
+    git(tmp_path, "clone", "-q", "-b", copy.branch, str(checkout), str(there))
+    rec = Handoff(id=code_handoff._record_id(copy.slug), alias="studio", slug=copy.slug,
+                  project="proj", branch=copy.branch, base=base)  # fmt: skip
+
+    def work(name, text):
+        (there / name).parent.mkdir(parents=True, exist_ok=True)
+        (there / name).write_text(text)
+        git(there, "-c", "user.email=x@y", "-c", "user.name=x", "add", "-A")
+        git(there, "-c", "user.email=x@y", "-c", "user.name=x", "commit", "-q", "-m", name)
+        done = subprocess.run(
+            ["git", "-C", str(there), "bundle", "create", "-", f"refs/heads/{copy.branch}",
+             f"^{base}"], capture_output=True, check=True,
+        )  # fmt: skip
+        return git(there, "rev-parse", "HEAD").strip(), done.stdout
+
+    def parked():
+        refs = git(checkout, "for-each-ref", "--format=%(refname) %(objectname)", "refs/jarvis/")
+        return dict(line.split() for line in refs.splitlines())
+
+    # The copy moves on here meanwhile: neither bring-back can fast-forward.
+    (checkout / "here.txt").write_text("here\n")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-q", "-m", "here")
+    first, data = work("b.py", "one\n")
+    assert desk._take_bundle(rec, copy, data).startswith("Brought back as refs/jarvis/handoff/")
+    second, data = work("c.py", "two\n")
+    assert desk._take_bundle(rec, copy, data).startswith("Brought back as refs/jarvis/handoff/")
+    assert sorted(parked().values()) == sorted([first, second])  # the first is still there
+
+    # A copy that could fast-forward, but what came back changes what runs code here.
+    for ref in parked():
+        git(checkout, "update-ref", "-d", ref)
+    git(checkout, "reset", "-q", "--hard", base)
+    head = git(checkout, "rev-parse", "HEAD").strip()
+    hooked, data = work(".claude/settings.json", '{"hooks": {}}\n')
+    said_back = desk._take_bundle(rec, copy, data)
+    assert "not merged" in said_back and ".claude/settings.json" in said_back
+    assert git(checkout, "rev-parse", "HEAD").strip() == head
+    assert list(parked().values()) == [hooked]
+    assert code_handoff.risky_paths(["src/CLAUDE.md", ".mcp.json", "a/.githooks/pre-commit"]) == [
+        "src/CLAUDE.md", ".mcp.json", "a/.githooks/pre-commit"
+    ]  # fmt: skip
+    assert code_handoff.risky_paths(["src/a.py", "docs/claude.txt"]) == []
+    for ref in parked():
+        git(checkout, "update-ref", "-d", ref)
+    git(there, "reset", "-q", "--hard", base)
+    _, data = work("package.json", '{"name": "p",\n "husky": {"hooks": {"pre-commit": "x"}}}\n')
+    assert "package.json" in desk._take_bundle(rec, copy, data)
+    git(there, "reset", "-q", "--hard", base)
+    plain, data = work("d.py", "fine\n")
+    assert isinstance(desk._take_bundle(rec, copy, data), list)
+    assert git(checkout, "rev-parse", "HEAD").strip() == plain  # merged
+
+
+async def test_a_session_started_in_the_cloud_is_found_again_after_a_restart(
+    hub, projects, remotes
+):
+    """W17, confirmed: a session started with the Cloud switch never had a turn here, so
+    it has no Claude Code session id; it wasn't kept, and its hand-off couldn't find it
+    after a restart. It's kept now, and found again by its isolated copy."""
+    from jarvis.features.code_handoff import Desk
+
+    make_repo(projects / "proj", {"a.py": numbered(5)})
+    desk = hub.code_handoff
+    await desk.add_machine("studio")
+    task = await isolated_session(hub)
+    task.session_id = ""  # as the Cloud switch starts it: no turn here
+    answer(hub, "go")
+    assert (await desk.hand_off(task, "studio", "hello", preapproved=True)).startswith("Handed off")
+    rec = desk.of_task(task)
+    assert rec is not None and rec.session_id == ""
+    assert hub.code_sessions._worth_keeping(task)  # kept across the restart
+    for follower in desk._followers.values():
+        follower.cancel()
+    # The restart: the kept session comes back with a new number, in the copy's folder,
+    # without its workspace (that's bound when it next starts).
+    del hub.tasks.tasks[task.id]
+    task.id, task.workspace = 900, {}
+    hub.tasks.tasks[task.id] = task
+    again = Desk(hub)
+    again.ssh, again.ssh_config = desk.ssh, desk.ssh_config
+    again.booted = rec.started + 1
+    again.load()
+    assert again.task_of(again.handoffs[0]) is task
+
+
+async def test_a_start_that_fails_stops_whatever_it_started_there(
+    hub, projects, remotes, monkeypatch
+):
+    """W18: the start's answer timed out after it had started it there: it's stopped, not
+    left editing and billing with nobody reading."""
+    make_repo(projects / "proj", {"a.py": numbered(5)})
+    desk = hub.code_handoff
+    await desk.add_machine("studio")
+    task = await isolated_session(hub)
+    run = handoff.run
+
+    async def no_answer(ssh, alias, script, **kwargs):
+        done = await run(ssh, alias, script, **kwargs)
+        if "run.sh" in script and "nohup" in script:
+            return handoff.Done(124, b"", "no answer from studio in 60 s")
+        return done
+
+    monkeypatch.setattr(handoff, "run", no_answer)
+    answer(hub, "go")
+    said_now = await desk.hand_off(task, "studio", "hello")
+    assert said_now.startswith("Couldn't start Claude Code on studio")
+    folder = next((remotes / "studio" / ".jarvis-handoff").iterdir())
+    assert await until(lambda: (folder / "exit.code").exists(), 30)
+    assert desk.of_task(task) is None
+
+
+async def test_the_reader_skips_a_huge_line_and_survives_anything(hub, projects, remotes):
+    """W20: a line over the stream's limit, or anything else going wrong, ended the reader
+    for good, and the session showed "Working" forever."""
+    make_repo(projects / "proj", {"a.py": numbered(5)})
+    desk = hub.code_handoff
+    await desk.add_machine("studio")
+    task = await isolated_session(hub)
+    rec = Handoff(id="huge", alias="studio", slug="huge", project="proj", branch="b",
+                  base="c", session_id=task.session_id, task_id=task.id, started=time.time(),
+                  state="working")  # fmt: skip
+    desk.handoffs.append(rec)
+    folder = remote_folder(remotes, rec)
+    folder.mkdir(parents=True)
+
+    def text(words):
+        return json.dumps({"type": "assistant", "parent_tool_use_id": None,
+                           "message": {"content": [{"type": "text", "text": words}]}})  # fmt: skip
+
+    with (folder / "out.jsonl").open("w") as out:
+        out.write(text("before the big one") + "\n")
+        out.write('{"type": "user", "pad": "' + "x" * (33 * 1024 * 1024) + '"}\n')
+        out.write(text("after the big one") + "\n")
+    (folder / "exit.code").write_text("0\n")
+    assert await asyncio.wait_for(desk._read(rec), 120)
+    assert rec.seen == 3
+    assert "before the big one" in said(task) and "after the big one" in said(task)
+
+    calls = []
+
+    async def odd(rec_):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("something odd")
+        return True
+
+    desk._read = odd
+    await asyncio.wait_for(desk._follow_loop(rec), 30)
+    assert len(calls) == 2  # it read on after the error
