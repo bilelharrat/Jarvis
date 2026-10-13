@@ -279,7 +279,9 @@ test('every line the window shows has its Chinese', () => {
     windowSide.lineFor({ enabled: true, platform: 'win32', state: 'installing', available: '0.1.15' }),
     windowSide.cardFor({ name: 'Eden Daredevil', state: 'available', available: '0.1.15', size: 327754786 }),
     windowSide.cardFor({ name: 'Eden Secretary', state: 'available', available: '0.1.15', size: 303723280 }),
+    windowSide.BUSY_QUESTION, // Install now while Eden is busy (W27)
   ];
+  assert.ok(!/Downloads/.test(windowSide.cardFor({ name: 'Eden Secretary', state: 'available', available: '0.1.15', size: 1 })), 'it no longer goes to Downloads (S8)');
   assert.deepEqual(lines.filter((line) => chinese(line) === null), []);
   assert.equal(chinese('Downloading 1.2.3…'), '正在下载 1.2.3…');
   assert.equal(chinese('Eden Secretary 1.0.0-beta.2 is ready. Restart to install it.'), 'Eden Secretary 1.0.0-beta.2 已准备好，重新启动即可安装。');
@@ -287,4 +289,12 @@ test('every line the window shows has its Chinese', () => {
 
 test('the fragment never changes a Chinese string the window already had', () => {
   for (const [key, value] of Object.entries(ours.strings)) if (key in base.strings) assert.equal(value, base.strings[key], key);
+});
+
+test('the app sharing the other one’s backend asks that backend whether it’s busy, so it can update quietly too (W27)', () => {
+  const main = readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  const start = main.indexOf('function backendBusy()');
+  const body = main.slice(start, main.indexOf('\n}\n', start));
+  assert.match(body, /if \(!port \|\| \(!backend && !stopWatching\)\) return resolve\(true\);/);
+  assert.ok(!/if \(!backend \|\| !port\)/.test(body), 'no longer "busy" just because the backend is the other app’s');
 });

@@ -223,7 +223,8 @@ function startBackend() {
   backend.on('exit', (code, signal) => {
     trace.write(`the engine stopped (exit ${code}${signal ? `, ${signal}` : ''}); it last said:\n${backendTail.last(12, 1800)}`);
     backend = null;
-    share.withdraw(DATA_DIR, process.pid);
+    // A restart on purpose keeps backend.json, marked restarting, so the other app waits for it (W24).
+    if (!quietRestart || quitting) share.withdraw(DATA_DIR, process.pid);
     if (quitting) return;
     if (quietRestart) {
       quietRestart = false;
@@ -249,15 +250,18 @@ async function reopenBackend() {
 function restartBackendQuietly() {
   if (!backend) return false;
   quietRestart = true;
+  share.markRestarting(DATA_DIR, process.pid); // the other app waits instead of starting its own (backend-share.js)
   plat.killTree(backend);
   return true;
 }
 
-// Whether the backend has something going that a restart would cut off (/health's busy).
-// Unsure (no answer) counts as busy: nothing is restarted on a guess.
+// Whether the backend has something going that a restart would cut off (/health's busy): this
+// app's own, or the one it shares (the other app started it: its /health on the shared port, so
+// a sharing app can install an update quietly too, W27). Unsure (no answer) counts as busy:
+// nothing is restarted on a guess.
 function backendBusy() {
   return new Promise((resolve) => {
-    if (!backend || !port) return resolve(true);
+    if (!port || (!backend && !stopWatching)) return resolve(true); // (stopWatching: sharing the other app's)
     const req = http.get({ host: '127.0.0.1', port, path: '/health', timeout: 3000 }, (res) => {
       let body = '';
       res.setEncoding('utf8');
@@ -387,14 +391,14 @@ async function shareBackend() {
   sharedFrom = found.app;
   console.log(`${FLAVOR.name}: sharing the backend ${found.app || 'another app'} started (port ${port})`);
   loadApp();
-  stopWatching = share.watch(port, () => {
+  stopWatching = share.watch(port, () => { // (a backend restarting on purpose is waited for: dataDir)
     stopWatching = null;
     sharedFrom = '';
     if (quitting) return;
     TOKEN = crypto.randomBytes(24).toString('hex');
     showProblem(`${found.app === 'eden-code' ? 'Eden Code' : 'Eden Secretary'} quit, so ${FLAVOR.name} is starting its own backend…`);
     startOwnBackend();
-  });
+  }, { dataDir: DATA_DIR });
   return true;
 }
 

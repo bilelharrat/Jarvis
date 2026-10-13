@@ -17,7 +17,8 @@
 // On Windows (installWindows, win-update.js): askeden.com/windows/latest.json, two minutes after
 // launch, then daily and on Check for updates; a newer installer of this flavor (Eden Secretary or
 // Eden Daredevil) is offered on a card and a Windows notification, and only the owner's
-// Install now downloads it to Downloads and runs it (it closes the app and replaces it).
+// Install now downloads it into the app's data folder, checks it against the signed list and
+// runs it (it closes the app and replaces it). While Eden Secretary is busy the window asks first.
 'use strict';
 
 const fs = require('fs');
@@ -194,7 +195,11 @@ function installWindows(ctx, deps = {}) {
     fetchText: (url) => fetchFeed(electron.net, url),
     download: (url, target, opts) => win.downloadTo(electron.net, fs, url, target, opts),
     runInstaller: (file, args) => win.startInstaller(deps.spawn || require('child_process').spawn, file, args),
-    downloadsDir: () => ctx.app.getPath('downloads'),
+    saveDir: () => path.join(ctx.app.getPath('userData'), 'updates'), // the app's own, not Downloads (S8)
+    hashFile: (file) => win.sha256Of(fs, file),
+    checkSigner: (file) => win.authenticode(deps.execFile || require('child_process').execFile, file),
+    removeFile: (file) => fs.promises.rm(file, { force: true }),
+    busy: async () => Boolean(ctx.backendBusy && (await ctx.backendBusy())), // a running turn: the window warns first (W27)
     onChange: (state) => ctx.send(`${CH}state`, state),
     log: (line) => console.log(line),
     // A Windows notification (screen readers read it), and the window's card says the same.
@@ -211,7 +216,7 @@ function installWindows(ctx, deps = {}) {
   ctx.ipcMain.handle(`${CH}state`, (event) => (ctx.fromWindow(event) ? updater.state() : null));
   ctx.ipcMain.handle(`${CH}check`, (event) => (ctx.fromWindow(event) ? updater.check() : null));
   ctx.ipcMain.handle(`${CH}restart`, () => false);
-  ctx.ipcMain.handle(`${CH}install`, (event) => (ctx.fromWindow(event) ? updater.install() : false));
+  ctx.ipcMain.handle(`${CH}install`, (event, force) => (ctx.fromWindow(event) ? updater.install({ force: force === true }) : false));
   ctx.app.whenReady().then(() => {
     setTimeout(() => updater.check(), win.FIRST_CHECK).unref?.();
     setInterval(() => updater.check(), win.CHECK_EVERY).unref?.();
