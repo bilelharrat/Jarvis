@@ -19,6 +19,8 @@ const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
 const { createTrace, createTail } = require('./startup-log'); // app.log: how this start went
 const { waitForHealth, SLOW_WORDS } = require('./wait-backend'); // the engine's first answer, and what is said until then
+const guards = require('./window-guards'); // deny-by-default permissions for the app's own windows (S6)
+const { forEden } = require('./features/eden-window'); // what the Ask Eden window may hear of the browser (S13)
 
 const FLAVOR = resolveFlavor();
 const EDEN_CODE = FLAVOR.id === 'eden-code';
@@ -107,6 +109,8 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   trace.write(`unhandled rejection: ${(reason && reason.stack) || reason}`);
 });
+// No client certificate is ever sent, by any page the app has (Electron would send the first one in the keychain).
+guards.guardApp(app);
 app.on('child-process-gone', (_event, details) => {
   trace.write(`a ${details.type} process went (${details.reason}, exit ${details.exitCode}${details.name ? `, ${details.name}` : ''})`);
 });
@@ -443,6 +447,13 @@ function createWindow() {
     trace.write(`the window's page crashed (${details.reason}, exit ${details.exitCode})`);
     if (details.reason !== 'clean-exit' && !quitting && port) setTimeout(() => { if (win && !win.isDestroyed()) loadApp(); }, 1000);
   });
+  // Deny-by-default (window-guards.js, S6): only the app's own page on its backend gets the camera,
+  // the microphone and the rest it uses; its loading page, an iframe or anything else, nothing.
+  guards.guardSession(win.webContents.session, {
+    policy: guards.mainPolicy(() => (port ? `http://127.0.0.1:${port}` : '')),
+    log: (line) => trace.write(line),
+  });
+  guards.guardContents(win.webContents);
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
   win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
@@ -481,12 +492,13 @@ function summon() {
 
 // Screen-reader mode (web/features/accessibility.js): Electron knows when assistive technology is
 // in use (NVDA, JAWS, Narrator, VoiceOver); the page asks, and hears when that changes.
-ipcMain.handle('a11y:supported', () => app.isAccessibilitySupportEnabled());
+ipcMain.handle('a11y:supported', (event) => (fromWindow(event) ? app.isAccessibilitySupportEnabled() : false));
 app.on('accessibility-support-changed', (_event, enabled) => {
   if (win && !win.isDestroyed()) win.webContents.send('a11y:changed', enabled);
 });
 
-ipcMain.handle('jarvis:pick-folder', async () => {
+ipcMain.handle('jarvis:pick-folder', async (event) => {
+  if (!fromWindow(event)) return null;
   const result = await dialog.showOpenDialog(win, {
     title: 'Add a folder to the second brain',
     defaultPath: path.join(os.homedir(), 'Documents'),
@@ -572,8 +584,9 @@ function sendBrowserState(extra = {}) {
     ...extra,
   };
   win.webContents.send('browser:state', payload);
+  // The Ask Eden window, while Eden's own page is in it: the tab on show only (forEden, S13).
   const eden = dockWin && !dockWin.isDestroyed() ? dockWin : null;
-  if (eden) eden.webContents.send('feature:eden:browser:state', { ...payload, docked: browserShown });
+  if (eden && featureContext.edenShown && featureContext.edenShown()) eden.webContents.send('feature:eden:browser:state', forEden(payload, browserShown));
 }
 
 function updateLock() {
@@ -1654,7 +1667,8 @@ ipcMain.handle('jarvis:pdf', async (event, page) => {
   }
 });
 
-ipcMain.on('jarvis:attention', () => {
+ipcMain.on('jarvis:attention', (event) => {
+  if (!fromWindow(event)) return;
   if (win && !win.isFocused()) app.dock?.bounce('informational');
 });
 
@@ -1736,6 +1750,7 @@ const featureContext = {
   flavor: FLAVOR, // which app this is (flavor.js): Eden Secretary or Eden Code
   sharedFrom: () => sharedFrom, // the app whose backend the window is on, when not this one's
   logDir: LOG_DIR,
+  dataDir: DATA_DIR, // the backend's data folder (eden-window.js keeps its handshake key there)
   summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links

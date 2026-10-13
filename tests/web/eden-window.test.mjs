@@ -3,7 +3,7 @@
 // window on Eden on this Mac or askeden.com. node --test tests/web/
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -74,6 +74,8 @@ function fake({ userData = mkdtempSync(path.join(tmpdir(), 'eden-window-')), up 
     send: (channel, payload) => sent.push([channel, payload]),
     fromWindow: (event) => event === fromWindow,
     edenProbe: async () => ctx.up,
+    edenHandshake: async () => ctx.proved, // (never the real localhost:5174)
+    proved: true,
     edenAsideMs: 40,
     up,
   };
@@ -190,4 +192,90 @@ test('Eden’s browser panel: Eden Secretary’s own browser docked in the windo
   assert.deepEqual(win.getSize(), [440, 660], 'and goes back to its size');
   win.emit('hide');
   assert.deepEqual(calls.at(-1), ['hide', win], 'hiding the window takes the browser out of it');
+});
+
+// ── who counts as Eden (S13, S28) ──
+
+test('only Eden’s exact origin is Eden: no other *.askeden.com page opens a window or drives the browser', async () => {
+  const t = fake({ up: false });
+  const calls = [];
+  t.ctx.browserDock = { show() {}, hide() {}, bounds() {}, nav: (a, u) => calls.push(['nav', a, u]), tab() {}, shields() {}, state() {} };
+  await t.feature.toggle();
+  const win = t.electron.windows[0];
+  assert.deepEqual(win.openHandler({ url: 'https://evil.askeden.com/x' }), { action: 'deny' });
+  assert.deepEqual(t.electron.opened, ['https://evil.askeden.com/x'], 'it opens in the Mac’s browser instead');
+  const nav = (url) => { let stopped = false; win.webContents.emit('will-navigate', { preventDefault: () => { stopped = true; } }, url); return stopped; };
+  assert.equal(nav('https://user-pages.askeden.com/'), true);
+  const mine = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+  const h = (ch) => t.ipcMain.handlers.get(`feature:eden:browser:${ch}`);
+  win.loaded.push('https://chat.askeden.com/'); // were it ever to get there
+  h('nav')(mine, 'go', 'example.com');
+  assert.equal(t.ctx.edenShown(), false);
+  win.loaded.push('https://askeden.com/');
+  h('nav')(mine, 'go', 'example.com');
+  assert.equal(t.ctx.edenShown(), true);
+  assert.deepEqual(calls, [['nav', 'go', 'example.com']]);
+});
+
+test('Eden on this Mac gets the panel only once it proves itself; anything else on :5174 gets nothing', async () => {
+  const t = fake();
+  const calls = [];
+  t.ctx.browserDock = { show() {}, hide() {}, bounds() {}, nav: (a, u) => calls.push(['nav', a, u]), tab() {}, shields() {}, state() {} };
+  t.ctx.proved = false;
+  assert.equal(await t.feature.toggle(), eden.LOCAL, 'still shown');
+  const win = t.electron.windows[0];
+  const mine = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+  assert.equal(await t.ipcMain.handlers.get('feature:eden:browser:open')(mine, true), false);
+  assert.equal(t.ctx.edenShown(), false);
+  t.ctx.proved = true;
+  win.focused = false;
+  await t.feature.toggle();
+  assert.equal(await t.ipcMain.handlers.get('feature:eden:browser:open')(mine, true), true);
+  assert.equal(t.ctx.edenShown(), true);
+});
+
+test('the handshake: a proof under the data folder’s key, checked exactly; the key is this user’s only', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'eden-key-'));
+  const key = eden.handshakeKey(dir);
+  assert.match(key, /^[0-9a-f]{64}$/);
+  assert.equal(eden.handshakeKey(dir), key, 'made once, then read');
+  assert.equal(statSync(path.join(dir, eden.KEY_FILE)).mode & 0o777, 0o600);
+  const server = (answer) => (url, _opts, cb) => {
+    const req = new EventEmitter();
+    req.destroy = () => {};
+    const nonce = new URL(url).searchParams.get('nonce');
+    setImmediate(() => {
+      const res = new EventEmitter();
+      res.statusCode = 200;
+      res.setEncoding = () => {};
+      cb(res);
+      res.emit('data', JSON.stringify({ proof: answer(nonce) }));
+      res.emit('end');
+    });
+    return req;
+  };
+  assert.equal(await eden.localProves(key, { get: server((n) => eden.proofFor(key, n)) }), true);
+  assert.equal(await eden.localProves(key, { get: server(() => eden.proofFor(key, 'another nonce')) }), false, 'a replayed proof');
+  assert.equal(await eden.localProves(key, { get: server((n) => eden.proofFor('0'.repeat(64), n)) }), false, 'the wrong key');
+  assert.equal(await eden.localProves(key, { get: server(() => 'yes') }), false);
+  assert.equal(await eden.localProves('', { get: server(() => '') }), false, 'no key: no proof');
+  const down = () => { const req = new EventEmitter(); req.destroy = () => {}; setImmediate(() => req.emit('error', new Error('ECONNREFUSED'))); return req; };
+  assert.equal(await eden.localProves(key, { get: down }), false);
+});
+
+test('Eden’s page hears the tab on show in full and the others only as tabs; main.js sends it only that', () => {
+  const payload = {
+    url: 'https://bank.example/account', title: 'Bank',
+    tabs: [
+      { id: 1, title: 'Mail', url: 'https://mail.example/inbox', active: false, loading: true, favicon: 'x', muted: true },
+      { id: 2, title: 'Bank', url: 'https://bank.example/account', active: true, loading: false },
+    ],
+  };
+  const heard = eden.forEden(payload, true);
+  assert.deepEqual(heard.tabs, [{ id: 1, active: false, loading: true, title: '', url: '' }, payload.tabs[1]]);
+  assert.equal(heard.docked, true);
+  assert.ok(!JSON.stringify(heard).includes('mail.example'));
+  const main = readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
+  assert.match(main, /featureContext\.edenShown && featureContext\.edenShown\(\)\) eden\.webContents\.send\('feature:eden:browser:state', forEden\(payload, browserShown\)\)/);
+  assert.ok(!/feature:eden:browser:state', \{ \.\.\.payload/.test(main), 'never the whole state');
 });
