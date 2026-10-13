@@ -14,7 +14,7 @@ import pytest
 from code_session_fakes import Stream, end_all, events_of, make_hub, until
 
 from jarvis import acp
-from jarvis.acp import AcpConnection, AcpError, tool_of
+from jarvis.acp import AcpClient, AcpConnection, AcpError, tool_of
 from jarvis.features.code_acp import AgentBook
 
 FAKE = [sys.executable, str(Path(__file__).parent / "acp_fake_agent.py")]
@@ -50,6 +50,46 @@ def test_an_agent_s_tool_calls_are_steps_jarvis_s_policy_knows():
     assert tool_of({"title": "do a thing", "rawInput": {"a": 1}}) == (
         "AgentTool",
         {"title": "do a thing", "input": '{"a": 1}'},
+    )
+
+
+async def test_the_agent_s_permission_requests_fail_closed():
+    # No path isn't the project root, every location is weighed, and allow_always (the agent
+    # never asking again, past the policy) is never picked.
+    from types import SimpleNamespace
+
+    from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+
+    weighed = []
+
+    async def policy(name, tool_input, _context):
+        weighed.append((name, tool_input))
+        inside = str(tool_input.get("file_path") or tool_input.get("path") or "").startswith("/p/")
+        if name in ("Read", "Edit", "Grep") and inside:
+            return PermissionResultAllow()
+        return PermissionResultDeny(message="no")
+
+    client = AcpClient(FAKE, "Fake", SimpleNamespace(can_use_tool=policy))
+    options = [
+        {"optionId": "always", "kind": "allow_always"},
+        {"optionId": "yes", "kind": "allow_once"},
+        {"optionId": "no", "kind": "reject_once"},
+    ]
+
+    async def ask(call, offered=options):
+        out = await client._permission({"toolCall": call, "options": offered})
+        return out["outcome"].get("optionId", out["outcome"]["outcome"])
+
+    assert await ask({"kind": "edit", "locations": [{"path": "/p/a.py"}]}) == "yes"
+    assert await ask({"kind": "read", "title": "read something"}) == "no"
+    assert weighed[-1][0] == "AgentTool" and "didn't say which file" in weighed[-1][1]["title"]
+    weighed.clear()
+    two = {"kind": "edit", "locations": [{"path": "/p/a.py"}, {"path": "/etc/hosts"}]}
+    assert await ask(two) == "no"
+    assert [w[1]["file_path"] for w in weighed] == ["/p/a.py", "/etc/hosts"]
+    only_always = [o for o in options if o["kind"] != "allow_once"]
+    assert await ask({"kind": "read", "locations": [{"path": "/p/a.py"}]}, only_always) == (
+        "cancelled"
     )
 
 

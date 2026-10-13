@@ -312,6 +312,28 @@ def tool_of(call: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     return name, {"title": title, "input": shown}
 
 
+PATH_KEYS = {"Read": "file_path", "Edit": "file_path", "Delete": "file_path", "Grep": "path"}
+
+
+def _weighed(
+    name: str, tool_input: dict[str, Any], call: dict[str, Any]
+) -> list[tuple[str, dict[str, Any]]]:
+    """The steps the policy weighs for one permission request: one per file it names (every
+    location, not only the first), or, for a file step that names none, one that always
+    asks (an AgentTool step, not a file inside the project)."""
+    key = PATH_KEYS.get(name)
+    if key is None:
+        return [(name, tool_input)]
+    locations = call.get("locations") if isinstance(call.get("locations"), list) else []
+    paths = [str(loc["path"]) for loc in locations if isinstance(loc, dict) and loc.get("path")]
+    paths = list(dict.fromkeys(paths or [str(tool_input.get(key) or "")]))
+    if not any(p.strip() for p in paths):
+        title = " ".join(str(call.get("title") or "").split())[:500]
+        what = f"{name} (it didn't say which file)" + (f": {title}" if title else "")
+        return [("AgentTool", {"title": what, "input": json.dumps(tool_input)[:2000]})]
+    return [(name, {**tool_input, key: path}) for path in paths if path.strip()]
+
+
 def _output(update: dict[str, Any]) -> str:
     """What a finished tool call gave back, as text for its result."""
     parts: list[str] = []
@@ -650,7 +672,13 @@ class AcpClient:
 
     async def _permission(self, params: dict[str, Any]) -> dict[str, Any]:
         """The agent asks before a step: JARVIS's policy decides (its mode, the owner's
-        rules, a card), and the agent hears its own option for that answer."""
+        rules, a card), and the agent hears its own option for that answer.
+
+        Fail closed: a file step that names no file asks (to the policy, no path is the
+        project itself, which reading or editing in may need no OK); one that names several
+        is weighed file by file, each to be allowed; and the agent is only ever told
+        allow_once, never allow_always (which would let it skip asking from then on, past
+        JARVIS's policy and the owner's later rules)."""
         call = params.get("toolCall") if isinstance(params.get("toolCall"), dict) else {}
         known = self._tool({**call, "status": None}) if call.get("toolCallId") else None
         name, tool_input = (known["name"], known["input"]) if known else tool_of(call)
@@ -660,9 +688,13 @@ class AcpClient:
         policy = getattr(self.options, "can_use_tool", None)
         allowed = False
         if policy is not None:
-            decision = await policy(name, tool_input, ToolPermissionContext())
-            allowed = isinstance(decision, PermissionResultAllow)
-        order = ("allow_once", "allow_always") if allowed else ("reject_once", "reject_always")
+            allowed = True
+            for step_name, step_input in _weighed(name, tool_input, call):
+                decision = await policy(step_name, step_input, ToolPermissionContext())
+                if not isinstance(decision, PermissionResultAllow):
+                    allowed = False
+                    break
+        order = ("allow_once",) if allowed else ("reject_once", "reject_always")
         chosen = next((o for kind in order for o in choices if o.get("kind") == kind), None)
         if chosen is None:
             return {"outcome": {"outcome": "cancelled"}}
