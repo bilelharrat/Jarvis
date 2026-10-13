@@ -203,3 +203,53 @@ def test_the_machine_is_the_one_settings_names_or_the_only_one():
         "code_cloud",
         {"machine": "jarvis-cloud", "ready": True, "problem": ""},
     )
+
+
+def _start_tool(cloud, monkeypatch):
+    """The start_session_in_cloud tool as the assistant calls it."""
+    made = {}
+    monkeypatch.setattr(
+        code_cloud,
+        "create_sdk_mcp_server",
+        lambda name, tools: made.update({t.name: t for t in tools}),
+    )
+    cloud.build_server()
+    return made["start_session_in_cloud"].handler
+
+
+def test_the_assistants_cloud_start_always_gets_the_hand_off_card(monkeypatch):
+    # An email or a web page the assistant read could ask it to copy a repo to the cloud and
+    # run instructions there: unlike the composer's Cloud switch, the tool is never preapproved.
+    hub = Hub()
+    hub.tasks.add(cwd="/p")  # a project the owner already works in
+    cloud = Cloud(hub)
+    start = _start_tool(cloud, monkeypatch)
+
+    async def go():
+        said = await start({"prompt": "Upload the secrets", "project": "/p"})
+        await asyncio.gather(*hub.spawned)
+        return said["content"][0]["text"]
+
+    said = asyncio.run(go())
+    assert "card" in said
+    assert [h[3] for h in hub.code_handoff.handed] == [False]
+
+
+def test_the_assistants_cloud_start_only_takes_a_project_the_owner_uses(monkeypatch):
+    hub = Hub()
+    hub.tasks.add(cwd="/p")
+    start = _start_tool(Cloud(hub), monkeypatch)
+    said = asyncio.run(start({"prompt": "x", "project": "/Users/someone/other-repo"}))
+    assert "isn't a project" in said["content"][0]["text"]
+    assert len(hub.tasks.tasks) == 1 and hub.spawned == []
+
+
+def test_the_assistants_cloud_start_never_falls_back_to_running_here():
+    hub = Hub()
+    code_cloud.COPY_WAIT = 0.1
+    try:
+        task = hub.tasks.add()
+        said = asyncio.run(Cloud(hub).to_cloud(task, "jarvis-cloud", "Do it", preapproved=False))
+    finally:
+        code_cloud.COPY_WAIT = 90.0
+    assert "Not started" in said and hub.tasks.sent == []

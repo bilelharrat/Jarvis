@@ -25,6 +25,7 @@ import contextlib
 import ctypes
 import hashlib
 import io
+import ipaddress
 import json
 import logging
 import os
@@ -819,11 +820,32 @@ def wav_bytes(audio: Any, rate: int) -> bytes:
     return buf.getvalue()
 
 
+# Tailscale's addresses: its CGNAT range and its IPv6 prefix. Its WireGuard tunnel already
+# encrypts what plain HTTP sends, as loopback never leaves the Mac.
+TAILSCALE_NETS = (
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("fd7a:115c:a1e0::/48"),
+)
+
+
+def plain_address(host: str) -> bool:
+    """Whether plain HTTP may be answered for a peer at this address: loopback or Tailscale
+    only. Any other (the Wi-Fi, a hotspot) sends tokens and pairing codes in cleartext."""
+    try:
+        address = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_loopback or any(address in net for net in TAILSCALE_NETS)
+
+
 class Doorway:
     """The companion's socket, answered here rather than by asyncio's server: each new
     connection's first byte says what it speaks (a TLS handshake starts with 0x16). TLS
     goes on to the handshake, with a deadline; plain HTTP only while the owner has turned
-    it back on (PLAIN_PREF), else the connection is closed unanswered. Connections still
+    it back on (PLAIN_PREF), and only from this Mac or over Tailscale (plain_address: never
+    tokens and pairing codes in cleartext over the Wi-Fi), else it's refused. Connections still
     being told apart or shaking hands are capped, per address and in all."""
 
     def __init__(
@@ -871,7 +893,7 @@ class Doorway:
             first = await self._first_byte(loop, conn)
             if first == b"\x16":
                 context: ssl.SSLContext | None = self.context
-            elif first and self._plain():
+            elif first and self._plain() and plain_address(host):
                 context = None
             else:
                 if first:

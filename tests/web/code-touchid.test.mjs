@@ -30,6 +30,9 @@ test('a risky step: one that deletes, pushes, publishes, runs as root, or edits 
   assert.ok(!edit('Eden Code in alpha wants to edit a file'));
   assert.ok(!ct.risky({ task_id: 1, tool: 'WebFetch', detail: 'https://x' }, 'allow'));
   assert.ok(!ct.risky(null, 'allow'));
+  // Full auto asked for by voice: its card's tap asks for the fingerprint too.
+  assert.ok(ct.risky({ tool: 'code_bypass_by_voice', question: 'Turn on Bypass permissions for alpha?' }, 'allow'));
+  assert.ok(!ct.risky({ tool: 'code_bypass_by_voice' }, 'deny'));
 });
 
 test('the app asks with its own words, one sheet at a time, and never round a no', async () => {

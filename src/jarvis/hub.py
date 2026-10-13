@@ -2807,6 +2807,8 @@ class Hub:
         linked_task, linked_words = self._voice_link
         if not spoken and linked_task is not None and linked_task is _current_task():
             spoken = linked_words
+        if (context or {}).get("tap_only"):
+            spoken = ""  # a card only a tap answers (Bypass asked for by voice)
         self._voice_link = (None, "")
         future = asyncio.get_running_loop().create_future()
         self._approval_at = time.monotonic()
