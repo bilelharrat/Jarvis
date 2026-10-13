@@ -367,15 +367,16 @@ async def test_a_chatty_run_s_output_is_kept_for_its_results_only_up_to_a_size(
         lambda s, p, r, lines: seen.append(list(lines)) or codetests.Results(complete=False),
     )
     script = tmp_path / "chatty.py"
-    script.write_text("for i in range(2000):\n    print('x' * 100)\n")
+    script.write_text("for i in range(20000):\n    print('x' * 100)\n")
     import sys
 
     suite = codetests.Suite("cargo", "cargo test", (sys.executable, str(script)))
     tests = codetests.SuiteRunner(lambda *a, **k: None, env=plain_env)
     run = await tests.start(tmp_path, suite)
     assert await until_long(lambda: run.status != "running")
-    assert seen and 1000 <= sum(len(line) for line in seen[0]) < 1000 + 100 * 200
-    assert len(seen[0]) < 2000
+    # (kept by the batch: one batch past the bound at most, of one 64 KB read)
+    assert seen and 1000 <= sum(len(line) for line in seen[0]) < 1000 + 70_000
+    assert len(seen[0]) < 20000
     await tests.close()
 
 
