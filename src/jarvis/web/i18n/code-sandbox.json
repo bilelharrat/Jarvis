@@ -22,7 +22,8 @@
     "The sandbox's allowed domains changed; it goes on with them.": "沙盒允许的域名已更改；会话会按新的列表继续。",
     "Type a domain, like registry.npmjs.org.": "请输入域名，例如 registry.npmjs.org。",
     "That's as many domains as one project can allow.": "这个项目允许的域名已经达到上限。",
-    "Another agent: Claude Code’s sandbox doesn’t reach it; its own settings decide.": "另一个代理：Claude Code 的沙盒管不到它；由它自己的设置决定。"
+    "Another agent: Claude Code’s sandbox doesn’t reach it; its own settings decide.": "另一个代理：Claude Code 的沙盒管不到它；由它自己的设置决定。",
+    "With GitHub allowed, a sandboxed command can send what it reads to any repository on GitHub, not just this one, and fetch anyone’s code. If its commands need GitHub, give them a token scoped to this repository only (a fine-grained token with just its access), never your own.": "允许 GitHub 后，沙盒里的命令可以把它读到的内容发到 GitHub 上的任何仓库（不只是这一个），也能拉取任何人的代码。如果它的命令需要 GitHub，请给它们一个只限这个仓库的令牌（只有这个仓库权限的细粒度令牌），不要用你自己的。"
   },
   "patterns": []
 }

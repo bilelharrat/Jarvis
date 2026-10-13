@@ -47,6 +47,16 @@ test('the Sandbox section says where a session stands, and reads the domains typ
   assert.equal(cr.domainsOf(Array.from({ length: 30 }, (_, i) => `d${i}.com`).join(' ')).length, 20);
 });
 
+test('GitHub in the allowlist says it’s a way out too, and to use a token for this repository only', () => {
+  for (const domains of [['github.com'], ['pypi.org', '*.githubusercontent.com'], ['api.github.com'], ['*.github.com']]) {
+    assert.match(cr.domainWarning(domains), /any repository on GitHub, not just this one/, domains.join());
+    assert.match(cr.domainWarning(domains), /token scoped to this repository only/);
+  }
+  for (const domains of [[], ['pypi.org'], ['notgithub.com'], ['github.com.evil.test'], undefined]) {
+    assert.equal(cr.domainWarning(domains), '', String(domains));
+  }
+});
+
 test('every string the Permissions pane shows has its Chinese', () => {
   const read = (name) => JSON.parse(readFileSync(new URL(`../../src/jarvis/web/i18n/${name}.json`, import.meta.url), 'utf8'));
   const [rules, sandbox] = [read('code-rules'), read('code-sandbox')];
@@ -60,7 +70,8 @@ test('every string the Permissions pane shows has its Chinese', () => {
     'Press again to write settings.json (shared with the project)', 'Permissions',
     'Adds these rules to .claude/settings.local.json, keeping what’s there', 'Adds these rules to .claude/settings.json, keeping what’s there',
     'This session’s sandbox', 'Domains to allow', 'Sandbox Bypass and unattended sessions',
-    ...[{ on: false }, { on: true, live: true }, { on: true, live: false }].map(cr.sandboxLine)];
+    ...[{ on: false }, { on: true, live: true }, { on: true, live: false }].map(cr.sandboxLine),
+    cr.domainWarning(['github.com'])];
   assert.deepEqual([...shown, ...extra].filter((s) => !(s in zh.strings)), []);
   for (const [re] of zh.patterns) assert.doesNotThrow(() => new RegExp(re));
 });
