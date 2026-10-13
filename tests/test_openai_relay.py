@@ -261,22 +261,29 @@ def test_streamed_words_and_a_tool_call_split_across_chunks():
     assert json.loads(events[6]["delta"]["partial_json"]) == {"days": 2}
     assert events[5]["index"] == 1 and events[1]["index"] == 0
     assert events[-2]["delta"]["stop_reason"] == "tool_use"
-    assert events[-2]["usage"] == {"output_tokens": 30} and stream.input_tokens == 120
+    assert events[-2]["usage"] == {"input_tokens": 120, "output_tokens": 30}
 
 
-def test_broken_arguments_become_an_empty_call_and_finish_reasons_map():
+def test_half_a_tool_call_is_left_out_and_finish_reasons_map():
+    """A call cut off by the token limit used to run with {} (and fail, and be written again,
+    and be cut off again): it's left out, and the reply ends max_tokens."""
     stream = Stream("m")
     stream.chunk(
         chunk(calls=[{"id": "c1", "function": {"name": "weather_report", "arguments": "{oops"}}])
     )
     stream.chunk(chunk(calls=[{"function": {"name": ""}}]))  # a fragment with no function
+    stream.chunk(chunk(finish="length"))
     events = events_of(stream.end())
-    assert [e["type"] for e in events][:3] == [
-        "content_block_start",
-        "content_block_delta",
-        "content_block_stop",
-    ]
-    assert json.loads(events[1]["delta"]["partial_json"]) == {}
+    assert [e["type"] for e in events] == ["message_delta", "message_stop"]
+    assert events[0]["delta"]["stop_reason"] == "max_tokens" and stream.blocks == []
+    whole = Stream("m")  # the calls that are whole still go
+    whole.chunk(chunk(calls=[{"index": 0, "id": "a1", "function": {"name": "a", "arguments": ""}}]))
+    whole.chunk(
+        chunk(calls=[{"index": 1, "id": "b1", "function": {"name": "b", "arguments": "[1"}}])
+    )
+    whole.end()
+    assert [b["name"] for b in whole.blocks] == ["a"] and whole.blocks[0]["input"] == {}
+    assert whole.stop_reason() == "tool_use"
     for finish, reason in (
         ("stop", "end_turn"),
         ("length", "max_tokens"),
@@ -425,7 +432,9 @@ async def test_errors_come_back_as_anthropic_errors_in_plain_words():
     status, data, events = await relay.messages(
         "http://localhost:11434", KEY, {"model": "qwen3", "messages": []}
     )
-    assert events is None and status == 400  # shown, not retried over and over
+    # A 503 build_app marks not to retry: the turn ends as a server error, and the fallback
+    # can take the session on (a 400 was shown, but nothing fell back from it).
+    assert events is None and status == 503 and data["error"]["type"] == "api_error"
     assert "Nothing is answering at localhost:11434 on this Mac" in data["error"]["message"]
 
     def rejected(request):
@@ -927,7 +936,7 @@ def test_streamed_responses_events_become_anthropic_events():
     args = next(e for e in events if e.get("delta", {}).get("type") == "input_json_delta")
     assert json.loads(args["delta"]["partial_json"]) == {"city": "Paris"}
     assert events[-2]["delta"]["stop_reason"] == "tool_use"
-    assert events[-2]["usage"] == {"output_tokens": 12} and stream.input_tokens == 80
+    assert events[-2]["usage"] == {"input_tokens": 80, "output_tokens": 12}
     cut = Stream("m")
     cut.responses_event({"type": "response.output_text.delta", "delta": "Half"})
     cut.responses_event(
@@ -1160,3 +1169,115 @@ async def test_a_model_that_takes_no_reasoning_effort_is_asked_without_it_from_t
     status, _, _ = await relay.messages("http://localhost:11434", KEY, body)
     assert status == 400 and len(failing) == 2
     assert not relay.refused  # (it failed without the effort too: nothing remembered)
+
+
+# ── the 2026-10-13 audit: usage, cut-off streams, tool-call ids, a server that's down ──
+
+
+async def test_the_usage_carries_the_requests_size_for_claude_codes_compaction():
+    def answer(request):
+        return httpx.Response(
+            200,
+            text=sse(chunk("Hi"), chunk(finish="stop"), chunk(usage={"prompt_tokens": 2222})),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    body = {"model": "qwen3", "stream": True, "messages": [{"role": "user", "content": "x" * 4000}]}
+    _, _, events = await relay.messages("http://localhost:11434", KEY, body)
+    got = events_of("".join([piece async for piece in events]))
+    assert got[0]["message"]["usage"]["input_tokens"] >= 1000  # the estimate, at once
+    assert got[-2]["usage"]["input_tokens"] == 2222  # the server's count, at the end
+
+
+async def test_a_stream_cut_off_with_no_finish_and_no_done_is_an_error():
+    def answer(request):
+        body = "".join(f"data: {json.dumps(c)}\n\n" for c in (chunk("Half of "), chunk("it")))
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    body = {"model": "qwen3", "stream": True, "messages": [{"role": "user", "content": "hi"}]}
+    _, _, events = await relay.messages("http://localhost:11434", KEY, body)
+    got = events_of("".join([piece async for piece in events]))
+    assert (
+        got[-1]["type"] == "error" and "stopped before it finished" in got[-1]["error"]["message"]
+    )
+    assert "message_stop" not in [e["type"] for e in got]
+
+
+def test_tool_call_ids_are_mapped_both_ways():
+    ids = openai_relay.ToolIds()
+    kimi = "functions.Bash:0"
+    ours = ids.ours(kimi)
+    assert ours.startswith("toolu_") and ours != ids.ours(kimi)  # fresh each time: unique
+    assert ids.theirs(ours) == kimi  # back to the provider as it made it
+    assert ids.ours("call_9") == "call_9"  # one Anthropic takes stays
+    claude = "toolu_01ABCdefGHIjklMNOpqrSTUv"
+    assert ids.theirs(claude, "https://openrouter.ai/api") == claude
+    strict = ids.theirs(claude, "https://api.mistral.ai")
+    assert (
+        len(strict) == 9
+        and strict.isalnum()
+        and strict == ids.theirs(claude, "https://api.mistral.ai")
+    )
+    long = "toolu_" + "x" * 60
+    assert len(ids.theirs(long)) <= 40 and ids.theirs(long) == ids.theirs(long)
+
+
+async def test_a_kimi_id_never_reaches_claude_and_goes_back_to_kimi():
+    seen = []
+
+    def answer(request):
+        seen.append(json.loads(request.content))
+        call = {"index": 0, "id": "functions.Bash:0", "type": "function",
+                "function": {"name": "Bash", "arguments": '{"command": "ls"}'}}  # fmt: skip
+        return httpx.Response(
+            200,
+            text=sse(chunk(calls=[call]), chunk(finish="tool_calls")),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(answer)))
+    body = {"model": "kimi-k3", "stream": True, "messages": [{"role": "user", "content": "ls"}]}
+    _, _, events = await relay.messages("https://api.moonshot.ai", KEY, body)
+    got = events_of("".join([piece async for piece in events]))
+    [start] = [e for e in got if e["type"] == "content_block_start"]
+    mine = start["content_block"]["id"]
+    assert mine.startswith("toolu_")
+    history = {
+        **body,
+        "messages": [
+            {"role": "user", "content": "ls"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": mine, "name": "Bash", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": mine, "content": "a.py"}]},
+        ],
+    }  # fmt: skip
+    _, _, events = await relay.messages("https://api.moonshot.ai", KEY, history)
+    [piece async for piece in events]
+    sent = seen[-1]["messages"]
+    assert sent[-2]["tool_calls"][0]["id"] == "functions.Bash:0"
+    assert sent[-1] == {"role": "tool", "tool_call_id": "functions.Bash:0", "content": "a.py"}
+
+
+async def test_a_server_that_hangs_or_is_down_isnt_retried_and_can_be_fallen_back_from(tmp_path):
+    seen = []
+
+    def hangs(request):
+        seen.append(request.extensions.get("timeout"))
+        raise httpx.ReadTimeout("nothing", request=request)
+
+    relay = OpenAIRelay(httpx.AsyncClient(transport=httpx.MockTransport(hangs)))
+    status, data, _ = await relay.messages("http://localhost:11434", KEY, {"messages": []})
+    assert status == 503 and "didn't answer in time" in data["error"]["message"]
+    assert seen[0]["read"] == openai_relay.LOCAL_READ_SECONDS  # this Mac's: a shorter wait
+    await relay.messages("https://api.example.com", KEY, {"messages": []})
+    assert seen[-1]["read"] == 5.0  # (the client's own: the app's waits ten minutes)
+    store, pid = openai_store(tmp_path)
+
+    class Down:
+        async def messages(self, upstream, key, body):
+            return (*openai_relay.unavailable("Nothing is answering"), None)
+
+    client = TestClient(build_app(Down(), lambda: store.relay_target), client=("127.0.0.1", 5000))
+    reply = client.post(f"/p/{pid}/v1/messages", json={"messages": []}, headers={"x-api-key": KEY})
+    assert reply.status_code == 503 and reply.headers["x-should-retry"] == "false"
