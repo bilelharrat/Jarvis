@@ -1795,6 +1795,7 @@ const featureContext = {
   relaunchAsItWas, // before a quiet update: reopen hidden if the window is hidden
   backendFromRepo: () => backendFromRepo,
   restartBackendQuietly,
+  backendToken: () => TOKEN, // the backend's token: touchid.js signs its proofs with it (S30)
   backendAnswers, // the restarted backend's /health, within two minutes (follow-repo.js)
   repoHome: () => jarvisHome(),
   extraPath: EXTRA_PATH,

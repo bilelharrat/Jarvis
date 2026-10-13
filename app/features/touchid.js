@@ -3,7 +3,26 @@
 // is allowed, macOS's own Touch ID sheet. The reason it shows is the app's own wording for
 // the kind of moment, never text from the page; only the window may ask (ctx.fromWindow), and
 // one sheet at a time.
+//
+// A yes also gives the window a proof for the backend (audit S30): the window's own word that
+// the finger said yes is only as good as the page, so the main process, which saw macOS's
+// answer, signs it. "v1.<kind>.<expires ms>.<nonce>.<mac>", the mac an HMAC-SHA256 under the
+// backend's token (which the page never needs to sign anything) of
+// "eden-touchid|v1|<kind>|<expires>|<nonce>"; it holds for PROOF_MS and once only
+// (features/code_touchid.py check_proof). No token yet (no backend): no proof.
 'use strict';
+
+const crypto = require('crypto');
+
+const PROOF_MS = 2 * 60 * 1000;
+
+// The proof for kind, under key: '' without a key.
+function makeProof(key, kind, { now = Date.now(), nonce = crypto.randomBytes(16).toString('hex') } = {}) {
+  if (!key || !/^[a-z-]{1,32}$/.test(String(kind))) return '';
+  const expires = now + PROOF_MS;
+  const mac = crypto.createHmac('sha256', String(key)).update(`eden-touchid|v1|${kind}|${expires}|${nonce}`).digest('hex');
+  return `v1.${kind}.${expires}.${nonce}.${mac}`;
+}
 
 const REASONS = {
   en: {
@@ -18,7 +37,7 @@ const REASONS = {
   },
 };
 
-function handlers({ systemPreferences }) {
+function handlers({ systemPreferences, secret = () => '' }) {
   let busy = false;
   const available = () => {
     try { return Boolean(systemPreferences && systemPreferences.canPromptTouchID()); } catch { return false; }
@@ -36,7 +55,8 @@ function handlers({ systemPreferences }) {
       busy = true;
       try {
         await systemPreferences.promptTouchID(reason);
-        return { ok: true };
+        const proof = makeProof(secret(), kind);
+        return proof ? { ok: true, proof } : { ok: true };
       } catch {
         return { ok: false, cancelled: true };
       } finally {
@@ -48,9 +68,9 @@ function handlers({ systemPreferences }) {
 
 function install(ctx) {
   const { systemPreferences } = require('electron');
-  const h = handlers({ systemPreferences });
+  const h = handlers({ systemPreferences, secret: () => (ctx.backendToken ? ctx.backendToken() : '') });
   ctx.ipcMain.handle('feature:touchid:available', (event) => (ctx.fromWindow(event) ? h.available() : false));
   ctx.ipcMain.handle('feature:touchid:prompt', (event, kind, lang) => (ctx.fromWindow(event) ? h.prompt(String(kind), String(lang)) : { ok: false }));
 }
 
-module.exports = { install, handlers, REASONS };
+module.exports = { install, handlers, makeProof, REASONS, PROOF_MS };
