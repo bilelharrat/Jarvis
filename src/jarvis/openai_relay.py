@@ -24,12 +24,22 @@ What's translated:
 - tools, as OpenAI function tools with their JSON Schemas, and tool_choice;
 - streaming, as Anthropic's server-sent events (message_start, content blocks, text and
   input_json deltas, message_delta with the stop reason and usage, message_stop). A tool
-  call's arguments are gathered and sent whole once they're complete, checked as JSON;
-- errors, as Anthropic error JSON; a server that isn't running says so plainly, and isn't
-  retried over and over (a 400, which Claude Code shows rather than retries). One that stops
-  with an error part-way, breaks off, or isn't a model server at all (a web page at that
-  address) ends the stream with Anthropic's error event, never as a quiet, cut-off answer
-  taken as done; a whole reply that isn't JSON is a 400 too.
+  call's arguments are gathered and sent whole once they're complete, checked as JSON: a
+  call whose arguments aren't (cut off by the token limit) is left out, the reply ending
+  max_tokens, rather than run with none. The usage carries the request's size
+  (input_tokens: an estimate at the start, the server's count at the end), which Claude
+  Code reads to know when to compact the conversation;
+- tool-call ids, both ways (ToolIds): one Anthropic's API wouldn't take (Kimi's
+  "functions.Bash:0", which would break the session for good once it's back on Claude)
+  gets one of Claude's own, and goes back to the provider as it was; one of Claude's that a
+  strict provider wouldn't take (Mistral's nine letters) goes there in a form it does;
+- errors, as Anthropic error JSON; a server that isn't running, or doesn't answer in time
+  (a shorter wait for one on this Mac), says so plainly as a 503 Claude Code doesn't retry
+  (x-should-retry: false), which ends the turn as a server error: the fallback takes the
+  session on, instead of an hour of retries or a 400 nothing falls back from. One that stops
+  with an error part-way, breaks off, ends without finishing, or isn't a model server at
+  all (a web page at that address) ends the stream with Anthropic's error event, never as a
+  quiet, cut-off answer taken as done; a whole reply that isn't JSON is a 400 too.
 
 Cost: none of its own. It carries requests a session makes; what the provider charges is
 the provider's (a model on this Mac costs nothing).
@@ -44,6 +54,7 @@ import json
 import logging
 import re
 import secrets
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 from urllib.parse import urlsplit
@@ -66,6 +77,10 @@ FINISH = {
     "content_filter": "refusal",
 }
 Resolver = Callable[[str, str], str | None]  # (provider id, key) -> its sealed address
+# How long a server on this Mac may take to say anything: one that hangs (a model that
+# stopped loading) is a fallback's to take over, not ten minutes of nothing.
+LOCAL_READ_SECONDS = 180.0
+IDS_KEPT = 5000  # tool-call ids remembered both ways (ToolIds)
 
 
 def _new_id(prefix: str) -> str:
@@ -109,8 +124,49 @@ def _user_content(parts: list[dict[str, Any]]) -> str | list[dict[str, Any]]:
     return parts
 
 
-def to_openai(body: dict[str, Any]) -> dict[str, Any]:
-    """An Anthropic Messages request as an OpenAI Chat Completions request."""
+# Tool-call ids Anthropic's API takes ("toolu_01…" and the like); others break a session back
+# on Claude ("functions.Bash:0").
+_ANTHROPIC_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_PROVIDER_ID = re.compile(r"[A-Za-z0-9_-]{1,40}")  # OpenAI's limit, and most servers'
+STRICT_IDS = {"api.mistral.ai": 9}  # host -> the length of the letters-and-digits ids it takes
+
+
+class ToolIds:
+    """Tool-call ids across the two sides. From the provider: one Anthropic's API takes
+    stays as it is; any other gets a fresh one of Claude's form, remembered with the
+    provider's, which goes back to the provider in its place. To the provider: a Claude id
+    the provider wouldn't take becomes, the same way every time (a hash of it), one it does,
+    so a call and its result still match."""
+
+    def __init__(self, keep: int = IDS_KEPT) -> None:
+        self.theirs_of: OrderedDict[str, str] = OrderedDict()  # our id -> the provider's
+        self.keep = keep
+
+    def ours(self, theirs: str) -> str:
+        if theirs and _ANTHROPIC_ID.fullmatch(theirs):
+            return theirs
+        mine = _new_id("toolu")
+        if theirs:
+            self.theirs_of[mine] = theirs
+            while len(self.theirs_of) > self.keep:
+                self.theirs_of.popitem(last=False)
+        return mine
+
+    def theirs(self, ours: str, upstream: str = "") -> str:
+        original = self.theirs_of.get(ours)
+        if original is not None:
+            return original
+        length = STRICT_IDS.get((urlsplit(upstream).hostname or "").lower())
+        digest = hashlib.sha256(ours.encode("utf-8", "replace")).hexdigest()
+        if length:
+            return ours if re.fullmatch(rf"[A-Za-z0-9]{{{length}}}", ours) else digest[:length]
+        return ours if _PROVIDER_ID.fullmatch(ours) else f"call_{digest[:32]}"
+
+
+def to_openai(body: dict[str, Any], ids: Callable[[str], str] | None = None) -> dict[str, Any]:
+    """An Anthropic Messages request as an OpenAI Chat Completions request (ids: what each
+    tool-call id is called at the provider, ToolIds.theirs)."""
+    as_theirs = ids or (lambda i: i)
     messages: list[dict[str, Any]] = []
     system = body.get("system")
     system_text = system if isinstance(system, str) else _text_of(system)
@@ -134,7 +190,7 @@ def to_openai(body: dict[str, Any]) -> dict[str, Any]:
             text = "".join(str(b.get("text", "")) for b in blocks if b.get("type") == "text")
             calls = [
                 {
-                    "id": str(b.get("id") or _new_id("call")),
+                    "id": as_theirs(str(b.get("id") or _new_id("call"))),
                     "type": "function",
                     "function": {
                         "name": str(b.get("name", "")),
@@ -164,7 +220,7 @@ def to_openai(body: dict[str, Any]) -> dict[str, Any]:
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": str(block.get("tool_use_id", "")),
+                        "tool_call_id": as_theirs(str(block.get("tool_use_id", ""))),
                         "content": text,
                     }
                 )
@@ -331,27 +387,29 @@ def chat_to_responses(chat: dict[str, Any], body: dict[str, Any] | None = None) 
     return out
 
 
-def _json_object(text: str) -> dict[str, Any]:
-    """A tool call's gathered arguments as an object; {} when they aren't one (a model that
-    wrote half a call, or none)."""
+def _json_object(text: str) -> dict[str, Any] | None:
+    """A tool call's gathered arguments as an object ({} for none at all); None when they
+    aren't one (a model that wrote half a call: cut off by the token limit, say)."""
     try:
         value = json.loads(text) if text.strip() else {}
     except (ValueError, RecursionError):
-        return {}
-    return value if isinstance(value, dict) else {}
+        return None
+    return value if isinstance(value, dict) else None
 
 
 class Stream:
     """OpenAI's streamed chunks in, Anthropic's server-sent events out."""
 
-    def __init__(self, model: str, input_tokens: int = 0) -> None:
+    def __init__(self, model: str, input_tokens: int = 0, ids: ToolIds | None = None) -> None:
         self.model = model
+        self.ids = ids
         self.index = -1
         self.open_text = False
         # OpenAI's index -> {id, name, args}: args as the pieces streamed, joined once whole
         # (added to a string piece by piece, a long call copied it all again for each piece).
         self.calls: dict[int, dict[str, Any]] = {}
         self.used_tools = False
+        self.dropped = 0  # tool calls left out: their arguments weren't whole
         self.finish = ""
         self.input_tokens = input_tokens
         self.output_tokens = 0
@@ -428,10 +486,16 @@ class Stream:
             call = self.calls[key]
             if not call["name"]:
                 continue  # a fragment with no function behind it
+            args = _json_object("".join(call["args"]))
+            if args is None:
+                # Half a call (the token limit cut it off): run with no arguments, it would
+                # fail, be written again, be cut off again. Left out; the reply ends there.
+                log.warning("openai relay: left out %s's call, its arguments cut off", call["name"])
+                self.dropped += 1
+                continue
             self.index += 1
             self.used_tools = True
-            call_id = call["id"] or _new_id("toolu")
-            args = _json_object("".join(call["args"]))
+            call_id = self.ids.ours(call["id"]) if self.ids else call["id"] or _new_id("toolu")
             self.blocks.append(
                 {"type": "tool_use", "id": call_id, "name": call["name"], "input": args}
             )
@@ -594,7 +658,9 @@ class Stream:
         )
 
     def stop_reason(self) -> str:
-        return "tool_use" if self.used_tools else FINISH.get(self.finish, "end_turn")
+        if self.used_tools:
+            return "tool_use"
+        return "max_tokens" if self.dropped else FINISH.get(self.finish, "end_turn")
 
     def end(self) -> str:
         return (
@@ -604,7 +670,11 @@ class Stream:
                 "message_delta",
                 {
                     "delta": {"stop_reason": self.stop_reason(), "stop_sequence": None},
-                    "usage": {"output_tokens": self.output_tokens},
+                    # (input_tokens: the server's count, over message_start's estimate)
+                    "usage": {
+                        "input_tokens": self.input_tokens,
+                        "output_tokens": self.output_tokens,
+                    },
                 },
             )
             + self.event("message_stop", {})
@@ -637,6 +707,13 @@ def anthropic_error(status: int, message: str) -> tuple[int, dict[str, Any]]:
     elif status not in (400, 401, 403, 404, 413, 429):
         status = 400
     return status, {"type": "error", "error": {"type": kind, "message": message}}
+
+
+def unavailable(message: str) -> tuple[int, dict[str, Any]]:
+    """A server that isn't running or didn't answer in time: a 503 that build_app marks
+    x-should-retry: false, so Claude Code ends the turn as a server error at once (and the
+    fallback can take the session on) instead of retrying for an hour, or showing a 400."""
+    return 503, {"type": "error", "error": {"type": "api_error", "message": message}}
 
 
 def _where(upstream: str) -> str:
@@ -722,6 +799,7 @@ class OpenAIRelay:
         self.responses: set[tuple[str, str]] = set()
         # (upstream, api, model) -> the parameters that model refused: left out from then on.
         self.refused: dict[tuple[str, str, str], set[str]] = {}
+        self.ids = ToolIds()
 
     def api_for(self, upstream: str, model: str) -> str:
         """Which of OpenAI's APIs a request to this server and model goes to."""
@@ -737,7 +815,7 @@ class OpenAIRelay:
         older server refused (stream_options) or what a model doesn't take (temperature,
         say); with max_completion_tokens for a model that only takes that; or to the
         Responses API for a model Chat Completions sends there."""
-        chat = to_openai(body)
+        chat = to_openai(body, lambda i: self.ids.theirs(i, upstream))
         model = chat["model"]
         api = self.api_for(upstream, model)
         payload = chat if api == CHAT else chat_to_responses(chat, body)
@@ -755,9 +833,14 @@ class OpenAIRelay:
             "User-Agent": "Jarvis",
         }
         attempts = 0
+        # A server on this Mac answers at once or not at all (hung, still loading): a shorter
+        # wait than the internet's ten minutes.
+        local = (
+            {"timeout": httpx.Timeout(LOCAL_READ_SECONDS, connect=5)} if _local(upstream) else {}
+        )
         while True:
             url = f"{upstream.rstrip('/')}{api}"
-            request = self.client.build_request("POST", url, json=payload, headers=headers)
+            request = self.client.build_request("POST", url, json=payload, headers=headers, **local)
             response = await self.client.send(request, stream=True)
             attempts += 1
             if response.status_code not in (400, 404) or attempts >= 5:
@@ -806,9 +889,9 @@ class OpenAIRelay:
         try:
             response, api = await self._open(upstream, key, body, stream)
         except httpx.ConnectError:
-            return (*anthropic_error(400, _unreachable(upstream)), None)
+            return (*unavailable(_unreachable(upstream)), None)
         except httpx.TimeoutException:
-            return (*anthropic_error(529, f"{_where(upstream)} didn't answer in time."), None)
+            return (*unavailable(f"{_where(upstream)} didn't answer in time."), None)
         except httpx.HTTPError as exc:
             return (*anthropic_error(529, f"Couldn't reach {_where(upstream)} ({exc})."), None)
         if response.status_code >= 400:
@@ -820,7 +903,8 @@ class OpenAIRelay:
             text = f"{where} answered {response.status_code}" + (f": {said}" if said else ".")
             log.warning("openai relay: %s%s for %s: %s", where, api, model, text)
             return (*anthropic_error(response.status_code, text), None)
-        converter = Stream(model)
+        # (the request's size from the start: Claude Code compacts the conversation by it)
+        converter = Stream(model, count_tokens(body), self.ids)
         if not stream:
             try:
                 raw = bytearray()
@@ -843,7 +927,7 @@ class OpenAIRelay:
 
         async def events() -> AsyncIterator[str]:
             yield converter.start()
-            where, heard, failed = _where(upstream), False, ""
+            where, heard, failed, done = _where(upstream), False, "", False
             try:
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -851,6 +935,7 @@ class OpenAIRelay:
                     heard = True
                     text = line[5:].strip()
                     if text == "[DONE]":
+                        done = True
                         break
                     try:
                         data = json.loads(text)
@@ -880,6 +965,12 @@ class OpenAIRelay:
                 await response.aclose()
             if not failed and not heard:
                 failed = f"{where} answered, but isn't a model server (no streamed reply came)."
+            if not failed and not done and not converter.finish:
+                # Neither a finish nor [DONE] (nor the Responses API's completed): cut off.
+                yield Stream.failed(
+                    f"{where}'s answer stopped before it finished; try again.", "api_error"
+                )
+                return
             if failed:
                 yield Stream.failed(failed)
                 return
@@ -945,7 +1036,9 @@ def build_app(relay: OpenAIRelay, resolve: Callable[[], Resolver | None]):
             return refuse(400, "That isn't a Messages request.")
         status, data, events = await relay.messages(upstream, key, body)
         if events is None:
-            return JSONResponse(data, status_code=status)
+            # (unavailable's 503: not retried, so the turn ends and the fallback can take it)
+            again = {"x-should-retry": "false"} if status == 503 else None
+            return JSONResponse(data, status_code=status, headers=again)
         return StreamingResponse(
             events, media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
         )

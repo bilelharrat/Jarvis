@@ -8,9 +8,13 @@ the session on them before the message goes.
   whose way of running takes one: Claude, an Anthropic key, OpenAI-compatible models through
   openai_relay, Gemini Flash through gemini_proxy), then goes on; the same session's later
   messages wait behind it, so they keep their order. A session mid-step isn't moved (the
-  message goes as it would have). Auto (smart), which other providers' models can't run,
-  comes back when the router returns to a Claude model that can, unless the owner chose
-  another mode meanwhile. shadow: Shadow mode, the pick is logged and the session isn't
+  message goes as it would have), nor one with messages still queued for the model it's on
+  (they'd go on the next one's), unless they wait out Claude's limit; nor back onto Claude
+  while Claude can't answer (a fallback took it off Claude: it'd only fail, fall back and
+  move again, message after message). Moving onto another provider's model ends a wait for
+  Claude's limit (code_limit). Auto (smart), which other providers' models can't run,
+  comes back when the router returns to a Claude model that can, unless the owner picked a
+  mode meanwhile (Manual too: only the mode the router left it in goes back). shadow: Shadow mode, the pick is logged and the session isn't
   moved. info: the route's numbers for the event log (code_router_events; never prompt text).
   fallbacks: the route's next picks ({ref, model, effort?}, at most 3), for the fallback.
 - task_new with route: the new session starts on that model (and effort).
@@ -24,9 +28,12 @@ the session on them before the message goes.
 - Automatic fallback (TaskManager.on_claude_down, wrapped): when a routed session's turn
   fails on its routed model (a rate or usage limit, an overload, a provider error), the
   session moves to the route's next pick and carries on from where it stopped (the hub's
-  own move, hub._code_fallback), once per routed message. Anything else, or with nothing to
-  move to, goes on to the hub's fallback as before. Off with code_router_auto_fallback, or
-  with Settings › Brain's fallback for Eden Code off.
+  own move, hub._code_fallback), once per routed message. Only to a pick on the same
+  provider (Claude to Claude, OpenRouter to OpenRouter): the session's code and transcript
+  go to another company only with code_router_cross_fallback on. Claude's usage limit with
+  "wait for it to reset" on (code_limit) is waited out, not fallen back from. Anything else,
+  or with nothing to move to, goes on to the hub's fallback as before. Off with
+  code_router_auto_fallback, or with Settings › Brain's fallback for Eden Code off.
 - model_router_route {token, route?}: the rated route for a route_wait (no route: keep the
   message's own, as when the rating failed or changed nothing). Fast: never queued. One for a
   message still to come (sent after a question, as Bypass's) is kept EARLY_SECONDS; a late or
@@ -103,6 +110,7 @@ _TOKEN = re.compile(r"[A-Za-z0-9_-]{8,64}")
 ON_PREF = "code_router_on"
 SETTINGS_PREF = "code_router_settings"
 FALLBACK_PREF = "code_router_auto_fallback"
+CROSS_PREF = "code_router_cross_fallback"  # the fallback may go to another provider's pick
 DEFAULT_SETTINGS = {
     "efficiency": 50,
     "performance": 50,
@@ -117,6 +125,9 @@ _SWITCHES = ("subscriptionClaude", "shadow", "learn", "learnFromPrompts")
 # rate or usage limit, an overload, a provider's error. A sign-in or account problem doesn't.
 RETRY_KINDS = frozenset({"rate_limit", "overloaded", "server_error", "billing_error"})
 FALLBACK_SECONDS = 6 * 3600.0  # a route older than this is no guide for where to go
+# What the Model Router page's server is started with (_start_page): enough for Node to run,
+# never the backend's whole environment (with-keys.sh puts every Keychain key in it).
+PAGE_ENV = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE")
 
 
 def clean_settings(value: Any) -> dict[str, Any] | None:
@@ -138,6 +149,7 @@ def clean_settings(value: Any) -> dict[str, Any] | None:
 register_feature_pref(ON_PREF, False)
 register_feature_pref(SETTINGS_PREF, dict(DEFAULT_SETTINGS), clean_settings)
 register_feature_pref(FALLBACK_PREF, True)
+register_feature_pref(CROSS_PREF, False)
 utility_model.register_purpose(PURPOSE, RATINGS_PER_DAY)
 
 ZH = {
@@ -156,6 +168,13 @@ ZH = {
     "Model Router's page didn't start.": "Model Router 的页面没有启动。",
 }
 lang.add_texts(ZH)
+
+
+def _queued(task: Any) -> bool:
+    """Messages wait in the session's queue for the model it's on now (sent on their own
+    routes, or before a reopen onto it): moving it would send them on another. Not while
+    they wait out Claude's limit: they're no model's yet."""
+    return not task.inbox.empty() and task.hold_until <= time.time()
 
 
 def _error_body(message: str) -> str:
@@ -199,7 +218,9 @@ class Router:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.queues: dict[tuple[str, Any], asyncio.Task] = {}
-        self.auto_held: set[int] = set()  # sessions whose Auto a routed model set aside
+        # Sessions whose Auto a routed model set aside -> the mode it left them in (Auto
+        # comes back only while they're still in it: a mode the owner picks is theirs).
+        self.auto_held: dict[int, str] = {}
         self.transport: Any = None  # (tests: an httpx MockTransport)
         self.server: Any = None  # the Model Router page's process, once started here
         # route_wait: token -> its rated route (None: the message's own), while it waits
@@ -291,7 +312,7 @@ class Router:
     def _movable(self, task_id: int) -> bool:
         """A session a route can move now (else nothing to wait for)."""
         task = self.hub.tasks.tasks.get(task_id)
-        return task is not None and task.kind == "code" and not task.busy
+        return task is not None and task.kind == "code" and not task.busy and not _queued(task)
 
     def _hold(self, key: tuple[str, Any], work: Any) -> None:
         before = self.queues.get(key)
@@ -414,15 +435,22 @@ class Router:
             return "not_code"
         if task.busy:
             return "busy"
+        if _queued(task):
+            return "queued"  # what's waiting goes on the model it was sent for
         if not hub.providers.known(ref):
             return "unknown"
         claude = ref in MODELS
+        if claude and str(task.model_ref).startswith("custom:") and not hub._claude_back():
+            # Claude can't answer yet (its limit, an outage): onto it, the message would only
+            # fail and fall back again. The session stays where the fallback put it, and
+            # still goes back to Claude by itself once Claude is (fell_back_from is kept).
+            return "claude_down"
         if task.model_ref != ref:
             was = task.mode
             await hub._gemini_ready(ref)
             await hub._task_model(task_id, ref)
             if was == "smart" and task.mode != "smart":
-                self.auto_held.add(task_id)  # Auto is Claude's: back when the router is
+                self.auto_held[task_id] = task.mode  # Auto is Claude's: back when the router is
             if task.model_ref != ref:
                 return "unknown"  # (its key, or the relay: the error is on screen)
         elif task.fell_back_from:
@@ -430,14 +458,32 @@ class Router:
             # picked from the menu would), not back to the one that failed once Claude is back.
             task.fell_back_from = {}
         if claude and task_id in self.auto_held:
-            self.auto_held.discard(task_id)
-            if task.mode == "ask" and auto_capable(task.model):  # (unless they chose since)
+            left = self.auto_held.pop(task_id)
+            if task.mode == left and auto_capable(task.model):  # (unless they chose since)
                 hub.tasks.set_mode(task_id, "smart")
         # An effort comes only for a model whose way of running takes it (the window's
         # routeFor): Claude's own, and other providers' through Jarvis's relays.
         if effort and task.effort != effort:
             hub.tasks.set_effort(task_id, effort)
         return ""
+
+    def on_mode(self, msg: dict[str, Any]) -> bool:
+        """task_mode (the owner picks a permission mode): theirs from now on, so the router
+        won't put Auto back over it, Manual included. The mode itself is the hub's to set."""
+        with contextlib.suppress(TypeError, ValueError, OverflowError):
+            self.auto_held.pop(int(msg.get("id") or 0), None)
+        return False
+
+    def on_task_event(self, kind: str, _data: dict[str, Any]) -> None:
+        """A session gone from the list (closed and pruned) takes its route and held Auto
+        with it."""
+        if kind != "tasks":
+            return
+        live = self.hub.tasks.tasks
+        for gone in [t for t in self.routes if t not in live]:
+            self.routes.pop(gone, None)
+        for gone in [t for t in self.auto_held if t not in live]:
+            self.auto_held.pop(gone, None)
 
     # ── the automatic fallback ──
 
@@ -466,17 +512,38 @@ class Router:
             return ""
         if getattr(hub.prefs, "fallback_code", True) is False:
             return ""  # the owner keeps Eden Code sessions where they are
+        limit = getattr(hub, "code_limit", None)
+        if (
+            why == "rate_limit"
+            and limit is not None
+            and limit.wanted()
+            and not str(task.model_ref).startswith("custom:")
+        ):
+            return ""  # Claude's usage limit, with "wait for it to reset" on: code_limit's
         last = self.routes.get(task.id)
         if not last or last["retried"] or time.monotonic() - last["at"] > FALLBACK_SECONDS:
             return ""
         if task.model_ref != last["ref"]:
             return ""  # not on its routed model now: not the router's to move
+        here = self._company(task.model_ref)
+        cross = hub.prefs.feature(CROSS_PREF) is True
         for route in last["fallbacks"]:
-            if route["ref"] != task.model_ref and hub.providers.known(route["ref"]):
-                last["retried"] = True  # once per routed message
-                last["to"] = route
-                return route["ref"]
+            if route["ref"] == task.model_ref or not hub.providers.known(route["ref"]):
+                continue
+            if not cross and self._company(route["ref"]) != here:
+                continue  # the session's code and transcript stay with the provider it's on
+            last["retried"] = True  # once per routed message
+            last["to"] = route
+            return route["ref"]
         return ""
+
+    def _company(self, ref: str) -> str:
+        """Whose servers a model's requests go to: "anthropic" for Claude (the owner's
+        sign-in, or an Anthropic key), else the provider it was added under."""
+        provider = self.hub.providers.provider_of(ref)
+        if provider is None or provider.kind == "anthropic":
+            return "anthropic"
+        return str(provider.id)
 
     def _fall_back(self, task: Any, ref: str, why: str) -> None:
         if not str(task.model_ref).startswith("custom:"):
@@ -586,7 +653,9 @@ class Router:
             return self.tr(
                 "Model Router needs Node.js to open its page: install it from nodejs.org."
             )
-        env = dict(os.environ)
+        env = {
+            k: v for k, v in os.environ.items() if k in PAGE_ENV or k.startswith("MODEL_ROUTER_")
+        }
         key = await asyncio.to_thread(self.hub.providers.key_of, "gemini")
         if key:
             env["GEMINI_API_KEY"] = key
@@ -608,6 +677,8 @@ def install(hub: Any) -> None:
     router = Router(hub)
     hub.code_router = router
     hub.tasks.on_claude_down = router.claude_down(hub.tasks.on_claude_down)
+    hub.register_command("task_mode", router.on_mode)  # (then the hub's own)
+    hub.add_task_sink(router.on_task_event)
     hub.register_command("task_send", router.on_send)
     hub.register_command("task_new", router.on_new)
     hub.register_command("model_router_route", router.cmd_route)  # (fast: a waiting message's)

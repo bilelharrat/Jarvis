@@ -51,6 +51,7 @@ EARLY = 1.0  # the wait ends this much before the hold, so the note goes first
 LOOK_AGAIN = 60.0
 RESET = "Claude's limit has reset: carrying on."
 NOW = "Trying Claude again now."
+LEFT = "On {name} now: it no longer waits for Claude's usage limit."
 
 CARRY_ON = (
     "[Note from the app: Claude's usage limit stopped this session at {at}. It has reset "
@@ -63,6 +64,8 @@ ZH = {
     "Claude's usage limit is reached: Eden Code waits until {time} and carries on then.": "已达到 Claude 的用量上限：Eden Code 会等到{time}，然后接着做。",
     "Claude's limit has reset: carrying on.": "Claude 的用量上限已重置：接着做。",
     "Trying Claude again now.": "现在再试一次 Claude。",
+    "On {name} now: it no longer waits for Claude's usage limit.": "现在用的是{name}：不再等 Claude 的用量上限。",
+    "another model": "另一个模型",
     "This session isn't waiting for Claude.": "这个会话没有在等 Claude。",
     "There's no fallback model to move it to.": "没有可以换过去的备用模型。",
     "Claude's usage limit": "Claude 的用量上限",
@@ -244,6 +247,32 @@ class LimitWait:
         self.hub.tasks.send(task.id, CARRY_ON.format(at=_clock(since)), note=True)  # (for Claude)
         self.hub.tasks._changed()
         return ""
+
+    def leave(self, task: Any, name: str = "") -> None:
+        """The waiting session moved to another provider's model (picked from the menu, or
+        by Model Router): Claude's limit isn't its to wait out any more. The wait ends now,
+        with no "Claude's limit has reset" note for a model that never had the limit, and
+        the messages queued meanwhile go on to the model it's on now."""
+        if task.hold_until <= 0:
+            return
+        wait = self.waits.pop(task.id, None)
+        if wait is not None and wait is not asyncio.current_task():
+            wait.cancel()
+        task.hold_until = 0.0
+        task.falling_back = False
+        self.since.pop(task.id, None)
+        self.hub.tasks._log(
+            task,
+            "system",
+            self.say(LEFT, name=name or self.tr("another model")),
+        )
+        task.stirred.set()  # (an open session waiting out the limit takes them up now)
+        tm = self.hub.tasks
+        idle = task.handle is None or task.handle.done()
+        if idle and not task.inbox.empty() and task.status != "stopped":
+            task.status, task.restarts = "running", 0
+            task.handle = asyncio.create_task(tm._session(task))
+        tm._changed()
 
     def cmd(self, msg: dict[str, Any]) -> None:
         task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))  # (not a number: none)

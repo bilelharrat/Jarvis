@@ -13,7 +13,13 @@ What's translated:
   pictures and PDFs (as inline data), tool calls and their results (pictures in results too);
 - tools, as Gemini function declarations with their JSON Schemas, and tool_choice;
 - streaming, as Anthropic's server-sent events (message_start, content blocks, text and
-  input_json deltas, message_delta with the stop reason and usage, message_stop);
+  input_json deltas, message_delta with the stop reason and usage, message_stop). The
+  usage carries the request's size (input_tokens: an estimate at the start, Google's count
+  at the end), which Claude Code reads to know when to compact the conversation; without
+  it a long Gemini session would grow until Google turns it down;
+- a reply that isn't one (a blocked prompt, a safety stop, a tool call Gemini couldn't
+  write, a stream that ends without finishing, an empty answer) as Anthropic's error, never
+  as an empty answer taken as done;
 - Gemini's thought signatures, which Gemini 3 needs back with each tool call: kept here by
   tool-call id and put back on the call when Claude Code sends its history again;
 - errors, as Anthropic error JSON with the matching status (429 stays a rate limit).
@@ -265,6 +271,12 @@ FINISH = {
     "SAFETY": "refusal",
     "RECITATION": "refusal",
 }
+# The finishes that are an answer; any other is Gemini not answering (Stream.problem).
+ANSWERED = frozenset({"STOP", "MAX_TOKENS"})
+# Of the others, what Google's own rules stopped (asking again gets the same).
+REFUSED = frozenset(
+    {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "LANGUAGE"}
+)
 
 
 class Stream:
@@ -279,6 +291,10 @@ class Stream:
         self.finish = ""
         self.input_tokens = input_tokens
         self.output_tokens = 0
+        # The reply's tokens and its thinking's, as Google last counted each (a chunk may
+        # carry one without the other): output_tokens is their sum, each counted once.
+        self._answer_tokens = self._thought_tokens = 0
+        self.blocked = ""  # promptFeedback.blockReason: Google turned the prompt down
         self.blocks: list[dict[str, Any]] = []  # the whole message, for a non-streamed reply
         # The open text block's pieces, its text once it closes (added to a string piece by
         # piece, a long reply copied all of itself again for each piece: 1.5 s for a MB).
@@ -314,9 +330,12 @@ class Stream:
         usage = data.get("usageMetadata") or {}
         if usage:
             self.input_tokens = usage.get("promptTokenCount", self.input_tokens)
-            self.output_tokens = usage.get("candidatesTokenCount", self.output_tokens) + usage.get(
-                "thoughtsTokenCount", 0
-            )
+            self._answer_tokens = usage.get("candidatesTokenCount", self._answer_tokens)
+            self._thought_tokens = usage.get("thoughtsTokenCount", self._thought_tokens)
+            self.output_tokens = self._answer_tokens + self._thought_tokens
+        feedback = data.get("promptFeedback")
+        if isinstance(feedback, dict) and feedback.get("blockReason"):
+            self.blocked = str(feedback["blockReason"])[:60]
         for candidate in (data.get("candidates") or [])[:1]:
             for part in (candidate.get("content") or {}).get("parts") or []:
                 if part.get("thought"):
@@ -396,6 +415,30 @@ class Stream:
     def stop_reason(self) -> str:
         return "tool_use" if self.used_tools else FINISH.get(self.finish, "end_turn")
 
+    def problem(self, streamed: bool = True) -> tuple[str, bool]:
+        """Why what Google sent isn't an answer, in words ("" when it is one), and whether
+        Google's own rules stopped it (asking again gets the same). Not one: a prompt Google
+        blocked, a finish other than STOP or MAX_TOKENS (a safety stop, a tool call it
+        couldn't write: MALFORMED_FUNCTION_CALL), a stream that ended with no finish at all
+        (cut off), or a STOP with nothing said and no tool called."""
+        if self.blocked:
+            return f"Gemini turned the request down ({self.blocked}).", True
+        if self.finish and self.finish not in ANSWERED:
+            if self.finish == "MALFORMED_FUNCTION_CALL":
+                return (
+                    "Gemini wrote a tool call it couldn't finish (MALFORMED_FUNCTION_CALL).",
+                    False,
+                )
+            refused = self.finish in REFUSED
+            return f"Gemini stopped without an answer ({self.finish[:60]}).", refused
+        if streamed and not self.finish:
+            return "Gemini's answer stopped before it finished; try again.", False
+        said = self._words or any(b.get("text") for b in self.blocks)
+        if self.finish != "MAX_TOKENS" and not self.used_tools and not said:
+            # (out of tokens before a word, its thinking used them: an answer, if a short one)
+            return "Gemini answered with nothing.", False
+        return "", False
+
     @classmethod
     def failed(cls, message: str, kind: str = "api_error") -> str:
         """Anthropic's error event: a stream that didn't finish ends in it, and Claude Code
@@ -409,7 +452,11 @@ class Stream:
                 "message_delta",
                 {
                     "delta": {"stop_reason": self.stop_reason(), "stop_sequence": None},
-                    "usage": {"output_tokens": self.output_tokens},
+                    # (input_tokens: Google's count, over message_start's estimate)
+                    "usage": {
+                        "input_tokens": self.input_tokens,
+                        "output_tokens": self.output_tokens,
+                    },
                 },
             )
             + self.event("message_stop", {})
@@ -470,6 +517,14 @@ class GeminiRelay:
                 "POST", url, json=payload, headers={**headers, "Content-Type": "application/json"}
             )
             response = await self.client.send(request, stream=True)
+            if response.status_code in (400, 401, 403, 404) and last is not None:
+                # The other endpoint didn't take it either. A 404 (a retired model, with a
+                # key that's fine where it was sent first) is the one to answer with, so
+                # messages() can move it to its successor; else this one, as before.
+                if last.status_code == 404 and response.status_code != 404:
+                    await response.aclose()
+                    return last
+                return response
             if response.status_code in (400, 401, 403, 404) and not last:
                 body = (await response.aread()).decode(errors="replace")
                 if (
@@ -522,7 +577,8 @@ class GeminiRelay:
             text = await self._error_text(response)
             await response.aclose()
             return (*anthropic_error(response.status_code, f"Gemini: {text}"), None)
-        converter = Stream(model, self.signatures)
+        # (the request's size from the start: Claude Code compacts the conversation by it)
+        converter = Stream(model, self.signatures, count_tokens(body))
         if not stream:
             try:
                 raw = await response.aread()
@@ -535,6 +591,10 @@ class GeminiRelay:
             except (ValueError, RecursionError):  # a Wi-Fi sign-in page, a proxy's: not Gemini
                 return (*anthropic_error(400, "Gemini didn't answer in JSON."), None)
             converter.chunk(data if isinstance(data, dict) else {})
+            why, refused = converter.problem(streamed=False)
+            if why:
+                log.warning("gemini: no answer: %s", why)
+                return (*anthropic_error(400 if refused else 502, why), None)
             return 200, converter.message(), None
 
         async def events() -> AsyncIterator[str]:
@@ -569,8 +629,13 @@ class GeminiRelay:
                 await response.aclose()
             if not failed and not heard:
                 failed = "Gemini answered, but no streamed reply came."
+            refused = False
+            if not failed:
+                failed, refused = converter.problem()
+                if failed:
+                    log.warning("gemini: no answer: %s", failed)
             if failed:
-                yield Stream.failed(failed)
+                yield Stream.failed(failed, "invalid_request_error" if refused else "api_error")
                 return
             yield converter.end()
 

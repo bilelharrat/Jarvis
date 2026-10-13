@@ -494,3 +494,135 @@ async def test_a_retired_model_is_answered_by_the_newest_of_its_family():
     )
     assert status == 200 and body["content"][0]["text"] == "OK."
     assert "/models/gemini-flash-latest:" in seen[-1]
+
+
+# ── the 2026-10-13 audit: usage, failures that aren't answers, the retired-model rescue ──
+
+
+async def streamed(chunks, model="gemini-3.8-flash", body=None):
+    relay, _ = fake_google(chunks)
+    status, _, events = await relay.messages(
+        KEY,
+        body
+        or {"model": model, "stream": True, "messages": [{"role": "user", "content": "x" * 4000}]},
+    )
+    assert status == 200
+    return events_of("".join([e async for e in events]))
+
+
+async def test_the_usage_carries_the_requests_size_for_claude_codes_compaction():
+    """Claude Code sums the last reply's usage (input + cache + output) to know how full the
+    context is, taking message_delta's input_tokens over message_start's when above 0. Both
+    used to say 0, so a Gemini session never compacted."""
+    got = await streamed(
+        [
+            {
+                "candidates": [{"content": {"parts": [{"text": "hi"}]}, "finishReason": "STOP"}],
+                "usageMetadata": {"promptTokenCount": 1234, "candidatesTokenCount": 2},
+            }
+        ]
+    )
+    start = got[0][1]["message"]["usage"]
+    assert start["input_tokens"] >= 1000  # the estimate (4,000 characters of prompt)
+    delta = next(d for k, d in got if k == "message_delta")
+    assert delta["usage"] == {"input_tokens": 1234, "output_tokens": 2}  # Google's count
+
+
+async def test_thinking_tokens_are_counted_once():
+    stream = gemini_proxy.Stream("m", Signatures())
+    stream.chunk({"usageMetadata": {"candidatesTokenCount": 10, "thoughtsTokenCount": 40}})
+    stream.chunk({"usageMetadata": {"thoughtsTokenCount": 40}})  # (no candidates count here)
+    stream.chunk({"usageMetadata": {"promptTokenCount": 5}})
+    assert stream.output_tokens == 50
+
+
+@pytest.mark.parametrize(
+    "chunks, says, kind",
+    [
+        (
+            [
+                {
+                    "candidates": [
+                        {"content": {"parts": []}, "finishReason": "MALFORMED_FUNCTION_CALL"}
+                    ]
+                }
+            ],
+            "MALFORMED_FUNCTION_CALL",
+            "api_error",
+        ),
+        (
+            [{"candidates": [{"content": {"parts": []}, "finishReason": "SAFETY"}]}],
+            "SAFETY",
+            "invalid_request_error",
+        ),
+        (
+            [{"promptFeedback": {"blockReason": "PROHIBITED_CONTENT"}}],
+            "PROHIBITED",
+            "invalid_request_error",
+        ),
+        (
+            [{"candidates": [{"content": {"parts": [{"text": "half an ans"}]}}]}],
+            "before it finished",
+            "api_error",
+        ),
+        (
+            [{"candidates": [{"content": {"parts": []}, "finishReason": "STOP"}]}],
+            "nothing",
+            "api_error",
+        ),
+    ],
+)
+async def test_a_reply_that_isnt_an_answer_ends_in_an_error(chunks, says, kind):
+    got = await streamed(chunks)
+    assert got[-1][0] == "error" and "message_stop" not in [k for k, _ in got]
+    assert says in got[-1][1]["error"]["message"] and got[-1][1]["error"]["type"] == kind
+
+
+async def test_an_answer_cut_short_by_max_tokens_is_still_an_answer():
+    got = await streamed(
+        [{"candidates": [{"content": {"parts": []}, "finishReason": "MAX_TOKENS"}]}]
+    )
+    assert [k for k, _ in got][-2:] == ["message_delta", "message_stop"]
+
+
+async def test_a_whole_reply_that_isnt_an_answer_is_an_error():
+    relay, _ = fake_google(reply={"candidates": [{"content": {}, "finishReason": "SAFETY"}]})
+    status, body, _ = await relay.messages(
+        KEY, {"model": "gemini-3.8-flash", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    assert status == 400 and "SAFETY" in body["error"]["message"]
+    relay, _ = fake_google(reply={"promptFeedback": {"blockReason": "OTHER"}})
+    status, body, _ = await relay.messages(
+        KEY, {"model": "gemini-3.8-flash", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    assert status == 400 and "turned the request down" in body["error"]["message"]
+
+
+async def test_a_retired_model_is_rescued_for_an_ai_studio_key_too():
+    """The Gemini API says 404 (retired); Vertex, tried next, turns the AI Studio key down
+    (401). The 404 is what's answered with, so the model moves to its successor, instead of
+    a misleading "Google didn't accept the key"."""
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        seen.append(url)
+        if "aiplatform" in url:
+            return httpx.Response(401, json={"error": {"message": "API keys are not supported"}})
+        if "gemini-2.5-flash:" in url:
+            return httpx.Response(
+                404, json={"error": {"message": "models/gemini-2.5-flash is not found"}}
+            )
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [{"content": {"parts": [{"text": "OK."}]}, "finishReason": "STOP"}]
+            },
+        )
+
+    relay = GeminiRelay(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    status, body, _ = await relay.messages(
+        KEY, {"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    assert status == 200 and body["content"][0]["text"] == "OK."
+    assert "/models/gemini-flash-latest:" in seen[-1]
