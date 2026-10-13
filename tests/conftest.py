@@ -20,6 +20,32 @@ os.environ.setdefault("JARVIS_LABS", "all")
 from jarvis.speech import Speaker
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _shells_keep_no_owner_history(tmp_path_factory):
+    """Real shells the tests start (terminals, "!" commands) read and write a history of
+    their own, never the owner's ~/.zsh_history or ~/.bash_history."""
+    home = tmp_path_factory.mktemp("shell-home")
+    saved = {k: os.environ.get(k) for k in ("ZDOTDIR", "HISTFILE")}
+    os.environ["ZDOTDIR"] = str(home)
+    os.environ["HISTFILE"] = str(home / "history")
+    yield
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
+@pytest.fixture(autouse=True)
+def _no_real_claude_engine(monkeypatch):
+    """The checkup finds no Claude Code engine of its own: running the real one (its
+    --version, its auth status) rewrites the owner's ~/.claude.json and reads the Keychain.
+    Tests that need an engine give their probe one."""
+    from jarvis.features.ops import doctor
+
+    monkeypatch.setattr(doctor, "claude_cli", lambda: None)
+
+
 def strip_note(query):
     """A query without the "[Note from the app: …]" the hub puts in front of it."""
     if isinstance(query, str) and query.startswith("[Note from the app:"):

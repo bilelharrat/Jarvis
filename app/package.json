@@ -7,6 +7,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "cd .. && node --test tests/web/*.test.mjs",
     "start:eden-code": "EDEN_CODE=1 electron .",
     "package": "node scripts/bake-home.js && electron-packager . J.A.R.V.I.S --platform=darwin --arch=arm64 --out=dist --overwrite --icon=build/icon.icns --extend-info=build/extend-info.plist --app-bundle-id=com.bshventures.jarvis --ignore=^/dist --ignore=^/scripts --ignore='^/build/(?!eden-code(/icon-1024\\.png)?$)' && sh scripts/finish-app.sh",
     "package:eden-code": "node scripts/bake-home.js && node scripts/eden-code/package.js",

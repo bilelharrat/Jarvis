@@ -4,3 +4,6 @@ __pycache__/
 .env
 .pytest_cache/
 .ruff_cache/
+
+# a link to the main checkout's packages, in worktrees
+/app/node_modules

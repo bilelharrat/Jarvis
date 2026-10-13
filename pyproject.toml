@@ -43,6 +43,7 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-timeout>=2.4.0",
     "ruff>=0.16.9",
 ]
 
@@ -50,6 +51,7 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["tests"]
+timeout = 300
 markers = ["eden_default: runs with the real default wake word (Eden), not the legacy Jarvis one"]
 
 [tool.ruff]
