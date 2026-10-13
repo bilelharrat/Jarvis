@@ -2272,7 +2272,33 @@ class Hub:
             return True
         if self.meeting is not None:
             return True
+        if self._code_work_running():
+            return True
         return any(t.get("status") in ("running", "waiting") for t in self.tasks.public())
+
+    def _code_work_running(self) -> bool:
+        """Eden Code's own work a restart would cut off, besides its sessions: a job running
+        in one of its terminals, a ! command, a test run, a check of a session's preview.
+        (An open terminal sitting at its prompt loses nothing: it isn't counted.) A part
+        that can't be asked counts as idle: it never holds an update back for good."""
+        terms = getattr(self, "code_terminal", None)
+        if terms is not None:
+            if getattr(terms, "runs", None):
+                return True
+            shells = getattr(getattr(terms, "shells", None), "items", None) or {}
+            for shell in list(shells.values()):
+                with contextlib.suppress(Exception):
+                    if not shell.exited and shell.busy():
+                        return True
+        verify = getattr(self, "code_verify", None)
+        if verify is not None:
+            runs = getattr(getattr(verify, "tests", None), "runs", None) or {}
+            if any(getattr(r, "status", "") == "running" for r in list(runs.values())):
+                return True
+            checks = getattr(verify, "sessions", None) or {}
+            if any(getattr(c, "checking", False) for c in list(checks.values())):
+                return True
+        return False
 
     def remote_state(self) -> dict[str, Any]:
         return {
@@ -4803,14 +4829,17 @@ class Hub:
     # ── Claude Code deck: projects and git ──
 
     async def _git(self, path: Path, *args: str, timeout: float = 15) -> str:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "-C",
-            str(path),
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "-C",
+                str(path),
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError:  # no git on this Mac (or a folder gone): no answer, as for no repo
+            return ""
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout)
         except TimeoutError:  # a hung credential prompt, a huge repo: give up on it
