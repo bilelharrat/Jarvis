@@ -94,8 +94,12 @@ class Cloud:
 
     # ── starting in the cloud ──
 
-    async def task_new(self, msg: dict[str, Any]) -> Any:
-        """The composer's new session with Cloud on; anything else is left to the hub."""
+    async def task_new(self, msg: dict[str, Any], asked: bool = True) -> Any:
+        """The composer's new session with Cloud on; anything else is left to the hub.
+
+        asked: the owner switched Cloud on themselves, so the hand-off card doesn't ask again.
+        start_session_in_cloud passes False: the assistant's say-so (which an email or a web
+        page it read could have put in its mouth) always gets the hand-off card."""
         if not msg.get("cloud") or msg.get("session_id"):
             return False
         prompt = str(msg.get("prompt") or "").strip()
@@ -116,11 +120,12 @@ class Cloud:
         fresh = [tm.tasks[i] for i in set(tm.tasks) - known]
         if not fresh:
             return None
-        self.hub._spawn(self.to_cloud(fresh[0], alias, prompt))
+        self.hub._spawn(self.to_cloud(fresh[0], alias, prompt, preapproved=asked))
         return None
 
-    async def to_cloud(self, task: Any, alias: str, prompt: str) -> str:
-        """A new session, once its isolated copy is made, carried on there from the start."""
+    async def to_cloud(self, task: Any, alias: str, prompt: str, preapproved: bool = True) -> str:
+        """A new session, once its isolated copy is made, carried on there from the start.
+        Not preapproved (the assistant's tool), it never falls back to running here either."""
         tm = self.hub.tasks
         task.last_action = self.tr(f"Starting on {alias}…")
         tm._changed()
@@ -129,13 +134,38 @@ class Cloud:
             await asyncio.sleep(0.5)
             waited += 0.5
         if not (task.workspace or {}).get("slug"):
+            if not preapproved:
+                tm._log(
+                    task, "system", self.tr("Couldn't make an isolated copy, so it didn't start.")
+                )
+                return "Not started: no isolated copy."
             tm._log(task, "system", self.tr("Couldn't make an isolated copy, so it runs here."))
             tm.send(task.id, prompt)
             return "It runs here: no isolated copy."
-        said = await self.desk().hand_off(task, alias, prompt, preapproved=True)
+        said = await self.desk().hand_off(task, alias, prompt, preapproved=preapproved)
         if not said.startswith("Handed off"):
             tm._log(task, "system", self.tr(said))
         return said
+
+    def known_project(self, project: str) -> bool:
+        """A folder the owner already works in: one an Eden Code session of theirs is in, or
+        one on their project list. Anything else (any repo on the Mac an email names) isn't
+        copied to the cloud on the assistant's say-so."""
+        tm = self.hub.tasks
+        used = {str(t.cwd) for t in tm.tasks.values() if t.kind == "code" and t.cwd}
+        if project in used:
+            return True
+        resolve = getattr(tm, "resolve_dir", None)
+        if resolve is None:
+            return False
+        try:
+            path = resolve(project)
+        except ValueError:
+            return False
+        if str(path) in used:
+            return True
+        names = tm.projects() if hasattr(tm, "projects") else []
+        return any(tm.project_path(name).resolve() == path for name in names)
 
     # ── I'm heading out ──
 
@@ -247,7 +277,8 @@ class Cloud:
             "start_session_in_cloud",
             "Start a new Eden Code session on the owner's cloud machine, where it keeps "
             "working while the Mac is asleep. prompt: what to do. project: the project's folder "
-            "or name (default: the latest session's).",
+            "or name, one the owner already works in (default: the latest session's). A card "
+            "shows what would leave the Mac and asks first.",
             {
                 "type": "object",
                 "properties": {"prompt": {"type": "string"}, "project": {"type": "string"}},
@@ -264,10 +295,19 @@ class Cloud:
                 return text("Say what to do, and in which project.")
             if not cloud.alias():
                 return text("Add a cloud machine in Eden Code settings › Machines first.")
+            if not cloud.known_project(project):
+                return text(
+                    "That isn't a project the owner works in: name one of their projects or "
+                    "a folder one of their sessions is in."
+                )
             await cloud.task_new(
-                {"type": "task_new", "cloud": True, "prompt": prompt, "directory": project}
+                {"type": "task_new", "cloud": True, "prompt": prompt, "directory": project},
+                asked=False,
             )
-            return text(f"Started on {cloud.alias()}: it carries on there while the Mac sleeps.")
+            return text(
+                f"A card asks the owner before it starts on {cloud.alias()}; once they OK it, it "
+                "carries on there while the Mac sleeps."
+            )
 
         return create_sdk_mcp_server(SERVER, tools=[move_sessions_to_cloud, start_session_in_cloud])
 
