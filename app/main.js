@@ -1868,6 +1868,6 @@ app.on('before-quit', () => {
   share.withdraw(DATA_DIR, process.pid);
   showHandHud(false);
   globalShortcut.unregisterAll();
-  if (backend) plat.killTree(backend);
+  if (backend) plat.killTree(backend, { outlive: true }); // (killed after 8 s if it hangs, by a watcher that outlives the app: W28)
 });
 app.on('window-all-closed', () => {});
