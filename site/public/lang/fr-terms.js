@@ -8,7 +8,7 @@ SiteI18n.add({
   ],
   exact: {
     'Terms of Service': 'Conditions d’utilisation',
-    'Effective October 7, 2026': 'En vigueur le 7 octobre 2026',
+    'Effective October 12, 2026': 'En vigueur le 12 octobre 2026',
     'Your account': 'Votre compte',
     'You sign in with Apple, Google, a passkey, or a device you’ve already signed in. Keep your devices and sign-in methods secure; you’re responsible for what happens under your account. You must be at least 13 (or the minimum age where you live) to use Eden. One person per account; team spaces and delegates are how you share.':
       'Vous vous connectez avec Apple, Google, une clé d’accès, ou un appareil déjà connecté. Protégez vos appareils et vos moyens de connexion ; vous êtes responsable de ce qui se passe sous votre compte. Vous devez avoir au moins 13 ans (ou l’âge minimum là où vous vivez) pour utiliser Eden. Une personne par compte ; les espaces d’équipe et les délégués servent au partage.',
@@ -31,6 +31,9 @@ SiteI18n.add({
     'Don’t use Eden to break the law, harm others, send spam, try to get around its limits or security, overload it, or reverse-engineer it. Follow the usage policies of the AI providers whose models you use. We may suspend or close accounts that do these things.':
       'N’utilisez pas Eden pour enfreindre la loi, nuire à autrui, envoyer du spam, tenter de contourner ses limites ou sa sécurité, le surcharger, ou en faire de l’ingénierie inverse. Respectez les politiques d’utilisation des fournisseurs d’IA dont vous utilisez les modèles. Nous pouvons suspendre ou fermer les comptes qui le font.',
     'Your content': 'Votre contenu',
+    'Shared content, reporting and blocking': 'Contenu partagé, signalement et blocage',
+    'You only see someone else’s content in Eden when they send you a link to it (a shared chat or a published page); there are no public profiles, feeds or messages from strangers. Don’t share content that is illegal, hateful, harassing, sexually exploitative, or that infringes someone’s rights. Every shared chat has a “Report this chat” link at the bottom, and you can also email <a href="mailto:support@askeden.com">support@askeden.com</a> with the link. We review reports and, where content breaks these terms, we remove the shared link or published page and may suspend or close the account that made it. To stop seeing something, close the link; to stop sharing, revoke the link in Eden (your chat’s share menu), which makes it stop working at once.':
+      'Vous ne voyez le contenu d’une autre personne dans Eden que si elle vous envoie un lien vers celui-ci (une conversation partagée ou une page publiée) ; il n’y a ni profils publics, ni fil d’actualité, ni messages d’inconnus. Ne partagez pas de contenu illégal, haineux, harcelant, sexuellement abusif ou qui porte atteinte aux droits d’autrui. Chaque conversation partagée comporte un lien « Signaler cette conversation » en bas de page, et vous pouvez aussi écrire à <a href="mailto:support@askeden.com">support@askeden.com</a> avec le lien. Nous examinons les signalements et, lorsqu’un contenu enfreint ces conditions, nous supprimons le lien partagé ou la page publiée et pouvons suspendre ou fermer le compte qui l’a créé. Pour ne plus voir un contenu, fermez le lien ; pour arrêter de partager, révoquez le lien dans Eden (menu de partage de votre conversation), ce qui le désactive immédiatement.',
     'Third-party services': 'Services tiers',
     'Eden works with services we don’t control (AI providers, Google, Apple, Stripe, Cloudflare). Their terms apply to your use of them, and we aren’t responsible for them.':
       'Eden fonctionne avec des services que nous ne contrôlons pas (fournisseurs d’IA, Google, Apple, Stripe, Cloudflare). Leurs conditions s’appliquent à votre utilisation de ces services, et nous n’en sommes pas responsables.',
@@ -48,8 +51,8 @@ SiteI18n.add({
     'Help': 'Aide',
   },
   blocks: {
-    'These terms are an agreement between you and Harrat Global Holdings, Inc. (“we”, “us”) for Eden: askeden.com, the Eden apps and J.A.R.V.I.S. (together, “Eden”). By using Eden you agree to them. Questions: support@askeden.com.':
-      'Ces conditions constituent un accord entre vous et Harrat Global Holdings, Inc. (« nous ») pour Eden : askeden.com, les apps Eden et J.A.R.V.I.S. (ensemble, « Eden »). En utilisant Eden, vous les acceptez. Questions : <a href="mailto:support@askeden.com">support@askeden.com</a>.',
+    'These terms are an agreement between you and Harrat Global Holdings, Inc. (“we”, “us”) for Eden: askeden.com, the Eden apps and Eden Secretary (together, “Eden”). By using Eden you agree to them. Questions: support@askeden.com.':
+      'Ces conditions constituent un accord entre vous et Harrat Global Holdings, Inc. (« nous ») pour Eden : askeden.com, les apps Eden et Eden Secretary (ensemble, « Eden »). En utilisant Eden, vous les acceptez. Questions : <a href="mailto:support@askeden.com">support@askeden.com</a>.',
     'What you write and upload is yours, and what Eden generates for you is yours to use, as far as the law and the model providers allow. You give us only the permission we need to run Eden for you: to store it where you ask (for example, encrypted sync or a published page) and to send it to the services that answer you. Our Privacy Policy says how.':
       'Ce que vous écrivez et envoyez vous appartient, et ce qu’Eden génère pour vous est à vous de l’utiliser, dans la mesure permise par la loi et par les fournisseurs de modèles. Vous nous donnez uniquement l’autorisation nécessaire pour faire fonctionner Eden pour vous : le stocker là où vous le demandez (par exemple, la synchronisation chiffrée ou une page publiée) et l’envoyer aux services qui vous répondent. Notre <a href="/privacy">Politique de confidentialité</a> explique comment.',
   },
