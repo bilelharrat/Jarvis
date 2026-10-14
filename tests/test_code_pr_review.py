@@ -192,6 +192,27 @@ async def test_an_unchanged_head_is_never_reviewed_again_and_a_new_one_is(hub):
     assert len(asked) == 2
 
 
+async def test_a_review_github_took_before_its_rate_limit_isnt_posted_again_after_a_restart(hub, monkeypatch):
+    opted_in(hub)
+    pull = a_pull(hub)
+    fake_ai(hub, FINDINGS)
+    reviews = hub.code_pr_reviews
+    real = reviews.client.create_review
+
+    async def took_then_limited(*a, **kw):
+        await real(*a, **kw)
+        raise github.RateLimited("rate limit used up", time.time() + 600)
+
+    monkeypatch.setattr(reviews.client, "create_review", took_then_limited)
+    assert await reviews.tick() == []
+    assert len(hub.fake.posted_reviews) == 1
+    reviews._store = None  # (the app restarts: what's on disk is all it knows)
+    monkeypatch.setattr(reviews.client, "create_review", real)
+    await reviews.tick()
+    assert len(hub.fake.posted_reviews) == 1
+    assert reviews.store()["heads"][f"acme/app#{pull['number']}"] == "head1"
+
+
 async def test_drafts_and_pull_requests_older_than_the_opt_in_wait_for_the_owner(hub):
     opted_in(hub, since=time.time())
     old = a_pull(hub, updated="2020-01-01T00:00:00Z")
