@@ -339,6 +339,9 @@ class BugRun:
     spend_cap: float = SPEND_DEFAULT
     spent: float = 0.0  # in steps that ended (and sessions before a resume)
     counted: float = 0.0  # how much of the open session's own spend is in spent already
+    # Claude Code's running total for the run's session as last seen: a resume's first
+    # report carries it on (REL-5), so it's where the resumed session's own spend starts.
+    session_cost: float = 0.0
     sweep_model: str = ""
     fix_model: str = ""
     model_note: str = ""
@@ -840,7 +843,10 @@ class BugFix:
             run = _load_run(raw)
             if run is None:
                 continue
-            if run.state == "running":  # the app quit while it ran: paused, to resume
+            # The app quit while it ran, or while it was stopping (REL-12: saved so by another
+            # run's save, it stayed "stopping" for good, so neither resumed nor landed):
+            # paused, to resume.
+            if run.state in ("running", "stopping"):
                 run.state, run.why = "paused", "restart"
             self.runs.append(run)
 
@@ -863,9 +869,6 @@ class BugFix:
     def find(self, run_id: str) -> BugRun | None:
         self.load()
         return next((r for r in self.runs if r.id == run_id), None)
-
-    def running_in(self, project: str) -> BugRun | None:
-        return next((r for r in self.active.values() if r.project == project), None)
 
     # ── words ──
 
@@ -1040,6 +1043,15 @@ class BugFix:
         except ValueError as exc:
             return str(exc)
         task.allow_edits = True  # edits in its own copy are its work (the guard narrows them)
+        before = run.session_cost if isinstance(run.session_cost, int | float) else 0.0
+        if resume and before > 0:
+            # REL-5: the resumed conversation's first report is Claude Code's total for it,
+            # spend from before the resume included (counted already: in run.spent). As a
+            # fork's is: that total is where this session starts, none of it its own.
+            task.cost_unknown = False
+            task.cost_usd = task.cost_inherited = task.last_total = float(before)
+        elif not resume:
+            run.session_cost = 0.0  # (a new conversation: Claude Code's total starts at 0)
         run.task_id, run.counted = task.id, 0.0  # (a new session: none of its spend counted)
         run.state, run.why = "running", ""
         self.active[task.id] = run
@@ -1385,6 +1397,8 @@ class BugFix:
         now = spent(task)
         run.spent = round(run.spent + max(0.0, now - run.counted), 4)
         run.counted = max(run.counted, now)
+        known = run.session_cost if isinstance(run.session_cost, int | float) else 0.0
+        run.session_cost = max(float(known), task.cost_usd or 0.0)
 
     def adopt_copy(self, run: BugRun, task: Any) -> None:
         ws = task.workspace or {}
@@ -2208,9 +2222,10 @@ class BugFix:
             f"${run.spent:.2f} of ${run.spend_cap:.2f}."
         )
 
-    def receipt(self, run: BugRun, task: Any) -> None:
+    async def receipt(self, run: BugRun, task: Any) -> None:
         folder = self.copy_folder(run, task)
-        files = changed_since(folder, run.base) if run.base else []
+        # (git add -A and a diff in the copy: off the event loop, REL-19)
+        files = await asyncio.to_thread(changed_since, folder, run.base) if run.base else []
         last = run.suites.get(f"r{ROUNDS}-fix") or run.suites.get(f"r{run.round}-fix") or {}
         counts = last.get("counts") or {}
         tests = (
@@ -2240,14 +2255,14 @@ class BugFix:
         if self.active.get(task.id) is run:
             del self.active[task.id]
         self.waiting.pop(task.id, None)
-        run.state = "done" if why == "finished" else ("paused" if why == "restart" else "stopped")
-        run.why, run.ended = why, time.time()
         self.account(run, task)
         run.session_id = task.session_id or run.session_id
         self.adopt_copy(run, task)
-        if why == "finished":
+        if why == "finished":  # (in the transcript before the run shows as done)
             with contextlib.suppress(Exception):
-                self.receipt(run, task)
+                await self.receipt(run, task)
+        run.state = "done" if why == "finished" else ("paused" if why == "restart" else "stopped")
+        run.why, run.ended = why, time.time()
         if task.busy:
             with contextlib.suppress(Exception):
                 await self.hub.tasks.interrupt(task.id)

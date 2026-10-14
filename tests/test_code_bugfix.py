@@ -1222,3 +1222,66 @@ async def test_a_run_gets_no_web_no_owner_settings_and_no_mcp_but_its_dev_server
         assert why not in (None, "card"), (tool, why)
     assert desk.refusal(run, task, "mcp__jarvis_dev__dev_server_logs", {"name": "web"}) is None
     del desk.active[10]
+
+
+async def test_a_resumed_runs_earlier_spend_is_not_counted_twice(hub, projects, monkeypatch):
+    """REL-5: a resumed run's session took its first cost report (Claude Code's running
+    total for the conversation, the spend before the resume included) as its own: $3 then
+    a $0.40 turn counted $6.40, and the run stopped early at its ceiling."""
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    run = BugRun("r1", "calc", spend_cap=5.0, session_id="sess-1")
+    first = ClaudeTask(id=1, prompt="", cwd=projects)
+    hub.tasks._count_cost(first, 3.0)
+    desk.account(run, first)  # (the app quit: accounted)
+    assert run.spent == 3.0
+    resumed = ClaudeTask(id=2, prompt="", cwd=projects, cost_unknown=True)
+    monkeypatch.setattr(hub.tasks, "start", lambda *a, **k: resumed)
+    monkeypatch.setattr(desk, "save", lambda: None)
+    assert desk.open_session(run, str(projects), "", resume="sess-1") is resumed
+    hub.tasks._count_cost(resumed, 3.4)  # its first report: the conversation's total
+    desk.account(run, resumed)
+    assert run.spent == 3.4
+    hub.tasks._count_cost(resumed, 3.5)
+    desk.account(run, resumed)
+    assert run.spent == 3.5
+    desk.active.pop(2, None)
+
+
+async def test_a_run_saved_while_stopping_can_resume_after_a_restart(hub, projects):
+    """REL-12: only "running" was put right on load; a run saved while "stopping" (another
+    run's save) stayed so for good: never resumed, never landed."""
+    desk = hub.code_bugfix
+    desk.load()
+    run = BugRun("r1", "calc", spend_cap=5.0, folder=str(projects), slug="s1", state="stopping")
+    desk.runs.append(run)
+    desk.save()
+    desk._loaded, desk.runs = False, []
+    desk.load()
+    [again] = desk.runs
+    assert (again.state, again.why) == ("paused", "restart")
+
+
+async def test_the_receipt_s_git_runs_off_the_event_loop(hub, projects, monkeypatch):
+    """REL-19: receipt() ran changed_since (git add -A and a diff in the copy) on the event
+    loop, holding up every window and session while git worked."""
+    import threading
+
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    where = []
+
+    def changed_since(folder, base):
+        where.append(threading.current_thread() is threading.main_thread())
+        return ["calc.py"]
+
+    monkeypatch.setattr(code_bugfix, "changed_since", changed_since)
+    monkeypatch.setattr(desk, "copy_folder", lambda run, task: projects)
+    task = ClaudeTask(id=12, prompt="", cwd=projects)
+    run = BugRun("r1", "calc", base="abc", started=0.0)
+    await desk.receipt(run, task)
+    assert where == [False]
+    assert any(e.get("receipt", {}).get("bugfix") for e in task.transcript)
+    assert not hasattr(desk, "running_in")  # (unused: gone)
