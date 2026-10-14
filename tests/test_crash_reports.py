@@ -222,13 +222,18 @@ def test_a_failure_in_a_loop_is_counted_in_memory_and_written_now_and_then(tmp_p
 
 
 def test_a_deleted_report_never_comes_back_as_a_stub(tmp_path):
+    """The owner's call (2026-10-14): a repeat of a report they deleted is a fresh, full
+    report (not a stub with only a count, and not silently counted into nothing)."""
     rep, _hub, _ = reporter(tmp_path, clock=[1_800_000_000.0 + i * 100 for i in range(50)])
-    first = rep.record("backend", "uncaught", "boom")
+    first = rep.record("backend", "uncaught", "boom", "the stack")
     first.unlink()  # the owner cleared it
-    rep.record("backend", "uncaught", "boom")
-    rep.record("backend", "uncaught", "boom")
+    again = rep.record("backend", "uncaught", "boom", "the stack")
+    rep.record("backend", "uncaught", "boom", "the stack")  # (a repeat of the new one: counted)
     rep.flush()
-    assert kept(tmp_path) == []
+    assert again is not None and kept(tmp_path) == [again]
+    report = json.loads(again.read_text())
+    assert report["message"] == "boom" and report["stack"] == "the stack"
+    assert report["kind"] == "uncaught" and report["versions"] and report["times"] == 2
 
 
 def test_reports_are_named_in_utc_as_the_app_s_own_are(tmp_path, monkeypatch):
