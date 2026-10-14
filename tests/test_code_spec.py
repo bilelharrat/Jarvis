@@ -376,3 +376,24 @@ async def test_a_task_with_the_check_on_waits_for_this_turns_check(spec_hub, mon
     )
     await asyncio.wait_for(going, 2)
     assert spec.media["T1"]["screenshot"] == "http://localhost:3000"
+
+
+async def test_after_a_restart_old_session_ids_never_attach_a_spec_to_new_sessions(
+    spec_hub, monkeypatch
+):
+    """Round 1's D1: session ids start at 1 again each launch, so a spec kept with T1 on
+    session 101 must not take the next launch's session 101 for its task."""
+    hub, desk = spec_hub, spec_hub.code_spec
+    spec = await _running(hub, desk)
+    assert spec.runs == {"T1": 101} and spec.step == "running"
+    monkeypatch.setattr(hub.tasks, "launch", "the-next-launch")  # (the app restarted)
+    again = cs.Specs(hub)
+    [kept] = again.specs
+    assert again.of_session(101) == (None, "") and again.of_session(kept.session) == (None, "")
+    assert kept.step == "stopped" and kept.current == "" and set(kept.runs) == {"T1"}
+    assert not again.covers(101)
+    started = len(asyncio.all_tasks())
+    again.task_event("task_finished", {"id": 101, "task_kind": "code", "status": "done"})
+    assert len(asyncio.all_tasks()) == started  # no check of somebody else's session
+    again.save()
+    assert cs.Specs(hub).specs[0].runs == {"T1": 0}  # (stamped with this launch now)

@@ -254,6 +254,9 @@ class Spec:
     results: dict[str, dict[str, Any]] = field(default_factory=dict)  # R1.2 -> outcome
     media: dict[str, dict[str, Any]] = field(default_factory=dict)  # T1 -> video, screenshot
     started: float = field(default_factory=time.time)
+    # The launch its session ids are from (TaskManager.launch): ids start at 1 again each
+    # launch, so after a restart they'd name other sessions, and are forgotten on load.
+    launch: str = ""
 
     @property
     def root(self) -> Path:
@@ -363,10 +366,32 @@ class Specs:
             for item in raw:
                 with contextlib.suppress(TypeError, ValueError):
                     if isinstance(item, dict):
-                        self._specs.append(Spec(**{k: v for k, v in item.items() if k in fields}))
+                        spec = Spec(**{k: v for k, v in item.items() if k in fields})
+                        self.forget_old_sessions(spec)
+                        self._specs.append(spec)
         return self._specs
 
+    @property
+    def launch(self) -> str:
+        return str(getattr(self.hub.tasks, "launch", ""))
+
+    def forget_old_sessions(self, spec: Spec) -> None:
+        """A spec kept from an earlier launch: its session ids are that launch's, and this
+        one numbers its sessions from 1 again, so they'd match new, unrelated sessions (their
+        turns checked as its tasks, paid reviews, the wrong receipts and pull requests). They
+        are dropped (which tasks ran is kept, so none runs twice), and a spec that was mid-step
+        or running its tasks is stopped: its sessions are gone."""
+        if spec.launch and spec.launch == self.launch:
+            return
+        spec.session = 0
+        spec.runs = {tid: 0 for tid in spec.runs}
+        spec.current = ""
+        if spec.step in STEPS or spec.step == "running":
+            spec.step = "stopped"
+
     def save(self) -> None:
+        for spec in self.specs:
+            spec.launch = self.launch
         with contextlib.suppress(OSError):
             jsonstore.save_json(self.path, [asdict(s) for s in self.specs[-100:]])
         self.publish()
@@ -384,6 +409,8 @@ class Specs:
     def of_session(self, task_id: Any) -> tuple[Spec | None, str]:
         """The spec a session belongs to, and which of its tasks it runs ("" for the spec's
         own session)."""
+        if not task_id:  # (0: a session from an earlier launch, forgotten)
+            return None, ""
         for spec in reversed(self.specs):
             if spec.session == task_id:
                 return spec, ""
