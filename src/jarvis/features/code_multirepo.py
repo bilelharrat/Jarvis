@@ -472,7 +472,11 @@ class MultiDesk:
                 self.desk.conflicts.pop(copy.slug, None)
             await self._end(group)
             for copy in copies:
-                await asyncio.to_thread(worktrees.remove, copy, self.desk.root)
+                await self.desk.taking_away(copy.slug)
+                try:
+                    await asyncio.to_thread(worktrees.remove, copy, self.desk.root)
+                finally:
+                    self.desk.removing.discard(copy.slug)
         await self._forget(group, copies)
         return f"Landed {group.title} in all {len(copies)} repositories."
 

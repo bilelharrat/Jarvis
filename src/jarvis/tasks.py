@@ -1036,6 +1036,26 @@ def _inside(root: Path, raw: str) -> Path | None:
     return path if path == root or root in path.parents else None
 
 
+def _protected_rel(rel: Path, dirs: set[str] | frozenset[str] = frozenset()) -> bool:
+    """Whether a file at this path inside a project (rel: relative to its root) runs code by
+    itself: anything in git's or Claude Code's own folders or Eden's .jarvis/ (plus dirs,
+    pairing's editor folders), .envrc, .vscode/tasks.json, and a git hook manager's config at
+    any depth. Compared casefolded: the Mac's disk doesn't care about case, so to git, Claude
+    Code and the owner's editor .Claude/settings.json *is* .claude/settings.json and .ENVRC
+    is .envrc; a check that cared would let the session write them unasked. (A package.json
+    is checked apart, on its hook keys: that takes the file's text.)"""
+    parts = [part.casefold() for part in rel.parts]
+    if not parts:
+        return False
+    name = parts[-1]
+    return bool(
+        (_PROTECTED_DIRS | dirs) & set(parts)
+        or "/".join(parts) in _PROTECTED_FILES
+        or name in _HOOK_CONFIGS
+        or name.startswith(_HOOK_CONFIG_PREFIXES)
+    )
+
+
 def _hook_sections(text: str) -> Any:
     """What a package.json says to its git hook managers (None when it isn't JSON)."""
     try:
@@ -3198,11 +3218,9 @@ class TaskManager:
         if path is None:
             return False
         rel = path.relative_to(task.cwd.resolve())
-        if _PROTECTED_DIRS & set(rel.parts) or rel.as_posix() in _PROTECTED_FILES:
+        if _protected_rel(rel):  # (casefolded: .Claude/ is .claude/ on the Mac's disk)
             return False
-        if path.name in _HOOK_CONFIGS or path.name.startswith(_HOOK_CONFIG_PREFIXES):
-            return False
-        return path.name != "package.json" or not _touches_hook_keys(path, tool_input)
+        return path.name.casefold() != "package.json" or not _touches_hook_keys(path, tool_input)
 
     def policy_for(self, task: ClaudeTask):
         async def can_use_tool(
