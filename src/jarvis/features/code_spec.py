@@ -56,12 +56,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import code_ai, code_changes, codetests, devservers, jsonstore, lang
+from .. import code_ai, code_changes, codetests, devservers, jsonstore, lang, launches
 
 log = logging.getLogger("jarvis")
 
 FOLDER = "specs"
 STEPS = ("requirements", "design", "tasks")
+START_WAIT = 30.0  # seconds a step's session may take to start (a held task_new)
 VERIFY_WAIT = 120.0  # seconds a task's check waits for code_verify's check after its turn
 TEST_WAIT = 900.0  # ... and for the project's test suite to finish
 REVIEW_DIFF = 24_000
@@ -504,12 +505,12 @@ class Specs:
 
     async def new_session(self, msg: dict[str, Any]) -> Any:
         """A session started as the composer's would be (the hub's own task_new: its model
-        and effort settled the usual way); the new task, or None."""
-        tm = self.hub.tasks
-        known = set(tm.tasks)
-        await self.hub._handle(msg)
-        fresh = [tm.tasks[i] for i in sorted(set(tm.tasks) - known)]
-        return fresh[0] if fresh else None
+        and effort settled the usual way); the new task, or None. Found by its launch token
+        (launches.py), never as the first new session: the request's text may hold an
+        @-mention that holds the message a while, and other sessions start meanwhile."""
+        token = launches.token()
+        await self.hub._handle({**msg, launches.KEY: token})
+        return await launches.started(self.hub.tasks, token, START_WAIT)
 
     def step_prompt(self, spec: Spec, step: str) -> str:
         return PROMPTS[step].format(

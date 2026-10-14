@@ -114,6 +114,8 @@ class Cloud:
         page it read could have put in its mouth) always gets the hand-off card."""
         if not msg.get("cloud") or msg.get("session_id"):
             return False
+        if msg.get("untrusted") is True:
+            return False  # (anyone's words: it runs here, locked down, never on the machine)
         prompt = str(msg.get("prompt") or "").strip()
         if not prompt:
             return False  # nothing to do there yet: an ordinary session
@@ -200,6 +202,8 @@ class Cloud:
         """A session an issue started (its request is anyone's words): here it runs locked
         down (no MCP, no web, sandboxed commands) within its spending and time caps; on the
         cloud machine none of that holds, so it never moves there with the rest."""
+        if getattr(task, "untrusted", False) is True:  # (stamped at its start: launches.py)
+            return True
         runs = getattr(self.hub, "code_runs", None)
         run = runs.run_of(task) if runs is not None else None
         return bool(run is not None and run.untrusted)

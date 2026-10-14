@@ -471,3 +471,29 @@ def test_a_spec_reads_only_plain_files_inside_its_project_and_only_so_much(tmp_p
     (other / "s2" / "tasks.md").write_text(TASKS)
     (proj / "specs" / "s2").symlink_to(other / "s2")  # (its folder a link out)
     assert cs.Spec(slug="s2", directory="proj", folder=str(proj), request="x").read("tasks.md") == ""
+
+
+async def test_a_steps_session_is_the_one_its_task_new_started(hub, projects, monkeypatch):
+    """REL-7: new_session took the first new session (fresh[0]); another started meanwhile
+    (or its own held by an @-mention) was taken as the spec's."""
+    (projects / "app").mkdir()
+    desk = hub.code_spec
+    started = []
+
+    async def handle(msg):
+        if msg.get("type") == "task_new":
+            other = ClaudeTask(id=50, prompt="someone else's", cwd=projects / "app")
+            hub.tasks.tasks[50] = other  # (another session, started first)
+
+            async def later():
+                await asyncio.sleep(0.2)  # (held a while: an @-mention, a route)
+                mine = ClaudeTask(id=51, prompt=msg["prompt"], cwd=projects / "app")
+                mine.launch_token = msg.get("launch_token", "")
+                hub.tasks.tasks[51] = mine
+                started.append(mine)
+
+            asyncio.get_running_loop().create_task(later())
+
+    monkeypatch.setattr(hub, "_handle", handle)
+    task = await desk.new_session({"type": "task_new", "prompt": "spec step", "directory": "app"})
+    assert task is not None and task.id == 51 and task is started[0]

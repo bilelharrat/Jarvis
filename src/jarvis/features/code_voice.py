@@ -758,7 +758,10 @@ class CodeVoice:
 
     def on_task_new(self, msg: dict[str, Any]) -> bool | None:
         """The same from a new session's composer: it goes to session 3, which is shown,
-        and no new session starts."""
+        and no new session starts. Never for a message whose words are anyone's (an issue's
+        card, launches.py): they'd go to the owner's session."""
+        if msg.get("untrusted") is True:
+            return False
         text = str(msg.get("prompt", ""))
         if not codepeers.MENTION.match(text):
             return False

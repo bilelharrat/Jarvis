@@ -293,3 +293,84 @@ async def test_a_card_from_an_issue_starts_locked_down_as_an_issues_run(hub):
     assert options.sandbox["enabled"] and options.sandbox["network"]["allowedDomains"] == []
     assert "WebSearch" in options.disallowed_tools
     assert started["task"] in hub.code_todo.untrusted
+
+
+# ── REL-2 / R2-6: a card's session is found by its launch token, untrusted by its stamp ──
+
+
+async def issue_card(hub, seen, body):
+    hub.code_pr._client, _asked = fake_github(
+        {"number": 12, "title": "Login loops", "body": body, "user": {"login": "stranger"}}
+    )
+    await hub._handle(
+        {"type": "todo_from_issue", "directory": "proj",
+         "url": "https://github.com/acme/web/issues/12"}
+    )  # fmt: skip
+    card = last(seen, "todo_state")["cards"][0]
+    await hub._handle({"type": "todo_edit", "id": card["id"], "isolated": False})
+    return card
+
+
+async def test_an_issue_card_held_past_the_wait_is_locked_down_and_linked_when_it_starts(
+    hub, monkeypatch
+):
+    """REL-2: code_mentions or code_router held the task_new past START_WAIT; the card said
+    "didn't appear", and the session started later unlinked and NOT locked down (it was
+    known only by its prompt while the card waited). Meanwhile the owner's own session with
+    the same words started in the same folder: it is neither the card's nor locked down."""
+    from jarvis.features import code_todo
+
+    monkeypatch.setattr(code_todo, "START_WAIT", 0.2)
+    seen = events_of(hub)
+    card = await issue_card(hub, seen, "x")
+    prompt = hub.code_todo.board.get(card["id"])["prompt"]
+    real = hub._handle
+
+    async def held(msg):
+        if msg.get("type") == "task_new" and msg.get("untrusted"):
+
+            async def later():
+                await asyncio.sleep(0.6)  # (an @-mention being gathered, a route rated)
+                await real(msg)
+
+            hub._spawn(later())
+            return None
+        return await real(msg)
+
+    monkeypatch.setattr(hub, "_handle", held)
+    await hub.code_todo.cmd_start({"id": card["id"]})
+    assert last(seen, "todo_error")["text"].startswith("The session didn't start")
+    owners = hub.tasks.start(prompt, "proj", mode="ask")  # the owner's: same words, same folder
+    assert await until(lambda: any(t.untrusted for t in hub.tasks.tasks.values()))
+    late = next(t for t in hub.tasks.tasks.values() if t.untrusted)
+    assert late.id != owners.id
+    assert await until(lambda: hub.code_todo.board.get(card["id"]).get("task") == late.id)
+    locked = hub.tasks.options_for(late)
+    assert locked.mcp_servers == {} and locked.setting_sources == []
+    assert "WebSearch" in locked.disallowed_tools
+    mine = hub.tasks.options_for(owners)
+    assert mine.mcp_servers != {} and mine.setting_sources != []
+    await end_all(hub)
+
+
+async def test_an_issue_s_text_is_never_read_for_mentions(hub):
+    """R2-6: the issue body's @http://127.0.0.1:3000/admin was fetched from the Mac, and its
+    @terminal and @session-1 brought the owner's terminal and other sessions in."""
+    seen = events_of(hub)
+    fetched = []
+    hub.code_mentions.transport = httpx.MockTransport(
+        lambda request: fetched.append(str(request.url)) or httpx.Response(200, text="admin")
+    )
+    other = hub.tasks.start("the owner's own work", "other", mode="ask")
+    card = await issue_card(
+        hub, seen, f"See @http://127.0.0.1:3000/admin and @terminal and @session-{other.id}"
+    )
+    task = await hub.code_todo.start(hub.code_todo.board.get(card["id"]))
+    assert task is not None and task.untrusted and "@http://127.0.0.1:3000/admin" in task.prompt
+    await asyncio.sleep(0.2)
+    assert fetched == []
+    assert not [e for e in seen() if e["type"] == "cw_mentions"]
+    assert await until(lambda: Stream.instances and Stream.instances[-1].options is not None)
+    sent = [m for s in Stream.instances for m in getattr(s, "sent", [])]
+    assert not any("the owner's own work" in str(m) for m in sent if "Login loops" in str(m))
+    await end_all(hub)

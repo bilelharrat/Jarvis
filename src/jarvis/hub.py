@@ -65,6 +65,7 @@ from . import (
     interrupts,
     invoices,
     lang,
+    launches,
     livecontext,
     mac_tools,
     openai_relay,
@@ -6967,6 +6968,7 @@ class Hub:
                     plugins=[str(d) for d in (msg.get("plugins") or own.get("plugins") or [])[:10]],
                     # The composer's "Isolated copy" switch; absent, the owner's default.
                     isolate=msg["isolated"] if isinstance(msg.get("isolated"), bool) else None,
+                    **launches.stamp(msg),  # (who started it, and whether it's anyone's words)
                 )
             except ValueError as exc:
                 self.emit("error", text=str(exc))

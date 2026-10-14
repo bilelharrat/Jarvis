@@ -12,7 +12,8 @@
   that couldn't be).
 
 A page is fetched only when the message is sent, only one the owner typed, and goes to
-Claude marked as web content: data, not instructions.
+Claude marked as web content: data, not instructions. A task_new marked untrusted (an
+issue's card: launches.py) is never read for mentions at all.
 
 Cost policy (Claude): nothing here calls a model.
 """
@@ -69,8 +70,11 @@ class Mentions:
         return self._take(msg, "prompt", ("new", str(msg.get("directory") or "")))
 
     def _take(self, msg: dict[str, Any], field: str, key: tuple[str, Any]) -> bool | None:
-        """False: nothing to bring and nothing ahead of it (it goes on now); None: held."""
-        if msg.get(_DONE):
+        """False: nothing to bring and nothing ahead of it (it goes on now); None: held. A
+        message whose words are anyone's (untrusted: an issue's card, launches.py) is never
+        read for mentions: its @http://127.0.0.1/… would be fetched from the Mac, its
+        @terminal and @session-2 bring the owner's terminal and other sessions into it."""
+        if msg.get(_DONE) or msg.get("untrusted") is True:
             return False
         found = code_mentions.parse(str(msg.get(field) or ""))
         before = self.queues.get(key)
