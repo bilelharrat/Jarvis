@@ -42,6 +42,10 @@ the session on them before the message goes.
   Google with the Gemini key from Settings › Models, which never reaches the window ->
   model_router_classified {rid, status, body} (401: no key, 429: today's ratings are used up,
   502: Google couldn't be reached).
+- model_router_claude {down, until}: whether Claude can answer now (its limit, an outage, as
+  the hub's fallback sees it: hub._claude_back), and until when it can't (epoch ms), sent as
+  it changes and on model_router_claude_get; the window's router leaves Claude out of its
+  picks meanwhile, so it stops suggesting a model that would only fail.
 - model_router_open: the full Model Router page (its own small server from the Model Router
   folder, started if it isn't running), in the browser.
 
@@ -229,6 +233,7 @@ class Router:
         self.closed: collections.deque[str] = collections.deque(maxlen=MAX_TOKENS)
         # Each session's latest route the router moved it on: where its fallback goes.
         self.routes: dict[int, dict[str, Any]] = {}
+        self._claude_told: dict[str, Any] | None = None  # model_router_claude, as last sent
 
     def tr(self, text: str, **values: Any) -> str:
         return lang.tr(text, self.hub.language, **values)
@@ -564,6 +569,48 @@ class Router:
             )
         self.hub._spawn(self.hub._code_fallback(task, ref, why))
 
+    # ── whether Claude can answer (model_router_claude) ──
+
+    def claude_state(self) -> dict[str, Any]:
+        """{down, until}: Claude can't answer until `until` (epoch ms), as the hub's own
+        fallback reckons it (the reset time its limit gave, else half an hour on)."""
+        from ..hub import FALLBACK_SECONDS as CLAUDE_BACK_SECONDS
+
+        hub = self.hub
+        if hub._claude_back():
+            return {"down": False, "until": 0}
+        down, back = hub._claude_down_at, hub._claude_back_at
+        until = back if back > down else down + CLAUDE_BACK_SECONDS
+        return {"down": True, "until": int(until * 1000)}
+
+    def tell_claude(self, *, always: bool = False) -> None:
+        """model_router_claude to the windows, when it changed since it was last sent."""
+        state = self.claude_state()
+        if always or state != self._claude_told:
+            self._claude_told = state
+            self.hub.emit("model_router_claude", **state)
+
+    def cmd_claude(self, _msg: dict[str, Any]) -> None:
+        self.tell_claude(always=True)
+
+    def watch_claude(self) -> None:
+        """The hub's own marks of Claude down (hub._claude_couldnt) and of its limit's reset
+        time (on_rate_limit), wrapped so the windows hear of each change."""
+        hub = self.hub
+        couldnt, limit = hub._claude_couldnt, hub.tasks.on_rate_limit
+
+        def claude_couldnt() -> None:
+            couldnt()
+            self.tell_claude()
+
+        def on_rate_limit(info: Any) -> None:
+            if limit is not None:
+                limit(info)
+            self.tell_claude()
+
+        hub._claude_couldnt = claude_couldnt
+        hub.tasks.on_rate_limit = on_rate_limit
+
     # ── Ask Gemini ──
 
     async def cmd_classify(self, msg: dict[str, Any]) -> None:
@@ -684,3 +731,5 @@ def install(hub: Any) -> None:
     hub.register_command("model_router_route", router.cmd_route)  # (fast: a waiting message's)
     hub.register_command("model_router_classify", router.cmd_classify, slow=True)
     hub.register_command("model_router_open", router.cmd_open, slow=True)
+    hub.register_command("model_router_claude_get", router.cmd_claude)
+    router.watch_claude()

@@ -430,3 +430,38 @@ test('the adapter: feedback, spend and learning through the backend; per-project
   adapter.setProjectDefaults(null);
   assert.deepEqual(w.sent.at(-1).changes.code_router_projects, {});
 });
+
+test('while Claude can’t answer, the router leaves Claude out (unless nothing else is left)', () => {
+  const now = 1_000_000;
+  assert.deepEqual(R.withoutClaude(MODELS, now + 60_000, now).map((m) => m.ref), ['custom:a1', 'custom:a2', 'custom:b1', '']);
+  assert.equal(R.withoutClaude(MODELS, now - 1, now), MODELS, 'back: every model again');
+  assert.equal(R.withoutClaude(MODELS, 0, now), MODELS);
+  const onlyClaude = MODELS.filter((m) => m.builtin);
+  assert.equal(R.withoutClaude(onlyClaude, now + 60_000, now), onlyClaude, 'no other model: Claude stays');
+});
+
+test('the fallback’s switches: on and same-company by default; crossing needs the fallback on', () => {
+  const [auto, cross] = R.fallbackSwitches({});
+  assert.deepEqual([auto.key, auto.on, cross.key, cross.on, cross.disabled], [R.FALLBACK, true, R.CROSS, false, false]);
+  assert.equal(R.FALLBACK, 'code_router_auto_fallback');
+  assert.equal(R.CROSS, 'code_router_cross_fallback');
+  assert.equal(R.fallbackSwitches({ [R.CROSS]: true })[1].on, true);
+  const off = R.fallbackSwitches({ [R.FALLBACK]: false, [R.CROSS]: true });
+  assert.deepEqual([off[0].on, off[1].on, off[1].disabled], [false, false, true]);
+});
+
+test('the window asks whether Claude can answer, and routes without it while it can’t', async () => {
+  const w = windowWith();
+  w.fire('hello', { prefs: { features: { code_router_on: true } } });
+  assert.ok(w.sent.some((m) => m.type === 'model_router_claude_get'));
+  await w.ready();
+  w.reg.send(w.task, 'refactor the scheduler to use a heap');
+  assert.ok(w.created.at(-1).models.includes('claude-opus-5-5'));
+  w.fire('model_router_claude', { down: true, until: Date.now() + 60_000 });
+  const out = w.reg.send(w.task, 'refactor the scheduler to use a binary heap');
+  assert.deepEqual(w.created.at(-1).models, ['gpt-6-luna', 'gemini-3.8-flash']);
+  assert.ok(!out.route.fallbacks.some((r) => r.ref === 'opus'), 'no fallback onto Claude either');
+  w.fire('model_router_claude', { down: false, until: 0 });
+  w.reg.send(w.task, 'refactor the scheduler to use a pairing heap');
+  assert.ok(w.created.at(-1).models.includes('claude-opus-5-5'));
+});
