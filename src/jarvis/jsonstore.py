@@ -5,7 +5,8 @@ disk and swapped in whole, and the file it replaces stays beside it as <name>.ba
 that can't be used (cut short by a crash, torn, written by another build or program) is
 never thrown away: it's kept as <name>.bad-<stamp>, and the last good copy is read
 instead. A file that's there but can't be read just now is left alone, and nothing is
-saved over it. One backend at a time uses the folder (claim_folder).
+saved over it, by any store: save_json refuses a file this process couldn't read when it
+last tried. One backend at a time uses the folder (claim_folder).
 
 Versioned stores (register_store, load_store, save_store): a store whose shape changes
 between releases carries its version in the file ("version", or the key it names), and
@@ -13,8 +14,10 @@ each step from one version to the next is registered beside it (register_migrati
 file of an older version is copied whole first (<name>.v<old>-<stamp>.pre-migration, never
 over an earlier copy), then taken through every step in order and saved at once; a step
 that fails leaves the file as it was and the store unreadable for this run (Unreadable:
-nothing is saved over it). A file without a version is version 0, the shape from before
-versions. One from a newer build is copied the same way before this build reads it (it
+nothing is saved over it). A copy that can't be made (a read-only folder) leaves the file
+as it was too: its data is updated in memory and used, and nothing is saved over it this
+run. A file without a version is version 0, the shape from before versions; nonsense in
+the field (2.0, "2", -1, a 300-digit number) makes it Unreadable, never a version 0. One from a newer build is copied the same way before this build reads it (it
 keeps what it knows and writes its own version back), so going back a release never
 loses the newer file.
 """
@@ -27,7 +30,6 @@ import glob
 import json
 import logging
 import os
-import shutil
 import tempfile
 import time
 from collections.abc import Callable
@@ -62,7 +64,33 @@ class FolderTaken(OSError):
     """Another backend holds the data folder."""
 
 
+# Files this process couldn't read when it last tried (read_json raised Unreadable), by
+# absolute path: save_json refuses to write over one until a read of it succeeds again.
+# Each store was meant to keep that rule itself, and some caught Unreadable as "nothing
+# yet" and then saved their empty start over the owner's file; this is the rule kept in
+# one place, so a new store can't repeat it. (save_json(..., over_unreadable=True) is the
+# way out for a store that means it.)
+_REFUSED: set[str] = set()
+
+
+def _key(path: Path) -> str:
+    return os.path.abspath(os.fspath(path))
+
+
 def read_json(
+    path: Path, shape: Shape, *, clock: Callable[[], datetime] = datetime.now
+) -> tuple[Any, str]:
+    """_read_json, with what it couldn't read remembered (save_json won't save over it)."""
+    try:
+        found = _read_json(path, shape, clock=clock)
+    except Unreadable:
+        _REFUSED.add(_key(path))
+        raise
+    _REFUSED.discard(_key(path))
+    return found
+
+
+def _read_json(
     path: Path, shape: Shape, *, clock: Callable[[], datetime] = datetime.now
 ) -> tuple[Any, str]:
     """The file's data, and how it was read:
@@ -171,13 +199,23 @@ def set_aside(path: Path, clock: Callable[[], datetime] = datetime.now) -> Path 
 
 
 def save_json(
-    path: Path, data: Any, *, indent: int | None = 2, mode: int = 0o600, backup: bool = True
+    path: Path,
+    data: Any,
+    *,
+    indent: int | None = 2,
+    mode: int = 0o600,
+    backup: bool = True,
+    over_unreadable: bool = False,
 ) -> None:
     """Written whole to a temp file of its own, flushed to the disk, then swapped in, so a
     crash or a second writer never leaves half a file; readable by the owner alone. The
-    file it replaces stays as <name>.bak. backup False keeps no copy and drops the old one,
-    so something just removed (a forgotten fact, an unpaired phone) can't come back from
-    it. Half of a surrogate pair is written escaped: it never makes a file unsaveable."""
+    file it replaces stays as <name>.bak. backup False keeps no copy and drops the old one
+    and its copies from before migrations, so something just removed (a forgotten fact, an
+    unpaired phone, a crash report) can't come back from them. Half of a surrogate pair is
+    written escaped: it never makes a file unsaveable. Raises Unreadable, saving nothing,
+    over a file this process couldn't read when it last tried (unless over_unreadable)."""
+    if not over_unreadable and _key(path) in _REFUSED:
+        raise refusal(path, "it couldn't be read when it was loaded")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
@@ -195,7 +233,31 @@ def save_json(
     if not backup:
         with contextlib.suppress(OSError):
             os.unlink(path.with_name(path.name + ".bak"))
+        for copy in migration_copies(path):
+            with contextlib.suppress(OSError):
+                os.unlink(copy)
+    _REFUSED.discard(_key(path))  # (what's there now is what was just written)
     _sync_folder(path.parent)
+
+
+def migration_copies(path: Path) -> list[Path]:
+    """The copies kept of path before its migrations (<name>.v<old>-<stamp>.pre-migration)."""
+    return sorted(path.parent.glob(f"{glob.escape(path.name)}.v*-*.pre-migration"))
+
+
+def forget(path: Path) -> None:
+    """A store's file gone for good, with everything kept of it beside it: its .bak and its
+    copies from before migrations (a deleted session's words must not stay behind in one).
+    Raises OSError when one couldn't be removed; the rest are still tried."""
+    failed: OSError | None = None
+    for each in (path, path.with_name(path.name + ".bak"), *migration_copies(path)):
+        try:
+            each.unlink(missing_ok=True)
+        except OSError as exc:
+            failed = failed or exc
+    _REFUSED.discard(_key(path))
+    if failed is not None:
+        raise failed
 
 
 @dataclass
@@ -233,10 +295,20 @@ def register_migration(
     store.steps[from_version] = step
 
 
+VERSION_MAX = 1_000_000  # a version past this is no build's: nonsense in the field
+
+
 def version_of(data: Any, key: str = "version") -> int:
-    """A file's version: 0 for one from before versions (or with nonsense in the field)."""
+    """A file's version: 0 for one from before versions (no field, or null in it); -1 for
+    nonsense in the field (a float, a string, a negative or a 300-digit number), which no
+    step may be run over: 2.0 read as 0 ran the first steps over a newer build's data, and
+    a huge one made a copy name too long for the disk."""
     found = data.get(key) if isinstance(data, dict) else None
-    return found if isinstance(found, int) and not isinstance(found, bool) and found >= 0 else 0
+    if found is None:
+        return 0
+    if isinstance(found, int) and not isinstance(found, bool) and 0 <= found <= VERSION_MAX:
+        return found
+    return -1
 
 
 def stamped(name: str, data: Any) -> Any:
@@ -254,20 +326,52 @@ def keep_before_migrating(
     """The file as it is, copied whole beside it before a migration: its path, None when
     there was nothing to copy. Raises OSError when it couldn't be copied."""
     stamp = clock().strftime("%Y%m%d-%H%M%S")
-    for n in range(1, 100):
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    for n in range(1, COPIES_A_SECOND):
         copy = path.with_name(
             f"{path.name}.v{old}-{stamp}" + (f"-{n}" if n > 1 else "") + ".pre-migration"
         )
-        if os.path.lexists(copy):
+        try:  # (made only if it isn't there: two at once never share a name)
+            fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
             continue
         try:
-            shutil.copy2(path, copy)
-        except FileNotFoundError:
-            return None
+            with os.fdopen(fd, "wb") as out:
+                out.write(raw)
+                out.flush()
+                _sync(out.fileno())
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(copy)
+            raise
         with contextlib.suppress(OSError):
-            os.chmod(copy, 0o600)
+            st = path.stat()
+            os.utime(copy, ns=(st.st_atime_ns, st.st_mtime_ns))
         return copy
     raise OSError(errno.EEXIST, f"no free name to keep {path.name} under before migrating")
+
+
+COPIES_A_SECOND = 10_000  # copies of one file kept in one second, at most (99 ran out)
+
+
+def _copied_already(path: Path, old: int) -> bool:
+    """A copy of the file as it is now is there already (the same bytes, not just a copy
+    of the same version: a newer build that wrote the file again since needs a new one, or
+    going back a release a second time lost that build's second file)."""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return False
+    for copy in path.parent.glob(f"{glob.escape(path.name)}.v{old}-*.pre-migration"):
+        try:
+            if copy.stat().st_size == len(raw) and copy.read_bytes() == raw:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def migrate(
@@ -285,16 +389,25 @@ def migrate(
     if store is None or not isinstance(data, dict):
         return data
     old = version_of(data, store.key)
+    if old < 0:
+        _REFUSED.add(_key(path))
+        log.warning("%s has nonsense for its version; it's left as it is", path.name)
+        raise refusal(path, "its version isn't one this app knows")
     if old == store.version:
         return data
     try:
-        # (one from a newer build is kept once: this build saves it back at its own version,
-        # unless it never saves, and then each start would copy it again)
-        if old < store.version or not any(path.parent.glob(f"{glob.escape(path.name)}.v{old}-*")):
+        # (one from a newer build is kept once as it is: this build saves it back at its own
+        # version, unless it never saves, and then each start would copy it again)
+        if old < store.version or not _copied_already(path, old):
             keep_before_migrating(path, old, clock)
     except OSError as exc:
+        # No copy (a read-only folder, a full disk): the data is still good, so it's used,
+        # updated in memory, and the file is left as it was, nothing saved over it this run.
         log.warning("%s couldn't be copied before its migration (%s)", path.name, exc)
-        raise refusal(path, "it couldn't be copied before updating its format") from exc
+        _REFUSED.add(_key(path))
+        if old > store.version:
+            return data
+        return _steps(path, name, store, data, old)
     if old > store.version:
         log.warning(
             "%s is version %d, from a newer build than this one (%d); a copy is kept",
@@ -303,6 +416,19 @@ def migrate(
             store.version,
         )
         return data
+    migrated = _steps(path, name, store, data, old)
+    try:
+        save_json(path, migrated, indent=indent)
+    except OSError as exc:  # kept in memory for this run; tried again on the next start
+        log.warning("%s couldn't be saved after its migration (%s)", path.name, exc)
+    else:
+        log.info("%s updated from version %d to %d", path.name, old, store.version)
+    return migrated
+
+
+def _steps(path: Path, name: str, store: Store, data: dict[str, Any], old: int) -> Any:
+    """data taken through every step from old to the store's version, stamped with it.
+    Raises Unreadable (and nothing may be saved over the file) when a step fails."""
     migrated = data
     try:
         for version in range(old, store.version):
@@ -313,15 +439,9 @@ def migrate(
                 raise TypeError(f"the step from version {version} gave no record")
     except Exception as exc:
         log.warning("%s couldn't be updated from version %d (%s)", path.name, old, exc)
+        _REFUSED.add(_key(path))
         raise refusal(path, f"its format couldn't be updated from version {old}") from exc
-    migrated = stamped(name, migrated)
-    try:
-        save_json(path, migrated, indent=indent)
-    except OSError as exc:  # kept in memory for this run; tried again on the next start
-        log.warning("%s couldn't be saved after its migration (%s)", path.name, exc)
-    else:
-        log.info("%s updated from version %d to %d", path.name, old, store.version)
-    return migrated
+    return stamped(name, migrated)
 
 
 def load_store(

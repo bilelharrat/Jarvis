@@ -104,11 +104,10 @@ class SessionStore:
                 jsonstore.save_store(self.folder / f"{key}.json", STORE, record, indent=None)
                 self.written[key] = digest
             for key in [k for k in self.written if k not in keep]:
-                for path in (self.folder / f"{key}.json", self.folder / f"{key}.json.bak"):
-                    try:
-                        path.unlink(missing_ok=True)
-                    except OSError as exc:
-                        log.warning("Eden Code: couldn't let go of session %s (%s)", key, exc)
+                try:  # (its .bak and its copies from before migrations go with it)
+                    jsonstore.forget(self.folder / f"{key}.json")
+                except OSError as exc:
+                    log.warning("Eden Code: couldn't let go of session %s (%s)", key, exc)
                 del self.written[key]
 
     def read(self, key: str) -> dict[str, Any] | None:
