@@ -7,13 +7,32 @@ and discards the others (their work kept 30 days).
 The test command is the owner's own, typed with the request, and runs in each copy in
 turn once all of them are done (at most ten minutes each). It's remembered per project.
 
-Window commands: code_bestof {directory, prompt, variants: [{model, effort}], mode?,
-tests?}, code_bestof_keep {group, n}, code_bestof_state {directory}.
-Events: code_bestof. Setting: code_quick_tests ({project: command}).
+A group can mix agents and models: a variant's model is any model in Settings › Models,
+another coding agent added in Other agents (ACP: "acp:<agent>", Codex or Gemini CLI, say;
+it takes no effort), or the Model Router's pick for the request (the window asks the router
+and sends what it picked, marked routed, so the label says so).
+
+Besides keeping one, "Merge best parts" (bestof_merge.py): the judge reads every attempt's
+hunks, each by its id ("2.3": attempt 2's change 3), and proposes a merged patch, hunk by
+hunk, each with the attempt it came from and why. The chosen hunks are applied in a new
+isolated copy of their own (from the commit the attempts started at), the test command runs
+there, and a session opens in it (Manual mode, nothing sent: it costs nothing until the
+owner writes to it) so its Changes pane shows the merge a hunk at a time, to undo or keep
+each, and so the owner can ask for a fix-up. "Keep the merge" (code_bestof_keep with n 0)
+lands that copy and discards every attempt's; keeping one attempt discards the merge too.
+
+Window commands: code_bestof {directory, prompt, variants: [{model, effort?, routed?}],
+mode?, tests?}, code_bestof_keep {group, n} (n 0: the merge), code_bestof_merge {group},
+code_bestof_state {directory}.
+Events: code_bestof (its merge field: {status: merging|ready|failed, hunks, left_out,
+clashes, summary, test, task_id, slug, error}). Setting: code_quick_tests ({project: command}).
 
 Cost: each variant is a real Eden Code session on the model the owner picked (what it
-costs shows on it, as any session's does); then one judge call once all are done
-(code_ai.POLICY["judge"]: Haiku 4.5, at most 30,000 characters of their diffs, 20 a day).
+costs shows on it, as any session's does; another agent's is on its own account); then one
+judge call once all are done (code_ai.POLICY["judge"]: Haiku 4.5, at most 30,000
+characters of their diffs, 20 a day). Merge best parts is one more call, only when the owner
+asks for it (code_ai.POLICY["merge"]: Haiku 4.5, at most 40,000 characters of hunks, 10 a
+day); its review session costs what the owner asks of it, under the usual caps.
 """
 
 from __future__ import annotations
@@ -21,12 +40,26 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import itertools
+import logging
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from .. import code_ai, code_changes, lang, osplat, prefs, runproc, worktrees
+from .. import (
+    bestof_merge,
+    code_ai,
+    code_changes,
+    lang,
+    osplat,
+    prefs,
+    runproc,
+    secret_scan,
+    worktrees,
+)
+
+log = logging.getLogger("jarvis")
 
 POLL_SECONDS = 2.0
 TEST_SECONDS = 600
@@ -34,6 +67,7 @@ TEST_OUTPUT = 2000  # characters of a test run's output kept (its end)
 JUDGE_DIFF = 30_000
 MODES = ("edits", "ask", "smart", "plan", "auto")
 PREF_TESTS = "code_quick_tests"
+ACP_PREFIX = "acp:"  # = code_acp.PREFIX: a variant that's another agent
 
 JUDGE_SYSTEM = (
     "You compare two or three attempts at the same coding request. The request, the "
@@ -58,6 +92,21 @@ ZH = {
     "{name} is on a detached HEAD, so the copies would have no branch to land in.": "{name} 处于游离的 HEAD，副本将没有可以合并进去的分支。",
     "That's today's {n} judgments; compare them yourself.": "今天已经评判了 {n} 次；请你自己比较。",
     "The judge couldn't answer: {error}": "评判没能给出答案：{error}",
+    "That agent isn't set up any more: add it again in Other agents.": "那个智能体已经没有设置了：请在“其他智能体”里重新添加。",
+    "Turn on Other agents (ACP) in Settings › Eden Code › Labs to compare other agents.": "请在“设置 › Eden Code › 实验功能”里打开“其他智能体（ACP）”，才能比较其他智能体。",
+    "Wait until they're all done, then merge.": "等它们都完成后再合并。",
+    "It's merging already.": "已经在合并了。",
+    "That's today's {n} merges; pick one to keep instead.": "今天已经合并了 {n} 次；请改为选一个保留。",
+    "The judge picked nothing to merge.": "评判没有挑出可以合并的内容。",
+    "None of the picked changes went in.": "挑出的改动一个都没能放进去。",
+    "There are already {n} isolated copies; land or discard some, then merge.": "已经有 {n} 个独立副本了；请先合并或丢弃一些，再来合并。",
+    "There's no merge to keep.": "没有可以保留的合并结果。",
+    "Keep the merge and land it in {into}?": "保留合并结果并合并进 {into} 吗？",
+    "{n} changes from {k} attempts. Every attempt's copy is discarded (their work is kept 30 days). Every session of this comparison ends.": "来自 {k} 个尝试的 {n} 处改动。每个尝试的副本都会被丢弃（它们的工作保留 30 天）。这次比较的所有会话都会结束。",
+    "Possible secrets in the work it would commit:": "它要提交的内容里可能有密钥：",
+    "Keep the merge": "保留合并结果",
+    "Kept the merge. {landed}": "已保留合并结果。{landed}",
+    "Merged {n} changes from {k} attempts in this copy. Review them in Changes; land with Keep the merge.": "已在这个副本里合并了来自 {k} 个尝试的 {n} 处改动。请在“改动”里审阅；用“保留合并结果”来合并。",
 }
 lang.add_texts(ZH)
 
@@ -109,8 +158,10 @@ class Group:
     variants: list[Variant]
     status: str = "running"  # running | comparing | done | kept
     judge: str = ""
-    kept: int = 0
+    kept: int = -1  # the variant kept (0: the merge), -1 while none is
     started: float = field(default_factory=time.time)
+    folder: str = ""  # the project's folder, as start() resolved it
+    merge: dict[str, Any] | None = None  # Merge best parts, once asked for
 
     def public(self) -> dict[str, Any]:
         return {
@@ -123,6 +174,7 @@ class Group:
             "kept": self.kept,
             "started": self.started,
             "variants": [v.public() for v in self.variants],
+            "merge": deepcopy(self.merge),
         }
 
 
@@ -178,11 +230,19 @@ class BestOf:
             else:
                 saved.pop(folder.name, None)
             self.hub.set_feature_prefs({PREF_TESTS: saved})
-        group = Group(f"b{next(self._ids)}", folder.name, prompt, tests, [])
-        for n, raw in enumerate(variants, 1):
-            cfg = self.hub._model_config(str(raw.get("model") or ""))
-            effort = raw.get("effort") if raw.get("effort") in EFFORTS else ""
+        configs = []
+        for raw in variants:  # every one checked before any session starts
+            cfg = self.variant_config(raw)
+            if isinstance(cfg, str):
+                return cfg
+            configs.append(cfg)
+        group = Group(f"b{next(self._ids)}", folder.name, prompt, tests, [], folder=str(folder))
+        for n, (raw, cfg) in enumerate(zip(variants, configs, strict=True), 1):
+            agent = cfg["model"].startswith(ACP_PREFIX)
+            effort = raw.get("effort") if raw.get("effort") in EFFORTS and not agent else ""
             name = cfg["label"] if cfg["model"] else "Default model"
+            if raw.get("routed") is True and not agent:
+                name = f"Router: {name}"
             label = f"{name} · {effort}" if effort else name
             task = self.hub.tasks.start(
                 prompt,
@@ -202,6 +262,24 @@ class BestOf:
         self.publish(group)
         self.hub._spawn(self.watch(group))
         return ""
+
+    def variant_config(self, raw: dict[str, Any]) -> dict[str, Any] | str:
+        """A variant's model as a session needs it: one in Settings › Models (the router's
+        pick is one of those too), or another agent over ACP ("acp:<agent>", from Other
+        agents). A string says why it can't be had."""
+        ref = str(raw.get("model") or "")
+        if not ref.startswith(ACP_PREFIX):
+            return self.hub._model_config(ref)
+        acp = getattr(self.hub, "code_acp", None)
+        if acp is None:
+            return (
+                "Turn on Other agents (ACP) in Settings › Eden Code › Labs to compare other agents."
+            )
+        agent = acp.book.agents.get(ref[len(ACP_PREFIX) :])
+        if agent is None:
+            return "That agent isn't set up any more: add it again in Other agents."
+        ref = ACP_PREFIX + agent["id"]
+        return {"model": ref, "label": agent["name"], "ref": ref, "env": {}, "settings": ""}
 
     # ── watching them work, then comparing ──
 
@@ -311,14 +389,174 @@ class BestOf:
             return self.tr(f"The judge couldn't answer: {str(exc)[:200] or type(exc).__name__}")
         return " ".join(said.split())[:900]
 
+    # ── merging the best parts ──
+
+    def cmd_merge(self, msg: dict[str, Any]) -> None:
+        self.hub._spawn(self._merge(msg))
+
+    async def _merge(self, msg: dict[str, Any]) -> None:
+        said = await self.merge(str(msg.get("group") or ""))
+        if said:
+            self.hub.emit("caption", text=self.tr(said))
+
+    async def merge(self, group_id: str) -> str:
+        """Merge best parts: the judge's merged patch, applied in a copy of its own, tested
+        there, and a session opened in it for the owner to review it by hunk. Returns what
+        to say ("" when the group's event says it all)."""
+        group = self.groups.get(group_id)
+        desk = getattr(self.hub, "code_desk", None)
+        if group is None or desk is None or group.status == "kept":
+            return "That comparison isn't there any more."
+        if group.status != "done":
+            return "Wait until they're all done, then merge."
+        if group.merge is not None and group.merge.get("status") == "merging":
+            return "It's merging already."
+        store = desk.store()
+        if len(store.copies) + desk.making >= worktrees.MAX_COPIES:
+            return f"There are already {len(store.copies)} isolated copies; land or discard some, then merge."
+        old = group.merge or {}
+        group.merge = {"status": "merging", "hunks": [], "left_out": [], "clashes": []}
+        self.publish(group)
+        try:
+            result = await self._merged(group, desk, old)
+        except Exception as exc:  # never left saying "merging" for good
+            log.exception("best of N couldn't merge")
+            result = {"status": "failed", "error": str(exc)[:200] or type(exc).__name__}
+        group.merge = {"hunks": [], "left_out": [], "clashes": [], **result}
+        self.publish(group)
+        await desk.publish()
+        return ""
+
+    async def _merged(self, group: Group, desk: Any, old: dict[str, Any]) -> dict[str, Any]:
+        candidates: list[bestof_merge.Candidate] = []
+        base = ""
+        for v in group.variants:
+            copy = desk.store().find(v.slug) if v.slug else None
+            if copy is None or v.status != "done":
+                continue
+            view = await asyncio.to_thread(
+                code_changes.session_view, copy.cwd, [], base=copy.base, scoped=False
+            )
+            if view is not None:
+                candidates.append(bestof_merge.Candidate(v.n, v.label, view, v.test))
+                base = base or copy.base
+        entries, left_out = bestof_merge.catalogue(candidates)
+        if not entries:
+            return {"status": "failed", "error": self.tr("The judge picked nothing to merge."),
+                    "left_out": left_out}  # fmt: skip
+        try:
+            self.budget.take("merge")
+        except code_ai.OverBudget:
+            cap = code_ai.POLICY["merge"][1]
+            return {"status": "failed", "left_out": left_out,
+                    "error": self.tr(f"That's today's {cap} merges; pick one to keep instead.")}  # fmt: skip
+        prompt = bestof_merge.prompt_for(group.prompt, candidates, entries)
+        try:
+            answer = await self.ai(prompt, kind="merge", system=bestof_merge.SYSTEM)
+        except Exception as exc:
+            error = str(exc)[:200] or type(exc).__name__
+            return {"status": "failed", "left_out": left_out,
+                    "error": self.tr(f"The judge couldn't answer: {error}")}  # fmt: skip
+        plan = bestof_merge.read_plan(answer, entries)
+        clashes = [{"left_out": a, "kept": b} for a, b in plan.clashes]
+        if not plan.picks:
+            return {"status": "failed", "left_out": left_out, "clashes": clashes,
+                    "summary": plan.summary,
+                    "error": self.tr("The judge picked nothing to merge.")}  # fmt: skip
+        if old.get("slug"):  # a merge asked for again: the last one's copy goes
+            previous = desk.store().find(old["slug"])
+            if previous is not None:
+                await desk.discard_now(previous)
+        try:
+            copy = await self._new_copy(group, desk, base)
+        except worktrees.CopyError as exc:
+            return {"status": "failed", "left_out": left_out, "error": str(exc)}
+        went, failed = await asyncio.to_thread(bestof_merge.apply, Path(copy.checkout), plan.picks)
+        if not went:
+            await desk.discard_now(copy)
+            return {"status": "failed", "left_out": left_out, "clashes": clashes,
+                    "error": self.tr("None of the picked changes went in.")}  # fmt: skip
+        merged: dict[str, Any] = {
+            "status": "ready",
+            "slug": copy.slug,
+            "hunks": [bestof_merge.public(p) for p in went],
+            "failed": [bestof_merge.public(p) for p in failed],
+            "left_out": left_out,
+            "clashes": clashes,
+            "unknown": plan.unknown[:20],
+            "summary": plan.summary,
+            "test": None,
+            "task_id": 0,
+        }
+        found = await asyncio.to_thread(worktrees.state, copy)
+        merged["stats"] = {"files": found.files, "added": found.added, "removed": found.removed}
+        if group.tests and copy.cwd.is_dir():
+            group.merge = {**merged, "status": "merging"}
+            self.publish(group)
+            merged["test"] = await run_tests(group.tests, copy.cwd)
+        merged["task_id"] = self._review_session(group, copy, went)
+        return merged
+
+    async def _new_copy(self, group: Group, desk: Any, base: str) -> worktrees.Copy:
+        """A copy of the project for the merge, at the commit the attempts started from
+        (the project may have moved on since)."""
+        store = desk.store()
+        desk.making += 1
+        try:
+            async with desk.lock(group.folder):
+                copy, _notes = await asyncio.to_thread(
+                    worktrees.create,
+                    Path(group.folder),
+                    desk.root,
+                    f"merged {group.prompt}",
+                    taken=store.slugs(),
+                    making=store.making,
+                )
+            store.copies.append(copy)
+            store.making.pop(copy.slug, None)
+        finally:
+            desk.making -= 1
+        copy.group, copy.label = group.id, "Merged"
+        if base and base != copy.base:
+            reset = await asyncio.to_thread(
+                code_changes.git, Path(copy.checkout), "reset", "--hard", "-q", base
+            )
+            if reset.ok:
+                copy.base = base
+        desk.save()
+        return copy
+
+    def _review_session(self, group: Group, copy: worktrees.Copy, went: list[Any]) -> int:
+        """A session in the merge's copy, for its Changes pane (each hunk to undo or keep)
+        and for a fix-up the owner asks for. Nothing is sent to it: Manual mode, on the
+        default model, it costs nothing until the owner writes to it."""
+        task = self.hub.tasks.start(
+            "", str(copy.cwd), mode="ask", title=f"Best of {len(group.variants)}: merged"
+        )
+        k = len({p.entry.n for p in went})
+        lines = [
+            self.tr(
+                f"Merged {len(went)} changes from {k} attempts in this copy. Review them in "
+                "Changes; land with Keep the merge."
+            )
+        ]
+        for p in went:
+            e = p.entry
+            why = f": {p.why}" if p.why else ""
+            lines.append(f"- {e.shown} line {e.hunk.first_changed}, from {e.label}{why}")
+        self.hub.tasks._log(task, "system", "\n".join(lines))
+        return task.id
+
     # ── keeping one ──
 
     def cmd_keep(self, msg: dict[str, Any]) -> None:
         self.hub._spawn(self._keep(msg))
 
     async def _keep(self, msg: dict[str, Any]) -> None:
+        if msg.get("n") is None:  # (0 is the merge: never what a missing n means)
+            return
         try:
-            n = int(msg.get("n") or 0)
+            n = int(msg["n"])
         except (TypeError, ValueError, OverflowError):  # (infinity too)
             return
         said = await self.keep(str(msg.get("group") or ""), n)
@@ -326,43 +564,70 @@ class BestOf:
             self.hub.emit("caption", text=self.tr(said))
 
     async def keep(self, group_id: str, n: int) -> str:
-        """Land the chosen variant's copy and discard the others, after one card."""
+        """Land the chosen variant's copy (n 0: the merge's) and discard the others, after
+        one card."""
         group = self.groups.get(group_id)
         desk = getattr(self.hub, "code_desk", None)
-        chosen = next((v for v in group.variants if v.n == n), None) if group else None
-        if group is None or chosen is None or desk is None or group.status == "kept":
+        if group is None or desk is None or group.status == "kept":
             return "That comparison isn't there any more."
-        copy = desk.store().find(chosen.slug) if chosen.slug else None
+        merge = group.merge or {}
+        if n == 0:
+            if merge.get("status") != "ready" or not merge.get("slug"):
+                return "There's no merge to keep."
+            slug, label, others = merge["slug"], "", list(group.variants)
+        else:
+            chosen = next((v for v in group.variants if v.n == n), None)
+            if chosen is None:
+                return "That comparison isn't there any more."
+            slug, label = chosen.slug, chosen.label
+            others = [v for v in group.variants if v is not chosen]
+        copy = desk.store().find(slug) if slug else None
         if copy is None:
             return "That isolated copy isn't there any more."
-        others = [v for v in group.variants if v is not chosen]
-        question = f"Keep {chosen.label} and land it in {copy.into}?"
-        detail = (
-            f"The other {len(others)} copies are discarded (their work is kept 30 days). "
-            "Every session of this comparison ends."
-        )
-        choices = [("keep", "Keep this one"), ("deny", "Not now")]
+        if n == 0:
+            hunks = merge.get("hunks") or []
+            k = len({h["from"] for h in hunks})
+            question = self.tr(f"Keep the merge and land it in {copy.into}?")
+            detail = self.tr(
+                f"{len(hunks)} changes from {k} attempts. Every attempt's copy is discarded "
+                "(their work is kept 30 days). Every session of this comparison ends."
+            )
+            findings = await asyncio.to_thread(desk._scan_copy, copy)
+            if findings:
+                detail += "\n\n" + self.tr("Possible secrets in the work it would commit:")
+                detail += "\n" + secret_scan.summary(findings)
+            choices = [("keep", "Keep the merge"), ("deny", "Not now")]
+        else:
+            question = self.tr(f"Keep {label} and land it in {copy.into}?")
+            gone = len(others) + (1 if merge.get("slug") else 0)
+            detail = self.tr(
+                f"The other {gone} copies are discarded (their work is kept 30 days). "
+                "Every session of this comparison ends."
+            )
+            choices = [("keep", "Keep this one"), ("deny", "Not now")]
         answer = await self.hub.request_approval(
-            self.tr(question), self.tr(detail), [(c, self.tr(label)) for c, label in choices]
+            question, detail, [(c, self.tr(text)) for c, text in choices]
         )
         if answer != "keep":
             return ""
-        for v in group.variants:  # nobody keeps working on what's being decided
-            task = self.hub.tasks.tasks.get(v.task_id)
+        ids = [v.task_id for v in group.variants] + [int(merge.get("task_id") or 0)]
+        for task_id in ids:  # nobody keeps working on what's being decided
+            task = self.hub.tasks.tasks.get(task_id)
             if task is not None and task.busy:
                 await self.hub.tasks.interrupt(task.id)
         landed = await desk.land_now(copy)
         if desk.store().find(copy.slug) is not None:  # it didn't land (a conflict, say)
             await desk.publish()
             return landed
-        for v in others:
-            other = desk.store().find(v.slug) if v.slug else None
+        slugs = [v.slug for v in others] + ([merge["slug"]] if n and merge.get("slug") else [])
+        for other_slug in slugs:
+            other = desk.store().find(other_slug) if other_slug else None
             if other is not None:
                 await desk.discard_now(other)
         group.status, group.kept = "kept", n
         self.publish(group)
         await desk.publish()
-        return f"Kept {chosen.label}. {landed}"
+        return f"Kept the merge. {landed}" if n == 0 else f"Kept {label}. {landed}"
 
     def cmd_state(self, msg: dict[str, Any]) -> None:
         directory = str(msg.get("directory") or "")
@@ -423,4 +688,5 @@ def install(hub: Any) -> None:
     hub.code_bestof = best  # (for the tests)
     hub.register_command("code_bestof", best.cmd_start)
     hub.register_command("code_bestof_keep", best.cmd_keep)
+    hub.register_command("code_bestof_merge", best.cmd_merge)
     hub.register_command("code_bestof_state", best.cmd_state)

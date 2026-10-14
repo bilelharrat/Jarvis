@@ -48,6 +48,7 @@ POLICY: dict[str, tuple[str, int]] = {
     "review": ("sonnet", 20),
     "deep_review": ("sonnet", 5),
     "judge": ("haiku", 20),
+    "merge": ("haiku", 10),  # best of N's "Merge best parts" (features/code_bestof.py)
     "pr_draft": ("haiku", 30),
 }
 CALL_SECONDS = 90.0
