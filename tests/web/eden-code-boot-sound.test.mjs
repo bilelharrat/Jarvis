@@ -296,3 +296,13 @@ test('a link planted in the temp folder never makes it overwrite another file', 
   assert.equal(fs.statSync(path.dirname(played)).mode & 0o077, 0, 'its folder is the app’s own (0700)');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// Round 3: Ask Eden's own boot sound (app/eden/main.js) still copied to a fixed name in the
+// temp folder, as Eden Code's did before B1: a link planted there was written through.
+test('Ask Eden copies its boot sound into a fresh folder of its own, never over what is there', () => {
+  const main = fs.readFileSync(new URL('../../app/eden/main.js', import.meta.url), 'utf8');
+  const body = main.slice(main.indexOf('function playBootSound()'), main.indexOf('app.whenReady()'));
+  assert.match(body, /fs\.mkdtempSync\(path\.join\(app\.getPath\('temp'\), 'ask-eden-boot-'\)\)/);
+  assert.match(body, /copyFileSync\([^\n]*COPYFILE_EXCL\)/);
+  assert.doesNotMatch(body, /path\.join\(app\.getPath\('temp'\), 'ask-eden-boot-sound\.wav'\)/);
+});

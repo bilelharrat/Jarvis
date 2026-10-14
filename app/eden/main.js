@@ -471,10 +471,17 @@ function playBootSound() {
   if (bootSoundPlayed || !bootSoundOn()) return;
   bootSoundPlayed = true;
   try {
-    const file = path.join(app.getPath('temp'), 'ask-eden-boot-sound.wav');
-    fs.copyFileSync(path.join(__dirname, 'build', 'boot-sound.wav'), file);
-    require('child_process').spawn('/usr/bin/afplay', [file], { stdio: 'ignore', detached: true })
-      .on('error', () => {}).unref(); // (no sound device: nothing to say)
+    // A fresh folder of its own (mkdtemp: ours, 0700) and the copy made only where nothing is
+    // (COPYFILE_EXCL), as Eden Code's (app/features/boot-sound.js, round 2 B1): at a fixed name
+    // in the temp folder, a link planted there made the copy overwrite the file it pointed to.
+    const dir = fs.mkdtempSync(path.join(app.getPath('temp'), 'ask-eden-boot-'));
+    const file = path.join(dir, 'ask-eden-boot-sound.wav');
+    fs.copyFileSync(path.join(__dirname, 'build', 'boot-sound.wav'), file, fs.constants.COPYFILE_EXCL);
+    const tidy = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* the OS's temp sweep */ } };
+    const child = require('child_process').spawn('/usr/bin/afplay', [file], { stdio: 'ignore', detached: true });
+    child.on('error', tidy); // (no sound device: nothing to say)
+    child.on('exit', tidy);
+    child.unref();
   } catch { /* nothing to say */ }
 }
 
