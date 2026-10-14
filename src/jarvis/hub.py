@@ -1230,7 +1230,11 @@ class Hub:
     ) -> None:
         """A feature's tool server for the brain (built at each connect), what the brain is
         told about it, the Activity drawer's labels for its tools, and which of its tools
-        return nothing private (quiet) or pages anyone can write (web)."""
+        return nothing private (quiet) or pages anyone can write (web). A name already
+        taken raises ValueError: the second server took the first's place without a word
+        (REL3-9: two features named theirs "calls", and tell_call was gone)."""
+        if name in self._extra_servers:
+            raise ValueError(f"a tool server named {name!r} is registered already")
         self._extra_servers[name] = build
         if prompt:
             self._extra_prompts.append(prompt if callable(prompt) else (lambda p=prompt: p))
