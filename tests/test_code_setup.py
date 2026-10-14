@@ -26,13 +26,14 @@ class FakeDocker:
     """docker as code_setup sees it: every call kept, nothing run. Commands "in the
     container" run on the Mac with /bin/sh, so a setup's output is real."""
 
-    def __init__(self, problem=""):
+    def __init__(self, home, problem=""):
+        self.home = home  # (a temp folder: no setup script here ever writes in the real home)
         self.problem = problem
         self.calls = []
         self.fail = {}  # first argument -> (code, output)
 
     def env(self):
-        return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(Path.home())}
+        return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.home)}
 
     async def check(self):
         return self.problem
@@ -52,8 +53,10 @@ class FakeDocker:
 
 
 @pytest.fixture
-def docker(hub):
-    fake = FakeDocker()
+def docker(hub, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    fake = FakeDocker(home)
     hub.code_setup.docker = fake
     return fake
 
