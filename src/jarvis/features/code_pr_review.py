@@ -57,7 +57,7 @@ from .. import code_ai, code_changes, github, jsonstore, lang, prefs, secret_sca
 from ..code_changes import NO_HOOKS, git
 from ..computer import is_sensitive
 from ..proactive import Alert
-from .code_review import REVIEW_SYSTEM, SEVERITIES, parse_findings
+from .code_review import REVIEW_SYSTEM, parse_findings
 from .code_unattended import Scope, end_hooks_of
 
 log = logging.getLogger("jarvis")
@@ -598,7 +598,9 @@ class PullReviews:
                 else f"Reviewed pull request #{number} in {repo}: nothing found."
             )
             if n:
-                self.notify(f"prr:{key}:{sha[:7]}", said, "an automated pull request review was posted")
+                self.notify(
+                    f"prr:{key}:{sha[:7]}", said, "an automated pull request review was posted"
+                )
             return said
         finally:
             self._running.discard(key)
@@ -632,7 +634,11 @@ class PullReviews:
         ]
         try:
             posted = await self.client.create_review(
-                ref, number, commit_id=sha, body=review_body(loose, len(findings)), comments=comments
+                ref,
+                number,
+                commit_id=sha,
+                body=review_body(loose, len(findings)),
+                comments=comments,
             )
         except github.GitHubError as exc:
             if exc.status != 422 or not comments:
@@ -669,7 +675,9 @@ class PullReviews:
         if not self.fix_caps.left("fix"):
             return f"That's today's {FIXES_A_DAY} fixes from reviews; the next can start tomorrow."
         head = pull.get("head") if isinstance(pull.get("head"), dict) else {}
-        head_repo = (head.get("repo") or {}).get("full_name") if isinstance(head.get("repo"), dict) else ""
+        head_repo = (
+            (head.get("repo") or {}).get("full_name") if isinstance(head.get("repo"), dict) else ""
+        )
         title = " ".join(str(pull.get("title") or "").split())
         scope = Scope(
             prompt=fix_prompt(record["repo"], pull, chosen),
@@ -757,7 +765,6 @@ class PullReviews:
         if fix is None:
             return
         n, repo = fix["number"], fix["repo"]
-        branch = (task.workspace or {}).get("branch", "")
         key = f"prr-fix:{repo}#{n}:{run.id}"
         if why != "finished":
             how = self.hub.code_runs.how(run)
@@ -806,7 +813,9 @@ class PullReviews:
         question = f"Push the fix to {fix['head_ref']} (pull request #{n} in {repo})?"
         choice = await self.hub.request_approval(self.tr(question), "\n".join(lines), choices)
         if choice != "push":
-            return f"The fix for pull request #{n} wasn't pushed; it's in the isolated copy {branch}."
+            return (
+                f"The fix for pull request #{n} wasn't pushed; it's in the isolated copy {branch}."
+            )
         remote, _ref = await asyncio.to_thread(github.repo_for, task.cwd)
         done = await asyncio.to_thread(
             git, top.top, "push", "-q", remote, f"HEAD:refs/heads/{fix['head_ref']}",

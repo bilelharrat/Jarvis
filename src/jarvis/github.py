@@ -569,9 +569,7 @@ class Client:
     async def pull_files(self, ref: RepoRef, number: int) -> list[dict[str, Any]]:
         """A pull request's changed files, each with its patch (GitHub leaves the patch out
         of a file too big to show)."""
-        return await self.paged(
-            f"/repos/{ref.full}/pulls/{number}/files", limit=300, repo=ref.full
-        )
+        return await self.paged(f"/repos/{ref.full}/pulls/{number}/files", limit=300, repo=ref.full)
 
     async def create_review(
         self,
@@ -586,16 +584,22 @@ class Client:
         or a request for changes): its body and line comments, each {path, line, side,
         body} on the new side of the diff."""
         data = {"commit_id": commit_id, "body": body, "event": "COMMENT", "comments": comments}
-        return await self.request(
-            "POST", f"/repos/{ref.full}/pulls/{number}/reviews", body=data, repo=ref.full
-        ) or {}
+        return (
+            await self.request(
+                "POST", f"/repos/{ref.full}/pulls/{number}/reviews", body=data, repo=ref.full
+            )
+            or {}
+        )
 
     async def retarget(self, ref: RepoRef, number: int, base: str) -> dict[str, Any]:
         """Point an open pull request at another base branch (a stacked one, once the one
         under it is merged)."""
-        return await self.request(
-            "PATCH", f"/repos/{ref.full}/pulls/{number}", body={"base": base}, repo=ref.full
-        ) or {}
+        return (
+            await self.request(
+                "PATCH", f"/repos/{ref.full}/pulls/{number}", body={"base": base}, repo=ref.full
+            )
+            or {}
+        )
 
     async def issue(self, ref: RepoRef, number: int) -> dict[str, Any]:
         return await self.request("GET", f"/repos/{ref.full}/issues/{number}", repo=ref.full) or {}
