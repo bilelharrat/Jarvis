@@ -21,7 +21,7 @@
     "This app can’t make videos.": "这个应用无法制作视频。",
     "The video couldn’t be made.": "无法制作视频。",
     "Only a dev server on this Mac is recorded.": "只录制这台 Mac 上的开发服务器。",
-    "Off": "关",
+    "Off": "关闭",
     "On": "开"
   },
   "patterns": [

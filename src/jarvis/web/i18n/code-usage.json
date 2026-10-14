@@ -29,7 +29,7 @@
     "This project’s limit a day": "这个项目每天的上限",
     "This session’s limit": "这个会话的上限",
     "An amount in dollars, like 5 or 12.50": "请输入美元金额，例如 5 或 12.50",
-    "Use the default": "使用默认值",
+    "Use the default": "使用默认位置",
     "Spending": "花费",
     "Claude Code’s own estimates. A session stops at its limit and waits until you raise it.": "这是 Claude Code 自己的估算。会话到达上限会停下，等你调高后再继续。",
     "Last 14 days": "最近 14 天",

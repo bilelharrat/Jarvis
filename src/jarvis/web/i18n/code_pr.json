@@ -20,7 +20,7 @@
     "Approved": "已批准",
     "Changes requested": "要求修改",
     "Commented": "已评论",
-    "Dismissed": "已驳回",
+    "Dismissed": "已关闭",
     "Squash": "压缩合并",
     "Merge commit": "合并提交",
     "Rebase": "变基合并",

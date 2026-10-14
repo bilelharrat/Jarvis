@@ -118,6 +118,16 @@
   // Marked so a redraw never moves the keys onto it in a gone control's place (code-focus.js).
   const spender = (b) => { b.dataset.spends = ''; return b; };
 
+  // A word that means something of its own here (a finding still Open, the Fix step, the step
+  // Now): one dictionary serves the whole window and the last file's Chinese wins, so "Open"
+  // came out 打开 and "Fix" 修改 (round 2, U4). Its Chinese is under its own key,
+  // "Exterminator Mode · <word>" (i18n/code_bugfix.json), else the window's for the word.
+  const own = (word) => {
+    const key = `Exterminator Mode · ${word}`;
+    const zh = t(key);
+    return zh !== key ? zh : t(word);
+  };
+
   // ── the composer's switch ──
 
   const pill = el('button', 'jc-pill jcx-bf-switch');
@@ -162,7 +172,7 @@
     const run = task ? runFor(state.runs, state.active, task.id, '') : null;
     badge.hidden = !run;
     if (!run) return;
-    const step = run.step === 'ship' || run.step === 'land' ? t(STEP_LABELS[run.step]) : `${t('Round')} ${run.round} · ${t(STEP_LABELS[run.step] || run.step)}`;
+    const step = run.step === 'ship' || run.step === 'land' ? own(STEP_LABELS[run.step]) : `${t('Round')} ${run.round} · ${own(STEP_LABELS[run.step] || run.step)}`;
     badge.replaceChildren(el('span', 'jcx-bf-dot'), el('span', '', 'Exterminator Mode'), mine(` · ${step}`));
     badge.setAttribute('aria-label', `${t('Exterminator Mode')}: ${step}. ${money(run.spent)} / ${money(run.spend_cap)}`);
   }
@@ -172,15 +182,16 @@
   // ── the pane ──
 
   function chip(text, cls) { return el('span', `jcx-chip ${cls || ''}`.trim(), text); }
+  function ownChip(text, cls) { const c = chip(own(text), cls); c.dataset.noI18n = ''; return c; }
 
   function stepper(run) {
     const list = el('ol', 'jcx-bf-steps');
     list.setAttribute('aria-label', t('Progress'));
     for (const s of progress(run)) {
-      const label = s.step === 'ship' || s.step === 'land' ? t(STEP_LABELS[s.step]) : `R${s.round} ${t(STEP_LABELS[s.step])}`;
+      const label = s.step === 'ship' || s.step === 'land' ? own(STEP_LABELS[s.step]) : `R${s.round} ${own(STEP_LABELS[s.step])}`;
       const li = mine(label, 'li', `jcx-bf-step ${s.state}`);
       if (s.state === 'current') li.setAttribute('aria-current', 'step');
-      li.title = t({ done: 'Done', current: 'Now', halted: 'Stopped here', todo: 'To do' }[s.state]);
+      li.title = own({ done: 'Done', current: 'Now', halted: 'Stopped here', todo: 'To do' }[s.state]);
       list.append(li);
     }
     return list;
@@ -190,7 +201,7 @@
     const li = el('li', `jcx-bf-finding sev-${f.severity}`);
     const head = el('div', 'jcx-bf-fhead');
     head.append(chip(f.severity, `sev ${f.severity}`), mine(f.id, 'code'), mine(f.title, 'span', 'jcx-bf-ftitle'),
-      chip(STATUS[f.status] || f.status, ['verified', 'fixed'].includes(f.status) ? 'good' : ['failing', 'unproven'].includes(f.status) ? 'warn' : ''));
+      ownChip(STATUS[f.status] || f.status, ['verified', 'fixed'].includes(f.status) ? 'good' : ['failing', 'unproven'].includes(f.status) ? 'warn' : ''));
     li.append(head, mine(`${f.where} · ${f.lane}`, 'p', 'jc-dim jcx-bf-where'));
     li.title = f.scenario || '';
     // (A title is never read by a screen reader: the scenario is said in the item too.)

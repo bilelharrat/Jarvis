@@ -7,7 +7,7 @@
     "This session’s sandbox": "这个会话的沙盒",
     "As set": "按设置",
     "On": "开",
-    "Off": "关",
+    "Off": "关闭",
     "Its commands run outside the sandbox.": "它的命令在沙盒外运行。",
     "Its commands run in the sandbox.": "它的命令在沙盒里运行。",
     "Its commands run in the sandbox from its next step; until then each one asks.": "从下一步开始，它的命令会在沙盒里运行；在那之前每条命令都会先询问。",
