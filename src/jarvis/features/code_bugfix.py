@@ -979,12 +979,18 @@ class BugFix:
         async def prepare(task: Any) -> None:
             if inner is not None:
                 await inner(task)
-            if task.id in self.active and not task.workspace:
+            run = self.active.get(task.id)
+            if run is None:
+                return
+            if not task.workspace:
                 raise RuntimeError(
                     self.tr(
                         "Bug Fix Mode needs an isolated copy, and this one's couldn't be made: see the note above."
                     )
                 )
+            if not run.slug:  # the copy is the run's now: a quit before its first turn ends can resume
+                self.adopt_copy(run, task)
+                self.save()
 
         return prepare
 

@@ -852,3 +852,30 @@ async def test_a_run_quit_in_its_ship_step_resumes_at_ship_not_the_last_round(
     heads = [p.split("\n", 1)[0] for p in BugClient.prompts[asked:]]
     assert heads and set(heads) == {"Bug Fix Mode · SHIP"}, heads  # (no round again)
     assert again.state == "done"
+
+
+async def test_a_run_quit_in_its_first_sweep_knows_its_copy_and_can_resume(
+    hub, projects, monkeypatch
+):
+    """Round 1's D6: the copy is the run's as soon as it's made, not after the first turn."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 1)
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "SWEEP"
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(lambda: len(BugClient.prompts) == 1)
+    desk.drivers[run.id].cancel()
+    handle = hub.tasks.tasks[run.task_id].handle
+    hub.tasks.cancel(run.task_id)
+    await asyncio.wait([handle], timeout=5)
+    desk._loaded, desk.runs, desk.active, desk.waiting = False, [], {}, {}
+    desk.load()  # (what was saved when the copy was made: no other save since)
+    [again] = desk.runs
+    assert again.slug and again.folder and Path(again.folder).is_dir()
+    BugClient.hold = None
+    hub.answers = ["deny"]
+    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await until(lambda: again.state != "running"), again.notes
+    assert again.state == "done", again.notes
