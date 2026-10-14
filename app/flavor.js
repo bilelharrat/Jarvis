@@ -25,9 +25,15 @@ const FLAVORS = {
     id: 'jarvis',
     name: 'Eden Secretary',
     title: 'Eden Secretary',
-    // The name its cookies' encryption key goes by (keychain-name.js): fixed, so a rename never
-    // signs the owner out of every site.
-    keyName: 'Eden Secretary',
+    // The name its cookies' encryption key goes by (keychain-name.js), and its Electron profile
+    // (cookies, window place, the one-at-a-time lock): both fixed at the last shipped names
+    // (0.1.8, productName "J.A.R.V.I.S.": the Keychain item "J.A.R.V.I.S. Safe Storage" and
+    // ~/Library/Application Support/J.A.R.V.I.S.), never the display name. app.setName above
+    // moves the default profile with the name, so without userDataName the rename to Eden
+    // Secretary opened an empty profile, and with another keyName a key the cookies weren't
+    // written with: either way the upgrade signed the owner out of every site (REL3-15).
+    keyName: 'J.A.R.V.I.S.',
+    userDataName: 'J.A.R.V.I.S.',
     logName: 'Jarvis',
     appUserModelId: 'com.askeden.jarvis.win', // Windows: the installer's appId, which toasts are shown under
     socketApp: 'jarvis', // what its window says on the socket (server.APPS)
@@ -41,7 +47,10 @@ const FLAVORS = {
     id: 'daredevil',
     name: 'Eden Daredevil',
     title: 'Eden Daredevil',
-    keyName: 'Eden Secretary', // Eden Secretary's profile, so Eden Secretary's key: both read its cookies
+    // Eden Secretary's profile, so Eden Secretary's key: both read its cookies. (Its own old name,
+    // "J.A.R.V.I.S. Daredevil", never held cookies of its own: it shipped for Windows only, where
+    // the key is in the profile, and the profile was always J.A.R.V.I.S.'s.)
+    keyName: 'J.A.R.V.I.S.',
     logName: 'Jarvis', // J.A.R.V.I.S.'s logs and data folder: it is the same program
     appUserModelId: 'com.askeden.jarvis.win', // Eden Secretary's too: one app to Windows, so one replaces the other
     userDataName: 'J.A.R.V.I.S.', // …and its Electron profile (window place, the one-at-a-time lock), so never two at once
