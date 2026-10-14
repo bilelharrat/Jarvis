@@ -184,9 +184,29 @@ RISKY = [
 ]
 
 
+# Round 3 (S3-6): a shell reads `\rm`, `r\m`, `r''m` and `rm${IFS}-rf` as rm -rf. The table
+# is matched against the command as the shell would read those too (an escaping backslash gone,
+# quotes inside a word gone, $IFS a space), as well as against it as written; and a program the
+# shell only knows when it runs (a variable's, $'…', $(…): x=rm; $x -rf ~) is risky by itself.
+# The window's riskyCommand does the same, word for word.
+_ESCAPED = re.compile(r"\\(.)")
+_IFS = re.compile(r"\$\{IFS\}|\$IFS\b")
+_INNER_QUOTES = re.compile(r"""(?<=[\w/.~-])["']+""")
+_VAR_PROGRAM = re.compile(r"""(^|[;&|(`\n])\s*(\w+=\S*\s+)*["']?\$[\w{('"]""")
+
+
+def as_shell_reads(command: Any) -> str:
+    """The command with what only hides a program's name from the table taken out."""
+    text = _ESCAPED.sub(r"\1", str(command or ""))
+    return _INNER_QUOTES.sub("", _IFS.sub(" ", text))
+
+
 def risky_command(command: Any) -> bool:
     text = str(command or "")
-    return any(p.search(text) for p in RISKY)
+    if _VAR_PROGRAM.search(text):
+        return True
+    read = as_shell_reads(text)
+    return any(p.search(text) or p.search(read) for p in RISKY)
 
 
 def risky(approval: Any, choice: str) -> bool:
@@ -221,8 +241,20 @@ RUNS_ANYTHING = frozenset(
         "command", "builtin", "xargs", "nohup", "time", "timeout", "gtimeout", "nice", "watch",
         "caffeinate", "stdbuf", "python", "perl", "ruby", "node", "deno", "bun", "php",
         "osascript", "ssh", "npx", "bunx", "uvx", "pipx",
+        # Round 3 (S3-9): what runs a file or a script the session can write, or anything in a
+        # container or on GitHub's machines: a Makefile, a jar, uv run, docker run, gh's own.
+        "make", "gmake", "docker", "podman", "gh", "uv", "java",
     }
 )  # fmt: skip
+# Programs that run anything with one of their subcommands (npm run's script is the session's
+# to write): an allow rule for the program alone, or for that subcommand, is broad (S3-9).
+RUNS_WITH = {
+    "npm": frozenset({"run", "run-script", "exec", "x"}),
+    "yarn": frozenset({"run", "exec", "dlx", "node"}),
+    "pnpm": frozenset({"run", "exec", "dlx"}),
+    "cargo": frozenset({"run"}),
+    "go": frozenset({"run"}),
+}
 _RULE = re.compile(r"^\s*([^()\s]+)\s*(?:\(([\s\S]*)\))?\s*$")
 
 
@@ -242,8 +274,13 @@ def broad_rule(text: Any) -> bool:
         prefix = re.sub(r":?\*$", "", content).strip()
         if not prefix:
             return True
-        first = prefix.split()[0].strip("\"'").rsplit("/", 1)[-1]
+        words = prefix.split()
+        first = words[0].strip("\"'").rsplit("/", 1)[-1]
         plain = re.sub(r"[\d.]+$", "", first)
+        runs = RUNS_WITH.get(first)
+        second = words[1].strip("\"'") if len(words) > 1 else ""
+        if runs is not None and (not second or second in runs):
+            return True
         return first in RUNS_ANYTHING or plain in RUNS_ANYTHING or risky_command(prefix)
     if tool in EDITS:
         if not content:

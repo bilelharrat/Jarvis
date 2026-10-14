@@ -56,17 +56,33 @@
       + '(rmtree|removedirs|\\bremove\\s*\\(|unlink|rmdir|\\brm_r|rmSync|rimraf|\\brm\\s+-\\w*[rRf])'),
   ];
 
+  // Round 3 (S3-6): a shell reads `\rm`, `r\m`, `r''m` and `rm${IFS}-rf` as rm -rf, so the
+  // table is matched against the command as the shell reads those too (as written as well), and
+  // a program known only when it runs (a variable's, $'…', $(…)) is risky by itself.
+  const ESCAPED = /\\(.)/g;
+  const IFS = /\$\{IFS\}|\$IFS\b/g;
+  const INNER_QUOTES = /(?<=[\w/.~-])["']+/g;
+  const VAR_PROGRAM = /(^|[;&|(`\n])\s*(\w+=\S*\s+)*["']?\$[\w{('"]/;
+  function asShellReads(command) {
+    return String(command || '').replace(ESCAPED, '$1').replace(IFS, ' ').replace(INNER_QUOTES, '');
+  }
+
   // Whether a command is one of those.
   function riskyCommand(command) {
     const text = String(command || '');
-    return RISKY.some((re) => re.test(text));
+    if (VAR_PROGRAM.test(text)) return true;
+    const read = asShellReads(text);
+    return RISKY.some((re) => re.test(text) || re.test(read));
   }
 
   // An allow rule that's Bypass for a whole kind of step (features/code_touchid.py broad_rule,
   // the same): every command, a program that runs anything or a risky one, edits anywhere.
   const RUNS_ANYTHING = new Set(['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh', 'sudo', 'doas', 'env', 'eval', 'exec',
     'command', 'builtin', 'xargs', 'nohup', 'time', 'timeout', 'gtimeout', 'nice', 'watch', 'caffeinate', 'stdbuf',
-    'python', 'perl', 'ruby', 'node', 'deno', 'bun', 'php', 'osascript', 'ssh', 'npx', 'bunx', 'uvx', 'pipx']);
+    'python', 'perl', 'ruby', 'node', 'deno', 'bun', 'php', 'osascript', 'ssh', 'npx', 'bunx', 'uvx', 'pipx',
+    'make', 'gmake', 'docker', 'podman', 'gh', 'uv', 'java']);  // (round 3, S3-9: these too)
+  // Programs that run anything with one of their subcommands (S3-9; features/code_touchid.py RUNS_WITH).
+  const RUNS_WITH = { npm: ['run', 'run-script', 'exec', 'x'], yarn: ['run', 'exec', 'dlx', 'node'], pnpm: ['run', 'exec', 'dlx'], cargo: ['run'], go: ['run'] };
   const EDITS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'];
   function broadRule(text) {
     const m = /^\s*([^()\s]+)\s*(?:\(([\s\S]*)\))?\s*$/.exec(String(text || ''));
@@ -77,7 +93,11 @@
     if (tool === 'Bash') {
       const prefix = content.replace(/:?\*$/, '').trim();
       if (!prefix) return true;
-      const first = prefix.split(/\s+/)[0].replace(/^["']+|["']+$/g, '').split('/').pop();
+      const words = prefix.split(/\s+/);
+      const first = words[0].replace(/^["']+|["']+$/g, '').split('/').pop();
+      const second = (words[1] || '').replace(/^["']+|["']+$/g, '');
+      const runs = Object.prototype.hasOwnProperty.call(RUNS_WITH, first) ? RUNS_WITH[first] : null;
+      if (runs && (!second || runs.includes(second))) return true;
       return RUNS_ANYTHING.has(first) || RUNS_ANYTHING.has(first.replace(/[\d.]+$/, '')) || riskyCommand(prefix);
     }
     if (EDITS.includes(tool)) {
