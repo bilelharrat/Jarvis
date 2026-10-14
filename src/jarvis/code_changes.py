@@ -44,6 +44,58 @@ _ENV = {
     "LC_ALL": "C",
 }
 
+# Copies a container could write in (features/code_setup.py), by their root: the git data
+# their worktree really has, read before the container started. Eden's own git there runs
+# with it pinned (GIT_DIR, GIT_WORK_TREE), never where the copy's .git file now points, and
+# only while the worktree's commondir still names the main repository's git data (git reads
+# that file even with GIT_COMMON_DIR set): a container that rewrote either pointer (or
+# planted a .git in a folder) would otherwise pick the config, and so the filters, hooks
+# and sshCommand, the owner's git runs (B2). A pin of None: that copy's git data couldn't
+# be told, so Eden runs no git in it at all.
+_PINS: dict[str, dict[str, str] | None] = {}
+PINNED_GONE = (
+    "This copy's git data was changed from inside its container, so Eden runs no git in it: "
+    "discard it, or look at it in Terminal yourself."
+)
+
+
+def pin_git(checkout: str, pin: dict[str, str] | None) -> None:
+    _PINS[os.path.realpath(checkout)] = pin
+
+
+def unpin_git(checkout: str) -> None:
+    _PINS.pop(os.path.realpath(checkout), None)
+
+
+def _common_of(gitdir: str) -> str:
+    """Where a worktree's commondir file says the rest of its git data is, resolved ("" when
+    it can't be read)."""
+    try:
+        with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as file:
+            named = file.read(4096).strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return os.path.realpath(os.path.join(gitdir, named)) if named else ""
+
+
+def pinned_env(cwd: Path | str) -> tuple[dict[str, str], str]:
+    """The environment git needs in cwd when it's in a pinned copy, and why not to run git
+    there at all ("" when it can)."""
+    if not _PINS:
+        return {}, ""
+    here = os.path.realpath(cwd)
+    for top, pin in _PINS.items():
+        if here == top or here.startswith(top + os.sep):
+            if pin is None or _common_of(pin["gitdir"]) != os.path.realpath(pin["common"]):
+                return {}, PINNED_GONE
+            return {
+                "GIT_DIR": pin["gitdir"],
+                "GIT_WORK_TREE": top,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            }, ""
+    return {}, ""
+
+
 # What a view of the changes may carry to a window: past these, files are listed without
 # their lines (a window asks for one file when it's opened) and long hunks are cut.
 MAX_FILES = 300
@@ -78,7 +130,11 @@ def git(
     timeout: float = GIT_SECONDS,
 ) -> Git:
     """One git command in cwd. Never raises: a missing git, a timeout or a folder that went
-    away come back as a failure with the reason in err."""
+    away come back as a failure with the reason in err. In a copy a container could write
+    in, it runs on the git data pinned for it (pin_git)."""
+    pinned, refused = pinned_env(cwd)
+    if refused:
+        return Git(128, "", refused)
     try:
         proc = subprocess.run(
             ["git", "-C", str(cwd), *_SAFE, *args],
@@ -88,7 +144,7 @@ def git(
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
-            env={**os.environ, **_ENV, **(env or {})},
+            env={**os.environ, **_ENV, **(env or {}), **pinned},
             stdin=None if input is not None else subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired:

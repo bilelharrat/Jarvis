@@ -362,3 +362,32 @@ async def test_a_command_that_only_starts_like_the_docker_exec_line_still_goes_i
     hub.code_setup.containers().pop(copy.slug)
     out = await hook({"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+async def test_a_containers_copy_has_its_git_pinned_across_a_restart(hub, projects, docker):
+    """B2: Eden's own git in a container's copy runs on the git data read before the
+    container started, recorded with it, and pinned again when the app starts; a record
+    from before there was one is pinned from the copy's .git when that's the main repo's."""
+    from jarvis import code_changes
+
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    container_on(hub, image="node:22")
+    task = await isolated_session(hub)
+    await started(hub, task)
+    copy = copy_of(hub, task)
+    [run] = [c for c in docker.calls if c[0] == "run"]
+    assert f"{copy.checkout}/.git:{copy.checkout}/.git:ro" in run
+    info = hub.code_setup.containers()[copy.slug]
+    assert info["git"]["common"].endswith(".git") and info["checkout"] == str(copy.checkout)
+    real = os.path.realpath(copy.checkout)
+    assert code_changes._PINS[real] == info["git"]
+    for record in (info, {k: v for k, v in info.items() if k not in ("git", "checkout")}):
+        code_changes.unpin_git(copy.checkout)
+        hub.code_setup._containers = None
+        from jarvis import jsonstore
+
+        jsonstore.save_json(hub.feature_path("code_containers.json"), {copy.slug: record})
+        hub.code_setup.containers()
+        assert code_changes._PINS[real] == info["git"]
+    hub.code_setup.on_copy_gone(copy.slug)
+    assert real not in code_changes._PINS

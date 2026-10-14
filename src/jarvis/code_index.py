@@ -60,7 +60,7 @@ from typing import Any
 
 import numpy as np
 
-from . import code_search, embeddings
+from . import code_changes, code_search, embeddings
 from .code_vocab import SKIP_DIRS
 from .computer import is_sensitive
 
@@ -173,7 +173,7 @@ def list_files(root: Path, stop: Callable[[], bool] = lambda: False) -> tuple[li
                 capture_output=True,
                 timeout=30,
                 check=False,
-                env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+                env={**os.environ, "GIT_OPTIONAL_LOCKS": "0", **code_changes.pinned_env(root)[0]},
             )  # fmt: skip
         except (OSError, subprocess.SubprocessError):
             out = None

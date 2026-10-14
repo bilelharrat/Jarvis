@@ -46,7 +46,7 @@ from typing import Any
 
 from claude_agent_sdk import HookMatcher
 
-from .. import devcontainer, jsonstore, lang, prefs, runproc
+from .. import code_changes, devcontainer, jsonstore, lang, prefs, runproc
 from ..codeplatform import code_task, other_agent
 from ..devcontainer import Docker, Image, Setup
 from .code_isolation import _project_names
@@ -98,6 +98,7 @@ ZH = {
     "The container wasn't used: nobody said yes to it in time.": "没有使用容器：没有人及时同意。",
     "Couldn't build the container's image: {error}": "没能构建容器镜像：{error}",
     "Couldn't start the container: {error}": "没能启动容器：{error}",
+    "This copy's git data isn't where Eden can tell, so it gets no container: this session runs its commands on the Mac.": "无法确定这个副本的 git 数据在哪里，所以它没有容器：这个会话在 Mac 上运行命令。",
     "Containers are on for {project}, but it has no image: pick one in Setup and container, or add .devcontainer/devcontainer.json. This session runs its commands on the Mac.": "{project} 已开启容器，但没有镜像：在“设置与容器”里选一个，或添加 .devcontainer/devcontainer.json。这个会话在 Mac 上运行命令。",
     "Setup and container": "设置与容器",
     "There's no copy to set up here.": "这里没有可以设置的副本。",
@@ -193,7 +194,35 @@ class SetupDesk:
             self._containers = {
                 k: v for k, v in (data or {}).items() if isinstance(v, dict) and v.get("name")
             }
+            for info in self._containers.values():
+                self.pin(info)
         return self._containers
+
+    def pin(self, info: dict[str, Any]) -> None:
+        """Eden's own git in a container's copy runs on the git data recorded before the
+        container started (code_changes.pin_git), never where the copy's files now point.
+        A record from before there was one: its copy's .git file is taken only when it still
+        points into the main repository's own git data (else no git runs there at all)."""
+        checkout, pin = str(info.get("checkout") or ""), info.get("git", False)
+        if checkout and (pin is None or isinstance(pin, dict)):
+            code_changes.pin_git(checkout, pin)
+            return
+        desk = self.desk()
+        copy = desk.store().by_path(Path(str(info.get("cwd") or "/"))) if desk else None
+        if copy is None:
+            return
+        info["checkout"], info["git"] = str(copy.checkout), self.checked_pin(copy)
+        code_changes.pin_git(copy.checkout, info["git"])
+
+    @staticmethod
+    def checked_pin(copy: Any) -> dict[str, str] | None:
+        """A copy's git data as its .git file says (devcontainer.git_pin), only when that's in
+        the main repository's own .git (blocking: reads files)."""
+        found = devcontainer.git_pin(Path(copy.checkout))
+        main = Path(copy.repo) / ".git"
+        if found is None or not main.is_dir():
+            return None
+        return found if Path(found["common"]).resolve() == main.resolve() else None
 
     def save_containers(self) -> None:
         with contextlib.suppress(OSError):
@@ -254,7 +283,7 @@ class SetupDesk:
                 "container:" + image.fingerprint,
                 f"Run {copy.project}'s sessions in a container from {image.source}?",
                 f"{image.source} asks for {what}. The copy is mounted in it read-write, the "
-                "main repository's git data read-only, and the session's commands run in "
+                "copy's git data read-only, and the session's commands run in "
                 "there. An image is the repository's to choose: use it only if you trust "
                 "where it comes from. I ask again if it changes.",
                 "Use the container",
@@ -279,6 +308,11 @@ class SetupDesk:
                 why = (out.strip().splitlines() or ["it ran out of time"])[-1][:300]
                 self.note(task, f"Couldn't build the container's image: {why}")
                 return None
+        pin = await asyncio.to_thread(self.checked_pin, copy)
+        if pin is None:  # (its git data can't be mounted read-only: no container)
+            self.note(task, "This copy's git data isn't where Eden can tell, so it gets no "
+                      "container: this session runs its commands on the Mac.")
+            return None
         name = devcontainer.container_name(copy.slug)
         await self.docker.run(["rm", "-f", name])  # (one left from before, by the same name)
         args = devcontainer.run_args(name, copy.slug, tag, Path(copy.checkout), copy.cwd)
@@ -287,7 +321,11 @@ class SetupDesk:
             why = (out.strip().splitlines() or ["it ran out of time"])[-1][:300]
             self.note(task, f"Couldn't start the container: {why}")
             return None
-        info = {"name": name, "image": tag, "cwd": str(copy.cwd), "project": copy.project}
+        info = {
+            "name": name, "image": tag, "cwd": str(copy.cwd), "project": copy.project,
+            "checkout": str(copy.checkout), "git": pin,
+        }  # fmt: skip
+        self.pin(info)
         self.containers()[copy.slug] = info
         self.save_containers()
         self.sockets[name] = await self.docker.socket()
@@ -304,6 +342,8 @@ class SetupDesk:
         self.output.pop(slug, None)
         if info is None:
             return
+        if info.get("checkout"):
+            code_changes.unpin_git(str(info["checkout"]))
         self.save_containers()
         self.sockets.pop(str(info.get("name")), None)
         self.hub._spawn(self.docker.run(["rm", "-f", str(info["name"])]))

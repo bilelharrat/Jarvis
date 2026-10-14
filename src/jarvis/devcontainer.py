@@ -12,8 +12,10 @@ one of the folders a session can't edit unasked (tasks._PROTECTED_DIRS).
 Containers: a project with .devcontainer/devcontainer.json (or .devcontainer.json at its
 top) names an image, or a Dockerfile to build one from. The owner can pick an image
 instead. A copy's container mounts the copy at the same path it has on the Mac, so every
-path a session sees means the same inside; the main repository's git data is mounted
-read-only (git can read history in there, never write hooks or objects the Mac would run).
+path a session sees means the same inside; the copy's git data is mounted read-only (git
+can read history in there, never write hooks, objects or a pointer to a git dir the Mac
+would then run), and Eden's own git in such a copy runs with that data pinned
+(code_changes.pin_git), whatever the copy's files say.
 Docker is never required: without it, the feature says how to install it and the session
 runs its commands on the Mac as usual.
 
@@ -209,23 +211,41 @@ def container_name(slug: str) -> str:
     return f"eden-{slug}"[:63]
 
 
-def git_mounts(checkout: Path) -> list[str]:
-    """docker -v arguments for a worktree's git data: the main repository's read-only, the
-    worktree's own folder in it (its index, HEAD) writable."""
+def git_pin(checkout: Path) -> dict[str, str] | None:
+    """Where a worktree's git data is, read from its .git file before any container could
+    touch it: {"gitdir": <repo>/.git/worktrees/<name>, "common": <repo>/.git}, or None when
+    it isn't a worktree Eden can tell that of."""
     marker = checkout / ".git"
     try:
-        line = marker.read_text().strip() if marker.is_file() else ""
+        line = marker.read_text().strip() if marker.is_file() and not marker.is_symlink() else ""
     except OSError:
         line = ""
     if not line.startswith("gitdir:"):
-        return []
+        return None
     own = Path(line[7:].strip())
     if not own.is_absolute():
         own = (checkout / own).resolve()
     common = own.parent.parent  # <repo>/.git/worktrees/<name> -> <repo>/.git
-    if common.name != ".git" and not (common / "objects").is_dir():
+    if own.parent.name != "worktrees" or not (common / "objects").is_dir():
+        return None
+    if checkout.resolve() in common.resolve().parents:
+        return None  # (git data inside the copy itself is the copy's to write)
+    return {"gitdir": str(own), "common": str(common)}
+
+
+def git_mounts(checkout: Path) -> list[str]:
+    """docker -v arguments for a worktree's git data, all of it read-only: the main
+    repository's, the worktree's own folder in it (its index, HEAD, and commondir, which
+    says where the rest is) and the copy's .git file (which says where that is), mounted
+    over the writable copy. Writable, either pointer let the container send the next git
+    Eden runs on the Mac in the copy to a git dir of its own, with a clean filter or an
+    sshCommand that ran as the owner (B2). git in the container can still read history and
+    show changes; committing is Eden's, on the Mac, as the copy lands."""
+    pin = git_pin(checkout)
+    if pin is None:
         return []
-    return ["-v", f"{common}:{common}:ro", "-v", f"{own}:{own}"]
+    common, own, marker = pin["common"], pin["gitdir"], checkout / ".git"
+    return ["-v", f"{common}:{common}:ro", "-v", f"{own}:{own}:ro", "-v", f"{marker}:{marker}:ro"]
 
 
 # ── docker ──
