@@ -10,6 +10,9 @@ body.eden-code #galaxy-canvas, body.eden-code > .top, body.eden-code > .layout, 
 body.eden-code #code-pill, body.eden-code #meeting-pill, body.eden-code #activity, body.eden-code #galaxy,
 body.eden-code #hand-panel, body.eden-code #hand-cursor, body.eden-code .wx-layer, body.eden-code #browser { display: none !important; }
 body.eden-code #cc-close { display: none; }
+/* The built-in browser's dock is gone here (#browser above), so its button opened a page no
+   one could see, 0 × 0 (round 3, U3-10): Eden Code's window has no Browser button. */
+body.eden-code #jc-browser { display: none; }
 .jc-eden-settings { display: none; }
 body.eden-code .jc-eden-settings { display: inline-flex; margin-left: auto; }
 

@@ -42,6 +42,13 @@ const inEdenCode = !inSplitPane && document.body.dataset.app === 'eden-code';
 const EDEN_CODE_SKIPS = new Set(['ui', 'desktop_hands', 'remote_code', 'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed']);
 const WINDOW_DUTIES = new Set(['browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture']);
 let jarvisWindows = 0;  // Eden Secretary windows on this backend (hello.app_windows, app_windows)
+// Eden Code's backend alone listens to no one (hub.profile "code": no microphone, no voice
+// loops, until an Eden Secretary window joins and makes it "full"), so the title bar's voice
+// switch and the composer's Dictate mic did nothing there (round 3, U3-14). They show only
+// once the backend listens (hello.profile, app_windows.profile).
+function showVoiceControls(on) {
+  for (const id of ['cc-voice-head', 'jc-dictate']) { const b = document.getElementById(id); if (b) b.hidden = !on; }
+}
 const edenDefers = () => inEdenCode && jarvisWindows > 0;
 
 // The keys that talk and ask what's on screen, as this computer writes them (the app's shell feature
@@ -108,6 +115,7 @@ function heard(ev) {
     jarvisWindows = Number((ev.type === 'hello' ? ev.app_windows : ev.windows || {})?.jarvis) || 0;
     // Eden Secretary closed: this window takes its jobs back, and says what it can do.
     if (before > 0 && jarvisWindows === 0 && app) send({ type: 'capabilities', browser: !!app.browser, research: !!app.browser });
+    if (ev.profile) showVoiceControls(ev.profile !== 'code');
   }
   if (inEdenCode && ev && (EDEN_CODE_SKIPS.has(ev.type) || (edenDefers() && WINDOW_DUTIES.has(ev.type)))) return;
   if (inSplitPane && ev && SPLIT_PANE_SKIPS.has(ev.type)) return;  // the main window's
@@ -2697,7 +2705,10 @@ document.addEventListener('keydown', (e) => {
 });
 $('cc-close').addEventListener('click', () => toggleCC(false));
 // Eden Code's window has no dock: Settings opens from its sidebar (and ⌘, as in any Mac app).
-$('jc-eden-settings').addEventListener('click', () => toggleSettings($('settings').hidden));
+// The gear opens the same sheet ⌘, does there, Eden Code's own (round 3, U3-9: it opened the
+// shared one, so the gear and ⌘, showed two different Settings); its General tab's last line
+// opens the shared sheet (accounts, Tools & Accounts, Health & safety).
+$('jc-eden-settings').addEventListener('click', () => { if (inEdenCode && !$('cc').hidden) openJcSettings('general'); else toggleSettings($('settings').hidden); });
 if (inEdenCode) {
   $('offline').textContent = 'Reconnecting…';
   document.addEventListener('keydown', (e) => {
@@ -4761,6 +4772,10 @@ function closeJcSettings() {
   $('deck-input').focus();
 }
 $('jcs-close').addEventListener('click', closeJcSettings);
+// In Eden Code's own window the gear and ⌘, open this sheet, so the shared one (the account,
+// Tools & Accounts, Health & safety) is a line away from it.
+$('jcs-more-row').hidden = !inEdenCode;
+$('jcs-more').addEventListener('click', () => { $('jc-settings').hidden = true; $('jcs-key').value = ''; toggleSettings(true); });
 $('jc-settings').addEventListener('mousedown', (e) => { if (e.target === $('jc-settings')) closeJcSettings(); });
 document.querySelectorAll('.jcs-tabs [role="tab"]').forEach((b) => b.addEventListener('click', () => selectJcsTab(b.dataset.tab)));
 
