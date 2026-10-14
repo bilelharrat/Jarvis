@@ -162,3 +162,23 @@ test('Send diagnostics: no focus stolen, no button stuck, a second press said', 
   assert.equal(a.send.disabled, false);
   assert.match(a.status.textContent, /too long/);
 });
+
+// Round 3, U3-7: "Saved in" names the folder the file is really in (the backend's own path,
+// ~/Documents/Jarvis/Diagnostics, ops/diagnostics.py), not a folder that doesn't exist; and
+// Eden Code's export says where its file is the same way (tasks.EXPORT_DIR).
+test('Saved in shows the real folder, from the file’s own path', () => {
+  assert.equal(cd.folderOf('/Users/sam/Documents/Jarvis/Diagnostics/Eden diagnostics.zip'), '~/Documents/Jarvis/Diagnostics');
+  assert.equal(cd.folderOf('/home/sam/Documents/Jarvis/Diagnostics/d.zip'), '~/Documents/Jarvis/Diagnostics');
+  assert.equal(cd.folderOf('/Volumes/x/d.zip'), '/Volumes/x');
+  const w = stand();
+  const li = w.node('li', 'jc-note');
+  w.decorate({ role: 'system', text: 'Stopped with an error: boom', error: true }, li);
+  const [, send, status] = li.children.find((c) => c.className === 'cd-actions').children;
+  send.listeners.click({ stopPropagation() {} });
+  w.fire('ops_diagnostics', { ok: true, path: '/Users/sam/Documents/Jarvis/Diagnostics/d.zip', name: 'd.zip' });
+  const words = status.children.map((c) => c.textContent || c.text || '').join('');
+  assert.ok(words.includes('Saved in ~/Documents/Jarvis/Diagnostics'), words);
+  assert.ok(!words.includes('Eden Secretary'), words);
+  const exporter = readFileSync(new URL('../../src/jarvis/web/features/code-export.js', import.meta.url), 'utf8');
+  assert.ok(!exporter.includes('Saved in Documents › Eden Secretary'), 'the export names a folder that isn’t there');
+});

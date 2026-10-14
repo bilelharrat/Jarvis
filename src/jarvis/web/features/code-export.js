@@ -80,7 +80,10 @@
     if (result && result.error) parts.push(el('p', 'cx-result bad', result.error));
     if (result && result.ok) {
       const done = el('div', 'cx-result');
-      done.append(el('span', '', 'Saved in Documents › Eden Secretary › Eden Code:'), mine(el('code', '', result.name)));
+      // Where it really is (tasks.EXPORT_DIR, ~/Documents/Jarvis/Eden Code: round 3, U3-7, this
+      // said "Documents › Eden Secretary › Eden Code"), from the file's own path: data, as it is.
+      const folder = String(result.path || '').replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~').replace(/\/[^/]*$/, '');
+      done.append(el('span', '', 'Saved in'), mine(el('code', '', folder ? `${folder}/${result.name}` : result.name)));
       const reveal = el('button', 'jc-mini', 'Show in Finder');
       reveal.type = 'button';
       reveal.addEventListener('click', () => F.send({ type: 'cw_export_reveal', path: result.path }));
