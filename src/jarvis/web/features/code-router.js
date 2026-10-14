@@ -580,6 +580,21 @@
   }
 
   F.registerSessionOption((prompt) => routeField(prompt, null));
+  // The router's pick for a request on its own (best of N's "Model Router's pick"): the
+  // rules' pick at once, {ref, effort?}, or null while the router isn't loaded (it starts
+  // loading, for the next ask).
+  F.routePick = (text) => {
+    if (!String(text || '').trim()) return null;
+    if (!lib) { if (!libError) loadLib().catch(() => {}); return null; }
+    try {
+      const result = currentRouter().routeSync(bodyFor(text, routing(null), null).body);
+      const route = routeFor(models(), result && result.pick);
+      return route ? { ref: route.ref, effort: route.effort || '' } : null;
+    } catch (err) {
+      console.warn('model router', err);
+      return null;
+    }
+  };
   F.registerSendOption((t, text) => (t && t.busy ? {} : routeField(text, t)));  // (never mid-step)
 
   function setOn(on) {
