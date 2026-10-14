@@ -14,6 +14,7 @@
   const RELAY = 'account_relay';
   const PLUS = 'account_plus_ai';
   const EDEN_LINK = 'account_eden_link';
+  const EDEN_LINK_EDITS = 'account_eden_link_edits';  // "Let askeden.com edit on this Mac" (off)
   const SERVER = 'account_server';
   const SERVER_NAMES = { 'askeden.com': 'askeden.com', 'preview.askeden.com': 'preview.askeden.com (test accounts)' };
   const PERKS = [
@@ -477,6 +478,13 @@
     const [edenWords, edenNeed] = edenLinkLine(eden);
     nodes.push(row('Eden on the web reaches this Mac', el('small', edenNeed ? 'need' : '', edenWords),
       toggle('Eden on the web reaches this Mac', eden.on, (on) => send({ type: 'feature_prefs', changes: { [EDEN_LINK]: on } }))));
+    // Off by default (audit S10): from the web, Code mode asks on this Mac before each edit.
+    if (eden.on) {
+      nodes.push(row('Let askeden.com edit on this Mac', el('small', '', eden.edits
+        ? 'Code mode from the web can accept edits and run what you allowed without asking here.'
+        : 'Code mode from the web asks on this Mac before each edit or command.'),
+        toggle('Let askeden.com edit on this Mac', eden.edits === true, (on) => send({ type: 'feature_prefs', changes: { [EDEN_LINK_EDITS]: on } }))));
+    }
     const plusNote = plus.in_use && !plus.chosen
       ? 'In use: this Mac has no other way in to Claude.'
       : 'Claude in Eden Secretary and Eden Code runs on your account’s allowance.';

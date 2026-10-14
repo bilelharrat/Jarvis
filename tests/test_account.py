@@ -626,3 +626,20 @@ async def test_settings_links_this_mac_in_the_browser_at_the_chosen_server(setup
     assert hub.account.server == "preview.askeden.com"
     await hub._handle({"type": "account_link_open"})
     assert len(opened) == 2, "no code waiting: nothing opens"
+
+
+# ── "Let askeden.com edit on this Mac" (audit S10) ──
+
+
+def test_askeden_may_edit_on_this_mac_only_once_the_owner_says_so(setup):
+    hub, _fake = setup
+    desk = hub.account_desk
+    assert desk.eden_link.edits() is False  # off by default: edits from the web ask here
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    desk.emit()
+    assert events[-1][1]["eden_link"]["edits"] is False
+    hub.set_feature_prefs({"account_eden_link_edits": True})
+    assert desk.eden_link.edits() is True
+    desk.emit()
+    assert events[-1][1]["eden_link"]["edits"] is True

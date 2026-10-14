@@ -119,7 +119,10 @@
     "Stop holding the key": "不再保存密钥",
     "Browsers that sync keep syncing; this Mac just can’t approve new ones until it gets the key again.": "已在同步的浏览器会继续同步；只是这台 Mac 在重新取得密钥之前无法批准新的浏览器。",
     "Stop here…": "在此停止…",
-    "A device is waiting. Approve it only if it shows the same code.": "有一台设备在等待。只有它显示相同代码时才批准。"
+    "A device is waiting. Approve it only if it shows the same code.": "有一台设备在等待。只有它显示相同代码时才批准。",
+    "Let askeden.com edit on this Mac": "允许 askeden.com 在这台 Mac 上编辑",
+    "Code mode from the web can accept edits and run what you allowed without asking here.": "网页上的代码模式可以接受编辑，并直接运行你允许的操作，无需在这里询问。",
+    "Code mode from the web asks on this Mac before each edit or command.": "网页上的代码模式在每次编辑或运行命令前，都会先在这台 Mac 上询问。"
   },
   "patterns": []
 }
