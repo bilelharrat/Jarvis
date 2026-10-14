@@ -428,6 +428,29 @@ async def test_a_session_without_a_copy_is_told_what_pairing_needs(hub, projects
     assert "isolated copy" in await hub.code_pairing.turn_on(task, "")
 
 
+async def test_a_copy_being_taken_away_is_never_paired_or_synced(hub, projects, home):
+    """REL-20a: while the sweeper (going) or a land/discard (removing) takes a copy away,
+    pairing can't be turned on for it and no sync runs: its vanishing files would be
+    mirrored into the owner's folder as deletions."""
+    make_repo(projects / "proj", {"a.py": "a = 1\n"})
+    task = await isolated_session(hub)
+    pairing, desk = hub.code_pairing, hub.code_desk
+    slug = task.workspace["slug"]
+    mine = home / "pair"
+    for marks in (desk.going, desk.removing):
+        marks.add(slug)
+        assert "being taken away" in await pairing.turn_on(task, str(mine))
+        assert not (mine / "a.py").exists() and slug not in pairing.pairs()
+        marks.discard(slug)
+    assert (await pairing.turn_on(task, str(mine))).startswith("Pairing on:")
+    pairing.stop_loop(slug)
+    desk.going.add(slug)
+    (task.cwd / "a.py").unlink()  # (the sweeper's removal, half done)
+    await pairing.tick(pairing.pairs()[slug])
+    assert (mine / "a.py").read_text() == "a = 1\n"
+    desk.going.discard(slug)
+
+
 async def test_conflicts_are_kept_by_the_owners_choice_from_the_window(hub, projects, home):
     make_repo(projects / "proj", {"a.py": "a\n"})
     task = await isolated_session(hub)
