@@ -333,6 +333,66 @@ def push_fix_to_part_one(hub, tmp_path, bare, stack):
     return new
 
 
+async def test_a_stack_whose_part_cant_be_pushed_pushes_none_of_them(hub, tmp_path, projects):
+    """REL-10: the parts go to the remote all at once or not at all (--atomic): a part
+    refused (a branch of that name pushed by someone else) leaves no other part there."""
+    repo, bare = project(tmp_path, projects)
+    task = session(hub, repo)
+    await two_parts(hub, task)
+    other = clone(tmp_path, bare)
+    git(other, "switch", "-q", "-c", "feature/login-part-2")
+    (other / "theirs.txt").write_text("someone else's\n")
+    git(other, "add", "theirs.txt")
+    git(other, "commit", "-qm", "Theirs")
+    git(other, "push", "-q", "origin", "feature/login-part-2")
+    theirs = git(bare, "rev-parse", "feature/login-part-2").strip()
+    hub.answers = ["open"]
+    said = await hub.code_stacks.create(task)
+    assert said.startswith("Couldn't push the stack"), said
+    assert not git(bare, "branch", "--list", "feature/login-part-1").strip()
+    assert git(bare, "rev-parse", "feature/login-part-2").strip() == theirs
+
+
+async def test_a_restack_moves_every_part_above_or_none(hub, tmp_path, projects, monkeypatch):
+    """REL-10: one part's lease gone stale (pushed to meanwhile) moves none of the parts
+    above the fix, never one on the new head and the next on the old."""
+    repo, bare = project(tmp_path, projects)
+    task = session(hub, repo)
+    await hub.code_stacks.propose(task)
+    by = {p["title"]: [h["id"] for h in p["hunks"]] for p in parts_of(hub)}
+    await hub.code_stacks.adjust(task, [
+        {"title": "Add the login code", "hunks": by["Change src"]},
+        {"title": "Say so", "hunks": by["Change README.md"]},
+        {"title": "Test the login", "hunks": by["Change tests"]},
+    ])  # fmt: skip
+    hub.answers = ["open"]
+    assert (await hub.code_stacks.create(task)).startswith("Opened a stack of 3")
+    [stack] = hub.code_stacks.stacks()
+    for part in stack["parts"]:
+        hub.fake.pulls[("acme/app", part["number"])]["head"]["sha"] = part["head"]
+    two_before = git(bare, "rev-parse", "feature/login-part-2").strip()
+    push_fix_to_part_one(hub, tmp_path, bare, stack)
+    # Someone pushes to part 3 while it's being restacked (after the fetch): its lease is
+    # stale by the time the parts are pushed.
+    late = clone(tmp_path, bare, "late")
+    git(late, "switch", "-q", "feature/login-part-3")
+    (late / "late.txt").write_text("late\n")
+    git(late, "add", "late.txt")
+    git(late, "commit", "-qm", "Late")
+    real = code_stack.restack
+
+    def restack(top, branch, *args):
+        if branch == "feature/login-part-3":
+            git(late, "push", "-q", "origin", "feature/login-part-3")
+        return real(top, branch, *args)
+
+    monkeypatch.setattr(code_stack, "restack", restack)
+    hub.answers = ["restack"]
+    said = await hub.code_stacks.look(stack)
+    assert said.startswith("Couldn't push the restacked parts"), said
+    assert git(bare, "rev-parse", "feature/login-part-2").strip() == two_before
+
+
 async def test_a_restack_moves_the_local_part_branch_only_when_nothing_is_lost(
     hub, tmp_path, projects
 ):
