@@ -71,7 +71,7 @@ def read_json(
     missing   no file (None): a .bak never brings back a file the owner deleted
     empty     a file with nothing in it (None)
     restored  it was damaged or empty; a damaged one is kept as <name>.bad-<stamp>, and the
-              last good copy (<name>.bak) is what's returned
+              last good copy (<name>.bak) is what's returned, written back as the file
     damaged   the same with no good copy (None)
 
     Raises Unreadable when it can't be read now, or is damaged and can't be moved aside."""
@@ -95,8 +95,40 @@ def read_json(
         log.warning(
             "%s was %s; using its last good copy", path.name, "empty" if blank else "damaged"
         )
+        _put_back(path)
         return good, "restored"
     return None, "empty" if blank else "damaged"
+
+
+def _put_back(path: Path) -> None:
+    """The last good copy (<name>.bak) written back as the file itself, its bytes as they
+    are, the .bak left where it is. Without it a restored store held its data in memory
+    alone: the next start found no file at all ("missing", so the .bak isn't consulted)
+    and began empty, and the next save made a .bak of nothing, so the last good copy was
+    gone for good. A copy that can't be put back is no reason not to start; it's only
+    said."""
+    fd, tmp = -1, ""
+    try:
+        raw = path.with_name(path.name + ".bak").read_bytes()
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+        with os.fdopen(fd, "wb") as out:
+            fd = -1
+            osplat.fchmod(out.fileno(), 0o600)
+            out.write(raw)
+            out.flush()
+            _sync(out.fileno())
+        osplat.replace_file(tmp, path)
+        tmp = ""
+        _sync_folder(path.parent)
+    except OSError as exc:
+        log.warning("%s's last good copy couldn't be put back (%s)", path.name, exc)
+    finally:
+        if fd >= 0:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        if tmp:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
 
 
 def last_good(path: Path, shape: Shape) -> Any:
