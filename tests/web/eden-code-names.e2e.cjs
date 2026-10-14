@@ -68,22 +68,25 @@ function serve() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// What shows (text, and the names controls are read by) that names the wrong app.
-const AUDIT = `(() => {
+// What shows (text, and the names controls are read by) that names the wrong app; in Chinese,
+// also what's left in English (two English words and no Chinese, U3-13), less names.
+const NAMED_AS_IS = /^(?:@[a-z-]+: )?(?:Model Router|Eden Code|~\/Eden Pairing\/…)$/;
+const AUDIT = (zh) => `(() => {
   const shown = (n) => { for (let e = n; e && e.nodeType === 1; e = e.parentElement) { if (e.hidden) return false; }
     const s = getComputedStyle(n); if (s.display === 'none' || s.visibility === 'hidden') return false;
     const r = n.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const out = [];
+  const english = (s) => ${zh} && /[A-Za-z]{3,} [A-Za-z]{2,}/.test(s) && !/[\\u4e00-\\u9fff]/.test(s);
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let t; (t = walker.nextNode());) {
     const p = t.parentElement; if (!p || !shown(p) || p.closest('script,style,[data-no-i18n],code,pre,kbd')) continue;
-    const s = t.textContent.replace(/\\s+/g, ' ').trim(); if (s && ${NAMES}.test(s)) out.push(s.slice(0, 160));
+    const s = t.textContent.replace(/\\s+/g, ' ').trim(); if (s && (${NAMES}.test(s) || english(s))) out.push(s.slice(0, 160));
   }
   for (const n of document.querySelectorAll('[title],[aria-label],[placeholder]')) {
     if (!shown(n) || n.closest('[data-no-i18n]')) continue;
-    for (const a of ['title', 'aria-label', 'placeholder']) { const v = n.getAttribute(a); if (v && ${NAMES}.test(v)) out.push('@' + a + ': ' + v.slice(0, 160)); }
+    for (const a of ['title', 'aria-label', 'placeholder']) { const v = n.getAttribute(a); if (v && (${NAMES}.test(v) || english(v))) out.push('@' + a + ': ' + v.slice(0, 160)); }
   }
-  return [...new Set(out)];
+  return [...new Set(out)].filter((s) => !${NAMED_AS_IS}.test(s));
 })()`;
 
 let failed = 0;
@@ -109,40 +112,40 @@ async function run(port, lang) {
   const where = (view, names) => check(!names.length, `${lang} ${view}: ${JSON.stringify(names)}`);
   const visible = (id) => js(`(() => { const n = document.getElementById(${JSON.stringify(id)}); if (!n) return false; for (let e = n; e; e = e.parentElement) if (e.hidden) return false; const r = n.getBoundingClientRect(); return getComputedStyle(n).display !== 'none' && r.width > 0; })()`);
 
-  where('welcome, no project', await js(AUDIT));
+  where('welcome, no project', await js(AUDIT(lang === 'zh')));
   // The backend alone listens to no one: no voice switch, no Dictate; no Browser button.
   check(!(await visible('cc-voice-head')), `${lang}: the voice switch shows while the backend can't listen`);
   check(!(await visible('jc-dictate')), `${lang}: Dictate shows while the backend can't listen`);
   check(!(await visible('jc-browser')), `${lang}: a Browser button with no browser dock`);
   await js(`deckProjects = [{ name: 'alpha', branch: 'main' }]; selectProject('alpha'); renderProjects(deckProjects); true`);
   await sleep(200);
-  where('welcome', await js(AUDIT));
+  where('welcome', await js(AUDIT(lang === 'zh')));
   // Settings: the gear opens Eden Code's own sheet (⌘,'s), whose last line opens the shared one.
   await js(`document.getElementById('jc-eden-settings').click(); true`);
   await sleep(200);
   const opened = await js(`({ code: !document.getElementById('jc-settings').hidden, shared: !document.getElementById('settings').hidden })`);
   check(opened.code && !opened.shared, `${lang}: the gear opened ${JSON.stringify(opened)}`);
-  where('Settings', await js(AUDIT));
+  where('Settings', await js(AUDIT(lang === 'zh')));
   check(await visible('jcs-more'), `${lang}: no way from Eden Code's Settings to the rest`);
   await js(`document.getElementById('jcs-more').click(); true`);
   await sleep(200);
   check(await js(`!document.getElementById('settings').hidden && document.getElementById('jc-settings').hidden`), `${lang}: More settings didn't open the shared sheet`);
-  where('the shared Settings', await js(AUDIT));
+  where('the shared Settings', await js(AUDIT(lang === 'zh')));
   await js(`toggleSettings(false); true`);
   // A session, every pane, the More menu.
   await js(`onEvent({ type: 'tasks', items: [{ id: 1, kind: 'code', folder: 'alpha', cwd: '/tmp/alpha', label: 'Eden Code · alpha', title: 'Session 1', prompt: 'x', mode: 'ask', busy: false, status: 'idle', files_changed: [], todos: [], background: [], queue: [], last_action: '', add_dirs: [], plugins: [] }] }); selectTask(1); true`);
   await sleep(200);
-  where('a session', await js(AUDIT));
+  where('a session', await js(AUDIT(lang === 'zh')));
   const panes = await js(`[...featurePanes.keys(), ...Object.keys(PANE_TITLES)].filter((v, i, a) => a.indexOf(v) === i)`);
   for (const p of panes) {
     try { await js(`openPane(${JSON.stringify(p)}); true`); } catch (e) { check(false, `${lang} pane ${p}: ${e}`); continue; }
     await sleep(80);
-    where(`pane ${p}`, await js(AUDIT));
+    where(`pane ${p}`, await js(AUDIT(lang === 'zh')));
   }
   await js(`closePane && closePane(); true`).catch(() => {});
   await js(`document.getElementById('jc-more').click(); true`);
   await sleep(150);
-  where('the More menu', await js(AUDIT));
+  where('the More menu', await js(AUDIT(lang === 'zh')));
   await js(`closeMenu(); true`);
   // Setup, every card.
   await js(`window.jarvisIntro.open(); true`);
@@ -151,7 +154,7 @@ async function run(port, lang) {
   for (let i = 0; i < 10; i++) {
     const card = await js('window.jarvisIntro.card()');
     seen.push(card);
-    where(`Setup › ${card}`, await js(AUDIT));
+    where(`Setup › ${card}`, await js(AUDIT(lang === 'zh')));
     if (card === 'done') break;
     await js(`document.getElementById('intro-next').click(); true`);
     await sleep(120);

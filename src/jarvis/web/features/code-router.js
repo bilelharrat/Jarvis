@@ -381,7 +381,7 @@
         const s = document.createElement('script');
         s.src = BUNDLE;
         s.onload = () => (root.ModelRouterLib ? resolve(root.ModelRouterLib) : reject(new Error('Model Router didn’t load.')));
-        s.onerror = () => reject(new Error('Model Router isn’t installed: run `npm run jarvis` in the Model Router folder.'));
+        s.onerror = () => reject(new Error('Model Router isn’t installed in this copy of Eden.'))  // (a build without features/vendor/model-router.js: `npm run jarvis` in the Model Router folder makes it);
         document.head.append(s);
       }).then((l) => (lib = l), (err) => { loading = null; libError = err; jcNote(err.message); throw err; });
     }
@@ -666,7 +666,7 @@
     if (on) {
       libError = null;
       loadLib().then(() => {
-        if (!currentRouter().ids.length) jcNote(F.t('Model Router knows none of your models yet. Add some in Settings › Models.'));
+        if (!currentRouter().ids.length) jcNote(F.t('Model Router knows none of your models yet. Add some in Settings › Models & API keys.'));
       }).catch(() => {});  // (loadLib said why)
     }
     renderComposer();

@@ -1862,7 +1862,8 @@
   "Not used yet": "尚未使用",
   "Checking…": "正在检查…",
   "Boot-up sound": "开机音效",
-  "A short sound as the app opens": "打开应用时播放一段简短的音效"
+  "A short sound as the app opens": "打开应用时播放一段简短的音效",
+  "Composer options": "输入框选项"
  },
  "patterns": [
   [
