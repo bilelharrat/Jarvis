@@ -1016,8 +1016,6 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-note, .jc-turn { font-size: 12px; color: rgb(var(--c-muted)); }
 .jc-note { display: flex; gap: 6px; }
 .jc-note > span:last-child { white-space: pre-line; }  /* /agents, /hooks: a line each */
-.jc-diff-file .jc-revert { margin-left: 8px; }
-.jc-revert.armed { color: rgb(var(--c-danger)); }
 .jc-turn { align-self: center; font-variant-numeric: tabular-nums; }
 /* an approval, as a sheet in the flow */
 .jc-ask { background: rgb(var(--c-raised)); border-radius: 16px; box-shadow: var(--shadow-sheet), inset 0 0 0 1px rgb(var(--c-accent) / 0.35); padding: 14px 16px; }
@@ -1051,9 +1049,6 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-viewer .jc-code { max-height: none; background: rgb(var(--c-surface)); border-radius: 11px; box-shadow: var(--shadow-card); counter-reset: line; }
 .jc-viewer .ln { display: block; }
 .jc-viewer .ln::before { counter-increment: line; content: counter(line); display: inline-block; width: 3.2em; margin-right: 12px; text-align: right; color: rgb(var(--c-subtle)); }
-.jc-diff-file { margin-bottom: 10px; }
-.jc-diff-file summary { display: flex; gap: 8px; align-items: center; cursor: pointer; list-style: none; padding: 8px 12px; font: 12.5px var(--mono); }
-.jc-diff-file summary::-webkit-details-marker { display: none; }
 .jc-plus { color: rgb(var(--c-success-ink)); }
 .jc-minus { color: rgb(var(--c-danger-ink)); }
 .jc-sim { display: flex; flex-direction: column; align-items: center; gap: 10px; }

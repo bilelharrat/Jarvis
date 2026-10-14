@@ -5065,7 +5065,7 @@ function renderPaneBody() {
   const featurePane = featurePanes.get(currentPane);
   if (featurePane) return featurePane.render(body, t);
   if (currentPane === 'terminal') return renderTerminal(body);
-  if (currentPane === 'diff') return renderDiffPane(body);
+  // ('diff', Changes, is the code_changes feature's pane, drawn just above.)
   if (currentPane === 'sim') return renderSimPane(body);
   if (currentPane === 'files') return renderFilesPane(body, (projectFiles[deckProject] || []), 'Filter files…');
   if (currentPane === 'artifacts') {
@@ -5129,50 +5129,6 @@ function renderPaneBody() {
     }));
     body.replaceChildren(ro, intro, ul);
   }
-}
-
-// Undo this session's own changes in one file (never another's edits in it): a second
-// click within a few seconds confirms.
-function revertButton(t, path) {
-  const b = el('button', 'jc-mini jc-revert', 'Revert');
-  b.type = 'button';
-  b.title = tr('Undo this session’s own changes in this file');
-  let armed = 0;
-  b.addEventListener('click', (e) => {
-    e.preventDefault();  // (inside the summary: never opens or closes the file)
-    e.stopPropagation();
-    if (!armed) {
-      b.textContent = tr('Click to revert');
-      b.classList.add('armed');
-      armed = setTimeout(() => { armed = 0; b.textContent = tr('Revert'); b.classList.remove('armed'); }, 3500);
-      return;
-    }
-    clearTimeout(armed);
-    armed = 0;
-    send({ type: 'task_revert', id: t.id, path });
-  });
-  return b;
-}
-
-function renderDiffPane(body) {
-  const t = currentTask();
-  if (!t) { body.replaceChildren(el('p', 'jc-empty', 'Open a session to see its changes.')); return; }
-  if (!diffFiles.length) { body.replaceChildren(el('p', 'jc-empty', 'No changes against the last commit.')); return; }
-  const added = diffFiles.reduce((n, f) => n + f.added, 0), removed = diffFiles.reduce((n, f) => n + f.removed, 0);
-  const extra = el('span', 'jc-dim');
-  extra.append(el('span', 'jc-plus', `+${added}`), document.createTextNode(' '), el('span', 'jc-minus', `−${removed}`));
-  $('jc-pane-extra').replaceChildren(extra);
-  body.replaceChildren(...diffFiles.map((f, i) => {
-    const det = el('details', 'jc-card jc-diff-file');
-    det.open = i < 4;
-    const sum = el('summary');
-    sum.append(el('span', '', f.path), el('span', 'jc-spacer'), el('span', 'jc-plus', `+${f.added}`), el('span', 'jc-minus', `−${f.removed}`));
-    if (!f.new) sum.append(revertButton(t, f.path));
-    det.append(sum);
-    const text = f.hunks.map((h) => [`@@ line ${h.line}${h.where ? ` · ${h.where}` : ''}`, ...h.removed.map((l) => `-${l}`), ...h.added.map((l) => `+${l}`)].join('\n')).join('\n');
-    det.append(diffBlock(text));
-    return det;
-  }));
 }
 
 function renderSimPane(body) {
