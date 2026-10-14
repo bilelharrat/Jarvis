@@ -722,9 +722,13 @@ class Specs:
         finally:
             if not fut.done():
                 fut.set_result(rows)
-        if spec.step != "running" or spec.current != tid:
-            return "checked"
-        return await self.ask_next(spec, tid, task_id)
+        if spec.step != "running" or spec.current != tid or spec.slug in self.asking:
+            return "checked"  # (another turn's card for it is up: one card a spec)
+        self.asking.add(spec.slug)
+        try:
+            return await self.ask_next(spec, tid, task_id)
+        finally:
+            self.asking.discard(spec.slug)
 
     async def check_task(self, spec: Spec, tid: str, task_id: int, data: dict[str, Any]) -> list:
         task = self.hub.tasks.tasks.get(task_id)
@@ -883,6 +887,8 @@ class Specs:
             return "fix"
         if answer == "stop":
             return self._stop(spec)
+        if spec.step != "running" or spec.current != tid:
+            return "checked"  # (moved on while the card was up: never two tasks at once)
         await self.next_task(spec)
         return "next"
 

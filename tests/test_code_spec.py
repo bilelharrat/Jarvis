@@ -397,3 +397,33 @@ async def test_after_a_restart_old_session_ids_never_attach_a_spec_to_new_sessio
     assert len(asyncio.all_tasks()) == started  # no check of somebody else's session
     again.save()
     assert cs.Specs(hub).specs[0].runs == {"T1": 0}  # (stamped with this launch now)
+
+
+async def test_two_turn_ends_of_one_task_ask_once_and_start_one_next_task(spec_hub, monkeypatch):
+    """Round 1's D11: a task's session can end several turns; the cards their checks bring
+    must not each start the next task (two sessions at once in one folder)."""
+    hub, desk = spec_hub, spec_hub.code_spec
+    spec = await _running(hub, desk)
+    (spec.root / "tasks.md").write_text(TASKS + "- [ ] T3: Log out (R1)\n")
+
+    async def suite(_folder):
+        return results(("test_r1_1_ok", "passed"), ("test_r1_2_ok", "passed"))
+
+    monkeypatch.setattr(desk, "run_tests", suite)
+    desk.ai, _asked = fake_ai("")
+    hub.answers = []
+    ends = [
+        asyncio.ensure_future(desk.after_task(spec, "T1", 101, {"id": 101, "status": "done"}))
+        for _ in range(2)
+    ]
+    for _ in range(100):
+        if hub.cards and hub.cards[-1]["question"].endswith("Start T2?"):
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.05)
+    asked = [c for c in hub.cards if "T1 is checked" in c["question"]]
+    for card in asked:
+        hub.resolve(card["id"], "next")
+    said = await asyncio.gather(*ends)
+    assert len(asked) == 1, said
+    assert spec.runs == {"T1": 101, "T2": 102} and spec.current == "T2"
