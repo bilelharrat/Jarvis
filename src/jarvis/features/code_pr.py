@@ -239,6 +239,30 @@ def _names(items: list[str], limit: int = 4, zh: bool = False) -> str:
     return f"{shown}等另外 {more} 项" if zh else f"{shown} and {more} more"
 
 
+class FolderView:
+    """A session as seen from one of its folders: a multi-repo task's session works in a
+    folder holding several isolated copies (features/code_multirepo.py), and each copy's
+    pull request is opened, pushed and followed up from that copy. Everything but the
+    folder (cwd) and its copy (workspace) is the session's own, read and written through."""
+
+    def __init__(self, task: Any, cwd: Path, workspace: dict[str, Any]) -> None:
+        object.__setattr__(self, "_task", task)
+        object.__setattr__(self, "cwd", Path(cwd))
+        object.__setattr__(self, "workspace", dict(workspace))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_task"), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(object.__getattribute__(self, "_task"), name, value)
+
+
+def _push_msg(task: Any) -> dict[str, Any]:
+    """What the Git panel's push is told: the session, or (seen from one of its folders)
+    that folder."""
+    return {"directory": str(task.cwd)} if isinstance(task, FolderView) else {"id": task.id}
+
+
 class PullDesk:
     """One hub's pull requests."""
 
@@ -585,7 +609,7 @@ class PullDesk:
                     return plan
             if not plan.commits:
                 return f"There's nothing on {plan.branch} that isn't in {plan.base} yet."
-            said = await self.hub.code_git.push({"id": task.id})
+            said = await self.hub.code_git.push(_push_msg(task))
             if not await asyncio.to_thread(self._pushed, plan.top, plan.remote):
                 return said or "Not opened."
             try:
@@ -1007,7 +1031,7 @@ class PullDesk:
                 if r.state == "open"
                 and r.followup
                 and r.followup_task == task.id
-                and r.folder == str(task.cwd)
+                and self._folder_of(task, r)
             ),
             None,
         )
@@ -1022,9 +1046,27 @@ class PullDesk:
         if self.idle(task):
             self.spawn(self.after_follow_up(rec, task))
 
+    @staticmethod
+    def _folder_of(task: Any, rec: PullRecord) -> bool:
+        """Whether a pull request is from the session's folder (or one inside it: a
+        multi-repo task's copies)."""
+        folder, cwd = Path(rec.folder), Path(task.cwd)
+        return folder == cwd or cwd in folder.parents
+
+    @staticmethod
+    def at(rec: PullRecord, task: Any) -> Any:
+        """The session as its pull request's folder sees it (itself, unless the pull
+        request is from a copy inside its folder)."""
+        if isinstance(task, FolderView) or Path(rec.folder) == Path(task.cwd):
+            return task
+        if Path(task.cwd) not in Path(rec.folder).parents:
+            return task
+        return FolderView(task, Path(rec.folder), {"slug": rec.copy} if rec.copy else {})
+
     async def after_follow_up(self, rec: PullRecord, task: Any) -> str:
         """The session's done with a follow-up: its work committed (in its isolated copy)
         and pushed, behind the Git panel's card."""
+        task = self.at(rec, task)
         kind, rec.followup, rec.followup_task = rec.followup, "", 0
         self.save()
         async with self.lock(rec.key):
@@ -1060,7 +1102,7 @@ class PullDesk:
             rec.awaiting_push = False
             self.save()
             return ""
-        said = await self.hub.code_git.push({"id": task.id})
+        said = await self.hub.code_git.push(_push_msg(task))
         if await asyncio.to_thread(self._pushed, plan.top, plan.remote):
             rec.awaiting_push = False
             self.save()
@@ -1406,10 +1448,10 @@ class PullDesk:
             return
 
         async def run() -> str:
-            plan = await asyncio.to_thread(self._plan, task, rec.base)
+            plan = await asyncio.to_thread(self._plan, self.at(rec, task), rec.base)
             if isinstance(plan, str):
                 return plan
-            said = await self._push(rec, task, plan)
+            said = await self._push(rec, self.at(rec, task), plan)
             await self.publish(task)
             return said
 

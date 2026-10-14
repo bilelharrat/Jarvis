@@ -223,6 +223,8 @@ class SetupDesk:
     async def make_container(self, task: Any, copy: Any) -> dict[str, Any] | None:
         if copy.project not in (self.hub.prefs.feature(PREF_PROJECTS) or []):
             return None
+        if str(getattr(copy, "group", "")).startswith("multi:"):
+            return None  # (a multi-repo task's one session spans several copies: on the Mac)
         if other_agent(task):
             return None  # (its commands don't come through Claude Code's hooks)
         image, problem = await asyncio.to_thread(self.wanted_image, copy)

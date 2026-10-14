@@ -504,6 +504,12 @@ class Client:
         data = {"title": title, "head": head, "base": base, "body": body, "draft": bool(draft)}
         return await self.request("POST", f"/repos/{ref.full}/pulls", body=data, repo=ref.full)
 
+    async def update_pull(self, ref: RepoRef, number: int, *, body: str) -> dict[str, Any]:
+        """A pull request's description, rewritten (a multi-repo task's links to the others)."""
+        return await self.request(
+            "PATCH", f"/repos/{ref.full}/pulls/{number}", body={"body": body}, repo=ref.full
+        )
+
     async def pull(self, ref: RepoRef, number: int) -> dict[str, Any]:
         return await self.request("GET", f"/repos/{ref.full}/pulls/{number}", repo=ref.full) or {}
 

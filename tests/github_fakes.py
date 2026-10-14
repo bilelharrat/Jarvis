@@ -161,6 +161,9 @@ class FakeGitHub:
                 return self.reply(404, {"message": "Not Found"})
             if tail == "" and method == "GET":
                 return self.reply(200, pull)
+            if tail == "" and method == "PATCH":
+                pull.update({k: v for k, v in json.loads(request.content).items() if k == "body"})
+                return self.reply(200, pull)
             if tail == "/reviews":
                 return self.reply(200, self.reviews.get((repo, number), []))
             if tail == "/comments":
