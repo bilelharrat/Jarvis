@@ -16,6 +16,15 @@ reversed, and any run of 8 or more of its characters, of those shapes too), so n
 session's transcript nor the model sees one by way of `base64`, `rev`, `cut` or `curl -v`.
 Its exit status is the command's.
 
+What would run code of its own before or instead of the command is taken out of its
+environment first: a shell's startup files and settings (BASH_ENV, ENV, ZDOTDIR, SHELLOPTS,
+BASHOPTS, PROMPT_COMMAND, PS4), bash's exported functions (BASH_FUNC_*, which can stand in
+for any command, `echo` too), and what loads code into a program (DYLD_*, LD_*). Its PATH is
+the one the backend sends with the values (the session's, as the owner's shell has it), not
+whatever the process that started this had: a folder of its own first, with a `curl` in it,
+would get the values. The shell itself runs with no startup files (wrap's `bash --norc
+--noprofile` or `zsh -f`).
+
 Run with JARVIS's own Python in isolated mode (-I: no PYTHON* variables, no project folder on
 the import path). It imports only the standard library, and never prints a value, nor writes
 one anywhere: not to a file, not to the command line, not to a log.
@@ -35,6 +44,20 @@ CHUNK = 4096
 FETCH_SECONDS = 30  # how long the backend may take to offer the values
 FRAGMENT = 8  # a run of this many of a value's characters (or a shape's) counts as it
 HELD_MAX = 1 << 20  # bytes held back at most, waiting to see whether a match goes on
+# What runs code of its own in the command's shell, or loads it into a program (see above).
+STARTUP = ("BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "PROMPT_COMMAND", "PS4")
+STARTUP_PREFIXES = ("BASH_FUNC_", "DYLD_", "LD_")
+
+
+def clean_env(environ: dict[str, str], path: object = None) -> dict[str, str]:
+    """The command's environment: this one without what runs or loads code of its own, and
+    with the backend's PATH when it sent one."""
+    env = {
+        k: v for k, v in environ.items() if k not in STARTUP and not k.startswith(STARTUP_PREFIXES)
+    }
+    if isinstance(path, str) and path:
+        env["PATH"] = path
+    return env
 
 
 def read_pipe(path: str) -> dict | None:
@@ -226,7 +249,7 @@ def run(
             b"the owner let go); it didn't run.\n"
         )
         return 2
-    env = dict(os.environ)
+    env = clean_env(dict(os.environ), offered.get("path"))
     values: dict[str, str] = {}
     for name, value in given.items():
         if not (isinstance(name, str) and name.isidentifier() and isinstance(value, str) and value):

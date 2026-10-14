@@ -222,3 +222,31 @@ def test_pass_in_finds_only_a_pass():
     token = Grants().mint(DIRECT, lambda: None)
     assert key_proxy.pass_in(f'{{"apiKeyHelper": "printf %s {token}"}}') == token
     assert key_proxy.pass_in(None) == "" and key_proxy.pass_in("eden-run-short") == ""
+
+
+async def test_naming_a_model_or_a_utility_call_never_piles_up_passes(tmp_path):
+    """REL-18: hub._model_config (every task_new, best-of variant, multi-repo copy) and
+    utility_model.config (every utility call) each made a pass nobody revoked: they piled up
+    to MAX_GRANTS and pushed live sessions' passes out."""
+    from types import SimpleNamespace
+
+    from jarvis import utility_model
+    from jarvis.connectors import MemoryVault
+    from jarvis.hub import Hub
+    from jarvis.providers import ProviderStore
+
+    store = ProviderStore(tmp_path / "providers.json", MemoryVault())
+    pid = store.add_provider("openrouter", "", "sk-or-v1-" + "0123456789abcdef" * 4, None)["id"]
+    ref = store.add_model(pid, "some-model")["ref"]
+    fake = SimpleNamespace(providers=store, emit=lambda *a, **k: None)
+    before = set(key_proxy.GRANTS._grants)
+    for _ in range(5):
+        cfg = Hub._model_config(fake, ref)
+        assert cfg["model"] == "some-model" and cfg["settings"]  # (still another provider's)
+    assert set(key_proxy.GRANTS._grants) == before
+    utility_model._PASSES.clear()
+    hub = SimpleNamespace(providers=store, prefs=SimpleNamespace())
+    made = [await utility_model.config(hub, ref) for _ in range(5)]
+    passes = {key_proxy.pass_in(c["settings"]) for c in made}
+    assert len(passes) == 1 and key_proxy.GRANTS.alive(passes.pop())
+    assert len(set(key_proxy.GRANTS._grants) - before) == 1

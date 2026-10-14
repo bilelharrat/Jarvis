@@ -785,19 +785,28 @@ class Runs:
         if run is None:
             return
         spent = float(task.cost_usd or 0.0)
-        options.max_budget_usd = round(max(0.05, run.spend_cap - spent), 2)
+        left = round(max(0.05, run.spend_cap - spent), 2)
+        # The run's own cap goes on after code_usage's day/project caps (option_hooks, in
+        # the base options_for): the lower one holds, so a run never lifts what's left of
+        # the owner's day (as code_bugfix.extend has it).
+        other = options.max_budget_usd
+        if isinstance(other, int | float) and not isinstance(other, bool) and other > 0:
+            left = min(left, float(other))
+        options.max_budget_usd = left
         options.can_use_tool = self.guard(task, options.can_use_tool)
         if run.untrusted:
             self.lock_down(options, sandbox=run.sandbox)
 
     @staticmethod
     def lock_down(options: Any, sandbox: bool) -> None:
-        """An issue's run (its request is anyone's words): the project's own settings but
-        none of the owner's, no MCP server at all (JARVIS's browser, simulator and sessions
-        tools, connectors, the project's .mcp.json), no web tools, and unless the owner
-        turned it off for the repository, its commands in Claude Code's sandbox with no
-        network."""
-        options.setting_sources = ["project", "local"]
+        """An issue's run (its request is anyone's words): no settings file at all, neither
+        the owner's nor the project's (a fork's pull request checked out for "Fix it" brings
+        its own .claude/settings.json, whose hooks and allow rules would run on this Mac;
+        .claude/settings.local.json can be in the tree too), no MCP server at all (JARVIS's
+        browser, simulator and sessions tools, connectors, the project's .mcp.json), no web
+        tools, and unless the owner turned it off for the repository, its commands in Claude
+        Code's sandbox with no network."""
+        options.setting_sources = []
         options.mcp_servers = {}
         options.strict_mcp_config = True
         options.allowed_tools = [t for t in options.allowed_tools if not t.startswith("mcp__")]

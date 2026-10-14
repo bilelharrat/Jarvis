@@ -935,6 +935,13 @@ class ClaudeTask:
     # Claude's usage limit, waited out (features.code_limit): until then (epoch seconds) its
     # messages wait in the queue, none is sent. 0: they don't wait.
     hold_until: float = 0.0
+    # The one-time token of the task_new that started it (launches.py: a feature that starts
+    # a session finds its own by it, through every feature that holds or passes the message
+    # on), and whether that start said its request is anyone's words (an issue, a card from
+    # outside): such a session is locked down by this stamp, never by matching its prompt.
+    # (Not TaskManager.launch, which is this run of the app.)
+    launch_token: str = ""
+    untrusted: bool = False
 
     @property
     def steerable(self) -> bool:
@@ -1416,11 +1423,14 @@ class TaskManager:
         add_dirs: list[str] | None = None,
         plugins: list[str] | None = None,
         isolate: bool | None = None,
+        launch_token: str = "",
+        untrusted: bool = False,
     ) -> ClaudeTask:
         """A new session (or the open one that is this resume). images go with the first
         message; add_dirs and plugins are the composer's + menu choices made before it;
         isolate asks for (True) or against (False) its own isolated copy of the project,
-        None leaving it to the owner's default."""
+        None leaving it to the owner's default; launch_token and untrusted are stamped on it
+        (launches.py)."""
         cwd = self.resolve_dir(directory)
         if resume and self.revive is not None and self._by_session(resume) is None:
             self.revive(resume)  # a kept session let go from the list: back as it was
@@ -1449,6 +1459,8 @@ class TaskManager:
             ultracode=bool(ultracode),
             isolate=isolate,
             cost_unknown=bool(resume),
+            launch_token=launch_token,
+            untrusted=bool(untrusted),
         )
         if task.mode == "smart" and not auto_capable(task.model or self.model):
             task.mode = "ask"  # Claude Code's auto mode needs Opus, Sonnet or Fable
@@ -1483,6 +1495,7 @@ class TaskManager:
             env=task.env,
             provider_settings=task.provider_settings,
             ultracode=task.ultracode,
+            untrusted=task.untrusted,  # (/clear keeps a locked-down session locked down)
         )
         # Straight across, not through add_dir/add_plugin: no notes, and no reopen.
         fresh.add_dirs, fresh.plugins = list(task.add_dirs), list(task.plugins)

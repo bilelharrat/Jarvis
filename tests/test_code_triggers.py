@@ -508,3 +508,15 @@ async def test_the_main_servers_eden_doors_refuse_a_host_that_isnt_this_mac(hub)
     assert status == 200
     await settle()
     assert len(hub.started) == 1
+
+
+async def test_a_slash_command_replayed_with_whitespace_after_its_signature_starts_nothing(hub):
+    """T1: verify takes the signature header stripped, the replay check took its raw text, so
+    the same request with a trailing NBSP, \\x85 or ideographic space was a new key: each
+    variant started another unattended session. Once by what the signature signs."""
+    configure(hub, "slack")
+    body, headers = slack_body(form={"channel_id": "C0123ABCD", "user_id": "U0BOSS", "text": "fix it"})
+    for tail in ["", "\xa0", "\xa0\xa0", "\x85", " \xa0", "　", "\xa0\x85"]:
+        await knock(hub, "slack", body, {**headers, "x-slack-signature": headers["x-slack-signature"] + tail})
+    await settle()
+    assert len(hub.started) <= 1

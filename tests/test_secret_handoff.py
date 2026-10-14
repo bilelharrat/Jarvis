@@ -89,3 +89,78 @@ def test_what_a_process_is_comes_from_the_system():
     assert os.path.samefile(exe, os.path.realpath(sys.executable))
     assert argv and any("PATH=" in item for item in env)
     assert handoff_check.process(2**22 + 12345) is None  # (no such process)
+
+
+# ── R2-4: what the command's shell would run of its own, and who started the reader ──
+
+
+def offer_with_path(tmp_path, command, path):
+    offers = Handoffs(folder=tmp_path / "handoff", wait=10)
+    return offers.offer({"SECRET_X": VALUE}, [], run_path=path,
+                        expect=lambda pipe: shlex.split(code_secrets.wrap(command, pipe)))  # fmt: skip
+
+
+def test_startup_files_and_exported_functions_never_see_the_values(tmp_path):
+    # The exact command, started with a BASH_ENV, a ZDOTDIR with a .zshenv, and an exported
+    # bash function in place of echo: each would run with the values in its environment.
+    leak = tmp_path / "leak"
+    evil = tmp_path / "evil.sh"
+    evil.write_text(f'printf "%s" "$SECRET_X" >> {shlex.quote(str(leak))}\n')
+    dot = tmp_path / "dot"
+    dot.mkdir()
+    (dot / ".zshenv").write_text(evil.read_text())
+    env = {**os.environ, "BASH_ENV": str(evil), "ENV": str(evil), "ZDOTDIR": str(dot),
+           "BASH_FUNC_echo%%": f"() {{ . {shlex.quote(str(evil))}; }}"}  # fmt: skip
+    pipe = offer(tmp_path)
+    done = run(shlex.split(code_secrets.wrap(COMMAND, pipe)), env=env)
+    assert not leak.exists() or VALUE not in leak.read_text()
+    assert done.returncode == 0 and done.stdout == b"got [$SECRET_X]\n", done.stderr
+
+
+def test_a_path_of_its_own_never_runs_the_command(tmp_path):
+    # A PATH with its own `tr` first: the command runs with the session's PATH instead.
+    leak = tmp_path / "leak"
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    fake = bin_ / "tr"
+    fake.write_text(f'#!/bin/sh\nprintf "%s" "$SECRET_X" > {shlex.quote(str(leak))}\n')
+    fake.chmod(0o755)
+    command = 'printf x | tr x y; echo " [$SECRET_X]"'
+    pipe = offer_with_path(tmp_path, command, os.environ["PATH"])
+    env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}"}
+    done = run(shlex.split(code_secrets.wrap(command, pipe)), env=env)
+    assert not leak.exists()
+    assert done.returncode == 0 and done.stdout == b"y [$SECRET_X]\n", done.stderr
+
+
+def test_a_reader_left_over_after_its_parent_went_gets_nothing(tmp_path):
+    # The exact command, started so that its parents don't lead to the backend (a double
+    # fork: what a process outside the sessions, or one left behind, looks like).
+    pipe = offer(tmp_path)
+    out = tmp_path / "out"
+    argv = shlex.split(code_secrets.wrap(COMMAND, pipe))
+    launcher = (
+        "import os, sys, time\n"
+        "if os.fork():\n"
+        "    os._exit(0)\n"
+        "os.setsid()\n"
+        "time.sleep(0.3)\n"
+        "fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)\n"
+        "os.dup2(fd, 1)\n"
+        "os.dup2(fd, 2)\n"
+        "os.execv(sys.argv[2], sys.argv[2:])\n"
+    )
+    run([sys.executable, "-I", "-c", launcher, str(out), *argv])
+    for _ in range(300):
+        if out.exists() and out.read_bytes().endswith(b"\n"):
+            break
+        time.sleep(0.05)
+    got = out.read_bytes()
+    assert VALUE.encode() not in got and b"got [" not in got
+    assert b"couldn't hand this command its secrets" in got
+
+
+def test_the_parent_of_a_process_comes_from_the_system():
+    assert handoff_check.parent(os.getpid()) == os.getppid()
+    assert handoff_check.started_by(os.getpid(), os.getppid())
+    assert not handoff_check.started_by(os.getppid(), os.getpid())

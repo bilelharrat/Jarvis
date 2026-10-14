@@ -462,16 +462,21 @@ class Handoffs:
         values: dict[str, str],
         missing: list[str] | None = None,
         expect: Callable[[str], list[str]] | None = None,
+        run_path: str | None = None,
     ) -> str:
         """The pipe's path, ready for one reader: the values follow when it opens it, and
         only when it is the process expect(path) names (its exact arguments: the command the
         owner let go, through secret_run with this pipe). Without expect, any first reader
-        (the tests' own)."""
+        (the tests' own). run_path: the PATH the command runs with (secret_run puts it in
+        place of whatever its starter had)."""
         if not hasattr(os, "mkfifo"):
             raise OSError("Secrets reach commands through a named pipe, which this system lacks.")
         path = self.folder() / secrets.token_hex(16)
         os.mkfifo(path, 0o600)
-        payload = json.dumps({"values": values, "missing": list(missing or [])}).encode()
+        offered: dict[str, Any] = {"values": values, "missing": list(missing or [])}
+        if run_path:
+            offered["path"] = run_path
+        payload = json.dumps(offered).encode()
         wanted = expect(str(path)) if expect is not None else None
         threading.Thread(
             target=self._give, args=(path, payload, wanted), name="secret-handoff", daemon=True
@@ -499,7 +504,7 @@ class Handoffs:
             return "this system won't say who has the pipe open"
         if len(found) != 1:
             return f"{len(found)} processes have the pipe open"
-        return handoff_check.is_expected(found[0], wanted)
+        return handoff_check.is_expected(found[0], wanted, root=os.getpid())
 
     def _give(self, path: Path, payload: bytes, wanted: list[str] | None = None) -> None:
         deadline = time.monotonic() + self.wait

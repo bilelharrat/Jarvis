@@ -48,7 +48,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .. import code_prs, github, jsonstore, lang
+from .. import code_prs, github, jsonstore, lang, launches
 from ..tasks import MODES
 from ..textclean import clean_text
 
@@ -59,7 +59,7 @@ CARDS_MAX = 500  # cards kept in all, across projects
 PER_PROJECT = 100
 TITLE_MAX = 120
 PROMPT_MAX = 20_000
-START_WAIT = 15.0  # seconds a started card waits for its session to appear
+START_WAIT = 30.0  # seconds a started card waits for its session (it binds later all the same)
 STATES = ("todo", "queued", "running", "started", "done", "failed", "stopped")
 OUTSIDE_MODES = ("plan", "ask", "edits")  # what a card from an issue may start in
 _ID = re.compile(r"[0-9a-f]{10}")
@@ -194,10 +194,13 @@ class Todo:
         self.hub = hub
         self._board: Board | None = None
         self._locks: dict[str, asyncio.Lock] = {}
-        # Sessions a card from outside (a GitHub issue) started, and the prompts of such
-        # cards starting now: their connections are locked down as an issue's run is (B9).
+        # Sessions a card from outside (a GitHub issue) started: their connections are
+        # locked down as an issue's run is (B9), by the session's own stamp from the start
+        # (task.untrusted, launches.py), this set once the card has it.
         self.untrusted: set[int] = set()
-        self.starting: list[str] = []
+        # Launch tokens of cards whose session hadn't appeared when start stopped waiting
+        # (a held task_new): token -> card id, bound when it does.
+        self.pending: dict[str, str] = {}
 
     @property
     def board(self) -> Board:
@@ -424,14 +427,21 @@ class Todo:
 
     # ── starting a card's session ──
 
-    def message(self, card: dict[str, Any], model: str = "", route: Any = None) -> dict[str, Any]:
-        """The hub's task_new for a card (model: the queue's pick, over the card's own)."""
+    def message(
+        self, card: dict[str, Any], model: str = "", route: Any = None, token: str = ""
+    ) -> dict[str, Any]:
+        """The hub's task_new for a card (model: the queue's pick, over the card's own), with
+        its launch token, and for a card from outside untrusted (launches.py)."""
         msg: dict[str, Any] = {
             "type": "task_new",
             "directory": card["folder"],
             "prompt": card["prompt"],
             "title": card.get("title") or "",
         }
+        if token:
+            msg[launches.KEY] = token
+        if card.get("untrusted"):
+            msg["untrusted"] = True
         mode = card.get("mode") or ""
         if card.get("untrusted") and mode not in OUTSIDE_MODES:
             mode = "ask"
@@ -450,9 +460,12 @@ class Todo:
 
     async def start(self, card: dict[str, Any], model: str = "", route: Any = None) -> Any:
         """The card's session, started; None when it didn't (todo_error says why). One card
-        starts at a time in a project, and the session taken is the one with the card's own
-        prompt in the card's own project (its folder, or an isolated copy of it): while a
-        routed task_new waits, other sessions start too, anywhere."""
+        starts at a time in a project, and the session taken is the one its task_new's launch
+        token was stamped on (launches.py): while a held task_new waits (an @-mention being
+        gathered, a route being rated), other sessions start too, anywhere. One that comes
+        after the wait is bound when it does; it is locked down by its own stamp either way.
+        (Another agent's, started with acp_start: the one with the card's prompt in its
+        project.)"""
         chosen = model or card.get("model") or ""
         if card.get("cloud"):
             cloud = getattr(self.hub, "code_cloud", None)
@@ -473,36 +486,38 @@ class Todo:
                         "mode": self.message(card).get("mode") or "ask",
                     }
                 )
+                task = None
+                waited = 0.0
+                while waited < START_WAIT:
+                    fresh = [tm.tasks[i] for i in sorted(set(tm.tasks) - known)]
+                    task = next((t for t in fresh if self._is_cards(t, card)), None)
+                    if task is not None:
+                        break
+                    await asyncio.sleep(0.05)
+                    waited += 0.05
             else:
-                if card.get("untrusted"):
-                    self.starting.append(card["prompt"])
-                try:
-                    await self.hub._handle(self.message(card, model, route))
-                finally:
-                    if card.get("untrusted") and card["prompt"] in self.starting:
-                        self.starting.remove(card["prompt"])
-            task = None
-            waited = 0.0
-            while waited < START_WAIT:
-                fresh = [tm.tasks[i] for i in sorted(set(tm.tasks) - known)]
-                task = next((t for t in fresh if self._is_cards(t, card)), None)
-                if task is not None:
-                    break
-                await asyncio.sleep(0.05)
-                waited += 0.05
+                token = launches.token()
+                await self.hub._handle(self.message(card, model, route, token))
+                task = await launches.started(tm, token, START_WAIT)
+                if task is None:
+                    self.pending[token] = card["id"]
         if task is None:
             self.error(
                 self.tr("The session didn't start: {why}", why=self.tr("it didn't appear in time"))
             )
             return None
-        if card.get("untrusted"):
+        self.bind(card, task)
+        return task
+
+    def bind(self, card: dict[str, Any], task: Any) -> None:
+        """The card is this session's (kept with this launch's number)."""
+        if card.get("untrusted") or getattr(task, "untrusted", False):
             self.untrusted.add(task.id)
         card["task"], card["launch"] = task.id, self.launch
         card["session"] = task.session_id or ""
         card["started"] = _now()
         with contextlib.suppress(OSError):
             self.board.save()
-        return task
 
     def _is_cards(self, task: Any, card: dict[str, Any]) -> bool:
         """Whether a new session is the card's: a code session started with its prompt, in
@@ -537,6 +552,17 @@ class Todo:
         """A started card learns its session's Claude Code id (to reopen it later)."""
         if kind != "tasks":
             return
+        for token, card_id in list(self.pending.items()):
+            task = launches.find(self.hub.tasks, token)
+            if task is None:
+                continue
+            del self.pending[token]
+            card = self.board.get(card_id)
+            if card is not None and not card.get("task"):  # (a late session: linked now)
+                self.bind(card, task)
+                if card.get("state") not in ("queued", "running"):
+                    card["state"] = "started"
+                self.emit()
         changed = False
         for card in self.board.cards:
             if card.get("launch") != self.launch:
@@ -553,22 +579,18 @@ class Todo:
 class _LockDown:
     """TaskManager.options_for, wrapped (after every feature's option hooks, so nothing
     added later loosens it): a session a card from outside started gets an issue's run's
-    lock-down (code_unattended.Runs.lock_down): the project's own settings but none of the
-    owner's, no MCP server, no web tools, its commands in the sandbox with no network. Its
+    lock-down (code_unattended.Runs.lock_down): no settings file (the owner's or the
+    project's), no MCP server, no web tools, its commands in the sandbox with no network. Its
     mode alone ("ask") left the owner's settings, MCP servers and web search on, and the
-    queue can start such a card with nobody watching. A session is known by the prompt it
-    starts with while its card is starting, then by its number."""
+    queue can start such a card with nobody watching. A session is known by its own stamp
+    (task.untrusted, from its task_new: launches.py), however late it starts, then by its
+    number; never by its prompt (another session with the same words isn't the card's)."""
 
     def __init__(self, todo: Todo) -> None:
         self.todo = todo
 
     def locked(self, task: Any) -> bool:
-        if task.id in self.todo.untrusted:
-            return True
-        if getattr(task, "kind", "") == "code" and task.prompt in self.todo.starting:
-            self.todo.untrusted.add(task.id)
-            return True
-        return False
+        return task.id in self.todo.untrusted or getattr(task, "untrusted", False) is True
 
     def wrap(self, inner: Any) -> Any:
         def options_for(task: Any) -> Any:

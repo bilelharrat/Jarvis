@@ -75,12 +75,11 @@ import logging
 import re
 import secrets
 import time
-import unicodedata
 from collections import OrderedDict, deque
 from typing import Any
 from urllib.parse import parse_qs
 
-from .. import code_ai, jsonstore, lang, linear, prefs, slack
+from .. import code_ai, jsonstore, lang, linear, outside_text, prefs, slack
 from ..hook_listener import HookListener, came_through
 from ..proactive import Alert
 from ..webhooks import LOOPBACK, _hostname
@@ -207,28 +206,10 @@ def _port(value: Any) -> int | None:
 prefs.register_feature_pref(PREF_PORT, PORT, _port)
 
 
-# What a reader (a model) may take for nothing: zero-width spaces and joiners, the word
-# joiner, the byte order mark, and the marks that turn text's direction around.
-_INVISIBLE = re.compile("[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
-
-
-def _plain(text: str) -> str:
-    """Text as a reader sees it: compatibility forms folded (a full-width ＜ is <) and the
-    invisible characters gone, so a closer can't hide in either."""
-    return _INVISIBLE.sub("", unicodedata.normalize("NFKC", str(text)))
-
-
-def _data(text: str, tag: str) -> str:
-    """Someone else's words inside <tag>…</tag>: they can't close the tag and go on as the
-    app's own words (nor with a full-width or zero-width-split closer)."""
-    return re.sub(rf"<(?=\s*/?\s*{re.escape(tag)}\b)", "&lt;", _plain(text), flags=re.IGNORECASE)
-
-
-def _attr(text: str) -> str:
-    """Someone else's words inside the app's own (an attribute, the note's header): no
-    quotes, angle or square brackets, line breaks or other control characters, so they
-    can't end the note and go on as the app."""
-    return re.sub(r'["<>\[\]\x00-\x1f\x7f\u0085\u2028\u2029]', "", _plain(text))[:120]
+# Someone else's words as data (outside_text: shared with code_prs's issue, review and CI
+# prompts): folded and stripped of invisible characters, a tag's closer escaped, and in the
+# app's own words no quotes, brackets or line breaks.
+_plain, _data, _attr = outside_text.plain, outside_text.data, outside_text.attr
 
 
 def ticket_prompt(data: dict[str, Any], by: str) -> str:
@@ -662,10 +643,14 @@ class Triggers:
         if not slack.verify(signing, body, headers.get("x-slack-request-timestamp", ""), signature):
             return 401, {"error": "bad signature"}
         if "application/x-www-form-urlencoded" in headers.get("content-type", ""):
-            # A slash command: once by its signature (its timestamp and body), as Slack
-            # never sends one again by itself; a replay of the same request is answered as
-            # the first was, and starts nothing.
-            if not self._once(f"slack:slash:{hashlib.sha256(signature.encode()).hexdigest()}"):
+            # A slash command: once by what its signature signs (its timestamp and body), as
+            # Slack never sends one again by itself; a replay of the same request is answered
+            # as the first was, and starts nothing. Never by the header's own text: verify
+            # takes it stripped, so the same signature with a trailing NBSP or \x85 was a
+            # new key each time, each another session.
+            stamp = str(headers.get("x-slack-request-timestamp", ""))
+            signed = hashlib.sha256(stamp.encode("utf-8", "replace") + b":" + body).hexdigest()
+            if not self._once(f"slack:slash:{signed}"):
                 return 200, {"response_type": "ephemeral", "text": "Already on it."}
             fields = {
                 k: v[0] for k, v in parse_qs(body.decode("utf-8", errors="replace")).items() if v

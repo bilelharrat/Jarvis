@@ -10,9 +10,16 @@ secret_run scrubs. So before a single byte is written, the backend looks at who 
 open (after its name is gone, so no one else can open it) and writes only when that is one
 process, and that process is the very command the owner let go: JARVIS's own Python, in
 isolated mode, running secret_run.py with this pipe and exactly the command on the owner's
-card, its executable the Python it names, and nothing in its environment that loads code into
-it (DYLD_*, LD_*). Anything else, and the pipe is closed unwritten: the reader gets nothing,
-the command says it couldn't have its secrets, and the log says why.
+card, its executable the Python it names, nothing in its environment that loads code into
+it (DYLD_*, LD_*), and started from this backend (its parents lead here, where every session's
+Claude Code runs: a process started some other way, or one left over after its parent went,
+isn't a session's command). Anything else, and the pipe is closed unwritten: the reader gets
+nothing, the command says it couldn't have its secrets, and the log says why. What its shell
+might load on its own (BASH_ENV, ZDOTDIR, exported functions, a PATH of its own) secret_run
+itself takes out before the command runs.
+
+A process can rewrite the arguments KERN_PROCARGS2 shows, so the arguments alone are no proof
+it's secret_run: the parent check is what a process started outside the sessions can't fake.
 
 On macOS: libproc (each process's open files, by the pipe's device and inode) and
 sysctl(KERN_PROCARGS2) (a process's arguments and environment), for the owner's own
@@ -40,6 +47,8 @@ _VNODE_FDINFO_SIZE = 176  # vnode_fdinfo: proc_fileinfo (24) + vnode_info (152)
 _VST_DEV, _VST_INO = 24, 32  # where vinfo_stat's dev (u32) and ino (u64) sit in it
 _CTL_KERN, _KERN_PROCARGS2, _KERN_ARGMAX = 1, 49, 8
 _LOADERS = ("DYLD_", "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT")
+_PROC_PIDTBSDINFO, _BSDINFO_SIZE, _BSD_PPID = 3, 136, 16  # proc_bsdinfo, and its pbi_ppid
+_PARENTS_MAX = 64  # parents walked at most, looking for this backend
 
 
 @lru_cache(maxsize=1)
@@ -191,9 +200,38 @@ def _process_darwin(lib, pid: int) -> tuple[str, list[str], list[str]] | None:
     return path.value.decode("utf-8", "surrogateescape"), argv, env
 
 
-def is_expected(pid: int, expected: list[str]) -> str:
+def parent(pid: int) -> int | None:
+    """A process's parent; None when the system won't say (or it's gone)."""
+    lib = _libproc()
+    if lib is not None:
+        info = ctypes.create_string_buffer(_BSDINFO_SIZE)
+        if lib.proc_pidinfo(pid, _PROC_PIDTBSDINFO, 0, info, _BSDINFO_SIZE) != _BSDINFO_SIZE:
+            return None
+        return struct.unpack_from("I", info.raw, _BSD_PPID)[0]
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            stat = f.read()
+        return int(stat[stat.rindex(b")") + 2 :].split()[1])  # (the name may hold spaces)
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def started_by(pid: int, root: int) -> bool:
+    """Whether root is one of this process's parents (its parent's parent, and so on)."""
+    for _ in range(_PARENTS_MAX):
+        up = parent(pid)
+        if up is None or up <= 1 or up == pid:  # (launchd/init: it left its parent behind)
+            return False
+        if up == root:
+            return True
+        pid = up
+    return False
+
+
+def is_expected(pid: int, expected: list[str], root: int | None = None) -> str:
     """Nothing ("") when this process is the command the owner let go (expected: its exact arguments,
-    the first being the Python to run); else why it isn't, for the log (no values)."""
+    the first being the Python to run; root, when given, one of its parents: the backend its
+    session runs under); else why it isn't, for the log (no values)."""
     found = process(pid)
     if found is None:
         return "the system wouldn't say what it is"
@@ -208,4 +246,6 @@ def is_expected(pid: int, expected: list[str]) -> str:
         return "its program isn't JARVIS's Python"
     if any(item.startswith(_LOADERS) for item in env):
         return "its environment loads other code into it"
+    if root is not None and not started_by(pid, root):
+        return "it wasn't started by one of this app's sessions"
     return ""
