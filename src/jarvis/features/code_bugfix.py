@@ -1226,8 +1226,8 @@ class BugFix:
 
     async def drive(self, run: BugRun, task: Any, first: bool) -> None:
         """The rounds, from the step the run is on, then ship, the receipt and landing."""
-        try:  # (a resume: the step it was on starts again)
-            while run.round <= ROUNDS:
+        try:  # (a resume: the step it was on starts again; one at ship goes straight there)
+            while run.round <= ROUNDS and run.step != "ship":
                 steps = self.steps_of(run.round)
                 start = steps.index(run.step) if run.step in steps else 0
                 for step in steps[start:]:

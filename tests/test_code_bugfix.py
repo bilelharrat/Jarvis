@@ -821,3 +821,34 @@ async def test_with_every_feature_installed_a_run_whose_copy_fails_never_touches
     staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=repo,
                             capture_output=True, text=True).stdout  # fmt: skip
     assert staged == ""
+
+
+async def test_a_run_quit_in_its_ship_step_resumes_at_ship_not_the_last_round(
+    hub, projects, monkeypatch
+):
+    """Round 1's D5."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 1)
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "SHIP"
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(lambda: run.step == "ship" and "SHIP" in BugClient.prompts[-1][:40])
+    desk.drivers[run.id].cancel()
+    handle = hub.tasks.tasks[run.task_id].handle
+    hub.tasks.cancel(run.task_id)
+    await asyncio.wait([handle], timeout=5)
+    desk.save()
+    desk._loaded, desk.runs, desk.active, desk.waiting = False, [], {}, {}
+    desk.load()
+    [again] = desk.runs
+    assert (again.state, again.step) == ("paused", "ship")
+    asked = len(BugClient.prompts)
+    BugClient.hold = None
+    hub.answers = ["deny"]
+    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await until(lambda: again.state != "running"), again.notes
+    heads = [p.split("\n", 1)[0] for p in BugClient.prompts[asked:]]
+    assert heads and set(heads) == {"Bug Fix Mode · SHIP"}, heads  # (no round again)
+    assert again.state == "done"
