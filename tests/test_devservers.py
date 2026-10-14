@@ -452,9 +452,14 @@ async def test_a_sessions_servers_stop_when_it_ends(tmp_path):
     assert await until(lambda: not theirs.alive, 20)
 
 
-async def test_what_a_finished_command_leaves_behind_goes_with_it(tmp_path):
+async def test_what_a_finished_command_leaves_behind_goes_with_it(tmp_path, monkeypatch):
     """sh starts a background sleep that keeps the output open, and ends: the run still ends,
     and the sleep with it."""
+    # What's left holding the output gets LINGER before it's let go, looked at after QUIET
+    # with no output: fifths of a second here, not the app's seconds (that it is let go, not
+    # how long that takes, is the test).
+    monkeypatch.setattr(runproc, "LINGER", 0.2)
+    monkeypatch.setattr(runproc, "QUIET", 0.2)
     marker = tmp_path / "left.pid"
     lines = []
     ended = []
@@ -472,9 +477,14 @@ async def test_what_a_finished_command_leaves_behind_goes_with_it(tmp_path):
     assert await until(lambda: not pid_alive(left), 20), "the sleep it left outlived it"
 
 
-async def test_one_that_slips_into_a_session_of_its_own_is_not_waited_for(tmp_path):
+async def test_one_that_slips_into_a_session_of_its_own_is_not_waited_for(tmp_path, monkeypatch):
     """A daemon that detaches (setsid) keeps the output open, out of reach of the group and
     session: the run still ends a few seconds after its command did."""
+    # What's left holding the output gets LINGER before it's let go, looked at after QUIET
+    # with no output: fifths of a second here, not the app's seconds (that it is let go, not
+    # how long that takes, is the test).
+    monkeypatch.setattr(runproc, "LINGER", 0.2)
+    monkeypatch.setattr(runproc, "QUIET", 0.2)
     marker = tmp_path / "daemon.pid"
     daemon = tmp_path / "daemon.py"
     daemon.write_text(
