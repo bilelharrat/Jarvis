@@ -39,6 +39,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = { features: {}, last: null, body: null, output: [], done: null, out: null, run: null };
   /* global deckProject */
   const project = () => (typeof deckProject === 'string' ? deckProject : '');
@@ -61,7 +64,7 @@
     const wrap = el('div', 'jcx-setup');
     if (!ev) {
       wrap.append(el('p', 'jc-dim', project() ? 'Reading the project…' : 'Open a project first.'));
-      body.replaceChildren(wrap);
+      keepFocus(body, () => body.replaceChildren(wrap));
       return;
     }
     const name = ev.project;
@@ -141,7 +144,7 @@
     // What's being typed in the image's field outlives a redraw (the backend's answer).
     const typing = document.activeElement && body.contains(document.activeElement) && document.activeElement.id === input.id ? document.activeElement.value : null;
     if (typing !== null) input.value = typing;
-    body.replaceChildren(wrap);
+    keepFocus(body, () => body.replaceChildren(wrap));
     if (typing !== null) input.focus();
   }
 

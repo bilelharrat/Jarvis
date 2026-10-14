@@ -18,6 +18,9 @@
   const F = window.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (window.jarvisFocus ? window.jarvisFocus.keep(box, drawIt) : drawIt());
   const diff = () => window.JarvisDiff;  // (code_diff.js loads after this file)
   const state = {
     data: new Map(), // key -> the latest code_git event
@@ -223,7 +226,7 @@
     const wrap = el('div', 'jcx-git');
     if (!task && !project()) {
       wrap.append(el('p', 'jc-empty', 'Pick a project first.'));
-      target.replaceChildren(wrap);
+      keepFocus(target, () => target.replaceChildren(wrap));
       return;
     }
     const data = state.data.get(keyOf(task));
@@ -247,7 +250,7 @@
       if (data.merging) wrap.append(el('p', 'jcx-gmerge', 'A merge is under way: resolve its conflicts, stage them, then commit to finish it.'));
       wrap.append(section(task, data, 'Staged', data.staged, true), commitBox(task, data), section(task, data, 'Changes', data.unstaged, false), history(data));
     }
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   F.registerPane('git', {

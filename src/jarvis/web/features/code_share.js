@@ -38,6 +38,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
   const state = { shares: [], allowed: false, error: '', minutes: 60, comments: false, features: {} };
   let body = null;
@@ -104,7 +107,7 @@
     const task = F.currentTask();
     if (!task) {
       wrap.append(el('p', 'jc-empty', 'Open a session to share it.'));
-      target.replaceChildren(wrap);
+      keepFocus(target, () => target.replaceChildren(wrap));
       return;
     }
     wrap.append(el('p', 'jc-dim', 'A read-only live view of this session for a teammate on your network: its transcript, changes and status, with keys, tokens and this Mac’s paths taken out. They can’t do anything in it.'));
@@ -144,7 +147,7 @@
     }));
     form.append(el('p', 'jc-dim jcx-share-note', 'The link works on this Mac’s network while the phone companion is on, until it ends or you revoke it. Shares end when Eden quits.'));
     wrap.append(form);
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   function render() { if (body && body.isConnected && body.querySelector('.jcx-sharepane')) draw(body); }

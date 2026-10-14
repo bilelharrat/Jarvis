@@ -212,3 +212,30 @@ test('Exterminator Mode: an unchanged sessions list doesn’t redraw the pane', 
   assert.ok(w.body.querySelectorAll('button').some((b) => b.textContent === 'Show session'));
   assert.equal(w.document.activeElement.textContent, 'Stop', 'the keys kept on Stop through it');
 });
+
+// Round 2, U5: the panes G5 didn't reach lost the focus after their own buttons (Without you's
+// Stop and refused-steps toggle, pairing, the isolated copy, multi-repo, setup, Git, the PR,
+// sharing): each draws through keep too.
+test('Without you: the refused-steps toggle and Stop leave the keys in the pane', () => {
+  const w = standPane('code_unattended.js', 'unattended');
+  const run = { id: 'u1', title: 'Night run', project: 'api', state: 'running', spend_cap: 5, hours: 2, started: 1000, denied: ['rm -rf build', 'git push'] };
+  w.fire('code_runs', { runs: [run], jobs: [], active: {} });
+  const toggle = w.body.querySelectorAll('button').find((b) => b.textContent === '2 steps refused');
+  toggle.focus();
+  toggle.click();
+  assert.equal(w.document.activeElement.textContent, 'Hide what it was refused', 'the toggle, in its new words');
+  const stop = w.body.querySelectorAll('button').find((b) => b.textContent === 'Stop');
+  stop.focus();
+  stop.click();
+  w.fire('code_runs', { runs: [{ ...run, state: 'done', why: 'owner', ended: 2000, cost: 1, files: 0 }], jobs: [], active: {} });
+  const now = w.document.activeElement;
+  assert.ok(w.body.contains(now) && now !== w.body, `still in the pane (${now.tagName})`);
+});
+
+test('every pane the round-2 audit found losing the focus draws through keep', () => {
+  for (const name of ['code_unattended.js', 'code-pairing.js', 'code_isolation.js', 'code-multirepo.js', 'code-setup.js', 'code_git.js', 'code_pr.js', 'code_share.js']) {
+    const text = source(name);
+    assert.match(text, /const keepFocus = \(box, drawIt\) => \((root|window)\.jarvisFocus \? \1\.jarvisFocus\.keep\(box, drawIt\) : drawIt\(\)\);/, name);
+    assert.ok(!/^\s+(target|body)\.replaceChildren\(wrap\);/m.test(text), `${name}: no bare redraw of the pane`);
+  }
+});

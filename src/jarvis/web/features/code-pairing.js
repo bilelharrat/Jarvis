@@ -25,6 +25,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after this pane's own
+  // buttons the focus would otherwise fall to the page (round 2, U5).
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = { last: null, body: null, editors: [] };
   const taskId = () => { const task = F.currentTask(); return task && task.kind === 'code' ? task.id : 0; };
 
@@ -116,7 +119,7 @@
       }
       wrap.append(list, button('Bring them over', 'tinted', () => send({ type: 'code_pair_release', id })));
     }
-    body.replaceChildren(wrap);
+    keepFocus(body, () => body.replaceChildren(wrap));
   }
 
   F.registerPane('pairing', {
