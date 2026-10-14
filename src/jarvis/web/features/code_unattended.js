@@ -22,6 +22,11 @@
   const projects = () => (typeof deckProjects !== 'undefined' ? deckProjects.map((p) => p.name) : []);
   const current = () => (typeof deckProject === 'string' ? deckProject : '');
   const sessions = () => (typeof ccTasks !== 'undefined' ? ccTasks : []);
+  // What the pane shows of the task list, as it was last drawn (see F.on('tasks') below).
+  let tasksShown = '';
+  function fromTasks() {
+    return JSON.stringify([projects(), current(), state.runs.map((r) => sessions().some((s) => s.id === r.task_id && s.kind === 'code'))]);
+  }
 
   function button(label, cls, run, title) {
     const b = el('button', `jc-btn small ${cls || ''}`.trim(), label);
@@ -211,6 +216,7 @@
 
   function draw(target) {
     body = target;
+    tasksShown = fromTasks();
     const wrap = el('div', 'jcx-runs');
     wrap.append(el('p', 'jc-dim', 'A session that works while you’re away, within a scope you approve now. Anything outside it is refused, never asked, and it reports back when it’s done.'));
     wrap.append(form());
@@ -272,7 +278,17 @@
     render();
     drawBadge();
   }, { replay: true });
-  F.on('tasks', () => { drawBadge(); render(); });
+  // The hub resends the task list up to ten times a second while sessions work: the pane is
+  // drawn again only when what it shows of it has changed (the projects, and which of the
+  // runs’ sessions are listed for "Show session"). Drawn anew each time, it was thrown away and
+  // built again under the owner’s typing, and the form lost the focus mid-word.
+  F.on('tasks', () => {
+    drawBadge();
+    const shown = fromTasks();
+    if (shown === tasksShown) return;
+    tasksShown = shown;
+    render();
+  });
   F.on('hello', () => send({ type: 'code_runs' }));
   drawBadge();
 })();

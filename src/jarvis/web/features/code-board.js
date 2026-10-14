@@ -208,18 +208,26 @@
   }
 
   let drawn = '';  // what the board showed when last drawn
+  // Each session's card as last drawn, by its session, with what it showed: a redraw keeps
+  // the cards whose session hasn't changed and builds only the others. A busy session's
+  // step changes its own card ten times a second, and every other card was built again
+  // with it (thirty sessions: some four hundred elements an event).
+  const drawnCards = new Map();  // task id -> { shows, card }
+  let cardShows = new Map();  // task id -> what its card shows now (this draw's)
   function render() {
     const tasks = ccTasks;
+    const locale = uiLocale();
     // Drawn anew only when what it shows has changed: the hub resends the task list up to ten
     // times a second while sessions work.
-    const shows = JSON.stringify([B.showArchived, uiLocale(), tasks.map((task) => {
+    cardShows = new Map(tasks.map((task) => {
       const meta = metaOf(task.id);
       const asks = asksOf(task.id);
       const figures = B.figures[String(task.id)] || {};
       const at = figures.updated || meta.updated;
-      return [task.id, task.title, task.prompt, task.folder, task.status, task.busy, doing(task, asks[0]), (task.files_changed || []).length, task.cost_usd,
-        meta.archived, meta.pinned, meta.group, asks.map((a) => [a.id, a.detail, a.choices]), figures.branch, figures.added, figures.removed, at, ago(at), shared().unread.has(task.id)];
-    }), extraLanes.map((lane) => { try { return lane.shows(); } catch { return null; } })]);
+      return [task.id, JSON.stringify([task.id, task.title, task.prompt, task.folder, task.status, task.busy, doing(task, asks[0]), (task.files_changed || []).length, task.cost_usd,
+        meta.archived, meta.pinned, meta.group, asks.map((a) => [a.id, a.detail, a.choices]), figures.branch, figures.added, figures.removed, at, ago(at), shared().unread.has(task.id), locale])];
+    }));
+    const shows = JSON.stringify([B.showArchived, locale, [...cardShows.values()], extraLanes.map((lane) => { try { return lane.shows(); } catch { return null; } })]);
     if (shows === drawn) return;
     drawn = shows;
     const columns = arrange(tasks, metaOf, (id) => asksOf(id).length, B.showArchived);
@@ -253,44 +261,96 @@
     // Where the keys are, read before anything moves: a lane of another feature's (the to-do
     // column) is its own element, taken off the board as it's put in the new lanes, and the
     // focus goes with it to the page.
-    const had = board.querySelector('.cs-lanes');
-    const scroll = had ? had.scrollTop : 0;
     const active = document.activeElement && board.contains(document.activeElement) ? document.activeElement : null;
     const focused = active ? active.dataset.focus : '';
-    const lanes = el('div', 'cs-lanes');
+    // The lanes stay on the board from one draw to the next, and in each only what changed is
+    // put in: other features' lanes first (the to-do column), then a list of cards for each
+    // column, its count, and "None" when it's empty. Nothing that stays the same leaves the
+    // page, so the keys stay where they are and the lanes keep their scroll.
+    const lanes = laneBox();
+    const firsts = [];
     for (const lane of extraLanes) {
-      try { lanes.append(lane.element()); } catch (err) { console.error('board lane', err); }
+      try { firsts.push(lane.element()); } catch (err) { console.error('board lane', err); }
     }
-    lanes.classList.toggle('cs-lanes-more', lanes.childElementCount > 0);
-    lanes.addEventListener('keydown', onCardKey);
+    const order = [...firsts, ...COLUMNS.map(([id]) => columnLanes[id].lane)];
+    // Put in order only when they aren't (the first draw, a lane another feature made anew).
+    if (order.length !== lanes.children.length || order.some((node, at) => lanes.children[at] !== node)) {
+      lanes.replaceChildren();
+      for (const lane of extraLanes) {
+        try { lanes.append(lane.element()); } catch (err) { console.error('board lane', err); }
+      }
+      lanes.append(...COLUMNS.map(([id]) => columnLanes[id].lane));
+    }
+    lanes.classList.toggle('cs-lanes-more', firsts.length > 0);
     B.lanes = COLUMNS.map(([id]) => columns[id].map((task) => task.id));
     // The one card in the Tab order: the one the keys were last on, else the first.
     const ids = B.lanes.flat();
     if (!ids.includes(B.focusId)) B.focusId = ids.length ? ids[0] : null;
-    for (const [id, label] of COLUMNS) {
+    for (const [id] of COLUMNS) {
       const list = columns[id];
-      const lane = el('section', `cs-lane ${id}`);
-      lane.setAttribute('aria-label', label);
-      const lh = el('h2', 'cs-lane-head');
-      lh.id = `cs-lane-${id}`;
-      lh.append(el('span', `cs-lane-dot ${id}`), el('span', '', label), el('span', 'cs-lane-count', String(list.length)));
-      // Read as a list: "Needs you, list, 2 items".
-      const cards = el('div', 'cs-cards');
-      cards.setAttribute('role', 'list');
-      cards.setAttribute('aria-labelledby', lh.id);
-      cards.append(...list.map((task) => cardFor(task, id)));
+      const parts = columnLanes[id];
+      setText(parts.count, String(list.length));
       // (An empty lane says so beside its list, not in it: a list holds only its items.)
-      lane.append(lh, ...(list.length ? [] : [el('p', 'cs-lane-empty', id === 'needs' ? 'Nothing waiting on you.' : 'None')]), cards);
-      lanes.append(lane);
+      if (list.length && parts.empty.isConnected) parts.empty.remove();
+      else if (!list.length && !parts.empty.isConnected) parts.lane.insertBefore(parts.empty, parts.cards);
+      const now = list.map((task) => cardFor(task, id));
+      if (now.length !== parts.cards.children.length || now.some((card, at) => parts.cards.children[at] !== card)) parts.cards.replaceChildren(...now);
     }
-    board.replaceChildren(head, lanes);
-    lanes.scrollTop = scroll;
-    // The same element when it's still there (a kept lane's), else its namesake.
+    if (shownHead && shownHead.parentNode === board) { board.insertBefore(head, shownHead); shownHead.remove(); } else board.prepend(head);
+    shownHead = head;
+    for (const id of drawnCards.keys()) if (!cardShows.has(id)) drawnCards.delete(id);  // (a session gone)
+    // The same element when it's still there, else its namesake (a card drawn anew).
+    if (active && document.activeElement === active) return;
     const again = active && board.contains(active) ? active : focused && board.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
     if (again) again.focus();
   }
 
+  // The board's lanes, made once: the box they're in and each column's lane, head, count,
+  // empty line and list of cards ("Needs you, list, 2 items" to a screen reader).
+  const columnLanes = {};
+  let lanesBox = null;
+  let shownHead = null;
+  function laneBox() {
+    if (lanesBox) {
+      if (lanesBox.parentNode !== board) board.append(lanesBox);
+      return lanesBox;
+    }
+    lanesBox = el('div', 'cs-lanes');
+    lanesBox.addEventListener('keydown', onCardKey);
+    for (const [id, label] of COLUMNS) {
+      const lane = el('section', `cs-lane ${id}`);
+      lane.setAttribute('aria-label', label);
+      const lh = el('h2', 'cs-lane-head');
+      lh.id = `cs-lane-${id}`;
+      const count = el('span', 'cs-lane-count', '');
+      lh.append(el('span', `cs-lane-dot ${id}`), el('span', '', label), count);
+      const cards = el('div', 'cs-cards');
+      cards.setAttribute('role', 'list');
+      cards.setAttribute('aria-labelledby', lh.id);
+      const empty = el('p', 'cs-lane-empty', id === 'needs' ? 'Nothing waiting on you.' : 'None');
+      lane.append(lh, cards);
+      columnLanes[id] = { lane, count, empty, cards };
+    }
+    board.append(lanesBox);
+    return lanesBox;
+  }
+  const setText = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+
+  // A session's card: the one drawn before when it shows the same, else a new one. (Its
+  // place in the Tab order is the board's, set each time.)
   function cardFor(task, col) {
+    const shows = `${col} ${cardShows.get(task.id)}`;
+    const kept = drawnCards.get(task.id);
+    if (kept && kept.shows === shows) {
+      kept.card.tabIndex = task.id === B.focusId ? 0 : -1;
+      return kept.card;
+    }
+    const card = buildCard(task, col);
+    drawnCards.set(task.id, { shows, card });
+    return card;
+  }
+
+  function buildCard(task, col) {
     const meta = metaOf(task.id);
     const asks = asksOf(task.id);
     const figures = B.figures[String(task.id)] || {};
