@@ -61,7 +61,15 @@
     return `cloudflared tunnel --url http://127.0.0.1:${Number.isInteger(n) && n > 0 ? n : PORT}`;
   }
 
-  const api = { STEPS, listOf, channelsOf, hookAddress, hookShape, tunnelCommand };
+  // Why the tunnel's port can't be saved ('' when it can): said beside it, never a Save that
+  // does nothing.
+  function portProblem(text) {
+    const n = Number(String(text || '').trim());
+    if (String(text || '').trim() && Number.isInteger(n) && n >= 1024 && n <= 65535) return '';
+    return 'The port is a whole number from 1024 to 65535.';
+  }
+
+  const api = { STEPS, listOf, channelsOf, hookAddress, hookShape, tunnelCommand, portProblem };
   if (typeof module === 'object' && module.exports) module.exports = api;
 
   const F = root.jarvisFeatures;
@@ -260,12 +268,15 @@
     box.append(cmd);
     let port = String(lis.port || PORT);
     const portBox = input(port, 'Port', (v) => { port = v; }, { type: 'number' });
+    const portWhy = el('small', 'jcx-trg-error');
+    portWhy.setAttribute('role', 'status');
     const save = button('Save', '', () => {
-      const n = Number(port);
-      if (Number.isInteger(n) && n >= 1024 && n <= 65535) send({ type: 'feature_prefs', changes: { code_triggers_port: n } });
+      const problem = portProblem(port);
+      portWhy.textContent = problem ? t(problem) : '';
+      if (!problem) send({ type: 'feature_prefs', changes: { code_triggers_port: Number(port) } });
     }, `${t('Save')} ${t('Port')}`);
     const portTools = el('span', 'jcx-trg-tools');
-    portTools.append(portBox, save);
+    portTools.append(portBox, save, portWhy);
     box.append(row('Port', 'On 127.0.0.1 only. It listens while Linear or Slack is on.', portTools));
     if (lis.error) {
       const warn = mine(lis.error, 'p', 'jcx-trg-error');

@@ -28,7 +28,10 @@
     "No repository is reviewed yet: turn it on in Eden Code settings › GitHub.": "还没有审查任何仓库：请在 Eden Code 设置 › GitHub 里开启。",
     "No reviews yet.": "还没有审查。",
     "Pull request reviews": "拉取请求审查",
-    "npm test, uv run pytest": "npm test, uv run pytest"
+    "npm test, uv run pytest": "npm test, uv run pytest",
+    "Type a pull request: owner/repo#12, or its address.": "请输入拉取请求：owner/repo#12，或它的地址。",
+    "Say which repository too: owner/repo#12.": "请同时说明是哪个仓库：owner/repo#12。",
+    "That isn’t a pull request: type owner/repo#12, or its address.": "这不是拉取请求：请输入 owner/repo#12，或它的地址。"
   },
   "patterns": [
     [

@@ -47,7 +47,8 @@
     "Linear and Slack reach this Mac only through it, and only these two hooks: a listener of their own on a port that stays the same, never the window’s pages.": "Linear 和 Slack 只能通过它连到这台 Mac，而且只能到这两个钩子：它们有自己的监听端口，端口不会变，永远到不了窗口的页面。",
     "Port": "端口",
     "On 127.0.0.1 only. It listens while Linear or Slack is on.": "只在 127.0.0.1 上。Linear 或 Slack 开启时它才监听。",
-    "Listening.": "正在监听。"
+    "Listening.": "正在监听。",
+    "The port is a whole number from 1024 to 65535.": "端口须为 1024 到 65535 之间的整数。"
   },
   "patterns": []
 }
