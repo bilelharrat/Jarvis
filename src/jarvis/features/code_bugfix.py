@@ -1324,6 +1324,8 @@ class BugFix:
         decide on a card, else why it's refused. The run's own lists of owner-only and risky
         commands come before the owner's rules and the session's mode (G5: an allow rule
         such as Bash(git push:*) let git push, rm -rf or security … go ahead unasked)."""
+        if tool_name == "Bash":
+            tool_input = self.unwrapped(tool_input)
         if private := tasks._private_target(tool_name, tool_input):
             return f"{private} is a folder the owner keeps private: nothing in it may be read"
         if tool_name in WEB_TOOLS:  # (WebSearch is one of tasks.FREE_TOOLS: R2-10)
@@ -1369,6 +1371,20 @@ class BugFix:
         if tool_name in tasks.EDIT_TOOLS:
             return "card"  # an edit outside the copy: the owner decides
         return "that step isn't in Exterminator Mode's scope"
+
+    def unwrapped(self, tool_input: dict[str, Any]) -> dict[str, Any]:
+        """A Bash step as it's judged: in a copy with a container, the session's hook
+        (features/code_setup.py) has already put container_run.py's line in its place, which
+        is no stack command at all, so the run refused its own tests (round 3). The command
+        that line runs in the container is what's judged; the line itself is what runs. Only
+        a line that is exactly container_run's, with one of the backend's own relays."""
+        from .. import container_run
+
+        setup = getattr(self.hub, "code_setup", None)
+        relays = getattr(setup, "relays", None) or {}
+        sockets = [getattr(relay, "path", "") for relay in relays.values()]
+        found = container_run.inner(str(tool_input.get("command") or ""), [s for s in sockets if s])
+        return tool_input if found is None else {**tool_input, "command": found}
 
     @staticmethod
     def _in_scratch(task: Any, path: str) -> bool:
