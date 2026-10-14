@@ -15,8 +15,9 @@ Each report is a small JSON file in <data>/crash-reports (KEEP of them, the newe
 failed, its traceback or stack, when, and the versions; every string scrubbed first with the
 diagnostics file's masks (ops/redact.py: tokens, keys, passwords, emails, phone numbers, the
 home folder's name) and the commit check's key formats (secret_scan.PATTERNS). The same
-report twice within REPEAT_SECONDS is counted, not kept again; at most PER_HOUR are kept an
-hour. Nothing leaves the Mac: the diagnostics file (ops/diagnostics.py) carries the reports
+report twice within REPEAT_SECONDS is counted, not kept again (the count written at most every
+COUNT_SAVE_SECONDS, and never into a report that was deleted); at most PER_HOUR are kept an
+hour. Names and times are UTC, as the app's own reports are (the folder is pruned by name). Nothing leaves the Mac: the diagnostics file (ops/diagnostics.py) carries the reports
 and a list of the minidumps (names and sizes; a minidump is the process's memory, which
 can't be masked, so it never goes in). UPLOAD_URL is the hook for sending them once there's
 somewhere to send them to: empty, upload() does nothing.
@@ -39,7 +40,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,7 @@ ELECTRON = "electron"  # app/features/crash-reports.js: Electron's minidumps
 KEEP = 50  # reports kept, the newest
 PER_HOUR = 20  # reports kept in an hour, at most (a loop of failures can't fill the disk)
 REPEAT_SECONDS = 600.0  # the same failure again within this is counted, not kept again
+COUNT_SAVE_SECONDS = 60.0  # a report's repeat count is written at most this often
 TEXT_LIMIT = 4000  # a message
 STACK_LIMIT = 16_000  # a traceback or a stack
 SOURCES = ("backend", "window", "electron")
@@ -93,6 +95,10 @@ class Reporter:
         self._home = redact.home_pattern(home)
         self._lock = threading.Lock()
         self._recent: dict[str, tuple[float, Path]] = {}  # signature -> (when kept, file)
+        # A report's repeats, counted here and written at most every COUNT_SAVE_SECONDS:
+        # file -> [times so far, times written, when last written]. A failure in a tight
+        # loop read and fsynced its file on every repeat.
+        self._counts: dict[Path, list[float]] = {}
         self._kept_at: list[float] = []  # when each report this hour was kept
         self._hooked = False
 
@@ -133,10 +139,13 @@ class Reporter:
             if len(self._kept_at) >= PER_HOUR:
                 return None
             self._kept_at.append(now)
-            stamp = datetime.fromtimestamp(now).strftime("%Y%m%d-%H%M%S")
+            # UTC, as app/features/crash-reports.js names its own: the folder is pruned by
+            # name, oldest first, and local time against UTC pruned the wrong ones.
+            moment = datetime.fromtimestamp(now, UTC)
+            stamp = moment.strftime("%Y%m%d-%H%M%S")
             path = self.folder / f"{stamp}-{source}-{signature[:8]}.json"
             report.update(
-                at=datetime.fromtimestamp(now).isoformat(timespec="seconds"),
+                at=moment.replace(tzinfo=None).isoformat(timespec="seconds"),
                 times=1,
                 versions=self._versions(),
             )
@@ -146,17 +155,40 @@ class Reporter:
                 log.warning("crash reports: couldn't keep one (%s)", exc)
                 return None
             self._recent[signature] = (now, path)
+            self._counts[path] = [1, 1, now]
             if len(self._recent) > 200:
+                self.flush()
                 self._recent.clear()
+                self._counts.clear()
             self._prune()
         self.upload(report)
         return path
 
     def _count_again(self, path: Path) -> None:
+        """One more time for a report: counted here, written now if it hasn't been for
+        COUNT_SAVE_SECONDS (the first repeat at once), else by a later repeat or flush()."""
+        count = self._counts.setdefault(path, [1, 1, 0.0])
+        count[0] += 1
+        if self.clock() - count[2] >= COUNT_SAVE_SECONDS or count[1] <= 1:
+            self._write_count(path, count)
+
+    def _write_count(self, path: Path, count: list[float]) -> None:
+        count[2] = self.clock()
         with contextlib.suppress(OSError, jsonstore.Unreadable, TypeError, AttributeError):
-            data = jsonstore.load_store(path, STORE) or {}
-            data["times"] = int(data.get("times") or 1) + 1
+            data = jsonstore.load_store(path, STORE)
+            if not isinstance(data, dict):  # deleted (by the owner, or pruned): stays gone
+                self._counts.pop(path, None)
+                return
+            data["times"] = max(int(data.get("times") or 1), 1) + int(count[0] - count[1])
             jsonstore.save_store(path, STORE, data, backup=False)
+            count[1] = count[0]
+
+    def flush(self) -> None:
+        """Every repeat counted but not written yet, written (before the diagnostics file
+        reads them, and when the app quits)."""
+        for path, count in list(self._counts.items()):
+            if count[0] != count[1]:
+                self._write_count(path, count)
 
     @staticmethod
     def _versions() -> dict[str, Any]:
@@ -190,6 +222,8 @@ class Reporter:
     def for_diagnostics(self) -> list[tuple[str, str]]:
         """(name in the zip, its text): each report scrubbed again as it goes in (one the app
         wrote, or an older build's), and the list of the app's minidumps, names and sizes."""
+        with self._lock:
+            self.flush()
         out: list[tuple[str, str]] = []
         for path in self.files()[-KEEP:]:
             try:
@@ -283,3 +317,6 @@ def install(hub: Any) -> None:
     hub.register_command("crash_report", reporter.cmd_report)
     hub.register_command("crash_reports_state", reporter.cmd_state)
     hub.register_loop("crash_reports", reporter.watch)
+    add_quit_hook = getattr(hub, "add_quit_hook", None)
+    if add_quit_hook is not None:
+        add_quit_hook(reporter.flush)
