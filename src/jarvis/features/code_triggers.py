@@ -17,23 +17,35 @@ with N files changed and a pull request waiting for the owner's OK; stopped, and
 once the owner opens the pull request, its link. Turning a service on asks first, on a card
 with the whole scope.
 
-The doors: POST /hooks/eden-linear and /hooks/eden-slack on the window's local server
-(hub.register_webhook_route, beside the owner's own webhooks). Linear and Slack can't reach
-127.0.0.1, so the owner runs a tunnel to it (cloudflared, ngrok…) and gives them the
-tunnel's address with the hook's path and token; that's why these doors don't insist on a
-loopback Host as the owner's own hooks do. What they insist on instead: the hook's own
-random token (?token=…, kept in the Keychain), the service's signature on the body (HMAC
-with the signing secret, kept in the Keychain: linear.verify, slack.verify), a fresh
-timestamp, no Origin (a web page), a size cap, a rate limit, a lockout after many wrong
-tokens, and each delivery once. The API key, bot token and signing secrets are pasted in
-Eden Code settings and go straight to the Keychain (the connectors vault); they're never
-written to a file, sent to a window, or logged.
+The doors: POST /hooks/eden-linear and /hooks/eden-slack on a listener of their own
+(hook_listener.py): 127.0.0.1 on a fixed port, code_triggers_port (8766 unless the owner
+says otherwise), that answers those two and a GET /health that says nothing else, and 404s
+everything else. Linear and Slack can't reach 127.0.0.1, so the owner runs a tunnel to it
+(`cloudflared tunnel --url http://127.0.0.1:8766`, or ngrok) and gives them the tunnel's
+address with the hook's path and token; the settings show both. The port stays put across
+launches, so the tunnel does too, and the tunnel carries only these doors: never the
+window's pages, its /f/ links or its WebSocket, as one pointed at the window's own server
+(on a new port every launch) did. The listener runs only while Linear or Slack is turned
+on, and stops when both are off and when the app quits. A port another app has is said in
+the settings and the log, never swapped for another (the tunnel and the pasted addresses
+name it).
+
+The same two routes are still on the window's own server (hub.register_webhook_route,
+beside the owner's own webhooks), for a delivery tried from this Mac; there, as the owner's
+own hooks do, they refuse a request whose Host isn't this machine's (a tunnel pointed at
+that server is turned away and has to point at the listener). Either way the door insists
+on the hook's own random token (?token=…, kept in the Keychain), the service's signature
+on the body (HMAC with the signing secret, kept in the Keychain: linear.verify,
+slack.verify), a fresh timestamp, no Origin (a web page), a size cap, a rate limit, a
+lockout after many wrong tokens, and each delivery once. The API key, bot token and signing
+secrets are pasted in Eden Code settings and go straight to the Keychain (the connectors
+vault); they're never written to a file, sent to a window, or logged.
 
 Window commands: code_triggers {}, code_trigger_secret {service, key, value},
 code_trigger_hook {service} (a new token), code_trigger_set {service, project | channels,
 label?, users, commands, spend_cap, sandbox}, code_trigger_off {service}.
-Events: code_triggers {linear, slack}.
-Settings (prefs.features): code_linear, code_slack.
+Events: code_triggers {linear, slack, listener: {port, on, error}}.
+Settings (prefs.features): code_linear, code_slack, code_triggers_port.
 Hooks: code_unattended's run end (the status posted back), the code_pr event (the link).
 
 Cost policy: each accepted ticket or message starts one run without the owner (the model
@@ -56,13 +68,17 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from .. import code_ai, jsonstore, lang, linear, prefs, slack
+from ..hook_listener import HookListener, came_through
 from ..proactive import Alert
+from ..webhooks import LOOPBACK, _hostname
 from .code_unattended import Scope, end_hooks_of
 
 log = logging.getLogger("jarvis")
 
 PREF_LINEAR = "code_linear"
 PREF_SLACK = "code_slack"
+PREF_PORT = "code_triggers_port"
+PORT = 8766  # the listener's port unless the owner picks another
 SERVICES = ("linear", "slack")
 VAULT = "code-triggers"  # the connectors vault's id for these secrets
 KEYS = {"linear": ("api_key", "secret"), "slack": ("bot_token", "secret")}
@@ -166,6 +182,14 @@ prefs.register_feature_pref(PREF_LINEAR, {}, _linear)
 prefs.register_feature_pref(PREF_SLACK, {}, _slack)
 
 
+def _port(value: Any) -> int | None:
+    ok = type(value) is int and 1024 <= value <= 65535
+    return value if ok else None
+
+
+prefs.register_feature_pref(PREF_PORT, PORT, _port)
+
+
 def _data(text: str, tag: str) -> str:
     """Someone else's words inside <tag>…</tag>: they can't close the tag and go on as the
     app's own words."""
@@ -228,6 +252,8 @@ class Triggers:
         self._told_cap: dict[str, str] = {}
         self.jobs: dict[int, dict[str, Any]] = {}  # task id -> where to post back
         self._loaded = False
+        self.listener = HookListener(tuple(ROUTES.values()), hub.inbound_hook)
+        self._syncing = asyncio.Lock()
 
     # ── plumbing ──
 
@@ -299,7 +325,29 @@ class Triggers:
                 "has": {k: v for k, v in have.items() if k != "hook"},
                 "hook": f"/hooks/{ROUTES[service]}?token={hook}" if hook else "",
             }
+        lis = self.listener
+        state["listener"] = {"port": lis.port or self.port(), "on": lis.running, "error": lis.error}
         self.hub.emit("code_triggers", **state)
+
+    # ── the listener ──
+
+    def port(self) -> int:
+        return _port(self.hub.prefs.feature(PREF_PORT)) or PORT
+
+    async def sync(self, _event: Any = None) -> None:
+        """The listener on while Linear or Slack is on (on the port the settings name), and
+        off when both are off; the settings hear when that changed anything."""
+        async with self._syncing:
+            lis = self.listener
+            want = any(self.config(s) for s in SERVICES)
+            before = (lis.running, lis.port, lis.error)
+            if want:
+                await lis.start(self.port())
+            else:
+                await lis.stop()
+                lis.error = ""
+            if (lis.running, lis.port, lis.error) != before:
+                await self.publish()
 
     # ── settings ──
 
@@ -406,6 +454,7 @@ class Triggers:
             self.hub.set_feature_prefs({PREF_SLACK: {"channels": channels, **common}})
         if not await self.secret(service, "hook"):
             await self.new_hook(service)
+        await self.sync()
         await self.publish()
         return (
             "Linear tickets now start sessions."
@@ -417,6 +466,7 @@ class Triggers:
         if service not in SERVICES:
             return ""
         self.hub.set_feature_prefs({PREF_LINEAR if service == "linear" else PREF_SLACK: {}})
+        await self.sync()
         await self.publish()
         return f"{'Linear' if service == 'linear' else 'Slack'} starts nothing now."
 
@@ -424,12 +474,19 @@ class Triggers:
 
     def route(self, service: str) -> Any:
         async def handle(request: Any) -> tuple[int, dict[str, Any]]:
+            # On the window's own server (not through the listener), only this machine's
+            # own name: a tunnel pointed at that server would carry all of it.
+            if not came_through(request) and (
+                _hostname(request.headers.get("host", "")) not in LOOPBACK
+            ):
+                return 403, {"error": f"point the tunnel at http://127.0.0.1:{self.port()}"}
             return await self.door(service, request)
 
         return handle
 
     async def door(self, service: str, request: Any) -> tuple[int, dict[str, Any]]:
-        """One POST from Linear or Slack (through the owner's tunnel): (status, body)."""
+        """One POST from Linear or Slack (through the owner's tunnel and the listener):
+        (status, body)."""
         headers = request.headers
         if headers.get("origin"):
             return 403, {"error": "webhooks don't take requests from web pages"}
@@ -808,4 +865,7 @@ def install(hub: Any) -> None:
     hub.register_command("code_trigger_set", triggers.cmd_set)
     hub.register_command("code_trigger_off", triggers.cmd_off)
     end_hooks_of(hub).append(triggers.on_run_end)
+    hub.register_loop("code_triggers_listener", triggers.sync)  # (on at start if it was)
+    hub.add_event_sink(("prefs",), triggers.sync)  # (a service or the port changed)
+    hub.add_quit_hook(triggers.listener.close_now)
     hub.add_event_sink(("code_pr",), triggers.on_pr)
