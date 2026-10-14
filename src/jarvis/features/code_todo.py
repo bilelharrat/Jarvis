@@ -431,7 +431,9 @@ class Todo:
 
     async def start(self, card: dict[str, Any], model: str = "", route: Any = None) -> Any:
         """The card's session, started; None when it didn't (todo_error says why). One card
-        starts at a time in a project, so the session that appears is the card's."""
+        starts at a time in a project, and the session taken is the one with the card's own
+        prompt in the card's own project (its folder, or an isolated copy of it): while a
+        routed task_new waits, other sessions start too, anywhere."""
         chosen = model or card.get("model") or ""
         if card.get("cloud"):
             cloud = getattr(self.hub, "code_cloud", None)
@@ -458,7 +460,7 @@ class Todo:
             waited = 0.0
             while waited < START_WAIT:
                 fresh = [tm.tasks[i] for i in sorted(set(tm.tasks) - known)]
-                task = next((t for t in fresh if t.kind == "code"), None)
+                task = next((t for t in fresh if self._is_cards(t, card)), None)
                 if task is not None:
                     break
                 await asyncio.sleep(0.05)
@@ -474,6 +476,33 @@ class Todo:
         with contextlib.suppress(OSError):
             self.board.save()
         return task
+
+    def _is_cards(self, task: Any, card: dict[str, Any]) -> bool:
+        """Whether a new session is the card's: a code session started with its prompt, in
+        its project (the folder itself, or an isolated copy of it once code_isolation has
+        moved the session there). A cloud card's starts with no prompt (code_cloud sends it
+        there once its copy is made) and the card's title."""
+        prompt = card["prompt"].strip()
+        mine = str(task.prompt or "") == prompt or (
+            card.get("cloud")
+            and not task.prompt
+            and task.title == str(card.get("title") or prompt[:80])
+        )
+        if task.kind != "code" or not mine:
+            return False
+        folder = Path(card["folder"])
+        with contextlib.suppress(OSError):
+            if Path(task.cwd).resolve() == folder.resolve():
+                return True
+        slug = (getattr(task, "workspace", None) or {}).get("slug")
+        desk = getattr(self.hub, "code_desk", None)
+        if not slug or desk is None:
+            return False
+        with contextlib.suppress(Exception):
+            copy = desk.store().find(slug)
+            if copy is not None:
+                return (Path(copy.repo) / copy.prefix).resolve() == folder.resolve()
+        return False
 
     # ── the sessions the cards started ──
 

@@ -192,3 +192,41 @@ async def test_a_card_that_runs_again_is_refused_and_a_queue_survives_no_restart
     again = Board(hub.feature_path("code_todo.json"))
     assert again.cards[0]["state"] == "started"  # (a queue doesn't outlive the app)
     await asyncio.sleep(0)
+
+
+async def test_a_started_card_binds_only_its_own_session_not_one_that_started_meanwhile(
+    hub, tmp_path, monkeypatch
+):
+    """Round 1's D3: while a card's task_new waits (the router holds a routed one), other
+    sessions start, in another project and in the card's own; the card must take its own."""
+    seen = events_of(hub)
+    await hub._handle({"type": "todo_add", "directory": "proj", "prompt": "fix the login"})
+    card = last(seen, "todo_state")["cards"][0]
+    real = hub._handle
+
+    async def held(msg):
+        if msg.get("type") == "task_new" and msg.get("prompt") == "fix the login":
+            hub.tasks.start("something else", "other", mode="ask")  # another project's
+            hub.tasks.start("the owner's own", "proj", mode="ask")  # the owner's, same folder
+            await asyncio.sleep(0.2)
+        return await real(msg)
+
+    monkeypatch.setattr(hub, "_handle", held)
+    await hub.code_todo.cmd_start({"id": card["id"]})
+    task = hub.tasks.tasks[hub.code_todo.board.get(card["id"])["task"]]
+    assert task.prompt == "fix the login" and task.cwd == tmp_path / "proj"
+    await end_all(hub)
+
+
+def test_which_new_session_is_a_card_s(hub, tmp_path):
+    from jarvis.tasks import ClaudeTask
+
+    todo = hub.code_todo
+    card = {"prompt": "fix it ", "folder": str(tmp_path / "proj"), "title": "Fix"}
+    here = ClaudeTask(id=1, prompt="fix it", cwd=tmp_path / "proj")
+    assert todo._is_cards(here, card)
+    assert not todo._is_cards(ClaudeTask(id=2, prompt="fix it", cwd=tmp_path / "other"), card)
+    assert not todo._is_cards(ClaudeTask(id=3, prompt="other", cwd=tmp_path / "proj"), card)
+    # A cloud card's session starts with no prompt (it goes to the machine) and its title.
+    cloudy = ClaudeTask(id=4, prompt="", cwd=tmp_path / "proj", title="Fix")
+    assert not todo._is_cards(cloudy, card) and todo._is_cards(cloudy, {**card, "cloud": True})
