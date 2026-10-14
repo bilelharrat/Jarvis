@@ -73,6 +73,7 @@
 
   const F = root.jarvisFeatures;
   if (!F) return;
+  const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
   const { el, t } = F;
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
   const KIND_LABEL = { web: 'Web', mcp: 'MCP', files: 'Files', command: 'Command', tool: 'Tool' };
@@ -348,7 +349,7 @@
       const b = actions.querySelector(`.cr-export[data-target="${armed.target}"]`);
       if (b) { b.classList.add('armed'); b.textContent = t(armed.target === 'local' ? 'Press again to write settings.local.json' : 'Press again to write settings.json (shared with the project)'); }
     }
-    parts.push(actions, el('p', 'jc-dim cr-intro', 'Export adds Eden Secretary’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.'));
+    parts.push(actions, el('p', 'jc-dim cr-intro', own('Export adds Eden Secretary’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.', 'Export adds Eden Code’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.')));
     body.replaceChildren(...parts);
   }
 

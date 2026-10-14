@@ -51,7 +51,8 @@
     "That isn't a path.": "这不是一个路径。",
     "A rule allows, asks or denies.": "规则只能是允许、询问或拒绝。",
     "That's as many rules of that kind as a project can have.": "这个项目的这类规则已经达到上限。",
-    "Permission rules changed; it goes on with them.": "权限规则已更改；会话会按新规则继续。"
+    "Permission rules changed; it goes on with them.": "权限规则已更改；会话会按新规则继续。",
+    "Export adds Eden Code’s rules and its “don’t ask again” commands to the file, keeping everything already there; settings.json is shared with everyone who works on the project.": "导出会把 Eden Code 的规则和“不再询问”的命令加到文件里，保留原有内容；settings.json 会与项目的所有协作者共享。"
   },
   "patterns": [
     [

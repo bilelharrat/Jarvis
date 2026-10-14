@@ -692,9 +692,11 @@ class CodeVoice:
         )
         if poll and not self.helper_told and not (seen.helper and seen.ax):
             self.helper_told = True  # said once: why the title or the selection didn't go
+            # (the app the backend runs in asks for it: Eden Code's own, alone, else Eden
+            # Secretary's; round 3, U3-6)
+            app = "Eden Code" if getattr(self.hub, "profile", "full") == "code" else "Eden Secretary"
             why = (
-                "To send your selected text too, allow Accessibility for J.A.R.V.I.S. in "
-                "System Settings."
+                f"To send your selected text too, allow Accessibility for {app} in System Settings."
                 if seen.helper
                 else "Only a picture went along: the helper that reads the window's title and "
                 "selected text couldn't be built."

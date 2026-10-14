@@ -423,7 +423,7 @@ async def test_a_session_moves_there_asks_here_and_comes_back_ready_to_land(
     card = hub.cards[0]
     assert card["question"] == "Continue this session on studio?"
     assert "Its 1 uncommitted files are committed first" in card["detail"]
-    assert "JARVIS's spending limits can't meter them" in card["detail"]
+    assert "Eden's spending limits can't meter them" in card["detail"]
     assert card["task_id"] == task.id
     rec = desk.of_task(task)
     assert rec.how == "push" and rec.keeper == "nohup" and rec.asks and rec.mode == "default"

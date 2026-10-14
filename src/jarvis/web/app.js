@@ -283,6 +283,12 @@ window.jarvisFeatures = {
   // while it shows (see jcSplit), or null; the window's own pane, whatever has the focus; and
   // what the pane asks of the window it's in (its checks, its folder picker).
   splitPane: inSplitPane,
+  // The app's own name, for a sentence that names it (round 3, U3-6: Eden Code's window said
+  // "Eden Secretary" in a dozen places): Eden Code in Eden Code's own window, else Eden
+  // Secretary. own(secretary, code) picks one of two whole sentences, each with its Chinese,
+  // never a name put into one (the window's translation is by whole sentences).
+  appName: () => (inEdenCode ? 'Eden Code' : 'Eden Secretary'),
+  own: (secretary, code) => (inEdenCode ? code : secretary),
   registerSplit(view) { jcSplit = view || null; renderProjects(deckProjects); },
   selectHere: (id) => selectTask(id, true),
   check: (kind, info) => featureCheck(kind, info),
@@ -4771,7 +4777,8 @@ function renderJcGeneral() {
   const mine = modelList.filter((m) => !m.builtin);
   const claude = el('optgroup');
   claude.label = 'Claude';
-  claude.append(option('', `Same as Eden Secretary (${jarvisModel ? jarvisModel.label : 'default'})`, !codeDefaults.model),
+  const same = jarvisModel ? jarvisModel.label : 'default';
+  claude.append(option('', inEdenCode ? `Eden’s default (${same})` : `Same as Eden Secretary (${same})`, !codeDefaults.model),
     ...modelList.filter((m) => m.builtin).map((m) => option(m.ref, m.label, codeDefaults.model === m.ref)));
   const yours = el('optgroup');
   yours.label = 'Your models';

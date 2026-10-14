@@ -322,7 +322,7 @@ def build_app(grants: Grants, client_factory: Callable[[], Any] | None = None):
         if found is None:
             return refuse(
                 401,
-                "This run's pass for its key isn't good any more (Jarvis restarted, or the key "
+                "This run's pass for its key isn't good any more (Eden restarted, or the key "
                 "was removed). Start the session again.",
             )
         path = request.path_params.get("path", "")
@@ -665,7 +665,7 @@ class Handoffs:
                 env.pop(name, None)
                 send(
                     secret_run.ERR,
-                    f"(Jarvis: no value is saved for ${name} any more; it's empty here.)\n".encode(),
+                    f"(Eden: no value is saved for ${name} any more; it's empty here.)\n".encode(),
                 )
         conn.settimeout(None)
         try:
@@ -679,7 +679,7 @@ class Handoffs:
                 start_new_session=True,  # (its whole group goes, should secret_run go)
             )
         except OSError as exc:
-            send(secret_run.ERR, f"Jarvis couldn't start the command: {exc.strerror}\n".encode())
+            send(secret_run.ERR, f"Eden couldn't start the command: {exc.strerror}\n".encode())
             send(secret_run.EXIT, b"127")
             return
 

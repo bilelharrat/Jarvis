@@ -61,7 +61,10 @@
     "Type the command that starts the server, like npx -y some-mcp-server.": "请输入启动服务器的命令，例如 npx -y some-mcp-server。",
     "settings.local.json can't be read, so nothing was written to it.": "settings.local.json 无法读取，所以没有写入任何内容。",
     "settings.local.json isn't a settings object, so nothing was written to it.": "settings.local.json 不是设置对象，所以没有写入任何内容。",
-    "settings.local.json has server lists of a kind this can't change.": "settings.local.json 里的服务器列表格式无法更改。"
+    "settings.local.json has server lists of a kind this can't change.": "settings.local.json 里的服务器列表格式无法更改。",
+    "From Eden Code or a plugin": "来自 Eden Code 或插件",
+    "Eden’s connectors": "Eden 的连接器",
+    "Eden keeps their sign-in; their read-only tools run without asking, the rest ask as any step does.": "Eden 保管它们的登录；只读工具不询问直接运行，其他工具会像任何步骤一样先询问。"
   },
   "patterns": [
     [

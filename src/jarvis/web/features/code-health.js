@@ -21,6 +21,7 @@
 
   const F = root.jarvisFeatures;
   if (!F) return;
+  const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
   const { el } = F;
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
 
@@ -61,7 +62,7 @@
     const engine = answer.engine || {};
     const eng = el('ul', 'jc-list ch-list');
     const version = engine.version ? mine(el('span', '', engine.version)) : el('span', 'jc-dim', 'Unknown');
-    const where = engine.path ? (engine.bundled ? el('small', 'jc-dim', 'Built into Eden Secretary') : mine(el('small', 'jc-dim ch-path', engine.path))) : el('small', 'ch-bad', 'Not found');
+    const where = engine.path ? (engine.bundled ? el('small', 'jc-dim', own('Built into Eden Secretary', 'Built into Eden Code')) : mine(el('small', 'jc-dim ch-path', engine.path))) : el('small', 'ch-bad', 'Not found');
     eng.append(row('Engine', version, where));
     const signin = answer.signin || {};
     const state = el('span', `ch-state ${signin.state || 'unknown'}`, signin.summary || 'Couldn’t tell');

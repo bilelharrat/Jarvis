@@ -341,12 +341,12 @@ function restartBackend(code, signal) {
   const how = signal ? `was stopped (${signal})` : `stopped (exit ${code})`;
   if (restarts.length >= 3) {
     showProblem(taken
-      ? 'Another Eden Secretary backend is still using your data (a `jarvis serve` in a terminal, or one that hasn’t finished quitting). Quit it, then open Eden Secretary again.'
+      ? `Another Eden backend is still using your data (a \`jarvis serve\` in a terminal, or one that hasn’t finished quitting). Quit it, then open ${FLAVOR.name} again.`
       : `The backend ${how} three times in five minutes. Details are in ${LOG_LABEL}.`, taken ? '' : backendTail.last());
     return;
   }
   restarts.push(now);
-  showProblem(taken ? 'Another Eden Secretary backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
+  showProblem(taken ? 'Another Eden backend is still using your data. Waiting for it to finish…' : `The backend ${how}. Starting it again…`);
   setTimeout(async () => {
     if (quitting || backend) return;
     // The other app's backend has the data folder (both started at once): share it instead.

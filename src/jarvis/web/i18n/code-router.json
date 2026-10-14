@@ -4,7 +4,9 @@
     "A routed message whose model hits a limit or an outage moves to the route’s next pick and carries on.": "经路由的消息如果所用模型达到上限或出现故障，会换到路由的下一个选择继续进行。",
     "Fall back to another company’s model": "可换用其他公司的模型",
     "Off: the fallback stays with the same company, so your code and the conversation go nowhere new. On: it may move to another provider’s model.": "关闭时：备选只在同一家公司内切换，你的代码和对话不会发往新的地方。开启时：可能换到其他提供方的模型。",
-    "Model: Model Router picks one for each message (⌘⇧I)": "模型：Model Router 为每条消息挑选一个（⌘⇧I）"
+    "Model: Model Router picks one for each message (⌘⇧I)": "模型：Model Router 为每条消息挑选一个（⌘⇧I）",
+    "Eden isn’t connected.": "Eden 没有连接。",
+    "Eden didn’t answer.": "Eden 没有回应。"
   },
   "patterns": [
     ["^Model Router isn’t working \\((.+)\\), so messages go to (.+)\\. Choose Model Router again to retry\\. \\(⌘⇧I\\)$", "Model Router 无法工作（$1），所以消息会发给 $2。再次选择 Model Router 即可重试。（⌘⇧I）"]

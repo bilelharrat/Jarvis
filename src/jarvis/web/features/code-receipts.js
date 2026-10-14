@@ -18,6 +18,7 @@
   if (typeof module === 'object' && module.exports) { module.exports = { testsLine }; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
+  const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
   const el = F.el;
   const RISK = { low: 'Low risk', medium: 'Medium risk', high: 'High risk' };
 
@@ -83,7 +84,7 @@
     }
     const qa = el('button', 'rc-qa', F.t('Try it like a user'));
     qa.type = 'button';
-    qa.title = F.t('Eden Secretary has the session use what it built in the browser or Simulator, then report what broke');
+    qa.title = F.t(own('Eden Secretary has the session use what it built in the browser or Simulator, then report what broke', 'Eden Code has the session use what it built in the browser or Simulator, then report what broke'));
     qa.addEventListener('click', () => { const t = F.currentTask(); if (t) F.send({ type: 'code_qa', id: t.id }); qa.disabled = true; });
     li.append(qa);
     if (r.files && r.files.length) {
