@@ -2,7 +2,8 @@
 // working, done, failed, resting), with its project, branch, lines changed, cost, last
 // activity and what it's doing, and a click to open it, stop it or answer what it asks.
 // The Dock's badge says how many sessions need you (app/features/code-sessions.js).
-// Its pure logic is exported for node's tests.
+// Other features add lanes of their own before the sessions' (F.codeBoard.addLane: the
+// to-do column, features/code-todo.js). Its pure logic is exported for node's tests.
 (function codeBoard(root) {
   'use strict';
 
@@ -66,6 +67,17 @@
   board.hidden = true;
   $('cc').querySelector('.jc-main').append(board);
   const B = { figures: {}, showArchived: false, timer: 0, badge: -1 };
+  // Lanes other features put first: { shows() -> what it draws (a change redraws the
+  // board), element() -> its lane, kept by the feature itself (so what's being done in it
+  // outlives a redraw) }.
+  const extraLanes = [];
+  F.codeBoard = {
+    board,
+    isOpen: () => isOpen(),
+    open: () => open(),
+    addLane(lane) { extraLanes.push(lane); drawn = ''; schedule(); },
+    refresh() { drawn = ''; schedule(); },
+  };
   const shared = () => F.codeSessions || { meta: new Map(), unread: new Set() };
   const metaOf = (id) => shared().meta.get(id) || {};
   const asksOf = (id) => [...pendingApprovals.values()].filter((a) => a.task_id === id);
@@ -144,7 +156,7 @@
       const at = figures.updated || meta.updated;
       return [task.id, task.title, task.prompt, task.folder, task.status, task.busy, doing(task, asks[0]), (task.files_changed || []).length, task.cost_usd,
         meta.archived, meta.pinned, meta.group, asks.map((a) => [a.id, a.detail, a.choices]), figures.branch, figures.added, figures.removed, at, ago(at), shared().unread.has(task.id)];
-    })]);
+    }), extraLanes.map((lane) => { try { return lane.shows(); } catch { return null; } })]);
     if (shows === drawn) return;
     drawn = shows;
     const columns = arrange(tasks, metaOf, (id) => asksOf(id).length, B.showArchived);
@@ -176,6 +188,10 @@
     tools.append(x);
     head.append(title, tools);
     const lanes = el('div', 'cs-lanes');
+    for (const lane of extraLanes) {
+      try { lanes.append(lane.element()); } catch (err) { console.error('board lane', err); }
+    }
+    lanes.classList.toggle('cs-lanes-more', lanes.childElementCount > 0);
     for (const [id, label] of COLUMNS) {
       const list = columns[id];
       const lane = el('section', `cs-lane ${id}`);
