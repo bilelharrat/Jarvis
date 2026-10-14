@@ -125,7 +125,9 @@
   "That took too long to answer.": "回答用时太长了。",
   "Couldn't answer that just now.": "暂时无法回答。",
   "No answer came back.": "没有收到回答。",
-  "Back after the restart: it picks up where it left off with your next message.": "重启后已恢复：你发送下一条消息时，它会从上次停下的地方继续。"
+  "Back after the restart: it picks up where it left off with your next message.": "重启后已恢复：你发送下一条消息时，它会从上次停下的地方继续。",
+  "Not sent: Eden Code isn’t connected. Try again in a moment.": "没有发送：Eden Code 未连接。请稍后再试。",
+  "Eden Code didn’t answer. Try again.": "Eden Code 没有回应。请再试一次。"
  },
  "patterns": [
   [

@@ -109,13 +109,33 @@
     return String(text || '').split(origin).join('');
   }
 
-  const api = { serverState, shortUrl, isLocal, mergeLines, mentionFor, countProblems, byFile, runLine, jpegSrc, checkHead, withoutOrigin };
+  // What the Preview pane says instead of its servers: waiting for the backend's answer,
+  // or why it couldn't read the project (a cv_state with an error), with a way to ask again.
+  function stateNotice(info) {
+    if (!info) return { text: 'Looking at the project…', retry: false };
+    if (info.error) return { text: String(info.error), retry: true };
+    return null;
+  }
+
+  // A status mark's words for a screen reader (the mark itself is a glyph: ✓ ✕ – ● ▲).
+  function markWord(status) {
+    return { passed: 'Passed', failed: 'Failed', running: 'Running', error: 'Error', warning: 'Warning' }[status] || 'Skipped';
+  }
+
+  const api = { stateNotice, markWord, serverState, shortUrl, isLocal, mergeLines, mentionFor, countProblems, byFile, runLine, jpegSrc, checkHead, withoutOrigin };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, t } = F;
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
+  // A status glyph read as its word ("Passed", not "check mark").
+  function mark(cls, status, glyph) {
+    const span = el('span', cls, glyph);
+    span.setAttribute('role', 'img');
+    span.setAttribute('aria-label', t(markWord(status)));
+    return span;
+  }
 
   const state = {
     info: null,  // the latest cv_state: this project's configs, suggestions, problems
@@ -336,8 +356,8 @@
         pic.addEventListener('click', () => openProof(last.proof, last.thumb));
         row.append(pic);
       }
-      const mark = last.status === 'ok' ? 'passed' : last.status === 'problems' ? 'failed' : 'skipped';
-      row.append(el('span', `cv-mark ${mark}`, mark === 'passed' ? '✓' : mark === 'failed' ? '✕' : '–'), el('span', 'cv-last', last.text));
+      const status = last.status === 'ok' ? 'passed' : last.status === 'problems' ? 'failed' : 'skipped';
+      row.append(mark(`cv-mark ${status}`, status, status === 'passed' ? '✓' : status === 'failed' ? '✕' : '–'), el('span', 'cv-last', last.text));
     }
     box.append(row);
     return box;
@@ -346,7 +366,21 @@
   function renderPreview(body = F.$('jc-pane-body')) {
     if (!paneShown('cv-preview') || !body) return;
     const info = state.info;
-    if (!info) { body.replaceChildren(el('p', 'jc-empty', 'Looking at the project…')); return; }
+    const notice = stateNotice(info);
+    if (notice) {
+      const p = el('p', notice.retry ? 'jc-empty cv-error' : 'jc-empty', notice.text);
+      if (notice.retry) p.setAttribute('role', 'alert');
+      const parts = [p];
+      if (notice.retry) {
+        parts.push(button('Try again', 'jc-btn small', () => {
+          state.info = null;
+          renderPreview();
+          F.send({ type: 'cv_state', ...where() });
+        }));
+      }
+      body.replaceChildren(...parts);
+      return;
+    }
     const parts = [];
     if (info.session && info.id) parts.push(sessionPart(info));
     const ours = state.servers.filter((s) => s.project === info.path);
@@ -457,8 +491,8 @@
     const body = el('div', 'cv-check-body');
     const [what, how] = checkHead(e);
     const head = el('div', 'cv-check-head');
-    const mark = e.status === 'ok' ? 'passed' : e.status === 'problems' ? 'failed' : 'skipped';
-    head.append(el('span', `cv-mark ${mark}`, mark === 'passed' ? '✓' : mark === 'failed' ? '✕' : '–'), el('strong', '', what), el('span', 'cv-chip', how));
+    const status = e.status === 'ok' ? 'passed' : e.status === 'problems' ? 'failed' : 'skipped';
+    head.append(mark(`cv-mark ${status}`, status, status === 'passed' ? '✓' : status === 'failed' ? '✕' : '–'), el('strong', '', what), el('span', 'cv-chip', how));
     body.append(head);
     const where = [e.url ? shortUrl(e.url) : '', e.title || ''].filter(Boolean).join(' · ');
     if (where) body.append(mine(el('small', 'cv-check-where', where)));
@@ -500,17 +534,22 @@
 
   // A check's picture, larger: the thumbnail at once, the full one when it comes.
   let lightbox = null;
+  let proofOpener = null;  // what had the focus when the picture opened: it gets it back
   function closeProof() {
     if (!lightbox) return;
     lightbox.remove();
     lightbox = null;
     document.removeEventListener('keydown', escProof, true);
+    const back = proofOpener;
+    proofOpener = null;
+    if (back && back.isConnected && typeof back.focus === 'function') back.focus();
   }
   function escProof(ev) {
     if (ev.key === 'Escape') { ev.stopPropagation(); ev.preventDefault(); closeProof(); }
   }
   function openProof(proof, thumb) {
     closeProof();
+    proofOpener = document.activeElement;
     lightbox = el('div', 'cv-lightbox');
     lightbox.setAttribute('role', 'dialog');
     lightbox.setAttribute('aria-modal', 'true');
@@ -607,7 +646,7 @@
   function caseRow(c) {
     const li = el('li', `cv-case ${c.status}`);
     const head = el('div', 'cv-case-head');
-    head.append(el('span', `cv-mark ${c.status}`, c.status === 'failed' ? '✕' : c.status === 'passed' ? '✓' : '–'),
+    head.append(mark(`cv-mark ${c.status}`, c.status, c.status === 'failed' ? '✕' : c.status === 'passed' ? '✓' : '–'),
       mine(el('span', 'cv-case-name', c.name)));
     if (c.line) head.append(el('small', 'jc-dim', `line ${c.line}`));
     head.append(el('span', 'jc-spacer'));
@@ -629,7 +668,7 @@
       det.addEventListener('toggle', () => { if (det.open) tests.openFiles.add(f.file); else tests.openFiles.delete(f.file); });
       const sum = el('summary');
       const counts = [f.failed ? `${f.failed} failed` : '', f.passed ? `${f.passed} passed` : '', f.skipped ? `${f.skipped} skipped` : ''].filter(Boolean);
-      sum.append(el('span', `cv-mark ${f.failed ? 'failed' : 'passed'}`, f.failed ? '✕' : '✓'), mine(el('span', 'cv-file-name', f.file)),
+      sum.append(mark(`cv-mark ${f.failed ? 'failed' : 'passed'}`, f.failed ? 'failed' : 'passed', f.failed ? '✕' : '✓'), mine(el('span', 'cv-file-name', f.file)),
         el('span', 'jc-spacer'), pieces('jc-dim cv-counts', counts));
       det.append(sum);
       const ul = el('ul', 'cv-cases');
@@ -669,6 +708,7 @@
     det.append(el('summary', 'jc-label', 'Run one file'));
     const filter = el('input', 'jc-field cv-filter');
     filter.placeholder = t('Filter test files…');
+    filter.setAttribute('aria-label', t('Filter test files…'));
     filter.value = tests.filter;
     const list = el('ul', 'jc-files-list');
     const draw = () => {
@@ -736,8 +776,8 @@
     }
     if (run) {
       const line = el('div', `cv-runline ${run.status}`);
-      line.append(el('span', `cv-mark ${run.status === 'passed' ? 'passed' : run.status === 'running' ? 'running' : 'failed'}`,
-        run.status === 'passed' ? '✓' : run.status === 'running' ? '' : '✕'), pieces('', runLine(run)));
+      const runStatus = run.status === 'passed' ? 'passed' : run.status === 'running' ? 'running' : 'failed';
+      line.append(mark(`cv-mark ${runStatus}`, runStatus, runStatus === 'passed' ? '✓' : runStatus === 'running' ? '' : '✕'), pieces('', runLine(run)));
       if (run.target && (run.target.file || run.target.test)) line.append(mine(el('small', 'jc-dim', run.target.test || run.target.file)));
       line.append(el('span', 'jc-spacer'));
       const failed = run.counts && run.counts.failed;
@@ -818,7 +858,7 @@
     b.type = 'button';
     b.title = t('Mention this line in the message');
     const where = `${p.line || ''}${p.col ? `:${p.col}` : ''}`;
-    b.append(el('span', `cv-sev ${p.severity}`, p.severity === 'error' ? '●' : '▲'), el('span', 'cv-where', where),
+    b.append(mark(`cv-sev ${p.severity}`, p.severity === 'error' ? 'error' : 'warning', p.severity === 'error' ? '●' : '▲'), el('span', 'cv-where', where),
       mine(el('span', 'cv-msg', p.message)), mine(el('small', 'jc-dim', [p.code, p.source].filter(Boolean).join(' · '))));
     b.addEventListener('click', () => insertMention(p));
     li.append(b);
@@ -872,7 +912,8 @@
       const text = running ? ['Checking…'] : check.problems.length
         ? [`${counts.errors} error${counts.errors === 1 ? '' : 's'}`, `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`]
         : ['No problems'];
-      line.append(el('span', `cv-mark ${running ? 'running' : counts.errors ? 'failed' : 'passed'}`, running ? '' : counts.errors ? '✕' : '✓'), pieces('', text), el('span', 'jc-spacer'));
+      const lineStatus = running ? 'running' : counts.errors ? 'failed' : 'passed';
+      line.append(mark(`cv-mark ${lineStatus}`, lineStatus, running ? '' : counts.errors ? '✕' : '✓'), pieces('', text), el('span', 'jc-spacer'));
       if (!running && check.problems.length && F.currentTask()) line.append(button('Fix these', 'jc-btn small tinted', () => send({ type: 'cv_problems', action: 'fix' }, info)));
       parts.push(line);
       for (const c of check.checkers || []) {

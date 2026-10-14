@@ -30,7 +30,9 @@
     "This folder isn’t a git repository.": "这个文件夹不是 git 仓库。",
     "This session’s isolated copy: its branch, not the main folder’s.": "这是这个会话的独立副本：它自己的分支，不是主文件夹的。",
     "A merge is under way: resolve its conflicts, stage them, then commit to finish it.": "有一次合并正在进行：解决冲突、暂存，然后提交来完成它。",
-    "Staged": "已暂存"
+    "Staged": "已暂存",
+    "That session isn't open anymore.": "那个会话已经不再打开。",
+    "That project folder isn't there, or isn't in your projects folder.": "那个项目文件夹不存在，或者不在你的项目文件夹里。"
   },
   "patterns": [
     ["^Staged \\((\\d+)\\)$", "已暂存（$1）"],

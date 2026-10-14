@@ -1,0 +1,12 @@
+{
+  "strings": {
+    "Eden Code stopped with an error.": "Eden Code 出错停止了。",
+    "Eden Code finished.": "Eden Code 完成了。"
+  },
+  "patterns": [
+    ["^Eden Code finished: (\\d+) files? changed\\.$", "Eden Code 完成了：$1 个文件有改动。"],
+    ["^Eden Code \\((.+)\\) finished: (\\d+) files? changed\\.$", "Eden Code（$1）完成了：$2 个文件有改动。"],
+    ["^Eden Code \\((.+)\\) finished\\.$", "Eden Code（$1）完成了。"],
+    ["^Eden Code \\((.+)\\) stopped with an error\\.$", "Eden Code（$1）出错停止了。"]
+  ]
+}

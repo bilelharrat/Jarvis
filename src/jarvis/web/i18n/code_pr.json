@@ -58,6 +58,7 @@
     "Write a draft": "写草稿",
     "Claude (Haiku) drafts the title and description from the branch’s diff and the session’s summary": "Claude（Haiku）根据分支的改动和会话的总结起草标题和说明",
     "Title": "标题",
+    "Pull request title": "拉取请求标题",
     "Description (Markdown)": "说明（Markdown）",
     "Base branch": "目标分支",
     "Into": "合并到",

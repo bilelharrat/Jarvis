@@ -294,12 +294,13 @@ function resultFor(body, rated) {
   };
 }
 
-function windowWith({ features = {}, task = { id: 7, model: 'claude-opus-5-5', effort: 'high', folder: 'proj', busy: false } } = {}) {
+function windowWith({ features = {}, task = { id: 7, model: 'claude-opus-5-5', effort: 'high', folder: 'proj', busy: false }, loads = true } = {}) {
   const sent = [];
   const handlers = {};
   const reg = {};
   const bodies = [];
   const created = [];
+  const els = {};  // (the window's elements the feature sets, by id)
   const lib = {
     MODELS: [{ id: 'gpt-6-luna', pricing: { inputPer1M: 0.1, outputPer1M: 0.5 } }],
     createLocalRouter(opts) {
@@ -314,7 +315,7 @@ function windowWith({ features = {}, task = { id: 7, model: 'claude-opus-5-5', e
   };
   const chip = { hidden: true, applied: [], setAttribute() {}, addEventListener() {}, refresh() {}, applySettings(s) { this.applied.push(s); }, pending: () => null };
   const F = {
-    $: (id) => ({ id, after() {}, hidden: false, textContent: '', title: '' }),
+    $: (id) => (els[id] ||= { id, after() {}, hidden: false, textContent: '', title: '' }),
     send: (m) => { sent.push(m); return true; },
     on: (type, fn) => { (handlers[type] ||= []).push(fn); },
     t: (x) => x,
@@ -326,7 +327,7 @@ function windowWith({ features = {}, task = { id: 7, model: 'claude-opus-5-5', e
   };
   const window = { jarvisFeatures: F, crypto: globalThis.crypto };
   const document = {
-    head: { append: (s) => { window.ModelRouterLib = lib; queueMicrotask(() => s.onload()); } },
+    head: { append: (s) => { if (!loads) { queueMicrotask(() => s.onerror()); return; } window.ModelRouterLib = lib; queueMicrotask(() => s.onload()); } },
     createElement: (tag) => (tag === 'script' ? {} : chip),
   };
   const customElements = { get: () => class { static adapter = null; } };
@@ -340,10 +341,10 @@ function windowWith({ features = {}, task = { id: 7, model: 'claude-opus-5-5', e
   let Chip = null;
   customElements.get = () => (Chip ||= class { static adapter = null; });
   new Function('window', 'document', 'customElements', 'modelList', 'prefs', 'jcNote', 'renderComposer', 'ICON_PATHS', SOURCE)(
-    window, document, customElements, modelList, prefs, () => {}, () => reg.render && reg.render({ t: task }), {},
+    window, document, customElements, modelList, prefs, () => {}, () => reg.render && reg.render({ t: task, label: 'Opus 5.5' }), {},
   );
-  const ready = async () => { reg.render({ t: task }); for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
-  return { sent, fire, reg, bodies, created, chip, ready, adapter: () => Chip.adapter, task };
+  const ready = async () => { reg.render({ t: task, label: 'Opus 5.5' }); for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+  return { sent, fire, reg, bodies, created, chip, ready, adapter: () => Chip.adapter, task, els };
 }
 
 test('a message carries its route, what the log keeps of it, and its next picks; it waits for Gemini', async () => {
@@ -464,4 +465,27 @@ test('the window asks whether Claude can answer, and routes without it while it 
   w.fire('model_router_claude', { down: false, until: 0 });
   w.reg.send(w.task, 'refactor the scheduler to use a pairing heap');
   assert.ok(w.created.at(-1).models.includes('claude-opus-5-5'));
+});
+
+test('the model button says what messages really go to: Model Router, or the session’s model and why', async () => {
+  assert.equal(R.composerLook(false, '', 'Opus 5.5'), null);
+  assert.deepEqual({ ...R.composerLook(true, '', 'Opus 5.5'), title: undefined }, { label: 'Model Router', broken: false, effortHidden: true, title: undefined });
+  const broken = R.composerLook(true, 'it knows none of your models yet', 'Opus 5.5');
+  assert.equal(broken.label, 'Opus 5.5');
+  assert.equal(broken.broken, true);
+  assert.equal(broken.effortHidden, false);  // (the session's own effort goes)
+  assert.match(broken.title, /isn’t working \(it knows none of your models yet\), so messages go to Opus 5\.5/);
+
+  // In a stand-in window: the bundle loads, the button says Model Router…
+  const ok = windowWith();
+  await ok.ready();
+  assert.equal(ok.els['jc-model-label'].textContent, 'Model Router');
+  assert.equal(ok.els['jc-effort'].hidden, true);
+  // …it doesn't: the session's model, the effort shown, and why in the title.
+  const bad = windowWith({ loads: false });
+  await bad.ready();
+  assert.equal(bad.els['jc-model-label'].textContent, 'Opus 5.5');
+  assert.equal(bad.els['jc-effort'].hidden, false);
+  assert.match(bad.els['jc-model'].title, /Model Router isn’t working \(Model Router isn’t installed/);
+  assert.deepEqual(bad.reg.send(bad.task, 'refactor the scheduler to use a heap'), {});  // (unrouted, as it says)
 });

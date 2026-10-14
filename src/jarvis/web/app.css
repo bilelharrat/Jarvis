@@ -167,6 +167,11 @@ body[data-state="speaking"] .orb-core { animation: speak 0.9s ease-in-out infini
   position: fixed; right: 40px; top: 96px; width: 340px; z-index: 60; /* above every panel: answers can't hide */
   display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 180px); overflow-y: auto;
 }
+/* The stack itself never takes a click (empty, or between its cards): only its cards do. It
+   stays in the page while empty (not display:none) so it remains a live region a screen
+   reader already knows, and the first card is read out. */
+.cards { pointer-events: none; }
+.cards > * { pointer-events: auto; }
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: 16px;
   padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
@@ -1016,8 +1021,6 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-note, .jc-turn { font-size: 12px; color: rgb(var(--c-muted)); }
 .jc-note { display: flex; gap: 6px; }
 .jc-note > span:last-child { white-space: pre-line; }  /* /agents, /hooks: a line each */
-.jc-diff-file .jc-revert { margin-left: 8px; }
-.jc-revert.armed { color: rgb(var(--c-danger)); }
 .jc-turn { align-self: center; font-variant-numeric: tabular-nums; }
 /* an approval, as a sheet in the flow */
 .jc-ask { background: rgb(var(--c-raised)); border-radius: 16px; box-shadow: var(--shadow-sheet), inset 0 0 0 1px rgb(var(--c-accent) / 0.35); padding: 14px 16px; }
@@ -1051,9 +1054,6 @@ body.in-app .jc-toolbar { padding-top: 36px; }
 .jc-viewer .jc-code { max-height: none; background: rgb(var(--c-surface)); border-radius: 11px; box-shadow: var(--shadow-card); counter-reset: line; }
 .jc-viewer .ln { display: block; }
 .jc-viewer .ln::before { counter-increment: line; content: counter(line); display: inline-block; width: 3.2em; margin-right: 12px; text-align: right; color: rgb(var(--c-subtle)); }
-.jc-diff-file { margin-bottom: 10px; }
-.jc-diff-file summary { display: flex; gap: 8px; align-items: center; cursor: pointer; list-style: none; padding: 8px 12px; font: 12.5px var(--mono); }
-.jc-diff-file summary::-webkit-details-marker { display: none; }
 .jc-plus { color: rgb(var(--c-success-ink)); }
 .jc-minus { color: rgb(var(--c-danger-ink)); }
 .jc-sim { display: flex; flex-direction: column; align-items: center; gap: 10px; }
@@ -1993,6 +1993,13 @@ body:has(> #cc:not([hidden])) #orb { visibility: hidden; }
 .jc-menu, .jc-effort-pop {
   -webkit-backdrop-filter: blur(40px) saturate(200%); backdrop-filter: blur(40px) saturate(200%);
 }
+/* In a browser tab (not the app) the menus' half-clear fill let what's under them show through
+   their text (the Preview pane's More menu); there they're all but opaque. Unverified in the
+   real app: see docs/eden-code-production-plan.md, U5. */
+html:not([data-contrast]) body:not(.in-app) .jc-menu { background: rgb(250 250 252 / 0.94); }
+@media (prefers-color-scheme: dark) {
+  html:not([data-contrast]) body:not(.in-app) .jc-menu { background: rgb(44 44 50 / 0.94); }
+}
 
 /* the sidebar runs the window's full height; its title shares a line with the window buttons */
 .jc-side { top: 8px; left: 8px; bottom: 8px; }
@@ -2041,6 +2048,10 @@ body.in-app .deck.jc.side-hidden .jc-toolbar { padding-left: 84px; }
   transition: transform 160ms var(--ease-spring);
 }
 .jc-slider #ep-range:active::-webkit-slider-thumb, .jc-slider #jcs-effort:active::-webkit-slider-thumb { transform: scale(0.94); }
+/* A visible focus ring for the keyboard (the thumb rule above replaced the focus glow): on
+   the thumb, and round the whole slider, in the accent colour. */
+.jc-slider #ep-range:focus-visible::-webkit-slider-thumb, .jc-slider #jcs-effort:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px rgb(var(--c-accent)), 0 0 0 5px rgb(var(--c-glow) / 0.4), 0 2px 8px rgb(0 0 0 / 0.28); }
+.jc-slider:has(> input:focus-visible) { outline: 2px solid rgb(var(--c-accent) / 0.8); outline-offset: 2px; }
 .jc-slider + .ep-ticks { margin: 8px 14px 0; }
 .jcs-effort .jc-slider { flex: 1; min-width: 180px; }
 

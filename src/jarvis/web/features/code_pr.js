@@ -241,6 +241,7 @@
     const box = el('form', 'jcx-pr-form');
     const title = el('input', 'jc-field');
     title.placeholder = t('Title');
+    title.setAttribute('aria-label', t('Pull request title'));
     title.value = form.title;
     title.maxLength = 256;
     title.dataset.noI18n = '';
@@ -248,6 +249,7 @@
     const text = el('textarea', 'jc-field');
     text.rows = 8;
     text.placeholder = t('Description (Markdown)');
+    text.setAttribute('aria-label', text.placeholder);
     text.value = form.body;
     text.dataset.noI18n = '';
     text.addEventListener('input', () => { form.body = text.value; });

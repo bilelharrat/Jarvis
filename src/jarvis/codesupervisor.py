@@ -630,7 +630,11 @@ TEST_COMMAND = re.compile(
     r"|node --test|vitest|jest|mocha|playwright test|go test|cargo test|swift test|deno test"
     r"|xcodebuild\b[^\n]*\btest\b|rspec|phpunit|mvn test|gradlew? test|make test|tox\b|ctest)"
 )
-_COUNTS = re.compile(r"\b(\d+) (passed|failed|pass|fail|failing|passing)\b", re.IGNORECASE)
+# "N errors" counts as failing too: pytest says "1 failed, 2 errors" when a fixture or an
+# import breaks, and a run that only errored ("3 errors in 0.4s") passed nothing.
+_COUNTS = re.compile(
+    r"\b(\d+) (passed|failed|pass|fail|failing|passing|errors?)\b", re.IGNORECASE
+)
 TURNS_KEPT = 30  # per session
 TESTS_KEPT = 50  # test commands awaiting their result, per session
 # What outlasts a restart (Journal.snapshot): by Claude Code session id, since a session
@@ -662,14 +666,21 @@ class Turn:
 
 
 def test_counts(output: str) -> tuple[int, int]:
-    """(passed, failed) as a test run's last lines say them, 0 when they don't."""
-    passed = failed = 0
+    """(passed, failed) as a test run's last lines say them, 0 when they don't. Errors
+    are failures ("1 failed, 2 errors" is 3 failed). Only the last 2000 characters are
+    read, where every runner prints its summary: the step's kept output keeps its head
+    and its tail (tasks.kept_output), so a long run's summary is still there. (0, 0)
+    means the output didn't say, which the proof shows as "ran", never "passed (0)"."""
+    passed = failed = errors = 0
     for number, word in _COUNTS.findall((output or "")[-2000:]):
-        if word.lower().startswith("pass"):
+        word = word.lower()
+        if word.startswith("pass"):
             passed = int(number)
+        elif word.startswith("error"):
+            errors = int(number)
         else:
             failed = int(number)
-    return passed, failed
+    return passed, failed + errors
 
 
 class Journal:

@@ -303,11 +303,27 @@
     return out;
   }
 
+  // How the composer's model button looks with Model Router chosen. When it can't route
+  // (its bundle didn't load, its picker is missing, it knows none of the models) messages
+  // go to the session's own model, so the button says that model, not "Model Router", and
+  // why in its title; the effort control stays, since it's the session's effort that goes.
+  // null: Model Router isn't chosen (app.js's own look stands).
+  function composerLook(on, problem, label) {
+    if (!on) return null;
+    if (problem) {
+      return {
+        label, broken: true, effortHidden: false,
+        title: `Model: ${label}. Model Router isn’t working (${problem}), so messages go to ${label}. Choose Model Router again to retry. (⌘⇧I)`,
+      };
+    }
+    return { label: 'Model Router', broken: false, effortHidden: true, title: 'Model: Model Router picks one for each message (⌘⇧I)' };
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       routable, effortsFor, routeFor, fallbacksFor, withoutClaude, fallbackSwitches, FALLBACK, CROSS, takesEffort, geminiFlash, cleanSettings, sameSettings, sameAll,
       sameText, isTrivial, isRated, needsRating, ratedRoute, pauseAfter, newToken, errorText, within, extrasFor,
-      budgetBoost, budgetNote, learnedOverrides, learnedStamp, effectiveSettings, infoOf, pricesOf,
+      budgetBoost, budgetNote, learnedOverrides, learnedStamp, effectiveSettings, infoOf, pricesOf, composerLook,
       CLAUDE_EFFORTS, RELAY_EFFORTS, DEFAULT_SETTINGS, ROUTE_WAIT_MS, AGENTIC_DEFAULT,
     };
     return;
@@ -650,15 +666,29 @@
     return chip;
   }
 
+  // Why Model Router can't route now ('' while it can, or while its bundle is still loading).
+  function problem() {
+    if (libError) return libError.message.replace(/\.$/, '');
+    if (!lib) return '';
+    if (!customElements.get('model-router-chip')) return 'its picker didn’t load';
+    try {
+      if (!currentRouter().ids.length) return 'it knows none of your models yet: add some in Settings › Models';
+    } catch (err) {
+      return (err && err.message) || 'it couldn’t start';
+    }
+    return '';
+  }
+
   F.registerComposerRender((s) => {
     const on = isOn();
-    F.$('jc-effort').hidden = on;
-    if (on) {
-      F.$('jc-model-label').textContent = 'Model Router';
-      F.$('jc-model').title = 'Model: Model Router picks one for each message (⌘⇧I)';
-    }
-    if (!on) { if (chip) chip.hidden = true; return; }
-    if (!lib) { if (!libError) loadLib().then(() => renderComposer()).catch(() => {}); return; }
+    const look = composerLook(on, on ? problem() : '', s.label);
+    if (!look) { if (chip) chip.hidden = true; return; }
+    F.$('jc-effort').hidden = look.effortHidden;
+    F.$('jc-model-label').textContent = look.label;
+    F.$('jc-model').title = look.title;
+    if (look.broken) { if (chip) chip.hidden = true; return; }
+    // (drawn again once the bundle loads, or fails: then it says the session's model)
+    if (!lib) { loadLib().then(() => renderComposer(), () => renderComposer()); return; }
     if (!ensureChip()) return;
     chip.hidden = false;
     const id = s.t ? s.t.id : null;

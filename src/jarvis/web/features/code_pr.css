@@ -51,7 +51,7 @@
 .jcx-pr-form textarea { resize: vertical; min-height: 120px; font: 12.5px/1.45 var(--mono); }
 .jcx-pr-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12.5px; }
 .jcx-pr-base { display: flex; align-items: center; gap: 6px; }
-.jcx-pr-base .jcs-select { font: 12px var(--mono); }
+.jcx-pr-base .jcs-select { font: 12px var(--mono); max-width: min(260px, 50vw); }  /* (60% of a label as wide as itself cut "Into main" to "mai…") */
 .jcx-pr-check-box { display: flex; align-items: center; gap: 5px; }
 .jcx-pr-facts-line { margin: 0 2px; font-size: 12px; }
 .jcx-pr-connect { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 12px; background: rgb(var(--c-surface) / 0.7); box-shadow: var(--shadow-card); font-size: 13px; }

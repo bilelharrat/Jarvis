@@ -629,18 +629,6 @@ test('/agents, /hooks and /todos go to the hub, not to Claude as text', async ()
   assert(r.join('|') === 'code_command /agents|code_command /hooks|code_command /todos', r.join('|'));
 });
 
-test('Revert in Changes asks for a second click, and new files have none', async () => {
-  await open(1, 'openPane("diff"); onEvent({ type: "task_diff", id: 1, files: [{ path: "a.py", added: 1, removed: 1, new: false, deleted: false, hunks: [] }, { path: "new.py", added: 3, removed: 0, new: true, deleted: false, hunks: [] }] })');
-  const buttons = await js('[...document.querySelectorAll("#jc-pane-body .jc-revert")].map((b) => b.closest("details").querySelector("summary span").textContent)');
-  assert(buttons.join() === 'a.py', `revert buttons on ${buttons}`);
-  const wasOpen = await js('document.querySelector("#jc-pane-body .jc-revert").closest("details").open');
-  await clickAt('#jc-pane-body .jc-revert');
-  assert(!(await sent()).includes('task_revert'), 'one click reverted');
-  await clickAt('#jc-pane-body .jc-revert');
-  const r = await js('({ sent: __sent.filter((m) => m.type === "task_revert").map((m) => m.path), open: document.querySelector("#jc-pane-body .jc-revert").closest("details").open })');
-  assert(r.sent.join() === 'a.py' && r.open === wasOpen, JSON.stringify(r));
-});
-
 test('Slash commands before there is a session: a mode starts one in it, the rest open or start', async () => {
   await js('deckProjects = [{ name: "alpha", branch: "main" }]; deckProject = "alpha"; openProjects.add("alpha"); onEvent({ type: "tasks", items: [] }); toggleCC(true); ccSelected = null; __sent.length = 0');
   await sleep(80);
