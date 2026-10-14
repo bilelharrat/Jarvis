@@ -80,11 +80,15 @@ async def test_sessions_take_the_provider_model_and_can_go_back(
     assert task.model == "openai/gpt-5" and task.model_ref == ref
     # The key is nowhere a shell command could read it: the helper prints a pass, which the
     # key proxy spends on the way to OpenRouter.
-    settings_json = json.loads(task.provider_settings)
+    # The pass made when the model was named is never spent (REL-18): the connection makes
+    # its own, fresh from the store, and that's the one that works.
+    named = shlex.split(json.loads(task.provider_settings)["apiKeyHelper"])[-1]
+    assert not key_proxy.GRANTS.alive(named)
+    options = hub.tasks.options_for(task)
+    settings_json = json.loads(options.settings)
     assert settings_json["env"]["ANTHROPIC_BASE_URL"] == key_proxy.PROXY.address
     token = shlex.split(settings_json["apiKeyHelper"])[-1]
     assert key_proxy.GRANTS.target(token, key_proxy.DIRECT) == ("https://openrouter.ai/api", KEY)
-    options = hub.tasks.options_for(task)
     assert KEY not in json.dumps(dict(options.env)) and KEY not in (options.settings or "")
     assert KEY not in json.dumps(task.public()) and "OpenRouter" in task.public()["model_label"]
     await hub._handle({"type": "task_model", "id": task.id, "ref": "sonnet"})
