@@ -60,6 +60,14 @@ Each feature is a plug-in (`src/jarvis/features/code_*.py`, its window side in
 - **Best of N** (`code_bestof`): one request run by two or three sessions at once, each on
   its own model and copy, then the results side by side with your quick tests and Claude's
   short judgment; "Keep this one" lands it.
+- **Exterminator Mode** (`code_bugfix`; it was called Bug Fix Mode): one switch in the
+  composer runs your bug protocol on any project, in an isolated copy after one card: 3
+  rounds of sweep (read-only audit agents in parallel), break (the suite, hostile inputs,
+  the dev server, in the no-network sandbox) and fix (each with a test that fails first),
+  an efficiency pass between rounds that loses no feature, then reports in
+  `docs/bug-sweep/`, a receipt and the ship step. A spending ceiling ($10 by default) caps
+  the run, and landing its fixes asks for Touch ID. "Eden, exterminator mode on <project>"
+  starts it by voice.
 - **Pull requests** (`code_pr`): drafted title and description, pushed behind the Git
   panel's card (with a secret scan), then CI watched; failing checks can be sent back to the
   session to fix (at most 3 times by itself per pull request), and merge-when-green.
