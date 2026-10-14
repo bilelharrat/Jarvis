@@ -1093,6 +1093,11 @@ class BugFix:
             # fork's is: that total is where this session starts, none of it its own.
             task.cost_unknown = False
             task.cost_usd = task.cost_inherited = task.last_total = float(before)
+        elif resume and run.spent > 0:
+            # A run an older build saved, with no session_cost: the first report's total is
+            # spend from before the resume, in run.spent already, so it's where this session
+            # starts (REL3-14: it was counted again, and the run stopped early).
+            task.cost_unknown = task.inherit_first = True
         elif not resume:
             run.session_cost = 0.0  # (a new conversation: Claude Code's total starts at 0)
         run.task_id, run.counted = task.id, 0.0  # (a new session: none of its spend counted)

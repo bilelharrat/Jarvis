@@ -1257,6 +1257,30 @@ async def test_a_resumed_runs_earlier_spend_is_not_counted_twice(hub, projects, 
     desk.active.pop(2, None)
 
 
+async def test_a_run_from_an_older_build_resumes_without_counting_its_spend_again(
+    hub, projects, monkeypatch
+):
+    """REL3-14: a run saved by a build from before session_cost has it 0, so the resumed
+    session's first report (the conversation's total, $3 counted already) was its own: the
+    run counted $6.40 for $3.40 and stopped early. It's where the session starts now."""
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    run = BugRun("r1", "calc", spend_cap=5.0, session_id="sess-1", spent=3.0)
+    assert run.session_cost == 0.0  # (the older build's file had none)
+    resumed = ClaudeTask(id=3, prompt="", cwd=projects, cost_unknown=True)
+    monkeypatch.setattr(hub.tasks, "start", lambda *a, **k: resumed)
+    monkeypatch.setattr(desk, "save", lambda: None)
+    assert desk.open_session(run, str(projects), "", resume="sess-1") is resumed
+    hub.tasks._count_cost(resumed, 3.0)  # its first report: the conversation's total
+    desk.account(run, resumed)
+    assert run.spent == 3.0
+    hub.tasks._count_cost(resumed, 3.4)
+    desk.account(run, resumed)
+    assert run.spent == 3.4
+    desk.active.pop(3, None)
+
+
 async def test_a_run_saved_while_stopping_can_resume_after_a_restart(hub, projects):
     """REL-12: only "running" was put right on load; a run saved while "stopping" (another
     run's save) stayed so for good: never resumed, never landed."""

@@ -924,6 +924,10 @@ class ClaudeTask:
     # Resumed with no record of what it cost before (a past session opened by its id): the
     # first report is taken as where it stood, not as one turn's cost.
     cost_unknown: bool = False
+    # …and that first report's total is none of this session's own (cost_inherited, as a
+    # fork's): spend from before it that its feature has counted already (code_bugfix: a
+    # run saved by an older build, which kept no session_cost: REL3-14).
+    inherit_first: bool = False
     # The usage-limit report Claude Code last gave on this session's own connection (its
     # model's window, its reset time): a wait for the limit goes by this, not another's.
     rate_limit: Any = None
@@ -3177,6 +3181,9 @@ class TaskManager:
             task.cost_unknown = False
             task.conn_cost = total
             task.cost_usd = round(max(before, total), 6)
+            if task.inherit_first:
+                task.inherit_first = False
+                task.cost_inherited = task.cost_usd
             return 0.0
         task.cost_unknown = False
         if task.conn_cost is None:  # this connection's first report
