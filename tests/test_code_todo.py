@@ -289,7 +289,7 @@ async def test_a_card_from_an_issue_starts_locked_down_as_an_issues_run(hub):
     assert started["state"] == "started"
     assert await until(lambda: Stream.instances and Stream.instances[-1].options is not None)
     options = Stream.instances[-1].options
-    assert options.mcp_servers == {} and options.setting_sources == ["project", "local"]
+    assert options.mcp_servers == {} and options.setting_sources == []
     assert options.sandbox["enabled"] and options.sandbox["network"]["allowedDomains"] == []
     assert "WebSearch" in options.disallowed_tools
     assert started["task"] in hub.code_todo.untrusted

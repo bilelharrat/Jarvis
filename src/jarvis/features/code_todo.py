@@ -553,8 +553,8 @@ class Todo:
 class _LockDown:
     """TaskManager.options_for, wrapped (after every feature's option hooks, so nothing
     added later loosens it): a session a card from outside started gets an issue's run's
-    lock-down (code_unattended.Runs.lock_down): the project's own settings but none of the
-    owner's, no MCP server, no web tools, its commands in the sandbox with no network. Its
+    lock-down (code_unattended.Runs.lock_down): no settings file (the owner's or the
+    project's), no MCP server, no web tools, its commands in the sandbox with no network. Its
     mode alone ("ask") left the owner's settings, MCP servers and web search on, and the
     queue can start such a card with nobody watching. A session is known by the prompt it
     starts with while its card is starting, then by its number."""

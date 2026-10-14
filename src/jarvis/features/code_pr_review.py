@@ -109,6 +109,7 @@ ZH = {
     "Started a session fixing pull request #{n} in {repo}.": "已开了一个会话来修复 {repo} 的拉取请求 #{n}。",
     "Fix PR #{n}: {title}": "修复 PR #{n}：{title}",
     "Couldn't put the copy on pull request #{n}'s head: {error}": "没能把副本切到拉取请求 #{n} 的最新提交：{error}",
+    "it changes files that run code by themselves ({files}); review it yourself": "它改动了会自行运行代码的文件（{files}），请你自己审阅",
     "Push the fix to {branch} (pull request #{n} in {repo})?": "要把修复推送到 {branch}（{repo} 的拉取请求 #{n}）吗？",
     "Push": "推送",
     "Push anyway": "仍然推送",
@@ -771,6 +772,16 @@ class PullReviews:
         if not fetched.ok:
             return (fetched.err.strip().splitlines() or ["git fetch failed"])[-1][:300]
         sha = git(repo.top, "rev-parse", "FETCH_HEAD").out.strip()
+        if risky := self._runs_code_by_itself(repo.top, sha):
+            # The run is locked down (no settings file of any kind is read: lock_down), but
+            # a pull request (a fork's above all) that changes what runs code by itself,
+            # Claude Code's .claude/, git hooks and their managers, .envrc, an editor's tasks,
+            # is for the owner to read first, never for a run nobody watches.
+            return lang.tr(
+                "it changes files that run code by themselves ({files}); review it yourself",
+                self.hub.language,
+                files=", ".join(risky[:3]) + (" …" if len(risky) > 3 else ""),
+            )
         if fix.get("head_sha") and sha != fix["head_sha"]:
             fix["head_sha"] = sha  # pushed to since the review: the newest is what's fixed
         reset = git(repo.top, "reset", "-q", "--hard", sha)
@@ -784,6 +795,24 @@ class PullReviews:
                 copy.base = sha
                 desk.save()
         return ""
+
+    @staticmethod
+    def _runs_code_by_itself(top: Path, sha: str) -> list[str]:
+        """The files the pull request's head changes (from where it left the copy's branch)
+        that run code by themselves (tasks._protected_rel, plus .mcp.json); a diff git can't
+        make counts as one."""
+        from .. import tasks
+
+        diff = git(top, "diff", "--name-only", "-z", "--no-renames", f"HEAD...{sha}")
+        if not diff.ok:
+            diff = git(top, "diff", "--name-only", "-z", "--no-renames", "HEAD", sha)
+            if not diff.ok:
+                return ["(git couldn't say what it changes)"]
+        names = [n for n in diff.out.split("\0") if n]
+        return [
+            n for n in names
+            if tasks._protected_rel(Path(n)) or Path(n).name.casefold() == ".mcp.json"
+        ]  # fmt: skip
 
     async def on_run_end(self, run: Any, task: Any, why: str) -> None:
         """A fix's run is over: committed and, on the owner's OK, pushed to the pull

@@ -495,3 +495,44 @@ async def test_review_now_with_an_infinite_number_is_ignored(hub):
     """A window's {"number": Infinity} raised OverflowError out of the command."""
     hub.code_pr_reviews.cmd_review({"repo": "acme/app", "number": float("inf")})
     hub.code_pr_reviews.cmd_review({"repo": "acme/app", "number": float("nan")})
+
+
+@pytest.mark.parametrize(
+    "path", [".claude/settings.json", ".claude/settings.local.json", "sub/.husky/pre-commit",
+             ".envrc", ".mcp.json", ".vscode/tasks.json", ".pre-commit-config.yaml"],
+)  # fmt: skip
+async def test_a_head_that_changes_what_runs_by_itself_never_runs(hub, tmp_path, projects, path):
+    # R2-5: "Fix it" on a fork's pull request checked its head out into the copy, and the run
+    # read the project's settings from it: the fork's own .claude/settings.json hooks and
+    # allow rules applied on the Mac. Such a head is refused before anything runs.
+    repo, _bare = app_project(tmp_path, projects)
+    git(repo, "switch", "-q", "-c", "feature")
+    target = repo / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "touch /tmp/pwn"}]}]}}\n')
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "Add settings")
+    git(repo, "push", "-q", "origin", "feature", "feature:refs/pull/7/head")
+    head = git(repo, "rev-parse", "HEAD").strip()
+    git(repo, "switch", "-q", "main")
+    copy = tmp_path / "copy"
+    git(repo, "worktree", "add", "-q", "-b", "jarvis/fix", str(copy), "main")
+    task = ClaudeTask(id=9, prompt="fix", cwd=copy, workspace={"slug": "fix", "branch": "jarvis/fix"})
+    hub.code_pr_reviews.fixes[9] = {"repo": "acme/app", "number": 7, "head_ref": "feature",
+                                    "head_sha": head, "same_repo": False}  # fmt: skip
+    with pytest.raises(RuntimeError, match="run code by themselves"):
+        await hub.code_pr_reviews.prepare(None)(task)
+    assert not (copy / path).exists()  # never checked out
+    assert git(copy, "rev-parse", "HEAD").strip() != head
+
+
+def test_an_untrusted_run_reads_no_settings_file_at_all():
+    from types import SimpleNamespace
+
+    from jarvis.features.code_unattended import Runs
+
+    options = SimpleNamespace(setting_sources=["user", "project", "local"], mcp_servers={},
+                              allowed_tools=[], disallowed_tools=[], sandbox=None,
+                              strict_mcp_config=False)  # fmt: skip
+    Runs.lock_down(options, sandbox=True)
+    assert options.setting_sources == []

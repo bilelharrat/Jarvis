@@ -295,7 +295,7 @@ async def test_the_session_is_capped_and_an_issues_run_gets_fewer_tools(hub, pro
     # and its commands in the sandbox without network.
     runs.active[4].untrusted = runs.active[4].sandbox = True
     options = hub.tasks.options_for(task)
-    assert options.setting_sources == ["project", "local"]
+    assert options.setting_sources == []
     assert options.mcp_servers == {} and options.strict_mcp_config
     assert not [t for t in options.allowed_tools if t.startswith("mcp__")]
     assert {"WebFetch", "WebSearch"} <= set(options.disallowed_tools)
@@ -312,7 +312,7 @@ async def test_the_session_is_capped_and_an_issues_run_gets_fewer_tools(hub, pro
     options = hub.tasks.options_for(task)
     assert options.max_budget_usd is None and "Runs.guard" not in options.can_use_tool.__qualname__
     assert options.mcp_servers == {} and options.strict_mcp_config and options.sandbox is None
-    assert options.setting_sources == ["project", "local"]
+    assert options.setting_sources == []
     other = ClaudeTask(id=5, prompt="y", cwd=projects)
     hub.tasks.tasks[5] = other
     assert set(hub.tasks.options_for(other).mcp_servers) == set(ordinary.mcp_servers)
