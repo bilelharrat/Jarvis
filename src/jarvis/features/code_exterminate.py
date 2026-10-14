@@ -262,7 +262,13 @@ class Exterminate:
         desk = self.desk
         if not name or desk is None or getattr(self.hub, "code_desk", None) is None:
             return False
-        return name not in desk.asking and desk.running_in(name) is None
+        return name not in desk.asking and not self.running_in(name)
+
+    def running_in(self, name: str) -> bool:
+        """A run of Exterminator Mode is on for that project now (its desk's active runs:
+        BugFix keeps no lookup of its own for this, REL-19 took its unused one away)."""
+        desk = self.desk
+        return desk is not None and any(r.project == name for r in desk.active.values())
 
     def offer_for(self, msg: dict[str, Any], kind: str) -> tuple[str, str, Any] | None:
         """(the words, the project, the session or None) when this message is to be
@@ -370,7 +376,7 @@ class Exterminate:
         self.hub.emit("caption", text=said)
         desk.publish()
         self.last_said = said
-        return desk.running_in(self.name_of(project) or "") is not None
+        return self.running_in(self.name_of(project) or "")
 
     # ── voice ──
 
