@@ -126,7 +126,10 @@ def issue_card_prompt(repo: str, issue: dict[str, Any], url: str) -> str:
 class Board:
     """The to-do cards (code_todo.json; path None: in memory)."""
 
-    def __init__(self, path: Path | None) -> None:
+    def __init__(self, path: Path | None, launch: str | None = None) -> None:
+        """launch: this launch's (TaskManager.launch). A card's session number is kept only
+        when it's from this launch: numbers start at 1 again each launch, so an older one
+        would name another session (its Claude Code id, kept apart, still reopens it)."""
         self.path = path
         self.cards: list[dict[str, Any]] = []
         self.queues: dict[str, dict[str, Any]] = {}  # folder -> its queue's settings
@@ -142,6 +145,8 @@ class Board:
         for raw in (data.get("cards") if isinstance(data.get("cards"), list) else [])[:CARDS_MAX]:
             card = self._clean(raw)
             if card is not None:
+                if launch is not None and card.get("launch") != launch:
+                    card.pop("task", None)
                 self.cards.append(card)
         queues = data.get("queues") if isinstance(data.get("queues"), dict) else {}
         for folder, conf in list(queues.items())[:200]:
@@ -192,11 +197,15 @@ class Todo:
     @property
     def board(self) -> Board:
         if self._board is None:
-            self._board = Board(self.hub.feature_path(FILE))
+            self._board = Board(self.hub.feature_path(FILE), self.launch)
         return self._board
 
     def tr(self, text: str, **values: Any) -> str:
         return lang.tr(text, self.hub.language, **values)
+
+    @property
+    def launch(self) -> str:
+        return str(getattr(self.hub.tasks, "launch", ""))
 
     # ── the window ──
 
@@ -470,7 +479,7 @@ class Todo:
                 self.tr("The session didn't start: {why}", why=self.tr("it didn't appear in time"))
             )
             return None
-        card["task"] = task.id
+        card["task"], card["launch"] = task.id, self.launch
         card["session"] = task.session_id or ""
         card["started"] = _now()
         with contextlib.suppress(OSError):
@@ -512,6 +521,8 @@ class Todo:
             return
         changed = False
         for card in self.board.cards:
+            if card.get("launch") != self.launch:
+                continue  # (its number is an earlier launch's: another session's now)
             task = self.hub.tasks.tasks.get(card.get("task"))
             if task is not None and task.session_id and card.get("session") != task.session_id:
                 card["session"] = task.session_id

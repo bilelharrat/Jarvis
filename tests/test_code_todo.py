@@ -230,3 +230,26 @@ def test_which_new_session_is_a_card_s(hub, tmp_path):
     # A cloud card's session starts with no prompt (it goes to the machine) and its title.
     cloudy = ClaudeTask(id=4, prompt="", cwd=tmp_path / "proj", title="Fix")
     assert not todo._is_cards(cloudy, card) and todo._is_cards(cloudy, {**card, "cloud": True})
+
+
+async def test_after_a_restart_a_card_never_takes_another_session_s_id(hub, monkeypatch):
+    """Round 1's D10: session numbers start at 1 again each launch, so a card kept with
+    "task": 1 must not learn the next launch's session 1's Claude Code id."""
+    seen = events_of(hub)
+    await hub._handle({"type": "todo_add", "directory": "proj", "prompt": "fix the login"})
+    card = last(seen, "todo_state")["cards"][0]
+    await hub._handle({"type": "todo_start", "id": card["id"]})
+    todo = hub.code_todo
+    task = hub.tasks.tasks[todo.board.get(card["id"])["task"]]
+    assert await until(lambda: task.session_id)
+    hub.tasks._changed()
+    assert await until(lambda: todo.board.get(card["id"]).get("session") == task.session_id)
+    mine = task.session_id
+    monkeypatch.setattr(hub.tasks, "launch", "the-next-launch")  # (the app restarted)
+    todo._board = None
+    kept = todo.board.get(card["id"])
+    assert kept["session"] == mine and "task" not in kept and kept["state"] == "started"
+    task.session_id = "someone-elses"  # (the next launch's session with that number)
+    todo.on_task_event("tasks", {})
+    assert todo.board.get(card["id"])["session"] == mine
+    await end_all(hub)
