@@ -890,3 +890,20 @@ async def test_two_starts_on_one_project_at_once_start_one_run(hub, projects):
     said = await asyncio.gather(desk.request("calc"), desk.request("calc"))
     assert sorted(said) == ["Bug Fix Mode is already on for calc.", "Bug Fix Mode is on for calc."]
     assert len(desk.runs) == 1 and len(hub.cards) == 1
+
+
+async def test_stop_while_the_suite_runs_stops_it_now(hub, projects, monkeypatch):
+    """Round 1's D9: Stop during the break step's suite run (up to 30 minutes) ends it."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 1)
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    slow = codetests.Suite("slow", "slow", (sys.executable, "-c", "import time; time.sleep(60)"))
+    desk.suites_of = lambda folder: [slow]
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(lambda: run.id in desk.suite_runs), (run.step, run.notes)
+    assert await desk.stop(run.id) == "Stopped Bug Fix Mode."
+    assert await until(lambda: run.state == "stopped", tries=500), run.step
+    assert run.why == "owner" and run.step == "break"
+    assert len(BugClient.prompts) == 1  # (the break step's turn never came)
