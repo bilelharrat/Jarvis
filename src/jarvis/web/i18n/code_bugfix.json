@@ -1,0 +1,78 @@
+{
+  "strings": {
+    "Bug Fix Mode": "修 bug 模式",
+    "Bug Fix Mode…": "修 bug 模式…",
+    "Bug Fix Mode is on here. Click for its progress, and Stop.": "这里正在运行修 bug 模式。点一下查看进度，也可以停下。",
+    "Run your bug protocol on this project: 3 rounds of sweep, break and fix, in an isolated copy. Asks first, with the spending ceiling.": "在这个项目上运行你的修 bug 流程：3 轮“排查、破坏测试、修复”，在独立副本里进行。会先问你，并列出花费上限。",
+    "Your bug protocol, on any project: 3 rounds of sweep (read-only audit agents in parallel), break (the suite, hostile inputs, the dev server) and fix (each with a test that fails first), an efficiency pass between rounds that loses no feature, then reports, a receipt and the ship step.": "你的修 bug 流程，适用于任何项目：3 轮排查（多个只读审查代理同时进行）、破坏测试（测试套件、恶意输入、开发服务器）和修复（每个修复都带一个先失败的测试），每两轮之间做一次不丢功能的效率优化，最后是报告、凭证和发布步骤。",
+    "Turn on for this project…": "为这个项目打开…",
+    "Asks first, with the whole scope and the spending ceiling": "会先问你，列出全部范围和花费上限",
+    "No runs yet.": "还没有运行过。",
+    "Round": "第几轮",
+    "Sweep": "排查",
+    "Break": "破坏测试",
+    "Fix": "修复",
+    "Efficiency": "效率优化",
+    "Ship": "发布",
+    "Land": "合并",
+    "Progress": "进度",
+    "Done": "完成",
+    "Now": "进行中",
+    "Stopped here": "停在这里",
+    "To do": "待做",
+    "Running": "运行中",
+    "Stopping": "正在停下",
+    "Paused": "已暂停",
+    "Stopped": "已停下",
+    "Landed": "已合并",
+    "Show session": "显示会话",
+    "Stop": "停下",
+    "Ends the run where it is; its copy and reports are kept": "在当前位置结束运行；它的副本和报告会保留",
+    "Resume": "继续",
+    "Carries on from the step it was on, in the same copy": "在同一个副本里，从它停下的那一步继续",
+    "Land the fixes…": "合并修复…",
+    "Asks first, with Touch ID": "会先问你，并用触控 ID 确认",
+    "Findings": "发现的问题",
+    "Hide findings": "隐藏问题",
+    "Spent of the spending ceiling": "已花费 / 花费上限",
+    "Open": "未处理",
+    "Fixed · test failed first": "已修复 · 测试先失败过",
+    "Fixed": "已修复",
+    "Fixed · not proven": "已修复 · 未证实",
+    "Still failing": "仍然失败",
+    "Won’t fix": "不修",
+    "Yours": "需要你来",
+    "Yours to do": "需要你来做的",
+    "Reports": "报告",
+    "blocker": "阻断",
+    "high": "高",
+    "medium": "中",
+    "low": "低"
+  },
+  "patterns": [
+    [
+      "^(\\d+) findings$",
+      "$1 个问题"
+    ],
+    [
+      "^(\\d+) dropped \\(not verified or duplicates\\)$",
+      "丢弃 $1 个（未证实或重复）"
+    ],
+    [
+      "^R(\\d+) Sweep$",
+      "第 $1 轮 排查"
+    ],
+    [
+      "^R(\\d+) Break$",
+      "第 $1 轮 破坏测试"
+    ],
+    [
+      "^R(\\d+) Fix$",
+      "第 $1 轮 修复"
+    ],
+    [
+      "^R(\\d+) Efficiency$",
+      "第 $1 轮 效率优化"
+    ]
+  ]
+}
