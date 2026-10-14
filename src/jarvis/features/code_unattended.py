@@ -288,6 +288,15 @@ def check_command(entry: str) -> str:
     return ""
 
 
+def allowed_commands(listed: Any) -> list[str]:
+    """A saved setting's commands (Linear, Slack, issues, pull request reviews), each
+    checked as the card checks them: one check_command refuses is left out, so a setting
+    written some other way than its card (a hand edit, an old build) can't widen a run
+    (round 1 A8)."""
+    found = listed if isinstance(listed, list) else []
+    return [c for c in found if isinstance(c, str) and not check_command(c)][:20]
+
+
 def _hours(hours: float, zh: bool = False) -> str:
     """A time cap in words ("1 hour 30 min"; in Chinese, "1 小时 30 分钟")."""
     minutes = round(hours * 60)
