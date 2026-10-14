@@ -129,13 +129,16 @@ def _scope_of_folder(folder: str) -> str:
 
 def wrap(command: str, pipe: str, python: str | None = None) -> str:
     """The command as it runs: through secret_run.py, with the pipe its values come through
-    (made for it, read once: nothing on this line can fetch a secret again)."""
+    (made for it, read once: nothing on this line can fetch a secret again), in a shell that
+    reads no startup file (the owner's or one a session wrote: ~/.zshenv, $ZDOTDIR's, a
+    BASH_ENV's run with the values in its environment)."""
     shell = os.environ.get("SHELL", "")
     shell = (
         shell
         if Path(shell).name in ("zsh", "bash") and Path(shell).is_absolute()
         else (shutil.which("bash") or "/bin/bash")
     )
+    bare = ["-f"] if Path(shell).name == "zsh" else ["--norc", "--noprofile"]
     return shlex.join(
         [
             python or sys.executable,
@@ -144,10 +147,22 @@ def wrap(command: str, pipe: str, python: str | None = None) -> str:
             pipe,
             "--",
             shell,
+            *bare,
             "-c",
             command,
         ]
     )
+
+
+def session_path(task: Any) -> str | None:
+    """The PATH a session's commands have: its own setting (another provider's env), else the
+    owner's login shell's, as a terminal has it (what secret_run runs the command with)."""
+    own = (getattr(task, "env", None) or {}).get("PATH")
+    if own:
+        return str(own)
+    from .. import runproc
+
+    return runproc.shell_env().get("PATH") or None
 
 
 def named_in(command: str) -> set[str]:
@@ -266,7 +281,8 @@ class Secrets:
             else:
                 missing.append(name)
         expect = (lambda pipe: shlex.split(wrap(command, pipe))) if command is not None else None
-        return key_proxy.HANDOFFS.offer(values, missing, expect=expect)
+        path = session_path(task) if command is not None else None
+        return key_proxy.HANDOFFS.offer(values, missing, expect=expect, run_path=path)
 
     def values_for(self, task: Any) -> dict[str, str]:
         """{value: $NAME} for a session's secrets, for the redaction pass."""
