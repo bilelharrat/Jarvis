@@ -662,3 +662,86 @@ async def test_a_risky_step_goes_to_the_owners_card(hub, projects):
     del desk.active[7]
     await guard("Bash", {"command": "git push"}, None)  # the run's over: the session's own policy
     assert asked[-1] == "git push"
+
+
+# ── an efficiency pass that ends before its check (round 1's D2) ──
+
+
+async def _mid_efficiency(hub, projects, monkeypatch):
+    """A two-round run held in round 1's efficiency pass, whose session has already made
+    edits Eden hasn't checked: one that breaks calc.py, one that deletes a test."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 2)
+    repo = make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "EFFICIENCY"
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(
+        lambda: run.step == "efficiency"
+        and any("EFFICIENCY" in p.split("\n", 1)[0] for p in BugClient.prompts)
+    ), (run.step, run.notes)
+    copy = Path(run.folder)
+    checked = (copy / "calc.py").read_text()
+    (copy / "calc.py").write_text("def divide(a, b):\n    return 0\n")
+    (copy / "tests" / "test_calc.py").unlink()
+    return repo, desk, run, copy, checked
+
+
+async def _quit_and_reload(hub, desk, run):
+    desk.drivers[run.id].cancel()
+    handle = hub.tasks.tasks[run.task_id].handle
+    hub.tasks.cancel(run.task_id)
+    await asyncio.wait([handle], timeout=5)
+    desk.save()
+    desk._loaded, desk.runs, desk.active, desk.waiting = False, [], {}, {}
+    desk.load()
+    [again] = desk.runs
+    assert (again.state, again.step) == ("paused", "efficiency")
+    return again
+
+
+async def test_an_efficiency_pass_stopped_before_its_check_is_put_back_and_never_lands(
+    hub, projects, monkeypatch
+):
+    repo, desk, run, copy, checked = await _mid_efficiency(hub, projects, monkeypatch)
+    assert await desk.stop(run.id) == "Stopped Bug Fix Mode."
+    await asyncio.wait([desk.drivers[run.id]], timeout=10)
+    assert run.state == "stopped"
+    assert (copy / "calc.py").read_text() == checked
+    assert (copy / "tests" / "test_calc.py").exists()
+    verdict = run.efficiency["r1"]
+    assert verdict["kept"] is False and verdict["restored"] is True
+    assert "before Eden could check it" in verdict["why"]
+    hub.answers = ["allow"]
+    await desk.land(run.id)
+    assert run.landed.startswith("Landed"), run.notes
+    assert (repo / "calc.py").read_text() == checked
+    assert (repo / "tests" / "test_calc.py").exists()
+
+
+async def test_a_run_paused_mid_efficiency_pass_lands_without_its_unchecked_edits(
+    hub, projects, monkeypatch
+):
+    repo, desk, run, copy, checked = await _mid_efficiency(hub, projects, monkeypatch)
+    again = await _quit_and_reload(hub, desk, run)
+    hub.answers = ["allow"]
+    await desk.land(again.id)
+    assert again.landed.startswith("Landed"), again.notes
+    assert (repo / "calc.py").read_text() == checked
+    assert (repo / "tests" / "test_calc.py").exists()
+
+
+async def test_a_resumed_efficiency_pass_is_checked_against_the_point_it_started_from(
+    hub, projects, monkeypatch
+):
+    repo, desk, run, copy, checked = await _mid_efficiency(hub, projects, monkeypatch)
+    again = await _quit_and_reload(hub, desk, run)
+    BugClient.hold = None
+    hub.answers = ["deny"]
+    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await until(lambda: again.state != "running"), again.notes
+    verdict = again.efficiency["r1"]
+    assert verdict["kept"] is False and "tests" in verdict["lost"], verdict
+    assert verdict["restored"] is True
+    assert (copy / "tests" / "test_calc.py").exists()  # back from before the pass, not after

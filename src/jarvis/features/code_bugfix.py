@@ -338,7 +338,10 @@ class BugRun:
     findings: list[Finding] = field(default_factory=list)
     dropped: list[Dropped] = field(default_factory=list)
     next_id: int = 1
-    snaps: dict[str, str] = field(default_factory=dict)  # "r1-fix" -> a snapshot commit
+    snaps: dict[str, str] = field(default_factory=dict)  # "r1-fix", "r1-eff" -> a snapshot commit
+    # "r1" -> the tests, routes and commands from before round 1's efficiency pass, kept with
+    # its snapshot so a pass resumed after a quit is checked against where it started.
+    eff_before: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     suites: dict[str, dict[str, Any]] = field(default_factory=dict)  # "r1-break" -> a run
     efficiency: dict[str, dict[str, Any]] = field(default_factory=dict)  # "r1" -> its verdict
     changes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # "r1" -> its changes
@@ -354,6 +357,7 @@ class BugRun:
         data["findings"] = [asdict(f) | {"where": f.where()} for f in self.findings]
         data["dropped"] = len(self.dropped)
         data.pop("snaps", None)
+        data.pop("eff_before", None)
         return data
 
 
@@ -1267,16 +1271,27 @@ class BugFix:
     # EFFICIENCY
 
     async def do_efficiency(self, run: BugRun, task: Any, first: bool) -> None:
+        """The pass, then its check. Its rollback point (and the lists from before it) is
+        saved before its turn and reused when a quit pass is resumed, so the check always
+        compares with where the pass started, never with its own half-done edits; a pass
+        that ends before the check (Stop, a timeout, an error) is put back in finish."""
         folder = Path(run.folder or task.cwd)
         key = f"r{run.round}"
+        if key in run.efficiency:  # (judged already: a resume carries on past it)
+            return
         before_suite = run.suites.get(f"r{run.round}-fix") or await self.run_suites(folder)
-        before = {
-            "tests": before_suite.get("tests") or [],
-            **await asyncio.to_thread(inventory, folder),
-        }
-        point = await asyncio.to_thread(
-            snapshot, folder, f"Bug Fix Mode: before round {run.round}'s efficiency pass"
-        )
+        point = run.snaps.get(f"{key}-eff", "")
+        before = run.eff_before.get(key)
+        if not point or before is None:
+            before = {
+                "tests": before_suite.get("tests") or [],
+                **await asyncio.to_thread(inventory, folder),
+            }
+            point = await asyncio.to_thread(
+                snapshot, folder, f"Bug Fix Mode: before round {run.round}'s efficiency pass"
+            )
+            run.snaps[f"{key}-eff"], run.eff_before[key] = point, before
+            self.save()
         reply = await self.turn(run, task, self.step_prompt(run, "efficiency"))
         block = parse_block(reply) or {}
         run.changes[key] = [
@@ -1313,6 +1328,33 @@ class BugFix:
                 )
         run.efficiency[key] = verdict
         self.write_report(run, folder, "fix")  # (the round's fix report has the pass too)
+
+    async def put_back_unchecked(self, run: BugRun, folder: Path) -> None:
+        """An efficiency pass that ended before Eden checked it (Stop, a timeout, a step
+        that failed, or a paused run landed) is put back whole, as one that lost a feature
+        is: its edits were never checked, so they never land. Nothing when the round's pass
+        was judged, or the run isn't in one."""
+        key = f"r{run.round}"
+        point = run.snaps.get(f"{key}-eff", "")
+        if run.step != "efficiency" or not point or key in run.efficiency:
+            return
+        put_back = folder.is_dir() and await asyncio.to_thread(restore, folder, point)
+        counts = {k: len(v) for k, v in (run.eff_before.get(key) or {}).items()}
+        run.efficiency[key] = {
+            "before": counts,
+            "after": counts if put_back else {},
+            "lost": {},
+            "suite": "",
+            "kept": False,
+            "why": "it ended before Eden could check it",
+            "restored": put_back,
+        }
+        if not put_back:
+            run.notes.append(
+                f"Round {run.round}'s efficiency pass ended unchecked and couldn't be put back; see the copy."
+            )
+        with contextlib.suppress(Exception):
+            self.write_report(run, folder, "fix")
 
     # SHIP
 
@@ -1958,6 +2000,8 @@ class BugFix:
         if task.busy:
             with contextlib.suppress(Exception):
                 await self.hub.tasks.interrupt(task.id)
+        if why != "restart":  # (a quit pass is checked when it resumes, or put back to land)
+            await self.put_back_unchecked(run, Path(run.folder or task.cwd))
         self.quiet[task.id] = time.time() + QUIET_AFTER
         self.save()
         self.publish()
@@ -1993,6 +2037,8 @@ class BugFix:
         copy = desk.store().find(run.slug) if run.slug else None
         if copy is None:
             return self.tr("Its isolated copy isn't there any more.")
+        if run.folder:  # (a run paused mid-pass: the pass Eden never checked doesn't land)
+            await self.put_back_unchecked(run, Path(run.folder))
         c = self.counts(run)
         last = run.suites.get(f"r{ROUNDS}-fix") or {}
         detail = "\n".join([
