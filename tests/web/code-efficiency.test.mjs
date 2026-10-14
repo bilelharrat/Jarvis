@@ -145,3 +145,8 @@ test('the window’s stylesheets have no rules for classes nothing draws', () =>
   const app = readFileSync(new URL('app.css', web), 'utf8');
   for (const kept of ['.deck {', '.deck-project-list', '.jc-capsule', '#ep-range, #jcs-effort']) assert.ok(app.includes(kept), kept);
 });
+
+test('the window script keeps no functions nothing calls', () => {
+  const app = readFileSync(new URL('../../src/jarvis/web/app.js', import.meta.url), 'utf8');
+  for (const name of ['renderDeckList', 'showPane', 'browserOpen']) assert.doesNotMatch(app, new RegExp(`function ${name}\\(`), name);
+});

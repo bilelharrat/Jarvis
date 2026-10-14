@@ -2880,9 +2880,7 @@ function renderPast() {
   }));
 }
 
-function renderDeckList() { renderProjects(deckProjects); renderPast(); }
 function renderGit() { /* the Changes pane shows the diff */ }
-function showPane() { /* one column now: the transcript, with the welcome above it */ }
 
 function statusOf(t) { return t.busy ? 'busy' : t.status === 'failed' ? 'failed' : t.status === 'waiting' ? 'waiting' : 'idle'; }
 function statusText(t) { return t.busy ? 'working' : { waiting: 'your turn', failed: 'failed', stopped: 'ended', closed: 'ended', running: 'starting' }[t.status] || t.status; }
@@ -5390,7 +5388,6 @@ let noteUntil = 0;
 let researchShown = false;
 let lastResearchPath = '/markets';
 
-function browserOpen() { return browserOpenNow; }
 // '' when none is set (a new install): Markets is then only the markets.
 function researchBaseUrl() { return (prefs && prefs.research_url) || ''; }
 
