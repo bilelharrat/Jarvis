@@ -67,6 +67,9 @@
   const F = root.jarvisFeatures;
   if (!F || typeof document === 'undefined') return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after Stop, Merge and
+  // the like the focus would otherwise fall to the page.
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = {
     linear: null,
     slack: null,
@@ -276,12 +279,12 @@
 
   function draw() {
     if (!group) return;
-    group.replaceChildren(
+    keepFocus(group, () => group.replaceChildren(
       row('Tickets and messages for Eden', 'A Linear ticket given to Eden, or @Eden or /eden in an allowed Slack channel, starts a session without you, from the people you list only. Its text is only data, and its pull request waits for your OK.'),
       tunnelBlock(),
       serviceBlock('linear'),
       serviceBlock('slack'),
-    );
+    ));
   }
 
   (function addSettings() {

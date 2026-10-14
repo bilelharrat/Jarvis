@@ -49,6 +49,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after Stop, Merge and
+  // the like the focus would otherwise fall to the page.
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const EFFORTS = [['', 'Default effort'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
   const MODES = [['edits', 'Accept edits'], ['ask', 'Manual'], ['smart', 'Auto'], ['plan', 'Plan'], ['auto', 'Bypass permissions']];
   const BUILTIN = [['opus', 'Opus 5.5'], ['sonnet', 'Sonnet 5.5'], ['haiku', 'Haiku 4.5'], ['fable', 'Fable 5.1']];
@@ -264,7 +267,7 @@
       const group = latest();
       if (group && !state.showForm) drawGroup(wrap, group); else drawForm(wrap);
     }
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   function render() { if (showing()) draw(body); }

@@ -73,6 +73,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after Stop, Merge and
+  // the like the focus would otherwise fall to the page.
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = { runs: [], active: {}, open: new Set() };
   let body = null;
 
@@ -263,7 +266,7 @@
     }
     if (!state.runs.length) wrap.append(el('p', 'jc-dim', 'No runs yet.'));
     wrap.append(...state.runs.slice(0, 12).map(runCard));
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   F.registerPane('bugfix', {

@@ -50,6 +50,9 @@
   const F = root.jarvisFeatures;
   if (!F || typeof document === 'undefined') return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after Stop, Merge and
+  // the like the focus would otherwise fall to the page.
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = {
     repos: [],
     reviews: [],
@@ -176,7 +179,7 @@
       parts.push(list);
     }
     parts.push(addForm());
-    group.replaceChildren(...parts);
+    keepFocus(group, () => group.replaceChildren(...parts));
   }
 
   (function addSettings() {
@@ -253,7 +256,7 @@
     if (!state.repos.length) wrap.append(el('p', 'jc-empty', 'No repository is reviewed yet: turn it on in Eden Code settings › GitHub.'));
     if (!state.reviews.length) wrap.append(el('p', 'jc-empty', 'No reviews yet.'));
     else wrap.append(...state.reviews.map(reviewCard));
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   const shown = () => paneBody && paneBody.isConnected && paneBody.querySelector('.jcx-prr-pane');
