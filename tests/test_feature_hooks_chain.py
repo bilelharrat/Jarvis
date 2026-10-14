@@ -15,6 +15,7 @@ A hook whose value before was only the core's placeholder may be set outright (P
 each with why); anything else must chain, so a future replace-instead-of-chain fails here.
 """
 
+import collections
 import gc
 import types
 
@@ -58,9 +59,9 @@ def reaches(new, old, stop, limit=40000) -> bool:
     methods are of, never through the hub or the TaskManager themselves (everything is
     reachable from those)."""
     seen = {id(x) for x in stop}
-    todo = [new]
+    todo = collections.deque([new])  # (breadth first: a wrapper's closure before its desk)
     while todo and len(seen) < limit:
-        obj = todo.pop()
+        obj = todo.popleft()
         if _same(obj, old):
             return True
         if id(obj) in seen or isinstance(obj, types.ModuleType | type | str | bytes | int | float):

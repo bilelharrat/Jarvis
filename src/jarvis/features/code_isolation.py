@@ -133,9 +133,12 @@ class Desk:
         # (hook(slug), landed, discarded or swept); and copies held by something other than
         # a session bound to them (hook() -> slugs: code_multirepo's group sessions), which
         # the sweeper treats as live. A hook that fails is logged; the others still run.
+        # A feature installed before this one (by name: code_bugfix) adds its holder to
+        # hub.copy_holders, which this list is.
         self.on_new_copy: list[Any] = []
         self.on_copy_gone: list[Any] = []
-        self.holders: list[Any] = []
+        early = getattr(hub, "copy_holders", None)
+        self.holders: list[Any] = early if isinstance(early, list) else []
         # Before a copy's files are taken away (landed, discarded): await hook(slug), with
         # the slug in removing until it's done (code_pairing waits for its sync in flight
         # and starts none: a sync then would mirror the vanishing files as deletions into

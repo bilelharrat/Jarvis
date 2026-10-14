@@ -1285,3 +1285,18 @@ async def test_the_receipt_s_git_runs_off_the_event_loop(hub, projects, monkeypa
     assert where == [False]
     assert any(e.get("receipt", {}).get("bugfix") for e in task.transcript)
     assert not hasattr(desk, "running_in")  # (unused: gone)
+
+
+async def test_the_copy_of_a_run_not_landed_is_never_swept(hub, projects):
+    """REL-13: Exterminator Mode held no copies (code_bugfix installs before code_isolation),
+    so the sweeper took a paused or stopped run's clean copy away ~30 s after the next start
+    and the run could no longer resume. Every run not landed holds its copy."""
+    desk = hub.code_bugfix
+    desk.load()
+    desk.runs += [
+        BugRun("r1", "calc", slug="s-paused", state="paused"),
+        BugRun("r2", "calc", slug="s-stopped", state="stopped"),
+        BugRun("r3", "calc", slug="s-landed", state="done", landed="Landed."),
+    ]
+    live = hub.code_desk.live_slugs()
+    assert {"s-paused", "s-stopped"} <= live and "s-landed" not in live

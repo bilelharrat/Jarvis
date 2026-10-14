@@ -866,6 +866,12 @@ class BugFix:
             active={str(tid): run.id for tid, run in self.active.items()},
         )
 
+    def held(self) -> set[str]:
+        """Desk.holders: the copy of every run that isn't landed (a paused or stopped one
+        resumes in it; a finished one lands from it), until the owner lands or discards it."""
+        self.load()
+        return {r.slug for r in self.runs if r.slug and not r.landed}
+
     def find(self, run_id: str) -> BugRun | None:
         self.load()
         return next((r for r in self.runs if r.id == run_id), None)
@@ -2482,6 +2488,16 @@ def install(hub: Any) -> None:
     hub.tasks.options_for = desk.options_for(hub.tasks.options_for)
     hub.add_task_sink(desk.on_task)
     hub.add_notify_gate(desk.gate)
+    # The copies of runs not landed are held (REL-13: the sweeper took a paused or stopped
+    # run's clean copy away, and it couldn't resume). code_isolation installs after this,
+    # so the holder goes where its Desk picks it up (or straight in, if it's there).
+    copies = getattr(hub, "code_desk", None)
+    if copies is not None:
+        copies.holders.append(desk.held)
+    else:
+        if not isinstance(getattr(hub, "copy_holders", None), list):
+            hub.copy_holders = []
+        hub.copy_holders.append(desk.held)
     hub.register_instant(desk.instant)
     hub.register_command("code_bugfix", desk.cmd_state)
     hub.register_command("code_bugfix_start", desk.cmd_start)
