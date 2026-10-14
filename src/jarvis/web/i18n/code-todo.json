@@ -1,0 +1,53 @@
+{
+ "strings": {
+  "To do": "待办",
+  "New card": "新卡片",
+  "From issue…": "从议题…",
+  "New card from a GitHub issue": "从 GitHub 议题新建卡片",
+  "Stop the queue": "停止队列",
+  "Run my queue…": "运行我的队列…",
+  "Run my queue": "运行我的队列",
+  "Cards to do": "待办卡片",
+  "Write the next thing to do here.": "把下一件要做的事写在这里。",
+  "Open a project first.": "先打开一个项目。",
+  "Default mode": "默认模式",
+  "From GitHub": "来自 GitHub",
+  "Its text was written on GitHub: Eden treats it as data, and it never starts in Auto or Bypass.": "它的内容写在 GitHub 上：Eden 只把它当作数据，也绝不会以自动或绕过权限模式启动。",
+  "In the queue": "在队列中",
+  "Done · checks passed": "完成 · 检查通过",
+  "Done · nothing to check": "完成 · 没有可检查的",
+  "Start again": "再次开始",
+  "Open session": "打开会话",
+  "Delete this card? Its session, if it started one, stays.": "删除这张卡片吗？它启动过的会话会保留。",
+  "Edit the card": "编辑卡片",
+  "New card for": "新卡片：",
+  "Optional: the prompt’s first line": "可选：默认用提示的第一行",
+  "What should the session do?": "会话要做什么？",
+  "Model Router’s pick, or your default": "Model Router 的选择，或你的默认模型",
+  "From GitHub: never Auto or Bypass.": "来自 GitHub：绝不用自动或绕过权限模式。",
+  "Where": "在哪里",
+  "Your default": "你的默认设置",
+  "In an isolated copy": "在独立副本里",
+  "In the project folder": "在项目文件夹里",
+  "On the cloud machine": "在云端机器上",
+  "Add card": "添加卡片",
+  "The issue’s address": "议题的地址",
+  "Its title and text become the card; Eden treats them as data, since anyone can write an issue.": "它的标题和内容会成为卡片；因为任何人都能写议题，Eden 只把它们当作数据。",
+  "Paste a GitHub issue’s address.": "粘贴一个 GitHub 议题的地址。",
+  "Run the queue for": "运行队列：",
+  "Each card goes to the cheapest model that passed Eden’s checks in this project (else the Model Router’s pick); one whose checks fail moves up to a stronger model. Your spending limits still hold.": "每张卡片都交给在这个项目里通过过 Eden 检查的最便宜模型（否则用 Model Router 的选择）；检查没通过的会换到更强的模型。你的花费上限照样有效。",
+  "Cards at once": "同时运行的卡片数",
+  "Spend at most (US dollars, for the whole queue)": "最多花费（美元，整个队列合计）",
+  "Started": "已启动"
+ },
+ "patterns": [
+  [
+   "^Queue running, one at a time: (\\$[\\d.,]+) of (\\$[\\d.,]+)(.*)$",
+   "队列运行中，一次一张：已花 $1，上限 $2$3"
+  ],
+  [
+   "^Queue running, (\\d) at a time: (\\$[\\d.,]+) of (\\$[\\d.,]+)(.*)$",
+   "队列运行中，一次 $1 张：已花 $2，上限 $3$4"
+  ]
+ ]
+}

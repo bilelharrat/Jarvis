@@ -1,0 +1,48 @@
+/* Eden Code's to-do column (features/code-todo.js): the board's first lane, a calm card per
+   piece of work written ahead, and its dialogs. The Summit Glass tokens of .deck.jc. */
+
+/* six lanes when the to-do column is there */
+.cs-lanes.cs-lanes-more { grid-template-columns: repeat(6, minmax(200px, 1fr)); }
+@media (max-width: 1180px) { .cs-lanes.cs-lanes-more { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } }
+.cs-lane-dot.todo { background: rgb(var(--c-purple)); }
+
+.ct-tools { display: flex; gap: 6px; margin: 0 2px; }
+.ct-project { flex: 1; min-width: 0; padding: 4px 8px; border: 0; border-radius: 8px; font: 12px var(--sans); color: rgb(var(--c-ink)); background: rgb(var(--c-fill-3)); box-shadow: var(--shadow-control); }
+.ct-adds, .ct-queue { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 2px; }
+.cs-board .ct-adds .jc-btn, .cs-board .ct-queue .jc-btn, .cs-board .ct-card .cs-card-acts .jc-btn { padding: 3px 9px; font-size: 11.5px; }
+.ct-meta { white-space: normal; }
+.jc-dot.ct-run { background: rgb(var(--c-accent)); }
+.ct-queue-line { margin: 0 4px; font-size: 11.5px; line-height: 1.4; color: rgb(var(--c-muted)); }
+.ct-queue-line:empty { display: none; }
+.ct-error { margin: 0 4px; padding: 6px 8px; border-radius: 8px; font-size: 12px; line-height: 1.4; color: rgb(var(--c-danger-ink)); background: rgb(var(--c-danger-soft)); }
+.ct-error[hidden] { display: none; }
+
+.ct-card { cursor: grab; }
+.ct-card.running, .ct-card.queued { cursor: default; }
+.ct-card.running { box-shadow: var(--shadow-card), inset 0 0 0 1px rgb(var(--c-accent) / 0.45); }
+.ct-card.failed { box-shadow: var(--shadow-card), inset 0 0 0 1px rgb(var(--c-danger) / 0.45); }
+.ct-card.done, .ct-card.started, .ct-card.stopped { opacity: 0.78; }
+.ct-card.ct-dragging { opacity: 0.45; }
+.ct-from { color: rgb(var(--c-warning-ink)); }
+.ct-state { -webkit-line-clamp: 1; }
+.ct-tries { font-family: var(--mono); font-size: 11px; }
+.ct-move { min-width: 28px; padding-inline: 6px !important; }
+.jc-dot.todo { background: rgb(var(--c-purple)); }
+.cs-lane.ct-drop { outline: 2px dashed rgb(var(--c-accent) / 0.6); outline-offset: 4px; border-radius: 14px; }
+
+/* its dialogs: a sheet over the window, inside Eden Code (its look's colors) */
+.ct-dialog { width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 64px); padding: 0; border: 0; border-radius: 18px; color: rgb(var(--c-ink)); background: rgb(var(--c-surface)); box-shadow: var(--shadow-sheet); font-family: var(--sans); }
+.ct-dialog::backdrop { background: rgb(0 0 0 / 0.28); }
+.ct-form { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px 16px; }
+.ct-dialog-title { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.015em; }
+.ct-fields { display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.ct-field { display: flex; flex-direction: column; gap: 4px; }
+.ct-label { font-size: 12px; font-weight: 600; color: rgb(var(--c-ink-2)); }
+.ct-note { font-size: 12px; line-height: 1.45; color: rgb(var(--c-muted)); margin: 0; }
+.ct-input { padding: 7px 10px; border: 0; border-radius: 9px; font: 13px var(--sans); color: rgb(var(--c-ink)); background: rgb(var(--c-fill-3)); box-shadow: var(--shadow-control); }
+.ct-input:focus-visible, .ct-project:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 1px; }
+.ct-prompt { min-height: 110px; resize: vertical; font: 12.5px/1.5 var(--mono); }
+.ct-check { align-self: flex-start; width: 16px; height: 16px; }
+.ct-dialog-acts { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) { .ct-card { transition: none; } }

@@ -344,7 +344,7 @@ function windowWith({ features = {}, task = { id: 7, model: 'claude-opus-5-5', e
     window, document, customElements, modelList, prefs, () => {}, () => reg.render && reg.render({ t: task, label: 'Opus 5.5' }), {},
   );
   const ready = async () => { reg.render({ t: task, label: 'Opus 5.5' }); for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
-  return { sent, fire, reg, bodies, created, chip, ready, adapter: () => Chip.adapter, task, els };
+  return { sent, fire, reg, bodies, created, chip, ready, adapter: () => Chip.adapter, task, els, F };
 }
 
 test('a message carries its route, what the log keeps of it, and its next picks; it waits for Gemini', async () => {
@@ -488,4 +488,21 @@ test('the model button says what messages really go to: Model Router, or the ses
   assert.equal(bad.els['jc-effort'].hidden, false);
   assert.match(bad.els['jc-model'].title, /Model Router isn’t working \(Model Router isn’t installed/);
   assert.deepEqual(bad.reg.send(bad.task, 'refactor the scheduler to use a heap'), {});  // (unrouted, as it says)
+});
+
+test('a to-do card’s pick: the rules’ at once, never a Gemini rating; none while the router is off', async () => {
+  const w = windowWith();
+  assert.equal(w.F.codeRouter.pick('refactor the scheduler to use a heap'), null);  // (not loaded yet)
+  await w.ready();
+  const asked = w.bodies.length;
+  const route = w.F.codeRouter.pick('refactor the scheduler to use a heap');
+  assert.deepEqual({ ref: route.ref, model: route.model, effort: route.effort }, { ref: 'custom:o1', model: 'gpt-6-luna', effort: 'low' });
+  assert.ok(route.info && !JSON.stringify(route.info).includes('words of the prompt'));
+  assert.equal(w.bodies.length, asked + 1);
+  assert.equal(w.bodies.at(-1).classifier, undefined);  // (routeSync: the rules alone)
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(w.sent.filter((m) => m.type === 'model_router_route' || m.type === 'model_router_classify').length, 0);
+  assert.equal(w.F.codeRouter.pick('   '), null);
+  w.fire('prefs', { features: { code_router_on: false } });
+  assert.equal(w.F.codeRouter.pick('refactor the scheduler to use a heap'), null);
 });

@@ -11,6 +11,13 @@ said in.
 Each session hears the lessons that apply with its first message, and again when one is
 added (TaskManager.turn_notes), marked as the owner's standing preferences.
 
+A project's own lessons (not those for every project: they're the owner's, not the
+repository's) are also written into Eden's section of that project's CLAUDE.md and
+AGENTS.md (code_memory.write_shared: only that section, the same in both), so a session
+with another agent (Codex, Gemini, OpenCode), which reads AGENTS.md itself, starts from
+them too. The section lists the project's lessons as the memory has them each time one is
+learned. Setting (prefs.features): code_lessons_in_repo (bool, on).
+
 What counts as a correction is decided by its words (a rule: never, always, don't,
 instead, prefer, use … not …), not by a model: nothing here costs anything. Steers and
 follow-ups alike are heard (task_log, the owner's own messages).
@@ -19,16 +26,21 @@ Setting (prefs.features): code_lessons (bool, on).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
-from .. import prefs
+from .. import code_memory, prefs
+from ..codeplatform import project_of
 
 log = logging.getLogger("jarvis")
 
 PREF = "code_lessons"
 prefs.register_feature_pref(PREF, True)
+PREF_FILES = "code_lessons_in_repo"  # a project's lessons in its CLAUDE.md and AGENTS.md too
+prefs.register_feature_pref(PREF_FILES, True)
 
 ORIGIN = "Eden Code correction"
 EVERYWHERE = "every project"
@@ -78,6 +90,7 @@ class Lessons:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.told: dict[int, int] = {}  # task id -> how many lessons it heard
+        self.writing: Any = None  # the latest write of a project's files (for the tests)
 
     def on(self) -> bool:
         return bool(self.hub.prefs.feature(PREF))
@@ -92,6 +105,10 @@ class Lessons:
         memory = getattr(self.hub, "memory", None)
         facts = getattr(memory, "facts", None) or []
         return [f for f in facts if str(getattr(f, "origin", "")).startswith(ORIGIN)]
+
+    def project_only(self, project: str) -> list[str]:
+        """The lessons said for this project alone (what its files get)."""
+        return [f.text for f in self.all() if scope_of(f.origin) == f"project {project}"]
 
     def for_project(self, project: str) -> list[str]:
         out = []
@@ -151,6 +168,33 @@ class Lessons:
             )
         except Exception as exc:
             log.warning("Eden Code: couldn't keep a lesson (%s)", exc)
+            return
+        if not everywhere:
+            self.to_files(task)
+
+    def to_files(self, task: Any) -> None:
+        """The project's lessons into Eden's section of its CLAUDE.md and AGENTS.md (the
+        project's own checkout, for a session in an isolated copy), off the event loop."""
+        if not self.hub.prefs.feature(PREF_FILES):
+            return
+        try:
+            folder = Path(project_of(self.hub, task))
+        except Exception:
+            folder = Path(task.cwd)
+        lessons = self.project_only(self._project(task))
+
+        def write() -> None:
+            try:
+                code_memory.write_shared(folder, lessons=lessons)
+            except OSError as exc:
+                log.warning("Eden Code: couldn't write the lessons into %s (%s)", folder, exc)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            write()
+            return
+        self.writing = loop.run_in_executor(None, write)
 
     def turn_note(self, task: Any) -> str:
         """TaskManager.turn_notes: the lessons, with a session's first message and again

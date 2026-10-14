@@ -21,6 +21,7 @@ KEY = "labs"
 LABS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "code_acp": ("Other agents (ACP)", "Run Gemini CLI, Codex and other ACP agents as sessions.", ("code-acp",)),
     "code_plugins": ("Plugins", "Claude Code plugins: their commands, agents and hooks in sessions.", ("code-plugins",)),
+    "code_queue": ("Routing queue", "Run a project's to-do cards in the background, each on the cheapest model that passes its checks, within a dollar ceiling.", ()),
     "code_split": ("Split view", "Two live sessions side by side (⌘⇧\\ or /split).", ("code-split",)),
 }  # fmt: skip
 

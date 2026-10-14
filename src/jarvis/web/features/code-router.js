@@ -622,6 +622,24 @@
     return { route, route_wait: token };
   }
 
+  // The router's pick for a to-do card's prompt (features/code-todo.js: started from the
+  // board, or queued): the rules alone, at once, never a Gemini rating (a queue of cards
+  // would be a rating each). null while the router is off or not loaded yet.
+  F.codeRouter = {
+    pick(text) {
+      if (!isOn() || !lib || !String(text || '').trim()) return null;
+      try {
+        const s = routing(null);
+        const result = currentRouter().routeSync(bodyFor(text, s, null).body);
+        const route = routeFor(models(), result && result.pick);
+        return route ? withInfo(route, result, s, null) : null;
+      } catch (err) {
+        console.warn('model router', err);
+        return null;
+      }
+    },
+  };
+
   F.registerSessionOption((prompt) => routeField(prompt, null));
   F.registerSendOption((t, text) => (t && t.busy ? {} : routeField(text, t)));  // (never mid-step)
 
