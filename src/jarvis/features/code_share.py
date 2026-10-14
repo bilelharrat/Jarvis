@@ -30,8 +30,18 @@ code_share_state {}, code_share_dismiss {share, comment}.
 Events: code_share {shares: [{share, id, title, url, expires, viewers, comments_on,
 comments}], error?}, code_share_comment {share, id, comment}.
 HTTP (remote.py's server, its own checks: the share's token, never a device's):
-GET /share/<token> (the page), GET /share/<token>/state?v=<viewer>&since=<n>&ck=<key>,
-POST /share/<token>/comment {v, name?, text} (only with suggestions on).
+GET /share/<token> (the page), GET /share/<token>/state?v=<viewer>&since=<n>&u=<u>&ck=<key>,
+POST /share/<token>/comment {v, name?, text} (only with suggestions on, from a viewer that
+is watching).
+
+What a link can cost the app: anyone with it can send as many requests as they like and
+make up as many viewer ids as they like, so every limit is kept three ways (per viewer id,
+per network address, and per share, the last two whatever ids are sent): a few new viewer
+ids a minute from one address, VIEWERS_PER_ADDRESS watching from one address, and the
+buckets themselves kept for the most recently used BUCKETS_KEPT keys only. The heavy parts
+are done once for everyone watching: the changes are worked out by one request at a time
+per share (the others wait for its answer), and an entry is cleaned once (kept by its number
+until it changes) in a thread, never on the app's loop.
 Settings (prefs.features): code_share_comments (bool, off).
 
 Cost policy (Claude): nothing here calls a model.
@@ -41,10 +51,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import re
 import secrets
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -76,7 +88,22 @@ WITHHELD = "(withheld: it looks like a secret)"
 ROLES = {"user", "assistant", "tool", "system", "note", "plan", "turn"}
 _VIEWER = re.compile(r"[A-Za-z0-9_-]{8,40}")
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{20,64}")
-RATES = {"view": (90, 20), "comment": (6, 2)}  # a minute's worth, the most at once
+# A minute's worth, the most at once: per viewer id ("view", "comment"), per network address
+# ("address_*", whatever ids it sends), per share ("share_*", everyone together), and how many
+# viewer ids an address may start watching with ("new_viewer").
+RATES = {
+    "view": (90, 20),
+    "comment": (6, 2),
+    "address_view": (240, 40),
+    "address_comment": (12, 4),
+    "share_view": (1200, 200),
+    "share_comment": (20, 5),
+    "new_viewer": (6, 4),
+}
+VIEWERS_PER_ADDRESS = 4  # watching one share at once from one network address
+BUCKETS_KEPT = 4096  # the limiter's most recently used keys; older ones go
+CLEANED_KEPT = 2 * ENTRIES_AT_ONCE  # a share's cleaned entries kept, the latest by number
+UPDATES_AT_ONCE = 50  # entries already sent that changed since (a step's outcome), at most
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 ZH = {
@@ -94,6 +121,49 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _updated(entry: dict[str, Any]) -> int:
+    """When a transcript entry last changed after it was logged (0: never)."""
+    value = entry.get("updated")
+    return value if type(value) is int else 0
+
+
+_PRIVATE_IP = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
+
+
+def _private_address(found: re.Match[str]) -> str:
+    try:
+        address = ipaddress.ip_address(found.group(0))
+    except ValueError:
+        return found.group(0)
+    private = address.is_private and not address.is_loopback and not address.is_unspecified
+    return "(an address on the owner's network)" if private else found.group(0)
+
+
+_KEY_BEGIN = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----")
+_KEY_END = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----")
+
+
+def _key_lines(lines: list[tuple[str, str]]) -> set[int]:
+    """Which of a hunk's lines are part of a private key: from its BEGIN line to its END
+    line, both included (secret_scan flags only the BEGIN line; the base64 lines after it
+    are the key). A hunk that ends inside a key withholds the rest; one that starts inside a
+    key (its END with no BEGIN before it) withholds what comes before the END too."""
+    out: set[int] = set()
+    inside = False
+    first_end = next((i for i, (_t, text) in enumerate(lines) if _KEY_END.search(text)), -1)
+    first_begin = next((i for i, (_t, text) in enumerate(lines) if _KEY_BEGIN.search(text)), -1)
+    if first_end >= 0 and (first_begin < 0 or first_end < first_begin):
+        out.update(range(first_end + 1))
+    for at, (_tag, text) in enumerate(lines):
+        if _KEY_BEGIN.search(text):
+            inside = True
+        if inside:
+            out.add(at)
+        if _KEY_END.search(text):
+            inside = False
+    return out
+
+
 @dataclass
 class Share:
     id: str
@@ -104,8 +174,14 @@ class Share:
     comments_on: bool = False
     revoked: bool = False
     viewers: dict[str, float] = field(default_factory=dict)  # viewer -> last heard (monotonic)
+    addresses: dict[str, str] = field(default_factory=dict)  # viewer -> its network address
     comments: list[dict[str, Any]] = field(default_factory=list)
     changes: tuple[float, str, Any] = (0.0, "", None)  # (when, key, the view) cached
+    changing: asyncio.Future | None = None  # the one working-out of the changes under way
+    # n -> (what the entry was when cleaned, the cleaned entry): each entry is cleaned once
+    # for everyone watching, and again only when it changed (a step's outcome came in).
+    cleaned: OrderedDict[int, tuple[Any, dict[str, Any]]] = field(default_factory=OrderedDict)
+    cleaning: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def live(self, now: float | None = None) -> bool:
         return not self.revoked and (now if now is not None else time.time()) < self.expires
@@ -115,19 +191,41 @@ class Share:
         for viewer, seen in list(self.viewers.items()):
             if now - seen > VIEWER_SECONDS:
                 del self.viewers[viewer]
+                self.addresses.pop(viewer, None)
         return len(self.viewers)
+
+    def from_address(self, address: str) -> int:
+        """How many of those watching came from this network address."""
+        return sum(1 for v in self.viewers if self.addresses.get(v) == address)
 
 
 class Limiter:
-    """remote.Limiter's buckets, keyed by share and viewer (it keys by device)."""
+    """remote.Limiter's buckets (a budget per key and kind that refills steadily), keyed here
+    by what a viewer sends (its id) as well as by its address and its share. remote.Limiter
+    keeps every key it has seen in the last ten minutes and, once it holds a thousand, sweeps
+    them all on each call: made-up viewer ids grew it without end and made every call slower.
+    Here only the BUCKETS_KEPT most recently used keys are kept (the least recently used goes
+    first), so a flood of made-up ids costs the same small amount per call, and the buckets
+    that matter (an address's, a share's) stay, being used all the time."""
 
-    def __init__(self) -> None:
-        from ..remote import Limiter as Buckets
-
-        self.buckets = Buckets(RATES)
+    def __init__(self, rates: dict[str, tuple[int, int]] | None = None, clock=time.monotonic,
+                 kept: int = BUCKETS_KEPT) -> None:  # fmt: skip
+        self.rates = rates or RATES
+        self.clock = clock
+        self.kept = kept
+        self._buckets: OrderedDict[tuple[str, str], tuple[float, float]] = OrderedDict()
 
     def wait(self, key: str, kind: str) -> float:
-        return self.buckets.wait(key, kind)
+        """0 when the call may go ahead (and it's counted); else seconds until it may."""
+        per_minute, most = self.rates[kind]
+        now = self.clock()
+        tokens, at = self._buckets.pop((key, kind), (float(most), now))
+        tokens = min(float(most), tokens + (now - at) * per_minute / 60)
+        took = tokens >= 1
+        self._buckets[(key, kind)] = (tokens - 1 if took else tokens, now)
+        while len(self._buckets) > self.kept:
+            self._buckets.popitem(last=False)
+        return 0.0 if took else (1 - tokens) * 60 / per_minute
 
 
 class Shares:
@@ -205,7 +303,9 @@ class Shares:
 
     def start(self, msg: dict[str, Any]) -> str:
         """A new share of one session: "" when made, else why not."""
-        task = self.hub.tasks.tasks.get(_msg_int(msg, "id"))
+        ident = msg.get("id")
+        # (true is 1 to int(): a session's id is a number, never a yes)
+        task = None if isinstance(ident, bool) else self.hub.tasks.tasks.get(_msg_int(msg, "id"))
         if task is None or task.kind != "code":
             return "Open a session to share it."
         remote = getattr(self.hub, "remote", None)
@@ -285,34 +385,82 @@ class Shares:
         return share if task is not None else None
 
     def clean(self, task: Any, text: Any, limit: int = ENTRY_CHARS) -> str:
-        """Text for a viewer: the session's redactors, share-safe's, and this Mac's paths."""
+        """Text for a viewer: the session's redactors, share-safe's, this Mac's paths, and
+        addresses on the owner's own network (a teammate needn't learn 10.0.0.5 is prod)."""
         text = str(text or "")[: limit * 2]
         text = self.hub.tasks.redact(task, text)
         text = redact_secrets(text)
         text = Anonymizer.for_session(task.cwd)(text)
+        text = _PRIVATE_IP.sub(_private_address, text)
         return text[:limit]
 
-    def entries(self, task: Any, since: int) -> list[dict[str, Any]]:
-        """The transcript after entry since (its last ENTRIES_AT_ONCE), cleaned."""
+    def entry_for_viewer(self, task: Any, e: dict[str, Any]) -> dict[str, Any] | None:
+        role = str(e.get("role") or "")
+        if role not in ROLES:
+            return None  # (the thinking, and anything this build doesn't know)
+        item: dict[str, Any] = {
+            "n": int(e.get("n") or 0),
+            "role": role,
+            "text": self.clean(task, e.get("text")),
+            "at": str(e.get("at") or "")[:25],
+        }
+        if role == "tool":
+            item["tool"] = self.clean(task, e.get("tool"), 80)
+            item["status"] = str(e.get("status") or "")[:20]
+            if e.get("output"):
+                item["output"] = self.clean(task, e.get("output"), OUTPUT_CHARS)
+        return item
+
+    def pick(self, task: Any, since: int, seen: int) -> tuple[list[dict[str, Any]], bool, int]:
+        """What a viewer that has the entries up to since, as they were at update seen, needs
+        (raw, on the app's loop: a copy of each, the transcript changes under it): the
+        oldest ENTRIES_AT_ONCE after since (more: there are more after those, so a viewer
+        back from a pause gets every entry in order, none skipped), and those up to since
+        that changed after seen (a step's outcome and output come in after its entry was
+        sent: tasks._tool_result marks it "updated"). And the update its viewer has now."""
+        transcript = list(task.transcript)
+        found = [e for e in transcript if int(e.get("n") or 0) > since]
+        page = found[:ENTRIES_AT_ONCE]
+        changed = [
+            e for e in transcript
+            if int(e.get("n") or 0) <= since and _updated(e) > seen
+        ][-UPDATES_AT_ONCE:]  # fmt: skip
+        latest = max((_updated(e) for e in transcript), default=0)
+        return [dict(e) for e in changed + page], len(found) > len(page), max(seen, latest)
+
+    def cleaned(self, share: Share, task: Any, raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """These entries cleaned for a viewer (in a thread): each one once, kept by its
+        number, and again only when it changed."""
         out = []
-        found = [e for e in list(task.transcript) if int(e.get("n") or 0) > since]
-        for e in found[-ENTRIES_AT_ONCE:]:
-            role = str(e.get("role") or "")
-            if role not in ROLES:
-                continue  # (the thinking, and anything this build doesn't know)
-            item: dict[str, Any] = {
-                "n": int(e.get("n") or 0),
-                "role": role,
-                "text": self.clean(task, e.get("text")),
-                "at": str(e.get("at") or "")[:25],
-            }
-            if role == "tool":
-                item["tool"] = self.clean(task, e.get("tool"), 80)
-                item["status"] = str(e.get("status") or "")[:20]
-                if e.get("output"):
-                    item["output"] = self.clean(task, e.get("output"), OUTPUT_CHARS)
-            out.append(item)
+        for e in raw:
+            n = int(e.get("n") or 0)
+            mark = (e.get("status"), _updated(e), len(str(e.get("output") or "")))
+            kept = share.cleaned.get(n)
+            if kept is not None and kept[0] == mark:
+                share.cleaned.move_to_end(n)
+                item = kept[1]
+            else:
+                item = self.entry_for_viewer(task, e)
+                share.cleaned[n] = (mark, item)  # (None: not for a viewer, also kept)
+                while len(share.cleaned) > CLEANED_KEPT:
+                    share.cleaned.popitem(last=False)
+            if item is not None:
+                out.append(item)
         return out
+
+    async def entries_for(self, share: Share, task: Any, since: int, seen: int = 0
+                          ) -> tuple[list[dict[str, Any]], bool, int]:  # fmt: skip
+        """pick's entries, cleaned in a thread (cleaning a long transcript's took a second on
+        the app's loop), one request of a share at a time (the others then find them kept)."""
+        raw, more, updated = self.pick(task, since, seen)
+        async with share.cleaning:
+            items = await asyncio.to_thread(self.cleaned, share, task, raw)
+        return items, more, updated
+
+    def entries(self, task: Any, since: int) -> list[dict[str, Any]]:
+        """The transcript after entry since (its first ENTRIES_AT_ONCE), cleaned, at once."""
+        raw, _more, _updated = self.pick(task, since, 1 << 62)
+        return [i for i in (self.entry_for_viewer(task, e) for e in raw) if i is not None]
 
     def status(self, task: Any) -> dict[str, Any]:
         from ..companion_api import session_status
@@ -320,7 +468,7 @@ class Shares:
         waiting = any(a.get("task_id") == task.id for a in list(self.hub.approvals.values()))
         return {
             "title": self.clean(task, " ".join((task.title or task.prompt).split()), 120),
-            "project": task.cwd.name,
+            "project": self.clean(task, task.cwd.name, 80),
             "status": session_status(task, waiting),
             "doing": self.clean(task, task.last_action, 200) if task.busy else "",
             "model": self.clean(task, task.model_label or task.model, 60),
@@ -328,12 +476,22 @@ class Shares:
 
     async def changes(self, share: Share, task: Any) -> tuple[str, Any]:
         """The session's changes for a viewer, and a key for them (a viewer that has these
-        already isn't sent them again): worked out at most every CHANGES_SECONDS."""
+        already isn't sent them again): worked out at most every CHANGES_SECONDS, and by
+        one request at a time: the others that come meanwhile wait for its answer (each
+        used to run its own git diff: twenty viewers' first polls were hundreds)."""
         when, key, found = share.changes
         if time.monotonic() - when < CHANGES_SECONDS and key:
             return key, found
-        view = await asyncio.to_thread(code_changes.task_view, task, "session")
-        found = self.view_for_viewer(task, view)
+        if share.changing is None or share.changing.done():
+            share.changing = asyncio.ensure_future(self._work_out_changes(share, task))
+        return await asyncio.shield(share.changing)
+
+    async def _work_out_changes(self, share: Share, task: Any) -> tuple[str, Any]:
+        def work() -> Any:
+            view = code_changes.task_view(task, "session")
+            return self.view_for_viewer(task, view)
+
+        found = await asyncio.to_thread(work)
         key = hashlib.sha1(json.dumps(found, sort_keys=True).encode()).hexdigest()[:16]
         share.changes = (time.monotonic(), key, found)
         return key, found
@@ -356,10 +514,11 @@ class Shares:
             if item["withheld"] or budget <= 0:
                 continue
             lines = []
-            for tag, text in h.lines[:budget]:
+            keyed = _key_lines(h.lines)
+            for at, (tag, text) in enumerate(h.lines[:budget]):
                 if tag == "\\":
                     continue
-                if secret_scan.scan_line(text):
+                if at in keyed or secret_scan.scan_line(text):
                     lines.append([tag, WITHHELD])
                 else:
                     lines.append([tag, self.clean(task, text, 500)])
@@ -382,12 +541,17 @@ class Shares:
             },
         }
 
-    def heard(self, share: Share, viewer: str) -> bool:
-        """A viewer counted as watching (False: the share has as many as it takes)."""
-        if viewer not in share.viewers and share.watching() >= MAX_VIEWERS:
-            return False
+    def heard(self, share: Share, viewer: str, address: str = "") -> bool:
+        """A viewer counted as watching (False: the share has as many as it takes, or as
+        many from this address as one address gets: a link holder making up ids can't take
+        every seat from the teammate it was meant for)."""
         fresh = viewer not in share.viewers
+        if fresh and share.watching() >= MAX_VIEWERS:
+            return False
+        if fresh and share.from_address(address) >= VIEWERS_PER_ADDRESS:
+            return False
         share.viewers[viewer] = time.monotonic()
+        share.addresses[viewer] = address
         if fresh:
             self.publish()
         return True
@@ -448,15 +612,29 @@ class Shares:
             viewer = str(request.query_params.get("v") or "")
             return viewer if _VIEWER.fullmatch(viewer) else ""
 
-        def limited(share: Share, viewer: str, kind: str) -> Any:
-            wait = self.limiter.wait(f"{share.id}:{viewer}", kind)
-            if not wait:
-                return None
-            return JSONResponse(
-                {"error": "Too many requests. Try again in a moment."},
-                status_code=429,
-                headers={**headers, "Retry-After": str(max(1, round(wait)))},
-            )
+        def address_of(request: Any) -> str:
+            return str(request.client.host if request.client else "")[:64]
+
+        def limited(share: Share, viewer: str, address: str, kind: str) -> Any:
+            """The share's, the address's and the viewer's budgets for this kind of call, in
+            that order (a refusal stops there): made-up viewer ids get past only the last."""
+            for key, bucket in (
+                (share.id, f"share_{kind}"),
+                (f"{share.id}@{address}", f"address_{kind}"),
+                (f"{share.id}:{viewer}", kind),
+            ):
+                wait = self.limiter.wait(key, bucket)
+                if wait:
+                    return JSONResponse(
+                        {"error": "Too many requests. Try again in a moment."},
+                        status_code=429,
+                        headers={**headers, "Retry-After": str(max(1, round(wait)))},
+                    )
+            return None
+
+        def full() -> Any:
+            return JSONResponse({"error": "This share has as many viewers as it takes."},
+                                status_code=429, headers=headers)  # fmt: skip
 
         def asset(name: str, media_type: str):
             async def serve(_request: Any) -> Any:
@@ -481,23 +659,32 @@ class Shares:
                 return gone()
             if not viewer:
                 return JSONResponse({"error": "viewer"}, status_code=400, headers=headers)
-            refused = limited(share, viewer, "view")
+            address = address_of(request)
+            refused = limited(share, viewer, address, "view")
             if refused is not None:
                 return refused
-            if not self.heard(share, viewer):
-                return JSONResponse({"error": "This share has as many viewers as it takes."},
-                                    status_code=429, headers=headers)  # fmt: skip
+            if viewer not in share.viewers:
+                # A new viewer id: a few a minute from one address (a page reloaded, a
+                # second tab), never one per request.
+                if share.watching() >= MAX_VIEWERS:
+                    return full()
+                if self.limiter.wait(f"{share.id}@{address}", "new_viewer"):
+                    return full()
+            if not self.heard(share, viewer, address):
+                return full()
             task = self.hub.tasks.tasks[share.task_id]
-            try:
-                since = max(0, int(request.query_params.get("since") or 0))
-            except (TypeError, ValueError, OverflowError):
-                since = 0
+            since, seen = (_count(request.query_params.get(k)) for k in ("since", "u"))
             key, found = await self.changes(share, task)
             known = str(request.query_params.get("ck") or "")
+            if self.find(str(request.path_params.get("token") or "")) is not share:
+                return gone()  # (revoked or ended while the changes were worked out)
+            items, more, updated = await self.entries_for(share, task, since, seen)
             return JSONResponse(
                 {
                     **self.status(task),
-                    "entries": self.entries(task, since),
+                    "entries": items,
+                    "more": more,
+                    "u": updated,
                     "changes_key": key,
                     "changes": None if known == key else found,
                     "expires": share.expires,
@@ -519,7 +706,15 @@ class Shares:
             if not share.comments_on or not self.comments_allowed():
                 return JSONResponse({"error": "Suggestions are off for this share."},
                                     status_code=403, headers=headers)  # fmt: skip
-            refused = limited(share, viewer, "comment")
+            # Only from a viewer that is watching (its page polls the state, which counts
+            # it, a few new ones a minute from one address): a made-up id per suggestion
+            # would each get a fresh budget.
+            share.watching()
+            address = address_of(request)
+            if share.addresses.get(viewer) != address:
+                return JSONResponse({"error": "Open the share's page to make a suggestion."},
+                                    status_code=403, headers=headers)  # fmt: skip
+            refused = limited(share, viewer, address, "comment")
             if refused is not None:
                 return refused
             card = self.comment(share, viewer, data.get("name"), data.get("text"))
@@ -537,6 +732,14 @@ class Shares:
             Route("/share/{token}/state", state),
             Route("/share/{token}/comment", comment, methods=["POST"]),
         ]
+
+
+def _count(value: Any) -> int:
+    """A viewer's number (since, u): 0 for anything that isn't a whole number at least 0."""
+    try:
+        return max(0, int(str(value or 0)[:30]))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def install(hub: Any) -> None:
