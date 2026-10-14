@@ -36,6 +36,7 @@ from jarvis.features.code_bugfix import (
     owner_only,
     parse_block,
     risky,
+    scratch_script,
 )
 from jarvis.hub import Hub
 from jarvis.prefs import MODELS
@@ -316,7 +317,7 @@ def pane(hub):
 async def test_three_rounds_sweep_break_fix_efficiency_then_ship_receipt_and_land(hub, projects):
     repo = make_repo(projects / "calc", FILES)
     desk = hub.code_bugfix
-    hub.answers = ["start", "allow"]
+    hub.answers = ["start", "allow", "allow"]  # (the run, its .bugfix/ script's card, landing)
     said = await desk.request("calc")
     assert said == "Bug Fix Mode is on for calc."
     [card] = hub.cards
@@ -361,7 +362,8 @@ async def test_three_rounds_sweep_break_fix_efficiency_then_ship_receipt_and_lan
     assert seen[("Write", "x.py")] == "PermissionResultDeny"  # the sweep is read-only
     assert seen[("Bash", "git push origin main")] == "PermissionResultDeny"
     assert seen[("Bash", "python -m pytest -q")] == "PermissionResultAllow"
-    assert seen[("Bash", "python3 .bugfix/hostile.py")] == "PermissionResultAllow"
+    assert seen[("Bash", "python3 .bugfix/hostile.py")] == "PermissionResultAllow"  # on a card
+    assert any("python3 .bugfix/hostile.py" in c.get("detail", "") for c in hub.cards)
     assert seen[("Bash", "python3 -c 'import os'")] == "PermissionResultDeny"
     assert seen[("Write", "hostile.py")] == "PermissionResultAllow"
     assert seen[("Write", "calc.py")] == "PermissionResultDeny"  # no edits while breaking
@@ -421,7 +423,7 @@ async def test_the_spending_ceiling_stops_the_run(hub, projects, monkeypatch):
     make_repo(projects / "calc", FILES)
     desk = hub.code_bugfix
     BugClient.cost_each = 0.6
-    hub.answers = ["start"]
+    hub.answers = ["start", "deny"]  # (the run; its .bugfix/ script's card, if it gets that far)
     assert await desk.request("calc", 1) == "Bug Fix Mode is on for calc."
     assert "Spending ceiling for the whole run: $1.00" in hub.cards[0]["detail"]
     [run] = desk.runs
@@ -471,7 +473,7 @@ async def test_stop_then_resume_after_a_restart_carries_on_from_its_step(
     assert [f.id for f in again.findings] == ["R1-1"] and again.folder
     # Resume: the same copy and conversation, from the break step.
     BugClient.hold = None
-    hub.answers = ["deny"]  # (not landing, this time)
+    hub.answers = ["allow", "deny"]  # (its .bugfix/ script's card; not landing, this time)
     assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
     assert await until(lambda: again.state != "running"), again.notes
     assert again.state == "done", again.notes
@@ -547,7 +549,9 @@ def test_the_stack_its_commands_and_what_is_the_owners(tmp_path):
         "wrangler" in s for s in stack["owner"]
     )
     assert command_allowed(stack, "npm test") and command_allowed(stack, "npm run build")
-    assert command_allowed(stack, "node .bugfix/flood.mjs")
+    assert not command_allowed(stack, "node .bugfix/flood.mjs")  # (its own script: a card)
+    assert scratch_script(stack, "node .bugfix/flood.mjs")
+    assert not scratch_script(stack, "node .bugfix/../x.js")
     for no in (
         "node x.js",
         "npm test | tail",
@@ -1024,3 +1028,88 @@ def test_an_unreadable_runs_file_is_never_saved_over(tmp_path):
         for f in tmp_path.iterdir():
             os.chmod(f, 0o600)
     assert "KEEP-ME" in kept.read_text()
+
+
+async def test_bug_fix_mode_runs_no_code_of_its_own_choosing_unasked(hub, projects):
+    """B6: a runner on a .bugfix/ script, a stack command with an option that runs another
+    program, and the dev server's start all went ahead with no card, outside any sandbox."""
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    task = ClaudeTask(id=8, prompt="x", cwd=projects, mode="edits", allow_edits=True)
+    run = BugRun("r1", "calc", step="break", stack={"kinds": ["python", "node", "go", "rust"]})
+    desk.active[8] = run
+    for card in (
+        "python .bugfix/p.py",
+        "node .bugfix/flood.mjs",
+    ):
+        assert desk.refusal(run, task, "Bash", {"command": card}) == "card", card
+    for no in (
+        "node --test --import ./.bugfix/x.mjs",
+        "node --test --import=./.bugfix/x.mjs",
+        "node --test --require ./x.js",
+        "go test -exec /bin/sh ./...",
+        "go test -toolexec=/bin/sh ./...",
+        "npm test --script-shell=/bin/sh",
+        "cargo test --config target.x.runner='sh'",
+        "pytest -p evil_plugin",
+        "uv run pytest -pevil",
+        "python .bugfix/p.py -e x",
+    ):
+        assert desk.refusal(run, task, "Bash", {"command": no}) not in (None, "card"), no
+    for fine in ("pytest -q", "go test -p 4 ./...", "cargo test -p core", "node --test"):
+        assert desk.refusal(run, task, "Bash", {"command": fine}) is None, fine
+    assert desk.refusal(run, task, "mcp__jarvis_dev__dev_server_start", {"name": "web"}) == "card"
+    assert desk.refusal(run, task, "mcp__jarvis_dev__dev_server_logs", {"name": "web"}) is None
+
+    class Options:
+        max_budget_usd = None
+        agents = None
+        sandbox = {"enabled": True, "network": {"allowUnixSockets": ["/tmp/d.sock"],
+                                                "allowedDomains": ["pypi.org"]}}  # fmt: skip
+
+        @staticmethod
+        async def can_use_tool(*_):
+            return PermissionResultAllow()
+
+    options = Options()
+    desk.extend(run, task, options)
+    assert options.sandbox["enabled"] and options.sandbox["allowUnsandboxedCommands"] is False
+    assert options.sandbox["network"]["allowedDomains"] == []  # no network
+    assert options.sandbox["network"]["allowUnixSockets"] == ["/tmp/d.sock"]
+    del desk.active[8]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest --basetemp=/Users/someone/Documents",  # pytest empties its basetemp first
+        "uv run pytest --basetemp=/tmp/anything",
+        "ruff check --fix /Users/someone/other-project",
+        "npm test --prefix /Users/someone/other-project",
+        "npm test --prefix ../other-project",
+        "go test -exec /bin/rm ./...",
+        "python3 -m compileall -f /",
+        "node --test --import=/tmp/evil.mjs",
+        "xcodebuild test -project /elsewhere/App.xcodeproj",
+        "pytest ~/elsewhere",
+    ],
+)
+def test_a_stack_command_naming_a_path_outside_the_copy_is_refused(command):
+    """B6 (round-1 break): the allow-list matched only the leading words, so these ran with
+    no card in the break step."""
+    stack = {"kinds": ["python", "node", "go", "xcode"]}
+    assert not command_allowed(stack, command) and not scratch_script(stack, command)
+
+
+async def test_the_sweep_runs_no_command_at_all(hub, projects):
+    """B6: "ruff check --fix" (a stack command) went ahead even in the read-only sweep."""
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    task = ClaudeTask(id=10, prompt="x", cwd=projects, mode="edits", allow_edits=True)
+    run = BugRun("r1", "calc", step="sweep", stack={"kinds": ["python"]})
+    for command in ("ruff check --fix .", "pytest -q", "ls"):
+        assert desk.refusal(run, task, "Bash", {"command": command}) not in (None, "card")
+    run.step = "break"
+    assert desk.refusal(run, task, "Bash", {"command": "pytest -q"}) is None

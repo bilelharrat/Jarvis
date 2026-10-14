@@ -266,3 +266,30 @@ async def test_a_card_s_prompt_is_words_only(hub, prompt):
 async def test_a_card_s_prompt_loses_its_nuls(hub):
     await hub._handle({"type": "todo_add", "directory": "proj", "prompt": "fix\x00 it\x00"})
     assert hub.code_todo.board.cards[0]["prompt"] == "fix it"
+
+
+async def test_a_card_from_an_issue_starts_locked_down_as_an_issues_run(hub):
+    """B9: a card from a GitHub issue got only mode "ask": the owner's settings, MCP servers
+    and web search stayed on, and the queue can start one with nobody there."""
+    seen = events_of(hub)
+    hub.code_pr._client, _asked = fake_github(
+        {"number": 12, "title": "Login loops", "body": "x", "user": {"login": "stranger"}}
+    )
+    await hub._handle(
+        {
+            "type": "todo_from_issue",
+            "directory": "proj",
+            "url": "https://github.com/acme/web/issues/12",
+        }
+    )
+    card = last(seen, "todo_state")["cards"][0]
+    await hub._handle({"type": "todo_edit", "id": card["id"], "isolated": False})
+    await hub._handle({"type": "todo_start", "id": card["id"]})
+    started = last(seen, "todo_state")["cards"][0]
+    assert started["state"] == "started"
+    assert await until(lambda: Stream.instances and Stream.instances[-1].options is not None)
+    options = Stream.instances[-1].options
+    assert options.mcp_servers == {} and options.setting_sources == ["project", "local"]
+    assert options.sandbox["enabled"] and options.sandbox["network"]["allowedDomains"] == []
+    assert "WebSearch" in options.disallowed_tools
+    assert started["task"] in hub.code_todo.untrusted

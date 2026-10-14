@@ -378,6 +378,57 @@ _VERSION_ONLY = {
 _NOT_READ_ONLY = re.compile(r"[`<>;&$\n]|\|\||\{[^{}]*(?:,|\.\.)")
 
 
+READ_ONLY_WHY = "a read-only command"  # (_unasked's why for one: the untrusted guards check it)
+
+
+def reads_inside(command: str, cwd: Path) -> bool:
+    """Whether every path a read-only command could name stays inside cwd. Each word after
+    a program's name, and each option's value, is taken as a path (a pattern grep looks for
+    too: one that looks like a path outside makes it ask), ~ as the shell expands it, and a
+    glob by what it matches now (a link in the project to a file outside counts as outside),
+    and a private folder inside cwd as outside it.
+    For runs on anyone's words (an issue's, Bug Fix Mode's on anyone's code): "cat
+    ~/.ssh/id_rsa", "find /" or "git diff --no-index ~/.aws/credentials /dev/null" only
+    read, but read what the run has no business sending to Claude (B7)."""
+    import glob as globbing
+
+    from . import private_folders
+
+    private = bool(private_folders.raw_list())
+
+    def inside(raw: str) -> bool:
+        if not _within(cwd, raw):
+            return False
+        if not private:
+            return True
+        path = Path(raw).expanduser()
+        return not private_folders.folder_of(str(path if path.is_absolute() else cwd / path))
+
+    for segment in command.split("|"):
+        try:
+            words = shlex.split(segment)
+        except ValueError:
+            return False
+        for word in words[1:]:
+            if word in ("-", "--", "/dev/null"):
+                continue
+            raw: str | None = word
+            if word.startswith("-"):
+                raw = _option(word)[1]
+                if raw is None or raw == "":
+                    continue
+            if any(c in raw for c in "*?["):
+                pattern = Path(raw).expanduser()
+                full = pattern if pattern.is_absolute() else cwd / pattern
+                hits = globbing.glob(str(full), recursive=True)[:2000]
+                fixed = re.split(r"[*?\[]", raw, maxsplit=1)[0] or "."
+                if not inside(fixed) or not all(inside(h) for h in hits):
+                    return False
+            elif not inside(raw):
+                return False
+    return True
+
+
 def is_read_only(command: str) -> bool:
     """Whether every part of a shell command only reads (pipes between such parts are fine;
     redirects, chains, substitutions and background jobs never are)."""
@@ -605,7 +656,14 @@ Your final message is the finished review in Markdown, nothing else:
 - "## References": every source cited, in {style} style, each with its DOI as a link when it has one.
 Write for someone who listens rather than reads: plain sentences, no tables."""
 
-CITATION_STYLES = {"apa": "APA 7", "mla": "MLA 9", "chicago": "Chicago author-date", "harvard": "Harvard", "ieee": "IEEE", "vancouver": "Vancouver"}
+CITATION_STYLES = {
+    "apa": "APA 7",
+    "mla": "MLA 9",
+    "chicago": "Chicago author-date",
+    "harvard": "Harvard",
+    "ieee": "IEEE",
+    "vancouver": "Vancouver",
+}
 
 
 def research_prompt(style: str) -> str:
@@ -613,6 +671,7 @@ def research_prompt(style: str) -> str:
         key = str(style).partition(":")[2] or "apa"
         return ACADEMIC_PROMPT.replace("{style}", CITATION_STYLES.get(key, "APA 7"))
     return RESEARCH_PROMPT
+
 
 # (question, detail, [(choice id, button label)]) -> chosen id
 Approve = Callable[[str, str, list[tuple[str, str]]], Awaitable[str]]
@@ -766,7 +825,9 @@ class ClaudeTask:
     files_changed: set[str] = field(default_factory=set)
     commands: int = 0
     kind: str = "code"  # code | research | a feature's own kind (background)
-    style: str = ""  # research: "" (the web report) or "academic:<citation style>" (a literature review)
+    style: str = (
+        ""  # research: "" (the web report) or "academic:<citation style>" (a literature review)
+    )
     report_path: str = ""
     label: str = ""  # what the windows call a feature's own kind of task
     mode: str = "ask"
@@ -2126,7 +2187,12 @@ class TaskManager:
     def start_research(self, topic: str, style: str = "") -> ClaudeTask:
         RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
         task = ClaudeTask(
-            id=next(self._ids), prompt=topic.strip(), cwd=RESEARCH_DIR, kind="research", mode="auto", style=style
+            id=next(self._ids),
+            prompt=topic.strip(),
+            cwd=RESEARCH_DIR,
+            kind="research",
+            mode="auto",
+            style=style,
         )
         self.tasks[task.id] = task
         task.handle = asyncio.create_task(self._run(task))
@@ -3407,7 +3473,7 @@ class TaskManager:
         if matched:
             return "auto", f"your rule: {matched} commands"
         if self.read_only_free() and is_read_only(command):
-            return "auto", "a read-only command"
+            return "auto", READ_ONLY_WHY
         return None
 
     def _loosen(self, task: ClaudeTask) -> None:

@@ -10,8 +10,9 @@ feature that shapes a new session still does: the router, isolation, the cloud's
 card), and the card then links to that session (its number while it's open, its Claude
 Code session id after, to reopen it). A card can also be made from a GitHub issue's
 address: its title, and its text as data (it's anyone's to write), the card marked as from
-outside: it never starts in Auto or Bypass, and in an isolated copy unless the owner says
-otherwise. Cards in a project can also run as a queue (features/code_queue: "Run my
+outside: it never starts in Auto or Bypass, in an isolated copy unless the owner says
+otherwise, and locked down as an issue's unattended run is (no owner settings, MCP servers
+or web tools; commands in the sandbox with no network). Cards in a project can also run as a queue (features/code_queue: "Run my
 queue").
 
 Window commands:
@@ -193,6 +194,10 @@ class Todo:
         self.hub = hub
         self._board: Board | None = None
         self._locks: dict[str, asyncio.Lock] = {}
+        # Sessions a card from outside (a GitHub issue) started, and the prompts of such
+        # cards starting now: their connections are locked down as an issue's run is (B9).
+        self.untrusted: set[int] = set()
+        self.starting: list[str] = []
 
     @property
     def board(self) -> Board:
@@ -469,7 +474,13 @@ class Todo:
                     }
                 )
             else:
-                await self.hub._handle(self.message(card, model, route))
+                if card.get("untrusted"):
+                    self.starting.append(card["prompt"])
+                try:
+                    await self.hub._handle(self.message(card, model, route))
+                finally:
+                    if card.get("untrusted") and card["prompt"] in self.starting:
+                        self.starting.remove(card["prompt"])
             task = None
             waited = 0.0
             while waited < START_WAIT:
@@ -484,6 +495,8 @@ class Todo:
                 self.tr("The session didn't start: {why}", why=self.tr("it didn't appear in time"))
             )
             return None
+        if card.get("untrusted"):
+            self.untrusted.add(task.id)
         card["task"], card["launch"] = task.id, self.launch
         card["session"] = task.session_id or ""
         card["started"] = _now()
@@ -537,8 +550,40 @@ class Todo:
                 self.board.save()
 
 
+class _LockDown:
+    """TaskManager.options_for, wrapped (after every feature's option hooks, so nothing
+    added later loosens it): a session a card from outside started gets an issue's run's
+    lock-down (code_unattended.Runs.lock_down): the project's own settings but none of the
+    owner's, no MCP server, no web tools, its commands in the sandbox with no network. Its
+    mode alone ("ask") left the owner's settings, MCP servers and web search on, and the
+    queue can start such a card with nobody watching. A session is known by the prompt it
+    starts with while its card is starting, then by its number."""
+
+    def __init__(self, todo: Todo) -> None:
+        self.todo = todo
+
+    def locked(self, task: Any) -> bool:
+        if task.id in self.todo.untrusted:
+            return True
+        if getattr(task, "kind", "") == "code" and task.prompt in self.todo.starting:
+            self.todo.untrusted.add(task.id)
+            return True
+        return False
+
+    def wrap(self, inner: Any) -> Any:
+        def options_for(task: Any) -> Any:
+            options = inner(task)
+            runs = getattr(self.todo.hub, "code_runs", None)
+            if runs is not None and self.locked(task):
+                runs.lock_down(options, sandbox=True)
+            return options
+
+        return options_for
+
+
 def install(hub: Any) -> None:
     todo = Todo(hub)
+    hub.tasks.options_for = _LockDown(todo).wrap(hub.tasks.options_for)
     hub.code_todo = todo
     hub.add_task_sink(todo.on_task_event)
     hub.register_command("todo_state", todo.cmd_state)

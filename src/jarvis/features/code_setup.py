@@ -39,13 +39,14 @@ import asyncio
 import contextlib
 import logging
 import re
+import shlex
 import time
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import HookMatcher
 
-from .. import devcontainer, jsonstore, lang, prefs, runproc
+from .. import code_changes, devcontainer, jsonstore, lang, prefs, runproc
 from ..codeplatform import code_task, other_agent
 from ..devcontainer import Docker, Image, Setup
 from .code_isolation import _project_names
@@ -97,6 +98,7 @@ ZH = {
     "The container wasn't used: nobody said yes to it in time.": "没有使用容器：没有人及时同意。",
     "Couldn't build the container's image: {error}": "没能构建容器镜像：{error}",
     "Couldn't start the container: {error}": "没能启动容器：{error}",
+    "This copy's git data isn't where Eden can tell, so it gets no container: this session runs its commands on the Mac.": "无法确定这个副本的 git 数据在哪里，所以它没有容器：这个会话在 Mac 上运行命令。",
     "Containers are on for {project}, but it has no image: pick one in Setup and container, or add .devcontainer/devcontainer.json. This session runs its commands on the Mac.": "{project} 已开启容器，但没有镜像：在“设置与容器”里选一个，或添加 .devcontainer/devcontainer.json。这个会话在 Mac 上运行命令。",
     "Setup and container": "设置与容器",
     "There's no copy to set up here.": "这里没有可以设置的副本。",
@@ -114,7 +116,9 @@ def _detail_setup(setup: Setup, where: str) -> str:
     return (
         f"From {setup.source}, run {where}:\n\n{shown}\n\n"
         "It runs as you. The setup is the repository's to write (a cloned one's authors', "
-        "or a session's): run it only if that's a script you trust. I ask again if it changes."
+        "or a session's): run it only if that's a script you trust. I ask again if it changes. "
+        "What runs is this text; a file it runs or sources in turn isn't on this card, and "
+        "runs as it is then."
     )
 
 
@@ -127,6 +131,7 @@ class SetupDesk:
         self.output: dict[str, list[str]] = {}  # slug -> the latest setup's output
         self.running: dict[str, runproc.Proc] = {}  # slug -> a setup running there now
         self._containers: dict[str, dict[str, Any]] | None = None
+        self.unreadable = False  # code_containers.json couldn't be read: it's not saved over
         self.sockets: dict[str, str] = {}  # container name -> docker's socket, for the sandbox
 
     # ── plumbing ──
@@ -140,17 +145,21 @@ class SetupDesk:
     def _ok_path(self) -> Path:
         return self.hub.feature_path("code-setup-ok.json")
 
-    def approved(self) -> dict[str, list[str]]:
+    def approved(self) -> dict[str, list[str]] | None:
+        """The fingerprints the owner said yes to, by project; None when the file can't be
+        read (then nothing counts as approved, and nothing is saved over it)."""
         try:
             data = jsonstore.load_json(self._ok_path(), dict) or {}
         except jsonstore.Unreadable:
-            data = {}
+            return None
         return {
             k: [f for f in v if isinstance(f, str)] for k, v in data.items() if isinstance(v, list)
         }
 
     def remember(self, project: str, fingerprint: str) -> None:
         kept = self.approved()
+        if kept is None:
+            return  # (an unreadable file isn't saved over: it asks again next time)
         kept[project] = [*[f for f in kept.get(project, []) if f != fingerprint], fingerprint][-50:]
         with contextlib.suppress(OSError):  # a full disk: it asks again next time
             jsonstore.save_json(self._ok_path(), kept)
@@ -160,7 +169,7 @@ class SetupDesk:
     ) -> str:
         """The owner's answer: "yes" (now, or to this before), "no", or "late" when the
         card went unanswered."""
-        if fingerprint in self.approved().get(project, []):
+        if fingerprint in (self.approved() or {}).get(project, []):
             return "yes"
         try:
             choice = await asyncio.wait_for(
@@ -189,12 +198,43 @@ class SetupDesk:
                 data = jsonstore.load_json(self.hub.feature_path("code_containers.json"), dict)
             except jsonstore.Unreadable:
                 data = None
+                self.unreadable = True  # (never saved over: tidy's label sweep finds them)
             self._containers = {
                 k: v for k, v in (data or {}).items() if isinstance(v, dict) and v.get("name")
             }
+            for info in self._containers.values():
+                self.pin(info)
         return self._containers
 
+    def pin(self, info: dict[str, Any]) -> None:
+        """Eden's own git in a container's copy runs on the git data recorded before the
+        container started (code_changes.pin_git), never where the copy's files now point.
+        A record from before there was one: its copy's .git file is taken only when it still
+        points into the main repository's own git data (else no git runs there at all)."""
+        checkout, pin = str(info.get("checkout") or ""), info.get("git", False)
+        if checkout and (pin is None or isinstance(pin, dict)):
+            code_changes.pin_git(checkout, pin)
+            return
+        desk = self.desk()
+        copy = desk.store().by_path(Path(str(info.get("cwd") or "/"))) if desk else None
+        if copy is None:
+            return
+        info["checkout"], info["git"] = str(copy.checkout), self.checked_pin(copy)
+        code_changes.pin_git(copy.checkout, info["git"])
+
+    @staticmethod
+    def checked_pin(copy: Any) -> dict[str, str] | None:
+        """A copy's git data as its .git file says (devcontainer.git_pin), only when that's in
+        the main repository's own .git (blocking: reads files)."""
+        found = devcontainer.git_pin(Path(copy.checkout))
+        main = Path(copy.repo) / ".git"
+        if found is None or not main.is_dir():
+            return None
+        return found if Path(found["common"]).resolve() == main.resolve() else None
+
     def save_containers(self) -> None:
+        if self.unreadable:
+            return
         with contextlib.suppress(OSError):
             jsonstore.save_json(self.hub.feature_path("code_containers.json"), self.containers())
 
@@ -253,7 +293,7 @@ class SetupDesk:
                 "container:" + image.fingerprint,
                 f"Run {copy.project}'s sessions in a container from {image.source}?",
                 f"{image.source} asks for {what}. The copy is mounted in it read-write, the "
-                "main repository's git data read-only, and the session's commands run in "
+                "copy's git data read-only, and the session's commands run in "
                 "there. An image is the repository's to choose: use it only if you trust "
                 "where it comes from. I ask again if it changes.",
                 "Use the container",
@@ -278,6 +318,14 @@ class SetupDesk:
                 why = (out.strip().splitlines() or ["it ran out of time"])[-1][:300]
                 self.note(task, f"Couldn't build the container's image: {why}")
                 return None
+        pin = await asyncio.to_thread(self.checked_pin, copy)
+        if pin is None:  # (its git data can't be mounted read-only: no container)
+            self.note(
+                task,
+                "This copy's git data isn't where Eden can tell, so it gets no "
+                "container: this session runs its commands on the Mac.",
+            )
+            return None
         name = devcontainer.container_name(copy.slug)
         await self.docker.run(["rm", "-f", name])  # (one left from before, by the same name)
         args = devcontainer.run_args(name, copy.slug, tag, Path(copy.checkout), copy.cwd)
@@ -286,7 +334,11 @@ class SetupDesk:
             why = (out.strip().splitlines() or ["it ran out of time"])[-1][:300]
             self.note(task, f"Couldn't start the container: {why}")
             return None
-        info = {"name": name, "image": tag, "cwd": str(copy.cwd), "project": copy.project}
+        info = {
+            "name": name, "image": tag, "cwd": str(copy.cwd), "project": copy.project,
+            "checkout": str(copy.checkout), "git": pin,
+        }  # fmt: skip
+        self.pin(info)
         self.containers()[copy.slug] = info
         self.save_containers()
         self.sockets[name] = await self.docker.socket()
@@ -299,22 +351,61 @@ class SetupDesk:
         return info
 
     def on_copy_gone(self, slug: str) -> None:
-        info = self.containers().pop(slug, None)
         self.output.pop(slug, None)
+        proc = self.running.pop(slug, None)
+        if proc is not None:  # (a setup still running for a copy that's gone: stopped)
+            self.hub._spawn(proc.stop(grace=2.0))
+        info = self.containers().get(slug)
         if info is None:
             return
-        self.save_containers()
+        if info.get("checkout"):
+            code_changes.unpin_git(str(info["checkout"]))
         self.sockets.pop(str(info.get("name")), None)
-        self.hub._spawn(self.docker.run(["rm", "-f", str(info["name"])]))
+        self.hub._spawn(self.remove(slug, str(info["name"])))
+
+    async def remove(self, slug: str, name: str) -> bool:
+        """A copy's container taken away, and only then its record: with docker stopped (or
+        the rm failing) the record stays, and the hourly tidy-up tries again."""
+        code, out = await self.docker.run(["rm", "-f", name])
+        if code != 0 and "no such container" not in out.lower():
+            log.info("couldn't remove the container %s: %s", name, out.strip()[-200:])
+            return False
+        if (self.containers().get(slug) or {}).get("name") == name:
+            self.containers().pop(slug, None)
+            await asyncio.to_thread(self.save_containers)
+        return True
 
     async def tidy(self) -> None:
-        """Containers whose copy is gone (the app quit before it could take them away)."""
+        """Containers whose copy is gone (the app quit before it could take them away): the
+        ones on the list, and any docker has with Eden's eden.copy label that no copy has
+        (their record lost, or never saved). Not while the copies' list can't be read: every
+        container would look orphaned then."""
         desk = self.desk()
-        if desk is None:
+        if desk is None or getattr(desk.store(), "unreadable", ""):
             return
         listed = {c.slug for c in desk.store().copies}
         for slug in [s for s in self.containers() if s not in listed]:
             self.on_copy_gone(slug)
+        if not (self.hub.prefs.feature(PREF_PROJECTS) or self.containers() or self.unreadable):
+            return  # (containers never used here: docker isn't asked)
+        code, out = await self.docker.run(
+            [
+                "ps",
+                "-a",
+                "--filter",
+                "label=eden.copy",
+                "--format",
+                '{{.Names}}\t{{.Label "eden.copy"}}',
+            ]
+        )
+        if code != 0:
+            return
+        recorded = {str(i.get("name")) for i in self.containers().values()}
+        for line in out.splitlines():
+            name, _, slug = line.strip().partition("\t")
+            if not name.startswith("eden-") or name in recorded or slug in listed:
+                continue
+            await self.remove(slug, name)
 
     async def tidier(self) -> None:
         await asyncio.sleep(60)
@@ -328,17 +419,36 @@ class SetupDesk:
     # ── a session's commands in its container ──
 
     def hook(self, task: Any) -> HookMatcher:
-        """PreToolUse on Bash: the step's command run in the copy's container instead."""
+        """PreToolUse on Bash: the step's command run in the copy's container instead.
+
+        A command is left as it is only when it already is, word for word, the line this
+        hook makes for this container (docker exec, this container, this folder, sh -c and
+        one command): the session's sandbox lets docker's socket through for that line, so
+        anything else that merely starts the same way ("<that line> true; rm -rf ~", or the
+        same words with another container or a docker flag after them) is wrapped like any
+        other command and runs in the container. The container this session connected with
+        gone (its copy landed or discarded under it, the tidy-up), its Bash steps are
+        refused rather than run on the Mac with docker's socket still open to them."""
+        connected = self.container_of(task)
+        name_then = str(connected["name"]) if connected else ""
 
         async def into_container(input_data: dict[str, Any], _id: Any, _ctx: Any) -> dict:
             info = self.container_of(task)
             tool_input = input_data.get("tool_input") or {}
             command = str(tool_input.get("command") or "")
-            if info is None or input_data.get("tool_name") != "Bash" or not command:
+            if input_data.get("tool_name") != "Bash" or not command:
                 return {}
-            prefix = self.docker.exec_line(str(info["name"]), Path(info["cwd"]), "")
-            prefix = prefix[: prefix.rfind(" ")]  # (all of it but the empty command)
-            if command.startswith(prefix):
+            if info is None or str(info.get("name")) != name_then:
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": "This copy's container is gone, so its "
+                        "commands can't run: stop here and say so; a new session in it runs "
+                        "them on the Mac.",
+                    }
+                }
+            if self.is_own_line(info, command):
                 return {}
             line = self.docker.exec_line(str(info["name"]), Path(info["cwd"]), command)
             return {
@@ -350,9 +460,23 @@ class SetupDesk:
 
         return HookMatcher(matcher="Bash", hooks=[into_container])
 
+    def is_own_line(self, info: dict[str, Any], command: str) -> bool:
+        """Whether a command is exactly a line the hook made: every word of docker exec's
+        own, for this container and folder, then a single command for sh -c."""
+        own = shlex.split(self.docker.exec_line(str(info["name"]), Path(info["cwd"]), ""))
+        try:
+            words = shlex.split(command)
+        except ValueError:
+            return False
+        return len(words) == len(own) and words[:-1] == own[:-1] and bool(words[-1])
+
     # ── setup ──
 
-    async def setup(self, task: Any, copy: Any, container: dict[str, Any] | None) -> None:
+    async def setup(
+        self, task: Any, copy: Any, container: dict[str, Any] | None, idle: bool = False
+    ) -> None:
+        """The setup, after its card. idle: the owner's Run setup again, which waits for no
+        session step: if the session started working while the card was up, it isn't run."""
         found, problem = await asyncio.to_thread(devcontainer.read_setup, copy.cwd)
         if problem:
             self.note(task, problem)
@@ -373,6 +497,12 @@ class SetupDesk:
                 "Setup was skipped: nobody said yes to it in time."
                 if said == "late"
                 else "Setup was skipped.",
+            )
+            return
+        if idle and (task.busy or copy.slug in self.running):
+            self.hub.emit(
+                "caption",
+                text=self.tr("It's still working. Wait for it to finish, then run the setup."),
             )
             return
         await self.run_setup(task, copy, found, container)
@@ -432,6 +562,8 @@ class SetupDesk:
             except TimeoutError:
                 await proc.stop(grace=2.0)
                 code = None
+                if container is not None:  # (stopping docker exec leaves the script running)
+                    await self.stop_inside(str(container["name"]))
         finally:
             self.running.pop(slug, None)
             for handle in flush_at:
@@ -453,6 +585,22 @@ class SetupDesk:
         self.hub.tasks._log(task, "system", said + (f"\n```\n{tail}\n```" if tail else ""))
         self.hub.emit("code_setup_output", id=task.id, slug=slug, lines=[], done=True, code=code)
         return code
+
+    async def stop_inside(self, name: str) -> None:
+        """Everything running in a copy's container stopped but the container itself: a
+        setup that ran out of time keeps going in there when only the docker exec on the
+        Mac is stopped. (A setup runs before its session's first step, or when it isn't
+        working, so nothing of the session's is running there then.)"""
+        await self.docker.run(
+            [
+                "exec",
+                name,
+                "/bin/sh",
+                "-c",
+                "kill -TERM -1 2>/dev/null; sleep 2; kill -KILL -1 2>/dev/null; true",
+            ],
+            timeout=devcontainer.CHECK_SECONDS,
+        )
 
     # ── the window ──
 
@@ -527,7 +675,7 @@ class SetupDesk:
                 text=self.tr(problem or "There's no setup in this project: add .jarvis/setup.sh."),
             )
             return
-        await self.setup(task, copy, self.container_of(task))
+        await self.setup(task, copy, self.container_of(task), idle=True)
         await self.cmd_state({"id": task.id})
 
 
@@ -539,7 +687,11 @@ def _q(text: str) -> str:
 
 class _Options:
     """What a session's connection gets (TaskManager.option_hooks): the hook that runs its
-    commands in its copy's container, and the container's socket through the sandbox."""
+    commands in its copy's container, and the container's socket through the sandbox. The
+    socket is all of docker to whatever reaches it (docker run -v $HOME:/h), so it's let
+    through only because the hook leaves no Bash step on the Mac: every one becomes the
+    exact docker exec line for this container (SetupDesk.is_own_line), and with the
+    container gone they're refused."""
 
     def __init__(self, desk: SetupDesk) -> None:
         self.desk = desk

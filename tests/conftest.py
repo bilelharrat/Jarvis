@@ -304,6 +304,22 @@ def _no_real_mac_commands(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_gh_token(monkeypatch):
+    """No test runs the owner's real GitHub CLI (gh auth token hands out their token): the
+    PR review and issue tests found it on the PATH. gh_token is "" here; test_github tests
+    the real one (gh_token.real) with a fake gh."""
+    from jarvis import github
+
+    real = github.gh_token
+
+    def no_gh() -> str:
+        return ""
+
+    no_gh.real = real  # type: ignore[attr-defined]
+    monkeypatch.setattr(github, "gh_token", no_gh)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_claude_records(monkeypatch):
     """Jarvis's past conversations (Claude Code's own session records) are never the
     owner's ~/.claude in a test: a hub finds none, unless a test gives it fakes."""
@@ -577,7 +593,11 @@ def _legacy_jarvis_wake_word(request, monkeypatch):
         return ["Jarvis", *real(persona, language)[1:]]
 
     monkeypatch.setattr(wakewords, "defaults", legacy)
-    monkeypatch.setattr(wakewords, "effective", lambda p, l, pref, _e=wakewords.effective: _e(p, l, pref) or ["Jarvis"])
+    monkeypatch.setattr(
+        wakewords,
+        "effective",
+        lambda p, l, pref, _e=wakewords.effective: _e(p, l, pref) or ["Jarvis"],
+    )
     original = wake.wake_names
 
     def names():

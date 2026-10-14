@@ -816,6 +816,15 @@ class Runs:
                     message="It's an unattended run: there's no plan to approve. Carry on with "
                     "the work itself."
                 )
+            # A private folder (private_folders.py) is never read, searched or named in a
+            # command, whatever the run's scope (policy_for's rule, which this guard replaces).
+            if private := tasks._private_target(tool_name, tool_input):
+                self.hub.tasks._audit(task, tool_name, tool_input, "denied", "a private folder")
+                return PermissionResultDeny(
+                    message=f"{private} is a folder the user keeps private (local only): "
+                    "nothing in it may be read, searched, run or sent to Claude. Don't try "
+                    "to get at it another way; carry on without it."
+                )
             # The owner's own permission rules win over the run's scope: a deny rule refuses,
             # and an ask rule refuses too, since nobody's here to ask.
             ruled = self.hub.tasks._ruled(task, tool_name, tool_input)
@@ -832,6 +841,13 @@ class Runs:
                     "on without it if you can, otherwise stop and say what you'd need."
                 )
             free = self.hub.tasks._goes_ahead(task, tool_name, tool_input)
+            if (
+                free is not None
+                and run.untrusted
+                and free[1] == tasks.READ_ONLY_WHY
+                and not tasks.reads_inside(str(tool_input.get("command", "")), task.cwd)
+            ):
+                free = None  # (an issue's run reads only in its folder: B7)
             if free is None and tool_name == "Bash":
                 command = str(tool_input.get("command", ""))
                 if self.allowed(run, task, command):

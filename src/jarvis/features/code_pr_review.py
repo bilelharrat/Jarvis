@@ -284,6 +284,31 @@ def fix_prompt(repo: str, pull: dict[str, Any], findings: list[dict[str, Any]]) 
     return "\n".join(lines)
 
 
+def same_repo(pull: dict[str, Any], repo: str) -> bool:
+    """Whether a pull request's head is a branch of the repository itself (Eden may push its
+    fix there): the head's repository named, and the same as the base's, by name and id. A
+    fork deleted since (GitHub sends head.repo as null) is not: its commits are an
+    outsider's, and pushing them could land on any branch of the repository (B3)."""
+    head = pull.get("head") if isinstance(pull.get("head"), dict) else {}
+    base = pull.get("base") if isinstance(pull.get("base"), dict) else {}
+    head_repo = head.get("repo") if isinstance(head.get("repo"), dict) else {}
+    base_repo = base.get("repo") if isinstance(base.get("repo"), dict) else {}
+    name = str(head_repo.get("full_name") or "")
+    if not name or name.lower() != repo.lower():
+        return False
+    head_id, base_id = head_repo.get("id"), base_repo.get("id")
+    return head_id is None or base_id is None or head_id == base_id
+
+
+def protected_refs(pull: dict[str, Any]) -> list[str]:
+    """Branches a fix is never pushed to: the repository's default branch and the one the
+    pull request merges into."""
+    base = pull.get("base") if isinstance(pull.get("base"), dict) else {}
+    base_repo = base.get("repo") if isinstance(base.get("repo"), dict) else {}
+    found = [str(base_repo.get("default_branch") or ""), str(base.get("ref") or "")]
+    return [r for r in found if r] or ["main", "master"]
+
+
 class PullReviews:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
@@ -675,9 +700,6 @@ class PullReviews:
         if not self.fix_caps.left("fix"):
             return f"That's today's {FIXES_A_DAY} fixes from reviews; the next can start tomorrow."
         head = pull.get("head") if isinstance(pull.get("head"), dict) else {}
-        head_repo = (
-            (head.get("repo") or {}).get("full_name") if isinstance(head.get("repo"), dict) else ""
-        )
         title = " ".join(str(pull.get("title") or "").split())
         scope = Scope(
             prompt=fix_prompt(record["repo"], pull, chosen),
@@ -700,7 +722,8 @@ class PullReviews:
             "number": number,
             "head_ref": str(head.get("ref") or ""),
             "head_sha": str(head.get("sha") or ""),
-            "same_repo": not head_repo or head_repo.lower() == record["repo"].lower(),
+            "same_repo": same_repo(pull, record["repo"]),
+            "protected": protected_refs(pull),
         }
         return f"Started a session fixing pull request #{number} in {record['repo']}."
 
@@ -797,12 +820,34 @@ class PullReviews:
             git, top.top, "log", "--format=%h %s", f"{fix['head_sha']}..HEAD"
         ) if fix.get("head_sha") else None  # fmt: skip
         commits = [c for c in (ahead.out.splitlines() if ahead and ahead.ok else []) if c.strip()]
+        # What the session committed itself is scanned too, whether or not anything was left
+        # uncommitted (B5): everything from the pull request's head to what would be pushed.
+        committed: list[secret_scan.Finding] = []
+        if commits and fix.get("head_sha"):
+            committed = await asyncio.to_thread(
+                lambda: secret_scan.scan(
+                    code_changes.diff_files(
+                        top, fix["head_sha"], untracked=False, cached=True, worktree=False
+                    ),
+                    top.shown,
+                )
+            )
         if not commits and not findings:
             return f"The fix for pull request #{n} changed nothing."
         if not fix["same_repo"] or not fix["head_ref"]:
             return (
                 f"Pull request #{n} comes from a fork, so its branch isn't Eden's to push to: "
                 f"the fix is in the isolated copy {branch}."
+            )
+        if fix["head_ref"] in fix.get("protected", []):
+            return (
+                f"Pull request #{n}'s branch is {fix['head_ref']}, the repository's own, so Eden "
+                f"doesn't push to it: the fix is in the isolated copy {branch}."
+            )
+        if committed:
+            return (
+                f"The fix for pull request #{n} wasn't pushed: its commits may hold secrets "
+                f"({secret_scan.summary(committed)}). It's in the isolated copy {branch}."
             )
         lines = [f"{len(commits)} commit{'s' if len(commits) != 1 else ''}:"]
         lines += [f"• {c[:120]}" for c in commits[:8]]
@@ -846,7 +891,7 @@ class PullReviews:
     def cmd_review(self, msg: dict[str, Any]) -> None:
         try:
             number = int(msg.get("number") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # (Infinity, from JSON: OverflowError)
             number = 0
         if number > 0:
             self._reply(self.review_now(str(msg.get("repo") or "")[:200], number))

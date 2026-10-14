@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import code_changes
 from .code_vocab import SKIP_DIRS
 from .computer import is_sensitive
 
@@ -164,6 +165,9 @@ class Stop:
 
 
 def is_git(root: Path) -> bool:
+    pinned, refused = code_changes.pinned_env(root)  # (a container's copy: B2)
+    if refused:
+        return False
     try:
         out = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
@@ -171,6 +175,7 @@ def is_git(root: Path) -> bool:
             text=True,
             timeout=5,
             check=False,
+            env={**os.environ, **pinned},
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -215,7 +220,7 @@ def _git_grep(root: Path, query: Query, pattern: re.Pattern[str], stop: Stop) ->
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0", **code_changes.pinned_env(root)[0]},
         )
     except ValueError:  # a NUL in the words or the file filter: no command can carry it
         raise SearchError("A search can't contain a NUL character.") from None

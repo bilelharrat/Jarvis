@@ -146,6 +146,8 @@ def test_reading_the_setup(tmp_path):
     found, _ = devcontainer.read_setup(tmp_path)  # the script wins over the entry
     assert found.source == ".jarvis/setup.sh" and found.command() == [
         "/bin/bash",
+        "-c",
+        "make\n",
         ".jarvis/setup.sh",
     ]
     other = devcontainer.Setup(".jarvis/setup.sh", "make all\n")
@@ -329,3 +331,180 @@ async def test_the_pane_shows_the_setup_and_the_container_state(hub, projects, d
     [event] = [d for k, d in hub.events if k == "code_setup"]
     assert event["setup"] == {"source": ".jarvis/setup.sh", "text": "make\n"}
     assert event["container"]["on"] is True and "isn't running" in event["container"]["docker"]
+
+
+async def test_a_command_that_only_starts_like_the_docker_exec_line_still_goes_in(
+    hub, projects, docker
+):
+    """B1: the hook left alone any command that merely started with its docker exec words,
+    so "<that line> true; <anything>" ran the rest on the Mac (with docker's socket open in
+    the sandbox). Only the exact line it makes is left as it is; a gone container refuses."""
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    container_on(hub, image="node:22")
+    task = await isolated_session(hub)
+    await started(hub, task)
+    copy = copy_of(hub, task)
+    [bash] = [h for h in task.client.options.hooks["PreToolUse"] if h.matcher == "Bash"]
+    hook = bash.hooks[0]
+    name = f"eden-{copy.slug}"
+    own = docker.exec_line(name, copy.cwd, "true")
+    other = docker.exec_line("eden-someone-else", copy.cwd, "true")
+    for sneaky in [
+        own + "; touch /tmp/on-the-mac",
+        own + " && curl evil",
+        own.replace(" exec ", " exec --privileged ", 1),
+        other,
+        own + " extra-word",
+    ]:
+        out = await hook({"tool_name": "Bash", "tool_input": {"command": sneaky}}, None, None)
+        line = out["hookSpecificOutput"]["updatedInput"]["command"]
+        assert shlex.split(line)[-1] == sneaky and name in line, sneaky
+    assert await hook({"tool_name": "Bash", "tool_input": {"command": own}}, None, None) == {}
+    # The container gone under the session: its steps are refused, never run on the Mac.
+    hub.code_setup.containers().pop(copy.slug)
+    out = await hook({"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None)
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+async def test_a_containers_copy_has_its_git_pinned_across_a_restart(hub, projects, docker):
+    """B2: Eden's own git in a container's copy runs on the git data read before the
+    container started, recorded with it, and pinned again when the app starts; a record
+    from before there was one is pinned from the copy's .git when that's the main repo's."""
+    from jarvis import code_changes
+
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    container_on(hub, image="node:22")
+    task = await isolated_session(hub)
+    await started(hub, task)
+    copy = copy_of(hub, task)
+    [run] = [c for c in docker.calls if c[0] == "run"]
+    assert f"{copy.checkout}/.git:{copy.checkout}/.git:ro" in run
+    info = hub.code_setup.containers()[copy.slug]
+    assert info["git"]["common"].endswith(".git") and info["checkout"] == str(copy.checkout)
+    real = os.path.realpath(copy.checkout)
+    assert code_changes._PINS[real] == info["git"]
+    for record in (info, {k: v for k, v in info.items() if k not in ("git", "checkout")}):
+        code_changes.unpin_git(copy.checkout)
+        hub.code_setup._containers = None
+        from jarvis import jsonstore
+
+        jsonstore.save_json(hub.feature_path("code_containers.json"), {copy.slug: record})
+        hub.code_setup.containers()
+        assert code_changes._PINS[real] == info["git"]
+    hub.code_setup.on_copy_gone(copy.slug)
+    assert real not in code_changes._PINS
+
+
+async def test_an_unreadable_containers_list_is_never_saved_over(hub, docker, monkeypatch):
+    """B10 (and the setup approvals beside it): a list that couldn't be read was taken as
+    empty and saved over, so the containers on it were never taken away."""
+    from jarvis import jsonstore
+
+    desk = hub.code_setup
+    for name in ("code_containers.json", "code-setup-ok.json"):
+        hub.feature_path(name).write_text('{"kept": "as it was"}')
+
+    def unreadable(*_a, **_k):
+        raise jsonstore.Unreadable(13, "can't be read")
+
+    monkeypatch.setattr(jsonstore, "load_json", unreadable)
+    desk._containers = None
+    assert desk.containers() == {}
+    desk.containers()["new-1"] = {"name": "eden-new-1"}
+    desk.save_containers()
+    desk.remember("/p", "abc")
+    for name in ("code_containers.json", "code-setup-ok.json"):
+        assert hub.feature_path(name).read_text() == '{"kept": "as it was"}', name
+
+
+async def test_the_tidy_up_also_takes_away_labelled_containers_no_copy_has(hub, docker):
+    """B10: a container docker has with Eden's label whose record was lost is found by the
+    label, and removed when no copy is its."""
+    container_on(hub, image="node:22")
+    docker.fail["ps"] = (0, "eden-orphan-1\torphan-1\nnot-eden\tx\n")
+    await hub.code_setup.tidy()
+    assert ["rm", "-f", "eden-orphan-1"] in docker.calls
+    assert ["rm", "-f", "not-eden"] not in docker.calls
+    [ps] = [c for c in docker.calls if c[0] == "ps"]
+    assert "label=eden.copy" in ps
+
+
+async def test_a_container_record_stays_until_docker_has_really_removed_it(hub, docker):
+    """B11: the record was dropped and saved before docker rm -f, whose answer nobody read:
+    with Docker stopped the container was left behind for good."""
+    desk = hub.code_setup
+    desk.containers()["gone-1"] = {"name": "eden-gone-1", "image": "x", "cwd": "/"}
+    docker.fail["rm"] = (1, "Cannot connect to the Docker daemon")
+    desk.on_copy_gone("gone-1")
+    await asyncio.sleep(0.05)
+    assert "gone-1" in desk.containers()  # kept: the tidy-up tries again
+    docker.fail.pop("rm")
+    await desk.tidy()
+    await asyncio.sleep(0.05)
+    assert "gone-1" not in desk.containers()
+    assert docker.calls.count(["rm", "-f", "eden-gone-1"]) == 2
+
+
+async def test_a_setup_out_of_time_is_stopped_inside_its_container_too(
+    hub, docker, tmp_path, monkeypatch
+):
+    """B12: running out of time stopped only the docker exec on the Mac; the script went on
+    in the container. And a copy that goes while its setup runs has it stopped."""
+    from types import SimpleNamespace
+
+    from jarvis.devcontainer import Setup
+    from jarvis.features import code_setup
+
+    monkeypatch.setattr(code_setup, "SETUP_SECONDS", 0.3)
+    task = tasks.ClaudeTask(id=41, prompt="x", cwd=tmp_path)
+    copy = SimpleNamespace(slug="s-1", cwd=tmp_path, repo=str(tmp_path), prefix="")
+    found = Setup(devcontainer.LAUNCH_FILE, "sleep 30")
+    code = await hub.code_setup.run_setup(task, copy, found, {"name": "eden-s-1"})
+    assert code is None
+    [stop] = [c for c in docker.calls if c[:2] == ["exec", "eden-s-1"] and len(c) > 3]
+    assert "kill -TERM -1" in stop[-1]
+
+    stopped = []
+
+    class Running:
+        async def stop(self, grace=0):
+            stopped.append(grace)
+
+    hub.code_setup.running["s-2"] = Running()
+    hub.code_setup.on_copy_gone("s-2")
+    await asyncio.sleep(0.05)
+    assert stopped and "s-2" not in hub.code_setup.running
+
+
+async def test_what_runs_is_the_script_the_card_showed_and_never_while_it_works(
+    hub, projects, docker, monkeypatch, tmp_path
+):
+    """B4: the card approved setup.sh's text, then the file was run from disk: changed while
+    the card waited (from inside a container, say), the new one ran. And Run setup again
+    checked the session wasn't working only before its card."""
+    from types import SimpleNamespace
+
+    folder = tmp_path / "copy"
+    (folder / ".jarvis").mkdir(parents=True)
+    script = folder / ".jarvis" / "setup.sh"
+    script.write_text("echo approved > ran.txt\n")
+    task = tasks.ClaudeTask(id=51, prompt="x", cwd=folder)
+    copy = SimpleNamespace(slug="b4", cwd=folder, repo=str(folder), prefix="", project="p")
+
+    async def swap_then_yes(*_a, **_k):
+        script.write_text("echo swapped > ran.txt\n")
+        return "yes"
+
+    monkeypatch.setattr(hub, "request_approval", swap_then_yes)
+    await hub.code_setup.setup(task, copy, None)
+    assert (folder / "ran.txt").read_text() == "approved\n"
+
+    async def busy_then_yes(*_a, **_k):
+        task.busy = True
+        return "yes"
+
+    (folder / "ran.txt").unlink()
+    script.write_text("echo again > ran.txt\n")
+    monkeypatch.setattr(hub, "request_approval", busy_then_yes)
+    await hub.code_setup.setup(task, copy, None, idle=True)
+    assert not (folder / "ran.txt").exists()

@@ -128,6 +128,7 @@ def test_the_token_is_the_connectors_else_gh_s(monkeypatch):
         github.shutil, "which", lambda name: "/opt/bin/gh" if name == "gh" else None
     )
     monkeypatch.setattr(github.subprocess, "run", fake_run)
+    monkeypatch.setattr(github, "gh_token", github.gh_token.real)  # (conftest's: no real gh)
     assert github.token_from(vault) == "gho_" + "x" * 36
     assert ran == [["/opt/bin/gh", "auth", "token", "--hostname", "github.com"]]
     # gh signed out, or saying something that isn't a token: nothing.

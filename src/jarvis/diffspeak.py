@@ -13,6 +13,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import code_changes
 from .computer import is_sensitive
 
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)$")
@@ -60,9 +61,12 @@ def _attributes() -> str:
 
 
 def _git(cwd: Path, *args: str) -> str:
+    env = code_changes.git_env(cwd)  # (a container's copy: its git data pinned)
+    if env is None:
+        return ""
     try:
         out = subprocess.run(
-            ["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=15
+            ["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=15, env=env
         )
     except (OSError, subprocess.SubprocessError):
         return ""
