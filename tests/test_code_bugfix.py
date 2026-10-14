@@ -879,3 +879,14 @@ async def test_a_run_quit_in_its_first_sweep_knows_its_copy_and_can_resume(
     assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
     assert await until(lambda: again.state != "running"), again.notes
     assert again.state == "done", again.notes
+
+
+async def test_two_starts_on_one_project_at_once_start_one_run(hub, projects):
+    """Round 1's D7: the second start, asked while the first's card is up, is refused."""
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "SWEEP"
+    hub.answers = ["start", "start"]
+    said = await asyncio.gather(desk.request("calc"), desk.request("calc"))
+    assert sorted(said) == ["Bug Fix Mode is already on for calc.", "Bug Fix Mode is on for calc."]
+    assert len(desk.runs) == 1 and len(hub.cards) == 1

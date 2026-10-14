@@ -737,6 +737,7 @@ class BugFix:
         self.waiting: dict[int, asyncio.Future] = {}  # session id -> its step's turn
         self.quiet: dict[int, float] = {}
         self.drivers: dict[str, asyncio.Task] = {}
+        self.asking: set[str] = set()  # projects whose start card is up, or starting
         self._loaded = False
         # Overridable (the tests): how a folder's suites are found, and the suite runs' env.
         self.suites_of: Any = None
@@ -873,8 +874,15 @@ class BugFix:
         if isinstance(where, str):
             return self.tr(where)
         folder, name = where
-        if any(r.project == name for r in self.active.values()):
+        if name in self.asking or any(r.project == name for r in self.active.values()):
             return self.say("Bug Fix Mode is already on for {project}.", project=name)
+        self.asking.add(name)  # (until it starts or doesn't: a second start meanwhile is refused)
+        try:
+            return await self._request(project, folder, name, cap, speak)
+        finally:
+            self.asking.discard(name)
+
+    async def _request(self, project: str, folder: Path, name: str, cap: float, speak: bool) -> str:
         stack = await asyncio.to_thread(detect_stack, folder)
         suites = await self.find_suites(folder)
         sweep, fix, why = self.models(project)
