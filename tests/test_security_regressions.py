@@ -1,6 +1,7 @@
 """Regression tests for holes a read-only security audit found, one section per finding."""
 
 import asyncio
+import time
 
 from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 from test_tasks import manager
@@ -1213,7 +1214,11 @@ async def test_the_accessibility_probe_is_built_once_and_never_hangs(tmp_path, m
     await probe.prepare()
     assert builds == [1]  # one build, shared
     assert await probe("point", "1", "2") == {"trusted": True, "app": "Slack", "argv": "point"}
-    # A probe that hangs is stopped and the app in front is all that's known.
-    script.write_text("#!/bin/sh\nsleep 30\n")
+    # A probe that hangs is stopped and the app in front is all that's known, at once. (exec:
+    # the hanging probe is the process itself, as the real one is; a sleep the shell had
+    # started instead kept the pipe open, so the call waited its whole 30 s out.)
+    script.write_text("#!/bin/sh\nexec sleep 30\n")
     monkeypatch.setattr(hands_guard, "PROBE_SECONDS", 0.3)
+    started = time.monotonic()
     assert (await probe("focus"))["fallback"] is True
+    assert time.monotonic() - started < 5
