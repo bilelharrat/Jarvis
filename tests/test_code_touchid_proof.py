@@ -221,22 +221,31 @@ async def test_a_risky_step_allowed_from_the_window_needs_the_proof(gated):
     assert risky.result() == "deny"
     again = card("a3", "git push --force")
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "approve",
-         "proof": fresh("approve", "4" * 32, subject="a3")}  # fmt: skip
+        {
+            "type": "code_touchid_proof",
+            "kind": "approve",
+            "proof": fresh("approve", "4" * 32, subject="a3"),
+        }  # fmt: skip
     )
     await hub.handle({"type": "approve", "id": "a3", "choice": "allow"})
     assert again.result() == "allow"
     # Round 3, R2-12: a yes for one card is no yes for another that came up meanwhile.
     other = card("a4", "rm -rf dist")
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "approve",
-         "proof": fresh("approve", "5" * 32, subject="a3")}  # fmt: skip
+        {
+            "type": "code_touchid_proof",
+            "kind": "approve",
+            "proof": fresh("approve", "5" * 32, subject="a3"),
+        }  # fmt: skip
     )
     await hub.handle({"type": "approve", "id": "a4", "choice": "allow"})
     assert not other.done(), "a proof for card a3 let card a4 go"
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "approve",
-         "proof": fresh("approve", "6" * 32, subject="a4")}  # fmt: skip
+        {
+            "type": "code_touchid_proof",
+            "kind": "approve",
+            "proof": fresh("approve", "6" * 32, subject="a4"),
+        }  # fmt: skip
     )
     await hub.handle({"type": "approve", "id": "a4", "choice": "allow"})
     assert other.result() == "allow"
@@ -403,7 +412,11 @@ async def test_a_card_the_backend_marks_for_touch_id_needs_the_proof_too(gated):
     await hub.handle({"type": "approve", "id": "b1", "choice": "allow"})
     assert not hub._futures["b1"].done()
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "approve", "proof": fresh("approve", "a1" * 16, subject="b1")}
+        {
+            "type": "code_touchid_proof",
+            "kind": "approve",
+            "proof": fresh("approve", "a1" * 16, subject="b1"),
+        }
     )
     await hub.handle({"type": "approve", "id": "b1", "choice": "allow"})
     assert hub._futures["b1"].result() == "allow"
@@ -483,7 +496,11 @@ async def test_settings_cant_set_new_sessions_to_bypass_without_the_proof(gated,
 async def test_the_composers_bypass_moves_into_its_project_with_one_yes(gated, tmp_path):
     hub, _task, _seen = gated
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "bypass", "proof": fresh("bypass", "0c" * 16, subject="new")}
+        {
+            "type": "code_touchid_proof",
+            "kind": "bypass",
+            "proof": fresh("bypass", "0c" * 16, subject="new"),
+        }
     )
     await hub.handle({"type": "code_defaults", "code_mode": "auto"})
     assert hub.prefs.code_mode == "auto"
@@ -502,7 +519,11 @@ async def test_an_acp_agent_in_bypass_needs_the_proof_too(gated, tmp_path):
     assert modes() == ["ask"]
     assert any(k == "error" and "fingerprint" in d["text"] for k, d in seen)
     await hub.handle(
-        {"type": "code_touchid_proof", "kind": "bypass", "proof": fresh("bypass", "0d" * 16, subject="new")}
+        {
+            "type": "code_touchid_proof",
+            "kind": "bypass",
+            "proof": fresh("bypass", "0d" * 16, subject="new"),
+        }
     )
     await hub.handle(dict(msg))
     assert modes() == ["ask", "auto"]
