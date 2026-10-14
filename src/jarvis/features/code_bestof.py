@@ -97,6 +97,9 @@ ZH = {
     "Wait until they're all done, then merge.": "等它们都完成后再合并。",
     "It's merging already.": "已经在合并了。",
     "Wait for the merge to finish, then keep one.": "请等合并完成，再选择保留哪一个。",
+    "The merge changed while you were asked; look at it again, then keep it.": "询问期间合并结果变了；请再看一遍，然后再保留。",
+    "Wait: one of them is being kept.": "请稍等：正在保留其中一个。",
+    "Couldn't merge again, so the last merge is kept: {error}": "没能再合并一次，所以保留了上一次的合并：{error}",
     "Merge again?": "再合并一次？",
     "The last merge's copy {branch} is discarded (its work is kept 30 days) and its review session ends.": "上一次合并的副本 {branch} 会被丢弃（其内容保留 30 天），它的审阅会话也会结束。",
     "Merge again": "再合并一次",
@@ -189,6 +192,9 @@ class BestOf:
         self.hub = hub
         self.ai = code_ai.call  # (the tests put a fake here)
         self.groups: dict[str, Group] = {}
+        # Groups whose keeping has been said yes to and is under way (a copy landing, the
+        # others being discarded): no merge starts in one meanwhile (REL-9).
+        self.keeping: set[str] = set()
         self._ids = itertools.count(1)
         self.poll = POLL_SECONDS
 
@@ -419,6 +425,8 @@ class BestOf:
             return "Wait until they're all done, then merge."
         if group.merge is not None and group.merge.get("status") == "merging":
             return "It's merging already."
+        if group.id in self.keeping:
+            return "Wait: one of them is being kept."
         store = desk.store()
         if len(store.copies) + desk.making >= worktrees.MAX_COPIES:
             return f"There are already {len(store.copies)} isolated copies; land or discard some, then merge."
@@ -439,6 +447,9 @@ class BestOf:
                 return "That comparison isn't there any more."
             if (group.merge or {}).get("status") == "merging":
                 return "It's merging already."
+            if group.id in self.keeping:
+                return "Wait: one of them is being kept."
+            old = group.merge or {}  # (the merge as it is now, not as it was at the card)
         group.merge = {"status": "merging", "hunks": [], "left_out": [], "clashes": []}
         self.publish(group)
         try:
@@ -446,6 +457,23 @@ class BestOf:
         except Exception as exc:  # never left saying "merging" for good
             log.exception("best of N couldn't merge")
             result = {"status": "failed", "error": str(exc)[:200] or type(exc).__name__}
+        if (
+            result.get("status") != "ready"
+            and old.get("slug")
+            and desk.store().find(old["slug"]) is not None
+        ):
+            # A merge asked for again that failed before the last one's copy went (REL-16):
+            # the last merge is still the group's, its copy and review session with it,
+            # never left on the list unnamed by the comparison.
+            group.merge = old
+            self.publish(group)
+            await desk.publish()
+            error = str(result.get("error") or "")
+            return lang.tr(
+                "Couldn't merge again, so the last merge is kept: {error}",
+                self.hub.language,
+                error=error,
+            )
         group.merge = {"hunks": [], "left_out": [], "clashes": [], **result}
         self.publish(group)
         await desk.publish()
@@ -649,13 +677,29 @@ class BestOf:
             return "That comparison isn't there any more."
         if (group.merge or {}).get("status") == "merging":  # (begun while asked)
             return "Wait for the merge to finish, then keep one."
+        if group.id in self.keeping:  # (another card for it said yes first)
+            return "Wait: one of them is being kept."
+        # The merge as it is now (REL-9): "Merge again" may have finished while the card was
+        # up, its last copy discarded and a new one made. Keeping the merge then keeps
+        # nothing the owner didn't see; keeping an attempt discards the new merge's copy.
+        merge = group.merge or {}
+        if n == 0 and merge.get("slug") != slug:
+            return "The merge changed while you were asked; look at it again, then keep it."
+        self.keeping.add(group.id)
+        try:
+            return await self._keep_now(group, desk, copy, n, label, others, merge)
+        finally:
+            self.keeping.discard(group.id)
+
+    async def _keep_now(self, group: Group, desk: Any, copy: worktrees.Copy, n: int,
+                        label: str, others: list[Variant], merge: dict[str, Any]) -> str:  # fmt: skip
         ids = [v.task_id for v in group.variants] + [int(merge.get("task_id") or 0)]
         for task_id in ids:  # nobody keeps working on what's being decided
             task = self.hub.tasks.tasks.get(task_id)
             if task is not None and task.busy:
                 await self.hub.tasks.interrupt(task.id)
-        landed = await desk.land_now(copy)
-        if desk.store().find(copy.slug) is not None:  # it didn't land (a conflict, say)
+        ok, landed = await desk.land_result(copy)
+        if not ok:  # it didn't land (a conflict, say, or its copy gone meanwhile)
             await desk.publish()
             return landed
         slugs = [v.slug for v in others] + ([merge["slug"]] if n and merge.get("slug") else [])

@@ -524,24 +524,33 @@ class Desk:
         this one): its work committed and merged, its sessions ended, the copy removed.
         From the start its sessions' waiting messages wait (landing), until it's gone or
         the landing gave up, when they go again."""
+        return (await self.land_result(copy))[1]
+
+    async def land_result(self, copy: worktrees.Copy) -> tuple[bool, str]:
+        """land_now's, and whether it landed (best-of-N discards the others only then: a
+        copy gone from the list meanwhile is never taken as landed)."""
         self.start_landing(copy.slug, Path(copy.checkout))
         try:
             return await self._land_now(copy)
         finally:
             self.end_landing(copy.slug)
 
-    async def _land_now(self, copy: worktrees.Copy) -> str:
+    async def _land_now(self, copy: worktrees.Copy) -> tuple[bool, str]:
         message = f"Eden Code: {copy.title or copy.slug}"
+        if copy not in self.store().copies:  # (discarded while it was asked)
+            return False, "That isolated copy isn't there any more."
         # A turn may have started since the card went up (C5): it's stopped, and waited
         # for, before the copy's work is committed, so nothing is half written in it.
         if not await self.quiet(self.tasks_in(copy)):
-            return "It's still working. Stop it first, then land."
+            return False, "It's still working. Stop it first, then land."
         async with self.lock(copy.repo):
+            if copy not in self.store().copies:
+                return False, "That isolated copy isn't there any more."
             landed = await asyncio.to_thread(worktrees.land, copy, message)
             if not landed.ok:
                 if landed.conflicts:
                     self.conflicts[copy.slug] = landed.conflicts
-                return landed.message
+                return False, landed.message
             self.conflicts.pop(copy.slug, None)
             # The sessions in it now: one resumed or started in it while it landed too.
             inside = self.tasks_in(copy)
@@ -557,7 +566,7 @@ class Desk:
             self.bound.pop(task.id, None)
         if item is None and problem:  # new work in it that couldn't be kept: it stays
             self.save()
-            return lang.tr(
+            return True, lang.tr(
                 "Landed {branch} in {into}, but the copy had new work in it and couldn't be "
                 "kept in the trash, so it's still there: {error}",
                 self.hub.language,
@@ -575,11 +584,11 @@ class Desk:
         if problem:
             log.warning("a landed copy left something behind: %s", problem)
         if item is not None:
-            return (
+            return True, (
                 f"Landed {copy.branch} in {copy.into}. Work written in the copy while it "
                 "landed is kept for 30 days in the Copies pane."
             )
-        return landed.message
+        return True, landed.message
 
     def take_away_landed(self, copy: worktrees.Copy) -> tuple[str, dict[str, Any] | None]:
         """(In a thread.) A landed copy removed, its sessions ended. When it holds work
