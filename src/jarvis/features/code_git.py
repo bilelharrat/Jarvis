@@ -245,7 +245,10 @@ class GitPanel:
         self.hub._spawn(coro)
 
     async def publish(self, folder: Path, key: str) -> None:
-        found = await asyncio.to_thread(state, folder)
+        try:
+            found = await asyncio.to_thread(state, folder)
+        except OSError as exc:  # (the folder went away between the ask and the look)
+            found = {"repo": None, "error": f"Eden Code couldn't read {folder.name}: {exc}"}
         self.hub.emit("code_git", key=key, **found)
 
     # ── commands ──
@@ -254,6 +257,15 @@ class GitPanel:
         where = self.folder(msg)
         if where is not None:
             self.spawn(self.publish(where[0], where[2]))
+            return
+        # A session that's gone or a folder it can't use is still answered, under the key
+        # the window asked by, so the pane says why instead of "Loading…" for good.
+        if msg.get("id") not in (None, "", 0, "0"):
+            key, error = f"id:{msg.get('id')}", "That session isn't open anymore."
+        else:
+            key = f"dir:{msg.get('directory') or ''}"
+            error = "That project folder isn't there, or isn't in your projects folder."
+        self.hub.emit("code_git", key=key, repo=None, error=error)
 
     def cmd_file(self, msg: dict[str, Any]) -> None:
         self.spawn(self.file(msg))

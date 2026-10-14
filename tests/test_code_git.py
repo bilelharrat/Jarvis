@@ -96,6 +96,16 @@ def test_the_state_of_a_repository(tmp_path):
     assert state(tmp_path / "nowhere") == {"repo": False}
 
 
+async def test_a_missing_folder_or_session_is_answered_with_why(hub, projects):
+    hub.code_git.cmd_state({"directory": "not-here"})
+    hub.code_git.cmd_state({"directory": "/etc"})
+    hub.code_git.cmd_state({"id": 99})
+    answers = events(hub, "code_git")
+    assert [a["key"] for a in answers] == ["dir:not-here", "dir:/etc", "id:99"]
+    assert all(a["repo"] is None and a["error"] for a in answers)
+    assert "isn't open anymore" in answers[2]["error"]
+
+
 async def test_staging_files_and_single_hunks(hub, projects):
     repo = make_repo(projects / "proj", {"a.py": numbered(40), "b.py": "b\n"})
     (repo / "a.py").write_text(
