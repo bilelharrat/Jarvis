@@ -36,6 +36,31 @@ test('a risky step: one that deletes, pushes, publishes, runs as root, or edits 
   assert.ok(!ct.risky({ tool: 'code_bypass_by_voice' }, 'deny'));
 });
 
+// The risky commands and broad rules both sides share (features/code_touchid.py checks the same
+// file): round 2's R2-8 (a program's folder or quotes, options in any order, interpreter
+// one-liners that delete) and G3 (an allow rule that's Bypass for a kind of step).
+test('the shared table: risky commands, and allow rules that are Bypass for a kind of step', () => {
+  const table = JSON.parse(readFileSync(new URL('../fixtures/risky_commands.json', import.meta.url), 'utf8'));
+  assert.deepEqual(table.risky.filter((c) => !ct.riskyCommand(c)), []);
+  assert.deepEqual(table.fine.filter((c) => ct.riskyCommand(c)), []);
+  assert.deepEqual(table.broad_rules.filter((r) => !ct.broadRule(r)), []);
+  assert.deepEqual(table.narrow_rules.filter((r) => ct.broadRule(r)), []);
+});
+
+test('a Permissions pane change asks for the fingerprint only when it lets a lot more by', () => {
+  const have = { deny: ['Bash(curl:*)'], ask: [], allow: [] };
+  assert.ok(ct.loosensRules({ behavior: 'allow', rule: 'Bash', have }));
+  assert.ok(ct.loosensRules({ behavior: 'allow', rule: 'Write(//**)', have }));
+  assert.ok(!ct.loosensRules({ behavior: 'allow', rule: 'Bash(npm test)', have }));
+  assert.ok(!ct.loosensRules({ behavior: 'deny', rule: 'Bash', have }));  // stricter: never held up
+  assert.ok(ct.loosensRules({ behavior: 'deny', rule: 'Bash(curl:*)', have, removing: true }));
+  assert.ok(ct.loosensRules({ behavior: 'ask', rule: 'Bash(curl:*)', have }));  // out of deny
+  assert.ok(!ct.loosensRules({ behavior: 'ask', rule: 'Bash(x)', have, removing: true }));
+  assert.ok(ct.loosensRules({ exporting: true, allows: 2 }));
+  assert.ok(!ct.loosensRules({ exporting: true, allows: 0 }));
+  assert.ok(REASONS.en.rules && REASONS.zh.rules);
+});
+
 test('the app asks with its own words, one sheet at a time, and never round a no', async () => {
   let answer = Promise.resolve();
   const asked = [];
@@ -74,7 +99,8 @@ test('every string the Touch ID switch and question show has its Chinese', () =>
   const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code-touchid.json', import.meta.url), 'utf8'));
   const source = readFileSync(new URL('../../src/jarvis/web/features/code-touchid.js', import.meta.url), 'utf8');
   const shown = [...source.matchAll(/el\('[a-z0-9]+', '[^']*', '([^']+)'\)/g)].map((m) => m[1]);
-  const extra = ['Touch ID for Bypass and risky steps', 'This step can’t easily be undone, or reaches past this Mac. Allow it?'];
+  const extra = ['Touch ID for Bypass and risky steps', 'This step can’t easily be undone, or reaches past this Mac. Allow it?',
+    'This rule lets Eden Code do much more without asking you. Change it?'];
   assert.deepEqual([...shown, ...extra].filter((s) => !(s in zh.strings)), []);
 });
 
@@ -181,9 +207,31 @@ test('the key goes to the backend it started on its stdin, and asks with its tag
   assert.equal(pipe.answer('<x>', 'p'), '');
   // main.js: the environment carries only that there is a pipe; the key goes on stdin.
   const main = readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8');
-  assert.match(main, /how\.env\[proofPipe\.ENV\] = '1';/);
-  assert.match(main, /stdio: \['pipe', 'pipe', 'pipe'\]/);
+  assert.match(main, /how\.env\[proofPipe\.ENV\] = proofPipe\.ENV_VALUE;/);
+  assert.match(main, /stdio: proofPipe\.STDIO/);
   assert.match(main, /proofPipe\.attach\(backend, keys,/);
+  const eden = readFileSync(new URL('../../app/eden/main.js', import.meta.url), 'utf8');
+  assert.match(eden, /how\.env\[proofPipe\.ENV\] = proofPipe\.ENV_VALUE;/);
+  assert.match(eden, /stdio: proofPipe\.STDIO/);
+});
+
+// Round 2 R2-16: the asks come on the backend's fd 3, a pipe of their own, so the log (its
+// stdout and stderr) never has the tag; Windows keeps stdout (fd 3 can't go to a non-Node child).
+test('the asks come on a pipe of their own, never the stdout that goes to the log', async () => {
+  if (process.platform !== 'win32') {
+    assert.equal(pipe.ENV_VALUE, '3');
+    assert.deepEqual(pipe.STDIO, ['pipe', 'pipe', 'pipe', 'pipe']);
+  }
+  const keys = pipe.fresh();
+  const { child, written } = fakeChild();
+  child.stdio = [child.stdin, child.stdout, new EventEmitter(), new EventEmitter()];
+  pipe.attach(child, keys, async () => 'v1.bypass.1.2.3');
+  child.stdout.emit('data', Buffer.from(`${keys.tag} ask bypass en\n`));  // (stdout: not an ask now)
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(written.length, 1, 'only the hello');
+  child.stdio[3].emit('data', Buffer.from(`${keys.tag} ask bypass en\n`));
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(written.slice(1), ['proof bypass v1.bypass.1.2.3\n']);
 });
 
 test('without a key of its own (the other app’s backend) the app shows no sheet: the window asks through the backend', async () => {
@@ -204,7 +252,7 @@ function windowWith(answers) {
   const listeners = {};
   let check = null;
   let click = null;
-  const node = () => ({ append() {}, setAttribute() {}, addEventListener(type, fn) { if (type === 'click') click = fn; } });
+  const node = () => ({ append() {}, setAttribute() {}, removeAttribute() {}, addEventListener(type, fn) { if (type === 'click') click = fn; } });
   const window = {
     jarvisFeatures: { el: node, t: (x) => x, send: (m) => { sent.push(m); return true; }, on: (type, fn) => { listeners[type] = fn; }, registerCheck: (fn) => { check = fn; } },
     jarvisApp: { feature: { invoke: async (channel) => answers[channel] } },
@@ -244,4 +292,50 @@ test('turning the Touch ID switch off asks for the fingerprint first (A3)', asyn
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(n.sent, [], 'a no leaves it on');
   assert.ok(REASONS.en['touchid-off'] && REASONS.zh['touchid-off']);
+});
+
+// Round 2 U12: the switch in Eden Code settings › General, in a stand-in window: a second
+// press while the fingerprint is asked for asks nothing more, and the switch says it's busy.
+test('the Touch ID switch asks once at a time and is busy while it asks', async () => {
+  const fs = await import('node:fs');
+  const vm = await import('node:vm');
+  const source = fs.readFileSync(new URL('../../src/jarvis/web/features/code-touchid.js', import.meta.url), 'utf8');
+  const node = () => ({
+    attrs: {}, listeners: {}, disabled: false, children: [],
+    setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k] ?? null },
+    removeAttribute(k) { delete this.attrs[k]; }, addEventListener(type, fn) { this.listeners[type] = fn; },
+    append(...xs) { this.children.push(...xs); }, insertBefore() {}, querySelector: () => null,
+    click() { this.listeners.click && this.listeners.click(); },
+  });
+  const made = [];
+  const sent = [];
+  const F = {
+    el: () => { const n = node(); made.push(n); return n; }, t: (s) => s, send: (m) => { sent.push(m); return true; },
+    registerCheck() {}, on() {},
+  };
+  const general = node();
+  const document = { getElementById: (id) => (id === 'jcs-general' ? general : null), createTextNode: (s) => s };
+  let finish;
+  const asked = [];
+  const feature = {
+    invoke: (channel, kind) => {
+      asked.push([channel, kind]);
+      if (channel === 'feature:touchid:available') return Promise.resolve(true);
+      return new Promise((resolve) => { finish = () => resolve({ ok: true, proof: 'v1.touchid-off.1.2.3' }); });
+    },
+  };
+  vm.runInNewContext(source, { window: { jarvisFeatures: F, jarvisApp: { feature }, confirm: () => false }, document });
+  const sw = made.find((n) => n.attrs.role === 'switch');
+  sw.click();
+  await new Promise((r) => setTimeout(r, 5));
+  sw.click();  // a second press while the sheet is up
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(asked.filter(([c]) => c === 'feature:touchid:prompt').length, 1, 'asked once');
+  assert.equal(sw.getAttribute('aria-busy'), 'true');
+  assert.equal(sw.disabled, true);
+  finish();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(sw.getAttribute('aria-busy'), null);
+  assert.equal(sw.disabled, false);
+  assert.deepEqual(sent.map((m) => m.type), ['code_touchid_proof', 'feature_prefs']);
 });
