@@ -81,7 +81,7 @@ function standPane(name, paneId, scope = {}) {
   all.currentPane = paneId;
   panes.get(paneId).render(body, F.currentTask());
   const fire = (type, ev) => { for (const fn of handlers[type] || []) fn(ev); };
-  return { document, body, fire, sent };
+  return { document, body, fire, sent, all };
 }
 
 test('Exterminator Mode: after Stop, the keys are on what took its place, not the page', () => {
@@ -190,4 +190,25 @@ test('Exterminator Mode: its button says what it does; a finding’s scenario is
   assert.equal(pill.getAttribute('aria-label'), 'Exterminator Mode is on: show its progress');
   const item = w.body.querySelector('.jcx-bf-finding');
   assert.match(item.querySelector('.sr-only').textContent, /Open it twice/);
+});
+
+// Round 2, U2: the sessions list arrives many times a second while a session works; the
+// Exterminator pane drew itself anew on each one (the focused Stop replaced 10 times a second,
+// a screen reader saying "Stop, button" each time). Unchanged lists leave the pane alone; a
+// change it shows (the run's session appearing: Show session) still redraws it.
+test('Exterminator Mode: an unchanged sessions list doesn’t redraw the pane', () => {
+  const w = standPane('code_bugfix.js', 'bugfix');
+  const run = { id: 'r1', project: 'api', state: 'running', round: 1, step: 'sweep', spent: 1, spend_cap: 10, findings: [], folder: '/f', slug: 's', task_id: 9 };
+  w.fire('code_bugfix', { runs: [run], active: {} });
+  const stop = w.body.querySelectorAll('button').find((b) => b.textContent === 'Stop');
+  const wrap = w.body.children[0];
+  stop.focus();
+  for (let i = 0; i < 10; i++) w.fire('tasks', {});
+  assert.ok(w.body.children[0] === wrap, 'the same drawing');
+  assert.ok(w.document.activeElement === stop, 'the same Stop, never replaced');
+  w.all.ccTasks.push({ id: 9, kind: 'code' });
+  w.fire('tasks', {});
+  assert.ok(w.body.children[0] !== wrap, 'its session appeared: drawn again');
+  assert.ok(w.body.querySelectorAll('button').some((b) => b.textContent === 'Show session'));
+  assert.equal(w.document.activeElement.textContent, 'Stop', 'the keys kept on Stop through it');
 });

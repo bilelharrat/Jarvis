@@ -91,6 +91,15 @@
   const sessions = () => (typeof ccTasks !== 'undefined' ? ccTasks : []);
   const showing = () => body && body.isConnected && body.querySelector('.jcx-bf');
   const render = () => { if (showing()) draw(body); };
+  // What the sessions list changes here: the project, the session shown, and which runs'
+  // sessions are still there (Show session). The list arrives many times a second while a
+  // session works (round 2, U2); drawn anew each time, the focus moved under a screen reader
+  // ("Stop, button" over and over), so a tasks event redraws only when one of these changed.
+  const fromTasks = () => {
+    const task = F.currentTask();
+    return JSON.stringify([project(), task ? task.id : null, state.runs.map((r) => sessions().some((s) => s.id === r.task_id && s.kind === 'code'))]);
+  };
+  let tasksShown = '';
 
   function mine(text, tag = 'span', cls = '') {
     const node = el(tag, cls, text);
@@ -158,7 +167,7 @@
     badge.setAttribute('aria-label', `${t('Exterminator Mode')}: ${step}. ${money(run.spent)} / ${money(run.spend_cap)}`);
   }
 
-  function redraw() { drawSwitch(); drawBadge(); }
+  function redraw() { tasksShown = fromTasks(); drawSwitch(); drawBadge(); }
 
   // ── the pane ──
 
@@ -291,7 +300,11 @@
     render();
     redraw();
   }, { replay: true });
-  F.on('tasks', () => { redraw(); render(); });
+  F.on('tasks', () => {
+    if (fromTasks() === tasksShown) return;
+    redraw();
+    render();
+  });
   F.on('hello', () => send({ type: 'code_bugfix' }));
   redraw();
 })(typeof window === 'object' ? window : globalThis);
