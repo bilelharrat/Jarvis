@@ -563,8 +563,11 @@ class Stacks:
             )
             if isinstance(heads, str):
                 return heads
+            # All the parts or none (REL-10): one refused would leave the others on the
+            # remote, a stack with a hole, and names a new try can't push again.
             pushed = await asyncio.to_thread(
-                git, plan.top, "push", "-q", plan.remote, *[f"{n}:refs/heads/{n}" for n in names],
+                git, plan.top, "push", "-q", "--atomic", plan.remote,
+                *[f"{n}:refs/heads/{n}" for n in names],
                 env=PUSH_ENV, timeout=PUSH_SECONDS,
             )  # fmt: skip
             if not pushed.ok:
@@ -829,8 +832,11 @@ class Stacks:
                 old_parent, new_parent = head, new
             leases = [f"--force-with-lease=refs/heads/{p['branch']}:{old}" for p, old, _ in moved]
             pushes = [f"{new}:refs/heads/{p['branch']}" for p, _, new in moved]
+            # Atomic (REL-10): one part's lease gone stale (pushed to meanwhile) moves none
+            # of them, never a stack half on the new base and half on the old.
             pushed = await asyncio.to_thread(
-                git, top, "push", "-q", *leases, remote, *pushes, env=PUSH_ENV, timeout=PUSH_SECONDS
+                git, top, "push", "-q", "--atomic", *leases, remote, *pushes, env=PUSH_ENV,
+                timeout=PUSH_SECONDS,
             )
             if not pushed.ok:
                 why = re.sub(r"(\w+://)[^/@\s]+@", r"\1", pushed.err.strip())[-300:]

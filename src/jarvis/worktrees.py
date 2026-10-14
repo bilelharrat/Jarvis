@@ -620,6 +620,20 @@ def land(copy: Copy, message: str) -> Landed:
     )
 
 
+def unlanded(copy: Copy) -> bool:
+    """Whether a copy just landed holds work that didn't land with it: files changed in it
+    since, or commits on its branch that aren't in the branch it landed in (a turn that ran
+    while it was landing). Such a copy is kept in the trash rather than removed by force."""
+    checkout = Path(copy.checkout)
+    if checkout.is_dir():
+        status = git(checkout, "status", "--porcelain", "-z", "--untracked-files=all")
+        if not status.ok or status_entries(status.out):
+            return True
+    head = _rev(copy.repo, f"refs/heads/{copy.branch}")
+    tip = _rev(copy.repo, f"refs/heads/{copy.into}")
+    return bool(head) and head != tip and not (tip and _is_ancestor(copy.repo, head, tip))
+
+
 def remove(copy: Copy, root: Path, force: bool = True) -> str:
     """The copy's folder and branch gone (the caller has made sure nothing in them is lost:
     landed, or kept in the trash). "" when done, else what's left and why. Not forced (the

@@ -54,6 +54,7 @@ SAID_MAX = 12  # files named in a transcript note, at most
 
 ZH = {
     "Pairing is for a session in an isolated copy: start one with Isolated copy on.": "结对模式只用于在独立副本里的会话：请打开“独立副本”再开始一个会话。",
+    "That isolated copy is being taken away just now, so it can't be paired.": "那个独立副本正在被移除，所以不能结对。",
     "Pick a folder inside your home folder.": "请选择你的个人文件夹里的一个文件夹。",
     "That folder can't be a pairing folder: pick an empty folder of your own.": "那个文件夹不能用作结对文件夹：请选一个你自己的空文件夹。",
     "That folder isn't empty: pick an empty folder (or a new one) for pairing.": "那个文件夹不是空的：请为结对选一个空文件夹（或新文件夹）。",
@@ -185,10 +186,21 @@ class Pairing:
 
     # ── on and off ──
 
+    def going(self, slug: str) -> bool:
+        """Whether the desk is taking a copy away just now: the sweeper removing it (going),
+        or a land or discard (removing). A sync then would mirror its vanishing files into
+        the owner's pairing folder as deletions (REL-20a)."""
+        desk = self.desk()
+        return desk is not None and (
+            slug in getattr(desk, "going", ()) or slug in getattr(desk, "removing", ())
+        )
+
     async def turn_on(self, task: Any, folder: str = "") -> str:
         copy = self.copy_of(task)
         if copy is None or not copy.cwd.is_dir():
             return "Pairing is for a session in an isolated copy: start one with Isolated copy on."
+        if self.going(copy.slug):
+            return "That isolated copy is being taken away just now, so it can't be paired."
         kept = self.pairs().get(copy.slug)
         wanted = Path(folder).expanduser() if folder.strip() else None
         if wanted is not None and not wanted.is_absolute():
@@ -206,6 +218,8 @@ class Pairing:
         except OSError as exc:
             return f"Couldn't make the pairing folder: {exc.strerror or exc}"
         async with self.lock(copy.slug):
+            if self.going(copy.slug):  # (it began while the folder was being looked at)
+                return "That isolated copy is being taken away just now, so it can't be paired."
             if kept is None or Path(kept.folder) != where or kept.copy != str(copy.cwd):
                 kept = Pair(copy.slug, str(copy.cwd), str(where))  # (a new folder: from scratch)
                 self.pairs()[copy.slug] = kept
@@ -257,8 +271,8 @@ class Pairing:
             await self.ended(pair)
             return
         async with self.lock(pair.slug):
-            if not pair.on or pair.slug in getattr(desk, "removing", ()):
-                return  # (its copy is being taken away: see before_gone)
+            if not pair.on or self.going(pair.slug):
+                return  # (its copy is being taken away: see before_gone, and the sweeper's)
             try:
                 done = await asyncio.to_thread(self.syncer(pair).sync)
             except CopyUnreadable as exc:  # (the copy going, its .git gone: no sync at all)

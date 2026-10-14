@@ -148,6 +148,35 @@ async def test_a_step_nobody_wrote_asks_again_and_a_turn_end_brings_the_card(spe
     assert "requirements.md" in hub.sent[-1][1]
 
 
+async def test_one_projects_card_never_holds_back_another_projects_spec_of_the_same_name(
+    spec_hub, projects
+):
+    """REL-14: slugs are unique within a project only; a card up for app's "dark-mode"
+    spec doesn't stop web's "dark-mode" spec from bringing its own."""
+    hub, desk = spec_hub, spec_hub.code_spec
+    (projects / "web").mkdir()
+    await desk.start({"prompt": "Dark mode", "directory": "app"})
+    await desk.start({"prompt": "Dark mode", "directory": "web"})
+    app, web = desk.specs
+    assert app.slug == web.slug and app.folder != web.folder
+    hub.answers = []
+    desk.task_event("task_finished", {"id": app.session, "task_kind": "code", "status": "done"})
+    for _ in range(100):  # app's card is up, unanswered
+        if hub.cards:
+            break
+        await asyncio.sleep(0.01)
+    assert len(hub.cards) == 1
+    desk.task_event("task_finished", {"id": web.session, "task_kind": "code", "status": "done"})
+    for _ in range(100):
+        if len(hub.cards) > 1:
+            break
+        await asyncio.sleep(0.01)
+    assert len(hub.cards) == 2, "web's spec was held back by app's card"
+    for card in hub.cards:
+        hub.resolve(card["id"], "again")
+    await asyncio.sleep(0.05)
+
+
 async def _running(hub, desk):
     await desk.start({"prompt": "Add a login page", "directory": "app"})
     spec = desk.specs[0]

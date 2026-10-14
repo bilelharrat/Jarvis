@@ -604,3 +604,118 @@ def test_a_feature_adds_its_sentences_to_the_translations_without_replacing_the_
     assert lang.ZH_TEXTS["Opening {app}."] == core
     assert lang.translate("A brand new sentence only here.", "zh") == "只在这里的新句子。"
     lang.ZH_TEXTS.pop("A brand new sentence only here.")
+
+
+# ── no turn begins in a copy while it lands (REL-4) ──
+
+
+def _pausing_land(monkeypatch, after=None):
+    """worktrees.land, paused in its thread until go is set (inside says it got there);
+    after(copy) runs once it has landed, as a turn Claude Code began by itself would."""
+    inside, go = threading.Event(), threading.Event()
+    real = worktrees.land
+
+    def land(copy, message):
+        inside.set()
+        go.wait(30)
+        done = real(copy, message)
+        if after is not None:
+            after(copy)
+        return done
+
+    monkeypatch.setattr(worktrees, "land", land)
+    return inside, go
+
+
+async def test_a_message_sent_while_a_copy_lands_waits_and_starts_no_turn(
+    hub, projects, monkeypatch
+):
+    """REL-4: from the quieting until the copy is gone, a waiting message in it starts no
+    turn: nothing new is written as its work is committed and removed."""
+    repo = make_repo(projects / "proj", {"a.py": numbered(20)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "a.py").write_text("changed\n")
+    inside, go = _pausing_land(monkeypatch)
+    landing = asyncio.create_task(hub.code_desk.land_now(copy))
+    assert await until(inside.is_set)
+    assert hub.tasks.send(task.id, "one more thing", steer=False)
+    await asyncio.sleep(0.5)
+    users = [e for e in task.transcript if e["role"] == "user" and "one more" in e["text"]]
+    assert users == [] and not task.busy
+    assert task.gated == "Waiting: its isolated copy is being landed."
+    go.set()
+    assert (await landing).startswith("Landed")
+    assert (repo / "a.py").read_text() == "changed\n"
+    assert hub.code_desk.landing == {}
+
+
+async def test_a_failed_landing_lets_the_held_message_go(hub, projects, monkeypatch):
+    make_repo(projects / "proj", {"a.py": numbered(20)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    inside, go = threading.Event(), threading.Event()
+
+    def land(copy, message):
+        inside.set()
+        go.wait(30)
+        return worktrees.Landed(False, "Couldn't merge: no")
+
+    monkeypatch.setattr(worktrees, "land", land)
+    landing = asyncio.create_task(hub.code_desk.land_now(copy))
+    assert await until(inside.is_set)
+    hub.tasks.send(task.id, "keep going", steer=False)
+    await asyncio.sleep(0.3)
+    assert task.gated
+    go.set()
+    assert await landing == "Couldn't merge: no"
+    assert await until(
+        lambda: any(e["role"] == "user" and "keep going" in e["text"] for e in task.transcript)
+    )
+    assert not task.gated
+
+
+async def test_a_session_resumed_in_a_copy_while_it_lands_is_ended_with_it(
+    hub, projects, monkeypatch
+):
+    """REL-4: the sessions ended are the ones in the copy when it's removed, not those
+    there when the landing began."""
+    make_repo(projects / "proj", {"a.py": numbered(20)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    inside, go = _pausing_land(monkeypatch)
+    landing = asyncio.create_task(hub.code_desk.land_now(copy))
+    assert await until(inside.is_set)
+    late = hub.tasks.start("", str(copy.cwd))
+    assert await until(lambda: late.client is not None and late.workspace)
+    go.set()
+    assert "already in main" in await landing  # (nothing was changed in it)
+    assert await until(lambda: late.handle.done())
+    assert late.id not in hub.code_desk.bound
+
+
+async def test_work_a_turn_writes_while_the_copy_lands_is_kept_in_the_trash(
+    hub, projects, monkeypatch
+):
+    """REL-4: a turn Claude Code starts by itself can't be held; what it writes after the
+    copy's work was committed isn't removed by force: it's kept as a recovery ref."""
+    repo = make_repo(projects / "proj", {"a.py": numbered(20)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "a.py").write_text("changed\n")
+
+    def late_write(copy):
+        (copy.cwd / "late.py").write_text("written while landing\n")
+
+    inside, go = _pausing_land(monkeypatch, after=late_write)
+    go.set()
+    said = await hub.code_desk.land_now(copy)
+    assert said == (
+        f"Landed {copy.branch} in main. Work written in the copy while it landed is kept for "
+        "30 days in the Copies pane."
+    )
+    assert (repo / "a.py").read_text() == "changed\n" and not (repo / "late.py").exists()
+    [item] = hub.code_desk.store().trash
+    assert item["ref"] and not Path(copy.checkout).exists()
+    assert git(repo, "show", f"{item['ref']}:late.py") == "written while landing\n"
+    assert hub.code_desk.store().copies == []

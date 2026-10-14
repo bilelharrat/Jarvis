@@ -79,6 +79,9 @@ let stopWatching = null; // stops watching that backend (backend-share.js watch)
 const gotLock = app.requestSingleInstanceLock();
 trace.write(gotLock ? 'the only copy running: starting' : 'another copy is already running: this one quits and brings that one forward');
 if (!gotLock) app.quit();
+// The cookies' encryption key goes by the flavor's fixed keyName, never the display name (REL-11):
+// set now that the profile folder is resolved, and the display name back before anything shows.
+require('./keychain-name').pinKeychainName(app, FLAVOR);
 app.on('second-instance', () => {
   trace.write(`started again while running${win && !win.isDestroyed() ? ': bringing the window forward' : ' (no window yet)'}`);
   if (!win || win.isDestroyed()) return;

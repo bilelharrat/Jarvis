@@ -591,6 +591,90 @@ async def test_a_merge_that_fails_after_its_copy_is_made_leaves_no_copy(
     assert len(hub.code_desk.store().copies) == 2  # (the two attempts' only)
 
 
+async def test_keeping_the_merge_after_it_was_merged_again_meanwhile_keeps_nothing(
+    hub, projects, merging
+):
+    """REL-9: "Merge again" finishing while the Keep card is up discards the merge the
+    card was about; the keep then lands nothing and discards no attempt (it used to read
+    the gone branch as landed and throw every attempt away)."""
+    group_id = await merged_group(hub)
+    bestof = hub.code_bestof
+    await bestof.merge(group_id)
+    first = latest(hub)["merge"]["slug"]
+
+    def merge_again_then_keep(card):
+        if card["question"].startswith("Keep the merge"):
+            hub.answers = ["merge"]
+            again = asyncio.ensure_future(bestof.merge(group_id))
+            again.add_done_callback(lambda _f: hub.resolve(card["id"], "keep"))
+
+    hub.add_approval_sink(merge_again_then_keep)
+    said = await bestof.keep(group_id, 0)
+    assert said == "The merge changed while you were asked; look at it again, then keep it."
+    group = bestof.groups[group_id]
+    assert group.status != "kept" and group.merge["slug"] != first
+    assert len(hub.code_desk.store().copies) == 3  # both attempts and the new merge
+    assert hub.code_desk.store().find(first) is None
+
+
+async def test_keeping_an_attempt_discards_the_merge_made_while_it_was_asked(
+    hub, projects, merging
+):
+    group_id = await merged_group(hub)
+    bestof = hub.code_bestof
+    await bestof.merge(group_id)
+
+    def merge_again_then_keep(card):
+        if card["question"].startswith("Keep Opus"):
+            hub.answers = ["merge"]
+            again = asyncio.ensure_future(bestof.merge(group_id))
+            again.add_done_callback(lambda _f: hub.resolve(card["id"], "keep"))
+
+    hub.add_approval_sink(merge_again_then_keep)
+    assert (await bestof.keep(group_id, 2)).startswith("Kept Opus 5.5.")
+    assert hub.code_desk.store().copies == []  # (the new merge's copy went too)
+
+
+async def test_a_kept_copy_gone_meanwhile_is_never_taken_as_landed(hub, projects, merging):
+    """REL-9: land_result says whether it landed; a copy that's no longer listed didn't."""
+    group_id = await merged_group(hub)
+    bestof, desk = hub.code_bestof, hub.code_desk
+    chosen = bestof.groups[group_id].variants[0]
+    copy = desk.store().find(chosen.slug)
+
+    def gone_then_keep(card):
+        desk.store().copies.remove(copy)
+        hub.resolve(card["id"], "keep")
+
+    hub.add_approval_sink(gone_then_keep)
+    assert await bestof.keep(group_id, 1) == "That isolated copy isn't there any more."
+    assert len(desk.store().copies) == 1 and bestof.groups[group_id].status != "kept"
+
+
+async def test_a_failed_merge_again_keeps_the_last_merge(hub, projects, merging):
+    """REL-16: "Merge again" that fails before the last merge's copy goes (the judge
+    picks nothing) keeps the last merge as the group's: its copy is never orphaned."""
+    group_id = await merged_group(hub)
+    bestof = hub.code_bestof
+    await bestof.merge(group_id)
+    first = latest(hub)["merge"]
+    real = bestof.ai
+
+    async def picks_nothing(prompt, **kw):
+        return "nothing useful" if kw["kind"] == "merge" else await real(prompt, **kw)
+
+    bestof.ai = picks_nothing
+    hub.answers = ["merge"]
+    said = await bestof.merge(group_id)
+    assert said == "Couldn't merge again, so the last merge is kept: The judge picked nothing to merge."
+    merge = latest(hub)["merge"]
+    assert merge["status"] == "ready" and merge["slug"] == first["slug"]
+    assert merge["task_id"] == first["task_id"]
+    assert hub.code_desk.store().find(first["slug"]) is not None
+    hub.answers = ["keep"]
+    assert (await bestof.keep(group_id, 0)).startswith("Kept the merge.")
+
+
 async def test_a_keep_without_a_number_never_means_the_merge(hub):
     kept = []
 

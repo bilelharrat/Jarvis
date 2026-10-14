@@ -71,6 +71,10 @@ class FolderTaken(OSError):
 # one place, so a new store can't repeat it. (save_json(..., over_unreadable=True) is the
 # way out for a store that means it.)
 _REFUSED: set[str] = set()
+# Of those, the ones refused because the file itself couldn't be read (its permissions, a
+# disk error), not for what it holds (a migration that failed): only these can come right
+# by themselves (REL-6, _cleared).
+_UNREAD: set[str] = set()
 
 
 def _key(path: Path) -> str:
@@ -85,9 +89,43 @@ def read_json(
         found = _read_json(path, shape, clock=clock)
     except Unreadable:
         _REFUSED.add(_key(path))
+        _UNREAD.add(_key(path))
         raise
     _REFUSED.discard(_key(path))
+    _UNREAD.discard(_key(path))
     return found
+
+
+def _cleared(path: Path, key: str) -> bool:
+    """Whether a refused file has come right since (REL-6), so a save may go ahead: it's
+    gone (the owner deleted it to start afresh: nothing is saved over anything), or one
+    that couldn't be read can be now (its permissions fixed). The store that couldn't read
+    it is holding something else in memory (many start empty), so the file is first kept
+    as <name>.bad-<stamp>, never written over: the owner's data and this run's are both
+    kept. A file refused for what it holds (a failed migration) stays refused while it's
+    there; one that still can't be read, or can't be moved aside, too."""
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        _REFUSED.discard(key)
+        _UNREAD.discard(key)
+        return True
+    except OSError:
+        return False
+    if key not in _UNREAD:
+        return False
+    try:
+        raw = path.read_bytes()
+        if raw.strip():
+            json.loads(raw)
+    except (OSError, ValueError):
+        return False
+    if set_aside(path) is None:
+        return False
+    log.warning("%s can be read again; what this run couldn't read is kept beside it", path.name)
+    _REFUSED.discard(key)
+    _UNREAD.discard(key)
+    return True
 
 
 def _read_json(
@@ -214,7 +252,7 @@ def save_json(
     unpaired phone, a crash report) can't come back from them. Half of a surrogate pair is
     written escaped: it never makes a file unsaveable. Raises Unreadable, saving nothing,
     over a file this process couldn't read when it last tried (unless over_unreadable)."""
-    if not over_unreadable and _key(path) in _REFUSED:
+    if not over_unreadable and _key(path) in _REFUSED and not _cleared(path, _key(path)):
         raise refusal(path, "it couldn't be read when it was loaded")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
@@ -237,6 +275,7 @@ def save_json(
             with contextlib.suppress(OSError):
                 os.unlink(copy)
     _REFUSED.discard(_key(path))  # (what's there now is what was just written)
+    _UNREAD.discard(_key(path))
     _sync_folder(path.parent)
 
 
@@ -256,6 +295,7 @@ def forget(path: Path) -> None:
         except OSError as exc:
             failed = failed or exc
     _REFUSED.discard(_key(path))
+    _UNREAD.discard(_key(path))
     if failed is not None:
         raise failed
 
