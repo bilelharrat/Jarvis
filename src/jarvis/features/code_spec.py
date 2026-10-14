@@ -362,7 +362,10 @@ class Specs:
         self.unreadable = False  # code_specs.json is there but couldn't be read: never saved over
         self.proofs: dict[int, asyncio.Future] = {}  # a task's session -> its requirements
         self.checks: dict[int, asyncio.Future] = {}  # ... -> code_verify's check after its turn
-        self.asking: set[str] = set()  # specs whose card is up (or whose step is being read)
+        # Specs whose card is up (or whose step is being read), by (folder, slug) (REL-14):
+        # a slug is only unique within its project, so two projects' "login" specs never
+        # hold each other's cards.
+        self.asking: set[tuple[str, str]] = set()
 
     # ── kept ──
 
@@ -531,8 +534,12 @@ class Specs:
         if tid:
             self.proof_future(int(data["id"]), fresh=True)  # (code_receipts asks for it next)
             self.hub._spawn(self.after_task(spec, tid, int(data["id"]), dict(data)))
-        elif spec.step in STEPS and spec.slug not in self.asking and data.get("status") == "done":
-            self.asking.add(spec.slug)
+        elif (
+            spec.step in STEPS
+            and (spec.folder, spec.slug) not in self.asking
+            and data.get("status") == "done"
+        ):
+            self.asking.add((spec.folder, spec.slug))
             self.hub._spawn(self.after_step(spec))
 
     def verified(self, event: dict[str, Any]) -> None:
@@ -548,7 +555,7 @@ class Specs:
         try:
             return await self._after_step(spec)
         finally:
-            self.asking.discard(spec.slug)
+            self.asking.discard((spec.folder, spec.slug))
 
     async def _after_step(self, spec: Spec) -> str:
         step = spec.step
@@ -743,13 +750,13 @@ class Specs:
         finally:
             if not fut.done():
                 fut.set_result(rows)
-        if spec.step != "running" or spec.current != tid or spec.slug in self.asking:
+        if spec.step != "running" or spec.current != tid or (spec.folder, spec.slug) in self.asking:
             return "checked"  # (another turn's card for it is up: one card a spec)
-        self.asking.add(spec.slug)
+        self.asking.add((spec.folder, spec.slug))
         try:
             return await self.ask_next(spec, tid, task_id)
         finally:
-            self.asking.discard(spec.slug)
+            self.asking.discard((spec.folder, spec.slug))
 
     async def check_task(self, spec: Spec, tid: str, task_id: int, data: dict[str, Any]) -> list:
         task = self.hub.tasks.tasks.get(task_id)
