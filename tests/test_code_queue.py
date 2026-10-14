@@ -335,7 +335,7 @@ async def test_deleting_a_finished_card_keeps_its_spend_and_a_running_card_can_t
     assert len(started) == 2 and three["state"] != "running"
 
 
-@pytest.mark.parametrize("ceiling", [0, -5, 0.0001])
+@pytest.mark.parametrize("ceiling", [0, -5, 0.0001, "0", " -5 ", "$0.01", "0.0001"])
 async def test_a_ceiling_under_five_cents_is_refused(hub, monkeypatch, tmp_path, ceiling):
     hub.code_verify = Checks([])
     started, _sent, _finish = stub_sessions(hub, monkeypatch, tmp_path)
@@ -347,6 +347,16 @@ async def test_a_ceiling_under_five_cents_is_refused(hub, monkeypatch, tmp_path,
     assert [e["text"] for e in seen() if e["type"] == "todo_error"] == [
         "A queue's ceiling is at least $0.05."
     ]
+
+
+@pytest.mark.parametrize("ceiling", ["2.5", "$2.50"])
+async def test_a_ceiling_typed_as_text_is_read_as_its_number(hub, monkeypatch, tmp_path, ceiling):
+    """R1-b: a text box's "0" was the default ceiling (and a card started); its number now."""
+    hub.code_verify = Checks([])
+    stub_sessions(hub, monkeypatch, tmp_path)
+    await add(hub, "one")
+    hub.code_queue.cmd_run({"directory": "proj", "ceiling": ceiling})
+    assert hub.code_queue.runs[str(tmp_path / "proj")].ceiling == 2.5
 
 
 async def test_a_400_digit_ceiling_is_the_default_not_a_crash(hub, monkeypatch, tmp_path):

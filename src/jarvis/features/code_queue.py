@@ -202,6 +202,11 @@ class Queue:
         if not isinstance(parallel, int) or isinstance(parallel, bool):
             parallel = 1
         ceiling = msg.get("ceiling", conf.get("ceiling", CEILING_DEFAULT))
+        if isinstance(ceiling, str) and len(ceiling) <= 40:  # ("0" from a text box: R1-b)
+            try:
+                ceiling = float(ceiling.strip().removeprefix("$"))
+            except ValueError:
+                ceiling = CEILING_DEFAULT
         if not isinstance(ceiling, int | float) or isinstance(ceiling, bool):
             ceiling = CEILING_DEFAULT
         try:  # (a 400-digit number is past any float: the default, as infinity is)
