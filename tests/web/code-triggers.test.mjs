@@ -46,3 +46,10 @@ test('every string the settings show has its Chinese', () => {
   ];
   assert.deepEqual(shown.filter((s) => !(s in zh.strings)), []);
 });
+
+// Audit G9: a port out of range is said beside Save, instead of a Save that does nothing.
+test('the tunnel’s port: from 1024 to 65535, whole, or it says why', () => {
+  const { portProblem } = require('../../src/jarvis/web/features/code-triggers.js');
+  for (const ok of ['8766', '1024', '65535', ' 9000 ']) assert.equal(portProblem(ok), '', ok);
+  for (const bad of ['', '80', '70000', '8766.5', 'abc']) assert.match(portProblem(bad), /1024 to 65535/, bad);
+});

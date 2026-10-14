@@ -15,15 +15,17 @@
       if (!String(prompt || '').trim()) return 'Say what the task should do.';
       return '';
     },
-    // One repository's line: its branch and what changed in it.
-    repoLine(r) {
+    // One repository's line, in parts: its branch (the owner's words, never translated),
+    // then what changed in it (Eden's, translated: web/i18n/code-multirepo.json).
+    repoParts(r) {
       const s = r.state || {};
-      const bits = [`${r.branch} → ${r.into}`];
-      if (s.files) bits.push(`${s.files} file${s.files === 1 ? '' : 's'} +${s.added || 0} −${s.removed || 0}`);
-      else bits.push('no changes yet');
-      if (r.conflicts && r.conflicts.length) bits.push(`conflicts in ${r.conflicts.slice(0, 3).join(', ')}`);
-      return bits.join(' · ');
+      const parts = [{ text: `${r.branch} → ${r.into}`, own: true }];
+      if (s.files) parts.push({ text: `${s.files} file${s.files === 1 ? '' : 's'} +${s.added || 0} −${s.removed || 0}` });
+      else parts.push({ text: 'no changes yet' });
+      if (r.conflicts && r.conflicts.length) parts.push({ text: `conflicts in ${r.conflicts.slice(0, 3).join(', ')}` });
+      return parts;
     },
+    repoLine(r) { return helpers.repoParts(r).map((p) => p.text).join(' · '); },
   };
 
   if (typeof module === 'object' && module.exports) { module.exports = helpers; return; }
@@ -31,7 +33,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
-  const state = { groups: [], most: 8, body: null, picked: new Set(), prompt: '', prFor: '' };
+  // starting: a code_multi_start is out (the form waits, its picks and request kept, until
+  // code_multi_started says it took); why: the last refusal, said under the form.
+  const state = { groups: [], most: 8, body: null, picked: new Set(), prompt: '', prFor: '', starting: false, why: '' };
   /* global deckProjects */
   const projectNames = () => (typeof deckProjects !== 'undefined' && Array.isArray(deckProjects) ? deckProjects.map((p) => p.name) : []);
 
@@ -66,16 +70,26 @@
     prompt.addEventListener('input', () => { state.prompt = prompt.value; });
     const why = el('p', 'jcx-multi-why');
     why.setAttribute('role', 'status');
-    const go = el('button', 'jc-btn small filled', 'Start the task');
+    why.textContent = state.starting ? t('Starting it: making a copy of each project…') : state.why;
+    const go = el('button', 'jc-btn small filled', state.starting ? 'Starting…' : 'Start the task');
     go.type = 'submit';
+    go.disabled = state.starting;
+    form.setAttribute('aria-busy', String(state.starting));
     form.addEventListener('submit', (e) => {
       e.preventDefault();
+      if (state.starting) return;
       const picked = [...state.picked];
       const problem = helpers.startProblem(picked, prompt.value, state.most);
       if (problem) { why.textContent = t(problem); return; }
-      send({ type: 'code_multi_start', projects: picked, prompt: prompt.value.trim() });
-      state.picked.clear();
-      state.prompt = '';
+      // The picks and the request stay until the backend says the task started (a refusal,
+      // two copies of one project or too many copies, would otherwise lose them).
+      if (send({ type: 'code_multi_start', projects: picked, prompt: prompt.value.trim() }) === false) return;
+      state.starting = true;
+      state.why = '';
+      go.disabled = true;
+      go.textContent = t('Starting…');
+      form.setAttribute('aria-busy', 'true');
+      why.textContent = t('Starting it: making a copy of each project…');
     });
     form.append(legend, promptLabel, prompt, why, go);
     return form;
@@ -121,8 +135,13 @@
       const li = el('li');
       const proj = el('strong', '', r.project);
       proj.dataset.noI18n = '';
-      const line = el('span', '', helpers.repoLine(r));
-      line.dataset.noI18n = '';
+      const line = el('span');
+      helpers.repoParts(r).forEach((part, k) => {
+        if (k) line.append(document.createTextNode(' · '));
+        const bit = el('span', '', part.text);
+        if (part.own) bit.dataset.noI18n = '';
+        line.append(bit);
+      });
       li.append(proj, line);
       list.append(li);
     }
@@ -152,10 +171,17 @@
     return card;
   }
 
+  // Whether the Multi-repo pane is the one showing (the pane's body is every pane's: being on
+  // the page isn't enough, or a code_multis answer would draw over whatever pane is open).
+  /* global currentPane */
+  const paneShown = () => state.body && state.body.isConnected && typeof currentPane !== 'undefined' && currentPane === 'multirepo';
+
   function render() {
     const body = state.body;
-    if (!body || !body.isConnected) return;
-    const wrap = el('div', 'jcx-copies jcx-multis');
+    if (!paneShown()) return;
+    // (Not .jcx-copies: that's how the Copies pane, code_isolation.js, knows its own body,
+    // and it would draw itself over this one.)
+    const wrap = el('div', 'jcx-multis');
     wrap.append(el('p', 'jc-dim', 'One task across several repositories: one session works in a folder with an isolated copy of each. Landing lands all of them or none; pull requests are opened together, each linking the others, and merged together once all are green.'));
     wrap.append(el('p', 'jcs-label', 'New multi-repo task'));
     wrap.append(startForm());
@@ -175,4 +201,11 @@
   });
   F.registerMoreItem({ label: 'Multi-repo tasks', run: () => F.openPane('multirepo') });
   F.on('code_multis', (ev) => { state.groups = ev.groups || []; state.most = ev.most || 8; render(); });
+  F.on('code_multi_started', (ev) => {
+    state.starting = false;
+    if (ev.ok) { state.picked.clear(); state.prompt = ''; state.why = ''; } else state.why = String(ev.text || '');
+    render();
+  });
+  // (A backend that restarted mid-start never answers: the form is usable again.)
+  F.on('hello', () => { if (state.starting) { state.starting = false; render(); } });
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -35,9 +35,15 @@
     return b;
   }
 
+  // Whether the Pairing pane is the one showing: the pane's body is shared by every pane
+  // (#jc-pane-body), so being on the page isn't enough, and an event drawn into it while
+  // another pane is open would draw over that pane.
+  /* global currentPane */
+  const paneShown = () => state.body && state.body.isConnected && typeof currentPane !== 'undefined' && currentPane === 'pairing';
+
   function render() {
     const body = state.body;
-    if (!body || !body.isConnected) return;
+    if (!paneShown()) return;
     const ev = state.last;
     const id = taskId();
     const wrap = el('div', 'jcx-pair');
@@ -86,11 +92,12 @@
         const name = el('code', '', path);
         name.dataset.noI18n = '';
         const keep = el('span', 'jcx-pair-keep');
-        keep.append(
-          button('Keep mine', '', () => send({ type: 'code_pair_keep', id, path, side: 'mine' })),
-          button('Keep Eden’s', '', () => send({ type: 'code_pair_keep', id, path, side: 'eden' })),
-        );
-        keep.setAttribute('aria-label', path);
+        // Each button says which file it keeps (a name on the span around them is never read).
+        const mineBtn = button('Keep mine', '', () => send({ type: 'code_pair_keep', id, path, side: 'mine' }));
+        mineBtn.setAttribute('aria-label', `${t('Keep mine')}: ${path}`);
+        const edenBtn = button('Keep Eden’s', '', () => send({ type: 'code_pair_keep', id, path, side: 'eden' }));
+        edenBtn.setAttribute('aria-label', `${t('Keep Eden’s')}: ${path}`);
+        keep.append(mineBtn, edenBtn);
         li.append(name, keep);
         list.append(li);
       }

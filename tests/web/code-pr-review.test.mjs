@@ -39,3 +39,16 @@ test('every string the review settings and pane show has its Chinese', () => {
   assert.deepEqual(shown.filter((s) => !(s in zh.strings)), []);
   for (const [re, to] of zh.patterns) assert.match('3 findings posted on GitHub'.replace(new RegExp(re), to), /3/);
 });
+
+// Audit G9: Review now with something it can't read says why, instead of doing nothing.
+test('Review now says why it can’t take what was typed', () => {
+  const { askProblem } = require('../../src/jarvis/web/features/code-pr-review.js');
+  const one = [{ repo: 'acme/app' }];
+  const two = [{ repo: 'acme/app' }, { repo: 'acme/web' }];
+  assert.equal(askProblem('acme/app#12', two), '');
+  assert.equal(askProblem('#12', one), '');
+  assert.equal(askProblem('https://github.com/acme/app/pull/3', []), '');
+  assert.match(askProblem('', one), /Type a pull request/);
+  assert.match(askProblem('12', two), /which repository/);
+  assert.match(askProblem('fix the login', one), /isn’t a pull request/);
+});

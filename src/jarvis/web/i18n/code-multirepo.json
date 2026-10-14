@@ -21,9 +21,14 @@
     "Pull requests: ": "拉取请求：",
     "Pick at least two projects.": "请至少选两个项目。",
     "Say what the task should do.": "请说明任务要做什么。",
-    "One task across several repositories: one session works in a folder with an isolated copy of each. Landing lands all of them or none; pull requests are opened together, each linking the others, and merged together once all are green.": "一个任务横跨多个仓库：一个会话在一个文件夹里工作，里面是每个仓库的独立副本。合并时要么全部合并，要么一个都不合并；拉取请求一起打开、相互链接，全部通过检查后一起合并。"
+    "One task across several repositories: one session works in a folder with an isolated copy of each. Landing lands all of them or none; pull requests are opened together, each linking the others, and merged together once all are green.": "一个任务横跨多个仓库：一个会话在一个文件夹里工作，里面是每个仓库的独立副本。合并时要么全部合并，要么一个都不合并；拉取请求一起打开、相互链接，全部通过检查后一起合并。",
+    "no changes yet": "还没有改动",
+    "Starting…": "正在开始…",
+    "Starting it: making a copy of each project…": "正在开始：为每个项目创建副本…"
   },
   "patterns": [
-    ["^Pick at most (\\d+) projects\\.$", "最多选 $1 个项目。"]
+    ["^Pick at most (\\d+) projects\\.$", "最多选 $1 个项目。"],
+    ["^(\\d+) files? \\+(\\d+) −(\\d+)$", "$1 个文件 +$2 −$3"],
+    ["^conflicts in (.+)$", "冲突：$1"]
   ]
 }

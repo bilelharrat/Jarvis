@@ -55,6 +55,10 @@
   if (!F || !F.registerEntryDecorator) return;
   const inEdenCode = root.document && root.document.body && root.document.body.dataset.app === 'eden-code';
   const waiting = new Set();  // the Send diagnostics buttons whose file is being made
+  // How long a file may take before the buttons give up waiting (the backend restarting
+  // midway never answers; a hello says so sooner).
+  const WAIT_MS = 120000;
+  let waitTimer = 0;
   const appName = () => {
     const ua = String((root.navigator && root.navigator.userAgent) || '');
     const m = /(Eden[ \w]*|J\.A\.R\.V\.I\.S\.)\/([\d.]+)/.exec(ua);
@@ -80,8 +84,15 @@
       setTimeout(() => { b.textContent = F.t('Copy details'); }, 1400);
     });
     const send = button('Send diagnostics', 'Makes a masked diagnostics file and shows it in Finder, for you to send', (b) => {
-      if (waiting.size) return;  // (one file at a time: this one's answer comes with the other's)
-      if (!F.send({ type: 'ops_diagnostics', megabytes: 2 })) { status.textContent = F.t('Not connected yet. Try again in a moment.'); return; }
+      if (waiting.has(b)) return;
+      if (waiting.size) {
+        // One file at a time: this card hears the one being made.
+        status.textContent = F.t('Already making one: it shows here too when it’s ready.');
+      } else {
+        if (!F.send({ type: 'ops_diagnostics', megabytes: 2 })) { status.textContent = F.t('Not connected yet. Try again in a moment.'); return; }
+        clearTimeout(waitTimer);
+        waitTimer = setTimeout(() => giveUp('That took too long. Try again.'), WAIT_MS);
+      }
       b.disabled = true;
       b.textContent = F.t('Making it…');
       b.cdStatus = status;
@@ -91,8 +102,18 @@
     return box;
   }
 
+  // Whether the keys are free to move: on the page itself, or on that card's own button
+  // (never taken from the composer: Enter there would open Finder).
+  function focusFree(b) {
+    const doc = root.document;
+    const active = doc && doc.activeElement;
+    return !active || active === doc.body || active === b;
+  }
+
   F.on('ops_diagnostics', (ev) => {
+    clearTimeout(waitTimer);
     for (const b of waiting) {
+      const free = focusFree(b);
       b.disabled = false;
       b.textContent = F.t('Send diagnostics');
       const status = b.cdStatus;
@@ -102,13 +123,26 @@
         status.append(F.el('span', '', 'Saved in Documents › Eden Secretary › Diagnostics.'));
         const show = button('Show in Finder', '', () => F.send({ type: 'ops_reveal', path: ev.path }));
         status.append(document.createTextNode(' '), show);
-        show.focus();
+        if (free) show.focus();
       } else {
         status.append(F.el('span', 'cd-problem', ev.text || 'That didn’t work.'));
       }
     }
     waiting.clear();
   });
+
+  // No answer is coming (the backend restarted, or it took too long): the buttons are usable
+  // again, and say so.
+  function giveUp(text) {
+    clearTimeout(waitTimer);
+    for (const b of waiting) {
+      b.disabled = false;
+      b.textContent = F.t('Send diagnostics');
+      if (b.cdStatus) b.cdStatus.replaceChildren(F.el('span', 'cd-problem', text));
+    }
+    waiting.clear();
+  }
+  F.on('hello', () => { if (waiting.size) giveUp('Eden restarted before the file was made. Try again.'); });
 
   // A session's error entries.
   F.registerEntryDecorator((e, li) => {

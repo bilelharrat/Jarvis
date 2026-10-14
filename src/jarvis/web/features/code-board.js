@@ -69,16 +69,20 @@
 
   // A card in one line, for a screen reader: "Session 3, Add a retry, needs you: Eden Code in
   // jarvis wants to run a command. jarvis, branch main. 2 files, 10 lines added, 3 removed."
-  function cardSpeech(task, col, ask, figures = {}) {
-    const named = task.title || task.prompt || 'New session';
-    const what = doing(task, ask).replace(/[.。…]+\s*$/, '');  // (each part ends on its own full stop)
+  // tr: the window's translation (F.t), for Eden's own words after the lane (what it's
+  // doing, "branch", the figures; web/i18n/code-board.json): the line's head ("Session 3,
+  // …, needs you:") is translated whole by the board's patterns, which took the rest as
+  // one name and left it English. The session's name, folder and branch stay as they are.
+  function cardSpeech(task, col, ask, figures = {}, tr = (x) => x) {
+    const named = task.title || task.prompt || tr('New session');
+    const what = tr(doing(task, ask)).replace(/[.。…]+\s*$/, '');  // (each part ends on its own full stop)
     const parts = [`Session ${task.id}, ${String(named).split('\n')[0].slice(0, 120)}, ${LANE_SAID[col] || col}${what ? `: ${what}` : ''}`];
-    const where = [task.folder, figures.branch ? `branch ${figures.branch}` : ''].filter(Boolean).join(', ');
+    const where = [task.folder, figures.branch ? `${tr('branch')} ${figures.branch}` : ''].filter(Boolean).join(', ');
     if (where) parts.push(where);
     const files = (task.files_changed || []).length;
     const stats = [];
-    if (files) stats.push(`${files} file${files === 1 ? '' : 's'}`);
-    if (figures.added || figures.removed) stats.push(`${figures.added || 0} lines added, ${figures.removed || 0} removed`);
+    if (files) stats.push(tr(`${files} file${files === 1 ? '' : 's'}`));
+    if (figures.added || figures.removed) stats.push(tr(`${figures.added || 0} lines added, ${figures.removed || 0} removed`));
     if (stats.length) parts.push(stats.join(', '));
     return `${parts.join('. ')}.`;
   }
@@ -165,7 +169,7 @@
   toggle.type = 'button';
   toggle.setAttribute('aria-label', 'Agent board');
   toggle.setAttribute('aria-pressed', 'false');
-  toggle.title = 'Agent board: every session at a glance (⇧⌘B)';
+  toggle.title = 'Agent board: every session at a glance (⌘⇧B)';  // (written as the window's other shortcuts are: ⌘⇧I, ⌘⇧F)
   toggle.insertAdjacentHTML('beforeend', '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2.5" width="3.4" height="11" rx="1.2"/><rect x="6.3" y="2.5" width="3.4" height="7" rx="1.2"/><rect x="10.6" y="2.5" width="3.4" height="9" rx="1.2"/></svg>');
   toggle.addEventListener('click', () => (isOpen() ? close() : open()));
   $('jc-side').querySelector('.jc-side-foot').append(toggle);  // beside "2 working · 1 waiting"
@@ -246,6 +250,13 @@
     x.addEventListener('click', close);
     tools.append(x);
     head.append(title, tools);
+    // Where the keys are, read before anything moves: a lane of another feature's (the to-do
+    // column) is its own element, taken off the board as it's put in the new lanes, and the
+    // focus goes with it to the page.
+    const had = board.querySelector('.cs-lanes');
+    const scroll = had ? had.scrollTop : 0;
+    const active = document.activeElement && board.contains(document.activeElement) ? document.activeElement : null;
+    const focused = active ? active.dataset.focus : '';
     const lanes = el('div', 'cs-lanes');
     for (const lane of extraLanes) {
       try { lanes.append(lane.element()); } catch (err) { console.error('board lane', err); }
@@ -267,17 +278,15 @@
       const cards = el('div', 'cs-cards');
       cards.setAttribute('role', 'list');
       cards.setAttribute('aria-labelledby', lh.id);
-      if (!list.length) cards.append(el('p', 'cs-lane-empty', id === 'needs' ? 'Nothing waiting on you.' : 'None'));
       cards.append(...list.map((task) => cardFor(task, id)));
-      lane.append(lh, cards);
+      // (An empty lane says so beside its list, not in it: a list holds only its items.)
+      lane.append(lh, ...(list.length ? [] : [el('p', 'cs-lane-empty', id === 'needs' ? 'Nothing waiting on you.' : 'None')]), cards);
       lanes.append(lane);
     }
-    const had = board.querySelector('.cs-lanes');
-    const scroll = had ? had.scrollTop : 0;
-    const focused = document.activeElement && board.contains(document.activeElement) ? document.activeElement.dataset.focus : '';
     board.replaceChildren(head, lanes);
     lanes.scrollTop = scroll;
-    const again = focused && board.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
+    // The same element when it's still there (a kept lane's), else its namesake.
+    const again = active && board.contains(active) ? active : focused && board.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
     if (again) again.focus();
   }
 
@@ -289,7 +298,7 @@
     card.dataset.task = task.id;
     card.dataset.focus = `${task.id}:card`;
     card.setAttribute('role', 'listitem');
-    card.setAttribute('aria-label', cardSpeech(task, col, asks[0], figures));
+    card.setAttribute('aria-label', cardSpeech(task, col, asks[0], figures, t));
     card.tabIndex = task.id === B.focusId ? 0 : -1;
     card.addEventListener('focus', () => { B.focusId = task.id; });
     const top = el('div', 'cs-card-top');
@@ -348,7 +357,9 @@
     card.focus();
   }
   function onCardKey(e) {
-    const card = e.target.closest && e.target.closest('.cs-card');
+    // A session's card only: the to-do lane's cards are .cs-card too, and 1 to 4 there would
+    // press Start (a paid session) or Delete, or Enter open no session at all.
+    const card = e.target.closest && e.target.closest('.cs-card[data-task]');
     if (!card || e.metaKey || e.ctrlKey || e.altKey) return;
     const id = Number(card.dataset.task);
     if (e.target === card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); F.selectTask(id); return; }
@@ -382,7 +393,7 @@
     const a11y = root.jarvisAccessibility;
     if (task && a11y && a11y.announce) {
       const asks = asksOf(to);
-      a11y.announce(cardSpeech(task, column(task, asks.length), asks[0], B.figures[String(to)] || {}));
+      a11y.announce(cardSpeech(task, column(task, asks.length), asks[0], B.figures[String(to)] || {}, t));
     }
   });
 

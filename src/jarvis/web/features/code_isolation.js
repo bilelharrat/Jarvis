@@ -235,11 +235,16 @@
 
   // ── events ──
 
+  // Whether the Copies pane is the one showing: its body is every pane's (#jc-pane-body).
+  /* global currentPane */
+  const copiesShown = () => state.paneBody && state.paneBody.isConnected && state.paneBody.querySelector('.jcx-copies')
+    && typeof currentPane !== 'undefined' && currentPane === 'copies';
+
   function prefsFrom(prefs) {
     if (prefs && prefs.features) state.features = prefs.features;
     drawSettings();
     redraw();
-    if (state.paneBody && state.paneBody.isConnected && state.paneBody.querySelector('.jcx-copies')) renderCopies(state.paneBody);
+    if (copiesShown()) renderCopies(state.paneBody);
   }
   F.on('hello', (ev) => { state.tasks = ev.tasks || []; prefsFrom(ev.prefs); }, { replay: true });
   F.on('prefs', (ev) => prefsFrom(ev), { replay: true });
@@ -248,7 +253,7 @@
     state.copies = ev.copies || [];
     state.trash = ev.trash || [];
     state.root = ev.root || '';
-    if (state.paneBody && state.paneBody.isConnected && state.paneBody.querySelector('.jcx-copies')) renderCopies(state.paneBody);
+    if (copiesShown()) renderCopies(state.paneBody);
   });
   redraw();
   drawSettings();

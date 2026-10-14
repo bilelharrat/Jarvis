@@ -38,17 +38,27 @@
   }
 
   // A merged hunk as the merge's list reads it: where, from which attempt, and why.
-  function hunkLine(h) {
-    const where = h.where ? ` in ${h.where}` : '';
-    return `${h.file} line ${h.line}${where}: from ${h.label} (+${h.added} −${h.removed})${h.why ? `. ${h.why}` : ''}`;
+  // A merged hunk's line, in parts: the file, the function it's in, the model and the
+  // judge's reason are never translated (own); "line 12", "in" and "from" are Eden's
+  // (web/i18n/code_bestof.json).
+  function hunkParts(h) {
+    const parts = [{ text: h.file, own: true }, { text: ` line ${h.line}` }];
+    if (h.where) parts.push({ text: ' in ' }, { text: h.where, own: true });
+    parts.push({ text: ': from ' }, { text: h.label, own: true }, { text: ` (+${h.added} −${h.removed})`, own: true });
+    if (h.why) parts.push({ text: '. ', own: true }, { text: h.why, own: true });
+    return parts;
   }
+  function hunkLine(h) { return hunkParts(h).map((p) => p.text).join(''); }
 
-  const api = { modelOptions, variantsToSend, hunkLine, ROUTER };
+  const api = { modelOptions, variantsToSend, hunkLine, hunkParts, ROUTER };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after Stop, Merge and
+  // the like the focus would otherwise fall to the page.
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const EFFORTS = [['', 'Default effort'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
   const MODES = [['edits', 'Accept edits'], ['ask', 'Manual'], ['smart', 'Auto'], ['plan', 'Plan'], ['auto', 'Bypass permissions']];
   const BUILTIN = [['opus', 'Opus 5.5'], ['sonnet', 'Sonnet 5.5'], ['haiku', 'Haiku 4.5'], ['fable', 'Fable 5.1']];
@@ -213,8 +223,12 @@
       const list = el('ul', 'jcx-bhunks');
       list.setAttribute('aria-label', 'Merged changes');
       for (const h of merge.hunks) {
-        const item = el('li', `jcx-bhunk from${h.from}`, hunkLine(h));
-        item.dataset.noI18n = '';
+        const item = el('li', `jcx-bhunk from${h.from}`);
+        for (const part of hunkParts(h)) {
+          const bit = el('span', '', part.text);
+          if (part.own) bit.dataset.noI18n = '';
+          item.append(bit);
+        }
         list.append(item);
       }
       box.append(list);
@@ -264,7 +278,7 @@
       const group = latest();
       if (group && !state.showForm) drawGroup(wrap, group); else drawForm(wrap);
     }
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   function render() { if (showing()) draw(body); }

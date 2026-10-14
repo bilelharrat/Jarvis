@@ -159,9 +159,12 @@
     problem.setAttribute('role', 'alert');
     problem.textContent = T.error;
     problem.hidden = !T.error;
+    // A list (a name on a plain div is never read), its cards the items; an empty one says so
+    // beside it.
     const list = F.el('div', 'cs-cards ct-cards');
+    list.setAttribute('role', 'list');
     list.setAttribute('aria-label', t('Cards to do'));
-    if (!mine.length) list.append(F.el('p', 'cs-lane-empty', T.folder ? 'Write the next thing to do here.' : 'Open a project first.'));
+    const empty = mine.length ? [] : [F.el('p', 'cs-lane-empty', T.folder ? 'Write the next thing to do here.' : 'Open a project first.')];
     mine.forEach((card, n) => list.append(cardEl(card, n, mine.length)));
     list.addEventListener('dragover', (e) => {
       if (![...(e.dataTransfer && e.dataTransfer.types) || []].includes(DRAG)) return;
@@ -182,7 +185,7 @@
       F.send({ type: 'todo_move', id, index: Math.max(0, index) });
     });
     const keep = lane.contains(document.activeElement) ? document.activeElement.dataset.focus : '';
-    lane.replaceChildren(head, tools, adds, ...queueRow, said, problem, list);
+    lane.replaceChildren(head, tools, adds, ...queueRow, said, problem, ...empty, list);
     const again = keep && lane.querySelector(`[data-focus="${CSS.escape(keep)}"]`);
     if (again) again.focus();
   }
@@ -192,6 +195,7 @@
     el.dataset.card = card.id;
     const running = card.state === 'running' || card.state === 'queued';
     el.draggable = !running;
+    el.setAttribute('role', 'listitem');
     el.setAttribute('aria-label', card.title);
     el.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData(DRAG, card.id);

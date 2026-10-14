@@ -62,6 +62,10 @@ body:not([data-skin]) .deck.jc {
   font-size: 15px; line-height: 1.35; letter-spacing: -0.1px;
   background: var(--eden-bg); color: var(--eden-text);
   animation: none;
+  /* The page's own controls (checkboxes, radios, selects' menus) in the window's light or
+     dark, in its blue: without it a checkbox is a white square on the dark cards. */
+  color-scheme: light dark;
+  accent-color: rgb(var(--c-accent));
 }
 @media (prefers-color-scheme: dark) {
   body:not([data-skin]) .deck.jc {

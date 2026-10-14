@@ -1,7 +1,6 @@
 {
  "strings": {
   "Agent board": "智能体看板",
-  "Agent board: every session at a glance (⇧⌘B)": "智能体看板：一眼看清所有会话（⇧⌘B）",
   "Every session at a glance": "一眼看清所有会话",
   "All quiet": "一切安静",
   "No sessions yet": "还没有会话",
@@ -17,7 +16,9 @@
   "New since you looked": "有你还没看过的新内容",
   "Done": "完成",
   "Next or previous session": "下一个或上一个会话",
-  "Agent board: arrows, Enter, 1–4": "智能体看板：方向键、回车、1–4"
+  "Agent board: every session at a glance (⌘⇧B)": "智能体看板：一眼看清所有会话（⌘⇧B）",
+  "Agent board: arrows, Home, End, Enter or Space, 1–4": "智能体看板：方向键、Home、End、回车或空格、1–4",
+  "branch": "分支"
  },
  "patterns": [
   [
@@ -67,6 +68,10 @@
   [
    "^Session (\\d+), (.+), resting: (.+)$",
    "会话 $1，$2，休眠中：$3"
+  ],
+  [
+   "^(\\d+) lines added, (\\d+) removed$",
+   "新增 $1 行，删除 $2 行"
   ]
  ]
 }

@@ -73,6 +73,9 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after Stop, Merge and
+  // the like the focus would otherwise fall to the page.
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = { runs: [], active: {}, open: new Set() };
   let body = null;
 
@@ -108,7 +111,8 @@
   const pill = el('button', 'jc-pill jcx-bf-switch');
   pill.type = 'button';
   pill.id = 'jcx-bf-switch';
-  pill.setAttribute('role', 'switch');
+  // A button, not a switch: on, it opens the run's pane (with Stop) rather than turning it
+  // off, so its name says which it does (drawSwitch).
   pill.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><ellipse cx="8" cy="9" rx="3.2" ry="4.2"/><path d="M8 4.8V3M5.6 6.2 3.5 4.8M10.4 6.2l2.1-1.4M4.8 9H2.5M11.2 9h2.3M5.4 11.8l-1.9 1.4M10.6 11.8l1.9 1.4"/></svg>';
   pill.append(el('span', '', 'Bug Fix Mode'));
   pill.addEventListener('click', () => {
@@ -125,7 +129,7 @@
     const name = project();
     pill.hidden = !name;
     const run = name ? runFor(state.runs, state.active, F.currentTask() && F.currentTask().id, name) : null;
-    pill.setAttribute('aria-checked', String(!!run));
+    pill.setAttribute('aria-label', t(run ? 'Bug Fix Mode is on: show its progress' : 'Bug Fix Mode: turn it on for this project…'));
     pill.classList.toggle('on', !!run);
     pill.title = t(run
       ? 'Bug Fix Mode is on here. Click for its progress, and Stop.'
@@ -177,6 +181,8 @@
       chip(STATUS[f.status] || f.status, ['verified', 'fixed'].includes(f.status) ? 'good' : ['failing', 'unproven'].includes(f.status) ? 'warn' : ''));
     li.append(head, mine(`${f.where} · ${f.lane}`, 'p', 'jc-dim jcx-bf-where'));
     li.title = f.scenario || '';
+    // (A title is never read by a screen reader: the scenario is said in the item too.)
+    if (f.scenario) li.append(mine(f.scenario, 'span', 'sr-only'));
     return li;
   }
 
@@ -263,7 +269,7 @@
     }
     if (!state.runs.length) wrap.append(el('p', 'jc-dim', 'No runs yet.'));
     wrap.append(...state.runs.slice(0, 12).map(runCard));
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   F.registerPane('bugfix', {

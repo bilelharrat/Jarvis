@@ -53,6 +53,9 @@
   const F = root.jarvisFeatures;
   if (!F || typeof document === 'undefined') return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after Stop, Merge and
+  // the like the focus would otherwise fall to the page.
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = { data: new Map(), edits: new Map() }; // key -> the latest code_stack event; key -> parts being edited
   let paneBody = null;
   const keyOf = (task) => (task ? `id:${task.id}` : '');
@@ -145,7 +148,7 @@
     const wrap = el('div', 'jcx-stack');
     if (!task) {
       wrap.append(el('p', 'jc-empty', 'Open a session to split its changes into a stack.'));
-      target.replaceChildren(wrap);
+      keepFocus(target, () => target.replaceChildren(wrap));
       return;
     }
     const key = keyOf(task);
@@ -174,7 +177,7 @@
       wrap.append(el('p', 'jcs-label', 'This session’s stacks'));
       wrap.append(...data.stacks.slice().reverse().map(stackRow));
     }
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   const shown = () => paneBody && paneBody.isConnected && paneBody.querySelector('.jcx-stack');

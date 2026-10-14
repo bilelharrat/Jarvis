@@ -44,12 +44,26 @@
     return null;
   }
 
-  const api = { statusLine, findingWhere, parsePull, STATUS };
+  // Why Review now can't take what was typed ('' when it can): said under the field, never
+  // a press that does nothing.
+  function askProblem(text, repos) {
+    const raw = String(text || '').trim();
+    const only = (repos || []).length === 1 ? repos[0].repo : '';
+    if (parsePull(raw, only)) return '';
+    if (!raw) return 'Type a pull request: owner/repo#12, or its address.';
+    if (/^#?\d{1,7}$/.test(raw)) return 'Say which repository too: owner/repo#12.';
+    return 'That isn’t a pull request: type owner/repo#12, or its address.';
+  }
+
+  const api = { statusLine, findingWhere, parsePull, askProblem, STATUS };
   if (typeof module === 'object' && module.exports) module.exports = api;
 
   const F = root.jarvisFeatures;
   if (!F || typeof document === 'undefined') return;
   const { el, send, t } = F;
+  // Drawn anew with the keyboard kept in its place (code-focus.js): after Stop, Merge and
+  // the like the focus would otherwise fall to the page.
+  const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const state = {
     repos: [],
     reviews: [],
@@ -176,7 +190,7 @@
       parts.push(list);
     }
     parts.push(addForm());
-    group.replaceChildren(...parts);
+    keepFocus(group, () => group.replaceChildren(...parts));
   }
 
   (function addSettings() {
@@ -243,17 +257,25 @@
     field.addEventListener('input', () => { state.ask = field.value; });
     const go = el('button', 'jc-btn small', 'Review now');
     go.type = 'submit';
+    const why = el('p', 'jcx-prr-why');
+    why.id = 'jcx-prr-why';
+    why.setAttribute('role', 'status');
+    field.setAttribute('aria-describedby', why.id);
     ask.append(field, go);
     ask.addEventListener('submit', (e) => {
       e.preventDefault();
+      const problem = askProblem(state.ask, state.repos);
+      why.textContent = problem ? t(problem) : '';
+      field.setAttribute('aria-invalid', String(!!problem));
+      if (problem) { field.focus(); return; }
       const found = parsePull(state.ask, state.repos.length === 1 ? state.repos[0].repo : '');
-      if (found) send({ type: 'code_prr_review', repo: found.repo, number: found.number });
+      send({ type: 'code_prr_review', repo: found.repo, number: found.number });
     });
-    wrap.append(ask);
+    wrap.append(ask, why);
     if (!state.repos.length) wrap.append(el('p', 'jc-empty', 'No repository is reviewed yet: turn it on in Eden Code settings › GitHub.'));
     if (!state.reviews.length) wrap.append(el('p', 'jc-empty', 'No reviews yet.'));
     else wrap.append(...state.reviews.map(reviewCard));
-    target.replaceChildren(wrap);
+    keepFocus(target, () => target.replaceChildren(wrap));
   }
 
   const shown = () => paneBody && paneBody.isConnected && paneBody.querySelector('.jcx-prr-pane');

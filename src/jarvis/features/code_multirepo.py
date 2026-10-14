@@ -35,7 +35,8 @@ ref, as a single copy is), the session ended, the task folder removed when it's 
 Window commands: code_multis {}, code_multi_start, code_multi_land {group},
 code_multi_prs, code_multi_merge {group}, code_multi_discard {group}, code_multi_open
 {group} (the task's session, resumed when it has ended).
-Events: code_multis {groups: [...]}.
+Events: code_multis {groups: [...]}; code_multi_started {ok, text} once a start is done or
+refused (the window keeps the picks and the request until it's started, and says why not).
 
 Cost policy: nothing here calls a model. The session is the owner's, on the model they
 pick (counted and capped as every session is); titles and descriptions are the owner's.
@@ -761,7 +762,12 @@ def install(hub: Any) -> None:
     hub.add_task_sink(multi.on_task_event)
     group = lambda msg: str(msg.get("group") or "")[:80]  # noqa: E731
     hub.register_command("code_multis", lambda _msg: hub._spawn(multi.publish()))
-    hub.register_command("code_multi_start", lambda msg: multi._run(multi.start(msg)))
+    async def start_and_say(msg: dict[str, Any]) -> str:
+        said = await multi.start(msg)
+        hub.emit("code_multi_started", ok=not said, text=multi.tr(said) if said else "")
+        return said
+
+    hub.register_command("code_multi_start", lambda msg: multi._run(start_and_say(msg)))
     hub.register_command("code_multi_land", lambda msg: multi._run(multi.land(group(msg))))
     hub.register_command("code_multi_discard", lambda msg: multi._run(multi.discard(group(msg))))
     hub.register_command("code_multi_prs", lambda msg: multi._run(multi.open_prs(group(msg), msg)))

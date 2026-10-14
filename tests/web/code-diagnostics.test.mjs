@@ -101,3 +101,64 @@ test('an error entry gets Copy details and Send diagnostics; the file is made an
   w.decorate({ role: 'system', text: 'Stopped with an error: boom', error: true }, li);
   assert.equal(li.children.filter((c) => c.className === 'cd-actions').length, 1);
 });
+
+// Audit G7: Show in Finder takes the focus only from the page or the card's own button (not
+// from the composer, where Enter would then open Finder); a backend that restarted while
+// the file was being made never answers, so the buttons give up and say so; a second card
+// pressed meanwhile says one is already being made, and hears its answer.
+test('Send diagnostics: no focus stolen, no button stuck, a second press said', async () => {
+  const { makeDocument, elFor, load } = await import('./fixtures/stand-dom.mjs');
+  const document = makeDocument();
+  const handlers = {};
+  const sent = [];
+  let decorate = null;
+  const timers = [];
+  const F = {
+    el: elFor(document), t: (x) => x, send: (m) => { sent.push(m); return true; },
+    on: (type, fn) => { (handlers[type] ||= []).push(fn); },
+    registerEntryDecorator: (fn) => { decorate = fn; },
+    currentTask: () => null,
+  };
+  const window = { jarvisFeatures: F, document, navigator: { userAgent: 'Eden Code/1.2.0' } };
+  load(SOURCE, { window, document, setTimeout: (fn) => { timers.push(fn); return timers.length; }, clearTimeout() {} });
+  const fire = (type, ev) => { for (const fn of handlers[type] || []) fn(ev); };
+  const card = () => {
+    const li = document.createElement('li');
+    document.body.append(li);
+    decorate({ role: 'system', text: 'Stopped with an error: boom', error: true }, li);
+    const [, send, status] = li.querySelector('.cd-actions').children;
+    return { send, status };
+  };
+  const composer = document.createElement('textarea');
+  document.body.append(composer);
+  const a = card();
+  const b = card();
+  a.send.focus();
+  a.send.click();
+  b.send.click();
+  assert.equal(sent.length, 1, 'one file at a time');
+  assert.match(b.status.textContent, /Already making one/);
+  assert.equal(b.send.textContent, 'Making it…');
+  composer.focus();  // the owner went back to typing
+  fire('ops_diagnostics', { ok: true, path: '/x/d.zip' });
+  assert.ok(document.activeElement === composer, 'the composer keeps the keys');
+  assert.match(a.status.textContent, /Show in Finder/);
+  assert.match(b.status.textContent, /Show in Finder/, 'the second card heard it too');
+  // From the page itself, Show in Finder takes the focus.
+  composer.blur();
+  a.send.click();
+  fire('ops_diagnostics', { ok: true, path: '/x/e.zip' });
+  assert.equal(document.activeElement.textContent, 'Show in Finder');
+  // The backend restarts midway: no answer will come.
+  a.send.click();
+  assert.equal(a.send.disabled, true);
+  fire('hello', {});
+  assert.equal(a.send.disabled, false);
+  assert.equal(a.send.textContent, 'Send diagnostics');
+  assert.match(a.status.textContent, /restarted/);
+  // Or it just takes too long.
+  a.send.click();
+  timers.at(-1)();
+  assert.equal(a.send.disabled, false);
+  assert.match(a.status.textContent, /too long/);
+});

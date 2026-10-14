@@ -17,6 +17,8 @@
 .jcx-prr-pane { display: flex; flex-direction: column; gap: 10px; }
 .jcx-prr-ask { display: flex; gap: 6px; align-items: center; }
 .jcx-prr-ask .jcs-input { flex: 1; min-width: 0; }
+.jcx-prr-why { margin: 4px 0 0; min-height: 1em; font-size: 12px; color: rgb(var(--c-warning-ink)); }
+.jcx-prr-why:empty { display: none; }
 .jcx-prr-card { padding: 9px 11px; border-radius: 11px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 5px; }
 .jcx-prr-card.failed { box-shadow: inset 3px 0 0 rgb(var(--c-warning)), var(--shadow-card); }
 .jcx-prr-head { display: flex; align-items: center; gap: 7px; font-size: 13px; }

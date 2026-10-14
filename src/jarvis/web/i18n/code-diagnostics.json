@@ -11,7 +11,10 @@
     "Saved in Documents › Eden Secretary › Diagnostics.": "已保存到“文稿 › Eden Secretary › Diagnostics”。",
     "Show in Finder": "在访达中显示",
     "That didn’t work.": "没有成功。",
-    "Error actions": "错误操作"
+    "Error actions": "错误操作",
+    "Already making one: it shows here too when it’s ready.": "已经在生成一个了：生成好后也会显示在这里。",
+    "That took too long. Try again.": "用时太长。请再试一次。",
+    "Eden restarted before the file was made. Try again.": "文件生成前 Eden 重新启动了。请再试一次。"
   },
   "patterns": []
 }
