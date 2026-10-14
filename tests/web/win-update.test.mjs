@@ -387,3 +387,19 @@ test('sign-feed.js signs with the Keychain’s key, fills sizes and SHA-256s fro
   const rsa = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 }).privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64');
   assert.throws(() => signer.keyFrom(rsa), /not Ed25519/);
 });
+
+test('without the feed’s key built in, unsigned lists stay refused and the owner hears what to do', async () => {
+  const keyless = rig({ publicKey: '', latest: JSON.stringify(ENTRIES) });
+  const state = await keyless.u.check();
+  assert.equal(state.state, 'error');
+  assert.equal(state.error, win.WORDS.nokey);
+  assert.equal(state.nokey, true);
+  assert.match(win.WORDS.nokey, /signing key/);
+  assert.match(win.WORDS.nokey, /sign-feed\.js/);
+  assert.deepEqual(keyless.seen.fetched, [], 'nothing it could trust to fetch');
+  assert.equal(await keyless.u.install(), false, 'nothing offered: nothing installed');
+  assert.deepEqual(keyless.seen.downloads, []);
+  // Even a list signed by some key isn't taken without one built in.
+  const signedElsewhere = rig({ publicKey: '' });
+  assert.equal((await signedElsewhere.u.check()).error, win.WORDS.nokey);
+});
