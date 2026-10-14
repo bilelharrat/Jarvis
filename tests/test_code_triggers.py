@@ -193,19 +193,23 @@ async def test_linears_door_wants_the_token_the_signature_and_a_fresh_body(hub):
     assert all(k == "lin_api_test" for k in hub.lin.keys)
 
 
-async def test_too_many_wrong_tokens_lock_the_door(hub):
+async def test_too_many_wrong_tokens_lock_the_door_to_guesses_only(hub):
     configure(hub)
     body, headers = linear_body(**ticket())
     for _ in range(code_triggers.WRONG_MAX):
         await knock(hub, "linear", body, headers, token="guess")
-    assert (await knock(hub, "linear", body, headers))[0] == 429
+    assert (await knock(hub, "linear", body, headers, token="guess"))[0] == 429
+    # Linear itself, with the right token, still gets through the lockout.
+    assert (await knock(hub, "linear", body, headers))[0] == 200
 
 
-async def test_a_service_thats_off_answers_as_a_wrong_token(hub):
+async def test_a_service_thats_off_has_no_door_and_counts_nothing(hub):
     configure(hub)
     hub.set_feature_prefs({code_triggers.PREF_LINEAR: {}})
     body, headers = linear_body(**ticket())
-    assert (await knock(hub, "linear", body, headers))[0] == 401
+    for _ in range(code_triggers.WRONG_MAX + 5):
+        assert (await knock(hub, "linear", body, headers))[0] == 404
+    assert not any(hub.code_triggers._wrong.values())
 
 
 async def test_only_a_ticket_just_given_to_eden_by_someone_listed_starts_a_run(hub):
@@ -414,8 +418,11 @@ async def test_the_listener_answers_only_the_two_doors_and_a_bare_health(hub):
         await settle()
         assert len(hub.started) == 1
         # The door's own checks still hold: a wrong token is the door's 401.
-        wrong = await http.post("/hooks/eden-slack", params={"token": "nope"}, content=b"{}")
+        wrong = await http.post("/hooks/eden-linear", params={"token": "nope"}, content=b"{}")
         assert wrong.status_code == 401
+        # A service that's off: as if its door weren't there.
+        off = await http.post("/hooks/eden-slack", params={"token": "nope"}, content=b"{}")
+        assert off.status_code == 404
         # Everything else the window's server has, or the owner's own hooks: not here.
         for method, path in [("POST", "/hooks/my-own-hook"), ("GET", "/"), ("GET", "/f/abc"),
                              ("GET", "/ws"), ("GET", "/hooks/eden-linear"), ("POST", "/health"),

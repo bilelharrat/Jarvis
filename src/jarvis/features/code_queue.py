@@ -142,7 +142,8 @@ class Queue:
         if ref in MODELS:
             return MODELS[ref]
         try:
-            return str(self.hub.providers.session_config(ref).get("model") or ref)
+            # (only its name: no pass for a run that isn't starting)
+            return str(self.hub.providers.session_config(ref, grant=False).get("model") or ref)
         except Exception:
             return ref
 

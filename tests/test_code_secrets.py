@@ -172,10 +172,12 @@ async def test_a_command_naming_the_secret_asks_in_every_mode_and_gets_it_throug
     assert argv[:2] == [sys.executable, "-I"] and argv[2].endswith("secret_run.py")
     assert argv[4] == "--" and argv[-1] == command and argv[-2] == "-c"
     # Nothing on the line can fetch a secret: no Keychain service, no account, only a pipe
-    # made for this command, which gives the values to its first reader and is gone.
+    # made for this command, which is gone once opened, and gives the values only to that
+    # very command (this test's process, opening it first, gets nothing: tests/
+    # test_secret_handoff.py has the command itself getting them).
     assert SERVICE not in wrapped and "code-secret:" not in wrapped
     pipe = argv[3]
-    assert secret_run.read_pipe(pipe) == {"values": {"SECRET_STRIPE_KEY": VALUE}, "missing": []}
+    assert secret_run.read_pipe(pipe) is None
     assert secret_run.read_pipe(pipe) is None
     # One that doesn't name it runs as it is, with no card.
     plain = await options.can_use_tool("Bash", {"command": "ls"}, context)
@@ -196,7 +198,7 @@ async def test_a_command_naming_the_secret_asks_in_every_mode_and_gets_it_throug
     options = hub.tasks.options_for(task)
     again = await options.can_use_tool("Bash", {"command": command}, context)
     assert isinstance(again, PermissionResultAllow) and len(cards) == 2
-    assert secret_run.read_pipe(shlex.split(again.updated_input["command"])[3])["values"]
+    assert shlex.split(again.updated_input["command"])[-1] == command
     # And the policy's no stays a no.
     task.mode = "plan"
     hub.tasks.approve = deny

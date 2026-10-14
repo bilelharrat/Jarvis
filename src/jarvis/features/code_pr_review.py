@@ -577,6 +577,10 @@ class PullReviews:
             # From here the head counts as reviewed, whatever the model or GitHub then say:
             # a failure is told once, never retried at every look (each try costs a call).
             self.store()["heads"][key] = sha
+            # Saved now, not only with the record: GitHub may take the review and then say
+            # its rate limit is used up (RateLimited goes up past _keep), and a restart then
+            # posted the same review twice.
+            self.save()
             record = {
                 "key": key,
                 "repo": repo,

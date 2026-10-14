@@ -17,6 +17,14 @@ answers only:
 
 Anything else is a 404, whatever its method. No Server or Date header says what answers.
 
+Connections: everything comes from 127.0.0.1 (the tunnel, or a program on this Mac), so a
+limit per address would be one limit for all. Instead each connection has REQUEST_SECONDS
+to send a whole request (remote.GuardedH11's deadline: uvicorn itself only times out the
+quiet gap between requests), at most CONNECTIONS are open at once (one more is closed at
+once, holding no slot), and a request's headers are capped. A few dozen sockets left open
+and silent, or one sending a byte a second, used to hold every slot for good: the real
+Linear's delivery got a 503.
+
 A taken port is never swapped for another: the tunnel and the addresses pasted into Linear
 and Slack name this one. start() says why it couldn't listen (error), and the feature
 shows that in its settings and logs it. Before binding, a connection to the port is tried:
@@ -41,6 +49,43 @@ log = logging.getLogger("jarvis")
 
 VIA = "jarvis.hook_listener"  # the ASGI scope key a request that came through here has
 LISTENING = object()  # its value: only this module has it
+CONNECTIONS = 128  # open at once
+REQUEST_SECONDS = 10.0  # to send one whole request, headers and body
+HEADER_BYTES = 16 * 1024  # a request's line and headers, at most
+
+
+def guarded_protocol(
+    connections: Callable[[], int] = lambda: CONNECTIONS,
+    seconds: Callable[[], float] = lambda: REQUEST_SECONDS,
+) -> Any:
+    """remote.GuardedH11 for a server only this Mac reaches (here, and the key proxy): a
+    deadline for each whole request and a cap on open connections, without its per-address
+    one (every address is 127.0.0.1). The limits are read as each connection comes."""
+    from uvicorn.protocols.http.h11_impl import H11Protocol
+
+    from .remote import GuardedH11
+
+    class LocalH11(GuardedH11):
+        def connection_made(self, transport: Any) -> None:
+            H11Protocol.connection_made(self, transport)
+            if len(self.connections) > connections():
+                transport.close()
+                return
+            self._arm(seconds())
+
+        def handle_events(self) -> None:
+            H11Protocol.handle_events(self)
+
+        def on_response_complete(self) -> None:
+            H11Protocol.on_response_complete(self)
+            if not self.transport.is_closing():
+                self._arm(seconds())
+
+    return LocalH11
+
+
+def _protocol() -> Any:
+    return guarded_protocol(lambda: CONNECTIONS, lambda: REQUEST_SECONDS)
 
 
 def _taken(port: int) -> bool:
@@ -156,7 +201,9 @@ class HookListener:
             proxy_headers=False,
             server_header=False,
             date_header=False,
-            limit_concurrency=32,
+            http=_protocol(),
+            limit_concurrency=CONNECTIONS * 2,  # (connections and requests under way together)
+            h11_max_incomplete_event_size=HEADER_BYTES,
             timeout_keep_alive=5,
             timeout_graceful_shutdown=2,
         )

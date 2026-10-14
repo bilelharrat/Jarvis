@@ -1034,6 +1034,7 @@ class Desk:
             for entry in reversed(task.transcript):
                 if entry.get("tool_id") == tool_id:
                     entry["status"], entry["output"] = status, output
+                    entry["updated"] = time.time_ns()  # (a live share sends it again)
                     shown = True
                     break
             if shown:

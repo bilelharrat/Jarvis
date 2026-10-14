@@ -40,7 +40,10 @@ def verify(secret: str, body: bytes, signature: str) -> bool:
     if not secret or not signature:
         return False
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature.strip().lower())
+    # As bytes: a header with a byte past ASCII (Starlette gives it as Latin-1) is simply
+    # wrong, where compare_digest on text raises TypeError for it.
+    offered = signature.strip().lower().encode("utf-8", "replace")
+    return hmac.compare_digest(expected.encode(), offered)
 
 
 def fresh(stamp_ms: Any, now: float | None = None) -> bool:

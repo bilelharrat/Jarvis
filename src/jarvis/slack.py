@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import hashlib
 import hmac
+import math
 import time
 from collections.abc import Callable
 from typing import Any
@@ -44,11 +45,13 @@ def verify(secret: str, body: bytes, stamp: str, signature: str, now: float | No
         when = float(stamp)
     except ValueError:
         return False
-    if abs((time.time() if now is None else now) - when) > FRESH:
+    # (NaN is never more than FRESH from now, so it would never go stale: a number only)
+    if not math.isfinite(when) or abs((time.time() if now is None else now) - when) > FRESH:
         return False
-    base = b"v0:" + stamp.encode() + b":" + body
+    base = b"v0:" + stamp.encode("utf-8", "replace") + b":" + body
     expected = "v0=" + hmac.new(secret.encode(), base, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature.strip())
+    # As bytes: a header with a byte past ASCII is simply wrong (TypeError on text).
+    return hmac.compare_digest(expected.encode(), signature.strip().encode("utf-8", "replace"))
 
 
 class Client:

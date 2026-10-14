@@ -37,6 +37,27 @@ test('the viewer page asks for its share’s state with its own random id', () =
   assert.equal(viewer.leftText(10 + 7200, 10), 'ends in 2 h');
 });
 
+test('a step sent again (its outcome came in) takes its own place, and the list is capped', () => {
+  // A list of the tests' own: what placeEntries uses of an <ol>.
+  const list = {
+    kids: [],
+    appendChild(n) { n.parentNode = this; this.kids.push(n); },
+    replaceChild(n, old) { const i = this.kids.indexOf(old); n.parentNode = this; old.parentNode = null; this.kids[i] = n; },
+    removeChild(n) { this.kids.splice(this.kids.indexOf(n), 1); n.parentNode = null; },
+  };
+  const make = (e) => (e.role === 'turn' ? null : { text: `${e.n}:${e.status || ''}` });
+  const shown = new Map();
+  viewer.placeEntries(list, shown, [{ n: 1, role: 'user' }, { n: 2, role: 'tool', status: '' }, { n: 3, role: 'turn' }], make);
+  assert.deepEqual(list.kids.map((k) => k.text), ['1:', '2:']);
+  viewer.placeEntries(list, shown, [{ n: 2, role: 'tool', status: 'done' }, { n: 4, role: 'assistant' }], make);
+  assert.deepEqual(list.kids.map((k) => k.text), ['1:', '2:done', '4:']);  // in place, not added again
+  viewer.placeEntries(list, shown, [{ n: 5, role: 'user' }, { n: 6, role: 'user' }], make, 3);
+  assert.deepEqual(list.kids.map((k) => k.text), ['4:', '5:', '6:']);  // the oldest went
+  assert.equal(shown.size, 3);
+  assert.equal(viewer.KEPT, 1000);
+  assert.equal(viewer.stateUrl('/share/tok', 'v'.repeat(8), 9, 'k', 77), '/share/tok/state?v=vvvvvvvv&since=9&ck=k&u=77');
+});
+
 test('the viewer page never reads the session as HTML', () => {
   const source = readFileSync(new URL('../../src/jarvis/web/share.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/);

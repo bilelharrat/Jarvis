@@ -6,6 +6,8 @@
   'use strict';
 
   const POLL_MS = 2000;
+  const MORE_MS = 200;  // the next page soon, when the Mac said there's more
+  const KEPT = 1000;  // entries shown at most: the oldest go (a long session stays light)
   const ROLE_NAMES = { user: 'Request', assistant: 'Eden', tool: 'Step', system: 'Note', note: 'Note', plan: 'Plan', turn: '' };
 
   // A viewer's own id for this tab (the owner sees how many are watching): random, never a name.
@@ -15,11 +17,38 @@
     return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // The state's address for the page's own path (/share/<token>).
-  function stateUrl(path, viewer, since, key) {
+  // The state's address for the page's own path (/share/<token>): the entries it has (up
+  // to since), the update it has seen of them (u), and the changes it has (key).
+  function stateUrl(path, viewer, since, key, seen) {
     const base = String(path || '').replace(/\/+$/, '');
     const q = new URLSearchParams({ v: viewer, since: String(since || 0), ck: key || '' });
+    if (seen) q.set('u', String(seen));
     return `${base}/state?${q}`;
+  }
+
+  // Entries into the list: a new one at the end; one already shown (a step whose outcome
+  // and output came in after it was sent) in its place; past KEPT, the oldest go. shown is a
+  // Map n -> node; make(entry) a node or null; list has append/insertBefore/removeChild.
+  function placeEntries(list, shown, entries, make, kept) {
+    for (const e of entries || []) {
+      const n = e.n || 0;
+      const node = make(e);
+      const old = shown.get(n);
+      if (old) {
+        if (node) list.replaceChild(node, old); else list.removeChild(old);
+        if (node) shown.set(n, node); else shown.delete(n);
+        continue;
+      }
+      if (!node) continue;
+      list.appendChild(node);
+      shown.set(n, node);
+    }
+    const most = kept || KEPT;
+    while (shown.size > most) {
+      const [n, node] = shown.entries().next().value;
+      shown.delete(n);
+      if (node.parentNode === list) list.removeChild(node);
+    }
   }
 
   // How long is left, in words.
@@ -30,7 +59,7 @@
     return `ends in ${Math.round(s / 3600)} h`;
   }
 
-  const api = { viewerId, stateUrl, leftText, ROLE_NAMES };
+  const api = { viewerId, stateUrl, leftText, placeEntries, ROLE_NAMES, KEPT };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const doc = root.document;
@@ -43,6 +72,8 @@
     try { root.sessionStorage.setItem('eden-share-viewer', viewer); } catch (_) { /* private mode */ }
   }
   let since = 0;
+  let seen = 0;
+  const shown = new Map();
   let key = '';
   let expires = 0;
   let timer = null;
@@ -92,7 +123,7 @@
   async function poll() {
     let data;
     try {
-      const reply = await fetch(stateUrl(root.location.pathname, viewer, since, key), { cache: 'no-store', credentials: 'omit' });
+      const reply = await fetch(stateUrl(root.location.pathname, viewer, since, key, seen), { cache: 'no-store', credentials: 'omit' });
       if (reply.status === 404) { ended(); return; }
       if (!reply.ok) { timer = setTimeout(poll, POLL_MS * 2); return; }
       data = await reply.json();
@@ -108,15 +139,12 @@
     $('doing').textContent = data.doing || '';
     expires = data.expires || 0;
     $('expires').textContent = `· ${leftText(expires, Date.now() / 1000)}`;
-    const list = $('entries');
-    for (const e of data.entries || []) {
-      since = Math.max(since, e.n || 0);
-      const li = entry(e);
-      if (li) list.append(li);
-    }
+    for (const e of data.entries || []) since = Math.max(since, e.n || 0);
+    seen = Math.max(seen, data.u || 0);
+    placeEntries($('entries'), shown, data.entries, entry);
     if (data.changes) { key = data.changes_key || ''; drawChanges(data.changes); }
     $('suggest').hidden = !data.comments;
-    timer = setTimeout(poll, POLL_MS);
+    timer = setTimeout(poll, data.more ? MORE_MS : POLL_MS);
   }
 
   function tabs() {
