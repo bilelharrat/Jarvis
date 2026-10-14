@@ -9,7 +9,7 @@ import email.policy
 import re
 
 import pytest
-from mailserver import TestMail, make_raw, when
+from mailserver import TestMail, earlier_today, make_raw, when
 from test_mailbox import FakeVault
 
 from jarvis import mailbox, mailtools
@@ -74,7 +74,7 @@ def fill(server):
             "ann@test.example",
             "Lunch Friday",
             "Are you free at noon?",
-            date=when(0.05),
+            date=earlier_today(0.05),  # (read out as "today" whatever the hour)
             message_id="<m1@x>",
         ),
     )
@@ -470,3 +470,17 @@ def test_the_tool_server_has_the_names_claude_already_knows():
         "mail_triage",
         "mail_accounts",
     ]
+
+
+def test_the_today_sample_is_today_even_just_after_midnight():
+    """Round 3: the sample dated 1.2 hours back read as yesterday between 00:00 and 01:12,
+    and the "today" assertions failed at that hour."""
+    from datetime import UTC, datetime
+    from email.utils import parsedate_to_datetime
+
+    just_after = datetime.now().replace(hour=0, minute=20, second=0, microsecond=0).timestamp()
+    got = parsedate_to_datetime(earlier_today(0.05, now=just_after))
+    got = (got if got.tzinfo else got.replace(tzinfo=UTC)).astimezone()  # ("-0000": UTC)
+    assert got.date() == datetime.fromtimestamp(just_after).date()
+    assert got.timestamp() < just_after
+    assert mailbox.when(got, datetime.fromtimestamp(just_after)).startswith("today ")
