@@ -13,7 +13,7 @@
   // The model menu: the models in Settings › Models, the agents added in Other agents (acp:…),
   // and the router's pick when the Model Router is there.
   function modelOptions(models, agents, routerThere) {
-    const out = models.map((m) => [m.ref, m.label]);
+    const out = models.map((m) => (m.off ? [m.ref, m.label, true] : [m.ref, m.label]));
     for (const a of agents || []) out.push([`acp:${a.id}`, `${a.name} (agent)`]);
     if (routerThere) out.push([ROUTER, 'Model Router’s pick']);
     return out;
@@ -61,7 +61,7 @@
   const keepFocus = (box, drawIt) => (root.jarvisFocus ? root.jarvisFocus.keep(box, drawIt) : drawIt());
   const EFFORTS = [['', 'Default effort'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
   const MODES = [['edits', 'Accept edits'], ['ask', 'Manual'], ['smart', 'Auto'], ['plan', 'Plan'], ['auto', 'Bypass permissions']];
-  const BUILTIN = [['opus', 'Opus 5.5'], ['sonnet', 'Sonnet 5.5'], ['haiku', 'Haiku 4.5'], ['fable', 'Fable 5.1']];
+  const BUILTIN = [['opus', 'Claude Opus 5.5'], ['sonnet', 'Claude Sonnet 5.5']];  // before the list comes: Eden chat's Claude
   const state = {
     models: [], // [{ ref, label }] from the providers event
     agents: [], // [{ id, name }] from acp_state (Other agents, when that Labs module is on)
@@ -87,8 +87,9 @@
   function select(options, value, onChange, label) {
     const s = el('select', 'jcs-select');
     s.setAttribute('aria-label', label);
-    for (const [v, text] of options) {
+    for (const [v, text, off] of options) {
       const o = el('option', '', text);
+      if (off) o.disabled = true;
       o.value = v;
       o.selected = v === value;
       s.append(o);
@@ -101,7 +102,8 @@
     const input = document.getElementById('deck-input');
     const tests = (state.features.code_quick_tests || {})[project()] || '';
     const list = models();
-    const pick = (i) => (list[i] || list[0]).ref;
+    const can = list.filter((m) => !m.off);
+    const pick = (i) => (can[i] || can[0] || list[0]).ref;
     return { prompt: input ? input.value.trim() : '', variants: [{ model: pick(1), effort: '' }, { model: pick(0), effort: '' }], mode: 'edits', tests };
   }
 
@@ -292,8 +294,11 @@
   });
   F.registerMoreItem({ label: 'Best of N…', run: () => { state.showForm = !latest(); F.openPane('bestof'); } });
 
-  F.on('providers', (ev) => { state.models = (ev.models || []).map((m) => ({ ref: m.ref, label: m.label })); }, { replay: true });
-  F.on('hello', (ev) => { if (ev.prefs && ev.prefs.features) state.features = ev.prefs.features; if (ev.providers) state.models = (ev.providers.models || []).map((m) => ({ ref: m.ref, label: m.label })); }, { replay: true });
+  // The picker's models (Eden chat's, then the owner's); one with no key yet is shown, not
+  // choosable (a variant on it would only fail).
+  const runnable = (p) => (p.picker || p.models || []).map((m) => ({ ref: m.ref, label: m.needs_key ? `${m.label} (needs a key)` : m.label, off: !!m.needs_key }));
+  F.on('providers', (ev) => { state.models = runnable(ev); }, { replay: true });
+  F.on('hello', (ev) => { if (ev.prefs && ev.prefs.features) state.features = ev.prefs.features; if (ev.providers) state.models = runnable(ev.providers); }, { replay: true });
   F.on('prefs', (ev) => { if (ev.features) state.features = ev.features; }, { replay: true });
   F.on('code_bestof', (ev) => { state.groups.set(ev.group, ev); render(); });
   F.on('acp_state', (ev) => { state.agents = (ev.agents || []).map((a) => ({ id: a.id, name: a.name })); render(); });

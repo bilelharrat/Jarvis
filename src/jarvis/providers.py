@@ -161,44 +161,130 @@ KINDS: dict[str, Kind] = {
     ),
 }
 
-# Eden chat's models (askeden.com: the Worker's DEFAULT_MODELS in site/src/eden/chat.js, as
-# of 2026-10-14) that Eden Code can run, beyond Claude (prefs.MODELS, on the owner's sign-in
-# or an Anthropic key): {model id: (label, kind, host)}. The label is the Model Router's name
-# for it, as Eden chat shows it; the kind and host say how a session runs it: GPT-6 and Kimi
-# through openai_relay (both speak Chat Completions, as Eden chat calls them), Gemini through
-# gemini_proxy, each on the owner's own key ("" host: the kind's own address). A model added
-# without a label of the owner's gets this one, and an OpenAI-compatible provider at that
-# host suggests these ids in its "Add model" box. Prices aren't kept here: the window's
-# router has them (web/features/vendor/model-router.js, the same registry Eden chat's Worker
-# bundles) and sends them to code_router_events. Left out on purpose: GPT-6 Luna (askeden.com
-# retired it on 2026-10-13 for its mistakes). Gemini 4 Argon is off askeden.com only while
-# the iPhone app is in App Review, so Eden Code keeps it. tests/test_model_catalog.py keeps
-# this in step with Eden chat.
+# Eden chat's models: the list askeden.com's Eden chat offers (the Worker's EDEN_MODELS in
+# site/wrangler.toml, else DEFAULT_MODELS in site/src/eden/chat.js, as of 2026-10-14), in its
+# order, by its names (the Model Router's, as Eden chat shows them), under its headings (its
+# provider names, web/chat/router.js). Eden Code's model pickers show exactly this list (the
+# composer's model button, Settings' default model, the Route popover, a to-do card's model,
+# Best-of-N's variants; Exterminator's fixes take the session's or project's model, so the
+# same list), then any other model the owner added themselves. Left out because askeden.com
+# retired them: GPT-6 Luna (2026-10-13, its mistakes), and on 2026-10-14 Haiku 4.5, Kimi K2.7
+# Code, Gemini 3.1 Pro (preview) and GPT-6 Sol (each beaten on every score by a model here at
+# the same price or less). Fable 5.1 isn't on Eden chat's list either, so it isn't offered;
+# Haiku and Fable still run where Eden Code itself picks them (read-only helpers, the voice
+# command "switch to fable", a session started on one before), since prefs.MODELS keeps
+# them. tests/test_model_catalog.py holds this to tests/fixtures/eden_chat_models.json.
+EDEN_CHAT_MODELS: tuple[tuple[str, str, str], ...] = (  # (model id, name, Eden chat's provider)
+    ("claude-opus-5-5", "Claude Opus 5.5", "anthropic"),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5", "anthropic"),
+    ("gpt-6.1-sol", "GPT-6.1 Sol", "openai"),
+    ("gemini-4-argon", "Gemini 4 Argon", "gemini"),
+    ("gemini-3.8-flash", "Gemini 3.8 Flash", "gemini"),
+    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "gemini"),
+    ("kimi-k3", "Kimi K3", "kimi"),
+)
+# Gemini 4 Argon follows Eden chat: off askeden.com while the iPhone app was in App Review,
+# on again since 2026-10-14 (the owner: Opus-level at half the price). Set this to False the
+# day Eden chat turns it off, and Eden Code's pickers leave it out with it.
+ARGON = "gemini-4-argon"
+ARGON_ON = True
+EDEN_CHAT_GROUPS = {  # Eden chat's heading for each provider, in the menu's order
+    "anthropic": "Anthropic Claude",
+    "openai": "OpenAI GPT",
+    "gemini": "Google Gemini",
+    "kimi": "Moonshot Kimi",
+}
+# How Eden Code runs each of Eden chat's other providers, on the owner's own key: (provider
+# kind, the provider's host; "" for the kind's own address), and what a model there needs
+# when no such key is added yet: (the key, said; the address the Add form starts with; the
+# variable Eden chat on this Mac reads that key from, eval/with-keys.sh's Keychain entry).
+# GPT and Kimi speak Chat Completions (through openai_relay, as Eden chat calls them), Gemini
+# its own API (gemini_proxy). A Moonshot key added as a Custom endpoint at api.moonshot.ai
+# (Moonshot's Anthropic-compatible door) runs Kimi too. askeden.com's own included AI (Eden
+# Plus) can't stand in: its door (/api/anthropic/v1/messages) speaks Anthropic's API for
+# Claude only, and without an Anthropic key it answers on a model of its own choosing.
+EDEN_CHAT_HOW: dict[str, tuple[str, str]] = {
+    "openai": ("openai", "api.openai.com"),
+    "kimi": ("openai", "api.moonshot.ai"),
+    "gemini": ("gemini", ""),
+}
+EDEN_CHAT_KEYS: dict[str, tuple[str, str, str]] = {
+    "openai": ("an OpenAI API key", "https://api.openai.com", "OPENAI_API_KEY"),
+    "kimi": ("a Moonshot (Kimi) API key", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
+    "gemini": ("a Google Gemini API key", "", "GEMINI_API_KEY"),
+}
+EDEN = "eden:"  # the ref of one of Eden chat's models with no key for it yet: "eden:<model id>"
+# Eden chat's models beyond Claude, as Eden Code runs them: {model id: (name, kind, host)}.
+# A model added without a label of the owner's gets this name, and an OpenAI-compatible
+# provider at that host suggests these ids in its "Add model" box. Prices aren't kept here:
+# the window's router has them (web/features/vendor/model-router.js, the same registry Eden
+# chat's Worker bundles) and sends them to code_router_events.
 CATALOG: dict[str, tuple[str, str, str]] = {
-    "gpt-6.1-sol": ("GPT-6.1 Sol", "openai", "api.openai.com"),
-    "gpt-6-sol": ("GPT-6 Sol", "openai", "api.openai.com"),
-    "gemini-4-argon": ("Gemini 4 Argon", "gemini", ""),
-    "gemini-3.1-pro-preview": ("Gemini 3.1 Pro (preview)", "gemini", ""),
-    "gemini-3.8-flash": ("Gemini 3.8 Flash", "gemini", ""),
-    "gemini-3.5-flash-lite": ("Gemini 3.5 Flash-Lite", "gemini", ""),
-    "kimi-k3": ("Kimi K3", "openai", "api.moonshot.ai"),
-    "kimi-k2.7-code": ("Kimi K2.7 Code", "openai", "api.moonshot.ai"),
+    model: (name, *EDEN_CHAT_HOW[group])
+    for model, name, group in EDEN_CHAT_MODELS
+    if group != "anthropic"
 }
 
 
-def catalog_label(model_id: str, kind: str) -> str:
-    """The catalog's name for a model on a provider of this kind ("" when it has none): a
-    Gemini key's gemini-3.8-flash is "Gemini 3.8 Flash"; an OpenRouter or custom endpoint's
-    id is whatever that provider means by it, so it gets none."""
+def eden_chat_models() -> list[tuple[str, str, str]]:
+    """Eden chat's list as it stands: Gemini 4 Argon only while ARGON_ON."""
+    return [m for m in EDEN_CHAT_MODELS if m[0] != ARGON or ARGON_ON]
+
+
+def eden_chat_stamp() -> str:
+    """Which list a model file was last brought in step with (ProviderStore.sync_eden_chat)."""
+    return ",".join(m[0] for m in eden_chat_models())
+
+
+def _host(base_url: str) -> str:
+    return (urlsplit(str(base_url or "")).hostname or "").lower()
+
+
+def serves(provider: Provider, model_id: str) -> bool:
+    """Whether this provider runs this one of Eden chat's models the way Eden chat means it:
+    a Google Gemini key its Gemini models, an OpenAI-compatible provider at OpenAI's or
+    Moonshot's address their models (or a Custom endpoint at Moonshot's: its Anthropic door).
+    Another provider's same id (OpenRouter's "gpt-6.1-sol") is whatever that provider means
+    by it, so it doesn't count."""
     entry = CATALOG.get(str(model_id or ""))
-    return entry[0] if entry and entry[1] == kind else ""
+    if entry is None:
+        return False
+    _, kind, host = entry
+    if not host:
+        return provider.kind == kind
+    return provider.kind in (kind, "custom") and _host(provider.base_url) == host
+
+
+def catalog_label(model_id: str, kind: str, base_url: str = "") -> str:
+    """The catalog's name for a model on a provider of this kind and address ("" when it has
+    none): a Gemini key's gemini-3.8-flash is "Gemini 3.8 Flash"; an OpenRouter or custom
+    endpoint's id is whatever that provider means by it, so it gets none (unless it's at the
+    model's own address: a Custom endpoint at api.moonshot.ai is Moonshot)."""
+    entry = CATALOG.get(str(model_id or ""))
+    if entry is None:
+        return ""
+    name, own_kind, host = entry
+    if host and base_url and _host(base_url) != host:
+        return ""
+    if kind == own_kind:
+        return name
+    return name if kind == "custom" and host and base_url else ""
+
+
+def needs_key_reason(name: str, group: str) -> str:
+    """What one of Eden chat's models needs before Eden Code can run it, in words to show."""
+    what = EDEN_CHAT_KEYS[group][0]
+    return (
+        f"{name} needs {what}. Add it in Settings › Models & API keys; it stays in this "
+        "Mac's Keychain and never reaches a session."
+    )
 
 
 def catalog_suggested(kind: str, base_url: str) -> tuple[str, ...]:
     """The ids a provider's "Add model" box suggests before a check has listed its own: an
     OpenAI-compatible provider at OpenAI's or Moonshot's address gets the catalog's models
     there, everything else its kind's suggestions."""
-    host = (urlsplit(str(base_url or "")).hostname or "").lower()
+    host = _host(base_url)
     own = tuple(m for m, (_, k, h) in CATALOG.items() if k == kind and h and h == host)
     return own or KINDS[kind].suggested
 
@@ -767,7 +853,18 @@ class ProviderStore:
         self._relay_memo: dict[tuple[str, int, str], tuple[str, str]] = {}
         self._grant_memo: dict[tuple[str, int, str], tuple[str, str]] = {}
         self.unreadable = ""  # why the file can't be read now: nothing is saved over it
+        # Eden chat's other providers whose key Eden chat on this Mac has (code_models sets
+        # it: {"openai": True, …}), so a model with no key here offers to use that one.
+        self.chat_keys: dict[str, bool] = {}
+        self.eden_chat_synced = ""  # eden_chat_stamp() of the list the file was last synced to
         self._load()
+        if not self.unreadable and self.eden_chat_synced != eden_chat_stamp():
+            before = self._snapshot()
+            if self.sync_eden_chat():
+                try:
+                    self._save()
+                except OSError:  # tried again at the next start
+                    self._restore(before)
 
     # persistence
 
@@ -781,6 +878,7 @@ class ProviderStore:
             return
         if not isinstance(data, dict):
             return
+        self.eden_chat_synced = str(data.get("eden_chat") or "")[:2000]
         for raw in _dicts(data.get("providers"))[: MAX_PROVIDERS * 5]:
             provider = _read_row(_provider_from, raw)
             if provider is None or provider.id in self.providers:
@@ -823,6 +921,7 @@ class ProviderStore:
             "version": 1,
             "providers": [asdict(p) for p in self.providers.values()],
             "models": [asdict(m) for m in self.entries.values()],
+            "eden_chat": self.eden_chat_synced,
         }
         jsonstore.save_json(self.path, data)
 
@@ -1013,6 +1112,7 @@ class ProviderStore:
         if spec.id == "anthropic":
             for ref, model in MODELS.items():
                 self._add_entry(provider.id, model, MODEL_NAMES[ref])
+        self.sync_eden_chat(provider.id)  # Eden chat's models on an OpenAI, Gemini or Moonshot key
         try:
             self._persist()
         except ValueError:
@@ -1143,7 +1243,7 @@ class ProviderStore:
         if self._offers(provider.id, model_id):
             raise ValueError(f"{model_id} is already on {provider.name}'s list.")
         if not label:  # the catalog's name, as Eden chat shows it, unless another model has it
-            named = catalog_label(model_id, provider.kind)
+            named = catalog_label(model_id, provider.kind, provider.base_url)
             if named and not self._passes_off(provider.id, model_id, named):
                 label = named
         shown = label or model_id
@@ -1353,9 +1453,91 @@ class ProviderStore:
     def _title(self, entry: ModelEntry) -> str:
         return f"{entry.label} · {self.providers[entry.provider].name}"
 
+    # Eden chat's models
+
+    def _eden_entry(self, model: str) -> ModelEntry | None:
+        """The added model that runs this one of Eden chat's models (serves), the first
+        added; None when no key for it is added."""
+        for entry in self.entries.values():
+            provider = self.providers.get(entry.provider)
+            if provider is not None and entry.model == model and serves(provider, model):
+                return entry
+        return None
+
+    def sync_eden_chat(self, only: str = "") -> bool:
+        """Put each of Eden chat's models (beyond Claude) on a provider of the owner's that
+        runs it (serves) when none has it yet: a Gemini key gets Gemini 4 Argon, 3.8 Flash and
+        3.5 Flash-Lite, an OpenAI key GPT-6.1 Sol, a Moonshot key Kimi K3, by Eden chat's
+        names. only: that provider alone (one just added). Done for each list once (the
+        file remembers eden_chat_stamp), so a model the owner removed stays removed until
+        Eden chat's list changes; nothing is saved here. Whether any was added."""
+        added = False
+        for model, _name, group in eden_chat_models():
+            if group == "anthropic" or self._eden_entry(model) is not None:
+                continue
+            for provider in self.providers.values():
+                if (only and provider.id != only) or not serves(provider, model):
+                    continue
+                try:
+                    _, model_id, label = self.can_add(provider.id, model)
+                except ValueError:  # full, or its name is another model's there
+                    continue
+                self._add_entry(provider.id, model_id, label or model_id)
+                added = True
+                break
+        if not only:
+            self.eden_chat_synced = eden_chat_stamp()
+        return added
+
+    def picker(self) -> list[dict[str, Any]]:
+        """What Eden Code's model pickers offer: Eden chat's models, in its order, by its
+        names, each with its heading ("group"), then any other model the owner added
+        ("eden" False). Claude's run on the owner's sign-in (the built-in refs); another
+        provider's on the owner's key added for it ("custom:<id>"); one with no key for it
+        yet is still listed, with needs_key and the reason (its ref "eden:<model id>" runs
+        nothing: session_config says what's needed), what to add (key_kind, key_url) and
+        whether Eden chat on this Mac has that key to use (from_eden_chat)."""
+        out: list[dict[str, Any]] = []
+        used: set[str] = set()
+        builtin = {model: ref for ref, model in MODELS.items()}
+        for model, name, group in eden_chat_models():
+            shown = {"label": name, "eden": True, "group": EDEN_CHAT_GROUPS[group]}
+            if group == "anthropic":
+                ref = builtin[model]
+                out.append({
+                    "ref": ref, "model": model, "name": name, "provider": "",
+                    "provider_name": BUILTIN_NAME, "kind": "builtin", "builtin": True, **shown,
+                })  # fmt: skip
+                continue
+            entry = self._eden_entry(model)
+            if entry is not None:
+                used.add(entry.id)
+                out.append({**self._public_model(entry), **shown})
+                continue
+            kind = EDEN_CHAT_HOW[group][0]
+            what, url, _ = EDEN_CHAT_KEYS[group]
+            out.append({
+                "ref": EDEN + model, "model": model, "name": name, "provider": "",
+                "provider_name": "", "kind": kind, "builtin": False, **shown,
+                "needs_key": True, "reason": needs_key_reason(name, group),
+                "key_kind": kind, "key_url": url, "key_group": group, "key_what": what,
+                "from_eden_chat": bool(self.chat_keys.get(group)),
+            })  # fmt: skip
+        for provider in self.providers.values():
+            out += [
+                {**self._public_model(e), "eden": False}
+                for e in self.models_of(provider.id)
+                if e.id not in used
+            ]
+        return out
+
     def describe(self, ref: str | None) -> str:
         """A model's name for people ("Opus 5.5", "openai/gpt-5 · OpenRouter")."""
         ref = str(ref or "").strip()
+        if ref.startswith(EDEN):
+            ref = self._eden_ref(ref)
+            if ref.startswith(EDEN):
+                return CATALOG.get(ref.removeprefix(EDEN), (ref,))[0]
         if ref in MODELS:
             return MODEL_NAMES[ref]
         for key, model in MODELS.items():
@@ -1365,9 +1547,22 @@ class ProviderStore:
         return self._title(entry) if entry is not None else ref
 
     def known(self, ref: str | None) -> bool:
-        """Whether a ref names a model on the list: a built-in key or an added model."""
-        ref = str(ref or "").strip()
+        """Whether a ref names a model on the list: a built-in key or an added model (one
+        of Eden chat's with no key for it yet isn't: nothing could run it)."""
+        ref = self.resolve(ref)
         return ref in MODELS or (ref.startswith(CUSTOM) and self._entry(ref) is not None)
+
+    def resolve(self, ref: str | None) -> str:
+        """A ref as sessions keep it: one of Eden chat's picked as "eden:<model id>" is the
+        added model that runs it now ("custom:<id>"); any other ref is itself."""
+        ref = str(ref or "").strip()
+        return self._eden_ref(ref) if ref.startswith(EDEN) else ref
+
+    def _eden_ref(self, ref: str) -> str:
+        """An "eden:<model id>" ref as the added model that runs it now ("custom:<id>"), or
+        as it was when there's still none."""
+        entry = self._eden_entry(ref.removeprefix(EDEN))
+        return CUSTOM + entry.id if entry is not None else ref
 
     def pick_fallback(self) -> str:
         """The added model to turn to when Claude can't answer and none was picked (the
@@ -1415,6 +1610,15 @@ class ProviderStore:
         ref = str(ref or "").strip()
         if not ref:
             return _config(None, "", "", True)
+        if ref.startswith(EDEN):  # one of Eden chat's, picked before its key was added
+            ref = self._eden_ref(ref)
+            model = ref.removeprefix(EDEN)
+            if ref.startswith(EDEN):
+                entry = CATALOG.get(model)
+                group = next((g for m, _, g in EDEN_CHAT_MODELS if m == model), "")
+                if entry is None or not group:
+                    raise ValueError("That model isn't on the list any more; pick another one.")
+                raise ValueError(needs_key_reason(entry[0], group))
         if ref in MODELS:
             return _config(MODELS[ref], MODEL_NAMES[ref], "", True)
         if not ref.startswith(CUSTOM):  # a model id as Claude Code knows it, as before
@@ -1502,6 +1706,7 @@ class ProviderStore:
             "kinds": [_public_kind(k) for k in KINDS.values()],
             "providers": [self._public_provider(p) for p in self.providers.values()],
             "models": self.models(),
+            "picker": self.picker(),
             "limits": {"providers": MAX_PROVIDERS, "models": MAX_MODELS},
             "advice": KEY_ADVICE,
             "fallback_auto": self.pick_fallback(),  # what the fallback's Automatic would use

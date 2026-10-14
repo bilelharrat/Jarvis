@@ -194,9 +194,12 @@ async def test_a_gemini_key_brings_flash_and_pro_and_automatic_picks_flash(
     google = hub.providers.add_provider("gemini", "", "AIza" + "b" * 35)
     await hub._gemini_added(google["id"])
     models = {m["model"]: m for m in hub.providers.models() if not m["builtin"]}
-    # By number, as Google names them
+    # Eden chat's Gemini models first (providers.sync_eden_chat), then Pro by number, as
+    # Google names it (Flash is there already).
     assert [(model, m["label"]) for model, m in models.items()] == [
+        ("gemini-4-argon", "Gemini 4 Argon"),
         ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+        ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
         ("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview"),
     ]
     assert hub.prefs.fallback_model == ""  # left on Automatic, which picks Flash
@@ -215,6 +218,12 @@ async def test_a_gemini_key_brings_flash_and_pro_and_automatic_picks_flash(
     assert hub.prefs.fallback_model == "off" and hub._fallback_ref() == ""
 
 
+def without_eden_chats(store, provider_id):
+    """A Gemini key without the models of Eden chat's it comes with (sync_eden_chat)."""
+    for entry in list(store.models_of(provider_id)):
+        store.remove_model(entry.id)
+
+
 async def test_gemini_models_added_before_the_numbers_are_numbered_at_start(
     settings, quiet_speaker, isolated, monkeypatch
 ):
@@ -225,6 +234,7 @@ async def test_gemini_models_added_before_the_numbers_are_numbered_at_start(
 
     monkeypatch.setattr(ProviderStore, "newest_gemini", newest)
     google = hub.providers.add_provider("gemini", "", "AIza" + "b" * 35)["id"]
+    without_eden_chats(hub.providers, google)
     ref = hub.providers.add_model(google, "gemini-flash-latest", "Gemini Flash")["ref"]
     hub.prefs.code_model = ref
     await hub._number_gemini_starters()
@@ -382,6 +392,7 @@ def test_the_automatic_fallback_prefers_gemini_flash_and_a_working_key(tmp_path)
     routed = store.add_model(router["id"], "google/gemini-2.5-pro")["ref"]
     assert store.pick_fallback() == routed  # Gemini first, even through OpenRouter
     google = store.add_provider("gemini", "", GOOGLE_KEY)
+    without_eden_chats(store, google["id"])
     pro = store.add_model(google["id"], "gemini-pro-latest", "Gemini Pro")["ref"]
     assert store.pick_fallback() == pro  # Google's own key before one through OpenRouter
     store.add_model(google["id"], "gemini-flash-lite-latest", "Gemini Flash Lite")

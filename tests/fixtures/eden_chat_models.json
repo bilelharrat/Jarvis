@@ -1,18 +1,22 @@
 {
-  "$comment": "Eden chat's models (askeden.com: DEFAULT_MODELS in site/src/eden/chat.js, with names and list prices from its router bundle site/src/eden/vendor/model-router.js), as of 2026-10-14. The parity tests (tests/test_model_catalog.py, tests/web/model-catalog.test.mjs) hold Eden Code to these. 'off' models are off askeden.com for now, not retired; 'retired' ones Eden Code leaves out too.",
+  "$comment": "Eden chat's models (askeden.com: EDEN_MODELS in site/wrangler.toml, the list the Worker serves, and DEFAULT_MODELS in site/src/eden/chat.js; names and list prices from its router bundle site/src/eden/vendor/model-router.js; headings from web/chat/router.js PROVIDER_NAMES), in Eden chat's order, as of 2026-10-14. Eden Code's model pickers show exactly these (tests/test_model_catalog.py, tests/web/model-catalog.test.mjs). A model marked 'off' is off askeden.com for now (providers.ARGON_ON follows Gemini 4 Argon's); 'retired' ones are left out of both.",
   "as_of": "2026-10-14",
+  "groups": { "anthropic": "Anthropic Claude", "openai": "OpenAI GPT", "gemini": "Google Gemini", "kimi": "Moonshot Kimi" },
   "models": [
     { "id": "claude-opus-5-5", "name": "Claude Opus 5.5", "provider": "anthropic", "inputPer1M": 4, "outputPer1M": 20 },
     { "id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "provider": "anthropic", "inputPer1M": 2, "outputPer1M": 10 },
-    { "id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "provider": "anthropic", "inputPer1M": 1, "outputPer1M": 5 },
     { "id": "gpt-6.1-sol", "name": "GPT-6.1 Sol", "provider": "openai", "inputPer1M": 2, "outputPer1M": 10 },
-    { "id": "gpt-6-sol", "name": "GPT-6 Sol", "provider": "openai", "inputPer1M": 2, "outputPer1M": 10 },
-    { "id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro (preview)", "provider": "gemini", "inputPer1M": 2, "outputPer1M": 12 },
+    { "id": "gemini-4-argon", "name": "Gemini 4 Argon", "provider": "gemini", "inputPer1M": 2, "outputPer1M": 10 },
     { "id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash", "provider": "gemini", "inputPer1M": 0.75, "outputPer1M": 3.75 },
     { "id": "gemini-3.5-flash-lite", "name": "Gemini 3.5 Flash-Lite", "provider": "gemini", "inputPer1M": 0.3, "outputPer1M": 2.5 },
-    { "id": "kimi-k3", "name": "Kimi K3", "provider": "kimi", "inputPer1M": 3, "outputPer1M": 15 },
-    { "id": "kimi-k2.7-code", "name": "Kimi K2.7 Code", "provider": "kimi", "inputPer1M": 0.95, "outputPer1M": 4 },
-    { "id": "gemini-4-argon", "name": "Gemini 4 Argon", "provider": "gemini", "inputPer1M": 2, "outputPer1M": 10, "off": "off askeden.com while the iPhone app is in App Review" }
+    { "id": "kimi-k3", "name": "Kimi K3", "provider": "kimi", "inputPer1M": 3, "outputPer1M": 15 }
   ],
-  "retired": { "gpt-6-luna": "askeden.com retired it on 2026-10-13 (too many mistakes)" }
+  "retired": {
+    "gpt-6-luna": "askeden.com retired it on 2026-10-13 (too many mistakes)",
+    "claude-haiku-4-5": "askeden.com retired it on 2026-10-14 (Gemini 3.8 Flash beats it on every score for the same price or less)",
+    "kimi-k2.7-code": "askeden.com retired it on 2026-10-14 (Gemini 3.8 Flash beats it)",
+    "gemini-3.1-pro-preview": "askeden.com retired it on 2026-10-14 (Sonnet 5.5 and GPT-6.1 Sol beat it)",
+    "gpt-6-sol": "askeden.com retired it on 2026-10-14 (GPT-6.1 Sol beats it)"
+  },
+  "not_offered": { "claude-fable-5-1": "not on askeden.com's list" }
 }

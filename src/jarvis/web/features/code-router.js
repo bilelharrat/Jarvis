@@ -57,10 +57,11 @@
   // ── pure helpers ──
 
   // The router's model ids for the picker's models (builtin: Claude's, with the efforts a
-  // session takes; the rest at the efforts their way of running passes on).
+  // session takes; the rest at the efforts their way of running passes on). One of Eden
+  // chat's with no key for it yet (needs_key) is listed in the picker but never routed to.
   function routable(models) {
     const out = [];
-    for (const m of models || []) if (m && m.model && m.ref && !out.some((x) => x.model === m.model)) out.push(m);
+    for (const m of models || []) if (m && m.model && m.ref && !m.needs_key && !out.some((x) => x.model === m.model)) out.push(m);
     return out;
   }
   // Gemini 3 and later Flash models: gemini_proxy gives them the session's effort as a thinking level.

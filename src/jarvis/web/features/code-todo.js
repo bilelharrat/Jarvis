@@ -317,9 +317,10 @@
 
   function select(options, value) {
     const s = F.el('select', 'ct-input');
-    for (const [v, label, words] of options) {
+    for (const [v, label, words, off] of options) {
       const o = F.el('option', '', label);
       if (words) own(o);
+      if (off) o.disabled = true;
       o.value = v;
       o.selected = v === value;
       s.append(o);
@@ -340,7 +341,8 @@
       prompt.value = was.prompt || '';
       prompt.required = true;
       prompt.rows = 6;
-      const choices = [['', t('Model Router’s pick, or your default')], ...models().filter((m) => m.ref).map((m) => [m.ref, m.label || m.name || m.ref, true])];
+      // The picker's models (Eden chat's, then the owner's); one with no key yet is shown, not choosable.
+      const choices = [['', t('Model Router’s pick, or your default')], ...models().filter((m) => m.ref).map((m) => [m.ref, m.needs_key ? `${m.label} (${t('needs a key')})` : m.label || m.name || m.ref, true, !!m.needs_key])];
       model = field(body, t('Model'), select(choices, was.model || ''));
       const modes = (card && card.untrusted ? OUTSIDE_MODES : Object.keys(MODE_NAMES)).map((m) => [m, t(MODE_NAMES[m])]);
       mode = field(body, t('Mode'), select(card && card.untrusted ? modes : [['', t('Your default')], ...modes], was.mode || ''),

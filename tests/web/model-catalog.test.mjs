@@ -72,3 +72,19 @@ test("the window routes onto Eden chat's models the way Eden Code runs them", ()
     assert.equal(route.effort, effort ? 'medium' : undefined, entry.model);
   }
 });
+
+test("a model of Eden chat's with no key yet is in the picker but never routed to", () => {
+  const listed = FIXTURE.models.filter((m) => !m.off);
+  const models = listed.map((m, i) => (m.provider === 'anthropic'
+    ? { ref: m.id.includes('opus') ? 'opus' : 'sonnet', model: m.id, builtin: true }
+    : m.provider === 'gemini' ? { ref: `custom:g${i}`, model: m.id, kind: 'gemini' }
+      : { ref: `eden:${m.id}`, model: m.id, kind: 'openai', needs_key: true }));
+  for (const m of models) {
+    const route = R.routeFor(models, { model: m.model, effort: 'high' });
+    if (m.needs_key) assert.equal(route, null, m.model);
+    else assert.equal(route.ref, m.ref, m.model);
+  }
+  // Claude down: the others are those a session can run now (Gemini here), not the keyless.
+  const others = R.withoutClaude(models, Date.now() + 60_000).filter((m) => !m.needs_key);
+  assert.ok(others.every((m) => m.kind === 'gemini'));
+});

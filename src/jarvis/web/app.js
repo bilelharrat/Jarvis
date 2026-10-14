@@ -4238,8 +4238,13 @@ const EFFORT_NOTES = [
 const GAUGE = [18, 36, 56, 76, 100, 100];
 
 let codeDefaults = { model: '', effort: '', mode: 'ask', ultracode: false };  // Settings › Eden Code
-let modelList = [];  // Claude's models, then the ones added with an API key
+// What Eden Code's model pickers offer (the providers event's picker): Eden chat's models,
+// in its order, by its names, under its headings (Claude on the sign-in; GPT, Gemini and Kimi
+// on the owner's keys, or marked needs_key until one is added), then any other model the
+// owner added. providerInfo.models has every model a session can be on (Haiku and Fable too).
+let modelList = [];
 let providerInfo = { kinds: [], providers: [], models: [], limits: {} };
+let edenKeysAsked = false;  // asked once which of Eden chat's keys this Mac has (code_models)
 const pending = { dirs: [], plugins: [] };  // + menu choices made before there's a session
 let dictating = false;
 
@@ -4256,8 +4261,8 @@ function autoCapable(modelId) {
   return name.includes('claude') && !name.includes('haiku');
 }
 
-function modelEntry(ref) { return modelList.find((m) => m.ref === ref) || null; }
-function refForModel(id) { const m = modelList.find((x) => x.builtin && x.model === id); return m ? m.ref : ''; }
+function modelEntry(ref) { return modelList.find((m) => m.ref === ref) || (providerInfo.models || []).find((m) => m.ref === ref) || null; }
+function refForModel(id) { const m = [...modelList, ...(providerInfo.models || [])].find((x) => x.builtin && x.model === id); return m ? m.ref : ''; }
 
 // What the composer shows: the open session's settings, or with none open, what the next
 // session starts with (Settings › Eden Code).
@@ -4468,7 +4473,24 @@ $('jc-mode-btn').addEventListener('click', () => { if ($('jc-menu').hidden || $(
 
 // ── model: Claude's, and any added with an API key ──
 
+// One of Eden chat's models with no key for it yet: what it needs, and the one click to it:
+// Eden chat's own key on this Mac when it has one (asked first), else the Add form, open on
+// the right kind of provider and address with the key field ready.
+function needKey(m) {
+  if (m.from_eden_chat && confirm(tr(`${m.label} needs ${m.key_what}. Eden chat on this Mac has one: use the same key in Eden Code too? It stays in this Mac’s Keychain and never reaches a session.`))) {
+    send({ type: 'eden_chat_key_use', group: m.key_group });
+    jcNote(`Adding Eden chat’s key for ${m.label}…`);
+    return;
+  }
+  jcNote(m.reason || `${m.label} needs an API key.`);
+  jcsKind = m.key_kind || jcsKind;
+  openJcSettings('models');
+  $('jcs-url').value = m.key_url || '';
+  $('jcs-key').focus();
+}
 function pickModel(ref) {
+  const want = modelList.find((m) => m.ref === ref);
+  if (want && want.needs_key) { needKey(want); return; }
   const s = composerState();
   for (const c of featureModelChoices) {
     try { if (c.picked) c.picked(ref, s); } catch (err) { console.error('feature model choice', err); }
@@ -4479,18 +4501,29 @@ function pickModel(ref) {
 
 function modelMenu() {
   const s = composerState();
-  const builtins = modelList.filter((m) => m.builtin);
-  const mine = modelList.filter((m) => !m.builtin);
-  const claude = builtins.length ? builtins : [['opus', 'claude-opus-5-5'], ['sonnet', 'claude-sonnet-5-5'], ['haiku', 'claude-haiku-4-5'], ['fable', 'claude-fable-5-1']].map(([ref, model]) => ({ ref, model, label: MODEL_LABELS[model] }));
+  const eden = modelList.some((m) => m.eden) ? modelList.filter((m) => m.eden)
+    : [['opus', 'claude-opus-5-5', 'Claude Opus 5.5'], ['sonnet', 'claude-sonnet-5-5', 'Claude Sonnet 5.5']].map(([ref, model, label]) => ({ ref, model, label, builtin: true, group: 'Anthropic Claude' }));
+  const mine = modelList.filter((m) => !m.eden && !m.builtin);
   const extra = [];
   let routed = false;
   for (const c of featureModelChoices) {
     try { extra.push(...(c.items(s) || [])); routed = routed || !!(c.active && c.active(s)); } catch (err) { console.error('feature model choice', err); }
   }
+  // Eden chat's menu, heading by heading (its provider names); a model with no key yet is
+  // listed all the same, saying so, and picking it says what to add.
+  const groups = [];
+  for (const m of eden) {
+    if (!groups.length || groups[groups.length - 1].heading !== m.group) groups.push({ heading: m.group, list: [] });
+    groups[groups.length - 1].list.push(m);
+  }
   openMenu($('jc-model'), [
     ...extra,
-    { heading: 'Claude' },
-    ...claude.map((m) => ({ label: m.label, checked: !routed && (s.ref === m.ref || s.modelId === m.model), run: () => pickModel(m.ref) })),
+    ...groups.flatMap((g) => [{ heading: g.heading }, ...g.list.map((m) => ({
+      label: m.label,
+      note: m.needs_key ? `Needs ${m.key_what || 'an API key'}${m.from_eden_chat ? ': use Eden chat’s' : ': add it'}` : '',
+      checked: !routed && !m.needs_key && (s.ref === m.ref || (m.builtin && s.modelId === m.model)),
+      run: () => pickModel(m.ref),
+    }))]),
     ...(mine.length ? [{ heading: 'Your models' }, ...mine.map((m) => ({ label: m.label, note: m.provider_name, checked: !routed && s.ref === m.ref, run: () => pickModel(m.ref) }))] : []),
     '-',
     { icon: 'key', label: mine.length ? 'Models & API keys…' : 'Add a model with an API key…', run: () => openJcSettings('models') },
@@ -4789,16 +4822,29 @@ function renderJcGeneral() {
   const fallback = (prefs && prefs.model) || 'opus';
   const jarvisModel = modelEntry(fallback);
   const sel = $('jcs-model');
-  const mine = modelList.filter((m) => !m.builtin);
-  const claude = el('optgroup');
-  claude.label = 'Claude';
+  const mine = modelList.filter((m) => !m.eden && !m.builtin);
   const same = jarvisModel ? jarvisModel.label : 'default';
-  claude.append(option('', inEdenCode ? `Eden’s default (${same})` : `Same as Eden Secretary (${same})`, !codeDefaults.model),
-    ...modelList.filter((m) => m.builtin).map((m) => option(m.ref, m.label, codeDefaults.model === m.ref)));
+  // Eden chat's models under its headings (one with no key yet shown, not choosable), then
+  // the owner's other models; a default no longer offered (Haiku, Fable) stays as it is.
+  const groups = [];
+  for (const m of modelList.filter((x) => x.eden || x.builtin)) {
+    let g = groups.find((x) => x.label === (m.group || 'Claude'));
+    if (!g) { g = el('optgroup'); g.label = m.group || 'Claude'; groups.push(g); }
+    const o = option(m.ref, m.needs_key ? `${m.label} (needs ${m.key_what || 'an API key'})` : m.label, !m.needs_key && codeDefaults.model === m.ref);
+    if (m.needs_key) o.disabled = true;
+    g.append(o);
+  }
+  const first = el('optgroup');
+  first.label = 'Default';
+  first.append(option('', inEdenCode ? `Eden’s default (${same})` : `Same as Eden Secretary (${same})`, !codeDefaults.model));
+  if (codeDefaults.model && !modelList.some((m) => m.ref === codeDefaults.model && !m.needs_key)) {
+    const was = modelEntry(codeDefaults.model);
+    first.append(option(codeDefaults.model, `${was ? was.label : codeDefaults.model} (no longer offered)`, true));
+  }
   const yours = el('optgroup');
   yours.label = 'Your models';
   yours.append(...mine.map((m) => option(m.ref, `${m.label} · ${m.provider_name}`, codeDefaults.model === m.ref)));
-  sel.replaceChildren(claude, ...(mine.length ? [yours] : []));
+  sel.replaceChildren(first, ...groups, ...(mine.length ? [yours] : []));
   $('jcs-mode').replaceChildren(...JC_MODES.map((m) => option(m.id, m.label, (codeDefaults.mode || 'ask') === m.id)));
   const stop = codeDefaults.ultracode ? 5 : Math.max(0, EFFORTS.indexOf(codeDefaults.effort || 'high'));
   $('jcs-effort').value = String(stop);
@@ -4837,7 +4883,8 @@ function onProviders(ev) {
   renderFallback();
   $('jcs-advice').textContent = providerInfo.advice;
   $('jcs-advice').hidden = !providerInfo.advice;
-  modelList = providerInfo.models;
+  modelList = ev.picker || providerInfo.models;
+  if (!edenKeysAsked && modelList.some((m) => m.needs_key)) { edenKeysAsked = true; send({ type: 'eden_chat_keys' }); }
   renderComposer();
   if (!$('jc-settings').hidden) { checkGeminiOnce(); renderProviders(); renderJcGeneral(); }
 }
