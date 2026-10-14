@@ -184,6 +184,8 @@ OWNER_ONLY = [
         r"sync-eden\.mjs",
     )
 ]
+WEB_TOOLS = ("WebFetch", "WebSearch")  # never in a run: what it read would go out with them
+DEV_SERVER = "jarvis_dev"  # the one MCP server a run keeps (features/code_verify.py's DEV)
 # Steps that can't easily be undone, or reach past the Mac: a card (Touch ID in the window).
 RISKY = [
     re.compile(p)
@@ -1121,6 +1123,27 @@ class BugFix:
         options.agents = {**(options.agents or {}), **self.agents(run, task)}
         options.can_use_tool = self.guard(task, options.can_use_tool)
         options.sandbox = self.sandbox(options.sandbox)
+        self.lock_down(options)
+
+    @staticmethod
+    def lock_down(options: Any) -> None:
+        """R2-10: what the run reads (anyone's code, and what it says) never reaches the
+        owner's own things or the web: the project's settings but none of the owner's
+        (their hooks, permissions, MCP servers), no MCP server but its dev servers' own
+        (jarvis_dev: the browser, simulator, sessions tools and connectors go), and no web
+        tools (WebSearch never asks; a query carries what it read out)."""
+        options.setting_sources = ["project", "local"]
+        servers = getattr(options, "mcp_servers", None)
+        servers = servers if isinstance(servers, dict) else {}
+        options.mcp_servers = {k: v for k, v in servers.items() if k == DEV_SERVER}
+        options.strict_mcp_config = True
+        options.allowed_tools = [
+            t
+            for t in getattr(options, "allowed_tools", None) or []
+            if not t.startswith("mcp__") or t.startswith(f"mcp__{DEV_SERVER}__")
+        ]
+        off = list(getattr(options, "disallowed_tools", None) or [])
+        options.disallowed_tools = [*off, *(t for t in WEB_TOOLS if t not in off)]
 
     @staticmethod
     def sandbox(before: Any) -> dict[str, Any]:
@@ -1238,6 +1261,10 @@ class BugFix:
         such as Bash(git push:*) let git push, rm -rf or security … go ahead unasked)."""
         if private := tasks._private_target(tool_name, tool_input):
             return f"{private} is a folder the owner keeps private: nothing in it may be read"
+        if tool_name in WEB_TOOLS:  # (WebSearch is one of tasks.FREE_TOOLS: R2-10)
+            return "no web in Exterminator Mode: work from the code"
+        if tool_name.startswith("mcp__") and not tool_name.startswith(f"mcp__{DEV_SERVER}__"):
+            return "only its dev servers' tools in Exterminator Mode"
         if tool_name in tasks.EDIT_TOOLS:
             path = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
             if run.step == "sweep":

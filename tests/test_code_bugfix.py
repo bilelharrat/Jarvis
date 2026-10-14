@@ -1183,3 +1183,42 @@ async def test_an_allow_rule_never_beats_the_runs_owner_only_and_risky_lists(
     out = await desk.guard(task, inner)("Bash", {"command": command}, None)
     assert isinstance(out, PermissionResultDeny) and asked == [["allow", "deny"]]
     del desk.active[9]
+
+
+async def test_a_run_gets_no_web_no_owner_settings_and_no_mcp_but_its_dev_servers(hub, projects):
+    """R2-10: an Exterminator run kept WebSearch (one of tasks.FREE_TOOLS, so it went
+    ahead), the owner's user settings (hooks, permissions, MCP servers) and every MCP
+    server the session had. Now: the project's settings only, jarvis_dev alone, no web."""
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    task = ClaudeTask(id=10, prompt="", cwd=projects, mode="ask")
+    run = BugRun("r", "p", folder=str(projects), step="fix", stack={"kinds": ["python"]})
+    desk.active[10] = run
+
+    async def inner(*_):
+        return PermissionResultAllow()
+
+    options = ClaudeAgentOptions(
+        setting_sources=["user", "project", "local"],
+        mcp_servers={"jarvis_dev": {"type": "sdk"}, "jarvis_browser": {}, "owners_slack": {}},
+        allowed_tools=[
+            "TodoWrite",
+            "mcp__jarvis_browser__read",
+            "mcp__jarvis_dev__dev_server_list",
+        ],
+        disallowed_tools=["mcp__off"],
+        can_use_tool=inner,
+    )
+    desk.extend(run, task, options)
+    assert options.setting_sources == ["project", "local"]
+    assert list(options.mcp_servers) == ["jarvis_dev"] and options.strict_mcp_config
+    assert options.allowed_tools == ["TodoWrite", "mcp__jarvis_dev__dev_server_list"]
+    assert {"WebSearch", "WebFetch", "mcp__off"} <= set(options.disallowed_tools)
+    for tool in ("WebSearch", "WebFetch", "mcp__owners_slack__post", "mcp__jarvis_browser__click"):
+        why = desk.refusal(run, task, tool, {"query": "x"})
+        assert why not in (None, "card"), (tool, why)
+    assert desk.refusal(run, task, "mcp__jarvis_dev__dev_server_logs", {"name": "web"}) is None
+    del desk.active[10]
