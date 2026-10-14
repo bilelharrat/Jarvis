@@ -719,3 +719,46 @@ async def test_work_a_turn_writes_while_the_copy_lands_is_kept_in_the_trash(
     assert item["ref"] and not Path(copy.checkout).exists()
     assert git(repo, "show", f"{item['ref']}:late.py") == "written while landing\n"
     assert hub.code_desk.store().copies == []
+
+
+async def test_a_message_held_while_a_copy_lands_never_reopens_the_ended_session(
+    hub, projects, monkeypatch
+):
+    """REL3-1 (s3rel/test_land_release.py): a message sent while the copy landed was held;
+    the landing ended the session and removed the copy, then end_landing released the
+    held message, which opened the session again in the folder just removed. Now it's
+    dropped, the hold cleared, and the transcript says it wasn't sent."""
+    make_repo(projects / "proj", {"a.py": numbered(20)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "a.py").write_text("changed\n")
+    inside, go = _pausing_land(monkeypatch)
+    landing = asyncio.create_task(hub.code_desk.land_now(copy))
+    assert await until(inside.is_set)
+    old = task.handle
+    assert hub.tasks.send(task.id, "one more thing", steer=False)
+    await asyncio.sleep(0.3)
+    go.set()
+    assert (await landing).startswith("Landed")
+    await asyncio.sleep(0.5)
+    assert task.handle is old, "a session the landing ended was opened again"
+    assert task.gated == "" and task.inbox.empty()
+    assert any("wasn't sent" in e["text"] for e in task.transcript if e["role"] == "system")
+    assert hub.code_desk.ended_by_landing == set()
+
+
+async def test_release_never_reopens_a_session_whose_folder_is_gone(hub, projects, tmp_path):
+    """REL3-1: TaskManager.release, asked to let a held message go after the session's
+    folder was removed, leaves it closed."""
+    make_repo(projects / "proj", {"a.py": numbered(20)})
+    task = await isolated_session(hub)
+    hub.tasks.cancel(task.id)
+    await asyncio.wait([task.handle], timeout=12)
+    gone = tmp_path / "gone-copy"
+    task.cwd = gone
+    task.inbox.put("held")
+    task.gated = "Waiting: its isolated copy is being landed."
+    ended = task.handle
+    hub.tasks.release(task.id)
+    await asyncio.sleep(0.1)
+    assert task.handle is ended

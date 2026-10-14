@@ -2789,7 +2789,9 @@ class TaskManager:
             return False
         task.stirred.set()
         if (task.handle is None or task.handle.done()) and not self.closing:
-            if not task.inbox.empty():
+            # A folder gone meanwhile (its isolated copy landed or was discarded) is never
+            # reopened: the session would start in nothing (REL3-1).
+            if not task.inbox.empty() and Path(task.cwd).is_dir():
                 task.status, task.restarts = "running", 0
                 task.handle = asyncio.create_task(self._session(task))
             self._changed()
