@@ -49,9 +49,15 @@ async def hub(settings, quiet_speaker, isolated, projects):
     hub.cards, hub.answers, hub.alerts = [], [], []
 
     def sink(card):
+        # A card nobody queued an answer for is turned down at once (its "deny", else its
+        # last choice): a guard that asks when it shouldn't fails the test, never hangs it.
         hub.cards.append(card)
         if hub.answers:
             hub.resolve(card["id"], hub.answers.pop(0))
+            return
+        ids = [c["id"] for c in card.get("choices") or []]
+        if ids:
+            hub.resolve(card["id"], "deny" if "deny" in ids else ids[-1])
 
     hub.add_approval_sink(sink)
     hub.add_notify_sink(lambda alert: hub.alerts.append(alert))
