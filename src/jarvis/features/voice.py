@@ -36,10 +36,9 @@ about 0.2 ms of CPU per 32 ms of audio while hands-free listens). Listing cloud 
 
 from __future__ import annotations
 
-import re
-
 import asyncio
 import logging
+import re
 import weakref
 from typing import Any
 
