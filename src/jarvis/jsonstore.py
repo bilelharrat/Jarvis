@@ -6,7 +6,9 @@ that can't be used (cut short by a crash, torn, written by another build or prog
 never thrown away: it's kept as <name>.bad-<stamp>, and the last good copy is read
 instead. A file that's there but can't be read just now is left alone, and nothing is
 saved over it, by any store: save_json refuses a file this process couldn't read when it
-last tried. One backend at a time uses the folder (claim_folder).
+last tried; once it can be read again, what this run saves goes beside it, as
+<name>.unsaved-<stamp>, and the file is still never written over. One backend at a time
+uses the folder (claim_folder).
 
 Versioned stores (register_store, load_store, save_store): a store whose shape changes
 between releases carries its version in the file ("version", or the key it names), and
@@ -93,25 +95,42 @@ def read_json(
         raise
     _REFUSED.discard(_key(path))
     _UNREAD.discard(_key(path))
+    _UNSAVED.pop(_key(path), None)
     return found
 
 
 def _cleared(path: Path, key: str) -> bool:
-    """Whether a refused file has come right since (REL-6), so a save may go ahead: it's
-    gone (the owner deleted it to start afresh: nothing is saved over anything), or one
-    that couldn't be read can be now (its permissions fixed). The store that couldn't read
-    it is holding something else in memory (many start empty), so the file is first kept
-    as <name>.bad-<stamp>, never written over: the owner's data and this run's are both
-    kept. A file refused for what it holds (a failed migration) stays refused while it's
-    there; one that still can't be read, or can't be moved aside, too."""
+    """Whether a refused file has come right since (REL-6), so a save may go ahead: only
+    when it's gone (the owner deleted it to start afresh: nothing is saved over anything).
+    One that couldn't be read and can be now (its permissions fixed) is the owner's whole
+    file again, while the store that couldn't read it holds something else in memory (many
+    start empty: one phone paired this run, where the file has three). Setting the file
+    aside and saving this run's data in its place left the next start reading the one
+    phone (REL3-2), so it stays refused: save_json keeps this run's data beside it instead
+    (_beside), and the next start reads the owner's file. A file refused for what it holds
+    (a failed migration) stays refused while it's there; one that still can't be read too."""
     try:
         os.lstat(path)
     except FileNotFoundError:
         _REFUSED.discard(key)
         _UNREAD.discard(key)
+        _UNSAVED.pop(key, None)
         return True
     except OSError:
         return False
+    return False
+
+
+# This run's data for a refused file that can be read again (_cleared), by the refused
+# file's path: where it's kept beside it (<name>.unsaved-<stamp>, one per run, saved over
+# by each later save of the store), so it's said once and never piles up a file a save.
+_UNSAVED: dict[str, Path] = {}
+
+
+def _beside(path: Path, key: str, data: Any, indent: int | None, mode: int) -> bool:
+    """A save the refusal stops, kept beside the file when the file can be read again
+    (REL3-2): the owner's file stays as it is, and this run's data isn't lost either, in
+    <name>.unsaved-<stamp>. False when the file still can't be read (nothing is written)."""
     if key not in _UNREAD:
         return False
     try:
@@ -120,11 +139,23 @@ def _cleared(path: Path, key: str) -> bool:
             json.loads(raw)
     except (OSError, ValueError):
         return False
-    if set_aside(path) is None:
-        return False
-    log.warning("%s can be read again; what this run couldn't read is kept beside it", path.name)
-    _REFUSED.discard(key)
-    _UNREAD.discard(key)
+    kept = _UNSAVED.get(key)
+    if kept is None:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        for n in range(1, 100):
+            kept = path.with_name(f"{path.name}.unsaved-{stamp}" + (f"-{n}" if n > 1 else ""))
+            if not os.path.lexists(kept):
+                break
+        else:
+            return False
+        log.warning(
+            "%s can be read again but wasn't when this run loaded it: it's left as it is, "
+            "and what this run saves is kept beside it as %s",
+            path.name,
+            kept.name,
+        )
+        _UNSAVED[key] = kept
+    save_json(kept, data, indent=indent, mode=mode, backup=False, over_unreadable=True)
     return True
 
 
@@ -251,8 +282,11 @@ def save_json(
     and its copies from before migrations, so something just removed (a forgotten fact, an
     unpaired phone, a crash report) can't come back from them. Half of a surrogate pair is
     written escaped: it never makes a file unsaveable. Raises Unreadable, saving nothing,
-    over a file this process couldn't read when it last tried (unless over_unreadable)."""
+    over a file this process couldn't read when it last tried (unless over_unreadable); when
+    that file can be read again, this run's data is saved beside it instead (_beside)."""
     if not over_unreadable and _key(path) in _REFUSED and not _cleared(path, _key(path)):
+        if _beside(path, _key(path), data, indent, mode):
+            return  # (kept beside the owner's file, never over it)
         raise refusal(path, "it couldn't be read when it was loaded")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
@@ -276,6 +310,7 @@ def save_json(
                 os.unlink(copy)
     _REFUSED.discard(_key(path))  # (what's there now is what was just written)
     _UNREAD.discard(_key(path))
+    _UNSAVED.pop(_key(path), None)
     _sync_folder(path.parent)
 
 
