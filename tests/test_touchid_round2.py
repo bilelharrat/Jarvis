@@ -56,6 +56,8 @@ def gate_on(hub):
 
 
 def prove(hub, kind, nonce):
+    """A proof armed as the window sends one. (Each nonce works once per test run: they're
+    this module's own, never test_code_touchid_proof's.)"""
     hub.code_touchid.on_proof({"kind": kind, "proof": fresh(kind, nonce)})
 
 
@@ -89,7 +91,7 @@ async def test_a_typed_bypass_from_the_window_needs_the_proof(
     await hub.handle({"type": "code_command", "id": 7, "text": "/bypass"})  # (in the background)
     assert await until(lambda: any("fingerprint" in t for t in errors(seen)))
     assert task.mode == "ask", "a typed /bypass switched on Bypass without Touch ID"
-    prove(hub, "bypass", "21" * 16)
+    prove(hub, "bypass", "b1" * 16)
     await hub.handle({"type": "code_command", "id": 7, "text": "/bypass"})
     assert await until(lambda: task.mode == "auto")
 
@@ -122,7 +124,7 @@ async def test_bestof_in_bypass_needs_one_proof_for_all(bestof_hub, projects):  
     assert await until_long(lambda: len(hub.tasks.tasks) >= 2, 30)
     modes = [t.mode for t in hub.tasks.tasks.values()]
     assert "auto" not in modes, "Best of N started sessions in Bypass with no Touch ID proof"
-    prove(hub, "bypass", "22" * 16)
+    prove(hub, "bypass", "b2" * 16)
     three = [{"model": "sonnet"}, {"model": "opus"}, {"model": "haiku"}]
     await hub.handle(dict(msg, variants=three))
 
@@ -147,7 +149,7 @@ async def test_multirepo_in_bypass_needs_the_proof(settings, quiet_speaker, isol
     assert hub.tasks.tasks and all(t.mode != "auto" for t in hub.tasks.tasks.values()), (
         "a multi-repo session started in Bypass with no Touch ID proof"
     )
-    prove(hub, "bypass", "23" * 16)
+    prove(hub, "bypass", "b3" * 16)
     await hub.code_multi.start(dict(msg, prompt="y"))
     assert [t.mode for t in hub.tasks.tasks.values()][-1] == "auto"
     await end_all(hub)
@@ -197,7 +199,7 @@ async def test_an_allow_rule_for_every_command_needs_the_proof(
     after = await ask(hub, task, *bash("rm -rf /tmp/r2-nothing-here"), cards)
     assert not isinstance(after, PermissionResultAllow), "rm -rf ran with no card"
     # With the proof the rule is added, and even then a risky command asks on its card.
-    prove(hub, "rules", "31" * 16)
+    prove(hub, "rules", "b4" * 16)
     await hub.handle({"type": "cr_add", "id": 7, "behavior": "allow", "rule": "Bash"})
     assert hub.code_rules.rules_of(task)["allow"] == ["Bash"]
     assert isinstance(await ask(hub, task, *bash("make build"), cards), PermissionResultAllow)
@@ -232,7 +234,7 @@ async def test_taking_a_deny_rule_away_needs_the_proof(settings, quiet_speaker, 
     await hub.handle({"type": "cr_remove", "id": 7, "behavior": "deny", "rule": "Bash(curl:*)"})
     await hub.handle({"type": "cr_add", "id": 7, "behavior": "ask", "rule": "Bash(curl:*)"})
     assert hub.code_rules.rules_of(task)["deny"] == ["Bash(curl:*)"], "a deny went unproved"
-    prove(hub, "rules", "32" * 16)
+    prove(hub, "rules", "b5" * 16)
     await hub.handle({"type": "cr_remove", "id": 7, "behavior": "deny", "rule": "Bash(curl:*)"})
     assert hub.code_rules.rules_of(task)["deny"] == []
     # An ask or a deny added only asks more: never held up.
@@ -248,7 +250,7 @@ async def test_exporting_allow_rules_needs_the_proof(settings, quiet_speaker, is
     local = tmp_path / ".claude" / "settings.local.json"
     await hub.handle({"type": "cr_export", "id": 7, "target": "local"})
     assert not local.exists(), "allow rules went into Claude Code's own settings unproved"
-    prove(hub, "rules", "33" * 16)
+    prove(hub, "rules", "b6" * 16)
     await hub.handle({"type": "cr_export", "id": 7, "target": "local"})
     assert json.loads(local.read_text())["permissions"]["allow"] == ["Bash(npm test:*)"]
 
