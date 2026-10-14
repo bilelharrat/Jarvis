@@ -244,6 +244,7 @@ Ordered quick wins first, then the big differentiators.
 | F14 | **Background routing queue**: queued cards/tickets go to the cheapest model that passes `code_verify`, learning per project which model wins (`code_router_events` learner) | nobody | builds on F2 + router | Eden's own differentiator: "never hit a usage wall, set the dollar ceiling" | M |
 | F15 | **Proof against the spec**: receipt + video proof + spec checks attached to the PR | nobody does all three | builds on F8 + receipts + video | Eden's own differentiator: proves the ticket is done | S (after F8) |
 | F16 | **Fleet by voice and for screen readers**: "what's everyone doing?", spoken diffs, the board read as a list | nobody | Partial (`code_voice.py`, `code_spoken.py`) | Builds on A1-A4; Daredevil ships as the accessible coding agent | M |
+| F17 | **Bug Fix Mode** (owner's own protocol, 2026-10-13): one switch in the composer / session header. On, Eden runs the owner's bug protocol on any project: 3 rounds of **sweep** (read-only audit agents in parallel: security, reliability, UI/accessibility, tests; each finding with file:line and a concrete failure) → **break** (run the suite, hostile inputs, stress, start the dev server/app and try to break it) → **fix** (every finding fixed in an isolated copy with a test that fails first), with an **efficiency pass between rounds that loses zero features** (suite stays green, no feature removed). Ends with a report per round (`docs/bug-sweep/<date>-rN-{sweep,break,fix}.md`), a receipt, and the ship step for the project type (build / install / what's only in source vs installed) | nobody | builds on lanes, isolation, best-of, verify, receipts, caps, router | Stack detection; cheap models for sweeps via the router, strong model for fixes; spending cap and Touch ID before landing; stops and asks on owner-only steps | M |
 
 Skipped on purpose: fast-apply models (Morph, Relace): Claude Code does its own edits, so they add little here.
 
@@ -283,3 +284,25 @@ phase, and the owner steps below (Linear/Slack apps, certificates). Not the codi
 - Linear and Slack apps for F6 (OAuth apps in your Linear and Slack workspaces).
 - The notary profile for team 8CV4X23Y2T (already in `TODO.md`).
 - An independent security reviewer before public launch.
+
+---
+
+## Status
+
+### Wave 1 (2026-10-13): phases 0-3 done, merged into `eden-code-hardening`
+All S/W/R items fixed with tests, except:
+- **S11** (phone Face ID checked on the Mac): waits for the iPhone app to leave App Review.
+- **S25** (Model Router page origin): in the separate Model Router repo, next pass.
+- **S1 gap:** the Keychain entries still trust Eden's Python (sessions can't reach them any more; other local malware
+  could). Closing it needs a signed helper / Keychain access groups (packaging).
+- **S8:** signature checking is built; needs the owner's Ed25519 key, its public half in `app/win-update.js`
+  (`FEED_PUBLIC_KEY`), and askeden.com serving a signed `/windows/latest.json` ([site], after App Review).
+- **S28:** local Eden on :5174 needs a `/api/eden/handshake` answer from the askeden local server.
+- **W23:** follow-repo now skips a dirty tree, so the owner's install rarely follows the shared tree; no rollback.
+
+Defaults taken while the owner was away (change any of them):
+- S10: web Code mode is read-only on the Mac; a Settings switch "Let askeden.com edit on this Mac" (off) is wave 2.
+- S19: automatic fallback stays with the same company; crossing companies is a Settings switch (off), wave 2.
+- S30: Bypass from the window requires the Touch ID proof; voice (owner's voice + tap) and phone keep their own gates.
+- S3: the owner's own Commit button and pushes still run git hooks (git-lfs needs them).
+- S33: phones on the old app over plain HTTP on Wi-Fi are refused; update the app.
