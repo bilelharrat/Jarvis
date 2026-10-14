@@ -579,3 +579,28 @@ async def test_a_wait_for_claudes_limit_that_ended_while_the_app_was_closed_carr
     assert then == "and then the docs" and back.hold_until == 0
     await end_all(again)
     again.code_limit.forget()
+
+
+async def test_a_forks_inherited_cost_outlasts_a_restart(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """A fork's total carries its original's spend: that share is kept with the session, so
+    after a restart the fork's own spend (its session cap) still leaves it out."""
+    from jarvis.features import code_usage
+
+    (tmp_path / "proj").mkdir()
+    Stream.instances = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    await hub.code_sessions.restore()
+    task = hub.tasks.start("fix the login", "proj")
+    assert await until(lambda: task.status == "waiting" and task.session_id == "s")
+    task.cost_usd, task.cost_inherited, task.fork = 5.0, 4.0, True
+    await hub.code_sessions.flush(final=True)
+    await end_all(hub)
+
+    Stream.instances = []
+    again = make_hub(settings, quiet_speaker, isolated)
+    await again.code_sessions.restore()
+    [back] = again.tasks.tasks.values()
+    assert back.cost_usd == 5.0 and back.cost_inherited == 4.0
+    assert code_usage.spent(back) == 1.0

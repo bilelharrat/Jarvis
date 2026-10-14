@@ -47,6 +47,8 @@ from urllib.parse import urlparse
 from . import jsonstore
 
 log = logging.getLogger("jarvis")
+STORE = "code_rules"  # code_rules.json, versioned (jsonstore.register_store)
+jsonstore.register_store(STORE, 1)
 
 BEHAVIORS = ("deny", "ask", "allow")  # the order they're weighed in
 READ_FAMILY = {"Read", "Grep", "Glob", "LS", "NotebookRead"}
@@ -552,7 +554,7 @@ class RuleBook:
         if path is None:
             return
         try:
-            data = jsonstore.load_json(path, dict) or {}
+            data = jsonstore.load_store(path, STORE) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
             log.warning("Eden Code rules: %s can't be read (%s)", path.name, exc)
@@ -607,4 +609,4 @@ class RuleBook:
             return
         if self.unreadable:
             raise jsonstore.refusal(self.path, self.unreadable)
-        jsonstore.save_json(self.path, {"projects": self.projects})
+        jsonstore.save_store(self.path, STORE, {"projects": self.projects})

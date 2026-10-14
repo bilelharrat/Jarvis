@@ -31,6 +31,8 @@ from typing import Any
 from . import jsonstore
 
 log = logging.getLogger("jarvis")
+STORE = "code_usage"  # code_usage.json, versioned (jsonstore.register_store)
+jsonstore.register_store(STORE, 1)
 
 DAYS_KEPT = 90
 PROJECTS_PER_DAY = 200  # projects counted in one day; past this they share "other"
@@ -169,7 +171,7 @@ class Usage:
         if self.path is None:
             return
         try:
-            data = jsonstore.load_json(self.path, dict) or {}
+            data = jsonstore.load_store(self.path, STORE) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
             log.warning("Eden Code usage: %s can't be read (%s)", self.path.name, exc)
@@ -228,7 +230,7 @@ class Usage:
         """A save that fails (a full disk) keeps the counts for this run; it never turns
         into an error for a session."""
         try:
-            jsonstore.save_json(self.path, data)
+            jsonstore.save_store(self.path, STORE, data)
         except OSError as exc:
             log.warning("couldn't save Eden Code's usage (%s)", exc)
 

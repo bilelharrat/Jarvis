@@ -6,18 +6,32 @@ that can't be used (cut short by a crash, torn, written by another build or prog
 never thrown away: it's kept as <name>.bad-<stamp>, and the last good copy is read
 instead. A file that's there but can't be read just now is left alone, and nothing is
 saved over it. One backend at a time uses the folder (claim_folder).
+
+Versioned stores (register_store, load_store, save_store): a store whose shape changes
+between releases carries its version in the file ("version", or the key it names), and
+each step from one version to the next is registered beside it (register_migration). A
+file of an older version is copied whole first (<name>.v<old>-<stamp>.pre-migration, never
+over an earlier copy), then taken through every step in order and saved at once; a step
+that fails leaves the file as it was and the store unreadable for this run (Unreadable:
+nothing is saved over it). A file without a version is version 0, the shape from before
+versions. One from a newer build is copied the same way before this build reads it (it
+keeps what it knows and writes its own version back), so going back a release never
+loses the newer file.
 """
 
 from __future__ import annotations
 
 import contextlib
 import errno
+import glob
 import json
 import logging
 import os
+import shutil
 import tempfile
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Any
@@ -150,6 +164,153 @@ def save_json(
         with contextlib.suppress(OSError):
             os.unlink(path.with_name(path.name + ".bak"))
     _sync_folder(path.parent)
+
+
+@dataclass
+class Store:
+    """A versioned store: its current version, where the version sits in the file, and the
+    steps that bring an older file up to it (version n -> n + 1)."""
+
+    name: str
+    version: int
+    key: str = "version"
+    steps: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = field(default_factory=dict)
+
+
+STORES: dict[str, Store] = {}
+
+
+def register_store(name: str, version: int = 1, *, key: str = "version") -> Store:
+    """A store that carries its version (registering it again with a higher version moves
+    it on; the steps stay)."""
+    store = STORES.get(name)
+    if store is None:
+        store = STORES[name] = Store(name, version, key)
+    else:
+        store.version, store.key = max(store.version, version), key
+    return store
+
+
+def register_migration(
+    name: str, from_version: int, step: Callable[[dict[str, Any]], dict[str, Any]]
+) -> None:
+    """How a store's file goes from from_version to the next: given the data, the data at
+    the next version (the version field itself is set afterwards)."""
+    store = STORES.get(name) or register_store(name, from_version + 1)
+    store.version = max(store.version, from_version + 1)
+    store.steps[from_version] = step
+
+
+def version_of(data: Any, key: str = "version") -> int:
+    """A file's version: 0 for one from before versions (or with nonsense in the field)."""
+    found = data.get(key) if isinstance(data, dict) else None
+    return found if isinstance(found, int) and not isinstance(found, bool) and found >= 0 else 0
+
+
+def stamped(name: str, data: Any) -> Any:
+    """data with its store's current version in it, as it's saved (a dict; anything else
+    as it is)."""
+    store = STORES.get(name)
+    if store is None or not isinstance(data, dict):
+        return data
+    return {**data, store.key: store.version}
+
+
+def keep_before_migrating(
+    path: Path, old: int, clock: Callable[[], datetime] = datetime.now
+) -> Path | None:
+    """The file as it is, copied whole beside it before a migration: its path, None when
+    there was nothing to copy. Raises OSError when it couldn't be copied."""
+    stamp = clock().strftime("%Y%m%d-%H%M%S")
+    for n in range(1, 100):
+        copy = path.with_name(
+            f"{path.name}.v{old}-{stamp}" + (f"-{n}" if n > 1 else "") + ".pre-migration"
+        )
+        if os.path.lexists(copy):
+            continue
+        try:
+            shutil.copy2(path, copy)
+        except FileNotFoundError:
+            return None
+        with contextlib.suppress(OSError):
+            os.chmod(copy, 0o600)
+        return copy
+    raise OSError(errno.EEXIST, f"no free name to keep {path.name} under before migrating")
+
+
+def migrate(
+    path: Path,
+    name: str,
+    data: Any,
+    *,
+    indent: int | None = 2,
+    clock: Callable[[], datetime] = datetime.now,
+) -> Any:
+    """data (as read from path) brought up to its store's version: copied first, each step
+    in order, then saved. Raises Unreadable when a step fails or the copy can't be made, so
+    the store saves nothing over the file this run."""
+    store = STORES.get(name)
+    if store is None or not isinstance(data, dict):
+        return data
+    old = version_of(data, store.key)
+    if old == store.version:
+        return data
+    try:
+        # (one from a newer build is kept once: this build saves it back at its own version,
+        # unless it never saves, and then each start would copy it again)
+        if old < store.version or not any(path.parent.glob(f"{glob.escape(path.name)}.v{old}-*")):
+            keep_before_migrating(path, old, clock)
+    except OSError as exc:
+        log.warning("%s couldn't be copied before its migration (%s)", path.name, exc)
+        raise refusal(path, "it couldn't be copied before updating its format") from exc
+    if old > store.version:
+        log.warning(
+            "%s is version %d, from a newer build than this one (%d); a copy is kept",
+            path.name,
+            old,
+            store.version,
+        )
+        return data
+    migrated = data
+    try:
+        for version in range(old, store.version):
+            step = store.steps.get(version)
+            if step is not None:
+                migrated = step(dict(migrated))
+            if not isinstance(migrated, dict):
+                raise TypeError(f"the step from version {version} gave no record")
+    except Exception as exc:
+        log.warning("%s couldn't be updated from version %d (%s)", path.name, old, exc)
+        raise refusal(path, f"its format couldn't be updated from version {old}") from exc
+    migrated = stamped(name, migrated)
+    try:
+        save_json(path, migrated, indent=indent)
+    except OSError as exc:  # kept in memory for this run; tried again on the next start
+        log.warning("%s couldn't be saved after its migration (%s)", path.name, exc)
+    else:
+        log.info("%s updated from version %d to %d", path.name, old, store.version)
+    return migrated
+
+
+def load_store(
+    path: Path,
+    name: str,
+    shape: Shape = dict,
+    *,
+    indent: int | None = 2,
+    clock: Callable[[], datetime] = datetime.now,
+) -> Any:
+    """load_json for a versioned store: its data at the store's version (None when
+    there's none). Raises Unreadable as load_json does, and when a migration couldn't run."""
+    data = load_json(path, shape, clock=clock)
+    if data is None:
+        return None
+    return migrate(path, name, data, indent=indent, clock=clock)
+
+
+def save_store(path: Path, name: str, data: Any, **kw: Any) -> None:
+    """save_json with the store's version stamped in."""
+    save_json(path, stamped(name, data), **kw)
 
 
 def shallow(value: Any, depth: int = 32) -> bool:

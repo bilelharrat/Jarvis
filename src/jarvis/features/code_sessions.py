@@ -398,6 +398,7 @@ class CodeSessions:
             plan=record["plan"],
             todos=list(record["todos"]),
             cost_usd=record["cost_usd"],
+            cost_inherited=record["cost_inherited"],
             files_changed=set(record["files_changed"]),
             commands=record["commands"],
             fork=record["fork"] and bool(record["session_id"]),
@@ -626,6 +627,7 @@ class CodeSessions:
             id(task.in_flight),
             len(task.steered_items),
             task.cost_usd,
+            task.cost_inherited,
             len(task.files_changed),
             task.commands,
             task.fork,
@@ -673,6 +675,7 @@ class CodeSessions:
             "plan": task.plan[:4000],
             "todos": list(task.todos),
             "cost_usd": task.cost_usd,
+            "cost_inherited": task.cost_inherited,  # (a fork's: never counted as its own again)
             "files_changed": sorted(task.files_changed)[:FILES_KEEP],
             "commands": task.commands,
             "fork": task.fork,

@@ -63,6 +63,8 @@ from ..handoff import Handoff, Machine
 from ..hub import _msg_int
 
 log = logging.getLogger("jarvis")
+STORE = "code_handoff"  # code_handoff.json, versioned (jsonstore.register_store)
+jsonstore.register_store(STORE, 1)
 
 SERVER = "jarvis_code_handoff"
 PUSH_ENV = {"GIT_SSH_COMMAND": "ssh -o BatchMode=yes", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
@@ -303,7 +305,7 @@ class Desk:
             return
         self._loaded = True
         try:
-            data = jsonstore.load_json(self.path, dict) or {}
+            data = jsonstore.load_store(self.path, STORE) or {}
         except jsonstore.Unreadable:
             log.warning("hand-off: %s can't be read; nothing is saved over it", self.path)
             self._unreadable = True
@@ -323,8 +325,9 @@ class Desk:
         if self._unreadable:
             return
         try:
-            jsonstore.save_json(
+            jsonstore.save_store(
                 self.path,
+                STORE,
                 {
                     "machines": [asdict(m) for m in self.machines],
                     "handoffs": [asdict(r) for r in self.handoffs],

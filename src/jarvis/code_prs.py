@@ -27,6 +27,9 @@ from typing import Any
 
 from . import jsonstore
 
+STORE = "code_prs"  # code_prs.json, versioned (jsonstore.register_store)
+jsonstore.register_store(STORE, 1)
+
 MERGE_METHODS = ("squash", "merge", "rebase")
 FIX_ATTEMPTS = 3  # fixes sent by themselves for one pull request, at most
 KEEP = 200  # records kept; closed and merged ones go first
@@ -141,7 +144,7 @@ class PullStore:
         self.unreadable = ""
         self._written: str | None = None  # what it last wrote (as JSON), to skip a same save
         try:
-            data = jsonstore.load_json(path, dict) or {}
+            data = jsonstore.load_store(path, STORE) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
             data = {}
@@ -163,7 +166,7 @@ class PullStore:
         if text == self._written:
             return
         with contextlib.suppress(OSError):  # a full disk: kept for this run, and tried again
-            jsonstore.save_json(self.path, data)
+            jsonstore.save_store(self.path, STORE, data)
             self._written = text
 
     def prune(self, now: float | None = None) -> None:

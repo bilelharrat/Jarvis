@@ -47,6 +47,8 @@ from ..proactive import Alert
 from .code_unattended import Scope
 
 log = logging.getLogger("jarvis")
+STORE = "code_issues"  # code_issues.json, versioned (jsonstore.register_store)
+jsonstore.register_store(STORE, 1)
 
 PREF = "code_issue_repos"
 ISSUE_RUNS_A_DAY = 5
@@ -139,6 +141,7 @@ class Issues:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self._seen: dict[str, list[int]] | None = None
+        self._unreadable = False  # code_issues.json can't be read: never saved over
         self._unsaved = False  # the last save failed (a full disk): the next look tries again
         self._caps: code_ai.Budget | None = None
         self._told_cap = ""
@@ -173,8 +176,12 @@ class Issues:
     def seen(self) -> dict[str, list[int]]:
         if self._seen is None:
             try:
-                data = jsonstore.load_json(self.hub.feature_path("code_issues.json"), dict) or {}
+                data = jsonstore.load_store(self.hub.feature_path("code_issues.json"), STORE) or {}
             except jsonstore.Unreadable:
+                log.warning(
+                    "Eden Code issues: code_issues.json can't be read; nothing is saved over it"
+                )
+                self._unreadable = True
                 data = {}
             raw = data.get("seen") if isinstance(data.get("seen"), dict) else {}
             self._seen = {
@@ -185,8 +192,13 @@ class Issues:
         return self._seen
 
     def save(self) -> None:
+        self.seen()
+        if self._unreadable:
+            return
         try:
-            jsonstore.save_json(self.hub.feature_path("code_issues.json"), {"seen": self.seen()})
+            jsonstore.save_store(
+                self.hub.feature_path("code_issues.json"), STORE, {"seen": self.seen()}
+            )
         except OSError:  # a full disk: kept for this run, and saved at a later look
             self._unsaved = True
         else:

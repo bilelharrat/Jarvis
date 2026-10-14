@@ -66,6 +66,8 @@ from .. import code_changes, jsonstore, lang, routines, tasks
 from ..proactive import Alert
 
 log = logging.getLogger("jarvis")
+STORE = "code_runs"  # code_runs.json, versioned (jsonstore.register_store)
+jsonstore.register_store(STORE, 1)
 
 SERVER = "jarvis_code_runs"
 MODES = ("edits", "smart")
@@ -321,6 +323,7 @@ class Runs:
         # instead: until when (0: while it runs; a little after, for its last turn's).
         self.quiet: dict[int, float] = {}
         self._loaded = False
+        self._unreadable = False  # code_runs.json is there but can't be read: never saved over
         self._watchdogs: dict[str, asyncio.Task] = {}
         self.booted = time.time()  # (session numbers start again at each launch)
 
@@ -335,8 +338,10 @@ class Runs:
             return
         self._loaded = True
         try:
-            data = jsonstore.load_json(self.path, dict) or {}
+            data = jsonstore.load_store(self.path, STORE) or {}
         except jsonstore.Unreadable:
+            log.warning("unattended runs: %s can't be read; nothing is saved over it", self.path)
+            self._unreadable = True
             data = {}
         for raw in data.get("runs") or []:
             run = _from(Run, raw)
@@ -352,9 +357,12 @@ class Runs:
     def save(self) -> None:
         self.load()
         del self.runs[:-RUNS_KEPT]
+        if self._unreadable:
+            return
         with contextlib.suppress(OSError):
-            jsonstore.save_json(
+            jsonstore.save_store(
                 self.path,
+                STORE,
                 {"runs": [asdict(r) for r in self.runs], "jobs": [asdict(j) for j in self.jobs]},
             )
 
