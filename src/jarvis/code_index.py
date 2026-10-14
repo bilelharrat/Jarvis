@@ -162,7 +162,9 @@ def is_git(root: Path) -> bool:
 
 def list_files(root: Path, stop: Callable[[], bool] = lambda: False) -> tuple[list[str], bool]:
     """The project's files to index (paths relative to root, sorted), and whether the list
-    stopped at FILES_MAX."""
+    stopped short: at FILES_MAX, or (a folder that isn't git, walked) when stop() said the
+    time was up. A list stopped short is never the whole project, so nothing missing from
+    it may be taken as deleted (CodeIndex.refresh)."""
     root = Path(root)
     found: list[str] = []
     if is_git(root):
@@ -187,8 +189,8 @@ def list_files(root: Path, stop: Callable[[], bool] = lambda: False) -> tuple[li
             return found, False
     ignored = _gitignore(root)
     for dirpath, dirnames, filenames in os.walk(root):
-        if stop():
-            break
+        if stop():  # out of time: what's listed is part of the folder, and says so
+            return sorted(found), True
         here = Path(dirpath).relative_to(root).as_posix()
         here = "" if here == "." else f"{here}/"
         dirnames[:] = sorted(
@@ -209,10 +211,10 @@ def _gitignore(root: Path) -> Callable[[str], bool]:
     """The top-level .gitignore of a folder that isn't a git repository, read simply: a
     pattern with no slash matches a name anywhere, one with a slash a path from the top, a
     trailing slash only folders; "!" lines bring a path back."""
-    try:
-        lines = (root / ".gitignore").read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
+    raw = code_search.read_regular(root / ".gitignore", 1_000_000)  # (never a pipe)
+    if raw is None:
         return lambda _rel: False
+    lines = raw.decode("utf-8", errors="replace").splitlines()
     rules: list[tuple[bool, bool, bool, str]] = []  # (negated, folders only, anchored, glob)
     for raw in lines[:500]:
         line = raw.strip()
@@ -244,13 +246,13 @@ def _gitignore(root: Path) -> Callable[[str], bool]:
     return ignored
 
 
-def read_text(path: Path) -> str | None:
-    """A file's text, or None for one left out: too big, binary, minified, unreadable."""
-    try:
-        if path.is_symlink() or path.stat().st_size > FILE_BYTES_MAX:
-            return None
-        raw = path.read_bytes()
-    except OSError:
+def read_text(path: Path, root: Path | None = None) -> str | None:
+    """A file's text, or None for one left out: too big, binary, minified, unreadable, a
+    link, not a regular file (a named pipe used to hang the read for good), or, with root
+    (the project, resolved), anywhere but really inside it, through a folder on the way
+    that became a link (code_search.read_regular)."""
+    raw = code_search.read_regular(path, FILE_BYTES_MAX, root)
+    if raw is None:
         return None
     if b"\0" in raw[:SNIFF]:
         return None
@@ -820,11 +822,24 @@ class CodeIndex:
             changed = removed = 0
             out_of_time = False
             if only is None:
-                listed, truncated = list_files(self.root, lambda: clock() - started > seconds)
-                wanted = set(listed)
-                for path in [p for p in files if p not in wanted]:
-                    del files[path]
-                    removed += 1
+                timed_out: list[bool] = []
+
+                def out_of_listing_time() -> bool:
+                    if clock() - started > seconds:
+                        timed_out.append(True)
+                        return True
+                    return False
+
+                listed, truncated = list_files(self.root, out_of_listing_time)
+                # A walk cut short by the time lists part of the folder: what it didn't
+                # reach isn't gone, and dropping it emptied a big project's index a part
+                # at a time (each pass removed what it hadn't got to). A list cut at
+                # FILES_MAX is the same first files each time, so past it goes.
+                if not timed_out:
+                    wanted = set(listed)
+                    for path in [p for p in files if p not in wanted]:
+                        del files[path]
+                        removed += 1
                 candidates = listed
             else:
                 candidates = []
@@ -913,7 +928,7 @@ class CodeIndex:
         path = self.root / rel
         if is_sensitive(path):
             return None
-        text = read_text(path)
+        text = read_text(path, self.root)
         if text is None:
             return None
         lang = language_of(rel)
@@ -964,7 +979,7 @@ class CodeIndex:
                 for c, entry in batch:
                     lines = lines_of.get(c.path)
                     if lines is None:
-                        lines = (read_text(self.root / c.path) or "").split("\n")
+                        lines = (read_text(self.root / c.path, self.root) or "").split("\n")
                         lines_of[c.path] = lines
                         if len(lines_of) > 64:
                             lines_of.pop(next(iter(lines_of)))
@@ -1166,7 +1181,7 @@ class CodeIndex:
         path = self.root / chunk.path
         if is_sensitive(path):
             return chunk.start, ""
-        text = read_text(path)
+        text = read_text(path, self.root)
         if text is None:
             return chunk.start, ""
         lines = text.split("\n")
@@ -1250,6 +1265,8 @@ def search(
         raise code_search.SearchError("Say what to look for.")
     if len(text) > QUERY_MAX or "\0" in text:
         raise code_search.SearchError("That's too long to search for.")
+    if "\0" in (include or ""):  # (the word search's git grep would raise ValueError)
+        raise code_search.SearchError("A file filter can't contain a NUL character.")
     limit = max(1, min(int(limit or 10), RESULTS_MAX))
     index.load()
     terms, names = query_terms(text)

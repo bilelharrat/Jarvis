@@ -21,6 +21,7 @@ import contextlib
 import fnmatch
 import os
 import re
+import stat
 import subprocess
 import threading
 import time
@@ -185,6 +186,8 @@ def search(root: Path, query: Query, stop: Stop | None = None) -> dict[str, Any]
         raise SearchError("Type something to search for.")
     if len(text) > QUERY_MAX or "\0" in text or "\n" in text:
         raise SearchError("That's too long to search for.")
+    if "\0" in (query.include or ""):  # (no command can carry one: git grep raised)
+        raise SearchError("A file filter can't contain a NUL character.")
     pattern = query.pattern()  # (a bad expression says so before anything runs)
     stop = stop or Stop()
     root = Path(root).resolve()
@@ -214,6 +217,8 @@ def _git_grep(root: Path, query: Query, pattern: re.Pattern[str], stop: Stop) ->
             stdin=subprocess.DEVNULL,
             env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
+    except ValueError:  # a NUL in the words or the file filter: no command can carry it
+        raise SearchError("A search can't contain a NUL character.") from None
     except OSError as exc:
         raise SearchError(f"git grep didn't start: {exc}") from None
     watcher = threading.Thread(target=_kill_when, args=(proc, stop), daemon=True)
@@ -221,21 +226,18 @@ def _git_grep(root: Path, query: Query, pattern: re.Pattern[str], stop: Stop) ->
     assert proc.stdout is not None
     stopped = False
     try:
-        for raw in proc.stdout:
+        for name, number, text in _grep_records(proc.stdout):
             if stop:
                 stopped = True
                 break
-            parts = raw.rstrip(b"\n").split(b"\0", 2)
-            if len(parts) != 3:
-                continue
-            path = parts[0].decode("utf-8", errors="replace")
+            path = name.decode("utf-8", errors="replace")
             try:
-                line = int(parts[1])
+                line = int(number)
             except ValueError:
                 continue
             if is_sensitive(root / path):
                 continue
-            shown = parts[2].decode("utf-8", errors="replace")
+            shown = text.decode("utf-8", errors="replace")
             if not found.add(path, line, shown, spans_in(pattern, shown)):
                 break
         else:
@@ -252,6 +254,29 @@ def _git_grep(root: Path, query: Query, pattern: re.Pattern[str], stop: Stop) ->
         message = err.strip().splitlines()[-1] if err.strip() else "git grep failed."
         raise SearchError(message.removeprefix("fatal: ")[:300])
     return found.result()
+
+
+def _grep_records(stream: Any) -> Any:
+    """git grep -z's matches as (path, line number, text): each is path NUL number NUL text
+    and a newline. Read by its NULs, not by lines: a file name may hold a newline (git
+    leaves -z names as they are), and split by lines "new<newline>line.py" gave a match in
+    a file "line.py" that isn't there."""
+    buf = b""
+    while True:
+        chunk = stream.read1(65536) if hasattr(stream, "read1") else stream.read(65536)
+        if not chunk:
+            return
+        buf += chunk
+        at = 0
+        while True:
+            first = buf.find(b"\0", at)
+            second = buf.find(b"\0", first + 1) if first >= 0 else -1
+            end = buf.find(b"\n", second + 1) if second >= 0 else -1
+            if end < 0:
+                break
+            yield buf[at:first], buf[first + 1 : second], buf[second + 1 : end]
+            at = end + 1
+        buf = buf[at:]
 
 
 def _pathspec(glob: str, exclude: bool = False) -> str:
@@ -299,13 +324,51 @@ def _walk(root: Path, query: Query, pattern: re.Pattern[str], stop: Stop) -> dic
     return found.result()
 
 
+def read_regular(path: Path, limit: int, root: Path | None = None) -> bytes | None:
+    """A regular file's bytes, None for anything else or more than limit bytes. Opened
+    without waiting and without following a link in its last part, then looked at through
+    what was opened (fstat): a named pipe where a .py was used to block the read for good
+    (and with it a refresh, a search, the index's one update at a time), and a device or a
+    socket is no file to read either. With root (resolved), the file must really be inside
+    it: a folder on the way swapped for a link to somewhere else (a tracked pkg/ that's now
+    a link to ~/secrets) is refused, and so is a credentials file it really is; the file
+    opened must be the one checked (same device and inode), so a swap in between is
+    refused too."""
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        real = None
+        if root is not None:
+            real = path.resolve()
+            if not real.is_relative_to(root) or is_sensitive(real):
+                return None
+        if path.is_symlink():  # (O_NOFOLLOW says so too, where the system has it)
+            return None
+        fd = os.open(path, flags)
+    except (OSError, RuntimeError, ValueError):  # gone, a link loop, a NUL in the name
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+            return None
+        if real is not None:
+            seen = os.stat(real)
+            if (seen.st_dev, seen.st_ino) != (st.st_dev, st.st_ino):
+                return None
+        with os.fdopen(fd, "rb") as handle:
+            fd = -1
+            return handle.read(limit + 1)[:limit]
+    except OSError:
+        return None
+    finally:
+        if fd >= 0:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+
+
 def _search_file(path: Path, rel: str, pattern: re.Pattern[str], found: Found) -> bool:
     """One file's matches; False once a limit is reached."""
-    try:
-        if path.stat().st_size > FILE_BYTES_MAX:
-            return True
-        raw = path.read_bytes()
-    except OSError:
+    raw = read_regular(path, FILE_BYTES_MAX)
+    if raw is None:
         return True
     if b"\0" in raw[:SNIFF]:
         return True
