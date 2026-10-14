@@ -409,20 +409,10 @@ class Stopped(Exception):
 # ── the project: its stack, what it may run, what it has ──
 
 
-def _read(path: Path, limit: int = 400_000) -> str:
-    try:
-        with path.open("rb") as f:
-            return f.read(limit).decode("utf-8", errors="replace")
-    except OSError:
-        return ""
-
-
-def _package(folder: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(_read(folder / "package.json") or "{}")
-    except ValueError:
-        return {}
-    return data if isinstance(data, dict) else {}
+# A file's start as text ("" when it can't be read) and package.json as a dict ({} without
+# one): the same readers the test runner's discovery uses (codetests.py), not a copy of them.
+_read = codetests._read
+_package = codetests._package
 
 
 UI_DEPS = ("react", "vue", "svelte", "next", "vite", "@angular/core", "solid-js", "preact",
