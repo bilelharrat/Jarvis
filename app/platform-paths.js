@@ -37,8 +37,18 @@ const logLabel = (logName) => (WIN ? `%LOCALAPPDATA%\\${logName}\\Logs\\backend.
 // KILL_AFTER later is killed (SIGKILL): a hung backend otherwise never goes, the window never
 // reopens after a restart, and the next launch finds the data folder still held (exit 75).
 // While the app runs that's a timer; when it's quitting (outlive: true) it's a small detached
-// sh that outlives the app, looks again and kills it only if that pid is still there.
+// sh that outlives the app, looks again and kills it only if that pid is still the same process.
 const KILL_AFTER = 8000;
+
+// The detached watcher's script: the pid's start time and command line noted first, and the
+// kill only when that pid still has both once the wait is over. A pid on its own isn't enough
+// (round 1 A7): the backend may have gone and the system handed its pid to something else of
+// the owner's in the meantime, which kill -9 would have ended. Gone before it's looked at
+// (nothing noted): nothing to kill.
+function outliveScript(pid, seconds) {
+  const who = `ps -o lstart= -o command= -p ${pid} 2>/dev/null`;
+  return `was=$(${who}); sleep ${seconds}; [ -n "$was" ] && [ "$(${who})" = "$was" ] && kill -9 ${pid}`;
+}
 function killTree(child, { outlive = false, after = KILL_AFTER, spawn = null, setTimer = setTimeout } = {}) {
   if (!child || !child.pid) return;
   const cp = require('child_process');
@@ -52,7 +62,7 @@ function killTree(child, { outlive = false, after = KILL_AFTER, spawn = null, se
   if (outlive) {
     const seconds = Math.max(1, Math.round(after / 1000));
     try {
-      (spawn || cp.spawn)('/bin/sh', ['-c', `sleep ${seconds}; kill -0 ${pid} 2>/dev/null && kill -9 ${pid}`], { detached: true, stdio: 'ignore' }).unref();
+      (spawn || cp.spawn)('/bin/sh', ['-c', outliveScript(pid, seconds)], { detached: true, stdio: 'ignore', env: { PATH: '/bin:/usr/bin' } }).unref();
     } catch { /* nothing to start it with: SIGTERM is all it gets */ }
     return;
   }
@@ -64,4 +74,4 @@ function killTree(child, { outlive = false, after = KILL_AFTER, spawn = null, se
   if (timer && timer.unref) timer.unref();
 }
 
-module.exports = { WIN, MAC, dataDir, logDir, extraPath, exe, logLabel, killTree, KILL_AFTER };
+module.exports = { WIN, MAC, dataDir, logDir, extraPath, exe, logLabel, killTree, outliveScript, KILL_AFTER };

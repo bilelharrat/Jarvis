@@ -35,9 +35,35 @@ test('while the app quits, a detached watcher outlives it and kills only that pi
   plat.killTree(c, { outlive: true, spawn });
   assert.deepEqual(c.signals, ['SIGTERM']);
   assert.equal(spawned[0][0], '/bin/sh');
-  assert.equal(spawned[0][1][1], 'sleep 8; kill -0 4242 2>/dev/null && kill -9 4242');
+  assert.equal(spawned[0][1][1], plat.outliveScript(4242, 8));
   assert.equal(spawned[0][2].detached, true);
+  assert.deepEqual(spawned[0][2].env, { PATH: '/bin:/usr/bin' }, 'the system’s own ps, whatever the app’s PATH');
   assert.equal(spawned[1], 'unref');
   plat.killTree({ pid: 0, kill() { throw new Error('never'); } }, { outlive: true, spawn });
   assert.equal(spawned.length, 2, 'no process: nothing to watch');
+});
+
+// Round 1 A7: a pid alone isn't the process. The real script, run by sh on a real process,
+// with a stand-in ps that answers as the system's would: the same process (start time and
+// command) is killed; a pid handed on to another process meanwhile is left alone.
+test('the watcher kills the pid only while it is still the same process (start time and command)', { skip: plat.WIN }, async () => {
+  const { spawn, spawnSync } = await import('node:child_process');
+  const fsm = await import('node:fs');
+  const osm = await import('node:os');
+  const pathm = await import('node:path');
+  const dir = fsm.mkdtempSync(pathm.join(osm.tmpdir(), 'outlive-'));
+  const run = async (answers) => {
+    const victim = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+    const ended = new Promise((resolve) => victim.once('exit', (_code, signal) => resolve(signal)));
+    const count = pathm.join(dir, `n-${victim.pid}`);
+    // ps: its first answer, then its second (each a line), as the system's ps -o lstart= -o command= -p.
+    fsm.writeFileSync(pathm.join(dir, 'ps'), `#!/bin/sh\nif [ -f ${count} ]; then echo '${answers[1]}'; else : > ${count}; echo '${answers[0]}'; fi\n`, { mode: 0o755 });
+    spawnSync('/bin/sh', ['-c', plat.outliveScript(victim.pid, 0)], { env: { PATH: `${dir}:/bin:/usr/bin` } });
+    const signal = await Promise.race([ended, new Promise((resolve) => setTimeout(() => resolve('alive'), 300))]);
+    victim.kill('SIGKILL');
+    return signal === 'alive';
+  };
+  assert.equal(await run(['Mon Oct 13 10:00:00 2026 jarvis serve', 'Mon Oct 13 10:00:00 2026 jarvis serve']), false, 'the same process: killed');
+  assert.equal(await run(['Mon Oct 13 10:00:00 2026 jarvis serve', 'Mon Oct 13 10:00:07 2026 /Applications/Notes']), true, 'its pid reused: left alone');
+  assert.equal(await run(['', 'Mon Oct 13 10:00:07 2026 /Applications/Notes']), true, 'gone before it was looked at: nothing killed');
 });

@@ -260,7 +260,7 @@ test('on a PC the wait is ten minutes and elsewhere ninety seconds, and what it 
 
 test('the engine is started with no console window of its own, and the app traces what it does', () => {
   const main = appFile('main.js');
-  assert.match(main, /stdio: \['ignore', 'pipe', 'pipe'\], windowsHide: true/);
+  assert.match(main, /stdio: \['pipe', 'pipe', 'pipe'\], windowsHide: true/);
   for (const what of ['single-instance lock', "uncaughtException", "trace.write('ready: opening the window')", 'window shown', 'the engine stopped', 'the engine answers', 'child-process-gone', 'did-fail-load']) {
     assert.ok(main.includes(what) || main.includes(what.replace('single-instance lock', 'another copy is already running')), what);
   }

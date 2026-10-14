@@ -20,6 +20,7 @@ const NAME = 'Ask Eden';
 const BUNDLE_ID = 'com.askeden.eden.mac';
 const TEAM = '8CV4X23Y2T';
 const { buildBackend } = require('../scripts/release/backend');
+const { flipMacApp } = require('../scripts/release/fuses'); // no run-as-Node, NODE_OPTIONS or --inspect (A6)
 const EDEN_SRC = process.env.ASKEDEN_HOME || path.join(os.homedir(), 'askeden');
 const ENGINE_CACHE = process.env.ASK_EDEN_BACKEND || path.join(APP_DIR, 'dist', '.engine-cache');
 const DEFAULT_FEED = 'https://askeden.com/downloads/ask-eden/release.json';
@@ -91,7 +92,7 @@ async function main() {
   const electron = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'node_modules', 'electron', 'package.json'), 'utf8')).version;
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-eden-'));
   const put = (from, to = from) => { fs.mkdirSync(path.dirname(path.join(stage, to)), { recursive: true }); fs.cpSync(path.join(APP_DIR, from), path.join(stage, to), { recursive: true }); };
-  for (const f of ['backend-launch.js', 'backend-share.js', 'update-feed.js', 'features/updates.js']) put(f);
+  for (const f of ['backend-launch.js', 'backend-share.js', 'proof-pipe.js', 'update-feed.js', 'features/updates.js', 'features/touchid.js']) put(f);
   for (const f of ['main.js', 'preload.js', 'quick.html', 'quick-preload.js', 'loading.html', 'loading.css']) put(`eden/${f}`);
   put('eden/build/icon-1024.png');
   put('eden/build/boot-sound.wav');
@@ -107,6 +108,8 @@ async function main() {
   const app = path.join(folder, `${NAME}.app`);
   if (process.env.ASK_EDEN_NO_ENGINE_BUNDLE !== '1') addEngine(path.join(app, 'Contents', 'Resources'));
   fs.writeFileSync(path.join(app, 'Contents', 'Resources', 'update.json'), `${JSON.stringify({ feed: process.env.ASK_EDEN_UPDATE_URL || DEFAULT_FEED })}\n`);
+  // Electron's fuses, in the binary, so before the signature that covers them (as dist.js does).
+  await flipMacApp(app);
   const identity = teamIdentity();
   if (identity) signApp(app, identity);
   else execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });

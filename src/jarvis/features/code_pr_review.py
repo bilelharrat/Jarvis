@@ -58,7 +58,7 @@ from ..code_changes import NO_HOOKS, git
 from ..computer import is_sensitive
 from ..proactive import Alert
 from .code_review import REVIEW_SYSTEM, parse_findings
-from .code_unattended import Scope, end_hooks_of
+from .code_unattended import Scope, allowed_commands, end_hooks_of
 
 log = logging.getLogger("jarvis")
 
@@ -150,7 +150,7 @@ def _repos(value: Any) -> list[dict[str, Any]] | None:
                 "repo": repo,
                 "project": project,
                 "drafts": item.get("drafts") is True,
-                "commands": [c for c in commands if isinstance(c, str)][:20],
+                "commands": allowed_commands(commands),
                 "spend_cap": spend,
                 "sandbox": item.get("sandbox") is not False,
                 "since": since,

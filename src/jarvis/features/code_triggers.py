@@ -71,7 +71,7 @@ from .. import code_ai, jsonstore, lang, linear, prefs, slack
 from ..hook_listener import HookListener, came_through
 from ..proactive import Alert
 from ..webhooks import LOOPBACK, _hostname
-from .code_unattended import Scope, end_hooks_of
+from .code_unattended import Scope, allowed_commands, end_hooks_of
 
 log = logging.getLogger("jarvis")
 
@@ -137,7 +137,7 @@ def _common(item: dict[str, Any]) -> dict[str, Any] | None:
         "users": [u.strip() for u in users if isinstance(u, str) and 0 < len(u.strip()) <= 200][
             :USERS_MAX
         ],
-        "commands": [c for c in commands if isinstance(c, str)][:20],
+        "commands": allowed_commands(commands),
         "spend_cap": spend,
         "sandbox": item.get("sandbox") is not False,
         "since": since,

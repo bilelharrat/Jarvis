@@ -8,7 +8,8 @@ What it adds, and where:
 - TaskManager.client_factory, wrapped: a session whose model is "acp:<agent>" talks to that
   agent (acp.AcpClient); every other session to Claude Code, as before.
 - Window commands: acp_state {}, acp_add {name, command}, acp_remove {agent},
-  acp_start {agent, directory, mode?}. Events: acp_state {agents, error?},
+  acp_start {agent, directory, mode?} (Bypass from the window wants Touch ID's proof, as
+  task_new does: code_touchid.py). Events: acp_state {agents, error?},
   acp_started {id}.
 - The agents are kept in code_acp.json beside the settings (the command as its words;
   nothing secret belongs there: an agent signs in by itself).
@@ -175,6 +176,11 @@ class AcpDesk:
         if agent is None:
             self.emit(error="That agent isn't set up any more.")
             return
+        # Bypass from the window wants Touch ID's proof here too, as task_new does (round 1
+        # A5): without it, the session starts all the same, in Manual.
+        gate = getattr(self.hub, "code_touchid", None)
+        if gate is not None:
+            gate.on_new(msg)
         try:
             task = self.hub.tasks.start(
                 str(msg.get("prompt") or ""),

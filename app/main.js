@@ -17,6 +17,7 @@ const { createParity } = require('./browser-parity'); // per-site permissions, p
 const { isCertError, riskyClick } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
+const proofPipe = require('./proof-pipe'); // Touch ID's proof key, on the backend's own stdin (A1)
 const { createTrace, createTail } = require('./startup-log'); // app.log: how this start went
 const { waitForHealth, SLOW_WORDS } = require('./wait-backend'); // the engine's first answer, and what is said until then
 const guards = require('./window-guards'); // deny-by-default permissions for the app's own windows (S6)
@@ -36,6 +37,10 @@ if (FLAVOR.userDataName) app.setPath('userData', path.join(app.getPath('appData'
 
 // This app's backend's token, or the one it shares (backend-share.js: another app started it).
 let TOKEN = crypto.randomBytes(24).toString('hex');
+// The key Touch ID's proofs are signed with (proof-pipe.js): this app's backend's alone, never
+// the page's; '' while the window is on the other app's backend (that app signs them then).
+let PROOF_KEY = '';
+let proofAsk = null; // (kind, lang) -> a Promise of a proof, or '' (features/touchid.js sets it)
 const SHORTCUT = process.platform === 'win32' ? 'Ctrl+Alt+J' : 'Alt+Space'; // (Alt+Space is Windows' window menu; J is the key a finger finds by touch)
 const WHATS_THIS = 'Alt+Shift+Space'; // explain whatever is in front of you
 const plat = require('./platform-paths');
@@ -201,12 +206,17 @@ function startBackend() {
   how.env.JARVIS_LAUNCHER_PID = String(process.pid);
   how.env.JARVIS_PROFILE = FLAVOR.profile; // Eden Code's: no microphone until Eden Secretary joins (hub.window_joined)
   how.env.JARVIS_EDITION = FLAVOR.edition || ''; // 'daredevil': screen-reader mode is the default (accessibility.py)
+  // Touch ID's proof key goes on the backend's stdin, never in its environment (proof-pipe.js).
+  const keys = proofPipe.fresh();
+  how.env[proofPipe.ENV] = '1';
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''} for ${FLAVOR.name}\n`);
   backendFromRepo = !how.bundled;
   trace.write(`starting the engine on port ${port}: ${how.command} ${how.args.join(' ')}${how.bundled ? '' : ' (not the bundled one)'}`);
   backendTail.reset();
   backendTail.add(`--- ${new Date().toISOString()}\n`);
-  backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }); // (windowsHide: no console window for the engine)
+  backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); // (windowsHide: no console window for the engine)
+  PROOF_KEY = keys.key;
+  proofPipe.attach(backend, keys, (kind, lang) => (proofAsk ? proofAsk(kind, lang) : ''));
   trace.write(`engine process ${backend.pid || 'not started'}`);
   backend.stdout.on('data', (chunk) => backendTail.add(chunk));
   backend.stderr.on('data', (chunk) => backendTail.add(chunk));
@@ -409,6 +419,7 @@ async function shareBackend() {
   if (!found) return false;
   port = found.port;
   TOKEN = found.token;
+  PROOF_KEY = ''; // (that app's backend: its own app signs, asked through it)
   sharedFrom = found.app;
   console.log(`${FLAVOR.name}: sharing the backend ${found.app || 'another app'} started (port ${port})`);
   loadApp();
@@ -1795,7 +1806,8 @@ const featureContext = {
   relaunchAsItWas, // before a quiet update: reopen hidden if the window is hidden
   backendFromRepo: () => backendFromRepo,
   restartBackendQuietly,
-  backendToken: () => TOKEN, // the backend's token: touchid.js signs its proofs with it (S30)
+  proofKey: () => PROOF_KEY, // Touch ID's proof key (touchid.js, proof-pipe.js): never the page's token
+  onProofAsk: (fn) => { proofAsk = fn; }, // the backend asking for the other app's window (touchid.js)
   backendAnswers, // the restarted backend's /health, within two minutes (follow-repo.js)
   repoHome: () => jarvisHome(),
   extraPath: EXTRA_PATH,

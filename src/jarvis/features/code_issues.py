@@ -45,7 +45,7 @@ from typing import Any
 
 from .. import code_ai, code_prs, github, jsonstore, lang, prefs
 from ..proactive import Alert
-from .code_unattended import Scope
+from .code_unattended import Scope, allowed_commands
 
 log = logging.getLogger("jarvis")
 STORE = "code_issues"  # code_issues.json, versioned (jsonstore.register_store)
@@ -116,7 +116,7 @@ def _repos(value: Any) -> list[dict[str, Any]] | None:
                 "repo": repo,
                 "project": project,
                 "label": label,
-                "commands": [c for c in commands if isinstance(c, str)][:20],
+                "commands": allowed_commands(commands),
                 "spend_cap": spend,
                 "sandbox": item.get("sandbox") is not False,
                 "since": since,

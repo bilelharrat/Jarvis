@@ -185,8 +185,8 @@ def daredevil_page(html: str, colors: str = "yellow") -> str:
 
 
 def create_app(hub: Hub, token: str) -> Starlette:
-    # The window's launch token: the app's main process signs its Touch ID proofs with it
-    # (features/code_touchid's gate checks them, audit S30).
+    # The window's launch token: with it, features/code_touchid's gate is on (audit S30).
+    # Its proofs are signed under a key of their own the page never sees (proof_pipe.py).
     hub.launch_token = token
 
     async def index(request):
@@ -450,7 +450,7 @@ def listening_line(port: int) -> str:
     return f"JARVIS listening on http://127.0.0.1:{port}/"
 
 
-def serve(port: int, token: str) -> None:
+def serve(port: int, token: str, proofs: Any = None) -> None:
     import logging
     import logging.handlers
     import os
@@ -528,7 +528,9 @@ def serve(port: int, token: str) -> None:
     from . import launcher_watch
 
     launcher_watch.start()  # the app quits or crashes: this backend goes too, lock and all
-    app = create_app(Hub(load_settings()), token)
+    hub = Hub(load_settings())
+    hub.proof_pipe = proofs  # the app's own key for Touch ID's proofs (proof_pipe.py), or None
+    app = create_app(hub, token)
     print(listening_line(port), flush=True)
     uvicorn.run(app, host="127.0.0.1", port=port, **SERVE_OPTIONS)
     left = end_children()  # nothing it started outlives it (hub.close left it behind)
