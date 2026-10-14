@@ -25,6 +25,18 @@ def browser(hub, pages):
     hub._guarded_browser = raw
     hub._browser_raw = raw
     hub.browser_available = True
+    # The feature's own look at each page a call lands on (its hand-back check, through the
+    # window's browser-ai.js) is answered too, as the window would: nothing needs the owner
+    # there, unless a test's pages say otherwise. Unanswered, every such call waited out
+    # DETECT_SECONDS (3 s) for a window the test doesn't have.
+    desk = browser_ai.desk_for(hub)
+    if desk is not None:
+
+        async def bridged(action, args=None, timeout=None):
+            answer = pages.get(f"bridge:{action}")
+            return dict(answer(args or {}) if callable(answer) else answer or {"ok": True})
+
+        desk.bridge.call = bridged
     return calls
 
 

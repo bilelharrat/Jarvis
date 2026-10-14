@@ -39,6 +39,7 @@ LINE_MAX = 1000  # characters kept of one line of output
 PARTIAL_MAX = 16_000  # a line with no end yet: past this it's taken as it is
 STOP_GRACE = 5.0  # seconds between SIGTERM and SIGKILL for a group being stopped
 LINGER = 2.0  # seconds what a finished command left holding its output may stay
+QUIET = 1.0  # seconds of no output after which the reader looks whether the command ended
 ENV_TIMEOUT = 10.0  # seconds for the login shell to say its environment
 ENV_MARK = "__JARVIS_ENV__"
 _WIN_PATHS = (
@@ -343,7 +344,7 @@ class Proc:
         try:
             while True:
                 try:
-                    data = await asyncio.wait_for(self.proc.stdout.read(65536), 1.0)
+                    data = await asyncio.wait_for(self.proc.stdout.read(65536), QUIET)
                 except TimeoutError:
                     # Quiet. Once the command has ended, what it left behind that still holds
                     # its output (a watcher it started in the background) goes too; and one

@@ -184,6 +184,17 @@ def _quick_saves(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _quick_spawns(monkeypatch):
+    """Claude Code starts in tests are throttled over 10 ms, not the app's second (tasks.py:
+    CONNECTS_PER_SECOND in any SPAWN_WINDOW): the fakes start in no time, and a test that
+    opened thirty sessions waited ten seconds for nothing. The throttle still runs (three
+    starts a window); test_tasks_limits checks it with windows of its own."""
+    from jarvis import tasks
+
+    monkeypatch.setattr(tasks, "SPAWN_WINDOW", 0.01)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_private_folders(monkeypatch, tmp_path_factory):
     """The owner's private folders (private_folders.py) are never the real ones in a test: an
     empty list, its copy in a temp folder, and no setting from a hub of an earlier test."""

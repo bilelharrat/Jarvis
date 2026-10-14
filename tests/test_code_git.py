@@ -239,6 +239,31 @@ async def test_a_commit_is_checked_for_secrets_first(hub, projects):
     assert ("code_git_committed", {"key": "dir:proj", "sha": sha}) in hub.events
 
 
+async def test_a_commit_runs_none_of_its_git_on_the_event_loop(hub, projects, monkeypatch):
+    """Each git a commit runs (a process: tens of milliseconds, more on a big repository)
+    runs off the loop, so the window's other commands never wait behind it."""
+    import threading
+
+    from jarvis.features import code_git
+
+    repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    (repo / "a.py").write_text("x = 2\n")
+    git(repo, "add", "a.py")
+    loop_thread = threading.get_ident()
+    on_loop = []
+    real = code_git.git
+
+    def watched(*args, **kwargs):
+        if threading.get_ident() == loop_thread:
+            on_loop.append(args[1:3])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(code_git, "git", watched)
+    said = await hub.code_git.commit({"directory": "proj", "message": "Two"})
+    assert said.startswith("Committed ")
+    assert on_loop == []
+
+
 async def test_a_clean_commit_asks_nothing_from_the_window_but_does_by_voice(hub, projects):
     repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
     (repo / "a.py").write_text("x = 2\n")

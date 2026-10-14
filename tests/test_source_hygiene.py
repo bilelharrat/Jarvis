@@ -2,6 +2,7 @@
 characters are written as escapes (\\u200b), so what a reviewer reads is what runs: source
 that hides its characters is how a "Trojan Source" change slips through review."""
 
+import re
 import unicodedata
 from pathlib import Path
 
@@ -13,6 +14,12 @@ SKIP = {"node_modules", "__pycache__", ".venv", "dist", "build", ".git"}
 def _hidden(c: str) -> bool:
     kind = unicodedata.category(c)
     return kind in ("Cf", "Co", "Cs", "Cn", "Zl", "Zp") or (kind == "Cc" and c not in "\t\n\r")
+
+
+# The only hidden characters plain ASCII has: its controls but tab and the line ends. An
+# ASCII line is checked with this alone; only a line with other characters is looked at one
+# character at a time (most of the source is ASCII: the whole check took 2.5 s that way).
+_ASCII_HIDDEN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def _sources():
@@ -28,6 +35,8 @@ def test_no_source_file_hides_characters():
     for path in _sources():
         text = path.read_text(encoding="utf-8", errors="replace")
         for n, line in enumerate(text.splitlines(), 1):
+            if line.isascii() and not _ASCII_HIDDEN.search(line):
+                continue
             chars = [f"U+{ord(c):04X}" for c in line if _hidden(c)]
             if chars:
                 found.append(f"{path.relative_to(ROOT)}:{n}: {', '.join(chars[:5])}")

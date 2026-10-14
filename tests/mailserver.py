@@ -421,7 +421,11 @@ class TestMail:
         self.smtp = _Server(("127.0.0.1", 0), _Smtp)
         for server in (self.imap, self.smtp):
             server.store = self.store  # type: ignore[attr-defined]
-            threading.Thread(target=server.serve_forever, daemon=True).start()
+            # A short poll: shutdown() waits for the loop to look up, half a second a server
+            # at the default, so each test that used the servers spent a second closing them.
+            threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+            ).start()
 
     @property
     def imap_port(self) -> int:
