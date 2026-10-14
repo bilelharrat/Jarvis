@@ -19,33 +19,81 @@
 // backend (Eden Code beside Eden Secretary) this app has no key and says { relay }: the window
 // asks the backend (code_touchid_ask {kind, lang}), the app that started it shows its sheet,
 // and the backend holds that proof and says how it went (code_touchid_answer {proof_kind, ok}).
-// Turning the switch below off asks the same way first (kind 'touchid-off').
+// Turning the switch below off asks the same way first (kind 'touchid-off'), and so does a
+// Permissions pane change that lets a lot go unasked (kind 'rules': code-rules.js asks).
 (function (root) {
   'use strict';
 
   const ALLOWING = new Set(['allow', 'always', 'allow_edits']);
   // The tap-only card that turns on Bypass permissions asked for by voice (voicecode.py).
   const BYPASS_BY_VOICE = 'code_bypass_by_voice';
-  // Commands that can't easily be undone, or reach past this Mac.
+  // Commands that can't easily be undone, or reach past this Mac (features/code_touchid.py's
+  // RISKY, the same table: tests/fixtures/risky_commands.json). A program named with its
+  // folder or in quotes is the same program ("/bin/rm", "rm"), and its options may come in any
+  // order (-R last, --no-preserve-root before -rf).
+  const B = '(^|[\\s;&|(`])';
+  const P = '["\']?(?:[\\w.~/-]*/)?';
+  const Q = '["\']?';
+  const OPTS = '\\s+([^;&|\\n]*\\s)?';
+  const re = (source) => new RegExp(source);
   const RISKY = [
-    /(^|[\s;&|(`])(sudo|doas)\s/,  // as root
-    /(^|[\s;&|(`])rm\s+(-\w*[rRf]\w*|--recursive|--force)/,  // deleting folders, or without asking
+    re(B + P + '(sudo|doas)' + Q + '\\s'),  // as root
+    re(B + P + 'rm' + Q + OPTS + '(-\\w*[rRf]\\w*|--recursive|--force)'),  // deleting folders, or without asking
     /\bgit\b[^;&|\n]*\s(push|reset\s+--hard|clean\s+-\w*f\w*|branch\s+-D|filter-branch|filter-repo)\b/,
     /\b(curl|wget)\b[^|\n]*\|\s*(sudo\s+)?\w*sh\b/,  // a download run as a script
-    /(^|[\s;&|(`])(chmod|chown)\s+-\w*R/,
-    /(^|[\s;&|(`])(dd\s[^|\n]*\bof=|mkfs\b|diskutil\s+(erase\w*|partition\w*|reformat|zero\w*))/,
-    /(^|[\s;&|(`])(launchctl|csrutil|spctl|systemsetup|networksetup|defaults\s+(write|delete))\b/,
-    /(^|[\s;&|(`])((npm|yarn|pnpm)\s+publish|twine\s+upload|cargo\s+publish|gem\s+push|docker\s+push|pod\s+trunk\s+push)\b/,
-    /(^|[\s;&|(`])(kubectl\s+(delete|apply|drain)|terraform\s+(apply|destroy)|helm\s+(install|upgrade|uninstall|delete))\b/,
+    re(B + P + '(chmod|chown)' + Q + OPTS + '(-\\w*R\\w*|--recursive)'),
+    re(B + P + '(dd\\s[^|\\n]*\\bof=|mkfs\\b|diskutil\\s+(erase\\w*|partition\\w*|reformat|zero\\w*))'),
+    re(B + P + '(launchctl|csrutil|spctl|systemsetup|networksetup|defaults\\s+(write|delete))\\b'),
+    re(B + P + '((npm|yarn|pnpm)\\s+publish|twine\\s+upload|cargo\\s+publish|gem\\s+push|docker\\s+push|pod\\s+trunk\\s+push)\\b'),
+    re(B + P + '(kubectl\\s+(delete|apply|drain)|terraform\\s+(apply|destroy)|helm\\s+(install|upgrade|uninstall|delete))\\b'),
     /\b(drop\s+(table|database|schema)|truncate\s+table)\b/i,
-    /(^|[\s;&|(`])(killall|pkill|shutdown|reboot|halt)\b/,
-    /(^|[\s;&|(`])find\s[^;&|\n]*\s-delete\b/,
+    re(B + P + '(killall|pkill|shutdown|reboot|halt)\\b'),
+    re(B + P + 'find\\s[^;&|\\n]*\\s-delete\\b'),
+    // An interpreter's one-liner that deletes: python -c "shutil.rmtree('/')", node -e "fs.rmSync(…)".
+    re(B + P + '(python[\\d.]*|perl|ruby|node|deno|bun|php|osascript)' + Q + '\\s([^\\n]*\\s)?(-\\w*[ceEr]\\w*|--eval)\\s[^\\n]*'
+      + '(rmtree|removedirs|\\bremove\\s*\\(|unlink|rmdir|\\brm_r|rmSync|rimraf|\\brm\\s+-\\w*[rRf])'),
   ];
 
   // Whether a command is one of those.
   function riskyCommand(command) {
     const text = String(command || '');
     return RISKY.some((re) => re.test(text));
+  }
+
+  // An allow rule that's Bypass for a whole kind of step (features/code_touchid.py broad_rule,
+  // the same): every command, a program that runs anything or a risky one, edits anywhere.
+  const RUNS_ANYTHING = new Set(['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh', 'sudo', 'doas', 'env', 'eval', 'exec',
+    'command', 'builtin', 'xargs', 'nohup', 'time', 'timeout', 'gtimeout', 'nice', 'watch', 'caffeinate', 'stdbuf',
+    'python', 'perl', 'ruby', 'node', 'deno', 'bun', 'php', 'osascript', 'ssh', 'npx', 'bunx', 'uvx', 'pipx']);
+  const EDITS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'];
+  function broadRule(text) {
+    const m = /^\s*([^()\s]+)\s*(?:\(([\s\S]*)\))?\s*$/.exec(String(text || ''));
+    if (!m) return false;
+    const tool = m[1];
+    let content = (m[2] || '').trim();
+    if (content === '*') content = '';
+    if (tool === 'Bash') {
+      const prefix = content.replace(/:?\*$/, '').trim();
+      if (!prefix) return true;
+      const first = prefix.split(/\s+/)[0].replace(/^["']+|["']+$/g, '').split('/').pop();
+      return RUNS_ANYTHING.has(first) || RUNS_ANYTHING.has(first.replace(/[\d.]+$/, '')) || riskyCommand(prefix);
+    }
+    if (EDITS.includes(tool)) {
+      if (!content) return true;
+      return !content.replace(/\/+$/, '').includes('/') || content.startsWith('//') || content.startsWith('~') || content.split('/').includes('..');
+    }
+    return false;
+  }
+
+  // A change in the Permissions pane that needs the fingerprint (kind 'rules', the backend's
+  // Gate.rule_change): such an allow rule added, or a deny rule taken away (also by making it
+  // an ask or an allow), have: the project's rules, {deny, ask, allow}; or allow rules
+  // exported into a .claude settings file (Gate.export_ok), which Claude Code follows itself.
+  function loosensRules({ behavior, rule, have, removing, exporting, allows } = {}) {
+    if (exporting) return allows > 0;  // allow rules into a .claude file: Claude Code's own
+    const denied = ((have && have.deny) || []).includes(String(rule || '').trim());
+    if (removing) return behavior === 'deny' && denied;
+    return (behavior === 'allow' && broadRule(rule)) || (behavior !== 'deny' && denied);
   }
 
   // Whether allowing this Eden Code approval is a risky step (only a session's steps, and
@@ -61,7 +109,7 @@
     return false;
   }
 
-  const api = { risky, riskyCommand };
+  const api = { risky, riskyCommand, broadRule, loosensRules };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -114,6 +162,7 @@
   }
 
   const RISKY_QUESTION = 'This step can’t easily be undone, or reaches past this Mac. Allow it?';
+  const RULES_QUESTION = 'This rule lets Eden Code do much more without asking you. Change it?';
   F.registerCheck((kind, info) => {
     if (!on) return null;
     if (kind === 'bypass' || kind === 'bypass-default') {
@@ -121,6 +170,9 @@
     }
     if (kind === 'approve' && risky(info.approval, info.choice)) {
       return fingerprint('approve').then((ok) => (ok === null ? root.confirm(t(RISKY_QUESTION)) : ok));
+    }
+    if (kind === 'rules' && loosensRules(info)) {
+      return fingerprint('rules').then((ok) => (ok === null ? root.confirm(t(RULES_QUESTION)) : ok));
     }
     return null;
   });

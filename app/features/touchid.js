@@ -39,12 +39,14 @@ const REASONS = {
     'bypass-default': 'start new Eden Code sessions in Bypass permissions',
     approve: 'allow a risky step in Eden Code',
     'touchid-off': 'turn off Touch ID for Bypass and risky steps in Eden Code',
+    rules: 'let Eden Code do much more without asking you',
   },
   zh: {
     bypass: '在 Eden Code 中开启绕过权限',
     'bypass-default': '让新的 Eden Code 会话以绕过权限开始',
     approve: '允许 Eden Code 中一个有风险的步骤',
     'touchid-off': '关闭 Eden Code 中绕过权限和有风险步骤的触控 ID',
+    rules: '让 Eden Code 不经询问就做更多的事',
   },
 };
 

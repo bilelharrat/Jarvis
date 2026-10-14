@@ -4510,9 +4510,13 @@ class Hub:
         if score(best) < 0.34:
             titles = "; ".join(p["title"][:60] for p in past[:3])
             return f"I couldn't tell which. The latest are: {titles}."
-        fresh = self.tasks.start(
-            "", str(task.cwd), mode=task.mode, resume=best["session_id"], title=best["title"]
-        )
+        from .tasks import bypass_vouched
+
+        # (a session in Bypass carries on in it into the past one: proved when it went in)
+        with bypass_vouched() if task.mode == "auto" else contextlib.nullcontext():
+            fresh = self.tasks.start(
+                "", str(task.cwd), mode=task.mode, resume=best["session_id"], title=best["title"]
+            )
         self.voicecode.focus = fresh.id
         self.voicecode._changed()
         return f"Back in {best['title'][:80]}. What next?"

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import heapq
 import itertools
 import json
@@ -1196,6 +1197,30 @@ def _from_user(origin: Any) -> bool:
     return not isinstance(origin, dict) or origin.get("kind") in (None, "human")
 
 
+# Bypass permissions (mode "auto") runs anything unasked. Every way a session gets into it
+# comes through TaskManager.start or set_mode (the window's mode menu and composer, a typed
+# /bypass, the phone, Best of N, multi-repo, an ACP agent, whatever comes next), and both ask
+# TaskManager.bypass_gate first (features/code_touchid.py: a Touch ID proof from the window),
+# so no caller can forget to (round 2, R2-2/R2-3). The few that carry on what the owner
+# already proved say so with `with bypass_vouched():`: a fresh conversation set up as one
+# already in Bypass, voice's Bypass once its tap-only card was answered, the several sessions
+# of one command that took one proof. Nothing a window or a phone sends can set it: it's this
+# process's own context, never a field of a message.
+_BYPASS_VOUCHED: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "eden_bypass_vouched", default=False
+)
+
+
+@contextlib.contextmanager
+def bypass_vouched():
+    """Starts and switches into Bypass inside this block were proved already (see above)."""
+    token = _BYPASS_VOUCHED.set(True)
+    try:
+        yield
+    finally:
+        _BYPASS_VOUCHED.reset(token)
+
+
 class TaskManager:
     def __init__(
         self,
@@ -1254,6 +1279,17 @@ class TaskManager:
         self.claude_back: Callable[[], bool] | None = None
         # Settings: read-only shell commands (ls, git status, grep…) run without asking.
         self.read_only_free: Callable[[], bool] = lambda: True
+        # features.code_touchid: whether a session may start in (task None) or switch into
+        # Bypass permissions: bypass_gate(folder, resumed session id, task) -> bool, False
+        # refusing it (the gate says why; the session starts in Manual, or stays as it was).
+        # None (no gate installed, as in most tests): no check. See bypass_vouched.
+        self.bypass_gate: Callable[[Path, str, ClaudeTask | None], bool] | None = None
+        # features.code_touchid too: whether a step is one that can't easily be undone or
+        # reaches past this Mac (risky_command's table, or an edit outside the project):
+        # risky_step(task, tool, input). A "don't ask again" rule or an allow rule never
+        # lets such a step by unasked; it asks on its card (with Touch ID there), and the
+        # card offers no "don't ask again" for it (round 2, G3/G4). Only Bypass skips it.
+        self.risky_step: Callable[[ClaudeTask, str, dict[str, Any]], bool] | None = None
         # Models added with an API key (providers.ProviderStore; the hub sets it): each
         # connection re-derives the session's settings, re-checking the key's Keychain seal.
         self.providers: Any = None
@@ -1429,11 +1465,14 @@ class TaskManager:
                 same.handle = asyncio.create_task(self._session(same))
                 self._changed()
             return same
+        mode = mode if mode in MODES else "ask"
+        if mode == "auto" and not self.may_bypass(cwd, resume):
+            mode = "ask"  # it starts all the same, in Manual (the gate said why)
         task = ClaudeTask(
             id=next(self._ids),
             prompt=prompt.strip(),
             cwd=cwd,
-            mode=mode if mode in MODES else "ask",
+            mode=mode,
             session_id=resume,
             title=title,
             model=model,
@@ -1468,18 +1507,20 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if task is None or task.kind != "code":
             return None
-        fresh = self.start(
-            prompt,
-            str(task.cwd),
-            mode=task.mode,
-            model=task.model,
-            model_label=task.model_label,
-            model_ref=task.model_ref,
-            effort=task.effort,
-            env=task.env,
-            provider_settings=task.provider_settings,
-            ultracode=task.ultracode,
-        )
+        # (one in Bypass carries on in it: proved when it went in, as a fork does)
+        with bypass_vouched() if task.mode == "auto" else contextlib.nullcontext():
+            fresh = self.start(
+                prompt,
+                str(task.cwd),
+                mode=task.mode,
+                model=task.model,
+                model_label=task.model_label,
+                model_ref=task.model_ref,
+                effort=task.effort,
+                env=task.env,
+                provider_settings=task.provider_settings,
+                ultracode=task.ultracode,
+            )
         # Straight across, not through add_dir/add_plugin: no notes, and no reopen.
         fresh.add_dirs, fresh.plugins = list(task.add_dirs), list(task.plugins)
         fresh.disabled_mcp = set(task.disabled_mcp)
@@ -1620,6 +1661,9 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if task is None or mode not in MODES:
             return False
+        if mode == "auto" and task.mode != "auto" and not self.may_bypass(task.cwd, "", task):
+            self._changed()  # (the window's menu shows the mode it stayed in)
+            return False
         if mode == "smart" and not auto_capable(task.model or self.model):
             self._log(
                 task, "system", "Auto needs Opus, Sonnet or Fable; this session stays as it is."
@@ -1639,6 +1683,19 @@ class TaskManager:
         self._log(task, "system", f"Permission mode: {MODE_LABELS[mode]}.")
         self._changed()
         return True
+
+    def may_bypass(
+        self, folder: Path, session_id: str = "", task: ClaudeTask | None = None
+    ) -> bool:
+        """Whether a session may start in (task None) or switch into Bypass permissions now:
+        bypass_gate's say, unless vouched for (bypass_vouched). A gate that fails refuses."""
+        if _BYPASS_VOUCHED.get() or self.bypass_gate is None:
+            return True
+        try:
+            return bool(self.bypass_gate(folder, session_id, task))
+        except Exception:
+            log.exception("Eden Code: the Bypass permissions gate failed; refused")
+            return False
 
     async def _apply_mode(self, task: ClaudeTask, client: Any) -> None:
         """The session's mode to Claude Code, one request at a time: a burst of switches
@@ -3337,8 +3394,10 @@ class TaskManager:
                 return allow("auto", "a page on this Mac")
             editable = tool_name in EDIT_TOOLS and self._free_edit(task, tool_input)
             command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
-            # (a step the owner's ask rule covers asks every time: nothing broader to offer)
-            rule = command_rule(command, task.cwd) if command and not asked_by_rule else ""
+            # (a step the owner's ask rule covers asks every time: nothing broader to offer;
+            # nor a risky one: "rm" from "rm -rf x" would let every rm by, G4)
+            offer = command and not asked_by_rule and not self._risky(task, tool_name, tool_input)
+            rule = command_rule(command, task.cwd) if offer else ""
             choices = [(ALLOW, "Yes")]
             if editable and not asked_by_rule:
                 choices.append((ALLOW_EDITS, "Yes, allow all edits this session"))
@@ -3452,8 +3511,20 @@ class TaskManager:
             return None
         found = self._unasked(task, tool_name, tool_input)
         if found is None and ruled is not None:
+            if self._risky(task, tool_name, tool_input):
+                return None  # a risky step asks, allow rule or not ("Bash" isn't Bypass: G3)
             return "auto", f"your rule: {ruled[1]}"
         return found
+
+    def _risky(self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]) -> bool:
+        """risky_step's say (a check that fails counts as risky: it asks)."""
+        if self.risky_step is None:
+            return False
+        try:
+            return bool(self.risky_step(task, tool_name, tool_input))
+        except Exception:
+            log.exception("Eden Code: couldn't tell whether a step is risky; it asks")
+            return True
 
     def _ruled(
         self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]
@@ -3492,7 +3563,9 @@ class TaskManager:
         # resolving any folder it names, on the event loop for every step.
         key = command_key(command, task.cwd) if any(rules) else None
         matched = next((r for r in rules if r and key == r), "")
-        if matched:
+        # A "don't ask again" rule is a command's first words ("git reset" from "git reset
+        # HEAD a.py"): it never covers the risky form of the same program (G4).
+        if matched and not self._risky(task, tool_name, tool_input):
             return "auto", f"your rule: {matched} commands"
         if self.read_only_free() and is_read_only(command):
             return "auto", READ_ONLY_WHY

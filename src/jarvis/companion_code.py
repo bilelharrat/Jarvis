@@ -94,6 +94,10 @@ LISTENED = sorted({kind for a in ACTIONS.values() for kind in a.wait})
 _ASKER: contextvars.ContextVar[asyncio.Queue | None] = contextvars.ContextVar(
     "phone_code_asker", default=None
 )
+# Which window command the phone request is (its "type"), for the Touch ID gate: Bypass from
+# the phone only through the commands whose Face ID the iPhone app asks first (round 2, R2-2;
+# features/code_touchid.py PHONE_ASKS).
+_COMMAND: contextvars.ContextVar[str] = contextvars.ContextVar("phone_code_command", default="")
 
 
 class CodeDesk:
@@ -131,9 +135,11 @@ class CodeDesk:
             self.waiting.append(entry)
         try:
             asking = _ASKER.set(queue)
+            commanding = _COMMAND.set(str(command.get("type") or ""))
             try:
                 await self.hub.handle(command)
             finally:
+                _COMMAND.reset(commanding)
                 _ASKER.reset(asking)
             heard: list[dict[str, Any]] = []
             if not wait or (done is not None and done()):

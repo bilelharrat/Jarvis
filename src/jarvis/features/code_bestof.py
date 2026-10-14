@@ -22,7 +22,7 @@ each, and so the owner can ask for a fix-up. "Keep the merge" (code_bestof_keep 
 lands that copy and discards every attempt's; keeping one attempt discards the merge too.
 
 Window commands: code_bestof {directory, prompt, variants: [{model, effort?, routed?}],
-mode?, tests?}, code_bestof_keep {group, n} (n 0: the merge), code_bestof_merge {group},
+mode?, tests?} (Bypass for all of them: one Touch ID proof, else Accept edits), code_bestof_keep {group, n} (n 0: the merge), code_bestof_merge {group},
 code_bestof_state {directory}.
 Events: code_bestof (its merge field: {status: merging|ready|failed, hunks, left_out,
 clashes, summary, test, task_id, slug, error}). Setting: code_quick_tests ({project: command}).
@@ -58,6 +58,7 @@ from .. import (
     secret_scan,
     worktrees,
 )
+from ..tasks import EFFORTS, bypass_vouched
 
 log = logging.getLogger("jarvis")
 
@@ -211,8 +212,6 @@ class BestOf:
 
     def start(self, msg: dict[str, Any]) -> str:
         """Start the sessions, one per variant, each in a copy of its own."""
-        from ..tasks import EFFORTS
-
         prompt = str(msg.get("prompt") or "").strip()[:20_000]
         listed = msg.get("variants")  # (a list from the window; anything else is none)
         listed = listed if isinstance(listed, list) else []
@@ -245,6 +244,26 @@ class BestOf:
                 return cfg
             configs.append(cfg)
         group = Group(f"b{next(self._ids)}", folder.name, prompt, tests, [], folder=str(folder))
+        # Bypass for all of them takes one Touch ID proof (tasks.start asks the gate for each
+        # otherwise: the second would find the first's used up). Refused: Accept edits.
+        if mode == "auto" and not self.hub.tasks.may_bypass(folder):
+            mode = "edits"
+        with bypass_vouched() if mode == "auto" else contextlib.nullcontext():
+            self._start_variants(group, variants, configs, prompt, directory, mode)
+        self.groups[group.id] = group
+        self.publish(group)
+        self.hub._spawn(self.watch(group))
+        return ""
+
+    def _start_variants(
+        self,
+        group: Group,
+        variants: list[dict[str, Any]],
+        configs: list[dict[str, Any]],
+        prompt: str,
+        directory: str,
+        mode: str,
+    ) -> None:
         for n, (raw, cfg) in enumerate(zip(variants, configs, strict=True), 1):
             agent = cfg["model"].startswith(ACP_PREFIX)
             effort = raw.get("effort") if raw.get("effort") in EFFORTS and not agent else ""
@@ -266,10 +285,6 @@ class BestOf:
                 title=f"Best of {len(variants)}: {label}",
             )
             group.variants.append(Variant(n, label, cfg["ref"], effort, task.id))
-        self.groups[group.id] = group
-        self.publish(group)
-        self.hub._spawn(self.watch(group))
-        return ""
 
     def variant_config(self, raw: dict[str, Any]) -> dict[str, Any] | str:
         """A variant's model as a session needs it: one in Settings › Models (the router's

@@ -31,7 +31,24 @@ dialog; a page outside the app can't make one). Without one the switch is refuse
 so (an "error" event; a risky step's card comes back). Answers from the phone (its own gate,
 S11) and by voice (the owner's voice and a tap) don't come through here as the window's.
 
-Window commands: code_touchid_proof {kind, proof}: armed for the next command of its kind;
+Round 2: one gate every way into Bypass goes through, not one per window command. Every
+session that starts in Bypass or is switched into it comes through TaskManager.start or
+set_mode, and both ask Gate.bypass_gate (TaskManager.bypass_gate): task_mode and task_new, a
+/bypass typed in the composer (code_command, R2-2), Best of N's variants and a multi-repo
+session (R2-3: one proof for one command's sessions), an ACP agent, and any feature that starts
+sessions later. From the phone only its mode menu and new-session sheet go through (their Face
+ID, S11); its typed /bypass is refused. What carries on a Bypass already proved says so
+(tasks.bypass_vouched): /clear's fresh session, voice's tap-only card, a resumed past one. A
+rule is never Bypass for a kind of step either (G3/G4): no "don't ask again" or allow rule
+lets a risky step by unasked (TaskManager.risky_step: it asks on its card, Touch ID there),
+its card offers no "don't ask again", and from the Permissions pane an allow rule that's Bypass
+for a kind of step (broad_rule), a deny rule taken away and allow rules exported into a
+project's .claude settings each need a proof of kind "rules" (code_rules.py asks here). A card
+only the Mac's window answers (mac_only: tap-only, marked touchid, a risky step's) never goes
+to a chat or the Jarvis number with its buttons (R2-7).
+
+Window commands: code_touchid_proof {kind, proof}: armed for the next command of its kind
+(kinds: bypass, bypass-default, approve, touchid-off, rules);
 code_touchid_ask {kind, lang}: the app that started this backend asks the owner (above).
 
 Cost policy (Claude): this feature never calls a model.
@@ -92,42 +109,61 @@ def check_proof(token: str, proof: str, kind: str, now: float | None = None) -> 
 
 # ── the backend's gate (S30) ──
 
-KINDS = ("bypass", "bypass-default", "approve", "touchid-off")
+KINDS = ("bypass", "bypass-default", "approve", "touchid-off", "rules")
 # A project's default set to Bypass just after everyone's was, with its proof (the composer's
 # choice moves into the project's own defaults: code-sessions.js movedDefaults): one yes.
 DEFAULT_GRACE_S = 30.0
 ALLOWING = frozenset({"allow", "always", "allow_edits"})
 BYPASS_BY_VOICE = "code_bypass_by_voice"  # voicecode.BYPASS_BY_VOICE: its card's tap
+# The phone's own commands whose Face ID the iPhone app asks before sending (OwnerCheck.swift:
+# its mode menu, its new session sheet); anything else from the phone into Bypass is refused.
+PHONE_ASKS = frozenset({"task_mode", "task_new"})
 EDITS = ("Edit", "MultiEdit", "Write", "NotebookEdit")
 # The window's RISKY (web/features/code-touchid.js), word for word: the window asks for the
 # fingerprint for exactly the steps the backend then wants a proof for.
 _B = r"(^|[\s;&|(`])"
+# A program named with its folder or in quotes is the same program: "/bin/rm", "rm",
+# ~/bin/sudo (round 2, R2-8). Its options may come in any order: -R last, --no-preserve-root
+# before -rf.
+_P = r"""["']?(?:[\w.~/-]*/)?"""
+_Q = r"""["']?"""
+_OPTS = r"\s+([^;&|\n]*\s)?"
 RISKY = [
-    re.compile(_B + r"(sudo|doas)\s"),
-    re.compile(_B + r"rm\s+(-\w*[rRf]\w*|--recursive|--force)"),
+    re.compile(_B + _P + r"(sudo|doas)" + _Q + r"\s"),
+    re.compile(_B + _P + r"rm" + _Q + _OPTS + r"(-\w*[rRf]\w*|--recursive|--force)"),
     re.compile(
         r"\bgit\b[^;&|\n]*\s(push|reset\s+--hard|clean\s+-\w*f\w*|branch\s+-D|filter-branch"
         r"|filter-repo)\b"
     ),
     re.compile(r"\b(curl|wget)\b[^|\n]*\|\s*(sudo\s+)?\w*sh\b"),
-    re.compile(_B + r"(chmod|chown)\s+-\w*R"),
+    re.compile(_B + _P + r"(chmod|chown)" + _Q + _OPTS + r"(-\w*R\w*|--recursive)"),
     re.compile(
-        _B + r"(dd\s[^|\n]*\bof=|mkfs\b|diskutil\s+(erase\w*|partition\w*|reformat|zero\w*))"
+        _B + _P + r"(dd\s[^|\n]*\bof=|mkfs\b|diskutil\s+(erase\w*|partition\w*|reformat|zero\w*))"
     ),
     re.compile(
-        _B + r"(launchctl|csrutil|spctl|systemsetup|networksetup|defaults\s+(write|delete))\b"
+        _B + _P + r"(launchctl|csrutil|spctl|systemsetup|networksetup|defaults\s+(write|delete))\b"
     ),
     re.compile(
-        _B + r"((npm|yarn|pnpm)\s+publish|twine\s+upload|cargo\s+publish|gem\s+push"
+        _B + _P + r"((npm|yarn|pnpm)\s+publish|twine\s+upload|cargo\s+publish|gem\s+push"
         r"|docker\s+push|pod\s+trunk\s+push)\b"
     ),
     re.compile(
-        _B + r"(kubectl\s+(delete|apply|drain)|terraform\s+(apply|destroy)"
+        _B + _P + r"(kubectl\s+(delete|apply|drain)|terraform\s+(apply|destroy)"
         r"|helm\s+(install|upgrade|uninstall|delete))\b"
     ),
     re.compile(r"\b(drop\s+(table|database|schema)|truncate\s+table)\b", re.I),
-    re.compile(_B + r"(killall|pkill|shutdown|reboot|halt)\b"),
-    re.compile(_B + r"find\s[^;&|\n]*\s-delete\b"),
+    re.compile(_B + _P + r"(killall|pkill|shutdown|reboot|halt)\b"),
+    re.compile(_B + _P + r"find\s[^;&|\n]*\s-delete\b"),
+    # An interpreter's one-liner that deletes: python -c "shutil.rmtree('/')", node -e
+    # "fs.rmSync(…)", perl -e 'unlink …', ruby -e 'FileUtils.rm_rf …'.
+    re.compile(
+        _B
+        + _P
+        + r"(python[\d.]*|perl|ruby|node|deno|bun|php|osascript)"
+        + _Q
+        + r"\s([^\n]*\s)?(-\w*[ceEr]\w*|--eval)\s[^\n]*"
+        r"(rmtree|removedirs|\bremove\s*\(|unlink|rmdir|\brm_r|rmSync|rimraf|\brm\s+-\w*[rRf])"
+    ),
 ]
 
 
@@ -153,6 +189,56 @@ def risky(approval: Any, choice: str) -> bool:
     return False
 
 
+def mac_only(card: Any) -> bool:
+    """A card only the Mac's own window may answer (round 2, R2-7): one only a tap answers
+    (Bypass asked for by voice), one the backend marks for Touch ID, or a risky step's. The
+    chats and the Jarvis number never get its buttons; they say to answer it on the Mac."""
+    a = card if isinstance(card, dict) else {}
+    return bool(a.get("tap_only")) or a.get("touchid") is True or risky(a, "allow")
+
+
+# Programs that run whatever they're given: an allow rule for one is an allow for anything.
+RUNS_ANYTHING = frozenset(
+    {
+        "bash", "sh", "zsh", "fish", "dash", "ksh", "sudo", "doas", "env", "eval", "exec",
+        "command", "builtin", "xargs", "nohup", "time", "timeout", "gtimeout", "nice", "watch",
+        "caffeinate", "stdbuf", "python", "perl", "ruby", "node", "deno", "bun", "php",
+        "osascript", "ssh", "npx", "bunx", "uvx", "pipx",
+    }
+)  # fmt: skip
+_RULE = re.compile(r"^\s*([^()\s]+)\s*(?:\(([\s\S]*)\))?\s*$")
+
+
+def broad_rule(text: Any) -> bool:
+    """An allow rule that's Bypass for a whole kind of step (round 2, G3): every command
+    (Bash, Bash(*)), a program that runs anything (Bash(python:*), Bash(sudo:*)) or a risky
+    one (Bash(git push:*)), and edits anywhere (Edit, Write(//**), Edit(~/…), Edit(*.py): a
+    name with no folder is that name in every folder, outside the project too). Adding one
+    from the window needs Touch ID's proof (kind "rules"), as removing a deny rule does. The
+    window's broadRule (web/features/code-touchid.js) is the same, word for word."""
+    m = _RULE.match(str(text or ""))
+    if not m:
+        return False
+    tool, content = m.group(1), (m.group(2) or "").strip()
+    content = "" if content == "*" else content
+    if tool == "Bash":
+        prefix = re.sub(r":?\*$", "", content).strip()
+        if not prefix:
+            return True
+        first = prefix.split()[0].strip("\"'").rsplit("/", 1)[-1]
+        plain = re.sub(r"[\d.]+$", "", first)
+        return first in RUNS_ANYTHING or plain in RUNS_ANYTHING or risky_command(prefix)
+    if tool in EDITS:
+        if not content:
+            return True
+        return (
+            "/" not in content.rstrip("/")
+            or content.startswith(("//", "~"))
+            or ".." in content.split("/")
+        )
+    return False
+
+
 NEEDS = {
     "bypass": "Bypass permissions needs your fingerprint (or the Eden app’s own confirmation) "
     "first, so it stayed as it was.",
@@ -162,6 +248,12 @@ NEEDS = {
     "it’s still waiting for your answer.",
     "touchid-off": "Turning off Touch ID for Bypass and risky steps needs your fingerprint (or "
     "the Eden app’s own confirmation) first, so it stayed on.",
+    "rules": "A rule that lets every command, a program that runs anything, a risky command or "
+    "edits anywhere go unasked, taking a deny rule away, or writing allow rules into a project's "
+    ".claude settings, needs your fingerprint (or the Eden app’s own confirmation) first, so "
+    "the rules stayed as they were.",
+    "phone": "Bypass permissions from the phone goes through its mode menu, where Face ID "
+    "confirms it, so it stayed as it was.",
 }
 
 lang.add_texts(
@@ -175,6 +267,12 @@ lang.add_texts(
             "关闭“绕过权限和有风险步骤需要触控 ID”需要先验证你的指纹（或 Eden 应用自己的确认），"
             "所以它仍然开着。"
         ),
+        NEEDS["rules"]: (
+            "让所有命令、能运行任何东西的程序、有风险的命令或任何位置的修改不再询问、删除一条禁止"
+            "规则，或者把允许规则写进项目的 .claude 设置，都需要先验证你的指纹（或 Eden 应用自己的"
+            "确认），所以规则保持不变。"
+        ),
+        NEEDS["phone"]: "在手机上开启绕过权限要通过它的模式菜单（由面容 ID 确认），所以保持不变。",
     }
 )
 
@@ -213,7 +311,7 @@ class Gate:
         return check_proof(self.key(), self.armed.pop(kind, ""), kind)
 
     def refuse(self, kind: str) -> None:
-        log.warning("Touch ID: %s from the window without a proof; refused", kind)
+        log.warning("Touch ID: %s without its proof (or from where it can't be had); refused", kind)
         self.hub.emit("error", text=lang.tr(NEEDS[kind], self.hub.language))
 
     # ── the window's commands ──
@@ -223,17 +321,76 @@ class Gate:
         if kind in KINDS and isinstance(proof, str) and len(proof) < 200:
             self.armed[kind] = proof
 
-    def on_mode(self, msg: dict[str, Any]) -> bool | None:
-        if msg.get("mode") != "auto" or not self.needed():
+    # ── the one gate every way into Bypass goes through (TaskManager.bypass_gate) ──
+
+    def bypass_gate(self, folder: Any, session_id: str, task: Any) -> bool:
+        """Whether a session may start in Bypass permissions (task None) or be switched into
+        it (round 2, R2-2/R2-3). TaskManager.start and set_mode ask this for every caller, so
+        a typed /bypass, Best of N, multi-repo, an ACP agent or the next feature to start a
+        session can't skip it. From the window: a proof of kind "bypass", or (a new session)
+        its project's default, or everyone's, already Bypass (each needed one to be set).
+        From the phone: its own mode menu and new-session sheet only, where its Face ID asks
+        (S11, companion_code); a slash command typed there is refused. Voice's Bypass and a
+        session carrying on its own Bypass are vouched for (tasks.bypass_vouched)."""
+        if not self.on():
+            return True
+        if not self.from_window():
+            from ..companion_code import _COMMAND
+
+            if _COMMAND.get() in PHONE_ASKS:
+                return True  # (the phone's own gate, S11)
+            self.refuse("phone")
             return False
-        try:
-            task = self.hub.tasks.tasks.get(int(msg.get("id") or 0))
-        except (TypeError, ValueError, OverflowError):
-            return False
-        if task is None or task.mode == "auto" or self.take("bypass"):
-            return False  # (no session, or one in it already: nothing to switch on)
+        if task is None:
+            msg = {"directory": str(folder), "session_id": str(session_id or "")}
+            if self.default_mode(msg) == "auto":
+                return True  # (it would start in Bypass without the mode named: proved when set)
+        if self.take("bypass"):
+            return True
         self.refuse("bypass")
-        return None
+        return False
+
+    def risky_step(self, task: Any, tool: str, tool_input: dict[str, Any]) -> bool:
+        """TaskManager.risky_step: the steps a rule never lets by unasked (G3/G4), the same
+        ones risky() asks the fingerprint for on their card: a risky command, an edit outside
+        the project (or of the files it never edits unasked)."""
+        if tool == "Bash":
+            return risky_command(tool_input.get("command"))
+        if tool in EDITS:
+            return not self.hub.tasks._free_edit(task, tool_input)
+        return False
+
+    def rule_change(
+        self, behavior: str, rule: str, have: dict[str, list[str]], removing: bool
+    ) -> bool:
+        """A permission rule added or taken away from the window (code_rules.py's cr_add and
+        cr_remove, G3): one that loosens a lot (broad_rule's allow, or a deny taken away,
+        also by turning it into an ask or an allow) needs a proof of kind "rules"; any other
+        goes as it came. Refused, the gate says why and nothing changes."""
+        if not self.needed():
+            return True
+        from .. import coderules
+
+        parsed = coderules.valid(rule)
+        text = parsed.text if parsed is not None else str(rule or "")
+        denied = text in (have.get("deny") or [])
+        if removing:
+            loosens = behavior == "deny" and denied
+        else:
+            loosens = (behavior == "allow" and broad_rule(text)) or (behavior != "deny" and denied)
+        if not loosens or self.take("rules"):
+            return True
+        self.refuse("rules")
+        return False
+
+    def export_ok(self, allows: list[str]) -> bool:
+        """cr_export from the window: allow rules written into a project's .claude settings
+        are Claude Code's own (it lets those steps by without asking here at all, risky or
+        not), so any need a proof of kind "rules" first."""
+        if not allows or not self.needed() or self.take("rules"):
+            return True
+        self.refuse("rules")
+        return False
 
     def default_mode(self, msg: dict[str, Any]) -> str:
         """The mode a new session in msg's folder starts in when msg names none: its
@@ -245,15 +402,6 @@ class Gate:
         except Exception:
             own = {}
         return str(own.get("mode") or self.hub.prefs.code_mode or "ask")
-
-    def on_new(self, msg: dict[str, Any]) -> bool:
-        if msg.get("mode") != "auto" or not self.needed():
-            return False
-        if self.default_mode(msg) == "auto" or self.take("bypass"):
-            return False  # (it would start in Bypass without the mode named: proved when set)
-        self.refuse("bypass")
-        msg["mode"] = "ask"  # it starts all the same, in Manual
-        return False
 
     def proven_default(self) -> bool:
         """A proof that new sessions may start in Bypass (the composer with no session open
@@ -366,7 +514,7 @@ def install(hub: Any) -> None:
     hub.register_command("code_touchid_ask", gate.on_ask)
     hub.register_command("set_prefs", gate.on_set_prefs)
     hub.register_command("feature_prefs", gate.on_features)
-    hub.register_command("task_mode", gate.on_mode)
-    hub.register_command("task_new", gate.on_new)
+    hub.tasks.bypass_gate = gate.bypass_gate  # (task_mode, task_new and every other start)
+    hub.tasks.risky_step = gate.risky_step
     hub.register_command("code_defaults", gate.on_defaults)
     hub.register_command("approve", gate.on_approve)
