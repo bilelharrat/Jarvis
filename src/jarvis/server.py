@@ -185,6 +185,10 @@ def daredevil_page(html: str, colors: str = "yellow") -> str:
 
 
 def create_app(hub: Hub, token: str) -> Starlette:
+    # The window's launch token: the app's main process signs its Touch ID proofs with it
+    # (features/code_touchid's gate checks them, audit S30).
+    hub.launch_token = token
+
     async def index(request):
         # Stamp script and stylesheet links with a version so an update is never hidden by
         # the window's cache.

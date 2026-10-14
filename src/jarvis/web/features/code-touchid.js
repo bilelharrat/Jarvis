@@ -8,6 +8,12 @@
 //
 // Answers given by voice, on the phone or from a notification are the owner's own there and
 // go as they did. Pure helpers are exported for node --test (tests/web/code-touchid.test.mjs).
+//
+// The backend wants proof (audit S30, features/code_touchid.py's gate): a yes the app's main
+// process saw is signed there, and sent just before the switch or the answer it's for
+// (code_touchid_proof {kind, proof}). On a Mac without Touch ID the app asks with a dialog of
+// its own (feature:touchid:confirm), which signs the same way; a page outside the app can't
+// prove anything, so it asks its usual question and the backend says what's needed.
 (function (root) {
   'use strict';
 
@@ -57,16 +63,27 @@
   const bridge = () => (root.jarvisApp && root.jarvisApp.feature) || null;
   const lang = () => (root.jarvisI18n && root.jarvisI18n.lang() === 'zh' ? 'zh' : 'en');
 
+  // A signed yes goes to the backend just before what it's for.
+  function prove(kind, got) {
+    if (got && got.ok && typeof got.proof === 'string' && got.proof) F.send({ type: 'code_touchid_proof', kind, proof: got.proof });
+    return !!(got && got.ok);
+  }
+
   // The owner's fingerprint: true or false, or null where there's no Touch ID to ask with.
+  // Without Touch ID, inside the app: the app's own dialog (true or false, signed the same).
   async function fingerprint(kind) {
     const app = bridge();
     if (!app) return null;
     let available = false;
     try { available = await app.invoke('feature:touchid:available'); } catch { available = false; }
-    if (!available) return null;
+    if (!available) {
+      try {
+        const got = await app.invoke('feature:touchid:confirm', kind, lang());
+        return got && got.unsupported ? null : prove(kind, got);
+      } catch { return null; }
+    }
     try {
-      const got = await app.invoke('feature:touchid:prompt', kind, lang());
-      return !!(got && got.ok);
+      return prove(kind, await app.invoke('feature:touchid:prompt', kind, lang()));
     } catch { return false; }
   }
 

@@ -63,7 +63,8 @@ test('only the window may ask', async () => {
   const on = {};
   const ctx = { ipcMain: { handle: (channel, fn) => { on[channel] = fn; } }, fromWindow: (event) => event === 'window' };
   install(ctx);
-  assert.deepEqual(Object.keys(on).sort(), ['feature:touchid:available', 'feature:touchid:prompt']);
+  assert.deepEqual(Object.keys(on).sort(), ['feature:touchid:available', 'feature:touchid:confirm', 'feature:touchid:prompt']);
+  assert.deepEqual(await on['feature:touchid:confirm']('page', 'bypass', 'en'), { ok: false });
   assert.equal(on['feature:touchid:available']('page'), false);
   assert.deepEqual(await on['feature:touchid:prompt']('page', 'bypass', 'en'), { ok: false });
 });
@@ -92,4 +93,47 @@ test('a yes gives the window a proof the backend can check, signed in the main p
   const no = { canPromptTouchID: () => true, promptTouchID: async () => { throw new Error('cancelled'); } };
   assert.equal((await handlers({ systemPreferences: no, secret: () => token }).prompt('bypass', 'en')).proof, undefined, 'a no gives none');
   assert.match(readFileSync(new URL('../../app/main.js', import.meta.url), 'utf8'), /backendToken: \(\) => TOKEN,/);
+});
+
+test('without Touch ID the app asks with its own dialog, and signs that yes the same way (S30)', async () => {
+  const token = 'ab'.repeat(24);
+  const asked = [];
+  let response = 0;
+  const dialog = { showMessageBox: async (...args) => { asked.push(args.at(-1)); return { response }; } };
+  const none = { canPromptTouchID: () => false };
+  const h = handlers({ systemPreferences: none, secret: () => token, dialog });
+  const got = await h.confirm('bypass', 'en');
+  assert.equal(got.ok, true);
+  assert.match(got.proof, /^v1\.bypass\.\d{13}\.[0-9a-f]{32}\.[0-9a-f]{64}$/);
+  assert.equal(asked[0].message, 'Turn on Bypass permissions in Eden Code?', 'the app’s own words');
+  assert.equal(asked[0].cancelId, 1);
+  assert.equal(asked[0].defaultId, 1, 'Cancel is the default: Return never allows it');
+  await h.confirm('approve', 'zh');
+  assert.ok(asked[1].message.startsWith(REASONS.zh.approve));
+  response = 1;
+  assert.deepEqual(await h.confirm('bypass', 'en'), { ok: false, cancelled: true });
+  assert.deepEqual(await h.confirm('<b>the page’s words</b>', 'en'), { ok: false, error: 'unknown' });
+  const touch = handlers({ systemPreferences: { canPromptTouchID: () => true }, dialog });
+  assert.deepEqual(await touch.confirm('bypass', 'en'), { ok: false, unsupported: true }, 'Touch ID asks then');
+  assert.deepEqual(await handlers({ systemPreferences: none }).confirm('bypass', 'en'), { ok: false, unsupported: true });
+});
+
+test('the window sends the signed yes to the backend just before what it is for', async () => {
+  const source = readFileSync(new URL('../../src/jarvis/web/features/code-touchid.js', import.meta.url), 'utf8');
+  const sent = [];
+  let check = null;
+  const answers = { 'feature:touchid:available': false, 'feature:touchid:confirm': { ok: true, proof: 'v1.bypass.1.a.b' } };
+  const window = {
+    jarvisFeatures: { el: () => ({ append() {}, setAttribute() {}, addEventListener() {} }), t: (x) => x, send: (m) => { sent.push(m); return true; }, on: () => {}, registerCheck: (fn) => { check = fn; } },
+    jarvisApp: { feature: { invoke: async (channel) => answers[channel] } },
+    jarvisI18n: { lang: () => 'en' },
+    confirm: () => { throw new Error('the page’s own question is never the gate inside the app'); },
+  };
+  const document = { getElementById: () => null };
+  new Function('window', 'document', source.replace(/typeof window === 'object' \? window : globalThis/, 'window'))(window, document);
+  assert.equal(await check('bypass', { text: 'Switch?' }), true);
+  assert.deepEqual(sent, [{ type: 'code_touchid_proof', kind: 'bypass', proof: 'v1.bypass.1.a.b' }]);
+  answers['feature:touchid:confirm'] = { ok: false, cancelled: true };
+  assert.equal(await check('bypass', { text: 'Switch?' }), false);
+  assert.equal(sent.length, 1, 'a no sends nothing');
 });
