@@ -285,20 +285,14 @@ class Docker:
         code, _out = await self.run(["version", "--format", "{{.Server.Version}}"])
         return "" if code == 0 else NOT_RUNNING
 
-    async def socket(self) -> str:
-        """The unix socket the docker command talks to (for Claude Code's sandbox to let
-        it through), or ""."""
-        code, out = await self.run(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"])
-        host = out.strip().splitlines()[-1] if code == 0 and out.strip() else ""
-        return host[7:] if host.startswith("unix://") else ""
-
     def exec_argv(self, name: str, cwd: Path, command: str) -> list[str]:
         """A command line run in the container, in the copy's folder (the same path in
         there)."""
         return [self.path() or "docker", "exec", "-w", str(cwd), name, "/bin/sh", "-c", command]
 
     def exec_line(self, name: str, cwd: Path, command: str) -> str:
-        """The same, as one shell command line (what a session's Bash step becomes)."""
+        """The same, as one shell command line (to show; a session's Bash steps go through
+        container_run.py's relay, which runs exec_argv from the backend)."""
         return shlex.join(self.exec_argv(name, cwd, command))
 
 

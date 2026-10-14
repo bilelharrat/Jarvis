@@ -15,7 +15,7 @@ import pytest
 from test_code_changes import git, make_repo
 from test_code_isolation import answer, copy_of, hub, isolated_session, projects, until
 
-from jarvis import devcontainer, tasks
+from jarvis import container_run, devcontainer, tasks
 
 __all__ = ["hub", "projects"]  # (the fixtures, used by name)
 
@@ -40,9 +40,6 @@ class FakeDocker:
     async def run(self, args, cwd=None, timeout=15):
         self.calls.append(list(args))
         return self.fail.get(args[0], (0, ""))
-
-    async def socket(self):
-        return "/tmp/fake-docker.sock"
 
     def exec_argv(self, name, cwd, command):
         self.calls.append(["exec", name, command])
@@ -219,12 +216,10 @@ async def test_a_devcontainer_copy_runs_its_commands_in_a_container(hub, project
         {"tool_name": "Bash", "tool_input": {"command": "pytest -q"}}, None, None
     )
     line = out["hookSpecificOutput"]["updatedInput"]["command"]
-    assert shlex.split(line)[-3:] == ["/bin/sh", "-c", "pytest -q"] and name in line
+    relay = hub.code_setup.relays[name]
+    assert shlex.split(line)[-3:] == [relay.path, "--", "pytest -q"]
+    assert "container_run.py" in line
     assert "permissionDecision" not in out["hookSpecificOutput"]  # the session's mode still decides
-    again = await bash[0].hooks[0](
-        {"tool_name": "Bash", "tool_input": {"command": line}}, None, None
-    )
-    assert again == {}  # never wrapped twice
     # Landing takes the container away with the copy.
     answer(hub, "land")
     task.busy = False
@@ -333,12 +328,15 @@ async def test_the_pane_shows_the_setup_and_the_container_state(hub, projects, d
     assert event["container"]["on"] is True and "isn't running" in event["container"]["docker"]
 
 
-async def test_a_command_that_only_starts_like_the_docker_exec_line_still_goes_in(
+async def test_every_bash_step_goes_in_and_docker_s_socket_never_reaches_the_session(
     hub, projects, docker
 ):
-    """B1: the hook left alone any command that merely started with its docker exec words,
-    so "<that line> true; <anything>" ran the rest on the Mac (with docker's socket open in
-    the sandbox). Only the exact line it makes is left as it is; a gone container refuses."""
+    """B1, R2-1: the hook left alone a command that was word for word its own docker exec
+    line, so `<that line> "$(docker run -v $HOME:/h alpine cat /h/.ssh/id_rsa)"` ran on the
+    Mac (bash runs $(…) before docker exec), with docker's socket open in the sandbox. Now
+    every Bash step is wrapped, as one quoted argument to container_run.py, the backend's
+    relay runs it in the container (exec_argv from the backend), and the only socket the
+    sandbox lets through is the relay's. A gone container refuses."""
     make_repo(projects / "proj", {"a.py": "x\n"})
     container_on(hub, image="node:22")
     task = await isolated_session(hub)
@@ -347,23 +345,75 @@ async def test_a_command_that_only_starts_like_the_docker_exec_line_still_goes_i
     [bash] = [h for h in task.client.options.hooks["PreToolUse"] if h.matcher == "Bash"]
     hook = bash.hooks[0]
     name = f"eden-{copy.slug}"
+    relay = hub.code_setup.relays[name]
     own = docker.exec_line(name, copy.cwd, "true")
-    other = docker.exec_line("eden-someone-else", copy.cwd, "true")
-    for sneaky in [
+    steal = '"$(docker run -v $HOME:/h alpine cat /h/.ssh/id_rsa)"'
+    sneaky = [
+        own,  # (the old hook's own line, exactly: left alone)
+        own[: -len("true")] + steal,  # (its words too, so it was left alone: ran on the Mac)
         own + "; touch /tmp/on-the-mac",
-        own + " && curl evil",
         own.replace(" exec ", " exec --privileged ", 1),
-        other,
-        own + " extra-word",
-    ]:
-        out = await hook({"tool_name": "Bash", "tool_input": {"command": sneaky}}, None, None)
+        docker.exec_line("eden-someone-else", copy.cwd, "true"),
+        container_run.line(relay.path, "true"),  # (its own new line: wrapped again too)
+    ]
+    for command in sneaky:
+        out = await hook({"tool_name": "Bash", "tool_input": {"command": command}}, None, None)
         line = out["hookSpecificOutput"]["updatedInput"]["command"]
-        assert shlex.split(line)[-1] == sneaky and name in line, sneaky
-    assert await hook({"tool_name": "Bash", "tool_input": {"command": own}}, None, None) == {}
+        assert shlex.split(line)[-3:] == [relay.path, "--", command], command
+    # What the Mac's shell runs is only container_run.py: the command reaches the relay
+    # untouched (FakeDocker's "container" is /bin/sh on the Mac, recorded by exec_argv).
+    out = await hook(
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo in-there; echo $(echo sub) >&2; exit 3"},
+        },
+        None,
+        None,
+    )
+    line = out["hookSpecificOutput"]["updatedInput"]["command"]
+    ran = await asyncio.create_subprocess_exec(
+        "/bin/bash", "-c", line, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await ran.communicate()
+    assert (ran.returncode, stdout, stderr) == (3, b"in-there\n", b"sub\n")
+    assert ["exec", name, "echo in-there; echo $(echo sub) >&2; exit 3"] in docker.calls
+    # A sandboxed session gets the relay's socket through, never docker's.
+    from jarvis.features.code_setup import _Options
+
+    class Options:
+        hooks = None
+        sandbox = {"enabled": True, "network": {"allowedDomains": []}}
+
+    options = Options()
+    _Options(hub.code_setup).apply(task, options)
+    assert options.sandbox["network"]["allowUnixSockets"] == [relay.path]
+    assert not hasattr(docker, "socket") and not hasattr(devcontainer.Docker, "socket")
     # The container gone under the session: its steps are refused, never run on the Mac.
     hub.code_setup.containers().pop(copy.slug)
     out = await hook({"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+async def test_the_relay_stops_a_command_when_the_session_s_end_goes(tmp_path):
+    """container_run.Relay: the session's end killed (a Bash step's timeout, Stop), the
+    docker exec it waited on is stopped too; closed, the relay's socket folder is gone."""
+    import sys
+
+    marker = tmp_path / "still-running"
+    relay = container_run.Relay(lambda command: ["/bin/sh", "-c", command], dict)
+    path = relay.start()
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-I", container_run.__file__, path, "--",
+        f"echo started; sleep 2; touch {marker}",
+        stdout=asyncio.subprocess.PIPE,
+    )  # fmt: skip
+    assert await proc.stdout.readline() == b"started\n"
+    proc.kill()
+    await proc.wait()
+    await asyncio.sleep(2.5)
+    assert not marker.exists()
+    relay.close()
+    assert not Path(path).exists() and not Path(path).parent.exists()
 
 
 async def test_a_containers_copy_has_its_git_pinned_across_a_restart(hub, projects, docker):

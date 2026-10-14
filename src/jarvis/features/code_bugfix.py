@@ -1124,7 +1124,8 @@ class BugFix:
         """Claude Code's sandbox, as an unattended run's lock_down has it: the run's commands
         (the project's own tests and builds, so anyone's code) write only in its copy and
         reach no network, with no way out for a command. A unix socket another feature let
-        through stays (a container's docker, features/code_setup.py)."""
+        through stays: a container's relay (features/code_setup.py, container_run.py), which
+        can only run a command in that container; docker's own socket never is let through."""
         network: dict[str, Any] = {"allowedDomains": [], "allowLocalBinding": True}
         sockets = (
             ((before or {}).get("network") or {}).get("allowUnixSockets")

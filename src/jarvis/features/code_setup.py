@@ -7,8 +7,11 @@ connects):
   copy gets a Docker container from the image the owner picked, else the one its
   .devcontainer/devcontainer.json names (or builds from a Dockerfile). The copy is mounted
   at its own path, the main repository's git data read-only. The session's Bash steps then
-  run in it (a PreToolUse hook rewrites each into docker exec, which the session's
-  permission mode then judges as it is: the card shows exactly what runs). A
+  run in it: a PreToolUse hook rewrites every one (none is ever left as it was) into a run
+  of container_run.py, which hands the command to the backend's relay for that container
+  (the backend runs docker exec; docker's own socket is never in the session's reach,
+  R2-1), and the session's permission mode then judges the line as it is: the card shows
+  exactly what runs. A
   devcontainer.json is the repository's to write, so its image (or Dockerfile) is shown on a
   card the first time and whenever it changes; the owner's own pick needs none. Without
   docker, or with it stopped, the session says how to fix that and runs on the Mac. The
@@ -39,14 +42,13 @@ import asyncio
 import contextlib
 import logging
 import re
-import shlex
 import time
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import HookMatcher
 
-from .. import code_changes, devcontainer, jsonstore, lang, prefs, runproc
+from .. import code_changes, container_run, devcontainer, jsonstore, lang, prefs, runproc
 from ..codeplatform import code_task, other_agent
 from ..devcontainer import Docker, Image, Setup
 from .code_isolation import _project_names
@@ -132,7 +134,9 @@ class SetupDesk:
         self.running: dict[str, runproc.Proc] = {}  # slug -> a setup running there now
         self._containers: dict[str, dict[str, Any]] | None = None
         self.unreadable = False  # code_containers.json couldn't be read: it's not saved over
-        self.sockets: dict[str, str] = {}  # container name -> docker's socket, for the sandbox
+        # Container name -> the backend's relay into it (container_run.Relay): its socket is
+        # the one let through the session's sandbox, never docker's own.
+        self.relays: dict[str, container_run.Relay] = {}
 
     # ── plumbing ──
 
@@ -341,7 +345,6 @@ class SetupDesk:
         self.pin(info)
         self.containers()[copy.slug] = info
         self.save_containers()
-        self.sockets[name] = await self.docker.socket()
         self.note(
             task,
             f"Commands run in the container {name} ({tag}), with this copy mounted at its own "
@@ -360,7 +363,9 @@ class SetupDesk:
             return
         if info.get("checkout"):
             code_changes.unpin_git(str(info["checkout"]))
-        self.sockets.pop(str(info.get("name")), None)
+        relay = self.relays.pop(str(info.get("name")), None)
+        if relay is not None:  # (its commands still running there are stopped too)
+            relay.close()
         self.hub._spawn(self.remove(slug, str(info["name"])))
 
     async def remove(self, slug: str, name: str) -> bool:
@@ -418,17 +423,33 @@ class SetupDesk:
 
     # ── a session's commands in its container ──
 
+    def relay(self, info: dict[str, Any]) -> str:
+        """The socket of the backend's relay into a container (made the first time a session
+        of its copy connects, after a restart too), or "" when it can't be made."""
+        name, cwd = str(info["name"]), Path(str(info["cwd"]))
+        relay = self.relays.get(name)
+        if relay is None:
+            relay = container_run.Relay(
+                lambda command: self.docker.exec_argv(name, cwd, command), self.docker.env
+            )
+            self.relays[name] = relay
+        try:
+            return relay.start()
+        except OSError:
+            log.warning("couldn't make the relay into the container %s", name, exc_info=True)
+            self.relays.pop(name, None)
+            return ""
+
     def hook(self, task: Any) -> HookMatcher:
         """PreToolUse on Bash: the step's command run in the copy's container instead.
 
-        A command is left as it is only when it already is, word for word, the line this
-        hook makes for this container (docker exec, this container, this folder, sh -c and
-        one command): the session's sandbox lets docker's socket through for that line, so
-        anything else that merely starts the same way ("<that line> true; rm -rf ~", or the
-        same words with another container or a docker flag after them) is wrapped like any
-        other command and runs in the container. The container this session connected with
-        gone (its copy landed or discarded under it, the tidy-up), its Bash steps are
-        refused rather than run on the Mac with docker's socket still open to them."""
+        Every Bash step is rewritten, whatever it says (R2-1: a line left alone because it
+        looked like this hook's own still ran on the Mac, where bash ran its $(…) first): it
+        becomes container_run.py with the command as one quoted argument, so nothing of it
+        is read by a shell on the Mac, and the backend's relay runs it with /bin/sh -c in
+        this container. The container this session connected with gone (its copy landed or
+        discarded under it, the tidy-up), or its relay not there, its Bash steps are refused
+        rather than run on the Mac."""
         connected = self.container_of(task)
         name_then = str(connected["name"]) if connected else ""
 
@@ -438,7 +459,8 @@ class SetupDesk:
             command = str(tool_input.get("command") or "")
             if input_data.get("tool_name") != "Bash" or not command:
                 return {}
-            if info is None or str(info.get("name")) != name_then:
+            relay = self.relays.get(name_then)
+            if info is None or str(info.get("name")) != name_then or not getattr(relay, "path", ""):
                 return {
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
@@ -448,9 +470,7 @@ class SetupDesk:
                         "them on the Mac.",
                     }
                 }
-            if self.is_own_line(info, command):
-                return {}
-            line = self.docker.exec_line(str(info["name"]), Path(info["cwd"]), command)
+            line = container_run.line(relay.path, command)
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -459,16 +479,6 @@ class SetupDesk:
             }
 
         return HookMatcher(matcher="Bash", hooks=[into_container])
-
-    def is_own_line(self, info: dict[str, Any], command: str) -> bool:
-        """Whether a command is exactly a line the hook made: every word of docker exec's
-        own, for this container and folder, then a single command for sh -c."""
-        own = shlex.split(self.docker.exec_line(str(info["name"]), Path(info["cwd"]), ""))
-        try:
-            words = shlex.split(command)
-        except ValueError:
-            return False
-        return len(words) == len(own) and words[:-1] == own[:-1] and bool(words[-1])
 
     # ── setup ──
 
@@ -687,11 +697,9 @@ def _q(text: str) -> str:
 
 class _Options:
     """What a session's connection gets (TaskManager.option_hooks): the hook that runs its
-    commands in its copy's container, and the container's socket through the sandbox. The
-    socket is all of docker to whatever reaches it (docker run -v $HOME:/h), so it's let
-    through only because the hook leaves no Bash step on the Mac: every one becomes the
-    exact docker exec line for this container (SetupDesk.is_own_line), and with the
-    container gone they're refused."""
+    commands in its copy's container, and the socket of the backend's relay into that
+    container through the sandbox (all it can do is run a command in there). docker's own
+    socket never is: it's all of docker to whatever reaches it (docker run -v $HOME:/h)."""
 
     def __init__(self, desk: SetupDesk) -> None:
         self.desk = desk
@@ -702,10 +710,10 @@ class _Options:
         info = self.desk.container_of(task)
         if info is None:
             return
+        socket = self.desk.relay(info)
         hooks = dict(options.hooks or {})
         hooks["PreToolUse"] = [*hooks.get("PreToolUse", []), self.desk.hook(task)]
         options.hooks = hooks
-        socket = self.desk.sockets.get(str(info.get("name")), "")
         sandbox = options.sandbox if isinstance(options.sandbox, dict) else None
         if socket and sandbox is not None and sandbox.get("enabled"):
             network = dict(sandbox.get("network") or {})
@@ -725,6 +733,12 @@ def install(hub: Any) -> None:
         copies.on_new_copy.append(desk.on_new_copy)
         copies.on_copy_gone.append(desk.on_copy_gone)
     hub.tasks.option_hooks.append(_Options(desk))
+
+    async def close_relays() -> None:  # (at quit: no relay's socket folder left behind)
+        for relay in list(desk.relays.values()):
+            relay.close()
+
+    hub.tasks.before_close.append(close_relays)
     hub.register_command("code_setup_state", lambda msg: hub._spawn(desk.cmd_state(msg)))
     hub.register_command("code_setup_run", lambda msg: hub._spawn(desk.cmd_run(msg)))
     hub.register_loop("code_containers_tidy", desk.tidier)
