@@ -71,7 +71,7 @@ log = logging.getLogger(__name__)
 
 TOKEN_PREFIX = "eden-run-"
 GRANT_IDLE = 7 * 24 * 3600.0  # seconds a pass may sit unused before it's forgotten
-MAX_GRANTS = 4096  # passes kept at once; past it, the one unused longest goes
+MAX_GRANTS = 4096  # passes kept at once; past it, the one unused longest goes (a live run's last)
 MAX_BODY = 64 * 1024 * 1024  # bytes of a request Claude Code sends (pictures and all)
 MAX_PATH = 8 * 1024  # characters of a request's path
 REQUEST_SECONDS = 120.0  # for a run to send one whole request (an answer may take longer)
@@ -132,14 +132,37 @@ class Grants:
         self.clock = clock
         self._lock = threading.Lock()
         self._grants: OrderedDict[str, Grant] = OrderedDict()
+        # The passes a live run is on (replace_pass: a session's, the conversation's): past
+        # MAX_GRANTS the one unused longest goes, but never one of these while there's
+        # another to let go (round 3, E16: a session left open a day, unused, lost its pass
+        # to a burst of new ones, and its next request failed until it reconnected).
+        self._held: set[str] = set()
 
     def mint(self, route: str, resolve: Resolve) -> str:
         token = TOKEN_PREFIX + secrets.token_hex(24)
         with self._lock:
             self._grants[token] = Grant(route, resolve, self.clock())
             while len(self._grants) > MAX_GRANTS:
-                self._grants.popitem(last=False)
+                self._evict()
         return token
+
+    def _evict(self) -> None:
+        """The pass unused longest, gone; a held one only when every pass is (caller holds
+        the lock)."""
+        for token in self._grants:
+            if token not in self._held:
+                del self._grants[token]
+                return
+        token, _grant = self._grants.popitem(last=False)
+        self._held.discard(token)
+
+    def hold(self, token: str, held: bool = True) -> None:
+        """A live run is on this pass (or, held False, no longer)."""
+        with self._lock:
+            if held and token in self._grants:
+                self._held.add(token)
+            else:
+                self._held.discard(token)
 
     def _live(self, token: str) -> Grant | None:
         """The pass, while it's still good (caller holds the lock)."""
@@ -148,6 +171,7 @@ class Grants:
             return None
         if self.clock() - grant.used > GRANT_IDLE:
             del self._grants[token]
+            self._held.discard(token)
             return None
         return grant
 
@@ -179,10 +203,12 @@ class Grants:
     def revoke(self, token: str) -> None:
         with self._lock:
             self._grants.pop(token, None)
+            self._held.discard(token)
 
     def clear(self) -> None:
         with self._lock:
             self._grants.clear()
+            self._held.clear()
 
 
 def is_token(value: Any) -> bool:
@@ -209,6 +235,7 @@ def replace_pass(owner: dict[Any, str], key: Any, settings: Any) -> None:
         GRANTS.revoke(old)
     if new:
         owner[key] = new
+        GRANTS.hold(new)  # (a live run's: the last to go past MAX_GRANTS)
 
 
 GRANTS = Grants()
