@@ -123,3 +123,25 @@ test('the board builds again only the cards whose session changed', () => {
   assert.ok(w.board.querySelector('.cs-lane.done .cs-lane-empty'), 'an empty lane says so');
   assert.equal(w.board.querySelector('.cs-lane.working .cs-lane-empty'), null);
 });
+
+// ── stylesheets: no rules for what nothing draws ──
+
+// The classes of the old Claude Code deck (before Eden Code's), the logbook's row flash and
+// thumb, the gliding thumb, and the orb's glow and ring: no script, page or test puts them on
+// an element, and their rules were some 8 kB the window parsed and matched at every start.
+const GONE = ['badge-status', 'camera-box', 'deck-changes', 'deck-empty', 'deck-grid', 'deck-head', 'deck-item', 'deck-list',
+  'deck-main', 'deck-new', 'deck-new-actions', 'deck-projects', 'deck-quick', 'deck-session', 'deck-session-actions',
+  'deck-session-head', 'deck-session-title', 'deck-sessions', 'deck-sessions-head', 'deck-stats', 'deck-tabs', 'deck-title',
+  'diff-add', 'diff-del', 'jc-mic', 'jc-range', 'jc-sim', 'jc-thumb', 'panel-tag', 'run-count', 'lb-flash', 'orb-glow', 'orb-ring'];
+
+test('the window’s stylesheets have no rules for classes nothing draws', () => {
+  const web = new URL('../../src/jarvis/web/', import.meta.url);
+  const sheets = ['app.css', 'eden-code.css', 'features/code-logbook.css', 'features/zz-contrast.css'];
+  for (const name of sheets) {
+    const css = readFileSync(new URL(name, web), 'utf8');
+    for (const cls of GONE) assert.doesNotMatch(css, new RegExp(`\\.${cls}(?![\\w-])`), `${name} still styles .${cls}`);
+  }
+  // What they sat beside is still there.
+  const app = readFileSync(new URL('app.css', web), 'utf8');
+  for (const kept of ['.deck {', '.deck-project-list', '.jc-capsule', '#ep-range, #jcs-effort']) assert.ok(app.includes(kept), kept);
+});
