@@ -373,6 +373,16 @@ async def test_browser_calls_go_through_the_window(settings, quiet_speaker, isol
             "result": {"url": "https://example.com/", "title": "Example"},
         }
     )
+    # The page it landed on gets the browser-ai feature's look (does it need the owner?),
+    # through the window too; the window answers that nothing does.
+    look = None
+    for _ in range(200):
+        look = next((e for e in drain(q) if e["type"] == "browser_ai_cmd"), None)
+        if look is not None or pending.done():
+            break
+        await asyncio.sleep(0.005)
+    assert look is not None and look["action"] == "handback"
+    await hub.handle({"type": "browser_ai_result", "id": look["id"], "result": {"ok": True}})
     assert (await pending)["title"] == "Example"
 
 
