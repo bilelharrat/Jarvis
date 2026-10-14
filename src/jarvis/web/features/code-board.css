@@ -53,3 +53,5 @@ body.in-app .deck.jc .jc-main > .cs-board { top: 40px; }
 
 @media (max-width: 1180px) { .cs-lanes { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { .cs-card { transition: none; } .cs-card:hover { transform: none; } }
+/* The keys' card (one in the Tab order; the arrows move it): a ring that shows on any glass. */
+.cs-card:focus-visible { outline: 2px solid rgb(var(--c-accent)); outline-offset: 2px; }
