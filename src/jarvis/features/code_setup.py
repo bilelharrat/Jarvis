@@ -310,8 +310,11 @@ class SetupDesk:
                 return None
         pin = await asyncio.to_thread(self.checked_pin, copy)
         if pin is None:  # (its git data can't be mounted read-only: no container)
-            self.note(task, "This copy's git data isn't where Eden can tell, so it gets no "
-                      "container: this session runs its commands on the Mac.")
+            self.note(
+                task,
+                "This copy's git data isn't where Eden can tell, so it gets no "
+                "container: this session runs its commands on the Mac.",
+            )
             return None
         name = devcontainer.container_name(copy.slug)
         await self.docker.run(["rm", "-f", name])  # (one left from before, by the same name)

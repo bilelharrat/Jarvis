@@ -96,6 +96,13 @@ def pinned_env(cwd: Path | str) -> tuple[dict[str, str], str]:
     return {}, ""
 
 
+def git_env(cwd: Path | str) -> dict[str, str] | None:
+    """The whole environment for a git another module runs itself in cwd (os.environ, with
+    a container's copy pinned), or None when no git may run there."""
+    pinned, refused = pinned_env(cwd)
+    return None if refused else {**os.environ, **pinned}
+
+
 # What a view of the changes may carry to a window: past these, files are listed without
 # their lines (a window asks for one file when it's opened) and long hunks are cut.
 MAX_FILES = 300

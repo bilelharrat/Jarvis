@@ -28,7 +28,7 @@ def plant(checkout: Path, own: Path, ran: Path, via: str) -> None:
     fake.mkdir(parents=True)
     git(fake.parent, "init", "-q", "--bare", str(fake))
     (fake / "config").write_text(
-        f'[core]\n\trepositoryformatversion = 0\n\tbare = false\n'
+        f"[core]\n\trepositoryformatversion = 0\n\tbare = false\n"
         f'[filter "x"]\n\tclean = "touch {ran}; cat"\n'
     )
     (checkout / ".gitattributes").write_text("* filter=x\n")

@@ -4846,6 +4846,11 @@ class Hub:
     # ── Claude Code deck: projects and git ──
 
     async def _git(self, path: Path, *args: str, timeout: float = 15) -> str:
+        from . import code_changes
+
+        env = code_changes.git_env(path)  # (a container's copy: its git data pinned)
+        if env is None:
+            return ""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "git",
@@ -4854,6 +4859,7 @@ class Hub:
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
+                env=env,
             )
         except OSError:  # no git on this Mac (or a folder gone): no answer, as for no repo
             return ""

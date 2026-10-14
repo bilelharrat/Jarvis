@@ -32,7 +32,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from . import companion_sensors, push
+from . import code_changes, companion_sensors, push
 from .remote import JSONResponse  # (an answer with half an emoji in it is still sent)
 
 log = logging.getLogger("jarvis")
@@ -238,9 +238,12 @@ def parse_unified(diff: str) -> list[dict[str, Any]]:
 
 
 def _git(cwd: Path, *args: str) -> str | None:
+    env = code_changes.git_env(cwd)  # (a container's copy: its git data pinned)
+    if env is None:
+        return None
     try:
         out = subprocess.run(
-            ["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=15
+            ["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=15, env=env
         )
     except (OSError, subprocess.SubprocessError):
         return None
