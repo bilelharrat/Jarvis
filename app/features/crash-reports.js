@@ -16,6 +16,8 @@ const path = require('path');
 const FOLDER = 'crash-reports';
 const ELECTRON = 'electron';
 const KEEP = 50; // = crash_reports.KEEP
+const PER_HOUR = 20; // = crash_reports.PER_HOUR: reports kept in an hour, at most
+const REPEAT_MS = 600 * 1000; // = crash_reports.REPEAT_SECONDS: the same again is counted
 const REASONS = new Set(['clean-exit', 'abnormal-exit', 'killed', 'crashed', 'oom', 'launch-failed', 'integrity-failure', 'memory-eviction']);
 
 // Whether the owner turned crash reports on (prefs.json in the backend's data folder).
@@ -72,6 +74,39 @@ function keep(fs, folder, report, now = new Date()) {
   }
 }
 
+// keep, for one run of the app: the same report again within REPEAT_MS is counted into the
+// file kept for it (times), never a file of its own, and at most PER_HOUR are kept an hour.
+// A window whose renderer dies as it loads is reloaded a second later (main.js): a report a
+// second, which pruned every backend report from the folder within a minute (REL3-16).
+function keeper(fs, folder, clock = () => new Date()) {
+  let last = null; // { sig, file, at }
+  let keptAt = []; // when each report this hour was kept (ms)
+  return (report) => {
+    if (!report || report.message.startsWith('clean-exit')) return '';
+    const now = clock();
+    const ms = now.getTime();
+    const sig = `${report.kind}\n${report.message}\n${report.where}`;
+    if (last && last.sig === sig && ms - last.at < REPEAT_MS) {
+      try {
+        const kept = JSON.parse(fs.readFileSync(last.file, 'utf8'));
+        kept.times = Math.max(1, Number(kept.times) || 1) + 1;
+        fs.writeFileSync(last.file, JSON.stringify(kept, null, 1), { mode: 0o600 });
+        return last.file;
+      } catch {
+        last = null; // (deleted, by the owner or the pruning: kept afresh, as the backend does)
+      }
+    }
+    keptAt = keptAt.filter((t) => ms - t < 3600 * 1000);
+    if (keptAt.length >= PER_HOUR) return '';
+    const file = keep(fs, folder, report, now);
+    if (file) {
+      keptAt.push(ms);
+      last = { sig, file, at: ms };
+    }
+    return file;
+  };
+}
+
 function install(ctx, deps = {}) {
   const fs = deps.fs || require('fs');
   const electron = deps.electron || require('electron');
@@ -84,9 +119,10 @@ function install(ctx, deps = {}) {
   } catch (err) {
     console.error(`crash reports: Electron's crash reporter didn't start (${err && err.message})`);
   }
-  app.on('render-process-gone', (_event, _contents, details) => keep(fs, folder, reportFor('renderer', details)));
-  app.on('child-process-gone', (_event, details) => keep(fs, folder, reportFor('child', details)));
+  const kept = keeper(fs, folder);
+  app.on('render-process-gone', (_event, _contents, details) => kept(reportFor('renderer', details)));
+  app.on('child-process-gone', (_event, details) => kept(reportFor('child', details)));
   return true;
 }
 
-module.exports = { install, wanted, reportFor, keep, FOLDER, ELECTRON, KEEP };
+module.exports = { install, wanted, reportFor, keep, keeper, FOLDER, ELECTRON, KEEP, PER_HOUR, REPEAT_MS };
