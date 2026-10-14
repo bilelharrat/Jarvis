@@ -184,6 +184,7 @@ OWNER_ONLY = [
         r"sync-eden\.mjs",
     )
 ]
+SUITE_MARK = "EDEN_SUITE_RUN"  # in a suite run's environment: its leftovers are found by it
 WEB_TOOLS = ("WebFetch", "WebSearch")  # never in a run: what it read would go out with them
 DEV_SERVER = "jarvis_dev"  # the one MCP server a run keeps (features/code_verify.py's DEV)
 # Steps that can't easily be undone, or reach past the Mac: a card (Touch ID in the window).
@@ -1775,7 +1776,13 @@ class BugFix:
         """One run of a suite (all of it, or a target) in a folder, quietly, to its end (or
         the run's Stop: then the suite is stopped and the step goes no further)."""
         self.still_on(run)
-        env = await self.suite_env()
+        # Every process of this suite run carries the mark (R1-a: a test's child that went
+        # into a session of its own, setsid, outlived the run; no group or session kill
+        # reaches it), so whatever of it is left when the run ends is found and stopped
+        # (by the mark, or, for a system program whose environment macOS hides, as an
+        # orphan started since in the folder: runproc.kill_marked).
+        mark, since = uuid.uuid4().hex, time.time() - 1.0
+        env = {**await self.suite_env(), SUITE_MARK: mark}
         runner = codetests.SuiteRunner(lambda *_a, **_k: None, env=lambda: env)
         if suite.id == "pytest":
             suite = codetests.Suite(
@@ -1805,6 +1812,7 @@ class BugFix:
             if run is not None:
                 self.suite_runs.pop(run.id, None)
             runner.shutdown()
+            await asyncio.to_thread(runproc.kill_marked, SUITE_MARK, mark, folder, since)
         self.still_on(run)
         return got
 

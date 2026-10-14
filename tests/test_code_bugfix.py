@@ -1300,3 +1300,44 @@ async def test_the_copy_of_a_run_not_landed_is_never_swept(hub, projects):
     ]
     live = hub.code_desk.live_slugs()
     assert {"s-paused", "s-stopped"} <= live and "s-landed" not in live
+
+
+async def test_a_suite_s_child_in_a_session_of_its_own_goes_with_the_run(hub, tmp_path):
+    """R1-a: a test's child started with setsid (holding the runner's stdout) left the run's
+    group and session, so it outlived the suite run. Every process of a run carries its
+    mark, and what's left with it when the run ends is killed."""
+    import signal
+
+    folder = tmp_path / "orphan"
+    folder.mkdir()
+    pids = tmp_path / "pids"
+    (folder / "pytest.ini").write_text("[pytest]\naddopts = -s\n")
+    (folder / "test_x.py").write_text(
+        "import subprocess\n\n\ndef test_orphan():\n"
+        "    a = subprocess.Popen(['sleep', '10000'], start_new_session=True)\n"
+        "    b = subprocess.Popen(['sleep', '10001'])\n"
+        f"    open({str(pids)!r}, 'w').write(f'{{a.pid}} {{b.pid}}')\n"
+    )
+    suite = codetests.Suite("pytest", "pytest", (sys.executable, "-m", "pytest"))
+    await asyncio.wait_for(hub.code_bugfix.run_one(folder, suite), 60)
+    a, b = map(int, pids.read_text().split())
+
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    try:
+        for _ in range(30):
+            if not alive(a) and not alive(b):
+                break
+            await asyncio.sleep(0.1)
+        assert not alive(b) and not alive(a)
+    finally:
+        for pid in (a, b):
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGKILL)
