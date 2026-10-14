@@ -1361,6 +1361,12 @@ class TaskManager:
         # Also code_sessions: a kept session let go from the list, back (by its Claude
         # session id) with its own id and settings; and the kept ones the history adds.
         self.revive: Callable[[str], int | None] | None = None
+        # The Claude Code session ids of locked-down sessions (task.untrusted: a card from
+        # outside, an issue's run): a resume of one is locked down too, however it comes
+        # back (a pull request's follow-up, a limit's carry-on, a copy's Resume, the
+        # history), never a fresh session with the owner's settings over the outside words
+        # its conversation holds (S3-5). code_sessions adds the kept ones at startup.
+        self.untrusted_sessions: set[str] = set()
         # features.code_answers: a session's question, seen before it's put to the user
         # (answered from their earlier choices or memory, or, while they're in a meeting or
         # Focus, left to the session's own judgment), and each answer the user gave.
@@ -1543,6 +1549,8 @@ class TaskManager:
             launch_token=launch_token,
             untrusted=bool(untrusted),
         )
+        if resume and resume in self.untrusted_sessions:
+            task.untrusted = True  # (its conversation holds outside words: S3-5)
         if task.mode == "smart" and not auto_capable(task.model or self.model):
             task.mode = "ask"  # Claude Code's auto mode needs Opus, Sonnet or Fable
         if task.prompt or images:
@@ -3099,6 +3107,8 @@ class TaskManager:
             # Rewound in place: this turn went on from that point, where later ones carry on.
             task.resume_at = ""
         task.session_id = message.session_id or task.session_id
+        if task.untrusted and task.session_id:
+            self.untrusted_sessions.add(task.session_id)
         turn_cost = self._count_cost(task, message.total_cost_usd)
         if self.on_usage is not None:
             try:

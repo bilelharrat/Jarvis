@@ -240,6 +240,11 @@ class CodeSessions:
         self._remembered_saved = dict(self.remembered)
         restored = 0
         self._ids_past(records)
+        # Every kept locked-down session's id, the ones left in the history too: a resume of
+        # one by its id alone (start(resume=…)) is locked down as well (S3-5).
+        self.tm.untrusted_sessions.update(
+            r["session_id"] for r in records if r["untrusted"] and r["session_id"]
+        )
         # The open ones come back, and the newest MAX_ENDED ended ones the list shows; the
         # rest stay kept, in the history, until one is reopened (revive).
         ended = [r for r in records if r["ended"]]
@@ -406,7 +411,10 @@ class CodeSessions:
             fork=record["fork"] and bool(record["session_id"]),
             resume_at=record["resume_at"],
             audit=list(record["audit"]),
+            untrusted=record["untrusted"],
         )
+        if record["untrusted"] and record["session_id"]:
+            tm.untrusted_sessions.add(record["session_id"])
         try:
             task.started = datetime.fromisoformat(record["created"])
         except ValueError:
@@ -681,6 +689,7 @@ class CodeSessions:
             "files_changed": sorted(task.files_changed)[:FILES_KEEP],
             "commands": task.commands,
             "fork": task.fork,
+            "untrusted": task.untrusted,  # (S3-5: a locked-down session stays locked down)
             "resume_at": task.resume_at,
             **self._held(task, ended),
             "created": meta["created"],
