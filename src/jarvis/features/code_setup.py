@@ -129,6 +129,7 @@ class SetupDesk:
         self.output: dict[str, list[str]] = {}  # slug -> the latest setup's output
         self.running: dict[str, runproc.Proc] = {}  # slug -> a setup running there now
         self._containers: dict[str, dict[str, Any]] | None = None
+        self.unreadable = False  # code_containers.json couldn't be read: it's not saved over
         self.sockets: dict[str, str] = {}  # container name -> docker's socket, for the sandbox
 
     # ── plumbing ──
@@ -142,17 +143,21 @@ class SetupDesk:
     def _ok_path(self) -> Path:
         return self.hub.feature_path("code-setup-ok.json")
 
-    def approved(self) -> dict[str, list[str]]:
+    def approved(self) -> dict[str, list[str]] | None:
+        """The fingerprints the owner said yes to, by project; None when the file can't be
+        read (then nothing counts as approved, and nothing is saved over it)."""
         try:
             data = jsonstore.load_json(self._ok_path(), dict) or {}
         except jsonstore.Unreadable:
-            data = {}
+            return None
         return {
             k: [f for f in v if isinstance(f, str)] for k, v in data.items() if isinstance(v, list)
         }
 
     def remember(self, project: str, fingerprint: str) -> None:
         kept = self.approved()
+        if kept is None:
+            return  # (an unreadable file isn't saved over: it asks again next time)
         kept[project] = [*[f for f in kept.get(project, []) if f != fingerprint], fingerprint][-50:]
         with contextlib.suppress(OSError):  # a full disk: it asks again next time
             jsonstore.save_json(self._ok_path(), kept)
@@ -162,7 +167,7 @@ class SetupDesk:
     ) -> str:
         """The owner's answer: "yes" (now, or to this before), "no", or "late" when the
         card went unanswered."""
-        if fingerprint in self.approved().get(project, []):
+        if fingerprint in (self.approved() or {}).get(project, []):
             return "yes"
         try:
             choice = await asyncio.wait_for(
@@ -191,6 +196,7 @@ class SetupDesk:
                 data = jsonstore.load_json(self.hub.feature_path("code_containers.json"), dict)
             except jsonstore.Unreadable:
                 data = None
+                self.unreadable = True  # (never saved over: tidy's label sweep finds them)
             self._containers = {
                 k: v for k, v in (data or {}).items() if isinstance(v, dict) and v.get("name")
             }
@@ -225,6 +231,8 @@ class SetupDesk:
         return found if Path(found["common"]).resolve() == main.resolve() else None
 
     def save_containers(self) -> None:
+        if self.unreadable:
+            return
         with contextlib.suppress(OSError):
             jsonstore.save_json(self.hub.feature_path("code_containers.json"), self.containers())
 
@@ -341,24 +349,61 @@ class SetupDesk:
         return info
 
     def on_copy_gone(self, slug: str) -> None:
-        info = self.containers().pop(slug, None)
         self.output.pop(slug, None)
+        proc = self.running.pop(slug, None)
+        if proc is not None:  # (a setup still running for a copy that's gone: stopped)
+            self.hub._spawn(proc.stop(grace=2.0))
+        info = self.containers().get(slug)
         if info is None:
             return
         if info.get("checkout"):
             code_changes.unpin_git(str(info["checkout"]))
-        self.save_containers()
         self.sockets.pop(str(info.get("name")), None)
-        self.hub._spawn(self.docker.run(["rm", "-f", str(info["name"])]))
+        self.hub._spawn(self.remove(slug, str(info["name"])))
+
+    async def remove(self, slug: str, name: str) -> bool:
+        """A copy's container taken away, and only then its record: with docker stopped (or
+        the rm failing) the record stays, and the hourly tidy-up tries again."""
+        code, out = await self.docker.run(["rm", "-f", name])
+        if code != 0 and "no such container" not in out.lower():
+            log.info("couldn't remove the container %s: %s", name, out.strip()[-200:])
+            return False
+        if (self.containers().get(slug) or {}).get("name") == name:
+            self.containers().pop(slug, None)
+            await asyncio.to_thread(self.save_containers)
+        return True
 
     async def tidy(self) -> None:
-        """Containers whose copy is gone (the app quit before it could take them away)."""
+        """Containers whose copy is gone (the app quit before it could take them away): the
+        ones on the list, and any docker has with Eden's eden.copy label that no copy has
+        (their record lost, or never saved). Not while the copies' list can't be read: every
+        container would look orphaned then."""
         desk = self.desk()
-        if desk is None:
+        if desk is None or getattr(desk.store(), "unreadable", ""):
             return
         listed = {c.slug for c in desk.store().copies}
         for slug in [s for s in self.containers() if s not in listed]:
             self.on_copy_gone(slug)
+        if not (self.hub.prefs.feature(PREF_PROJECTS) or self.containers() or self.unreadable):
+            return  # (containers never used here: docker isn't asked)
+        code, out = await self.docker.run(
+            [
+                "ps",
+                "-a",
+                "--filter",
+                "label=eden.copy",
+                "--format",
+                '{{.Names}}\t{{.Label "eden.copy"}}',
+            ]
+        )
+        if code != 0:
+            return
+        recorded = {str(i.get("name")) for i in self.containers().values()}
+        for line in out.splitlines():
+            name, _, slug = line.strip().partition("\t")
+            if not name.startswith("eden-") or name in recorded or slug in listed:
+                continue
+            await self.remove(slug, name)
 
     async def tidier(self) -> None:
         await asyncio.sleep(60)
@@ -505,6 +550,8 @@ class SetupDesk:
             except TimeoutError:
                 await proc.stop(grace=2.0)
                 code = None
+                if container is not None:  # (stopping docker exec leaves the script running)
+                    await self.stop_inside(str(container["name"]))
         finally:
             self.running.pop(slug, None)
             for handle in flush_at:
@@ -526,6 +573,22 @@ class SetupDesk:
         self.hub.tasks._log(task, "system", said + (f"\n```\n{tail}\n```" if tail else ""))
         self.hub.emit("code_setup_output", id=task.id, slug=slug, lines=[], done=True, code=code)
         return code
+
+    async def stop_inside(self, name: str) -> None:
+        """Everything running in a copy's container stopped but the container itself: a
+        setup that ran out of time keeps going in there when only the docker exec on the
+        Mac is stopped. (A setup runs before its session's first step, or when it isn't
+        working, so nothing of the session's is running there then.)"""
+        await self.docker.run(
+            [
+                "exec",
+                name,
+                "/bin/sh",
+                "-c",
+                "kill -TERM -1 2>/dev/null; sleep 2; kill -KILL -1 2>/dev/null; true",
+            ],
+            timeout=devcontainer.CHECK_SECONDS,
+        )
 
     # ── the window ──
 

@@ -391,3 +391,84 @@ async def test_a_containers_copy_has_its_git_pinned_across_a_restart(hub, projec
         assert code_changes._PINS[real] == info["git"]
     hub.code_setup.on_copy_gone(copy.slug)
     assert real not in code_changes._PINS
+
+
+async def test_an_unreadable_containers_list_is_never_saved_over(hub, docker, monkeypatch):
+    """B10 (and the setup approvals beside it): a list that couldn't be read was taken as
+    empty and saved over, so the containers on it were never taken away."""
+    from jarvis import jsonstore
+
+    desk = hub.code_setup
+    for name in ("code_containers.json", "code-setup-ok.json"):
+        hub.feature_path(name).write_text('{"kept": "as it was"}')
+
+    def unreadable(*_a, **_k):
+        raise jsonstore.Unreadable(13, "can't be read")
+
+    monkeypatch.setattr(jsonstore, "load_json", unreadable)
+    desk._containers = None
+    assert desk.containers() == {}
+    desk.containers()["new-1"] = {"name": "eden-new-1"}
+    desk.save_containers()
+    desk.remember("/p", "abc")
+    for name in ("code_containers.json", "code-setup-ok.json"):
+        assert hub.feature_path(name).read_text() == '{"kept": "as it was"}', name
+
+
+async def test_the_tidy_up_also_takes_away_labelled_containers_no_copy_has(hub, docker):
+    """B10: a container docker has with Eden's label whose record was lost is found by the
+    label, and removed when no copy is its."""
+    container_on(hub, image="node:22")
+    docker.fail["ps"] = (0, "eden-orphan-1\torphan-1\nnot-eden\tx\n")
+    await hub.code_setup.tidy()
+    assert ["rm", "-f", "eden-orphan-1"] in docker.calls
+    assert ["rm", "-f", "not-eden"] not in docker.calls
+    [ps] = [c for c in docker.calls if c[0] == "ps"]
+    assert "label=eden.copy" in ps
+
+
+async def test_a_container_record_stays_until_docker_has_really_removed_it(hub, docker):
+    """B11: the record was dropped and saved before docker rm -f, whose answer nobody read:
+    with Docker stopped the container was left behind for good."""
+    desk = hub.code_setup
+    desk.containers()["gone-1"] = {"name": "eden-gone-1", "image": "x", "cwd": "/"}
+    docker.fail["rm"] = (1, "Cannot connect to the Docker daemon")
+    desk.on_copy_gone("gone-1")
+    await asyncio.sleep(0.05)
+    assert "gone-1" in desk.containers()  # kept: the tidy-up tries again
+    docker.fail.pop("rm")
+    await desk.tidy()
+    await asyncio.sleep(0.05)
+    assert "gone-1" not in desk.containers()
+    assert docker.calls.count(["rm", "-f", "eden-gone-1"]) == 2
+
+
+async def test_a_setup_out_of_time_is_stopped_inside_its_container_too(
+    hub, docker, tmp_path, monkeypatch
+):
+    """B12: running out of time stopped only the docker exec on the Mac; the script went on
+    in the container. And a copy that goes while its setup runs has it stopped."""
+    from types import SimpleNamespace
+
+    from jarvis.devcontainer import Setup
+    from jarvis.features import code_setup
+
+    monkeypatch.setattr(code_setup, "SETUP_SECONDS", 0.3)
+    task = tasks.ClaudeTask(id=41, prompt="x", cwd=tmp_path)
+    copy = SimpleNamespace(slug="s-1", cwd=tmp_path, repo=str(tmp_path), prefix="")
+    found = Setup(devcontainer.LAUNCH_FILE, "sleep 30")
+    code = await hub.code_setup.run_setup(task, copy, found, {"name": "eden-s-1"})
+    assert code is None
+    [stop] = [c for c in docker.calls if c[:2] == ["exec", "eden-s-1"] and len(c) > 3]
+    assert "kill -TERM -1" in stop[-1]
+
+    stopped = []
+
+    class Running:
+        async def stop(self, grace=0):
+            stopped.append(grace)
+
+    hub.code_setup.running["s-2"] = Running()
+    hub.code_setup.on_copy_gone("s-2")
+    await asyncio.sleep(0.05)
+    assert stopped and "s-2" not in hub.code_setup.running
