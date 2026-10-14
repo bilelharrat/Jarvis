@@ -61,7 +61,7 @@ const FLAVORS = {
     size: { width: 1240, height: 820, minWidth: 720, minHeight: 560 },
     profile: 'code',
     // The app features (app/features/*.js) Eden Code needs; Eden Secretary loads them all.
-    features: new Set(['code-sessions.js', 'code-verify.js', 'design-match.js', 'platform.js', 'touchid.js', 'updates.js', 'video-proof.js']),
+    features: new Set(['code-sessions.js', 'code-verify.js', 'crash-reports.js', 'design-match.js', 'platform.js', 'touchid.js', 'updates.js', 'video-proof.js']),
   },
 };
 

@@ -641,7 +641,9 @@
     make.disabled = busy;
     make.id = 'ops-diag-make';
     const card = el('div', 'ops-card');
-    card.append(row);
+    // Crash reports (features/crash_reports.py): off unless turned on; kept here, never sent.
+    const crashes = Boolean(S.prefs && S.prefs.features && S.prefs.features.crash_reports === true);
+    card.append(row, switchRow('Keep crash reports', 'When something in Eden Secretary fails, a masked report of it is kept on this Mac and goes in the diagnostics file. Nothing is sent anywhere by itself. The app’s own crash files start with its next launch.', crashes, 'crash_reports'));
     nodes.push(card, make);
     if (S.diag) {
       if (S.diag.ok) {
@@ -677,7 +679,9 @@
   }, { replay: true });
 
   F.on('prefs', (ev) => {
+    const crashesWere = Boolean(S.prefs && S.prefs.features && S.prefs.features.crash_reports);
     S.prefs = ev;
+    if (crashesWere !== Boolean(ev.features && ev.features.crash_reports) && sheetOpen() && S.tab === 'diagnostics') renderDiagnostics();
     if (S.backups) {
       const f = ev.features || {};
       if ('ops_backup_daily' in f) S.backups.daily = Boolean(f.ops_backup_daily);

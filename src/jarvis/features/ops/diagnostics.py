@@ -1,6 +1,8 @@
 """A diagnostics file to share when asking for help: the recent logs with every secret
 masked, the versions of what JARVIS runs on, a fresh checkup and the security review's
-headlines. It's written to the owner's Documents and goes nowhere by itself.
+headlines, and the crash reports the owner chose to keep (features/crash_reports.py, its
+reports and the list of the app's minidumps, never a minidump itself). It's written to the
+owner's Documents and goes nowhere by itself.
 
 What's masked in the logs (redact.py): tokens, keys, passwords and cookies, emails, phone
 numbers and the home folder's name. The checkup's lines are masked the same way; the
@@ -34,6 +36,7 @@ Made {made} to share when asking for help. Nothing was sent anywhere.
   versions.json
   checkup.json the checkup, run as this file was made
   security.json the security review's headlines
+  crash-reports/ crash reports, if you turned them on (masked the same way)
 
 Masked everywhere: tokens, keys, passwords, cookies, email addresses, phone numbers and
 your home folder's name. Your data (memory, messages, files) is not in here.
@@ -149,8 +152,10 @@ def build(
     review: dict[str, Any] | None,
     megabytes: int = 2,
     clock: Callable[[], datetime] = datetime.now,
+    extra: list[tuple[str, str]] | None = None,
 ) -> Path:
-    """Write the diagnostics zip into dest (made owner-only); its path."""
+    """Write the diagnostics zip into dest (made owner-only); its path. extra: more files
+    as (name in the zip, text), masked here like the logs (the crash reports)."""
     megabytes = megabytes if megabytes in SIZES_MB else 2
     home_re = redact.home_pattern(home)
     dest.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -174,6 +179,9 @@ def build(
             for log_name, raw in log_tails(logs, megabytes * 1024 * 1024):
                 body = redact.text(raw.decode("utf-8", errors="replace"), home_re)
                 zf.writestr(f"logs/{log_name}", body)
+            for name, text in extra or []:
+                if name.startswith("crash-reports/") and ".." not in name:
+                    zf.writestr(name, redact.text(str(text), home_re))
         os.chmod(partial, 0o600)
         os.replace(partial, target)
     finally:
