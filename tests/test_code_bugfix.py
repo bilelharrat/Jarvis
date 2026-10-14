@@ -716,3 +716,38 @@ async def test_bug_fix_mode_runs_no_code_of_its_own_choosing_unasked(hub, projec
     assert options.sandbox["network"]["allowedDomains"] == []  # no network
     assert options.sandbox["network"]["allowUnixSockets"] == ["/tmp/d.sock"]
     del desk.active[8]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pytest --basetemp=/Users/someone/Documents",  # pytest empties its basetemp first
+        "uv run pytest --basetemp=/tmp/anything",
+        "ruff check --fix /Users/someone/other-project",
+        "npm test --prefix /Users/someone/other-project",
+        "npm test --prefix ../other-project",
+        "go test -exec /bin/rm ./...",
+        "python3 -m compileall -f /",
+        "node --test --import=/tmp/evil.mjs",
+        "xcodebuild test -project /elsewhere/App.xcodeproj",
+        "pytest ~/elsewhere",
+    ],
+)
+def test_a_stack_command_naming_a_path_outside_the_copy_is_refused(command):
+    """B6 (round-1 break): the allow-list matched only the leading words, so these ran with
+    no card in the break step."""
+    stack = {"kinds": ["python", "node", "go", "xcode"]}
+    assert not command_allowed(stack, command) and not scratch_script(stack, command)
+
+
+async def test_the_sweep_runs_no_command_at_all(hub, projects):
+    """B6: "ruff check --fix" (a stack command) went ahead even in the read-only sweep."""
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    task = ClaudeTask(id=10, prompt="x", cwd=projects, mode="edits", allow_edits=True)
+    run = BugRun("r1", "calc", step="sweep", stack={"kinds": ["python"]})
+    for command in ("ruff check --fix .", "pytest -q", "ls"):
+        assert desk.refusal(run, task, "Bash", {"command": command}) not in (None, "card")
+    run.step = "break"
+    assert desk.refusal(run, task, "Bash", {"command": "pytest -q"}) is None

@@ -520,7 +520,14 @@ _P_IS_PACKAGE = ("go", "cargo", "swift")  # (their -p is a package or a count, n
 
 
 def runs_other_code(words: list[str]) -> bool:
+    """Whether a stack command has an option that runs another program, or names a path
+    outside the copy (absolute, ~ or climbing out with ..): "pytest --basetemp=/elsewhere"
+    empties that folder, "ruff check --fix /other" and "npm test --prefix /elsewhere" work
+    on another project."""
     for word in words[1:]:
+        value = word.split("=", 1)[1] if word.startswith("-") and "=" in word else word
+        if value.startswith(("/", "~")) or ".." in Path(value).parts:
+            return True
         flag = word.split("=", 1)[0]
         if flag == "-p" and words[0] in _P_IS_PACKAGE:
             continue
@@ -1155,6 +1162,8 @@ class BugFix:
                 return "the sweep is read-only: no edits until the fix step"
             if run.step in ("break", "ship") and not self._in_scratch(task, path):
                 return f"no edits in the {run.step} step but throwaway scripts in {SCRATCH}/"
+        if tool_name == "Bash" and run.step == "sweep":  # (its stack's own write: ruff --fix)
+            return "the sweep is read-only: no commands until the break step"
         ruled = self.hub.tasks._ruled(task, tool_name, tool_input)
         if ruled is not None and ruled[0] != "allow":
             return "card"  # the owner's own rule asks (or refuses): theirs, as always
