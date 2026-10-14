@@ -1,10 +1,10 @@
 """Touch ID for Eden Code's riskiest moments: a session switched into Bypass permissions,
 new sessions set to start in it, and a risky step allowed from its card ask for the owner's
 fingerprint (the window asks: web/features/code-touchid.js, through the app's own
-app/features/touchid.js), or the usual question where there's no Touch ID.
+app/features/touchid.js), or the app's own confirmation where there's no Touch ID.
 
-Only its setting lives here: code_touchid (on by default), in Eden Code settings ›
-General; and check_proof, for the proof the app's main process signs once macOS's sheet said
+Its setting: code_touchid (on by default), in Eden Code settings › General. check_proof
+checks the proof the app's main process signs once macOS's sheet said
 yes (app/features/touchid.js makeProof, audit S30): "v1.<kind>.<expires ms>.<nonce>.<mac>",
 the mac an HMAC-SHA256 under this backend's token of "eden-touchid|v1|<kind>|<expires>|<nonce>".
 A proof holds until it expires (two minutes at most) and only once.
