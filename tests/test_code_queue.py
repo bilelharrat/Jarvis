@@ -509,3 +509,39 @@ async def test_the_queue_takes_up_its_own_starts_late_session_never_another(hub,
     assert session.launch_token == token and card["task"] == session.id
     assert card["attempts"] and card["state"] != "failed"
     await end_all(hub)
+
+
+async def test_a_session_that_comes_after_its_card_failed_is_stopped(hub, monkeypatch):
+    """REL3-7 (s3rel/test_s3_late.py): after LATE_WAIT the card failed, but the session that
+    came later still ran, unlinked and outside the queue's ceiling (a retry doubled the
+    work). It's stopped as it appears, and says why."""
+    from jarvis.features import code_todo
+
+    monkeypatch.setattr(code_todo, "START_WAIT", 0.1)
+    monkeypatch.setattr(code_queue, "LATE_WAIT", 0.3)
+    (card,) = await add(hub, "job three")
+    _hold_starts(hub, monkeypatch, [1.0])
+    hub.code_queue.cmd_run({"directory": "proj", "parallel": 1, "ceiling": 3})
+    assert await until(lambda: card["state"] == "failed", 3000)
+    assert await until(lambda: _sessions_of(hub, "job three"), 3000)
+    [late] = _sessions_of(hub, "job three")
+    assert await until(lambda: late.handle is None or late.handle.done(), 3000)
+    assert any("too late" in e["text"] for e in late.transcript if e["role"] == "system")
+    assert not card.get("task") and card["state"] == "failed"
+    await end_all(hub)
+
+
+async def test_a_refused_start_never_holds_the_cards_place(hub, monkeypatch):
+    """REL3-8: a task_new the hub refused (ValueError) still left its token pending, so the
+    queue held the card 5.5 minutes for a session that never comes. It fails at once."""
+    (card,) = await add(hub, "job four")
+
+    def refuse(*_a, **_k):
+        raise ValueError("That folder isn't one of your projects.")
+
+    monkeypatch.setattr(hub.tasks, "start", refuse)
+    hub.code_queue.cmd_run({"directory": "proj", "parallel": 1, "ceiling": 3})
+    assert await until(lambda: card["state"] == "failed", 1000)
+    assert hub.code_todo.pending == {} and card["id"] not in hub.code_queue.waiting
+    await hub.code_todo.cmd_start({"id": card["id"]})  # (a manual one: no token left pending)
+    assert hub.code_todo.pending == {}

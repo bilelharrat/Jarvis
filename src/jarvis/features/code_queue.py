@@ -363,14 +363,15 @@ class Queue:
 
     async def _late(self, run: Run, card: dict[str, Any], token: str) -> None:
         """A late session that never comes: after LATE_WAIT the card failed, its place free.
-        (Should it come even later, code_todo no longer binds it; its own stamp still locks
-        it down, and the owner's caps still hold.)"""
+        Should it come even later, code_todo stops it as it appears (its token is dead): it
+        ran unlinked, outside the ceiling, while the card said failed (REL3-7)."""
         await asyncio.sleep(LATE_WAIT)
         if card["id"] not in self.waiting:
             return
         del self.waiting[card["id"]]
         self.todo.pending.pop(token, None)
         self.todo.pending_at.pop(token, None)
+        self.todo.dead.add(token)  # (should it come after all: stopped as it does, REL3-7)
         card["state"] = "failed"
         self.todo.error(
             self.tr("The session didn't start: {why}", why=self.tr("it didn't appear in time"))

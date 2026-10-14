@@ -6988,6 +6988,7 @@ class Hub:
                     **launches.stamp(msg),  # (who started it, and whether it's anyone's words)
                 )
             except ValueError as exc:
+                launches.refuse(msg, str(exc))  # (its starter stops waiting: REL3-8)
                 self.emit("error", text=str(exc))
             else:
                 if task.id in known:  # that session is already open: show it, never a copy

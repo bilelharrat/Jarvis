@@ -64,6 +64,10 @@ START_WAIT = 30.0  # seconds a started card waits for its session (it binds late
 # Seconds a card whose session is late still counts as starting (no second Start, no queue
 # Run of it): as long as the queue holds a late card's place (code_queue.LATE_WAIT).
 LATE_WAIT = 300.0
+TOO_LATE = (
+    "This session started too late for its to-do card, which had already failed, so it was "
+    "stopped. Start the card again to run it."
+)
 STATES = ("todo", "queued", "running", "started", "done", "failed", "stopped")
 OUTSIDE_MODES = ("plan", "ask", "edits")  # what a card from an issue may start in
 _ID = re.compile(r"[0-9a-f]{10}")
@@ -86,6 +90,7 @@ ZH = {
     "That isn't a model on your list.": "那不是你列表里的模型。",
     "That card is already running.": "那张卡片已经在运行了。",
     "That card's session is still starting.": "那张卡片的会话还在启动。",
+    "This session started too late for its to-do card, which had already failed, so it was stopped. Start the card again to run it.": "这个会话启动得太晚，它的待办卡片已经失败了，所以它被停止了。再次启动卡片即可运行。",
     "The session didn't start: {why}": "会话没有启动：{why}",
     "it didn't appear in time": "它没有及时出现",
     "Add a cloud machine in Eden Code settings › Machines first.": "请先在 Eden Code 设置 › 机器 里添加一台云端机器。",
@@ -220,6 +225,10 @@ class Todo:
         # a held Start left the card "todo", Run queued it, and one card ran two sessions).
         self.pending_at: dict[str, float] = {}
         self.starting: set[str] = set()
+        # Tokens given up on (code_queue's LATE_WAIT ran out, the card failed): should the
+        # session come even so, it's stopped as it appears, never left running unlinked and
+        # outside the queue's ceiling while its card says failed (REL3-7).
+        self.dead: set[str] = set()
         # Told (card, session) when a late one binds: the queue takes such a card back up.
         self.late: list[Any] = []
 
@@ -550,6 +559,8 @@ class Todo:
                 token = token or launches.token()
                 await self.hub._handle(self.message(card, model, route, token))
                 task = await launches.started(tm, token, START_WAIT)
+                if task is None and launches.refusal(token) is not None:
+                    return None  # (refused, never held: the hub said why; REL3-8)
                 if task is None:
                     self.pending[token] = card["id"]
                     self.pending_at[token] = time.monotonic()
@@ -609,6 +620,13 @@ class Todo:
         """A started card learns its session's Claude Code id (to reopen it later)."""
         if kind != "tasks":
             return
+        for token in list(self.dead):
+            task = launches.find(self.hub.tasks, token)
+            if task is None:
+                continue
+            self.dead.discard(token)
+            self.hub.tasks._log(task, "system", self.tr(TOO_LATE))
+            self.hub.tasks.cancel(task.id)
         for token, card_id in list(self.pending.items()):
             task = launches.find(self.hub.tasks, token)
             if task is None:
