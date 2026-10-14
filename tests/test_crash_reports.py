@@ -249,3 +249,80 @@ def test_reports_are_named_in_utc_as_the_app_s_own_are(tmp_path, monkeypatch):
     utc = datetime.fromtimestamp(1_800_000_000.0, UTC).replace(tzinfo=None)
     assert path.name.startswith(utc.strftime("%Y%m%d-%H%M%S"))
     assert json.loads(path.read_text())["at"] == utc.isoformat(timespec="seconds")
+
+
+def test_a_count_that_cant_be_written_backs_off(tmp_path, monkeypatch):
+    """REL-17: on a full disk each repeat read and fsynced its report again (the first
+    repeat is written at once, and it never was); now a failed write waits, longer each
+    time, and the count is still all there once the disk has room."""
+    rep, _hub, _ = reporter(tmp_path, clock=[1_800_000_000.0 + i * 0.01 for i in range(5000)])
+    first = rep.record("backend", "uncaught", "boom", "stack")
+    tries = []
+    real = crash_reports.jsonstore.save_store
+
+    def full(*a, **k):
+        tries.append(a[0])
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(crash_reports.jsonstore, "save_store", full)
+    for _ in range(500):
+        rep.record("backend", "uncaught", "boom", "stack")
+    assert len(tries) <= 2
+    monkeypatch.setattr(crash_reports.jsonstore, "save_store", real)
+    rep.flush()
+    assert json.loads(first.read_text())["times"] == 501
+
+
+async def test_an_uncaught_failure_writes_the_counts_before_the_backend_ends(
+    tmp_path, monkeypatch
+):
+    """REL-17: the repeats counted in memory were lost when an uncaught exception ended
+    the backend; the hook writes them first."""
+    rep, _hub, _ = reporter(tmp_path, clock=[1_800_000_000.0 + i * 0.01 for i in range(5000)])
+    monkeypatch.setattr(sys, "excepthook", lambda *a: None)
+    monkeypatch.setattr(threading, "excepthook", lambda args: None)
+    loop = asyncio.get_running_loop()
+    first = rep.record("backend", "thread", "loop failure")
+    for _ in range(50):
+        rep.record("backend", "thread", "loop failure")
+    try:
+        await rep.watch()
+        try:
+            raise RuntimeError("fatal")
+        except RuntimeError as exc:
+            sys.excepthook(type(exc), exc, exc.__traceback__)
+    finally:
+        loop.set_exception_handler(None)
+    assert json.loads(first.read_text())["times"] == 51
+
+
+def test_old_local_time_names_are_renamed_to_utc_once(tmp_path, monkeypatch):
+    """REL-17: an older build named the backend's reports in local time; against the UTC
+    names, oldest-first (and pruning) was wrong. They're renamed once; UTC ones and the
+    app's own are left as they are."""
+    import os
+    import time
+    from datetime import UTC
+
+    monkeypatch.setenv("TZ", "Pacific/Kiritimati")  # UTC+14
+    time.tzset()
+    try:
+        folder = tmp_path / "crash-reports"
+        folder.mkdir()
+        at = 1_800_000_000.0
+        local = datetime.fromtimestamp(at).strftime("%Y%m%d-%H%M%S")
+        utc = datetime.fromtimestamp(at, UTC).strftime("%Y%m%d-%H%M%S")
+        old = folder / f"{local}-backend-aaaaaaaa.json"
+        new = folder / f"{utc}-window-bbbbbbbb.json"
+        app = folder / f"{local}-electron-cccccccc.json"
+        for path in (old, new, app):
+            path.write_text("{}")
+            os.utime(path, (at, at))
+        rep, _hub, _ = reporter(tmp_path, clock=[at + 5 + i for i in range(10)])
+        rep.record("backend", "uncaught", "later")
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+    names = sorted(p.name for p in kept(tmp_path))
+    assert f"{utc}-backend-aaaaaaaa.json" in names and old.name not in names
+    assert new.name in names and app.name in names

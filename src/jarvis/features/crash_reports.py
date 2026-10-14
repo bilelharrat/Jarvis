@@ -16,8 +16,10 @@ failed, its traceback or stack, when, and the versions; every string scrubbed fi
 diagnostics file's masks (ops/redact.py: tokens, keys, passwords, emails, phone numbers, the
 home folder's name) and the commit check's key formats (secret_scan.PATTERNS). The same
 report twice within REPEAT_SECONDS is counted, not kept again (the count written at most every
-COUNT_SAVE_SECONDS, and never into a report that was deleted); at most PER_HOUR are kept an
-hour. Names and times are UTC, as the app's own reports are (the folder is pruned by name). Nothing leaves the Mac: the diagnostics file (ops/diagnostics.py) carries the reports
+COUNT_SAVE_SECONDS, and never into a report that was deleted; one that can't be written, a
+full disk, is tried less and less often; all of them as an uncaught exception ends the
+backend); at most PER_HOUR are kept an hour. An older build's local-time names are renamed
+to UTC once. Names and times are UTC, as the app's own reports are (the folder is pruned by name). Nothing leaves the Mac: the diagnostics file (ops/diagnostics.py) carries the reports
 and a list of the minidumps (names and sizes; a minidump is the process's memory, which
 can't be masked, so it never goes in). UPLOAD_URL is the hook for sending them once there's
 somewhere to send them to: empty, upload() does nothing.
@@ -63,6 +65,11 @@ KEEP = 50  # reports kept, the newest
 PER_HOUR = 20  # reports kept in an hour, at most (a loop of failures can't fill the disk)
 REPEAT_SECONDS = 600.0  # the same failure again within this is counted, not kept again
 COUNT_SAVE_SECONDS = 60.0  # a report's repeat count is written at most this often
+COUNT_BACKOFF_MAX = 3600.0  # a count that can't be written (a full disk) is tried this seldom, at most
+# Names from before they were UTC (local time) are renamed once, so the folder's order (and
+# its pruning, oldest first) is right: one whose name is further than this from when it was
+# written, and right as local time, was named in local time.
+NAME_SLACK = 900.0
 TEXT_LIMIT = 4000  # a message
 STACK_LIMIT = 16_000  # a traceback or a stack
 SOURCES = ("backend", "window", "electron")
@@ -100,6 +107,10 @@ class Reporter:
         # loop read and fsynced its file on every repeat.
         self._counts: dict[Path, list[float]] = {}
         self._kept_at: list[float] = []  # when each report this hour was kept
+        # Reports whose count couldn't be written (a full disk): file -> failures so far.
+        # Tried again only after a wait that doubles each time, never at every repeat.
+        self._failed: dict[Path, int] = {}
+        self._renamed = False  # the old local-time names have been made UTC (_utc_names)
         self._hooked = False
 
     def on(self) -> bool:
@@ -169,19 +180,29 @@ class Reporter:
         COUNT_SAVE_SECONDS (the first repeat at once), else by a later repeat or flush()."""
         count = self._counts.setdefault(path, [1, 1, 0.0])
         count[0] += 1
-        if self.clock() - count[2] >= COUNT_SAVE_SECONDS or count[1] <= 1:
+        failed = self._failed.get(path, 0)
+        if failed:  # (a full disk: tried again after a wait that doubles each time)
+            due = min(COUNT_SAVE_SECONDS * 2**failed, COUNT_BACKOFF_MAX)
+        else:
+            due = 0.0 if count[1] <= 1 else COUNT_SAVE_SECONDS
+        if self.clock() - count[2] >= due:
             self._write_count(path, count)
 
     def _write_count(self, path: Path, count: list[float]) -> None:
         count[2] = self.clock()
-        with contextlib.suppress(OSError, jsonstore.Unreadable, TypeError, AttributeError):
+        try:
             data = jsonstore.load_store(path, STORE)
             if not isinstance(data, dict):  # deleted (by the owner, or pruned): stays gone
                 self._counts.pop(path, None)
+                self._failed.pop(path, None)
                 return
             data["times"] = max(int(data.get("times") or 1), 1) + int(count[0] - count[1])
             jsonstore.save_store(path, STORE, data, backup=False)
-            count[1] = count[0]
+        except (OSError, TypeError, AttributeError, ValueError):  # (Unreadable is an OSError)
+            self._failed[path] = self._failed.get(path, 0) + 1
+            return
+        count[1] = count[0]
+        self._failed.pop(path, None)
 
     def flush(self) -> None:
         """Every repeat counted but not written yet, written (before the diagnostics file
@@ -197,7 +218,42 @@ class Reporter:
         except Exception:  # (never a reason not to keep the report)
             return {}
 
+    def _utc_names(self) -> None:
+        """Once a run: the backend's and the window's reports an older build named in local
+        time renamed to UTC, as the rest are, so oldest-first is right and pruning takes
+        the oldest. A name is taken as local time only when, as UTC, it's further than
+        NAME_SLACK from when the file was written, and as local time it's within it (a
+        count written later moves the file's time on, never back)."""
+        if self._renamed:
+            return
+        self._renamed = True
+        try:
+            paths = sorted(p for p in self.folder.glob("*.json") if p.is_file())
+        except OSError:
+            return
+        for path in paths:
+            stamp, _, rest = path.name[:15], path.name[15:16], path.name[16:]
+            if not rest.startswith(("backend-", "window-")):
+                continue
+            try:
+                naive = datetime.strptime(stamp, "%Y%m%d-%H%M%S")
+                written = path.stat().st_mtime
+            except (ValueError, OSError):
+                continue
+            as_utc = naive.replace(tzinfo=UTC).timestamp()
+            as_local = naive.timestamp()  # (naive: the Mac's own time zone)
+            if abs(written - as_utc) <= NAME_SLACK:
+                continue
+            if not (-60.0 <= written - as_local <= NAME_SLACK + REPEAT_SECONDS):
+                continue
+            utc = datetime.fromtimestamp(as_local, UTC).strftime("%Y%m%d-%H%M%S")
+            new = path.with_name(f"{utc}-{rest}")
+            if not new.exists():
+                with contextlib.suppress(OSError):
+                    path.rename(new)
+
     def _prune(self) -> None:
+        self._utc_names()
         for old in self.files()[:-KEEP]:
             with contextlib.suppress(OSError):
                 old.unlink()
@@ -284,6 +340,11 @@ class Reporter:
 
         def sys_hook(kind: Any, exc: BaseException, tb: Any) -> None:
             self.exception("uncaught", exc, tb)
+            # An uncaught exception in the main thread ends the backend: the repeat counts
+            # not written yet go now, or they're lost (REL-17). (A SIGKILL still loses up
+            # to COUNT_SAVE_SECONDS of them: nothing runs then.)
+            with contextlib.suppress(Exception), self._lock:
+                self.flush()
             before_sys(kind, exc, tb)
 
         def thread_hook(args: Any) -> None:
