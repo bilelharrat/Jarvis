@@ -325,19 +325,23 @@ async def test_a_request_a_link_wrote_is_never_the_owners_own_words(hub, monkeyp
 
     monkeypatch.setattr(hub.client, "query", watch)
 
-    async def settled():
+    async def settled(before):
+        # What the request started is done (the loops hub.start() began never are).
         for _ in range(200):
-            if not [t for t in hub._background if not t.done()] and hub.state == "idle":
+            started = [t for t in hub._background if t not in before and not t.done()]
+            if not started and hub.state == "idle":
                 return
             await asyncio.sleep(0.01)
 
+    before = set(hub._background)
     await hub._handle({"type": "ask", "text": "press command Q", "from_link": True})
-    await settled()
+    await settled(before)
     assert ran == []  # never an instant command: Claude has it, with the gates
     assert during == [("", True, ["a request a link wrote"])]
     assert [h["text"] for h in hub.history if h["role"] == "user"] == ["press command Q"]
+    before = set(hub._background)
     await hub._handle({"type": "ask", "text": "press command Q"})  # typed by the owner
-    await settled()
+    await settled(before)
     assert ran == ["keys"] and len(during) == 1
 
 
