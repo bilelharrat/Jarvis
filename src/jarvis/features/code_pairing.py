@@ -15,7 +15,12 @@ mirrored there at once; from then on, about every second:
   .vscode/ and the like) are held and listed until the owner brings them over: the folder
   is opened in the owner's editor, where those run.
 Off: the sync stops; the folder stays as it is, and on again picks up where it left off.
-Landing or discarding the copy ends the pairing too (the folder stays, the owner's).
+Landing or discarding the copy ends the pairing too (the folder stays, the owner's). Before
+the copy's files go, the desk waits for a sync in flight and no new one starts
+(Desk.before_copy_gone, Desk.removing): a sync while git takes the copy away would see the
+session's files vanish and delete them from the owner's folder. For the same reason the
+sweeper never takes a paired copy (a holder), and pairsync itself refuses a copy whose git
+can't list it, and holds more than DELETES_MAX deletions at once for the owner.
 
 Window commands: code_pair {id, on, folder?}, code_pair_state {id}, code_pair_keep {id,
 path, side: "mine" | "eden"}, code_pair_release {id}, code_pair_open {id, editor}.
@@ -39,7 +44,8 @@ from .. import code_editor, jsonstore, lang, mac_tools, pairsync, private_folder
 from ..code_projects import in_app_data
 from ..codeplatform import code_task
 from ..computer import is_sensitive
-from ..pairsync import Pair, Syncer
+from ..pairsync import CopyUnreadable, Pair, Syncer
+from .code_workspace import unopenable
 
 log = logging.getLogger("jarvis")
 
@@ -61,6 +67,7 @@ ZH = {
     "Kept it.": "已保留。",
     "Couldn't keep it: it changed again just now. Try again.": "没能保留：它刚刚又变了。请再试一次。",
     "Brought {n} held files over.": "已把 {n} 个暂留的文件同步过去。",
+    "Eden's session deleted {n} files at once; they're held in the Pairing pane, not deleted from your folder.": "Eden 的会话一次删除了 {n} 个文件；它们暂留在结对面板里，没有从你的文件夹删除。",
     "That editor isn't on this Mac.": "这台 Mac 上没有那个编辑器。",
     "Couldn't open it: {error}": "没能打开：{error}",
 }
@@ -78,6 +85,7 @@ class Pairing:
         self.last: dict[str, float] = {}
         self.errors: dict[str, str] = {}
         self.locks: dict[str, asyncio.Lock] = {}
+        self.unreadable = False  # the saved pairings couldn't be read: never saved over
 
     # ── plumbing ──
 
@@ -95,7 +103,9 @@ class Pairing:
         if self._pairs is None:
             try:
                 data = jsonstore.load_json(self._path(), dict) or {}
-            except jsonstore.Unreadable:
+            except jsonstore.Unreadable:  # (never saved over: C9; this run's pairs are kept)
+                log.warning("code_pairs.json can't be read; pairings aren't saved this run")
+                self.unreadable = True
                 data = {}
             self._pairs = {
                 p.slug: p for raw in data.values() if (p := Pair.from_json(raw)) is not None
@@ -103,6 +113,8 @@ class Pairing:
         return self._pairs
 
     def save(self) -> None:
+        if self.unreadable:
+            return
         with contextlib.suppress(OSError):  # a full disk: kept for this run
             jsonstore.save_json(self._path(), {s: p.to_json() for s, p in self.pairs().items()})
 
@@ -129,9 +141,11 @@ class Pairing:
     def folder_problem(self, folder: Path, copy: Any) -> str:
         """Why a folder can't be this copy's pairing folder ("" when it can)."""
         home = Path.home().resolve()
+        if unopenable(str(folder)):  # (a NUL, a name too long: pathlib raises on those)
+            return "Pick a folder inside your home folder."
         try:
             path = folder.expanduser().resolve()
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError, ValueError):
             return "Pick a folder inside your home folder."
         if home not in path.parents:
             return "Pick a folder inside your home folder."
@@ -148,15 +162,22 @@ class Pairing:
             or private_folders.is_private(path)
         ):
             return "That folder can't be a pairing folder: pick an empty folder of your own."
-        if path.exists():
-            if not path.is_dir():
-                return "That folder can't be a pairing folder: pick an empty folder of your own."
-            marker = path / pairsync.MARKER
-            mine = False
-            with contextlib.suppress(OSError, ValueError):
-                mine = json.loads(marker.read_text()).get("slug") == copy.slug
-            if not mine and any(p.name != ".DS_Store" for p in path.iterdir()):
-                return "That folder isn't empty: pick an empty folder (or a new one) for pairing."
+        try:
+            if path.exists():
+                if not path.is_dir():
+                    return (
+                        "That folder can't be a pairing folder: pick an empty folder of your own."
+                    )
+                marker = path / pairsync.MARKER
+                mine = False
+                with contextlib.suppress(OSError, ValueError, AttributeError):
+                    mine = json.loads(marker.read_text()).get("slug") == copy.slug
+                if not mine and any(p.name != ".DS_Store" for p in path.iterdir()):
+                    return (
+                        "That folder isn't empty: pick an empty folder (or a new one) for pairing."
+                    )
+        except (OSError, ValueError):  # (unreadable, or a name the disk won't take)
+            return "That folder can't be a pairing folder: pick an empty folder of your own."
         return ""
 
     def default_folder(self, copy: Any) -> Path:
@@ -236,10 +257,14 @@ class Pairing:
             await self.ended(pair)
             return
         async with self.lock(pair.slug):
-            if not pair.on:
-                return
+            if not pair.on or pair.slug in getattr(desk, "removing", ()):
+                return  # (its copy is being taken away: see before_gone)
             try:
                 done = await asyncio.to_thread(self.syncer(pair).sync)
+            except CopyUnreadable as exc:  # (the copy going, its .git gone: no sync at all)
+                self.errors[pair.slug] = str(exc)[:200]
+                self.publish(pair)
+                return
             except Exception as exc:  # a folder gone mid-sync, a full disk: said, then again
                 log.warning("pairing %s: the sync failed", pair.slug, exc_info=True)
                 self.errors[pair.slug] = str(exc)[:200]
@@ -257,6 +282,11 @@ class Pairing:
                 self.hub.tasks._log(
                     task, "system", self.tr(f"Your edits came in from the pairing folder: {names}.")
                 )
+        if done.mass_held:
+            self.caption(
+                f"Eden's session deleted {done.mass_held} files at once; they're held in the "
+                "Pairing pane, not deleted from your folder."
+            )
         if done.conflicts:
             n = len(pair.conflicts)
             self.caption(
@@ -282,6 +312,17 @@ class Pairing:
         self.save()
         self.stop_loop(pair.slug)
         self.publish(pair)
+
+    async def before_gone(self, slug: str) -> None:
+        """The desk is about to take a copy's files away (Desk.removing has it now): a
+        sync in flight is waited for, and none starts until it's done."""
+        if slug in self.pairs():
+            async with self.lock(slug):
+                pass
+
+    def held_copies(self) -> list[str]:
+        """The copies the sweeper must leave: the ones paired just now."""
+        return [slug for slug, pair in self.pairs().items() if pair.on]
 
     def on_copy_gone(self, slug: str) -> None:
         pair = self.pairs().get(slug)
@@ -402,6 +443,9 @@ def install(hub: Any) -> None:
     desk = getattr(hub, "code_desk", None)
     if desk is not None:
         desk.on_copy_gone.append(pairing.on_copy_gone)
+        desk.holders.append(pairing.held_copies)
+        if hasattr(desk, "before_copy_gone"):
+            desk.before_copy_gone.append(pairing.before_gone)
     hub.register_command("code_pair", pairing.cmd_pair)
     hub.register_command("code_pair_state", pairing.cmd_state)
     hub.register_command("code_pair_keep", pairing.cmd_keep)

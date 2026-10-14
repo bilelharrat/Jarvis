@@ -136,6 +136,12 @@ class Desk:
         self.on_new_copy: list[Any] = []
         self.on_copy_gone: list[Any] = []
         self.holders: list[Any] = []
+        # Before a copy's files are taken away (landed, discarded): await hook(slug), with
+        # the slug in removing until it's done (code_pairing waits for its sync in flight
+        # and starts none: a sync then would mirror the vanishing files as deletions into
+        # the owner's pairing folder).
+        self.before_copy_gone: list[Any] = []
+        self.removing: set[str] = set()
 
     # ── the list of copies ──
 
@@ -181,6 +187,16 @@ class Desk:
             except Exception:
                 log.exception("a holder of isolated copies failed")
         return live
+
+    async def taking_away(self, slug: str) -> None:
+        """A copy's files are about to go: marked removing (the caller clears it once the
+        removal is over, done or not), and the before_copy_gone hooks awaited."""
+        self.removing.add(slug)
+        for hook in self.before_copy_gone:
+            try:
+                await hook(slug)
+            except Exception:
+                log.exception("an isolated copy's before-gone hook failed")
 
     def gone(self, slug: str) -> None:
         """Tell the on_copy_gone hooks a copy is gone."""
@@ -496,6 +512,10 @@ class Desk:
         this one): its work committed and merged, its sessions ended, the copy removed."""
         inside = self.tasks_in(copy)
         message = f"Eden Code: {copy.title or copy.slug}"
+        # A turn may have started since the card went up (C5): it's stopped, and waited
+        # for, before the copy's work is committed, so nothing is half written in it.
+        if not await self.quiet(inside):
+            return "It's still working. Stop it first, then land."
         async with self.lock(copy.repo):
             landed = await asyncio.to_thread(worktrees.land, copy, message)
             if not landed.ok:
@@ -506,7 +526,11 @@ class Desk:
             for task in inside:
                 self.hub.tasks.cancel(task.id)
             await self._ended(inside)
-            problem = await asyncio.to_thread(worktrees.remove, copy, self.root)
+            await self.taking_away(copy.slug)
+            try:
+                problem = await asyncio.to_thread(worktrees.remove, copy, self.root)
+            finally:
+                self.removing.discard(copy.slug)
         if copy in self.store().copies:
             self.store().copies.remove(copy)
         self.save()
@@ -516,6 +540,18 @@ class Desk:
         if problem:
             log.warning("a landed copy left something behind: %s", problem)
         return landed.message
+
+    async def quiet(self, tasks: list[Any], seconds: float = 15.0) -> bool:
+        """The busy ones of these sessions interrupted, and waited for (their turn ends);
+        False when one is still busy after seconds."""
+        for task in tasks:
+            if task.busy:
+                await self.hub.tasks.interrupt(task.id)
+        loop = asyncio.get_running_loop()
+        until = loop.time() + seconds
+        while any(t.busy for t in tasks) and loop.time() < until:
+            await asyncio.sleep(0.1)
+        return not any(t.busy for t in tasks)
 
     async def _ended(self, tasks: list[Any]) -> None:
         handles = [t.handle for t in tasks if t.handle is not None and not t.handle.done()]
@@ -548,10 +584,13 @@ class Desk:
             for task in inside:
                 self.hub.tasks.cancel(task.id)
             await self._ended(inside)
+            await self.taking_away(copy.slug)
             try:
                 item = await asyncio.to_thread(worktrees.discard, copy, self.root)
             except worktrees.CopyError as exc:
                 return str(exc)
+            finally:
+                self.removing.discard(copy.slug)
         store = self.store()
         if copy in store.copies:
             store.copies.remove(copy)

@@ -528,6 +528,69 @@ async def test_keeping_one_attempt_discards_the_merge_too(hub, projects, merging
     assert hub.code_desk.store().copies == [] and len(hub.code_desk.store().trash) == 2
 
 
+async def merged_group(hub):
+    async def judge(prompt, **kw):
+        if kw["kind"] == "judge":
+            return "ok"
+        return json.dumps({"hunks": [{"id": next(iter(ids_in(prompt)))}]})
+
+    hub.code_bestof.ai = judge
+    hub.code_bestof.start(
+        {"directory": "proj", "prompt": "go", "variants": [{"model": "sonnet"}, {"model": "opus"}]}
+    )
+    assert await until(lambda: latest(hub) and latest(hub)["status"] == "done")
+    return latest(hub)["group"]
+
+
+async def test_nothing_is_kept_while_a_merge_is_being_made(hub, projects, merging):
+    """C7: Keep while merging would leave the merge's copy and session behind, unlisted;
+    a merge begun while the Keep card was up stops the keep too."""
+    group_id = await merged_group(hub)
+    group = hub.code_bestof.groups[group_id]
+    group.merge = {"status": "merging"}
+    assert await hub.code_bestof.keep(group_id, 1) == "Wait for the merge to finish, then keep one."
+    group.merge = None
+
+    def merge_begins(card):
+        group.merge = {"status": "merging"}
+        hub.resolve(card["id"], "keep")
+
+    hub.add_approval_sink(merge_begins)
+    assert await hub.code_bestof.keep(group_id, 1) == "Wait for the merge to finish, then keep one."
+    assert len(hub.code_desk.store().copies) == 2 and group.status != "kept"
+
+
+async def test_merging_again_asks_before_the_last_merges_copy_goes(hub, projects, merging):
+    group_id = await merged_group(hub)
+    await hub.code_bestof.merge(group_id)
+    first = latest(hub)["merge"]["slug"]
+    branch = hub.code_desk.store().find(first).branch
+    hub.answers = ["deny"]
+    assert await hub.code_bestof.merge(group_id) == "Not merged again."
+    assert hub.cards[-1]["question"] == "Merge again?" and branch in hub.cards[-1]["detail"]
+    assert hub.code_desk.store().find(first) is not None
+    hub.answers = ["merge"]
+    assert await hub.code_bestof.merge(group_id) == ""
+    assert hub.code_desk.store().find(first) is None
+    assert latest(hub)["merge"]["status"] == "ready" and latest(hub)["merge"]["slug"] != first
+
+
+async def test_a_merge_that_fails_after_its_copy_is_made_leaves_no_copy(
+    hub, projects, merging, monkeypatch
+):
+    """C8: anything going wrong once the merge's copy exists discards it."""
+    group_id = await merged_group(hub)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("no session")
+
+    monkeypatch.setattr(hub.code_bestof, "_review_session", boom)
+    await hub.code_bestof.merge(group_id)
+    merge = latest(hub)["merge"]
+    assert merge["status"] == "failed" and merge["error"] == "no session"
+    assert len(hub.code_desk.store().copies) == 2  # (the two attempts' only)
+
+
 async def test_a_keep_without_a_number_never_means_the_merge(hub):
     kept = []
 
@@ -649,3 +712,31 @@ def test_credentials_binary_files_and_renames_are_left_out_of_the_merge(tmp_path
         "new.py (Sonnet) was renamed",
         "pic.bin (Sonnet) is a binary file",
     ]
+
+
+HOSTILE = [
+    None, True, -1, 10**30, float("nan"), float("inf"), 1.5, "", "a\x00b", "x" * 50_000,
+    "../../../../etc/passwd", "\ud800", [], [None], ["../../etc"], {"a": {"b": 1}},
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["code_bestof", "code_bestof_keep", "code_bestof_merge", "code_bestof_state",
+     "code_stack", "code_stack_propose", "code_stack_set", "code_stack_create"],
+)  # fmt: skip
+async def test_odd_values_in_its_window_commands_are_refused_not_raised(
+    hub, projects, caplog, kind
+):
+    """code_bestof {variants: true} once raised a TypeError: every field of any type is
+    answered (a caption, or nothing), never a traceback."""
+    import logging
+
+    make_repo(projects / "proj", {"a.py": "a\n"})
+    caplog.set_level(logging.WARNING)
+    keys = ("id", "directory", "prompt", "variants", "tests", "mode", "group", "n", "ai", "parts")
+    for odd in HOSTILE:
+        await hub._handle({"type": kind, **dict.fromkeys(keys, odd)})
+    await asyncio.sleep(0.2)
+    assert not [r for r in caplog.records if r.exc_info]
+    assert not getattr(hub, "_command_failures", {})

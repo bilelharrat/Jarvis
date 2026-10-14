@@ -19,9 +19,19 @@ until the owner brings them over (tasks._PROTECTED_DIRS and friends, plus the ed
 The owner's own edits to them in their folder go to the copy as any edit does: they're the
 owner's.
 
-Only regular files, never links; nothing over FILE_MAX bytes; .git, node_modules, .venv and
-caches are never looked at. A file the other side changed while it was being written is
-left for the next sync, never overwritten.
+Only regular files, never links, and never through a linked folder either: a path with a
+link anywhere on the way (the session can swap its copy's lib/ for a link to ~/.ssh, the
+owner's folder can hold docs -> ~/Documents) is left alone on both sides, never read,
+written or deleted through. Names are compared casefolded where it matters (the Mac's disk
+doesn't care about case: .Claude/ is .claude/). Nothing over FILE_MAX bytes; .git,
+node_modules, .venv and caches are never looked at. A file the other side changed while it
+was being written is left for the next sync, never overwritten; Keep and bring-over write
+only the version the owner saw, over the version the owner saw.
+
+The owner's folder is never emptied by accident: a sync stops (CopyUnreadable) when the
+copy's git can't list its files (the copy being removed, its .git gone), and when the
+session deletes more than DELETES_MAX files in one pass the deletions are held, like a
+protected change, until the owner brings them over.
 """
 
 from __future__ import annotations
@@ -36,34 +46,35 @@ from pathlib import Path
 from typing import Any
 
 from .code_changes import git
-from .tasks import (
-    _HOOK_CONFIG_PREFIXES,
-    _HOOK_CONFIGS,
-    _PROTECTED_DIRS,
-    _PROTECTED_FILES,
-    _hook_sections,
-)
+from .tasks import _hook_sections, _protected_rel
 
 MARKER = ".eden-pair.json"  # in the pairing folder: whose mirror it is
 FILE_MAX = 5_000_000
 FILES_MAX = 20_000
+# More of the session's deletions than this in one pass are held for the owner, not
+# mirrored: a copy half taken away (or a session's rm -rf) must not empty their folder.
+DELETES_MAX = 50
 # Never mirrored, either way.
 NEVER = {".git"}
 # Not looked for in the owner's folder (what's in there is untracked noise: an editor's or
 # a build's): a file git tracks in one of them is still mirrored, found from the copy's side.
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
              ".pytest_cache", ".ruff_cache", ".next", ".turbo", "dist", "build"}  # fmt: skip
-EDITOR_DIRS = {".vscode", ".idea", ".zed", ".fleet", ".devcontainer"}
+EDITOR_DIRS = frozenset({".vscode", ".idea", ".zed", ".fleet", ".devcontainer"})
+
+
+class CopyUnreadable(RuntimeError):
+    """The copy's git couldn't list its files (its .git gone, the copy being removed): no
+    sync this time, rather than one that takes every file as deleted by the session."""
 
 
 def protected(rel: str, new: bytes | None, old: bytes | None) -> bool:
     """Whether a change from the copy to this file waits for the owner (it runs code by
-    itself, in git or in the owner's editor)."""
+    itself, in git or in the owner's editor). Casefolded (tasks._protected_rel): on the
+    Mac's disk .VSCode/tasks.json is the .vscode/tasks.json the editor runs."""
     parts = Path(rel).parts
-    name = parts[-1] if parts else ""
-    if (_PROTECTED_DIRS | EDITOR_DIRS) & set(parts[:-1]) or rel in _PROTECTED_FILES:
-        return True
-    if name in _HOOK_CONFIGS or name.startswith(_HOOK_CONFIG_PREFIXES):
+    name = parts[-1].casefold() if parts else ""
+    if _protected_rel(Path(rel), EDITOR_DIRS):
         return True
     if name == "package.json":
         before = (old or b"").decode(errors="replace")
@@ -140,6 +151,7 @@ class Synced:
     resolved: list[str] = field(default_factory=list)  # conflicts the two sides settled
     held: list[str] = field(default_factory=list)  # new protected changes held
     skipped: list[str] = field(default_factory=list)  # too big, or changed while written
+    mass_held: int = 0  # of held: the session's deletions, too many at once to mirror
     changed: bool = False  # anything in the Pair to save
 
     @property
@@ -154,10 +166,36 @@ class Tree:
         self.root = root
         self._seen: dict[str, tuple[tuple[int, int, int], str]] = {}
 
+    def path(self, rel: str) -> Path | None:
+        """Where the file is, None when any folder on the way to it from the root is a link
+        (or not a folder): a path through a link leads outside this side, so it's never
+        read, written or deleted. A folder on the way that isn't there yet is fine (a
+        write makes it)."""
+        here = self.root
+        for part in Path(rel).parts[:-1]:
+            here = here / part
+            try:
+                st = here.lstat()
+            except FileNotFoundError:
+                break
+            except OSError:  # (a file on the way: NotADirectoryError)
+                return None
+            if not stat.S_ISDIR(st.st_mode):
+                return None
+        return self.root / rel
+
+    def present(self, rel: str) -> bool:
+        """Whether anything at all is there (a link, a folder, a pipe count), or the way to
+        it can't be walked safely: then a missing regular file isn't a deletion."""
+        path = self.path(rel)
+        return path is None or os.path.lexists(path)
+
     def digest(self, rel: str) -> str | None:
-        """The file's digest, None when it isn't there (or isn't a regular file), "big"
-        past FILE_MAX."""
-        path = self.root / rel
+        """The file's digest, None when it isn't there (or isn't a regular file, or is
+        through a linked folder), "big" past FILE_MAX."""
+        path = self.path(rel)
+        if path is None:
+            return None
         try:
             st = path.lstat()
         except OSError:
@@ -170,26 +208,46 @@ class Tree:
         seen = self._seen.get(rel)
         if seen is not None and seen[0] == key:
             return seen[1]
-        try:
-            found = hashlib.sha1(path.read_bytes(), usedforsecurity=False).hexdigest()
-        except OSError:
+        data = self.read(rel)
+        if data is None:
             return None
+        found = _sha(data)
         self._seen[rel] = (key, found)
         return found
 
     def read(self, rel: str) -> bytes | None:
+        """The file's bytes: a regular file only, opened without following a link (a link
+        swapped in after the digest's lstat isn't read through)."""
+        path = self.path(rel)
+        if path is None:
+            return None
         try:
-            return (self.root / rel).read_bytes()
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
         except OSError:
             return None
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return None
+            with os.fdopen(fd, "rb") as fh:
+                fd = -1
+                return fh.read(FILE_MAX + 1)
+        except OSError:
+            return None
+        finally:
+            if fd >= 0:
+                os.close(fd)
+
+
+def _sha(data: bytes | None) -> str | None:
+    return None if data is None else hashlib.sha1(data, usedforsecurity=False).hexdigest()
 
 
 def _skipped(rel: str) -> bool:
-    parts = Path(rel).parts
+    parts = [part.casefold() for part in Path(rel).parts]  # (.GIT is .git on the Mac)
     return (
         not parts
-        or rel == MARKER
-        or parts[-1] == ".DS_Store"
+        or "/".join(parts) == MARKER
+        or parts[-1] == ".ds_store"
         or bool(NEVER & set(parts))
         or ".." in parts
         or Path(rel).is_absolute()
@@ -199,14 +257,18 @@ def _skipped(rel: str) -> bool:
 def copy_files(cwd: Path) -> set[str]:
     """What git lists in the copy's folder: tracked files, and new ones it doesn't ignore
     (a .gitignored node_modules is never mirrored)."""
+    if not (cwd / ".git").exists():
+        raise CopyUnreadable(f"{cwd} has no .git")
     listed = git(cwd, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ".")
+    if not listed.ok:
+        raise CopyUnreadable(listed.err.strip()[:200] or "git couldn't list the copy's files")
     return {p for p in listed.out.split("\0") if p and not _skipped(p)}
 
 
 def folder_files(folder: Path) -> set[str]:
     found: set[str] = set()
     for top, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d.casefold() not in SKIP_DIRS]
         for name in files:
             rel = os.path.relpath(os.path.join(top, name), folder)
             if not _skipped(rel):
@@ -224,13 +286,26 @@ def ignored(cwd: Path, rels: set[str]) -> set[str]:
     return {p for p in asked.out.split("\0") if p}
 
 
-def _write(source: Tree, target: Tree, rel: str, expect: str | None) -> bool:
+_ANY = object()
+
+
+def _write(source: Tree, target: Tree, rel: str, expect: str | None, want: Any = _ANY) -> bool:
     """The source's file (or its absence) written over the target's, unless the target
-    changed since it was looked at (expect: its digest then). True when written."""
+    changed since it was looked at (expect: its digest then), or the source isn't the
+    version meant (want: its digest, when given: what the owner saw on a card, what the
+    sync looked at). Never through a linked folder on either side, and a source that has
+    something other than a regular file there (a link, a folder) isn't a deletion. True
+    when written."""
+    path = target.path(rel)
+    if path is None or source.path(rel) is None:
+        return False
     data = source.read(rel)
+    if data is None and source.present(rel):
+        return False
+    if want is not _ANY and _sha(data) != want:
+        return False
     if target.digest(rel) != expect:
         return False
-    path = target.root / rel
     if data is None:
         with contextlib.suppress(FileNotFoundError):
             path.unlink()
@@ -242,13 +317,18 @@ def _write(source: Tree, target: Tree, rel: str, expect: str | None) -> bool:
                 break
             parent = parent.parent
         return True
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:  # (a file in the way of a folder: left for the owner)
+        return False
+    if target.path(rel) is None:  # (a link swapped in on the way just now)
+        return False
     fd, scratch = tempfile.mkstemp(dir=path.parent, prefix=".eden-pair-")
     try:
         with os.fdopen(fd, "wb") as out:
             out.write(data)
         with contextlib.suppress(OSError):
-            os.chmod(scratch, stat.S_IMODE((source.root / rel).stat().st_mode))
+            os.chmod(scratch, stat.S_IMODE((source.root / rel).lstat().st_mode))
         if target.digest(rel) != expect:  # (changed just now: the next sync sees it)
             os.unlink(scratch)
             return False
@@ -271,10 +351,11 @@ class Syncer:
     def sync(self) -> Synced:
         pair, done = self.pair, Synced()
         cwd = Path(pair.copy)
-        names = copy_files(cwd)
+        names = copy_files(cwd)  # (CopyUnreadable: no sync this time)
         theirs = folder_files(Path(pair.folder))
         names |= theirs - ignored(cwd, theirs - names)
         names |= set(pair.base) | set(pair.conflicts) | set(pair.held)
+        deletes: list[str] = []  # the session's deletions, mirrored at the end (or held)
         for rel in sorted(names):
             if _skipped(rel):
                 continue
@@ -302,15 +383,23 @@ class Syncer:
                     done.changed = True
                 continue
             if b == base:  # only the session changed it
-                if protected(rel, self.copy.read(rel), self.folder.read(rel)):
+                new = self.copy.read(rel)
+                if _sha(new) != a:  # (changed again just now: the next sync sees it)
+                    done.skipped.append(rel)
+                    continue
+                if a is None:
+                    deletes.append(rel)
+                    continue
+                if protected(rel, new, self.folder.read(rel)):
                     if pair.held.get(rel) != (a or ""):
                         if rel not in pair.held:
                             done.held.append(rel)
                         pair.held[rel] = a or ""
                         done.changed = True
                     continue
-                if _write(self.copy, self.folder, rel, b):
+                if _write(self.copy, self.folder, rel, b, want=a):
                     _agree(pair, rel, a)
+                    pair.held.pop(rel, None)  # (a held deletion the session took back)
                     done.to_folder.append(rel)
                 else:
                     done.skipped.append(rel)
@@ -328,7 +417,30 @@ class Syncer:
                 pair.held.pop(rel, None)
                 done.conflicts.append(rel)
                 done.changed = True
+        self._delete(deletes, done)
         return done
+
+    def _delete(self, rels: list[str], done: Synced) -> None:
+        """The session's deletions this pass, mirrored to the owner's folder; past
+        DELETES_MAX at once (or of a protected file) held instead, listed for the owner."""
+        pair = self.pair
+        many = len([r for r in rels if pair.held.get(r) != ""]) > DELETES_MAX
+        for rel in rels:
+            if pair.held.get(rel) == "":  # (held already: it waits for the owner)
+                continue
+            if many or protected(rel, None, self.folder.read(rel)):
+                if rel not in pair.held:
+                    done.held.append(rel)
+                    done.mass_held += many
+                    pair.held[rel] = ""
+                    done.changed = True
+                continue
+            if _write(self.copy, self.folder, rel, pair.base.get(rel), want=None):
+                _agree(pair, rel, None)
+                done.to_folder.append(rel)
+            else:
+                done.skipped.append(rel)
+            done.changed = True
 
     def keep(self, rel: str, side: str) -> bool:
         """A conflict settled: the session's version ("copy") or the owner's ("folder")
@@ -336,10 +448,15 @@ class Syncer:
         if rel not in self.pair.conflicts or side not in ("copy", "folder"):
             return False
         source, target = (self.copy, self.folder) if side == "copy" else (self.folder, self.copy)
-        if not _write(source, target, rel, target.digest(rel)):
+        # The two versions the owner saw on the card: either changed since, it's not kept
+        # (said "changed again just now"), so a newer one is never overwritten unseen.
+        seen = self.pair.conflicts[rel]
+        other = "folder" if side == "copy" else "copy"
+        want, expect = seen.get(side) or None, seen.get(other) or None
+        if not _write(source, target, rel, expect, want=want):
             return False
         self.pair.conflicts.pop(rel, None)
-        _agree(self.pair, rel, source.digest(rel))
+        _agree(self.pair, rel, want)
         return True
 
     def release(self, rels: list[str] | None = None) -> list[str]:
@@ -348,9 +465,13 @@ class Syncer:
         for rel in sorted(rels if rels is not None else list(self.pair.held)):
             if rel not in self.pair.held:
                 continue
-            if _write(self.copy, self.folder, rel, self.folder.digest(rel)):
+            # The session's version held (and listed), over the owner's as it was when
+            # held (the base: only the session had changed it): either changed since, it
+            # stays held for the next sync to look at again.
+            want = self.pair.held[rel] or None
+            if _write(self.copy, self.folder, rel, self.pair.base.get(rel), want=want):
                 self.pair.held.pop(rel)
-                _agree(self.pair, rel, self.copy.digest(rel))
+                _agree(self.pair, rel, want)
                 done.append(rel)
         return done
 

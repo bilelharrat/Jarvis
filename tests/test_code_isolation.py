@@ -178,6 +178,38 @@ async def test_landing_fast_forwards_the_branch_and_removes_the_copy(hub, projec
     assert "2 files changed, +2 −1" in card["detail"]
 
 
+async def test_a_turn_started_while_the_land_card_is_up_is_stopped_first(
+    hub, projects, monkeypatch
+):
+    """C5: landing interrupts a turn that began after the card went up and waits for it;
+    one that won't stop lands nothing."""
+    repo = make_repo(projects / "proj", {"a.py": numbered(20)})
+    task = await isolated_session(hub)
+    copy = copy_of(hub, task)
+    (task.cwd / "a.py").write_text("changed\n")
+    stopped, stubborn = [], [True]
+
+    async def interrupt(task_id):
+        stopped.append(task_id)
+        task.busy = stubborn[0]
+        return True
+
+    monkeypatch.setattr(hub.tasks, "interrupt", interrupt)
+    real_quiet = hub.code_desk.quiet
+    monkeypatch.setattr(hub.code_desk, "quiet", lambda tasks: real_quiet(tasks, seconds=0.3))
+
+    def busy_then_land(card):
+        task.busy = True
+        hub.resolve(card["id"], "land")
+
+    hub.add_approval_sink(busy_then_land)
+    assert await hub.code_desk.land(copy.slug) == "It's still working. Stop it first, then land."
+    assert stopped == [task.id] and "changed" not in (repo / "a.py").read_text()
+    stubborn[0], task.busy = False, False
+    assert (await hub.code_desk.land(copy.slug)).startswith("Landed")
+    assert (repo / "a.py").read_text() == "changed\n"
+
+
 async def test_landing_after_main_moved_on_makes_a_merge_commit(hub, projects):
     repo = make_repo(projects / "proj", {"a.py": numbered(20), "b.py": "b\n"})
     task = await isolated_session(hub)

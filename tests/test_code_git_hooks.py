@@ -87,6 +87,33 @@ def test_a_hook_managers_config_and_jarvis_launch_json_always_ask(free_edit, nam
     assert not free_edit(name, content="anything\n")
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        ".Claude/settings.json",
+        ".CLAUDE/settings.local.json",
+        ".Git/hooks/pre-commit",
+        ".Husky/pre-commit",
+        ".JARVIS/launch.json",
+        ".ENVRC",
+        ".VSCode/tasks.json",
+        "Lefthook.yml",
+        ".Pre-Commit-Config.yaml",
+        "sub/.LintStagedRC.json",
+    ],
+)
+def test_protected_files_ask_whatever_their_case(free_edit, name):
+    """The Mac's disk doesn't care about case: .Claude/settings.json is the file Claude Code
+    reads as .claude/settings.json, so a case change can't make it free (C2)."""
+    assert not free_edit(name, content="anything\n")
+
+
+def test_a_package_json_in_another_case_still_has_its_hooks_checked(free_edit):
+    pkg = free_edit.project / "Package.JSON"
+    pkg.write_text(json.dumps({"name": "app"}) + "\n")
+    assert not free_edit("Package.JSON", content=json.dumps({"name": "app", "husky": {}}))
+
+
 def test_ordinary_files_need_no_ok(free_edit):
     assert free_edit("src/app.py", content="x = 1\n")
     assert free_edit("lefthook.md", content="notes\n")

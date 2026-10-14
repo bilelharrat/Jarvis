@@ -50,7 +50,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .. import code_ai, code_changes, code_prs, github, jsonstore, lang, secret_scan
+from .. import code_ai, code_changes, code_prs, github, jsonstore, lang, secret_scan, worktrees
 from ..code_changes import NO_HOOKS, FileDiff, git
 from ..hub import _msg_int
 from ..proactive import Alert
@@ -294,7 +294,8 @@ def restack(top: Path, branch: str, head: str, old_parent: str, new_parent: str,
             scratch_root: Path) -> tuple[str, list[str], str]:  # fmt: skip
     """Rebase one part's commits (old_parent..head) onto new_parent in a scratch worktree:
     (its new head, [], "") when done; ("", the conflicting files, why) when not. The
-    rebase is aborted and the worktree removed either way; the branch moves only when done
+    rebase is aborted and the worktree removed either way. No branch moves here: the push
+    moves the remote one, and follow_local the local one after it, when that's safe
     (blocking: git)."""
     scratch_root.mkdir(parents=True, exist_ok=True)
     folder = scratch_root / f"restack-{uuid.uuid4().hex[:8]}"
@@ -307,13 +308,27 @@ def restack(top: Path, branch: str, head: str, old_parent: str, new_parent: str,
             listed = git(folder, "diff", "--name-only", "--diff-filter=U").out.split()
             git(folder, "rebase", "--abort")
             return "", listed, (done.err or done.out).strip()[:300]
-        new = git(folder, "rev-parse", "HEAD").out.strip()
-        git(top, "update-ref", f"refs/heads/{branch}", new)
-        return new, [], ""
+        return git(folder, "rev-parse", "HEAD").out.strip(), [], ""
     finally:
         git(top, "worktree", "remove", "--force", str(folder))
         shutil.rmtree(folder, ignore_errors=True)
         git(top, "worktree", "prune")
+
+
+def follow_local(top: Path, branch: str, pushed_over: str, new: str) -> bool:
+    """After a restack's push, the local part branch moved to its new head too, only when
+    nothing is lost or moved under the owner: the local branch is at (or behind) the head
+    the push replaced, so it has no commits of its own that weren't pushed, and it isn't
+    checked out anywhere (the session's folder may be the owner's main checkout). Moved
+    with git's expected old value, so a commit made meanwhile isn't overwritten either.
+    True when moved (blocking: git)."""
+    ref = f"refs/heads/{branch}"
+    local = git(top, "rev-parse", "-q", "--verify", ref).out.strip()
+    if not local or local == new or worktrees._holder(str(top), branch):
+        return False
+    if local != pushed_over and not worktrees._is_ancestor(top, local, pushed_over):
+        return False  # (local commits not on the remote: the owner's, left alone)
+    return git(top, "update-ref", ref, new, local).ok
 
 
 class Stacks:
@@ -324,6 +339,7 @@ class Stacks:
         self._stacks: list[dict[str, Any]] | None = None
         self._asked: set[str] = set()  # restacks the owner was asked about (or turned down)
         self._lock = asyncio.Lock()
+        self.unreadable = False  # code_stacks.json couldn't be read: never saved over (C9)
 
     # ── plumbing ──
 
@@ -370,6 +386,8 @@ class Stacks:
             try:
                 data = jsonstore.load_json(self.path, dict) or {}
             except jsonstore.Unreadable:
+                log.warning("stacks: code_stacks.json can't be read; not saved this run")
+                self.unreadable = True
                 data = {}
             rows = data.get("stacks") if isinstance(data.get("stacks"), list) else []
             self._stacks = [
@@ -381,6 +399,8 @@ class Stacks:
     def save(self) -> None:
         stacks = self.stacks()
         del stacks[:-STACKS_KEPT]
+        if self.unreadable:
+            return
         try:
             jsonstore.save_json(self.path, {"stacks": stacks})
         except OSError as exc:
@@ -575,6 +595,11 @@ class Stacks:
                 except github.GitHubError as exc:
                     if opened:
                         self._keep(stack)
+                    # The parts with no pull request: their branches go, here and on the
+                    # remote (with a lease: only as pushed), so opening again isn't
+                    # refused as "already there" (C6).
+                    rest = list(zip(names, heads, strict=True))[len(opened) :]
+                    await asyncio.to_thread(self._unmake, plan.top, plan.remote, rest)
                     k, total = len(opened), len(parts)
                     return f"Opened {k} of the stack's {total} pull requests; the next didn't open: {exc}"
                 number = int(pull.get("number") or 0)
@@ -592,6 +617,20 @@ class Stacks:
         said = f"Opened a stack of {len(opened)} pull requests: {numbers}."
         self.hub.tasks._log(task, "system", self.tr(said))
         return said
+
+    @staticmethod
+    def _unmake(top: Path, remote: str, branches: list[tuple[str, str]]) -> None:
+        """Part branches (name, head) that never got a pull request, deleted on the remote
+        and here, each only while it's still at the head pushed (blocking: git)."""
+        if not branches:
+            return
+        leases = [f"--force-with-lease=refs/heads/{n}:{head}" for n, head in branches]
+        gone = git(top, "push", "-q", *leases, remote, *[f":refs/heads/{n}" for n, _ in branches],
+                   env=PUSH_ENV, timeout=PUSH_SECONDS)  # fmt: skip
+        if not gone.ok:
+            log.info("stacks: couldn't delete the unopened parts' branches: %s", gone.err[-200:])
+        for name, head in branches:
+            git(top, "update-ref", "-d", f"refs/heads/{name}", head)
 
     def _body(self, n: int, total: int, branch: str, below: list[int]) -> str:
         head = lang.tr("Part {n} of {total}", "en", n=n, total=total)
@@ -796,8 +835,9 @@ class Stacks:
             if not pushed.ok:
                 why = re.sub(r"(\w+://)[^/@\s]+@", r"\1", pushed.err.strip())[-300:]
                 return f"Couldn't push the restacked parts: {why}"
-            for part, _old, new in moved:
+            for part, old, new in moved:
                 part["head"] = new
+                await asyncio.to_thread(follow_local, top, part["branch"], old, new)
             names = ", ".join(f"#{p['number']}" for p, _o, _n in moved)
             return f"Restacked {names}."
 

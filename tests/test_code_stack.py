@@ -202,6 +202,38 @@ async def test_the_stack_opens_behind_one_card_as_branches_built_on_each_other(h
     assert events(hub, "code_stack")[-1]["stacks"][0]["id"] == stack["id"]
 
 
+async def test_a_pull_request_that_wont_open_leaves_no_branches_behind(hub, tmp_path, projects):
+    """C6: the parts' branches, pushed before the pull requests failed, are deleted here
+    and on the remote, so opening the stack again works."""
+    repo, bare = project(tmp_path, projects)
+    task = session(hub, repo)
+    await two_parts(hub, task)
+    hub.fake.fail[("POST", "/repos/acme/app/pulls")] = (502, {"message": "Bad Gateway"}, {})
+    hub.answers = ["open"]
+    said = await hub.code_stacks.create(task)
+    assert said.startswith("Opened 0 of the stack's 2 pull requests")
+    for name in ("feature/login-part-1", "feature/login-part-2"):
+        assert not git(bare, "branch", "--list", name).strip()
+        assert not git(repo, "branch", "--list", name).strip()
+    del hub.fake.fail[("POST", "/repos/acme/app/pulls")]
+    await two_parts(hub, task)
+    hub.answers = ["open"]
+    assert (await hub.code_stacks.create(task)).startswith("Opened a stack of 2")
+
+
+async def test_an_unreadable_stacks_file_is_never_saved_over(hub, tmp_path, projects):
+    path = hub.code_stacks.path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"stacks": [{"id": "s", "repo": "a/b", "parts": []}]}))
+    path.chmod(0)
+    try:
+        assert hub.code_stacks.stacks() == [] and hub.code_stacks.unreadable
+        hub.code_stacks.save()
+    finally:
+        path.chmod(0o600)
+    assert json.loads(path.read_text())["stacks"][0]["id"] == "s"
+
+
 async def test_a_binary_file_or_a_stale_proposal_stops_it(hub, tmp_path, projects):
     repo, _bare = project(tmp_path, projects)
     task = session(hub, repo)
@@ -290,6 +322,53 @@ async def test_a_fix_pushed_to_a_part_restacks_the_parts_above(hub, tmp_path, pr
     assert await hub.code_stacks.look(stack) == "" and len(hub.cards) == cards
 
 
+def push_fix_to_part_one(hub, tmp_path, bare, stack):
+    other = clone(tmp_path, bare)
+    git(other, "switch", "-q", "feature/login-part-1")
+    (other / "src/a.py").write_text("a = 22\n")
+    git(other, "commit", "-qam", "Review fix")
+    git(other, "push", "-q", "origin", "feature/login-part-1")
+    new = git(other, "rev-parse", "HEAD").strip()
+    hub.fake.pulls[("acme/app", stack["parts"][0]["number"])]["head"]["sha"] = new
+    return new
+
+
+async def test_a_restack_moves_the_local_part_branch_only_when_nothing_is_lost(
+    hub, tmp_path, projects
+):
+    """C4: the local part branch follows the push only when it has no commits of its own
+    and isn't checked out; a restack never overwrites the owner's local work."""
+    repo, bare, stack = await opened(hub, tmp_path, projects)
+    push_fix_to_part_one(hub, tmp_path, bare, stack)
+    hub.answers = ["restack"]
+    await hub.code_stacks.look(stack)
+    two = git(bare, "rev-parse", "feature/login-part-2").strip()
+    assert git(repo, "rev-parse", "feature/login-part-2").strip() == two  # (followed)
+
+
+async def test_a_restack_never_overwrites_a_local_commit_or_moves_a_checkout(
+    hub, tmp_path, projects
+):
+    repo, bare, stack = await opened(hub, tmp_path, projects)
+    # The owner commits on the local part-2 branch (not pushed), in a checkout of it.
+    other = repo.parent / "part2-checkout"
+    git(repo, "worktree", "add", "-q", str(other), "feature/login-part-2")
+    git(other, "config", "user.email", "o@example.com")
+    (other / "notes.txt").write_text("mine\n")
+    git(other, "add", "notes.txt")
+    git(other, "commit", "-qm", "Owner's local work")
+    mine = git(other, "rev-parse", "HEAD").strip()
+    push_fix_to_part_one(hub, tmp_path, bare, stack)
+    hub.answers = ["restack"]
+    assert (await hub.code_stacks.look(stack)).startswith("Restacked")
+    assert git(repo, "rev-parse", "feature/login-part-2").strip() == mine
+    assert git(other, "rev-parse", "HEAD").strip() == mine
+    # Not checked out, still ahead of the remote: left alone all the same.
+    git(repo, "worktree", "remove", "--force", str(other))
+    assert not code_stack.follow_local(repo, "feature/login-part-2", "0" * 40, "1" * 40)
+    assert git(repo, "rev-parse", "feature/login-part-2").strip() == mine
+
+
 async def test_a_conflict_stops_the_restack_and_says_where(hub, tmp_path, projects):
     _repo, bare, stack = await opened(hub, tmp_path, projects)
     first, _second = stack["parts"]
@@ -318,3 +397,69 @@ async def test_turned_down_or_closed_the_stack_is_left_alone(hub, tmp_path, proj
     await hub.code_stacks.look(stack)
     assert stack["state"] == "closed"
     assert any("closed without merging" in a.text for a in hub.alerts)
+
+
+# ── the watch loop's tick and the window commands ──
+
+
+async def test_a_tick_looks_at_open_stacks_and_stops_on_github_trouble(
+    hub, tmp_path, projects, monkeypatch
+):
+    _repo, _bare, stack = await opened(hub, tmp_path, projects)
+    stacks = hub.code_stacks
+    looked = []
+
+    async def look(s):
+        looked.append(s["id"])
+        if s.get("boom") == "rate":
+            raise github.RateLimited("slow down", 0)
+        if s.get("boom") == "gh":
+            raise github.GitHubError("broken")
+        return ""
+
+    monkeypatch.setattr(stacks, "look", look)
+    closed = {**stack, "id": "c", "state": "closed"}
+    broken = {**stack, "id": "g", "boom": "gh"}
+    limited = {**stack, "id": "r", "boom": "rate"}
+    after = {**stack, "id": "z"}
+    stacks.stacks()[:] = [stack, closed, broken, limited, after]
+    await stacks.tick()
+    # The closed one isn't looked at; a GitHub error skips one; rate limited stops the round.
+    assert looked == [stack["id"], "g", "r"]
+    looked.clear()
+    monkeypatch.setattr(stacks.client, "low", lambda: True)
+    await stacks.tick()
+    assert looked == []
+
+
+async def test_the_window_commands_reach_the_stack(hub, tmp_path, projects):
+    repo, _bare = project(tmp_path, projects)
+    task = session(hub, repo)
+    stacks = hub.code_stacks
+    stacks.cmd_state({"id": 999})  # (no such session: nothing)
+    stacks.cmd_propose({"id": task.id})
+    await until_event(hub, lambda: events(hub, "code_stack") and parts_of(hub))
+    parts = parts_of(hub)
+    hub.events.clear()
+    stacks.cmd_state({"id": task.id})
+    await until_event(hub, lambda: events(hub, "code_stack"))
+    assert events(hub, "code_stack")[-1]["proposal"]["parts"] == parts
+    every = [h["id"] for p in parts for h in p["hunks"]]
+    hub.events.clear()
+    stacks.cmd_set({"id": task.id, "parts": [{"title": "All of it", "hunks": every}]})
+    await until_event(hub, lambda: events(hub, "code_stack"))
+    assert [p["title"] for p in parts_of(hub)] == ["All of it"]
+    stacks.cmd_create({"id": task.id})  # (one part isn't a stack: said, nothing asked)
+    said = "A stack needs at least two parts with changes in them."
+    await until_event(hub, lambda: ("caption", {"text": said}) in hub.events)
+    assert not hub.cards
+
+
+async def until_event(hub, condition, seconds=20.0):
+    import asyncio
+
+    for _ in range(int(seconds / 0.05)):
+        if condition():
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"never happened: {hub.events[-5:]}")
