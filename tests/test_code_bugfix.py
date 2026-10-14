@@ -679,7 +679,7 @@ async def _mid_efficiency(hub, projects, monkeypatch):
     repo = make_repo(projects / "calc", FILES)
     desk = hub.code_bugfix
     BugClient.hold = "EFFICIENCY"
-    hub.answers = ["start"]
+    hub.answers = ["start", "allow"]  # (the run, its .bugfix/ script's card)
     await desk.request("calc")
     [run] = desk.runs
     assert await until(
@@ -781,7 +781,7 @@ async def test_what_a_step_spent_before_the_app_quit_counts_after_a_resume(
     [again] = desk.runs
     assert again.spent == pytest.approx(1.6)  # the sweep's 0.1 and the break's 1.5
     BugClient.hold = None
-    hub.answers = ["deny"]
+    hub.answers = ["allow", "deny"]  # (its .bugfix/ script's card; not landing)
     assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
     assert await until(lambda: again.state != "running"), again.notes
     assert BugClient.instances[-1].options.max_budget_usd <= 0.4 + 1e-9
@@ -798,7 +798,9 @@ def test_a_session_s_spend_is_counted_once_however_many_turns_it_had(hub):
     task.cost_usd = 3.0
     desk.account(run, task)
     assert run.spent == pytest.approx(3.0)
-    options = type("O", (), {"max_budget_usd": None, "agents": None, "can_use_tool": None})()
+    options = type(
+        "O", (), {"max_budget_usd": None, "agents": None, "can_use_tool": None, "sandbox": None}
+    )()
     desk.extend(run, task, options)
     assert options.max_budget_usd == pytest.approx(7.0)  # not 10 - 3 - 3
 
@@ -840,7 +842,7 @@ async def test_a_run_quit_in_its_ship_step_resumes_at_ship_not_the_last_round(
     make_repo(projects / "calc", FILES)
     desk = hub.code_bugfix
     BugClient.hold = "SHIP"
-    hub.answers = ["start"]
+    hub.answers = ["start", "allow"]  # (the run, its .bugfix/ script's card)
     await desk.request("calc")
     [run] = desk.runs
     assert await until(lambda: run.step == "ship" and "SHIP" in BugClient.prompts[-1][:40])
