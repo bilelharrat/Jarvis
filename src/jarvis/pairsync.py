@@ -39,6 +39,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import secrets
 import stat
 import tempfile
 from dataclasses import dataclass, field
@@ -287,6 +288,57 @@ def ignored(cwd: Path, rels: set[str]) -> set[str]:
 
 
 _ANY = object()
+# Folders opened one by one, each never through a link (P2): where a write or a delete
+# happens is held by its descriptor, so a folder swapped for a link after it was looked at
+# can't lead it outside its side. Where the OS can't (Windows), the paths are checked again.
+# (os.rename is renameat there, replacing as os.replace does; os.replace isn't listed.)
+_BY_FD = os.name == "posix" and {os.open, os.rename, os.unlink} <= os.supports_dir_fd
+
+
+def _open_dir(root: Path, rel: str) -> int | None:
+    """A descriptor of the folder rel's file is in, opened from root a folder at a time,
+    never through a link; None when one on the way is a link, not a folder, or missing."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        fd = os.open(root, flags)
+    except OSError:
+        return None
+    for part in Path(rel).parts[:-1]:
+        try:
+            nxt = os.open(part, flags | os.O_NOFOLLOW, dir_fd=fd)
+        except OSError:
+            os.close(fd)
+            return None
+        os.close(fd)
+        fd = nxt
+    return fd
+
+
+def _replace_at(folder: int, name: str, data: bytes, mode: int | None, still: Any) -> bool:
+    """data written to a scratch file in the folder held open, then swapped in as name, if
+    still() says the target is as it was looked at. True when written."""
+    scratch = f".eden-pair-{secrets.token_hex(8)}"
+    try:
+        out = os.open(
+            scratch, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder
+        )
+    except OSError:
+        return False
+    try:
+        with os.fdopen(out, "wb") as stream:
+            stream.write(data)
+            if mode is not None:
+                with contextlib.suppress(OSError):
+                    os.fchmod(stream.fileno(), mode)
+        if not still():  # (changed just now: the next sync sees it)
+            os.unlink(scratch, dir_fd=folder)
+            return False
+        os.rename(scratch, name, src_dir_fd=folder, dst_dir_fd=folder)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(scratch, dir_fd=folder)
+        return False
+    return True
 
 
 def _write(source: Tree, target: Tree, rel: str, expect: str | None, want: Any = _ANY) -> bool:
@@ -307,8 +359,18 @@ def _write(source: Tree, target: Tree, rel: str, expect: str | None, want: Any =
     if target.digest(rel) != expect:
         return False
     if data is None:
-        with contextlib.suppress(FileNotFoundError):
-            path.unlink()
+        if _BY_FD:
+            folder = _open_dir(target.root, rel)
+            if folder is None:  # (a link swapped in on the way just now: nothing deleted)
+                return False
+            try:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(path.name, dir_fd=folder)
+            finally:
+                os.close(folder)
+        else:
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
         parent = path.parent
         while parent != target.root and target.root in parent.parents:
             try:
@@ -323,6 +385,19 @@ def _write(source: Tree, target: Tree, rel: str, expect: str | None, want: Any =
         return False
     if target.path(rel) is None:  # (a link swapped in on the way just now)
         return False
+    if _BY_FD:
+        folder = _open_dir(target.root, rel)
+        if folder is None:
+            return False
+        try:
+            mode = None
+            with contextlib.suppress(OSError):
+                mode = stat.S_IMODE((source.root / rel).lstat().st_mode)
+            return _replace_at(
+                folder, path.name, data, mode, lambda: target.digest(rel) == expect
+            )
+        finally:
+            os.close(folder)
     fd, scratch = tempfile.mkstemp(dir=path.parent, prefix=".eden-pair-")
     try:
         with os.fdopen(fd, "wb") as out:

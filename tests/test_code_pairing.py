@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 from test_code_changes import make_repo
@@ -161,6 +162,48 @@ def test_an_owner_edit_is_never_written_through_a_linked_folder_in_the_copy(tmp_
     bump(folder / "cfg" / "x.txt", "OWNER EDIT\n")
     assert "cfg/x.txt" not in sync.sync().to_copy
     assert (outside / "x.txt").read_text() == "agreed\n"
+
+
+def test_a_new_owner_file_never_lands_through_a_folder_swapped_for_a_link_mid_write(
+    tmp_path, monkeypatch
+):
+    """P2: the folder a new file goes into is swapped for a link to somewhere outside the
+    copy just as the file is written (after every check of the paths). It's written in the
+    folder that was looked at (held open), or not at all: never outside."""
+    copy, folder, sync = pair_of(tmp_path, {"a.py": "a\n"})
+    bump(copy / "lib" / "keep.txt", "k\n")
+    sync.sync()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    bump(folder / "lib" / "new.txt", "the owner's new file\n")
+    swapped = []
+
+    def swap():
+        if not swapped:
+            os.rename(copy / "lib", copy / "lib.real")
+            (copy / "lib").symlink_to(outside, target_is_directory=True)
+            swapped.append(1)
+
+    real_mkstemp = pairsync.tempfile.mkstemp
+
+    def mkstemp(*a, **k):  # (where the write used to begin)
+        if Path(k.get("dir") or a[0]) == copy / "lib":
+            swap()
+        return real_mkstemp(*a, **k)
+
+    monkeypatch.setattr(pairsync.tempfile, "mkstemp", mkstemp)
+    real_open = getattr(pairsync, "_open_dir", None)
+    if real_open is not None:
+
+        def open_dir(root, rel):
+            fd = real_open(root, rel)
+            if root == copy and rel.startswith("lib/"):
+                swap()
+            return fd
+
+        monkeypatch.setattr(pairsync, "_open_dir", open_dir)
+    sync.sync()
+    assert swapped and os.listdir(outside) == []
 
 
 def test_a_file_outside_the_copy_is_never_read_into_the_owners_folder(tmp_path):
