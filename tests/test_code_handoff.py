@@ -16,8 +16,8 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-import pytest
 import proc_reaper
+import pytest
 from test_code_changes import git, make_repo, numbered
 
 from jarvis import handoff

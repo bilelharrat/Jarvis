@@ -7,3 +7,8 @@ __pycache__/
 
 # a link to the main checkout's packages, in worktrees
 /app/node_modules
+
+# test coverage output (never committed)
+.coverage
+.coverage.*
+htmlcov/

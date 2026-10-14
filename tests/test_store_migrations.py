@@ -118,7 +118,7 @@ def test_nonsense_for_a_version_runs_no_step_and_is_never_saved_over(tmp_path, s
     ran = []
     jsonstore.register_migration("test_things", 0, lambda d: ran.append(d) or d)
     path = tmp_path / "things.json"
-    path.write_text('{"version": %s, "keep": "me"}' % version)
+    path.write_text(f'{{"version": {version}, "keep": "me"}}')
     before = path.read_bytes()
     with pytest.raises(jsonstore.Unreadable):
         jsonstore.load_store(path, "test_things", clock=CLOCK)

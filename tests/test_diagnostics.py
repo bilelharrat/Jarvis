@@ -5,7 +5,8 @@ session to fix them."""
 import json
 import os
 import sys
-from pathlib import Path
+
+from conftest import ruff_binary
 
 from jarvis import diagnostics
 from jarvis.diagnostics import Checker, Diagnostics, Problem
@@ -182,7 +183,7 @@ def test_fix_message_marks_the_output_as_data():
 
 async def test_a_real_check_with_the_projects_checkers(tmp_path):
     (tmp_path / "app.py").write_text("import os\n")
-    ruff = str(Path(sys.executable).parent / "ruff")
+    ruff = ruff_binary()
     fake_mypy = tmp_path / "fake_mypy.py"
     fake_mypy.write_text(
         "print('app.py:1:1: error: Something is off  [misc]')\nraise SystemExit(1)\n"

@@ -570,3 +570,25 @@ def _legacy_jarvis_wake_word(request, monkeypatch):
         return ("Jarvis",) if got == ("Eden",) else got
 
     monkeypatch.setattr(wake, "wake_names", names)
+
+
+def ruff_binary() -> str:
+    """The ruff these tests run: the one beside this Python (uv's environment), else on the
+    PATH, else the ruff package's own; the test is skipped when there's none. Beside
+    sys.executable alone failed under `uv run --with pytest-cov`, whose Python has none."""
+    import shutil
+    import sys
+    from pathlib import Path
+
+    beside = Path(sys.executable).parent / "ruff"
+    if beside.is_file():
+        return str(beside)
+    found = shutil.which("ruff")
+    if found:
+        return found
+    try:
+        from ruff.__main__ import find_ruff_bin
+
+        return str(find_ruff_bin())
+    except Exception:  # (no ruff package, or it has no binary)
+        pytest.skip("no ruff to run")
