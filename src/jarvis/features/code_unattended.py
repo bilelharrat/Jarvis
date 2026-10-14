@@ -785,7 +785,14 @@ class Runs:
         if run is None:
             return
         spent = float(task.cost_usd or 0.0)
-        options.max_budget_usd = round(max(0.05, run.spend_cap - spent), 2)
+        left = round(max(0.05, run.spend_cap - spent), 2)
+        # The run's own cap goes on after code_usage's day/project caps (option_hooks, in
+        # the base options_for): the lower one holds, so a run never lifts what's left of
+        # the owner's day (as code_bugfix.extend has it).
+        other = options.max_budget_usd
+        if isinstance(other, int | float) and not isinstance(other, bool) and other > 0:
+            left = min(left, float(other))
+        options.max_budget_usd = left
         options.can_use_tool = self.guard(task, options.can_use_tool)
         if run.untrusted:
             self.lock_down(options, sandbox=run.sandbox)

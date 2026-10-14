@@ -321,6 +321,22 @@ async def test_the_session_is_capped_and_an_issues_run_gets_fewer_tools(hub, pro
 # ── caps ──
 
 
+async def test_a_runs_cap_never_lifts_whats_left_of_the_owners_day(hub, projects, monkeypatch):
+    # REL-1: the run's own $10 cap went on after code_usage's and replaced it, so a Linear,
+    # Slack, issue or routine run could spend $10 with $0.50 of the day left. The lower holds.
+    task = ClaudeTask(id=8, prompt="x", cwd=projects)
+    task.kind = "code"
+    hub.tasks.tasks[8] = task
+    monkeypatch.setattr(hub.code_usage, "budget", lambda *a, **k: 0.5)
+    monkeypatch.setattr(hub.code_usage, "left", lambda *a, **k: 0.5)
+    assert hub.tasks.options_for(task).max_budget_usd == 0.5  # the day's rest, alone
+    hub.code_runs.active[8] = Run("r1", "t", "p", "proj", "edits", [], 10.0, 2.0)
+    assert hub.tasks.options_for(task).max_budget_usd == 0.5  # a run: still the day's rest
+    monkeypatch.setattr(hub.code_usage, "budget", lambda *a, **k: 50.0)
+    monkeypatch.setattr(hub.code_usage, "left", lambda *a, **k: 50.0)
+    assert hub.tasks.options_for(task).max_budget_usd == 10.0  # the run's own, when lower
+
+
 async def test_the_spending_cap_and_the_time_cap_each_end_it(hub, projects, monkeypatch):
     runs = hub.code_runs
     repo = make_repo(projects / "proj", {"a.py": "x = 1\n"})
