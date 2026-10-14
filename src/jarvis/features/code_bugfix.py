@@ -264,6 +264,7 @@ ZH = {
     "a step failed": "有一步失败了",
     "Not allowed in Exterminator Mode ({why}). Don't try to get around it: carry on without it if you can, otherwise say what you'd need in your reply.": "灭虫模式不允许这样做（{why}）。不要设法绕过：能不用就继续，否则在回复里说明需要什么。",
     "Nobody's here to answer: decide yourself, choosing the safest reasonable option, and say what you chose.": "没人在这里回答：请自己决定，选最稳妥合理的做法，并说明你的选择。",
+    "Exterminator Mode wants to run a command that needs your OK": "灭虫模式想运行一条需要你同意的命令",
 }
 lang.add_texts(ZH)
 
@@ -1083,7 +1084,9 @@ class BugFix:
                         "Exterminator Mode needs an isolated copy, and this one's couldn't be made: see the note above."
                     )
                 )
-            if not run.slug:  # the copy is the run's now: a quit before its first turn ends can resume
+            if (
+                not run.slug
+            ):  # the copy is the run's now: a quit before its first turn ends can resume
                 self.adopt_copy(run, task)
                 self.save()
 
@@ -1191,7 +1194,11 @@ class BugFix:
                 )
                 return PermissionResultAllow()
             if why == "card":  # risky: the owner decides, on a card (Touch ID in the window)
-                return await inner(tool_name, tool_input, context)
+                if self.hub.tasks._goes_ahead(task, tool_name, tool_input) is None:
+                    return await inner(tool_name, tool_input, context)  # (its own card)
+                # G5: an allow rule (or the mode) would let it by unasked: the card all the
+                # same, with no "don't ask again".
+                return await self.card(task, tool_name, tool_input)
             run.denied = [*run.denied, tasks.describe_tool(tool_name, tool_input)[:160]][
                 -DENIED_KEPT:
             ]
@@ -1204,11 +1211,31 @@ class BugFix:
 
         return can_use_tool
 
+    async def card(self, task: Any, tool_name: str, tool_input: dict[str, Any]) -> Any:
+        """A card for one step, whatever the owner's rules or the mode would let by: Yes
+        or No, never "don't ask again"."""
+        choice = await self.hub.tasks.approve(
+            self.tr("Exterminator Mode wants to run a command that needs your OK"),
+            tasks.approval_detail(tool_name, tool_input, task.cwd),
+            [(tasks.ALLOW, "Yes"), (tasks.DENY, "No, and tell Claude what to do differently")],
+            context={"task_id": task.id, "tool": tool_name},
+        )
+        if choice == tasks.ALLOW:
+            self.hub.tasks._audit(task, tool_name, tool_input, "allowed", "you allowed it")
+            return PermissionResultAllow()
+        self.hub.tasks._audit(task, tool_name, tool_input, "denied", "you said no")
+        feedback = choice.split(":", 1)[1].strip() if ":" in str(choice) else ""
+        return PermissionResultDeny(
+            message=f"The user said no: {feedback}" if feedback else "The user declined this step."
+        )
+
     def refusal(
         self, run: BugRun, task: Any, tool_name: str, tool_input: dict[str, Any]
     ) -> str | None:
         """None when a step is within the run's scope now, "card" when it's the owner's to
-        decide on a card, else why it's refused."""
+        decide on a card, else why it's refused. The run's own lists of owner-only and risky
+        commands come before the owner's rules and the session's mode (G5: an allow rule
+        such as Bash(git push:*) let git push, rm -rf or security … go ahead unasked)."""
         if private := tasks._private_target(tool_name, tool_input):
             return f"{private} is a folder the owner keeps private: nothing in it may be read"
         if tool_name in tasks.EDIT_TOOLS:
@@ -1219,6 +1246,12 @@ class BugFix:
                 return f"no edits in the {run.step} step but throwaway scripts in {SCRATCH}/"
         if tool_name == "Bash" and run.step == "sweep":  # (its stack's own write: ruff --fix)
             return "the sweep is read-only: no commands until the break step"
+        if tool_name == "Bash":
+            command = str(tool_input.get("command", ""))
+            if owner_only(command):
+                return "that's the owner's to do: list it in your ship notes instead"
+            if risky(command):
+                return "card"
         ruled = self.hub.tasks._ruled(task, tool_name, tool_input)
         if ruled is not None and ruled[0] != "allow":
             return "card"  # the owner's own rule asks (or refuses): theirs, as always
@@ -1230,10 +1263,6 @@ class BugFix:
             return None  # (a read-only command naming a path outside its copy doesn't: B7)
         if tool_name == "Bash":
             command = str(tool_input.get("command", ""))
-            if owner_only(command):
-                return "that's the owner's to do: list it in your ship notes instead"
-            if risky(command):
-                return "card"
             if command_allowed(run.stack, command):
                 return None
             if scratch_script(run.stack, command):

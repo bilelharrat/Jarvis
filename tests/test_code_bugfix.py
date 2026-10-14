@@ -237,6 +237,9 @@ class BugClient(FakeClient):
 
     async def query(self, text):
         self.queries.append(text)
+        if isinstance(text, str) and text.startswith("[Note from the app:"):
+            note, text = text.split("\n\n", 1)  # (the run's rules ride along: REL-3)
+            assert code_bugfix.NOTE in note
         BugClient.prompts.append(text)
         n = len(BugClient.prompts)
         head = text.split("\n", 1)[0] if isinstance(text, str) else ""
@@ -695,8 +698,10 @@ async def _mid_efficiency(hub, projects, monkeypatch):
     await desk.request("calc")
     [run] = desk.runs
     assert await until(
-        lambda: run.step == "efficiency"
-        and any("EFFICIENCY" in p.split("\n", 1)[0] for p in BugClient.prompts)
+        lambda: (
+            run.step == "efficiency"
+            and any("EFFICIENCY" in p.split("\n", 1)[0] for p in BugClient.prompts)
+        )
     ), (run.step, run.notes)
     copy = Path(run.folder)
     checked = (copy / "calc.py").read_text()
@@ -999,14 +1004,17 @@ def test_a_hostile_bugfix_block_is_dropped_not_a_crash(hub, tmp_path, text):
     hub.code_bugfix.take_findings(run, tmp_path, "sweep", f"```bugfix\n{text}\n```")
     assert run.findings == []
     for key in ("fixes", "changes", "owner_steps"):
-        assert code_bugfix.listed(parse_block(f"```bugfix\n{{\"{key}\": 7}}\n```"), key) == []
+        assert code_bugfix.listed(parse_block(f'```bugfix\n{{"{key}": 7}}\n```'), key) == []
 
 
 async def test_a_ceiling_of_true_is_refused(hub, projects):
     make_repo(projects / "calc", FILES)
     hub.answers = ["deny"] * 5  # (were one taken, its card says no rather than waiting)
     for cap in (True, False, 10**400, float("nan"), float("inf")):
-        assert await hub.code_bugfix.request("calc", cap) == "The spending ceiling is between $1 and $50."
+        assert (
+            await hub.code_bugfix.request("calc", cap)
+            == "The spending ceiling is between $1 and $50."
+        )
 
 
 async def test_a_fix_s_test_outside_its_copy_is_never_run(hub, tmp_path):
@@ -1130,3 +1138,48 @@ async def test_the_sweep_runs_no_command_at_all(hub, projects):
         assert desk.refusal(run, task, "Bash", {"command": command}) not in (None, "card")
     run.step = "break"
     assert desk.refusal(run, task, "Bash", {"command": "pytest -q"}) is None
+
+
+@pytest.mark.parametrize(
+    "rule,command,why",
+    [
+        ("Bash(git push:*)", "git push origin main", "owner's to do"),
+        ("Bash(rm:*)", "rm -rf src", "card"),
+        ("Bash(security:*)", "security find-generic-password -s x -w", "owner's to do"),
+        ("Bash(npm publish:*)", "npm publish", "owner's to do"),
+    ],
+)
+async def test_an_allow_rule_never_beats_the_runs_owner_only_and_risky_lists(
+    hub, projects, rule, command, why
+):
+    """G5: refusal() asked the owner's rules (and the mode) first, so an allow rule such as
+    Bash(git push:*) let git push, rm -rf, security … or npm publish go ahead unasked in
+    Exterminator Mode. Its owner-only list refuses them, and a risky one gets a card (Yes
+    or No only) even when a rule or the mode would let it by."""
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    task = ClaudeTask(id=9, prompt="", cwd=projects, mode="ask")
+    hub.tasks.tasks[9] = task
+    run = BugRun("r", "p", folder=str(projects), step="fix", stack={"kinds": ["python", "node"]})
+    desk.active[9] = run
+    await hub.handle({"type": "cr_add", "id": 9, "behavior": "allow", "rule": rule})
+    assert hub.tasks._goes_ahead(task, "Bash", {"command": command}) is not None  # (the rule)
+    said = desk.refusal(run, task, "Bash", {"command": command})
+    assert said is not None and why in said, said
+    if said != "card":
+        del desk.active[9]
+        return
+    asked = []
+
+    async def approve(question, detail, choices, context=None):
+        asked.append([c for c, _ in choices])
+        return "deny"
+
+    async def inner(*_):
+        return PermissionResultAllow()  # (what the session's own policy would say: the rule)
+
+    hub.tasks.approve = approve
+    out = await desk.guard(task, inner)("Bash", {"command": command}, None)
+    assert isinstance(out, PermissionResultDeny) and asked == [["allow", "deny"]]
+    del desk.active[9]
