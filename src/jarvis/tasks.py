@@ -22,6 +22,7 @@ import re
 import shlex
 import threading
 import time
+import uuid
 import warnings
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
@@ -1131,6 +1132,10 @@ class TaskManager:
         self.client_factory = client_factory
         self.tasks: dict[int, ClaudeTask] = {}
         self._ids = itertools.count(1)
+        # The ids' namespace: they start at 1 again with each TaskManager (each launch), so a
+        # session id kept on disk (a spec's tasks, a to-do card's) means this session only
+        # while its saved launch is this one.
+        self.launch = uuid.uuid4().hex
         self.model = settings.model
         self.on_finished: Callable[[ClaudeTask], None] | None = None
         self.rules = rules or RuleStore()

@@ -5,6 +5,7 @@ deletes a test), the real suite run by pytest, real git worktrees for the isolat
 for the check that each fix's test fails first. Nothing calls a model."""
 
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -662,3 +663,364 @@ async def test_a_risky_step_goes_to_the_owners_card(hub, projects):
     del desk.active[7]
     await guard("Bash", {"command": "git push"}, None)  # the run's over: the session's own policy
     assert asked[-1] == "git push"
+
+
+# ── an efficiency pass that ends before its check (round 1's D2) ──
+
+
+async def _mid_efficiency(hub, projects, monkeypatch):
+    """A two-round run held in round 1's efficiency pass, whose session has already made
+    edits Eden hasn't checked: one that breaks calc.py, one that deletes a test."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 2)
+    repo = make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "EFFICIENCY"
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(
+        lambda: run.step == "efficiency"
+        and any("EFFICIENCY" in p.split("\n", 1)[0] for p in BugClient.prompts)
+    ), (run.step, run.notes)
+    copy = Path(run.folder)
+    checked = (copy / "calc.py").read_text()
+    (copy / "calc.py").write_text("def divide(a, b):\n    return 0\n")
+    (copy / "tests" / "test_calc.py").unlink()
+    return repo, desk, run, copy, checked
+
+
+async def _quit_and_reload(hub, desk, run):
+    desk.drivers[run.id].cancel()
+    handle = hub.tasks.tasks[run.task_id].handle
+    hub.tasks.cancel(run.task_id)
+    await asyncio.wait([handle], timeout=5)
+    desk.save()
+    desk._loaded, desk.runs, desk.active, desk.waiting = False, [], {}, {}
+    desk.load()
+    [again] = desk.runs
+    assert (again.state, again.step) == ("paused", "efficiency")
+    return again
+
+
+async def test_an_efficiency_pass_stopped_before_its_check_is_put_back_and_never_lands(
+    hub, projects, monkeypatch
+):
+    repo, desk, run, copy, checked = await _mid_efficiency(hub, projects, monkeypatch)
+    assert await desk.stop(run.id) == "Stopped Bug Fix Mode."
+    await asyncio.wait([desk.drivers[run.id]], timeout=10)
+    assert run.state == "stopped"
+    assert (copy / "calc.py").read_text() == checked
+    assert (copy / "tests" / "test_calc.py").exists()
+    verdict = run.efficiency["r1"]
+    assert verdict["kept"] is False and verdict["restored"] is True
+    assert "before Eden could check it" in verdict["why"]
+    cards = len(hub.cards)
+    assert await desk.land(run.id) == "Only a run that finished can land: resume it first."
+    assert len(hub.cards) == cards and not run.landed  # (no card: its fixes weren't all checked)
+    assert (repo / "calc.py").read_text() == CALC
+
+
+async def test_a_run_paused_or_stopping_mid_way_never_lands_and_never_resumes_twice(
+    hub, projects, monkeypatch
+):
+    repo, desk, run, copy, checked = await _mid_efficiency(hub, projects, monkeypatch)
+    again = await _quit_and_reload(hub, desk, run)
+    hub.answers = ["allow"]
+    assert await desk.land(again.id) == "Only a run that finished can land: resume it first."
+    assert not again.landed and (repo / "tests" / "test_calc.py").exists()
+    again.state = "stopping"  # (Stop pressed, its driver not done yet)
+    assert await desk.resume(again.id) == "That run can't be resumed."
+    again.state = "paused"
+    pending = asyncio.get_running_loop().create_future()
+    desk.drivers[again.id] = pending  # (an old driver still going)
+    assert await desk.resume(again.id) == "That run can't be resumed."
+    pending.cancel()
+
+
+async def test_a_resumed_efficiency_pass_is_checked_against_the_point_it_started_from(
+    hub, projects, monkeypatch
+):
+    repo, desk, run, copy, checked = await _mid_efficiency(hub, projects, monkeypatch)
+    again = await _quit_and_reload(hub, desk, run)
+    BugClient.hold = None
+    hub.answers = ["deny"]
+    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await until(lambda: again.state != "running"), again.notes
+    verdict = again.efficiency["r1"]
+    assert verdict["kept"] is False and "tests" in verdict["lost"], verdict
+    assert verdict["restored"] is True
+    assert (copy / "tests" / "test_calc.py").exists()  # back from before the pass, not after
+
+
+async def test_what_a_step_spent_before_the_app_quit_counts_after_a_resume(
+    hub, projects, monkeypatch
+):
+    """Round 1's D4: the step's spend so far is counted when the app quits mid-step, so a
+    resumed run's ceiling is what's left, not a fresh one."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 1)
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "BREAK"
+    hub.answers = ["start"]
+    await desk.request("calc", 2)
+    [run] = desk.runs
+    assert await until(lambda: run.step == "break" and len(BugClient.prompts) == 2)
+    task = hub.tasks.tasks[run.task_id]
+    task.cost_usd = round((task.cost_usd or 0) + 1.5, 6)  # the break step's work so far
+    desk.drivers[run.id].cancel()
+    await asyncio.wait([desk.drivers[run.id]], timeout=5)
+    handle = task.handle
+    hub.tasks.cancel(run.task_id)
+    await asyncio.wait([handle], timeout=5)
+    desk._loaded, desk.runs, desk.active, desk.waiting = False, [], {}, {}
+    desk.load()
+    [again] = desk.runs
+    assert again.spent == pytest.approx(1.6)  # the sweep's 0.1 and the break's 1.5
+    BugClient.hold = None
+    hub.answers = ["deny"]
+    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await until(lambda: again.state != "running"), again.notes
+    assert BugClient.instances[-1].options.max_budget_usd <= 0.4 + 1e-9
+
+
+def test_a_session_s_spend_is_counted_once_however_many_turns_it_had(hub):
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    run = BugRun("r1", "calc", spend_cap=10.0)
+    task = ClaudeTask(id=5, prompt="", cwd=Path("."))
+    task.cost_usd = 1.0
+    desk.account(run, task)
+    task.cost_usd = 3.0
+    desk.account(run, task)
+    assert run.spent == pytest.approx(3.0)
+    options = type("O", (), {"max_budget_usd": None, "agents": None, "can_use_tool": None})()
+    desk.extend(run, task, options)
+    assert options.max_budget_usd == pytest.approx(7.0)  # not 10 - 3 - 3
+
+
+async def test_with_every_feature_installed_a_run_whose_copy_fails_never_touches_the_project(
+    hub, projects, monkeypatch
+):
+    """Every feature installed (code_isolation after code_bugfix): when the isolated copy
+    can't be made, the run refuses to start its steps, and the owner's checkout is as it was
+    (no edits, no snapshot staged in its index, nothing put back over it)."""
+    import subprocess
+
+    repo = make_repo(projects / "calc", FILES)
+    (repo / "notes.txt").write_text("the owner's own, not committed\n")
+
+    async def no_copy(task):
+        return None  # (code_isolation leaves the session in the folder, with a note)
+
+    monkeypatch.setattr(hub.code_desk, "isolate", no_copy)
+    desk = hub.code_bugfix
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(lambda: run.state != "running"), (run.step, run.notes)
+    assert run.state == "stopped" and not run.slug
+    assert not [p for p in BugClient.prompts if "SWEEP" not in p.split("\n", 1)[0]]
+    assert (repo / "calc.py").read_text() == CALC
+    assert (repo / "notes.txt").exists()
+    staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=repo,
+                            capture_output=True, text=True).stdout  # fmt: skip
+    assert staged == ""
+
+
+async def test_a_run_quit_in_its_ship_step_resumes_at_ship_not_the_last_round(
+    hub, projects, monkeypatch
+):
+    """Round 1's D5."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 1)
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "SHIP"
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(lambda: run.step == "ship" and "SHIP" in BugClient.prompts[-1][:40])
+    desk.drivers[run.id].cancel()
+    handle = hub.tasks.tasks[run.task_id].handle
+    hub.tasks.cancel(run.task_id)
+    await asyncio.wait([handle], timeout=5)
+    desk.save()
+    desk._loaded, desk.runs, desk.active, desk.waiting = False, [], {}, {}
+    desk.load()
+    [again] = desk.runs
+    assert (again.state, again.step) == ("paused", "ship")
+    asked = len(BugClient.prompts)
+    BugClient.hold = None
+    hub.answers = ["deny"]
+    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await until(lambda: again.state != "running"), again.notes
+    heads = [p.split("\n", 1)[0] for p in BugClient.prompts[asked:]]
+    assert heads and set(heads) == {"Bug Fix Mode · SHIP"}, heads  # (no round again)
+    assert again.state == "done"
+
+
+async def test_a_run_quit_in_its_first_sweep_knows_its_copy_and_can_resume(
+    hub, projects, monkeypatch
+):
+    """Round 1's D6: the copy is the run's as soon as it's made, not after the first turn."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 1)
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "SWEEP"
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(lambda: len(BugClient.prompts) == 1)
+    desk.drivers[run.id].cancel()
+    handle = hub.tasks.tasks[run.task_id].handle
+    hub.tasks.cancel(run.task_id)
+    await asyncio.wait([handle], timeout=5)
+    desk._loaded, desk.runs, desk.active, desk.waiting = False, [], {}, {}
+    desk.load()  # (what was saved when the copy was made: no other save since)
+    [again] = desk.runs
+    assert again.slug and again.folder and Path(again.folder).is_dir()
+    BugClient.hold = None
+    hub.answers = ["deny"]
+    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await until(lambda: again.state != "running"), again.notes
+    assert again.state == "done", again.notes
+
+
+async def test_two_starts_on_one_project_at_once_start_one_run(hub, projects):
+    """Round 1's D7: the second start, asked while the first's card is up, is refused."""
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "SWEEP"
+    hub.answers = ["start", "start"]
+    said = await asyncio.gather(desk.request("calc"), desk.request("calc"))
+    assert sorted(said) == ["Bug Fix Mode is already on for calc.", "Bug Fix Mode is on for calc."]
+    assert len(desk.runs) == 1 and len(hub.cards) == 1
+
+
+async def test_stop_while_the_suite_runs_stops_it_now(hub, projects, monkeypatch):
+    """Round 1's D9: Stop during the break step's suite run (up to 30 minutes) ends it."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 1)
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    slow = codetests.Suite("slow", "slow", (sys.executable, "-c", "import time; time.sleep(60)"))
+    desk.suites_of = lambda folder: [slow]
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(lambda: run.id in desk.suite_runs), (run.step, run.notes)
+    assert await desk.stop(run.id) == "Stopped Bug Fix Mode."
+    assert await until(lambda: run.state == "stopped", tries=500), run.step
+    assert run.why == "owner" and run.step == "break"
+    assert len(BugClient.prompts) == 1  # (the break step's turn never came)
+
+
+async def test_stop_during_a_hung_suite_kills_it_and_resume_waits_for_the_stop(
+    hub, projects, tmp_path
+):
+    """Round 1's break: the project's own suite hangs in the break step; Stop ends it (the
+    run is stopped, its pytest gone) and the run resumes once, with one driver."""
+    import signal
+
+    pidfile = tmp_path / "suite.pid"
+    files = {**FILES, "tests/test_hang.py": (
+        "import os, time\n\n\ndef test_hang():\n"
+        f"    open({str(pidfile)!r}, 'a').write(str(os.getpid()) + '\\n')\n"
+        "    time.sleep(10000)\n"
+    )}  # fmt: skip
+    make_repo(projects / "calc", files)
+    desk = hub.code_bugfix
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    pids = []
+    try:
+        assert await until(lambda: pidfile.exists() and pidfile.read_text().strip())
+        pids = [int(p) for p in pidfile.read_text().split()]
+        await hub._handle({"type": "code_bugfix_stop", "run": run.id})
+        assert await until(lambda: run.state == "stopped", tries=800), run.state
+        assert await until(lambda: not _alive(pids[0]), tries=800)
+        old = desk.drivers[run.id]
+        assert old.done()
+        BugClient.hold = "SWEEP"
+        assert await desk.resume(run.id) == "Resumed Bug Fix Mode."
+        assert await desk.resume(run.id) == "That run can't be resumed."  # (one driver only)
+        await desk.stop(run.id)
+    finally:
+        for p in pids:
+            with contextlib.suppress(OSError):
+                os.kill(p, signal.SIGKILL)
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"findings": [{"file": "calc.py", "line": Infinity, "title": "t", "severity": "high", '
+        '"scenario": "a long enough scenario", "quote": "x"}]}',
+        '{"findings": [{"file": "calc.py", "line": 1e400, "title": "t", "severity": "high", '
+        '"scenario": "a long enough scenario", "quote": "x"}]}',
+        '{"findings": 5}',
+        '{"findings": true}',
+        '{"findings": {"a": 1}}',
+    ],
+)
+def test_a_hostile_bugfix_block_is_dropped_not_a_crash(hub, tmp_path, text):
+    """Round 1's break: Infinity, 1e400 and non-lists in the model's block."""
+    (tmp_path / "calc.py").write_text("x = 1\n")
+    run = BugRun(id="r", project="p")
+    hub.code_bugfix.take_findings(run, tmp_path, "sweep", f"```bugfix\n{text}\n```")
+    assert run.findings == []
+    for key in ("fixes", "changes", "owner_steps"):
+        assert code_bugfix.listed(parse_block(f"```bugfix\n{{\"{key}\": 7}}\n```"), key) == []
+
+
+async def test_a_ceiling_of_true_is_refused(hub, projects):
+    make_repo(projects / "calc", FILES)
+    hub.answers = ["deny"] * 5  # (were one taken, its card says no rather than waiting)
+    for cap in (True, False, 10**400, float("nan"), float("inf")):
+        assert await hub.code_bugfix.request("calc", cap) == "The spending ceiling is between $1 and $50."
+
+
+async def test_a_fix_s_test_outside_its_copy_is_never_run(hub, tmp_path):
+    from jarvis.features.code_bugfix import Finding
+
+    folder = tmp_path / "copy"
+    folder.mkdir()
+    (tmp_path / "elsewhere.py").write_text("x = 1\n")
+    ran = []
+
+    async def run_one(*args, **kwargs):
+        ran.append(args)
+
+    hub.code_bugfix.run_one = run_one
+    suite = codetests.Suite("pytest", "pytest", (sys.executable, "-m", "pytest"))
+    for spec in ("../elsewhere.py", str(tmp_path / "elsewhere.py")):
+        f = Finding("R1-1", 1, "sweep", "x", "high", "a.py", 1, "t", "s", test=spec)
+        await hub.code_bugfix.prove_one(f, folder, tmp_path, [suite])
+        assert f.status == "unproven" and "isn't in the project" in f.proof
+    assert ran == []
+
+
+def test_an_unreadable_runs_file_is_never_saved_over(tmp_path):
+    from types import SimpleNamespace
+
+    kept = tmp_path / "code_bugfix.json"
+    kept.write_text(json.dumps({"runs": [], "mark": "KEEP-ME"}))
+    os.chmod(kept, 0)
+    try:
+        desk = code_bugfix.BugFix(
+            SimpleNamespace(feature_path=lambda name: tmp_path / name, emit=lambda *a, **k: None)
+        )
+        desk.save()
+        desk.save()
+    finally:
+        for f in tmp_path.iterdir():
+            os.chmod(f, 0o600)
+    assert "KEEP-ME" in kept.read_text()

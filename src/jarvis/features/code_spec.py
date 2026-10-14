@@ -48,7 +48,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import re
+import stat
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -63,6 +65,7 @@ STEPS = ("requirements", "design", "tasks")
 VERIFY_WAIT = 120.0  # seconds a task's check waits for code_verify's check after its turn
 TEST_WAIT = 900.0  # ... and for the project's test suite to finish
 REVIEW_DIFF = 24_000
+READ_MAX = 400_000  # bytes of a spec file read (requirements.md, design.md, tasks.md)
 PROOF_MARK = "<!-- eden-spec-proof -->"  # the pull request body's proof, found again by it
 
 ZH = {
@@ -254,15 +257,30 @@ class Spec:
     results: dict[str, dict[str, Any]] = field(default_factory=dict)  # R1.2 -> outcome
     media: dict[str, dict[str, Any]] = field(default_factory=dict)  # T1 -> video, screenshot
     started: float = field(default_factory=time.time)
+    # The launch its session ids are from (TaskManager.launch): ids start at 1 again each
+    # launch, so after a restart they'd name other sessions, and are forgotten on load.
+    launch: str = ""
 
     @property
     def root(self) -> Path:
         return Path(self.folder) / FOLDER / self.slug
 
     def read(self, name: str) -> str:
-        with contextlib.suppress(OSError, UnicodeDecodeError):
-            return (self.root / name).read_text(encoding="utf-8")[:400_000]
-        return ""
+        """One of its files, as the session wrote it: a plain file inside the project only
+        (a link, out of the project or not, a FIFO or a folder reads as nothing: a FIFO
+        would hold the event loop, which every publish reads on), and at most READ_MAX
+        bytes of it, read that far and no further."""
+        path = self.root / name
+        try:
+            if Path(self.folder).resolve() not in path.parent.resolve().parents:
+                return ""  # (specs/ or its folder is a link out of the project)
+            if not stat.S_ISREG(os.lstat(path).st_mode):
+                return ""
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as f:
+                return f.read(READ_MAX).decode("utf-8", errors="replace")
+        except (OSError, ValueError):
+            return ""
 
     def requirements(self) -> list[Requirement]:
         return parse_requirements(self.read("requirements.md"))
@@ -341,6 +359,7 @@ class Specs:
         self.hub = hub
         self.ai = code_ai.call  # (the tests put a fake here)
         self._specs: list[Spec] | None = None
+        self.unreadable = False  # code_specs.json is there but couldn't be read: never saved over
         self.proofs: dict[int, asyncio.Future] = {}  # a task's session -> its requirements
         self.checks: dict[int, asyncio.Future] = {}  # ... -> code_verify's check after its turn
         self.asking: set[str] = set()  # specs whose card is up (or whose step is being read)
@@ -356,17 +375,44 @@ class Specs:
         if self._specs is None:
             try:
                 raw = jsonstore.load_json(self.path, list) or []
-            except jsonstore.Unreadable:
+            except jsonstore.Unreadable as exc:  # (there, but not readable now: never saved over)
+                log.warning("Spec mode: %s can't be read (%s)", self.path.name, exc)
+                self.unreadable = True
                 raw = []
             fields = set(Spec.__dataclass_fields__)
             self._specs = []
             for item in raw:
                 with contextlib.suppress(TypeError, ValueError):
                     if isinstance(item, dict):
-                        self._specs.append(Spec(**{k: v for k, v in item.items() if k in fields}))
+                        spec = Spec(**{k: v for k, v in item.items() if k in fields})
+                        self.forget_old_sessions(spec)
+                        self._specs.append(spec)
         return self._specs
 
+    @property
+    def launch(self) -> str:
+        return str(getattr(self.hub.tasks, "launch", ""))
+
+    def forget_old_sessions(self, spec: Spec) -> None:
+        """A spec kept from an earlier launch: its session ids are that launch's, and this
+        one numbers its sessions from 1 again, so they'd match new, unrelated sessions (their
+        turns checked as its tasks, paid reviews, the wrong receipts and pull requests). They
+        are dropped (which tasks ran is kept, so none runs twice), and a spec that was mid-step
+        or running its tasks is stopped: its sessions are gone."""
+        if spec.launch and spec.launch == self.launch:
+            return
+        spec.session = 0
+        spec.runs = {tid: 0 for tid in spec.runs}
+        spec.current = ""
+        if spec.step in STEPS or spec.step == "running":
+            spec.step = "stopped"
+
     def save(self) -> None:
+        for spec in self.specs:
+            spec.launch = self.launch
+        if self.unreadable:  # (kept in memory this launch; the file is left as it is)
+            self.publish()
+            return
         with contextlib.suppress(OSError):
             jsonstore.save_json(self.path, [asdict(s) for s in self.specs[-100:]])
         self.publish()
@@ -384,6 +430,8 @@ class Specs:
     def of_session(self, task_id: Any) -> tuple[Spec | None, str]:
         """The spec a session belongs to, and which of its tasks it runs ("" for the spec's
         own session)."""
+        if not task_id:  # (0: a session from an earlier launch, forgotten)
+            return None, ""
         for spec in reversed(self.specs):
             if spec.session == task_id:
                 return spec, ""
@@ -695,9 +743,13 @@ class Specs:
         finally:
             if not fut.done():
                 fut.set_result(rows)
-        if spec.step != "running" or spec.current != tid:
-            return "checked"
-        return await self.ask_next(spec, tid, task_id)
+        if spec.step != "running" or spec.current != tid or spec.slug in self.asking:
+            return "checked"  # (another turn's card for it is up: one card a spec)
+        self.asking.add(spec.slug)
+        try:
+            return await self.ask_next(spec, tid, task_id)
+        finally:
+            self.asking.discard(spec.slug)
 
     async def check_task(self, spec: Spec, tid: str, task_id: int, data: dict[str, Any]) -> list:
         task = self.hub.tasks.tasks.get(task_id)
@@ -856,6 +908,8 @@ class Specs:
             return "fix"
         if answer == "stop":
             return self._stop(spec)
+        if spec.step != "running" or spec.current != tid:
+            return "checked"  # (moved on while the card was up: never two tasks at once)
         await self.next_task(spec)
         return "next"
 

@@ -126,7 +126,10 @@ def issue_card_prompt(repo: str, issue: dict[str, Any], url: str) -> str:
 class Board:
     """The to-do cards (code_todo.json; path None: in memory)."""
 
-    def __init__(self, path: Path | None) -> None:
+    def __init__(self, path: Path | None, launch: str | None = None) -> None:
+        """launch: this launch's (TaskManager.launch). A card's session number is kept only
+        when it's from this launch: numbers start at 1 again each launch, so an older one
+        would name another session (its Claude Code id, kept apart, still reopens it)."""
         self.path = path
         self.cards: list[dict[str, Any]] = []
         self.queues: dict[str, dict[str, Any]] = {}  # folder -> its queue's settings
@@ -142,6 +145,8 @@ class Board:
         for raw in (data.get("cards") if isinstance(data.get("cards"), list) else [])[:CARDS_MAX]:
             card = self._clean(raw)
             if card is not None:
+                if launch is not None and card.get("launch") != launch:
+                    card.pop("task", None)
                 self.cards.append(card)
         queues = data.get("queues") if isinstance(data.get("queues"), dict) else {}
         for folder, conf in list(queues.items())[:200]:
@@ -192,11 +197,15 @@ class Todo:
     @property
     def board(self) -> Board:
         if self._board is None:
-            self._board = Board(self.hub.feature_path(FILE))
+            self._board = Board(self.hub.feature_path(FILE), self.launch)
         return self._board
 
     def tr(self, text: str, **values: Any) -> str:
         return lang.tr(text, self.hub.language, **values)
+
+    @property
+    def launch(self) -> str:
+        return str(getattr(self.hub.tasks, "launch", ""))
 
     # ── the window ──
 
@@ -243,8 +252,10 @@ class Todo:
         """The card's settings from a message: "" when they're all right, else why not."""
         if "title" in msg:
             card["title"] = clean_text(str(msg.get("title") or "")).strip()[:TITLE_MAX]
-        if "prompt" in msg:
-            card["prompt"] = str(msg.get("prompt") or "").strip()[:PROMPT_MAX]
+        if "prompt" in msg:  # (words only: an object or a list isn't a prompt; no NULs)
+            prompt = msg.get("prompt")
+            prompt = prompt if isinstance(prompt, str) else ""
+            card["prompt"] = prompt.replace("\x00", "").strip()[:PROMPT_MAX]
         if "model" in msg:
             model = self._model(msg.get("model"))
             if model is None:
@@ -327,6 +338,9 @@ class Todo:
     def cmd_delete(self, msg: dict[str, Any]) -> None:
         card = self.board.get(msg.get("id"))
         if card is None:
+            return
+        if card["state"] == "running":  # (its session would run on outside the queue's limits)
+            self.error(self.tr("That card is already running."))
             return
         queue = getattr(self.hub, "code_queue", None)
         if queue is not None:
@@ -431,7 +445,9 @@ class Todo:
 
     async def start(self, card: dict[str, Any], model: str = "", route: Any = None) -> Any:
         """The card's session, started; None when it didn't (todo_error says why). One card
-        starts at a time in a project, so the session that appears is the card's."""
+        starts at a time in a project, and the session taken is the one with the card's own
+        prompt in the card's own project (its folder, or an isolated copy of it): while a
+        routed task_new waits, other sessions start too, anywhere."""
         chosen = model or card.get("model") or ""
         if card.get("cloud"):
             cloud = getattr(self.hub, "code_cloud", None)
@@ -458,7 +474,7 @@ class Todo:
             waited = 0.0
             while waited < START_WAIT:
                 fresh = [tm.tasks[i] for i in sorted(set(tm.tasks) - known)]
-                task = next((t for t in fresh if t.kind == "code"), None)
+                task = next((t for t in fresh if self._is_cards(t, card)), None)
                 if task is not None:
                     break
                 await asyncio.sleep(0.05)
@@ -468,12 +484,39 @@ class Todo:
                 self.tr("The session didn't start: {why}", why=self.tr("it didn't appear in time"))
             )
             return None
-        card["task"] = task.id
+        card["task"], card["launch"] = task.id, self.launch
         card["session"] = task.session_id or ""
         card["started"] = _now()
         with contextlib.suppress(OSError):
             self.board.save()
         return task
+
+    def _is_cards(self, task: Any, card: dict[str, Any]) -> bool:
+        """Whether a new session is the card's: a code session started with its prompt, in
+        its project (the folder itself, or an isolated copy of it once code_isolation has
+        moved the session there). A cloud card's starts with no prompt (code_cloud sends it
+        there once its copy is made) and the card's title."""
+        prompt = card["prompt"].strip()
+        mine = str(task.prompt or "") == prompt or (
+            card.get("cloud")
+            and not task.prompt
+            and task.title == str(card.get("title") or prompt[:80])
+        )
+        if task.kind != "code" or not mine:
+            return False
+        folder = Path(card["folder"])
+        with contextlib.suppress(OSError):
+            if Path(task.cwd).resolve() == folder.resolve():
+                return True
+        slug = (getattr(task, "workspace", None) or {}).get("slug")
+        desk = getattr(self.hub, "code_desk", None)
+        if not slug or desk is None:
+            return False
+        with contextlib.suppress(Exception):
+            copy = desk.store().find(slug)
+            if copy is not None:
+                return (Path(copy.repo) / copy.prefix).resolve() == folder.resolve()
+        return False
 
     # ── the sessions the cards started ──
 
@@ -483,6 +526,8 @@ class Todo:
             return
         changed = False
         for card in self.board.cards:
+            if card.get("launch") != self.launch:
+                continue  # (its number is an earlier launch's: another session's now)
             task = self.hub.tasks.tasks.get(card.get("task"))
             if task is not None and task.session_id and card.get("session") != task.session_id:
                 card["session"] = task.session_id

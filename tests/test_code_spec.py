@@ -376,3 +376,98 @@ async def test_a_task_with_the_check_on_waits_for_this_turns_check(spec_hub, mon
     )
     await asyncio.wait_for(going, 2)
     assert spec.media["T1"]["screenshot"] == "http://localhost:3000"
+
+
+async def test_after_a_restart_old_session_ids_never_attach_a_spec_to_new_sessions(
+    spec_hub, monkeypatch
+):
+    """Round 1's D1: session ids start at 1 again each launch, so a spec kept with T1 on
+    session 101 must not take the next launch's session 101 for its task."""
+    hub, desk = spec_hub, spec_hub.code_spec
+    spec = await _running(hub, desk)
+    assert spec.runs == {"T1": 101} and spec.step == "running"
+    monkeypatch.setattr(hub.tasks, "launch", "the-next-launch")  # (the app restarted)
+    again = cs.Specs(hub)
+    [kept] = again.specs
+    assert again.of_session(101) == (None, "") and again.of_session(kept.session) == (None, "")
+    assert kept.step == "stopped" and kept.current == "" and set(kept.runs) == {"T1"}
+    assert not again.covers(101)
+    started = len(asyncio.all_tasks())
+    again.task_event("task_finished", {"id": 101, "task_kind": "code", "status": "done"})
+    assert len(asyncio.all_tasks()) == started  # no check of somebody else's session
+    again.save()
+    assert cs.Specs(hub).specs[0].runs == {"T1": 0}  # (stamped with this launch now)
+
+
+async def test_two_turn_ends_of_one_task_ask_once_and_start_one_next_task(spec_hub, monkeypatch):
+    """Round 1's D11: a task's session can end several turns; the cards their checks bring
+    must not each start the next task (two sessions at once in one folder)."""
+    hub, desk = spec_hub, spec_hub.code_spec
+    spec = await _running(hub, desk)
+    (spec.root / "tasks.md").write_text(TASKS + "- [ ] T3: Log out (R1)\n")
+
+    async def suite(_folder):
+        return results(("test_r1_1_ok", "passed"), ("test_r1_2_ok", "passed"))
+
+    monkeypatch.setattr(desk, "run_tests", suite)
+    desk.ai, _asked = fake_ai("")
+    hub.answers = []
+    ends = [
+        asyncio.ensure_future(desk.after_task(spec, "T1", 101, {"id": 101, "status": "done"}))
+        for _ in range(2)
+    ]
+    for _ in range(100):
+        if hub.cards and hub.cards[-1]["question"].endswith("Start T2?"):
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.05)
+    asked = [c for c in hub.cards if "T1 is checked" in c["question"]]
+    for card in asked:
+        hub.resolve(card["id"], "next")
+    said = await asyncio.gather(*ends)
+    assert len(asked) == 1, said
+    assert spec.runs == {"T1": 101, "T2": 102} and spec.current == "T2"
+
+
+def test_an_unreadable_specs_file_is_never_saved_over(tmp_path):
+    import json
+    import os
+
+    kept = tmp_path / "code_specs.json"
+    kept.write_text(json.dumps([{"slug": "KEEP-ME", "directory": "a", "folder": "/a", "request": "x"}]))
+    os.chmod(kept, 0)
+    hub = NS(feature_path=lambda name: tmp_path / name, emit=lambda *a, **k: None,
+             tasks=NS(launch="l"))  # fmt: skip
+    try:
+        desk = cs.Specs(hub)
+        assert desk.specs == []
+        desk.save()
+        desk.save()
+    finally:
+        for f in tmp_path.iterdir():
+            os.chmod(f, 0o600)
+    assert "KEEP-ME" in kept.read_text()
+
+
+def test_a_spec_reads_only_plain_files_inside_its_project_and_only_so_much(tmp_path):
+    """Round 1's break: a FIFO at tasks.md held the whole app (every publish reads it); a
+    linked requirements.md was read from outside the project; a huge file was read whole."""
+    import os
+
+    proj = tmp_path / "proj"
+    root = proj / "specs" / "s1"
+    root.mkdir(parents=True)
+    spec = cs.Spec(slug="s1", directory="proj", folder=str(proj), request="x")
+    os.mkfifo(root / "tasks.md")
+    assert spec.read("tasks.md") == ""  # (at once: never waits for a writer)
+    outside = tmp_path / "secret.md"
+    outside.write_text("## R1: SECRET\n")
+    os.symlink(outside, root / "requirements.md")
+    assert spec.read("requirements.md") == ""
+    (root / "design.md").write_bytes(b"x" * (cs.READ_MAX * 3))
+    assert len(spec.read("design.md")) == cs.READ_MAX
+    other = tmp_path / "elsewhere"
+    (other / "s2").mkdir(parents=True)
+    (other / "s2" / "tasks.md").write_text(TASKS)
+    (proj / "specs" / "s2").symlink_to(other / "s2")  # (its folder a link out)
+    assert cs.Spec(slug="s2", directory="proj", folder=str(proj), request="x").read("tasks.md") == ""

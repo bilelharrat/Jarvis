@@ -254,6 +254,8 @@ ZH = {
     "the spending ceiling was reached": "达到了花费上限",
     "you stopped it": "你停下了它",
     "the app quit": "应用退出了",
+    "Only a run that finished can land: resume it first.": "只有跑完的修复才能合入：请先继续运行它。",
+    "it had no isolated copy": "它没有隔离副本",
     "a step failed": "有一步失败了",
     "Not allowed in Bug Fix Mode ({why}). Don't try to get around it: carry on without it if you can, otherwise say what you'd need in your reply.": "修 bug 模式不允许这样做（{why}）。不要设法绕过：能不用就继续，否则在回复里说明需要什么。",
     "Nobody's here to answer: decide yourself, choosing the safest reasonable option, and say what you chose.": "没人在这里回答：请自己决定，选最稳妥合理的做法，并说明你的选择。",
@@ -328,6 +330,7 @@ class BugRun:
     rounds: int = ROUNDS
     spend_cap: float = SPEND_DEFAULT
     spent: float = 0.0  # in steps that ended (and sessions before a resume)
+    counted: float = 0.0  # how much of the open session's own spend is in spent already
     sweep_model: str = ""
     fix_model: str = ""
     model_note: str = ""
@@ -338,7 +341,10 @@ class BugRun:
     findings: list[Finding] = field(default_factory=list)
     dropped: list[Dropped] = field(default_factory=list)
     next_id: int = 1
-    snaps: dict[str, str] = field(default_factory=dict)  # "r1-fix" -> a snapshot commit
+    snaps: dict[str, str] = field(default_factory=dict)  # "r1-fix", "r1-eff" -> a snapshot commit
+    # "r1" -> the tests, routes and commands from before round 1's efficiency pass, kept with
+    # its snapshot so a pass resumed after a quit is checked against where it started.
+    eff_before: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     suites: dict[str, dict[str, Any]] = field(default_factory=dict)  # "r1-break" -> a run
     efficiency: dict[str, dict[str, Any]] = field(default_factory=dict)  # "r1" -> its verdict
     changes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # "r1" -> its changes
@@ -354,6 +360,7 @@ class BugRun:
         data["findings"] = [asdict(f) | {"where": f.where()} for f in self.findings]
         data["dropped"] = len(self.dropped)
         data.pop("snaps", None)
+        data.pop("eff_before", None)
         return data
 
 
@@ -592,11 +599,26 @@ def parse_block(text: str) -> dict[str, Any] | None:
     found = _BLOCK.findall(text or "")
     if not found:
         return None
-    try:
-        data = json.loads(found[-1])
-    except ValueError:
+    try:  # (Infinity and NaN, which JSON doesn't have, read as nothing)
+        data = json.loads(found[-1], parse_constant=lambda _name: None)
+    except (ValueError, RecursionError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def listed(block: dict[str, Any] | None, key: str) -> list[Any]:
+    """A block's list (findings, fixes, changes, owner_steps): what the model wrote there
+    when it is a list, else none (a number, true or an object read as an empty list)."""
+    value = (block or {}).get(key)
+    return value if isinstance(value, list) else []
+
+
+def _line(value: Any) -> int:
+    """A line number as the model wrote it: 0 when it isn't one (words, 1e400)."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def _words(text: str) -> set[str]:
@@ -625,10 +647,7 @@ def check_finding(
     title = _squash(raw.get("title") or "")[:200]
     scenario = _squash(raw.get("scenario") or "")[:1500]
     severity = str(raw.get("severity") or "").strip().lower()
-    try:
-        line = int(raw.get("line") or 0)
-    except (TypeError, ValueError):
-        line = 0
+    line = _line(raw.get("line"))
     if not file or not title:
         return None, "no file or title"
     if severity not in SEVERITIES:
@@ -731,7 +750,12 @@ class BugFix:
         self.waiting: dict[int, asyncio.Future] = {}  # session id -> its step's turn
         self.quiet: dict[int, float] = {}
         self.drivers: dict[str, asyncio.Task] = {}
+        self.asking: set[str] = set()  # projects whose start card is up, or starting
+        # run id -> (its suite runner, the folder, the run's end) while a suite runs for it,
+        # so Stop ends that run of the suite now, not when it finishes
+        self.suite_runs: dict[str, tuple[Any, Path, asyncio.Future]] = {}
         self._loaded = False
+        self.unreadable = False  # the kept file is there but couldn't be read: never saved over
         # Overridable (the tests): how a folder's suites are found, and the suite runs' env.
         self.suites_of: Any = None
         self.env: Any = None
@@ -748,7 +772,9 @@ class BugFix:
         self._loaded = True
         try:
             data = jsonstore.load_json(self.path, dict) or {}
-        except jsonstore.Unreadable:
+        except jsonstore.Unreadable as exc:  # (there, but not readable now: never saved over)
+            log.warning("Bug Fix Mode: %s can't be read (%s)", self.path.name, exc)
+            self.unreadable = True
             data = {}
         for raw in data.get("runs") or []:
             run = _load_run(raw)
@@ -761,6 +787,8 @@ class BugFix:
     def save(self) -> None:
         self.load()
         del self.runs[:-RUNS_KEPT]
+        if self.unreadable:  # (this launch's runs stay in memory; the file is left as it is)
+            return
         with contextlib.suppress(OSError):
             jsonstore.save_json(self.path, {"runs": [asdict(r) for r in self.runs]})
 
@@ -855,9 +883,10 @@ class BugFix:
         """The switch turned on (the window, voice, the brain's tool): the card with the
         whole scope, then the run."""
         self.load()
-        try:
+        try:  # (true isn't $1: a ceiling is a number, or none for the default)
             cap = float(spend_cap) if spend_cap not in (None, "") else SPEND_DEFAULT
-        except (TypeError, ValueError):
+            cap = -1.0 if isinstance(spend_cap, bool) else cap
+        except (TypeError, ValueError, OverflowError):
             cap = -1.0
         if not 1.0 <= cap <= SPEND_MAX:
             return self.say(
@@ -867,8 +896,15 @@ class BugFix:
         if isinstance(where, str):
             return self.tr(where)
         folder, name = where
-        if any(r.project == name for r in self.active.values()):
+        if name in self.asking or any(r.project == name for r in self.active.values()):
             return self.say("Bug Fix Mode is already on for {project}.", project=name)
+        self.asking.add(name)  # (until it starts or doesn't: a second start meanwhile is refused)
+        try:
+            return await self._request(project, folder, name, cap, speak)
+        finally:
+            self.asking.discard(name)
+
+    async def _request(self, project: str, folder: Path, name: str, cap: float, speak: bool) -> str:
         stack = await asyncio.to_thread(detect_stack, folder)
         suites = await self.find_suites(folder)
         sweep, fix, why = self.models(project)
@@ -942,7 +978,7 @@ class BugFix:
         except ValueError as exc:
             return str(exc)
         task.allow_edits = True  # edits in its own copy are its work (the guard narrows them)
-        run.task_id = task.id
+        run.task_id, run.counted = task.id, 0.0  # (a new session: none of its spend counted)
         run.state, run.why = "running", ""
         self.active[task.id] = run
         self.quiet[task.id] = 0.0
@@ -954,7 +990,13 @@ class BugFix:
     async def resume(self, run_id: str) -> str:
         """A paused (or stopped) run carries on, in its copy and conversation, from its step."""
         run = self.find(run_id)
-        if run is None or run.state in ("running", "done") or not run.folder:
+        driver = self.drivers.get(run_id)
+        if (
+            run is None
+            or run.state not in ("paused", "stopped")  # (not while it's still stopping)
+            or not run.folder
+            or (driver is not None and not driver.done())  # (never two drivers on one run)
+        ):
             return self.tr("That run can't be resumed.")
         if not Path(run.folder).is_dir():
             return self.tr("Its isolated copy isn't there any more.")
@@ -973,12 +1015,18 @@ class BugFix:
         async def prepare(task: Any) -> None:
             if inner is not None:
                 await inner(task)
-            if task.id in self.active and not task.workspace:
+            run = self.active.get(task.id)
+            if run is None:
+                return
+            if not task.workspace:
                 raise RuntimeError(
                     self.tr(
                         "Bug Fix Mode needs an isolated copy, and this one's couldn't be made: see the note above."
                     )
                 )
+            if not run.slug:  # the copy is the run's now: a quit before its first turn ends can resume
+                self.adopt_copy(run, task)
+                self.save()
 
         return prepare
 
@@ -1003,7 +1051,7 @@ class BugFix:
 
     def extend(self, run: BugRun, task: Any, options: Any) -> None:
         """The run's own: what's left of its ceiling, its auditors, and its guard."""
-        left = round(max(0.05, run.spend_cap - run.spent - spent(task)), 2)
+        left = round(max(0.05, run.spend_cap - run.spent - (spent(task) - run.counted)), 2)
         other = options.max_budget_usd
         if isinstance(other, int | float) and not isinstance(other, bool) and other > 0:
             left = min(left, float(other))
@@ -1146,7 +1194,6 @@ class BugFix:
         reply. Its cost goes to the run's."""
         if run.state != "running":
             raise Stopped(run.why or "owner")
-        before = spent(task)
         if text:
             self.waiting[task.id] = asyncio.get_running_loop().create_future()
             if not self.hub.tasks.send(task.id, text):
@@ -1158,9 +1205,14 @@ class BugFix:
             status = await asyncio.wait_for(waiter, STEP_WAIT)
         except TimeoutError:
             status = "failed"
+        except asyncio.CancelledError:  # the app quits mid-step: what it spent still counts
+            self.account(run, task)
+            with contextlib.suppress(Exception):
+                self.save()
+            raise
         finally:
             self.waiting.pop(task.id, None)
-        run.spent = round(run.spent + max(0.0, spent(task) - before), 4)
+        self.account(run, task)
         run.session_id = task.session_id or run.session_id
         self.adopt_copy(run, task)
         if run.state != "running":
@@ -1173,12 +1225,41 @@ class BugFix:
             raise Stopped("spend")
         return task.result or ""
 
+    @staticmethod
+    def account(run: BugRun, task: Any) -> None:
+        """The session's spend not yet in the run's, added: once, however many turns and
+        steps it had, and whenever the run is left (a step's end, a quit, the run's end), so
+        a resumed run's ceiling is what's left of it."""
+        now = spent(task)
+        run.spent = round(run.spent + max(0.0, now - run.counted), 4)
+        run.counted = max(run.counted, now)
+
     def adopt_copy(self, run: BugRun, task: Any) -> None:
         ws = task.workspace or {}
         if ws.get("slug") and not run.slug:
             run.slug, run.branch, run.into = ws["slug"], ws.get("branch", ""), ws.get("into", "")
             run.folder = str(task.cwd)
             run.base = ws.get("base", "") or code_changes.head_commit(task.cwd)
+
+    def copy_folder(self, run: BugRun, task: Any) -> Path:
+        """The run's isolated copy, where every step's files, snapshots and put-backs go;
+        the run stops (why "copy") when it has none, or it isn't one: a snapshot stages the
+        folder's index and a put-back resets its files, never to be done in the owner's own
+        checkout. (prepare refuses a session with no copy first; this holds besides.)"""
+        self.adopt_copy(run, task)
+        desk = getattr(self.hub, "code_desk", None)
+        copy = None
+        if run.slug and run.folder and desk is not None:
+            with contextlib.suppress(Exception):
+                copy = desk.store().find(run.slug)
+        try:
+            ok = copy is not None and Path(copy.cwd).resolve() == Path(run.folder).resolve()
+        except OSError:
+            ok = False
+        if not ok:
+            run.notes.append("It had no isolated copy, so it stopped before touching the project.")
+            raise Stopped("copy")
+        return Path(run.folder)
 
     # ── the protocol ──
 
@@ -1187,8 +1268,8 @@ class BugFix:
 
     async def drive(self, run: BugRun, task: Any, first: bool) -> None:
         """The rounds, from the step the run is on, then ship, the receipt and landing."""
-        try:  # (a resume: the step it was on starts again)
-            while run.round <= ROUNDS:
+        try:  # (a resume: the step it was on starts again; one at ship goes straight there)
+            while run.round <= ROUNDS and run.step != "ship":
                 steps = self.steps_of(run.round)
                 start = steps.index(run.step) if run.step in steps else 0
                 for step in steps[start:]:
@@ -1218,15 +1299,15 @@ class BugFix:
 
     async def do_sweep(self, run: BugRun, task: Any, first: bool) -> None:
         reply = await self.turn(run, task, "" if first else self.step_prompt(run, "sweep"))
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         self.take_findings(run, folder, "sweep", reply)
         self.write_report(run, folder, "sweep")
 
     # BREAK
 
     async def do_break(self, run: BugRun, task: Any, first: bool) -> None:
-        folder = Path(run.folder or task.cwd)
-        suite = await self.run_suites(folder)
+        folder = self.copy_folder(run, task)
+        suite = await self.run_suites(folder, run)
         run.suites[f"r{run.round}-break"] = suite
         for case in suite.get("failures") or []:
             self.add_finding(run, {
@@ -1243,7 +1324,7 @@ class BugFix:
     # FIX
 
     async def do_fix(self, run: BugRun, task: Any, first: bool) -> None:
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         key = f"r{run.round}-fix"
         if key not in run.snaps:  # (a resumed fix step keeps the point it started from)
             run.snaps[key] = await asyncio.to_thread(
@@ -1254,12 +1335,12 @@ class BugFix:
         if todo:
             reply = await self.turn(run, task, self.step_prompt(run, "fix", findings=todo))
             self.take_fixes(run, reply)
-        suite = await self.run_suites(folder)
+        suite = await self.run_suites(folder, run)
         tries = 0
         while suite.get("status") == "failed" and tries < FIX_TRIES:
             tries += 1
             await self.turn(run, task, self.suite_red_prompt(run, suite))
-            suite = await self.run_suites(folder)
+            suite = await self.run_suites(folder, run)
         run.suites[key] = suite
         await self.prove(run, folder, run.snaps.get(key, ""))
         self.write_report(run, folder, "fix")
@@ -1267,23 +1348,34 @@ class BugFix:
     # EFFICIENCY
 
     async def do_efficiency(self, run: BugRun, task: Any, first: bool) -> None:
-        folder = Path(run.folder or task.cwd)
+        """The pass, then its check. Its rollback point (and the lists from before it) is
+        saved before its turn and reused when a quit pass is resumed, so the check always
+        compares with where the pass started, never with its own half-done edits; a pass
+        that ends before the check (Stop, a timeout, an error) is put back in finish."""
+        folder = self.copy_folder(run, task)
         key = f"r{run.round}"
-        before_suite = run.suites.get(f"r{run.round}-fix") or await self.run_suites(folder)
-        before = {
-            "tests": before_suite.get("tests") or [],
-            **await asyncio.to_thread(inventory, folder),
-        }
-        point = await asyncio.to_thread(
-            snapshot, folder, f"Bug Fix Mode: before round {run.round}'s efficiency pass"
-        )
+        if key in run.efficiency:  # (judged already: a resume carries on past it)
+            return
+        before_suite = run.suites.get(f"r{run.round}-fix") or await self.run_suites(folder, run)
+        point = run.snaps.get(f"{key}-eff", "")
+        before = run.eff_before.get(key)
+        if not point or before is None:
+            before = {
+                "tests": before_suite.get("tests") or [],
+                **await asyncio.to_thread(inventory, folder),
+            }
+            point = await asyncio.to_thread(
+                snapshot, folder, f"Bug Fix Mode: before round {run.round}'s efficiency pass"
+            )
+            run.snaps[f"{key}-eff"], run.eff_before[key] = point, before
+            self.save()
         reply = await self.turn(run, task, self.step_prompt(run, "efficiency"))
         block = parse_block(reply) or {}
         run.changes[key] = [
             {k: _squash(c.get(k) or "")[:300] for k in ("file", "what", "gain")}
-            for c in (block.get("changes") or [])[:30] if isinstance(c, dict)
+            for c in listed(block, "changes")[:30] if isinstance(c, dict)
         ]  # fmt: skip
-        after_suite = await self.run_suites(folder)
+        after_suite = await self.run_suites(folder, run)
         after = {
             "tests": after_suite.get("tests") or [],
             **await asyncio.to_thread(inventory, folder),
@@ -1314,10 +1406,37 @@ class BugFix:
         run.efficiency[key] = verdict
         self.write_report(run, folder, "fix")  # (the round's fix report has the pass too)
 
+    async def put_back_unchecked(self, run: BugRun, folder: Path) -> None:
+        """An efficiency pass that ended before Eden checked it (Stop, a timeout, a step
+        that failed, or a paused run landed) is put back whole, as one that lost a feature
+        is: its edits were never checked, so they never land. Nothing when the round's pass
+        was judged, or the run isn't in one."""
+        key = f"r{run.round}"
+        point = run.snaps.get(f"{key}-eff", "")
+        if run.step != "efficiency" or not point or key in run.efficiency:
+            return
+        put_back = folder.is_dir() and await asyncio.to_thread(restore, folder, point)
+        counts = {k: len(v) for k, v in (run.eff_before.get(key) or {}).items()}
+        run.efficiency[key] = {
+            "before": counts,
+            "after": counts if put_back else {},
+            "lost": {},
+            "suite": "",
+            "kept": False,
+            "why": "it ended before Eden could check it",
+            "restored": put_back,
+        }
+        if not put_back:
+            run.notes.append(
+                f"Round {run.round}'s efficiency pass ended unchecked and couldn't be put back; see the copy."
+            )
+        with contextlib.suppress(Exception):
+            self.write_report(run, folder, "fix")
+
     # SHIP
 
     async def do_ship(self, run: BugRun, task: Any, first: bool) -> None:
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         reply = await self.turn(run, task, self.step_prompt(run, "ship"))
         block = parse_block(reply) or {}
         with contextlib.suppress(OSError):
@@ -1326,7 +1445,7 @@ class BugFix:
         built = bool(block.get("built"))
         steps = [
             *run.stack.get("owner", []),
-            *(_squash(s)[:300] for s in block.get("owner_steps") or [] if isinstance(s, str)),
+            *(_squash(s)[:300] for s in listed(block, "owner_steps") if isinstance(s, str)),
         ]
         run.owner_steps = list(dict.fromkeys(steps))[:20]
         run.owner_steps += [
@@ -1415,18 +1534,15 @@ class BugFix:
                 f"Round {run.round}'s {step} ended without its ```bugfix block: no findings read from it."
             )
             return
-        listed = [f for f in block.get("findings") or [] if isinstance(f, dict)]
-        if len(listed) > FINDINGS_MAX:
+        found = [f for f in listed(block, "findings") if isinstance(f, dict)]
+        if len(found) > FINDINGS_MAX:
             run.notes.append(
-                f"Round {run.round}'s {step} listed {len(listed)} findings; the first {FINDINGS_MAX} were read."
+                f"Round {run.round}'s {step} listed {len(found)} findings; the first {FINDINGS_MAX} were read."
             )
-        for raw in listed[:FINDINGS_MAX]:
+        for raw in found[:FINDINGS_MAX]:
             item, why = check_finding(folder, raw)
             if item is None:
-                try:
-                    line = int(raw.get("line") or 0)
-                except (TypeError, ValueError):
-                    line = 0
+                line = _line(raw.get("line"))
                 run.dropped.append(
                     Dropped(
                         run.round,
@@ -1447,7 +1563,7 @@ class BugFix:
     def take_fixes(self, run: BugRun, reply: str) -> None:
         block = parse_block(reply) or {}
         by_id = {f.id: f for f in run.findings}
-        for raw in block.get("fixes") or []:
+        for raw in listed(block, "fixes"):
             if not isinstance(raw, dict):
                 continue
             found = by_id.get(str(raw.get("id") or ""))
@@ -1471,10 +1587,22 @@ class BugFix:
         env = self.env() if self.env is not None else await asyncio.to_thread(runproc.shell_env)
         return {**env, "PYTHONDONTWRITEBYTECODE": "1", "CI": env.get("CI", "")}
 
+    @staticmethod
+    def still_on(run: BugRun | None) -> None:
+        """Between suite runs: a run Stop was pressed for goes no further."""
+        if run is not None and run.state != "running":
+            raise Stopped(run.why or "owner")
+
     async def run_one(
-        self, folder: Path, suite: codetests.Suite, target: dict[str, str] | None = None
+        self,
+        folder: Path,
+        suite: codetests.Suite,
+        target: dict[str, str] | None = None,
+        run: BugRun | None = None,
     ) -> codetests.Run | None:
-        """One run of a suite (all of it, or a target) in a folder, quietly, to its end."""
+        """One run of a suite (all of it, or a target) in a folder, quietly, to its end (or
+        the run's Stop: then the suite is stopped and the step goes no further)."""
+        self.still_on(run)
         env = await self.suite_env()
         runner = codetests.SuiteRunner(lambda *_a, **_k: None, env=lambda: env)
         if suite.id == "pytest":
@@ -1494,15 +1622,21 @@ class BugFix:
         except ValueError as exc:
             log.info("Bug Fix Mode couldn't run %s: %s", suite.label, exc)
             return None
+        if run is not None:
+            self.suite_runs[run.id] = (runner, folder, done)
         try:
-            return await asyncio.wait_for(done, SUITE_WAIT)
+            got = await asyncio.wait_for(done, SUITE_WAIT)
         except TimeoutError:
             await runner.stop(folder)
             return None
         finally:
+            if run is not None:
+                self.suite_runs.pop(run.id, None)
             runner.shutdown()
+        self.still_on(run)
+        return got
 
-    async def run_suites(self, folder: Path) -> dict[str, Any]:
+    async def run_suites(self, folder: Path, run: BugRun | None = None) -> dict[str, Any]:
         """Every ready suite of the project, run whole: passed | failed | error | none, with
         the counts, the failures and every test's name (for the efficiency pass)."""
         suites = [s for s in await self.find_suites(folder) if s.ready]
@@ -1523,7 +1657,7 @@ class BugFix:
         }
         lines = []
         for suite in suites:
-            got = await self.run_one(folder, suite)
+            got = await self.run_one(folder, suite, run=run)
             out["labels"].append(suite.label)
             if got is None or got.results is None:
                 out["status"] = "error" if out["status"] == "passed" else out["status"]
@@ -1592,7 +1726,7 @@ class BugFix:
                     with contextlib.suppress(OSError):
                         (tmp / name).symlink_to(folder / name)
             for f in fixed[:PROOFS_MAX]:
-                await self.prove_one(f, folder, tmp, suites)
+                await self.prove_one(f, folder, tmp, suites, run)
             for f in fixed[PROOFS_MAX:]:
                 f.proof = (
                     f"Not checked against the code from before (only {PROOFS_MAX} a round are)."
@@ -1607,11 +1741,17 @@ class BugFix:
         self.publish()
 
     async def prove_one(
-        self, f: Finding, folder: Path, before: Path, suites: list[codetests.Suite]
-    ) -> None:
+        self, f: Finding, folder: Path, before: Path, suites: list[codetests.Suite],
+        run: BugRun | None = None,
+    ) -> None:  # fmt: skip
         spec = f.test.strip()
         file = spec.split("::", 1)[0].strip()
-        if not spec or not file or not (folder / file).is_file():
+        try:  # (a test the fix names outside its copy, ../ or a full path, is never run)
+            path = (folder / file).resolve()
+            inside = bool(file) and folder.resolve() in path.parents and path.is_file()
+        except (OSError, ValueError):
+            inside = False
+        if not spec or not inside:
             f.status = "unproven"
             f.proof = (
                 "It came with no test file Eden could find."
@@ -1621,8 +1761,8 @@ class BugFix:
             return
         suite = next((s for s in suites if not s.cwd or file.startswith(s.cwd + "/")), suites[0])
         target = {"test": spec} if suite.id == "pytest" and "::" in spec else {"file": file}
-        then = await self.run_one(before, suite, target)
-        now = await self.run_one(folder, suite, target)
+        then = await self.run_one(before, suite, target, run)
+        now = await self.run_one(folder, suite, target, run)
         then_s = then.status if then is not None else "error"
         now_s = now.status if now is not None else "error"
         if now_s != "passed":
@@ -1917,7 +2057,7 @@ class BugFix:
         )
 
     def receipt(self, run: BugRun, task: Any) -> None:
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         files = changed_since(folder, run.base) if run.base else []
         last = run.suites.get(f"r{ROUNDS}-fix") or run.suites.get(f"r{run.round}-fix") or {}
         counts = last.get("counts") or {}
@@ -1950,6 +2090,7 @@ class BugFix:
         self.waiting.pop(task.id, None)
         run.state = "done" if why == "finished" else ("paused" if why == "restart" else "stopped")
         run.why, run.ended = why, time.time()
+        self.account(run, task)
         run.session_id = task.session_id or run.session_id
         self.adopt_copy(run, task)
         if why == "finished":
@@ -1958,6 +2099,9 @@ class BugFix:
         if task.busy:
             with contextlib.suppress(Exception):
                 await self.hub.tasks.interrupt(task.id)
+        if why != "restart":  # (a quit pass is checked when it resumes, or put back to land)
+            if run.slug and run.folder:  # (only ever in its copy)
+                await self.put_back_unchecked(run, Path(run.folder))
         self.quiet[task.id] = time.time() + QUIET_AFTER
         self.save()
         self.publish()
@@ -1969,7 +2113,7 @@ class BugFix:
             )
         else:
             words = {"spend": "the spending ceiling was reached", "owner": "you stopped it",
-                     "restart": "the app quit"}.get(why, "a step failed")  # fmt: skip
+                     "restart": "the app quit", "copy": "it had no isolated copy"}.get(why, "a step failed")  # fmt: skip
             spoken = self.say(
                 "Bug Fix Mode in {project} stopped: {why}.", project=run.project, why=self.tr(words)
             )
@@ -1988,8 +2132,10 @@ class BugFix:
         desk = getattr(self.hub, "code_desk", None)
         if run is None or desk is None:
             return self.tr("That run isn't there any more.")
-        if run.state == "running" or run.landed:
+        if run.landed:
             return ""
+        if run.state != "done":  # (stopped or paused part way: its fixes weren't all checked)
+            return self.tr("Only a run that finished can land: resume it first.")
         copy = desk.store().find(run.slug) if run.slug else None
         if copy is None:
             return self.tr("Its isolated copy isn't there any more.")
@@ -2037,6 +2183,13 @@ class BugFix:
                 waiter = self.waiting.get(task_id)
                 if waiter is not None and not waiter.done():
                     waiter.set_result("stopped")
+                suite = self.suite_runs.pop(run.id, None)
+                if suite is not None:  # a suite (or a fix's proof) running for it: stopped now
+                    runner, folder, done = suite
+                    if not done.done():
+                        done.set_result(None)
+                    with contextlib.suppress(Exception):
+                        await runner.stop(folder)
                 with contextlib.suppress(Exception):
                     await self.hub.tasks.interrupt(task_id)
                 return self.tr("Stopped Bug Fix Mode.")

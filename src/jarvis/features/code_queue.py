@@ -89,6 +89,7 @@ ZH = {
     "The checks after the last turn found problems: {what}": "上一轮之后的检查发现了问题：{what}",
     "The checks after the last turn found problems.": "上一轮之后的检查发现了问题。",
     "{model} takes over from here: fix what the checks found, run them again, and say what you changed.": "接下来由 {model} 接手：修好检查发现的问题，再跑一遍检查，并说明你改了什么。",
+    "A queue's ceiling is at least $0.05.": "队列的上限至少是 $0.05。",
 }
 lang.add_texts(ZH)
 
@@ -107,6 +108,7 @@ class Run:
         self.id = secrets.token_hex(4)
         self.on = True
         self.note = ""
+        self.gone = 0.0  # what its cards deleted since had spent: still the run's
 
 
 class Queue:
@@ -165,7 +167,7 @@ class Queue:
                 total += spent(task)
             else:
                 total += float(card.get("cost") or 0.0)
-        return round(total, 6)
+        return round(total + run.gone, 6)
 
     def public(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -201,7 +203,13 @@ class Queue:
         ceiling = msg.get("ceiling", conf.get("ceiling", CEILING_DEFAULT))
         if not isinstance(ceiling, int | float) or isinstance(ceiling, bool):
             ceiling = CEILING_DEFAULT
-        ceiling = float(ceiling) if math.isfinite(ceiling) else CEILING_DEFAULT
+        try:  # (a 400-digit number is past any float: the default, as infinity is)
+            ceiling = float(ceiling) if math.isfinite(ceiling) else CEILING_DEFAULT
+        except OverflowError:
+            ceiling = CEILING_DEFAULT
+        if ceiling < 0.05:  # ($0 or less was taken up to $0.05, and a card started on it)
+            self.todo.error(self.tr("A queue's ceiling is at least $0.05."))
+            return
         conf["parallel"] = max(1, min(PARALLEL_MAX, parallel))
         conf["ceiling"] = round(max(0.05, min(CEILING_MAX, ceiling)), 2)
         routes = msg.get("routes") if isinstance(msg.get("routes"), dict) else {}
@@ -210,9 +218,10 @@ class Queue:
             if route is not None and not route.get("shadow"):
                 card["route"] = {k: route[k] for k in ("ref", "model", "effort") if k in route}
         run = self.runs.get(folder)
-        if run is None or not run.on:
+        if run is None or (not run.on and not self.running(run)):
             run = self.runs[folder] = Run(folder, conf["parallel"], conf["ceiling"])
-        else:
+        else:  # (on, or stopped with cards still running: the same run, so they count in it)
+            run.on, run.note = True, ""
             run.parallel, run.ceiling = conf["parallel"], conf["ceiling"]
         for card in self.todo.board.of(folder):
             if card.get("state") == "todo":
@@ -232,7 +241,11 @@ class Queue:
         self.changed()
 
     def forget(self, card: dict[str, Any]) -> None:
-        """A card deleted: its session runs on as an ordinary one."""
+        """A card deleted (never a running one: code_todo refuses): what it spent stays
+        its run's, so tidying the board never makes room under the ceiling."""
+        run = self.runs.get(card.get("folder") or "")
+        if run is not None and card.get("run") == run.id:
+            run.gone = round(run.gone + float(card.get("cost") or 0.0), 6)
         for task_id, cid in list(self.by_task.items()):
             if cid == card["id"]:
                 del self.by_task[task_id]

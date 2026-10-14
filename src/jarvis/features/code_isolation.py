@@ -710,7 +710,16 @@ class Desk:
 def install(hub: Any) -> None:
     desk = Desk(hub)
     hub.code_desk = desk  # (for the other Eden Code features and the tests)
-    hub.tasks.prepare = desk.prepare
+    # Chained, not replaced: a feature installed earlier (code_bugfix, which refuses to run
+    # without a copy) wraps prepare too, and checks after the copy is made, so it goes second.
+    earlier = hub.tasks.prepare
+
+    async def prepare(task: Any) -> None:
+        await desk.prepare(task)
+        if earlier is not None:
+            await earlier(task)
+
+    hub.tasks.prepare = prepare
     hub.tasks.isolated_dir = desk.isolated_dir
     hub.register_command("code_copies", desk.cmd_copies)
     hub.register_command("code_copy", desk.cmd_copy)
