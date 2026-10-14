@@ -15,7 +15,9 @@
   "Resting": "休眠中",
   "Pinned": "已置顶",
   "New since you looked": "有你还没看过的新内容",
-  "Done": "完成"
+  "Done": "完成",
+  "Next or previous session": "下一个或上一个会话",
+  "Agent board: arrows, Enter, 1–4": "智能体看板：方向键、回车、1–4"
  },
  "patterns": [
   [
@@ -45,6 +47,26 @@
   [
    "^(\\d+) files?$",
    "$1 个文件"
+  ],
+  [
+   "^Session (\\d+), (.+), needs you: (.+)$",
+   "会话 $1，$2，需要你：$3"
+  ],
+  [
+   "^Session (\\d+), (.+), working: (.+)$",
+   "会话 $1，$2，正在工作：$3"
+  ],
+  [
+   "^Session (\\d+), (.+), done: (.+)$",
+   "会话 $1，$2，已完成：$3"
+  ],
+  [
+   "^Session (\\d+), (.+), failed: (.+)$",
+   "会话 $1，$2，失败：$3"
+  ],
+  [
+   "^Session (\\d+), (.+), resting: (.+)$",
+   "会话 $1，$2，休眠中：$3"
   ]
  ]
 }

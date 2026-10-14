@@ -24,12 +24,12 @@ const inSplitPane = window.parent !== window && new URLSearchParams(location.sea
 if (inSplitPane) document.body.classList.add('jc-split-pane');
 const SPLIT_PANE_SKIPS = new Set([
   'browser_cmd', 'research_cmd', 'pdf_cmd', 'location_request', 'cv_page_check', 'dm_render', 'vp_capture',
-  'code_voice_point', 'code_voice_file', 'show_session', 'ui', 'alert', 'desktop_hands', 'remote_code',
+  'code_voice_point', 'code_voice_file', 'cp_find', 'cp_capture', 'show_session', 'ui', 'alert', 'desktop_hands', 'remote_code',
   'voice_typing', 'voice_typed', 'galaxy', 'galaxy_changed', 'sources', 'note', 'level',
 ]);
 const SPLIT_PANE_QUIET = new Set([
   'capabilities', 'browser_result', 'research_result', 'pdf_result', 'location_fix', 'cv_page_result',
-  'dm_render_result', 'vp_result', 'code_voice_pointed', 'code_voice_hand', 'galaxy',
+  'dm_render_result', 'vp_result', 'code_voice_pointed', 'code_voice_hand', 'cp_tree', 'cp_captured', 'galaxy',
 ]);
 
 // Eden Code's own window (app/flavor.js; the server marks the page, server.eden_code_page):
@@ -286,6 +286,10 @@ window.jarvisFeatures = {
   selectHere: (id) => selectTask(id, true),
   check: (kind, info) => featureCheck(kind, info),
   pickFolder: (question) => pickFolderPath(question),
+  // Attachments a feature brings for the composer ({media_type, data, name}: a picked
+  // element's document and picture, features/code-pick.js), within the composer's limits;
+  // how many went on.
+  attach: (items) => attachItems(items),
 };
 
 function onEvent(ev) {
@@ -3544,6 +3548,7 @@ const JC_KEYS = [
   ['⌘F', 'Search the transcript'], ['⌘⇧F', 'Project files'], ['⌘,', 'Settings'],
   ['Esc', 'Interrupt, or close a menu or pane'], ['1–9', 'Answer an approval'], ['/', 'Commands'],
   ['@', 'Mention a file'], ['!', 'Run a shell command'], ['#', 'Save a note to CLAUDE.md'],
+  ['⌥⌘↓ ⌥⌘↑', 'Next or previous session'], ['⇧⌘B', 'Agent board: arrows, Enter, 1–4'],
 ];
 const projectFiles = {};
 const customSlash = {};  // project -> its and the user's custom commands and skills
@@ -4029,6 +4034,23 @@ function renderAttachments() {
   box.replaceChildren(...chips);
 }
 function clearAttachments() { attachments = []; renderAttachments(); }
+function attachItems(items) {
+  let added = 0;
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || typeof item.data !== 'string' || !item.data) continue;
+    const image = String(item.media_type || '').startsWith('image/');
+    const kind = image ? 'image' : 'text';
+    const size = image ? Math.round(item.data.length * 0.75) : item.data.length;
+    const held = attachments.map((a) => ({ kind: a.kind, size: a.size || 0 }));
+    if (window.JarvisAttach.check(held, kind, size)) { jcNote('Up to six attachments per message.'); break; }
+    attachments.push(image
+      ? { kind, type: item.media_type, data: item.data, url: `data:${item.media_type};base64,${item.data}`, name: String(item.name || 'picture'), size }
+      : { kind, type: 'text/plain', data: item.data, name: String(item.name || 'text'), size });
+    added += 1;
+  }
+  if (added) renderAttachments();
+  return added;
+}
 $('deck-input').addEventListener('paste', (e) => {
   const files = [...(e.clipboardData ? e.clipboardData.files : [])];
   if (files.length) { e.preventDefault(); files.forEach(addFile); }

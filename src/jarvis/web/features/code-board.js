@@ -2,6 +2,15 @@
 // working, done, failed, resting), with its project, branch, lines changed, cost, last
 // activity and what it's doing, and a click to open it, stop it or answer what it asks.
 // The Dock's badge says how many sessions need you (app/features/code-sessions.js).
+//
+// For a screen reader and the keyboard alone (F16, Eden Daredevil): each lane is a list and
+// each card a list item that says, in one line, which session it is, where it stands and
+// what it's doing or asks. One card at a time is in the Tab order: the arrows move between
+// cards (up and down in a lane, left and right across lanes, Home and End), Enter opens the
+// session, and 1 to 4 press the card's own buttons (an approval's answers first: the same
+// press as a click, so its checks — Touch ID, the settle time — still apply). Anywhere in
+// Eden Code, ⌥⌘↓ and ⌥⌘↑ go to the next and previous session in the board's order (those
+// that need you first), and say where they landed.
 // Other features add lanes of their own before the sessions' (F.codeBoard.addLane: the
 // to-do column, features/code-todo.js). Its pure logic is exported for node's tests.
 (function codeBoard(root) {
@@ -56,7 +65,55 @@
     return out;
   }
 
-  const api = { COLUMNS, column, doing, ago, arrange };
+  const LANE_SAID = { needs: 'needs you', working: 'working', done: 'done', failed: 'failed', resting: 'resting' };
+
+  // A card in one line, for a screen reader: "Session 3, Add a retry, needs you: Eden Code in
+  // jarvis wants to run a command. jarvis, branch main. 2 files, 10 lines added, 3 removed."
+  function cardSpeech(task, col, ask, figures = {}) {
+    const named = task.title || task.prompt || 'New session';
+    const what = doing(task, ask).replace(/[.。…]+\s*$/, '');  // (each part ends on its own full stop)
+    const parts = [`Session ${task.id}, ${String(named).split('\n')[0].slice(0, 120)}, ${LANE_SAID[col] || col}${what ? `: ${what}` : ''}`];
+    const where = [task.folder, figures.branch ? `branch ${figures.branch}` : ''].filter(Boolean).join(', ');
+    if (where) parts.push(where);
+    const files = (task.files_changed || []).length;
+    const stats = [];
+    if (files) stats.push(`${files} file${files === 1 ? '' : 's'}`);
+    if (figures.added || figures.removed) stats.push(`${figures.added || 0} lines added, ${figures.removed || 0} removed`);
+    if (stats.length) parts.push(stats.join(', '));
+    return `${parts.join('. ')}.`;
+  }
+
+  // Where the focus goes from a card, by key: lanes is the ids of each lane's cards, at the
+  // card it's on ({ lane, index }); null when the key isn't one of the board's.
+  function moveIn(lanes, at, key) {
+    const full = lanes.map((ids, lane) => (ids.length ? lane : -1)).filter((lane) => lane >= 0);
+    if (!full.length) return null;
+    const lane = full.includes(at.lane) ? at.lane : full[0];
+    const ids = lanes[lane];
+    const index = Math.min(Math.max(0, at.index), ids.length - 1);
+    if (key === 'ArrowDown') return { lane, index: Math.min(ids.length - 1, index + 1) };
+    if (key === 'ArrowUp') return { lane, index: Math.max(0, index - 1) };
+    if (key === 'Home') return { lane, index: 0 };
+    if (key === 'End') return { lane, index: ids.length - 1 };
+    if (key === 'ArrowRight' || key === 'ArrowLeft') {
+      const step = key === 'ArrowRight' ? 1 : -1;
+      const next = full[full.indexOf(lane) + step];
+      if (next === undefined) return { lane, index };
+      return { lane: next, index: Math.min(index, lanes[next].length - 1) };
+    }
+    return null;
+  }
+
+  // The next (dir 1) or previous (-1) session in the board's order, round the end; the first
+  // when none is open.
+  function nextSession(order, current, dir) {
+    if (!order.length) return null;
+    const at = order.indexOf(current);
+    if (at < 0) return dir > 0 ? order[0] : order[order.length - 1];
+    return order[(at + dir + order.length) % order.length];
+  }
+
+  const api = { COLUMNS, column, doing, ago, arrange, cardSpeech, moveIn, nextSession };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
@@ -66,7 +123,7 @@
   board.setAttribute('aria-label', 'Agent board');
   board.hidden = true;
   $('cc').querySelector('.jc-main').append(board);
-  const B = { figures: {}, showArchived: false, timer: 0, badge: -1 };
+  const B = { figures: {}, showArchived: false, timer: 0, badge: -1, lanes: [], focusId: null };
   // Lanes other features put first: { shows() -> what it draws (a change redraws the
   // board), element() -> its lane, kept by the feature itself (so what's being done in it
   // outlives a redraw) }.
@@ -194,14 +251,22 @@
       try { lanes.append(lane.element()); } catch (err) { console.error('board lane', err); }
     }
     lanes.classList.toggle('cs-lanes-more', lanes.childElementCount > 0);
+    lanes.addEventListener('keydown', onCardKey);
+    B.lanes = COLUMNS.map(([id]) => columns[id].map((task) => task.id));
+    // The one card in the Tab order: the one the keys were last on, else the first.
+    const ids = B.lanes.flat();
+    if (!ids.includes(B.focusId)) B.focusId = ids.length ? ids[0] : null;
     for (const [id, label] of COLUMNS) {
       const list = columns[id];
       const lane = el('section', `cs-lane ${id}`);
       lane.setAttribute('aria-label', label);
       const lh = el('h2', 'cs-lane-head');
+      lh.id = `cs-lane-${id}`;
       lh.append(el('span', `cs-lane-dot ${id}`), el('span', '', label), el('span', 'cs-lane-count', String(list.length)));
+      // Read as a list: "Needs you, list, 2 items".
       const cards = el('div', 'cs-cards');
-      if (list.length) cards.setAttribute('role', 'list');  // (read as "list, 3 items")
+      cards.setAttribute('role', 'list');
+      cards.setAttribute('aria-labelledby', lh.id);
       if (!list.length) cards.append(el('p', 'cs-lane-empty', id === 'needs' ? 'Nothing waiting on you.' : 'None'));
       cards.append(...list.map((task) => cardFor(task, id)));
       lane.append(lh, cards);
@@ -221,8 +286,12 @@
     const asks = asksOf(task.id);
     const figures = B.figures[String(task.id)] || {};
     const card = el('article', `cs-card ${col}`);
-    card.setAttribute('role', 'listitem');
     card.dataset.task = task.id;
+    card.dataset.focus = `${task.id}:card`;
+    card.setAttribute('role', 'listitem');
+    card.setAttribute('aria-label', cardSpeech(task, col, asks[0], figures));
+    card.tabIndex = task.id === B.focusId ? 0 : -1;
+    card.addEventListener('focus', () => { B.focusId = task.id; });
     const top = el('div', 'cs-card-top');
     const named = task.title || task.prompt;  // the user's words; "New session" is the window's
     top.append(el('span', `jc-dot ${col === 'needs' ? 'needs' : statusOf(task)}`), named ? mine(el('h3', 'cs-card-title', named)) : el('h3', 'cs-card-title', 'New session'));
@@ -266,6 +335,56 @@
     card.addEventListener('click', () => F.selectTask(task.id));
     return card;
   }
+
+  // ── the keyboard alone ──
+
+  function cardOf(id) { return board.querySelector(`.cs-card[data-task="${CSS.escape(String(id))}"]`); }
+  function focusCard(id) {
+    const card = cardOf(id);
+    if (!card) return;
+    for (const other of board.querySelectorAll('.cs-card[tabindex="0"]')) other.tabIndex = -1;
+    card.tabIndex = 0;
+    B.focusId = id;
+    card.focus();
+  }
+  function onCardKey(e) {
+    const card = e.target.closest && e.target.closest('.cs-card');
+    if (!card || e.metaKey || e.ctrlKey || e.altKey) return;
+    const id = Number(card.dataset.task);
+    if (e.target === card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); F.selectTask(id); return; }
+    if (/^[1-4]$/.test(e.key)) {
+      const pressed = card.querySelectorAll('.cs-card-acts button')[Number(e.key) - 1];
+      if (pressed) { e.preventDefault(); pressed.click(); }
+      return;
+    }
+    const lane = B.lanes.findIndex((ids) => ids.includes(id));
+    const to = lane < 0 ? null : moveIn(B.lanes, { lane, index: B.lanes[lane].indexOf(id) }, e.key);
+    if (!to) return;
+    e.preventDefault();
+    focusCard(B.lanes[to.lane][to.index]);
+  }
+
+  // ⌥⌘↓ / ⌥⌘↑: the next or previous session, those that need you first, and where it is said.
+  function boardOrder() {
+    const columns = arrange(ccTasks, metaOf, (id) => asksOf(id).length, false);
+    return COLUMNS.flatMap(([id]) => columns[id].map((task) => task.id));
+  }
+  document.addEventListener('keydown', (e) => {
+    if ($('cc').hidden || !e.metaKey || !e.altKey || e.ctrlKey || e.shiftKey) return;
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const current = F.currentTask();
+    const to = nextSession(boardOrder(), current ? current.id : null, e.key === 'ArrowDown' ? 1 : -1);
+    if (to === null || to === undefined) return;
+    e.preventDefault();
+    const task = ccTasks.find((x) => x.id === to);
+    if (isOpen()) { focusCard(to); return; }  // on the board: its card (Enter opens it)
+    F.selectTask(to);
+    const a11y = root.jarvisAccessibility;
+    if (task && a11y && a11y.announce) {
+      const asks = asksOf(to);
+      a11y.announce(cardSpeech(task, column(task, asks.length), asks[0], B.figures[String(to)] || {}));
+    }
+  });
 
   badge();
 })(typeof window === 'object' ? window : globalThis);

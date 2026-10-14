@@ -298,7 +298,11 @@ class CodeVoice:
             if ask.weak and focus is None:
                 return None
             return await self.catch_up(code)
-        if kind in ("focus", "message", "stop", "pending", "status"):
+        if kind == "changes_all":
+            if not code:
+                return None
+            return cs.join(cs.changes_lines(code, self.language), self.language)
+        if kind in ("focus", "message", "stop", "pending", "status", "changes"):
             return await self.by_ref(ask, focus, code)
         if focus is None:
             return None  # the rest are the focused session's, only while voice coding
@@ -369,6 +373,8 @@ class CodeVoice:
             if await self.hub.tasks.interrupt(task.id):
                 return self.say("Stopped {session}.", session=name)
             return self.say("{session} isn't doing anything right now.", session=cs.cap(name))
+        if ask.kind == "changes":
+            return await self.changes(task)
         if ask.kind == "pending":
             approval = cs.pending_of(task, self.hub.approvals)
             if approval is None:
@@ -380,6 +386,24 @@ class CodeVoice:
         )
         self.journal.mark_seen(task.id)
         return line
+
+    async def changes(self, task: Any) -> str:
+        """One session's spoken diff ("what did session 3 change?"): file by file, by
+        function or section, then its tests (features/code_spoken.py), never line numbers
+        or code read aloud. git and the tests' own output only: no model."""
+        name = cs.cap(cs.name_of(task, self.language))
+        if not getattr(task, "files_changed", None):
+            return self.say("{session} hasn't changed any files yet.", session=name)
+        spoken = getattr(self.hub, "code_spoken", None)
+        words = ""
+        if spoken is not None:
+            try:
+                words = await spoken.summary(task, whole=True)
+            except Exception:  # git that failed: the hub's shorter summary instead
+                log.warning("code_voice: couldn't sum up session %s", task.id, exc_info=True)
+        if not words:
+            words = await self.hub.changes_speech(task)
+        return f"{name}{'：' if lang.is_zh(self.language) else ': '}{words}"
 
     def read_out(self, task: Any, approval: dict[str, Any]) -> str:
         """A session's open question, said so the owner's plain yes or no answers it (the
