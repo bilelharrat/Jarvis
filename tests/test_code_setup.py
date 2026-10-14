@@ -383,7 +383,9 @@ async def test_every_bash_step_goes_in_and_docker_s_socket_never_reaches_the_ses
     )
     stdout, stderr = await ran.communicate()
     assert (ran.returncode, stdout, stderr) == (3, b"in-there\n", b"sub\n")
-    assert ["exec", name, "echo in-there; echo $(echo sub) >&2; exit 3"] in docker.calls
+    # (under the step's own shell, which writes its pid for a stop in there: REL3-6)
+    quoted = shlex.quote("echo in-there; echo $(echo sub) >&2; exit 3")
+    assert any(c[:2] == ["exec", name] and f"/bin/sh -c {quoted};" in c[2] for c in docker.calls)
     # A sandboxed session gets the relay's socket through, never docker's.
     from jarvis.features.code_setup import _Options
 
@@ -453,6 +455,44 @@ def _relay_ask(path, command):
         return "TIMEOUT"
     finally:
         s.close()
+
+
+def test_a_stopped_step_is_stopped_in_the_container_too(tmp_path):
+    """REL3-6: the session's end gone (a Bash timeout, Stop), only the docker exec on the
+    Mac was killed; the command ran on in the container. The relay first runs stop_for
+    with the step's pidfile (code_setup: stop_script in the container), then kills the exec.
+    Here the "container" is this Mac, and stop_for stops the step's shell's children."""
+    import subprocess
+    import sys
+    import time
+
+    marker = tmp_path / "still-running"
+    stopped = []
+
+    def stop_for(pidfile):
+        stopped.append(pidfile)
+        return ["/bin/sh", "-c", f"p=$(cat {pidfile}); kill -KILL $(pgrep -P $p) $p"]
+
+    relay = container_run.Relay(lambda c: ["/bin/sh", "-c", c], dict, stop_for=stop_for)
+    path = relay.start()
+    try:
+        client = subprocess.Popen(
+            [sys.executable, "-I", container_run.__file__, path, "--",
+             f"echo started; sleep 1.5; touch {marker}"],
+            stdout=subprocess.PIPE,
+        )  # fmt: skip
+        assert client.stdout.readline() == b"started\n"
+        client.kill()
+        client.wait()
+        for _ in range(100):
+            if not relay._procs:
+                break
+            time.sleep(0.05)
+        time.sleep(2.0)  # (past the command's own sleep: the touch would have come)
+        assert stopped and not marker.exists(), "the step ran on in the container"
+        assert _relay_ask(path, "echo ok")[-1] == (b"x", b"0")
+    finally:
+        relay.close()
 
 
 def test_a_command_with_a_nul_byte_is_refused_never_a_crashed_thread():

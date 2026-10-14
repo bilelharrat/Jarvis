@@ -12,7 +12,10 @@ container, in the copy's folder, and hand back what it prints and its exit statu
 program is the session's end of it: it sends the command it was given (as one argument,
 never read by a shell on the Mac), writes what comes back to its own stdout and stderr, and
 exits with the command's status. Killed (the Bash step's timeout, the owner's Stop), its
-connection closes and the backend stops the docker exec it was waiting on.
+connection closes and the backend stops the command in the container (each step writes its
+shell's pid to a pidfile of its own in there, and the relay's stop_for stops that shell and
+everything under it), then the docker exec it was waiting on: stopping only the docker exec
+on the Mac left the command running in the container (REL3-6).
 
 The protocol, both ways over the one connection: the request is a single JSON line,
 {"command": "<text>"}; the answer is frames of a type byte (b"o" stdout, b"e" stderr, b"x"
@@ -43,6 +46,7 @@ CHUNK = 65536
 REQUEST_MAX = 1 << 20  # bytes of one command at most (a Bash step's is far less)
 CONNECTIONS_MAX = 16  # steps of one session running in its container at once, at most
 GONE = 125  # the exit status when the backend's end went away before the command ended
+STOP_SECONDS = 10.0  # for stop_for's command, stopping a step in its container
 
 
 def _frame(kind: bytes, data: bytes) -> bytes:
@@ -115,10 +119,18 @@ class Relay:
     container, the folder or the program: only the text /bin/sh -c runs in there."""
 
     def __init__(
-        self, argv_for: Callable[[str], list[str]], env: Callable[[], dict[str, str]]
+        self,
+        argv_for: Callable[[str], list[str]],
+        env: Callable[[], dict[str, str]],
+        stop_for: Callable[[str], list[str]] | None = None,
     ) -> None:
         self.argv_for = argv_for
         self.env = env
+        # stop_for(pidfile): the command line (run here) that stops, in the container, the
+        # step whose shell wrote its pid to pidfile, and everything under it. None: the
+        # local process alone is stopped (a relay into this Mac, as the tests' is).
+        self.stop_for = stop_for
+        self._pidfiles: dict[subprocess.Popen, str] = {}
         self.path = ""
         self._dir = ""
         self._server: socket.socket | None = None
@@ -157,8 +169,7 @@ class Relay:
         with self._lock:
             procs = list(self._procs)
         for proc in procs:
-            with contextlib.suppress(OSError):
-                proc.kill()
+            self._stop(proc)
         with contextlib.suppress(OSError):
             os.unlink(self.path)
         with contextlib.suppress(OSError):
@@ -208,7 +219,38 @@ class Relay:
         finally:
             self._slots.release()
 
+    def _stop(self, proc: subprocess.Popen) -> None:
+        """A step stopped: in the container first (stop_for, with its pidfile), while its
+        shell is still there to find its children by, then the docker exec here."""
+        pidfile = self._pidfiles.get(proc, "")
+        if pidfile and self.stop_for is not None:
+            try:
+                subprocess.run(
+                    self.stop_for(pidfile),
+                    env=self.env(),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=STOP_SECONDS,
+                )
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
+        with contextlib.suppress(OSError):
+            proc.kill()
+
     def _stream(self, conn: socket.socket, command: str) -> int:
+        pidfile = ""
+        if self.stop_for is not None:
+            import secrets
+            import shlex
+
+            # The step's shell writes its pid where stop_for finds it, and takes it away
+            # when the command ends; the command itself runs as it was sent, under it.
+            pidfile = f"/tmp/eden-step-{secrets.token_hex(8)}.pid"
+            command = (
+                f"echo $$ > {pidfile}; /bin/sh -c {shlex.quote(command)}; "
+                f"s=$?; rm -f {pidfile}; exit $s"
+            )
         try:
             proc = subprocess.Popen(
                 self.argv_for(command),
@@ -225,6 +267,8 @@ class Relay:
             return 2
         with self._lock:
             self._procs.add(proc)
+            if pidfile:
+                self._pidfiles[proc] = pidfile
         assert proc.stdout is not None and proc.stderr is not None
         sel = selectors.DefaultSelector()
         sel.register(proc.stdout, selectors.EVENT_READ, b"o")
@@ -249,14 +293,14 @@ class Relay:
             # key_proxy's runs say it; -9 sent as is came out as 247 (REL3-14).
             return 128 - code if code < 0 else code
         except OSError:
-            with contextlib.suppress(OSError):
-                proc.kill()
+            self._stop(proc)
             proc.wait()
             raise
         finally:
             sel.close()
             with self._lock:
                 self._procs.discard(proc)
+                self._pidfiles.pop(proc, None)
             for pipe in (proc.stdout, proc.stderr):
                 with contextlib.suppress(OSError):
                     pipe.close()

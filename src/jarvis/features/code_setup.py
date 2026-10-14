@@ -455,7 +455,10 @@ class SetupDesk:
         relay = self.relays.get(name)
         if relay is None:
             relay = container_run.Relay(
-                lambda command: self.docker.exec_argv(name, cwd, command), self.docker.env
+                lambda command: self.docker.exec_argv(name, cwd, command),
+                self.docker.env,
+                # a step stopped (its Bash timeout, Stop) is stopped in there too (REL3-6)
+                stop_for=lambda pidfile: self.docker.exec_argv(name, cwd, stop_script(pidfile)),
             )
             self.relays[name] = relay
         try:
