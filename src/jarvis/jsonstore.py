@@ -18,7 +18,9 @@ over an earlier copy), then taken through every step in order and saved at once;
 that fails leaves the file as it was and the store unreadable for this run (Unreadable:
 nothing is saved over it). A copy that can't be made (a read-only folder) leaves the file
 as it was too: its data is updated in memory and used, and nothing is saved over it this
-run. A file without a version is version 0, the shape from before versions; nonsense in
+run. With no step to take (a store's first version, 0 -> 1) nothing is copied or
+rewritten: the data is stamped in memory and the file at its next save. A file without a
+version is version 0, the shape from before versions; nonsense in
 the field (2.0, "2", -1, a 300-digit number) makes it Unreadable, never a version 0. One from a newer build is copied the same way before this build reads it (it
 keeps what it knows and writes its own version back), so going back a release never
 loses the newer file.
@@ -470,6 +472,12 @@ def migrate(
         raise refusal(path, "its version isn't one this app knows")
     if old == store.version:
         return data
+    if old < store.version and not any(store.steps.get(v) for v in range(old, store.version)):
+        # Nothing to change but the version (a store's first version, 0 -> 1, with no step):
+        # the data as it is, stamped in memory; the file gets its version at its next save.
+        # Copying and rewriting it changed nothing, and made every kept session three files
+        # (.pre-migration, .bak, the file) at the first start, ~17 s for 2000 (REL3-18).
+        return stamped(name, data)
     try:
         # (one from a newer build is kept once as it is: this build saves it back at its own
         # version, unless it never saves, and then each start would copy it again)
