@@ -422,11 +422,22 @@ async def test_settings_link_shows_the_code_and_qr_then_the_account(setup):
     last = [e for e in drain(q) if e["type"] == "account"][-1]
     assert last["linked"] and last["info"]["plan"]["name"] == "free"
     assert last["relay"]["on"] is True and last["plus"] == {"chosen": False, "in_use": False}
-    assert last["eden_link"]["on"] is True and set(last["eden_link"]) == {"on", "state", "error"}
+    assert last["eden_link"]["on"] is True and set(last["eden_link"]) == {
+        "on",
+        "edits",
+        "state",
+        "error",
+    }
+    assert last["eden_link"]["edits"] is False  # (askeden.com edits only once allowed)
     # The line's changes reach Settings by themselves (jarvis.eden_link's on_change).
     hub.account_desk.eden_link._set("waiting", "Couldn’t reach askeden.com.")
     heard = [e for e in drain(q) if e["type"] == "account"][-1]["eden_link"]
-    assert heard == {"on": True, "state": "waiting", "error": "Couldn’t reach askeden.com."}
+    assert heard == {
+        "on": True,
+        "edits": False,
+        "state": "waiting",
+        "error": "Couldn’t reach askeden.com.",
+    }
     hub.set_feature_prefs({"account_eden_link": False})
     await asyncio.sleep(0)
     assert [e for e in drain(q) if e["type"] == "account"][-1]["eden_link"]["on"] is False
