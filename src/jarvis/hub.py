@@ -268,6 +268,42 @@ TOOL_LABELS.update(
 log = logging.getLogger("jarvis")
 
 REPLAY_KEEP = 3000  # transcript events kept for a window that reconnects
+# The feature loops (hub.register_loop names) that read the owner's own life (calendar,
+# mail, texts, contacts, reminders, calls, health, Focus, orders, invoices, memory's
+# journal) or reach outside services Eden Code never uses (Twilio, WhatsApp, chat
+# channels, markets, papers, the weather, watched pages). A backend Eden Code started
+# alone runs none of them until an Eden Secretary window joins it (window_joined); every
+# other loop is Eden Code's own (code_*, the Model Router, usage, PR watch, issues,
+# triggers…) or touches nothing of the owner's. tests/test_eden_code_app.py lists both,
+# so a new loop has to be put on one side or the other.
+PERSONAL_LOOPS = frozenset(
+    {
+        "reminders",  # wincalendar: the PC's calendar and its reminders
+        "whatsapp",
+        "price_alerts",  # stocks
+        "jarvis_mcp",  # the second brain, calendar and email for other apps
+        "memory",  # the daily notes and nightly dream over the owner's days
+        "timers",  # automation: the Secretary's timers, alarms and reminders
+        "triggers",  # automation: routines on the calendar, email and texts
+        "heartbeat",  # automation: the check-in that speaks up
+        "meeting_agent",
+        "orders",  # deliveries, read from email
+        "sms_line",  # Twilio
+        "oura",
+        "channels",  # Telegram, iMessage, WhatsApp, Signal, Slack, Discord
+        "wiki",  # the memory wiki and people map
+        "invoicing",
+        "mail_index",  # winmail: the PC's mail
+        "calls_live",
+        "paper_alerts",
+        "browser_watches",
+        "meeting_offer",
+        "weather_watch",
+        "calendar_look",
+        "focus",  # macOS Focus, read from ~/Library/DoNotDisturb
+        "wrapup",  # the evening wrap-up
+    }
+)
 # What a reconnecting window is sent again: a session's transcript as it grew. Everything
 # else is state the snapshot carries whole.
 REPLAYED = {"task_log", "task_log_update", "task_entry_meta"}
@@ -803,6 +839,7 @@ class Hub:
         self._announce_texts: list[str] = []  # heads-ups waiting to be said, as one
         self._announcer: asyncio.Task | None = None
         self._background: set[asyncio.Task] = set()
+        self._personal_started = False  # _spawn_personal_loops ran (it runs once)
         self._stopping = False
         self._rid = ""
         self._control_rid = ""
@@ -1534,27 +1571,10 @@ class Hub:
             stale = not self.kb.notes or not self.kb.clusters or self.kb.age_hours() > 24
             if self._brain_sources_on() and stale:
                 self._spawn(self.rebuild_brain())
-            self._spawn(self._refresh_recent())
             self._spawn(self._vitals_loop())
             if self.profile == "full":
                 self._spawn_voice_loops()
             self._spawn(self.hands_guard.probe.prepare())  # the accessibility probe, built once
-            self._spawn(self.shortcuts.refresh())
-            self._spawn(self.watcher.run())
-            self._spawn(self.interrupts.run())
-            self._spawn(self.suggester.run())
-            self._spawn(self.delegate.run())
-            self._spawn(self.answering.run())
-            self._spawn(
-                fileindex.keep_fresh(
-                    self.files,
-                    enabled=lambda: self.prefs.file_index,
-                    progress=self._files_progress,
-                )
-            )
-            self._spawn(self._routine_clock())
-            self._spawn(self._markets_loop())
-            self._spawn(self._defense_loop())
             self._spawn(self._plan_loop())
             self._spawn(self._sysmon_loop())
             self._spawn(self._awake_loop())
@@ -1563,7 +1583,10 @@ class Hub:
             # sessions on Gemini or OpenAI-compatible models, which need one to point at.
             await self._relay_if_needed()
             for name, factory in self._loops:
-                self._spawn(self._feature_loop(name, factory))
+                if name not in PERSONAL_LOOPS:
+                    self._spawn(self._feature_loop(name, factory))
+            if self.profile == "full":
+                self._spawn_personal_loops()
         else:
             await self._relay_if_needed()
         # Hands steering the Mac: lets go of a held button if the window stops talking.
@@ -1572,6 +1595,37 @@ class Hub:
             await self.remote.start()
         if self.profile == "full":
             self._start_listening()
+
+    def _spawn_personal_loops(self) -> None:
+        """What reads the owner's own life or talks to services only Eden Secretary uses:
+        the calendar and its heads-ups, texts and email (the interrupter, suggestions,
+        delegated conversations, the last week's mail and texts), calls answered on Twilio,
+        the file index, routines, markets, the HUD's Defense pings, the Mac's Shortcuts,
+        and the feature loops in PERSONAL_LOOPS. Started once: at start on Eden
+        Secretary's backend, when the first Eden Secretary window joins on Eden Code's."""
+        if self._personal_started:
+            return
+        self._personal_started = True
+        self._spawn(self._refresh_recent())
+        self._spawn(self.shortcuts.refresh())
+        self._spawn(self.watcher.run())
+        self._spawn(self.interrupts.run())
+        self._spawn(self.suggester.run())
+        self._spawn(self.delegate.run())
+        self._spawn(self.answering.run())
+        self._spawn(
+            fileindex.keep_fresh(
+                self.files,
+                enabled=lambda: self.prefs.file_index,
+                progress=self._files_progress,
+            )
+        )
+        self._spawn(self._routine_clock())
+        self._spawn(self._markets_loop())
+        self._spawn(self._defense_loop())
+        for name, factory in self._loops:
+            if name in PERSONAL_LOOPS:
+                self._spawn(self._feature_loop(name, factory))
 
     def _spawn_voice_loops(self) -> None:
         """What only a voice assistant needs running: the speech player and its fillers,
@@ -1636,6 +1690,7 @@ class Hub:
             if self.poll:
                 self._spawn(self._briefing_clock())
                 self._spawn_voice_loops()
+                self._spawn_personal_loops()  # the calendar, mail, texts, calls…
                 if self._brain_sources_on():  # what Eden Code alone left unread
                     self._spawn(self.rebuild_brain())
             self._start_listening()
@@ -7557,7 +7612,8 @@ class Hub:
     async def _poll_status(self) -> None:
         tick = 0
         while True:
-            await self._refresh_status(calendar=tick % 10 == 0)
+            # The next event comes from the owner's Calendar: not on Eden Code alone.
+            await self._refresh_status(calendar=tick % 10 == 0 and self.profile == "full")
             tick += 1
             await asyncio.sleep(30)
 

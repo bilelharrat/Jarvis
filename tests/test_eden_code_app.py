@@ -319,3 +319,203 @@ async def test_eden_secretary_s_brain_withholds_nothing(
     monkeypatch.delenv("JARVIS_PROFILE", raising=False)
     hub = make_hub(settings, quiet_speaker, isolated)
     assert "withhold" not in await _rebuild_args(hub, monkeypatch)
+
+
+# Every background loop a hub starts, by side. PERSONAL: what reads the owner's own life
+# (calendar, mail, texts, contacts, calls, Focus…) or talks to services only Eden Secretary
+# uses (Twilio, WhatsApp, markets, the weather…): none of it on Eden Code alone. The rest
+# are Eden Code's own or touch nothing of the owner's. A new loop fails the first test
+# below until it's put on one side (hub.PERSONAL_LOOPS for a feature's loop).
+PERSONAL_BUILT_IN = {
+    "Hub._refresh_recent",
+    "Shortcuts.refresh",
+    "Watcher.run",
+    "Interrupter.run",
+    "Suggester.run",
+    "DelegateEngine.run",
+    "Answering.run",
+    "keep_fresh",
+    "Hub._routine_clock",
+    "Hub._markets_loop",
+    "Hub._defense_loop",
+}
+EDEN_CODE_S_OWN = {
+    "Hub._poll_status",  # the battery (and the calendar only on Eden Secretary's: below)
+    "Hub.rebuild_brain",  # withholding the personal sources (the test above)
+    "Hub._vitals_loop",
+    "Hub._plan_loop",
+    "Hub._sysmon_loop",
+    "Hub._awake_loop",
+    "Hub._number_gemini_starters",
+    "DesktopHands.watch",  # lets go of a held button
+    "AXProbe.prepare",  # the accessibility probe
+} | {
+    f"feature:{name}"
+    for name in (
+        # Eden Code's own
+        "code-secrets-sweep",
+        "code_answers_digest",
+        "code_containers_tidy",
+        "code_copies_sweeper",
+        "code_handoff_watch",
+        "code_index_tidy",
+        "code_issue_watch",
+        "code_pairing",
+        "code_pr_review_watch",
+        "code_pr_watch",
+        "code_queue_tick",
+        "code_sessions",
+        "code_stack_watch",
+        "code_triggers_listener",
+        "code_usage_midnight",
+        "code_verify",
+        "code_voice_journal",
+        "model_router_nightly",
+        "openai_relay",
+        # the app's own, touching nothing of the owner's life
+        "account",  # the Eden account and its relay (Eden Plus answers Eden Code too)
+        "brain_semantic_warm",  # the search model, on this Mac
+        "companion_live",  # the phone's Live Activities it asked for (Eden Code sessions)
+        "crash_reports",
+        "defense_watch",  # FileVault, the firewall, SIP, Gatekeeper turned off
+        "ops_daily_backup",
+        "quality_keeper",
+        "voice_ears",  # voice coding's ears and voice (no microphone until asked)
+        "voice_id_setup",
+        "voice_setup",
+    )
+}
+
+
+def _loop_name(coro) -> str:
+    """A spawned coroutine's name: a feature loop by the name it registered with."""
+    if coro.__qualname__ == "Hub._feature_loop":
+        return "feature:" + coro.cr_frame.f_locals["name"]
+    return coro.__qualname__
+
+
+def _trap_personal_readers(monkeypatch):
+    """Everything that reads the owner's calendar or talks to the Mac's apps blows up, so a
+    loop that slipped through can't touch anything real even if it ran."""
+    from jarvis import hub as hub_module
+    from jarvis import mac_tools
+
+    async def trap(*_a, **_k):
+        raise AssertionError("a personal reader ran on Eden Code alone")
+
+    monkeypatch.setattr(hub_module, "next_event", trap)
+    monkeypatch.setattr(mac_tools, "run_applescript", trap)
+    monkeypatch.setattr(mac_tools, "run_command", trap)
+
+
+def _recording_hub(settings, speaker, isolated):
+    """A hub that polls as the app's does, its background tasks listed and never run."""
+
+    class Client(FakeClient):
+        script = CALENDAR_TURN
+
+    hub = Hub(
+        settings,
+        client_factory=Client,
+        speaker=speaker,
+        transcriber=Transcriber(),
+        poll=True,
+        **isolated,
+    )
+    started: list[str] = []
+
+    def spawn(coro):
+        started.append(_loop_name(coro))
+        coro.close()  # listed, never run
+
+    hub._spawn = spawn
+    hub.started = started
+    return hub
+
+
+async def test_eden_code_alone_starts_no_loop_that_reads_the_owner_s_life(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """The log showed "answering: couldn't read the calendar" every ten minutes in Eden Code
+    alone: the calls answering read the Calendar and asked Twilio, for nobody."""
+    from jarvis.hub import PERSONAL_LOOPS
+
+    monkeypatch.setenv("JARVIS_PROFILE", "code")
+    _trap_personal_readers(monkeypatch)
+    hub = _recording_hub(settings, quiet_speaker, isolated)
+    hub._relay_if_needed = _nothing
+    feature_loops = {name for name, _factory in hub._loops}
+    assert PERSONAL_LOOPS <= feature_loops | {"reminders", "mail_index"}  # (PC-only two)
+    await hub.start()
+    started = set(hub.started)
+    personal = PERSONAL_BUILT_IN | {f"feature:{n}" for n in PERSONAL_LOOPS}
+    assert not started & personal, sorted(started & personal)
+    assert started <= EDEN_CODE_S_OWN, sorted(started - EDEN_CODE_S_OWN)  # each one said
+    # The status poll asks the battery, never the Calendar.
+    status = await _one_status_tick(hub, monkeypatch)
+    assert "next_event" not in status
+
+
+async def test_an_eden_secretary_window_starts_them(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from jarvis.hub import PERSONAL_LOOPS
+
+    monkeypatch.setenv("JARVIS_PROFILE", "code")
+    _trap_personal_readers(monkeypatch)
+    hub = _recording_hub(settings, quiet_speaker, isolated)
+    hub._relay_if_needed = _nothing
+    hub._start_listening = lambda: None
+    await hub.start()
+    before = len(hub.started)
+    hub.window_joined("eden-code")  # Eden Code's own window: still nothing
+    assert len(hub.started) == before
+    hub.window_joined("jarvis")
+    joined = set(hub.started[before:])
+    registered = {name for name, _factory in hub._loops}
+    assert PERSONAL_BUILT_IN <= joined
+    assert {f"feature:{n}" for n in PERSONAL_LOOPS & registered} <= joined
+    count = len(hub.started)
+    hub.window_left("jarvis")
+    hub.window_joined("jarvis")  # once is enough: nothing started twice
+    assert len(hub.started) == count
+
+
+async def test_eden_secretary_s_backend_starts_them_at_once(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    from jarvis.hub import PERSONAL_LOOPS
+
+    monkeypatch.delenv("JARVIS_PROFILE", raising=False)
+    hub = _recording_hub(settings, quiet_speaker, isolated)
+    hub._relay_if_needed = _nothing
+    hub._start_listening = lambda: None
+    hub._warm_up_ears = lambda: None
+    await hub.start()
+    started = set(hub.started)
+    registered = {name for name, _factory in hub._loops}
+    assert PERSONAL_BUILT_IN <= started
+    assert {f"feature:{n}" for n in PERSONAL_LOOPS & registered} <= started
+    assert len(hub.started) == len(set(hub.started))  # each once
+
+
+async def _nothing():
+    return None
+
+
+async def _one_status_tick(hub, monkeypatch):
+    """_poll_status's first tick (the one that would read the Calendar), then stopped."""
+    import asyncio
+    import contextlib
+
+    from jarvis import hub as hub_module
+
+    monkeypatch.setattr(hub_module, "battery", lambda: {"percent": 50})
+    hub.emit = lambda *_a, **_k: None
+    task = asyncio.ensure_future(hub._poll_status())
+    await asyncio.sleep(0.05)
+    assert not task.done(), task.exception()  # (the Calendar trap would have ended it)
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    return dict(hub.status)

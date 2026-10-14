@@ -17,7 +17,9 @@ A feature registers what it adds through the hub instead of editing its core tab
 - hub.register_instant(handler): words the user says or types to JARVIS, answered at once
   without Claude (the reply, or None when they aren't the feature's).
 - hub.register_loop(name, factory): a background loop, started with the others (never in
-  tests, where poll is off).
+  tests, where poll is off). One that reads the owner's own life (calendar, mail, texts,
+  calls…) or talks to a service only Eden Secretary uses goes in hub.PERSONAL_LOOPS: Eden
+  Code alone never starts it, the first Eden Secretary window does.
 - hub.add_notify_sink(sink) / hub.add_approval_sink(sink, resolved=...): hear every heads-up
   shown, and every approval card put up and taken down (a phone or chat can then answer
   it through hub.resolve).
