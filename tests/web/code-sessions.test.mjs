@@ -57,3 +57,23 @@ test('a project’s own defaults show in the composer, and a composer change the
   assert.deepEqual(movedDefaults(before, after, null), {});
   assert.deepEqual(movedDefaults(null, after, { mode: 'plan' }), {});
 });
+
+test('a rewind that can’t be sent, or isn’t answered, says why once instead of waiting for good', () => {
+  const { askRewind, REWIND_NOT_SENT, REWIND_NO_ANSWER, REWIND_WAIT_MS } = sessions;
+  const failed = [];
+  const timers = [];
+  const wait = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  // No connection: said at once, no timer.
+  assert.equal(askRewind(() => false, { type: 'code_rewind' }, (w) => failed.push(w), wait), null);
+  assert.deepEqual(failed, [REWIND_NOT_SENT]);
+  assert.equal(timers.length, 0);
+  // Sent: a timer, ~15 s, that says no answer came when it runs.
+  const sent = [];
+  const timer = askRewind((m) => { sent.push(m); return true; }, { type: 'code_rewind', uuid: 'u' }, (w) => failed.push(w), wait);
+  assert.equal(timer, 1);
+  assert.deepEqual(sent, [{ type: 'code_rewind', uuid: 'u' }]);
+  assert.equal(timers[0].ms, REWIND_WAIT_MS);
+  assert.ok(REWIND_WAIT_MS >= 10000 && REWIND_WAIT_MS <= 30000);
+  timers[0].fn();
+  assert.deepEqual(failed, [REWIND_NOT_SENT, REWIND_NO_ANSWER]);
+});
