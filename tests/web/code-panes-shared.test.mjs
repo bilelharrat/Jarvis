@@ -95,3 +95,46 @@ test('Setup: each line of output is added to the output shown, and typing in the
   assert.equal(w.document.activeElement.id, 'jcx-setup-image');
   assert.match(w.body.querySelector('.jcx-setup-out').textContent, /done in 3s/);
 });
+
+// Audit G6: the picks and the request stay until the backend says the task started; the
+// form waits (no second start) meanwhile, and a refusal is said under it.
+test('Multi-repo: the form keeps what was picked until the task starts, and waits meanwhile', () => {
+  const w = stand(['code-multirepo.js']);
+  w.open('multirepo');
+  const boxes = () => w.body.querySelectorAll('.jcx-multi-pick input');
+  boxes().forEach((b) => { b.checked = true; b.listeners.change[0](); });
+  const prompt = w.body.querySelector('#jcx-multi-prompt');
+  prompt.value = 'add the field';
+  prompt.listeners.input[0]();
+  const submit = () => w.body.querySelector('.jcx-multi-start').dispatchEvent(w.document.event('submit'));
+  submit();
+  assert.deepEqual(w.sent.at(-1), { type: 'code_multi_start', projects: ['api', 'web'], prompt: 'add the field' });
+  const go = w.body.querySelector('.jcx-multi-start button');
+  assert.equal(go.disabled, true, 'no second start while the first is out');
+  submit();
+  assert.equal(w.sent.filter((m) => m.type === 'code_multi_start').length, 1);
+  // The task list arrives meanwhile: still waiting, nothing lost.
+  w.fire('code_multis', { groups: [], most: 8 });
+  assert.equal(w.body.querySelector('.jcx-multi-start button').disabled, true);
+  assert.equal(w.body.querySelector('#jcx-multi-prompt').value, 'add the field');
+  // Refused: said, and everything is still there to try again.
+  w.fire('code_multi_started', { ok: false, text: 'There are already 20 isolated copies; land or discard some.' });
+  assert.equal(w.body.querySelector('.jcx-multi-start button').disabled, false);
+  assert.match(w.body.querySelector('.jcx-multi-why').textContent, /already 20 isolated copies/);
+  assert.equal(w.body.querySelector('#jcx-multi-prompt').value, 'add the field');
+  assert.deepEqual(boxes().map((b) => b.checked), [true, true]);
+  // Started: the form is fresh.
+  submit();
+  w.fire('code_multi_started', { ok: true, text: '' });
+  assert.equal(w.body.querySelector('#jcx-multi-prompt').value, '');
+  assert.deepEqual(boxes().map((b) => b.checked), [false, false]);
+  assert.equal(w.body.querySelector('.jcx-multi-why').textContent, '');
+});
+
+test('Multi-repo: a repository’s line translates Eden’s words, never the branch', () => {
+  const w = stand(['code-multirepo.js']);
+  w.open('multirepo');
+  w.fire('code_multis', { most: 8, groups: [{ slug: 'g', title: 'T', repos: [{ project: 'api', branch: 'jarvis/x', into: 'main', state: {} }] }] });
+  const spans = w.body.querySelectorAll('.jcx-multi-repos li span').filter((s) => s.parentNode.tagName === 'SPAN');
+  assert.deepEqual(spans.map((s) => [s.textContent, s.hasAttribute('data-no-i18n')]), [['jarvis/x → main', true], ['no changes yet', false]]);
+});

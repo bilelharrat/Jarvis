@@ -113,6 +113,17 @@ async def test_a_task_gets_a_copy_of_each_repository_in_one_folder(hub, tmp_path
     assert [r["project"] for r in shown["repos"]] == ["api", "web"]
 
 
+async def test_the_window_hears_whether_a_start_took(hub, tmp_path, projects):
+    """Audit G6: the window keeps the picks and the request until code_multi_started says
+    it started, and shows why when it didn't."""
+    repo(tmp_path, projects, "api")
+    [handler] = hub._commands["code_multi_start"]
+    handler({"type": "code_multi_start", "projects": ["api"], "prompt": "x"})
+    assert await until(lambda: any(k == "code_multi_started" for k, _ in hub.events), seconds=10.0)
+    [said] = [d for k, d in hub.events if k == "code_multi_started"]
+    assert said["ok"] is False and "at least two" in said["text"]
+
+
 async def test_starting_needs_two_different_projects_and_a_request(hub, tmp_path, projects):
     repo(tmp_path, projects, "api")
     multi = hub.code_multi
