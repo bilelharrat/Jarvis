@@ -75,7 +75,7 @@ async def test_a_request_sent_a_byte_at_a_time_is_cut_off(hub, monkeypatch):
             if await asyncio.wait_for(r.read(1), 0.2) == b"":
                 cut = True
                 break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         except ConnectionError:
             cut = True
