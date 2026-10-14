@@ -159,14 +159,22 @@ async def test_one_projects_card_never_holds_back_another_projects_spec_of_the_s
     await desk.start({"prompt": "Dark mode", "directory": "web"})
     app, web = desk.specs
     assert app.slug == web.slug and app.folder != web.folder
-    desk.asking.add((app.folder, app.slug))  # (app's card is up)
-    hub.answers = ["again"]
-    desk.task_event("task_finished", {"id": web.session, "task_kind": "code", "status": "done"})
-    for _ in range(100):
+    hub.answers = []
+    desk.task_event("task_finished", {"id": app.session, "task_kind": "code", "status": "done"})
+    for _ in range(100):  # app's card is up, unanswered
         if hub.cards:
             break
         await asyncio.sleep(0.01)
-    assert hub.cards and "didn't write specs/dark-mode/requirements.md" in hub.cards[0]["question"]
+    assert len(hub.cards) == 1
+    desk.task_event("task_finished", {"id": web.session, "task_kind": "code", "status": "done"})
+    for _ in range(100):
+        if len(hub.cards) > 1:
+            break
+        await asyncio.sleep(0.01)
+    assert len(hub.cards) == 2, "web's spec was held back by app's card"
+    for card in hub.cards:
+        hub.resolve(card["id"], "again")
+    await asyncio.sleep(0.05)
 
 
 async def _running(hub, desk):
