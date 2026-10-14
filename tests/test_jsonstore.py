@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 import pytest
 
@@ -361,3 +362,22 @@ def test_two_writers_never_fail_or_tear_the_file(tmp_path):
     assert [out.strip() for out, _err in outs] == ["0", "0"], outs
     assert torn == 0 and reads > 0
     assert not list(tmp_path.glob("*.tmp")) and not list(tmp_path.glob(".*.tmp*"))
+
+
+def test_forget_takes_the_damaged_copies_too_and_only_the_newest_are_kept(tmp_path, monkeypatch):
+    """REL3-14: forget left a deleted session's .bad-* copies (its words) behind, and a
+    file damaged at every start kept a copy a start for ever."""
+    path = tmp_path / "abcdabcdabcdabcd.json"
+    for n in range(jsonstore.BAD_KEEP + 4):
+        path.write_bytes(b"{torn %d" % n)
+        stamp = datetime(2026, 10, 1, 9, 0, n)
+        jsonstore.read_json(path, dict, clock=lambda stamp=stamp: stamp)
+    bad = sorted(tmp_path.glob("abcdabcdabcdabcd.json.bad-*"))
+    assert len(bad) == jsonstore.BAD_KEEP
+    assert bad[-1].read_bytes() == b"{torn %d" % (jsonstore.BAD_KEEP + 3)  # (the newest stay)
+    (tmp_path / "abcdabcdabcdabcd.json.unsaved-20261001-090000").write_text("{}")
+    other = tmp_path / "other.json.bad-20261001-090000"
+    other.write_text("{")
+    jsonstore.save_json(path, {"a": 1})
+    jsonstore.forget(path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["other.json.bad-20261001-090000"]

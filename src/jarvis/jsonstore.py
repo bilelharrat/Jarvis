@@ -50,6 +50,7 @@ log = logging.getLogger("jarvis")
 Shape = type | tuple[type, ...] | Callable[[Any], bool]
 _BAD = object()  # a file that can't be used (None is a value JSON can hold)
 STALE_SECONDS = 600  # a temp file this old is one a killed save left behind
+BAD_KEEP = 10  # copies of one file set aside as damaged (.bad-*), the newest; older ones go
 # Each folder's temp files as last listed: folder -> (its mtime when listed, their names).
 # A read looks for its own file's leftovers; listing the folder for each one made reading
 # a folder of many stores (Eden Code's kept sessions, a file each) take time growing
@@ -265,8 +266,27 @@ def set_aside(path: Path, clock: Callable[[], datetime] = datetime.now) -> Path 
             log.warning("%s couldn't be moved aside (%s)", path.name, exc)
             return None
         log.warning("%s couldn't be read; it's kept as %s", path.name, backup.name)
+        _prune_bad(path)
         return backup
     return None
+
+
+def bad_copies(path: Path) -> list[Path]:
+    """What's kept beside path: its copies set aside as damaged (<name>.bad-<stamp>), and
+    this run's data a refusal kept beside it (<name>.unsaved-<stamp>), oldest first."""
+    name = glob.escape(path.name)
+    found = [*path.parent.glob(f"{name}.bad-*"), *path.parent.glob(f"{name}.unsaved-*")]
+    return sorted(found, key=lambda p: p.name.split(".bad-")[-1].split(".unsaved-")[-1])
+
+
+def _prune_bad(path: Path) -> None:
+    """Only the newest BAD_KEEP damaged copies of a file stay (REL3-14: a file damaged at
+    every start, by another program, left a copy a start for ever)."""
+    with contextlib.suppress(OSError):
+        bad = sorted(path.parent.glob(f"{glob.escape(path.name)}.bad-*"))
+        for old in bad[: max(0, len(bad) - BAD_KEEP)]:
+            with contextlib.suppress(OSError):
+                old.unlink()
 
 
 def save_json(
@@ -322,17 +342,24 @@ def migration_copies(path: Path) -> list[Path]:
 
 
 def forget(path: Path) -> None:
-    """A store's file gone for good, with everything kept of it beside it: its .bak and its
-    copies from before migrations (a deleted session's words must not stay behind in one).
+    """A store's file gone for good, with everything kept of it beside it: its .bak, its
+    copies from before migrations, and those set aside as damaged or kept beside it unsaved
+    (.bad-*, .unsaved-*: REL3-14), so a deleted session's words never stay behind in one.
     Raises OSError when one couldn't be removed; the rest are still tried."""
     failed: OSError | None = None
-    for each in (path, path.with_name(path.name + ".bak"), *migration_copies(path)):
+    for each in (
+        path,
+        path.with_name(path.name + ".bak"),
+        *migration_copies(path),
+        *bad_copies(path),
+    ):
         try:
             each.unlink(missing_ok=True)
         except OSError as exc:
             failed = failed or exc
     _REFUSED.discard(_key(path))
     _UNREAD.discard(_key(path))
+    _UNSAVED.pop(_key(path), None)
     if failed is not None:
         raise failed
 
