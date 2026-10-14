@@ -105,3 +105,22 @@ test('a redraw while the keys are in the to-do lane keeps them where they were',
   w.flush();
   assert.equal(w.document.activeElement.dataset.focus, 'todo:c1:edit');
 });
+
+// Audit G12: a list holds only its items (an empty lane's "None" was a <p> inside it), and
+// the to-do lane's cards are a list too (its name was on a plain div).
+test('every list on the board holds only list items, the to-do lane’s too', () => {
+  const w = standBoard({ tasks: [{ ...SESSION, busy: false }], cards: [{ ...CARD }] });
+  w.F.codeBoard.open();
+  w.flush();
+  const lists = w.board.querySelectorAll('[role="list"]');
+  assert.ok(lists.some((l) => l.classList.contains('ct-cards')), 'the to-do cards are a list');
+  for (const list of lists) {
+    for (const child of list.children) assert.equal(child.getAttribute('role'), 'listitem', `${list.className}: ${child.className}`);
+  }
+  assert.ok(w.board.querySelectorAll('.cs-lane-empty').length >= 3, 'the empty lanes still say so');
+  // An empty to-do lane says so beside its list.
+  w.fire('todo_state', { cards: [], queues: {}, queue: false });
+  const todo = w.board.querySelector('.ct-cards');
+  assert.equal(todo.children.length, 0);
+  assert.ok(todo.parentNode.querySelector('.cs-lane-empty'));
+});

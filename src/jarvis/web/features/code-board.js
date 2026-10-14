@@ -278,9 +278,9 @@
       const cards = el('div', 'cs-cards');
       cards.setAttribute('role', 'list');
       cards.setAttribute('aria-labelledby', lh.id);
-      if (!list.length) cards.append(el('p', 'cs-lane-empty', id === 'needs' ? 'Nothing waiting on you.' : 'None'));
       cards.append(...list.map((task) => cardFor(task, id)));
-      lane.append(lh, cards);
+      // (An empty lane says so beside its list, not in it: a list holds only its items.)
+      lane.append(lh, ...(list.length ? [] : [el('p', 'cs-lane-empty', id === 'needs' ? 'Nothing waiting on you.' : 'None')]), cards);
       lanes.append(lane);
     }
     board.replaceChildren(head, lanes);

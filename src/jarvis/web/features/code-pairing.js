@@ -92,11 +92,12 @@
         const name = el('code', '', path);
         name.dataset.noI18n = '';
         const keep = el('span', 'jcx-pair-keep');
-        keep.append(
-          button('Keep mine', '', () => send({ type: 'code_pair_keep', id, path, side: 'mine' })),
-          button('Keep Eden’s', '', () => send({ type: 'code_pair_keep', id, path, side: 'eden' })),
-        );
-        keep.setAttribute('aria-label', path);
+        // Each button says which file it keeps (a name on the span around them is never read).
+        const mineBtn = button('Keep mine', '', () => send({ type: 'code_pair_keep', id, path, side: 'mine' }));
+        mineBtn.setAttribute('aria-label', `${t('Keep mine')}: ${path}`);
+        const edenBtn = button('Keep Eden’s', '', () => send({ type: 'code_pair_keep', id, path, side: 'eden' }));
+        edenBtn.setAttribute('aria-label', `${t('Keep Eden’s')}: ${path}`);
+        keep.append(mineBtn, edenBtn);
         li.append(name, keep);
         list.append(li);
       }

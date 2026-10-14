@@ -115,3 +115,26 @@ test('every pane the audit found losing the focus draws through keep', () => {
     assert.ok(!/^\s+(target|group)\.replaceChildren\((wrap|\.\.\.parts)\);/m.test(text), `${name}: no bare redraw of the pane`);
   }
 });
+
+// Audit G12: the composer's Bug Fix Mode button opens the run's pane when on, so it's a
+// button that says what it does, not a switch; a finding's scenario is read, not only a title.
+test('Bug Fix Mode: its button says what it does; a finding’s scenario is in its item', () => {
+  const w = standPane('code_bugfix.js', 'bugfix');
+  const row = w.document.createElement('div');
+  row.id = 'deck-composer';
+  const inner = w.document.createElement('div');
+  inner.className = 'jc-composer-row';
+  row.append(inner);
+  w.document.body.append(row);
+  const run = { id: 'r1', project: 'api', state: 'running', round: 1, step: 'sweep', spent: 1, spend_cap: 10, folder: '/f', slug: 's',
+    findings: [{ id: 'B1-1', severity: 'high', title: 'Crash', status: 'fixed', where: 'a.py:3', lane: 'sweep', scenario: 'Open it twice' }] };
+  w.fire('code_bugfix', { runs: [], active: {} });
+  const pill = w.document.getElementById('jcx-bf-switch');
+  assert.equal(pill.getAttribute('role'), null);
+  assert.equal(pill.getAttribute('aria-checked'), null);
+  assert.equal(pill.getAttribute('aria-label'), 'Bug Fix Mode: turn it on for this project…');
+  w.fire('code_bugfix', { runs: [run], active: {} });
+  assert.equal(pill.getAttribute('aria-label'), 'Bug Fix Mode is on: show its progress');
+  const item = w.body.querySelector('.jcx-bf-finding');
+  assert.match(item.querySelector('.sr-only').textContent, /Open it twice/);
+});

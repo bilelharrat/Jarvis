@@ -138,3 +138,14 @@ test('Multi-repo: a repository’s line translates Eden’s words, never the bra
   const spans = w.body.querySelectorAll('.jcx-multi-repos li span').filter((s) => s.parentNode.tagName === 'SPAN');
   assert.deepEqual(spans.map((s) => [s.textContent, s.hasAttribute('data-no-i18n')]), [['jarvis/x → main', true], ['no changes yet', false]]);
 });
+
+// Audit G12: each Keep button names the file it keeps (the file's name was on the span
+// around them, which a screen reader never reads).
+test('Pairing: Keep mine and Keep Eden’s say which file', () => {
+  const w = stand(['code-pairing.js']);
+  w.open('pairing');
+  w.fire('code_pair', { id: 7, copy: true, on: true, folder: '/x', conflicts: ['src/a.py', 'b.py'] });
+  const keeps = w.body.querySelectorAll('.jcx-pair-keep button').map((b) => b.getAttribute('aria-label'));
+  assert.deepEqual(keeps, ['Keep mine: src/a.py', 'Keep Eden’s: src/a.py', 'Keep mine: b.py', 'Keep Eden’s: b.py']);
+  assert.ok(w.body.querySelectorAll('.jcx-pair-keep').every((s) => !s.hasAttribute('aria-label')));
+});
