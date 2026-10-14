@@ -25,8 +25,10 @@ session marked as the page's own content: data, never instructions. A pick said 
 else's voice (hub._voice_allows) is dropped; nothing here answers a session's question or
 changes how it asks (the S9 voice gates are voicecode's and untouched).
 
-Window commands: cp_picked {pick, id}, cp_tree {id, result}, cp_captured {id, pick}.
-Events: cp_attach {items, label, id}, cp_find {id}, cp_capture {id, index}, cp_error {text}.
+Window commands: cp_picked {pick, id, ref}, cp_tree {id, result}, cp_captured {id, pick}.
+Events: cp_attach {items, label, id, ref} (ref: the window's own pick, or the capture call it
+answered: only that window's composer takes it), cp_find {id}, cp_capture {id, index, find}
+(find: the tree call; only the window that answered it takes the element), cp_error {text}.
 
 Cost policy (Claude): no model call. The words are matched by rule; the session's own model
 reads what is attached, as part of the owner's message.
@@ -106,7 +108,11 @@ class CodePick:
             self.error("Only an element of a page on this Mac can be picked.")
             return
         self.hub.emit(
-            "cp_attach", items=ew.attachments(pick), label=ew.label(pick), id=msg.get("id") or 0
+            "cp_attach",
+            items=ew.attachments(pick),
+            label=ew.label(pick),
+            id=msg.get("id") or 0,
+            ref=str(msg.get("ref") or "")[:40],  # the window that clicked: its composer only
         )
 
     # ── the window's answers ──
@@ -197,7 +203,9 @@ class CodePick:
         if not str(choice).startswith("allow"):
             hub.say("Okay, nothing attached.")
             return
-        taken = await self.ask_window("cp_capture", CAPTURE_WAIT, index=best.node["i"])
+        # Taken by the window that read the tree (find: its call), into its own composer.
+        find = str(answer.get("id") or "") if isinstance(answer, dict) else ""
+        taken = await self.ask_window("cp_capture", CAPTURE_WAIT, index=best.node["i"], find=find)
         pick = ew.clean_pick((taken or {}).get("pick") if isinstance(taken, dict) else None)
         if pick is None:
             hub.say("The page changed before I could take it. Try again.")
@@ -209,7 +217,8 @@ class CodePick:
             self.held[task.id] = (items, name)
             hub.say("Attached. Say what to do with it.")
             return
-        hub.emit("cp_attach", items=items, label=name, id=0)
+        ref = str(taken.get("id") or "") if isinstance(taken, dict) else ""
+        hub.emit("cp_attach", items=items, label=name, id=0, ref=ref)
         hub.say("Attached to your message. Say or type what to do with it.")
 
 

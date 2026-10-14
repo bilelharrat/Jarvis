@@ -213,6 +213,9 @@
       mine(link);
       const row = el('div', 'cv-link-row');
       row.append(link);
+      // Pick an element of it to send with the next message (features/code-pick.js).
+      const pick = root.jarvisCodePick;
+      if (pick && pick.available()) row.append(button('Pick an element', 'jc-mini cv-pick', () => pick.start(server.url)));
       li.append(row);
     }
     li.append(cmd);

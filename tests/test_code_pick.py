@@ -111,9 +111,10 @@ async def test_a_click_in_pick_mode_comes_back_as_the_composers_attachments(
 ):
     hub, _ = await hub_with(settings, quiet_speaker, isolated, tmp_path, "shop")
     q = hub.subscribe()
-    await hub.handle({"type": "cp_picked", "id": 3, "pick": PICK})
+    await hub.handle({"type": "cp_picked", "id": 3, "ref": "w1", "pick": PICK})
     (attach,) = [e for e in drain_events(q) if e["type"] == "cp_attach"]
     assert attach["label"] == "Element: main > button.add" and attach["id"] == 3
+    assert attach["ref"] == "w1"  # only the window that clicked puts it on its composer
     assert [i["media_type"] for i in attach["items"]] == ["text/plain", "image/png"]
     await hub.handle({"type": "cp_picked", "pick": {**PICK, "url": "https://evil.example/"}})
     events = drain_events(q)
@@ -150,16 +151,18 @@ async def test_said_it_is_found_said_back_and_attached_on_a_yes(
     q = hub.subscribe()
     assert await hub.ask("pick the button under the price") == ""
     assert hub.client.queries == []  # never Claude's
-    assert await window_answers(hub, q, "cp_find", TREE)
+    find = await window_answers(hub, q, "cp_find", TREE)
     card = await an_approval(hub)
     assert card["detail"] == "The button “Add to cart”"
     assert hub._voice_asked[card["id"]]["text"].endswith("under “$19.99”. Attach it?")
     hub.resolve(card["id"], "allow")
     capture = await window_answers(hub, q, "cp_capture", {"type": "cp_captured", "pick": PICK})
     assert capture["index"] == 2  # the button the words meant
+    assert capture["find"] == find["id"]  # taken by the window that read the tree
     assert await until(lambda: said and said[-1].startswith("Attached to your message"))
     attach = [e for e in drain_events(q) if e["type"] == "cp_attach"]
     assert attach and attach[0]["label"] == "Element: main > button.add"
+    assert attach[0]["ref"] == capture["id"]
     close_all(hub)
 
 
