@@ -72,9 +72,12 @@ def receipt_of(task: Any, data: dict[str, Any], tests: list[Any], check: dict[st
     run = None
     if tests:
         last = tests[-1]
+        # A run that exited 0 but said no counts is unknown (None), not "passed (0)": the
+        # output may have been cut off, or the runner prints nothing we read.
+        unknown = last.passed and not (last.passed_count or last.failed_count)
         run = {
             "command": last.command[:120],
-            "passed": last.passed,
+            "passed": None if unknown else last.passed,
             "passed_count": last.passed_count,
             "failed_count": last.failed_count,
         }
@@ -95,11 +98,14 @@ def receipt_text(r: dict[str, Any]) -> str:
     parts = [f"Changed {r['file_count']} file{'s' if r['file_count'] != 1 else ''}"]
     t = r["tests"]
     if t:
-        parts.append(
-            f"tests passed ({t['passed_count']})"
-            if t["passed"]
-            else f"tests failed ({t['failed_count']})"
-        )
+        if t["passed"] is None:
+            parts.append("tests ran (no result shown)")
+        elif t["passed"]:
+            parts.append(f"tests passed ({t['passed_count']})")
+        else:
+            # A failed run whose count we couldn't read says just that: never "(0)".
+            n = t["failed_count"]
+            parts.append(f"tests failed ({n})" if n else "tests failed")
     else:
         parts.append("no tests run")
     if r["check"]:

@@ -317,6 +317,46 @@ def test_a_test_run_that_fails_counts_as_failed():
     assert not cs.TEST_COMMAND.search("git status")
 
 
+# The pass/fail parser on the outputs that fooled it: a summary past the first 2000
+# characters, "N errors", a failing run that exited 0, and output that says no counts.
+
+
+def test_counts_read_the_summary_of_a_long_run_kept_head_and_tail():
+    from jarvis.tasks import kept_output
+
+    long_run = "collecting ...\n" + "tests/test_x.py::test_case PASSED\n" * 400
+    long_run += "FAILED tests/test_y.py::test_z\n=== 2 failed, 398 passed in 12.3s ===\n"
+    kept = kept_output(long_run)
+    assert len(kept) <= 2000 and kept.startswith("collecting") and "…" in kept
+    assert cs.test_counts(kept) == (398, 2)
+    assert cs.test_counts(long_run[:2000]) == (0, 0)  # what keeping only the head lost
+    assert kept_output("short") == "short"
+
+
+def test_errors_count_as_failures():
+    assert cs.test_counts("=== 1 failed, 4 passed, 2 errors in 1.0s ===") == (4, 3)
+    assert cs.test_counts("=== 3 errors in 0.40s ===") == (0, 3)
+    assert cs.test_counts("=== 1 error in 0.40s ===") == (0, 1)
+    assert cs.test_counts("Tests: 2 failed, 5 passed, 7 total") == (5, 2)
+    assert cs.test_counts("  9 passing (40ms)\n  1 failing") == (9, 1)
+    assert cs.test_counts("") == (0, 0) and cs.test_counts(None) == (0, 0)
+
+
+def test_a_failing_run_that_exits_0_and_one_that_says_nothing():
+    j = cs.Journal()
+    for tool_id, output in (("a", "=== 2 errors in 0.4s ==="), ("b", "All done.")):
+        tool = {"role": "tool", "tool": "Bash", "tool_id": tool_id, "detail": "$ pytest -q"}
+        j.event("task_log", {"id": 3, "entry": tool})
+        j.event(
+            "task_log_update", {"id": 3, "tool_id": tool_id, "status": "done", "output": output}
+        )
+    j.event("task_finished", {"id": 3, "task_kind": "code", "status": "done", "result": ""})
+    erred, silent = j.unseen(3)[0].tests
+    assert (erred.passed, erred.failed_count, erred.passed_count) == (False, 2, 0)
+    # Exited 0 with no counts: recorded as it exited; the proof calls it unknown.
+    assert (silent.passed, silent.failed_count, silent.passed_count) == (True, 0, 0)
+
+
 # ── what's said ──
 
 

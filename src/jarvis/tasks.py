@@ -2098,7 +2098,7 @@ class TaskManager:
         output = str(content or "")
         if self.redactors:
             output = self.redact(task, output)
-        output = output[:2000]
+        output = kept_output(output)  # head and tail: a test run's summary is last
         status = "failed" if block.is_error else "done"
         shown = task.tool_ids.pop(block.tool_use_id, 0) is None  # a step the timeline shows
         for entry in reversed(task.transcript):
@@ -3922,11 +3922,23 @@ def _history_step(
     }
 
 
+def kept_output(text: str, limit: int = 2000) -> str:
+    """A step's output as its timeline entry keeps it: all of it when it's short, else its
+    head and its tail with a marker between. The tail matters most: a test run prints its
+    summary ("3 failed, 9 passed") last, and keeping only the head once turned a failed
+    run into "Tests passed (0)" (codesupervisor.test_counts reads the tail)."""
+    if len(text) <= limit:
+        return text
+    mark = "\n…\n"
+    head = limit // 4
+    return text[:head] + mark + text[-(limit - head - len(mark)) :]
+
+
 def _output_text(out: Any) -> str:
-    """A step's result as its entry keeps it: its text, the first 2000 characters."""
+    """A step's result as its entry keeps it: its text, head and tail (kept_output)."""
     if isinstance(out, list):
         out = "\n".join(str(c.get("text", "")) for c in out if isinstance(c, dict))
-    return str(out or "")[:2000]
+    return kept_output(str(out or ""))
 
 
 # Past sessions' histories as session_history read them, by their record as it was then.

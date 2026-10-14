@@ -36,6 +36,18 @@ def test_the_receipt_reads_on_its_own():
     )
 
 
+def test_a_run_with_no_counts_is_unknown_and_no_line_says_zero():
+    files = {"files": ["a.py"], "status": "done"}
+    unknown = cr.receipt_of(None, files, [run(True, 0, 0)], None)
+    assert unknown["tests"]["passed"] is None
+    assert "tests ran (no result shown)" in cr.receipt_text(unknown)
+    failed = cr.receipt_of(None, files, [run(False, 0, 0)], None)
+    assert failed["tests"]["passed"] is False
+    assert " · tests failed · " in cr.receipt_text(failed)
+    for r in (unknown, failed):
+        assert "(0)" not in cr.receipt_text(r)
+
+
 async def test_a_turn_that_changed_files_gets_its_receipt_in_the_transcript():
     logged = []
     task = NS(id=4)

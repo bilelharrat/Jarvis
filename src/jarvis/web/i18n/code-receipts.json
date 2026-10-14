@@ -8,6 +8,7 @@
     "Tests passed": "测试通过",
     "Tests failed": "测试失败",
     "No tests run": "没有运行测试",
+    "Tests ran (no result shown)": "测试已运行（没有显示结果）",
     "The page after this turn": "这一轮之后的页面",
     "Files": "文件",
     "Try it like a user": "像用户一样试一试",

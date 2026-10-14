@@ -3,6 +3,18 @@
 // in a colour and in words. The entry's text stays the same everywhere else (the phone, voice).
 (function (root) {
   'use strict';
+
+  // The tests line as [class, words, count]: passed / failed with the count when the run
+  // said one, "Tests ran" when it said none (passed is null: it exited fine, but there's no
+  // count to trust; the output may have been cut off). Never "(0)": count is 0 then.
+  function testsLine(t) {
+    if (!t) return ['rc-none', 'No tests run', 0];
+    if (t.passed == null) return ['rc-none', 'Tests ran (no result shown)', 0];
+    const n = Number(t.passed ? t.passed_count : t.failed_count) || 0;
+    return t.passed ? ['rc-ok', 'Tests passed', n] : ['rc-bad', 'Tests failed', n];
+  }
+
+  if (typeof module === 'object' && module.exports) { module.exports = { testsLine }; return; }
   const F = root.jarvisFeatures;
   if (!F) return;
   const el = F.el;
@@ -15,6 +27,11 @@
     return /^[A-Za-z0-9+/]+={0,2}$/.test(value) ? `data:image/jpeg;base64,${value}` : '';
   }
 
+  function testsFact(t) {
+    const [cls, words, n] = testsLine(t);
+    return el('li', cls, n > 0 ? `${F.t(words)} (${n})` : F.t(words));
+  }
+
   function card(e, li) {
     const r = e && e.receipt;
     if (!r || !li) return;
@@ -23,9 +40,7 @@
     head.append(el('span', `rc-risk rc-${r.risk}`, F.t(RISK[r.risk] || r.risk)), el('span', 'rc-why', r.why));
     const facts = el('ul', 'rc-facts');
     facts.append(el('li', '', `${r.file_count} ${r.file_count === 1 ? F.t('file changed') : F.t('files changed')}`));
-    const t = r.tests;
-    facts.append(el('li', t ? (t.passed ? 'rc-ok' : 'rc-bad') : 'rc-none',
-      t ? (t.passed ? `${F.t('Tests passed')} (${t.passed_count})` : `${F.t('Tests failed')} (${t.failed_count})`) : F.t('No tests run')));
+    facts.append(testsFact(r.tests));
     if (r.check) facts.append(el('li', r.check.status === 'problems' ? 'rc-bad' : 'rc-ok', r.check.text || r.check.status));
     li.replaceChildren(head, facts);
     const thumb = picture(r.check && r.check.thumb);
