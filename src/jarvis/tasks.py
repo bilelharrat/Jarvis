@@ -2870,6 +2870,19 @@ class TaskManager:
                 waiter.cancel()
         return _GONE
 
+    def notes_for(self, task: ClaudeTask) -> str:
+        """The app's note with a session's next message: turn_note (which features wrap,
+        each calling the one before) and every one of turn_notes (which features append
+        to), in that order. A feature adds its note to turn_notes, or wraps turn_note and
+        calls what was there: never sets turn_note over another's (REL-3)."""
+        said = []
+        for turn_note in [n for n in (self.turn_note, *self.turn_notes) if n is not None]:
+            try:  # a goal it keeps working toward, lessons learned, a run's rules
+                said.append(turn_note(task))
+            except Exception:
+                log.warning("Couldn't add the session's note to a message", exc_info=True)
+        return " ".join(n for n in said if n)
+
     async def _send_turn(self, task: ClaudeTask, client: Any, item: dict[str, Any]) -> None:
         text, images = item["text"], item["images"]
         sent = text
@@ -2882,15 +2895,8 @@ class TaskManager:
             and not text.startswith("/")
         ):
             sent = f"{text}\n\nultracode"  # the keyword that turns on workflow orchestration
-        notes_from = [n for n in (self.turn_note, *self.turn_notes) if n is not None]
-        if notes_from and text and not plain and not text.startswith("/"):
-            said = []
-            for turn_note in notes_from:  # a goal it keeps working toward, lessons learned
-                try:
-                    said.append(turn_note(task))
-                except Exception:
-                    log.warning("Couldn't add the session's note to a message", exc_info=True)
-            note = " ".join(n for n in said if n)
+        if text and not plain and not text.startswith("/"):
+            note = self.notes_for(task)
             if note:  # (the transcript and its history show the message without it)
                 sent = f"[Note from the app: {note}]\n\n{sent}"
         task.turns_pending += 1
