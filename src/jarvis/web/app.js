@@ -3084,7 +3084,8 @@ function newSession(voice) {
 $('cc-start-voice').addEventListener('click', () => newSession(true));
 $('cc-start-typed').addEventListener('click', () => newSession(false));
 $('jc-new').addEventListener('click', () => newSession(false));
-document.querySelectorAll('.jc-starter').forEach((b) => b.addEventListener('click', () => {
+// (A starter without words of its own is a feature's: "Exterminate bugs", code-exterminate.js.)
+document.querySelectorAll('.jc-starter[data-say]').forEach((b) => b.addEventListener('click', () => {
   $('deck-input').value = b.dataset.say;
   $('deck-composer').requestSubmit();
 }));
