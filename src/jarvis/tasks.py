@@ -1300,6 +1300,10 @@ class TaskManager:
         # spending cap reached): "" when it may, else why not, said once in its transcript
         # while the message waits. release(task_id) looks again (a cap raised).
         self.turn_gate: Callable[[ClaudeTask], str] | None = None
+        # More of the same, from features that hold a session's turns for a while (jarvis.
+        # features.code_isolation: its copy is being landed or removed). Each hold(task) is
+        # "" or why; asked after turn_gate, the first reason counts.
+        self.turn_holds: list[Callable[[ClaudeTask], str]] = []
         # The owner's permission rules (jarvis.features: by domain, MCP tool, path or
         # command): (behavior, rule) for the rule that covers a step, "deny", "ask" or
         # "allow", None when none does. A deny or an ask holds in every mode, Bypass too.
@@ -2645,11 +2649,14 @@ class TaskManager:
         """Why the next waiting message can't start a turn now, "" when it can (turn_gate:
         a spending cap reached). The reason is said once in the transcript while it holds."""
         why = ""
-        if self.turn_gate is not None and not task.inbox.empty():
-            try:
-                why = str(self.turn_gate(task) or "")
-            except Exception:  # a broken gate never strands the owner's messages
-                log.exception("Eden Code: a feature's turn gate failed")
+        if not task.inbox.empty():
+            for gate in ([self.turn_gate] if self.turn_gate is not None else []) + self.turn_holds:
+                try:
+                    why = str(gate(task) or "")
+                except Exception:  # a broken gate never strands the owner's messages
+                    log.exception("Eden Code: a feature's turn gate failed")
+                if why:
+                    break
         if why and why != task.gated:
             self._log(task, "system", why)
             if task.status == "running":  # (between turns: it's waiting, on hold)

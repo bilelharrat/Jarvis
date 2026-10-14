@@ -193,6 +193,55 @@ async def test_a_turn_started_after_the_card_is_stopped_before_anything_lands(
     assert said.startswith("Landed") and (api / "a.py").read_text() == "api = 2\n"
 
 
+async def test_no_turn_starts_in_the_task_folder_while_it_lands(
+    hub, tmp_path, projects, monkeypatch
+):
+    """REL-4: between one copy's commit and the next, a waiting message starts no turn in
+    the task's folder; what a turn Claude Code began by itself writes is kept in the
+    trash, not removed by force."""
+    import threading
+
+    from jarvis import worktrees
+
+    api, web = repo(tmp_path, projects, "api"), repo(tmp_path, projects, "web")
+    group, task = await start(hub, "api", "web")
+    made = copies(hub, group)
+    (made["api"].cwd / "a.py").write_text("api = 2\n")
+    inside, go = threading.Event(), threading.Event()
+    real = worktrees.commit_all
+
+    def commit_all(copy, message):
+        done = real(copy, message)
+        if copy.label == "web":  # (the second: the first is committed already)
+            inside.set()
+            go.wait(30)
+        return done
+
+    real_land = worktrees.land
+
+    def land(copy, message):
+        done = real_land(copy, message)
+        if copy.label == "web":
+            (copy.cwd / "late.py").write_text("late\n")
+        return done
+
+    monkeypatch.setattr(worktrees, "commit_all", commit_all)
+    monkeypatch.setattr(worktrees, "land", land)
+    hub.answers = ["land"]
+    landing = asyncio.create_task(hub.code_multi.land(group.slug))
+    assert await until(inside.is_set)
+    hub.tasks.send(task.id, "and the docs", steer=False)
+    await asyncio.sleep(0.5)
+    assert not any(e["role"] == "user" and "docs" in e["text"] for e in task.transcript)
+    go.set()
+    said = await landing
+    assert said.startswith("Landed") and "kept for 30 days" in said
+    assert (api / "a.py").read_text() == "api = 2\n" and not (web / "late.py").exists()
+    [item] = hub.code_desk.store().trash
+    assert git(web, "show", f"{item['ref']}:late.py") == "late\n"
+    assert hub.code_desk.landing == {}
+
+
 async def test_an_unreadable_groups_file_is_never_saved_over(hub, tmp_path, projects):
     path = hub.feature_path("code_groups.json")
     path.parent.mkdir(parents=True, exist_ok=True)

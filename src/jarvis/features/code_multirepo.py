@@ -82,6 +82,7 @@ ZH = {
     "Not landed.": "没有合并。",
     "Nothing landed: {why}": "什么都没合并：{why}",
     "Landed {title} in all {n} repositories.": "已把 {title} 合并进全部 {n} 个仓库。",
+    "Landed {title} in all {n} repositories. Work written in the copies while they landed is kept for 30 days in the Copies pane.": "已把 {title} 合并进全部 {n} 个仓库。合并期间写进副本的工作会在副本面板里保留 30 天。",
     "Discard {title} in all {n} repositories?": "要丢弃 {title} 在全部 {n} 个仓库里的副本吗？",
     "Discard all": "全部丢弃",
     "Keep them": "保留",
@@ -446,6 +447,17 @@ class MultiDesk:
         return await self.land_now(group, copies)
 
     async def land_now(self, group: Group, copies: list[worktrees.Copy]) -> str:
+        """From the start no turn of a waiting message begins in the task's folder (the
+        Desk's landing hold: its session, or one resumed there meanwhile), until the copies
+        are gone or the landing gave up."""
+        key = f"multi:{group.slug}"
+        self.desk.start_landing(key, Path(group.folder))
+        try:
+            return await self._land_now(group, copies)
+        finally:
+            self.desk.end_landing(key)
+
+    async def _land_now(self, group: Group, copies: list[worktrees.Copy]) -> str:
         # A turn may have started since the card went up (C5): stopped and waited for
         # before anything is committed.
         task = self.task_of(group)
@@ -481,14 +493,27 @@ class MultiDesk:
                     )
                 landed.append(copy)
                 self.desk.conflicts.pop(copy.slug, None)
-            await self._end(group)
+            await self._end(group)  # (the session now: one resumed while it landed too)
+            kept: list[dict[str, Any]] = []
             for copy in copies:
                 await self.desk.taking_away(copy.slug)
                 try:
-                    await asyncio.to_thread(worktrees.remove, copy, self.desk.root)
+                    # What a turn Claude Code started by itself meanwhile left is kept in
+                    # the trash, never removed by force.
+                    problem, item = await asyncio.to_thread(self.desk.take_away_landed, copy)
                 finally:
                     self.desk.removing.discard(copy.slug)
+                if item is not None:
+                    kept.append(item)
+                elif problem:
+                    log.warning("a landed copy left something behind: %s", problem)
+        self.desk.store().trash.extend(kept)
         await self._forget(group, copies)
+        if kept:
+            return (
+                f"Landed {group.title} in all {len(copies)} repositories. Work written in the "
+                "copies while they landed is kept for 30 days in the Copies pane."
+            )
         return f"Landed {group.title} in all {len(copies)} repositories."
 
     def notify(self, group: Group, text: str) -> None:

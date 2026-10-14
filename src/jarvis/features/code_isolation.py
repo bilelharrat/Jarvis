@@ -41,6 +41,7 @@ PREF_LINK = "code_iso_link"
 OFFER_SECONDS = 90  # a card offering a copy waits this long, then the session shares
 SWEEP_EVERY = 24 * 3600
 SWEEP_FIRST = 30  # after startup, once the app has settled
+HELD = "Waiting: its isolated copy is being landed."
 
 
 def _project_names(value: Any) -> list[str] | None:
@@ -97,6 +98,9 @@ ZH = {
     "That discarded copy isn't there any more.": "那个丢弃的副本已经不在了。",
     "Couldn't bring it back: {error}": "没能找回：{error}",
     "Sent the conflicts to the session.": "已把冲突交给会话。",
+    "Waiting: its isolated copy is being landed.": "等待中：它的独立副本正在合并。",
+    "Landed {branch} in {into}. Work written in the copy while it landed is kept for 30 days in the Copies pane.": "已把 {branch} 合并进 {into}。合并期间写进副本的工作会在副本面板里保留 30 天。",
+    "Landed {branch} in {into}, but the copy had new work in it and couldn't be kept in the trash, so it's still there: {error}": "已把 {branch} 合并进 {into}，但副本里有新的工作，又没能放进回收站，所以它还在：{error}",
     "Opened the session with the conflicts.": "已打开会话并交给它冲突。",
     "There are no conflicts to resolve there.": "那里没有需要解决的冲突。",
     "Isolated copies": "独立副本",
@@ -142,6 +146,14 @@ class Desk:
         # the owner's pairing folder).
         self.before_copy_gone: list[Any] = []
         self.removing: set[str] = set()
+        # Copies being landed just now (slug -> the folder whose sessions wait: the copy's
+        # checkout, or a multi-repo task's folder), from before their sessions are quieted
+        # until the copy is gone or the landing gave up. No turn of a waiting message starts
+        # in one meanwhile (hold, a TaskManager.turn_hold: a session resumed or started in
+        # it too), so nothing new is written as its work is committed and it's removed (C5).
+        # A turn Claude Code starts on its own can't be held: what it leaves is kept in the
+        # trash instead (take_away_landed).
+        self.landing: dict[str, Path] = {}
 
     # ── the list of copies ──
 
@@ -509,12 +521,20 @@ class Desk:
 
     async def land_now(self, copy: worktrees.Copy) -> str:
         """Land a copy the owner has already said yes to (Land's card, or best-of-N's Keep
-        this one): its work committed and merged, its sessions ended, the copy removed."""
-        inside = self.tasks_in(copy)
+        this one): its work committed and merged, its sessions ended, the copy removed.
+        From the start its sessions' waiting messages wait (landing), until it's gone or
+        the landing gave up, when they go again."""
+        self.start_landing(copy.slug, Path(copy.checkout))
+        try:
+            return await self._land_now(copy)
+        finally:
+            self.end_landing(copy.slug)
+
+    async def _land_now(self, copy: worktrees.Copy) -> str:
         message = f"Eden Code: {copy.title or copy.slug}"
         # A turn may have started since the card went up (C5): it's stopped, and waited
         # for, before the copy's work is committed, so nothing is half written in it.
-        if not await self.quiet(inside):
+        if not await self.quiet(self.tasks_in(copy)):
             return "It's still working. Stop it first, then land."
         async with self.lock(copy.repo):
             landed = await asyncio.to_thread(worktrees.land, copy, message)
@@ -523,23 +543,84 @@ class Desk:
                     self.conflicts[copy.slug] = landed.conflicts
                 return landed.message
             self.conflicts.pop(copy.slug, None)
+            # The sessions in it now: one resumed or started in it while it landed too.
+            inside = self.tasks_in(copy)
             for task in inside:
                 self.hub.tasks.cancel(task.id)
             await self._ended(inside)
             await self.taking_away(copy.slug)
             try:
-                problem = await asyncio.to_thread(worktrees.remove, copy, self.root)
+                problem, item = await asyncio.to_thread(self.take_away_landed, copy)
             finally:
                 self.removing.discard(copy.slug)
-        if copy in self.store().copies:
-            self.store().copies.remove(copy)
-        self.save()
         for task in inside:
             self.bound.pop(task.id, None)
+        if item is None and problem:  # new work in it that couldn't be kept: it stays
+            self.save()
+            return lang.tr(
+                "Landed {branch} in {into}, but the copy had new work in it and couldn't be "
+                "kept in the trash, so it's still there: {error}",
+                self.hub.language,
+                branch=copy.branch,
+                into=copy.into,
+                error=problem,
+            )
+        store = self.store()
+        if copy in store.copies:
+            store.copies.remove(copy)
+        if item is not None:
+            store.trash.append(item)
+        self.save()
         self.gone(copy.slug)
         if problem:
             log.warning("a landed copy left something behind: %s", problem)
+        if item is not None:
+            return (
+                f"Landed {copy.branch} in {copy.into}. Work written in the copy while it "
+                "landed is kept for 30 days in the Copies pane."
+            )
         return landed.message
+
+    def take_away_landed(self, copy: worktrees.Copy) -> tuple[str, dict[str, Any] | None]:
+        """(In a thread.) A landed copy removed, its sessions ended. When it holds work
+        that didn't land (a turn Claude Code started by itself while it landed: files, or
+        commits), it's discarded instead, that work kept as a recovery ref for TRASH_DAYS:
+        (problem, the trash record). One whose recovery ref can't be made isn't removed at
+        all: ("why", None)."""
+        if not worktrees.unlanded(copy):
+            return worktrees.remove(copy, self.root), None
+        try:
+            item = worktrees.discard(copy, self.root)
+        except worktrees.CopyError as exc:
+            return str(exc), None
+        return str(item.get("problem") or ""), item
+
+    def start_landing(self, slug: str, folder: Path) -> None:
+        try:
+            self.landing[slug] = folder.resolve()
+        except OSError:
+            self.landing[slug] = folder
+
+    def end_landing(self, slug: str) -> None:
+        """The landing is over (done or not): the messages it held go again."""
+        self.landing.pop(slug, None)
+        why = self.tr(HELD)
+        for task in list(self.hub.tasks.tasks.values()):
+            if task.gated in (HELD, why) and self.hold(task) == "":
+                self.hub.tasks.release(task.id)
+
+    def hold(self, task: Any) -> str:
+        """TaskManager.turn_holds: a session in a copy being landed waits."""
+        if not self.landing or getattr(task, "kind", "") != "code":
+            return ""
+        try:
+            cwd = Path(task.cwd).resolve()
+        except (OSError, TypeError):
+            return ""
+        for folder in self.landing.values():
+            if cwd == folder or folder in cwd.parents:
+                return self.tr(HELD)
+        return ""
 
     async def quiet(self, tasks: list[Any], seconds: float = 15.0) -> bool:
         """The busy ones of these sessions interrupted, and waited for (their turn ends);
@@ -760,6 +841,7 @@ def install(hub: Any) -> None:
 
     hub.tasks.prepare = prepare
     hub.tasks.isolated_dir = desk.isolated_dir
+    hub.tasks.turn_holds.append(desk.hold)
     hub.register_command("code_copies", desk.cmd_copies)
     hub.register_command("code_copy", desk.cmd_copy)
     hub.register_loop("code_copies_sweeper", desk.sweeper)
