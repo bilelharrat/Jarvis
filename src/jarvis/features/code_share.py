@@ -36,8 +36,11 @@ is watching).
 
 What a link can cost the app: anyone with it can send as many requests as they like and
 make up as many viewer ids as they like, so every limit is kept three ways (per viewer id,
-per network address, and per share, the last two whatever ids are sent): a few new viewer
-ids a minute from one address, VIEWERS_PER_ADDRESS watching from one address, and the
+per network address, and per share, the last two whatever ids are sent), checked in that
+order and each spent only once the ones before it let the call by (an address flooding the
+link is refused by its own bucket and never drains the share's, so the teammate it was made
+for still gets in): a few new viewer ids a minute from one address, VIEWERS_PER_ADDRESS
+watching from one address (a LAN neighbour's few aliases can't take all MAX_VIEWERS), and the
 buckets themselves kept for the most recently used BUCKETS_KEPT keys only. The heavy parts
 are done once for everyone watching: the changes are worked out by one request at a time
 per share (the others wait for its answer), and an entry is cleaned once (kept by its number
@@ -100,7 +103,7 @@ RATES = {
     "share_comment": (20, 5),
     "new_viewer": (6, 4),
 }
-VIEWERS_PER_ADDRESS = 4  # watching one share at once from one network address
+VIEWERS_PER_ADDRESS = 3  # watching one share at once from one network address
 BUCKETS_KEPT = 4096  # the limiter's most recently used keys; older ones go
 CLEANED_KEPT = 2 * ENTRIES_AT_ONCE  # a share's cleaned entries kept, the latest by number
 UPDATES_AT_ONCE = 50  # entries already sent that changed since (a step's outcome), at most
@@ -616,12 +619,14 @@ class Shares:
             return str(request.client.host if request.client else "")[:64]
 
         def limited(share: Share, viewer: str, address: str, kind: str) -> Any:
-            """The share's, the address's and the viewer's budgets for this kind of call, in
-            that order (a refusal stops there): made-up viewer ids get past only the last."""
+            """The viewer's, the address's and the share's budgets for this kind of call, in
+            that order (a refusal stops there, so a call refused for its viewer or address
+            never spends the share's: one address sending fast can't lock every viewer out).
+            Made-up viewer ids get past only the first."""
             for key, bucket in (
-                (share.id, f"share_{kind}"),
-                (f"{share.id}@{address}", f"address_{kind}"),
                 (f"{share.id}:{viewer}", kind),
+                (f"{share.id}@{address}", f"address_{kind}"),
+                (share.id, f"share_{kind}"),
             ):
                 wait = self.limiter.wait(key, bucket)
                 if wait:
