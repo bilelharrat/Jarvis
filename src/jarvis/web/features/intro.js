@@ -45,10 +45,34 @@
     modelNew: '', // the provider id just added, waiting for its check
     modelChecks: {}, // provider id -> { ok, error }
     knownProviders: null, // provider ids there before a paste
+    codeSound: null, // Eden Code's own boot-up sound choice, from the app (null: not asked yet)
   };
   // Eden Code's window (app/flavor.js) sets up only what coding needs: Claude, other models
   // and the developer tools; the voice, the phone and the iPhone are Eden Secretary's.
   const EDEN = document.body.dataset.app === 'eden-code';
+  // A sentence in the app's own words: Eden Secretary's, or Eden Code's for its window (round 3,
+  // U3-1: Eden Code's Setup said "Start using Eden Secretary"). Both are whole sentences, each
+  // with its Chinese in web/i18n/intro.json, never a name put into one.
+  const own = (secretary, code) => (EDEN ? code : secretary);
+  // Eden Code's boot-up sound is the app's, kept in its own folder (app/features/boot-sound.js,
+  // userData/boot-sound.json, read before any page loads), through the window's bridge: the
+  // backend's boot_sound is Eden Secretary's loading page's, and set from Eden Code's Setup it
+  // changed nothing Eden Code plays (round 3, U3-2). With no bridge (a browser tab), the
+  // backend's switch, which the app falls back to.
+  const soundBridge = () => {
+    const b = EDEN && window.jarvisApp && window.jarvisApp.feature;
+    return b && typeof b.invoke === 'function' ? b : null;
+  };
+  function codeSound(value) {
+    const b = soundBridge();
+    Promise.resolve(value === undefined ? b.invoke('feature:boot-sound') : b.invoke('feature:boot-sound', value)).then((on) => {
+      if (typeof on !== 'boolean') return;
+      S.codeSound = on;
+      const sw = $('sw-code-boot-sound'); // Settings › General's switch (web/features/boot-sound.js)
+      if (sw) sw.setAttribute('aria-checked', String(on));
+      if (S.open && S.card === 'sound') fill();
+    }, () => {});
+  }
   const HEARD = 0.1; // a level this high is a voice, not the room
   const BARS = 28;
 
@@ -67,7 +91,7 @@
   const GROUPS = {
     Work: ['briefcase', 'Your work apps', 'Tasks, issues, docs and messages: Eden Secretary reads them for you, and asks before it changes anything.'],
     Google: ['mail', 'Google', 'Gmail, Google Calendar and Drive, through Google’s own connectors.'],
-    Developer: ['code', 'Developer tools', 'Code, errors, deployments and data, for Eden Secretary and Eden Code.'],
+    Developer: ['code', 'Developer tools', own('Code, errors, deployments and data, for Eden Secretary and Eden Code.', 'Code, errors, deployments and data, for your Eden Code sessions.')],
     Business: ['chart', 'Business tools', 'Customers, payments and deals.'],
     Design: ['pen', 'Design tools', 'Designs, components and brand assets.'],
   };
@@ -290,7 +314,8 @@
     }
     if (id === 'sound') {
       // The boot-up sound (app/loading.js): on, or off from the next launch. Also in Settings › General.
-      const on = p.boot_sound !== false;
+      const bridged = Boolean(soundBridge());
+      const on = bridged ? S.codeSound !== false : p.boot_sound !== false;
       const choices = el('div', 'intro-choices');
       choices.setAttribute('role', 'radiogroup');
       choices.setAttribute('aria-label', 'Boot-up sound');
@@ -300,7 +325,12 @@
         b.setAttribute('role', 'radio');
         b.setAttribute('aria-checked', String(on === value));
         b.append(data(el('strong', '', name)), data(el('small', '', sub)));
-        b.addEventListener('click', () => setPrefs({ boot_sound: value }));
+        b.addEventListener('click', () => {
+          if (!bridged) { setPrefs({ boot_sound: value }); return; }
+          S.codeSound = value; // at once; the app's answer (what it kept) follows
+          fill();
+          codeSound(value);
+        });
         choices.append(b);
       }
       return {
@@ -346,6 +376,19 @@
       };
     }
     // done
+    if (EDEN) {
+      // Eden Code listens to no one (the voice is Eden Secretary's), so its last card has
+      // things to type, and where the rest lives: its own Settings (⌘,).
+      const mark = el('div', 'intro-eden-mark');
+      mark.setAttribute('aria-hidden', 'true');
+      const list = el('ul', 'intro-try-list');
+      for (const tip of ['Pick a project in the sidebar, or add one.', 'Ask: “How is this project put together?”', 'Ask: “Run the tests and fix what fails.”', 'Type / in the composer for the commands.']) list.append(el('li', '', tip));
+      return {
+        visual: mark, ok: true, title: 'You’re all set', primary: 'Start using Eden Code',
+        lead: 'A few things to try:',
+        body: [list, para('Anything you skipped is in Eden Code’s Settings (⌘,), under General and Models & API keys.', 'intro-note intro-center')],
+      };
+    }
     const list = el('ul', 'intro-try-list');
     for (const said of ['“Eden, what’s on my calendar today?”', '“Eden, brief me.”', '“Eden, remind me at 5 to call Sam.”', '“Eden, open Eden Code.”', '“Eden, run a checkup.”']) list.append(el('li', '', said));
     return {
@@ -455,9 +498,9 @@
       body.push(steps([
         [el('span', '', 'Open the Anthropic Console and sign up, or sign in.'), link('https://platform.claude.com/settings/keys', 'Open the Anthropic Console', 'btn intro-small intro-link')],
         'Add credit under Settings › Billing: Claude is billed to your Anthropic account as you use it.',
-        'Under Settings › API keys, press Create key and name it Eden Secretary.',
+        own('Under Settings › API keys, press Create key and name it Eden Secretary.', 'Under Settings › API keys, press Create key and name it Eden Code.'),
         'Copy the key (it starts with sk-ant-). The Console shows it only once.',
-        'Paste it here. Eden Secretary checks it with Anthropic and keeps it in your Keychain.',
+        own('Paste it here. Eden Secretary checks it with Anthropic and keeps it in your Keychain.', 'Paste it here. Eden Code checks it with Anthropic and keeps it in your Keychain.'),
       ]));
       const form = secretForm('intro-claude-key', 'Anthropic API key', 'sk-ant-…', S.signinBusy, (key) => {
         S.signinBusy = true;
@@ -466,11 +509,12 @@
       });
       body.push(form);
       if (!c) body.push(para('Checking…'));
-      body.push(para('You pay Anthropic only for what Eden Secretary uses. You can set a monthly limit under Settings › Billing › Spend limits.'));
+      body.push(para(own('You pay Anthropic only for what Eden Secretary uses. You can set a monthly limit under Settings › Billing › Spend limits.',
+        'You pay Anthropic only for what Eden Code uses. You can set a monthly limit under Settings › Billing › Spend limits.')));
     }
     if (k.error) body.push(para(k.error, 'intro-note warn'));
     else if (k.note && !ok) body.push(para(k.note, 'intro-note'));
-    return { visual: tile('spark', 'clay'), compact: true, ok, later: !ok, title, lead: 'Eden Secretary thinks with Claude, Anthropic’s AI.', body };
+    return { visual: tile('spark', 'clay'), compact: true, ok, later: !ok, title, lead: own('Eden Secretary thinks with Claude, Anthropic’s AI.', 'Eden Code works with Claude, Anthropic’s AI.'), body };
   }
 
   function chat(t) {
@@ -859,11 +903,12 @@
       fill();
     }, 'Add'));
     if (S.modelErr) body.push(para(S.modelErr, 'intro-note warn'));
-    body.push(para('More models, and which one stands in, are in Settings › Models.', 'intro-note intro-center'));
+    body.push(para(own('More models, and which one stands in, are in Settings › Models.', 'More models are in Eden Code’s Settings › Models & API keys.'), 'intro-note intro-center'));
     const ok = mine.some((x) => S.modelChecks[x.id] && S.modelChecks[x.id].ok);
     return {
       visual: tile('chip', 'indigo'), compact: true, ok, later: true, title: 'A second AI, just in case',
-      lead: 'When Claude can’t answer (a usage limit, an outage), Eden Secretary carries on with another model. Optional.', body,
+      lead: own('When Claude can’t answer (a usage limit, an outage), Eden Secretary carries on with another model. Optional.',
+        'A session can run on another model too, so a Claude usage limit or outage doesn’t stop your work. Optional.'), body,
     };
   }
 
@@ -973,6 +1018,7 @@
       F.send({ type: 'ops_permissions' });
       pollTimer = setInterval(() => { if (document.hasFocus()) F.send({ type: 'ops_permissions' }); }, 4000);
     }
+    if (id === 'sound' && soundBridge()) codeSound();
     if (id === 'claude') { F.send({ type: 'ops_claude' }); F.send({ type: 'signin_state' }); }
     if (id === 'talk' || id === 'wake') { const t = S[id]; if (t.phase !== 'done') S[id] = { phase: '', heard: '', reply: '', rid: '' }; }
     if (id === 'voice-id') F.send({ type: 'voice_id_status' });
