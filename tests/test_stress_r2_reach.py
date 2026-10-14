@@ -137,8 +137,8 @@ async def test_two_new_sessions_from_the_phone_each_answer_their_own_id(
     hub, client = phone
     ids = iter([7, 8])
 
-    def start(prompt, directory, **_kw):
-        return session(hub, next(ids), tmp_path / directory)
+    def start(prompt, directory, **kw):  # (stamped, as TaskManager.start does: REL3-10)
+        return session(hub, next(ids), tmp_path / directory, launch_token=kw["launch_token"])
 
     monkeypatch.setattr(hub.tasks, "start", start)
     first = asyncio.create_task(
