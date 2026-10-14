@@ -7,6 +7,7 @@ everything the session records is scrubbed. No real Keychain, no model."""
 import asyncio
 import io
 import logging
+import os
 import shlex
 import sys
 import time
@@ -171,14 +172,18 @@ async def test_a_command_naming_the_secret_asks_in_every_mode_and_gets_it_throug
     argv = shlex.split(wrapped)
     assert argv[:2] == [sys.executable, "-I"] and argv[2].endswith("secret_run.py")
     assert argv[4] == "--" and argv[-1] == command and argv[-2] == "-c"
-    # Nothing on the line can fetch a secret: no Keychain service, no account, only a pipe
-    # made for this command, which is gone once opened, and gives the values only to that
-    # very command (this test's process, opening it first, gets nothing: tests/
-    # test_secret_handoff.py has the command itself getting them).
+    # Nothing on the line can fetch a secret: no Keychain service, no account, only a socket
+    # made for this run, which is gone once taken, and runs the command only for that very
+    # secret_run (this test's process, connecting first, gets nothing run: tests/
+    # test_secret_handoff.py has the command itself running).
     assert SERVICE not in wrapped and "code-secret:" not in wrapped
     pipe = argv[3]
-    assert secret_run.read_pipe(pipe) is None
-    assert secret_run.read_pipe(pipe) is None
+    first = secret_run.connect(pipe)
+    assert first is not None
+    first.sendall(secret_run.request())
+    assert first.recv(4096) == b""
+    first.close()
+    assert secret_run.connect(pipe) is None
     # One that doesn't name it runs as it is, with no card.
     plain = await options.can_use_tool("Bash", {"command": "ls"}, context)
     assert isinstance(plain, PermissionResultAllow) and not plain.updated_input
@@ -326,69 +331,56 @@ def test_secret_run_scrubs_values_split_between_reads():
     assert secret_run.Scrubber({}).feed(b"plain") == b"plain"
 
 
-def test_secret_run_gives_the_command_its_value_and_scrubs_its_output():
+def test_secret_run_gives_the_command_its_value_and_scrubs_its_output(tmp_path):
+    """The backend runs the command with the value in its environment; secret_run prints
+    what comes back, scrubbed, and exits with the command's status."""
+    from jarvis.key_proxy import Handoffs
+
+    line = 'echo "out:$SECRET_X"; echo "err:$SECRET_X" >&2; echo "gone:[$SECRET_GONE]"; exit 3'
+    offers = Handoffs(folder=tmp_path / "handoff", wait=5)
+    sock = offers.offer({"SECRET_X": VALUE}, ["SECRET_GONE"], command=["/bin/sh", "-c", line])
     stdout, stderr = io.BytesIO(), io.BytesIO()
-    seen = []
-
-    def fetch(pipe):
-        seen.append(pipe)
-        return {"values": {"SECRET_X": VALUE}, "missing": ["SECRET_GONE"]}
-
-    code = secret_run.run(
-        [
-            "/some/pipe",
-            "--",
-            "/bin/sh",
-            "-c",
-            'echo "out:$SECRET_X"; echo "err:$SECRET_X" >&2; echo "gone:[$SECRET_GONE]"; exit 3',
-        ],
-        fetch=fetch,
-        stdout=stdout,
-        stderr=stderr,
-    )
+    code = secret_run.run([sock, "--", "/bin/sh", "-c", line], stdout=stdout, stderr=stderr)
     assert code == 3
-    assert seen == ["/some/pipe"]
     assert stdout.getvalue() == b"out:$SECRET_X\ngone:[]\n"
     assert (
         b"err:$SECRET_X" in stderr.getvalue()
         and b"no value is saved for $SECRET_GONE" in stderr.getvalue()
     )
     assert VALUE.encode() not in stdout.getvalue() + stderr.getvalue()
-    assert secret_run.run(["p", "--"], fetch=fetch, stdout=stdout, stderr=stderr) == 2
-    # Nothing offered (a pipe read already, or none): the command doesn't run at all.
+    assert secret_run.run(["p", "--"], stdout=stdout, stderr=stderr) == 2
+    # Nothing offered (a socket used already, or none): the command doesn't run at all.
     ran = io.BytesIO()
-    assert secret_run.run(["p", "--", "/bin/sh", "-c", "echo ran"], fetch=lambda _p: None, stdout=ran, stderr=io.BytesIO()) == 2  # fmt: skip
+    assert secret_run.run(["p", "--", "/bin/sh", "-c", "echo ran"], connect_to=lambda _p: None, stdout=ran, stderr=io.BytesIO()) == 2  # fmt: skip
     assert ran.getvalue() == b""
 
 
-def test_secret_run_reads_no_keychain_and_a_pipe_is_read_once_for_real(tmp_path):
+def test_secret_run_reads_no_keychain_and_a_socket_is_used_once_for_real(tmp_path):
     """The program a session's commands go through holds no way to ask for a secret: it
-    imports no keyring, takes no service or account, and the pipe it reads (made by the
-    backend for one command) gives its values once."""
+    imports no keyring, takes no service or account, never holds a value, and the socket it
+    connects to (made by the backend for one run) runs the command once."""
     source = open(secret_run.__file__, encoding="utf-8").read()
     assert "keyring" not in source and "Keychain entry" not in source
     from jarvis.key_proxy import Handoffs
 
     offers = Handoffs(folder=tmp_path / "handoff", wait=5)
-    pipe = offers.offer({"SECRET_X": VALUE}, ["SECRET_GONE"])
+    line = 'echo "[$SECRET_X]" | base64; echo "$SECRET_X" | rev'
+    pipe = offers.offer({"SECRET_X": VALUE}, ["SECRET_GONE"], command=["/bin/sh", "-c", line])
     assert oct((tmp_path / "handoff").stat().st_mode & 0o777) == "0o700"
+    assert oct(os.stat(os.path.dirname(pipe)).st_mode & 0o777) == "0o700"
     stdout, stderr = io.BytesIO(), io.BytesIO()
-    code = secret_run.run(
-        [pipe, "--", "/bin/sh", "-c", 'echo "[$SECRET_X]" | base64; echo "$SECRET_X" | rev'],
-        stdout=stdout,
-        stderr=stderr,
-    )
+    code = secret_run.run([pipe, "--", "/bin/sh", "-c", line], stdout=stdout, stderr=stderr)
     assert code == 0
     out = stdout.getvalue()
     assert VALUE.encode() not in out and VALUE[::-1].encode() not in out
     assert out.count(b"$SECRET_X") == 2
-    # Read once: the same pipe again gets nothing, and the command doesn't run.
+    # Used once: the same socket again gets nothing, and the command doesn't run.
     again = io.BytesIO()
     assert secret_run.run([pipe, "--", "/bin/sh", "-c", "echo ran"], stdout=again, stderr=io.BytesIO()) == 2  # fmt: skip
     assert again.getvalue() == b""
-    # A pipe no command reads goes by itself.
+    # A socket no command connects to goes by itself.
     unread = Handoffs(folder=tmp_path / "late", wait=0.2)
-    left = unread.offer({"SECRET_X": VALUE})
+    left = unread.offer({"SECRET_X": VALUE}, command=["/bin/sh", "-c", "true"])
     assert until_gone(left)
 
 

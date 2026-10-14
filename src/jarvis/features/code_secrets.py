@@ -16,12 +16,13 @@ nothing else:
 - A session's Bash command that names a placeholder asks the owner on a card, in every
   mode (Bypass and "don't ask again" rules too: a command that uses a secret can send it
   anywhere). Let go, it runs through secret_run.py (JARVIS's own Python, isolated), which
-  gets the values from the backend through a named pipe made for that one command and
-  read once (key_proxy.Handoffs: secret_run never reads the Keychain, so running it again
-  gets nothing), puts them in that command's environment and scrubs them from everything
-  it prints (their base64, hex, URL-encoded and reversed shapes, and any run of 8 or more
-  of their characters, too), so the tool output Claude and the transcript get carries
-  $SECRET_… instead. The value is never on a command line, in a file or in the session's
+  connects to a socket the backend made for that one run and used once (key_proxy.Handoffs:
+  secret_run never reads the Keychain nor holds a value, so running it again gets nothing);
+  the backend runs the command itself with the values in its environment and sends back
+  what it prints scrubbed of them (their base64, hex, URL-encoded and reversed shapes, and
+  any run of 8 or more of their characters, too), so the tool output Claude and the
+  transcript get carries $SECRET_… instead, and no process of the session's can race it to
+  the values: they never leave the backend. The value is never on a command line, in a file or in the session's
   own environment: a command that doesn't go through it has no value. (The rewrite is the
   session's permission policy's own answer, after the owner's rules and cards have looked
   at the command as Claude wrote it; a PreToolUse hook sends every such command there,
@@ -127,11 +128,10 @@ def _scope_of_folder(folder: str) -> str:
     return "p-" + hashlib.sha256(folder.encode()).hexdigest()[:20]
 
 
-def wrap(command: str, pipe: str, python: str | None = None) -> str:
-    """The command as it runs: through secret_run.py, with the pipe its values come through
-    (made for it, read once: nothing on this line can fetch a secret again), in a shell that
-    reads no startup file (the owner's or one a session wrote: ~/.zshenv, $ZDOTDIR's, a
-    BASH_ENV's run with the values in its environment)."""
+def shell_argv(command: str) -> list[str]:
+    """The owner's line as the backend runs it: in a shell that reads no startup file (the
+    owner's or one a session wrote: ~/.zshenv, $ZDOTDIR's, a BASH_ENV's run with the values
+    in its environment)."""
     shell = os.environ.get("SHELL", "")
     shell = (
         shell
@@ -139,6 +139,13 @@ def wrap(command: str, pipe: str, python: str | None = None) -> str:
         else (shutil.which("bash") or "/bin/bash")
     )
     bare = ["-f"] if Path(shell).name == "zsh" else ["--norc", "--noprofile"]
+    return [shell, *bare, "-c", command]
+
+
+def wrap(command: str, pipe: str, python: str | None = None) -> str:
+    """The command as the session runs it: secret_run.py with the socket made for this one
+    run (used once: nothing on this line can fetch a secret again), which has the backend run
+    shell_argv(command) and prints its scrubbed output."""
     return shlex.join(
         [
             python or sys.executable,
@@ -146,10 +153,7 @@ def wrap(command: str, pipe: str, python: str | None = None) -> str:
             str(Path(secret_run.__file__).resolve()),
             pipe,
             "--",
-            shell,
-            *bare,
-            "-c",
-            command,
+            *shell_argv(command),
         ]
     )
 
@@ -265,12 +269,13 @@ class Secrets:
             self.values[key] = found or ""  # (none saved: not asked again on every line)
         return self.values[key] or None
 
-    def offer(self, task: Any, names: set[str], command: str | None = None) -> str:
-        """These secrets of a session, read now and offered to one command (key_proxy's
-        pipe): its path. A name with no value saved any more is said to be missing. With the
-        command, the pipe is written only for the process that runs exactly it through
-        secret_run with this pipe (wrap's line): any other of the session's processes that
-        finds the pipe first gets nothing."""
+    def offer(self, task: Any, names: set[str], command: str) -> str:
+        """These secrets of a session, read now, for one run of this command (key_proxy's
+        socket): its path. A name with no value saved any more is said to be missing. The
+        backend runs the command itself, and only for the process that runs exactly it
+        through secret_run with this socket (wrap's line): any other of the session's
+        processes that finds the socket first gets nothing, and even one made to look like
+        it gets only the scrubbed output (the values never leave this process)."""
         scopes = self._scopes(task)
         values: dict[str, str] = {}
         missing: list[str] = []
@@ -280,9 +285,13 @@ class Secrets:
                 values[name] = found
             else:
                 missing.append(name)
-        expect = (lambda pipe: shlex.split(wrap(command, pipe))) if command is not None else None
-        path = session_path(task) if command is not None else None
-        return key_proxy.HANDOFFS.offer(values, missing, expect=expect, run_path=path)
+        return key_proxy.HANDOFFS.offer(
+            values,
+            missing,
+            expect=lambda pipe: shlex.split(wrap(command, pipe)),
+            run_path=session_path(task),
+            command=shell_argv(command),
+        )
 
     def values_for(self, task: Any) -> dict[str, str]:
         """{value: $NAME} for a session's secrets, for the redaction pass."""

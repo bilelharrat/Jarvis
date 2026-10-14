@@ -1,47 +1,55 @@
 """Runs one Eden Code command with the owner's secrets in its environment, and scrubs them
 from what it prints (features/code_secrets.py puts this in front of a session's commands).
 
-    python -I secret_run.py <pipe> -- <shell> -c <command>
+    python -I secret_run.py <socket> -- <shell> -c <command>
 
-The values come from the backend, never from the Keychain: once the owner has let the
-command go, the backend reads them and offers them through a named pipe made for this one
-command (key_proxy.Handoffs), named by a random nonce in a folder only the owner can open.
-This reads it (the first reader gets the values; the name is gone as soon as it's opened)
-and gives the command each value as the environment variable NAME. Run again with a pipe
-already read, or a name guessed, it gets nothing: it holds no way to ask for a secret.
+This program never holds a value. Once the owner has let the command go, the backend makes
+a socket for that one run (key_proxy.Handoffs), named by a random nonce in a folder only the
+owner can open. This connects to it and says where it is (its folder) and what environment
+the session gave it; the backend then starts the command itself, the exact one on the
+owner's card (what follows -- here is only for the line to say what it runs), with the
+values in its environment, and sends back what it prints, already scrubbed, and its exit
+status. So whoever reaches the socket first, this program or another of the session's
+processes made to look just like it, gets only what this would have had: the command's
+scrubbed output. The values themselves never travel through anything a session's process
+can open (until round 3 they were written into a named pipe, and a process the session
+started with these very arguments could read them first). Run again with a socket already
+used, or a name guessed, it gets nothing: the command runs once.
 
 Everything the command writes, on stdout and stderr, comes back with each value replaced
 by $NAME, and so are the shapes a value is easily turned into (base64, hex, URL-encoding,
 reversed, and any run of 8 or more of its characters, of those shapes too), so neither the
 session's transcript nor the model sees one by way of `base64`, `rev`, `cut` or `curl -v`.
-Its exit status is the command's.
+Its exit status is the command's. (The scrubbing is the backend's, with Scrubber below.)
 
-What would run code of its own before or instead of the command is taken out of its
-environment first: a shell's startup files and settings (BASH_ENV, ENV, ZDOTDIR, SHELLOPTS,
-BASHOPTS, PROMPT_COMMAND, PS4), bash's exported functions (BASH_FUNC_*, which can stand in
-for any command, `echo` too), and what loads code into a program (DYLD_*, LD_*). Its PATH is
-the one the backend sends with the values (the session's, as the owner's shell has it), not
-whatever the process that started this had: a folder of its own first, with a `curl` in it,
-would get the values. The shell itself runs with no startup files (wrap's `bash --norc
---noprofile` or `zsh -f`).
+What would run code of its own before or instead of the command is taken out of the
+environment the backend gives it (clean_env): a shell's startup files and settings
+(BASH_ENV, ENV, ZDOTDIR, SHELLOPTS, BASHOPTS, PROMPT_COMMAND, PS4), bash's exported functions
+(BASH_FUNC_*, which can stand in for any command, `echo` too), and what loads code into a
+program (DYLD_*, LD_*). Its PATH is the backend's (the session's, as the owner's shell has
+it), never the one this program was started with: a folder of its own first, with a `curl`
+in it, would get the values. The shell itself runs with no startup files (wrap's `bash
+--norc --noprofile` or `zsh -f`).
 
 Run with JARVIS's own Python in isolated mode (-I: no PYTHON* variables, no project folder on
-the import path). It imports only the standard library, and never prints a value, nor writes
-one anywhere: not to a file, not to the command line, not to a log.
+the import path). It imports only the standard library.
 """
 
 from __future__ import annotations
 
+import json
 import os
-import subprocess
+import socket
+import struct
 import sys
-import threading
-from collections.abc import Callable
 from typing import BinaryIO
 
-Fetch = Callable[[str], "dict | None"]  # the pipe's path -> {"values": {…}, "missing": […]}
 CHUNK = 4096
-FETCH_SECONDS = 30  # how long the backend may take to offer the values
+CONNECT_SECONDS = 30  # how long the backend may take to answer the run's socket
+REQUEST_MAX = 4_000_000  # bytes of the run's request (its folder and environment), at most
+# One frame of what the backend sends back: its kind, the length of what follows, that.
+FRAME = struct.Struct(">cI")
+OUT, ERR, EXIT = b"o", b"e", b"x"
 FRAGMENT = 8  # a run of this many of a value's characters (or a shape's) counts as it
 HELD_MAX = 1 << 20  # bytes held back at most, waiting to see whether a match goes on
 # What runs code of its own in the command's shell, or loads it into a program (see above).
@@ -58,39 +66,6 @@ def clean_env(environ: dict[str, str], path: object = None) -> dict[str, str]:
     if isinstance(path, str) and path:
         env["PATH"] = path
     return env
-
-
-def read_pipe(path: str) -> dict | None:
-    """The values offered on this pipe, or None (gone, already read, not one at all)."""
-    import json
-    import signal
-    import stat
-
-    try:
-        if not stat.S_ISFIFO(os.stat(path).st_mode):
-            return None
-    except OSError:
-        return None
-
-    def late(_signum: int, _frame: object) -> None:
-        raise TimeoutError
-
-    if hasattr(signal, "SIGALRM"):
-        signal.signal(signal.SIGALRM, late)
-        signal.alarm(FETCH_SECONDS)
-    try:
-        with open(path, "rb") as pipe:  # (waits for the backend to open its end)
-            data = pipe.read(4_000_000)
-    except (OSError, TimeoutError):
-        return None
-    finally:
-        if hasattr(signal, "SIGALRM"):
-            signal.alarm(0)
-    try:
-        offered = json.loads(data)
-    except ValueError:
-        return None
-    return offered if isinstance(offered, dict) else None
 
 
 def shapes(value: str) -> list[bytes]:
@@ -200,88 +175,97 @@ def scrub(values: dict[str, str], text: str) -> str:
 
 
 def parse(argv: list[str]) -> tuple[str, list[str]]:
-    """(the pipe's path, the command's argv) from this program's arguments."""
+    """(the run's socket, the command's argv) from this program's arguments."""
     if "--" not in argv or len(argv) < 3:
-        raise ValueError("usage: secret_run.py PIPE -- SHELL -c COMMAND")
+        raise ValueError("usage: secret_run.py SOCKET -- SHELL -c COMMAND")
     cut = argv.index("--")
     if cut != 1:
-        raise ValueError("usage: secret_run.py PIPE -- SHELL -c COMMAND")
+        raise ValueError("usage: secret_run.py SOCKET -- SHELL -c COMMAND")
     pipe, command = argv[0], argv[cut + 1 :]
     if not pipe or not command:
         raise ValueError("no command")
     return pipe, command
 
 
-def _pump(source: BinaryIO, sink: BinaryIO, scrubber: Scrubber) -> None:
+def frame(kind: bytes, data: bytes) -> bytes:
+    return FRAME.pack(kind, len(data)) + data
+
+
+def request(environ: dict[str, str] | None = None, cwd: str | None = None) -> bytes:
+    """What this program tells the backend: where the command runs, and the environment the
+    session gave it (the backend takes out what runs code of its own, and its PATH)."""
+    body = {"cwd": cwd or os.getcwd(), "env": dict(os.environ if environ is None else environ)}
+    return json.dumps(body).encode("utf-8", "surrogateescape") + b"\n"
+
+
+def connect(path: str) -> socket.socket | None:
+    """The run's socket, connected; None when it's gone, used already, or not one at all."""
+    if not hasattr(socket, "AF_UNIX"):
+        return None
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(CONNECT_SECONDS)
     try:
-        while True:
-            chunk = os.read(source.fileno(), CHUNK)
-            if not chunk:
-                break
-            out = scrubber.feed(chunk)
-            if out:
-                sink.write(out)
-                sink.flush()
-        sink.write(scrubber.end())
-        sink.flush()
-    except (OSError, ValueError):
-        pass
+        sock.connect(path)
+    except OSError:
+        sock.close()
+        return None
+    return sock
+
+
+def _exact(sock: socket.socket, size: int) -> bytes | None:
+    data = b""
+    while len(data) < size:
+        chunk = sock.recv(size - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
 
 
 def run(
     argv: list[str],
-    fetch: Fetch = read_pipe,
+    connect_to=connect,
     stdout: BinaryIO | None = None,
     stderr: BinaryIO | None = None,
 ) -> int:
     out = stdout or sys.stdout.buffer
     err = stderr or sys.stderr.buffer
     try:
-        pipe, command = parse(argv)
+        path, _command = parse(argv)
     except ValueError as exc:
         err.write(f"Jarvis couldn't run the command: {exc}\n".encode())
         return 2
-    offered = fetch(pipe)
-    given = offered.get("values") if isinstance(offered, dict) else None
-    if not isinstance(given, dict):
+    sock = connect_to(path)
+    code = None
+    if sock is not None:
+        try:
+            sock.sendall(request())
+            sock.settimeout(None)  # (the command takes as long as it takes)
+            while True:
+                head = _exact(sock, FRAME.size)
+                if head is None:
+                    break
+                kind, size = FRAME.unpack(head)
+                data = _exact(sock, size) if size else b""
+                if data is None:
+                    break
+                if kind == EXIT:
+                    code = int(data.decode() or "1")
+                    break
+                sink = out if kind == OUT else err
+                sink.write(data)
+                sink.flush()
+        except (OSError, ValueError):
+            pass
+        finally:
+            sock.close()
+    if code is None:
         err.write(
             b"Jarvis couldn't hand this command its secrets (each is given once, to the command "
-            b"the owner let go); it didn't run.\n"
+            b"the owner let go); it didn't run, or didn't finish.\n"
         )
         return 2
-    env = clean_env(dict(os.environ), offered.get("path"))
-    values: dict[str, str] = {}
-    for name, value in given.items():
-        if not (isinstance(name, str) and name.isidentifier() and isinstance(value, str) and value):
-            continue
-        env[name] = value
-        values[value] = f"${name}"
-    for name in offered.get("missing") or []:
-        if isinstance(name, str) and name.isidentifier():
-            err.write(
-                f"(Jarvis: no value is saved for ${name} any more; it's empty here.)\n".encode()
-            )
-            env.pop(name, None)
-    try:
-        proc = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except OSError as exc:
-        err.write(f"Jarvis couldn't start the command: {exc.strerror}\n".encode())
-        return 127
-    assert proc.stdout is not None and proc.stderr is not None
-    pumps = [
-        threading.Thread(target=_pump, args=(proc.stdout, out, Scrubber(values)), daemon=True),
-        threading.Thread(target=_pump, args=(proc.stderr, err, Scrubber(values)), daemon=True),
-    ]
-    for pump in pumps:
-        pump.start()
-    try:
-        code = proc.wait()
-    except KeyboardInterrupt:
-        proc.terminate()
-        code = proc.wait()
-    for pump in pumps:
-        pump.join()
-    return code if code >= 0 else 128 - code
+    return code
 
 
 if __name__ == "__main__":
