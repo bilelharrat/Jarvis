@@ -1,0 +1,39 @@
+{
+  "strings": {
+    "Share live": "实时分享",
+    "Share live…": "实时分享…",
+    "A read-only live view for a teammate": "给队友的只读实时视图",
+    "Open a session to share it.": "打开一个会话才能分享它。",
+    "A read-only live view of this session for a teammate on your network: its transcript, changes and status, with keys, tokens and this Mac’s paths taken out. They can’t do anything in it.": "给你网络上的队友一个这个会话的只读实时视图：它的对话记录、改动和状态，密钥、令牌和这台 Mac 上的路径都会去掉。他们在里面什么也做不了。",
+    "Live share": "实时分享",
+    "Nobody watching": "没人在看",
+    "Ended": "已结束",
+    "Suggestions on": "已允许建议",
+    "Share link": "分享链接",
+    "Copy link": "复制链接",
+    "Copied": "已复制",
+    "Revoke": "撤销",
+    "The link stops working at once, for everyone": "链接会立刻对所有人失效",
+    "Copy into the composer": "复制到输入框",
+    "Yours to edit and send; nothing is sent by itself": "由你编辑后发送；不会自动发送任何内容",
+    "Dismiss": "忽略",
+    "How long the link works": "链接有效多久",
+    "Link works for": "链接有效期",
+    "15 minutes": "15 分钟",
+    "1 hour": "1 小时",
+    "4 hours": "4 小时",
+    "1 day": "1 天",
+    "Let viewers send suggestions (they come to you as cards, never to the session)": "允许观看者提建议（以卡片形式发给你，绝不会发给会话）",
+    "Suggestions on for this share": "这个分享允许提建议",
+    "Share another link": "再分享一个链接",
+    "The link works on this Mac’s network while the phone companion is on, until it ends or you revoke it. Shares end when Eden quits.": "手机伴侣打开时，链接在这台 Mac 所在的网络里有效，直到到期或你撤销。Eden 退出时分享也会结束。"
+  },
+  "patterns": [
+    ["^1 watching$", "1 人在看"],
+    ["^(\\d+) watching$", "$1 人在看"],
+    ["^Ends in (\\d+) min$", "$1 分钟后结束"],
+    ["^Ends in (\\d+) h$", "$1 小时后结束"],
+    ["^Their browser will warn about this Mac’s own certificate\\. Its fingerprint starts (.+)\\.$", "他们的浏览器会对这台 Mac 自己的证书发出警告。它的指纹开头是 $1。"],
+    ["^Suggestion from (.+)$", "来自 $1 的建议"]
+  ]
+}

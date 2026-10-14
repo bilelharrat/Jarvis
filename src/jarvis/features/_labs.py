@@ -22,6 +22,7 @@ LABS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "code_acp": ("Other agents (ACP)", "Run Gemini CLI, Codex and other ACP agents as sessions.", ("code-acp",)),
     "code_plugins": ("Plugins", "Claude Code plugins: their commands, agents and hooks in sessions.", ("code-plugins",)),
     "code_split": ("Split view", "Two live sessions side by side (⌘⇧\\ or /split).", ("code-split",)),
+    "code_share": ("Share live", "A read-only live view of a session for a teammate, by link, on your network.", ("code_share",)),
 }  # fmt: skip
 
 
