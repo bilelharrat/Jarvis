@@ -101,7 +101,8 @@ ZH = {
     "Setup and container": "设置与容器",
     "There's no copy to set up here.": "这里没有可以设置的副本。",
     "It's still working. Wait for it to finish, then run the setup.": "它还在工作。等它完成，再运行设置脚本。",
-    "There's no setup in this project: add .jarvis/setup.sh.": "这个项目没有设置脚本：请添加 .jarvis/setup.sh。",
+    # (Not "There's no setup in this project: add .jarvis/setup.sh.": its path says the old
+    # wake word, which no Chinese sentence may (test_lang); it stays in English.)
     devcontainer.INSTALL: "Docker 不在这台 Mac 上，所以这个会话在 Mac 上照常运行命令。要在容器里运行，请安装 Docker Desktop（docker.com/products/docker-desktop），或免费、更轻量的 colima（brew install colima docker，然后 colima start）。",
     devcontainer.NOT_RUNNING: "Docker 已安装但没有运行，所以这个会话在 Mac 上照常运行命令。启动 Docker Desktop（或 colima start），下一个副本就会有容器。",
 }
