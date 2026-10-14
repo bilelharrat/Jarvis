@@ -277,7 +277,7 @@ async function startEngine() {
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port} for ${NAME}\n`);
   const child = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: proofPipe.STDIO });
   const sheet = touchid.handlers({ systemPreferences, dialog, secret: () => keys.key });
-  proofPipe.attach(child, keys, (kind, lang) => sheet.ask(kind, lang));
+  proofPipe.attach(child, keys, sheet); // (the sheet itself: kind, lang and the subject, S3-3)
   engine = { port, token, shared: false, child };
   if (child.pid) share.advertise(DATA_DIR, { port, token, pid: child.pid, app: 'ask-eden', launcher: process.pid });
   child.stdout.pipe(log, { end: false });

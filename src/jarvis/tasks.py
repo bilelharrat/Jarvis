@@ -1339,6 +1339,9 @@ class TaskManager:
         # lets such a step by unasked; it asks on its card (with Touch ID there), and the
         # card offers no "don't ask again" for it (round 2, G3/G4). Only Bypass skips it.
         self.risky_step: Callable[[ClaudeTask, str, dict[str, Any]], bool] | None = None
+        # features.code_touchid: a step whose card is marked for Touch ID however it reads
+        # (one naming the app's own data folder, S3-7): touchid_step(task, tool, input).
+        self.touchid_step: Callable[[ClaudeTask, str, dict[str, Any]], bool] | None = None
         # Models added with an API key (providers.ProviderStore; the hub sets it): each
         # connection re-derives the session's settings, re-checking the key's Keychain seal.
         self.providers: Any = None
@@ -3496,7 +3499,11 @@ class TaskManager:
                     f"Eden Code in {task.cwd.name} wants to {verb}",
                     approval_detail(tool_name, tool_input, task.cwd),
                     choices,
-                    context={"task_id": task.id, "tool": tool_name},
+                    context={
+                        "task_id": task.id,
+                        "tool": tool_name,
+                        **({"touchid": True} if self._touchid(task, tool_name, tool_input) else {}),
+                    },
                 )
             )
             try:
@@ -3583,6 +3590,16 @@ class TaskManager:
                 return None  # a risky step asks, allow rule or not ("Bash" isn't Bypass: G3)
             return "auto", f"your rule: {ruled[1]}"
         return found
+
+    def _touchid(self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]) -> bool:
+        """touchid_step's say (a check that fails marks the card: Touch ID asks)."""
+        if self.touchid_step is None:
+            return False
+        try:
+            return bool(self.touchid_step(task, tool_name, tool_input))
+        except Exception:
+            log.exception("Eden Code: couldn't tell whether a step needs Touch ID; it does")
+            return True
 
     def _risky(self, task: ClaudeTask, tool_name: str, tool_input: dict[str, Any]) -> bool:
         """risky_step's say (a check that fails counts as risky: it asks)."""

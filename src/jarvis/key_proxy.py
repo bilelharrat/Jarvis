@@ -25,16 +25,18 @@ Now nothing a run is given reads the Keychain:
   Keychain at all, nor ever holds a value. The backend reads the values, once the owner has
   let the command go on its card, and makes a socket for that one run (Handoffs.offer) in a
   folder only the owner can open, named by a random nonce. The first process to connect
-  (gone as a name the moment it has) gets the run: the backend starts the very command on
-  the owner's card itself, with the values in its environment, and sends back only what it
-  prints, scrubbed, and its exit status. Unused, the socket goes after a minute; re-running
+  (gone as a name the moment it has, and saying nothing but "go") gets the run: the
+  backend starts the very command on the owner's card itself, with the values in its
+  environment, in the session's folder with the session's environment (never what the
+  connecting process says: S3-1), gives what it prints, scrubbed, to the owner's transcript
+  alone, and sends back only how it went and its exit status (S3-2). Unused, the socket goes after a minute; re-running
   secret_run with a nonce already used, or one guessed, gets nothing. The folder and
   secret_run's command line are the owner's, so a session's own commands can find the
   name, and the run goes ahead only when the process that connected is that very command
   (handoff_check: JARVIS's Python running secret_run with this socket and the command on
   the owner's card, started from this backend); and since the values never travel to it,
   even a process the session made to look just like it (arguments can be rewritten) gets
-  only the scrubbed output secret_run would have had. (Round 2 wrote the values into a
+  only what secret_run would have had: that line. (Round 2 wrote the values into a
   named pipe for secret_run to read, which such a process could read first: R2-4.)
 
 What a pass still lets a command do, while the backend runs: send a request through the
@@ -48,7 +50,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 import re
@@ -528,15 +529,27 @@ class Handoffs:
         values: dict[str, str],
         missing: list[str] | None = None,
         expect: Callable[[str], list[str]] | None = None,
-        run_path: str | None = None,
         command: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        on_output: Callable[[str, int], None] | None = None,
     ) -> str:
         """The run's socket, ready for one process: when it connects (and only when it is the
         process expect(path) names: its exact arguments, the command the owner let go through
-        secret_run with this socket; without expect, any first one, as the tests' own), the
-        backend runs command (its argv: the shell, its flags, -c and the owner's line) with
-        the values in its environment, and the PATH run_path (the session's; else this
-        process's own, never the connecting one's)."""
+        secret_run with this socket; without expect, any first one, as the tests' own), and
+        says nothing but "go", the backend runs command (its argv: the shell, its flags, -c
+        and the owner's line) with the values in its environment.
+
+        Where it runs and with what environment are the session's, given here by the backend
+        (env: the session's own, code_secrets.session_env; cwd: its project folder), never
+        what the connecting process says (S3-1: until round 3 secret_run sent its folder and
+        environment, so a process of the session's racing it could hand the command a
+        NODE_OPTIONS, a GIT_SSH_COMMAND or a HOME of its own, and with them the values).
+        Without them (the tests' own runs), this process's.
+
+        What the command prints goes to on_output(text, exit status) once it's done, scrubbed
+        (for the owner's eyes: code_secrets puts it in the transcript, never in what Claude
+        reads); what crosses the socket is only how it went (OWNER_ONLY below, S3-2)."""
         if not hasattr(socket, "AF_UNIX") or not command:
             raise OSError("Secrets reach commands through a Unix socket, which this system lacks.")
         path = self._socket_folder() / secrets.token_hex(16)
@@ -552,9 +565,14 @@ class Handoffs:
             raise
         wanted = expect(str(path)) if expect is not None else None
         given = {k: v for k, v in values.items() if isinstance(v, str) and v}
+        how = {
+            "env": dict(os.environ if env is None else env),
+            "cwd": str(cwd or os.getcwd()),
+            "on_output": on_output,
+        }
         threading.Thread(
             target=self._serve,
-            args=(listener, path, given, list(missing or []), wanted, run_path, list(command)),
+            args=(listener, path, given, list(missing or []), wanted, how, list(command)),
             name="secret-run",
             daemon=True,
         ).start()
@@ -578,7 +596,7 @@ class Handoffs:
         values: dict[str, str],
         missing: list[str],
         wanted: list[str] | None,
-        run_path: str | None,
+        how: dict[str, Any],
         command: list[str],
     ) -> None:
         listener.settimeout(self.wait)
@@ -599,48 +617,41 @@ class Handoffs:
                 if why:
                     log.warning("a command's secrets weren't used for it: %s", why)
                     return
-            asked = self._request(conn)
-            if asked is None:
+            if not self._request(conn):
                 return
-            self._run(conn, asked, values, missing, run_path, command)
+            self._run(conn, how, values, missing, command)
 
     @staticmethod
-    def _request(conn: socket.socket) -> dict[str, Any] | None:
-        """What secret_run said: {"cwd": its folder, "env": its environment}; None for
-        anything else."""
+    def _request(conn: socket.socket) -> bool:
+        """Whether secret_run said "go", the one thing it says (S3-1: where the command runs
+        and its environment are the session's, never the connecting process's)."""
         conn.settimeout(REQUEST_SECONDS_RUN)
         data = b""
         try:
             while not data.endswith(b"\n"):
-                chunk = conn.recv(65536)
+                chunk = conn.recv(64)
                 if not chunk:
-                    return None
+                    return False
                 data += chunk
-                if len(data) > secret_run.REQUEST_MAX:
-                    return None
-            asked = json.loads(data.decode("utf-8", "surrogateescape"))
-        except (OSError, ValueError):
-            return None
-        if not isinstance(asked, dict):
-            return None
-        env = asked.get("env")
-        cwd = asked.get("cwd")
-        if not isinstance(env, dict) or not isinstance(cwd, str) or not os.path.isdir(cwd):
-            return None
-        asked["env"] = {k: v for k, v in env.items() if isinstance(k, str) and isinstance(v, str)}
-        return asked
+                if len(data) > len(secret_run.GO):
+                    return False
+        except OSError:
+            return False
+        return data == secret_run.GO
 
     @staticmethod
     def _run(
         conn: socket.socket,
-        asked: dict[str, Any],
+        how: dict[str, Any],
         values: dict[str, str],
         missing: list[str],
-        run_path: str | None,
         command: list[str],
     ) -> None:
-        """The command, run here with the values, its output scrubbed on its way back; it's
-        stopped when its secret_run goes (Claude Code's own time limit, a stop)."""
+        """The command, run here with the values in the session's environment and folder
+        (how); it's stopped when its secret_run goes (Claude Code's own time limit, a stop).
+        What it prints, scrubbed, goes to the owner (how["on_output"]); secret_run gets only
+        how it went (S3-2: scrubbing is only ever a best effort, `fold -w4` or `od -c` walk
+        a value past it, so none of the output reaches what Claude reads)."""
         import signal
         import subprocess
 
@@ -654,7 +665,7 @@ class Handoffs:
             except OSError:
                 return False
 
-        env = secret_run.clean_env(asked["env"], run_path or os.environ.get("PATH", ""))
+        env = secret_run.clean_env(how["env"])
         placeholders: dict[str, str] = {}
         for name, value in values.items():
             if name.isidentifier():
@@ -671,7 +682,7 @@ class Handoffs:
         try:
             proc = subprocess.Popen(
                 command,
-                cwd=asked["cwd"],
+                cwd=how["cwd"],
                 env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
@@ -683,6 +694,8 @@ class Handoffs:
             send(secret_run.EXIT, b"127")
             return
 
+        printed = secret_run.OwnerOutput()
+
         def pump(source: Any, kind: bytes) -> None:
             scrubber = secret_run.Scrubber(placeholders)
             try:
@@ -690,12 +703,8 @@ class Handoffs:
                     chunk = os.read(source.fileno(), secret_run.CHUNK)
                     if not chunk:
                         break
-                    out = scrubber.feed(chunk)
-                    if out and not send(kind, out):
-                        break
-                rest = scrubber.end()
-                if rest:
-                    send(kind, rest)
+                    printed.add(scrubber.feed(chunk))
+                printed.add(scrubber.end())
             except (OSError, ValueError):
                 pass
 
@@ -729,7 +738,17 @@ class Handoffs:
         code = proc.wait()
         for one in pumps:
             one.join()
-        send(secret_run.EXIT, str(code if code >= 0 else 128 - code).encode())
+        status = code if code >= 0 else 128 - code
+        send(
+            secret_run.OUT,
+            secret_run.owner_only(sorted(set(placeholders.values())), printed, status),
+        )
+        send(secret_run.EXIT, str(status).encode())
+        if how.get("on_output") is not None:
+            try:
+                how["on_output"](printed.text(), status)
+            except Exception:  # (the run is done either way; the owner's copy is a nicety)
+                log.exception("couldn't show the owner a secret command's output")
 
 
 HANDOFFS = Handoffs()

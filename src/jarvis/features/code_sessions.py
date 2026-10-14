@@ -725,7 +725,13 @@ class CodeSessions:
         """A new session in this project: the project's own defaults; resumed from the
         history, as that session last ran."""
         found = self.projects.defaults(path)
-        found.update(self.remembered.get(session_id, {}) if session_id else {})
+        remembered = dict(self.remembered.get(session_id, {})) if session_id else {}
+        # Bypass is never remembered (_remember keeps it as ""): a remembered "auto" was
+        # written by something else into remembered.json, and Bypass from it would skip the
+        # gate's proof (S3-7). The project's own default stands instead.
+        if remembered.get("mode") == "auto":
+            remembered.pop("mode")
+        found.update(remembered)
         return found
 
     def turn_note(self, task: ClaudeTask) -> str:

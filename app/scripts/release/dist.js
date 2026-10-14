@@ -37,14 +37,15 @@ const { verifyApp, buildMacStrings } = require('./verify');
 const { notarize, staple, zipApp } = require('./notarize');
 const { makeDmg, signDmg, writeChecksums } = require('./dmg');
 const { cleanFeedUrl, releaseFeed } = require('../../update-feed');
-const { PAGES } = require('../../page-path');
 
+const { PAGES } = require('../../page-path'); // (checked to be inside app.asar, S3-4)
 const APP_DIR = path.resolve(__dirname, '..', '..');
 const REPO = path.resolve(APP_DIR, '..');
 const DIST = path.join(APP_DIR, 'dist');
-// What stays real files beside app.asar (packageApp): the terminal's and hand tracking's scripts,
-// and the app's own pages (page-path.js).
-const UNPACK = `{**/node_modules/{@xterm,@mediapipe}/**,${PAGES.join(',')}}`;
+// What stays real files beside app.asar (packageApp): the terminal's and hand tracking's scripts.
+// Never the app's own pages: they stay inside the asar, under its integrity check, and are served
+// from there on eden-app:// (page-path.js, S3-4).
+const UNPACK = '**/node_modules/{@xterm,@mediapipe}/**';
 const STAGE = path.join(DIST, 'stage');
 const PKG = JSON.parse(fs.readFileSync(path.join(APP_DIR, 'package.json'), 'utf8'));
 // The apps this folder builds: what each is called, its id, its look in Finder and where its
@@ -202,9 +203,8 @@ async function packageWith(packager, electron, spec, out) {
     ignore: [/^\/dist(\/|$)/, /^\/scripts(\/|$)/, /^\/build\/(?!eden-code(\/icon-1024\.png)?$)/, /^\/jarvis-home\.json$/],
     // The app is one app.asar, as npm run package makes it, but the backend serves the
     // terminal's and hand tracking's scripts to the window and can't read inside an asar:
-    // those two stay real files (app.asar.unpacked), where JARVIS_APP_DIR points. So do the
-    // app's own pages (page-path.js PAGES): with the file-protocol fuse off, Chromium's file
-    // handler can't read them inside an asar either (round 3).
+    // those two stay real files (app.asar.unpacked), where JARVIS_APP_DIR points. The app's
+    // own pages stay inside (page-path.js serves them on eden-app://, S3-4).
     asar: { unpack: UNPACK },
     quiet: true,
   });
@@ -294,6 +294,8 @@ async function buildApp(spec, { args, identity, profile, backend, minimum, helpe
   run('/usr/bin/ditto', [path.join(STAGE, 'helpers'), path.join(resources, 'helpers')]);
   const unpacked = path.join(resources, 'app.asar.unpacked'); // JARVIS_APP_DIR: laid out like app/
   if (!fs.existsSync(path.join(unpacked, 'node_modules', '@xterm'))) throw new BuildError('the terminal\'s scripts (@xterm) aren\'t outside app.asar');
+  const outside = PAGES.filter((page) => fs.existsSync(path.join(unpacked, page)));
+  if (outside.length) throw new BuildError(`the app's own pages must stay inside app.asar (S3-4), but these are outside it: ${outside.join(', ')}`);
   fs.mkdirSync(path.join(unpacked, 'build'), { recursive: true });
   fs.copyFileSync(path.join(APP_DIR, 'build', 'icon-1024.png'), path.join(unpacked, 'build', 'icon-1024.png')); // the companion's icon
   plist(app, `Set :LSMinimumSystemVersion ${minimum}`);

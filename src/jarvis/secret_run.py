@@ -1,35 +1,36 @@
-"""Runs one Eden Code command with the owner's secrets in its environment, and scrubs them
-from what it prints (features/code_secrets.py puts this in front of a session's commands).
+"""Runs one Eden Code command with the owner's secrets in its environment, for the owner's
+eyes (features/code_secrets.py puts this in front of a session's commands).
 
     python -I secret_run.py <socket> -- <shell> -c <command>
 
 This program never holds a value. Once the owner has let the command go, the backend makes
 a socket for that one run (key_proxy.Handoffs), named by a random nonce in a folder only the
-owner can open. This connects to it and says where it is (its folder) and what environment
-the session gave it; the backend then starts the command itself, the exact one on the
-owner's card (what follows -- here is only for the line to say what it runs), with the
-values in its environment, and sends back what it prints, already scrubbed, and its exit
-status. So whoever reaches the socket first, this program or another of the session's
-processes made to look just like it, gets only what this would have had: the command's
-scrubbed output. The values themselves never travel through anything a session's process
-can open (until round 3 they were written into a named pipe, and a process the session
-started with these very arguments could read them first). Run again with a socket already
-used, or a name guessed, it gets nothing: the command runs once.
+owner can open. This connects to it and says "go", nothing more; the backend then starts the
+command itself, the exact one on the owner's card (what follows -- here is only for the line
+to say what it runs), with the values in its environment, in the session's project folder
+with the session's own environment (the owner's login shell's, and the session's own
+settings: never anything this program or whoever connects says, S3-1), and sends back how it
+went and its exit status. So whoever reaches the socket first, this program or another of
+the session's processes made to look just like it, gets only what this would have had. The
+values themselves never travel through anything a session's process can open. Run again
+with a socket already used, or a name guessed, it gets nothing: the command runs once.
 
-Everything the command writes, on stdout and stderr, comes back with each value replaced
-by $NAME, and so are the shapes a value is easily turned into (base64, hex, URL-encoding,
-reversed, and any run of 8 or more of its characters, of those shapes too), so neither the
-session's transcript nor the model sees one by way of `base64`, `rev`, `cut` or `curl -v`.
-Its exit status is the command's. (The scrubbing is the backend's, with Scrubber below.)
+What the command prints, on stdout and stderr, goes to the owner only: the backend scrubs it
+(each value replaced by $NAME, and so are the shapes a value is easily turned into: base64,
+hex, URL-encoding, reversed, and any run of 8 or more of its characters, of those shapes too)
+and puts it in the session's transcript for the owner, never in what Claude reads. Claude's
+tool output is one line (owner_only): that the output went to the owner, how long it was,
+and the exit status, which is the command's too. (Round 3, S3-2: until then the scrubbed
+output was Claude's, and scrubbing is only ever a best effort: `fold -w4`, `od -c`, `sed
+'s/./& /g'` or a slice walk a value past any list of shapes.)
 
-What would run code of its own before or instead of the command is taken out of the
-environment the backend gives it (clean_env): a shell's startup files and settings
-(BASH_ENV, ENV, ZDOTDIR, SHELLOPTS, BASHOPTS, PROMPT_COMMAND, PS4), bash's exported functions
-(BASH_FUNC_*, which can stand in for any command, `echo` too), and what loads code into a
-program (DYLD_*, LD_*). Its PATH is the backend's (the session's, as the owner's shell has
-it), never the one this program was started with: a folder of its own first, with a `curl`
-in it, would get the values. The shell itself runs with no startup files (wrap's `bash
---norc --noprofile` or `zsh -f`).
+What would run code of its own before or instead of the command is taken out of its
+environment (clean_env): a shell's startup files and settings (BASH_ENV, ENV, ZDOTDIR,
+SHELLOPTS, BASHOPTS, PROMPT_COMMAND, PS4), bash's exported functions (BASH_FUNC_*), and what
+loads code into a program (DYLD_*, LD_*). The shell itself runs with no startup files (wrap's
+`bash --norc --noprofile` or `zsh -f`). The rest is the owner's own, as a terminal of theirs
+has it: their PATH and their dotfiles (~/.gitconfig, ~/.npmrc) are what the command uses, as
+the owner's card says.
 
 Run with JARVIS's own Python in isolated mode (-I: no PYTHON* variables, no project folder on
 the import path). It imports only the standard library.
@@ -37,8 +38,6 @@ the import path). It imports only the standard library.
 
 from __future__ import annotations
 
-import json
-import os
 import socket
 import struct
 import sys
@@ -46,7 +45,8 @@ from typing import BinaryIO
 
 CHUNK = 4096
 CONNECT_SECONDS = 30  # how long the backend may take to answer the run's socket
-REQUEST_MAX = 4_000_000  # bytes of the run's request (its folder and environment), at most
+GO = b"go\n"  # all this program says to the backend (S3-1)
+OWNER_KEEP = 8000  # characters of a command's output kept for the owner's transcript (its end)
 # One frame of what the backend sends back: its kind, the length of what follows, that.
 FRAME = struct.Struct(">cI")
 OUT, ERR, EXIT = b"o", b"e", b"x"
@@ -191,11 +191,56 @@ def frame(kind: bytes, data: bytes) -> bytes:
     return FRAME.pack(kind, len(data)) + data
 
 
-def request(environ: dict[str, str] | None = None, cwd: str | None = None) -> bytes:
-    """What this program tells the backend: where the command runs, and the environment the
-    session gave it (the backend takes out what runs code of its own, and its PATH)."""
-    body = {"cwd": cwd or os.getcwd(), "env": dict(os.environ if environ is None else environ)}
-    return json.dumps(body).encode("utf-8", "surrogateescape") + b"\n"
+def request() -> bytes:
+    """What this program tells the backend: "go". Where the command runs and with what
+    environment are the session's, which the backend has (S3-1)."""
+    return GO
+
+
+class OwnerOutput:
+    """What a secret command printed (both streams, as they came), already scrubbed, for the
+    owner: its end kept (OWNER_KEEP characters' worth), and how much there was in all."""
+
+    def __init__(self) -> None:
+        import threading
+
+        self._lock = threading.Lock()
+        self._kept = b""
+        self.size = 0
+        self.lines = 0
+
+    def add(self, data: bytes) -> None:
+        if not data:
+            return
+        with self._lock:
+            self.size += len(data)
+            self.lines += data.count(b"\n")
+            self._kept = (self._kept + data)[-OWNER_KEEP * 4 :]
+
+    def text(self) -> str:
+        with self._lock:
+            kept, size = self._kept, self.size
+        text = kept.decode("utf-8", "replace")[-OWNER_KEEP:]
+        if size > len(kept):
+            text = "(only its end is kept here)\n" + text
+        return text
+
+
+def owner_only(names: list[str], printed: OwnerOutput, status: int) -> bytes:
+    """Claude's whole tool output for a secret command: that what it printed went to the
+    owner, how much, and how it ended. Nothing of the output itself (S3-2)."""
+    used = ", ".join(names) or "the owner's secret"
+    size = (
+        "it printed nothing"
+        if not printed.size
+        else f"it printed {printed.lines or 1} line{'s' if (printed.lines or 1) != 1 else ''}"
+        f" ({printed.size} bytes)"
+    )
+    return (
+        f"(This command used {used}, so what it printed went to the owner only, in their "
+        f"transcript, not to you: {size}, and it exited with status {status}. If you need "
+        "something from it, ask the owner, or run a command that doesn't use the secret.)\n"
+    ).encode()
 
 
 def connect(path: str) -> socket.socket | None:

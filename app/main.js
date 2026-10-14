@@ -2,7 +2,7 @@
 // The same file is Eden Code, the coding app split out of Eden Secretary (flavor.js): Eden Code alone
 // in its own window, sharing the backend Eden Secretary runs or starting one without a microphone.
 
-const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, Menu, WebContentsView, clipboard, dialog, globalShortcut, ipcMain, nativeTheme, powerSaveBlocker, protocol, screen, session, shell, systemPreferences } = require('electron');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -14,7 +14,8 @@ const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // w
 const { createAgent, fileNotTheirs, FILE_REFUSED } = require('./browser-agent');
 const { backendCommand, BackendLog, engineMissing } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
-const { pagePath } = require('./page-path'); // the app's own pages: outside app.asar in a build (round 3)
+const pages = require('./page-path'); // the app's own pages, from inside app.asar on eden-app:// (S3-4)
+protocol.registerSchemesAsPrivileged(pages.PRIVILEGES); // (before ready, as Electron asks)
 const { isCertError, riskyClick } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
@@ -376,17 +377,33 @@ function waitForBackend(timeoutMs = plat.WIN ? 600000 : 90000) {
 
 // A line under the "Waking up…" the window already shows (not an error: nothing is reloaded).
 function sayWhileWaiting(text) {
-  if (!win || win.isDestroyed() || !win.webContents.getURL().startsWith('file:')) return;
+  if (!win || win.isDestroyed() || !pages.isOwnPage(win.webContents.getURL(), 'loading.html')) return;
   win.webContents.executeJavaScript(`window.sayWhileWaiting && window.sayWhileWaiting(${JSON.stringify(text)})`).catch(() => {});
 }
 
 function showProblem(message, detail = '') {
   trace.write(`the window says: ${message}${detail ? `\n${detail}` : ''}`);
-  if (win && !win.isDestroyed()) win.loadFile(pagePath(__dirname, 'loading.html'), { query: { error: message, ...(detail ? { detail } : {}), app: FLAVOR.id } });
+  if (win && !win.isDestroyed()) win.loadURL(pages.pageUrl('loading.html', { error: message, ...(detail ? { detail } : {}), app: FLAVOR.id })).catch(() => {});
 }
 
 function appUrl() {
   return `http://127.0.0.1:${port}/`;
+}
+
+// The origin of the app's own page in the window: its backend's (or the development one's);
+// '' before there is one.
+function appOrigin() {
+  return DEV_URL ? guards.originOf(DEV_URL) : port ? `http://127.0.0.1:${port}` : '';
+}
+
+// Whether an IPC message comes from the window's own page: the window's contents, and in them
+// a frame on the app's origin (S3-4: not its loading page, an iframe, nor a page it was
+// navigated to; a sender whose frame is gone counts as none).
+function fromAppPage(event) {
+  if (!win || win.isDestroyed() || !event || event.sender !== win.webContents) return false;
+  const frame = event.senderFrame;
+  const url = frame ? frame.url : '';
+  return Boolean(url) && guards.originOf(url) === appOrigin() && appOrigin() !== '';
 }
 
 // The window on the backend: Eden Secretary's page, or Eden Code's (?app=code: server.eden_code_page), or Daredevil's.
@@ -494,21 +511,21 @@ function createWindow() {
   // Deny-by-default (window-guards.js, S6): only the app's own page on its backend gets the camera,
   // the microphone and the rest it uses; its loading page, an iframe or anything else, nothing.
   guards.guardSession(win.webContents.session, {
-    policy: guards.mainPolicy(() => (DEV_URL ? guards.originOf(DEV_URL) : port ? `http://127.0.0.1:${port}` : '')),
+    policy: guards.mainPolicy(appOrigin),
     log: (line) => trace.write(line),
   });
   guards.guardContents(win.webContents);
   windowTyped = guards.inputClock(win.webContents); // what the address bar sends right after a key or a press is typed (S29)
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
-  win.loadFile(pagePath(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
+  win.loadURL(pages.pageUrl('loading.html', { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) })).catch(() => {});
 
   // The window only ever shows Eden Secretary; any other link opens in the browser.
   const external = (url) => {
     if (/^https?:\/\//.test(url) && !url.startsWith(appUrl())) shell.openExternal(url);
   };
   win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(appUrl()) && !url.startsWith('file://')) {
+    if (!url.startsWith(appUrl()) && !pages.isOwnPage(url, 'loading.html')) {
       event.preventDefault();
       external(url);
     }
@@ -1343,7 +1360,7 @@ async function researchOpen(pathname) {
 }
 
 const fromPage = (event) => browserView && event.sender === browserView.webContents;
-const fromWindow = (event) => win && event.sender === win.webContents;
+const fromWindow = fromAppPage; // (the window's own page only, S3-4)
 const fromTab = (event) => tabs.some((view) => event.sender === view.webContents); // any tab's answer
 
 ipcMain.on('page:result', (event, message) => {
@@ -1799,7 +1816,7 @@ const featureContext = {
   ipcMain,
   getWindow: () => win,
   send: (channel, ...args) => { if (win && !win.isDestroyed()) win.webContents.send(channel, ...args); },
-  fromWindow: (event) => Boolean(win && !win.isDestroyed() && event && event.sender === win.webContents),
+  fromWindow: fromAppPage, // the window's own page, on the app's origin (S3-4)
   dev: Boolean(DEV_URL),
   flavor: FLAVOR, // which app this is (flavor.js): Eden Secretary or Eden Code
   sharedFrom: () => sharedFrom, // the app whose backend the window is on, when not this one's
@@ -1850,6 +1867,7 @@ function loadAppFeatures() {
 app.whenReady().then(async () => {
   if (!gotLock) return; // quitting: the Eden Secretary already running has been brought forward
   trace.write('ready: opening the window');
+  pages.serve(protocol, __dirname); // (the loading page, the hand indicator, a popped-out tab's bar)
   createWindow();
   loadAppFeatures();
   if (DEV_URL) {
@@ -1894,7 +1912,7 @@ function showHandHud(on) {
   hud.setAlwaysOnTop(true, 'screen-saver');
   hud.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   hud.setIgnoreMouseEvents(true);
-  hud.loadFile(pagePath(__dirname, 'hand-hud.html'));
+  hud.loadURL(pages.pageUrl('hand-hud.html')).catch(() => {});
   hud.once('ready-to-show', () => hud && hud.showInactive());
 }
 ipcMain.on('jarvis:desktop-hands', (event, on) => {

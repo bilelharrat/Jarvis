@@ -70,6 +70,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any
 
 from .. import lang, prefs
@@ -184,9 +185,54 @@ RISKY = [
 ]
 
 
+# Round 3 (S3-6): a shell reads `\rm`, `r\m`, `r''m` and `rm${IFS}-rf` as rm -rf. The table
+# is matched against the command as the shell would read those too (an escaping backslash gone,
+# quotes inside a word gone, $IFS a space), as well as against it as written; and a program the
+# shell only knows when it runs (a variable's, $'…', $(…): x=rm; $x -rf ~) is risky by itself.
+# The window's riskyCommand does the same, word for word.
+_ESCAPED = re.compile(r"\\(.)")
+_IFS = re.compile(r"\$\{IFS\}|\$IFS\b")
+_INNER_QUOTES = re.compile(r"""(?<=[\w/.~-])["']+""")
+_VAR_PROGRAM = re.compile(r"""(^|[;&|(`\n])\s*(\w+=\S*\s+)*["']?\$[\w{('"]""")
+
+
+def as_shell_reads(command: Any) -> str:
+    """The command with what only hides a program's name from the table taken out."""
+    text = _ESCAPED.sub(r"\1", str(command or ""))
+    return _INNER_QUOTES.sub("", _IFS.sub(" ", text))
+
+
 def risky_command(command: Any) -> bool:
     text = str(command or "")
-    return any(p.search(text) for p in RISKY)
+    if _VAR_PROGRAM.search(text):
+        return True
+    read = as_shell_reads(text)
+    return any(p.search(text) or p.search(read) for p in RISKY)
+
+
+_UP = re.compile(r"""(^|[\s/'"=])\.\.(/|$|[\s'"])""")
+
+
+def names_folder(
+    text: Any, folders: list[str], home: str = "", own: list[str] | None = None
+) -> bool:
+    """Whether a command (or a path) names one of these folders, however it's written: with
+    ~ or $HOME for the home folder, quotes or backslashes in it (as_shell_reads), any case
+    (the Mac's disk ignores it). What's inside own (the session's own folders: its copy can
+    be in the app's data folder, worktrees/) doesn't count, but from inside one of those
+    folders a step up (..) does."""
+    read = as_shell_reads(text)
+    if home:
+        read = re.sub(r"\$\{HOME\}|\$HOME\b|(?<![\w/])~(?=/|$|\s)", home, read)
+    read = re.sub(r"/+", "/", read).casefold()
+    folders = [re.sub(r"/+", "/", f).rstrip("/").casefold() for f in folders if f]
+    mine = [re.sub(r"/+", "/", f).rstrip("/").casefold() for f in own or [] if f]
+    inside = [m for m in mine if any(m == f or m.startswith(f + "/") for f in folders)]
+    for m in sorted(inside, key=len, reverse=True):
+        read = re.sub(re.escape(m) + r"(?=/|$|[\s'\";&|)])", " ", read)
+    if inside and _UP.search(read):
+        return True
+    return any(f in read for f in folders)
 
 
 def risky(approval: Any, choice: str) -> bool:
@@ -221,8 +267,20 @@ RUNS_ANYTHING = frozenset(
         "command", "builtin", "xargs", "nohup", "time", "timeout", "gtimeout", "nice", "watch",
         "caffeinate", "stdbuf", "python", "perl", "ruby", "node", "deno", "bun", "php",
         "osascript", "ssh", "npx", "bunx", "uvx", "pipx",
+        # Round 3 (S3-9): what runs a file or a script the session can write, or anything in a
+        # container or on GitHub's machines: a Makefile, a jar, uv run, docker run, gh's own.
+        "make", "gmake", "docker", "podman", "gh", "uv", "java",
     }
 )  # fmt: skip
+# Programs that run anything with one of their subcommands (npm run's script is the session's
+# to write): an allow rule for the program alone, or for that subcommand, is broad (S3-9).
+RUNS_WITH = {
+    "npm": frozenset({"run", "run-script", "exec", "x"}),
+    "yarn": frozenset({"run", "exec", "dlx", "node"}),
+    "pnpm": frozenset({"run", "exec", "dlx"}),
+    "cargo": frozenset({"run"}),
+    "go": frozenset({"run"}),
+}
 _RULE = re.compile(r"^\s*([^()\s]+)\s*(?:\(([\s\S]*)\))?\s*$")
 
 
@@ -242,8 +300,13 @@ def broad_rule(text: Any) -> bool:
         prefix = re.sub(r":?\*$", "", content).strip()
         if not prefix:
             return True
-        first = prefix.split()[0].strip("\"'").rsplit("/", 1)[-1]
+        words = prefix.split()
+        first = words[0].strip("\"'").rsplit("/", 1)[-1]
         plain = re.sub(r"[\d.]+$", "", first)
+        runs = RUNS_WITH.get(first)
+        second = words[1].strip("\"'") if len(words) > 1 else ""
+        if runs is not None and (not second or second in runs):
+            return True
         return first in RUNS_ANYTHING or plain in RUNS_ANYTHING or risky_command(prefix)
     if tool in EDITS:
         if not content:
@@ -371,12 +434,41 @@ class Gate:
     def risky_step(self, task: Any, tool: str, tool_input: dict[str, Any]) -> bool:
         """TaskManager.risky_step: the steps a rule never lets by unasked (G3/G4), the same
         ones risky() asks the fingerprint for on their card: a risky command, an edit outside
-        the project (or of the files it never edits unasked)."""
+        the project (or of the files it never edits unasked), and anything that names the
+        app's own data folder (app_data_step)."""
+        if self.app_data_step(task, tool, tool_input):
+            return True
         if tool == "Bash":
             return risky_command(tool_input.get("command"))
         if tool in EDITS:
             return not self.hub.tasks._free_edit(task, tool_input)
         return False
+
+    def data_folders(self) -> list[str]:
+        """The app's own data folders: where prefs.json and code_sessions/remembered.json
+        are (the hub's), and the app's Application Support folder."""
+        from .. import prefs as prefs_module
+
+        here = str(Path(self.hub.feature_path("prefs.json")).parent.resolve())
+        return sorted({here, str(prefs_module.APP_SUPPORT)})
+
+    def app_data_step(self, task: Any, tool: str, tool_input: dict[str, Any]) -> bool:
+        """A command or an edit that names the app's data folder (S3-7): prefs.json holds
+        everyone's mode and each project's defaults (Bypass among them), remembered.json how
+        each session resumes, so a session writing there on a plain card's yes could set its
+        own next start to Bypass. It asks on a card marked for Touch ID (TaskManager's
+        touchid_step), and no rule lets it by unasked."""
+        if tool == "Bash":
+            text = str(tool_input.get("command") or "")
+        elif tool in EDITS:
+            text = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+        else:
+            return False
+        own = [str(getattr(task, "cwd", "") or "")] + [
+            str(d) for d in getattr(task, "add_dirs", [])
+        ]
+        own = [str(Path(o).resolve()) for o in own if o] + [o for o in own if o]
+        return bool(text) and names_folder(text, self.data_folders(), str(Path.home()), own)
 
     def rule_change(
         self, behavior: str, rule: str, have: dict[str, list[str]], removing: bool
@@ -536,5 +628,6 @@ def install(hub: Any) -> None:
     hub.register_command("feature_prefs", gate.on_features)
     hub.tasks.bypass_gate = gate.bypass_gate  # (task_mode, task_new and every other start)
     hub.tasks.risky_step = gate.risky_step
+    hub.tasks.touchid_step = gate.app_data_step  # (its card is Touch ID's: S3-7)
     hub.register_command("code_defaults", gate.on_defaults)
     hub.register_command("approve", gate.on_approve)

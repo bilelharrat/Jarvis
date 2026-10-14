@@ -1,5 +1,5 @@
 {
-  "_about": "Commands Touch ID calls risky (features/code_touchid.py RISKY) and the window's same table (web/features/code-touchid.js), checked against both by tests/test_code_touchid_proof.py and tests/web/code-touchid.test.mjs. Round 2 R2-8 added a program's folder or quotes, options in any order and interpreter one-liners that delete.",
+  "_about": "Commands Touch ID calls risky (features/code_touchid.py RISKY) and the window's same table (web/features/code-touchid.js), checked against both by tests/test_code_touchid_proof.py and tests/web/code-touchid.test.mjs. Round 2 R2-8 added a program's folder or quotes, options in any order and interpreter one-liners that delete. Round 3 S3-6 added what a shell reads as the same program (a backslash, quotes inside a word, ${IFS}) and a program known only when it runs (a variable's, $'…'); S3-9 added the programs that run a file or script the session can write (make, npm run, cargo run, docker, gh, uv, java).",
   "risky": [
     "rm -rf build",
     "cd x && rm -r node_modules",
@@ -46,7 +46,18 @@
     "defaults write com.apple.dock x -int 1",
     "helm uninstall prod",
     "git reset --hard HEAD~5",
-    "git branch -D main"
+    "git branch -D main",
+    "\\rm -rf ~",
+    "$'rm' -rf ~",
+    "rm${IFS}-rf ~",
+    "x=rm; $x -rf ~",
+    "r\\m -rf ~",
+    "r''m -rf ~",
+    "r\"m\" -rf ~",
+    "$(echo rm) -rf ~",
+    "FOO=1 ${cmd} -rf ~",
+    "git pu\\sh origin main",
+    "su\\do ls"
   ],
   "fine": [
     "npm test",
@@ -68,7 +79,12 @@
     "defaults read com.apple.dock",
     "helm list",
     "git reset HEAD a.py",
-    "git branch -m old new"
+    "git branch -m old new",
+    "echo $HOME",
+    "cd \"$DIR\" && npm test",
+    "x=$(date)",
+    "ls \"$HOME/src\"",
+    "echo \"don't\""
   ],
   "broad_rules": [
     "Bash",
@@ -87,7 +103,19 @@
     "Edit(~/x)",
     "Edit(*.py)",
     "Edit(../x/**)",
-    "MultiEdit(//etc/hosts)"
+    "MultiEdit(//etc/hosts)",
+    "Bash(make:*)",
+    "Bash(npm run:*)",
+    "Bash(npm:*)",
+    "Bash(cargo run:*)",
+    "Bash(go run:*)",
+    "Bash(docker:*)",
+    "Bash(gh:*)",
+    "Bash(uv:*)",
+    "Bash(java:*)",
+    "Bash(yarn exec:*)",
+    "Bash(pnpm exec:*)",
+    "Bash(npm exec:*)"
   ],
   "narrow_rules": [
     "Bash(npm test)",
@@ -101,6 +129,9 @@
     "mcp__github",
     "Read",
     "Read(//**)",
-    "junk("
+    "junk(",
+    "Bash(npm test:*)",
+    "Bash(cargo build:*)",
+    "Bash(go test:*)"
   ]
 }

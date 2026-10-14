@@ -18,12 +18,18 @@ nothing else:
   anywhere). Let go, it runs through secret_run.py (JARVIS's own Python, isolated), which
   connects to a socket the backend made for that one run and used once (key_proxy.Handoffs:
   secret_run never reads the Keychain nor holds a value, so running it again gets nothing);
-  the backend runs the command itself with the values in its environment and sends back
-  what it prints scrubbed of them (their base64, hex, URL-encoded and reversed shapes, and
-  any run of 8 or more of their characters, too), so the tool output Claude and the
-  transcript get carries $SECRET_… instead, and no process of the session's can race it to
-  the values: they never leave the backend. The value is never on a command line, in a file or in the session's
-  own environment: a command that doesn't go through it has no value. (The rewrite is the
+  the backend runs the command itself with the values in its environment, in the
+  session's project folder with the owner's own PATH and settings (session_env: never an
+  environment or folder the connecting process names, S3-1), so no process of the
+  session's can race it to the values: they never leave the backend. What the command
+  prints goes to the owner only, scrubbed of the values (their base64, hex, URL-encoded and
+  reversed shapes, and any run of 8 or more of their characters, too), as a "secret-output"
+  entry of the transcript; Claude's tool output says only that it went there, how long it
+  was and the exit status (S3-2: scrubbing is a best effort, `fold -w4` or `od -c` walk a
+  value past it, so none of the output is Claude's). The card says so, and warns when the
+  command runs files the session wrote (they get the value too). The value is never on a
+  command line, in a file or in the session's own environment: a command that doesn't go
+  through it has no value. (The rewrite is the
   session's permission policy's own answer, after the owner's rules and cards have looked
   at the command as Claude wrote it; a PreToolUse hook sends every such command there,
   past any allow rule in the owner's settings.)
@@ -158,19 +164,71 @@ def wrap(command: str, pipe: str, python: str | None = None) -> str:
     )
 
 
-def session_path(task: Any) -> str | None:
-    """The PATH a session's commands have: its own setting (another provider's env), else the
-    owner's login shell's, as a terminal has it (what secret_run runs the command with)."""
-    own = (getattr(task, "env", None) or {}).get("PATH")
-    if own:
-        return str(own)
+def session_env(task: Any) -> dict[str, str]:
+    """The environment a secret command runs with: the owner's login shell's, as a terminal
+    has it (their PATH, HOME and the rest), with the session's own settings over it
+    (another provider's env), as the session's own commands get them. The backend's, never
+    the one secret_run, or whatever process of the session's reached its socket first, was
+    started with (S3-1: that one could carry a NODE_OPTIONS or a GIT_SSH_COMMAND of the
+    session's choosing, and the values with it)."""
     from .. import runproc
 
-    return runproc.shell_env().get("PATH") or None
+    env = dict(runproc.shell_env())
+    env.update({str(k): str(v) for k, v in (getattr(task, "env", None) or {}).items()})
+    return env
+
+
+def written_named(task: Any, command: str) -> list[str]:
+    """The files this session wrote (its edits this run, task.files_changed) that the command
+    names, by path or by name: they run with the owner's secret too, and what they do with
+    it no scrubbing can see (the card says so). Files written by its shell commands aren't
+    known, so this can only ever add a warning, never clear one."""
+    words = set()
+    with contextlib.suppress(ValueError):
+        for word in shlex.split(command or ""):
+            words.add(word)
+            words.add(word.split("=", 1)[-1])
+    cwd = Path(getattr(task, "cwd", "."))
+    found: list[str] = []
+    for raw in sorted(getattr(task, "files_changed", None) or ())[:500]:
+        path = Path(raw)
+        full = path if path.is_absolute() else cwd / path
+        with contextlib.suppress(ValueError):
+            rel = str(full.relative_to(cwd))
+            if {rel, f"./{rel}", str(full), full.name} & words or rel in (command or ""):
+                found.append(rel)
+                continue
+        if str(full) in (command or ""):
+            found.append(str(full))
+    return found[:10]
 
 
 def named_in(command: str) -> set[str]:
     return set(PLACEHOLDER.findall(command or ""))
+
+
+# S3-8: a session whose commands run in its copy's container (code_setup's hook rewrites each
+# into container_run's line) gets no secret in a command. The backend's run with the values is
+# on the Mac, so the container never had them ($SECRET_… empty there), and with the hook's
+# rewrite lost (another hook asking) the command itself ran on the Mac, out of its container.
+# Until the relay can hand a container run its values, a command naming one is refused, and
+# Claude is told why.
+IN_CONTAINER = (
+    "This session's commands run in its copy's container, and the owner's secrets aren't "
+    "given to commands in a container. Don't try to get the value in another way: tell the "
+    "owner, who can run it in a session without a container."
+)
+
+
+def in_container(hub: Any, task: Any) -> bool:
+    """Whether a session's commands go into its copy's container (code_setup)."""
+    desk = getattr(hub, "code_setup", None)
+    if desk is None:
+        return False
+    try:
+        return desk.container_of(task) is not None
+    except Exception:  # (can't tell: as if it were, so no value goes)
+        return True
 
 
 class Secrets:
@@ -269,7 +327,7 @@ class Secrets:
             self.values[key] = found or ""  # (none saved: not asked again on every line)
         return self.values[key] or None
 
-    def offer(self, task: Any, names: set[str], command: str) -> str:
+    def offer(self, task: Any, names: set[str], command: str, on_output: Any = None) -> str:
         """These secrets of a session, read now, for one run of this command (key_proxy's
         socket): its path. A name with no value saved any more is said to be missing. The
         backend runs the command itself, and only for the process that runs exactly it
@@ -289,8 +347,22 @@ class Secrets:
             values,
             missing,
             expect=lambda pipe: shlex.split(wrap(command, pipe)),
-            run_path=session_path(task),
             command=shell_argv(command),
+            env=session_env(task),
+            cwd=str(task.cwd),
+            on_output=on_output,
+        )
+
+    def show_output(self, task: Any, command: str, text: str, status: int) -> None:
+        """What a secret command printed, scrubbed, as an entry of the owner's transcript
+        ("secret-output": a role nothing that feeds a model reads, nor a Share viewer: S3-2).
+        Claude's own tool output only says it went here."""
+        self.hub.tasks.add_entry(
+            task.id,
+            "secret-output",
+            text or "(It printed nothing.)",
+            command=command[:2000],
+            status=int(status),
         )
 
     def values_for(self, task: Any) -> dict[str, str]:
@@ -446,8 +518,10 @@ class Secrets:
             f"The owner gave ${name} (kept for {where}). Use it in shell commands as ${name} "
             f'(for example: --api-key "${name}"); the command gets the value, you never do. '
             "Don't write it into files: where a tool or config needs it, read it from the "
-            "environment variable at run time. Its value never appears in output: it shows "
-            f"as ${name}."
+            "environment variable at run time. What a command that uses it prints goes to "
+            "the owner, not to you: you're told only its exit status, so keep such commands "
+            "to the step that needs the secret (log in, set it up) and look at results with "
+            "commands that don't use it."
         )
 
     def _settle(self, ask_id: str, state: str, scope: str = "") -> None:
@@ -592,6 +666,14 @@ class Secrets:
             tool_input = input_data.get("tool_input") or {}
             if name == "Bash":
                 wanted = named_in(str(tool_input.get("command", "")))
+                if wanted and wanted & set(self.names_for(task)) and in_container(self.hub, task):
+                    return {  # (a deny wins over the container's rewrite: never on the Mac)
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": IN_CONTAINER,
+                        }
+                    }
                 if wanted and wanted & set(self.names_for(task)):
                     # To the session's own policy, past any allow rule: it runs the command
                     # through secret_run (the only way the value gets to it).
@@ -633,15 +715,26 @@ class Secrets:
             wanted = named_in(command) & set(self.names_for(task))
             if not wanted:
                 return result
+            if in_container(self.hub, task):  # (S3-8: the hook's deny, should it be missed)
+                return PermissionResultDeny(message=IN_CONTAINER)
             last = audit[-1] if audit else None
             carded = last is not None and last is not before and last.get("decision") == "allowed"
-            if not carded and not await self._card(task, command, wanted):
+            wrote = written_named(task, command)
+            # Files the session wrote run with the secret: the owner hears it on this card
+            # even when another card already let the command by (S3-2).
+            if (wrote or not carded) and not await self._card(task, command, wanted, wrote):
                 return PermissionResultDeny(
                     message="The user didn't let this command use their secret. Don't try to "
                     "get it to another command; ask them what to do."
                 )
+            loop = asyncio.get_running_loop()
+
+            def shown(text: str, status: int) -> None:  # (from the run's thread)
+                with contextlib.suppress(RuntimeError):  # (the loop gone: the app quit)
+                    loop.call_soon_threadsafe(self.show_output, task, command, text, status)
+
             try:
-                pipe = await asyncio.to_thread(self.offer, task, wanted, command)
+                pipe = await asyncio.to_thread(self.offer, task, wanted, command, shown)
             except OSError:
                 return PermissionResultDeny(
                     message="Eden couldn't hand the secret to the command on this computer."
@@ -653,13 +746,29 @@ class Secrets:
 
         return can_use_tool
 
-    async def _card(self, task: Any, command: str, names: set[str]) -> bool:
-        """The owner's yes for a command that uses their secrets, on a card of its own."""
+    async def _card(
+        self, task: Any, command: str, names: set[str], wrote: list[str] | None = None
+    ) -> bool:
+        """The owner's yes for a command that uses their secrets, on a card of its own: what
+        it runs, where and with what (S3-1), where its output goes (S3-2), and the files of
+        the session's own it runs (they get the secret too)."""
         manager = self.hub.tasks
         shown = ", ".join(f"${n}" for n in sorted(names))
+        detail = tasks.approval_detail("Bash", {"command": command}, Path(task.cwd))
+        detail += (
+            f"\n\nIt runs in {task.cwd} with your own PATH and settings (your dotfiles, as a "
+            "terminal of yours has them). What it prints comes to you only, here in the "
+            "transcript; Claude is told only whether it worked."
+        )
+        if wrote:
+            detail += (
+                "\n\nCareful: it runs files this session wrote ("
+                + ", ".join(wrote)
+                + "). They get your secret too, and can send it anywhere."
+            )
         choice = await manager.approve(
             f"Eden Code in {Path(task.cwd).name} wants to run a command with your secret {shown}",
-            tasks.approval_detail("Bash", {"command": command}, Path(task.cwd)),
+            detail,
             [(tasks.ALLOW, "Yes, run it"), (tasks.DENY, "No")],
             context={"task_id": task.id, "tool": "Bash"},
         )
