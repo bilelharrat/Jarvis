@@ -224,6 +224,23 @@ test('the key goes to the backend it started on its stdin, and asks with its tag
   assert.match(eden, /stdio: proofPipe\.STDIO/);
 });
 
+// Round 3 S3-3: Ask Eden's main.js wrapped the sheet as (kind, lang) => sheet.ask(kind, lang),
+// dropping the subject, so every proof it relayed for a card was signed for nothing.
+test('Ask Eden relays an ask for a card with the card as the subject', async () => {
+  const keys = pipe.fresh();
+  const { child, written } = fakeChild();
+  const sheet = handlers({ systemPreferences: { canPromptTouchID: () => true, promptTouchID: async () => {} }, secret: () => keys.key });
+  pipe.attach(child, keys, sheet);
+  child.stdout.emit('data', Buffer.from(`${keys.tag} ask approve en c0ffee12ab34\n`));
+  await new Promise((r) => setTimeout(r, 10));
+  const [, kind, proof] = written[1].trim().split(' ');
+  assert.equal(kind, 'approve');
+  assert.equal(proof.split('.')[2], 'c0ffee12ab34', 'signed for the card it was asked for');
+  const eden = readFileSync(new URL('../../app/eden/main.js', import.meta.url), 'utf8');
+  assert.match(eden, /proofPipe\.attach\(child, keys, sheet\)/, 'Ask Eden hands over the sheet itself');
+  assert.doesNotMatch(eden, /sheet\.ask\(kind, lang\)/);
+});
+
 // Round 2 R2-16: the asks come on the backend's fd 3, a pipe of their own, so the log (its
 // stdout and stderr) never has the tag; Windows keeps stdout (fd 3 can't go to a non-Node child).
 test('the asks come on a pipe of their own, never the stdout that goes to the log', async () => {

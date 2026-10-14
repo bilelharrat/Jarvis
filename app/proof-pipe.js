@@ -55,9 +55,17 @@ function asks(tag, onAsk) {
 }
 
 // Starts the pipe on a backend just spawned with stdin a pipe: writes its hello, and answers
-// each ask with prove(kind, lang, subject) (a Promise of the proof, or '' for a no).
+// each ask with prove(kind, lang, subject) (a Promise of the proof, or '' for a no). prove may
+// be the sheet itself (features/touchid.js handlers): its ask(kind, lang, subject) is called
+// with all three. Round 3 (S3-3): Ask Eden passed its own (kind, lang) => sheet.ask(kind, lang),
+// which dropped the subject, so every v2 proof it signed for a card was for nothing and failed
+// check_proof; handing the sheet over leaves no wrapper to drop it in.
 function attach(child, keys, prove) {
   if (!child || !child.stdin || !child.stdout) return;
+  if (prove && typeof prove === 'object' && typeof prove.ask === 'function') {
+    const sheet = prove;
+    prove = (kind, lang, subject) => sheet.ask(kind, lang, subject);
+  }
   child.stdin.on('error', () => {}); // (the backend gone: nothing to tell it)
   child.stdin.write(hello(keys));
   const from = (child.stdio && child.stdio[3]) || child.stdout; // (its own pipe, else stdout)
