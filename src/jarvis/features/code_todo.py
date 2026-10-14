@@ -21,7 +21,8 @@ Window commands:
 - todo_add {directory, title?, prompt, model?, mode?, isolated?, cloud?} -> todo_state
   {added: id}, or todo_error {text}.
 - todo_edit {id, title?, prompt?, model?, mode?, isolated?, cloud?}, todo_delete {id},
-  todo_move {id, index} (its place among the project's cards) -> todo_state.
+  todo_move {id, index} (its place among the project's cards) -> todo_state. A card's mode
+  can't be Bypass permissions while Touch ID guards it (todo_error says so; round 2, R2-11).
 - todo_start {id, route?} -> todo_state {started: id}: a session with the card's settings
   (route: the Model Router's pick for its prompt, from the window, when the card names no
   model), or todo_error.
@@ -68,6 +69,13 @@ _ISSUE = re.compile(
     r"([A-Za-z0-9][A-Za-z0-9._-]{0,99})/(?:issues|pull)/(\d{1,9})/?(?:[#?].*)?$"
 )
 
+# A card set to start in Bypass would ask for Touch ID's proof each time it starts, long after
+# it was set (and start in Manual with an error each time): it can't be set to (round 2, R2-11).
+NO_BYPASS = (
+    "A card can't start in Bypass permissions while Touch ID guards it: pick another mode, and "
+    "switch its session into Bypass once it's open."
+)
+
 ZH = {
     "Write what the session should do.": "写下会话要做的事。",
     "That card isn't there any more.": "那张卡片已经不在了。",
@@ -82,6 +90,7 @@ ZH = {
     "Issue #{n}: {title}": "议题 #{n}：{title}",
     "Couldn't save that; try again.": "没能保存，请再试一次。",
     "That folder can't be opened.": "那个文件夹打不开。",
+    NO_BYPASS: "触控 ID 保护着绕过权限时，卡片不能以绕过权限开始：请选别的模式，等会话打开后再把它切换到绕过权限。",
 }
 lang.add_texts(ZH)
 
@@ -208,6 +217,11 @@ class Todo:
     def tr(self, text: str, **values: Any) -> str:
         return lang.tr(text, self.hub.language, **values)
 
+    def _guarded(self) -> bool:
+        """Touch ID guards Bypass from the window now (features/code_touchid.py)."""
+        gate = getattr(self.hub, "code_touchid", None)
+        return gate is not None and gate.needed()
+
     @property
     def launch(self) -> str:
         return str(getattr(self.hub.tasks, "launch", ""))
@@ -268,6 +282,8 @@ class Todo:
             card["model"] = model
         if "mode" in msg:
             mode = str(msg.get("mode") or "")
+            if mode == "auto" and self._guarded():
+                return self.tr(NO_BYPASS)
             card["mode"] = mode if mode in MODES else ""
         if "isolated" in msg:
             card["isolated"] = msg["isolated"] if isinstance(msg["isolated"], bool) else None
@@ -435,6 +451,8 @@ class Todo:
         mode = card.get("mode") or ""
         if card.get("untrusted") and mode not in OUTSIDE_MODES:
             mode = "ask"
+        if mode == "auto" and self._guarded():
+            mode = ""  # (one set before R2-11: it starts as new sessions do)
         if mode:
             msg["mode"] = mode
         if isinstance(card.get("isolated"), bool):

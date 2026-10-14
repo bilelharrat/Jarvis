@@ -29,7 +29,8 @@ How it goes:
   pr_proof(task) in the pull request's body.
 
 Window commands: code_spec_start {directory, prompt, model?, effort?, mode?}, task_new
-{spec: true, ...} (taken here; without spec the usual), code_spec_state {}.
+{spec: true, ...} (taken here; without spec the usual), code_spec_state {}. A spec asked for
+in Bypass permissions starts in Accept edits while Touch ID guards Bypass (round 2, R2-11).
 Events: code_spec (every spec: its step, its tasks, what's met).
 Kept in code_specs.json beside the settings.
 
@@ -68,6 +69,14 @@ REVIEW_DIFF = 24_000
 READ_MAX = 400_000  # bytes of a spec file read (requirements.md, design.md, tasks.md)
 PROOF_MARK = "<!-- eden-spec-proof -->"  # the pull request body's proof, found again by it
 
+# A spec's later steps start sessions long after it was started: Bypass for them would ask
+# for Touch ID's proof each time (and start in Manual with an error): they start in Accept
+# edits instead, and the owner switches one into Bypass themselves (round 2, R2-11).
+NO_BYPASS = (
+    "While Touch ID guards Bypass permissions, a spec's sessions start in Accept edits: switch "
+    "one into Bypass once it's open, if it needs it."
+)
+
 ZH = {
     "Spec {slug}: the requirements are written. Go on to the design?": "规格 {slug}：需求已写好。继续做设计吗？",
     "Spec {slug}: the design is written. Go on to the tasks?": "规格 {slug}：设计已写好。继续拆分任务吗？",
@@ -88,6 +97,7 @@ ZH = {
     "Say what the spec is for first.": "请先说明这个规格要做什么。",
     "Spec {slug}: all its tasks are done.": "规格 {slug}：所有任务都完成了。",
     "Spec {slug}: its {n} tasks are on the board's to-do column.": "规格 {slug}：{n} 个任务已放到看板的待办栏。",
+    NO_BYPASS: "触控 ID 保护着绕过权限时，规格的会话以“接受修改”开始：需要的话，等会话打开后再把它切换到绕过权限。",
 }
 lang.add_texts(ZH)
 
@@ -474,6 +484,10 @@ class Specs:
         )
         taken |= {s.slug for s in self.specs if s.folder == str(folder)}
         mode = str(msg.get("mode") or "edits")
+        gate = getattr(self.hub, "code_touchid", None)
+        if mode == "auto" and gate is not None and gate.needed():
+            mode = "edits"
+            self.hub.emit("caption", text=self.tr(NO_BYPASS))
         spec = Spec(
             slug=slug_of(request, taken),
             directory=directory,
