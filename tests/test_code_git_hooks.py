@@ -140,3 +140,28 @@ def test_package_json_asks_only_when_its_hook_keys_change(free_edit):
     # An edit that can't be played on the file asks too.
     assert not free_edit("package.json", old_string="not there", new_string="x")
     assert not free_edit("package.json", content="{ not json")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "sub/.envrc",  # direnv loads an .envrc in any folder the owner cd's into
+        ".vscode/settings.json",  # an editor's own folder runs code when the project opens
+        ".idea/workspace.xml",
+        ".zed/tasks.json",
+        ".fleet/run.json",
+        ".devcontainer/devcontainer.json",
+        "app/.vscode/tasks.json",
+        "app/.VSCode/launch.json",
+    ],
+)
+def test_editor_folders_and_any_envrc_ask_in_edits_mode(free_edit, name):
+    """P1: _PROTECTED_FILES was top-level only and the editors' folders were pairing's
+    alone, so edits mode wrote sub/.envrc, .vscode/settings.json, .idea/, .zed/,
+    .devcontainer/ and a nested .vscode/tasks.json unasked."""
+    assert not free_edit(name)
+
+
+def test_files_merely_named_like_them_are_still_free(free_edit):
+    for name in ("envrc.md", "docs/vscode.md", "src/idea.py", "a.py"):
+        assert free_edit(name), name

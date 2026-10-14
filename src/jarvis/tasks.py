@@ -75,6 +75,12 @@ EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 # Eden's own .jarvis/ holds launch.json, whose commands the dev-server button runs.
 _PROTECTED_DIRS = {".git", ".claude", ".husky", ".githooks", ".jarvis"}
 _PROTECTED_FILES = {".envrc", ".vscode/tasks.json"}
+# Files named so run by themselves wherever they are (direnv loads an .envrc in any folder
+# the owner cd's into: P1, sub/.envrc was written unasked).
+_PROTECTED_NAMES = {".envrc"}
+# Editors' and dev containers' own folders: their settings, tasks and launch files run code
+# when the owner opens the project (P1: edits mode wrote them unasked; pairing held them).
+EDITOR_DIRS = frozenset({".vscode", ".idea", ".zed", ".fleet", ".devcontainer"})
 # Git hook managers' own config, at any depth: an edit here is code that runs as the owner
 # the next time anyone commits (Eden's own commits skip hooks, the owner's don't).
 _HOOK_CONFIGS = {
@@ -1135,9 +1141,9 @@ def _inside(root: Path, raw: str) -> Path | None:
 
 def _protected_rel(rel: Path, dirs: set[str] | frozenset[str] = frozenset()) -> bool:
     """Whether a file at this path inside a project (rel: relative to its root) runs code by
-    itself: anything in git's or Claude Code's own folders or Eden's .jarvis/ (plus dirs,
-    pairing's editor folders), .envrc, .vscode/tasks.json, and a git hook manager's config at
-    any depth. Compared casefolded: the Mac's disk doesn't care about case, so to git, Claude
+    itself: anything in git's or Claude Code's own folders, Eden's .jarvis/, or an editor's
+    (EDITOR_DIRS, at any depth; plus dirs), an .envrc at any depth, and a git hook manager's
+    config at any depth. Compared casefolded: the Mac's disk doesn't care about case, so to git, Claude
     Code and the owner's editor .Claude/settings.json *is* .claude/settings.json and .ENVRC
     is .envrc; a check that cared would let the session write them unasked. (A package.json
     is checked apart, on its hook keys: that takes the file's text.)"""
@@ -1146,8 +1152,9 @@ def _protected_rel(rel: Path, dirs: set[str] | frozenset[str] = frozenset()) -> 
         return False
     name = parts[-1]
     return bool(
-        (_PROTECTED_DIRS | dirs) & set(parts)
+        (_PROTECTED_DIRS | EDITOR_DIRS | dirs) & set(parts)
         or "/".join(parts) in _PROTECTED_FILES
+        or name in _PROTECTED_NAMES
         or name in _HOOK_CONFIGS
         or name.startswith(_HOOK_CONFIG_PREFIXES)
     )
