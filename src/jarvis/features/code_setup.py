@@ -140,6 +140,7 @@ class SetupDesk:
         # Container name -> the backend's relay into it (container_run.Relay): its socket is
         # the one let through the session's sandbox, never docker's own.
         self.relays: dict[str, container_run.Relay] = {}
+        self.making: set[str] = set()  # container names being made now (tidy leaves them)
 
     # ── plumbing ──
 
@@ -334,20 +335,24 @@ class SetupDesk:
             )
             return None
         name = devcontainer.container_name(copy.slug)
-        await self.docker.run(["rm", "-f", name])  # (one left from before, by the same name)
-        args = devcontainer.run_args(name, copy.slug, tag, Path(copy.checkout), copy.cwd)
-        code, out = await self.docker.run(args, timeout=devcontainer.RUN_SECONDS)
-        if code != 0:
-            why = (out.strip().splitlines() or ["it ran out of time"])[-1][:300]
-            self.note(task, f"Couldn't start the container: {why}")
-            return None
-        info = {
-            "name": name, "image": tag, "cwd": str(copy.cwd), "project": copy.project,
-            "checkout": str(copy.checkout), "git": pin,
-        }  # fmt: skip
-        self.pin(info)
-        self.containers()[copy.slug] = info
-        self.save_containers()
+        self.making.add(name)  # (REL-20b: until it's on the list, the tidy-up leaves it)
+        try:
+            await self.docker.run(["rm", "-f", name])  # (one left from before, by that name)
+            args = devcontainer.run_args(name, copy.slug, tag, Path(copy.checkout), copy.cwd)
+            code, out = await self.docker.run(args, timeout=devcontainer.RUN_SECONDS)
+            if code != 0:
+                why = (out.strip().splitlines() or ["it ran out of time"])[-1][:300]
+                self.note(task, f"Couldn't start the container: {why}")
+                return None
+            info = {
+                "name": name, "image": tag, "cwd": str(copy.cwd), "project": copy.project,
+                "checkout": str(copy.checkout), "git": pin,
+            }  # fmt: skip
+            self.pin(info)
+            self.containers()[copy.slug] = info
+            self.save_containers()
+        finally:
+            self.making.discard(name)
         self.note(
             task,
             f"Commands run in the container {name} ({tag}), with this copy mounted at its own "
@@ -420,10 +425,15 @@ class SetupDesk:
         )
         if code != 0:
             return
+        # Read again after docker ps (REL-20b: a copy, or a container, made while ps ran
+        # was on neither list read before it), and none being made just now.
+        listed = {c.slug for c in desk.store().copies}
         recorded = {str(i.get("name")) for i in self.containers().values()}
         for line in out.splitlines():
             name, _, slug = line.strip().partition("\t")
             if not name.startswith("eden-") or name in recorded or slug in listed:
+                continue
+            if name in self.making:
                 continue
             await self.remove(slug, name)
 

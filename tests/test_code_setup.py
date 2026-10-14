@@ -486,6 +486,33 @@ async def test_the_tidy_up_also_takes_away_labelled_containers_no_copy_has(hub, 
     assert "label=eden.copy" in ps
 
 
+async def test_the_tidy_up_leaves_a_container_being_made_or_made_while_it_looked(hub, docker):
+    """REL-20b: tidy read its lists before docker ps, so a container being made just then
+    (its copy not listed yet, no record yet) was taken for an orphan and removed."""
+    from types import SimpleNamespace
+
+    container_on(hub, image="node:22")
+    desk = hub.code_setup
+    desk.making.add("eden-new-1")
+    docker.fail["ps"] = (0, "eden-new-1\tnew-1\neden-late-2\tlate-2\n")
+    real = docker.run
+
+    async def run(args, cwd=None, timeout=15):  # (a copy listed while ps runs)
+        if args[0] == "ps":
+            hub.code_desk.store().copies.append(SimpleNamespace(slug="late-2"))
+        return await real(args, cwd, timeout)
+
+    docker.run = run
+    try:
+        await desk.tidy()
+    finally:
+        hub.code_desk.store().copies[:] = [
+            c for c in hub.code_desk.store().copies if getattr(c, "slug", "") != "late-2"
+        ]
+    assert ["rm", "-f", "eden-new-1"] not in docker.calls
+    assert ["rm", "-f", "eden-late-2"] not in docker.calls
+
+
 async def test_a_container_record_stays_until_docker_has_really_removed_it(hub, docker):
     """B11: the record was dropped and saved before docker rm -f, whose answer nobody read:
     with Docker stopped the container was left behind for good."""
