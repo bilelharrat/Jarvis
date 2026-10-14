@@ -324,7 +324,9 @@ async def test_deleting_a_finished_card_keeps_its_spend_and_a_running_card_can_t
     assert await until(lambda: len(started) == 1)
     seen = events_of(hub)
     await hub._handle({"type": "todo_delete", "id": one["id"]})  # running: refused
-    assert [e["text"] for e in seen() if e["type"] == "todo_error"] == ["That card is already running."]
+    assert [e["text"] for e in seen() if e["type"] == "todo_error"] == [
+        "That card is already running."
+    ]
     assert hub.code_todo.board.get(one["id"]) is not None
     finish(one)
     assert await until(lambda: len(started) == 2)
@@ -365,3 +367,66 @@ async def test_a_400_digit_ceiling_is_the_default_not_a_crash(hub, monkeypatch, 
     await add(hub, "one")
     hub.code_queue.cmd_run({"directory": "proj", "ceiling": 10**400})
     assert hub.code_queue.runs[str(tmp_path / "proj")].ceiling == code_queue.CEILING_DEFAULT
+
+
+async def test_a_card_whose_session_comes_late_keeps_its_place_and_is_taken_up(
+    hub, monkeypatch, tmp_path
+):
+    """Round 3 (REL-2): a held task_new (an @-mention gathered, a route rated) past
+    code_todo's START_WAIT: the queue marked the card failed and started the next, and the
+    session that came after was linked and locked down but untracked: past "at once", its
+    spend outside the ceiling. Now the card stays running, holding its place, and the late
+    session is the card's (its share of the ceiling from its first connection)."""
+    from jarvis.features import code_todo
+
+    monkeypatch.setattr(code_todo, "START_WAIT", 0.2)
+    first, second = await add(hub, "first job", "second job")
+    real = hub._handle
+    held = []
+
+    async def hold(msg):
+        if msg.get("type") == "task_new" and not held:
+            held.append(msg)
+
+            async def later():
+                await asyncio.sleep(0.8)
+                await real(msg)
+
+            hub._spawn(later())
+            return None
+        return await real(msg)
+
+    monkeypatch.setattr(hub, "_handle", hold)
+    queue = hub.code_queue
+    queue.cmd_run({"directory": "proj", "parallel": 1, "ceiling": 3})
+    assert await until(lambda: first["id"] in queue.waiting, 2000)
+    await asyncio.sleep(0.3)
+    assert first["state"] == "running", "a late session isn't a failed card"
+    assert second["state"] != "running", "one at a time: the late card holds its place"
+    assert await until(lambda: first.get("task"), 3000)
+    task = hub.tasks.tasks[first["task"]]
+    assert queue.by_task.get(task.id) == first["id"] and first["id"] not in queue.waiting
+    assert first["attempts"] and first["attempts"][-1]["why"] == "default"
+    assert queue.budget(task) is not None, "its spend is the queue's"
+    await end_all(hub)
+
+
+async def test_a_late_session_that_never_comes_fails_its_card_in_the_end(
+    hub, monkeypatch, tmp_path
+):
+    from jarvis.features import code_todo
+
+    monkeypatch.setattr(code_todo, "START_WAIT", 0.1)
+    monkeypatch.setattr(code_queue, "LATE_WAIT", 0.3)
+    (card,) = await add(hub, "never starts")
+    real = hub._handle
+
+    async def lost(msg):
+        return None if msg.get("type") == "task_new" else await real(msg)
+
+    monkeypatch.setattr(hub, "_handle", lost)
+    hub.code_queue.cmd_run({"directory": "proj", "parallel": 1, "ceiling": 3})
+    assert await until(lambda: card["state"] == "failed", 3000)
+    assert card["id"] not in hub.code_queue.waiting
+    assert card["id"] not in hub.code_todo.pending.values()
+    await end_all(hub)

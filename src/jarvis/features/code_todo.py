@@ -210,6 +210,8 @@ class Todo:
         # Launch tokens of cards whose session hadn't appeared when start stopped waiting
         # (a held task_new): token -> card id, bound when it does.
         self.pending: dict[str, str] = {}
+        # Told (card, session) when a late one binds: the queue takes such a card back up.
+        self.late: list[Any] = []
 
     @property
     def board(self) -> Board:
@@ -520,9 +522,14 @@ class Todo:
                 if task is None:
                     self.pending[token] = card["id"]
         if task is None:
-            self.error(
-                self.tr("The session didn't start: {why}", why=self.tr("it didn't appear in time"))
-            )
+            # A queue's card (it's "running" as it starts) still waiting for its session: the
+            # queue holds its place and says how it went (code_queue: round 3, REL-2).
+            if not (card.get("state") == "running" and card["id"] in self.pending.values()):
+                self.error(
+                    self.tr(
+                        "The session didn't start: {why}", why=self.tr("it didn't appear in time")
+                    )
+                )
             return None
         self.bind(card, task)
         return task
@@ -580,6 +587,11 @@ class Todo:
                 self.bind(card, task)
                 if card.get("state") not in ("queued", "running"):
                     card["state"] = "started"
+                for told in list(self.late):
+                    try:
+                        told(card, task)
+                    except Exception:
+                        log.exception("Eden Code to-do: a late session's hook failed")
                 self.emit()
         changed = False
         for card in self.board.cards:
@@ -625,6 +637,9 @@ def install(hub: Any) -> None:
     todo = Todo(hub)
     hub.tasks.options_for = _LockDown(todo).wrap(hub.tasks.options_for)
     hub.code_todo = todo
+    queue = getattr(hub, "code_queue", None)  # (installed before this one: code_queue.py)
+    if queue is not None:
+        todo.late.append(queue.on_late)
     hub.add_task_sink(todo.on_task_event)
     hub.register_command("todo_state", todo.cmd_state)
     hub.register_command("todo_add", todo.cmd_add)

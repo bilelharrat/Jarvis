@@ -70,6 +70,7 @@ PASS_RATE = 2 / 3  # of a model's results in the project that passed, to be pick
 LOOK_BACK = 90 * 86400.0  # the event log's own retention
 VERIFY_WAIT = 240.0  # seconds to wait for a check already running on the session
 TICK = 60.0  # a paused queue looks again this often (a new day, a cap raised)
+LATE_WAIT = 300.0  # seconds a card whose session is late keeps its place, before it's failed
 
 
 def _ladder(value: Any) -> list[str] | None:
@@ -116,6 +117,10 @@ class Queue:
         self.hub = hub
         self.runs: dict[str, Run] = {}  # folder -> its queue (on, or stopped with a note)
         self.by_task: dict[int, str] = {}  # session -> the card it runs
+        # Cards whose session is late (a held task_new: code_todo's START_WAIT passed):
+        # card id -> (its launch token, the model picked, why). They stay "running", so they
+        # hold their place in "at once" and their share of the ceiling, until it comes.
+        self.waiting: dict[str, tuple[str, str, str]] = {}
         self.jobs: set[asyncio.Task] = set()
 
     # ── plumbing ──
@@ -318,15 +323,64 @@ class Queue:
             log.exception("Eden Code queue: a card couldn't start")
             ref, why, task = "", "", None
         if task is None:
+            token = next((t for t, cid in self.todo.pending.items() if cid == card["id"]), "")
+            if token:
+                # Round 3 (REL-2): its session may still come (code_todo binds it then): the
+                # card keeps its place, and is taken up when it does (on_late).
+                self.waiting[card["id"]] = (token, ref, why)
+                self.changed()
+                self.spawn(self._late(run, card, token))
+                return
             card["state"] = "failed"
             self.changed()
             self.pump(run.folder)
             return
+        self.took(card, task, ref, why)
+
+    def took(self, card: dict[str, Any], task: Any, ref: str, why: str) -> None:
+        """The card runs in this session now: tracked, its model logged as the router's."""
         self.by_task[task.id] = card["id"]
         used = ref or str(task.model_ref or "")
         card["attempts"].append({"model": used, "why": why})
         self.routed(task, card["prompt"], used, new=True)
         self.changed()
+
+    def on_late(self, card: dict[str, Any], task: Any) -> None:
+        """code_todo's late session for one of the queue's waiting cards: taken up as if it
+        had come in time (before: the queue had marked the card failed and started the next,
+        and the session ran on, its spend outside the ceiling and past "at once")."""
+        waiting = self.waiting.pop(card["id"], None)
+        if waiting is None:
+            return
+        _token, ref, why = waiting
+        self.took(card, task, ref, why)
+
+    async def _late(self, run: Run, card: dict[str, Any], token: str) -> None:
+        """A late session that never comes: after LATE_WAIT the card failed, its place free.
+        (Should it come even later, code_todo no longer binds it; its own stamp still locks
+        it down, and the owner's caps still hold.)"""
+        await asyncio.sleep(LATE_WAIT)
+        if card["id"] not in self.waiting:
+            return
+        del self.waiting[card["id"]]
+        self.todo.pending.pop(token, None)
+        card["state"] = "failed"
+        self.todo.error(
+            self.tr("The session didn't start: {why}", why=self.tr("it didn't appear in time"))
+        )
+        self.changed()
+        self.pump(run.folder)
+
+    def card_of(self, task: Any) -> str | None:
+        """The id of the card a session runs: by its number, or, still waiting to be taken
+        up (it's connecting before code_todo has bound it), by its launch token."""
+        cid = self.by_task.get(task.id)
+        if cid:
+            return cid
+        token = str(getattr(task, "launch_token", "") or "")
+        if not token:
+            return None
+        return next((c for c, (t, _r, _w) in self.waiting.items() if t == token), None)
 
     async def pick(self, folder: str, card: dict[str, Any]) -> tuple[str, str]:
         """(the model ref for a card, why: "card", "learned", "router" or "default")."""
@@ -510,7 +564,7 @@ class Queue:
     # ── what a queued session may spend ──
 
     def budget(self, task: Any) -> float | None:
-        cid = self.by_task.get(task.id)
+        cid = self.card_of(task)
         card = self.todo.board.get(cid) if cid else None
         run = self.runs.get(card["folder"]) if card else None
         if run is None or card.get("run") != run.id:
@@ -549,7 +603,7 @@ class _Budget:
     def key(self, task: Any) -> Any:
         # The card it runs, not the figure: the share is taken up at the next connection,
         # never by reopening one mid-card.
-        return self.queue.by_task.get(task.id)
+        return self.queue.card_of(task)
 
 
 def _log_failure(job: asyncio.Task) -> None:
@@ -562,6 +616,9 @@ def install(hub: Any) -> None:
     hub.code_queue = queue
     hub.tasks.option_hooks.append(_Budget(queue))
     hub.add_task_sink(queue.on_task_event)
+    todo = getattr(hub, "code_todo", None)  # (installed after this one: it looks for the queue)
+    if todo is not None and queue.on_late not in todo.late:
+        todo.late.append(queue.on_late)
     hub.add_event_sink(["prefs"], lambda _e: [queue.pump(f) for f in list(queue.runs)])
     hub.register_command("todo_queue_run", queue.cmd_run)
     hub.register_command("todo_queue_stop", queue.cmd_stop)
