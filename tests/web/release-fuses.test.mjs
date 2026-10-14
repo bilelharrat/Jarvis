@@ -42,7 +42,8 @@ test('a Mac release: run-as-Node, NODE_OPTIONS, --inspect and file: extras off; 
   assert.equal(wire[F.GrantFileProtocolExtraPrivileges], FuseState.DISABLE);
   assert.equal(wire[F.EnableEmbeddedAsarIntegrityValidation], FuseState.ENABLE);
   assert.equal(wire[F.OnlyLoadAppFromAsar], FuseState.ENABLE);
-  assert.equal(wire[F.EnableCookieEncryption], FuseState.ENABLE, 'what it doesn’t name stays as it was');
+  assert.equal(wire[F.LoadBrowserProcessSpecificV8Snapshot], FuseState.ENABLE, 'what it doesn’t name stays as it was');
+  assert.equal(seen[0][F.EnableCookieEncryption], true, 'cookies encrypted on disk (A6)');
 });
 
 test('the owner’s own install (no app.asar) keeps loading its folder, with the rest still off', async () => {
@@ -58,7 +59,7 @@ test('the owner’s own install (no app.asar) keeps loading its folder, with the
 test('Windows: electron-builder’s electronFuses say the same', () => {
   assert.deepEqual(fuses.windowsFuses(), {
     runAsNode: false, enableNodeOptionsEnvironmentVariable: false, enableNodeCliInspectArguments: false, grantFileProtocolExtraPrivileges: false,
-    enableEmbeddedAsarIntegrityValidation: true, onlyLoadAppFromAsar: true,
+    enableCookieEncryption: true, enableEmbeddedAsarIntegrityValidation: true, onlyLoadAppFromAsar: true,
   });
 });
 
@@ -71,4 +72,22 @@ test('every packaging path flips them before it signs', () => {
   assert.ok(fuseLine > 0 && fuseLine < finish.indexOf('codesign --force'), 'finish-app.sh (npm run package, package:eden-code): fuses, then codesign');
   assert.match(read('scripts/release/windows.js'), /electronFuses: windowsFuses\(\),/);
   assert.match(read('package.json'), /"@electron\/fuses": "\^1\.8\.0"/);
+});
+
+test('the Ask Eden app flips them too, before it signs, and never runs itself as plain Node (A6)', async () => {
+  const build = read('eden/build.js');
+  const flipAt = build.indexOf('await flipMacApp(app)');
+  assert.ok(flipAt > 0 && flipAt < build.indexOf('if (identity) signApp(app, identity)'), 'eden/build.js: fuses, then signing');
+  assert.ok(flipAt < build.indexOf("execFileSync('codesign', ['--force', '--deep', '--sign', '-', app]"), 'the ad hoc build too');
+  const main = read('eden/main.js');
+  assert.doesNotMatch(main, /ELECTRON_RUN_AS_NODE/, 'RunAsNode is off in the app: Eden’s server is a utilityProcess');
+  assert.match(main, /utilityProcess\.fork\(entry, \['--port', String\(EDEN_PORT\)\]/);
+  // Its engine gets Touch ID's proof key on stdin, as the main app's does (proof-pipe.js).
+  assert.match(main, /how\.env\[proofPipe\.ENV\] = '1';/);
+  assert.match(main, /proofPipe\.attach\(child, keys,/);
+  assert.match(build, /'proof-pipe\.js'.*'features\/touchid\.js'/);
+  // With RunAsNode off, the real fuse wire of a stand-in says so.
+  const { app } = fakeApp({ asar: false });
+  await fuses.flipMacApp(app, { flipFuses: flip });
+  assert.equal((await real.getCurrentFuseWire(app))[F.RunAsNode], FuseState.DISABLE);
 });

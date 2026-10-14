@@ -15,6 +15,7 @@
 
 const {
   app, BrowserWindow, Menu, Notification, Tray, autoUpdater, globalShortcut, ipcMain, nativeImage, net, powerMonitor, screen, shell,
+  utilityProcess, systemPreferences, dialog,
 } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -24,6 +25,8 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { backendCommand, BackendLog } = require('../backend-launch');
 const share = require('../backend-share');
+const proofPipe = require('../proof-pipe'); // Touch ID's proof key, on the engine's own stdin (A1)
+const touchid = require('../features/touchid');
 const { createUpdater, fetchFeed, feedFrom } = require('../features/updates');
 
 const NAME = 'Ask Eden';
@@ -266,8 +269,15 @@ async function startEngine() {
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
   how.env.JARVIS_LAUNCHER_PID = String(process.pid);
   how.env.JARVIS_PROFILE = 'code'; // headless: no microphone until a Eden Secretary window joins
+  // An Eden Code window on this engine (backend-share.js) asks Touch ID through it, and this
+  // app shows the sheet and signs, with a key that goes on the engine's stdin alone
+  // (proof-pipe.js, features/touchid.js): never the token the page has.
+  const keys = proofPipe.fresh();
+  how.env[proofPipe.ENV] = '1';
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port} for ${NAME}\n`);
-  const child = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  const sheet = touchid.handlers({ systemPreferences, dialog, secret: () => keys.key });
+  proofPipe.attach(child, keys, (kind, lang) => sheet.ask(kind, lang));
   engine = { port, token, shared: false, child };
   if (child.pid) share.advertise(DATA_DIR, { port, token, pid: child.pid, app: 'ask-eden', launcher: process.pid });
   child.stdout.pipe(log, { end: false });
@@ -299,9 +309,12 @@ async function startEdenServer() {
   ].filter(Boolean);
   const entry = candidates.find((f) => fs.existsSync(f));
   if (!entry) return;
-  eden = spawn(process.execPath, [entry, '--port', String(EDEN_PORT)], {
-    cwd: path.dirname(path.dirname(path.dirname(entry))), stdio: 'ignore',
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PATH: [...EXTRA_PATH, process.env.PATH || '/usr/bin:/bin'].join(':') },
+  // Electron's own Node child (utilityProcess), never this app run as plain Node: the build
+  // turns run-as-Node off (its fuses, scripts/release/fuses.js: audit S7, round 1 A6),
+  // so nothing else on the Mac can run the signed app as Node either.
+  eden = utilityProcess.fork(entry, ['--port', String(EDEN_PORT)], {
+    cwd: path.dirname(path.dirname(path.dirname(entry))), stdio: 'ignore', serviceName: 'Eden server',
+    env: { ...process.env, PATH: [...EXTRA_PATH, process.env.PATH || '/usr/bin:/bin'].join(':') },
   });
   eden.on('exit', () => { eden = null; });
 }
@@ -485,6 +498,6 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   if (stopWatching) stopWatching();
   if (engine && engine.child) { try { engine.child.kill('SIGTERM'); } catch { /* gone */ } }
-  if (eden) { try { eden.kill('SIGTERM'); } catch { /* gone */ } }
+  if (eden) { try { eden.kill(); } catch { /* gone */ } }
   share.withdraw(DATA_DIR, process.pid);
 });
