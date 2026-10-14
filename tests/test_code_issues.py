@@ -325,7 +325,7 @@ async def test_a_look_that_finds_nothing_new_writes_nothing(hub, projects, monke
 
     monkeypatch.setattr(code_issues.jsonstore, "save_json", save)
     assert await hub.code_issues.look(entry) == []  # (the repository's first look: written)
-    assert writes == [{"seen": {"acme/app": []}}]
+    assert writes == [{"seen": {"acme/app": []}, "version": 1}]  # (a versioned store, O3)
     assert await hub.code_issues.look(entry) == []
     assert len(writes) == 1  # nothing new: nothing written
     labelled(hub.fake, 3)
@@ -333,7 +333,7 @@ async def test_a_look_that_finds_nothing_new_writes_nothing(hub, projects, monke
     assert await hub.code_issues.look(entry) == [3]  # seen, but the disk is full
     full.clear()
     assert await hub.code_issues.look(entry) == []  # nothing new, but the last save failed
-    assert writes[-1] == {"seen": {"acme/app": [300]}}
+    assert writes[-1] == {"seen": {"acme/app": [300]}, "version": 1}
     count = len(writes)
     assert await hub.code_issues.look(entry) == []
     assert len(writes) == count

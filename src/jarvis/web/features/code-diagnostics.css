@@ -1,0 +1,10 @@
+/* Eden Code's error cards: Copy details and Send diagnostics (code-diagnostics.js). */
+.cd-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.jc-note.cd-error { flex-wrap: wrap; }
+.jc-note.cd-error > .cd-actions { flex-basis: 100%; margin-left: 18px; }
+.cd-action:focus-visible { outline: 2px solid rgb(var(--c-accent-ink, 10 132 255)); outline-offset: 2px; }
+.cd-action:disabled { opacity: 0.6; cursor: default; }
+.cd-status { font-size: 11px; color: rgb(var(--c-muted, 110 110 115)); }
+.cd-status .cd-problem { color: rgb(var(--c-danger-ink, 200 30 30)); }
+.card .cd-actions { margin: 0 auto 0 0; }
+body:not([data-skin]) .cd-status { color: var(--eden-text3, inherit); }

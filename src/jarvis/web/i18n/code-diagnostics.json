@@ -1,0 +1,17 @@
+{
+  "strings": {
+    "Copy details": "复制详情",
+    "What went wrong, masked, for a bug report": "出了什么问题（已隐去敏感信息），用于报告问题",
+    "Copied": "已复制",
+    "Couldn’t copy": "无法复制",
+    "Send diagnostics": "发送诊断信息",
+    "Makes a masked diagnostics file and shows it in Finder, for you to send": "生成一个已隐去敏感信息的诊断文件并在访达中显示，由你发送",
+    "Making it…": "正在生成…",
+    "Not connected yet. Try again in a moment.": "尚未连接。请稍后再试。",
+    "Saved in Documents › Eden Secretary › Diagnostics.": "已保存到“文稿 › Eden Secretary › Diagnostics”。",
+    "Show in Finder": "在访达中显示",
+    "That didn’t work.": "没有成功。",
+    "Error actions": "错误操作"
+  },
+  "patterns": []
+}

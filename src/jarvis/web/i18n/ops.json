@@ -152,6 +152,8 @@
   "The newest part, masked": "最新的部分，已隐去敏感信息",
   "Making it…": "正在生成…",
   "Make a diagnostics file": "生成诊断文件",
+  "Keep crash reports": "保留崩溃报告",
+  "When something in Eden Secretary fails, a masked report of it is kept on this Mac and goes in the diagnostics file. Nothing is sent anywhere by itself. The app’s own crash files start with its next launch.": "Eden Secretary 出错时，会在这台 Mac 上保留一份隐去敏感信息的报告，并放进诊断文件。不会自动发送到任何地方。应用自身的崩溃文件从下次启动开始记录。",
   "Saved in Documents › Eden Secretary › Diagnostics:": "已保存到“文稿 › Eden Secretary › Diagnostics”：",
   "Saved in Documents › Jarvis › Diagnostics:": "已保存到“文稿 › Eden Secretary › Diagnostics”：",
   "Saved in Documents › JARVIS › Diagnostics:": "已保存到“文稿 › Eden Secretary › Diagnostics”：",

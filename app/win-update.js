@@ -15,8 +15,9 @@
 // ({ "signed": "{\"jarvis\": {version, size, file, sha256}, …}", "signature": "<base64>" }; the
 // same entries may also sit at the top level, unsigned, for copies older than this one, and are
 // never read from there). scripts/release/sign-feed.js makes it, with the private key from the
-// owner's Keychain. Until FEED_PUBLIC_KEY is filled in, nothing is ever installed: each check says
-// the list isn't signed.
+// owner's Keychain. Until FEED_PUBLIC_KEY is filled in, nothing is ever installed: each check
+// says so in words the owner can act on (WORDS.nokey: updates need the signing key, see
+// sign-feed.js), without asking askeden.com for a list it couldn't trust anyway.
 //
 // Pure: the network, the disk, the process and the notification are passed in (app/features/
 // updates.js gives Electron's; the tests give stand-ins).
@@ -53,6 +54,9 @@ const WORDS = {
   size: 'The download wasn’t the size it should be, so it wasn’t run.',
   run: 'The installer couldn’t be started.',
   signature: 'The update list on askeden.com isn’t signed by Eden, so nothing was installed.',
+  // This copy was built before the feed's signing key existed (FEED_PUBLIC_KEY is empty).
+  nokey: 'Updates need Eden’s signing key, which isn’t built into this copy yet, so none are installed. '
+    + 'Make it with app/scripts/release/sign-feed.js and put its --public half in FEED_PUBLIC_KEY (app/win-update.js).',
   checksum: 'The download isn’t the file Eden published, so it wasn’t run.',
   publisher: 'The installer isn’t signed by Eden, so it wasn’t run.',
 };
@@ -125,6 +129,13 @@ function createWinUpdater({
   const set = (next) => { state = next; onChange(public_()); };
 
   async function run() {
+    if (!feedKey(publicKey)) {
+      // No key to check a list with: unsigned lists stay refused, and the owner hears why.
+      log('update: no feed key is built into this copy (FEED_PUBLIC_KEY); see sign-feed.js');
+      offered = null;
+      set({ state: 'error', error: WORDS.nokey, nokey: true });
+      return;
+    }
     set({ state: 'checking' });
     let text;
     try {

@@ -41,6 +41,55 @@ other opens on it, so sessions are the same in both. Eden Code started alone run
 `JARVIS_PROFILE=code`, without the microphone, voice or screen watching, until a Jarvis window
 joins. Voice coding still works when you start it.
 
+### What Eden Code does
+
+Each feature is a plug-in (`src/jarvis/features/code_*.py`, its window side in
+`src/jarvis/web/features/`); its docstring says what it calls and what it costs.
+
+- **Sessions:** Claude Code sessions per project, kept across a restart (`code_sessions`),
+  in Manual, Accept edits, Plan, Auto or Bypass permissions; each can run in an isolated copy
+  of the project to land or discard (`code_isolation`). Forks, rewinds, a queue, split view.
+- **Agent board** (`code-board.js`): every session as a card by where it stands (needs you,
+  working, done, failed, resting), with its branch, lines changed, cost and what it's doing.
+- **Model Router** (`code_router`): picks a model and effort for each message among the
+  models in Settings › Models, with Gemini rating the prompt on your own key (capped a day).
+  When a routed model fails (a limit, an outage) the session falls back to the route's next
+  pick and carries on, with the same company unless you allow crossing (Eden Code settings ›
+  General › Model Router); while Claude can't answer, the router stops picking it.
+  "Wait for Claude's limit to reset" (`code_limit`) holds a session instead, if you prefer.
+- **Best of N** (`code_bestof`): one request run by two or three sessions at once, each on
+  its own model and copy, then the results side by side with your quick tests and Claude's
+  short judgment; "Keep this one" lands it.
+- **Pull requests** (`code_pr`): drafted title and description, pushed behind the Git
+  panel's card (with a secret scan), then CI watched; failing checks can be sent back to the
+  session to fix (at most 3 times by itself per pull request), and merge-when-green.
+- **GitHub issues** (`code_issues`): an issue labelled for Jarvis in a repository you opted
+  in starts a locked-down session of its own (its text is treated as data, no MCP servers or
+  web tools, commands in the sandbox unless you turn that off, at most 5 a day); its pull
+  request waits for your OK.
+- **Runs without you** (`code_unattended`): a scope approved up front (the task, the mode,
+  the commands, a dollar cap and a time cap), always in an isolated copy, never pushing;
+  what the scope doesn't cover is refused on the spot and listed in the report.
+- **Cloud and hand-offs** (`code_cloud`, `code_handoff`): continue a session on another
+  machine of yours over SSH, or on your cloud machine, so it keeps working while the Mac
+  sleeps; "I'm heading out" moves every working session there after one card.
+- **Lessons** (`code_lessons`): a correction ("no, use pnpm") becomes a lesson in your
+  memory and follows you into every project (or the one it was said in).
+- **Video proof** (`code_video`): after a turn that changed a page's files, a short
+  recording of the dev server's page (up to 10 seconds), off by default per project.
+- **Usage and caps** (`code_usage`): what each session, project and day cost, Claude's plan
+  windows, and spending caps per session, project and day that Claude Code itself stops at.
+- **Sandbox** (`code_sandbox`): with its switch on, sessions in Bypass and unattended runs
+  run their commands in Claude Code's sandbox, writing only in the project and reaching only
+  the domains you allowed.
+- **Touch ID** (`code_touchid`): switching to Bypass permissions, starting new sessions in
+  it and allowing a risky step (deleting, pushing, publishing, running as root) ask for your
+  fingerprint, or the app's own confirmation on a Mac without Touch ID; from the window the
+  backend wants the signed proof of that yes.
+- **When something fails:** an error card has Copy details and Send diagnostics (the masked
+  diagnostics file of Settings › Health); crash reports, if you turn them on there, are kept
+  on this Mac, masked, and go in that file (`crash_reports`). Nothing is sent by itself.
+
 Under the hood, Electron starts `uv run jarvis serve` on a random local port with a
 fresh token. The window's WebSocket must present that token from the server's own
 origin, so other pages in your browser can't drive your Mac through it.
@@ -49,7 +98,10 @@ origin, so other pages in your browser can't drive your Mac through it.
 
 A short map of what was added; each feature's own Settings group or pane explains it.
 
-- **Eden Code:** a session per isolated copy (land or discard), Changes by hunk with
+- **Eden Code** (more in *What Eden Code does* above): the Model Router with automatic
+  fallback, the agent board, cloud sessions and hand-offs to your other machines, lessons
+  learned from your corrections, video proof, crash reports (opt-in, kept on the Mac), and
+  a session per isolated copy (land or discard), Changes by hunk with
   line comments and reviews, a Git panel, best-of-N, dev servers with a check of each
   turn's work (per project too), Tests and Problems panes, pull requests with CI watching
   and capped auto-fixes, runs without you inside a scope you approve, GitHub issues that

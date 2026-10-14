@@ -36,6 +36,7 @@
     "The download wasn’t the size it should be, so it wasn’t run.": "下载的文件大小不对，所以没有运行它。",
     "The installer couldn’t be started.": "无法启动安装程序。",
     "The update list on askeden.com isn’t signed by Eden, so nothing was installed.": "askeden.com 上的更新列表没有 Eden 的签名，所以什么都没有安装。",
+    "Updates need Eden’s signing key, which isn’t built into this copy yet, so none are installed. Make it with app/scripts/release/sign-feed.js and put its --public half in FEED_PUBLIC_KEY (app/win-update.js).": "更新需要 Eden 的签名密钥，这一版还没有内置，所以不会安装任何更新。请用 app/scripts/release/sign-feed.js 生成密钥，并把它 --public 输出的公钥填入 FEED_PUBLIC_KEY（app/win-update.js）。",
     "The download isn’t the file Eden published, so it wasn’t run.": "下载的文件不是 Eden 发布的那个，所以没有运行它。",
     "The installer isn’t signed by Eden, so it wasn’t run.": "安装程序没有 Eden 的签名，所以没有运行它。",
     "Eden Secretary is in the middle of something (an answer, meeting notes or a task). Installing now stops it. Install anyway?": "Eden Secretary 正在处理事情（回答、会议记录或任务）。现在安装会中断它。仍要安装吗？"

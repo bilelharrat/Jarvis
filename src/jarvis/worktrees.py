@@ -51,6 +51,7 @@ CREATE_SECONDS = 300.0  # checking out a big repository takes a while
 # A copy whose folder was made this long ago and still isn't on the list never will be (its
 # session went away while it was made): the sweeper may take it in then.
 MAKING_SECONDS = 2 * CREATE_SECONDS
+COPIES_STORE = "code_copies"  # the copies list (CopyStore), versioned (jsonstore.register_store)
 MAX_COPIES = 60  # copies kept on the list (a runaway, past this, is refused)
 ENV_FILES = 30
 ENV_BYTES = 1_000_000
@@ -150,7 +151,8 @@ class CopyStore:
         # never takes one in as a copy the list lost.
         self.making: dict[str, float] = {}
         try:
-            data = jsonstore.load_json(path, dict) or {}
+            jsonstore.register_store(COPIES_STORE, 1)  # (jsonstore is imported late here)
+            data = jsonstore.load_store(path, COPIES_STORE) or {}
         except jsonstore.Unreadable as exc:
             self.unreadable = exc.strerror or "it can't be read"
             data = {}
@@ -169,8 +171,10 @@ class CopyStore:
 
         if self.unreadable:
             return
-        jsonstore.save_json(
-            self.path, {"copies": [asdict(c) for c in self.copies], "trash": self.trash[-200:]}
+        jsonstore.save_store(
+            self.path,
+            COPIES_STORE,
+            {"copies": [asdict(c) for c in self.copies], "trash": self.trash[-200:]},
         )
 
     def find(self, slug: str) -> Copy | None:

@@ -28,6 +28,11 @@
 // - Shadow mode (settings.shadow): every message's pick is logged, nothing is moved, and
 //   nothing waits, whether or not Model Router is the session's model.
 // - On for every session until a model is picked from the menu. Kept in prefs.features.
+// - Eden Code settings › General › Model Router: the automatic fallback (code_router_auto_fallback,
+//   on) and whether it may cross to another company's model (code_router_cross_fallback, off).
+// - While Claude can't answer (its limit, an outage: model_router_claude {down, until} from the
+//   backend), the router routes among the other models only, so it stops suggesting Claude;
+//   with no other model to pick, Claude stays (the session waits or falls back as before).
 // Pure helpers are exported for node --test (tests/web/code-router.test.mjs).
 (function (root) {
   'use strict';
@@ -45,6 +50,8 @@
   };
   const SWITCHES = ['subscriptionClaude', 'shadow', 'learn', 'learnFromPrompts'];
   const AGENTIC_DEFAULT = 8;  // = code_router_events.AGENTIC_DEFAULT
+  const FALLBACK = 'code_router_auto_fallback';  // = code_router.FALLBACK_PREF (on unless turned off)
+  const CROSS = 'code_router_cross_fallback';  // = code_router.CROSS_PREF (off unless turned on)
   const SUBSCRIPTION = ['anthropic'];  // Claude on the owner's sign-in: plan quota, not API dollars
 
   // ── pure helpers ──
@@ -95,6 +102,25 @@
       if (out.length >= 3) break;
     }
     return out;
+  }
+  // The picker's models while Claude can't answer (now before downUntil, ms): the others only,
+  // when there are others to route among; else all of them, Claude included.
+  function withoutClaude(models, downUntil, now = Date.now()) {
+    const list = models || [];
+    if (!(Number(downUntil) > now)) return list;
+    const others = list.filter((m) => m && !m.builtin);
+    return routable(others).length ? others : list;
+  }
+  // Settings › General › Model Router: its two fallback switches, as features has them.
+  function fallbackSwitches(features) {
+    const f = features || {};
+    const auto = f[FALLBACK] !== false;
+    return [
+      { key: FALLBACK, on: auto, disabled: false, label: 'Fall back when a model fails',
+        note: 'A routed message whose model hits a limit or an outage moves to the route’s next pick and carries on.' },
+      { key: CROSS, on: auto && f[CROSS] === true, disabled: !auto, label: 'Fall back to another company’s model',
+        note: 'Off: the fallback stays with the same company, so your code and the conversation go nowhere new. On: it may move to another provider’s model.' },
+    ];
   }
   function cleanSettings(s) {
     const out = { ...DEFAULT_SETTINGS };
@@ -279,7 +305,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      routable, effortsFor, routeFor, fallbacksFor, takesEffort, geminiFlash, cleanSettings, sameSettings, sameAll,
+      routable, effortsFor, routeFor, fallbacksFor, withoutClaude, fallbackSwitches, FALLBACK, CROSS, takesEffort, geminiFlash, cleanSettings, sameSettings, sameAll,
       sameText, isTrivial, isRated, needsRating, ratedRoute, pauseAfter, newToken, errorText, within, extrasFor,
       budgetBoost, budgetNote, learnedOverrides, learnedStamp, effectiveSettings, infoOf, pricesOf,
       CLAUDE_EFFORTS, RELAY_EFFORTS, DEFAULT_SETTINGS, ROUTE_WAIT_MS, AGENTIC_DEFAULT,
@@ -313,7 +339,8 @@
   const isOn = () => features[ON] === true;
   const settings = () => cleanSettings(features[SETTINGS]);
   const shadowOn = () => settings().shadow === true;
-  const models = () => (typeof modelList !== 'undefined' ? modelList : []);
+  let claudeDownUntil = 0;  // Date.now() until which Claude can't answer (model_router_claude)
+  const models = () => withoutClaude(typeof modelList !== 'undefined' ? modelList : [], claudeDownUntil);
   const task = () => { try { return F.currentTask ? F.currentTask() : null; } catch { return null; } };
   const projectOf = (t) => (t && state && state.sessions && state.sessions[String(t.id)] ? state.sessions[String(t.id)].project || null : null);
   function projectLevels(t) {
@@ -653,13 +680,66 @@
     if (chip && !sameSettings(before, routing(t))) chip.applySettings(routing(t));
     if (wasOn !== isOn()) renderComposer();
     if (shadowOn() && !lib && !libError) loadLib().catch(() => {});
+    drawSwitches();
   }
-  F.on('hello', (ev) => { onPrefs(ev.prefs); F.send({ type: 'model_router_state_get' }); }, { replay: true });
+
+  // Eden Code settings › General: the fallback's two switches, in a Model Router group.
+  const switches = new Map();  // pref key -> its switch
+  function buildSwitches() {
+    if (typeof document.getElementById !== 'function') return;  // (a stand-in window)
+    const general = document.getElementById('jcs-general');
+    if (!general || document.getElementById('cr-fallbacks')) return;
+    const label = F.el('p', 'jcs-label', 'Model Router');
+    const group = F.el('div', 'jcs-group');
+    group.id = 'cr-fallbacks';
+    for (const item of fallbackSwitches(features)) {
+      const row = F.el('div', 'jcs-row');
+      const text = F.el('span');
+      text.append(document.createTextNode(F.t(item.label)), F.el('small', '', item.note));
+      const sw = F.el('button', 'jcs-switch');
+      sw.type = 'button';
+      sw.setAttribute('role', 'switch');
+      sw.setAttribute('aria-label', item.label);
+      sw.addEventListener('click', () => {
+        const now = fallbackSwitches(features).find((x) => x.key === item.key);
+        if (now && !now.disabled) savePrefs({ [item.key]: !now.on });
+      });
+      switches.set(item.key, sw);
+      row.append(text, sw);
+      group.append(row);
+    }
+    const foot = general.querySelector('.jcs-foot');
+    if (foot) general.insertBefore(label, foot); else general.append(label);
+    general.insertBefore(group, label.nextSibling);
+    drawSwitches();
+  }
+  function drawSwitches() {
+    for (const item of fallbackSwitches(features)) {
+      const sw = switches.get(item.key);
+      if (!sw) continue;
+      sw.setAttribute('aria-checked', String(item.on));
+      sw.disabled = item.disabled;
+      sw.setAttribute('aria-disabled', String(item.disabled));
+    }
+  }
+  F.on('hello', (ev) => {
+    onPrefs(ev.prefs);
+    F.send({ type: 'model_router_state_get' });
+    F.send({ type: 'model_router_claude_get' });
+  }, { replay: true });
+  // Claude can't answer until `until` (ms), or can again: the router leaves it out meanwhile.
+  F.on('model_router_claude', (ev) => {
+    const until = ev && ev.down ? Number(ev.until) || 0 : 0;
+    if (until === claudeDownUntil) return;
+    claudeDownUntil = until;
+    if (chip && !chip.hidden) chip.refresh();  // (the router is made again for the new list)
+  });
   F.on('prefs', onPrefs);
   // (the keys may have changed: Gemini is asked again; its problems are still told once)
   F.on('providers', () => { router = null; geminiPause = 0; if (chip && !chip.hidden) chip.refresh(); });
   F.on('model_router_note', (ev) => { if (ev.text) jcNote(ev.text); });
 
+  buildSwitches();
   ICON_PATHS.router = ['M8 1.8l1.5 4.7 4.7 1.5-4.7 1.5L8 14.2l-1.5-4.7L1.8 8l4.7-1.5z'];
   renderComposer();
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -422,11 +422,22 @@ async def test_settings_link_shows_the_code_and_qr_then_the_account(setup):
     last = [e for e in drain(q) if e["type"] == "account"][-1]
     assert last["linked"] and last["info"]["plan"]["name"] == "free"
     assert last["relay"]["on"] is True and last["plus"] == {"chosen": False, "in_use": False}
-    assert last["eden_link"]["on"] is True and set(last["eden_link"]) == {"on", "state", "error"}
+    assert last["eden_link"]["on"] is True and set(last["eden_link"]) == {
+        "on",
+        "edits",
+        "state",
+        "error",
+    }
+    assert last["eden_link"]["edits"] is False  # (askeden.com edits only once allowed)
     # The line's changes reach Settings by themselves (jarvis.eden_link's on_change).
     hub.account_desk.eden_link._set("waiting", "Couldn’t reach askeden.com.")
     heard = [e for e in drain(q) if e["type"] == "account"][-1]["eden_link"]
-    assert heard == {"on": True, "state": "waiting", "error": "Couldn’t reach askeden.com."}
+    assert heard == {
+        "on": True,
+        "edits": False,
+        "state": "waiting",
+        "error": "Couldn’t reach askeden.com.",
+    }
     hub.set_feature_prefs({"account_eden_link": False})
     await asyncio.sleep(0)
     assert [e for e in drain(q) if e["type"] == "account"][-1]["eden_link"]["on"] is False
@@ -626,3 +637,20 @@ async def test_settings_links_this_mac_in_the_browser_at_the_chosen_server(setup
     assert hub.account.server == "preview.askeden.com"
     await hub._handle({"type": "account_link_open"})
     assert len(opened) == 2, "no code waiting: nothing opens"
+
+
+# ── "Let askeden.com edit on this Mac" (audit S10) ──
+
+
+def test_askeden_may_edit_on_this_mac_only_once_the_owner_says_so(setup):
+    hub, _fake = setup
+    desk = hub.account_desk
+    assert desk.eden_link.edits() is False  # off by default: edits from the web ask here
+    events = []
+    hub.emit = lambda kind, **data: events.append((kind, data))
+    desk.emit()
+    assert events[-1][1]["eden_link"]["edits"] is False
+    hub.set_feature_prefs({"account_eden_link_edits": True})
+    assert desk.eden_link.edits() is True
+    desk.emit()
+    assert events[-1][1]["eden_link"]["edits"] is True

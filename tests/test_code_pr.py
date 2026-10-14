@@ -726,6 +726,12 @@ def test_the_store_keeps_what_it_can_read_and_never_guesses_a_merge(tmp_path):
     [rec] = store.items
     assert rec.auto_merge is False and rec.seen == [1] and rec.merge_method == "squash"
     assert rec.state == "open" and rec.autofix is True
+    # Reading it moved it on to its version (O3), and that save kept the file before it as its
+    # last good copy: damaged now, it's read from there.
+    path.write_text("{broken")
+    assert [r.number for r in PullStore(path).items] == [3]
+    for kept in tmp_path.glob("code_prs.json.bak"):
+        kept.unlink()
     path.write_text("{broken")
     assert PullStore(path).items == [] and PullStore(path).unreadable == ""  # (no good copy)
 

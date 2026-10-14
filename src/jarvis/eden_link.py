@@ -53,6 +53,9 @@ WS_BASE = "wss://askeden.com/api/relay"
 LOCAL = "http://127.0.0.1:5174"  # Eden's server on this Mac (model-router-ui)
 LOCAL_ENV = "JARVIS_EDEN_LOCAL_URL"  # another loopback port, for a test copy of Eden
 EDEN_LINK_PREF = "account_eden_link"  # Settings: Eden on the web reaches this Mac (on by default)
+# Settings: "Let askeden.com edit on this Mac" (off by default, audit S10): Code mode from the
+# web may accept edits and keep allowTools beyond reading (edits()).
+EDEN_LINK_EDITS_PREF = "account_eden_link_edits"
 
 ID_BYTES = 16
 MAX_FRAME = 64 * 1024  # a binary frame's body, each way

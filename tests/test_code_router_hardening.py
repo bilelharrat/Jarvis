@@ -262,3 +262,32 @@ async def test_the_relays_listen_before_the_feature_loops_start(hub, monkeypatch
     await hub.start()
     loops = [i for i, name in enumerate(order) if name.endswith("_feature_loop")]
     assert loops and order.index("relay") < loops[0]
+
+
+# ── the window hears when Claude can't answer (wave-1 follow-up) ──
+
+
+async def test_the_window_hears_when_claude_is_down_and_until_when(hub):
+    seen = []
+    hub.emit = lambda kind, **data: seen.append((kind, data))
+    told = lambda: [d for k, d in seen if k == "model_router_claude"]  # noqa: E731
+    await hub.handle({"type": "model_router_claude_get"})
+    assert told()[-1] == {"down": False, "until": 0}
+    before = time.time()
+    hub._claude_couldnt()  # an outage: half an hour on
+    state = told()[-1]
+    assert state["down"] is True
+    assert (before + 1799) * 1000 <= state["until"] <= (time.time() + 1801) * 1000
+    hub._claude_couldnt()  # the same again: nothing new to say
+    assert len(told()) == 2
+
+    class Limit:  # Claude's usage limit, with its reset time
+        status, overage_status, resets_at = "rejected", None, int(time.time()) + 600
+        rate_limit_type, utilization = "five_hour", 1.0
+
+    hub.tasks.on_rate_limit(Limit())
+    assert told()[-1] == {"down": True, "until": Limit.resets_at * 1000}
+    hub._claude_down_at = time.time() - 3600  # long ago, and the reset time passed too
+    hub._claude_back_at = time.time() - 1
+    await hub.handle({"type": "model_router_claude_get"})
+    assert told()[-1] == {"down": False, "until": 0}

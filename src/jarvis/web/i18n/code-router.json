@@ -1,0 +1,9 @@
+{
+  "strings": {
+    "Fall back when a model fails": "模型出错时自动换用备选",
+    "A routed message whose model hits a limit or an outage moves to the route’s next pick and carries on.": "经路由的消息如果所用模型达到上限或出现故障，会换到路由的下一个选择继续进行。",
+    "Fall back to another company’s model": "可换用其他公司的模型",
+    "Off: the fallback stays with the same company, so your code and the conversation go nowhere new. On: it may move to another provider’s model.": "关闭时：备选只在同一家公司内切换，你的代码和对话不会发往新的地方。开启时：可能换到其他提供方的模型。"
+  },
+  "patterns": []
+}
