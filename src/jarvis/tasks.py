@@ -2303,6 +2303,9 @@ class TaskManager:
             options.model = cfg["model"] or options.model
             options.env = {**options.env, **cfg["env"]}
             options.settings = cfg["settings"]
+            from .key_proxy import replace_pass  # (the last connect's pass goes)
+
+            replace_pass(self.__dict__.setdefault("_run_passes", {}), task.id, cfg["settings"])
         for hook in self.option_hooks:
             try:
                 hook.apply(task, options)

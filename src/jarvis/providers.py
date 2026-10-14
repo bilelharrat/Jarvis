@@ -1344,7 +1344,7 @@ class ProviderStore:
     # sessions
 
     def session_config(
-        self, ref: str | None, environ: Mapping[str, str] | None = None
+        self, ref: str | None, environ: Mapping[str, str] | None = None, *, grant: bool = True
     ) -> dict[str, Any]:
         """What a Claude Code session needs for a model: "model" (for the model option),
         "env" (to merge into ClaudeAgentOptions.env) and "settings" (a JSON string for
@@ -1359,7 +1359,10 @@ class ProviderStore:
         that reads it is in any of it. env only blanks inherited credentials: applied without the settings, the
         session goes nowhere near the provider. environ is this Mac's environment (for
         the network pins); tests pass their own. Raises ValueError, in words to show,
-        for a model that's gone or whose key is missing or doesn't match."""
+        for a model that's gone or whose key is missing or doesn't match. grant=False: no
+        pass is made (settings None), for a caller that only wants the model's name or
+        label (every pass made is kept until it's revoked or idle a week: made for nothing,
+        they'd push a session's own out of the MAX_GRANTS kept)."""
         ref = str(ref or "").strip()
         if not ref:
             return _config(None, "", "", True)
@@ -1374,7 +1377,9 @@ class ProviderStore:
             raise ValueError("That model isn't on the list any more; pick another one.")
         self._saved(provider)  # a key is there, and it belongs to this very address
         pins = session_pins(provider, entry.model, os.environ if environ is None else environ)
-        settings = {"apiKeyHelper": self.helper(self.grant_for(provider)), "env": pins}
+        settings = (
+            {"apiKeyHelper": self.helper(self.grant_for(provider)), "env": pins} if grant else None
+        )
         claude = provider.kind == "anthropic" or "claude" in entry.model.lower()
         return _config(
             entry.model,
@@ -1382,7 +1387,7 @@ class ProviderStore:
             provider.id,
             claude,
             env=dict.fromkeys(CREDENTIAL_ENV, ""),
-            settings=json.dumps(settings),
+            settings=json.dumps(settings) if settings is not None else None,
         )
 
     # checking a key

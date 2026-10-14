@@ -46,6 +46,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import secrets
 import shlex
 import socket
@@ -65,6 +66,10 @@ TOKEN_PREFIX = "eden-run-"
 GRANT_IDLE = 7 * 24 * 3600.0  # seconds a pass may sit unused before it's forgotten
 MAX_GRANTS = 4096  # passes kept at once; past it, the one unused longest goes
 MAX_BODY = 64 * 1024 * 1024  # bytes of a request Claude Code sends (pictures and all)
+MAX_PATH = 8 * 1024  # characters of a request's path
+REQUEST_SECONDS = 120.0  # for a run to send one whole request (an answer may take longer)
+PROXY_CONNECTIONS = 256  # open at once, every run together
+HEADER_BYTES = 64 * 1024  # a request's line and headers, at most
 HANDOFF_SECONDS = 60.0  # seconds a command's secrets wait for it to start
 HANDOFF_SETTLE = 0.05  # seconds for every open of the pipe under way to finish, once one has
 READER_SECONDS = 3.0  # seconds for the reader whose open let the writer in to show up
@@ -87,6 +92,14 @@ _DROPPED = frozenset(
         "x-api-key",
         "authorization",
         "cookie",
+        # Another provider's credential headers, and where a request says it came from: a
+        # run's own, never sent on (only the key put back in the pass's place goes).
+        "x-goog-api-key",
+        "api-key",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "forwarded",
     )
 )
 _DROPPED_BACK = frozenset(("content-length", "connection", "keep-alive", "transfer-encoding"))
@@ -171,6 +184,28 @@ def is_token(value: Any) -> bool:
     return isinstance(value, str) and value.startswith(TOKEN_PREFIX) and len(value) < 128
 
 
+_PASS = re.compile(re.escape(TOKEN_PREFIX) + r"[0-9a-f]{48}")
+
+
+def pass_in(settings: Any) -> str:
+    """The pass a run's settings (their apiKeyHelper) print, or "" (none: a built-in
+    model). For revoking a session's pass when it reconnects with a new one."""
+    found = _PASS.search(settings) if isinstance(settings, str) else None
+    return found.group(0) if found else ""
+
+
+def replace_pass(owner: dict[Any, str], key: Any, settings: Any) -> None:
+    """A run's new settings: the pass its previous ones printed, if another, revoked (a
+    session reconnects with a new pass at every reconnect; the old one was never used
+    again, and enough of them pushed live sessions' passes out of the MAX_GRANTS kept)."""
+    new = pass_in(settings)
+    old = owner.pop(key, "")
+    if old and old != new:
+        GRANTS.revoke(old)
+    if new:
+        owner[key] = new
+
+
 GRANTS = Grants()
 
 
@@ -208,6 +243,7 @@ def _token_from(headers: Any) -> str:
 
 def _error(status: int, message: str) -> tuple[int, dict[str, Any]]:
     kind = {
+        400: "invalid_request_error",
         401: "authentication_error",
         403: "permission_error",
         404: "not_found_error",
@@ -261,11 +297,25 @@ def build_app(grants: Grants, client_factory: Callable[[], Any] | None = None):
         parts = path.replace("\\", "/").split("/")
         if not path.startswith("v1/") or any(part in (".", "..") for part in parts):
             return refuse(404, "Only the Messages API goes through here.")
-        if int(request.headers.get("content-length") or 0) > MAX_BODY:
+        # Decoded already: a control character, or a # or ? that was %23 or %3F (which
+        # would end the path on the way out and turn the rest into a fragment or a query),
+        # or a path past reason, isn't a Messages API path.
+        whole = str(request.scope.get("path") or "")  # (a route's $ lets a last \n by)
+        if len(whole) > MAX_PATH or any(
+            c in "#?" or ord(c) < 0x20 or ord(c) == 0x7F for c in whole
+        ):
+            return refuse(400, "That isn't a path the Messages API has.")
+        declared = request.headers.get("content-length") or "0"
+        if not declared.isdigit():
+            return refuse(400, "That request's length isn't a number.")
+        if int(declared) > MAX_BODY:
             return refuse(413, "That request is too big.")
-        body = await request.body()
-        if len(body) > MAX_BODY:
-            return refuse(413, "That request is too big.")
+        body = bytearray()
+        async for piece in request.stream():  # (a chunked body has no length to check first)
+            body += piece
+            if len(body) > MAX_BODY:
+                return refuse(413, "That request is too big.")
+        body = bytes(body)
         base, key = found
         headers = {k: v for k, v in request.headers.items() if k.lower() not in _DROPPED}
         # The key goes where the pass came: Claude Code's own headers, as without a proxy.
@@ -278,10 +328,11 @@ def build_app(grants: Grants, client_factory: Callable[[], Any] | None = None):
             url += "?" + request.url.query
         http = client()
         try:
-            upstream = await http.send(
-                http.build_request(request.method, url, headers=headers, content=body),
-                stream=True,
-            )
+            built = http.build_request(request.method, url, headers=headers, content=body)
+        except (httpx.InvalidURL, ValueError, UnicodeError):
+            return refuse(400, "That isn't a path the Messages API has.")
+        try:
+            upstream = await http.send(built, stream=True)
         except httpx.HTTPError:
             where = httpx.URL(base).host or "the provider"
             return refuse(502, f"I couldn't reach {where}. Check the internet connection.")
@@ -314,11 +365,16 @@ class KeyProxy:
         self.port = 0
         self._server: Any = None
         self._thread: threading.Thread | None = None
+        self._sock: socket.socket | None = None
         self._lock = threading.Lock()
 
     @property
     def address(self) -> str:
-        return f"http://127.0.0.1:{self.port}" if self.port else ""
+        """Where the proxy listens, while it does ("" once its thread has ended: a run
+        given a dead address would only fail; ensure() starts it again)."""
+        thread = self._thread
+        alive = thread is not None and thread.is_alive()
+        return f"http://127.0.0.1:{self.port}" if self.port and alive else ""
 
     def ensure(self) -> str:
         """The proxy listening (started the first time), and its address. The socket is
@@ -328,21 +384,39 @@ class KeyProxy:
                 return self.address
             import uvicorn
 
+            if self._sock is not None:  # (the last one's thread ended: its socket goes too)
+                with contextlib.suppress(OSError):
+                    self._sock.close()
+                self._sock = None
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.bind(("127.0.0.1", 0))
             sock.listen(128)
+            from .hook_listener import guarded_protocol
+
             config = uvicorn.Config(
                 build_app(self.grants),
                 log_level="warning",
                 lifespan="off",
                 access_log=False,
+                # A deadline for each whole request (a half-sent one used to be held open for
+                # good), a cap on connections and on a request's headers.
+                http=guarded_protocol(lambda: PROXY_CONNECTIONS, lambda: REQUEST_SECONDS),
+                h11_max_incomplete_event_size=HEADER_BYTES,
             )
             server = uvicorn.Server(config)
-            thread = threading.Thread(
-                target=server.run, kwargs={"sockets": [sock]}, name="key-proxy", daemon=True
-            )
+
+            def serve() -> None:
+                try:
+                    server.run(sockets=[sock])
+                except BaseException:  # (said, never silent: the next ensure() starts again)
+                    log.exception("the key proxy stopped")
+                finally:
+                    with contextlib.suppress(OSError):
+                        sock.close()
+
+            thread = threading.Thread(target=serve, name="key-proxy", daemon=True)
             thread.start()
-            self._server, self._thread = server, thread
+            self._server, self._thread, self._sock = server, thread, sock
             self.port = sock.getsockname()[1]
             log.info("key proxy on %s", self.address)
             return self.address

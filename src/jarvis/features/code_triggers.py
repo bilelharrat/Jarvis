@@ -289,6 +289,7 @@ class Triggers:
         self.boot = secrets.token_hex(4)  # this launch (a job under way names the one it began in)
         self._cut_off: list[dict[str, Any]] = []  # jobs a quit stopped, not yet said
         self._loaded = False
+        self._unreadable = False  # code_triggers.json is there but can't be read
         self.listener = HookListener(tuple(ROUTES.values()), hub.inbound_hook)
         self._syncing = asyncio.Lock()
 
@@ -340,6 +341,10 @@ class Triggers:
         try:
             data = jsonstore.load_json(self._jobs_path(), dict) or {}
         except jsonstore.Unreadable:
+            # There but can't be read just now: never saved over (jsonstore's rule), so the
+            # jobs waiting in it are still there once it can be.
+            log.warning("triggers: %s can't be read; nothing is saved over it", self._jobs_path())
+            self._unreadable = True
             data = {}
         rows = [
             *(data.get("waiting") if isinstance(data.get("waiting"), list) else []),
@@ -363,6 +368,9 @@ class Triggers:
                 self._seen[row[0][:200]] = float(row[1])
 
     def save(self) -> None:
+        self.load()
+        if self._unreadable:
+            return
         jobs = list(self.jobs.values())
         waiting = [j for j in jobs if j.get("waiting")]
         running = [j for j in jobs if not j.get("waiting")] + self._cut_off

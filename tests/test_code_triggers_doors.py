@@ -211,3 +211,24 @@ async def test_a_run_the_apps_quit_cut_off_is_said_on_its_ticket(hub, tmp_path):
     assert len(hub.lin.comments) == 2
     await again.listener.stop()
     await fresh.listener.stop()
+
+
+async def test_an_unreadable_store_is_never_saved_over(hub):
+    import json
+    import os
+
+    path = hub.feature_path("code_triggers.json")
+    path.write_text(json.dumps({"waiting": [{"task": 7, "service": "linear", "waiting": True,
+                                             "what": "KEEP-ME"}]}))  # fmt: skip
+    os.chmod(path, 0)
+    try:
+        fresh = code_triggers.Triggers(hub)
+        configure(hub, "slack")
+        ev = {"type": "event_callback", "event_id": "EvX",
+              "event": {"type": "app_mention", "channel": "C0123ABCD", "user": "U0BOSS", "text": "go"}}  # fmt: skip
+        fresh._once("slack:EvX")
+        fresh.save()
+        assert ev and fresh._unreadable
+    finally:
+        os.chmod(path, 0o600)
+    assert "KEEP-ME" in path.read_text()

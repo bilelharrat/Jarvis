@@ -1669,6 +1669,10 @@ class Hub:
                 options.model = cfg["model"]
                 options.env = {**(options.env or {}), **cfg["env"]}
                 options.settings = cfg.get("settings") or options.settings  # a built-in: signed in
+                from .key_proxy import replace_pass  # (the last connect's pass goes)
+
+                replace_pass(self.__dict__.setdefault("_run_passes", {}), "conversation",
+                             cfg.get("settings"))  # fmt: skip
                 self._connected_ref = ref
             except ValueError as exc:  # gone, or its key: Claude it is, and say why
                 self.emit("error", text=f"The fallback model isn't usable: {exc}")

@@ -54,28 +54,38 @@ REQUEST_SECONDS = 10.0  # to send one whole request, headers and body
 HEADER_BYTES = 16 * 1024  # a request's line and headers, at most
 
 
-def _protocol() -> Any:
-    """remote.GuardedH11 with this listener's limits: a deadline for each whole request and
-    a cap on open connections, without its per-address one (here every address is
-    127.0.0.1)."""
+def guarded_protocol(
+    connections: Callable[[], int] = lambda: CONNECTIONS,
+    seconds: Callable[[], float] = lambda: REQUEST_SECONDS,
+) -> Any:
+    """remote.GuardedH11 for a server only this Mac reaches (here, and the key proxy): a
+    deadline for each whole request and a cap on open connections, without its per-address
+    one (every address is 127.0.0.1). The limits are read as each connection comes."""
     from uvicorn.protocols.http.h11_impl import H11Protocol
 
     from .remote import GuardedH11
 
-    class ListenerH11(GuardedH11):
+    class LocalH11(GuardedH11):
         def connection_made(self, transport: Any) -> None:
             H11Protocol.connection_made(self, transport)
-            if len(self.connections) > CONNECTIONS:
+            if len(self.connections) > connections():
                 transport.close()
                 return
-            self._arm(REQUEST_SECONDS)
+            self._arm(seconds())
+
+        def handle_events(self) -> None:
+            H11Protocol.handle_events(self)
 
         def on_response_complete(self) -> None:
             H11Protocol.on_response_complete(self)
             if not self.transport.is_closing():
-                self._arm(REQUEST_SECONDS)
+                self._arm(seconds())
 
-    return ListenerH11
+    return LocalH11
+
+
+def _protocol() -> Any:
+    return guarded_protocol(lambda: CONNECTIONS, lambda: REQUEST_SECONDS)
 
 
 def _taken(port: int) -> bool:
