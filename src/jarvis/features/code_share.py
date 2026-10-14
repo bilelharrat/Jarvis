@@ -7,8 +7,10 @@ The owner presses Share live on a session: a link with a long random token is ma
 to a day) or until they revoke it, and only while the app runs (shares are kept in memory,
 never on disk). Whoever opens it sees the session as it goes: its transcript (the
 thinking left out), what it changed (its Changes view, hunk by hunk) and its status. Never
-anything else: no other session, no files, no cards, no way to act. The owner sees how many
-are watching each share right now.
+anything else: no other session, no files, no cards, no way to act. The owner sees who is
+watching each share right now (round 3, S1b: each viewer's network address, since when, and
+the name they gave a suggestion), and can stop one: that viewer, and anyone else from its
+address, can't watch that share again (a stopped link holder would only make up a new id).
 
 Everything a viewer gets goes through the redactors first: the session's own (tasks.redact:
 a secret given to a session, as its $NAME), then share-safe export's (code_export.redact_
@@ -26,9 +28,10 @@ The link works on the Mac's own network. Outside it, it needs askeden.com's rela
 viewers too: docs/eden-code-shared-sessions.md (the site is frozen until then).
 
 Window commands: code_share_start {id, minutes?, comments?}, code_share_revoke {share},
-code_share_state {}, code_share_dismiss {share, comment}.
-Events: code_share {shares: [{share, id, title, url, expires, viewers, comments_on,
-comments}], error?}, code_share_comment {share, id, comment}.
+code_share_state {}, code_share_dismiss {share, comment}, code_share_kick {share, viewer}.
+Events: code_share {shares: [{share, id, title, url, expires, viewers, watchers: [{viewer,
+address, since, name}], comments_on, comments}], error?}, code_share_comment {share, id,
+comment}.
 HTTP (remote.py's server, its own checks: the share's token, never a device's):
 GET /share/<token> (the page), GET /share/<token>/state?v=<viewer>&since=<n>&u=<u>&ck=<key>,
 POST /share/<token>/comment {v, name?, text} (only with suggestions on, from a viewer that
@@ -124,6 +127,11 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _viewer_key(viewer: str) -> str:
+    """A viewer as the owner's window knows it (as a suggestion's card names it)."""
+    return hashlib.sha256(viewer.encode()).hexdigest()[:8]
+
+
 def _updated(entry: dict[str, Any]) -> int:
     """When a transcript entry last changed after it was logged (0: never)."""
     value = entry.get("updated")
@@ -178,6 +186,8 @@ class Share:
     revoked: bool = False
     viewers: dict[str, float] = field(default_factory=dict)  # viewer -> last heard (monotonic)
     addresses: dict[str, str] = field(default_factory=dict)  # viewer -> its network address
+    since: dict[str, float] = field(default_factory=dict)  # viewer -> when it started (time)
+    stopped: set[str] = field(default_factory=set)  # addresses (and ids) the owner stopped
     comments: list[dict[str, Any]] = field(default_factory=list)
     changes: tuple[float, str, Any] = (0.0, "", None)  # (when, key, the view) cached
     changing: asyncio.Future | None = None  # the one working-out of the changes under way
@@ -195,7 +205,30 @@ class Share:
             if now - seen > VIEWER_SECONDS:
                 del self.viewers[viewer]
                 self.addresses.pop(viewer, None)
+                self.since.pop(viewer, None)
         return len(self.viewers)
+
+    def watchers(self) -> list[dict[str, Any]]:
+        """Who is watching, for the owner: each viewer by a short key of its id (the id
+        itself is what a viewer sends: never given out), its address, since when, and the
+        name it gave a suggestion, if any."""
+        self.watching()
+        names = {c.get("viewer"): c.get("name") for c in self.comments}
+        out = []
+        for viewer in self.viewers:
+            key = _viewer_key(viewer)
+            out.append(
+                {
+                    "viewer": key,
+                    "address": self.addresses.get(viewer, ""),
+                    "since": self.since.get(viewer, 0.0),
+                    "name": str(names.get(key) or ""),
+                }
+            )
+        return sorted(out, key=lambda w: w["since"])
+
+    def is_stopped(self, viewer: str, address: str) -> bool:
+        return viewer in self.stopped or bool(address) and address in self.stopped
 
     def from_address(self, address: str) -> int:
         """How many of those watching came from this network address."""
@@ -273,6 +306,7 @@ class Shares:
                     "created": share.created,
                     "expires": share.expires,
                     "viewers": share.watching(),
+                    "watchers": share.watchers(),
                     "comments_on": share.comments_on,
                     "comments": list(share.comments),
                 }
@@ -352,6 +386,27 @@ class Shares:
         share.revoked = True
         self.by_hash.pop(_hash(share.token), None)
         return True
+
+    def cmd_kick(self, msg: dict[str, Any]) -> None:
+        self.kick(str(msg.get("share") or ""), str(msg.get("viewer") or ""))
+        self.publish()
+
+    def kick(self, share_id: str, key: str) -> bool:
+        """The owner stops one viewer (by its key, from watchers()): it, and its address,
+        can't watch this share again; the share goes on for everyone else."""
+        share = self.shares.get(share_id)
+        if share is None or not key:
+            return False
+        found = [v for v in share.viewers if _viewer_key(v) == key]
+        for viewer in found:
+            share.stopped.add(viewer)
+            address = share.addresses.get(viewer, "")
+            if address:
+                share.stopped.add(address)
+            share.viewers.pop(viewer, None)
+            share.addresses.pop(viewer, None)
+            share.since.pop(viewer, None)
+        return bool(found)
 
     def cmd_dismiss(self, msg: dict[str, Any]) -> None:
         share = self.shares.get(str(msg.get("share") or ""))
@@ -548,6 +603,8 @@ class Shares:
         """A viewer counted as watching (False: the share has as many as it takes, or as
         many from this address as one address gets: a link holder making up ids can't take
         every seat from the teammate it was meant for)."""
+        if share.is_stopped(viewer, address):
+            return False
         fresh = viewer not in share.viewers
         if fresh and share.watching() >= MAX_VIEWERS:
             return False
@@ -555,6 +612,7 @@ class Shares:
             return False
         share.viewers[viewer] = time.monotonic()
         share.addresses[viewer] = address
+        share.since.setdefault(viewer, time.time())
         if fresh:
             self.publish()
         return True
@@ -575,7 +633,7 @@ class Shares:
             "name": who,
             "text": words,
             "at": time.time(),
-            "viewer": hashlib.sha256(viewer.encode()).hexdigest()[:8],
+            "viewer": _viewer_key(viewer),
         }
         share.comments = [*share.comments, card][-MAX_COMMENTS:]
         self.hub.emit("code_share_comment", share=share.id, id=share.task_id, comment=card)
@@ -641,6 +699,10 @@ class Shares:
             return JSONResponse({"error": "This share has as many viewers as it takes."},
                                 status_code=429, headers=headers)  # fmt: skip
 
+        def stopped() -> Any:
+            return JSONResponse({"error": "The owner stopped your view of this share."},
+                                status_code=403, headers=headers)  # fmt: skip
+
         def asset(name: str, media_type: str):
             async def serve(_request: Any) -> Any:
                 return Response((WEB_DIR / name).read_bytes(), media_type=media_type,
@@ -665,6 +727,8 @@ class Shares:
             if not viewer:
                 return JSONResponse({"error": "viewer"}, status_code=400, headers=headers)
             address = address_of(request)
+            if share.is_stopped(viewer, address):
+                return stopped()
             refused = limited(share, viewer, address, "view")
             if refused is not None:
                 return refused
@@ -716,6 +780,8 @@ class Shares:
             # would each get a fresh budget.
             share.watching()
             address = address_of(request)
+            if share.is_stopped(viewer, address):
+                return stopped()
             if share.addresses.get(viewer) != address:
                 return JSONResponse({"error": "Open the share's page to make a suggestion."},
                                     status_code=403, headers=headers)  # fmt: skip
@@ -756,3 +822,4 @@ def install(hub: Any) -> None:
     hub.register_command("code_share_revoke", shares.cmd_revoke)
     hub.register_command("code_share_state", shares.cmd_state)
     hub.register_command("code_share_dismiss", shares.cmd_dismiss)
+    hub.register_command("code_share_kick", shares.cmd_kick)

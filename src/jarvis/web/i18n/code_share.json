@@ -17,6 +17,9 @@
     "Copy into the composer": "复制到输入框",
     "Yours to edit and send; nothing is sent by itself": "由你编辑后发送；不会自动发送任何内容",
     "Dismiss": "关闭",
+    "Watching now": "正在观看",
+    "Stop": "停止",
+    "They can’t watch this link again from that device; everyone else goes on": "他们不能再从那台设备观看这个链接；其他人照常观看",
     "How long the link works": "链接有效多久",
     "Link works for": "链接有效期",
     "15 minutes": "15 分钟",
@@ -34,6 +37,10 @@
     ["^Ends in (\\d+) min$", "$1 分钟后结束"],
     ["^Ends in (\\d+) h$", "$1 小时后结束"],
     ["^Their browser will warn about this Mac’s own certificate\\. Its fingerprint starts (.+)\\.$", "他们的浏览器会对这台 Mac 自己的证书发出警告。它的指纹开头是 $1。"],
-    ["^Suggestion from (.+)$", "来自 $1 的建议"]
+    ["^Suggestion from (.+)$", "来自 $1 的建议"],
+    ["^A viewer at (.+), just now$", "$1 的一位观看者，刚刚开始"],
+    ["^A viewer at (.+), for (\\d+) min$", "$1 的一位观看者，已看 $2 分钟"],
+    ["^(.+) at (.+), just now$", "$2 的 $1，刚刚开始"],
+    ["^(.+) at (.+), for (\\d+) min$", "$2 的 $1，已看 $3 分钟"]
   ]
 }

@@ -76,3 +76,17 @@ test('every string the Share pane shows has its Chinese', () => {
   const match = (text) => zh.patterns.some(([re]) => new RegExp(re).test(text));
   assert.ok(['3 watching', '1 watching', 'Ends in 5 min', 'Ends in 2 h', 'Suggestion from Alex'].every(match));
 });
+
+// Round 3, S1b: the owner sees who is watching, each with Stop.
+test('each viewer is said by its address (and the name on its suggestions), and since when', () => {
+  const now = 10_000;
+  assert.equal(pane.watcherText({ address: '10.0.0.7', since: now - 5 }, now), 'A viewer at 10.0.0.7, just now');
+  assert.equal(pane.watcherText({ address: '10.0.0.7', since: now - 600, name: 'Alex' }, now), 'Alex at 10.0.0.7, for 10 min');
+  const zh = JSON.parse(readFileSync(new URL('../../src/jarvis/web/i18n/code_share.json', import.meta.url), 'utf8'));
+  const said = (text) => zh.patterns.some(([re]) => new RegExp(re).test(text));
+  assert.ok(said('A viewer at 10.0.0.7, just now') && said('Alex at 10.0.0.7, for 10 min'));
+  for (const s of ['Stop', 'Watching now', 'They can’t watch this link again from that device; everyone else goes on']) assert.ok(zh.strings[s], s);
+  const source = readFileSync(new URL('../../src/jarvis/web/features/code_share.js', import.meta.url), 'utf8');
+  assert.match(source, /send\(\{ type: 'code_share_kick', share: share\.share, viewer: w\.viewer \}\)/);
+  assert.match(readFileSync(new URL('../../src/jarvis/web/share.js', import.meta.url), 'utf8'), /reply\.status === 403\) \{ ended\(\); return; \}/);
+});

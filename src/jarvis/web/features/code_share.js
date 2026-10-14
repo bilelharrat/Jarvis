@@ -1,7 +1,8 @@
 // Eden Code's Share live (features/code_share.py, Labs): a read-only live view of the open
 // session for a teammate, by a link the phone companion's server serves on this Mac's
-// network. The Share pane (More › Share live…): a share's link to copy, how many are
-// watching, when it ends, Revoke; a new share for 15 minutes to a day; and phase 2, behind
+// network. The Share pane (More › Share live…): a share's link to copy, who is watching
+// (each viewer's address, since when, the name on its suggestions) with Stop for one (round
+// 3, S1b: it, and its address, can't watch that share again), when it ends, Revoke; a new share for 15 minutes to a day; and phase 2, behind
 // its own switch, viewers' suggestions as cards here (copy one into the composer, or
 // dismiss it): never sent to the session.
 //
@@ -32,7 +33,14 @@
     return `Suggestion from ${comment.name || 'a viewer'}: ${comment.text}`;
   }
 
-  const api = { watchingText, endsText, composerText, MINUTES };
+  // One viewer, in words, for the owner (w: code_share's watchers(); now: seconds since 1970).
+  function watcherText(w, now) {
+    const who = w.name ? `${w.name} at ${w.address || 'an unknown address'}` : `A viewer at ${w.address || 'an unknown address'}`;
+    const minutes = Math.max(0, Math.round((now - (w.since || now)) / 60));
+    return minutes < 1 ? `${who}, just now` : `${who}, for ${minutes} min`;
+  }
+
+  const api = { watchingText, endsText, composerText, watcherText, MINUTES };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -69,6 +77,7 @@
     link.setAttribute('aria-label', 'Share link');
     link.addEventListener('focus', () => link.select());
     card.append(link);
+    if (share.watchers && share.watchers.length) card.append(watcherList(share));
     const actions = el('div', 'jcx-share-actions');
     actions.append(
       button('Copy link', 'jc-btn small filled', async (b) => {
@@ -83,6 +92,24 @@
     }
     for (const c of share.comments || []) card.append(commentCard(share, c));
     return card;
+  }
+
+  // Who is watching, each with Stop (that viewer, and its address, can't watch this share again).
+  function watcherList(share) {
+    const list = el('ul', 'jcx-share-watchers');
+    list.setAttribute('aria-label', 'Watching now');
+    const now = Date.now() / 1000;
+    for (const w of share.watchers) {
+      const li = el('li');
+      const words = mine(el('span', '', ''));
+      words.textContent = t(watcherText(w, now));  // (an address and a name the viewer gave: data)
+      const stop = button('Stop', 'jc-btn small', () => send({ type: 'code_share_kick', share: share.share, viewer: w.viewer }),
+        'They can’t watch this link again from that device; everyone else goes on');
+      stop.setAttribute('aria-label', `${t('Stop')}: ${words.textContent}`);
+      li.append(words, stop);
+      list.append(li);
+    }
+    return list;
   }
 
   function commentCard(share, c) {

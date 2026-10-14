@@ -124,7 +124,7 @@
     let data;
     try {
       const reply = await fetch(stateUrl(root.location.pathname, viewer, since, key, seen), { cache: 'no-store', credentials: 'omit' });
-      if (reply.status === 404) { ended(); return; }
+      if (reply.status === 404 || reply.status === 403) { ended(); return; }  // (403: the owner stopped this view)
       if (!reply.ok) { timer = setTimeout(poll, POLL_MS * 2); return; }
       data = await reply.json();
     } catch (_) {
