@@ -31,3 +31,27 @@ test('files mentioned in the composer, spaced from what’s there', () => {
   assert.equal(S.mentionText(['a.py', 'b.py'], 'look at'), ' @a.py @b.py ');
   assert.equal(S.mentionText(['a.py'], 'look at '), '@a.py ');
 });
+
+test('the code index’s answer, drawn as places by meaning in rank order', () => {
+  const r = S.meaningResult({
+    ref: 'm1',
+    results: [
+      { path: 'src/app.py', line: 17, snippet_line: 15, snippet: 'class X:\n\n    async def wait(self):\n        pass', symbol: 'Uploader.wait', kind: 'method', why: 'meaning 0.81; words: retry' },
+      { path: 'web/cart.ts', line: 5, snippet_line: 5, snippet: 'export function renderTotal(cart) {', symbol: '', kind: '', why: 'words: total' },
+      { path: 'src/app.py', line: 6, snippet_line: 6, snippet: '', symbol: 'parse_config', kind: 'function', why: 'named parse_config' },
+    ],
+    note: '',
+  });
+  assert.equal(r.meaning, true);
+  assert.deepEqual(r.files.map((f) => [f.path, f.symbol, f.matches[0].line, f.matches[0].text]), [
+    ['src/app.py', 'method Uploader.wait', 17, '    async def wait(self):'],
+    ['web/cart.ts', '', 5, 'export function renderTotal(cart) {'],
+    ['src/app.py', 'function parse_config', 6, ''],
+  ]);
+  assert.equal(r.files[0].why, 'meaning 0.81; words: retry');
+  assert.equal(S.summary(r), '3 places by meaning, best first');
+  assert.deepEqual(S.uniquePaths(r.files), ['src/app.py', 'web/cart.ts']);
+  assert.equal(S.summary(S.meaningResult({ results: [], note: 'By words and names only this time.' })), 'Nothing found by meaning. By words and names only this time.');
+  assert.equal(S.summary(S.meaningResult({ results: [] })), 'Nothing found by meaning.');
+  assert.equal(S.summary(S.meaningResult({ error: 'Search by meaning is off.' })), 'Search by meaning is off.');
+});

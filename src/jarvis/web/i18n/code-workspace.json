@@ -153,7 +153,14 @@
     "Lost chats": "丢失的对话",
     "Heads-ups a day": "每天的提醒数",
     "Bring back": "恢复",
-    "Hands-free answers in": "免提回答用时"
+    "Hands-free answers in": "免提回答用时",
+    "By meaning": "按含义",
+    "By meaning: describe what the code does, or name it": "按含义：描述代码做什么，或说出它的名字",
+    "Describe the code, or name it": "描述代码，或说出它的名字",
+    "Nothing found by meaning.": "按含义没有找到。",
+    "Say what to look for.": "说说要找什么。",
+    "Search by meaning is off (Settings › Eden Code: the code index).": "按含义搜索已关闭（设置 › Eden Code：代码索引）。",
+    "By words and names only this time: the meaning model didn't answer.": "这次只按文字和名字：含义模型没有回应。"
   },
   "patterns": [
     [
@@ -223,6 +230,14 @@
     [
       "^Couldn't save the export: (.+)$",
       "没能保存导出的文件：$1"
+    ],
+    [
+      "^1 place by meaning, best first$",
+      "按含义找到 1 处"
+    ],
+    [
+      "^(\\d+) places by meaning, best first$",
+      "按含义找到 $1 处，最相关的在前"
     ]
   ]
 }

@@ -5,6 +5,9 @@
 // - The matches by file, the matched part marked; a match opens its file at its line.
 // - A file's matches become an @-mention in the composer (one file, or all of them), for
 //   Eden Code to read.
+// - "By meaning" (features/code_index.py, code_index.py): the project's code index instead,
+//   by meaning, words and symbol names together ("where do we retry uploads"): the best
+//   places first, each with its function or class and why it's there (ci_search).
 // Pure helpers are exported for node --test (tests/web/code-search.test.mjs).
 (function (root) {
   'use strict';
@@ -12,6 +15,7 @@
   const WAIT_MS = 350;  // after the last key, a search
   const MIN_CHARS = 2;  // fewer, and only Enter searches
   const MENTION_ALL_MAX = 20;  // files "Mention all" puts in the composer
+  const MEANING_WAIT_MS = 600;  // by meaning: a longer pause (each search embeds the query)
 
   // A line cut into [text, matched?] pieces by the spans the search found.
   function pieces(text, spans) {
@@ -31,6 +35,11 @@
   function summary(r) {
     if (!r) return '';
     if (r.error) return r.error;
+    if (r.meaning) {
+      const n = r.files.length;
+      const head = n ? `${n} ${n === 1 ? 'place' : 'places'} by meaning, best first` : 'Nothing found by meaning';
+      return r.note ? `${head}. ${r.note}` : (n ? head : `${head}.`);
+    }
     if (!r.total) return r.stopped ? 'Stopped before anything matched.' : 'No matches.';
     const files = r.files.length;
     const head = `${r.total} ${r.total === 1 ? 'match' : 'matches'} in ${files} ${files === 1 ? 'file' : 'files'}`;
@@ -43,7 +52,29 @@
     return `${before && !/\s$/.test(before) ? ' ' : ''}${words} `;
   }
 
-  const api = { pieces, summary, mentionText };
+  // The code index's answer (ci_search) as the pane draws a result: a group a place, in
+  // rank order (a file can come twice), its line the symbol's own, with why it's there.
+  function meaningResult(ev) {
+    if (!ev || ev.error) return { error: (ev && ev.error) || 'No answer.', files: [], total: 0, meaning: true };
+    const files = (ev.results || []).map((r) => {
+      const first = String(r.snippet || '').split('\n');
+      const at = Math.max(0, (r.line || 0) - (r.snippet_line || r.line || 0));
+      return {
+        path: r.path,
+        symbol: r.symbol ? `${r.kind ? `${r.kind} ` : ''}${r.symbol}` : '',
+        why: r.why || '',
+        matches: [{ line: r.line, text: first[Math.min(at, first.length - 1)] || '', spans: [] }],
+      };
+    });
+    return { files, total: files.length, meaning: true, note: ev.note || '' };
+  }
+
+  // Each file once, in the order they came: for "Mention all".
+  function uniquePaths(files) {
+    return [...new Set((files || []).map((f) => f.path))];
+  }
+
+  const api = { pieces, summary, mentionText, meaningResult, uniquePaths };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -51,7 +82,7 @@
   const { el } = F;
   const mine = (node) => { node.setAttribute('data-no-i18n', ''); return node; };
 
-  const state = { text: '', regex: false, case: false, word: false, include: '', result: null, ref: '', busy: false, where: '' };
+  const state = { text: '', regex: false, case: false, word: false, meaning: false, include: '', result: null, ref: '', busy: false, where: '' };
   let refN = 0;
   let timer = 0;
   let host = null;
@@ -82,10 +113,11 @@
       state.busy = true;
       const where = root.JarvisEditor.where();
       state.where = JSON.stringify(where);
-      F.send({ type: 'cw_search', ...where, text, regex: state.regex, case: state.case, word: state.word, include: state.include, ref: state.ref });
+      if (state.meaning) F.send({ type: 'ci_search', ...where, text, include: state.include, ref: state.ref });
+      else F.send({ type: 'cw_search', ...where, text, regex: state.regex, case: state.case, word: state.word, include: state.include, ref: state.ref });
       drawStatus();
     };
-    if (now) go(); else timer = setTimeout(go, WAIT_MS);
+    if (now) go(); else timer = setTimeout(go, state.meaning ? MEANING_WAIT_MS : WAIT_MS);
   }
 
   function toggle(label, title, prop) {
@@ -110,7 +142,16 @@
       if (e.key === 'Enter') { e.preventDefault(); run(true); }
       if (e.key === 'Escape' && input.value) { e.preventDefault(); e.stopPropagation(); input.value = ''; state.text = ''; run(true); }
     });
-    row.append(input, toggle('Aa', 'Match case', 'case'), toggle('ab', 'Whole words', 'word'), toggle('.*', 'Regular expression', 'regex'));
+    const exact = [toggle('Aa', 'Match case', 'case'), toggle('ab', 'Whole words', 'word'), toggle('.*', 'Regular expression', 'regex')];
+    const meaning = toggle('By meaning', 'By meaning: describe what the code does, or name it', 'meaning');
+    meaning.classList.add('cs-meaning');
+    const placeholder = () => {
+      input.placeholder = state.meaning ? 'Describe the code, or name it' : 'Search the project';
+      for (const b of exact) b.disabled = state.meaning;  // (they're for text matches only)
+    };
+    meaning.addEventListener('click', placeholder);
+    placeholder();
+    row.append(input, ...exact, meaning);
     const include = el('input', 'jc-field cs-include');
     include.placeholder = 'Files to search: *.py, src/, !tests/';
     include.setAttribute('aria-label', 'Files to search');
@@ -122,7 +163,7 @@
     const all = el('button', 'jc-mini cs-all', 'Mention all');
     all.type = 'button';
     all.title = 'Put these files in the message, as @-mentions';
-    all.addEventListener('click', () => { if (state.result) mention(state.result.files.slice(0, MENTION_ALL_MAX).map((f) => f.path)); });
+    all.addEventListener('click', () => { if (state.result) mention(uniquePaths(state.result.files).slice(0, MENTION_ALL_MAX)); });
     const bar = el('div', 'cs-bar');
     bar.append(status, all);
     const list = el('div', 'cs-results');
@@ -156,9 +197,12 @@
       const at = el('button', 'jc-mini cs-mention', '@');
       at.type = 'button';
       at.title = 'Mention this file in the message';
+      at.setAttribute('aria-label', `Mention ${f.path} in the message`);
       at.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); mention([f.path]); });
-      head.append(name, count, at);
+      if (f.symbol) head.append(name, mine(el('span', 'cs-symbol', f.symbol)), at);
+      else head.append(name, count, at);
       group.append(head);
+      if (f.why) group.append(mine(el('div', 'cs-why', f.why)));
       for (const m of f.matches) {
         const line = el('button', 'cs-match');
         line.type = 'button';
@@ -196,6 +240,13 @@
     if (ev.ref !== state.ref) return;  // an older search's answer
     state.busy = false;
     state.result = ev;
+    draw();
+  });
+
+  F.on('ci_search', (ev) => {
+    if (ev.ref !== state.ref) return;
+    state.busy = false;
+    state.result = meaningResult(ev);
     draw();
   });
 })(typeof window === 'object' ? window : globalThis);
