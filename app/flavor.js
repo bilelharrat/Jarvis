@@ -25,6 +25,9 @@ const FLAVORS = {
     id: 'jarvis',
     name: 'Eden Secretary',
     title: 'Eden Secretary',
+    // The name its cookies' encryption key goes by (keychain-name.js): fixed, so a rename never
+    // signs the owner out of every site.
+    keyName: 'Eden Secretary',
     logName: 'Jarvis',
     appUserModelId: 'com.askeden.jarvis.win', // Windows: the installer's appId, which toasts are shown under
     socketApp: 'jarvis', // what its window says on the socket (server.APPS)
@@ -38,6 +41,7 @@ const FLAVORS = {
     id: 'daredevil',
     name: 'Eden Daredevil',
     title: 'Eden Daredevil',
+    keyName: 'Eden Secretary', // Eden Secretary's profile, so Eden Secretary's key: both read its cookies
     logName: 'Jarvis', // J.A.R.V.I.S.'s logs and data folder: it is the same program
     appUserModelId: 'com.askeden.jarvis.win', // Eden Secretary's too: one app to Windows, so one replaces the other
     userDataName: 'J.A.R.V.I.S.', // …and its Electron profile (window place, the one-at-a-time lock), so never two at once
@@ -52,6 +56,7 @@ const FLAVORS = {
     id: 'eden-code',
     name: 'Eden Code',
     title: 'Eden Code',
+    keyName: 'Eden Code', // (a profile of its own)
     logName: 'Eden Code',
     appUserModelId: 'com.askeden.edencode.win',
     socketApp: 'eden-code',
