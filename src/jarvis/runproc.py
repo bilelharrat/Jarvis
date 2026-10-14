@@ -443,10 +443,12 @@ def session_pids(sid: int) -> list[int]:
             return [sid, *(c.pid for c in psutil.Process(sid).children(recursive=True))]
         return []
     found = []
-    for p in psutil.process_iter(["pid"]):
+    # (p.pid, never p.info: psutil keeps one Process per pid, and another thread's
+    # process_iter with other attrs writes its p.info over this one's)
+    for p in psutil.process_iter():
         with contextlib.suppress(OSError):
-            if os.getsid(p.info["pid"]) == sid:
-                found.append(p.info["pid"])
+            if os.getsid(p.pid) == sid:
+                found.append(p.pid)
     return found
 
 
@@ -475,14 +477,18 @@ def kill_marked(
         return []
     root = os.path.realpath(folder) if folder is not None else ""
     me, killed = os.getpid(), []
-    for p in psutil.process_iter(["pid", "ppid", "create_time"]):
-        pid = p.info["pid"]
+    # Each process read itself, never p.info: psutil keeps one Process per pid, and another
+    # thread's process_iter with other attrs (kill_leftovers' at every command's end) wrote
+    # its p.info over this one's, so p.info["ppid"] was a KeyError that ended a Stopped
+    # Exterminator run "failed", its suite's leftovers still running.
+    for p in psutil.process_iter():
+        pid = p.pid
         if pid == me:
             continue
         try:
             ours = p.environ().get(name) == value
-            if not ours and root and since is not None and p.info["ppid"] == 1:
-                if (p.info["create_time"] or 0) >= since:
+            if not ours and root and since is not None and p.ppid() == 1:
+                if (p.create_time() or 0) >= since:
                     cwd = os.path.realpath(p.cwd())
                     ours = cwd == root or cwd.startswith(root + os.sep)
             if ours:
