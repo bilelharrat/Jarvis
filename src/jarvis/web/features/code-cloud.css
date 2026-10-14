@@ -1,3 +1,6 @@
 /* Eden Code in the cloud (features/code-cloud.js). */
 .jcx-cloud-switch.on { border-color: rgb(127 212 255 / 0.7); background: rgb(127 212 255 / 0.14); color: rgb(var(--c-ink)); }
-.jcx-cloud-switch:disabled { opacity: 0.45; cursor: default; }
+.jcx-cloud-switch:disabled,
+.jcx-cloud-switch[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+/* Why the switch can't be used, said beside it (the switch is described by it). */
+.jcx-cloud-note { font-size: 11px; color: var(--eden-text2, rgb(var(--c-ink) / 0.62)); max-width: 220px; line-height: 1.3; }
