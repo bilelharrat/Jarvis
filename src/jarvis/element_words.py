@@ -507,7 +507,10 @@ def document_text(pick: dict[str, Any]) -> str:
     if pick.get("styles"):
         lines += ["", "Computed styles:"] + [f"  {k}: {v}" for k, v in pick["styles"].items()]
     if pick.get("html"):
-        fence = "````" if "```" in pick["html"] else "```"
+        # Longer than any run of backticks in it, so the page's own can't close it early
+        # and have what follows read as the app's words (four were beaten by five).
+        longest = max((len(r) for r in re.findall(r"`+", pick["html"])), default=0)
+        fence = "`" * max(3, longest + 1)
         note = " (trimmed)" if pick.get("html_cut") else ""
         lines += ["", f"Outer HTML{note}:", f"{fence}html", pick["html"], fence]
     if pick.get("png"):
