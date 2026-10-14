@@ -208,20 +208,22 @@
     sw.setAttribute('aria-checked', String(on));
     // Off asks for the fingerprint first, as Bypass does (the backend wants its proof). One
     // ask at a time: while it's out the switch is busy (aria-busy) and a second press does
-    // nothing (round 2, U12: a double press asked twice).
+    // nothing (round 2, U12: a double press asked twice). Never disabled for it: a disabled
+    // button lets go of the focus, which fell to the page while the sheet was up (round 3,
+    // U3-8); aria-disabled says it can't be pressed, and the guard holds.
     let asking = false;
     sw.addEventListener('click', () => {
       if (asking) return;
       if (!on) { F.send({ type: 'feature_prefs', changes: { code_touchid: true } }); return; }
       asking = true;
-      sw.disabled = true;
+      sw.setAttribute('aria-disabled', 'true');
       sw.setAttribute('aria-busy', 'true');
       fingerprint('touchid-off').then((ok) => {
         const yes = ok === null ? root.confirm(t('Turn off Touch ID for Bypass and risky steps?')) : ok;
         if (yes) F.send({ type: 'feature_prefs', changes: { code_touchid: false } });
       }).finally(() => {
         asking = false;
-        sw.disabled = false;
+        sw.removeAttribute('aria-disabled');
         sw.removeAttribute('aria-busy');
       });
     });

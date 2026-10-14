@@ -341,10 +341,14 @@ test('the Touch ID switch asks once at a time and is busy while it asks', async 
   await new Promise((r) => setTimeout(r, 5));
   assert.equal(asked.filter(([c]) => c === 'feature:touchid:prompt').length, 1, 'asked once');
   assert.equal(sw.getAttribute('aria-busy'), 'true');
-  assert.equal(sw.disabled, true);
+  // Round 3, U3-8: never disabled while it asks (a disabled button drops the focus to the page,
+  // Electron 44): aria-disabled says it, and the press does nothing.
+  assert.equal(sw.disabled, false, 'disabled: the focus would fall to the page');
+  assert.equal(sw.getAttribute('aria-disabled'), 'true');
   finish();
   await new Promise((r) => setTimeout(r, 5));
   assert.equal(sw.getAttribute('aria-busy'), null);
+  assert.equal(sw.getAttribute('aria-disabled'), null);
   assert.equal(sw.disabled, false);
   assert.deepEqual(sent.map((m) => m.type), ['code_touchid_proof', 'feature_prefs']);
 });
