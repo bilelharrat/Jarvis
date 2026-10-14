@@ -3935,10 +3935,11 @@ def kept_output(text: str, limit: int = 2000) -> str:
 
 
 def _output_text(out: Any) -> str:
-    """A step's result as its entry keeps it: its text, head and tail (kept_output)."""
+    """A step's result as its entry keeps it: its text, the first 2000 characters. (A past
+    session's steps, shown again as they were; a live step keeps its head and tail.)"""
     if isinstance(out, list):
         out = "\n".join(str(c.get("text", "")) for c in out if isinstance(c, dict))
-    return kept_output(str(out or ""))
+    return str(out or "")[:2000]
 
 
 # Past sessions' histories as session_history read them, by their record as it was then.
