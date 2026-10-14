@@ -306,3 +306,15 @@ Defaults taken while the owner was away (change any of them):
 - S30: Bypass from the window requires the Touch ID proof; voice (owner's voice + tap) and phone keep their own gates.
 - S3: the owner's own Commit button and pushes still run git hooks (git-lfs needs them).
 - S33: phones on the old app over plain HTTP on Wi-Fi are refused; update the app.
+
+### Wave 2 (2026-10-13): phases 4-6 and F17 merged into `eden-code-hardening`
+UI/a11y, coverage (T1-T10), production basics (O1-O3, O5, the wave-1 switches), F1-F17 all built with tests;
+10,443 Python + 1,199 web tests pass after the merge. Real-UI check (isolated backend on its own empty home, web
+mode): Eden Code loads with every new feature's script, no console or server errors; composer row (Manual, Cloud,
+Bug Fix Mode, Isolated copy, model, effort) labelled; Bug Fix Mode's card names the stack, tests, models, $10 ceiling
+and Touch ID landing; the board's To-do column adds a card. Not yet tried with a real model.
+
+New findings from that check:
+- **N1:** with `JARVIS_PROFILE=code` (Eden Code alone) the second brain still indexes Apple Notes (it read 517 notes
+  into the test profile). Eden Code on its own probably shouldn't read the owner's Notes/Mail/Messages.
+- **N2:** the New card dialog's "On the cloud machine" checkbox is unstyled (white box on the dark theme).
