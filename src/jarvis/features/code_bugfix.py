@@ -34,12 +34,15 @@ the efficiency pass's lists of tests, routes and commands.
 
 The session's scope is an unattended run's (code_unattended): edits in its copy go ahead
 (none while it sweeps; only throwaway scripts in .bugfix/ while it breaks), as do read-only
-commands, the owner's "don't ask again" rules and its stack's test, build and dev commands;
-questions are answered "decide yourself". A step that can't easily be undone (deleting,
-running as root, a download run as a script…) goes to a card, where Touch ID asks (the
-window's code-touchid); owner-only steps (push, publish, sign, upload, deploy) are refused
-and listed; anything else is refused, with words to carry on without it, and kept for the
-report.
+commands, the owner's "don't ask again" rules and its stack's test, build and dev commands
+(never with an option that hands them another program to run: go test -exec, node
+--import…); questions are answered "decide yourself". Its commands run in Claude Code's
+sandbox, as an unattended issue run's do: writes only in the copy, no network. A step that
+can't easily be undone (deleting, running as root, a download run as a script…), running
+one of its own .bugfix/ scripts and starting the project's dev server (its launch.json's
+command) go to a card, where Touch ID asks (the window's code-touchid); owner-only steps
+(push, publish, sign, upload, deploy) are refused and listed; anything else is refused,
+with words to carry on without it, and kept for the report.
 
 Starting asks first, on a card with the whole scope: the rounds, the models, the spending
 ceiling for the whole run (shown up front; Claude Code stops each connection at what's left
@@ -195,7 +198,7 @@ RISKY = [
 ]
 # The commands each stack's work needs (beyond the read-only ones), as the words they start
 # with: its tests, builds, linters and dev servers. Never a bare runner (python, node), but
-# the run's own throwaway scripts in .bugfix/ may run with one (see allowed()).
+# the run's own throwaway scripts in .bugfix/ may run with one, on a card (scratch_script).
 STACK_COMMANDS: dict[str, tuple[str, ...]] = {
     "python": ("pytest", "python -m pytest", "python3 -m pytest", "uv run pytest",
                "uv run python -m pytest", ".venv/bin/python -m pytest", "venv/bin/python -m pytest",
@@ -487,25 +490,70 @@ def detect_stack(folder: Path) -> dict[str, Any]:
     }
 
 
-def command_allowed(stack: dict[str, Any], command: str) -> bool:
-    """Whether a command is one of the stack's own (its tests, builds, linters, dev
-    servers), or a throwaway script of the run's in .bugfix/ run with the stack's runner. One
-    plain command: no pipes, redirects, chains or substitutions."""
+def _stack_words(command: str) -> list[str] | None:
+    """A command's words, when it's one plain command: no pipes, redirects, chains or
+    substitutions."""
     command = command.strip()
     if not command or _SHELL.search(command):
-        return False
+        return None
     try:
-        words = shlex.split(command)
+        return shlex.split(command) or None
     except ValueError:
-        return False
+        return None
+
+
+def _kinds(stack: dict[str, Any]) -> set[str]:
     kinds = set(stack.get("kinds") or [])
     if "electron" in kinds or "web" in kinds:
         kinds.add("node")
-    for kind in kinds:
+    return kinds
+
+
+# Options of a stack's own commands that hand it another program (or code) to run: "go test
+# -exec /bin/sh", "node --test --import ./x.mjs", "npm test --script-shell=…", "cargo test
+# --config target.….runner=…", a pytest plugin. With one, a test command runs anything.
+_RUNS_OTHER = frozenset({
+    "-exec", "-toolexec", "--import", "--require", "-r", "--loader", "--experimental-loader",
+    "-e", "--eval", "-p", "--print", "--script-shell", "--node-options", "--config", "-Z",
+})  # fmt: skip
+_P_IS_PACKAGE = ("go", "cargo", "swift")  # (their -p is a package or a count, not a plugin)
+
+
+def runs_other_code(words: list[str]) -> bool:
+    for word in words[1:]:
+        flag = word.split("=", 1)[0]
+        if flag == "-p" and words[0] in _P_IS_PACKAGE:
+            continue
+        if flag in _RUNS_OTHER:
+            return True
+        if "pytest" in words and word.startswith("-p") and not word.startswith("--"):
+            return True  # (pytest's -pplugin, written together)
+    return False
+
+
+def command_allowed(stack: dict[str, Any], command: str) -> bool:
+    """Whether a command is one of the stack's own (its tests, builds, linters, dev
+    servers), with none of the options that make it run another program. One plain
+    command. (A throwaway script of the run's is scratch_script's: the owner's card.)"""
+    words = _stack_words(command)
+    if words is None or runs_other_code(words):
+        return False
+    for kind in _kinds(stack):
         for entry in STACK_COMMANDS.get(kind, ()):
             want = entry.split()
             if words[: len(want)] == want:
                 return True
+    return False
+
+
+def scratch_script(stack: dict[str, Any], command: str) -> bool:
+    """Whether a command runs a throwaway script of the run's in .bugfix/ with the stack's
+    runner (python .bugfix/flood.py). The break step writes those, so whatever the session
+    (or a file it read) put in one runs: it goes to the owner's card, never ahead unasked."""
+    words = _stack_words(command)
+    if words is None or runs_other_code(words):
+        return False
+    for kind in _kinds(stack):
         for runner in RUNNERS.get(kind, ()):
             want = runner.split()
             rest = words[len(want) :]
@@ -1010,6 +1058,28 @@ class BugFix:
         options.max_budget_usd = left
         options.agents = {**(options.agents or {}), **self.agents(run, task)}
         options.can_use_tool = self.guard(task, options.can_use_tool)
+        options.sandbox = self.sandbox(options.sandbox)
+
+    @staticmethod
+    def sandbox(before: Any) -> dict[str, Any]:
+        """Claude Code's sandbox, as an unattended run's lock_down has it: the run's commands
+        (the project's own tests and builds, so anyone's code) write only in its copy and
+        reach no network, with no way out for a command. A unix socket another feature let
+        through stays (a container's docker, features/code_setup.py)."""
+        network: dict[str, Any] = {"allowedDomains": [], "allowLocalBinding": True}
+        sockets = (
+            ((before or {}).get("network") or {}).get("allowUnixSockets")
+            if isinstance(before, dict)
+            else None
+        )
+        if sockets:
+            network["allowUnixSockets"] = list(sockets)
+        return {
+            "enabled": True,
+            "autoAllowBashIfSandboxed": False,
+            "allowUnsandboxedCommands": False,
+            "network": network,
+        }
 
     def agents(self, run: BugRun, task: Any) -> dict[str, AgentDefinition]:
         """The sweep's auditors: read-only, on the cheap model (the session's own model when
@@ -1077,6 +1147,8 @@ class BugFix:
     ) -> str | None:
         """None when a step is within the run's scope now, "card" when it's the owner's to
         decide on a card, else why it's refused."""
+        if private := tasks._private_target(tool_name, tool_input):
+            return f"{private} is a folder the owner keeps private: nothing in it may be read"
         if tool_name in tasks.EDIT_TOOLS:
             path = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
             if run.step == "sweep":
@@ -1086,8 +1158,12 @@ class BugFix:
         ruled = self.hub.tasks._ruled(task, tool_name, tool_input)
         if ruled is not None and ruled[0] != "allow":
             return "card"  # the owner's own rule asks (or refuses): theirs, as always
-        if self.hub.tasks._goes_ahead(task, tool_name, tool_input) is not None:
-            return None
+        free = self.hub.tasks._goes_ahead(task, tool_name, tool_input)
+        if free is not None and not (
+            free[1] == tasks.READ_ONLY_WHY
+            and not tasks.reads_inside(str(tool_input.get("command", "")), task.cwd)
+        ):
+            return None  # (a read-only command naming a path outside its copy doesn't: B7)
         if tool_name == "Bash":
             command = str(tool_input.get("command", ""))
             if owner_only(command):
@@ -1096,11 +1172,15 @@ class BugFix:
                 return "card"
             if command_allowed(run.stack, command):
                 return None
+            if scratch_script(run.stack, command):
+                return "card"  # (its own script: the owner reads it on the card)
             return "that command isn't one of this stack's own; run one plain command at a time"
         if tool_name in ("Agent", "Task", "BashOutput", "KillShell", "KillBash"):
             return None  # its subagents (the auditors), and its own background shells
+        if tool_name == "mcp__jarvis_dev__dev_server_start":
+            return "card"  # (runs the project's launch.json command: the owner decides)
         if tool_name.startswith("mcp__jarvis_dev__"):
-            return None  # its dev servers (code_verify): start, stop, logs
+            return None  # its dev servers (code_verify): list, stop, logs
         if tool_name in tasks.EDIT_TOOLS:
             return "card"  # an edit outside the copy: the owner decides
         return "that step isn't in Bug Fix Mode's scope"
