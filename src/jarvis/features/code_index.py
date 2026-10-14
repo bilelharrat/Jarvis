@@ -13,7 +13,9 @@ in the project search pane.
   finishing re-reads the files it changed (the hub's task_finished); a search looks for
   changed files first when the last look is more than code_index.REFRESH_SECONDS old. One
   update a project at a time; one asked for meanwhile runs after it.
-- Where: the app's data folder (code_index/<project>-<hash>/), never in the project.
+- Where: the app's data folder (code_index/<project>-<hash>/), never in the project. An
+  isolated copy's index goes once the copy does (landed, discarded, swept); any other
+  whose project is no longer there, after code_index.STALE_DAYS untouched.
 - Window commands: ci_search {id | directory, text, include?, limit?, ref} answered with
   ci_search {ref, results, how, note, status, seconds} or {ref, error}; ci_status {id |
   directory} answered with ci_status {status}. web/features/code-search.js's "By meaning"
@@ -54,6 +56,7 @@ TOOLS = [f"mcp__{SERVER}__codebase_search", f"mcp__{SERVER}__symbol_lookup"]
 FOLDER = "code_index"
 INDEXES_KEPT = 12  # projects' indexes kept in memory at once (the rest load again when asked)
 TOOL_REFRESH_SECONDS = 20.0  # a session's search waits this long for changed files at most
+TIDY_EVERY = 6 * 3600  # seconds between looks for indexes whose project is gone
 TOOL_EMBED_SECONDS = 5.0  # ...and embeds new passages for this long (the rest: in the background)
 
 
@@ -68,6 +71,7 @@ class IndexDesk:
         self._query_lock = threading.Lock()
         self.source_override: Any = None  # (the tests' own embedder source)
         self.query_override: Any = None  # (the tests' own query vectors)
+        self._hooked = False  # on code_isolation's on_copy_gone yet
 
     def on(self) -> bool:
         try:
@@ -79,6 +83,7 @@ class IndexDesk:
         return self.hub.feature_path(FOLDER)
 
     def index_for(self, root: Path) -> code_index.CodeIndex:
+        self._hook_copies()
         key = str(Path(root).resolve())
         index = self.indexes.get(key)
         if index is None:
@@ -309,9 +314,56 @@ class IndexDesk:
         )
 
 
+    # ── indexes whose project is gone ──
+
+    def tidy(self, gone_copy: bool = False) -> list[str]:
+        """Remove the indexes of projects no longer there (code_index.tidy): an isolated
+        copy's at once, once it's gone (gone_copy: from code_isolation's on_copy_gone); any
+        other after code_index.STALE_DAYS untouched. Never one in memory or updating."""
+        live = {str(i.root) for i in list(self.indexes.values())} | set(self._busy)
+        gone_now = self._a_copy if gone_copy else (lambda _root: False)
+        return code_index.tidy(self.base(), in_use=live.__contains__, gone_now=gone_now)
+
+    def _a_copy(self, root: str) -> bool:
+        """root is (was) an isolated copy's folder."""
+        copies = getattr(getattr(self.hub, "code_desk", None), "root", None)
+        return copies is not None and Path(root).is_relative_to(Path(copies).resolve())
+
+    def _hook_copies(self) -> None:
+        """On code_isolation's on_copy_gone, once (it installs after this feature, so this
+        is done on first use of an index and when the loops start)."""
+        if self._hooked:
+            return
+        copies = getattr(self.hub, "code_desk", None)
+        if copies is not None:
+            self._hooked = True
+            copies.on_copy_gone.append(self.on_copy_gone)
+
+    def on_copy_gone(self, _slug: str) -> None:
+        # The gone copy's index is let go of here first (on the loop, where it's used), so
+        # the tidy doesn't take it for one in use.
+        for key in [k for k in self.indexes if k not in self._busy and self._a_copy(k)]:
+            if not Path(key).exists():
+                del self.indexes[key]
+        self.hub._spawn(asyncio.to_thread(self.tidy, True))
+
+    async def tidier(self) -> None:
+        """Hooked to the copies once every feature is in (code_isolation installs after
+        this one), then a tidy now and then."""
+        self._hook_copies()
+        await asyncio.sleep(120)
+        while True:
+            try:
+                await asyncio.to_thread(self.tidy)
+            except Exception:
+                log.exception("code index: couldn't tidy the indexes")
+            await asyncio.sleep(TIDY_EVERY)
+
+
 def install(hub: Any) -> None:
     desk = IndexDesk(hub)
     hub.code_index = desk  # (for the tests)
+    hub.register_loop("code_index_tidy", desk.tidier)
     hub.tasks.session_extras.append(desk.extend)
     hub.add_event_sink(("task_finished",), desk.finished)
     hub.register_command("ci_search", desk.cmd_search, slow=True)

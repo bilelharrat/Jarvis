@@ -121,11 +121,13 @@ class IndexServer(Bridge):
         super().__init__(folder=folder)
         self.index = code_index.CodeIndex(root, folder)
         self._embedder: Any = None
+        self._kind = ""  # the embedder _embedder is for
 
     def query_vector(self, text: str) -> Any:
         self.index.load()
-        if self._embedder is None:
-            self._embedder = code_index.query_embedder_for(self.index.embedder_name)
+        kind = self.index.embedder_name
+        if self._embedder is None or self._kind != kind:  # (the app's update may switch it)
+            self._embedder, self._kind = code_index.query_embedder_for(kind), kind
             if self._embedder is None:
                 return None
         return code_index.query_vector_for(self._embedder)(text)

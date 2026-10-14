@@ -50,6 +50,7 @@ import logging
 import math
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -69,11 +70,13 @@ log = logging.getLogger("jarvis")
 VERSION = 1
 INDEX_NAME = "index.json"
 VECTORS_NAME = "vectors.npz"
+ROOT_NAME = "root.txt"  # the project's path alone, for a tidy that needn't read index.json
 DIM = embeddings.DIM  # every embedder's vectors are this long (winembed pads to it)
 FILES_MAX = 20_000  # files an index holds, at most
 FILE_BYTES_MAX = 512_000  # bigger files are left out (generated, data, bundles)
 LONG_LINE = 3000  # a line longer than this: a minified or generated file, left out
 SNIFF = 8000  # bytes looked at for a NUL (a binary file)
+STALE_DAYS = 30.0  # an index whose project is gone is kept this long (an unplugged drive)
 SCAN_SECONDS = 30.0  # one pass reading changed files, at most
 SYMBOLS_PER_FILE = 2000
 IMPORTS_PER_FILE = 100
@@ -695,6 +698,63 @@ def _pending(files: dict[str, FileEntry], vectors: dict[bytes, Any]) -> int:
     return len({c.key for e in files.values() for c in e.chunks} - vectors.keys())
 
 
+def root_of(folder: Path) -> str:
+    """The project an index folder is for ("" when it can't be told): root.txt, else (an
+    index from before it) index.json's "root"."""
+    try:
+        return (Path(folder) / ROOT_NAME).read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    try:
+        data = json.loads((Path(folder) / INDEX_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(data.get("root") or "") if isinstance(data, dict) else ""
+
+
+def tidy(
+    base: Path,
+    *,
+    in_use: Callable[[str], bool] = lambda _root: False,
+    gone_now: Callable[[str], bool] = lambda _root: False,
+    days: float = STALE_DAYS,
+    now: Callable[[], float] = time.time,
+) -> list[str]:
+    """Remove the index folders under base whose project is no longer there: at once when
+    gone_now(root) says it's one that went for good (an isolated copy landed or discarded:
+    each had an index of its own, and none was ever removed), else once nothing has
+    touched the index for `days` (a project on a drive that isn't plugged in keeps its
+    index a while). Never one in_use(root), nor one whose project can't be told. Returns
+    the projects whose indexes went."""
+    removed: list[str] = []
+    try:
+        folders = [f for f in Path(base).iterdir() if f.is_dir() and not f.is_symlink()]
+    except OSError:
+        return removed
+    for folder in folders:
+        root = root_of(folder)
+        if not root or in_use(root) or os.path.lexists(root):
+            continue
+        if not gone_now(root):
+            try:
+                touched = max(
+                    (folder / n).stat().st_mtime
+                    for n in (INDEX_NAME, ROOT_NAME, VECTORS_NAME)
+                    if (folder / n).exists()
+                )
+            except (OSError, ValueError):  # (nothing in it to date it by)
+                touched = 0.0
+            if now() - touched < days * 86400:
+                continue
+        try:
+            shutil.rmtree(folder)
+        except OSError as exc:
+            log.info("code index: couldn't remove %s (%s)", folder.name, exc)
+            continue
+        removed.append(root)
+    return removed
+
+
 def index_folder(base: Path, root: Path) -> Path:
     """Where a project's index lives under the app's folder for them: by a hash of its path,
     with its name for whoever looks."""
@@ -728,14 +788,21 @@ class CodeIndex:
         self._chunks_by_key: dict[bytes, list[Chunk]] | None = None
         self._symbols: tuple[dict[str, FileEntry], list[Any]] | None = None
         self.loaded = False
+        self._seen: tuple[Any, Any] = (None, None)  # _stamp() as last read or written
 
     # ── on disk ──
 
     def load(self) -> None:
+        """What's on disk, read once, and again whenever it changes there: the index.json
+        and vectors.npz another process wrote (the stdio server an ACP agent starts reads
+        what the app's own update saves). An index not saved yet is looked for again on the
+        next load: marked loaded with nothing there, the stdio server answered an empty
+        index for the whole session, though the app saved one a moment later."""
         with self.lock:
-            if self.loaded:
+            stamp = self._stamp()
+            if stamp[0] is None or (self.loaded and stamp == self._seen):
                 return
-            self.loaded = True
+            self.loaded, self._seen = True, stamp
             try:
                 data = json.loads((self.folder / INDEX_NAME).read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -758,6 +825,19 @@ class CodeIndex:
             if vectors is not None and vectors.built_at == self.embedder_name:
                 self._vectors = vectors.cached()
             self.pending = _pending(self.files, self._vectors)
+            self._matrix = self._chunks_by_key = self._symbols = None  # (built from these)
+
+    def _stamp(self) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+        """index.json's and vectors.npz's (mtime, size) as they are now (None: not there)."""
+        out: list[tuple[int, int] | None] = []
+        for name in (INDEX_NAME, VECTORS_NAME):
+            try:
+                st = (self.folder / name).stat()
+            except OSError:
+                out.append(None)
+            else:
+                out.append((st.st_mtime_ns, st.st_size))
+        return out[0], out[1]
 
     def save(self) -> None:
         """index.json and vectors.npz, each written whole or not at all."""
@@ -772,12 +852,14 @@ class CodeIndex:
             "files": {p: e.to_json() for p, e in sorted(files.items())},
         }
         path = self.folder / INDEX_NAME
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        try:
-            tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
-            tmp.replace(path)
-        finally:
-            tmp.unlink(missing_ok=True)
+        for target, text in ((path, json.dumps(data, separators=(",", ":"))),
+                             (self.folder / ROOT_NAME, str(self.root))):  # fmt: skip
+            tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            try:
+                tmp.write_text(text, encoding="utf-8")
+                tmp.replace(target)
+            finally:
+                tmp.unlink(missing_ok=True)
         keys = sorted(vectors)
         spaces = sorted({vectors[k][0] for k in keys})
         code = {s: i for i, s in enumerate(spaces)}
@@ -794,6 +876,7 @@ class CodeIndex:
             wanted=len(keys) + self.pending,
             error=self.error,
         ).write(self.folder / VECTORS_NAME)
+        self._seen = self._stamp()  # (its own files: nothing to read back)
 
     # ── keeping it up to date ──
 

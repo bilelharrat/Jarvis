@@ -715,3 +715,67 @@ def test_a_walk_stopped_by_the_time_says_so_and_removes_nothing(tmp_path):
     assert out["removed"] == 0 and set(idx.files) == before and out["truncated"]
     files, truncated = code_index.list_files(root, stop=lambda: True)
     assert truncated and files == []
+
+
+# ── indexes whose project is gone (F5) ──
+
+
+def test_an_index_whose_project_is_gone_goes_after_a_while_or_at_once(tmp_path):
+    import os
+    import shutil
+
+    base = tmp_path / "base"
+    roots = {}
+    for name in ("kept", "gone", "copy", "busy"):
+        roots[name] = make_project(tmp_path / name, git=False)
+        idx = code_index.CodeIndex(roots[name], code_index.index_folder(base, roots[name]))
+        idx.refresh(code_index.hash_source())
+    for name in ("gone", "copy", "busy"):
+        shutil.rmtree(roots[name])
+    copy_root = str(roots["copy"].resolve())
+    busy_root = str(roots["busy"].resolve())
+    removed = code_index.tidy(
+        base, in_use={busy_root}.__contains__, gone_now=lambda r: r == copy_root
+    )
+    assert removed == [copy_root]  # at once; the other gone one waits STALE_DAYS
+    later = code_index.tidy(base, in_use={busy_root}.__contains__, now=lambda: 1e12)
+    assert later == [str(roots["gone"].resolve())]
+    left = {code_index.root_of(f) for f in base.iterdir()}
+    assert left == {str(roots["kept"].resolve()), busy_root}
+    assert os.path.isdir(roots["kept"])
+
+
+async def test_an_isolated_copy_s_index_goes_with_the_copy(hub, tmp_path):
+    import shutil
+
+    desk = hub.code_index
+    copy = make_project(Path(hub.code_desk.root) / "proj-copy", git=False)
+    await desk.update(copy)
+    folder = desk.index_for(copy).folder
+    assert folder.is_dir()
+    shutil.rmtree(copy)
+    hub.code_desk.gone("proj-copy")  # landed or discarded
+    assert await until(lambda: not folder.exists())
+    assert str(copy.resolve()) not in desk.indexes
+
+
+async def test_the_stdio_server_reads_an_index_saved_after_it_started(project, tmp_path):
+    """F6: started before the app's first save, it marked the index loaded with nothing in
+    it and answered an empty index for the whole session; and it never saw an update."""
+    folder = tmp_path / "data" / "idx"
+    server = cim.IndexServer(project, folder)
+
+    async def lookup(name):
+        call = await server.handle(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+             "params": {"name": "symbol_lookup", "arguments": {"name": name}}}
+        )  # fmt: skip
+        return call["result"]["content"][0]["text"]
+
+    assert "src/store.go" not in await lookup("Open")  # nothing saved yet
+    app = code_index.CodeIndex(project, folder)
+    app.refresh(code_index.hash_source())
+    assert "src/store.go:13" in await lookup("Open")
+    (project / "src" / "late.py").write_text("def arrived_later():\n    pass\n")
+    app.refresh(code_index.hash_source())
+    assert "src/late.py" in await lookup("arrived_later")
