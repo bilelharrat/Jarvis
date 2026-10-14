@@ -346,6 +346,58 @@ def test_a_new_file_against_a_new_folder_never_stops_the_sync(tmp_path):
     assert (folder / "z.py").read_text() == "z2\n"
 
 
+def test_a_file_against_a_folder_is_a_conflict_the_owner_settles(tmp_path):
+    """Round 3, P3: a file on one side and a folder of the same name on the other was
+    skipped at every sync, unsaid, for good. Now it's listed once, by that name, and Keep
+    mine makes the owner's kind win, Keep Eden's the copy's."""
+    copy, folder, sync = pair_of(tmp_path, {"x": "file\n", "z.py": "z\n"})
+    sync.sync()
+    (folder / "x").unlink()
+    bump(folder / "x" / "y.txt", "owner made x a folder\n")
+    done = sync.sync()
+    assert done.conflicts == ["x"] and sync.pair.conflicts["x"]["clash"] == "folder"
+    assert sync.pair.public()["clashes"] == ["x"]
+    sync.sync()
+    assert sync.sync().conflicts == [], "listed once"
+    # Keep Eden's: the copy's file wins; the owner's folder goes (they chose it).
+    assert sync.keep("x", "copy")
+    assert (folder / "x").read_text() == "file\n" and "x" not in sync.pair.conflicts
+    sync.sync()
+    assert (copy / "x").read_text() == "file\n"
+    # The other way round: the session makes it a folder; Keep mine keeps the owner's file.
+    (copy / "x").unlink()
+    bump(copy / "x" / "a.txt", "session made x a folder\n")
+    assert sync.sync().conflicts == ["x"] and sync.pair.conflicts["x"]["clash"] == "copy"
+    assert sync.keep("x", "folder")
+    assert (copy / "x").is_file() and (copy / "x").read_text() == "file\n"
+    assert (folder / "x").read_text() == "file\n"
+    # And Keep Eden's for a folder: the owner's file goes, the copy's folder comes over.
+    (copy / "x").unlink()
+    bump(copy / "x" / "a.txt", "session made x a folder\n")
+    sync.sync()
+    assert sync.keep("x", "copy")
+    assert (folder / "x" / "a.txt").read_text() == "session made x a folder\n"
+    assert sync.sync().conflicts == [] and not sync.pair.conflicts
+
+
+def test_a_clash_keep_never_takes_a_folder_with_a_link_in_it_or_a_changed_file(tmp_path):
+    copy, folder, sync = pair_of(tmp_path, {"x": "file\n"})
+    sync.sync()
+    (folder / "x").unlink()
+    bump(folder / "x" / "y.txt", "owner's\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("never deleted\n")
+    (folder / "x" / "docs").symlink_to(outside)
+    sync.sync()
+    assert not sync.keep("x", "copy"), "a link inside: the folder isn't taken away"
+    assert (outside / "keep.txt").exists() and (folder / "x" / "y.txt").exists()
+    (folder / "x" / "docs").unlink()
+    bump(copy / "x", "the session changed it since\n")
+    assert not sync.keep("x", "copy"), "not the version the owner saw"
+    assert (folder / "x" / "y.txt").exists()
+
+
 # ── the owner's folder never emptied by accident (C3) ──
 
 

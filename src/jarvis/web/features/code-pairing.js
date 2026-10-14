@@ -18,6 +18,14 @@
       if (ev.held && ev.held.length) extra.push(`${ev.held.length} held for you`);
       return extra.length ? `On: ${extra.join(', ')}.` : 'On: changes go both ways.';
     },
+    // What a conflict is, when it isn't two versions of a file: a file on one side where the
+    // other has a folder of that name (pairsync.py's clash, round 3 P3). Keep mine keeps the
+    // owner's kind, Keep Eden's the copy's, and the other side's goes.
+    clashNote(ev, path) {
+      return ev && Array.isArray(ev.clashes) && ev.clashes.includes(path)
+        ? 'A file on one side, a folder on the other: the side you keep wins, the other’s goes.'
+        : '';
+    },
   };
 
   if (typeof module === 'object' && module.exports) { module.exports = helpers; return; }
@@ -94,6 +102,7 @@
         const li = el('li');
         const name = el('code', '', path);
         name.dataset.noI18n = '';
+        const note = helpers.clashNote(ev, path);
         const keep = el('span', 'jcx-pair-keep');
         // Each button says which file it keeps (a name on the span around them is never read).
         const mineBtn = button('Keep mine', '', () => send({ type: 'code_pair_keep', id, path, side: 'mine' }));
@@ -102,6 +111,7 @@
         edenBtn.setAttribute('aria-label', `${t('Keep Eden’s')}: ${path}`);
         keep.append(mineBtn, edenBtn);
         li.append(name, keep);
+        if (note) li.append(el('small', 'jcx-pair-note', note));
         list.append(li);
       }
       wrap.append(list);

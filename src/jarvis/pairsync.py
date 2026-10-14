@@ -10,6 +10,11 @@ base):
 - both changed, differently: a conflict. Neither side is written; the file is listed, and
   stays out of the sync until the owner keeps one side (or makes them the same).
 A file deleted on one side and untouched on the other is deleted on the other.
+A file on one side where the other has a folder of the same name (a session that turned
+notes into notes/, an owner who did the opposite) is a conflict too, listed once by that
+name, with everything under it left alone until the owner keeps a side: Keep mine is the
+owner's file or folder, Keep Eden's the copy's, and the other side's goes. (Before round 3,
+P3: both were skipped at every sync, unsaid, for good.)
 
 Files that run code by themselves never go from the copy to the owner's folder unasked:
 git's and Claude Code's own folders, Eden's .jarvis/, hook managers' configs, .envrc, and an
@@ -103,6 +108,8 @@ class Pair:
             "folder": self.folder,
             "on": self.on,
             "conflicts": sorted(self.conflicts)[:200],
+            # (of those, a file on one side and a folder on the other)
+            "clashes": sorted(r for r, c in self.conflicts.items() if c.get("clash"))[:200],
             "held": sorted(self.held)[:200],
         }
 
@@ -393,9 +400,7 @@ def _write(source: Tree, target: Tree, rel: str, expect: str | None, want: Any =
             mode = None
             with contextlib.suppress(OSError):
                 mode = stat.S_IMODE((source.root / rel).lstat().st_mode)
-            return _replace_at(
-                folder, path.name, data, mode, lambda: target.digest(rel) == expect
-            )
+            return _replace_at(folder, path.name, data, mode, lambda: target.digest(rel) == expect)
         finally:
             os.close(folder)
     fd, scratch = tempfile.mkstemp(dir=path.parent, prefix=".eden-pair-")
@@ -415,6 +420,59 @@ def _write(source: Tree, target: Tree, rel: str, expect: str | None, want: Any =
     return True
 
 
+def _kind(tree: Tree, rel: str) -> str:
+    """What's at rel on one side: "file" (a regular one), "dir" (a real folder), "" for
+    nothing, "other" for anything else (a link, a pipe, a way through a link or a file)."""
+    path = tree.path(rel)
+    if path is None:
+        return "other"
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        return ""
+    except OSError:
+        return "other"
+    if stat.S_ISREG(st.st_mode):
+        return "file"
+    return "dir" if stat.S_ISDIR(st.st_mode) else "other"
+
+
+def _files_under(tree: Tree, rel: str) -> list[str] | None:
+    """The regular files in the folder at rel, as paths from the root; None when anything in
+    it is a link (never read through, never deleted as if it were the folder's)."""
+    top = tree.path(rel)
+    if top is None:
+        return None
+    found: list[str] = []
+    for here, dirs, files in os.walk(top, followlinks=False):
+        for name in [*dirs, *files]:
+            full = os.path.join(here, name)
+            if os.path.islink(full):
+                return None
+        for name in files:
+            sub = Path(os.path.relpath(os.path.join(here, name), tree.root)).as_posix()
+            found.append(sub)
+    return sorted(found)
+
+
+def _clear_folder(tree: Tree, rel: str) -> list[str] | None:
+    """The folder at rel taken away (its regular files, then its folders), for a Keep of
+    the other side's file: the paths of the files that went, or None (a link inside, or
+    something that wouldn't go: then nothing more is done)."""
+    files = _files_under(tree, rel)
+    top = tree.path(rel)
+    if files is None or top is None:
+        return None
+    try:
+        for sub in files:
+            os.unlink(tree.root / sub)
+        for here, _dirs, _files in sorted(os.walk(top), key=lambda w: -len(w[0])):
+            os.rmdir(here)
+    except OSError:
+        return None
+    return files
+
+
 class Syncer:
     """A pairing's two trees, kept between syncs so unchanged files aren't read again."""
 
@@ -430,9 +488,10 @@ class Syncer:
         theirs = folder_files(Path(pair.folder))
         names |= theirs - ignored(cwd, theirs - names)
         names |= set(pair.base) | set(pair.conflicts) | set(pair.held)
+        clashes = self._clashes(names, done)
         deletes: list[str] = []  # the session's deletions, mirrored at the end (or held)
         for rel in sorted(names):
-            if _skipped(rel):
+            if _skipped(rel) or rel in clashes or any(p in clashes for p in _ancestors(rel)):
                 continue
             a, b = self.copy.digest(rel), self.folder.digest(rel)
             if "big" in (a, b):
@@ -495,6 +554,83 @@ class Syncer:
         self._delete(deletes, done)
         return done
 
+    def _clashes(self, names: set[str], done: Synced) -> set[str]:
+        """Where one side has a file and the other a folder of that name (the shallowest such
+        place, so a clash is listed once): each a conflict of its own, {"copy", "folder":
+        the file side's digest, "clash": the side with the folder}; one the owner settled by
+        hand (both the same kind again) goes back to the sync."""
+        pair, found = self.pair, {}
+        places = set(names)
+        for rel in names:
+            places.update(_ancestors(rel))
+        for rel in sorted(places, key=lambda r: (r.count("/"), r)):
+            if any(p in found for p in _ancestors(rel)):
+                continue
+            kinds = (_kind(self.copy, rel), _kind(self.folder, rel))
+            if set(kinds) == {"file", "dir"}:
+                found[rel] = "copy" if kinds[0] == "dir" else "folder"
+        for rel, seen in list(pair.conflicts.items()):
+            if seen.get("clash") and rel not in found:
+                pair.conflicts.pop(rel)
+                done.resolved.append(rel)
+                done.changed = True
+        for rel, side in found.items():
+            entry = {
+                "copy": self.copy.digest(rel) or "",
+                "folder": self.folder.digest(rel) or "",
+                "clash": side,
+            }
+            if pair.conflicts.get(rel) != entry:
+                if rel not in pair.conflicts:
+                    done.conflicts.append(rel)
+                pair.conflicts[rel] = entry
+                pair.held.pop(rel, None)
+                done.changed = True
+        return set(found)
+
+    def _keep_clash(self, rel: str, side: str, seen: dict[str, str]) -> bool:
+        """A file-or-folder clash settled: the kept side's file or folder, and the other
+        side's taken away (only when the file is still the version the owner saw)."""
+        pair = self.pair
+        source, target = (self.copy, self.folder) if side == "copy" else (self.folder, self.copy)
+        other = "folder" if side == "copy" else "copy"
+        kinds = (_kind(source, rel), _kind(target, rel))
+        if set(kinds) != {"file", "dir"}:
+            return False
+        if kinds[0] == "file":  # the kept side's file: the other side's folder goes
+            want = seen.get(side) or None
+            if source.digest(rel) != want:
+                return False
+            gone = _clear_folder(target, rel)
+            if gone is None:
+                return False
+            for sub in gone:
+                pair.base.pop(sub, None)
+            if not _write(source, target, rel, None, want=want):
+                return False
+            _agree(pair, rel, want)
+        else:  # the kept side's folder: the other side's file goes, the folder's files come
+            if target.digest(rel) != (seen.get(other) or None):
+                return False
+            files = _files_under(source, rel)
+            path = target.path(rel)
+            if files is None or path is None:
+                return False
+            try:
+                os.unlink(path)
+            except OSError:
+                return False
+            pair.base.pop(rel, None)
+            for sub in files:
+                if _skipped(sub):
+                    continue
+                digest = source.digest(sub)
+                if digest in (None, "big") or not _write(source, target, sub, None, want=digest):
+                    continue  # (the next sync sees what's left)
+                _agree(pair, sub, digest)
+        pair.conflicts.pop(rel, None)
+        return True
+
     def _delete(self, rels: list[str], done: Synced) -> None:
         """The session's deletions this pass, mirrored to the owner's folder; past
         DELETES_MAX at once (or of a protected file) held instead, listed for the owner."""
@@ -522,6 +658,8 @@ class Syncer:
         written over the other."""
         if rel not in self.pair.conflicts or side not in ("copy", "folder"):
             return False
+        if self.pair.conflicts[rel].get("clash"):
+            return self._keep_clash(rel, side, self.pair.conflicts[rel])
         source, target = (self.copy, self.folder) if side == "copy" else (self.folder, self.copy)
         # The two versions the owner saw on the card: either changed since, it's not kept
         # (said "changed again just now"), so a newer one is never overwritten unseen.
@@ -549,6 +687,12 @@ class Syncer:
                 _agree(self.pair, rel, want)
                 done.append(rel)
         return done
+
+
+def _ancestors(rel: str) -> list[str]:
+    """The folders on the way to rel, as paths from the root ("a/b/c" -> "a", "a/b")."""
+    parts = rel.split("/")
+    return ["/".join(parts[:i]) for i in range(1, len(parts))]
 
 
 def _agree(pair: Pair, rel: str, digest: str | None) -> None:
