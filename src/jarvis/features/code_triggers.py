@@ -643,10 +643,14 @@ class Triggers:
         if not slack.verify(signing, body, headers.get("x-slack-request-timestamp", ""), signature):
             return 401, {"error": "bad signature"}
         if "application/x-www-form-urlencoded" in headers.get("content-type", ""):
-            # A slash command: once by its signature (its timestamp and body), as Slack
-            # never sends one again by itself; a replay of the same request is answered as
-            # the first was, and starts nothing.
-            if not self._once(f"slack:slash:{hashlib.sha256(signature.encode()).hexdigest()}"):
+            # A slash command: once by what its signature signs (its timestamp and body), as
+            # Slack never sends one again by itself; a replay of the same request is answered
+            # as the first was, and starts nothing. Never by the header's own text: verify
+            # takes it stripped, so the same signature with a trailing NBSP or \x85 was a
+            # new key each time, each another session.
+            stamp = str(headers.get("x-slack-request-timestamp", ""))
+            signed = hashlib.sha256(stamp.encode("utf-8", "replace") + b":" + body).hexdigest()
+            if not self._once(f"slack:slash:{signed}"):
                 return 200, {"response_type": "ephemeral", "text": "Already on it."}
             fields = {
                 k: v[0] for k, v in parse_qs(body.decode("utf-8", errors="replace")).items() if v
