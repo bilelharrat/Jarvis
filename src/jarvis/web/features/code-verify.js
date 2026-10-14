@@ -109,7 +109,15 @@
     return String(text || '').split(origin).join('');
   }
 
-  const api = { serverState, shortUrl, isLocal, mergeLines, mentionFor, countProblems, byFile, runLine, jpegSrc, checkHead, withoutOrigin };
+  // What the Preview pane says instead of its servers: waiting for the backend's answer,
+  // or why it couldn't read the project (a cv_state with an error), with a way to ask again.
+  function stateNotice(info) {
+    if (!info) return { text: 'Looking at the project…', retry: false };
+    if (info.error) return { text: String(info.error), retry: true };
+    return null;
+  }
+
+  const api = { stateNotice, serverState, shortUrl, isLocal, mergeLines, mentionFor, countProblems, byFile, runLine, jpegSrc, checkHead, withoutOrigin };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -346,7 +354,21 @@
   function renderPreview(body = F.$('jc-pane-body')) {
     if (!paneShown('cv-preview') || !body) return;
     const info = state.info;
-    if (!info) { body.replaceChildren(el('p', 'jc-empty', 'Looking at the project…')); return; }
+    const notice = stateNotice(info);
+    if (notice) {
+      const p = el('p', notice.retry ? 'jc-empty cv-error' : 'jc-empty', notice.text);
+      if (notice.retry) p.setAttribute('role', 'alert');
+      const parts = [p];
+      if (notice.retry) {
+        parts.push(button('Try again', 'jc-btn small', () => {
+          state.info = null;
+          renderPreview();
+          F.send({ type: 'cv_state', ...where() });
+        }));
+      }
+      body.replaceChildren(...parts);
+      return;
+    }
     const parts = [];
     if (info.session && info.id) parts.push(sessionPart(info));
     const ours = state.servers.filter((s) => s.project === info.path);

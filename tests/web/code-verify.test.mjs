@@ -74,3 +74,9 @@ test('a finding reads without the page’s own address', () => {
   assert.equal(cv.withoutOrigin('https://cdn.example.com/x.js:1', 'http://127.0.0.1:5173/'), 'https://cdn.example.com/x.js:1');
   assert.equal(cv.withoutOrigin('TypeError', ''), 'TypeError');
 });
+
+test('the Preview pane waits for the project, or says why it couldn’t read it', () => {
+  assert.deepEqual(cv.stateNotice(null), { text: 'Looking at the project…', retry: false });
+  assert.deepEqual(cv.stateNotice({ error: 'That folder isn’t there.' }), { text: 'That folder isn’t there.', retry: true });
+  assert.equal(cv.stateNotice({ configs: [], suggestions: [] }), null);
+});

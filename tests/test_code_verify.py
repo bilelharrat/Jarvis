@@ -101,7 +101,10 @@ async def test_the_preview_pane_shows_configs_suggestions_and_saves_one(hub, pro
 async def test_a_project_outside_the_projects_folder_is_refused(hub):
     q = hub.subscribe()
     await hub._handle({"type": "cv_state", "directory": "/etc"})
-    assert events(q, "cv_error")
+    # Answered as the pane's state, with why, so it never waits on "Looking…" for good.
+    [state] = events(q, "cv_state")
+    assert state["error"] and state["project"] == "/etc" and state["id"] is None
+    assert "configs" not in state
 
 
 def answering(hub, *choices):

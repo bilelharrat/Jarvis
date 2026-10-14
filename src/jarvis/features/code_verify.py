@@ -216,12 +216,21 @@ class CodeVerify:
     # ── the window's commands ──
 
     async def cmd_state(self, msg: dict[str, Any]) -> None:
+        # A project it can't read is answered as the pane's state, with why: the pane
+        # asked and waits on "Looking at the project…" until a cv_state comes (a toast
+        # alone left it waiting for good).
         try:
             project, task = self.project_of(msg)
-        except ValueError as exc:
-            self.error(str(exc))
+            found = await asyncio.to_thread(self.servers.configs, project)
+        except (ValueError, OSError) as exc:
+            asked = _int(msg.get("id"))
+            self.hub.emit(
+                "cv_state",
+                project=str(msg.get("directory") or ""),
+                id=asked or None,
+                error=str(exc) or "Eden Code couldn't read this project.",
+            )
             return
-        found = await asyncio.to_thread(self.servers.configs, project)
         checks = self.session(task.id) if task is not None else None
         self.hub.emit(
             "cv_state",
