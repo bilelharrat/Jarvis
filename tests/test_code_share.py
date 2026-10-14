@@ -216,7 +216,11 @@ async def test_suggestions_come_to_the_owner_as_cards_never_to_the_session(hub, 
     before = len(task.transcript)
     reply = client.post(
         f"/share/{token}/comment",
-        json={"v": "viewer-one", "name": " Alex‮ ", "text": "  try the cache first  "},
+        json={
+            "v": "viewer-one",
+            "name": " Alex" + chr(0x202E) + " ",
+            "text": "  try the cache first  ",
+        },
     )
     assert reply.status_code == 200
     event = latest(hub, "code_share_comment")
