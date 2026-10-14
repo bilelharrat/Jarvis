@@ -71,6 +71,9 @@ COUNT_BACKOFF_MAX = 3600.0  # a count that can't be written (a full disk) is tri
 # its pruning, oldest first) is right: one whose name is further than this from when it was
 # written, and right as local time, was named in local time.
 NAME_SLACK = 900.0
+# Left in the folder once the old names have been looked at (_utc_names): after that pass
+# every report is this build's, UTC, and never looked at again (REL3-17).
+UTC_DONE = ".utc-names"
 TEXT_LIMIT = 4000  # a message
 STACK_LIMIT = 16_000  # a traceback or a stack
 SOURCES = ("backend", "window", "electron")
@@ -157,7 +160,6 @@ class Reporter:
             self._kept_at = [t for t in self._kept_at if now - t < 3600]
             if len(self._kept_at) >= PER_HOUR:
                 return None
-            self._kept_at.append(now)
             # UTC, as app/features/crash-reports.js names its own: the folder is pruned by
             # name, oldest first, and local time against UTC pruned the wrong ones.
             moment = datetime.fromtimestamp(now, UTC)
@@ -173,6 +175,9 @@ class Reporter:
             except OSError as exc:
                 log.warning("crash reports: couldn't keep one (%s)", exc)
                 return None
+            # Counted once it's kept: a write that failed (a full disk) used the hour's
+            # allowance, and once the disk had room nothing more was kept that hour (REL3-19).
+            self._kept_at.append(now)
             self._recent[signature] = (now, path)
             self._counts[path] = [1, 1, now]
             if len(self._recent) > 200:
@@ -190,7 +195,8 @@ class Reporter:
         count[0] += 1
         failed = self._failed.get(path, 0)
         if failed:  # (a full disk: tried again after a wait that doubles each time)
-            due = min(COUNT_SAVE_SECONDS * 2**failed, COUNT_BACKOFF_MAX)
+            # (2**failed past ~1024 failures was a float too big: OverflowError, REL3-19)
+            due = min(COUNT_SAVE_SECONDS * 2 ** min(failed, 6), COUNT_BACKOFF_MAX)
         else:
             due = 0.0 if count[1] <= 1 else COUNT_SAVE_SECONDS
         if self.clock() - count[2] >= due:
@@ -231,10 +237,16 @@ class Reporter:
         time renamed to UTC, as the rest are, so oldest-first is right and pruning takes
         the oldest. A name is taken as local time only when, as UTC, it's further than
         NAME_SLACK from when the file was written, and as local time it's within it (a
-        count written later moves the file's time on, never back)."""
+        count written later moves the file's time on, never back). Once, ever: a UTC name
+        whose count was written long after it (flush at quit) looked like a local-time one
+        west of UTC and was renamed hours off (REL3-17), so the pass leaves UTC_DONE in the
+        folder and isn't made again."""
         if self._renamed:
             return
         self._renamed = True
+        done = self.folder / UTC_DONE
+        if done.exists():
+            return
         try:
             paths = sorted(p for p in self.folder.glob("*.json") if p.is_file())
         except OSError:
@@ -259,6 +271,8 @@ class Reporter:
             if not new.exists():
                 with contextlib.suppress(OSError):
                     path.rename(new)
+        with contextlib.suppress(OSError):
+            done.touch()
 
     def _prune(self) -> None:
         self._utc_names()

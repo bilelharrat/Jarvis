@@ -278,9 +278,7 @@ def test_a_count_that_cant_be_written_backs_off(tmp_path, monkeypatch):
     assert json.loads(first.read_text())["times"] == 501
 
 
-async def test_an_uncaught_failure_writes_the_counts_before_the_backend_ends(
-    tmp_path, monkeypatch
-):
+async def test_an_uncaught_failure_writes_the_counts_before_the_backend_ends(tmp_path, monkeypatch):
     """REL-17: the repeats counted in memory were lost when an uncaught exception ended
     the backend; the hook writes them first."""
     rep, _hub, _ = reporter(tmp_path, clock=[1_800_000_000.0 + i * 0.01 for i in range(5000)])
@@ -331,3 +329,55 @@ def test_old_local_time_names_are_renamed_to_utc_once(tmp_path, monkeypatch):
     names = sorted(p.name for p in kept(tmp_path))
     assert f"{utc}-backend-aaaaaaaa.json" in names and old.name not in names
     assert new.name in names and app.name in names
+
+
+def test_a_report_that_couldnt_be_written_never_uses_the_hours_allowance(tmp_path, monkeypatch):
+    """REL3-19: the hour's count was taken before the save, so a full disk's failed writes
+    used it up and nothing was kept that hour once there was room; and a count that kept
+    failing raised OverflowError (2**failed) past a thousand failures."""
+    rep, _hub, _ = reporter(tmp_path, clock=[1_800_000_000.0 + i for i in range(5000)])
+    real = crash_reports.jsonstore.save_store
+    monkeypatch.setattr(
+        crash_reports.jsonstore,
+        "save_store",
+        lambda *a, **k: (_ for _ in ()).throw(OSError(28, "full")),
+    )
+    for n in range(crash_reports.PER_HOUR + 3):
+        assert rep.record("backend", "uncaught", f"boom {n}") is None
+    monkeypatch.setattr(crash_reports.jsonstore, "save_store", real)
+    assert rep.record("backend", "uncaught", "room again") is not None
+    path = kept(tmp_path)[0]
+    rep._failed[path] = 5000
+    rep._counts[path] = [3, 1, 0.0]
+    rep._count_again(path)  # (no OverflowError)
+
+
+def test_utc_names_are_looked_at_once_never_a_late_counted_utc_report(tmp_path, monkeypatch):
+    """REL3-17: a UTC-named report whose count was written hours later (flush at quit)
+    looked, west of UTC, like an old local-time name and was renamed hours off. The pass
+    is made once (UTC_DONE in the folder), and never again."""
+    import os
+    import time
+    from datetime import UTC
+
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    try:
+        folder = tmp_path / "crash-reports"
+        folder.mkdir()
+        at = 1_800_000_000.0
+        utc = datetime.fromtimestamp(at, UTC).strftime("%Y%m%d-%H%M%S")
+        report = folder / f"{utc}-backend-aaaaaaaa.json"
+        report.write_text("{}")
+        os.utime(report, (at, at))
+        rep, _hub, _ = reporter(tmp_path, clock=[at + 10 + i for i in range(10)])
+        rep.record("backend", "uncaught", "first")  # (the pass: nothing to rename)
+        assert (folder / crash_reports.UTC_DONE).exists()
+        later = at + 5 * 3600 + 120  # its count written 5 hours on (New York: UTC-5), at quit
+        os.utime(report, (later, later))
+        again, _hub, _ = reporter(tmp_path, clock=[later + 10 + i for i in range(10)])
+        again.record("backend", "uncaught", "next run")
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+    assert report.exists(), "a UTC name was renamed as if it were local time"
