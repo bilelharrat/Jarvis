@@ -427,3 +427,23 @@ async def test_two_turn_ends_of_one_task_ask_once_and_start_one_next_task(spec_h
     said = await asyncio.gather(*ends)
     assert len(asked) == 1, said
     assert spec.runs == {"T1": 101, "T2": 102} and spec.current == "T2"
+
+
+def test_an_unreadable_specs_file_is_never_saved_over(tmp_path):
+    import json
+    import os
+
+    kept = tmp_path / "code_specs.json"
+    kept.write_text(json.dumps([{"slug": "KEEP-ME", "directory": "a", "folder": "/a", "request": "x"}]))
+    os.chmod(kept, 0)
+    hub = NS(feature_path=lambda name: tmp_path / name, emit=lambda *a, **k: None,
+             tasks=NS(launch="l"))  # fmt: skip
+    try:
+        desk = cs.Specs(hub)
+        assert desk.specs == []
+        desk.save()
+        desk.save()
+    finally:
+        for f in tmp_path.iterdir():
+            os.chmod(f, 0o600)
+    assert "KEEP-ME" in kept.read_text()

@@ -344,6 +344,7 @@ class Specs:
         self.hub = hub
         self.ai = code_ai.call  # (the tests put a fake here)
         self._specs: list[Spec] | None = None
+        self.unreadable = False  # code_specs.json is there but couldn't be read: never saved over
         self.proofs: dict[int, asyncio.Future] = {}  # a task's session -> its requirements
         self.checks: dict[int, asyncio.Future] = {}  # ... -> code_verify's check after its turn
         self.asking: set[str] = set()  # specs whose card is up (or whose step is being read)
@@ -359,7 +360,9 @@ class Specs:
         if self._specs is None:
             try:
                 raw = jsonstore.load_json(self.path, list) or []
-            except jsonstore.Unreadable:
+            except jsonstore.Unreadable as exc:  # (there, but not readable now: never saved over)
+                log.warning("Spec mode: %s can't be read (%s)", self.path.name, exc)
+                self.unreadable = True
                 raw = []
             fields = set(Spec.__dataclass_fields__)
             self._specs = []
@@ -392,6 +395,9 @@ class Specs:
     def save(self) -> None:
         for spec in self.specs:
             spec.launch = self.launch
+        if self.unreadable:  # (kept in memory this launch; the file is left as it is)
+            self.publish()
+            return
         with contextlib.suppress(OSError):
             jsonstore.save_json(self.path, [asdict(s) for s in self.specs[-100:]])
         self.publish()

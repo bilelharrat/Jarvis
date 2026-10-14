@@ -1006,3 +1006,21 @@ async def test_a_fix_s_test_outside_its_copy_is_never_run(hub, tmp_path):
         await hub.code_bugfix.prove_one(f, folder, tmp_path, [suite])
         assert f.status == "unproven" and "isn't in the project" in f.proof
     assert ran == []
+
+
+def test_an_unreadable_runs_file_is_never_saved_over(tmp_path):
+    from types import SimpleNamespace
+
+    kept = tmp_path / "code_bugfix.json"
+    kept.write_text(json.dumps({"runs": [], "mark": "KEEP-ME"}))
+    os.chmod(kept, 0)
+    try:
+        desk = code_bugfix.BugFix(
+            SimpleNamespace(feature_path=lambda name: tmp_path / name, emit=lambda *a, **k: None)
+        )
+        desk.save()
+        desk.save()
+    finally:
+        for f in tmp_path.iterdir():
+            os.chmod(f, 0o600)
+    assert "KEEP-ME" in kept.read_text()

@@ -755,6 +755,7 @@ class BugFix:
         # so Stop ends that run of the suite now, not when it finishes
         self.suite_runs: dict[str, tuple[Any, Path, asyncio.Future]] = {}
         self._loaded = False
+        self.unreadable = False  # the kept file is there but couldn't be read: never saved over
         # Overridable (the tests): how a folder's suites are found, and the suite runs' env.
         self.suites_of: Any = None
         self.env: Any = None
@@ -771,7 +772,9 @@ class BugFix:
         self._loaded = True
         try:
             data = jsonstore.load_json(self.path, dict) or {}
-        except jsonstore.Unreadable:
+        except jsonstore.Unreadable as exc:  # (there, but not readable now: never saved over)
+            log.warning("Bug Fix Mode: %s can't be read (%s)", self.path.name, exc)
+            self.unreadable = True
             data = {}
         for raw in data.get("runs") or []:
             run = _load_run(raw)
@@ -784,6 +787,8 @@ class BugFix:
     def save(self) -> None:
         self.load()
         del self.runs[:-RUNS_KEPT]
+        if self.unreadable:  # (this launch's runs stay in memory; the file is left as it is)
+            return
         with contextlib.suppress(OSError):
             jsonstore.save_json(self.path, {"runs": [asdict(r) for r in self.runs]})
 
