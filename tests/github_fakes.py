@@ -43,6 +43,9 @@ class FakeGitHub:
         self.roles: dict[tuple[str, str], str] = {}
         self.remaining = 4999
         self.ids = iter(range(1000, 10**6))
+        # (repo, number) -> its changed files ({filename, status, patch}), for a review
+        self.files: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        self.posted_reviews: list[dict[str, Any]] = []  # reviews created, with their comments
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -161,6 +164,26 @@ class FakeGitHub:
                 return self.reply(404, {"message": "Not Found"})
             if tail == "" and method == "GET":
                 return self.reply(200, pull)
+            if tail == "" and method == "PATCH":
+                body = json.loads(request.content)
+                if "base" in body:
+                    pull["base"] = {**pull["base"], "ref": body["base"]}
+                return self.reply(200, pull)
+            if tail == "/files" and method == "GET":
+                return self.reply(200, self.files.get((repo, number), []))
+            if tail == "/reviews" and method == "POST":
+                body = json.loads(request.content)
+                # GitHub turns a line comment away unless its line is in the diff's new side.
+                lines = _commentable(self.files.get((repo, number), []))
+                for c in body.get("comments") or []:
+                    if c.get("side", "RIGHT") != "RIGHT" or c.get("line") not in lines.get(c.get("path"), set()):
+                        return self.reply(422, {"message": "Unprocessable Entity", "errors": [
+                            "Pull request review thread line must be part of the diff"]})  # fmt: skip
+                review = {"id": next(self.ids), "repo": repo, "number": number,
+                          "state": "COMMENTED", "user": {"login": self.login}, **body}  # fmt: skip
+                self.posted_reviews.append(review)
+                self.reviews.setdefault((repo, number), []).append(review)
+                return self.reply(200, review)
             if tail == "/reviews":
                 return self.reply(200, self.reviews.get((repo, number), []))
             if tail == "/comments":
@@ -217,8 +240,31 @@ class FakeGitHub:
             return self.reply(200, [])
         return self.reply(404, {"message": "Not Found"})
 
+    def add_files(self, repo: str, number: int, patches: dict[str, str]) -> None:
+        """A pull request's files: path -> its unified-diff patch (GitHub's own form)."""
+        self.files[(repo, number)] = [
+            {"filename": path, "status": "modified", "patch": patch}
+            for path, patch in patches.items()
+        ]
+
     def sent(self, method: str = "", path: str = "") -> list[httpx.Request]:
         return [
             r for r in self.requests
             if (not method or r.method == method) and (not path or r.url.path == path)
         ]  # fmt: skip
+
+
+def _commentable(files: list[dict[str, Any]]) -> dict[str, set[int]]:
+    """Each file's new-side lines a review comment may point at (added or context)."""
+    found: dict[str, set[int]] = {}
+    for f in files:
+        line, lines = 0, set()
+        for row in str(f.get("patch") or "").split("\n"):
+            head = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)", row)
+            if head:
+                line = int(head.group(1))
+            elif row.startswith(("+", " ")):
+                lines.add(line)
+                line += 1
+        found[f["filename"]] = lines
+    return found

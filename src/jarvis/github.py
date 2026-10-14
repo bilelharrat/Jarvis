@@ -1,5 +1,8 @@
 """GitHub for Eden Code: its REST API (over httpx, HTTP/1.1), for pull requests, their
-checks, reviews and comments, merging, and the issues that start sessions.
+checks, reviews and comments, merging, and the issues that start sessions; anyone's open
+pull requests and their files, for the automated review (features/code_pr_review.py),
+which posts its findings as a review; and a pull request's base changed, for a stack of
+them (features/code_stack.py).
 
 Which repository a project is: its git remote (the branch's upstream remote, else origin,
 else its only one), in any of the forms git writes (https with or without a user and token
@@ -551,6 +554,48 @@ class Client:
         return await self.request(
             "PUT", f"/repos/{ref.full}/pulls/{number}/merge", body=data, repo=ref.full
         )
+
+    async def open_pulls(self, ref: RepoRef) -> list[dict[str, Any]]:
+        """The repository's open pull requests, anyone's, the most recently updated first
+        (the newest 50: an unchanged answer is a free 304)."""
+        found = await self.request(
+            "GET",
+            f"/repos/{ref.full}/pulls",
+            params={"state": "open", "sort": "updated", "direction": "desc", "per_page": 50},
+            repo=ref.full,
+        )
+        return found if isinstance(found, list) else []
+
+    async def pull_files(self, ref: RepoRef, number: int) -> list[dict[str, Any]]:
+        """A pull request's changed files, each with its patch (GitHub leaves the patch out
+        of a file too big to show)."""
+        return await self.paged(
+            f"/repos/{ref.full}/pulls/{number}/files", limit=300, repo=ref.full
+        )
+
+    async def create_review(
+        self,
+        ref: RepoRef,
+        number: int,
+        *,
+        commit_id: str,
+        body: str,
+        comments: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """A review of the pull request at commit_id, as a plain comment (never an approval
+        or a request for changes): its body and line comments, each {path, line, side,
+        body} on the new side of the diff."""
+        data = {"commit_id": commit_id, "body": body, "event": "COMMENT", "comments": comments}
+        return await self.request(
+            "POST", f"/repos/{ref.full}/pulls/{number}/reviews", body=data, repo=ref.full
+        ) or {}
+
+    async def retarget(self, ref: RepoRef, number: int, base: str) -> dict[str, Any]:
+        """Point an open pull request at another base branch (a stacked one, once the one
+        under it is merged)."""
+        return await self.request(
+            "PATCH", f"/repos/{ref.full}/pulls/{number}", body={"base": base}, repo=ref.full
+        ) or {}
 
     async def issue(self, ref: RepoRef, number: int) -> dict[str, Any]:
         return await self.request("GET", f"/repos/{ref.full}/issues/{number}", repo=ref.full) or {}

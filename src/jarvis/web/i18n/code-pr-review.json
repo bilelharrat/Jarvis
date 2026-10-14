@@ -1,0 +1,39 @@
+{
+  "strings": {
+    "Findings posted on GitHub": "问题已发到 GitHub",
+    "Nothing found": "没有发现问题",
+    "The review didn’t finish": "审查没有完成",
+    "1 finding posted on GitHub": "已在 GitHub 上发出 1 个问题",
+    "Project": "项目",
+    "Commands a fix may run": "修复时可以运行的命令",
+    "Spending cap for a fix ($)": "每次修复的花费上限（美元）",
+    "Review drafts too": "也审查草稿",
+    "Off: a draft is reviewed only when you ask.": "关闭时：只有你要求时才审查草稿。",
+    "Beyond the read-only ones and the project’s own rules.": "除只读命令和项目自己的规则之外。",
+    "For each fix; it also stops after an hour.": "每次修复都有；运行一小时后也会停下。",
+    "Fixes without network access": "修复时不联网",
+    "A fix’s commands run in a sandbox. Turn it off if its tests need the network.": "修复的命令在沙盒里运行。如果它的测试需要联网就关掉。",
+    "Turn reviews on…": "开启审查…",
+    "Review pull requests": "审查拉取请求",
+    "Claude (Haiku) reads each new pull request in these repositories once at each new commit and posts what it finds there as a review comment. 20 a day at most.": "Claude（Haiku）会在每个新提交时读一次这些仓库里的新拉取请求，并把发现的问题作为审查评论发到那里。每天最多 20 次。",
+    "Connect GitHub in Tools & Accounts first.": "请先在“工具与账户”里连接 GitHub。",
+    "drafts too": "也审查草稿",
+    "Remove": "移除",
+    "GitHub: reviewing pull requests": "GitHub：审查拉取请求",
+    "Draft": "草稿",
+    "Fix it": "修复",
+    "Fix all": "全部修复",
+    "Review now": "立即审查",
+    "Pull request to review now": "要立即审查的拉取请求",
+    "No repository is reviewed yet: turn it on in Eden Code settings › GitHub.": "还没有审查任何仓库：请在 Eden Code 设置 › GitHub 里开启。",
+    "No reviews yet.": "还没有审查。",
+    "Pull request reviews": "拉取请求审查",
+    "npm test, uv run pytest": "npm test, uv run pytest"
+  },
+  "patterns": [
+    [
+      "^(\\d+) findings posted on GitHub$",
+      "已在 GitHub 上发出 $1 个问题"
+    ]
+  ]
+}

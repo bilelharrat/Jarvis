@@ -1,0 +1,32 @@
+/* Eden Code's automated pull request reviews: settings › GitHub, and the Pull request reviews pane. */
+
+.jcx-prr .jcx-prr-list { list-style: none; margin: 0; padding: 4px 0; display: flex; flex-direction: column; gap: 4px; border-top: 0.5px solid rgb(var(--c-border)); }
+.jcx-prr .jcx-prr-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.jcx-prr-repo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jcx-prr-repo small { margin-left: 6px; color: rgb(var(--c-muted)); }
+.jcx-prr-repo code, .jcx-prr-where code, .jcx-prr-link code { font: 11.5px var(--mono); color: rgb(var(--c-accent-ink)); }
+.jcx-prr-form { display: flex; flex-direction: column; border-top: 0.5px solid rgb(var(--c-border)); }
+.jcx-prr-where { margin: 0 0 4px; font-size: 12px; }
+.jcx-prr-where:empty { display: none; }
+.jcx-prr .jcx-prr-num { flex: none; width: 80px; }
+.jcx-prr-actions { display: flex; align-items: center; padding: 6px 0 8px; }
+.jcx-prr-connect { margin: 0; padding: 8px 0; font-size: 12.5px; color: rgb(var(--c-warning-ink)); border-top: 0.5px solid rgb(var(--c-border)); }
+.deck.jc .jcx-prr .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.jcx-prr .jc-btn:disabled { opacity: 0.45; cursor: default; }
+
+.jcx-prr-pane { display: flex; flex-direction: column; gap: 10px; }
+.jcx-prr-ask { display: flex; gap: 6px; align-items: center; }
+.jcx-prr-ask .jcs-input { flex: 1; min-width: 0; }
+.jcx-prr-card { padding: 9px 11px; border-radius: 11px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 5px; }
+.jcx-prr-card.failed { box-shadow: inset 3px 0 0 rgb(var(--c-warning)), var(--shadow-card); }
+.jcx-prr-head { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.jcx-prr-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--c-ink)); text-decoration: none; }
+.jcx-prr-link:hover, .jcx-prr-link:focus-visible { text-decoration: underline; }
+.jcx-prr-status { margin: 0; font-size: 12px; }
+.jcx-prr-findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.jcx-prr-finding { padding: 6px 9px; border-radius: 9px; background: rgb(var(--c-surface-muted)); font: 12.5px/1.45 var(--sans); box-shadow: inset 3px 0 0 rgb(var(--c-warning)); display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.jcx-prr-finding.sev-high { box-shadow: inset 3px 0 0 rgb(var(--c-danger)); }
+.jcx-prr-finding.sev-low { box-shadow: inset 3px 0 0 rgb(var(--c-accent)); }
+.jcx-prr-finding > code { font: 11px var(--mono); color: rgb(var(--c-muted)); overflow-wrap: anywhere; }
+.jcx-prr-finding .jcx-fhead { width: 100%; }
+.jcx-prr-finding p { margin: 0; overflow-wrap: anywhere; }
