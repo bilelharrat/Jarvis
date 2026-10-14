@@ -29,7 +29,10 @@ def test_a_missing_store_file_starts_with_empty_lists_and_is_created_on_the_firs
     book = SandboxBook(path)
     assert book.projects == {} and book.unreadable == "" and not path.exists()
     book.add("/p", ["github.com"])
-    assert json.loads(path.read_text()) == {"projects": {"/p": {"domains": ["github.com"]}}}
+    assert json.loads(path.read_text()) == {
+        "projects": {"/p": {"domains": ["github.com"]}},
+        "version": 1,
+    }
 
 
 def test_a_damaged_store_file_is_set_aside_and_the_lists_start_over(tmp_path):
@@ -164,6 +167,6 @@ def test_removing_a_projects_last_domain_takes_the_project_off_the_store(tmp_pat
     book = SandboxBook(path)
     book.add("/p", ["pypi.org"])
     assert book.remove("/p", "pypi.org")
-    assert json.loads(path.read_text()) == {"projects": {}}
+    assert json.loads(path.read_text()) == {"projects": {}, "version": 1}
     assert not book.remove("/p", "pypi.org") and not book.remove("/never", "x.com")
     assert book.domains("/p") == []

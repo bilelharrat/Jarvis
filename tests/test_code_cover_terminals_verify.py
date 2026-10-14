@@ -239,7 +239,10 @@ async def test_the_panes_refuse_a_folder_outside_the_projects(hub):
     """The Tests and Problems panes (like the Preview pane) say why for a folder that isn't a
     project, and start nothing."""
     q = hub.subscribe()
-    for kind in ("cv_state", "cv_tests", "cv_problems"):
+    await hub._handle({"type": "cv_state", "directory": "/etc"})
+    [state] = events(q, "cv_state")  # (the Preview pane's own state, with why: U6)
+    assert state["error"]
+    for kind in ("cv_tests", "cv_problems"):
         await hub._handle({"type": kind, "directory": "/etc", "action": "run"})
         [error] = events(q, "cv_error")
         assert error["text"]

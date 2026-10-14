@@ -98,11 +98,19 @@ async def test_run_my_queue_runs_the_cards_one_at_a_time_on_the_learned_model(hu
     learned(hub, folder, [("claude-haiku-4-5", {"verified": True})])
     seen = events_of(hub)
     first, second = await add(hub, "first job", "second job")
+    queue, most = hub.code_queue, []
+    changed = queue.changed
+
+    def counted():  # (how many run at once, each time the queue's state changes)
+        most.extend(len(queue.running(run)) for run in queue.runs.values())
+        changed()
+
+    queue.changed = counted
     await hub._handle({"type": "todo_queue_run", "directory": "proj", "parallel": 1, "ceiling": 3})
     assert await until(lambda: first.get("task"), 2000)
-    assert second["state"] == "queued"  # one at a time
     task = hub.tasks.tasks[first["task"]]
-    assert task.model_ref == "haiku" and first["attempts"][0] == {
+    assert task.model_ref == "haiku"
+    assert {k: first["attempts"][0][k] for k in ("model", "why")} == {
         "model": "haiku",
         "why": "learned",
     }
@@ -110,6 +118,7 @@ async def test_run_my_queue_runs_the_cards_one_at_a_time_on_the_learned_model(hu
     assert await until(lambda: first["state"] == "done", 2000)
     assert first["verified"] is None
     assert await until(lambda: second["state"] == "done", 2000)
+    assert max(most) == 1  # one at a time
     assert hub.tasks.tasks[second["task"]].model_ref == "haiku"
     state = [e for e in seen() if e["type"] == "todo_state"][-1]
     assert state["queue"] is True
