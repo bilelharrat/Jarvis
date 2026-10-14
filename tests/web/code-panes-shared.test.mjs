@@ -66,3 +66,32 @@ test('an event for a pane that isn’t open never draws over the one that is', (
   w.fire('code_copies', { copies: [], trash: [], root: '/copies-2' });
   assert.match(w.body.textContent, /\/copies-2/);
 });
+
+// Audit G4: setup's output as it comes goes on the end of the output shown; the pane isn't
+// drawn anew for each line (that wiped what was being typed and made the live region anew).
+test('Setup: each line of output is added to the output shown, and typing in the pane survives', () => {
+  const w = stand(['code-setup.js']);
+  w.open('setup');
+  w.fire('code_setup', { id: 7, project: 'api', copy: true, setup: { source: '.jarvis/setup.sh', text: 'npm ci' }, container: {} });
+  assert.match(w.body.querySelector('.jcx-setup-out').textContent, /No setup has run/);
+  w.body.querySelector('.jcx-setup-out').nextSibling.click();  // Run setup again
+  const out = w.body.querySelector('.jcx-setup-out');
+  const input = w.body.querySelector('#jcx-setup-image');
+  input.focus();
+  input.value = 'node:2';
+  w.fire('code_setup_output', { id: 7, lines: ['npm ci', 'added 12 packages'] });
+  w.fire('code_setup_output', { id: 7, lines: ['done in 3s'] });
+  assert.ok(out.isConnected, 'the same output, not a new one');
+  assert.equal(out.textContent, 'npm ci\nadded 12 packages\ndone in 3s');
+  assert.ok(input.isConnected && input.value === 'node:2', 'what was typed is still there');
+  assert.equal(w.document.activeElement.id, 'jcx-setup-image', 'and the keys are still in it');
+  assert.equal(w.body.querySelector('.jcx-setup-out').nextSibling.textContent, 'Running…');
+  // Done: the pane asks again, and the answer draws it; what's typed still survives.
+  w.fire('code_setup_output', { id: 7, lines: [], done: true });
+  assert.deepEqual(w.sent.at(-1), { type: 'code_setup_state', id: 7 });
+  w.fire('code_setup', { id: 7, project: 'api', copy: true, setup: { source: '.jarvis/setup.sh', text: 'npm ci' }, container: {} });
+  const again = w.body.querySelector('#jcx-setup-image');
+  assert.equal(again.value, 'node:2');
+  assert.equal(w.document.activeElement.id, 'jcx-setup-image');
+  assert.match(w.body.querySelector('.jcx-setup-out').textContent, /done in 3s/);
+});

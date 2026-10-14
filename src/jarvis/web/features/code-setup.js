@@ -39,7 +39,7 @@
   const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send, t } = F;
-  const state = { features: {}, last: null, body: null, output: [], done: null };
+  const state = { features: {}, last: null, body: null, output: [], done: null, out: null, run: null };
   /* global deckProject */
   const project = () => (typeof deckProject === 'string' ? deckProject : '');
 
@@ -88,7 +88,9 @@
       out.setAttribute('aria-live', 'polite');
       out.setAttribute('aria-label', t('Setup output'));
       out.tabIndex = 0;
+      state.out = out;
       const run = el('button', 'jc-btn small', ev.busy || state.done === false ? 'Running…' : 'Run setup again');
+      state.run = run;
       run.type = 'button';
       run.disabled = !ev.setup || !!ev.busy || state.done === false;
       run.addEventListener('click', () => { state.output = []; state.done = false; send({ type: 'code_setup_run', id: F.currentTask().id }); render(); });
@@ -136,7 +138,26 @@
     if (ev.devcontainer_problem) group.append(el('p', 'jcx-setup-warn', ev.devcontainer_problem));
     wrap.append(group);
     wrap.append(el('p', 'jc-dim', 'Your own image needs no card. One the project’s devcontainer.json names does, the first time and whenever it changes. Without Docker, sessions run on the Mac as usual.'));
+    // What's being typed in the image's field outlives a redraw (the backend's answer).
+    const typing = document.activeElement && body.contains(document.activeElement) && document.activeElement.id === input.id ? document.activeElement.value : null;
+    if (typing !== null) input.value = typing;
     body.replaceChildren(wrap);
+    if (typing !== null) input.focus();
+  }
+
+  // Setup's output as it comes: its lines go on the end of the output already shown, so the
+  // pane isn't drawn anew for each line (that wiped what was being typed in it, and made the
+  // output's live region anew, read from the top); the whole pane is drawn once it's done.
+  function addOutput(lines, wasEmpty, trimmed) {
+    const out = state.out;
+    if (!out || !out.isConnected || !paneShown()) return false;
+    if (wasEmpty || trimmed) out.textContent = state.output.join('\n');
+    else if (lines.length) out.append(document.createTextNode(`\n${lines.join('\n')}`));
+    if (state.run) {
+      state.run.textContent = t(state.done === false ? 'Running…' : 'Run setup again');
+      state.run.disabled = state.done === false || !(state.last && state.last.setup);
+    }
+    return true;
   }
 
   F.registerPane('setup', {
@@ -152,9 +173,12 @@
   F.on('code_setup', (ev) => { state.last = ev; if (ev.output && !state.output.length) state.output = [...ev.output]; render(); });
   F.on('code_setup_output', (ev) => {
     if (!mine(ev)) return;
-    state.output = [...state.output, ...(ev.lines || [])].slice(-400);
+    const lines = ev.lines || [];
+    const wasEmpty = !state.output.length;
+    const all = [...state.output, ...lines];
+    state.output = all.slice(-400);
     if (ev.done) { state.done = true; ask(); } else state.done = false;
-    render();
+    if (!addOutput(lines, wasEmpty, all.length > 400)) render();
   });
   const fromPrefs = (prefs) => { if (prefs && prefs.features) state.features = prefs.features; };
   F.on('hello', (ev) => fromPrefs(ev.prefs), { replay: true });
