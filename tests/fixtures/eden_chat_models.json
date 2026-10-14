@@ -1,0 +1,18 @@
+{
+  "$comment": "Eden chat's models (askeden.com: DEFAULT_MODELS in site/src/eden/chat.js, with names and list prices from its router bundle site/src/eden/vendor/model-router.js), as of 2026-10-14. The parity tests (tests/test_model_catalog.py, tests/web/model-catalog.test.mjs) hold Eden Code to these. 'off' models are off askeden.com for now, not retired; 'retired' ones Eden Code leaves out too.",
+  "as_of": "2026-10-14",
+  "models": [
+    { "id": "claude-opus-5-5", "name": "Claude Opus 5.5", "provider": "anthropic", "inputPer1M": 4, "outputPer1M": 20 },
+    { "id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "provider": "anthropic", "inputPer1M": 2, "outputPer1M": 10 },
+    { "id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "provider": "anthropic", "inputPer1M": 1, "outputPer1M": 5 },
+    { "id": "gpt-6.1-sol", "name": "GPT-6.1 Sol", "provider": "openai", "inputPer1M": 2, "outputPer1M": 10 },
+    { "id": "gpt-6-sol", "name": "GPT-6 Sol", "provider": "openai", "inputPer1M": 2, "outputPer1M": 10 },
+    { "id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro (preview)", "provider": "gemini", "inputPer1M": 2, "outputPer1M": 12 },
+    { "id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash", "provider": "gemini", "inputPer1M": 0.75, "outputPer1M": 3.75 },
+    { "id": "gemini-3.5-flash-lite", "name": "Gemini 3.5 Flash-Lite", "provider": "gemini", "inputPer1M": 0.3, "outputPer1M": 2.5 },
+    { "id": "kimi-k3", "name": "Kimi K3", "provider": "kimi", "inputPer1M": 3, "outputPer1M": 15 },
+    { "id": "kimi-k2.7-code", "name": "Kimi K2.7 Code", "provider": "kimi", "inputPer1M": 0.95, "outputPer1M": 4 },
+    { "id": "gemini-4-argon", "name": "Gemini 4 Argon", "provider": "gemini", "inputPer1M": 2, "outputPer1M": 10, "off": "off askeden.com while the iPhone app is in App Review" }
+  ],
+  "retired": { "gpt-6-luna": "askeden.com retired it on 2026-10-13 (too many mistakes)" }
+}

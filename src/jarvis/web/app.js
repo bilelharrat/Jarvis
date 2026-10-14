@@ -4895,7 +4895,8 @@ function renderProviders() {
     dl.id = listId;
     const offered = (providerChecks[p.id] && providerChecks[p.id].models) || [];
     const kind = providerInfo.kinds.find((k) => k.id === p.kind);
-    const names = offered.length ? offered.filter((m) => m.tools !== false).map((m) => m.id) : ((kind && kind.suggested) || []);
+    // Before a check lists the provider's own: its suggestions (OpenAI's or Moonshot's address: Eden chat's GPT-6 and Kimi models), else its kind's.
+    const names = offered.length ? offered.filter((m) => m.tools !== false).map((m) => m.id) : (p.suggested || (kind && kind.suggested) || []);
     dl.append(...names.slice(0, 400).map((id) => option(id, id)));
     input.setAttribute('list', listId);
     const go = el('button', 'jc-btn', 'Add model');
