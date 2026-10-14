@@ -417,8 +417,13 @@ async def test_the_relay_stops_a_command_when_the_session_s_end_goes(tmp_path):
     assert await proc.stdout.readline() == b"started\n"
     proc.kill()
     await proc.wait()
-    await asyncio.sleep(2.5)
-    assert not marker.exists()
+    # Its shell gone (stopped, or ended by itself after the touch: then the marker's there),
+    # the touch can never come: no fixed wait past the command's own sleep.
+    for _ in range(100):
+        if not relay._procs:
+            break
+        await asyncio.sleep(0.05)
+    assert not relay._procs and not marker.exists()
     relay.close()
     assert not Path(path).exists() and not Path(path).parent.exists()
 
