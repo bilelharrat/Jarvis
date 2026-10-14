@@ -214,7 +214,9 @@ class BestOf:
         from ..tasks import EFFORTS
 
         prompt = str(msg.get("prompt") or "").strip()[:20_000]
-        variants = [v for v in (msg.get("variants") or []) if isinstance(v, dict)][:3]
+        listed = msg.get("variants")  # (a list from the window; anything else is none)
+        listed = listed if isinstance(listed, list) else []
+        variants = [v for v in listed if isinstance(v, dict)][:3]
         if not prompt:
             return "Say what they should all do first."
         if len(variants) < 2:

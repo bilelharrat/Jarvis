@@ -712,3 +712,31 @@ def test_credentials_binary_files_and_renames_are_left_out_of_the_merge(tmp_path
         "new.py (Sonnet) was renamed",
         "pic.bin (Sonnet) is a binary file",
     ]
+
+
+HOSTILE = [
+    None, True, -1, 10**30, float("nan"), float("inf"), 1.5, "", "a\x00b", "x" * 50_000,
+    "../../../../etc/passwd", "\ud800", [], [None], ["../../etc"], {"a": {"b": 1}},
+]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["code_bestof", "code_bestof_keep", "code_bestof_merge", "code_bestof_state",
+     "code_stack", "code_stack_propose", "code_stack_set", "code_stack_create"],
+)  # fmt: skip
+async def test_odd_values_in_its_window_commands_are_refused_not_raised(
+    hub, projects, caplog, kind
+):
+    """code_bestof {variants: true} once raised a TypeError: every field of any type is
+    answered (a caption, or nothing), never a traceback."""
+    import logging
+
+    make_repo(projects / "proj", {"a.py": "a\n"})
+    caplog.set_level(logging.WARNING)
+    keys = ("id", "directory", "prompt", "variants", "tests", "mode", "group", "n", "ai", "parts")
+    for odd in HOSTILE:
+        await hub._handle({"type": kind, **dict.fromkeys(keys, odd)})
+    await asyncio.sleep(0.2)
+    assert not [r for r in caplog.records if r.exc_info]
+    assert not getattr(hub, "_command_failures", {})
