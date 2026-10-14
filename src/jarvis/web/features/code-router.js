@@ -313,7 +313,9 @@
     if (problem) {
       return {
         label, broken: true, effortHidden: false,
-        title: `Model: ${label}. Model Router isn’t working (${problem}), so messages go to ${label}. Choose Model Router again to retry. (⌘⇧I)`,
+        // (Not "Model: …": the window's own pattern for "Model: X (⌘⇧I)" comes first and
+        // would leave the rest English; this one has its own, web/i18n/code-router.json.)
+        title: `Model Router isn’t working (${problem}), so messages go to ${label}. Choose Model Router again to retry. (⌘⇧I)`,
       };
     }
     return { label: 'Model Router', broken: false, effortHidden: true, title: 'Model: Model Router picks one for each message (⌘⇧I)' };

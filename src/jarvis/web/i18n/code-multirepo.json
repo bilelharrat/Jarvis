@@ -27,17 +27,8 @@
     "Starting it: making a copy of each project…": "正在开始：为每个项目创建副本…"
   },
   "patterns": [
-    [
-      "^Pick at most (\\d+) projects\\.$",
-      "最多选 $1 个项目。"
-    ],
-    [
-      "^(\\d+) files? \\+(\\d+) −(\\d+)$",
-      "$1 个文件 +$2 −$3"
-    ],
-    [
-      "^conflicts in (.+)$",
-      "冲突：$1"
-    ]
+    ["^Pick at most (\\d+) projects\\.$", "最多选 $1 个项目。"],
+    ["^(\\d+) files? \\+(\\d+) −(\\d+)$", "$1 个文件 +$2 −$3"],
+    ["^conflicts in (.+)$", "冲突：$1"]
   ]
 }

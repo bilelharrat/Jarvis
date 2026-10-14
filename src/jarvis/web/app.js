@@ -3548,7 +3548,7 @@ const JC_KEYS = [
   ['⌘F', 'Search the transcript'], ['⌘⇧F', 'Project files'], ['⌘,', 'Settings'],
   ['Esc', 'Interrupt, or close a menu or pane'], ['1–9', 'Answer an approval'], ['/', 'Commands'],
   ['@', 'Mention a file'], ['!', 'Run a shell command'], ['#', 'Save a note to CLAUDE.md'],
-  ['⌥⌘↓ ⌥⌘↑', 'Next or previous session'], ['⇧⌘B', 'Agent board: arrows, Enter, 1–4'],
+  ['⌥⌘↓ ⌥⌘↑', 'Next or previous session'], ['⌘⇧B', 'Agent board: arrows, Home, End, Enter or Space, 1–4'],
 ];
 const projectFiles = {};
 const customSlash = {};  // project -> its and the user's custom commands and skills

@@ -50,11 +50,14 @@
     "Review in Changes": "在“改动”里审阅",
     "Each merged hunk, to undo or keep, in the merge’s own session": "合并的每个改动块，可在合并结果自己的会话里撤销或保留",
     "Keep the merge": "保留合并结果",
-    "Land the merge and discard every attempt (asks first)": "合并这个结果并丢弃所有尝试（会先询问）"
+    "Land the merge and discard every attempt (asks first)": "合并这个结果并丢弃所有尝试（会先询问）",
+    "in": "位于",
+    ": from": "：来自"
   },
   "patterns": [
     ["^tests failed \\((-?\\d+)\\)$", "测试失败（$1）"],
     ["^(\\d+) files? \\+(\\d+) −(\\d+)$", "$1 个文件 +$2 −$3"],
-    ["^Left out \\((\\d+)\\)$", "未纳入（$1）"]
+    ["^Left out \\((\\d+)\\)$", "未纳入（$1）"],
+    ["^line (\\d+)$", "第 $1 行"]
   ]
 }
