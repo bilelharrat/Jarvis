@@ -76,6 +76,12 @@ EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 # Eden's own .jarvis/ holds launch.json, whose commands the dev-server button runs.
 _PROTECTED_DIRS = {".git", ".claude", ".husky", ".githooks", ".jarvis"}
 _PROTECTED_FILES = {".envrc", ".vscode/tasks.json"}
+# Files named so run by themselves wherever they are (direnv loads an .envrc in any folder
+# the owner cd's into: P1, sub/.envrc was written unasked).
+_PROTECTED_NAMES = {".envrc"}
+# Editors' and dev containers' own folders: their settings, tasks and launch files run code
+# when the owner opens the project (P1: edits mode wrote them unasked; pairing held them).
+EDITOR_DIRS = frozenset({".vscode", ".idea", ".zed", ".fleet", ".devcontainer"})
 # Git hook managers' own config, at any depth: an edit here is code that runs as the owner
 # the next time anyone commits (Eden's own commits skip hooks, the owner's don't).
 _HOOK_CONFIGS = {
@@ -180,8 +186,8 @@ def _within(cwd: Path | None, raw: str) -> bool:
     """Whether a path in a command stays inside the project folder."""
     if cwd is None:
         return not raw.startswith(("/", "~")) and ".." not in Path(raw).parts
-    path = Path(raw).expanduser()
-    try:
+    try:  # (expanduser too: ~nosuchuser, ~+ and ~- raise RuntimeError, R2-14)
+        path = Path(raw).expanduser()
         path = (path if path.is_absolute() else cwd / path).resolve()
         root = cwd.resolve()
     except (OSError, RuntimeError):
@@ -382,6 +388,38 @@ _NOT_READ_ONLY = re.compile(r"[`<>;&$\n]|\|\||\{[^{}]*(?:,|\.\.)")
 READ_ONLY_WHY = "a read-only command"  # (_unasked's why for one: the untrusted guards check it)
 
 
+# Options that make a read follow symbolic links as it goes down the tree, by program: (long
+# options, short option letters). A link inside the project to a folder outside it isn't a
+# path the command names, so reads_inside can't see where it leads (R2-9: rg --follow
+# printed docs/key from proj/docs -> ../outside). find's are words of their own.
+_FOLLOWS: dict[str, tuple[set[str], str]] = {
+    "rg": ({"--follow"}, "L"),
+    "grep": ({"--dereference-recursive"}, "RSO"),  # (GNU's -R follows every link; BSD's -S, -O)
+    "egrep": ({"--dereference-recursive"}, "RSO"),
+    "fgrep": ({"--dereference-recursive"}, "RSO"),
+    "tree": (set(), "l"),
+    "du": ({"--dereference"}, "L"),
+    "ls": ({"--dereference"}, "L"),
+    "find": ({"-L", "-H", "-follow"}, ""),
+    "fd": ({"--follow"}, "L"),
+}  # fmt: skip
+
+
+def follows_links(words: list[str]) -> bool:
+    """Whether a command's options make it follow symbolic links down a tree."""
+    longs, shorts = _FOLLOWS.get(Path(words[0]).name if words else "", (set(), ""))
+    for word in words[1:]:
+        if word == "--":
+            break
+        name = word.split("=", 1)[0]
+        if name in longs or name in ("--follow", "--dereference", "--dereference-recursive"):
+            return True
+        if shorts and word.startswith("-") and not word.startswith("--"):
+            if any(c in shorts for c in word[1:]):
+                return True
+    return False
+
+
 def reads_inside(command: str, cwd: Path) -> bool:
     """Whether every path a read-only command could name stays inside cwd. Each word after
     a program's name, and each option's value, is taken as a path (a pattern grep looks for
@@ -390,7 +428,8 @@ def reads_inside(command: str, cwd: Path) -> bool:
     and a private folder inside cwd as outside it.
     For runs on anyone's words (an issue's, Exterminator Mode's on anyone's code): "cat
     ~/.ssh/id_rsa", "find /" or "git diff --no-index ~/.aws/credentials /dev/null" only
-    read, but read what the run has no business sending to Claude (B7)."""
+    read, but read what the run has no business sending to Claude (B7). Nor any that
+    follows links down the tree (rg --follow, find -L, tree -l, du -L…: R2-9)."""
     import glob as globbing
 
     from . import private_folders
@@ -409,6 +448,8 @@ def reads_inside(command: str, cwd: Path) -> bool:
         try:
             words = shlex.split(segment)
         except ValueError:
+            return False
+        if follows_links(words):
             return False
         for word in words[1:]:
             if word in ("-", "--", "/dev/null"):
@@ -1108,9 +1149,9 @@ def _inside(root: Path, raw: str) -> Path | None:
 
 def _protected_rel(rel: Path, dirs: set[str] | frozenset[str] = frozenset()) -> bool:
     """Whether a file at this path inside a project (rel: relative to its root) runs code by
-    itself: anything in git's or Claude Code's own folders or Eden's .jarvis/ (plus dirs,
-    pairing's editor folders), .envrc, .vscode/tasks.json, and a git hook manager's config at
-    any depth. Compared casefolded: the Mac's disk doesn't care about case, so to git, Claude
+    itself: anything in git's or Claude Code's own folders, Eden's .jarvis/, or an editor's
+    (EDITOR_DIRS, at any depth; plus dirs), an .envrc at any depth, and a git hook manager's
+    config at any depth. Compared casefolded: the Mac's disk doesn't care about case, so to git, Claude
     Code and the owner's editor .Claude/settings.json *is* .claude/settings.json and .ENVRC
     is .envrc; a check that cared would let the session write them unasked. (A package.json
     is checked apart, on its hook keys: that takes the file's text.)"""
@@ -1119,8 +1160,9 @@ def _protected_rel(rel: Path, dirs: set[str] | frozenset[str] = frozenset()) -> 
         return False
     name = parts[-1]
     return bool(
-        (_PROTECTED_DIRS | dirs) & set(parts)
+        (_PROTECTED_DIRS | EDITOR_DIRS | dirs) & set(parts)
         or "/".join(parts) in _PROTECTED_FILES
+        or name in _PROTECTED_NAMES
         or name in _HOOK_CONFIGS
         or name.startswith(_HOOK_CONFIG_PREFIXES)
     )
@@ -2947,6 +2989,19 @@ class TaskManager:
                 waiter.cancel()
         return _GONE
 
+    def notes_for(self, task: ClaudeTask) -> str:
+        """The app's note with a session's next message: turn_note (which features wrap,
+        each calling the one before) and every one of turn_notes (which features append
+        to), in that order. A feature adds its note to turn_notes, or wraps turn_note and
+        calls what was there: never sets turn_note over another's (REL-3)."""
+        said = []
+        for turn_note in [n for n in (self.turn_note, *self.turn_notes) if n is not None]:
+            try:  # a goal it keeps working toward, lessons learned, a run's rules
+                said.append(turn_note(task))
+            except Exception:
+                log.warning("Couldn't add the session's note to a message", exc_info=True)
+        return " ".join(n for n in said if n)
+
     async def _send_turn(self, task: ClaudeTask, client: Any, item: dict[str, Any]) -> None:
         text, images = item["text"], item["images"]
         sent = text
@@ -2959,15 +3014,8 @@ class TaskManager:
             and not text.startswith("/")
         ):
             sent = f"{text}\n\nultracode"  # the keyword that turns on workflow orchestration
-        notes_from = [n for n in (self.turn_note, *self.turn_notes) if n is not None]
-        if notes_from and text and not plain and not text.startswith("/"):
-            said = []
-            for turn_note in notes_from:  # a goal it keeps working toward, lessons learned
-                try:
-                    said.append(turn_note(task))
-                except Exception:
-                    log.warning("Couldn't add the session's note to a message", exc_info=True)
-            note = " ".join(n for n in said if n)
+        if text and not plain and not text.startswith("/"):
+            note = self.notes_for(task)
             if note:  # (the transcript and its history show the message without it)
                 sent = f"[Note from the app: {note}]\n\n{sent}"
         task.turns_pending += 1

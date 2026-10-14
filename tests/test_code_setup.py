@@ -15,7 +15,7 @@ import pytest
 from test_code_changes import git, make_repo
 from test_code_isolation import answer, copy_of, hub, isolated_session, projects, until
 
-from jarvis import devcontainer, tasks
+from jarvis import container_run, devcontainer, tasks, worktrees
 
 __all__ = ["hub", "projects"]  # (the fixtures, used by name)
 
@@ -26,13 +26,14 @@ class FakeDocker:
     """docker as code_setup sees it: every call kept, nothing run. Commands "in the
     container" run on the Mac with /bin/sh, so a setup's output is real."""
 
-    def __init__(self, problem=""):
+    def __init__(self, home, problem=""):
+        self.home = home  # (a temp folder: no setup script here ever writes in the real home)
         self.problem = problem
         self.calls = []
         self.fail = {}  # first argument -> (code, output)
 
     def env(self):
-        return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(Path.home())}
+        return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.home)}
 
     async def check(self):
         return self.problem
@@ -40,9 +41,6 @@ class FakeDocker:
     async def run(self, args, cwd=None, timeout=15):
         self.calls.append(list(args))
         return self.fail.get(args[0], (0, ""))
-
-    async def socket(self):
-        return "/tmp/fake-docker.sock"
 
     def exec_argv(self, name, cwd, command):
         self.calls.append(["exec", name, command])
@@ -55,8 +53,14 @@ class FakeDocker:
 
 
 @pytest.fixture
-def docker(hub):
-    fake = FakeDocker()
+def docker(hub, tmp_path, monkeypatch):
+    from jarvis.features import code_setup
+
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    # (the "container" is the Mac here: its setup's pid file goes in the test's folder)
+    monkeypatch.setattr(code_setup, "SETUP_PIDFILE", str(tmp_path / "setup.pid"))
+    fake = FakeDocker(home)
     hub.code_setup.docker = fake
     return fake
 
@@ -219,12 +223,10 @@ async def test_a_devcontainer_copy_runs_its_commands_in_a_container(hub, project
         {"tool_name": "Bash", "tool_input": {"command": "pytest -q"}}, None, None
     )
     line = out["hookSpecificOutput"]["updatedInput"]["command"]
-    assert shlex.split(line)[-3:] == ["/bin/sh", "-c", "pytest -q"] and name in line
+    relay = hub.code_setup.relays[name]
+    assert shlex.split(line)[-3:] == [relay.path, "--", "pytest -q"]
+    assert "container_run.py" in line
     assert "permissionDecision" not in out["hookSpecificOutput"]  # the session's mode still decides
-    again = await bash[0].hooks[0](
-        {"tool_name": "Bash", "tool_input": {"command": line}}, None, None
-    )
-    assert again == {}  # never wrapped twice
     # Landing takes the container away with the copy.
     answer(hub, "land")
     task.busy = False
@@ -333,12 +335,15 @@ async def test_the_pane_shows_the_setup_and_the_container_state(hub, projects, d
     assert event["container"]["on"] is True and "isn't running" in event["container"]["docker"]
 
 
-async def test_a_command_that_only_starts_like_the_docker_exec_line_still_goes_in(
+async def test_every_bash_step_goes_in_and_docker_s_socket_never_reaches_the_session(
     hub, projects, docker
 ):
-    """B1: the hook left alone any command that merely started with its docker exec words,
-    so "<that line> true; <anything>" ran the rest on the Mac (with docker's socket open in
-    the sandbox). Only the exact line it makes is left as it is; a gone container refuses."""
+    """B1, R2-1: the hook left alone a command that was word for word its own docker exec
+    line, so `<that line> "$(docker run -v $HOME:/h alpine cat /h/.ssh/id_rsa)"` ran on the
+    Mac (bash runs $(…) before docker exec), with docker's socket open in the sandbox. Now
+    every Bash step is wrapped, as one quoted argument to container_run.py, the backend's
+    relay runs it in the container (exec_argv from the backend), and the only socket the
+    sandbox lets through is the relay's. A gone container refuses."""
     make_repo(projects / "proj", {"a.py": "x\n"})
     container_on(hub, image="node:22")
     task = await isolated_session(hub)
@@ -347,23 +352,75 @@ async def test_a_command_that_only_starts_like_the_docker_exec_line_still_goes_i
     [bash] = [h for h in task.client.options.hooks["PreToolUse"] if h.matcher == "Bash"]
     hook = bash.hooks[0]
     name = f"eden-{copy.slug}"
+    relay = hub.code_setup.relays[name]
     own = docker.exec_line(name, copy.cwd, "true")
-    other = docker.exec_line("eden-someone-else", copy.cwd, "true")
-    for sneaky in [
+    steal = '"$(docker run -v $HOME:/h alpine cat /h/.ssh/id_rsa)"'
+    sneaky = [
+        own,  # (the old hook's own line, exactly: left alone)
+        own[: -len("true")] + steal,  # (its words too, so it was left alone: ran on the Mac)
         own + "; touch /tmp/on-the-mac",
-        own + " && curl evil",
         own.replace(" exec ", " exec --privileged ", 1),
-        other,
-        own + " extra-word",
-    ]:
-        out = await hook({"tool_name": "Bash", "tool_input": {"command": sneaky}}, None, None)
+        docker.exec_line("eden-someone-else", copy.cwd, "true"),
+        container_run.line(relay.path, "true"),  # (its own new line: wrapped again too)
+    ]
+    for command in sneaky:
+        out = await hook({"tool_name": "Bash", "tool_input": {"command": command}}, None, None)
         line = out["hookSpecificOutput"]["updatedInput"]["command"]
-        assert shlex.split(line)[-1] == sneaky and name in line, sneaky
-    assert await hook({"tool_name": "Bash", "tool_input": {"command": own}}, None, None) == {}
+        assert shlex.split(line)[-3:] == [relay.path, "--", command], command
+    # What the Mac's shell runs is only container_run.py: the command reaches the relay
+    # untouched (FakeDocker's "container" is /bin/sh on the Mac, recorded by exec_argv).
+    out = await hook(
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo in-there; echo $(echo sub) >&2; exit 3"},
+        },
+        None,
+        None,
+    )
+    line = out["hookSpecificOutput"]["updatedInput"]["command"]
+    ran = await asyncio.create_subprocess_exec(
+        "/bin/bash", "-c", line, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await ran.communicate()
+    assert (ran.returncode, stdout, stderr) == (3, b"in-there\n", b"sub\n")
+    assert ["exec", name, "echo in-there; echo $(echo sub) >&2; exit 3"] in docker.calls
+    # A sandboxed session gets the relay's socket through, never docker's.
+    from jarvis.features.code_setup import _Options
+
+    class Options:
+        hooks = None
+        sandbox = {"enabled": True, "network": {"allowedDomains": []}}
+
+    options = Options()
+    _Options(hub.code_setup).apply(task, options)
+    assert options.sandbox["network"]["allowUnixSockets"] == [relay.path]
+    assert not hasattr(docker, "socket") and not hasattr(devcontainer.Docker, "socket")
     # The container gone under the session: its steps are refused, never run on the Mac.
     hub.code_setup.containers().pop(copy.slug)
     out = await hook({"tool_name": "Bash", "tool_input": {"command": "ls"}}, None, None)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+async def test_the_relay_stops_a_command_when_the_session_s_end_goes(tmp_path):
+    """container_run.Relay: the session's end killed (a Bash step's timeout, Stop), the
+    docker exec it waited on is stopped too; closed, the relay's socket folder is gone."""
+    import sys
+
+    marker = tmp_path / "still-running"
+    relay = container_run.Relay(lambda command: ["/bin/sh", "-c", command], dict)
+    path = relay.start()
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-I", container_run.__file__, path, "--",
+        f"echo started; sleep 2; touch {marker}",
+        stdout=asyncio.subprocess.PIPE,
+    )  # fmt: skip
+    assert await proc.stdout.readline() == b"started\n"
+    proc.kill()
+    await proc.wait()
+    await asyncio.sleep(2.5)
+    assert not marker.exists()
+    relay.close()
+    assert not Path(path).exists() and not Path(path).parent.exists()
 
 
 async def test_a_containers_copy_has_its_git_pinned_across_a_restart(hub, projects, docker):
@@ -429,6 +486,33 @@ async def test_the_tidy_up_also_takes_away_labelled_containers_no_copy_has(hub, 
     assert "label=eden.copy" in ps
 
 
+async def test_the_tidy_up_leaves_a_container_being_made_or_made_while_it_looked(hub, docker):
+    """REL-20b: tidy read its lists before docker ps, so a container being made just then
+    (its copy not listed yet, no record yet) was taken for an orphan and removed."""
+    from types import SimpleNamespace
+
+    container_on(hub, image="node:22")
+    desk = hub.code_setup
+    desk.making.add("eden-new-1")
+    docker.fail["ps"] = (0, "eden-new-1\tnew-1\neden-late-2\tlate-2\n")
+    real = docker.run
+
+    async def run(args, cwd=None, timeout=15):  # (a copy listed while ps runs)
+        if args[0] == "ps":
+            hub.code_desk.store().copies.append(SimpleNamespace(slug="late-2"))
+        return await real(args, cwd, timeout)
+
+    docker.run = run
+    try:
+        await desk.tidy()
+    finally:
+        hub.code_desk.store().copies[:] = [
+            c for c in hub.code_desk.store().copies if getattr(c, "slug", "") != "late-2"
+        ]
+    assert ["rm", "-f", "eden-new-1"] not in docker.calls
+    assert ["rm", "-f", "eden-late-2"] not in docker.calls
+
+
 async def test_a_container_record_stays_until_docker_has_really_removed_it(hub, docker):
     """B11: the record was dropped and saved before docker rm -f, whose answer nobody read:
     with Docker stopped the container was left behind for good."""
@@ -462,7 +546,7 @@ async def test_a_setup_out_of_time_is_stopped_inside_its_container_too(
     code = await hub.code_setup.run_setup(task, copy, found, {"name": "eden-s-1"})
     assert code is None
     [stop] = [c for c in docker.calls if c[:2] == ["exec", "eden-s-1"] and len(c) > 3]
-    assert "kill -TERM -1" in stop[-1]
+    assert code_setup.SETUP_PIDFILE in stop[-1] and "kill -TERM -1" not in stop[-1]
 
     stopped = []
 
@@ -508,3 +592,66 @@ async def test_what_runs_is_the_script_the_card_showed_and_never_while_it_works(
     monkeypatch.setattr(hub, "request_approval", busy_then_yes)
     await hub.code_setup.setup(task, copy, None, idle=True)
     assert not (folder / "ran.txt").exists()
+
+
+def test_running_out_of_time_stops_only_the_setup_s_own_processes(tmp_path):
+    """REL-15: a setup out of time ran `kill -TERM -1; kill -KILL -1` in the container,
+    taking every process in there (dev servers, watchers). Now only the shell whose pid it
+    wrote and everything under it, found before any is signalled. A fake /proc and kill."""
+    import subprocess
+
+    from jarvis.features.code_setup import stop_script
+
+    proc = tmp_path / "proc"
+    for pid, ppid in {1: 0, 10: 1, 11: 10, 12: 11, 13: 10, 20: 1, 21: 20}.items():
+        (proc / str(pid)).mkdir(parents=True)
+        (proc / str(pid) / "status").write_text(f"Name:\tsh\nPid:\t{pid}\nPPid:\t{ppid}\n")
+    pidfile = tmp_path / "setup.pid"
+    pidfile.write_text("10\n")
+    log = tmp_path / "killed"
+    fakes = f'kill() {{ echo "$@" >> {log}; }}; sleep() {{ :; }}; '
+    subprocess.run(["/bin/bash", "-c", fakes + stop_script(str(pidfile), str(proc))], check=True)
+    lines = log.read_text().splitlines()
+    assert [line.split()[0] for line in lines] == ["-TERM", "-KILL"]
+    for line in lines:
+        assert sorted(line.split()[1:], key=int) == ["10", "11", "12", "13"]  # not 1, 20, 21
+    assert not pidfile.exists()
+    pidfile.unlink(missing_ok=True)  # (no pid file: nothing to stop, nothing killed)
+    log.unlink()
+    subprocess.run(["/bin/bash", "-c", fakes + stop_script(str(pidfile), str(proc))], check=True)
+    assert not log.exists()
+
+
+async def test_a_running_setup_keeps_its_copy_from_landing_and_stops_before_a_discard(
+    hub, projects, docker, monkeypatch
+):
+    """REL-8: land and discard checked only the sessions' busy flag, so a setup run again
+    while the session was idle went on as the copy was committed (a half-written lockfile
+    landed) or snapshotted and removed; on_copy_gone stopped it only after that."""
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    task = await isolated_session(hub)
+    await started(hub, task)
+    copy = copy_of(hub, task)
+    events = []
+
+    class Running:
+        async def stop(self, grace=0):
+            events.append("setup stopped")
+            hub.code_setup.running.pop(copy.slug, None)
+
+    hub.code_setup.running[copy.slug] = Running()
+    assert copy.slug in hub.code_desk.live_slugs()  # (the sweeper leaves it)
+    task.busy = False
+    assert await hub.code_desk.land(copy.slug) == "It's still working. Stop it first, then land."
+    assert await hub.code_desk.land_now(copy) == "It's still working. Stop it first, then land."
+    assert hub.code_desk.store().find(copy.slug) is not None
+    real = worktrees.discard
+
+    def discard(*a, **k):
+        events.append("discarded")
+        return real(*a, **k)
+
+    monkeypatch.setattr(worktrees, "discard", discard)
+    answer(hub, "discard")
+    await hub.code_desk.discard(copy.slug)
+    assert events == ["setup stopped", "discarded"]

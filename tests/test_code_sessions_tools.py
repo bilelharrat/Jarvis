@@ -275,10 +275,10 @@ async def test_a_goal_pauses_when_stopped_or_out_of_checks_and_resumes(
     cs._turn_ended({"id": task.id, "status": "stopped"})
     goal = cs._meta_of(task)["goal"]
     assert goal["state"] == "paused" and "stopped" in goal["note"]
-    assert hub.tasks.turn_note(task) == ""  # paused: nothing rides along
+    assert hub.tasks.notes_for(task) == ""  # paused: nothing rides along
     goal["checks"] = code_asides.CHECKS_PER_GOAL  # its checks are used up
     await hub._handle({"type": "code_goal", "id": task.id, "action": "resume"})
-    assert goal["state"] == "active" and hub.tasks.turn_note(task)
+    assert goal["state"] == "active" and hub.tasks.notes_for(task)
     assert await until(lambda: task.client.said[-1:] == ["Carry on toward the goal."])
     await until(lambda: goal["state"] == "paused", tries=800)
     assert goal["state"] == "paused" and Scripted.asked == []  # no check past the cap
@@ -300,7 +300,7 @@ async def test_claude_codes_own_goal_is_passed_through(settings, quiet_speaker, 
     assert goal["native"] and hub.code_sessions.native_goal is True
     assert await until(lambda: goal["state"] == "met")  # its turn ends only once the goal holds
     assert task.client.queries == ["/goal a green build"] and Scripted.asked == []
-    assert hub.tasks.turn_note(task) == ""
+    assert hub.tasks.notes_for(task) == ""
     await end_all(hub)
 
 

@@ -237,6 +237,9 @@ class BugClient(FakeClient):
 
     async def query(self, text):
         self.queries.append(text)
+        if isinstance(text, str) and text.startswith("[Note from the app:"):
+            note, text = text.split("\n\n", 1)  # (the run's rules ride along: REL-3)
+            assert code_bugfix.NOTE in note
         BugClient.prompts.append(text)
         n = len(BugClient.prompts)
         head = text.split("\n", 1)[0] if isinstance(text, str) else ""
@@ -695,8 +698,10 @@ async def _mid_efficiency(hub, projects, monkeypatch):
     await desk.request("calc")
     [run] = desk.runs
     assert await until(
-        lambda: run.step == "efficiency"
-        and any("EFFICIENCY" in p.split("\n", 1)[0] for p in BugClient.prompts)
+        lambda: (
+            run.step == "efficiency"
+            and any("EFFICIENCY" in p.split("\n", 1)[0] for p in BugClient.prompts)
+        )
     ), (run.step, run.notes)
     copy = Path(run.folder)
     checked = (copy / "calc.py").read_text()
@@ -999,14 +1004,17 @@ def test_a_hostile_bugfix_block_is_dropped_not_a_crash(hub, tmp_path, text):
     hub.code_bugfix.take_findings(run, tmp_path, "sweep", f"```bugfix\n{text}\n```")
     assert run.findings == []
     for key in ("fixes", "changes", "owner_steps"):
-        assert code_bugfix.listed(parse_block(f"```bugfix\n{{\"{key}\": 7}}\n```"), key) == []
+        assert code_bugfix.listed(parse_block(f'```bugfix\n{{"{key}": 7}}\n```'), key) == []
 
 
 async def test_a_ceiling_of_true_is_refused(hub, projects):
     make_repo(projects / "calc", FILES)
     hub.answers = ["deny"] * 5  # (were one taken, its card says no rather than waiting)
     for cap in (True, False, 10**400, float("nan"), float("inf")):
-        assert await hub.code_bugfix.request("calc", cap) == "The spending ceiling is between $1 and $50."
+        assert (
+            await hub.code_bugfix.request("calc", cap)
+            == "The spending ceiling is between $1 and $50."
+        )
 
 
 async def test_a_fix_s_test_outside_its_copy_is_never_run(hub, tmp_path):
@@ -1130,3 +1138,206 @@ async def test_the_sweep_runs_no_command_at_all(hub, projects):
         assert desk.refusal(run, task, "Bash", {"command": command}) not in (None, "card")
     run.step = "break"
     assert desk.refusal(run, task, "Bash", {"command": "pytest -q"}) is None
+
+
+@pytest.mark.parametrize(
+    "rule,command,why",
+    [
+        ("Bash(git push:*)", "git push origin main", "owner's to do"),
+        ("Bash(rm:*)", "rm -rf src", "card"),
+        ("Bash(security:*)", "security find-generic-password -s x -w", "owner's to do"),
+        ("Bash(npm publish:*)", "npm publish", "owner's to do"),
+    ],
+)
+async def test_an_allow_rule_never_beats_the_runs_owner_only_and_risky_lists(
+    hub, projects, rule, command, why
+):
+    """G5: refusal() asked the owner's rules (and the mode) first, so an allow rule such as
+    Bash(git push:*) let git push, rm -rf, security … or npm publish go ahead unasked in
+    Exterminator Mode. Its owner-only list refuses them, and a risky one gets a card (Yes
+    or No only) even when a rule or the mode would let it by."""
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    task = ClaudeTask(id=9, prompt="", cwd=projects, mode="ask")
+    hub.tasks.tasks[9] = task
+    run = BugRun("r", "p", folder=str(projects), step="fix", stack={"kinds": ["python", "node"]})
+    desk.active[9] = run
+    await hub.handle({"type": "cr_add", "id": 9, "behavior": "allow", "rule": rule})
+    assert hub.tasks._goes_ahead(task, "Bash", {"command": command}) is not None  # (the rule)
+    said = desk.refusal(run, task, "Bash", {"command": command})
+    assert said is not None and why in said, said
+    if said != "card":
+        del desk.active[9]
+        return
+    asked = []
+
+    async def approve(question, detail, choices, context=None):
+        asked.append([c for c, _ in choices])
+        return "deny"
+
+    async def inner(*_):
+        return PermissionResultAllow()  # (what the session's own policy would say: the rule)
+
+    hub.tasks.approve = approve
+    out = await desk.guard(task, inner)("Bash", {"command": command}, None)
+    assert isinstance(out, PermissionResultDeny) and asked == [["allow", "deny"]]
+    del desk.active[9]
+
+
+async def test_a_run_gets_no_web_no_owner_settings_and_no_mcp_but_its_dev_servers(hub, projects):
+    """R2-10: an Exterminator run kept WebSearch (one of tasks.FREE_TOOLS, so it went
+    ahead), the owner's user settings (hooks, permissions, MCP servers) and every MCP
+    server the session had. Now: the project's settings only, jarvis_dev alone, no web."""
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    task = ClaudeTask(id=10, prompt="", cwd=projects, mode="ask")
+    run = BugRun("r", "p", folder=str(projects), step="fix", stack={"kinds": ["python"]})
+    desk.active[10] = run
+
+    async def inner(*_):
+        return PermissionResultAllow()
+
+    options = ClaudeAgentOptions(
+        setting_sources=["user", "project", "local"],
+        mcp_servers={"jarvis_dev": {"type": "sdk"}, "jarvis_browser": {}, "owners_slack": {}},
+        allowed_tools=[
+            "TodoWrite",
+            "mcp__jarvis_browser__read",
+            "mcp__jarvis_dev__dev_server_list",
+        ],
+        disallowed_tools=["mcp__off"],
+        can_use_tool=inner,
+    )
+    desk.extend(run, task, options)
+    assert options.setting_sources == ["project", "local"]
+    assert list(options.mcp_servers) == ["jarvis_dev"] and options.strict_mcp_config
+    assert options.allowed_tools == ["TodoWrite", "mcp__jarvis_dev__dev_server_list"]
+    assert {"WebSearch", "WebFetch", "mcp__off"} <= set(options.disallowed_tools)
+    for tool in ("WebSearch", "WebFetch", "mcp__owners_slack__post", "mcp__jarvis_browser__click"):
+        why = desk.refusal(run, task, tool, {"query": "x"})
+        assert why not in (None, "card"), (tool, why)
+    assert desk.refusal(run, task, "mcp__jarvis_dev__dev_server_logs", {"name": "web"}) is None
+    del desk.active[10]
+
+
+async def test_a_resumed_runs_earlier_spend_is_not_counted_twice(hub, projects, monkeypatch):
+    """REL-5: a resumed run's session took its first cost report (Claude Code's running
+    total for the conversation, the spend before the resume included) as its own: $3 then
+    a $0.40 turn counted $6.40, and the run stopped early at its ceiling."""
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    run = BugRun("r1", "calc", spend_cap=5.0, session_id="sess-1")
+    first = ClaudeTask(id=1, prompt="", cwd=projects)
+    hub.tasks._count_cost(first, 3.0)
+    desk.account(run, first)  # (the app quit: accounted)
+    assert run.spent == 3.0
+    resumed = ClaudeTask(id=2, prompt="", cwd=projects, cost_unknown=True)
+    monkeypatch.setattr(hub.tasks, "start", lambda *a, **k: resumed)
+    monkeypatch.setattr(desk, "save", lambda: None)
+    assert desk.open_session(run, str(projects), "", resume="sess-1") is resumed
+    hub.tasks._count_cost(resumed, 3.4)  # its first report: the conversation's total
+    desk.account(run, resumed)
+    assert run.spent == 3.4
+    hub.tasks._count_cost(resumed, 3.5)
+    desk.account(run, resumed)
+    assert run.spent == 3.5
+    desk.active.pop(2, None)
+
+
+async def test_a_run_saved_while_stopping_can_resume_after_a_restart(hub, projects):
+    """REL-12: only "running" was put right on load; a run saved while "stopping" (another
+    run's save) stayed so for good: never resumed, never landed."""
+    desk = hub.code_bugfix
+    desk.load()
+    run = BugRun("r1", "calc", spend_cap=5.0, folder=str(projects), slug="s1", state="stopping")
+    desk.runs.append(run)
+    desk.save()
+    desk._loaded, desk.runs = False, []
+    desk.load()
+    [again] = desk.runs
+    assert (again.state, again.why) == ("paused", "restart")
+
+
+async def test_the_receipt_s_git_runs_off_the_event_loop(hub, projects, monkeypatch):
+    """REL-19: receipt() ran changed_since (git add -A and a diff in the copy) on the event
+    loop, holding up every window and session while git worked."""
+    import threading
+
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    where = []
+
+    def changed_since(folder, base):
+        where.append(threading.current_thread() is threading.main_thread())
+        return ["calc.py"]
+
+    monkeypatch.setattr(code_bugfix, "changed_since", changed_since)
+    monkeypatch.setattr(desk, "copy_folder", lambda run, task: projects)
+    task = ClaudeTask(id=12, prompt="", cwd=projects)
+    run = BugRun("r1", "calc", base="abc", started=0.0)
+    await desk.receipt(run, task)
+    assert where == [False]
+    assert any(e.get("receipt", {}).get("bugfix") for e in task.transcript)
+    assert not hasattr(desk, "running_in")  # (unused: gone)
+
+
+async def test_the_copy_of_a_run_not_landed_is_never_swept(hub, projects):
+    """REL-13: Exterminator Mode held no copies (code_bugfix installs before code_isolation),
+    so the sweeper took a paused or stopped run's clean copy away ~30 s after the next start
+    and the run could no longer resume. Every run not landed holds its copy."""
+    desk = hub.code_bugfix
+    desk.load()
+    desk.runs += [
+        BugRun("r1", "calc", slug="s-paused", state="paused"),
+        BugRun("r2", "calc", slug="s-stopped", state="stopped"),
+        BugRun("r3", "calc", slug="s-landed", state="done", landed="Landed."),
+    ]
+    live = hub.code_desk.live_slugs()
+    assert {"s-paused", "s-stopped"} <= live and "s-landed" not in live
+
+
+async def test_a_suite_s_child_in_a_session_of_its_own_goes_with_the_run(hub, tmp_path):
+    """R1-a: a test's child started with setsid (holding the runner's stdout) left the run's
+    group and session, so it outlived the suite run. Every process of a run carries its
+    mark, and what's left with it when the run ends is killed."""
+    import signal
+
+    folder = tmp_path / "orphan"
+    folder.mkdir()
+    pids = tmp_path / "pids"
+    (folder / "pytest.ini").write_text("[pytest]\naddopts = -s\n")
+    (folder / "test_x.py").write_text(
+        "import subprocess\n\n\ndef test_orphan():\n"
+        "    a = subprocess.Popen(['sleep', '10000'], start_new_session=True)\n"
+        "    b = subprocess.Popen(['sleep', '10001'])\n"
+        f"    open({str(pids)!r}, 'w').write(f'{{a.pid}} {{b.pid}}')\n"
+    )
+    suite = codetests.Suite("pytest", "pytest", (sys.executable, "-m", "pytest"))
+    await asyncio.wait_for(hub.code_bugfix.run_one(folder, suite), 60)
+    a, b = map(int, pids.read_text().split())
+
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    try:
+        for _ in range(30):
+            if not alive(a) and not alive(b):
+                break
+            await asyncio.sleep(0.1)
+        assert not alive(b) and not alive(a)
+    finally:
+        for pid in (a, b):
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGKILL)

@@ -461,6 +461,38 @@ def kill_leftovers(sid: int) -> None:
                 os.kill(pid, _KILL)
 
 
+def kill_marked(
+    name: str, value: str, folder: Path | None = None, since: float | None = None
+) -> list[int]:
+    """SIGKILL to what a run left behind in no group or session of its own any more (a
+    test's child started with setsid, its parent gone): every process of the owner's whose
+    environment has name=value (the run's own random mark), and, since macOS hides a system
+    program's environment (/bin/sleep, /bin/sh), every orphan (its parent gone: launchd's
+    now) started since `since` whose folder is inside `folder`. The pids killed."""
+    import psutil
+
+    if not value:
+        return []
+    root = os.path.realpath(folder) if folder is not None else ""
+    me, killed = os.getpid(), []
+    for p in psutil.process_iter(["pid", "ppid", "create_time"]):
+        pid = p.info["pid"]
+        if pid == me:
+            continue
+        try:
+            ours = p.environ().get(name) == value
+            if not ours and root and since is not None and p.info["ppid"] == 1:
+                if (p.info["create_time"] or 0) >= since:
+                    cwd = os.path.realpath(p.cwd())
+                    ours = cwd == root or cwd.startswith(root + os.sep)
+            if ours:
+                p.kill()
+                killed.append(pid)
+        except (psutil.Error, OSError):
+            continue  # (gone, a zombie, or another user's: not ours to read)
+    return killed
+
+
 def kill_all_now(procs: Iterable[Proc], grace: float = 1.5) -> None:
     """At exit, synchronously: SIGTERM to every group, a moment, then SIGKILL."""
     live = [p for p in procs if p.proc is not None and p.proc.returncode is None]

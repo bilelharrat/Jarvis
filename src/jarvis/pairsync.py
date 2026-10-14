@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 from .code_changes import git
-from .tasks import _hook_sections, _protected_rel
+from .tasks import EDITOR_DIRS, _hook_sections, _protected_rel
 
 MARKER = ".eden-pair.json"  # in the pairing folder: whose mirror it is
 FILE_MAX = 5_000_000
@@ -61,7 +61,7 @@ NEVER = {".git"}
 # a build's): a file git tracks in one of them is still mirrored, found from the copy's side.
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
              ".pytest_cache", ".ruff_cache", ".next", ".turbo", "dist", "build"}  # fmt: skip
-EDITOR_DIRS = frozenset({".vscode", ".idea", ".zed", ".fleet", ".devcontainer"})
+# (EDITOR_DIRS, the editors' own folders, are tasks.py's: edits mode holds them too.)
 
 
 class CopyUnreadable(RuntimeError):

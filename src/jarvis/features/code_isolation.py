@@ -137,14 +137,21 @@ class Desk:
         # (hook(slug), landed, discarded or swept); and copies held by something other than
         # a session bound to them (hook() -> slugs: code_multirepo's group sessions), which
         # the sweeper treats as live. A hook that fails is logged; the others still run.
+        # A feature installed before this one (by name: code_bugfix) adds its holder to
+        # hub.copy_holders, which this list is.
         self.on_new_copy: list[Any] = []
         self.on_copy_gone: list[Any] = []
-        self.holders: list[Any] = []
+        early = getattr(hub, "copy_holders", None)
+        self.holders: list[Any] = early if isinstance(early, list) else []
         # Before a copy's files are taken away (landed, discarded): await hook(slug), with
         # the slug in removing until it's done (code_pairing waits for its sync in flight
         # and starts none: a sync then would mirror the vanishing files as deletions into
         # the owner's pairing folder).
         self.before_copy_gone: list[Any] = []
+        # Work in a copy that isn't a session's turn: hook(slug) -> True while it runs
+        # (code_setup's setup script). Landing waits for none: it's refused (REL-8: the
+        # commit took a half-written lockfile).
+        self.working: list[Any] = []
         self.removing: set[str] = set()
         # Copies being landed just now (slug -> the folder whose sessions wait: the copy's
         # checkout, or a multi-repo task's folder), from before their sessions are quieted
@@ -209,6 +216,17 @@ class Desk:
                 await hook(slug)
             except Exception:
                 log.exception("an isolated copy's before-gone hook failed")
+
+    def working_in(self, slug: str) -> bool:
+        """Whether something other than a session's turn is working in a copy (working)."""
+        for hook in self.working:
+            try:
+                if hook(slug):
+                    return True
+            except Exception:
+                log.exception("an isolated copy's working hook failed")
+                return True  # (can't tell: not landed now)
+        return False
 
     def gone(self, slug: str) -> None:
         """Tell the on_copy_gone hooks a copy is gone."""
@@ -499,7 +517,7 @@ class Desk:
         if copy is None:
             return "That isolated copy isn't there any more."
         inside = self.tasks_in(copy)
-        if any(t.busy for t in inside):
+        if any(t.busy for t in inside) or self.working_in(copy.slug):
             return "It's still working. Stop it first, then land."
         found = await asyncio.to_thread(worktrees.state, copy)
         findings = await asyncio.to_thread(self._scan_copy, copy)
@@ -541,7 +559,7 @@ class Desk:
             return False, "That isolated copy isn't there any more."
         # A turn may have started since the card went up (C5): it's stopped, and waited
         # for, before the copy's work is committed, so nothing is half written in it.
-        if not await self.quiet(self.tasks_in(copy)):
+        if not await self.quiet(self.tasks_in(copy)) or self.working_in(copy.slug):
             return False, "It's still working. Stop it first, then land."
         async with self.lock(copy.repo):
             if copy not in self.store().copies:

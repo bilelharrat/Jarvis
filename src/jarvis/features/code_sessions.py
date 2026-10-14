@@ -118,7 +118,9 @@ class CodeSessions:
         hub.code_sessions = self  # for other features (the voice supervisor, say)
         tm.more_projects = self.projects.more
         tm.start_defaults = self.start_defaults
-        tm.turn_note = self.turn_note
+        # One of the notes, beside the others' (REL-3: set as turn_note, it replaced the
+        # wrapper code_bugfix had put there, and Exterminator Mode's rules went unsent).
+        tm.turn_notes.append(self.turn_note)
         tm.revive = self.revive
         tm.more_history = self.more_history
         hub.add_task_sink(self.heard)  # every event of the sessions, as the windows get it

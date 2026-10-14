@@ -49,6 +49,50 @@ def test_a_read_only_command_reads_inside_its_folder_or_it_doesnt_count(tmp_path
         assert not tasks.reads_inside(out, tmp_path), out
 
 
+def test_no_read_follows_a_link_out_of_the_project(tmp_path):
+    """R2-9: a link inside the project to a folder outside isn't a path the command names,
+    so rg --follow printed docs/key:SECRET through proj/docs -> outside/. Any option that
+    follows links down the tree makes the read not count; the same reads without it do."""
+    proj, outside = tmp_path / "proj", tmp_path / "outside"
+    proj.mkdir()
+    outside.mkdir()
+    (outside / "key").write_text("SECRET\n")
+    os.symlink(outside, proj / "docs")
+    for follows in (
+        "rg --follow SECRET",
+        "rg -L SECRET",
+        "rg -iL SECRET .",
+        "find -L .",
+        "find . -follow -name key",
+        "tree -l",
+        "du -L -a",
+        "du --dereference -a .",
+        "grep -R SECRET .",
+        "grep -rS SECRET .",
+        "grep --dereference-recursive SECRET .",
+        "ls -RL",
+        "fd --follow key",
+        "cat a.py | rg --follow SECRET",
+    ):
+        assert not tasks.reads_inside(follows, proj), follows
+    for fine in (
+        "rg SECRET",
+        "find . -name key",
+        "tree -L 2",
+        "du -sh .",
+        "grep -rn x .",
+        "ls -la",
+    ):
+        assert tasks.reads_inside(fine, proj), fine
+
+
+def test_a_tilde_the_shell_can_t_expand_is_outside_not_an_error(tmp_path):
+    """R2-14: ~-/x, ~+ and ~nosuchuser raised RuntimeError from expanduser, outside the try."""
+    for odd in ("cat ~-/x", "cat ~+", "cat ~nosuchuser-eden/x"):
+        assert tasks.reads_inside(odd, tmp_path) is False, odd
+    assert tasks._within(tmp_path, "~nosuchuser-eden/x") is False
+
+
 async def test_an_issues_run_reads_no_private_folder_and_nothing_outside(hub, projects, secret):
     runs = hub.code_runs
     repo = make_repo(projects / "proj", {"a.py": "x = 1\n", "grades/marks.md": "38/100\n"})
