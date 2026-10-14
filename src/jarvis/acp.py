@@ -9,8 +9,10 @@ ends, with a stop reason) and the session/cancel notification; the agent sends s
 notifications (its words and thinking in chunks, tool calls and their updates, its plan) and
 asks session/request_permission, which JARVIS's own policy answers (TaskManager.policy_for:
 the mode, the owner's rules, a card). JARVIS offers the agent no file system or terminal of
-its own (clientCapabilities all false) and no MCP servers: the agent works with its own
-tools, and asks before the steps it would ask its user about.
+its own (clientCapabilities all false); the only MCP servers it's given are the session's
+stdio ones (mcp_servers_for: Eden's read-only code index, features/code_index.py), never
+JARVIS's in-process ones. The agent works with its own tools, and asks before the steps it
+would ask its user about.
 
 Its steps are shown as the SDK's messages (ToolUseBlock / ToolResultBlock), under the names
 JARVIS's policy knows: execute is Bash, read is Read, edit is Edit, fetch is WebFetch,
@@ -352,6 +354,33 @@ def _output(update: dict[str, Any]) -> str:
     return "\n".join(p for p in parts if p)[:TEXT_CHARS]
 
 
+def mcp_servers_for(options: Any) -> list[dict[str, Any]]:
+    """The session's MCP servers an ACP agent can start itself: the stdio ones among
+    options.mcp_servers ({"type": "stdio", "command", "args", "env"}), in ACP's shape
+    ({name, command, args, env: [{name, value}]}). JARVIS's in-process servers (the SDK's
+    "sdk" ones) only work inside Claude Code, so they're left out."""
+    servers = getattr(options, "mcp_servers", None)
+    out: list[dict[str, Any]] = []
+    for name, spec in (servers if isinstance(servers, dict) else {}).items():
+        if not isinstance(spec, dict) or spec.get("type") != "stdio":
+            continue
+        command, args = spec.get("command"), spec.get("args") or []
+        env = spec.get("env") or {}
+        if not isinstance(command, str) or not command or not isinstance(args, list):
+            continue
+        out.append(
+            {
+                "name": str(name),
+                "command": command,
+                "args": [str(a) for a in args],
+                "env": [{"name": str(k), "value": str(v)} for k, v in env.items()]
+                if isinstance(env, dict)
+                else [],
+            }
+        )
+    return out
+
+
 class AcpClient:
     """The Claude Agent SDK's client as TaskManager uses it (connect, query,
     receive_messages, interrupt…), over an ACP agent: a session there, its updates as the
@@ -422,7 +451,11 @@ class AcpClient:
                 try:
                     await self.conn.request(
                         "session/load",
-                        {"sessionId": resume, "cwd": cwd, "mcpServers": []},
+                        {
+                            "sessionId": resume,
+                            "cwd": cwd,
+                            "mcpServers": mcp_servers_for(self.options),
+                        },
                         START_TIMEOUT,
                     )
                 finally:
@@ -430,7 +463,9 @@ class AcpClient:
                 self.session_id = resume
             else:
                 made = await self.conn.request(
-                    "session/new", {"cwd": cwd, "mcpServers": []}, START_TIMEOUT
+                    "session/new",
+                    {"cwd": cwd, "mcpServers": mcp_servers_for(self.options)},
+                    START_TIMEOUT,
                 )
                 self.session_id = (
                     str((made or {}).get("sessionId") or "") if isinstance(made, dict) else ""
