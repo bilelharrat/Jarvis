@@ -760,7 +760,7 @@
   function select(options, value, onChange, label) {
     const s = el('select', 'jcs-select');
     s.setAttribute('aria-label', label);
-    s.append(...options.map(([v, text]) => option(v, text, v === value)));
+    s.append(...options.map(([v, text, off]) => { const o = option(v, text, v === value); o.disabled = !!off; return o; }));
     s.addEventListener('change', () => onChange(s.value));
     return s;
   }
@@ -779,7 +779,8 @@
     const own = ownDefaults(defaultsFor) || {};
     const path = projectPath(defaultsFor);
     const set = (field, value) => setProjectDefaults(path, { ...own, [field]: value });
-    const models = [['', 'Eden Code’s default'], ...modelList.map((m) => [m.ref, m.builtin ? m.label : `${m.label} · ${m.provider_name}`])];
+    // The picker's models (Eden chat's, then the owner's); one with no key yet is shown, not choosable.
+    const models = [['', 'Eden Code’s default'], ...modelList.map((m) => [m.ref, m.needs_key ? `${m.label} (needs a key)` : m.builtin || m.eden ? m.label : `${m.label} · ${m.provider_name}`, !!m.needs_key])];
     const rows = el('div', 'jcs-group');
     const row = (label, control) => { const r = el('label', 'jcs-row'); r.append(el('span', '', label), control); return r; };
     // Bypass for the new sessions here is asked about first (Touch ID, or the usual question),

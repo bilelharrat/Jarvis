@@ -1334,9 +1334,17 @@ async def test_a_gemini_keys_newest_flash_and_pro_are_found_by_number(tmp_path):
         assert await store.newest_gemini(pid, client) == {}
 
 
+def bare_gemini(store):
+    """A Gemini provider without the models of Eden chat's its key comes with."""
+    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    for entry in list(store.models_of(pid)):
+        store.remove_model(entry.id)
+    return pid
+
+
 async def test_gemini_starters_added_before_the_numbers_get_them_in_place(tmp_path):
     store = make_store(tmp_path)
-    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    pid = bare_gemini(store)
     flash = store.add_model(pid, "gemini-flash-latest", "Gemini Flash")["ref"]
     pro = store.add_model(pid, "gemini-pro-latest", "Gemini Pro")["ref"]
     lite = store.add_model(pid, "gemini-flash-lite-latest", "Gemini Flash Lite")["ref"]
@@ -1366,7 +1374,7 @@ async def test_gemini_starters_added_before_the_numbers_get_them_in_place(tmp_pa
 
 async def test_a_renamed_starter_or_one_whose_number_is_there_already_stays(tmp_path):
     store = make_store(tmp_path)
-    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    pid = bare_gemini(store)
     store.add_model(pid, "gemini-flash-latest", "Quick")  # renamed by hand
     store.add_model(pid, "gemini-pro-latest", "Gemini Pro")
     store.add_model(pid, "gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview")  # added already
@@ -1381,7 +1389,7 @@ async def test_a_renamed_starter_or_one_whose_number_is_there_already_stays(tmp_
 
 def test_adding_all_of_a_keys_models_at_once(tmp_path):
     store = make_store(tmp_path)
-    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    pid = bare_gemini(store)
     store.add_model(pid, "gemini-flash-latest", "Gemini Flash")
     done = store.add_models(
         pid,
@@ -1413,7 +1421,7 @@ def test_adding_all_of_a_keys_models_at_once(tmp_path):
 
 def test_adding_all_adds_none_when_the_list_cant_be_saved(tmp_path):
     store = make_store(tmp_path)
-    pid = store.add_provider("gemini", "", GOOGLE_KEY)["id"]
+    pid = bare_gemini(store)
     block_saving(store, tmp_path)
     with pytest.raises(ValueError, match="couldn't save"):
         store.add_models(pid, [("gemini-2.5-pro", "Gemini 2.5 Pro")])

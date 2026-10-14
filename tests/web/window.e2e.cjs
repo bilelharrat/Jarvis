@@ -3016,6 +3016,57 @@ test('Review: findings are listed, pinned under their lines, and handed to the s
   assert(JSON.stringify(s) === JSON.stringify(['code_review_fix f1 false', 'code_review_fix  true', 'code_review_dismiss f2 false']), JSON.stringify(s));
 });
 
+// Eden Code's model button: Eden chat's list, in its order, under its headings; a model with no
+// key yet is listed, says so, and picking it opens the Add form ready for that key (or, when
+// Eden chat on this Mac has one, offers to use it), never moving the session.
+const EDEN_CHAT = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'fixtures', 'eden_chat_models.json'), 'utf8'));
+function edenPicker({ withKeys = [], fromChat = [] } = {}) {
+  const how = { openai: ['openai', 'https://api.openai.com', 'an OpenAI API key'], kimi: ['openai', 'https://api.moonshot.ai/v1', 'a Moonshot (Kimi) API key'], gemini: ['gemini', '', 'a Google Gemini API key'] };
+  return EDEN_CHAT.models.filter((m) => !m.off).map((m, i) => {
+    const group = EDEN_CHAT.groups[m.provider];
+    if (m.provider === 'anthropic') return { ref: m.id.includes('opus') ? 'opus' : 'sonnet', model: m.id, label: m.name, builtin: true, eden: true, group, kind: 'builtin' };
+    const [kind, url, what] = how[m.provider];
+    if (withKeys.includes(m.provider)) return { ref: `custom:e${i}`, model: m.id, label: m.name, builtin: false, eden: true, group, kind, provider: 'p1', provider_name: 'Mine' };
+    return { ref: `eden:${m.id}`, model: m.id, label: m.name, builtin: false, eden: true, group, kind, needs_key: true, reason: `${m.name} needs ${what}.`,
+      key_kind: kind, key_url: url, key_group: m.provider, key_what: what, from_eden_chat: fromChat.includes(m.provider) };
+  });
+}
+test('Eden Code’s model menu is Eden chat’s list; a model with no key yet says so and leads to adding it', async () => {
+  await open(1);
+  const kinds = [{ id: 'openai', name: 'OpenAI-compatible', needs_base_url: true }, { id: 'gemini', name: 'Google Gemini' }];
+  await js(`onEvent(${JSON.stringify({ type: 'providers', kinds, providers: [], models: [], picker: edenPicker({ withKeys: ['gemini'] }) })})`);
+  const asked = await js('__sent.filter((m) => m.type === "eden_chat_keys").length');
+  assert(asked === 1, `asked ${asked} times which of Eden chat's keys this Mac has`);
+  await js('$("jc-model").click()');
+  const menu = await js(`[...document.querySelectorAll('#jc-menu > *')].map((n) => n.matches('.jc-menu-head') ? '# ' + n.textContent : n.matches('button') ? n.querySelector('.mi-label').textContent + (n.querySelector('small') ? ' — ' + n.querySelector('small').textContent : '') : '-')`);
+  const want = [];
+  let head = '';
+  for (const m of EDEN_CHAT.models.filter((x) => !x.off)) {
+    const g = EDEN_CHAT.groups[m.provider];
+    if (g !== head) { want.push('# ' + g); head = g; }
+    want.push(m.provider === 'openai' ? `${m.name} — Needs an OpenAI API key: add it` : m.provider === 'kimi' ? `${m.name} — Needs a Moonshot (Kimi) API key: add it` : m.name);
+  }
+  assert(JSON.stringify(menu.slice(0, want.length)) === JSON.stringify(want), JSON.stringify(menu));
+  assert(!menu.some((x) => /Fable|Haiku/.test(x)), JSON.stringify(menu));
+  await js('__sent.length = 0');
+  assert(await js(`(() => { const b = [...document.querySelectorAll('#jc-menu button')].find((x) => x.querySelector('.mi-label').textContent === 'GPT-6.1 Sol'); b.click(); return true; })()`), 'no GPT-6.1 Sol');
+  await sleep(60);
+  const after = await js(`({ sent: __sent.map((m) => m.type), settings: !$('jc-settings').hidden, url: $('jcs-url').value,
+    kind: [...document.querySelectorAll('#jcs-kinds [aria-checked="true"]')].map((b) => b.textContent), focus: document.activeElement && document.activeElement.id })`);
+  assert(!after.sent.includes('task_model') && after.settings && after.url === 'https://api.openai.com' && after.kind[0] === 'OpenAI-compatible' && after.focus === 'jcs-key', JSON.stringify(after));
+  // Eden chat on this Mac has the OpenAI key: one click (and a yes) uses it.
+  await js(`toggleCC(true); onEvent(${JSON.stringify({ type: 'providers', kinds, providers: [], models: [], picker: edenPicker({ withKeys: ['gemini'], fromChat: ['openai'] }) })}); window.confirm = () => true; __sent.length = 0`);
+  await js('$("jc-model").click()');
+  await js(`[...document.querySelectorAll('#jc-menu button')].find((x) => x.querySelector('.mi-label').textContent === 'GPT-6.1 Sol').click()`);
+  const used = await js('__sent.filter((m) => m.type === "eden_chat_key_use" || m.type === "task_model")');
+  assert(JSON.stringify(used) === JSON.stringify([{ type: 'eden_chat_key_use', group: 'openai' }]), JSON.stringify(used));
+  // A model with its key added is picked as usual.
+  await js('__sent.length = 0; $("jc-model").click()');
+  await js(`[...document.querySelectorAll('#jc-menu button')].find((x) => x.querySelector('.mi-label').textContent === 'Gemini 3.8 Flash').click()`);
+  const picked = await js('__sent.filter((m) => m.type === "task_model")');
+  assert(picked.length === 1 && picked[0].ref.startsWith('custom:'), JSON.stringify(picked));
+});
+
 test('Best of N: set up two or three variants, compare them, keep one', async () => {
   await open(1);
   await loadFeatures('code_bestof.js', 'code_bestof.css');
@@ -3025,13 +3076,16 @@ test('Best of N: set up two or three variants, compare them, keep one', async ()
     picks: [...document.querySelectorAll('.jcx-bvariant select')].map((s) => s.value) })`);
   assert(form.prompt === 'fix the flaky test' && JSON.stringify(form.picks) === '["sonnet","","opus",""]', JSON.stringify(form));
   await clickText('.jcx-bestof', 'Add a third');
-  await js(`(() => { const [, , , , model, effort] = document.querySelectorAll('.jcx-bvariant select'); model.value = 'haiku'; model.dispatchEvent(new Event('change')); effort.value = 'max'; effort.dispatchEvent(new Event('change'));
+  await js(`(() => { const [, , , , model, effort] = document.querySelectorAll('.jcx-bvariant select'); model.value = 'opus'; model.dispatchEvent(new Event('change')); effort.value = 'max'; effort.dispatchEvent(new Event('change'));
     const tests = document.querySelector('.jcx-bfield input'); tests.value = 'npm test'; tests.dispatchEvent(new Event('input')); })()`);
   await js('__sent.length = 0');
   await clickText('.jcx-bestof', 'Start');
   const started = await js('__sent.filter((m) => m.type === "code_bestof")');
   assert(started.length === 1 && started[0].directory === 'alpha' && started[0].mode === 'edits' && started[0].tests === 'npm test', JSON.stringify(started));
-  assert(JSON.stringify(started[0].variants) === JSON.stringify([{ model: 'sonnet', effort: '' }, { model: 'opus', effort: '' }, { model: 'haiku', effort: 'max' }]), JSON.stringify(started[0].variants));
+  assert(JSON.stringify(started[0].variants) === JSON.stringify([{ model: 'sonnet', effort: '' }, { model: 'opus', effort: '' }, { model: 'opus', effort: 'max' }]), JSON.stringify(started[0].variants));
+  // Eden chat's Claude only, before the list comes: no Haiku, no Fable.
+  const offered = await js(`[...document.querySelector('.jcx-bvariant select').options].map((o) => o.value)`);
+  assert(!offered.includes('haiku') && !offered.includes('fable'), JSON.stringify(offered));
   const group = (status, extra = {}) => JSON.stringify({ type: 'code_bestof', group: 'b1', project: 'alpha', prompt: 'fix the flaky test', tests: 'npm test', status, judge: '', kept: 0, started: 1,
     variants: [{ n: 1, label: 'Sonnet 5.5', task_id: 1, slug: 's1', status: 'working', stats: {}, test: null }, { n: 2, label: 'Opus 5.5', task_id: 2, slug: 's2', status: 'working', stats: {}, test: null }], ...extra });
   await js(`__ev(${group('running')})`);

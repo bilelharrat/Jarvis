@@ -6791,7 +6791,9 @@ class Hub:
 
     def _model_config(self, ref: str) -> dict[str, Any]:
         """A model picked in Eden Code (a prefs key, "custom:…" or a Claude id) as a
-        session needs it. One that's gone falls back to the default, with a note."""
+        session needs it. One that's gone falls back to the default, with a note. One of
+        Eden chat's ("eden:…") is the model the owner's key for it runs."""
+        ref = self.providers.resolve(ref)
         try:
             cfg = self.providers.session_config(ref)
         except ValueError as exc:
