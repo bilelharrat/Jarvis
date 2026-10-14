@@ -90,3 +90,50 @@ test('each viewer is said by its address (and the name on its suggestions), and 
   assert.match(source, /send\(\{ type: 'code_share_kick', share: share\.share, viewer: w\.viewer \}\)/);
   assert.match(readFileSync(new URL('../../src/jarvis/web/share.js', import.meta.url), 'utf8'), /reply\.status === 403\) \{ ended\(\); return; \}/);
 });
+
+// Round 3, U3-4: in a stand-in window (tests/web/fixtures/stand-dom.mjs), the keyboard on a
+// viewer's Stop. Stop on one viewer used to send the focus to the next viewer's Stop (a second
+// Space blocked their address too); the minutes in Stop's name changed it every minute; and
+// every task-list event drew the pane anew.
+test('Share live: Stop on one viewer never hands the focus to another’s Stop, and a redraw keeps it', async () => {
+  const { elFor, load, makeDocument } = await import('./fixtures/stand-dom.mjs');
+  const src = (n) => readFileSync(new URL(`../../src/jarvis/web/features/${n}`, import.meta.url), 'utf8');
+  const document = makeDocument();
+  const body = document.createElement('div');
+  document.body.append(body);
+  const handlers = {};
+  const sent = [];
+  let pane = null;
+  const F = {
+    el: elFor(document), t: (x) => x, send: (m) => { sent.push(m); return true; },
+    on: (type, fn) => { (handlers[type] ||= []).push(fn); },
+    registerPane: (_id, p) => { pane = p; }, registerMoreItem() {}, openPane() {},
+    currentTask: () => ({ id: 7, kind: 'code' }),
+  };
+  const window = { jarvisFeatures: F };
+  for (const n of ['code-focus.js', 'code_share.js']) load(src(n), { window, document });
+  const fire = (type, ev) => { for (const fn of handlers[type] || []) fn(ev); };
+  pane.render(body);
+  const now = Date.now() / 1000;
+  const viewer = (v, address, mins) => ({ viewer: v, address, since: now - mins * 60, name: '' });
+  const share = (watchers) => ({ id: 7, share: 's1', url: 'https://x/share/s1', expires: now + 3600, viewers: watchers.length, watchers });
+  fire('code_share', { shares: [share([viewer('va', '10.0.0.2', 1), viewer('vb', '10.0.0.3', 1)])] });
+  const stops = () => [...body.querySelectorAll('.jcx-share-watchers button')];
+  assert.deepEqual(stops().map((b) => b.getAttribute('aria-label')), ['Stop: 10.0.0.2', 'Stop: 10.0.0.3'], 'no minutes in the name');
+  // A minute on: the focus stays on the same viewer's Stop.
+  stops()[1].focus();
+  fire('code_share', { shares: [share([viewer('va', '10.0.0.2', 2), viewer('vb', '10.0.0.3', 2)])] });
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Stop: 10.0.0.3');
+  // Stop on the first viewer: the focus goes to something harmless, not the other's Stop.
+  stops()[0].focus();
+  stops()[0].click();
+  assert.deepEqual(sent.at(-1), { type: 'code_share_kick', share: 's1', viewer: 'va' });
+  fire('code_share', { shares: [share([viewer('vb', '10.0.0.3', 2)])] });
+  const at = document.activeElement;
+  assert.ok(at && body.contains(at), 'the focus stayed in the pane');
+  assert.ok(!('spends' in at.dataset), `the focus went to ${at.getAttribute('aria-label') || at.textContent}`);
+  // The task list coming again (the same session open) doesn't draw the pane anew.
+  const card = body.querySelector('.jcx-share');
+  fire('tasks', { items: [] });
+  assert.ok(card.isConnected, 'drawn anew for a task-list event');
+});
