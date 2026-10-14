@@ -5,6 +5,7 @@ notes, and reports' PDFs. Everything with a temp folder and fakes."""
 
 import asyncio
 import json
+import threading
 from datetime import datetime, timedelta
 
 import pytest
@@ -139,8 +140,16 @@ async def test_a_rebuild_passes_them_to_the_rebuild_process(hub, monkeypatch):
 async def test_the_four_hourly_refresh_includes_the_sources_that_change_often(hub, monkeypatch):
     rebuilt = []
     sleeps = iter([None])
+    real_sleep = asyncio.sleep
+    here = threading.current_thread()
 
-    async def sleep(_seconds):
+    async def sleep(seconds, *args, **kwargs):
+        # Only this test's own loop: asyncio.sleep is the module's, so every thread's loop
+        # sees the stand-in (the key proxy's and the relays' servers, in threads of their own
+        # from earlier tests, tick with it): theirs sleep for real, or a server's thread would
+        # die of the CancelledError meant for the refresh (PytestUnhandledThreadExceptionWarning).
+        if threading.current_thread() is not here:
+            return await real_sleep(seconds, *args, **kwargs)
         if next(sleeps, "stop") == "stop":
             raise asyncio.CancelledError
 
@@ -148,6 +157,19 @@ async def test_the_four_hourly_refresh_includes_the_sources_that_change_often(hu
         rebuilt.append(only)
 
     monkeypatch.setattr(asyncio, "sleep", sleep)
+    failed = []
+
+    def another_loop():  # as a server thread's ticks would, while the stand-in is in place
+        try:
+            for _ in range(3):
+                asyncio.run(asyncio.sleep(0))
+        except BaseException as exc:
+            failed.append(exc)
+
+    worker = threading.Thread(target=another_loop)
+    worker.start()
+    worker.join(10)
+    assert failed == []
     hub.rebuild_brain = rebuild
     hub.set_prefs({"brain_mail": False, "brain_messages": False})
     with pytest.raises(asyncio.CancelledError):
