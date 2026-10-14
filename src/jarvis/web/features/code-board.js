@@ -246,6 +246,13 @@
     x.addEventListener('click', close);
     tools.append(x);
     head.append(title, tools);
+    // Where the keys are, read before anything moves: a lane of another feature's (the to-do
+    // column) is its own element, taken off the board as it's put in the new lanes, and the
+    // focus goes with it to the page.
+    const had = board.querySelector('.cs-lanes');
+    const scroll = had ? had.scrollTop : 0;
+    const active = document.activeElement && board.contains(document.activeElement) ? document.activeElement : null;
+    const focused = active ? active.dataset.focus : '';
     const lanes = el('div', 'cs-lanes');
     for (const lane of extraLanes) {
       try { lanes.append(lane.element()); } catch (err) { console.error('board lane', err); }
@@ -272,12 +279,10 @@
       lane.append(lh, cards);
       lanes.append(lane);
     }
-    const had = board.querySelector('.cs-lanes');
-    const scroll = had ? had.scrollTop : 0;
-    const focused = document.activeElement && board.contains(document.activeElement) ? document.activeElement.dataset.focus : '';
     board.replaceChildren(head, lanes);
     lanes.scrollTop = scroll;
-    const again = focused && board.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
+    // The same element when it's still there (a kept lane's), else its namesake.
+    const again = active && board.contains(active) ? active : focused && board.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
     if (again) again.focus();
   }
 
@@ -348,7 +353,9 @@
     card.focus();
   }
   function onCardKey(e) {
-    const card = e.target.closest && e.target.closest('.cs-card');
+    // A session's card only: the to-do lane's cards are .cs-card too, and 1 to 4 there would
+    // press Start (a paid session) or Delete, or Enter open no session at all.
+    const card = e.target.closest && e.target.closest('.cs-card[data-task]');
     if (!card || e.metaKey || e.ctrlKey || e.altKey) return;
     const id = Number(card.dataset.task);
     if (e.target === card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); F.selectTask(id); return; }
