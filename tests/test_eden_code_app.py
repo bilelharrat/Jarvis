@@ -202,3 +202,120 @@ def test_the_hub_knows_its_edition_from_what_the_app_started_it_with(monkeypatch
     assert make_hub(settings, quiet_speaker, isolated).edition == ""
     monkeypatch.delenv("JARVIS_EDITION")
     assert make_hub(settings, quiet_speaker, isolated).edition == ""
+
+
+# ── the second brain: Eden Code alone reads none of the owner's own life (F8) ──
+
+
+def _no_personal_reads(monkeypatch, tmp_path):
+    """Every personal source's reader is a trap (the real ones would open Notes, Mail,
+    Messages and Photos); the app's own folders point at an empty temp folder."""
+    from jarvis import brain_sources, knowledge, sources
+
+    read = []
+
+    def trap(name):
+        def reader(*_a, **_k):
+            read.append(name)
+            return []
+
+        return reader
+
+    monkeypatch.setattr(knowledge, "collect_apple_notes", trap("notes"))
+    for name in ("collect_mail_fast", "collect_messages", "collect_photos", "collect_computer"):
+        monkeypatch.setattr(sources, name, trap(name))
+    for name in ("collect_safari", "collect_bookmarks", "collect_reminders"):
+        monkeypatch.setattr(brain_sources, name, trap(name))
+    for name in ("RESEARCH_DIR", "MEETINGS_DIR", "VIDEOS_DIR"):
+        monkeypatch.setattr(knowledge, name, tmp_path / "none")
+    return read
+
+
+def test_withheld_sources_are_never_read_and_keep_what_was_read_before(tmp_path, monkeypatch):
+    from jarvis import brain_sources
+    from jarvis.knowledge import Collector, KnowledgeBase, Note
+
+    read = _no_personal_reads(monkeypatch, tmp_path)
+    kb = KnowledgeBase(tmp_path / "index.json")
+    kept = Note(id="notes:1", title="Groceries", text="eggs", source="notes", group="Notes", ref="1")
+    kb.build({"notes": [kept]})
+    summary = Collector(kb, None).run(
+        notes=True,
+        bsh=False,
+        folders=[],
+        computer=True,
+        photos=True,
+        mail=True,
+        messages=True,
+        extra={"safari": brain_sources.collect_safari},
+        withhold=brain_sources.PERSONAL,
+    )
+    assert read == []
+    assert summary["by_source"].get("notes") == 1 and kb.get("notes:1") is not None
+
+
+def test_the_rebuild_process_honours_withhold(tmp_path, monkeypatch, capsys):
+    import json
+    import sys
+
+    from jarvis import brain_build, osplat
+
+    read = _no_personal_reads(monkeypatch, tmp_path)
+    monkeypatch.setattr(osplat, "lower_priority", lambda: None)  # (not this test process)
+    args = {
+        "store": str(tmp_path / "brain" / "index.json"),
+        "notes": True,
+        "mail": True,
+        "messages": True,
+        "photos": True,
+        "computer": True,
+        "folders": [],
+        "withhold": ["notes", "mail", "messages", "photos", "computer"],
+    }
+    monkeypatch.setattr(sys, "argv", ["brain_build", json.dumps(args)])
+    try:
+        brain_build.main()
+    finally:
+        if brain_build._lock is not None:
+            brain_build._lock.close()
+            brain_build._lock = None
+    assert read == [] and '"done"' in capsys.readouterr().out
+
+
+async def _rebuild_args(hub, monkeypatch):
+    import asyncio
+    import json
+
+    asked = []
+
+    async def spawn(*argv, **_kw):
+        asked.append(json.loads(argv[-1]))
+        raise RuntimeError("no process in a test")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    await hub.rebuild_brain()
+    return asked[0]
+
+
+async def test_eden_code_alone_withholds_notes_mail_messages_and_photos(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    """The real-UI check found Eden Code alone reading 517 of the owner's Apple Notes."""
+    from jarvis.brain_sources import PERSONAL
+
+    monkeypatch.setenv("JARVIS_PROFILE", "code")
+    hub = make_hub(settings, quiet_speaker, isolated)
+    hub.prefs.brain_notes = hub.prefs.brain_mail = hub.prefs.brain_messages = True
+    args = await _rebuild_args(hub, monkeypatch)
+    assert {"notes", "mail", "messages", "photos", "computer"} <= set(args["withhold"])
+    assert set(args["withhold"]) == PERSONAL
+    hub.window_joined("jarvis")  # an Eden Secretary window: its brain reads them again
+    assert "withhold" not in await _rebuild_args(hub, monkeypatch)
+
+
+async def test_eden_secretary_s_brain_withholds_nothing(
+    settings, quiet_speaker, isolated, monkeypatch
+):
+    monkeypatch.delenv("JARVIS_PROFILE", raising=False)
+    hub = make_hub(settings, quiet_speaker, isolated)
+    assert "withhold" not in await _rebuild_args(hub, monkeypatch)

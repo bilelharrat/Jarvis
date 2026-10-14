@@ -21,11 +21,20 @@ test('a page title loses the site name, however it is joined on', () => {
 
 test('a title with a long run of spaces is read at once', () => {
   // A space before the separator was tried from every space of a run: 50,000 took 2.5 s.
-  const title = `a${' '.repeat(50_000)}b`;
-  const started = performance.now();
-  assert.equal(pageName('http://127.0.0.1:8010/', title), title);
-  assert.equal(pageName('http://127.0.0.1:8010/', `${title} | BSH Research Center`), title);
-  assert.ok(performance.now() - started < 50);
+  // Timed after a warm-up, at n and 2n: linear is about twice; quadratic was four times,
+  // and seconds (a fixed 50 ms budget failed on a busy Mac).
+  const read = (n) => {
+    const title = `a${' '.repeat(n)}b`;
+    const t0 = performance.now();
+    assert.equal(pageName('http://127.0.0.1:8010/', title), title);
+    assert.equal(pageName('http://127.0.0.1:8010/', `${title} | BSH Research Center`), title);
+    return performance.now() - t0;
+  };
+  const best = (n) => Math.min(read(n), read(n), read(n)); // (a garbage collection isn't it)
+  read(50_000);
+  const once = best(50_000);
+  const twice = best(100_000);
+  assert.ok(twice < 3 * once + 50 && twice < 2000, `${once.toFixed(1)} ms, then ${twice.toFixed(1)} ms`);
 });
 
 test('a malformed %-escape in the address is shown as it is, never an error', () => {

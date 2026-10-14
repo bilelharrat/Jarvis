@@ -17,7 +17,9 @@ from jarvis import mailbox, mailtools
 from jarvis import winoutlook_mail as wom
 from jarvis.mailbox import Account, MailError
 
-NOW = datetime(2026, 10, 8, 9, 0)
+# The stand-in's mail is dated from now: mailbox.find_messages reads the real clock, so a
+# fixed date made "the last day" find nothing once that date was a few days gone.
+NOW = datetime.now().replace(minute=0, second=0, microsecond=0)
 
 
 # ── a stand-in for Outlook ──
@@ -374,9 +376,7 @@ def test_a_search_finds_by_person_subject_and_words_and_by_what_is_unread(app, a
     assert [s.subject for s in by_subject] == ["Invoice 42"]
     assert [s.subject for s in by_words] == ["Lunch Friday"]
     assert sorted(s.subject for s in unread) == ["Grant deadline", "Lunch Friday"]
-    assert [s.subject for s in old] == ["Lunch Friday"] or "Lunch Friday" in [
-        s.subject for s in old
-    ]
+    assert "Lunch Friday" in [s.subject for s in old]
 
 
 def test_a_message_keeps_its_number_from_one_question_to_the_next(app, account, tmp_path):

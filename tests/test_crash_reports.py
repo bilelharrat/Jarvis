@@ -202,3 +202,50 @@ def test_the_bundle_takes_extra_files_only_under_crash_reports(tmp_path, bad):
     )
     with zipfile.ZipFile(path) as zf:
         assert bad not in zf.namelist()
+
+
+def test_a_failure_in_a_loop_is_counted_in_memory_and_written_now_and_then(tmp_path, monkeypatch):
+    """F7: each repeat read and fsynced its report again; now the first repeat is written,
+    the rest at most every COUNT_SAVE_SECONDS, and all of them by flush()."""
+    writes = []
+    real = crash_reports.jsonstore.save_store
+    monkeypatch.setattr(
+        crash_reports.jsonstore, "save_store", lambda *a, **k: writes.append(a[0]) or real(*a, **k)
+    )
+    rep, _hub, _ = reporter(tmp_path, clock=[1_800_000_000.0 + i * 0.01 for i in range(5000)])
+    first = rep.record("backend", "uncaught", "boom", "stack")
+    for _ in range(500):
+        rep.record("backend", "uncaught", "boom", "stack")
+    assert len(writes) <= 4  # (kept, the first repeat, one a minute at most)
+    rep.flush()
+    assert json.loads(first.read_text())["times"] == 501
+
+
+def test_a_deleted_report_never_comes_back_as_a_stub(tmp_path):
+    rep, _hub, _ = reporter(tmp_path, clock=[1_800_000_000.0 + i * 100 for i in range(50)])
+    first = rep.record("backend", "uncaught", "boom")
+    first.unlink()  # the owner cleared it
+    rep.record("backend", "uncaught", "boom")
+    rep.record("backend", "uncaught", "boom")
+    rep.flush()
+    assert kept(tmp_path) == []
+
+
+def test_reports_are_named_in_utc_as_the_app_s_own_are(tmp_path, monkeypatch):
+    """The backend named its reports in local time, app/features/crash-reports.js in UTC:
+    pruning by name, oldest first, took the wrong ones."""
+    monkeypatch.setenv("TZ", "Pacific/Kiritimati")  # UTC+14: never the same as UTC
+    import time
+
+    time.tzset()
+    try:
+        rep, _hub, _ = reporter(tmp_path, clock=[1_800_000_000.0])
+        path = rep.record("backend", "uncaught", "boom")
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+    from datetime import UTC
+
+    utc = datetime.fromtimestamp(1_800_000_000.0, UTC).replace(tzinfo=None)
+    assert path.name.startswith(utc.strftime("%Y%m%d-%H%M%S"))
+    assert json.loads(path.read_text())["at"] == utc.isoformat(timespec="seconds")

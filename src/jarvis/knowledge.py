@@ -1214,9 +1214,12 @@ class Collector:
         progress: Callable[[str], None] = lambda _msg: None,
         extra: dict[str, Callable[[], list[Note]]] | None = None,
         finish: Callable[[KnowledgeBase, Callable[[str], None]], None] | None = None,
+        withhold: set[str] | frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """extra: more sources, name -> collect(), read like the others (jarvis.brain_sources:
-        conversations, text in images, bookmarks, reminders, voice memos). finish(kb,
+        conversations, text in images, bookmarks, reminders, voice memos). withhold: sources
+        never read this run, whatever their switches and `only` say; what an earlier run
+        read of them is kept as it was (Eden Code alone: brain_sources.PERSONAL). finish(kb,
         progress): run on the built index before it's saved (vectors for search by meaning,
         and the galaxy's links by meaning); a finish that fails leaves the index as built."""
         from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -1225,7 +1228,9 @@ class Collector:
         previous = self.kb.notes_by_source()
         collected: dict[str, list[Note]] = {}
         # A partial rebuild keeps the other sources' problems on record.
-        errors: dict[str, str] = {k: v for k, v in self.kb.errors.items() if only and k not in only}
+        errors: dict[str, str] = {
+            k: v for k, v in self.kb.errors.items() if (only and k not in only) or k in withhold
+        }
         # One set of reader processes for all the folder sources (started as they're needed):
         # four sources with four each ran sixteen PDF parsers at once.
         readers = ProcessPoolExecutor(max_workers=READERS, initializer=_reader_start)
@@ -1233,7 +1238,7 @@ class Collector:
         jobs: dict[str, Callable[[], list[Note]]] = {}
 
         def gather(source: str, fn: Callable[[], list[Note]]) -> None:
-            if only is not None and source not in only:
+            if source in withhold or (only is not None and source not in only):
                 collected[source] = previous.get(source, [])
             elif source in FOLDER_SOURCES:  # blanked out already, in the readers
                 jobs[source] = fn

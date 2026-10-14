@@ -10,10 +10,10 @@ from __future__ import annotations
 import json
 import random
 import re
-import time
 from pathlib import Path
 
 import pytest
+from conftest import assert_linear
 
 from jarvis import punctuation
 
@@ -308,24 +308,25 @@ def test_a_mark_word_that_ends_the_text_is_always_a_mark_even_after_a_grace_word
 # ── how long it takes ──
 
 
-def took(function, *args) -> float:
-    start = time.perf_counter()
-    function(*args)
-    return time.perf_counter() - start
-
-
-def test_a_long_text_takes_a_fraction_of_a_second():
+def test_a_long_text_takes_time_in_step_with_its_length():
+    """Linear (conftest.assert_linear), not a fixed second: a busy Mac went past that."""
     chunk = (
         "Dear Ann comma thanks for the notes period new paragraph see the U.S. (p. 3.5) at 3:30 "
     )
-    text = (chunk * (200_000 // len(chunk) + 1))[:200_000]
-    assert len(text) == 200_000
-    assert took(punctuation.from_speech, text) < 1.0
-    assert took(punctuation.to_speech, text, "some") < 1.0
-    assert took(punctuation.to_speech, text, "all") < 1.0
-    assert took(punctuation.describe, text) < 1.0
-    assert took(punctuation.from_speech, "你好逗号世界句号" * 25_000, "zh") < 1.0
-    assert took(punctuation.to_speech, "你好，世界。" * 33_000, "all", "zh") < 1.0
+
+    def text(n):
+        return (chunk * (n // len(chunk) + 1))[:n]
+
+    assert len(text(200_000)) == 200_000
+    for function, args in (
+        (punctuation.from_speech, ()),
+        (punctuation.to_speech, ("some",)),
+        (punctuation.to_speech, ("all",)),
+        (punctuation.describe, ()),
+    ):
+        assert_linear(lambda n, f=function, a=args: f(text(n), *a), 50_000)
+    assert_linear(lambda n: punctuation.from_speech("你好逗号世界句号" * n, "zh"), 6_250)
+    assert_linear(lambda n: punctuation.to_speech("你好，世界。" * n, "all", "zh"), 8_250)
 
 
 @pytest.mark.parametrize(
@@ -348,10 +349,12 @@ def test_a_long_text_takes_a_fraction_of_a_second():
     ids=lambda text: ascii(text[:12]),
 )
 def test_awkward_long_texts_are_no_slower(text):
+    """Each at a quarter of its length and whole: linear (conftest.assert_linear)."""
+    quarter = len(text) // 4
     for function, args in (
         (punctuation.from_speech, ()),
         (punctuation.to_speech, ("some",)),
         (punctuation.to_speech, ("all",)),
         (punctuation.describe, ()),
     ):
-        assert took(function, text, *args) < 1.0
+        assert_linear(lambda n, f=function, a=args: f(text[:n], *a), quarter)

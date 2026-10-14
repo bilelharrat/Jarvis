@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
+from conftest import assert_linear
 from test_hub import make_hub
 
 from jarvis import (
@@ -95,11 +96,14 @@ def test_chinese_japanese_and_accented_notes_are_found(tmp_path):
 def test_a_pasted_page_is_searched_by_its_telling_words(tmp_path):
     kb = KnowledgeBase(tmp_path / "index.json")
     kb.build({"files": CORPUS})
-    page = ("the quick report about budgets and plans " * 3000) + " sourdough"
-    started = time.perf_counter()
-    hits = kb.search(page)
-    assert time.perf_counter() - started < 1.0
-    assert hits == [] or hits[0]["id"].startswith("files:")
+    # A search reads the query's first MAX_QUERY_CHARS: the telling word is in them, the
+    # rest of the page isn't read at all (so a page twice as long costs nothing more).
+    # (It used to end the page, past what's read: `hits == []` passed and proved nothing.)
+    lead = "the quick report about budgets and plans sourdough starter "
+    page = lambda n: lead + "the quick report about budgets and plans " * n  # noqa: E731
+    hits = kb.search(page(3000))
+    assert hits and hits[0]["title"] == "Sourdough starter"
+    assert_linear(lambda n: kb.search(page(n)), 3000)
 
 
 def test_a_long_query_uses_its_rarest_words(tmp_path):
@@ -119,10 +123,22 @@ def test_a_pasted_page_as_a_query_is_capped_not_scanned(tmp_path):
     page = " ".join(f"w{i}x" for i in range(2000))  # every word in every note
     kb = KnowledgeBase(tmp_path / "index.json")
     kb.build({"notes": [note(i, f"Note {i}", page, "notes") for i in range(300)]})
-    kb.search("warm up")
-    started = time.monotonic()
     assert kb.search(page)
-    assert time.monotonic() - started < 0.1  # every word's postings: 0.35 s and more
+
+    # Capped: a query of every word reads the postings of MAX_QUERY_TERMS of them, so it's
+    # no slower than one of a few (all of them took 0.35 s and more). Timed against that,
+    # not a fixed 0.1 s.
+    def best(query):
+        runs = []
+        for _ in range(3):
+            started = time.perf_counter()
+            kb.search(query)
+            runs.append(time.perf_counter() - started)
+        return min(runs)
+
+    few = " ".join(page.split()[:12])
+    best(few)
+    assert best(page) < 3 * best(few) + 0.05
 
 
 # ── the saved index ──

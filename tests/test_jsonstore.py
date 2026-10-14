@@ -62,7 +62,24 @@ def test_damage_is_kept_aside_and_the_last_good_copy_read(tmp_path, blob):
     path.write_bytes(blob)
     assert jsonstore.read_json(path, list) == ([{"id": "a", "text": "good"}], "restored")
     [kept] = tmp_path.glob("memory.json.bad-*")
-    assert kept.read_bytes() == blob and not path.exists()
+    assert kept.read_bytes() == blob
+    assert json.loads(path.read_text()) == [{"id": "a", "text": "good"}]  # (written back)
+
+
+@pytest.mark.parametrize("blob", [b"{torn", b""], ids=["damaged", "empty"])
+def test_a_restored_file_survives_the_next_start_and_the_next_save(tmp_path, blob):
+    """The good copy goes back as the file: before, it was only returned, so the next start
+    read "missing" and began empty, and its first save turned the .bak into nothing."""
+    path = tmp_path / "memory.json"
+    jsonstore.save_json(path, [1])
+    jsonstore.save_json(path, [1, 2])
+    path.write_bytes(blob)
+    assert jsonstore.read_json(path, list) == ([1], "restored")
+    assert jsonstore.read_json(path, list) == ([1], "ok")  # the next start
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    jsonstore.save_json(path, [1, 3])
+    assert jsonstore.last_good(path, list) == [1]
+    assert not list(tmp_path.glob("*.tmp")) and not list(tmp_path.glob(".*"))
 
 
 def test_what_isnt_there_or_is_empty_is_nothing(tmp_path):

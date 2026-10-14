@@ -570,3 +570,245 @@ async def test_an_acp_session_is_given_the_index_server_on_session_new(
     from code_session_fakes import end_all
 
     await end_all(hub)
+
+
+# ── odd folders: links out of the project, named pipes, odd names (round-1 breaks) ──
+
+OUTSIDE = "def outside_secret_token_xyzzy():\n    return 'TOPSECRET-OUTSIDE'\n"
+
+
+def _commit(root):
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t",
+         "commit", "-qm", "x"],
+        check=True,
+    )  # fmt: skip
+
+
+def _swap_for_link(folder, outside):
+    import shutil
+
+    shutil.rmtree(folder)
+    folder.symlink_to(outside, target_is_directory=True)
+
+
+def test_a_tracked_folder_swapped_for_a_link_out_is_never_read(tmp_path):
+    """I1: git still lists pkg/a.py once pkg is a link to a folder outside; its a.py was
+    indexed and shown. And I1b: indexed first, then swapped: the snippet read it."""
+    root = tmp_path / "proj"
+    (root / "pkg").mkdir(parents=True)
+    (root / "pkg" / "a.py").write_text("def outside_secret_token_xyzzy():\n    return 1\n")
+    _commit(root)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "a.py").write_text(OUTSIDE)
+    idx = code_index.CodeIndex(root, tmp_path / "data")
+    idx.refresh(code_index.hash_source())
+    _swap_for_link(root / "pkg", outside)
+    found = code_index.search(idx, "outside_secret_token_xyzzy")  # (no refresh: I1b)
+    assert not any("TOPSECRET" in r["snippet"] for r in found["results"])
+    fresh = code_index.CodeIndex(root, tmp_path / "data2")
+    fresh.refresh(code_index.hash_source())
+    names = {s.name for e in fresh.files.values() for s in e.symbols}
+    assert "pkg/a.py" not in fresh.files and "outside_secret_token_xyzzy" not in names
+    fresh.refresh(code_index.hash_source(), only=["pkg/a.py"])
+    assert "pkg/a.py" not in fresh.files
+
+
+def _within(fn, fifo, seconds=10):
+    """fn() on a thread; a read stuck on the pipe fails the test instead of hanging it."""
+    import concurrent.futures
+    import contextlib
+    import os
+
+    pool = concurrent.futures.ThreadPoolExecutor(1)
+    future = pool.submit(fn)
+    try:
+        return future.result(timeout=seconds)
+    finally:
+        with contextlib.suppress(OSError):  # (a writer lets a stuck read end)
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+        pool.shutdown(wait=False)
+
+
+@pytest.mark.parametrize("git_repo", [False, True], ids=["folder", "git"])
+def test_a_named_pipe_where_a_file_was_never_hangs_an_update(tmp_path, git_repo):
+    """I8: a .py that's a named pipe (untracked, or a tracked file replaced by one) looked
+    0 bytes long, then its read waited for a writer for good, with the update lock held."""
+    import os
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "a.py").write_text("def alpha_func(): pass\n")
+    (root / "p.py").write_text("def p(): pass\n")
+    if git_repo:
+        _commit(root)
+    (root / "p.py").unlink()
+    os.mkfifo(root / "p.py")
+    idx = code_index.CodeIndex(root, tmp_path / "data")
+    _within(lambda: idx.refresh(code_index.hash_source()), root / "p.py")
+    assert set(idx.files) == {"a.py"}
+    os.mkfifo(root / "z.py")  # I8b: and the word search walks past one
+    found = _within(lambda: code_index.search(idx, "alpha_func"), root / "z.py")
+    assert [r["path"] for r in found["results"]] == ["a.py"]
+
+
+async def test_a_named_pipe_never_wedges_the_window_s_search(hub, tmp_path):
+    """I8c: through the window, the update thread never ended: the desk stayed busy."""
+    import os
+    import time
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "a.py").write_text("def alpha_func(): pass\n")
+    os.mkfifo(root / "b.py")
+    seen = []
+    hub.emit = lambda kind, **d: seen.append((kind, d))
+    started = time.monotonic()
+    try:
+        await asyncio.wait_for(
+            hub.code_index.cmd_search({"directory": str(root), "text": "alpha_func", "ref": "1"}),
+            20,
+        )
+    finally:
+        took, busy = time.monotonic() - started, dict(hub.code_index._busy)
+        import contextlib
+
+        with contextlib.suppress(OSError):
+            os.close(os.open(root / "b.py", os.O_WRONLY | os.O_NONBLOCK))
+    assert took < 10 and not busy
+
+
+def test_a_nul_in_the_file_filter_is_an_error_said(index):
+    """I9: it raised ValueError out of the tool (subprocess can't carry a NUL)."""
+    index.refresh(code_index.hash_source())
+    text, err = cim.run_tool(index, "codebase_search", {"query": "parse_config", "files": "a\0"})
+    assert err and "NUL" in text
+
+
+def test_a_file_name_with_a_newline_gives_no_phantom_match(tmp_path):
+    """I10: git grep -z's output split by lines made "new<newline>line.py" a match in a
+    "line.py" that isn't there."""
+    from jarvis import code_search
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "new\nline.py").write_text("def odd_name_func(): pass\n")
+    (root / "plain.py").write_text("def odd_name_func(): pass\n")
+    _commit(root)
+    found = code_search.search(root, code_search.Query("odd_name_func"))
+    assert sorted(f["path"] for f in found["files"]) == ["new\nline.py", "plain.py"]
+
+
+def test_a_walk_stopped_by_the_time_says_so_and_removes_nothing(tmp_path):
+    """F4: a folder that isn't git, walked out of time, said truncated False, and the
+    update dropped every file the walk hadn't reached (15 of them, in the break)."""
+    root = make_project(tmp_path / "plain", git=False)
+    idx = code_index.CodeIndex(root, tmp_path / "data")
+    idx.refresh(code_index.hash_source())
+    before = set(idx.files)
+    assert len(before) > 3
+    ticks = iter(range(10**6))
+    out = idx.refresh(code_index.hash_source(), seconds=0, clock=lambda: next(ticks))
+    assert out["removed"] == 0 and set(idx.files) == before and out["truncated"]
+    files, truncated = code_index.list_files(root, stop=lambda: True)
+    assert truncated and files == []
+
+
+# ── indexes whose project is gone (F5) ──
+
+
+def test_an_index_whose_project_is_gone_goes_after_a_while_or_at_once(tmp_path):
+    import os
+    import shutil
+
+    base = tmp_path / "base"
+    roots = {}
+    for name in ("kept", "gone", "copy", "busy"):
+        roots[name] = make_project(tmp_path / name, git=False)
+        idx = code_index.CodeIndex(roots[name], code_index.index_folder(base, roots[name]))
+        idx.refresh(code_index.hash_source())
+    for name in ("gone", "copy", "busy"):
+        shutil.rmtree(roots[name])
+    copy_root = str(roots["copy"].resolve())
+    busy_root = str(roots["busy"].resolve())
+    removed = code_index.tidy(
+        base, in_use={busy_root}.__contains__, gone_now=lambda r: r == copy_root
+    )
+    assert removed == [copy_root]  # at once; the other gone one waits STALE_DAYS
+    later = code_index.tidy(base, in_use={busy_root}.__contains__, now=lambda: 1e12)
+    assert later == [str(roots["gone"].resolve())]
+    left = {code_index.root_of(f) for f in base.iterdir()}
+    assert left == {str(roots["kept"].resolve()), busy_root}
+    assert os.path.isdir(roots["kept"])
+
+
+async def test_an_isolated_copy_s_index_goes_with_the_copy(hub, tmp_path):
+    import shutil
+
+    desk = hub.code_index
+    copy = make_project(Path(hub.code_desk.root) / "proj-copy", git=False)
+    await desk.update(copy)
+    folder = desk.index_for(copy).folder
+    assert folder.is_dir()
+    shutil.rmtree(copy)
+    hub.code_desk.gone("proj-copy")  # landed or discarded
+    assert await until(lambda: not folder.exists())
+    assert str(copy.resolve()) not in desk.indexes
+
+
+async def test_the_stdio_server_reads_an_index_saved_after_it_started(project, tmp_path):
+    """F6: started before the app's first save, it marked the index loaded with nothing in
+    it and answered an empty index for the whole session; and it never saw an update."""
+    folder = tmp_path / "data" / "idx"
+    server = cim.IndexServer(project, folder)
+
+    async def lookup(name):
+        call = await server.handle(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+             "params": {"name": "symbol_lookup", "arguments": {"name": name}}}
+        )  # fmt: skip
+        return call["result"]["content"][0]["text"]
+
+    assert "src/store.go" not in await lookup("Open")  # nothing saved yet
+    app = code_index.CodeIndex(project, folder)
+    app.refresh(code_index.hash_source())
+    assert "src/store.go:13" in await lookup("Open")
+    (project / "src" / "late.py").write_text("def arrived_later():\n    pass\n")
+    app.refresh(code_index.hash_source())
+    assert "src/late.py" in await lookup("arrived_later")
+
+
+# ── the stdio server's edges (coverage) ──
+
+
+def test_the_tools_say_what_s_missing_and_name_no_tool_that_isn_t(index):
+    index.refresh(code_index.hash_source())
+    assert cim.run_tool(index, "symbol_lookup", {"name": "  "}) == (
+        "Which symbol? Give its name.",
+        True,
+    )
+    assert cim.run_tool(index, "nope", {}) == ("No tool named nope.", True)
+    text, err = cim.run_tool(index, "codebase_search", {"query": ""})
+    assert err and text
+
+
+def test_the_stdio_server_s_query_vectors_follow_the_index_s_embedder(index):
+    index.refresh(code_index.hash_source())
+    server = cim.IndexServer(index.root, index.folder)
+    vector = server.query_vector("parse the config")
+    assert vector is not None and vector[0] == "hash-v1"
+    assert server.query_vector("again")[0] == "hash-v1"  # (the same embedder kept)
+
+
+def test_main_serves_the_index_it_s_given(index, monkeypatch):
+    served = []
+
+    async def run(server):
+        served.append((server.index.root, server.index.folder))
+
+    monkeypatch.setattr(cim, "_run_stdio", run)
+    cim.main(["--root", str(index.root), "--index", str(index.folder)])
+    assert served == [(index.root, index.folder)]

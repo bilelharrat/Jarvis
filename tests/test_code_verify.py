@@ -9,11 +9,10 @@ import os
 import re
 import sys
 import time
-from pathlib import Path
 
 import pytest
 from claude_agent_sdk import PermissionResultAllow, ToolPermissionContext
-from conftest import FakeClient
+from conftest import FakeClient, ruff_binary
 
 from jarvis import tasks
 from jarvis.features import code_verify
@@ -356,7 +355,7 @@ async def test_the_problems_pane_runs_the_projects_checkers_and_sends_them(
 ):
     (project / "pyproject.toml").write_text("[tool.ruff]\n")
     (project / "app.py").write_text("import os\n")
-    tool_wrapper(project, "ruff", str(Path(sys.executable).parent / "ruff"))
+    tool_wrapper(project, "ruff", ruff_binary())
     task = ClaudeTask(id=8, prompt="x", cwd=project.resolve())
     hub.tasks.tasks[8] = task
     sent = sent_messages(hub, monkeypatch)
