@@ -53,7 +53,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .. import lang
+from .. import lang, launches
 from ..codeplatform import other_agent
 from ..prefs import MODELS, register_feature_pref
 from .code_router import _clean_route
@@ -235,7 +235,8 @@ class Queue:
             run.on, run.note = True, ""
             run.parallel, run.ceiling = conf["parallel"], conf["ceiling"]
         for card in self.todo.board.of(folder):
-            if card.get("state") == "todo":
+            # (one whose Start is still waiting for its session isn't queued: REL3-5)
+            if card.get("state") == "todo" and not self.todo.starting_now(card["id"]):
                 card["state"], card["run"] = "queued", run.id
         self.changed()
         self.pump(folder)
@@ -318,13 +319,15 @@ class Queue:
     async def _start(self, run: Run, card: dict[str, Any]) -> None:
         try:
             ref, why = await self.pick(run.folder, card)
-            task = await self.todo.start(card, model=ref)
+            # Its own start's token: the late session taken up is this start's, never another
+            # pending one of the same card's (by card id it could be a manual Start's: REL3-5).
+            token = launches.token()
+            task = await self.todo.start(card, model=ref, token=token)
         except Exception:  # (never a card left "running" with no session)
             log.exception("Eden Code queue: a card couldn't start")
-            ref, why, task = "", "", None
+            ref, why, task, token = "", "", None, ""
         if task is None:
-            token = next((t for t, cid in self.todo.pending.items() if cid == card["id"]), "")
-            if token:
+            if token and self.todo.pending.get(token) == card["id"]:
                 # Round 3 (REL-2): its session may still come (code_todo binds it then): the
                 # card keeps its place, and is taken up when it does (on_late).
                 self.waiting[card["id"]] = (token, ref, why)
@@ -349,10 +352,13 @@ class Queue:
         """code_todo's late session for one of the queue's waiting cards: taken up as if it
         had come in time (before: the queue had marked the card failed and started the next,
         and the session ran on, its spend outside the ceiling and past "at once")."""
-        waiting = self.waiting.pop(card["id"], None)
+        waiting = self.waiting.get(card["id"])
         if waiting is None:
             return
-        _token, ref, why = waiting
+        token, ref, why = waiting
+        if str(getattr(task, "launch_token", "") or "") != token:
+            return  # (another start's session, not this queue start's: REL3-5)
+        del self.waiting[card["id"]]
         self.took(card, task, ref, why)
 
     async def _late(self, run: Run, card: dict[str, Any], token: str) -> None:
@@ -364,6 +370,7 @@ class Queue:
             return
         del self.waiting[card["id"]]
         self.todo.pending.pop(token, None)
+        self.todo.pending_at.pop(token, None)
         card["state"] = "failed"
         self.todo.error(
             self.tr("The session didn't start: {why}", why=self.tr("it didn't appear in time"))

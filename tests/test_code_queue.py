@@ -149,7 +149,7 @@ def stub_sessions(hub, monkeypatch, tmp_path, costs=()):
     started, sent, ids = [], [], iter(range(100, 200))
     costs = list(costs)
 
-    async def start(card, model="", route=None):
+    async def start(card, model="", route=None, token=""):
         task = Fake(next(ids), tmp_path / "proj", model or "haiku")
         hub.tasks.tasks[task.id] = task
         card["task"] = task.id
@@ -429,4 +429,82 @@ async def test_a_late_session_that_never_comes_fails_its_card_in_the_end(
     assert await until(lambda: card["state"] == "failed", 3000)
     assert card["id"] not in hub.code_queue.waiting
     assert card["id"] not in hub.code_todo.pending.values()
+    await end_all(hub)
+
+
+def _hold_starts(hub, monkeypatch, delays):
+    """task_new held back (an @-mention being gathered, a route being rated): the nth one
+    reaches the hub after delays[n] seconds."""
+    real = hub._handle
+    seen = []
+
+    async def hold(msg):
+        if msg.get("type") == "task_new":
+            d = delays[len(seen)] if len(seen) < len(delays) else 0
+            seen.append(msg)
+            if d:
+                async def later():
+                    await asyncio.sleep(d)
+                    await real(msg)
+
+                hub._spawn(later())
+                return None
+        return await real(msg)
+
+    monkeypatch.setattr(hub, "_handle", hold)
+    return seen
+
+
+def _sessions_of(hub, prompt):
+    return [t for t in hub.tasks.tasks.values() if t.prompt == prompt]
+
+
+async def test_a_card_whose_start_is_late_is_never_queued_and_run_again(hub, monkeypatch):
+    """REL3-5 (s3rel/test_s3_late.py): a manual Start whose task_new was held left the card
+    "todo" (its state was set only once a session came), so the queue's Run queued it and
+    the one card ran two sessions. Now a card whose start may still come isn't queued (nor
+    started again), and the late session binds to it alone."""
+    from jarvis.features import code_todo
+
+    monkeypatch.setattr(code_todo, "START_WAIT", 0.2)
+    (card,) = await add(hub, "job one")
+    _hold_starts(hub, monkeypatch, [0.8])
+    await hub.code_todo.cmd_start({"id": card["id"]})
+    assert hub.code_todo.starting_now(card["id"])
+    hub.code_queue.cmd_run({"directory": "proj", "parallel": 1, "ceiling": 3})
+    assert card["state"] != "queued"
+    await hub.code_todo.cmd_start({"id": card["id"]})  # (a second press: refused)
+    await asyncio.sleep(1.5)
+    sessions = _sessions_of(hub, "job one")
+    await end_all(hub)
+    assert len(sessions) == 1, f"one card ran {len(sessions)} sessions"
+    assert card["task"] == sessions[0].id and card["state"] == "started"
+    assert not hub.code_todo.starting_now(card["id"])
+
+
+async def test_the_queue_takes_up_its_own_starts_late_session_never_another(hub, monkeypatch):
+    """REL3-5: the queue found its late card's token by card id (any pending one: a manual
+    Start's too), and on_late took up whatever session bound first. It keeps its own
+    start's token and takes up only the session stamped with it."""
+    from jarvis.features import code_todo
+
+    monkeypatch.setattr(code_todo, "START_WAIT", 0.2)
+    (card,) = await add(hub, "job two")
+    queue, todo = hub.code_queue, hub.code_todo
+    stale = "stale-token-of-another-start"
+    todo.pending[stale] = card["id"]  # (another start of the card's, left pending earlier)
+    todo.pending_at[stale] = time.monotonic() - code_todo.LATE_WAIT - 1  # (expired: no hold)
+    _hold_starts(hub, monkeypatch, [0.6])
+    queue.cmd_run({"directory": "proj", "parallel": 1, "ceiling": 3})
+    assert await until(lambda: card["id"] in queue.waiting, 3000)
+    token = queue.waiting[card["id"]][0]
+    assert token != stale and todo.pending.get(token) == card["id"]
+    other = type("T", (), {"id": 999, "launch_token": stale, "model_ref": ""})()
+    queue.on_late(card, other)  # (another start's session: not the queue's)
+    assert card["id"] in queue.waiting and 999 not in queue.by_task
+    assert await until(lambda: card["id"] not in queue.waiting, 3000)
+    [session] = _sessions_of(hub, "job two")
+    # taken up by the queue (its attempt logged), as its own start's session
+    assert session.launch_token == token and card["task"] == session.id
+    assert card["attempts"] and card["state"] != "failed"
     await end_all(hub)
