@@ -704,7 +704,7 @@ class Specs:
         t = next((x for x in spec.tasks() if x.id == tid), None)
         reqs = [r for r in spec.requirements() if t is not None and r.id in t.requirements]
         crits = [c for r in reqs for c in r.criteria]
-        check = await self.verify_result(task_id)
+        check = await self.verify_result(task_id, bool(data.get("files")))
         if check and check.get("url"):
             spec.media.setdefault(tid, {})["screenshot"] = str(check["url"])[:300]
         results = await self.run_tests(Path(spec.folder))
@@ -736,8 +736,9 @@ class Specs:
         self.save()
         return requirement_rows(spec, reqs)
 
-    async def verify_result(self, task_id: int) -> dict[str, Any] | None:
-        """code_verify's check after this turn, when the session has it on (waited for)."""
+    async def verify_result(self, task_id: int, files: bool = True) -> dict[str, Any] | None:
+        """code_verify's check after this turn, when the session has it on: waited for, as it
+        starts once the turn has ended (the last one kept would be an earlier turn's)."""
         cv = getattr(self.hub, "code_verify", None)
         try:
             on = bool(cv is not None and cv.session(task_id).verify)
@@ -745,9 +746,8 @@ class Specs:
             on = False
         if not on:
             return None
-        checks = cv.session(task_id)
-        if not checks.checking and checks.last is not None:
-            return checks.last
+        if not files:
+            return None  # (code_verify checks only a turn that changed files)
         fut = self.checks[task_id] = asyncio.get_running_loop().create_future()
         try:
             return await asyncio.wait_for(fut, VERIFY_WAIT)

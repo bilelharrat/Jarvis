@@ -353,3 +353,26 @@ async def test_the_pull_request_body_ends_with_the_proof_once(hub, tmp_path, pro
     [created] = hub.fake.sent("POST", "/repos/acme/app/pulls")
     sent_body = json.loads(created.content)["body"]
     assert sent_body.startswith("Typed by the owner.") and "## Requirements met" in sent_body
+
+
+async def test_a_task_with_the_check_on_waits_for_this_turns_check(spec_hub, monkeypatch):
+    hub, desk = spec_hub, spec_hub.code_spec
+    spec = await _running(hub, desk)
+
+    async def suite(_folder):
+        return results(("test_r1_1_a", "passed"), ("test_r1_2_b", "passed"))
+
+    monkeypatch.setattr(desk, "run_tests", suite)
+    checks = hub.code_verify.session(101)
+    checks.verify, checks.last = True, {"url": "http://localhost:1/old", "status": "ok"}
+    hub.answers = ["stop"]
+    going = asyncio.ensure_future(
+        desk.after_task(spec, "T1", 101, {"id": 101, "status": "done", "files": ["a.py"]})
+    )
+    await asyncio.sleep(0.01)
+    assert not going.done()  # the earlier turn's check isn't this one's
+    desk.verified(
+        {"id": 101, "state": "done", "last": {"url": "http://localhost:3000", "status": "ok"}}
+    )
+    await asyncio.wait_for(going, 2)
+    assert spec.media["T1"]["screenshot"] == "http://localhost:3000"
