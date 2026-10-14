@@ -11,7 +11,7 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { backendCommand, bundledEnv, BackendLog } = require('../../app/backend-launch.js');
+const { backendCommand, bundledEnv, BackendLog, engineMissing } = require('../../app/backend-launch.js');
 
 const RES = '/Applications/J.A.R.V.I.S.app/Contents/Resources';
 const PY = `${RES}/backend/python/bin/python3`;
@@ -191,4 +191,15 @@ test('on Windows the bundled Python is python.exe, the PATH is joined with semic
   assert.equal(how.env.PYTHONUTF8, '1');
   assert.equal('PYTHONPATH' in how.env, false);
   assert.equal(how.env.JARVIS_APP_DIR, `${res}\\app.asar.unpacked`);
+});
+
+test("an installed app built from the owner's repo isn't missing its engine; one with neither is", () => {
+  // The owner's own build: no bundled Python, the repo recorded at packaging (jarvis-home.json).
+  assert.equal(engineMissing({ packaged: true, bundled: false, env: {}, bakedHome: true }), false);
+  // A self-contained install whose engine was removed: nothing to run.
+  assert.equal(engineMissing({ packaged: true, bundled: false, env: {}, bakedHome: false }), true);
+  // JARVIS_HOME, the bundled engine, or running from the repo: never missing.
+  assert.equal(engineMissing({ packaged: true, bundled: false, env: { JARVIS_HOME: '/r' }, bakedHome: false }), false);
+  assert.equal(engineMissing({ packaged: true, bundled: true, env: {}, bakedHome: false }), false);
+  assert.equal(engineMissing({ packaged: false, bundled: false, env: {}, bakedHome: false }), false);
 });

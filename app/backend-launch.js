@@ -156,4 +156,11 @@ class BackendLog extends Writable {
   }
 }
 
-module.exports = { backendCommand, bundledEnv, bundledPython, BackendLog, BUNDLED_PYTHON };
+// Whether an installed app has lost its engine: no bundled Python, no JARVIS_HOME and no repo
+// recorded at packaging (scripts/bake-home.js writes jarvis-home.json for the owner's own build,
+// which runs the backend from that repo with uv: nothing is missing there).
+function engineMissing({ packaged, bundled, env, bakedHome }) {
+  return Boolean(packaged && !bundled && !env.JARVIS_HOME && !bakedHome);
+}
+
+module.exports = { backendCommand, bundledEnv, bundledPython, engineMissing, BackendLog, BUNDLED_PYTHON };

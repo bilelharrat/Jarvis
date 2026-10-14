@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // what the address bar makes of what's typed
 const { createAgent, fileNotTheirs, FILE_REFUSED } = require('./browser-agent');
-const { backendCommand, BackendLog } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
+const { backendCommand, BackendLog, engineMissing } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
 const { isCertError, riskyClick } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
@@ -193,7 +193,7 @@ function startBackend() {
     extraPath: EXTRA_PATH, uv: findUv, home: jarvisHome, dataDir: DATA_DIR, exists: fs.existsSync,
   });
   if (how.cwd) fs.mkdirSync(how.cwd, { recursive: true });
-  if (app.isPackaged && !how.bundled && !process.env.JARVIS_HOME) {
+  if (engineMissing({ packaged: app.isPackaged, bundled: how.bundled, env: process.env, bakedHome: fs.existsSync(path.join(__dirname, 'jarvis-home.json')) })) {
     // An installed app with no engine of its own: its files were removed (security software does that) or the install was cut short.
     trace.write(`the engine is missing: no ${path.join(process.resourcesPath, 'backend', 'python')}`);
     showProblem(`${FLAVOR.name}'s engine files are missing (${path.join(process.resourcesPath, 'backend')}). Windows Security or another antivirus may have removed them. Install ${FLAVOR.name} again, and allow it in Windows Security if it asks.`);
