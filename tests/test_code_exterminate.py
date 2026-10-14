@@ -135,6 +135,31 @@ async def test_just_this_fix_sends_it_unchanged_and_never_asks_that_session_agai
     assert len(hub.cards) == 1  # (asked once a session)
 
 
+async def test_just_this_fix_marks_its_own_session_never_one_started_meanwhile(
+    hub, projects, monkeypatch
+):
+    """REL3-10: "Just this fix" marked whichever sessions were new as asked once already,
+    so one the window started meanwhile was never offered Exterminator Mode. Its own is
+    known by its launch token."""
+    make_repo(projects / "calc", FILES)
+    hub.answers = ["plain"]
+    real = hub.tasks.start
+    others = []
+
+    def start(prompt, directory, *a, **kw):
+        if not others:
+            others.append(real("someone else's", directory))
+        return real(prompt, directory, *a, **kw)
+
+    monkeypatch.setattr(hub.tasks, "start", start)
+    await hub._handle(new("fix this bug: divide crashes"))
+    assert await until(lambda: len(hub.tasks.tasks) == 2)
+    [other] = others
+    mine = next(t for t in hub.tasks.tasks.values() if t is not other)
+    desk = hub.code_exterminate
+    assert desk.session_skipped(mine) and not desk.session_skipped(other)
+
+
 async def test_its_start_card_turned_down_puts_the_words_back(hub, projects):
     make_repo(projects / "calc", FILES)
     hub.answers = ["exterminate", "deny"]

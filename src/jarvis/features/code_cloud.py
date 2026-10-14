@@ -34,6 +34,7 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from .. import launches
 from ..prefs import register_feature_pref
 
 log = logging.getLogger("jarvis")
@@ -43,6 +44,7 @@ PREF_MACHINE = "code_cloud_machine"
 DEFAULT_MACHINE = "jarvis-cloud"
 COPY_WAIT = 90.0  # seconds for a new session's isolated copy to be made
 IDLE_WAIT = 30.0  # seconds for an interrupted session to stop between steps
+CLOUD_START_WAIT = 300.0  # seconds a held new session may take to start, to go there still
 ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 register_feature_pref(PREF_MACHINE, DEFAULT_MACHINE, lambda v: v if ALIAS.match(str(v)) else None)
@@ -127,15 +129,25 @@ class Cloud:
             )
             return None
         tm = self.hub.tasks
-        known = set(tm.tasks)
         here = {k: v for k, v in msg.items() if k != "cloud"}
+        # The session is this message's by its launch token (the starter's own, else one of
+        # its own), however late it starts: "whichever is new" sent another to the machine
+        # (REL3-10).
+        token = str(msg.get(launches.KEY) or "")[: launches.TOKEN_MAX] or launches.token()
         here.update(prompt="", isolated=True, title=str(msg.get("title") or prompt[:80]))
+        here[launches.KEY] = token
         await self.hub._handle(here)  # the hub's own new session (this handler passes it on)
-        fresh = [tm.tasks[i] for i in set(tm.tasks) - known]
-        if not fresh:
-            return None
-        self.hub._spawn(self.to_cloud(fresh[0], alias, prompt, preapproved=asked))
+        fresh = launches.find(tm, token)
+        if fresh is not None:
+            self.hub._spawn(self.to_cloud(fresh, alias, prompt, preapproved=asked))
+        elif launches.refusal(token) is None:  # (held back: it goes there once it starts)
+            self.hub._spawn(self._when_started(token, alias, prompt, asked))
         return None
+
+    async def _when_started(self, token: str, alias: str, prompt: str, asked: bool) -> None:
+        task = await launches.started(self.hub.tasks, token, CLOUD_START_WAIT)
+        if task is not None:
+            await self.to_cloud(task, alias, prompt, preapproved=asked)
 
     async def to_cloud(self, task: Any, alias: str, prompt: str, preapproved: bool = True) -> str:
         """A new session, once its isolated copy is made, carried on there from the start.

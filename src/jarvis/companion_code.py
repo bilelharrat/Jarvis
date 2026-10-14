@@ -247,17 +247,25 @@ def routes(api: Any) -> list[Route]:
         # answered the newest, and the phone opened the wrong session for the first. One
         # that starts as it's handled answers at once; else its error, if any, comes within
         # three seconds (a mention read first, a cloud machine's).
+        # The session is this request's by its launch token (launches.py), never "whichever
+        # is new": another started meanwhile (the window, a queue) was taken for it (REL3-10).
+        from . import launches
+
+        token = launches.token()
+        command[launches.KEY] = token
         async with desk.starting:
-            known = set(hub.tasks.tasks)
             said = await desk.run(
-                command, ("error",), 3, done=lambda: bool(set(hub.tasks.tasks) - known)
+                command,
+                ("error",),
+                3,
+                done=lambda: launches.find(hub.tasks, token) is not None,
             )
-            new = sorted(set(hub.tasks.tasks) - known)
-        if not new:
+            found = launches.find(hub.tasks, token)
+        if found is None:
             problem = next((e.get("text") for e in said if e.get("type") == "error"), "")
             return _bad(str(problem or "the session didn't start"))
-        api.companion.record(device, "code_started", f"#{new[0]}")
-        return JSONResponse({"ok": True, "id": new[0]})
+        api.companion.record(device, "code_started", f"#{found.id}")
+        return JSONResponse({"ok": True, "id": found.id})
 
     async def code_action(request: Request) -> Response:
         device, data, refused = await api._post(request, "act")

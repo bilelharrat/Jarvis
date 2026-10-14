@@ -22,7 +22,7 @@ def test_a_new_session_starts_as_the_composer_starts_one(api, tmp_path, monkeypa
     started = []
 
     def start(prompt, directory, **kw):
-        task = session(api.hub, 42, tmp_path / "alpha")
+        task = session(api.hub, 42, tmp_path / "alpha", launch_token=kw["launch_token"])
         started.append((prompt, directory, kw["mode"], kw["images"]))
         return task
 
@@ -35,6 +35,23 @@ def test_a_new_session_starts_as_the_composer_starts_one(api, tmp_path, monkeypa
     assert reply == {"ok": True, "id": 42}
     assert started == [("fix the login bug", "alpha", "plan", [picture])]
     assert api.post("/api/code/new", {"prompt": "", "directory": "alpha"}).status_code == 400
+
+
+def test_the_phone_gets_its_own_new_session_never_another_started_meanwhile(
+    api,
+    tmp_path,
+    monkeypatch,  # noqa: F811
+):
+    """REL3-10: the phone took "whichever session is new" as its own; one the window (or a
+    queue) started meanwhile was answered for it. It's found by its launch token."""
+
+    def start(prompt, directory, **kw):
+        session(api.hub, 7, tmp_path / "alpha", prompt="someone else's")  # (started meanwhile)
+        return session(api.hub, 8, tmp_path / "alpha", launch_token=kw["launch_token"])
+
+    monkeypatch.setattr(api.hub.tasks, "start", start)
+    reply = api.post("/api/code/new", {"prompt": "mine", "directory": "alpha"}).json()
+    assert reply == {"ok": True, "id": 8}
 
 
 def test_a_session_that_cant_start_says_why(api, monkeypatch):  # noqa: F811

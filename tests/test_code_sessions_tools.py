@@ -324,6 +324,30 @@ async def test_a_goal_with_no_session_open_starts_one_working_on_it(
     await end_all(hub)
 
 
+async def test_a_goals_new_session_is_its_own_never_another_started_meanwhile(
+    settings, quiet_speaker, isolated, tmp_path, monkeypatch
+):
+    """REL3-10: /goal with no session open took "the new session" as its own; one started
+    meanwhile (the window, a queue) was given the goal. It's found by its launch token."""
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated)
+    real = hub.tasks.start
+    others = []
+
+    def start(prompt, directory, *a, **kw):
+        if kw.get("launch_token") and not others:  # (another starts just before it)
+            others.append(real("someone else's", directory))
+        return real(prompt, directory, *a, **kw)
+
+    monkeypatch.setattr(hub.tasks, "start", start)
+    await hub._handle({"type": "code_goal_new", "directory": "proj", "text": "ship the fix"})
+    [other] = others
+    mine = next(t for t in hub.tasks.tasks.values() if t is not other)
+    assert hub.code_sessions._meta_of(mine)["goal"]["text"] == "ship the fix"
+    assert not hub.code_sessions._meta_of(other).get("goal")
+    await end_all(hub)
+
+
 def test_goal_verdicts_and_commands_are_read_defensively():
     assert code_asides.verdict('Sure: {"met": true, "why": "done"}') == (True, "done")
     assert code_asides.verdict('{"met": "yes"}') is None and code_asides.verdict("no") is None

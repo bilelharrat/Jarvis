@@ -60,6 +60,7 @@ prefs.register_feature_pref("code_groups", [], code_projects.clean_groups)
 
 SAVE_DELAY = 1.0  # a burst of changes is saved once, this long after it starts
 PARKED_DAYS = 14  # a session whose folder isn't there is kept this long, in case it's back
+GOAL_START_WAIT = 30.0  # seconds /goal's new session may take to start (a held task_new)
 # The board's line counts for a session, reused this long: past the open board's own poll
 # (every 15 s, web/features/code-board.js), so git runs at most every other one.
 BOARD_TTL = 25.0
@@ -1117,15 +1118,24 @@ class CodeSessions:
         text = str(msg.get("text") or "").strip()
         if not text:
             return
-        known = set(self.tm.tasks)
+        from .. import launches
+
+        # Its session by its launch token, never "the new one": another started meanwhile
+        # was given the goal (REL3-10).
+        token = launches.token()
         await self.hub._handle(
-            {"type": "task_new", "directory": str(msg.get("directory") or ""), "prompt": ""}
+            {
+                "type": "task_new",
+                "directory": str(msg.get("directory") or ""),
+                "prompt": "",
+                launches.KEY: token,
+            }
         )
-        fresh = [t for i, t in self.tm.tasks.items() if i not in known and t.kind == "code"]
-        if not fresh:
+        task = await launches.started(self.tm, token, GOAL_START_WAIT)
+        if task is None:
             return  # (task_new said why)
-        await self._cmd_goal({"id": fresh[0].id, "action": "set", "text": text})
-        self.hub.emit("show_session", id=fresh[0].id)
+        await self._cmd_goal({"id": task.id, "action": "set", "text": text})
+        self.hub.emit("show_session", id=task.id)
 
     def _turn_ended(self, data: dict[str, Any]) -> None:
         """A session's turn is over: its goal is met, or goes on, or pauses."""
