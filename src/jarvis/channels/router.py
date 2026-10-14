@@ -6,7 +6,10 @@ back to that chat. Commands (/stop, /status, /brief, /new, /help, /code) are han
 without a model. Approval cards raised by a chat's own request go back to that chat at
 once; other cards follow the owner to the chats that want them once they've waited
 FORWARD_AFTER unanswered on the Mac. A card is answered with its buttons (or, where there
-are none, by replying yes, no or "no, because …"), always through hub.resolve. Heads-ups
+are none, by replying yes, no or "no, because …"), always through hub.resolve. A card only
+the Mac's window may answer (code_touchid.mac_only: Bypass, a risky step, one marked for
+Touch ID) is never sent with its buttons: the chat that raised it is told to answer it on the
+Mac, and nothing a chat says can answer it (round 2, R2-7). Heads-ups
 go to the chats that want them: urgent only, all or none, and in quiet hours only urgent
 ones or a VIP's.
 """
@@ -1178,6 +1181,9 @@ class Channels:
         approval_id = str(card.get("id", ""))
         if not approval_id:
             return
+        if _mac_only(card):
+            self._on_the_mac(card)
+            return
         origin = self._origin(card)
         group = self._group_of(card)
         tracked = Card(approval_id)
@@ -1206,6 +1212,21 @@ class Channels:
             self.spawn(self._send_card(adapter, chat, shown, delay))
         if sending:
             self.cards[approval_id] = tracked
+
+    def _on_the_mac(self, card: dict[str, Any]) -> None:
+        """A card only the Mac answers: to the chat whose request raised it, its question and
+        where to answer it; to no other chat (nothing to answer there)."""
+        origin = self._origin(card)
+        if origin is None or not self.usable(origin[0]):
+            return
+        adapter = self.adapters.get(origin[0])
+        group = self._group_of(card)
+        chat = adapter.home_chat() if adapter is not None and group is not None else origin[1]
+        if adapter is None or chat is None:
+            return
+        question = " ".join(str(card.get("question") or "").split())[:300]
+        text = say(words.ON_THE_MAC, self.language, question=question)
+        self.spawn(self._reply(adapter, chat, text, False))
 
     def _origin(self, card: dict[str, Any]) -> tuple[str, str] | None:
         """The chat a card belongs to: the one whose request raised it, or (an Eden Code
@@ -1318,6 +1339,10 @@ class Channels:
         if label is None:
             await self._ack(msg, say(words.GONE, language))
             return
+        if _mac_only(live, choice):
+            q = " ".join(str(live.get("question") or "").split())[:300]
+            await self._ack(msg, say(words.ON_THE_MAC, language, question=q))
+            return
         tracked.answer = label
         ok = self.hub.resolve(approval_id, choice)
         if not ok:
@@ -1391,6 +1416,12 @@ class Channels:
             await self._reply(adapter, msg.chat, hint_for(live, self.language), False)
             return True
         label = _label(live, choice) or choice
+        if _mac_only(live, choice):
+            q = " ".join(str(live.get("question") or "").split())[:300]
+            await self._reply(
+                adapter, msg.chat, say(words.ON_THE_MAC, self.language, question=q), False
+            )
+            return True
         tracked.answer = label
         if not self.hub.resolve(tracked.id, choice, feedback):
             tracked.answer = ""
@@ -1726,6 +1757,13 @@ def _kind_of(msg: Inbound) -> str:
 
 def _ref_id(ref: Any) -> str:
     return str(ref.get("id", "")) if isinstance(ref, dict) else str(ref)
+
+
+def _mac_only(card: Any, choice: str = "allow") -> bool:
+    """features/code_touchid.mac_only: a card no chat may say yes to (a no is never held up)."""
+    from ..features.code_touchid import ALLOWING, mac_only
+
+    return choice in ALLOWING and mac_only(card)
 
 
 def _label(card: dict[str, Any] | None, choice: str) -> str | None:

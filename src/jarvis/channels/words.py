@@ -52,6 +52,9 @@ HINT_PLAN = "Reply “go” (it asks before edits) or “go with auto-edits”. 
 CHOSE = "You chose: {label}."
 CLOSED = "Closed."
 GONE = "This one is already closed."
+# A card only the Mac's window answers (Bypass, a risky step, one marked for Touch ID): its
+# question, never its buttons (round 2, R2-7).
+ON_THE_MAC = "Needs your OK on the Mac (Touch ID there): {question}"
 
 NO_SESSIONS = "No Eden Code sessions are open."
 SESSIONS = "Eden Code sessions:"
@@ -157,6 +160,7 @@ ZH: dict[str, str] = {
     CHOSE: "你选择了：{label}。",
     CLOSED: "已关闭。",
     GONE: "这个已经关闭了。",
+    ON_THE_MAC: "需要你在 Mac 上确认（在那里用触控 ID）：{question}",
     NO_SESSIONS: "现在没有打开的 Eden Code 会话。",  # as the voice supervisor says it
     SESSIONS: "Eden Code 会话：",
     SESSIONS_HOW: "给会话发消息：{code} <编号> <消息>",
