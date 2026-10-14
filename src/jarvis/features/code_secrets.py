@@ -250,9 +250,12 @@ class Secrets:
             self.values[key] = found or ""  # (none saved: not asked again on every line)
         return self.values[key] or None
 
-    def offer(self, task: Any, names: set[str]) -> str:
+    def offer(self, task: Any, names: set[str], command: str | None = None) -> str:
         """These secrets of a session, read now and offered to one command (key_proxy's
-        pipe): its path. A name with no value saved any more is said to be missing."""
+        pipe): its path. A name with no value saved any more is said to be missing. With the
+        command, the pipe is written only for the process that runs exactly it through
+        secret_run with this pipe (wrap's line): any other of the session's processes that
+        finds the pipe first gets nothing."""
         scopes = self._scopes(task)
         values: dict[str, str] = {}
         missing: list[str] = []
@@ -262,7 +265,8 @@ class Secrets:
                 values[name] = found
             else:
                 missing.append(name)
-        return key_proxy.HANDOFFS.offer(values, missing)
+        expect = (lambda pipe: shlex.split(wrap(command, pipe))) if command is not None else None
+        return key_proxy.HANDOFFS.offer(values, missing, expect=expect)
 
     def values_for(self, task: Any) -> dict[str, str]:
         """{value: $NAME} for a session's secrets, for the redaction pass."""
@@ -612,7 +616,7 @@ class Secrets:
                     "get it to another command; ask them what to do."
                 )
             try:
-                pipe = await asyncio.to_thread(self.offer, task, wanted)
+                pipe = await asyncio.to_thread(self.offer, task, wanted, command)
             except OSError:
                 return PermissionResultDeny(
                     message="Jarvis couldn't hand the secret to the command on this computer."

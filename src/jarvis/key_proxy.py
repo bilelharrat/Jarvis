@@ -24,9 +24,13 @@ Now nothing a run is given reads the Keychain:
 - An Eden Code secret: the command runs through secret_run.py, which no longer reads the
   Keychain at all. The backend reads the values, once the owner has let the command go on
   its card, and offers them through a named pipe made for that one command (Handoffs.offer)
-  in a folder only the owner can open, named by a random nonce. The first reader gets them
-  and the pipe is gone the moment it's opened; unread, it goes after a minute. Re-running
-  secret_run with a nonce already used, or one guessed, gets nothing.
+  in a folder only the owner can open, named by a random nonce. The pipe is gone the moment
+  it's opened; unread, it goes after a minute. Re-running secret_run with a nonce already
+  used, or one guessed, gets nothing. Nor does any other process that opens it: the folder
+  and secret_run's command line are the owner's, so a session's own commands can find the
+  name, and the values are written only once the one process holding the pipe is that very
+  command (handoff_check: JARVIS's Python running secret_run with this pipe and the command
+  on the owner's card), which scrubs them from all it prints.
 
 What a pass still lets a command do, while the backend runs: send a request through the
 proxy to the owner's own provider, as the run itself does. It can't take the key away, use
@@ -62,6 +66,8 @@ GRANT_IDLE = 7 * 24 * 3600.0  # seconds a pass may sit unused before it's forgot
 MAX_GRANTS = 4096  # passes kept at once; past it, the one unused longest goes
 MAX_BODY = 64 * 1024 * 1024  # bytes of a request Claude Code sends (pictures and all)
 HANDOFF_SECONDS = 60.0  # seconds a command's secrets wait for it to start
+HANDOFF_SETTLE = 0.05  # seconds for every open of the pipe under way to finish, once one has
+READER_SECONDS = 3.0  # seconds for the reader whose open let the writer in to show up
 DIRECT = "direct"  # the route of a pass this proxy spends itself
 GEMINI = "gemini"  # spent by gemini_proxy
 OPENAI = "openai:"  # spent by openai_relay, for one provider: "openai:<id>"
@@ -377,19 +383,51 @@ class Handoffs:
                 os.chmod(self._folder, 0o700)
             return self._folder
 
-    def offer(self, values: dict[str, str], missing: list[str] | None = None) -> str:
-        """The pipe's path, ready for one reader: the values follow when it opens it."""
+    def offer(
+        self,
+        values: dict[str, str],
+        missing: list[str] | None = None,
+        expect: Callable[[str], list[str]] | None = None,
+    ) -> str:
+        """The pipe's path, ready for one reader: the values follow when it opens it, and
+        only when it is the process expect(path) names (its exact arguments: the command the
+        owner let go, through secret_run with this pipe). Without expect, any first reader
+        (the tests' own)."""
         if not hasattr(os, "mkfifo"):
             raise OSError("Secrets reach commands through a named pipe, which this system lacks.")
         path = self.folder() / secrets.token_hex(16)
         os.mkfifo(path, 0o600)
         payload = json.dumps({"values": values, "missing": list(missing or [])}).encode()
+        wanted = expect(str(path)) if expect is not None else None
         threading.Thread(
-            target=self._give, args=(path, payload), name="secret-handoff", daemon=True
+            target=self._give, args=(path, payload, wanted), name="secret-handoff", daemon=True
         ).start()
         return str(path)
 
-    def _give(self, path: Path, payload: bytes) -> None:
+    @staticmethod
+    def reader_is(fd: int, wanted: list[str]) -> str:
+        """Nothing ("") when the one process holding the pipe (besides this one) is the command wanted
+        names; else why not. The name is gone by now, so no one new can open it: a reader
+        whose open let the writer in shows up within moments, any other open under way then
+        finishes within HANDOFF_SETTLE, and then the holders are what they'll be."""
+        from . import handoff_check
+
+        deadline = time.monotonic() + READER_SECONDS
+        found = handoff_check.holders(fd)
+        while found is not None and not found and time.monotonic() < deadline:
+            time.sleep(0.01)
+            found = handoff_check.holders(fd)
+        if found is None:
+            return "this system won't say who has the pipe open"
+        time.sleep(HANDOFF_SETTLE)
+        found = handoff_check.holders(fd)
+        if found is None:
+            return "this system won't say who has the pipe open"
+        if len(found) != 1:
+            return f"{len(found)} processes have the pipe open"
+        return handoff_check.is_expected(found[0], wanted)
+
+    def _give(self, path: Path, payload: bytes, wanted: list[str] | None = None) -> None:
         deadline = time.monotonic() + self.wait
         fd = -1
         try:
@@ -405,6 +443,14 @@ class Handoffs:
                 os.unlink(path)
         if fd < 0:
             return
+        if wanted is not None:
+            why = self.reader_is(fd, wanted)
+            if why:
+                # Closed unwritten: the reader gets nothing (and the command, if it was the
+                # one, says it couldn't have its secrets). Never a value in the log.
+                log.warning("a command's secrets weren't handed over: %s", why)
+                os.close(fd)
+                return
         try:
             os.set_blocking(fd, True)
             view = memoryview(payload)
