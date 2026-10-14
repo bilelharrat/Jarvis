@@ -482,7 +482,9 @@ class GitPanel:
             )
         await self.publish(folder, key)
         if done.ok:
-            sha = git(repo.top, "rev-parse", "--short", "HEAD").out.strip()
+            sha = (
+                await asyncio.to_thread(git, repo.top, "rev-parse", "--short", "HEAD")
+            ).out.strip()
             self.hub.emit("code_git_committed", key=key, sha=sha)
             return f"Committed {sha}: {subject}"
         why = (done.err or done.out).strip()
