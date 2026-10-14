@@ -22,6 +22,10 @@ is told, and nothing is called):
                                tool-less turn on at most 24,000 characters of the branch's
                                diff, its commit subjects and the session's last reply
                                                                            30 a day
+  spec_check       Haiku 4.5   after a Spec mode task's turn, for the acceptance criteria
+                               no test named after them answered: one tool-less turn on at
+                               most 24,000 characters of the task's diff, its criteria and
+                               the tests' outcome (features/code_spec.py)  40 a day
 
 Every call is one tool-less turn unless its kind says otherwise, with none of the
 owner's settings, hooks or MCP servers loaded, and a timeout. What it's shown (a diff, a
@@ -49,6 +53,7 @@ POLICY: dict[str, tuple[str, int]] = {
     "deep_review": ("sonnet", 5),
     "judge": ("haiku", 20),
     "pr_draft": ("haiku", 30),
+    "spec_check": ("haiku", 40),
 }
 CALL_SECONDS = 90.0
 

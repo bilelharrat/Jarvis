@@ -1,6 +1,7 @@
 // A turn's proof (features/code_receipts.py): the transcript's "Proof · …" entry drawn as one
 // card: what changed, the tests, the check after the turn with its picture, and the risk,
-// in a colour and in words. The entry's text stays the same everywhere else (the phone, voice).
+// in a colour and in words; for a Spec mode task, which requirements it met (code-spec.js).
+// The entry's text stays the same everywhere else (the phone, voice).
 (function (root) {
   'use strict';
 
@@ -61,6 +62,24 @@
       const poster = picture(v.poster);
       if (poster) video.poster = poster;
       li.append(video);
+    }
+    const reqs = Array.isArray(r.requirements) ? r.requirements : [];
+    const spec = root.jarvisSpec;  // (features/code-spec.js: Spec mode's words)
+    if (reqs.length && spec) {
+      const { met, total } = spec.summary(reqs);
+      const box = el('section', 'rc-reqs');
+      box.setAttribute('aria-label', `${F.t('Requirements met')}: ${met} / ${total}`);
+      box.append(el('h4', '', `${F.t('Requirements met')}: ${met} / ${total}`));
+      const list = el('ul', '');
+      for (const q of reqs) {
+        const item = el('li', `rc-req-${q.status}`);
+        item.setAttribute('aria-label', spec.spoken(q));
+        item.append(el('span', 'rc-req-state', F.t(spec.words[q.status] || q.status)), el('span', '', `${q.id} ${q.title || ''}`));
+        for (const ev of (q.evidence || []).slice(0, 6)) item.append(el('div', 'rc-req-ev', ev));
+        list.append(item);
+      }
+      box.append(list);
+      li.append(box);
     }
     const qa = el('button', 'rc-qa', F.t('Try it like a user'));
     qa.type = 'button';

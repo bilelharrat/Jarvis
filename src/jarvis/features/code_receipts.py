@@ -8,6 +8,10 @@ the window, the iPhone's session view and "catch me up" all have it), as one ent
 - the check after the turn (code_verify), when the session has it on, with its picture of
   the page, and the video proof (code_video) when its project records one: both waited
   for, together, up to VERIFY_WAIT;
+- for a Spec mode task (code_spec), "Requirements met": each requirement it covers, met or
+  not, with its evidence (the tests named after its criteria that passed, the reviewer's
+  reason, the video proof and the check's screenshot), waited for up to SPEC_WAIT (the
+  spec's check runs the project's whole test suite);
 - a risk level: high when it failed, tests failed, the check found problems, or it touched
   auth, billing, the database schema or secrets; medium when it changed many files or
   changed code with no tests run; else low. Said in words, with why.
@@ -30,6 +34,7 @@ from .. import codesupervisor as cs
 log = logging.getLogger("jarvis")
 
 VERIFY_WAIT = 120.0  # seconds a receipt waits for the check after the turn
+SPEC_WAIT = 900.0  # ... and for a Spec mode task's check against its requirements
 MANY_FILES = 12
 _CODE = (
     ".py",
@@ -110,6 +115,10 @@ def receipt_text(r: dict[str, Any]) -> str:
         parts.append("no tests run")
     if r["check"]:
         parts.append(f"check: {r['check']['text'] or r['check']['status']}"[:120])
+    reqs = r.get("requirements")
+    if reqs:
+        met = sum(1 for q in reqs if q.get("status") == "met")
+        parts.append(f"requirements met {met} of {len(reqs)}")
     parts.append(f"risk {r['risk']}: {r['why']}")
     return "Proof · " + " · ".join(parts)
 
@@ -181,8 +190,13 @@ class Receipts:
             waits["check"] = self.waiting[task.id] = loop.create_future()
         if self.videoing(task, [str(f) for f in data.get("files") or []]):
             waits["video"] = self.filming[task.id] = loop.create_future()
+        spec = getattr(self.hub, "code_spec", None)
+        if spec is not None and spec.covers(task.id):
+            waits["spec"] = spec.proof_future(task.id)
         if waits:  # the check and the video, together, as long as VERIFY_WAIT at most
             await asyncio.wait(list(waits.values()), timeout=VERIFY_WAIT)
+        if "spec" in waits and not waits["spec"].done():  # its suite can take longer
+            await asyncio.wait([waits["spec"]], timeout=SPEC_WAIT - VERIFY_WAIT)
         self.waiting.pop(task.id, None)
         self.filming.pop(task.id, None)
         got = {k: f.result() for k, f in waits.items() if f.done() and not f.cancelled()}
@@ -196,6 +210,10 @@ class Receipts:
                 "poster": str(video.get("poster") or ""),
                 "seconds": video.get("seconds") or 0,
             }
+        if "spec" in got:
+            rows = spec.attach_receipt(task.id, list(got["spec"] or []), receipt)
+            if rows:
+                receipt["requirements"] = rows
         self.hub.tasks._log(task, "system", receipt_text(receipt), receipt=receipt)
         self.hub.tasks._changed_soon()
         return receipt

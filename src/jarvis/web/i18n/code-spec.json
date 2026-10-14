@@ -1,0 +1,13 @@
+{
+  "strings": {
+    "Spec": "规格",
+    "Requirements met": "已满足的需求",
+    "Met": "已满足",
+    "Not met": "未满足",
+    "Partly met": "部分满足",
+    "Not checked": "未检查",
+    "Spec mode: requirements, design and tasks first, then each task checked": "规格模式：先写需求、设计和任务，再逐个检查任务",
+    "Spec mode: the session writes the requirements, then the design, then the tasks, and asks you after each.": "规格模式：会话先写需求，再写设计，再拆分任务，每一步之后都会问你。",
+    "Spec mode: requirements, design and tasks first, each OK'd by you, then each task checked against them.": "规格模式：先写需求、设计和任务，每一步由你确认，然后按它们检查每个任务。"
+  }
+}
