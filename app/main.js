@@ -14,6 +14,7 @@ const { toUrl, homeUrl, searchEngine, searchUrl } = require('./url-input'); // w
 const { createAgent, fileNotTheirs, FILE_REFUSED } = require('./browser-agent');
 const { backendCommand, BackendLog, engineMissing } = require('./backend-launch'); // the bundled backend, else uv and the repo; its log
 const { createParity } = require('./browser-parity'); // per-site permissions, popups, sign-in, Settings › Browser
+const { pagePath } = require('./page-path'); // the app's own pages: outside app.asar in a build (round 3)
 const { isCertError, riskyClick } = require('./browser-lib');
 const { resolveFlavor } = require('./flavor'); // Eden Secretary or Eden Code
 const share = require('./backend-share'); // one backend for both apps
@@ -381,7 +382,7 @@ function sayWhileWaiting(text) {
 
 function showProblem(message, detail = '') {
   trace.write(`the window says: ${message}${detail ? `\n${detail}` : ''}`);
-  if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, 'loading.html'), { query: { error: message, ...(detail ? { detail } : {}), app: FLAVOR.id } });
+  if (win && !win.isDestroyed()) win.loadFile(pagePath(__dirname, 'loading.html'), { query: { error: message, ...(detail ? { detail } : {}), app: FLAVOR.id } });
 }
 
 function appUrl() {
@@ -500,7 +501,7 @@ function createWindow() {
   windowTyped = guards.inputClock(win.webContents); // what the address bar sends right after a key or a press is typed (S29)
   win.on('unresponsive', () => trace.write('the window is not responding'));
   win.on('responsive', () => trace.write('the window responds again'));
-  win.loadFile(path.join(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
+  win.loadFile(pagePath(__dirname, 'loading.html'), { query: { app: FLAVOR.id, ...(hidden || DEV_URL ? { quiet: '1' } : {}) } });
 
   // The window only ever shows Eden Secretary; any other link opens in the browser.
   const external = (url) => {
@@ -1893,7 +1894,7 @@ function showHandHud(on) {
   hud.setAlwaysOnTop(true, 'screen-saver');
   hud.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   hud.setIgnoreMouseEvents(true);
-  hud.loadFile(path.join(__dirname, 'hand-hud.html'));
+  hud.loadFile(pagePath(__dirname, 'hand-hud.html'));
   hud.once('ready-to-show', () => hud && hud.showInactive());
 }
 ipcMain.on('jarvis:desktop-hands', (event, on) => {

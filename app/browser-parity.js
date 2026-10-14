@@ -912,7 +912,7 @@ class BrowserParity {
     popWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     popWin.webContents.on('will-navigate', (event) => event.preventDefault()); // the bar stays the bar
     popWin.on('close', () => this.popIn(view, { closing: true })); // closing it puts the page back in the dock
-    popWin.loadFile(path.join(__dirname, 'popout.html')).catch(() => {});
+    popWin.loadFile(require('./page-path').pagePath(__dirname, 'popout.html')).catch(() => {});
     this.showPopup(popWin);
     this.boxNext(this.permissionsFor(wc.session), wc); // a prompt it was waiting on in the dock asks here now
     this.changed();
