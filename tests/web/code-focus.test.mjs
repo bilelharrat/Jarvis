@@ -213,6 +213,20 @@ test('Exterminator Mode: an unchanged sessions list doesn’t redraw the pane', 
   assert.equal(w.document.activeElement.textContent, 'Stop', 'the keys kept on Stop through it');
 });
 
+// Efficiency pass 2: the pane asks for the state as it opens (and on hello), so the same runs
+// came back and the whole pane was drawn again for nothing; a state it already shows leaves the
+// drawing alone, a changed one draws it.
+test('Exterminator Mode: the same runs again don’t redraw the pane', () => {
+  const w = standPane('code_bugfix.js', 'bugfix');
+  const run = { id: 'r1', project: 'api', state: 'running', round: 1, step: 'sweep', spent: 1, spend_cap: 10, findings: [], folder: '/f', slug: 's' };
+  w.fire('code_bugfix', { runs: [run], active: {} });
+  const wrap = w.body.children[0];
+  w.fire('code_bugfix', { runs: [{ ...run }], active: {} });
+  assert.ok(w.body.children[0] === wrap, 'the same drawing');
+  w.fire('code_bugfix', { runs: [{ ...run, spent: 2 }], active: {} });
+  assert.ok(w.body.children[0] !== wrap, 'what it spent changed: drawn again');
+});
+
 // Round 2, U5: the panes G5 didn't reach lost the focus after their own buttons (Without you's
 // Stop and refused-steps toggle, pairing, the isolated copy, multi-repo, setup, Git, the PR,
 // sharing): each draws through keep too.

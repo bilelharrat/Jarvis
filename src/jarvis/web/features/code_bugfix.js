@@ -305,7 +305,13 @@
   const title = document.getElementById('jc-title');
   if (title) new MutationObserver(redraw).observe(title, { childList: true, characterData: true, subtree: true });
 
+  // The state as last taken: the pane asks for it as it opens and on hello, so the same runs
+  // often come back; those leave the drawing (and the keys in it) as it is.
+  let taken = '';
   F.on('code_bugfix', (ev) => {
+    const now = JSON.stringify([ev.runs || [], ev.active || {}]);
+    if (now === taken) return;
+    taken = now;
     state.runs = ev.runs || [];
     state.active = ev.active || {};
     render();
