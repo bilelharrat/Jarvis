@@ -745,3 +745,50 @@ async def test_a_resumed_efficiency_pass_is_checked_against_the_point_it_started
     assert verdict["kept"] is False and "tests" in verdict["lost"], verdict
     assert verdict["restored"] is True
     assert (copy / "tests" / "test_calc.py").exists()  # back from before the pass, not after
+
+
+async def test_what_a_step_spent_before_the_app_quit_counts_after_a_resume(
+    hub, projects, monkeypatch
+):
+    """Round 1's D4: the step's spend so far is counted when the app quits mid-step, so a
+    resumed run's ceiling is what's left, not a fresh one."""
+    monkeypatch.setattr(code_bugfix, "ROUNDS", 1)
+    make_repo(projects / "calc", FILES)
+    desk = hub.code_bugfix
+    BugClient.hold = "BREAK"
+    hub.answers = ["start"]
+    await desk.request("calc", 2)
+    [run] = desk.runs
+    assert await until(lambda: run.step == "break" and len(BugClient.prompts) == 2)
+    task = hub.tasks.tasks[run.task_id]
+    task.cost_usd = round((task.cost_usd or 0) + 1.5, 6)  # the break step's work so far
+    desk.drivers[run.id].cancel()
+    await asyncio.wait([desk.drivers[run.id]], timeout=5)
+    handle = task.handle
+    hub.tasks.cancel(run.task_id)
+    await asyncio.wait([handle], timeout=5)
+    desk._loaded, desk.runs, desk.active, desk.waiting = False, [], {}, {}
+    desk.load()
+    [again] = desk.runs
+    assert again.spent == pytest.approx(1.6)  # the sweep's 0.1 and the break's 1.5
+    BugClient.hold = None
+    hub.answers = ["deny"]
+    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await until(lambda: again.state != "running"), again.notes
+    assert BugClient.instances[-1].options.max_budget_usd <= 0.4 + 1e-9
+
+
+def test_a_session_s_spend_is_counted_once_however_many_turns_it_had(hub):
+    from jarvis.tasks import ClaudeTask
+
+    desk = hub.code_bugfix
+    run = BugRun("r1", "calc", spend_cap=10.0)
+    task = ClaudeTask(id=5, prompt="", cwd=Path("."))
+    task.cost_usd = 1.0
+    desk.account(run, task)
+    task.cost_usd = 3.0
+    desk.account(run, task)
+    assert run.spent == pytest.approx(3.0)
+    options = type("O", (), {"max_budget_usd": None, "agents": None, "can_use_tool": None})()
+    desk.extend(run, task, options)
+    assert options.max_budget_usd == pytest.approx(7.0)  # not 10 - 3 - 3

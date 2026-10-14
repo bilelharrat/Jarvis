@@ -328,6 +328,7 @@ class BugRun:
     rounds: int = ROUNDS
     spend_cap: float = SPEND_DEFAULT
     spent: float = 0.0  # in steps that ended (and sessions before a resume)
+    counted: float = 0.0  # how much of the open session's own spend is in spent already
     sweep_model: str = ""
     fix_model: str = ""
     model_note: str = ""
@@ -946,7 +947,7 @@ class BugFix:
         except ValueError as exc:
             return str(exc)
         task.allow_edits = True  # edits in its own copy are its work (the guard narrows them)
-        run.task_id = task.id
+        run.task_id, run.counted = task.id, 0.0  # (a new session: none of its spend counted)
         run.state, run.why = "running", ""
         self.active[task.id] = run
         self.quiet[task.id] = 0.0
@@ -1007,7 +1008,7 @@ class BugFix:
 
     def extend(self, run: BugRun, task: Any, options: Any) -> None:
         """The run's own: what's left of its ceiling, its auditors, and its guard."""
-        left = round(max(0.05, run.spend_cap - run.spent - spent(task)), 2)
+        left = round(max(0.05, run.spend_cap - run.spent - (spent(task) - run.counted)), 2)
         other = options.max_budget_usd
         if isinstance(other, int | float) and not isinstance(other, bool) and other > 0:
             left = min(left, float(other))
@@ -1150,7 +1151,6 @@ class BugFix:
         reply. Its cost goes to the run's."""
         if run.state != "running":
             raise Stopped(run.why or "owner")
-        before = spent(task)
         if text:
             self.waiting[task.id] = asyncio.get_running_loop().create_future()
             if not self.hub.tasks.send(task.id, text):
@@ -1162,9 +1162,14 @@ class BugFix:
             status = await asyncio.wait_for(waiter, STEP_WAIT)
         except TimeoutError:
             status = "failed"
+        except asyncio.CancelledError:  # the app quits mid-step: what it spent still counts
+            self.account(run, task)
+            with contextlib.suppress(Exception):
+                self.save()
+            raise
         finally:
             self.waiting.pop(task.id, None)
-        run.spent = round(run.spent + max(0.0, spent(task) - before), 4)
+        self.account(run, task)
         run.session_id = task.session_id or run.session_id
         self.adopt_copy(run, task)
         if run.state != "running":
@@ -1176,6 +1181,15 @@ class BugFix:
         if run.spent >= run.spend_cap * 0.98:
             raise Stopped("spend")
         return task.result or ""
+
+    @staticmethod
+    def account(run: BugRun, task: Any) -> None:
+        """The session's spend not yet in the run's, added: once, however many turns and
+        steps it had, and whenever the run is left (a step's end, a quit, the run's end), so
+        a resumed run's ceiling is what's left of it."""
+        now = spent(task)
+        run.spent = round(run.spent + max(0.0, now - run.counted), 4)
+        run.counted = max(run.counted, now)
 
     def adopt_copy(self, run: BugRun, task: Any) -> None:
         ws = task.workspace or {}
@@ -1992,6 +2006,7 @@ class BugFix:
         self.waiting.pop(task.id, None)
         run.state = "done" if why == "finished" else ("paused" if why == "restart" else "stopped")
         run.why, run.ended = why, time.time()
+        self.account(run, task)
         run.session_id = task.session_id or run.session_id
         self.adopt_copy(run, task)
         if why == "finished":
