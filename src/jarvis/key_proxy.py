@@ -513,6 +513,15 @@ class Handoffs:
                 os.chmod(self._folder, 0o700)
             return self._folder
 
+    def close(self) -> None:
+        """At quit: this run's socket folders removed, once nothing is left in them (a run
+        under way keeps its socket, and its folder stays). Before, none was ever removed,
+        and the next start's sweep (tmp_sweep) is what takes a killed run's (REL3-12)."""
+        from . import tmp_sweep
+
+        with self._lock:
+            tmp_sweep.remove_empty(self._folder, self._short)
+
     def _socket_folder(self) -> Path:
         """The folder, or, when its path is too long for a socket's (a Mac takes 104
         characters), one of the same kind under /tmp."""
