@@ -36,6 +36,21 @@ def _shells_keep_no_owner_history(tmp_path_factory):
             os.environ[key] = value
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _no_real_model_router(tmp_path_factory):
+    """The Model Router's folder ($MODEL_ROUTER_HOME, else ~/Model Router) is an empty temp
+    one: no test can start the owner's real learner or page server, nor read what it
+    learned. A test that wants a Model Router sets its own (monkeypatch.setenv)."""
+    home = tmp_path_factory.mktemp("no-model-router")
+    saved = os.environ.get("MODEL_ROUTER_HOME")
+    os.environ["MODEL_ROUTER_HOME"] = str(home)
+    yield
+    if saved is None:
+        os.environ.pop("MODEL_ROUTER_HOME", None)
+    else:
+        os.environ["MODEL_ROUTER_HOME"] = saved
+
+
 @pytest.fixture(autouse=True)
 def _no_real_claude_engine(monkeypatch):
     """The checkup finds no Claude Code engine of its own: running the real one (its
@@ -592,3 +607,27 @@ def ruff_binary() -> str:
         return str(find_ruff_bin())
     except Exception:  # (no ruff package, or it has no binary)
         pytest.skip("no ruff to run")
+
+
+def assert_linear(run, n: int, *, slack: float = 0.05, cap: float = 5.0) -> None:
+    """run(n) grows linearly, not quadratically, timed rather than held to a fixed budget
+    (a busy Mac went past those): warmed up once, then the best of three at n and at 4n.
+    Four times as much in under eight times as long (plus `slack` seconds of noise) passes;
+    a quadratic pass takes sixteen times as long, and past `cap` seconds fails anyway."""
+    import time
+
+    def best(size: int) -> float:
+        out = float("inf")
+        for _ in range(3):
+            started = time.perf_counter()
+            run(size)
+            out = min(out, time.perf_counter() - started)
+            if out > cap:
+                break
+        return out
+
+    run(n)
+    once, four = best(n), best(4 * n)
+    said = f"{once * 1000:.0f} ms, then {four * 1000:.0f} ms for four times as much"
+    assert four < 8 * once + slack, said
+    assert four < cap, said

@@ -351,13 +351,25 @@ async def test_the_nightly_loop_prunes_then_learns_at_its_hour(hub, monkeypatch)
         did.append(("learn", force))
         raise RuntimeError("no")
 
-    monkeypatch.setattr(code_router_events.asyncio, "sleep", sleep)
+    # The module's own asyncio only: patching asyncio.sleep itself stalled every other
+    # coroutine sleeping meanwhile (the hub's loops, the test runner's).
+    monkeypatch.setattr(code_router_events, "asyncio", _AsyncioWith(sleep=sleep))
     events.log.prune = prune
     events.maybe_learn = learn
     with pytest.raises(Stop):
         await events.nightly()
     assert did == ["prune", ("learn", True), "prune", ("learn", True)]
     assert all(60.0 <= w <= 86400 for w in waits)
+
+
+class _AsyncioWith:
+    """asyncio as one module sees it, with some of its functions swapped."""
+
+    def __init__(self, **swapped):
+        self.__dict__.update(swapped)
+
+    def __getattr__(self, name):
+        return getattr(asyncio, name)
 
 
 # ── the learner's run (a stand-in Node process) ──
@@ -567,3 +579,12 @@ def test_learned_json_is_cleaned_before_use():
     rows = ["junk", {"model": ""}] + [{"model": f"m{i}", "to": i} for i in range(250)]
     report = clean({"v": 1, "report": rows})["report"]
     assert len(report) == 200 and report[0] == {"model": "m0", "to": 0.0}
+
+
+def test_no_test_can_reach_the_owner_s_real_model_router():
+    """H8: conftest points $MODEL_ROUTER_HOME at an empty temp folder for every test."""
+    from pathlib import Path
+
+    home = code_router_events.model_router_home()
+    assert home != Path.home() / "Model Router"
+    assert home.is_dir() and not any(home.iterdir())

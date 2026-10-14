@@ -10,16 +10,32 @@ const require = createRequire(import.meta.url);
 const rich = require('../../src/jarvis/web/features/rich-chat.js');
 const M = require('../../src/jarvis/web/features/code-markdown.js');
 
-// Far below what the quadratic versions took on these inputs (2 to 9 seconds each), far above
-// what a linear pass takes on a busy Mac (a few milliseconds).
-const BUDGET_MS = 500;
+// Linear, not fast: run(n) once to warm up (compiling it was counted, and a busy Mac went
+// past a fixed 500 ms), then at n and 2n. Twice the input in about twice the time passes; a
+// quadratic pass takes four times as long, and the versions that were took 2 to 9 seconds
+// at N alone, far past CAP_MS at 2N. Each time is the best of three; SLACK_MS is the noise a
+// few-millisecond pass still has on a busy Mac.
 const N = 60_000;
+const CAP_MS = 4000;
+const SLACK_MS = 50;
 
 function quick(what, run) {
-  const t0 = process.hrtime.bigint();
-  run();
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  assert.ok(ms < BUDGET_MS, `${what} took ${ms.toFixed(0)} ms`);
+  run(N);
+  const timed = (n) => {
+    let best = Infinity; // (the best of three: a garbage collection mid-run isn't the pass)
+    for (let k = 0; k < 3; k += 1) {
+      const t0 = process.hrtime.bigint();
+      run(n);
+      best = Math.min(best, Number(process.hrtime.bigint() - t0) / 1e6);
+      if (best > CAP_MS) break;
+    }
+    return best;
+  };
+  const once = timed(N);
+  const twice = timed(2 * N);
+  const said = `${what}: ${once.toFixed(0)} ms, then ${twice.toFixed(0)} ms for twice as much`;
+  assert.ok(twice < 3 * once + SLACK_MS, said);
+  assert.ok(twice < CAP_MS, said);
 }
 
 // Every token, however deep.
@@ -40,9 +56,9 @@ function* blockTokens(blocks) {
 }
 
 test('looksMarked stays linear on runs of unclosed links', () => {
-  quick('a run of [', () => assert.equal(rich.looksMarked('['.repeat(N)), false));
-  quick('a run of [a](', () => assert.equal(rich.looksMarked('[a]('.repeat(N / 4)), false));
-  quick('a run of [a]', () => assert.equal(rich.looksMarked('[a] '.repeat(N / 4)), false));
+  quick('a run of [', (n) => assert.equal(rich.looksMarked('['.repeat(n)), false));
+  quick('a run of [a](', (n) => assert.equal(rich.looksMarked('[a]('.repeat(n / 4)), false));
+  quick('a run of [a]', (n) => assert.equal(rich.looksMarked('[a] '.repeat(n / 4)), false));
   // and still finds a link wherever it is
   assert.equal(rich.looksMarked(`${'['.repeat(1000)}a](b)`), true);
   assert.equal(rich.looksMarked('see [x](\ny)'), true);
@@ -51,36 +67,36 @@ test('looksMarked stays linear on runs of unclosed links', () => {
 
 test('a heading with a long run of spaces in it parses in linear time', () => {
   let b;
-  quick('heading', () => { b = M.parse(`# a${' '.repeat(N)}b`); });
+  quick('heading', (n) => { b = M.parse(`# a${' '.repeat(n)}b`); });
   assert.equal(b[0].type, 'heading');
-  quick('heading, tabs', () => M.parse(`## x${' \t'.repeat(N / 2)}y ##`));
+  quick('heading, tabs', (n) => M.parse(`## x${' \t'.repeat(n / 2)}y ##`));
   assert.deepEqual(M.parse('# Title ##'), [{ type: 'heading', level: 1, text: 'Title' }]);
   assert.deepEqual(M.parse('# Title#'), [{ type: 'heading', level: 1, text: 'Title#' }]);
 });
 
 test('a line break after a long run of spaces mid-line is linear', () => {
-  quick('spaces then a break', () => M.inline(`a${' '.repeat(N)}b\nc`));
+  quick('spaces then a break', (n) => M.inline(`a${' '.repeat(n)}b\nc`));
   assert.deepEqual(M.inline('a  \nb').map((t) => t.t), ['text', 'br', 'text']);
   assert.equal(M.inline('a  \nb')[0].v, 'a');
 });
 
 test('a long code span with a space at its start is linear', () => {
   let out;
-  quick('code span', () => { out = M.inline(`\` ${'a'.repeat(N)}\``); });
+  quick('code span', (n) => { out = M.inline(`\` ${'a'.repeat(n)}\``); });
   assert.equal(out[0].t, 'code');
   assert.equal(M.inline('` a `')[0].v, 'a');
   assert.equal(M.inline('`   `')[0].v, '   ');
 });
 
 test('bare addresses ending in long runs of ) or dots stay linear', () => {
-  quick('closing parens', () => M.inline(`http://a${')'.repeat(1990)} `.repeat(N / 2000)));
-  quick('dots mid-address', () => M.inline(`http://a${'.'.repeat(1990)}a `.repeat(N / 2000)));
+  quick('closing parens', (n) => M.inline(`http://a${')'.repeat(1990)} `.repeat(n / 2000)));
+  quick('dots mid-address', (n) => M.inline(`http://a${'.'.repeat(1990)}a `.repeat(n / 2000)));
   assert.equal(M.trimUrl('https://e.com/a_(b))).'), 'https://e.com/a_(b)');
   assert.equal(M.trimUrl('https://e.com/x...'), 'https://e.com/x');
 });
 
 test('a link title after a long run of spaces is linear', () => {
-  quick('titles', () => M.inline(`[a](a${' '.repeat(1985)}"x"b) `.repeat(N / 2000)));
+  quick('titles', (n) => M.inline(`[a](a${' '.repeat(1985)}"x"b) `.repeat(n / 2000)));
   const [link] = M.inline('[a](https://e.com/x  "the title")');
   assert.equal(link.href, 'https://e.com/x');
 });
@@ -124,10 +140,10 @@ test('script, handlers and odd schemes never become links or markup', () => {
 });
 
 test('deep nesting and huge input stay bounded', () => {
-  quick('nested quotes', () => M.parse('>'.repeat(N)));
-  quick('nested lists', () => M.parse(Array.from({ length: 2000 }, (_, k) => `${'  '.repeat(k)}- a`).join('\n')));
-  quick('nested emphasis', () => M.inline(`${'*_~~'.repeat(N / 8)}x${'~~_*'.repeat(N / 8)}`));
-  quick('unclosed backticks', () => M.inline('`a'.repeat(N / 2)));
-  quick('an unclosed fence', () => M.parse(`\`\`\`\n${'x\n'.repeat(N / 2)}`));
-  quick('a wide table', () => M.parse(`${'|a'.repeat(N / 4)}|\n${'|-'.repeat(N / 4)}|\n${'|x'.repeat(N / 4)}|`));
+  quick('nested quotes', (n) => M.parse('>'.repeat(n)));
+  quick('nested lists', (n) => M.parse(Array.from({ length: 2000 }, (_, k) => `${'  '.repeat(k)}- a`).join('\n')));
+  quick('nested emphasis', (n) => M.inline(`${'*_~~'.repeat(n / 8)}x${'~~_*'.repeat(n / 8)}`));
+  quick('unclosed backticks', (n) => M.inline('`a'.repeat(n / 2)));
+  quick('an unclosed fence', (n) => M.parse(`\`\`\`\n${'x\n'.repeat(n / 2)}`));
+  quick('a wide table', (n) => M.parse(`${'|a'.repeat(n / 4)}|\n${'|-'.repeat(n / 4)}|\n${'|x'.repeat(n / 4)}|`));
 });
