@@ -387,7 +387,7 @@ def reads_inside(command: str, cwd: Path) -> bool:
     too: one that looks like a path outside makes it ask), ~ as the shell expands it, and a
     glob by what it matches now (a link in the project to a file outside counts as outside),
     and a private folder inside cwd as outside it.
-    For runs on anyone's words (an issue's, Bug Fix Mode's on anyone's code): "cat
+    For runs on anyone's words (an issue's, Exterminator Mode's on anyone's code): "cat
     ~/.ssh/id_rsa", "find /" or "git diff --no-index ~/.aws/credentials /dev/null" only
     read, but read what the run has no business sending to Claude (B7)."""
     import glob as globbing

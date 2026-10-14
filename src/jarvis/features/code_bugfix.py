@@ -1,6 +1,6 @@
-"""Eden Code: Bug Fix Mode, the owner's own bug protocol on any project, behind one switch.
+"""Eden Code: Exterminator Mode, the owner's own bug protocol on any project, behind one switch.
 
-One switch in the composer (and the session's header while it runs): "Bug Fix Mode". On for
+One switch in the composer (and the session's header while it runs): "Exterminator Mode". On for
 a project (anyone's code, any stack), Eden runs the protocol the owner runs by hand:
 
   for round in 1..3:
@@ -54,8 +54,10 @@ paused, and Resume carries on in the same copy and conversation from the step it
 Window commands: code_bugfix {} (the state), code_bugfix_start {project, spend_cap?},
 code_bugfix_stop {run}, code_bugfix_resume {run}, code_bugfix_land {run}.
 Events: code_bugfix {runs, active}.
-Voice (hub.register_instant): "Eden, bug fix mode on <project>", "bug fix mode off" (and
-in Chinese, "<project> 打开修 bug 模式" / "关闭修 bug 模式").
+Voice (hub.register_instant): "Eden, exterminator mode on <project>", "exterminator mode
+off" (and in Chinese, "<project> 打开灭虫模式" / "关闭灭虫模式"). Its old name still works
+("bug fix mode on <project>", "修 bug 模式"): the owner renamed Bug Fix Mode to Exterminator
+Mode on 2026-10-13, and a habit of saying the old one shouldn't stop it starting.
 Tool server: jarvis_code_bugfix (bug_fix_mode, bug_fix_status, stop_bug_fix_mode).
 Settings (prefs.features): code_bugfix_models {sweep, fix}: the models, when the owner
 picks them rather than the router.
@@ -217,50 +219,50 @@ RUNNERS = {"python": ("python", "python3", "uv run python", ".venv/bin/python"),
            "node": ("node",)}  # fmt: skip
 
 NOTE = (
-    "this is Bug Fix Mode, the owner's bug protocol: work only in this isolated copy, follow "
+    "this is Exterminator Mode, the owner's bug protocol: work only in this isolated copy, follow "
     "the step's instructions exactly, and end each step's reply with its ```bugfix block. "
     "Never push, publish, sign, upload or deploy: list those for the owner instead. Nobody "
     "answers questions: decide yourself, choosing the safest reasonable option"
 )
 
 ZH = {
-    "Bug Fix Mode": "修 bug 模式",
-    "Turn on Bug Fix Mode for {project}?": "要为 {project} 打开修 bug 模式吗？",
+    "Exterminator Mode": "灭虫模式",
+    "Turn on Exterminator Mode for {project}?": "要为 {project} 打开灭虫模式吗？",
     "{rounds} rounds of sweep → break → fix, with an efficiency pass between rounds that loses no feature (the suite stays green; no test, route or command is removed, or the pass is put back).": "{rounds} 轮“排查 → 破坏测试 → 修复”，每两轮之间做一次不丢任何功能的效率优化（测试保持全绿；不删除任何测试、路由或命令，否则这次优化整体撤回）。",
     "Sweep: {n} read-only audit agents at once ({lanes}) on {sweep}. Fixes on {fix}, each with a test that fails first.": "排查：{n} 个只读审查代理同时进行（{lanes}），用 {sweep}。修复用 {fix}，每个修复都带一个先失败、后通过的测试。",
     "Spending ceiling for the whole run: ${cap}. It stops there.": "整个运行的花费上限：${cap}。到了就停。",
     "In an isolated copy of {project}: nothing lands until you say so, with Touch ID. It never pushes, publishes, signs or uploads; those are listed for you.": "在 {project} 的独立副本里进行：在你用触控 ID 确认之前什么都不会合并。它不会推送、发布、签名或上传；这些会列给你。",
     "Stack: {stack}. Tests: {suites}.": "技术栈：{stack}。测试：{suites}。",
     "none found": "没找到",
-    "Start Bug Fix Mode": "开始修 bug 模式",
+    "Start Exterminator Mode": "开始灭虫模式",
     "Not now": "暂不",
     "Not started.": "没有开始。",
-    "Bug Fix Mode is on for {project}.": "已为 {project} 打开修 bug 模式。",
-    "Bug Fix Mode is already on for {project}.": "{project} 的修 bug 模式已经开着了。",
-    "Bug Fix Mode needs isolated copies, and they aren't available here.": "修 bug 模式需要独立副本，但这里用不了。",
-    "{project} isn't a git repository, so Bug Fix Mode can't have its isolated copy.": "{project} 不是 git 仓库，所以修 bug 模式没法有独立副本。",
+    "Exterminator Mode is on for {project}.": "已为 {project} 打开灭虫模式。",
+    "Exterminator Mode is already on for {project}.": "{project} 的灭虫模式已经开着了。",
+    "Exterminator Mode needs isolated copies, and they aren't available here.": "灭虫模式需要独立副本，但这里用不了。",
+    "{project} isn't a git repository, so Exterminator Mode can't have its isolated copy.": "{project} 不是 git 仓库，所以灭虫模式没法有独立副本。",
     "{project} has no commits yet, so there's nothing to copy.": "{project} 还没有提交，所以没有可以复制的内容。",
     "{project} is on a detached HEAD, so its copy would have no branch to land in.": "{project} 处于游离 HEAD，所以副本没有可以合并回去的分支。",
     "The spending ceiling is between $1 and ${most}.": "花费上限要在 $1 到 ${most} 之间。",
-    "Bug Fix Mode needs an isolated copy, and this one's couldn't be made: see the note above.": "修 bug 模式需要独立副本，但这次没能创建：见上面的说明。",
-    "Stopped Bug Fix Mode.": "已停下修 bug 模式。",
-    "Bug Fix Mode isn't running there.": "那里没有在运行修 bug 模式。",
+    "Exterminator Mode needs an isolated copy, and this one's couldn't be made: see the note above.": "灭虫模式需要独立副本，但这次没能创建：见上面的说明。",
+    "Stopped Exterminator Mode.": "已停下灭虫模式。",
+    "Exterminator Mode isn't running there.": "那里没有在运行灭虫模式。",
     "That run can't be resumed.": "那次运行没法继续。",
     "That run isn't there any more.": "那次运行已经不在了。",
     "Its isolated copy isn't there any more.": "它的独立副本已经不在了。",
-    "Resumed Bug Fix Mode.": "已继续修 bug 模式。",
-    "Land Bug Fix Mode's fixes in {into}?": "要把修 bug 模式的修复合并进 {into} 吗？",
+    "Resumed Exterminator Mode.": "已继续灭虫模式。",
+    "Land Exterminator Mode's fixes in {into}?": "要把灭虫模式的修复合并进 {into} 吗？",
     "Land the fixes": "合并修复",
     "Not landed.": "没有合并。",
-    "Bug Fix Mode in {project} is done: {facts}": "{project} 的修 bug 模式完成了：{facts}",
-    "Bug Fix Mode in {project} stopped: {why}.": "{project} 的修 bug 模式停下了：{why}。",
+    "Exterminator Mode in {project} is done: {facts}": "{project} 的灭虫模式完成了：{facts}",
+    "Exterminator Mode in {project} stopped: {why}.": "{project} 的灭虫模式停下了：{why}。",
     "the spending ceiling was reached": "达到了花费上限",
     "you stopped it": "你停下了它",
     "the app quit": "应用退出了",
     "Only a run that finished can land: resume it first.": "只有跑完的修复才能合入：请先继续运行它。",
     "it had no isolated copy": "它没有隔离副本",
     "a step failed": "有一步失败了",
-    "Not allowed in Bug Fix Mode ({why}). Don't try to get around it: carry on without it if you can, otherwise say what you'd need in your reply.": "修 bug 模式不允许这样做（{why}）。不要设法绕过：能不用就继续，否则在回复里说明需要什么。",
+    "Not allowed in Exterminator Mode ({why}). Don't try to get around it: carry on without it if you can, otherwise say what you'd need in your reply.": "灭虫模式不允许这样做（{why}）。不要设法绕过：能不用就继续，否则在回复里说明需要什么。",
     "Nobody's here to answer: decide yourself, choosing the safest reasonable option, and say what you chose.": "没人在这里回答：请自己决定，选最稳妥合理的做法，并说明你的选择。",
 }
 lang.add_texts(ZH)
@@ -754,9 +756,9 @@ def _test_like(path: str) -> bool:
 # ── git in the copy: snapshots that never move its branch ──
 
 _IDENTITY = {
-    "GIT_AUTHOR_NAME": "Eden Bug Fix Mode",
+    "GIT_AUTHOR_NAME": "Eden Exterminator Mode",
     "GIT_AUTHOR_EMAIL": "bugfix@eden.invalid",
-    "GIT_COMMITTER_NAME": "Eden Bug Fix Mode",
+    "GIT_COMMITTER_NAME": "Eden Exterminator Mode",
     "GIT_COMMITTER_EMAIL": "bugfix@eden.invalid",
 }
 
@@ -794,7 +796,7 @@ def changed_since(folder: Path, commit: str) -> list[str]:
     return [p for p in found.out.splitlines() if p.strip()] if found.ok else []
 
 
-# ── one hub's Bug Fix Mode ──
+# ── one hub's Exterminator Mode ──
 
 
 class BugFix:
@@ -828,7 +830,7 @@ class BugFix:
         try:
             data = jsonstore.load_json(self.path, dict) or {}
         except jsonstore.Unreadable as exc:  # (there, but not readable now: never saved over)
-            log.warning("Bug Fix Mode: %s can't be read (%s)", self.path.name, exc)
+            log.warning("Exterminator Mode: %s can't be read (%s)", self.path.name, exc)
             self.unreadable = True
             data = {}
         for raw in data.get("runs") or []:
@@ -910,7 +912,7 @@ class BugFix:
 
     def _where(self, project: str) -> tuple[Path, str] | str:
         if getattr(self.hub, "code_desk", None) is None:
-            return "Bug Fix Mode needs isolated copies, and they aren't available here."
+            return "Exterminator Mode needs isolated copies, and they aren't available here."
         try:
             folder = self.hub.tasks.resolve_dir(project)
         except (ValueError, OSError) as exc:
@@ -918,7 +920,9 @@ class BugFix:
         name = folder.name
         repo = code_changes.repo_of(folder)
         if repo is None:
-            return f"{name} isn't a git repository, so Bug Fix Mode can't have its isolated copy."
+            return (
+                f"{name} isn't a git repository, so Exterminator Mode can't have its isolated copy."
+            )
         if not code_changes.head_commit(repo.top):
             return f"{name} has no commits yet, so there's nothing to copy."
         if not code_changes.git(repo.top, "symbolic-ref", "-q", "HEAD").ok:
@@ -952,7 +956,7 @@ class BugFix:
             return self.tr(where)
         folder, name = where
         if name in self.asking or any(r.project == name for r in self.active.values()):
-            return self.say("Bug Fix Mode is already on for {project}.", project=name)
+            return self.say("Exterminator Mode is already on for {project}.", project=name)
         self.asking.add(name)  # (until it starts or doesn't: a second start meanwhile is refused)
         try:
             return await self._request(project, folder, name, cap, speak)
@@ -977,20 +981,20 @@ class BugFix:
         ]  # fmt: skip
         if why:
             detail.append(f"({why})")
-        question = self.say("Turn on Bug Fix Mode for {project}?", project=name)
+        question = self.say("Turn on Exterminator Mode for {project}?", project=name)
         if speak:
             self.hub._say(question)
         choice = await self.hub.request_approval(
             question,
             "\n".join(detail),
-            [("start", self.tr("Start Bug Fix Mode")), ("deny", self.tr("Not now"))],
+            [("start", self.tr("Start Exterminator Mode")), ("deny", self.tr("Not now"))],
         )
         if choice != "start":
             return self.tr("Not started.")
         found = self.start(project, name, cap, stack, sweep, fix, why)
         if isinstance(found, str):
             return self.tr(found)
-        return self.say("Bug Fix Mode is on for {project}.", project=name)
+        return self.say("Exterminator Mode is on for {project}.", project=name)
 
     def start(self, project: str, name: str, cap: float, stack: dict[str, Any], sweep: str,
               fix: str, why: str) -> BugRun | str:  # fmt: skip
@@ -1022,7 +1026,7 @@ class BugFix:
                 directory,
                 mode="edits",
                 resume=resume,
-                title=f"Bug Fix Mode: {run.project}",
+                title=f"Exterminator Mode: {run.project}",
                 model=cfg["model"] or "",
                 model_label=cfg["label"] if cfg["model"] else "",
                 model_ref=cfg["ref"],
@@ -1062,7 +1066,7 @@ class BugFix:
         self.save()
         self.drivers[run.id] = self.hub._spawn(self.drive(run, task, first=False))
         self.publish()
-        return self.tr("Resumed Bug Fix Mode.")
+        return self.tr("Resumed Exterminator Mode.")
 
     # ── the session's scope ──
 
@@ -1076,7 +1080,7 @@ class BugFix:
             if not task.workspace:
                 raise RuntimeError(
                     self.tr(
-                        "Bug Fix Mode needs an isolated copy, and this one's couldn't be made: see the note above."
+                        "Exterminator Mode needs an isolated copy, and this one's couldn't be made: see the note above."
                     )
                 )
             if not run.slug:  # the copy is the run's now: a quit before its first turn ends can resume
@@ -1146,7 +1150,7 @@ class BugFix:
             if key == "ui" and not run.stack.get("ui"):
                 continue
             out[f"bugfix-{key}"] = AgentDefinition(
-                description=f"Bug Fix Mode's read-only {name.lower()} auditor",
+                description=f"Exterminator Mode's read-only {name.lower()} auditor",
                 prompt=(
                     f"You audit this project for {name.lower()} bugs: {looks}. Read-only: "
                     "read, search and list files; never edit or run anything. Report only "
@@ -1177,12 +1181,12 @@ class BugFix:
                 )
             if tool_name == "ExitPlanMode":
                 return PermissionResultDeny(
-                    message="Bug Fix Mode has no plan to approve: carry on with the step."
+                    message="Exterminator Mode has no plan to approve: carry on with the step."
                 )
             why = self.refusal(run, task, tool_name, tool_input)
             if why is None:
                 self.hub.tasks._audit(
-                    task, tool_name, tool_input, "auto", "Bug Fix Mode: within its scope"
+                    task, tool_name, tool_input, "auto", "Exterminator Mode: within its scope"
                 )
                 return PermissionResultAllow()
             if why == "card":  # risky: the owner decides, on a card (Touch ID in the window)
@@ -1190,9 +1194,11 @@ class BugFix:
             run.denied = [*run.denied, tasks.describe_tool(tool_name, tool_input)[:160]][
                 -DENIED_KEPT:
             ]
-            self.hub.tasks._audit(task, tool_name, tool_input, "denied", f"Bug Fix Mode: {why}")
+            self.hub.tasks._audit(
+                task, tool_name, tool_input, "denied", f"Exterminator Mode: {why}"
+            )
             return PermissionResultDeny(message=self.say(
-                "Not allowed in Bug Fix Mode ({why}). Don't try to get around it: carry on without it if you can, otherwise say what you'd need in your reply.",
+                "Not allowed in Exterminator Mode ({why}). Don't try to get around it: carry on without it if you can, otherwise say what you'd need in your reply.",
                 why=why))  # fmt: skip
 
         return can_use_tool
@@ -1240,7 +1246,7 @@ class BugFix:
             return None  # its dev servers (code_verify): list, stop, logs
         if tool_name in tasks.EDIT_TOOLS:
             return "card"  # an edit outside the copy: the owner decides
-        return "that step isn't in Bug Fix Mode's scope"
+        return "that step isn't in Exterminator Mode's scope"
 
     @staticmethod
     def _in_scratch(task: Any, path: str) -> bool:
@@ -1380,7 +1386,7 @@ class BugFix:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            log.exception("Bug Fix Mode stopped with an error")
+            log.exception("Exterminator Mode stopped with an error")
             run.notes.append(f"Stopped with an error: {type(exc).__name__}: {exc}"[:300])
             await self.finish(run, task, "failed")
 
@@ -1417,7 +1423,7 @@ class BugFix:
         key = f"r{run.round}-fix"
         if key not in run.snaps:  # (a resumed fix step keeps the point it started from)
             run.snaps[key] = await asyncio.to_thread(
-                snapshot, folder, f"Bug Fix Mode: before round {run.round}'s fixes"
+                snapshot, folder, f"Exterminator Mode: before round {run.round}'s fixes"
             )
             self.save()
         todo = [f for f in run.findings if f.round == run.round and f.status == "open"]
@@ -1454,7 +1460,7 @@ class BugFix:
                 **await asyncio.to_thread(inventory, folder),
             }
             point = await asyncio.to_thread(
-                snapshot, folder, f"Bug Fix Mode: before round {run.round}'s efficiency pass"
+                snapshot, folder, f"Exterminator Mode: before round {run.round}'s efficiency pass"
             )
             run.snaps[f"{key}-eff"], run.eff_before[key] = point, before
             self.save()
@@ -1709,7 +1715,7 @@ class BugFix:
         try:
             await runner.start(folder, suite, target or {})
         except ValueError as exc:
-            log.info("Bug Fix Mode couldn't run %s: %s", suite.label, exc)
+            log.info("Exterminator Mode couldn't run %s: %s", suite.label, exc)
             return None
         if run is not None:
             self.suite_runs[run.id] = (runner, folder, done)
@@ -1884,9 +1890,9 @@ class BugFix:
     def step_prompt(self, run: BugRun, step: str, suite: dict[str, Any] | None = None,
                     findings: list[Finding] | None = None) -> str:  # fmt: skip
         head = (
-            f"Bug Fix Mode · round {run.round} of {ROUNDS} · {step.upper()}"
+            f"Exterminator Mode · round {run.round} of {ROUNDS} · {step.upper()}"
             if step != "ship"
-            else "Bug Fix Mode · SHIP"
+            else "Exterminator Mode · SHIP"
         )
         stack = run.stack.get("summary") or "unknown"
         lanes = [f"bugfix-{k}" for k in LANES if k != "ui" or run.stack.get("ui")]
@@ -1972,7 +1978,7 @@ class BugFix:
 
     def suite_red_prompt(self, run: BugRun, suite: dict[str, Any]) -> str:
         return (
-            f"Bug Fix Mode · round {run.round} of {ROUNDS} · FIX (the suite)\n\nThe suite isn't "
+            f"Exterminator Mode · round {run.round} of {ROUNDS} · FIX (the suite)\n\nThe suite isn't "
             f"green after the fixes ({suite.get('summary')}). Make it green without removing or "
             "weakening any test.\n\n"
             + (suite.get("fix_message") or "")
@@ -2011,7 +2017,7 @@ class BugFix:
     def _setup(self, run: BugRun, what: str) -> str:
         model = self.model_name(run.sweep_model)
         return (
-            f"Bug Fix Mode in Eden Code. {what} Isolated copy on `{run.branch or 'its branch'}` "
+            f"Exterminator Mode in Eden Code. {what} Isolated copy on `{run.branch or 'its branch'}` "
             f"of `{run.project}` (stack: {run.stack.get('summary') or 'unknown'}). Auditors on "
             f"{model}, fixes on {self.model_name(run.fix_model)}. Spent so far ${run.spent:.2f} of "
             f"the ${run.spend_cap:.2f} ceiling."
@@ -2168,7 +2174,7 @@ class BugFix:
         self.hub.tasks._log(
             task,
             "system",
-            receipt_text(receipt) + f" · Bug Fix Mode: {self.facts(run)}",
+            receipt_text(receipt) + f" · Exterminator Mode: {self.facts(run)}",
             receipt=receipt,
         )
         self.hub.tasks._changed_soon()
@@ -2196,7 +2202,7 @@ class BugFix:
         self.publish()
         if why == "finished":
             spoken = self.say(
-                "Bug Fix Mode in {project} is done: {facts}",
+                "Exterminator Mode in {project} is done: {facts}",
                 project=run.project,
                 facts=self.facts(run),
             )
@@ -2204,14 +2210,16 @@ class BugFix:
             words = {"spend": "the spending ceiling was reached", "owner": "you stopped it",
                      "restart": "the app quit", "copy": "it had no isolated copy"}.get(why, "a step failed")  # fmt: skip
             spoken = self.say(
-                "Bug Fix Mode in {project} stopped: {why}.", project=run.project, why=self.tr(words)
+                "Exterminator Mode in {project} stopped: {why}.",
+                project=run.project,
+                why=self.tr(words),
             )
         self.hub.tasks._log(task, "system", spoken)
         # The session is closed, as an unattended run's is: the owner's next message there
         # resumes it as an ordinary session (Resume resumes it as the run).
         self.hub.tasks.cancel(task.id)
-        self.hub.notify(Alert(f"code-bugfix:{run.id}", "task", self.tr("Bug Fix Mode"), spoken,
-                              note="Bug Fix Mode is over (Eden Code has its reports)"))  # fmt: skip
+        self.hub.notify(Alert(f"code-bugfix:{run.id}", "task", self.tr("Exterminator Mode"), spoken,
+                              note="Exterminator Mode is over (Eden Code has its reports)"))  # fmt: skip
         if why == "finished":
             await self.land(run.id)
 
@@ -2240,7 +2248,7 @@ class BugFix:
             *([f"{c['failing']} fix(es) still have a failing test."] if c.get("failing") else []),
             *(["The suite isn't green."] if last.get("status") == "failed" else []),
         ]).strip()  # fmt: skip
-        question = self.say("Land Bug Fix Mode's fixes in {into}?", into=copy.into)
+        question = self.say("Land Exterminator Mode's fixes in {into}?", into=copy.into)
         choice = await self.hub.request_approval(
             question,
             detail,
@@ -2281,8 +2289,8 @@ class BugFix:
                         await runner.stop(folder)
                 with contextlib.suppress(Exception):
                     await self.hub.tasks.interrupt(task_id)
-                return self.tr("Stopped Bug Fix Mode.")
-        return self.tr("Bug Fix Mode isn't running there.")
+                return self.tr("Stopped Exterminator Mode.")
+        return self.tr("Exterminator Mode isn't running there.")
 
     # ── window commands ──
 
@@ -2311,17 +2319,18 @@ class BugFix:
     # ── voice ──
 
     _ON = re.compile(
-        r"^(?:hey\s+)?(?:eden[,!.]?\s+)?(?:turn\s+on\s+|start\s+)?bug\s*-?\s*fix(?:ing)?\s+mode\s+(?:on|for|in)\s+(?:the\s+)?(?:project\s+)?(.+?)[.!?]*$",
+        r"^(?:hey\s+)?(?:eden[,!.]?\s+)?(?:turn\s+on\s+|start\s+)?(?:exterminator|bug\s*-?\s*fix(?:ing)?)\s+mode\s+(?:on|for|in)\s+(?:the\s+)?(?:project\s+)?(.+?)[.!?]*$",
         re.I,
     )
     _OFF = re.compile(
-        r"^(?:hey\s+)?(?:eden[,!.]?\s+)?(?:bug\s*-?\s*fix(?:ing)?\s+mode\s+off|(?:stop|turn\s+off)\s+bug\s*-?\s*fix(?:ing)?\s+mode)(?:\s+(?:on|for|in)\s+(.+?))?[.!?]*$",
+        r"^(?:hey\s+)?(?:eden[,!.]?\s+)?(?:(?:exterminator|bug\s*-?\s*fix(?:ing)?)\s+mode\s+off|(?:stop|turn\s+off)\s+(?:exterminator|bug\s*-?\s*fix(?:ing)?)\s+mode)(?:\s+(?:on|for|in)\s+(.+?))?[.!?]*$",
         re.I,
     )
     _ON_ZH = re.compile(
-        r"^(?:伊甸[，,]?\s*)?(?:给|为)?\s*(.+?)\s*(?:打开|开启)修\s*bug\s*模式[。！]?$", re.I
+        r"^(?:伊甸[，,]?\s*)?(?:给|为)?\s*(.+?)\s*(?:打开|开启)(?:灭虫|修\s*bug\s*)模式[。！]?$",
+        re.I,
     )
-    _OFF_ZH = re.compile(r"^(?:伊甸[，,]?\s*)?(?:关闭|停止)修\s*bug\s*模式[。！]?$", re.I)
+    _OFF_ZH = re.compile(r"^(?:伊甸[，,]?\s*)?(?:关闭|停止)(?:灭虫|修\s*bug\s*)模式[。！]?$", re.I)
 
     async def instant(self, text: str) -> str | None:
         words = " ".join(str(text or "").split())
@@ -2344,9 +2353,9 @@ class BugFix:
 
         @tool(
             "bug_fix_mode",
-            "Turn on Eden Code's Bug Fix Mode for a project (\"bug fix mode on X\"): the "
-            "owner's bug protocol, 3 rounds of sweep (read-only audit agents in parallel), "
-            "break (the suite, hostile inputs, the dev server) and fix (each with a test that "
+            "Turn on Eden Code's Exterminator Mode for a project (\"exterminator mode on X\", "
+            "or by its old name, \"bug fix mode on X\"): the owner's bug protocol, 3 rounds "
+            "of sweep (read-only audit agents in parallel), break (the suite, hostile inputs, the dev server) and fix (each with a test that "
             "fails first), an efficiency pass between rounds that loses no feature, then "
             "reports, a receipt and the ship step. In an isolated copy, within a spending "
             "ceiling (default 10 dollars); the user approves it on a card first and lands "
@@ -2363,7 +2372,7 @@ class BugFix:
 
         @tool(
             "bug_fix_status",
-            "Where each Bug Fix Mode run is: its round and step, findings, cost.",
+            "Where each Exterminator Mode run is: its round and step, findings, cost.",
             {},
         )
         async def bug_fix_status(_args):
@@ -2372,9 +2381,9 @@ class BugFix:
                 f"{r.project}: {r.state}, round {r.round} {r.step}, {desk.facts(r)}"
                 for r in reversed(desk.runs[-8:])
             ]
-            return text("\n".join(lines) or "No Bug Fix Mode runs yet.")
+            return text("\n".join(lines) or "No Exterminator Mode runs yet.")
 
-        @tool("stop_bug_fix_mode", "Stop Bug Fix Mode (in a project, or the one running).",
+        @tool("stop_bug_fix_mode", "Stop Exterminator Mode (in a project, or the one running).",
               {"type": "object", "properties": {"project": {"type": "string"}}})  # fmt: skip
         async def stop_bug_fix_mode(args):
             return text(await desk.stop(project=str(args.get("project") or "")))
@@ -2385,10 +2394,11 @@ class BugFix:
 
 
 PROMPT = (
-    "Eden Code has Bug Fix Mode: bug_fix_mode runs the owner's bug protocol on a project "
+    "Eden Code has Exterminator Mode: bug_fix_mode runs the owner's bug protocol on a project "
     "(3 rounds of sweep, break and fix, efficiency passes, reports, the ship step) in an "
     "isolated copy within a spending ceiling, after a card. Use it when the user asks for "
-    "bug fix mode, a bug sweep or their bug protocol on a project."
+    "exterminator mode (its old name: bug fix mode), a bug sweep or their bug protocol on a "
+    "project."
 )
 
 
@@ -2411,9 +2421,9 @@ def install(hub: Any) -> None:
         desk.build_server,
         prompt=PROMPT,
         labels={
-            "bug_fix_mode": "Turned on Bug Fix Mode",
-            "bug_fix_status": "Checked Bug Fix Mode",
-            "stop_bug_fix_mode": "Stopped Bug Fix Mode",
+            "bug_fix_mode": "Turned on Exterminator Mode",
+            "bug_fix_status": "Checked Exterminator Mode",
+            "stop_bug_fix_mode": "Stopped Exterminator Mode",
         },
         quiet=("bug_fix_mode",),
     )

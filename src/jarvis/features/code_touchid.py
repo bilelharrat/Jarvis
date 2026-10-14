@@ -142,7 +142,7 @@ def risky(approval: Any, choice: str) -> bool:
     a = approval if isinstance(approval, dict) else {}
     if a.get("tool") == BYPASS_BY_VOICE:
         return choice in ALLOWING
-    if a.get("touchid") is True:  # a card the backend marks itself (Bug Fix Mode's landing)
+    if a.get("touchid") is True:  # a card the backend marks itself (Exterminator Mode's landing)
         return choice in ALLOWING
     if not a.get("task_id") or choice not in ALLOWING:
         return False

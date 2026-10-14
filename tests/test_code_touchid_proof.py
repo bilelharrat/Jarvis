@@ -315,7 +315,7 @@ async def test_the_other_apps_window_asks_through_the_app_that_started_the_backe
 
 
 async def test_a_card_the_backend_marks_for_touch_id_needs_the_proof_too(gated):
-    """Bug Fix Mode's landing card: no task_id, touchid true (A2): the backend agrees with the
+    """Exterminator Mode's landing card: no task_id, touchid true (A2): the backend agrees with the
     window that it's risky."""
     hub, _task, _seen = gated
     land = {"id": "b1", "tool": "code_bugfix_land", "touchid": True, "tap_only": True}
@@ -323,7 +323,7 @@ async def test_a_card_the_backend_marks_for_touch_id_needs_the_proof_too(gated):
     assert not code_touchid.risky({**land, "touchid": "yes"}, "allow")
     hub.approvals["b1"] = {
         **land,
-        "question": "Land Bug Fix Mode’s fixes in main?",
+        "question": "Land Exterminator Mode’s fixes in main?",
         "choices": [{"id": "allow", "label": "Land"}, {"id": "deny", "label": "Not now"}],
     }
     hub._futures["b1"] = asyncio.get_running_loop().create_future()

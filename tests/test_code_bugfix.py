@@ -1,4 +1,4 @@
-"""Bug Fix Mode (features/code_bugfix.py): the owner's protocol, driven end to end. A temp
+"""Exterminator Mode (features/code_bugfix.py): the owner's protocol, driven end to end. A temp
 repository with planted bugs, a fake Claude Code that answers each step as a real session
 would (findings, some made up or misquoted; fixes with their tests; an efficiency pass that
 deletes a test), the real suite run by pytest, real git worktrees for the isolated copy and
@@ -102,7 +102,7 @@ def finding(file, line, quote, title, severity="high", lane="reliability"):
 
 
 class BugClient(FakeClient):
-    """A session answering Bug Fix Mode's steps. Each step's answer may also try steps
+    """A session answering Exterminator Mode's steps. Each step's answer may also try steps
     through the session's guard (seen: what it decided) and edit the copy's files."""
 
     instances: list = []
@@ -319,9 +319,9 @@ async def test_three_rounds_sweep_break_fix_efficiency_then_ship_receipt_and_lan
     desk = hub.code_bugfix
     hub.answers = ["start", "allow", "allow"]  # (the run, its .bugfix/ script's card, landing)
     said = await desk.request("calc")
-    assert said == "Bug Fix Mode is on for calc."
+    assert said == "Exterminator Mode is on for calc."
     [card] = hub.cards
-    assert card["question"] == "Turn on Bug Fix Mode for calc?"
+    assert card["question"] == "Turn on Exterminator Mode for calc?"
     assert "3 rounds of sweep → break → fix" in card["detail"]
     assert "3 read-only audit agents at once" in card["detail"]  # (no UI: no UI auditor)
     assert "Spending ceiling for the whole run: $10.00" in card["detail"]
@@ -388,7 +388,7 @@ async def test_three_rounds_sweep_break_fix_efficiency_then_ship_receipt_and_lan
 
     # Landing: a tap-only card with Touch ID, then the fixes are in main.
     land = hub.cards[-1]
-    assert land["question"] == "Land Bug Fix Mode's fixes in main?"
+    assert land["question"] == "Land Exterminator Mode's fixes in main?"
     assert land["touchid"] is True and land["tap_only"] is True
     assert "Yours to do: Publish it to PyPI" in land["detail"]
     assert await until(lambda: run.landed or run.notes)
@@ -410,8 +410,8 @@ async def test_three_rounds_sweep_break_fix_efficiency_then_ship_receipt_and_lan
     assert "| R2-3 | FIXED?, NOT PROVEN (its test passes without the fix) |" in fix2
     fix1 = (repo / "docs" / "bug-sweep" / f"{run.date}-r1-fix.md").read_text()
     assert "| R1-1 | FIXED, VERIFIED (its test failed first) |" in fix1
-    assert [a for a in hub.alerts if a.title == "Bug Fix Mode"][0].text.startswith(
-        "Bug Fix Mode in calc is done: 3 findings"
+    assert [a for a in hub.alerts if a.title == "Exterminator Mode"][0].text.startswith(
+        "Exterminator Mode in calc is done: 3 findings"
     )
     assert not [
         a for a in hub.alerts if a.key.startswith(f"code:{task.id}:")
@@ -424,14 +424,14 @@ async def test_the_spending_ceiling_stops_the_run(hub, projects, monkeypatch):
     desk = hub.code_bugfix
     BugClient.cost_each = 0.6
     hub.answers = ["start", "deny"]  # (the run; its .bugfix/ script's card, if it gets that far)
-    assert await desk.request("calc", 1) == "Bug Fix Mode is on for calc."
+    assert await desk.request("calc", 1) == "Exterminator Mode is on for calc."
     assert "Spending ceiling for the whole run: $1.00" in hub.cards[0]["detail"]
     [run] = desk.runs
     assert await until(lambda: run.state != "running")
     assert run.state == "stopped" and run.why == "spend" and run.round == 1 and run.step == "break"
     assert BugClient.instances[0].options.max_budget_usd <= 1.0
-    [alert] = [a for a in hub.alerts if a.title == "Bug Fix Mode"]
-    assert alert.text == "Bug Fix Mode in calc stopped: the spending ceiling was reached."
+    [alert] = [a for a in hub.alerts if a.title == "Exterminator Mode"]
+    assert alert.text == "Exterminator Mode in calc stopped: the spending ceiling was reached."
     assert await desk.request("calc", 500) == "The spending ceiling is between $1 and $50."
 
 
@@ -444,7 +444,7 @@ async def test_no_card_yes_means_nothing_starts_and_a_plain_folder_says_why(hub,
     (projects / "plain").mkdir()
     assert (
         await desk.request("plain")
-        == "plain isn't a git repository, so Bug Fix Mode can't have its isolated copy."
+        == "plain isn't a git repository, so Exterminator Mode can't have its isolated copy."
     )
 
 
@@ -474,15 +474,17 @@ async def test_stop_then_resume_after_a_restart_carries_on_from_its_step(
     # Resume: the same copy and conversation, from the break step.
     BugClient.hold = None
     hub.answers = ["allow", "deny"]  # (its .bugfix/ script's card; not landing, this time)
-    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await desk.resume(again.id) == "Resumed Exterminator Mode."
     assert await until(lambda: again.state != "running"), again.notes
     assert again.state == "done", again.notes
     newest = BugClient.instances[-1].options
     assert newest.resume == "bug-session" and newest.cwd == again.folder
     heads = [p.split("\n", 1)[0] for p in BugClient.prompts]
-    assert heads[2] == "Bug Fix Mode · round 1 of 1 · BREAK"  # (not the sweep again)
+    assert heads[2] == "Exterminator Mode · round 1 of 1 · BREAK"  # (not the sweep again)
     assert {f.id for f in again.findings} == {"R1-1", "R1-2"}
-    assert not again.landed and hub.cards[-1]["question"] == "Land Bug Fix Mode's fixes in main?"
+    assert (
+        not again.landed and hub.cards[-1]["question"] == "Land Exterminator Mode's fixes in main?"
+    )
     assert Path(again.folder).is_dir()  # not landed: the copy is kept, to land later
 
 
@@ -494,10 +496,10 @@ async def test_stop_ends_the_run_where_it_is(hub, projects):
     await desk.request("calc")
     [run] = desk.runs
     assert await until(lambda: len(BugClient.prompts) == 1)
-    assert await desk.stop(run.id) == "Stopped Bug Fix Mode."
+    assert await desk.stop(run.id) == "Stopped Exterminator Mode."
     assert await until(lambda: run.state == "stopped")
     assert run.why == "owner" and run.step == "sweep"
-    assert await desk.stop(run.id) == "Bug Fix Mode isn't running there."
+    assert await desk.stop(run.id) == "Exterminator Mode isn't running there."
     assert pane(hub)["runs"][0]["state"] == "stopped"
 
 
@@ -614,6 +616,11 @@ async def test_voice_turns_it_on_and_off(hub, monkeypatch):
     assert await desk.instant("bug fix mode off") == "stopped"
     assert await desk.instant("stop bug fix mode in alpha") == "stopped"
     assert await desk.instant("alpha 打开修bug模式") == "ok"
+    assert await desk.instant("Eden, exterminator mode on beta") == "ok"
+    assert await desk.instant("exterminator mode off") == "stopped"
+    assert await desk.instant("turn off exterminator mode in beta") == "stopped"
+    assert await desk.instant("给 beta 打开灭虫模式") == "ok"
+    assert await desk.instant("关闭灭虫模式") == "stopped"
     assert await desk.instant("what's the weather") is None
     assert asked == [
         ("alpha", True),
@@ -621,6 +628,11 @@ async def test_voice_turns_it_on_and_off(hub, monkeypatch):
         ("stop", ""),
         ("stop", "alpha"),
         ("alpha", True),
+        ("beta", True),
+        ("stop", ""),
+        ("stop", "beta"),
+        ("beta", True),
+        ("stop", ""),
     ]
 
 
@@ -638,7 +650,7 @@ async def test_a_run_that_cant_have_its_copy_never_starts_in_the_shared_folder(h
         await desk.prepare(inner)(task)
     task.workspace = {"slug": "s"}
     await desk.prepare(inner)(task)
-    assert "this is Bug Fix Mode" in desk.turn_note(None)(task)
+    assert "this is Exterminator Mode" in desk.turn_note(None)(task)
     del desk.active[9]
     assert desk.turn_note(lambda t: "x")(task) == "x"
 
@@ -710,7 +722,7 @@ async def test_an_efficiency_pass_stopped_before_its_check_is_put_back_and_never
     hub, projects, monkeypatch
 ):
     repo, desk, run, copy, checked = await _mid_efficiency(hub, projects, monkeypatch)
-    assert await desk.stop(run.id) == "Stopped Bug Fix Mode."
+    assert await desk.stop(run.id) == "Stopped Exterminator Mode."
     await asyncio.wait([desk.drivers[run.id]], timeout=10)
     assert run.state == "stopped"
     assert (copy / "calc.py").read_text() == checked
@@ -748,7 +760,7 @@ async def test_a_resumed_efficiency_pass_is_checked_against_the_point_it_started
     again = await _quit_and_reload(hub, desk, run)
     BugClient.hold = None
     hub.answers = ["deny"]
-    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await desk.resume(again.id) == "Resumed Exterminator Mode."
     assert await until(lambda: again.state != "running"), again.notes
     verdict = again.efficiency["r1"]
     assert verdict["kept"] is False and "tests" in verdict["lost"], verdict
@@ -782,7 +794,7 @@ async def test_what_a_step_spent_before_the_app_quit_counts_after_a_resume(
     assert again.spent == pytest.approx(1.6)  # the sweep's 0.1 and the break's 1.5
     BugClient.hold = None
     hub.answers = ["allow", "deny"]  # (its .bugfix/ script's card; not landing)
-    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await desk.resume(again.id) == "Resumed Exterminator Mode."
     assert await until(lambda: again.state != "running"), again.notes
     assert BugClient.instances[-1].options.max_budget_usd <= 0.4 + 1e-9
 
@@ -858,10 +870,10 @@ async def test_a_run_quit_in_its_ship_step_resumes_at_ship_not_the_last_round(
     asked = len(BugClient.prompts)
     BugClient.hold = None
     hub.answers = ["deny"]
-    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await desk.resume(again.id) == "Resumed Exterminator Mode."
     assert await until(lambda: again.state != "running"), again.notes
     heads = [p.split("\n", 1)[0] for p in BugClient.prompts[asked:]]
-    assert heads and set(heads) == {"Bug Fix Mode · SHIP"}, heads  # (no round again)
+    assert heads and set(heads) == {"Exterminator Mode · SHIP"}, heads  # (no round again)
     assert again.state == "done"
 
 
@@ -887,7 +899,7 @@ async def test_a_run_quit_in_its_first_sweep_knows_its_copy_and_can_resume(
     assert again.slug and again.folder and Path(again.folder).is_dir()
     BugClient.hold = None
     hub.answers = ["deny"]
-    assert await desk.resume(again.id) == "Resumed Bug Fix Mode."
+    assert await desk.resume(again.id) == "Resumed Exterminator Mode."
     assert await until(lambda: again.state != "running"), again.notes
     assert again.state == "done", again.notes
 
@@ -899,7 +911,10 @@ async def test_two_starts_on_one_project_at_once_start_one_run(hub, projects):
     BugClient.hold = "SWEEP"
     hub.answers = ["start", "start"]
     said = await asyncio.gather(desk.request("calc"), desk.request("calc"))
-    assert sorted(said) == ["Bug Fix Mode is already on for calc.", "Bug Fix Mode is on for calc."]
+    assert sorted(said) == [
+        "Exterminator Mode is already on for calc.",
+        "Exterminator Mode is on for calc.",
+    ]
     assert len(desk.runs) == 1 and len(hub.cards) == 1
 
 
@@ -914,7 +929,7 @@ async def test_stop_while_the_suite_runs_stops_it_now(hub, projects, monkeypatch
     await desk.request("calc")
     [run] = desk.runs
     assert await until(lambda: run.id in desk.suite_runs), (run.step, run.notes)
-    assert await desk.stop(run.id) == "Stopped Bug Fix Mode."
+    assert await desk.stop(run.id) == "Stopped Exterminator Mode."
     assert await until(lambda: run.state == "stopped", tries=500), run.step
     assert run.why == "owner" and run.step == "break"
     assert len(BugClient.prompts) == 1  # (the break step's turn never came)
@@ -948,7 +963,7 @@ async def test_stop_during_a_hung_suite_kills_it_and_resume_waits_for_the_stop(
         old = desk.drivers[run.id]
         assert old.done()
         BugClient.hold = "SWEEP"
-        assert await desk.resume(run.id) == "Resumed Bug Fix Mode."
+        assert await desk.resume(run.id) == "Resumed Exterminator Mode."
         assert await desk.resume(run.id) == "That run can't be resumed."  # (one driver only)
         await desk.stop(run.id)
     finally:

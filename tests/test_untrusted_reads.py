@@ -1,4 +1,4 @@
-"""B7: a run on anyone's words (an issue's, a Linear or Slack trigger's, Bug Fix Mode on
+"""B7: a run on anyone's words (an issue's, a Linear or Slack trigger's, Exterminator Mode on
 anyone's code) read what a private folder holds, and any file on the Mac a "read-only"
 command named: their guards let a step by on _goes_ahead without the private-folder rule
 policy_for has, and read-only Bash went ahead on any path. Fake sessions, temp folders."""
