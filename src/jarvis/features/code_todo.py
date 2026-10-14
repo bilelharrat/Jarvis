@@ -660,7 +660,9 @@ class _LockDown:
             options = inner(task)
             runs = getattr(self.todo.hub, "code_runs", None)
             if runs is not None and self.locked(task):
-                runs.lock_down(options, sandbox=True)
+                from .code_setup import relay_sockets  # (its container's relay: REL3-3)
+
+                runs.lock_down(options, sandbox=True, sockets=relay_sockets(self.todo.hub, task))
             return options
 
         return options_for

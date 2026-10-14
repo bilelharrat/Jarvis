@@ -660,3 +660,46 @@ async def test_a_running_setup_keeps_its_copy_from_landing_and_stops_before_a_di
     answer(hub, "discard")
     await hub.code_desk.discard(copy.slug)
     assert events == ["setup stopped", "discarded"]
+
+
+async def test_a_lockdown_s_sandbox_keeps_the_container_relay_with_the_owners_sandbox_off(
+    hub, projects, docker
+):
+    """REL3-3: the relay's socket went into the sandbox only when the owner's sandbox was
+    on (_Options), and Exterminator's sandbox and an untrusted run's lock-down replaced
+    the sandbox without it: every command of such a session in a container failed. Each
+    lockdown now asks code_setup for the session's relay and keeps it (and only it)."""
+    from types import SimpleNamespace
+
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    container_on(hub, image="node:22")
+    task = await isolated_session(hub)
+    await started(hub, task)
+    copy = copy_of(hub, task)
+    relay = hub.code_setup.relays[f"eden-{copy.slug}"]
+    before = task.client.options.sandbox
+    assert not (isinstance(before, dict) and before.get("enabled"))  # (Settings: sandbox off)
+
+    def allowed(options):
+        assert options.sandbox["enabled"] is True
+        return options.sandbox["network"].get("allowUnixSockets")
+
+    # a card from outside (code_todo's lock-down, by the session's own stamp)
+    task.untrusted = True
+    try:
+        assert allowed(hub.tasks.options_for(task)) == [relay.path]
+    finally:
+        task.untrusted = False
+    # an issue's unattended run
+    hub.code_runs.active[task.id] = SimpleNamespace(spend_cap=5.0, untrusted=True, sandbox=True)
+    try:
+        assert allowed(hub.tasks.options_for(task)) == [relay.path]
+    finally:
+        del hub.code_runs.active[task.id]
+    # Exterminator Mode's run
+    run = SimpleNamespace(spend_cap=5.0, spent=0.0, counted=0.0, sweep_model="haiku", stack={})
+    hub.code_bugfix.active[task.id] = run
+    try:
+        assert allowed(hub.tasks.options_for(task)) == [relay.path]
+    finally:
+        del hub.code_bugfix.active[task.id]
