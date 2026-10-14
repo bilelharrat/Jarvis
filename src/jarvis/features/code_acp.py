@@ -15,8 +15,9 @@ What it adds, and where:
 
 The agent runs as the owner, in the session's folder, with the owner's environment. JARVIS
 answers only the steps it asks about (by JARVIS's own policy: the mode, the owner's rules,
-a card); what it does without asking is up to its own settings. It gets no MCP servers or
-file access from JARVIS.
+a card); what it does without asking is up to its own settings. It gets no file access from
+JARVIS, and of the MCP servers only the stdio ones a feature adds for it (Eden's read-only
+code index: features/code_index.py, acp.mcp_servers_for).
 
 Cost policy (Claude): this feature never calls a Claude model. The agent's own model is its
 own, on the owner's account with its provider.
