@@ -63,6 +63,9 @@ OUTPUT_KEEP = 400  # lines of a setup's output kept for the pane
 TAIL_LINES = 30  # lines of it in the transcript
 EMIT_EVERY = 0.25  # seconds between batches of output to the windows
 TIDY_EVERY = 3600.0
+# Where a setup in a container keeps its shell's pid (the container's own /tmp), so running
+# out of time stops that setup's processes only, never the container's others (REL-15).
+SETUP_PIDFILE = "/tmp/.eden-setup.pid"
 
 
 def _images(value: Any) -> dict[str, str] | None:
@@ -353,6 +356,18 @@ class SetupDesk:
         )
         return info
 
+    async def before_copy_gone(self, slug: str) -> None:
+        """Desk.before_copy_gone: a setup still running in the copy stopped, and waited
+        for, before its files are snapshotted and taken away (on_copy_gone, after, was too
+        late: the half-written files went into the copy's last commit)."""
+        proc = self.running.get(slug)
+        if proc is None:
+            return
+        await proc.stop(grace=2.0)
+        info = self.containers().get(slug)
+        if info is not None:  # (stopping docker exec leaves the script running in there)
+            await self.stop_inside(str(info["name"]))
+
     def on_copy_gone(self, slug: str) -> None:
         self.output.pop(slug, None)
         proc = self.running.pop(slug, None)
@@ -546,7 +561,7 @@ class SetupDesk:
         env = await asyncio.to_thread(self.docker.env)
         env = {**env, "EDEN_MAIN_FOLDER": self.project_key(copy), "EDEN_COPY": str(copy.cwd)}
         if container is not None:
-            line = " ".join(
+            line = f"echo $$ > {_q(SETUP_PIDFILE)}; " + " ".join(
                 [
                     f"EDEN_MAIN_FOLDER={_q(self.project_key(copy))}",
                     f"EDEN_COPY={_q(str(copy.cwd))}",
@@ -597,18 +612,14 @@ class SetupDesk:
         return code
 
     async def stop_inside(self, name: str) -> None:
-        """Everything running in a copy's container stopped but the container itself: a
-        setup that ran out of time keeps going in there when only the docker exec on the
-        Mac is stopped. (A setup runs before its session's first step, or when it isn't
-        working, so nothing of the session's is running there then.)"""
+        """The setup's processes in a copy's container stopped: a setup that ran out of time
+        keeps going in there when only the docker exec on the Mac is stopped. Only its own:
+        the shell whose pid it wrote (SETUP_PIDFILE) and everything under it, found in
+        /proc before any is signalled (a child whose parent goes first moves to the
+        container's init); never `kill -1`, which took the dev servers and watchers the
+        owner had running in there too (REL-15)."""
         await self.docker.run(
-            [
-                "exec",
-                name,
-                "/bin/sh",
-                "-c",
-                "kill -TERM -1 2>/dev/null; sleep 2; kill -KILL -1 2>/dev/null; true",
-            ],
+            ["exec", name, "/bin/sh", "-c", stop_script(SETUP_PIDFILE)],
             timeout=devcontainer.CHECK_SECONDS,
         )
 
@@ -689,6 +700,19 @@ class SetupDesk:
         await self.cmd_state({"id": task.id})
 
 
+def stop_script(pidfile: str, proc: str = "/proc") -> str:
+    """The shell lines that stop the process in pidfile and every one under it."""
+    return (
+        'tree() { echo "$1"; for c in $(grep -l "^PPid:[[:space:]]*$1\\$" '
+        f"{proc}/[0-9]*/status 2>/dev/null | cut -d/ -f{proc.count('/') + 2}); "
+        'do tree "$c"; done; }; '
+        f"p=$(cat {_q(pidfile)} 2>/dev/null) || exit 0; "
+        '[ -n "$p" ] || exit 0; all=$(tree "$p"); '
+        "kill -TERM $all 2>/dev/null; sleep 2; kill -KILL $all 2>/dev/null; "
+        f"rm -f {_q(pidfile)}; true"
+    )
+
+
 def _q(text: str) -> str:
     import shlex
 
@@ -732,6 +756,14 @@ def install(hub: Any) -> None:
     if copies is not None:
         copies.on_new_copy.append(desk.on_new_copy)
         copies.on_copy_gone.append(desk.on_copy_gone)
+        # REL-8: a setup running in a copy (Run setup again, while its session is idle)
+        # holds it from the sweeper, keeps it from landing, and is stopped, and waited
+        # for, before a discard snapshots and removes the copy's files.
+        copies.holders.append(lambda: set(desk.running))
+        if hasattr(copies, "working"):
+            copies.working.append(lambda slug: slug in desk.running)
+        if hasattr(copies, "before_copy_gone"):
+            copies.before_copy_gone.append(desk.before_copy_gone)
     hub.tasks.option_hooks.append(_Options(desk))
 
     async def close_relays() -> None:  # (at quit: no relay's socket folder left behind)

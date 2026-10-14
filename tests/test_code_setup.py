@@ -15,7 +15,7 @@ import pytest
 from test_code_changes import git, make_repo
 from test_code_isolation import answer, copy_of, hub, isolated_session, projects, until
 
-from jarvis import container_run, devcontainer, tasks
+from jarvis import container_run, devcontainer, tasks, worktrees
 
 __all__ = ["hub", "projects"]  # (the fixtures, used by name)
 
@@ -53,9 +53,13 @@ class FakeDocker:
 
 
 @pytest.fixture
-def docker(hub, tmp_path):
+def docker(hub, tmp_path, monkeypatch):
+    from jarvis.features import code_setup
+
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
+    # (the "container" is the Mac here: its setup's pid file goes in the test's folder)
+    monkeypatch.setattr(code_setup, "SETUP_PIDFILE", str(tmp_path / "setup.pid"))
     fake = FakeDocker(home)
     hub.code_setup.docker = fake
     return fake
@@ -515,7 +519,7 @@ async def test_a_setup_out_of_time_is_stopped_inside_its_container_too(
     code = await hub.code_setup.run_setup(task, copy, found, {"name": "eden-s-1"})
     assert code is None
     [stop] = [c for c in docker.calls if c[:2] == ["exec", "eden-s-1"] and len(c) > 3]
-    assert "kill -TERM -1" in stop[-1]
+    assert code_setup.SETUP_PIDFILE in stop[-1] and "kill -TERM -1" not in stop[-1]
 
     stopped = []
 
@@ -561,3 +565,66 @@ async def test_what_runs_is_the_script_the_card_showed_and_never_while_it_works(
     monkeypatch.setattr(hub, "request_approval", busy_then_yes)
     await hub.code_setup.setup(task, copy, None, idle=True)
     assert not (folder / "ran.txt").exists()
+
+
+def test_running_out_of_time_stops_only_the_setup_s_own_processes(tmp_path):
+    """REL-15: a setup out of time ran `kill -TERM -1; kill -KILL -1` in the container,
+    taking every process in there (dev servers, watchers). Now only the shell whose pid it
+    wrote and everything under it, found before any is signalled. A fake /proc and kill."""
+    import subprocess
+
+    from jarvis.features.code_setup import stop_script
+
+    proc = tmp_path / "proc"
+    for pid, ppid in {1: 0, 10: 1, 11: 10, 12: 11, 13: 10, 20: 1, 21: 20}.items():
+        (proc / str(pid)).mkdir(parents=True)
+        (proc / str(pid) / "status").write_text(f"Name:\tsh\nPid:\t{pid}\nPPid:\t{ppid}\n")
+    pidfile = tmp_path / "setup.pid"
+    pidfile.write_text("10\n")
+    log = tmp_path / "killed"
+    fakes = f'kill() {{ echo "$@" >> {log}; }}; sleep() {{ :; }}; '
+    subprocess.run(["/bin/bash", "-c", fakes + stop_script(str(pidfile), str(proc))], check=True)
+    lines = log.read_text().splitlines()
+    assert [line.split()[0] for line in lines] == ["-TERM", "-KILL"]
+    for line in lines:
+        assert sorted(line.split()[1:], key=int) == ["10", "11", "12", "13"]  # not 1, 20, 21
+    assert not pidfile.exists()
+    pidfile.unlink(missing_ok=True)  # (no pid file: nothing to stop, nothing killed)
+    log.unlink()
+    subprocess.run(["/bin/bash", "-c", fakes + stop_script(str(pidfile), str(proc))], check=True)
+    assert not log.exists()
+
+
+async def test_a_running_setup_keeps_its_copy_from_landing_and_stops_before_a_discard(
+    hub, projects, docker, monkeypatch
+):
+    """REL-8: land and discard checked only the sessions' busy flag, so a setup run again
+    while the session was idle went on as the copy was committed (a half-written lockfile
+    landed) or snapshotted and removed; on_copy_gone stopped it only after that."""
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    task = await isolated_session(hub)
+    await started(hub, task)
+    copy = copy_of(hub, task)
+    events = []
+
+    class Running:
+        async def stop(self, grace=0):
+            events.append("setup stopped")
+            hub.code_setup.running.pop(copy.slug, None)
+
+    hub.code_setup.running[copy.slug] = Running()
+    assert copy.slug in hub.code_desk.live_slugs()  # (the sweeper leaves it)
+    task.busy = False
+    assert await hub.code_desk.land(copy.slug) == "It's still working. Stop it first, then land."
+    assert await hub.code_desk.land_now(copy) == "It's still working. Stop it first, then land."
+    assert hub.code_desk.store().find(copy.slug) is not None
+    real = worktrees.discard
+
+    def discard(*a, **k):
+        events.append("discarded")
+        return real(*a, **k)
+
+    monkeypatch.setattr(worktrees, "discard", discard)
+    answer(hub, "discard")
+    await hub.code_desk.discard(copy.slug)
+    assert events == ["setup stopped", "discarded"]
