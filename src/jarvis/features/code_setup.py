@@ -116,7 +116,9 @@ def _detail_setup(setup: Setup, where: str) -> str:
     return (
         f"From {setup.source}, run {where}:\n\n{shown}\n\n"
         "It runs as you. The setup is the repository's to write (a cloned one's authors', "
-        "or a session's): run it only if that's a script you trust. I ask again if it changes."
+        "or a session's): run it only if that's a script you trust. I ask again if it changes. "
+        "What runs is this text; a file it runs or sources in turn isn't on this card, and "
+        "runs as it is then."
     )
 
 
@@ -470,7 +472,11 @@ class SetupDesk:
 
     # ── setup ──
 
-    async def setup(self, task: Any, copy: Any, container: dict[str, Any] | None) -> None:
+    async def setup(
+        self, task: Any, copy: Any, container: dict[str, Any] | None, idle: bool = False
+    ) -> None:
+        """The setup, after its card. idle: the owner's Run setup again, which waits for no
+        session step: if the session started working while the card was up, it isn't run."""
         found, problem = await asyncio.to_thread(devcontainer.read_setup, copy.cwd)
         if problem:
             self.note(task, problem)
@@ -491,6 +497,12 @@ class SetupDesk:
                 "Setup was skipped: nobody said yes to it in time."
                 if said == "late"
                 else "Setup was skipped.",
+            )
+            return
+        if idle and (task.busy or copy.slug in self.running):
+            self.hub.emit(
+                "caption",
+                text=self.tr("It's still working. Wait for it to finish, then run the setup."),
             )
             return
         await self.run_setup(task, copy, found, container)
@@ -663,7 +675,7 @@ class SetupDesk:
                 text=self.tr(problem or "There's no setup in this project: add .jarvis/setup.sh."),
             )
             return
-        await self.setup(task, copy, self.container_of(task))
+        await self.setup(task, copy, self.container_of(task), idle=True)
         await self.cmd_state({"id": task.id})
 
 

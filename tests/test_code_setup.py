@@ -146,6 +146,8 @@ def test_reading_the_setup(tmp_path):
     found, _ = devcontainer.read_setup(tmp_path)  # the script wins over the entry
     assert found.source == ".jarvis/setup.sh" and found.command() == [
         "/bin/bash",
+        "-c",
+        "make\n",
         ".jarvis/setup.sh",
     ]
     other = devcontainer.Setup(".jarvis/setup.sh", "make all\n")
@@ -472,3 +474,37 @@ async def test_a_setup_out_of_time_is_stopped_inside_its_container_too(
     hub.code_setup.on_copy_gone("s-2")
     await asyncio.sleep(0.05)
     assert stopped and "s-2" not in hub.code_setup.running
+
+
+async def test_what_runs_is_the_script_the_card_showed_and_never_while_it_works(
+    hub, projects, docker, monkeypatch, tmp_path
+):
+    """B4: the card approved setup.sh's text, then the file was run from disk: changed while
+    the card waited (from inside a container, say), the new one ran. And Run setup again
+    checked the session wasn't working only before its card."""
+    from types import SimpleNamespace
+
+    folder = tmp_path / "copy"
+    (folder / ".jarvis").mkdir(parents=True)
+    script = folder / ".jarvis" / "setup.sh"
+    script.write_text("echo approved > ran.txt\n")
+    task = tasks.ClaudeTask(id=51, prompt="x", cwd=folder)
+    copy = SimpleNamespace(slug="b4", cwd=folder, repo=str(folder), prefix="", project="p")
+
+    async def swap_then_yes(*_a, **_k):
+        script.write_text("echo swapped > ran.txt\n")
+        return "yes"
+
+    monkeypatch.setattr(hub, "request_approval", swap_then_yes)
+    await hub.code_setup.setup(task, copy, None)
+    assert (folder / "ran.txt").read_text() == "approved\n"
+
+    async def busy_then_yes(*_a, **_k):
+        task.busy = True
+        return "yes"
+
+    (folder / "ran.txt").unlink()
+    script.write_text("echo again > ran.txt\n")
+    monkeypatch.setattr(hub, "request_approval", busy_then_yes)
+    await hub.code_setup.setup(task, copy, None, idle=True)
+    assert not (folder / "ran.txt").exists()

@@ -72,9 +72,11 @@ class Setup:
         return hashlib.sha256(f"{self.source}\0{self.text}".encode()).hexdigest()[:24]
 
     def command(self) -> list[str]:
-        """What runs, in the copy's folder: the script file itself, or the entry's lines."""
+        """What runs, in the copy's folder: the text the card showed, never the file read
+        again (it can change in the two minutes the card waits, from inside a container
+        too): setup.sh's with bash ($0 still names the file), or the entry's lines."""
         if self.source == SETUP_FILE:
-            return ["/bin/bash", SETUP_FILE]
+            return ["/bin/bash", "-c", self.text, SETUP_FILE]
         return ["/bin/sh", "-c", self.text]
 
 
