@@ -16,6 +16,7 @@
   const F = window.jarvisFeatures;
   if (!F) return;
   const { el, $ } = F;
+  const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
   const sheet = $('settings');
   if (!sheet || $('settings-nav')) return;
 
@@ -66,13 +67,17 @@
   ].filter(([id], i, all) => !EDEN || (id ? EDEN_PANES.has(id) : all.slice(0, i).reverse().find(([p]) => p === '' || EDEN_PANES.has(p))?.[0]));
   const LABEL = Object.fromEntries(PANES.filter(([id]) => id).map(([id, label]) => [id, label]));
   // The features' sections, by id or by class (a section without either goes to General).
+  // "Eden Secretary in other apps" (features/jarvis-mcp.js) lends other apps Eden Secretary's
+  // second brain, memory and calendar: Eden Secretary's own, so in Eden Code's window it goes
+  // with Memory & Knowledge, a pane that window doesn't show (round 3, U3-6).
+  const MCP_PANE = EDEN ? 'memory' : 'code';
   const BY_ID = {
     'voice-speaking': 'voice', 'voice-listening': 'voice', 'convo-group': 'general', 'updates-group': 'general',
     'agents-group': 'ai', 'skills-group': 'ai', 'pictures-group': 'ai',
     'travel-group': 'briefing', 'oura-group': 'briefing',
     'meetings-group': 'calls', 'channels-group': 'calls',
     'auto-timers': 'automation', 'auto-checkins': 'automation', 'auto-email': 'automation', 'auto-webhooks': 'automation', 'auto-scripts': 'automation',
-    'cv-settings': 'code', 'mcp-group': 'code',
+    'cv-settings': 'code', 'mcp-group': MCP_PANE,
     'bai-settings': 'browser', 'bp-group': 'browser',
     'invoicing-group': 'money', 'orders-group': 'money',
     'ops-group': 'safety',
@@ -80,7 +85,7 @@
   };
   const BY_CLASS = [
     ['agents-group', 'ai'], ['skills-group', 'ai'], ['pictures-group', 'ai'], ['oura-group', 'briefing'],
-    ['channels-group', 'calls'], ['auto-group', 'automation'], ['mcp-group', 'code'], ['bp-group', 'browser'],
+    ['channels-group', 'calls'], ['auto-group', 'automation'], ['mcp-group', MCP_PANE], ['bp-group', 'browser'],
     ['wa-group', 'accounts'], ['conn-activity', 'accounts'], ['invoicing-group', 'money'], ['orders-group', 'money'], ['updates-group', 'general'], ['convo-group', 'general'],
   ];
   const STORE = 'jarvis.settings.pane';
@@ -131,7 +136,7 @@
   account.id = 'sn-account';
   account.hidden = true;  // until the Eden Secretary account's section is there
   const accountText = el('span', 'sn-account-text');
-  accountText.append(el('strong', '', 'Eden Secretary Account'), el('small', '', 'Sign in, Plus and sync'));
+  accountText.append(el('strong', '', own('Eden Secretary Account', 'Eden Account')), el('small', '', 'Sign in, Plus and sync'));
   account.append(tile('person', 'blue'), accountText, el('span', 'sn-chev', '›'));
   account.addEventListener('click', () => {
     const g = $('account-group');

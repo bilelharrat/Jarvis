@@ -51,3 +51,28 @@ test('the starter, the setting and its note are in Chinese', () => {
   const title = readFileSync(new URL('index.html', web), 'utf8').match(/id="jc-starter-exterminate" title="([^"]+)"/)[1];
   assert.ok(zh[title], title);
 });
+
+// Round 3, U3-11: in a stand-in window, Exterminate bugs with no project picked says so; with
+// one it sends the start, and says nothing.
+test('Exterminate bugs with no project says to pick one first', async () => {
+  const { elFor, load, makeDocument } = await import('./fixtures/stand-dom.mjs');
+  const document = makeDocument();
+  const starter = document.createElement('button');
+  starter.id = 'jc-starter-exterminate';
+  document.body.append(starter);
+  const sent = [];
+  const notes = [];
+  const F = {
+    el: elFor(document), t: (s) => s, send: (m) => { sent.push(m); return true; },
+    on() {}, registerSessionOption() {}, registerSendOption() {}, currentTask: () => null,
+  };
+  const scope = { window: { jarvisFeatures: F }, document, deckProject: '', jcNote: (text) => notes.push(text), Event: class {} };
+  load(readFileSync(new URL('features/code-exterminate.js', web), 'utf8'), scope);
+  starter.click();
+  assert.deepEqual(sent, []);
+  assert.deepEqual(notes, ['Pick a project first.']);
+  scope.deckProject = 'calc';
+  starter.click();
+  assert.deepEqual(sent, [{ type: 'code_bugfix_start', project: 'calc' }]);
+  assert.equal(notes.length, 1);
+});

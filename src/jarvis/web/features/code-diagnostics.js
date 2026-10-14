@@ -48,7 +48,15 @@
     return mask(lines.join('\n'));
   }
 
-  const api = { isError, mask, details };
+  // The folder a file was saved in, as the owner finds it (their home as ~): the file's own
+  // path from the backend, not a folder named here (round 3, U3-7: this said "Documents › Eden
+  // Secretary › Diagnostics", and the file is in ~/Documents/Jarvis/Diagnostics,
+  // ops/diagnostics.py). A path is data: shown as it is, never translated.
+  function folderOf(path) {
+    return String(path || '').replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~').replace(/\/[^/]*$/, '') || '~';
+  }
+
+  const api = { isError, mask, details, folderOf };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -120,7 +128,9 @@
       if (!status) continue;
       status.replaceChildren();
       if (ev.ok) {
-        status.append(F.el('span', '', 'Saved in Documents › Eden Secretary › Diagnostics.'));
+        const where = F.el('code', 'cd-where', folderOf(ev.path));
+        where.setAttribute('data-no-i18n', '');
+        status.append(F.el('span', '', 'Saved in'), document.createTextNode(' '), where);
         const show = button('Show in Finder', '', () => F.send({ type: 'ops_reveal', path: ev.path }));
         status.append(document.createTextNode(' '), show);
         if (free) show.focus();

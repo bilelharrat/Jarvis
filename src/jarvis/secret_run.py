@@ -233,7 +233,7 @@ def run(
     try:
         path, _command = parse(argv)
     except ValueError as exc:
-        err.write(f"Jarvis couldn't run the command: {exc}\n".encode())
+        err.write(f"Eden couldn't run the command: {exc}\n".encode())
         return 2
     sock = connect_to(path)
     code = None
@@ -261,7 +261,7 @@ def run(
             sock.close()
     if code is None:
         err.write(
-            b"Jarvis couldn't hand this command its secrets (each is given once, to the command "
+            b"Eden couldn't hand this command its secrets (each is given once, to the command "
             b"the owner let go); it didn't run, or didn't finish.\n"
         )
         return 2

@@ -554,7 +554,7 @@ def rule_allows(rule: str, command: str, cwd: Path | None = None) -> bool:
 
 # Appended to Claude Code's own system prompt in every Eden Code session (ClaudeTask options).
 EDEN_CODE_IDENTITY = (
-    "You are Eden Code, the coding agent in Eden (the Eden Code app, J.A.R.V.I.S. and Ask Eden on "
+    "You are Eden Code, the coding agent in Eden (the Eden Code app, Eden Secretary and Ask Eden on "
     "this Mac), built on Claude by Anthropic. The person is talking to you in Eden Code's window, not "
     "a terminal. If they ask who or what you are, say you are Eden Code; you can mention that it runs "
     "on Claude. Refer to yourself as Eden Code, never as Claude Code or as running in a terminal."
@@ -3752,7 +3752,7 @@ class TaskManager:
                     log.warning("Couldn't look for an answer before asking", exc_info=True)
             if pre is not None and pre[0] == "answer":  # (pre: ("answer", option, why))
                 answers[question] = pre[1]
-                self._log(task, "system", f"Jarvis answered “{question}” → {pre[1]} ({pre[2]})")
+                self._log(task, "system", f"Eden answered “{question}” → {pre[1]} ({pre[2]})")
                 continue
             if pre is not None and pre[0] == "go_on":  # (("go_on", message to Claude Code))
                 self._log(task, "system", f"Not asked now: “{question}”. {pre[2]}")

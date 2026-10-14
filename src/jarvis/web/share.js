@@ -59,7 +59,8 @@
     return `ends in ${Math.round(s / 3600)} h`;
   }
 
-  const api = { viewerId, stateUrl, leftText, placeEntries, ROLE_NAMES, KEPT };
+  const STOPPED = 'The owner stopped your view of this share.';
+  const api = { viewerId, stateUrl, leftText, placeEntries, ROLE_NAMES, KEPT, STOPPED };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const doc = root.document;
@@ -113,8 +114,11 @@
     }
   }
 
-  function ended() {
+  // A 403 is the owner's Stop on this viewer, not the share's end: said so (round 3, U3-12),
+  // as the Mac's own answer words it (code_share's stopped()).
+  function ended(why) {
     clearTimeout(timer);
+    if (why) $('ended').textContent = why;
     $('ended').hidden = false;
     $('status').textContent = 'ended';
     $('suggest').hidden = true;
@@ -124,7 +128,8 @@
     let data;
     try {
       const reply = await fetch(stateUrl(root.location.pathname, viewer, since, key, seen), { cache: 'no-store', credentials: 'omit' });
-      if (reply.status === 404 || reply.status === 403) { ended(); return; }  // (403: the owner stopped this view)
+      if (reply.status === 403) { ended(STOPPED); return; }  // (the owner stopped this view)
+      if (reply.status === 404) { ended(); return; }
       if (!reply.ok) { timer = setTimeout(poll, POLL_MS * 2); return; }
       data = await reply.json();
     } catch (_) {

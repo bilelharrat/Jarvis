@@ -381,7 +381,7 @@
         const s = document.createElement('script');
         s.src = BUNDLE;
         s.onload = () => (root.ModelRouterLib ? resolve(root.ModelRouterLib) : reject(new Error('Model Router didn’t load.')));
-        s.onerror = () => reject(new Error('Model Router isn’t installed: run `npm run jarvis` in the Model Router folder.'));
+        s.onerror = () => reject(new Error('Model Router isn’t installed in this copy of Eden.'))  // (a build without features/vendor/model-router.js: `npm run jarvis` in the Model Router folder makes it);
         document.head.append(s);
       }).then((l) => (lib = l), (err) => { loading = null; libError = err; jcNote(err.message); throw err; });
     }
@@ -423,7 +423,7 @@
       });
       let body;
       try { body = JSON.parse(init.body); } catch { body = null; }
-      if (!F.send({ type: 'model_router_classify', rid, model: m[1], body })) { classifying.delete(rid); reject(new Error('Eden Secretary isn’t connected.')); }
+      if (!F.send({ type: 'model_router_classify', rid, model: m[1], body })) { classifying.delete(rid); reject(new Error('Eden isn’t connected.')); }
     });
   }
   F.on('model_router_classified', (ev) => {
@@ -487,9 +487,9 @@
   function call(op, args = {}, ms = 15000) {
     return new Promise((resolve, reject) => {
       const rid = `mc${++seq}`;
-      const timer = setTimeout(() => { calls.delete(rid); reject(new Error('Eden Secretary didn’t answer.')); }, ms);
+      const timer = setTimeout(() => { calls.delete(rid); reject(new Error('Eden didn’t answer.')); }, ms);
       calls.set(rid, (ev) => { clearTimeout(timer); if (ev.ok) resolve(ev.data); else reject(new Error(ev.error || 'That didn’t work.')); });
-      if (!F.send({ type: 'model_router_call', rid, op, ...args })) { clearTimeout(timer); calls.delete(rid); reject(new Error('Eden Secretary isn’t connected.')); }
+      if (!F.send({ type: 'model_router_call', rid, op, ...args })) { clearTimeout(timer); calls.delete(rid); reject(new Error('Eden isn’t connected.')); }
     });
   }
 
@@ -666,7 +666,7 @@
     if (on) {
       libError = null;
       loadLib().then(() => {
-        if (!currentRouter().ids.length) jcNote(F.t('Model Router knows none of your models yet. Add some in Settings › Models.'));
+        if (!currentRouter().ids.length) jcNote(F.t('Model Router knows none of your models yet. Add some in Settings › Models & API keys.'));
       }).catch(() => {});  // (loadLib said why)
     }
     renderComposer();

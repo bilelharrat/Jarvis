@@ -5,6 +5,7 @@
 (() => {
   const F = window.jarvisFeatures;
   if (!F) return;
+  const own = F.own || ((secretary) => secretary);  // the app's own words (app.js, jarvisFeatures.own)
   const { el, send, t } = F;
   const state = {
     features: {},
@@ -122,7 +123,7 @@
     const parts = [
       row('Fix failing checks by themselves', 'New pull requests send their failing checks’ logs to the session, at most 3 times. Each has its own switch in its pane.',
         sw('Fix failing checks by themselves', autofix, (on) => send({ type: 'feature_prefs', changes: { code_pr_autofix: on } }))),
-      row('Issues for Eden Secretary', 'An issue labelled for Eden Secretary in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.'),
+      row(own('Issues for Eden Secretary', 'Issues for Eden Code'), own('An issue labelled for Eden Secretary in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.', 'An issue labelled for Eden Code in one of these repositories starts a session without you. Its text is only data, and its pull request waits for your OK.')),
     ];
     group.replaceChildren(...parts);
     if (!state.connected) {

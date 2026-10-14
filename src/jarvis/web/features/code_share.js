@@ -33,6 +33,14 @@
     return `Suggestion from ${comment.name || 'a viewer'}: ${comment.text}`;
   }
 
+  // Who a viewer is, without how long, for its Stop button's name: the name its suggestions
+  // carry and its address, both the viewer's own words (data, no English of the window's).
+  // With the minutes in the name (round 3, U3-4) it changed every minute, so a redraw lost
+  // the button the keys were on.
+  function watcherWho(w) {
+    return [w.name, w.address].filter(Boolean).join(', ') || '?';
+  }
+
   // One viewer, in words, for the owner (w: code_share's watchers(); now: seconds since 1970).
   function watcherText(w, now) {
     const who = w.name ? `${w.name} at ${w.address || 'an unknown address'}` : `A viewer at ${w.address || 'an unknown address'}`;
@@ -40,7 +48,7 @@
     return minutes < 1 ? `${who}, just now` : `${who}, for ${minutes} min`;
   }
 
-  const api = { watchingText, endsText, composerText, watcherText, MINUTES };
+  const api = { watchingText, endsText, composerText, watcherWho, watcherText, MINUTES };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -60,6 +68,9 @@
     b.addEventListener('click', (e) => { e.preventDefault(); run(b); });
     return b;
   }
+  // A control that ends or starts something (Stop, Revoke, Share): never the keyboard's
+  // stand-in for a gone one (code-focus.js).
+  const spender = (b) => { b.dataset.spends = ''; return b; };
 
   function shareCard(share) {
     const card = el('section', 'jcx-share');
@@ -83,7 +94,7 @@
       button('Copy link', 'jc-btn small filled', async (b) => {
         try { await navigator.clipboard.writeText(share.url); b.textContent = t('Copied'); } catch (_) { link.select(); }
       }),
-      button('Revoke', 'jc-btn small', () => send({ type: 'code_share_revoke', share: share.share }), 'The link stops working at once, for everyone'),
+      spender(button('Revoke', 'jc-btn small', () => send({ type: 'code_share_revoke', share: share.share }), 'The link stops working at once, for everyone')),
     );
     card.append(actions);
     if (share.fingerprint) {
@@ -95,17 +106,21 @@
   }
 
   // Who is watching, each with Stop (that viewer, and its address, can't watch this share again).
+  // Each viewer's row is its own card for the keyboard (code-focus.js, data-focus by the
+  // viewer's id), and Stop spends: after Stop on one viewer the focus went to the next one's
+  // Stop, and a second Space blocked their address too (round 3, U3-4).
   function watcherList(share) {
     const list = el('ul', 'jcx-share-watchers');
     list.setAttribute('aria-label', 'Watching now');
     const now = Date.now() / 1000;
     for (const w of share.watchers) {
       const li = el('li');
+      li.dataset.focus = `viewer:${share.share}:${w.viewer}`;
       const words = mine(el('span', '', ''));
       words.textContent = t(watcherText(w, now));  // (an address and a name the viewer gave: data)
-      const stop = button('Stop', 'jc-btn small', () => send({ type: 'code_share_kick', share: share.share, viewer: w.viewer }),
-        'They can’t watch this link again from that device; everyone else goes on');
-      stop.setAttribute('aria-label', `${t('Stop')}: ${words.textContent}`);
+      const stop = spender(button('Stop', 'jc-btn small', () => send({ type: 'code_share_kick', share: share.share, viewer: w.viewer }),
+        'They, and anyone else at their network address, can’t watch this link again'));
+      stop.setAttribute('aria-label', `${t('Stop')}: ${watcherWho(w)}`);
       li.append(words, stop);
       list.append(li);
     }
@@ -132,6 +147,7 @@
     body = target;
     const wrap = el('div', 'jcx-sharepane');
     const task = F.currentTask();
+    state.drawnFor = task ? task.id : 0;
     if (!task) {
       wrap.append(el('p', 'jc-empty', 'Open a session to share it.'));
       keepFocus(target, () => target.replaceChildren(wrap));
@@ -168,10 +184,10 @@
       on.append(box, el('span', '', 'Suggestions on for this share'));
       form.append(on);
     }
-    form.append(button(mineShares.length ? 'Share another link' : 'Share live', 'jc-btn filled jcx-share-start', () => {
+    form.append(spender(button(mineShares.length ? 'Share another link' : 'Share live', 'jc-btn filled jcx-share-start', () => {
       state.error = '';
       send({ type: 'code_share_start', id: task.id, minutes: state.minutes, comments: state.allowed && state.comments });
-    }));
+    })));
     form.append(el('p', 'jc-dim jcx-share-note', 'The link works on this Mac’s network while the phone companion is on, until it ends or you revoke it. Shares end when Eden quits.'));
     wrap.append(form);
     keepFocus(target, () => target.replaceChildren(wrap));
@@ -196,5 +212,7 @@
   const prefs = (p) => { if (p && p.features) { state.features = p.features; state.allowed = p.features[PREF] === true; render(); } };
   F.on('hello', (ev) => prefs(ev.prefs), { replay: true });
   F.on('prefs', (ev) => prefs(ev));
-  F.on('tasks', () => render());
+  // The task list comes several times a second while a session works; the pane shows only
+  // which session is open, so it's drawn again only when that changes (round 3, U3-4).
+  F.on('tasks', () => { const task = F.currentTask(); if ((task ? task.id : 0) !== state.drawnFor) render(); });
 })(typeof window === 'object' ? window : globalThis);

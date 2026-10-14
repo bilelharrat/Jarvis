@@ -149,3 +149,23 @@ test('Pairing: Keep mine and Keep Eden’s say which file', () => {
   assert.deepEqual(keeps, ['Keep mine: src/a.py', 'Keep Eden’s: src/a.py', 'Keep mine: b.py', 'Keep Eden’s: b.py']);
   assert.ok(w.body.querySelectorAll('.jcx-pair-keep').every((s) => !s.hasAttribute('aria-label')));
 });
+
+// Round 3, U3-3: Keep mine overwrites at once and takes its row away. The focus then went to
+// the next row's Keep mine (same words, the nth alike), so a second Space overwrote that file
+// too. Each row is its own card now, and a Keep button is never the stand-in for a gone one.
+test('Pairing: after Keep mine on one file the focus never lands on another file’s Keep button', () => {
+  const w = stand(['code-focus.js', 'code-pairing.js']);
+  w.open('pairing');
+  const ev = { id: 7, copy: true, on: true, folder: '/x', conflicts: ['a.txt', 'b.txt'], held: [] };
+  w.fire('code_pair', ev);
+  const mine = [...w.body.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Keep mine: a.txt');
+  assert.ok(mine, 'a Keep mine for a.txt');
+  mine.focus();
+  mine.click();
+  assert.deepEqual(w.sent.at(-1), { type: 'code_pair_keep', id: 7, path: 'a.txt', side: 'mine' });
+  w.fire('code_pair', { ...ev, conflicts: ['b.txt'] });
+  const now = w.document.activeElement;
+  assert.ok(now && w.body.contains(now), 'the focus stayed in the pane');
+  assert.ok(!/^Keep /.test(now.getAttribute('aria-label') || now.textContent), `focus on ${now.getAttribute('aria-label') || now.textContent}`);
+  for (const b of w.body.querySelectorAll('.jcx-pair-keep button')) assert.ok('spends' in b.dataset, 'Keep spends');
+});

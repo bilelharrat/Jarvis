@@ -438,7 +438,7 @@ class CodeSessions:
         held = record["hold_until"] > 0 and not ended and waiting is not None
         if record["was_working"] and not ended and not held:
             notes.append(
-                "JARVIS restarted while this session was working. Send a message to carry on."
+                "Eden restarted while this session was working. Send a message to carry on."
             )
         elif not ended and not held:
             notes.append(
@@ -1140,7 +1140,7 @@ class CodeSessions:
                 # Claude Code wouldn't keep it (a workspace it doesn't trust, hooks off): Jarvis does.
                 goal.update(
                     native=False,
-                    note="Eden Code couldn't keep this goal itself here, so JARVIS checks it.",
+                    note="Eden Code couldn't keep this goal itself here, so Eden checks it.",
                 )
                 self.tm.send(task.id, goal["text"])
             else:  # its check let the turn end only once the goal held

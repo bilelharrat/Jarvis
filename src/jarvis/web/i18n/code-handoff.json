@@ -29,7 +29,10 @@
     "billed there, outside JARVIS’s limits": "费用记在那里，不受 Eden Secretary 上限约束",
     "billed there, outside J.A.R.V.I.S.’s limits": "费用记在那里，不受 Eden Secretary 上限约束",
     "Ended": "已结束",
-    "Bring it back": "带回来"
+    "Bring it back": "带回来",
+    "Continue a session on another machine you control, over SSH. Eden Code uses your own SSH config and agent, and never stores keys.": "通过 SSH 在你自己控制的另一台机器上继续会话。Eden Code 用的是你自己的 SSH 配置和 agent，从不保存密钥。",
+    "Runs on another machine use its own Claude sign-in and are billed there. Eden Code’s spending limits can’t meter them; the cost shown is what its Claude Code reported.": "在另一台机器上的运行用的是它自己的 Claude 登录，费用记在那里。Eden Code 的花费上限管不到它们；显示的费用是那里的 Claude Code 报告的。",
+    "billed there, outside Eden Code’s limits": "费用记在那里，不受 Eden Code 上限约束"
   },
   "patterns": [
     [

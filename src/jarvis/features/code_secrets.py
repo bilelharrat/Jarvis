@@ -644,7 +644,7 @@ class Secrets:
                 pipe = await asyncio.to_thread(self.offer, task, wanted, command)
             except OSError:
                 return PermissionResultDeny(
-                    message="Jarvis couldn't hand the secret to the command on this computer."
+                    message="Eden couldn't hand the secret to the command on this computer."
                 )
             return PermissionResultAllow(
                 updated_input={**given, "command": wrap(command, pipe)},

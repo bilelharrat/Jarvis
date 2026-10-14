@@ -99,7 +99,12 @@
       wrap.append(el('p', 'jcs-label', 'Changed on both sides'));
       const list = el('ul', 'jcx-pair-list');
       for (const path of ev.conflicts) {
+        // Each row is its own card for the keyboard (code-focus.js): Keep mine on a.txt
+        // overwrites at once and takes the row away, and without a name of its own the focus
+        // fell to the next row's Keep mine, so a second Space overwrote b.txt too (round 3,
+        // U3-3). Both Keep buttons spend (they overwrite a side), so they're never the stand-in.
         const li = el('li');
+        li.dataset.focus = `pair:${path}`;
         const name = el('code', '', path);
         name.dataset.noI18n = '';
         const note = helpers.clashNote(ev, path);
@@ -109,6 +114,8 @@
         mineBtn.setAttribute('aria-label', `${t('Keep mine')}: ${path}`);
         const edenBtn = button('Keep Eden’s', '', () => send({ type: 'code_pair_keep', id, path, side: 'eden' }));
         edenBtn.setAttribute('aria-label', `${t('Keep Eden’s')}: ${path}`);
+        mineBtn.dataset.spends = '';
+        edenBtn.dataset.spends = '';
         keep.append(mineBtn, edenBtn);
         li.append(name, keep);
         if (note) li.append(el('small', 'jcx-pair-note', note));
@@ -127,7 +134,9 @@
         li.append(name);
         list.append(li);
       }
-      wrap.append(list, button('Bring them over', 'tinted', () => send({ type: 'code_pair_release', id })));
+      const bring = button('Bring them over', 'tinted', () => send({ type: 'code_pair_release', id }));
+      bring.dataset.spends = '';
+      wrap.append(list, bring);
     }
     keepFocus(body, () => body.replaceChildren(wrap));
   }
