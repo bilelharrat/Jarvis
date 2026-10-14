@@ -337,6 +337,19 @@ class Triggers:
     def port(self) -> int:
         return _port(self.hub.prefs.feature(PREF_PORT)) or PORT
 
+    def on_prefs(self, _event: Any = None) -> Any:
+        """A settings change (any of them, from any window): the listener follows only when
+        it isn't already where it should be, and only in the app's loop."""
+        lis = self.listener
+        want = any(self.config(s) for s in SERVICES)
+        if (lis.running, lis.port) == ((True, self.port()) if want else (False, 0)):
+            return None
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return None  # (the loop starts it: register_loop)
+        return self.sync()
+
     async def sync(self, _event: Any = None) -> None:
         """The listener on while Linear or Slack is on (on the port the settings name), and
         off when both are off; the settings hear when that changed anything."""
@@ -869,6 +882,6 @@ def install(hub: Any) -> None:
     hub.register_command("code_trigger_off", triggers.cmd_off)
     end_hooks_of(hub).append(triggers.on_run_end)
     hub.register_loop("code_triggers_listener", triggers.sync)  # (on at start if it was)
-    hub.add_event_sink(("prefs",), triggers.sync)  # (a service or the port changed)
+    hub.add_event_sink(("prefs",), triggers.on_prefs)  # (a service or the port changed)
     hub.add_quit_hook(triggers.listener.close_now)
     hub.add_event_sink(("code_pr",), triggers.on_pr)

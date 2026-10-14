@@ -451,8 +451,8 @@ async def test_the_listener_starts_and_stops_with_the_settings(hub):
     assert state["listener"]["on"] is False
     # Settings changed anywhere reach it too (the prefs event), and quitting stops it.
     configure(hub, "slack")
-    await t.sync({"type": "prefs"})
-    assert t.listener.running
+    await t.on_prefs({"type": "prefs"})
+    assert t.listener.running and t.on_prefs({}) is None  # (already where it should be)
     t.listener.close_now()
     await settle()
     assert refused(other)
