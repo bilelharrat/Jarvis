@@ -1483,6 +1483,9 @@ async def _run_learner(events: Events) -> str:
         if scratch is not None:
             with contextlib.suppress(OSError):
                 scratch.unlink()
+        if proc.returncode != 0:  # (killed, or failed: its copy or half-written output goes)
+            with contextlib.suppress(OSError):
+                out.unlink()
     if proc.returncode != 0:
         log.warning("Model Router: the learner said %s", err.decode("utf-8", "replace")[-500:])
         return f"exit {proc.returncode}"
