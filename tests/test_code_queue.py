@@ -288,3 +288,25 @@ async def test_stopping_the_queue_starts_nothing_more_and_a_stopped_card_says_so
     await asyncio.sleep(0.05)
     assert len(started) == 1
     assert Path(first["folder"]).name == "proj"
+
+
+async def test_stop_then_run_again_keeps_the_running_card_in_the_queue_s_limits(
+    hub, monkeypatch, tmp_path
+):
+    """Round 1's D8: a card still running when the queue is stopped and run again counts
+    against the run's parallel limit and ceiling, not outside them."""
+    hub.code_verify = Checks(["ok"] * 3)
+    started, _sent, finish = stub_sessions(hub, monkeypatch, tmp_path, costs=[4.5])
+    first, second = await add(hub, "one", "two")
+    await hub._handle({"type": "todo_queue_run", "directory": "proj", "parallel": 1, "ceiling": 5})
+    assert await until(lambda: started)
+    await hub._handle({"type": "todo_queue_stop", "directory": "proj"})
+    await hub._handle({"type": "todo_queue_run", "directory": "proj", "parallel": 1, "ceiling": 5})
+    await asyncio.sleep(0.05)
+    assert len(started) == 1 and second["state"] == "queued"  # (one at a time still)
+    folder = str(tmp_path / "proj")
+    assert first["run"] == hub.code_queue.runs[folder].id
+    hub.tasks.tasks[first["task"]].cost_usd = 4.5
+    options = SimpleNamespace(max_budget_usd=None)
+    _Budget(hub.code_queue).apply(hub.tasks.tasks[first["task"]], options)
+    assert options.max_budget_usd == 0.5  # (its spend is the queue's)

@@ -210,9 +210,10 @@ class Queue:
             if route is not None and not route.get("shadow"):
                 card["route"] = {k: route[k] for k in ("ref", "model", "effort") if k in route}
         run = self.runs.get(folder)
-        if run is None or not run.on:
+        if run is None or (not run.on and not self.running(run)):
             run = self.runs[folder] = Run(folder, conf["parallel"], conf["ceiling"])
-        else:
+        else:  # (on, or stopped with cards still running: the same run, so they count in it)
+            run.on, run.note = True, ""
             run.parallel, run.ceiling = conf["parallel"], conf["ceiling"]
         for card in self.todo.board.of(folder):
             if card.get("state") == "todo":
