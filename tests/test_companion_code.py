@@ -37,11 +37,7 @@ def test_a_new_session_starts_as_the_composer_starts_one(api, tmp_path, monkeypa
     assert api.post("/api/code/new", {"prompt": "", "directory": "alpha"}).status_code == 400
 
 
-def test_the_phone_gets_its_own_new_session_never_another_started_meanwhile(
-    api,
-    tmp_path,
-    monkeypatch,  # noqa: F811
-):
+def test_the_phone_gets_its_own_new_session_never_started_meanwhile(api, tmp_path, monkeypatch):  # noqa: F811
     """REL3-10: the phone took "whichever session is new" as its own; one the window (or a
     queue) started meanwhile was answered for it. It's found by its launch token."""
 
