@@ -218,11 +218,15 @@ def create(
     copy_env: bool = False,
     link_deps: bool = False,
     making: dict[str, float] | None = None,
+    checkout_at: Path | None = None,
 ) -> tuple[Copy, list[str]]:
     """A new copy of the project at its current commit, on a branch of its own. Returns the
     copy and notes for the owner (what was linked or copied, and what wasn't and why).
     making: the store's copies being made; this one is in it from before its folder is
-    (the caller takes it out once the copy is on the list), unless it couldn't be made."""
+    (the caller takes it out once the copy is on the list), unless it couldn't be made.
+    checkout_at: where the checkout goes instead of root/<project>/<slug>/ (a multi-repo
+    task's folder, beside the task's other copies): it must not be there yet, and its
+    folder, outside root, is never removed with the copy."""
     project = project_dir.name
     repo = code_changes.repo_of(project_dir)
     if repo is None:
@@ -239,10 +243,14 @@ def create(
     slug = slug_for(title, taken | {b.removeprefix(BRANCH_PREFIX) for b in branches.out.split()})
     folder = root / project / slug
     checkout = folder / repo.top.name
+    if checkout_at is not None:
+        folder, checkout = checkout_at.parent, checkout_at
+        if checkout.exists():
+            raise CopyError(f"There's already a {checkout.name} folder for that copy.")
     if making is not None:
         making[slug] = time.monotonic()
     try:
-        folder.mkdir(parents=True, exist_ok=False)
+        folder.mkdir(parents=True, exist_ok=checkout_at is not None)
     except OSError as exc:
         _not_making(making, slug)
         raise CopyError(f"Couldn't make a folder for the copy: {exc.strerror or exc}") from exc
@@ -251,7 +259,7 @@ def create(
         repo.top, "worktree", "add", "-b", branch, str(checkout), head, timeout=CREATE_SECONDS
     )
     if not made.ok:
-        shutil.rmtree(folder, ignore_errors=True)
+        shutil.rmtree(checkout if checkout_at is not None else folder, ignore_errors=True)
         _not_making(making, slug)
         why = (made.err.strip().splitlines() or ["git refused"])[-1][:300]
         raise CopyError(f"Couldn't make an isolated copy of {project}: {why}")

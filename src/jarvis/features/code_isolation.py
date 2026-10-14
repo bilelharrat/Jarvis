@@ -13,6 +13,8 @@ Events: code_copies.
 Settings (prefs.features): code_isolate_default (bool), code_iso_env and code_iso_link
 (project names whose .env files are copied, and whose node_modules/.venv are linked).
 Loop: code_copies_sweeper.
+Hooks for the other Eden Code features (Desk.on_new_copy, on_copy_gone, holders): a new
+copy before its session connects, a copy gone, and copies kept live by something else.
 
 No Claude calls here: none of this costs anything.
 """
@@ -126,6 +128,14 @@ class Desk:
         # Spent copies the sweeper is taking away just now: no session is moved into one
         # until it's done.
         self.going: set[str] = set()
+        # Other Eden Code features' hooks: a new copy, before its session first connects
+        # (await hook(task, copy): code_setup's setup script and container); a copy gone
+        # (hook(slug), landed, discarded or swept); and copies held by something other than
+        # a session bound to them (hook() -> slugs: code_multirepo's group sessions), which
+        # the sweeper treats as live. A hook that fails is logged; the others still run.
+        self.on_new_copy: list[Any] = []
+        self.on_copy_gone: list[Any] = []
+        self.holders: list[Any] = []
 
     # ── the list of copies ──
 
@@ -157,14 +167,28 @@ class Desk:
         ]
 
     def live_slugs(self) -> set[str]:
-        """Copies with a session that hasn't ended in them."""
-        return {
+        """Copies with a session that hasn't ended in them (or one a holder keeps)."""
+        live = {
             slug
             for tid, slug in self.bound.items()
             if (t := self.hub.tasks.tasks.get(tid)) is not None
             and t.handle is not None
             and not t.handle.done()
         }
+        for hold in self.holders:
+            try:
+                live |= set(hold())
+            except Exception:
+                log.exception("a holder of isolated copies failed")
+        return live
+
+    def gone(self, slug: str) -> None:
+        """Tell the on_copy_gone hooks a copy is gone."""
+        for hook in self.on_copy_gone:
+            try:
+                hook(slug)
+            except Exception:
+                log.exception("an isolated copy's gone hook failed")
 
     def note_sessions(self) -> None:
         """Remember which Claude Code sessions ran in which copy (a session's id is known
@@ -330,6 +354,11 @@ class Desk:
         )
         for note in notes:
             self.hub.tasks._log(task, "system", note)
+        for hook in self.on_new_copy:
+            try:
+                await hook(task, copy)
+            except Exception:  # (a feature's own trouble never keeps the session from starting)
+                log.exception("a new isolated copy's hook failed")
         task.last_action = "Starting"
         self.hub.tasks._changed()
         self.publish_soon()
@@ -483,6 +512,7 @@ class Desk:
         self.save()
         for task in inside:
             self.bound.pop(task.id, None)
+        self.gone(copy.slug)
         if problem:
             log.warning("a landed copy left something behind: %s", problem)
         return landed.message
@@ -530,6 +560,7 @@ class Desk:
         self.conflicts.pop(copy.slug, None)
         for task in inside:
             self.bound.pop(task.id, None)
+        self.gone(copy.slug)
         return f"Discarded {copy.branch}; its work is kept for {worktrees.TRASH_DAYS} days."
 
     async def restore(self, slug: str) -> str:
@@ -634,6 +665,8 @@ class Desk:
             finally:
                 self.going.clear()
         self.save()
+        for slug in report.removed:
+            self.gone(slug)
         self.leftovers = report.leftovers
         fresh = [s for s in report.leftovers if s not in self._told]
         if fresh:
