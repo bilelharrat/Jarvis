@@ -5,6 +5,7 @@ each changed, the owner's test command in each copy, a judgment from a fake Clau
 fake Claude Code sessions, each writing a file in its own folder."""
 
 import asyncio
+import json
 import shlex
 import sys
 import time
@@ -16,8 +17,8 @@ import pytest
 from conftest import CALENDAR_TURN, FakeClient
 from test_code_changes import git, make_repo
 
-from jarvis import code_ai, worktrees
-from jarvis.features import code_bestof
+from jarvis import bestof_merge, code_ai, code_changes, worktrees
+from jarvis.features import code_acp, code_bestof
 from jarvis.tasks import Inbox
 
 
@@ -356,3 +357,295 @@ async def test_a_window_that_comes_back_mid_run_hears_the_group_again():
     done(two)
     await asyncio.wait_for(watching, 5)
     assert heard[-1][1] == [("a-1", "done"), ("b-2", "done")]
+
+
+# ── Merge best parts (bestof_merge.py) ──
+
+BASE = (
+    "def add(a, b):\n    return a + b\n"
+    + "".join(f"# {i}\n" for i in range(12))
+    + ("def sub(a, b):\n    return a - b\n")
+)
+
+
+class Edits(FakeClient):
+    """A Claude Code that edits both functions of a.py its own way (by its model's name),
+    and Opus also writes a new file: two attempts with hunks to mix."""
+
+    script = CALENDAR_TURN
+
+    async def query(self, text):
+        who = "sonnet" if "sonnet" in self.options.model else "opus"
+        path = Path(self.options.cwd, "a.py")
+        body = path.read_text()
+        body = body.replace("return a + b", f"return a + b  # {who}")
+        body = body.replace("return a - b", f"return a - b  # {who}")
+        path.write_text(body)
+        if who == "opus":
+            Path(self.options.cwd, "notes.txt").write_text("from opus\n")
+        await super().query(text)
+
+
+def ids_in(prompt):
+    """The judge's listing: {id: the hunk's lines}."""
+    found = {}
+    for block in prompt.split("### [")[1:]:
+        hunk_id, rest = block.split("]", 1)
+        found[hunk_id] = rest
+    return found
+
+
+@pytest.fixture
+async def merging(hub, projects):
+    hub.tasks.client_factory = Edits
+    repo = make_repo(projects / "proj", {"a.py": BASE})
+    hub.code_bestof.ai = None
+    return repo
+
+
+async def test_merge_best_parts_mixes_hunks_tests_them_and_lands_after_review(
+    hub, projects, merging
+):
+    repo = merging
+    asked = []
+
+    async def judge(prompt, **kw):
+        asked.append((prompt, kw))
+        if kw["kind"] == "judge":
+            return "Both are fine."
+        hunks = ids_in(prompt)
+        pick = lambda word, fn: next(  # noqa: E731
+            i for i, body in hunks.items() if f"{fn} # {word}" in body.replace("  ", " ")
+        )
+        new_file = next(i for i, body in hunks.items() if "notes.txt" in body)
+        plan = {
+            "hunks": [
+                {"id": pick("sonnet", "a + b"), "why": "Sonnet's add is clearer."},
+                {"id": pick("opus", "a - b"), "why": "Opus's sub."},
+                {"id": pick("sonnet", "a - b"), "why": "clashes with the one before"},
+                {"id": "9.9", "why": "not there"},
+                {"id": new_file, "why": "keeps the notes"},
+            ],
+            "summary": "Sonnet's add, Opus's sub and its notes.",
+        }
+        return "Here you go:\n```json\n" + json.dumps(plan) + "\n```"
+
+    hub.code_bestof.ai = judge
+    hub.code_bestof.start(
+        {
+            "directory": "proj",
+            "prompt": "tag both functions",
+            "variants": [{"model": "sonnet"}, {"model": "opus"}],
+            "tests": "grep -q sonnet a.py && grep -q opus a.py && echo mixed",
+        }
+    )
+    assert await until(lambda: latest(hub) and latest(hub)["status"] == "done")
+    group = latest(hub)
+    # Not before they're done, and only for a group that's there.
+    assert await hub.code_bestof.merge("nope") == "That comparison isn't there any more."
+    assert await hub.code_bestof.merge(group["group"]) == ""
+    merge = latest(hub)["merge"]
+    assert merge["status"] == "ready", merge
+    prompt, kw = asked[-1]
+    assert kw["kind"] == "merge" and code_ai.model_for("merge") == "claude-haiku-4-5"
+    assert kw["system"] == bestof_merge.SYSTEM
+    assert "<request>\ntag both functions\n</request>" in prompt
+    assert [(h["file"], h["label"], h["why"]) for h in merge["hunks"]] == [
+        ("a.py", "Opus 5.5", "Opus's sub."),
+        ("a.py", "Sonnet 5.5", "Sonnet's add is clearer."),
+        ("notes.txt", "Opus 5.5", "keeps the notes"),
+    ]
+    assert len(merge["clashes"]) == 1 and merge["unknown"] == ["9.9"]
+    assert merge["summary"] == "Sonnet's add, Opus's sub and its notes."
+    assert merge["test"] == {"code": 0, "tail": "mixed\n"}
+    # In a copy of its own, with a session there for the Changes pane (nothing sent to it).
+    copy = hub.code_desk.store().find(merge["slug"])
+    assert copy is not None and copy.group == group["group"] and copy.label == "Merged"
+    text = (copy.cwd / "a.py").read_text()
+    assert "a + b  # sonnet" in text and "a - b  # opus" in text
+    assert (copy.cwd / "notes.txt").read_text() == "from opus\n"
+    review = hub.tasks.tasks[merge["task_id"]]
+    assert review.mode == "ask" and review.prompt == ""
+    assert await until(lambda: review.workspace.get("slug") == copy.slug)
+    assert "Merged 3 changes from 2 attempts" in review.transcript[0]["text"]
+    view = code_changes.task_view(review, "session")
+    assert sum(len(f.hunks) for f in view.files) == 3  # reviewed by hunk, as any session's
+    assert not (repo / "notes.txt").exists()
+    # Keep the merge: it lands, and every attempt's copy is discarded.
+    hub.answers = ["keep"]
+    said = await hub.code_bestof.keep(group["group"], 0)
+    assert said.startswith("Kept the merge. Landed jarvis/merged-")
+    card = hub.cards[-1]
+    assert card["question"] == "Keep the merge and land it in main?"
+    assert "3 changes from 2 attempts" in card["detail"]
+    assert (repo / "a.py").read_text() == text and (repo / "notes.txt").exists()
+    assert hub.code_desk.store().copies == [] and len(hub.code_desk.store().trash) == 2
+    assert latest(hub)["status"] == "kept" and latest(hub)["kept"] == 0
+
+
+async def test_a_merge_that_picks_nothing_or_is_over_its_cap_says_so(hub, projects, merging):
+    answers = ["not json at all"]
+
+    async def judge(prompt, **kw):
+        return "fine" if kw["kind"] == "judge" else answers.pop(0)
+
+    hub.code_bestof.ai = judge
+    hub.code_bestof.start(
+        {"directory": "proj", "prompt": "go", "variants": [{"model": "sonnet"}, {"model": "opus"}]}
+    )
+    assert await until(lambda: latest(hub) and latest(hub)["status"] == "done")
+    group = latest(hub)["group"]
+    await hub.code_bestof.merge(group)
+    merge = latest(hub)["merge"]
+    assert merge["status"] == "failed" and merge["error"] == "The judge picked nothing to merge."
+    assert len(hub.code_desk.store().copies) == 2  # no copy made for nothing
+    assert await hub.code_bestof.keep(group, 0) == "There's no merge to keep."
+    code_ai.budget_for(hub).counts["merge"] = code_ai.POLICY["merge"][1]
+    await hub.code_bestof.merge(group)
+    assert latest(hub)["merge"]["error"] == "That's today's 10 merges; pick one to keep instead."
+    assert answers == []  # past the cap, nothing is called
+
+
+async def test_keeping_one_attempt_discards_the_merge_too(hub, projects, merging):
+    async def judge(prompt, **kw):
+        if kw["kind"] == "judge":
+            return "ok"
+        return json.dumps({"hunks": [{"id": next(iter(ids_in(prompt)))}]})
+
+    hub.code_bestof.ai = judge
+    hub.code_bestof.start(
+        {"directory": "proj", "prompt": "go", "variants": [{"model": "sonnet"}, {"model": "opus"}]}
+    )
+    assert await until(lambda: latest(hub) and latest(hub)["status"] == "done")
+    group = latest(hub)["group"]
+    await hub.code_bestof.merge(group)
+    assert latest(hub)["merge"]["status"] == "ready"
+    assert len(hub.code_desk.store().copies) == 3
+    hub.answers = ["keep"]
+    said = await hub.code_bestof.keep(group, 2)
+    assert said.startswith("Kept Opus 5.5.")
+    assert "The other 2 copies are discarded" in hub.cards[-1]["detail"]
+    assert hub.code_desk.store().copies == [] and len(hub.code_desk.store().trash) == 2
+
+
+async def test_a_keep_without_a_number_never_means_the_merge(hub):
+    kept = []
+
+    async def keep(group, n):
+        kept.append(n)
+        return ""
+
+    hub.code_bestof.keep = keep
+    await hub.code_bestof._keep({"group": "b1"})
+    await hub.code_bestof._keep({"group": "b1", "n": 0})
+    assert kept == [0]
+
+
+async def test_a_group_can_mix_another_agent_and_the_routers_pick(hub, projects):
+    make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    best = hub.code_bestof
+    variants = [{"model": "acp:nobody"}, {"model": "sonnet"}]
+    assert best.start({"directory": "proj", "prompt": "go", "variants": variants}) == (
+        "That agent isn't set up any more: add it again in Other agents."
+    )
+    assert hub.tasks.tasks == {}  # nothing started for a group that can't all run
+    hub.code_acp._book = code_acp.AgentBook(None)
+    agent = hub.code_acp.book.add("Codex", "codex-acp")
+    started = []
+    real = hub.tasks.start
+
+    def start(*args, **kw):
+        started.append(kw)
+        return real(*args, **kw)
+
+    hub.tasks.start = start
+    hub.code_bestof.ai = None
+    said = best.start(
+        {
+            "directory": "proj",
+            "prompt": "go",
+            "variants": [
+                {"model": f"acp:{agent['id']}", "effort": "high"},
+                {"model": "sonnet", "effort": "low", "routed": True},
+            ],
+        }
+    )
+    assert said == ""
+    group = latest(hub)
+    assert [v["label"] for v in group["variants"]] == ["Codex", "Router: Sonnet 5.5 · low"]
+    assert started[0]["model"] == "acp:codex" and started[0]["effort"] == ""
+    assert started[0]["isolate"] is True and started[1]["model_ref"] == "sonnet"
+    for task in list(hub.tasks.tasks.values()):
+        hub.tasks.cancel(task.id)
+
+
+async def test_without_the_acp_labs_module_another_agent_says_how_to_turn_it_on(hub, projects):
+    make_repo(projects / "proj", {"a.py": "x = 1\n"})
+    del hub.code_acp
+    said = hub.code_bestof.start(
+        {
+            "directory": "proj",
+            "prompt": "go",
+            "variants": [{"model": "acp:codex"}, {"model": "sonnet"}],
+        }
+    )
+    assert said.startswith("Turn on Other agents (ACP) in Settings")
+
+
+def test_the_merge_plan_keeps_known_hunks_once_and_leaves_out_clashes():
+    from jarvis.code_changes import FileDiff, Hunk
+
+    def entry(entry_id, n, path, old_start, lines, status="M"):
+        h = Hunk(old_start, sum(t in " -" for t, _ in lines), old_start, 0, "", lines)
+        f = FileDiff(path, status=status, hunks=[h])
+        return bestof_merge.Entry(entry_id, n, f"#{n}", f, h, path)
+
+    entries = {
+        "1.1": entry("1.1", 1, "a.py", 1, [(" ", "a"), ("-", "b"), ("+", "B"), (" ", "c")]),
+        # 2.1 rewrites the line 1.1 does: they clash
+        "2.1": entry("2.1", 2, "a.py", 1, [(" ", "a"), ("-", "b"), ("+", "b2"), (" ", "c")]),
+        # 2.2 adds a line right after line 2: it touches 1.1's change too
+        "2.2": entry("2.2", 2, "a.py", 2, [(" ", "b"), ("+", "new"), (" ", "c")]),
+        "2.3": entry("2.3", 2, "a.py", 20, [(" ", "t"), ("-", "u"), ("+", "U")]),
+        "1.2": entry("1.2", 1, "n.txt", 0, [("+", "x")], status="?"),
+        "2.4": entry("2.4", 2, "n.txt", 0, [("+", "y")], status="?"),
+    }
+    answer = json.dumps(
+        {
+            "hunks": [
+                {"id": "[1.1]", "why": "w" * 500},
+                "2.1",
+                {"id": "2.2"},
+                {"id": "2.3", "why": "far away"},
+                {"id": "1.1"},
+                {"id": "1.2"},
+                {"id": "2.4"},
+                {"id": "7.7"},
+                42,
+            ],
+            "summary": "  a   plan ",
+        }
+    )
+    plan = bestof_merge.read_plan(answer, entries)
+    assert [p.entry.id for p in plan.picks] == ["1.1", "2.3", "1.2"]
+    assert len(plan.picks[0].why) == bestof_merge.WHY_CHARS
+    assert plan.clashes == [("2.1", "1.1"), ("2.2", "1.1"), ("2.4", "1.2")]
+    assert plan.unknown == ["7.7"] and plan.summary == "a plan"
+    assert bestof_merge.read_plan("no plan here", entries).picks == []
+    assert bestof_merge.read_plan('{"hunks": "1.1"}', entries).picks == []
+
+
+def test_credentials_binary_files_and_renames_are_left_out_of_the_merge(tmp_path):
+    repo = make_repo(tmp_path / "r", {"a.py": "x = 1\n", "old.py": "y = 2\n", ".env": "K=1\n"})
+    (repo / "a.py").write_text("x = 2\n")
+    (repo / ".env").write_text("K=2\n")
+    (repo / "pic.bin").write_bytes(b"\0\1\2")
+    git(repo, "mv", "old.py", "new.py")
+    view = code_changes.session_view(repo, [], scoped=False)
+    entries, left_out = bestof_merge.catalogue([bestof_merge.Candidate(1, "Sonnet", view)])
+    assert [e.shown for e in entries.values()] == ["a.py"]
+    assert sorted(left_out) == [
+        ".env (Sonnet) holds credentials",
+        "new.py (Sonnet) was renamed",
+        "pic.bin (Sonnet) is a binary file",
+    ]

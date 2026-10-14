@@ -34,12 +34,27 @@
     "New comparison": "新的比较",
     "Working…": "正在工作…",
     "Comparing…": "正在比较…",
-    "Done: pick the one to keep.": "完成：挑一个保留。",
     "Kept.": "已保留。",
-    "Judge (Haiku)": "评判（Haiku）"
+    "Judge (Haiku)": "评判（Haiku）",
+    "Done: pick the one to keep, or merge the best parts.": "完成：选一个保留，或合并各自最好的部分。",
+    "Model Router’s pick": "模型路由器的选择",
+    "Model Router isn’t ready yet. Try again in a moment, or pick a model.": "模型路由器还没准备好。请稍后再试，或选一个模型。",
+    "Merge best parts": "合并最好的部分",
+    "Merge again": "重新合并",
+    "The judge (Haiku) proposes one patch from the best hunks of each; it’s applied and tested in a copy of its own": "评判（Haiku）从每个尝试里挑出最好的改动块，组成一个补丁；它会在自己的副本里应用并测试",
+    "Or take the best hunks of each: the judge proposes a merged patch, applied and tested in a copy of its own, for you to review hunk by hunk.": "或者取每个尝试里最好的改动块：评判提出一个合并后的补丁，在自己的副本里应用并测试，由你逐块审阅。",
+    "Merging…": "正在合并…",
+    "Merged: review it, then keep it or pick one above.": "已合并：审阅后保留它，或在上面选一个。",
+    "Couldn’t merge.": "没能合并。",
+    "Merged changes": "合并的改动",
+    "Review in Changes": "在“改动”里审阅",
+    "Each merged hunk, to undo or keep, in the merge’s own session": "合并的每个改动块，可在合并结果自己的会话里撤销或保留",
+    "Keep the merge": "保留合并结果",
+    "Land the merge and discard every attempt (asks first)": "合并这个结果并丢弃所有尝试（会先询问）"
   },
   "patterns": [
     ["^tests failed \\((-?\\d+)\\)$", "测试失败（$1）"],
-    ["^(\\d+) files? \\+(\\d+) −(\\d+)$", "$1 个文件 +$2 −$3"]
+    ["^(\\d+) files? \\+(\\d+) −(\\d+)$", "$1 个文件 +$2 −$3"],
+    ["^Left out \\((\\d+)\\)$", "未纳入（$1）"]
   ]
 }

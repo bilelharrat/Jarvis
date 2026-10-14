@@ -1,8 +1,52 @@
 // Eden Code's best of N (features/code_bestof.py): one request, two or three models or
 // efforts at once, each in its own isolated copy; then side by side (what each changed, the
-// project's tests when a command is given, a short judgment) and "Keep this one".
-(() => {
-  const F = window.jarvisFeatures;
+// project's tests when a command is given, a short judgment) and "Keep this one", or "Merge
+// best parts": the judge's merged patch, hunk by hunk (which attempt each came from and
+// why), in a copy of its own, tested there and reviewed in its session's Changes pane.
+// A variant can be another agent over ACP (Other agents) or the Model Router's pick.
+// Pure helpers are exported for node --test (tests/web/code-bestof.test.mjs).
+(function (root) {
+  'use strict';
+
+  const ROUTER = 'router';  // the model menu's "Model Router's pick": resolved when Start is pressed
+
+  // The model menu: the models in Settings › Models, the agents added in Other agents (acp:…),
+  // and the router's pick when the Model Router is there.
+  function modelOptions(models, agents, routerThere) {
+    const out = models.map((m) => [m.ref, m.label]);
+    for (const a of agents || []) out.push([`acp:${a.id}`, `${a.name} (agent)`]);
+    if (routerThere) out.push([ROUTER, 'Model Router’s pick']);
+    return out;
+  }
+
+  // What Start sends for the variants, or why not: [ok, variants | reason]. pick(prompt) is
+  // the Model Router's {ref, effort?} for the request (null while it isn't ready).
+  function variantsToSend(variants, prompt, pick) {
+    const out = [];
+    for (const v of variants) {
+      if (v.model === ROUTER) {
+        const route = typeof pick === 'function' ? pick(prompt) : null;
+        if (!route || !route.ref) return [false, 'Model Router isn’t ready yet. Try again in a moment, or pick a model.'];
+        out.push({ model: route.ref, effort: route.effort || '', routed: true });
+      } else if (String(v.model || '').startsWith('acp:')) {
+        out.push({ model: v.model });  // (another agent takes no effort)
+      } else {
+        out.push({ model: v.model, effort: v.effort || '' });
+      }
+    }
+    return [true, out];
+  }
+
+  // A merged hunk as the merge's list reads it: where, from which attempt, and why.
+  function hunkLine(h) {
+    const where = h.where ? ` in ${h.where}` : '';
+    return `${h.file} line ${h.line}${where}: from ${h.label} (+${h.added} −${h.removed})${h.why ? `. ${h.why}` : ''}`;
+  }
+
+  const api = { modelOptions, variantsToSend, hunkLine, ROUTER };
+  if (typeof module === 'object' && module.exports) { module.exports = api; return; }
+
+  const F = root.jarvisFeatures;
   if (!F) return;
   const { el, send } = F;
   const EFFORTS = [['', 'Default effort'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
@@ -10,6 +54,7 @@
   const BUILTIN = [['opus', 'Opus 5.5'], ['sonnet', 'Sonnet 5.5'], ['haiku', 'Haiku 4.5'], ['fable', 'Fable 5.1']];
   const state = {
     models: [], // [{ ref, label }] from the providers event
+    agents: [], // [{ id, name }] from acp_state (Other agents, when that Labs module is on)
     groups: new Map(), // group id -> the latest code_bestof event
     features: {},
     form: null, // what's being set up: { prompt, variants: [{ model, effort }], mode, tests }
@@ -64,8 +109,8 @@
     form.variants.forEach((v, i) => {
       const row = el('div', 'jcx-bvariant');
       row.append(el('span', 'jcx-num', `#${i + 1}`),
-        select(models().map((m) => [m.ref, m.label]), v.model, (value) => { v.model = value; }, 'Model'),
-        select(EFFORTS, v.effort, (value) => { v.effort = value; }, 'Effort'));
+        select(modelOptions(models(), state.agents, typeof F.routePick === 'function'), v.model, (value) => { v.model = value; render(); }, 'Model'));
+      if (!String(v.model || '').startsWith('acp:') && v.model !== ROUTER) row.append(select(EFFORTS, v.effort, (value) => { v.effort = value; }, 'Effort'));
       if (form.variants.length > 2) row.append(button('Remove', 'jc-mini', () => { form.variants.splice(i, 1); render(); }));
       rows.append(row);
     });
@@ -81,15 +126,19 @@
     testInput.addEventListener('input', () => { form.tests = testInput.value; });
     tests.append(el('span', '', 'Tests (optional)'), testInput);
     wrap.append(mode, tests, el('p', 'jc-dim jcx-bnote', 'The test command runs in each copy once they’re all done. Each variant is a real session on its model, and costs what it costs; a short judgment (Haiku) follows.'));
+    const problem = el('p', 'jc-dim jcx-bproblem');
+    problem.setAttribute('role', 'status');
     const start = button('Start', 'jc-btn filled jcx-bstart', () => {
-      send({ type: 'code_bestof', directory: project(), prompt: form.prompt, variants: form.variants, mode: form.mode, tests: form.tests });
+      const [ok, variants] = variantsToSend(form.variants, form.prompt, F.routePick);
+      if (!ok) { problem.textContent = F.t(variants); return; }
+      send({ type: 'code_bestof', directory: project(), prompt: form.prompt, variants, mode: form.mode, tests: form.tests });
       state.showForm = false;
       state.form = null;
       render();
     });
     start.disabled = !form.prompt.trim();
     request.addEventListener('input', () => { start.disabled = !request.value.trim(); });
-    wrap.append(start);
+    wrap.append(problem, start);
   }
 
   function variantCard(group, v) {
@@ -124,7 +173,7 @@
     request.dataset.noI18n = '';
     head.append(request, button('New comparison', 'jc-mini', () => { state.showForm = true; state.form = null; render(); }));
     wrap.append(head);
-    const status = { running: 'Working…', comparing: 'Comparing…', done: 'Done: pick the one to keep.', kept: 'Kept.' }[group.status] || group.status;
+    const status = { running: 'Working…', comparing: 'Comparing…', done: 'Done: pick the one to keep, or merge the best parts.', kept: 'Kept.' }[group.status] || group.status;
     wrap.append(el('p', `jc-dim${group.status === 'running' || group.status === 'comparing' ? ' jc-sheen' : ''}`, status));
     if (group.judge) {
       const judge = el('div', 'jcx-bjudge');
@@ -136,6 +185,69 @@
     const grid = el('div', `jcx-bgrid n${group.variants.length}`);
     grid.append(...group.variants.map((v) => variantCard(group, v)));
     wrap.append(grid);
+    drawMerge(wrap, group);
+  }
+
+  // Merge best parts: the button once they're all done, then the merge as it goes.
+  function drawMerge(wrap, group) {
+    const merge = group.merge;
+    const box = el('section', 'jcx-bmerge');
+    box.setAttribute('aria-label', 'Merge best parts');
+    const head = el('div', 'jcx-bhead');
+    head.append(el('strong', '', 'Merge best parts'));
+    const canAsk = group.status === 'done' && !(merge && merge.status === 'merging');
+    if (canAsk) head.append(button(merge ? 'Merge again' : 'Merge best parts', 'jc-btn small', () => send({ type: 'code_bestof_merge', group: group.group }), 'The judge (Haiku) proposes one patch from the best hunks of each; it’s applied and tested in a copy of its own'));
+    box.append(head);
+    if (!merge) {
+      if (group.status === 'done') box.append(el('p', 'jc-dim', 'Or take the best hunks of each: the judge proposes a merged patch, applied and tested in a copy of its own, for you to review hunk by hunk.'));
+      if (group.status !== 'kept') wrap.append(box);
+      return;
+    }
+    const live = el('p', `jc-dim${merge.status === 'merging' ? ' jc-sheen' : ''}`, { merging: 'Merging…', ready: 'Merged: review it, then keep it or pick one above.', failed: 'Couldn’t merge.' }[merge.status] || merge.status);
+    live.setAttribute('role', 'status');
+    live.setAttribute('aria-live', 'polite');
+    box.append(live);
+    if (merge.error) { const e = el('p', 'jcx-berror', merge.error); e.dataset.noI18n = ''; box.append(e); }
+    if (merge.summary) { const s = el('p', 'jcx-bsummary', merge.summary); s.dataset.noI18n = ''; box.append(s); }
+    if (merge.hunks && merge.hunks.length) {
+      const list = el('ul', 'jcx-bhunks');
+      list.setAttribute('aria-label', 'Merged changes');
+      for (const h of merge.hunks) {
+        const item = el('li', `jcx-bhunk from${h.from}`, hunkLine(h));
+        item.dataset.noI18n = '';
+        list.append(item);
+      }
+      box.append(list);
+    }
+    const notes = [];
+    for (const c of merge.clashes || []) notes.push(`${c.left_out} left out: it changes the same lines as ${c.kept}.`);
+    for (const h of merge.failed || []) notes.push(`${hunkLine(h)}: didn’t apply.`);
+    for (const f of merge.left_out || []) notes.push(`${f}: not merged a hunk at a time.`);
+    if (notes.length) {
+      const more = el('details', 'jcx-bnotes');
+      more.append(el('summary', '', `Left out (${notes.length})`));
+      for (const n of notes) { const p = el('p', 'jc-dim', n); p.dataset.noI18n = ''; more.append(p); }
+      box.append(more);
+    }
+    if (merge.test) {
+      const passed = merge.test.code === 0;
+      const test = el('details', 'jcx-btest');
+      const sum = el('summary');
+      sum.append(el('span', `jcx-chip ${passed ? 'ok' : 'bad'}`, passed ? 'tests passed' : `tests failed (${merge.test.code})`));
+      const out = el('pre', 'jc-code', merge.test.tail || '');
+      out.dataset.noI18n = '';
+      test.append(sum, out);
+      box.append(test);
+    }
+    if (merge.status === 'ready') {
+      const actions = el('div', 'jcx-bactions');
+      const open = () => { if (typeof selectTask === 'function' && merge.task_id) selectTask(merge.task_id); };
+      actions.append(button('Review in Changes', 'jc-btn small', () => { open(); F.openPane('diff'); }, 'Each merged hunk, to undo or keep, in the merge’s own session'));
+      if (group.status === 'done') actions.append(button('Keep the merge', 'jc-btn small filled', () => send({ type: 'code_bestof_keep', group: group.group, n: 0 }), 'Land the merge and discard every attempt (asks first)'));
+      box.append(actions);
+    }
+    if (group.status === 'kept' && group.kept === 0) box.classList.add('kept');
+    wrap.append(box);
   }
 
   function latest() {
@@ -170,4 +282,7 @@
   F.on('hello', (ev) => { if (ev.prefs && ev.prefs.features) state.features = ev.prefs.features; if (ev.providers) state.models = (ev.providers.models || []).map((m) => ({ ref: m.ref, label: m.label })); }, { replay: true });
   F.on('prefs', (ev) => { if (ev.features) state.features = ev.features; }, { replay: true });
   F.on('code_bestof', (ev) => { state.groups.set(ev.group, ev); render(); });
-})();
+  F.on('acp_state', (ev) => { state.agents = (ev.agents || []).map((a) => ({ id: a.id, name: a.name })); render(); });
+  // (no answer while Other agents is off: then there are none to offer)
+  F.on('hello', () => send({ type: 'acp_state' }), { replay: true });
+})(typeof window === 'object' ? window : globalThis);

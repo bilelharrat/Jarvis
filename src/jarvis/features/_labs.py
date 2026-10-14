@@ -24,6 +24,7 @@ LABS: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "code_queue": ("Routing queue", "Run a project's to-do cards in the background, each on the cheapest model that passes its checks, within a dollar ceiling.", ()),
     "code_spec": ("Spec mode", "Requirements, design and tasks in the repo, each OK'd, then checked against the spec.", ("code-spec",)),
     "code_split": ("Split view", "Two live sessions side by side (⌘⇧\\ or /split).", ("code-split",)),
+    "code_share": ("Share live", "A read-only live view of a session for a teammate, by link, on your network.", ("code_share",)),
 }  # fmt: skip
 
 

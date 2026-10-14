@@ -645,6 +645,11 @@ def create_remote_app(
     ]
     if extension is not None:
         routes += extension.routes(gate)
+    # Other features' pages here, each with checks of its own and never under /api (a live
+    # share's link and its view: features/code_share.py, by the share's own token).
+    extras = getattr(hub, "remote_routes", None)
+    for extra in extras if isinstance(extras, list) else ():
+        routes += extra(gate)
     return Starlette(routes=routes)
 
 
