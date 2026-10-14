@@ -143,6 +143,30 @@ def _usable(hub: Any, wanted: str) -> str:
     return wanted if store.known(wanted) else DEFAULT
 
 
+# One pass per model for the utility calls (a ref -> its session_config), reused while it's
+# still good: a new one each call piled up (passes are kept till revoked or idle a week)
+# and pushed live sessions' passes out of key_proxy's MAX_GRANTS.
+_PASSES: dict[str, dict[str, Any]] = {}
+
+
+def _with_pass(store: Any, chosen: str) -> dict[str, Any]:
+    """store.session_config(chosen), its pass the one made for an earlier call while that
+    is still good. The model and its key are checked each time all the same (grant=False:
+    no pass made), so a model or key gone fails here as before."""
+    from .key_proxy import GRANTS, pass_in
+
+    named = store.session_config(chosen, grant=False)
+    kept = _PASSES.get(chosen)
+    if kept is not None and kept.get("model") == named.get("model"):
+        if GRANTS.alive(pass_in(kept.get("settings"))):
+            return dict(kept)
+    fresh = store.session_config(chosen)
+    if kept is not None:
+        GRANTS.revoke(pass_in(kept.get("settings")))
+    _PASSES[chosen] = dict(fresh)
+    return fresh
+
+
 async def config(hub: Any, wanted: str | None = None) -> dict[str, Any]:
     """What a call on the utility model (or the ref given) needs: providers.session_config's
     {model, env, settings, label, …}. A model added with a key that no longer works falls
@@ -161,7 +185,7 @@ async def config(hub: Any, wanted: str | None = None) -> dict[str, Any]:
             from . import openai_relay
 
             await openai_relay.ready(store, chosen)
-        return store.session_config(chosen)
+        return _with_pass(store, chosen)
     except Exception as exc:  # gone, or its key: the default then
         log.warning("utility model %s isn't usable (%s); using %s", chosen, exc, DEFAULT)
         return {"model": MODELS[DEFAULT], "env": {}, "settings": None, "label": DEFAULT}

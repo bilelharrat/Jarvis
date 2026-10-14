@@ -6733,6 +6733,13 @@ class Hub:
             self.emit("error", text=str(exc))
             cfg = self.providers.session_config("")
             ref = ""
+        # Its pass is never spent: a session's every connect makes its own, fresh from the
+        # store (TaskManager.options_for). Kept, one per task_new, best-of variant and
+        # multi-repo copy, they piled up and pushed live sessions' passes out of MAX_GRANTS.
+        from .key_proxy import GRANTS, pass_in
+
+        if made := pass_in(cfg.get("settings")):
+            GRANTS.revoke(made)
         return {**cfg, "ref": ref if cfg["model"] else ""}
 
     async def _task_model(self, task_id: int, ref: str) -> None:
