@@ -90,3 +90,28 @@ test('a window error as the backend takes it; the same one is sent once, a few a
   now = 61_000;
   assert.equal(may(web.reportOf('window error', null, 'later')), true);
 });
+
+test('a renderer that dies as it loads, again and again, is one report counted, a few an hour', () => {
+  // REL3-16: main.js reloads a window whose renderer died a second later; a report each time
+  // pruned every backend report from the folder within a minute.
+  const dir = dataDir({ crash_reports: true });
+  const folder = path.join(dir, 'crash-reports');
+  fs.mkdirSync(folder);
+  for (let n = 0; n < 30; n += 1) fs.writeFileSync(path.join(folder, `20260101-0000${String(n).padStart(2, '0')}-backend-x.json`), '{}');
+  let t = Date.parse('2026-10-14T10:00:00Z');
+  const kept = app.keeper(fs, folder, () => new Date(t));
+  for (let n = 0; n < 120; n += 1) {
+    kept(app.reportFor('renderer', { reason: 'crashed', exitCode: 11 }));
+    t += 1000;
+  }
+  const mine = fs.readdirSync(folder).filter((f) => f.includes('-electron-'));
+  assert.equal(mine.length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(folder, mine[0]), 'utf8')).times, 120);
+  assert.equal(fs.readdirSync(folder).filter((f) => f.includes('-backend-')).length, 30, 'the backend’s are kept');
+  // different failures, each its own, at most PER_HOUR an hour
+  for (let n = 0; n < app.PER_HOUR + 10; n += 1) {
+    kept(app.reportFor('child', { type: 'GPU', reason: n % 2 ? 'oom' : 'crashed', exitCode: n }));
+    t += 1000;
+  }
+  assert.equal(fs.readdirSync(folder).filter((f) => f.includes('-electron-')).length, app.PER_HOUR);
+});

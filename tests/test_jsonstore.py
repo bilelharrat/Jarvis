@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 import pytest
 
@@ -117,11 +118,12 @@ def test_a_file_that_cant_be_read_now_is_left_alone(tmp_path):
     assert json.loads(path.read_text()) == [1] and not list(tmp_path.glob("*.bad-*"))
 
 
-def test_a_refused_file_the_owner_deleted_or_fixed_may_be_saved_again(tmp_path):
-    """REL-6: a store that couldn't read its file (and holds something else in memory,
-    a phone paired since) may save again once the file is gone, or readable again: the
-    fixed file is kept beside it first, never written over. One still unreadable stays
-    refused."""
+def test_a_refused_file_the_owner_deleted_may_be_saved_again_a_fixed_one_never_over(tmp_path):
+    """REL-6 / REL3-2: a store that couldn't read its file (and holds something else in
+    memory, a phone paired since) may save again once the file is gone. One readable again
+    is the owner's whole file: it's never set aside or written over; this run's saves go
+    beside it (<name>.unsaved-<stamp>, one file however many saves), and the next start
+    reads the owner's file. One still unreadable stays refused."""
     deleted, fixed, still = (tmp_path / f"{n}.json" for n in ("deleted", "fixed", "still"))
     for path in (deleted, fixed, still):
         path.write_text('{"a": 1}')
@@ -137,14 +139,37 @@ def test_a_refused_file_the_owner_deleted_or_fixed_may_be_saved_again(tmp_path):
         assert json.loads(deleted.read_text()) == {"b": 2}
         os.chmod(fixed, 0o600)
         jsonstore.save_json(fixed, {"b": 2})
-        assert json.loads(fixed.read_text()) == {"b": 2}
-        [kept] = tmp_path.glob("fixed.json.bad-*")
-        assert json.loads(kept.read_text()) == {"a": 1}
-        jsonstore.save_json(fixed, {"b": 3})  # (and from then on as any file)
-        assert len(list(tmp_path.glob("fixed.json.bad-*"))) == 1
+        jsonstore.save_json(fixed, {"b": 3})
+        assert json.loads(fixed.read_text()) == {"a": 1}
+        assert not list(tmp_path.glob("fixed.json.bad-*"))
+        [kept] = tmp_path.glob("fixed.json.unsaved-*")
+        assert json.loads(kept.read_text()) == {"b": 3}
+        assert jsonstore.load_json(fixed, dict) == {"a": 1}  # (the next start)
+        jsonstore.save_json(fixed, {"a": 1, "b": 4})  # read again: saved as any file
+        assert json.loads(fixed.read_text()) == {"a": 1, "b": 4}
+        assert len(list(tmp_path.glob("fixed.json.unsaved-*"))) == 1
     finally:
         os.chmod(still, 0o600)
     assert json.loads(still.read_text()) == {"a": 1}
+
+
+def test_three_phones_never_become_one_when_the_file_comes_right(tmp_path):
+    """REL3-2 (s3rel/js_rel6.py): devices.json with three phones can't be read at start,
+    the run pairs one; once readable, a save kept the run's one phone as the file and the
+    three as .bad-*, so the next start had one phone."""
+    path = tmp_path / "devices.json"
+    jsonstore.save_json(path, {"phones": ["owner-iphone", "ipad"]})
+    jsonstore.save_json(path, {"phones": ["owner-iphone", "ipad", "watch"]})
+    os.chmod(path, 0)
+    try:
+        with pytest.raises(jsonstore.Unreadable):
+            jsonstore.read_json(path, dict)
+    finally:
+        os.chmod(path, 0o600)
+    jsonstore.save_json(path, {"phones": ["new-phone-this-run"]})
+    assert jsonstore.read_json(path, dict) == ({"phones": ["owner-iphone", "ipad", "watch"]}, "ok")
+    [kept] = tmp_path.glob("devices.json.unsaved-*")
+    assert json.loads(kept.read_text()) == {"phones": ["new-phone-this-run"]}
 
 
 def test_a_file_refused_for_what_it_holds_stays_refused_while_its_there(tmp_path):
@@ -337,3 +362,22 @@ def test_two_writers_never_fail_or_tear_the_file(tmp_path):
     assert [out.strip() for out, _err in outs] == ["0", "0"], outs
     assert torn == 0 and reads > 0
     assert not list(tmp_path.glob("*.tmp")) and not list(tmp_path.glob(".*.tmp*"))
+
+
+def test_forget_takes_the_damaged_copies_too_and_only_the_newest_are_kept(tmp_path, monkeypatch):
+    """REL3-14: forget left a deleted session's .bad-* copies (its words) behind, and a
+    file damaged at every start kept a copy a start for ever."""
+    path = tmp_path / "abcdabcdabcdabcd.json"
+    for n in range(jsonstore.BAD_KEEP + 4):
+        path.write_bytes(b"{torn %d" % n)
+        stamp = datetime(2026, 10, 1, 9, 0, n)
+        jsonstore.read_json(path, dict, clock=lambda stamp=stamp: stamp)
+    bad = sorted(tmp_path.glob("abcdabcdabcdabcd.json.bad-*"))
+    assert len(bad) == jsonstore.BAD_KEEP
+    assert bad[-1].read_bytes() == b"{torn %d" % (jsonstore.BAD_KEEP + 3)  # (the newest stay)
+    (tmp_path / "abcdabcdabcdabcd.json.unsaved-20261001-090000").write_text("{}")
+    other = tmp_path / "other.json.bad-20261001-090000"
+    other.write_text("{")
+    jsonstore.save_json(path, {"a": 1})
+    jsonstore.forget(path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["other.json.bad-20261001-090000"]

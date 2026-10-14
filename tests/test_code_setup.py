@@ -383,7 +383,9 @@ async def test_every_bash_step_goes_in_and_docker_s_socket_never_reaches_the_ses
     )
     stdout, stderr = await ran.communicate()
     assert (ran.returncode, stdout, stderr) == (3, b"in-there\n", b"sub\n")
-    assert ["exec", name, "echo in-there; echo $(echo sub) >&2; exit 3"] in docker.calls
+    # (under the step's own shell, which writes its pid for a stop in there: REL3-6)
+    quoted = shlex.quote("echo in-there; echo $(echo sub) >&2; exit 3")
+    assert any(c[:2] == ["exec", name] and f"/bin/sh -c {quoted};" in c[2] for c in docker.calls)
     # A sandboxed session gets the relay's socket through, never docker's.
     from jarvis.features.code_setup import _Options
 
@@ -426,6 +428,110 @@ async def test_the_relay_stops_a_command_when_the_session_s_end_goes(tmp_path):
     assert not relay._procs and not marker.exists()
     relay.close()
     assert not Path(path).exists() and not Path(path).parent.exists()
+
+
+def _relay_ask(path, command):
+    """One command through a relay's socket, as container_run's client sends it: the
+    frames back ([(kind, data)]), or "TIMEOUT" when no answer comes."""
+    import socket as socketlib
+
+    s = socketlib.socket(socketlib.AF_UNIX)
+    s.settimeout(3)
+    try:
+        s.connect(path)
+        s.sendall(json.dumps({"command": command}).encode() + b"\n")
+        got, data = [], b""
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+        while data:
+            kind, size = data[:1], int.from_bytes(data[1:5], "big")
+            got.append((kind, data[5 : 5 + size]))
+            data = data[5 + size :]
+        return got
+    except TimeoutError:
+        return "TIMEOUT"
+    finally:
+        s.close()
+
+
+def test_a_stopped_step_is_stopped_in_the_container_too(tmp_path):
+    """REL3-6: the session's end gone (a Bash timeout, Stop), only the docker exec on the
+    Mac was killed; the command ran on in the container. The relay first runs stop_for
+    with the step's pidfile (code_setup: stop_script in the container), then kills the exec.
+    Here the "container" is this Mac, and stop_for stops the step's shell's children."""
+    import subprocess
+    import sys
+    import time
+
+    marker = tmp_path / "still-running"
+    stopped = []
+
+    def stop_for(pidfile):
+        stopped.append(pidfile)
+        return ["/bin/sh", "-c", f"p=$(cat {pidfile}); kill -KILL $(pgrep -P $p) $p"]
+
+    relay = container_run.Relay(lambda c: ["/bin/sh", "-c", c], dict, stop_for=stop_for)
+    path = relay.start()
+    try:
+        client = subprocess.Popen(
+            [sys.executable, "-I", container_run.__file__, path, "--",
+             f"echo started; sleep 1.5; touch {marker}"],
+            stdout=subprocess.PIPE,
+        )  # fmt: skip
+        assert client.stdout.readline() == b"started\n"
+        client.kill()
+        client.wait()
+        for _ in range(100):
+            if not relay._procs:
+                break
+            time.sleep(0.05)
+        time.sleep(2.0)  # (past the command's own sleep: the touch would have come)
+        assert stopped and not marker.exists(), "the step ran on in the container"
+        assert _relay_ask(path, "echo ok")[-1] == (b"x", b"0")
+    finally:
+        relay.close()
+
+
+def test_a_command_with_a_nul_byte_is_refused_never_a_crashed_thread():
+    """Round 3: Popen raises ValueError for a NUL byte, which _stream didn't catch: the
+    serve thread died with a traceback and the client was told only GONE (125). It's
+    answered as a refused command (2), said why."""
+    relay = container_run.Relay(lambda command: ["/bin/sh", "-c", command], dict)
+    path = relay.start()
+    try:
+        got = _relay_ask(path, "echo a\x00b")
+        assert got[-1] == (b"x", b"2") and b"NUL" in got[0][1]
+        assert _relay_ask(path, "echo fine")[-1] == (b"x", b"0")  # (its slot free)
+    finally:
+        relay.close()
+
+
+def test_a_closed_relay_never_listens_again_and_a_killed_command_says_137():
+    """REL3-11: start() after close() handed back the old path with no one accepting, so
+    every command through it waited forever; close_relays left the closed relay in
+    desk.relays to be handed out again. REL3-14: a command killed by a signal came back as
+    247 (-9 as a byte), not 128 + 9."""
+    relay = container_run.Relay(lambda command: ["/bin/sh", "-c", command], dict)
+    path = relay.start()
+    assert _relay_ask(path, "kill -9 $$")[-1] == (b"x", b"137")
+    relay.close()
+    with pytest.raises(OSError):
+        relay.start()
+
+
+async def test_quitting_lets_go_of_every_relay(hub, projects, docker):
+    """REL3-11: at quit the relays close and are gone from the desk, so none is reused."""
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    container_on(hub, image="node:22")
+    task = await isolated_session(hub)
+    await started(hub, task)
+    assert hub.code_setup.relays
+    for hook in hub.tasks.before_close:
+        await hook()
+    assert hub.code_setup.relays == {}
 
 
 async def test_a_containers_copy_has_its_git_pinned_across_a_restart(hub, projects, docker):
@@ -660,3 +766,46 @@ async def test_a_running_setup_keeps_its_copy_from_landing_and_stops_before_a_di
     answer(hub, "discard")
     await hub.code_desk.discard(copy.slug)
     assert events == ["setup stopped", "discarded"]
+
+
+async def test_a_lockdown_s_sandbox_keeps_the_container_relay_with_the_owners_sandbox_off(
+    hub, projects, docker
+):
+    """REL3-3: the relay's socket went into the sandbox only when the owner's sandbox was
+    on (_Options), and Exterminator's sandbox and an untrusted run's lock-down replaced
+    the sandbox without it: every command of such a session in a container failed. Each
+    lockdown now asks code_setup for the session's relay and keeps it (and only it)."""
+    from types import SimpleNamespace
+
+    make_repo(projects / "proj", {"a.py": "x\n"})
+    container_on(hub, image="node:22")
+    task = await isolated_session(hub)
+    await started(hub, task)
+    copy = copy_of(hub, task)
+    relay = hub.code_setup.relays[f"eden-{copy.slug}"]
+    before = task.client.options.sandbox
+    assert not (isinstance(before, dict) and before.get("enabled"))  # (Settings: sandbox off)
+
+    def allowed(options):
+        assert options.sandbox["enabled"] is True
+        return options.sandbox["network"].get("allowUnixSockets")
+
+    # a card from outside (code_todo's lock-down, by the session's own stamp)
+    task.untrusted = True
+    try:
+        assert allowed(hub.tasks.options_for(task)) == [relay.path]
+    finally:
+        task.untrusted = False
+    # an issue's unattended run
+    hub.code_runs.active[task.id] = SimpleNamespace(spend_cap=5.0, untrusted=True, sandbox=True)
+    try:
+        assert allowed(hub.tasks.options_for(task)) == [relay.path]
+    finally:
+        del hub.code_runs.active[task.id]
+    # Exterminator Mode's run
+    run = SimpleNamespace(spend_cap=5.0, spent=0.0, counted=0.0, sweep_model="haiku", stack={})
+    hub.code_bugfix.active[task.id] = run
+    try:
+        assert allowed(hub.tasks.options_for(task)) == [relay.path]
+    finally:
+        del hub.code_bugfix.active[task.id]

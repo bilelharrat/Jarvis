@@ -623,3 +623,45 @@ async def test_a_session_that_stops_with_an_error_says_so_as_an_error_card(
     stopped = [e for e in task.transcript if e["text"].startswith("Stopped with an error")]
     assert stopped and all(e["error"] is True and e["role"] == "system" for e in stopped)
     await end_all(hub)
+
+
+async def test_a_locked_down_session_stays_locked_down_on_every_resume(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """S3-5: untrusted (a card from outside, an issue's run) was stamped only by
+    TaskManager.start and kept in memory: a restart brought the session back with the
+    owner's settings, MCP servers and web tools over the outside words its conversation
+    holds, and a resume by its id (a pull request's follow-up, a limit's carry-on, a copy's
+    Resume) started an unlocked session. It's saved with the session and restored, and a
+    resume of a locked-down session's id is locked down."""
+    (tmp_path / "proj").mkdir()
+    Stream.instances = []
+    hub = make_hub(settings, quiet_speaker, isolated)
+    assert await hub.code_sessions.restore() == 0
+    tm = hub.tasks
+    task = tm.start("from an issue", "proj", untrusted=True)
+    assert await until(lambda: task.status == "waiting" and task.session_id == "s")
+    # this run: the session let go of (pruned), then resumed by its id alone
+    tm.cancel(task.id)
+    await asyncio.wait([task.handle], timeout=12)
+    del tm.tasks[task.id]
+    again_here = tm.start("", "proj", resume="s")
+    assert again_here.untrusted is True
+    await hub.code_sessions.flush(final=True)
+    await end_all(hub)
+    [saved] = [
+        json.loads(f.read_text())
+        for f in (tmp_path / "code_sessions").glob("*.json")
+        if f.stem != "remembered"
+    ]
+    assert saved["untrusted"] is True
+
+    Stream.instances = []
+    after = make_hub(settings, quiet_speaker, isolated)
+    assert await after.code_sessions.restore() == 1
+    [back] = after.tasks.tasks.values()
+    assert back.untrusted is True and back.session_id == "s"
+    del after.tasks.tasks[back.id]  # (gone from the list: a bare resume by its id)
+    fresh = after.tasks.start("", "proj", resume="s")
+    assert fresh.untrusted is True
+    await end_all(after)

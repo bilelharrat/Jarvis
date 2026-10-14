@@ -64,3 +64,27 @@ def test_session_pids_reads_each_process_not_another_calls_info(monkeypatch):
     monkeypatch.setattr(os, "getsid", lambda pid: by_pid[pid])
     monkeypatch.setattr(runproc.osplat, "IS_WIN", False)
     assert runproc.session_pids(7) == [90011, 90013]
+
+
+def test_kill_marked_looks_again_for_what_forked_while_it_looked(monkeypatch, tmp_path):
+    """REL3-13: one pass over the list missed a child a marked process forked while the
+    list was read (its pid past already): left running when its parent was killed. It looks
+    again while a pass killed something, three passes at most."""
+    child = Proc(90022, env={"EDEN_MARK": "m1"}, ppid=90021)
+    parent = Proc(90021, env={"EDEN_MARK": "m1"}, ppid=500)
+    passes = []
+
+    def listing(attrs=None):
+        passes.append(1)
+        return iter([parent] if len(passes) == 1 else [parent, child])  # (forked meanwhile)
+
+    monkeypatch.setattr(psutil, "process_iter", listing)
+    assert runproc.kill_marked("EDEN_MARK", "m1") == [90021, 90022]
+    assert child.killed and len(passes) == 3  # (the last kills nothing new: done)
+    endless = iter(range(91000, 92000))
+    monkeypatch.setattr(
+        psutil,
+        "process_iter",
+        lambda attrs=None: iter([Proc(next(endless), env={"EDEN_MARK": "m1"})]),
+    )
+    assert len(runproc.kill_marked("EDEN_MARK", "m1")) == runproc.KILL_PASSES

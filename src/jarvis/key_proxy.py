@@ -472,6 +472,7 @@ PROXY = KeyProxy()
 SOCKET_PATH_MAX = 100  # characters of a socket's path a Mac takes (104, less a margin)
 REQUEST_SECONDS_RUN = 10.0  # for secret_run to say where it runs, once connected
 KILL_GRACE = 2.0  # seconds a command has to end after its secret_run went, before KILL
+DRAIN_SECONDS = 1.0  # for the last output once the command exited, before its jobs are stopped
 
 
 def peer_pid(sock: socket.socket) -> int | None:
@@ -512,6 +513,15 @@ class Handoffs:
             with contextlib.suppress(OSError):
                 os.chmod(self._folder, 0o700)
             return self._folder
+
+    def close(self) -> None:
+        """At quit: this run's socket folders removed, once nothing is left in them (a run
+        under way keeps its socket, and its folder stays). Before, none was ever removed,
+        and the next start's sweep (tmp_sweep) is what takes a killed run's (REL3-12)."""
+        from . import tmp_sweep
+
+        with self._lock:
+            tmp_sweep.remove_empty(self._folder, self._short)
 
     def _socket_folder(self) -> Path:
         """The folder, or, when its path is too long for a socket's (a Mac takes 104
@@ -708,25 +718,42 @@ class Handoffs:
             except (OSError, ValueError):
                 pass
 
+        def gone() -> bool:
+            """Whether nothing of the command's process group is left (its background jobs
+            too: started_new_session made the command the group's leader)."""
+            try:
+                os.killpg(proc.pid, 0)
+            except ProcessLookupError:
+                return True
+            except OSError:  # (EPERM: someone else's now; nothing of ours to stop)
+                return True
+            return False
+
         def stop() -> None:
+            """The command's whole group ended: TERM, then KILL after KILL_GRACE. Its
+            background jobs carry the secrets in their environment, so they go too, even
+            once the command itself has exited (REL3-4: a job left running kept them)."""
             for sig in (signal.SIGTERM, signal.SIGKILL):
                 with contextlib.suppress(OSError):
                     os.killpg(proc.pid, sig)
-                try:
+                with contextlib.suppress(subprocess.TimeoutExpired):
                     proc.wait(timeout=KILL_GRACE)
+                deadline = time.monotonic() + KILL_GRACE
+                while not gone() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                if gone():
                     return
-                except subprocess.TimeoutExpired:
-                    continue
 
         def watch() -> None:
-            # secret_run sends nothing more: the end of its side is it gone.
+            # secret_run sends nothing more: the end of its side is it gone. Its group is
+            # stopped then whether or not the command itself is still running: a job it put
+            # in the background outlives it, with the secrets.
             try:
                 while conn.recv(4096):
                     pass
             except OSError:
                 pass
-            if proc.poll() is None:
-                stop()
+            stop()
 
         pumps = [
             threading.Thread(target=pump, args=(proc.stdout, secret_run.OUT), daemon=True),
@@ -736,8 +763,21 @@ class Handoffs:
         for one in pumps:
             one.start()
         code = proc.wait()
+        # The command is done. A job it left in the background holds the output pipes
+        # open, so the pumps never saw their end, EXIT was never sent and secret_run waited
+        # until Claude Code's time limit, the scrubbed tail lost (REL3-4): a moment for
+        # the last output, then the group is stopped (so the pipes end and each pump sends
+        # what its scrubber held), and EXIT goes however the pumps are.
         for one in pumps:
-            one.join()
+            one.join(DRAIN_SECONDS)
+        if any(one.is_alive() for one in pumps):
+            stop()
+            for one in pumps:
+                one.join(KILL_GRACE)
+        if not any(one.is_alive() for one in pumps):  # (else one still reads from them)
+            for pipe in (proc.stdout, proc.stderr):
+                with contextlib.suppress(OSError):
+                    pipe.close()
         status = code if code >= 0 else 128 - code
         send(
             secret_run.OUT,

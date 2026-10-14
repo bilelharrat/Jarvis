@@ -1093,6 +1093,11 @@ class BugFix:
             # fork's is: that total is where this session starts, none of it its own.
             task.cost_unknown = False
             task.cost_usd = task.cost_inherited = task.last_total = float(before)
+        elif resume and run.spent > 0:
+            # A run an older build saved, with no session_cost: the first report's total is
+            # spend from before the resume, in run.spent already, so it's where this session
+            # starts (REL3-14: it was counted again, and the run stopped early).
+            task.cost_unknown = task.inherit_first = True
         elif not resume:
             run.session_cost = 0.0  # (a new conversation: Claude Code's total starts at 0)
         run.task_id, run.counted = task.id, 0.0  # (a new session: none of its spend counted)
@@ -1177,7 +1182,9 @@ class BugFix:
         options.max_budget_usd = left
         options.agents = {**(options.agents or {}), **self.agents(run, task)}
         options.can_use_tool = self.guard(task, options.can_use_tool)
-        options.sandbox = self.sandbox(options.sandbox)
+        from .code_setup import relay_sockets
+
+        options.sandbox = self.sandbox(options.sandbox, relay_sockets(self.hub, task))
         self.lock_down(options)
 
     @staticmethod
@@ -1201,20 +1208,23 @@ class BugFix:
         options.disallowed_tools = [*off, *(t for t in WEB_TOOLS if t not in off)]
 
     @staticmethod
-    def sandbox(before: Any) -> dict[str, Any]:
+    def sandbox(before: Any, relay: list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
         """Claude Code's sandbox, as an unattended run's lock_down has it: the run's commands
         (the project's own tests and builds, so anyone's code) write only in its copy and
         reach no network, with no way out for a command. A unix socket another feature let
         through stays: a container's relay (features/code_setup.py, container_run.py), which
-        can only run a command in that container; docker's own socket never is let through."""
+        can only run a command in that container; docker's own socket never is let through.
+        relay: that socket, asked of code_setup (relay_sockets) whatever the sandbox before
+        said: with the owner's sandbox off there was none to keep it in (REL3-3)."""
         network: dict[str, Any] = {"allowedDomains": [], "allowLocalBinding": True}
         sockets = (
             ((before or {}).get("network") or {}).get("allowUnixSockets")
             if isinstance(before, dict)
             else None
         )
-        if sockets:
-            network["allowUnixSockets"] = list(sockets)
+        kept = list(dict.fromkeys([*(sockets or []), *relay]))
+        if kept:
+            network["allowUnixSockets"] = kept
         return {
             "enabled": True,
             "autoAllowBashIfSandboxed": False,

@@ -60,6 +60,7 @@ prefs.register_feature_pref("code_groups", [], code_projects.clean_groups)
 
 SAVE_DELAY = 1.0  # a burst of changes is saved once, this long after it starts
 PARKED_DAYS = 14  # a session whose folder isn't there is kept this long, in case it's back
+GOAL_START_WAIT = 30.0  # seconds /goal's new session may take to start (a held task_new)
 # The board's line counts for a session, reused this long: past the open board's own poll
 # (every 15 s, web/features/code-board.js), so git runs at most every other one.
 BOARD_TTL = 25.0
@@ -240,6 +241,11 @@ class CodeSessions:
         self._remembered_saved = dict(self.remembered)
         restored = 0
         self._ids_past(records)
+        # Every kept locked-down session's id, the ones left in the history too: a resume of
+        # one by its id alone (start(resume=…)) is locked down as well (S3-5).
+        self.tm.untrusted_sessions.update(
+            r["session_id"] for r in records if r["untrusted"] and r["session_id"]
+        )
         # The open ones come back, and the newest MAX_ENDED ended ones the list shows; the
         # rest stay kept, in the history, until one is reopened (revive).
         ended = [r for r in records if r["ended"]]
@@ -406,7 +412,10 @@ class CodeSessions:
             fork=record["fork"] and bool(record["session_id"]),
             resume_at=record["resume_at"],
             audit=list(record["audit"]),
+            untrusted=record["untrusted"],
         )
+        if record["untrusted"] and record["session_id"]:
+            tm.untrusted_sessions.add(record["session_id"])
         try:
             task.started = datetime.fromisoformat(record["created"])
         except ValueError:
@@ -681,6 +690,7 @@ class CodeSessions:
             "files_changed": sorted(task.files_changed)[:FILES_KEEP],
             "commands": task.commands,
             "fork": task.fork,
+            "untrusted": task.untrusted,  # (S3-5: a locked-down session stays locked down)
             "resume_at": task.resume_at,
             **self._held(task, ended),
             "created": meta["created"],
@@ -1114,15 +1124,24 @@ class CodeSessions:
         text = str(msg.get("text") or "").strip()
         if not text:
             return
-        known = set(self.tm.tasks)
+        from .. import launches
+
+        # Its session by its launch token, never "the new one": another started meanwhile
+        # was given the goal (REL3-10).
+        token = launches.token()
         await self.hub._handle(
-            {"type": "task_new", "directory": str(msg.get("directory") or ""), "prompt": ""}
+            {
+                "type": "task_new",
+                "directory": str(msg.get("directory") or ""),
+                "prompt": "",
+                launches.KEY: token,
+            }
         )
-        fresh = [t for i, t in self.tm.tasks.items() if i not in known and t.kind == "code"]
-        if not fresh:
+        task = await launches.started(self.tm, token, GOAL_START_WAIT)
+        if task is None:
             return  # (task_new said why)
-        await self._cmd_goal({"id": fresh[0].id, "action": "set", "text": text})
-        self.hub.emit("show_session", id=fresh[0].id)
+        await self._cmd_goal({"id": task.id, "action": "set", "text": text})
+        self.hub.emit("show_session", id=task.id)
 
     def _turn_ended(self, data: dict[str, Any]) -> None:
         """A session's turn is over: its goal is met, or goes on, or pauses."""

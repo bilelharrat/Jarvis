@@ -61,6 +61,13 @@ PER_PROJECT = 100
 TITLE_MAX = 120
 PROMPT_MAX = 20_000
 START_WAIT = 30.0  # seconds a started card waits for its session (it binds later all the same)
+# Seconds a card whose session is late still counts as starting (no second Start, no queue
+# Run of it): as long as the queue holds a late card's place (code_queue.LATE_WAIT).
+LATE_WAIT = 300.0
+TOO_LATE = (
+    "This session started too late for its to-do card, which had already failed, so it was "
+    "stopped. Start the card again to run it."
+)
 STATES = ("todo", "queued", "running", "started", "done", "failed", "stopped")
 OUTSIDE_MODES = ("plan", "ask", "edits")  # what a card from an issue may start in
 _ID = re.compile(r"[0-9a-f]{10}")
@@ -82,6 +89,8 @@ ZH = {
     "That's as many cards as a project can keep.": "一个项目最多只能放这么多卡片。",
     "That isn't a model on your list.": "那不是你列表里的模型。",
     "That card is already running.": "那张卡片已经在运行了。",
+    "That card's session is still starting.": "那张卡片的会话还在启动。",
+    "This session started too late for its to-do card, which had already failed, so it was stopped. Start the card again to run it.": "这个会话启动得太晚，它的待办卡片已经失败了，所以它被停止了。再次启动卡片即可运行。",
     "The session didn't start: {why}": "会话没有启动：{why}",
     "it didn't appear in time": "它没有及时出现",
     "Add a cloud machine in Eden Code settings › Machines first.": "请先在 Eden Code 设置 › 机器 里添加一台云端机器。",
@@ -210,6 +219,16 @@ class Todo:
         # Launch tokens of cards whose session hadn't appeared when start stopped waiting
         # (a held task_new): token -> card id, bound when it does.
         self.pending: dict[str, str] = {}
+        # When each of those was left pending (time.monotonic()), and the cards a Start is
+        # starting now: such a card is "starting" (starting_now), so neither a second Start
+        # nor the queue's Run starts it again while its session may still come (REL3-5:
+        # a held Start left the card "todo", Run queued it, and one card ran two sessions).
+        self.pending_at: dict[str, float] = {}
+        self.starting: set[str] = set()
+        # Tokens given up on (code_queue's LATE_WAIT ran out, the card failed): should the
+        # session come even so, it's stopped as it appears, never left running unlinked and
+        # outside the queue's ceiling while its card says failed (REL3-7).
+        self.dead: set[str] = set()
         # Told (card, session) when a late one binds: the queue takes such a card back up.
         self.late: list[Any] = []
 
@@ -221,6 +240,17 @@ class Todo:
 
     def tr(self, text: str, **values: Any) -> str:
         return lang.tr(text, self.hub.language, **values)
+
+    def starting_now(self, card_id: str) -> bool:
+        """Whether a Start of this card is under way, or its session is late and may still
+        come (for LATE_WAIT): it mustn't be started again meanwhile."""
+        if card_id in self.starting:
+            return True
+        now = time.monotonic()
+        return any(
+            cid == card_id and now - self.pending_at.get(token, now) < LATE_WAIT
+            for token, cid in self.pending.items()
+        )
 
     def _guarded(self) -> bool:
         """Touch ID guards Bypass from the window now (features/code_touchid.py)."""
@@ -399,8 +429,15 @@ class Todo:
         if card["state"] in ("queued", "running"):
             self.error(self.tr("That card is already running."))
             return
+        if self.starting_now(card["id"]):
+            self.error(self.tr("That card's session is still starting."))
+            return
         route = msg.get("route") if isinstance(msg.get("route"), dict) else None
-        task = await self.start(card, route=route)
+        self.starting.add(card["id"])  # (before the wait: REL3-5)
+        try:
+            task = await self.start(card, route=route)
+        finally:
+            self.starting.discard(card["id"])
         if task is not None:
             card["state"] = "started"
             self.save()
@@ -478,14 +515,17 @@ class Todo:
             msg["route"] = route  # (features/code_router puts the session on it)
         return msg
 
-    async def start(self, card: dict[str, Any], model: str = "", route: Any = None) -> Any:
+    async def start(
+        self, card: dict[str, Any], model: str = "", route: Any = None, token: str = ""
+    ) -> Any:
         """The card's session, started; None when it didn't (todo_error says why). One card
         starts at a time in a project, and the session taken is the one its task_new's launch
         token was stamped on (launches.py): while a held task_new waits (an @-mention being
         gathered, a route being rated), other sessions start too, anywhere. One that comes
         after the wait is bound when it does; it is locked down by its own stamp either way.
         (Another agent's, started with acp_start: the one with the card's prompt in its
-        project.)"""
+        project.) token: the launch token to stamp (the queue's own, so it knows which
+        late session is its start's); else a new one."""
         chosen = model or card.get("model") or ""
         if card.get("cloud"):
             cloud = getattr(self.hub, "code_cloud", None)
@@ -516,11 +556,14 @@ class Todo:
                     await asyncio.sleep(0.05)
                     waited += 0.05
             else:
-                token = launches.token()
+                token = token or launches.token()
                 await self.hub._handle(self.message(card, model, route, token))
                 task = await launches.started(tm, token, START_WAIT)
+                if task is None and launches.refusal(token) is not None:
+                    return None  # (refused, never held: the hub said why; REL3-8)
                 if task is None:
                     self.pending[token] = card["id"]
+                    self.pending_at[token] = time.monotonic()
         if task is None:
             # A queue's card (it's "running" as it starts) still waiting for its session: the
             # queue holds its place and says how it went (code_queue: round 3, REL-2).
@@ -577,11 +620,19 @@ class Todo:
         """A started card learns its session's Claude Code id (to reopen it later)."""
         if kind != "tasks":
             return
+        for token in list(self.dead):
+            task = launches.find(self.hub.tasks, token)
+            if task is None:
+                continue
+            self.dead.discard(token)
+            self.hub.tasks._log(task, "system", self.tr(TOO_LATE))
+            self.hub.tasks.cancel(task.id)
         for token, card_id in list(self.pending.items()):
             task = launches.find(self.hub.tasks, token)
             if task is None:
                 continue
             del self.pending[token]
+            self.pending_at.pop(token, None)
             card = self.board.get(card_id)
             if card is not None and not card.get("task"):  # (a late session: linked now)
                 self.bind(card, task)
@@ -627,7 +678,9 @@ class _LockDown:
             options = inner(task)
             runs = getattr(self.todo.hub, "code_runs", None)
             if runs is not None and self.locked(task):
-                runs.lock_down(options, sandbox=True)
+                from .code_setup import relay_sockets  # (its container's relay: REL3-3)
+
+                runs.lock_down(options, sandbox=True, sockets=relay_sockets(self.todo.hub, task))
             return options
 
         return options_for

@@ -240,6 +240,11 @@ async def test_no_turn_starts_in_the_task_folder_while_it_lands(
     [item] = hub.code_desk.store().trash
     assert git(web, "show", f"{item['ref']}:late.py") == "late\n"
     assert hub.code_desk.landing == {}
+    # REL3-1: the held message is dropped with the session the landing ended, never
+    # released into a session reopened in the removed task folder.
+    await asyncio.sleep(0.5)
+    assert task.inbox.empty() and task.gated == "" and task.handle.done()
+    assert any("wasn't sent" in e["text"] for e in task.transcript if e["role"] == "system")
 
 
 async def test_an_unreadable_groups_file_is_never_saved_over(hub, tmp_path, projects):

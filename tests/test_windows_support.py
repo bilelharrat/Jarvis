@@ -333,8 +333,8 @@ def test_a_running_screen_reader_is_noticed_by_windows_flag_or_by_name(monkeypat
 
     running = []
 
-    def processes(_attrs=None):
-        return iter([SimpleNamespace(info={"name": n}) for n in running])
+    def processes(_attrs=None):  # (each read itself: osplat.process_names, REL3-14)
+        return iter([SimpleNamespace(name=lambda n=n: n) for n in running])
 
     monkeypatch.setattr(osplat, "IS_WIN", True)
     windll = SimpleNamespace(user32=SimpleNamespace(SystemParametersInfoW=spi))

@@ -913,10 +913,8 @@ def installed() -> bool:
 
 def running() -> bool:
     try:
-        import psutil
+        from . import osplat
 
-        return any(
-            (p.info["name"] or "").lower() == "outlook.exe" for p in psutil.process_iter(["name"])
-        )
+        return "outlook.exe" in osplat.process_names()
     except Exception:  # noqa: BLE001
         return False

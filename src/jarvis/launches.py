@@ -21,16 +21,24 @@ owner's terminal and other sessions into it.
 
 A window can send these keys too: a token only names a session (nobody else knows it), and
 untrusted only ever locks one down.
+
+A task_new the hub refused (a folder outside the projects, too many sessions: ValueError) never
+starts a session: its token is kept as refused (refuse, refusal), so the starter stops waiting
+at once and says so, rather than holding the card's place for a session that never comes
+(REL3-8: the queue held each such card 5.5 minutes).
 """
 
 from __future__ import annotations
 
 import asyncio
 import secrets
+from collections import OrderedDict
 from typing import Any
 
 KEY = "launch_token"  # the token's key in a task_new message
 TOKEN_MAX = 64  # characters of a token taken from a message
+REFUSED_KEPT = 256  # refused tokens remembered, the newest
+_REFUSED: OrderedDict[str, str] = OrderedDict()  # token -> why it was refused
 
 
 def token() -> str:
@@ -43,6 +51,22 @@ def stamp(msg: dict[str, Any]) -> dict[str, Any]:
         "launch_token": str(msg.get(KEY) or "")[:TOKEN_MAX],
         "untrusted": msg.get("untrusted") is True,
     }
+
+
+def refuse(msg: dict[str, Any], why: str) -> None:
+    """The hub refused this task_new: its token (if it has one) won't start a session."""
+    launch = str(msg.get(KEY) or "")[:TOKEN_MAX]
+    if not launch:
+        return
+    _REFUSED[launch] = why
+    _REFUSED.move_to_end(launch)
+    while len(_REFUSED) > REFUSED_KEPT:
+        _REFUSED.popitem(last=False)
+
+
+def refusal(launch: str) -> str | None:
+    """Why the task_new with this token was refused; None when it wasn't (yet)."""
+    return _REFUSED.get(launch) if launch else None
 
 
 def find(tasks: Any, launch: str) -> Any:
@@ -59,7 +83,7 @@ async def started(tasks: Any, launch: str, wait: float, step: float = 0.05) -> A
     waited = 0.0
     while True:
         task = find(tasks, launch)
-        if task is not None or waited >= wait:
+        if task is not None or waited >= wait or refusal(launch) is not None:
             return task
         await asyncio.sleep(step)
         waited += step

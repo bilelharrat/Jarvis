@@ -471,19 +471,38 @@ def kill_marked(
     environment has name=value (the run's own random mark), and, since macOS hides a system
     program's environment (/bin/sleep, /bin/sh), every orphan (its parent gone: launchd's
     now) started since `since` whose folder is inside `folder`. The pids killed."""
-    import psutil
-
     if not value:
         return []
     root = os.path.realpath(folder) if folder is not None else ""
     me, killed = os.getpid(), []
+    # Passes until one kills nothing new (at most KILL_PASSES): a marked process can fork
+    # while the list is read, its child, past in the list already, left running when its
+    # parent was killed; the next pass finds it (by its mark, or as an orphan now) (REL3-13).
+    for _ in range(KILL_PASSES):
+        more = _kill_marked_once(name, value, root, since, me, set(killed))
+        if not more:
+            break
+        killed.extend(more)
+    return killed
+
+
+KILL_PASSES = 3
+
+
+def _kill_marked_once(
+    name: str, value: str, root: str, since: float | None, me: int, done: set[int]
+) -> list[int]:
+    """One pass of kill_marked over the process list (done: the pids killed already)."""
+    import psutil
+
+    killed = []
     # Each process read itself, never p.info: psutil keeps one Process per pid, and another
     # thread's process_iter with other attrs (kill_leftovers' at every command's end) wrote
     # its p.info over this one's, so p.info["ppid"] was a KeyError that ended a Stopped
     # Exterminator run "failed", its suite's leftovers still running.
     for p in psutil.process_iter():
         pid = p.pid
-        if pid == me:
+        if pid == me or pid in done:
             continue
         try:
             ours = p.environ().get(name) == value

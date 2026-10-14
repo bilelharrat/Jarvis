@@ -29,6 +29,7 @@ def kept_copies(path):
 
 
 def test_a_file_from_before_versions_is_copied_then_saved_at_the_version(tmp_path, store):
+    jsonstore.register_migration("test_things", 0, lambda d: d)  # (a step: there's work to do)
     path = tmp_path / "things.json"
     path.write_text(json.dumps({"items": [1, 2]}))
     before = path.read_bytes()
@@ -42,6 +43,21 @@ def test_a_file_from_before_versions_is_copied_then_saved_at_the_version(tmp_pat
     # Read again: nothing more to do, no second copy.
     assert jsonstore.load_store(path, "test_things", clock=CLOCK) == data
     assert len(kept_copies(path)) == 1
+
+
+def test_a_version_with_no_step_to_it_is_never_copied_or_rewritten(tmp_path, store):
+    """REL3-18: 0 -> 1 with no step still copied every file whole and wrote it again (a
+    .pre-migration, a .bak and the file: three times the files, ~17 s for 2000 kept
+    sessions at the first start). The data is stamped in memory, the file left as it is
+    until its next save stamps it."""
+    path = tmp_path / "things.json"
+    path.write_text(json.dumps({"items": [1, 2]}))
+    before = path.read_bytes()
+    assert jsonstore.load_store(path, "test_things", clock=CLOCK) == {"items": [1, 2], "version": 1}
+    assert path.read_bytes() == before and not kept_copies(path)
+    assert not (tmp_path / "things.json.bak").exists()
+    jsonstore.save_store(path, "test_things", {"items": [1, 2, 3]})
+    assert json.loads(path.read_text()) == {"items": [1, 2, 3], "version": 1}
 
 
 def test_every_step_runs_in_order_and_a_save_stamps_the_version(tmp_path, store):
@@ -128,6 +144,7 @@ def test_nonsense_for_a_version_runs_no_step_and_is_never_saved_over(tmp_path, s
 
 
 def test_many_migrations_in_one_second_each_keep_a_copy(tmp_path, store):
+    jsonstore.register_migration("test_things", 0, lambda d: d)
     path = tmp_path / "things.json"
     for i in range(120):  # (99 ran out of names)
         path.write_text(json.dumps({"n": i}))
@@ -243,9 +260,10 @@ def test_the_pull_request_list_from_before_versions_is_kept_and_moved_on(tmp_pat
     path.write_text(json.dumps(old))
     pulls = code_prs.PullStore(path)
     assert [(p.repo, p.number) for p in pulls.items] == [("o/r", 4)]
+    # (no step to version 1: left as it is, stamped when it's next saved: REL3-18)
+    assert json.loads(path.read_text()) == old and not kept_copies(path)
+    pulls.save()
     assert json.loads(path.read_text())["version"] == 1
-    [copy] = kept_copies(path)
-    assert json.loads((tmp_path / copy).read_text()) == old
 
 
 def test_usage_rules_sandbox_and_copies_save_with_their_version(tmp_path):
@@ -270,8 +288,10 @@ def test_a_kept_session_from_before_versions_is_read_and_moved_on(tmp_path):
     (folder / f"{key}.json").write_text(json.dumps({"cwd": str(tmp_path), "title": "old"}))
     [record] = session_store.SessionStore(folder).load()
     assert record["title"] == "old"
-    assert json.loads((folder / f"{key}.json").read_text())["v"] == 1
-    assert len(kept_copies(folder / f"{key}.json")) == 1
+    # (no step to version 1: neither copied nor rewritten at the start: REL3-18)
+    assert "v" not in json.loads((folder / f"{key}.json").read_text())
+    assert not kept_copies(folder / f"{key}.json")
+    assert not (folder / f"{key}.json.bak").exists()
     store = session_store.SessionStore(folder)
     store.load()
     store.save({}, keep=set())  # the session deleted: its copy from before goes too (F3)

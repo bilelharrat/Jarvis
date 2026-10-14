@@ -95,13 +95,8 @@ def _guarded(fn):
 
 def app_running(app: str) -> bool:
     if osplat.IS_WIN:  # a process of that name (Spotify.exe), as pgrep -x does on a Mac
-        import psutil
-
         want = app.lower()
-        return any(
-            (p.info["name"] or "").lower().removesuffix(".exe") == want
-            for p in psutil.process_iter(["name"])
-        )
+        return any(name.removesuffix(".exe") == want for name in osplat.process_names())
     try:
         return subprocess.run(["pgrep", "-xq", app]).returncode == 0
     except OSError:  # no pgrep: nothing to say it is

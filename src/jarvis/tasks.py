@@ -924,6 +924,10 @@ class ClaudeTask:
     # Resumed with no record of what it cost before (a past session opened by its id): the
     # first report is taken as where it stood, not as one turn's cost.
     cost_unknown: bool = False
+    # …and that first report's total is none of this session's own (cost_inherited, as a
+    # fork's): spend from before it that its feature has counted already (code_bugfix: a
+    # run saved by an older build, which kept no session_cost: REL3-14).
+    inherit_first: bool = False
     # The usage-limit report Claude Code last gave on this session's own connection (its
     # model's window, its reset time): a wait for the limit goes by this, not another's.
     rate_limit: Any = None
@@ -1364,6 +1368,12 @@ class TaskManager:
         # Also code_sessions: a kept session let go from the list, back (by its Claude
         # session id) with its own id and settings; and the kept ones the history adds.
         self.revive: Callable[[str], int | None] | None = None
+        # The Claude Code session ids of locked-down sessions (task.untrusted: a card from
+        # outside, an issue's run): a resume of one is locked down too, however it comes
+        # back (a pull request's follow-up, a limit's carry-on, a copy's Resume, the
+        # history), never a fresh session with the owner's settings over the outside words
+        # its conversation holds (S3-5). code_sessions adds the kept ones at startup.
+        self.untrusted_sessions: set[str] = set()
         # features.code_answers: a session's question, seen before it's put to the user
         # (answered from their earlier choices or memory, or, while they're in a meeting or
         # Focus, left to the session's own judgment), and each answer the user gave.
@@ -1546,6 +1556,8 @@ class TaskManager:
             launch_token=launch_token,
             untrusted=bool(untrusted),
         )
+        if resume and resume in self.untrusted_sessions:
+            task.untrusted = True  # (its conversation holds outside words: S3-5)
         if task.mode == "smart" and not auto_capable(task.model or self.model):
             task.mode = "ask"  # Claude Code's auto mode needs Opus, Sonnet or Fable
         if task.prompt or images:
@@ -2792,7 +2804,9 @@ class TaskManager:
             return False
         task.stirred.set()
         if (task.handle is None or task.handle.done()) and not self.closing:
-            if not task.inbox.empty():
+            # A folder gone meanwhile (its isolated copy landed or was discarded) is never
+            # reopened: the session would start in nothing (REL3-1).
+            if not task.inbox.empty() and Path(task.cwd).is_dir():
                 task.status, task.restarts = "running", 0
                 task.handle = asyncio.create_task(self._session(task))
             self._changed()
@@ -3100,6 +3114,8 @@ class TaskManager:
             # Rewound in place: this turn went on from that point, where later ones carry on.
             task.resume_at = ""
         task.session_id = message.session_id or task.session_id
+        if task.untrusted and task.session_id:
+            self.untrusted_sessions.add(task.session_id)
         turn_cost = self._count_cost(task, message.total_cost_usd)
         if self.on_usage is not None:
             try:
@@ -3168,6 +3184,9 @@ class TaskManager:
             task.cost_unknown = False
             task.conn_cost = total
             task.cost_usd = round(max(before, total), 6)
+            if task.inherit_first:
+                task.inherit_first = False
+                task.cost_inherited = task.cost_usd
             return 0.0
         task.cost_unknown = False
         if task.conn_cost is None:  # this connection's first report

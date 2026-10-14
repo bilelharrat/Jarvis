@@ -795,17 +795,21 @@ class Runs:
         options.max_budget_usd = left
         options.can_use_tool = self.guard(task, options.can_use_tool)
         if run.untrusted:
-            self.lock_down(options, sandbox=run.sandbox)
+            from .code_setup import relay_sockets
+
+            self.lock_down(options, sandbox=run.sandbox, sockets=relay_sockets(self.hub, task))
 
     @staticmethod
-    def lock_down(options: Any, sandbox: bool) -> None:
+    def lock_down(options: Any, sandbox: bool, sockets: list[str] | tuple[str, ...] = ()) -> None:
         """An issue's run (its request is anyone's words): no settings file at all, neither
         the owner's nor the project's (a fork's pull request checked out for "Fix it" brings
         its own .claude/settings.json, whose hooks and allow rules would run on this Mac;
         .claude/settings.local.json can be in the tree too), no MCP server at all (JARVIS's
         browser, simulator and sessions tools, connectors, the project's .mcp.json), no web
         tools, and unless the owner turned it off for the repository, its commands in Claude
-        Code's sandbox with no network."""
+        Code's sandbox with no network. sockets: what the sandbox still lets through, the
+        session's container relay (code_setup.relay_sockets), so its commands still reach
+        its container (REL3-3: the lock-down's sandbox had none, and every command failed)."""
         options.setting_sources = []
         options.mcp_servers = {}
         options.strict_mcp_config = True
@@ -816,7 +820,11 @@ class Runs:
                 "enabled": True,
                 "autoAllowBashIfSandboxed": False,
                 "allowUnsandboxedCommands": False,
-                "network": {"allowedDomains": [], "allowLocalBinding": True},
+                "network": {
+                    "allowedDomains": [],
+                    "allowLocalBinding": True,
+                    **({"allowUnixSockets": list(sockets)} if sockets else {}),
+                },
             }
 
     def guard(self, task: Any, inner: Any) -> Any:

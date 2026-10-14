@@ -493,6 +493,9 @@ class MultiDesk:
                     )
                 landed.append(copy)
                 self.desk.conflicts.pop(copy.slug, None)
+            ended = self.task_of(group)
+            if ended is not None:  # (its held messages are dropped, never released: REL3-1)
+                self.desk.ended_by_landing.add(ended.id)
             await self._end(group)  # (the session now: one resumed while it landed too)
             kept: list[dict[str, Any]] = []
             for copy in copies:

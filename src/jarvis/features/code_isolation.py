@@ -42,6 +42,8 @@ OFFER_SECONDS = 90  # a card offering a copy waits this long, then the session s
 SWEEP_EVERY = 24 * 3600
 SWEEP_FIRST = 30  # after startup, once the app has settled
 HELD = "Waiting: its isolated copy is being landed."
+# Said in a session the landing ended, for the messages it held (REL3-1): they never go.
+UNSENT = "Your message wasn't sent: its isolated copy landed and this session ended."
 
 
 def _project_names(value: Any) -> list[str] | None:
@@ -99,6 +101,7 @@ ZH = {
     "Couldn't bring it back: {error}": "没能找回：{error}",
     "Sent the conflicts to the session.": "已把冲突交给会话。",
     "Waiting: its isolated copy is being landed.": "等待中：它的独立副本正在合并。",
+    "Your message wasn't sent: its isolated copy landed and this session ended.": "你的消息没有发出：它的独立副本已经合并，这个会话已结束。",
     "Landed {branch} in {into}. Work written in the copy while it landed is kept for 30 days in the Copies pane.": "已把 {branch} 合并进 {into}。合并期间写进副本的工作会在副本面板里保留 30 天。",
     "Landed {branch} in {into}, but the copy had new work in it and couldn't be kept in the trash, so it's still there: {error}": "已把 {branch} 合并进 {into}，但副本里有新的工作，又没能放进回收站，所以它还在：{error}",
     "Opened the session with the conflicts.": "已打开会话并交给它冲突。",
@@ -161,6 +164,9 @@ class Desk:
         # A turn Claude Code starts on its own can't be held: what it leaves is kept in the
         # trash instead (take_away_landed).
         self.landing: dict[str, Path] = {}
+        # Sessions a landing ended (by id): end_landing drops their held messages instead of
+        # releasing them, which reopened the session in the copy just removed (REL3-1).
+        self.ended_by_landing: set[int] = set()
 
     # ── the list of copies ──
 
@@ -573,6 +579,7 @@ class Desk:
             # The sessions in it now: one resumed or started in it while it landed too.
             inside = self.tasks_in(copy)
             for task in inside:
+                self.ended_by_landing.add(task.id)
                 self.hub.tasks.cancel(task.id)
             await self._ended(inside)
             await self.taking_away(copy.slug)
@@ -629,12 +636,31 @@ class Desk:
             self.landing[slug] = folder
 
     def end_landing(self, slug: str) -> None:
-        """The landing is over (done or not): the messages it held go again."""
+        """The landing is over (done or not): the messages it held go again, except in a
+        session the landing ended (ended_by_landing): releasing those opened the session
+        again in the copy just removed (REL3-1). Their messages are dropped, their hold
+        cleared, and the transcript says they weren't sent."""
         self.landing.pop(slug, None)
         why = self.tr(HELD)
         for task in list(self.hub.tasks.tasks.values()):
-            if task.gated in (HELD, why) and self.hold(task) == "":
+            if task.gated not in (HELD, why) or self.hold(task) != "":
+                continue
+            if task.id in self.ended_by_landing:
+                self.unsent(task)
+            else:
                 self.hub.tasks.release(task.id)
+        if not self.landing:
+            self.ended_by_landing.clear()
+
+    def unsent(self, task: Any) -> None:
+        """A session the landing ended: what it held for its next turn never goes."""
+        dropped = 0
+        while task.inbox.take() is not None:
+            dropped += 1
+        task.gated = ""
+        if dropped:
+            self.hub.tasks._log(task, "system", self.tr(UNSENT))
+        self.hub.tasks._changed_soon()
 
     def hold(self, task: Any) -> str:
         """TaskManager.turn_holds: a session in a copy being landed waits."""

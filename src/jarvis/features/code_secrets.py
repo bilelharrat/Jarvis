@@ -71,7 +71,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from .. import jsonstore, key_proxy, lang, secret_run, tasks
+from .. import jsonstore, key_proxy, lang, secret_run, tasks, tmp_sweep
 
 log = logging.getLogger("jarvis")
 
@@ -875,6 +875,13 @@ def install(hub: Any) -> None:
 
     async def sweep_once() -> None:
         await asyncio.to_thread(sec.sweep)
+        # (and the socket folders a killed backend's secret runs and relays left: REL3-12)
+        await asyncio.to_thread(tmp_sweep.sweep)
+
+    async def close_handoffs() -> None:  # (at quit: this run's socket folders, if empty)
+        await asyncio.to_thread(key_proxy.HANDOFFS.close)
+
+    hub.tasks.before_close.append(close_handoffs)
 
     hub.register_command("sec_answer", answer)
     hub.register_command("sec_list", listing)

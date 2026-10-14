@@ -51,7 +51,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import codesupervisor as cs
-from .. import lang, prefs
+from .. import lang, launches, prefs
 
 log = logging.getLogger("jarvis")
 
@@ -194,6 +194,9 @@ class Exterminate:
     def __init__(self, hub: Any) -> None:
         self.hub = hub
         self.asked: set[int] = set()  # sessions offered once already (either answer)
+        # …and the launch tokens of the sessions it started itself, by them however late
+        # they start (a held task_new): "whichever is new" took another's (REL3-10).
+        self.asked_tokens: set[str] = set()
         self.queues: dict[tuple[str, Any], asyncio.Task] = {}
         self.last_said = ""  # what Exterminator Mode's start last said (the voice reply)
 
@@ -235,7 +238,12 @@ class Exterminate:
     def session_skipped(self, task: Any) -> bool:
         """A session that's never offered: an ACP agent's, an Exterminator run's own, an
         unattended (issue, Linear, Slack, routine) run's, or one asked once already."""
-        if task is None or getattr(task, "kind", "") != "code" or task.id in self.asked:
+        if (
+            task is None
+            or getattr(task, "kind", "") != "code"
+            or task.id in self.asked
+            or (getattr(task, "launch_token", "") or None) in self.asked_tokens
+        ):
             return True
         if str(getattr(task, "model", "") or "").startswith("acp:"):
             return True
@@ -347,10 +355,12 @@ class Exterminate:
     async def onward(self, msg: dict[str, Any], kind: str, task: Any) -> None:
         """The message as it came, to the features after this one and the hub; a new
         session it starts is never asked again."""
-        known = set(self.hub.tasks.tasks)
-        await self.hub._handle_logged({**msg, _DONE: True})
-        if kind == "new":
-            self.asked.update(set(self.hub.tasks.tasks) - known)
+        if kind != "new":
+            await self.hub._handle_logged({**msg, _DONE: True})
+            return
+        token = str(msg.get(launches.KEY) or "") or launches.token()
+        self.asked_tokens.add(token)
+        await self.hub._handle_logged({**msg, launches.KEY: token, _DONE: True})
 
     async def ask(self, project: str, speak: bool = False) -> str:
         name = self.name_of(project) or project
@@ -432,14 +442,21 @@ class Exterminate:
 
             await vc.handle(text, focus, intent=voice_command(text))
             return ""
-        known = set(self.hub.tasks.tasks)
+        token = launches.token()
+        self.asked_tokens.add(token)
         await self.hub._handle_logged(
-            {"type": "task_new", "directory": project, "prompt": text, _DONE: True}
+            {
+                "type": "task_new",
+                "directory": project,
+                "prompt": text,
+                launches.KEY: token,
+                _DONE: True,
+            }
         )
-        fresh = sorted(set(self.hub.tasks.tasks) - known)
-        self.asked.update(fresh)
-        if fresh:
-            self.hub.emit("show_session", id=fresh[0])
+        fresh = launches.find(self.hub.tasks, token)
+        if fresh is not None:  # (one held back shows itself when it starts)
+            self.asked.add(fresh.id)
+            self.hub.emit("show_session", id=fresh.id)
         return self.say(
             "Sent it to a new Eden Code session in {project}.",
             project=self.name_of(project) or project,

@@ -212,18 +212,37 @@ async def test_snap_window_keeps_a_window_on_its_own_display(calls, monkeypatch)
 
 
 def test_a_running_app_is_found_by_its_process_name_on_a_pc(monkeypatch):
-    class Process:
-        def __init__(self, name):
-            self.info = {"name": name}
-
-    monkeypatch.setattr(mac_tools.osplat, "IS_WIN", True)
+    """REL3-14: each process is read itself (p.name()), never p.info, which another
+    thread's process_iter with other attrs left without "name" (a KeyError); one gone
+    meanwhile is left out."""
     import psutil
 
+    class Process:
+        def __init__(self, name):
+            self._name = name
+            self.info = {"pid": 1}  # (another call's attrs: no "name")
+
+        def name(self):
+            if self._name == "gone":
+                raise psutil.NoSuchProcess(1)
+            return self._name
+
+    monkeypatch.setattr(mac_tools.osplat, "IS_WIN", True)
     monkeypatch.setattr(
-        psutil, "process_iter", lambda attrs=None: iter([Process("Spotify.exe"), Process(None)])
+        psutil,
+        "process_iter",
+        lambda attrs=None: iter([Process("gone"), Process("Spotify.exe"), Process(None)]),
     )
     assert mac_tools.app_running("Spotify") and mac_tools.app_running("spotify")
     assert not mac_tools.app_running("Calendar")
+    from jarvis import winoutlook_mail
+
+    assert not winoutlook_mail.running()
+    monkeypatch.setattr(
+        psutil, "process_iter", lambda attrs=None: iter([Process("gone"), Process("OUTLOOK.EXE")])
+    )
+    assert winoutlook_mail.running()
+    assert mac_tools.osplat.process_names() == ["outlook.exe"]
 
 
 def test_without_pgrep_nothing_is_running(monkeypatch):

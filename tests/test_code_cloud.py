@@ -90,6 +90,7 @@ class Hub:
         self.prefs = SimpleNamespace(features={}, feature=lambda key: None)
         self.events, self.cards, self.spawned, self.said = [], [], [], []
         self.answer = answer
+        self.meanwhile = []
 
     def emit(self, kind, **values):
         self.events.append((kind, values))
@@ -106,7 +107,13 @@ class Hub:
 
     async def _handle(self, msg):
         # The hub's own task_new: a new session, its isolated copy made a moment later.
-        task = self.tasks.add(prompt=msg["prompt"], title=msg.get("title", ""))
+        if self.meanwhile:  # (another session starts as this one is handled)
+            self.tasks.add(prompt=self.meanwhile.pop(), title="someone else's")
+        task = self.tasks.add(
+            prompt=msg["prompt"],
+            title=msg.get("title", ""),
+            launch_token=msg.get("launch_token", ""),
+        )
         task.isolate = msg.get("isolated")
 
         async def copy_made():
@@ -133,6 +140,25 @@ def test_a_session_started_in_the_cloud_hands_its_first_message_over():
     assert task.title == "Fix the flaky test"
     assert hub.code_handoff.handed == [(1, "jarvis-cloud", "Fix the flaky test", True)]
     assert hub.cards == []  # the owner asked for the cloud: no second card
+
+
+def test_the_session_sent_to_the_cloud_is_its_own_never_another_started_meanwhile():
+    """REL3-10: "whichever session is new" was taken as the cloud start's own: one the
+    window started meanwhile went to the machine instead. It's found by its launch token."""
+    hub = Hub()
+    hub.meanwhile = ["the window's"]
+    cloud = Cloud(hub)
+
+    async def go():
+        await cloud.task_new(
+            {"type": "task_new", "cloud": True, "prompt": "Fix the flaky test", "directory": "/p"}
+        )
+        await asyncio.gather(*hub.spawned)
+
+    asyncio.run(go())
+    other, mine = hub.tasks.tasks[1], hub.tasks.tasks[2]
+    assert other.title == "someone else's" and mine.launch_token
+    assert hub.code_handoff.handed == [(mine.id, "jarvis-cloud", "Fix the flaky test", True)]
 
 
 def test_without_cloud_or_a_prompt_the_hub_starts_it_as_usual():

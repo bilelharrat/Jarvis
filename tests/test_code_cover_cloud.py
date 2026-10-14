@@ -1153,10 +1153,14 @@ def test_without_a_hand_off_desk_there_is_no_cloud_machine():
 
 
 def test_a_cloud_start_the_hub_didnt_make_a_session_for_does_nothing_more():
-    """The hub's own new-session step made nothing (it refused): nothing goes to the cloud."""
+    """The hub's own new-session step made nothing (it refused): nothing goes to the cloud,
+    and nothing waits for it (the hub's refusal names its launch token: launches.refuse)."""
+    from jarvis import launches
+
     hub = CloudHub()
 
     async def made_nothing(msg):
+        launches.refuse(msg, "That folder isn't one of your projects.")  # (as the hub does)
         return None
 
     hub._handle = made_nothing

@@ -455,7 +455,10 @@ class SetupDesk:
         relay = self.relays.get(name)
         if relay is None:
             relay = container_run.Relay(
-                lambda command: self.docker.exec_argv(name, cwd, command), self.docker.env
+                lambda command: self.docker.exec_argv(name, cwd, command),
+                self.docker.env,
+                # a step stopped (its Bash timeout, Stop) is stopped in there too (REL3-6)
+                stop_for=lambda pidfile: self.docker.exec_argv(name, cwd, stop_script(pidfile)),
             )
             self.relays[name] = relay
         try:
@@ -729,6 +732,21 @@ def _q(text: str) -> str:
     return shlex.quote(text)
 
 
+def relay_sockets(hub: Any, task: Any) -> list[str]:
+    """The socket of the relay into the session's container, as a list ([] when its copy
+    has none): what a feature that puts the session's commands in a sandbox of its own lets
+    through (REL3-3: Exterminator's sandbox and an untrusted run's lock-down replaced the
+    sandbox without it, so every command in the container failed; and with the owner's
+    sandbox off, _Options had nothing to add it to). The relay can only run a command in
+    that container."""
+    desk = getattr(hub, "code_setup", None)
+    if desk is None or getattr(task, "kind", "") != "code" or other_agent(task):
+        return []
+    info = desk.container_of(task)
+    socket = desk.relay(info) if info is not None else ""
+    return [socket] if socket else []
+
+
 class _Options:
     """What a session's connection gets (TaskManager.option_hooks): the hook that runs its
     commands in its copy's container, and the socket of the backend's relay into that
@@ -777,7 +795,8 @@ def install(hub: Any) -> None:
     hub.tasks.option_hooks.append(_Options(desk))
 
     async def close_relays() -> None:  # (at quit: no relay's socket folder left behind)
-        for relay in list(desk.relays.values()):
+        for name, relay in list(desk.relays.items()):
+            desk.relays.pop(name, None)  # (a closed relay is never handed out again: REL3-11)
             relay.close()
 
     hub.tasks.before_close.append(close_relays)

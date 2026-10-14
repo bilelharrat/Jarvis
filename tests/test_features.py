@@ -197,3 +197,16 @@ def test_feature_assets_list_scripts_and_styles_in_order(tmp_path):
     ]
     assert [s.split("?")[0] for s in found["styles"]] == ["/static/features/a.css"]
     assert all("?v=" in s for s in found["scripts"] + found["styles"])
+
+
+def test_every_feature_s_tool_server_has_a_name_of_its_own(settings, quiet_speaker, isolated):
+    """REL3-9: features/calls.py (tell_call, for a live call) and features/proactive/calls.py
+    (call notes) both named their server "calls"; the hub keeps one a name, so the second
+    took the first's place and tell_call was gone. Both are there now, and a name taken
+    twice raises instead of replacing."""
+    import pytest
+
+    hub = make_hub(settings, quiet_speaker, isolated)
+    assert {"calls", "call_notes"} <= set(hub._extra_servers)
+    with pytest.raises(ValueError):
+        hub.register_server("calls", lambda: None)

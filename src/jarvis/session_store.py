@@ -285,6 +285,7 @@ def clean_record(data: Any, key: str) -> dict[str, Any] | None:
         if isinstance(commands, int) and not isinstance(commands, bool) and commands >= 0
         else 0,
         "fork": _bool(data.get("fork")),
+        "untrusted": _bool(data.get("untrusted")),  # (locked down when it comes back: S3-5)
         "resume_at": _str(data.get("resume_at"), 100),
         # Waiting out Claude's usage limit (features.code_limit): until when, since when.
         "hold_until": _moment(data.get("hold_until")),
