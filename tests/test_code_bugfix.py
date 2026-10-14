@@ -1164,7 +1164,9 @@ async def test_an_allow_rule_never_beats_the_runs_owner_only_and_risky_lists(
     run = BugRun("r", "p", folder=str(projects), step="fix", stack={"kinds": ["python", "node"]})
     desk.active[9] = run
     await hub.handle({"type": "cr_add", "id": 9, "behavior": "allow", "rule": rule})
-    assert hub.tasks._goes_ahead(task, "Bash", {"command": command}) is not None  # (the rule)
+    # (the owner's allow rule covers it; the session's own policy no longer lets a risky
+    # step by on a rule either, round 2 G3, so it's the run's lists that refuse or card it)
+    assert hub.tasks._ruled(task, "Bash", {"command": command})[0] == "allow"
     said = desk.refusal(run, task, "Bash", {"command": command})
     assert said is not None and why in said, said
     if said != "card":
@@ -1176,11 +1178,17 @@ async def test_an_allow_rule_never_beats_the_runs_owner_only_and_risky_lists(
         asked.append([c for c, _ in choices])
         return "deny"
 
-    async def inner(*_):
-        return PermissionResultAllow()  # (what the session's own policy would say: the rule)
-
     hub.tasks.approve = approve
+    inner = hub.tasks.policy_for(task)  # (the session's own: its card, no "don't ask again")
     out = await desk.guard(task, inner)("Bash", {"command": command}, None)
+    assert isinstance(out, PermissionResultDeny) and asked == [["allow", "deny"]]  # one card
+    asked.clear()
+    task.mode = "auto"  # Bypass would let it by unasked: the run's own card all the same
+
+    async def bypassed(*_):
+        return PermissionResultAllow()
+
+    out = await desk.guard(task, bypassed)("Bash", {"command": command}, None)
     assert isinstance(out, PermissionResultDeny) and asked == [["allow", "deny"]]
     del desk.active[9]
 
