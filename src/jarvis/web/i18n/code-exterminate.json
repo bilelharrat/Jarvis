@@ -1,0 +1,9 @@
+{
+  "strings": {
+    "Exterminate bugs": "消灭 bug",
+    "Opens Exterminator Mode for this project: 3 rounds of sweep, break and fix in an isolated copy. Asks first, with the spending ceiling.": "为这个项目打开灭虫模式：在独立副本里做 3 轮“排查、破坏测试、修复”。会先问你，并列出花费上限。",
+    "Offer Exterminator Mode for bug fixes": "修 bug 时提议灭虫模式",
+    "When a message looks like a bug hunt (“fix the bugs”, “debug this”), Eden Code asks first whether to run Exterminator Mode on the project instead. Once a session, and never for a specific small change.": "当一条消息看起来是在找 bug、修 bug（“修复这些 bug”“调试一下”）时，Eden Code 会先问你要不要改为在项目上运行灭虫模式。每个会话只问一次，具体的小改动不会问。"
+  },
+  "patterns": []
+}
