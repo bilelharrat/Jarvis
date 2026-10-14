@@ -79,11 +79,16 @@ def test_a_setting_nested_absurdly_deep_never_stops_saves_or_new_windows(client,
     assert "x_deep" not in saved["features"]
     with client.websocket_connect(f"{WS}?token=s3cret", headers={"origin": BASE}) as ws:
         assert ws.receive_json()["type"] == "hello"  # a new window still opens
-        # All the feature settings at once (set_prefs replaces them): the deep one left out.
+        # All the feature settings at once from a window: dropped (round 1 A8, past each
+        # feature's own gate: features/code_settings_gate.py), the rest of the change kept.
         features = {"x_plain": [2], "y_deep": _deep(300)}
-        ws.send_json({"type": "set_prefs", "changes": {"features": features}})
+        ws.send_json({"type": "set_prefs", "changes": {"features": features, "humor": 43}})
         ws.send_json({"type": "ask", "text": "what's on tomorrow?"})
         _until(ws, "turn_done")
+    saved = json.loads(isolated["prefs_store"].path.read_text())
+    assert saved["features"] == {"x_plain": [1, {"b": 2}]} and saved["humor"] == 43
+    # The hub's own set_prefs still replaces them all: the deep one left out.
+    hub.set_prefs({"features": features})
     saved = json.loads(isolated["prefs_store"].path.read_text())
     assert saved["features"] == {"x_plain": [2]}
 
