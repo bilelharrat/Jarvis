@@ -273,9 +273,9 @@ async function startEngine() {
   // app shows the sheet and signs, with a key that goes on the engine's stdin alone
   // (proof-pipe.js, features/touchid.js): never the token the page has.
   const keys = proofPipe.fresh();
-  how.env[proofPipe.ENV] = '1';
+  how.env[proofPipe.ENV] = proofPipe.ENV_VALUE; // (its asks on fd 3: never in the log, R2-16)
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port} for ${NAME}\n`);
-  const child = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: proofPipe.STDIO });
   const sheet = touchid.handlers({ systemPreferences, dialog, secret: () => keys.key });
   proofPipe.attach(child, keys, (kind, lang) => sheet.ask(kind, lang));
   engine = { port, token, shared: false, child };

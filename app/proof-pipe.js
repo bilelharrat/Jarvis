@@ -16,6 +16,12 @@
 const crypto = require('crypto');
 
 const ENV = 'JARVIS_PROOF_PIPE';
+// Round 2 (R2-16): the asks came on the backend's stdout, which goes to backend.log too, tag and
+// all. Now they come on a pipe of their own, the backend's fd 3 (ENV '3'): spawn it with STDIO.
+// Windows keeps them on stdout (ENV '1'): fd 3 can't be handed to a program that isn't Node.
+const OWN_PIPE = process.platform !== 'win32';
+const ENV_VALUE = OWN_PIPE ? '3' : '1';
+const STDIO = OWN_PIPE ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'];
 
 // A fresh key and tag for one backend.
 function fresh() {
@@ -53,7 +59,8 @@ function attach(child, keys, prove) {
   if (!child || !child.stdin || !child.stdout) return;
   child.stdin.on('error', () => {}); // (the backend gone: nothing to tell it)
   child.stdin.write(hello(keys));
-  child.stdout.on('data', asks(keys.tag, async (kind, lang) => {
+  const from = (child.stdio && child.stdio[3]) || child.stdout; // (its own pipe, else stdout)
+  from.on('data', asks(keys.tag, async (kind, lang) => {
     let proof = '';
     try { proof = await prove(kind, lang); } catch { proof = ''; }
     const line = answer(kind, proof);
@@ -61,4 +68,4 @@ function attach(child, keys, prove) {
   }));
 }
 
-module.exports = { ENV, fresh, hello, answer, asks, attach };
+module.exports = { ENV, ENV_VALUE, STDIO, fresh, hello, answer, asks, attach };

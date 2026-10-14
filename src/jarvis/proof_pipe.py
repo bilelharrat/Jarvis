@@ -18,6 +18,11 @@ and answers on the pipe: "proof <kind> <proof>" (made with makeProof under the k
 "no <kind>". The tag only keeps stray output (a child that inherited stdout) from being read
 as an ask; an ask can only ever bring up the owner's own sheet.
 
+Round 2 (R2-16): the asks went out on stdout, which the app also writes to backend.log, so the
+tag was in the log. With JARVIS_PROOF_PIPE=3 the app gives the backend a pipe of its own on fd
+3 for them (the Mac's app: app/proof-pipe.js STDIO), taken off fd 3 at once as stdin's is; the
+log never sees an ask. "1" (the asks on stdout) stays for an app that can't give fd 3 (Windows).
+
 A backend run by hand (no JARVIS_PROOF_PIPE) has no key: no proof holds, so from its window
 Bypass and risky steps stay as they were while Touch ID is on (the gate says what's needed).
 """
@@ -28,6 +33,7 @@ import contextlib
 import logging
 import os
 import re
+import stat
 import sys
 import threading
 from collections.abc import Callable
@@ -36,6 +42,7 @@ from typing import Any
 log = logging.getLogger("jarvis")
 
 ENV = "JARVIS_PROOF_PIPE"
+ASKS_FD = 3  # with ENV "3": the asks go to the app on this pipe, not stdout (R2-16)
 FIRST_LINE_S = 10.0  # the app writes its line as it starts the backend
 _HELLO = re.compile(r"^([0-9a-f]{64}) ([0-9a-f]{32})$")
 _KIND = re.compile(r"^[a-z-]{1,32}$")
@@ -91,11 +98,29 @@ def parse_answer(line: str) -> tuple[str, str] | None:
     return None
 
 
-def take(environ: Any = None, stdin_fd: int = 0) -> Pipe | None:
-    """The app's pipe, taken off stdin_fd before anything is started; None without one."""
+def take(environ: Any = None, stdin_fd: int = 0, asks_fd: int = ASKS_FD) -> Pipe | None:
+    """The app's pipe, taken off stdin_fd before anything is started (and, with ENV "3", the
+    asks' own pipe off asks_fd); None without one."""
     environ = os.environ if environ is None else environ
-    if str(environ.pop(ENV, "") or "") != "1":
+    how = str(environ.pop(ENV, "") or "")
+    if how not in ("1", "3"):
         return None
+    write = None
+    if how == "3":
+        try:
+            if not stat.S_ISFIFO(os.fstat(asks_fd).st_mode):
+                raise OSError("fd 3 isn't the app's pipe")  # (never write asks to a file)
+            out = os.dup(asks_fd)  # (not inherited, as stdin's)
+            os.close(asks_fd)
+        except OSError:
+            log.warning("Touch ID: the app's ask pipe couldn't be taken; no asks this run")
+            out = -1
+
+        def write(data: bytes) -> None:
+            if out < 0:
+                raise OSError("no ask pipe")
+            os.write(out, data)
+
     try:
         fd = os.dup(stdin_fd)  # (not inherited: os.dup's are never)
         nul = os.open(os.devnull, os.O_RDONLY)
@@ -113,4 +138,4 @@ def take(environ: Any = None, stdin_fd: int = 0) -> Pipe | None:
     if m is None:
         log.warning("Touch ID: the app's pipe said nothing usable; no proofs this run")
         return None
-    return Pipe(m.group(1), m.group(2), lines)
+    return Pipe(m.group(1), m.group(2), lines, write)
