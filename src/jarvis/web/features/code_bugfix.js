@@ -106,6 +106,9 @@
     return b;
   }
 
+  // Marked so a redraw never moves the keys onto it in a gone control's place (code-focus.js).
+  const spender = (b) => { b.dataset.spends = ''; return b; };
+
   // ── the composer's switch ──
 
   const pill = el('button', 'jc-pill jcx-bf-switch');
@@ -216,8 +219,9 @@
     const actions = el('div', 'jcx-bf-actions');
     if (sessions().some((s) => s.id === run.task_id && s.kind === 'code')) actions.append(button('Show session', '', () => F.selectTask(run.task_id)));
     if (canStop(run)) actions.append(button('Stop', 'danger', () => send({ type: 'code_bugfix_stop', run: run.id }), 'Ends the run where it is; its copy and reports are kept'));
-    if (canResume(run)) actions.append(button('Resume', 'filled', () => send({ type: 'code_bugfix_resume', run: run.id }), 'Carries on from the step it was on, in the same copy'));
-    if (canLand(run)) actions.append(button('Land the fixes…', '', () => send({ type: 'code_bugfix_land', run: run.id }), 'Asks first, with Touch ID'));
+    // (Resume spends: after Stop the keys go to a harmless control in the card, not here.)
+    if (canResume(run)) actions.append(spender(button('Resume', 'filled', () => send({ type: 'code_bugfix_resume', run: run.id }), 'Carries on from the step it was on, in the same copy')));
+    if (canLand(run)) actions.append(spender(button('Land the fixes…', '', () => send({ type: 'code_bugfix_land', run: run.id }), 'Asks first, with Touch ID')));
     if ((run.findings || []).length) {
       actions.append(button(state.open.has(run.id) ? 'Hide findings' : 'Findings', 'plain', () => {
         if (state.open.has(run.id)) state.open.delete(run.id); else state.open.add(run.id);

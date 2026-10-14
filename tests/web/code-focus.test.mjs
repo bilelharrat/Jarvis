@@ -93,7 +93,60 @@ test('Exterminator Mode: after Stop, the keys are on what took its place, not th
   stop.click();
   assert.deepEqual(w.sent.at(-1), { type: 'code_bugfix_stop', run: 'r1' });
   w.fire('code_bugfix', { runs: [{ ...run, state: 'stopped' }], active: {} });
-  assert.equal(w.document.activeElement.textContent, 'Resume', 'Resume is where Stop was');
+  // (Round 2, U9: not Resume, which would spend again on the next Space; a harmless control
+  // in the same card.)
+  const now = w.document.activeElement;
+  assert.notEqual(now.textContent, 'Resume', 'never the spending control in Stop’s place');
+  assert.ok(w.body.contains(now) && now !== w.body, 'still in the pane');
+  assert.ok(now.closest('.jcx-bf-run'), 'in the run’s own card');
+});
+
+// Round 2, U1: two cards each with a Stop; after Stop on the first, the keys stay in the first
+// card, never on the second card's Stop (scratchpad ui2/focus-repro.mjs).
+function cards(document, box, list) {
+  const el = elFor(document);
+  box.replaceChildren(...list.map(([name, labels]) => {
+    const s = el('section', 'card');
+    s.setAttribute('aria-label', `Exterminator Mode: ${name}`);
+    s.append(...labels.map((l) => {
+      const [word, spends] = Array.isArray(l) ? l : [l, false];
+      const b = el('button', 'jc-btn', word);
+      b.type = 'button';
+      if (spends) b.dataset.spends = '';
+      return b;
+    }));
+    return s;
+  }));
+}
+
+test('keep: after Stop on one card the focus stays in that card, not on another card’s Stop', () => {
+  const document = makeDocument();
+  const box = document.createElement('div');
+  document.body.append(box);
+  cards(document, box, [['alpha', ['Show session', 'Stop', 'Findings']], ['beta', ['Show session', 'Stop', 'Findings']]]);
+  box.children[0].children[1].focus();
+  focus.keep(box, () => cards(document, box, [['alpha', ['Show session', 'Resume', 'Findings']], ['beta', ['Show session', 'Stop', 'Findings']]]));
+  const a = document.activeElement;
+  assert.equal(a.parentNode.getAttribute('aria-label'), 'Exterminator Mode: alpha', 'the same card');
+  // The second card's Stop, redrawn the same: stays on it (the nth alike inside its own card).
+  box.children[1].children[1].focus();
+  focus.keep(box, () => cards(document, box, [['alpha', ['Show session', 'Resume', 'Findings']], ['beta', ['Show session', 'Stop', 'Findings']]]));
+  assert.ok(document.activeElement === box.children[1].children[1]);
+});
+
+test('keep: a spending control (data-spends) never takes a gone one’s place; the card does when nothing else is left', () => {
+  const document = makeDocument();
+  const box = document.createElement('div');
+  document.body.append(box);
+  cards(document, box, [['alpha', ['Show session', 'Stop']]]);
+  box.children[0].children[1].focus();
+  focus.keep(box, () => cards(document, box, [['alpha', ['Show session', ['Resume', true]]]]));
+  assert.equal(document.activeElement.textContent, 'Show session', 'a harmless control in the same card');
+  cards(document, box, [['alpha', ['Stop']]]);
+  box.children[0].children[0].focus();
+  focus.keep(box, () => cards(document, box, [['alpha', [['Resume', true]]]]));
+  assert.ok(document.activeElement === box.children[0], 'the card itself, not Resume');
+  assert.equal(box.children[0].getAttribute('tabindex'), '-1');
 });
 
 test('Best of N: removing a variant leaves the keys in the form', () => {

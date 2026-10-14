@@ -8,6 +8,15 @@
 // stopped), the control in its place in the same card (the nearest named part around it:
 // an id, a data-focus or an aria-label), else among the pane's own. The to-do lane does the
 // same by data-focus (code-todo.js). Nothing is sent and no model is called; no window events.
+//
+// The same card first, always (round 2, U1): two runs' cards each have a Stop, and after Stop
+// on the first the old "the nth Stop in the pane" found the second card's, so the next Space
+// stopped a run the owner never pointed at. A control found by its words is looked for only
+// inside its own card while that card is still drawn; across the pane only when it's the one
+// control of that name there. And the control in a gone one's place is never one that spends
+// (U9): a button marked data-spends (Resume, Land, Start again) is passed over for a harmless
+// one in the same card (Show session, Findings), else the card itself takes the focus, so a
+// Space after Stop doesn't start the run again.
 // helpers is exported for node --test (tests/web/code-focus.test.mjs).
 (function (root) {
   'use strict';
@@ -51,23 +60,42 @@
     for (let n = active.parentNode; n && n !== container; n = n.parentNode) {
       const name = partName(n);
       if (!name) continue;
-      place.scope = { name, tag: n.tagName, nth: alike(container, n.tagName, name, partName).indexOf(n), at: Math.max(0, controls(n).filter(usable).indexOf(active)) };
+      place.scope = {
+        name, tag: n.tagName, nth: alike(container, n.tagName, name, partName).indexOf(n),
+        at: Math.max(0, controls(n).filter(usable).indexOf(active)),
+        same: Math.max(0, alike(n, FOCUSABLE, sign).indexOf(active)),  // the nth alike in its own card
+      };
       break;
     }
     return place;
   }
 
-  // The control at that place in the new drawing (or null).
+  // A control that spends or starts something again (Resume, Land): never the stand-in for a
+  // gone one.
+  const spends = (node) => !!(node.dataset && 'spends' in node.dataset);
+
+  // The control at that place in the new drawing (or null): the same one in the same card,
+  // else a harmless one in its place there, else the card; with no card around it (or the card
+  // gone), the same one across the pane when it's the only one so named, else the one in its
+  // place among the pane's.
   function findPlace(container, place) {
     if (!container || !place) return null;
-    const same = alike(container, FOCUSABLE, place.sign);
-    if (same[place.nth] && usable(same[place.nth])) return same[place.nth];
-    if (place.scope) {
-      const part = alike(container, place.scope.tag, place.scope.name, partName)[place.scope.nth];
-      const inside = part ? controls(part).filter(usable) : [];
-      if (inside.length) return inside[Math.min(place.scope.at, inside.length - 1)];
+    const part = place.scope ? alike(container, place.scope.tag, place.scope.name, partName)[place.scope.nth] : null;
+    if (part) {
+      const same = alike(part, FOCUSABLE, place.sign)[place.scope.same];
+      if (same && usable(same)) return same;
+      const inside = controls(part).filter(usable);
+      const there = inside[Math.min(place.scope.at, inside.length - 1)];
+      if (there && !spends(there)) return there;
+      const harmless = inside.filter((n) => !spends(n));
+      if (harmless.length) return harmless[Math.min(place.scope.at, harmless.length - 1)];
+      if (!part.hasAttribute('tabindex')) part.setAttribute('tabindex', '-1');
+      return part;
     }
-    const all = controls(container).filter(usable);
+    const same = alike(container, FOCUSABLE, place.sign);
+    const again = place.scope ? (same.length === 1 ? same[0] : null) : same[place.nth];
+    if (again && usable(again)) return again;
+    const all = controls(container).filter((n) => usable(n) && !spends(n));
     return all.length ? all[Math.min(place.at, all.length - 1)] : null;
   }
 
