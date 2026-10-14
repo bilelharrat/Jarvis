@@ -1,0 +1,28 @@
+{
+  "strings": {
+    "Setup and container": "设置与容器",
+    "Setup": "设置",
+    "Container": "容器",
+    "Image": "镜像",
+    "Save": "保存",
+    "Run setup again": "再次运行设置",
+    "Running…": "正在运行……",
+    "Reading the project…": "正在读取项目……",
+    "Open a project first.": "请先打开一个项目。",
+    "The setup script": "设置脚本",
+    "Setup output": "设置输出",
+    "No setup has run in this copy yet.": "这个副本里还没运行过设置脚本。",
+    "Run new copies in a container": "在容器里运行新副本",
+    "Off: sessions run their commands on the Mac.": "关闭：会话在 Mac 上运行命令。",
+    "On, but there is no image: pick one, or add .devcontainer/devcontainer.json.": "已开启，但没有镜像：选一个，或添加 .devcontainer/devcontainer.json。",
+    "That isn’t an image name docker takes.": "这不是 docker 接受的镜像名。",
+    "Each new isolated copy runs the project’s setup first, so its session starts ready. It runs as you; a card shows it the first time and whenever it changes.": "每个新的独立副本会先运行项目的设置脚本，这样会话一开始就准备好了。它以你的身份运行；第一次以及每次改动时都会用卡片给你看。",
+    "No setup yet. Add .jarvis/setup.sh (or a \"setup\" entry in .jarvis/launch.json) to the project.": "还没有设置脚本。请在项目里添加 .jarvis/setup.sh（或在 .jarvis/launch.json 里加一个 \"setup\" 条目）。",
+    "Your own image needs no card. One the project’s devcontainer.json names does, the first time and whenever it changes. Without Docker, sessions run on the Mac as usual.": "你自己选的镜像不需要卡片。项目 devcontainer.json 指定的镜像，第一次和每次改动时都需要。没有 Docker 时，会话照常在 Mac 上运行。"
+  },
+  "patterns": [
+    ["^This session's commands run in (.+) \\((.+)\\)\\.$", "这个会话的命令在 $1（$2）里运行。"],
+    ["^New copies get a container from the project's devcontainer\\.json \\((.+)\\)\\.$", "新副本会得到一个来自项目 devcontainer.json（$1）的容器。"],
+    ["^New copies get a container from (.+)\\.$", "新副本会得到一个来自 $1 的容器。"]
+  ]
+}

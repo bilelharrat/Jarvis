@@ -168,6 +168,8 @@ class FakeGitHub:
                 body = json.loads(request.content)
                 if "base" in body:
                     pull["base"] = {**pull["base"], "ref": body["base"]}
+                if "body" in body:
+                    pull["body"] = body["body"]
                 return self.reply(200, pull)
             if tail == "/files" and method == "GET":
                 return self.reply(200, self.files.get((repo, number), []))

@@ -1,0 +1,24 @@
+{
+  "strings": {
+    "Pairing": "结对",
+    "Folder": "文件夹",
+    "Show in Finder": "在访达中显示",
+    "Keep mine": "保留我的",
+    "Keep Eden’s": "保留 Eden 的",
+    "Changed on both sides": "两边都改了",
+    "Held for you": "为你暂留",
+    "Bring them over": "同步过去",
+    "Pairing is for a session in an isolated copy.": "结对模式只用于在独立副本里的会话。",
+    "Off. Turn it on to mirror this copy into a folder you open in your own editor.": "已关闭。打开后，这个副本会同步到你用自己的编辑器打开的文件夹里。",
+    "On: changes go both ways.": "已开启：改动双向同步。",
+    "Pairing mirrors this session’s isolated copy into a folder you open in your own editor: its changes appear there and yours come back, about every second. When you both change the same file, neither is overwritten: it’s listed below until you keep one.": "结对模式把这个会话的独立副本同步到你用自己的编辑器打开的文件夹：它的改动会出现在那里，你的改动也会同步回来，大约每秒一次。如果你们同时改了同一个文件，两边都不会被覆盖：它会列在下面，直到你选择保留哪一边。",
+    "The session changed files that run by themselves (git hooks, Eden’s .jarvis, your editor’s settings). They reach your folder only when you bring them over.": "会话改动了会自行运行的文件（git 钩子、Eden 的 .jarvis、你的编辑器设置）。只有你同意同步过去，它们才会进入你的文件夹。"
+  },
+  "patterns": [
+    ["^Open in (.+)$", "在 $1 中打开"],
+    ["^The last sync failed: (.+)$", "上次同步失败：$1"],
+    ["^On: (\\d+) changed on both sides, (\\d+) held for you\\.$", "已开启：$1 个两边都改了，$2 个为你暂留。"],
+    ["^On: (\\d+) changed on both sides\\.$", "已开启：$1 个两边都改了。"],
+    ["^On: (\\d+) held for you\\.$", "已开启：$1 个为你暂留。"]
+  ]
+}

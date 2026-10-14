@@ -1,0 +1,29 @@
+{
+  "strings": {
+    "Multi-repo tasks": "多仓库任务",
+    "New multi-repo task": "新建多仓库任务",
+    "Tasks": "任务",
+    "Projects": "项目",
+    "What should it do?": "要它做什么？",
+    "Start the task": "开始任务",
+    "No multi-repo tasks.": "没有多仓库任务。",
+    "Open": "打开",
+    "Land all": "全部合并",
+    "Merge all": "全部合并",
+    "Discard all": "全部丢弃",
+    "Open linked pull requests": "打开关联的拉取请求",
+    "Open them": "打开",
+    "Title": "标题",
+    "Description": "描述",
+    "Draft": "草稿",
+    "Cancel": "取消",
+    "working": "工作中",
+    "Pull requests: ": "拉取请求：",
+    "Pick at least two projects.": "请至少选两个项目。",
+    "Say what the task should do.": "请说明任务要做什么。",
+    "One task across several repositories: one session works in a folder with an isolated copy of each. Landing lands all of them or none; pull requests are opened together, each linking the others, and merged together once all are green.": "一个任务横跨多个仓库：一个会话在一个文件夹里工作，里面是每个仓库的独立副本。合并时要么全部合并，要么一个都不合并；拉取请求一起打开、相互链接，全部通过检查后一起合并。"
+  },
+  "patterns": [
+    ["^Pick at most (\\d+) projects\\.$", "最多选 $1 个项目。"]
+  ]
+}
