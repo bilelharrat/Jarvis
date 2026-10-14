@@ -435,8 +435,11 @@ async function shareBackend() {
 }
 
 // The boot-up sound (loading.js), once the window is on screen, unless the owner turned it off
-// (Settings › General, or the walkthrough: boot_sound in the backend's prefs.json).
+// (Settings › General, or the walkthrough: boot_sound in the backend's prefs.json). An app feature
+// can play it its own way instead (features/boot-sound.js: Eden Code's, by macOS's own player).
+let bootSoundHook = null;
 function playBootSound() {
+  if (bootSoundHook) { trace.write(`boot-up sound: ${bootSoundHook() || 'quiet'}`); return; }
   let on = true;
   try { on = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'prefs.json'), 'utf8')).boot_sound !== false; } catch { /* no settings yet: on */ }
   if (on && win && !win.isDestroyed()) win.webContents.executeJavaScript('window.playBootSound && window.playBootSound()').catch(() => {});
@@ -1799,6 +1802,7 @@ const featureContext = {
   logDir: LOG_DIR,
   dataDir: DATA_DIR, // the backend's data folder (eden-window.js keeps its handshake key there)
   summon: () => summon(), // ⌥Space's show-and-listen (app/features/shell.js: the menu bar's Ask…)
+  playsBootSound: (fn) => { bootSoundHook = fn; }, // the window's boot-up sound, played its own way (boot-sound.js)
   ownsShortcuts: false, // set by a feature that registers the global shortcuts itself (shell.js: the user's)
   onOpenUrl: (fn) => { openLink = fn; earlyLinks.splice(0).forEach((url) => fn(url)); }, // jarvis:// links
   backend: () => backend, // the running `jarvis serve` (shell.js waits for it to stop when quitting)
