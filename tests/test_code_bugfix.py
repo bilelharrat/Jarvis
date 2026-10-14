@@ -792,3 +792,32 @@ def test_a_session_s_spend_is_counted_once_however_many_turns_it_had(hub):
     options = type("O", (), {"max_budget_usd": None, "agents": None, "can_use_tool": None})()
     desk.extend(run, task, options)
     assert options.max_budget_usd == pytest.approx(7.0)  # not 10 - 3 - 3
+
+
+async def test_with_every_feature_installed_a_run_whose_copy_fails_never_touches_the_project(
+    hub, projects, monkeypatch
+):
+    """Every feature installed (code_isolation after code_bugfix): when the isolated copy
+    can't be made, the run refuses to start its steps, and the owner's checkout is as it was
+    (no edits, no snapshot staged in its index, nothing put back over it)."""
+    import subprocess
+
+    repo = make_repo(projects / "calc", FILES)
+    (repo / "notes.txt").write_text("the owner's own, not committed\n")
+
+    async def no_copy(task):
+        return None  # (code_isolation leaves the session in the folder, with a note)
+
+    monkeypatch.setattr(hub.code_desk, "isolate", no_copy)
+    desk = hub.code_bugfix
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    assert await until(lambda: run.state != "running"), (run.step, run.notes)
+    assert run.state == "stopped" and not run.slug
+    assert not [p for p in BugClient.prompts if "SWEEP" not in p.split("\n", 1)[0]]
+    assert (repo / "calc.py").read_text() == CALC
+    assert (repo / "notes.txt").exists()
+    staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=repo,
+                            capture_output=True, text=True).stdout  # fmt: skip
+    assert staged == ""

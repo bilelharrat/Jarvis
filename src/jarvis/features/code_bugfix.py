@@ -254,6 +254,7 @@ ZH = {
     "the spending ceiling was reached": "达到了花费上限",
     "you stopped it": "你停下了它",
     "the app quit": "应用退出了",
+    "it had no isolated copy": "它没有隔离副本",
     "a step failed": "有一步失败了",
     "Not allowed in Bug Fix Mode ({why}). Don't try to get around it: carry on without it if you can, otherwise say what you'd need in your reply.": "修 bug 模式不允许这样做（{why}）。不要设法绕过：能不用就继续，否则在回复里说明需要什么。",
     "Nobody's here to answer: decide yourself, choosing the safest reasonable option, and say what you chose.": "没人在这里回答：请自己决定，选最稳妥合理的做法，并说明你的选择。",
@@ -1198,6 +1199,26 @@ class BugFix:
             run.folder = str(task.cwd)
             run.base = ws.get("base", "") or code_changes.head_commit(task.cwd)
 
+    def copy_folder(self, run: BugRun, task: Any) -> Path:
+        """The run's isolated copy, where every step's files, snapshots and put-backs go;
+        the run stops (why "copy") when it has none, or it isn't one: a snapshot stages the
+        folder's index and a put-back resets its files, never to be done in the owner's own
+        checkout. (prepare refuses a session with no copy first; this holds besides.)"""
+        self.adopt_copy(run, task)
+        desk = getattr(self.hub, "code_desk", None)
+        copy = None
+        if run.slug and run.folder and desk is not None:
+            with contextlib.suppress(Exception):
+                copy = desk.store().find(run.slug)
+        try:
+            ok = copy is not None and Path(copy.cwd).resolve() == Path(run.folder).resolve()
+        except OSError:
+            ok = False
+        if not ok:
+            run.notes.append("It had no isolated copy, so it stopped before touching the project.")
+            raise Stopped("copy")
+        return Path(run.folder)
+
     # ── the protocol ──
 
     def steps_of(self, round_no: int) -> tuple[str, ...]:
@@ -1236,14 +1257,14 @@ class BugFix:
 
     async def do_sweep(self, run: BugRun, task: Any, first: bool) -> None:
         reply = await self.turn(run, task, "" if first else self.step_prompt(run, "sweep"))
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         self.take_findings(run, folder, "sweep", reply)
         self.write_report(run, folder, "sweep")
 
     # BREAK
 
     async def do_break(self, run: BugRun, task: Any, first: bool) -> None:
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         suite = await self.run_suites(folder)
         run.suites[f"r{run.round}-break"] = suite
         for case in suite.get("failures") or []:
@@ -1261,7 +1282,7 @@ class BugFix:
     # FIX
 
     async def do_fix(self, run: BugRun, task: Any, first: bool) -> None:
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         key = f"r{run.round}-fix"
         if key not in run.snaps:  # (a resumed fix step keeps the point it started from)
             run.snaps[key] = await asyncio.to_thread(
@@ -1289,7 +1310,7 @@ class BugFix:
         saved before its turn and reused when a quit pass is resumed, so the check always
         compares with where the pass started, never with its own half-done edits; a pass
         that ends before the check (Stop, a timeout, an error) is put back in finish."""
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         key = f"r{run.round}"
         if key in run.efficiency:  # (judged already: a resume carries on past it)
             return
@@ -1373,7 +1394,7 @@ class BugFix:
     # SHIP
 
     async def do_ship(self, run: BugRun, task: Any, first: bool) -> None:
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         reply = await self.turn(run, task, self.step_prompt(run, "ship"))
         block = parse_block(reply) or {}
         with contextlib.suppress(OSError):
@@ -1973,7 +1994,7 @@ class BugFix:
         )
 
     def receipt(self, run: BugRun, task: Any) -> None:
-        folder = Path(run.folder or task.cwd)
+        folder = self.copy_folder(run, task)
         files = changed_since(folder, run.base) if run.base else []
         last = run.suites.get(f"r{ROUNDS}-fix") or run.suites.get(f"r{run.round}-fix") or {}
         counts = last.get("counts") or {}
@@ -2016,7 +2037,8 @@ class BugFix:
             with contextlib.suppress(Exception):
                 await self.hub.tasks.interrupt(task.id)
         if why != "restart":  # (a quit pass is checked when it resumes, or put back to land)
-            await self.put_back_unchecked(run, Path(run.folder or task.cwd))
+            if run.slug and run.folder:  # (only ever in its copy)
+                await self.put_back_unchecked(run, Path(run.folder))
         self.quiet[task.id] = time.time() + QUIET_AFTER
         self.save()
         self.publish()
@@ -2028,7 +2050,7 @@ class BugFix:
             )
         else:
             words = {"spend": "the spending ceiling was reached", "owner": "you stopped it",
-                     "restart": "the app quit"}.get(why, "a step failed")  # fmt: skip
+                     "restart": "the app quit", "copy": "it had no isolated copy"}.get(why, "a step failed")  # fmt: skip
             spoken = self.say(
                 "Bug Fix Mode in {project} stopped: {why}.", project=run.project, why=self.tr(words)
             )
