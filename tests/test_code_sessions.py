@@ -604,3 +604,22 @@ async def test_a_forks_inherited_cost_outlasts_a_restart(
     [back] = again.tasks.tasks.values()
     assert back.cost_usd == 5.0 and back.cost_inherited == 4.0
     assert code_usage.spent(back) == 1.0
+
+
+async def test_a_session_that_stops_with_an_error_says_so_as_an_error_card(
+    settings, quiet_speaker, isolated, tmp_path
+):
+    """The window's error card (web/features/code-diagnostics.js: Copy details, Send
+    diagnostics) goes on the entry the backend marks as an error."""
+
+    class Broken(Stream):
+        async def connect(self, prompt=None):
+            raise RuntimeError("the CLI wouldn't start")
+
+    (tmp_path / "proj").mkdir()
+    hub = make_hub(settings, quiet_speaker, isolated, client=Broken)
+    task = hub.tasks.start("fix the login", "proj")
+    assert await until(lambda: task.status == "failed")
+    stopped = [e for e in task.transcript if e["text"].startswith("Stopped with an error")]
+    assert stopped and all(e["error"] is True and e["role"] == "system" for e in stopped)
+    await end_all(hub)

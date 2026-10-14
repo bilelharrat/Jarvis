@@ -2339,7 +2339,8 @@ class TaskManager:
         except Exception as exc:  # the CLI crashed or refused to start
             task.status = "failed"
             task.result = str(exc)
-            self._log(task, "system", f"Stopped with an error: {exc}")
+            # (error: the window's error card, with Copy details and Send diagnostics)
+            self._log(task, "system", f"Stopped with an error: {exc}", error=True)
         finally:
             mid_turn = task.busy
             task.client, task.live_effort = None, None
