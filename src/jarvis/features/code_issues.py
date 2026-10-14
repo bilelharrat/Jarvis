@@ -17,9 +17,10 @@ Only issues labelled after the repository was opted in count, each labelling onc
 repository's issue events: a label taken off and put back on starts it again). A loop
 reads them every five minutes (with an ETag: an unchanged answer is free).
 
-Sentry and Linear aren't triggers: their connectors are MCP servers whose tools, arguments
+Sentry and Linear's connectors aren't triggers: they're MCP servers whose tools, arguments
 and answers are the servers' own to change and are written for a model to read, so
-nothing here could rely on them to say, reliably, that a new issue is there.
+nothing here could rely on them to say, reliably, that a new issue is there. (Linear
+tickets do start sessions through Linear's own signed webhooks: features/code_triggers.py.)
 
 Window commands: code_issues {}, code_issue_detect {project}, code_issue_add {project,
 label, commands, spend_cap, sandbox}, code_issue_remove {repo}.

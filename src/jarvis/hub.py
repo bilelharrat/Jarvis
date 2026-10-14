@@ -1173,6 +1173,7 @@ class Hub:
         self._request_contexts: list[Callable[[str, str | None], Any]] = []
         self._routine_runner: Callable[[Any], Any] | None = None
         self._webhook: Callable[[str, Any], Any] | None = None
+        self._webhook_routes: dict[str, Callable[[Any], Any]] = {}  # name -> a feature's door
         self.routes: list[Any] = []  # feature modules' own addresses on the window's server
         # The conversation's own hooks: its options at each connect, each request just
         # before Claude gets it, and every message of its stream.
@@ -1401,12 +1402,22 @@ class Hub:
         request) gives (status, body). The handler checks its own tokens and limits."""
         self._webhook = handler
 
+    def register_webhook_route(self, name: str, handler: Callable[[Any], Any]) -> None:
+        """A feature's own POST /hooks/<name> (Linear's and Slack's, say): await
+        handler(request) gives (status, body), ahead of the owner's own webhooks. The
+        handler checks its own tokens, signatures and limits."""
+        self._webhook_routes[name] = handler
+
     async def inbound_hook(self, name: str, request: Any) -> tuple[int, dict[str, Any]]:
-        """server.py's /hooks/<name>: the registered handler's answer, or 404 without one."""
+        """server.py's /hooks/<name>: a feature's route of that name, else the registered
+        handler's answer, or 404 without one."""
+        route = self._webhook_routes.get(name)
         handler = self._webhook
-        if handler is None:
+        if route is None and handler is None:
             return 404, {"error": "not found"}
         try:
+            if route is not None:
+                return await route(request)
             return await handler(name, request)
         except Exception:
             log.exception("a webhook failed")

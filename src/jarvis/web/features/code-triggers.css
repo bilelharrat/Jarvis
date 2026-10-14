@@ -1,0 +1,13 @@
+/* Eden Code settings › Linear and Slack: keys, the hook's address, who and where, the scope. */
+
+.jcx-trg-service { display: flex; flex-direction: column; border-top: 0.5px solid rgb(var(--c-border)); padding: 6px 0; }
+.jcx-trg-head { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 2px 0 4px; }
+.jcx-trg-steps { margin: 2px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: rgb(var(--c-ink-2)); }
+.jcx-trg-tools { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.jcx-trg-tools .jcs-input { width: 170px; }
+.jcx-trg-tools code { font: 11px var(--mono); color: rgb(var(--c-accent-ink)); overflow-wrap: anywhere; max-width: 260px; }
+.jcx-trg-form { display: flex; flex-direction: column; }
+.jcx-trg-actions { display: flex; align-items: center; padding: 6px 0 2px; }
+.jcx-trg-summary { margin: 2px 0 0; font-size: 12px; }
+.deck.jc .jcx-trg .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-trg .jc-btn.filled { color: #fff; }

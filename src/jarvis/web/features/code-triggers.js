@@ -1,0 +1,250 @@
+// Eden Code settings › Linear and Slack (features/code_triggers.py): the keys and signing
+// secrets (pasted into password fields and sent once to the Keychain; never shown again,
+// only whether each is set), the hook's address to give each service (through a tunnel to
+// this Mac), the people and channels allowed, and the scope. Turning a service on sends the
+// scope to the backend, which puts it on a card first. With nothing set yet, the steps to
+// make the Linear webhook and the Slack app.
+//
+// Ids, names and addresses are data: text only (textContent), marked data-no-i18n. Pure
+// helpers are exported for node --test (tests/web/code-triggers.test.mjs).
+(function (root) {
+  'use strict';
+
+  const STEPS = {
+    linear: [
+      'In Linear, make a user for Eden (or use your own), and in its Settings › Security & access › Personal API keys, make a key. Paste it below.',
+      'Run a tunnel to this Mac, so Linear can reach it: cloudflared tunnel --url followed by the address below without its path.',
+      'In Linear’s Settings › API › Webhooks, add one for Issues to the tunnel’s address followed by the hook’s path below. Paste its signing secret below.',
+      'Assign a ticket to Eden’s user, or give it the label, and Eden starts on it.',
+    ],
+    slack: [
+      'At api.slack.com/apps, create an app. Give its bot the scopes app_mentions:read, chat:write and commands, install it, and paste its Bot User OAuth Token (xoxb-…) below.',
+      'From the app’s Basic Information, paste its Signing Secret below.',
+      'Run a tunnel to this Mac, so Slack can reach it: cloudflared tunnel --url followed by the address below without its path.',
+      'Under Event Subscriptions, set the Request URL to the tunnel’s address followed by the hook’s path below, and subscribe to app_mention. Add the slash command /eden with the same URL.',
+      'Invite the app to the channels it may work in, and list them below by their channel ID (in the channel’s details).',
+    ],
+  };
+
+  // "a, b c\nd" -> ['a', 'b', 'c', 'd'] (ids, emails, commands' lists).
+  function listOf(text, sep = /[\s,]+/) {
+    return String(text || '').split(sep).map((s) => s.trim()).filter(Boolean).slice(0, 50);
+  }
+
+  // "C0123ABCD app, C0999 web" -> [{ id, project }], each id upper-cased.
+  function channelsOf(text) {
+    return String(text || '').split(/[,\n]+/).map((part) => part.trim().split(/\s+/)).filter((p) => p.length >= 2 && p[0])
+      .map(([id, ...rest]) => ({ id: id.replace(/^#/, '').toUpperCase(), project: rest.join(' ') })).slice(0, 20);
+  }
+
+  // The address to give a service: the window's own origin and the hook's path. (The port
+  // changes when the app restarts: the tunnel must follow.)
+  function hookAddress(origin, path) {
+    if (!path) return '';
+    return `${String(origin || '').replace(/\/+$/, '')}${path}`;
+  }
+
+  const api = { STEPS, listOf, channelsOf, hookAddress };
+  if (typeof module === 'object' && module.exports) module.exports = api;
+
+  const F = root.jarvisFeatures;
+  if (!F || typeof document === 'undefined') return;
+  const { el, send, t } = F;
+  const state = {
+    linear: null,
+    slack: null,
+    forms: {
+      linear: { project: '', label: 'eden', users: '', commands: '', spend: '5', sandbox: true },
+      slack: { channels: '', users: '', commands: '', spend: '5', sandbox: true },
+    },
+  };
+  const NAMES = { linear: 'Linear', slack: 'Slack' };
+  const SECRETS = {
+    linear: [['api_key', 'API key'], ['secret', 'Webhook signing secret']],
+    slack: [['bot_token', 'Bot token'], ['secret', 'Signing secret']],
+  };
+  const projects = () => (typeof deckProjects !== 'undefined' ? deckProjects.map((p) => p.name) : []);
+  let group = null;
+
+  function mine(text, tag = 'span', cls = '') {
+    const node = el(tag, cls, text);
+    node.dataset.noI18n = '';
+    return node;
+  }
+
+  function button(label, cls, run, aria) {
+    const b = el('button', `jc-btn small ${cls || ''}`.trim(), label);
+    b.type = 'button';
+    if (aria) b.setAttribute('aria-label', aria);
+    b.addEventListener('click', (e) => { e.preventDefault(); run(b); });
+    return b;
+  }
+
+  function sw(label, on, run) {
+    const toggle = el('button', 'jcs-switch');
+    toggle.type = 'button';
+    toggle.setAttribute('role', 'switch');
+    toggle.setAttribute('aria-checked', String(!!on));
+    toggle.setAttribute('aria-label', label);
+    toggle.addEventListener('click', () => run(!on));
+    return toggle;
+  }
+
+  function row(title, note, control) {
+    const r = el('div', 'jcs-row');
+    const text = el('span');
+    text.append(document.createTextNode(t(title)));
+    if (note) text.append(el('small', '', note));
+    r.append(text);
+    if (control) r.append(control);
+    return r;
+  }
+
+  function input(value, label, run, opts = {}) {
+    const box = el('input', 'jcs-input');
+    box.value = value || '';
+    if (opts.type) box.type = opts.type;
+    if (opts.placeholder) box.placeholder = opts.placeholder;
+    box.setAttribute('aria-label', t(label));
+    box.dataset.noI18n = '';
+    box.autocomplete = 'off';
+    box.addEventListener('input', () => run(box.value));
+    return box;
+  }
+
+  function secretRow(service, key, label, has) {
+    const r = el('div', 'jcs-row jcx-trg-secret');
+    const text = el('span');
+    text.append(document.createTextNode(t(label)));
+    text.append(el('small', '', has ? 'Set: kept in the Keychain.' : 'Not set.'));
+    let value = '';
+    const box = input('', label, (v) => { value = v; }, { type: 'password', placeholder: has ? '••••••••' : '' });
+    const save = button('Save', '', () => { if (value.trim()) send({ type: 'code_trigger_secret', service, key, value }); box.value = ''; value = ''; }, `${t('Save')} ${t(label)}`);
+    const tools = el('span', 'jcx-trg-tools');
+    tools.append(box, save);
+    if (has) tools.append(button('Remove', 'danger', () => send({ type: 'code_trigger_secret', service, key, value: '' }), `${t('Remove')} ${t(label)}`));
+    r.append(text, tools);
+    return r;
+  }
+
+  function projectPick(f) {
+    const names = projects();
+    if (!f.project && names.length) f.project = names[0];
+    const pick = el('select', 'jcs-select');
+    pick.setAttribute('aria-label', t('Project'));
+    pick.dataset.noI18n = '';
+    for (const name of names) {
+      const o = el('option', '', name);
+      o.value = name;
+      o.selected = name === f.project;
+      pick.append(o);
+    }
+    pick.addEventListener('change', () => { f.project = pick.value; });
+    return pick;
+  }
+
+  function scopeForm(service) {
+    const f = state.forms[service];
+    const box = el('form', 'jcx-trg-form');
+    if (service === 'linear') {
+      box.append(
+        row('Project', 'Where its tickets are worked on.', projectPick(f)),
+        row('Label', 'A ticket with this label starts a session too.', input(f.label, 'Label', (v) => { f.label = v; })),
+        row('Who may start one', 'Linear user ids or emails, separated by commas.', input(f.users, 'Who may start one', (v) => { f.users = v; })),
+      );
+    } else {
+      box.append(
+        row('Channels', 'Each channel’s ID and its project: C0123ABCD app, C0456EFGH web', input(f.channels, 'Channels', (v) => { f.channels = v; })),
+        row('Who may start one', 'Slack member IDs (U…), separated by commas.', input(f.users, 'Who may start one', (v) => { f.users = v; })),
+      );
+    }
+    box.append(
+      row('Commands it may run', 'Beyond the read-only ones and the project’s own rules.', input(f.commands, 'Commands it may run', (v) => { f.commands = v; }, { placeholder: 'npm test, uv run pytest' })),
+      row('Spending cap ($)', 'For each session; it also stops after an hour.', input(f.spend, 'Spending cap ($)', (v) => { f.spend = v; }, { type: 'number' })),
+      row('Commands without network access', 'Its commands run in a sandbox. Turn it off if its tests need the network.', sw('Commands without network access', f.sandbox, (on) => { f.sandbox = on; draw(); })),
+    );
+    const actions = el('div', 'jcx-trg-actions');
+    const go = el('button', 'jc-btn small filled', 'Turn it on…');
+    go.type = 'submit';
+    actions.append(el('span', 'jc-spacer'), go);
+    box.append(actions);
+    box.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const msg = {
+        type: 'code_trigger_set', service,
+        users: listOf(f.users, /[\s,]+/),
+        commands: listOf(f.commands, /,/),
+        spend_cap: Number(f.spend) || 5,
+        sandbox: !!f.sandbox,
+      };
+      if (service === 'linear') Object.assign(msg, { project: f.project, label: (f.label || 'eden').trim() });
+      else msg.channels = channelsOf(f.channels);
+      send(msg);
+    });
+    return box;
+  }
+
+  function serviceBlock(service) {
+    const data = state[service] || { config: {}, has: {}, hook: '' };
+    const has = data.has || {};
+    const on = data.config && Object.keys(data.config).length > 0;
+    const box = el('section', 'jcx-trg-service');
+    box.setAttribute('aria-label', NAMES[service]);
+    const head = el('div', 'jcx-trg-head');
+    head.append(mine(NAMES[service], 'strong'), el('span', `jcx-chip ${on ? 'good' : ''}`.trim(), on ? 'On' : 'Off'));
+    if (on) head.append(el('span', 'jc-spacer'), button('Turn off', 'danger', () => send({ type: 'code_trigger_off', service }), `${t('Turn off')} ${NAMES[service]}`));
+    box.append(head);
+    const ready = SECRETS[service].every(([key]) => has[key]);
+    if (!ready || !on) {
+      const steps = el('ol', 'jcx-trg-steps');
+      steps.append(...STEPS[service].map((s) => el('li', '', s)));
+      box.append(steps);
+    }
+    for (const [key, label] of SECRETS[service]) box.append(secretRow(service, key, label, !!has[key]));
+    const where = el('div', 'jcs-row jcx-trg-hook');
+    const text = el('span');
+    text.append(document.createTextNode(t('The hook’s address')));
+    text.append(el('small', '', 'Only through a tunnel: the port changes when the app restarts.'));
+    where.append(text);
+    const tools = el('span', 'jcx-trg-tools');
+    if (data.hook) tools.append(mine(hookAddress(location.origin, data.hook), 'code'));
+    tools.append(button(data.hook ? 'New token' : 'Make one', '', () => send({ type: 'code_trigger_hook', service }), `${t('New token')}: ${NAMES[service]}`));
+    where.append(tools);
+    box.append(where);
+    if (on) {
+      const c = data.config;
+      const summary = service === 'linear'
+        ? `${c.project} · “${c.label}” · ${(c.users || []).length}`
+        : `${(c.channels || []).map((x) => `${x.id} → ${x.project}`).join(', ')} · ${(c.users || []).length}`;
+      box.append(mine(summary, 'p', 'jc-dim jcx-trg-summary'));
+    } else {
+      box.append(scopeForm(service));
+    }
+    return box;
+  }
+
+  function draw() {
+    if (!group) return;
+    group.replaceChildren(
+      row('Tickets and messages for Eden', 'A Linear ticket given to Eden, or @Eden or /eden in an allowed Slack channel, starts a session without you, from the people you list only. Its text is only data, and its pull request waits for your OK.'),
+      serviceBlock('linear'),
+      serviceBlock('slack'),
+    );
+  }
+
+  (function addSettings() {
+    const general = document.getElementById('jcs-general');
+    if (!general) return;
+    const label = el('p', 'jcs-label', 'Linear and Slack');
+    group = el('div', 'jcs-group jcx-trg');
+    const foot = general.querySelector('.jcs-foot');
+    general.insertBefore(label, foot);
+    general.insertBefore(group, foot);
+    draw();
+  })();
+
+  F.on('hello', () => send({ type: 'code_triggers' }), { replay: true });
+  F.on('code_triggers', (ev) => { state.linear = ev.linear || null; state.slack = ev.slack || null; draw(); });
+  F.on('claude_projects', () => draw());
+  root.JarvisTriggers = { state };
+})(typeof window === 'object' ? window : globalThis);

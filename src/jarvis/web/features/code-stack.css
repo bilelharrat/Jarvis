@@ -1,0 +1,21 @@
+/* Eden Code's stacked pull requests: the Stack pane. */
+
+.jcx-stack { display: flex; flex-direction: column; gap: 9px; }
+.jcx-stack > .jc-dim { margin: 0; font-size: 12.5px; }
+.jcx-stack-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.jcx-stack-note { margin: 0; font-size: 12px; }
+.jcx-stack-part { padding: 8px 10px; border-radius: 11px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 6px; }
+.jcx-stack-head { display: flex; align-items: center; gap: 6px; }
+.jcx-stack-head .jcs-input { flex: 1; min-width: 0; }
+.jcx-stack-n { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font: 700 11px var(--sans); color: rgb(var(--c-accent-ink)); background: rgb(var(--c-accent) / 0.12); }
+.jcx-stack-hunks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.jcx-stack-hunks li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.jcx-stack-hunks code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); color: rgb(var(--c-ink-2)); }
+.jcx-stack-hunks .jcs-select { flex: none; max-width: 40%; }
+.jcx-stack-warn { margin: 0; font-size: 12px; color: rgb(var(--c-warning-ink)); }
+.jcx-stack-warn code { font: 11px var(--mono); }
+.jcx-stack-done { padding: 7px 10px; border-radius: 10px; background: rgb(var(--c-surface-muted)); font-size: 12.5px; }
+.jcx-stack-done.closed { opacity: 0.7; }
+.jcx-stack-prs { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.jcx-stack-prs li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.jcx-stack-prs code { font: 11px var(--mono); color: rgb(var(--c-accent-ink)); }
