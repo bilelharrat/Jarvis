@@ -96,6 +96,12 @@ ZH = {
     "Turn on Other agents (ACP) in Settings › Eden Code › Labs to compare other agents.": "请在“设置 › Eden Code › 实验功能”里打开“其他智能体（ACP）”，才能比较其他智能体。",
     "Wait until they're all done, then merge.": "等它们都完成后再合并。",
     "It's merging already.": "已经在合并了。",
+    "Wait for the merge to finish, then keep one.": "请等合并完成，再选择保留哪一个。",
+    "Merge again?": "再合并一次？",
+    "The last merge's copy {branch} is discarded (its work is kept 30 days) and its review session ends.": "上一次合并的副本 {branch} 会被丢弃（其内容保留 30 天），它的审阅会话也会结束。",
+    "Merge again": "再合并一次",
+    "Keep the last merge": "保留上一次合并",
+    "Not merged again.": "没有再合并。",
     "That's today's {n} merges; pick one to keep instead.": "今天已经合并了 {n} 次；请改为选一个保留。",
     "The judge picked nothing to merge.": "评判没有挑出可以合并的内容。",
     "None of the picked changes went in.": "挑出的改动一个都没能放进去。",
@@ -415,6 +421,22 @@ class BestOf:
         if len(store.copies) + desk.making >= worktrees.MAX_COPIES:
             return f"There are already {len(store.copies)} isolated copies; land or discard some, then merge."
         old = group.merge or {}
+        previous = desk.store().find(old["slug"]) if old.get("slug") else None
+        if previous is not None:  # (C7: its copy is the owner's to review; asked, named)
+            answer = await self.hub.request_approval(
+                self.tr("Merge again?"),
+                self.tr(
+                    f"The last merge's copy {previous.branch} is discarded (its work is kept "
+                    "30 days) and its review session ends."
+                ),
+                [("merge", self.tr("Merge again")), ("deny", self.tr("Keep the last merge"))],
+            )
+            if answer != "merge":
+                return "Not merged again."
+            if group.status == "kept":  # (kept while asked)
+                return "That comparison isn't there any more."
+            if (group.merge or {}).get("status") == "merging":
+                return "It's merging already."
         group.merge = {"status": "merging", "hunks": [], "left_out": [], "clashes": []}
         self.publish(group)
         try:
@@ -471,6 +493,15 @@ class BestOf:
             copy = await self._new_copy(group, desk, base)
         except worktrees.CopyError as exc:
             return {"status": "failed", "left_out": left_out, "error": str(exc)}
+        try:
+            return await self._fill(group, desk, copy, plan, left_out, clashes)
+        except Exception:  # (C8: the copy never left behind, unlisted by the comparison)
+            await desk.discard_now(copy)
+            raise
+
+    async def _fill(self, group: Group, desk: Any, copy: worktrees.Copy, plan: Any,
+                    left_out: list[Any], clashes: list[Any]) -> dict[str, Any]:  # fmt: skip
+        """The merge's copy filled: the picked hunks applied, tested, a review session."""
         went, failed = await asyncio.to_thread(bestof_merge.apply, Path(copy.checkout), plan.picks)
         if not went:
             await desk.discard_now(copy)
@@ -571,6 +602,8 @@ class BestOf:
         if group is None or desk is None or group.status == "kept":
             return "That comparison isn't there any more."
         merge = group.merge or {}
+        if merge.get("status") == "merging":  # (C7: its copy and session are being made)
+            return "Wait for the merge to finish, then keep one."
         if n == 0:
             if merge.get("status") != "ready" or not merge.get("slug"):
                 return "There's no merge to keep."
@@ -610,6 +643,10 @@ class BestOf:
         )
         if answer != "keep":
             return ""
+        if group.status == "kept":  # (kept from another card while asked)
+            return "That comparison isn't there any more."
+        if (group.merge or {}).get("status") == "merging":  # (begun while asked)
+            return "Wait for the merge to finish, then keep one."
         ids = [v.task_id for v in group.variants] + [int(merge.get("task_id") or 0)]
         for task_id in ids:  # nobody keeps working on what's being decided
             task = self.hub.tasks.tasks.get(task_id)
