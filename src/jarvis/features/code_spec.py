@@ -973,12 +973,6 @@ class Specs:
         self.publish()
 
 
-def proof_text(rows: list[dict[str, Any]]) -> str:
-    """The receipt's words for its requirements: "requirements met 2 of 3"."""
-    met = sum(1 for r in rows if r.get("status") == "met")
-    return f"requirements met {met} of {len(rows)}"
-
-
 def install(hub: Any) -> None:
     desk = Specs(hub)
     hub.code_spec = desk  # (for code_receipts, code_pr and the tests)
