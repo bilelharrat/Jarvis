@@ -779,3 +779,36 @@ async def test_the_stdio_server_reads_an_index_saved_after_it_started(project, t
     (project / "src" / "late.py").write_text("def arrived_later():\n    pass\n")
     app.refresh(code_index.hash_source())
     assert "src/late.py" in await lookup("arrived_later")
+
+
+# ── the stdio server's edges (coverage) ──
+
+
+def test_the_tools_say_what_s_missing_and_name_no_tool_that_isn_t(index):
+    index.refresh(code_index.hash_source())
+    assert cim.run_tool(index, "symbol_lookup", {"name": "  "}) == (
+        "Which symbol? Give its name.",
+        True,
+    )
+    assert cim.run_tool(index, "nope", {}) == ("No tool named nope.", True)
+    text, err = cim.run_tool(index, "codebase_search", {"query": ""})
+    assert err and text
+
+
+def test_the_stdio_server_s_query_vectors_follow_the_index_s_embedder(index):
+    index.refresh(code_index.hash_source())
+    server = cim.IndexServer(index.root, index.folder)
+    vector = server.query_vector("parse the config")
+    assert vector is not None and vector[0] == "hash-v1"
+    assert server.query_vector("again")[0] == "hash-v1"  # (the same embedder kept)
+
+
+def test_main_serves_the_index_it_s_given(index, monkeypatch):
+    served = []
+
+    async def run(server):
+        served.append((server.index.root, server.index.folder))
+
+    monkeypatch.setattr(cim, "_run_stdio", run)
+    cim.main(["--root", str(index.root), "--index", str(index.folder)])
+    assert served == [(index.root, index.folder)]
