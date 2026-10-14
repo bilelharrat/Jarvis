@@ -212,7 +212,8 @@ function featureApproval(a, where, answer) {
 }
 // A feature's check before something risky goes ahead (Touch ID): check(kind, info) gives a
 // Promise of true (go ahead) or false, or null to leave it to the usual way. Kinds: 'bypass'
-// (a session into Bypass permissions; info.text is the usual question), 'bypass-default' (new
+// (a session into Bypass permissions; info.text is the usual question, info.subject the
+// session's id, or 'new' for one it starts: its proof is for that one), 'bypass-default' (new
 // sessions start in it), 'approve' (info: {approval, choice}).
 const featureChecks = [];
 function featureCheck(kind, info) {
@@ -229,8 +230,8 @@ function featureCheck(kind, info) {
   return null;
 }
 // Bypass permissions, asked about first: a feature's check, or the usual question.
-function confirmBypass(kind, text, then, otherwise) {
-  const check = featureCheck(kind, { text });
+function confirmBypass(kind, text, then, otherwise, subject = '') {
+  const check = featureCheck(kind, { text, subject: String(subject) });
   if (check) { check.then((ok) => { if (ok) then(); else if (otherwise) otherwise(); }); return; }
   if (confirm(tr(text))) then(); else if (otherwise) otherwise();
 }
@@ -3701,7 +3702,7 @@ function slashWithoutSession(text) {
     if (mode === 'smart' && !autoCapable(composerState().modelId)) { jcNote('Auto needs Opus, Sonnet or Fable. Pick one of them first.'); return true; }
     const msg = { type: 'task_new', directory: deckProject, prompt: arg, mode, add_dirs: [...pending.dirs], plugins: [...pending.plugins], ...featureSessionFields(arg) };
     const start = () => { if (!send(msg)) return unsent(); takePending(); awaitingNewSession = true; return true; };
-    if (mode === 'auto') { confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', start); return true; }
+    if (mode === 'auto') { confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', start, null, 'new'); return true; }
     return start();
   }
   if (name === 'model' && !arg) { modelMenu(); return true; }
@@ -4429,7 +4430,7 @@ function setMode(id) {
     if (target !== null) send({ type: 'task_mode', id: target, mode: id });
     else { codeDefaults.mode = id; send({ type: 'code_defaults', code_mode: id }); renderComposer(); }
   };
-  if (id === 'auto' && s.mode !== 'auto') confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', go);
+  if (id === 'auto' && s.mode !== 'auto') confirmBypass('bypass', 'Bypass permissions lets Eden Code run any command and change any file without asking you. Use it only for a project you could lose. Switch?', go, null, target !== null ? target : 'new');
   else go();
 }
 

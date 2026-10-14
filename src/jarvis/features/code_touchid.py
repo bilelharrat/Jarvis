@@ -5,13 +5,18 @@ app/features/touchid.js), or the app's own confirmation where there's no Touch I
 
 Its setting: code_touchid (on by default), in Eden Code settings › General. check_proof
 checks the proof the app's main process signs once macOS's sheet said
-yes (app/features/touchid.js makeProof, audit S30): "v1.<kind>.<expires ms>.<nonce>.<mac>",
-the mac an HMAC-SHA256 of "eden-touchid|v1|<kind>|<expires>|<nonce>" under the proof key: one
+yes (app/features/touchid.js makeProof, audit S30):
+"v2.<kind>.<subject>.<expires ms>.<nonce>.<mac>", the mac an HMAC-SHA256 of
+"eden-touchid|v2|<kind>|<subject>|<expires>|<nonce>" under the proof key: one
 the app that started this backend gave it on its own pipe (proof_pipe.py), never the launch
 token, which the page has (its URL), so a script in the window can't sign a yes of its own
-(round 1, A1). A proof holds until it expires (two minutes at most) and only once. A window of
-the other app on this backend (backend-share.js) has no key: it asks here
-(code_touchid_ask {kind, lang}), this backend asks its own app over the pipe, that app shows
+(round 1, A1). A proof holds until it expires (two minutes at most), only once, and only for
+its subject (round 3, R2-12): a risky step's yes names its card (the approval id), Bypass
+names its session (the task id, or "new" for one not started yet), and the kinds with no one
+thing to name (bypass-default, touchid-off, rules) name none; a yes for one card can't be
+spent on another that came up meanwhile. A window of the other app on this backend
+(backend-share.js) has no key: it asks here (code_touchid_ask {kind, lang, subject}), this
+backend asks its own app over the pipe, that app shows
 its sheet and the proof comes back the same way, armed at once (code_touchid_answer
 {proof_kind, ok} tells the window). A backend run by hand has no key, and no proof holds.
 
@@ -48,8 +53,9 @@ only the Mac's window answers (mac_only: tap-only, marked touchid, a risky step'
 to a chat or the Jarvis number with its buttons (R2-7).
 
 Window commands: code_touchid_proof {kind, proof}: armed for the next command of its kind
-(kinds: bypass, bypass-default, approve, touchid-off, rules);
-code_touchid_ask {kind, lang}: the app that started this backend asks the owner (above).
+(kinds: bypass, bypass-default, approve, touchid-off, rules), and good only if that command
+is for the proof's subject; code_touchid_ask {kind, lang, subject}: the app that started
+this backend asks the owner (above).
 
 Cost policy (Claude): this feature never calls a model.
 """
@@ -75,24 +81,35 @@ DEFAULTS = "code_project_defaults"  # (code_sessions.py's: a project's own sessi
 prefs.register_feature_pref(PREF, True)
 
 PROOF_SECONDS = 120  # as touchid.js's PROOF_MS
-_PROOF = re.compile(r"^v1\.([a-z-]{1,32})\.(\d{13})\.([0-9a-f]{32})\.([0-9a-f]{64})$")
+SUBJECT = re.compile(r"^[A-Za-z0-9_-]{0,40}$")
+_PROOF = re.compile(
+    r"^v2\.([a-z-]{1,32})\.([A-Za-z0-9_-]{0,40})\.(\d{13})\.([0-9a-f]{32})\.([0-9a-f]{64})$"
+)
+PROOF_MAX = 300  # characters of a proof, at most (kind, subject, expiry, nonce and mac)
+NEW = "new"  # the subject of a Bypass proof for a session not started yet
 _used: OrderedDict[str, float] = OrderedDict()  # nonce -> its expiry, so each proof works once
 _lock = threading.Lock()
 
 
-def check_proof(token: str, proof: str, kind: str, now: float | None = None) -> bool:
-    """Whether proof is the main process's, for kind, unexpired and never used before. Uses it."""
+def check_proof(
+    token: str, proof: str, kind: str, subject: str = "", now: float | None = None
+) -> bool:
+    """Whether proof is the main process's, for kind and subject (the one card or session
+    the yes was for: round 3, R2-12), unexpired and never used before. Uses it."""
     m = _PROOF.match(str(proof or ""))
-    if not token or not m or m.group(1) != kind:
+    subject = str(subject or "")
+    if not token or not m or m.group(1) != kind or not SUBJECT.match(subject):
         return False
-    expires_ms = int(m.group(2))
-    nonce = m.group(3)
+    if not hmac.compare_digest(m.group(2), subject):
+        return False
+    expires_ms = int(m.group(3))
+    nonce = m.group(4)
     at = time.time() if now is None else now
     if not at * 1000 < expires_ms <= (at + PROOF_SECONDS + 5) * 1000:
         return False
-    signed = f"eden-touchid|v1|{kind}|{expires_ms}|{nonce}".encode()
+    signed = f"eden-touchid|v2|{kind}|{subject}|{expires_ms}|{nonce}".encode()
     want = hmac.new(str(token).encode(), signed, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(want, m.group(4)):
+    if not hmac.compare_digest(want, m.group(5)):
         return False
     with _lock:
         for old, until in list(_used.items()):  # (oldest first: expired ones are forgotten)
@@ -306,9 +323,10 @@ class Gate:
     def needed(self) -> bool:
         return self.on() and self.from_window()
 
-    def take(self, kind: str) -> bool:
-        """The armed proof for kind, checked (and used up)."""
-        return check_proof(self.key(), self.armed.pop(kind, ""), kind)
+    def take(self, kind: str, subject: str = "") -> bool:
+        """The armed proof for kind, checked for this subject (and used up either way: a
+        proof for another card or session is no proof for this one)."""
+        return check_proof(self.key(), self.armed.pop(kind, ""), kind, subject)
 
     def refuse(self, kind: str) -> None:
         log.warning("Touch ID: %s without its proof (or from where it can't be had); refused", kind)
@@ -318,7 +336,7 @@ class Gate:
 
     def on_proof(self, msg: dict[str, Any]) -> None:
         kind, proof = msg.get("kind"), msg.get("proof")
-        if kind in KINDS and isinstance(proof, str) and len(proof) < 200:
+        if kind in KINDS and isinstance(proof, str) and len(proof) < PROOF_MAX:
             self.armed[kind] = proof
 
     # ── the one gate every way into Bypass goes through (TaskManager.bypass_gate) ──
@@ -345,7 +363,7 @@ class Gate:
             msg = {"directory": str(folder), "session_id": str(session_id or "")}
             if self.default_mode(msg) == "auto":
                 return True  # (it would start in Bypass without the mode named: proved when set)
-        if self.take("bypass"):
+        if self.take("bypass", NEW if task is None else str(getattr(task, "id", ""))):
             return True
         self.refuse("bypass")
         return False
@@ -406,7 +424,7 @@ class Gate:
     def proven_default(self) -> bool:
         """A proof that new sessions may start in Bypass (the composer with no session open
         asks as it does for a session's: either kind does)."""
-        if self.take("bypass-default") or self.take("bypass"):
+        if self.take("bypass-default") or self.take("bypass", NEW):
             self.default_proven = time.monotonic()
             return True
         return False
@@ -466,10 +484,12 @@ class Gate:
 
     def on_ask(self, msg: dict[str, Any]) -> None:
         kind = msg.get("kind")
+        subject = str(msg.get("subject") or "")
         pipe = getattr(self.hub, "proof_pipe", None)
-        if kind not in KINDS:
+        if kind not in KINDS or not SUBJECT.match(subject):
             return
-        if pipe is None or not pipe.ask(kind, "zh" if msg.get("lang") == "zh" else "en"):
+        words = "zh" if msg.get("lang") == "zh" else "en"
+        if pipe is None or not pipe.ask(kind, words, subject):
             self.hub.emit("code_touchid_answer", proof_kind=kind, ok=False, unavailable=True)
             return
         try:
@@ -491,7 +511,7 @@ class Gate:
             self.loop.call_soon_threadsafe(self.answer, *found)
 
     def answer(self, kind: str, proof: str) -> None:
-        ok = 0 < len(proof) < 200
+        ok = 0 < len(proof) < PROOF_MAX
         if ok:
             self.armed[kind] = proof  # (checked as the window's are, when it's used)
         self.hub.emit("code_touchid_answer", proof_kind=kind, ok=ok)
@@ -500,7 +520,7 @@ class Gate:
         approval = self.hub.approvals.get(str(msg.get("id")))
         if approval is None or not risky(approval, str(msg.get("choice"))) or not self.needed():
             return False
-        if self.take("approve"):
+        if self.take("approve", str(msg.get("id"))):
             return False
         self.refuse("approve")
         self.hub.emit("approval", **approval)  # (the window took its card down: it comes back)

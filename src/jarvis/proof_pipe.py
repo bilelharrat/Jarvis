@@ -13,8 +13,8 @@ anything else is started.
 The pipe stays open, for the window of the other app on this backend (backend-share.js: a
 second app that shares a backend didn't start it, so it has no key). That window asks the
 backend (code_touchid_ask), the backend asks its own app on stdout in a line that starts with
-the tag ("<tag> ask <kind> <lang>"), that app shows its own Touch ID sheet (or its own dialog)
-and answers on the pipe: "proof <kind> <proof>" (made with makeProof under the key) or
+the tag ("<tag> ask <kind> <lang> [<subject>]"), that app shows its own Touch ID sheet (or its
+own dialog) and answers on the pipe: "proof <kind> <proof>" (made with makeProof under the key) or
 "no <kind>". The tag only keeps stray output (a child that inherited stdout) from being read
 as an ask; an ask can only ever bring up the owner's own sheet.
 
@@ -46,6 +46,7 @@ ASKS_FD = 3  # with ENV "3": the asks go to the app on this pipe, not stdout (R2
 FIRST_LINE_S = 10.0  # the app writes its line as it starts the backend
 _HELLO = re.compile(r"^([0-9a-f]{64}) ([0-9a-f]{32})$")
 _KIND = re.compile(r"^[a-z-]{1,32}$")
+_SUBJECT = re.compile(r"^[A-Za-z0-9_-]{0,40}$")  # (code_touchid.SUBJECT)
 
 
 class Pipe:
@@ -60,14 +61,16 @@ class Pipe:
         self._write = write or (lambda data: os.write(sys.__stdout__.fileno(), data))
         self._listening = False
 
-    def ask(self, kind: str, language: str) -> bool:
-        """Asks the app that started this backend for the owner's yes to kind. False when
-        it can't be asked (the kind isn't one, stdout is gone)."""
-        if not _KIND.match(str(kind)):
+    def ask(self, kind: str, language: str, subject: str = "") -> bool:
+        """Asks the app that started this backend for the owner's yes to kind, for subject
+        (the card or session it's for, signed into the proof: round 3, R2-12). False when it
+        can't be asked (the kind or subject isn't one, stdout is gone)."""
+        if not _KIND.match(str(kind)) or not _SUBJECT.match(str(subject)):
             return False
         words = "zh" if language == "zh" else "en"
+        tail = f" {subject}" if subject else ""
         try:
-            self._write(f"{self.tag} ask {kind} {words}\n".encode())  # one write: one line
+            self._write(f"{self.tag} ask {kind} {words}{tail}\n".encode())  # one write: one line
         except (OSError, ValueError, AttributeError):
             return False
         return True

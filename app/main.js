@@ -40,7 +40,7 @@ let TOKEN = crypto.randomBytes(24).toString('hex');
 // The key Touch ID's proofs are signed with (proof-pipe.js): this app's backend's alone, never
 // the page's; '' while the window is on the other app's backend (that app signs them then).
 let PROOF_KEY = '';
-let proofAsk = null; // (kind, lang) -> a Promise of a proof, or '' (features/touchid.js sets it)
+let proofAsk = null; // (kind, lang, subject) -> a Promise of a proof, or '' (features/touchid.js sets it)
 const SHORTCUT = process.platform === 'win32' ? 'Ctrl+Alt+J' : 'Alt+Space'; // (Alt+Space is Windows' window menu; J is the key a finger finds by touch)
 const WHATS_THIS = 'Alt+Shift+Space'; // explain whatever is in front of you
 const plat = require('./platform-paths');
@@ -219,7 +219,7 @@ function startBackend() {
   backendTail.add(`--- ${new Date().toISOString()}\n`);
   backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: proofPipe.STDIO, windowsHide: true }); // (windowsHide: no console window for the engine)
   PROOF_KEY = keys.key;
-  proofPipe.attach(backend, keys, (kind, lang) => (proofAsk ? proofAsk(kind, lang) : ''));
+  proofPipe.attach(backend, keys, (kind, lang, subject) => (proofAsk ? proofAsk(kind, lang, subject) : ''));
   trace.write(`engine process ${backend.pid || 'not started'}`);
   backend.stdout.on('data', (chunk) => backendTail.add(chunk));
   backend.stderr.on('data', (chunk) => backendTail.add(chunk));

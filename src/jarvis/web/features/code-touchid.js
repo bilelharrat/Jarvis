@@ -12,12 +12,14 @@
 //
 // The backend wants proof (audit S30, features/code_touchid.py's gate): a yes the app's main
 // process saw is signed there, and sent just before the switch or the answer it's for
-// (code_touchid_proof {kind, proof}). On a Mac without Touch ID the app asks with a dialog of
+// (code_touchid_proof {kind, proof}), signed for its subject (round 3, R2-12): a risky step's
+// yes names its card's id, Bypass its session's id ('new' for one not started), so a yes is
+// good for that one thing only (subject() below). On a Mac without Touch ID the app asks with a dialog of
 // its own (feature:touchid:confirm), which signs the same way; a page outside the app can't
 // prove anything, so it asks its usual question and the backend says what's needed. The key
 // it's signed with is the app's own, never the page's token (round 1 A1). On the other app's
 // backend (Eden Code beside Eden Secretary) this app has no key and says { relay }: the window
-// asks the backend (code_touchid_ask {kind, lang}), the app that started it shows its sheet,
+// asks the backend (code_touchid_ask {kind, lang, subject}), the app that started it shows its sheet,
 // and the backend holds that proof and says how it went (code_touchid_answer {proof_kind, ok}).
 // Turning the switch below off asks the same way first (kind 'touchid-off'), and so does a
 // Permissions pane change that lets a lot go unasked (kind 'rules': code-rules.js asks).
@@ -109,7 +111,17 @@
     return false;
   }
 
-  const api = { risky, riskyCommand, broadRule, loosensRules };
+  // What a yes is for, signed into its proof (round 3, R2-12): a risky step's card (its id),
+  // the session Bypass is for (its id, or 'new': info.subject, from app.js confirmBypass),
+  // nothing for the kinds with no one thing to name. The backend checks it's the same.
+  function subject(kind, info) {
+    const i = info || {};
+    const raw = kind === 'approve' ? (i.approval && i.approval.id) : kind === 'bypass' ? i.subject : '';
+    const text = raw === undefined || raw === null ? '' : String(raw);
+    return /^[A-Za-z0-9_-]{0,40}$/.test(text) ? text : '';
+  }
+
+  const api = { risky, riskyCommand, broadRule, loosensRules, subject };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -120,8 +132,8 @@
   const lang = () => (root.jarvisI18n && root.jarvisI18n.lang() === 'zh' ? 'zh' : 'en');
 
   // A signed yes goes to the backend just before what it's for.
-  function prove(kind, got) {
-    if (got && got.relay) return relay(kind);
+  function prove(kind, got, about = '') {
+    if (got && got.relay) return relay(kind, about);
     if (got && got.ok && typeof got.proof === 'string' && got.proof) F.send({ type: 'code_touchid_proof', kind, proof: got.proof });
     return !!(got && got.ok);
   }
@@ -130,12 +142,12 @@
   // true or false; null when nothing can ask (a backend run by hand: the usual question).
   const RELAY_MS = 3 * 60 * 1000;
   let waiting = null;  // {kind, done}: the one ask out
-  function relay(kind) {
+  function relay(kind, about = '') {
     if (waiting) return Promise.resolve(false);  // (one sheet at a time)
     return new Promise((resolve) => {
       const done = (ok) => { if (waiting && waiting.done === done) { clearTimeout(waiting.timer); waiting = null; resolve(ok); } };
       waiting = { kind, done, timer: setTimeout(() => done(false), RELAY_MS) };
-      if (!F.send({ type: 'code_touchid_ask', kind, lang: lang() })) done(false);
+      if (!F.send({ type: 'code_touchid_ask', kind, lang: lang(), subject: about })) done(false);
     });
   }
   F.on('code_touchid_answer', (ev) => {
@@ -145,19 +157,19 @@
 
   // The owner's fingerprint: true or false, or null where there's no Touch ID to ask with.
   // Without Touch ID, inside the app: the app's own dialog (true or false, signed the same).
-  async function fingerprint(kind) {
+  async function fingerprint(kind, about = '') {
     const app = bridge();
     if (!app) return null;
     let available = false;
     try { available = await app.invoke('feature:touchid:available'); } catch { available = false; }
     if (!available) {
       try {
-        const got = await app.invoke('feature:touchid:confirm', kind, lang());
-        return got && got.unsupported ? null : prove(kind, got);
+        const got = await app.invoke('feature:touchid:confirm', kind, lang(), about);
+        return got && got.unsupported ? null : prove(kind, got, about);
       } catch { return null; }
     }
     try {
-      return prove(kind, await app.invoke('feature:touchid:prompt', kind, lang()));
+      return prove(kind, await app.invoke('feature:touchid:prompt', kind, lang(), about), about);
     } catch { return false; }
   }
 
@@ -166,10 +178,10 @@
   F.registerCheck((kind, info) => {
     if (!on) return null;
     if (kind === 'bypass' || kind === 'bypass-default') {
-      return fingerprint(kind).then((ok) => (ok === null ? root.confirm(t(info.text)) : ok));
+      return fingerprint(kind, subject(kind, info)).then((ok) => (ok === null ? root.confirm(t(info.text)) : ok));
     }
     if (kind === 'approve' && risky(info.approval, info.choice)) {
-      return fingerprint('approve').then((ok) => (ok === null ? root.confirm(t(RISKY_QUESTION)) : ok));
+      return fingerprint('approve', subject('approve', info)).then((ok) => (ok === null ? root.confirm(t(RISKY_QUESTION)) : ok));
     }
     if (kind === 'rules' && loosensRules(info)) {
       return fingerprint('rules').then((ok) => (ok === null ? root.confirm(t(RULES_QUESTION)) : ok));

@@ -34,35 +34,36 @@ const hello = ({ key, tag }) => `${key} ${tag}\n`;
 // The answer to an ask: the proof made for it, or a no.
 function answer(kind, proof) {
   if (!/^[a-z-]{1,32}$/.test(String(kind))) return '';
-  return proof && /^[\w.-]{1,199}$/.test(proof) ? `proof ${kind} ${proof}\n` : `no ${kind}\n`;
+  return proof && /^[\w.-]{1,299}$/.test(proof) ? `proof ${kind} ${proof}\n` : `no ${kind}\n`;
 }
 
-// Reads the backend's stdout as it comes (chunks split anywhere) and calls onAsk(kind, lang)
-// for each line that is an ask with this backend's tag. Gives the function to feed it with.
+// Reads the backend's stdout as it comes (chunks split anywhere) and calls onAsk(kind, lang,
+// subject) for each line that is an ask with this backend's tag (the subject, the card or
+// session the yes is for, '' when the line names none). Gives the function to feed it with.
 function asks(tag, onAsk) {
   let rest = '';
-  const ask = new RegExp(`^${tag} ask ([a-z-]{1,32}) (en|zh)$`);
+  const ask = new RegExp(`^${tag} ask ([a-z-]{1,32}) (en|zh)(?: ([A-Za-z0-9_-]{1,40}))?$`);
   return (chunk) => {
     rest += String(chunk);
     const lines = rest.split('\n');
     rest = lines.pop().slice(-4096); // (a line that never ends is never an ask)
     for (const line of lines) {
       const m = ask.exec(line.replace(/\r$/, ''));
-      if (m) onAsk(m[1], m[2]);
+      if (m) onAsk(m[1], m[2], m[3] || '');
     }
   };
 }
 
 // Starts the pipe on a backend just spawned with stdin a pipe: writes its hello, and answers
-// each ask with prove(kind, lang) (a Promise of the proof, or '' for a no).
+// each ask with prove(kind, lang, subject) (a Promise of the proof, or '' for a no).
 function attach(child, keys, prove) {
   if (!child || !child.stdin || !child.stdout) return;
   child.stdin.on('error', () => {}); // (the backend gone: nothing to tell it)
   child.stdin.write(hello(keys));
   const from = (child.stdio && child.stdio[3]) || child.stdout; // (its own pipe, else stdout)
-  from.on('data', asks(keys.tag, async (kind, lang) => {
+  from.on('data', asks(keys.tag, async (kind, lang, subject) => {
     let proof = '';
-    try { proof = await prove(kind, lang); } catch { proof = ''; }
+    try { proof = await prove(kind, lang, subject); } catch { proof = ''; }
     const line = answer(kind, proof);
     if (line && child.stdin.writable) child.stdin.write(line);
   }));
