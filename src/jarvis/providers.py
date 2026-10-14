@@ -131,6 +131,7 @@ KINDS: dict[str, Kind] = {
             "gemini-3.8-flash",
             "gemini-3.1-pro-preview",
             "gemini-4-argon",
+            "gemini-3.5-flash-lite",
         ),
     ),
     "custom": Kind(
@@ -149,15 +150,59 @@ KINDS: dict[str, Kind] = {
         "",
         "bearer",
         "Any server that speaks OpenAI's API: Ollama or LM Studio on this Mac (Ollama is "
-        "http://localhost:11434, LM Studio http://localhost:1234), OpenRouter, OpenAI and "
-        "more, with every tool, through Jarvis's own relay on this Mac. Ollama and LM Studio "
-        "don't check keys: type any word, like local. Give a local model a long context "
-        "(32K or more).",
+        "http://localhost:11434, LM Studio http://localhost:1234), OpenAI itself "
+        "(https://api.openai.com: GPT-6), Moonshot Kimi (https://api.moonshot.ai), "
+        "OpenRouter and more, with every tool, through Jarvis's own relay on this Mac. Ollama "
+        "and LM Studio don't check keys: type any word, like local. Give a local model a long "
+        "context (32K or more).",
         "",
         "https://ollama.com/search?c=tools",
         ("qwen3", "llama3.2", "gpt-oss:20b", "mistral-small3.2"),
     ),
 }
+
+# Eden chat's models (askeden.com: the Worker's DEFAULT_MODELS in site/src/eden/chat.js, as
+# of 2026-10-14) that Eden Code can run, beyond Claude (prefs.MODELS, on the owner's sign-in
+# or an Anthropic key): {model id: (label, kind, host)}. The label is the Model Router's name
+# for it, as Eden chat shows it; the kind and host say how a session runs it: GPT-6 and Kimi
+# through openai_relay (both speak Chat Completions, as Eden chat calls them), Gemini through
+# gemini_proxy, each on the owner's own key ("" host: the kind's own address). A model added
+# without a label of the owner's gets this one, and an OpenAI-compatible provider at that
+# host suggests these ids in its "Add model" box. Prices aren't kept here: the window's
+# router has them (web/features/vendor/model-router.js, the same registry Eden chat's Worker
+# bundles) and sends them to code_router_events. Left out on purpose: GPT-6 Luna (askeden.com
+# retired it on 2026-10-13 for its mistakes). Gemini 4 Argon is off askeden.com only while
+# the iPhone app is in App Review, so Eden Code keeps it. tests/test_model_catalog.py keeps
+# this in step with Eden chat.
+CATALOG: dict[str, tuple[str, str, str]] = {
+    "gpt-6.1-sol": ("GPT-6.1 Sol", "openai", "api.openai.com"),
+    "gpt-6-sol": ("GPT-6 Sol", "openai", "api.openai.com"),
+    "gemini-4-argon": ("Gemini 4 Argon", "gemini", ""),
+    "gemini-3.1-pro-preview": ("Gemini 3.1 Pro (preview)", "gemini", ""),
+    "gemini-3.8-flash": ("Gemini 3.8 Flash", "gemini", ""),
+    "gemini-3.5-flash-lite": ("Gemini 3.5 Flash-Lite", "gemini", ""),
+    "kimi-k3": ("Kimi K3", "openai", "api.moonshot.ai"),
+    "kimi-k2.7-code": ("Kimi K2.7 Code", "openai", "api.moonshot.ai"),
+}
+
+
+def catalog_label(model_id: str, kind: str) -> str:
+    """The catalog's name for a model on a provider of this kind ("" when it has none): a
+    Gemini key's gemini-3.8-flash is "Gemini 3.8 Flash"; an OpenRouter or custom endpoint's
+    id is whatever that provider means by it, so it gets none."""
+    entry = CATALOG.get(str(model_id or ""))
+    return entry[0] if entry and entry[1] == kind else ""
+
+
+def catalog_suggested(kind: str, base_url: str) -> tuple[str, ...]:
+    """The ids a provider's "Add model" box suggests before a check has listed its own: an
+    OpenAI-compatible provider at OpenAI's or Moonshot's address gets the catalog's models
+    there, everything else its kind's suggestions."""
+    host = (urlsplit(str(base_url or "")).hostname or "").lower()
+    own = tuple(m for m, (_, k, h) in CATALOG.items() if k == kind and h and h == host)
+    return own or KINDS[kind].suggested
+
+
 # Names for a local server on its usual port (an OpenAI-compatible provider added without one).
 LOCAL_SERVERS = {11434: "Ollama", 1234: "LM Studio", 8080: "llama.cpp", 8000: "vLLM"}
 AUTHS = ("bearer", "x-api-key")
@@ -1097,6 +1142,10 @@ class ProviderStore:
         label = clean_name(label, LABEL_LIMIT)
         if self._offers(provider.id, model_id):
             raise ValueError(f"{model_id} is already on {provider.name}'s list.")
+        if not label:  # the catalog's name, as Eden chat shows it, unless another model has it
+            named = catalog_label(model_id, provider.kind)
+            if named and not self._passes_off(provider.id, model_id, named):
+                label = named
         shown = label or model_id
         if self._passes_off(provider.id, model_id, shown):
             raise ValueError(
@@ -1470,6 +1519,7 @@ class ProviderStore:
             "added": provider.added,
             "status": self.status.get(provider.id),
             "models": [self._public_model(e) for e in self.models_of(provider.id)],
+            "suggested": list(catalog_suggested(provider.kind, provider.base_url)),
         }
 
     def _public_model(self, entry: ModelEntry) -> dict[str, Any]:
@@ -1636,7 +1686,10 @@ async def _ask(provider: Provider, key: str, client: httpx.AsyncClient) -> dict[
             return _checked(
                 True, models=listed, note=f"Gemini works, through {where}: {count} on this key."
             )
-        models = [{"id": m, "name": m, "tools": True} for m in KINDS["gemini"].suggested]
+        models = [
+            {"id": m, "name": catalog_label(m, "gemini") or m, "tools": True}
+            for m in KINDS["gemini"].suggested
+        ]
         return _checked(True, models=models, note=f"Gemini works, through {where}.")
     headers = _headers(provider, key)
     note = ""
