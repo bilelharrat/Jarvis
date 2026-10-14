@@ -194,6 +194,14 @@
     return row;
   }
 
+  // A change that lets a lot more go unasked asks for the fingerprint first (code-touchid.js,
+  // kind 'rules'); any other goes at once.
+  function changeRules(task, msg, info) {
+    const check = F.check ? F.check('rules', info) : null;
+    if (check) check.then((ok) => { if (ok) F.send(msg); });
+    else F.send(msg);
+  }
+
   function ruleRow(task, b, rule) {
     const li = el('li', `cr-rule ${b}`);
     const kind = ruleKind(rule);
@@ -201,7 +209,7 @@
     const rm = el('button', 'jc-btn small cr-remove', 'Remove');
     rm.type = 'button';
     rm.setAttribute('aria-label', t('Remove this rule'));
-    rm.addEventListener('click', () => F.send({ type: 'cr_remove', id: task.id, behavior: b, rule }));
+    rm.addEventListener('click', () => changeRules(task, { type: 'cr_remove', id: task.id, behavior: b, rule }, { behavior: b, rule, have: { deny: b === 'deny' ? [rule] : [] }, removing: true }));
     li.append(rm);
     return li;
   }
@@ -232,7 +240,7 @@
     const go = () => {
       const rule = input.value.trim();
       if (!rule) { input.focus(); return; }
-      F.send({ type: 'cr_add', id: task.id, behavior, rule });
+      changeRules(task, { type: 'cr_add', id: task.id, behavior, rule }, { behavior, rule, have: state.rules || {}, removing: false });
     };
     add.addEventListener('click', go);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
@@ -249,7 +257,7 @@
     return box;
   }
 
-  function exportButton(task, target, file) {
+  function exportButton(task, target, file, allows = 0) {
     const b = el('button', 'jc-btn small cr-export', target === 'local' ? 'Export to settings.local.json' : 'Export to settings.json');
     b.type = 'button';
     b.dataset.target = target;
@@ -263,7 +271,8 @@
       }
       clearTimeout(armed.timer);
       armed = null;
-      F.send({ type: 'cr_export', id: task.id, target });
+      // (an allow written there is Claude Code's own: no card at all, so Touch ID first)
+      changeRules(task, { type: 'cr_export', id: task.id, target }, { exporting: true, allows });
     });
     b.title = t(`Adds these rules to .claude/${file}, keeping what’s there`);
     return b;
@@ -333,7 +342,8 @@
     imp.type = 'button';
     imp.disabled = !rows.length;
     imp.addEventListener('click', () => F.send({ type: 'cr_import', id: task.id }));
-    actions.append(imp, exportButton(task, 'local', 'settings.local.json'), exportButton(task, 'project', 'settings.json'));
+    const allows = ((state.rules && state.rules.allow) || []).length + (state.legacy || []).length;
+    actions.append(imp, exportButton(task, 'local', 'settings.local.json', allows), exportButton(task, 'project', 'settings.json', allows));
     if (armed) {
       const b = actions.querySelector(`.cr-export[data-target="${armed.target}"]`);
       if (b) { b.classList.add('armed'); b.textContent = t(armed.target === 'local' ? 'Press again to write settings.local.json' : 'Press again to write settings.json (shared with the project)'); }

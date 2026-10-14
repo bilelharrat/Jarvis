@@ -177,10 +177,8 @@ class AcpDesk:
             self.emit(error="That agent isn't set up any more.")
             return
         # Bypass from the window wants Touch ID's proof here too, as task_new does (round 1
-        # A5): without it, the session starts all the same, in Manual.
-        gate = getattr(self.hub, "code_touchid", None)
-        if gate is not None:
-            gate.on_new(msg)
+        # A5): tasks.start asks the gate (code_touchid.Gate.bypass_gate); without one, the
+        # session starts all the same, in Manual.
         try:
             task = self.hub.tasks.start(
                 str(msg.get("prompt") or ""),

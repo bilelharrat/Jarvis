@@ -12,7 +12,11 @@ What it adds, and where:
   once either way).
 - Window commands: cr_state {id}, cr_add {id, behavior, rule}, cr_remove {id, behavior,
   rule}, cr_import {id}, cr_export {id, target: "local" | "project"}; each answers with
-  cr_state for that session.
+  cr_state for that session. With Touch ID on (features/code_touchid.py), an allow rule that's
+  Bypass for a kind of step (every command, a program that runs anything, a risky command,
+  edits anywhere: broad_rule) and a deny rule taken away need its proof (kind "rules"); an
+  import with one of those asks on a card marked for Touch ID. And no allow rule lets a risky
+  step by unasked (TaskManager.risky_step): it asks on its card, Bypass alone skips it.
 
 The rules are JARVIS's, kept in code_rules.json beside the settings: nothing is written into
 a project unless the owner exports them (a second press in the pane).
@@ -140,15 +144,26 @@ class RuleDesk:
         if task is not None:
             await self.state(task)
 
+    def allowed(self, behavior: str, text: str, project: str, removing: bool) -> bool:
+        """Touch ID's say on a change from the window (code_touchid.Gate.rule_change, round 2
+        G3): an allow for every command, a program that runs anything, a risky command or
+        edits anywhere, and a deny taken away, each need its proof first."""
+        gate = getattr(self.hub, "code_touchid", None)
+        if gate is None:
+            return True
+        return gate.rule_change(behavior, text, self.book.rules(project), removing)
+
     async def cmd_add(self, msg: dict[str, Any]) -> None:
         task = code_task(self.hub, msg)
         if task is None:
             return
         project = self.project(task)
+        behavior, text = str(msg.get("behavior") or ""), str(msg.get("rule") or "")
+        if not self.allowed(behavior, text, project, removing=False):
+            await self.state(task)  # (as they were: the gate said why)
+            return
         try:
-            rule = self.book.add(
-                project, str(msg.get("behavior") or ""), str(msg.get("rule") or "")
-            )
+            rule = self.book.add(project, behavior, text)
         except RuleError as exc:
             await self.state(task, error=str(exc))
             return
@@ -163,10 +178,12 @@ class RuleDesk:
         if task is None:
             return
         project = self.project(task)
+        behavior, text = str(msg.get("behavior") or ""), str(msg.get("rule") or "")
+        if not self.allowed(behavior, text, project, removing=True):
+            await self.state(task)
+            return
         try:
-            removed = self.book.remove(
-                project, str(msg.get("behavior") or ""), str(msg.get("rule") or "")
-            )
+            removed = self.book.remove(project, behavior, text)
         except OSError:
             await self.state(task, error="Couldn't save that; try again.")
             return
@@ -209,15 +226,22 @@ class RuleDesk:
         if allows:
             shown = "\n".join(f"  {text}" for text in allows[:30])
             more = f"\n  …and {len(allows) - 30} more" if len(allows) > 30 else ""
+            from .code_touchid import broad_rule
+
+            # One that's Bypass for a kind of step: the card needs Touch ID, and only the
+            # Mac's window answers it (never a chat: code_touchid.mac_only).
+            broad = {"touchid": True} if any(broad_rule(text) for text in allows) else None
             choice = await self.hub.request_approval(
                 f"Import {len(allows)} allow rule{'' if len(allows) == 1 else 's'} from "
                 f"{Path(project).name}'s .claude settings?",
                 "Each lets a session do it without asking you, in every mode:\n\n"
                 f"{shown}{more}\n\nThese files are written by whoever wrote the "
                 "repository. The ask and deny rules in them come in either way.",
-                [("all", "Import them too"), ("strict", "Only ask and deny")],
+                # ("allow": a yes Touch ID's gate and the chats know as one)
+                [("allow", "Import them too"), ("strict", "Only ask and deny")],
+                context=broad,
             )
-            if choice != "all":
+            if choice != "allow":
                 fresh = [(t, s) for t, s in fresh if BEHAVIORS[s] != "allow"]
                 left_out = len(allows)
         try:
@@ -251,6 +275,10 @@ class RuleDesk:
         rules = self.book.rules(project)
         legacy = [f"Bash({key}:*)" for key in self.hub.tasks.rules.for_project(task.cwd)]
         rules["allow"] = [*rules["allow"], *(r for r in legacy if r not in rules["allow"])]
+        gate = getattr(self.hub, "code_touchid", None)
+        if gate is not None and not gate.export_ok(rules["allow"]):
+            await self.state(task)
+            return
         name = coderules.CLAUDE_FILES[target]
         try:
             added = await asyncio.to_thread(coderules.write_claude, Path(project), target, rules)

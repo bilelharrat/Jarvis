@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 import pytest
-from code_session_fakes import make_hub
+from code_session_fakes import make_hub, until
 
 from jarvis import companion_code, proof_pipe
 from jarvis.features import code_touchid
@@ -111,13 +111,21 @@ async def test_bypass_from_the_window_needs_the_proof_of_a_yes(gated):
     assert task.mode == "ask"
 
 
-async def test_new_sessions_in_bypass_need_it_too(gated):
+def started(hub):
+    """The sessions' modes as tasks.start made them (the gate inside it had its say), none
+    of them run (nothing to connect to)."""
+    hub.tasks._session = lambda task: asyncio.sleep(0)
+    return lambda: [t.mode for i, t in sorted(hub.tasks.tasks.items()) if i != 7]
+
+
+async def test_new_sessions_in_bypass_need_it_too(gated, tmp_path):
     hub, _task, seen = gated
-    hub.tasks.start = lambda *a, **kw: (_ for _ in ()).throw(ValueError(kw["mode"]))
-    msg = {"type": "task_new", "directory": "nowhere", "prompt": "", "mode": "auto"}
-    await hub.handle(msg)
-    assert msg["mode"] == "ask"  # it starts all the same, in Manual
-    assert [d["text"] for k, d in seen if k == "error"][-1] == "ask"
+    modes = started(hub)
+    (tmp_path / "proj").mkdir()
+    msg = {"type": "task_new", "directory": "proj", "prompt": "", "mode": "auto"}
+    await hub.handle(dict(msg))
+    assert modes() == ["ask"]  # it starts all the same, in Manual
+    assert "fingerprint" in [d["text"] for k, d in seen if k == "error"][-1]
     await hub.handle({"type": "code_defaults", "code_mode": "auto", "code_effort": "high"})
     assert hub.prefs.code_mode != "auto" and hub.prefs.code_effort == "high"
     await hub.handle(
@@ -130,20 +138,30 @@ async def test_new_sessions_in_bypass_need_it_too(gated):
     await hub.handle({"type": "code_defaults", "code_mode": "auto"})
     assert hub.prefs.code_mode == "auto"
     # New sessions start in Bypass now (that needed the proof): naming it asks nothing more.
-    msg = {"type": "task_new", "directory": "nowhere", "prompt": "", "mode": "auto"}
-    await hub.handle(msg)
-    assert msg["mode"] == "auto"
+    await hub.handle(dict(msg))
+    assert modes() == ["ask", "auto"]
+
+
+async def phone(hub, command):
+    """A window command as the phone sends it (companion_code.CodeDesk.run)."""
+    asking = companion_code._ASKER.set(asyncio.Queue())
+    commanding = companion_code._COMMAND.set(command["type"])
+    try:
+        await hub.handle(command)
+    finally:
+        companion_code._COMMAND.reset(commanding)
+        companion_code._ASKER.reset(asking)
 
 
 async def test_the_phone_and_touch_id_off_keep_their_own_way(gated):
-    hub, task, _seen = gated
-    asking = companion_code._ASKER.set(asyncio.Queue())
-    try:
-        await hub.handle({"type": "task_mode", "id": 7, "mode": "auto"})
-    finally:
-        companion_code._ASKER.reset(asking)
-    assert task.mode == "auto", "the phone's own gate (S11) is its own"
+    hub, task, seen = gated
+    await phone(hub, {"type": "task_mode", "id": 7, "mode": "auto"})
+    assert task.mode == "auto", "the phone's own gate (S11: its Face ID) is its own"
     task.mode = "ask"
+    # A /bypass typed on the phone skips the Face ID its mode menu asks: refused (R2-2).
+    await phone(hub, {"type": "code_command", "id": 7, "text": "/bypass"})  # (in the background)
+    assert await until(lambda: any(k == "error" and "Face ID" in d["text"] for k, d in seen))
+    assert task.mode == "ask"
     hub.set_feature_prefs({"code_touchid": False})
     await hub.handle({"type": "task_mode", "id": 7, "mode": "auto"})
     assert task.mode == "auto", "the owner turned Touch ID off"
@@ -422,19 +440,14 @@ async def test_the_composers_bypass_moves_into_its_project_with_one_yes(gated, t
 async def test_an_acp_agent_in_bypass_needs_the_proof_too(gated, tmp_path):
     hub, _task, seen = gated
     hub.code_acp.book.add("Fake", "fake-acp")
-    modes = []
-
-    def start(prompt, directory, mode, **kw):
-        modes.append(mode)
-        raise ValueError("stop")
-
-    hub.tasks.start = start
-    msg = {"type": "acp_start", "agent": "fake", "directory": str(tmp_path), "mode": "auto"}
+    modes = started(hub)
+    (tmp_path / "proj").mkdir()
+    msg = {"type": "acp_start", "agent": "fake", "directory": "proj", "mode": "auto"}
     await hub.handle(dict(msg))
-    assert modes == ["ask"]
+    assert modes() == ["ask"]
     assert any(k == "error" and "fingerprint" in d["text"] for k, d in seen)
     await hub.handle(
         {"type": "code_touchid_proof", "kind": "bypass", "proof": fresh("bypass", "0d" * 16)}
     )
     await hub.handle(dict(msg))
-    assert modes == ["ask", "auto"]
+    assert modes() == ["ask", "auto"]

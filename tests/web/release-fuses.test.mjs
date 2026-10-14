@@ -83,7 +83,7 @@ test('the Ask Eden app flips them too, before it signs, and never runs itself as
   assert.doesNotMatch(main, /ELECTRON_RUN_AS_NODE/, 'RunAsNode is off in the app: Eden’s server is a utilityProcess');
   assert.match(main, /utilityProcess\.fork\(entry, \['--port', String\(EDEN_PORT\)\]/);
   // Its engine gets Touch ID's proof key on stdin, as the main app's does (proof-pipe.js).
-  assert.match(main, /how\.env\[proofPipe\.ENV\] = '1';/);
+  assert.match(main, /how\.env\[proofPipe\.ENV\] = proofPipe\.ENV_VALUE;/);
   assert.match(main, /proofPipe\.attach\(child, keys,/);
   assert.match(build, /'proof-pipe\.js'.*'features\/touchid\.js'/);
   // With RunAsNode off, the real fuse wire of a stand-in says so.

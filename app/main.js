@@ -211,13 +211,13 @@ function startBackend() {
   how.env.JARVIS_EDITION = FLAVOR.edition || ''; // 'daredevil': screen-reader mode is the default (accessibility.py)
   // Touch ID's proof key goes on the backend's stdin, never in its environment (proof-pipe.js).
   const keys = proofPipe.fresh();
-  how.env[proofPipe.ENV] = '1';
+  how.env[proofPipe.ENV] = proofPipe.ENV_VALUE; // (its asks on fd 3: never in the log, R2-16)
   log.write(`\n--- ${new Date().toISOString()} starting on port ${port}${how.bundled ? ' (bundled backend)' : ''} for ${FLAVOR.name}\n`);
   backendFromRepo = !how.bundled;
   trace.write(`starting the engine on port ${port}: ${how.command} ${how.args.join(' ')}${how.bundled ? '' : ' (not the bundled one)'}`);
   backendTail.reset();
   backendTail.add(`--- ${new Date().toISOString()}\n`);
-  backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); // (windowsHide: no console window for the engine)
+  backend = spawn(how.command, how.args, { env: how.env, cwd: how.cwd, stdio: proofPipe.STDIO, windowsHide: true }); // (windowsHide: no console window for the engine)
   PROOF_KEY = keys.key;
   proofPipe.attach(backend, keys, (kind, lang) => (proofAsk ? proofAsk(kind, lang) : ''));
   trace.write(`engine process ${backend.pid || 'not started'}`);

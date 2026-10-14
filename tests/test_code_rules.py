@@ -400,7 +400,7 @@ async def test_the_pane_s_commands_edit_import_and_export(
         )
     )
     importing = asyncio.create_task(hub._handle({"type": "cr_import", "id": task.id}))
-    card = await _answer(hub, "all")
+    card = await _answer(hub, "allow")
     await importing
     assert card["question"] == "Import 1 allow rule from proj's .claude settings?"
     state = last()
@@ -453,7 +453,7 @@ async def test_an_import_never_weakens_a_rule_and_weighs_the_files_as_claude_cod
         json.dumps({"permissions": {"deny": ["Bash(rm -rf:*)"], "allow": ["Bash(npm publish)"]}})
     )
     importing = asyncio.create_task(hub._handle({"type": "cr_import", "id": task.id}))
-    await _answer(hub, "all")
+    await _answer(hub, "allow")
     await importing
     rules = last()["rules"]
     assert rules["deny"] == ["Bash(git push:*)", "Bash(rm -rf:*)"]

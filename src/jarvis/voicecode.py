@@ -790,7 +790,12 @@ class VoiceCoder:
         self._changed()
 
     async def _set_mode(self, task: Any, mode: str, text: str, say: Any) -> None:
-        self.hub.tasks.set_mode(task.id, mode)
+        if not self.hub.tasks.set_mode(task.id, mode) and task.mode != mode:
+            # (a typed /bypass without Touch ID's proof: the gate said why; what came with
+            # it isn't sent in the mode it was meant for)
+            self._changed()
+            say("Left the mode as it was.", follow_up=False)
+            return
         self._changed()
         if text:
             await self._send(task, text)
@@ -814,7 +819,10 @@ class VoiceCoder:
         if choice != "allow":
             say("Left the mode as it was.", follow_up=False)
             return
-        await self._set_mode(task, "auto", text, say)
+        from .tasks import bypass_vouched
+
+        with bypass_vouched():  # (its card was the gate: tapped, with Touch ID in the window)
+            await self._set_mode(task, "auto", text, say)
 
     # ── what the user says ──
 
