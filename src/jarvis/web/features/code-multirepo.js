@@ -152,10 +152,17 @@
     return card;
   }
 
+  // Whether the Multi-repo pane is the one showing (the pane's body is every pane's: being on
+  // the page isn't enough, or a code_multis answer would draw over whatever pane is open).
+  /* global currentPane */
+  const paneShown = () => state.body && state.body.isConnected && typeof currentPane !== 'undefined' && currentPane === 'multirepo';
+
   function render() {
     const body = state.body;
-    if (!body || !body.isConnected) return;
-    const wrap = el('div', 'jcx-copies jcx-multis');
+    if (!paneShown()) return;
+    // (Not .jcx-copies: that's how the Copies pane, code_isolation.js, knows its own body,
+    // and it would draw itself over this one.)
+    const wrap = el('div', 'jcx-multis');
     wrap.append(el('p', 'jc-dim', 'One task across several repositories: one session works in a folder with an isolated copy of each. Landing lands all of them or none; pull requests are opened together, each linking the others, and merged together once all are green.'));
     wrap.append(el('p', 'jcs-label', 'New multi-repo task'));
     wrap.append(startForm());

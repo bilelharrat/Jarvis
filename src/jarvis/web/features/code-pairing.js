@@ -35,9 +35,15 @@
     return b;
   }
 
+  // Whether the Pairing pane is the one showing: the pane's body is shared by every pane
+  // (#jc-pane-body), so being on the page isn't enough, and an event drawn into it while
+  // another pane is open would draw over that pane.
+  /* global currentPane */
+  const paneShown = () => state.body && state.body.isConnected && typeof currentPane !== 'undefined' && currentPane === 'pairing';
+
   function render() {
     const body = state.body;
-    if (!body || !body.isConnected) return;
+    if (!paneShown()) return;
     const ev = state.last;
     const id = taskId();
     const wrap = el('div', 'jcx-pair');

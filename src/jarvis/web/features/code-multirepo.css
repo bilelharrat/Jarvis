@@ -1,4 +1,9 @@
-/* Multi-repo tasks (features/code-multirepo.js); the cards are the Copies pane's (code_isolation.css). */
+/* Multi-repo tasks (features/code-multirepo.js); the cards are the Copies pane's (code_isolation.css),
+   the pane's own class isn't (.jcx-copies tells code_isolation.js its pane is showing), so its rules are here. */
+.jcx-multis .jcs-label { margin-top: 16px; }
+.deck.jc .jcx-multis .jc-btn { font-size: 12px; }
+.deck.jc .jcx-multis .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
+.deck.jc .jcx-multis .jc-btn.tinted { color: rgb(var(--c-accent-ink)); }
 .jcx-multi-start, .jcx-multi-prs { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: rgb(var(--c-surface)); box-shadow: var(--shadow-card); }
 .jcx-multi-prs { margin-top: 9px; box-shadow: none; background: rgb(var(--c-ink) / 0.04); }
 .jcx-multi-pick { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; border: 0; }
