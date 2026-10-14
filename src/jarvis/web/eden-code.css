@@ -166,7 +166,10 @@ body:not([data-skin]) .jc-statusline { color: var(--eden-text3); }
 /* ── the sheets over it (Settings, Tools & Accounts) and the notes: Ask Eden's glass ── */
 body.eden-code .sheet { border-left: 0; box-shadow: -1px 0 0 var(--eden-hairline), var(--eden-sh1); }
 body.eden-code .offline { background: var(--eden-glass2); color: var(--eden-text); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); box-shadow: inset 0 0.5px 0 var(--eden-rim), inset 0 0 0 0.5px var(--eden-hairline), var(--eden-sh1); }
-body.eden-code:has(> #cc:not([hidden])) #cards { top: 76px; right: 24px; }
+/* In the top right corner, and only there: app.css puts the stack in the sidebar's lower
+   corner (left and bottom set); without undoing those it stretched from the left edge to the
+   right and top to bottom, an invisible box over the sidebar that swallowed its clicks. */
+body.eden-code:has(> #cc:not([hidden])) #cards { top: 76px; right: 24px; left: auto; bottom: auto; }
 
 @media (max-width: 760px) {
   body:not([data-skin]) .jc-main { left: 12px; }
