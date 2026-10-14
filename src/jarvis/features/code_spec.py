@@ -48,7 +48,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import re
+import stat
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -63,6 +65,7 @@ STEPS = ("requirements", "design", "tasks")
 VERIFY_WAIT = 120.0  # seconds a task's check waits for code_verify's check after its turn
 TEST_WAIT = 900.0  # ... and for the project's test suite to finish
 REVIEW_DIFF = 24_000
+READ_MAX = 400_000  # bytes of a spec file read (requirements.md, design.md, tasks.md)
 PROOF_MARK = "<!-- eden-spec-proof -->"  # the pull request body's proof, found again by it
 
 ZH = {
@@ -263,9 +266,21 @@ class Spec:
         return Path(self.folder) / FOLDER / self.slug
 
     def read(self, name: str) -> str:
-        with contextlib.suppress(OSError, UnicodeDecodeError):
-            return (self.root / name).read_text(encoding="utf-8")[:400_000]
-        return ""
+        """One of its files, as the session wrote it: a plain file inside the project only
+        (a link, out of the project or not, a FIFO or a folder reads as nothing: a FIFO
+        would hold the event loop, which every publish reads on), and at most READ_MAX
+        bytes of it, read that far and no further."""
+        path = self.root / name
+        try:
+            if Path(self.folder).resolve() not in path.parent.resolve().parents:
+                return ""  # (specs/ or its folder is a link out of the project)
+            if not stat.S_ISREG(os.lstat(path).st_mode):
+                return ""
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as f:
+                return f.read(READ_MAX).decode("utf-8", errors="replace")
+        except (OSError, ValueError):
+            return ""
 
     def requirements(self) -> list[Requirement]:
         return parse_requirements(self.read("requirements.md"))

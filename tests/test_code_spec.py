@@ -447,3 +447,27 @@ def test_an_unreadable_specs_file_is_never_saved_over(tmp_path):
         for f in tmp_path.iterdir():
             os.chmod(f, 0o600)
     assert "KEEP-ME" in kept.read_text()
+
+
+def test_a_spec_reads_only_plain_files_inside_its_project_and_only_so_much(tmp_path):
+    """Round 1's break: a FIFO at tasks.md held the whole app (every publish reads it); a
+    linked requirements.md was read from outside the project; a huge file was read whole."""
+    import os
+
+    proj = tmp_path / "proj"
+    root = proj / "specs" / "s1"
+    root.mkdir(parents=True)
+    spec = cs.Spec(slug="s1", directory="proj", folder=str(proj), request="x")
+    os.mkfifo(root / "tasks.md")
+    assert spec.read("tasks.md") == ""  # (at once: never waits for a writer)
+    outside = tmp_path / "secret.md"
+    outside.write_text("## R1: SECRET\n")
+    os.symlink(outside, root / "requirements.md")
+    assert spec.read("requirements.md") == ""
+    (root / "design.md").write_bytes(b"x" * (cs.READ_MAX * 3))
+    assert len(spec.read("design.md")) == cs.READ_MAX
+    other = tmp_path / "elsewhere"
+    (other / "s2").mkdir(parents=True)
+    (other / "s2" / "tasks.md").write_text(TASKS)
+    (proj / "specs" / "s2").symlink_to(other / "s2")  # (its folder a link out)
+    assert cs.Spec(slug="s2", directory="proj", folder=str(proj), request="x").read("tasks.md") == ""
