@@ -56,6 +56,17 @@ test('a secret value is trimmed of a pasted newline and must be a sensible lengt
   assert.equal(sec.stateText('waiting'), '');
 });
 
+// S3-2: a secret command's output is the owner's ("secret-output" entries), with how it ended.
+test('a secret command’s output says how it ended, and its words are only the owner’s', () => {
+  assert.equal(sec.statusText(0), 'It finished without an error.');
+  assert.equal(sec.statusText(4), 'It ended with status 4.');
+  assert.equal(sec.statusText('x'), '');
+  const src = fs.readFileSync(path.join(WEB, 'features', 'code-secrets.js'), 'utf8');
+  assert.match(src, /F\.registerEntry\('secret-output', outputEntry\)/);
+  assert.match(src, /mine\(el\('pre', 'sec-out', e\.text/, 'the output is shown as it is, never translated');
+  assert.doesNotMatch(src, /scrubbed from the transcript and the session’s output/, 'no promise the scrubbing can’t keep');
+});
+
 test('a video is played from the window’s own server by its id only', () => {
   assert.equal(vp.videoSrc('0123456789abcdef01234567'), '/f/code-video/0123456789abcdef01234567');
   assert.equal(vp.videoSrc('../../etc/passwd'), '');

@@ -6,7 +6,10 @@
 // The value goes from the field straight to the backend, which keeps it in the Keychain: the
 // field is cleared as it's sent, never shown (no "show" button), never kept in the window and
 // never sent back. Claude only gets the name ($SECRET_…). The reason on the card is Claude's
-// words: shown as text, marked as such. Pure helpers are exported for node --test.
+// words: shown as text, marked as such. And what a command that used a secret printed, which
+// goes to the owner only ("secret-output" entries, S3-2: Claude is told only how it went):
+// shown here, in the owner's transcript, as the command's own text. Pure helpers are exported
+// for node --test.
 (function (root) {
   'use strict';
 
@@ -28,7 +31,14 @@
     return '';
   }
 
-  const api = { cleanValue, stateText };
+  // The line under a secret command's output: how it ended.
+  function statusText(status) {
+    const code = Number(status);
+    if (!Number.isFinite(code)) return '';
+    return code === 0 ? 'It finished without an error.' : `It ended with status ${code}.`;
+  }
+
+  const api = { cleanValue, stateText, statusText };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   const F = root.jarvisFeatures;
@@ -106,7 +116,7 @@
     const buttons = el('div', 'sec-buttons');
     buttons.append(save, decline);
     form.append(input, scopes, buttons, error, el('small', 'sec-note',
-      'It goes straight to the Keychain. Eden Code only ever sees its name, never the value, and it’s scrubbed from the transcript and the session’s output. A session’s own is deleted when the session ends.'));
+      'It goes straight to the Keychain. Eden Code only ever sees its name, never the value. What a command that uses it prints comes to you only, scrubbed of it as far as can be; Claude is told only whether it worked. A session’s own is deleted when the session ends.'));
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const value = cleanValue(input.value);
@@ -126,6 +136,21 @@
     return li;
   }
   F.registerEntry('secret', secretEntry);
+
+  // A secret command's output, the owner's alone (Claude got only how it went).
+  function outputEntry(e) {
+    const li = el('li', 'sec-card sec-output');
+    const head = el('div', 'sec-head');
+    head.append(el('strong', '', 'Only you see this: what a command that used your secret printed'));
+    li.append(head);
+    if (e.command) li.append(mine(el('code', 'sec-command', e.command)));
+    const out = mine(el('pre', 'sec-out', e.text || ''));
+    out.tabIndex = 0;  // (scrollable: reachable from the keyboard)
+    out.setAttribute('aria-label', t('The command’s output'));
+    li.append(out, el('div', 'sec-state', t(statusText(e.status))));
+    return li;
+  }
+  F.registerEntry('secret-output', outputEntry);
 
   F.on('sec_state', (ev) => {
     const card = cards.get(ev.ask);
