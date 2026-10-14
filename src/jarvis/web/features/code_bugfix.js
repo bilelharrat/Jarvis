@@ -55,7 +55,7 @@
 
   const canStop = (run) => run.state === 'running';
   const canResume = (run) => (run.state === 'paused' || run.state === 'stopped') && !!run.folder;
-  const canLand = (run) => !run.landed && !!run.slug && run.state !== 'running' && run.state !== 'stopping'
+  const canLand = (run) => !run.landed && !!run.slug && run.state === 'done'  // (stopped part way: resume first)
     && (run.findings || []).some((f) => ['verified', 'fixed', 'unproven'].includes(f.status));
 
   // The run a session is (by its id), or the one running in a project.

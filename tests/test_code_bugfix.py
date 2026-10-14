@@ -5,6 +5,7 @@ deletes a test), the real suite run by pytest, real git worktrees for the isolat
 for the check that each fix's test fails first. Nothing calls a model."""
 
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -713,23 +714,27 @@ async def test_an_efficiency_pass_stopped_before_its_check_is_put_back_and_never
     verdict = run.efficiency["r1"]
     assert verdict["kept"] is False and verdict["restored"] is True
     assert "before Eden could check it" in verdict["why"]
-    hub.answers = ["allow"]
-    await desk.land(run.id)
-    assert run.landed.startswith("Landed"), run.notes
-    assert (repo / "calc.py").read_text() == checked
-    assert (repo / "tests" / "test_calc.py").exists()
+    cards = len(hub.cards)
+    assert await desk.land(run.id) == "Only a run that finished can land: resume it first."
+    assert len(hub.cards) == cards and not run.landed  # (no card: its fixes weren't all checked)
+    assert (repo / "calc.py").read_text() == CALC
 
 
-async def test_a_run_paused_mid_efficiency_pass_lands_without_its_unchecked_edits(
+async def test_a_run_paused_or_stopping_mid_way_never_lands_and_never_resumes_twice(
     hub, projects, monkeypatch
 ):
     repo, desk, run, copy, checked = await _mid_efficiency(hub, projects, monkeypatch)
     again = await _quit_and_reload(hub, desk, run)
     hub.answers = ["allow"]
-    await desk.land(again.id)
-    assert again.landed.startswith("Landed"), again.notes
-    assert (repo / "calc.py").read_text() == checked
-    assert (repo / "tests" / "test_calc.py").exists()
+    assert await desk.land(again.id) == "Only a run that finished can land: resume it first."
+    assert not again.landed and (repo / "tests" / "test_calc.py").exists()
+    again.state = "stopping"  # (Stop pressed, its driver not done yet)
+    assert await desk.resume(again.id) == "That run can't be resumed."
+    again.state = "paused"
+    pending = asyncio.get_running_loop().create_future()
+    desk.drivers[again.id] = pending  # (an old driver still going)
+    assert await desk.resume(again.id) == "That run can't be resumed."
+    pending.cancel()
 
 
 async def test_a_resumed_efficiency_pass_is_checked_against_the_point_it_started_from(
@@ -907,3 +912,48 @@ async def test_stop_while_the_suite_runs_stops_it_now(hub, projects, monkeypatch
     assert await until(lambda: run.state == "stopped", tries=500), run.step
     assert run.why == "owner" and run.step == "break"
     assert len(BugClient.prompts) == 1  # (the break step's turn never came)
+
+
+async def test_stop_during_a_hung_suite_kills_it_and_resume_waits_for_the_stop(
+    hub, projects, tmp_path
+):
+    """Round 1's break: the project's own suite hangs in the break step; Stop ends it (the
+    run is stopped, its pytest gone) and the run resumes once, with one driver."""
+    import signal
+
+    pidfile = tmp_path / "suite.pid"
+    files = {**FILES, "tests/test_hang.py": (
+        "import os, time\n\n\ndef test_hang():\n"
+        f"    open({str(pidfile)!r}, 'a').write(str(os.getpid()) + '\\n')\n"
+        "    time.sleep(10000)\n"
+    )}  # fmt: skip
+    make_repo(projects / "calc", files)
+    desk = hub.code_bugfix
+    hub.answers = ["start"]
+    await desk.request("calc")
+    [run] = desk.runs
+    pids = []
+    try:
+        assert await until(lambda: pidfile.exists() and pidfile.read_text().strip())
+        pids = [int(p) for p in pidfile.read_text().split()]
+        await hub._handle({"type": "code_bugfix_stop", "run": run.id})
+        assert await until(lambda: run.state == "stopped", tries=800), run.state
+        assert await until(lambda: not _alive(pids[0]), tries=800)
+        old = desk.drivers[run.id]
+        assert old.done()
+        BugClient.hold = "SWEEP"
+        assert await desk.resume(run.id) == "Resumed Bug Fix Mode."
+        assert await desk.resume(run.id) == "That run can't be resumed."  # (one driver only)
+        await desk.stop(run.id)
+    finally:
+        for p in pids:
+            with contextlib.suppress(OSError):
+                os.kill(p, signal.SIGKILL)
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True

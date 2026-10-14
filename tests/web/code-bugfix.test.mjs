@@ -46,6 +46,8 @@ test('Stop while it runs; Resume a paused or stopped run with its copy; Land onc
   assert.ok(!bf.canResume({ state: 'done', folder: '/c' }) && !bf.canResume({ state: 'paused', folder: '' }));
   assert.ok(bf.canLand({ state: 'done', slug: 's', findings: fixed }));
   assert.ok(!bf.canLand({ state: 'running', slug: 's', findings: fixed }));
+  assert.ok(!bf.canLand({ state: 'stopped', slug: 's', findings: fixed }));  // (part way: resume first)
+  assert.ok(!bf.canLand({ state: 'paused', slug: 's', findings: fixed }));
   assert.ok(!bf.canLand({ state: 'done', slug: 's', findings: fixed, landed: 'Landed' }));
   assert.ok(!bf.canLand({ state: 'done', slug: 's', findings: [{ status: 'open' }] }));
 });

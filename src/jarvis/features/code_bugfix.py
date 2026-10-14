@@ -254,6 +254,7 @@ ZH = {
     "the spending ceiling was reached": "达到了花费上限",
     "you stopped it": "你停下了它",
     "the app quit": "应用退出了",
+    "Only a run that finished can land: resume it first.": "只有跑完的修复才能合入：请先继续运行它。",
     "it had no isolated copy": "它没有隔离副本",
     "a step failed": "有一步失败了",
     "Not allowed in Bug Fix Mode ({why}). Don't try to get around it: carry on without it if you can, otherwise say what you'd need in your reply.": "修 bug 模式不允许这样做（{why}）。不要设法绕过：能不用就继续，否则在回复里说明需要什么。",
@@ -971,7 +972,13 @@ class BugFix:
     async def resume(self, run_id: str) -> str:
         """A paused (or stopped) run carries on, in its copy and conversation, from its step."""
         run = self.find(run_id)
-        if run is None or run.state in ("running", "done") or not run.folder:
+        driver = self.drivers.get(run_id)
+        if (
+            run is None
+            or run.state not in ("paused", "stopped")  # (not while it's still stopping)
+            or not run.folder
+            or (driver is not None and not driver.done())  # (never two drivers on one run)
+        ):
             return self.tr("That run can't be resumed.")
         if not Path(run.folder).is_dir():
             return self.tr("Its isolated copy isn't there any more.")
@@ -2105,13 +2112,13 @@ class BugFix:
         desk = getattr(self.hub, "code_desk", None)
         if run is None or desk is None:
             return self.tr("That run isn't there any more.")
-        if run.state == "running" or run.landed:
+        if run.landed:
             return ""
+        if run.state != "done":  # (stopped or paused part way: its fixes weren't all checked)
+            return self.tr("Only a run that finished can land: resume it first.")
         copy = desk.store().find(run.slug) if run.slug else None
         if copy is None:
             return self.tr("Its isolated copy isn't there any more.")
-        if run.folder:  # (a run paused mid-pass: the pass Eden never checked doesn't land)
-            await self.put_back_unchecked(run, Path(run.folder))
         c = self.counts(run)
         last = run.suites.get(f"r{ROUNDS}-fix") or {}
         detail = "\n".join([
