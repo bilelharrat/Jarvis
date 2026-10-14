@@ -5,7 +5,9 @@
   CLAUDE.md, its CLAUDE.local.md, or the owner's ~/.claude/CLAUDE.md.
 - cw_memory_save {ref, target}: the note goes there (target null: it doesn't), and the core's
   task_memory event says so, as before. The choice is remembered for the next note
-  (the code_memory_target setting).
+  (the code_memory_target setting). A note for the project goes into Eden's own section of
+  its CLAUDE.md and of its AGENTS.md alike (code_memory.write_shared), so Codex, Gemini and
+  OpenCode sessions read it too; the event's "also" names the other files written.
 
 The Files pane edits the three files (features/code_workspace: {memory: "user"} for the
 owner's own, outside any project).
@@ -69,14 +71,25 @@ class Memory:
         if waiting is None or target is None:
             return  # (declined, or asked too long ago: nothing written)
         path = code_memory.path_for(target, waiting["folder"])
+        also: list[str] = []
         try:
-            await asyncio.to_thread(code_memory.append_note, path, waiting["note"])
+            if target == "project":  # (Eden's section, in CLAUDE.md and AGENTS.md alike)
+                written = await asyncio.to_thread(
+                    code_memory.write_shared, waiting["folder"], waiting["note"]
+                )
+                path = written[0]
+                also = [str(p) for p in written[1:]]
+            else:
+                await asyncio.to_thread(code_memory.append_note, path, waiting["note"])
         except OSError:  # read-only, a link, not a file: the window says it wasn't saved
             self.hub.emit("task_memory", ok=False, text=waiting["note"], path="")
             return
         if self.hub.prefs.feature(PREF) != target:
             self.hub.set_feature_prefs({PREF: target})
-        self.hub.emit("task_memory", ok=True, text=waiting["note"], path=str(path), target=target)
+        extra = {"also": also} if also else {}
+        self.hub.emit(
+            "task_memory", ok=True, text=waiting["note"], path=str(path), target=target, **extra
+        )
 
 
 def install(hub: Any) -> None:
