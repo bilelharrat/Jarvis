@@ -122,7 +122,8 @@ class BrowserParity {
     // A popped-out tab's bar (popout.html), for its own tab only.
     ipcMain.handle('browser-popout:act', (event, msg) => {
       const view = this.hooks.tabs().find((v) => v.popout && !v.popout.isDestroyed() && v.popout.webContents === event.sender);
-      return view ? this.popoutAct(view, msg || {}) : false;
+      const bar = require('./page-path').isOwnPage(event.senderFrame && event.senderFrame.url, 'popout.html'); // (its bar's page only, S3-4)
+      return view && bar ? this.popoutAct(view, msg || {}) : false;
     });
     this.saveDialog = hooks.saveDialog || ((owner, options) => (owner ? dialog.showSaveDialog(owner, options) : dialog.showSaveDialog(options)));
     this.openExternal = hooks.openExternal || ((url) => shell.openExternal(url));
@@ -912,7 +913,7 @@ class BrowserParity {
     popWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     popWin.webContents.on('will-navigate', (event) => event.preventDefault()); // the bar stays the bar
     popWin.on('close', () => this.popIn(view, { closing: true })); // closing it puts the page back in the dock
-    popWin.loadFile(require('./page-path').pagePath(__dirname, 'popout.html')).catch(() => {});
+    popWin.loadURL(require('./page-path').pageUrl('popout.html')).catch(() => {}); // (from inside app.asar, S3-4)
     this.showPopup(popWin);
     this.boxNext(this.permissionsFor(wc.session), wc); // a prompt it was waiting on in the dock asks here now
     this.changed();

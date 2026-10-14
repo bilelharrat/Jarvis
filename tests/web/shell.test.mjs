@@ -122,7 +122,7 @@ function fakeContext({ dev = false, packaged = false, userData = mkdtempSync(pat
     getNormalBounds() { return { ...this.bounds }; },
     isFullScreen: () => false,
     loaded: [],
-    loadFile(file, options) { this.loaded.push([file, options]); },
+    loadURL(url) { this.loaded.push(url); return Promise.resolve(); },
     hidden: 0,
     hide() { this.hidden += 1; },
   });
@@ -737,8 +737,9 @@ test('a crashed page is reloaded, says so once, and at most three times in five 
   await tick(60);
   assert.equal(t.wc.reloads, 3, 'a crash loop is not reloaded again');
   assert.equal(t.win.loaded.length, 1);
-  assert.match(t.win.loaded[0][0], /loading\.html$/);
-  assert.match(t.win.loaded[0][1].query.error, /stopped several times/);
+  const shown = new URL(t.win.loaded[0]); // (the app's own page, from inside app.asar: S3-4)
+  assert.equal(`${shown.protocol}//${shown.host}${shown.pathname}`, 'eden-app://app/loading.html');
+  assert.match(shown.searchParams.get('error'), /stopped several times/);
   // Five minutes on, it may reload again.
   clock += 5 * 60_000;
   t.wc.emit('render-process-gone', {}, { reason: 'crashed' });
