@@ -65,7 +65,8 @@ Each feature is a plug-in (`src/jarvis/features/code_*.py`, its window side in
   session to fix (at most 3 times by itself per pull request), and merge-when-green.
 - **GitHub issues** (`code_issues`): an issue labelled for Jarvis in a repository you opted
   in starts a locked-down session of its own (its text is treated as data, no MCP servers or
-  web tools, commands in the sandbox unless you turn that off, at most 5 a day); its pull request waits for your OK.
+  web tools, commands in the sandbox unless you turn that off, at most 5 a day); its pull
+  request waits for your OK.
 - **Runs without you** (`code_unattended`): a scope approved up front (the task, the mode,
   the commands, a dollar cap and a time cap), always in an isolated copy, never pushing;
   what the scope doesn't cover is refused on the spot and listed in the report.
@@ -78,9 +79,9 @@ Each feature is a plug-in (`src/jarvis/features/code_*.py`, its window side in
   recording of the dev server's page (up to 10 seconds), off by default per project.
 - **Usage and caps** (`code_usage`): what each session, project and day cost, Claude's plan
   windows, and spending caps per session, project and day that Claude Code itself stops at.
-- **Sandbox** (`code_sandbox`): with its switch on, sessions in Bypass and unattended runs run their commands
-  in Claude Code's sandbox, writing only in the project and reaching only the domains you
-  allowed.
+- **Sandbox** (`code_sandbox`): with its switch on, sessions in Bypass and unattended runs
+  run their commands in Claude Code's sandbox, writing only in the project and reaching only
+  the domains you allowed.
 - **Touch ID** (`code_touchid`): switching to Bypass permissions, starting new sessions in
   it and allowing a risky step (deleting, pushing, publishing, running as root) ask for your
   fingerprint, or the app's own confirmation on a Mac without Touch ID; from the window the
