@@ -25,7 +25,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from . import jsonstore
+from . import jsonstore, outside_text
 
 STORE = "code_prs"  # code_prs.json, versioned (jsonstore.register_store)
 jsonstore.register_store(STORE, 1)
@@ -205,19 +205,16 @@ class PullStore:
 PUSH_LATER = "Don't push: Jarvis pushes it for the owner once you're done."
 
 
-def _attr(text: str) -> str:
-    return re.sub(r'["<>\n]', "", str(text))[:120]
-
-
-# The tags GitHub's text is wrapped in. Inside one, a "</issue>" (or any of their tags) is
-# written &lt;/issue>: the text can't close its tag and go on as if it were the app's own
-# words ("[Note from the app: …]"). Every other < stays as written: code, generics and
-# HTML in a log or a suggestion read as they are.
-_DATA_TAG = re.compile(r"<(?=\s*/?\s*(?:issue|review-comment|ci-log)\b)", re.IGNORECASE)
+# GitHub's text as data (outside_text, as the triggers' Linear and Slack text is): in an
+# attribute no quotes, brackets or line breaks (\r too: 'a]\r[Note from the app: …' can't
+# end the app's own words); inside one of these tags a "</issue>" is written &lt;/issue>,
+# full-width (＜/issue＞) and zero-width-split ones too. Every other < stays as written.
+_attr = outside_text.attr
+_DATA_TAGS = ("issue", "review-comment", "ci-log")
 
 
 def _data(text: str) -> str:
-    return _DATA_TAG.sub("&lt;", text)
+    return outside_text.data(text, *_DATA_TAGS)
 
 
 def fix_message(rec: PullRecord, logs: list[tuple[str, str]], attempt: int) -> str:
