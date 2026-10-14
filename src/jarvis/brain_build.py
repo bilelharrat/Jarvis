@@ -79,6 +79,7 @@ def main() -> None:
         progress=progress,
         extra=brain_sources.extra_sources(args),
         finish=brain_sources.finisher(args),
+        withhold=set(args.get("withhold") or ()),
     )
     print(json.dumps({"done": summary}), flush=True)
 

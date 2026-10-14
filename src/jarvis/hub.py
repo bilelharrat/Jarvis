@@ -766,8 +766,10 @@ class Hub:
         self.poll = poll
         # Which app started this backend (app/main.js sets JARVIS_PROFILE): "full" for
         # J.A.R.V.I.S., "code" for Eden Code on its own. A code backend opens no microphone,
-        # speaks no fillers and watches no screen until a J.A.R.V.I.S. window joins it
-        # (window_joined), so someone who only installed Eden Code is never listened to.
+        # speaks no fillers, watches no screen and reads none of the second brain's personal
+        # sources (Notes, Mail, Messages, Photos…: brain_sources.PERSONAL) until a
+        # J.A.R.V.I.S. window joins it (window_joined), so someone who only installed Eden
+        # Code is never listened to, nor their notes and messages read.
         self.profile = "code" if os.environ.get("JARVIS_PROFILE") == "code" else "full"
         # Which edition: app/main.js sets JARVIS_EDITION=daredevil for J.A.R.V.I.S. Daredevil, the same program with
         # screen-reader mode on from the start (features/accessibility.py: Auto means on there).
@@ -1627,6 +1629,8 @@ class Hub:
             if self.poll:
                 self._spawn(self._briefing_clock())
                 self._spawn_voice_loops()
+                if self._brain_sources_on():  # what Eden Code alone left unread
+                    self._spawn(self.rebuild_brain())
             self._start_listening()
         self.emit("app_windows", windows=dict(self.app_windows), profile=self.profile)
 
@@ -4660,6 +4664,10 @@ class Hub:
         }
         if self.brain_extension is not None:
             args.update(self.brain_extension.build_args())
+        if self.profile == "code":  # Eden Code alone reads none of the owner's own life
+            from .brain_sources import PERSONAL
+
+            args["withhold"] = sorted(PERSONAL)
         proc = None
         try:
             proc = self._build_proc = await asyncio.create_subprocess_exec(
