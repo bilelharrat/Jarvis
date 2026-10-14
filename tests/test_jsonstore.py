@@ -117,6 +117,49 @@ def test_a_file_that_cant_be_read_now_is_left_alone(tmp_path):
     assert json.loads(path.read_text()) == [1] and not list(tmp_path.glob("*.bad-*"))
 
 
+def test_a_refused_file_the_owner_deleted_or_fixed_may_be_saved_again(tmp_path):
+    """REL-6: a store that couldn't read its file (and holds something else in memory,
+    a phone paired since) may save again once the file is gone, or readable again: the
+    fixed file is kept beside it first, never written over. One still unreadable stays
+    refused."""
+    deleted, fixed, still = (tmp_path / f"{n}.json" for n in ("deleted", "fixed", "still"))
+    for path in (deleted, fixed, still):
+        path.write_text('{"a": 1}')
+        os.chmod(path, 0)
+        with pytest.raises(jsonstore.Unreadable):
+            jsonstore.load_json(path, dict)
+    try:
+        with pytest.raises(jsonstore.Unreadable):
+            jsonstore.save_json(still, {"b": 2})
+        os.chmod(deleted, 0o600)
+        deleted.unlink()
+        jsonstore.save_json(deleted, {"b": 2})
+        assert json.loads(deleted.read_text()) == {"b": 2}
+        os.chmod(fixed, 0o600)
+        jsonstore.save_json(fixed, {"b": 2})
+        assert json.loads(fixed.read_text()) == {"b": 2}
+        [kept] = tmp_path.glob("fixed.json.bad-*")
+        assert json.loads(kept.read_text()) == {"a": 1}
+        jsonstore.save_json(fixed, {"b": 3})  # (and from then on as any file)
+        assert len(list(tmp_path.glob("fixed.json.bad-*"))) == 1
+    finally:
+        os.chmod(still, 0o600)
+    assert json.loads(still.read_text()) == {"a": 1}
+
+
+def test_a_file_refused_for_what_it_holds_stays_refused_while_its_there(tmp_path):
+    path = tmp_path / "versioned.json"
+    path.write_text('{"version": -1}')
+    jsonstore.register_store("rel6_versioned", 2)
+    with pytest.raises(jsonstore.Unreadable):
+        jsonstore.load_store(path, "rel6_versioned")
+    with pytest.raises(jsonstore.Unreadable):
+        jsonstore.save_json(path, {"version": 2})
+    assert json.loads(path.read_text()) == {"version": -1}
+    path.unlink()
+    jsonstore.save_json(path, {"version": 2})  # (gone: nothing to save over)
+
+
 def test_damage_that_cant_be_moved_aside_is_never_saved_over(tmp_path):
     folder = tmp_path / "locked"
     folder.mkdir()
