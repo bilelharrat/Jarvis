@@ -599,11 +599,26 @@ def parse_block(text: str) -> dict[str, Any] | None:
     found = _BLOCK.findall(text or "")
     if not found:
         return None
-    try:
-        data = json.loads(found[-1])
-    except ValueError:
+    try:  # (Infinity and NaN, which JSON doesn't have, read as nothing)
+        data = json.loads(found[-1], parse_constant=lambda _name: None)
+    except (ValueError, RecursionError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def listed(block: dict[str, Any] | None, key: str) -> list[Any]:
+    """A block's list (findings, fixes, changes, owner_steps): what the model wrote there
+    when it is a list, else none (a number, true or an object read as an empty list)."""
+    value = (block or {}).get(key)
+    return value if isinstance(value, list) else []
+
+
+def _line(value: Any) -> int:
+    """A line number as the model wrote it: 0 when it isn't one (words, 1e400)."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def _words(text: str) -> set[str]:
@@ -632,10 +647,7 @@ def check_finding(
     title = _squash(raw.get("title") or "")[:200]
     scenario = _squash(raw.get("scenario") or "")[:1500]
     severity = str(raw.get("severity") or "").strip().lower()
-    try:
-        line = int(raw.get("line") or 0)
-    except (TypeError, ValueError):
-        line = 0
+    line = _line(raw.get("line"))
     if not file or not title:
         return None, "no file or title"
     if severity not in SEVERITIES:
@@ -866,9 +878,10 @@ class BugFix:
         """The switch turned on (the window, voice, the brain's tool): the card with the
         whole scope, then the run."""
         self.load()
-        try:
+        try:  # (true isn't $1: a ceiling is a number, or none for the default)
             cap = float(spend_cap) if spend_cap not in (None, "") else SPEND_DEFAULT
-        except (TypeError, ValueError):
+            cap = -1.0 if isinstance(spend_cap, bool) else cap
+        except (TypeError, ValueError, OverflowError):
             cap = -1.0
         if not 1.0 <= cap <= SPEND_MAX:
             return self.say(
@@ -1355,7 +1368,7 @@ class BugFix:
         block = parse_block(reply) or {}
         run.changes[key] = [
             {k: _squash(c.get(k) or "")[:300] for k in ("file", "what", "gain")}
-            for c in (block.get("changes") or [])[:30] if isinstance(c, dict)
+            for c in listed(block, "changes")[:30] if isinstance(c, dict)
         ]  # fmt: skip
         after_suite = await self.run_suites(folder, run)
         after = {
@@ -1427,7 +1440,7 @@ class BugFix:
         built = bool(block.get("built"))
         steps = [
             *run.stack.get("owner", []),
-            *(_squash(s)[:300] for s in block.get("owner_steps") or [] if isinstance(s, str)),
+            *(_squash(s)[:300] for s in listed(block, "owner_steps") if isinstance(s, str)),
         ]
         run.owner_steps = list(dict.fromkeys(steps))[:20]
         run.owner_steps += [
@@ -1516,18 +1529,15 @@ class BugFix:
                 f"Round {run.round}'s {step} ended without its ```bugfix block: no findings read from it."
             )
             return
-        listed = [f for f in block.get("findings") or [] if isinstance(f, dict)]
-        if len(listed) > FINDINGS_MAX:
+        found = [f for f in listed(block, "findings") if isinstance(f, dict)]
+        if len(found) > FINDINGS_MAX:
             run.notes.append(
-                f"Round {run.round}'s {step} listed {len(listed)} findings; the first {FINDINGS_MAX} were read."
+                f"Round {run.round}'s {step} listed {len(found)} findings; the first {FINDINGS_MAX} were read."
             )
-        for raw in listed[:FINDINGS_MAX]:
+        for raw in found[:FINDINGS_MAX]:
             item, why = check_finding(folder, raw)
             if item is None:
-                try:
-                    line = int(raw.get("line") or 0)
-                except (TypeError, ValueError):
-                    line = 0
+                line = _line(raw.get("line"))
                 run.dropped.append(
                     Dropped(
                         run.round,
@@ -1548,7 +1558,7 @@ class BugFix:
     def take_fixes(self, run: BugRun, reply: str) -> None:
         block = parse_block(reply) or {}
         by_id = {f.id: f for f in run.findings}
-        for raw in block.get("fixes") or []:
+        for raw in listed(block, "fixes"):
             if not isinstance(raw, dict):
                 continue
             found = by_id.get(str(raw.get("id") or ""))
@@ -1731,7 +1741,12 @@ class BugFix:
     ) -> None:  # fmt: skip
         spec = f.test.strip()
         file = spec.split("::", 1)[0].strip()
-        if not spec or not file or not (folder / file).is_file():
+        try:  # (a test the fix names outside its copy, ../ or a full path, is never run)
+            path = (folder / file).resolve()
+            inside = bool(file) and folder.resolve() in path.parents and path.is_file()
+        except (OSError, ValueError):
+            inside = False
+        if not spec or not inside:
             f.status = "unproven"
             f.proof = (
                 "It came with no test file Eden could find."

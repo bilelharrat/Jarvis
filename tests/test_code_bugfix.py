@@ -957,3 +957,52 @@ def _alive(pid):
     except ProcessLookupError:
         return False
     return True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"findings": [{"file": "calc.py", "line": Infinity, "title": "t", "severity": "high", '
+        '"scenario": "a long enough scenario", "quote": "x"}]}',
+        '{"findings": [{"file": "calc.py", "line": 1e400, "title": "t", "severity": "high", '
+        '"scenario": "a long enough scenario", "quote": "x"}]}',
+        '{"findings": 5}',
+        '{"findings": true}',
+        '{"findings": {"a": 1}}',
+    ],
+)
+def test_a_hostile_bugfix_block_is_dropped_not_a_crash(hub, tmp_path, text):
+    """Round 1's break: Infinity, 1e400 and non-lists in the model's block."""
+    (tmp_path / "calc.py").write_text("x = 1\n")
+    run = BugRun(id="r", project="p")
+    hub.code_bugfix.take_findings(run, tmp_path, "sweep", f"```bugfix\n{text}\n```")
+    assert run.findings == []
+    for key in ("fixes", "changes", "owner_steps"):
+        assert code_bugfix.listed(parse_block(f"```bugfix\n{{\"{key}\": 7}}\n```"), key) == []
+
+
+async def test_a_ceiling_of_true_is_refused(hub, projects):
+    make_repo(projects / "calc", FILES)
+    hub.answers = ["deny"] * 5  # (were one taken, its card says no rather than waiting)
+    for cap in (True, False, 10**400, float("nan"), float("inf")):
+        assert await hub.code_bugfix.request("calc", cap) == "The spending ceiling is between $1 and $50."
+
+
+async def test_a_fix_s_test_outside_its_copy_is_never_run(hub, tmp_path):
+    from jarvis.features.code_bugfix import Finding
+
+    folder = tmp_path / "copy"
+    folder.mkdir()
+    (tmp_path / "elsewhere.py").write_text("x = 1\n")
+    ran = []
+
+    async def run_one(*args, **kwargs):
+        ran.append(args)
+
+    hub.code_bugfix.run_one = run_one
+    suite = codetests.Suite("pytest", "pytest", (sys.executable, "-m", "pytest"))
+    for spec in ("../elsewhere.py", str(tmp_path / "elsewhere.py")):
+        f = Finding("R1-1", 1, "sweep", "x", "high", "a.py", 1, "t", "s", test=spec)
+        await hub.code_bugfix.prove_one(f, folder, tmp_path, [suite])
+        assert f.status == "unproven" and "isn't in the project" in f.proof
+    assert ran == []
