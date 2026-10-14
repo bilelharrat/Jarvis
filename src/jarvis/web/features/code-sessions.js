@@ -386,6 +386,7 @@
     input.value = value || '';
     input.maxLength = 40;
     input.placeholder = t('Name');
+    input.setAttribute('aria-label', title);  // (what's asked: "Name the group", "Rename")
     const ok = el('button', 'jc-btn small filled', 'Save');
     ok.type = 'submit';
     pop.append(el('p', 'cs-ask-title', title), input, ok);

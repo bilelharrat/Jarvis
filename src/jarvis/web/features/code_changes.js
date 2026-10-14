@@ -105,6 +105,7 @@
     const box = el('textarea', 'jc-field');
     box.rows = 2;
     box.placeholder = t('Comment on this line (sent to the session with the others)');
+    box.setAttribute('aria-label', box.placeholder);
     box.dataset.noI18n = '';
     box.value = spot.draft || '';  // (a refresh while writing keeps what's written)
     box.addEventListener('input', () => { if (editing) editing.draft = box.value; });
@@ -326,7 +327,9 @@
     const data = store.data.get(keyOf(task));
     const bar = el('div', 'jcx-bar');
     const seg = el('div', 'jcx-seg');
-    seg.setAttribute('role', 'tablist');
+    // A segmented switch (pressed buttons), not tabs: tabs promise arrow keys and a panel each.
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', t('Show'));
     for (const [id, label] of VIEWS) {
       const b = button(label, `jcx-seg-btn${id === view ? ' on' : ''}`, () => {
         store.views.set(task.id, id);
@@ -334,8 +337,7 @@
         render();
         request(task);
       });
-      b.setAttribute('role', 'tab');
-      b.setAttribute('aria-selected', String(id === view));
+      b.setAttribute('aria-pressed', String(id === view));
       seg.append(b);
     }
     bar.append(seg, el('span', 'jc-spacer'),

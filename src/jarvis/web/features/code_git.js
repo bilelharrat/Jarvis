@@ -60,8 +60,12 @@
     const li = el('li', 'jcx-gfile');
     const head = el('div', 'jcx-gfile-head');
     const code = el('span', `jcx-gcode c-${file.code === '?' ? 'u' : file.code.toLowerCase()}`, file.code === '?' ? 'U' : file.code);
-    const name = el('span', 'jcx-gpath', file.path);
+    // The path is the row's button (keyboard and screen reader): it opens and folds the file's
+    // lines, and says which. (A click anywhere on the row does the same.)
+    const name = el('button', 'jcx-gpath', file.path);
+    name.type = 'button';
     name.dataset.noI18n = '';
+    name.setAttribute('aria-expanded', String(state.open.has(id)));
     head.append(code, name, button(staged ? 'Unstage' : 'Stage', 'jc-mini', () => send({ type: 'code_git_stage', ...where(task), paths: [file.path], unstage: staged })));
     head.addEventListener('click', () => {
       if (state.open.has(id)) state.open.delete(id);
@@ -141,6 +145,7 @@
       const make = el('form', 'jcx-gnew');
       const name = el('input', 'jc-field');
       name.placeholder = t('New branch name');
+      name.setAttribute('aria-label', name.placeholder);
       name.dataset.noI18n = '';
       make.append(name, button('Make it', 'jc-btn small filled', () => make.requestSubmit()));
       make.addEventListener('submit', (e) => {
@@ -162,6 +167,7 @@
     const text = el('textarea', 'jc-field');
     text.rows = 3;
     text.placeholder = t('Commit message');
+    text.setAttribute('aria-label', text.placeholder);
     text.dataset.noI18n = '';
     text.value = state.drafts.get(key) || '';
     text.addEventListener('input', () => state.drafts.set(key, text.value));

@@ -83,7 +83,9 @@
     board.querySelector('.cs-board-close').focus();
   }
   function close() {
+    const hadFocus = board.contains(document.activeElement);
     board.hidden = true;
+    if (hadFocus) toggle.focus();  // (not lost to the page when the board goes)
     $('cc').classList.remove('cs-board-on');
     toggle.setAttribute('aria-pressed', 'false');
     clearInterval(B.timer);
@@ -183,6 +185,7 @@
       const lh = el('h2', 'cs-lane-head');
       lh.append(el('span', `cs-lane-dot ${id}`), el('span', '', label), el('span', 'cs-lane-count', String(list.length)));
       const cards = el('div', 'cs-cards');
+      if (list.length) cards.setAttribute('role', 'list');  // (read as "list, 3 items")
       if (!list.length) cards.append(el('p', 'cs-lane-empty', id === 'needs' ? 'Nothing waiting on you.' : 'None'));
       cards.append(...list.map((task) => cardFor(task, id)));
       lane.append(lh, cards);
@@ -202,6 +205,7 @@
     const asks = asksOf(task.id);
     const figures = B.figures[String(task.id)] || {};
     const card = el('article', `cs-card ${col}`);
+    card.setAttribute('role', 'listitem');
     card.dataset.task = task.id;
     const top = el('div', 'cs-card-top');
     const named = task.title || task.prompt;  // the user's words; "New session" is the window's
