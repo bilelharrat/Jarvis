@@ -232,3 +232,58 @@ def test_the_command_runs_where_secret_run_was(tmp_path):
     assert done.returncode == 0, done.stderr
     assert done.stdout.splitlines()[0] == str(here.resolve()).encode()
     assert done.stdout.splitlines()[1] == b"[$SECRET_X]"
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _wait_gone(pid, seconds=8.0):
+    end = time.monotonic() + seconds
+    while _alive(pid) and time.monotonic() < end:
+        time.sleep(0.05)
+    return not _alive(pid)
+
+
+def test_a_background_job_never_holds_the_run_open_or_keeps_the_values(tmp_path):
+    """REL3-4 (s3rel/test_handoff_bg.py): a command that left a job in the background
+    (holding its output pipes) ended, but the pumps waited on the job, so EXIT never came,
+    secret_run waited until Claude Code's time limit, the scrubbed tail was lost, and on
+    the session's end the job kept running with the secrets in its environment. Now the
+    run ends at once with its output and exit code, and the job is stopped."""
+    marker = tmp_path / "pid"
+    command = (
+        f"sh -c 'echo $$ > {shlex.quote(str(marker))}; echo \"[$SECRET_X]\"; sleep 30' & "
+        'sleep 0.3; printf "tail [$SECRET_X]"; exit 3'
+    )
+    sock = offer(tmp_path, command)
+    started = time.monotonic()
+    try:
+        done = run(shlex.split(code_secrets.wrap(command, sock)), timeout=20)
+    finally:
+        pid = int(marker.read_text()) if marker.exists() else 0
+    assert time.monotonic() - started < 10
+    assert done.returncode == 3, done.stderr
+    assert b"tail [$SECRET_X]" in done.stdout and VALUE.encode() not in done.stdout
+    assert pid and _wait_gone(pid), "the background job kept running with the values"
+
+
+def test_a_job_that_let_go_of_the_output_still_goes_with_the_run(tmp_path):
+    """REL3-4: a job that closed its output (no pipe holds the run open) still carried the
+    values on after the command ended: the group is stopped once secret_run goes, whether
+    the command itself is still running or not."""
+    marker = tmp_path / "pid"
+    command = (
+        f"sh -c 'echo $$ > {shlex.quote(str(marker))}; exec sleep 30' >/dev/null 2>&1 & "
+        f"while [ ! -s {shlex.quote(str(marker))} ]; do sleep 0.05; done; "
+        'echo "[$SECRET_X]"'
+    )
+    sock = offer(tmp_path, command)
+    done = run(shlex.split(code_secrets.wrap(command, sock)), timeout=20)
+    assert done.returncode == 0, done.stderr
+    pid = int(marker.read_text())
+    assert _wait_gone(pid), "the background job kept running with the values"
