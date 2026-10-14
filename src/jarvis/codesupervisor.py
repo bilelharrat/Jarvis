@@ -48,7 +48,7 @@ class Ref:
 
 @dataclass
 class Ask:
-    kind: str  # overview waiting catch_up status focus message stop pending model ultracode lines open
+    kind: str  # overview waiting catch_up status focus message stop pending model ultracode lines open changes changes_all
     ref: Ref = field(default_factory=Ref)
     text: str = ""  # a message's words, a model's or a file's name
     start: int = 0  # lines: the first and last line asked for
@@ -162,6 +162,28 @@ _STATUS = (
     _re(rf"(?:status|progress) (?:of|on|for) {_DET}{_REF}"),
     _re(rf"(?:is|has) {_DET}{_REF} (?:done|finished)(?: yet)?"),
 )
+# A session's changes, said for the ear (a spoken diff: file by file, by function or
+# section), or everyone's in a line each.
+_CHANGES = (
+    _re(
+        rf"what (?:did|has|have) {_DET}{_REF} (?:change|changed|edit|edited|touch|touched"
+        r"|do to the code|done to the code)(?: so far| today)?"
+    ),
+    _re(rf"what(?:'s| has| have)? changed (?:in|with|on) {_DET}{_REF}(?: so far| today)?"),
+    _re(rf"(?:read|tell|give|show) me {_DET}{_REF}(?:'s)? (?:diff|changes|edits)"),
+    _re(
+        rf"(?:read|tell|give|show) me (?:the )?(?:diff|changes|edits) (?:of|for|from|in|on) {_DET}{_REF}"
+    ),
+    _re(rf"(?:what(?:'s| is) )?{_DET}{_REF}(?:'s)? diff"),
+)
+_CHANGES_ALL = _re(
+    r"what (?:did|has|have) (?:every(?:one|body)|you all|all (?:of )?(?:the |my )?sessions"
+    r"|(?:the |my )?sessions) (?:change|changed|edit|edited|touch|touched)(?: so far| today)?"
+    r"|(?:read|tell|give|show) me every(?:one|body)'s (?:diffs?|changes)"
+    r"|(?:read|tell|give|show) me (?:the |all the )?(?:diffs?|changes) (?:of|for|from|in|across) "
+    r"(?:all (?:of )?)?(?:the |my )?(?:sessions|agents)"
+)
+
 _MODEL = _re(
     r"(?:use|switch to|change to|switch the model to|change the model to|move to|try)(?: the)?"
     r" (?P<m>[\w .'/+-]{1,60}?)(?: model)?(?: for this session| now| instead| please)?"
@@ -241,6 +263,12 @@ _ZH_PENDING = _zh(rf"{_ZH_REF}(?:现在)?(?:想要|要|需要|在等|在问|问)
 _ZH_STATUS = (
     _zh(rf"{_ZH_REF}(?:现在)?(?:在)?(?:做|干)(?:什么|啥){_ZH_END}"),
     _zh(rf"{_ZH_REF}(?:现在)?(?:怎么样|进展如何|做完了吗|好了吗|完成了吗){_ZH_END}"),
+)
+_ZH_CHANGES = _zh(
+    rf"{_ZH_REF}(?:都)?(?:改了|修改了|动了|变了)(?:些)?(?:什么|啥|哪些(?:文件|地方)?){_ZH_END}"
+)
+_ZH_CHANGES_ALL = _zh(
+    rf"(?:大家|各位|所有(?:的)?会话|每个会话|各个会话)(?:都)?(?:改了|修改了|动了)(?:些)?(?:什么|啥|哪些(?:文件|地方)?){_ZH_END}"
 )
 _ZH_MODEL = _zh(
     rf"(?:用|使用|换成|换到|切换到|改用)(?P<m>[^，,。？?！!]{{1,40}}?)(?:模型)?{_ZH_END}"
@@ -379,6 +407,10 @@ def parse(text: str, language: str = "en") -> Ask | None:
         return Ask("catch_up")
     if _CATCH_UP_WEAK.fullmatch(said):
         return Ask("catch_up", weak=True)
+    if _CHANGES_ALL.fullmatch(said):
+        return Ask("changes_all")
+    if m := _first(_CHANGES, said):
+        return Ask("changes", _ref(m))
     if m := _first(_STOP, said):
         return Ask("stop", _ref(m))
     if m := _first(_PENDING, said):
@@ -423,6 +455,8 @@ def _parse_zh(text: str) -> Ask | None:
         return Ask("catch_up")
     if _ZH_CATCH_UP_WEAK.fullmatch(said):
         return Ask("catch_up", weak=True)
+    if _ZH_CHANGES_ALL.fullmatch(said):
+        return Ask("changes_all")
     if m := _first(_ZH_STOP, said):
         return Ask("stop", _ref(m))
     if m := _ZH_PENDING.fullmatch(said):
@@ -433,6 +467,9 @@ def _parse_zh(text: str) -> Ask | None:
         return Ask("focus", _ref(m))
     if m := _ZH_ASK.fullmatch(said):
         return Ask("message", _ref(m), m.group("msg").strip())
+    # (After "ask…": "问一下文档会话改了什么" is a question for that session.)
+    if m := _ZH_CHANGES.fullmatch(said):
+        return Ask("changes", _ref(m))
     if m := _ZH_TELL.fullmatch(said):
         msg = re.sub(r"^(?:说|讲)", "", m.group("msg").strip()).strip("，,：: ")
         if re.fullmatch(r"(?:先)?(?:停下来?|停一下|停止|别做了|暂停)" + _ZH_END, msg):
@@ -956,6 +993,10 @@ ZH = {
     "Sent to session {n} ({about}): {message}": "已发给会话{n}（{about}）：{message}",
     "Session {n} ({about}) stopped with an error.": "会话{n}（{about}）出错停下了。",
     "Session {n} ({about}) answered: {result}": "会话{n}（{about}）回复：{result}",
+    "{session} hasn't changed any files yet.": "{session}还没有改任何文件。",
+    "No session has changed any files yet.": "还没有会话改过文件。",
+    "{session} changed {n} files: {names}.": "{session}改了 {n} 个文件：{names}。",
+    "{session} changed one file: {names}.": "{session}改了一个文件：{names}。",
 }
 
 lang.add_texts(ZH)
@@ -1115,6 +1156,30 @@ def _names(files: list[str], limit: int = 3) -> str:
             names.append(base)
     shown = ", ".join(names[:limit])
     return shown + (f", +{len(names) - limit}" if len(names) > limit else "")
+
+
+def changes_lines(tasks: list[Any], language: str) -> list[str]:
+    """Everyone's changes, a sentence each: the sessions that changed files, the newest
+    first, at most SAID_IN_FULL of them (the rest are on screen)."""
+    code = [
+        t for t in tasks if getattr(t, "kind", "") == "code" and getattr(t, "files_changed", None)
+    ]
+    if not code:
+        return [say("No session has changed any files yet.", language)]
+    folders = len({t.cwd.name for t in code}) > 1
+    lines = []
+    for task in sorted(code, key=lambda t: -t.id)[:SAID_IN_FULL]:
+        files = sorted(task.files_changed)
+        template = (
+            "{session} changed one file: {names}."
+            if len(files) == 1
+            else "{session} changed {n} files: {names}."
+        )
+        name = cap(name_of(task, language, folders))
+        lines.append(say(template, language, session=name, n=len(files), names=_names(files)))
+    if len(code) > SAID_IN_FULL:
+        lines.append(say("{n} more are on screen.", language, n=len(code) - SAID_IN_FULL))
+    return lines
 
 
 def digest_lines(
