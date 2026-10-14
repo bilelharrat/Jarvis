@@ -179,8 +179,8 @@ def _within(cwd: Path | None, raw: str) -> bool:
     """Whether a path in a command stays inside the project folder."""
     if cwd is None:
         return not raw.startswith(("/", "~")) and ".." not in Path(raw).parts
-    path = Path(raw).expanduser()
-    try:
+    try:  # (expanduser too: ~nosuchuser, ~+ and ~- raise RuntimeError, R2-14)
+        path = Path(raw).expanduser()
         path = (path if path.is_absolute() else cwd / path).resolve()
         root = cwd.resolve()
     except (OSError, RuntimeError):
@@ -381,6 +381,38 @@ _NOT_READ_ONLY = re.compile(r"[`<>;&$\n]|\|\||\{[^{}]*(?:,|\.\.)")
 READ_ONLY_WHY = "a read-only command"  # (_unasked's why for one: the untrusted guards check it)
 
 
+# Options that make a read follow symbolic links as it goes down the tree, by program: (long
+# options, short option letters). A link inside the project to a folder outside it isn't a
+# path the command names, so reads_inside can't see where it leads (R2-9: rg --follow
+# printed docs/key from proj/docs -> ../outside). find's are words of their own.
+_FOLLOWS: dict[str, tuple[set[str], str]] = {
+    "rg": ({"--follow"}, "L"),
+    "grep": ({"--dereference-recursive"}, "RSO"),  # (GNU's -R follows every link; BSD's -S, -O)
+    "egrep": ({"--dereference-recursive"}, "RSO"),
+    "fgrep": ({"--dereference-recursive"}, "RSO"),
+    "tree": (set(), "l"),
+    "du": ({"--dereference"}, "L"),
+    "ls": ({"--dereference"}, "L"),
+    "find": ({"-L", "-H", "-follow"}, ""),
+    "fd": ({"--follow"}, "L"),
+}  # fmt: skip
+
+
+def follows_links(words: list[str]) -> bool:
+    """Whether a command's options make it follow symbolic links down a tree."""
+    longs, shorts = _FOLLOWS.get(Path(words[0]).name if words else "", (set(), ""))
+    for word in words[1:]:
+        if word == "--":
+            break
+        name = word.split("=", 1)[0]
+        if name in longs or name in ("--follow", "--dereference", "--dereference-recursive"):
+            return True
+        if shorts and word.startswith("-") and not word.startswith("--"):
+            if any(c in shorts for c in word[1:]):
+                return True
+    return False
+
+
 def reads_inside(command: str, cwd: Path) -> bool:
     """Whether every path a read-only command could name stays inside cwd. Each word after
     a program's name, and each option's value, is taken as a path (a pattern grep looks for
@@ -389,7 +421,8 @@ def reads_inside(command: str, cwd: Path) -> bool:
     and a private folder inside cwd as outside it.
     For runs on anyone's words (an issue's, Exterminator Mode's on anyone's code): "cat
     ~/.ssh/id_rsa", "find /" or "git diff --no-index ~/.aws/credentials /dev/null" only
-    read, but read what the run has no business sending to Claude (B7)."""
+    read, but read what the run has no business sending to Claude (B7). Nor any that
+    follows links down the tree (rg --follow, find -L, tree -l, du -L…: R2-9)."""
     import glob as globbing
 
     from . import private_folders
@@ -408,6 +441,8 @@ def reads_inside(command: str, cwd: Path) -> bool:
         try:
             words = shlex.split(segment)
         except ValueError:
+            return False
+        if follows_links(words):
             return False
         for word in words[1:]:
             if word in ("-", "--", "/dev/null"):
