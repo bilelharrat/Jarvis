@@ -123,7 +123,8 @@ test('Windows: PowerShell, hidden, the path in the environment and never in the 
   assert.equal(cmd, 'powershell.exe');
   assert.ok(!args.join(' ').includes(tmpDir));
   assert.equal(opts.windowsHide, true);
-  assert.equal(opts.env.EDEN_BOOT_SOUND, path.join(tmpDir, 'eden-code-boot-sound.wav'));
+  assert.equal(path.basename(opts.env.EDEN_BOOT_SOUND), 'eden-code-boot-sound.wav');
+  assert.equal(path.dirname(path.dirname(opts.env.EDEN_BOOT_SOUND)), tmpDir, 'in a fresh folder of its own there');
   const linux = sound.createBootSound({ userData: tmp('u'), fs, spawn, platform: 'linux', tmpDir });
   assert.equal(linux.play(), '');
   assert.equal(runs.length, 1);
@@ -272,4 +273,26 @@ test('the start-up sound row is in Eden Code’s settings › General, above the
   assert.equal(sharedRow.hidden, true, 'one switch');
   const zh = JSON.parse(fs.readFileSync(path.join(WEB, 'i18n', 'boot-sound.json'), 'utf8')).strings;
   assert.ok(zh['When it opens']);
+});
+
+// Round 2, B1 (break-r2/boot/boot-sound-symlink.test.mjs): the copy went to a fixed name in the
+// temp folder with copyFileSync, which follows a link planted there; anything that could write
+// the temp folder could make the next launch overwrite an owner file with the WAV.
+test('a link planted in the temp folder never makes it overwrite another file', () => {
+  const root = tmp('link');
+  const tmpDir = path.join(root, 'T');
+  fs.mkdirSync(tmpDir);
+  const victim = path.join(root, 'victim-zshrc');
+  fs.writeFileSync(victim, 'export PATH=owner\n');
+  fs.symlinkSync(victim, path.join(tmpDir, 'eden-code-boot-sound.wav'));
+  const { runs, spawn } = fakeSpawn();
+  const b = sound.createBootSound({ userData: tmp('u'), fs, spawn, platform: 'darwin', tmpDir });
+  assert.equal(b.play(), 'afplay');
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'export PATH=owner\n', 'the owner file is untouched');
+  const played = runs[0].args.at(-1);
+  assert.notEqual(played, path.join(tmpDir, 'eden-code-boot-sound.wav'));
+  assert.equal(fs.lstatSync(played).isSymbolicLink(), false);
+  assert.deepEqual(fs.readFileSync(played), fs.readFileSync(sound.SOUND));
+  assert.equal(fs.statSync(path.dirname(played)).mode & 0o077, 0, 'its folder is the app’s own (0700)');
+  fs.rmSync(root, { recursive: true, force: true });
 });

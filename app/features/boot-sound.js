@@ -8,7 +8,8 @@
 //   other flavour, so Eden Secretary keeps its own (loading.js, Settings › General's boot_sound).
 // - by the system's own player, not the page: the window goes on from loading.html to the
 //   backend's page, which would cut a sound played in the page. On the Mac /usr/bin/afplay,
-//   from a copy in the temp folder (it can't read inside app.asar), detached, errors ignored,
+//   from a copy in a fresh folder of its own in the temp folder (it can't read inside
+//   app.asar; removed once played), detached, errors ignored,
 //   so it follows the Mac's volume and mute: no sound when someone has their volume off. On
 //   Windows, PowerShell's SoundPlayer (the file's path through an environment variable, never
 //   in the command), hidden. Anywhere else, nothing.
@@ -62,14 +63,21 @@ function createBootSound({ userData, dataDir = '', fs, spawn, platform = process
     if (platform !== 'darwin' && platform !== 'win32') return '';
     if (platform === 'win32' && quiet) return ''; // SoundPlayer can't play it softer: not over the reader
     try {
-      const copy = path.join(tmpDir, 'eden-code-boot-sound.wav');
-      fs.copyFileSync(sound, copy);
+      // A fresh folder of its own each launch (mkdtemp: made by us, 0700), and the copy made
+      // only where nothing is (COPYFILE_EXCL): round 2, B1 — at a fixed name in the temp folder,
+      // which a session's commands can write, a link planted there made the copy overwrite the
+      // file it pointed to (an owner's ~/.zshrc) with the WAV.
+      const dir = fs.mkdtempSync(path.join(tmpDir, 'eden-code-boot-'));
+      const copy = path.join(dir, 'eden-code-boot-sound.wav');
+      fs.copyFileSync(sound, copy, (fs.constants || require('fs').constants).COPYFILE_EXCL);
+      const tidy = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* the OS's temp sweep */ } };
       const child = platform === 'darwin'
         ? spawn('/usr/bin/afplay', quiet ? ['-v', QUIET, copy] : [copy], { stdio: 'ignore', detached: true })
         : spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', WINDOWS_PLAY], {
           stdio: 'ignore', detached: true, windowsHide: true, env: { ...process.env, EDEN_BOOT_SOUND: copy },
         });
-      child.on('error', () => {}); // (no sound device, no player: nothing to say)
+      child.on('error', tidy); // (no sound device, no player: nothing to say)
+      child.on('exit', tidy);  // (played: the copy goes with it)
       child.unref();
       return platform === 'darwin' ? 'afplay' : 'powershell';
     } catch {
