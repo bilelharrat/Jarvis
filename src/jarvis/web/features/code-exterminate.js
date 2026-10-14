@@ -47,6 +47,8 @@
     starter.addEventListener('click', () => {
       const msg = startMessage(project());
       if (msg) send(msg);  // its card, with the rounds, models and ceiling, comes first
+      // With no project there's nothing to sweep: said, not a press that does nothing (round 3, U3-11).
+      else if (typeof jcNote === 'function') jcNote(t('Pick a project first.'));
     });
   }
 
