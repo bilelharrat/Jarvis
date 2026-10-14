@@ -9,6 +9,7 @@ Linear and Slack are tests/trigger_fakes.py; the run's start is a stand-in. Noth
 the Mac."""
 
 import asyncio
+import socket
 import time
 from dataclasses import replace
 
@@ -23,7 +24,7 @@ from trigger_fakes import (
     slack_body,
 )
 
-from jarvis import linear, slack
+from jarvis import hook_listener, linear, slack
 from jarvis.features import code_triggers
 from jarvis.features.code_unattended import Run
 from jarvis.tasks import ClaudeTask
@@ -32,7 +33,9 @@ from jarvis.tasks import ClaudeTask
 class Req:
     """What the door reads of a Starlette request."""
 
-    def __init__(self, body=b"", headers=None, query=None):
+    def __init__(self, body=b"", headers=None, query=None, via_listener=False):
+        # Through the listener (as a tunnel's delivery comes), or the window's own server.
+        self.scope = {hook_listener.VIA: hook_listener.LISTENING} if via_listener else {}
         self.headers = {"host": "eden.example-tunnel.test", **{k.lower(): v for k, v in (headers or {}).items()}}
         self.query_params = query or {}
         self.body = body
@@ -78,9 +81,17 @@ async def hub(settings, quiet_speaker, isolated, projects, monkeypatch):
                    task_id=100 + len(hub.started))  # fmt: skip
 
     monkeypatch.setattr(hub.code_runs, "start", start)
+    hub.set_feature_prefs({code_triggers.PREF_PORT: free_port()})  # (never the real 8766)
     yield hub
+    await t.listener.stop()
     await t.linear.aclose()
     await t.slack.aclose()
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 async def settle():
@@ -123,7 +134,9 @@ def ticket(action="update", actor="boss-id", assignee="eden-user", before=None, 
 
 async def knock(hub, service, body, headers, token=None):
     query = {"token": token if token is not None else f"hooktok-{service}"}
-    return await hub.inbound_hook(code_triggers.ROUTES[service], Req(body, headers, query))
+    return await hub.inbound_hook(
+        code_triggers.ROUTES[service], Req(body, headers, query, via_listener=True)
+    )
 
 
 # ── the signatures ──
@@ -370,3 +383,121 @@ async def test_turning_a_service_on_shows_the_scope_and_keeps_secrets_in_the_vau
 async def test_the_owners_own_webhooks_still_answer_beside_these_doors(hub):
     status, _body = await hub.inbound_hook("my-own-hook", Req(b"{}", {"host": "127.0.0.1:1"}, {"token": "x"}))
     assert status == 401  # (the automation feature's door: an unknown hook and a wrong token look alike)
+
+
+# ── the listener of their own (hook_listener.py) ──
+
+
+def refused(port):
+    with socket.socket() as s:
+        return s.connect_ex(("127.0.0.1", port)) != 0
+
+
+async def test_the_listener_answers_only_the_two_doors_and_a_bare_health(hub):
+    import httpx
+
+    configure(hub)
+    t = hub.code_triggers
+    await t.sync()
+    port = hub.prefs.feature(code_triggers.PREF_PORT)
+    assert t.listener.running and t.listener.port == port
+    body, headers = linear_body(**ticket())
+    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as http:
+        health = await http.get("/health")
+        assert health.status_code == 200 and health.json() == {"ok": True}
+        assert "server" not in health.headers and "date" not in health.headers
+        # A tunnel's delivery: its own public name as the Host, and that's fine here.
+        tunnel = {"host": "eden-abc.trycloudflare.com"}
+        answer = await http.post("/hooks/eden-linear", params={"token": "hooktok-linear"},
+                                 content=body, headers={**headers, **tunnel})  # fmt: skip
+        assert answer.status_code == 200 and answer.json() == {"ok": True}
+        await settle()
+        assert len(hub.started) == 1
+        # The door's own checks still hold: a wrong token is the door's 401.
+        wrong = await http.post("/hooks/eden-slack", params={"token": "nope"}, content=b"{}")
+        assert wrong.status_code == 401
+        # Everything else the window's server has, or the owner's own hooks: not here.
+        for method, path in [("POST", "/hooks/my-own-hook"), ("GET", "/"), ("GET", "/f/abc"),
+                             ("GET", "/ws"), ("GET", "/hooks/eden-linear"), ("POST", "/health"),
+                             ("GET", "/features.json"), ("PUT", "/hooks/eden-slack")]:  # fmt: skip
+            got = await http.request(method, path, params={"token": "hooktok-linear"})
+            assert got.status_code == 404, (method, path)
+            assert got.json() == {"error": "not found"}
+    assert len(hub.started) == 1
+
+
+async def test_the_listener_starts_and_stops_with_the_settings(hub):
+    t = hub.code_triggers
+    await t.sync()
+    assert not t.listener.running  # (neither service on)
+    port = hub.prefs.feature(code_triggers.PREF_PORT)
+    hub.answers = ["on"]
+    assert await t.turn_on("linear", {"project": "app", "users": ["boss-id"]}) == "Linear tickets now start sessions."
+    assert t.listener.running and not refused(port)
+    state = [d for k, d in hub.events if k == "code_triggers"][-1]
+    assert state["listener"] == {"port": port, "on": True, "error": ""}
+    hub.answers = ["on"]
+    await t.turn_on("slack", {"users": ["U0BOSS"], "channels": [{"id": "C0123ABCD", "project": "app"}]})
+    await t.turn_off("linear")
+    assert t.listener.running  # (Slack is still on)
+    # Another port in the settings: the listener moves there.
+    other = free_port()
+    hub.set_feature_prefs({code_triggers.PREF_PORT: other})
+    await t.sync()
+    assert t.listener.port == other and not refused(other) and refused(port)
+    await t.turn_off("slack")
+    assert not t.listener.running and refused(other)
+    state = [d for k, d in hub.events if k == "code_triggers"][-1]
+    assert state["listener"]["on"] is False
+    # Settings changed anywhere reach it too (the prefs event), and quitting stops it.
+    configure(hub, "slack")
+    await t.on_prefs({"type": "prefs"})
+    assert t.listener.running and t.on_prefs({}) is None  # (already where it should be)
+    t.listener.close_now()
+    await settle()
+    assert refused(other)
+    # A port that isn't one stays the default.
+    assert code_triggers._port(80) is None and code_triggers._port(True) is None
+    assert code_triggers._port(9000) == 9000
+
+
+async def test_a_taken_port_is_said_and_never_swapped_for_another(hub, caplog):
+    t = hub.code_triggers
+    port = hub.prefs.feature(code_triggers.PREF_PORT)
+    for host in ("0.0.0.0", "127.0.0.1"):  # (another app's, on every address or this one)
+        with socket.socket() as other:
+            other.bind((host, port))
+            other.listen()
+            configure(hub)
+            with caplog.at_level("WARNING", logger="jarvis"):
+                await t.sync()
+            assert not t.listener.running and t.listener.port == 0
+            assert f"Port {port} on this Mac is taken by another app" in t.listener.error
+            assert f"Port {port} on this Mac is taken" in caplog.text
+            state = [d for k, d in hub.events if k == "code_triggers"][-1]
+            assert state["listener"]["on"] is False and state["listener"]["port"] == port
+            assert "taken" in state["listener"]["error"]
+        caplog.clear()
+        await t.turn_off("linear")
+        assert t.listener.error == ""
+    # Once the other app has gone, the next try listens.
+    configure(hub)
+    await t.sync()
+    assert t.listener.running and t.listener.port == port
+
+
+async def test_the_main_servers_eden_doors_refuse_a_host_that_isnt_this_mac(hub):
+    configure(hub)
+    body, headers = linear_body(**ticket())
+    query = {"token": "hooktok-linear"}
+    route = code_triggers.ROUTES["linear"]
+    # A tunnel pointed at the window's own server: turned away, before the door.
+    for host in ("eden-abc.trycloudflare.com", "127.0.0.1.evil.test", ""):
+        status, said = await hub.inbound_hook(route, Req(body, {**headers, "host": host}, query))
+        assert status == 403 and "127.0.0.1:" in said["error"]
+    assert hub.started == []
+    # From this Mac, as before.
+    status, _ = await hub.inbound_hook(route, Req(body, {**headers, "host": "127.0.0.1:5555"}, query))
+    assert status == 200
+    await settle()
+    assert len(hub.started) == 1

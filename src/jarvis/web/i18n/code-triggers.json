@@ -1,13 +1,9 @@
 {
   "strings": {
     "In Linear, make a user for Eden (or use your own), and in its Settings › Security & access › Personal API keys, make a key. Paste it below.": "在 Linear 里为 Eden 建一个用户（或用你自己的），在它的“设置 › 安全与访问 › 个人 API 密钥”里创建一个密钥，粘贴到下面。",
-    "Run a tunnel to this Mac, so Linear can reach it: cloudflared tunnel --url followed by the address below without its path.": "运行一个通往这台 Mac 的隧道，让 Linear 能连上：cloudflared tunnel --url 后面跟下面的地址（去掉路径）。",
-    "In Linear’s Settings › API › Webhooks, add one for Issues to the tunnel’s address followed by the hook’s path below. Paste its signing secret below.": "在 Linear 的“设置 › API › Webhooks”里为 Issues 添加一个，地址是隧道地址加上下面的钩子路径。把它的签名密钥粘贴到下面。",
     "Assign a ticket to Eden’s user, or give it the label, and Eden starts on it.": "把工单分配给 Eden 的用户，或贴上标签，Eden 就会开始处理。",
     "At api.slack.com/apps, create an app. Give its bot the scopes app_mentions:read, chat:write and commands, install it, and paste its Bot User OAuth Token (xoxb-…) below.": "在 api.slack.com/apps 创建一个应用。给它的机器人 app_mentions:read、chat:write 和 commands 权限，安装后把 Bot User OAuth Token（xoxb-…）粘贴到下面。",
     "From the app’s Basic Information, paste its Signing Secret below.": "从应用的 Basic Information 里把 Signing Secret 粘贴到下面。",
-    "Run a tunnel to this Mac, so Slack can reach it: cloudflared tunnel --url followed by the address below without its path.": "运行一个通往这台 Mac 的隧道，让 Slack 能连上：cloudflared tunnel --url 后面跟下面的地址（去掉路径）。",
-    "Under Event Subscriptions, set the Request URL to the tunnel’s address followed by the hook’s path below, and subscribe to app_mention. Add the slash command /eden with the same URL.": "在 Event Subscriptions 里把 Request URL 设为隧道地址加上下面的钩子路径，并订阅 app_mention。再用同一个地址添加斜杠命令 /eden。",
     "Invite the app to the channels it may work in, and list them below by their channel ID (in the channel’s details).": "把应用邀请进它可以工作的频道，并在下面按频道 ID（在频道详情里）列出。",
     "API key": "API 密钥",
     "Webhook signing secret": "Webhook 签名密钥",
@@ -37,12 +33,21 @@
     "Off": "关",
     "Turn off": "关闭",
     "The hook’s address": "钩子地址",
-    "Only through a tunnel: the port changes when the app restarts.": "只能通过隧道：应用重启后端口会变。",
     "New token": "新令牌",
     "Make one": "生成一个",
     "Tickets and messages for Eden": "交给 Eden 的工单和消息",
     "A Linear ticket given to Eden, or @Eden or /eden in an allowed Slack channel, starts a session without you, from the people you list only. Its text is only data, and its pull request waits for your OK.": "交给 Eden 的 Linear 工单，或允许的 Slack 频道里的 @Eden 或 /eden，会开启一个无人值守的会话，只限你列出的人。内容只当作数据，它的拉取请求会等你确认。",
-    "Linear and Slack": "Linear 和 Slack"
+    "Linear and Slack": "Linear 和 Slack",
+    "Run the tunnel command above in Terminal and leave it running, so Linear can reach this Mac. It prints the tunnel’s address.": "在“终端”里运行上面的隧道命令并让它一直运行，这样 Linear 才能连上这台 Mac。它会显示隧道的地址。",
+    "In Linear’s Settings › API › Webhooks, add one for Issues to the hook’s address below, with the tunnel’s address in place of <tunnel address>. Paste its signing secret below.": "在 Linear 的“设置 › API › Webhooks”里为 Issues 添加一个，地址用下面的钩子地址，把 <tunnel address> 换成隧道的地址。把它的签名密钥粘贴到下面。",
+    "Run the tunnel command above in Terminal and leave it running, so Slack can reach this Mac. It prints the tunnel’s address.": "在“终端”里运行上面的隧道命令并让它一直运行，这样 Slack 才能连上这台 Mac。它会显示隧道的地址。",
+    "Under Event Subscriptions, set the Request URL to the hook’s address below, with the tunnel’s address in place of <tunnel address>, and subscribe to app_mention. Add the slash command /eden with the same URL.": "在 Event Subscriptions 里把 Request URL 设为下面的钩子地址，把 <tunnel address> 换成隧道的地址，并订阅 app_mention。再用同一个地址添加斜杠命令 /eden。",
+    "Paste this, with the address the tunnel printed in place of <tunnel address>.": "粘贴这个地址，把 <tunnel address> 换成隧道显示的地址。",
+    "The tunnel": "隧道",
+    "Linear and Slack reach this Mac only through it, and only these two hooks: a listener of their own on a port that stays the same, never the window’s pages.": "Linear 和 Slack 只能通过它连到这台 Mac，而且只能到这两个钩子：它们有自己的监听端口，端口不会变，永远到不了窗口的页面。",
+    "Port": "端口",
+    "On 127.0.0.1 only. It listens while Linear or Slack is on.": "只在 127.0.0.1 上。Linear 或 Slack 开启时它才监听。",
+    "Listening.": "正在监听。"
   },
   "patterns": []
 }

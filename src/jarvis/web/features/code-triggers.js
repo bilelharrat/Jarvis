@@ -1,7 +1,9 @@
 // Eden Code settings › Linear and Slack (features/code_triggers.py): the keys and signing
 // secrets (pasted into password fields and sent once to the Keychain; never shown again,
-// only whether each is set), the hook's address to give each service (through a tunnel to
-// this Mac), the people and channels allowed, and the scope. Turning a service on sends the
+// only whether each is set), the tunnel's command (to the hooks' own listener on
+// 127.0.0.1 and a port that stays put, code_triggers_port; never the window's own server)
+// and whether that port is free, the hook's address to give each service (the tunnel's
+// address, the hook's path and its token), the people and channels allowed, and the scope. Turning a service on sends the
 // scope to the backend, which puts it on a card first. With nothing set yet, the steps to
 // make the Linear webhook and the Slack app.
 //
@@ -13,15 +15,15 @@
   const STEPS = {
     linear: [
       'In Linear, make a user for Eden (or use your own), and in its Settings › Security & access › Personal API keys, make a key. Paste it below.',
-      'Run a tunnel to this Mac, so Linear can reach it: cloudflared tunnel --url followed by the address below without its path.',
-      'In Linear’s Settings › API › Webhooks, add one for Issues to the tunnel’s address followed by the hook’s path below. Paste its signing secret below.',
+      'Run the tunnel command above in Terminal and leave it running, so Linear can reach this Mac. It prints the tunnel’s address.',
+      'In Linear’s Settings › API › Webhooks, add one for Issues to the hook’s address below, with the tunnel’s address in place of <tunnel address>. Paste its signing secret below.',
       'Assign a ticket to Eden’s user, or give it the label, and Eden starts on it.',
     ],
     slack: [
       'At api.slack.com/apps, create an app. Give its bot the scopes app_mentions:read, chat:write and commands, install it, and paste its Bot User OAuth Token (xoxb-…) below.',
       'From the app’s Basic Information, paste its Signing Secret below.',
-      'Run a tunnel to this Mac, so Slack can reach it: cloudflared tunnel --url followed by the address below without its path.',
-      'Under Event Subscriptions, set the Request URL to the tunnel’s address followed by the hook’s path below, and subscribe to app_mention. Add the slash command /eden with the same URL.',
+      'Run the tunnel command above in Terminal and leave it running, so Slack can reach this Mac. It prints the tunnel’s address.',
+      'Under Event Subscriptions, set the Request URL to the hook’s address below, with the tunnel’s address in place of <tunnel address>, and subscribe to app_mention. Add the slash command /eden with the same URL.',
       'Invite the app to the channels it may work in, and list them below by their channel ID (in the channel’s details).',
     ],
   };
@@ -37,14 +39,29 @@
       .map(([id, ...rest]) => ({ id: id.replace(/^#/, '').toUpperCase(), project: rest.join(' ') })).slice(0, 20);
   }
 
-  // The address to give a service: the window's own origin and the hook's path. (The port
-  // changes when the app restarts: the tunnel must follow.)
+  const PORT = 8766; // code_triggers_port unless the owner picks another
+  const ROUTES = { linear: 'eden-linear', slack: 'eden-slack' };
+  const TUNNEL = 'https://<tunnel address>';
+
+  // An origin and the hook's path, as one address.
   function hookAddress(origin, path) {
     if (!path) return '';
     return `${String(origin || '').replace(/\/+$/, '')}${path}`;
   }
 
-  const api = { STEPS, listOf, channelsOf, hookAddress };
+  // What to paste into Linear or Slack: the tunnel's address (a placeholder: cloudflared
+  // prints the real one), the hook's path, and its token (a placeholder until there is one).
+  function hookShape(service, path) {
+    return hookAddress(TUNNEL, path || `/hooks/${ROUTES[service]}?token=<token>`);
+  }
+
+  // The tunnel to run: to the hooks' own listener, never the window's server.
+  function tunnelCommand(port) {
+    const n = Number(port);
+    return `cloudflared tunnel --url http://127.0.0.1:${Number.isInteger(n) && n > 0 ? n : PORT}`;
+  }
+
+  const api = { STEPS, listOf, channelsOf, hookAddress, hookShape, tunnelCommand };
   if (typeof module === 'object' && module.exports) module.exports = api;
 
   const F = root.jarvisFeatures;
@@ -53,6 +70,7 @@
   const state = {
     linear: null,
     slack: null,
+    listener: null,
     forms: {
       linear: { project: '', label: 'eden', users: '', commands: '', spend: '5', sandbox: true },
       slack: { channels: '', users: '', commands: '', spend: '5', sandbox: true },
@@ -204,10 +222,10 @@
     const where = el('div', 'jcs-row jcx-trg-hook');
     const text = el('span');
     text.append(document.createTextNode(t('The hook’s address')));
-    text.append(el('small', '', 'Only through a tunnel: the port changes when the app restarts.'));
+    text.append(el('small', '', 'Paste this, with the address the tunnel printed in place of <tunnel address>.'));
     where.append(text);
     const tools = el('span', 'jcx-trg-tools');
-    if (data.hook) tools.append(mine(hookAddress(location.origin, data.hook), 'code'));
+    tools.append(mine(hookShape(service, data.hook), 'code'));
     tools.append(button(data.hook ? 'New token' : 'Make one', '', () => send({ type: 'code_trigger_hook', service }), `${t('New token')}: ${NAMES[service]}`));
     where.append(tools);
     box.append(where);
@@ -223,10 +241,44 @@
     return box;
   }
 
+  // The tunnel's command, the port it names (the owner may pick another), and whether
+  // the listener has that port: a taken one is said here, never swapped for another.
+  function tunnelBlock() {
+    const lis = state.listener || { port: PORT, on: false, error: '' };
+    const box = el('section', 'jcx-trg-service jcx-trg-tunnel');
+    box.setAttribute('aria-label', t('The tunnel'));
+    const cmd = el('div', 'jcs-row');
+    const text = el('span');
+    text.append(document.createTextNode(t('The tunnel')));
+    text.append(el('small', '', 'Linear and Slack reach this Mac only through it, and only these two hooks: a listener of their own on a port that stays the same, never the window’s pages.'));
+    const tools = el('span', 'jcx-trg-tools');
+    tools.append(mine(tunnelCommand(lis.port), 'code'));
+    cmd.append(text, tools);
+    box.append(cmd);
+    let port = String(lis.port || PORT);
+    const portBox = input(port, 'Port', (v) => { port = v; }, { type: 'number' });
+    const save = button('Save', '', () => {
+      const n = Number(port);
+      if (Number.isInteger(n) && n >= 1024 && n <= 65535) send({ type: 'feature_prefs', changes: { code_triggers_port: n } });
+    }, `${t('Save')} ${t('Port')}`);
+    const portTools = el('span', 'jcx-trg-tools');
+    portTools.append(portBox, save);
+    box.append(row('Port', 'On 127.0.0.1 only. It listens while Linear or Slack is on.', portTools));
+    if (lis.error) {
+      const warn = mine(lis.error, 'p', 'jcx-trg-error');
+      warn.setAttribute('role', 'alert');
+      box.append(warn);
+    } else if (lis.on) {
+      box.append(el('p', 'jc-dim jcx-trg-summary', 'Listening.'));
+    }
+    return box;
+  }
+
   function draw() {
     if (!group) return;
     group.replaceChildren(
       row('Tickets and messages for Eden', 'A Linear ticket given to Eden, or @Eden or /eden in an allowed Slack channel, starts a session without you, from the people you list only. Its text is only data, and its pull request waits for your OK.'),
+      tunnelBlock(),
       serviceBlock('linear'),
       serviceBlock('slack'),
     );
@@ -244,7 +296,12 @@
   })();
 
   F.on('hello', () => send({ type: 'code_triggers' }), { replay: true });
-  F.on('code_triggers', (ev) => { state.linear = ev.linear || null; state.slack = ev.slack || null; draw(); });
+  F.on('code_triggers', (ev) => {
+    state.linear = ev.linear || null;
+    state.slack = ev.slack || null;
+    state.listener = ev.listener || null;
+    draw();
+  });
   F.on('claude_projects', () => draw());
   root.JarvisTriggers = { state };
 })(typeof window === 'object' ? window : globalThis);

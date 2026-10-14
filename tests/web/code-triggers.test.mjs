@@ -17,9 +17,19 @@ test('people, commands and channels are read from what the owner types', () => {
   ]);
 });
 
-test('the hook’s address is the window’s origin and the hook’s path', () => {
+test('the hook’s address is the tunnel’s, the hook’s path and its token, never the window’s', () => {
   assert.equal(trg.hookAddress('http://127.0.0.1:5199/', '/hooks/eden-slack?token=abc'), 'http://127.0.0.1:5199/hooks/eden-slack?token=abc');
   assert.equal(trg.hookAddress('http://127.0.0.1:5199', ''), '');
+  assert.equal(trg.hookShape('linear', '/hooks/eden-linear?token=abc'), 'https://<tunnel address>/hooks/eden-linear?token=abc');
+  assert.equal(trg.hookShape('slack', ''), 'https://<tunnel address>/hooks/eden-slack?token=<token>');
+  const source = readFileSync(new URL('../../src/jarvis/web/features/code-triggers.js', import.meta.url), 'utf8');
+  assert.ok(!source.includes('location.origin'));  // (the window's server is no tunnel's target)
+});
+
+test('the tunnel’s command points at the hooks’ own listener and its port', () => {
+  assert.equal(trg.tunnelCommand(8766), 'cloudflared tunnel --url http://127.0.0.1:8766');
+  assert.equal(trg.tunnelCommand(9123), 'cloudflared tunnel --url http://127.0.0.1:9123');
+  assert.equal(trg.tunnelCommand(undefined), 'cloudflared tunnel --url http://127.0.0.1:8766');
 });
 
 test('every string the settings show has its Chinese', () => {
@@ -32,7 +42,7 @@ test('every string the settings show has its Chinese', () => {
     ...[...source.matchAll(/\['[a-z_]+', '([^']+)'\]/g)].map((m) => m[1]),
     ...trg.STEPS.linear, ...trg.STEPS.slack,
     'On', 'Off', 'New token', 'Make one', 'Set: kept in the Keychain.', 'Not set.', 'The hook’s address',
-    'Only through a tunnel: the port changes when the app restarts.',
+    'Paste this, with the address the tunnel printed in place of <tunnel address>.', 'The tunnel',
   ];
   assert.deepEqual(shown.filter((s) => !(s in zh.strings)), []);
 });

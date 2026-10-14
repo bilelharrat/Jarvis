@@ -11,3 +11,5 @@
 .jcx-trg-summary { margin: 2px 0 0; font-size: 12px; }
 .deck.jc .jcx-trg .jc-btn.danger { color: rgb(var(--c-danger-ink)); }
 .deck.jc .jcx-trg .jc-btn.filled { color: #fff; }
+.jcx-trg-tunnel .jcx-trg-tools .jcs-input[type="number"] { width: 90px; }
+.jcx-trg-error { margin: 2px 0 0; font-size: 12px; color: rgb(var(--c-danger-ink)); }
